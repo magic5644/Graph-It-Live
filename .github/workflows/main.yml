@@ -1,0 +1,58 @@
+name: CI/CD
+
+on:
+  push:
+    branches: [ "main" ]
+    tags: [ "v*" ]
+  pull_request:
+    branches: [ "main" ]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        node-version: [18.x]
+
+    steps:
+    - uses: actions/checkout@v3
+    - name: Use Node.js ${{ matrix.node-version }}
+      uses: actions/setup-node@v3
+      with:
+        node-version: ${{ matrix.node-version }}
+        cache: 'npm'
+    
+    - name: Install dependencies
+      run: npm ci
+    
+    - name: Lint
+      run: npm run lint
+    
+    - name: Test
+      run: npm run test
+      
+    - name: Build
+      run: npm run build
+
+  release:
+    needs: build
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v3
+    - name: Use Node.js 18.x
+      uses: actions/setup-node@v3
+      with:
+        node-version: 18.x
+        cache: 'npm'
+    
+    - name: Install dependencies
+      run: npm ci
+      
+    - name: Package Extension
+      run: npx vsce package
+      
+    - name: Create Release
+      uses: softprops/action-gh-release@v1
+      with:
+        files: graph-it-live-*.vsix

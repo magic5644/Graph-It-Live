@@ -1,0 +1,114 @@
+{
+  "name": "graph-it-live",
+  "displayName": "Graph-It-Live",
+  "description": "Visualizes file dependencies in a real-time interactive graph",
+  "version": "0.0.1",
+  "publisher": "magic5644",
+  "author": {
+    "name": "magic56"
+  },
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/magic5644/Graph-It-Live.git"
+  },
+  "engines": {
+    "vscode": "^1.85.0"
+  },
+  "categories": [
+    "Visualization",
+    "Other"
+  ],
+  "activationEvents": [
+    "onStartupFinished"
+  ],
+  "main": "./dist/extension.js",
+  "contributes": {
+    "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "graph-it-live-explorer",
+          "title": "Graph-It-Live",
+          "icon": "$(graph)"
+        }
+      ]
+    },
+    "views": {
+      "graph-it-live-explorer": [
+        {
+          "type": "webview",
+          "id": "graph-it-live.graphView",
+          "name": "Dependency Graph"
+        }
+      ]
+    },
+    "commands": [
+      {
+        "command": "graph-it-live.showGraph",
+        "title": "Show Dependency Graph",
+        "category": "Graph-It-Live",
+        "icon": "$(graph)"
+      }
+    ],
+    "menus": {
+      "editor/title": [
+        {
+          "command": "graph-it-live.showGraph",
+          "when": "resourceExtname =~ /\\.(ts|tsx|js|jsx)$/",
+          "group": "navigation"
+        }
+      ]
+    },
+    "configuration": {
+      "title": "Graph-It-Live",
+      "properties": {
+        "graph-it-live.maxDepth": {
+          "type": "number",
+          "default": 3,
+          "description": "Maximum dependency depth to analyze",
+          "minimum": 1,
+          "maximum": 5
+        },
+        "graph-it-live.excludeNodeModules": {
+          "type": "boolean",
+          "default": true,
+          "description": "Exclude node_modules from graph"
+        }
+      }
+    }
+  },
+  "scripts": {
+    "vscode:prepublish": "npm run build -- --production",
+    "build": "node esbuild.js",
+    "watch": "node esbuild.js --watch",
+    "compile": "npm run build",
+    "test": "vitest",
+    "test:watch": "vitest --watch",
+    "lint": "eslint src --ext ts,tsx",
+    "lint:fix": "eslint src --ext ts,tsx --fix",
+    "package": "vsce package",
+    "publish": "vsce publish"
+  },
+  "dependencies": {
+    "@types/dagre": "^0.7.53",
+    "dagre": "^0.8.5",
+    "react": "^18.2.0",
+    "react-dom": "^18.2.0",
+    "reactflow": "^11.10.4"
+  },
+  "devDependencies": {
+    "@types/node": "^20.10.0",
+    "@types/react": "^18.2.45",
+    "@types/react-dom": "^18.2.18",
+    "@types/vscode": "^1.85.0",
+    "@typescript-eslint/eslint-plugin": "^6.15.0",
+    "@typescript-eslint/parser": "^6.15.0",
+    "@vscode/test-electron": "^2.3.8",
+    "@vscode/vsce": "^2.22.0",
+    "esbuild": "^0.19.10",
+    "esbuild-css-modules-plugin": "^3.1.5",
+    "eslint": "^8.56.0",
+    "typescript": "^5.3.3",
+    "vitest": "^1.1.0"
+  }
+}
