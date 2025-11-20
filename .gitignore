@@ -82,6 +82,11 @@ out
 .nuxt
 dist
 
+# VS Code Extension specific
+out
+*.vsix
+.vscode-test-web
+
 # Gatsby files
 .cache/
 # Comment in the public line in if your project uses Gatsby and not Next.js

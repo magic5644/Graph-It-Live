@@ -1,0 +1,15 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "target": "ES2020",
+    "lib": ["ES2020", "DOM", "DOM.Iterable"],
+    "module": "esnext",
+    "moduleResolution": "bundler",
+    "jsx": "react-jsx",
+    "outDir": "./out-webview",
+    "rootDir": "./src/webview",
+    "noEmit": true
+  },
+  "include": ["src/webview/**/*"],
+  "exclude": ["node_modules"]
+}
