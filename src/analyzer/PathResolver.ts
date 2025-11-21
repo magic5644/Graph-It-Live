@@ -130,7 +130,7 @@ export class PathResolver {
    * Try different file extensions
    */
   private async resolveWithExtensions(basePath: string): Promise<string | null> {
-    const extensions = ['.ts', '.tsx', '.js', '.jsx', '.mjs', '.cjs'];
+    const extensions = ['.ts', '.tsx', '.js', '.jsx', '.vue', '.svelte', '.mjs', '.cjs'];
     
     // Try exact path first
     if (await this.fileExists(basePath)) {

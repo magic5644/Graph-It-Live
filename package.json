@@ -54,7 +54,7 @@
       "editor/title": [
         {
           "command": "graph-it-live.showGraph",
-          "when": "resourceExtname =~ /\\.(ts|tsx|js|jsx)$/",
+          "when": "resourceExtname =~ /\\.(ts|tsx|js|jsx|vue|svelte)$/",
           "group": "navigation"
         }
       ]
@@ -84,31 +84,33 @@
     "compile": "npm run build",
     "test": "vitest",
     "test:watch": "vitest --watch",
-    "lint": "eslint src --ext ts,tsx",
-    "lint:fix": "eslint src --ext ts,tsx --fix",
+    "lint": "eslint src",
+    "lint:fix": "eslint src --fix",
     "package": "vsce package",
+    "package:vsix": "vsce package",
     "publish": "vsce publish"
   },
   "dependencies": {
     "@types/dagre": "^0.7.53",
     "dagre": "^0.8.5",
-    "react": "^18.2.0",
-    "react-dom": "^18.2.0",
+    "react": "^19.2.0",
+    "react-dom": "^19.2.0",
     "reactflow": "^11.10.4"
   },
   "devDependencies": {
+    "@eslint/js": "^9.39.1",
     "@types/node": "^20.10.0",
-    "@types/react": "^18.2.45",
-    "@types/react-dom": "^18.2.18",
+    "@types/react": "^19.2.6",
+    "@types/react-dom": "^19.2.3",
     "@types/vscode": "^1.85.0",
-    "@typescript-eslint/eslint-plugin": "^6.15.0",
-    "@typescript-eslint/parser": "^6.15.0",
     "@vscode/test-electron": "^2.3.8",
-    "@vscode/vsce": "^2.22.0",
-    "esbuild": "^0.19.10",
+    "@vscode/vsce": "^3.7.0",
+    "esbuild": "^0.27.0",
     "esbuild-css-modules-plugin": "^3.1.5",
-    "eslint": "^8.56.0",
+    "eslint": "^9.39.1",
+    "globals": "^16.5.0",
     "typescript": "^5.3.3",
-    "vitest": "^1.1.0"
+    "typescript-eslint": "^8.47.0",
+    "vitest": "^4.0.12"
   }
 }

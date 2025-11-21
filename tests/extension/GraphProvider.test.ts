@@ -34,13 +34,16 @@ vi.mock('vscode', () => {
 });
 
 // Mock Spider
+// Mock Spider
 vi.mock('../../src/analyzer/Spider', () => {
-    return {
-        Spider: vi.fn().mockImplementation(() => ({
+    const SpiderMock = vi.fn();
+    SpiderMock.mockImplementation(function () {
+        return {
             analyze: vi.fn().mockResolvedValue(['/root/src/utils.ts']),
             updateConfig: vi.fn(),
-        })),
-    };
+        };
+    });
+    return { Spider: SpiderMock };
 });
 
 describe('GraphProvider', () => {
