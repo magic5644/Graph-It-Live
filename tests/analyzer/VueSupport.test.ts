@@ -15,7 +15,7 @@ describe('PathResolver - VueJS Support', () => {
 
     it('should resolve .vue extension explicitly', async () => {
         // Mock file existence
-        vi.mocked(fs.access).mockResolvedValue(undefined);
+        vi.mocked(fs.stat).mockResolvedValue({ isFile: () => true } as any);
 
         const result = await resolver.resolve('/src/main.ts', './components/Button.vue');
         
@@ -24,9 +24,9 @@ describe('PathResolver - VueJS Support', () => {
 
     it('should resolve .vue extension implicitly', async () => {
         // Mock file existence logic
-        vi.mocked(fs.access).mockImplementation(async (path) => {
+        vi.mocked(fs.stat).mockImplementation(async (path) => {
             if (path.toString().endsWith('Button.vue')) {
-                return undefined; // File exists
+                return { isFile: () => true } as any; // File exists
             }
             throw new Error('File not found');
         });

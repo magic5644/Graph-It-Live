@@ -13,7 +13,7 @@ export function activate(context: vscode.ExtensionContext) {
     // Listen for configuration changes
     context.subscriptions.push(
         vscode.workspace.onDidChangeConfiguration((e) => {
-            if (e.affectsConfiguration('graph-it-live.excludeNodeModules')) {
+            if (e.affectsConfiguration('graph-it-live')) {
                 provider.updateConfig();
             }
         })

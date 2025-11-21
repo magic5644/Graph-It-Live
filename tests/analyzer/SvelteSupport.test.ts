@@ -15,7 +15,7 @@ describe('PathResolver - Svelte Support', () => {
 
     it('should resolve .svelte extension explicitly', async () => {
         // Mock file existence
-        vi.mocked(fs.access).mockResolvedValue(undefined);
+        vi.mocked(fs.stat).mockResolvedValue({ isFile: () => true } as any);
 
         const result = await resolver.resolve('/src/main.ts', './components/Button.svelte');
         
@@ -24,9 +24,9 @@ describe('PathResolver - Svelte Support', () => {
 
     it('should resolve .svelte extension implicitly', async () => {
         // Mock file existence logic
-        vi.mocked(fs.access).mockImplementation(async (path) => {
+        vi.mocked(fs.stat).mockImplementation(async (path) => {
             if (path.toString().endsWith('Button.svelte')) {
-                return undefined; // File exists
+                return { isFile: () => true } as any; // File exists
             }
             throw new Error('File not found');
         });

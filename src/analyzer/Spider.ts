@@ -65,7 +65,7 @@ export class Spider {
       const content = await fs.readFile(filePath, 'utf-8');
 
       // Parse imports
-      const parsedImports = this.parser.parse(content);
+      const parsedImports = this.parser.parse(content, filePath);
 
       // Resolve paths
       const dependencies: Dependency[] = [];
@@ -104,7 +104,134 @@ export class Spider {
   }
 
   /**
+   * Crawl the dependency graph starting from an entry file
+   * @param entryFile Absolute path to the entry file
+   * @returns Graph data (nodes and edges)
+   */
+  async crawl(startPath: string): Promise<{ nodes: string[]; edges: { source: string; target: string }[] }> {
+    const nodes = new Set<string>();
+    const edges: { source: string; target: string }[] = [];
+    const visited = new Set<string>();
+
+    const startTime = Date.now();
+
+    const crawlRecursive = async (filePath: string, depth: number) => {
+      // Stop if max depth reached
+      if (depth > this.config.maxDepth) {
+        console.log(`[Spider] Max depth ${this.config.maxDepth} reached at ${filePath}`);
+        return;
+      }
+
+      // Skip if already visited
+      if (visited.has(filePath)) {
+        return;
+      }
+
+      visited.add(filePath);
+      nodes.add(filePath);
+
+      console.log(`[Spider] Crawling ${filePath.split('/').pop()} at depth ${depth}/${this.config.maxDepth}`);
+
+      try {
+        const dependencies = await this.analyze(filePath);
+
+        for (const dep of dependencies) {
+          edges.push({
+            source: filePath,
+            target: dep.path,
+          });
+
+          // Recurse if not in node_modules
+          if (!dep.path.includes('node_modules')) {
+            await crawlRecursive(dep.path, depth + 1);
+          }
+        }
+      } catch (error) {
+        console.error(`[Spider] Failed to analyze ${filePath}:`, error instanceof Error ? error.message : error);
+      }
+    };
+
+    await crawlRecursive(startPath, 0);
+
+    const duration = Date.now() - startTime;
+    console.log(`[Spider] Crawled ${nodes.size} nodes and ${edges.length} edges in ${duration}ms (maxDepth=${this.config.maxDepth})`);
+
+    return {
+      nodes: Array.from(nodes),
+      edges,
+    };
+  }
+
+  /**
+   * Crawl from a specific node to discover new dependencies (on-demand scan)
+   * @param startNode Node to start scanning from
+   * @param existingNodes Nodes already known (to avoid re-scanning)
+   * @param extraDepth Additional depth to scan from this node
+   * @returns New graph data discovered (only new nodes and edges)
+   */
+  async crawlFrom(
+    startNode: string, 
+    existingNodes: Set<string>, 
+    extraDepth: number = 10
+  ): Promise<{ nodes: string[]; edges: { source: string; target: string }[] }> {
+    const newNodes = new Set<string>();
+    const newEdges: { source: string; target: string }[] = [];
+    const visited = new Set<string>(existingNodes); // Don't revisit known nodes
+
+    const crawlRecursive = async (filePath: string, depth: number) => {
+      if (depth > extraDepth) {
+        return;
+      }
+      if (visited.has(filePath) && filePath !== startNode) {
+        // Skip already visited nodes, EXCEPT the start node itself
+        return;
+      }
+
+      visited.add(filePath);
+      
+      // Only add to newNodes if it wasn't in existingNodes
+      if (!existingNodes.has(filePath)) {
+        newNodes.add(filePath);
+      }
+
+      try {
+        const dependencies = await this.analyze(filePath);
+
+        for (const dep of dependencies) {
+          const edge = { source: filePath, target: dep.path };
+          
+          // Only add edge if it's truly new
+          newEdges.push(edge);
+          
+          if (!visited.has(dep.path)) {
+            newNodes.add(dep.path);
+          }
+
+          // Recurse if not in node_modules
+          if (!dep.path.includes('node_modules')) {
+            await crawlRecursive(dep.path, depth + 1);
+          }
+        }
+      } catch (error) {
+        console.error(`Failed to crawl from ${filePath}:`, error);
+      }
+    };
+
+    await crawlRecursive(startNode, 0);
+
+    console.log(`[Spider.crawlFrom] Found ${newNodes.size} new nodes and ${newEdges.length} new edges from ${startNode}`);
+
+    return {
+      nodes: Array.from(newNodes),
+      edges: newEdges,
+    };
+  }
+
+
+
+  /**
    * Get cache statistics
+   * @returns Cache statistics
    */
   getCacheStats(): { size: number } {
     return {

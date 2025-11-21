@@ -22,8 +22,17 @@ export class Parser {
 
   /**
    * Parse all imports from file content
+   * @param content File content to parse
+   * @param filePath Optional file path to detect Vue/Svelte files
    */
-  parse(content: string): ParsedImport[] {
+  parse(content: string, filePath?: string): ParsedImport[] {
+    // Extract script content for Vue/Svelte files
+    if (filePath) {
+      if (filePath.endsWith('.vue') || filePath.endsWith('.svelte')) {
+        content = this.extractScript(content);
+      }
+    }
+
     const imports: ParsedImport[] = [];
     
     // Track processed modules to avoid duplicates
@@ -42,6 +51,15 @@ export class Parser {
     this.extractImports(content, this.patterns.dynamicImport, 'dynamic', imports, seen);
 
     return imports;
+  }
+
+  /**
+   * Extract script content from Vue/Svelte files
+   */
+  private extractScript(content: string): string {
+    // Match <script> or <script setup> or <script lang="ts"> etc.
+    const scriptMatch = content.match(/<script[^>]*>([\s\S]*?)<\/script>/i);
+    return scriptMatch ? scriptMatch[1] : '';
   }
 
   private extractImports(
