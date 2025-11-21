@@ -1,9 +1,14 @@
 import { Dependency } from '../analyzer/types';
 
+export interface GraphData {
+  nodes: string[];
+  edges: { source: string; target: string }[];
+}
+
 export interface ShowGraphMessage {
   command: 'updateGraph';
   filePath: string;
-  dependencies: Dependency[];
+  data: GraphData;
 }
 
 export interface OpenFileMessage {
@@ -11,5 +16,17 @@ export interface OpenFileMessage {
   path: string;
 }
 
-export type ExtensionToWebviewMessage = ShowGraphMessage;
-export type WebviewToExtensionMessage = OpenFileMessage;
+export interface ExpandNodeMessage {
+  command: 'expandNode';
+  nodeId: string;
+  knownNodes: string[];
+}
+
+export interface ExpandedGraphMessage {
+  command: 'expandedGraph';
+  nodeId: string;
+  data: GraphData;
+}
+
+export type ExtensionToWebviewMessage = ShowGraphMessage | ExpandedGraphMessage;
+export type WebviewToExtensionMessage = OpenFileMessage | ExpandNodeMessage;

@@ -40,6 +40,7 @@ vi.mock('../../src/analyzer/Spider', () => {
     SpiderMock.mockImplementation(function () {
         return {
             analyze: vi.fn().mockResolvedValue(['/root/src/utils.ts']),
+            crawl: vi.fn().mockResolvedValue({ nodes: [], edges: [] }),
             updateConfig: vi.fn(),
         };
     });
@@ -77,12 +78,19 @@ describe('GraphProvider', () => {
         // Resolve the view first
         provider.resolveWebviewView(view as any, {} as any, {} as any);
 
+        // Setup mock return
+        const mockGraphData = {
+            nodes: ['/root/src/main.ts'],
+            edges: []
+        };
+        (provider['_spider'].crawl as any).mockResolvedValue(mockGraphData);
+
         await provider.updateGraph();
 
         expect(webview.postMessage).toHaveBeenCalledWith(expect.objectContaining({
             command: 'updateGraph',
             filePath: '/root/src/main.ts',
-            dependencies: ['/root/src/utils.ts'],
+            data: mockGraphData
         }));
     });
 });

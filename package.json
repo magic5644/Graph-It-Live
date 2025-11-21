@@ -64,10 +64,10 @@
       "properties": {
         "graph-it-live.maxDepth": {
           "type": "number",
-          "default": 3,
+          "default": 50,
           "description": "Maximum dependency depth to analyze",
           "minimum": 1,
-          "maximum": 5
+          "maximum": 100
         },
         "graph-it-live.excludeNodeModules": {
           "type": "boolean",

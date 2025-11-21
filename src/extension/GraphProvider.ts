@@ -20,11 +20,13 @@ export class GraphProvider implements vscode.WebviewViewProvider {
         if (workspaceRoot) {
             const config = vscode.workspace.getConfiguration('graph-it-live');
             const excludeNodeModules = config.get<boolean>('excludeNodeModules', true);
+            const maxDepth = config.get<number>('maxDepth', 50);
 
             this._spider = new Spider({
                 rootDir: workspaceRoot,
                 tsConfigPath: path.join(workspaceRoot, 'tsconfig.json'),
                 excludeNodeModules,
+                maxDepth,
             });
         }
     }
@@ -33,7 +35,8 @@ export class GraphProvider implements vscode.WebviewViewProvider {
         if (this._spider) {
             const config = vscode.workspace.getConfiguration('graph-it-live');
             const excludeNodeModules = config.get<boolean>('excludeNodeModules', true);
-            this._spider.updateConfig({ excludeNodeModules });
+            const maxDepth = config.get<number>('maxDepth', 50);
+            this._spider.updateConfig({ excludeNodeModules, maxDepth });
             this.updateGraph();
         }
     }
@@ -69,6 +72,29 @@ export class GraphProvider implements vscode.WebviewViewProvider {
                         }
                     }
                     break;
+                case 'expandNode':
+                    // Handle on-demand node expansion
+                    if (message.nodeId && this._spider) {
+                        try {
+                            console.log(`GraphProvider: Expanding node ${message.nodeId}`);
+                            const knownNodesSet = new Set(message.knownNodes || []);
+                            const newGraphData = await this._spider.crawlFrom(
+                                message.nodeId,
+                                knownNodesSet,
+                                10 // extraDepth
+                            );
+                            
+                            const expandedMessage: ExtensionToWebviewMessage = {
+                                command: 'expandedGraph',
+                                nodeId: message.nodeId,
+                                data: newGraphData,
+                            };
+                            this._view?.webview.postMessage(expandedMessage);
+                        } catch (e) {
+                            console.error('GraphProvider: Error expanding node', e);
+                        }
+                    }
+                    break;
             }
         });
 
@@ -98,12 +124,12 @@ export class GraphProvider implements vscode.WebviewViewProvider {
         }
 
         try {
-            const dependencies = await this._spider.analyze(filePath);
-            console.log(`GraphProvider: Found ${dependencies.length} dependencies`);
+            const graphData = await this._spider.crawl(filePath);
+            console.log(`GraphProvider: Found ${graphData.nodes.length} nodes and ${graphData.edges.length} edges`);
             const message: ExtensionToWebviewMessage = {
                 command: 'updateGraph',
                 filePath,
-                dependencies,
+                data: graphData,
             };
             this._view.webview.postMessage(message);
         } catch (error) {

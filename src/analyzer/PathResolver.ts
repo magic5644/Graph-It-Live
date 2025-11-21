@@ -158,8 +158,8 @@ export class PathResolver {
 
   private async fileExists(filePath: string): Promise<boolean> {
     try {
-      await fs.access(filePath);
-      return true;
+      const stats = await fs.stat(filePath);
+      return stats.isFile();
     } catch {
       return false;
     }

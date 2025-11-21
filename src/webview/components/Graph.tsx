@@ -1,5 +1,5 @@
-import React, { useEffect } from 'react';
-import ReactFlow, { Background, Controls, useReactFlow, ReactFlowProvider, useNodesInitialized } from 'reactflow';
+import React, { useEffect, useMemo } from 'react';
+import ReactFlow, { Background, Controls, useReactFlow, ReactFlowProvider, useNodesInitialized, Handle, Position, NodeProps } from 'reactflow';
 // @ts-expect-error - ReactFlow types are complex
 import reactFlowStyles from 'reactflow/dist/style.css';
 import { useGraphData } from '../hooks/useGraphData';
@@ -12,15 +12,88 @@ if (typeof document !== 'undefined' && !document.getElementById('reactflow-style
     document.head.appendChild(style);
 }
 
+const CustomNode = ({ data, isConnectable }: NodeProps) => {
+    return (
+        <div style={{ position: 'relative', width: '100%', height: '100%' }}>
+            <Handle type="target" position={Position.Left} isConnectable={isConnectable} style={{ visibility: 'hidden' }} />
+
+            <div style={{
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                height: '100%',
+                pointerEvents: 'none' // Let clicks pass through to parent for file opening
+            }}>
+                {data.label}
+            </div>
+
+            {/* Cycle indicator badge */}
+            {data.isInCycle && (
+                <div
+                    style={{
+                        position: 'absolute',
+                        top: -8,
+                        left: -8,
+                        width: 16,
+                        height: 16,
+                        borderRadius: '50%',
+                        background: '#dc3545',
+                        border: '2px solid var(--vscode-editor-background)',
+                        zIndex: 15,
+                        pointerEvents: 'none',
+                    }}
+                    title="Node is part of a circular dependency"
+                />
+            )}
+
+            {data.hasChildren && (
+                <div
+                    onClick={(e) => {
+                        e.stopPropagation(); // Prevent opening file
+                        // Always use toggleNode - children are already in the graph
+                        data.onToggle();
+                    }}
+                    style={{
+                        position: 'absolute',
+                        right: -10,
+                        top: '50%',
+                        transform: 'translateY(-50%)',
+                        width: 20,
+                        height: 20,
+                        borderRadius: '50%',
+                        background: 'var(--vscode-button-background)',
+                        color: 'var(--vscode-button-foreground)',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        cursor: 'pointer',
+                        fontSize: '14px',
+                        fontWeight: 'bold',
+                        zIndex: 10,
+                        pointerEvents: 'auto', // Re-enable pointer events for the button
+                        border: '2px solid var(--vscode-editor-background)'
+                    }}
+                >
+                    {data.isExpanded ? '-' : '+'}
+                </div>
+            )}
+
+            <Handle type="source" position={Position.Right} isConnectable={isConnectable} style={{ visibility: 'hidden' }} />
+        </div>
+    );
+};
+
 const GraphContent: React.FC = () => {
-    const { nodes, edges, onNodesChange, onEdgesChange, onNodeClick, currentFilePath, openFile } = useGraphData();
+    const { nodes, edges, onNodesChange, onEdgesChange, onNodeClick, nodesInCycles, requestExpandNode, currentFilePath, openFile } = useGraphData();
     const { fitView } = useReactFlow();
     const nodesInitialized = useNodesInitialized();
     const [navigationHistory, setNavigationHistory] = React.useState<string[]>([]);
 
+    const nodeTypes = useMemo(() => ({ custom: CustomNode }), []);
+
     useEffect(() => {
         if (nodesInitialized && nodes.length > 0) {
-            setTimeout(() => fitView({ padding: 0.2 }), 100);
+            setTimeout(() => fitView({ padding: 0.2, duration: 800 }), 100);
         }
     }, [nodesInitialized, nodes.length, fitView]);
 
@@ -48,9 +121,10 @@ const GraphContent: React.FC = () => {
                 onNodesChange={onNodesChange}
                 onEdgesChange={onEdgesChange}
                 onNodeClick={handleNodeClick}
+                nodeTypes={nodeTypes}
                 panOnDrag
                 zoomOnScroll
-                minZoom={0.5}
+                minZoom={0.1}
                 maxZoom={2}
                 fitView
                 proOptions={{ hideAttribution: true }}
