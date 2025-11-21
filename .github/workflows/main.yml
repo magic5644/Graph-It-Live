@@ -1,58 +1,102 @@
-name: CI/CD
+name: Build and Publish
 
 on:
   push:
-    branches: [ "main" ]
-    tags: [ "v*" ]
+    branches: [ main ]
+    tags:
+      - 'v*' # Run workflow on version tags, e.g. v1.0.0
   pull_request:
-    branches: [ "main" ]
+    branches: [ main ]
 
 jobs:
   build:
+    permissions:
+      contents: read
+      packages: write
     runs-on: ubuntu-latest
-    strategy:
-      matrix:
-        node-version: [18.x]
 
     steps:
-    - uses: actions/checkout@v3
-    - name: Use Node.js ${{ matrix.node-version }}
-      uses: actions/setup-node@v3
+    - uses: actions/checkout@v4
+    - name: Use Node.js
+      uses: actions/setup-node@v4
       with:
-        node-version: ${{ matrix.node-version }}
+        node-version: '18.x'
         cache: 'npm'
-    
-    - name: Install dependencies
+        
+    - name: Install Dependencies
       run: npm ci
-    
+      
+    # Install vsce before tests
+    - name: Install VS Code Extension Manager
+      run: npm install -g @vscode/vsce
+      
     - name: Lint
       run: npm run lint
-    
-    - name: Test
-      run: npm run test
+      
+    - name: Run Tests
+      run: xvfb-run -a npm run test
       
     - name: Build
       run: npm run build
-
-  release:
+    
+  publish:
+    permissions:
+      contents: write
+      packages: write
+    runs-on: ubuntu-latest
     needs: build
     if: startsWith(github.ref, 'refs/tags/v')
-    runs-on: ubuntu-latest
     steps:
-    - uses: actions/checkout@v3
-    - name: Use Node.js 18.x
-      uses: actions/setup-node@v3
-      with:
-        node-version: 18.x
-        cache: 'npm'
-    
-    - name: Install dependencies
-      run: npm ci
-      
-    - name: Package Extension
-      run: npx vsce package
-      
-    - name: Create Release
-      uses: softprops/action-gh-release@v1
-      with:
-        files: graph-it-live-*.vsix
+      - uses: actions/checkout@v4
+      - name: Use Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '18.x'
+          cache: 'npm'
+          
+      - name: Get Version from Tag
+        id: get_version
+        run: echo "VERSION=${GITHUB_REF#refs/tags/v}" >> $GITHUB_OUTPUT
+        
+      - name: Update Package Version
+        run: |
+          npm version ${{ steps.get_version.outputs.VERSION }} --no-git-tag-version
+          
+      - name: Install Dependencies
+        run: npm ci
+        
+      # Install vsce for publishing
+      - name: Install VS Code Extension Manager
+        run: npm install -g @vscode/vsce
+
+      - name: Package Extension
+        run: npm run package:vsix
+        
+      - name: Verify VSIX Content
+        run: |
+          echo "Checking VSIX content structure:"
+          vsce ls --tree graph-it-live-*.vsix
+
+      - name: Upload VSIX as Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: graph-it-live
+          path: "*.vsix"
+          if-no-files-found: error
+          
+      - name: Publish to VS Code Marketplace
+        env:
+          VSCE_PAT: ${{ secrets.VSCE_PAT }}
+        run: |
+          vsce publish -p $VSCE_PAT --packagePath graph-it-live-${{ steps.get_version.outputs.VERSION }}.vsix
+
+      - name: Publish artifact to GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: "graph-it-live-*.vsix"
+          name: "v${{ steps.get_version.outputs.VERSION }}"
+          body: "Release v${{ steps.get_version.outputs.VERSION }}"
+          draft: false
+          prerelease: false
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

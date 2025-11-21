@@ -1,6 +1,6 @@
 import React, { useEffect } from 'react';
 import ReactFlow, { Background, Controls, useReactFlow, ReactFlowProvider, useNodesInitialized } from 'reactflow';
-// @ts-ignore
+// @ts-expect-error - ReactFlow types are complex
 import reactFlowStyles from 'reactflow/dist/style.css';
 import { useGraphData } from '../hooks/useGraphData';
 

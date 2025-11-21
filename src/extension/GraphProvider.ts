@@ -92,7 +92,7 @@ export class GraphProvider implements vscode.WebviewViewProvider {
         console.log(`GraphProvider: Analyzing ${filePath}`);
 
         // Only analyze supported files
-        if (!/\.(ts|tsx|js|jsx)$/.test(filePath)) {
+        if (!/\.(ts|tsx|js|jsx|vue|svelte)$/.test(filePath)) {
             console.log('GraphProvider: Unsupported file type');
             return;
         }
