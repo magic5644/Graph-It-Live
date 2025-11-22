@@ -29,7 +29,7 @@
         {
           "id": "graph-it-live-explorer",
           "title": "Graph-It-Live",
-          "icon": "$(graph)"
+          "icon": "$(type-hierarchy-sub)"
         }
       ]
     },
@@ -47,7 +47,7 @@
         "command": "graph-it-live.showGraph",
         "title": "Show Dependency Graph",
         "category": "Graph-It-Live",
-        "icon": "$(graph)"
+        "icon": "$(type-hierarchy-sub)"
       }
     ],
     "menus": {
