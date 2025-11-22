@@ -6,6 +6,10 @@
 
 A Visual Studio Code extension that visualizes file dependencies in a **real-time interactive graph**. Perfect for understanding code architecture and navigating complex **TypeScript**,** JavaScript**,** Vue** and **Svelte** projects.
 
+<div align="center">
+  <img src="media/demo-plugin-graph-it-live.gif" alt="Graph-It-Live Demo" width="800"/>
+</div>
+
 ## Features
 
 - **Real-time Dependency Visualization**: Interactive graph showing file dependencies.
