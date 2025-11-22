@@ -38,7 +38,8 @@
         {
           "type": "webview",
           "id": "graph-it-live.graphView",
-          "name": "Dependency Graph"
+          "name": "Dependency Graph",
+          "icon": "$(type-hierarchy-sub)"
         }
       ]
     },
