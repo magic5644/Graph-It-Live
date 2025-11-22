@@ -18,7 +18,7 @@ export default tseslint.config(
                 ...globals.es2020,
             },
             parserOptions: {
-                project: ['./tsconfig.json', './tsconfig.webview.json'],
+                project: ['./tsconfig.json', './tsconfig.webview.json', './tsconfig.test.json'],
                 tsconfigRootDir: import.meta.dirname,
             },
         },

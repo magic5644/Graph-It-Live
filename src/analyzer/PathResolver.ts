@@ -14,14 +14,14 @@ import * as path from 'node:path';
 export class PathResolver {
   private readonly pathAliases: Map<string, string> = new Map();
   private tsConfigPromise?: Promise<void>;
+  private readonly tsConfigPath?: string;
+  private isConfigLoaded = false;
 
   private excludeNodeModules: boolean;
 
   constructor(tsConfigPath?: string, excludeNodeModules: boolean = true) {
     this.excludeNodeModules = excludeNodeModules;
-    if (tsConfigPath) {
-      this.tsConfigPromise = this.loadTsConfig(tsConfigPath);
-    }
+    this.tsConfigPath = tsConfigPath;
   }
 
   /**
@@ -35,10 +35,15 @@ export class PathResolver {
    * Ensure tsConfig is loaded before resolving
    */
   private async ensureTsConfigLoaded(): Promise<void> {
-    if (this.tsConfigPromise) {
-      await this.tsConfigPromise;
-      this.tsConfigPromise = undefined; // Only load once
+    if (this.isConfigLoaded || !this.tsConfigPath) {
+      return;
     }
+
+    this.tsConfigPromise ??= this.loadTsConfig(this.tsConfigPath);
+
+    await this.tsConfigPromise;
+    this.tsConfigPromise = undefined;
+    this.isConfigLoaded = true;
   }
 
   /**
@@ -71,7 +76,6 @@ export class PathResolver {
     } catch {
       // Gracefully handle missing or invalid tsconfig
       // Silent failure - tsconfig is optional
-      // eslint-disable-next-line no-console
     }
   }
 
