@@ -1,0 +1,43 @@
+
+name: Build
+
+on: [push, pull_request]
+
+jobs:
+  build:
+    permissions:
+      contents: read
+      packages: write
+    runs-on: ubuntu-latest
+
+    steps:
+    - uses: actions/checkout@v5
+    - name: Use Node.js
+      uses: actions/setup-node@v5
+      with:
+        node-version: '24.x'
+        cache: 'npm'
+        
+    - name: Install Dependencies
+      run: npm ci
+      
+    # Install vsce before packaging
+    - name: Install VS Code Extension Manager
+      run: npm install -g @vscode/vsce
+      
+    - name: Clean Build
+      run: npm run clean
+      
+    - name: Lint
+      run: npm run lint
+      
+    - name: Run Tests
+      run: xvfb-run -a npm run test
+      
+    - name: Package Extension
+      run: npm run package:vsix
+      
+    - name: Verify VSIX Content
+      run: |
+        echo "Checking VSIX content structure:"
+        vsce ls --tree graph-it-live-*.vsix
