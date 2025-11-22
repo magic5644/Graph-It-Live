@@ -1,5 +1,6 @@
 import * as vscode from 'vscode';
 import * as path from 'node:path';
+import { randomBytes } from 'node:crypto';
 import { Spider } from '../analyzer/Spider';
 import { ExtensionToWebviewMessage, WebviewToExtensionMessage } from '../shared/types';
 
@@ -186,10 +187,6 @@ export class GraphProvider implements vscode.WebviewViewProvider {
 }
 
 function getNonce() {
-    let text = '';
-    const possible = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';
-    for (let i = 0; i < 32; i++) {
-        text += possible.charAt(Math.floor(Math.random() * possible.length));
-    }
-    return text;
+    // Use cryptographically secure random bytes instead of Math.random (S224)
+    return randomBytes(16).toString('hex'); // 32 hex chars
 }
