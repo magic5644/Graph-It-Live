@@ -25,9 +25,6 @@ jobs:
     - name: Install VS Code Extension Manager
       run: npm install -g @vscode/vsce
       
-    - name: Clean Build
-      run: npm run clean
-      
     - name: Lint
       run: npm run lint
       
