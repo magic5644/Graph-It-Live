@@ -1,3 +1,7 @@
+<div align="center">
+  <img src="media/Graph-It-Live.png" alt="Graph-It-Live Logo" width="200"/>
+</div>
+
 # Graph-It-Live
 
 A Visual Studio Code extension that visualizes file dependencies in a real-time interactive graph. Perfect for understanding code architecture and navigating complex TypeScript, JavaScript, Vue, and Svelte projects.
