@@ -136,6 +136,7 @@ export class Spider {
         const dependencies = await this.analyze(filePath);
 
         for (const dep of dependencies) {
+          nodes.add(dep.path);
           edges.push({
             source: filePath,
             target: dep.path,
