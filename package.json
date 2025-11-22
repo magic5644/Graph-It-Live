@@ -12,6 +12,32 @@
     "type": "git",
     "url": "https://github.com/magic5644/Graph-It-Live.git"
   },
+  "homepage": "https://github.com/magic5644/Graph-It-Live/blob/main/README.md",
+  "bugs": {
+    "url": "https://github.com/magic5644/Graph-It-Live/issues"
+  },
+  "qna": "https://github.com/magic5644/Graph-It-Live/discussions",
+  "icon": "media/Graph-It-Live.png",
+  "galleryBanner": {
+    "color": "#2D3748",
+    "theme": "dark"
+  },
+  "keywords": [
+    "dependency graph",
+    "visualization",
+    "typescript",
+    "javascript",
+    "vue",
+    "svelte",
+    "architecture",
+    "circular dependencies",
+    "refactoring",
+    "interactive",
+    "reactflow",
+    "dagre",
+    "structure",
+    "code analysis"
+  ],
   "engines": {
     "vscode": "^1.85.0"
   },

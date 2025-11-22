@@ -79,13 +79,31 @@ export const useGraphData = () => {
   // Function to toggle expand all
   const toggleExpandAll = useCallback((shouldExpandAll: boolean) => {
       setExpandAll(shouldExpandAll);
+      
+      if (shouldExpandAll && fullGraphData) {
+          // Add all nodes that have children to expandedNodes
+          const allNodesWithChildren = new Set<string>();
+          // Add root
+          if (currentFilePath) allNodesWithChildren.add(currentFilePath);
+          
+          // Add all source nodes from edges
+          fullGraphData.edges.forEach(edge => {
+              allNodesWithChildren.add(edge.source);
+          });
+          
+          setExpandedNodes(allNodesWithChildren);
+      } else if (!shouldExpandAll && currentFilePath) {
+          // Reset to just root expanded
+          setExpandedNodes(new Set([currentFilePath]));
+      }
+
       if (vscode) {
           vscode.postMessage({
               command: 'setExpandAll',
               expandAll: shouldExpandAll
           });
       }
-  }, []);
+  }, [fullGraphData, currentFilePath]);
 
   // Function to toggle node expansion
   const toggleNode = useCallback((nodeId: string) => {
@@ -134,8 +152,8 @@ export const useGraphData = () => {
             visibleNodes.add(edge.target);
             visibleEdges.push(edge);
             
-            // If child is expanded or expandAll is true, recurse
-            if (expandAll || expandedNodes.has(edge.target)) {
+            // If child is expanded, recurse
+            if (expandedNodes.has(edge.target)) {
                 addChildren(edge.target);
             }
         });
@@ -159,7 +177,7 @@ export const useGraphData = () => {
         
         // Check if node has children (outgoing edges) in the full graph
         const hasChildren = fullGraphData.edges.some(e => e.source === path);
-        const isExpanded = expandAll || expandedNodes.has(path) || isRoot; // Root is always expanded effectively
+        const isExpanded = expandedNodes.has(path) || isRoot; // Root is always expanded effectively
         const isInCycle = nodesInCycles?.has(path) || false;
 
         let background = 'var(--vscode-editor-background)';
@@ -277,9 +295,23 @@ export const useGraphData = () => {
             // Set expandAll from message if present
             if (message.expandAll !== undefined) {
                 setExpandAll(message.expandAll);
+                
+                // If expandAll is true, we need to populate expandedNodes
+                if (message.expandAll && message.data) {
+                    const allNodesWithChildren = new Set<string>();
+                    if (message.filePath) allNodesWithChildren.add(message.filePath);
+                    message.data.edges.forEach(edge => {
+                        allNodesWithChildren.add(edge.source);
+                    });
+                    setExpandedNodes(allNodesWithChildren);
+                } else {
+                    // Reset expanded nodes on new graph load, or keep root expanded
+                    setExpandedNodes(new Set([message.filePath])); 
+                }
+            } else {
+                // Default behavior if expandAll not provided
+                setExpandedNodes(new Set([message.filePath])); 
             }
-            // Reset expanded nodes on new graph load, or keep root expanded
-            setExpandedNodes(new Set([message.filePath])); 
         }, 100);
       } else if (message.command === 'expandedGraph') {
         // Merge new graph data with existing
