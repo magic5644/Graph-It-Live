@@ -26,10 +26,6 @@ jobs:
     - name: Install Dependencies
       run: npm ci
       
-    # Install vsce before tests
-    - name: Install VS Code Extension Manager
-      run: npm install -g @vscode/vsce
-      
     - name: Lint
       run: npm run lint
       
@@ -65,10 +61,6 @@ jobs:
       - name: Install Dependencies
         run: npm ci
         
-      # Install vsce for publishing
-      - name: Install VS Code Extension Manager
-        run: npm install -g @vscode/vsce
-
       - name: Package Extension
         run: npm run package:vsix
         
@@ -89,6 +81,12 @@ jobs:
           VSCE_PAT: ${{ secrets.VSCE_PAT }}
         run: |
           vsce publish -p $VSCE_PAT --packagePath graph-it-live-${{ steps.get_version.outputs.VERSION }}.vsix
+
+      - name: Publish to Open VSX Marketplace
+        env:
+          OVSX_PAT: ${{ secrets.OVSX_PAT }}
+        run: |
+          npx ovsx publish -p $OVSX_PAT --packagePath graph-it-live-${{ steps.get_version.outputs.VERSION }}.vsix
 
       - name: Publish artifact to GitHub Release
         uses: softprops/action-gh-release@v2
