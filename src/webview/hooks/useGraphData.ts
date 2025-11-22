@@ -74,6 +74,18 @@ export const useGraphData = () => {
   const [expandedNodes, setExpandedNodes] = useState<Set<string>>(new Set());
   const [circularEdges, setCircularEdges] = useState<Set<string>>(new Set());
   const [nodesInCycles, setNodesInCycles] = useState<Set<string>>(new Set());
+  const [expandAll, setExpandAll] = useState<boolean>(false);
+
+  // Function to toggle expand all
+  const toggleExpandAll = useCallback((shouldExpandAll: boolean) => {
+      setExpandAll(shouldExpandAll);
+      if (vscode) {
+          vscode.postMessage({
+              command: 'setExpandAll',
+              expandAll: shouldExpandAll
+          });
+      }
+  }, []);
 
   // Function to toggle node expansion
   const toggleNode = useCallback((nodeId: string) => {
@@ -122,8 +134,8 @@ export const useGraphData = () => {
             visibleNodes.add(edge.target);
             visibleEdges.push(edge);
             
-            // If child is expanded, recurse
-            if (expandedNodes.has(edge.target)) {
+            // If child is expanded or expandAll is true, recurse
+            if (expandAll || expandedNodes.has(edge.target)) {
                 addChildren(edge.target);
             }
         });
@@ -147,7 +159,7 @@ export const useGraphData = () => {
         
         // Check if node has children (outgoing edges) in the full graph
         const hasChildren = fullGraphData.edges.some(e => e.source === path);
-        const isExpanded = expandedNodes.has(path) || isRoot; // Root is always expanded effectively
+        const isExpanded = expandAll || expandedNodes.has(path) || isRoot; // Root is always expanded effectively
         const isInCycle = nodesInCycles?.has(path) || false;
 
         let background = 'var(--vscode-editor-background)';
@@ -227,7 +239,10 @@ export const useGraphData = () => {
     setNodes(layouted.nodes);
     setEdges(layouted.edges);
 
-  }, [fullGraphData, expandedNodes, currentFilePath, setNodes, setEdges, toggleNode, circularEdges]);
+    setNodes(layouted.nodes);
+    setEdges(layouted.edges);
+
+  }, [fullGraphData, expandedNodes, currentFilePath, setNodes, setEdges, toggleNode, circularEdges, expandAll]);
 
   // Function to request on-demand scan when expanding a node
   const requestExpandNode = useCallback((nodeId: string) => {
@@ -259,6 +274,10 @@ export const useGraphData = () => {
             console.log('Graph-It-Live Webview: Processing update', message.filePath);
             setCurrentFilePath(message.filePath);
             setFullGraphData(message.data);
+            // Set expandAll from message if present
+            if (message.expandAll !== undefined) {
+                setExpandAll(message.expandAll);
+            }
             // Reset expanded nodes on new graph load, or keep root expanded
             setExpandedNodes(new Set([message.filePath])); 
         }, 100);
@@ -308,6 +327,14 @@ export const useGraphData = () => {
     }
   }, []);
 
+  const refreshGraph = useCallback(() => {
+    if (vscode) {
+      vscode.postMessage({
+        command: 'refreshGraph'
+      });
+    }
+  }, []);
+
   return {
     nodes,
     edges,
@@ -319,5 +346,8 @@ export const useGraphData = () => {
     nodesInCycles,
     requestExpandNode,
     currentFilePath,
+    expandAll,
+    toggleExpandAll,
+    refreshGraph,
   };
 };

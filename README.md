@@ -4,23 +4,23 @@
 
 # Graph-It-Live
 
-A Visual Studio Code extension that visualizes file dependencies in a real-time interactive graph. Perfect for understanding code architecture and navigating complex TypeScript, JavaScript, Vue, and Svelte projects.
+A Visual Studio Code extension that visualizes file dependencies in a **real-time interactive graph**. Perfect for understanding code architecture and navigating complex **TypeScript**,** JavaScript**,** Vue** and **Svelte** projects.
 
 ## Features
 
-- 🔄 **Real-time Dependency Visualization**: Interactive graph showing file dependencies.
-- 🌐 **Multi-Language Support**: First-class support for **TypeScript** (`.ts`, `.tsx`), **JavaScript** (`.js`, `.jsx`), **Vue** (`.vue`), and **Svelte** (`.svelte`).
-- 🚨 **Cycle Detection**: Automatically detects and highlights circular dependencies with red dashed lines and badges.
-- 🔙 **Smart Navigation**: Navigate through your code history with a built-in "Back" button in the graph view.
-- 🖱️ **Interactive Graph**:
+- **Real-time Dependency Visualization**: Interactive graph showing file dependencies.
+- **Multi-Language Support**: First-class support for **TypeScript** (`.ts`, `.tsx`), **JavaScript** (`.js`, `.jsx`), **Vue** (`.vue`), and **Svelte** (`.svelte`).
+- **Cycle Detection**: Automatically detects and highlights circular dependencies with red dashed lines and badges.
+- **Smart Navigation**: Navigate through your code history with a built-in "Back" button in the graph view.
+- **Interactive Graph**:
     - **Expand/Collapse**: Dynamically load dependencies by clicking the `+` / `-` buttons on nodes.
     - **File Navigation**: Click on any node to instantly open the corresponding file in the editor.
-- 🎨 **VS Code Integration**: Native look and feel using VS Code themes, colors, and fonts.
-- 📊 **Powered by ReactFlow & Dagre**: Smooth, automatic graph layout that adjusts as you explore.
+- **VS Code Integration**: Native look and feel using VS Code themes, colors, and fonts.
+- **Powered by ReactFlow & Dagre**: Smooth, automatic graph layout that adjusts as you explore.
 
 ## Prerequisites
 
-- **Node.js**: v18 or higher
+- **Node.js**: v24 or higher
 - **VS Code**: v1.85.0 or higher
 
 ## Installation

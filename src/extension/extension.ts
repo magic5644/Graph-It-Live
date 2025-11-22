@@ -4,7 +4,7 @@ import { GraphProvider } from './GraphProvider';
 export function activate(context: vscode.ExtensionContext) {
     console.log('Graph-It-Live is now active!');
 
-    const provider = new GraphProvider(context.extensionUri);
+    const provider = new GraphProvider(context.extensionUri, context);
     const disposables: vscode.Disposable[] = [
         // Provider must be registered before command
         vscode.window.registerWebviewViewProvider(GraphProvider.viewType, provider),

@@ -7,6 +7,7 @@ export interface ShowGraphMessage {
   command: 'updateGraph';
   filePath: string;
   data: GraphData;
+  expandAll?: boolean;
 }
 
 export interface OpenFileMessage {
@@ -20,6 +21,15 @@ export interface ExpandNodeMessage {
   knownNodes: string[];
 }
 
+export interface SetExpandAllMessage {
+  command: 'setExpandAll';
+  expandAll: boolean;
+}
+
+export interface RefreshGraphMessage {
+  command: 'refreshGraph';
+}
+
 export interface ExpandedGraphMessage {
   command: 'expandedGraph';
   nodeId: string;
@@ -27,4 +37,4 @@ export interface ExpandedGraphMessage {
 }
 
 export type ExtensionToWebviewMessage = ShowGraphMessage | ExpandedGraphMessage;
-export type WebviewToExtensionMessage = OpenFileMessage | ExpandNodeMessage;
+export type WebviewToExtensionMessage = OpenFileMessage | ExpandNodeMessage | SetExpandAllMessage | RefreshGraphMessage;
