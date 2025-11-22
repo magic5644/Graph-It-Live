@@ -1,5 +1,5 @@
 import * as vscode from 'vscode';
-import * as path from 'path';
+import * as path from 'node:path';
 import { Spider } from '../analyzer/Spider';
 import { ExtensionToWebviewMessage, WebviewToExtensionMessage } from '../shared/types';
 
@@ -8,7 +8,7 @@ export class GraphProvider implements vscode.WebviewViewProvider {
 
     private _view?: vscode.WebviewView;
     private _spider?: Spider;
-    private _extensionUri: vscode.Uri;
+    private readonly _extensionUri: vscode.Uri;
 
     constructor(extensionUri: vscode.Uri) {
         this._extensionUri = extensionUri;
@@ -43,7 +43,7 @@ export class GraphProvider implements vscode.WebviewViewProvider {
 
     public resolveWebviewView(
         webviewView: vscode.WebviewView,
-        context: vscode.WebviewViewResolveContext,
+        _context: vscode.WebviewViewResolveContext,
         _token: vscode.CancellationToken,
     ) {
         this._view = webviewView;
@@ -109,7 +109,7 @@ export class GraphProvider implements vscode.WebviewViewProvider {
         }
 
         const editor = vscode.window.activeTextEditor;
-        if (!editor || editor.document.uri.scheme !== 'file') {
+        if (editor?.document.uri.scheme !== 'file') {
             console.log('GraphProvider: No active file editor');
             return;
         }

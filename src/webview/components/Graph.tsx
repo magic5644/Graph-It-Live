@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo } from 'react';
-import ReactFlow, { Background, Controls, useReactFlow, ReactFlowProvider, useNodesInitialized, Handle, Position, NodeProps } from 'reactflow';
+import ReactFlow, { Background, Controls, useReactFlow, ReactFlowProvider, useNodesInitialized, Handle, Position, NodeProps, Node } from 'reactflow';
 // @ts-expect-error - ReactFlow types are complex
 import reactFlowStyles from 'reactflow/dist/style.css';
 import { useGraphData } from '../hooks/useGraphData';
@@ -84,7 +84,7 @@ const CustomNode = ({ data, isConnectable }: NodeProps) => {
 };
 
 const GraphContent: React.FC = () => {
-    const { nodes, edges, onNodesChange, onEdgesChange, onNodeClick, nodesInCycles, requestExpandNode, currentFilePath, openFile } = useGraphData();
+    const { nodes, edges, onNodesChange, onEdgesChange, onNodeClick, currentFilePath, openFile } = useGraphData();
     const { fitView } = useReactFlow();
     const nodesInitialized = useNodesInitialized();
     const [navigationHistory, setNavigationHistory] = React.useState<string[]>([]);
@@ -97,7 +97,7 @@ const GraphContent: React.FC = () => {
         }
     }, [nodesInitialized, nodes.length, fitView]);
 
-    const handleNodeClick = (event: React.MouseEvent, node: any) => {
+    const handleNodeClick = (event: React.MouseEvent, node: Node) => {
         // Add current file to history before navigating
         if (currentFilePath && currentFilePath !== node.id) {
             setNavigationHistory(prev => [...prev, currentFilePath]);

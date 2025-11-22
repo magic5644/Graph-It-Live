@@ -2,12 +2,13 @@ import React, { useEffect, useCallback, useState } from 'react';
 import { Node, Edge, useNodesState, useEdgesState, Position } from 'reactflow';
 import dagre from 'dagre';
 import { ExtensionToWebviewMessage, WebviewToExtensionMessage, GraphData } from '../../shared/types';
+import { mergeGraphData, detectCycles } from '../utils/graphUtils';
 
 // Define VS Code API type
 interface VSCodeApi {
   postMessage(message: WebviewToExtensionMessage): void;
-  getState(): any;
-  setState(state: any): void;
+  getState(): unknown;
+  setState(state: unknown): void;
 }
 
 declare global {
@@ -18,7 +19,7 @@ declare global {
 const vscode = (function() {
     try {
         return typeof acquireVsCodeApi === 'function' ? acquireVsCodeApi() : null;
-    } catch (e) {
+    } catch {
         return null;
     }
 })();
@@ -91,47 +92,7 @@ export const useGraphData = () => {
   useEffect(() => {
       if (!fullGraphData) return;
 
-      const cycleEdges = new Set<string>();
-      const cycleNodes = new Set<string>();
-      const visited = new Set<string>();
-      const recursionStack = new Set<string>();
-
-      const detectCycle = (node: string, path: string[]) => {
-          visited.add(node);
-          recursionStack.add(node);
-
-          const edges = fullGraphData.edges.filter(e => e.source === node);
-          for (const edge of edges) {
-              if (recursionStack.has(edge.target)) {
-                  // Cycle detected!
-                  cycleEdges.add(`${edge.source}-${edge.target}`);
-                  
-                  // Add all nodes in the cycle path to cycleNodes
-                  cycleNodes.add(edge.source);
-                  cycleNodes.add(edge.target);
-                  
-                  // Add all nodes in the current recursion stack (they're part of the cycle)
-                  recursionStack.forEach(n => cycleNodes.add(n));
-              } else if (!visited.has(edge.target)) {
-                  detectCycle(edge.target, [...path, edge.target]);
-              }
-          }
-
-          recursionStack.delete(node);
-      };
-
-      // Run detection starting from all nodes to cover disconnected components
-      const allNodes = new Set<string>();
-      fullGraphData.edges.forEach(e => {
-          allNodes.add(e.source);
-          allNodes.add(e.target);
-      });
-      
-      allNodes.forEach(node => {
-          if (!visited.has(node)) {
-              detectCycle(node, [node]);
-          }
-      });
+      const { cycleEdges, cycleNodes } = detectCycles(fullGraphData);
 
       setCircularEdges(cycleEdges);
       setNodesInCycles(cycleNodes);
@@ -226,8 +187,8 @@ export const useGraphData = () => {
           type: 'custom', // Use custom node type
           style: {
             background,
-            color: isRoot ? 'white' : 'var(--vscode-editor-foreground)',
-            border: isRoot ? '2px solid var(--vscode-focusBorder)' : '1px solid var(--vscode-widget-border)',
+            color,
+            border,
             borderRadius: 4,
             padding: 10,
             fontSize: '12px',
@@ -304,20 +265,9 @@ export const useGraphData = () => {
       } else if (message.command === 'expandedGraph') {
         // Merge new graph data with existing
         if (fullGraphData && message.data) {
-          const mergedNodes = [...new Set([...fullGraphData.nodes, ...message.data.nodes])];
-          const mergedEdges = [
-            ...fullGraphData.edges,
-            ...message.data.edges.filter(newEdge => 
-              !fullGraphData.edges.some(e => 
-                e.source === newEdge.source && e.target === newEdge.target
-              )
-            )
-          ];
+          const mergedData = mergeGraphData(fullGraphData, message.data);
           
-          setFullGraphData({
-            nodes: mergedNodes,
-            edges: mergedEdges,
-          });
+          setFullGraphData(mergedData);
           
           // Auto-expand the node that was requested
           setExpandedNodes(prev => new Set([...prev, message.nodeId]));

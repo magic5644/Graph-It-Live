@@ -1,5 +1,3 @@
-import { Dependency } from '../analyzer/types';
-
 export interface GraphData {
   nodes: string[];
   edges: { source: string; target: string }[];
