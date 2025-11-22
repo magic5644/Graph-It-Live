@@ -84,7 +84,7 @@ const CustomNode = ({ data, isConnectable }: NodeProps) => {
 };
 
 const GraphContent: React.FC = () => {
-    const { nodes, edges, onNodesChange, onEdgesChange, onNodeClick, currentFilePath, openFile } = useGraphData();
+    const { nodes, edges, onNodesChange, onEdgesChange, onNodeClick, currentFilePath, openFile, expandAll, toggleExpandAll, refreshGraph } = useGraphData();
     const { fitView } = useReactFlow();
     const nodesInitialized = useNodesInitialized();
     const [navigationHistory, setNavigationHistory] = React.useState<string[]>([]);
@@ -157,6 +157,65 @@ const GraphContent: React.FC = () => {
                     ← Back
                 </button>
             )}
+
+            <div style={{
+                position: 'absolute',
+                top: 10,
+                right: 10,
+                zIndex: 1000,
+                display: 'flex',
+                gap: 8
+            }}>
+                <button
+                    onClick={refreshGraph}
+                    style={{
+                        background: 'var(--vscode-button-background)',
+                        color: 'var(--vscode-button-foreground)',
+                        border: 'none',
+                        borderRadius: 4,
+                        padding: '6px 12px',
+                        cursor: 'pointer',
+                        fontSize: '12px',
+                    }}
+                    title="Refresh graph from active editor"
+                >
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                        <path d="M23 4v6h-6"></path>
+                        <path d="M1 20v-6h6"></path>
+                        <path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"></path>
+                    </svg>
+                </button>
+                <button
+                    onClick={() => toggleExpandAll(true)}
+                    style={{
+                        background: expandAll ? 'var(--vscode-button-hoverBackground)' : 'var(--vscode-button-background)',
+                        color: 'var(--vscode-button-foreground)',
+                        border: expandAll ? '1px solid var(--vscode-focusBorder)' : 'none',
+                        borderRadius: 4,
+                        padding: '6px 12px',
+                        cursor: 'pointer',
+                        fontSize: '12px',
+                    }}
+                    title="Expand all nodes and set as default"
+                >
+                    Expand All
+                </button>
+                <button
+                    onClick={() => toggleExpandAll(false)}
+                    style={{
+                        background: !expandAll ? 'var(--vscode-button-hoverBackground)' : 'var(--vscode-button-background)',
+                        color: 'var(--vscode-button-foreground)',
+                        border: !expandAll ? '1px solid var(--vscode-focusBorder)' : 'none',
+                        borderRadius: 4,
+                        padding: '6px 12px',
+                        cursor: 'pointer',
+                        fontSize: '12px',
+                    }}
+                    title="Collapse all nodes and set as default"
+                >
+                    Collapse All
+                </button>
+            </div>
         </div>
     );
 };

@@ -10,6 +10,7 @@
       "@components/*": ["./src/components/*"]
     },
     "esModuleInterop": true,
+    "jsx": "preserve",
     "strict": true
   },
   "include": ["src/**/*"]

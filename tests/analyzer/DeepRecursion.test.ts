@@ -30,7 +30,6 @@ describe('Spider - Deep Recursion', () => {
         });
 
         // Mock file existence
-        // Mock file existence
         vi.mocked(fs.stat).mockImplementation(async (path) => {
             const p = path.toString();
             if (p.endsWith('.ts')) {

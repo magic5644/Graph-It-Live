@@ -30,6 +30,7 @@ vi.mock('vscode', () => {
         },
         ViewColumn: { One: 1 },
         WebviewViewProvider: class {},
+        ExtensionMode: { Production: 1, Development: 2, Test: 3 },
     };
 });
 
@@ -50,11 +51,38 @@ vi.mock('../../src/analyzer/Spider', () => {
 describe('GraphProvider', () => {
     let provider: GraphProvider;
     let extensionUri: vscode.Uri;
+    let mockContext: vscode.ExtensionContext;
 
     beforeEach(() => {
         vi.clearAllMocks();
         extensionUri = { fsPath: '/extension' } as vscode.Uri;
-        provider = new GraphProvider(extensionUri);
+        mockContext = {
+            extensionUri,
+            subscriptions: [],
+            workspaceState: {
+                get: vi.fn(),
+                update: vi.fn(),
+            },
+            globalState: {
+                get: vi.fn(),
+                update: vi.fn(),
+                setKeysForSync: vi.fn(),
+            },
+            secrets: {
+                get: vi.fn(),
+                store: vi.fn(),
+                delete: vi.fn(),
+                onDidChange: vi.fn(),
+            },
+            extensionMode: vscode.ExtensionMode.Test,
+            asAbsolutePath: vi.fn(),
+            storageUri: undefined,
+            globalStorageUri: undefined,
+            logUri: undefined,
+            environmentVariableCollection: {} as any,
+        } as unknown as vscode.ExtensionContext;
+        
+        provider = new GraphProvider(extensionUri, mockContext);
     });
 
     it('should initialize Spider on creation', () => {
@@ -90,7 +118,8 @@ describe('GraphProvider', () => {
         expect(webview.postMessage).toHaveBeenCalledWith(expect.objectContaining({
             command: 'updateGraph',
             filePath: '/root/src/main.ts',
-            data: mockGraphData
+            data: mockGraphData,
+            expandAll: undefined // globalState.get returns undefined by default mock
         }));
     });
 });

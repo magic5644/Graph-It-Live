@@ -11,8 +11,11 @@ export class GraphProvider implements vscode.WebviewViewProvider {
     private _spider?: Spider;
     private readonly _extensionUri: vscode.Uri;
 
-    constructor(extensionUri: vscode.Uri) {
+    private readonly _context: vscode.ExtensionContext;
+
+    constructor(extensionUri: vscode.Uri, context: vscode.ExtensionContext) {
         this._extensionUri = extensionUri;
+        this._context = context;
         this._initializeSpider();
     }
 
@@ -96,6 +99,15 @@ export class GraphProvider implements vscode.WebviewViewProvider {
                         }
                     }
                     break;
+                    break;
+                case 'setExpandAll':
+                    console.log(`GraphProvider: Setting expandAll to ${message.expandAll}`);
+                    this._context.globalState.update('expandAll', message.expandAll);
+                    break;
+                case 'refreshGraph':
+                    console.log('GraphProvider: Refreshing graph');
+                    this.updateGraph();
+                    break;
             }
         });
 
@@ -127,10 +139,12 @@ export class GraphProvider implements vscode.WebviewViewProvider {
         try {
             const graphData = await this._spider.crawl(filePath);
             console.log(`GraphProvider: Found ${graphData.nodes.length} nodes and ${graphData.edges.length} edges`);
+            const expandAll = this._context.globalState.get<boolean>('expandAll', false);
             const message: ExtensionToWebviewMessage = {
                 command: 'updateGraph',
                 filePath,
                 data: graphData,
+                expandAll,
             };
             this._view.webview.postMessage(message);
         } catch (error) {
