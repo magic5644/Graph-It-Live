@@ -25,10 +25,6 @@ jobs:
         
     - name: Install Dependencies
       run: npm ci
-      
-    # Install vsce before packaging
-    - name: Install VS Code Extension Manager
-      run: npm install -g @vscode/vsce
 
     - name: Lint
       run: npm run lint
@@ -64,6 +60,10 @@ jobs:
           
       - name: Install Dependencies
         run: npm ci
+
+      # Install vsce before packaging
+      - name: Install VS Code Extension Manager
+        run: npm install -g @vscode/vsce
         
       - name: Package Extension
         run: npm run package:vsix
