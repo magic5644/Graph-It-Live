@@ -145,3 +145,6 @@ vite.config.ts.timestamp-*
 
 # Initials specifications
 .spec
+
+# MacOS files
+.DS_Store
