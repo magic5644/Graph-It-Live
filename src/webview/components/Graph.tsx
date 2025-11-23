@@ -14,7 +14,10 @@ if (typeof document !== 'undefined' && !document.getElementById('reactflow-style
 
 const CustomNode = ({ data, isConnectable }: NodeProps) => {
     return (
-        <div style={{ position: 'relative', width: '100%', height: '100%' }}>
+        <div
+            style={{ position: 'relative', width: '100%', height: '100%' }}
+            title={data.fullPath}
+        >
             <Handle type="target" position={Position.Left} isConnectable={isConnectable} style={{ visibility: 'hidden' }} />
 
             <div style={{

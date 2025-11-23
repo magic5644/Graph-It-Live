@@ -166,8 +166,25 @@ export const useGraphData = () => {
     // Create React Flow Nodes
     const newNodes: Node[] = [];
     
+    // Calculate filename frequencies to detect duplicates
+    const fileNameCounts = new Map<string, number>();
     visibleNodes.forEach(path => {
         const fileName = path.split('/').pop() || path;
+        fileNameCounts.set(fileName, (fileNameCounts.get(fileName) || 0) + 1);
+    });
+
+    visibleNodes.forEach(path => {
+        const fileName = path.split('/').pop() || path;
+        
+        // Disambiguate if multiple files have the same name
+        let label = fileName;
+        if ((fileNameCounts.get(fileName) || 0) > 1) {
+            const parentDir = path.split('/').slice(-2, -1)[0];
+            if (parentDir) {
+                label = `${parentDir}/${fileName}`;
+            }
+        }
+
         const isTs = fileName.endsWith('.ts') || fileName.endsWith('.tsx');
         const isJs = fileName.endsWith('.js') || fileName.endsWith('.jsx');
         const isVue = fileName.endsWith('.vue');
@@ -204,7 +221,8 @@ export const useGraphData = () => {
         newNodes.push({
           id: path,
           data: { 
-              label: fileName,
+              label,
+              fullPath: path,
               hasChildren,
               isExpanded,
               isInCycle,
