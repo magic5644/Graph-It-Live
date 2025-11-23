@@ -35,10 +35,10 @@ const CustomNode = ({ data, isConnectable }: NodeProps) => {
                 <div
                     style={{
                         position: 'absolute',
-                        top: -5,
-                        left: -5,
-                        width: 10,
-                        height: 10,
+                        top: -15,
+                        right: -15,
+                        width: 8,
+                        height: 8,
                         borderRadius: '50%',
                         background: '#dc3545',
                         border: '2px solid var(--vscode-editor-background)',
