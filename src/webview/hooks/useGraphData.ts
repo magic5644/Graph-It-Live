@@ -163,6 +163,25 @@ export const useGraphData = () => {
     // So we always call addChildren for it
     addChildren(currentFilePath);
 
+    // Also check for incoming edges to the root (Referenced By)
+    console.log('Graph-It-Live Webview: Checking incoming edges for', currentFilePath);
+    const incomingEdges = fullGraphData.edges.filter(e => {
+        const isMatch = e.target === currentFilePath;
+        if (!isMatch && e.target.endsWith(currentFilePath.split('/').pop() || '')) {
+             console.log('Graph-It-Live Webview: Potential path mismatch?', e.target, currentFilePath);
+        }
+        return isMatch;
+    });
+    console.log('Graph-It-Live Webview: Incoming edges to root', incomingEdges);
+    incomingEdges.forEach(edge => {
+        visibleNodes.add(edge.source);
+        visibleEdges.push(edge);
+        
+        // If the referencing node is expanded, we might want to show its parents too?
+        // For now, let's just show the immediate parents of the root.
+        // If we want to support traversing up, we'd need an addParents function.
+    });
+
     // Create React Flow Nodes
     const newNodes: Node[] = [];
     
@@ -228,6 +247,8 @@ export const useGraphData = () => {
               isInCycle,
               onToggle: () => toggleNode(path),
               onExpand: hasChildren ? () => requestExpandNode?.(path) : undefined,
+              onFindReferences: () => requestFindReferencingFiles?.(path),
+              isRoot,
           },
           sourcePosition: Position.Right,
           targetPosition: Position.Left,
@@ -297,6 +318,20 @@ export const useGraphData = () => {
     });
   }, [fullGraphData]);
 
+  const requestFindReferencingFiles = useCallback((nodeId: string) => {
+    if (!vscode) return;
+    vscode.postMessage({
+      command: 'findReferencingFiles',
+      nodeId,
+    });
+  }, []);
+
+  // Keep track of fullGraphData in a ref to access it in the event listener
+  const fullGraphDataRef = React.useRef(fullGraphData);
+  useEffect(() => {
+    fullGraphDataRef.current = fullGraphData;
+  }, [fullGraphData]);
+
   useEffect(() => {
     let timeoutId: NodeJS.Timeout;
 
@@ -331,15 +366,21 @@ export const useGraphData = () => {
                 setExpandedNodes(new Set([message.filePath])); 
             }
         }, 100);
-      } else if (message.command === 'expandedGraph') {
+      } else if (message.command === 'expandedGraph' || message.command === 'referencingFiles') {
+        console.log('Graph-It-Live Webview: Received referencingFiles/expandedGraph', message.data);
         // Merge new graph data with existing
-        if (fullGraphData && message.data) {
-          const mergedData = mergeGraphData(fullGraphData, message.data);
+        const currentData = fullGraphDataRef.current;
+        if (currentData && message.data) {
+          console.log('Graph-It-Live Webview: Merging data. Current edges:', currentData.edges.length, 'New edges:', message.data.edges.length);
+          const mergedData = mergeGraphData(currentData, message.data);
+          console.log('Graph-It-Live Webview: Merged edges:', mergedData.edges.length);
           
           setFullGraphData(mergedData);
           
           // Auto-expand the node that was requested
           setExpandedNodes(prev => new Set([...prev, message.nodeId]));
+        } else {
+            console.warn('Graph-It-Live Webview: Cannot merge, fullGraphData is missing', !!currentData);
         }
       }
     };
@@ -399,5 +440,6 @@ export const useGraphData = () => {
     expandAll,
     toggleExpandAll,
     refreshGraph,
+    requestFindReferencingFiles,
   };
 };

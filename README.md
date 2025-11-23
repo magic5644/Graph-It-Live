@@ -18,6 +18,7 @@ A Visual Studio Code extension that visualizes file dependencies in a **real-tim
 - **Smart Navigation**: Navigate through your code history with a built-in "Back" button in the graph view.
 - **Interactive Graph**:
     - **Expand/Collapse**: Dynamically load dependencies by clicking the `+` / `-` buttons on nodes.
+    - **Bidirectional Navigation**: Find files that reference the current file (reverse dependencies) by clicking the `◀` button on the root node. This scans the entire workspace to find all incoming references.
     - **File Navigation**: Click on any node to instantly open the corresponding file in the editor.
 - **VS Code Integration**: Native look and feel using VS Code themes, colors, and fonts.
 - **Powered by ReactFlow & Dagre**: Smooth, automatic graph layout that adjusts as you explore.
@@ -49,8 +50,9 @@ The extension is also available on the [Open VSX Registry](https://open-vsx.org/
    - Or click the graph icon in the editor title bar when viewing a supported file.
 3. **Interact**:
    - **Navigate**: Click a node to open the file.
-   - **Expand**: Click the small `+` button on a node to reveal its dependencies.
-   - **Go Back**: Use the "Back" button in the top-left corner to return to previously viewed files.
+    - **Expand**: Click the small `+` button on a node to reveal its dependencies.
+    - **Reverse Lookup**: Click the `◀` button on the left of the root node to see which files import the current file.
+    - **Go Back**: Use the "Back" button in the top-left corner to return to previously viewed files.
    - **Pan/Zoom**: Drag the background to pan; scroll or pinch to zoom.
 
 ## Configuration

@@ -108,6 +108,30 @@ export class GraphProvider implements vscode.WebviewViewProvider {
                     console.log('GraphProvider: Refreshing graph');
                     this.updateGraph();
                     break;
+                case 'findReferencingFiles':
+                    if (message.nodeId && this._spider) {
+                        try {
+                            console.log(`GraphProvider: Finding referencing files for ${message.nodeId}`);
+                            const referencingFiles = await this._spider.findReferencingFiles(message.nodeId);
+                            
+                            // Convert dependencies to graph data
+                            const nodes = referencingFiles.map(d => d.path);
+                            const edges = referencingFiles.map(d => ({
+                                source: d.path,
+                                target: message.nodeId
+                            }));
+                            
+                            const response: ExtensionToWebviewMessage = {
+                                command: 'referencingFiles',
+                                nodeId: message.nodeId,
+                                data: { nodes, edges }
+                            };
+                            this._view?.webview.postMessage(response);
+                        } catch (e) {
+                            console.error('GraphProvider: Error finding referencing files', e);
+                        }
+                    }
+                    break;
             }
         });
 
