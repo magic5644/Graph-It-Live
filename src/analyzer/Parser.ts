@@ -58,7 +58,7 @@ export class Parser {
    */
   private extractScript(content: string): string {
     // Match <script> or <script setup> or <script lang="ts"> etc.
-    const scriptMatch = content.match(/<script[^>]*>([\s\S]*?)<\/script>/i);
+    const scriptMatch = content.match(/<script[^>]*>([\s\S]*?)<\/script\s*>/i);
     return scriptMatch ? scriptMatch[1] : '';
   }
 
