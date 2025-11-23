@@ -36,5 +36,16 @@ export interface ExpandedGraphMessage {
   data: GraphData;
 }
 
-export type ExtensionToWebviewMessage = ShowGraphMessage | ExpandedGraphMessage;
-export type WebviewToExtensionMessage = OpenFileMessage | ExpandNodeMessage | SetExpandAllMessage | RefreshGraphMessage;
+export interface FindReferencingFilesMessage {
+  command: 'findReferencingFiles';
+  nodeId: string;
+}
+
+export interface ReferencingFilesMessage {
+  command: 'referencingFiles';
+  nodeId: string;
+  data: GraphData;
+}
+
+export type ExtensionToWebviewMessage = ShowGraphMessage | ExpandedGraphMessage | ReferencingFilesMessage;
+export type WebviewToExtensionMessage = OpenFileMessage | ExpandNodeMessage | SetExpandAllMessage | RefreshGraphMessage | FindReferencingFilesMessage;

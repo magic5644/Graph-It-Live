@@ -231,6 +231,83 @@ export class Spider {
 
 
   /**
+   * Find files that reference the given file (reverse dependency lookup)
+   * @param targetPath Absolute path to the file to find references for
+   * @returns Array of dependencies pointing to the target file
+   */
+  async findReferencingFiles(targetPath: string): Promise<Dependency[]> {
+    const referencingFiles: Dependency[] = [];
+    const targetBasename = targetPath.split(/[/\\]/).pop()?.replace(/\.[^/.]+$/, ''); // filename without extension
+    
+    if (!targetBasename) {
+      return [];
+    }
+
+    console.log(`[Spider] Finding references for ${targetPath} (basename: ${targetBasename})`);
+
+    // Helper to recursively walk directory
+    const walk = async (dir: string) => {
+      const entries = await fs.readdir(dir, { withFileTypes: true });
+      
+      for (const entry of entries) {
+        const fullPath = `${dir}/${entry.name}`; // Simple path join
+        
+        if (entry.isDirectory()) {
+          // Skip node_modules if configured
+          if (this.config.excludeNodeModules && entry.name === 'node_modules') {
+            continue;
+          }
+          // Skip .git and other hidden dirs
+          if (entry.name.startsWith('.')) {
+            continue;
+          }
+          await walk(fullPath);
+        } else if (entry.isFile()) {
+          // Only check supported files
+          if (!/\.(ts|tsx|js|jsx|vue|svelte)$/.test(entry.name)) {
+            continue;
+          }
+          
+          // Skip the target file itself
+          if (fullPath === targetPath) {
+            continue;
+          }
+
+          try {
+            // Optimization: Quick check if file content contains the target basename
+            const content = await fs.readFile(fullPath, 'utf-8');
+            if (!content.includes(targetBasename)) {
+              continue;
+            }
+
+            // Parse imports
+            const dependencies = await this.analyze(fullPath);
+            
+            // Check if any dependency resolves to targetPath
+            for (const dep of dependencies) {
+              if (dep.path === targetPath) {
+                console.log(`[Spider] Found reference in ${fullPath}`);
+                referencingFiles.push({
+                  path: fullPath, // The file DOING the importing
+                  type: dep.type,
+                  line: dep.line,
+                  module: dep.module
+                });
+                break; // Found a reference, no need to check other imports in this file
+              }
+            }
+          } catch (error) {
+            console.error(`[Spider] Error checking references in ${fullPath}:`, error);
+          }
+        }
+      }
+    };
+
+    await walk(this.config.rootDir);
+    return referencingFiles;
+  }
+
+  /**
    * Get cache statistics
    * @returns Cache statistics
    */

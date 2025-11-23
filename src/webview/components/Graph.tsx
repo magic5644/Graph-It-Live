@@ -35,10 +35,10 @@ const CustomNode = ({ data, isConnectable }: NodeProps) => {
                 <div
                     style={{
                         position: 'absolute',
-                        top: -8,
-                        left: -8,
-                        width: 16,
-                        height: 16,
+                        top: -5,
+                        left: -5,
+                        width: 10,
+                        height: 10,
                         borderRadius: '50%',
                         background: '#dc3545',
                         border: '2px solid var(--vscode-editor-background)',
@@ -78,6 +78,39 @@ const CustomNode = ({ data, isConnectable }: NodeProps) => {
                     }}
                 >
                     {data.isExpanded ? '-' : '+'}
+                </div>
+            )}
+
+            {/* Referenced By Button (Only for Root) */}
+            {data.isRoot && (
+                <div
+                    onClick={(e) => {
+                        e.stopPropagation();
+                        data.onFindReferences?.();
+                    }}
+                    style={{
+                        position: 'absolute',
+                        left: -24, // Moved further left to avoid overlap
+                        top: '50%',
+                        transform: 'translateY(-50%)',
+                        width: 20,
+                        height: 20,
+                        borderRadius: '50%',
+                        background: 'var(--vscode-button-secondaryBackground)',
+                        color: 'var(--vscode-button-secondaryForeground)',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        cursor: 'pointer',
+                        fontSize: '10px',
+                        fontWeight: 'bold',
+                        zIndex: 10,
+                        pointerEvents: 'auto',
+                        border: '2px solid var(--vscode-editor-background)'
+                    }}
+                    title="Find referencing files"
+                >
+                    ◀
                 </div>
             )}
 
