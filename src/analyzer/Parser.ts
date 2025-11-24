@@ -9,14 +9,12 @@ export class Parser {
   private readonly patterns = {
     // import ... from '...'
     // simplified: match "import" followed by anything up to the "from" keyword
-    // then capture the module string — this reduces regex complexity while
-    // still catching normal import-from declarations.
-    importFrom: /import\s+[^;]*?from\s+['"]([^'"]+)['"]/g,
+    // using [\s\S]*? to match any character including newlines and semicolons (in comments)
+    importFrom: /import\s+[\s\S]*?from\s+['"]([^'"]+)['"]/g,
     
     // export ... from '...'
     // simplified: match "export" followed by anything up to "from"
-    // then capture the module string
-    exportFrom: /export\s+[^;]*?from\s+['"]([^'"]+)['"]/g,
+    exportFrom: /export\s+[\s\S]*?from\s+['"]([^'"]+)['"]/g,
     
     // require('...')
     require: /require\s*\(\s*['"]([^'"]+)['"]\s*\)/g,
