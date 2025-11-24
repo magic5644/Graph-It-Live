@@ -8,10 +8,15 @@ export class Parser {
   // Regex patterns for different import types
   private readonly patterns = {
     // import ... from '...'
-    importFrom: /import\s+(?:(?:\*\s+as\s+\w+)|(?:\{[^}]*\})|(?:\w+))?\s*(?:,\s*(?:\{[^}]*\}|\w+))?\s*from\s+['"]([^'"]+)['"]/g,
+    // simplified: match "import" followed by anything up to the "from" keyword
+    // then capture the module string — this reduces regex complexity while
+    // still catching normal import-from declarations.
+    importFrom: /import\s+[^;]*?from\s+['"]([^'"]+)['"]/g,
     
     // export ... from '...'
-    exportFrom: /export\s+(?:\*|\{[^}]*\})\s+from\s+['"]([^'"]+)['"]/g,
+    // simplified: match "export" followed by anything up to "from"
+    // then capture the module string
+    exportFrom: /export\s+[^;]*?from\s+['"]([^'"]+)['"]/g,
     
     // require('...')
     require: /require\s*\(\s*['"]([^'"]+)['"]\s*\)/g,
@@ -58,8 +63,12 @@ export class Parser {
    */
   private extractScript(content: string): string {
     // Match <script> or <script setup> or <script lang="ts"> etc.
-    const scriptMatch = content.match(/<script[^>]*>([\s\S]*?)<\/script\s*>/i);
-    return scriptMatch ? scriptMatch[1] : '';
+    // Use global flag 'g' and matchAll to get all script blocks
+    const scriptRegex = /<script[^>]*>([\s\S]*?)<\/script\s*[^>]*>/gi;
+    const matches = [...content.matchAll(scriptRegex)];
+    
+    // Join all script contents with a newline to ensure separation
+    return matches.map(match => match[1]).join('\n');
   }
 
   private extractImports(
