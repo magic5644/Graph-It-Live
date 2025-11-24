@@ -152,6 +152,7 @@ const GraphContent: React.FC = () => {
     return (
         <div style={{ width: '100vw', height: '100vh', position: 'fixed', top: 0, left: 0 }}>
             <ReactFlow
+                key={currentFilePath}
                 nodes={nodes}
                 edges={edges}
                 onNodesChange={onNodesChange}
