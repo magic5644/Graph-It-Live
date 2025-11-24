@@ -1,4 +1,4 @@
-import React, { useEffect, useCallback, useState } from 'react';
+import React, { useEffect, useCallback, useState, useMemo } from 'react';
 import { Node, Edge, useNodesState, useEdgesState, Position } from 'reactflow';
 import dagre from 'dagre';
 import { ExtensionToWebviewMessage, WebviewToExtensionMessage, GraphData } from '../../shared/types';
@@ -72,8 +72,7 @@ export const useGraphData = () => {
   const [currentFilePath, setCurrentFilePath] = useState<string>('');
   const [fullGraphData, setFullGraphData] = useState<GraphData | null>(null);
   const [expandedNodes, setExpandedNodes] = useState<Set<string>>(new Set());
-  const [circularEdges, setCircularEdges] = useState<Set<string>>(new Set());
-  const [nodesInCycles, setNodesInCycles] = useState<Set<string>>(new Set());
+
   const [expandAll, setExpandAll] = useState<boolean>(false);
 
   // Function to toggle expand all
@@ -119,13 +118,12 @@ export const useGraphData = () => {
   }, []);
 
   // Detect cycles when fullGraphData changes
-  useEffect(() => {
-      if (!fullGraphData) return;
-
+  const { circularEdges, nodesInCycles } = useMemo(() => {
+      if (!fullGraphData) {
+          return { circularEdges: new Set<string>(), nodesInCycles: new Set<string>() };
+      }
       const { cycleEdges, cycleNodes } = detectCycles(fullGraphData);
-
-      setCircularEdges(cycleEdges);
-      setNodesInCycles(cycleNodes);
+      return { circularEdges: cycleEdges, nodesInCycles: cycleNodes };
   }, [fullGraphData]);
 
   // Re-calculate visible nodes and edges when fullGraphData or expandedNodes changes
@@ -141,6 +139,16 @@ export const useGraphData = () => {
     // Helper to add children if parent is expanded
     const visited = new Set<string>();
     
+    const addedEdgeIds = new Set<string>();
+
+    const addEdge = (edge: { source: string; target: string }) => {
+        const edgeId = `${edge.source}-${edge.target}`;
+        if (!addedEdgeIds.has(edgeId)) {
+            addedEdgeIds.add(edgeId);
+            visibleEdges.push(edge);
+        }
+    };
+    
     const addChildren = (parentId: string) => {
         if (visited.has(parentId)) return;
         visited.add(parentId);
@@ -150,7 +158,7 @@ export const useGraphData = () => {
         
         childrenEdges.forEach(edge => {
             visibleNodes.add(edge.target);
-            visibleEdges.push(edge);
+            addEdge(edge);
             
             // If child is expanded, recurse
             if (expandedNodes.has(edge.target)) {
@@ -175,7 +183,7 @@ export const useGraphData = () => {
     console.log('Graph-It-Live Webview: Incoming edges to root', incomingEdges);
     incomingEdges.forEach(edge => {
         visibleNodes.add(edge.source);
-        visibleEdges.push(edge);
+        addEdge(edge);
         
         // If the referencing node is expanded, we might want to show its parents too?
         // For now, let's just show the immediate parents of the root.
