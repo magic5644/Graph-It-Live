@@ -8,14 +8,12 @@ export class Parser {
   // Regex patterns for different import types
   private readonly patterns = {
     // import ... from '...'
-    // import ... from '...'
-    // Robust pattern: match "import" followed by safe chars, strings, or comments,
-    // but STOP at semicolons (unless inside strings/comments).
-    // Note: using [^;'"/] (singular) instead of + to avoid ReDoS with the outer loop.
-    importFrom: /import\s+(?:[^;'"\x2f]|'[^']*'|"[^"]*"|\/\/[^\n]*|\/\*[\s\S]*?\*\/|\/(?![/*]))*?\s+from\s+['"]([^'"]+)['"]/g,
+    // Simplified pattern: comments are stripped before parsing
+    // Matches: import [whitespace] [anything except ; or ' or "] [whitespace] from [whitespace] [quote] [path] [quote]
+    importFrom: /import\s+(?:[^;'"]|'[^']*'|"[^"]*")*?\s+from\s+['"]([^'"]+)['"]/g,
     
     // export ... from '...'
-    exportFrom: /export\s+(?:[^;'"\x2f]|'[^']*'|"[^"]*"|\/\/[^\n]*|\/\*[\s\S]*?\*\/|\/(?![/*]))*?\s+from\s+['"]([^'"]+)['"]/g,
+    exportFrom: /export\s+(?:[^;'"]|'[^']*'|"[^"]*")*?\s+from\s+['"]([^'"]+)['"]/g,
     
     // require('...')
     require: /require\s*\(\s*['"]([^'"]+)['"]\s*\)/g,
@@ -36,6 +34,9 @@ export class Parser {
         content = this.extractScript(content);
       }
     }
+
+    // Strip comments to simplify parsing and fix bugs with commented imports
+    content = this.stripComments(content);
 
     const imports: ParsedImport[] = [];
     
@@ -68,6 +69,24 @@ export class Parser {
     
     // Join all script contents with a newline to ensure separation
     return matches.map(match => match[1]).join('\n');
+  }
+
+  /**
+   * Strip comments from content while preserving line numbers/indices
+   * Replaces comments with spaces
+   */
+  private stripComments(content: string): string {
+    // Match strings OR comments
+    // Group 1: Strings (double or single quoted)
+    // Group 2: Comments (single line or block)
+    const pattern = /('[^']*'|"[^"]*")|(\/\/[^\n]*|\/\*[\s\S]*?\*\/)/g;
+    return content.replaceAll(pattern, (_, str, comment) => {
+      if (str) {
+        return str; // Keep strings
+      }
+      // Replace comment with spaces/newlines to preserve line numbers
+      return comment.replaceAll(/[^\n]/g, ' ');
+    });
   }
 
   private extractImports(
