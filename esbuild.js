@@ -38,7 +38,7 @@ async function main() {
     external: ['vscode'],
     logLevel: 'silent',
     plugins: [esbuildProblemMatcherPlugin],
-    target: 'node16',
+    target: 'node18',
   });
 
   // Build Webview (Browser)
@@ -53,7 +53,7 @@ async function main() {
     outfile: 'dist/webview.js',
     logLevel: 'silent',
     plugins: [esbuildProblemMatcherPlugin],
-    target: 'es2020',
+    target: 'es2022',
     loader: {
       '.css': 'text',
     },
