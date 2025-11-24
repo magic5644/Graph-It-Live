@@ -8,13 +8,14 @@ export class Parser {
   // Regex patterns for different import types
   private readonly patterns = {
     // import ... from '...'
-    // simplified: match "import" followed by anything up to the "from" keyword
-    // using [\s\S]*? to match any character including newlines and semicolons (in comments)
-    importFrom: /import\s+[\s\S]*?from\s+['"]([^'"]+)['"]/g,
+    // import ... from '...'
+    // Robust pattern: match "import" followed by safe chars, strings, or comments,
+    // but STOP at semicolons (unless inside strings/comments).
+    // Note: using [^;'"/] (singular) instead of + to avoid ReDoS with the outer loop.
+    importFrom: /import\s+(?:[^;'"\x2f]|'[^']*'|"[^"]*"|\/\/[^\n]*|\/\*[\s\S]*?\*\/|\/(?![/*]))*?\s+from\s+['"]([^'"]+)['"]/g,
     
     // export ... from '...'
-    // simplified: match "export" followed by anything up to "from"
-    exportFrom: /export\s+[\s\S]*?from\s+['"]([^'"]+)['"]/g,
+    exportFrom: /export\s+(?:[^;'"\x2f]|'[^']*'|"[^"]*"|\/\/[^\n]*|\/\*[\s\S]*?\*\/|\/(?![/*]))*?\s+from\s+['"]([^'"]+)['"]/g,
     
     // require('...')
     require: /require\s*\(\s*['"]([^'"]+)['"]\s*\)/g,
