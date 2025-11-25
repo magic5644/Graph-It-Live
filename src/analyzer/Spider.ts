@@ -116,9 +116,10 @@ export class Spider {
     const startTime = Date.now();
 
     const crawlRecursive = async (filePath: string, depth: number) => {
-      // Stop if max depth reached
-      if (depth > this.config.maxDepth) {
-        console.log(`[Spider] Max depth ${this.config.maxDepth} reached at ${filePath}`);
+      // Stop if max depth reached (use a safe default if undefined)
+      const maxDepth = this.config.maxDepth ?? 3;
+      if (depth > maxDepth) {
+        console.log(`[Spider] Max depth ${maxDepth} reached at ${filePath}`);
         return;
       }
 
@@ -155,7 +156,7 @@ export class Spider {
     await crawlRecursive(startPath, 0);
 
     const duration = Date.now() - startTime;
-    console.log(`[Spider] Crawled ${nodes.size} nodes and ${edges.length} edges in ${duration}ms (maxDepth=${this.config.maxDepth})`);
+    console.log(`[Spider] Crawled ${nodes.size} nodes and ${edges.length} edges in ${duration}ms (maxDepth=${this.config.maxDepth ?? 3})`);
 
     return {
       nodes: Array.from(nodes),

@@ -1,0 +1,21 @@
+{
+  "extends": "./tsconfig.webview.json",
+  "compilerOptions": {
+    "rootDir": ".",
+    "composite": true,
+    "declaration": true,
+    "declarationMap": true,
+    "emitDeclarationOnly": true,
+    "noEmit": false
+  },
+  "include": [
+    "src/webview/**/*",
+    "src/shared/**/*",
+    "tests/webview/**/*"
+  ],
+  "exclude": [
+    "node_modules",
+    "dist",
+    "out"
+  ]
+}

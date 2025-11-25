@@ -1,7 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { PathResolver } from '../../src/analyzer/PathResolver';
 import * as fs from 'node:fs/promises';
-import * as path from 'node:path';
 
 vi.mock('node:fs/promises');
 

@@ -5,7 +5,6 @@ import { Spider } from '../../src/analyzer/Spider';
 
 // Mock vscode
 vi.mock('vscode', () => {
-    const postMessage = vi.fn();
     return {
         Uri: {
             file: (path: string) => ({ fsPath: path }),
@@ -111,7 +110,7 @@ describe('GraphProvider', () => {
             nodes: ['/root/src/main.ts'],
             edges: []
         };
-        (provider['_spider'].crawl as any).mockResolvedValue(mockGraphData);
+        ((provider as any)['_spider'].crawl as any).mockResolvedValue(mockGraphData);
 
         await provider.updateGraph();
 

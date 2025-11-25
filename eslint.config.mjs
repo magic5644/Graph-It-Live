@@ -18,7 +18,8 @@ export default tseslint.config(
                 ...globals.es2020,
             },
             parserOptions: {
-                project: ['./tsconfig.json', './tsconfig.webview.json', './tsconfig.test.json'],
+                // point ESLint to the area-specific test tsconfigs so tests are type-checked
+                project: ['./tsconfig.json', './tsconfig.webview.json', './tsconfig.test.node.json', './tsconfig.test.webview.json'],
                 tsconfigRootDir: import.meta.dirname,
             },
         },
