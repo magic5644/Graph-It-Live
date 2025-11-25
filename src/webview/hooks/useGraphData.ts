@@ -296,6 +296,7 @@ export const useGraphData = () => {
                 : { stroke: 'var(--vscode-editor-foreground)' },
             label: isCircular ? 'Cycle' : undefined,
             labelStyle: isCircular ? { fill: '#ff4d4d', fontWeight: 'bold' } : undefined,
+            labelBgStyle: isCircular ? { fill: 'var(--vscode-editor-background)' } : undefined,
         };
     });
 
