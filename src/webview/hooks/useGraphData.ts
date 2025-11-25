@@ -175,7 +175,8 @@ export const useGraphData = () => {
     console.log('Graph-It-Live Webview: Checking incoming edges for', currentFilePath);
     const incomingEdges = fullGraphData.edges.filter(e => {
         const isMatch = e.target === currentFilePath;
-        if (!isMatch && e.target.endsWith(currentFilePath.split('/').pop() || '')) {
+        if (!isMatch && e.target.endsWith(currentFilePath.split(/[/\\]/).pop() || '')) {
+
              console.log('Graph-It-Live Webview: Potential path mismatch?', e.target, currentFilePath);
         }
         return isMatch;
@@ -196,17 +197,17 @@ export const useGraphData = () => {
     // Calculate filename frequencies to detect duplicates
     const fileNameCounts = new Map<string, number>();
     visibleNodes.forEach(path => {
-        const fileName = path.split('/').pop() || path;
+        const fileName = path.split(/[/\\]/).pop() || path;
         fileNameCounts.set(fileName, (fileNameCounts.get(fileName) || 0) + 1);
     });
 
     visibleNodes.forEach(path => {
-        const fileName = path.split('/').pop() || path;
+        const fileName = path.split(/[/\\]/).pop() || path;
         
         // Disambiguate if multiple files have the same name
         let label = fileName;
         if ((fileNameCounts.get(fileName) || 0) > 1) {
-            const parentDir = path.split('/').slice(-2, -1)[0];
+            const parentDir = path.split(/[/\\]/).slice(-2, -1)[0];
             if (parentDir) {
                 label = `${parentDir}/${fileName}`;
             }
@@ -400,7 +401,7 @@ export const useGraphData = () => {
     };
   }, []);
 
-  const onNodeClick = useCallback((event: React.MouseEvent, node: Node) => {
+  const onNodeClick = useCallback((_event: React.MouseEvent, node: Node) => {
     // If clicking on the expand button, don't open file
     // This is handled by the custom node component
     // But if clicking the body, we open the file
