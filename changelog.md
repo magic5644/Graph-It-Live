@@ -1,3 +1,9 @@
-# v1.1.2
+# Changelog 
+
+## v1.1.3
+
+- Improve cross-platform path handling.
+
+## v1.1.2
 
 - Fix a bug that show orphan cycle edge in certain cases.
