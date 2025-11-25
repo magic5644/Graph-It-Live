@@ -71,13 +71,20 @@ const CustomNode = ({ data, isConnectable }: NodeProps) => {
                         justifyContent: 'center',
                         cursor: 'pointer',
                         fontSize: '14px',
-                        fontWeight: 'bold',
                         zIndex: 10,
                         pointerEvents: 'auto', // Re-enable pointer events for the button
                         border: '2px solid var(--vscode-editor-background)'
                     }}
                 >
-                    {data.isExpanded ? '-' : '+'}
+                    {data.isExpanded ? (
+                        <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="4" strokeLinecap="round" strokeLinejoin="round">
+                            <path d="M5 12h14" />
+                        </svg>
+                    ) : (
+                        <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="4" strokeLinecap="round" strokeLinejoin="round">
+                            <path d="M12 5v14M5 12h14" />
+                        </svg>
+                    )}
                 </div>
             )}
 
