@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach } from 'vitest';
-import { Cache } from '@/analyzer/Cache';
+import { Cache } from '../../src/analyzer/Cache';
 
 describe('Cache', () => {
     let cache: Cache<string>;
@@ -82,6 +82,7 @@ describe('Cache', () => {
     });
 
     it('should overwrite existing values', () => {
+        // We overrite existing values
         cache.set('key1', 'value1');
         cache.set('key1', 'value2');
         
