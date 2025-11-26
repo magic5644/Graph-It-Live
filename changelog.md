@@ -1,4 +1,8 @@
-# Changelog 
+# Changelog
+
+## v1.1.4
+
+- Fix a bug that caused incorrect display on Windows systems.
 
 ## v1.1.3
 

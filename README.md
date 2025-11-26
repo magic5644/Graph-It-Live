@@ -48,6 +48,7 @@ The extension is also available on the [Open VSX Registry](https://open-vsx.org/
    - Click the **Graph-It-Live** icon in the Activity Bar (left sidebar).
    - Or run the command: `Graph-It-Live: Show Dependency Graph`.
    - Or click the graph icon in the editor title bar when viewing a supported file.
+   - View can be moved to another panel by dragging and dropping the tab.
 3. **Interact**:
    - **Navigate**: Click a node to open the file.
     - **Expand**: Click the small `+` button on a node to reveal its dependencies.
