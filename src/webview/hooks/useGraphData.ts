@@ -24,6 +24,20 @@ const vscode = (function() {
     }
 })();
 
+/**
+ * Collect all nodes that have children (are sources of edges)
+ */
+function collectNodesWithChildren(filePath: string | undefined, edges: { source: string; target: string }[]): Set<string> {
+    const allNodesWithChildren = new Set<string>();
+    if (filePath) {
+        allNodesWithChildren.add(filePath);
+    }
+    for (const edge of edges) {
+        allNodesWithChildren.add(edge.source);
+    }
+    return allNodesWithChildren;
+}
+
 const nodeWidth = 180;
 const nodeHeight = 50;
 
@@ -356,23 +370,21 @@ export const useGraphData = () => {
             setCurrentFilePath(message.filePath);
             setFullGraphData(message.data);
             // Set expandAll from message if present
-            if (message.expandAll !== undefined) {
-                setExpandAll(message.expandAll);
-                
-                // If expandAll is true, we need to populate expandedNodes
-                if (message.expandAll && message.data) {
-                    const allNodesWithChildren = new Set<string>();
-                    if (message.filePath) allNodesWithChildren.add(message.filePath);
-                    message.data.edges.forEach(edge => {
-                        allNodesWithChildren.add(edge.source);
-                    });
-                    setExpandedNodes(allNodesWithChildren);
-                } else {
-                    // Reset expanded nodes on new graph load, or keep root expanded
-                    setExpandedNodes(new Set([message.filePath])); 
-                }
-            } else {
+            if (message.expandAll === undefined) {
                 // Default behavior if expandAll not provided
+                setExpandedNodes(new Set([message.filePath])); 
+                return;
+            }
+            
+            setExpandAll(message.expandAll);
+            
+            // If expandAll is true, we need to populate expandedNodes
+            const shouldExpandAll = message.expandAll && message.data;
+            if (shouldExpandAll) {
+                const allNodesWithChildren = collectNodesWithChildren(message.filePath, message.data.edges);
+                setExpandedNodes(allNodesWithChildren);
+            } else {
+                // Reset expanded nodes on new graph load, or keep root expanded
                 setExpandedNodes(new Set([message.filePath])); 
             }
         }, 100);

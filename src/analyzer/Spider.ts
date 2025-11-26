@@ -233,13 +233,100 @@ export class Spider {
 
 
   /**
+   * Check if a directory should be skipped during traversal
+   */
+  private shouldSkipDirectory(entryName: string): boolean {
+    if (this.config.excludeNodeModules && entryName === 'node_modules') {
+      return true;
+    }
+    return entryName.startsWith('.');
+  }
+
+  /**
+   * Check if a file is a supported source file
+   */
+  private isSupportedSourceFile(fileName: string): boolean {
+    return /\.(ts|tsx|js|jsx|vue|svelte)$/.test(fileName);
+  }
+
+  /**
+   * Extract the basename (without extension) from a file path
+   */
+  private extractBasename(filePath: string): string | undefined {
+    return filePath.split(/[/\\]/).pop()?.replace(/\.[^/.]+$/, '');
+  }
+
+  /**
+   * Check if a file contains a reference to the target and return the dependency if found
+   */
+  private async findReferenceInFile(
+    filePath: string,
+    targetPath: string,
+    targetBasename: string
+  ): Promise<Dependency | null> {
+    try {
+      const content = await fs.readFile(filePath, 'utf-8');
+      if (!content.includes(targetBasename)) {
+        return null;
+      }
+
+      const dependencies = await this.analyze(filePath);
+      const matchingDep = dependencies.find(dep => dep.path === targetPath);
+      
+      if (matchingDep) {
+        console.log(`[Spider] Found reference in ${filePath}`);
+        return {
+          path: filePath,
+          type: matchingDep.type,
+          line: matchingDep.line,
+          module: matchingDep.module
+        };
+      }
+    } catch (error) {
+      console.error(`[Spider] Error checking references in ${filePath}:`, error);
+    }
+    return null;
+  }
+
+  /**
+   * Recursively walk a directory and collect file references
+   */
+  private async walkDirectory(
+    dir: string,
+    targetPath: string,
+    targetBasename: string,
+    referencingFiles: Dependency[]
+  ): Promise<void> {
+    const entries = await fs.readdir(dir, { withFileTypes: true });
+
+    for (const entry of entries) {
+      const fullPath = path.join(dir, entry.name);
+
+      if (entry.isDirectory()) {
+        if (!this.shouldSkipDirectory(entry.name)) {
+          await this.walkDirectory(fullPath, targetPath, targetBasename, referencingFiles);
+        }
+        continue;
+      }
+
+      if (!entry.isFile() || !this.isSupportedSourceFile(entry.name) || fullPath === targetPath) {
+        continue;
+      }
+
+      const reference = await this.findReferenceInFile(fullPath, targetPath, targetBasename);
+      if (reference) {
+        referencingFiles.push(reference);
+      }
+    }
+  }
+
+  /**
    * Find files that reference the given file (reverse dependency lookup)
    * @param targetPath Absolute path to the file to find references for
    * @returns Array of dependencies pointing to the target file
    */
   async findReferencingFiles(targetPath: string): Promise<Dependency[]> {
-    const referencingFiles: Dependency[] = [];
-    const targetBasename = targetPath.split(/[/\\]/).pop()?.replace(/\.[^/.]+$/, ''); // filename without extension
+    const targetBasename = this.extractBasename(targetPath);
     
     if (!targetBasename) {
       return [];
@@ -247,65 +334,8 @@ export class Spider {
 
     console.log(`[Spider] Finding references for ${targetPath} (basename: ${targetBasename})`);
 
-    // Helper to recursively walk directory
-    const walk = async (dir: string) => {
-      const entries = await fs.readdir(dir, { withFileTypes: true });
-      
-      for (const entry of entries) {
-        const fullPath = path.join(dir, entry.name);
-        
-        if (entry.isDirectory()) {
-          // Skip node_modules if configured
-          if (this.config.excludeNodeModules && entry.name === 'node_modules') {
-            continue;
-          }
-          // Skip .git and other hidden dirs
-          if (entry.name.startsWith('.')) {
-            continue;
-          }
-          await walk(fullPath);
-        } else if (entry.isFile()) {
-          // Only check supported files
-          if (!/\.(ts|tsx|js|jsx|vue|svelte)$/.test(entry.name)) {
-            continue;
-          }
-          
-          // Skip the target file itself
-          if (fullPath === targetPath) {
-            continue;
-          }
-
-          try {
-            // Optimization: Quick check if file content contains the target basename
-            const content = await fs.readFile(fullPath, 'utf-8');
-            if (!content.includes(targetBasename)) {
-              continue;
-            }
-
-            // Parse imports
-            const dependencies = await this.analyze(fullPath);
-            
-            // Check if any dependency resolves to targetPath
-            for (const dep of dependencies) {
-              if (dep.path === targetPath) {
-                console.log(`[Spider] Found reference in ${fullPath}`);
-                referencingFiles.push({
-                  path: fullPath, // The file DOING the importing
-                  type: dep.type,
-                  line: dep.line,
-                  module: dep.module
-                });
-                break; // Found a reference, no need to check other imports in this file
-              }
-            }
-          } catch (error) {
-            console.error(`[Spider] Error checking references in ${fullPath}:`, error);
-          }
-        }
-      }
-    };
-
-    await walk(this.config.rootDir);
+    const referencingFiles: Dependency[] = [];
+    await this.walkDirectory(this.config.rootDir, targetPath, targetBasename, referencingFiles);
     return referencingFiles;
   }
 

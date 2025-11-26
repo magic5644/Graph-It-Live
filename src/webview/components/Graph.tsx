@@ -50,12 +50,14 @@ const CustomNode = ({ data, isConnectable }: NodeProps) => {
             )}
 
             {data.hasChildren && (
-                <div
+                <button
+                    type="button"
                     onClick={(e) => {
                         e.stopPropagation(); // Prevent opening file
                         // Always use toggleNode - children are already in the graph
                         data.onToggle();
                     }}
+                    aria-label={data.isExpanded ? 'Collapse node' : 'Expand node'}
                     style={{
                         position: 'absolute',
                         right: -10,
@@ -73,7 +75,8 @@ const CustomNode = ({ data, isConnectable }: NodeProps) => {
                         fontSize: '14px',
                         zIndex: 10,
                         pointerEvents: 'auto', // Re-enable pointer events for the button
-                        border: '2px solid var(--vscode-editor-background)'
+                        border: '2px solid var(--vscode-editor-background)',
+                        padding: 0
                     }}
                 >
                     {data.isExpanded ? (
@@ -86,10 +89,8 @@ const CustomNode = ({ data, isConnectable }: NodeProps) => {
                             strokeWidth="4"
                             strokeLinecap="round"
                             strokeLinejoin="round"
-                            role="img"
-                            aria-label="Collapse node"
+                            aria-hidden="true"
                         >
-                            <title>Collapse node</title>
                             <path d="M5 12h14" />
                         </svg>
                     ) : (
@@ -102,23 +103,24 @@ const CustomNode = ({ data, isConnectable }: NodeProps) => {
                             strokeWidth="4"
                             strokeLinecap="round"
                             strokeLinejoin="round"
-                            role="img"
-                            aria-label="Expand node"
+                            aria-hidden="true"
                         >
-                            <title>Expand node</title>
                             <path d="M12 5v14M5 12h14" />
                         </svg>
                     )}
-                </div>
+                </button>
             )}
 
             {/* Referenced By Button (Only for Root) */}
             {data.isRoot && (
-                <div
+                <button
+                    type="button"
                     onClick={(e) => {
                         e.stopPropagation();
                         data.onFindReferences?.();
                     }}
+                    aria-label="Find referencing files"
+                    title="Find referencing files"
                     style={{
                         position: 'absolute',
                         left: -24, // Moved further left to avoid overlap
@@ -137,12 +139,12 @@ const CustomNode = ({ data, isConnectable }: NodeProps) => {
                         fontWeight: 'bold',
                         zIndex: 10,
                         pointerEvents: 'auto',
-                        border: '2px solid var(--vscode-editor-background)'
+                        border: '2px solid var(--vscode-editor-background)',
+                        padding: 0
                     }}
-                    title="Find referencing files"
                 >
                     ◀
-                </div>
+                </button>
             )}
 
             <Handle type="source" position={Position.Right} isConnectable={isConnectable} style={{ visibility: 'hidden' }} />
@@ -271,9 +273,9 @@ const GraphContent: React.FC = () => {
                 <button
                     onClick={() => toggleExpandAll(false)}
                     style={{
-                        background: !expandAll ? 'var(--vscode-button-hoverBackground)' : 'var(--vscode-button-background)',
+                        background: expandAll ? 'var(--vscode-button-background)' : 'var(--vscode-button-hoverBackground)',
                         color: 'var(--vscode-button-foreground)',
-                        border: !expandAll ? '1px solid var(--vscode-focusBorder)' : 'none',
+                        border: expandAll ? 'none' : '1px solid var(--vscode-focusBorder)',
                         borderRadius: 4,
                         padding: '6px 12px',
                         cursor: 'pointer',

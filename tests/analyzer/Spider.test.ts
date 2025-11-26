@@ -83,4 +83,78 @@ describe('Spider', () => {
       expect(dep.line).toBeGreaterThan(0);
     });
   });
+
+  it('should update configuration', () => {
+    spider.updateConfig({ excludeNodeModules: false, maxDepth: 10 });
+    const stats = spider.getCacheStats();
+    expect(stats.size).toBe(0); // Cache should be cleared
+  });
+
+  it('should clear cache', async () => {
+    const mainFile = path.join(fixturesPath, 'src/main.ts');
+    await spider.analyze(mainFile);
+    
+    expect(spider.getCacheStats().size).toBeGreaterThan(0);
+    
+    spider.clearCache();
+    expect(spider.getCacheStats().size).toBe(0);
+  });
+
+  it('should get cache statistics', async () => {
+    const mainFile = path.join(fixturesPath, 'src/main.ts');
+    await spider.analyze(mainFile);
+    
+    const stats = spider.getCacheStats();
+    expect(stats.size).toBeGreaterThan(0);
+  });
+});
+
+describe('Spider - crawlFrom', () => {
+  let spider: Spider;
+
+  beforeEach(() => {
+    spider = new Spider({
+      rootDir: fixturesPath,
+      tsConfigPath: path.join(fixturesPath, 'tsconfig.json'),
+    });
+  });
+
+  it('should discover new dependencies from a node', async () => {
+    const mainFile = path.join(fixturesPath, 'src/main.ts');
+    const existingNodes = new Set<string>();
+    
+    const result = await spider.crawlFrom(mainFile, existingNodes, 5);
+    
+    expect(result.nodes.length).toBeGreaterThan(0);
+    expect(result.edges.length).toBeGreaterThan(0);
+  });
+
+  it('should not rediscover already known nodes', async () => {
+    const mainFile = path.join(fixturesPath, 'src/main.ts');
+    const utilsFile = path.join(fixturesPath, 'src/utils.ts');
+    
+    // First crawl to discover utils
+    const firstResult = await spider.crawlFrom(mainFile, new Set(), 5);
+    expect(firstResult.nodes).toContain(utilsFile);
+    
+    // Second crawl with utils already known
+    const existingNodes = new Set([mainFile, utilsFile]);
+    const secondResult = await spider.crawlFrom(mainFile, existingNodes, 5);
+    
+    // Should not include main and utils in new nodes
+    expect(secondResult.nodes).not.toContain(mainFile);
+    expect(secondResult.nodes).not.toContain(utilsFile);
+  });
+
+  it('should respect extra depth limit', async () => {
+    const mainFile = path.join(fixturesPath, 'src/main.ts');
+    
+    // Crawl with very limited depth
+    const result = await spider.crawlFrom(mainFile, new Set(), 0);
+    
+    // With depth 0, it still analyzes the start node (depth 0) 
+    // but shouldn't recurse into children (depth 1)
+    // main.ts has 2 immediate dependencies (utils, Button)
+    expect(result.edges.length).toBe(2);
+  });
 });
