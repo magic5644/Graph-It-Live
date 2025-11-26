@@ -1,4 +1,5 @@
 import * as fs from 'node:fs/promises';
+import * as path from 'node:path';
 import { Parser } from './Parser';
 import { PathResolver } from './PathResolver';
 import { Cache } from './Cache';
@@ -251,7 +252,7 @@ export class Spider {
       const entries = await fs.readdir(dir, { withFileTypes: true });
       
       for (const entry of entries) {
-        const fullPath = `${dir}/${entry.name}`; // Simple path join
+        const fullPath = path.join(dir, entry.name);
         
         if (entry.isDirectory()) {
           // Skip node_modules if configured
