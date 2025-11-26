@@ -217,7 +217,7 @@ export const useGraphData = () => {
         const isJs = fileName.endsWith('.js') || fileName.endsWith('.jsx');
         const isVue = fileName.endsWith('.vue');
         const isSvelte = fileName.endsWith('.svelte');
-        const isNodeModule = !path.startsWith('/') && !path.match(/^[a-zA-Z]:/) && !path.startsWith('.') && !path.includes('/') && !path.includes('\\');
+        const isNodeModule = /^(?!\.|\/|\\|[a-zA-Z]:)/.test(path);
         const isRoot = path === currentFilePath;
         
         // Check if node has children (outgoing edges) in the full graph
