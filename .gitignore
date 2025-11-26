@@ -153,3 +153,7 @@ vite.config.ts.timestamp-*
 # Copilot files
 .copilot/
 .github/copilot-instructions.md
+.github/agents
+mcp.json
+
+
