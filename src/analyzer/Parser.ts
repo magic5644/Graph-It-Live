@@ -77,10 +77,12 @@ export class Parser {
    */
   private stripComments(content: string): string {
     // Match strings OR comments
-    // Group 1: Strings (double or single quoted)
+    // Group 1: Strings (single or double quoted)
     // Group 2: Comments (single line or block)
-    const pattern = /('[^']*'|"[^"]*")|(\/\/[^\n]*|\/\*[\s\S]*?\*\/)/g;
-    return content.replaceAll(pattern, (_, str, comment) => {
+    const stringPattern = /'[^']*'|"[^"]*"/;
+    const commentPattern = /\/\/[^\n]*|\/\*[\s\S]*?\*\//;
+    const combinedPattern = new RegExp(`(${stringPattern.source})|(${commentPattern.source})`, 'g');
+    return content.replaceAll(combinedPattern, (_, str, comment) => {
       if (str) {
         return str; // Keep strings
       }

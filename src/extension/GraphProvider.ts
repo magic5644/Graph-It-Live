@@ -45,6 +45,71 @@ export class GraphProvider implements vscode.WebviewViewProvider {
         }
     }
 
+    /**
+     * Handle openFile message
+     */
+    private async handleOpenFile(filePath: string): Promise<void> {
+        try {
+            console.log('GraphProvider: Opening file', filePath);
+            const doc = await vscode.workspace.openTextDocument(filePath);
+            await vscode.window.showTextDocument(doc, vscode.ViewColumn.One);
+        } catch (e) {
+            console.error('GraphProvider: Error opening file', e);
+            vscode.window.showErrorMessage(`Could not open file: ${filePath}`);
+        }
+    }
+
+    /**
+     * Handle expandNode message
+     */
+    private async handleExpandNode(nodeId: string, knownNodes: string[] | undefined): Promise<void> {
+        if (!this._spider) {
+            return;
+        }
+        try {
+            console.log(`GraphProvider: Expanding node ${nodeId}`);
+            const knownNodesSet = new Set(knownNodes || []);
+            const newGraphData = await this._spider.crawlFrom(nodeId, knownNodesSet, 10);
+            
+            const expandedMessage: ExtensionToWebviewMessage = {
+                command: 'expandedGraph',
+                nodeId: nodeId,
+                data: newGraphData,
+            };
+            this._view?.webview.postMessage(expandedMessage);
+        } catch (e) {
+            console.error('GraphProvider: Error expanding node', e);
+        }
+    }
+
+    /**
+     * Handle findReferencingFiles message
+     */
+    private async handleFindReferencingFiles(nodeId: string): Promise<void> {
+        if (!this._spider) {
+            return;
+        }
+        try {
+            console.log(`GraphProvider: Finding referencing files for ${nodeId}`);
+            const referencingFiles = await this._spider.findReferencingFiles(nodeId);
+            
+            const nodes = referencingFiles.map(d => d.path);
+            const edges = referencingFiles.map(d => ({
+                source: d.path,
+                target: nodeId
+            }));
+            
+            const response: ExtensionToWebviewMessage = {
+                command: 'referencingFiles',
+                nodeId: nodeId,
+                data: { nodes, edges }
+            };
+            this._view?.webview.postMessage(response);
+        } catch (e) {
+            console.error('GraphProvider: Error finding referencing files', e);
+        }
+    }
+
     public resolveWebviewView(
         webviewView: vscode.WebviewView,
         _context: vscode.WebviewViewResolveContext,
@@ -66,39 +131,13 @@ export class GraphProvider implements vscode.WebviewViewProvider {
             switch (message.command) {
                 case 'openFile':
                     if (message.path) {
-                        try {
-                            console.log('GraphProvider: Opening file', message.path);
-                            const doc = await vscode.workspace.openTextDocument(message.path);
-                            await vscode.window.showTextDocument(doc, vscode.ViewColumn.One);
-                        } catch (e) {
-                            console.error('GraphProvider: Error opening file', e);
-                            vscode.window.showErrorMessage(`Could not open file: ${message.path}`);
-                        }
+                        await this.handleOpenFile(message.path);
                     }
                     break;
                 case 'expandNode':
-                    // Handle on-demand node expansion
-                    if (message.nodeId && this._spider) {
-                        try {
-                            console.log(`GraphProvider: Expanding node ${message.nodeId}`);
-                            const knownNodesSet = new Set(message.knownNodes || []);
-                            const newGraphData = await this._spider.crawlFrom(
-                                message.nodeId,
-                                knownNodesSet,
-                                10 // extraDepth
-                            );
-                            
-                            const expandedMessage: ExtensionToWebviewMessage = {
-                                command: 'expandedGraph',
-                                nodeId: message.nodeId,
-                                data: newGraphData,
-                            };
-                            this._view?.webview.postMessage(expandedMessage);
-                        } catch (e) {
-                            console.error('GraphProvider: Error expanding node', e);
-                        }
+                    if (message.nodeId) {
+                        await this.handleExpandNode(message.nodeId, message.knownNodes);
                     }
-                    break;
                     break;
                 case 'setExpandAll':
                     console.log(`GraphProvider: Setting expandAll to ${message.expandAll}`);
@@ -109,27 +148,8 @@ export class GraphProvider implements vscode.WebviewViewProvider {
                     this.updateGraph();
                     break;
                 case 'findReferencingFiles':
-                    if (message.nodeId && this._spider) {
-                        try {
-                            console.log(`GraphProvider: Finding referencing files for ${message.nodeId}`);
-                            const referencingFiles = await this._spider.findReferencingFiles(message.nodeId);
-                            
-                            // Convert dependencies to graph data
-                            const nodes = referencingFiles.map(d => d.path);
-                            const edges = referencingFiles.map(d => ({
-                                source: d.path,
-                                target: message.nodeId
-                            }));
-                            
-                            const response: ExtensionToWebviewMessage = {
-                                command: 'referencingFiles',
-                                nodeId: message.nodeId,
-                                data: { nodes, edges }
-                            };
-                            this._view?.webview.postMessage(response);
-                        } catch (e) {
-                            console.error('GraphProvider: Error finding referencing files', e);
-                        }
+                    if (message.nodeId) {
+                        await this.handleFindReferencingFiles(message.nodeId);
                     }
                     break;
             }

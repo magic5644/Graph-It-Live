@@ -130,6 +130,7 @@
     "@types/react": "^19.2.6",
     "@types/react-dom": "^19.2.3",
     "@types/vscode": "^1.85.0",
+    "@vitest/coverage-v8": "^4.0.14",
     "@vscode/test-electron": "^2.3.8",
     "@vscode/vsce": "^3.7.0",
     "esbuild": "^0.27.0",

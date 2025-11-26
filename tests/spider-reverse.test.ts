@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import * as path from 'path';
-import * as fs from 'fs/promises';
+import * as path from 'node:path';
+import * as fs from 'node:fs/promises';
 import { Spider } from '../src/analyzer/Spider';
 
 const FIXTURES_DIR = path.join(__dirname, 'fixtures', 'reverse-deps');
@@ -57,6 +57,59 @@ describe('Spider - Reverse Dependencies', () => {
         const dPath = path.join(FIXTURES_DIR, 'd.ts');
         const referencingFiles = await spider.findReferencingFiles(dPath);
         
+        expect(referencingFiles).toHaveLength(0);
+    });
+
+    it('should skip node_modules directory when excludeNodeModules is true', async () => {
+        // Create a node_modules directory with a file that imports b.ts
+        const nodeModulesDir = path.join(FIXTURES_DIR, 'node_modules');
+        await fs.mkdir(nodeModulesDir, { recursive: true });
+        await fs.writeFile(path.join(nodeModulesDir, 'some-lib.ts'), `import { b } from '../b';`);
+
+        const bPath = path.join(FIXTURES_DIR, 'b.ts');
+        const referencingFiles = await spider.findReferencingFiles(bPath);
+        
+        // Should NOT include files from node_modules
+        const referencingPaths = referencingFiles.map(d => d.path);
+        expect(referencingPaths.some(p => p.includes('node_modules'))).toBe(false);
+        
+        await fs.rm(nodeModulesDir, { recursive: true, force: true });
+    });
+
+    it('should skip hidden directories', async () => {
+        // Create a .hidden directory with a file that imports b.ts
+        const hiddenDir = path.join(FIXTURES_DIR, '.hidden');
+        await fs.mkdir(hiddenDir, { recursive: true });
+        await fs.writeFile(path.join(hiddenDir, 'hidden.ts'), `import { b } from '../b';`);
+
+        const bPath = path.join(FIXTURES_DIR, 'b.ts');
+        const referencingFiles = await spider.findReferencingFiles(bPath);
+        
+        // Should NOT include files from hidden directories
+        const referencingPaths = referencingFiles.map(d => d.path);
+        expect(referencingPaths.some(p => p.includes('.hidden'))).toBe(false);
+        
+        await fs.rm(hiddenDir, { recursive: true, force: true });
+    });
+
+    it('should only check supported file types', async () => {
+        // Create files with unsupported extensions
+        await fs.writeFile(path.join(FIXTURES_DIR, 'readme.md'), `import { b } from './b';`);
+        await fs.writeFile(path.join(FIXTURES_DIR, 'config.json'), `{"import": "./b"}`);
+
+        const bPath = path.join(FIXTURES_DIR, 'b.ts');
+        const referencingFiles = await spider.findReferencingFiles(bPath);
+        
+        // Should only find .ts files
+        const referencingPaths = referencingFiles.map(d => d.path);
+        expect(referencingPaths.every(p => /\.(ts|tsx|js|jsx|vue|svelte)$/.test(p))).toBe(true);
+        
+        await fs.rm(path.join(FIXTURES_DIR, 'readme.md'));
+        await fs.rm(path.join(FIXTURES_DIR, 'config.json'));
+    });
+
+    it('should return empty array for invalid path with no basename', async () => {
+        const referencingFiles = await spider.findReferencingFiles('');
         expect(referencingFiles).toHaveLength(0);
     });
 });
