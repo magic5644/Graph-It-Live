@@ -24,11 +24,13 @@
   },
   "keywords": [
     "dependency graph",
+    "dependencies",
     "visualization",
     "typescript",
     "javascript",
     "vue",
     "svelte",
+    "graphql",
     "architecture",
     "circular dependencies",
     "refactoring",
@@ -103,7 +105,7 @@
         },
         "graph-it-live.enableBackgroundIndexing": {
           "type": "boolean",
-          "default": false,
+          "default": true,
           "description": "Enable background indexing for faster reverse dependency lookups. When enabled, the extension will index all files in the workspace at startup."
         },
         "graph-it-live.persistIndex": {
