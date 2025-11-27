@@ -3,7 +3,10 @@ import * as path from 'node:path';
 import { Parser } from './Parser';
 import { PathResolver } from './PathResolver';
 import { Cache } from './Cache';
-import { Dependency, SpiderConfig } from './types';
+import { ReverseIndex } from './ReverseIndex';
+import { IndexerStatus, IndexerStatusSnapshot } from './IndexerStatus';
+import { IndexerWorkerHost } from './IndexerWorkerHost';
+import { Dependency, SpiderConfig, IndexingProgressCallback } from './types';
 
 /**
  * Main analyzer class - "The Spider"
@@ -19,10 +22,23 @@ export class Spider {
   private readonly cache: Cache<Dependency[]>;
   private readonly config: SpiderConfig;
 
+  /** Reverse index for O(1) reverse dependency lookups */
+  private reverseIndex: ReverseIndex | null = null;
+
+  /** Indexer status tracker for progress monitoring */
+  private readonly indexerStatus: IndexerStatus = new IndexerStatus();
+
+  /** Worker host for background indexing (optional, used when useWorkerThread is true) */
+  private workerHost: IndexerWorkerHost | null = null;
+
+  /** Flag to request cancellation of indexing */
+  private indexingCancelled = false;
+
   constructor(config: SpiderConfig) {
     this.config = {
       maxDepth: 3,
       excludeNodeModules: true,
+      indexingConcurrency: 4, // Default to 4 for better event loop responsiveness
       ...config,
     };
     
@@ -32,6 +48,11 @@ export class Spider {
       this.config.excludeNodeModules
     );
     this.cache = new Cache();
+
+    // Initialize reverse index if enabled
+    if (config.enableReverseIndex) {
+      this.reverseIndex = new ReverseIndex(config.rootDir);
+    }
   }
 
   /**
@@ -43,6 +64,21 @@ export class Spider {
     
     if (config.excludeNodeModules !== undefined) {
       this.resolver.updateConfig(config.excludeNodeModules);
+    }
+
+    // Handle reverse index enable/disable
+    if (config.enableReverseIndex !== undefined) {
+      this.config.enableReverseIndex = config.enableReverseIndex;
+      if (config.enableReverseIndex && !this.reverseIndex) {
+        this.reverseIndex = new ReverseIndex(this.config.rootDir);
+      } else if (!config.enableReverseIndex) {
+        this.reverseIndex?.clear();
+        this.reverseIndex = null;
+      }
+    }
+
+    if (config.indexingConcurrency !== undefined) {
+      this.config.indexingConcurrency = config.indexingConcurrency;
     }
     
     // Clear cache as config changed
@@ -87,6 +123,14 @@ export class Spider {
       // Cache results
       this.cache.set(filePath, dependencies);
 
+      // Update reverse index if enabled
+      if (this.reverseIndex) {
+        const fileHash = await ReverseIndex.getFileHashFromDisk(filePath);
+        if (fileHash) {
+          this.reverseIndex.addDependencies(filePath, dependencies, fileHash);
+        }
+      }
+
       return dependencies;
     } catch (error) {
       // Re-throw with more context
@@ -102,6 +146,391 @@ export class Spider {
    */
   clearCache(): void {
     this.cache.clear();
+    this.reverseIndex?.clear();
+  }
+
+  /**
+   * Enable reverse indexing and optionally restore from serialized data
+   */
+  enableReverseIndex(serializedData?: string): boolean {
+    this.reverseIndex ??= new ReverseIndex(this.config.rootDir);
+    this.config.enableReverseIndex = true;
+
+    if (serializedData) {
+      try {
+        const data = JSON.parse(serializedData);
+        const restored = ReverseIndex.deserialize(data, this.config.rootDir);
+        if (restored) {
+          this.reverseIndex = restored;
+          console.log(`[Spider] Restored reverse index with ${restored.indexedFileCount} files`);
+          return true;
+        }
+      } catch (error) {
+        console.error('[Spider] Failed to restore reverse index:', error);
+      }
+    }
+    return false;
+  }
+
+  /**
+   * Disable reverse indexing and clear the index
+   */
+  disableReverseIndex(): void {
+    this.config.enableReverseIndex = false;
+    this.reverseIndex?.clear();
+    this.reverseIndex = null;
+  }
+
+  /**
+   * Get the serialized reverse index for persistence
+   */
+  getSerializedReverseIndex(): string | null {
+    if (!this.reverseIndex) {
+      return null;
+    }
+    return JSON.stringify(this.reverseIndex.serialize());
+  }
+
+  /**
+   * Validate the persisted index and check for stale files
+   */
+  async validateReverseIndex(staleThreshold = 0.2): Promise<{
+    isValid: boolean;
+    staleFiles: string[];
+    stalePercentage: number;
+    missingFiles: string[];
+  } | null> {
+    if (!this.reverseIndex) {
+      return null;
+    }
+    return this.reverseIndex.validateIndex(staleThreshold);
+  }
+
+  /**
+   * Get the current indexing state
+   * @deprecated Use getIndexStatus() instead for full status information
+   */
+  getIndexingState(): IndexerStatusSnapshot['state'] {
+    return this.indexerStatus.state;
+  }
+
+  /**
+   * Get full indexer status snapshot
+   * Provides state, progress, ETA, and other useful information
+   */
+  getIndexStatus(): IndexerStatusSnapshot {
+    return this.indexerStatus.getSnapshot();
+  }
+
+  /**
+   * Subscribe to indexer status changes
+   * @param callback Function to call when status changes
+   * @returns Unsubscribe function
+   */
+  subscribeToIndexStatus(callback: (snapshot: IndexerStatusSnapshot) => void): () => void {
+    return this.indexerStatus.subscribe(callback);
+  }
+
+  /**
+   * Check if reverse index is enabled and has entries
+   */
+  hasReverseIndex(): boolean {
+    return this.reverseIndex?.hasEntries() ?? false;
+  }
+
+  /**
+   * Cancel ongoing indexing operation (works for both main thread and worker)
+   */
+  cancelIndexing(): void {
+    this.indexingCancelled = true;
+    this.workerHost?.cancel();
+  }
+
+  /** Maximum time in ms between yields to event loop (50ms = 20 yields/sec) */
+  private static readonly YIELD_INTERVAL_MS = 50;
+
+  /**
+   * Build a full reverse index of the workspace
+   * Processes files ONE BY ONE with yields to avoid blocking the event loop
+   * @param progressCallback Optional callback for progress updates (legacy support)
+   * @returns Statistics about the indexing operation
+   */
+  async buildFullIndex(
+    progressCallback?: IndexingProgressCallback
+  ): Promise<{
+    indexedFiles: number;
+    duration: number;
+    cancelled: boolean;
+  }> {
+    this.reverseIndex ??= new ReverseIndex(this.config.rootDir);
+    this.indexingCancelled = false;
+
+    // Phase 1: Counting files (with yielding for large projects)
+    this.indexerStatus.startCounting();
+    console.log('[Spider] Counting files...');
+    
+    const allFiles = await this.collectAllSourceFiles(this.config.rootDir);
+    
+    if (this.indexingCancelled) {
+      console.log('[Spider] Indexing cancelled during file counting');
+      this.indexerStatus.setCancelled();
+      return { indexedFiles: 0, duration: 0, cancelled: true };
+    }
+    
+    const totalFiles = allFiles.length;
+    this.indexerStatus.setTotal(totalFiles);
+    console.log(`[Spider] Found ${totalFiles} files to index`);
+
+    // Yield after counting to let UI update
+    await this.yieldToEventLoop();
+
+    // Phase 2: Indexing files - with time-based yielding
+    this.indexerStatus.startIndexing();
+    let processed = 0;
+    let lastYieldTime = Date.now();
+
+    try {
+      for (const filePath of allFiles) {
+        // Check cancellation at each file
+        if (this.indexingCancelled) {
+          console.log('[Spider] Indexing cancelled');
+          this.indexerStatus.setCancelled();
+          return {
+            indexedFiles: processed,
+            duration: Date.now() - (this.indexerStatus.getSnapshot().startTime ?? Date.now()),
+            cancelled: true,
+          };
+        }
+
+        try {
+          await this.analyze(filePath);
+        } catch {
+          // Silently skip failed files to avoid flooding logs on large projects
+          // The file might be malformed, binary, or inaccessible
+        }
+
+        processed++;
+        
+        // Update status (throttled internally by IndexerStatus)
+        this.indexerStatus.updateProgress(processed, filePath);
+        progressCallback?.(processed, totalFiles, filePath);
+
+        // Time-based yielding: yield if more than 50ms have passed
+        // This ensures we never block the event loop for too long
+        const now = Date.now();
+        if (now - lastYieldTime >= Spider.YIELD_INTERVAL_MS) {
+          await this.yieldToEventLoop();
+          lastYieldTime = Date.now();
+        }
+      }
+
+      this.indexerStatus.complete();
+      const snapshot = this.indexerStatus.getSnapshot();
+      const duration = Date.now() - (snapshot.startTime ?? Date.now());
+      console.log(`[Spider] Full index complete: ${processed} files in ${duration}ms`);
+
+      return {
+        indexedFiles: processed,
+        duration,
+        cancelled: false,
+      };
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Unknown error';
+      this.indexerStatus.setError(message);
+      throw error;
+    }
+  }
+
+  /**
+   * Build a full reverse index using a Worker Thread
+   * This runs the CPU-intensive work in a separate thread to avoid blocking the extension host
+   * @param workerPath Path to the compiled worker script (dist/indexerWorker.js)
+   * @param progressCallback Optional callback for progress updates (legacy support)
+   * @returns Statistics about the indexing operation
+   */
+  async buildFullIndexInWorker(
+    workerPath: string,
+    progressCallback?: IndexingProgressCallback
+  ): Promise<{
+    indexedFiles: number;
+    duration: number;
+    cancelled: boolean;
+  }> {
+    // Create worker host if not already created
+    this.workerHost ??= new IndexerWorkerHost(workerPath);
+    
+    // Ensure reverse index exists
+    this.reverseIndex ??= new ReverseIndex(this.config.rootDir);
+
+    // Subscribe to worker status updates and forward to our indexerStatus
+    const unsubscribe = this.workerHost.subscribeToStatus((snapshot) => {
+      // Mirror state to our internal indexerStatus for consistency
+      switch (snapshot.state) {
+        case 'counting':
+          this.indexerStatus.startCounting();
+          break;
+        case 'indexing':
+          if (snapshot.total > 0) {
+            this.indexerStatus.setTotal(snapshot.total);
+            this.indexerStatus.startIndexing();
+          }
+          this.indexerStatus.updateProgress(snapshot.processed, snapshot.currentFile);
+          break;
+        case 'complete':
+          this.indexerStatus.complete();
+          break;
+        case 'error':
+          this.indexerStatus.setError(snapshot.errorMessage ?? 'Unknown error');
+          break;
+      }
+
+      // Call legacy progress callback if provided
+      if (progressCallback && snapshot.state === 'indexing') {
+        progressCallback(snapshot.processed, snapshot.total, snapshot.currentFile);
+      }
+    });
+
+    try {
+      console.log('[Spider] Starting background indexing in worker thread...');
+      
+      const result = await this.workerHost.startIndexing({
+        rootDir: this.config.rootDir,
+        excludeNodeModules: this.config.excludeNodeModules,
+        tsConfigPath: this.config.tsConfigPath,
+      });
+
+      // Import the indexed data into our reverse index
+      console.log(`[Spider] Worker completed. Importing ${result.data.length} files into reverse index...`);
+      
+      for (const fileData of result.data) {
+        // Cache the dependencies
+        this.cache.set(fileData.filePath, fileData.dependencies);
+        
+        // Add to reverse index with file hash
+        this.reverseIndex.addDependencies(
+          fileData.filePath,
+          fileData.dependencies,
+          { mtime: fileData.mtime, size: fileData.size }
+        );
+      }
+
+      console.log(`[Spider] Worker index complete: ${result.indexedFiles} files in ${result.duration}ms`);
+
+      return {
+        indexedFiles: result.indexedFiles,
+        duration: result.duration,
+        cancelled: result.cancelled,
+      };
+    } finally {
+      unsubscribe();
+    }
+  }
+
+  /**
+   * Dispose worker resources
+   */
+  disposeWorker(): void {
+    this.workerHost?.dispose();
+    this.workerHost = null;
+  }
+
+  /**
+   * Yield control to the event loop to avoid blocking
+   * Uses setTimeout(1) to guarantee a real delay and allow VS Code's
+   * extension host watchdog to consider us responsive
+   */
+  private yieldToEventLoop(): Promise<void> {
+    return new Promise((resolve) => setTimeout(resolve, 1));
+  }
+
+  /**
+   * Collect all supported source files in a directory tree
+   * Yields to event loop periodically based on time to avoid blocking on large projects
+   */
+  private async collectAllSourceFiles(dir: string): Promise<string[]> {
+    const files: string[] = [];
+    let lastYieldTime = Date.now();
+    
+    const walkDir = async (currentDir: string): Promise<void> => {
+      // Check cancellation
+      if (this.indexingCancelled) {
+        return;
+      }
+
+      // Time-based yielding during traversal
+      const now = Date.now();
+      if (now - lastYieldTime >= Spider.YIELD_INTERVAL_MS) {
+        await this.yieldToEventLoop();
+        lastYieldTime = Date.now();
+      }
+
+      try {
+        const entries = await fs.readdir(currentDir, { withFileTypes: true });
+        
+        for (const entry of entries) {
+          // Check cancellation inside the loop for responsiveness
+          if (this.indexingCancelled) {
+            return;
+          }
+
+          const fullPath = path.join(currentDir, entry.name);
+          
+          if (entry.isDirectory()) {
+            if (!this.shouldSkipDirectory(entry.name)) {
+              await walkDir(fullPath);
+            }
+          } else if (entry.isFile() && this.isSupportedSourceFile(entry.name)) {
+            files.push(fullPath);
+          }
+        }
+      } catch (error) {
+        console.error(`[Spider] Error reading directory ${currentDir}:`, error);
+      }
+    };
+
+    await walkDir(dir);
+    return files;
+  }
+
+  /**
+   * Re-index stale files only (incremental update)
+   * @param staleFiles Array of file paths that need re-indexing
+   * @param progressCallback Optional callback for progress updates
+   */
+  async reindexStaleFiles(
+    staleFiles: string[],
+    progressCallback?: IndexingProgressCallback
+  ): Promise<number> {
+    if (!this.reverseIndex) {
+      return 0;
+    }
+
+    const concurrency = this.config.indexingConcurrency ?? 8;
+    let processed = 0;
+
+    for (let i = 0; i < staleFiles.length; i += concurrency) {
+      const batch = staleFiles.slice(i, i + concurrency);
+      
+      await Promise.all(
+        batch.map(async (filePath) => {
+          try {
+            // Remove old entries before re-analyzing
+            this.reverseIndex!.removeDependenciesFromSource(filePath);
+            this.cache.delete(filePath);
+            await this.analyze(filePath);
+          } catch {
+            // File may have been deleted, remove from index
+            this.reverseIndex!.removeDependenciesFromSource(filePath);
+          }
+        })
+      );
+
+      processed += batch.length;
+      progressCallback?.(processed, staleFiles.length, batch.at(-1));
+      await this.yieldToEventLoop();
+    }
+
+    return processed;
   }
 
   /**
@@ -289,53 +718,56 @@ export class Spider {
   }
 
   /**
-   * Recursively walk a directory and collect file references
-   */
-  private async walkDirectory(
-    dir: string,
-    targetPath: string,
-    targetBasename: string,
-    referencingFiles: Dependency[]
-  ): Promise<void> {
-    const entries = await fs.readdir(dir, { withFileTypes: true });
-
-    for (const entry of entries) {
-      const fullPath = path.join(dir, entry.name);
-
-      if (entry.isDirectory()) {
-        if (!this.shouldSkipDirectory(entry.name)) {
-          await this.walkDirectory(fullPath, targetPath, targetBasename, referencingFiles);
-        }
-        continue;
-      }
-
-      if (!entry.isFile() || !this.isSupportedSourceFile(entry.name) || fullPath === targetPath) {
-        continue;
-      }
-
-      const reference = await this.findReferenceInFile(fullPath, targetPath, targetBasename);
-      if (reference) {
-        referencingFiles.push(reference);
-      }
-    }
-  }
-
-  /**
    * Find files that reference the given file (reverse dependency lookup)
+   * Uses the reverse index for O(1) lookup if available, otherwise falls back to directory scan
    * @param targetPath Absolute path to the file to find references for
    * @returns Array of dependencies pointing to the target file
    */
   async findReferencingFiles(targetPath: string): Promise<Dependency[]> {
+    // Use reverse index if available (O(1) lookup)
+    if (this.reverseIndex?.hasEntries()) {
+      console.log(`[Spider] Using reverse index for ${targetPath}`);
+      return this.reverseIndex.getReferencingFiles(targetPath);
+    }
+
+    // Fallback to directory scan (O(n) but parallelized)
+    return this.findReferencingFilesFallback(targetPath);
+  }
+
+  /**
+   * Fallback method for finding referencing files via directory scan
+   * Used when reverse index is not available
+   */
+  private async findReferencingFilesFallback(targetPath: string): Promise<Dependency[]> {
     const targetBasename = this.extractBasename(targetPath);
     
     if (!targetBasename) {
       return [];
     }
 
-    console.log(`[Spider] Finding references for ${targetPath} (basename: ${targetBasename})`);
+    console.log(`[Spider] Finding references for ${targetPath} via scan (basename: ${targetBasename})`);
 
+    // Use parallelized directory walk
+    const allFiles = await this.collectAllSourceFiles(this.config.rootDir);
     const referencingFiles: Dependency[] = [];
-    await this.walkDirectory(this.config.rootDir, targetPath, targetBasename, referencingFiles);
+    const concurrency = this.config.indexingConcurrency ?? 8;
+
+    for (let i = 0; i < allFiles.length; i += concurrency) {
+      const batch = allFiles.slice(i, i + concurrency);
+      
+      const results = await Promise.all(
+        batch
+          .filter(filePath => filePath !== targetPath)
+          .map(filePath => this.findReferenceInFile(filePath, targetPath, targetBasename))
+      );
+
+      for (const result of results) {
+        if (result) {
+          referencingFiles.push(result);
+        }
+      }
+    }
+
     return referencingFiles;
   }
 
@@ -343,9 +775,10 @@ export class Spider {
    * Get cache statistics
    * @returns Cache statistics
    */
-  getCacheStats(): { size: number } {
+  getCacheStats(): { size: number; reverseIndexStats?: { indexedFiles: number; targetFiles: number; totalReferences: number } } {
     return {
       size: this.cache.size,
+      reverseIndexStats: this.reverseIndex?.getStats(),
     };
   }
 }
