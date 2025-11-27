@@ -65,7 +65,7 @@ Customize the extension in VS Code Settings (`Cmd+,` or `Ctrl+,`):
 |---------|---------|-------------|
 | `graph-it-live.maxDepth` | `50` | Maximum depth of dependencies to analyze initially. |
 | `graph-it-live.excludeNodeModules` | `true` | Whether to exclude `node_modules` imports from the graph. |
-| `graph-it-live.enableBackgroundIndexing` | `false` | Enable background indexing for instant reverse dependency lookups. When enabled, all workspace files are indexed at startup using a worker thread. |
+| `graph-it-live.enableBackgroundIndexing` | `true` | Enable background indexing for instant reverse dependency lookups. When enabled, all workspace files are indexed at startup using a worker thread. Disable it if you encounter performance issues or want to reduce CPU usage. |
 | `graph-it-live.persistIndex` | `false` | Persist the reverse index to disk for faster startup. The index is validated using file mtime and size to detect changes. |
 | `graph-it-live.indexingConcurrency` | `4` | Number of files to process in parallel during indexing (1-16). Lower values reduce CPU usage. |
 | `graph-it-live.indexingStartDelay` | `1000` | Delay in milliseconds before starting background indexing after activation. Allows VS Code to finish startup first. |
