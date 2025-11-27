@@ -20,6 +20,12 @@ vi.mock('vscode', () => {
         window: {
             showTextDocument: vi.fn(),
             showErrorMessage: vi.fn(),
+            withProgress: vi.fn().mockImplementation(async (_options: any, task: any) => {
+                // Execute the task with a mock progress reporter
+                const mockProgress = { report: vi.fn() };
+                const mockToken = { isCancellationRequested: false, onCancellationRequested: vi.fn() };
+                return task(mockProgress, mockToken);
+            }),
             activeTextEditor: {
                 document: {
                     uri: { scheme: 'file' },
@@ -30,10 +36,10 @@ vi.mock('vscode', () => {
         ViewColumn: { One: 1 },
         WebviewViewProvider: class {},
         ExtensionMode: { Production: 1, Development: 2, Test: 3 },
+        ProgressLocation: { Window: 10, Notification: 15 },
     };
 });
 
-// Mock Spider
 // Mock Spider
 vi.mock('../../src/analyzer/Spider', () => {
     const SpiderMock = vi.fn();
@@ -42,6 +48,28 @@ vi.mock('../../src/analyzer/Spider', () => {
             analyze: vi.fn().mockResolvedValue(['/root/src/utils.ts']),
             crawl: vi.fn().mockResolvedValue({ nodes: [], edges: [] }),
             updateConfig: vi.fn(),
+            // New methods for reverse index
+            buildFullIndex: vi.fn().mockResolvedValue({ indexedFiles: 0, duration: 0, cancelled: false }),
+            buildFullIndexInWorker: vi.fn().mockResolvedValue({ indexedFiles: 0, duration: 0, cancelled: false }),
+            enableReverseIndex: vi.fn().mockReturnValue(false),
+            disableReverseIndex: vi.fn(),
+            disposeWorker: vi.fn(),
+            hasReverseIndex: vi.fn().mockReturnValue(false),
+            validateReverseIndex: vi.fn().mockResolvedValue(null),
+            getSerializedReverseIndex: vi.fn().mockReturnValue(null),
+            reindexStaleFiles: vi.fn().mockResolvedValue(0),
+            cancelIndexing: vi.fn(),
+            // IndexerStatus subscription
+            subscribeToIndexStatus: vi.fn().mockReturnValue(() => {}),
+            getIndexStatus: vi.fn().mockReturnValue({
+                state: 'idle',
+                processed: 0,
+                total: 0,
+                currentFile: undefined,
+                percentage: 0,
+                startTime: undefined,
+                errorMessage: undefined,
+            }),
         };
     });
     return { Spider: SpiderMock };
@@ -100,7 +128,10 @@ describe('GraphProvider', () => {
             onDidReceiveMessage: vi.fn(),
             cspSource: 'test-csp',
         };
-        const view = { webview };
+        const view = { 
+            webview,
+            onDidDispose: vi.fn(),
+        };
 
         // Resolve the view first
         provider.resolveWebviewView(view as any, {} as any, {} as any);

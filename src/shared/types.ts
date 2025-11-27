@@ -47,5 +47,17 @@ export interface ReferencingFilesMessage {
   data: GraphData;
 }
 
-export type ExtensionToWebviewMessage = ShowGraphMessage | ExpandedGraphMessage | ReferencingFilesMessage;
+export interface IndexingProgressMessage {
+  command: 'indexingProgress';
+  /** Number of files processed so far */
+  processed: number;
+  /** Total number of files to process */
+  total: number;
+  /** Current status of the indexing operation */
+  status: 'starting' | 'indexing' | 'complete' | 'error' | 'validating';
+  /** Optional message for additional context */
+  message?: string;
+}
+
+export type ExtensionToWebviewMessage = ShowGraphMessage | ExpandedGraphMessage | ReferencingFilesMessage | IndexingProgressMessage;
 export type WebviewToExtensionMessage = OpenFileMessage | ExpandNodeMessage | SetExpandAllMessage | RefreshGraphMessage | FindReferencingFilesMessage;

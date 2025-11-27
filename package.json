@@ -100,6 +100,30 @@
           "type": "boolean",
           "default": true,
           "description": "Exclude node_modules from graph"
+        },
+        "graph-it-live.enableBackgroundIndexing": {
+          "type": "boolean",
+          "default": false,
+          "description": "Enable background indexing for faster reverse dependency lookups. When enabled, the extension will index all files in the workspace at startup."
+        },
+        "graph-it-live.persistIndex": {
+          "type": "boolean",
+          "default": false,
+          "description": "Persist the reverse index to disk for faster startup. Files are validated using mtime and size to detect changes."
+        },
+        "graph-it-live.indexingConcurrency": {
+          "type": "number",
+          "default": 4,
+          "description": "Number of files to process in parallel during background indexing. Lower values reduce CPU usage but increase indexing time.",
+          "minimum": 1,
+          "maximum": 16
+        },
+        "graph-it-live.indexingStartDelay": {
+          "type": "number",
+          "default": 5000,
+          "description": "Delay in milliseconds before starting background indexing after extension activation. Allows VS Code to finish startup first.",
+          "minimum": 0,
+          "maximum": 30000
         }
       }
     }
@@ -111,6 +135,7 @@
     "compile": "npm run build",
     "test": "vitest",
     "test:watch": "vitest --watch",
+    "test:bench": "vitest bench --config vitest.benchmark.config.mts",
     "lint": "eslint src",
     "lint:fix": "eslint src --fix",
     "package": "vsce package",
