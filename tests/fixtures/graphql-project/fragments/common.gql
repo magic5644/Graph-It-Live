@@ -1,0 +1,16 @@
+# Common shared fragments
+
+fragment TimestampFields on Node {
+  createdAt
+  updatedAt
+}
+
+fragment PaginationFields on Connection {
+  pageInfo {
+    hasNextPage
+    hasPreviousPage
+    startCursor
+    endCursor
+  }
+  totalCount
+}

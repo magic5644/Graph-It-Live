@@ -4,7 +4,7 @@
 
 # Graph-It-Live
 
-A Visual Studio Code extension that visualizes file dependencies in a **real-time interactive graph**. Perfect for understanding code architecture and navigating complex **TypeScript**, **JavaScript**, **Vue** and **Svelte** projects.
+A Visual Studio Code extension that visualizes file dependencies in a **real-time interactive graph**. Perfect for understanding code architecture and navigating complex **TypeScript**, **JavaScript**, **Vue**, **Svelte**, and **GraphQL** projects.
 
 <div align="center">
   <img src="media/demo-plugin-graph-it-live.gif" alt="Graph-It-Live Demo" width="800"/>
@@ -13,7 +13,7 @@ A Visual Studio Code extension that visualizes file dependencies in a **real-tim
 ## Features
 
 - **Real-time Dependency Visualization**: Interactive graph showing file dependencies.
-- **Multi-Language Support**: First-class support for **TypeScript** (`.ts`, `.tsx`), **JavaScript** (`.js`, `.jsx`), **Vue** (`.vue`), and **Svelte** (`.svelte`).
+- **Multi-Language Support**: First-class support for **TypeScript** (`.ts`, `.tsx`), **JavaScript** (`.js`, `.jsx`), **Vue** (`.vue`), **Svelte** (`.svelte`), and **GraphQL** (`.gql`, `.graphql`).
 - **Cycle Detection**: Automatically detects and highlights circular dependencies with red dashed lines and badges.
 - **Smart Navigation**: Navigate through your code history with a built-in "Back" button in the graph view.
 - **Background Indexing** *(New)*: Optionally index your entire workspace in the background for instant reverse dependency lookups. Uses a separate worker thread to avoid blocking the IDE.
@@ -44,7 +44,7 @@ The extension is also available on the [Open VSX Registry](https://open-vsx.org/
 
 ## Usage
 
-1. **Open a Project**: Open a folder containing TypeScript, JavaScript, Vue, or Svelte files.
+1. **Open a Project**: Open a folder containing TypeScript, JavaScript, Vue, Svelte, or GraphQL files.
 2. **Open the Graph**:
    - Click the **Graph-It-Live** icon in the Activity Bar (left sidebar).
    - Or run the command: `Graph-It-Live: Show Dependency Graph`.
@@ -73,11 +73,19 @@ Customize the extension in VS Code Settings (`Cmd+,` or `Ctrl+,`):
 ### Background Indexing
 
 When `enableBackgroundIndexing` is enabled:
-- The extension indexes all TypeScript, JavaScript, Vue, and Svelte files in your workspace
+- The extension indexes all TypeScript, JavaScript, Vue, Svelte, and GraphQL files in your workspace
 - Indexing runs in a **separate worker thread** to avoid blocking the IDE
 - Progress is shown in the **status bar** (bottom left)
 - Reverse dependency lookups (`◀` button) become instant (O(1)) instead of scanning the entire workspace
 - Recommended for large projects where reverse lookup performance matters
+
+### GraphQL Support
+
+Graph-It-Live provides full support for GraphQL schema files:
+- **File Extensions**: `.gql` and `.graphql` files are fully supported
+- **Import Syntax**: Parses GraphQL `#import` directives (e.g., `#import "./fragments/user.gql"`)
+- **Cross-Language**: Detects imports of `.gql` files from TypeScript/JavaScript (webpack/vite loaders)
+- **Visual Distinction**: GraphQL nodes are displayed with a **pink border** (#e535ab) matching the official GraphQL brand color
 
 ## Development
 
