@@ -5,6 +5,14 @@ import { Spider } from '../../src/analyzer/Spider';
 
 // Mock vscode
 vi.mock('vscode', () => {
+    const mockStatusBarItem = {
+        text: '',
+        tooltip: '',
+        show: vi.fn(),
+        hide: vi.fn(),
+        dispose: vi.fn(),
+    };
+    
     return {
         Uri: {
             file: (path: string) => ({ fsPath: path }),
@@ -20,6 +28,7 @@ vi.mock('vscode', () => {
         window: {
             showTextDocument: vi.fn(),
             showErrorMessage: vi.fn(),
+            createStatusBarItem: vi.fn().mockReturnValue(mockStatusBarItem),
             withProgress: vi.fn().mockImplementation(async (_options: any, task: any) => {
                 // Execute the task with a mock progress reporter
                 const mockProgress = { report: vi.fn() };
@@ -37,6 +46,7 @@ vi.mock('vscode', () => {
         WebviewViewProvider: class {},
         ExtensionMode: { Production: 1, Development: 2, Test: 3 },
         ProgressLocation: { Window: 10, Notification: 15 },
+        StatusBarAlignment: { Left: 1, Right: 2 },
     };
 });
 
