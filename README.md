@@ -16,11 +16,12 @@ A Visual Studio Code extension that visualizes file dependencies in a **real-tim
 - **Multi-Language Support**: First-class support for **TypeScript** (`.ts`, `.tsx`), **JavaScript** (`.js`, `.jsx`), **Vue** (`.vue`), and **Svelte** (`.svelte`).
 - **Cycle Detection**: Automatically detects and highlights circular dependencies with red dashed lines and badges.
 - **Smart Navigation**: Navigate through your code history with a built-in "Back" button in the graph view.
+- **Background Indexing** *(New)*: Optionally index your entire workspace in the background for instant reverse dependency lookups. Uses a separate worker thread to avoid blocking the IDE.
 - **Interactive Graph**:
     - **Expand/Collapse**: Dynamically load dependencies by clicking the `+` / `-` buttons on nodes.
-    - **Bidirectional Navigation**: Find files that reference the current file (reverse dependencies) by clicking the `◀` button on the root node. This scans the entire workspace to find all incoming references.
+    - **Bidirectional Navigation**: Find files that reference the current file (reverse dependencies) by clicking the `◀` button on the root node. With background indexing enabled, this is instant (O(1) lookup).
     - **File Navigation**: Click on any node to instantly open the corresponding file in the editor.
-- **VS Code Integration**: Native look and feel using VS Code themes, colors, and fonts.
+- **VS Code Integration**: Native look and feel using VS Code themes, colors, and fonts. Progress indicator in the status bar during indexing.
 - **Powered by ReactFlow & Dagre**: Smooth, automatic graph layout that adjusts as you explore.
 
 ## Prerequisites
@@ -64,6 +65,19 @@ Customize the extension in VS Code Settings (`Cmd+,` or `Ctrl+,`):
 |---------|---------|-------------|
 | `graph-it-live.maxDepth` | `50` | Maximum depth of dependencies to analyze initially. |
 | `graph-it-live.excludeNodeModules` | `true` | Whether to exclude `node_modules` imports from the graph. |
+| `graph-it-live.enableBackgroundIndexing` | `false` | Enable background indexing for instant reverse dependency lookups. When enabled, all workspace files are indexed at startup using a worker thread. |
+| `graph-it-live.persistIndex` | `false` | Persist the reverse index to disk for faster startup. The index is validated using file mtime and size to detect changes. |
+| `graph-it-live.indexingConcurrency` | `4` | Number of files to process in parallel during indexing (1-16). Lower values reduce CPU usage. |
+| `graph-it-live.indexingStartDelay` | `1000` | Delay in milliseconds before starting background indexing after activation. Allows VS Code to finish startup first. |
+
+### Background Indexing
+
+When `enableBackgroundIndexing` is enabled:
+- The extension indexes all TypeScript, JavaScript, Vue, and Svelte files in your workspace
+- Indexing runs in a **separate worker thread** to avoid blocking the IDE
+- Progress is shown in the **status bar** (bottom left)
+- Reverse dependency lookups (`◀` button) become instant (O(1)) instead of scanning the entire workspace
+- Recommended for large projects where reverse lookup performance matters
 
 ## Development
 
