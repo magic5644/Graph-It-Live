@@ -1,0 +1,14 @@
+# User fragment
+#import "./common.gql"
+
+fragment UserFields on User {
+  id
+  name
+  email
+  ...TimestampFields
+}
+
+input CreateUserInput {
+  name: String!
+  email: String!
+}

@@ -1,0 +1,19 @@
+# Post fragment with .graphql extension
+#import "./common.gql"
+#import './user.gql'
+
+fragment PostFields on Post {
+  id
+  title
+  content
+  author {
+    ...UserFields
+  }
+  ...TimestampFields
+}
+
+input CreatePostInput {
+  title: String!
+  content: String!
+  authorId: ID!
+}

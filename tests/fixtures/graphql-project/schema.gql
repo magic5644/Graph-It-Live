@@ -1,0 +1,13 @@
+# Main GraphQL schema file
+#import "./fragments/user.gql"
+#import "./fragments/post.graphql"
+
+type Query {
+  user(id: ID!): User
+  posts: [Post!]!
+}
+
+type Mutation {
+  createUser(input: CreateUserInput!): User
+  createPost(input: CreatePostInput!): Post
+}

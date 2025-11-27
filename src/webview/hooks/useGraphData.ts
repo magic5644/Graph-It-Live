@@ -231,6 +231,7 @@ export const useGraphData = () => {
         const isJs = fileName.endsWith('.js') || fileName.endsWith('.jsx');
         const isVue = fileName.endsWith('.vue');
         const isSvelte = fileName.endsWith('.svelte');
+        const isGraphQL = fileName.endsWith('.gql') || fileName.endsWith('.graphql');
         const isNodeModule = /^(?!\.|\/|\\|[a-zA-Z]:)/.test(path);
         const isRoot = path === currentFilePath;
         
@@ -258,6 +259,8 @@ export const useGraphData = () => {
             border = '1px solid #41b883'; // Vue Green
         } else if (isSvelte) {
             border = '1px solid #ff3e00'; // Svelte Orange
+        } else if (isGraphQL) {
+            border = '1px solid #e535ab'; // GraphQL Pink
         }
 
         newNodes.push({

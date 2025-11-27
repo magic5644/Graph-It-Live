@@ -20,12 +20,16 @@ export class Parser {
     
     // import('...') - dynamic imports
     dynamicImport: /import\s*\(\s*['"]([^'"]+)['"]\s*\)/g,
+
+    // GraphQL #import directive (used in .gql/.graphql files)
+    // Matches: #import "./fragment.gql" or #import './fragment.graphql'
+    graphqlImport: /#import\s+['"]([^'"]+)['"]/g,
   };
 
   /**
    * Parse all imports from file content
    * @param content File content to parse
-   * @param filePath Optional file path to detect Vue/Svelte files
+   * @param filePath Optional file path to detect Vue/Svelte/GraphQL files
    */
   parse(content: string, filePath?: string): ParsedImport[] {
     // Extract script content for Vue/Svelte files
@@ -35,13 +39,20 @@ export class Parser {
       }
     }
 
-    // Strip comments to simplify parsing and fix bugs with commented imports
-    content = this.stripComments(content);
-
     const imports: ParsedImport[] = [];
     
     // Track processed modules to avoid duplicates
     const seen = new Set<string>();
+
+    // GraphQL files use #import syntax (don't strip comments as # is the import directive)
+    const isGraphQL = filePath?.endsWith('.gql') || filePath?.endsWith('.graphql');
+    if (isGraphQL) {
+      this.extractImports(content, this.patterns.graphqlImport, 'import', imports, seen);
+      return imports;
+    }
+
+    // Strip comments to simplify parsing and fix bugs with commented imports
+    content = this.stripComments(content);
 
     // Parse import ... from
     this.extractImports(content, this.patterns.importFrom, 'import', imports, seen);

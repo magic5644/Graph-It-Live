@@ -1,0 +1,8 @@
+# Query to get a user
+#import "../fragments/user.gql"
+
+query GetUser($id: ID!) {
+  user(id: $id) {
+    ...UserFields
+  }
+}

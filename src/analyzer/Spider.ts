@@ -675,7 +675,7 @@ export class Spider {
    * Check if a file is a supported source file
    */
   private isSupportedSourceFile(fileName: string): boolean {
-    return /\.(ts|tsx|js|jsx|vue|svelte)$/.test(fileName);
+    return /\.(ts|tsx|js|jsx|vue|svelte|gql|graphql)$/.test(fileName);
   }
 
   /**
