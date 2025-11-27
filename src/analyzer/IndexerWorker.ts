@@ -13,7 +13,7 @@ import { PathResolver } from './PathResolver';
 import type { Dependency } from './types';
 
 // Extensions supported for indexing
-const SUPPORTED_EXTENSIONS = ['.ts', '.tsx', '.js', '.jsx', '.vue', '.svelte'];
+const SUPPORTED_EXTENSIONS = ['.ts', '.tsx', '.js', '.jsx', '.vue', '.svelte', '.gql'];
 
 // Directories to skip during traversal
 const SKIP_DIRECTORIES = new Set(['node_modules', '.git', 'dist', 'build', 'out', 'coverage', '.next', '.nuxt']);

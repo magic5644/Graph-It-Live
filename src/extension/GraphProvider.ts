@@ -8,7 +8,7 @@ import { ExtensionToWebviewMessage, WebviewToExtensionMessage } from '../shared/
 const REVERSE_INDEX_STORAGE_KEY = 'graph-it-live.reverseIndex';
 
 /** Default delay before starting background indexing (ms) */
-const DEFAULT_INDEXING_START_DELAY = 5000;
+const DEFAULT_INDEXING_START_DELAY = 1000;
 
 /** Path to the worker script relative to extension root */
 const WORKER_SCRIPT_PATH = 'dist/indexerWorker.js';
@@ -30,9 +30,21 @@ export class GraphProvider implements vscode.WebviewViewProvider {
     /** Flag to track if view has been resolved */
     private _viewResolved = false;
 
+    /** Status bar item for showing indexing progress */
+    private readonly _statusBarItem: vscode.StatusBarItem;
+
     constructor(extensionUri: vscode.Uri, context: vscode.ExtensionContext) {
         this._extensionUri = extensionUri;
         this._context = context;
+        
+        // Create status bar item for indexing progress (visible on the left side)
+        this._statusBarItem = vscode.window.createStatusBarItem(
+            vscode.StatusBarAlignment.Left,
+            100
+        );
+        this._statusBarItem.name = 'Graph-It-Live Indexing';
+        context.subscriptions.push(this._statusBarItem);
+        
         this._initializeSpider();
         // Note: Indexing is now deferred until resolveWebviewView() is called
     }
@@ -162,53 +174,54 @@ export class GraphProvider implements vscode.WebviewViewProvider {
         // Get the path to the worker script
         const workerPath = path.join(this._extensionUri.fsPath, WORKER_SCRIPT_PATH);
 
+        // Show status bar item with initial state
+        this._statusBarItem.text = '$(sync~spin) Graph-It-Live: Counting files...';
+        this._statusBarItem.tooltip = 'Indexing workspace for reverse dependency lookup';
+        this._statusBarItem.show();
+
         try {
-            await vscode.window.withProgress(
-                {
-                    location: vscode.ProgressLocation.Window,
-                    title: 'Graph-It-Live: Indexing',
-                    cancellable: true,
-                },
-                async (progress, token) => {
-                    // Set up cancellation
-                    token.onCancellationRequested(() => {
-                        console.log('GraphProvider: Indexing cancelled by user');
-                        this._spider?.cancelIndexing();
-                    });
-
-                    // Subscribe to status updates
-                    const unsubscribe = this._spider!.subscribeToIndexStatus((snapshot) => {
-                        if (snapshot.state === 'counting') {
-                            progress.report({ message: 'Counting files...' });
-                        } else if (snapshot.state === 'indexing') {
-                            const message = snapshot.total > 0
-                                ? `${snapshot.processed}/${snapshot.total} files (${snapshot.percentage}%)`
-                                : `${snapshot.processed} files...`;
-                            progress.report({ 
-                                message,
-                                increment: snapshot.total > 0 ? (100 / snapshot.total) : undefined
-                            });
-                        }
-                    });
-
-                    try {
-                        // Use worker thread for indexing to avoid blocking extension host
-                        const result = await this._spider!.buildFullIndexInWorker(workerPath);
-
-                        if (result.cancelled) {
-                            console.log(`GraphProvider: Indexing cancelled after ${result.indexedFiles} files`);
-                        } else {
-                            console.log(`GraphProvider: Indexed ${result.indexedFiles} files in ${result.duration}ms`);
-                            // Persist the index if enabled
-                            await this._persistIndex();
-                        }
-                    } finally {
-                        unsubscribe();
-                    }
+            // Subscribe to status updates for the status bar
+            const unsubscribe = this._spider.subscribeToIndexStatus((snapshot) => {
+                if (snapshot.state === 'counting') {
+                    this._statusBarItem.text = '$(sync~spin) Graph-It-Live: Counting files...';
+                } else if (snapshot.state === 'indexing') {
+                    const percent = snapshot.percentage;
+                    this._statusBarItem.text = `$(sync~spin) Graph-It-Live: ${percent}% (${snapshot.processed}/${snapshot.total})`;
+                    this._statusBarItem.tooltip = `Indexing: ${snapshot.currentFile ?? 'processing...'}`;
                 }
-            );
+            });
+
+            try {
+                // Use worker thread for indexing to avoid blocking extension host
+                const result = await this._spider.buildFullIndexInWorker(workerPath);
+
+                if (result.cancelled) {
+                    console.log(`GraphProvider: Indexing cancelled after ${result.indexedFiles} files`);
+                    this._statusBarItem.text = '$(x) Graph-It-Live: Indexing cancelled';
+                } else {
+                    console.log(`GraphProvider: Indexed ${result.indexedFiles} files in ${result.duration}ms`);
+                    this._statusBarItem.text = `$(check) Graph-It-Live: ${result.indexedFiles} files indexed`;
+                    // Persist the index if enabled
+                    await this._persistIndex();
+                }
+
+                // Hide status bar after a short delay
+                setTimeout(() => {
+                    this._statusBarItem.hide();
+                }, 3000);
+            } finally {
+                unsubscribe();
+            }
         } catch (error) {
             console.error('GraphProvider: Background indexing failed:', error);
+            this._statusBarItem.text = '$(error) Graph-It-Live: Indexing failed';
+            this._statusBarItem.tooltip = error instanceof Error ? error.message : 'Unknown error';
+            
+            // Hide after showing error
+            setTimeout(() => {
+                this._statusBarItem.hide();
+            }, 5000);
+            
             vscode.window.showErrorMessage(
                 `Graph-It-Live: Indexing failed - ${error instanceof Error ? error.message : 'Unknown error'}`
             );
