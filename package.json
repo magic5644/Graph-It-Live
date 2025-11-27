@@ -120,7 +120,7 @@
         },
         "graph-it-live.indexingStartDelay": {
           "type": "number",
-          "default": 5000,
+          "default": 1000,
           "description": "Delay in milliseconds before starting background indexing after extension activation. Allows VS Code to finish startup first.",
           "minimum": 0,
           "maximum": 30000
