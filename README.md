@@ -69,6 +69,7 @@ Customize the extension in VS Code Settings (`Cmd+,` or `Ctrl+,`):
 | `graph-it-live.persistIndex` | `false` | Persist the reverse index to disk for faster startup. The index is validated using file mtime and size to detect changes. |
 | `graph-it-live.indexingConcurrency` | `4` | Number of files to process in parallel during indexing (1-16). Lower values reduce CPU usage. |
 | `graph-it-live.indexingStartDelay` | `1000` | Delay in milliseconds before starting background indexing after activation. Allows VS Code to finish startup first. |
+| `graph-it-live.enableMcpServer` | `false` | Enable MCP Server for AI/LLM integration. Exposes dependency analysis tools via Model Context Protocol. |
 
 ### Background Indexing
 
@@ -82,10 +83,41 @@ When `enableBackgroundIndexing` is enabled:
 ### GraphQL Support
 
 Graph-It-Live provides full support for GraphQL schema files:
+
 - **File Extensions**: `.gql` and `.graphql` files are fully supported
 - **Import Syntax**: Parses GraphQL `#import` directives (e.g., `#import "./fragments/user.gql"`)
 - **Cross-Language**: Detects imports of `.gql` files from TypeScript/JavaScript (webpack/vite loaders)
 - **Visual Distinction**: GraphQL nodes are displayed with a **pink border** (#e535ab) matching the official GraphQL brand color
+
+### MCP Server (AI/LLM Integration)
+
+Graph-It-Live includes an optional **Model Context Protocol (MCP) Server** that exposes its dependency analysis capabilities to AI assistants and LLMs. When enabled, AI tools like GitHub Copilot can directly query your project's dependency graph.
+
+#### Enabling the MCP Server
+
+Set `graph-it-live.enableMcpServer` to `true` in your VS Code settings. The server will automatically start when the extension activates.
+
+#### Available Tools
+
+The MCP server exposes 7 tools for AI/LLM consumption:
+
+| Tool | Description |
+|------|-------------|
+| `analyze_dependencies` | Analyze a single file's direct imports and exports |
+| `crawl_dependency_graph` | Crawl the full dependency tree from an entry file |
+| `find_referencing_files` | Find all files that import a given file (reverse lookup) |
+| `expand_node` | Expand a node to show its dependencies beyond known paths |
+| `parse_imports` | Parse imports from raw code content without file access |
+| `resolve_module_path` | Resolve a module specifier to an absolute path |
+| `get_index_status` | Get the current state of the dependency index |
+
+#### How It Works
+
+- Uses **stdio transport** (standard input/output) for communication
+- Runs in a **separate worker thread** for non-blocking operation
+- Maintains its **own cache** independent of the main extension
+- Performs **automatic warmup** on startup to index the workspace
+- Returns **enriched JSON** responses optimized for LLM understanding
 
 ## Development
 

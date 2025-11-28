@@ -1,5 +1,9 @@
 import * as vscode from 'vscode';
 import { GraphProvider } from './GraphProvider';
+import { createMcpServerProvider, McpServerProvider } from '../mcp/McpServerProvider';
+
+// Keep track of MCP server provider for cleanup
+let mcpServerProvider: McpServerProvider | null = null;
 
 export function activate(context: vscode.ExtensionContext) {
     console.log('Graph-It-Live is now active!');
@@ -13,6 +17,8 @@ export function activate(context: vscode.ExtensionContext) {
         vscode.workspace.onDidChangeConfiguration((e) => {
             if (e.affectsConfiguration('graph-it-live')) {
                 provider.updateConfig();
+                // Notify MCP server of config changes
+                mcpServerProvider?.notifyChange();
             }
         }),
 
@@ -34,10 +40,24 @@ export function activate(context: vscode.ExtensionContext) {
         })
     ];
 
+    // Register MCP server provider if a workspace folder is open
+    const workspaceFolder = vscode.workspace.workspaceFolders?.[0];
+    if (workspaceFolder) {
+        mcpServerProvider = createMcpServerProvider(context.extensionUri, workspaceFolder);
+        const mcpDisposable = mcpServerProvider.register(context);
+        disposables.push(mcpDisposable);
+        context.subscriptions.push(mcpServerProvider);
+    } else {
+        console.log('[Extension] No workspace folder open, MCP server not registered');
+    }
+
     context.subscriptions.push(...disposables);
 }
 
 export function deactivate() {
-    // No cleanup needed - VSCode handles disposal of subscriptions automatically
+    // Clean up MCP server provider
+    mcpServerProvider?.dispose();
+    mcpServerProvider = null;
+    // VSCode handles disposal of subscriptions automatically
 }
 

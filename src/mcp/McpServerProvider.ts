@@ -1,0 +1,224 @@
+/**
+ * MCP Server Provider
+ *
+ * Registers the Graph-It-Live MCP server with VS Code using the
+ * vscode.lm.registerMcpServerDefinitionProvider API.
+ *
+ * The MCP server runs as a separate Node.js process (mcpServer.js) which
+ * spawns a Worker Thread (mcpWorker.js) for CPU-intensive analysis.
+ *
+ * This module is the ONLY MCP-related file that imports from 'vscode'.
+ */
+
+import * as vscode from 'vscode';
+import * as path from 'node:path';
+
+// ============================================================================
+// Types
+// ============================================================================
+
+export interface McpServerProviderOptions {
+  /** URI of the extension directory (for locating dist/mcpServer.js) */
+  extensionUri: vscode.Uri;
+  /** Workspace folder to analyze */
+  workspaceFolder: vscode.WorkspaceFolder;
+}
+
+// ============================================================================
+// McpServerProvider Class
+// ============================================================================
+
+/**
+ * Provides MCP server definitions to VS Code
+ * Handles registration, configuration changes, and lifecycle management
+ */
+export class McpServerProvider implements vscode.Disposable {
+  private readonly extensionUri: vscode.Uri;
+  private readonly workspaceFolder: vscode.WorkspaceFolder;
+  private registration: vscode.Disposable | null = null;
+  private readonly didChangeEmitter = new vscode.EventEmitter<void>();
+  private isEnabled = false;
+
+  constructor(options: McpServerProviderOptions) {
+    this.extensionUri = options.extensionUri;
+    this.workspaceFolder = options.workspaceFolder;
+  }
+
+  /**
+   * Register the MCP server provider with VS Code
+   * @param context Extension context for subscriptions
+   * @returns Disposable for cleanup
+   */
+  register(context: vscode.ExtensionContext): vscode.Disposable {
+    // Check if MCP is enabled in settings
+    this.isEnabled = this.isMcpEnabled();
+
+    if (!this.isEnabled) {
+      console.log('[McpServerProvider] MCP server disabled in settings');
+      return { dispose: () => {} };
+    }
+
+    // Check if vscode.lm API is available (requires VS Code 1.96+)
+    if (!vscode.lm || !('registerMcpServerDefinitionProvider' in vscode.lm)) {
+      console.warn('[McpServerProvider] vscode.lm.registerMcpServerDefinitionProvider not available. MCP server requires VS Code 1.96+');
+      return { dispose: () => {} };
+    }
+
+    console.log('[McpServerProvider] Registering MCP server provider...');
+
+    try {
+      this.registration = vscode.lm.registerMcpServerDefinitionProvider(
+        'graphItLiveMcp',
+        {
+          onDidChangeMcpServerDefinitions: this.didChangeEmitter.event,
+          provideMcpServerDefinitions: () => this.provideMcpServerDefinitions(),
+          resolveMcpServerDefinition: (definition) => definition,
+        }
+      );
+
+      // Listen for configuration changes
+      context.subscriptions.push(
+        vscode.workspace.onDidChangeConfiguration((e) => {
+          if (e.affectsConfiguration('graph-it-live.enableMcpServer')) {
+            this.onConfigChanged();
+          }
+        })
+      );
+
+      console.log('[McpServerProvider] MCP server provider registered');
+      return this.registration;
+    } catch (error) {
+      console.error('[McpServerProvider] Failed to register MCP server provider:', error);
+      return { dispose: () => {} };
+    }
+  }
+
+  /**
+   * Check if MCP server is enabled in settings
+   */
+  private isMcpEnabled(): boolean {
+    const config = vscode.workspace.getConfiguration('graph-it-live');
+    return config.get<boolean>('enableMcpServer', false);
+  }
+
+  /**
+   * Get configuration values for the MCP server
+   */
+  private getConfig(): {
+    excludeNodeModules: boolean;
+    maxDepth: number;
+    tsConfigPath: string | undefined;
+  } {
+    const config = vscode.workspace.getConfiguration('graph-it-live');
+    
+    // Try to find tsconfig.json in the workspace
+    const tsconfigPath = this.findTsConfig();
+
+    return {
+      excludeNodeModules: config.get<boolean>('excludeNodeModules', true),
+      maxDepth: config.get<number>('maxDepth', 50),
+      tsConfigPath: tsconfigPath,
+    };
+  }
+
+  /**
+   * Find tsconfig.json in the workspace
+   */
+  private findTsConfig(): string | undefined {
+    const workspaceRoot = this.workspaceFolder.uri.fsPath;
+    const tsconfigPath = path.join(workspaceRoot, 'tsconfig.json');
+    
+    // We'll let the server check if it exists
+    return tsconfigPath;
+  }
+
+  /**
+   * Provide MCP server definitions to VS Code
+   */
+  private provideMcpServerDefinitions(): vscode.McpServerDefinition[] {
+    if (!this.isEnabled) {
+      return [];
+    }
+
+    const serverPath = vscode.Uri.joinPath(this.extensionUri, 'dist', 'mcpServer.mjs').fsPath;
+    const workspaceRoot = this.workspaceFolder.uri.fsPath;
+    const config = this.getConfig();
+
+    console.log(`[McpServerProvider] Providing MCP server definition for ${workspaceRoot}`);
+
+    // Build environment variables for the server
+    // Note: env type is Record<string, string | number> per VS Code API
+    const env: Record<string, string | number> = {
+      WORKSPACE_ROOT: workspaceRoot,
+      EXCLUDE_NODE_MODULES: String(config.excludeNodeModules),
+      MAX_DEPTH: config.maxDepth, // Keep as number
+    };
+
+    if (config.tsConfigPath) {
+      env.TSCONFIG_PATH = config.tsConfigPath;
+    }
+
+    // Create stdio server definition
+    // Constructor: (label, command, args?, env?, version?)
+    const serverDefinition = new vscode.McpStdioServerDefinition(
+      'Graph-It-Live Dependency Analyzer',
+      'node',
+      [serverPath],
+      env
+    );
+
+    // Set cwd on the definition
+    serverDefinition.cwd = vscode.Uri.file(workspaceRoot);
+
+    return [serverDefinition];
+  }
+
+  /**
+   * Handle configuration changes
+   */
+  private onConfigChanged(): void {
+    const newEnabled = this.isMcpEnabled();
+
+    if (newEnabled !== this.isEnabled) {
+      this.isEnabled = newEnabled;
+      console.log(`[McpServerProvider] MCP server ${newEnabled ? 'enabled' : 'disabled'}`);
+
+      // Notify VS Code that server definitions changed
+      this.didChangeEmitter.fire();
+
+      // If toggling on and we don't have a registration, we need to re-register
+      // This is handled by the extension on config change
+    }
+  }
+
+  /**
+   * Notify that server definitions have changed (e.g., workspace changed)
+   */
+  notifyChange(): void {
+    this.didChangeEmitter.fire();
+  }
+
+  /**
+   * Dispose of resources
+   */
+  dispose(): void {
+    this.registration?.dispose();
+    this.didChangeEmitter.dispose();
+  }
+}
+
+/**
+ * Create an MCP server provider for the given workspace
+ * @param extensionUri Extension directory URI
+ * @param workspaceFolder Workspace folder to analyze
+ * @returns McpServerProvider instance
+ */
+export function createMcpServerProvider(
+  extensionUri: vscode.Uri,
+  workspaceFolder: vscode.WorkspaceFolder
+): McpServerProvider {
+  return new McpServerProvider({
+    extensionUri,
+    workspaceFolder,
+  });
+}
