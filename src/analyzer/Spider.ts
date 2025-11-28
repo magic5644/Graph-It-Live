@@ -162,7 +162,7 @@ export class Spider {
         const restored = ReverseIndex.deserialize(data, this.config.rootDir);
         if (restored) {
           this.reverseIndex = restored;
-          console.log(`[Spider] Restored reverse index with ${restored.indexedFileCount} files`);
+          console.error(`[Spider] Restored reverse index with ${restored.indexedFileCount} files`);
           return true;
         }
       } catch (error) {
@@ -267,19 +267,19 @@ export class Spider {
 
     // Phase 1: Counting files (with yielding for large projects)
     this.indexerStatus.startCounting();
-    console.log('[Spider] Counting files...');
+    console.error('[Spider] Counting files...');
     
     const allFiles = await this.collectAllSourceFiles(this.config.rootDir);
     
     if (this.indexingCancelled) {
-      console.log('[Spider] Indexing cancelled during file counting');
+      console.error('[Spider] Indexing cancelled during file counting');
       this.indexerStatus.setCancelled();
       return { indexedFiles: 0, duration: 0, cancelled: true };
     }
     
     const totalFiles = allFiles.length;
     this.indexerStatus.setTotal(totalFiles);
-    console.log(`[Spider] Found ${totalFiles} files to index`);
+    console.error(`[Spider] Found ${totalFiles} files to index`);
 
     // Yield after counting to let UI update
     await this.yieldToEventLoop();
@@ -293,7 +293,7 @@ export class Spider {
       for (const filePath of allFiles) {
         // Check cancellation at each file
         if (this.indexingCancelled) {
-          console.log('[Spider] Indexing cancelled');
+          console.error('[Spider] Indexing cancelled');
           this.indexerStatus.setCancelled();
           return {
             indexedFiles: processed,
@@ -327,7 +327,7 @@ export class Spider {
       this.indexerStatus.complete();
       const snapshot = this.indexerStatus.getSnapshot();
       const duration = Date.now() - (snapshot.startTime ?? Date.now());
-      console.log(`[Spider] Full index complete: ${processed} files in ${duration}ms`);
+      console.error(`[Spider] Full index complete: ${processed} files in ${duration}ms`);
 
       return {
         indexedFiles: processed,
@@ -391,7 +391,7 @@ export class Spider {
     });
 
     try {
-      console.log('[Spider] Starting background indexing in worker thread...');
+      console.error('[Spider] Starting background indexing in worker thread...');
       
       const result = await this.workerHost.startIndexing({
         rootDir: this.config.rootDir,
@@ -400,7 +400,7 @@ export class Spider {
       });
 
       // Import the indexed data into our reverse index
-      console.log(`[Spider] Worker completed. Importing ${result.data.length} files into reverse index...`);
+      console.error(`[Spider] Worker completed. Importing ${result.data.length} files into reverse index...`);
       
       for (const fileData of result.data) {
         // Cache the dependencies
@@ -414,7 +414,7 @@ export class Spider {
         );
       }
 
-      console.log(`[Spider] Worker index complete: ${result.indexedFiles} files in ${result.duration}ms`);
+      console.error(`[Spider] Worker index complete: ${result.indexedFiles} files in ${result.duration}ms`);
 
       return {
         indexedFiles: result.indexedFiles,
@@ -549,7 +549,7 @@ export class Spider {
       // Stop if max depth reached (use a safe default if undefined)
       const maxDepth = this.config.maxDepth ?? 3;
       if (depth > maxDepth) {
-        console.log(`[Spider] Max depth ${maxDepth} reached at ${filePath}`);
+        console.error(`[Spider] Max depth ${maxDepth} reached at ${filePath}`);
         return;
       }
 
@@ -561,7 +561,7 @@ export class Spider {
       visited.add(filePath);
       nodes.add(filePath);
 
-      console.log(`[Spider] Crawling ${filePath.split('/').pop()} at depth ${depth}/${this.config.maxDepth}`);
+      console.error(`[Spider] Crawling ${filePath.split('/').pop()} at depth ${depth}/${this.config.maxDepth}`);
 
       try {
         const dependencies = await this.analyze(filePath);
@@ -586,7 +586,7 @@ export class Spider {
     await crawlRecursive(startPath, 0);
 
     const duration = Date.now() - startTime;
-    console.log(`[Spider] Crawled ${nodes.size} nodes and ${edges.length} edges in ${duration}ms (maxDepth=${this.config.maxDepth ?? 3})`);
+    console.error(`[Spider] Crawled ${nodes.size} nodes and ${edges.length} edges in ${duration}ms (maxDepth=${this.config.maxDepth ?? 3})`);
 
     return {
       nodes: Array.from(nodes),
@@ -651,7 +651,7 @@ export class Spider {
 
     await crawlRecursive(startNode, 0);
 
-    console.log(`[Spider.crawlFrom] Found ${newNodes.size} new nodes and ${newEdges.length} new edges from ${startNode}`);
+    console.error(`[Spider.crawlFrom] Found ${newNodes.size} new nodes and ${newEdges.length} new edges from ${startNode}`);
 
     return {
       nodes: Array.from(newNodes),
@@ -703,7 +703,7 @@ export class Spider {
       const matchingDep = dependencies.find(dep => dep.path === targetPath);
       
       if (matchingDep) {
-        console.log(`[Spider] Found reference in ${filePath}`);
+        console.error(`[Spider] Found reference in ${filePath}`);
         return {
           path: filePath,
           type: matchingDep.type,
@@ -726,7 +726,7 @@ export class Spider {
   async findReferencingFiles(targetPath: string): Promise<Dependency[]> {
     // Use reverse index if available (O(1) lookup)
     if (this.reverseIndex?.hasEntries()) {
-      console.log(`[Spider] Using reverse index for ${targetPath}`);
+      console.error(`[Spider] Using reverse index for ${targetPath}`);
       return this.reverseIndex.getReferencingFiles(targetPath);
     }
 
@@ -745,7 +745,7 @@ export class Spider {
       return [];
     }
 
-    console.log(`[Spider] Finding references for ${targetPath} via scan (basename: ${targetBasename})`);
+    console.error(`[Spider] Finding references for ${targetPath} via scan (basename: ${targetBasename})`);
 
     // Use parallelized directory walk
     const allFiles = await this.collectAllSourceFiles(this.config.rootDir);

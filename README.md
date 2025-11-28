@@ -234,8 +234,8 @@ When developing the extension locally, use the path to your cloned repository:
       "command": "node",
       "args": ["/path/to/Graph-It-Live/dist/mcpServer.mjs"],
       "env": {
-        "WORKSPACE_ROOT": "${workspaceFolder}",
-        "TSCONFIG_PATH": "${workspaceFolder}/tsconfig.json",
+        "WORKSPACE_ROOT": "/absolute/path/to/your/project",
+        "TSCONFIG_PATH": "/absolute/path/to/your/project/tsconfig.json",
         "EXCLUDE_NODE_MODULES": "true",
         "MAX_DEPTH": "50"
       }
@@ -243,6 +243,8 @@ When developing the extension locally, use the path to your cloned repository:
   }
 }
 ```
+
+> ⚠️ **Important**: Use **absolute paths** for all environment variables. Variables like `${workspaceFolder}` are **NOT supported** by most MCP clients. Replace them with actual paths.
 
 ##### Environment Variables
 
