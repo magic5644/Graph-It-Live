@@ -154,6 +154,7 @@
     "test": "vitest",
     "test:watch": "vitest --watch",
     "test:bench": "vitest bench --config vitest.benchmark.config.mts",
+    "test:mcp": "node scripts/test-mcp.js",
     "lint": "eslint src",
     "lint:fix": "eslint src --fix",
     "package": "vsce package",

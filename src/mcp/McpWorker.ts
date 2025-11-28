@@ -90,7 +90,7 @@ async function handleInit(cfg: McpWorkerConfig): Promise<void> {
   const startTime = Date.now();
   config = cfg;
 
-  console.log('[McpWorker] Initializing with config:', {
+  console.error('[McpWorker] Initializing with config:', {
     rootDir: cfg.rootDir,
     excludeNodeModules: cfg.excludeNodeModules,
     maxDepth: cfg.maxDepth,
@@ -120,7 +120,7 @@ async function handleInit(cfg: McpWorkerConfig): Promise<void> {
   });
 
   // Perform warmup: build full index of the workspace
-  console.log('[McpWorker] Starting warmup indexing...');
+  console.error('[McpWorker] Starting warmup indexing...');
   
   try {
     const result = await spider.buildFullIndex();
@@ -134,7 +134,7 @@ async function handleInit(cfg: McpWorkerConfig): Promise<void> {
     isReady = true;
     const totalDuration = Date.now() - startTime;
 
-    console.log(`[McpWorker] Warmup complete: ${result.indexedFiles} files indexed in ${result.duration}ms`);
+    console.error(`[McpWorker] Warmup complete: ${result.indexedFiles} files indexed in ${result.duration}ms`);
 
     postMessage({
       type: 'ready',
@@ -161,7 +161,7 @@ async function handleInit(cfg: McpWorkerConfig): Promise<void> {
  * Handle shutdown message
  */
 function handleShutdown(): void {
-  console.log('[McpWorker] Shutting down...');
+  console.error('[McpWorker] Shutting down...');
   spider?.cancelIndexing();
   process.exit(0);
 }

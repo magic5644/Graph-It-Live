@@ -11,6 +11,44 @@
  * NO import * as vscode from 'vscode' allowed!
  */
 
+import * as fs from 'node:fs';
+import * as os from 'node:os';
+
+// ============================================================================
+// File Logger for Debugging (writes to ~/mcp-debug.log)
+// ============================================================================
+const DEBUG_LOG_PATH = `${os.homedir()}/mcp-debug.log`;
+
+/**
+ * Write a debug message to both stderr and a file for easier debugging
+ */
+function debugLog(...args: unknown[]): void {
+  const timestamp = new Date().toISOString();
+  const message = args.map(a => typeof a === 'string' ? a : JSON.stringify(a)).join(' ');
+  const line = `[${timestamp}] ${message}\n`;
+  
+  // Write to stderr for MCP protocol
+  console.error(message);
+  
+  // Also write to file for debugging VS Code/Antigravity issues
+  try {
+    fs.appendFileSync(DEBUG_LOG_PATH, line);
+  } catch {
+    // Ignore write errors
+  }
+}
+
+// EARLY DEBUG: Log immediately to confirm process starts
+debugLog('[McpServer] ===== PROCESS STARTING =====');
+debugLog('[McpServer] Node version:', process.version);
+debugLog('[McpServer] PID:', process.pid);
+debugLog('[McpServer] argv:', JSON.stringify(process.argv));
+debugLog('[McpServer] Environment vars:');
+debugLog('  WORKSPACE_ROOT:', process.env.WORKSPACE_ROOT ?? '(not set)');
+debugLog('  TSCONFIG_PATH:', process.env.TSCONFIG_PATH ?? '(not set)');
+debugLog('  EXCLUDE_NODE_MODULES:', process.env.EXCLUDE_NODE_MODULES ?? '(not set)');
+debugLog('  MAX_DEPTH:', process.env.MAX_DEPTH ?? '(not set)');
+
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
 import * as path from 'node:path';
@@ -41,7 +79,7 @@ const EXCLUDE_NODE_MODULES = process.env.EXCLUDE_NODE_MODULES !== 'false';
 const MAX_DEPTH = Number.parseInt(process.env.MAX_DEPTH ?? '50', 10);
 
 if (!WORKSPACE_ROOT_ENV) {
-  console.error('[McpServer] WORKSPACE_ROOT environment variable is required');
+  debugLog('[McpServer] WORKSPACE_ROOT environment variable is required');
   process.exit(1);
 }
 
@@ -59,23 +97,68 @@ const server = new McpServer({
 
 let workerHost: McpWorkerHost | null = null;
 let isInitialized = false;
+let initializationPromise: Promise<void> | null = null;
+let initializationError: Error | null = null;
 
 /**
  * Initialize the worker host with warmup
+ * Uses a singleton pattern to avoid multiple initializations
  */
 async function initializeWorker(): Promise<void> {
+  // Already initialized successfully
   if (isInitialized) {
     return;
   }
 
+  // Previous initialization failed
+  if (initializationError) {
+    throw initializationError;
+  }
+
+  // Initialization already in progress, wait for it
+  if (initializationPromise) {
+    debugLog('[McpServer] Waiting for existing initialization...');
+    return initializationPromise;
+  }
+
+  // Start new initialization
+  initializationPromise = doInitializeWorker();
+  
+  try {
+    await initializationPromise;
+  } catch (error) {
+    initializationError = error instanceof Error ? error : new Error(String(error));
+    throw initializationError;
+  }
+}
+
+/**
+ * Actual worker initialization logic
+ */
+async function doInitializeWorker(): Promise<void> {
   const workerPath = path.join(__dirname, 'mcpWorker.js');
+  
+  // Debug: Log worker path resolution
+  debugLog(`[McpServer] __dirname: ${__dirname}`);
+  debugLog(`[McpServer] Worker path: ${workerPath}`);
+  
+  // Check if worker file exists
+  try {
+    const fs = await import('node:fs/promises');
+    await fs.access(workerPath);
+    debugLog('[McpServer] Worker file exists: true');
+  } catch {
+    debugLog('[McpServer] Worker file exists: false - THIS IS THE PROBLEM!');
+    throw new Error(`Worker file not found at ${workerPath}`);
+  }
+
   workerHost = new McpWorkerHost({
     workerPath,
     warmupTimeout: 120000, // 2 minutes for large workspaces
     invokeTimeout: 60000, // 1 minute per tool call
   });
 
-  console.error('[McpServer] Starting worker with warmup...');
+  debugLog('[McpServer] Starting worker with warmup...');
 
   try {
     const result = await workerHost.start(
@@ -86,16 +169,16 @@ async function initializeWorker(): Promise<void> {
         maxDepth: MAX_DEPTH,
       },
       (processed, total, currentFile) => {
-        console.error(`[McpServer] Warmup progress: ${processed}/${total} - ${currentFile ?? ''}`);
+        debugLog(`[McpServer] Warmup progress: ${processed}/${total} - ${currentFile ?? ''}`);
       }
     );
 
-    console.error(
+    debugLog(
       `[McpServer] Worker ready: ${result.filesIndexed} files indexed in ${result.durationMs}ms`
     );
     isInitialized = true;
   } catch (error) {
-    console.error('[McpServer] Worker initialization failed:', error);
+    debugLog(`[McpServer] Worker initialization failed: ${error}`);
     throw error;
   }
 }
@@ -124,6 +207,26 @@ async function invokeToolWithResponse<T>(
   }
 }
 
+/**
+ * Helper to ensure worker is initialized, returns error response if not
+ */
+async function ensureWorkerReady(): Promise<{ error: true; response: { content: { type: 'text'; text: string }[]; isError: true } } | { error: false }> {
+  try {
+    await initializeWorker();
+    return { error: false };
+  } catch (error) {
+    const errorMessage = error instanceof Error ? error.message : 'Worker initialization failed';
+    debugLog(`[McpServer] Tool call failed - worker init error: ${errorMessage}`);
+    return {
+      error: true,
+      response: {
+        content: [{ type: 'text' as const, text: `Error: ${errorMessage}` }],
+        isError: true,
+      },
+    };
+  }
+}
+
 // ============================================================================
 // Tool Definitions - Using registerTool (recommended over deprecated tool())
 // ============================================================================
@@ -139,7 +242,8 @@ server.registerTool(
     },
   },
   async ({ filePath }) => {
-    await initializeWorker();
+    const workerCheck = await ensureWorkerReady();
+    if (workerCheck.error) return workerCheck.response;
 
     const response = await invokeToolWithResponse<AnalyzeDependenciesResult>(
       'analyze_dependencies',
@@ -171,7 +275,8 @@ server.registerTool(
     },
   },
   async ({ entryFile, maxDepth, limit, offset }) => {
-    await initializeWorker();
+    const workerCheck = await ensureWorkerReady();
+    if (workerCheck.error) return workerCheck.response;
 
     const params = { entryFile, maxDepth, limit, offset };
     const result = await workerHost!.invoke<CrawlDependencyGraphResult>(
@@ -221,7 +326,8 @@ server.registerTool(
     },
   },
   async ({ targetPath }) => {
-    await initializeWorker();
+    const workerCheck = await ensureWorkerReady();
+    if (workerCheck.error) return workerCheck.response;
 
     const response = await invokeToolWithResponse<FindReferencingFilesResult>(
       'find_referencing_files',
@@ -252,7 +358,8 @@ server.registerTool(
     },
   },
   async ({ filePath, knownPaths, extraDepth }) => {
-    await initializeWorker();
+    const workerCheck = await ensureWorkerReady();
+    if (workerCheck.error) return workerCheck.response;
 
     const response = await invokeToolWithResponse<ExpandNodeResult>('expand_node', {
       filePath,
@@ -282,7 +389,8 @@ server.registerTool(
     },
   },
   async ({ filePath }) => {
-    await initializeWorker();
+    const workerCheck = await ensureWorkerReady();
+    if (workerCheck.error) return workerCheck.response;
 
     const response = await invokeToolWithResponse<ParseImportsResult>('parse_imports', { filePath });
 
@@ -309,7 +417,8 @@ server.registerTool(
     },
   },
   async ({ fromFile, moduleSpecifier }) => {
-    await initializeWorker();
+    const workerCheck = await ensureWorkerReady();
+    if (workerCheck.error) return workerCheck.response;
 
     const response = await invokeToolWithResponse<ResolveModulePathResult>(
       'resolve_module_path',
@@ -336,7 +445,8 @@ server.registerTool(
     inputSchema: {},
   },
   async () => {
-    await initializeWorker();
+    const workerCheck = await ensureWorkerReady();
+    if (workerCheck.error) return workerCheck.response;
 
     const response = await invokeToolWithResponse<GetIndexStatusResult>('get_index_status', {});
 
@@ -356,32 +466,32 @@ server.registerTool(
 // ============================================================================
 
 async function main(): Promise<void> {
-  console.error('[McpServer] Graph-It-Live MCP Server starting...');
-  console.error(`[McpServer] Workspace: ${WORKSPACE_ROOT}`);
-  console.error(`[McpServer] TSConfig: ${TSCONFIG_PATH ?? 'auto-detect'}`);
-  console.error(`[McpServer] Exclude node_modules: ${EXCLUDE_NODE_MODULES}`);
-  console.error(`[McpServer] Max depth: ${MAX_DEPTH}`);
+  debugLog('[McpServer] Graph-It-Live MCP Server starting...');
+  debugLog(`[McpServer] Workspace: ${WORKSPACE_ROOT}`);
+  debugLog(`[McpServer] TSConfig: ${TSCONFIG_PATH ?? 'auto-detect'}`);
+  debugLog(`[McpServer] Exclude node_modules: ${EXCLUDE_NODE_MODULES}`);
+  debugLog(`[McpServer] Max depth: ${MAX_DEPTH}`);
 
   // Connect to stdio transport
   const transport = new StdioServerTransport();
   await server.connect(transport);
 
-  console.error('[McpServer] MCP Server connected via stdio');
+  debugLog('[McpServer] MCP Server connected via stdio');
 
   // Start warmup immediately in background
   initializeWorker().catch((error) => {
-    console.error('[McpServer] Background warmup failed:', error);
+    debugLog(`[McpServer] Background warmup failed: ${error}`);
   });
 
   // Handle graceful shutdown
   process.on('SIGINT', () => {
-    console.error('[McpServer] Received SIGINT, shutting down...');
+    debugLog('[McpServer] Received SIGINT, shutting down...');
     workerHost?.dispose();
     process.exit(0);
   });
 
   process.on('SIGTERM', () => {
-    console.error('[McpServer] Received SIGTERM, shutting down...');
+    debugLog('[McpServer] Received SIGTERM, shutting down...');
     workerHost?.dispose();
     process.exit(0);
   });
@@ -389,6 +499,6 @@ async function main(): Promise<void> {
 
 // Run main - IIFE pattern for entry point (NOSONAR: top-level await not supported by tsconfig)
 main().catch((error: unknown) => { // NOSONAR
-  console.error('[McpServer] Fatal error:', error);
+  debugLog(`[McpServer] Fatal error: ${error}`);
   process.exit(1);
 });

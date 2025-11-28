@@ -232,13 +232,13 @@ export class ReverseIndex {
   ): ReverseIndex | null {
     // Validate version
     if (data.version !== INDEX_VERSION) {
-      console.log(`[ReverseIndex] Version mismatch: ${data.version} !== ${INDEX_VERSION}`);
+      console.error(`[ReverseIndex] Version mismatch: ${data.version} !== ${INDEX_VERSION}`);
       return null;
     }
 
     // Validate rootDir matches
     if (data.rootDir !== rootDir) {
-      console.log(`[ReverseIndex] Root dir mismatch: ${data.rootDir} !== ${rootDir}`);
+      console.error(`[ReverseIndex] Root dir mismatch: ${data.rootDir} !== ${rootDir}`);
       return null;
     }
 
