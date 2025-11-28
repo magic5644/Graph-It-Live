@@ -18,8 +18,8 @@ import {
   ParseImportsParamsSchema,
   ResolveModulePathParamsSchema,
   GetIndexStatusParamsSchema,
-} from '@/mcp/types';
-import type { Dependency } from '@/analyzer/types';
+} from '../../src/mcp/types';
+import type { Dependency } from '../../src/analyzer/types';
 
 // ============================================================================
 // Response Helper Tests

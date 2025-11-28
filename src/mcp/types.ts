@@ -8,7 +8,7 @@
  * NO import * as vscode from 'vscode' allowed!
  */
 
-import { z } from 'zod';
+import * as z from 'zod/v4';
 import type { Dependency } from '../analyzer/types';
 
 // ============================================================================
@@ -157,6 +157,11 @@ export interface McpToolResponse<T> {
 // ============================================================================
 
 /**
+ * Type of import statement
+ */
+export type ImportType = 'import' | 'require' | 'export' | 'dynamic';
+
+/**
  * Result of analyze_dependencies tool
  */
 export interface AnalyzeDependenciesResult {
@@ -177,7 +182,7 @@ export interface DependencyInfo {
   /** Relative path from workspace root (easier for humans/LLMs to read) */
   relativePath: string;
   /** Type of import statement */
-  type: 'import' | 'require' | 'export' | 'dynamic';
+  type: ImportType;
   /** Line number where the import appears */
   line: number;
   /** Original module specifier as written in code */
@@ -256,7 +261,7 @@ export interface ReferencingFileInfo {
   /** Relative path from workspace root */
   relativePath: string;
   /** Type of import used */
-  type: 'import' | 'require' | 'export' | 'dynamic';
+  type: ImportType;
   /** Line number of the import statement */
   line: number;
   /** Original module specifier */
@@ -298,7 +303,7 @@ export interface ParsedImportInfo {
   /** Module specifier as written in code */
   module: string;
   /** Type of import */
-  type: 'import' | 'require' | 'export' | 'dynamic';
+  type: ImportType;
   /** Line number */
   line: number;
 }

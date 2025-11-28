@@ -137,7 +137,8 @@ const __dirname = dirname(__filename);`,
   }
 }
 
-main().catch(e => {
+// Entry point - CommonJS doesn't support top-level await (NOSONAR)
+main().catch(e => { // NOSONAR
   console.error(e);
   process.exit(1);
 });

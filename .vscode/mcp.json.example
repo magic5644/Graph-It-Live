@@ -1,0 +1,16 @@
+{
+  "servers": {
+    "graph-it-live": {
+      "type": "stdio",
+      "command": "node",
+      "args": [
+        "${userHome}/.vscode/extensions/magic5644.graph-it-live-*/dist/mcpServer.mjs"
+      ],
+      "env": {
+        "WORKSPACE_ROOT": "${workspaceFolder}",
+        "EXCLUDE_NODE_MODULES": "true",
+        "MAX_DEPTH": "50"
+      }
+    }
+  }
+}

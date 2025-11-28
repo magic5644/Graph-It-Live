@@ -119,6 +119,157 @@ The MCP server exposes 7 tools for AI/LLM consumption:
 - Performs **automatic warmup** on startup to index the workspace
 - Returns **enriched JSON** responses optimized for LLM understanding
 
+#### Manual MCP Server Configuration
+
+If the automatic MCP server registration doesn't work in your editor (e.g., when using Antigravity, Cursor, or if you want to use the server outside of VS Code), you can manually configure the MCP server.
+
+##### VS Code / VS Code Insiders
+
+Create or edit `.vscode/mcp.json` in your workspace:
+
+```json
+{
+  "servers": {
+    "graph-it-live": {
+      "type": "stdio",
+      "command": "node",
+      "args": ["${extensionPath:magic5644.graph-it-live}/dist/mcpServer.mjs"],
+      "env": {
+        "WORKSPACE_ROOT": "${workspaceFolder}",
+        "EXCLUDE_NODE_MODULES": "true",
+        "MAX_DEPTH": "50"
+      }
+    }
+  }
+}
+```
+
+> **Note**: The `${extensionPath:magic5644.graph-it-live}` variable automatically resolves to the extension's installation directory.
+
+##### Cursor
+
+Create or edit `.cursor/mcp.json` in your workspace or `~/.cursor/mcp.json` for global configuration:
+
+```json
+{
+  "mcpServers": {
+    "graph-it-live": {
+      "command": "bash",
+      "args": ["-c", "node ~/.cursor/extensions/magic5644.graph-it-live-*/dist/mcpServer.mjs"],
+      "env": {
+        "WORKSPACE_ROOT": "${workspaceFolder}",
+        "EXCLUDE_NODE_MODULES": "true",
+        "MAX_DEPTH": "50"
+      }
+    }
+  }
+}
+```
+
+> **Note**: The `*` wildcard matches any version. Using `bash -c` allows glob expansion.
+
+##### Antigravity (Google's VS Code fork)
+
+> ⚠️ **Partial Support**: Antigravity's MCP integration is experimental. The automatic MCP server registration via `registerMcpServerDefinitionProvider` may not work reliably. Use manual configuration below.
+
+Antigravity uses `mcpServers` (not `servers`). Create `.vscode/mcp.json` in your workspace:
+
+```json
+{
+  "mcpServers": {
+    "graph-it-live": {
+      "command": "node",
+      "args": ["${extensionPath:magic5644.graph-it-live}/dist/mcpServer.mjs"],
+      "env": {
+        "WORKSPACE_ROOT": "${workspaceFolder}",
+        "EXCLUDE_NODE_MODULES": "true",
+        "MAX_DEPTH": "50"
+      }
+    }
+  }
+}
+```
+
+> **Note**: The `${extensionPath:magic5644.graph-it-live}` variable automatically resolves to the extension's installation directory, regardless of version.
+
+##### Claude Desktop
+
+Add to your Claude Desktop configuration (`~/Library/Application Support/Claude/claude_desktop_config.json` on macOS).
+
+First, find your extension path:
+
+```bash
+ls ~/.vscode/extensions/ | grep graph-it-live
+# Example output: magic5644.graph-it-live-1.0.0
+```
+
+Then use the full path in your config:
+
+```json
+{
+  "mcpServers": {
+    "graph-it-live": {
+      "command": "bash",
+      "args": ["-c", "node ~/.vscode/extensions/magic5644.graph-it-live-*/dist/mcpServer.mjs"],
+      "env": {
+        "WORKSPACE_ROOT": "/path/to/your/project",
+        "EXCLUDE_NODE_MODULES": "true",
+        "MAX_DEPTH": "50"
+      }
+    }
+  }
+}
+```
+
+> **Note**: The `*` wildcard matches any version. Using `bash -c` allows glob expansion.
+
+##### Development / Local Testing
+
+When developing the extension locally, use the path to your cloned repository:
+
+```json
+{
+  "mcpServers": {
+    "graph-it-live": {
+      "command": "node",
+      "args": ["/path/to/Graph-It-Live/dist/mcpServer.mjs"],
+      "env": {
+        "WORKSPACE_ROOT": "${workspaceFolder}",
+        "TSCONFIG_PATH": "${workspaceFolder}/tsconfig.json",
+        "EXCLUDE_NODE_MODULES": "true",
+        "MAX_DEPTH": "50"
+      }
+    }
+  }
+}
+```
+
+##### Environment Variables
+
+| Variable | Required | Default | Description |
+|----------|----------|---------|-------------|
+| `WORKSPACE_ROOT` | Yes | - | Absolute path to the project root to analyze |
+| `TSCONFIG_PATH` | No | Auto-detect | Path to tsconfig.json for path alias resolution |
+| `EXCLUDE_NODE_MODULES` | No | `true` | Set to `false` to include node_modules in analysis |
+| `MAX_DEPTH` | No | `50` | Maximum depth for dependency crawling |
+
+##### Verifying the Server
+
+To test if the MCP server starts correctly:
+
+```bash
+cd /path/to/your/project
+WORKSPACE_ROOT="$(pwd)" node /path/to/graph-it-live/dist/mcpServer.mjs
+```
+
+You should see output like:
+```
+[McpServer] Graph-It-Live MCP Server starting...
+[McpServer] Workspace: /path/to/your/project
+[McpServer] MCP Server connected via stdio
+[McpServer] Worker ready: 123 files indexed in 45ms
+```
+
 ## Development
 
 ### Project Structure

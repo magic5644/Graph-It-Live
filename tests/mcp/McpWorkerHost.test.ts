@@ -7,7 +7,7 @@
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { EventEmitter } from 'node:events';
-import type { McpWorkerResponse } from '@/mcp/types';
+import type { McpWorkerResponse } from '../../src/mcp/types';
 
 // Store the current mock instance
 let currentMockWorker: MockWorkerInstance | null = null;
@@ -15,15 +15,6 @@ let currentMockWorker: MockWorkerInstance | null = null;
 interface MockWorkerInstance extends EventEmitter {
   postMessage: ReturnType<typeof vi.fn>;
   terminate: ReturnType<typeof vi.fn>;
-}
-
-// Factory to create mock workers
-function createMockWorker(): MockWorkerInstance {
-  const emitter = new EventEmitter() as MockWorkerInstance;
-  emitter.postMessage = vi.fn();
-  emitter.terminate = vi.fn().mockResolvedValue(0);
-  currentMockWorker = emitter;
-  return emitter;
 }
 
 // Mock worker_threads before importing McpWorkerHost
@@ -45,7 +36,7 @@ vi.mock('node:worker_threads', () => {
 });
 
 // Import after mock setup
-import { McpWorkerHost, type McpWorkerHostOptions } from '@/mcp/McpWorkerHost';
+import { McpWorkerHost, type McpWorkerHostOptions } from '../../src/mcp/McpWorkerHost';
 
 // Helper to get the current mock worker or throw
 function getMockWorker(): MockWorkerInstance {
@@ -90,8 +81,10 @@ describe('McpWorkerHost', () => {
       host = new McpWorkerHost(defaultOptions);
 
       const startPromise = host.start({
-        workspaceRoot: '/workspace',
-        tsconfigPath: '/workspace/tsconfig.json',
+        rootDir: '/workspace',
+        tsConfigPath: '/workspace/tsconfig.json',
+        excludeNodeModules: true,
+        maxDepth: 50,
       });
 
       // Schedule the emit after the worker is created (next tick)
@@ -120,8 +113,10 @@ describe('McpWorkerHost', () => {
 
       const startPromise = host.start(
         {
-          workspaceRoot: '/workspace',
-          tsconfigPath: '/workspace/tsconfig.json',
+          rootDir: '/workspace',
+          tsConfigPath: '/workspace/tsconfig.json',
+          excludeNodeModules: true,
+          maxDepth: 50,
         },
         progressCallback
       );
@@ -153,8 +148,10 @@ describe('McpWorkerHost', () => {
       host = new McpWorkerHost(defaultOptions);
 
       const startPromise = host.start({
-        workspaceRoot: '/workspace',
-        tsconfigPath: '/workspace/tsconfig.json',
+        rootDir: '/workspace',
+        tsConfigPath: '/workspace/tsconfig.json',
+        excludeNodeModules: true,
+        maxDepth: 50,
       });
 
       await Promise.resolve();
@@ -170,7 +167,7 @@ describe('McpWorkerHost', () => {
 
       // Try to start again
       await expect(
-        host.start({ workspaceRoot: '/workspace', tsconfigPath: '/workspace/tsconfig.json' })
+        host.start({ rootDir: '/workspace', tsConfigPath: '/workspace/tsconfig.json', excludeNodeModules: true, maxDepth: 50 })
       ).rejects.toThrow('Worker already started');
     });
 
@@ -178,8 +175,10 @@ describe('McpWorkerHost', () => {
       host = new McpWorkerHost(defaultOptions);
 
       const startPromise = host.start({
-        workspaceRoot: '/workspace',
-        tsconfigPath: '/workspace/tsconfig.json',
+        rootDir: '/workspace',
+        tsConfigPath: '/workspace/tsconfig.json',
+        excludeNodeModules: true,
+        maxDepth: 50,
       });
 
       await Promise.resolve();
@@ -196,8 +195,10 @@ describe('McpWorkerHost', () => {
       host = new McpWorkerHost(defaultOptions);
 
       const startPromise = host.start({
-        workspaceRoot: '/workspace',
-        tsconfigPath: '/workspace/tsconfig.json',
+        rootDir: '/workspace',
+        tsConfigPath: '/workspace/tsconfig.json',
+        excludeNodeModules: true,
+        maxDepth: 50,
       });
 
       await Promise.resolve();
@@ -215,8 +216,10 @@ describe('McpWorkerHost', () => {
       });
 
       const startPromise = host.start({
-        workspaceRoot: '/workspace',
-        tsconfigPath: '/workspace/tsconfig.json',
+        rootDir: '/workspace',
+        tsConfigPath: '/workspace/tsconfig.json',
+        excludeNodeModules: true,
+        maxDepth: 50,
       });
 
       // Don't emit ready - let it timeout
@@ -229,8 +232,10 @@ describe('McpWorkerHost', () => {
     beforeEach(async () => {
       host = new McpWorkerHost(defaultOptions);
       const startPromise = host.start({
-        workspaceRoot: '/workspace',
-        tsconfigPath: '/workspace/tsconfig.json',
+        rootDir: '/workspace',
+        tsConfigPath: '/workspace/tsconfig.json',
+        excludeNodeModules: true,
+        maxDepth: 50,
       });
       await Promise.resolve();
       getMockWorker().emit('message', {
@@ -257,6 +262,7 @@ describe('McpWorkerHost', () => {
         type: 'result',
         requestId: postedMessage.requestId,
         data: { success: true, data: { imports: [] } },
+        executionTimeMs: 10,
       };
       getMockWorker().emit('message', resultResponse);
 
@@ -289,8 +295,10 @@ describe('McpWorkerHost', () => {
       });
 
       const startPromise = host.start({
-        workspaceRoot: '/workspace',
-        tsconfigPath: '/workspace/tsconfig.json',
+        rootDir: '/workspace',
+        tsConfigPath: '/workspace/tsconfig.json',
+        excludeNodeModules: true,
+        maxDepth: 50,
       });
       await Promise.resolve();
       getMockWorker().emit('message', {
@@ -326,8 +334,10 @@ describe('McpWorkerHost', () => {
       host = new McpWorkerHost(defaultOptions);
 
       const startPromise = host.start({
-        workspaceRoot: '/workspace',
-        tsconfigPath: '/workspace/tsconfig.json',
+        rootDir: '/workspace',
+        tsConfigPath: '/workspace/tsconfig.json',
+        excludeNodeModules: true,
+        maxDepth: 50,
       });
 
       await Promise.resolve();
@@ -346,8 +356,10 @@ describe('McpWorkerHost', () => {
       host = new McpWorkerHost(defaultOptions);
 
       const startPromise = host.start({
-        workspaceRoot: '/workspace',
-        tsconfigPath: '/workspace/tsconfig.json',
+        rootDir: '/workspace',
+        tsConfigPath: '/workspace/tsconfig.json',
+        excludeNodeModules: true,
+        maxDepth: 50,
       });
 
       await Promise.resolve();
@@ -370,8 +382,10 @@ describe('McpWorkerHost', () => {
       host = new McpWorkerHost(defaultOptions);
 
       const startPromise = host.start({
-        workspaceRoot: '/workspace',
-        tsconfigPath: '/workspace/tsconfig.json',
+        rootDir: '/workspace',
+        tsConfigPath: '/workspace/tsconfig.json',
+        excludeNodeModules: true,
+        maxDepth: 50,
       });
 
       await Promise.resolve();
@@ -394,8 +408,10 @@ describe('McpWorkerHost', () => {
       host = new McpWorkerHost(defaultOptions);
 
       const startPromise = host.start({
-        workspaceRoot: '/workspace',
-        tsconfigPath: '/workspace/tsconfig.json',
+        rootDir: '/workspace',
+        tsConfigPath: '/workspace/tsconfig.json',
+        excludeNodeModules: true,
+        maxDepth: 50,
       });
 
       await Promise.resolve();
@@ -419,8 +435,10 @@ describe('McpWorkerHost', () => {
       host = new McpWorkerHost(defaultOptions);
 
       const startPromise = host.start({
-        workspaceRoot: '/workspace',
-        tsconfigPath: '/workspace/tsconfig.json',
+        rootDir: '/workspace',
+        tsConfigPath: '/workspace/tsconfig.json',
+        excludeNodeModules: true,
+        maxDepth: 50,
       });
 
       await Promise.resolve();
