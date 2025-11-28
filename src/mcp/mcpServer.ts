@@ -14,31 +14,19 @@
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
 import * as path from 'node:path';
+import * as z from 'zod/v4';
 import { McpWorkerHost } from './McpWorkerHost';
 import {
-  AnalyzeDependenciesParamsSchema,
-  CrawlDependencyGraphParamsSchema,
-  FindReferencingFilesParamsSchema,
-  ExpandNodeParamsSchema,
-  ParseImportsParamsSchema,
-  ResolveModulePathParamsSchema,
-  GetIndexStatusParamsSchema,
   createSuccessResponse,
   createErrorResponse,
   MCP_TOOL_VERSION,
   type McpToolResponse,
   type AnalyzeDependenciesResult,
-  type AnalyzeDependenciesParams,
   type CrawlDependencyGraphResult,
-  type CrawlDependencyGraphParams,
   type FindReferencingFilesResult,
-  type FindReferencingFilesParams,
   type ExpandNodeResult,
-  type ExpandNodeParams,
   type ParseImportsResult,
-  type ParseImportsParams,
   type ResolveModulePathResult,
-  type ResolveModulePathParams,
   type GetIndexStatusResult,
   type PaginationInfo,
 } from './types';
@@ -137,20 +125,25 @@ async function invokeToolWithResponse<T>(
 }
 
 // ============================================================================
-// Tool Definitions
+// Tool Definitions - Using registerTool (recommended over deprecated tool())
 // ============================================================================
 
 // Tool: analyze_dependencies
-server.tool(
+server.registerTool(
   'analyze_dependencies',
-  'Analyze a file and return all its import/export dependencies with full path resolution',
-  AnalyzeDependenciesParamsSchema.shape,
-  async (params: AnalyzeDependenciesParams) => {
+  {
+    title: 'Analyze Dependencies',
+    description: '[Built-in tool - no installation needed] Analyze a TypeScript/JavaScript/Vue/Svelte/GraphQL file and return all its import/export dependencies with full path resolution. Uses native regex-based parsing.',
+    inputSchema: {
+      filePath: z.string().describe('Absolute path to the file to analyze'),
+    },
+  },
+  async ({ filePath }) => {
     await initializeWorker();
 
     const response = await invokeToolWithResponse<AnalyzeDependenciesResult>(
       'analyze_dependencies',
-      params
+      { filePath }
     );
 
     return {
@@ -165,13 +158,22 @@ server.tool(
 );
 
 // Tool: crawl_dependency_graph
-server.tool(
+server.registerTool(
   'crawl_dependency_graph',
-  'Build a complete dependency graph starting from an entry file. Returns all nodes (files) and edges (import relationships). Supports pagination for large graphs.',
-  CrawlDependencyGraphParamsSchema.shape,
-  async (params: CrawlDependencyGraphParams) => {
+  {
+    title: 'Crawl Dependency Graph',
+    description: '[Built-in tool - no installation needed] Build a complete dependency graph starting from an entry file. Returns all nodes (files) and edges (import relationships). Supports pagination for large graphs. Works with TS/JS/Vue/Svelte/GraphQL.',
+    inputSchema: {
+      entryFile: z.string().describe('Absolute path to the entry file'),
+      maxDepth: z.number().optional().describe('Maximum depth to crawl (default: from config)'),
+      limit: z.number().optional().describe('Maximum number of nodes to return (for pagination)'),
+      offset: z.number().optional().describe('Number of nodes to skip (for pagination)'),
+    },
+  },
+  async ({ entryFile, maxDepth, limit, offset }) => {
     await initializeWorker();
 
+    const params = { entryFile, maxDepth, limit, offset };
     const result = await workerHost!.invoke<CrawlDependencyGraphResult>(
       'crawl_dependency_graph',
       params
@@ -179,14 +181,14 @@ server.tool(
 
     // Build pagination info if limit/offset were used
     let pagination: PaginationInfo | undefined;
-    if (params.limit !== undefined || params.offset !== undefined) {
-      const offset = params.offset ?? 0;
-      const limit = params.limit ?? result.nodeCount;
+    if (limit !== undefined || offset !== undefined) {
+      const actualOffset = offset ?? 0;
+      const actualLimit = limit ?? result.nodeCount;
       pagination = {
         total: result.nodeCount,
-        limit,
-        offset,
-        hasMore: offset + result.nodes.length < result.nodeCount,
+        limit: actualLimit,
+        offset: actualOffset,
+        hasMore: actualOffset + result.nodes.length < result.nodeCount,
       };
     }
 
@@ -209,16 +211,21 @@ server.tool(
 );
 
 // Tool: find_referencing_files
-server.tool(
+server.registerTool(
   'find_referencing_files',
-  'Find all files that import/reference a given file (reverse dependency lookup). Useful for understanding the impact of changing a file.',
-  FindReferencingFilesParamsSchema.shape,
-  async (params: FindReferencingFilesParams) => {
+  {
+    title: 'Find Referencing Files',
+    description: '[Built-in tool - no installation needed] Find all files that import/reference a given file (reverse dependency lookup). Uses pre-built index for instant O(1) lookups. Useful for understanding the impact of changing a file.',
+    inputSchema: {
+      targetPath: z.string().describe('Absolute path to the file to find references for'),
+    },
+  },
+  async ({ targetPath }) => {
     await initializeWorker();
 
     const response = await invokeToolWithResponse<FindReferencingFilesResult>(
       'find_referencing_files',
-      params
+      { targetPath }
     );
 
     return {
@@ -233,14 +240,25 @@ server.tool(
 );
 
 // Tool: expand_node
-server.tool(
+server.registerTool(
   'expand_node',
-  'Discover new dependencies from a specific node that are not in the known set. Useful for incremental graph exploration.',
-  ExpandNodeParamsSchema.shape,
-  async (params: ExpandNodeParams) => {
+  {
+    title: 'Expand Node',
+    description: '[Built-in tool - no installation needed] Discover new dependencies from a specific node that are not in the known set. Useful for incremental graph exploration without re-analyzing the entire project.',
+    inputSchema: {
+      filePath: z.string().describe('Absolute path to the node to expand'),
+      knownPaths: z.array(z.string()).describe('Array of already known file paths to exclude'),
+      extraDepth: z.number().optional().describe('Additional depth to scan from this node (default: 10)'),
+    },
+  },
+  async ({ filePath, knownPaths, extraDepth }) => {
     await initializeWorker();
 
-    const response = await invokeToolWithResponse<ExpandNodeResult>('expand_node', params);
+    const response = await invokeToolWithResponse<ExpandNodeResult>('expand_node', {
+      filePath,
+      knownPaths,
+      extraDepth,
+    });
 
     return {
       content: [
@@ -254,14 +272,19 @@ server.tool(
 );
 
 // Tool: parse_imports
-server.tool(
+server.registerTool(
   'parse_imports',
-  'Extract raw import statements from a file without resolving paths. Returns the module specifiers as written in the source code.',
-  ParseImportsParamsSchema.shape,
-  async (params: ParseImportsParams) => {
+  {
+    title: 'Parse Imports',
+    description: '[Built-in tool - no installation needed] Extract raw import statements from a TS/JS/Vue/Svelte/GraphQL file without resolving paths. Returns the module specifiers as written in the source code. Uses fast regex-based parsing.',
+    inputSchema: {
+      filePath: z.string().describe('Absolute path to the file to parse'),
+    },
+  },
+  async ({ filePath }) => {
     await initializeWorker();
 
-    const response = await invokeToolWithResponse<ParseImportsResult>('parse_imports', params);
+    const response = await invokeToolWithResponse<ParseImportsResult>('parse_imports', { filePath });
 
     return {
       content: [
@@ -275,16 +298,22 @@ server.tool(
 );
 
 // Tool: resolve_module_path
-server.tool(
+server.registerTool(
   'resolve_module_path',
-  'Resolve a module specifier (like "./utils" or "@/components/Button") to an absolute file path, taking into account tsconfig path aliases.',
-  ResolveModulePathParamsSchema.shape,
-  async (params: ResolveModulePathParams) => {
+  {
+    title: 'Resolve Module Path',
+    description: '[Built-in tool - no installation needed] Resolve a module specifier (like "./utils" or "@/components/Button") to an absolute file path. Automatically handles tsconfig.json path aliases and implicit file extensions (.ts, .tsx, .js, .jsx, .vue, .svelte).',
+    inputSchema: {
+      fromFile: z.string().describe('Absolute path of the file containing the import'),
+      moduleSpecifier: z.string().describe('The module specifier to resolve (e.g., "./utils", "@/components/Button")'),
+    },
+  },
+  async ({ fromFile, moduleSpecifier }) => {
     await initializeWorker();
 
     const response = await invokeToolWithResponse<ResolveModulePathResult>(
       'resolve_module_path',
-      params
+      { fromFile, moduleSpecifier }
     );
 
     return {
@@ -299,10 +328,13 @@ server.tool(
 );
 
 // Tool: get_index_status
-server.tool(
+server.registerTool(
   'get_index_status',
-  'Get the current status of the dependency index including cache statistics, reverse index status, and warmup information.',
-  GetIndexStatusParamsSchema.shape,
+  {
+    title: 'Get Index Status',
+    description: '[Built-in tool - no installation needed] Get the current status of the dependency index including number of indexed files, cache statistics, and warmup information. Useful to verify the server is ready.',
+    inputSchema: {},
+  },
   async () => {
     await initializeWorker();
 
@@ -355,8 +387,8 @@ async function main(): Promise<void> {
   });
 }
 
-// Run main with top-level error handling
-main().catch((error) => {
+// Run main - IIFE pattern for entry point (NOSONAR: top-level await not supported by tsconfig)
+main().catch((error: unknown) => { // NOSONAR
   console.error('[McpServer] Fatal error:', error);
   process.exit(1);
 });

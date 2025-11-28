@@ -27,9 +27,6 @@ export class GraphProvider implements vscode.WebviewViewProvider {
     /** Timer handle for deferred indexing start */
     private _indexingStartTimer?: ReturnType<typeof setTimeout>;
 
-    /** Flag to track if view has been resolved */
-    private _viewResolved = false;
-
     /** Status bar item for showing indexing progress */
     private readonly _statusBarItem: vscode.StatusBarItem;
 
@@ -357,7 +354,6 @@ export class GraphProvider implements vscode.WebviewViewProvider {
         _token: vscode.CancellationToken,
     ) {
         this._view = webviewView;
-        this._viewResolved = true;
 
         webviewView.webview.options = {
             enableScripts: true,
