@@ -38,10 +38,14 @@
     "reactflow",
     "dagre",
     "structure",
-    "code analysis"
+    "code analysis",
+    "mcp",
+    "model context protocol",
+    "llm",
+    "ai"
   ],
   "engines": {
-    "vscode": "^1.85.0"
+    "vscode": "^1.96.0"
   },
   "categories": [
     "Visualization",
@@ -52,6 +56,12 @@
   ],
   "main": "./dist/extension.js",
   "contributes": {
+    "mcpServerDefinitionProviders": [
+      {
+        "id": "graphItLiveMcp",
+        "label": "Graph-It-Live Dependency Analyzer"
+      }
+    ],
     "viewsContainers": {
       "activitybar": [
         {
@@ -103,6 +113,12 @@
           "default": true,
           "description": "Exclude node_modules from graph"
         },
+        "graph-it-live.enableMcpServer": {
+          "type": "boolean",
+          "default": false,
+          "description": "Enable MCP (Model Context Protocol) server for LLM integration. When enabled, exposes dependency analysis tools to GitHub Copilot and other MCP-compatible AI assistants.",
+          "markdownDescription": "Enable **MCP (Model Context Protocol)** server for LLM integration. When enabled, exposes dependency analysis tools to GitHub Copilot and other MCP-compatible AI assistants.\n\n[Learn more about MCP](https://code.visualstudio.com/api/extension-guides/ai/mcp)"
+        },
         "graph-it-live.enableBackgroundIndexing": {
           "type": "boolean",
           "default": true,
@@ -145,18 +161,20 @@
     "publish": "vsce publish"
   },
   "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.0.0",
     "@types/dagre": "^0.7.53",
     "dagre": "^0.8.5",
     "react": "^19.2.0",
     "react-dom": "^19.2.0",
-    "reactflow": "^11.10.4"
+    "reactflow": "^11.10.4",
+    "zod": "^3.24.0"
   },
   "devDependencies": {
     "@eslint/js": "^9.39.1",
     "@types/node": "^20.10.0",
     "@types/react": "^19.2.6",
     "@types/react-dom": "^19.2.3",
-    "@types/vscode": "^1.85.0",
+    "@types/vscode": "^1.96.0",
     "@vitest/coverage-v8": "^4.0.14",
     "@vscode/test-electron": "^2.3.8",
     "@vscode/vsce": "^3.7.0",

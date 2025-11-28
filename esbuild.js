@@ -57,6 +57,48 @@ async function main() {
     target: 'node18',
   });
 
+  // Build MCP Server (Node.js Stdio Process)
+  // This is the entry point spawned by VS Code for MCP communication
+  // Uses ESM format to support @modelcontextprotocol/sdk which is ESM-only
+  const ctxMcpServer = await esbuild.context({
+    entryPoints: ['src/mcp/mcpServer.ts'],
+    bundle: true,
+    format: 'esm',
+    minify: production,
+    sourcemap: !production,
+    sourcesContent: false,
+    platform: 'node',
+    outfile: 'dist/mcpServer.mjs',
+    logLevel: 'silent',
+    plugins: [esbuildProblemMatcherPlugin],
+    target: 'node18',
+    banner: {
+      // Required for ESM to have __dirname and __filename
+      js: `import { createRequire } from 'module';
+import { fileURLToPath } from 'url';
+import { dirname } from 'path';
+const require = createRequire(import.meta.url);
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = dirname(__filename);`,
+    },
+  });
+
+  // Build MCP Worker (Node.js Worker Thread)
+  // This runs in a separate thread for CPU-intensive MCP operations
+  const ctxMcpWorker = await esbuild.context({
+    entryPoints: ['src/mcp/McpWorker.ts'],
+    bundle: true,
+    format: 'cjs',
+    minify: production,
+    sourcemap: !production,
+    sourcesContent: false,
+    platform: 'node',
+    outfile: 'dist/mcpWorker.js',
+    logLevel: 'silent',
+    plugins: [esbuildProblemMatcherPlugin],
+    target: 'node18',
+  });
+
   // Build Webview (Browser)
   const ctxWebview = await esbuild.context({
     entryPoints: ['src/webview/index.tsx'],
@@ -78,13 +120,19 @@ async function main() {
   if (watch) {
     await ctxExtension.watch();
     await ctxWorker.watch();
+    await ctxMcpServer.watch();
+    await ctxMcpWorker.watch();
     await ctxWebview.watch();
   } else {
     await ctxExtension.rebuild();
     await ctxWorker.rebuild();
+    await ctxMcpServer.rebuild();
+    await ctxMcpWorker.rebuild();
     await ctxWebview.rebuild();
     await ctxExtension.dispose();
     await ctxWorker.dispose();
+    await ctxMcpServer.dispose();
+    await ctxMcpWorker.dispose();
     await ctxWebview.dispose();
   }
 }
