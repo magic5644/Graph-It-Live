@@ -51,7 +51,7 @@ vi.mock('vscode', () => {
             },
         },
         ViewColumn: { One: 1 },
-        WebviewViewProvider: class {},
+        WebviewViewProvider: class {}, //NOSONAR
         ExtensionMode: { Production: 1, Development: 2, Test: 3 },
         ProgressLocation: { Window: 10, Notification: 15 },
         StatusBarAlignment: { Left: 1, Right: 2 },
