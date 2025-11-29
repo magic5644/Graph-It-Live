@@ -158,3 +158,108 @@ describe('Spider - crawlFrom', () => {
     expect(result.edges.length).toBe(2);
   });
 });
+
+describe('Spider - File Invalidation', () => {
+  let spider: Spider;
+
+  beforeEach(() => {
+    spider = new Spider({
+      rootDir: fixturesPath,
+      tsConfigPath: path.join(fixturesPath, 'tsconfig.json'),
+      enableReverseIndex: true,
+    });
+  });
+
+  it('should invalidate a single file from cache', async () => {
+    const mainFile = path.join(fixturesPath, 'src/main.ts');
+    
+    // First analyze to populate cache
+    await spider.analyze(mainFile);
+    expect(spider.getCacheStats().size).toBe(1);
+    
+    // Invalidate the file
+    const wasInCache = spider.invalidateFile(mainFile);
+    
+    expect(wasInCache).toBe(true);
+    expect(spider.getCacheStats().size).toBe(0);
+  });
+
+  it('should return false when invalidating a file not in cache', () => {
+    const mainFile = path.join(fixturesPath, 'src/main.ts');
+    
+    // Try to invalidate without analyzing first
+    const wasInCache = spider.invalidateFile(mainFile);
+    
+    expect(wasInCache).toBe(false);
+  });
+
+  it('should invalidate multiple files', async () => {
+    const mainFile = path.join(fixturesPath, 'src/main.ts');
+    const utilsFile = path.join(fixturesPath, 'src/utils.ts');
+    const buttonFile = path.join(fixturesPath, 'src/components/Button.tsx');
+    
+    // Analyze files to populate cache
+    await spider.analyze(mainFile);
+    await spider.analyze(utilsFile);
+    expect(spider.getCacheStats().size).toBe(2);
+    
+    // Invalidate multiple files (one not in cache)
+    const invalidatedCount = spider.invalidateFiles([mainFile, utilsFile, buttonFile]);
+    
+    expect(invalidatedCount).toBe(2); // Only 2 were in cache
+    expect(spider.getCacheStats().size).toBe(0);
+  });
+
+  it('should re-analyze a file and update cache', async () => {
+    const mainFile = path.join(fixturesPath, 'src/main.ts');
+    
+    // First analyze
+    const deps1 = await spider.analyze(mainFile);
+    expect(spider.getCacheStats().size).toBe(1);
+    
+    // Re-analyze (should invalidate and re-populate)
+    const deps2 = await spider.reanalyzeFile(mainFile);
+    
+    expect(deps2).toBeDefined();
+    expect(deps2?.length).toBe(deps1.length);
+    expect(spider.getCacheStats().size).toBe(1);
+  });
+
+  it('should return null when re-analyzing non-existent file', async () => {
+    const fakeFile = path.join(fixturesPath, 'src/does-not-exist.ts');
+    
+    const result = await spider.reanalyzeFile(fakeFile);
+    
+    expect(result).toBeNull();
+  });
+
+  it('should handle file deletion', async () => {
+    const mainFile = path.join(fixturesPath, 'src/main.ts');
+    
+    // First analyze to populate cache
+    await spider.analyze(mainFile);
+    expect(spider.getCacheStats().size).toBe(1);
+    
+    // Handle deletion
+    spider.handleFileDeleted(mainFile);
+    
+    expect(spider.getCacheStats().size).toBe(0);
+  });
+
+  it('should update reverse index when invalidating files', async () => {
+    const mainFile = path.join(fixturesPath, 'src/main.ts');
+    
+    // Analyze to populate cache and reverse index
+    await spider.analyze(mainFile);
+    
+    const statsBefore = spider.getCacheStats();
+    expect(statsBefore.reverseIndexStats?.totalReferences).toBeGreaterThan(0);
+    
+    // Invalidate the file
+    spider.invalidateFile(mainFile);
+    
+    const statsAfter = spider.getCacheStats();
+    // Reverse index should have fewer references after invalidation
+    expect(statsAfter.reverseIndexStats?.totalReferences).toBe(0);
+  });
+});

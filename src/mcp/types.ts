@@ -59,7 +59,9 @@ export type McpToolName =
   | 'expand_node'
   | 'parse_imports'
   | 'resolve_module_path'
-  | 'get_index_status';
+  | 'get_index_status'
+  | 'invalidate_files'
+  | 'rebuild_index';
 
 // ============================================================================
 // Zod Schemas for Tool Parameters
@@ -103,6 +105,18 @@ export type ResolveModulePathParams = z.infer<typeof ResolveModulePathParamsSche
 
 export const GetIndexStatusParamsSchema = z.object({});
 export type GetIndexStatusParams = z.infer<typeof GetIndexStatusParamsSchema>;
+
+export const InvalidateFilesParamsSchema = z.object({
+  filePaths: z
+    .array(z.string())
+    .describe(
+      'Array of absolute file paths to invalidate from the cache. Use this after modifying files to ensure fresh analysis.',
+    ),
+});
+export type InvalidateFilesParams = z.infer<typeof InvalidateFilesParamsSchema>;
+
+export const RebuildIndexParamsSchema = z.object({});
+export type RebuildIndexParams = z.infer<typeof RebuildIndexParamsSchema>;
 
 // ============================================================================
 // Tool Response Types with Enriched Metadata
@@ -362,6 +376,38 @@ export interface GetIndexStatusResult {
     durationMs?: number;
     /** Number of files indexed during warmup */
     filesIndexed?: number;
+  };
+}
+
+/**
+ * Result of invalidate_files tool
+ */
+export interface InvalidateFilesResult {
+  /** Number of files invalidated from cache */
+  invalidatedCount: number;
+  /** List of file paths that were invalidated */
+  invalidatedFiles: string[];
+  /** List of file paths that were not in cache */
+  notFoundFiles: string[];
+  /** Whether the reverse index was also updated */
+  reverseIndexUpdated: boolean;
+}
+
+/**
+ * Result of rebuild_index tool
+ */
+export interface RebuildIndexResult {
+  /** Number of files re-indexed */
+  reindexedCount: number;
+  /** Time taken to rebuild in milliseconds */
+  rebuildTimeMs: number;
+  /** New cache size after rebuild */
+  newCacheSize: number;
+  /** New reverse index statistics */
+  reverseIndexStats: {
+    indexedFiles: number;
+    targetFiles: number;
+    totalReferences: number;
   };
 }
 

@@ -24,6 +24,7 @@ import type {
   ExpandNodeParams,
   ParseImportsParams,
   ResolveModulePathParams,
+  InvalidateFilesParams,
   AnalyzeDependenciesResult,
   CrawlDependencyGraphResult,
   FindReferencingFilesResult,
@@ -31,6 +32,8 @@ import type {
   ParseImportsResult,
   ResolveModulePathResult,
   GetIndexStatusResult,
+  InvalidateFilesResult,
+  RebuildIndexResult,
   NodeInfo,
   EdgeInfo,
 } from './types';
@@ -214,6 +217,12 @@ async function handleInvoke(
         break;
       case 'get_index_status':
         result = executeGetIndexStatus();
+        break;
+      case 'invalidate_files':
+        result = executeInvalidateFiles(params as InvalidateFilesParams);
+        break;
+      case 'rebuild_index':
+        result = await executeRebuildIndex();
         break;
       default:
         throw new Error(`Unknown tool: ${tool}`);
@@ -496,6 +505,66 @@ function executeGetIndexStatus(): GetIndexStatusResult {
           }
         : undefined,
     warmup: warmupInfo,
+  };
+}
+
+/**
+ * Invalidate specific files from the cache
+ */
+function executeInvalidateFiles(params: InvalidateFilesParams): InvalidateFilesResult {
+  const { filePaths } = params;
+  const invalidatedFiles: string[] = [];
+  const notFoundFiles: string[] = [];
+
+  for (const filePath of filePaths) {
+    const wasInvalidated = spider!.invalidateFile(filePath);
+    if (wasInvalidated) {
+      invalidatedFiles.push(filePath);
+    } else {
+      notFoundFiles.push(filePath);
+    }
+  }
+
+  return {
+    invalidatedCount: invalidatedFiles.length,
+    invalidatedFiles,
+    notFoundFiles,
+    reverseIndexUpdated: spider!.hasReverseIndex(),
+  };
+}
+
+/**
+ * Rebuild the entire index from scratch
+ */
+async function executeRebuildIndex(): Promise<RebuildIndexResult> {
+  const startTime = Date.now();
+
+  // Clear all cached data
+  spider!.clearCache();
+
+  // Re-index by warming up the spider again
+  // This will scan the workspace and rebuild the reverse index
+  await spider!.warmup((processed, total, currentFile) => {
+    postMessage({
+      type: 'warmup-progress',
+      processed,
+      total,
+      currentFile,
+    });
+  });
+
+  const rebuildTimeMs = Date.now() - startTime;
+  const cacheStats = spider!.getCacheStats();
+
+  return {
+    reindexedCount: cacheStats.size,
+    rebuildTimeMs,
+    newCacheSize: cacheStats.size,
+    reverseIndexStats: cacheStats.reverseIndexStats ?? {
+      indexedFiles: 0,
+      targetFiles: 0,
+      totalReferences: 0,
+    },
   };
 }
 

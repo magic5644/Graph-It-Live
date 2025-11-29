@@ -278,6 +278,42 @@ async function runTests() {
   });
   await new Promise(r => setTimeout(r, 500));
 
+  // =========================================================================
+  // 12. graphItLive_invalidateFiles - Invalidate specific files from cache
+  // =========================================================================
+  console.log('\n📤 [graphItLive_invalidateFiles] Invalidating main.ts and utils.ts...');
+  send({
+    jsonrpc: '2.0',
+    id: ++id,
+    method: 'tools/call',
+    params: {
+      name: 'graphItLive_invalidateFiles',
+      arguments: {
+        filePaths: [
+          path.join(fixturesPath, 'main.ts'),
+          path.join(fixturesPath, 'utils.ts'),
+          '/non/existent/file.ts' // This should appear in notFoundFiles
+        ]
+      }
+    }
+  });
+  await new Promise(r => setTimeout(r, 500));
+
+  // =========================================================================
+  // 13. graphItLive_rebuildIndex - Rebuild the full index
+  // =========================================================================
+  console.log('\n📤 [graphItLive_rebuildIndex] Rebuilding the entire index...');
+  send({
+    jsonrpc: '2.0',
+    id: ++id,
+    method: 'tools/call',
+    params: {
+      name: 'graphItLive_rebuildIndex',
+      arguments: {}
+    }
+  });
+  await new Promise(r => setTimeout(r, 2000)); // Give more time for rebuild
+
   // Wait for all responses
   await new Promise(r => setTimeout(r, 2000));
   

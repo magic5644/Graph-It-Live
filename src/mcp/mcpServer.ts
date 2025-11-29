@@ -66,6 +66,8 @@ import {
   type ParseImportsResult,
   type ResolveModulePathResult,
   type GetIndexStatusResult,
+  type InvalidateFilesResult,
+  type RebuildIndexResult,
   type PaginationInfo,
 } from './types';
 
@@ -477,6 +479,68 @@ RETURNS: Index state (ready/initializing), number of files indexed, reverse inde
     if (workerCheck.error) return workerCheck.response;
 
     const response = await invokeToolWithResponse<GetIndexStatusResult>('get_index_status', {});
+
+    return {
+      content: [
+        {
+          type: 'text' as const,
+          text: JSON.stringify(response, null, 2),
+        },
+      ],
+    };
+  }
+);
+
+// Tool: graphItLive_invalidateFiles
+server.registerTool(
+  'graphItLive_invalidateFiles',
+  {
+    title: 'Invalidate File Cache',
+    description: `USE THIS TOOL WHEN you have modified files and need to refresh the dependency analysis. Examples: "I just changed utils.ts, refresh the cache", "Invalidate these files I modified", "Clear cache for files I edited", "Refresh dependency data after my changes"
+
+WHY: The dependency analyzer caches file analysis for performance. When you modify a file's imports or exports, the cache becomes stale. This tool clears the cache for specific files, forcing re-analysis on the next query. Use this after file modifications to ensure accurate dependency data.
+
+RETURNS: The number of files invalidated, which files were cleared from cache, and which files were not found in cache (already invalidated or never analyzed). The reverse index is also updated to remove stale references.`,
+    inputSchema: {
+      filePaths: z.array(z.string()).describe('Array of absolute file paths to invalidate. These should be files you have modified and want to refresh in the dependency cache.'),
+    },
+  },
+  async ({ filePaths }) => {
+    const workerCheck = await ensureWorkerReady();
+    if (workerCheck.error) return workerCheck.response;
+
+    const response = await invokeToolWithResponse<InvalidateFilesResult>('invalidate_files', {
+      filePaths,
+    });
+
+    return {
+      content: [
+        {
+          type: 'text' as const,
+          text: JSON.stringify(response, null, 2),
+        },
+      ],
+    };
+  }
+);
+
+// Tool: graphItLive_rebuildIndex
+server.registerTool(
+  'graphItLive_rebuildIndex',
+  {
+    title: 'Rebuild Full Dependency Index',
+    description: `USE THIS TOOL WHEN you need to completely rebuild the dependency index from scratch. Examples: "Rebuild the entire index", "Start fresh with dependency analysis", "Clear all cached data and re-index", "The index seems corrupted, rebuild it"
+
+WHY: In rare cases, the dependency index may become out of sync with the actual codebase (e.g., after major refactoring, branch switches, or git operations that changed many files). This tool clears ALL cached data and re-indexes the entire workspace, ensuring the dependency graph is accurate.
+
+RETURNS: The number of files re-indexed, time taken to rebuild, new cache size, and updated reverse index statistics. Note: This operation can take several seconds for large workspaces.`,
+    inputSchema: {},
+  },
+  async () => {
+    const workerCheck = await ensureWorkerReady();
+    if (workerCheck.error) return workerCheck.response;
+
+    const response = await invokeToolWithResponse<RebuildIndexResult>('rebuild_index', {});
 
     return {
       content: [

@@ -12,6 +12,13 @@ vi.mock('vscode', () => {
         hide: vi.fn(),
         dispose: vi.fn(),
     };
+
+    const mockFileSystemWatcher = {
+        onDidCreate: vi.fn(),
+        onDidDelete: vi.fn(),
+        onDidChange: vi.fn(),
+        dispose: vi.fn(),
+    };
     
     return {
         Uri: {
@@ -24,6 +31,7 @@ vi.mock('vscode', () => {
                 get: () => true,
             }),
             openTextDocument: vi.fn(),
+            createFileSystemWatcher: vi.fn().mockReturnValue(mockFileSystemWatcher),
         },
         window: {
             showTextDocument: vi.fn(),
@@ -69,6 +77,11 @@ vi.mock('../../src/analyzer/Spider', () => {
             getSerializedReverseIndex: vi.fn().mockReturnValue(null),
             reindexStaleFiles: vi.fn().mockResolvedValue(0),
             cancelIndexing: vi.fn(),
+            // New methods for file invalidation
+            invalidateFile: vi.fn().mockReturnValue(true),
+            invalidateFiles: vi.fn().mockReturnValue(0),
+            reanalyzeFile: vi.fn().mockResolvedValue([]),
+            handleFileDeleted: vi.fn(),
             // IndexerStatus subscription
             subscribeToIndexStatus: vi.fn().mockReturnValue(() => {}),
             getIndexStatus: vi.fn().mockReturnValue({
