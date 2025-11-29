@@ -30,6 +30,9 @@ export class GraphProvider implements vscode.WebviewViewProvider {
     /** Status bar item for showing indexing progress */
     private readonly _statusBarItem: vscode.StatusBarItem;
 
+    /** File system watcher for source file changes (create/delete) */
+    private _fileWatcher?: vscode.FileSystemWatcher;
+
     constructor(extensionUri: vscode.Uri, context: vscode.ExtensionContext) {
         this._extensionUri = extensionUri;
         this._context = context;
@@ -43,7 +46,51 @@ export class GraphProvider implements vscode.WebviewViewProvider {
         context.subscriptions.push(this._statusBarItem);
         
         this._initializeSpider();
+        this._initializeFileWatcher();
         // Note: Indexing is now deferred until resolveWebviewView() is called
+    }
+
+    /**
+     * Initialize file system watcher for source file changes
+     * Handles file creation, modification, and deletion to keep the index up-to-date
+     * This also catches external changes (git pull, external editors, scripts, etc.)
+     */
+    private _initializeFileWatcher(): void {
+        // Watch for changes in supported source files
+        this._fileWatcher = vscode.workspace.createFileSystemWatcher(
+            '**/*.{ts,tsx,js,jsx,vue,svelte,gql,graphql}'
+        );
+
+        // Handle file creation - add to index
+        this._fileWatcher.onDidCreate(async (uri) => {
+            console.log(`[GraphProvider] File created: ${uri.fsPath}`);
+            if (this._spider) {
+                await this._spider.reanalyzeFile(uri.fsPath);
+                await this._persistIndex();
+            }
+        });
+
+        // Handle file modification (including external changes like git pull)
+        this._fileWatcher.onDidChange(async (uri) => {
+            console.log(`[GraphProvider] File changed externally: ${uri.fsPath}`);
+            if (this._spider) {
+                // Invalidate and re-analyze the file
+                await this._spider.reanalyzeFile(uri.fsPath);
+                await this._persistIndex();
+            }
+        });
+
+        // Handle file deletion - remove from index
+        this._fileWatcher.onDidDelete(async (uri) => {
+            console.log(`[GraphProvider] File deleted: ${uri.fsPath}`);
+            if (this._spider) {
+                this._spider.handleFileDeleted(uri.fsPath);
+                await this._persistIndex();
+            }
+        });
+
+        // Add watcher to disposables
+        this._context.subscriptions.push(this._fileWatcher);
     }
 
     private _initializeSpider() {
@@ -281,6 +328,30 @@ export class GraphProvider implements vscode.WebviewViewProvider {
 
             this.updateGraph();
         }
+    }
+
+    /**
+     * Handle a file being saved - invalidate cache and re-analyze
+     * This ensures the index reflects the latest file content
+     * @param filePath Path to the saved file
+     */
+    public async onFileSaved(filePath: string): Promise<void> {
+        if (!this._spider) {
+            return;
+        }
+
+        // Only handle supported file types
+        if (!/\.(ts|tsx|js|jsx|vue|svelte|gql|graphql)$/.test(filePath)) {
+            return;
+        }
+
+        console.log(`[GraphProvider] Re-analyzing saved file: ${filePath}`);
+        
+        // Re-analyze the file (invalidates cache and updates reverse index)
+        await this._spider.reanalyzeFile(filePath);
+        
+        // Persist the updated index if enabled
+        await this._persistIndex();
     }
 
     /**

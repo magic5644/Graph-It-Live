@@ -150,6 +150,78 @@ export class Spider {
   }
 
   /**
+   * Invalidate a single file from the cache and reverse index
+   * Call this when a file has been modified to ensure fresh analysis
+   * @param filePath Absolute path to the file to invalidate
+   * @returns true if the file was in the cache, false otherwise
+   */
+  invalidateFile(filePath: string): boolean {
+    const wasInCache = this.cache.has(filePath);
+    
+    // Remove from cache
+    this.cache.delete(filePath);
+    
+    // Remove from reverse index if enabled
+    this.reverseIndex?.removeDependenciesFromSource(filePath);
+    
+    if (wasInCache) {
+      console.error(`[Spider] Invalidated cache for ${filePath}`);
+    }
+    
+    return wasInCache;
+  }
+
+  /**
+   * Invalidate multiple files from the cache and reverse index
+   * @param filePaths Array of absolute file paths to invalidate
+   * @returns Number of files that were actually in the cache
+   */
+  invalidateFiles(filePaths: string[]): number {
+    let invalidatedCount = 0;
+    
+    for (const filePath of filePaths) {
+      if (this.invalidateFile(filePath)) {
+        invalidatedCount++;
+      }
+    }
+    
+    console.error(`[Spider] Invalidated ${invalidatedCount}/${filePaths.length} files from cache`);
+    return invalidatedCount;
+  }
+
+  /**
+   * Re-analyze a single file and update the cache and reverse index
+   * Use this after a file has been modified
+   * @param filePath Absolute path to the file to re-analyze
+   * @returns The new dependencies, or null if the file couldn't be analyzed
+   */
+  async reanalyzeFile(filePath: string): Promise<Dependency[] | null> {
+    // Invalidate first
+    this.invalidateFile(filePath);
+    
+    try {
+      // Re-analyze (this will update cache and reverse index)
+      const dependencies = await this.analyze(filePath);
+      console.error(`[Spider] Re-analyzed ${filePath}: ${dependencies.length} dependencies`);
+      return dependencies;
+    } catch (error) {
+      // File may have been deleted or is unreadable
+      console.error(`[Spider] Failed to re-analyze ${filePath}:`, error instanceof Error ? error.message : error);
+      return null;
+    }
+  }
+
+  /**
+   * Handle a file deletion - remove from cache and reverse index
+   * @param filePath Absolute path to the deleted file
+   */
+  handleFileDeleted(filePath: string): void {
+    this.cache.delete(filePath);
+    this.reverseIndex?.removeDependenciesFromSource(filePath);
+    console.error(`[Spider] Removed deleted file from index: ${filePath}`);
+  }
+
+  /**
    * Enable reverse indexing and optionally restore from serialized data
    */
   enableReverseIndex(serializedData?: string): boolean {

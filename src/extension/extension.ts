@@ -29,8 +29,11 @@ export function activate(context: vscode.ExtensionContext) {
         }),
         
         // Also update on save to reflect new imports
-        vscode.workspace.onDidSaveTextDocument((doc) => {
+        vscode.workspace.onDidSaveTextDocument(async (doc) => {
             console.log('[Extension] Document saved:', doc.fileName);
+            // First, re-analyze the file to update cache and reverse index
+            await provider.onFileSaved(doc.fileName);
+            // Then update the graph visualization
             provider.updateGraph();
         }),
 
