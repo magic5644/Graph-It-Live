@@ -231,14 +231,18 @@ async function ensureWorkerReady(): Promise<{ error: true; response: { content: 
 // Tool Definitions - Using registerTool (recommended over deprecated tool())
 // ============================================================================
 
-// Tool: analyze_dependencies
+// Tool: graphItLive_analyzeDependencies
 server.registerTool(
-  'analyze_dependencies',
+  'graphItLive_analyzeDependencies',
   {
-    title: 'Analyze Dependencies',
-    description: '[Built-in tool - no installation needed] Analyze a TypeScript/JavaScript/Vue/Svelte/GraphQL file and return all its import/export dependencies with full path resolution. Uses native regex-based parsing.',
+    title: 'Analyze File Dependencies',
+    description: `USE THIS TOOL WHEN the user asks about a file's imports, dependencies, or what modules a specific file uses. Examples: "What does this file import?", "Show me the dependencies of src/utils.ts", "What modules does this component rely on?"
+
+WHY: As an AI, you cannot see import statements or module relationships without parsing the actual source code. This tool provides the ground truth by analyzing real import/export statements on disk. Without it, you would have to guess dependencies and risk hallucinating non-existent relationships.
+
+RETURNS: A structured JSON with all import/export statements including: resolved absolute paths, relative paths from workspace root, import types (static import, dynamic import, require, re-export), line numbers, and file extensions. Supports TypeScript, JavaScript, Vue, Svelte, and GraphQL files.`,
     inputSchema: {
-      filePath: z.string().describe('Absolute path to the file to analyze'),
+      filePath: z.string().describe('The absolute path to the file to analyze. Typically the file currently open in the editor, or a path mentioned by the user in their question.'),
     },
   },
   async ({ filePath }) => {
@@ -261,17 +265,21 @@ server.registerTool(
   }
 );
 
-// Tool: crawl_dependency_graph
+// Tool: graphItLive_crawlDependencyGraph
 server.registerTool(
-  'crawl_dependency_graph',
+  'graphItLive_crawlDependencyGraph',
   {
-    title: 'Crawl Dependency Graph',
-    description: '[Built-in tool - no installation needed] Build a complete dependency graph starting from an entry file. Returns all nodes (files) and edges (import relationships). Supports pagination for large graphs. Works with TS/JS/Vue/Svelte/GraphQL.',
+    title: 'Crawl Full Dependency Graph',
+    description: `CRITICAL: USE THIS TOOL WHENEVER the user asks about project architecture, module relationships, the full dependency tree, or needs to understand how files are connected. Examples: "Show me the architecture of this module", "What's the dependency tree from main.ts?", "Map out all the files connected to this entry point", "How is this project structured?"
+
+WHY: You cannot "see" or infer the complete project structure or transitive dependencies. This tool crawls the actual codebase starting from an entry point and builds the real dependency graph. It detects circular dependencies and counts how many files depend on each node. Without this tool, any attempt to describe project architecture would be pure speculation.
+
+RETURNS: A complete graph with nodes (files with metadata: path, extension, dependency count, dependent count, circular dependency flag) and edges (import relationships between files). Supports pagination for large codebases. Works with TypeScript, JavaScript, Vue, Svelte, and GraphQL.`,
     inputSchema: {
-      entryFile: z.string().describe('Absolute path to the entry file'),
-      maxDepth: z.number().optional().describe('Maximum depth to crawl (default: from config)'),
-      limit: z.number().optional().describe('Maximum number of nodes to return (for pagination)'),
-      offset: z.number().optional().describe('Number of nodes to skip (for pagination)'),
+      entryFile: z.string().describe('The absolute path to the entry file to start crawling from. Usually the main entry point like index.ts, main.ts, App.vue, or a file the user specifically mentions.'),
+      maxDepth: z.number().optional().describe('Maximum depth to crawl. Default is 50. Use smaller values (3-10) for quick exploration, larger for complete analysis.'),
+      limit: z.number().optional().describe('Maximum number of nodes to return per request. Use for pagination when dealing with large graphs.'),
+      offset: z.number().optional().describe('Number of nodes to skip. Use with limit for pagination through large result sets.'),
     },
   },
   async ({ entryFile, maxDepth, limit, offset }) => {
@@ -315,14 +323,18 @@ server.registerTool(
   }
 );
 
-// Tool: find_referencing_files
+// Tool: graphItLive_findReferencingFiles
 server.registerTool(
-  'find_referencing_files',
+  'graphItLive_findReferencingFiles',
   {
-    title: 'Find Referencing Files',
-    description: '[Built-in tool - no installation needed] Find all files that import/reference a given file (reverse dependency lookup). Uses pre-built index for instant O(1) lookups. Useful for understanding the impact of changing a file.',
+    title: 'Find Files That Import This File',
+    description: `CRITICAL: USE THIS TOOL WHENEVER the user asks about impact analysis, refactoring safety, "who uses this file?", "what will break if I change this?", or reverse dependencies. Examples: "What files import utils.ts?", "What's the impact of modifying this component?", "Who depends on this service?", "Is it safe to refactor this file?", "Show me all usages of this module"
+
+WHY: This is the MOST IMPORTANT tool for impact analysis. You cannot know which files import a given file without this reverse lookup. If a user asks about the consequences of changing a file and you don't use this tool, you will miss critical dependencies and give dangerous advice. The tool uses a pre-built index for instant O(1) lookups across the entire codebase.
+
+RETURNS: A list of all files that directly import/require/reference the target file, with their absolute paths and relative paths from workspace root. This tells you exactly what will be affected by changes to the target file.`,
     inputSchema: {
-      targetPath: z.string().describe('Absolute path to the file to find references for'),
+      targetPath: z.string().describe('The absolute path to the file you want to find importers for. This is the file the user is considering modifying or wants to understand the usage of.'),
     },
   },
   async ({ targetPath }) => {
@@ -345,16 +357,20 @@ server.registerTool(
   }
 );
 
-// Tool: expand_node
+// Tool: graphItLive_expandNode
 server.registerTool(
-  'expand_node',
+  'graphItLive_expandNode',
   {
-    title: 'Expand Node',
-    description: '[Built-in tool - no installation needed] Discover new dependencies from a specific node that are not in the known set. Useful for incremental graph exploration without re-analyzing the entire project.',
+    title: 'Expand Node Dependencies',
+    description: `USE THIS TOOL WHEN you need to incrementally explore the dependency graph from a specific node, discovering new files not already in your known set. Examples: "Show me more dependencies from this file", "Expand the graph from this node", "What other files does this connect to that I haven't seen yet?"
+
+WHY: When building a dependency graph incrementally or exploring a large codebase, you may already know about some files and want to discover NEW dependencies without re-analyzing everything. This tool efficiently finds only the files you don't already know about, making it perfect for lazy loading or step-by-step exploration.
+
+RETURNS: A list of newly discovered nodes (files) and edges (import relationships) that were not in the known set. Includes the same metadata as the crawl tool: paths, extensions, dependency counts.`,
     inputSchema: {
-      filePath: z.string().describe('Absolute path to the node to expand'),
-      knownPaths: z.array(z.string()).describe('Array of already known file paths to exclude'),
-      extraDepth: z.number().optional().describe('Additional depth to scan from this node (default: 10)'),
+      filePath: z.string().describe('The absolute path to the node to expand from. This is the file whose additional dependencies you want to discover.'),
+      knownPaths: z.array(z.string()).describe('Array of absolute file paths you already know about. The tool will exclude these and only return NEW discoveries.'),
+      extraDepth: z.number().optional().describe('How many levels deep to scan from this node. Default is 10. Use smaller values for quick peeks, larger for thorough exploration.'),
     },
   },
   async ({ filePath, knownPaths, extraDepth }) => {
@@ -378,14 +394,18 @@ server.registerTool(
   }
 );
 
-// Tool: parse_imports
+// Tool: graphItLive_parseImports
 server.registerTool(
-  'parse_imports',
+  'graphItLive_parseImports',
   {
-    title: 'Parse Imports',
-    description: '[Built-in tool - no installation needed] Extract raw import statements from a TS/JS/Vue/Svelte/GraphQL file without resolving paths. Returns the module specifiers as written in the source code. Uses fast regex-based parsing.',
+    title: 'Parse Raw Import Statements',
+    description: `USE THIS TOOL WHEN you need to see the exact import statements as written in the source code, without path resolution. Examples: "What import syntax does this file use?", "Show me the raw import statements", "What module specifiers are in this file?"
+
+WHY: Sometimes you need to see exactly how imports are written (relative paths, aliases, bare specifiers) before resolution. This is useful for understanding coding patterns, checking import styles, or debugging path resolution issues. The tool uses fast regex-based parsing and handles Vue/Svelte script extraction automatically.
+
+RETURNS: An array of raw import/require/export statements as they appear in the source code, with the module specifier (e.g., "./utils", "@/components/Button", "lodash"), import type, and line number. Does NOT resolve paths - use graphItLive_analyzeDependencies for resolved paths.`,
     inputSchema: {
-      filePath: z.string().describe('Absolute path to the file to parse'),
+      filePath: z.string().describe('The absolute path to the file to parse. Works with TypeScript, JavaScript, Vue, Svelte, and GraphQL files.'),
     },
   },
   async ({ filePath }) => {
@@ -405,15 +425,19 @@ server.registerTool(
   }
 );
 
-// Tool: resolve_module_path
+// Tool: graphItLive_resolveModulePath
 server.registerTool(
-  'resolve_module_path',
+  'graphItLive_resolveModulePath',
   {
-    title: 'Resolve Module Path',
-    description: '[Built-in tool - no installation needed] Resolve a module specifier (like "./utils" or "@/components/Button") to an absolute file path. Automatically handles tsconfig.json path aliases and implicit file extensions (.ts, .tsx, .js, .jsx, .vue, .svelte).',
+    title: 'Resolve Module Specifier to File Path',
+    description: `USE THIS TOOL WHEN you need to convert a module specifier (import path) to an actual file path on disk. Examples: "Where does '@/components/Button' point to?", "Resolve this import path", "What file does './utils' refer to from main.ts?"
+
+WHY: Module specifiers in code (like "./utils", "@/components/Button", "../shared/types") don't directly tell you the actual file path. This tool handles all the complexity: tsconfig.json path aliases, implicit file extensions (.ts, .tsx, .js, .jsx, .vue, .svelte, .gql), index file resolution, and relative path calculation. Without it, you would guess incorrectly about where imports actually point.
+
+RETURNS: The resolved absolute file path if the module exists, or null if it cannot be resolved (e.g., external npm package or non-existent file). Also indicates whether the path is inside or outside the workspace.`,
     inputSchema: {
-      fromFile: z.string().describe('Absolute path of the file containing the import'),
-      moduleSpecifier: z.string().describe('The module specifier to resolve (e.g., "./utils", "@/components/Button")'),
+      fromFile: z.string().describe('The absolute path of the file containing the import statement. Resolution is relative to this file\'s location.'),
+      moduleSpecifier: z.string().describe('The module specifier exactly as written in the import statement. Examples: "./utils", "@/components/Button", "../shared/types", "lodash"'),
     },
   },
   async ({ fromFile, moduleSpecifier }) => {
@@ -436,12 +460,16 @@ server.registerTool(
   }
 );
 
-// Tool: get_index_status
+// Tool: graphItLive_getIndexStatus
 server.registerTool(
-  'get_index_status',
+  'graphItLive_getIndexStatus',
   {
-    title: 'Get Index Status',
-    description: '[Built-in tool - no installation needed] Get the current status of the dependency index including number of indexed files, cache statistics, and warmup information. Useful to verify the server is ready.',
+    title: 'Get Dependency Index Status',
+    description: `USE THIS TOOL WHEN you need to verify the dependency analyzer is ready, check how many files are indexed, or diagnose performance issues. Examples: "Is the dependency index ready?", "How many files are indexed?", "What's the cache hit rate?", "Is the analyzer warmed up?"
+
+WHY: Before running expensive dependency analysis, you may want to verify the system is ready and understand its current state. This tool gives you insight into the indexing status, cache efficiency, and overall health of the dependency analyzer.
+
+RETURNS: Index state (ready/initializing), number of files indexed, reverse index statistics (for finding references), cache size and hit rates, warmup completion status and duration. Useful for debugging and understanding analyzer performance.`,
     inputSchema: {},
   },
   async () => {
