@@ -1,7 +1,7 @@
 {
   "name": "graph-it-live",
   "displayName": "Graph-It-Live",
-  "description": "Visualizes file dependencies in a real-time interactive graph",
+  "description": "Visualize file dependencies as an interactive graph. Analyze imports, detect circular dependencies, and explore project architecture. Includes MCP Server for AI/LLM integration with GitHub Copilot, cursor, Antigravity or other AI assistants.",
   "version": "0.0.1",
   "publisher": "magic5644",
   "author": {
@@ -23,32 +23,35 @@
     "theme": "dark"
   },
   "keywords": [
-    "dependency graph",
-    "dependencies",
+    "dependency",
+    "graph",
     "visualization",
+    "import",
     "typescript",
     "javascript",
     "vue",
     "svelte",
     "graphql",
+    "circular dependency",
     "architecture",
-    "circular dependencies",
-    "refactoring",
-    "interactive",
-    "reactflow",
-    "dagre",
-    "structure",
     "code analysis",
     "mcp",
+    "mcp server",
     "model context protocol",
+    "copilot",
+    "ai",
     "llm",
-    "ai"
+    "refactoring",
+    "impact analysis"
   ],
   "engines": {
     "vscode": "^1.96.0"
   },
   "categories": [
     "Visualization",
+    "Programming Languages",
+    "Linters",
+    "AI",
     "Other"
   ],
   "activationEvents": [
