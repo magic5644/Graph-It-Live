@@ -91,7 +91,7 @@ Graph-It-Live provides full support for GraphQL schema files:
 
 ### MCP Server (AI/LLM Integration)
 
-Graph-It-Live includes an optional **Model Context Protocol (MCP) Server** that exposes its dependency analysis capabilities to AI assistants and LLMs. When enabled, AI tools like GitHub Copilot can directly query your project's dependency graph.
+Graph-It-Live includes an optional **Model Context Protocol (MCP) Server** that exposes its dependency analysis capabilities to AI assistants and LLMs. When enabled, AI tools like GitHub Copilot, Claude, or Cursor can directly query your project's dependency graph.
 
 #### Enabling the MCP Server
 
@@ -99,17 +99,58 @@ Set `graph-it-live.enableMcpServer` to `true` in your VS Code settings. The serv
 
 #### Available Tools
 
-The MCP server exposes 7 tools for AI/LLM consumption:
+The MCP server exposes **9 tools** for AI/LLM consumption:
 
 | Tool | Description |
 |------|-------------|
-| `analyze_dependencies` | Analyze a single file's direct imports and exports |
-| `crawl_dependency_graph` | Crawl the full dependency tree from an entry file |
-| `find_referencing_files` | Find all files that import a given file (reverse lookup) |
-| `expand_node` | Expand a node to show its dependencies beyond known paths |
-| `parse_imports` | Parse imports from raw code content without file access |
-| `resolve_module_path` | Resolve a module specifier to an absolute path |
-| `get_index_status` | Get the current state of the dependency index |
+| `graphItLive_analyzeDependencies` | Analyze a single file's direct imports and exports |
+| `graphItLive_crawlDependencyGraph` | Crawl the full dependency tree from an entry file |
+| `graphItLive_findReferencingFiles` | Find all files that import a given file (reverse lookup) |
+| `graphItLive_expandNode` | Expand a node to discover dependencies beyond known paths |
+| `graphItLive_parseImports` | Parse raw import statements without path resolution |
+| `graphItLive_resolveModulePath` | Resolve a module specifier to an absolute file path |
+| `graphItLive_getIndexStatus` | Get the current state of the dependency index |
+| `graphItLive_invalidateFiles` | Invalidate specific files from the cache after modifications |
+| `graphItLive_rebuildIndex` | Rebuild the entire dependency index from scratch |
+
+#### Example Prompts
+
+Here are some example prompts you can use with your AI assistant to leverage Graph-It-Live's MCP tools:
+
+**Understanding Dependencies:**
+> "What files does `src/components/Button.tsx` import?"
+
+> "Show me the full dependency tree starting from `src/main.ts`"
+
+> "What are all the dependencies of my entry file?"
+
+**Impact Analysis (Reverse Lookup):**
+> "What files import `src/utils/helpers.ts`? I want to refactor it."
+
+> "What's the impact of modifying `src/api/client.ts`?"
+
+> "Which components depend on the `useAuth` hook?"
+
+> "Is it safe to delete `src/legacy/oldUtils.ts`? Show me what uses it."
+
+**Architecture & Structure:**
+> "Map out the architecture of the `src/services/` module"
+
+> "Are there any circular dependencies in my project?"
+
+> "Show me how `src/App.tsx` connects to the rest of the codebase"
+
+**Path Resolution:**
+> "Where does the import `@/components/Button` resolve to?"
+
+> "What file does `../utils` point to from `src/pages/Home.tsx`?"
+
+**Cache Management:**
+> "I just modified several files, refresh the dependency cache"
+
+> "Rebuild the entire dependency index"
+
+> "What's the current indexing status?"
 
 #### How It Works
 
@@ -118,6 +159,7 @@ The MCP server exposes 7 tools for AI/LLM consumption:
 - Maintains its **own cache** independent of the main extension
 - Performs **automatic warmup** on startup to index the workspace
 - Returns **enriched JSON** responses optimized for LLM understanding
+- **Automatically detects file changes** (including external modifications like `git pull`)
 
 #### Manual MCP Server Configuration
 
