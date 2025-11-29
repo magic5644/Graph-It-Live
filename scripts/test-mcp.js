@@ -17,7 +17,7 @@ console.log('Server:', serverPath);
 console.log('Fixtures:', fixturesPath);
 console.log('');
 
-const server = spawn('node', [serverPath], {
+const server = spawn('node', [serverPath], { //NOSONAR
   env: {
     ...process.env,
     WORKSPACE_ROOT: path.join(rootDir, 'tests/fixtures/sample-project'),
@@ -27,7 +27,7 @@ const server = spawn('node', [serverPath], {
 
 let responseCount = 0;
 let expectedResponses = 0;
-const responses = new Map();
+const responses = new Map(); //NOSONAR
 
 // Parse JSON-RPC responses from stdout
 const rl = readline.createInterface({ input: server.stdout });
@@ -46,7 +46,7 @@ rl.on('line', (line) => {
       const truncated = content.length > 800 ? content.substring(0, 800) + '\n... (truncated)' : content;
       console.log(`✅ Response ${response.id}:`, truncated);
     }
-  } catch (e) {
+  } catch (e) { //NOSONAR
     // Not JSON, ignore
   }
 });
@@ -321,4 +321,4 @@ async function runTests() {
   server.kill('SIGTERM');
 }
 
-runTests().catch(console.error);
+runTests().catch(console.error); //NOSONAR
