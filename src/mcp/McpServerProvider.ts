@@ -53,11 +53,6 @@ export class McpServerProvider implements vscode.Disposable {
     // Check if MCP is enabled in settings
     this.isEnabled = this.isMcpEnabled();
 
-    if (!this.isEnabled) {
-      console.log('[McpServerProvider] MCP server disabled in settings');
-      return { dispose: () => {} };
-    }
-
     // Check if vscode.lm API is available (requires VS Code 1.96+)
     if (!vscode.lm || !('registerMcpServerDefinitionProvider' in vscode.lm)) {
       console.warn('[McpServerProvider] vscode.lm.registerMcpServerDefinitionProvider not available. MCP server requires VS Code 1.96+');
@@ -65,8 +60,11 @@ export class McpServerProvider implements vscode.Disposable {
     }
 
     console.log('[McpServerProvider] Registering MCP server provider...');
+    console.log(`[McpServerProvider] MCP server currently ${this.isEnabled ? 'enabled' : 'disabled'} in settings`);
 
     try {
+      // Always register the provider, but return empty list if disabled
+      // This allows dynamic enable/disable without restart
       this.registration = vscode.lm.registerMcpServerDefinitionProvider(
         'graphItLiveMcp',
         {
