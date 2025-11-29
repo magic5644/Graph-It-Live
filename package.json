@@ -130,7 +130,7 @@
         "graph-it-live.persistIndex": {
           "type": "boolean",
           "default": false,
-          "description": "Persist the reverse index to disk for faster startup. Files are validated using mtime and size to detect changes."
+          "description": "Persist the reverse index to disk for faster startup. Files are validated using mtime and size to detect changes. Enable this option only if you have some performance issues on large projects."
         },
         "graph-it-live.indexingConcurrency": {
           "type": "number",

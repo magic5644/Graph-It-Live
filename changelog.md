@@ -1,5 +1,23 @@
 # Changelog
 
+## v1.2.0
+
+
+- Introduce support for MCP (Multi-Context Processing) server to enable AI/LLM integrations. Use it with Github Copilot, Cursor, Antigravity, etc. Let's chat about your code!
+
+<div align="center">
+  <img src="media/graph-it-live-tools-in-copilot.gif" alt="Using Graph-It-Live tools with GitHub Copilot" width="800"/>
+  <p><em>Using Graph-It-Live dependency analysis tools with GitHub Copilot</em></p>
+</div>
+
+- Add new configuration option `graph-it-live.enableMcpServer` to enable/disable MCP server.
+<div align="center">
+  <img src="media/enable-mcp-server-tools.gif" alt="Enable MCP Server in VS Code Settings" width="800"/>
+  <p><em>Enabling the MCP Server in VS Code Settings</em></p>
+</div>
+
+- Better indexation performance with configurable concurrency via `graph-it-live.indexingConcurrency`.
+
 ## v1.1.5
 
 - Add support for GraphQL schema files (`.gql` and `.graphql`).
