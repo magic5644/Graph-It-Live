@@ -6,6 +6,8 @@
 
 A Visual Studio Code extension that visualizes file dependencies in a **real-time interactive graph**. Perfect for understanding code architecture and navigating complex **TypeScript**, **JavaScript**, **Vue**, **Svelte**, and **GraphQL** projects.
 
+🚀 **NEW: Built-in MCP Server** — Graph-It-Live is one of the first VS Code extensions to include a native **Model Context Protocol (MCP) Server**, enabling seamless integration with AI assistants like **GitHub Copilot**, **Claude**, and **Cursor**. Let AI analyze your project's dependency graph, find impact of changes, and understand your codebase architecture!
+
 <div align="center">
   <img src="media/demo-plugin-graph-it-live.gif" alt="Graph-It-Live Demo" width="800"/>
 </div>
@@ -23,6 +25,7 @@ A Visual Studio Code extension that visualizes file dependencies in a **real-tim
     - **File Navigation**: Click on any node to instantly open the corresponding file in the editor.
 - **VS Code Integration**: Native look and feel using VS Code themes, colors, and fonts. Progress indicator in the status bar during indexing.
 - **Powered by ReactFlow & Dagre**: Smooth, automatic graph layout that adjusts as you explore.
+- **MCP Server for AI Integration** *(New)*: Built-in **Model Context Protocol (MCP) Server** exposes 9 dependency analysis tools to AI assistants. Ask GitHub Copilot questions like *"What files import utils.ts?"* or *"Show me the architecture of this module"* and get accurate, real-time answers based on your actual codebase.
 
 ## Prerequisites
 
@@ -96,6 +99,20 @@ Graph-It-Live includes an optional **Model Context Protocol (MCP) Server** that 
 #### Enabling the MCP Server
 
 Set `graph-it-live.enableMcpServer` to `true` in your VS Code settings. The server will automatically start when the extension activates.
+
+<div align="center">
+  <img src="media/enable-mcp-server-tools.gif" alt="Enable MCP Server in VS Code Settings" width="800"/>
+  <p><em>Enabling the MCP Server in VS Code Settings</em></p>
+</div>
+
+#### Using with GitHub Copilot
+
+Once enabled, you can ask GitHub Copilot to analyze your project's dependencies directly in the chat:
+
+<div align="center">
+  <img src="media/graph-it-live-tools-in-copilot.gif" alt="Using Graph-It-Live tools with GitHub Copilot" width="800"/>
+  <p><em>Using Graph-It-Live dependency analysis tools with GitHub Copilot</em></p>
+</div>
 
 #### Available Tools
 
