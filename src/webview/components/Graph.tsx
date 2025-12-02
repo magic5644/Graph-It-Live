@@ -156,6 +156,9 @@ const CustomNode = ({ data, isConnectable }: NodeProps) => {
 // See: https://reactflow.dev/error#002
 const nodeTypes = { custom: CustomNode };
 
+// Define proOptions outside the component to avoid recreating object on each render
+const proOptions = { hideAttribution: true };
+
 const GraphContent: React.FC = () => {
     const { nodes, edges, onNodesChange, onEdgesChange, onNodeClick, currentFilePath, openFile, expandAll, toggleExpandAll, refreshGraph } = useGraphData();
     const { fitView } = useReactFlow();
@@ -187,7 +190,6 @@ const GraphContent: React.FC = () => {
     return (
         <div style={{ width: '100vw', height: '100vh', position: 'fixed', top: 0, left: 0 }}>
             <ReactFlow
-                key={currentFilePath}
                 nodes={nodes}
                 edges={edges}
                 onNodesChange={onNodesChange}
@@ -199,7 +201,7 @@ const GraphContent: React.FC = () => {
                 minZoom={0.1}
                 maxZoom={2}
                 fitView
-                proOptions={{ hideAttribution: true }}
+                proOptions={proOptions}
             >
                 <Background />
                 <Controls />
