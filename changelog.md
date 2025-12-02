@@ -1,5 +1,9 @@
 # Changelog
 
+## v1.2.1
+
+- Enhance file dependencies resolution with better support of monorepos workspaces.
+
 ## v1.2.0
 
 
