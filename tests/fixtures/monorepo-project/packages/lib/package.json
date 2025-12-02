@@ -1,0 +1,9 @@
+{
+  "name": "@monorepo/lib",
+  "imports": {
+    "#internal/*": "./src/internal/*",
+    "#config": {
+      "default": "./src/config.ts"
+    }
+  }
+}

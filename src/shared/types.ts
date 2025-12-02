@@ -1,6 +1,8 @@
 export interface GraphData {
   nodes: string[];
   edges: { source: string; target: string }[];
+  /** Optional custom labels for nodes (key: node path, value: display label) */
+  nodeLabels?: Record<string, string>;
 }
 
 export interface ShowGraphMessage {

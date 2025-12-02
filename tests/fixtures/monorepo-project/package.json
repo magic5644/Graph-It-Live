@@ -1,0 +1,11 @@
+{
+  "name": "monorepo-root",
+  "private": true,
+  "workspaces": [
+    "packages/*"
+  ],
+  "dependencies": {
+    "@monorepo/lib": "file:packages/lib",
+    "@monorepo/shared": "file:packages/shared"
+  }
+}

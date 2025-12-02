@@ -90,6 +90,41 @@ describe('Spider', () => {
     expect(stats.size).toBe(0); // Cache should be cleared
   });
 
+  it('should enable reverse index via updateConfig', () => {
+    const spiderNoIndex = new Spider({
+      rootDir: fixturesPath,
+      tsConfigPath: path.join(fixturesPath, 'tsconfig.json'),
+      enableReverseIndex: false,
+    });
+    
+    expect(spiderNoIndex.hasReverseIndex()).toBe(false);
+    
+    spiderNoIndex.updateConfig({ enableReverseIndex: true });
+    expect(spiderNoIndex.hasReverseIndex()).toBe(false); // Still false until indexed
+  });
+
+  it('should disable reverse index via updateConfig', async () => {
+    const spiderWithIndex = new Spider({
+      rootDir: fixturesPath,
+      tsConfigPath: path.join(fixturesPath, 'tsconfig.json'),
+      enableReverseIndex: true,
+    });
+    
+    // Analyze a file to populate the reverse index
+    const mainFile = path.join(fixturesPath, 'src/main.ts');
+    await spiderWithIndex.analyze(mainFile);
+    
+    // Disable reverse index
+    spiderWithIndex.updateConfig({ enableReverseIndex: false });
+    expect(spiderWithIndex.hasReverseIndex()).toBe(false);
+  });
+
+  it('should update indexing concurrency', () => {
+    spider.updateConfig({ indexingConcurrency: 8 });
+    // No direct way to check, but should not throw
+    expect(spider.getCacheStats().size).toBe(0);
+  });
+
   it('should clear cache', async () => {
     const mainFile = path.join(fixturesPath, 'src/main.ts');
     await spider.analyze(mainFile);
@@ -261,5 +296,145 @@ describe('Spider - File Invalidation', () => {
     const statsAfter = spider.getCacheStats();
     // Reverse index should have fewer references after invalidation
     expect(statsAfter.reverseIndexStats?.totalReferences).toBe(0);
+  });
+});
+
+describe('Spider - Reverse Index Management', () => {
+  let spider: Spider;
+
+  beforeEach(() => {
+    spider = new Spider({
+      rootDir: fixturesPath,
+      tsConfigPath: path.join(fixturesPath, 'tsconfig.json'),
+      enableReverseIndex: false, // Start without reverse index
+    });
+  });
+
+  it('should enable reverse index', () => {
+    expect(spider.hasReverseIndex()).toBe(false);
+    
+    const restored = spider.enableReverseIndex();
+    
+    expect(restored).toBe(false); // No serialized data provided
+    expect(spider.hasReverseIndex()).toBe(false); // No entries yet
+  });
+
+  it('should enable reverse index with valid serialized data', async () => {
+    // First, create a spider with reverse index and populate it
+    const spiderWithIndex = new Spider({
+      rootDir: fixturesPath,
+      tsConfigPath: path.join(fixturesPath, 'tsconfig.json'),
+      enableReverseIndex: true,
+    });
+    
+    const mainFile = path.join(fixturesPath, 'src/main.ts');
+    await spiderWithIndex.analyze(mainFile);
+    
+    const serialized = spiderWithIndex.getSerializedReverseIndex();
+    expect(serialized).not.toBeNull();
+    
+    // Now restore into a new spider
+    const restored = spider.enableReverseIndex(serialized!);
+    
+    expect(restored).toBe(true);
+    expect(spider.hasReverseIndex()).toBe(true);
+  });
+
+  it('should handle invalid serialized data gracefully', () => {
+    const restored = spider.enableReverseIndex('invalid json {{{');
+    
+    expect(restored).toBe(false);
+  });
+
+  it('should disable reverse index', async () => {
+    spider.enableReverseIndex();
+    const mainFile = path.join(fixturesPath, 'src/main.ts');
+    await spider.analyze(mainFile);
+    
+    spider.disableReverseIndex();
+    
+    expect(spider.hasReverseIndex()).toBe(false);
+  });
+
+  it('should get serialized reverse index', async () => {
+    spider.enableReverseIndex();
+    const mainFile = path.join(fixturesPath, 'src/main.ts');
+    await spider.analyze(mainFile);
+    
+    const serialized = spider.getSerializedReverseIndex();
+    
+    expect(serialized).not.toBeNull();
+    expect(typeof serialized).toBe('string');
+    
+    // Should be valid JSON
+    const parsed = JSON.parse(serialized!);
+    expect(parsed).toBeDefined();
+  });
+
+  it('should return null when getting serialized index without reverse index', () => {
+    const serialized = spider.getSerializedReverseIndex();
+    expect(serialized).toBeNull();
+  });
+
+  it('should validate reverse index', async () => {
+    spider.enableReverseIndex();
+    const mainFile = path.join(fixturesPath, 'src/main.ts');
+    await spider.analyze(mainFile);
+    
+    const validation = await spider.validateReverseIndex();
+    
+    expect(validation).not.toBeNull();
+    expect(validation?.isValid).toBe(true);
+    expect(Array.isArray(validation?.staleFiles)).toBe(true);
+    expect(Array.isArray(validation?.missingFiles)).toBe(true);
+  });
+
+  it('should return null when validating without reverse index', async () => {
+    const validation = await spider.validateReverseIndex();
+    expect(validation).toBeNull();
+  });
+});
+
+describe('Spider - Index Status', () => {
+  let spider: Spider;
+
+  beforeEach(() => {
+    spider = new Spider({
+      rootDir: fixturesPath,
+      tsConfigPath: path.join(fixturesPath, 'tsconfig.json'),
+    });
+  });
+
+  it('should get indexing state', () => {
+    const state = spider.getIndexingState();
+    expect(state).toBe('idle');
+  });
+
+  it('should get full index status', () => {
+    const status = spider.getIndexStatus();
+    
+    expect(status.state).toBe('idle');
+    expect(status.processed).toBe(0);
+    expect(status.total).toBe(0);
+    expect(status.cancelled).toBe(false);
+  });
+
+  it('should subscribe to index status changes', () => {
+    const callbacks: Array<{ state: string }> = [];
+    
+    const unsubscribe = spider.subscribeToIndexStatus((snapshot) => {
+      callbacks.push({ state: snapshot.state });
+    });
+    
+    // Should be called immediately with current state
+    expect(callbacks.length).toBe(1);
+    expect(callbacks[0].state).toBe('idle');
+    
+    unsubscribe();
+  });
+
+  it('should cancel indexing', () => {
+    // Just verify it doesn't throw
+    expect(() => spider.cancelIndexing()).not.toThrow();
   });
 });

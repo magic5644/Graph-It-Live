@@ -1,0 +1,8 @@
+{
+  "name": "@monorepo/app",
+  "imports": {
+    "#components/*": "./src/components/*",
+    "#utils": "./src/utils/index.ts",
+    "@app/*": "./src/*"
+  }
+}

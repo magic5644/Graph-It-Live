@@ -11,9 +11,16 @@ export const mergeGraphData = (currentData: GraphData, newData: GraphData): Grap
         )
     ];
 
+    // Merge nodeLabels
+    const mergedNodeLabels = {
+        ...currentData.nodeLabels,
+        ...newData.nodeLabels,
+    };
+
     return {
         nodes: mergedNodes,
         edges: mergedEdges,
+        nodeLabels: Object.keys(mergedNodeLabels).length > 0 ? mergedNodeLabels : undefined,
     };
 };
 

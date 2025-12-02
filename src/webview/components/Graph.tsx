@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo } from 'react';
+import React, { useEffect } from 'react';
 import ReactFlow, { Background, Controls, useReactFlow, ReactFlowProvider, useNodesInitialized, Handle, Position, NodeProps, Node } from 'reactflow';
 // @ts-expect-error - ReactFlow types are complex
 import reactFlowStyles from 'reactflow/dist/style.css';
@@ -152,13 +152,15 @@ const CustomNode = ({ data, isConnectable }: NodeProps) => {
     );
 };
 
+// Define nodeTypes outside the component to avoid React Flow warning
+// See: https://reactflow.dev/error#002
+const nodeTypes = { custom: CustomNode };
+
 const GraphContent: React.FC = () => {
     const { nodes, edges, onNodesChange, onEdgesChange, onNodeClick, currentFilePath, openFile, expandAll, toggleExpandAll, refreshGraph } = useGraphData();
     const { fitView } = useReactFlow();
     const nodesInitialized = useNodesInitialized();
     const [navigationHistory, setNavigationHistory] = React.useState<string[]>([]);
-
-    const nodeTypes = useMemo(() => ({ custom: CustomNode }), []);
 
     useEffect(() => {
         if (nodesInitialized && nodes.length > 0) {
