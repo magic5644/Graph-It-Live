@@ -4,33 +4,56 @@
 
 # Graph-It-Live
 
-A Visual Studio Code extension that visualizes file dependencies in a **real-time interactive graph**. Perfect for understanding code architecture and navigating complex **TypeScript**, **JavaScript**, **Vue**, **Svelte**, and **GraphQL** projects.
+[![Version](https://img.shields.io/visual-studio-marketplace/v/magic5644.graph-it-live?label=VS%20Code%20Marketplace&logo=visual-studio-code)](https://marketplace.visualstudio.com/items?itemName=magic5644.graph-it-live)
+[![Open VSX Version](https://img.shields.io/open-vsx/v/magic5644/graph-it-live?label=Open%20VSX&logo=eclipse&logoColor=white)](https://open-vsx.org/extension/magic5644/graph-it-live)
+[![AI Ready](https://img.shields.io/badge/AI%20Ready-MCP%20Server-blue?logo=openai&logoColor=white)](https://modelcontextprotocol.io)
+[![License](https://img.shields.io/github/license/magic5644/Graph-It-Live)](https://github.com/magic5644/Graph-It-Live/blob/main/LICENSE)
 
-🚀 **NEW: Built-in MCP Server** — Graph-It-Live is one of the first VS Code extensions to include a native **Model Context Protocol (MCP) Server**, enabling seamless integration with AI assistants like **GitHub Copilot**, **Claude**, and **Cursor**. Let AI analyze your project's dependency graph, find impact of changes, and understand your codebase architecture!
+[![Installs](https://img.shields.io/visual-studio-marketplace/i/magic5644.graph-it-live?label=Marketplace%20Installs)](https://marketplace.visualstudio.com/items?itemName=magic5644.graph-it-live)
+[![Open VSX Downloads](https://img.shields.io/open-vsx/dt/magic5644/graph-it-live?label=Open%20VSX%20Installs)](https://open-vsx.org/extension/magic5644/graph-it-live)
+
+**Give your AI "eyes" to see your entire codebase structure.**
+
+Graph-It-Live is a dual-purpose tool:
+1.  **For Humans**: A real-time interactive graph to visualize and navigate dependencies in **TypeScript**, **JavaScript**, **Vue**, **Svelte**, and **GraphQL** projects.
+2.  **For AI**: A built-in **Model Context Protocol (MCP) Server** that lets assistants like **GitHub Copilot**, **Claude**, and **Cursor** analyze your project's architecture, find impact of changes, and understand complex relationships without hallucinating.
 
 <div align="center">
   <img src="media/demo-plugin-graph-it-live.gif" alt="Graph-It-Live Demo" width="800"/>
 </div>
 
+## 🤖 Supercharge Your AI Assistant
+
+Stop pasting file paths and explaining your project structure. Graph-It-Live exposes **9 powerful dependency analysis tools** directly to your AI assistant via the [Model Context Protocol (MCP)](https://modelcontextprotocol.io).
+
+**What your AI can do with Graph-It-Live:**
+*   **"Map out the architecture of the `auth` module"** -> AI crawls the dependency tree.
+*   **"What breaks if I change `User.ts`?"** -> AI performs instant reverse lookup to find all dependents.
+*   **"Are there circular dependencies?"** -> AI detects cycles automatically.
+*   **"Explain how data flows from `App.vue` to the API"** -> AI traces the import path.
+
+<div align="center">
+  <img src="media/graph-it-live-tools-in-copilot.gif" alt="Using Graph-It-Live tools with GitHub Copilot" width="800"/>
+  <p><em>Example: Asking GitHub Copilot to analyze dependencies using Graph-It-Live tools</em></p>
+</div>
+
 ## Features
 
-- **Real-time Dependency Visualization**: Interactive graph showing file dependencies.
-- **Multi-Language Support**: First-class support for **TypeScript** (`.ts`, `.tsx`), **JavaScript** (`.js`, `.jsx`), **Vue** (`.vue`), **Svelte** (`.svelte`), and **GraphQL** (`.gql`, `.graphql`).
-- **Cycle Detection**: Automatically detects and highlights circular dependencies with red dashed lines and badges.
-- **Smart Navigation**: Navigate through your code history with a built-in "Back" button in the graph view.
-- **Background Indexing** *(New)*: Optionally index your entire workspace in the background for instant reverse dependency lookups. Uses a separate worker thread to avoid blocking the IDE.
-- **Interactive Graph**:
-    - **Expand/Collapse**: Dynamically load dependencies by clicking the `+` / `-` buttons on nodes.
-    - **Bidirectional Navigation**: Find files that reference the current file (reverse dependencies) by clicking the `◀` button on the root node. With background indexing enabled, this is instant (O(1) lookup).
-    - **File Navigation**: Click on any node to instantly open the corresponding file in the editor.
-- **VS Code Integration**: Native look and feel using VS Code themes, colors, and fonts. Progress indicator in the status bar during indexing.
-- **Powered by ReactFlow & Dagre**: Smooth, automatic graph layout that adjusts as you explore.
-- **MCP Server for AI Integration** *(New)*: Built-in **Model Context Protocol (MCP) Server** exposes 9 dependency analysis tools to AI assistants. Ask GitHub Copilot questions like *"What files import utils.ts?"* or *"Show me the architecture of this module"* and get accurate, real-time answers based on your actual codebase.
+-   **MCP Server for AI Integration** *(New)*: Built-in **Model Context Protocol (MCP) Server** exposes dependency analysis tools to AI assistants.
+-   **Real-time Dependency Visualization**: Interactive graph showing file dependencies.
+-   **Multi-Language Support**: First-class support for **TypeScript** (`.ts`, `.tsx`), **JavaScript** (`.js`, `.jsx`), **Vue** (`.vue`), **Svelte** (`.svelte`), and **GraphQL** (`.gql`, `.graphql`).
+-   **Cycle Detection**: Automatically detects and highlights circular dependencies with red dashed lines and badges.
+-   **Smart Navigation**: Navigate through your code history with a built-in "Back" button in the graph view.
+-   **Background Indexing** *(New)*: Optionally index your entire workspace in the background for instant reverse dependency lookups. Uses a separate worker thread to avoid blocking the IDE.
+-   **Interactive Graph**:
+    -   **Expand/Collapse**: Dynamically load dependencies by clicking the `+` / `-` buttons on nodes.
+    -   **Bidirectional Navigation**: Find files that reference the current file (reverse dependencies) by clicking the `◀` button on the root node. With background indexing enabled, this is instant (O(1) lookup).
+    -   **File Navigation**: Click on any node to instantly open the corresponding file in the editor.
 
 ## Prerequisites
 
-- **Node.js**: v24 or higher
-- **VS Code**: v1.85.0 or higher
+-   **Node.js**: v24 or higher
+-   **VS Code**: v1.85.0 or higher
 
 ## Installation
 
@@ -40,86 +63,47 @@ Install directly from the VS Code Marketplace (when published) or search for "Gr
 ### From Open VSX Registry
 The extension is also available on the [Open VSX Registry](https://open-vsx.org/). You can install it using a compatible editor (like VSCodium) or by downloading the `.vsix` from the registry page.
 
-### From VSIX
-1. Download the `.vsix` file from releases.
-2. In VS Code: `Extensions` → `...` (Views and More Actions) → `Install from VSIX...`
-3. Select the downloaded `.vsix` file.
-
 ## Usage
 
-1. **Open a Project**: Open a folder containing TypeScript, JavaScript, Vue, Svelte, or GraphQL files.
-2. **Open the Graph**:
-   - Click the **Graph-It-Live** icon in the Activity Bar (left sidebar).
-   - Or run the command: `Graph-It-Live: Show Dependency Graph`.
-   - Or click the graph icon in the editor title bar when viewing a supported file.
-   - View can be moved to another panel by dragging and dropping the tab.
-3. **Interact**:
-   - **Navigate**: Click a node to open the file.
-    - **Expand**: Click the small `+` button on a node to reveal its dependencies.
-    - **Reverse Lookup**: Click the `◀` button on the left of the root node to see which files import the current file.
-    - **Go Back**: Use the "Back" button in the top-left corner to return to previously viewed files.
-   - **Pan/Zoom**: Drag the background to pan; scroll or pinch to zoom.
+1.  **Open a Project**: Open a folder containing TypeScript, JavaScript, Vue, Svelte, or GraphQL files.
+2.  **Open the Graph**:
+    -   Click the **Graph-It-Live** icon in the Activity Bar (left sidebar).
+    -   Or run the command: `Graph-It-Live: Show Dependency Graph`.
+    -   Or click the graph icon in the editor title bar when viewing a supported file.
+3.  **Interact**:
+    -   **Navigate**: Click a node to open the file.
+    -   **Expand**: Click the small `+` button on a node to reveal its dependencies.
+    -   **Reverse Lookup**: Click the `◀` button on the left of the root node to see which files import the current file.
 
 ## Configuration
 
 Customize the extension in VS Code Settings (`Cmd+,` or `Ctrl+,`):
 
 | Setting | Default | Description |
-|---------|---------|-------------|
+| :--- | :--- | :--- |
+| `graph-it-live.enableMcpServer` | `false` | **Enable this for AI features.** Exposes dependency analysis tools via Model Context Protocol. |
 | `graph-it-live.maxDepth` | `50` | Maximum depth of dependencies to analyze initially. |
 | `graph-it-live.excludeNodeModules` | `true` | Whether to exclude `node_modules` imports from the graph. |
-| `graph-it-live.enableBackgroundIndexing` | `true` | Enable background indexing for instant reverse dependency lookups. When enabled, all workspace files are indexed at startup using a worker thread. Disable it if you encounter performance issues or want to reduce CPU usage. |
-| `graph-it-live.persistIndex` | `false` | Persist the reverse index to disk for faster startup. The index is validated using file mtime and size to detect changes. |
-| `graph-it-live.indexingConcurrency` | `4` | Number of files to process in parallel during indexing (1-16). Lower values reduce CPU usage. |
-| `graph-it-live.indexingStartDelay` | `1000` | Delay in milliseconds before starting background indexing after activation. Allows VS Code to finish startup first. |
-| `graph-it-live.enableMcpServer` | `false` | Enable MCP Server for AI/LLM integration. Exposes dependency analysis tools via Model Context Protocol. |
+| `graph-it-live.enableBackgroundIndexing` | `true` | Enable background indexing for instant reverse dependency lookups. |
 
-### Background Indexing
+## MCP Server (AI/LLM Integration)
 
-When `enableBackgroundIndexing` is enabled:
-- The extension indexes all TypeScript, JavaScript, Vue, Svelte, and GraphQL files in your workspace
-- Indexing runs in a **separate worker thread** to avoid blocking the IDE
-- Progress is shown in the **status bar** (bottom left)
-- Reverse dependency lookups (`◀` button) become instant (O(1)) instead of scanning the entire workspace
-- Recommended for large projects where reverse lookup performance matters
+Graph-It-Live includes an optional **Model Context Protocol (MCP) Server** that exposes its dependency analysis capabilities to AI assistants and LLMs.
 
-### GraphQL Support
-
-Graph-It-Live provides full support for GraphQL schema files:
-
-- **File Extensions**: `.gql` and `.graphql` files are fully supported
-- **Import Syntax**: Parses GraphQL `#import` directives (e.g., `#import "./fragments/user.gql"`)
-- **Cross-Language**: Detects imports of `.gql` files from TypeScript/JavaScript (webpack/vite loaders)
-- **Visual Distinction**: GraphQL nodes are displayed with a **pink border** (#e535ab) matching the official GraphQL brand color
-
-### MCP Server (AI/LLM Integration)
-
-Graph-It-Live includes an optional **Model Context Protocol (MCP) Server** that exposes its dependency analysis capabilities to AI assistants and LLMs. When enabled, AI tools like GitHub Copilot, Claude, or Cursor can directly query your project's dependency graph.
-
-#### Enabling the MCP Server
+### Enabling the MCP Server
 
 Set `graph-it-live.enableMcpServer` to `true` in your VS Code settings. The server will automatically start when the extension activates.
 
 <div align="center">
   <img src="media/enable-mcp-server-tools.gif" alt="Enable MCP Server in VS Code Settings" width="800"/>
-  <p><em>Enabling the MCP Server in VS Code Settings</em></p>
 </div>
 
-#### Using with GitHub Copilot
-
-Once enabled, you can ask GitHub Copilot to analyze your project's dependencies directly in the chat:
-
-<div align="center">
-  <img src="media/graph-it-live-tools-in-copilot.gif" alt="Using Graph-It-Live tools with GitHub Copilot" width="800"/>
-  <p><em>Using Graph-It-Live dependency analysis tools with GitHub Copilot</em></p>
-</div>
-
-#### Available Tools
+### Available Tools
 
 The MCP server exposes **9 tools** for AI/LLM consumption:
 
 | Tool | Description |
-|------|-------------|
+| :--- | :--- |
 | `graphItLive_analyzeDependencies` | Analyze a single file's direct imports and exports |
 | `graphItLive_crawlDependencyGraph` | Crawl the full dependency tree from an entry file |
 | `graphItLive_findReferencingFiles` | Find all files that import a given file (reverse lookup) |
@@ -130,59 +114,14 @@ The MCP server exposes **9 tools** for AI/LLM consumption:
 | `graphItLive_invalidateFiles` | Invalidate specific files from the cache after modifications |
 | `graphItLive_rebuildIndex` | Rebuild the entire dependency index from scratch |
 
-#### Example Prompts
-
-Here are some example prompts you can use with your AI assistant to leverage Graph-It-Live's MCP tools:
-
-**Understanding Dependencies:**
-> "What files does `src/components/Button.tsx` import?"
-
-> "Show me the full dependency tree starting from `src/main.ts`"
-
-> "What are all the dependencies of my entry file?"
-
-**Impact Analysis (Reverse Lookup):**
-> "What files import `src/utils/helpers.ts`? I want to refactor it."
-
-> "What's the impact of modifying `src/api/client.ts`?"
-
-> "Which components depend on the `useAuth` hook?"
-
-> "Is it safe to delete `src/legacy/oldUtils.ts`? Show me what uses it."
-
-**Architecture & Structure:**
-> "Map out the architecture of the `src/services/` module"
-
-> "Are there any circular dependencies in my project?"
-
-> "Show me how `src/App.tsx` connects to the rest of the codebase"
-
-**Path Resolution:**
-> "Where does the import `@/components/Button` resolve to?"
-
-> "What file does `../utils` point to from `src/pages/Home.tsx`?"
-
-**Cache Management:**
-> "I just modified several files, refresh the dependency cache"
-
-> "Rebuild the entire dependency index"
-
-> "What's the current indexing status?"
-
-#### How It Works
-
-- Uses **stdio transport** (standard input/output) for communication
-- Runs in a **separate worker thread** for non-blocking operation
-- Maintains its **own cache** independent of the main extension
-- Performs **automatic warmup** on startup to index the workspace
-- Returns **enriched JSON** responses optimized for LLM understanding
-- **Automatically detects file changes** (including external modifications like `git pull`)
-
-#### Manual MCP Server Configuration
+### Manual MCP Server Configuration
 
 If the automatic MCP server registration doesn't work in your editor (e.g., when using Antigravity, Cursor, or if you want to use the server outside of VS Code), you can manually configure the MCP server.
 
-##### VS Code / VS Code Insiders
+<details>
+<summary><strong>Click to expand configuration instructions for VS Code, Cursor, Claude Desktop, etc.</strong></summary>
+
+#### VS Code / VS Code Insiders
 
 Create or edit `.vscode/mcp.json` in your workspace:
 
@@ -205,7 +144,7 @@ Create or edit `.vscode/mcp.json` in your workspace:
 
 > **Note**: The `${extensionPath:magic5644.graph-it-live}` variable automatically resolves to the extension's installation directory.
 
-##### Cursor
+#### Cursor
 
 Create or edit `.cursor/mcp.json` in your workspace or `~/.cursor/mcp.json` for global configuration:
 
@@ -225,13 +164,11 @@ Create or edit `.cursor/mcp.json` in your workspace or `~/.cursor/mcp.json` for 
 }
 ```
 
-> **Note**: The `*` wildcard matches any version. Using `bash -c` allows glob expansion.
+#### Antigravity (Google's VS Code fork)
 
-##### Antigravity (Google's VS Code fork)
+> ⚠️ **Partial Support**: Antigravity's MCP integration is experimental.
 
-> ⚠️ **Partial Support**: Antigravity's MCP integration is experimental. The automatic MCP server registration via `registerMcpServerDefinitionProvider` may not work reliably. Use manual configuration below.
-
-Antigravity uses `mcpServers` (not `servers`). Create `.vscode/mcp.json` in your workspace:
+Create `.vscode/mcp.json` in your workspace:
 
 ```json
 {
@@ -249,14 +186,11 @@ Antigravity uses `mcpServers` (not `servers`). Create `.vscode/mcp.json` in your
 }
 ```
 
-> **Note**: The `${extensionPath:magic5644.graph-it-live}` variable automatically resolves to the extension's installation directory, regardless of version.
-
-##### Claude Desktop
+#### Claude Desktop
 
 Add to your Claude Desktop configuration (`~/Library/Application Support/Claude/claude_desktop_config.json` on macOS).
 
 First, find your extension path:
-
 ```bash
 ls ~/.vscode/extensions/ | grep graph-it-live
 # Example output: magic5644.graph-it-live-1.0.0
@@ -280,11 +214,9 @@ Then use the full path in your config:
 }
 ```
 
-> **Note**: The `*` wildcard matches any version. Using `bash -c` allows glob expansion.
+#### Development / Local Testing
 
-##### Development / Local Testing
-
-When developing the extension locally, use the path to your cloned repository:
+When developing the extension locally:
 
 ```json
 {
@@ -303,33 +235,7 @@ When developing the extension locally, use the path to your cloned repository:
 }
 ```
 
-> ⚠️ **Important**: Use **absolute paths** for all environment variables. Variables like `${workspaceFolder}` are **NOT supported** by most MCP clients. Replace them with actual paths.
-
-##### Environment Variables
-
-| Variable | Required | Default | Description |
-|----------|----------|---------|-------------|
-| `WORKSPACE_ROOT` | Yes | - | Absolute path to the project root to analyze |
-| `TSCONFIG_PATH` | No | Auto-detect | Path to tsconfig.json for path alias resolution |
-| `EXCLUDE_NODE_MODULES` | No | `true` | Set to `false` to include node_modules in analysis |
-| `MAX_DEPTH` | No | `50` | Maximum depth for dependency crawling |
-
-##### Verifying the Server
-
-To test if the MCP server starts correctly:
-
-```bash
-cd /path/to/your/project
-WORKSPACE_ROOT="$(pwd)" node /path/to/graph-it-live/dist/mcpServer.mjs
-```
-
-You should see output like:
-```
-[McpServer] Graph-It-Live MCP Server starting...
-[McpServer] Workspace: /path/to/your/project
-[McpServer] MCP Server connected via stdio
-[McpServer] Worker ready: 123 files indexed in 45ms
-```
+</details>
 
 ## Development
 
@@ -348,37 +254,17 @@ Graph-It-Live/
 
 ### Setup
 
-1. **Clone**:
-   ```bash
-   git clone https://github.com/magic5644/Graph-It-Live.git
-   cd Graph-It-Live
-   ```
-2. **Install**:
-   ```bash
-   npm install
-   ```
-3. **Run**:
-   - Press `F5` in VS Code to start the Extension Development Host.
-   - **Watch Mode** (recommended for dev):
-     ```bash
-     npm run watch
-     ```
-
-### Scripts
-
-- `npm run build`: Build for production.
-- `npm run watch`: Build and watch for changes.
-- `npm test`: Run unit tests with Vitest.
-- `npm run lint:fix`: Fix linting issues.
-- `npm run package`: Create a `.vsix` package.
-
-## Contributing
-
-Contributions are welcome! Please follow these steps:
-1. Fork the repository.
-2. Create a feature branch (`git checkout -b feature/amazing-feature`).
-3. Commit your changes.
-4. Push to the branch and open a Pull Request.
+1.  **Clone**:
+    ```bash
+    git clone https://github.com/magic5644/Graph-It-Live.git
+    cd Graph-It-Live
+    ```
+2.  **Install**:
+    ```bash
+    npm install
+    ```
+3.  **Run**:
+    -   Press `F5` in VS Code to start the Extension Development Host.
 
 ## License
 
