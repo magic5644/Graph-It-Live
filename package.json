@@ -165,7 +165,7 @@
     "publish": "vsce publish"
   },
   "dependencies": {
-    "@modelcontextprotocol/sdk": "^1.23.0",
+    "@modelcontextprotocol/sdk": "^1.24.0",
     "@types/dagre": "^0.7.53",
     "dagre": "^0.8.5",
     "react": "^19.2.0",
