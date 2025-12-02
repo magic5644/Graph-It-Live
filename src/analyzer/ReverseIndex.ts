@@ -1,4 +1,5 @@
 import * as fs from 'node:fs/promises';
+import * as path from 'node:path';
 import {
   ReverseIndexEntry,
   FileHash,
@@ -11,6 +12,14 @@ import {
  * Increment when making breaking changes to the format
  */
 const INDEX_VERSION = 1;
+
+/**
+ * Normalize a file path to use forward slashes consistently
+ * This ensures Windows paths (C:\foo\bar) work the same as Unix paths (/foo/bar)
+ */
+function normalizePath(filePath: string): string {
+  return filePath.split(path.sep).join('/');
+}
 
 /**
  * ReverseIndex - Maintains a mapping from target files to their referencing files
@@ -39,7 +48,7 @@ export class ReverseIndex {
   private readonly rootDir: string;
 
   constructor(rootDir: string) {
-    this.rootDir = rootDir;
+    this.rootDir = normalizePath(rootDir);
   }
 
   /**
@@ -53,30 +62,35 @@ export class ReverseIndex {
     dependencies: Dependency[],
     fileHash?: FileHash
   ): void {
+    // Normalize paths for cross-platform consistency
+    const normalizedSourcePath = normalizePath(sourcePath);
+    
     // First, remove all existing entries from this source file
     // This handles the case where imports were removed
-    this.removeDependenciesFromSource(sourcePath);
+    this.removeDependenciesFromSource(normalizedSourcePath);
 
     // Add new entries
     for (const dep of dependencies) {
+      const normalizedTargetPath = normalizePath(dep.path);
+      
       const entry: ReverseIndexEntry = {
-        sourcePath,
+        sourcePath: normalizedSourcePath,
         type: dep.type,
         line: dep.line,
         module: dep.module,
       };
 
-      let targetMap = this.reverseMap.get(dep.path);
+      let targetMap = this.reverseMap.get(normalizedTargetPath);
       if (!targetMap) {
         targetMap = new Map();
-        this.reverseMap.set(dep.path, targetMap);
+        this.reverseMap.set(normalizedTargetPath, targetMap);
       }
-      targetMap.set(sourcePath, entry);
+      targetMap.set(normalizedSourcePath, entry);
     }
 
     // Update file hash if provided
     if (fileHash) {
-      this.fileHashes.set(sourcePath, fileHash);
+      this.fileHashes.set(normalizedSourcePath, fileHash);
     }
   }
 
@@ -85,15 +99,17 @@ export class ReverseIndex {
    * Call this when a file is deleted or before re-analyzing
    */
   removeDependenciesFromSource(sourcePath: string): void {
+    const normalizedSourcePath = normalizePath(sourcePath);
+    
     // Iterate through all target files and remove entries from this source
     for (const [targetPath, sourceMap] of this.reverseMap) {
-      sourceMap.delete(sourcePath);
+      sourceMap.delete(normalizedSourcePath);
       // Clean up empty maps
       if (sourceMap.size === 0) {
         this.reverseMap.delete(targetPath);
       }
     }
-    this.fileHashes.delete(sourcePath);
+    this.fileHashes.delete(normalizedSourcePath);
   }
 
   /**
@@ -103,7 +119,8 @@ export class ReverseIndex {
    * @returns Array of dependencies pointing to the target
    */
   getReferencingFiles(targetPath: string): Dependency[] {
-    const sourceMap = this.reverseMap.get(targetPath);
+    const normalizedTargetPath = normalizePath(targetPath);
+    const sourceMap = this.reverseMap.get(normalizedTargetPath);
     if (!sourceMap) {
       return [];
     }
@@ -123,7 +140,8 @@ export class ReverseIndex {
    * @returns true if the file is stale (changed), false if unchanged
    */
   isFileStale(filePath: string, currentHash: FileHash): boolean {
-    const storedHash = this.fileHashes.get(filePath);
+    const normalizedPath = normalizePath(filePath);
+    const storedHash = this.fileHashes.get(normalizedPath);
     if (!storedHash) {
       return true; // Not indexed yet = stale
     }
@@ -134,14 +152,14 @@ export class ReverseIndex {
    * Get the stored hash for a file
    */
   getFileHash(filePath: string): FileHash | undefined {
-    return this.fileHashes.get(filePath);
+    return this.fileHashes.get(normalizePath(filePath));
   }
 
   /**
    * Update the hash for a file without changing its dependencies
    */
   updateFileHash(filePath: string, fileHash: FileHash): void {
-    this.fileHashes.set(filePath, fileHash);
+    this.fileHashes.set(normalizePath(filePath), fileHash);
   }
 
   /**
@@ -155,7 +173,7 @@ export class ReverseIndex {
    * Check if a specific file has been indexed
    */
   hasFile(filePath: string): boolean {
-    return this.fileHashes.has(filePath);
+    return this.fileHashes.has(normalizePath(filePath));
   }
 
   /**
@@ -230,32 +248,40 @@ export class ReverseIndex {
     data: SerializedReverseIndex,
     rootDir: string
   ): ReverseIndex | null {
+    const normalizedRootDir = normalizePath(rootDir);
+    const normalizedDataRootDir = normalizePath(data.rootDir);
+    
     // Validate version
     if (data.version !== INDEX_VERSION) {
       console.error(`[ReverseIndex] Version mismatch: ${data.version} !== ${INDEX_VERSION}`);
       return null;
     }
 
-    // Validate rootDir matches
-    if (data.rootDir !== rootDir) {
+    // Validate rootDir matches (using normalized paths)
+    if (normalizedDataRootDir !== normalizedRootDir) {
       console.error(`[ReverseIndex] Root dir mismatch: ${data.rootDir} !== ${rootDir}`);
       return null;
     }
 
     const index = new ReverseIndex(rootDir);
 
-    // Restore file hashes
+    // Restore file hashes (paths are already normalized in serialized data)
     for (const [filePath, hash] of Object.entries(data.fileHashes)) {
-      index.fileHashes.set(filePath, hash);
+      index.fileHashes.set(normalizePath(filePath), hash);
     }
 
-    // Restore reverse map
+    // Restore reverse map (paths are already normalized in serialized data)
     for (const [targetPath, entries] of Object.entries(data.reverseMap)) {
+      const normalizedTargetPath = normalizePath(targetPath);
       const sourceMap = new Map<string, ReverseIndexEntry>();
       for (const entry of entries) {
-        sourceMap.set(entry.sourcePath, entry);
+        const normalizedSourcePath = normalizePath(entry.sourcePath);
+        sourceMap.set(normalizedSourcePath, {
+          ...entry,
+          sourcePath: normalizedSourcePath,
+        });
       }
-      index.reverseMap.set(targetPath, sourceMap);
+      index.reverseMap.set(normalizedTargetPath, sourceMap);
     }
 
     return index;

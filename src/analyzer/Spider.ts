@@ -9,6 +9,15 @@ import { IndexerWorkerHost } from './IndexerWorkerHost';
 import { Dependency, SpiderConfig, IndexingProgressCallback } from './types';
 
 /**
+ * Check if a file path is inside node_modules (cross-platform)
+ */
+function isInNodeModules(filePath: string): boolean {
+  // Normalize separators for cross-platform check
+  const normalized = filePath.split(path.sep).join('/');
+  return normalized.includes('/node_modules/') || normalized.includes('/node_modules');
+}
+
+/**
  * Main analyzer class - "The Spider"
  * Crawls through files to extract and resolve dependencies
  * 
@@ -628,8 +637,8 @@ export class Spider {
             nodeLabels[dep.path] = dep.module;
           }
 
-          // Recurse if not in node_modules
-          if (!dep.path.includes('node_modules')) {
+          // Recurse if not in node_modules (cross-platform check)
+          if (!isInNodeModules(dep.path)) {
             await crawlRecursive(dep.path, depth + 1);
           }
         }
@@ -698,8 +707,8 @@ export class Spider {
             nodeLabels[dep.path] = dep.module;
           }
 
-          // Recurse if not in node_modules
-          if (!dep.path.includes('node_modules')) {
+          // Recurse if not in node_modules (cross-platform check)
+          if (!isInNodeModules(dep.path)) {
             await crawlRecursive(dep.path, depth + 1);
           }
         }
