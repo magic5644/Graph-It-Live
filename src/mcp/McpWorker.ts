@@ -101,7 +101,11 @@ async function handleInit(cfg: McpWorkerConfig): Promise<void> {
 
   // Initialize components
   parser = new Parser();
-  resolver = new PathResolver(cfg.tsConfigPath, cfg.excludeNodeModules);
+  resolver = new PathResolver(
+    cfg.tsConfigPath,
+    cfg.excludeNodeModules,
+    cfg.rootDir // workspaceRoot for package.json discovery
+  );
   spider = new Spider({
     rootDir: cfg.rootDir,
     tsConfigPath: cfg.tsConfigPath,
@@ -542,9 +546,9 @@ async function executeRebuildIndex(): Promise<RebuildIndexResult> {
   // Clear all cached data
   spider!.clearCache();
 
-  // Re-index by warming up the spider again
+  // Re-index by building full index again
   // This will scan the workspace and rebuild the reverse index
-  await spider!.warmup((processed, total, currentFile) => {
+  await spider!.buildFullIndex((processed, total, currentFile) => {
     postMessage({
       type: 'warmup-progress',
       processed,

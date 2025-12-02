@@ -154,7 +154,11 @@ async function runIndexing(config: WorkerConfig): Promise<void> {
   try {
     // Create parser and resolver
     const parser = new Parser();
-    const resolver = new PathResolver(config.tsConfigPath, config.excludeNodeModules ?? true);
+    const resolver = new PathResolver(
+      config.tsConfigPath,
+      config.excludeNodeModules ?? true,
+      config.rootDir // workspaceRoot for package.json discovery
+    );
 
     // Phase 1: Collect all files
     postMessage({ type: 'counting' });

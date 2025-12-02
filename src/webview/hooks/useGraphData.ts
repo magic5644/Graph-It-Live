@@ -41,6 +41,54 @@ function collectNodesWithChildren(filePath: string | undefined, edges: { source:
 const nodeWidth = 180;
 const nodeHeight = 50;
 
+/**
+ * Get node style based on file type and state
+ */
+function getNodeStyle(fileName: string, path: string, isRoot: boolean): { background: string; border: string; color: string } {
+    if (isRoot) {
+        return {
+            background: 'var(--vscode-button-background)',
+            color: 'var(--vscode-button-foreground)',
+            border: '1px solid var(--vscode-button-background)',
+        };
+    }
+    
+    const isNodeModule = /^(?!\.|\/|\\|[a-zA-Z]:)/.test(path);
+    if (isNodeModule) {
+        return {
+            background: 'var(--vscode-sideBar-background)',
+            border: '1px dashed var(--vscode-disabledForeground)',
+            color: 'var(--vscode-editor-foreground)',
+        };
+    }
+
+    const baseStyle = {
+        background: 'var(--vscode-editor-background)',
+        color: 'var(--vscode-editor-foreground)',
+        border: '1px solid var(--vscode-widget-border)',
+    };
+
+    // File type specific borders
+    const borderColors: Record<string, string> = {
+        '.ts': '#3178c6',   // TS Blue
+        '.tsx': '#3178c6',  // TS Blue
+        '.js': '#f7df1e',   // JS Yellow
+        '.jsx': '#f7df1e',  // JS Yellow
+        '.vue': '#41b883',  // Vue Green
+        '.svelte': '#ff3e00', // Svelte Orange
+        '.gql': '#e535ab',  // GraphQL Pink
+        '.graphql': '#e535ab', // GraphQL Pink
+    };
+
+    for (const [ext, color] of Object.entries(borderColors)) {
+        if (fileName.endsWith(ext)) {
+            return { ...baseStyle, border: `1px solid ${color}` };
+        }
+    }
+
+    return baseStyle;
+}
+
 const getLayoutedElements = (nodes: Node[], edges: Edge[]) => {
   const dagreGraph = new dagre.graphlib.Graph();
   dagreGraph.setDefaultEdgeLabel(() => ({}));
@@ -218,50 +266,22 @@ export const useGraphData = () => {
     visibleNodes.forEach(path => {
         const fileName = path.split(/[/\\]/).pop() || path;
         
-        // Disambiguate if multiple files have the same name
-        let label = fileName;
-        if ((fileNameCounts.get(fileName) || 0) > 1) {
+        // Use custom label from nodeLabels if available (e.g., @bobbee/auth-lib)
+        let label = fullGraphData.nodeLabels?.[path] || fileName;
+        
+        // Disambiguate if multiple files have the same name (only if not using custom label)
+        if (!fullGraphData.nodeLabels?.[path] && (fileNameCounts.get(fileName) || 0) > 1) {
             const parentDir = path.split(/[/\\]/).slice(-2, -1)[0];
             if (parentDir) {
                 label = `${parentDir}/${fileName}`;
             }
         }
 
-        const isTs = fileName.endsWith('.ts') || fileName.endsWith('.tsx');
-        const isJs = fileName.endsWith('.js') || fileName.endsWith('.jsx');
-        const isVue = fileName.endsWith('.vue');
-        const isSvelte = fileName.endsWith('.svelte');
-        const isGraphQL = fileName.endsWith('.gql') || fileName.endsWith('.graphql');
-        const isNodeModule = /^(?!\.|\/|\\|[a-zA-Z]:)/.test(path);
         const isRoot = path === currentFilePath;
-        
-        // Check if node has children (outgoing edges) in the full graph
         const hasChildren = fullGraphData.edges.some(e => e.source === path);
-        const isExpanded = expandedNodes.has(path) || isRoot; // Root is always expanded effectively
+        const isExpanded = expandedNodes.has(path) || isRoot;
         const isInCycle = nodesInCycles?.has(path) || false;
-
-        let background = 'var(--vscode-editor-background)';
-        let border = '1px solid var(--vscode-widget-border)';
-        let color = 'var(--vscode-editor-foreground)';
-        
-        if (isRoot) {
-            background = 'var(--vscode-button-background)';
-            color = 'var(--vscode-button-foreground)';
-            border = '1px solid var(--vscode-button-background)';
-        } else if (isNodeModule) {
-            background = 'var(--vscode-sideBar-background)';
-            border = '1px dashed var(--vscode-disabledForeground)';
-        } else if (isTs) {
-            border = '1px solid #3178c6'; // TS Blue
-        } else if (isJs) {
-            border = '1px solid #f7df1e'; // JS Yellow
-        } else if (isVue) {
-            border = '1px solid #41b883'; // Vue Green
-        } else if (isSvelte) {
-            border = '1px solid #ff3e00'; // Svelte Orange
-        } else if (isGraphQL) {
-            border = '1px solid #e535ab'; // GraphQL Pink
-        }
+        const { background, border, color } = getNodeStyle(fileName, path, isRoot);
 
         newNodes.push({
           id: path,
@@ -279,7 +299,7 @@ export const useGraphData = () => {
           sourcePosition: Position.Right,
           targetPosition: Position.Left,
           position: { x: 0, y: 0 },
-          type: 'custom', // Use custom node type
+          type: 'custom',
           style: {
             background,
             color,
@@ -359,6 +379,42 @@ export const useGraphData = () => {
     fullGraphDataRef.current = fullGraphData;
   }, [fullGraphData]);
 
+  // Helper to handle updateGraph message
+  const handleUpdateGraphMessage = useCallback((message: ExtensionToWebviewMessage & { command: 'updateGraph' }) => {
+    setCurrentFilePath(message.filePath);
+    setFullGraphData(message.data);
+    
+    // Default behavior if expandAll not provided
+    if (message.expandAll === undefined) {
+      setExpandedNodes(new Set([message.filePath]));
+      return;
+    }
+    
+    setExpandAll(message.expandAll);
+    
+    // If expandAll is true, populate expandedNodes with all nodes that have children
+    if (message.expandAll && message.data) {
+      const allNodesWithChildren = collectNodesWithChildren(message.filePath, message.data.edges);
+      setExpandedNodes(allNodesWithChildren);
+    } else {
+      setExpandedNodes(new Set([message.filePath]));
+    }
+  }, []);
+
+  // Helper to handle expandedGraph/referencingFiles message
+  const handleMergeGraphMessage = useCallback((message: ExtensionToWebviewMessage & { command: 'expandedGraph' | 'referencingFiles' }) => {
+    const currentData = fullGraphDataRef.current;
+    if (!currentData || !message.data) {
+      return;
+    }
+    
+    const mergedData = mergeGraphData(currentData, message.data);
+    setFullGraphData(mergedData);
+    
+    // Auto-expand the node that was requested
+    setExpandedNodes(prev => new Set([...prev, message.nodeId]));
+  }, []);
+
   useEffect(() => {
     let timeoutId: NodeJS.Timeout;
 
@@ -368,45 +424,9 @@ export const useGraphData = () => {
       if (message.command === 'updateGraph') {
         // Debounce updates to prevent flickering
         clearTimeout(timeoutId);
-        timeoutId = setTimeout(() => {
-            console.log('Graph-It-Live Webview: Processing update', message.filePath);
-            setCurrentFilePath(message.filePath);
-            setFullGraphData(message.data);
-            // Set expandAll from message if present
-            if (message.expandAll === undefined) {
-                // Default behavior if expandAll not provided
-                setExpandedNodes(new Set([message.filePath])); 
-                return;
-            }
-            
-            setExpandAll(message.expandAll);
-            
-            // If expandAll is true, we need to populate expandedNodes
-            const shouldExpandAll = message.expandAll && message.data;
-            if (shouldExpandAll) {
-                const allNodesWithChildren = collectNodesWithChildren(message.filePath, message.data.edges);
-                setExpandedNodes(allNodesWithChildren);
-            } else {
-                // Reset expanded nodes on new graph load, or keep root expanded
-                setExpandedNodes(new Set([message.filePath])); 
-            }
-        }, 100);
+        timeoutId = setTimeout(() => handleUpdateGraphMessage(message), 100);
       } else if (message.command === 'expandedGraph' || message.command === 'referencingFiles') {
-        console.log('Graph-It-Live Webview: Received referencingFiles/expandedGraph', message.data);
-        // Merge new graph data with existing
-        const currentData = fullGraphDataRef.current;
-        if (currentData && message.data) {
-          console.log('Graph-It-Live Webview: Merging data. Current edges:', currentData.edges.length, 'New edges:', message.data.edges.length);
-          const mergedData = mergeGraphData(currentData, message.data);
-          console.log('Graph-It-Live Webview: Merged edges:', mergedData.edges.length);
-          
-          setFullGraphData(mergedData);
-          
-          // Auto-expand the node that was requested
-          setExpandedNodes(prev => new Set([...prev, message.nodeId]));
-        } else {
-            console.warn('Graph-It-Live Webview: Cannot merge, fullGraphData is missing', !!currentData);
-        }
+        handleMergeGraphMessage(message);
       }
     };
 
@@ -415,7 +435,7 @@ export const useGraphData = () => {
         window.removeEventListener('message', handleMessage);
         clearTimeout(timeoutId);
     };
-  }, []);
+  }, [handleUpdateGraphMessage, handleMergeGraphMessage]);
 
   const onNodeClick = useCallback((_event: React.MouseEvent, node: Node) => {
     // If clicking on the expand button, don't open file

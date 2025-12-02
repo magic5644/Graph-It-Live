@@ -45,7 +45,8 @@ export class Spider {
     this.parser = new Parser();
     this.resolver = new PathResolver(
       config.tsConfigPath,
-      this.config.excludeNodeModules
+      this.config.excludeNodeModules,
+      config.rootDir // workspaceRoot for package.json discovery
     );
     this.cache = new Cache();
 
@@ -164,10 +165,6 @@ export class Spider {
     // Remove from reverse index if enabled
     this.reverseIndex?.removeDependenciesFromSource(filePath);
     
-    if (wasInCache) {
-      console.error(`[Spider] Invalidated cache for ${filePath}`);
-    }
-    
     return wasInCache;
   }
 
@@ -185,7 +182,6 @@ export class Spider {
       }
     }
     
-    console.error(`[Spider] Invalidated ${invalidatedCount}/${filePaths.length} files from cache`);
     return invalidatedCount;
   }
 
@@ -202,11 +198,9 @@ export class Spider {
     try {
       // Re-analyze (this will update cache and reverse index)
       const dependencies = await this.analyze(filePath);
-      console.error(`[Spider] Re-analyzed ${filePath}: ${dependencies.length} dependencies`);
       return dependencies;
-    } catch (error) {
-      // File may have been deleted or is unreadable
-      console.error(`[Spider] Failed to re-analyze ${filePath}:`, error instanceof Error ? error.message : error);
+    } catch {
+      // File may have been deleted, is unreadable, or is an external package
       return null;
     }
   }
@@ -218,7 +212,6 @@ export class Spider {
   handleFileDeleted(filePath: string): void {
     this.cache.delete(filePath);
     this.reverseIndex?.removeDependenciesFromSource(filePath);
-    console.error(`[Spider] Removed deleted file from index: ${filePath}`);
   }
 
   /**
@@ -234,11 +227,10 @@ export class Spider {
         const restored = ReverseIndex.deserialize(data, this.config.rootDir);
         if (restored) {
           this.reverseIndex = restored;
-          console.error(`[Spider] Restored reverse index with ${restored.indexedFileCount} files`);
           return true;
         }
-      } catch (error) {
-        console.error('[Spider] Failed to restore reverse index:', error);
+      } catch {
+        // Failed to restore reverse index, will rebuild
       }
     }
     return false;
@@ -339,19 +331,16 @@ export class Spider {
 
     // Phase 1: Counting files (with yielding for large projects)
     this.indexerStatus.startCounting();
-    console.error('[Spider] Counting files...');
     
     const allFiles = await this.collectAllSourceFiles(this.config.rootDir);
     
     if (this.indexingCancelled) {
-      console.error('[Spider] Indexing cancelled during file counting');
       this.indexerStatus.setCancelled();
       return { indexedFiles: 0, duration: 0, cancelled: true };
     }
     
     const totalFiles = allFiles.length;
     this.indexerStatus.setTotal(totalFiles);
-    console.error(`[Spider] Found ${totalFiles} files to index`);
 
     // Yield after counting to let UI update
     await this.yieldToEventLoop();
@@ -365,7 +354,6 @@ export class Spider {
       for (const filePath of allFiles) {
         // Check cancellation at each file
         if (this.indexingCancelled) {
-          console.error('[Spider] Indexing cancelled');
           this.indexerStatus.setCancelled();
           return {
             indexedFiles: processed,
@@ -399,7 +387,6 @@ export class Spider {
       this.indexerStatus.complete();
       const snapshot = this.indexerStatus.getSnapshot();
       const duration = Date.now() - (snapshot.startTime ?? Date.now());
-      console.error(`[Spider] Full index complete: ${processed} files in ${duration}ms`);
 
       return {
         indexedFiles: processed,
@@ -463,8 +450,6 @@ export class Spider {
     });
 
     try {
-      console.error('[Spider] Starting background indexing in worker thread...');
-      
       const result = await this.workerHost.startIndexing({
         rootDir: this.config.rootDir,
         excludeNodeModules: this.config.excludeNodeModules,
@@ -472,7 +457,6 @@ export class Spider {
       });
 
       // Import the indexed data into our reverse index
-      console.error(`[Spider] Worker completed. Importing ${result.data.length} files into reverse index...`);
       
       for (const fileData of result.data) {
         // Cache the dependencies
@@ -485,8 +469,6 @@ export class Spider {
           { mtime: fileData.mtime, size: fileData.size }
         );
       }
-
-      console.error(`[Spider] Worker index complete: ${result.indexedFiles} files in ${result.duration}ms`);
 
       return {
         indexedFiles: result.indexedFiles,
@@ -610,18 +592,16 @@ export class Spider {
    * @param entryFile Absolute path to the entry file
    * @returns Graph data (nodes and edges)
    */
-  async crawl(startPath: string): Promise<{ nodes: string[]; edges: { source: string; target: string }[] }> {
+  async crawl(startPath: string): Promise<{ nodes: string[]; edges: { source: string; target: string }[]; nodeLabels?: Record<string, string> }> {
     const nodes = new Set<string>();
     const edges: { source: string; target: string }[] = [];
     const visited = new Set<string>();
-
-    const startTime = Date.now();
+    const nodeLabels: Record<string, string> = {};
 
     const crawlRecursive = async (filePath: string, depth: number) => {
       // Stop if max depth reached (use a safe default if undefined)
       const maxDepth = this.config.maxDepth ?? 3;
       if (depth > maxDepth) {
-        console.error(`[Spider] Max depth ${maxDepth} reached at ${filePath}`);
         return;
       }
 
@@ -633,8 +613,6 @@ export class Spider {
       visited.add(filePath);
       nodes.add(filePath);
 
-      console.error(`[Spider] Crawling ${filePath.split('/').pop()} at depth ${depth}/${this.config.maxDepth}`);
-
       try {
         const dependencies = await this.analyze(filePath);
 
@@ -645,24 +623,27 @@ export class Spider {
             target: dep.path,
           });
 
+          // Store custom label for workspace packages (e.g., @bobbee/auth-lib)
+          if (dep.module.startsWith('@') && dep.module.includes('/') && !dep.module.startsWith('@/')) {
+            nodeLabels[dep.path] = dep.module;
+          }
+
           // Recurse if not in node_modules
           if (!dep.path.includes('node_modules')) {
             await crawlRecursive(dep.path, depth + 1);
           }
         }
-      } catch (error) {
-        console.error(`[Spider] Failed to analyze ${filePath}:`, error instanceof Error ? error.message : error);
+      } catch {
+        // File may be an external package or unreadable - skip silently
       }
     };
 
     await crawlRecursive(startPath, 0);
 
-    const duration = Date.now() - startTime;
-    console.error(`[Spider] Crawled ${nodes.size} nodes and ${edges.length} edges in ${duration}ms (maxDepth=${this.config.maxDepth ?? 3})`);
-
     return {
       nodes: Array.from(nodes),
       edges,
+      nodeLabels: Object.keys(nodeLabels).length > 0 ? nodeLabels : undefined,
     };
   }
 
@@ -677,10 +658,11 @@ export class Spider {
     startNode: string, 
     existingNodes: Set<string>, 
     extraDepth: number = 10
-  ): Promise<{ nodes: string[]; edges: { source: string; target: string }[] }> {
+  ): Promise<{ nodes: string[]; edges: { source: string; target: string }[]; nodeLabels?: Record<string, string> }> {
     const newNodes = new Set<string>();
     const newEdges: { source: string; target: string }[] = [];
     const visited = new Set<string>(existingNodes); // Don't revisit known nodes
+    const nodeLabels: Record<string, string> = {};
 
     const crawlRecursive = async (filePath: string, depth: number) => {
       if (depth > extraDepth) {
@@ -711,23 +693,27 @@ export class Spider {
             newNodes.add(dep.path);
           }
 
+          // Store custom label for workspace packages (e.g., @bobbee/auth-lib)
+          if (dep.module.startsWith('@') && dep.module.includes('/') && !dep.module.startsWith('@/')) {
+            nodeLabels[dep.path] = dep.module;
+          }
+
           // Recurse if not in node_modules
           if (!dep.path.includes('node_modules')) {
             await crawlRecursive(dep.path, depth + 1);
           }
         }
-      } catch (error) {
-        console.error(`Failed to crawl from ${filePath}:`, error);
+      } catch {
+        // File may be an external package or unreadable - skip silently
       }
     };
 
     await crawlRecursive(startNode, 0);
 
-    console.error(`[Spider.crawlFrom] Found ${newNodes.size} new nodes and ${newEdges.length} new edges from ${startNode}`);
-
     return {
       nodes: Array.from(newNodes),
       edges: newEdges,
+      nodeLabels: Object.keys(nodeLabels).length > 0 ? nodeLabels : undefined,
     };
   }
 
@@ -775,7 +761,6 @@ export class Spider {
       const matchingDep = dependencies.find(dep => dep.path === targetPath);
       
       if (matchingDep) {
-        console.error(`[Spider] Found reference in ${filePath}`);
         return {
           path: filePath,
           type: matchingDep.type,
@@ -783,8 +768,8 @@ export class Spider {
           module: matchingDep.module
         };
       }
-    } catch (error) {
-      console.error(`[Spider] Error checking references in ${filePath}:`, error);
+    } catch {
+      // File may be an external package or unreadable - skip silently
     }
     return null;
   }
@@ -798,7 +783,6 @@ export class Spider {
   async findReferencingFiles(targetPath: string): Promise<Dependency[]> {
     // Use reverse index if available (O(1) lookup)
     if (this.reverseIndex?.hasEntries()) {
-      console.error(`[Spider] Using reverse index for ${targetPath}`);
       return this.reverseIndex.getReferencingFiles(targetPath);
     }
 
@@ -816,8 +800,6 @@ export class Spider {
     if (!targetBasename) {
       return [];
     }
-
-    console.error(`[Spider] Finding references for ${targetPath} via scan (basename: ${targetBasename})`);
 
     // Use parallelized directory walk
     const allFiles = await this.collectAllSourceFiles(this.config.rootDir);
