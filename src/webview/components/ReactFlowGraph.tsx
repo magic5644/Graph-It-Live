@@ -245,9 +245,17 @@ const FileNode = ({ data }: NodeProps) => {
 
 const nodeTypes = { file: FileNode };
 
-// Layout dimensions (matching main branch)
-const nodeWidth = 180;
+// Layout dimensions
+const minNodeWidth = 120;
+const maxNodeWidth = 300;
 const nodeHeight = 50;
+const charWidth = 7; // Approximate width per character at 12px font
+
+// Calculate node width based on label length
+const calculateNodeWidth = (label: string): number => {
+    const estimatedWidth = label.length * charWidth + 24; // 24px for padding
+    return Math.max(minNodeWidth, Math.min(maxNodeWidth, estimatedWidth));
+};
 
 // Dagre layout helper
 const getLayoutedElements = (
@@ -265,7 +273,8 @@ const getLayoutedElements = (
     });
 
     nodes.forEach((node) => {
-        dagreGraph.setNode(node.id, { width: nodeWidth, height: nodeHeight });
+        const width = (node.style?.width as number) || minNodeWidth;
+        dagreGraph.setNode(node.id, { width, height: nodeHeight });
     });
 
     edges.forEach((edge) => {
@@ -276,6 +285,7 @@ const getLayoutedElements = (
 
     const layoutedNodes = nodes.map((node) => {
         const nodeWithPosition = dagreGraph.node(node.id);
+        const width = (node.style?.width as number) || minNodeWidth;
         // Set handle positions for proper edge connections
         node.targetPosition = Position.Left;
         node.sourcePosition = Position.Right;
@@ -283,7 +293,7 @@ const getLayoutedElements = (
             ...node,
             position: {
                 // Shift dagre center anchor to React Flow top-left anchor
-                x: nodeWithPosition.x - nodeWidth / 2,
+                x: nodeWithPosition.x - width / 2,
                 y: nodeWithPosition.y - nodeHeight / 2,
             },
         };
@@ -397,34 +407,38 @@ const ReactFlowGraphContent: React.FC<ReactFlowGraphProps> = ({
             }
         }
 
-        const nodes: Node[] = Array.from(visibleNodes).map((path) => ({
-            id: path,
-            type: 'file',
-            position: { x: 0, y: 0 },
-            style: { width: nodeWidth, height: nodeHeight },
-            data: {
-                label: getLabel(path),
-                fullPath: path,
-                isRoot: path === currentFilePath,
-                isParent: fileParents.includes(path), // Mark parent nodes
-                isInCycle: cycles.has(path),
-                hasChildren: (children.get(path) || []).length > 0,
-                isExpanded: expandAll || expandedNodes.has(path),
-                onDrillDown: () => onDrillDown(path),
-                onFindReferences: () => onFindReferences(path),
-                onToggle: () => {
-                    setExpandedNodes((prev) => {
-                        const next = new Set(prev);
-                        if (next.has(path)) {
-                            next.delete(path);
-                        } else {
-                            next.add(path);
-                        }
-                        return next;
-                    });
+        const nodes: Node[] = Array.from(visibleNodes).map((path) => {
+            const label = getLabel(path);
+            const width = calculateNodeWidth(label);
+            return {
+                id: path,
+                type: 'file',
+                position: { x: 0, y: 0 },
+                style: { width, height: nodeHeight },
+                data: {
+                    label,
+                    fullPath: path,
+                    isRoot: path === currentFilePath,
+                    isParent: fileParents.includes(path), // Mark parent nodes
+                    isInCycle: cycles.has(path),
+                    hasChildren: (children.get(path) || []).length > 0,
+                    isExpanded: expandAll || expandedNodes.has(path),
+                    onDrillDown: () => onDrillDown(path),
+                    onFindReferences: () => onFindReferences(path),
+                    onToggle: () => {
+                        setExpandedNodes((prev) => {
+                            const next = new Set(prev);
+                            if (next.has(path)) {
+                                next.delete(path);
+                            } else {
+                                next.add(path);
+                            }
+                            return next;
+                        });
+                    },
                 },
-            },
-        }));
+            };
+        });
 
         const edges: Edge[] = data.edges
             .filter(({ source, target }) => visibleNodes.has(source) && visibleNodes.has(target))

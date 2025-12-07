@@ -443,21 +443,35 @@ export class GraphProvider implements vscode.WebviewViewProvider {
      */
     private async handleOpenFile(filePath: string, line?: number): Promise<void> {
         try {
-            // Check if this is a symbol ID (contains ':')
+            // Check if this is a symbol ID (contains ':' but not a Windows drive letter)
             let actualFilePath = filePath;
             let symbolName: string | undefined;
             
-            if (filePath.includes(':')) {
+            // Windows paths start with letter followed by colon (e.g., C:\path)
+            // Symbol IDs are like "path/to/file.ts:symbolName"
+            const isWindowsAbsolutePath = /^[a-zA-Z]:[\\/]/.test(filePath);
+            
+            if (!isWindowsAbsolutePath && filePath.includes(':')) {
+                // Not a Windows path, so ':' is a symbol separator
                 const parts = filePath.split(':');
                 actualFilePath = parts[0];
-                symbolName = parts.slice(1).join(':'); // Handle cases like "file:Class.method"
+                symbolName = parts.slice(1).join(':');
+                console.log(`GraphProvider: Opening symbol ${symbolName} in file ${actualFilePath}`);
+            } else if (isWindowsAbsolutePath && filePath.lastIndexOf(':') > 1) {
+                // Windows path with symbol: "C:\path\file.ts:symbolName"
+                const lastColonIndex = filePath.lastIndexOf(':');
+                actualFilePath = filePath.substring(0, lastColonIndex);
+                symbolName = filePath.substring(lastColonIndex + 1);
                 console.log(`GraphProvider: Opening symbol ${symbolName} in file ${actualFilePath}`);
             } else {
                 console.log('GraphProvider: Opening file', actualFilePath);
             }
             
-            // If this is a relative path (starts with . or doesn't start with /), try to resolve it
-            if (this._spider && (actualFilePath.startsWith('.') || !actualFilePath.startsWith('/'))) {
+            // Check if this is an absolute path (Unix or Windows)
+            const isAbsolutePath = actualFilePath.startsWith('/') || /^[a-zA-Z]:[\\/]/.test(actualFilePath);
+            
+            // If this is a relative path, try to resolve it
+            if (this._spider && !isAbsolutePath && (actualFilePath.startsWith('.') || !actualFilePath.includes('/'))) {
                 try {
                     // Try to resolve the path - Spider's PathResolver will handle it
                     const workspaceRoot = vscode.workspace.workspaceFolders?.[0].uri.fsPath;
