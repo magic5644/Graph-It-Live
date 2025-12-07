@@ -536,17 +536,21 @@ const ReactFlowGraphContent: React.FC<ReactFlowGraphProps> = ({
                         <button
                             onClick={onRefresh}
                             title="Refresh graph from current file"
+                            aria-label="Refresh"
                             style={{
                                 background: 'var(--vscode-button-secondaryBackground)',
                                 color: 'var(--vscode-button-secondaryForeground)',
                                 border: '1px solid var(--vscode-button-border)',
                                 borderRadius: 4,
-                                padding: '6px 12px',
+                                padding: '6px 8px',
                                 cursor: 'pointer',
-                                fontSize: 12,
+                                fontSize: 14,
+                                display: 'flex',
+                                alignItems: 'center',
+                                justifyContent: 'center',
                             }}
                         >
-                            ↻ Refresh
+                            ↻
                         </button>
                     )}
                     <button

@@ -11,6 +11,7 @@ interface SymbolCardViewProps {
     onSymbolClick: (symbolId: string, line: number) => void;
     onNavigateToFile: (filePath: string, mode: 'card' | 'file') => void;
     onBack: () => void;
+    onRefresh?: () => void;
 }
 
 // Symbol category colors matching VS Code icons
@@ -45,6 +46,7 @@ const SymbolCardView: React.FC<SymbolCardViewProps> = ({
     onSymbolClick,
     onNavigateToFile,
     onBack,
+    onRefresh,
 }) => {
     // Filter symbols based on showTypes
     const filteredSymbols = showTypes 
@@ -126,20 +128,43 @@ const SymbolCardView: React.FC<SymbolCardViewProps> = ({
                         {fileName} — {filteredSymbols.length} symbols
                     </div>
                 </div>
-                <label style={{ 
-                    display: 'flex', 
-                    alignItems: 'center', 
-                    gap: 6,
-                    fontSize: 11,
-                    cursor: 'pointer',
-                }}>
-                    <input
-                        type="checkbox"
-                        checked={showTypes}
-                        onChange={e => onShowTypesChange(e.target.checked)}
-                    />
-                    Show types/interfaces
-                </label>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                    {onRefresh && (
+                        <button
+                            onClick={onRefresh}
+                            title="Refresh symbol view"
+                            aria-label="Refresh"
+                            style={{
+                                background: 'var(--vscode-button-secondaryBackground)',
+                                color: 'var(--vscode-button-secondaryForeground)',
+                                border: 'none',
+                                borderRadius: 4,
+                                padding: '6px 8px',
+                                cursor: 'pointer',
+                                fontSize: 14,
+                                display: 'flex',
+                                alignItems: 'center',
+                                justifyContent: 'center',
+                            }}
+                        >
+                            ↻
+                        </button>
+                    )}
+                    <label style={{ 
+                        display: 'flex', 
+                        alignItems: 'center', 
+                        gap: 6,
+                        fontSize: 11,
+                        cursor: 'pointer',
+                    }}>
+                        <input
+                            type="checkbox"
+                            checked={showTypes}
+                            onChange={e => onShowTypesChange(e.target.checked)}
+                        />
+                        Show types/interfaces
+                    </label>
+                </div>
             </div>
 
             {/* Legend */}
