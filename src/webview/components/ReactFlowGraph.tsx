@@ -365,7 +365,7 @@ const ReactFlowGraphContent: React.FC<ReactFlowGraphProps> = ({
         }
 
         const cycles = detectCycles(data.edges);
-        const getLabel = (path: string) => data.nodeLabels?.[path] || path.split('/').pop() || path;
+        const getLabel = (path: string) => data.nodeLabels?.[path] || path.split(/[/\\]/).pop() || path;
 
         // Build adjacency for children (source → target means source imports target)
         const children = new Map<string, string[]>();
