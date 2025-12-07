@@ -1,3 +1,12 @@
+/**
+ * Normalize a file path to use forward slashes consistently across all platforms.
+ * This ensures Windows paths (C:\foo\bar) work the same as Unix paths (/foo/bar).
+ * Should be used whenever comparing, storing, or displaying paths.
+ */
+export function normalizePath(filePath: string): string {
+  return filePath.replaceAll('\\', '/');
+}
+
 export interface Dependency {
   path: string;
   type: 'import' | 'require' | 'export' | 'dynamic';

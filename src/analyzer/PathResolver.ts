@@ -1,5 +1,6 @@
 import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
+import { normalizePath } from './types';
 
 /**
  * Resolves module paths to absolute file paths
@@ -387,14 +388,14 @@ export class PathResolver {
     
     // Try exact path first
     if (await this.fileExists(basePath)) {
-      return basePath;
+      return normalizePath(basePath);
     }
 
     // Try with extensions
     for (const ext of extensions) {
       const pathWithExt = basePath + ext;
       if (await this.fileExists(pathWithExt)) {
-        return pathWithExt;
+        return normalizePath(pathWithExt);
       }
     }
 
@@ -402,7 +403,7 @@ export class PathResolver {
     for (const ext of extensions) {
       const indexPath = path.join(basePath, `index${ext}`);
       if (await this.fileExists(indexPath)) {
-        return indexPath;
+        return normalizePath(indexPath);
       }
     }
 
