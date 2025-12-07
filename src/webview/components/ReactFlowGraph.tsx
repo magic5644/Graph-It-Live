@@ -50,21 +50,55 @@ const FILE_TYPE_COLORS: Record<string, string> = {
     '.graphql': '#e535ab', // GraphQL Pink
 };
 
-// Get border color based on file extension
-const getFileBorderColor = (fileName: string): string => {
+// Dark gray for node_modules and unknown types
+const EXTERNAL_PACKAGE_COLOR = '#6b6b6b';
+
+// Check if a path represents a node_modules package or external dependency
+const isExternalPackage = (path: string): boolean => {
+    // Node modules don't have file extensions or start with relative/absolute path markers
+    // They look like: 'react', 'lodash', '@types/node', 'vscode', etc.
+    if (!path) return false;
+    
+    // Has a known file extension = not external
+    for (const ext of Object.keys(FILE_TYPE_COLORS)) {
+        if (path.endsWith(ext)) return false;
+    }
+    
+    // Starts with . or / or drive letter = local file
+    if (path.startsWith('.') || path.startsWith('/') || /^[a-zA-Z]:/.test(path)) {
+        return false;
+    }
+    
+    // Contains path separators but no extension = likely local file without extension
+    if ((path.includes('/') || path.includes('\\')) && !path.includes('node_modules')) {
+        return false;
+    }
+    
+    // Everything else is likely a node_modules package
+    return true;
+};
+
+// Get border color based on file extension or package type
+const getFileBorderColor = (fileName: string, fullPath?: string): string => {
+    // Check if it's an external package first
+    if (isExternalPackage(fullPath || fileName)) {
+        return EXTERNAL_PACKAGE_COLOR;
+    }
+    
     for (const [ext, color] of Object.entries(FILE_TYPE_COLORS)) {
         if (fileName.endsWith(ext)) {
             return color;
         }
     }
-    return 'var(--vscode-widget-border)';
+    return EXTERNAL_PACKAGE_COLOR; // Unknown file types also get dark gray
 };
 
 // Custom node component
 const FileNode = ({ data }: NodeProps) => {
     const isRoot = data.isRoot;
     const isInCycle = data.isInCycle;
-    const borderColor = getFileBorderColor(data.label);
+    const borderColor = getFileBorderColor(data.label, data.fullPath);
+    const isExternal = isExternalPackage(data.fullPath || data.label);
 
     return (
         <div
@@ -93,11 +127,14 @@ const FileNode = ({ data }: NodeProps) => {
                 color: isRoot
                     ? '#000'
                     : 'var(--vscode-editor-foreground)',
-                border: `2px solid ${borderColor}`,
+                border: isExternal 
+                    ? `2px dashed ${borderColor}`
+                    : `2px solid ${borderColor}`,
                 borderRadius: 4,
                 padding: '0 12px',
                 fontSize: 12,
                 fontWeight: isRoot ? 'bold' : 'normal',
+                fontStyle: isExternal ? 'italic' : 'normal',
                 fontFamily: 'var(--vscode-font-family)',
                 pointerEvents: 'none',
             }}>

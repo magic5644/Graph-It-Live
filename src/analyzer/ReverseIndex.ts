@@ -1,10 +1,10 @@
 import * as fs from 'node:fs/promises';
-import * as path from 'node:path';
 import {
   ReverseIndexEntry,
   FileHash,
   SerializedReverseIndex,
   Dependency,
+  normalizePath,
 } from './types';
 
 /**
@@ -12,14 +12,6 @@ import {
  * Increment when making breaking changes to the format
  */
 const INDEX_VERSION = 1;
-
-/**
- * Normalize a file path to use forward slashes consistently
- * This ensures Windows paths (C:\foo\bar) work the same as Unix paths (/foo/bar)
- */
-function normalizePath(filePath: string): string {
-  return filePath.split(path.sep).join('/');
-}
 
 /**
  * ReverseIndex - Maintains a mapping from target files to their referencing files

@@ -6,14 +6,13 @@ import { Cache } from './Cache';
 import { ReverseIndex } from './ReverseIndex';
 import { IndexerStatus, IndexerStatusSnapshot } from './IndexerStatus';
 import { IndexerWorkerHost } from './IndexerWorkerHost';
-import { Dependency, SpiderConfig, IndexingProgressCallback } from './types';
+import { Dependency, SpiderConfig, IndexingProgressCallback, normalizePath } from './types';
 
 /**
  * Check if a file path is inside node_modules (cross-platform)
  */
 function isInNodeModules(filePath: string): boolean {
-  // Normalize separators for cross-platform check
-  const normalized = filePath.split(path.sep).join('/');
+  const normalized = normalizePath(filePath);
   return normalized.includes('/node_modules/') || normalized.includes('/node_modules');
 }
 

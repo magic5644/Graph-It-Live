@@ -11,14 +11,7 @@
 
 import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
-import { SymbolDependency, FileHash } from './types';
-
-/**
- * Normalize a file path to use forward slashes consistently
- */
-function normalizePath(filePath: string): string {
-  return filePath.split(path.sep).join('/');
-}
+import { SymbolDependency, FileHash, normalizePath } from './types';
 
 /**
  * Entry in the symbol reverse index
