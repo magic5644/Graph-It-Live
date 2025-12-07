@@ -32,7 +32,6 @@ const App: React.FC = () => {
         }
     }, []);
     const [viewMode, setViewMode] = React.useState<'file' | 'symbol' | 'references'>('file');
-    const [navigationHistory, setNavigationHistory] = React.useState<Array<{ filePath: string; data: GraphData; viewMode: 'file' | 'symbol' | 'references' }>>([]);
     const [expandAll, setExpandAll] = React.useState<boolean>(false);
     const [showTypes, setShowTypes] = React.useState<boolean>(true);
     const [symbolData, setSymbolData] = React.useState<{ symbols: SymbolInfo[]; dependencies: SymbolDependency[] } | undefined>(undefined);
@@ -43,24 +42,20 @@ const App: React.FC = () => {
             const message = event.data as ExtensionToWebviewMessage;
 
             if (message.command === 'updateGraph') {
-                // Only save to history and change viewMode if this is a navigation, not a refresh
+                // Update to file view mode unless this is just a refresh
                 if (!message.isRefresh) {
-                    if (graphData && currentFilePath) {
-                        setNavigationHistory(prev => [...prev, { filePath: currentFilePath, data: graphData, viewMode }]);
-                    }
                     setViewMode('file');
                     setSymbolData(undefined); // Clear symbol data in file view
                 }
                 setGraphData(message.data);
                 setCurrentFilePath(message.filePath);
             } else if (message.command === 'symbolGraph') {
-                // Only save to history if this is a navigation, not a refresh
-                if (!message.isRefresh && graphData && currentFilePath) {
-                    setNavigationHistory(prev => [...prev, { filePath: currentFilePath, data: graphData, viewMode }]);
+                // Update to symbol view mode unless this is just a refresh
+                if (!message.isRefresh) {
+                    setViewMode('symbol');
                 }
                 setGraphData(message.data);
                 setCurrentFilePath(message.filePath);
-                setViewMode('symbol');
                 // Store symbol data for navigation and filtering
                 if (message.data.symbolData) {
                     setSymbolData(message.data.symbolData as { symbols: SymbolInfo[]; dependencies: SymbolDependency[] });
@@ -129,20 +124,19 @@ const App: React.FC = () => {
         }
     };
 
-    const handleBack = () => {
-        console.log('App: Back button clicked, history length:', navigationHistory.length);
-        if (navigationHistory.length > 0) {
-            const previous = navigationHistory[navigationHistory.length - 1];
-            setGraphData(previous.data);
-            setCurrentFilePath(previous.filePath);
-            setViewMode(previous.viewMode);
-            setNavigationHistory(prev => prev.slice(0, -1));
-        } else if (vscode) {
-            // Fallback to refresh if no history
+    const handleSwitchMode = (mode: 'file' | 'symbol') => {
+        console.log('App: Switching to mode:', mode);
+        if (vscode) {
             vscode.postMessage({
-                command: 'refreshGraph'
+                command: 'switchMode',
+                mode,
             });
         }
+    };
+
+    const handleBack = () => {
+        // Switch to file view mode
+        handleSwitchMode('file');
     };
 
     const handleRefresh = () => {
@@ -226,9 +220,8 @@ const App: React.FC = () => {
                     onFindReferences={handleFindReferences}
                     expandAll={expandAll}
                     onExpandAllChange={setExpandAll}
-                    onBack={handleBack}
-                    hasHistory={navigationHistory.length > 0}
                     onRefresh={handleRefresh}
+                    onSwitchToSymbol={() => handleSwitchMode('symbol')}
                 />
             )}
         </div>

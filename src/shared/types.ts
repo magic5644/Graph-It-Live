@@ -74,6 +74,11 @@ export interface ReadyMessage {
   command: 'ready';
 }
 
+export interface SwitchModeMessage {
+  command: 'switchMode';
+  mode: 'file' | 'symbol';
+}
+
 export interface SymbolInfo {
   name: string;
   kind: string;
@@ -106,4 +111,4 @@ export interface SymbolGraphMessage {
 }
 
 export type ExtensionToWebviewMessage = ShowGraphMessage | ExpandedGraphMessage | ReferencingFilesMessage | IndexingProgressMessage | SymbolGraphMessage;
-export type WebviewToExtensionMessage = OpenFileMessage | ExpandNodeMessage | SetExpandAllMessage | RefreshGraphMessage | FindReferencingFilesMessage | DrillDownMessage | ReadyMessage;
+export type WebviewToExtensionMessage = OpenFileMessage | ExpandNodeMessage | SetExpandAllMessage | RefreshGraphMessage | FindReferencingFilesMessage | DrillDownMessage | ReadyMessage | SwitchModeMessage;

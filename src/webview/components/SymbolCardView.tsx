@@ -101,6 +101,7 @@ const SymbolCardView: React.FC<SymbolCardViewProps> = ({
             }}>
                 <button
                     onClick={onBack}
+                    title="Switch to File View"
                     style={{
                         background: 'var(--vscode-button-secondaryBackground)',
                         color: 'var(--vscode-button-secondaryForeground)',
@@ -108,9 +109,12 @@ const SymbolCardView: React.FC<SymbolCardViewProps> = ({
                         borderRadius: 4,
                         padding: '6px 12px',
                         cursor: 'pointer',
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: 6,
                     }}
                 >
-                    ← Back to Files
+                    📁 File View
                 </button>
                 <div style={{ flex: 1, minWidth: 150 }}>
                     <div style={{ 
