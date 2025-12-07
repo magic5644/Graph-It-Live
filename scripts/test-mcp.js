@@ -103,7 +103,41 @@ async function runTests() {
   await new Promise(r => setTimeout(r, 3000));
 
   // =========================================================================
-  // 2. graphItLive_getIndexStatus - Verify index is ready
+  // 2. graphItLive_setWorkspace - Set workspace dynamically
+  // =========================================================================
+  console.log('\n📤 [graphItLive_setWorkspace] Setting workspace to fixtures...');
+  send({
+    jsonrpc: '2.0',
+    id: ++id,
+    method: 'tools/call',
+    params: {
+      name: 'graphItLive_setWorkspace',
+      arguments: {
+        workspacePath: path.join(rootDir, 'tests/fixtures/sample-project')
+      }
+    }
+  });
+  await new Promise(r => setTimeout(r, 2000));
+
+  // =========================================================================
+  // 3. graphItLive_setWorkspace - Error case: non-existent path
+  // =========================================================================
+  console.log('\n📤 [graphItLive_setWorkspace] Testing error case: non-existent path...');
+  send({
+    jsonrpc: '2.0',
+    id: ++id,
+    method: 'tools/call',
+    params: {
+      name: 'graphItLive_setWorkspace',
+      arguments: {
+        workspacePath: '/non/existent/workspace'
+      }
+    }
+  });
+  await new Promise(r => setTimeout(r, 500));
+
+  // =========================================================================
+  // 4. graphItLive_getIndexStatus - Verify index is ready
   // =========================================================================
   console.log('\n📤 [graphItLive_getIndexStatus] Getting index status...');
   send({
@@ -118,7 +152,7 @@ async function runTests() {
   await new Promise(r => setTimeout(r, 500));
 
   // =========================================================================
-  // 3. graphItLive_analyzeDependencies - Analyze a single file
+  // 5. graphItLive_analyzeDependencies - Analyze a single file
   // =========================================================================
   console.log('\n📤 [graphItLive_analyzeDependencies] Analyzing main.ts...');
   send({
@@ -367,7 +401,26 @@ async function runTests() {
   await new Promise(r => setTimeout(r, 500));
 
   // =========================================================================
-  // 17. graphItLive_getSymbolCallers - Find callers of a symbol (O(1) lookup)
+  // 17. graphItLive_traceFunctionExecution - Trace execution call chain
+  // =========================================================================
+  console.log('\n📤 [graphItLive_traceFunctionExecution] Tracing execution from main function...');
+  send({
+    jsonrpc: '2.0',
+    id: ++id,
+    method: 'tools/call',
+    params: {
+      name: 'graphItLive_traceFunctionExecution',
+      arguments: {
+        filePath: path.join(fixturesPath, 'main.ts'),
+        symbolName: 'main',
+        maxDepth: 5
+      }
+    }
+  });
+  await new Promise(r => setTimeout(r, 500));
+
+  // =========================================================================
+  // 18. graphItLive_getSymbolCallers - Find callers of a symbol (O(1) lookup)
   // =========================================================================
   const utilsPath = path.join(fixturesPath, 'utils.ts');
   console.log('\n📤 [graphItLive_getSymbolCallers] Finding callers of greet function...');

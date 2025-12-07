@@ -168,6 +168,12 @@ export class McpWorkerHost {
         // Tool invocation error
         this.rejectRequest(msg.requestId, new Error(msg.error));
         break;
+        
+      case 'file-invalidated':
+        // File change detected by the worker's file watcher
+        // Log for debugging, no action needed - cache is already invalidated
+        console.error(`[McpWorkerHost] Cache invalidated: ${msg.event} ${msg.filePath}`);
+        break;
     }
   }
 

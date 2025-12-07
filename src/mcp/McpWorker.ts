@@ -10,6 +10,8 @@
 
 import { parentPort } from 'node:worker_threads';
 import * as fs from 'node:fs/promises';
+import * as path from 'node:path';
+import { watch, type FSWatcher } from 'chokidar';
 import { Spider } from '../analyzer/Spider';
 import { Parser } from '../analyzer/Parser';
 import { PathResolver } from '../analyzer/PathResolver';
@@ -88,6 +90,18 @@ let isReady = false;
 let warmupInfo: { completed: boolean; durationMs?: number; filesIndexed?: number } = {
   completed: false,
 };
+
+// File watcher state
+let fileWatcher: FSWatcher | null = null;
+
+/** Debounce delay for file change events (ms) */
+const FILE_CHANGE_DEBOUNCE_MS = 300;
+
+/** Pending file invalidations (debounced) */
+const pendingInvalidations = new Map<string, NodeJS.Timeout>();
+
+/** Extensions to watch for changes */
+const WATCHED_EXTENSIONS = ['.ts', '.tsx', '.js', '.jsx', '.vue', '.svelte', '.gql', '.graphql'];
 
 // ============================================================================
 // Message Handling
@@ -180,6 +194,9 @@ async function handleInit(cfg: McpWorkerConfig): Promise<void> {
 
     console.error(`[McpWorker] Warmup complete: ${result.indexedFiles} files indexed in ${result.duration}ms`);
 
+    // Start file watcher after warmup
+    setupFileWatcher();
+
     postMessage({
       type: 'ready',
       warmupDuration: totalDuration,
@@ -206,8 +223,150 @@ async function handleInit(cfg: McpWorkerConfig): Promise<void> {
  */
 function handleShutdown(): void {
   console.error('[McpWorker] Shutting down...');
+  
+  // Stop file watcher
+  stopFileWatcher();
+  
+  // Cancel any pending operations
   spider?.cancelIndexing();
+  
   process.exit(0);
+}
+
+// ============================================================================
+// File Watching
+// ============================================================================
+
+/**
+ * Setup chokidar file watcher for automatic cache invalidation
+ * Watches the workspace for file changes and invalidates the cache accordingly
+ */
+function setupFileWatcher(): void {
+  if (!config?.rootDir) {
+    console.error('[McpWorker] Cannot setup file watcher: no rootDir configured');
+    return;
+  }
+
+  // Build glob pattern for watched extensions
+  const globPattern = `${config.rootDir}/**/*{${WATCHED_EXTENSIONS.join(',')}}`;
+  
+  console.error(`[McpWorker] Setting up file watcher for: ${globPattern}`);
+
+  try {
+    fileWatcher = watch(globPattern, {
+      ignored: [
+        '**/node_modules/**',
+        '**/.git/**',
+        '**/dist/**',
+        '**/build/**',
+        '**/coverage/**',
+        '**/.next/**',
+        '**/.nuxt/**',
+      ],
+      persistent: true,
+      ignoreInitial: true, // Don't fire events for existing files
+      awaitWriteFinish: {
+        stabilityThreshold: 100, // Wait 100ms after last write
+        pollInterval: 50,
+      },
+    });
+
+    fileWatcher.on('change', (filePath: string) => {
+      handleFileChange('change', filePath);
+    });
+
+    fileWatcher.on('add', (filePath: string) => {
+      handleFileChange('add', filePath);
+    });
+
+    fileWatcher.on('unlink', (filePath: string) => {
+      handleFileChange('unlink', filePath);
+    });
+
+    fileWatcher.on('error', (error: Error) => {
+      console.error('[McpWorker] File watcher error:', error.message);
+    });
+
+    fileWatcher.on('ready', () => {
+      console.error('[McpWorker] File watcher ready');
+    });
+
+  } catch (error) {
+    const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+    console.error('[McpWorker] Failed to setup file watcher:', errorMessage);
+  }
+}
+
+/**
+ * Stop the file watcher and cleanup
+ */
+function stopFileWatcher(): void {
+  if (fileWatcher) {
+    console.error('[McpWorker] Stopping file watcher...');
+    fileWatcher.close().catch((error: Error) => {
+      console.error('[McpWorker] Error closing file watcher:', error.message);
+    });
+    fileWatcher = null;
+  }
+  
+  // Clear any pending debounced invalidations
+  for (const timeout of pendingInvalidations.values()) {
+    clearTimeout(timeout);
+  }
+  pendingInvalidations.clear();
+}
+
+/**
+ * Handle a file change event with debouncing
+ * Debounces rapid changes to the same file to avoid excessive cache invalidations
+ */
+function handleFileChange(event: 'change' | 'add' | 'unlink', filePath: string): void {
+  // Clear any pending invalidation for this file
+  const existingTimeout = pendingInvalidations.get(filePath);
+  if (existingTimeout) {
+    clearTimeout(existingTimeout);
+  }
+
+  // Schedule a debounced invalidation
+  const timeout = setTimeout(() => {
+    pendingInvalidations.delete(filePath);
+    performFileInvalidation(event, filePath);
+  }, FILE_CHANGE_DEBOUNCE_MS);
+
+  pendingInvalidations.set(filePath, timeout);
+}
+
+/**
+ * Actually perform the file invalidation after debounce
+ */
+function performFileInvalidation(event: 'change' | 'add' | 'unlink', filePath: string): void {
+  if (!spider) {
+    return;
+  }
+
+  console.error(`[McpWorker] File ${event}: ${path.basename(filePath)}`);
+
+  switch (event) {
+    case 'change':
+    case 'add':
+      // Invalidate and optionally re-analyze
+      // Using invalidateFile instead of reanalyzeFile for performance
+      // The file will be re-analyzed on next query
+      spider.invalidateFile(filePath);
+      break;
+      
+    case 'unlink':
+      // File was deleted
+      spider.handleFileDeleted(filePath);
+      break;
+  }
+  
+  // Notify parent about cache invalidation (optional, for debugging)
+  postMessage({
+    type: 'file-invalidated' as const,
+    filePath,
+    event,
+  } as McpWorkerResponse);
 }
 
 // ============================================================================

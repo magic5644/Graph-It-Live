@@ -24,8 +24,13 @@ import {
   TraceFunctionExecutionParamsSchema,
   InvalidateFilesParamsSchema,
   RebuildIndexParamsSchema,
+  SetWorkspaceParamsSchema,
+  GetSymbolCallersParamsSchema,
+  AnalyzeBreakingChangesParamsSchema,
+  GetImpactAnalysisParamsSchema,
 } from '../../src/mcp/types';
 import type { Dependency } from '../../src/analyzer/types';
+import type { McpWorkerResponse } from '../../src/mcp/types';
 
 // ============================================================================
 // Response Helper Tests
@@ -475,5 +480,213 @@ describe('RebuildIndexParamsSchema', () => {
     const result = RebuildIndexParamsSchema.safeParse({});
 
     expect(result.success).toBe(true);
+  });
+});
+
+// ============================================================================
+// New Schema Validation Tests for v1.x tools
+// ============================================================================
+
+describe('SetWorkspaceParamsSchema', () => {
+  it('validates minimal parameters', () => {
+    const result = SetWorkspaceParamsSchema.safeParse({
+      workspacePath: '/project/my-app',
+    });
+
+    expect(result.success).toBe(true);
+    if (result.success) {
+      expect(result.data.workspacePath).toBe('/project/my-app');
+    }
+  });
+
+  it('validates with all optional parameters', () => {
+    const result = SetWorkspaceParamsSchema.safeParse({
+      workspacePath: '/project/my-app',
+      tsConfigPath: '/project/my-app/tsconfig.json',
+      excludeNodeModules: false,
+      maxDepth: 100,
+    });
+
+    expect(result.success).toBe(true);
+    if (result.success) {
+      expect(result.data.tsConfigPath).toBe('/project/my-app/tsconfig.json');
+      expect(result.data.excludeNodeModules).toBe(false);
+      expect(result.data.maxDepth).toBe(100);
+    }
+  });
+
+  it('rejects missing workspacePath', () => {
+    const result = SetWorkspaceParamsSchema.safeParse({});
+
+    expect(result.success).toBe(false);
+  });
+});
+
+describe('GetSymbolCallersParamsSchema', () => {
+  it('validates minimal parameters', () => {
+    const result = GetSymbolCallersParamsSchema.safeParse({
+      filePath: '/project/src/utils.ts',
+      symbolName: 'formatDate',
+    });
+
+    expect(result.success).toBe(true);
+    if (result.success) {
+      expect(result.data.filePath).toBe('/project/src/utils.ts');
+      expect(result.data.symbolName).toBe('formatDate');
+      expect(result.data.includeTypeOnly).toBeUndefined();
+    }
+  });
+
+  it('validates with includeTypeOnly=false', () => {
+    const result = GetSymbolCallersParamsSchema.safeParse({
+      filePath: '/project/src/utils.ts',
+      symbolName: 'formatDate',
+      includeTypeOnly: false,
+    });
+
+    expect(result.success).toBe(true);
+    if (result.success) {
+      expect(result.data.includeTypeOnly).toBe(false);
+    }
+  });
+
+  it('rejects missing symbolName', () => {
+    const result = GetSymbolCallersParamsSchema.safeParse({
+      filePath: '/project/src/utils.ts',
+    });
+
+    expect(result.success).toBe(false);
+  });
+});
+
+describe('AnalyzeBreakingChangesParamsSchema', () => {
+  it('validates minimal parameters', () => {
+    const result = AnalyzeBreakingChangesParamsSchema.safeParse({
+      filePath: '/project/src/api.ts',
+      oldContent: 'function foo(a: string) {}',
+    });
+
+    expect(result.success).toBe(true);
+    if (result.success) {
+      expect(result.data.filePath).toBe('/project/src/api.ts');
+      expect(result.data.oldContent).toBe('function foo(a: string) {}');
+      expect(result.data.symbolName).toBeUndefined();
+      expect(result.data.newContent).toBeUndefined();
+    }
+  });
+
+  it('validates with all optional parameters', () => {
+    const result = AnalyzeBreakingChangesParamsSchema.safeParse({
+      filePath: '/project/src/api.ts',
+      symbolName: 'foo',
+      oldContent: 'function foo(a: string) {}',
+      newContent: 'function foo(a: string, b: number) {}',
+    });
+
+    expect(result.success).toBe(true);
+    if (result.success) {
+      expect(result.data.symbolName).toBe('foo');
+      expect(result.data.newContent).toBe('function foo(a: string, b: number) {}');
+    }
+  });
+
+  it('rejects missing oldContent', () => {
+    const result = AnalyzeBreakingChangesParamsSchema.safeParse({
+      filePath: '/project/src/api.ts',
+    });
+
+    expect(result.success).toBe(false);
+  });
+});
+
+describe('GetImpactAnalysisParamsSchema', () => {
+  it('validates minimal parameters', () => {
+    const result = GetImpactAnalysisParamsSchema.safeParse({
+      filePath: '/project/src/service.ts',
+      symbolName: 'getUserById',
+    });
+
+    expect(result.success).toBe(true);
+    if (result.success) {
+      expect(result.data.filePath).toBe('/project/src/service.ts');
+      expect(result.data.symbolName).toBe('getUserById');
+      expect(result.data.includeTransitive).toBeUndefined();
+      expect(result.data.maxDepth).toBeUndefined();
+    }
+  });
+
+  it('validates with all optional parameters', () => {
+    const result = GetImpactAnalysisParamsSchema.safeParse({
+      filePath: '/project/src/service.ts',
+      symbolName: 'getUserById',
+      includeTransitive: true,
+      maxDepth: 10,
+    });
+
+    expect(result.success).toBe(true);
+    if (result.success) {
+      expect(result.data.includeTransitive).toBe(true);
+      expect(result.data.maxDepth).toBe(10);
+    }
+  });
+
+  it('rejects missing symbolName', () => {
+    const result = GetImpactAnalysisParamsSchema.safeParse({
+      filePath: '/project/src/service.ts',
+    });
+
+    expect(result.success).toBe(false);
+  });
+});
+
+// ============================================================================
+// McpWorkerResponse Type Tests
+// ============================================================================
+
+describe('McpWorkerResponse type', () => {
+  it('should support file-invalidated message type', () => {
+    const response: McpWorkerResponse = {
+      type: 'file-invalidated',
+      filePath: '/project/src/utils.ts',
+      event: 'change',
+    };
+
+    expect(response.type).toBe('file-invalidated');
+    expect(response.filePath).toBe('/project/src/utils.ts');
+    expect(response.event).toBe('change');
+  });
+
+  it('should support all event types for file-invalidated', () => {
+    const events: Array<'change' | 'add' | 'unlink'> = ['change', 'add', 'unlink'];
+    
+    for (const event of events) {
+      const response: McpWorkerResponse = {
+        type: 'file-invalidated',
+        filePath: '/project/src/file.ts',
+        event,
+      };
+      expect(response.event).toBe(event);
+    }
+  });
+
+  it('should support ready message type', () => {
+    const response: McpWorkerResponse = {
+      type: 'ready',
+      warmupDuration: 1000,
+      indexedFiles: 50,
+    };
+
+    expect(response.type).toBe('ready');
+  });
+
+  it('should support warmup-progress message type', () => {
+    const response: McpWorkerResponse = {
+      type: 'warmup-progress',
+      processed: 25,
+      total: 100,
+      currentFile: 'src/index.ts',
+    };
+
+    expect(response.type).toBe('warmup-progress');
   });
 });
