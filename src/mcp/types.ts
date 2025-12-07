@@ -46,7 +46,8 @@ export type McpWorkerResponse =
   | { type: 'ready'; warmupDuration: number; indexedFiles: number }
   | { type: 'result'; requestId: string; data: unknown; executionTimeMs: number }
   | { type: 'error'; requestId: string; error: string; code?: string }
-  | { type: 'warmup-progress'; processed: number; total: number; currentFile?: string };
+  | { type: 'warmup-progress'; processed: number; total: number; currentFile?: string }
+  | { type: 'file-invalidated'; filePath: string; event: 'change' | 'add' | 'unlink' };
 
 // ============================================================================
 // Tool Names

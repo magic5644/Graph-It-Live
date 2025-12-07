@@ -456,4 +456,61 @@ describe('McpWorkerHost', () => {
       host.dispose();
     });
   });
+
+  describe('file-invalidated message handling', () => {
+    beforeEach(async () => {
+      host = new McpWorkerHost(defaultOptions);
+      const startPromise = host.start({
+        rootDir: '/workspace',
+        tsConfigPath: '/workspace/tsconfig.json',
+        excludeNodeModules: true,
+        maxDepth: 50,
+      });
+      await Promise.resolve();
+      getMockWorker().emit('message', {
+        type: 'ready',
+        warmupDuration: 50,
+        indexedFiles: 10,
+      });
+      await startPromise;
+    });
+
+    it('should handle file-invalidated message for change event', () => {
+      // This message should be handled without throwing
+      const invalidationMessage: McpWorkerResponse = {
+        type: 'file-invalidated',
+        filePath: '/workspace/src/utils.ts',
+        event: 'change',
+      };
+
+      // Should not throw - just logs to console.error
+      expect(() => {
+        getMockWorker().emit('message', invalidationMessage);
+      }).not.toThrow();
+    });
+
+    it('should handle file-invalidated message for add event', () => {
+      const invalidationMessage: McpWorkerResponse = {
+        type: 'file-invalidated',
+        filePath: '/workspace/src/newFile.ts',
+        event: 'add',
+      };
+
+      expect(() => {
+        getMockWorker().emit('message', invalidationMessage);
+      }).not.toThrow();
+    });
+
+    it('should handle file-invalidated message for unlink event', () => {
+      const invalidationMessage: McpWorkerResponse = {
+        type: 'file-invalidated',
+        filePath: '/workspace/src/deletedFile.ts',
+        event: 'unlink',
+      };
+
+      expect(() => {
+        getMockWorker().emit('message', invalidationMessage);
+      }).not.toThrow();
+    });
+  });
 });
