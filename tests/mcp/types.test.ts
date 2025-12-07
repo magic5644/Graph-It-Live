@@ -18,6 +18,12 @@ import {
   ParseImportsParamsSchema,
   ResolveModulePathParamsSchema,
   GetIndexStatusParamsSchema,
+  GetSymbolGraphParamsSchema,
+  FindUnusedSymbolsParamsSchema,
+  GetSymbolDependentsParamsSchema,
+  TraceFunctionExecutionParamsSchema,
+  InvalidateFilesParamsSchema,
+  RebuildIndexParamsSchema,
 } from '../../src/mcp/types';
 import type { Dependency } from '../../src/analyzer/types';
 
@@ -325,5 +331,149 @@ describe('GetIndexStatusParamsSchema', () => {
 describe('MCP_TOOL_VERSION', () => {
   it('is a valid semver string', () => {
     expect(MCP_TOOL_VERSION).toMatch(/^\d+\.\d+\.\d+$/);
+  });
+});
+
+// ============================================================================
+// Symbol Analysis Params Schema Tests
+// ============================================================================
+
+describe('GetSymbolGraphParamsSchema', () => {
+  it('validates valid parameters', () => {
+    const result = GetSymbolGraphParamsSchema.safeParse({
+      filePath: '/project/src/service.ts',
+    });
+
+    expect(result.success).toBe(true);
+    expect(result.data?.filePath).toBe('/project/src/service.ts');
+  });
+
+  it('rejects missing filePath', () => {
+    const result = GetSymbolGraphParamsSchema.safeParse({});
+
+    expect(result.success).toBe(false);
+  });
+});
+
+describe('FindUnusedSymbolsParamsSchema', () => {
+  it('validates valid parameters', () => {
+    const result = FindUnusedSymbolsParamsSchema.safeParse({
+      filePath: '/project/src/utils.ts',
+    });
+
+    expect(result.success).toBe(true);
+  });
+});
+
+describe('GetSymbolDependentsParamsSchema', () => {
+  it('validates valid parameters', () => {
+    const result = GetSymbolDependentsParamsSchema.safeParse({
+      filePath: '/project/src/service.ts',
+      symbolName: 'getUserById',
+    });
+
+    expect(result.success).toBe(true);
+    if (result.success) {
+      expect(result.data.filePath).toBe('/project/src/service.ts');
+      expect(result.data.symbolName).toBe('getUserById');
+    }
+  });
+
+  it('rejects missing symbolName', () => {
+    const result = GetSymbolDependentsParamsSchema.safeParse({
+      filePath: '/project/src/service.ts',
+    });
+
+    expect(result.success).toBe(false);
+  });
+
+  it('rejects missing filePath', () => {
+    const result = GetSymbolDependentsParamsSchema.safeParse({
+      symbolName: 'getUserById',
+    });
+
+    expect(result.success).toBe(false);
+  });
+});
+
+describe('TraceFunctionExecutionParamsSchema', () => {
+  it('validates minimal parameters', () => {
+    const result = TraceFunctionExecutionParamsSchema.safeParse({
+      filePath: '/project/src/controller.ts',
+      symbolName: 'handleRequest',
+    });
+
+    expect(result.success).toBe(true);
+    if (result.success) {
+      expect(result.data.filePath).toBe('/project/src/controller.ts');
+      expect(result.data.symbolName).toBe('handleRequest');
+      expect(result.data.maxDepth).toBeUndefined();
+    }
+  });
+
+  it('validates with maxDepth', () => {
+    const result = TraceFunctionExecutionParamsSchema.safeParse({
+      filePath: '/project/src/controller.ts',
+      symbolName: 'handleRequest',
+      maxDepth: 20,
+    });
+
+    expect(result.success).toBe(true);
+    if (result.success) {
+      expect(result.data.maxDepth).toBe(20);
+    }
+  });
+
+  it('rejects missing symbolName', () => {
+    const result = TraceFunctionExecutionParamsSchema.safeParse({
+      filePath: '/project/src/controller.ts',
+    });
+
+    expect(result.success).toBe(false);
+  });
+
+  it('rejects non-number maxDepth', () => {
+    const result = TraceFunctionExecutionParamsSchema.safeParse({
+      filePath: '/project/src/controller.ts',
+      symbolName: 'handleRequest',
+      maxDepth: 'deep',
+    });
+
+    expect(result.success).toBe(false);
+  });
+});
+
+describe('InvalidateFilesParamsSchema', () => {
+  it('validates valid parameters', () => {
+    const result = InvalidateFilesParamsSchema.safeParse({
+      filePaths: ['/project/src/file1.ts', '/project/src/file2.ts'],
+    });
+
+    expect(result.success).toBe(true);
+    if (result.success) {
+      expect(result.data.filePaths).toHaveLength(2);
+    }
+  });
+
+  it('accepts empty array', () => {
+    const result = InvalidateFilesParamsSchema.safeParse({
+      filePaths: [],
+    });
+
+    expect(result.success).toBe(true);
+  });
+
+  it('rejects missing filePaths', () => {
+    const result = InvalidateFilesParamsSchema.safeParse({});
+
+    expect(result.success).toBe(false);
+  });
+});
+
+describe('RebuildIndexParamsSchema', () => {
+  it('accepts empty object', () => {
+    const result = RebuildIndexParamsSchema.safeParse({});
+
+    expect(result.success).toBe(true);
   });
 });

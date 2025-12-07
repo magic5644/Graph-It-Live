@@ -1,5 +1,38 @@
 # Changelog
 
+## v1.3.0
+
+### New Features
+
+- **Symbol-Level Drill-Down View**: Double-click any file node to explore function-to-function and class-to-class dependencies within files. Navigate back with the "Back to Files" button.
+
+<div align="center">
+  <img src="media/drill-down-symbol-view.png" alt="Symbol-level drill-down view" width="600"/>
+  <p><em>Symbol-level dependencies: see how functions and classes relate within a file</em></p>
+</div>
+
+- **O(1) Symbol Reverse Index**: Instant lookup of symbol callers via `SymbolReverseIndex`
+  - Separates runtime callers from type-only imports (`isTypeOnly`)
+  - Background indexing builds symbol-level reverse lookup table
+  - 6x+ faster than O(n) scanning for caller queries
+- **Breaking Change Detection**: Analyze impact of function signature changes
+  - Detects added/removed/modified parameters and return type changes
+  - Reports all affected callers that may need updates
+- **Enhanced MCP Tools**: Added 8 new tools for AI/LLM integration (17 total)
+  - `graphItLive_setWorkspace`: Set project directory for analysis
+  - `graphItLive_getSymbolGraph`: Analyze symbol-level dependencies within a file
+  - `graphItLive_findUnusedSymbols`: Detect unused exported symbols (dead code)
+  - `graphItLive_getSymbolDependents`: Find all symbols depending on a specific symbol
+  - `graphItLive_traceFunctionExecution`: Trace complete execution path through function calls
+  - `graphItLive_getSymbolCallers`: O(1) instant lookup of symbol callers
+  - `graphItLive_analyzeBreakingChanges`: Detect breaking changes in function signatures
+  - `graphItLive_getImpactAnalysis`: Full impact analysis combining callers and breaking changes
+
+### Improvements
+
+- **Inline class expansion**: Class members expand inside the node (accordion-style), not as separate graph nodes
+- **Line navigation**: Clicking on a symbol navigates to its exact line in the editor
+
 ## v1.2.1
 
 - Enhance file dependencies resolution with better support of monorepos workspaces.

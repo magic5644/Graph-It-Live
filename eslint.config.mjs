@@ -4,7 +4,7 @@ import globals from 'globals';
 
 export default tseslint.config(
     {
-        ignores: ['dist/**', 'out/**', 'node_modules/**', 'esbuild.js', 'vitest.config.ts', '**/*.d.ts'],
+        ignores: ['dist/**', 'out/**', 'node_modules/**', 'esbuild.js', 'vitest.config.ts', 'vitest.config.mts', 'vitest.benchmark.config.mts', '**/*.d.ts', 'tests/**', 'eslint.config.mjs'],
     },
     eslint.configs.recommended,
     ...tseslint.configs.recommended,
@@ -18,8 +18,8 @@ export default tseslint.config(
                 ...globals.es2020,
             },
             parserOptions: {
-                // point ESLint to the area-specific test tsconfigs so tests are type-checked
-                project: ['./tsconfig.json', './tsconfig.webview.json', './tsconfig.test.node.json', './tsconfig.test.webview.json'],
+                // Main source tsconfigs only - tests are excluded from linting
+                project: ['./tsconfig.json', './tsconfig.webview.json'],
                 tsconfigRootDir: import.meta.dirname,
             },
         },

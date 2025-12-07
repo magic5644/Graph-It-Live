@@ -53,6 +53,7 @@ export type McpWorkerResponse =
 // ============================================================================
 
 export type McpToolName =
+  | 'set_workspace'             // NEW: Set workspace directory dynamically
   | 'analyze_dependencies'
   | 'crawl_dependency_graph'
   | 'find_referencing_files'
@@ -61,11 +62,26 @@ export type McpToolName =
   | 'resolve_module_path'
   | 'get_index_status'
   | 'invalidate_files'
-  | 'rebuild_index';
+  | 'rebuild_index'
+  | 'get_symbol_graph'
+  | 'find_unused_symbols'
+  | 'get_symbol_dependents'
+  | 'trace_function_execution'
+  | 'get_symbol_callers'        // NEW: O(1) lookup of symbol callers
+  | 'analyze_breaking_changes'  // NEW: Detect breaking changes
+  | 'get_impact_analysis';      // NEW: Full impact analysis
 
 // ============================================================================
 // Zod Schemas for Tool Parameters
 // ============================================================================
+
+export const SetWorkspaceParamsSchema = z.object({
+  workspacePath: z.string().describe('Absolute path to the project/workspace directory to analyze'),
+  tsConfigPath: z.string().optional().describe('Optional path to tsconfig.json for path alias resolution'),
+  excludeNodeModules: z.boolean().optional().describe('Whether to exclude node_modules (default: true)'),
+  maxDepth: z.number().optional().describe('Maximum crawl depth (default: 50)'),
+});
+export type SetWorkspaceParams = z.infer<typeof SetWorkspaceParamsSchema>;
 
 export const AnalyzeDependenciesParamsSchema = z.object({
   filePath: z.string().describe('Absolute path to the file to analyze'),
@@ -117,6 +133,55 @@ export type InvalidateFilesParams = z.infer<typeof InvalidateFilesParamsSchema>;
 
 export const RebuildIndexParamsSchema = z.object({});
 export type RebuildIndexParams = z.infer<typeof RebuildIndexParamsSchema>;
+
+export const GetSymbolGraphParamsSchema = z.object({
+  filePath: z.string().describe('Absolute path to the file to analyze for symbols'),
+});
+export type GetSymbolGraphParams = z.infer<typeof GetSymbolGraphParamsSchema>;
+
+export const FindUnusedSymbolsParamsSchema = z.object({
+  filePath: z.string().describe('Absolute path to the file to check for unused exported symbols'),
+});
+export type FindUnusedSymbolsParams = z.infer<typeof FindUnusedSymbolsParamsSchema>;
+
+export const GetSymbolDependentsParamsSchema = z.object({
+  filePath: z.string().describe('Absolute path to the file containing the symbol'),
+  symbolName: z.string().describe('Name of the symbol to find dependents for'),
+});
+export type GetSymbolDependentsParams = z.infer<typeof GetSymbolDependentsParamsSchema>;
+
+export const TraceFunctionExecutionParamsSchema = z.object({
+  filePath: z.string().describe('Absolute path to the file containing the root symbol'),
+  symbolName: z.string().describe('Name of the root symbol to trace from'),
+  maxDepth: z.number().optional().describe('Maximum depth to trace the call chain (default: 10)'),
+});
+export type TraceFunctionExecutionParams = z.infer<typeof TraceFunctionExecutionParamsSchema>;
+
+// NEW: Schema for get_symbol_callers (O(1) lookup)
+export const GetSymbolCallersParamsSchema = z.object({
+  filePath: z.string().describe('The absolute path to the file containing the target symbol.'),
+  symbolName: z.string().describe('The name of the symbol (function, class, method, variable) to find callers for.'),
+  includeTypeOnly: z.boolean().optional().describe('Include type-only usages (interfaces, type aliases). Default is true.'),
+});
+export type GetSymbolCallersParams = z.infer<typeof GetSymbolCallersParamsSchema>;
+
+// NEW: Schema for analyze_breaking_changes
+export const AnalyzeBreakingChangesParamsSchema = z.object({
+  filePath: z.string().describe('Absolute path to the file to analyze'),
+  symbolName: z.string().optional().describe('Optional: Only analyze changes to this specific symbol'),
+  oldContent: z.string().describe('The old version of the file content'),
+  newContent: z.string().optional().describe('The new version of the file content (if not provided, reads current file)'),
+});
+export type AnalyzeBreakingChangesParams = z.infer<typeof AnalyzeBreakingChangesParamsSchema>;
+
+// NEW: Schema for get_impact_analysis
+export const GetImpactAnalysisParamsSchema = z.object({
+  filePath: z.string().describe('Absolute path to the file being modified'),
+  symbolName: z.string().describe('Name of the symbol being modified'),
+  includeTransitive: z.boolean().optional().describe('Include transitive dependents (default: false)'),
+  maxDepth: z.number().optional().describe('Maximum depth for transitive analysis (default: 3)'),
+});
+export type GetImpactAnalysisParams = z.infer<typeof GetImpactAnalysisParamsSchema>;
 
 // ============================================================================
 // Tool Response Types with Enriched Metadata
@@ -341,6 +406,24 @@ export interface ResolveModulePathResult {
 }
 
 /**
+ * Result of set_workspace tool
+ */
+export interface SetWorkspaceResult {
+  /** Whether the workspace was successfully set */
+  success: boolean;
+  /** The new workspace path */
+  workspacePath: string;
+  /** Number of files indexed during warmup */
+  filesIndexed: number;
+  /** Time taken to index in milliseconds */
+  indexingTimeMs: number;
+  /** Previous workspace path (if any) */
+  previousWorkspace?: string;
+  /** Message describing the result */
+  message: string;
+}
+
+/**
  * Result of get_index_status tool
  */
 export interface GetIndexStatusResult {
@@ -409,6 +492,285 @@ export interface RebuildIndexResult {
     targetFiles: number;
     totalReferences: number;
   };
+}
+
+/**
+ * Symbol information for get_symbol_graph result
+ */
+export interface SymbolInfo {
+  /** Symbol name */
+  name: string;
+  /** Symbol ID (unique identifier: filePath:symbolName) */
+  id: string;
+  /** Symbol kind (e.g., 'FunctionDeclaration', 'ClassDeclaration') */
+  kind: string;
+  /** Line number where symbol is defined */
+  line: number;
+  /** Whether the symbol is exported */
+  isExported: boolean;
+  /** Symbol type category for filtering */
+  category?: 'function' | 'class' | 'variable' | 'interface' | 'type' | 'other';
+  /** Parent symbol ID (for methods/properties belonging to a class) */
+  parentSymbolId?: string;
+}
+
+/**
+ * Symbol dependency edge for get_symbol_graph result
+ */
+export interface SymbolDependencyEdge {
+  /** Source symbol ID */
+  sourceSymbolId: string;
+  /** Target symbol ID */
+  targetSymbolId: string;
+  /** Target file path */
+  targetFilePath: string;
+  /** Relative path of target file from workspace root */
+  targetRelativePath: string;
+}
+
+/**
+ * Result of get_symbol_graph tool
+ */
+export interface GetSymbolGraphResult {
+  /** The analyzed file path */
+  filePath: string;
+  /** Relative path from workspace root */
+  relativePath: string;
+  /** Number of exported symbols found */
+  symbolCount: number;
+  /** Number of symbol dependencies found */
+  dependencyCount: number;
+  /** List of exported symbols */
+  symbols: SymbolInfo[];
+  /** List of symbol dependencies */
+  dependencies: SymbolDependencyEdge[];
+  /** Whether to show this in symbol view mode (vs file view) */
+  isSymbolView: boolean;
+}
+
+/**
+ * Result of find_unused_symbols tool
+ */
+export interface FindUnusedSymbolsResult {
+  /** The analyzed file path */
+  filePath: string;
+  /** Relative path from workspace root */
+  relativePath: string;
+  /** Number of unused exported symbols found */
+  unusedCount: number;
+  /** List of unused exported symbols (potentially dead code) */
+  unusedSymbols: SymbolInfo[];
+  /** Total number of exported symbols in the file */
+  totalExportedSymbols: number;
+  /** Percentage of exports that are unused */
+  unusedPercentage: number;
+}
+
+export interface GetSymbolDependentsResult {
+  /** The file path containing the symbol */
+  filePath: string;
+  /** The name of the symbol */
+  symbolName: string;
+  /** Number of dependents found */
+  dependentCount: number;
+  /** List of dependents (usages) */
+  dependents: SymbolDependencyEdge[];
+}
+
+/**
+ * Call chain entry for trace_function_execution result
+ */
+export interface CallChainEntry {
+  /** Depth in the call chain (1 = direct call from root) */
+  depth: number;
+  /** The symbol making the call */
+  callerSymbolId: string;
+  /** The symbol being called */
+  calledSymbolId: string;
+  /** The module path as written in the import */
+  calledFilePath: string;
+  /** The resolved absolute file path (null if unresolved) */
+  resolvedFilePath: string | null;
+  /** Relative path from workspace root (null if unresolved) */
+  resolvedRelativePath: string | null;
+}
+
+/**
+ * Result of trace_function_execution tool
+ */
+export interface TraceFunctionExecutionResult {
+  /** The root symbol being traced */
+  rootSymbol: {
+    id: string;
+    filePath: string;
+    relativePath: string;
+    symbolName: string;
+  };
+  /** Maximum depth used for tracing */
+  maxDepth: number;
+  /** Number of calls in the chain */
+  callCount: number;
+  /** Number of unique symbols visited */
+  uniqueSymbolCount: number;
+  /** Whether the trace hit the max depth limit */
+  maxDepthReached: boolean;
+  /** The full call chain in traversal order */
+  callChain: CallChainEntry[];
+  /** List of all unique symbol IDs visited */
+  visitedSymbols: string[];
+}
+
+// ============================================================================
+// NEW: Symbol Callers Result (O(1) lookup)
+// ============================================================================
+
+/**
+ * Caller entry from the symbol reverse index
+ */
+export interface SymbolCallerInfo {
+  /** The symbol that calls the target */
+  callerSymbolId: string;
+  /** The file containing the caller */
+  callerFilePath: string;
+  /** Relative path from workspace root */
+  callerRelativePath: string;
+  /** Whether this is a type-only import */
+  isTypeOnly: boolean;
+}
+
+/**
+ * Result of get_symbol_callers tool
+ */
+export interface GetSymbolCallersResult {
+  /** The symbol ID being queried */
+  symbolId: string;
+  /** Total number of callers */
+  callerCount: number;
+  /** Number of runtime callers (non-type imports) */
+  runtimeCallerCount: number;
+  /** Number of type-only callers */
+  typeOnlyCallerCount: number;
+  /** List of all callers */
+  callers: SymbolCallerInfo[];
+  /** Unique files that contain callers */
+  callerFiles: string[];
+}
+
+// ============================================================================
+// NEW: Breaking Changes Analysis Result
+// ============================================================================
+
+/**
+ * Types of breaking changes that can be detected
+ */
+export type BreakingChangeType =
+  | 'parameter-added-required'     // New required parameter added
+  | 'parameter-removed'            // Parameter removed
+  | 'parameter-type-changed'       // Parameter type changed
+  | 'parameter-optional-to-required' // Optional param became required
+  | 'return-type-changed'          // Return type changed
+  | 'visibility-reduced'           // public → private/protected
+  | 'member-removed'               // Interface/class member removed
+  | 'member-type-changed'          // Interface/class member type changed
+  | 'member-optional-to-required'  // Optional member became required
+  | 'type-alias-changed';          // Type alias definition changed
+
+/**
+ * A single breaking change detected
+ */
+export interface BreakingChangeInfo {
+  /** Type of breaking change */
+  type: BreakingChangeType;
+  /** Name of the affected symbol */
+  symbolName: string;
+  /** Human-readable description */
+  description: string;
+  /** Severity (error = definite break, warning = potential break) */
+  severity: 'error' | 'warning';
+  /** The old value/signature */
+  oldValue?: string;
+  /** The new value/signature */
+  newValue?: string;
+  /** Line number in the new file */
+  line?: number;
+}
+
+/**
+ * Result of analyze_breaking_changes tool
+ */
+export interface AnalyzeBreakingChangesResult {
+  /** The file being analyzed */
+  filePath: string;
+  /** Total number of breaking changes detected */
+  breakingChangeCount: number;
+  /** Number of error-level changes */
+  errorCount: number;
+  /** Number of warning-level changes */
+  warningCount: number;
+  /** List of all breaking changes */
+  breakingChanges: BreakingChangeInfo[];
+  /** List of non-breaking changes (for info) */
+  nonBreakingChanges: string[];
+  /** Symbols that were removed entirely */
+  removedSymbols: string[];
+  /** Symbols that were added */
+  addedSymbols: string[];
+}
+
+// ============================================================================
+// NEW: Impact Analysis Result
+// ============================================================================
+
+/**
+ * Impact level categorization
+ */
+export type ImpactLevel = 'high' | 'medium' | 'low';
+
+/**
+ * Information about an impacted file/symbol
+ */
+export interface ImpactedItem {
+  /** The symbol ID that would be affected */
+  symbolId: string;
+  /** The file path */
+  filePath: string;
+  /** Relative path from workspace root */
+  relativePath: string;
+  /** How the item uses the target symbol */
+  usageType: 'runtime' | 'type-only';
+  /** Depth in dependency chain (1 = direct, 2+ = transitive) */
+  depth: number;
+}
+
+/**
+ * Result of get_impact_analysis tool
+ */
+export interface GetImpactAnalysisResult {
+  /** The target symbol being analyzed */
+  targetSymbol: {
+    id: string;
+    filePath: string;
+    relativePath: string;
+    symbolName: string;
+  };
+  /** Overall impact level */
+  impactLevel: ImpactLevel;
+  /** Total number of impacted items */
+  totalImpactCount: number;
+  /** Number of directly impacted items (depth=1) */
+  directImpactCount: number;
+  /** Number of transitively impacted items (depth>1) */
+  transitiveImpactCount: number;
+  /** Number of runtime impacts */
+  runtimeImpactCount: number;
+  /** Number of type-only impacts */
+  typeOnlyImpactCount: number;
+  /** List of all impacted items */
+  impactedItems: ImpactedItem[];
+  /** Unique files affected */
+  affectedFiles: string[];
+  /** Summary for LLM consumption */
+  summary: string;
 }
 
 // ============================================================================

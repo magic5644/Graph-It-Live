@@ -42,6 +42,7 @@ function debugLog(...args: unknown[]): void {
 debugLog('[McpServer] ===== PROCESS STARTING =====');
 debugLog('[McpServer] Node version:', process.version);
 debugLog('[McpServer] PID:', process.pid);
+debugLog('[McpServer] cwd:', process.cwd());
 debugLog('[McpServer] argv:', JSON.stringify(process.argv));
 debugLog('[McpServer] Environment vars:');
 debugLog('  WORKSPACE_ROOT:', process.env.WORKSPACE_ROOT ?? '(not set)');
@@ -68,25 +69,61 @@ import {
   type GetIndexStatusResult,
   type InvalidateFilesResult,
   type RebuildIndexResult,
+  type GetSymbolGraphResult,
+  type FindUnusedSymbolsResult,
+  type GetSymbolDependentsResult,
+  type TraceFunctionExecutionResult,
+  type GetSymbolCallersResult,
+  type AnalyzeBreakingChangesResult,
+  type GetImpactAnalysisResult,
+  type SetWorkspaceResult,
   type PaginationInfo,
+  SetWorkspaceParamsSchema,
 } from './types';
 
 // ============================================================================
 // Environment Configuration
 // ============================================================================
 
-const WORKSPACE_ROOT_ENV = process.env.WORKSPACE_ROOT;
-const TSCONFIG_PATH = process.env.TSCONFIG_PATH;
-const EXCLUDE_NODE_MODULES = process.env.EXCLUDE_NODE_MODULES !== 'false';
-const MAX_DEPTH = Number.parseInt(process.env.MAX_DEPTH ?? '50', 10);
+// Mutable configuration - can be changed via setWorkspace tool
+const currentConfig = {
+  workspaceRoot: process.env.WORKSPACE_ROOT ?? '',
+  tsConfigPath: process.env.TSCONFIG_PATH,
+  excludeNodeModules: process.env.EXCLUDE_NODE_MODULES !== 'false',
+  maxDepth: Number.parseInt(process.env.MAX_DEPTH ?? '50', 10),
+};
 
-if (!WORKSPACE_ROOT_ENV) {
-  debugLog('[McpServer] WORKSPACE_ROOT environment variable is required');
-  process.exit(1);
+// Check for unresolved variables (common misconfiguration)
+if (currentConfig.workspaceRoot && (currentConfig.workspaceRoot.includes('${') || currentConfig.workspaceRoot.includes('$('))) {
+  debugLog('[McpServer] WARNING: WORKSPACE_ROOT contains unresolved variable:', currentConfig.workspaceRoot);
+  debugLog('[McpServer] Workspace not set - use graphItLive_setWorkspace tool to configure');
+  currentConfig.workspaceRoot = '';
 }
 
-// After validation, we know this is defined
-const WORKSPACE_ROOT: string = WORKSPACE_ROOT_ENV;
+// Fallback logic for WORKSPACE_ROOT (only if set via env)
+if (!currentConfig.workspaceRoot) {
+  const cwd = process.cwd();
+  
+  // If cwd is root or empty, don't set a default - require explicit configuration
+  if (cwd === '/' || cwd === '') {
+    debugLog('[McpServer] No workspace configured - use graphItLive_setWorkspace tool to set workspace');
+  } else {
+    currentConfig.workspaceRoot = cwd;
+    debugLog('[McpServer] WORKSPACE_ROOT not set, using current working directory:', currentConfig.workspaceRoot);
+  }
+}
+
+// Validate workspace if set
+if (currentConfig.workspaceRoot && !fs.existsSync(currentConfig.workspaceRoot)) {
+  debugLog('[McpServer] WARNING: WORKSPACE_ROOT path does not exist:', currentConfig.workspaceRoot);
+  debugLog('[McpServer] Use graphItLive_setWorkspace tool to configure a valid workspace');
+  currentConfig.workspaceRoot = '';
+}
+
+// Helper to get current workspace (may be empty if not configured)
+function getWorkspaceRoot(): string {
+  return currentConfig.workspaceRoot;
+}
 
 // ============================================================================
 // Server Setup
@@ -165,10 +202,10 @@ async function doInitializeWorker(): Promise<void> {
   try {
     const result = await workerHost.start(
       {
-        rootDir: WORKSPACE_ROOT,
-        tsConfigPath: TSCONFIG_PATH,
-        excludeNodeModules: EXCLUDE_NODE_MODULES,
-        maxDepth: MAX_DEPTH,
+        rootDir: getWorkspaceRoot(),
+        tsConfigPath: currentConfig.tsConfigPath,
+        excludeNodeModules: currentConfig.excludeNodeModules,
+        maxDepth: currentConfig.maxDepth,
       },
       (processed, total, currentFile) => {
         debugLog(`[McpServer] Warmup progress: ${processed}/${total} - ${currentFile ?? ''}`);
@@ -193,7 +230,7 @@ async function invokeToolWithResponse<T>(
   params: unknown
 ): Promise<McpToolResponse<T>> {
   if (!workerHost?.ready()) {
-    return createErrorResponse<T>('Worker not ready', 0, WORKSPACE_ROOT);
+    return createErrorResponse<T>('Worker not ready', 0, getWorkspaceRoot());
   }
 
   const startTime = Date.now();
@@ -201,11 +238,11 @@ async function invokeToolWithResponse<T>(
   try {
     const result = await workerHost.invoke<T>(toolName as Parameters<typeof workerHost.invoke>[0], params);
     const executionTimeMs = Date.now() - startTime;
-    return createSuccessResponse(result, executionTimeMs, WORKSPACE_ROOT);
+    return createSuccessResponse(result, executionTimeMs, getWorkspaceRoot());
   } catch (error) {
     const executionTimeMs = Date.now() - startTime;
     const errorMessage = error instanceof Error ? error.message : 'Unknown error';
-    return createErrorResponse<T>(errorMessage, executionTimeMs, WORKSPACE_ROOT);
+    return createErrorResponse<T>(errorMessage, executionTimeMs, getWorkspaceRoot());
   }
 }
 
@@ -232,6 +269,169 @@ async function ensureWorkerReady(): Promise<{ error: true; response: { content: 
 // ============================================================================
 // Tool Definitions - Using registerTool (recommended over deprecated tool())
 // ============================================================================
+
+// Tool: graphItLive_setWorkspace
+// This tool is special - it doesn't require the worker to be ready first
+server.registerTool(
+  'graphItLive_setWorkspace',
+  {
+    title: 'Set Workspace Directory',
+    description: `USE THIS TOOL FIRST when working with a new project or when the workspace hasn't been configured yet. This tool MUST be called before any other graphItLive tools if no workspace is set.
+
+WHY: Graph-It-Live needs to know which project directory to analyze. Without a workspace configured, all other tools will fail. This tool sets the project root and initializes the dependency index for fast queries.
+
+RETURNS: Confirmation of the new workspace path and the number of files indexed. After calling this, all other graphItLive tools will work on the specified project.
+
+EXAMPLE: If analyzing a project at "/Users/me/my-app", call this tool with workspacePath="/Users/me/my-app"`,
+    inputSchema: SetWorkspaceParamsSchema,
+  },
+  async ({ workspacePath, tsConfigPath, excludeNodeModules, maxDepth }) => {
+    const startTime = Date.now();
+    const previousWorkspace = getWorkspaceRoot();
+    
+    debugLog(`[McpServer] setWorkspace called with: ${workspacePath}`);
+    
+    // Validate the path exists
+    if (!fs.existsSync(workspacePath)) {
+      const response: McpToolResponse<SetWorkspaceResult> = {
+        success: false,
+        data: {
+          success: false,
+          workspacePath,
+          filesIndexed: 0,
+          indexingTimeMs: 0,
+          previousWorkspace: previousWorkspace || undefined,
+          message: `Path does not exist: ${workspacePath}`,
+        },
+        error: `Path does not exist: ${workspacePath}`,
+        metadata: {
+          executionTimeMs: Date.now() - startTime,
+          toolVersion: MCP_TOOL_VERSION,
+          timestamp: new Date().toISOString(),
+          workspaceRoot: workspacePath,
+        },
+      };
+      return {
+        content: [{ type: 'text' as const, text: JSON.stringify(response, null, 2) }],
+        isError: true,
+      };
+    }
+    
+    // Check if it's a directory
+    const stats = fs.statSync(workspacePath);
+    if (!stats.isDirectory()) {
+      const response: McpToolResponse<SetWorkspaceResult> = {
+        success: false,
+        data: {
+          success: false,
+          workspacePath,
+          filesIndexed: 0,
+          indexingTimeMs: 0,
+          previousWorkspace: previousWorkspace || undefined,
+          message: `Path is not a directory: ${workspacePath}`,
+        },
+        error: `Path is not a directory: ${workspacePath}`,
+        metadata: {
+          executionTimeMs: Date.now() - startTime,
+          toolVersion: MCP_TOOL_VERSION,
+          timestamp: new Date().toISOString(),
+          workspaceRoot: workspacePath,
+        },
+      };
+      return {
+        content: [{ type: 'text' as const, text: JSON.stringify(response, null, 2) }],
+        isError: true,
+      };
+    }
+    
+    // Update configuration
+    currentConfig.workspaceRoot = workspacePath;
+    if (tsConfigPath !== undefined) currentConfig.tsConfigPath = tsConfigPath;
+    if (excludeNodeModules !== undefined) currentConfig.excludeNodeModules = excludeNodeModules;
+    if (maxDepth !== undefined) currentConfig.maxDepth = maxDepth;
+    
+    debugLog(`[McpServer] Workspace updated to: ${workspacePath}`);
+    
+    // Dispose existing worker if any
+    if (workerHost) {
+      debugLog('[McpServer] Disposing previous worker...');
+      workerHost.dispose();
+      workerHost = null;
+    }
+    
+    // Reset initialization state
+    isInitialized = false;
+    initializationPromise = null;
+    initializationError = null;
+    
+    // Initialize with new workspace
+    try {
+      await initializeWorker();
+      
+      const executionTimeMs = Date.now() - startTime;
+      let filesIndexed = 0;
+      
+      // Get index status to report number of files indexed
+      // workerHost is reassigned in initializeWorker() - use type assertion since TS can't track this
+      const currentWorker = workerHost as McpWorkerHost | null;
+      if (currentWorker?.ready()) {
+        const statusResult = await currentWorker.invoke<GetIndexStatusResult>('get_index_status', {});
+        filesIndexed = statusResult.cacheSize;
+      }
+      
+      const response: McpToolResponse<SetWorkspaceResult> = {
+        success: true,
+        data: {
+          success: true,
+          workspacePath,
+          filesIndexed,
+          indexingTimeMs: executionTimeMs,
+          previousWorkspace: previousWorkspace || undefined,
+          message: `Workspace set to ${workspacePath}. Indexed ${filesIndexed} files in ${executionTimeMs}ms.`,
+        },
+        metadata: {
+          executionTimeMs,
+          toolVersion: MCP_TOOL_VERSION,
+          timestamp: new Date().toISOString(),
+          workspaceRoot: workspacePath,
+        },
+      };
+      
+      debugLog(`[McpServer] Workspace configured successfully: ${filesIndexed} files indexed`);
+      
+      return {
+        content: [{ type: 'text' as const, text: JSON.stringify(response, null, 2) }],
+      };
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : 'Unknown error during initialization';
+      debugLog(`[McpServer] setWorkspace failed: ${errorMessage}`);
+      
+      const response: McpToolResponse<SetWorkspaceResult> = {
+        success: false,
+        data: {
+          success: false,
+          workspacePath,
+          filesIndexed: 0,
+          indexingTimeMs: Date.now() - startTime,
+          previousWorkspace: previousWorkspace || undefined,
+          message: `Failed to initialize workspace: ${errorMessage}`,
+        },
+        error: errorMessage,
+        metadata: {
+          executionTimeMs: Date.now() - startTime,
+          toolVersion: MCP_TOOL_VERSION,
+          timestamp: new Date().toISOString(),
+          workspaceRoot: workspacePath,
+        },
+      };
+      
+      return {
+        content: [{ type: 'text' as const, text: JSON.stringify(response, null, 2) }],
+        isError: true,
+      };
+    }
+  }
+);
 
 // Tool: graphItLive_analyzeDependencies
 server.registerTool(
@@ -310,7 +510,7 @@ RETURNS: A complete graph with nodes (files with metadata: path, extension, depe
     const response = createSuccessResponse(
       result,
       0, // We don't track time here, worker already includes it
-      WORKSPACE_ROOT,
+      getWorkspaceRoot(),
       pagination
     );
 
@@ -553,16 +753,408 @@ RETURNS: The number of files re-indexed, time taken to rebuild, new cache size, 
   }
 );
 
+// Tool: graphItLive_getSymbolGraph
+server.registerTool(
+  'graphItLive_getSymbolGraph',
+  {
+    title: 'Get Symbol-Level Dependency Graph',
+    description: `CRITICAL: USE THIS TOOL WHEN the user wants to drill down from file-level dependencies to symbol-level (functions, classes, methods) dependencies. This enables **surgical refactoring** by showing exactly which symbols within a file depend on which external symbols.
+
+WHEN TO USE:
+- User asks "Which functions in this file use X?"
+- User wants to understand the internal structure of a file's dependencies
+- User needs to refactor a specific class/function without breaking others in the same file
+- User asks about symbol-level architecture or method-level coupling
+
+WHY YOU NEED THIS:
+Without this tool, you only see file-to-file relationships. This tool uses AST parsing (ts-morph) to extract:
+1. All exported symbols (functions, classes, variables) with their types and line numbers
+2. Precise symbol-to-symbol dependencies (e.g., "function A calls function B from module X")
+3. Import alias resolution (tracks original names even when aliased)
+4. Filters out type-only imports (interfaces/types vs runtime code)
+
+RETURNS:
+- List of exported symbols with: name, kind (FunctionDeclaration, ClassDeclaration, etc.), line number, category (function/class/variable/interface/type)
+- Symbol dependency edges with source/target symbol IDs and file paths
+- Categorized by runtime vs type-only for filtering
+
+This enables the **"Drill Down" UX pattern** where users double-click a file node to see its internal symbol graph.`,
+    inputSchema: {
+      filePath: z.string().describe('The absolute path to the file to analyze at the symbol level. This should be a TypeScript, JavaScript, Vue, or Svelte file.'),
+    },
+  },
+  async ({ filePath }) => {
+    const workerCheck = await ensureWorkerReady();
+    if (workerCheck.error) return workerCheck.response;
+
+    const response = await invokeToolWithResponse<GetSymbolGraphResult>('get_symbol_graph', { filePath });
+
+    return {
+      content: [
+        {
+          type: 'text' as const,
+          text: JSON.stringify(response, null, 2),
+        },
+      ],
+    };
+  }
+);
+
+// Tool: graphItLive_findUnusedSymbols
+server.registerTool(
+  'graphItLive_findUnusedSymbols',
+  {
+    title: 'Find Dead Code (Unused Exports)',
+    description: `CRITICAL: USE THIS TOOL WHEN the user wants to identify potential dead code or refactor opportunities by finding exported symbols that are never imported/used anywhere in the project.
+
+WHEN TO USE:
+- User asks "What exports are unused in this file?"
+- User wants to clean up dead code or remove unnecessary exports
+- User needs to understand which parts of an API are actually consumed
+- Code review to identify bloat or over-exported symbols
+
+WHY YOU NEED THIS:
+You cannot determine if an export is used without scanning the entire codebase. This tool:
+1. Extracts all exported symbols from the target file
+2. Cross-references them with the reverse dependency index
+3. Identifies symbols that are exported but never imported elsewhere
+4. Calculates the "unused percentage" to prioritize cleanup
+
+RETURNS:
+- List of unused exported symbols with their metadata (name, kind, line number, category)
+- Total count of unused vs total exported symbols
+- Percentage of exports that are dead code
+- Each unused symbol includes its line number for quick navigation
+
+NOTE: Currently returns all exports as potentially unused until full cross-file symbol resolution is implemented. This will be enhanced to accurately track symbol-level imports across the project.`,
+    inputSchema: {
+      filePath: z.string().describe('The absolute path to the file to check for unused exports. Typically a library file, utility module, or component that may have over-exported.'),
+    },
+  },
+  async ({ filePath }) => {
+    const workerCheck = await ensureWorkerReady();
+    if (workerCheck.error) return workerCheck.response;
+
+    const response = await invokeToolWithResponse<FindUnusedSymbolsResult>('find_unused_symbols', { filePath });
+
+    return {
+      content: [
+        {
+          type: 'text' as const,
+          text: JSON.stringify(response, null, 2),
+        },
+      ],
+    };
+  }
+);
+
+// Tool: graphItLive_getSymbolDependents
+server.registerTool(
+  'graphItLive_getSymbolDependents',
+  {
+    title: 'Find All Callers of a Symbol (Impact Analysis)',
+    description: `CRITICAL: USE THIS TOOL WHEN the user wants to know every file and specific method/function that calls or uses a given symbol. This is essential for surgical refactoring and precise impact analysis.
+
+WHEN TO USE:
+- User asks "What uses this function?" or "Who calls this method?"
+- User wants to refactor a function and needs to know all callers
+- User needs to change a function signature and must update all call sites
+- Impact analysis before modifying an API, class method, or utility function
+- User asks about the "blast radius" of a change to a specific symbol
+
+WHY YOU NEED THIS:
+Unlike file-level dependencies, this tool provides SYMBOL-LEVEL precision:
+- Knows exactly which FUNCTIONS/METHODS call the target symbol
+- Works across the entire codebase, not just one file
+- Essential for safe refactoring without breaking dependent code
+- Answers the question: "If I change this signature, what breaks?"
+
+RETURNS:
+- List of all symbol dependencies that use the target symbol
+- Each entry includes: caller symbol ID, file path, and relative path
+- Total count of dependents for quick impact assessment
+
+EXAMPLE USE CASE:
+User: "I want to add a parameter to formatDate(). What will break?"
+→ Use this tool with symbolName="formatDate" to get all callers, then the user knows exactly which functions need updating.`,
+    inputSchema: {
+      filePath: z.string().describe('The absolute path to the file containing the symbol to analyze.'),
+      symbolName: z.string().describe('The name of the function, class, or method to find dependents for (e.g., "formatDate", "UserService", "handleRequest").'),
+    },
+  },
+  async ({ filePath, symbolName }) => {
+    const workerCheck = await ensureWorkerReady();
+    if (workerCheck.error) return workerCheck.response;
+
+    const response = await invokeToolWithResponse<GetSymbolDependentsResult>('get_symbol_dependents', { 
+      filePath, 
+      symbolName,
+    });
+
+    return {
+      content: [
+        {
+          type: 'text' as const,
+          text: JSON.stringify(response, null, 2),
+        },
+      ],
+    };
+  }
+);
+
+// Tool: graphItLive_traceFunctionExecution
+server.registerTool(
+  'graphItLive_traceFunctionExecution',
+  {
+    title: 'Trace Function Execution Chain',
+    description: `CRITICAL: USE THIS TOOL WHEN the user wants to trace the full, deep call chain from a root symbol (function, method, or class). This is essential for understanding the execution flow through services, repositories, and utilities.
+
+WHEN TO USE:
+- User asks "What does this function call?"
+- User wants to trace an API call through the entire stack
+- User needs to understand the full execution path of a feature
+- User asks about the call hierarchy or call graph
+- Impact analysis for deep refactoring
+
+WHY YOU NEED THIS:
+This tool provides a complete picture of what a function calls, recursively following the call chain until:
+1. It reaches external modules (node_modules)
+2. It hits the max depth limit
+3. It encounters a cycle (already visited symbol)
+
+Unlike graphItLive_getSymbolGraph which shows only direct dependencies, this tool follows the entire execution chain through multiple files.
+
+RETURNS:
+- Root symbol information (ID, file path, symbol name)
+- Complete call chain with depth, caller, and called symbols
+- Resolved file paths for each called symbol
+- List of all visited symbols (for detecting coverage)
+- Whether the max depth was reached (may need deeper trace)
+
+Use cases:
+- Trace \`handleRequest\` from controller → service → repository → database
+- Understand which utilities a feature depends on
+- Map out the blast radius of a function change`,
+    inputSchema: {
+      filePath: z.string().describe('The absolute path to the file containing the root symbol to trace from.'),
+      symbolName: z.string().describe('The name of the function, method, or class to start tracing from.'),
+      maxDepth: z.number().optional().describe('Maximum depth to trace. Default is 10. Use higher values (20-50) for deep call stacks.'),
+    },
+  },
+  async ({ filePath, symbolName, maxDepth }) => {
+    const workerCheck = await ensureWorkerReady();
+    if (workerCheck.error) return workerCheck.response;
+
+    const response = await invokeToolWithResponse<TraceFunctionExecutionResult>('trace_function_execution', { 
+      filePath, 
+      symbolName,
+      maxDepth,
+    });
+
+    return {
+      content: [
+        {
+          type: 'text' as const,
+          text: JSON.stringify(response, null, 2),
+        },
+      ],
+    };
+  }
+);
+
+// Tool: graphItLive_getSymbolCallers
+server.registerTool(
+  'graphItLive_getSymbolCallers',
+  {
+    title: 'Get Symbol Callers (Reverse Dependencies)',
+    description: `CRITICAL: USE THIS TOOL WHEN the user wants to find all callers of a specific symbol (function, method, class, or variable).
+
+WHEN TO USE:
+- User asks "Who calls this function?"
+- User asks "Where is this method used?"
+- User wants to understand symbol usage across the codebase
+- User needs reverse symbol-level dependencies
+- Pre-refactoring analysis to understand blast radius
+
+WHY YOU NEED THIS:
+Unlike file-level reverse dependencies (graphItLive_findReferencingFiles), this tool provides **symbol-level granularity**.
+It answers "Which specific functions call my function?" rather than "Which files import my file?".
+
+RETURNS:
+- List of callers with their file path, symbol name, line number
+- Usage type: 'runtime' (actual code execution) vs 'type-only' (interface/type usage)
+- Sorted by depth (direct callers first)
+
+Use cases:
+- Find all call sites before renaming a function
+- Identify dead code (symbols with no callers)
+- Understand symbol coupling across modules`,
+    inputSchema: {
+      filePath: z.string().describe('The absolute path to the file containing the target symbol.'),
+      symbolName: z.string().describe('The name of the symbol (function, class, method, variable) to find callers for.'),
+      includeTypeOnly: z.boolean().optional().describe('Include type-only usages (interfaces, type aliases). Default is true.'),
+    },
+  },
+  async ({ filePath, symbolName, includeTypeOnly }) => {
+    const workerCheck = await ensureWorkerReady();
+    if (workerCheck.error) return workerCheck.response;
+
+    const response = await invokeToolWithResponse<GetSymbolCallersResult>('get_symbol_callers', { 
+      filePath, 
+      symbolName,
+      includeTypeOnly,
+    });
+
+    return {
+      content: [
+        {
+          type: 'text' as const,
+          text: JSON.stringify(response, null, 2),
+        },
+      ],
+    };
+  }
+);
+
+// Tool: graphItLive_analyzeBreakingChanges
+server.registerTool(
+  'graphItLive_analyzeBreakingChanges',
+  {
+    title: 'Analyze Breaking Changes in Signature',
+    description: `CRITICAL: USE THIS TOOL WHEN the user wants to detect breaking changes after modifying a function, method, or class signature.
+
+WHEN TO USE:
+- User asks "Will this change break anything?"
+- User is about to modify function parameters
+- User changed return type and wants to validate
+- User renamed or removed parameters
+- Pre-PR validation for API changes
+
+WHY YOU NEED THIS:
+This tool compares the BEFORE and AFTER versions of a function/method signature and detects:
+- Added required parameters (BREAKING)
+- Removed parameters (BREAKING)
+- Changed parameter types (BREAKING)
+- Changed return type (BREAKING)
+- Added optional parameters (usually safe)
+- Parameter order changes
+
+RETURNS:
+- List of breaking changes with type and description
+- Severity level (high/medium/low)
+- Suggested migration steps
+- List of affected callers that need to be updated
+
+Use cases:
+- Validate refactoring before committing
+- Generate migration notes for API changes
+- Identify which call sites need updates`,
+    inputSchema: {
+      filePath: z.string().describe('The absolute path to the file containing the modified symbol.'),
+      symbolName: z.string().optional().describe('Optional: filter to analyze only changes to this specific symbol.'),
+      oldContent: z.string().describe('The original file content before the change (for comparison).'),
+      newContent: z.string().optional().describe('The new file content after the change. If not provided, reads current file.'),
+    },
+  },
+  async ({ filePath, symbolName, oldContent, newContent }) => {
+    const workerCheck = await ensureWorkerReady();
+    if (workerCheck.error) return workerCheck.response;
+
+    const response = await invokeToolWithResponse<AnalyzeBreakingChangesResult>('analyze_breaking_changes', { 
+      filePath, 
+      symbolName,
+      oldContent,
+      newContent,
+    });
+
+    return {
+      content: [
+        {
+          type: 'text' as const,
+          text: JSON.stringify(response, null, 2),
+        },
+      ],
+    };
+  }
+);
+
+// Tool: graphItLive_getImpactAnalysis
+server.registerTool(
+  'graphItLive_getImpactAnalysis',
+  {
+    title: 'Get Comprehensive Impact Analysis',
+    description: `CRITICAL: USE THIS TOOL WHEN the user needs a full impact assessment before modifying a symbol.
+
+WHEN TO USE:
+- User asks "What's the blast radius of this change?"
+- User wants to understand full impact of modifying a function/class
+- User needs to identify all affected code paths
+- Pre-refactoring risk assessment
+- Understanding module coupling
+
+WHY YOU NEED THIS:
+This is the MOST COMPREHENSIVE impact analysis tool. It combines:
+1. Symbol-level reverse dependencies (who calls this symbol?)
+2. Transitive impact (who calls the callers? And so on...)
+3. Type vs runtime usage distinction
+4. File-level aggregation
+5. Human-readable risk assessment
+
+RETURNS:
+- Impact level: 'high', 'medium', or 'low'
+- Total impact count (direct + transitive)
+- Breakdown: runtime vs type-only impacts
+- List of impacted symbols with:
+  - Symbol ID and file path
+  - Depth (1 = direct, 2+ = transitive)
+  - Usage type (runtime/type-only)
+- Affected files list
+- Human-readable summary with recommendations
+
+Use cases:
+- Full risk assessment before major refactoring
+- Identify critical vs low-impact changes
+- Generate change impact reports
+- Prioritize which call sites to update first`,
+    inputSchema: {
+      filePath: z.string().describe('The absolute path to the file containing the target symbol.'),
+      symbolName: z.string().describe('The name of the symbol to analyze impact for.'),
+      includeTransitive: z.boolean().optional().describe('Include transitive (indirect) impacts. Default is true.'),
+      maxDepth: z.number().optional().describe('Maximum transitive depth. Default is 5. Higher = more complete but slower.'),
+    },
+  },
+  async ({ filePath, symbolName, includeTransitive, maxDepth }) => {
+    const workerCheck = await ensureWorkerReady();
+    if (workerCheck.error) return workerCheck.response;
+
+    const response = await invokeToolWithResponse<GetImpactAnalysisResult>('get_impact_analysis', { 
+      filePath, 
+      symbolName,
+      includeTransitive,
+      maxDepth,
+    });
+
+    return {
+      content: [
+        {
+          type: 'text' as const,
+          text: JSON.stringify(response, null, 2),
+        },
+      ],
+    };
+  }
+);
+
 // ============================================================================
 // Server Startup
 // ============================================================================
 
 async function main(): Promise<void> {
   debugLog('[McpServer] Graph-It-Live MCP Server starting...');
-  debugLog(`[McpServer] Workspace: ${WORKSPACE_ROOT}`);
-  debugLog(`[McpServer] TSConfig: ${TSCONFIG_PATH ?? 'auto-detect'}`);
-  debugLog(`[McpServer] Exclude node_modules: ${EXCLUDE_NODE_MODULES}`);
-  debugLog(`[McpServer] Max depth: ${MAX_DEPTH}`);
+  debugLog(`[McpServer] Workspace: ${getWorkspaceRoot() || '(not configured - use graphItLive_setWorkspace)'}`);
+  debugLog(`[McpServer] TSConfig: ${currentConfig.tsConfigPath ?? 'auto-detect'}`);
+  debugLog(`[McpServer] Exclude node_modules: ${currentConfig.excludeNodeModules}`);
+  debugLog(`[McpServer] Max depth: ${currentConfig.maxDepth}`);
 
   // Connect to stdio transport
   const transport = new StdioServerTransport();

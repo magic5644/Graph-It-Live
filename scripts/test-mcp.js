@@ -314,6 +314,184 @@ async function runTests() {
   });
   await new Promise(r => setTimeout(r, 2000)); // Give more time for rebuild
 
+  // =========================================================================
+  // 14. graphItLive_getSymbolGraph - Get symbol-level dependencies
+  // =========================================================================
+  console.log('\n📤 [graphItLive_getSymbolGraph] Analyzing symbol graph for main.ts...');
+  send({
+    jsonrpc: '2.0',
+    id: ++id,
+    method: 'tools/call',
+    params: {
+      name: 'graphItLive_getSymbolGraph',
+      arguments: {
+        filePath: path.join(fixturesPath, 'main.ts')
+      }
+    }
+  });
+  await new Promise(r => setTimeout(r, 500));
+
+  // =========================================================================
+  // 15. graphItLive_findUnusedSymbols - Find potentially unused exports
+  // =========================================================================
+  console.log('\n📤 [graphItLive_findUnusedSymbols] Finding unused exports in utils.ts...');
+  send({
+    jsonrpc: '2.0',
+    id: ++id,
+    method: 'tools/call',
+    params: {
+      name: 'graphItLive_findUnusedSymbols',
+      arguments: {
+        filePath: path.join(fixturesPath, 'utils.ts')
+      }
+    }
+  });
+  await new Promise(r => setTimeout(r, 500));
+
+  // =========================================================================
+  // 16. graphItLive_getSymbolDependents - Find all callers of a symbol
+  // =========================================================================
+  console.log('\n📤 [graphItLive_getSymbolDependents] Finding dependents of format function...');
+  send({
+    jsonrpc: '2.0',
+    id: ++id,
+    method: 'tools/call',
+    params: {
+      name: 'graphItLive_getSymbolDependents',
+      arguments: {
+        filePath: path.join(fixturesPath, 'utils.ts'),
+        symbolName: 'format'
+      }
+    }
+  });
+  await new Promise(r => setTimeout(r, 500));
+
+  // =========================================================================
+  // 17. graphItLive_getSymbolCallers - Find callers of a symbol (O(1) lookup)
+  // =========================================================================
+  const utilsPath = path.join(fixturesPath, 'utils.ts');
+  console.log('\n📤 [graphItLive_getSymbolCallers] Finding callers of greet function...');
+  send({
+    jsonrpc: '2.0',
+    id: ++id,
+    method: 'tools/call',
+    params: {
+      name: 'graphItLive_getSymbolCallers',
+      arguments: {
+        filePath: utilsPath,
+        symbolName: 'greet'
+      }
+    }
+  });
+  await new Promise(r => setTimeout(r, 500));
+
+  // =========================================================================
+  // 18. graphItLive_getSymbolCallers - Filter runtime only
+  // =========================================================================
+  console.log('\n📤 [graphItLive_getSymbolCallers] Finding runtime-only callers...');
+  send({
+    jsonrpc: '2.0',
+    id: ++id,
+    method: 'tools/call',
+    params: {
+      name: 'graphItLive_getSymbolCallers',
+      arguments: {
+        filePath: utilsPath,
+        symbolName: 'add',
+        includeTypeOnly: false
+      }
+    }
+  });
+  await new Promise(r => setTimeout(r, 500));
+
+  // =========================================================================
+  // 19. graphItLive_analyzeBreakingChanges - Analyze signature changes
+  // =========================================================================
+  console.log('\n📤 [graphItLive_analyzeBreakingChanges] Analyzing breaking changes in utils.ts...');
+  send({
+    jsonrpc: '2.0',
+    id: ++id,
+    method: 'tools/call',
+    params: {
+      name: 'graphItLive_analyzeBreakingChanges',
+      arguments: {
+        filePath: utilsPath,
+        // Old version had add with one parameter
+        oldContent: `export function greet(name: string): string {
+  return \`Hello, \${name}!\`;
+}
+
+export function add(a: number): number {
+  return a;
+}`,
+        // New version has add with two parameters (breaking change!)
+        newContent: `export function greet(name: string): string {
+  return \`Hello, \${name}!\`;
+}
+
+export function add(a: number, b: number): number {
+  return a + b;
+}`
+      }
+    }
+  });
+  await new Promise(r => setTimeout(r, 500));
+
+  // =========================================================================
+  // 20. graphItLive_getImpactAnalysis - Full impact analysis
+  // =========================================================================
+  console.log('\n📤 [graphItLive_getImpactAnalysis] Getting impact analysis for greet symbol...');
+  send({
+    jsonrpc: '2.0',
+    id: ++id,
+    method: 'tools/call',
+    params: {
+      name: 'graphItLive_getImpactAnalysis',
+      arguments: {
+        filePath: utilsPath,
+        symbolName: 'greet'
+      }
+    }
+  });
+  await new Promise(r => setTimeout(r, 500));
+
+  // =========================================================================
+  // 21. graphItLive_getImpactAnalysis - With transitive analysis
+  // =========================================================================
+  console.log('\n📤 [graphItLive_getImpactAnalysis] Impact with transitive dependents...');
+  send({
+    jsonrpc: '2.0',
+    id: ++id,
+    method: 'tools/call',
+    params: {
+      name: 'graphItLive_getImpactAnalysis',
+      arguments: {
+        filePath: utilsPath,
+        symbolName: 'add',
+        includeTransitive: true,
+        maxDepth: 5
+      }
+    }
+  });
+  await new Promise(r => setTimeout(r, 500));
+
+  // =========================================================================
+  // 22. Error case: graphItLive_getSymbolGraph with non-existent file
+  // =========================================================================
+  console.log('\n📤 [graphItLive_getSymbolGraph] Testing error case: non-existent file...');
+  send({
+    jsonrpc: '2.0',
+    id: ++id,
+    method: 'tools/call',
+    params: {
+      name: 'graphItLive_getSymbolGraph',
+      arguments: {
+        filePath: '/non/existent/symbol-file.ts'
+      }
+    }
+  });
+  await new Promise(r => setTimeout(r, 500));
+
   // Wait for all responses
   await new Promise(r => setTimeout(r, 2000));
   
