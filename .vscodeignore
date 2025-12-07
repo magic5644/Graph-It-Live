@@ -1,21 +1,55 @@
+# VS Code / IDE
 .vscode/**
 .vscode-test/**
-.spec
+
+# Source code (bundled in dist/)
 src/**
 tests/**
+
+# Dependencies
 node_modules/**
+
+# Build artifacts & intermediates
+out/**
+out-webview/**
+coverage/**
+verbose/**
+*.vsix
+
+# Config files
 .gitignore
+.eslintignore
 .eslintrc.json
+eslint.config.mjs
 esbuild.js
 tsconfig.json
 tsconfig.webview.json
+tsconfig.test.json
+tsconfig.test.node.json
+tsconfig.test.webview.json
+tsconfig.test.tsbuildinfo
 vitest.config.ts
-PROMPT_SPEC.md
-.github/**
-*.vsix
+vitest.config.mjs
+vitest.config.mts
+vitest.benchmark.config.mts
+sonar-project.properties
 package-lock.json
+
+# Development & documentation files
+.github/**
 .gemini/**
+.spec/**
+docs/**
+scripts/**
+PROMPT_SPEC.md
 walkthrough.md
 implementation_plan.md
 task.md
-*.map
+test.log
+
+# Source maps (not needed in production)
+**/*.map
+
+# OS files
+.DS_Store
+**/.DS_Store
