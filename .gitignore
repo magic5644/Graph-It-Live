@@ -156,4 +156,7 @@ vite.config.ts.timestamp-*
 .github/agents
 mcp.json
 
+# Playwright files
+playwright-report/
+test-results/
 

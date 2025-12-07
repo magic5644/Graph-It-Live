@@ -44,12 +44,23 @@ const nodeHeight = 50;
 /**
  * Get node style based on file type and state
  */
-function getNodeStyle(fileName: string, path: string, isRoot: boolean): { background: string; border: string; color: string } {
+function getNodeStyle(fileName: string, path: string, isRoot: boolean, isSymbolNode: boolean = false): { background: string; border: string; color: string; shape: 'rect' | 'circle' } {
     if (isRoot) {
         return {
             background: 'var(--vscode-button-background)',
             color: 'var(--vscode-button-foreground)',
             border: '1px solid var(--vscode-button-background)',
+            shape: 'rect',
+        };
+    }
+    
+    // Symbol nodes get circular shape and different styling
+    if (isSymbolNode) {
+        return {
+            background: 'var(--vscode-editor-background)',
+            border: '2px solid var(--vscode-button-background)',
+            color: 'var(--vscode-editor-foreground)',
+            shape: 'circle',
         };
     }
     
@@ -59,6 +70,7 @@ function getNodeStyle(fileName: string, path: string, isRoot: boolean): { backgr
             background: 'var(--vscode-sideBar-background)',
             border: '1px dashed var(--vscode-disabledForeground)',
             color: 'var(--vscode-editor-foreground)',
+            shape: 'rect',
         };
     }
 
@@ -66,6 +78,7 @@ function getNodeStyle(fileName: string, path: string, isRoot: boolean): { backgr
         background: 'var(--vscode-editor-background)',
         color: 'var(--vscode-editor-foreground)',
         border: '1px solid var(--vscode-widget-border)',
+        shape: 'rect' as const,
     };
 
     // File type specific borders
@@ -188,165 +201,200 @@ export const useGraphData = () => {
       return { circularEdges: cycleEdges, nodesInCycles: cycleNodes };
   }, [fullGraphData]);
 
+  // Helper: Calculate visible nodes and edges based on expansion state
+  const calculateVisibleGraph = useCallback((
+    graphData: GraphData,
+    rootPath: string,
+    expanded: Set<string>
+  ): { visibleNodes: Set<string>; visibleEdges: { source: string; target: string }[] } => {
+    const visibleNodes = new Set<string>();
+    const visibleEdges: { source: string; target: string }[] = [];
+    const visited = new Set<string>();
+    const addedEdgeIds = new Set<string>();
+
+    visibleNodes.add(rootPath);
+
+    const addEdge = (edge: { source: string; target: string }) => {
+      const edgeId = `${edge.source}-${edge.target}`;
+      if (!addedEdgeIds.has(edgeId)) {
+        addedEdgeIds.add(edgeId);
+        visibleEdges.push(edge);
+      }
+    };
+
+    const addChildren = (parentId: string) => {
+      if (visited.has(parentId)) return;
+      visited.add(parentId);
+
+      const childrenEdges = graphData.edges.filter(e => e.source === parentId);
+      childrenEdges.forEach(edge => {
+        visibleNodes.add(edge.target);
+        addEdge(edge);
+        if (expanded.has(edge.target)) {
+          addChildren(edge.target);
+        }
+      });
+    };
+
+    addChildren(rootPath);
+
+    // Add incoming edges to root (Referenced By)
+    const incomingEdges = graphData.edges.filter(e => e.target === rootPath);
+    incomingEdges.forEach(edge => {
+      visibleNodes.add(edge.source);
+      addEdge(edge);
+    });
+
+    return { visibleNodes, visibleEdges };
+  }, []);
+
+  // Helper: Get disambiguated label for a node
+  const getNodeLabel = useCallback((
+    path: string,
+    graphData: GraphData,
+    fileNameCounts: Map<string, number>
+  ): string => {
+    const fileName = path.split(/[/\\]/).pop() || path;
+    
+    // Use custom label if available
+    if (graphData.nodeLabels?.[path]) {
+      return graphData.nodeLabels[path];
+    }
+    
+    // Disambiguate duplicate filenames
+    if ((fileNameCounts.get(fileName) || 0) > 1) {
+      const parentDir = path.split(/[/\\]/).slice(-2, -1)[0];
+      if (parentDir) {
+        return `${parentDir}/${fileName}`;
+      }
+    }
+    
+    return fileName;
+  }, []);
+
+  // Helper: Build node style object
+  const buildNodeStyle = useCallback((
+    isRoot: boolean,
+    shape: 'rect' | 'circle',
+    background: string,
+    color: string,
+    border: string
+  ): React.CSSProperties => ({
+    background,
+    color,
+    border,
+    borderRadius: shape === 'circle' ? '50%' : 4,
+    padding: 10,
+    fontSize: '12px',
+    width: shape === 'circle' ? 80 : nodeWidth,
+    height: shape === 'circle' ? 80 : nodeHeight,
+    fontWeight: isRoot ? 'bold' : 'normal',
+    cursor: 'pointer',
+    textDecoration: isRoot ? 'underline' : 'none',
+    textAlign: 'center',
+    boxShadow: '0 2px 4px rgba(0,0,0,0.1)',
+    fontFamily: 'var(--vscode-font-family)',
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+  }), []);
+
+  // Helper: Create a React Flow node from path
+  const createFlowNode = useCallback((
+    path: string,
+    graphData: GraphData,
+    rootPath: string,
+    expanded: Set<string>,
+    fileNameCounts: Map<string, number>,
+    cycleNodes: Set<string> | undefined
+  ): Node => {
+    const fileName = path.split(/[/\\]/).pop() || path;
+    const label = getNodeLabel(path, graphData, fileNameCounts);
+    const isRoot = path === rootPath;
+    const hasChildren = graphData.edges.some(e => e.source === path);
+    const isExpanded = expanded.has(path) || isRoot;
+    const isInCycle = cycleNodes?.has(path) || false;
+    const isFileNode = !path.includes(':');
+    const { background, border, color, shape } = getNodeStyle(fileName, path, isRoot, !isFileNode);
+
+    return {
+      id: path,
+      data: {
+        label,
+        fullPath: path,
+        hasChildren,
+        isExpanded,
+        isInCycle,
+        onToggle: () => toggleNode(path),
+        onExpand: hasChildren ? () => requestExpandNode?.(path) : undefined,
+        onFindReferences: () => requestFindReferencingFiles?.(path),
+        onDrillDown: isFileNode ? () => drillDownToSymbols(path) : undefined,
+        isRoot,
+        isFileNode,
+      },
+      sourcePosition: Position.Right,
+      targetPosition: Position.Left,
+      position: { x: 0, y: 0 },
+      type: 'custom',
+      style: buildNodeStyle(isRoot, shape, background, color, border),
+    };
+  }, [toggleNode, getNodeLabel, buildNodeStyle]);
+
+  // Helper: Create React Flow edges
+  const createFlowEdges = useCallback((
+    visibleEdges: { source: string; target: string }[],
+    cycleEdgeSet: Set<string>
+  ): Edge[] => {
+    return visibleEdges.map(edge => {
+      const edgeId = `${edge.source}-${edge.target}`;
+      const isCircular = cycleEdgeSet.has(edgeId);
+
+      return {
+        id: edgeId,
+        source: edge.source,
+        target: edge.target,
+        animated: true,
+        style: isCircular
+          ? { stroke: '#ff4d4d', strokeWidth: 2, strokeDasharray: '5,5' }
+          : { stroke: 'var(--vscode-editor-foreground)' },
+        label: isCircular ? 'Cycle' : undefined,
+        labelStyle: isCircular ? { fill: '#ff4d4d', fontWeight: 'bold' } : undefined,
+        labelBgStyle: isCircular ? { fill: 'var(--vscode-editor-background)' } : undefined,
+      };
+    });
+  }, []);
+
   // Re-calculate visible nodes and edges when fullGraphData or expandedNodes changes
   useEffect(() => {
     if (!fullGraphData || !currentFilePath) return;
 
-    const visibleNodes = new Set<string>();
-    const visibleEdges: { source: string; target: string }[] = [];
-    
-    // Always show root
-    visibleNodes.add(currentFilePath);
-    
-    // Helper to add children if parent is expanded
-    const visited = new Set<string>();
-    
-    const addedEdgeIds = new Set<string>();
+    const { visibleNodes, visibleEdges } = calculateVisibleGraph(
+      fullGraphData,
+      currentFilePath,
+      expandedNodes
+    );
 
-    const addEdge = (edge: { source: string; target: string }) => {
-        const edgeId = `${edge.source}-${edge.target}`;
-        if (!addedEdgeIds.has(edgeId)) {
-            addedEdgeIds.add(edgeId);
-            visibleEdges.push(edge);
-        }
-    };
-    
-    const addChildren = (parentId: string) => {
-        if (visited.has(parentId)) return;
-        visited.add(parentId);
-
-        // Find edges starting from parent
-        const childrenEdges = fullGraphData.edges.filter(e => e.source === parentId);
-        
-        childrenEdges.forEach(edge => {
-            visibleNodes.add(edge.target);
-            addEdge(edge);
-            
-            // If child is expanded, recurse
-            if (expandedNodes.has(edge.target)) {
-                addChildren(edge.target);
-            }
-        });
-    };
-
-    // Start from root - root is always treated as expanded
-    // So we always call addChildren for it
-    addChildren(currentFilePath);
-
-    // Also check for incoming edges to the root (Referenced By)
-    console.log('Graph-It-Live Webview: Checking incoming edges for', currentFilePath);
-    const incomingEdges = fullGraphData.edges.filter(e => {
-        const isMatch = e.target === currentFilePath;
-        if (!isMatch && e.target.endsWith(currentFilePath.split(/[/\\]/).pop() || '')) {
-
-             console.log('Graph-It-Live Webview: Potential path mismatch?', e.target, currentFilePath);
-        }
-        return isMatch;
-    });
-    console.log('Graph-It-Live Webview: Incoming edges to root', incomingEdges);
-    incomingEdges.forEach(edge => {
-        visibleNodes.add(edge.source);
-        addEdge(edge);
-        
-        // If the referencing node is expanded, we might want to show its parents too?
-        // For now, let's just show the immediate parents of the root.
-        // If we want to support traversing up, we'd need an addParents function.
-    });
-
-    // Create React Flow Nodes
-    const newNodes: Node[] = [];
-    
-    // Calculate filename frequencies to detect duplicates
+    // Calculate filename frequencies for disambiguation
     const fileNameCounts = new Map<string, number>();
     visibleNodes.forEach(path => {
-        const fileName = path.split(/[/\\]/).pop() || path;
-        fileNameCounts.set(fileName, (fileNameCounts.get(fileName) || 0) + 1);
+      const fileName = path.split(/[/\\]/).pop() || path;
+      fileNameCounts.set(fileName, (fileNameCounts.get(fileName) || 0) + 1);
     });
 
-    visibleNodes.forEach(path => {
-        const fileName = path.split(/[/\\]/).pop() || path;
-        
-        // Use custom label from nodeLabels if available (e.g., @bobbee/auth-lib)
-        let label = fullGraphData.nodeLabels?.[path] || fileName;
-        
-        // Disambiguate if multiple files have the same name (only if not using custom label)
-        if (!fullGraphData.nodeLabels?.[path] && (fileNameCounts.get(fileName) || 0) > 1) {
-            const parentDir = path.split(/[/\\]/).slice(-2, -1)[0];
-            if (parentDir) {
-                label = `${parentDir}/${fileName}`;
-            }
-        }
+    // Create React Flow nodes
+    const newNodes: Node[] = Array.from(visibleNodes).map(path =>
+      createFlowNode(path, fullGraphData, currentFilePath, expandedNodes, fileNameCounts, nodesInCycles)
+    );
 
-        const isRoot = path === currentFilePath;
-        const hasChildren = fullGraphData.edges.some(e => e.source === path);
-        const isExpanded = expandedNodes.has(path) || isRoot;
-        const isInCycle = nodesInCycles?.has(path) || false;
-        const { background, border, color } = getNodeStyle(fileName, path, isRoot);
+    // Create React Flow edges
+    const newEdges = createFlowEdges(visibleEdges, circularEdges);
 
-        newNodes.push({
-          id: path,
-          data: { 
-              label,
-              fullPath: path,
-              hasChildren,
-              isExpanded,
-              isInCycle,
-              onToggle: () => toggleNode(path),
-              onExpand: hasChildren ? () => requestExpandNode?.(path) : undefined,
-              onFindReferences: () => requestFindReferencingFiles?.(path),
-              isRoot,
-          },
-          sourcePosition: Position.Right,
-          targetPosition: Position.Left,
-          position: { x: 0, y: 0 },
-          type: 'custom',
-          style: {
-            background,
-            color,
-            border,
-            borderRadius: 4,
-            padding: 10,
-            fontSize: '12px',
-            width: nodeWidth,
-            fontWeight: isRoot ? 'bold' : 'normal',
-            cursor: 'pointer',
-            textDecoration: isRoot ? 'underline' : 'none',
-            textAlign: 'center',
-            boxShadow: '0 2px 4px rgba(0,0,0,0.1)',
-            fontFamily: 'var(--vscode-font-family)',
-          },
-        });
-    });
-
-    // Create React Flow Edges
-    const newEdges: Edge[] = visibleEdges.map(edge => {
-        const edgeId = `${edge.source}-${edge.target}`;
-        const isCircular = circularEdges.has(edgeId);
-        
-        return {
-            id: edgeId,
-            source: edge.source,
-            target: edge.target,
-            animated: true,
-            style: isCircular 
-                ? { stroke: '#ff4d4d', strokeWidth: 2, strokeDasharray: '5,5' } // Red dashed for cycles
-                : { stroke: 'var(--vscode-editor-foreground)' },
-            label: isCircular ? 'Cycle' : undefined,
-            labelStyle: isCircular ? { fill: '#ff4d4d', fontWeight: 'bold' } : undefined,
-            labelBgStyle: isCircular ? { fill: 'var(--vscode-editor-background)' } : undefined,
-        };
-    });
-
-    // Apply Layout
+    // Apply layout
     const layouted = getLayoutedElements(newNodes, newEdges);
-
     setNodes(layouted.nodes);
     setEdges(layouted.edges);
 
-    setNodes(layouted.nodes);
-    setEdges(layouted.edges);
-
-  }, [fullGraphData, expandedNodes, currentFilePath, setNodes, setEdges, toggleNode, circularEdges, expandAll]);
+  }, [fullGraphData, expandedNodes, currentFilePath, setNodes, setEdges, circularEdges, nodesInCycles, calculateVisibleGraph, createFlowNode, createFlowEdges]);
 
   // Function to request on-demand scan when expanding a node
   const requestExpandNode = useCallback((nodeId: string) => {
@@ -401,6 +449,15 @@ export const useGraphData = () => {
     }
   }, []);
 
+  // Helper to handle symbolGraph message
+  const handleSymbolGraphMessage = useCallback((message: ExtensionToWebviewMessage & { command: 'symbolGraph' }) => {
+    setCurrentFilePath(message.filePath);
+    setFullGraphData(message.data);
+    
+    // In symbol view, expand the file node by default to show its symbols
+    setExpandedNodes(new Set([message.filePath]));
+  }, []);
+
   // Helper to handle expandedGraph/referencingFiles message
   const handleMergeGraphMessage = useCallback((message: ExtensionToWebviewMessage & { command: 'expandedGraph' | 'referencingFiles' }) => {
     const currentData = fullGraphDataRef.current;
@@ -425,6 +482,8 @@ export const useGraphData = () => {
         // Debounce updates to prevent flickering
         clearTimeout(timeoutId);
         timeoutId = setTimeout(() => handleUpdateGraphMessage(message), 100);
+      } else if (message.command === 'symbolGraph') {
+        handleSymbolGraphMessage(message);
       } else if (message.command === 'expandedGraph' || message.command === 'referencingFiles') {
         handleMergeGraphMessage(message);
       }
@@ -435,7 +494,7 @@ export const useGraphData = () => {
         window.removeEventListener('message', handleMessage);
         clearTimeout(timeoutId);
     };
-  }, [handleUpdateGraphMessage, handleMergeGraphMessage]);
+  }, [handleUpdateGraphMessage, handleSymbolGraphMessage, handleMergeGraphMessage]);
 
   const onNodeClick = useCallback((_event: React.MouseEvent, node: Node) => {
     // If clicking on the expand button, don't open file
@@ -471,6 +530,15 @@ export const useGraphData = () => {
     }
   }, []);
 
+  const drillDownToSymbols = useCallback((filePath: string) => {
+    if (vscode) {
+      vscode.postMessage({
+        command: 'drillDown',
+        filePath,
+      });
+    }
+  }, []);
+
   return {
     nodes,
     edges,
@@ -486,5 +554,6 @@ export const useGraphData = () => {
     toggleExpandAll,
     refreshGraph,
     requestFindReferencingFiles,
+    drillDownToSymbols,
   };
 };

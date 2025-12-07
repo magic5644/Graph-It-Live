@@ -33,6 +33,9 @@ export class GraphProvider implements vscode.WebviewViewProvider {
     /** File system watcher for source file changes (create/delete) */
     private _fileWatcher?: vscode.FileSystemWatcher;
 
+    /** Currently displayed symbol view file (for auto-refresh on file change) */
+    private _currentSymbolFilePath?: string;
+
     constructor(extensionUri: vscode.Uri, context: vscode.ExtensionContext) {
         this._extensionUri = extensionUri;
         this._context = context;
@@ -67,6 +70,16 @@ export class GraphProvider implements vscode.WebviewViewProvider {
             if (this._spider) {
                 await this._spider.reanalyzeFile(uri.fsPath);
                 await this._persistIndex();
+                
+                // Refresh the appropriate view based on current mode
+                if (this._currentSymbolFilePath) {
+                    // In symbol view - always refresh to update reverse dependencies (Imported By list)
+                    // even if the created file is different from the viewed one
+                    await this.handleDrillDown(this._currentSymbolFilePath, true);
+                } else {
+                    // In file view - refresh the graph (preserve view mode)
+                    this.updateGraph(true);
+                }
             }
         });
 
@@ -77,6 +90,16 @@ export class GraphProvider implements vscode.WebviewViewProvider {
                 // Invalidate and re-analyze the file
                 await this._spider.reanalyzeFile(uri.fsPath);
                 await this._persistIndex();
+                
+                // Refresh the appropriate view based on current mode
+                if (this._currentSymbolFilePath) {
+                    // In symbol view - always refresh to update reverse dependencies (Imported By list)
+                    // even if the modified file is different from the viewed one
+                    await this.handleDrillDown(this._currentSymbolFilePath, true);
+                } else {
+                    // In file view - refresh the graph (preserve view mode)
+                    this.updateGraph(true);
+                }
             }
         });
 
@@ -86,6 +109,22 @@ export class GraphProvider implements vscode.WebviewViewProvider {
             if (this._spider) {
                 this._spider.handleFileDeleted(uri.fsPath);
                 await this._persistIndex();
+                
+                // Handle view refresh based on current mode
+                if (this._currentSymbolFilePath) {
+                    // In symbol view
+                    if (this._currentSymbolFilePath === uri.fsPath) {
+                        // The file we're viewing was deleted - switch to file view
+                        this._currentSymbolFilePath = undefined;
+                        this.updateGraph();
+                    } else {
+                        // Otherwise, refresh the current view to update reverse dependencies
+                        await this.handleDrillDown(this._currentSymbolFilePath, true);
+                    }
+                } else {
+                    // In file view - refresh the graph (preserve view mode)
+                    this.updateGraph(true);
+                }
             }
         });
 
@@ -331,8 +370,9 @@ export class GraphProvider implements vscode.WebviewViewProvider {
     }
 
     /**
-     * Handle a file being saved - invalidate cache and re-analyze
+     * Handle a file being saved - invalidate cache, re-analyze, and refresh view
      * This ensures the index reflects the latest file content
+     * Preserves the current view mode (file view or symbol view)
      * @param filePath Path to the saved file
      */
     public async onFileSaved(filePath: string): Promise<void> {
@@ -352,16 +392,123 @@ export class GraphProvider implements vscode.WebviewViewProvider {
         
         // Persist the updated index if enabled
         await this._persistIndex();
+        
+        // Refresh the appropriate view based on current mode
+    if (this._currentSymbolFilePath) {
+        // In symbol view - always refresh to update reverse dependencies (Imported By list)
+        // even if the saved file is different from the viewed one
+        await this.handleDrillDown(this._currentSymbolFilePath, true);
+    } else {
+        // In file view - refresh the graph (preserve view mode)
+        this.updateGraph(true);
+    }
+    }
+
+    /**
+     * Handle active file change - update view for new file while preserving view type
+     * If in symbol view, show symbols for new file
+     * If in file view, show dependencies for new file
+     */
+    public async onActiveFileChanged(): Promise<void> {
+        const editor = vscode.window.activeTextEditor;
+        if (!editor || editor.document.uri.scheme !== 'file') {
+            return;
+        }
+
+        const newFilePath = editor.document.fileName;
+        
+        // Only handle supported file types
+        if (!/\.(ts|tsx|js|jsx|vue|svelte|gql|graphql)$/.test(newFilePath)) {
+            return;
+        }
+
+        console.log(`[GraphProvider] Active file changed to: ${newFilePath}`);
+
+        // Preserve the current view type
+        if (this._currentSymbolFilePath) {
+            // Was in symbol view - show symbols for the new file
+            // Update tracking to new file and refresh symbol view
+            await this.handleDrillDown(newFilePath, true);
+        } else {
+            // Was in file view - show dependencies for the new file
+            this.updateGraph(true);
+        }
     }
 
     /**
      * Handle openFile message
+     * Supports both regular file paths and symbol IDs (filePath:symbolName)
+     * @param filePath The file path or symbol ID
+     * @param line Optional line number to navigate to (1-indexed)
      */
-    private async handleOpenFile(filePath: string): Promise<void> {
+    private async handleOpenFile(filePath: string, line?: number): Promise<void> {
         try {
-            console.log('GraphProvider: Opening file', filePath);
-            const doc = await vscode.workspace.openTextDocument(filePath);
-            await vscode.window.showTextDocument(doc, vscode.ViewColumn.One);
+            // Check if this is a symbol ID (contains ':')
+            let actualFilePath = filePath;
+            let symbolName: string | undefined;
+            
+            if (filePath.includes(':')) {
+                const parts = filePath.split(':');
+                actualFilePath = parts[0];
+                symbolName = parts.slice(1).join(':'); // Handle cases like "file:Class.method"
+                console.log(`GraphProvider: Opening symbol ${symbolName} in file ${actualFilePath}`);
+            } else {
+                console.log('GraphProvider: Opening file', actualFilePath);
+            }
+            
+            // If this is a relative path (starts with . or doesn't start with /), try to resolve it
+            if (this._spider && (actualFilePath.startsWith('.') || !actualFilePath.startsWith('/'))) {
+                try {
+                    // Try to resolve the path - Spider's PathResolver will handle it
+                    const workspaceRoot = vscode.workspace.workspaceFolders?.[0].uri.fsPath;
+                    if (workspaceRoot) {
+                        // For now, show a message that external files can't be opened
+                        // A full solution would require storing the current file context
+                        vscode.window.showInformationMessage(
+                            `Cannot open external dependency: ${actualFilePath}. This symbol is imported from outside the current file.`
+                        );
+                        return;
+                    }
+                } catch (resolveError) {
+                    console.warn('GraphProvider: Could not resolve path', resolveError);
+                }
+            }
+            
+            const doc = await vscode.workspace.openTextDocument(actualFilePath);
+            const editor = await vscode.window.showTextDocument(doc, vscode.ViewColumn.One);
+            
+            // If a specific line was provided, navigate directly to it
+            if (line && line > 0) {
+                const position = new vscode.Position(line - 1, 0);
+                editor.selection = new vscode.Selection(position, position);
+                editor.revealRange(
+                    new vscode.Range(position, position),
+                    vscode.TextEditorRevealType.InCenter
+                );
+            } else if (symbolName && this._spider) {
+                // If opening a symbol without explicit line, try to find and navigate to its definition
+                try {
+                    const { symbols } = await this._spider.getSymbolGraph(actualFilePath);
+                    
+                    // Find the symbol by name (handle both full name like "Class.method" and simple name)
+                    const symbol = symbols.find(s => 
+                        s.name === symbolName || s.id === filePath
+                    );
+                    
+                    if (symbol?.line) {
+                        // Navigate to the symbol's line (line numbers are 1-indexed)
+                        const position = new vscode.Position(symbol.line - 1, 0);
+                        editor.selection = new vscode.Selection(position, position);
+                        editor.revealRange(
+                            new vscode.Range(position, position),
+                            vscode.TextEditorRevealType.InCenter
+                        );
+                    }
+                } catch (symbolError) {
+                    // If symbol navigation fails, just open the file (already done)
+                    console.warn('GraphProvider: Could not navigate to symbol', symbolError);
+                }
+            }
         } catch (e) {
             console.error('GraphProvider: Error opening file', e);
             vscode.window.showErrorMessage(`Could not open file: ${filePath}`);
@@ -419,6 +566,90 @@ export class GraphProvider implements vscode.WebviewViewProvider {
         }
     }
 
+    /**
+     * Handle drillDown message (Symbol Analysis)
+     * @param filePath The file to analyze
+     * @param isRefresh If true, this is a refresh not navigation - don't push to history
+     */
+    private async handleDrillDown(filePath: string, isRefresh: boolean = false): Promise<void> {
+        if (!this._spider || !this._view) {
+            return;
+        }
+        
+        // Track the current symbol view file for auto-refresh on file changes
+        this._currentSymbolFilePath = filePath;
+        
+        try {
+            console.log(`GraphProvider: ${isRefresh ? 'Refreshing' : 'Drilling down into'} ${filePath} for symbol analysis`);
+            const symbolData = await this._spider.getSymbolGraph(filePath);
+
+            // Get referencing files to ensure atomic update of "Imported By" list
+            const referencingDependency = await this._spider.findReferencingFiles(filePath);
+            const referencingFiles = referencingDependency.map(d => d.path);
+            
+            // Build graph structure for symbol view
+            // Nodes include: the file itself + all exported symbols + referenced symbols
+            const nodes = new Set<string>();
+            
+            // Add the file node as the root
+            nodes.add(filePath);
+            
+            // Add only top-level symbols (exclude child methods/properties that have a parent)
+            // Child symbols will be shown in their parent's label
+            symbolData.symbols
+                .filter(s => !s.parentSymbolId) // Only add symbols without a parent
+                .forEach(s => nodes.add(s.id));
+            
+            // Add referenced symbols (imported from other files)
+            symbolData.dependencies.forEach(d => {
+                // Only add the target if it's a different file
+                // (internal references are already in symbols array)
+                if (!d.targetSymbolId.startsWith(filePath)) {
+                    nodes.add(d.targetSymbolId);
+                }
+            });
+            
+            // Build edges
+            const edges: { source: string; target: string }[] = [];
+            
+            // 1. Containment edges: file → exported top-level symbols only
+            // (Child methods are grouped under their parent class)
+            symbolData.symbols
+                .filter(s => s.isExported && !s.parentSymbolId)
+                .forEach(s => {
+                    edges.push({ source: filePath, target: s.id });
+                });
+            
+            // 2. Dependency edges: symbol → symbol
+            symbolData.dependencies.forEach(d => {
+                edges.push({
+                    source: d.sourceSymbolId,
+                    target: d.targetSymbolId
+                });
+            });
+            
+            const response: ExtensionToWebviewMessage = {
+                command: 'symbolGraph',
+                filePath,
+                isRefresh,
+                data: {
+                    nodes: Array.from(nodes),
+                    edges,
+                    symbolData,
+                    referencingFiles
+                }
+            };
+            
+            this._view.webview.postMessage(response);
+            console.log(`GraphProvider: Sent symbol graph with ${nodes.size} nodes and ${edges.length} edges`);
+        } catch (error) {
+            console.error('GraphProvider: Error drilling down into symbols:', error);
+            vscode.window.showErrorMessage(
+                `Failed to analyze symbols: ${error instanceof Error ? error.message : 'Unknown error'}`
+            );
+        }
+    }
+
     public resolveWebviewView(
         webviewView: vscode.WebviewView,
         _context: vscode.WebviewViewResolveContext,
@@ -440,7 +671,7 @@ export class GraphProvider implements vscode.WebviewViewProvider {
             switch (message.command) {
                 case 'openFile':
                     if (message.path) {
-                        await this.handleOpenFile(message.path);
+                        await this.handleOpenFile(message.path, message.line);
                     }
                     break;
                 case 'expandNode':
@@ -459,6 +690,11 @@ export class GraphProvider implements vscode.WebviewViewProvider {
                 case 'findReferencingFiles':
                     if (message.nodeId) {
                         await this.handleFindReferencingFiles(message.nodeId);
+                    }
+                    break;
+                case 'drillDown':
+                    if (message.filePath) {
+                        await this.handleDrillDown(message.filePath);
                     }
                     break;
             }
@@ -481,10 +717,19 @@ export class GraphProvider implements vscode.WebviewViewProvider {
         this.updateGraph();
     }
 
-    public async updateGraph() {
+    /**
+     * Update the file graph for the current active document
+     * @param isRefresh If true, this is a refresh not navigation - preserve view mode
+     */
+    public async updateGraph(isRefresh: boolean = false) {
         if (!this._view || !this._spider) {
             console.log('GraphProvider: View or Spider not initialized');
             return;
+        }
+
+        // Only clear symbol view tracking if this is a navigation, not a refresh
+        if (!isRefresh) {
+            this._currentSymbolFilePath = undefined;
         }
 
         const editor = vscode.window.activeTextEditor;
@@ -494,7 +739,7 @@ export class GraphProvider implements vscode.WebviewViewProvider {
         }
 
         const filePath = editor.document.fileName;
-        console.log(`GraphProvider: Analyzing ${filePath}`);
+        console.log(`GraphProvider: ${isRefresh ? 'Refreshing' : 'Updating'} graph for ${filePath}`);
 
         // Only analyze supported files
         if (!/\.(ts|tsx|js|jsx|vue|svelte|gql|graphql)$/.test(filePath)) {
@@ -511,6 +756,7 @@ export class GraphProvider implements vscode.WebviewViewProvider {
                 filePath,
                 data: graphData,
                 expandAll,
+                isRefresh,
             };
             this._view.webview.postMessage(message);
         } catch (error) {

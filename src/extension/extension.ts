@@ -22,19 +22,19 @@ export function activate(context: vscode.ExtensionContext) {
             }
         }),
 
-        // Listen for file/editor changes
+        // Listen for file/editor changes - preserve current view type
         vscode.window.onDidChangeActiveTextEditor((editor) => {
             console.log('[Extension] Active editor changed:', editor?.document.fileName);
-            provider.updateGraph();
+            // Use onActiveFileChanged to preserve view type (file or symbol)
+            provider.onActiveFileChanged();
         }),
         
         // Also update on save to reflect new imports
         vscode.workspace.onDidSaveTextDocument(async (doc) => {
             console.log('[Extension] Document saved:', doc.fileName);
-            // First, re-analyze the file to update cache and reverse index
+            // Re-analyze the file and refresh the appropriate view (file or symbol)
+            // onFileSaved now handles both cache update and view refresh while preserving view mode
             await provider.onFileSaved(doc.fileName);
-            // Then update the graph visualization
-            provider.updateGraph();
         }),
 
         // Register Command to focus the view

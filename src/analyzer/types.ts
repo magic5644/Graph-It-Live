@@ -76,3 +76,21 @@ export interface SerializedReverseIndex {
   /** Map of file path -> file hash */
   fileHashes: Record<string, FileHash>;
 }
+
+export interface SymbolInfo {
+  name: string;
+  kind: string; // 'Function', 'Class', 'Interface', 'Variable', etc.
+  line: number;
+  isExported: boolean;
+  id: string; // Unique ID: filePath:name
+  parentSymbolId?: string; // Parent class/namespace ID (for methods/properties)
+  category: 'function' | 'class' | 'variable' | 'interface' | 'type' | 'other';
+}
+
+export interface SymbolDependency {
+  sourceSymbolId: string; // The symbol using the dependency (or 'file' if top-level)
+  targetSymbolId: string; // The symbol being used
+  targetFilePath: string;
+  /** Whether this is a type-only import (interface, type alias) vs runtime code */
+  isTypeOnly?: boolean;
+}

@@ -10,11 +10,15 @@ export interface ShowGraphMessage {
   filePath: string;
   data: GraphData;
   expandAll?: boolean;
+  /** If true, this is a refresh of the current view, not a navigation - don't change viewMode or push to history */
+  isRefresh?: boolean;
 }
 
 export interface OpenFileMessage {
   command: 'openFile';
   path: string;
+  /** Optional line number to navigate to (1-indexed) */
+  line?: number;
 }
 
 export interface ExpandNodeMessage {
@@ -61,5 +65,41 @@ export interface IndexingProgressMessage {
   message?: string;
 }
 
-export type ExtensionToWebviewMessage = ShowGraphMessage | ExpandedGraphMessage | ReferencingFilesMessage | IndexingProgressMessage;
-export type WebviewToExtensionMessage = OpenFileMessage | ExpandNodeMessage | SetExpandAllMessage | RefreshGraphMessage | FindReferencingFilesMessage;
+export interface DrillDownMessage {
+  command: 'drillDown';
+  filePath: string;
+}
+
+export interface SymbolInfo {
+  name: string;
+  kind: string;
+  line: number;
+  isExported: boolean;
+  id: string;
+  parentSymbolId?: string;
+  category: 'function' | 'class' | 'variable' | 'interface' | 'type' | 'other';
+}
+
+export interface SymbolDependency {
+  sourceSymbolId: string;
+  targetSymbolId: string;
+  targetFilePath: string;
+}
+
+export interface SymbolGraphMessage {
+  command: 'symbolGraph';
+  filePath: string;
+  /** If true, this is a refresh of the current view, not a navigation - don't push to history */
+  isRefresh?: boolean;
+  data: GraphData & {
+    symbolData?: {
+      symbols: SymbolInfo[];
+      dependencies: SymbolDependency[];
+    };
+    /** List of files that import the current file */
+    referencingFiles?: string[];
+  };
+}
+
+export type ExtensionToWebviewMessage = ShowGraphMessage | ExpandedGraphMessage | ReferencingFilesMessage | IndexingProgressMessage | SymbolGraphMessage;
+export type WebviewToExtensionMessage = OpenFileMessage | ExpandNodeMessage | SetExpandAllMessage | RefreshGraphMessage | FindReferencingFilesMessage | DrillDownMessage;

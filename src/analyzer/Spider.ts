@@ -17,6 +17,8 @@ function isInNodeModules(filePath: string): boolean {
   return normalized.includes('/node_modules/') || normalized.includes('/node_modules');
 }
 
+import { SymbolAnalyzer } from './SymbolAnalyzer';
+
 /**
  * Main analyzer class - "The Spider"
  * Crawls through files to extract and resolve dependencies
@@ -30,6 +32,8 @@ export class Spider {
   private readonly resolver: PathResolver;
   private readonly cache: Cache<Dependency[]>;
   private readonly config: SpiderConfig;
+  private readonly symbolAnalyzer: SymbolAnalyzer;
+  private readonly symbolCache: Cache<{ symbols: import('./types').SymbolInfo[]; dependencies: import('./types').SymbolDependency[] }>;
 
   /** Reverse index for O(1) reverse dependency lookups */
   private reverseIndex: ReverseIndex | null = null;
@@ -45,8 +49,9 @@ export class Spider {
 
   constructor(config: SpiderConfig) {
     this.config = {
-      maxDepth: 3,
+      maxDepth: 50, // Changed from 3 to 50
       excludeNodeModules: true,
+      enableReverseIndex: false, // Changed default to false
       indexingConcurrency: 4, // Default to 4 for better event loop responsiveness
       ...config,
     };
@@ -54,14 +59,16 @@ export class Spider {
     this.parser = new Parser();
     this.resolver = new PathResolver(
       config.tsConfigPath,
-      this.config.excludeNodeModules,
+      this.config.excludeNodeModules, // Keep this as it was in original code
       config.rootDir // workspaceRoot for package.json discovery
     );
     this.cache = new Cache();
+    this.symbolCache = new Cache(); // Initialize symbolCache
+    this.symbolAnalyzer = new SymbolAnalyzer();
 
     // Initialize reverse index if enabled
     if (config.enableReverseIndex) {
-      this.reverseIndex = new ReverseIndex(config.rootDir);
+      this.enableReverseIndex(); // Use the new enableReverseIndex method
     }
   }
 
@@ -156,6 +163,7 @@ export class Spider {
    */
   clearCache(): void {
     this.cache.clear();
+    this.symbolCache.clear();
     this.reverseIndex?.clear();
   }
 
@@ -168,8 +176,11 @@ export class Spider {
   invalidateFile(filePath: string): boolean {
     const wasInCache = this.cache.has(filePath);
     
-    // Remove from cache
+    // Remove from dependency cache
     this.cache.delete(filePath);
+    
+    // Remove from symbol cache (for drill-down view)
+    this.symbolCache.delete(filePath);
     
     // Remove from reverse index if enabled
     this.reverseIndex?.removeDependenciesFromSource(filePath);
@@ -220,6 +231,7 @@ export class Spider {
    */
   handleFileDeleted(filePath: string): void {
     this.cache.delete(filePath);
+    this.symbolCache.delete(filePath);
     this.reverseIndex?.removeDependenciesFromSource(filePath);
   }
 
@@ -797,6 +809,235 @@ export class Spider {
 
     // Fallback to directory scan (O(n) but parallelized)
     return this.findReferencingFilesFallback(targetPath);
+  }
+
+  /**
+   * Get the symbol graph for a specific file (Drill Down)
+   * @param filePath Absolute path to the file to analyze
+   */
+  async getSymbolGraph(filePath: string): Promise<{
+    symbols: import('./types').SymbolInfo[];
+    dependencies: import('./types').SymbolDependency[];
+  }> {
+    // Check cache first
+    const cached = this.symbolCache.get(filePath);
+    if (cached) {
+      return cached;
+    }
+
+    try {
+      const content = await fs.readFile(filePath, 'utf-8');
+      const result = this.symbolAnalyzer.analyzeFile(filePath, content);
+      this.symbolCache.set(filePath, result);
+      return result;
+    } catch (error) {
+      console.error(`Failed to analyze symbols for ${filePath}:`, error);
+      return { symbols: [], dependencies: [] };
+    }
+  }
+
+  /**
+   * Find exported symbols that are unused in the project
+   * @param filePath Absolute path to the file to check
+   */
+  async findUnusedSymbols(filePath: string): Promise<import('./types').SymbolInfo[]> {
+    try {
+      // 1. Get exported symbols
+      const { symbols } = await this.getSymbolGraph(filePath);
+      const exportedSymbols = symbols.filter(s => s.isExported);
+      
+      if (exportedSymbols.length === 0) {
+        return [];
+      }
+
+      // 2. Get files that import this file
+      const referencingFiles = await this.findReferencingFiles(filePath);
+      
+      // 3. Check usage in referencing files
+      const usedSymbolIds = new Set<string>();
+      
+      for (const ref of referencingFiles) {
+        const refPath = ref.path;
+        // Analyze referencing file (uses cache if available)
+        const { dependencies } = await this.getSymbolGraph(refPath);
+        
+        for (const dep of dependencies) {
+          // Check if dependency points to our file
+          // dep.targetFilePath is the module path resolved by SymbolAnalyzer
+          // We need to check if it resolves to filePath
+          
+          let isMatch = false;
+          
+          // Optimization: if targetFilePath is absolute and matches, use it
+          if (dep.targetFilePath === filePath) {
+             isMatch = true;
+          } else {
+            // Otherwise resolve it
+            const resolved = await this.resolver.resolve(refPath, dep.targetFilePath);
+            if (resolved === filePath) {
+              isMatch = true;
+            }
+          }
+          
+          if (isMatch) {
+            // dep.targetSymbolId is "modulePath:symbolName"
+            // We need to convert it to "absolutePath:symbolName" to match exportedSymbols IDs
+            const symbolName = dep.targetSymbolId.split(':').pop();
+            const absoluteId = `${filePath}:${symbolName}`;
+            usedSymbolIds.add(absoluteId);
+          }
+        }
+      }
+
+      // 4. Filter out used symbols
+      return exportedSymbols.filter(s => !usedSymbolIds.has(s.id));
+    } catch (error) {
+      console.error(`Failed to find unused symbols for ${filePath}:`, error);
+      return [];
+    }
+  }
+
+  /**
+   * Get dependents of a specific symbol (Reverse Lookup)
+   * @param filePath File containing the symbol
+   * @param symbolName Name of the symbol
+   */
+  async getSymbolDependents(filePath: string, symbolName: string): Promise<import('./types').SymbolDependency[]> {
+    const dependents: import('./types').SymbolDependency[] = [];
+    
+    // Get files that import this file
+    const referencingFiles = await this.findReferencingFiles(filePath);
+    
+    for (const ref of referencingFiles) {
+      const { dependencies } = await this.getSymbolGraph(ref.path);
+      
+      for (const dep of dependencies) {
+        // Resolve target file path to ensure it matches
+        let isMatch = false;
+        if (dep.targetFilePath === filePath) {
+          isMatch = true;
+        } else {
+          const resolved = await this.resolver.resolve(ref.path, dep.targetFilePath);
+          if (resolved === filePath) {
+            isMatch = true;
+          }
+        }
+        
+        if (isMatch) {
+           // Check if it targets the specific symbol
+           // dep.targetSymbolId is "modulePath:symbolName" OR "absolutePath:symbolName"
+           // We need to extract symbol name
+           const depSymbolName = dep.targetSymbolId.split(':').pop();
+           
+           if (depSymbolName === symbolName) {
+             dependents.push(dep);
+           }
+        }
+      }
+    }
+    
+    return dependents;
+  }
+
+  /**
+   * Trace the full execution chain from a root symbol
+   * This provides a deep call graph starting from a specific function/method
+   * @param filePath File containing the root symbol
+   * @param symbolName Name of the root symbol
+   * @param maxDepth Maximum depth to trace (default: 10)
+   */
+  async traceFunctionExecution(
+    filePath: string,
+    symbolName: string,
+    maxDepth: number = 10
+  ): Promise<{
+    rootSymbol: { id: string; filePath: string; symbolName: string };
+    callChain: Array<{
+      depth: number;
+      callerSymbolId: string;
+      calledSymbolId: string;
+      calledFilePath: string;
+      resolvedFilePath: string | null;
+    }>;
+    visitedSymbols: string[];
+    maxDepthReached: boolean;
+  }> {
+    const rootId = `${filePath}:${symbolName}`;
+    const callChain: Array<{
+      depth: number;
+      callerSymbolId: string;
+      calledSymbolId: string;
+      calledFilePath: string;
+      resolvedFilePath: string | null;
+    }> = [];
+    const visitedSymbols = new Set<string>();
+    let maxDepthReached = false;
+
+    const trace = async (
+      currentFilePath: string,
+      currentSymbolName: string,
+      depth: number
+    ): Promise<void> => {
+      if (depth > maxDepth) {
+        maxDepthReached = true;
+        return;
+      }
+
+      const currentId = `${currentFilePath}:${currentSymbolName}`;
+      if (visitedSymbols.has(currentId)) {
+        return; // Already traced this symbol (avoid cycles)
+      }
+      visitedSymbols.add(currentId);
+
+      try {
+        const { symbols, dependencies } = await this.getSymbolGraph(currentFilePath);
+        
+        // Find the current symbol
+        const currentSymbol = symbols.find(s => s.name === currentSymbolName);
+        if (!currentSymbol) {
+          return;
+        }
+
+        // Get dependencies from this symbol
+        const symbolDeps = dependencies.filter(d => d.sourceSymbolId === currentSymbol.id);
+
+        for (const dep of symbolDeps) {
+          // Resolve the target file path
+          let resolvedFilePath: string | null = null;
+          try {
+            resolvedFilePath = await this.resolver.resolve(currentFilePath, dep.targetFilePath);
+          } catch {
+            // Could not resolve, keep as null
+          }
+
+          const targetSymbolName = dep.targetSymbolId.split(':').pop() || '';
+
+          callChain.push({
+            depth,
+            callerSymbolId: currentId,
+            calledSymbolId: dep.targetSymbolId,
+            calledFilePath: dep.targetFilePath,
+            resolvedFilePath,
+          });
+
+          // Recursively trace if we have a resolved path
+          if (resolvedFilePath && !isInNodeModules(resolvedFilePath)) {
+            await trace(resolvedFilePath, targetSymbolName, depth + 1);
+          }
+        }
+      } catch (error) {
+        console.error(`Failed to trace execution from ${currentId}:`, error);
+      }
+    };
+
+    await trace(filePath, symbolName, 1);
+
+    return {
+      rootSymbol: { id: rootId, filePath, symbolName },
+      callChain,
+      visitedSymbols: Array.from(visitedSymbols),
+      maxDepthReached,
+    };
   }
 
   /**

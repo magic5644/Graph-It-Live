@@ -10,7 +10,7 @@ export default defineConfig({
     globals: true,
     environment: 'node',
     include: ['tests/**/*.test.ts'],
-    exclude: ['tests/benchmarks/**'],
+    exclude: ['tests/benchmarks/**', 'tests/vscode-e2e/**', 'tests/e2e/**'],
     coverage: {
       provider: 'v8',
       reporter: ['text', 'json', 'html'],
