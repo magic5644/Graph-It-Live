@@ -34,9 +34,8 @@ interface ReactFlowGraphProps {
     onFindReferences: (path: string) => void;
     expandAll: boolean;
     onExpandAllChange: (expand: boolean) => void;
-    onBack?: () => void;
-    hasHistory?: boolean;
     onRefresh?: () => void;
+    onSwitchToSymbol?: () => void;
 }
 
 // File type specific border colors
@@ -350,9 +349,8 @@ const ReactFlowGraphContent: React.FC<ReactFlowGraphProps> = ({
     onFindReferences,
     expandAll,
     onExpandAllChange,
-    onBack,
-    hasHistory,
     onRefresh,
+    onSwitchToSymbol,
 }) => {
     const { fitView } = useReactFlow();
     const nodesInitialized = useNodesInitialized();
@@ -512,20 +510,24 @@ const ReactFlowGraphContent: React.FC<ReactFlowGraphProps> = ({
             >
                 {/* Left buttons */}
                 <div style={{ display: 'flex', gap: 8, pointerEvents: 'auto' }}>
-                    {hasHistory && onBack && (
+                    {onSwitchToSymbol && (
                         <button
-                            onClick={onBack}
+                            onClick={onSwitchToSymbol}
+                            title="Switch to Symbol View"
                             style={{
-                                background: 'var(--vscode-button-background)',
-                                color: 'var(--vscode-button-foreground)',
+                                background: 'var(--vscode-button-secondaryBackground)',
+                                color: 'var(--vscode-button-secondaryForeground)',
                                 border: 'none',
                                 borderRadius: 4,
                                 padding: '6px 12px',
                                 cursor: 'pointer',
                                 fontSize: 12,
+                                display: 'flex',
+                                alignItems: 'center',
+                                gap: 6,
                             }}
                         >
-                            ← Back
+                            ⚡ Symbol View
                         </button>
                     )}
                 </div>

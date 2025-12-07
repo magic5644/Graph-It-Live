@@ -701,6 +701,20 @@ export class GraphProvider implements vscode.WebviewViewProvider {
                     console.log('GraphProvider: Webview ready, sending initial graph');
                     this.updateGraph();
                     break;
+                case 'switchMode':
+                    console.log(`GraphProvider: Switching to ${message.mode} mode`);
+                    if (message.mode === 'file') {
+                        // Clear symbol tracking and send file view
+                        this._currentSymbolFilePath = undefined;
+                        this.updateGraph();
+                    } else if (message.mode === 'symbol') {
+                        // Switch to symbol view for current file
+                        const editor = vscode.window.activeTextEditor;
+                        if (editor?.document.uri.scheme === 'file') {
+                            await this.handleDrillDown(editor.document.fileName);
+                        }
+                    }
+                    break;
             }
         });
 
