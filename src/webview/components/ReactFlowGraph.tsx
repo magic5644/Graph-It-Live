@@ -88,17 +88,16 @@ const FileNode = ({ data }: NodeProps) => {
                 justifyContent: 'center',
                 height: '100%',
                 background: isRoot
-                    ? 'var(--vscode-button-background)'
+                    ? borderColor
                     : 'var(--vscode-editor-background)',
                 color: isRoot
-                    ? 'var(--vscode-button-foreground)'
+                    ? '#000'
                     : 'var(--vscode-editor-foreground)',
-                border: isRoot
-                    ? '1px solid var(--vscode-button-background)'
-                    : `1px solid ${borderColor}`,
+                border: `2px solid ${borderColor}`,
                 borderRadius: 4,
                 padding: '0 12px',
                 fontSize: 12,
+                fontWeight: isRoot ? 'bold' : 'normal',
                 fontFamily: 'var(--vscode-font-family)',
                 pointerEvents: 'none',
             }}>
