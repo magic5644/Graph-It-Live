@@ -70,6 +70,10 @@ export interface DrillDownMessage {
   filePath: string;
 }
 
+export interface ReadyMessage {
+  command: 'ready';
+}
+
 export interface SymbolInfo {
   name: string;
   kind: string;
@@ -102,4 +106,4 @@ export interface SymbolGraphMessage {
 }
 
 export type ExtensionToWebviewMessage = ShowGraphMessage | ExpandedGraphMessage | ReferencingFilesMessage | IndexingProgressMessage | SymbolGraphMessage;
-export type WebviewToExtensionMessage = OpenFileMessage | ExpandNodeMessage | SetExpandAllMessage | RefreshGraphMessage | FindReferencingFilesMessage | DrillDownMessage;
+export type WebviewToExtensionMessage = OpenFileMessage | ExpandNodeMessage | SetExpandAllMessage | RefreshGraphMessage | FindReferencingFilesMessage | DrillDownMessage | ReadyMessage;

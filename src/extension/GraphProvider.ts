@@ -697,6 +697,10 @@ export class GraphProvider implements vscode.WebviewViewProvider {
                         await this.handleDrillDown(message.filePath);
                     }
                     break;
+                case 'ready':
+                    console.log('GraphProvider: Webview ready, sending initial graph');
+                    this.updateGraph();
+                    break;
             }
         });
 

@@ -23,6 +23,14 @@ const vscode = (function () {
 const App: React.FC = () => {
     const [graphData, setGraphData] = React.useState<GraphData | null>(null);
     const [currentFilePath, setCurrentFilePath] = React.useState<string>('');
+
+    // Notify extension that webview is ready on mount
+    React.useEffect(() => {
+        if (vscode) {
+            console.log('App: Sending ready message to extension');
+            vscode.postMessage({ command: 'ready' });
+        }
+    }, []);
     const [viewMode, setViewMode] = React.useState<'file' | 'symbol' | 'references'>('file');
     const [navigationHistory, setNavigationHistory] = React.useState<Array<{ filePath: string; data: GraphData; viewMode: 'file' | 'symbol' | 'references' }>>([]);
     const [expandAll, setExpandAll] = React.useState<boolean>(false);
@@ -204,6 +212,7 @@ const App: React.FC = () => {
                     onSymbolClick={(_symbolId: string, line: number) => handleNodeClick(currentFilePath, line)}
                     onNavigateToFile={handleNavigateToFile}
                     onBack={handleBack}
+                    onRefresh={handleRefresh}
                 />
             )}
 
