@@ -6,7 +6,7 @@ import { Cache } from './Cache';
 import { ReverseIndex } from './ReverseIndex';
 import { IndexerStatus, IndexerStatusSnapshot } from './IndexerStatus';
 import { IndexerWorkerHost } from './IndexerWorkerHost';
-import { Dependency, SpiderConfig, IndexingProgressCallback, normalizePath, SpiderError, SpiderErrorCode } from './types';
+import { Dependency, SpiderConfig, IndexingProgressCallback, normalizePath, SpiderError } from './types';
 import { getLogger } from '../shared/logger';
 
 /** Logger instance for Spider */
@@ -56,6 +56,9 @@ export class Spider {
       excludeNodeModules: true,
       enableReverseIndex: false, // Changed default to false
       indexingConcurrency: 4, // Default to 4 for better event loop responsiveness
+      maxCacheSize: 1000, // Default to 1000 entries
+      maxSymbolCacheSize: 500, // Default to 500 entries
+      maxSymbolAnalyzerFiles: 100, // Default to 100 files in memory
       ...config,
     };
     
@@ -65,9 +68,17 @@ export class Spider {
       this.config.excludeNodeModules, // Keep this as it was in original code
       config.rootDir // workspaceRoot for package.json discovery
     );
-    this.cache = new Cache();
-    this.symbolCache = new Cache(); // Initialize symbolCache
-    this.symbolAnalyzer = new SymbolAnalyzer();
+    this.cache = new Cache({ 
+      maxSize: this.config.maxCacheSize, 
+      enableLRU: true 
+    });
+    this.symbolCache = new Cache({ 
+      maxSize: this.config.maxSymbolCacheSize, 
+      enableLRU: true 
+    });
+    this.symbolAnalyzer = new SymbolAnalyzer({
+      maxFiles: this.config.maxSymbolAnalyzerFiles
+    });
 
     // Initialize reverse index if enabled
     if (config.enableReverseIndex) {
@@ -1086,12 +1097,19 @@ export class Spider {
   }
 
   /**
-   * Get cache statistics
-   * @returns Cache statistics
+   * Get comprehensive cache statistics for monitoring
+   * @returns Cache statistics including hits, misses, evictions
    */
-  getCacheStats(): { size: number; reverseIndexStats?: { indexedFiles: number; targetFiles: number; totalReferences: number } } {
+  getCacheStats(): { 
+    dependencyCache: import('./Cache').CacheStats;
+    symbolCache: import('./Cache').CacheStats;
+    symbolAnalyzerFileCount: number;
+    reverseIndexStats?: { indexedFiles: number; targetFiles: number; totalReferences: number };
+  } {
     return {
-      size: this.cache.size,
+      dependencyCache: this.cache.getStats(),
+      symbolCache: this.symbolCache.getStats(),
+      symbolAnalyzerFileCount: this.symbolAnalyzer.getFileCount(),
       reverseIndexStats: this.reverseIndex?.getStats(),
     };
   }

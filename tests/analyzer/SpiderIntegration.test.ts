@@ -24,7 +24,7 @@ describe('Spider Integration - Cache and Advanced Features', () => {
             expect(deps1.length).toBeGreaterThan(0);
             
             // Verify cache is populated
-            expect(spider.getCacheStats().size).toBeGreaterThan(0);
+            expect(spider.getCacheStats().dependencyCache.size).toBeGreaterThan(0);
             
             // Invalidate
             spider.invalidateFile(mainFile);
@@ -41,24 +41,24 @@ describe('Spider Integration - Cache and Advanced Features', () => {
             await spider.analyze(mainFile);
             await spider.analyze(utilsFile);
             
-            const initialSize = spider.getCacheStats().size;
+            const initialSize = spider.getCacheStats().dependencyCache.size;
             expect(initialSize).toBeGreaterThanOrEqual(2);
             
             spider.invalidateFiles([mainFile, utilsFile]);
             
             // Cache should be reduced
-            expect(spider.getCacheStats().size).toBeLessThan(initialSize);
+            expect(spider.getCacheStats().dependencyCache.size).toBeLessThan(initialSize);
         });
 
         it('should clear entire cache', async () => {
             const mainFile = path.join(fixturesPath, 'src/main.ts');
             await spider.analyze(mainFile);
             
-            expect(spider.getCacheStats().size).toBeGreaterThan(0);
+            expect(spider.getCacheStats().dependencyCache.size).toBeGreaterThan(0);
             
             spider.clearCache();
             
-            expect(spider.getCacheStats().size).toBe(0);
+            expect(spider.getCacheStats().dependencyCache.size).toBe(0);
         });
     });
 

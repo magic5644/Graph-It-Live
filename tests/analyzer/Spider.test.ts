@@ -87,7 +87,7 @@ describe('Spider', () => {
   it('should update configuration', () => {
     spider.updateConfig({ excludeNodeModules: false, maxDepth: 10 });
     const stats = spider.getCacheStats();
-    expect(stats.size).toBe(0); // Cache should be cleared
+    expect(stats.dependencyCache.size).toBe(0); // Cache should be cleared
   });
 
   it('should enable reverse index via updateConfig', () => {
@@ -122,17 +122,17 @@ describe('Spider', () => {
   it('should update indexing concurrency', () => {
     spider.updateConfig({ indexingConcurrency: 8 });
     // No direct way to check, but should not throw
-    expect(spider.getCacheStats().size).toBe(0);
+    expect(spider.getCacheStats().dependencyCache.size).toBe(0);
   });
 
   it('should clear cache', async () => {
     const mainFile = path.join(fixturesPath, 'src/main.ts');
     await spider.analyze(mainFile);
     
-    expect(spider.getCacheStats().size).toBeGreaterThan(0);
+    expect(spider.getCacheStats().dependencyCache.size).toBeGreaterThan(0);
     
     spider.clearCache();
-    expect(spider.getCacheStats().size).toBe(0);
+    expect(spider.getCacheStats().dependencyCache.size).toBe(0);
   });
 
   it('should get cache statistics', async () => {
@@ -140,7 +140,7 @@ describe('Spider', () => {
     await spider.analyze(mainFile);
     
     const stats = spider.getCacheStats();
-    expect(stats.size).toBeGreaterThan(0);
+    expect(stats.dependencyCache.size).toBeGreaterThan(0);
   });
 });
 
@@ -210,13 +210,13 @@ describe('Spider - File Invalidation', () => {
     
     // First analyze to populate cache
     await spider.analyze(mainFile);
-    expect(spider.getCacheStats().size).toBe(1);
+    expect(spider.getCacheStats().dependencyCache.size).toBe(1);
     
     // Invalidate the file
     const wasInCache = spider.invalidateFile(mainFile);
     
     expect(wasInCache).toBe(true);
-    expect(spider.getCacheStats().size).toBe(0);
+    expect(spider.getCacheStats().dependencyCache.size).toBe(0);
   });
 
   it('should return false when invalidating a file not in cache', () => {
@@ -236,13 +236,13 @@ describe('Spider - File Invalidation', () => {
     // Analyze files to populate cache
     await spider.analyze(mainFile);
     await spider.analyze(utilsFile);
-    expect(spider.getCacheStats().size).toBe(2);
+    expect(spider.getCacheStats().dependencyCache.size).toBe(2);
     
     // Invalidate multiple files (one not in cache)
     const invalidatedCount = spider.invalidateFiles([mainFile, utilsFile, buttonFile]);
     
     expect(invalidatedCount).toBe(2); // Only 2 were in cache
-    expect(spider.getCacheStats().size).toBe(0);
+    expect(spider.getCacheStats().dependencyCache.size).toBe(0);
   });
 
   it('should re-analyze a file and update cache', async () => {
@@ -250,14 +250,14 @@ describe('Spider - File Invalidation', () => {
     
     // First analyze
     const deps1 = await spider.analyze(mainFile);
-    expect(spider.getCacheStats().size).toBe(1);
+    expect(spider.getCacheStats().dependencyCache.size).toBe(1);
     
     // Re-analyze (should invalidate and re-populate)
     const deps2 = await spider.reanalyzeFile(mainFile);
     
     expect(deps2).toBeDefined();
     expect(deps2?.length).toBe(deps1.length);
-    expect(spider.getCacheStats().size).toBe(1);
+    expect(spider.getCacheStats().dependencyCache.size).toBe(1);
   });
 
   it('should return null when re-analyzing non-existent file', async () => {
@@ -273,12 +273,12 @@ describe('Spider - File Invalidation', () => {
     
     // First analyze to populate cache
     await spider.analyze(mainFile);
-    expect(spider.getCacheStats().size).toBe(1);
+    expect(spider.getCacheStats().dependencyCache.size).toBe(1);
     
     // Handle deletion
     spider.handleFileDeleted(mainFile);
     
-    expect(spider.getCacheStats().size).toBe(0);
+    expect(spider.getCacheStats().dependencyCache.size).toBe(0);
   });
 
   it('should update reverse index when invalidating files', async () => {
