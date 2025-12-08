@@ -6,7 +6,7 @@ import { Cache } from './Cache';
 import { ReverseIndex } from './ReverseIndex';
 import { IndexerStatus, IndexerStatusSnapshot } from './IndexerStatus';
 import { IndexerWorkerHost } from './IndexerWorkerHost';
-import { Dependency, SpiderConfig, IndexingProgressCallback, normalizePath } from './types';
+import { Dependency, SpiderConfig, IndexingProgressCallback, normalizePath, SpiderError, SpiderErrorCode } from './types';
 import { getLogger } from '../shared/logger';
 
 /** Logger instance for Spider */
@@ -153,11 +153,10 @@ export class Spider {
 
       return dependencies;
     } catch (error) {
-      // Re-throw with more context
-      if (error instanceof Error) {
-        throw new Error(`Failed to analyze ${filePath}: ${error.message}`);
-      }
-      throw error;
+      // Wrap error with SpiderError for better diagnostics
+      const spiderError = SpiderError.fromError(error, filePath);
+      log.error('Analysis failed:', spiderError.toUserMessage(), spiderError.code);
+      throw spiderError;
     }
   }
 
@@ -418,9 +417,10 @@ export class Spider {
         cancelled: false,
       };
     } catch (error) {
-      const message = error instanceof Error ? error.message : 'Unknown error';
-      this.indexerStatus.setError(message);
-      throw error;
+      const spiderError = SpiderError.fromError(error);
+      this.indexerStatus.setError(spiderError.toUserMessage());
+      log.error('Indexing failed:', spiderError.toUserMessage(), spiderError.code);
+      throw spiderError;
     }
   }
 
@@ -834,8 +834,13 @@ export class Spider {
       this.symbolCache.set(filePath, result);
       return result;
     } catch (error) {
-      log.error('Failed to analyze symbols for', filePath, error);
-      return { symbols: [], dependencies: [] };
+      const spiderError = SpiderError.fromError(error, filePath);
+      log.error('Symbol analysis failed:', spiderError.toUserMessage());
+      // Return empty result for recoverable errors (file not found, etc.)
+      if (spiderError.isRecoverable()) {
+        return { symbols: [], dependencies: [] };
+      }
+      throw spiderError;
     }
   }
 
@@ -895,7 +900,8 @@ export class Spider {
       // 4. Filter out used symbols
       return exportedSymbols.filter(s => !usedSymbolIds.has(s.id));
     } catch (error) {
-      log.error('Failed to find unused symbols for', filePath, error);
+      const spiderError = SpiderError.fromError(error, filePath);
+      log.error('Find unused symbols failed:', spiderError.toUserMessage());
       return [];
     }
   }
@@ -1029,7 +1035,8 @@ export class Spider {
           }
         }
       } catch (error) {
-        log.error('Failed to trace execution from', currentId, error);
+        const spiderError = SpiderError.fromError(error, currentFilePath);
+        log.error('Trace execution failed:', currentId, spiderError.toUserMessage());
       }
     };
 
