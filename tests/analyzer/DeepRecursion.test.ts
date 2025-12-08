@@ -8,7 +8,7 @@ import * as path from 'node:path';
 vi.mock('node:fs/promises');
 
 // Use cross-platform root path
-const ROOT_DIR = path.resolve('/tmp/test-root');
+const ROOT_DIR = path.resolve(process.cwd(), 'temp-test-root');
 const np = (p: string) => normalizePath(p);
 
 describe('Spider - Deep Recursion', () => {
@@ -24,21 +24,22 @@ describe('Spider - Deep Recursion', () => {
 
         // Mock file content for a chain of 10 files: file0 -> file1 -> ... -> file9
         vi.mocked(fs.readFile).mockImplementation(async (filePath) => {
-            const p = normalizePath(filePath.toString());
-            const match = p.match(/file(\d+)\.ts/);
+            const p = np(filePath.toString());
+            const match = p.match(/file(\d+)\.ts$/);
             if (match) {
                 const index = Number.parseInt(match[1]);
                 if (index < 9) {
                     return `import {} from './file${index + 1}'`;
                 }
+                return ""; // file9 has no imports
             }
             return "";
         });
 
-        // Mock file existence
+        // Mock file existence - only allow fileN.ts files
         vi.mocked(fs.stat).mockImplementation(async (filePath) => {
-            const p = normalizePath(filePath.toString());
-            if (p.endsWith('.ts')) {
+            const p = np(filePath.toString());
+            if (/file\d+\.ts$/.test(p)) {
                 return { isFile: () => true } as any;
             }
             throw new Error('File not found');
@@ -62,21 +63,24 @@ describe('Spider - Deep Recursion', () => {
 
         // Mock file content for a chain of 10 files
         vi.mocked(fs.readFile).mockImplementation(async (filePath) => {
-            const p = normalizePath(filePath.toString());
-            const match = p.match(/file(\d+)\.ts/);
+            const p = np(filePath.toString());
+            const match = p.match(/file(\d+)\.ts$/);
             if (match) {
                 const index = Number.parseInt(match[1]);
                 if (index < 9) {
                     return `import {} from './file${index + 1}'`;
                 }
+                return ""; // file9 has no imports
             }
             return "";
         });
 
-        // Mock file existence
-        vi.mocked(fs.access).mockImplementation(async (filePath) => {
-            const p = normalizePath(filePath.toString());
-            if (p.endsWith('.ts')) return undefined;
+        // Mock file existence - only allow fileN.ts files
+        vi.mocked(fs.stat).mockImplementation(async (filePath) => {
+            const p = np(filePath.toString());
+            if (/file\d+\.ts$/.test(p)) {
+                return { isFile: () => true } as any;
+            }
             throw new Error('File not found');
         });
 

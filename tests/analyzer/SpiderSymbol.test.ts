@@ -3,9 +3,8 @@ import * as path from 'path';
 import { Spider } from '../../src/analyzer/Spider';
 
 describe('Spider - Symbol Analysis', () => {
-  const fixturesDir = path.join(__dirname, '../fixtures/symbols');
+  const fixturesDir = path.resolve(process.cwd(), 'tests/fixtures/symbols');
   const utilsPath = path.join(fixturesDir, 'utils.ts');
-  const mainPath = path.join(fixturesDir, 'main.ts');
   
   let spider: Spider;
 

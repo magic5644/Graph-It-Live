@@ -1,9 +1,11 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import { Spider } from '@/analyzer/Spider';
+import { normalizePath } from '@/analyzer/types';
 import path from 'node:path';
 
 // Use absolute path for test fixtures
 const fixturesPath = path.resolve(process.cwd(), 'tests/fixtures/sample-project');
+const np = (p: string) => normalizePath(p);
 
 describe('Spider', () => {
   let spider: Spider;
@@ -170,15 +172,15 @@ describe('Spider - crawlFrom', () => {
     
     // First crawl to discover utils
     const firstResult = await spider.crawlFrom(mainFile, new Set(), 5);
-    expect(firstResult.nodes).toContain(utilsFile);
+    expect(firstResult.nodes).toContain(np(utilsFile));
     
     // Second crawl with utils already known
-    const existingNodes = new Set([mainFile, utilsFile]);
+    const existingNodes = new Set([np(mainFile), np(utilsFile)]);
     const secondResult = await spider.crawlFrom(mainFile, existingNodes, 5);
     
     // Should not include main and utils in new nodes
-    expect(secondResult.nodes).not.toContain(mainFile);
-    expect(secondResult.nodes).not.toContain(utilsFile);
+    expect(secondResult.nodes).not.toContain(np(mainFile));
+    expect(secondResult.nodes).not.toContain(np(utilsFile));
   });
 
   it('should respect extra depth limit', async () => {
