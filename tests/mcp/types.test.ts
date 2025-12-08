@@ -28,6 +28,11 @@ import {
   GetSymbolCallersParamsSchema,
   AnalyzeBreakingChangesParamsSchema,
   GetImpactAnalysisParamsSchema,
+  validateToolParams,
+  validateFilePath,
+  sanitizeString,
+  normalizePathForComparison,
+  isPathWithinRoot,
 } from '../../src/mcp/types';
 import type { Dependency } from '../../src/analyzer/types';
 import type { McpWorkerResponse } from '../../src/mcp/types';
@@ -139,6 +144,19 @@ describe('enrichDependency', () => {
 
     expect(result.type).toBe('export');
   });
+
+  // Windows-specific test - only meaningful on Windows
+  it.skipIf(process.platform !== 'win32')('handles Windows-style paths', () => {
+    const dep: Dependency = {
+      path: String.raw`C:\project\src\utils\helper.ts`,
+      type: 'import',
+      line: 5,
+      module: './utils/helper',
+    };
+    const result = enrichDependency(dep, String.raw`C:\project`);
+
+    expect(result.relativePath).toBe('src/utils/helper.ts');
+  });
 });
 
 // ============================================================================
@@ -154,6 +172,24 @@ describe('getRelativePath', () => {
   it('returns full path for file outside workspace', () => {
     const result = getRelativePath('/other/file.ts', '/project');
     expect(result).toBe('/other/file.ts');
+  });
+
+  // Windows-specific tests - only meaningful on Windows
+  it.skipIf(process.platform !== 'win32')('handles Windows paths with drive letters', () => {
+    const result = getRelativePath(String.raw`C:\project\src\file.ts`, String.raw`C:\project`);
+    expect(result).toBe('src/file.ts');
+  });
+
+  it.skipIf(process.platform !== 'win32')('returns full path when on different Windows drives', () => {
+    const result = getRelativePath(String.raw`D:\other\file.ts`, String.raw`C:\project`);
+    // On different drives, path.relative returns absolute path
+    expect(result).toBe(String.raw`D:\other\file.ts`);
+  });
+
+  it.skipIf(process.platform !== 'win32')('normalizes backslashes to forward slashes in output', () => {
+    const result = getRelativePath(String.raw`C:\project\src\deep\nested\file.ts`, String.raw`C:\project`);
+    expect(result).toBe('src/deep/nested/file.ts');
+    expect(result).not.toContain('\\');
   });
 });
 
@@ -688,5 +724,264 @@ describe('McpWorkerResponse type', () => {
     };
 
     expect(response.type).toBe('warmup-progress');
+  });
+});
+
+// ============================================================================
+// Validation Functions Tests
+// ============================================================================
+
+describe('validateToolParams', () => {
+  it('validates correct analyze_dependencies params', () => {
+    const result = validateToolParams('analyze_dependencies', {
+      filePath: '/project/src/index.ts',
+    });
+
+    expect(result.success).toBe(true);
+    if (result.success) {
+      expect(result.data.filePath).toBe('/project/src/index.ts');
+    }
+  });
+
+  it('validates crawl_dependency_graph params with options', () => {
+    const result = validateToolParams('crawl_dependency_graph', {
+      entryFile: '/project/src/main.ts',
+      maxDepth: 5,
+      limit: 100,
+    });
+
+    expect(result.success).toBe(true);
+    if (result.success) {
+      expect(result.data.entryFile).toBe('/project/src/main.ts');
+      expect(result.data.maxDepth).toBe(5);
+      expect(result.data.limit).toBe(100);
+    }
+  });
+
+  it('returns error for missing required fields', () => {
+    const result = validateToolParams('analyze_dependencies', {});
+
+    expect(result.success).toBe(false);
+    expect(result.error).toContain('filePath');
+  });
+
+  it('returns error for wrong field types', () => {
+    const result = validateToolParams('crawl_dependency_graph', {
+      entryFile: '/project/src/main.ts',
+      maxDepth: 'not-a-number',
+    });
+
+    expect(result.success).toBe(false);
+    expect(result.error).toContain('maxDepth');
+  });
+
+  it('validates get_index_status with empty params', () => {
+    const result = validateToolParams('get_index_status', {});
+
+    expect(result.success).toBe(true);
+  });
+
+  it('validates find_referencing_files params', () => {
+    const result = validateToolParams('find_referencing_files', {
+      targetPath: '/project/src/utils.ts',
+    });
+
+    expect(result.success).toBe(true);
+    if (result.success) {
+      expect(result.data.targetPath).toBe('/project/src/utils.ts');
+    }
+  });
+
+  it('validates get_symbol_graph params', () => {
+    const result = validateToolParams('get_symbol_graph', {
+      filePath: '/project/src/api.ts',
+    });
+
+    expect(result.success).toBe(true);
+  });
+
+  it('validates trace_function_execution params', () => {
+    const result = validateToolParams('trace_function_execution', {
+      filePath: '/project/src/service.ts',
+      symbolName: 'processData',
+      maxDepth: 10,
+    });
+
+    expect(result.success).toBe(true);
+    if (result.success) {
+      expect(result.data.symbolName).toBe('processData');
+    }
+  });
+});
+
+// ============================================================================
+// Cross-Platform Path Utilities Tests
+// ============================================================================
+
+describe('normalizePathForComparison', () => {
+  it('converts backslashes to forward slashes', () => {
+    const result = normalizePathForComparison(String.raw`C:\project\src\file.ts`);
+    expect(result).toBe('c:/project/src/file.ts');
+  });
+
+  it('lowercases Windows drive letters', () => {
+    const result = normalizePathForComparison('D:/Project/Src');
+    expect(result).toBe('d:/Project/Src');
+  });
+
+  it('removes trailing slashes', () => {
+    expect(normalizePathForComparison('/project/')).toBe('/project');
+    expect(normalizePathForComparison('C:/project/')).toBe('c:/project');
+  });
+
+  it('preserves root path slash', () => {
+    expect(normalizePathForComparison('/')).toBe('/');
+  });
+
+  it('preserves Windows drive root', () => {
+    expect(normalizePathForComparison('C:/')).toBe('c:/');
+  });
+
+  it('handles Unix paths unchanged (except trailing slash)', () => {
+    expect(normalizePathForComparison('/home/user/project')).toBe('/home/user/project');
+  });
+});
+
+describe('isPathWithinRoot', () => {
+  it('returns true for path inside root (Unix)', () => {
+    expect(isPathWithinRoot('/project/src/file.ts', '/project')).toBe(true);
+  });
+
+  it.skipIf(process.platform !== 'win32')('returns true for path inside root (Windows)', () => {
+    expect(isPathWithinRoot(String.raw`C:\project\src\file.ts`, String.raw`C:\project`)).toBe(true);
+  });
+
+  it('returns false for path outside root', () => {
+    expect(isPathWithinRoot('/other/file.ts', '/project')).toBe(false);
+  });
+
+  it('returns false for path with .. that escapes root', () => {
+    expect(isPathWithinRoot('/project/../etc/passwd', '/project')).toBe(false);
+  });
+
+  it('returns true for path with .. that stays within root', () => {
+    expect(isPathWithinRoot('/project/src/../utils/file.ts', '/project')).toBe(true);
+  });
+
+  it('returns true for root path itself', () => {
+    expect(isPathWithinRoot('/project', '/project')).toBe(true);
+  });
+
+  it('returns false for similar-prefix path (not a subdirectory)', () => {
+    // /project-other is NOT inside /project
+    expect(isPathWithinRoot('/project-other/file.ts', '/project')).toBe(false);
+  });
+
+  it.skipIf(process.platform !== 'win32')('handles different Windows drives', () => {
+    expect(isPathWithinRoot(String.raw`D:\other\file.ts`, String.raw`C:\project`)).toBe(false);
+  });
+});
+
+describe('validateFilePath', () => {
+  const rootDir = '/project';
+
+  it('accepts valid path inside workspace', () => {
+    // Should not throw
+    expect(() => validateFilePath('/project/src/index.ts', rootDir)).not.toThrow();
+  });
+
+  it('accepts deeply nested path inside workspace', () => {
+    expect(() => validateFilePath('/project/src/deep/nested/file.ts', rootDir)).not.toThrow();
+  });
+
+  it('rejects path traversal attempts with ..', () => {
+    expect(() => validateFilePath('/project/../etc/passwd', rootDir)).toThrow('outside workspace');
+  });
+
+  it('rejects path outside workspace', () => {
+    expect(() => validateFilePath('/other/project/file.ts', rootDir)).toThrow('outside workspace');
+  });
+
+  it('rejects absolute path to system directory', () => {
+    expect(() => validateFilePath('/etc/passwd', rootDir)).toThrow('outside workspace');
+  });
+
+  it('rejects relative path attempting traversal', () => {
+    expect(() => validateFilePath('../../etc/passwd', rootDir)).toThrow('outside workspace');
+  });
+
+  it('handles path traversal with ../', () => {
+    expect(() => validateFilePath('/project/../etc/passwd', rootDir)).toThrow('outside workspace');
+  });
+
+  // Windows-specific tests - only run on Windows
+  // On other platforms, path.resolve doesn't understand Windows paths
+  it.skipIf(process.platform !== 'win32')('accepts Windows paths inside workspace', () => {
+    const winRoot = String.raw`C:\project`;
+    expect(() => validateFilePath(String.raw`C:\project\src\file.ts`, winRoot)).not.toThrow();
+  });
+
+  it.skipIf(process.platform !== 'win32')('rejects Windows paths outside workspace', () => {
+    const winRoot = String.raw`C:\project`;
+    expect(() => validateFilePath(String.raw`D:\other\file.ts`, winRoot)).toThrow('outside workspace');
+  });
+
+  it.skipIf(process.platform !== 'win32')('rejects Windows path traversal', () => {
+    const winRoot = String.raw`C:\project`;
+    expect(() => validateFilePath(String.raw`C:\project\..\Windows\System32\config`, winRoot)).toThrow('outside workspace');
+  });
+});
+
+describe('sanitizeString', () => {
+  it('returns string unchanged (without null bytes)', () => {
+    expect(sanitizeString('hello world')).toBe('hello world');
+  });
+
+  it('throws TypeError for non-string input (number)', () => {
+    // @ts-expect-error Testing runtime validation
+    expect(() => sanitizeString(42)).toThrow(TypeError);
+  });
+
+  it('throws TypeError for non-string input (boolean)', () => {
+    // @ts-expect-error Testing runtime validation
+    expect(() => sanitizeString(true)).toThrow(TypeError);
+  });
+
+  it('throws TypeError for null', () => {
+    // @ts-expect-error Testing runtime validation
+    expect(() => sanitizeString(null)).toThrow(TypeError);
+  });
+
+  it('throws TypeError for undefined', () => {
+    // @ts-expect-error Testing runtime validation
+    expect(() => sanitizeString(undefined)).toThrow(TypeError);
+  });
+
+  it('throws TypeError for object', () => {
+    // @ts-expect-error Testing runtime validation
+    expect(() => sanitizeString({ a: 1 })).toThrow(TypeError);
+  });
+
+  it('throws TypeError for array', () => {
+    // @ts-expect-error Testing runtime validation
+    expect(() => sanitizeString([1, 2, 3])).toThrow(TypeError);
+  });
+
+  it('preserves whitespace', () => {
+    expect(sanitizeString('  hello  ')).toBe('  hello  ');
+  });
+
+  it('removes null characters', () => {
+    expect(sanitizeString('hello\x00world')).toBe('helloworld');
+  });
+
+  it('throws error when input exceeds max length', () => {
+    const longString = 'a'.repeat(10001);
+    expect(() => sanitizeString(longString)).toThrow('exceeds maximum length');
+  });
+
+  it('respects custom max length', () => {
+    const mediumString = 'a'.repeat(100);
+    expect(() => sanitizeString(mediumString, 50)).toThrow('exceeds maximum length');
   });
 });

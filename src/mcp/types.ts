@@ -185,6 +185,188 @@ export const GetImpactAnalysisParamsSchema = z.object({
 export type GetImpactAnalysisParams = z.infer<typeof GetImpactAnalysisParamsSchema>;
 
 // ============================================================================
+// Validation Utilities
+// ============================================================================
+
+/**
+ * Map of tool names to their Zod validation schemas
+ */
+export const toolSchemas: Record<McpToolName, z.ZodType<unknown>> = {
+  set_workspace: SetWorkspaceParamsSchema,
+  analyze_dependencies: AnalyzeDependenciesParamsSchema,
+  crawl_dependency_graph: CrawlDependencyGraphParamsSchema,
+  find_referencing_files: FindReferencingFilesParamsSchema,
+  expand_node: ExpandNodeParamsSchema,
+  parse_imports: ParseImportsParamsSchema,
+  resolve_module_path: ResolveModulePathParamsSchema,
+  get_index_status: GetIndexStatusParamsSchema,
+  invalidate_files: InvalidateFilesParamsSchema,
+  rebuild_index: RebuildIndexParamsSchema,
+  get_symbol_graph: GetSymbolGraphParamsSchema,
+  find_unused_symbols: FindUnusedSymbolsParamsSchema,
+  get_symbol_dependents: GetSymbolDependentsParamsSchema,
+  trace_function_execution: TraceFunctionExecutionParamsSchema,
+  get_symbol_callers: GetSymbolCallersParamsSchema,
+  analyze_breaking_changes: AnalyzeBreakingChangesParamsSchema,
+  get_impact_analysis: GetImpactAnalysisParamsSchema,
+};
+
+/**
+ * Result of parameter validation
+ */
+export type ValidationResult<T> = 
+  | { success: true; data: T }
+  | { success: false; error: string; issues: z.core.$ZodIssue[] };
+
+/**
+ * Validate tool parameters against their Zod schema
+ * 
+ * @param tool - The tool name
+ * @param params - The raw parameters to validate
+ * @returns Validation result with parsed data or error details
+ */
+export function validateToolParams<T>(
+  tool: McpToolName,
+  params: unknown
+): ValidationResult<T> {
+  const schema = toolSchemas[tool];
+  
+  if (!schema) {
+    return {
+      success: false,
+      error: `No schema defined for tool: ${tool}`,
+      issues: [],
+    };
+  }
+
+  const result = schema.safeParse(params);
+  
+  if (result.success) {
+    return {
+      success: true,
+      data: result.data as T,
+    };
+  }
+
+  // Format Zod errors for better readability
+  const issues = result.error.issues;
+  const errorMessages = issues.map((issue) => {
+    const path = issue.path.length > 0 ? `${issue.path.join('.')}: ` : '';
+    return `${path}${issue.message}`;
+  });
+
+  return {
+    success: false,
+    error: `Invalid parameters: ${errorMessages.join('; ')}`,
+    issues,
+  };
+}
+
+/**
+ * Normalize a path for cross-platform comparison.
+ * - Converts backslashes to forward slashes
+ * - Lowercases drive letters on Windows for consistent comparison
+ * - Removes trailing slashes
+ * 
+ * @param filePath - The path to normalize
+ * @returns Normalized path
+ */
+export function normalizePathForComparison(filePath: string): string {
+  let normalized = filePath.replaceAll('\\', '/');
+  
+  // Lowercase Windows drive letter for consistent comparison (C: -> c:)
+  if (/^[A-Za-z]:/.test(normalized)) {
+    normalized = normalized[0].toLowerCase() + normalized.slice(1);
+  }
+  
+  // Remove trailing slash (except for root paths like "/" or "C:/")
+  if (normalized.length > 1 && normalized.endsWith('/') && !/^[a-z]:\/$/i.test(normalized)) {
+    normalized = normalized.slice(0, -1);
+  }
+  
+  return normalized;
+}
+
+/**
+ * Check if a path is within a root directory (cross-platform safe).
+ * Uses path.resolve to handle .. and relative paths correctly.
+ * 
+ * @param filePath - The file path to check
+ * @param rootDir - The root directory
+ * @returns true if filePath is within rootDir
+ */
+export function isPathWithinRoot(filePath: string, rootDir: string): boolean {
+  const path = require('node:path');
+  
+  // Resolve both paths to absolute paths
+  const resolvedPath = normalizePathForComparison(path.resolve(rootDir, filePath));
+  const resolvedRoot = normalizePathForComparison(path.resolve(rootDir));
+  
+  // Check if the resolved path starts with the resolved root
+  // Add trailing slash to avoid matching /project-other when rootDir is /project
+  return resolvedPath === resolvedRoot || resolvedPath.startsWith(resolvedRoot + '/');
+}
+
+/**
+ * Validate a file path for security (path traversal prevention)
+ * Cross-platform safe: works on Windows (C:\...), Mac, and Linux
+ * 
+ * @param filePath - The file path to validate
+ * @param rootDir - The workspace root directory
+ * @returns true if valid, throws error if invalid
+ */
+export function validateFilePath(filePath: string, rootDir: string): boolean {
+  const path = require('node:path');
+  const normalizedPath = normalizePathForComparison(filePath);
+  
+  // Check for obvious path traversal patterns
+  if (normalizedPath.includes('..')) {
+    // Resolve and verify the path is still within root
+    if (!isPathWithinRoot(filePath, rootDir)) {
+      throw new Error(`Path traversal detected: ${filePath} resolves outside workspace`);
+    }
+  }
+  
+  // Check for absolute paths
+  const isAbsoluteUnix = normalizedPath.startsWith('/');
+  const isAbsoluteWindows = /^[a-z]:/i.test(normalizedPath);
+  
+  if (isAbsoluteUnix || isAbsoluteWindows) {
+    if (!isPathWithinRoot(filePath, rootDir)) {
+      throw new Error(`File path is outside workspace: ${filePath}`);
+    }
+  } else {
+    // Relative path - resolve and check
+    const resolvedPath = path.resolve(rootDir, filePath);
+    if (!isPathWithinRoot(resolvedPath, rootDir)) {
+      throw new Error(`File path is outside workspace: ${filePath}`);
+    }
+  }
+  
+  return true;
+}
+
+/**
+ * Validate and sanitize string input
+ * 
+ * @param input - The string to sanitize
+ * @param maxLength - Maximum allowed length (default: 10000)
+ * @returns Sanitized string
+ */
+export function sanitizeString(input: string, maxLength = 10000): string {
+  if (typeof input !== 'string') {
+    throw new TypeError('Expected string input');
+  }
+  
+  if (input.length > maxLength) {
+    throw new Error(`Input exceeds maximum length of ${maxLength} characters`);
+  }
+  
+  // Remove null bytes which can cause issues
+  return input.replaceAll('\0', '');
+}
+
+// ============================================================================
 // Tool Response Types with Enriched Metadata
 // ============================================================================
 
@@ -823,12 +1005,10 @@ export function createErrorResponse<T>(
 
 /**
  * Convert a Dependency to DependencyInfo with enriched data
+ * Cross-platform safe.
  */
 export function enrichDependency(dep: Dependency, workspaceRoot: string): DependencyInfo {
-  const relativePath = dep.path.startsWith(workspaceRoot)
-    ? dep.path.slice(workspaceRoot.length + 1)
-    : dep.path;
-  
+  const relativePath = getRelativePath(dep.path, workspaceRoot);
   const extension = dep.path.split('.').pop() ?? '';
 
   return {
@@ -843,9 +1023,25 @@ export function enrichDependency(dep: Dependency, workspaceRoot: string): Depend
 
 /**
  * Get relative path from workspace root
+ * Cross-platform safe: uses Node.js path.relative which handles
+ * Windows drive letters and path separators correctly.
+ * 
+ * @param absolutePath - The absolute path to convert
+ * @param workspaceRoot - The workspace root directory
+ * @returns Relative path with forward slashes (for consistent output)
  */
 export function getRelativePath(absolutePath: string, workspaceRoot: string): string {
-  return absolutePath.startsWith(workspaceRoot)
-    ? absolutePath.slice(workspaceRoot.length + 1)
-    : absolutePath;
+  const nodePath = require('node:path') as typeof import('node:path');
+  
+  // Use path.relative for cross-platform compatibility
+  const relativePath = nodePath.relative(workspaceRoot, absolutePath);
+  
+  // If the path is outside the workspace, path.relative returns a path starting with ..
+  // In that case, return the original absolute path
+  if (relativePath.startsWith('..') || nodePath.isAbsolute(relativePath)) {
+    return absolutePath;
+  }
+  
+  // Normalize to forward slashes for consistent output across platforms
+  return relativePath.replaceAll('\\', '/');
 }
