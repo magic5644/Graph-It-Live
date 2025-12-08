@@ -1,7 +1,12 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
+import path from 'node:path';
 import * as vscode from 'vscode';
 import { GraphProvider } from '../../src/extension/GraphProvider';
 import { Spider } from '../../src/analyzer/Spider';
+import { normalizePath } from '../../src/analyzer/types';
+
+const testRootDir = path.resolve(process.cwd(), 'temp-test-root');
+const np = (p: string) => normalizePath(p);
 
 // Mock vscode
 vi.mock('vscode', () => {
@@ -26,13 +31,14 @@ vi.mock('vscode', () => {
         dispose: vi.fn(),
     };
     
+    const mockRootDir = path.resolve(process.cwd(), 'temp-test-root');
     return {
         Uri: {
-            file: (path: string) => ({ fsPath: path }),
+            file: (p: string) => ({ fsPath: p }),
             joinPath: (...args: any[]) => ({ fsPath: args.join('/') }),
         },
         workspace: {
-            workspaceFolders: [{ uri: { fsPath: '/root' } }],
+            workspaceFolders: [{ uri: { fsPath: mockRootDir } }],
             getConfiguration: () => ({
                 get: () => true,
             }),
@@ -53,7 +59,7 @@ vi.mock('vscode', () => {
             activeTextEditor: {
                 document: {
                     uri: { scheme: 'file' },
-                    fileName: '/root/src/main.ts',
+                    fileName: path.join(mockRootDir, 'src', 'main.ts'),
                 },
             },
         },
@@ -67,10 +73,11 @@ vi.mock('vscode', () => {
 
 // Mock Spider
 vi.mock('../../src/analyzer/Spider', () => {
+    const spiderRootDir = path.resolve(process.cwd(), 'temp-test-root');
     const SpiderMock = vi.fn();
     SpiderMock.mockImplementation(function () {
         return {
-            analyze: vi.fn().mockResolvedValue(['/root/src/utils.ts']),
+            analyze: vi.fn().mockResolvedValue([path.join(spiderRootDir, 'src', 'utils.ts')]),
             crawl: vi.fn().mockResolvedValue({ nodes: [], edges: [] }),
             updateConfig: vi.fn(),
             // New methods for reverse index
@@ -144,7 +151,7 @@ describe('GraphProvider', () => {
 
     it('should initialize Spider on creation', () => {
         expect(Spider).toHaveBeenCalledWith(expect.objectContaining({
-            rootDir: '/root',
+            rootDir: testRootDir,
             excludeNodeModules: true,
         }));
     });
@@ -167,8 +174,9 @@ describe('GraphProvider', () => {
         provider.resolveWebviewView(view as any, {} as any, {} as any);
 
         // Setup mock return
+        const mainTsPath = path.join(testRootDir, 'src', 'main.ts');
         const mockGraphData = {
-            nodes: ['/root/src/main.ts'],
+            nodes: [mainTsPath],
             edges: []
         };
         ((provider as any)['_spider'].crawl as any).mockResolvedValue(mockGraphData);
@@ -177,7 +185,7 @@ describe('GraphProvider', () => {
 
         expect(webview.postMessage).toHaveBeenCalledWith(expect.objectContaining({
             command: 'updateGraph',
-            filePath: '/root/src/main.ts',
+            filePath: mainTsPath,
             data: mockGraphData,
             expandAll: undefined // globalState.get returns undefined by default mock
         }));
