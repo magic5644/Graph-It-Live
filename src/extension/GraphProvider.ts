@@ -415,7 +415,7 @@ export class GraphProvider implements vscode.WebviewViewProvider {
      */
     public async onActiveFileChanged(): Promise<void> {
         const editor = vscode.window.activeTextEditor;
-        if (!editor || editor.document.uri.scheme !== 'file') {
+        if (editor?.document.uri.scheme !== 'file') {
             return;
         }
 
@@ -440,6 +440,74 @@ export class GraphProvider implements vscode.WebviewViewProvider {
     }
 
     /**
+     * Parse a file path or symbol ID to extract the actual file path and optional symbol name
+     * Handles both Unix and Windows paths, including Windows paths with symbol IDs
+     */
+    private parseFilePathAndSymbol(filePath: string): { actualFilePath: string; symbolName?: string } {
+        const isWindowsAbsolutePath = /^[a-zA-Z]:[\\/]/.test(filePath);
+        
+        if (!isWindowsAbsolutePath && filePath.includes(':')) {
+            const parts = filePath.split(':');
+            return {
+                actualFilePath: parts[0],
+                symbolName: parts.slice(1).join(':')
+            };
+        }
+        
+        if (isWindowsAbsolutePath && filePath.lastIndexOf(':') > 1) {
+            const lastColonIndex = filePath.lastIndexOf(':');
+            return {
+                actualFilePath: filePath.substring(0, lastColonIndex),
+                symbolName: filePath.substring(lastColonIndex + 1)
+            };
+        }
+        
+        return { actualFilePath: filePath };
+    }
+
+    /**
+     * Check if a path is absolute (Unix or Windows)
+     */
+    private isAbsolutePath(filePath: string): boolean {
+        return filePath.startsWith('/') || /^[a-zA-Z]:[\\/]/.test(filePath);
+    }
+
+    /**
+     * Navigate editor to a specific line
+     */
+    private navigateToLine(editor: vscode.TextEditor, line: number): void {
+        const position = new vscode.Position(line - 1, 0);
+        editor.selection = new vscode.Selection(position, position);
+        editor.revealRange(
+            new vscode.Range(position, position),
+            vscode.TextEditorRevealType.InCenter
+        );
+    }
+
+    /**
+     * Try to navigate to a symbol's definition in the editor
+     */
+    private async navigateToSymbol(
+        editor: vscode.TextEditor,
+        actualFilePath: string,
+        symbolName: string,
+        originalFilePath: string
+    ): Promise<void> {
+        if (!this._spider) return;
+        
+        try {
+            const { symbols } = await this._spider.getSymbolGraph(actualFilePath);
+            const symbol = symbols.find(s => s.name === symbolName || s.id === originalFilePath);
+            
+            if (symbol?.line) {
+                this.navigateToLine(editor, symbol.line);
+            }
+        } catch (symbolError) {
+            log.warn('Could not navigate to symbol', symbolError);
+        }
+    }
+
+    /**
      * Handle openFile message
      * Supports both regular file paths and symbol IDs (filePath:symbolName)
      * @param filePath The file path or symbol ID
@@ -447,85 +515,32 @@ export class GraphProvider implements vscode.WebviewViewProvider {
      */
     private async handleOpenFile(filePath: string, line?: number): Promise<void> {
         try {
-            // Check if this is a symbol ID (contains ':' but not a Windows drive letter)
-            let actualFilePath = filePath;
-            let symbolName: string | undefined;
+            const { actualFilePath, symbolName } = this.parseFilePathAndSymbol(filePath);
             
-            // Windows paths start with letter followed by colon (e.g., C:\path)
-            // Symbol IDs are like "path/to/file.ts:symbolName"
-            const isWindowsAbsolutePath = /^[a-zA-Z]:[\\/]/.test(filePath);
-            
-            if (!isWindowsAbsolutePath && filePath.includes(':')) {
-                // Not a Windows path, so ':' is a symbol separator
-                const parts = filePath.split(':');
-                actualFilePath = parts[0];
-                symbolName = parts.slice(1).join(':');
-                log.debug('Opening symbol', symbolName, 'in file', actualFilePath);
-            } else if (isWindowsAbsolutePath && filePath.lastIndexOf(':') > 1) {
-                // Windows path with symbol: "C:\path\file.ts:symbolName"
-                const lastColonIndex = filePath.lastIndexOf(':');
-                actualFilePath = filePath.substring(0, lastColonIndex);
-                symbolName = filePath.substring(lastColonIndex + 1);
+            if (symbolName) {
                 log.debug('Opening symbol', symbolName, 'in file', actualFilePath);
             } else {
                 log.debug('Opening file', actualFilePath);
             }
             
-            // Check if this is an absolute path (Unix or Windows)
-            const isAbsolutePath = actualFilePath.startsWith('/') || /^[a-zA-Z]:[\\/]/.test(actualFilePath);
-            
-            // If this is a relative path, try to resolve it
-            if (this._spider && !isAbsolutePath && (actualFilePath.startsWith('.') || !actualFilePath.includes('/'))) {
-                try {
-                    // Try to resolve the path - Spider's PathResolver will handle it
-                    const workspaceRoot = vscode.workspace.workspaceFolders?.[0].uri.fsPath;
-                    if (workspaceRoot) {
-                        // For now, show a message that external files can't be opened
-                        // A full solution would require storing the current file context
-                        vscode.window.showInformationMessage(
-                            `Cannot open external dependency: ${actualFilePath}. This symbol is imported from outside the current file.`
-                        );
-                        return;
-                    }
-                } catch (resolveError) {
-                    log.warn('Could not resolve path', resolveError);
+            // Handle relative paths - show message for external dependencies
+            if (!this.isAbsolutePath(actualFilePath) && this._spider) {
+                const workspaceRoot = vscode.workspace.workspaceFolders?.[0].uri.fsPath;
+                if (workspaceRoot && (actualFilePath.startsWith('.') || !actualFilePath.includes('/'))) {
+                    vscode.window.showInformationMessage(
+                        `Cannot open external dependency: ${actualFilePath}. This symbol is imported from outside the current file.`
+                    );
+                    return;
                 }
             }
             
             const doc = await vscode.workspace.openTextDocument(actualFilePath);
             const editor = await vscode.window.showTextDocument(doc, vscode.ViewColumn.One);
             
-            // If a specific line was provided, navigate directly to it
             if (line && line > 0) {
-                const position = new vscode.Position(line - 1, 0);
-                editor.selection = new vscode.Selection(position, position);
-                editor.revealRange(
-                    new vscode.Range(position, position),
-                    vscode.TextEditorRevealType.InCenter
-                );
-            } else if (symbolName && this._spider) {
-                // If opening a symbol without explicit line, try to find and navigate to its definition
-                try {
-                    const { symbols } = await this._spider.getSymbolGraph(actualFilePath);
-                    
-                    // Find the symbol by name (handle both full name like "Class.method" and simple name)
-                    const symbol = symbols.find(s => 
-                        s.name === symbolName || s.id === filePath
-                    );
-                    
-                    if (symbol?.line) {
-                        // Navigate to the symbol's line (line numbers are 1-indexed)
-                        const position = new vscode.Position(symbol.line - 1, 0);
-                        editor.selection = new vscode.Selection(position, position);
-                        editor.revealRange(
-                            new vscode.Range(position, position),
-                            vscode.TextEditorRevealType.InCenter
-                        );
-                    }
-                } catch (symbolError) {
-                    // If symbol navigation fails, just open the file (already done)
-                    log.warn('Could not navigate to symbol', symbolError);
-                }
+                this.navigateToLine(editor, line);
+            } else if (symbolName) {
+                await this.navigateToSymbol(editor, actualFilePath, symbolName, filePath);
             }
         } catch (e) {
             log.error('Error opening file:', e);

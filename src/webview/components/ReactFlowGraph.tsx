@@ -352,23 +352,22 @@ const detectCycles = (edges: Array<{ source: string; target: string }>): Set<str
     const visited = new Set<string>();
     const recursionStack = new Set<string>();
 
-    const dfs = (node: string, path: string[]): boolean => {
+    // Extracted DFS helper to reduce nesting
+    const dfs = (
+        node: string, 
+        path: string[],
+        onCycleFound: (cyclePath: string[], currentNode: string, neighbor: string) => void
+    ): boolean => {
         visited.add(node);
         recursionStack.add(node);
 
         for (const neighbor of adjacency.get(node) || []) {
             if (!visited.has(neighbor)) {
-                if (dfs(neighbor, [...path, node])) {
+                if (dfs(neighbor, [...path, node], onCycleFound)) {
                     return true;
                 }
             } else if (recursionStack.has(neighbor)) {
-                // Found cycle - mark all nodes in cycle
-                const cycleStart = path.indexOf(neighbor);
-                if (cycleStart !== -1) {
-                    path.slice(cycleStart).forEach((n) => cycleNodes.add(n));
-                }
-                cycleNodes.add(neighbor);
-                cycleNodes.add(node);
+                onCycleFound(path, node, neighbor);
                 return true;
             }
         }
@@ -377,9 +376,18 @@ const detectCycles = (edges: Array<{ source: string; target: string }>): Set<str
         return false;
     };
 
+    const handleCycleFound = (path: string[], currentNode: string, neighbor: string): void => {
+        const cycleStart = path.indexOf(neighbor);
+        if (cycleStart !== -1) {
+            path.slice(cycleStart).forEach((n) => cycleNodes.add(n));
+        }
+        cycleNodes.add(neighbor);
+        cycleNodes.add(currentNode);
+    };
+
     adjacency.forEach((_, node) => {
         if (!visited.has(node)) {
-            dfs(node, []);
+            dfs(node, [], handleCycleFound);
         }
     });
 
@@ -401,6 +409,21 @@ const ReactFlowGraphContent: React.FC<ReactFlowGraphProps> = ({
     const { fitView } = useReactFlow();
     const nodesInitialized = useNodesInitialized();
     const [expandedNodes, setExpandedNodes] = useState<Set<string>>(new Set());
+
+    // Toggle handler extracted to reduce nesting
+    const createToggleHandler = useCallback((path: string) => {
+        return () => {
+            setExpandedNodes((prev) => {
+                const next = new Set(prev);
+                if (next.has(path)) {
+                    next.delete(path);
+                } else {
+                    next.add(path);
+                }
+                return next;
+            });
+        };
+    }, []);
 
     // Build nodes and edges from data
     const { initialNodes, initialEdges, cycles } = useMemo(() => {
@@ -444,6 +467,20 @@ const ReactFlowGraphContent: React.FC<ReactFlowGraphProps> = ({
             }
         }
 
+        // Create node data objects
+        const createNodeData = (path: string, label: string) => ({
+            label,
+            fullPath: path,
+            isRoot: path === currentFilePath,
+            isParent: fileParents.includes(path),
+            isInCycle: cycles.has(path),
+            hasChildren: (children.get(path) || []).length > 0,
+            isExpanded: expandAll || expandedNodes.has(path),
+            onDrillDown: () => onDrillDown(path),
+            onFindReferences: () => onFindReferences(path),
+            onToggle: createToggleHandler(path),
+        });
+
         const nodes: Node[] = Array.from(visibleNodes).map((path) => {
             const label = getLabel(path);
             const width = calculateNodeWidth(label);
@@ -452,45 +489,26 @@ const ReactFlowGraphContent: React.FC<ReactFlowGraphProps> = ({
                 type: 'file',
                 position: { x: 0, y: 0 },
                 style: { width, height: nodeHeight },
-                data: {
-                    label,
-                    fullPath: path,
-                    isRoot: path === currentFilePath,
-                    isParent: fileParents.includes(path), // Mark parent nodes
-                    isInCycle: cycles.has(path),
-                    hasChildren: (children.get(path) || []).length > 0,
-                    isExpanded: expandAll || expandedNodes.has(path),
-                    onDrillDown: () => onDrillDown(path),
-                    onFindReferences: () => onFindReferences(path),
-                    onToggle: () => {
-                        setExpandedNodes((prev) => {
-                            const next = new Set(prev);
-                            if (next.has(path)) {
-                                next.delete(path);
-                            } else {
-                                next.add(path);
-                            }
-                            return next;
-                        });
-                    },
-                },
+                data: createNodeData(path, label),
             };
         });
+
+        // Create edge style based on circular dependency
+        const createEdgeStyle = (isCircular: boolean) => 
+            isCircular 
+                ? { stroke: '#ff4d4d', strokeWidth: 2, strokeDasharray: '5,5' }
+                : { stroke: 'var(--vscode-editor-foreground)' };
 
         const edges: Edge[] = data.edges
             .filter(({ source, target }) => visibleNodes.has(source) && visibleNodes.has(target))
             .map(({ source, target }) => {
                 const isCircular = cycles.has(source) && cycles.has(target);
-                const edgeId = `${source}-${target}`;
-                
                 return {
-                    id: edgeId,
+                    id: `${source}-${target}`,
                     source,
                     target,
                     animated: true,
-                    style: isCircular 
-                        ? { stroke: '#ff4d4d', strokeWidth: 2, strokeDasharray: '5,5' }
-                        : { stroke: 'var(--vscode-editor-foreground)' },
+                    style: createEdgeStyle(isCircular),
                     label: isCircular ? 'Cycle' : undefined,
                     labelStyle: isCircular ? { fill: '#ff4d4d', fontWeight: 'bold' } : undefined,
                     labelBgStyle: isCircular ? { fill: 'var(--vscode-editor-background)' } : undefined,
@@ -499,7 +517,7 @@ const ReactFlowGraphContent: React.FC<ReactFlowGraphProps> = ({
 
         const layouted = getLayoutedElements(nodes, edges);
         return { initialNodes: layouted.nodes, initialEdges: layouted.edges, cycles };
-    }, [data, currentFilePath, expandAll, expandedNodes, onDrillDown, onFindReferences]);
+    }, [data, currentFilePath, expandAll, expandedNodes, onDrillDown, onFindReferences, createToggleHandler]);
 
     const [nodes, setNodes, onNodesChange] = useNodesState(initialNodes);
     const [edges, setEdges, onEdgesChange] = useEdgesState(initialEdges);

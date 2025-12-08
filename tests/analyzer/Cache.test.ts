@@ -84,7 +84,7 @@ describe('Cache', () => {
     it('should overwrite existing values', () => {
         // We overrite existing values
         cache.set('key1', 'value1');
-        cache.set('key1', 'value2');
+        cache.set('key1', 'value2'); //NOSONAR
         
         expect(cache.get('key1')).toBe('value2');
         expect(cache.size).toBe(1);
@@ -135,7 +135,7 @@ describe('Cache LRU', () => {
         lruCache.set('c', '3');
         
         // Update 'a' to make it most recently used
-        lruCache.set('a', 'updated');
+        lruCache.set('a', 'updated'); //NOSONAR
         
         // Adding 'd' should evict 'b'
         lruCache.set('d', '4');

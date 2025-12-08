@@ -141,9 +141,14 @@ export class SpiderError extends Error {
   }
 }
 
+/**
+ * Type of import/dependency statement
+ */
+export type DependencyType = 'import' | 'require' | 'export' | 'dynamic';
+
 export interface Dependency {
   path: string;
-  type: 'import' | 'require' | 'export' | 'dynamic';
+  type: DependencyType;
   line: number;
   module: string; // Original module specifier
 }
@@ -167,7 +172,7 @@ export interface SpiderConfig {
 
 export interface ParsedImport {
   module: string;
-  type: 'import' | 'require' | 'export' | 'dynamic';
+  type: DependencyType;
   line: number;
 }
 
@@ -178,7 +183,7 @@ export interface ReverseIndexEntry {
   /** The source file that imports the target */
   sourcePath: string;
   /** Type of import */
-  type: 'import' | 'require' | 'export' | 'dynamic';
+  type: DependencyType;
   /** Line number of the import statement */
   line: number;
   /** Original module specifier */
