@@ -1,15 +1,31 @@
 import * as vscode from 'vscode';
 import { GraphProvider } from './GraphProvider';
 import { createMcpServerProvider, McpServerProvider } from '../mcp/McpServerProvider';
+import { 
+    extensionLoggerManager, 
+    getExtensionLogger, 
+    getLogLevelFromConfig,
+    watchLogLevelConfig 
+} from './logger';
 
 // Keep track of MCP server provider for cleanup
 let mcpServerProvider: McpServerProvider | null = null;
 
 export function activate(context: vscode.ExtensionContext) {
-    console.log('Graph-It-Live is now active!');
+    // Initialize logging system
+    const outputChannel = vscode.window.createOutputChannel('Graph-It-Live');
+    extensionLoggerManager.initialize(outputChannel);
+    extensionLoggerManager.setLevel(getLogLevelFromConfig());
+    watchLogLevelConfig(context);
+    
+    const log = getExtensionLogger('Extension');
+    log.info('Graph-It-Live is now active!');
 
     const provider = new GraphProvider(context.extensionUri, context);
     const disposables: vscode.Disposable[] = [
+        // Output channel disposal
+        outputChannel,
+        
         // Provider must be registered before command
         vscode.window.registerWebviewViewProvider(GraphProvider.viewType, provider),
 
@@ -24,14 +40,14 @@ export function activate(context: vscode.ExtensionContext) {
 
         // Listen for file/editor changes - preserve current view type
         vscode.window.onDidChangeActiveTextEditor((editor) => {
-            console.log('[Extension] Active editor changed:', editor?.document.fileName);
+            log.debug('Active editor changed:', editor?.document.fileName);
             // Use onActiveFileChanged to preserve view type (file or symbol)
             provider.onActiveFileChanged();
         }),
         
         // Also update on save to reflect new imports
         vscode.workspace.onDidSaveTextDocument(async (doc) => {
-            console.log('[Extension] Document saved:', doc.fileName);
+            log.debug('Document saved:', doc.fileName);
             // Re-analyze the file and refresh the appropriate view (file or symbol)
             // onFileSaved now handles both cache update and view refresh while preserving view mode
             await provider.onFileSaved(doc.fileName);
@@ -51,7 +67,7 @@ export function activate(context: vscode.ExtensionContext) {
         disposables.push(mcpDisposable);
         context.subscriptions.push(mcpServerProvider);
     } else {
-        console.log('[Extension] No workspace folder open, MCP server not registered');
+        log.info('No workspace folder open, MCP server not registered');
     }
 
     context.subscriptions.push(...disposables);

@@ -19,6 +19,12 @@ vi.mock('vscode', () => {
         onDidChange: vi.fn(),
         dispose: vi.fn(),
     };
+
+    const mockOutputChannel = {
+        appendLine: vi.fn(),
+        show: vi.fn(),
+        dispose: vi.fn(),
+    };
     
     return {
         Uri: {
@@ -37,6 +43,7 @@ vi.mock('vscode', () => {
             showTextDocument: vi.fn(),
             showErrorMessage: vi.fn(),
             createStatusBarItem: vi.fn().mockReturnValue(mockStatusBarItem),
+            createOutputChannel: vi.fn().mockReturnValue(mockOutputChannel),
             withProgress: vi.fn().mockImplementation(async (_options: any, task: any) => {
                 // Execute the task with a mock progress reporter
                 const mockProgress = { report: vi.fn() };

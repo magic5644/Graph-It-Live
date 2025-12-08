@@ -9,12 +9,16 @@
  */
 
 import { Worker } from 'node:worker_threads';
+import { getLogger } from '../shared/logger';
 import type {
   McpWorkerMessage,
   McpWorkerResponse,
   McpWorkerConfig,
   McpToolName,
 } from './types';
+
+/** Logger instance for McpWorkerHost */
+const log = getLogger('McpWorkerHost');
 
 // ============================================================================
 // Types
@@ -172,7 +176,7 @@ export class McpWorkerHost {
       case 'file-invalidated':
         // File change detected by the worker's file watcher
         // Log for debugging, no action needed - cache is already invalidated
-        console.error(`[McpWorkerHost] Cache invalidated: ${msg.event} ${msg.filePath}`);
+        log.debug('Cache invalidated:', msg.event, msg.filePath);
         break;
     }
   }

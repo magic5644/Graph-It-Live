@@ -152,6 +152,13 @@
           "description": "Delay in milliseconds before starting background indexing after extension activation. Allows VS Code to finish startup first.",
           "minimum": 0,
           "maximum": 30000
+        },
+        "graph-it-live.logLevel": {
+          "type": "string",
+          "enum": ["debug", "info", "warn", "error", "none"],
+          "default": "info",
+          "description": "Logging level for the extension. Debug shows all logs, none disables logging.",
+          "markdownDescription": "Logging level for the extension output channel.\n\n- **debug**: Verbose output for troubleshooting\n- **info**: Standard operation logs\n- **warn**: Warnings only\n- **error**: Errors only\n- **none**: Disable logging"
         }
       }
     }
@@ -164,6 +171,7 @@
     "test": "vitest",
     "test:watch": "vitest --watch",
     "test:unit": "vitest run",
+    "test:coverage": "vitest run --coverage",
     "test:vscode": "npm run compile && node ./tests/vscode-e2e/runTests.js",
     "test:all": "npm run test:unit",
     "test:bench": "vitest bench --config vitest.benchmark.config.mts",

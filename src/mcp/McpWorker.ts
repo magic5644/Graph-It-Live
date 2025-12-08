@@ -62,6 +62,13 @@ import type {
   ImpactedItem,
 } from './types';
 import { enrichDependency } from './types';
+import { getLogger, getLogLevelFromEnv, loggerFactory } from '../shared/logger';
+
+// Configure log level from environment variable
+loggerFactory.setDefaultLevel(getLogLevelFromEnv('LOG_LEVEL'));
+
+/** Logger instance for McpWorker */
+const log = getLogger('McpWorker');
 
 // ============================================================================
 // Helper Functions
@@ -122,7 +129,7 @@ parentPort?.on('message', async (msg: McpWorkerMessage) => {
     }
   } catch (error) {
     const errorMessage = error instanceof Error ? error.message : 'Unknown error';
-    console.error('[McpWorker] Error handling message:', errorMessage);
+    log.error('Error handling message:', errorMessage);
   }
 });
 
@@ -144,7 +151,7 @@ async function handleInit(cfg: McpWorkerConfig): Promise<void> {
   const startTime = Date.now();
   config = cfg;
 
-  console.error('[McpWorker] Initializing with config:', {
+  log.info('Initializing with config:', {
     rootDir: cfg.rootDir,
     excludeNodeModules: cfg.excludeNodeModules,
     maxDepth: cfg.maxDepth,
@@ -178,7 +185,7 @@ async function handleInit(cfg: McpWorkerConfig): Promise<void> {
   });
 
   // Perform warmup: build full index of the workspace
-  console.error('[McpWorker] Starting warmup indexing...');
+  log.info('Starting warmup indexing...');
   
   try {
     const result = await spider.buildFullIndex();
@@ -192,7 +199,7 @@ async function handleInit(cfg: McpWorkerConfig): Promise<void> {
     isReady = true;
     const totalDuration = Date.now() - startTime;
 
-    console.error(`[McpWorker] Warmup complete: ${result.indexedFiles} files indexed in ${result.duration}ms`);
+    log.info('Warmup complete:', result.indexedFiles, 'files indexed in', result.duration, 'ms');
 
     // Start file watcher after warmup
     setupFileWatcher();
@@ -204,7 +211,7 @@ async function handleInit(cfg: McpWorkerConfig): Promise<void> {
     });
   } catch (error) {
     const errorMessage = error instanceof Error ? error.message : 'Unknown error';
-    console.error('[McpWorker] Warmup failed:', errorMessage);
+    log.error('Warmup failed:', errorMessage);
     
     // Still mark as ready, but warmup failed
     warmupInfo = { completed: false };
@@ -222,7 +229,7 @@ async function handleInit(cfg: McpWorkerConfig): Promise<void> {
  * Handle shutdown message
  */
 function handleShutdown(): void {
-  console.error('[McpWorker] Shutting down...');
+  log.info('Shutting down...');
   
   // Stop file watcher
   stopFileWatcher();
@@ -243,14 +250,14 @@ function handleShutdown(): void {
  */
 function setupFileWatcher(): void {
   if (!config?.rootDir) {
-    console.error('[McpWorker] Cannot setup file watcher: no rootDir configured');
+    log.warn('Cannot setup file watcher: no rootDir configured');
     return;
   }
 
   // Build glob pattern for watched extensions
   const globPattern = `${config.rootDir}/**/*{${WATCHED_EXTENSIONS.join(',')}}`;
   
-  console.error(`[McpWorker] Setting up file watcher for: ${globPattern}`);
+  log.debug('Setting up file watcher for:', globPattern);
 
   try {
     fileWatcher = watch(globPattern, {
@@ -284,16 +291,16 @@ function setupFileWatcher(): void {
     });
 
     fileWatcher.on('error', (error: Error) => {
-      console.error('[McpWorker] File watcher error:', error.message);
+      log.error('File watcher error:', error.message);
     });
 
     fileWatcher.on('ready', () => {
-      console.error('[McpWorker] File watcher ready');
+      log.debug('File watcher ready');
     });
 
   } catch (error) {
     const errorMessage = error instanceof Error ? error.message : 'Unknown error';
-    console.error('[McpWorker] Failed to setup file watcher:', errorMessage);
+    log.error('Failed to setup file watcher:', errorMessage);
   }
 }
 
@@ -302,9 +309,9 @@ function setupFileWatcher(): void {
  */
 function stopFileWatcher(): void {
   if (fileWatcher) {
-    console.error('[McpWorker] Stopping file watcher...');
+    log.debug('Stopping file watcher...');
     fileWatcher.close().catch((error: Error) => {
-      console.error('[McpWorker] Error closing file watcher:', error.message);
+      log.error('Error closing file watcher:', error.message);
     });
     fileWatcher = null;
   }
@@ -344,7 +351,7 @@ function performFileInvalidation(event: 'change' | 'add' | 'unlink', filePath: s
     return;
   }
 
-  console.error(`[McpWorker] File ${event}: ${path.basename(filePath)}`);
+  log.debug('File', event + ':', path.basename(filePath));
 
   switch (event) {
     case 'change':
