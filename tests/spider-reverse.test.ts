@@ -2,6 +2,7 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import * as path from 'node:path';
 import * as fs from 'node:fs/promises';
 import { Spider } from '../src/analyzer/Spider';
+import { normalizePath } from '../src/analyzer/types';
 
 const FIXTURES_DIR = path.join(__dirname, 'fixtures', 'reverse-deps');
 
@@ -39,8 +40,9 @@ describe('Spider - Reverse Dependencies', () => {
         const referencingFiles = await spider.findReferencingFiles(bPath);
         
         const referencingPaths = referencingFiles.map(d => d.path).sort();
-        expect(referencingPaths).toContain(path.join(FIXTURES_DIR, 'a.ts'));
-        expect(referencingPaths).toContain(path.join(FIXTURES_DIR, 'c.ts'));
+        // Use normalizePath for cross-platform comparison
+        expect(referencingPaths).toContain(normalizePath(path.join(FIXTURES_DIR, 'a.ts')));
+        expect(referencingPaths).toContain(normalizePath(path.join(FIXTURES_DIR, 'c.ts')));
         expect(referencingPaths).toHaveLength(2);
     });
 
@@ -49,7 +51,8 @@ describe('Spider - Reverse Dependencies', () => {
         const referencingFiles = await spider.findReferencingFiles(aPath);
         
         const referencingPaths = referencingFiles.map(d => d.path).sort();
-        expect(referencingPaths).toContain(path.join(FIXTURES_DIR, 'd.ts'));
+        // Use normalizePath for cross-platform comparison
+        expect(referencingPaths).toContain(normalizePath(path.join(FIXTURES_DIR, 'd.ts')));
         expect(referencingPaths).toHaveLength(1);
     });
 

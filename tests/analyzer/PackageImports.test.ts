@@ -1,12 +1,19 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import { Spider } from '../../src/analyzer/Spider';
 import { PathResolver } from '../../src/analyzer/PathResolver';
+import { normalizePath } from '../../src/analyzer/types';
 import path from 'node:path';
 
 // Use absolute path for test fixtures
 const fixturesPath = path.resolve(process.cwd(), 'tests/fixtures/monorepo-project');
 const appPath = path.join(fixturesPath, 'packages/app');
 const libPath = path.join(fixturesPath, 'packages/lib');
+
+/**
+ * Helper to normalize expected paths for cross-platform comparison
+ * PathResolver.resolve() returns normalized paths (forward slashes)
+ */
+const np = (p: string) => normalizePath(p);
 
 describe('Package.json imports field support', () => {
   describe('PathResolver with #imports', () => {
@@ -24,28 +31,28 @@ describe('Package.json imports field support', () => {
       const currentFile = path.join(appPath, 'src/index.ts');
       const resolved = await resolver.resolve(currentFile, '#components/Button');
       
-      expect(resolved).toBe(path.join(appPath, 'src/components/Button.ts'));
+      expect(resolved).toBe(np(path.join(appPath, 'src/components/Button.ts')));
     });
 
     it('should resolve exact #imports from app package', async () => {
       const currentFile = path.join(appPath, 'src/index.ts');
       const resolved = await resolver.resolve(currentFile, '#utils');
       
-      expect(resolved).toBe(path.join(appPath, 'src/utils/index.ts'));
+      expect(resolved).toBe(np(path.join(appPath, 'src/utils/index.ts')));
     });
 
     it('should resolve #imports with wildcard pattern from lib package', async () => {
       const currentFile = path.join(libPath, 'src/index.ts');
       const resolved = await resolver.resolve(currentFile, '#internal/secret');
       
-      expect(resolved).toBe(path.join(libPath, 'src/internal/secret.ts'));
+      expect(resolved).toBe(np(path.join(libPath, 'src/internal/secret.ts')));
     });
 
     it('should resolve conditional #imports (default condition) from lib package', async () => {
       const currentFile = path.join(libPath, 'src/index.ts');
       const resolved = await resolver.resolve(currentFile, '#config');
       
-      expect(resolved).toBe(path.join(libPath, 'src/config.ts'));
+      expect(resolved).toBe(np(path.join(libPath, 'src/config.ts')));
     });
 
     it('should return null for unknown #imports', async () => {
@@ -62,7 +69,7 @@ describe('Package.json imports field support', () => {
       
       // #components should resolve from app
       const appResolved = await resolver.resolve(appFile, '#components/Button');
-      expect(appResolved).toBe(path.join(appPath, 'src/components/Button.ts'));
+      expect(appResolved).toBe(np(path.join(appPath, 'src/components/Button.ts')));
       
       // #components should NOT resolve from lib (different package.json)
       const libResolved = await resolver.resolve(libFile, '#components/Button');
@@ -73,7 +80,7 @@ describe('Package.json imports field support', () => {
       const currentFile = path.join(appPath, 'src/index.ts');
       const resolved = await resolver.resolve(currentFile, '@shared/helper');
       
-      expect(resolved).toBe(path.join(fixturesPath, 'packages/shared/src/helper.ts'));
+      expect(resolved).toBe(np(path.join(fixturesPath, 'packages/shared/src/helper.ts')));
     });
 
     it('should prioritize tsconfig paths over package.json imports', async () => {
@@ -91,7 +98,7 @@ describe('Package.json imports field support', () => {
       const currentFile = path.join(appPath, 'src/index.ts');
       const resolved = await resolver.resolve(currentFile, '@app/components/Button');
       
-      expect(resolved).toBe(path.join(appPath, 'src/components/Button.ts'));
+      expect(resolved).toBe(np(path.join(appPath, 'src/components/Button.ts')));
     });
 
     it('should fall through to node_modules for unresolved @scoped packages', async () => {
@@ -173,7 +180,7 @@ describe('Package.json imports field support', () => {
       // Second call from same directory should use cache (verified by resolving successfully)
       const resolved = await resolver.resolve(file1, '#utils');
       
-      expect(resolved).toBe(path.join(appPath, 'src/utils/index.ts'));
+      expect(resolved).toBe(np(path.join(appPath, 'src/utils/index.ts')));
     });
   });
 
@@ -188,7 +195,7 @@ describe('Package.json imports field support', () => {
       const currentFile = path.join(appPath, 'src/index.ts');
       const resolved = await resolver.resolve(currentFile, '@shared/helper');
       
-      expect(resolved).toBe(path.join(fixturesPath, 'packages/shared/src/helper.ts'));
+      expect(resolved).toBe(np(path.join(fixturesPath, 'packages/shared/src/helper.ts')));
     });
 
     it('should resolve @alias from package.json imports when not in tsconfig', async () => {
@@ -201,7 +208,7 @@ describe('Package.json imports field support', () => {
       const currentFile = path.join(appPath, 'src/index.ts');
       const resolved = await resolver.resolve(currentFile, '@app/components/Button');
       
-      expect(resolved).toBe(path.join(appPath, 'src/components/Button.ts'));
+      expect(resolved).toBe(np(path.join(appPath, 'src/components/Button.ts')));
     });
 
     it('should prioritize tsconfig.json over package.json when both define same @alias', async () => {
@@ -217,7 +224,7 @@ describe('Package.json imports field support', () => {
       
       // @shared should resolve via tsconfig (packages/shared/src), not package.json
       const resolved = await resolver.resolve(currentFile, '@shared/helper');
-      expect(resolved).toBe(path.join(fixturesPath, 'packages/shared/src/helper.ts'));
+      expect(resolved).toBe(np(path.join(fixturesPath, 'packages/shared/src/helper.ts')));
     });
 
     it('should resolve @alias from package.json when no tsconfig provided', async () => {
@@ -231,7 +238,7 @@ describe('Package.json imports field support', () => {
       
       // @app/* should still resolve via package.json
       const resolved = await resolver.resolve(currentFile, '@app/components/Button');
-      expect(resolved).toBe(path.join(appPath, 'src/components/Button.ts'));
+      expect(resolved).toBe(np(path.join(appPath, 'src/components/Button.ts')));
     });
 
     it('should use package-specific @alias in monorepo (different packages have different aliases)', async () => {
@@ -244,7 +251,7 @@ describe('Package.json imports field support', () => {
       // @app/* is defined in app's package.json
       const appFile = path.join(appPath, 'src/index.ts');
       const appResolved = await resolver.resolve(appFile, '@app/components/Button');
-      expect(appResolved).toBe(path.join(appPath, 'src/components/Button.ts'));
+      expect(appResolved).toBe(np(path.join(appPath, 'src/components/Button.ts')));
       
       // @app/* should NOT resolve from lib (different package.json without @app)
       const libFile = path.join(libPath, 'src/index.ts');
@@ -290,7 +297,7 @@ describe('Package.json imports field support', () => {
       
       // @app/* with wildcard should work
       const resolved = await resolver.resolve(currentFile, '@app/utils/index');
-      expect(resolved).toBe(path.join(appPath, 'src/utils/index.ts'));
+      expect(resolved).toBe(np(path.join(appPath, 'src/utils/index.ts')));
     });
 
     it('should resolve @alias in nested subdirectories', async () => {
@@ -303,7 +310,7 @@ describe('Package.json imports field support', () => {
       const nestedFile = path.join(appPath, 'src/components/Button.ts');
       const resolved = await resolver.resolve(nestedFile, '@app/utils/index');
       
-      expect(resolved).toBe(path.join(appPath, 'src/utils/index.ts'));
+      expect(resolved).toBe(np(path.join(appPath, 'src/utils/index.ts')));
     });
   });
 
@@ -319,7 +326,7 @@ describe('Package.json imports field support', () => {
       
       // @shared is defined in monorepo-project/tsconfig.json which should be discovered
       const resolved = await resolver.resolve(currentFile, '@shared/helper');
-      expect(resolved).toBe(path.join(fixturesPath, 'packages/shared/src/helper.ts'));
+      expect(resolved).toBe(np(path.join(fixturesPath, 'packages/shared/src/helper.ts')));
     });
 
     it('should discover tsconfig.json from nested file location', async () => {
@@ -333,7 +340,7 @@ describe('Package.json imports field support', () => {
       
       // Should still find the tsconfig.json in the monorepo root
       const resolved = await resolver.resolve(nestedFile, '@shared/helper');
-      expect(resolved).toBe(path.join(fixturesPath, 'packages/shared/src/helper.ts'));
+      expect(resolved).toBe(np(path.join(fixturesPath, 'packages/shared/src/helper.ts')));
     });
 
     it('should work when workspace root does not have tsconfig but subdirectory does', async () => {
@@ -349,7 +356,7 @@ describe('Package.json imports field support', () => {
       const currentFile = path.join(appPath, 'src/index.ts');
       // Should discover monorepo-project/tsconfig.json by traversing up from the file
       const resolved = await resolver.resolve(currentFile, '@shared/helper');
-      expect(resolved).toBe(path.join(fixturesPath, 'packages/shared/src/helper.ts'));
+      expect(resolved).toBe(np(path.join(fixturesPath, 'packages/shared/src/helper.ts')));
     });
 
     it('should cache tsconfig.json discovery results', async () => {
@@ -362,12 +369,12 @@ describe('Package.json imports field support', () => {
       // First resolution should discover and cache
       const file1 = path.join(appPath, 'src/index.ts');
       const resolved1 = await resolver.resolve(file1, '@shared/helper');
-      expect(resolved1).toBe(path.join(fixturesPath, 'packages/shared/src/helper.ts'));
+      expect(resolved1).toBe(np(path.join(fixturesPath, 'packages/shared/src/helper.ts')));
       
       // Second resolution from same package should use cache
       const file2 = path.join(appPath, 'src/components/Button.ts');
       const resolved2 = await resolver.resolve(file2, '@shared/helper');
-      expect(resolved2).toBe(path.join(fixturesPath, 'packages/shared/src/helper.ts'));
+      expect(resolved2).toBe(np(path.join(fixturesPath, 'packages/shared/src/helper.ts')));
     });
 
     it('should use static tsconfig path if provided (priority over dynamic discovery)', async () => {
@@ -381,7 +388,7 @@ describe('Package.json imports field support', () => {
       
       const currentFile = path.join(appPath, 'src/index.ts');
       const resolved = await resolver.resolve(currentFile, '@shared/helper');
-      expect(resolved).toBe(path.join(fixturesPath, 'packages/shared/src/helper.ts'));
+      expect(resolved).toBe(np(path.join(fixturesPath, 'packages/shared/src/helper.ts')));
     });
   });
 
@@ -398,7 +405,7 @@ describe('Package.json imports field support', () => {
       const resolved = await resolver.resolve(currentFile, '@monorepo/lib');
       
       // Should resolve to the lib package's entry point
-      expect(resolved).toBe(path.join(libPath, 'src/index.ts'));
+      expect(resolved).toBe(np(path.join(libPath, 'src/index.ts')));
     });
 
     it('should resolve @scope/package via file: dependency from root package.json', async () => {
@@ -413,7 +420,7 @@ describe('Package.json imports field support', () => {
       const resolved = await resolver.resolve(currentFile, '@monorepo/shared');
       
       // Should resolve to the shared package's entry point
-      expect(resolved).toBe(path.join(fixturesPath, 'packages/shared/src/index.ts'));
+      expect(resolved).toBe(np(path.join(fixturesPath, 'packages/shared/src/index.ts')));
     });
 
     it('should resolve @scope/package/subpath via file: dependency', async () => {
@@ -427,7 +434,7 @@ describe('Package.json imports field support', () => {
       const resolved = await resolver.resolve(currentFile, '@monorepo/shared/helper');
       
       // Should resolve subpath within the package
-      expect(resolved).toBe(path.join(fixturesPath, 'packages/shared/src/helper.ts'));
+      expect(resolved).toBe(np(path.join(fixturesPath, 'packages/shared/src/helper.ts')));
     });
 
     it('should prefer tsconfig paths over file: dependencies', async () => {
@@ -443,11 +450,11 @@ describe('Package.json imports field support', () => {
       
       // @shared/* should use tsconfig paths
       const resolvedTsConfig = await resolver.resolve(currentFile, '@shared/helper');
-      expect(resolvedTsConfig).toBe(path.join(fixturesPath, 'packages/shared/src/helper.ts'));
+      expect(resolvedTsConfig).toBe(np(path.join(fixturesPath, 'packages/shared/src/helper.ts')));
       
       // @monorepo/shared should fall through to file: dependency
       const resolvedFileDep = await resolver.resolve(currentFile, '@monorepo/shared');
-      expect(resolvedFileDep).toBe(path.join(fixturesPath, 'packages/shared/src/index.ts'));
+      expect(resolvedFileDep).toBe(np(path.join(fixturesPath, 'packages/shared/src/index.ts')));
     });
   });
 });

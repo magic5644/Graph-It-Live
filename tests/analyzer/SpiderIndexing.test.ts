@@ -1,5 +1,6 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { Spider } from '../../src/analyzer/Spider';
+import { normalizePath } from '../../src/analyzer/types';
 import path from 'node:path';
 import * as fs from 'node:fs/promises';
 
@@ -132,7 +133,8 @@ describe('Spider - Reverse Index Integration', () => {
             const utilsFile = path.join(fixturesPath, 'src/utils.ts');
             const refs = await spider.findReferencingFiles(utilsFile);
 
-            expect(refs.some(r => r.path === mainFile)).toBe(true);
+            // Use normalizePath for cross-platform comparison (refs.path is normalized)
+            expect(refs.some(r => r.path === normalizePath(mainFile))).toBe(true);
         });
     });
 
