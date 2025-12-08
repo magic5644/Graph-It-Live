@@ -1,27 +1,33 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { Spider } from '../../src/analyzer/Spider';
+import { normalizePath } from '../../src/analyzer/types';
 import * as fs from 'node:fs/promises';
+import * as path from 'node:path';
 
 // Mock fs
 vi.mock('node:fs/promises');
+
+// Use cross-platform root path
+const ROOT_DIR = path.resolve('/tmp/test-root');
+const np = (p: string) => normalizePath(p);
 
 describe('Spider - Deep Recursion', () => {
     let spider: Spider;
 
     beforeEach(() => {
         vi.clearAllMocks();
-        spider = new Spider({ rootDir: '/root' });
+        spider = new Spider({ rootDir: ROOT_DIR });
     });
 
     it('should crawl 10 levels deep when maxDepth is sufficient', async () => {
         spider.updateConfig({ maxDepth: 20 });
 
         // Mock file content for a chain of 10 files: file0 -> file1 -> ... -> file9
-        vi.mocked(fs.readFile).mockImplementation(async (path) => {
-            const p = path.toString();
+        vi.mocked(fs.readFile).mockImplementation(async (filePath) => {
+            const p = normalizePath(filePath.toString());
             const match = p.match(/file(\d+)\.ts/);
             if (match) {
-                const index = parseInt(match[1]);
+                const index = Number.parseInt(match[1]);
                 if (index < 9) {
                     return `import {} from './file${index + 1}'`;
                 }
@@ -30,20 +36,22 @@ describe('Spider - Deep Recursion', () => {
         });
 
         // Mock file existence
-        vi.mocked(fs.stat).mockImplementation(async (path) => {
-            const p = path.toString();
+        vi.mocked(fs.stat).mockImplementation(async (filePath) => {
+            const p = normalizePath(filePath.toString());
             if (p.endsWith('.ts')) {
                 return { isFile: () => true } as any;
             }
             throw new Error('File not found');
         });
 
-        const result = await spider.crawl('/root/file0.ts');
+        const file0 = path.join(ROOT_DIR, 'file0.ts');
+        const file9 = path.join(ROOT_DIR, 'file9.ts');
+        const result = await spider.crawl(file0);
         
         // Should find file0 to file9 (10 files)
         expect(result.nodes).toHaveLength(10);
-        expect(result.nodes).toContain('/root/file0.ts');
-        expect(result.nodes).toContain('/root/file9.ts');
+        expect(result.nodes).toContain(np(file0));
+        expect(result.nodes).toContain(np(file9));
         
         // Should have 9 edges
         expect(result.edges).toHaveLength(9);
@@ -53,11 +61,11 @@ describe('Spider - Deep Recursion', () => {
         spider.updateConfig({ maxDepth: 5 });
 
         // Mock file content for a chain of 10 files
-        vi.mocked(fs.readFile).mockImplementation(async (path) => {
-            const p = path.toString();
+        vi.mocked(fs.readFile).mockImplementation(async (filePath) => {
+            const p = normalizePath(filePath.toString());
             const match = p.match(/file(\d+)\.ts/);
             if (match) {
-                const index = parseInt(match[1]);
+                const index = Number.parseInt(match[1]);
                 if (index < 9) {
                     return `import {} from './file${index + 1}'`;
                 }
@@ -66,13 +74,17 @@ describe('Spider - Deep Recursion', () => {
         });
 
         // Mock file existence
-        vi.mocked(fs.access).mockImplementation(async (path) => {
-            const p = path.toString();
+        vi.mocked(fs.access).mockImplementation(async (filePath) => {
+            const p = normalizePath(filePath.toString());
             if (p.endsWith('.ts')) return undefined;
             throw new Error('File not found');
         });
 
-        const result = await spider.crawl('/root/file0.ts');
+        const file0 = path.join(ROOT_DIR, 'file0.ts');
+        const file5 = path.join(ROOT_DIR, 'file5.ts');
+        const file6 = path.join(ROOT_DIR, 'file6.ts');
+        const file7 = path.join(ROOT_DIR, 'file7.ts');
+        const result = await spider.crawl(file0);
         
         // Depth 0: file0
         // Depth 1: file1
@@ -100,10 +112,10 @@ describe('Spider - Deep Recursion', () => {
         // So file6 IS added to nodes (by file5 analysis), but file6 is NOT analyzed.
         // So file6's dependencies (file7) are NOT found.
         
-        expect(result.nodes).toContain('/root/file0.ts');
-        expect(result.nodes).toContain('/root/file5.ts');
-        expect(result.nodes).toContain('/root/file6.ts');
-        expect(result.nodes).not.toContain('/root/file7.ts');
+        expect(result.nodes).toContain(np(file0));
+        expect(result.nodes).toContain(np(file5));
+        expect(result.nodes).toContain(np(file6));
+        expect(result.nodes).not.toContain(np(file7));
         
         expect(result.edges).toHaveLength(6);
     });

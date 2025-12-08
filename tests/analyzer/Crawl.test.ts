@@ -1,22 +1,32 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { Spider } from '../../src/analyzer/Spider';
+import { normalizePath } from '../../src/analyzer/types';
 import * as fs from 'node:fs/promises';
+import * as path from 'node:path';
 
 // Mock fs
 vi.mock('node:fs/promises');
+
+// Use cross-platform root path
+const ROOT_DIR = path.resolve('/tmp/test-root');
+const np = (p: string) => normalizePath(p);
 
 describe('Spider - Crawl', () => {
     let spider: Spider;
 
     beforeEach(() => {
         vi.clearAllMocks();
-        spider = new Spider({ rootDir: '/root' });
+        spider = new Spider({ rootDir: ROOT_DIR });
     });
 
     it('should crawl dependencies recursively', async () => {
+        const mainFile = path.join(ROOT_DIR, 'main.ts');
+        const childFile = path.join(ROOT_DIR, 'child.ts');
+        const grandchildFile = path.join(ROOT_DIR, 'grandchild.ts');
+
         // Mock file content
-        vi.mocked(fs.readFile).mockImplementation(async (path) => {
-            const p = path.toString();
+        vi.mocked(fs.readFile).mockImplementation(async (filePath) => {
+            const p = normalizePath(filePath.toString());
             if (p.endsWith('/main.ts')) return "import {} from './child'";
             if (p.endsWith('/child.ts')) return "import {} from './grandchild'";
             if (p.endsWith('/grandchild.ts')) return "";
@@ -24,9 +34,8 @@ describe('Spider - Crawl', () => {
         });
 
         // Mock file existence for resolver
-        // Mock file existence for resolver
-        vi.mocked(fs.stat).mockImplementation(async (path) => {
-            const p = path.toString();
+        vi.mocked(fs.stat).mockImplementation(async (filePath) => {
+            const p = normalizePath(filePath.toString());
             // Only allow paths with extensions to exist
             if (p.endsWith('.ts')) {
                 return { isFile: () => true } as any;
@@ -34,38 +43,42 @@ describe('Spider - Crawl', () => {
             throw new Error('File not found');
         });
 
-        const result = await spider.crawl('/root/main.ts');
+        const result = await spider.crawl(mainFile);
         
-        expect(result.nodes).toContain('/root/main.ts');
-        expect(result.nodes).toContain('/root/child.ts');
-        expect(result.nodes).toContain('/root/grandchild.ts');
+        expect(result.nodes).toContain(np(mainFile));
+        expect(result.nodes).toContain(np(childFile));
+        expect(result.nodes).toContain(np(grandchildFile));
         
         expect(result.edges).toHaveLength(2);
-        expect(result.edges).toContainEqual({ source: '/root/main.ts', target: '/root/child.ts' });
-        expect(result.edges).toContainEqual({ source: '/root/child.ts', target: '/root/grandchild.ts' });
+        expect(result.edges).toContainEqual({ source: np(mainFile), target: np(childFile) });
+        expect(result.edges).toContainEqual({ source: np(childFile), target: np(grandchildFile) });
     });
 
     it('should respect max depth', async () => {
         spider.updateConfig({ maxDepth: 1 });
 
+        const mainFile = path.join(ROOT_DIR, 'main.ts');
+        const childFile = path.join(ROOT_DIR, 'child.ts');
+        const grandchildFile = path.join(ROOT_DIR, 'grandchild.ts');
+
         // Mock file content
-        vi.mocked(fs.readFile).mockImplementation(async (path) => {
-            const p = path.toString();
+        vi.mocked(fs.readFile).mockImplementation(async (filePath) => {
+            const p = normalizePath(filePath.toString());
             if (p.endsWith('/main.ts')) return "import {} from './child'";
             if (p.endsWith('/child.ts')) return "import {} from './grandchild'";
             return "";
         });
 
         // Mock file existence
-        vi.mocked(fs.stat).mockImplementation(async (path) => {
-            const p = path.toString();
+        vi.mocked(fs.stat).mockImplementation(async (filePath) => {
+            const p = normalizePath(filePath.toString());
             if (p.endsWith('.ts')) {
                 return { isFile: () => true } as any;
             }
             throw new Error('File not found');
         });
 
-        const result = await spider.crawl('/root/main.ts');
+        const result = await spider.crawl(mainFile);
         
         // Should contain main and child, but NOT grandchild (depth 2)
         // Wait, crawl logic:
@@ -77,11 +90,12 @@ describe('Spider - Crawl', () => {
         // BUT we didn't crawl it (didn't analyze its content).
         // So if grandchild had dependencies, they wouldn't be found.
         
-        expect(result.nodes).toContain('/root/main.ts');
-        expect(result.nodes).toContain('/root/child.ts');
-        expect(result.nodes).toContain('/root/grandchild.ts'); // Found as dependency
+        expect(result.nodes).toContain(np(mainFile));
+        expect(result.nodes).toContain(np(childFile));
+        expect(result.nodes).toContain(np(grandchildFile)); // Found as dependency
         
-        // Let's verify we didn't analyze grandchild
-        expect(fs.readFile).not.toHaveBeenCalledWith('/root/grandchild.ts', expect.anything());
+        // Let's verify we didn't analyze grandchild - check the normalized path pattern
+        const readFileCalls = vi.mocked(fs.readFile).mock.calls.map(call => normalizePath(call[0].toString()));
+        expect(readFileCalls.some(p => p.endsWith('/grandchild.ts'))).toBe(false);
     });
 });
