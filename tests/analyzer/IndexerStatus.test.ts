@@ -250,8 +250,8 @@ describe('IndexerStatus', () => {
       // Should not throw when notifying, even when a listener throws
       expect(() => status.startCounting()).not.toThrow();
       
-      // Error should be logged
-      expect(consoleSpy).toHaveBeenCalledWith('[IndexerStatus] Listener error:', expect.any(Error));
+      // Error should be logged (using the configurable logger format)
+      expect(consoleSpy).toHaveBeenCalledWith(expect.stringContaining('Listener error'));
       
       // Good callback should still be called
       expect(goodCallback).toHaveBeenCalled();

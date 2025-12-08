@@ -9,6 +9,11 @@
  * without coupling to any specific UI framework.
  */
 
+import { getLogger } from '../shared/logger';
+
+/** Logger instance for IndexerStatus */
+const log = getLogger('IndexerStatus');
+
 /**
  * Possible states of the indexer
  */
@@ -228,7 +233,7 @@ export class IndexerStatus {
       try {
         listener(snapshot);
       } catch (error) {
-        console.error('[IndexerStatus] Listener error:', error);
+        log.error('Listener error:', error);
       }
     }
   }

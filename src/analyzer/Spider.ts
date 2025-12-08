@@ -7,6 +7,10 @@ import { ReverseIndex } from './ReverseIndex';
 import { IndexerStatus, IndexerStatusSnapshot } from './IndexerStatus';
 import { IndexerWorkerHost } from './IndexerWorkerHost';
 import { Dependency, SpiderConfig, IndexingProgressCallback, normalizePath } from './types';
+import { getLogger } from '../shared/logger';
+
+/** Logger instance for Spider */
+const log = getLogger('Spider');
 
 /**
  * Check if a file path is inside node_modules (cross-platform)
@@ -558,7 +562,7 @@ export class Spider {
           }
         }
       } catch (error) {
-        console.error(`[Spider] Error reading directory ${currentDir}:`, error);
+        log.error('Error reading directory', currentDir, error);
       }
     };
 
@@ -830,7 +834,7 @@ export class Spider {
       this.symbolCache.set(filePath, result);
       return result;
     } catch (error) {
-      console.error(`Failed to analyze symbols for ${filePath}:`, error);
+      log.error('Failed to analyze symbols for', filePath, error);
       return { symbols: [], dependencies: [] };
     }
   }
@@ -891,7 +895,7 @@ export class Spider {
       // 4. Filter out used symbols
       return exportedSymbols.filter(s => !usedSymbolIds.has(s.id));
     } catch (error) {
-      console.error(`Failed to find unused symbols for ${filePath}:`, error);
+      log.error('Failed to find unused symbols for', filePath, error);
       return [];
     }
   }
@@ -1025,7 +1029,7 @@ export class Spider {
           }
         }
       } catch (error) {
-        console.error(`Failed to trace execution from ${currentId}:`, error);
+        log.error('Failed to trace execution from', currentId, error);
       }
     };
 

@@ -3,6 +3,10 @@ import * as path from 'node:path';
 import { randomBytes } from 'node:crypto';
 import { Spider } from '../analyzer/Spider';
 import { ExtensionToWebviewMessage, WebviewToExtensionMessage } from '../shared/types';
+import { getExtensionLogger } from './logger';
+
+/** Logger instance for GraphProvider */
+const log = getExtensionLogger('GraphProvider');
 
 /** Key for storing the reverse index in workspace state */
 const REVERSE_INDEX_STORAGE_KEY = 'graph-it-live.reverseIndex';
@@ -66,7 +70,7 @@ export class GraphProvider implements vscode.WebviewViewProvider {
 
         // Handle file creation - add to index
         this._fileWatcher.onDidCreate(async (uri) => {
-            console.log(`[GraphProvider] File created: ${uri.fsPath}`);
+            log.debug('File created:', uri.fsPath);
             if (this._spider) {
                 await this._spider.reanalyzeFile(uri.fsPath);
                 await this._persistIndex();
@@ -85,7 +89,7 @@ export class GraphProvider implements vscode.WebviewViewProvider {
 
         // Handle file modification (including external changes like git pull)
         this._fileWatcher.onDidChange(async (uri) => {
-            console.log(`[GraphProvider] File changed externally: ${uri.fsPath}`);
+            log.debug('File changed externally:', uri.fsPath);
             if (this._spider) {
                 // Invalidate and re-analyze the file
                 await this._spider.reanalyzeFile(uri.fsPath);
@@ -105,7 +109,7 @@ export class GraphProvider implements vscode.WebviewViewProvider {
 
         // Handle file deletion - remove from index
         this._fileWatcher.onDidDelete(async (uri) => {
-            console.log(`[GraphProvider] File deleted: ${uri.fsPath}`);
+            log.debug('File deleted:', uri.fsPath);
             if (this._spider) {
                 this._spider.handleFileDeleted(uri.fsPath);
                 await this._persistIndex();
@@ -172,7 +176,7 @@ export class GraphProvider implements vscode.WebviewViewProvider {
         }
 
         const startDelay = config.get<number>('indexingStartDelay', DEFAULT_INDEXING_START_DELAY);
-        console.log(`GraphProvider: Scheduling indexing in ${startDelay}ms`);
+        log.info('Scheduling indexing in', startDelay, 'ms');
 
         this._indexingStartTimer = setTimeout(() => {
             this._tryRestoreIndex();
@@ -198,7 +202,7 @@ export class GraphProvider implements vscode.WebviewViewProvider {
 
         const storedIndex = this._context.workspaceState.get<string>(REVERSE_INDEX_STORAGE_KEY);
         if (!storedIndex) {
-            console.log('GraphProvider: No persisted index found, starting fresh indexing');
+            log.info('No persisted index found, starting fresh indexing');
             await this._startBackgroundIndexingWithProgress();
             return;
         }
@@ -206,7 +210,7 @@ export class GraphProvider implements vscode.WebviewViewProvider {
         // Try to restore the index
         const restored = this._spider.enableReverseIndex(storedIndex);
         if (!restored) {
-            console.log('GraphProvider: Failed to restore index, starting fresh indexing');
+            log.info('Failed to restore index, starting fresh indexing');
             await this._startBackgroundIndexingWithProgress();
             return;
         }
@@ -223,17 +227,17 @@ export class GraphProvider implements vscode.WebviewViewProvider {
                 const validation = await this._spider!.validateReverseIndex();
 
                 if (validation?.isValid) {
-                    console.log('GraphProvider: Successfully restored and validated persisted index');
+                    log.info('Successfully restored and validated persisted index');
                 } else {
                     const staleCount = validation ? validation.staleFiles.length + validation.missingFiles.length : 0;
-                    console.log(`GraphProvider: Index is stale (${staleCount} files changed), re-indexing`);
+                    log.info('Index is stale, re-indexing', staleCount, 'files');
                     
                     if (validation && validation.staleFiles.length > 0 && validation.missingFiles.length === 0) {
                         // Incremental update for stale files only
                         progress.report({ message: `Re-indexing ${validation.staleFiles.length} changed files...` });
                         await this._spider!.reindexStaleFiles(validation.staleFiles);
                         await this._persistIndex();
-                        console.log('GraphProvider: Incremental re-index complete');
+                        log.info('Incremental re-index complete');
                     } else {
                         // Full re-index if files are missing (significant changes)
                         await this._startBackgroundIndexingWithProgress();
@@ -279,10 +283,10 @@ export class GraphProvider implements vscode.WebviewViewProvider {
                 const result = await this._spider.buildFullIndexInWorker(workerPath);
 
                 if (result.cancelled) {
-                    console.log(`GraphProvider: Indexing cancelled after ${result.indexedFiles} files`);
+                    log.info('Indexing cancelled after', result.indexedFiles, 'files');
                     this._statusBarItem.text = '$(x) Graph-It-Live: Indexing cancelled';
                 } else {
-                    console.log(`GraphProvider: Indexed ${result.indexedFiles} files in ${result.duration}ms`);
+                    log.info('Indexed', result.indexedFiles, 'files in', result.duration, 'ms');
                     this._statusBarItem.text = `$(check) Graph-It-Live: ${result.indexedFiles} files indexed`;
                     // Persist the index if enabled
                     await this._persistIndex();
@@ -296,7 +300,7 @@ export class GraphProvider implements vscode.WebviewViewProvider {
                 unsubscribe();
             }
         } catch (error) {
-            console.error('GraphProvider: Background indexing failed:', error);
+            log.error('Background indexing failed:', error);
             this._statusBarItem.text = '$(error) Graph-It-Live: Indexing failed';
             this._statusBarItem.tooltip = error instanceof Error ? error.message : 'Unknown error';
             
@@ -331,7 +335,7 @@ export class GraphProvider implements vscode.WebviewViewProvider {
         const serialized = this._spider.getSerializedReverseIndex();
         if (serialized) {
             await this._context.workspaceState.update(REVERSE_INDEX_STORAGE_KEY, serialized);
-            console.log('GraphProvider: Persisted reverse index to workspace state');
+            log.debug('Persisted reverse index to workspace state');
         }
     }
 
@@ -385,7 +389,7 @@ export class GraphProvider implements vscode.WebviewViewProvider {
             return;
         }
 
-        console.log(`[GraphProvider] Re-analyzing saved file: ${filePath}`);
+        log.debug('Re-analyzing saved file:', filePath);
         
         // Re-analyze the file (invalidates cache and updates reverse index)
         await this._spider.reanalyzeFile(filePath);
@@ -422,7 +426,7 @@ export class GraphProvider implements vscode.WebviewViewProvider {
             return;
         }
 
-        console.log(`[GraphProvider] Active file changed to: ${newFilePath}`);
+        log.debug('Active file changed to:', newFilePath);
 
         // Preserve the current view type
         if (this._currentSymbolFilePath) {
@@ -456,15 +460,15 @@ export class GraphProvider implements vscode.WebviewViewProvider {
                 const parts = filePath.split(':');
                 actualFilePath = parts[0];
                 symbolName = parts.slice(1).join(':');
-                console.log(`GraphProvider: Opening symbol ${symbolName} in file ${actualFilePath}`);
+                log.debug('Opening symbol', symbolName, 'in file', actualFilePath);
             } else if (isWindowsAbsolutePath && filePath.lastIndexOf(':') > 1) {
                 // Windows path with symbol: "C:\path\file.ts:symbolName"
                 const lastColonIndex = filePath.lastIndexOf(':');
                 actualFilePath = filePath.substring(0, lastColonIndex);
                 symbolName = filePath.substring(lastColonIndex + 1);
-                console.log(`GraphProvider: Opening symbol ${symbolName} in file ${actualFilePath}`);
+                log.debug('Opening symbol', symbolName, 'in file', actualFilePath);
             } else {
-                console.log('GraphProvider: Opening file', actualFilePath);
+                log.debug('Opening file', actualFilePath);
             }
             
             // Check if this is an absolute path (Unix or Windows)
@@ -484,7 +488,7 @@ export class GraphProvider implements vscode.WebviewViewProvider {
                         return;
                     }
                 } catch (resolveError) {
-                    console.warn('GraphProvider: Could not resolve path', resolveError);
+                    log.warn('Could not resolve path', resolveError);
                 }
             }
             
@@ -520,11 +524,11 @@ export class GraphProvider implements vscode.WebviewViewProvider {
                     }
                 } catch (symbolError) {
                     // If symbol navigation fails, just open the file (already done)
-                    console.warn('GraphProvider: Could not navigate to symbol', symbolError);
+                    log.warn('Could not navigate to symbol', symbolError);
                 }
             }
         } catch (e) {
-            console.error('GraphProvider: Error opening file', e);
+            log.error('Error opening file:', e);
             vscode.window.showErrorMessage(`Could not open file: ${filePath}`);
         }
     }
@@ -537,7 +541,7 @@ export class GraphProvider implements vscode.WebviewViewProvider {
             return;
         }
         try {
-            console.log(`GraphProvider: Expanding node ${nodeId}`);
+            log.debug('Expanding node', nodeId);
             const knownNodesSet = new Set(knownNodes || []);
             const newGraphData = await this._spider.crawlFrom(nodeId, knownNodesSet, 10);
             
@@ -548,7 +552,7 @@ export class GraphProvider implements vscode.WebviewViewProvider {
             };
             this._view?.webview.postMessage(expandedMessage);
         } catch (e) {
-            console.error('GraphProvider: Error expanding node', e);
+            log.error('Error expanding node:', e);
         }
     }
 
@@ -560,7 +564,7 @@ export class GraphProvider implements vscode.WebviewViewProvider {
             return;
         }
         try {
-            console.log(`GraphProvider: Finding referencing files for ${nodeId}`);
+            log.debug('Finding referencing files for', nodeId);
             const referencingFiles = await this._spider.findReferencingFiles(nodeId);
             
             const nodes = referencingFiles.map(d => d.path);
@@ -576,7 +580,7 @@ export class GraphProvider implements vscode.WebviewViewProvider {
             };
             this._view?.webview.postMessage(response);
         } catch (e) {
-            console.error('GraphProvider: Error finding referencing files', e);
+            log.error('Error finding referencing files:', e);
         }
     }
 
@@ -594,7 +598,7 @@ export class GraphProvider implements vscode.WebviewViewProvider {
         this._currentSymbolFilePath = filePath;
         
         try {
-            console.log(`GraphProvider: ${isRefresh ? 'Refreshing' : 'Drilling down into'} ${filePath} for symbol analysis`);
+            log.debug(isRefresh ? 'Refreshing' : 'Drilling down into', filePath, 'for symbol analysis');
             const symbolData = await this._spider.getSymbolGraph(filePath);
 
             // Get referencing files to ensure atomic update of "Imported By" list
@@ -655,9 +659,9 @@ export class GraphProvider implements vscode.WebviewViewProvider {
             };
             
             this._view.webview.postMessage(response);
-            console.log(`GraphProvider: Sent symbol graph with ${nodes.size} nodes and ${edges.length} edges`);
+            log.debug('Sent symbol graph with', nodes.size, 'nodes and', edges.length, 'edges');
         } catch (error) {
-            console.error('GraphProvider: Error drilling down into symbols:', error);
+            log.error('Error drilling down into symbols:', error);
             vscode.window.showErrorMessage(
                 `Failed to analyze symbols: ${error instanceof Error ? error.message : 'Unknown error'}`
             );
@@ -681,7 +685,7 @@ export class GraphProvider implements vscode.WebviewViewProvider {
         webviewView.webview.html = this._getHtmlForWebview(webviewView.webview);
 
         webviewView.webview.onDidReceiveMessage(async (message: WebviewToExtensionMessage) => {
-            console.log('GraphProvider: Received message', message);
+            log.debug('Received message', message.command);
             switch (message.command) {
                 case 'openFile':
                     if (message.path) {
@@ -694,11 +698,11 @@ export class GraphProvider implements vscode.WebviewViewProvider {
                     }
                     break;
                 case 'setExpandAll':
-                    console.log(`GraphProvider: Setting expandAll to ${message.expandAll}`);
+                    log.debug('Setting expandAll to', message.expandAll);
                     this._context.globalState.update('expandAll', message.expandAll);
                     break;
                 case 'refreshGraph':
-                    console.log('GraphProvider: Refreshing graph');
+                    log.debug('Refreshing graph');
                     this.updateGraph();
                     break;
                 case 'findReferencingFiles':
@@ -712,11 +716,11 @@ export class GraphProvider implements vscode.WebviewViewProvider {
                     }
                     break;
                 case 'ready':
-                    console.log('GraphProvider: Webview ready, sending initial graph');
+                    log.debug('Webview ready, sending initial graph');
                     this.updateGraph();
                     break;
                 case 'switchMode':
-                    console.log(`GraphProvider: Switching to ${message.mode} mode`);
+                    log.debug('Switching to', message.mode, 'mode');
                     if (message.mode === 'file') {
                         // Clear symbol tracking and send file view
                         this._currentSymbolFilePath = undefined;
@@ -755,7 +759,7 @@ export class GraphProvider implements vscode.WebviewViewProvider {
      */
     public async updateGraph(isRefresh: boolean = false) {
         if (!this._view || !this._spider) {
-            console.log('GraphProvider: View or Spider not initialized');
+            log.debug('View or Spider not initialized');
             return;
         }
 
@@ -766,22 +770,22 @@ export class GraphProvider implements vscode.WebviewViewProvider {
 
         const editor = vscode.window.activeTextEditor;
         if (editor?.document.uri.scheme !== 'file') {
-            console.log('GraphProvider: No active file editor');
+            log.debug('No active file editor');
             return;
         }
 
         const filePath = editor.document.fileName;
-        console.log(`GraphProvider: ${isRefresh ? 'Refreshing' : 'Updating'} graph for ${filePath}`);
+        log.debug(isRefresh ? 'Refreshing' : 'Updating', 'graph for', filePath);
 
         // Only analyze supported files
         if (!/\.(ts|tsx|js|jsx|vue|svelte|gql|graphql)$/.test(filePath)) {
-            console.log('GraphProvider: Unsupported file type');
+            log.debug('Unsupported file type');
             return;
         }
 
         try {
             const graphData = await this._spider.crawl(filePath);
-            console.log(`GraphProvider: Found ${graphData.nodes.length} nodes and ${graphData.edges.length} edges`);
+            log.debug('Found', graphData.nodes.length, 'nodes and', graphData.edges.length, 'edges');
             const expandAll = this._context.globalState.get<boolean>('expandAll', false);
             const message: ExtensionToWebviewMessage = {
                 command: 'updateGraph',
@@ -792,7 +796,7 @@ export class GraphProvider implements vscode.WebviewViewProvider {
             };
             this._view.webview.postMessage(message);
         } catch (error) {
-            console.error('GraphProvider: Failed to analyze file:', error);
+            log.error('Failed to analyze file:', error);
         }
     }
 

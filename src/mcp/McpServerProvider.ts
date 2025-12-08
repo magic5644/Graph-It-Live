@@ -12,6 +12,10 @@
 
 import * as vscode from 'vscode';
 import * as path from 'node:path';
+import { getExtensionLogger } from '../extension/logger';
+
+/** Logger instance for McpServerProvider */
+const log = getExtensionLogger('McpServerProvider');
 
 // ============================================================================
 // Types
@@ -55,12 +59,12 @@ export class McpServerProvider implements vscode.Disposable {
 
     // Check if vscode.lm API is available (requires VS Code 1.96+)
     if (!vscode.lm || !('registerMcpServerDefinitionProvider' in vscode.lm)) {
-      console.warn('[McpServerProvider] vscode.lm.registerMcpServerDefinitionProvider not available. MCP server requires VS Code 1.96+');
+      log.warn('vscode.lm.registerMcpServerDefinitionProvider not available. MCP server requires VS Code 1.96+');
       return { dispose: () => {} };
     }
 
-    console.log('[McpServerProvider] Registering MCP server provider...');
-    console.log(`[McpServerProvider] MCP server currently ${this.isEnabled ? 'enabled' : 'disabled'} in settings`);
+    log.info('Registering MCP server provider...');
+    log.debug('MCP server currently', this.isEnabled ? 'enabled' : 'disabled', 'in settings');
 
     try {
       // Always register the provider, but return empty list if disabled
@@ -83,10 +87,10 @@ export class McpServerProvider implements vscode.Disposable {
         })
       );
 
-      console.log('[McpServerProvider] MCP server provider registered');
+      log.info('MCP server provider registered');
       return this.registration;
     } catch (error) {
-      console.error('[McpServerProvider] Failed to register MCP server provider:', error);
+      log.error('Failed to register MCP server provider:', error);
       return { dispose: () => {} };
     }
   }
@@ -142,7 +146,7 @@ export class McpServerProvider implements vscode.Disposable {
     const workspaceRoot = this.workspaceFolder.uri.fsPath;
     const config = this.getConfig();
 
-    console.log(`[McpServerProvider] Providing MCP server definition for ${workspaceRoot}`);
+    log.debug('Providing MCP server definition for', workspaceRoot);
 
     // Build environment variables for the server
     // Note: env type is Record<string, string | number> per VS Code API
@@ -179,7 +183,7 @@ export class McpServerProvider implements vscode.Disposable {
 
     if (newEnabled !== this.isEnabled) {
       this.isEnabled = newEnabled;
-      console.log(`[McpServerProvider] MCP server ${newEnabled ? 'enabled' : 'disabled'}`);
+      log.info('MCP server', newEnabled ? 'enabled' : 'disabled');
 
       // Notify VS Code that server definitions changed
       this.didChangeEmitter.fire();

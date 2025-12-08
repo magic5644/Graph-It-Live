@@ -6,6 +6,10 @@ import {
   Dependency,
   normalizePath,
 } from './types';
+import { getLogger } from '../shared/logger';
+
+/** Logger instance for ReverseIndex */
+const log = getLogger('ReverseIndex');
 
 /**
  * Current version of the serialized index format
@@ -245,13 +249,13 @@ export class ReverseIndex {
     
     // Validate version
     if (data.version !== INDEX_VERSION) {
-      console.error(`[ReverseIndex] Version mismatch: ${data.version} !== ${INDEX_VERSION}`);
+      log.warn('Version mismatch:', data.version, '!==', INDEX_VERSION);
       return null;
     }
 
     // Validate rootDir matches (using normalized paths)
     if (normalizedDataRootDir !== normalizedRootDir) {
-      console.error(`[ReverseIndex] Root dir mismatch: ${data.rootDir} !== ${rootDir}`);
+      log.warn('Root dir mismatch:', data.rootDir, '!==', rootDir);
       return null;
     }
 
