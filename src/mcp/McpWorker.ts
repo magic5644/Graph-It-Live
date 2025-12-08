@@ -61,7 +61,7 @@ import type {
   BreakingChangeInfo,
   ImpactedItem,
 } from './types';
-import { enrichDependency } from './types';
+import { enrichDependency, validateToolParams, validateFilePath } from './types';
 import { getLogger, getLogLevelFromEnv, loggerFactory } from '../shared/logger';
 
 // Configure log level from environment variable
@@ -76,13 +76,25 @@ const log = getLogger('McpWorker');
 
 /**
  * Convert absolute path to relative path from workspace root
- * Inlined here to avoid bundling issues with esbuild tree-shaking
+ * Cross-platform safe: uses Node.js path.relative which handles
+ * Windows drive letters and path separators correctly.
+ * 
+ * @param absolutePath - The absolute path to convert
+ * @param workspaceRoot - The workspace root directory
+ * @returns Relative path with forward slashes (for consistent output)
  */
 function getRelativePath(absolutePath: string, workspaceRoot: string): string {
-  if (absolutePath.startsWith(workspaceRoot)) {
-    return absolutePath.slice(workspaceRoot.length + 1);
+  // Use path.relative for cross-platform compatibility
+  const relativePath = path.relative(workspaceRoot, absolutePath);
+  
+  // If the path is outside the workspace, path.relative returns a path starting with ..
+  // In that case, return the original absolute path
+  if (relativePath.startsWith('..') || path.isAbsolute(relativePath)) {
+    return absolutePath;
   }
-  return absolutePath;
+  
+  // Normalize to forward slashes for consistent output across platforms
+  return relativePath.replaceAll('\\', '/');
 }
 
 // ============================================================================
@@ -382,7 +394,7 @@ function performFileInvalidation(event: 'change' | 'add' | 'unlink', filePath: s
 // ============================================================================
 
 /**
- * Handle tool invocation request
+ * Handle tool invocation request with Zod validation
  */
 async function handleInvoke(
   requestId: string,
@@ -402,57 +414,114 @@ async function handleInvoke(
   const startTime = Date.now();
 
   try {
+    // Validate parameters using Zod schema
+    const validation = validateToolParams(tool, params);
+    if (!validation.success) {
+      postMessage({
+        type: 'error',
+        requestId,
+        error: validation.error,
+        code: 'VALIDATION_ERROR',
+      });
+      return;
+    }
+
+    const validatedParams = validation.data;
     let result: unknown;
 
     switch (tool) {
-      case 'analyze_dependencies':
-        result = await executeAnalyzeDependencies(params as AnalyzeDependenciesParams);
+      case 'analyze_dependencies': {
+        const p = validatedParams as AnalyzeDependenciesParams;
+        validateFilePath(p.filePath, config.rootDir);
+        result = await executeAnalyzeDependencies(p);
         break;
-      case 'crawl_dependency_graph':
-        result = await executeCrawlDependencyGraph(params as CrawlDependencyGraphParams);
+      }
+      case 'crawl_dependency_graph': {
+        const p = validatedParams as CrawlDependencyGraphParams;
+        validateFilePath(p.entryFile, config.rootDir);
+        result = await executeCrawlDependencyGraph(p);
         break;
-      case 'find_referencing_files':
-        result = await executeFindReferencingFiles(params as FindReferencingFilesParams);
+      }
+      case 'find_referencing_files': {
+        const p = validatedParams as FindReferencingFilesParams;
+        validateFilePath(p.targetPath, config.rootDir);
+        result = await executeFindReferencingFiles(p);
         break;
-      case 'expand_node':
-        result = await executeExpandNode(params as ExpandNodeParams);
+      }
+      case 'expand_node': {
+        const p = validatedParams as ExpandNodeParams;
+        validateFilePath(p.filePath, config.rootDir);
+        result = await executeExpandNode(p);
         break;
-      case 'parse_imports':
-        result = await executeParseImports(params as ParseImportsParams);
+      }
+      case 'parse_imports': {
+        const p = validatedParams as ParseImportsParams;
+        validateFilePath(p.filePath, config.rootDir);
+        result = await executeParseImports(p);
         break;
-      case 'resolve_module_path':
-        result = await executeResolveModulePath(params as ResolveModulePathParams);
+      }
+      case 'resolve_module_path': {
+        const p = validatedParams as ResolveModulePathParams;
+        validateFilePath(p.fromFile, config.rootDir);
+        result = await executeResolveModulePath(p);
         break;
+      }
       case 'get_index_status':
         result = executeGetIndexStatus();
         break;
-      case 'invalidate_files':
-        result = executeInvalidateFiles(params as InvalidateFilesParams);
+      case 'invalidate_files': {
+        const p = validatedParams as InvalidateFilesParams;
+        for (const filePath of p.filePaths) {
+          validateFilePath(filePath, config.rootDir);
+        }
+        result = executeInvalidateFiles(p);
         break;
+      }
       case 'rebuild_index':
         result = await executeRebuildIndex();
         break;
-      case 'get_symbol_graph':
-        result = await executeGetSymbolGraph(params as { filePath: string });
+      case 'get_symbol_graph': {
+        const p = validatedParams as GetSymbolGraphParams;
+        validateFilePath(p.filePath, config.rootDir);
+        result = await executeGetSymbolGraph(p);
         break;
-      case 'find_unused_symbols':
-        result = await executeFindUnusedSymbols(params as { filePath: string });
+      }
+      case 'find_unused_symbols': {
+        const p = validatedParams as FindUnusedSymbolsParams;
+        validateFilePath(p.filePath, config.rootDir);
+        result = await executeFindUnusedSymbols(p);
         break;
-      case 'get_symbol_dependents':
-        result = await executeGetSymbolDependents(params as GetSymbolDependentsParams);
+      }
+      case 'get_symbol_dependents': {
+        const p = validatedParams as GetSymbolDependentsParams;
+        validateFilePath(p.filePath, config.rootDir);
+        result = await executeGetSymbolDependents(p);
         break;
-      case 'trace_function_execution':
-        result = await executeTraceFunctionExecution(params as TraceFunctionExecutionParams);
+      }
+      case 'trace_function_execution': {
+        const p = validatedParams as TraceFunctionExecutionParams;
+        validateFilePath(p.filePath, config.rootDir);
+        result = await executeTraceFunctionExecution(p);
         break;
-      case 'get_symbol_callers':
-        result = await executeGetSymbolCallers(params as GetSymbolCallersParams);
+      }
+      case 'get_symbol_callers': {
+        const p = validatedParams as GetSymbolCallersParams;
+        validateFilePath(p.filePath, config.rootDir);
+        result = await executeGetSymbolCallers(p);
         break;
-      case 'analyze_breaking_changes':
-        result = await executeAnalyzeBreakingChanges(params as AnalyzeBreakingChangesParams);
+      }
+      case 'analyze_breaking_changes': {
+        const p = validatedParams as AnalyzeBreakingChangesParams;
+        validateFilePath(p.filePath, config.rootDir);
+        result = await executeAnalyzeBreakingChanges(p);
         break;
-      case 'get_impact_analysis':
-        result = await executeGetImpactAnalysis(params as GetImpactAnalysisParams);
+      }
+      case 'get_impact_analysis': {
+        const p = validatedParams as GetImpactAnalysisParams;
+        validateFilePath(p.filePath, config.rootDir);
+        result = await executeGetImpactAnalysis(p);
         break;
+      }
       default:
         throw new Error(`Unknown tool: ${tool}`);
     }
@@ -467,12 +536,15 @@ async function handleInvoke(
     });
   } catch (error) {
     const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+    const errorCode = errorMessage.includes('Path traversal') || errorMessage.includes('outside workspace')
+      ? 'SECURITY_ERROR'
+      : 'EXECUTION_ERROR';
     
     postMessage({
       type: 'error',
       requestId,
       error: errorMessage,
-      code: 'EXECUTION_ERROR',
+      code: errorCode,
     });
   }
 }
