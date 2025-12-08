@@ -65,7 +65,7 @@ Stop pasting file paths and explaining your project structure. Graph-It-Live exp
 
 ## Prerequisites
 
-* **Node.js**: v24 or higher
+* **Node.js**: v18 or higher (v20 LTS recommended)
 * **VS Code**: v1.96.0 or higher
 
 ## Installation

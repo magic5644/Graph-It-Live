@@ -540,8 +540,17 @@ export class Spider {
     const files: string[] = [];
     let lastYieldTime = Date.now();
     
+    const processEntry = async (entry: import('node:fs').Dirent, currentDir: string): Promise<void> => {
+      const fullPath = path.join(currentDir, entry.name);
+      
+      if (entry.isDirectory() && !this.shouldSkipDirectory(entry.name)) {
+        await walkDir(fullPath);
+      } else if (entry.isFile() && this.isSupportedSourceFile(entry.name)) {
+        files.push(fullPath);
+      }
+    };
+
     const walkDir = async (currentDir: string): Promise<void> => {
-      // Check cancellation
       if (this.indexingCancelled) {
         return;
       }
@@ -557,20 +566,10 @@ export class Spider {
         const entries = await fs.readdir(currentDir, { withFileTypes: true });
         
         for (const entry of entries) {
-          // Check cancellation inside the loop for responsiveness
           if (this.indexingCancelled) {
             return;
           }
-
-          const fullPath = path.join(currentDir, entry.name);
-          
-          if (entry.isDirectory()) {
-            if (!this.shouldSkipDirectory(entry.name)) {
-              await walkDir(fullPath);
-            }
-          } else if (entry.isFile() && this.isSupportedSourceFile(entry.name)) {
-            files.push(fullPath);
-          }
+          await processEntry(entry, currentDir);
         }
       } catch (error) {
         log.error('Error reading directory', currentDir, error);
@@ -772,6 +771,32 @@ export class Spider {
   }
 
   /**
+   * Check if a dependency's target file path matches a given absolute path
+   * @param dep The symbol dependency to check
+   * @param sourceFilePath The file containing the dependency
+   * @param targetFilePath The absolute path to match against
+   * @returns true if the dependency targets the given file
+   */
+  private async doesDependencyTargetFile(
+    dep: import('./types').SymbolDependency,
+    sourceFilePath: string,
+    targetFilePath: string
+  ): Promise<boolean> {
+    if (dep.targetFilePath === targetFilePath) {
+      return true;
+    }
+    const resolved = await this.resolver.resolve(sourceFilePath, dep.targetFilePath);
+    return resolved === targetFilePath;
+  }
+
+  /**
+   * Extract symbol name from a symbol ID (format: "path:symbolName")
+   */
+  private extractSymbolName(symbolId: string): string {
+    return symbolId.split(':').pop() || '';
+  }
+
+  /**
    * Extract the basename (without extension) from a file path
    */
   private extractBasename(filePath: string): string | undefined {
@@ -861,7 +886,6 @@ export class Spider {
    */
   async findUnusedSymbols(filePath: string): Promise<import('./types').SymbolInfo[]> {
     try {
-      // 1. Get exported symbols
       const { symbols } = await this.getSymbolGraph(filePath);
       const exportedSymbols = symbols.filter(s => s.isExported);
       
@@ -869,46 +893,9 @@ export class Spider {
         return [];
       }
 
-      // 2. Get files that import this file
       const referencingFiles = await this.findReferencingFiles(filePath);
-      
-      // 3. Check usage in referencing files
-      const usedSymbolIds = new Set<string>();
-      
-      for (const ref of referencingFiles) {
-        const refPath = ref.path;
-        // Analyze referencing file (uses cache if available)
-        const { dependencies } = await this.getSymbolGraph(refPath);
-        
-        for (const dep of dependencies) {
-          // Check if dependency points to our file
-          // dep.targetFilePath is the module path resolved by SymbolAnalyzer
-          // We need to check if it resolves to filePath
-          
-          let isMatch = false;
-          
-          // Optimization: if targetFilePath is absolute and matches, use it
-          if (dep.targetFilePath === filePath) {
-             isMatch = true;
-          } else {
-            // Otherwise resolve it
-            const resolved = await this.resolver.resolve(refPath, dep.targetFilePath);
-            if (resolved === filePath) {
-              isMatch = true;
-            }
-          }
-          
-          if (isMatch) {
-            // dep.targetSymbolId is "modulePath:symbolName"
-            // We need to convert it to "absolutePath:symbolName" to match exportedSymbols IDs
-            const symbolName = dep.targetSymbolId.split(':').pop();
-            const absoluteId = `${filePath}:${symbolName}`;
-            usedSymbolIds.add(absoluteId);
-          }
-        }
-      }
+      const usedSymbolIds = await this.collectUsedSymbolIds(referencingFiles, filePath);
 
-      // 4. Filter out used symbols
       return exportedSymbols.filter(s => !usedSymbolIds.has(s.id));
     } catch (error) {
       const spiderError = SpiderError.fromError(error, filePath);
@@ -918,40 +905,56 @@ export class Spider {
   }
 
   /**
-   * Get dependents of a specific symbol (Reverse Lookup)
-   * @param filePath File containing the symbol
-   * @param symbolName Name of the symbol
+   * Collect all symbol IDs used from referencing files
    */
-  async getSymbolDependents(filePath: string, symbolName: string): Promise<import('./types').SymbolDependency[]> {
-    const dependents: import('./types').SymbolDependency[] = [];
-    
-    // Get files that import this file
-    const referencingFiles = await this.findReferencingFiles(filePath);
+  private async collectUsedSymbolIds(
+    referencingFiles: Dependency[],
+    targetFilePath: string
+  ): Promise<Set<string>> {
+    const usedSymbolIds = new Set<string>();
     
     for (const ref of referencingFiles) {
       const { dependencies } = await this.getSymbolGraph(ref.path);
       
       for (const dep of dependencies) {
-        // Resolve target file path to ensure it matches
-        let isMatch = false;
-        if (dep.targetFilePath === filePath) {
-          isMatch = true;
-        } else {
-          const resolved = await this.resolver.resolve(ref.path, dep.targetFilePath);
-          if (resolved === filePath) {
-            isMatch = true;
-          }
-        }
-        
+        const isMatch = await this.doesDependencyTargetFile(dep, ref.path, targetFilePath);
         if (isMatch) {
-           // Check if it targets the specific symbol
-           // dep.targetSymbolId is "modulePath:symbolName" OR "absolutePath:symbolName"
-           // We need to extract symbol name
-           const depSymbolName = dep.targetSymbolId.split(':').pop();
-           
-           if (depSymbolName === symbolName) {
-             dependents.push(dep);
-           }
+          const symbolName = this.extractSymbolName(dep.targetSymbolId);
+          usedSymbolIds.add(`${targetFilePath}:${symbolName}`);
+        }
+      }
+    }
+    
+    return usedSymbolIds;
+  }
+
+  /**
+   * Get dependents of a specific symbol (Reverse Lookup)
+   * @param filePath File containing the symbol
+   * @param symbolName Name of the symbol
+   */
+  async getSymbolDependents(filePath: string, symbolName: string): Promise<import('./types').SymbolDependency[]> {
+    const referencingFiles = await this.findReferencingFiles(filePath);
+    return this.collectSymbolDependents(referencingFiles, filePath, symbolName);
+  }
+
+  /**
+   * Collect dependents of a specific symbol from referencing files
+   */
+  private async collectSymbolDependents(
+    referencingFiles: Dependency[],
+    targetFilePath: string,
+    symbolName: string
+  ): Promise<import('./types').SymbolDependency[]> {
+    const dependents: import('./types').SymbolDependency[] = [];
+    
+    for (const ref of referencingFiles) {
+      const { dependencies } = await this.getSymbolGraph(ref.path);
+      
+      for (const dep of dependencies) {
+        const isMatch = await this.doesDependencyTargetFile(dep, ref.path, targetFilePath);
+        if (isMatch && this.extractSymbolName(dep.targetSymbolId) === symbolName) {
+          dependents.push(dep);
         }
       }
     }

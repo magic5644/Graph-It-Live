@@ -9,6 +9,7 @@
  */
 
 import * as z from 'zod/v4';
+import * as nodePath from 'node:path';
 import type { Dependency } from '../analyzer/types';
 
 // ============================================================================
@@ -296,11 +297,9 @@ export function normalizePathForComparison(filePath: string): string {
  * @returns true if filePath is within rootDir
  */
 export function isPathWithinRoot(filePath: string, rootDir: string): boolean {
-  const path = require('node:path');
-  
   // Resolve both paths to absolute paths
-  const resolvedPath = normalizePathForComparison(path.resolve(rootDir, filePath));
-  const resolvedRoot = normalizePathForComparison(path.resolve(rootDir));
+  const resolvedPath = normalizePathForComparison(nodePath.resolve(rootDir, filePath));
+  const resolvedRoot = normalizePathForComparison(nodePath.resolve(rootDir));
   
   // Check if the resolved path starts with the resolved root
   // Add trailing slash to avoid matching /project-other when rootDir is /project
@@ -316,7 +315,6 @@ export function isPathWithinRoot(filePath: string, rootDir: string): boolean {
  * @returns true if valid, throws error if invalid
  */
 export function validateFilePath(filePath: string, rootDir: string): boolean {
-  const path = require('node:path');
   const normalizedPath = normalizePathForComparison(filePath);
   
   // Check for obvious path traversal patterns
@@ -337,7 +335,7 @@ export function validateFilePath(filePath: string, rootDir: string): boolean {
     }
   } else {
     // Relative path - resolve and check
-    const resolvedPath = path.resolve(rootDir, filePath);
+    const resolvedPath = nodePath.resolve(rootDir, filePath);
     if (!isPathWithinRoot(resolvedPath, rootDir)) {
       throw new Error(`File path is outside workspace: ${filePath}`);
     }
@@ -1031,7 +1029,6 @@ export function enrichDependency(dep: Dependency, workspaceRoot: string): Depend
  * @returns Relative path with forward slashes (for consistent output)
  */
 export function getRelativePath(absolutePath: string, workspaceRoot: string): string {
-  const nodePath = require('node:path') as typeof import('node:path');
   
   // Use path.relative for cross-platform compatibility
   const relativePath = nodePath.relative(workspaceRoot, absolutePath);
