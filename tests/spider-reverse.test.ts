@@ -112,4 +112,28 @@ describe('Spider - Reverse Dependencies', () => {
         const referencingFiles = await spider.findReferencingFiles('');
         expect(referencingFiles).toHaveLength(0);
     });
+
+    it('should handle Windows-style paths with backslashes', async () => {
+        const bPath = path.join(FIXTURES_DIR, 'b.ts');
+        // Simulate a Windows-style path by replacing forward slashes with backslashes
+        const windowsStylePath = bPath.replaceAll('/', '\\');
+        
+        const referencingFiles = await spider.findReferencingFiles(windowsStylePath);
+        
+        // Should still find the files even with Windows-style paths
+        const referencingPaths = referencingFiles.map(d => d.path);
+        // Paths should be normalized to forward slashes
+        expect(referencingPaths.every(p => !p.includes('\\'))).toBe(true);
+        expect(referencingPaths).toHaveLength(2); // a.ts and c.ts
+    });
+
+    it('should normalize paths in returned dependencies', async () => {
+        const bPath = path.join(FIXTURES_DIR, 'b.ts');
+        const referencingFiles = await spider.findReferencingFiles(bPath);
+        
+        // All returned paths should use forward slashes (normalized)
+        for (const dep of referencingFiles) {
+            expect(dep.path).not.toContain('\\');
+        }
+    });
 });
