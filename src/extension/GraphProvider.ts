@@ -582,6 +582,8 @@ export class GraphProvider implements vscode.WebviewViewProvider {
             log.debug('Finding referencing files for', nodeId);
             const referencingFiles = await this._spider.findReferencingFiles(nodeId);
             
+            log.debug('Found', referencingFiles.length, 'referencing files');
+            
             const nodes = referencingFiles.map(d => d.path);
             const edges = referencingFiles.map(d => ({
                 source: d.path,

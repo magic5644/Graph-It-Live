@@ -805,6 +805,9 @@ export class Spider {
 
   /**
    * Check if a file contains a reference to the target and return the dependency if found
+   * @param filePath Source file to check for references
+   * @param targetPath Normalized target path to find references for
+   * @param targetBasename Basename of the target file (for quick content check)
    */
   private async findReferenceInFile(
     filePath: string,
@@ -818,11 +821,13 @@ export class Spider {
       }
 
       const dependencies = await this.analyze(filePath);
-      const matchingDep = dependencies.find(dep => dep.path === targetPath);
+      // Compare normalized paths to ensure cross-platform consistency
+      // Note: dep.path is already normalized by PathResolver.resolve()
+      const matchingDep = dependencies.find(dep => normalizePath(dep.path) === targetPath);
       
       if (matchingDep) {
         return {
-          path: filePath,
+          path: normalizePath(filePath),
           type: matchingDep.type,
           line: matchingDep.line,
           module: matchingDep.module
@@ -1069,11 +1074,15 @@ export class Spider {
    * Used when reverse index is not available
    */
   private async findReferencingFilesFallback(targetPath: string): Promise<Dependency[]> {
-    const targetBasename = this.extractBasename(targetPath);
+    // Normalize target path for consistent comparison across platforms
+    const normalizedTargetPath = normalizePath(targetPath);
+    const targetBasename = this.extractBasename(normalizedTargetPath);
     
     if (!targetBasename) {
       return [];
     }
+
+    log.debug('findReferencingFilesFallback for', normalizedTargetPath, 'basename:', targetBasename);
 
     // Use parallelized directory walk
     const allFiles = await this.collectAllSourceFiles(this.config.rootDir);
@@ -1085,8 +1094,9 @@ export class Spider {
       
       const results = await Promise.all(
         batch
-          .filter(filePath => filePath !== targetPath)
-          .map(filePath => this.findReferenceInFile(filePath, targetPath, targetBasename))
+          // Normalize paths before comparison to ensure cross-platform consistency
+          .filter(filePath => normalizePath(filePath) !== normalizedTargetPath)
+          .map(filePath => this.findReferenceInFile(filePath, normalizedTargetPath, targetBasename))
       );
 
       for (const result of results) {
@@ -1096,6 +1106,7 @@ export class Spider {
       }
     }
 
+    log.debug('findReferencingFilesFallback found', referencingFiles.length, 'referencing files');
     return referencingFiles;
   }
 
