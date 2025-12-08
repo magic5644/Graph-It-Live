@@ -1,5 +1,6 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import { Spider } from '../../src/analyzer/Spider';
+import { normalizePath } from '../../src/analyzer/types';
 import path from 'node:path';
 
 const fixturesPath = path.resolve(process.cwd(), 'tests/fixtures/sample-project');
@@ -80,8 +81,8 @@ describe('Spider Integration - Cache and Advanced Features', () => {
             // Find files referencing utils.ts
             const refs = await spider.findReferencingFiles(utilsFile);
             
-            // main.ts imports utils.ts
-            expect(refs.some((r: { path: string }) => r.path === mainFile || r.path.includes('main.ts'))).toBe(true);
+            // main.ts imports utils.ts - use normalizePath for cross-platform comparison
+            expect(refs.some((r: { path: string }) => r.path === normalizePath(mainFile) || r.path.includes('main.ts'))).toBe(true);
         });
 
         it('should update reverse index on file re-analysis', async () => {
