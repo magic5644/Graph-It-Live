@@ -8,7 +8,7 @@ import * as path from 'node:path';
 vi.mock('node:fs/promises');
 
 // Use cross-platform root path
-const ROOT_DIR = path.resolve('/tmp/test-root');
+const ROOT_DIR = path.resolve(process.cwd(), 'temp-test-root');
 const np = (p: string) => normalizePath(p);
 
 describe('Spider - Crawl', () => {
@@ -26,18 +26,18 @@ describe('Spider - Crawl', () => {
 
         // Mock file content
         vi.mocked(fs.readFile).mockImplementation(async (filePath) => {
-            const p = normalizePath(filePath.toString());
-            if (p.endsWith('/main.ts')) return "import {} from './child'";
-            if (p.endsWith('/child.ts')) return "import {} from './grandchild'";
-            if (p.endsWith('/grandchild.ts')) return "";
+            const p = np(filePath.toString());
+            if (p === np(mainFile)) return "import {} from './child'";
+            if (p === np(childFile)) return "import {} from './grandchild'";
+            if (p === np(grandchildFile)) return "";
             return "";
         });
 
         // Mock file existence for resolver
         vi.mocked(fs.stat).mockImplementation(async (filePath) => {
-            const p = normalizePath(filePath.toString());
-            // Only allow paths with extensions to exist
-            if (p.endsWith('.ts')) {
+            const p = np(filePath.toString());
+            // Only allow our test files to exist
+            if (p === np(mainFile) || p === np(childFile) || p === np(grandchildFile)) {
                 return { isFile: () => true } as any;
             }
             throw new Error('File not found');
@@ -63,16 +63,16 @@ describe('Spider - Crawl', () => {
 
         // Mock file content
         vi.mocked(fs.readFile).mockImplementation(async (filePath) => {
-            const p = normalizePath(filePath.toString());
-            if (p.endsWith('/main.ts')) return "import {} from './child'";
-            if (p.endsWith('/child.ts')) return "import {} from './grandchild'";
+            const p = np(filePath.toString());
+            if (p === np(mainFile)) return "import {} from './child'";
+            if (p === np(childFile)) return "import {} from './grandchild'";
             return "";
         });
 
         // Mock file existence
         vi.mocked(fs.stat).mockImplementation(async (filePath) => {
-            const p = normalizePath(filePath.toString());
-            if (p.endsWith('.ts')) {
+            const p = np(filePath.toString());
+            if (p === np(mainFile) || p === np(childFile) || p === np(grandchildFile)) {
                 return { isFile: () => true } as any;
             }
             throw new Error('File not found');
@@ -95,7 +95,7 @@ describe('Spider - Crawl', () => {
         expect(result.nodes).toContain(np(grandchildFile)); // Found as dependency
         
         // Let's verify we didn't analyze grandchild - check the normalized path pattern
-        const readFileCalls = vi.mocked(fs.readFile).mock.calls.map(call => normalizePath(call[0].toString()));
-        expect(readFileCalls.some(p => p.endsWith('/grandchild.ts'))).toBe(false);
+        const readFileCalls = vi.mocked(fs.readFile).mock.calls.map(call => np(call[0].toString()));
+        expect(readFileCalls.some(p => p === np(grandchildFile))).toBe(false);
     });
 });
