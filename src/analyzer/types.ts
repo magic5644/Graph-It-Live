@@ -157,6 +157,12 @@ export interface SpiderConfig {
   enableReverseIndex?: boolean;
   /** Number of files to process in parallel during indexing */
   indexingConcurrency?: number;
+  /** Maximum cache size for dependency results (0 = unlimited) */
+  maxCacheSize?: number;
+  /** Maximum cache size for symbol analysis results (0 = unlimited) */
+  maxSymbolCacheSize?: number;
+  /** Maximum files to keep in SymbolAnalyzer memory (default: 100) */
+  maxSymbolAnalyzerFiles?: number;
 }
 
 export interface ParsedImport {

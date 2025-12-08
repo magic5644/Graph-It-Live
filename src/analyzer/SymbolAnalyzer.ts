@@ -28,14 +28,34 @@ function getCategory(kind: string): 'function' | 'class' | 'variable' | 'interfa
   }
 }
 
-export class SymbolAnalyzer {
-  private readonly project: Project;
+import { getLogger } from '../shared/logger';
 
-  constructor() {
+const log = getLogger('SymbolAnalyzer');
+
+/** Configuration for SymbolAnalyzer memory management */
+export interface SymbolAnalyzerOptions {
+  /** Maximum number of source files to keep in memory (default: 100) */
+  maxFiles?: number;
+}
+
+export class SymbolAnalyzer {
+  private project: Project;
+  private readonly maxFiles: number;
+  private fileCount = 0;
+
+  constructor(options: SymbolAnalyzerOptions = {}) {
+    this.maxFiles = options.maxFiles ?? 100;
+    this.project = this.createProject();
+  }
+
+  /**
+   * Create a new ts-morph Project instance
+   */
+  private createProject(): Project {
     // Don't pass tsConfigFilePath to avoid ts-morph trying to read files
     // Even with useInMemoryFileSystem, ts-morph still tries to read the tsconfig
     // We'll work without tsconfig for now - symbol extraction doesn't strictly need it
-    this.project = new Project({
+    return new Project({
       skipAddingFilesFromTsConfig: true,
       useInMemoryFileSystem: true,
       compilerOptions: {
@@ -47,18 +67,49 @@ export class SymbolAnalyzer {
   }
 
   /**
+   * Reset the project if it has too many files to prevent memory bloat
+   */
+  private maybeResetProject(): void {
+    if (this.fileCount >= this.maxFiles) {
+      log.debug(`Resetting ts-morph project (${this.fileCount} files in memory)`);
+      this.project = this.createProject();
+      this.fileCount = 0;
+    }
+  }
+
+  /**
+   * Get the number of files currently in memory
+   */
+  public getFileCount(): number {
+    return this.fileCount;
+  }
+
+  /**
+   * Force reset the project to free memory
+   */
+  public reset(): void {
+    log.debug('Forcing ts-morph project reset');
+    this.project = this.createProject();
+    this.fileCount = 0;
+  }
+
+  /**
    * Analyze a file to extract exported symbols and their dependencies
    */
   public analyzeFile(filePath: string, content: string): {
     symbols: SymbolInfo[];
     dependencies: SymbolDependency[];
   } {
+    // Check if we need to reset the project
+    this.maybeResetProject();
+
     // Create or update source file in the project
     let sourceFile = this.project.getSourceFile(filePath);
     if (sourceFile) {
       sourceFile.replaceWithText(content);
     } else {
       sourceFile = this.project.createSourceFile(filePath, content);
+      this.fileCount++;
     }
 
     const symbols: SymbolInfo[] = [];

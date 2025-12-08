@@ -290,8 +290,9 @@ function setupFileWatcher(): void {
       handleFileChange('unlink', filePath);
     });
 
-    fileWatcher.on('error', (error: Error) => {
-      log.error('File watcher error:', error.message);
+    fileWatcher.on('error', (error: unknown) => {
+      const message = error instanceof Error ? error.message : String(error);
+      log.error('File watcher error:', message);
     });
 
     fileWatcher.on('ready', () => {
@@ -721,7 +722,7 @@ function executeGetIndexStatus(): GetIndexStatusResult {
     state,
     isReady,
     reverseIndexEnabled: spider!.hasReverseIndex(),
-    cacheSize: cacheStats.size,
+    cacheSize: cacheStats.dependencyCache.size,
     reverseIndexStats: cacheStats.reverseIndexStats,
     progress:
       indexStatus.state === 'indexing'
@@ -785,9 +786,9 @@ async function executeRebuildIndex(): Promise<RebuildIndexResult> {
   const cacheStats = spider!.getCacheStats();
 
   return {
-    reindexedCount: cacheStats.size,
+    reindexedCount: cacheStats.dependencyCache.size,
     rebuildTimeMs,
-    newCacheSize: cacheStats.size,
+    newCacheSize: cacheStats.dependencyCache.size,
     reverseIndexStats: cacheStats.reverseIndexStats ?? {
       indexedFiles: 0,
       targetFiles: 0,
