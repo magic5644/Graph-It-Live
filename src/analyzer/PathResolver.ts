@@ -96,7 +96,7 @@ export class PathResolver {
             // Resolve relative to tsconfig directory
             const tsConfigDir = path.dirname(tsConfigPath);
             const absoluteTarget = path.resolve(tsConfigDir, baseUrl, target);
-            this.pathAliases.set(cleanAlias, absoluteTarget);
+            this.pathAliases.set(cleanAlias, normalizePath(absoluteTarget));
           }
         }
       }
@@ -199,8 +199,8 @@ export class PathResolver {
     
     for (const [alias, target] of aliases.entries()) {
       if (modulePath === alias || modulePath.startsWith(alias + '/')) {
-        const resolved = modulePath.replace(alias, target);
-        return resolved;
+            const resolved = modulePath.replace(alias, target);
+            return normalizePath(resolved);
       }
     }
 
@@ -356,7 +356,7 @@ export class PathResolver {
           if (target) {
             // Resolve relative to this tsconfig's directory
             const absoluteTarget = path.resolve(tsConfigDir, baseUrl, target);
-            aliases.set(cleanAlias, absoluteTarget);
+            aliases.set(cleanAlias, normalizePath(absoluteTarget));
           }
         }
       }
@@ -461,7 +461,7 @@ export class PathResolver {
     // Try exact match first
     if (imports.has(modulePath)) {
       const target = imports.get(modulePath)!;
-      return path.resolve(packageDir, target);
+      return normalizePath(path.resolve(packageDir, target));
     }
 
     // Try wildcard match (e.g., #internal/* -> ./src/internal/*)
@@ -472,7 +472,7 @@ export class PathResolver {
           const suffix = modulePath.slice(aliasPrefix.length + 1); // Get part after prefix/
           const targetPrefix = target.endsWith('/*') ? target.slice(0, -2) : target;
           const resolved = path.resolve(packageDir, targetPrefix, suffix);
-          return resolved;
+          return normalizePath(resolved);
         }
       }
     }
@@ -740,13 +740,14 @@ export class PathResolver {
         // Remove "file:" prefix and resolve relative to package.json directory
         const relativePath = depValue.slice(5);
         const absolutePath = path.resolve(packageDir, relativePath);
+        const normalized = normalizePath(absolutePath);
         
         // Verify the directory exists and has a package.json
         const depPackageJson = path.join(absolutePath, 'package.json');
         const exists = await this.fileExists(depPackageJson);
         
         if (exists) {
-          return absolutePath;
+          return normalized;
         }
       }
     } catch {

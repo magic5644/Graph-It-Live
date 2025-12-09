@@ -98,6 +98,17 @@
         "category": "Graph-It-Live",
         "icon": "$(type-hierarchy-sub)"
       }
+      ,
+      {
+        "command": "graph-it-live.forceReindex",
+        "title": "Force Graph-It-Live re-index",
+        "category": "Graph-It-Live"
+      },
+      {
+        "command": "graph-it-live.showIndexStatus",
+        "title": "Show Graph-It-Live index status",
+        "category": "Graph-It-Live"
+      }
     ],
     "menus": {
       "editor/title": [

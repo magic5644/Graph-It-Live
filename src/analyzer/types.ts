@@ -1,11 +1,18 @@
+import { normalizePath as _normalizePath, normalizePathForComparison as _normalizePathForComparison } from '../shared/path';
+
 /**
- * Normalize a file path to use forward slashes consistently across all platforms.
- * This ensures Windows paths (C:\foo\bar) work the same as Unix paths (/foo/bar).
- * Should be used whenever comparing, storing, or displaying paths.
+ * Backwards-compatible export for analyzer modules and tests.
+ * Use the shared utilities from src/shared/path.ts for consistent behavior.
  */
 export function normalizePath(filePath: string): string {
-  return filePath.replaceAll('\\', '/');
+  return _normalizePath(filePath);
 }
+
+/**
+ * Export comparison normalization used in some analyzer tests
+ * (delegates to the shared implementation which lowercases drive letters).
+ */
+export const normalizePathForComparison = _normalizePathForComparison;
 
 /**
  * Error codes for Spider analysis errors

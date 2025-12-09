@@ -158,7 +158,7 @@ describe('Package.json imports field support', () => {
       // Check nodes include expected files (nodes is array of string paths)
       const nodePaths = result.nodes;
       
-      expect(nodePaths).toContain(mainFile);
+      expect(nodePaths).toContain(np(mainFile));
       expect(nodePaths.some((p: string) => p.includes('Button.ts'))).toBe(true);
       expect(nodePaths.some((p: string) => p.includes('utils/index.ts'))).toBe(true);
       expect(nodePaths.some((p: string) => p.includes('shared/src/helper.ts'))).toBe(true);

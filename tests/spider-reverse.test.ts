@@ -4,12 +4,15 @@ import * as fs from 'node:fs/promises';
 import { Spider } from '../src/analyzer/Spider';
 import { normalizePath } from '../src/analyzer/types';
 
-const FIXTURES_DIR = path.join(__dirname, 'fixtures', 'reverse-deps');
+const FIXTURES_BASE = path.join(__dirname, 'fixtures', 'reverse-deps');
+let FIXTURES_DIR: string;
 
 describe('Spider - Reverse Dependencies', () => {
     let spider: Spider;
 
     beforeEach(async () => {
+        // Use a unique temp directory per test run to avoid concurrent test interference
+        FIXTURES_DIR = path.join(FIXTURES_BASE, `run-${Date.now()}-${Math.random().toString(36).slice(2,6)}`);
         // Create fixture files
         await fs.mkdir(FIXTURES_DIR, { recursive: true });
         
@@ -32,7 +35,14 @@ describe('Spider - Reverse Dependencies', () => {
     });
 
     afterEach(async () => {
-        await fs.rm(FIXTURES_DIR, { recursive: true, force: true });
+        // Attempt cleanup; Windows can be flaky about rapid deletes, so force and ignore errors
+        try {
+            await fs.rm(FIXTURES_DIR, { recursive: true, force: true });
+        } catch (e) {
+            // If cleanup fails, try once more after a short delay
+            await new Promise(resolve => setTimeout(resolve, 10));
+            try { await fs.rm(FIXTURES_DIR, { recursive: true, force: true }); } catch { /* ignore */ }
+        }
     });
 
     it('should find files referencing b.ts', async () => {

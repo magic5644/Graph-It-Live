@@ -95,6 +95,13 @@ export interface SymbolDependency {
   targetFilePath: string;
 }
 
+export interface EmptyStateMessage {
+  command: 'emptyState';
+  reason: 'no-file-open' | 'no-workspace';
+  /** Optional message to display to the user */
+  message?: string;
+}
+
 export interface SymbolGraphMessage {
   command: 'symbolGraph';
   filePath: string;
@@ -110,5 +117,5 @@ export interface SymbolGraphMessage {
   };
 }
 
-export type ExtensionToWebviewMessage = ShowGraphMessage | ExpandedGraphMessage | ReferencingFilesMessage | IndexingProgressMessage | SymbolGraphMessage;
+export type ExtensionToWebviewMessage = ShowGraphMessage | ExpandedGraphMessage | ReferencingFilesMessage | IndexingProgressMessage | SymbolGraphMessage | EmptyStateMessage;
 export type WebviewToExtensionMessage = OpenFileMessage | ExpandNodeMessage | SetExpandAllMessage | RefreshGraphMessage | FindReferencingFilesMessage | DrillDownMessage | ReadyMessage | SwitchModeMessage;
