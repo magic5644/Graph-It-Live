@@ -38,85 +38,106 @@ const App: React.FC = () => {
     const [symbolData, setSymbolData] = React.useState<{ symbols: SymbolInfo[]; dependencies: SymbolDependency[] } | undefined>(undefined);
     const [referencingFiles, setReferencingFiles] = React.useState<string[]>([]);
 
+    // Handler for updateGraph message
+    const handleUpdateGraphMessage = React.useCallback((message: ExtensionToWebviewMessage & { command: 'updateGraph' }) => {
+        if (!message.isRefresh) {
+            setViewMode('file');
+            setSymbolData(undefined);
+        }
+        console.log('App: Received updateGraph message:', {
+            filePath: message.filePath,
+            nodes: message.data.nodes?.length || 0,
+            edges: message.data.edges?.length || 0,
+            expandAll: message.expandAll
+        });
+        setGraphData(message.data);
+        setCurrentFilePath(message.filePath);
+        setEmptyStateMessage(null);
+    }, []);
+
+    // Handler for symbolGraph message
+    const handleSymbolGraphMessage = React.useCallback((message: ExtensionToWebviewMessage & { command: 'symbolGraph' }) => {
+        if (!message.isRefresh) {
+            setViewMode('symbol');
+        }
+        setGraphData(message.data);
+        setCurrentFilePath(message.filePath);
+        if (message.data.symbolData) {
+            setSymbolData(message.data.symbolData as { symbols: SymbolInfo[]; dependencies: SymbolDependency[] });
+        }
+        setReferencingFiles(message.data.referencingFiles || []);
+    }, []);
+
+    // Handler for expandedGraph message
+    const handleExpandedGraphMessage = React.useCallback((message: ExtensionToWebviewMessage & { command: 'expandedGraph' }) => {
+        if (graphData) {
+            const mergedNodes = [...new Set([...graphData.nodes, ...message.data.nodes])];
+            const mergedEdges = [...graphData.edges, ...message.data.edges];
+            setGraphData({ 
+                nodes: mergedNodes, 
+                edges: mergedEdges, 
+                nodeLabels: { ...graphData.nodeLabels, ...message.data.nodeLabels } 
+            });
+        }
+    }, [graphData]);
+
+    // Handler for referencingFiles message
+    const handleReferencingFilesMessage = React.useCallback((message: ExtensionToWebviewMessage & { command: 'referencingFiles' }) => {
+        const files = message.data.nodes.filter((n: string) => n !== message.nodeId);
+        setReferencingFiles(files);
+
+        if (viewMode === 'file' && graphData) {
+            const newNodes = files.filter((f: string) => !graphData.nodes.includes(f));
+            const newEdges = files.map((f: string) => ({ source: f, target: message.nodeId }));
+            const newLabels: Record<string, string> = {};
+            newNodes.forEach((f: string) => {
+                newLabels[f] = f.split('/').pop() || f;
+            });
+
+            if (newNodes.length > 0 || newEdges.length > 0) {
+                setGraphData({
+                    nodes: [...new Set([...graphData.nodes, ...newNodes])],
+                    edges: [...graphData.edges, ...newEdges.filter(e =>
+                        !graphData.edges.some(ge => ge.source === e.source && ge.target === e.target)
+                    )],
+                    nodeLabels: { ...graphData.nodeLabels, ...newLabels }
+                });
+            }
+        }
+    }, [viewMode, graphData]);
+
     React.useEffect(() => {
         const handleMessage = (event: MessageEvent) => {
             const message = event.data as ExtensionToWebviewMessage;
 
-            if (message.command === 'updateGraph') {
-                // Update to file view mode unless this is just a refresh
-                if (!message.isRefresh) {
-                    setViewMode('file');
-                    setSymbolData(undefined); // Clear symbol data in file view
-                }
-                console.log('App: Received updateGraph message:', {
-                    filePath: message.filePath,
-                    nodes: message.data.nodes?.length || 0,
-                    edges: message.data.edges?.length || 0,
-                    expandAll: message.expandAll
-                });
-                setGraphData(message.data);
-                setCurrentFilePath(message.filePath);
-                setEmptyStateMessage(null); // Clear empty state when we have data
-            } else if (message.command === 'emptyState') {
-                // Display empty state message
-                setEmptyStateMessage(message.message || 'No file is currently open');
-                setGraphData(null);
-                setCurrentFilePath('');
-            } else if (message.command === 'symbolGraph') {
-                // Update to symbol view mode unless this is just a refresh
-                if (!message.isRefresh) {
-                    setViewMode('symbol');
-                }
-                setGraphData(message.data);
-                setCurrentFilePath(message.filePath);
-                // Store symbol data for navigation and filtering
-                if (message.data.symbolData) {
-                    setSymbolData(message.data.symbolData as { symbols: SymbolInfo[]; dependencies: SymbolDependency[] });
-                }
-                // Always update referencingFiles from the message payload
-                // If missing, reset to empty array to prevent stale data persisting from previous file
-                setReferencingFiles(message.data.referencingFiles || []);
-            } else if (message.command === 'expandedGraph') {
-                // Merge new data with existing for expanded nodes
-                if (graphData) {
-                    const mergedNodes = [...new Set([...graphData.nodes, ...message.data.nodes])];
-                    const mergedEdges = [...graphData.edges, ...message.data.edges];
-                    setGraphData({ nodes: mergedNodes, edges: mergedEdges, nodeLabels: { ...graphData.nodeLabels, ...message.data.nodeLabels } });
-                }
-            } else if (message.command === 'referencingFiles') {
-                // Store referencing files for symbol card view
-                const files = message.data.nodes.filter((n: string) => n !== message.nodeId);
-                setReferencingFiles(files);
-
-                // In file mode: merge referencing files as parent nodes in the graph
-                if (viewMode === 'file' && graphData) {
-                    // Add referencing files as new nodes
-                    const newNodes = files.filter((f: string) => !graphData.nodes.includes(f));
-                    // Add edges from referencing files TO the target (they import it)
-                    const newEdges = files.map((f: string) => ({ source: f, target: message.nodeId }));
-                    // Build node labels for new nodes
-                    const newLabels: Record<string, string> = {};
-                    newNodes.forEach((f: string) => {
-                        newLabels[f] = f.split('/').pop() || f;
-                    });
-
-                    if (newNodes.length > 0 || newEdges.length > 0) {
-                        setGraphData({
-                            nodes: [...new Set([...graphData.nodes, ...newNodes])],
-                            edges: [...graphData.edges, ...newEdges.filter(e =>
-                                !graphData.edges.some(ge => ge.source === e.source && ge.target === e.target)
-                            )],
-                            nodeLabels: { ...graphData.nodeLabels, ...newLabels }
-                        });
-                    }
-                }
-                // In symbol mode: just update referencing files for display in card view (no view change)
+            switch (message.command) {
+                case 'updateGraph':
+                    handleUpdateGraphMessage(message);
+                    break;
+                case 'emptyState':
+                    setEmptyStateMessage(message.message || 'No file is currently open');
+                    setGraphData(null);
+                    setCurrentFilePath('');
+                    break;
+                case 'symbolGraph':
+                    handleSymbolGraphMessage(message);
+                    break;
+                case 'expandedGraph':
+                    handleExpandedGraphMessage(message);
+                    break;
+                case 'referencingFiles':
+                    handleReferencingFilesMessage(message);
+                    break;
+                case 'setExpandAll':
+                    console.log('App: Received setExpandAll message:', message.expandAll);
+                    setExpandAll(message.expandAll);
+                    break;
             }
         };
 
         window.addEventListener('message', handleMessage);
         return () => window.removeEventListener('message', handleMessage);
-    }, [graphData]);
+    }, [handleUpdateGraphMessage, handleSymbolGraphMessage, handleExpandedGraphMessage, handleReferencingFilesMessage]);
 
     const handleNodeClick = (path: string, line?: number) => {
         if (vscode) {

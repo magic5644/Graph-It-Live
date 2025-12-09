@@ -152,6 +152,8 @@ export const useGraphData = () => {
 
   // Function to toggle expand all
   const toggleExpandAll = useCallback((shouldExpandAll: boolean) => {
+      console.log('toggleExpandAll called with:', shouldExpandAll, 'fullGraphData:', !!fullGraphData, 'currentFilePath:', currentFilePath);
+      console.log('Current expandedNodes:', expandedNodes.size);
       setExpandAll(shouldExpandAll);
       
       if (shouldExpandAll && fullGraphData) {
@@ -165,10 +167,15 @@ export const useGraphData = () => {
               allNodesWithChildren.add(edge.source);
           });
           
+          console.log('Expanding all nodes:', allNodesWithChildren.size, 'nodes', Array.from(allNodesWithChildren));
           setExpandedNodes(allNodesWithChildren);
-      } else if (!shouldExpandAll && currentFilePath) {
-          // Reset to just root expanded
-          setExpandedNodes(new Set([currentFilePath]));
+      } else if (!shouldExpandAll) {
+          // Reset to just root expanded (or empty if no current file)
+          const rootSet = currentFilePath ? new Set([currentFilePath]) : new Set<string>();
+          console.log('Collapsing all nodes, keeping root:', rootSet.size, Array.from(rootSet));
+          setExpandedNodes(rootSet);
+      } else if (shouldExpandAll && !fullGraphData) {
+          console.warn('toggleExpandAll: No fullGraphData available yet');
       }
 
       if (vscode) {
@@ -178,6 +185,25 @@ export const useGraphData = () => {
           });
       }
   }, [fullGraphData, currentFilePath]);
+
+  // Apply expandAll state when fullGraphData changes
+  useEffect(() => {
+      if (expandAll && fullGraphData && currentFilePath) {
+          console.log('Applying expandAll state to new graph data');
+          const allNodesWithChildren = new Set<string>();
+          allNodesWithChildren.add(currentFilePath);
+          fullGraphData.edges.forEach(edge => {
+              allNodesWithChildren.add(edge.source);
+          });
+          console.log('Setting expanded nodes from effect:', allNodesWithChildren.size);
+          setExpandedNodes(allNodesWithChildren);
+      }
+  }, [fullGraphData, expandAll, currentFilePath]);
+
+  // Debug: Log when expandedNodes changes
+  useEffect(() => {
+      console.log('expandedNodes changed, new size:', expandedNodes.size, 'nodes:', Array.from(expandedNodes).slice(0, 5));
+  }, [expandedNodes]);
 
   // Function to toggle node expansion
   const toggleNode = useCallback((nodeId: string) => {
@@ -486,6 +512,9 @@ export const useGraphData = () => {
         handleSymbolGraphMessage(message);
       } else if (message.command === 'expandedGraph' || message.command === 'referencingFiles') {
         handleMergeGraphMessage(message);
+      } else if (message.command === 'setExpandAll') {
+        console.log('Received setExpandAll message:', message.expandAll);
+        toggleExpandAll(message.expandAll);
       }
     };
 
@@ -494,7 +523,7 @@ export const useGraphData = () => {
         window.removeEventListener('message', handleMessage);
         clearTimeout(timeoutId);
     };
-  }, [handleUpdateGraphMessage, handleSymbolGraphMessage, handleMergeGraphMessage]);
+  }, [handleUpdateGraphMessage, handleSymbolGraphMessage, handleMergeGraphMessage, toggleExpandAll]);
 
   const onNodeClick = useCallback((_event: React.MouseEvent, node: Node) => {
     // If clicking on the expand button, don't open file
