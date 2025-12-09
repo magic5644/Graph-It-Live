@@ -32,6 +32,14 @@
 
 - **Inline class expansion**: Class members expand inside the node (accordion-style), not as separate graph nodes
 - **Line navigation**: Clicking on a symbol navigates to its exact line in the editor
+- **Webview default position**: Now, in first installation, the graph view panel appears in the bottom panel by default for better visibility. You can move it back to the side panel or wherever you prefer.
+
+<div align="center">
+  <img src="media/graph-it-live-default-panel.png" alt="Webview default position in bottom panel" width="600"/>
+  <p><em>Webview default position: bottom panel for better visibility</em></p>
+</div>
+
+- **New commands**: You can check current indexing status with `Graph-It-Live: Show Indexing Status` and reindex the workspace with `Graph-It-Live: Reindex Workspace`.
 
 ## v1.2.1
 
