@@ -236,7 +236,7 @@ describe('Spider Integration - Cache and Advanced Features', () => {
             
             expect(result).toHaveProperty('nodes');
             expect(result).toHaveProperty('edges');
-            expect(result.nodes).toContain(mainFile);
+            expect(result.nodes).toContain(normalizePath(mainFile));
         });
 
         it('should return edges connecting nodes', async () => {

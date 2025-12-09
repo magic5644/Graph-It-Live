@@ -57,6 +57,31 @@ export function activate(context: vscode.ExtensionContext) {
         vscode.commands.registerCommand('graph-it-live.showGraph', () => {
             vscode.commands.executeCommand('graph-it-live.graphView.focus');
         })
+        ,
+        // Developer commands to aid debugging and manual re-indexing
+        vscode.commands.registerCommand('graph-it-live.forceReindex', async () => {
+            try {
+                await provider.forceReindex();
+                vscode.window.showInformationMessage('Graph-It-Live: Re-index triggered');
+            } catch (e) {
+                log.error('Force re-index failed:', e);
+                vscode.window.showErrorMessage('Graph-It-Live: Re-index failed');
+            }
+        }),
+        vscode.commands.registerCommand('graph-it-live.showIndexStatus', async () => {
+            try {
+                const status = provider.getIndexStatus();
+                if (!status) {
+                    vscode.window.showInformationMessage('Graph-It-Live: No indexer available');
+                } else {
+                    const msg = `Indexer: ${status.state} ${status.processed}/${status.total} (${status.percentage}%)`;
+                    vscode.window.showInformationMessage(msg);
+                }
+            } catch (e) {
+                log.error('Get index status failed:', e);
+                vscode.window.showErrorMessage('Graph-It-Live: Could not get index status');
+            }
+        })
     ];
 
     // Register MCP server provider if a workspace folder is open

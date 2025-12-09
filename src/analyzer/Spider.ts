@@ -122,8 +122,11 @@ export class Spider {
    * @returns Array of dependencies
    */
   async analyze(filePath: string): Promise<Dependency[]> {
+    // Use normalized key for cache and indexing consistency
+    const key = normalizePath(filePath);
+
     // Check cache first
-    const cached = this.cache.get(filePath);
+    const cached = this.cache.get(key);
     if (cached) {
       return cached;
     }
@@ -151,14 +154,14 @@ export class Spider {
         }
       }
 
-      // Cache results
-      this.cache.set(filePath, dependencies);
+      // Cache results (use normalized key)
+      this.cache.set(key, dependencies);
 
       // Update reverse index if enabled
       if (this.reverseIndex) {
         const fileHash = await ReverseIndex.getFileHashFromDisk(filePath);
         if (fileHash) {
-          this.reverseIndex.addDependencies(filePath, dependencies, fileHash);
+          this.reverseIndex.addDependencies(key, dependencies, fileHash);
         }
       }
 
@@ -187,16 +190,17 @@ export class Spider {
    * @returns true if the file was in the cache, false otherwise
    */
   invalidateFile(filePath: string): boolean {
-    const wasInCache = this.cache.has(filePath);
-    
+    const normalized = normalizePath(filePath);
+    const wasInCache = this.cache.has(normalized);
+
     // Remove from dependency cache
-    this.cache.delete(filePath);
+    this.cache.delete(normalized);
     
     // Remove from symbol cache (for drill-down view)
-    this.symbolCache.delete(filePath);
+    this.symbolCache.delete(normalized);
     
     // Remove from reverse index if enabled
-    this.reverseIndex?.removeDependenciesFromSource(filePath);
+    this.reverseIndex?.removeDependenciesFromSource(normalized);
     
     return wasInCache;
   }
@@ -243,9 +247,10 @@ export class Spider {
    * @param filePath Absolute path to the deleted file
    */
   handleFileDeleted(filePath: string): void {
-    this.cache.delete(filePath);
-    this.symbolCache.delete(filePath);
-    this.reverseIndex?.removeDependenciesFromSource(filePath);
+    const normalized = normalizePath(filePath);
+    this.cache.delete(normalized);
+    this.symbolCache.delete(normalized);
+    this.reverseIndex?.removeDependenciesFromSource(normalized);
   }
 
   /**
@@ -494,12 +499,15 @@ export class Spider {
       // Import the indexed data into our reverse index
       
       for (const fileData of result.data) {
+        // Normalize path for internal storage
+        const normalizedPath = normalizePath(fileData.filePath);
+
         // Cache the dependencies
-        this.cache.set(fileData.filePath, fileData.dependencies);
+        this.cache.set(normalizedPath, fileData.dependencies);
         
         // Add to reverse index with file hash
         this.reverseIndex.addDependencies(
-          fileData.filePath,
+          normalizedPath,
           fileData.dependencies,
           { mtime: fileData.mtime, size: fileData.size }
         );
@@ -603,12 +611,12 @@ export class Spider {
         batch.map(async (filePath) => {
           try {
             // Remove old entries before re-analyzing
-            this.reverseIndex!.removeDependenciesFromSource(filePath);
+            this.reverseIndex!.removeDependenciesFromSource(normalizePath(filePath));
             this.cache.delete(filePath);
             await this.analyze(filePath);
           } catch {
             // File may have been deleted, remove from index
-            this.reverseIndex!.removeDependenciesFromSource(filePath);
+            this.reverseIndex!.removeDependenciesFromSource(normalizePath(filePath));
           }
         })
       );
@@ -633,6 +641,8 @@ export class Spider {
     const nodeLabels: Record<string, string> = {};
 
     const crawlRecursive = async (filePath: string, depth: number) => {
+      // Normalize entry to ensure consistent node keys across platforms
+      const normalizedFile = normalizePath(filePath);
       // Stop if max depth reached (use a safe default if undefined)
       const maxDepth = this.config.maxDepth ?? 3;
       if (depth > maxDepth) {
@@ -640,12 +650,12 @@ export class Spider {
       }
 
       // Skip if already visited
-      if (visited.has(filePath)) {
+      if (visited.has(normalizedFile)) {
         return;
       }
 
-      visited.add(filePath);
-      nodes.add(filePath);
+      visited.add(normalizedFile);
+      nodes.add(normalizedFile);
 
       try {
         const dependencies = await this.analyze(filePath);
@@ -653,7 +663,7 @@ export class Spider {
         for (const dep of dependencies) {
           nodes.add(dep.path);
           edges.push({
-            source: filePath,
+            source: normalizedFile,
             target: dep.path,
           });
 
@@ -667,8 +677,9 @@ export class Spider {
             await crawlRecursive(dep.path, depth + 1);
           }
         }
-      } catch {
-        // File may be an external package or unreadable - skip silently
+      } catch (error) {
+        // Log error for debugging but continue crawling
+        log.debug(`Failed to analyze ${normalizedFile}:`, error instanceof Error ? error.message : String(error));
       }
     };
 
@@ -695,30 +706,33 @@ export class Spider {
   ): Promise<{ nodes: string[]; edges: { source: string; target: string }[]; nodeLabels?: Record<string, string> }> {
     const newNodes = new Set<string>();
     const newEdges: { source: string; target: string }[] = [];
-    const visited = new Set<string>(existingNodes); // Don't revisit known nodes
+    const visited = new Set<string>(Array.from(existingNodes).map(n => normalizePath(n))); // Don't revisit known nodes
     const nodeLabels: Record<string, string> = {};
 
+    const normalizedExisting = new Set(Array.from(existingNodes).map(n => normalizePath(n)));
+
     const crawlRecursive = async (filePath: string, depth: number) => {
+      const normalizedFile = normalizePath(filePath);
       if (depth > extraDepth) {
         return;
       }
-      if (visited.has(filePath) && filePath !== startNode) {
+      if (visited.has(normalizedFile) && normalizePath(filePath) !== normalizePath(startNode)) {
         // Skip already visited nodes, EXCEPT the start node itself
         return;
       }
 
-      visited.add(filePath);
+      visited.add(normalizedFile);
       
       // Only add to newNodes if it wasn't in existingNodes
-      if (!existingNodes.has(filePath)) {
-        newNodes.add(filePath);
+      if (!normalizedExisting.has(normalizedFile)) {
+        newNodes.add(normalizedFile);
       }
 
       try {
         const dependencies = await this.analyze(filePath);
 
         for (const dep of dependencies) {
-          const edge = { source: filePath, target: dep.path };
+          const edge = { source: normalizedFile, target: dep.path };
           
           // Only add edge if it's truly new
           newEdges.push(edge);
@@ -863,16 +877,38 @@ export class Spider {
     symbols: import('./types').SymbolInfo[];
     dependencies: import('./types').SymbolDependency[];
   }> {
+    // Try to be defensive: if callers accidentally pass a module specifier or
+    // non-absolute path (e.g. './utils'), attempt to resolve it relative to
+    // the workspace root before proceeding. This makes the analyzer more
+    // robust when the caller (extension/webview) fails to normalize first.
+    if (!filePath.startsWith('/') && !/^[a-zA-Z]:[\/]/.test(filePath)) {
+      try {
+        // Use workspace root as the base file for resolving module specifiers.
+        // PathResolver.resolve expects the first parameter to be the "from" file,
+        // so we pass the configured root directory here.
+        const maybeResolved = await this.resolveModuleSpecifier(this.config.rootDir, filePath);
+        if (maybeResolved) {
+          filePath = maybeResolved;
+        }
+      } catch {
+        // Ignore resolution errors - we'll handle file-not-found below normally
+      }
+    }
+
+    // Use normalized key for symbol cache and analysis consistency
+    const key = normalizePath(filePath);
+
     // Check cache first
-    const cached = this.symbolCache.get(filePath);
+    const cached = this.symbolCache.get(key);
     if (cached) {
       return cached;
     }
 
     try {
       const content = await fs.readFile(filePath, 'utf-8');
-      const result = this.symbolAnalyzer.analyzeFile(filePath, content);
-      this.symbolCache.set(filePath, result);
+      // Pass normalized file path into the symbol analyzer to keep symbol IDs stable
+      const result = this.symbolAnalyzer.analyzeFile(key, content);
+      this.symbolCache.set(key, result);
       return result;
     } catch (error) {
       const spiderError = SpiderError.fromError(error, filePath);
@@ -882,6 +918,24 @@ export class Spider {
         return { symbols: [], dependencies: [] };
       }
       throw spiderError;
+    }
+  }
+
+  /**
+   * Resolve a module specifier (e.g. './utils' or '@/components/Button') to an absolute
+   * normalized file path using the internal PathResolver.
+   * Public helper so external callers (like the extension host) can resolve module
+   * specifiers before passing values into other Spider APIs that expect absolute paths.
+   * @param fromFilePath File which is doing the import (used as base for relative imports)
+   * @param moduleSpecifier Module specifier exactly as written in source
+   */
+  async resolveModuleSpecifier(fromFilePath: string, moduleSpecifier: string): Promise<string | null> {
+    try {
+      const resolved = await this.resolver.resolve(fromFilePath, moduleSpecifier);
+      return resolved;
+    } catch (e) {
+      // Resolver may throw on weird inputs, treat as unresolved (null) for callers to handle
+      return null;
     }
   }
 
@@ -898,8 +952,9 @@ export class Spider {
         return [];
       }
 
-      const referencingFiles = await this.findReferencingFiles(filePath);
-      const usedSymbolIds = await this.collectUsedSymbolIds(referencingFiles, filePath);
+      const normalizedTarget = normalizePath(filePath);
+      const referencingFiles = await this.findReferencingFiles(normalizedTarget);
+      const usedSymbolIds = await this.collectUsedSymbolIds(referencingFiles, normalizedTarget);
 
       return exportedSymbols.filter(s => !usedSymbolIds.has(s.id));
     } catch (error) {
@@ -925,7 +980,8 @@ export class Spider {
         const isMatch = await this.doesDependencyTargetFile(dep, ref.path, targetFilePath);
         if (isMatch) {
           const symbolName = this.extractSymbolName(dep.targetSymbolId);
-          usedSymbolIds.add(`${targetFilePath}:${symbolName}`);
+          // Ensure we record used symbol IDs using the same normalized target path
+          usedSymbolIds.add(`${normalizePath(targetFilePath)}:${symbolName}`);
         }
       }
     }
@@ -952,12 +1008,13 @@ export class Spider {
     symbolName: string
   ): Promise<import('./types').SymbolDependency[]> {
     const dependents: import('./types').SymbolDependency[] = [];
+    const normalizedTarget = normalizePath(targetFilePath);
     
     for (const ref of referencingFiles) {
       const { dependencies } = await this.getSymbolGraph(ref.path);
       
       for (const dep of dependencies) {
-        const isMatch = await this.doesDependencyTargetFile(dep, ref.path, targetFilePath);
+        const isMatch = await this.doesDependencyTargetFile(dep, ref.path, normalizedTarget);
         if (isMatch && this.extractSymbolName(dep.targetSymbolId) === symbolName) {
           dependents.push(dep);
         }

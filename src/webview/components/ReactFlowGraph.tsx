@@ -18,6 +18,11 @@ import reactFlowStyles from 'reactflow/dist/style.css';
 import dagre from 'dagre';
 import { GraphData } from '../../shared/types';
 
+// Normalize path for cross-platform comparison (convert backslashes to forward slashes)
+const normalizePath = (filePath: string): string => {
+    return filePath.replace(/\\/g, '/');
+};
+
 // Inject React Flow CSS
 if (typeof document !== 'undefined' && !document.getElementById('reactflow-styles')) {
     const style = document.createElement('style');
@@ -427,7 +432,20 @@ const ReactFlowGraphContent: React.FC<ReactFlowGraphProps> = ({
 
     // Build nodes and edges from data
     const { initialNodes, initialEdges, cycles } = useMemo(() => {
+        // Normalize currentFilePath for comparison with graph nodes (which are normalized on backend)
+        const normalizedCurrentPath = normalizePath(currentFilePath);
+        
+        console.log('ReactFlowGraph: Building graph with data:', {
+            nodes: data?.nodes?.length || 0,
+            edges: data?.edges?.length || 0,
+            currentFilePath,
+            normalizedCurrentPath,
+            expandAll,
+            expandedNodesSize: expandedNodes.size
+        });
+        
         if (!data?.nodes?.length) {
+            console.log('ReactFlowGraph: No nodes in data, returning empty');
             return { initialNodes: [], initialEdges: [], cycles: new Set<string>() };
         }
 
@@ -450,11 +468,11 @@ const ReactFlowGraphContent: React.FC<ReactFlowGraphProps> = ({
         const visibleNodes = new Set<string>();
         
         // Add all parents (files that import currentFilePath) - always visible
-        const fileParents = parents.get(currentFilePath) || [];
+        const fileParents = parents.get(normalizedCurrentPath) || [];
         fileParents.forEach(p => visibleNodes.add(p));
         
         // Traverse children starting from current file
-        const queue = [currentFilePath];
+        const queue = [normalizedCurrentPath];
 
         while (queue.length > 0) {
             const node = queue.shift()!;
@@ -462,7 +480,8 @@ const ReactFlowGraphContent: React.FC<ReactFlowGraphProps> = ({
             visibleNodes.add(node);
 
             const nodeChildren = children.get(node) || [];
-            if (expandAll || expandedNodes.has(node) || node === currentFilePath) {
+            // Always show children of the root file (currentFilePath), even if expandAll is false
+            if (expandAll || expandedNodes.has(node) || node === normalizedCurrentPath) {
                 nodeChildren.forEach((child) => queue.push(child));
             }
         }
@@ -471,7 +490,7 @@ const ReactFlowGraphContent: React.FC<ReactFlowGraphProps> = ({
         const createNodeData = (path: string, label: string) => ({
             label,
             fullPath: path,
-            isRoot: path === currentFilePath,
+            isRoot: path === normalizedCurrentPath,
             isParent: fileParents.includes(path),
             isInCycle: cycles.has(path),
             hasChildren: (children.get(path) || []).length > 0,
@@ -515,6 +534,11 @@ const ReactFlowGraphContent: React.FC<ReactFlowGraphProps> = ({
                 };
             });
 
+        console.log('ReactFlowGraph: Visible nodes:', visibleNodes.size, 'edges:', edges.length);
+        console.log('ReactFlowGraph: Current file (normalized):', normalizedCurrentPath);
+        console.log('ReactFlowGraph: All data nodes:', data.nodes);
+        console.log('ReactFlowGraph: All data edges:', data.edges);
+        
         const layouted = getLayoutedElements(nodes, edges);
         return { initialNodes: layouted.nodes, initialEdges: layouted.edges, cycles };
     }, [data, currentFilePath, expandAll, expandedNodes, onDrillDown, onFindReferences, createToggleHandler]);

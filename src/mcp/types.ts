@@ -10,6 +10,7 @@
 
 import * as z from 'zod/v4';
 import * as nodePath from 'node:path';
+import { normalizePath as _normalizePath, normalizePathForComparison as _normalizePathForComparison, getRelativePath as _getRelativePath } from '../shared/path';
 import type { Dependency } from '../analyzer/types';
 
 // ============================================================================
@@ -272,21 +273,7 @@ export function validateToolParams<T>(
  * @param filePath - The path to normalize
  * @returns Normalized path
  */
-export function normalizePathForComparison(filePath: string): string {
-  let normalized = filePath.replaceAll('\\', '/');
-  
-  // Lowercase Windows drive letter for consistent comparison (C: -> c:)
-  if (/^[A-Za-z]:/.test(normalized)) {
-    normalized = normalized[0].toLowerCase() + normalized.slice(1);
-  }
-  
-  // Remove trailing slash (except for root paths like "/" or "C:/")
-  if (normalized.length > 1 && normalized.endsWith('/') && !/^[a-z]:\/$/i.test(normalized)) {
-    normalized = normalized.slice(0, -1);
-  }
-  
-  return normalized;
-}
+export const normalizePathForComparison = _normalizePathForComparison;
 
 /**
  * Check if a path is within a root directory (cross-platform safe).
@@ -1028,17 +1015,4 @@ export function enrichDependency(dep: Dependency, workspaceRoot: string): Depend
  * @param workspaceRoot - The workspace root directory
  * @returns Relative path with forward slashes (for consistent output)
  */
-export function getRelativePath(absolutePath: string, workspaceRoot: string): string {
-  
-  // Use path.relative for cross-platform compatibility
-  const relativePath = nodePath.relative(workspaceRoot, absolutePath);
-  
-  // If the path is outside the workspace, path.relative returns a path starting with ..
-  // In that case, return the original absolute path
-  if (relativePath.startsWith('..') || nodePath.isAbsolute(relativePath)) {
-    return absolutePath;
-  }
-  
-  // Normalize to forward slashes for consistent output across platforms
-  return relativePath.replaceAll('\\', '/');
-}
+export const getRelativePath = _getRelativePath;

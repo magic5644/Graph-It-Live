@@ -107,6 +107,8 @@ vi.mock('../../src/analyzer/Spider', () => {
                 startTime: undefined,
                 errorMessage: undefined,
             }),
+            findReferencingFiles: vi.fn().mockResolvedValue([]),
+            resolveModuleSpecifier: vi.fn().mockResolvedValue(path.join(spiderRootDir, 'src', 'utils.ts')),
         };
     });
     return { Spider: SpiderMock };
@@ -189,5 +191,58 @@ describe('GraphProvider', () => {
             data: mockGraphData,
             expandAll: undefined // globalState.get returns undefined by default mock
         }));
+    });
+
+    it('should resolve module specifiers when drilling down', async () => {
+        const webview = {
+            postMessage: vi.fn(),
+            asWebviewUri: vi.fn(),
+            options: {},
+            html: '',
+            onDidReceiveMessage: vi.fn(),
+            cspSource: 'test-csp',
+        };
+        const view = { 
+            webview,
+            onDidDispose: vi.fn(),
+        };
+
+        // Resolve the view first
+        provider.resolveWebviewView(view as any, {} as any, {} as any);
+
+        const spiderMock = (provider as any)['_spider'];
+        // ensure getSymbolGraph returns something useful
+        spiderMock.getSymbolGraph = vi.fn().mockResolvedValue({ symbols: [{ name: 'format', id: path.join(testRootDir, 'src', 'utils.ts') + ':format', isExported: true }], dependencies: []});
+
+        // Call the private handler with a module specifier + symbol
+        await (provider as any).handleDrillDown('./utils:format');
+
+        // We expect resolveModuleSpecifier to have been invoked using the active editor as base
+        expect(spiderMock.resolveModuleSpecifier).toHaveBeenCalled();
+
+        // And the webview should have seen a symbolGraph message for the resolved absolute path with symbol
+        expect(webview.postMessage).toHaveBeenCalledWith(expect.objectContaining({
+            command: 'symbolGraph',
+            filePath: expect.stringContaining('utils.ts:format')
+        }));
+    });
+
+    it('should trigger force reindex', async () => {
+        // Ensure spider mock has a worker call available
+        const spiderMock = (provider as any)['_spider'];
+        spiderMock.buildFullIndexInWorker = vi.fn().mockResolvedValue({ indexedFiles: 1, duration: 10, cancelled: false, data: []});
+
+        await provider.forceReindex();
+
+        expect(spiderMock.buildFullIndexInWorker).toHaveBeenCalled();
+    });
+
+    it('should return index status', () => {
+        const spiderMock = (provider as any)['_spider'];
+        spiderMock.getIndexStatus = vi.fn().mockReturnValue({ state: 'idle', processed: 0, total: 0, currentFile: undefined, percentage: 0, startTime: undefined, cancelled: false });
+
+        const status = provider.getIndexStatus();
+        expect(status).toBeTruthy();
+        expect(spiderMock.getIndexStatus).toHaveBeenCalled();
     });
 });

@@ -23,6 +23,7 @@ const vscode = (function () {
 const App: React.FC = () => {
     const [graphData, setGraphData] = React.useState<GraphData | null>(null);
     const [currentFilePath, setCurrentFilePath] = React.useState<string>('');
+    const [emptyStateMessage, setEmptyStateMessage] = React.useState<string | null>(null);
 
     // Notify extension that webview is ready on mount
     React.useEffect(() => {
@@ -47,8 +48,20 @@ const App: React.FC = () => {
                     setViewMode('file');
                     setSymbolData(undefined); // Clear symbol data in file view
                 }
+                console.log('App: Received updateGraph message:', {
+                    filePath: message.filePath,
+                    nodes: message.data.nodes?.length || 0,
+                    edges: message.data.edges?.length || 0,
+                    expandAll: message.expandAll
+                });
                 setGraphData(message.data);
                 setCurrentFilePath(message.filePath);
+                setEmptyStateMessage(null); // Clear empty state when we have data
+            } else if (message.command === 'emptyState') {
+                // Display empty state message
+                setEmptyStateMessage(message.message || 'No file is currently open');
+                setGraphData(null);
+                setCurrentFilePath('');
             } else if (message.command === 'symbolGraph') {
                 // Update to symbol view mode unless this is just a refresh
                 if (!message.isRefresh) {
@@ -181,13 +194,40 @@ const App: React.FC = () => {
         return (
             <div style={{
                 display: 'flex',
+                flexDirection: 'column',
                 alignItems: 'center',
                 justifyContent: 'center',
                 height: '100vh',
                 color: 'var(--vscode-editor-foreground)',
                 fontFamily: 'var(--vscode-font-family)',
+                padding: '20px',
+                textAlign: 'center',
+                gap: '12px',
             }}>
-                Waiting for graph data...
+                <div style={{
+                    fontSize: '24px',
+                    fontWeight: '600',
+                    marginBottom: '8px',
+                }}>
+                    📊 Graph-It-Live
+                </div>
+                <div style={{
+                    fontSize: '14px',
+                    color: 'var(--vscode-descriptionForeground)',
+                    maxWidth: '400px',
+                }}>
+                    {emptyStateMessage || 'Waiting for graph data...'}
+                </div>
+                {emptyStateMessage && (
+                    <div style={{
+                        fontSize: '12px',
+                        color: 'var(--vscode-descriptionForeground)',
+                        marginTop: '8px',
+                        opacity: 0.8,
+                    }}>
+                        💡 Tip: Open a TypeScript, JavaScript, Vue, or Svelte file to see its dependency graph
+                    </div>
+                )}
             </div>
         );
     }
