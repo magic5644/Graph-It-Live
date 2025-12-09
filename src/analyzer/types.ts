@@ -1,18 +1,5 @@
-import { normalizePath as _normalizePath, normalizePathForComparison as _normalizePathForComparison } from '../shared/path';
 
-/**
- * Backwards-compatible export for analyzer modules and tests.
- * Use the shared utilities from src/shared/path.ts for consistent behavior.
- */
-export function normalizePath(filePath: string): string {
-  return _normalizePath(filePath);
-}
-
-/**
- * Export comparison normalization used in some analyzer tests
- * (delegates to the shared implementation which lowercases drive letters).
- */
-export const normalizePathForComparison = _normalizePathForComparison;
+export  {normalizePathForComparison, normalizePath} from '../shared/path';
 
 /**
  * Error codes for Spider analysis errors

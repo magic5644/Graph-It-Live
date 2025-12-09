@@ -881,7 +881,7 @@ export class Spider {
     // non-absolute path (e.g. './utils'), attempt to resolve it relative to
     // the workspace root before proceeding. This makes the analyzer more
     // robust when the caller (extension/webview) fails to normalize first.
-    if (!filePath.startsWith('/') && !/^[a-zA-Z]:[\/]/.test(filePath)) {
+    if (!filePath.startsWith('/') && !/^[a-zA-Z]:\//.test(filePath)) {
       try {
         // Use workspace root as the base file for resolving module specifiers.
         // PathResolver.resolve expects the first parameter to be the "from" file,
@@ -933,7 +933,7 @@ export class Spider {
     try {
       const resolved = await this.resolver.resolve(fromFilePath, moduleSpecifier);
       return resolved;
-    } catch (e) {
+    } catch {
       // Resolver may throw on weird inputs, treat as unresolved (null) for callers to handle
       return null;
     }
