@@ -97,8 +97,7 @@
         "title": "Show Dependency Graph",
         "category": "Graph-It-Live",
         "icon": "$(type-hierarchy-sub)"
-      }
-      ,
+      },
       {
         "command": "graph-it-live.forceReindex",
         "title": "Force Graph-It-Live re-index",
@@ -166,7 +165,13 @@
         },
         "graph-it-live.logLevel": {
           "type": "string",
-          "enum": ["debug", "info", "warn", "error", "none"],
+          "enum": [
+            "debug",
+            "info",
+            "warn",
+            "error",
+            "none"
+          ],
           "default": "info",
           "description": "Logging level for the extension. Debug shows all logs, none disables logging.",
           "markdownDescription": "Logging level for the extension output channel.\n\n- **debug**: Verbose output for troubleshooting\n- **info**: Standard operation logs\n- **warn**: Warnings only\n- **error**: Errors only\n- **none**: Disable logging"
@@ -189,6 +194,9 @@
     "test:mcp": "node scripts/test-mcp.js",
     "lint": "eslint src",
     "lint:fix": "eslint src --fix",
+    "check:types": "tsc --noEmit",
+    "audit": "npm audit",
+    "audit:fix": "npm audit fix",
     "package": "vsce package",
     "package:vsix": "vsce package",
     "publish": "vsce publish"
@@ -210,7 +218,7 @@
     "@eslint/js": "^9.39.1",
     "@playwright/test": "^1.57.0",
     "@types/mocha": "^10.0.10",
-    "@types/node": "^20.19.25",
+    "@types/node": "^20.19.26",
     "@types/react": "^19.2.7",
     "@types/react-dom": "^19.2.3",
     "@types/vscode": "^1.96.0",
@@ -225,7 +233,7 @@
     "mocha": "^11.7.5",
     "playwright": "^1.57.0",
     "typescript": "^5.9.3",
-    "typescript-eslint": "^8.48.1",
+    "typescript-eslint": "^8.49.0",
     "vitest": "^4.0.15"
   }
 }
