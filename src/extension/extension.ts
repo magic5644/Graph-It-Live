@@ -71,11 +71,11 @@ export function activate(context: vscode.ExtensionContext) {
         vscode.commands.registerCommand('graph-it-live.showIndexStatus', async () => {
             try {
                 const status = provider.getIndexStatus();
-                if (!status) {
-                    vscode.window.showInformationMessage('Graph-It-Live: No indexer available');
-                } else {
+                if (status) {
                     const msg = `Indexer: ${status.state} ${status.processed}/${status.total} (${status.percentage}%)`;
                     vscode.window.showInformationMessage(msg);
+                } else {
+                    vscode.window.showInformationMessage('Graph-It-Live: No indexer available');
                 }
             } catch (e) {
                 log.error('Get index status failed:', e);
