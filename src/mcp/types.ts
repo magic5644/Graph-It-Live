@@ -10,7 +10,7 @@
 
 import * as z from 'zod/v4';
 import * as nodePath from 'node:path';
-import { normalizePath as _normalizePath, normalizePathForComparison as _normalizePathForComparison, getRelativePath as _getRelativePath } from '../shared/path';
+import { normalizePathForComparison as _normalizePathForComparison, getRelativePath as _getRelativePath } from '../shared/path';
 import type { Dependency } from '../analyzer/types';
 
 // ============================================================================

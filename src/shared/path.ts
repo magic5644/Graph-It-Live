@@ -9,7 +9,7 @@ export function normalizePath(filePath: string): string {
   // Convert backslashes to forward slashes
   let p = filePath.replaceAll('\\', '/');
   // Collapse multiple slashes
-  p = p.replace(/\/+/g, '/');
+  p = p.replaceAll(/\/+/g, '/');
   // Remove trailing slash for non-root paths
   if (p.length > 1 && p.endsWith('/') && !/^[a-zA-Z]:\/$/.test(p)) {
     p = p.slice(0, -1);
