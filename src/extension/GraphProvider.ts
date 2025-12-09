@@ -830,6 +830,90 @@ export class GraphProvider implements vscode.WebviewViewProvider {
     }
 
     /**
+     * Refresh the current graph view (preserves view mode)
+     */
+    public async refreshGraph(): Promise<void> {
+        if (!this._view) {
+            return;
+        }
+
+        log.info('Refreshing current graph view');
+        
+        // Refresh the appropriate view based on current mode
+        if (this._currentSymbolFilePath) {
+            // In symbol view - refresh symbol analysis
+            await this.handleDrillDown(this._currentSymbolFilePath, true);
+        } else {
+            // In file view - refresh file dependencies
+            this.updateGraph(true);
+        }
+    }
+
+    /**
+     * Toggle between file view and symbol view
+     * @returns The new view mode
+     */
+    public async toggleViewMode(): Promise<{ mode: 'file' | 'symbol'; message: string }> {
+        if (!this._view) {
+            return { mode: 'file', message: 'View not initialized' };
+        }
+
+        const editor = vscode.window.activeTextEditor;
+        if (editor?.document.uri.scheme !== 'file') {
+            vscode.window.showWarningMessage('No active file to toggle view');
+            return { mode: 'file', message: 'No active file' };
+        }
+
+        const filePath = editor.document.fileName;
+
+        // Toggle based on current mode
+        if (this._currentSymbolFilePath) {
+            // Currently in symbol view → switch to file view
+            log.info('Toggling from symbol view to file view');
+            this._currentSymbolFilePath = undefined;
+            this.updateGraph();
+            return { mode: 'file', message: 'Switched to File View' };
+        } else {
+            // Currently in file view → switch to symbol view
+            log.info('Toggling from file view to symbol view');
+            await this.handleDrillDown(filePath);
+            return { mode: 'symbol', message: 'Switched to Symbol View' };
+        }
+    }
+
+    /**
+     * Toggle expand/collapse all nodes in the current graph view
+     * @returns The new state (true if expanded, false if collapsed)
+     */
+    public async expandAllNodes(): Promise<{ expanded: boolean; message: string }> {
+        if (!this._view) {
+            return { expanded: false, message: 'View not initialized' };
+        }
+
+        // Get current state and toggle it
+        const currentExpandAll = this._context.globalState.get<boolean>('expandAll', false);
+        const newExpandAll = !currentExpandAll;
+
+        // Update state
+        await this._context.globalState.update('expandAll', newExpandAll);
+
+        // Send message to webview to toggle expand/collapse
+        const message: ExtensionToWebviewMessage = {
+            command: 'setExpandAll',
+            expandAll: newExpandAll
+        };
+        
+        log.info('Sending setExpandAll message to webview:', newExpandAll);
+        this._view.webview.postMessage(message);
+        log.debug('Toggled expandAll from', currentExpandAll, 'to', newExpandAll);
+
+        return {
+            expanded: newExpandAll,
+            message: newExpandAll ? 'All nodes expanded' : 'All nodes collapsed'
+        };
+    }
+
+    /**
      * Return current indexer status snapshot (or null if spider not initialized)
      */
     public getIndexStatus(): IndexerStatusSnapshot | null {
@@ -878,10 +962,17 @@ export class GraphProvider implements vscode.WebviewViewProvider {
             return;
         }
 
+        await this.expandOrCollapse(filePath, isRefresh);
+    }
+
+    private async expandOrCollapse(filePath: string, isRefresh: boolean) {
+        if (!this._spider || !this._view) {
+            return;
+        }
         try {
             const graphData = await this._spider.crawl(filePath);
             log.info('Crawl completed:', graphData.nodes.length, 'nodes,', graphData.edges.length, 'edges');
-            
+
             // Log details for debugging
             if (graphData.nodes.length === 0) {
                 log.warn('No nodes found for', filePath);
@@ -889,7 +980,7 @@ export class GraphProvider implements vscode.WebviewViewProvider {
                 log.warn('No edges found despite', graphData.nodes.length, 'nodes');
                 log.debug('Nodes:', graphData.nodes);
             }
-            
+
             const expandAll = this._context.globalState.get<boolean>('expandAll', false);
             const message: ExtensionToWebviewMessage = {
                 command: 'updateGraph',

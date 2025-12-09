@@ -107,6 +107,24 @@
         "command": "graph-it-live.showIndexStatus",
         "title": "Show Graph-It-Live index status",
         "category": "Graph-It-Live"
+      },
+      {
+        "command": "graph-it-live.expandAllNodes",
+        "title": "Toggle Expand/Collapse All Nodes",
+        "icon": "$(fold)",
+        "category": "Graph-It-Live"
+      },
+      {
+        "command": "graph-it-live.refreshGraph",
+        "title": "Refresh Graph",
+        "icon": "$(refresh)",
+        "category": "Graph-It-Live"
+      },
+      {
+        "command": "graph-it-live.toggleViewMode",
+        "title": "Toggle File/Symbol View",
+        "icon": "$(symbol-class)",
+        "category": "Graph-It-Live"
       }
     ],
     "menus": {
@@ -115,6 +133,23 @@
           "command": "graph-it-live.showGraph",
           "when": "resourceExtname =~ /\\.(ts|tsx|js|jsx|vue|svelte)$/",
           "group": "navigation"
+        }
+      ],
+      "view/title": [
+        {
+          "command": "graph-it-live.refreshGraph",
+          "when": "view == graph-it-live.graphView",
+          "group": "navigation@1"
+        },
+        {
+          "command": "graph-it-live.toggleViewMode",
+          "when": "view == graph-it-live.graphView",
+          "group": "navigation@2"
+        },
+        {
+          "command": "graph-it-live.expandAllNodes",
+          "when": "view == graph-it-live.graphView",
+          "group": "navigation@3"
         }
       ]
     },

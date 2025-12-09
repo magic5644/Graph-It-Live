@@ -20,7 +20,7 @@ import { GraphData } from '../../shared/types';
 
 // Normalize path for cross-platform comparison (convert backslashes to forward slashes)
 const normalizePath = (filePath: string): string => {
-    return filePath.replace(/\\/g, '/');
+    return filePath.replaceAll('\\', '/');
 };
 
 // Inject React Flow CSS
@@ -415,6 +415,33 @@ const ReactFlowGraphContent: React.FC<ReactFlowGraphProps> = ({
     const nodesInitialized = useNodesInitialized();
     const [expandedNodes, setExpandedNodes] = useState<Set<string>>(new Set());
 
+    // Synchronize expandedNodes with expandAll prop
+    useEffect(() => {
+        console.log('ReactFlowGraph: expandAll changed to:', expandAll);
+        if (expandAll && data?.nodes && data?.edges) {
+            // Expand all nodes that have children
+            const allNodesWithChildren = new Set<string>();
+            
+            // Add current file as root
+            if (currentFilePath) {
+                allNodesWithChildren.add(normalizePath(currentFilePath));
+            }
+            
+            // Add all source nodes (nodes that have outgoing edges)
+            data.edges.forEach(edge => {
+                allNodesWithChildren.add(normalizePath(edge.source));
+            });
+            
+            console.log('ReactFlowGraph: Expanding all nodes:', allNodesWithChildren.size);
+            setExpandedNodes(allNodesWithChildren);
+        } else if (!expandAll) {
+            // Collapse all, keep only root
+            const rootSet = currentFilePath ? new Set([normalizePath(currentFilePath)]) : new Set<string>();
+            console.log('ReactFlowGraph: Collapsing all nodes, keeping root:', rootSet.size);
+            setExpandedNodes(rootSet);
+        }
+    }, [expandAll, data, currentFilePath]);
+
     // Toggle handler extracted to reduce nesting
     const createToggleHandler = useCallback((path: string) => {
         return () => {
@@ -435,13 +462,14 @@ const ReactFlowGraphContent: React.FC<ReactFlowGraphProps> = ({
         // Normalize currentFilePath for comparison with graph nodes (which are normalized on backend)
         const normalizedCurrentPath = normalizePath(currentFilePath);
         
-        console.log('ReactFlowGraph: Building graph with data:', {
+        console.log('ReactFlowGraph useMemo: Building graph with:', {
             nodes: data?.nodes?.length || 0,
             edges: data?.edges?.length || 0,
             currentFilePath,
             normalizedCurrentPath,
             expandAll,
-            expandedNodesSize: expandedNodes.size
+            expandedNodesSize: expandedNodes.size,
+            expandedNodesArray: Array.from(expandedNodes).slice(0, 5)
         });
         
         if (!data?.nodes?.length) {
@@ -480,8 +508,13 @@ const ReactFlowGraphContent: React.FC<ReactFlowGraphProps> = ({
             visibleNodes.add(node);
 
             const nodeChildren = children.get(node) || [];
-            // Always show children of the root file (currentFilePath), even if expandAll is false
-            if (expandAll || expandedNodes.has(node) || node === normalizedCurrentPath) {
+            // Show children if:
+            // 1. expandAll is true (global expand state)
+            // 2. node is manually expanded (in expandedNodes)
+            // 3. node is the root (currentFilePath) - always show immediate children
+            const shouldShowChildren = expandAll || expandedNodes.has(node) || node === normalizedCurrentPath;
+            
+            if (shouldShowChildren) {
                 nodeChildren.forEach((child) => queue.push(child));
             }
         }
@@ -494,7 +527,8 @@ const ReactFlowGraphContent: React.FC<ReactFlowGraphProps> = ({
             isParent: fileParents.includes(path),
             isInCycle: cycles.has(path),
             hasChildren: (children.get(path) || []).length > 0,
-            isExpanded: expandAll || expandedNodes.has(path),
+            // Node is visually expanded if expandAll is true OR it's in expandedNodes
+            isExpanded: expandAll || expandedNodes.has(path) || path === normalizedCurrentPath,
             onDrillDown: () => onDrillDown(path),
             onFindReferences: () => onFindReferences(path),
             onToggle: createToggleHandler(path),
