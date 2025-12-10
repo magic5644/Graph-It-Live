@@ -46,6 +46,10 @@ interface ReactFlowGraphProps {
     onExpandAllChange: (expand: boolean) => void;
     onRefresh?: () => void;
     onSwitchToSymbol?: () => void;
+    // Toggle to show/hide parent referencing files for the current root
+    showParents?: boolean;
+    onToggleParents?: (path: string) => void;
+    onRequestReferencingFiles?: (path: string) => void; // request only, don't toggle
 }
 
 // File type specific border colors
@@ -106,7 +110,7 @@ const getFileBorderColor = (fileName: string, fullPath?: string): string => {
 // Custom node component
 const FileNode = ({ data }: NodeProps) => {
     const isRoot = data.isRoot;
-    const hasReferencingFiles = data.hasReferencingFiles;
+    // no-op: we don't need to show button based on hasReferencingFiles, we allow toggling regardless
     const isInCycle = data.isInCycle;
     const borderColor = getFileBorderColor(data.label, data.fullPath);
     const isExternal = isExternalPackage(data.fullPath || data.label);
@@ -246,16 +250,16 @@ const FileNode = ({ data }: NodeProps) => {
                 ✨
             </button>
 
-            {/* Find references button (root only) */}
-            {isRoot && hasReferencingFiles && (
+            {/* Find references button (root only) - shown only if backend signals parents exist or graph already shows parents */}
+            {isRoot && (data.hasReferencingFiles || (data.parentCount && data.parentCount > 0)) && (
                 <button
                     type="button"
                     onClick={(e) => {
                         e.stopPropagation();
-                        data.onFindReferences?.();
+                        data.onToggleParents?.();
                     }}
-                    aria-label="Find referencing files"
-                    title="Find referencing files"
+                    aria-label={data.isParentsVisible ? 'Hide referencing files' : 'Show referencing files'}
+                    title={data.isParentsVisible ? 'Hide referencing files' : 'Show referencing files'}
                     style={{
                         position: 'absolute',
                         left: -(actionButtonSize + 4),
@@ -278,7 +282,7 @@ const FileNode = ({ data }: NodeProps) => {
                         padding: 0,
                     }}
                 >
-                    ◀
+                    {data.isParentsVisible ? '◀' : '▶'}
                 </button>
             )}
 
@@ -410,6 +414,9 @@ const ReactFlowGraphContent: React.FC<ReactFlowGraphProps> = ({
     onExpandAllChange,
     onRefresh,
     onSwitchToSymbol,
+    showParents = false,
+    onToggleParents,
+    onRequestReferencingFiles,
 }) => {
     const { fitView } = useReactFlow();
     const nodesInitialized = useNodesInitialized();
@@ -449,16 +456,9 @@ const ReactFlowGraphContent: React.FC<ReactFlowGraphProps> = ({
         requestedParentsRef.current.clear();
     }, [currentFilePath]);
 
-    useEffect(() => {
-        if (!data || !currentFilePath || currentFilePath.includes(':') || !onFindReferences) return;
-        const normalizedCurrentPath = normalizePath(currentFilePath);
-        const hasParents = data.edges.some(({ target }) => normalizePath(target) === normalizedCurrentPath);
-        if (!hasParents && !requestedParentsRef.current.has(normalizedCurrentPath)) {
-            requestedParentsRef.current.add(normalizedCurrentPath);
-            log.debug('ReactFlowGraph: requesting referencing files for root', normalizedCurrentPath);
-            onFindReferences(normalizedCurrentPath);
-        }
-    }, [data, currentFilePath, onFindReferences]);
+    // We no longer automatically request referencing files on load. The 'Find references' button
+    // will be shown only when the backend reports that a node has parents (via parentCounts),
+    // and the user can request referencing files explicitly by clicking the button.
 
     // Toggle handler extracted to reduce nesting
     const createToggleHandler = useCallback((path: string) => {
@@ -515,10 +515,12 @@ const ReactFlowGraphContent: React.FC<ReactFlowGraphProps> = ({
         // Calculate visible nodes: include both children AND parents of current file
         const visibleNodes = new Set<string>();
         
-        // Add all parents (files that import currentFilePath) - always visible
+        // Add all parents (files that import currentFilePath) only when showParents is enabled
         const fileParents = parents.get(normalizedCurrentPath) || [];
-        console.debug('ReactFlowGraph: fileParents for root', normalizedCurrentPath, fileParents);
-        fileParents.forEach(p => visibleNodes.add(p));
+        console.debug('ReactFlowGraph: fileParents for root', normalizedCurrentPath, fileParents, 'showParents:', showParents);
+        if (showParents) {
+            fileParents.forEach((p) => visibleNodes.add(p));
+        }
         
         // Traverse children starting from current file
         const queue = [normalizedCurrentPath];
@@ -541,7 +543,10 @@ const ReactFlowGraphContent: React.FC<ReactFlowGraphProps> = ({
         }
 
         // Create node data objects
-        const createNodeData = (path: string, label: string) => ({
+        const createNodeData = (path: string, label: string) => {
+            const parentCountRaw = data.parentCounts?.[path];
+            const parentCount = typeof parentCountRaw === 'number' && parentCountRaw > 0 ? parentCountRaw : undefined;
+            return ({
             label,
             fullPath: path,
             isRoot: path === normalizedCurrentPath,
@@ -550,11 +555,15 @@ const ReactFlowGraphContent: React.FC<ReactFlowGraphProps> = ({
             hasChildren: (children.get(path) || []).length > 0,
             // Node is visually expanded if expandAll is true OR it's in expandedNodes
             isExpanded: expandAll || expandedNodes.has(path) || path === normalizedCurrentPath,
-            hasReferencingFiles: (parents.get(path) || []).length > 0,
+            hasReferencingFiles: ((parents.get(path) || []).length > 0) || (parentCount ? parentCount > 0 : false),
+            parentCount,
+            isParentsVisible: showParents,
             onDrillDown: () => onDrillDown(path),
             onFindReferences: () => onFindReferences(path),
+            onToggleParents: () => onToggleParents?.(path),
             onToggle: createToggleHandler(path),
         });
+        };
 
         const nodes: Node[] = Array.from(visibleNodes).map((path) => {
             const label = getLabel(path);

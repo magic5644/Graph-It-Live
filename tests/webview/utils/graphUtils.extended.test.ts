@@ -266,6 +266,23 @@ describe('graphUtils - extended tests', () => {
             expect(result.nodeLabels?.['A']).toBe('New Label');
         });
 
+        it('should merge parentCounts correctly', () => {
+            const current: GraphData = {
+                nodes: ['A'],
+                edges: [],
+                parentCounts: { 'A': 2, 'B': 0 }
+            };
+            const newData: GraphData = {
+                nodes: ['B'],
+                edges: [],
+                parentCounts: { 'A': 3, 'C': 1 }
+            };
+
+            const result = mergeGraphData(current, newData);
+
+            expect(result.parentCounts).toEqual({ 'A': 3, 'B': 0, 'C': 1 });
+        });
+
         it('should return undefined nodeLabels when both are empty', () => {
             const current: GraphData = { nodes: ['A'], edges: [] };
             const newData: GraphData = { nodes: ['B'], edges: [] };

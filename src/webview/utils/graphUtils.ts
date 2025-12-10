@@ -144,11 +144,15 @@ export const mergeGraphData = (currentData: GraphData, newData: GraphData): Grap
         ...currentData.nodeLabels,
         ...newData.nodeLabels,
     };
+    const mergedParentCounts: Record<string, number> = {};
+    if (currentData.parentCounts) Object.assign(mergedParentCounts, currentData.parentCounts);
+    if (newData.parentCounts) Object.assign(mergedParentCounts, newData.parentCounts);
 
     return {
         nodes: mergedNodes,
         edges: mergedEdges,
         nodeLabels: Object.keys(mergedNodeLabels).length > 0 ? mergedNodeLabels : undefined,
+        parentCounts: Object.keys(mergedParentCounts).length > 0 ? mergedParentCounts : undefined,
     };
 };
 
