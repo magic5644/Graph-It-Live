@@ -996,7 +996,7 @@ export class GraphProvider implements vscode.WebviewViewProvider {
             const expandAll = this._context.globalState.get<boolean>('expandAll', false);
             // If reverse index is enabled, compute parent counts for all nodes so the webview
             // can decide which nodes show the 'Find references' toggle without additional network requests
-            let enrichedData = { ...graphData } as { nodes: string[]; edges: { source: string; target: string }[]; nodeLabels?: Record<string, string>; parentCounts?: Record<string, number> };
+            const enrichedData = { ...graphData } as { nodes: string[]; edges: { source: string; target: string }[]; nodeLabels?: Record<string, string>; parentCounts?: Record<string, number> };
             if (this._spider.hasReverseIndex()) {
                 const parentCounts: Record<string, number> = {};
                 await Promise.all(enrichedData.nodes.map(async (n) => {
