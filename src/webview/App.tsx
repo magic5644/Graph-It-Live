@@ -2,6 +2,10 @@ import React from 'react';
 import ReactFlowGraph from './components/ReactFlowGraph';
 import SymbolCardView from './components/SymbolCardView';
 import { ExtensionToWebviewMessage, WebviewToExtensionMessage, GraphData, SymbolInfo, SymbolDependency } from '../shared/types';
+import { getLogger } from '../shared/logger';
+
+/** Logger instance for App */
+const log = getLogger('App');
 
 // VS Code API
 interface VSCodeApi {
@@ -28,8 +32,56 @@ const App: React.FC = () => {
     // Notify extension that webview is ready on mount
     React.useEffect(() => {
         if (vscode) {
-            console.log('App: Sending ready message to extension');
+            log.debug('App: Sending ready message to extension');
             vscode.postMessage({ command: 'ready' });
+
+            // Forward console logs from the webview to the extension OutputChannel
+            const origLog = console.log;
+            const origInfo = console.info;
+            const origWarn = console.warn;
+            const origError = console.error;
+            const consoleDebugHolder = console as unknown as { debug?: (...args: unknown[]) => void };
+            const origDebug = consoleDebugHolder.debug ?? origLog;
+
+            console.log = (...args: unknown[]) => {
+                origLog(...args);
+                try {
+                    vscode.postMessage({ command: 'webviewLog', level: 'info', message: String(args[0] ?? ''), args });
+                } catch (error_) {  console.log(error_); }
+            };
+            console.info = (...args: unknown[]) => {
+                origInfo(...args);
+                try {
+                    vscode.postMessage({ command: 'webviewLog', level: 'info', message: String(args[0] ?? ''), args });
+                } catch (err) { origLog('Webview log forward failed', err); }
+            };
+            console.warn = (...args: unknown[]) => {
+                origWarn(...args);
+                try {
+                    vscode.postMessage({ command: 'webviewLog', level: 'warn', message: String(args[0] ?? ''), args });
+                } catch (err) { origLog('Webview log forward failed', err); }
+            };
+            console.error = (...args: unknown[]) => {
+                origError(...args);
+                try {
+                    vscode.postMessage({ command: 'webviewLog', level: 'error', message: String(args[0] ?? ''), args });
+                } catch (err) { origLog('Webview log forward failed', err); }
+            };
+            consoleDebugHolder.debug = (...args: unknown[]) => {
+                origDebug(...args);
+                try {
+                    vscode.postMessage({ command: 'webviewLog', level: 'debug', message: String(args[0] ?? ''), args });
+                } catch (error_) {  console.log(error_); }
+            };
+
+            return () => {
+                // Restore original console functions
+                console.log = origLog;
+                console.info = origInfo;
+                console.warn = origWarn;
+                console.error = origError;
+                consoleDebugHolder.debug = origDebug;
+            };
         }
     }, []);
     const [viewMode, setViewMode] = React.useState<'file' | 'symbol' | 'references'>('file');
@@ -44,7 +96,7 @@ const App: React.FC = () => {
             setViewMode('file');
             setSymbolData(undefined);
         }
-        console.log('App: Received updateGraph message:', {
+        log.debug('App: Received updateGraph message:', {
             filePath: message.filePath,
             nodes: message.data.nodes?.length || 0,
             edges: message.data.edges?.length || 0,
@@ -83,6 +135,7 @@ const App: React.FC = () => {
 
     // Handler for referencingFiles message
     const handleReferencingFilesMessage = React.useCallback((message: ExtensionToWebviewMessage & { command: 'referencingFiles' }) => {
+        log.debug('App: Received referencingFiles message for', message.nodeId, 'nodes:', message.data.nodes.length, 'edges:', (message.data.edges || []).length);
         const files = message.data.nodes.filter((n: string) => n !== message.nodeId);
         setReferencingFiles(files);
 
@@ -129,7 +182,7 @@ const App: React.FC = () => {
                     handleReferencingFilesMessage(message);
                     break;
                 case 'setExpandAll':
-                    console.log('App: Received setExpandAll message:', message.expandAll);
+                    log.debug('App: Received setExpandAll message:', message.expandAll);
                     setExpandAll(message.expandAll);
                     break;
             }
@@ -159,7 +212,7 @@ const App: React.FC = () => {
     };
 
     const handleSwitchMode = (mode: 'file' | 'symbol') => {
-        console.log('App: Switching to mode:', mode);
+        log.debug('App: Switching to mode:', mode);
         if (vscode) {
             vscode.postMessage({
                 command: 'switchMode',
@@ -174,7 +227,7 @@ const App: React.FC = () => {
     };
 
     const handleRefresh = () => {
-        console.log('App: Refresh button clicked');
+        log.debug('App: Refresh button clicked');
         if (vscode) {
             vscode.postMessage({
                 command: 'refreshGraph'
@@ -183,7 +236,7 @@ const App: React.FC = () => {
     };
 
     const handleFindReferences = (path: string) => {
-        console.log('App: Find references clicked for:', path);
+        log.debug('App: Find references clicked for:', path);
         if (vscode) {
             vscode.postMessage({
                 command: 'findReferencingFiles',
@@ -193,7 +246,7 @@ const App: React.FC = () => {
     };
 
     const handleNavigateToFile = (path: string, mode: 'card' | 'file') => {
-        console.log('App: Navigate to file:', path, 'mode:', mode);
+        log.debug('App: Navigate to file:', path, 'mode:', mode);
         if (vscode) {
             if (mode === 'card') {
                 // Drill down to symbol view

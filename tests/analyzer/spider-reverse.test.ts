@@ -1,8 +1,8 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import * as path from 'node:path';
 import * as fs from 'node:fs/promises';
-import { Spider } from '../src/analyzer/Spider';
-import { normalizePath } from '../src/analyzer/types';
+import { Spider } from '../../src/analyzer/Spider';
+import { normalizePath } from '../../src/analyzer/types';
 
 const FIXTURES_BASE = path.join(__dirname, 'fixtures', 'reverse-deps');
 let FIXTURES_DIR: string;
@@ -38,7 +38,7 @@ describe('Spider - Reverse Dependencies', () => {
         // Attempt cleanup; Windows can be flaky about rapid deletes, so force and ignore errors
         try {
             await fs.rm(FIXTURES_DIR, { recursive: true, force: true });
-        } catch (e) {
+        } catch (e) { //NOSONAR
             // If cleanup fails, try once more after a short delay
             await new Promise(resolve => setTimeout(resolve, 10));
             try { await fs.rm(FIXTURES_DIR, { recursive: true, force: true }); } catch { /* ignore */ }

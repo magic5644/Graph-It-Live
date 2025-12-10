@@ -33,6 +33,13 @@ export interface ILogger {
 }
 
 /**
+ * Optional logger backend - used by the extension to redirect logs to a different sink
+ */
+export type LoggerBackend = {
+  createLogger(prefix: string, level?: LogLevel): ILogger;
+};
+
+/**
  * Format log arguments for output
  */
 function formatArgs(args: unknown[]): string {
@@ -117,11 +124,51 @@ export class NullLogger implements ILogger {
 }
 
 /**
+ * Delegating logger - forwards to an underlying delegate logger instance.
+ * Useful for swapping the underlying logger (eg. ConsoleLogger -> VsCode Logger) while
+ * preserving a single logger reference so callers that captured the logger continue
+ * to receive forwarded messages.
+ */
+class DelegatingLogger implements ILogger {
+  private delegate: ILogger;
+
+  constructor(delegate: ILogger) {
+    this.delegate = delegate;
+  }
+
+  get level(): LogLevel {
+    return this.delegate.level;
+  }
+
+  setLevel(level: LogLevel): void {
+    this.delegate.setLevel(level);
+  }
+
+  setDelegate(delegate: ILogger): void {
+    this.delegate = delegate;
+  }
+
+  debug(message: string, ...args: unknown[]): void {
+    this.delegate.debug(message, ...args);
+  }
+  info(message: string, ...args: unknown[]): void {
+    this.delegate.info(message, ...args);
+  }
+  warn(message: string, ...args: unknown[]): void {
+    this.delegate.warn(message, ...args);
+  }
+  error(message: string, ...args: unknown[]): void {
+    this.delegate.error(message, ...args);
+  }
+}
+
+/**
  * Logger Factory - creates loggers with shared configuration
  */
 class LoggerFactory {
   private defaultLevel: LogLevel = 'info';
-  private readonly loggers: Map<string, ILogger> = new Map();
+  private readonly loggers: Map<string, DelegatingLogger> = new Map();
+  private backend?: LoggerBackend;
 
   /**
    * Set the default log level for new loggers
@@ -147,7 +194,9 @@ class LoggerFactory {
   getLogger(prefix: string): ILogger {
     let logger = this.loggers.get(prefix);
     if (!logger) {
-      logger = new ConsoleLogger(prefix, this.defaultLevel);
+      // Create a delegating logger wrapping the appropriate backend or console logger
+      const baseLogger = this.backend ? this.backend.createLogger(prefix, this.defaultLevel) : new ConsoleLogger(prefix, this.defaultLevel);
+      logger = new DelegatingLogger(baseLogger);
       this.loggers.set(prefix, logger);
     }
     return logger;
@@ -157,7 +206,8 @@ class LoggerFactory {
    * Create a null logger (for testing)
    */
   getNullLogger(): ILogger {
-    return new NullLogger();
+    const base = new NullLogger();
+    return new DelegatingLogger(base);
   }
 
   /**
@@ -165,6 +215,25 @@ class LoggerFactory {
    */
   clear(): void {
     this.loggers.clear();
+  }
+
+  /**
+   * Set an optional backend for creating loggers. When set, newly-created loggers will
+   * use the backend. Existing loggers in the factory will have their delegate replaced
+   * with a backend-created logger instance (preserving existing references).
+   */
+  setBackend(backend?: LoggerBackend): void {
+    this.backend = backend;
+
+    for (const [prefix, delegatingLogger] of this.loggers.entries()) {
+      const currentLevel = delegatingLogger.level ?? this.defaultLevel;
+      const newBase = backend ? backend.createLogger(prefix, currentLevel) : new ConsoleLogger(prefix, currentLevel);
+      delegatingLogger.setDelegate(newBase);
+    }
+  }
+
+  getBackend(): LoggerBackend | undefined {
+    return this.backend;
   }
 }
 
@@ -176,6 +245,15 @@ export const loggerFactory = new LoggerFactory();
  */
 export function getLogger(prefix: string): ILogger {
   return loggerFactory.getLogger(prefix);
+}
+
+/**
+ * Allow external code (eg. the extension) to register a backend that will be used
+ * to create logger instances. This is how the extension can redirect logs to a
+ * `vscode.OutputChannel` logger instead of console
+ */
+export function setLoggerBackend(backend?: LoggerBackend): void {
+  loggerFactory.setBackend(backend);
 }
 
 /**

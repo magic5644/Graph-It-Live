@@ -3,6 +3,12 @@ import { Node, Edge, useNodesState, useEdgesState, Position } from 'reactflow';
 import dagre from 'dagre';
 import { ExtensionToWebviewMessage, WebviewToExtensionMessage, GraphData } from '../../shared/types';
 import { mergeGraphData, detectCycles } from '../utils/graphUtils';
+import { nodeHeight, nodeWidth } from "../utils/nodeUtils";
+import { getLogger } from '../../shared/logger';
+
+/** Logger instance for useGraphData */
+const log = getLogger('useGraphData');
+log.info('useGraphData initialized');
 
 // Define VS Code API type
 interface VSCodeApi {
@@ -37,9 +43,6 @@ function collectNodesWithChildren(filePath: string | undefined, edges: { source:
     }
     return allNodesWithChildren;
 }
-
-const nodeWidth = 180;
-const nodeHeight = 50;
 
 /**
  * Get node style based on file type and state
@@ -149,11 +152,13 @@ export const useGraphData = () => {
   const [expandedNodes, setExpandedNodes] = useState<Set<string>>(new Set());
 
   const [expandAll, setExpandAll] = useState<boolean>(false);
+  // Track which nodes we already requested parent (referencing files) for
+  const requestedParentsRef = React.useRef<Set<string>>(new Set());
 
   // Function to toggle expand all
   const toggleExpandAll = useCallback((shouldExpandAll: boolean) => {
-      console.log('toggleExpandAll called with:', shouldExpandAll, 'fullGraphData:', !!fullGraphData, 'currentFilePath:', currentFilePath);
-      console.log('Current expandedNodes:', expandedNodes.size);
+      log.debug('toggleExpandAll called with:', shouldExpandAll, 'fullGraphData:', !!fullGraphData, 'currentFilePath:', currentFilePath);
+      log.debug('Current expandedNodes:', expandedNodes.size);
       setExpandAll(shouldExpandAll);
       
       if (shouldExpandAll && fullGraphData) {
@@ -167,12 +172,12 @@ export const useGraphData = () => {
               allNodesWithChildren.add(edge.source);
           });
           
-          console.log('Expanding all nodes:', allNodesWithChildren.size, 'nodes', Array.from(allNodesWithChildren));
+          log.debug('Expanding all nodes:', allNodesWithChildren.size, 'nodes', Array.from(allNodesWithChildren));
           setExpandedNodes(allNodesWithChildren);
       } else if (!shouldExpandAll) {
           // Reset to just root expanded (or empty if no current file)
           const rootSet = currentFilePath ? new Set([currentFilePath]) : new Set<string>();
-          console.log('Collapsing all nodes, keeping root:', rootSet.size, Array.from(rootSet));
+          log.debug('Collapsing all nodes, keeping root:', rootSet.size, Array.from(rootSet));
           setExpandedNodes(rootSet);
       } else if (shouldExpandAll && !fullGraphData) {
           console.warn('toggleExpandAll: No fullGraphData available yet');
@@ -189,20 +194,20 @@ export const useGraphData = () => {
   // Apply expandAll state when fullGraphData changes
   useEffect(() => {
       if (expandAll && fullGraphData && currentFilePath) {
-          console.log('Applying expandAll state to new graph data');
+          log.debug('Applying expandAll state to new graph data');
           const allNodesWithChildren = new Set<string>();
           allNodesWithChildren.add(currentFilePath);
           fullGraphData.edges.forEach(edge => {
               allNodesWithChildren.add(edge.source);
           });
-          console.log('Setting expanded nodes from effect:', allNodesWithChildren.size);
+          log.debug('Setting expanded nodes from effect:', allNodesWithChildren.size);
           setExpandedNodes(allNodesWithChildren);
       }
   }, [fullGraphData, expandAll, currentFilePath]);
 
   // Debug: Log when expandedNodes changes
   useEffect(() => {
-      console.log('expandedNodes changed, new size:', expandedNodes.size, 'nodes:', Array.from(expandedNodes).slice(0, 5));
+      log.debug('expandedNodes changed, new size:', expandedNodes.size, 'nodes:', Array.from(expandedNodes).slice(0, 5));
   }, [expandedNodes]);
 
   // Function to toggle node expansion
@@ -338,6 +343,7 @@ export const useGraphData = () => {
     const label = getNodeLabel(path, graphData, fileNameCounts);
     const isRoot = path === rootPath;
     const hasChildren = graphData.edges.some(e => e.source === path);
+    const hasReferencingFiles = graphData.edges.some((e) => e.target === path);
     const isExpanded = expanded.has(path) || isRoot;
     const isInCycle = cycleNodes?.has(path) || false;
     const isFileNode = !path.includes(':');
@@ -354,6 +360,7 @@ export const useGraphData = () => {
         onToggle: () => toggleNode(path),
         onExpand: hasChildren ? () => requestExpandNode?.(path) : undefined,
         onFindReferences: () => requestFindReferencingFiles?.(path),
+        hasReferencingFiles,
         onDrillDown: isFileNode ? () => drillDownToSymbols(path) : undefined,
         isRoot,
         isFileNode,
@@ -473,6 +480,18 @@ export const useGraphData = () => {
     } else {
       setExpandedNodes(new Set([message.filePath]));
     }
+
+    // If root has no parents in the provided graph data, request referencing files
+    // so the UI can know whether the root has references (and show the ref button)
+    if (message.data && message.filePath && !message.filePath.includes(':')) {
+      const rootHasParents = message.data.edges.some((e) => e.target === message.filePath);
+      const normalizedRoot = message.filePath;
+      if (!rootHasParents && !requestedParentsRef.current.has(normalizedRoot)) {
+        log.debug('No parents detected in updateGraph; requesting referencing files for:', normalizedRoot);
+        requestedParentsRef.current.add(normalizedRoot);
+        requestFindReferencingFiles?.(normalizedRoot);
+      }
+    }
   }, []);
 
   // Helper to handle symbolGraph message
@@ -513,7 +532,7 @@ export const useGraphData = () => {
       } else if (message.command === 'expandedGraph' || message.command === 'referencingFiles') {
         handleMergeGraphMessage(message);
       } else if (message.command === 'setExpandAll') {
-        console.log('Received setExpandAll message:', message.expandAll);
+        log.debug('Received setExpandAll message:', message.expandAll);
         toggleExpandAll(message.expandAll);
       }
     };

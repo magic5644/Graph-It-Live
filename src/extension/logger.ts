@@ -209,6 +209,7 @@ export function watchLogLevelConfig(context: vscode.ExtensionContext): void {
       if (e.affectsConfiguration('graph-it-live.logLevel')) {
         const newLevel = getLogLevelFromConfig();
         extensionLoggerManager.setLevel(newLevel);
+        extensionLoggerManager.getLogger('Extension').info('Log level changed to', newLevel);
       }
     })
   );

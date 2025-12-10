@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { Parser } from '../src/analyzer/Parser';
+import { Parser } from '../../src/analyzer/Parser';
 
 describe('Parser - Complex Imports', () => {
     const parser = new Parser();

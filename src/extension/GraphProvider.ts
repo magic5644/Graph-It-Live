@@ -2,8 +2,8 @@ import * as vscode from 'vscode';
 import * as path from 'node:path';
 import { randomBytes } from 'node:crypto';
 import { Spider } from '../analyzer/Spider';
-import { ExtensionToWebviewMessage, WebviewToExtensionMessage } from '../shared/types';
-import { getExtensionLogger } from './logger';
+import type { ExtensionToWebviewMessage, WebviewToExtensionMessage, OpenFileMessage, ExpandNodeMessage, SetExpandAllMessage, FindReferencingFilesMessage, DrillDownMessage, SwitchModeMessage, WebviewLogMessage, SymbolInfo, SymbolDependency } from '../shared/types';
+import { getExtensionLogger, extensionLoggerManager } from './logger';
 import type { IndexerStatusSnapshot } from '../analyzer/IndexerStatus';
 
 /** Logger instance for GraphProvider */
@@ -621,46 +621,9 @@ export class GraphProvider implements vscode.WebviewViewProvider {
             // Parse symbol ID (e.g. './utils:format') to separate file path from symbol name
             const { actualFilePath: requestedPath, symbolName } = this.parseFilePathAndSymbol(filePath);
 
-            let resolvedFilePath = requestedPath;
-
-            // If path is not absolute, attempt to resolve it relative to the current symbol
-            // view file or the active editor. This prevents non-absolute module specifiers
-            // from being passed straight into Spider.getSymbolGraph which expects absolute
-            // paths.
-            if (!this.isAbsolutePath(resolvedFilePath)) {
-                const baseForResolve = (() => {
-                    // Prefer the currently viewed symbol file if it exists and is an absolute path
-                    if (this._currentSymbolFilePath && this.isAbsolutePath(this._currentSymbolFilePath)) {
-                        return this._currentSymbolFilePath;
-                    }
-
-                    // Fall back to the active editor file if present
-                    const editor = vscode.window.activeTextEditor;
-                    if (editor?.document.uri.scheme === 'file') {
-                        return editor.document.fileName;
-                    }
-
-                    // No sensible base - can't resolve module specifier
-                    return undefined;
-                })();
-
-                if (baseForResolve) {
-                    const resolved = await this._spider.resolveModuleSpecifier(baseForResolve, resolvedFilePath);
-                    if (resolved) {
-                        resolvedFilePath = resolved;
-                    } else {
-                        vscode.window.showInformationMessage(
-                            `Cannot drill into external dependency: ${requestedPath}. This symbol is imported from outside the current file.`
-                        );
-                        return;
-                    }
-                } else {
-                    vscode.window.showInformationMessage(
-                        `Cannot drill into dependency: ${requestedPath} - no base file to resolve from.`
-                    );
-                    return;
-                }
-            }
+            // Resolve the file path to an absolute path if needed
+            const resolvedFilePath = await this._resolveDrillDownPath(requestedPath);
+            if (!resolvedFilePath) return; // Messages already shown by resolver
 
             // Track the resolved (absolute) file we are viewing for refreshes
             this._currentSymbolFilePath = symbolName ? `${resolvedFilePath}:${symbolName}` : resolvedFilePath;
@@ -670,48 +633,8 @@ export class GraphProvider implements vscode.WebviewViewProvider {
             // Get referencing files to ensure atomic update of "Imported By" list
             const referencingDependency = await this._spider.findReferencingFiles(resolvedFilePath);
             const referencingFiles = referencingDependency.map(d => d.path);
-            
-            // Build graph structure for symbol view
-            // Nodes include: the file itself + all exported symbols + referenced symbols
-            const nodes = new Set<string>();
-            
-            // Add the file node as the root (use resolved absolute path)
-            const rootNodeId = this._currentSymbolFilePath ?? resolvedFilePath;
-            nodes.add(rootNodeId);
-            
-            // Add only top-level symbols (exclude child methods/properties that have a parent)
-            // Child symbols will be shown in their parent's label
-            symbolData.symbols
-                .filter(s => !s.parentSymbolId) // Only add symbols without a parent
-                .forEach(s => nodes.add(s.id));
-            
-            // Add referenced symbols (imported from other files)
-            symbolData.dependencies.forEach(d => {
-                // Only add the target if it's a different file
-                // (internal references are already in symbols array)
-                if (!d.targetSymbolId.startsWith(resolvedFilePath)) {
-                    nodes.add(d.targetSymbolId);
-                }
-            });
-            
-            // Build edges
-            const edges: { source: string; target: string }[] = [];
-            
-            // 1. Containment edges: file → exported top-level symbols only
-            // (Child methods are grouped under their parent class)
-            symbolData.symbols
-                .filter(s => s.isExported && !s.parentSymbolId)
-                .forEach(s => {
-                    edges.push({ source: rootNodeId, target: s.id });
-                });
-            
-            // 2. Dependency edges: symbol → symbol
-            symbolData.dependencies.forEach(d => {
-                edges.push({
-                    source: d.sourceSymbolId,
-                    target: d.targetSymbolId
-                });
-            });
+
+            const { nodes, edges, rootNodeId } = this._buildSymbolGraphPayload(symbolData, resolvedFilePath);
             
             const response: ExtensionToWebviewMessage = {
                 command: 'symbolGraph',
@@ -735,6 +658,73 @@ export class GraphProvider implements vscode.WebviewViewProvider {
         }
     }
 
+    /**
+     * Resolve a user-provided drill down path into an absolute file path.
+     * Returns undefined and shows a UI message if resolution fails.
+     */
+    private async _resolveDrillDownPath(requestedPath: string): Promise<string | undefined> {
+        const resolvedFilePath = requestedPath;
+
+        if (this.isAbsolutePath(resolvedFilePath)) {
+            return resolvedFilePath;
+        }
+
+        // Determine a sensible base file to resolve module specifiers from
+        const baseForResolve = (() => {
+            if (this._currentSymbolFilePath && this.isAbsolutePath(this._currentSymbolFilePath)) {
+                return this._currentSymbolFilePath;
+            }
+            const editor = vscode.window.activeTextEditor;
+            if (editor?.document.uri.scheme === 'file') {
+                return editor.document.fileName;
+            }
+            return undefined;
+        })();
+
+        if (!baseForResolve) {
+            vscode.window.showInformationMessage(
+                `Cannot drill into dependency: ${requestedPath} - no base file to resolve from.`
+            );
+            return undefined;
+        }
+
+        const resolved = await this._spider?.resolveModuleSpecifier(baseForResolve, resolvedFilePath);
+        if (!resolved) {
+            vscode.window.showInformationMessage(
+                `Cannot drill into external dependency: ${requestedPath}. This symbol is imported from outside the current file.`
+            );
+            return undefined;
+        }
+        return resolved;
+    }
+
+    /** Build nodes and edges for a symbol-level graph payload */
+    private _buildSymbolGraphPayload(symbolData: { symbols: SymbolInfo[]; dependencies: SymbolDependency[] }, resolvedFilePath: string) {
+        // Build graph structure for symbol view: file node + exported symbols + referenced symbols
+        const nodes = new Set<string>();
+        const rootNodeId = this._currentSymbolFilePath ?? resolvedFilePath;
+        nodes.add(rootNodeId);
+
+        // Add top-level exported symbols (no parents)
+        symbolData.symbols
+            .filter((s: SymbolInfo) => !s.parentSymbolId)
+            .forEach((s: SymbolInfo) => nodes.add(s.id));
+
+        // Add referenced symbols from other files
+        symbolData.dependencies.forEach((d: SymbolDependency) => {
+            if (!d.targetSymbolId.startsWith(resolvedFilePath)) nodes.add(d.targetSymbolId);
+        });
+
+        // Create edges: containment + dependency edges
+        const edges: { source: string; target: string }[] = [];
+        symbolData.symbols
+            .filter((s: SymbolInfo) => s.isExported && !s.parentSymbolId)
+            .forEach((s: SymbolInfo) => edges.push({ source: rootNodeId, target: s.id }));
+        symbolData.dependencies.forEach((d: SymbolDependency) => edges.push({ source: d.sourceSymbolId, target: d.targetSymbolId }));
+
+        return { nodes, edges, rootNodeId };
+    }
+
     public resolveWebviewView(
         webviewView: vscode.WebviewView,
         _context: vscode.WebviewViewResolveContext,
@@ -752,55 +742,7 @@ export class GraphProvider implements vscode.WebviewViewProvider {
         webviewView.webview.html = this._getHtmlForWebview(webviewView.webview);
 
         webviewView.webview.onDidReceiveMessage(async (message: WebviewToExtensionMessage) => {
-            log.debug('Received message', message.command);
-            switch (message.command) {
-                case 'openFile':
-                    if (message.path) {
-                        await this.handleOpenFile(message.path, message.line);
-                    }
-                    break;
-                case 'expandNode':
-                    if (message.nodeId) {
-                        await this.handleExpandNode(message.nodeId, message.knownNodes);
-                    }
-                    break;
-                case 'setExpandAll':
-                    log.debug('Setting expandAll to', message.expandAll);
-                    this._context.globalState.update('expandAll', message.expandAll);
-                    break;
-                case 'refreshGraph':
-                    log.debug('Refreshing graph');
-                    this.updateGraph();
-                    break;
-                case 'findReferencingFiles':
-                    if (message.nodeId) {
-                        await this.handleFindReferencingFiles(message.nodeId);
-                    }
-                    break;
-                case 'drillDown':
-                    if (message.filePath) {
-                        await this.handleDrillDown(message.filePath);
-                    }
-                    break;
-                case 'ready':
-                    log.debug('Webview ready, sending initial graph');
-                    this.updateGraph();
-                    break;
-                case 'switchMode':
-                    log.debug('Switching to', message.mode, 'mode');
-                    if (message.mode === 'file') {
-                        // Clear symbol tracking and send file view
-                        this._currentSymbolFilePath = undefined;
-                        this.updateGraph();
-                    } else if (message.mode === 'symbol') {
-                        // Switch to symbol view for current file
-                        const editor = vscode.window.activeTextEditor;
-                        if (editor?.document.uri.scheme === 'file') {
-                            await this.handleDrillDown(editor.document.fileName);
-                        }
-                    }
-                    break;
-            }
+            await this._handleWebviewMessage(message);
         });
 
         // Clean up timer and worker when view is disposed
@@ -818,6 +760,62 @@ export class GraphProvider implements vscode.WebviewViewProvider {
 
         // Initial update if we have an active editor
         this.updateGraph();
+    }
+
+    /** Handle webview messages in a dedicated method to reduce cognitive complexity */
+    private async _handleWebviewMessage(message: WebviewToExtensionMessage) {
+        log.debug('Received message', message.command);
+
+        type HandlerMap = {
+            [K in WebviewToExtensionMessage['command']]?: (m: Extract<WebviewToExtensionMessage, { command: K }>) => Promise<void> | void
+        };
+
+        const handlers: HandlerMap = {
+            openFile: async (m: OpenFileMessage) => { if (m.path) await this.handleOpenFile(m.path, m.line); },
+            expandNode: async (m: ExpandNodeMessage) => { if (m.nodeId) await this.handleExpandNode(m.nodeId, m.knownNodes); },
+            setExpandAll: async (m: SetExpandAllMessage) => { log.debug('Setting expandAll to', m.expandAll); this._context.globalState.update('expandAll', m.expandAll); },
+            refreshGraph: async () => { log.debug('Refreshing graph'); this.updateGraph(); },
+            findReferencingFiles: async (m: FindReferencingFilesMessage) => { if (m.nodeId) await this.handleFindReferencingFiles(m.nodeId); },
+            drillDown: async (m: DrillDownMessage) => { if (m.filePath) await this.handleDrillDown(m.filePath); },
+            ready: async () => { log.debug('Webview ready, sending initial graph'); this.updateGraph(); },
+            webviewLog: async (m: WebviewLogMessage) => { await this._forwardWebviewLog(m); },
+            switchMode: async (m: SwitchModeMessage) => {
+                log.debug('Switching to', m.mode, 'mode');
+                if (m.mode === 'file') {
+                    this._currentSymbolFilePath = undefined;
+                    this.updateGraph();
+                } else if (m.mode === 'symbol') {
+                    const editor = vscode.window.activeTextEditor;
+                    if (editor?.document.uri.scheme === 'file') {
+                        await this.handleDrillDown(editor.document.fileName);
+                    }
+                }
+            }
+        };
+
+        const handler = handlers[message.command];
+        if (handler) await (handler as (m: unknown) => Promise<void>)(message as unknown);
+    }
+
+    private async _forwardWebviewLog(message: WebviewLogMessage) {
+        const level = message.level ?? 'info';
+        const msg = message.message ?? '';
+        const args = message.args ?? [];
+        const webviewLogger = extensionLoggerManager.getLogger('Webview');
+        switch (level) {
+            case 'debug':
+                webviewLogger.debug(msg, ...args);
+                break;
+            case 'info':
+                webviewLogger.info(msg, ...args);
+                break;
+            case 'warn':
+                webviewLogger.warn(msg, ...args);
+                break;
+            case 'error':
+                webviewLogger.error(msg, ...args);
+                break;
+        }
     }
 
     /**

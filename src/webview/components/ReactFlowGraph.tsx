@@ -17,6 +17,11 @@ import ReactFlow, {
 import reactFlowStyles from 'reactflow/dist/style.css';
 import dagre from 'dagre';
 import { GraphData } from '../../shared/types';
+import { nodeHeight, minNodeWidth, maxNodeWidth, charWidth, actionButtonSize, cycleIndicatorSize } from '../utils/nodeUtils';
+import { getLogger } from '../../shared/logger';
+
+/** Logger instance for ReactFlowGraph */
+const log = getLogger('ReactFlowGraph');
 
 // Normalize path for cross-platform comparison (convert backslashes to forward slashes)
 const normalizePath = (filePath: string): string => {
@@ -101,6 +106,7 @@ const getFileBorderColor = (fileName: string, fullPath?: string): string => {
 // Custom node component
 const FileNode = ({ data }: NodeProps) => {
     const isRoot = data.isRoot;
+    const hasReferencingFiles = data.hasReferencingFiles;
     const isInCycle = data.isInCycle;
     const borderColor = getFileBorderColor(data.label, data.fullPath);
     const isExternal = isExternalPackage(data.fullPath || data.label);
@@ -151,10 +157,10 @@ const FileNode = ({ data }: NodeProps) => {
                 <div
                     style={{
                         position: 'absolute',
-                        top: -4,
-                        right: -4,
-                        width: 8,
-                        height: 8,
+                        top: -(cycleIndicatorSize / 2),
+                        right: -(cycleIndicatorSize / 2),
+                        width: cycleIndicatorSize,
+                        height: cycleIndicatorSize,
                         borderRadius: '50%',
                         background: '#dc3545',
                         border: '2px solid var(--vscode-editor-background)',
@@ -175,12 +181,12 @@ const FileNode = ({ data }: NodeProps) => {
                     }}
                     aria-label={data.isExpanded ? 'Collapse node' : 'Expand node'}
                     style={{
-                        position: 'absolute',
-                        right: -10,
+                            position: 'absolute',
+                            right: -(actionButtonSize / 2),
                         top: '50%',
                         transform: 'translateY(-50%)',
-                        width: 20,
-                        height: 20,
+                        width: actionButtonSize,
+                        height: actionButtonSize,
                         borderRadius: '50%',
                         background: 'var(--vscode-button-background)',
                         color: 'var(--vscode-button-foreground)',
@@ -218,10 +224,10 @@ const FileNode = ({ data }: NodeProps) => {
                 title="View symbols"
                 style={{
                     position: 'absolute',
-                    right: -10,
-                    bottom: -10,
-                    width: 20,
-                    height: 20,
+                            right: -(actionButtonSize / 2),
+                            bottom: -(actionButtonSize / 2),
+                    width: actionButtonSize,
+                    height: actionButtonSize,
                     borderRadius: '50%',
                     background: 'var(--vscode-button-secondaryBackground)',
                     color: 'var(--vscode-button-secondaryForeground)',
@@ -229,7 +235,7 @@ const FileNode = ({ data }: NodeProps) => {
                     alignItems: 'center',
                     justifyContent: 'center',
                     cursor: 'pointer',
-                    fontSize: 12,
+                    fontSize: 10,
                     fontWeight: 'bold',
                     zIndex: 10,
                     pointerEvents: 'auto',
@@ -237,11 +243,11 @@ const FileNode = ({ data }: NodeProps) => {
                     padding: 0,
                 }}
             >
-                ⚡
+                ✨
             </button>
 
             {/* Find references button (root only) */}
-            {isRoot && (
+            {isRoot && hasReferencingFiles && (
                 <button
                     type="button"
                     onClick={(e) => {
@@ -252,11 +258,11 @@ const FileNode = ({ data }: NodeProps) => {
                     title="Find referencing files"
                     style={{
                         position: 'absolute',
-                        left: -24,
+                        left: -(actionButtonSize + 4),
                         top: '50%',
                         transform: 'translateY(-50%)',
-                        width: 20,
-                        height: 20,
+                        width: actionButtonSize,
+                        height: actionButtonSize,
                         borderRadius: '50%',
                         background: 'var(--vscode-button-secondaryBackground)',
                         color: 'var(--vscode-button-secondaryForeground)',
@@ -286,12 +292,6 @@ const FileNode = ({ data }: NodeProps) => {
 };
 
 const nodeTypes = { file: FileNode };
-
-// Layout dimensions
-const minNodeWidth = 120;
-const maxNodeWidth = 300;
-const nodeHeight = 50;
-const charWidth = 7; // Approximate width per character at 12px font
 
 // Calculate node width based on label length
 const calculateNodeWidth = (label: string): number => {
@@ -413,11 +413,12 @@ const ReactFlowGraphContent: React.FC<ReactFlowGraphProps> = ({
 }) => {
     const { fitView } = useReactFlow();
     const nodesInitialized = useNodesInitialized();
+    const requestedParentsRef = React.useRef<Set<string>>(new Set());
     const [expandedNodes, setExpandedNodes] = useState<Set<string>>(new Set());
 
     // Synchronize expandedNodes with expandAll prop
     useEffect(() => {
-        console.log('ReactFlowGraph: expandAll changed to:', expandAll);
+        log.debug('ReactFlowGraph: expandAll changed to:', expandAll);
         if (expandAll && data?.nodes && data?.edges) {
             // Expand all nodes that have children
             const allNodesWithChildren = new Set<string>();
@@ -432,15 +433,32 @@ const ReactFlowGraphContent: React.FC<ReactFlowGraphProps> = ({
                 allNodesWithChildren.add(normalizePath(edge.source));
             });
             
-            console.log('ReactFlowGraph: Expanding all nodes:', allNodesWithChildren.size);
+            log.debug('ReactFlowGraph: Expanding all nodes:', allNodesWithChildren.size);
             setExpandedNodes(allNodesWithChildren);
         } else if (!expandAll) {
             // Collapse all, keep only root
             const rootSet = currentFilePath ? new Set([normalizePath(currentFilePath)]) : new Set<string>();
-            console.log('ReactFlowGraph: Collapsing all nodes, keeping root:', rootSet.size);
+            log.debug('ReactFlowGraph: Collapsing all nodes, keeping root:', rootSet.size);
             setExpandedNodes(rootSet);
         }
     }, [expandAll, data, currentFilePath]);
+
+    // Auto-request referencing files for root when the incoming data doesn't include parents
+    // Clear previously requested parents when we navigate to a new root path
+    useEffect(() => {
+        requestedParentsRef.current.clear();
+    }, [currentFilePath]);
+
+    useEffect(() => {
+        if (!data || !currentFilePath || currentFilePath.includes(':') || !onFindReferences) return;
+        const normalizedCurrentPath = normalizePath(currentFilePath);
+        const hasParents = data.edges.some(({ target }) => normalizePath(target) === normalizedCurrentPath);
+        if (!hasParents && !requestedParentsRef.current.has(normalizedCurrentPath)) {
+            requestedParentsRef.current.add(normalizedCurrentPath);
+            log.debug('ReactFlowGraph: requesting referencing files for root', normalizedCurrentPath);
+            onFindReferences(normalizedCurrentPath);
+        }
+    }, [data, currentFilePath, onFindReferences]);
 
     // Toggle handler extracted to reduce nesting
     const createToggleHandler = useCallback((path: string) => {
@@ -462,7 +480,7 @@ const ReactFlowGraphContent: React.FC<ReactFlowGraphProps> = ({
         // Normalize currentFilePath for comparison with graph nodes (which are normalized on backend)
         const normalizedCurrentPath = normalizePath(currentFilePath);
         
-        console.log('ReactFlowGraph useMemo: Building graph with:', {
+        log.debug('ReactFlowGraph useMemo: Building graph with:', {
             nodes: data?.nodes?.length || 0,
             edges: data?.edges?.length || 0,
             currentFilePath,
@@ -473,7 +491,7 @@ const ReactFlowGraphContent: React.FC<ReactFlowGraphProps> = ({
         });
         
         if (!data?.nodes?.length) {
-            console.log('ReactFlowGraph: No nodes in data, returning empty');
+            log.debug('ReactFlowGraph: No nodes in data, returning empty');
             return { initialNodes: [], initialEdges: [], cycles: new Set<string>() };
         }
 
@@ -486,10 +504,12 @@ const ReactFlowGraphContent: React.FC<ReactFlowGraphProps> = ({
         const parents = new Map<string, string[]>();
         
         data.edges.forEach(({ source, target }) => {
-            if (!children.has(source)) children.set(source, []);
-            children.get(source)!.push(target);
-            if (!parents.has(target)) parents.set(target, []);
-            parents.get(target)!.push(source);
+            const ns = normalizePath(source);
+            const nt = normalizePath(target);
+            if (!children.has(ns)) children.set(ns, []);
+            children.get(ns)!.push(nt);
+            if (!parents.has(nt)) parents.set(nt, []);
+            parents.get(nt)!.push(ns);
         });
 
         // Calculate visible nodes: include both children AND parents of current file
@@ -497,6 +517,7 @@ const ReactFlowGraphContent: React.FC<ReactFlowGraphProps> = ({
         
         // Add all parents (files that import currentFilePath) - always visible
         const fileParents = parents.get(normalizedCurrentPath) || [];
+        console.debug('ReactFlowGraph: fileParents for root', normalizedCurrentPath, fileParents);
         fileParents.forEach(p => visibleNodes.add(p));
         
         // Traverse children starting from current file
@@ -529,6 +550,7 @@ const ReactFlowGraphContent: React.FC<ReactFlowGraphProps> = ({
             hasChildren: (children.get(path) || []).length > 0,
             // Node is visually expanded if expandAll is true OR it's in expandedNodes
             isExpanded: expandAll || expandedNodes.has(path) || path === normalizedCurrentPath,
+            hasReferencingFiles: (parents.get(path) || []).length > 0,
             onDrillDown: () => onDrillDown(path),
             onFindReferences: () => onFindReferences(path),
             onToggle: createToggleHandler(path),
@@ -553,9 +575,11 @@ const ReactFlowGraphContent: React.FC<ReactFlowGraphProps> = ({
                 : { stroke: 'var(--vscode-editor-foreground)' };
 
         const edges: Edge[] = data.edges
+            .map(({ source, target }) => ({ source: normalizePath(source), target: normalizePath(target) }))
             .filter(({ source, target }) => visibleNodes.has(source) && visibleNodes.has(target))
             .map(({ source, target }) => {
                 const isCircular = cycles.has(source) && cycles.has(target);
+
                 return {
                     id: `${source}-${target}`,
                     source,
@@ -568,10 +592,10 @@ const ReactFlowGraphContent: React.FC<ReactFlowGraphProps> = ({
                 };
             });
 
-        console.log('ReactFlowGraph: Visible nodes:', visibleNodes.size, 'edges:', edges.length);
-        console.log('ReactFlowGraph: Current file (normalized):', normalizedCurrentPath);
-        console.log('ReactFlowGraph: All data nodes:', data.nodes);
-        console.log('ReactFlowGraph: All data edges:', data.edges);
+        log.debug('ReactFlowGraph: Visible nodes:', visibleNodes.size, 'edges:', edges.length);
+        log.debug('ReactFlowGraph: Current file (normalized):', normalizedCurrentPath);
+        log.debug('ReactFlowGraph: All data nodes:', data.nodes);
+        log.debug('ReactFlowGraph: All data edges:', data.edges);
         
         const layouted = getLayoutedElements(nodes, edges);
         return { initialNodes: layouted.nodes, initialEdges: layouted.edges, cycles };
@@ -594,12 +618,9 @@ const ReactFlowGraphContent: React.FC<ReactFlowGraphProps> = ({
     }, [nodesInitialized, nodes.length, fitView]);
 
     // Handle node click
-    const handleNodeClick = useCallback(
-        (_: React.MouseEvent, node: Node) => {
-            onNodeClick(node.id);
-        },
-        [onNodeClick]
-    );
+    const handleNodeClick = useCallback((_: React.MouseEvent, node: Node) => {
+        onNodeClick(node.id);
+    }, [onNodeClick]);
 
     return (
         <div style={{ width: '100%', height: '100vh', position: 'relative' }}>
@@ -617,14 +638,15 @@ const ReactFlowGraphContent: React.FC<ReactFlowGraphProps> = ({
                 fitView
                 proOptions={{ hideAttribution: true }}
             >
-                <Background />
-                <Controls />
-            </ReactFlow>
+                    <Background />
+                    <Controls />
+                </ReactFlow>
 
             {/* Top bar */}
             <div
                 style={{
                     position: 'absolute',
+                    visibility: 'hidden',
                     top: 10,
                     left: 10,
                     right: 10,
@@ -632,8 +654,7 @@ const ReactFlowGraphContent: React.FC<ReactFlowGraphProps> = ({
                     display: 'flex',
                     justifyContent: 'space-between',
                     pointerEvents: 'none',
-                }}
-            >
+                }}>
                 {/* Left buttons */}
                 <div style={{ display: 'flex', gap: 8, pointerEvents: 'auto' }}>
                     {onSwitchToSymbol && (
@@ -644,6 +665,7 @@ const ReactFlowGraphContent: React.FC<ReactFlowGraphProps> = ({
                                 background: 'var(--vscode-button-secondaryBackground)',
                                 color: 'var(--vscode-button-secondaryForeground)',
                                 border: 'none',
+                                visibility: 'hidden',
                                 borderRadius: 4,
                                 padding: '6px 12px',
                                 cursor: 'pointer',
@@ -653,7 +675,7 @@ const ReactFlowGraphContent: React.FC<ReactFlowGraphProps> = ({
                                 gap: 6,
                             }}
                         >
-                            ⚡ Symbol View
+                            ✨ Symbol View
                         </button>
                     )}
                 </div>
@@ -669,6 +691,7 @@ const ReactFlowGraphContent: React.FC<ReactFlowGraphProps> = ({
                                 background: 'var(--vscode-button-secondaryBackground)',
                                 color: 'var(--vscode-button-secondaryForeground)',
                                 border: '1px solid var(--vscode-button-border)',
+                                visibility: 'hidden',
                                 borderRadius: 4,
                                 padding: '6px 8px',
                                 cursor: 'pointer',
@@ -687,6 +710,7 @@ const ReactFlowGraphContent: React.FC<ReactFlowGraphProps> = ({
                             background: 'var(--vscode-button-secondaryBackground)',
                             color: 'var(--vscode-button-secondaryForeground)',
                             border: '1px solid var(--vscode-button-border)',
+                            visibility: 'hidden',
                             borderRadius: 4,
                             padding: '6px 12px',
                             cursor: 'pointer',
@@ -700,6 +724,7 @@ const ReactFlowGraphContent: React.FC<ReactFlowGraphProps> = ({
                             background: 'var(--vscode-editor-background)',
                             padding: '6px 10px',
                             borderRadius: 4,
+                            visibility: 'hidden',
                             border: '1px solid var(--vscode-widget-border)',
                             fontSize: 11,
                             color: 'var(--vscode-descriptionForeground)',
@@ -716,8 +741,8 @@ const ReactFlowGraphContent: React.FC<ReactFlowGraphProps> = ({
                     style={{
                         position: 'absolute',
                         bottom: 50,
-                        left: '50%',
-                        transform: 'translateX(-50%)',
+                        left: '80%',
+                        transform: 'translateX(-80%)',
                         zIndex: 1000,
                         background: 'var(--vscode-editor-background)',
                         padding: '8px 12px',

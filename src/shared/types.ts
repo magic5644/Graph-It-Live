@@ -79,6 +79,13 @@ export interface SwitchModeMessage {
   mode: 'file' | 'symbol';
 }
 
+export interface WebviewLogMessage {
+  command: 'webviewLog';
+  level: 'debug' | 'info' | 'warn' | 'error';
+  message: string;
+  args?: unknown[];
+}
+
 export interface SymbolInfo {
   name: string;
   kind: string;
@@ -118,4 +125,4 @@ export interface SymbolGraphMessage {
 }
 
 export type ExtensionToWebviewMessage = ShowGraphMessage | ExpandedGraphMessage | ReferencingFilesMessage | IndexingProgressMessage | SymbolGraphMessage | EmptyStateMessage | SetExpandAllMessage;
-export type WebviewToExtensionMessage = OpenFileMessage | ExpandNodeMessage | SetExpandAllMessage | RefreshGraphMessage | FindReferencingFilesMessage | DrillDownMessage | ReadyMessage | SwitchModeMessage;
+export type WebviewToExtensionMessage = OpenFileMessage | ExpandNodeMessage | SetExpandAllMessage | RefreshGraphMessage | FindReferencingFilesMessage | DrillDownMessage | ReadyMessage | SwitchModeMessage | WebviewLogMessage;
