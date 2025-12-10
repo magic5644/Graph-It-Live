@@ -3,6 +3,8 @@ export interface GraphData {
   edges: { source: string; target: string }[];
   /** Optional custom labels for nodes (key: node path, value: display label) */
   nodeLabels?: Record<string, string>;
+  /** Optional map of parent counts (how many files import a node). If present, used to show/hide the Find References toggle button in the UI. */
+  parentCounts?: Record<string, number>;
 }
 
 export interface ShowGraphMessage {

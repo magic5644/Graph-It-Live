@@ -86,6 +86,8 @@ const App: React.FC = () => {
     }, []);
     const [viewMode, setViewMode] = React.useState<'file' | 'symbol' | 'references'>('file');
     const [expandAll, setExpandAll] = React.useState<boolean>(false);
+    // Toggle to show/hide parent/reference files for the current root file
+    const [showParents, setShowParents] = React.useState<boolean>(false);
     const [showTypes, setShowTypes] = React.useState<boolean>(true);
     const [symbolData, setSymbolData] = React.useState<{ symbols: SymbolInfo[]; dependencies: SymbolDependency[] } | undefined>(undefined);
     const [referencingFiles, setReferencingFiles] = React.useState<string[]>([]);
@@ -105,6 +107,8 @@ const App: React.FC = () => {
         setGraphData(message.data);
         setCurrentFilePath(message.filePath);
         setEmptyStateMessage(null);
+        // Reset parent visibility on new navigation
+        setShowParents(false);
     }, []);
 
     // Handler for symbolGraph message
@@ -153,9 +157,12 @@ const App: React.FC = () => {
                     edges: [...graphData.edges, ...newEdges.filter(e =>
                         !graphData.edges.some(ge => ge.source === e.source && ge.target === e.target)
                     )],
-                    nodeLabels: { ...graphData.nodeLabels, ...newLabels }
+                    nodeLabels: { ...graphData.nodeLabels, ...newLabels },
+                    parentCounts: { ...(graphData.parentCounts ?? {}), ...(message.data.parentCounts ?? {}) }
                 });
             }
+            // Show parents when we receive referencing files (explicitly requested)
+            setShowParents(true);
         }
     }, [viewMode, graphData]);
 
@@ -236,7 +243,24 @@ const App: React.FC = () => {
     };
 
     const handleFindReferences = (path: string) => {
-        log.debug('App: Find references clicked for:', path);
+        log.debug('App: Find references clicked for:', path, 'showParents:', showParents, 'referencingFilesCount:', referencingFiles.length);
+        if (!showParents && referencingFiles.length === 0) {
+            // If we don't currently show parents and we haven't fetched referencing files yet,
+            // request them from the extension
+            if (vscode) {
+                vscode.postMessage({
+                    command: 'findReferencingFiles',
+                    nodeId: path,
+                });
+            }
+        }
+
+        // Toggle visibility
+        setShowParents((prev) => !prev);
+    };
+
+    const handleRequestReferencingFiles = (path: string) => {
+        log.debug('App: request referencing files (auto or explicit) for:', path);
         if (vscode) {
             vscode.postMessage({
                 command: 'findReferencingFiles',
@@ -332,6 +356,9 @@ const App: React.FC = () => {
                     onNodeClick={(path) => handleNodeClick(path)}
                     onDrillDown={handleDrillDown}
                     onFindReferences={handleFindReferences}
+                    showParents={showParents}
+                    onToggleParents={(path) => handleFindReferences(path)}
+                    onRequestReferencingFiles={(path) => handleRequestReferencingFiles(path)}
                     expandAll={expandAll}
                     onExpandAllChange={setExpandAll}
                     onRefresh={handleRefresh}

@@ -152,8 +152,10 @@ export const useGraphData = () => {
   const [expandedNodes, setExpandedNodes] = useState<Set<string>>(new Set());
 
   const [expandAll, setExpandAll] = useState<boolean>(false);
-  // Track which nodes we already requested parent (referencing files) for
-  const requestedParentsRef = React.useRef<Set<string>>(new Set());
+  // Toggle to show/hide parent referencing files for the current root
+  const [showParents, setShowParents] = useState<boolean>(false);
+  const toggleShowParents = useCallback(() => setShowParents((prev) => !prev), []);
+  // Auto-request logic removed; we only fetch referencing files on explicit user action
 
   // Function to toggle expand all
   const toggleExpandAll = useCallback((shouldExpandAll: boolean) => {
@@ -237,6 +239,7 @@ export const useGraphData = () => {
     graphData: GraphData,
     rootPath: string,
     expanded: Set<string>
+  , showParentsFlag: boolean
   ): { visibleNodes: Set<string>; visibleEdges: { source: string; target: string }[] } => {
     const visibleNodes = new Set<string>();
     const visibleEdges: { source: string; target: string }[] = [];
@@ -269,12 +272,14 @@ export const useGraphData = () => {
 
     addChildren(rootPath);
 
-    // Add incoming edges to root (Referenced By)
-    const incomingEdges = graphData.edges.filter(e => e.target === rootPath);
-    incomingEdges.forEach(edge => {
-      visibleNodes.add(edge.source);
-      addEdge(edge);
-    });
+    // Add incoming edges to root (Referenced By) only when showParentsFlag is true
+    if (showParentsFlag) {
+      const incomingEdges = graphData.edges.filter((e) => e.target === rootPath);
+      incomingEdges.forEach((edge) => {
+        visibleNodes.add(edge.source);
+        addEdge(edge);
+      });
+    }
 
     return { visibleNodes, visibleEdges };
   }, []);
@@ -360,6 +365,8 @@ export const useGraphData = () => {
         onToggle: () => toggleNode(path),
         onExpand: hasChildren ? () => requestExpandNode?.(path) : undefined,
         onFindReferences: () => requestFindReferencingFiles?.(path),
+        onToggleParents: () => toggleShowParents(),
+        isParentsVisible: showParents,
         hasReferencingFiles,
         onDrillDown: isFileNode ? () => drillDownToSymbols(path) : undefined,
         isRoot,
@@ -405,6 +412,8 @@ export const useGraphData = () => {
       fullGraphData,
       currentFilePath,
       expandedNodes
+      ,
+      showParents
     );
 
     // Calculate filename frequencies for disambiguation
@@ -481,17 +490,8 @@ export const useGraphData = () => {
       setExpandedNodes(new Set([message.filePath]));
     }
 
-    // If root has no parents in the provided graph data, request referencing files
-    // so the UI can know whether the root has references (and show the ref button)
-    if (message.data && message.filePath && !message.filePath.includes(':')) {
-      const rootHasParents = message.data.edges.some((e) => e.target === message.filePath);
-      const normalizedRoot = message.filePath;
-      if (!rootHasParents && !requestedParentsRef.current.has(normalizedRoot)) {
-        log.debug('No parents detected in updateGraph; requesting referencing files for:', normalizedRoot);
-        requestedParentsRef.current.add(normalizedRoot);
-        requestFindReferencingFiles?.(normalizedRoot);
-      }
-    }
+    // Do NOT auto-request parent/reference files on load; the button will be shown only when
+    // the backend indicates parent counts via GraphData.parentCounts or when the user explicitly clicks.
   }, []);
 
   // Helper to handle symbolGraph message
@@ -588,6 +588,8 @@ export const useGraphData = () => {
   }, []);
 
   return {
+      showParents,
+      toggleShowParents,
     nodes,
     edges,
     onNodesChange,

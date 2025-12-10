@@ -591,10 +591,23 @@ export class GraphProvider implements vscode.WebviewViewProvider {
                 target: nodeId
             }));
             
+            const parentCounts: Record<string, number> = {};
+            // If reverse index is enabled, populate parent counts for the nodes we are about to send
+            if (this._spider.hasReverseIndex()) {
+                await Promise.all(nodes.map(async (n) => {
+                    try {
+                        const refs = await this._spider!.findReferencingFiles(n);
+                        if (refs && refs.length > 0) parentCounts[n] = refs.length;
+                    } catch (e) {
+                        log.debug('Failed to compute parent counts for', n, e instanceof Error ? e.message : String(e));
+                    }
+                }));
+            }
+
             const response: ExtensionToWebviewMessage = {
                 command: 'referencingFiles',
                 nodeId: nodeId,
-                data: { nodes, edges }
+                data: { nodes, edges, parentCounts: Object.keys(parentCounts).length > 0 ? parentCounts : undefined }
             };
             this._view?.webview.postMessage(response);
         } catch (e) {
@@ -644,7 +657,8 @@ export class GraphProvider implements vscode.WebviewViewProvider {
                     nodes: Array.from(nodes),
                     edges,
                     symbolData,
-                    referencingFiles
+                    referencingFiles,
+                    parentCounts: referencingFiles.length > 0 ? { [rootNodeId]: referencingFiles.length } : undefined,
                 }
             };
             
@@ -980,10 +994,29 @@ export class GraphProvider implements vscode.WebviewViewProvider {
             }
 
             const expandAll = this._context.globalState.get<boolean>('expandAll', false);
+            // If reverse index is enabled, compute parent counts for all nodes so the webview
+            // can decide which nodes show the 'Find references' toggle without additional network requests
+            let enrichedData = { ...graphData } as { nodes: string[]; edges: { source: string; target: string }[]; nodeLabels?: Record<string, string>; parentCounts?: Record<string, number> };
+            if (this._spider.hasReverseIndex()) {
+                const parentCounts: Record<string, number> = {};
+                await Promise.all(enrichedData.nodes.map(async (n) => {
+                    try {
+                        const refs = await this._spider!.findReferencingFiles(n);
+                        if (refs && refs.length > 0) parentCounts[n] = refs.length;
+                    } catch (err) {
+                        // Ignore per-node failures but log at debug level for diagnostics
+                        log.debug('Failed to compute parent count for', n, err instanceof Error ? err.message : String(err));
+                    }
+                }));
+                if (Object.keys(parentCounts).length > 0) {
+                    enrichedData.parentCounts = parentCounts;
+                }
+            }
+
             const message: ExtensionToWebviewMessage = {
                 command: 'updateGraph',
                 filePath,
-                data: graphData,
+                data: enrichedData,
                 expandAll,
                 isRefresh,
             };
