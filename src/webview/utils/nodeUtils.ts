@@ -7,7 +7,15 @@ import { Node, Edge, Position } from 'reactflow';
 import dagre from 'dagre';
 
 export const nodeWidth = 180;
-export const nodeHeight = 50;
+export const nodeHeight = 40;
+
+export const minNodeWidth = 120;
+export const maxNodeWidth = 300;
+export const charWidth = 7; // Approximate width per character at 12px font
+// Sizes for small circular UI elements (action buttons, cycle indicator, symbol node)
+export const actionButtonSize = 10; // Expand/Collapse, drill button, reference button
+export const cycleIndicatorSize = 8; // Small red dot for cycle
+export const symbolNodeSize = 40; // Circular symbol nodes
 
 export interface NodeStyleResult {
     background: string;

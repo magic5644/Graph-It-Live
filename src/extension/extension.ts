@@ -2,11 +2,12 @@ import * as vscode from 'vscode';
 import { GraphProvider } from './GraphProvider';
 import { createMcpServerProvider, McpServerProvider } from '../mcp/McpServerProvider';
 import { 
-    extensionLoggerManager, 
-    getExtensionLogger, 
-    getLogLevelFromConfig,
-    watchLogLevelConfig 
+  extensionLoggerManager, 
+  getExtensionLogger, 
+  getLogLevelFromConfig,
+  watchLogLevelConfig 
 } from './logger';
+import { setLoggerBackend } from '../shared/logger';
 
 // Keep track of MCP server provider for cleanup
 let mcpServerProvider: McpServerProvider | null = null;
@@ -15,6 +16,15 @@ export function activate(context: vscode.ExtensionContext) {
     // Initialize logging system
     const outputChannel = vscode.window.createOutputChannel('Graph-It-Live');
     extensionLoggerManager.initialize(outputChannel);
+    // Redirect shared loggers to the extension OutputChannel by setting the shared backend
+    setLoggerBackend({
+      createLogger(prefix: string, level) {
+        const l = extensionLoggerManager.getLogger(prefix);
+        // Respect the requested level when provided
+        if (level) l.setLevel(level);
+        return l;
+      }
+    });
     extensionLoggerManager.setLevel(getLogLevelFromConfig());
     watchLogLevelConfig(context);
     
@@ -79,10 +89,7 @@ export function activate(context: vscode.ExtensionContext) {
         "graph-it-live.expandAllNodes",
         async () => {
           try {
-            const result = await provider.expandAllNodes();
-            vscode.window.showInformationMessage(
-              `Graph-It-Live: ${result.message}`
-            );
+            await provider.expandAllNodes();
           } catch (e) {
             log.error("Expand/collapse all nodes failed:", e);
             vscode.window.showErrorMessage("Graph-It-Live: Toggle expand all failed");
@@ -94,9 +101,6 @@ export function activate(context: vscode.ExtensionContext) {
         async () => {
           try {
             await provider.refreshGraph();
-            vscode.window.showInformationMessage(
-              "Graph-It-Live: Graph refreshed"
-            );
           } catch (e) {
             log.error("Refresh graph failed:", e);
             vscode.window.showErrorMessage("Graph-It-Live: Refresh failed");
@@ -107,10 +111,7 @@ export function activate(context: vscode.ExtensionContext) {
         "graph-it-live.toggleViewMode",
         async () => {
           try {
-            const result = await provider.toggleViewMode();
-            vscode.window.showInformationMessage(
-              `Graph-It-Live: ${result.message}`
-            );
+            await provider.toggleViewMode();
           } catch (e) {
             log.error("Toggle view mode failed:", e);
             vscode.window.showErrorMessage("Graph-It-Live: Toggle view failed");

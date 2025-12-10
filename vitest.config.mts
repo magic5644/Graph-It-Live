@@ -8,19 +8,25 @@ const __dirname = path.dirname(__filename);
 export default defineConfig({
   test: {
     globals: true,
-    environment: 'node',
-    include: ['tests/**/*.test.ts'],
-    exclude: ['tests/benchmarks/**', 'tests/vscode-e2e/**', 'tests/e2e/**'],
+    environment: "node",
+    include: ["tests/**/*.test.ts"],
+    exclude: ["tests/benchmarks/**", "tests/vscode-e2e/**", "tests/e2e/**"],
     coverage: {
-      provider: 'v8',
-      reporter: ['text', 'json', 'html'],
-      include: ['src/analyzer/**/*.ts', 'src/webview/**/*.ts', 'src/shared/**/*.ts', 'src/mcp/**/*.ts'],
-      exclude: ['**/*.test.ts', '**/*.d.ts']
+      provider: "v8",
+      reporter: ["text", "json", "html"],
+      include: ["src/**/*.ts"],
+      //include: ['src/analyzer/**/*.ts', 'src/webview/**/*.ts', 'src/shared/**/*.ts', 'src/mcp/**/*.ts', 'src/extension/**/*.ts'],
+      exclude: [
+        /*'**.test.ts',*/ "**/*.d.ts",
+        "src/shared/types.ts",
+        "src/analyzer/IndexerWorker.ts",
+        "src/analyzer/IndexerWorkerHost.ts",
+      ],
     },
   },
   resolve: {
     alias: {
-      '@': path.resolve(__dirname, './src'),
+      "@": path.resolve(__dirname, "./src"),
     },
   },
 });

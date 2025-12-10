@@ -111,7 +111,7 @@
       {
         "command": "graph-it-live.expandAllNodes",
         "title": "Toggle Expand/Collapse All Nodes",
-        "icon": "$(fold)",
+        "icon": "$(search-expand-results)",
         "category": "Graph-It-Live"
       },
       {
@@ -123,7 +123,7 @@
       {
         "command": "graph-it-live.toggleViewMode",
         "title": "Toggle File/Symbol View",
-        "icon": "$(symbol-class)",
+        "icon": "$(sparkle)",
         "category": "Graph-It-Live"
       }
     ],

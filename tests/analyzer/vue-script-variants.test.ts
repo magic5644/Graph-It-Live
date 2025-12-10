@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { Parser } from '../src/analyzer/Parser';
+import { Parser } from '../../src/analyzer/Parser';
 
 describe('Parser - Vue Script Variants', () => {
     const parser = new Parser();

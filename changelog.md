@@ -1,5 +1,21 @@
 # Changelog
 
+### v1.3.1
+
+### Bug Fixes
+
+<div align="center">
+  <img src="media/Graph-It-Live-small-ui-fix.png" alt="small UI fix" width="600"/>
+  <p><em>small UI fix</em></p>
+</div>
+
+- UI Fix: Correct **icon display** for symbol view button in drill-down mode.
+- UI Fix: Remove redundant button in webview.
+- UI Fix: **Adjust node height**.
+- UI Fix: Correct symbol view icon.
+- UI Fix: All **actions buttons** (refresh, expand/collapse, switch view) are now in the top-right corner of webview or panel menu for consistency.
+- Logging Fix: Ensure log messages from webview are correctly sent to extension logger.
+
 ## v1.3.0
 
 ### New Features
@@ -35,7 +51,7 @@
 - **Webview default position**: Now, in first installation, the graph view panel appears in the bottom panel by default for better visibility. You can move it back to the side panel or wherever you prefer.
 
 <div align="center">
-  <img src="media/graph-it-live-default-panel.png" alt="Webview default position in bottom panel" width="600"/>
+  <img src="media/Graph-It-Live-default-panel.png" alt="Webview default position in bottom panel" width="600"/>
   <p><em>Webview default position: bottom panel for better visibility</em></p>
 </div>
 
