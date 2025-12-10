@@ -259,7 +259,7 @@ const App: React.FC = () => {
         setShowParents((prev) => !prev);
     };
 
-    const handleRequestReferencingFiles = (path: string) => {
+    /*const handleRequestReferencingFiles = (path: string) => {
         log.debug('App: request referencing files (auto or explicit) for:', path);
         if (vscode) {
             vscode.postMessage({
@@ -267,7 +267,7 @@ const App: React.FC = () => {
                 nodeId: path,
             });
         }
-    };
+    };*/
 
     const handleNavigateToFile = (path: string, mode: 'card' | 'file') => {
         log.debug('App: Navigate to file:', path, 'mode:', mode);
@@ -358,7 +358,6 @@ const App: React.FC = () => {
                     onFindReferences={handleFindReferences}
                     showParents={showParents}
                     onToggleParents={(path) => handleFindReferences(path)}
-                    onRequestReferencingFiles={(path) => handleRequestReferencingFiles(path)}
                     expandAll={expandAll}
                     onExpandAllChange={setExpandAll}
                     onRefresh={handleRefresh}

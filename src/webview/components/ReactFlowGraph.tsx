@@ -49,7 +49,6 @@ interface ReactFlowGraphProps {
     // Toggle to show/hide parent referencing files for the current root
     showParents?: boolean;
     onToggleParents?: (path: string) => void;
-    onRequestReferencingFiles?: (path: string) => void; // request only, don't toggle
 }
 
 // File type specific border colors
@@ -416,7 +415,6 @@ const ReactFlowGraphContent: React.FC<ReactFlowGraphProps> = ({
     onSwitchToSymbol,
     showParents = false,
     onToggleParents,
-    onRequestReferencingFiles,
 }) => {
     const { fitView } = useReactFlow();
     const nodesInitialized = useNodesInitialized();
