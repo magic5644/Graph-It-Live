@@ -522,10 +522,12 @@ const ReactFlowGraphContent: React.FC<ReactFlowGraphProps> = ({
         
         // Traverse children starting from current file
         const queue = [normalizedCurrentPath];
+        const visited = new Set<string>(); // Track processed nodes to avoid infinite loops
 
         while (queue.length > 0) {
             const node = queue.shift()!;
-            if (visibleNodes.has(node)) continue;
+            if (visited.has(node)) continue; // Skip if already processed
+            visited.add(node);
             visibleNodes.add(node);
 
             const nodeChildren = children.get(node) || [];
