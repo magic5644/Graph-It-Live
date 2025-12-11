@@ -110,6 +110,12 @@ const App: React.FC = () => {
         // Reset parent visibility and referencing files on new navigation
         setShowParents(false);
         setReferencingFiles([]);
+        
+        // CRITICAL: Synchronize expandAll state with extension's persisted state
+        // This ensures the webview button reflects the actual state on first render
+        if (message.expandAll !== undefined) {
+            setExpandAll(message.expandAll);
+        }
     }, []);
 
     // Handler for symbolGraph message
