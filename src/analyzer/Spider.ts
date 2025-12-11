@@ -660,6 +660,18 @@ export class Spider {
       try {
         const dependencies = await this.analyze(filePath);
 
+        // CRITICAL: Always update reverse index with current file's dependencies,
+        // even if they came from cache. This ensures all import relationships
+        // are tracked correctly, especially when navigating between files.
+        // Without this, the reverse index would miss relationships for cached files,
+        // causing parent references to disappear during navigation.
+        if (this.reverseIndex && dependencies.length > 0) {
+          const fileHash = await ReverseIndex.getFileHashFromDisk(filePath);
+          if (fileHash) {
+            this.reverseIndex.addDependencies(normalizedFile, dependencies, fileHash);
+          }
+        }
+
         for (const dep of dependencies) {
           nodes.add(dep.path);
           edges.push({
@@ -708,43 +720,63 @@ export class Spider {
     const newEdges: { source: string; target: string }[] = [];
     const visited = new Set<string>(Array.from(existingNodes).map(n => normalizePath(n))); // Don't revisit known nodes
     const nodeLabels: Record<string, string> = {};
-
     const normalizedExisting = new Set(Array.from(existingNodes).map(n => normalizePath(n)));
+    const normalizedStartNode = normalizePath(startNode);
 
-    const crawlRecursive = async (filePath: string, depth: number) => {
-      const normalizedFile = normalizePath(filePath);
-      if (depth > extraDepth) {
-        return;
+    const shouldSkipNode = (normalizedFile: string, depth: number): boolean => {
+      if (depth > extraDepth) return true;
+      if (normalizedFile === normalizedStartNode) return false; // Never skip start node
+      return visited.has(normalizedFile);
+    };
+
+    const updateReverseIndexForFile = async (normalizedFile: string, dependencies: Dependency[]): Promise<void> => {
+      if (!this.reverseIndex || dependencies.length === 0) return;
+      
+      const fileHash = await ReverseIndex.getFileHashFromDisk(normalizedFile);
+      if (fileHash) {
+        this.reverseIndex.addDependencies(normalizedFile, dependencies, fileHash);
       }
-      if (visited.has(normalizedFile) && normalizePath(filePath) !== normalizePath(startNode)) {
-        // Skip already visited nodes, EXCEPT the start node itself
+    };
+
+    const processNewNode = (normalizedFile: string): void => {
+      if (!normalizedExisting.has(normalizedFile)) {
+        newNodes.add(normalizedFile);
+      }
+    };
+
+    const processDependency = (dep: Dependency, normalizedFile: string): void => {
+      newEdges.push({ source: normalizedFile, target: dep.path });
+      
+      if (!visited.has(dep.path)) {
+        newNodes.add(dep.path);
+      }
+
+      // Store custom label for workspace packages (e.g., @bobbee/auth-lib)
+      if (dep.module.startsWith('@') && dep.module.includes('/') && !dep.module.startsWith('@/')) {
+        nodeLabels[dep.path] = dep.module;
+      }
+    };
+
+    const crawlRecursive = async (filePath: string, depth: number): Promise<void> => {
+      const normalizedFile = normalizePath(filePath);
+      
+      if (shouldSkipNode(normalizedFile, depth)) {
         return;
       }
 
       visited.add(normalizedFile);
-      
-      // Only add to newNodes if it wasn't in existingNodes
-      if (!normalizedExisting.has(normalizedFile)) {
-        newNodes.add(normalizedFile);
-      }
+      processNewNode(normalizedFile);
 
       try {
         const dependencies = await this.analyze(filePath);
 
-        for (const dep of dependencies) {
-          const edge = { source: normalizedFile, target: dep.path };
-          
-          // Only add edge if it's truly new
-          newEdges.push(edge);
-          
-          if (!visited.has(dep.path)) {
-            newNodes.add(dep.path);
-          }
+        // CRITICAL: Always update reverse index with current file's dependencies,
+        // even if they came from cache. This ensures all import relationships
+        // are tracked correctly during node expansion.
+        await updateReverseIndexForFile(normalizedFile, dependencies);
 
-          // Store custom label for workspace packages (e.g., @bobbee/auth-lib)
-          if (dep.module.startsWith('@') && dep.module.includes('/') && !dep.module.startsWith('@/')) {
-            nodeLabels[dep.path] = dep.module;
-          }
+        for (const dep of dependencies) {
+          processDependency(dep, normalizedFile);
 
           // Recurse if not in node_modules (cross-platform check)
           if (!isInNodeModules(dep.path)) {
