@@ -50,13 +50,13 @@ Stop pasting file paths and explaining your project structure. Graph-It-Live exp
 * **Real-time Dependency Visualization**: Interactive graph showing file dependencies.
 * **Multi-Language Support**: First-class support for **TypeScript** (`.ts`, `.tsx`), **JavaScript** (`.js`, `.jsx`), **Vue** (`.vue`), **Svelte** (`.svelte`), and **GraphQL** (`.gql`, `.graphql`).
 * **Cycle Detection**: Automatically detects and highlights circular dependencies with red dashed lines and badges.
-* **Smart Navigation**: Navigate through your code history with a built-in "Back" button in the graph view.
+* **Smart Navigation**: Use VS Code's built-in navigation (Go Back / Go Forward) to move through your code history. Graph-It-Live also exposes navigation actions in the webview or panel menu.
 * **Background Indexing** *(New)*: Optionally index your entire workspace in the background for instant reverse dependency lookups. Uses a separate worker thread to avoid blocking the IDE.
 * **Interactive Graph**:
-  * **Expand/Collapse**: Dynamically load dependencies by clicking the `+` / `-` buttons on nodes.
-  * **Bidirectional Navigation**: Find files that reference the current file (reverse dependencies) by clicking the `◀` button on the root node. With background indexing enabled, this is instant (O(1) lookup).
+  * **Expand/Collapse**: Dynamically load dependencies using the node controls available in the webview/panel menu or the node's context menu (hover actions may still appear depending on layout).
+  * **Bidirectional Navigation**: Use the "Find Referencing Files" action from a node's context menu or the webview/panel menu to see files that import the selected file. With background indexing enabled, this is instant (O(1) lookup).
   * **File Navigation**: Click on any node to instantly open the corresponding file in the editor.
-  * **Drill-Down** *(New)*: Double-click a file node (or click the ⇊ button on hover) to see symbol-level dependencies within that file.
+  * **Drill-Down** *(New)*: Double-click a file node or choose the "Drill Down" action in the node context menu or webview/panel menu to see symbol-level dependencies within that file.
 
 <div align="center">
   <img src="media/drill-down-symbol-view.png" alt="Symbol-level drill-down view" width="600"/>
@@ -87,9 +87,9 @@ The extension is also available on the [Open VSX Registry](https://open-vsx.org/
     -   Or click the graph icon in the editor title bar when viewing a supported file.
 3.**Interact**:
     -   **Navigate**: Click a node to open the file.
-    -   **Expand**: Click the small `+` button on a node to reveal its dependencies.
-    -   **Drill-Down**: Double-click a file node (or click the ⇊ button on hover) to see symbol-level dependencies (functions, classes) within that file.
-    -   **Reverse Lookup**: Click the `◀` button on the left of the root node to see which files import the current file.
+    -   **Expand**: Use the "Expand" action from the node context menu or the webview/panel menu to reveal a node's dependencies.
+    -   **Drill-Down**: Double-click a file node or choose the "Drill Down" action in the node context menu to see symbol-level dependencies (functions, classes) within that file.
+    -   **Reverse Lookup**: Use the "Find Referencing Files" action in the node context menu or the webview/panel menu to see which files import the current file.
 
 ## Configuration
 
