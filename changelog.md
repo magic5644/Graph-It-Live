@@ -6,31 +6,18 @@
 
 **Critical ReverseIndex Bug Fix**:
 - **Fixed reference persistence issue**: References would disappear from the reverse index after file re-analysis, causing the "Get References" button to incorrectly show no parent files. This affected both the VS Code extension and the MCP server.
-  - Root cause: `ReverseIndex.removeDependenciesFromSource()` was prematurely deleting empty target maps during re-analysis, causing a race condition
-  - Solution: Implemented lazy cleanup pattern - empty maps are only cleaned up during `getReferencingFiles()` queries, not during updates
-  - Added explicit `cleanup()` public method for manual garbage collection if needed
-  - Applied same fixes to `SymbolReverseIndex` for symbol-level dependencies
 
 **Webview State Management**:
 - **Fixed stale references display**: After navigating to a new file, the webview would retain old references and not request new ones
-  - Solution: Reset `referencingFiles` state to empty array in `handleUpdateGraphMessage()` to force fresh queries
 
 **Initial Indexing Display**:
 - **Fixed missing parent counts on initial load**: When opening a file before background indexing completed, parent counts wouldn't appear
-  - Solution: Added automatic view refresh after indexing completion in `GraphProvider._startBackgroundIndexingWithProgress()`
 
 **Refresh Button Bug**:
 - **Fixed refresh clearing symbol view**: Clicking the refresh button in symbol view would incorrectly switch back to file view, causing GraphQL files and other files in symbol mode to appear empty
 
 **ReverseIndex Degradation During Navigation**:
 - **Fixed progressive loss of dependencies and references**: When navigating between files through the webview, references would progressively disappear because cached files weren't updating the ReverseIndex
-
-
-
-**MCP Server File Watching**:
-- Verified automatic cache invalidation via chokidar works correctly (300ms debouncing)
-- Confirmed file watching handles change/add/unlink events properly
-
 
 ## v1.3.1
 
