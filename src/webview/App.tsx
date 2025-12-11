@@ -152,14 +152,21 @@ const App: React.FC = () => {
             });
 
             if (newNodes.length > 0 || newEdges.length > 0) {
-                setGraphData({
+                const mergedParentCounts = { ...graphData.parentCounts, ...message.data.parentCounts };
+                const updatedData: GraphData = {
                     nodes: [...new Set([...graphData.nodes, ...newNodes])],
                     edges: [...graphData.edges, ...newEdges.filter(e =>
                         !graphData.edges.some(ge => ge.source === e.source && ge.target === e.target)
                     )],
-                    nodeLabels: { ...graphData.nodeLabels, ...newLabels },
-                    parentCounts: { ...(graphData.parentCounts ?? {}), ...(message.data.parentCounts ?? {}) }
-                });
+                    nodeLabels: { ...graphData.nodeLabels, ...newLabels }
+                };
+
+                // Only include parentCounts if we have any counts to merge
+                if (Object.keys(mergedParentCounts).length > 0) {
+                    updatedData.parentCounts = mergedParentCounts;
+                }
+
+                setGraphData(updatedData);
             }
             // Show parents when we receive referencing files (explicitly requested)
             setShowParents(true);
@@ -259,15 +266,7 @@ const App: React.FC = () => {
         setShowParents((prev) => !prev);
     };
 
-    /*const handleRequestReferencingFiles = (path: string) => {
-        log.debug('App: request referencing files (auto or explicit) for:', path);
-        if (vscode) {
-            vscode.postMessage({
-                command: 'findReferencingFiles',
-                nodeId: path,
-            });
-        }
-    };*/
+    
 
     const handleNavigateToFile = (path: string, mode: 'card' | 'file') => {
         log.debug('App: Navigate to file:', path, 'mode:', mode);
