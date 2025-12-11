@@ -9,6 +9,7 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
 import { Spider } from '../../src/analyzer/Spider';
+import { normalizePath } from '../../src/analyzer/types';
 
 describe('McpWorker - ReverseIndex Integration', () => {
   let spider: Spider;
@@ -51,7 +52,7 @@ describe('McpWorker - ReverseIndex Integration', () => {
     // Step 2: Query references for B - should find A
     let references = await spider.findReferencingFiles(fileB);
     expect(references).toHaveLength(1);
-    expect(references[0].path).toBe(fileA);
+    expect(references[0].path).toBe(normalizePath(fileA));
     expect(references[0].module).toBe('./fileB');
 
     // Step 3: Simulate file change - modify and re-analyze A
@@ -63,7 +64,7 @@ describe('McpWorker - ReverseIndex Integration', () => {
     // This is the critical test: before the fix, references would disappear
     references = await spider.findReferencingFiles(fileB);
     expect(references).toHaveLength(1);
-    expect(references[0].path).toBe(fileA);
+    expect(references[0].path).toBe(normalizePath(fileA));
     expect(references[0].module).toBe('./fileB');
   });
 
@@ -119,7 +120,7 @@ describe('McpWorker - ReverseIndex Integration', () => {
     // B should now have A as reference
     references = await spider.findReferencingFiles(fileB);
     expect(references).toHaveLength(1);
-    expect(references[0].path).toBe(fileA);
+    expect(references[0].path).toBe(normalizePath(fileA));
   });
 
   it('should handle file deletion correctly', async () => {
@@ -151,7 +152,7 @@ describe('McpWorker - ReverseIndex Integration', () => {
     let references = await spider.findReferencingFiles(fileB);
     expect(references).toHaveLength(2);
     const paths = references.map(r => r.path).sort();
-    expect(paths).toEqual([fileA, fileC].sort());
+    expect(paths).toEqual([normalizePath(fileA), normalizePath(fileC)].sort());
 
     // Re-analyze A
     await fs.writeFile(fileA, `import { helper } from './fileB';\nexport const result = helper() + 1;`);
@@ -161,7 +162,7 @@ describe('McpWorker - ReverseIndex Integration', () => {
     // Both references should still be there
     references = await spider.findReferencingFiles(fileB);
     expect(references).toHaveLength(2);
-    expect(references.map(r => r.path).sort()).toEqual([fileA, fileC].sort());
+    expect(references.map(r => r.path).sort()).toEqual([normalizePath(fileA), normalizePath(fileC)].sort());
 
     // Cleanup fileC
     await fs.unlink(fileC);
@@ -172,13 +173,13 @@ describe('McpWorker - ReverseIndex Integration', () => {
     
     // 1. Client calls crawlDependencyGraph
     const graph = await spider.crawl(fileA);
-    expect(graph.nodes).toContain(fileA);
-    expect(graph.nodes).toContain(fileB);
+    expect(graph.nodes).toContain(normalizePath(fileA));
+    expect(graph.nodes).toContain(normalizePath(fileB));
     
     // 2. Client calls findReferencingFiles for fileB
     let references = await spider.findReferencingFiles(fileB);
     expect(references).toHaveLength(1);
-    expect(references[0].path).toBe(fileA);
+    expect(references[0].path).toBe(normalizePath(fileA));
     
     // 3. File watcher detects change, calls invalidateFile + reanalyzeFile
     await fs.writeFile(fileA, `import { helper } from './fileB';\n// Modified\nexport const result = helper();`);
@@ -188,11 +189,11 @@ describe('McpWorker - ReverseIndex Integration', () => {
     // 4. Client calls findReferencingFiles again - MUST still work
     references = await spider.findReferencingFiles(fileB);
     expect(references).toHaveLength(1);
-    expect(references[0].path).toBe(fileA);
+    expect(references[0].path).toBe(normalizePath(fileA));
     
     // 5. Verify we can still crawl from fileA
     const graph2 = await spider.crawl(fileA);
-    expect(graph2.nodes).toContain(fileB);
+    expect(graph2.nodes).toContain(normalizePath(fileB));
   });
 });
 
@@ -232,22 +233,22 @@ describe('McpWorker - File Watching Simulation', () => {
     
     // Verify cache is populated
     const cache = (spider as any).cache;
-    expect(cache.has(fileA)).toBe(true);
+    expect(cache.has(normalizePath(fileA))).toBe(true);
     
     // Simulate chokidar 'change' event → performFileInvalidation
     spider.invalidateFile(fileA);
     
     // Cache should be cleared for fileA
-    expect(cache.has(fileA)).toBe(false);
+    expect(cache.has(normalizePath(fileA))).toBe(false);
     
     // Re-analyzing should work
     await spider.reanalyzeFile(fileA);
-    expect(cache.has(fileA)).toBe(true);
+    expect(cache.has(normalizePath(fileA))).toBe(true);
     
     // References should still be correct
     const references = await spider.findReferencingFiles(fileB);
     expect(references).toHaveLength(1);
-    expect(references[0].path).toBe(fileA);
+    expect(references[0].path).toBe(normalizePath(fileA));
   });
 
   it('should handle file deletion event (simulating chokidar unlink)', async () => {
@@ -268,7 +269,7 @@ describe('McpWorker - File Watching Simulation', () => {
     
     // Cache should be cleared
     const cache = (spider as any).cache;
-    expect(cache.has(fileA)).toBe(false);
+    expect(cache.has(normalizePath(fileA))).toBe(false);
   });
 
   it('should handle file creation event (simulating chokidar add)', async () => {
@@ -290,7 +291,7 @@ describe('McpWorker - File Watching Simulation', () => {
     references = await spider.findReferencingFiles(fileB);
     expect(references).toHaveLength(2);
     const paths = references.map(r => r.path).sort();
-    expect(paths).toEqual([fileA, fileC].sort());
+    expect(paths).toEqual([normalizePath(fileA), normalizePath(fileC)].sort());
     
     // Cleanup
     await fs.unlink(fileC);
