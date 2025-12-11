@@ -252,19 +252,24 @@ const App: React.FC = () => {
 
     const handleFindReferences = (path: string) => {
         log.debug('App: Find references clicked for:', path, 'showParents:', showParents, 'referencingFilesCount:', referencingFiles.length);
-        if (!showParents && referencingFiles.length === 0) {
-            // If we don't currently show parents and we haven't fetched referencing files yet,
-            // request them from the extension
+        
+        if (showParents) {
+            // If parents are currently visible, just hide them (no need to re-fetch)
+            setShowParents(false);
+        } else if (referencingFiles.length === 0) {
+            // We haven't fetched referencing files yet, request them from the extension
+            // IMPORTANT: Don't toggle showParents yet - wait for the response
             if (vscode) {
                 vscode.postMessage({
                     command: 'findReferencingFiles',
                     nodeId: path,
                 });
             }
+            // handleReferencingFilesMessage will set showParents=true when data arrives
+        } else {
+            // We already have the data, just toggle visibility
+            setShowParents(true);
         }
-
-        // Toggle visibility
-        setShowParents((prev) => !prev);
     };
 
     

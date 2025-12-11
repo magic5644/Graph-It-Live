@@ -485,7 +485,8 @@ const ReactFlowGraphContent: React.FC<ReactFlowGraphProps> = ({
             normalizedCurrentPath,
             expandAll,
             expandedNodesSize: expandedNodes.size,
-            expandedNodesArray: Array.from(expandedNodes).slice(0, 5)
+            expandedNodesArray: Array.from(expandedNodes).slice(0, 5),
+            showParents
         });
         
         if (!data?.nodes?.length) {
@@ -513,6 +514,10 @@ const ReactFlowGraphContent: React.FC<ReactFlowGraphProps> = ({
         // Calculate visible nodes: include both children AND parents of current file
         const visibleNodes = new Set<string>();
         
+        // CRITICAL: Always ensure root node is visible first, before any other logic
+        // This prevents race conditions where parents are added but root/children are lost
+        visibleNodes.add(normalizedCurrentPath);
+        
         // Add all parents (files that import currentFilePath) only when showParents is enabled
         const fileParents = parents.get(normalizedCurrentPath) || [];
         console.debug('ReactFlowGraph: fileParents for root', normalizedCurrentPath, fileParents, 'showParents:', showParents);
@@ -528,7 +533,7 @@ const ReactFlowGraphContent: React.FC<ReactFlowGraphProps> = ({
             const node = queue.shift()!;
             if (visited.has(node)) continue; // Skip if already processed
             visited.add(node);
-            visibleNodes.add(node);
+            visibleNodes.add(node); // Re-add to ensure it's in visibleNodes (idempotent for Set)
 
             const nodeChildren = children.get(node) || [];
             // Show children if:
@@ -603,12 +608,13 @@ const ReactFlowGraphContent: React.FC<ReactFlowGraphProps> = ({
 
         log.debug('ReactFlowGraph: Visible nodes:', visibleNodes.size, 'edges:', edges.length);
         log.debug('ReactFlowGraph: Current file (normalized):', normalizedCurrentPath);
+        log.debug('ReactFlowGraph: visibleNodes contains root?', visibleNodes.has(normalizedCurrentPath));
         log.debug('ReactFlowGraph: All data nodes:', data.nodes);
         log.debug('ReactFlowGraph: All data edges:', data.edges);
         
         const layouted = getLayoutedElements(nodes, edges);
         return { initialNodes: layouted.nodes, initialEdges: layouted.edges, cycles };
-    }, [data, currentFilePath, expandAll, expandedNodes, onDrillDown, onFindReferences, createToggleHandler]);
+    }, [data, currentFilePath, expandAll, expandedNodes, showParents, onDrillDown, onFindReferences, onToggleParents, createToggleHandler]);
 
     const [nodes, setNodes, onNodesChange] = useNodesState(initialNodes);
     const [edges, setEdges, onEdgesChange] = useEdgesState(initialEdges);
