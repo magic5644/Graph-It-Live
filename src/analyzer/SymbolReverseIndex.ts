@@ -133,12 +133,15 @@ export class SymbolReverseIndex {
   /**
    * Remove all dependencies originating from a source file
    * Call this when a file is deleted or before re-analyzing
+   * 
+   * NOTE: Empty maps are NOT cleaned up here to avoid race conditions during re-analysis.
+   * Use cleanup() or rely on lazy cleanup in getter methods instead.
    */
   removeDependenciesFromSource(sourceFilePath: string): void {
     const normalizedSourcePath = normalizePath(sourceFilePath);
 
     // Iterate all target symbols and remove entries from this source
-    for (const [targetSymbolId, callerMap] of this.reverseMap) {
+    for (const [, callerMap] of this.reverseMap) {
       // Find and remove entries where callerFilePath matches
       for (const [callerSymbolId, entry] of callerMap) {
         if (entry.callerFilePath === normalizedSourcePath) {
@@ -146,10 +149,8 @@ export class SymbolReverseIndex {
         }
       }
 
-      // Clean up empty maps
-      if (callerMap.size === 0) {
-        this.reverseMap.delete(targetSymbolId);
-      }
+      // NOTE: Do NOT delete empty maps here - they will be cleaned up lazily
+      // This prevents losing references when addDependencies() is called immediately after
     }
 
     // Remove file hash
@@ -164,6 +165,13 @@ export class SymbolReverseIndex {
    */
   getCallers(targetSymbolId: string): SymbolReverseEntry[] {
     const callerMap = this.reverseMap.get(targetSymbolId);
+    
+    // Lazy cleanup: remove empty maps when accessed
+    if (callerMap?.size === 0) {
+      this.reverseMap.delete(targetSymbolId);
+      return [];
+    }
+    
     if (!callerMap) {
       return [];
     }
@@ -266,7 +274,28 @@ export class SymbolReverseIndex {
     this.fileHashes.clear();
     this.lastUpdated = Date.now();
   }
-
+  /**
+   * Clean up empty maps in the reverse index
+   * This removes target symbols that have no callers left
+   * @returns Number of empty maps removed
+   */
+  cleanup(): number {
+    let cleanedCount = 0;
+    const emptyTargets: string[] = [];
+    
+    for (const [targetSymbolId, callerMap] of this.reverseMap) {
+      if (callerMap.size === 0) {
+        emptyTargets.push(targetSymbolId);
+      }
+    }
+    
+    for (const targetSymbolId of emptyTargets) {
+      this.reverseMap.delete(targetSymbolId);
+      cleanedCount++;
+    }
+    
+    return cleanedCount;
+  }
   /**
    * Serialize the index to JSON for persistence
    */

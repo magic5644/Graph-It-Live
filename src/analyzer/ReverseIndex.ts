@@ -93,17 +93,18 @@ export class ReverseIndex {
   /**
    * Remove all dependencies originating from a source file
    * Call this when a file is deleted or before re-analyzing
+   * 
+   * NOTE: Empty maps are NOT cleaned up here to avoid race conditions during re-analysis.
+   * Use cleanup() or rely on lazy cleanup in getReferencingFiles() instead.
    */
   removeDependenciesFromSource(sourcePath: string): void {
     const normalizedSourcePath = normalizePath(sourcePath);
     
     // Iterate through all target files and remove entries from this source
-    for (const [targetPath, sourceMap] of this.reverseMap) {
+    for (const [, sourceMap] of this.reverseMap) {
       sourceMap.delete(normalizedSourcePath);
-      // Clean up empty maps
-      if (sourceMap.size === 0) {
-        this.reverseMap.delete(targetPath);
-      }
+      // NOTE: Do NOT delete empty maps here - they will be cleaned up lazily
+      // This prevents losing references when addDependencies() is called immediately after
     }
     this.fileHashes.delete(normalizedSourcePath);
   }
@@ -117,6 +118,13 @@ export class ReverseIndex {
   getReferencingFiles(targetPath: string): Dependency[] {
     const normalizedTargetPath = normalizePath(targetPath);
     const sourceMap = this.reverseMap.get(normalizedTargetPath);
+    
+    // Lazy cleanup: remove empty maps when accessed
+    if (sourceMap?.size === 0) {
+      this.reverseMap.delete(normalizedTargetPath);
+      return [];
+    }
+    
     if (!sourceMap) {
       return [];
     }
@@ -192,6 +200,29 @@ export class ReverseIndex {
   clear(): void {
     this.reverseMap.clear();
     this.fileHashes.clear();
+  }
+
+  /**
+   * Clean up empty maps in the reverse index
+   * This removes target paths that have no references left
+   * @returns Number of empty maps removed
+   */
+  cleanup(): number {
+    let cleanedCount = 0;
+    const emptyTargets: string[] = [];
+    
+    for (const [targetPath, sourceMap] of this.reverseMap) {
+      if (sourceMap.size === 0) {
+        emptyTargets.push(targetPath);
+      }
+    }
+    
+    for (const targetPath of emptyTargets) {
+      this.reverseMap.delete(targetPath);
+      cleanedCount++;
+    }
+    
+    return cleanedCount;
   }
 
   /**
