@@ -177,8 +177,9 @@ describe('ReverseIndex - Bug Fix: References not disappearing on re-analysis', (
         expect(refsAfterB).toBeDefined();
         expect(refsAfterB.length).toBeGreaterThanOrEqual(refsBeforeB.length);
         
-        // Verify fileB is in the references
-        const hasBReference = refsAfterB.some(ref => ref.path === fileB);
+        // Verify fileB is in the references - normalize paths for cross-platform comparison
+        const normalizedFileB = path.normalize(fileB);
+        const hasBReference = refsAfterB.some(ref => path.normalize(ref.path) === normalizedFileB);
         expect(hasBReference).toBe(true);
     });
 
@@ -186,7 +187,7 @@ describe('ReverseIndex - Bug Fix: References not disappearing on re-analysis', (
         // Simulate real user behavior: navigate between several files multiple times
         const fileA = path.join(fixturesPath, 'src/utils.ts');
         const fileB = path.join(fixturesPath, 'src/main.ts');
-        const fileC = path.join(fixturesPath, 'src/types.ts');
+        const fileC = path.join(fixturesPath, 'src/circular.ts');
 
         // Navigate: A → B → C → A → B → C
         await spider.crawl(fileA);
@@ -207,6 +208,8 @@ describe('ReverseIndex - Bug Fix: References not disappearing on re-analysis', (
         expect(refsC).toBeDefined();
 
         // fileB imports fileA, so fileA should have at least fileB as reference
-        expect(refsA.some(ref => ref.path === fileB)).toBe(true);
+        // Normalize paths for cross-platform comparison
+        const normalizedFileB = path.normalize(fileB);
+        expect(refsA.some(ref => path.normalize(ref.path) === normalizedFileB)).toBe(true);
     });
 });
