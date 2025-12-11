@@ -107,8 +107,9 @@ const App: React.FC = () => {
         setGraphData(message.data);
         setCurrentFilePath(message.filePath);
         setEmptyStateMessage(null);
-        // Reset parent visibility on new navigation
+        // Reset parent visibility and referencing files on new navigation
         setShowParents(false);
+        setReferencingFiles([]);
     }, []);
 
     // Handler for symbolGraph message

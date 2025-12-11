@@ -291,6 +291,16 @@ export class GraphProvider implements vscode.WebviewViewProvider {
                     this._statusBarItem.text = `$(check) Graph-It-Live: ${result.indexedFiles} files indexed`;
                     // Persist the index if enabled
                     await this._persistIndex();
+                    
+                    // Refresh the current view to show parent counts now that indexing is complete
+                    log.debug('Indexing complete, refreshing view to show parent counts');
+                    if (this._currentSymbolFilePath) {
+                        // In symbol view - refresh to update "Imported By" list
+                        await this.handleDrillDown(this._currentSymbolFilePath, true);
+                    } else {
+                        // In file view - refresh to show parent counts on nodes
+                        this.updateGraph(true);
+                    }
                 }
 
                 // Hide status bar after a short delay

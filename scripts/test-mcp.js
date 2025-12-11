@@ -545,6 +545,71 @@ export function add(a: number, b: number): number {
   });
   await new Promise(r => setTimeout(r, 500));
 
+  // =========================================================================
+  // 23. REGRESSION TEST: ReverseIndex preserves references after re-analysis
+  // =========================================================================
+  console.log('\n📤 [REGRESSION TEST] Testing ReverseIndex bug fix - re-analyze + findReferencingFiles...');
+  
+  // Step 1: Get initial references for utils.ts
+  console.log('   Step 1: Get initial references for utils.ts...');
+  send({
+    jsonrpc: '2.0',
+    id: ++id,
+    method: 'tools/call',
+    params: {
+      name: 'graphItLive_findReferencingFiles',
+      arguments: {
+        targetPath: path.join(fixturesPath, 'utils.ts')
+      }
+    }
+  });
+  await new Promise(r => setTimeout(r, 500));
+
+  // Step 2: Invalidate main.ts (simulating file change)
+  console.log('   Step 2: Invalidate main.ts (simulating file change)...');
+  send({
+    jsonrpc: '2.0',
+    id: ++id,
+    method: 'tools/call',
+    params: {
+      name: 'graphItLive_invalidateFiles',
+      arguments: {
+        filePaths: [path.join(fixturesPath, 'main.ts')]
+      }
+    }
+  });
+  await new Promise(r => setTimeout(r, 300));
+
+  // Step 3: Re-analyze main.ts (triggers the bug scenario if not fixed)
+  console.log('   Step 3: Re-analyze main.ts (triggers bug scenario)...');
+  send({
+    jsonrpc: '2.0',
+    id: ++id,
+    method: 'tools/call',
+    params: {
+      name: 'graphItLive_analyzeDependencies',
+      arguments: {
+        filePath: path.join(fixturesPath, 'main.ts')
+      }
+    }
+  });
+  await new Promise(r => setTimeout(r, 500));
+
+  // Step 4: Query references again - MUST still show main.ts as referencing utils.ts
+  console.log('   Step 4: Query references again - CRITICAL: main.ts must STILL be in references...');
+  send({
+    jsonrpc: '2.0',
+    id: ++id,
+    method: 'tools/call',
+    params: {
+      name: 'graphItLive_findReferencingFiles',
+      arguments: {
+        targetPath: path.join(fixturesPath, 'utils.ts')
+      }
+    }
+  });
+  await new Promise(r => setTimeout(r, 500));
+
   // Wait for all responses
   await new Promise(r => setTimeout(r, 2000));
   
