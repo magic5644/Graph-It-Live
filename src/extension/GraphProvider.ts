@@ -798,7 +798,7 @@ export class GraphProvider implements vscode.WebviewViewProvider {
             openFile: async (m: OpenFileMessage) => { if (m.path) await this.handleOpenFile(m.path, m.line); },
             expandNode: async (m: ExpandNodeMessage) => { if (m.nodeId) await this.handleExpandNode(m.nodeId, m.knownNodes); },
             setExpandAll: async (m: SetExpandAllMessage) => { log.debug('Setting expandAll to', m.expandAll); this._context.globalState.update('expandAll', m.expandAll); },
-            refreshGraph: async () => { log.debug('Refreshing graph'); this.updateGraph(); },
+            refreshGraph: async () => { log.debug('Refreshing graph'); await this.refreshGraph(); },
             findReferencingFiles: async (m: FindReferencingFilesMessage) => { if (m.nodeId) await this.handleFindReferencingFiles(m.nodeId); },
             drillDown: async (m: DrillDownMessage) => { if (m.filePath) await this.handleDrillDown(m.filePath); },
             ready: async () => { log.debug('Webview ready, sending initial graph'); this.updateGraph(); },

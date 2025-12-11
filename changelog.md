@@ -1,6 +1,42 @@
 # Changelog
 
-### v1.3.1
+## v1.3.2
+
+### Bug Fixes
+
+**Critical ReverseIndex Bug Fix**:
+- **Fixed reference persistence issue**: References would disappear from the reverse index after file re-analysis, causing the "Get References" button to incorrectly show no parent files. This affected both the VS Code extension and the MCP server.
+  - Root cause: `ReverseIndex.removeDependenciesFromSource()` was prematurely deleting empty target maps during re-analysis, causing a race condition
+  - Solution: Implemented lazy cleanup pattern - empty maps are only cleaned up during `getReferencingFiles()` queries, not during updates
+  - Added explicit `cleanup()` public method for manual garbage collection if needed
+  - Applied same fixes to `SymbolReverseIndex` for symbol-level dependencies
+
+**Webview State Management**:
+- **Fixed stale references display**: After navigating to a new file, the webview would retain old references and not request new ones
+  - Solution: Reset `referencingFiles` state to empty array in `handleUpdateGraphMessage()` to force fresh queries
+
+**Initial Indexing Display**:
+- **Fixed missing parent counts on initial load**: When opening a file before background indexing completed, parent counts wouldn't appear
+  - Solution: Added automatic view refresh after indexing completion in `GraphProvider._startBackgroundIndexingWithProgress()`
+
+**Refresh Button Bug**:
+- **Fixed refresh clearing symbol view**: Clicking the refresh button in symbol view would incorrectly switch back to file view, causing GraphQL files and other files in symbol mode to appear empty
+  - Root cause: `refreshGraph` message handler was calling `updateGraph()` instead of `refreshGraph()`, which didn't preserve the current view mode
+  - Solution: Changed handler to call `this.refreshGraph()` which properly maintains symbol/file view state
+
+**MCP Server File Watching**:
+- Verified automatic cache invalidation via chokidar works correctly (300ms debouncing)
+- Confirmed file watching handles change/add/unlink events properly
+
+### Testing
+
+- Added 10 comprehensive integration tests in `tests/mcp/McpWorker.test.ts`:
+  - 7 tests for ReverseIndex regression scenarios
+  - 3 tests for file watching simulation
+- Added regression test scenario to `scripts/test-mcp.js` (4-step verification)
+- All 583 tests pass (including 6 previous ReverseIndex regression tests)
+
+## v1.3.1
 
 ### Bug Fixes
 
