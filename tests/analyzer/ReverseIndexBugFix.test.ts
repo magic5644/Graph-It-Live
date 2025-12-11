@@ -145,4 +145,68 @@ describe('ReverseIndex - Bug Fix: References not disappearing on re-analysis', (
             expect(typeof ref.path).toBe('string');
         }
     });
+
+    it('should track references correctly when navigating between files via crawl() [Bug: Navigation]', async () => {
+        // This test reproduces the navigation bug:
+        // 1. User opens file A → crawl(A) → A in cache, ReverseIndex updated
+        // 2. User opens file B → crawl(B) → B in cache
+        // 3. crawl(B) analyzes A recursively → A returns from cache
+        // 4. BUG: ReverseIndex never learns that B imports A
+        // 5. Result: "Get References" on A doesn't show B
+
+        const fileA = path.join(fixturesPath, 'src/utils.ts');
+        const fileB = path.join(fixturesPath, 'src/main.ts');
+
+        // Step 1: Crawl from fileA (like opening it first)
+        await spider.crawl(fileA);
+
+        // Step 2: Verify fileA has NO references yet (it wasn't imported by anything)
+        const refsBeforeB = await spider.findReferencingFiles(fileA);
+        // fileA might have no references at this point, or some from files it doesn't depend on
+
+        // Step 3: Crawl from fileB (like navigating to it)
+        // fileB imports fileA, and fileA is already in cache
+        // CRITICAL: This must still update ReverseIndex to record "B imports A"
+        await spider.crawl(fileB);
+
+        // Step 4: BUG CHECK - fileA should now show fileB as a reference
+        const refsAfterB = await spider.findReferencingFiles(fileA);
+        
+        // The bug was: refsAfterB wouldn't include fileB because analyze(fileA)
+        // returned from cache without updating ReverseIndex
+        expect(refsAfterB).toBeDefined();
+        expect(refsAfterB.length).toBeGreaterThanOrEqual(refsBeforeB.length);
+        
+        // Verify fileB is in the references
+        const hasBReference = refsAfterB.some(ref => ref.path === fileB);
+        expect(hasBReference).toBe(true);
+    });
+
+    it('should maintain ReverseIndex integrity after multiple navigation sequences', async () => {
+        // Simulate real user behavior: navigate between several files multiple times
+        const fileA = path.join(fixturesPath, 'src/utils.ts');
+        const fileB = path.join(fixturesPath, 'src/main.ts');
+        const fileC = path.join(fixturesPath, 'src/types.ts');
+
+        // Navigate: A → B → C → A → B → C
+        await spider.crawl(fileA);
+        await spider.crawl(fileB);
+        await spider.crawl(fileC);
+        await spider.crawl(fileA);
+        await spider.crawl(fileB);
+        await spider.crawl(fileC);
+
+        // Verify references are still correct for all files
+        const refsA = await spider.findReferencingFiles(fileA);
+        const refsB = await spider.findReferencingFiles(fileB);
+        const refsC = await spider.findReferencingFiles(fileC);
+
+        // All references should be defined and valid
+        expect(refsA).toBeDefined();
+        expect(refsB).toBeDefined();
+        expect(refsC).toBeDefined();
+
+        // fileB imports fileA, so fileA should have at least fileB as reference
+        expect(refsA.some(ref => ref.path === fileB)).toBe(true);
+    });
 });

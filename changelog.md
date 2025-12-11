@@ -21,20 +21,16 @@
 
 **Refresh Button Bug**:
 - **Fixed refresh clearing symbol view**: Clicking the refresh button in symbol view would incorrectly switch back to file view, causing GraphQL files and other files in symbol mode to appear empty
-  - Root cause: `refreshGraph` message handler was calling `updateGraph()` instead of `refreshGraph()`, which didn't preserve the current view mode
-  - Solution: Changed handler to call `this.refreshGraph()` which properly maintains symbol/file view state
+
+**ReverseIndex Degradation During Navigation**:
+- **Fixed progressive loss of dependencies and references**: When navigating between files through the webview, references would progressively disappear because cached files weren't updating the ReverseIndex
+
+
 
 **MCP Server File Watching**:
 - Verified automatic cache invalidation via chokidar works correctly (300ms debouncing)
 - Confirmed file watching handles change/add/unlink events properly
 
-### Testing
-
-- Added 10 comprehensive integration tests in `tests/mcp/McpWorker.test.ts`:
-  - 7 tests for ReverseIndex regression scenarios
-  - 3 tests for file watching simulation
-- Added regression test scenario to `scripts/test-mcp.js` (4-step verification)
-- All 583 tests pass (including 6 previous ReverseIndex regression tests)
 
 ## v1.3.1
 
