@@ -11,9 +11,10 @@ import * as path from 'node:path';
 import { Parser } from './Parser';
 import { PathResolver } from './PathResolver';
 import type { Dependency } from './types';
+import { SUPPORTED_FILE_EXTENSIONS } from '../shared/constants';
 
 // Extensions supported for indexing
-const SUPPORTED_EXTENSIONS = ['.ts', '.tsx', '.js', '.jsx', '.vue', '.svelte', '.gql'];
+const SUPPORTED_EXTENSIONS = SUPPORTED_FILE_EXTENSIONS;
 
 // Directories to skip during traversal
 const SKIP_DIRECTORIES = new Set(['node_modules', '.git', 'dist', 'build', 'out', 'coverage', '.next', '.nuxt']);

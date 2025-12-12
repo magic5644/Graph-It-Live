@@ -1,6 +1,7 @@
 import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
 import { normalizePath } from './types';
+import { SUPPORTED_FILE_EXTENSIONS } from '../shared/constants';
 
 /**
  * Resolves module paths to absolute file paths
@@ -384,7 +385,7 @@ export class PathResolver {
    * Try different file extensions
    */
   private async resolveWithExtensions(basePath: string): Promise<string | null> {
-    const extensions = ['.ts', '.tsx', '.js', '.jsx', '.vue', '.svelte', '.mjs', '.cjs', '.gql', '.graphql'];
+    const extensions = SUPPORTED_FILE_EXTENSIONS;
     
     // Try exact path first
     if (await this.fileExists(basePath)) {
