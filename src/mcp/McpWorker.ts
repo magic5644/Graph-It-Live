@@ -63,6 +63,7 @@ import type {
 } from './types';
 import { enrichDependency, validateToolParams, validateFilePath } from './types';
 import { getLogger, getLogLevelFromEnv, loggerFactory } from '../shared/logger';
+import { SUPPORTED_FILE_EXTENSIONS } from '../shared/constants';
 
 // Configure log level from environment variable
 loggerFactory.setDefaultLevel(getLogLevelFromEnv('LOG_LEVEL'));
@@ -120,7 +121,7 @@ const FILE_CHANGE_DEBOUNCE_MS = 300;
 const pendingInvalidations = new Map<string, NodeJS.Timeout>();
 
 /** Extensions to watch for changes */
-const WATCHED_EXTENSIONS = ['.ts', '.tsx', '.js', '.jsx', '.vue', '.svelte', '.gql', '.graphql'];
+const WATCHED_EXTENSIONS = SUPPORTED_FILE_EXTENSIONS;
 
 // ============================================================================
 // Message Handling

@@ -1,4 +1,5 @@
 import { GraphData } from '../../shared/types';
+import { SUPPORTED_FILE_EXTENSIONS } from '../../shared/constants';
 
 /**
  * Extract filename from a full path
@@ -61,7 +62,7 @@ export const isExternalPackage = (path: string): boolean => {
     if (!path) return false;
     
     // Known file extensions = not external
-    const fileExtensions = ['.ts', '.tsx', '.js', '.jsx', '.vue', '.svelte', '.gql', '.graphql'];
+    const fileExtensions = SUPPORTED_FILE_EXTENSIONS;
     for (const ext of fileExtensions) {
         if (path.endsWith(ext)) return false;
     }
