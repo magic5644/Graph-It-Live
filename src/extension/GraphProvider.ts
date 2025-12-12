@@ -3,7 +3,7 @@ import * as path from 'node:path';
 import { randomBytes } from 'node:crypto';
 import { Spider } from '../analyzer/Spider';
 import type { ExtensionToWebviewMessage, WebviewToExtensionMessage, OpenFileMessage, ExpandNodeMessage, SetExpandAllMessage, FindReferencingFilesMessage, DrillDownMessage, SwitchModeMessage, WebviewLogMessage, SymbolInfo, SymbolDependency } from '../shared/types';
-import { getExtensionLogger, extensionLoggerManager } from './logger';
+import { getExtensionLogger, extensionLoggerManager } from './extensionLogger';
 import type { IndexerStatusSnapshot } from '../analyzer/IndexerStatus';
 
 /** Logger instance for GraphProvider */

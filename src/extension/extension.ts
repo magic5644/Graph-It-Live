@@ -6,7 +6,7 @@ import {
   getExtensionLogger, 
   getLogLevelFromConfig,
   watchLogLevelConfig 
-} from './logger';
+} from './extensionLogger';
 import { setLoggerBackend } from '../shared/logger';
 
 // Keep track of MCP server provider for cleanup

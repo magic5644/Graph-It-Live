@@ -12,7 +12,7 @@
 
 import * as vscode from 'vscode';
 import * as path from 'node:path';
-import { getExtensionLogger } from '../extension/logger';
+import { getExtensionLogger } from '../extension/extensionLogger';
 
 /** Logger instance for McpServerProvider */
 const log = getExtensionLogger('McpServerProvider');
