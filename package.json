@@ -131,7 +131,7 @@
       "editor/title": [
         {
           "command": "graph-it-live.showGraph",
-          "when": "resourceExtname =~ /\\.(ts|tsx|js|jsx|vue|svelte)$/",
+          "when": "resourceExtname =~ /\\.(ts|tsx|js|jsx|vue|svelte|mjs|cjs|gql|graphql)$/",
           "group": "navigation"
         }
       ],
