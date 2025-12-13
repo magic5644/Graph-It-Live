@@ -10,3 +10,14 @@ export const SUPPORTED_FILE_EXTENSIONS = [
     '.gql',
     '.graphql',
 ];
+
+export const IGNORED_DIRECTORIES = [
+    'node_modules',
+    '.git',
+    'dist',
+    'build',
+    'out',
+    'coverage',
+    '.next',
+    '.nuxt',
+];
