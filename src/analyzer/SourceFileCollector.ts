@@ -1,5 +1,6 @@
 import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
+import { isSupportedSourceFile, shouldSkipDirectory } from './SourceFileFilters';
 import { getLogger } from '../shared/logger';
 
 const log = getLogger('SourceFileCollector');
@@ -41,9 +42,9 @@ export class SourceFileCollector {
     const processEntry = async (entry: import('node:fs').Dirent, currentDir: string): Promise<void> => {
       const fullPath = path.join(currentDir, entry.name);
 
-      if (entry.isDirectory() && !this.shouldSkipDirectory(entry.name)) {
+      if (entry.isDirectory() && !shouldSkipDirectory(entry.name, this.excludeNodeModules)) {
         await walkDir(fullPath);
-      } else if (entry.isFile() && this.isSupportedSourceFile(entry.name)) {
+      } else if (entry.isFile() && isSupportedSourceFile(entry.name)) {
         files.push(fullPath);
       }
     };
@@ -76,14 +77,4 @@ export class SourceFileCollector {
     return files;
   }
 
-  private shouldSkipDirectory(entryName: string): boolean {
-    if (this.excludeNodeModules && entryName === 'node_modules') {
-      return true;
-    }
-    return entryName.startsWith('.');
-  }
-
-  private isSupportedSourceFile(fileName: string): boolean {
-    return /\.(ts|tsx|js|jsx|vue|svelte|gql|graphql)$/.test(fileName);
-  }
 }
