@@ -138,6 +138,15 @@ export class ReverseIndex {
   }
 
   /**
+   * Get the number of callers referencing the target file
+   */
+  getCallerCount(targetPath: string): number {
+    const normalizedTargetPath = normalizePath(targetPath);
+    const sourceMap = this.reverseMap.get(normalizedTargetPath);
+    return sourceMap?.size ?? 0;
+  }
+
+  /**
    * Check if a file's hash indicates it has changed since last indexing
    * @param filePath The file to check
    * @param currentHash The current file hash

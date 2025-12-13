@@ -4,6 +4,7 @@ import { Parser } from './Parser';
 import { PathResolver } from './PathResolver';
 import { Cache } from './Cache';
 import { ReverseIndex } from './ReverseIndex';
+import { ReverseIndexManager } from './ReverseIndexManager';
 import { IndexerStatus, IndexerStatusSnapshot } from './IndexerStatus';
 import { IndexerWorkerHost } from './IndexerWorkerHost';
 import { Dependency, SpiderConfig, IndexingProgressCallback, normalizePath, SpiderError } from './types';
@@ -39,8 +40,8 @@ export class Spider {
   private readonly symbolAnalyzer: SymbolAnalyzer;
   private readonly symbolCache: Cache<{ symbols: import('./types').SymbolInfo[]; dependencies: import('./types').SymbolDependency[] }>;
 
-  /** Reverse index for O(1) reverse dependency lookups */
-  private reverseIndex: ReverseIndex | null = null;
+  /** Reverse index manager for O(1) reverse dependency lookups */
+  private readonly reverseIndexManager: ReverseIndexManager;
 
   /** Indexer status tracker for progress monitoring */
   private readonly indexerStatus: IndexerStatus = new IndexerStatus();
@@ -82,6 +83,8 @@ export class Spider {
     });
 
     // Initialize reverse index if enabled
+    this.reverseIndexManager = new ReverseIndexManager(this.config.rootDir);
+
     if (config.enableReverseIndex) {
       this.enableReverseIndex(); // Use the new enableReverseIndex method
     }
@@ -101,11 +104,10 @@ export class Spider {
     // Handle reverse index enable/disable
     if (config.enableReverseIndex !== undefined) {
       this.config.enableReverseIndex = config.enableReverseIndex;
-      if (config.enableReverseIndex && !this.reverseIndex) {
-        this.reverseIndex = new ReverseIndex(this.config.rootDir);
-      } else if (!config.enableReverseIndex) {
-        this.reverseIndex?.clear();
-        this.reverseIndex = null;
+      if (config.enableReverseIndex) {
+        this.reverseIndexManager.enable();
+      } else {
+        this.reverseIndexManager.disable();
       }
     }
 
@@ -159,10 +161,10 @@ export class Spider {
       this.cache.set(key, dependencies);
 
       // Update reverse index if enabled
-      if (this.reverseIndex) {
+      if (this.reverseIndexManager.isEnabled()) {
         const fileHash = await ReverseIndex.getFileHashFromDisk(filePath);
         if (fileHash) {
-          this.reverseIndex.addDependencies(key, dependencies, fileHash);
+          this.reverseIndexManager.addDependencies(key, dependencies, fileHash);
         }
       }
 
@@ -181,7 +183,7 @@ export class Spider {
   clearCache(): void {
     this.cache.clear();
     this.symbolCache.clear();
-    this.reverseIndex?.clear();
+    this.reverseIndexManager.clear();
   }
 
   /**
@@ -201,7 +203,7 @@ export class Spider {
     this.symbolCache.delete(normalized);
     
     // Remove from reverse index if enabled
-    this.reverseIndex?.removeDependenciesFromSource(normalized);
+    this.reverseIndexManager.removeDependenciesFromSource(normalized);
     
     return wasInCache;
   }
@@ -251,29 +253,16 @@ export class Spider {
     const normalized = normalizePath(filePath);
     this.cache.delete(normalized);
     this.symbolCache.delete(normalized);
-    this.reverseIndex?.removeDependenciesFromSource(normalized);
+    this.reverseIndexManager.removeDependenciesFromSource(normalized);
   }
 
   /**
    * Enable reverse indexing and optionally restore from serialized data
    */
   enableReverseIndex(serializedData?: string): boolean {
-    this.reverseIndex ??= new ReverseIndex(this.config.rootDir);
+    const restored = this.reverseIndexManager.enable(serializedData);
     this.config.enableReverseIndex = true;
-
-    if (serializedData) {
-      try {
-        const data = JSON.parse(serializedData);
-        const restored = ReverseIndex.deserialize(data, this.config.rootDir);
-        if (restored) {
-          this.reverseIndex = restored;
-          return true;
-        }
-      } catch {
-        // Failed to restore reverse index, will rebuild
-      }
-    }
-    return false;
+    return restored;
   }
 
   /**
@@ -281,18 +270,14 @@ export class Spider {
    */
   disableReverseIndex(): void {
     this.config.enableReverseIndex = false;
-    this.reverseIndex?.clear();
-    this.reverseIndex = null;
+    this.reverseIndexManager.disable();
   }
 
   /**
    * Get the serialized reverse index for persistence
    */
   getSerializedReverseIndex(): string | null {
-    if (!this.reverseIndex) {
-      return null;
-    }
-    return JSON.stringify(this.reverseIndex.serialize());
+    return this.reverseIndexManager.getSerialized();
   }
 
   /**
@@ -304,10 +289,7 @@ export class Spider {
     stalePercentage: number;
     missingFiles: string[];
   } | null> {
-    if (!this.reverseIndex) {
-      return null;
-    }
-    return this.reverseIndex.validateIndex(staleThreshold);
+    return this.reverseIndexManager.validate(staleThreshold);
   }
 
   /**
@@ -339,7 +321,17 @@ export class Spider {
    * Check if reverse index is enabled and has entries
    */
   hasReverseIndex(): boolean {
-    return this.reverseIndex?.hasEntries() ?? false;
+    return this.reverseIndexManager.hasEntries();
+  }
+
+  /**
+   * Get the number of callers referencing a given file when reverse index is available
+   */
+  getCallerCount(targetPath: string): number {
+    if (!this.reverseIndexManager.hasEntries()) {
+      return 0;
+    }
+    return this.reverseIndexManager.getCallerCount(targetPath);
   }
 
   /**
@@ -366,7 +358,7 @@ export class Spider {
     duration: number;
     cancelled: boolean;
   }> {
-    this.reverseIndex ??= new ReverseIndex(this.config.rootDir);
+    this.reverseIndexManager.ensure();
     this.indexingCancelled = false;
 
     // Phase 1: Counting files (with yielding for large projects)
@@ -460,7 +452,7 @@ export class Spider {
     this.workerHost ??= new IndexerWorkerHost(workerPath);
     
     // Ensure reverse index exists
-    this.reverseIndex ??= new ReverseIndex(this.config.rootDir);
+    this.reverseIndexManager.ensure();
 
     // Subscribe to worker status updates and forward to our indexerStatus
     const unsubscribe = this.workerHost.subscribeToStatus((snapshot) => {
@@ -507,7 +499,7 @@ export class Spider {
         this.cache.set(normalizedPath, fileData.dependencies);
         
         // Add to reverse index with file hash
-        this.reverseIndex.addDependencies(
+        this.reverseIndexManager.addDependencies(
           normalizedPath,
           fileData.dependencies,
           { mtime: fileData.mtime, size: fileData.size }
@@ -598,7 +590,7 @@ export class Spider {
     staleFiles: string[],
     progressCallback?: IndexingProgressCallback
   ): Promise<number> {
-    if (!this.reverseIndex) {
+    if (!this.reverseIndexManager.isEnabled()) {
       return 0;
     }
 
@@ -612,12 +604,12 @@ export class Spider {
         batch.map(async (filePath) => {
           try {
             // Remove old entries before re-analyzing
-            this.reverseIndex!.removeDependenciesFromSource(normalizePath(filePath));
+            this.reverseIndexManager.removeDependenciesFromSource(normalizePath(filePath));
             this.cache.delete(filePath);
             await this.analyze(filePath);
           } catch {
             // File may have been deleted, remove from index
-            this.reverseIndex!.removeDependenciesFromSource(normalizePath(filePath));
+            this.reverseIndexManager.removeDependenciesFromSource(normalizePath(filePath));
           }
         })
       );
@@ -666,10 +658,10 @@ export class Spider {
         // are tracked correctly, especially when navigating between files.
         // Without this, the reverse index would miss relationships for cached files,
         // causing parent references to disappear during navigation.
-        if (this.reverseIndex && dependencies.length > 0) {
+        if (this.reverseIndexManager.isEnabled() && dependencies.length > 0) {
           const fileHash = await ReverseIndex.getFileHashFromDisk(filePath);
           if (fileHash) {
-            this.reverseIndex.addDependencies(normalizedFile, dependencies, fileHash);
+            this.reverseIndexManager.addDependencies(normalizedFile, dependencies, fileHash);
           }
         }
 
@@ -731,11 +723,11 @@ export class Spider {
     };
 
     const updateReverseIndexForFile = async (normalizedFile: string, dependencies: Dependency[]): Promise<void> => {
-      if (!this.reverseIndex || dependencies.length === 0) return;
+      if (!this.reverseIndexManager.isEnabled() || dependencies.length === 0) return;
       
       const fileHash = await ReverseIndex.getFileHashFromDisk(normalizedFile);
       if (fileHash) {
-        this.reverseIndex.addDependencies(normalizedFile, dependencies, fileHash);
+        this.reverseIndexManager.addDependencies(normalizedFile, dependencies, fileHash);
       }
     };
 
@@ -894,8 +886,8 @@ export class Spider {
    */
   async findReferencingFiles(targetPath: string): Promise<Dependency[]> {
     // Use reverse index if available (O(1) lookup)
-    if (this.reverseIndex?.hasEntries()) {
-      return this.reverseIndex.getReferencingFiles(targetPath);
+    if (this.reverseIndexManager.hasEntries()) {
+      return this.reverseIndexManager.getReferencingFiles(targetPath);
     }
 
     // Fallback to directory scan (O(n) but parallelized)
@@ -1214,7 +1206,7 @@ export class Spider {
       dependencyCache: this.cache.getStats(),
       symbolCache: this.symbolCache.getStats(),
       symbolAnalyzerFileCount: this.symbolAnalyzer.getFileCount(),
-      reverseIndexStats: this.reverseIndex?.getStats(),
+      reverseIndexStats: this.reverseIndexManager.getStats(),
     };
   }
 }

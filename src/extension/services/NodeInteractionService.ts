@@ -68,22 +68,20 @@ export class NodeInteractionService {
     }
 
     const parentCounts: Record<string, number> = {};
-    await Promise.all(
-      nodes.map(async (node) => {
-        try {
-          const refs = await this.spider.findReferencingFiles(node);
-          if (refs && refs.length > 0) {
-            parentCounts[node] = refs.length;
-          }
-        } catch (err) {
-          this.logger.debug(
-            'Failed to compute parent counts for',
-            node,
-            err instanceof Error ? err.message : String(err)
-          );
+    for (const node of nodes) {
+      try {
+        const count = this.spider.getCallerCount(node);
+        if (count > 0) {
+          parentCounts[node] = count;
         }
-      })
-    );
+      } catch (err) {
+        this.logger.debug(
+          'Failed to compute parent counts for',
+          node,
+          err instanceof Error ? err.message : String(err)
+        );
+      }
+    }
 
     return parentCounts;
   }
