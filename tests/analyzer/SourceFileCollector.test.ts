@@ -22,6 +22,10 @@ async function createTempWorkspace(structure: Record<string, string | null>): Pr
 
 describe('SourceFileCollector', () => {
   const noopYield = async () => {};
+  const toRelativePosix = (files: string[], root: string): string[] =>
+    files
+      .map(f => path.relative(root, f).split(path.sep).join('/'))
+      .sort();
 
   it('collects supported files while skipping ignored directories', async () => {
     const root = await createTempWorkspace({
@@ -41,8 +45,7 @@ describe('SourceFileCollector', () => {
       });
 
       const files = await collector.collectAllSourceFiles(root);
-      const relative = files.map(f => path.relative(root, f)).sort();
-      expect(relative).toEqual(['src/component.jsx', 'src/index.ts']);
+      expect(toRelativePosix(files, root)).toEqual(['src/component.jsx', 'src/index.ts']);
     } finally {
       await fs.rm(root, { recursive: true, force: true });
     }
@@ -63,11 +66,11 @@ describe('SourceFileCollector', () => {
       });
 
       const initial = await collector.collectAllSourceFiles(root);
-      expect(initial.map(f => path.relative(root, f)).sort()).toEqual(['main.ts']);
+      expect(toRelativePosix(initial, root)).toEqual(['main.ts']);
 
       collector.updateOptions({ excludeNodeModules: false });
       const updated = await collector.collectAllSourceFiles(root);
-      expect(updated.map(f => path.relative(root, f)).sort()).toEqual(['main.ts', 'node_modules/pkg/index.ts']);
+      expect(toRelativePosix(updated, root)).toEqual(['main.ts', 'node_modules/pkg/index.ts']);
     } finally {
       await fs.rm(root, { recursive: true, force: true });
     }

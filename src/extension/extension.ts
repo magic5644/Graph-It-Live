@@ -8,6 +8,7 @@ import {
   watchLogLevelConfig 
 } from './extensionLogger';
 import { setLoggerBackend } from '../shared/logger';
+import { CommandRegistrationService } from './services/CommandRegistrationService';
 
 // Keep track of MCP server provider for cleanup
 let mcpServerProvider: McpServerProvider | null = null;
@@ -32,6 +33,7 @@ export function activate(context: vscode.ExtensionContext) {
     log.info('Graph-It-Live is now active!');
 
     const provider = new GraphProvider(context.extensionUri, context);
+    const commandService = new CommandRegistrationService({ provider, logger: log });
     const disposables: vscode.Disposable[] = [
       // Output channel disposal
       outputChannel,
@@ -66,79 +68,8 @@ export function activate(context: vscode.ExtensionContext) {
         await provider.onFileSaved(doc.fileName);
       }),
 
-      // Register Command to focus the view
-      vscode.commands.registerCommand("graph-it-live.showGraph", () => {
-        vscode.commands.executeCommand("graph-it-live.graphView.focus");
-      }),
-      // Developer commands to aid debugging and manual re-indexing
-      vscode.commands.registerCommand(
-        "graph-it-live.forceReindex",
-        async () => {
-          try {
-            await provider.forceReindex();
-            vscode.window.showInformationMessage(
-              "Graph-It-Live: Re-index triggered"
-            );
-          } catch (e) {
-            log.error("Force re-index failed:", e);
-            vscode.window.showErrorMessage("Graph-It-Live: Re-index failed");
-          }
-        }
-      ),
-      vscode.commands.registerCommand(
-        "graph-it-live.expandAllNodes",
-        async () => {
-          try {
-            await provider.expandAllNodes();
-          } catch (e) {
-            log.error("Expand/collapse all nodes failed:", e);
-            vscode.window.showErrorMessage("Graph-It-Live: Toggle expand all failed");
-          }
-        }
-      ),
-      vscode.commands.registerCommand(
-        "graph-it-live.refreshGraph",
-        async () => {
-          try {
-            await provider.refreshGraph();
-          } catch (e) {
-            log.error("Refresh graph failed:", e);
-            vscode.window.showErrorMessage("Graph-It-Live: Refresh failed");
-          }
-        }
-      ),
-      vscode.commands.registerCommand(
-        "graph-it-live.toggleViewMode",
-        async () => {
-          try {
-            await provider.toggleViewMode();
-          } catch (e) {
-            log.error("Toggle view mode failed:", e);
-            vscode.window.showErrorMessage("Graph-It-Live: Toggle view failed");
-          }
-        }
-      ),
-      vscode.commands.registerCommand(
-        "graph-it-live.showIndexStatus",
-        async () => {
-          try {
-            const status = provider.getIndexStatus();
-            if (status) {
-              const msg = `Indexer: ${status.state} ${status.processed}/${status.total} (${status.percentage}%)`;
-              vscode.window.showInformationMessage(msg);
-            } else {
-              vscode.window.showInformationMessage(
-                "Graph-It-Live: No indexer available"
-              );
-            }
-          } catch (e) {
-            log.error("Get index status failed:", e);
-            vscode.window.showErrorMessage(
-              "Graph-It-Live: Could not get index status"
-            );
-          }
-        }
-      ),
+      // Register commands via centralized service
+      ...commandService.registerAll(),
     ];
 
     // Register MCP server provider if a workspace folder is open
@@ -161,4 +92,3 @@ export function deactivate() {
     mcpServerProvider = null;
     // VSCode handles disposal of subscriptions automatically
 }
-
