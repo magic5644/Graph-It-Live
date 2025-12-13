@@ -8,6 +8,7 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
+import { tmpdir } from 'node:os';
 import { Spider } from '../../src/analyzer/Spider';
 import { normalizePath } from '../../src/analyzer/types';
 
@@ -19,8 +20,7 @@ describe('McpWorker - ReverseIndex Integration', () => {
 
   beforeEach(async () => {
     // Create a temporary test workspace
-    tempDir = path.join(__dirname, '../fixtures/temp-mcp-test');
-    await fs.mkdir(tempDir, { recursive: true });
+    tempDir = await fs.mkdtemp(path.join(tmpdir(), 'mcp-worker-'));
 
     fileA = path.join(tempDir, 'fileA.ts');
     fileB = path.join(tempDir, 'fileB.ts');
