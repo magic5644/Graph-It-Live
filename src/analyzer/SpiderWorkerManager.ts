@@ -10,6 +10,7 @@ interface WorkerBuildOptions {
     rootDir: string;
     excludeNodeModules?: boolean;
     tsConfigPath?: string;
+    progressInterval?: number;
   };
   progressCallback?: IndexingProgressCallback;
 }
