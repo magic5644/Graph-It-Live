@@ -1,5 +1,21 @@
 # Changelog
 
+## v1.3.3
+
+### Improvements
+
+**Architecture Refactoring**:
+- **Enhanced service layer architecture**: Refactored `GraphProvider` by extracting functionality into 10 specialized service modules for improved maintainability and reliability
+
+**Analyzer Enhancements**:
+- **New helper modules**: Added specialized modules for better code organization and performance
+
+**Performance & Reliability**:
+- Improved background indexing stability with better state synchronization
+- Enhanced file change detection with clearer separation of concerns
+- More robust cache invalidation and index updates
+- Better error handling across the codebase
+
 ## v1.3.2
 
 ### Bug Fixes
