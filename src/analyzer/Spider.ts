@@ -11,6 +11,7 @@ import { IGNORED_DIRECTORIES } from '../shared/constants';
 import { SpiderWorkerManager } from './SpiderWorkerManager';
 import { SourceFileCollector } from './SourceFileCollector';
 import { ReferencingFilesFinder } from './ReferencingFilesFinder';
+import { SymbolDependencyHelper } from './SymbolDependencyHelper';
 
 /** Logger instance for Spider */
 const log = getLogger('Spider');
@@ -55,6 +56,9 @@ export class Spider {
 
   /** Fallback reverse-reference scanner when reverse index is unavailable */
   private readonly referencingFilesFinder: ReferencingFilesFinder;
+
+  /** Helper for symbol dependency comparisons and naming */
+  private readonly symbolDependencyHelper: SymbolDependencyHelper;
 
   /** Flag to request cancellation of indexing */
   private indexingCancelled = false;
@@ -108,6 +112,15 @@ export class Spider {
       getConcurrency: () => this.config.indexingConcurrency,
       findReferenceInFile: (filePath, normalizedTargetPath, targetBasename) =>
         this.findReferenceInFile(filePath, normalizedTargetPath, targetBasename),
+    });
+    this.symbolDependencyHelper = new SymbolDependencyHelper({
+      resolve: async (from, to) => {
+        try {
+          return await this.resolver.resolve(from, to);
+        } catch {
+          return null;
+        }
+      },
     });
 
     if (config.enableReverseIndex) {
@@ -723,18 +736,18 @@ export class Spider {
     sourceFilePath: string,
     targetFilePath: string
   ): Promise<boolean> {
-    if (dep.targetFilePath === targetFilePath) {
-      return true;
-    }
-    const resolved = await this.resolver.resolve(sourceFilePath, dep.targetFilePath);
-    return resolved === targetFilePath;
+    return this.symbolDependencyHelper.doesDependencyTargetFile(
+      dep,
+      sourceFilePath,
+      targetFilePath
+    );
   }
 
   /**
    * Extract symbol name from a symbol ID (format: "path:symbolName")
    */
   private extractSymbolName(symbolId: string): string {
-    return symbolId.split(':').pop() || '';
+    return this.symbolDependencyHelper.extractSymbolName(symbolId);
   }
 
   /**
@@ -901,7 +914,7 @@ export class Spider {
         if (isMatch) {
           const symbolName = this.extractSymbolName(dep.targetSymbolId);
           // Ensure we record used symbol IDs using the same normalized target path
-          usedSymbolIds.add(`${normalizePath(targetFilePath)}:${symbolName}`);
+          usedSymbolIds.add(this.symbolDependencyHelper.buildUsedSymbolId(targetFilePath, symbolName));
         }
       }
     }
