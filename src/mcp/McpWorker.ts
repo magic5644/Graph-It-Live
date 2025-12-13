@@ -8,6 +8,15 @@
  * NO import * as vscode from 'vscode' allowed!
  */
 
+import { setLoggerBackend, StderrLogger } from '../shared/logger';
+
+// Configure all loggers in this thread to use StderrLogger
+setLoggerBackend({
+  createLogger(prefix: string, level) {
+    return new StderrLogger(prefix, level);
+  }
+});
+
 import { parentPort } from 'node:worker_threads';
 import * as fs from 'node:fs/promises';
 import * as path from 'node:path';

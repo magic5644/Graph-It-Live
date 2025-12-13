@@ -11,6 +11,16 @@
  * NO import * as vscode from 'vscode' allowed!
  */
 
+import { setLoggerBackend, StderrLogger } from '../shared/logger';
+
+// Configure all loggers in this process to use StderrLogger
+// This ensures stdout is kept clean for JSON-RPC
+setLoggerBackend({
+  createLogger(prefix: string, level) {
+    return new StderrLogger(prefix, level);
+  }
+});
+
 import * as fs from 'node:fs';
 import * as os from 'node:os';
 

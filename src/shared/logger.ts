@@ -111,6 +111,62 @@ export class ConsoleLogger implements ILogger {
 }
 
 /**
+ * Stderr Logger - Writes all logs to stderr
+ * Critical for MCP server to avoid polluting stdout (used for JSON-RPC)
+ */
+export class StderrLogger implements ILogger {
+  private _level: LogLevel;
+  private readonly prefix: string;
+
+  constructor(prefix: string = '', level: LogLevel = 'info') {
+    this.prefix = prefix ? `[${prefix}]` : '';
+    this._level = level;
+  }
+
+  get level(): LogLevel {
+    return this._level;
+  }
+
+  setLevel(level: LogLevel): void {
+    this._level = level;
+  }
+
+  private shouldLog(level: LogLevel): boolean {
+    return LOG_LEVEL_PRIORITY[level] >= LOG_LEVEL_PRIORITY[this._level];
+  }
+
+  private formatMessage(level: string, message: string): string {
+    const timestamp = new Date().toISOString();
+    return `${timestamp} ${this.prefix} [${level.toUpperCase()}] ${message}`;
+  }
+
+  // ALL methods write to console.error to keep stdout clean for JSON-RPC
+  debug(message: string, ...args: unknown[]): void {
+    if (this.shouldLog('debug')) {
+      console.error(this.formatMessage('debug', message + formatArgs(args)));
+    }
+  }
+
+  info(message: string, ...args: unknown[]): void {
+    if (this.shouldLog('info')) {
+      console.error(this.formatMessage('info', message + formatArgs(args)));
+    }
+  }
+
+  warn(message: string, ...args: unknown[]): void {
+    if (this.shouldLog('warn')) {
+      console.error(this.formatMessage('warn', message + formatArgs(args)));
+    }
+  }
+
+  error(message: string, ...args: unknown[]): void {
+    if (this.shouldLog('error')) {
+      console.error(this.formatMessage('error', message + formatArgs(args)));
+    }
+  }
+}
+
+/**
  * Null Logger - discards all logs
  * Useful for testing or when logging is disabled
  */
