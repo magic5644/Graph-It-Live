@@ -21,3 +21,6 @@ export const IGNORED_DIRECTORIES = [
     '.next',
     '.nuxt',
 ];
+
+
+export const WATCH_GLOB = "**/*.{ts,tsx,js,jsx,vue,svelte,gql,graphql}";
