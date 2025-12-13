@@ -18,6 +18,7 @@ interface WorkerConfig {
   maxDepth?: number;
   excludeNodeModules?: boolean;
   tsConfigPath?: string;
+  progressInterval?: number;
 }
 
 interface WorkerMessage {
@@ -131,6 +132,7 @@ async function analyzeFile(
  */
 async function runIndexing(config: WorkerConfig): Promise<void> {
   const startTime = Date.now();
+  const progressInterval = config.progressInterval ?? 100;
   
   try {
     // Create parser and resolver
@@ -156,8 +158,6 @@ async function runIndexing(config: WorkerConfig): Promise<void> {
     // Phase 2: Process files one by one
     // Since we're in a worker thread, we don't need to yield as aggressively
     // but we still send progress updates periodically
-    const PROGRESS_INTERVAL = 100; // Report every 100 files
-    
     for (let i = 0; i < files.length; i++) {
       if (cancelled) {
         break;
@@ -169,7 +169,7 @@ async function runIndexing(config: WorkerConfig): Promise<void> {
       }
 
       // Send progress update periodically
-      if ((i + 1) % PROGRESS_INTERVAL === 0 || i === files.length - 1) {
+      if ((i + 1) % progressInterval === 0 || i === files.length - 1) {
         postMessage({
           type: 'progress',
           data: {

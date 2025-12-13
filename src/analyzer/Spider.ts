@@ -494,6 +494,7 @@ export class Spider {
         rootDir: this.config.rootDir,
         excludeNodeModules: this.config.excludeNodeModules,
         tsConfigPath: this.config.tsConfigPath,
+        progressInterval: this.config.indexingProgressInterval,
       },
     });
   }

@@ -152,6 +152,8 @@ export interface SpiderConfig {
   tsConfigPath?: string;
   maxDepth?: number;
   excludeNodeModules?: boolean;
+  /** Interval for worker progress reporting (defaults to 100 files) */
+  indexingProgressInterval?: number;
   /** Enable reverse index for O(1) reverse dependency lookups */
   enableReverseIndex?: boolean;
   /** Number of files to process in parallel during indexing */
