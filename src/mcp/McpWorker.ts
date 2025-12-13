@@ -63,7 +63,7 @@ import type {
 } from './types';
 import { enrichDependency, validateToolParams, validateFilePath } from './types';
 import { getLogger, getLogLevelFromEnv, loggerFactory } from '../shared/logger';
-import { SUPPORTED_FILE_EXTENSIONS } from '../shared/constants';
+import { SUPPORTED_FILE_EXTENSIONS, IGNORED_DIRECTORIES } from '../shared/constants';
 
 // Configure log level from environment variable
 loggerFactory.setDefaultLevel(getLogLevelFromEnv('LOG_LEVEL'));
@@ -275,13 +275,7 @@ function setupFileWatcher(): void {
   try {
     fileWatcher = watch(globPattern, {
       ignored: [
-        '**/node_modules/**',
-        '**/.git/**',
-        '**/dist/**',
-        '**/build/**',
-        '**/coverage/**',
-        '**/.next/**',
-        '**/.nuxt/**',
+        ...IGNORED_DIRECTORIES.map(dir => `**/${dir}/**`),
       ],
       persistent: true,
       ignoreInitial: true, // Don't fire events for existing files

@@ -8,6 +8,7 @@ import { IndexerStatus, IndexerStatusSnapshot } from './IndexerStatus';
 import { IndexerWorkerHost } from './IndexerWorkerHost';
 import { Dependency, SpiderConfig, IndexingProgressCallback, normalizePath, SpiderError } from './types';
 import { getLogger } from '../shared/logger';
+import { IGNORED_DIRECTORIES } from '../shared/constants';
 
 /** Logger instance for Spider */
 const log = getLogger('Spider');
@@ -17,7 +18,7 @@ const log = getLogger('Spider');
  */
 function isInNodeModules(filePath: string): boolean {
   const normalized = normalizePath(filePath);
-  return normalized.includes('/node_modules/') || normalized.includes('/node_modules');
+  return IGNORED_DIRECTORIES.some(dir => normalized.includes(`/${dir}/`) || normalized.includes(`/${dir}`));
 }
 
 import { SymbolAnalyzer } from './SymbolAnalyzer';
