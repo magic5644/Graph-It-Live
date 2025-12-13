@@ -35,6 +35,11 @@ export class GraphProvider implements vscode.WebviewViewProvider {
     private readonly _nodeInteractionService?: NodeInteractionService;
     private readonly _navigationService?: EditorNavigationService;
     private readonly _stateManager: ProviderStateManager;
+    /**
+     * Optional callback used by EditorEventsService to notify MCP server.
+     * Populated by extension activation if MCP server is registered.
+     */
+    public notifyMcpServerOfConfigChange?: () => void;
 
     constructor(extensionUri: vscode.Uri, context: vscode.ExtensionContext) {
         this._extensionUri = extensionUri;
