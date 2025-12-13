@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach } from 'vitest';
-import { Spider } from '@/analyzer/Spider';
-import { normalizePath } from '@/analyzer/types';
+import { Spider } from '../../src/analyzer/Spider';
+import { normalizePath } from '../../src/analyzer/types';
 import path from 'node:path';
 
 // Use absolute path for test fixtures
