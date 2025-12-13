@@ -30,6 +30,8 @@ export class SourceFileWatcher {
   private readonly refreshFileView: () => void;
   private readonly persistIndex: () => Promise<void>;
   private readonly watcher: vscode.FileSystemWatcher;
+  private readonly pending = new Map<string, NodeJS.Timeout>();
+  private readonly debounceDelay = 200;
 
   constructor(options: SourceFileWatcherOptions) {
     this.spider = options.spider;
@@ -41,15 +43,15 @@ export class SourceFileWatcher {
     this.watcher = vscode.workspace.createFileSystemWatcher(WATCH_GLOB);
 
     this.watcher.onDidCreate((uri) => {
-      void this.handleCreate(uri.fsPath);
+      this.scheduleScan('create', uri.fsPath);
     });
 
     this.watcher.onDidChange((uri) => {
-      void this.handleChange(uri.fsPath);
+      this.scheduleScan('change', uri.fsPath);
     });
 
     this.watcher.onDidDelete((uri) => {
-      void this.handleDelete(uri.fsPath);
+      this.scheduleScan('delete', uri.fsPath);
     });
 
     options.context.subscriptions.push(this.watcher);
@@ -57,6 +59,38 @@ export class SourceFileWatcher {
 
   dispose(): void {
     this.watcher.dispose();
+    for (const timeout of this.pending.values()) {
+      clearTimeout(timeout);
+    }
+    this.pending.clear();
+  }
+
+  private scheduleScan(event: 'create' | 'change' | 'delete', filePath: string): void {
+    const existing = this.pending.get(filePath);
+    if (existing) {
+      clearTimeout(existing);
+    }
+
+    const timeout = setTimeout(() => {
+      this.pending.delete(filePath);
+      void this.processEvent(event, filePath);
+    }, this.debounceDelay);
+
+    this.pending.set(filePath, timeout);
+  }
+
+  private async processEvent(event: 'create' | 'change' | 'delete', filePath: string): Promise<void> {
+    switch (event) {
+      case 'create':
+        await this.handleCreate(filePath);
+        break;
+      case 'change':
+        await this.handleChange(filePath);
+        break;
+      case 'delete':
+        await this.handleDelete(filePath);
+        break;
+    }
   }
 
   private async handleCreate(filePath: string): Promise<void> {

@@ -20,7 +20,7 @@ export class ProviderStateManager {
     return {
       excludeNodeModules: config.get<boolean>('excludeNodeModules', true),
       maxDepth: config.get<number>('maxDepth', 50),
-      enableBackgroundIndexing: config.get<boolean>('enableBackgroundIndexing', false),
+      enableBackgroundIndexing: config.get<boolean>('enableBackgroundIndexing', true),
       indexingConcurrency: config.get<number>('indexingConcurrency', 4),
       indexingStartDelay: config.get<number>('indexingStartDelay', this.defaultIndexingDelay),
       persistIndex: config.get<boolean>('persistIndex', false),
