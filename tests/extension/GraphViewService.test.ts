@@ -5,7 +5,7 @@ import type { Spider } from '../../src/analyzer/Spider';
 const createSpider = () => ({
   crawl: vi.fn(),
   hasReverseIndex: vi.fn(),
-  findReferencingFiles: vi.fn(),
+  getCallerCount: vi.fn(),
 }) as unknown as Spider;
 
 const createLogger = () => ({
@@ -29,13 +29,13 @@ describe('GraphViewService', () => {
       edges: [],
     });
     (spider.hasReverseIndex as ReturnType<typeof vi.fn>).mockReturnValue(true);
-    (spider.findReferencingFiles as ReturnType<typeof vi.fn>).mockResolvedValue([{ path: 'fileB.ts' }]);
+    (spider.getCallerCount as ReturnType<typeof vi.fn>).mockReturnValue(1);
 
     const service = new GraphViewService(spider, logger);
     const data = await service.buildGraphData('fileA.ts');
 
     expect(data.parentCounts).toEqual({ 'fileA.ts': 1 });
-    expect(spider.findReferencingFiles).toHaveBeenCalledWith('fileA.ts');
+    expect(spider.getCallerCount).toHaveBeenCalledWith('fileA.ts');
   });
 
   it('omits parentCounts when reverse index disabled', async () => {
@@ -49,6 +49,6 @@ describe('GraphViewService', () => {
     const data = await service.buildGraphData('fileA.ts');
 
     expect(data.parentCounts).toBeUndefined();
-    expect(spider.findReferencingFiles).not.toHaveBeenCalled();
+    expect(spider.getCallerCount).not.toHaveBeenCalled();
   });
 });

@@ -6,6 +6,7 @@ const createSpider = () => ({
   crawlFrom: vi.fn(),
   findReferencingFiles: vi.fn(),
   hasReverseIndex: vi.fn(),
+  getCallerCount: vi.fn(),
 }) as unknown as Spider;
 
 const createLogger = () => ({
@@ -37,6 +38,7 @@ describe('NodeInteractionService', () => {
       .mockResolvedValueOnce([{ path: 'fileB.ts' }])
       .mockResolvedValueOnce([{ path: 'fileC.ts' }]);
     (spider.hasReverseIndex as ReturnType<typeof vi.fn>).mockReturnValue(true);
+    (spider.getCallerCount as ReturnType<typeof vi.fn>).mockReturnValue(1);
 
     const service = new NodeInteractionService(spider, logger);
     const result = await service.getReferencingFiles('fileA.ts');
@@ -44,5 +46,6 @@ describe('NodeInteractionService', () => {
     expect(result.command).toBe('referencingFiles');
     expect(result.data.nodes).toEqual(['fileB.ts']);
     expect(result.data.parentCounts).toEqual({ 'fileB.ts': 1 });
+    expect(spider.getCallerCount).toHaveBeenCalledWith('fileB.ts');
   });
 });

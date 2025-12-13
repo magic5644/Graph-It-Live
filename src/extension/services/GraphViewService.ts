@@ -49,22 +49,12 @@ export class GraphViewService {
 
   private async populateParentCounts(graphData: GraphData): Promise<void> {
     const parentCounts: Record<string, number> = {};
-    await Promise.all(
-      graphData.nodes.map(async (node) => {
-        try {
-          const refs = await this.spider.findReferencingFiles(node);
-          if (refs && refs.length > 0) {
-            parentCounts[node] = refs.length;
-          }
-        } catch (err) {
-          this.logger.debug(
-            'Failed to compute parent count for',
-            node,
-            err instanceof Error ? err.message : String(err)
-          );
-        }
-      })
-    );
+    for (const node of graphData.nodes) {
+      const count = this.spider.getCallerCount(node);
+      if (count > 0) {
+        parentCounts[node] = count;
+      }
+    }
 
     if (Object.keys(parentCounts).length > 0) {
       graphData.parentCounts = parentCounts;
