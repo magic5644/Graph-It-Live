@@ -1,15 +1,15 @@
 import * as fs from 'node:fs/promises';
-import * as path from 'node:path';
 import { Parser } from './Parser';
 import { PathResolver } from './PathResolver';
 import { Cache } from './Cache';
 import { ReverseIndex } from './ReverseIndex';
 import { ReverseIndexManager } from './ReverseIndexManager';
 import { IndexerStatus, IndexerStatusSnapshot } from './IndexerStatus';
-import { IndexerWorkerHost } from './IndexerWorkerHost';
 import { Dependency, SpiderConfig, IndexingProgressCallback, normalizePath, SpiderError } from './types';
 import { getLogger } from '../shared/logger';
 import { IGNORED_DIRECTORIES } from '../shared/constants';
+import { SpiderWorkerManager } from './SpiderWorkerManager';
+import { SourceFileCollector } from './SourceFileCollector';
 
 /** Logger instance for Spider */
 const log = getLogger('Spider');
@@ -46,8 +46,11 @@ export class Spider {
   /** Indexer status tracker for progress monitoring */
   private readonly indexerStatus: IndexerStatus = new IndexerStatus();
 
-  /** Worker host for background indexing (optional, used when useWorkerThread is true) */
-  private workerHost: IndexerWorkerHost | null = null;
+  /** Handles worker-thread indexing orchestration */
+  private readonly workerManager: SpiderWorkerManager;
+
+  /** Collects source files for indexing and fallbacks */
+  private readonly sourceFileCollector: SourceFileCollector;
 
   /** Flag to request cancellation of indexing */
   private indexingCancelled = false;
@@ -84,6 +87,17 @@ export class Spider {
 
     // Initialize reverse index if enabled
     this.reverseIndexManager = new ReverseIndexManager(this.config.rootDir);
+    this.workerManager = new SpiderWorkerManager(
+      this.indexerStatus,
+      this.reverseIndexManager,
+      this.cache
+    );
+    this.sourceFileCollector = new SourceFileCollector({
+      excludeNodeModules: this.config.excludeNodeModules ?? true,
+      yieldIntervalMs: Spider.YIELD_INTERVAL_MS,
+      yieldCallback: () => this.yieldToEventLoop(),
+      isCancelled: () => this.indexingCancelled,
+    });
 
     if (config.enableReverseIndex) {
       this.enableReverseIndex(); // Use the new enableReverseIndex method
@@ -99,6 +113,7 @@ export class Spider {
     
     if (config.excludeNodeModules !== undefined) {
       this.resolver.updateConfig(config.excludeNodeModules);
+      this.sourceFileCollector.updateOptions({ excludeNodeModules: config.excludeNodeModules });
     }
 
     // Handle reverse index enable/disable
@@ -339,7 +354,7 @@ export class Spider {
    */
   cancelIndexing(): void {
     this.indexingCancelled = true;
-    this.workerHost?.cancel();
+    this.workerManager.cancel();
   }
 
   /** Maximum time in ms between yields to event loop (50ms = 20 yields/sec) */
@@ -364,7 +379,7 @@ export class Spider {
     // Phase 1: Counting files (with yielding for large projects)
     this.indexerStatus.startCounting();
     
-    const allFiles = await this.collectAllSourceFiles(this.config.rootDir);
+    const allFiles = await this.sourceFileCollector.collectAllSourceFiles(this.config.rootDir);
     
     if (this.indexingCancelled) {
       this.indexerStatus.setCancelled();
@@ -448,80 +463,22 @@ export class Spider {
     duration: number;
     cancelled: boolean;
   }> {
-    // Create worker host if not already created
-    this.workerHost ??= new IndexerWorkerHost(workerPath);
-    
-    // Ensure reverse index exists
-    this.reverseIndexManager.ensure();
-
-    // Subscribe to worker status updates and forward to our indexerStatus
-    const unsubscribe = this.workerHost.subscribeToStatus((snapshot) => {
-      // Mirror state to our internal indexerStatus for consistency
-      switch (snapshot.state) {
-        case 'counting':
-          this.indexerStatus.startCounting();
-          break;
-        case 'indexing':
-          if (snapshot.total > 0) {
-            this.indexerStatus.setTotal(snapshot.total);
-            this.indexerStatus.startIndexing();
-          }
-          this.indexerStatus.updateProgress(snapshot.processed, snapshot.currentFile);
-          break;
-        case 'complete':
-          this.indexerStatus.complete();
-          break;
-        case 'error':
-          this.indexerStatus.setError(snapshot.errorMessage ?? 'Unknown error');
-          break;
-      }
-
-      // Call legacy progress callback if provided
-      if (progressCallback && snapshot.state === 'indexing') {
-        progressCallback(snapshot.processed, snapshot.total, snapshot.currentFile);
-      }
-    });
-
-    try {
-      const result = await this.workerHost.startIndexing({
+    return this.workerManager.buildFullIndexInWorker({
+      workerPath,
+      progressCallback,
+      config: {
         rootDir: this.config.rootDir,
         excludeNodeModules: this.config.excludeNodeModules,
         tsConfigPath: this.config.tsConfigPath,
-      });
-
-      // Import the indexed data into our reverse index
-      
-      for (const fileData of result.data) {
-        // Normalize path for internal storage
-        const normalizedPath = normalizePath(fileData.filePath);
-
-        // Cache the dependencies
-        this.cache.set(normalizedPath, fileData.dependencies);
-        
-        // Add to reverse index with file hash
-        this.reverseIndexManager.addDependencies(
-          normalizedPath,
-          fileData.dependencies,
-          { mtime: fileData.mtime, size: fileData.size }
-        );
-      }
-
-      return {
-        indexedFiles: result.indexedFiles,
-        duration: result.duration,
-        cancelled: result.cancelled,
-      };
-    } finally {
-      unsubscribe();
-    }
+      },
+    });
   }
 
   /**
    * Dispose worker resources
    */
   disposeWorker(): void {
-    this.workerHost?.dispose();
-    this.workerHost = null;
+    this.workerManager.dispose();
   }
 
   /**
@@ -531,54 +488,6 @@ export class Spider {
    */
   private yieldToEventLoop(): Promise<void> {
     return new Promise((resolve) => setTimeout(resolve, 1));
-  }
-
-  /**
-   * Collect all supported source files in a directory tree
-   * Yields to event loop periodically based on time to avoid blocking on large projects
-   */
-  private async collectAllSourceFiles(dir: string): Promise<string[]> {
-    const files: string[] = [];
-    let lastYieldTime = Date.now();
-    
-    const processEntry = async (entry: import('node:fs').Dirent, currentDir: string): Promise<void> => {
-      const fullPath = path.join(currentDir, entry.name);
-      
-      if (entry.isDirectory() && !this.shouldSkipDirectory(entry.name)) {
-        await walkDir(fullPath);
-      } else if (entry.isFile() && this.isSupportedSourceFile(entry.name)) {
-        files.push(fullPath);
-      }
-    };
-
-    const walkDir = async (currentDir: string): Promise<void> => {
-      if (this.indexingCancelled) {
-        return;
-      }
-
-      // Time-based yielding during traversal
-      const now = Date.now();
-      if (now - lastYieldTime >= Spider.YIELD_INTERVAL_MS) {
-        await this.yieldToEventLoop();
-        lastYieldTime = Date.now();
-      }
-
-      try {
-        const entries = await fs.readdir(currentDir, { withFileTypes: true });
-        
-        for (const entry of entries) {
-          if (this.indexingCancelled) {
-            return;
-          }
-          await processEntry(entry, currentDir);
-        }
-      } catch (error) {
-        log.error('Error reading directory', currentDir, error);
-      }
-    };
-
-    await walkDir(dir);
-    return files;
   }
 
   /**
@@ -790,24 +699,6 @@ export class Spider {
     };
   }
 
-
-
-  /**
-   * Check if a directory should be skipped during traversal
-   */
-  private shouldSkipDirectory(entryName: string): boolean {
-    if (this.config.excludeNodeModules && entryName === 'node_modules') {
-      return true;
-    }
-    return entryName.startsWith('.');
-  }
-
-  /**
-   * Check if a file is a supported source file
-   */
-  private isSupportedSourceFile(fileName: string): boolean {
-    return /\.(ts|tsx|js|jsx|vue|svelte|gql|graphql)$/.test(fileName);
-  }
 
   /**
    * Check if a dependency's target file path matches a given absolute path
@@ -1167,7 +1058,7 @@ export class Spider {
     log.debug('findReferencingFilesFallback for', normalizedTargetPath, 'basename:', targetBasename);
 
     // Use parallelized directory walk
-    const allFiles = await this.collectAllSourceFiles(this.config.rootDir);
+    const allFiles = await this.sourceFileCollector.collectAllSourceFiles(this.config.rootDir);
     const referencingFiles: Dependency[] = [];
     const concurrency = this.config.indexingConcurrency ?? 8;
 
