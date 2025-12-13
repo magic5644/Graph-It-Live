@@ -5,13 +5,14 @@ import { Spider } from '../analyzer/Spider';
 import type { ExtensionToWebviewMessage, WebviewToExtensionMessage, SetExpandAllMessage, SwitchModeMessage, WebviewLogMessage } from '../shared/types';
 import { getExtensionLogger, extensionLoggerManager } from './extensionLogger';
 import type { IndexerStatusSnapshot } from '../analyzer/IndexerStatus';
-import { BackgroundIndexingManager, BackgroundIndexingConfig } from './services/BackgroundIndexingManager';
+import { BackgroundIndexingManager } from './services/BackgroundIndexingManager';
 import { SourceFileWatcher } from './services/SourceFileWatcher';
 import { WebviewMessageRouter } from './services/WebviewMessageRouter';
 import { GraphViewService } from './services/GraphViewService';
 import { SymbolViewService } from './services/SymbolViewService';
 import { NodeInteractionService } from './services/NodeInteractionService';
 import { EditorNavigationService } from './services/EditorNavigationService';
+import { ProviderStateManager, ProviderConfigSnapshot } from './services/ProviderStateManager';
 
 /** Logger instance for GraphProvider */
 const log = getExtensionLogger('GraphProvider');
@@ -19,35 +20,26 @@ const log = getExtensionLogger('GraphProvider');
 /** Default delay before starting background indexing (ms) */
 const DEFAULT_INDEXING_START_DELAY = 1000;
 
-interface ExtensionConfigSnapshot extends BackgroundIndexingConfig {
-    excludeNodeModules: boolean;
-    maxDepth: number;
-    indexingConcurrency: number;
-}
-
 export class GraphProvider implements vscode.WebviewViewProvider {
     public static readonly viewType = 'graph-it-live.graphView';
 
     private _view?: vscode.WebviewView;
     private _spider?: Spider;
     private readonly _extensionUri: vscode.Uri;
-    private readonly _context: vscode.ExtensionContext;
     private readonly _indexingManager?: BackgroundIndexingManager;
     private readonly _sourceFileWatcher?: SourceFileWatcher;
-    private _configSnapshot: ExtensionConfigSnapshot;
+    private _configSnapshot: ProviderConfigSnapshot;
     private readonly _messageRouter: WebviewMessageRouter;
     private readonly _graphViewService?: GraphViewService;
     private readonly _symbolViewService?: SymbolViewService;
     private readonly _nodeInteractionService?: NodeInteractionService;
     private readonly _navigationService?: EditorNavigationService;
-
-    /** Currently displayed symbol view file (for auto-refresh on file change) */
-    private _currentSymbolFilePath?: string;
+    private readonly _stateManager: ProviderStateManager;
 
     constructor(extensionUri: vscode.Uri, context: vscode.ExtensionContext) {
         this._extensionUri = extensionUri;
-        this._context = context;
-        this._configSnapshot = this._loadConfiguration();
+        this._stateManager = new ProviderStateManager(context, DEFAULT_INDEXING_START_DELAY);
+        this._configSnapshot = this._stateManager.loadConfiguration();
         
         this._initializeSpider(this._configSnapshot);
 
@@ -70,9 +62,9 @@ export class GraphProvider implements vscode.WebviewViewProvider {
                 spider: this._spider,
                 logger: log,
                 symbolView: {
-                    getCurrent: () => this._currentSymbolFilePath,
+                    getCurrent: () => this._stateManager.currentSymbol,
                     refresh: async (filePath: string) => { await this.handleDrillDown(filePath, true); },
-                    clear: () => { this._currentSymbolFilePath = undefined; },
+                    clear: () => { this._stateManager.currentSymbol = undefined; },
                 },
                 refreshFileView: () => { this.updateGraph(true); },
                 persistIndex: async () => { await this._indexingManager!.persistIndexIfEnabled(); },
@@ -108,8 +100,8 @@ export class GraphProvider implements vscode.WebviewViewProvider {
     }
 
     private async _refreshAfterIndexing(): Promise<void> {
-        if (this._currentSymbolFilePath) {
-            await this.handleDrillDown(this._currentSymbolFilePath, true);
+        if (this._stateManager.currentSymbol) {
+            await this.handleDrillDown(this._stateManager.currentSymbol, true);
         } else {
             this.updateGraph(true);
         }
@@ -117,13 +109,13 @@ export class GraphProvider implements vscode.WebviewViewProvider {
 
     private async _handleSetExpandAllMessage(message: SetExpandAllMessage): Promise<void> {
         log.debug('Setting expandAll to', message.expandAll);
-        await this._context.globalState.update('expandAll', message.expandAll);
+        await this._stateManager.setExpandAll(message.expandAll);
     }
 
     private async _handleSwitchModeMessage(message: SwitchModeMessage): Promise<void> {
         log.debug('Switching to', message.mode, 'mode');
         if (message.mode === 'file') {
-            this._currentSymbolFilePath = undefined;
+            this._stateManager.currentSymbol = undefined;
             this.updateGraph();
         } else if (message.mode === 'symbol') {
             const editor = vscode.window.activeTextEditor;
@@ -133,20 +125,7 @@ export class GraphProvider implements vscode.WebviewViewProvider {
         }
     }
 
-    private _loadConfiguration(): ExtensionConfigSnapshot {
-        const config = vscode.workspace.getConfiguration('graph-it-live');
-        return {
-            excludeNodeModules: config.get<boolean>('excludeNodeModules', true),
-            maxDepth: config.get<number>('maxDepth', 50),
-            enableBackgroundIndexing: config.get<boolean>('enableBackgroundIndexing', false),
-            indexingConcurrency: config.get<number>('indexingConcurrency', 4),
-            indexingStartDelay: config.get<number>('indexingStartDelay', DEFAULT_INDEXING_START_DELAY),
-            persistIndex: config.get<boolean>('persistIndex', false),
-        };
-    }
-
-
-    private _initializeSpider(config: ExtensionConfigSnapshot) {
+    private _initializeSpider(config: ProviderConfigSnapshot) {
         const workspaceRoot = vscode.workspace.workspaceFolders?.[0].uri.fsPath;
         if (workspaceRoot) {
             this._spider = new Spider({
@@ -164,7 +143,7 @@ export class GraphProvider implements vscode.WebviewViewProvider {
 
     public updateConfig() {
         if (this._spider) {
-            this._configSnapshot = this._loadConfiguration();
+            this._configSnapshot = this._stateManager.loadConfiguration();
 
             this._spider.updateConfig({ 
                 excludeNodeModules: this._configSnapshot.excludeNodeModules, 
@@ -207,10 +186,10 @@ export class GraphProvider implements vscode.WebviewViewProvider {
         await this._indexingManager?.persistIndexIfEnabled();
         
         // Refresh the appropriate view based on current mode
-        if (this._currentSymbolFilePath) {
+        if (this._stateManager.currentSymbol) {
             // In symbol view - always refresh to update reverse dependencies (Imported By list)
             // even if the saved file is different from the viewed one
-            await this.handleDrillDown(this._currentSymbolFilePath, true);
+            await this.handleDrillDown(this._stateManager.currentSymbol, true);
         } else {
             // In file view - refresh the graph (preserve view mode)
             this.updateGraph(true);
@@ -238,7 +217,7 @@ export class GraphProvider implements vscode.WebviewViewProvider {
         log.debug('Active file changed to:', newFilePath);
 
         // Preserve the current view type
-        if (this._currentSymbolFilePath) {
+        if (this._stateManager.currentSymbol) {
             // Was in symbol view - show symbols for the new file
             // Update tracking to new file and refresh symbol view
             await this.handleDrillDown(newFilePath, true);
@@ -306,7 +285,7 @@ export class GraphProvider implements vscode.WebviewViewProvider {
             return;
         }
         
-        // Don't eagerly set _currentSymbolFilePath yet - we need to resolve relative/module
+        // Don't eagerly set current symbol yet - we need to resolve relative/module
         // specifiers first so the tracked file is always an absolute path.
         
         try {
@@ -318,13 +297,13 @@ export class GraphProvider implements vscode.WebviewViewProvider {
             // Resolve the file path to an absolute path if needed
             const resolvedFilePath = await this._navigationService.resolveDrillDownPath(
                 requestedPath,
-                this._currentSymbolFilePath
+                this._stateManager.currentSymbol
             );
             if (!resolvedFilePath) return; // Messages already shown by resolver
 
             // Track the resolved (absolute) file we are viewing for refreshes
             const rootNodeId = symbolName ? `${resolvedFilePath}:${symbolName}` : resolvedFilePath;
-            this._currentSymbolFilePath = rootNodeId;
+            this._stateManager.currentSymbol = rootNodeId;
 
             const symbolGraph = await this._symbolViewService.buildSymbolGraph(resolvedFilePath, rootNodeId);
             
@@ -426,9 +405,9 @@ export class GraphProvider implements vscode.WebviewViewProvider {
         log.info('Refreshing current graph view');
         
         // Refresh the appropriate view based on current mode
-        if (this._currentSymbolFilePath) {
+        if (this._stateManager.currentSymbol) {
             // In symbol view - refresh symbol analysis
-            await this.handleDrillDown(this._currentSymbolFilePath, true);
+            await this.handleDrillDown(this._stateManager.currentSymbol, true);
         } else {
             // In file view - refresh file dependencies
             this.updateGraph(true);
@@ -453,10 +432,10 @@ export class GraphProvider implements vscode.WebviewViewProvider {
         const filePath = editor.document.fileName;
 
         // Toggle based on current mode
-        if (this._currentSymbolFilePath) {
+        if (this._stateManager.currentSymbol) {
             // Currently in symbol view → switch to file view
             log.info('Toggling from symbol view to file view');
-            this._currentSymbolFilePath = undefined;
+            this._stateManager.currentSymbol = undefined;
             this.updateGraph();
             return { mode: 'file', message: 'Switched to File View' };
         } else {
@@ -477,11 +456,11 @@ export class GraphProvider implements vscode.WebviewViewProvider {
         }
 
         // Get current state and toggle it
-        const currentExpandAll = this._context.globalState.get<boolean>('expandAll', false);
+        const currentExpandAll = this._stateManager.getExpandAll();
         const newExpandAll = !currentExpandAll;
 
         // Update state
-        await this._context.globalState.update('expandAll', newExpandAll);
+        await this._stateManager.setExpandAll(newExpandAll);
 
         // Send message to webview to toggle expand/collapse
         const message: ExtensionToWebviewMessage = {
@@ -523,7 +502,7 @@ export class GraphProvider implements vscode.WebviewViewProvider {
 
         // Only clear symbol view tracking if this is a navigation, not a refresh
         if (!isRefresh) {
-            this._currentSymbolFilePath = undefined;
+            this._stateManager.currentSymbol = undefined;
         }
 
         const editor = vscode.window.activeTextEditor;
@@ -558,7 +537,7 @@ export class GraphProvider implements vscode.WebviewViewProvider {
 
         try {
             const graphData = await this._graphViewService.buildGraphData(filePath);
-            const expandAll = this._context.globalState.get<boolean>('expandAll', false);
+            const expandAll = this._stateManager.getExpandAll();
             const message: ExtensionToWebviewMessage = {
                 command: 'updateGraph',
                 filePath,
