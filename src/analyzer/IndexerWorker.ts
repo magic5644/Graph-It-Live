@@ -11,13 +11,7 @@ import * as path from 'node:path';
 import { Parser } from './Parser';
 import { PathResolver } from './PathResolver';
 import type { Dependency } from './types';
-import { SUPPORTED_FILE_EXTENSIONS, IGNORED_DIRECTORIES } from '../shared/constants';
-
-// Extensions supported for indexing
-const SUPPORTED_EXTENSIONS = SUPPORTED_FILE_EXTENSIONS;
-
-// Directories to skip during traversal
-const SKIP_DIRECTORIES = new Set(IGNORED_DIRECTORIES);
+import { isSupportedSourceFile, shouldSkipDirectory } from './SourceFileFilters';
 
 interface WorkerConfig {
   rootDir: string;
@@ -59,23 +53,9 @@ function postMessage(msg: WorkerResponse): void {
 }
 
 /**
- * Check if a file extension is supported
- */
-function isSupportedSourceFile(filename: string): boolean {
-  return SUPPORTED_EXTENSIONS.some(ext => filename.endsWith(ext));
-}
-
-/**
- * Check if a directory should be skipped
- */
-function shouldSkipDirectory(dirname: string): boolean {
-  return SKIP_DIRECTORIES.has(dirname) || dirname.startsWith('.');
-}
-
-/**
  * Collect all supported source files in a directory tree
  */
-async function collectAllSourceFiles(dir: string): Promise<string[]> {
+async function collectAllSourceFiles(dir: string, excludeNodeModules: boolean): Promise<string[]> {
   const files: string[] = [];
   
   const walkDir = async (currentDir: string): Promise<void> => {
@@ -90,7 +70,7 @@ async function collectAllSourceFiles(dir: string): Promise<string[]> {
         const fullPath = path.join(currentDir, entry.name);
         
         if (entry.isDirectory()) {
-          if (!shouldSkipDirectory(entry.name)) {
+          if (!shouldSkipDirectory(entry.name, excludeNodeModules)) {
             await walkDir(fullPath);
           }
         } else if (entry.isFile() && isSupportedSourceFile(entry.name)) {
@@ -163,7 +143,7 @@ async function runIndexing(config: WorkerConfig): Promise<void> {
 
     // Phase 1: Collect all files
     postMessage({ type: 'counting' });
-    const files = await collectAllSourceFiles(config.rootDir);
+    const files = await collectAllSourceFiles(config.rootDir, config.excludeNodeModules ?? true);
     
     if (cancelled) {
       postMessage({ type: 'complete', data: { duration: Date.now() - startTime, indexData: [] } });

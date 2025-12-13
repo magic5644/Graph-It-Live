@@ -10,6 +10,7 @@ import { getLogger } from '../shared/logger';
 import { IGNORED_DIRECTORIES } from '../shared/constants';
 import { SpiderWorkerManager } from './SpiderWorkerManager';
 import { SourceFileCollector } from './SourceFileCollector';
+import { ReferencingFilesFinder } from './ReferencingFilesFinder';
 
 /** Logger instance for Spider */
 const log = getLogger('Spider');
@@ -51,6 +52,9 @@ export class Spider {
 
   /** Collects source files for indexing and fallbacks */
   private readonly sourceFileCollector: SourceFileCollector;
+
+  /** Fallback reverse-reference scanner when reverse index is unavailable */
+  private readonly referencingFilesFinder: ReferencingFilesFinder;
 
   /** Flag to request cancellation of indexing */
   private indexingCancelled = false;
@@ -97,6 +101,13 @@ export class Spider {
       yieldIntervalMs: Spider.YIELD_INTERVAL_MS,
       yieldCallback: () => this.yieldToEventLoop(),
       isCancelled: () => this.indexingCancelled,
+    });
+    this.referencingFilesFinder = new ReferencingFilesFinder({
+      sourceFileCollector: this.sourceFileCollector,
+      getRootDir: () => this.config.rootDir,
+      getConcurrency: () => this.config.indexingConcurrency,
+      findReferenceInFile: (filePath, normalizedTargetPath, targetBasename) =>
+        this.findReferenceInFile(filePath, normalizedTargetPath, targetBasename),
     });
 
     if (config.enableReverseIndex) {
@@ -727,13 +738,6 @@ export class Spider {
   }
 
   /**
-   * Extract the basename (without extension) from a file path
-   */
-  private extractBasename(filePath: string): string | undefined {
-    return filePath.split(/[/\\]/).pop()?.replace(/\.[^/.]+$/, '');
-  }
-
-  /**
    * Check if a file contains a reference to the target and return the dependency if found
    * @param filePath Source file to check for references
    * @param targetPath Normalized target path to find references for
@@ -782,7 +786,7 @@ export class Spider {
     }
 
     // Fallback to directory scan (O(n) but parallelized)
-    return this.findReferencingFilesFallback(targetPath);
+    return this.referencingFilesFinder.findReferencingFilesFallback(targetPath);
   }
 
   /**
@@ -1040,47 +1044,6 @@ export class Spider {
       visitedSymbols: Array.from(visitedSymbols),
       maxDepthReached,
     };
-  }
-
-  /**
-   * Fallback method for finding referencing files via directory scan
-   * Used when reverse index is not available
-   */
-  private async findReferencingFilesFallback(targetPath: string): Promise<Dependency[]> {
-    // Normalize target path for consistent comparison across platforms
-    const normalizedTargetPath = normalizePath(targetPath);
-    const targetBasename = this.extractBasename(normalizedTargetPath);
-    
-    if (!targetBasename) {
-      return [];
-    }
-
-    log.debug('findReferencingFilesFallback for', normalizedTargetPath, 'basename:', targetBasename);
-
-    // Use parallelized directory walk
-    const allFiles = await this.sourceFileCollector.collectAllSourceFiles(this.config.rootDir);
-    const referencingFiles: Dependency[] = [];
-    const concurrency = this.config.indexingConcurrency ?? 8;
-
-    for (let i = 0; i < allFiles.length; i += concurrency) {
-      const batch = allFiles.slice(i, i + concurrency);
-      
-      const results = await Promise.all(
-        batch
-          // Normalize paths before comparison to ensure cross-platform consistency
-          .filter(filePath => normalizePath(filePath) !== normalizedTargetPath)
-          .map(filePath => this.findReferenceInFile(filePath, normalizedTargetPath, targetBasename))
-      );
-
-      for (const result of results) {
-        if (result) {
-          referencingFiles.push(result);
-        }
-      }
-    }
-
-    log.debug('findReferencingFilesFallback found', referencingFiles.length, 'referencing files');
-    return referencingFiles;
   }
 
   /**
