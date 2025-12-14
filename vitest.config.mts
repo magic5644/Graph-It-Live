@@ -13,7 +13,7 @@ export default defineConfig({
     exclude: ["tests/benchmarks/**", "tests/vscode-e2e/**", "tests/e2e/**"],
     coverage: {
       provider: "v8",
-      reporter: ["text", "json", "html"],
+      reporter: ["text", "json", "html", "lcov"],
       include: ["src/**/*.ts"],
       //include: ['src/analyzer/**/*.ts', 'src/webview/**/*.ts', 'src/shared/**/*.ts', 'src/mcp/**/*.ts', 'src/extension/**/*.ts'],
       exclude: [
