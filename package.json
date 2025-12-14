@@ -170,7 +170,7 @@
         },
         "graph-it-live.enableMcpServer": {
           "type": "boolean",
-          "default": false,
+          "default": true,
           "description": "Enable MCP (Model Context Protocol) server for LLM integration. When enabled, exposes dependency analysis tools to GitHub Copilot and other MCP-compatible AI assistants.",
           "markdownDescription": "Enable **MCP (Model Context Protocol)** server for LLM integration. When enabled, exposes dependency analysis tools to GitHub Copilot and other MCP-compatible AI assistants.\n\n[Learn more about MCP](https://code.visualstudio.com/api/extension-guides/ai/mcp)"
         },

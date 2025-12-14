@@ -8,15 +8,6 @@
  * NO import * as vscode from 'vscode' allowed!
  */
 
-import { setLoggerBackend, StderrLogger } from '../shared/logger';
-
-// Configure all loggers in this thread to use StderrLogger
-setLoggerBackend({
-  createLogger(prefix: string, level) {
-    return new StderrLogger(prefix, level);
-  }
-});
-
 import { parentPort } from 'node:worker_threads';
 import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
@@ -71,7 +62,14 @@ import type {
   ImpactedItem,
 } from './types';
 import { enrichDependency, validateToolParams, validateFilePath } from './types';
-import { getLogger, getLogLevelFromEnv, loggerFactory } from '../shared/logger';
+import { getLogger, getLogLevelFromEnv, loggerFactory, setLoggerBackend, StderrLogger } from '../shared/logger';
+
+// Configure all loggers in this thread to use StderrLogger
+setLoggerBackend({
+  createLogger(prefix: string, level) {
+    return new StderrLogger(prefix, level);
+  }
+});
 import { SUPPORTED_FILE_EXTENSIONS, IGNORED_DIRECTORIES } from '../shared/constants';
 
 // Configure log level from environment variable
@@ -283,9 +281,8 @@ function setupFileWatcher(): void {
 
   try {
     fileWatcher = watch(globPattern, {
-      ignored: [
-        ...IGNORED_DIRECTORIES.map(dir => `**/${dir}/**`),
-      ],
+      ignored: 
+        IGNORED_DIRECTORIES.map(dir => `**/${dir}/**`),
       persistent: true,
       ignoreInitial: true, // Don't fire events for existing files
       awaitWriteFinish: {
