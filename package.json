@@ -256,6 +256,7 @@
     "@types/react-dom": "^19.2.3",
     "@types/vscode": "^1.96.0",
     "@vitest/coverage-v8": "^4.0.15",
+    "@vitest/ui": "^4.0.15",
     "@vscode/test-electron": "^2.5.2",
     "@vscode/vsce": "^3.7.1",
     "esbuild": "^0.27.1",
