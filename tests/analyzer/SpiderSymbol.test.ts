@@ -21,8 +21,8 @@ describe('Spider - Symbol Analysis', () => {
   it('should find unused symbols', async () => {
     const unused = await spider.findUnusedSymbols(utilsPath);
     
-    expect(unused).toHaveLength(1);
-    expect(unused[0].name).toBe('unusedFunc');
+    const names = unused.map((s) => s.name).sort();
+    expect(names).toEqual(['UnusedType', 'unusedFunc']);
   });
 
   it('should find symbol dependents', async () => {

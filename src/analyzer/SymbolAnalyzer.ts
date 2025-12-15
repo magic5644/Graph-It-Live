@@ -161,6 +161,57 @@ export class SymbolAnalyzer {
 
     return { symbols, dependencies };
   }
+
+  /**
+   * Build a dependency graph between exported symbols in the same file.
+   * This is used to avoid reporting exported types/helpers as "unused" when
+   * they are part of the public API surface (e.g. referenced in the signature
+   * of an exported function) or used by another exported symbol.
+   *
+   * Note: This is a syntactic scan (identifier matching), not a full type-check,
+   * but it's sufficient to capture the common "exported type used in exported signature"
+   * and "exported helper used by exported function" cases.
+   */
+  public getInternalExportDependencyGraph(
+    filePath: string,
+    content: string
+  ): Map<string, Set<string>> {
+    this.maybeResetProject();
+
+    let sourceFile = this.project.getSourceFile(filePath);
+    if (sourceFile) {
+      sourceFile.replaceWithText(content);
+    } else {
+      sourceFile = this.project.createSourceFile(filePath, content);
+      this.fileCount++;
+    }
+
+    const exportedDeclarations = sourceFile.getExportedDeclarations();
+    const exportedNames = new Set<string>(exportedDeclarations.keys());
+
+    const graph = new Map<string, Set<string>>();
+
+    for (const [exportName, declarations] of exportedDeclarations) {
+      const sourceId = `${filePath}:${exportName}`;
+      let deps = graph.get(sourceId);
+      if (!deps) {
+        deps = new Set<string>();
+        graph.set(sourceId, deps);
+      }
+
+      for (const decl of declarations) {
+        const identifiers = decl.getDescendantsOfKind(SyntaxKind.Identifier);
+        for (const identifier of identifiers) {
+          const usedName = identifier.getText();
+          if (!exportedNames.has(usedName)) continue;
+          if (usedName === exportName) continue;
+          deps.add(`${filePath}:${usedName}`);
+        }
+      }
+    }
+
+    return graph;
+  }
   
   /**
    * Build a map of all imports in the file
