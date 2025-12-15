@@ -24,10 +24,99 @@ const vscode = (function () {
     }
 })();
 
+class ErrorBoundary extends React.Component<
+    { children: React.ReactNode },
+    { hasError: boolean; message?: string }
+> {
+    constructor(props: { children: React.ReactNode }) {
+        super(props);
+        this.state = { hasError: false };
+    }
+
+    static getDerivedStateFromError(error: unknown) {
+        return { hasError: true, message: error instanceof Error ? error.message : String(error) };
+    }
+
+    componentDidCatch(error: unknown) {
+        console.error('Webview render crashed:', error);
+    }
+
+    render() {
+        if (!this.state.hasError) return this.props.children;
+        return (
+            <div style={{
+                display: 'flex',
+                flexDirection: 'column',
+                alignItems: 'center',
+                justifyContent: 'center',
+                height: '100vh',
+                color: 'var(--vscode-editor-foreground)',
+                fontFamily: 'var(--vscode-font-family)',
+                padding: '20px',
+                textAlign: 'center',
+                gap: '12px',
+            }}>
+                <div style={{ fontSize: 16, fontWeight: 700 }}>
+                    Graph-It-Live: la webview a rencontré une erreur
+                </div>
+                <div style={{ fontSize: 12, color: 'var(--vscode-descriptionForeground)', maxWidth: 520 }}>
+                    {this.state.message || 'Erreur inconnue'}
+                </div>
+                <button
+                    type="button"
+                    onClick={() => {
+                        try {
+                            vscode?.postMessage({ command: 'setExpandAll', expandAll: false });
+                            vscode?.postMessage({ command: 'refreshGraph' });
+                        } catch (e) {
+                            console.error('Failed to reset state before reload:', e);
+                        }
+                        window.location.reload();
+                    }}
+                    style={{
+                        background: 'var(--vscode-button-background)',
+                        color: 'var(--vscode-button-foreground)',
+                        border: '1px solid var(--vscode-button-border, transparent)',
+                        borderRadius: 4,
+                        padding: '8px 12px',
+                        cursor: 'pointer',
+                        fontSize: 12,
+                        fontWeight: 600,
+                    }}
+                >
+                    Recharger la vue
+                </button>
+            </div>
+        );
+    }
+}
+
 const App: React.FC = () => {
     const [graphData, setGraphData] = React.useState<GraphData | null>(null);
     const [currentFilePath, setCurrentFilePath] = React.useState<string>('');
     const [emptyStateMessage, setEmptyStateMessage] = React.useState<string | null>(null);
+
+    const mergeEdgesUnique = React.useCallback((
+        base: Array<{ source: string; target: string }>,
+        incoming: Array<{ source: string; target: string }>
+    ): Array<{ source: string; target: string }> => {
+        const merged: Array<{ source: string; target: string }> = [...base];
+        const seen = new Set<string>(base.map((e) => `${e.source}->${e.target}`));
+        for (const edge of incoming) {
+            const key = `${edge.source}->${edge.target}`;
+            if (seen.has(key)) continue;
+            seen.add(key);
+            merged.push(edge);
+        }
+        return merged;
+    }, []);
+
+    const handleExpandAllChange = React.useCallback((expand: boolean) => {
+        setExpandAll(expand);
+        if (vscode) {
+            vscode.postMessage({ command: 'setExpandAll', expandAll: expand });
+        }
+    }, []);
 
     // Notify extension that webview is ready on mount
     React.useEffect(() => {
@@ -91,6 +180,24 @@ const App: React.FC = () => {
     const [showTypes, setShowTypes] = React.useState<boolean>(true);
     const [symbolData, setSymbolData] = React.useState<{ symbols: SymbolInfo[]; dependencies: SymbolDependency[] } | undefined>(undefined);
     const [referencingFiles, setReferencingFiles] = React.useState<string[]>([]);
+    const [lastExpandedNode, setLastExpandedNode] = React.useState<string | null>(null);
+    const [expansionState, setExpansionState] = React.useState<{
+        nodeId: string;
+        status: 'started' | 'in-progress' | 'completed' | 'cancelled' | 'error';
+        processed?: number;
+        total?: number;
+        message?: string;
+    } | null>(null);
+    const clearExpansionTimeoutRef = React.useRef<ReturnType<typeof setTimeout> | null>(null);
+
+    React.useEffect(() => {
+        return () => {
+            if (clearExpansionTimeoutRef.current) {
+                clearTimeout(clearExpansionTimeoutRef.current);
+                clearExpansionTimeoutRef.current = null;
+            }
+        };
+    }, []);
 
     // Handler for updateGraph message
     const handleUpdateGraphMessage = React.useCallback((message: ExtensionToWebviewMessage & { command: 'updateGraph' }) => {
@@ -133,16 +240,26 @@ const App: React.FC = () => {
 
     // Handler for expandedGraph message
     const handleExpandedGraphMessage = React.useCallback((message: ExtensionToWebviewMessage & { command: 'expandedGraph' }) => {
-        if (graphData) {
-            const mergedNodes = [...new Set([...graphData.nodes, ...message.data.nodes])];
-            const mergedEdges = [...graphData.edges, ...message.data.edges];
-            setGraphData({ 
-                nodes: mergedNodes, 
-                edges: mergedEdges, 
-                nodeLabels: { ...graphData.nodeLabels, ...message.data.nodeLabels } 
-            });
-        }
-    }, [graphData]);
+        setGraphData((current) => {
+            if (current) {
+                const mergedNodes = [...new Set([...current.nodes, ...message.data.nodes])];
+                const mergedEdges = mergeEdgesUnique(current.edges, message.data.edges);
+                const mergedLabels = { ...(current.nodeLabels ?? {}), ...(message.data.nodeLabels ?? {}) };
+                return { 
+                    nodes: mergedNodes, 
+                    edges: mergedEdges, 
+                    nodeLabels: Object.keys(mergedLabels).length > 0 ? mergedLabels : undefined,
+                };
+            }
+
+            return {
+                nodes: message.data.nodes,
+                edges: message.data.edges,
+                nodeLabels: message.data.nodeLabels,
+            };
+        });
+        setLastExpandedNode(message.nodeId);
+    }, [mergeEdgesUnique]);
 
     // Handler for referencingFiles message
     const handleReferencingFilesMessage = React.useCallback((message: ExtensionToWebviewMessage & { command: 'referencingFiles' }) => {
@@ -159,13 +276,13 @@ const App: React.FC = () => {
             });
 
             if (newNodes.length > 0 || newEdges.length > 0) {
-                const mergedParentCounts = { ...graphData.parentCounts, ...message.data.parentCounts };
+                const mergedParentCounts = { ...(graphData.parentCounts ?? {}), ...(message.data.parentCounts ?? {}) };
                 const updatedData: GraphData = {
                     nodes: [...new Set([...graphData.nodes, ...newNodes])],
                     edges: [...graphData.edges, ...newEdges.filter(e =>
                         !graphData.edges.some(ge => ge.source === e.source && ge.target === e.target)
                     )],
-                    nodeLabels: { ...graphData.nodeLabels, ...newLabels }
+                    nodeLabels: { ...(graphData.nodeLabels ?? {}), ...newLabels }
                 };
 
                 // Only include parentCounts if we have any counts to merge
@@ -205,6 +322,38 @@ const App: React.FC = () => {
                 case 'setExpandAll':
                     log.debug('App: Received setExpandAll message:', message.expandAll);
                     setExpandAll(message.expandAll);
+                    if (message.expandAll) {
+                        setExpansionState({
+                            nodeId: 'expandAll',
+                            status: 'in-progress',
+                            processed: undefined,
+                            total: undefined,
+                            message: 'Expansion globale en cours…',
+                        });
+                    } else {
+                        setExpansionState(null);
+                    }
+                    break;
+                case 'expansionProgress':
+                    if (clearExpansionTimeoutRef.current) {
+                        clearTimeout(clearExpansionTimeoutRef.current);
+                        clearExpansionTimeoutRef.current = null;
+                    }
+
+                    setExpansionState({
+                        nodeId: message.nodeId,
+                        status: message.status,
+                        processed: message.processed,
+                        total: message.total,
+                        message: message.message,
+                    });
+
+                    if (['completed', 'cancelled', 'error'].includes(message.status)) {
+                        clearExpansionTimeoutRef.current = setTimeout(() => {
+                            setExpansionState(null);
+                            clearExpansionTimeoutRef.current = null;
+                        }, 1500);
+                    }
                     break;
             }
         };
@@ -299,6 +448,67 @@ const App: React.FC = () => {
         }
     };
 
+    const handleCancelExpansion = (nodeId?: string) => {
+        if (!vscode) return;
+        vscode.postMessage({
+            command: 'cancelExpandNode',
+            nodeId,
+        });
+        setExpansionState((prev) => prev ? { ...prev, status: 'cancelled' } : prev);
+    };
+
+    const handleExpandNode = (nodeId: string) => {
+        if (!vscode || !graphData) return;
+
+        const normalizedId = nodeId.replaceAll('\\', '/');
+        const knownNodes = new Set<string>((graphData.nodes || []).map((n) => n.replaceAll('\\', '/')));
+        (graphData.edges || []).forEach((edge) => {
+            knownNodes.add(edge.source.replaceAll('\\', '/'));
+            knownNodes.add(edge.target.replaceAll('\\', '/'));
+        });
+
+        vscode.postMessage({
+            command: 'expandNode',
+            nodeId: normalizedId,
+            knownNodes: Array.from(knownNodes),
+        });
+    };
+
+    // Lightweight overlay when expandAll is toggled locally (no backend progress events)
+    // Must NOT depend on `expansionState`, otherwise it can loop (setState → effect rerun → setState...).
+    React.useEffect(() => {
+        if (clearExpansionTimeoutRef.current) {
+            clearTimeout(clearExpansionTimeoutRef.current);
+            clearExpansionTimeoutRef.current = null;
+        }
+
+        if (!expandAll) {
+            setExpansionState((prev) => (prev?.nodeId === 'expandAll' ? null : prev));
+            return;
+        }
+
+        setExpansionState((prev) => {
+            if (prev?.nodeId === 'expandAll') return prev;
+            return {
+                nodeId: 'expandAll',
+                status: 'in-progress',
+                message: 'Expansion globale en cours…',
+            };
+        });
+
+        clearExpansionTimeoutRef.current = setTimeout(() => {
+            setExpansionState((prev) => (prev?.nodeId === 'expandAll' ? null : prev));
+            clearExpansionTimeoutRef.current = null;
+        }, 2000);
+
+        return () => {
+            if (clearExpansionTimeoutRef.current) {
+                clearTimeout(clearExpansionTimeoutRef.current);
+                clearExpansionTimeoutRef.current = null;
+            }
+        };
+    }, [expandAll]);
+
     if (!graphData) {
         return (
             <div style={{
@@ -342,6 +552,7 @@ const App: React.FC = () => {
     }
 
     return (
+        <ErrorBoundary>
         <div style={{ width: '100vw', height: '100vh', position: 'relative' }}>
             {/* Symbol Card View */}
             {viewMode === 'symbol' && symbolData && (
@@ -367,15 +578,20 @@ const App: React.FC = () => {
                     onNodeClick={(path) => handleNodeClick(path)}
                     onDrillDown={handleDrillDown}
                     onFindReferences={handleFindReferences}
+                    onExpandNode={handleExpandNode}
+                    autoExpandNodeId={lastExpandedNode}
                     showParents={showParents}
                     onToggleParents={(path) => handleFindReferences(path)}
                     expandAll={expandAll}
-                    onExpandAllChange={setExpandAll}
+                    onExpandAllChange={handleExpandAllChange}
                     onRefresh={handleRefresh}
                     onSwitchToSymbol={() => handleSwitchMode('symbol')}
+                    expansionState={expansionState}
+                    onCancelExpand={handleCancelExpansion}
                 />
             )}
         </div>
+        </ErrorBoundary>
     );
 };
 

@@ -34,6 +34,11 @@ export interface SetExpandAllMessage {
   expandAll: boolean;
 }
 
+export interface CancelExpandNodeMessage {
+  command: 'cancelExpandNode';
+  nodeId?: string;
+}
+
 export interface RefreshGraphMessage {
   command: 'refreshGraph';
 }
@@ -53,6 +58,15 @@ export interface ReferencingFilesMessage {
   command: 'referencingFiles';
   nodeId: string;
   data: GraphData;
+}
+
+export interface ExpansionProgressMessage {
+  command: 'expansionProgress';
+  nodeId: string;
+  status: 'started' | 'in-progress' | 'completed' | 'cancelled' | 'error';
+  processed?: number;
+  total?: number;
+  message?: string;
 }
 
 export interface IndexingProgressMessage {
@@ -126,5 +140,5 @@ export interface SymbolGraphMessage {
   };
 }
 
-export type ExtensionToWebviewMessage = ShowGraphMessage | ExpandedGraphMessage | ReferencingFilesMessage | IndexingProgressMessage | SymbolGraphMessage | EmptyStateMessage | SetExpandAllMessage;
-export type WebviewToExtensionMessage = OpenFileMessage | ExpandNodeMessage | SetExpandAllMessage | RefreshGraphMessage | FindReferencingFilesMessage | DrillDownMessage | ReadyMessage | SwitchModeMessage | WebviewLogMessage;
+export type ExtensionToWebviewMessage = ShowGraphMessage | ExpandedGraphMessage | ReferencingFilesMessage | IndexingProgressMessage | SymbolGraphMessage | EmptyStateMessage | SetExpandAllMessage | ExpansionProgressMessage;
+export type WebviewToExtensionMessage = OpenFileMessage | ExpandNodeMessage | SetExpandAllMessage | RefreshGraphMessage | FindReferencingFilesMessage | DrillDownMessage | ReadyMessage | SwitchModeMessage | WebviewLogMessage | CancelExpandNodeMessage;

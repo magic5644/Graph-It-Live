@@ -30,7 +30,15 @@ describe('NodeInteractionService', () => {
     const result = await service.expandNode('fileA.ts', []);
 
     expect(result.command).toBe('expandedGraph');
-    expect(spider.crawlFrom).toHaveBeenCalledWith('fileA.ts', expect.any(Set), 10);
+    expect(spider.crawlFrom).toHaveBeenCalledWith(
+      'fileA.ts',
+      expect.any(Set),
+      10,
+      expect.objectContaining({
+        onBatch: undefined,
+        signal: undefined,
+      }),
+    );
   });
 
   it('computes referencing files and parent counts', async () => {

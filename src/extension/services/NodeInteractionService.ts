@@ -21,20 +21,67 @@ export interface ReferencingFilesResult {
   };
 }
 
+export interface ExpansionCallbacks {
+  signal?: AbortSignal;
+  onBatch?: (
+    batch: Awaited<ReturnType<Spider['crawlFrom']>>,
+    totals: { nodes: number; edges: number }
+  ) => Promise<void> | void;
+  totalHint?: number;
+}
+
 export class NodeInteractionService {
   constructor(
     private readonly spider: Spider,
     private readonly logger: Logger
   ) {}
 
-  async expandNode(nodeId: string, knownNodes: string[] | undefined): Promise<NodeExpansionResult> {
+  async expandNode(
+    nodeId: string,
+    knownNodes: string[] | undefined,
+    callbacks?: ExpansionCallbacks
+  ): Promise<NodeExpansionResult> {
     this.logger.debug('Expanding node', nodeId);
     const knownNodesSet = new Set(knownNodes || []);
-    const newGraphData = await this.spider.crawlFrom(nodeId, knownNodesSet, 10);
+    const aggregatedNodes = new Set<string>();
+    const aggregatedEdges: { source: string; target: string }[] = [];
+    const aggregatedLabels: Record<string, string> = {};
+
+    const edgeIds = new Set<string>();
+
+    const addEdge = (edge: { source: string; target: string }): void => {
+      const id = `${edge.source}->${edge.target}`;
+      if (edgeIds.has(id)) return;
+      edgeIds.add(id);
+      aggregatedEdges.push(edge);
+    };
+
+    const handleBatch = async (batch: Awaited<ReturnType<Spider['crawlFrom']>>): Promise<void> => {
+      batch.nodes.forEach((node) => aggregatedNodes.add(node));
+      batch.edges.forEach(addEdge);
+      if (batch.nodeLabels) {
+        Object.assign(aggregatedLabels, batch.nodeLabels);
+      }
+      await callbacks?.onBatch?.(batch, { nodes: aggregatedNodes.size, edges: aggregatedEdges.length });
+    };
+
+    const newGraphData = await this.spider.crawlFrom(nodeId, knownNodesSet, 10, {
+      onBatch: callbacks?.onBatch ? handleBatch : undefined,
+      signal: callbacks?.signal,
+      totalHint: callbacks?.totalHint,
+    });
+
+    // Ensure final batch is captured even if no streaming callback
+    await handleBatch(newGraphData);
+
     return {
       command: 'expandedGraph',
       nodeId,
-      data: newGraphData,
+      data: {
+        nodes: Array.from(aggregatedNodes),
+        edges: aggregatedEdges,
+        nodeLabels: Object.keys(aggregatedLabels).length > 0 ? aggregatedLabels : undefined,
+      },
     };
   }
 

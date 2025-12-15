@@ -182,13 +182,19 @@ export class Spider {
 
       // Resolve paths
       const dependencies: Dependency[] = [];
+      const seenResolvedPaths = new Set<string>();
       
       for (const imp of parsedImports) {
         const resolvedPath = await this.resolver.resolve(filePath, imp.module);
         
         if (resolvedPath) {
+          const normalizedResolved = normalizePath(resolvedPath);
+          if (seenResolvedPaths.has(normalizedResolved)) {
+            continue;
+          }
+          seenResolvedPaths.add(normalizedResolved);
           dependencies.push({
-            path: resolvedPath,
+            path: normalizedResolved,
             type: imp.type,
             line: imp.line,
             module: imp.module,
@@ -564,6 +570,7 @@ export class Spider {
   async crawl(startPath: string): Promise<{ nodes: string[]; edges: { source: string; target: string }[]; nodeLabels?: Record<string, string> }> {
     const nodes = new Set<string>();
     const edges: { source: string; target: string }[] = [];
+    const edgeIds = new Set<string>();
     const visited = new Set<string>();
     const nodeLabels: Record<string, string> = {};
 
@@ -601,10 +608,14 @@ export class Spider {
 
         for (const dep of dependencies) {
           nodes.add(dep.path);
-          edges.push({
-            source: normalizedFile,
-            target: dep.path,
-          });
+          const edgeId = `${normalizedFile}->${dep.path}`;
+          if (!edgeIds.has(edgeId)) {
+            edgeIds.add(edgeId);
+            edges.push({
+              source: normalizedFile,
+              target: dep.path,
+            });
+          }
 
           // Store custom label for workspace packages (e.g., @bobbee/auth-lib)
           if (dep.module.startsWith('@') && dep.module.includes('/') && !dep.module.startsWith('@/')) {
@@ -641,18 +652,42 @@ export class Spider {
   async crawlFrom(
     startNode: string, 
     existingNodes: Set<string>, 
-    extraDepth: number = 10
+    extraDepth: number = 10,
+    options?: {
+      onBatch?: (batch: { nodes: string[]; edges: { source: string; target: string }[]; nodeLabels?: Record<string, string> }) => Promise<void> | void;
+      batchSize?: number;
+      signal?: AbortSignal;
+      totalHint?: number;
+    }
   ): Promise<{ nodes: string[]; edges: { source: string; target: string }[]; nodeLabels?: Record<string, string> }> {
     const newNodes = new Set<string>();
     const newEdges: { source: string; target: string }[] = [];
-    const visited = new Set<string>(Array.from(existingNodes).map(n => normalizePath(n))); // Don't revisit known nodes
+    // visited tracks nodes visited during this crawl to avoid cycles; do NOT seed with existingNodes,
+    // otherwise expanding a known node would stop before discovering its deeper deps.
+    const visited = new Set<string>();
     const nodeLabels: Record<string, string> = {};
     const normalizedExisting = new Set(Array.from(existingNodes).map(n => normalizePath(n)));
     const normalizedStartNode = normalizePath(startNode);
+    const batchNodes = new Set<string>();
+    const batchEdges: { source: string; target: string }[] = [];
+    const edgeIds = new Set<string>();
+    const batchLabels: Record<string, string> = {};
+    const batchSize = options?.batchSize ?? 200;
+
+    const throwIfAborted = (): void => {
+      if (options?.signal?.aborted) {
+        const error = new Error('Expansion cancelled');
+        error.name = 'AbortError';
+        throw error;
+      }
+    };
 
     const shouldSkipNode = (normalizedFile: string, depth: number): boolean => {
       if (depth > extraDepth) return true;
-      if (normalizedFile === normalizedStartNode) return false; // Never skip start node
+      // Always process the start node once (depth 0), but avoid re-processing it via cycles.
+      if (normalizedFile === normalizedStartNode) {
+        return depth !== 0 && visited.has(normalizedFile);
+      }
       return visited.has(normalizedFile);
     };
 
@@ -668,23 +703,58 @@ export class Spider {
     const processNewNode = (normalizedFile: string): void => {
       if (!normalizedExisting.has(normalizedFile)) {
         newNodes.add(normalizedFile);
+        batchNodes.add(normalizedFile);
       }
     };
 
     const processDependency = (dep: Dependency, normalizedFile: string): void => {
-      newEdges.push({ source: normalizedFile, target: dep.path });
+      const edgeId = `${normalizedFile}->${dep.path}`;
+      if (!edgeIds.has(edgeId)) {
+        edgeIds.add(edgeId);
+        newEdges.push({ source: normalizedFile, target: dep.path });
+        batchEdges.push({ source: normalizedFile, target: dep.path });
+      }
       
-      if (!visited.has(dep.path)) {
+      if (!visited.has(dep.path) && !normalizedExisting.has(dep.path)) {
         newNodes.add(dep.path);
+        batchNodes.add(dep.path);
       }
 
       // Store custom label for workspace packages (e.g., @bobbee/auth-lib)
       if (dep.module.startsWith('@') && dep.module.includes('/') && !dep.module.startsWith('@/')) {
         nodeLabels[dep.path] = dep.module;
+        batchLabels[dep.path] = dep.module;
       }
     };
 
+    const flushBatch = async (): Promise<void> => {
+      if (!options?.onBatch) {
+        batchNodes.clear();
+        batchEdges.length = 0;
+        return;
+      }
+
+      if (batchNodes.size === 0 && batchEdges.length === 0) {
+        return;
+      }
+
+      const payload = {
+        nodes: Array.from(batchNodes),
+        edges: [...batchEdges],
+        nodeLabels: Object.keys(batchLabels).length > 0 ? { ...batchLabels } : undefined,
+      };
+
+      batchNodes.clear();
+      batchEdges.length = 0;
+      for (const key of Object.keys(batchLabels)) {
+        delete batchLabels[key];
+      }
+
+      await options.onBatch(payload);
+    };
+
     const crawlRecursive = async (filePath: string, depth: number): Promise<void> => {
+      throwIfAborted();
       const normalizedFile = normalizePath(filePath);
       
       if (shouldSkipNode(normalizedFile, depth)) {
@@ -710,12 +780,17 @@ export class Spider {
             await crawlRecursive(dep.path, depth + 1);
           }
         }
+
+        if ((batchNodes.size + batchEdges.length) >= batchSize) {
+          await flushBatch();
+        }
       } catch {
         // File may be an external package or unreadable - skip silently
       }
     };
 
     await crawlRecursive(startNode, 0);
+    await flushBatch();
 
     return {
       nodes: Array.from(newNodes),
