@@ -35,6 +35,8 @@ export class GraphProvider implements vscode.WebviewViewProvider {
     private readonly _nodeInteractionService?: NodeInteractionService;
     private readonly _navigationService?: EditorNavigationService;
     private readonly _stateManager: ProviderStateManager;
+    private _activeExpansionAbortController?: AbortController;
+    private _activeExpansionNodeId?: string;
     /**
      * Optional callback used by EditorEventsService to notify MCP server.
      * Populated by extension activation if MCP server is registered.
@@ -85,6 +87,7 @@ export class GraphProvider implements vscode.WebviewViewProvider {
                 expandNode: async (m) => {
                     if (m.nodeId) await this.handleExpandNode(m.nodeId, m.knownNodes);
                 },
+                cancelExpandNode: async (m) => { await this.handleCancelExpandNode(m.nodeId); },
                 setExpandAll: async (m) => { await this._handleSetExpandAllMessage(m); },
                 refreshGraph: async () => { await this.refreshGraph(); },
                 findReferencingFiles: async (m) => {
@@ -257,12 +260,73 @@ export class GraphProvider implements vscode.WebviewViewProvider {
         if (!this._nodeInteractionService || !this._view) {
             return;
         }
+
+        // Cancel any ongoing expansion
+        this._activeExpansionAbortController?.abort();
+        const abortController = new AbortController();
+        this._activeExpansionAbortController = abortController;
+        this._activeExpansionNodeId = nodeId;
+
+        const sendProgress = (status: 'started' | 'in-progress' | 'completed' | 'cancelled' | 'error', processed?: number, total?: number, message?: string): void => {
+            this._view?.webview.postMessage({
+                command: 'expansionProgress',
+                nodeId,
+                status,
+                processed,
+                total,
+                message,
+            });
+        };
+
+        sendProgress('started');
+
         try {
-            const result = await this._nodeInteractionService.expandNode(nodeId, knownNodes);
+            const result = await this._nodeInteractionService.expandNode(nodeId, knownNodes, {
+                signal: abortController.signal,
+                onBatch: async (batch, totals) => {
+                    if (!this._view) return;
+                    this._view.webview.postMessage({
+                        command: 'expandedGraph',
+                        nodeId,
+                        data: batch,
+                    });
+                    sendProgress('in-progress', totals.nodes);
+                },
+            });
+
+            if (abortController.signal.aborted) {
+                sendProgress('cancelled', undefined, undefined, 'Cancelled');
+                return;
+            }
+
             this._view.webview.postMessage(result);
+            sendProgress('completed', result.data.nodes.length);
         } catch (e) {
+            if (abortController.signal.aborted) {
+                sendProgress('cancelled', undefined, undefined, 'Cancelled');
+                return;
+            }
             log.error('Error expanding node:', e);
+            sendProgress('error', undefined, undefined, e instanceof Error ? e.message : 'Unknown error');
+        } finally {
+            if (this._activeExpansionAbortController === abortController) {
+                this._activeExpansionAbortController = undefined;
+                this._activeExpansionNodeId = undefined;
+            }
         }
+    }
+
+    /**
+     * Handle cancel expansion message
+     */
+    private async handleCancelExpandNode(nodeId?: string): Promise<void> {
+        if (!this._activeExpansionAbortController) {
+            return;
+        }
+        if (nodeId && nodeId !== this._activeExpansionNodeId) {
+            return;
+        }
+        this._activeExpansionAbortController.abort();
     }
 
     /**
@@ -476,6 +540,14 @@ export class GraphProvider implements vscode.WebviewViewProvider {
         log.info('Sending setExpandAll message to webview:', newExpandAll);
         this._view.webview.postMessage(message);
         log.debug('Toggled expandAll from', currentExpandAll, 'to', newExpandAll);
+        // Notify webview to show progress overlay when expanding a large graph
+        if (newExpandAll) {
+            this._view.webview.postMessage({
+                command: 'expansionProgress',
+                nodeId: 'expandAll',
+                status: 'started',
+            });
+        }
 
         return {
             expanded: newExpandAll,

@@ -23,6 +23,11 @@ import { getLogger } from '../../shared/logger';
 /** Logger instance for ReactFlowGraph */
 const log = getLogger('ReactFlowGraph');
 
+const MAX_RENDER_NODES = 400;
+const MAX_CYCLE_DETECT_EDGES = 3000;
+const MAX_PROCESS_EDGES = 20000;
+const MAX_RENDER_EDGES = 1500;
+
 // Normalize path for cross-platform comparison (convert backslashes to forward slashes)
 const normalizePath = (filePath: string): string => {
     return filePath.replaceAll('\\', '/');
@@ -36,12 +41,27 @@ if (typeof document !== 'undefined' && !document.getElementById('reactflow-style
     document.head.appendChild(style);
 }
 
+// Lightweight spinner animation for expansion overlay
+if (typeof document !== 'undefined' && !document.getElementById('gil-spin-style')) {
+    const spin = document.createElement('style');
+    spin.id = 'gil-spin-style';
+    spin.textContent = `
+        @keyframes gil-spin {
+            from { transform: rotate(0deg); }
+            to { transform: rotate(360deg); }
+        }
+    `;
+    document.head.appendChild(spin);
+}
+
 interface ReactFlowGraphProps {
     data: GraphData;
     currentFilePath: string;
     onNodeClick: (path: string) => void;
     onDrillDown: (path: string) => void;
     onFindReferences: (path: string) => void;
+    onExpandNode?: (path: string) => void;
+    autoExpandNodeId?: string | null;
     expandAll: boolean;
     onExpandAllChange: (expand: boolean) => void;
     onRefresh?: () => void;
@@ -49,6 +69,14 @@ interface ReactFlowGraphProps {
     // Toggle to show/hide parent referencing files for the current root
     showParents?: boolean;
     onToggleParents?: (path: string) => void;
+    expansionState?: {
+        nodeId: string;
+        status: 'started' | 'in-progress' | 'completed' | 'cancelled' | 'error';
+        processed?: number;
+        total?: number;
+        message?: string;
+    } | null;
+    onCancelExpand?: (nodeId?: string) => void;
 }
 
 // File type specific border colors
@@ -180,7 +208,13 @@ const FileNode = ({ data }: NodeProps) => {
                     type="button"
                     onClick={(e) => {
                         e.stopPropagation();
-                        data.onToggle?.();
+                        // If currently expanded, collapse locally only.
+                        // If collapsed, request backend expansion and mark as expanded.
+                        if (data.isExpanded) {
+                            data.onToggle?.();
+                        } else {
+                            data.onExpandRequest?.();
+                        }
                     }}
                     aria-label={data.isExpanded ? 'Collapse node' : 'Expand node'}
                     style={{
@@ -294,12 +328,85 @@ const FileNode = ({ data }: NodeProps) => {
     );
 };
 
-const nodeTypes = { file: FileNode };
+const NODE_TYPES = { file: FileNode } as const;
+const PRO_OPTIONS = { hideAttribution: true } as const;
 
 // Calculate node width based on label length
 const calculateNodeWidth = (label: string): number => {
     const estimatedWidth = label.length * charWidth + 24; // 24px for padding
     return Math.max(minNodeWidth, Math.min(maxNodeWidth, estimatedWidth));
+};
+
+const fastLayout = (
+    nodes: Node[],
+    edges: Edge[],
+    rootId: string,
+): { nodes: Node[]; edges: Edge[] } => {
+    const root = normalizePath(rootId);
+    const children = new Map<string, string[]>();
+    edges.forEach((edge) => {
+        const source = normalizePath(edge.source);
+        const target = normalizePath(edge.target);
+        if (!children.has(source)) children.set(source, []);
+        children.get(source)!.push(target);
+    });
+
+    const depth = new Map<string, number>();
+    const queue: string[] = [root];
+    depth.set(root, 0);
+
+    for (let i = 0; i < queue.length; i++) {
+        const current = queue[i]!;
+        const currentDepth = depth.get(current) ?? 0;
+        const nextDepth = currentDepth + 1;
+        for (const child of children.get(current) || []) {
+            if (!depth.has(child)) {
+                depth.set(child, nextDepth);
+                queue.push(child);
+            }
+        }
+    }
+
+    const nodesByDepth = new Map<number, Node[]>();
+    const unconnected: Node[] = [];
+    for (const node of nodes) {
+        const d = depth.get(normalizePath(node.id));
+        if (typeof d === 'number') {
+            if (!nodesByDepth.has(d)) nodesByDepth.set(d, []);
+            nodesByDepth.get(d)!.push(node);
+        } else {
+            unconnected.push(node);
+        }
+    }
+
+    const xStep = 260;
+    const yStep = nodeHeight + 24;
+    const positioned: Node[] = [];
+    const sortedDepths = [...nodesByDepth.keys()].sort((a, b) => a - b);
+    for (const d of sortedDepths) {
+        const group = nodesByDepth.get(d)!;
+        group.forEach((node, idx) => {
+            positioned.push({
+                ...node,
+                position: { x: d * xStep, y: idx * yStep },
+                targetPosition: Position.Left,
+                sourcePosition: Position.Right,
+            });
+        });
+    }
+
+    const maxDepth = sortedDepths.length ? sortedDepths[sortedDepths.length - 1]! : 0;
+    const unconnectedX = (maxDepth + 1) * xStep;
+    unconnected.forEach((node, idx) => {
+        positioned.push({
+            ...node,
+            position: { x: unconnectedX, y: idx * yStep },
+            targetPosition: Position.Left,
+            sourcePosition: Position.Right,
+        });
+    });
+
+    return { nodes: positioned, edges };
 };
 
 // Dagre layout helper
@@ -409,44 +516,46 @@ const ReactFlowGraphContent: React.FC<ReactFlowGraphProps> = ({
     onNodeClick,
     onDrillDown,
     onFindReferences,
+    onExpandNode,
+    autoExpandNodeId,
     expandAll,
     onExpandAllChange,
     onRefresh,
     onSwitchToSymbol,
     showParents = false,
     onToggleParents,
+    expansionState,
+    onCancelExpand,
 }) => {
     const { fitView } = useReactFlow();
     const nodesInitialized = useNodesInitialized();
+    const containerRef = React.useRef<HTMLDivElement | null>(null);
     const requestedParentsRef = React.useRef<Set<string>>(new Set());
     const [expandedNodes, setExpandedNodes] = useState<Set<string>>(new Set());
 
-    // Synchronize expandedNodes with expandAll prop
+    // Expand/collapse all should NOT reset manual expansion when data changes.
+    // We only collapse when expandAll flips to false, and we only compute expandAll set when expandAll is true.
     useEffect(() => {
-        log.debug('ReactFlowGraph: expandAll changed to:', expandAll);
-        if (expandAll && data?.nodes && data?.edges) {
-            // Expand all nodes that have children
-            const allNodesWithChildren = new Set<string>();
-            
-            // Add current file as root
-            if (currentFilePath) {
-                allNodesWithChildren.add(normalizePath(currentFilePath));
-            }
-            
-            // Add all source nodes (nodes that have outgoing edges)
-            data.edges.forEach(edge => {
-                allNodesWithChildren.add(normalizePath(edge.source));
-            });
-            
-            log.debug('ReactFlowGraph: Expanding all nodes:', allNodesWithChildren.size);
-            setExpandedNodes(allNodesWithChildren);
-        } else if (!expandAll) {
-            // Collapse all, keep only root
-            const rootSet = currentFilePath ? new Set([normalizePath(currentFilePath)]) : new Set<string>();
-            log.debug('ReactFlowGraph: Collapsing all nodes, keeping root:', rootSet.size);
-            setExpandedNodes(rootSet);
+        if (expandAll) return;
+        const rootSet = currentFilePath ? new Set([normalizePath(currentFilePath)]) : new Set<string>();
+        log.debug('ReactFlowGraph: Collapsing all nodes, keeping root:', rootSet.size);
+        setExpandedNodes(rootSet);
+    }, [expandAll, currentFilePath]);
+
+    useEffect(() => {
+        if (!expandAll || !data?.edges) return;
+        const allNodesWithChildren = new Set<string>();
+
+        if (currentFilePath) {
+            allNodesWithChildren.add(normalizePath(currentFilePath));
         }
-    }, [expandAll, data, currentFilePath]);
+        const edgesForSources = data.edges.length > MAX_PROCESS_EDGES ? data.edges.slice(0, MAX_PROCESS_EDGES) : data.edges;
+        edgesForSources.forEach((edge) => {
+            allNodesWithChildren.add(normalizePath(edge.source));
+        });
+        log.debug('ReactFlowGraph: Expanding all nodes:', allNodesWithChildren.size);
+        setExpandedNodes(allNodesWithChildren);
+    }, [expandAll, data?.edges, currentFilePath]);
 
     // Auto-request referencing files for root when the incoming data doesn't include parents
     // Clear previously requested parents when we navigate to a new root path
@@ -472,9 +581,21 @@ const ReactFlowGraphContent: React.FC<ReactFlowGraphProps> = ({
             });
         };
     }, []);
+    const handleExpandRequest = useCallback((path: string) => {
+        const normalized = normalizePath(path);
+        onExpandNode?.(normalized);
+        setExpandedNodes((prev) => new Set(prev).add(normalized));
+    }, [onExpandNode]);
+
+    // Auto-expand node when backend sends expandedGraph
+    useEffect(() => {
+        if (!autoExpandNodeId) return;
+        const normalized = normalizePath(autoExpandNodeId);
+        setExpandedNodes((prev) => new Set(prev).add(normalized));
+    }, [autoExpandNodeId]);
 
     // Build nodes and edges from data
-    const { initialNodes, initialEdges, cycles } = useMemo(() => {
+    const { initialNodes, initialEdges, cycles, edgesTruncated, renderEdgesTruncated } = useMemo(() => {
         // Normalize currentFilePath for comparison with graph nodes (which are normalized on backend)
         const normalizedCurrentPath = normalizePath(currentFilePath);
         
@@ -494,7 +615,10 @@ const ReactFlowGraphContent: React.FC<ReactFlowGraphProps> = ({
             return { initialNodes: [], initialEdges: [], cycles: new Set<string>() };
         }
 
-        const cycles = detectCycles(data.edges);
+        const edgesTruncated = data.edges.length > MAX_PROCESS_EDGES;
+        const edgesForProcessing = edgesTruncated ? data.edges.slice(0, MAX_PROCESS_EDGES) : data.edges;
+
+        const cycles = edgesForProcessing.length <= MAX_CYCLE_DETECT_EDGES ? detectCycles(edgesForProcessing) : new Set<string>();
         const getLabel = (path: string) => data.nodeLabels?.[path] || path.split(/[/\\]/).pop() || path;
 
         // Build adjacency for children (source → target means source imports target)
@@ -502,7 +626,7 @@ const ReactFlowGraphContent: React.FC<ReactFlowGraphProps> = ({
         // Build reverse adjacency for parents (who imports this file)
         const parents = new Map<string, string[]>();
         
-        data.edges.forEach(({ source, target }) => {
+        edgesForProcessing.forEach(({ source, target }) => {
             const ns = normalizePath(source);
             const nt = normalizePath(target);
             if (!children.has(ns)) children.set(ns, []);
@@ -513,6 +637,7 @@ const ReactFlowGraphContent: React.FC<ReactFlowGraphProps> = ({
 
         // Calculate visible nodes: include both children AND parents of current file
         const visibleNodes = new Set<string>();
+        let isTruncated = false;
         
         // CRITICAL: Always ensure root node is visible first, before any other logic
         // This prevents race conditions where parents are added but root/children are lost
@@ -520,17 +645,24 @@ const ReactFlowGraphContent: React.FC<ReactFlowGraphProps> = ({
         
         // Add all parents (files that import currentFilePath) only when showParents is enabled
         const fileParents = parents.get(normalizedCurrentPath) || [];
+        const fileParentsSet = new Set(fileParents);
         console.debug('ReactFlowGraph: fileParents for root', normalizedCurrentPath, fileParents, 'showParents:', showParents);
         if (showParents) {
-            fileParents.forEach((p) => visibleNodes.add(p));
+            for (const parent of fileParents) {
+                if (visibleNodes.size >= MAX_RENDER_NODES) {
+                    isTruncated = true;
+                    break;
+                }
+                visibleNodes.add(parent);
+            }
         }
         
         // Traverse children starting from current file
         const queue = [normalizedCurrentPath];
         const visited = new Set<string>(); // Track processed nodes to avoid infinite loops
 
-        while (queue.length > 0) {
-            const node = queue.shift()!;
+        for (let queueIndex = 0; queueIndex < queue.length; queueIndex++) {
+            const node = queue[queueIndex]!;
             if (visited.has(node)) continue; // Skip if already processed
             visited.add(node);
             visibleNodes.add(node); // Re-add to ensure it's in visibleNodes (idempotent for Set)
@@ -543,8 +675,15 @@ const ReactFlowGraphContent: React.FC<ReactFlowGraphProps> = ({
             const shouldShowChildren = expandAll || expandedNodes.has(node) || node === normalizedCurrentPath;
             
             if (shouldShowChildren) {
-                nodeChildren.forEach((child) => queue.push(child));
+                for (const child of nodeChildren) {
+                    if (visibleNodes.size >= MAX_RENDER_NODES) {
+                        isTruncated = true;
+                        break;
+                    }
+                    queue.push(child);
+                }
             }
+            if (isTruncated) break;
         }
 
         // Create node data objects
@@ -555,7 +694,7 @@ const ReactFlowGraphContent: React.FC<ReactFlowGraphProps> = ({
             label,
             fullPath: path,
             isRoot: path === normalizedCurrentPath,
-            isParent: fileParents.includes(path),
+            isParent: fileParentsSet.has(path),
             isInCycle: cycles.has(path),
             hasChildren: (children.get(path) || []).length > 0,
             // Node is visually expanded if expandAll is true OR it's in expandedNodes
@@ -567,6 +706,7 @@ const ReactFlowGraphContent: React.FC<ReactFlowGraphProps> = ({
             onFindReferences: () => onFindReferences(path),
             onToggleParents: () => onToggleParents?.(path),
             onToggle: createToggleHandler(path),
+            onExpandRequest: () => handleExpandRequest(path),
         });
         };
 
@@ -588,14 +728,22 @@ const ReactFlowGraphContent: React.FC<ReactFlowGraphProps> = ({
                 ? { stroke: '#ff4d4d', strokeWidth: 2, strokeDasharray: '5,5' }
                 : { stroke: 'var(--vscode-editor-foreground)' };
 
-        const edges: Edge[] = data.edges
+        const seenEdgeIds = new Set<string>();
+        let duplicateEdgesSkipped = 0;
+        let edges: Edge[] = edgesForProcessing
             .map(({ source, target }) => ({ source: normalizePath(source), target: normalizePath(target) }))
             .filter(({ source, target }) => visibleNodes.has(source) && visibleNodes.has(target))
-            .map(({ source, target }) => {
-                const isCircular = cycles.has(source) && cycles.has(target);
+            .flatMap(({ source, target }) => {
+                const id = `${source}->${target}`;
+                if (seenEdgeIds.has(id)) {
+                    duplicateEdgesSkipped += 1;
+                    return [];
+                }
+                seenEdgeIds.add(id);
 
-                return {
-                    id: `${source}-${target}`,
+                const isCircular = cycles.has(source) && cycles.has(target);
+                return [{
+                    id,
                     source,
                     target,
                     animated: true,
@@ -603,18 +751,138 @@ const ReactFlowGraphContent: React.FC<ReactFlowGraphProps> = ({
                     label: isCircular ? 'Cycle' : undefined,
                     labelStyle: isCircular ? { fill: '#ff4d4d', fontWeight: 'bold' } : undefined,
                     labelBgStyle: isCircular ? { fill: 'var(--vscode-editor-background)' } : undefined,
-                };
+                }];
             });
+        const renderEdgesTruncated = edges.length > MAX_RENDER_EDGES;
+        if (renderEdgesTruncated) {
+            edges = edges.slice(0, MAX_RENDER_EDGES);
+        }
 
-        log.debug('ReactFlowGraph: Visible nodes:', visibleNodes.size, 'edges:', edges.length);
-        log.debug('ReactFlowGraph: Current file (normalized):', normalizedCurrentPath);
-        log.debug('ReactFlowGraph: visibleNodes contains root?', visibleNodes.has(normalizedCurrentPath));
-        log.debug('ReactFlowGraph: All data nodes:', data.nodes);
-        log.debug('ReactFlowGraph: All data edges:', data.edges);
+        log.debug(
+            'ReactFlowGraph: Visible nodes:',
+            visibleNodes.size,
+            'edges:',
+            edges.length,
+            'duplicateEdgesSkipped:',
+            duplicateEdgesSkipped,
+            'truncatedNodes:',
+            isTruncated,
+            'truncatedEdges:',
+            edgesTruncated,
+        );
+        log.debug('ReactFlowGraph: Current file (normalized):', normalizedCurrentPath, 'rootVisible:', visibleNodes.has(normalizedCurrentPath));
         
-        const layouted = getLayoutedElements(nodes, edges);
-        return { initialNodes: layouted.nodes, initialEdges: layouted.edges, cycles };
-    }, [data, currentFilePath, expandAll, expandedNodes, showParents, onDrillDown, onFindReferences, onToggleParents, createToggleHandler]);
+        const MAX_DAGRE_NODES = 350;
+        const layouted = nodes.length > MAX_DAGRE_NODES
+            ? fastLayout(nodes, edges, normalizedCurrentPath)
+            : getLayoutedElements(nodes, edges);
+
+        return { initialNodes: layouted.nodes, initialEdges: layouted.edges, cycles, edgesTruncated, renderEdgesTruncated };
+    }, [data, currentFilePath, expandAll, expandedNodes, showParents, onDrillDown, onFindReferences, onToggleParents, createToggleHandler, handleExpandRequest]);
+
+    const isTruncated = (initialNodes.length >= MAX_RENDER_NODES);
+
+    const renderExpansionOverlay = () => {
+        if (!expansionState) return null;
+        const isRunning = expansionState.status === 'started' || expansionState.status === 'in-progress';
+        const processed = typeof expansionState.processed === 'number' ? expansionState.processed : undefined;
+        const total = typeof expansionState.total === 'number' ? expansionState.total : undefined;
+        const showTotals = (typeof processed === 'number' && processed > 0) || (typeof total === 'number' && total > 0);
+        const statusLabel = (() => {
+            switch (expansionState.status) {
+                case 'started':
+                case 'in-progress':
+                    return 'Expansion en cours';
+                case 'completed':
+                    return 'Expansion terminée';
+                case 'cancelled':
+                    return 'Expansion annulée';
+                case 'error':
+                    return 'Erreur pendant l’expansion';
+                default:
+                    return 'Expansion';
+            }
+        })();
+
+        const fileLabel = expansionState.nodeId.split(/[/\\]/).pop() || expansionState.nodeId;
+
+        return (
+            <div
+                style={{
+                    position: 'absolute',
+                    top: 12,
+                    right: 12,
+                    zIndex: 20,
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: 10,
+                    padding: '10px 12px',
+                    borderRadius: 6,
+                    background: 'var(--vscode-editor-background)',
+                    border: '1px solid var(--vscode-focusBorder)',
+                    boxShadow: '0 6px 18px rgba(0,0,0,0.25)',
+                    minWidth: 260,
+                }}
+            >
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8, flex: 1 }}>
+                    <div
+                        style={{
+                            width: 14,
+                            height: 14,
+                            borderRadius: '50%',
+                            border: '2px solid var(--vscode-editor-foreground)',
+                            borderTopColor: 'transparent',
+                            animation: isRunning ? 'gil-spin 0.9s linear infinite' : 'none',
+                        }}
+                    />
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+                        <span style={{ fontWeight: 600 }}>{statusLabel}</span>
+                        <span style={{ fontSize: 12, color: 'var(--vscode-descriptionForeground)' }}>
+                            {fileLabel}
+                        </span>
+                        {showTotals && (
+                            <span style={{ fontSize: 12, color: 'var(--vscode-descriptionForeground)' }}>
+                                {typeof processed === 'number' ? processed : '?'}
+                                {typeof total === 'number' ? ` / ${total}` : ''}
+                            </span>
+                        )}
+                        {!showTotals && isRunning && (
+                            <span style={{ fontSize: 12, color: 'var(--vscode-descriptionForeground)' }}>
+                                Découverte des dépendances…
+                            </span>
+                        )}
+                        {expansionState.message && (
+                            <span style={{
+                                fontSize: 12,
+                                color: expansionState.status === 'error'
+                                    ? 'var(--vscode-errorForeground)'
+                                    : 'var(--vscode-descriptionForeground)',
+                            }}>
+                                {expansionState.message}
+                            </span>
+                        )}
+                    </div>
+                </div>
+                <button
+                    type="button"
+                    onClick={() => onCancelExpand?.(expansionState.nodeId)}
+                    disabled={!isRunning}
+                    style={{
+                        padding: '6px 10px',
+                        borderRadius: 4,
+                        border: '1px solid var(--vscode-button-border, transparent)',
+                        background: isRunning ? 'var(--vscode-button-background)' : 'var(--vscode-button-secondaryBackground)',
+                        color: isRunning ? 'var(--vscode-button-foreground)' : 'var(--vscode-button-secondaryForeground)',
+                        cursor: isRunning ? 'pointer' : 'not-allowed',
+                        fontSize: 12,
+                        fontWeight: 600,
+                    }}
+                >
+                    Annuler
+                </button>
+            </div>
+        );
+    };
 
     const [nodes, setNodes, onNodesChange] = useNodesState(initialNodes);
     const [edges, setEdges, onEdgesChange] = useEdgesState(initialEdges);
@@ -632,30 +900,125 @@ const ReactFlowGraphContent: React.FC<ReactFlowGraphProps> = ({
         }
     }, [nodesInitialized, nodes.length, fitView]);
 
+    // Fit view when the webview/container is resized (better UX than requiring a manual "zoom to fit")
+    useEffect(() => {
+        if (!nodesInitialized || nodes.length === 0) return;
+        const element = containerRef.current;
+        if (!element) return;
+
+        let timeout: ReturnType<typeof setTimeout> | null = null;
+        let rafId: number | null = null;
+
+        const scheduleFit = () => {
+            if (timeout) clearTimeout(timeout);
+            timeout = setTimeout(() => {
+                if (rafId) cancelAnimationFrame(rafId);
+                rafId = requestAnimationFrame(() => {
+                    fitView({ padding: 0.2, duration: 200 });
+                });
+            }, 60);
+        };
+
+        const resizeObserver = typeof ResizeObserver !== 'undefined'
+            ? new ResizeObserver(() => scheduleFit())
+            : null;
+
+        resizeObserver?.observe(element);
+        window.addEventListener('resize', scheduleFit);
+
+        return () => {
+            window.removeEventListener('resize', scheduleFit);
+            resizeObserver?.disconnect();
+            if (timeout) clearTimeout(timeout);
+            if (rafId) cancelAnimationFrame(rafId);
+        };
+    }, [nodesInitialized, nodes.length, fitView]);
+
     // Handle node click
     const handleNodeClick = useCallback((_: React.MouseEvent, node: Node) => {
         onNodeClick(node.id);
     }, [onNodeClick]);
 
     return (
-        <div style={{ width: '100%', height: '100vh', position: 'relative' }}>
+        <div ref={containerRef} style={{ width: '100%', height: '100vh', position: 'relative' }}>
             <ReactFlow
                 nodes={nodes}
                 edges={edges}
                 onNodesChange={onNodesChange}
                 onEdgesChange={onEdgesChange}
                 onNodeClick={handleNodeClick}
-                nodeTypes={nodeTypes}
+                nodeTypes={NODE_TYPES}
                 panOnDrag
                 zoomOnScroll
                 minZoom={0.1}
                 maxZoom={2}
                 fitView
-                proOptions={{ hideAttribution: true }}
+                proOptions={PRO_OPTIONS}
             >
                     <Background />
                     <Controls />
                 </ReactFlow>
+            {renderExpansionOverlay()}
+            {isTruncated && (
+                <div
+                    style={{
+                        position: 'absolute',
+                        top: 12,
+                        left: 12,
+                        zIndex: 10,
+                        padding: '8px 12px',
+                        borderRadius: 6,
+                        background: 'var(--vscode-editor-background)',
+                        border: '1px solid var(--vscode-widget-border)',
+                        color: 'var(--vscode-descriptionForeground)',
+                        fontSize: 12,
+                        boxShadow: '0 4px 12px rgba(0,0,0,0.2)',
+                        maxWidth: 420,
+                    }}
+                >
+                    Graphe trop volumineux : affichage limité à {MAX_RENDER_NODES} nœuds pour éviter un crash.
+                </div>
+            )}
+            {edgesTruncated && (
+                <div
+                    style={{
+                        position: 'absolute',
+                        top: isTruncated ? 56 : 12,
+                        left: 12,
+                        zIndex: 10,
+                        padding: '8px 12px',
+                        borderRadius: 6,
+                        background: 'var(--vscode-editor-background)',
+                        border: '1px solid var(--vscode-widget-border)',
+                        color: 'var(--vscode-descriptionForeground)',
+                        fontSize: 12,
+                        boxShadow: '0 4px 12px rgba(0,0,0,0.2)',
+                        maxWidth: 420,
+                    }}
+                >
+                    Trop d’arêtes : rendu limité à {MAX_PROCESS_EDGES} edges pour éviter un crash.
+                </div>
+            )}
+            {renderEdgesTruncated && (
+                <div
+                    style={{
+                        position: 'absolute',
+                        top: (isTruncated ? 56 : 12) + (edgesTruncated ? 44 : 0),
+                        left: 12,
+                        zIndex: 10,
+                        padding: '8px 12px',
+                        borderRadius: 6,
+                        background: 'var(--vscode-editor-background)',
+                        border: '1px solid var(--vscode-widget-border)',
+                        color: 'var(--vscode-descriptionForeground)',
+                        fontSize: 12,
+                        boxShadow: '0 4px 12px rgba(0,0,0,0.2)',
+                        maxWidth: 420,
+                    }}
+                >
+                    Trop d’arêtes visibles : affichage limité à {MAX_RENDER_EDGES} edges.
+                </div>
+            )}
 
             {/* Top bar */}
             <div
