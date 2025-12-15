@@ -1,5 +1,5 @@
 import { usedFunc } from './utils';
 
 export function main() {
-  usedFunc();
+  usedFunc({ value: 'ok' });
 }

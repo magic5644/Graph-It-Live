@@ -954,23 +954,51 @@ export class Spider {
    */
   async findUnusedSymbols(filePath: string): Promise<import('./types').SymbolInfo[]> {
     try {
-      const { symbols } = await this.getSymbolGraph(filePath);
+      const normalizedTarget = normalizePath(filePath);
+      const { symbols } = await this.getSymbolGraph(normalizedTarget);
       const exportedSymbols = symbols.filter(s => s.isExported);
       
       if (exportedSymbols.length === 0) {
         return [];
       }
 
-      const normalizedTarget = normalizePath(filePath);
       const referencingFiles = await this.findReferencingFiles(normalizedTarget);
       const usedSymbolIds = await this.collectUsedSymbolIds(referencingFiles, normalizedTarget);
 
-      return exportedSymbols.filter(s => !usedSymbolIds.has(s.id));
+      // If an exported symbol is used externally, consider any other exported symbols
+      // it references internally as used too (e.g. exported types used in signatures,
+      // exported helpers used by an exported function).
+      const content = await fs.readFile(normalizedTarget, 'utf-8');
+      const internalGraph = this.symbolAnalyzer.getInternalExportDependencyGraph(normalizedTarget, content);
+      const usedWithClosure = this.expandUsedSymbolsViaInternalGraph(usedSymbolIds, internalGraph);
+
+      return exportedSymbols.filter(s => !usedWithClosure.has(s.id));
     } catch (error) {
       const spiderError = SpiderError.fromError(error, filePath);
       log.error('Find unused symbols failed:', spiderError.toUserMessage());
       return [];
     }
+  }
+
+  private expandUsedSymbolsViaInternalGraph(
+    used: Set<string>,
+    internalGraph: Map<string, Set<string>>
+  ): Set<string> {
+    const expanded = new Set<string>(used);
+    const queue: string[] = Array.from(expanded);
+
+    while (queue.length > 0) {
+      const current = queue.pop()!;
+      const deps = internalGraph.get(current);
+      if (!deps) continue;
+      for (const dep of deps) {
+        if (expanded.has(dep)) continue;
+        expanded.add(dep);
+        queue.push(dep);
+      }
+    }
+
+    return expanded;
   }
 
   /**
