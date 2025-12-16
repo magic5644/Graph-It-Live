@@ -1,4 +1,4 @@
-import * as path from 'path';
+import * as path from 'node:path';
 import Mocha from 'mocha';
 import { glob } from 'glob';
 

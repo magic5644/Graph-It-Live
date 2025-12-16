@@ -1,4 +1,4 @@
-import * as assert from 'assert';
+import * as assert from 'node:assert';
 import * as vscode from 'vscode';
 import { after, before } from 'mocha';
 
@@ -68,7 +68,7 @@ suite('Graph-It-Live Extension Test Suite', () => {
       
       // If we got here without errors, the extension handled the file
       assert.ok(true, 'File was processed');
-    } catch (err) {
+    } catch {
       // File might not exist in test workspace, that's okay
       assert.ok(true, 'Test completed');
     }

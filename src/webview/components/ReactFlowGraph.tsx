@@ -351,8 +351,7 @@ const fastLayout = (
     const queue: string[] = [root];
     depth.set(root, 0);
 
-    for (let i = 0; i < queue.length; i++) {
-        const current = queue[i]!;
+    for (const current of queue) {
         const currentDepth = depth.get(current) ?? 0;
         const nextDepth = currentDepth + 1;
         for (const child of children.get(current) || []) {
@@ -657,8 +656,7 @@ const ReactFlowGraphContent: React.FC<ReactFlowGraphProps> = ({
         const queue = [normalizedCurrentPath];
         const visited = new Set<string>(); // Track processed nodes to avoid infinite loops
 
-        for (let queueIndex = 0; queueIndex < queue.length; queueIndex++) {
-            const node = queue[queueIndex]!;
+        for (const node of queue) {
             if (visited.has(node)) continue; // Skip if already processed
             visited.add(node);
             visibleNodes.add(node); // Re-add to ensure it's in visibleNodes (idempotent for Set)
@@ -915,9 +913,9 @@ const ReactFlowGraphContent: React.FC<ReactFlowGraphProps> = ({
             }, 60);
         };
 
-        const resizeObserver = typeof ResizeObserver !== 'undefined'
-            ? new ResizeObserver(() => scheduleFit())
-            : null;
+        const resizeObserver = typeof ResizeObserver === 'undefined'
+            ? null
+            : new ResizeObserver(() => scheduleFit());
 
         resizeObserver?.observe(element);
         window.addEventListener('resize', scheduleFit);
