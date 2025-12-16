@@ -60,6 +60,7 @@ interface ReactFlowGraphProps {
     onToggleParents?: (path: string) => void;
     expansionState?: ExpansionState | null;
     onCancelExpand?: (nodeId?: string) => void;
+    resetToken?: number;
 }
 
 function stableGlobal<T>(key: string, factory: () => T): T {
@@ -70,9 +71,6 @@ function stableGlobal<T>(key: string, factory: () => T): T {
     return value;
 }
 
-const NODE_TYPES = stableGlobal('__graphItLive_nodeTypes', () =>
-    Object.freeze({ file: FileNode } as const)
-);
 const PRO_OPTIONS = stableGlobal('__graphItLive_proOptions', () =>
     Object.freeze({ hideAttribution: true } as const)
 );
@@ -83,53 +81,101 @@ function useExpandedNodes(params: {
     edges: GraphData['edges'] | undefined;
     autoExpandNodeId: string | null | undefined;
     onExpandNode?: (path: string) => void;
+    resetToken?: number;
 }) {
-    const { expandAll, currentFilePath, edges, autoExpandNodeId, onExpandNode } = params;
+    const { expandAll, currentFilePath, edges, autoExpandNodeId, onExpandNode, resetToken } = params;
     const [expandedNodes, setExpandedNodes] = useState<Set<string>>(new Set());
 
+    // Single effect to handle all resets: navigation, refresh, and expandAll toggle
     useEffect(() => {
-        if (expandAll) return;
-        const rootSet = currentFilePath ? new Set([normalizePath(currentFilePath)]) : new Set<string>();
-        setExpandedNodes(rootSet);
-    }, [expandAll, currentFilePath]);
-
-    useEffect(() => {
-        if (!expandAll || !edges) return;
-        const allNodesWithChildren = new Set<string>();
-
-        if (currentFilePath) {
-            allNodesWithChildren.add(normalizePath(currentFilePath));
-        }
-        const edgesForSources =
-            edges.length > GRAPH_LIMITS.MAX_PROCESS_EDGES
-                ? edges.slice(0, GRAPH_LIMITS.MAX_PROCESS_EDGES)
-                : edges;
-        edgesForSources.forEach((edge) => {
-            allNodesWithChildren.add(normalizePath(edge.source));
+        log.debug('🔄 useExpandedNodes: Effect triggered', { 
+            expandAll, 
+            resetToken, 
+            currentFilePath, 
+            edgesCount: edges?.length,
+            currentExpandedSize: expandedNodes.size,
+            currentExpanded: Array.from(expandedNodes)
         });
-        setExpandedNodes(allNodesWithChildren);
-    }, [expandAll, edges, currentFilePath]);
+        if (expandAll && edges) {
+            // Expand ALL nodes with children
+            const allNodesWithChildren = new Set<string>();
+            if (currentFilePath) {
+                allNodesWithChildren.add(normalizePath(currentFilePath));
+            }
+            const edgesForSources =
+                edges.length > GRAPH_LIMITS.MAX_PROCESS_EDGES
+                    ? edges.slice(0, GRAPH_LIMITS.MAX_PROCESS_EDGES)
+                    : edges;
+            edgesForSources.forEach((edge) => {
+                allNodesWithChildren.add(normalizePath(edge.source));
+            });
+            log.debug('🔄 useExpandedNodes: Expanding all nodes', { size: allNodesWithChildren.size, nodes: Array.from(allNodesWithChildren).slice(0, 5) });
+            setExpandedNodes(allNodesWithChildren);
+        } else {
+            // Collapse all OR navigation - keep only root
+            const rootSet = currentFilePath ? new Set([normalizePath(currentFilePath)]) : new Set<string>();
+            log.debug('🔄 useExpandedNodes: Collapsing to root', { rootSize: rootSet.size, root: Array.from(rootSet), expandAll });
+            setExpandedNodes(rootSet);
+        }
+    }, [expandAll, resetToken, currentFilePath]); // CRITICAL: edges NOT in deps!
 
+    // Auto-expand specific node (typically after expansion request)
     useEffect(() => {
         if (!autoExpandNodeId) return;
         const normalized = normalizePath(autoExpandNodeId);
-        setExpandedNodes((prev) => new Set(prev).add(normalized));
+        
+        // Use callback form to ensure atomic update
+        setExpandedNodes((prev) => {
+            if (prev.has(normalized)) return prev; // Already expanded, no change
+            const next = new Set(prev);
+            next.add(normalized);
+            return next;
+        });
     }, [autoExpandNodeId]);
 
+    // Toggle expanded state for a node (collapse if expanded, expand if collapsed)
     const toggleExpandedNode = useCallback((path: string) => {
+        const normalized = normalizePath(path); // CRITICAL: Always normalize before Set operations
+        log.debug('👆 toggleExpandedNode called', { path, normalized });
         setExpandedNodes((prev) => {
+            const prevArray = Array.from(prev);
+            const had = prev.has(normalized);
+            log.debug('👆 toggleExpandedNode: BEFORE', { 
+                had, 
+                prevSize: prev.size, 
+                normalized,
+                prevContents: prevArray
+            });
             const next = new Set(prev);
-            if (next.has(path)) next.delete(path);
-            else next.add(path);
+            if (had) {
+                next.delete(normalized);
+                log.debug('👆 toggleExpandedNode: DELETED', { normalized, newSize: next.size });
+            } else {
+                next.add(normalized);
+                log.debug('👆 toggleExpandedNode: ADDED', { normalized, newSize: next.size });
+            }
+            const nextArray = Array.from(next);
+            log.debug('👆 toggleExpandedNode: AFTER', { nextSize: next.size, nextContents: nextArray });
+            // Always return new Set since we're toggling (content definitely changed)
             return next;
         });
     }, []);
 
+    // Request expansion of a node (always adds to expanded set)
     const handleExpandRequest = useCallback(
         (path: string) => {
             const normalized = normalizePath(path);
+            
+            // Notify parent component first
             onExpandNode?.(normalized);
-            setExpandedNodes((prev) => new Set(prev).add(normalized));
+            
+            // Then update local state atomically
+            setExpandedNodes((prev) => {
+                if (prev.has(normalized)) return prev; // Already expanded
+                const next = new Set(prev);
+                next.add(normalized);
+                return next;
+            });
         },
         [onExpandNode]
     );
@@ -203,52 +249,73 @@ const ReactFlowGraphContent: React.FC<ReactFlowGraphProps> = ({
     onToggleParents,
     expansionState,
     onCancelExpand,
+    resetToken,
 }) => {
     const { fitView } = useReactFlow();
     const nodesInitialized = useNodesInitialized();
     const containerRef = React.useRef<HTMLDivElement | null>(null);
+    const nodeTypes = useMemo(() => Object.freeze({ file: FileNode } as const), []);
     const { expandedNodes, toggleExpandedNode, handleExpandRequest } = useExpandedNodes({
         expandAll,
         currentFilePath,
         edges: data?.edges,
         autoExpandNodeId,
         onExpandNode,
+        resetToken,
     });
 
+    // Use refs for callbacks to avoid including them in useMemo deps
+    // This prevents constant re-renders when parent component recreates callbacks
+    const callbacksRef = React.useRef({
+        onDrillDown,
+        onFindReferences,
+        onToggleParents,
+        onToggle: toggleExpandedNode,
+        onExpandRequest: handleExpandRequest,
+    });
+    
+    // Update ref on every render so buildGraph always uses latest callbacks
+    callbacksRef.current = {
+        onDrillDown,
+        onFindReferences,
+        onToggleParents,
+        onToggle: toggleExpandedNode,
+        onExpandRequest: handleExpandRequest,
+    };
+
     const graph = useMemo(() => {
-        log.debug('ReactFlowGraph: build graph', {
+        const expandedArray = Array.from(expandedNodes);
+        log.debug('🏗️ ReactFlowGraph: build graph START', {
             nodes: data?.nodes?.length || 0,
             edges: data?.edges?.length || 0,
             currentFilePath,
             expandedNodesSize: expandedNodes.size,
+            expandedNodesList: expandedArray,
             showParents,
             expandAll,
         });
-        return buildReactFlowGraph({
+        const result = buildReactFlowGraph({
             data,
             currentFilePath,
             expandAll,
             expandedNodes,
             showParents,
-            callbacks: {
-                onDrillDown,
-                onFindReferences,
-                onToggleParents,
-                onToggle: (path) => toggleExpandedNode(path),
-                onExpandRequest: handleExpandRequest,
-            },
+            callbacks: callbacksRef.current,
         });
+        log.debug('🏗️ ReactFlowGraph: build graph END', {
+            resultNodes: result.nodes.length,
+            resultEdges: result.edges.length,
+            nodesTruncated: result.nodesTruncated
+        });
+        return result;
     }, [
         data,
         currentFilePath,
         expandAll,
         expandedNodes,
         showParents,
-        onDrillDown,
-        onFindReferences,
-        onToggleParents,
-        toggleExpandedNode,
-        handleExpandRequest,
+        // DO NOT include callbacks in deps! They don't change graph structure,
+        // only node data handlers. Including them causes constant re-renders.
     ]);
 
     const isTruncated = graph.nodesTruncated;
@@ -256,8 +323,12 @@ const ReactFlowGraphContent: React.FC<ReactFlowGraphProps> = ({
     const [nodes, setNodes, onNodesChange] = useNodesState(graph.nodes);
     const [edges, setEdges, onEdgesChange] = useEdgesState(graph.edges);
 
-    // Update nodes when data changes
+    // Sync nodes/edges when graph recalculates (like main branch)
     useEffect(() => {
+        log.debug('ReactFlowGraph: Syncing nodes/edges', {
+            nodeCount: graph.nodes.length,
+            edgeCount: graph.edges.length,
+        });
         setNodes(graph.nodes);
         setEdges(graph.edges);
     }, [graph.nodes, graph.edges, setNodes, setEdges]);
@@ -282,7 +353,7 @@ const ReactFlowGraphContent: React.FC<ReactFlowGraphProps> = ({
                 onNodesChange={onNodesChange}
                 onEdgesChange={onEdgesChange}
                 onNodeClick={handleNodeClick}
-                nodeTypes={NODE_TYPES}
+                nodeTypes={nodeTypes}
                 panOnDrag
                 zoomOnScroll
                 minZoom={0.1}
