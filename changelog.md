@@ -1,5 +1,38 @@
 # Changelog
 
+## v1.3.4
+
+### New Features
+
+- **Node Expansion Progress Tracking**: Real-time visualization of expansion progress with cancellation support
+  - Overlay displays file count and progress during expansion
+  - Cancel button to stop ongoing operations
+  - Status indicators (in-progress, completed, cancelled, error)
+- **Auto Fit View on Resize**: Graph automatically adjusts zoom and position when the webview is resized
+  - Debounced RAF scheduler for smooth, performant updates
+  - Maintains optimal view of the graph when switching panel positions
+
+### Improvements
+
+- **Better Expand/Collapse Handling**: Significantly improved logic for managing node expansion and collapse states
+  - Fixed issues where nodes would disappear after expand/collapse operations
+  - More reliable state synchronization between expanded and visible nodes
+  - Enhanced merge algorithm for graph updates
+- **Unused Symbol Detection**: Improved accuracy by checking internal dependencies within the file
+  - Now considers references between exported symbols (e.g., exported types used in exported functions)
+  - Reduces false positives when detecting dead code
+  - Uses AST-based internal export dependency graph
+
+### Architecture
+
+- **Modular Spider Service Layer**: Refactored core analyzer into specialized services for better maintainability
+  - `SpiderCacheCoordinator`: Centralized cache coherence management
+  - `SpiderGraphCrawler`: Dependency graph traversal logic
+  - `SpiderSymbolService`: Symbol-level analysis features
+  - `SpiderIndexingService`: Background indexing operations
+  - `SpiderDependencyAnalyzer`: Single file dependency analysis
+  - `SpiderReferenceLookup`: Reverse dependency lookups
+
 ## v1.3.3
 
 ### Improvements
