@@ -13,6 +13,94 @@ import { describe, it, expect, vi } from 'vitest';
  * We test the core algorithms and patterns used in the hooks.
  */
 
+// Helper functions at module scope
+function expandIfNeeded(expandedNodes: Set<string>, path: string) {
+  if (expandedNodes.has(path)) {
+    return expandedNodes; // Early return with same reference
+  }
+  const next = new Set(expandedNodes);
+  next.add(path);
+  return next;
+}
+
+function testGraphDependencies(
+  graph: { nodes: string[]; edges: string[] },
+  newGraph?: { nodes: string[]; edges: string[] }
+) {
+  let cachedGraph = graph;
+  let recalcCount = 0;
+
+  // Pattern 1: Depend on graph.nodes and graph.edges (BAD)
+  const checkWithArrayDeps = (currentGraph: typeof graph) => {
+    const nodesChanged = cachedGraph.nodes !== currentGraph.nodes;
+    const edgesChanged = cachedGraph.edges !== currentGraph.edges;
+    
+    if (nodesChanged || edgesChanged) {
+      recalcCount++;
+      cachedGraph = currentGraph;
+    }
+  };
+
+  // Pattern 2: Depend on graph object itself (GOOD)
+  let recalcCount2 = 0;
+  let cachedGraph2 = graph;
+  const checkWithObjectDep = (currentGraph: typeof graph) => {
+    if (cachedGraph2 !== currentGraph) {
+      recalcCount2++;
+      cachedGraph2 = currentGraph;
+    }
+  };
+
+  checkWithArrayDeps(graph);
+  checkWithObjectDep(graph);
+
+  if (newGraph) {
+    checkWithArrayDeps(newGraph);
+    checkWithObjectDep(newGraph);
+  }
+
+  return { recalcCount, recalcCount2 };
+}
+
+function testKeyRecalculation(state: { recalcCount: number; lastKey: string }, key: string) {
+  if (key !== state.lastKey) {
+    state.recalcCount++;
+    state.lastKey = key;
+  }
+}
+
+function toggleNode(expandedNodes: Set<string>, path: string) {
+  const next = new Set(expandedNodes);
+  if (next.has(path)) {
+    next.delete(path);
+  } else {
+    next.add(path);
+  }
+  return next;
+}
+
+function areEqual(s1: Set<string>, s2: Set<string>) {
+  if (s1.size !== s2.size) return false;
+  for (const item of s1) {
+    if (!s2.has(item)) return false;
+  }
+  return true;
+}
+
+function getNextState(previous: Set<string>, newNodes: Set<string>) {
+  if (previous.size === newNodes.size) {
+    let equal = true;
+    for (const node of newNodes) {
+      if (!previous.has(node)) {
+        equal = false;
+        break;
+      }
+    }
+    if (equal) return previous; // Early return!
+  }
+  return newNodes;
+}
+
 describe('ReactFlowGraph - Hook Stability Logic', () => {
   describe('expandedNodesKey stability algorithm', () => {
     it('should create stable key when Set content is identical', () => {
@@ -141,19 +229,10 @@ describe('ReactFlowGraph - Hook Stability Logic', () => {
       const expandedNodes = new Set(['a', 'b']);
       
       // Simulate handleExpand for node already expanded
-      const expand = (path: string) => {
-        if (expandedNodes.has(path)) {
-          return expandedNodes; // Early return with same reference
-        }
-        const next = new Set(expandedNodes);
-        next.add(path);
-        return next;
-      };
-
-      const result = expand('a'); // 'a' is already expanded
+      const result = expandIfNeeded(expandedNodes, 'a'); // 'a' is already expanded
       expect(result).toBe(expandedNodes); // Same reference!
 
-      const result2 = expand('c'); // 'c' is not expanded
+      const result2 = expandIfNeeded(expandedNodes, 'c'); // 'c' is not expanded
       expect(result2).not.toBe(expandedNodes); // New reference
       expect(result2.has('c')).toBe(true);
     });
@@ -161,8 +240,8 @@ describe('ReactFlowGraph - Hook Stability Logic', () => {
 
   describe('graph object dependency pattern', () => {
     it('should show difference between object vs property dependencies', () => {
-      const graph1 = { nodes: ['a', 'b'], edges: ['e1'] };
-      const graph2 = { nodes: ['a', 'b'], edges: ['e1'] };
+      const graph1: { nodes: string[]; edges: string[] } = { nodes: ['a', 'b'], edges: ['e1'] };
+      const graph2: { nodes: string[]; edges: string[] } = { nodes: ['a', 'b'], edges: ['e1'] };
 
       // Different graph objects
       expect(graph2).not.toBe(graph1);
@@ -177,54 +256,22 @@ describe('ReactFlowGraph - Hook Stability Logic', () => {
     });
 
     it('should demonstrate why depending on graph object is better than arrays', () => {
-      const graph = { nodes: ['a'], edges: [] };
+      const graph: { nodes: string[]; edges: string[] } = { nodes: ['a'], edges: [] };
       
-      // Simulating useMemo caching
-      let cachedGraph = graph;
-      let recalcCount = 0;
-
-      // Pattern 1: Depend on graph.nodes and graph.edges (BAD)
-      const checkWithArrayDeps = (currentGraph: typeof graph) => {
-        const nodesChanged = cachedGraph.nodes !== currentGraph.nodes;
-        const edgesChanged = cachedGraph.edges !== currentGraph.edges;
-        
-        if (nodesChanged || edgesChanged) {
-          recalcCount++;
-          cachedGraph = currentGraph;
-        }
-      };
-
-      // Pattern 2: Depend on graph object itself (GOOD)
-      let recalcCount2 = 0;
-      let cachedGraph2 = graph;
-      const checkWithObjectDep = (currentGraph: typeof graph) => {
-        if (cachedGraph2 !== currentGraph) {
-          recalcCount2++;
-          cachedGraph2 = currentGraph;
-        }
-      };
-
-      // Simulate render with new arrays but same graph object
-      // (This would NOT happen in reality because useMemo would cache)
-      // But let's simulate a mutation scenario
-      const sameGraphRef = graph;
-
-      checkWithArrayDeps(sameGraphRef);
-      checkWithObjectDep(sameGraphRef);
+      // Test using extracted helper functions
+      const { recalcCount, recalcCount2 } = testGraphDependencies(graph);
 
       // Both should not trigger since it's the same graph reference
       expect(recalcCount).toBe(0);
       expect(recalcCount2).toBe(0);
 
-      // Now pass a truly different graph object
-      const newGraph = { nodes: ['a', 'b'], edges: ['e1'] };
-      
-      checkWithArrayDeps(newGraph);
-      checkWithObjectDep(newGraph);
+      // Test with new graph object
+      const newGraph: { nodes: string[]; edges: string[] } = { nodes: ['a', 'b'], edges: ['e1'] };
+      const { recalcCount: count1, recalcCount2: count2 } = testGraphDependencies(graph, newGraph);
 
       // Both should trigger now
-      expect(recalcCount).toBe(1);
-      expect(recalcCount2).toBe(1);
+      expect(count1).toBe(1);
+      expect(count2).toBe(1);
     });
   });
 
@@ -238,24 +285,16 @@ describe('ReactFlowGraph - Hook Stability Logic', () => {
       const key2 = Array.from(set2).sort().join('|');
       const key3 = Array.from(set3).sort().join('|');
 
-      let recalcCount = 0;
-      let lastKey = '';
+      const state = { recalcCount: 0, lastKey: '' };
       
-      const checkRecalc = (key: string) => {
-        if (key !== lastKey) {
-          recalcCount++;
-          lastKey = key;
-        }
-      };
+      testKeyRecalculation(state, key1);
+      expect(state.recalcCount).toBe(1);
 
-      checkRecalc(key1);
-      expect(recalcCount).toBe(1);
+      testKeyRecalculation(state, key2); // Same content
+      expect(state.recalcCount).toBe(1); // No recalc!
 
-      checkRecalc(key2); // Same content
-      expect(recalcCount).toBe(1); // No recalc!
-
-      checkRecalc(key3); // Different content
-      expect(recalcCount).toBe(2); // Recalc!
+      testKeyRecalculation(state, key3); // Different content
+      expect(state.recalcCount).toBe(2); // Recalc!
     });
   });
 
@@ -263,21 +302,11 @@ describe('ReactFlowGraph - Hook Stability Logic', () => {
     it('should handle rapid sequential updates correctly', () => {
       let expandedNodes = new Set(['root']);
       
-      const toggle = (path: string) => {
-        const next = new Set(expandedNodes);
-        if (next.has(path)) {
-          next.delete(path);
-        } else {
-          next.add(path);
-        }
-        expandedNodes = next;
-      };
-
       // Rapid toggles
-      toggle('a');
-      toggle('b');
-      toggle('c');
-      toggle('a'); // Toggle 'a' again (should be off)
+      expandedNodes = toggleNode(expandedNodes, 'a');
+      expandedNodes = toggleNode(expandedNodes, 'b');
+      expandedNodes = toggleNode(expandedNodes, 'c');
+      expandedNodes = toggleNode(expandedNodes, 'a'); // Toggle 'a' again (should be off)
 
       // Final state should be correct
       expect(expandedNodes.has('root')).toBe(true);
@@ -319,28 +348,12 @@ describe('ReactFlowGraph - Hook Stability Logic', () => {
       const set1 = new Set(['a', 'b', 'c']);
       const set2 = new Set(['a', 'b', 'c']);
 
-      const areEqual = (s1: Set<string>, s2: Set<string>) => {
-        if (s1.size !== s2.size) return false;
-        for (const item of s1) {
-          if (!s2.has(item)) return false;
-        }
-        return true;
-      };
-
       expect(areEqual(set1, set2)).toBe(true);
     });
 
     it('should detect when Sets have different content', () => {
       const set1 = new Set(['a', 'b']);
       const set2 = new Set(['a', 'b', 'c']);
-
-      const areEqual = (s1: Set<string>, s2: Set<string>) => {
-        if (s1.size !== s2.size) return false;
-        for (const item of s1) {
-          if (!s2.has(item)) return false;
-        }
-        return true;
-      };
 
       expect(areEqual(set1, set2)).toBe(false);
     });
@@ -350,20 +363,6 @@ describe('ReactFlowGraph - Hook Stability Logic', () => {
       const allNodes = new Set(['a', 'b']); // Same content
 
       // Simulate the setState callback with early return
-      const getNextState = (previous: Set<string>, newNodes: Set<string>) => {
-        if (previous.size === newNodes.size) {
-          let equal = true;
-          for (const node of newNodes) {
-            if (!previous.has(node)) {
-              equal = false;
-              break;
-            }
-          }
-          if (equal) return previous; // Early return!
-        }
-        return newNodes;
-      };
-
       const result = getNextState(prev, allNodes);
       expect(result).toBe(prev); // Same reference returned
     });
