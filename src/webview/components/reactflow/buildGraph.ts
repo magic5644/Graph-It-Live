@@ -31,6 +31,210 @@ export interface BuildGraphResult {
   nodesTruncated: boolean;
 }
 
+/**
+ * Filter edges to keep only those relevant to the current expansion state.
+ * This ensures expand/collapse feels reliable even with huge graphs.
+ */
+function filterRelevantEdges(
+  edges: Array<{ source: string; target: string }>,
+  currentPath: string,
+  expandedNodes: Set<string>,
+  showParents: boolean,
+  maxEdges: number
+): Array<{ source: string; target: string }> {
+  const allowedSources = new Set<string>([normalizePath(currentPath)]);
+  expandedNodes.forEach((n) => allowedSources.add(normalizePath(n)));
+
+  const selected: typeof edges = [];
+  for (const edge of edges) {
+    const source = normalizePath(edge.source);
+    const target = normalizePath(edge.target);
+    if (allowedSources.has(source) || (showParents && target === normalizePath(currentPath))) {
+      selected.push({ source, target });
+      if (selected.length >= maxEdges) break;
+    }
+  }
+  return selected;
+}
+
+/**
+ * Get edges for processing, applying truncation if needed
+ */
+function getEdgesForProcessing(
+  data: GraphData,
+  currentPath: string,
+  expandAll: boolean,
+  expandedNodes: Set<string>,
+  showParents: boolean
+): { edges: Array<{ source: string; target: string }>; truncated: boolean } {
+  const truncated = data.edges.length > GRAPH_LIMITS.MAX_PROCESS_EDGES;
+  
+  if (!truncated) {
+    return { edges: data.edges, truncated: false };
+  }
+  
+  if (expandAll) {
+    return { 
+      edges: data.edges.slice(0, GRAPH_LIMITS.MAX_PROCESS_EDGES),
+      truncated: true 
+    };
+  }
+
+  return {
+    edges: filterRelevantEdges(
+      data.edges,
+      currentPath,
+      expandedNodes,
+      showParents,
+      GRAPH_LIMITS.MAX_PROCESS_EDGES
+    ),
+    truncated: true
+  };
+}
+
+/**
+ * Add parent nodes to the visible set
+ */
+function addParentNodes(
+  visibleNodes: Set<string>,
+  parents: string[],
+  maxNodes: number
+): boolean {
+  let truncated = false;
+  for (const parent of parents) {
+    if (visibleNodes.size >= maxNodes) {
+      truncated = true;
+      break;
+    }
+    visibleNodes.add(parent);
+  }
+  return truncated;
+}
+
+/**
+ * Perform BFS traversal to find visible nodes
+ */
+function findVisibleNodesBFS(
+  rootPath: string,
+  children: Map<string, string[]>,
+  expandAll: boolean,
+  expandedNodes: Set<string>,
+  initialNodes: Set<string>,
+  maxNodes: number
+): { visibleNodes: Set<string>; truncated: boolean } {
+  const visibleNodes = new Set(initialNodes);
+  const queue = [rootPath];
+  const visited = new Set<string>();
+  let truncated = false;
+
+  console.log('🔍 buildGraph: Starting BFS traversal', {
+    normalizedCurrentPath: rootPath,
+    expandedNodesSize: expandedNodes.size,
+    expandedNodesList: Array.from(expandedNodes),
+    expandAll
+  });
+
+  for (const node of queue) {
+    if (visited.has(node)) continue;
+    visited.add(node);
+    visibleNodes.add(node);
+
+    const nodeChildren = children.get(node) || [];
+    const shouldShowChildren = expandAll || expandedNodes.has(node) || node === rootPath;
+
+    console.log('🔍 buildGraph: Processing node', {
+      node,
+      hasInExpandedNodes: expandedNodes.has(node),
+      isRoot: node === rootPath,
+      expandAll,
+      shouldShowChildren,
+      childrenCount: nodeChildren.length
+    });
+
+    if (shouldShowChildren) {
+      for (const child of nodeChildren) {
+        if (visibleNodes.size >= maxNodes) {
+          truncated = true;
+          break;
+        }
+        queue.push(child);
+      }
+    }
+    if (truncated) break;
+  }
+
+  console.log('🔍 buildGraph: BFS complete', {
+    visibleNodesSize: visibleNodes.size,
+    visibleNodesList: Array.from(visibleNodes)
+  });
+
+  return { visibleNodes, truncated };
+}
+
+/**
+ * Build relationship maps from edges
+ */
+function buildRelationshipMaps(
+  edges: Array<{ source: string; target: string }>
+): { children: Map<string, string[]>; parents: Map<string, string[]> } {
+  const children = new Map<string, string[]>();
+  const parents = new Map<string, string[]>();
+  
+  edges.forEach(({ source, target }) => {
+    const ns = normalizePath(source);
+    const nt = normalizePath(target);
+    if (!children.has(ns)) children.set(ns, []);
+    children.get(ns)!.push(nt);
+    if (!parents.has(nt)) parents.set(nt, []);
+    parents.get(nt)!.push(ns);
+  });
+
+  return { children, parents };
+}
+
+/**
+ * Create edge style based on whether it's part of a cycle
+ */
+function createEdgeStyle(isCircular: boolean) {
+  return isCircular
+    ? { stroke: '#ff4d4d', strokeWidth: 2, strokeDasharray: '5,5' }
+    : { stroke: 'var(--vscode-editor-foreground)' };
+}
+
+/**
+ * Filter and create edges for the visible nodes
+ */
+function createVisibleEdges(
+  edgesForProcessing: Array<{ source: string; target: string }>,
+  visibleNodes: Set<string>,
+  cycles: Set<string>
+): Edge[] {
+  const seenEdgeIds = new Set<string>();
+  
+  return edgesForProcessing
+    .map(({ source, target }) => ({ source: normalizePath(source), target: normalizePath(target) }))
+    .filter(({ source, target }) => visibleNodes.has(source) && visibleNodes.has(target))
+    .flatMap(({ source, target }) => {
+      const id = `${source}->${target}`;
+      if (seenEdgeIds.has(id)) return [];
+      seenEdgeIds.add(id);
+
+      const isCircular = cycles.has(source) && cycles.has(target);
+      return [
+        {
+          id,
+          source,
+          target,
+          animated: true,
+          style: createEdgeStyle(isCircular),
+          label: isCircular ? 'Cycle' : undefined,
+          labelStyle: isCircular ? { fill: '#ff4d4d', fontWeight: 'bold' } : undefined,
+          labelBgStyle: isCircular ? { fill: 'var(--vscode-editor-background)' } : undefined,
+        },
+      ];
+    });
+}
+
 export function buildReactFlowGraph(params: {
   data: GraphData | undefined;
   currentFilePath: string;
@@ -53,103 +257,43 @@ export function buildReactFlowGraph(params: {
     };
   }
 
-  const edgesTruncated = data.edges.length > GRAPH_LIMITS.MAX_PROCESS_EDGES;
-  const edgesForProcessing = (() => {
-    if (!edgesTruncated) return data.edges;
-    if (expandAll) return data.edges.slice(0, GRAPH_LIMITS.MAX_PROCESS_EDGES);
-
-    // When the graph is huge we still want expand/collapse to feel reliable.
-    // Instead of slicing the first N edges (which is sensitive to traversal order
-    // and can vary across platforms), prefer keeping edges relevant to the current
-    // expansion frontier (root + explicitly expanded nodes).
-    const allowedSources = new Set<string>([normalizedCurrentPath]);
-    expandedNodes.forEach((n) => allowedSources.add(normalizePath(n)));
-
-    const selected: typeof data.edges = [];
-    for (const edge of data.edges) {
-      const source = normalizePath(edge.source);
-      const target = normalizePath(edge.target);
-      if (allowedSources.has(source) || (showParents && target === normalizedCurrentPath)) {
-        selected.push({ source, target });
-        if (selected.length >= GRAPH_LIMITS.MAX_PROCESS_EDGES) break;
-      }
-    }
-    return selected;
-  })();
+  const { edges: edgesForProcessing, truncated: edgesTruncated } = getEdgesForProcessing(
+    data,
+    normalizedCurrentPath,
+    expandAll,
+    expandedNodes,
+    showParents
+  );
 
   const cycles =
-    edgesForProcessing.length <= GRAPH_LIMITS.MAX_CYCLE_DETECT_EDGES ? detectCycles(edgesForProcessing) : new Set<string>();
+    edgesForProcessing.length <= GRAPH_LIMITS.MAX_CYCLE_DETECT_EDGES 
+      ? detectCycles(edgesForProcessing) 
+      : new Set<string>();
 
   const getLabel = (path: string) => data.nodeLabels?.[path] || path.split(/[/\\]/).pop() || path;
 
-  const children = new Map<string, string[]>();
-  const parents = new Map<string, string[]>();
-  edgesForProcessing.forEach(({ source, target }) => {
-    const ns = normalizePath(source);
-    const nt = normalizePath(target);
-    if (!children.has(ns)) children.set(ns, []);
-    children.get(ns)!.push(nt);
-    if (!parents.has(nt)) parents.set(nt, []);
-    parents.get(nt)!.push(ns);
-  });
+  const { children, parents } = buildRelationshipMaps(edgesForProcessing);
 
-  const visibleNodes = new Set<string>([normalizedCurrentPath]);
+  const initialVisibleNodes = new Set<string>([normalizedCurrentPath]);
   let nodesTruncated = false;
 
   const fileParents = parents.get(normalizedCurrentPath) || [];
   const fileParentsSet = new Set(fileParents);
+  
   if (showParents) {
-    for (const parent of fileParents) {
-      if (visibleNodes.size >= GRAPH_LIMITS.MAX_RENDER_NODES) {
-        nodesTruncated = true;
-        break;
-      }
-      visibleNodes.add(parent);
-    }
+    nodesTruncated = addParentNodes(initialVisibleNodes, fileParents, GRAPH_LIMITS.MAX_RENDER_NODES);
   }
 
-  console.log('🔍 buildGraph: Starting BFS traversal', {
+  const { visibleNodes, truncated: bfsTruncated } = findVisibleNodesBFS(
     normalizedCurrentPath,
-    expandedNodesSize: expandedNodes.size,
-    expandedNodesList: Array.from(expandedNodes),
-    expandAll
-  });
-
-  const queue = [normalizedCurrentPath];
-  const visited = new Set<string>();
-  for (const node of queue) {
-    if (visited.has(node)) continue;
-    visited.add(node);
-    visibleNodes.add(node);
-
-    const nodeChildren = children.get(node) || [];
-    const shouldShowChildren = expandAll || expandedNodes.has(node) || node === normalizedCurrentPath;
-
-    console.log('🔍 buildGraph: Processing node', {
-      node,
-      hasInExpandedNodes: expandedNodes.has(node),
-      isRoot: node === normalizedCurrentPath,
-      expandAll,
-      shouldShowChildren,
-      childrenCount: nodeChildren.length
-    });
-
-    if (shouldShowChildren) {
-      for (const child of nodeChildren) {
-        if (visibleNodes.size >= GRAPH_LIMITS.MAX_RENDER_NODES) {
-          nodesTruncated = true;
-          break;
-        }
-        queue.push(child);
-      }
-    }
-    if (nodesTruncated) break;
-  }
-
-  console.log('🔍 buildGraph: BFS complete', {
-    visibleNodesSize: visibleNodes.size,
-    visibleNodesList: Array.from(visibleNodes)
-  });
+    children,
+    expandAll,
+    expandedNodes,
+    initialVisibleNodes,
+    GRAPH_LIMITS.MAX_RENDER_NODES
+  );
+  
+  nodesTruncated = nodesTruncated || bfsTruncated;
 
   const createNodeData = (path: string, label: string): FileNodeData => {
     const parentCountRaw = data.parentCounts?.[path];
@@ -186,34 +330,7 @@ export function buildReactFlowGraph(params: {
     };
   });
 
-  const createEdgeStyle = (isCircular: boolean) =>
-    isCircular
-      ? { stroke: '#ff4d4d', strokeWidth: 2, strokeDasharray: '5,5' }
-      : { stroke: 'var(--vscode-editor-foreground)' };
-
-  const seenEdgeIds = new Set<string>();
-  let edges: Edge[] = edgesForProcessing
-    .map(({ source, target }) => ({ source: normalizePath(source), target: normalizePath(target) }))
-    .filter(({ source, target }) => visibleNodes.has(source) && visibleNodes.has(target))
-    .flatMap(({ source, target }) => {
-      const id = `${source}->${target}`;
-      if (seenEdgeIds.has(id)) return [];
-      seenEdgeIds.add(id);
-
-      const isCircular = cycles.has(source) && cycles.has(target);
-      return [
-        {
-          id,
-          source,
-          target,
-          animated: true,
-          style: createEdgeStyle(isCircular),
-          label: isCircular ? 'Cycle' : undefined,
-          labelStyle: isCircular ? { fill: '#ff4d4d', fontWeight: 'bold' } : undefined,
-          labelBgStyle: isCircular ? { fill: 'var(--vscode-editor-background)' } : undefined,
-        },
-      ];
-    });
+  let edges: Edge[] = createVisibleEdges(edgesForProcessing, visibleNodes, cycles);
 
   const renderEdgesTruncated = edges.length > GRAPH_LIMITS.MAX_RENDER_EDGES;
   if (renderEdgesTruncated) {
