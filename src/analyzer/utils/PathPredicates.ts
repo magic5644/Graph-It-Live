@@ -1,5 +1,5 @@
-import { IGNORED_DIRECTORIES } from '../shared/constants';
-import { normalizePath } from './types';
+import { IGNORED_DIRECTORIES } from '../../shared/constants';
+import { normalizePath } from '../types';
 
 /**
  * Check if a file path is inside an ignored directory (cross-platform).

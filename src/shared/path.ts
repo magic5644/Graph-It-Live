@@ -10,6 +10,10 @@ export function normalizePath(filePath: string): string {
   let p = filePath.replaceAll('\\', '/');
   // Collapse multiple slashes
   p = p.replaceAll(/\/+/g, '/');
+  // Lowercase Windows drive letter if present to keep a stable canonical form
+  if (/^[A-Za-z]:\//.test(p)) {
+    p = p[0].toLowerCase() + p.slice(1);
+  }
   // Remove trailing slash for non-root paths
   if (p.length > 1 && p.endsWith('/') && !/^[a-zA-Z]:\/$/.test(p)) {
     p = p.slice(0, -1);

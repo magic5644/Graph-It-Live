@@ -4,20 +4,20 @@ import { Cache } from './Cache';
 import { ReverseIndexManager } from './ReverseIndexManager';
 import { IndexerStatus, type IndexerStatusSnapshot } from './IndexerStatus';
 import type { Dependency, IndexingProgressCallback, SpiderConfig } from './types';
-import { SpiderWorkerManager } from './SpiderWorkerManager';
 import { SourceFileCollector } from './SourceFileCollector';
 import { ReferencingFilesFinder } from './ReferencingFilesFinder';
 import { SymbolDependencyHelper } from './SymbolDependencyHelper';
 import { SymbolAnalyzer } from './SymbolAnalyzer';
 import { FileReader } from './FileReader';
-import { yieldToEventLoop, YIELD_INTERVAL_MS } from './EventLoopYield';
-import { SpiderCacheCoordinator } from './SpiderCacheCoordinator';
-import { SpiderDependencyAnalyzer } from './SpiderDependencyAnalyzer';
-import { SpiderGraphCrawler } from './SpiderGraphCrawler';
-import { SpiderIndexingCancellation } from './SpiderIndexingCancellation';
-import { SpiderIndexingService } from './SpiderIndexingService';
-import { SpiderReferenceLookup } from './SpiderReferenceLookup';
-import { SpiderSymbolService } from './SpiderSymbolService';
+import { yieldToEventLoop, YIELD_INTERVAL_MS } from './utils/EventLoopYield';
+import { SpiderCacheCoordinator } from './spider/SpiderCacheCoordinator';
+import { SpiderDependencyAnalyzer } from './spider/SpiderDependencyAnalyzer';
+import { SpiderGraphCrawler } from './spider/SpiderGraphCrawler';
+import { SpiderIndexingCancellation } from './spider/SpiderIndexingCancellation';
+import { SpiderIndexingService } from './spider/SpiderIndexingService';
+import { SpiderReferenceLookup } from './spider/SpiderReferenceLookup';
+import { SpiderSymbolService } from './spider/SpiderSymbolService';
+import { SpiderWorkerManager } from './spider/SpiderWorkerManager';
 
 /**
  * Main analyzer class - "The Spider"
