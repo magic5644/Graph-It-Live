@@ -123,7 +123,23 @@ export class GraphProvider implements vscode.WebviewViewProvider {
     private async _handleSwitchModeMessage(message: SwitchModeMessage): Promise<void> {
         log.debug('Switching to', message.mode, 'mode');
         if (message.mode === 'file') {
+            const previousSymbolId = this._stateManager.currentSymbol;
             this._stateManager.currentSymbol = undefined;
+
+            // Switching back to file view should not depend on an active text editor,
+            // otherwise clicking "File View" from the Symbol view can get stuck when
+            // the active editor is an output/virtual document.
+            const fallbackLastFile = this._stateManager.getLastActiveFilePath();
+            const candidate = previousSymbolId
+                ? this._navigationService?.parseFilePathAndSymbol(previousSymbolId).actualFilePath
+                : undefined;
+            const targetFilePath = candidate || fallbackLastFile;
+
+            if (targetFilePath && /\.(ts|tsx|js|jsx|vue|svelte|gql|graphql)$/.test(targetFilePath)) {
+                await this._sendGraphUpdate(targetFilePath, false);
+                return;
+            }
+
             this.updateGraph();
         } else if (message.mode === 'symbol') {
             const editor = vscode.window.activeTextEditor;
@@ -370,6 +386,8 @@ export class GraphProvider implements vscode.WebviewViewProvider {
             );
             if (!resolvedFilePath) return; // Messages already shown by resolver
 
+            await this._stateManager.setLastActiveFilePath(resolvedFilePath);
+
             // Track the resolved (absolute) file we are viewing for refreshes
             const rootNodeId = symbolName ? `${resolvedFilePath}:${symbolName}` : resolvedFilePath;
             this._stateManager.currentSymbol = rootNodeId;
@@ -492,24 +510,32 @@ export class GraphProvider implements vscode.WebviewViewProvider {
             return { mode: 'file', message: 'View not initialized' };
         }
 
-        const editor = vscode.window.activeTextEditor;
-        if (editor?.document.uri.scheme !== 'file') {
-            vscode.window.showWarningMessage('No active file to toggle view');
-            return { mode: 'file', message: 'No active file' };
-        }
-
-        const filePath = editor.document.fileName;
-
         // Toggle based on current mode
         if (this._stateManager.currentSymbol) {
             // Currently in symbol view → switch to file view
             log.info('Toggling from symbol view to file view');
+            const symbolId = this._stateManager.currentSymbol;
             this._stateManager.currentSymbol = undefined;
-            this.updateGraph();
+            const filePath = this._navigationService?.parseFilePathAndSymbol(symbolId).actualFilePath
+                ?? this._stateManager.getLastActiveFilePath();
+            if (filePath) {
+                await this._sendGraphUpdate(filePath, false);
+            } else {
+                this.updateGraph();
+            }
             return { mode: 'file', message: 'Switched to File View' };
         } else {
             // Currently in file view → switch to symbol view
             log.info('Toggling from file view to symbol view');
+            const editor = vscode.window.activeTextEditor;
+            const filePath =
+                editor?.document.uri.scheme === 'file'
+                    ? editor.document.fileName
+                    : this._stateManager.getLastActiveFilePath();
+            if (!filePath) {
+                vscode.window.showWarningMessage('No active file to toggle view');
+                return { mode: 'file', message: 'No active file' };
+            }
             await this.handleDrillDown(filePath);
             return { mode: 'symbol', message: 'Switched to Symbol View' };
         }
@@ -604,6 +630,7 @@ export class GraphProvider implements vscode.WebviewViewProvider {
             return;
         }
 
+        await this._stateManager.setLastActiveFilePath(filePath);
         await this._sendGraphUpdate(filePath, isRefresh);
     }
 

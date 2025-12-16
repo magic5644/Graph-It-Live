@@ -245,4 +245,39 @@ describe('GraphProvider', () => {
         expect(status).toBeTruthy();
         expect(spiderMock.getIndexStatus).toHaveBeenCalled();
     });
+
+    it('should switch from symbol view to file view even without an active file editor', async () => {
+        const webview = {
+            postMessage: vi.fn(),
+            asWebviewUri: vi.fn(),
+            options: {},
+            html: '',
+            onDidReceiveMessage: vi.fn(),
+            cspSource: 'test-csp',
+        };
+        const view = {
+            webview,
+            onDidDispose: vi.fn(),
+        };
+
+        provider.resolveWebviewView(view as any, {} as any, {} as any);
+
+        const mainTsPath = path.join(testRootDir, 'src', 'main.ts');
+        const spiderMock = (provider as any)['_spider'];
+        (spiderMock.crawl as any).mockResolvedValue({ nodes: [np(mainTsPath)], edges: [] });
+
+        // Simulate symbol view for a symbol in main.ts
+        (provider as any)['_stateManager'].currentSymbol = `${mainTsPath}:foo`;
+
+        // And simulate no active file editor (eg. output panel focused)
+        (vscode.window as any).activeTextEditor = { document: { uri: { scheme: 'output' }, fileName: 'extension-output' } };
+
+        await provider.toggleViewMode();
+
+        expect(webview.postMessage).toHaveBeenCalledWith(expect.objectContaining({
+            command: 'updateGraph',
+            filePath: mainTsPath,
+            isRefresh: false,
+        }));
+    });
 });

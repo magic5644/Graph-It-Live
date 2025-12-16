@@ -137,7 +137,7 @@ const App: React.FC = () => {
                 origLog(...args);
                 try {
                     vscode.postMessage({ command: 'webviewLog', level: 'info', message: String(args[0] ?? ''), args });
-                } catch (error_) {  console.log(error_); }
+                } catch (error_) { origLog('Webview log forward failed', error_); }
             };
             console.info = (...args: unknown[]) => {
                 origInfo(...args);
@@ -161,7 +161,7 @@ const App: React.FC = () => {
                 origDebug(...args);
                 try {
                     vscode.postMessage({ command: 'webviewLog', level: 'debug', message: String(args[0] ?? ''), args });
-                } catch (error_) {  console.log(error_); }
+                } catch (error_) { origLog('Webview log forward failed', error_); }
             };
 
             return () => {
