@@ -416,7 +416,7 @@ const ReactFlowGraphContent: React.FC<ReactFlowGraphProps> = ({
                         maxWidth: 420,
                     }}
                 >
-                    Graphe trop volumineux : affichage limité à {GRAPH_LIMITS.MAX_RENDER_NODES} nœuds pour éviter un crash.
+                    Graph too large: display limited to {GRAPH_LIMITS.MAX_RENDER_NODES} nodes to avoid crashes.
                 </div>
             )}
             {graph.edgesTruncated && (
@@ -436,7 +436,7 @@ const ReactFlowGraphContent: React.FC<ReactFlowGraphProps> = ({
                         maxWidth: 420,
                     }}
                 >
-                    Trop d’arêtes : rendu limité à {GRAPH_LIMITS.MAX_PROCESS_EDGES} edges pour éviter un crash.
+                    Too many edges: rendering limited to {GRAPH_LIMITS.MAX_PROCESS_EDGES} edges to avoid crashes.
                 </div>
             )}
             {graph.renderEdgesTruncated && (
@@ -456,7 +456,7 @@ const ReactFlowGraphContent: React.FC<ReactFlowGraphProps> = ({
                         maxWidth: 420,
                     }}
                 >
-                    Trop d’arêtes visibles : affichage limité à {GRAPH_LIMITS.MAX_RENDER_EDGES} edges.
+                    Too many visible edges: display limited to {GRAPH_LIMITS.MAX_RENDER_EDGES} edges.
                 </div>
             )}
 

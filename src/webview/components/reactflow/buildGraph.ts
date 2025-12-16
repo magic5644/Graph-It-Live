@@ -1,10 +1,14 @@
 import type { Edge, Node } from 'reactflow';
 import type { GraphData } from '../../../shared/types';
+import { getLogger } from '../../../shared/logger';
 import { nodeHeight } from '../../utils/nodeUtils';
 import { normalizePath } from '../../utils/path';
 import type { FileNodeData } from './FileNode';
 import { detectCycles } from './cycles';
 import { calculateNodeWidth, layoutGraph } from './layout';
+
+/** Logger instance for buildGraph */
+const log = getLogger('buildGraph');
 
 export const GRAPH_LIMITS = {
   MAX_RENDER_NODES: 400,
@@ -126,7 +130,7 @@ function findVisibleNodesBFS(
   const visited = new Set<string>();
   let truncated = false;
 
-  console.log('🔍 buildGraph: Starting BFS traversal', {
+  log.debug('🔍 buildGraph: Starting BFS traversal', {
     normalizedCurrentPath: rootPath,
     expandedNodesSize: expandedNodes.size,
     expandedNodesList: Array.from(expandedNodes)
@@ -140,7 +144,7 @@ function findVisibleNodesBFS(
     const nodeChildren = children.get(node) || [];
     const shouldShowChildren = expandedNodes.has(node) || node === rootPath;
 
-    console.log('🔍 buildGraph: Processing node', {
+    log.debug('🔍 buildGraph: Processing node', {
       node,
       hasInExpandedNodes: expandedNodes.has(node),
       isRoot: node === rootPath,
@@ -160,7 +164,7 @@ function findVisibleNodesBFS(
     if (truncated) break;
   }
 
-  console.log('🔍 buildGraph: BFS complete', {
+  log.debug('🔍 buildGraph: BFS complete', {
     visibleNodesSize: visibleNodes.size,
     visibleNodesList: Array.from(visibleNodes)
   });
