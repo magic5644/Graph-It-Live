@@ -1,5 +1,6 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import { Spider } from '../../src/analyzer/Spider';
+import { normalizePathForComparison } from '../../src/analyzer/types';
 import path from 'node:path';
 
 // Use absolute path for test fixtures
@@ -178,8 +179,8 @@ describe('ReverseIndex - Bug Fix: References not disappearing on re-analysis', (
         expect(refsAfterB.length).toBeGreaterThanOrEqual(refsBeforeB.length);
         
         // Verify fileB is in the references - normalize paths for cross-platform comparison
-        const normalizedFileB = path.normalize(fileB);
-        const hasBReference = refsAfterB.some(ref => path.normalize(ref.path) === normalizedFileB);
+        const normalizedFileB = normalizePathForComparison(fileB);
+        const hasBReference = refsAfterB.some(ref => normalizePathForComparison(ref.path) === normalizedFileB);
         expect(hasBReference).toBe(true);
     });
 
@@ -209,7 +210,7 @@ describe('ReverseIndex - Bug Fix: References not disappearing on re-analysis', (
 
         // fileB imports fileA, so fileA should have at least fileB as reference
         // Normalize paths for cross-platform comparison
-        const normalizedFileB = path.normalize(fileB);
-        expect(refsA.some(ref => path.normalize(ref.path) === normalizedFileB)).toBe(true);
+        const normalizedFileB = normalizePathForComparison(fileB);
+        expect(refsA.some(ref => normalizePathForComparison(ref.path) === normalizedFileB)).toBe(true);
     });
 });
