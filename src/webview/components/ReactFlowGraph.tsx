@@ -84,40 +84,72 @@ function useExpandedNodes(params: {
     resetToken?: number;
 }) {
     const { expandAll, currentFilePath, edges, autoExpandNodeId, onExpandNode, resetToken } = params;
+    
+    // Track the last values to detect ACTUAL changes (not re-renders)
+    const lastExpandAllRef = React.useRef<boolean>(expandAll);
+    const lastResetTokenRef = React.useRef<number | undefined>(resetToken);
+    
     const [expandedNodes, setExpandedNodes] = useState<Set<string>>(new Set());
 
-    // Single effect to handle all resets: navigation, refresh, and expandAll toggle
+    // Effect ONLY for navigation resets (resetToken or currentFilePath changes)
+    // This resets expandedNodes according to expandAll state at time of navigation
     useEffect(() => {
-        log.debug('🔄 useExpandedNodes: Effect triggered', { 
-            expandAll, 
+        log.debug('🔄 useExpandedNodes: Navigation effect', { 
             resetToken, 
             currentFilePath, 
-            edgesCount: edges?.length,
-            currentExpandedSize: expandedNodes.size,
-            currentExpanded: Array.from(expandedNodes)
+            expandAll,
+            edgesCount: edges?.length
         });
-        if (expandAll && edges) {
+        
+        lastResetTokenRef.current = resetToken;
+        
+        if (expandAll && edges && edges.length > 0) {
             // Expand ALL nodes with children
             const allNodesWithChildren = new Set<string>();
-            if (currentFilePath) {
-                allNodesWithChildren.add(normalizePath(currentFilePath));
-            }
-            const edgesForSources =
-                edges.length > GRAPH_LIMITS.MAX_PROCESS_EDGES
-                    ? edges.slice(0, GRAPH_LIMITS.MAX_PROCESS_EDGES)
-                    : edges;
-            edgesForSources.forEach((edge) => {
-                allNodesWithChildren.add(normalizePath(edge.source));
+            edges.forEach(edge => {
+                allNodesWithChildren.add(edge.source);
             });
-            log.debug('🔄 useExpandedNodes: Expanding all nodes', { size: allNodesWithChildren.size, nodes: Array.from(allNodesWithChildren).slice(0, 5) });
+            log.debug('🔄 Navigation: Expanding all nodes', { size: allNodesWithChildren.size });
             setExpandedNodes(allNodesWithChildren);
         } else {
-            // Collapse all OR navigation - keep only root
+            // Reset to root only
             const rootSet = currentFilePath ? new Set([normalizePath(currentFilePath)]) : new Set<string>();
-            log.debug('🔄 useExpandedNodes: Collapsing to root', { rootSize: rootSet.size, root: Array.from(rootSet), expandAll });
+            log.debug('🔄 Navigation: Resetting to root', { rootSize: rootSet.size });
             setExpandedNodes(rootSet);
         }
-    }, [expandAll, resetToken, currentFilePath]); // CRITICAL: edges NOT in deps!
+    }, [resetToken, currentFilePath]); // CRITICAL: Only navigation triggers, NOT expandAll or edges!
+
+    // Separate effect ONLY for expandAll button changes
+    // This allows manual node toggling to work independently
+    useEffect(() => {
+        // Only react when expandAll ACTUALLY changes (not on every render)
+        if (expandAll === lastExpandAllRef.current) {
+            return; // No change, skip
+        }
+        
+        log.debug('🔄 useExpandedNodes: expandAll changed', { 
+            from: lastExpandAllRef.current,
+            to: expandAll,
+            edgesCount: edges?.length
+        });
+        
+        lastExpandAllRef.current = expandAll;
+        
+        if (expandAll && edges && edges.length > 0) {
+            // Expand ALL nodes with children
+            const allNodesWithChildren = new Set<string>();
+            edges.forEach(edge => {
+                allNodesWithChildren.add(edge.source);
+            });
+            log.debug('🔄 ExpandAll: Expanding all nodes', { size: allNodesWithChildren.size });
+            setExpandedNodes(allNodesWithChildren);
+        } else if (!expandAll) {
+            // Collapse all - keep only root
+            const rootSet = currentFilePath ? new Set([normalizePath(currentFilePath)]) : new Set<string>();
+            log.debug('🔄 ExpandAll: Collapsing to root', { rootSize: rootSet.size });
+            setExpandedNodes(rootSet);
+        }
+    }, [expandAll]); // CRITICAL: Only expandAll changes, NOT edges!
 
     // Auto-expand specific node (typically after expansion request)
     useEffect(() => {
