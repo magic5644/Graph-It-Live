@@ -1,11 +1,11 @@
-import { Parser } from './Parser';
-import { PathResolver } from './PathResolver';
-import { Cache } from './Cache';
-import { ReverseIndex } from './ReverseIndex';
-import { ReverseIndexManager } from './ReverseIndexManager';
-import { FileReader } from './FileReader';
-import { Dependency, SpiderError, normalizePath } from './types';
-import { getLogger } from '../shared/logger';
+import { Parser } from '../Parser';
+import { PathResolver } from '../PathResolver';
+import { Cache } from '../Cache';
+import { ReverseIndex } from '../ReverseIndex';
+import { ReverseIndexManager } from '../ReverseIndexManager';
+import { FileReader } from '../FileReader';
+import { Dependency, SpiderError, normalizePath } from '../types';
+import { getLogger } from '../../shared/logger';
 
 const log = getLogger('SpiderDependencyAnalyzer');
 

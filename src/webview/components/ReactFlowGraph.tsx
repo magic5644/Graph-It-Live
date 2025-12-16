@@ -19,6 +19,7 @@ import dagre from 'dagre';
 import { GraphData } from '../../shared/types';
 import { nodeHeight, minNodeWidth, maxNodeWidth, charWidth, actionButtonSize, cycleIndicatorSize } from '../utils/nodeUtils';
 import { getLogger } from '../../shared/logger';
+import { normalizePath } from '../utils/path';
 
 /** Logger instance for ReactFlowGraph */
 const log = getLogger('ReactFlowGraph');
@@ -27,11 +28,6 @@ const MAX_RENDER_NODES = 400;
 const MAX_CYCLE_DETECT_EDGES = 3000;
 const MAX_PROCESS_EDGES = 20000;
 const MAX_RENDER_EDGES = 1500;
-
-// Normalize path for cross-platform comparison (convert backslashes to forward slashes)
-const normalizePath = (filePath: string): string => {
-    return filePath.replaceAll('\\', '/');
-};
 
 // Inject React Flow CSS
 if (typeof document !== 'undefined' && !document.getElementById('reactflow-styles')) {

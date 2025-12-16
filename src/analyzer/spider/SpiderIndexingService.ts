@@ -1,13 +1,13 @@
-import type { Dependency, IndexingProgressCallback, SpiderConfig } from './types';
-import { normalizePath, SpiderError } from './types';
-import { getLogger } from '../shared/logger';
-import { ReverseIndexManager } from './ReverseIndexManager';
-import { SourceFileCollector } from './SourceFileCollector';
-import { IndexerStatus } from './IndexerStatus';
+import type { Dependency, IndexingProgressCallback, SpiderConfig } from '../types';
+import { normalizePath, SpiderError } from '../types';
+import { getLogger } from '../../shared/logger';
+import { ReverseIndexManager } from '../ReverseIndexManager';
+import { SourceFileCollector } from '../SourceFileCollector';
+import { IndexerStatus } from '../IndexerStatus';
 import { SpiderWorkerManager } from './SpiderWorkerManager';
-import { Cache } from './Cache';
+import { Cache } from '../Cache';
 import { SpiderDependencyAnalyzer } from './SpiderDependencyAnalyzer';
-import { YIELD_INTERVAL_MS } from './EventLoopYield';
+import { YIELD_INTERVAL_MS } from '../utils/EventLoopYield';
 import { SpiderIndexingCancellation } from './SpiderIndexingCancellation';
 
 const log = getLogger('SpiderIndexingService');

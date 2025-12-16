@@ -1,6 +1,6 @@
-import type { Dependency, SpiderConfig } from './types';
-import { normalizePath } from './types';
-import { isInIgnoredDirectory } from './PathPredicates';
+import type { Dependency, SpiderConfig } from '../types';
+import { normalizePath } from '../types';
+import { isInIgnoredDirectory } from '../utils/PathPredicates';
 import { SpiderDependencyAnalyzer } from './SpiderDependencyAnalyzer';
 
 /**

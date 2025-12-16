@@ -3,6 +3,7 @@ import ReactFlowGraph from './components/ReactFlowGraph';
 import SymbolCardView from './components/SymbolCardView';
 import { ExtensionToWebviewMessage, WebviewToExtensionMessage, GraphData, SymbolInfo, SymbolDependency } from '../shared/types';
 import { getLogger } from '../shared/logger';
+import { normalizePath } from './utils/path';
 
 /** Logger instance for App */
 const log = getLogger('App');
@@ -460,11 +461,11 @@ const App: React.FC = () => {
     const handleExpandNode = (nodeId: string) => {
         if (!vscode || !graphData) return;
 
-        const normalizedId = nodeId.replaceAll('\\', '/');
-        const knownNodes = new Set<string>((graphData.nodes || []).map((n) => n.replaceAll('\\', '/')));
+        const normalizedId = normalizePath(nodeId);
+        const knownNodes = new Set<string>((graphData.nodes || []).map((n) => normalizePath(n)));
         (graphData.edges || []).forEach((edge) => {
-            knownNodes.add(edge.source.replaceAll('\\', '/'));
-            knownNodes.add(edge.target.replaceAll('\\', '/'));
+            knownNodes.add(normalizePath(edge.source));
+            knownNodes.add(normalizePath(edge.target));
         });
 
         vscode.postMessage({

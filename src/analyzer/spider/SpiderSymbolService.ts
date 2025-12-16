@@ -1,12 +1,12 @@
-import type { Dependency, SpiderConfig, SymbolDependency, SymbolInfo } from './types';
-import { SpiderError, normalizePath } from './types';
-import { getLogger } from '../shared/logger';
-import { Cache } from './Cache';
-import { FileReader } from './FileReader';
-import { PathResolver } from './PathResolver';
-import { SymbolAnalyzer } from './SymbolAnalyzer';
-import { SymbolDependencyHelper } from './SymbolDependencyHelper';
-import { isInIgnoredDirectory } from './PathPredicates';
+import type { Dependency, SpiderConfig, SymbolDependency, SymbolInfo } from '../types';
+import { SpiderError, normalizePath } from '../types';
+import { getLogger } from '../../shared/logger';
+import { Cache } from '../Cache';
+import { FileReader } from '../FileReader';
+import { PathResolver } from '../PathResolver';
+import { SymbolAnalyzer } from '../SymbolAnalyzer';
+import { SymbolDependencyHelper } from '../SymbolDependencyHelper';
+import { isInIgnoredDirectory } from '../utils/PathPredicates';
 
 const log = getLogger('SpiderSymbolService');
 
