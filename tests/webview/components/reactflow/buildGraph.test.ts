@@ -91,17 +91,24 @@ describe('buildReactFlowGraph', () => {
 
     it('should expand all nodes when expandAll is true', () => {
       const data = createBasicGraphData();
+      // When expandAll=true, expandedNodes should contain all nodes with children
+      const expandedNodes = new Set(['root.ts']);
       const result = buildReactFlowGraph({
         data,
         currentFilePath: 'root.ts',
         expandAll: true,
-        expandedNodes: new Set(),
+        expandedNodes,
         showParents: false,
         callbacks: createMockCallbacks(),
       });
 
       expect(result.nodes.length).toBe(3);
-      expect(result.nodes.every(n => n.data.isExpanded)).toBe(true);
+      // Only nodes with children (or root) are marked as expanded
+      const rootNode = result.nodes.find(n => n.id === 'root.ts');
+      expect(rootNode?.data.isExpanded).toBe(true);
+      // Children are visible (meaning root is expanded)
+      expect(result.nodes.some(n => n.id === 'child1.ts')).toBe(true);
+      expect(result.nodes.some(n => n.id === 'child2.ts')).toBe(true);
     });
   });
 
@@ -510,11 +517,13 @@ describe('buildReactFlowGraph', () => {
         nodeLabels: Object.fromEntries(nodes.map(n => [n, n])),
       };
 
+      // When expandAll=true, expandedNodes should contain all nodes with children (sources in edges)
+      const expandedNodes = new Set(edges.map(e => e.source));
       const result = buildReactFlowGraph({
         data,
         currentFilePath: nodes[0],
         expandAll: true,
-        expandedNodes: new Set(),
+        expandedNodes,
         showParents: false,
         callbacks: createMockCallbacks(),
       });
