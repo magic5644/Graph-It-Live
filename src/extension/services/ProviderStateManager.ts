@@ -9,11 +9,14 @@ export interface ProviderConfigSnapshot extends BackgroundIndexingConfig {
 
 export class ProviderStateManager {
   private currentSymbolFilePath?: string;
+  private lastActiveFilePath?: string;
 
   constructor(
     private readonly context: vscode.ExtensionContext,
     private readonly defaultIndexingDelay: number
-  ) {}
+  ) {
+    this.lastActiveFilePath = this.context.workspaceState?.get('lastActiveFilePath');
+  }
 
   loadConfiguration(): ProviderConfigSnapshot {
     const config = vscode.workspace.getConfiguration('graph-it-live');
@@ -33,6 +36,15 @@ export class ProviderStateManager {
 
   set currentSymbol(value: string | undefined) {
     this.currentSymbolFilePath = value;
+  }
+
+  getLastActiveFilePath(): string | undefined {
+    return this.lastActiveFilePath;
+  }
+
+  async setLastActiveFilePath(filePath: string | undefined): Promise<void> {
+    this.lastActiveFilePath = filePath;
+    await this.context.workspaceState?.update('lastActiveFilePath', filePath);
   }
 
   getExpandAll(): boolean {

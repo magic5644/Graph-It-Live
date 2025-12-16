@@ -47,6 +47,15 @@ function formatArgs(args: unknown[]): string {
   return ' ' + args.map(arg => {
     if (typeof arg === 'string') return arg;
     if (arg instanceof Error) return `${arg.name}: ${arg.message}`;
+    if (arg && typeof arg === 'object') {
+      const maybe = arg as { name?: unknown; message?: unknown; stack?: unknown };
+      const name = typeof maybe.name === 'string' ? maybe.name : undefined;
+      const message = typeof maybe.message === 'string' ? maybe.message : undefined;
+      const stack = typeof maybe.stack === 'string' ? maybe.stack : undefined;
+      if (name || message) {
+        return stack ? `${name ?? 'Error'}: ${message ?? ''}\n${stack}` : `${name ?? 'Error'}: ${message ?? ''}`;
+      }
+    }
     try {
       return JSON.stringify(arg);
     } catch {
