@@ -35,8 +35,7 @@ export class GraphProvider implements vscode.WebviewViewProvider {
     private readonly _nodeInteractionService?: NodeInteractionService;
     private readonly _navigationService?: EditorNavigationService;
     private readonly _stateManager: ProviderStateManager;
-    private _activeExpansionAbortController?: AbortController;
-    private _activeExpansionNodeId?: string;
+    private readonly _activeExpansionControllers = new Map<string, AbortController>();
     /**
      * Optional callback used by EditorEventsService to notify MCP server.
      * Populated by extension activation if MCP server is registered.
@@ -111,7 +110,7 @@ export class GraphProvider implements vscode.WebviewViewProvider {
         if (this._stateManager.currentSymbol) {
             await this.handleDrillDown(this._stateManager.currentSymbol, true);
         } else {
-            this.updateGraph(true);
+            await this.updateGraph(true, 'indexing');
         }
     }
 
@@ -216,7 +215,7 @@ export class GraphProvider implements vscode.WebviewViewProvider {
             await this.handleDrillDown(this._stateManager.currentSymbol, true);
         } else {
             // In file view - refresh the graph (preserve view mode)
-            this.updateGraph(true);
+            await this.updateGraph(true, 'fileSaved');
         }
     }
 
@@ -247,7 +246,7 @@ export class GraphProvider implements vscode.WebviewViewProvider {
             await this.handleDrillDown(newFilePath, true);
         } else {
             // Was in file view - show dependencies for the new file
-            this.updateGraph(true);
+            await this.updateGraph(true, 'navigation');
         }
     }
 
@@ -277,11 +276,11 @@ export class GraphProvider implements vscode.WebviewViewProvider {
             return;
         }
 
-        // Cancel any ongoing expansion
-        this._activeExpansionAbortController?.abort();
+        // Cancel only the previous expansion for the same node.
+        // Cancelling across different nodes makes fast user interactions unreliable.
+        this._activeExpansionControllers.get(nodeId)?.abort();
         const abortController = new AbortController();
-        this._activeExpansionAbortController = abortController;
-        this._activeExpansionNodeId = nodeId;
+        this._activeExpansionControllers.set(nodeId, abortController);
 
         const sendProgress = (status: 'started' | 'in-progress' | 'completed' | 'cancelled' | 'error', processed?: number, total?: number, message?: string): void => {
             this._view?.webview.postMessage({
@@ -325,10 +324,8 @@ export class GraphProvider implements vscode.WebviewViewProvider {
             log.error('Error expanding node:', e);
             sendProgress('error', undefined, undefined, e instanceof Error ? e.message : 'Unknown error');
         } finally {
-            if (this._activeExpansionAbortController === abortController) {
-                this._activeExpansionAbortController = undefined;
-                this._activeExpansionNodeId = undefined;
-            }
+            const current = this._activeExpansionControllers.get(nodeId);
+            if (current === abortController) this._activeExpansionControllers.delete(nodeId);
         }
     }
 
@@ -336,13 +333,16 @@ export class GraphProvider implements vscode.WebviewViewProvider {
      * Handle cancel expansion message
      */
     private async handleCancelExpandNode(nodeId?: string): Promise<void> {
-        if (!this._activeExpansionAbortController) {
+        if (!nodeId) {
+            for (const controller of this._activeExpansionControllers.values()) {
+                controller.abort();
+            }
+            this._activeExpansionControllers.clear();
             return;
         }
-        if (nodeId && nodeId !== this._activeExpansionNodeId) {
-            return;
-        }
-        this._activeExpansionAbortController.abort();
+
+        const controller = this._activeExpansionControllers.get(nodeId);
+        controller?.abort();
     }
 
     /**
@@ -496,8 +496,13 @@ export class GraphProvider implements vscode.WebviewViewProvider {
             // In symbol view - refresh symbol analysis
             await this.handleDrillDown(this._stateManager.currentSymbol, true);
         } else {
-            // In file view - refresh file dependencies
-            this.updateGraph(true);
+            // In file view - behave like "re-open current file":
+            // reset state in the webview and cancel any ongoing expansions.
+            for (const controller of this._activeExpansionControllers.values()) {
+                controller.abort();
+            }
+            this._activeExpansionControllers.clear();
+            await this.updateGraph(false, 'manual');
         }
     }
 
@@ -597,7 +602,10 @@ export class GraphProvider implements vscode.WebviewViewProvider {
      * Update the file graph for the current active document
      * @param isRefresh If true, this is a refresh not navigation - preserve view mode
      */
-    public async updateGraph(isRefresh: boolean = false) {
+    public async updateGraph(
+        isRefresh: boolean = false,
+        refreshReason: 'manual' | 'indexing' | 'fileSaved' | 'navigation' | 'unknown' = 'unknown'
+    ) {
         if (!this._view || !this._spider || !this._graphViewService) {
             log.debug('View or Spider not initialized');
             return;
@@ -610,6 +618,12 @@ export class GraphProvider implements vscode.WebviewViewProvider {
 
         const editor = vscode.window.activeTextEditor;
         if (editor?.document.uri.scheme !== 'file') {
+            const lastFilePath = this._stateManager.getLastActiveFilePath();
+            if (lastFilePath && /\.(ts|tsx|js|jsx|vue|svelte|gql|graphql)$/.test(lastFilePath)) {
+                log.debug('No active file editor, using last active file', lastFilePath);
+                await this._sendGraphUpdate(lastFilePath, isRefresh, refreshReason);
+                return;
+            }
             log.debug('No active file editor');
             // Send empty state message to webview
             const message: ExtensionToWebviewMessage = {
@@ -631,10 +645,14 @@ export class GraphProvider implements vscode.WebviewViewProvider {
         }
 
         await this._stateManager.setLastActiveFilePath(filePath);
-        await this._sendGraphUpdate(filePath, isRefresh);
+        await this._sendGraphUpdate(filePath, isRefresh, refreshReason);
     }
 
-    private async _sendGraphUpdate(filePath: string, isRefresh: boolean): Promise<void> {
+    private async _sendGraphUpdate(
+        filePath: string,
+        isRefresh: boolean,
+        refreshReason: 'manual' | 'indexing' | 'fileSaved' | 'navigation' | 'unknown' = 'unknown'
+    ): Promise<void> {
         if (!this._graphViewService || !this._view) {
             return;
         }
@@ -648,6 +666,7 @@ export class GraphProvider implements vscode.WebviewViewProvider {
                 data: graphData,
                 expandAll,
                 isRefresh,
+                refreshReason,
             };
             this._view.webview.postMessage(message);
         } catch (error) {

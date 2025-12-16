@@ -108,6 +108,13 @@ export function buildReactFlowGraph(params: {
     }
   }
 
+  console.log('🔍 buildGraph: Starting BFS traversal', {
+    normalizedCurrentPath,
+    expandedNodesSize: expandedNodes.size,
+    expandedNodesList: Array.from(expandedNodes),
+    expandAll
+  });
+
   const queue = [normalizedCurrentPath];
   const visited = new Set<string>();
   for (const node of queue) {
@@ -117,6 +124,15 @@ export function buildReactFlowGraph(params: {
 
     const nodeChildren = children.get(node) || [];
     const shouldShowChildren = expandAll || expandedNodes.has(node) || node === normalizedCurrentPath;
+
+    console.log('🔍 buildGraph: Processing node', {
+      node,
+      hasInExpandedNodes: expandedNodes.has(node),
+      isRoot: node === normalizedCurrentPath,
+      expandAll,
+      shouldShowChildren,
+      childrenCount: nodeChildren.length
+    });
 
     if (shouldShowChildren) {
       for (const child of nodeChildren) {
@@ -129,6 +145,11 @@ export function buildReactFlowGraph(params: {
     }
     if (nodesTruncated) break;
   }
+
+  console.log('🔍 buildGraph: BFS complete', {
+    visibleNodesSize: visibleNodes.size,
+    visibleNodesList: Array.from(visibleNodes)
+  });
 
   const createNodeData = (path: string, label: string): FileNodeData => {
     const parentCountRaw = data.parentCounts?.[path];

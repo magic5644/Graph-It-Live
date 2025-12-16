@@ -4,6 +4,8 @@ import SymbolCardView from './components/SymbolCardView';
 import { ExtensionToWebviewMessage, WebviewToExtensionMessage, GraphData, SymbolInfo, SymbolDependency } from '../shared/types';
 import { getLogger } from '../shared/logger';
 import { normalizePath } from './utils/path';
+import { mergeGraphDataUnion } from './utils/graphMerge';
+import { applyUpdateGraph, isUpdateGraphNavigation } from './utils/updateGraphReducer';
 
 /** Logger instance for App */
 const log = getLogger('App');
@@ -95,22 +97,12 @@ class ErrorBoundary extends React.Component<
 const App: React.FC = () => {
     const [graphData, setGraphData] = React.useState<GraphData | null>(null);
     const [currentFilePath, setCurrentFilePath] = React.useState<string>('');
+    const currentFilePathRef = React.useRef<string>('');
+    React.useEffect(() => {
+        currentFilePathRef.current = currentFilePath;
+    }, [currentFilePath]);
     const [emptyStateMessage, setEmptyStateMessage] = React.useState<string | null>(null);
-
-    const mergeEdgesUnique = React.useCallback((
-        base: Array<{ source: string; target: string }>,
-        incoming: Array<{ source: string; target: string }>
-    ): Array<{ source: string; target: string }> => {
-        const merged: Array<{ source: string; target: string }> = [...base];
-        const seen = new Set<string>(base.map((e) => `${e.source}->${e.target}`));
-        for (const edge of incoming) {
-            const key = `${edge.source}->${edge.target}`;
-            if (seen.has(key)) continue;
-            seen.add(key);
-            merged.push(edge);
-        }
-        return merged;
-    }, []);
+    const [resetToken, setResetToken] = React.useState<number>(0);
 
     const handleExpandAllChange = React.useCallback((expand: boolean) => {
         setExpandAll(expand);
@@ -202,22 +194,33 @@ const App: React.FC = () => {
 
     // Handler for updateGraph message
     const handleUpdateGraphMessage = React.useCallback((message: ExtensionToWebviewMessage & { command: 'updateGraph' }) => {
-        if (!message.isRefresh) {
+        const previousFilePath = currentFilePathRef.current;
+        const isNavigation = isUpdateGraphNavigation(previousFilePath, message.filePath);
+
+        if (!message.isRefresh || isNavigation) {
             setViewMode('file');
             setSymbolData(undefined);
+            setShowParents(false);
+            setReferencingFiles([]);
+            setLastExpandedNode(null);
+            setResetToken((v) => v + 1);
         }
+
+        if (message.isRefresh && message.refreshReason === 'manual') {
+            setLastExpandedNode(null);
+            setExpansionState(null);
+            setResetToken((v) => v + 1);
+        }
+
         log.debug('App: Received updateGraph message:', {
             filePath: message.filePath,
             nodes: message.data.nodes?.length || 0,
             edges: message.data.edges?.length || 0,
             expandAll: message.expandAll
         });
-        setGraphData(message.data);
+        setGraphData((current) => applyUpdateGraph(current, previousFilePath, message));
         setCurrentFilePath(message.filePath);
         setEmptyStateMessage(null);
-        // Reset parent visibility and referencing files on new navigation
-        setShowParents(false);
-        setReferencingFiles([]);
         
         // CRITICAL: Synchronize expandAll state with extension's persisted state
         // This ensures the webview button reflects the actual state on first render
@@ -241,26 +244,9 @@ const App: React.FC = () => {
 
     // Handler for expandedGraph message
     const handleExpandedGraphMessage = React.useCallback((message: ExtensionToWebviewMessage & { command: 'expandedGraph' }) => {
-        setGraphData((current) => {
-            if (current) {
-                const mergedNodes = [...new Set([...current.nodes, ...message.data.nodes])];
-                const mergedEdges = mergeEdgesUnique(current.edges, message.data.edges);
-                const mergedLabels = { ...(current.nodeLabels ?? {}), ...(message.data.nodeLabels ?? {}) };
-                return { 
-                    nodes: mergedNodes, 
-                    edges: mergedEdges, 
-                    nodeLabels: Object.keys(mergedLabels).length > 0 ? mergedLabels : undefined,
-                };
-            }
-
-            return {
-                nodes: message.data.nodes,
-                edges: message.data.edges,
-                nodeLabels: message.data.nodeLabels,
-            };
-        });
+        setGraphData((current) => (current ? mergeGraphDataUnion(current, message.data) : message.data));
         setLastExpandedNode(message.nodeId);
-    }, [mergeEdgesUnique]);
+    }, []);
 
     // Handler for referencingFiles message
     const handleReferencingFilesMessage = React.useCallback((message: ExtensionToWebviewMessage & { command: 'referencingFiles' }) => {
@@ -308,8 +294,10 @@ const App: React.FC = () => {
                     break;
                 case 'emptyState':
                     setEmptyStateMessage(message.message || 'No file is currently open');
-                    setGraphData(null);
-                    setCurrentFilePath('');
+                    setGraphData((current) => (message.reason === 'no-file-open' ? current : null));
+                    if (message.reason !== 'no-file-open') {
+                        setCurrentFilePath('');
+                    }
                     break;
                 case 'symbolGraph':
                     handleSymbolGraphMessage(message);
@@ -400,6 +388,7 @@ const App: React.FC = () => {
     const handleRefresh = () => {
         log.debug('App: Refresh button clicked');
         if (vscode) {
+            setResetToken((v) => v + 1);
             vscode.postMessage({
                 command: 'refreshGraph'
             });
@@ -555,6 +544,36 @@ const App: React.FC = () => {
     return (
         <ErrorBoundary>
         <div style={{ width: '100vw', height: '100vh', position: 'relative' }}>
+            {emptyStateMessage && (
+                <div
+                    style={{
+                        position: 'absolute',
+                        top: 12,
+                        left: 12,
+                        right: 12,
+                        zIndex: 2000,
+                        pointerEvents: 'none',
+                        display: 'flex',
+                        justifyContent: 'center',
+                    }}
+                >
+                    <div
+                        style={{
+                            background: 'var(--vscode-editor-background)',
+                            border: '1px solid var(--vscode-widget-border)',
+                            color: 'var(--vscode-descriptionForeground)',
+                            borderRadius: 6,
+                            padding: '6px 10px',
+                            fontSize: 12,
+                            maxWidth: 640,
+                            textAlign: 'center',
+                            boxShadow: '0 4px 12px rgba(0,0,0,0.2)',
+                        }}
+                    >
+                        {emptyStateMessage}
+                    </div>
+                </div>
+            )}
             {/* Symbol Card View */}
             {viewMode === 'symbol' && symbolData && (
                 <SymbolCardView
@@ -574,6 +593,7 @@ const App: React.FC = () => {
             {/* File Dependencies View - ReactFlow */}
             {viewMode === 'file' && (
                 <ReactFlowGraph
+                    key={`${normalizePath(currentFilePath)}:${resetToken}`}
                     data={graphData}
                     currentFilePath={currentFilePath}
                     onNodeClick={(path) => handleNodeClick(path)}
@@ -589,6 +609,7 @@ const App: React.FC = () => {
                     onSwitchToSymbol={() => handleSwitchMode('symbol')}
                     expansionState={expansionState}
                     onCancelExpand={handleCancelExpansion}
+                    resetToken={resetToken}
                 />
             )}
         </div>

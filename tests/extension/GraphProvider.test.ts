@@ -280,4 +280,114 @@ describe('GraphProvider', () => {
             isRefresh: false,
         }));
     });
+
+    it('should refresh using last active file when active editor is not a file (eg. after indexing)', async () => {
+        const webview = {
+            postMessage: vi.fn(),
+            asWebviewUri: vi.fn(),
+            options: {},
+            html: '',
+            onDidReceiveMessage: vi.fn(),
+            cspSource: 'test-csp',
+        };
+        const view = {
+            webview,
+            onDidDispose: vi.fn(),
+        };
+
+        provider.resolveWebviewView(view as any, {} as any, {} as any);
+
+        const mainTsPath = path.join(testRootDir, 'src', 'main.ts');
+        const spiderMock = (provider as any)['_spider'];
+        (spiderMock.crawl as any).mockResolvedValue({ nodes: [np(mainTsPath)], edges: [] });
+
+        await (provider as any)['_stateManager'].setLastActiveFilePath(mainTsPath);
+        (vscode.window as any).activeTextEditor = { document: { uri: { scheme: 'output' }, fileName: 'extension-output' } };
+
+        await provider.updateGraph(true, 'indexing');
+
+        expect(webview.postMessage).toHaveBeenCalledWith(expect.objectContaining({
+            command: 'updateGraph',
+            filePath: mainTsPath,
+            isRefresh: true,
+            refreshReason: 'indexing',
+        }));
+    });
+
+    it('should not cancel expansion when expanding a different node', async () => {
+        const webview = {
+            postMessage: vi.fn(),
+            asWebviewUri: vi.fn(),
+            options: {},
+            html: '',
+            onDidReceiveMessage: vi.fn(),
+            cspSource: 'test-csp',
+        };
+        const view = {
+            webview,
+            onDidDispose: vi.fn(),
+        };
+
+        provider.resolveWebviewView(view as any, {} as any, {} as any);
+
+        const pending: Array<() => void> = [];
+        const createDeferred = () => new Promise<void>((resolve) => pending.push(resolve));
+
+        const service = {
+            expandNode: vi.fn(async (_nodeId: string, _known: string[] | undefined, opts?: any) => {
+                await createDeferred();
+                // ensure we can observe the abort signal state when it resolves
+                if (opts?.signal?.aborted) throw new Error('aborted');
+                return { command: 'expandedGraph', nodeId: _nodeId, data: { nodes: [], edges: [] } };
+            }),
+        };
+        (provider as any)['_nodeInteractionService'] = service;
+
+        const p1 = (provider as any).handleExpandNode('/a', []);
+        const p2 = (provider as any).handleExpandNode('/b', []);
+
+        // Resolve both expansions
+        pending.splice(0).forEach((r) => r());
+        await Promise.all([p1, p2]);
+
+        expect(service.expandNode).toHaveBeenCalledTimes(2);
+        // Both should have produced progress messages, not immediate cancelled.
+        expect(webview.postMessage).toHaveBeenCalledWith(expect.objectContaining({
+            command: 'expansionProgress',
+            status: 'started',
+        }));
+    });
+
+    it('refreshGraph should behave like reopen (isRefresh=false) and use lastActiveFilePath when needed', async () => {
+        const webview = {
+            postMessage: vi.fn(),
+            asWebviewUri: vi.fn(),
+            options: {},
+            html: '',
+            onDidReceiveMessage: vi.fn(),
+            cspSource: 'test-csp',
+        };
+        const view = {
+            webview,
+            onDidDispose: vi.fn(),
+        };
+
+        provider.resolveWebviewView(view as any, {} as any, {} as any);
+
+        const mainTsPath = path.join(testRootDir, 'src', 'main.ts');
+        const spiderMock = (provider as any)['_spider'];
+        (spiderMock.crawl as any).mockResolvedValue({ nodes: [np(mainTsPath)], edges: [] });
+
+        await (provider as any)['_stateManager'].setLastActiveFilePath(mainTsPath);
+        (vscode.window as any).activeTextEditor = { document: { uri: { scheme: 'output' }, fileName: 'extension-output' } };
+
+        await provider.refreshGraph();
+
+        expect(webview.postMessage).toHaveBeenCalledWith(expect.objectContaining({
+            command: 'updateGraph',
+            filePath: mainTsPath,
+            isRefresh: false,
+            refreshReason: 'manual',
+        }));
+    });
 });

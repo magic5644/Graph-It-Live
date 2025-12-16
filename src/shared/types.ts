@@ -14,6 +14,11 @@ export interface ShowGraphMessage {
   expandAll?: boolean;
   /** If true, this is a refresh of the current view, not a navigation - don't change viewMode or push to history */
   isRefresh?: boolean;
+  /**
+   * Optional refresh reason. Used by the webview to decide whether to replace the
+   * graph data or merge it (eg. keep expanded nodes while refreshing parentCounts after indexing).
+   */
+  refreshReason?: 'manual' | 'indexing' | 'fileSaved' | 'navigation' | 'unknown';
 }
 
 export interface OpenFileMessage {
