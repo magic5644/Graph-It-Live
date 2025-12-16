@@ -117,7 +117,6 @@ function addParentNodes(
 function findVisibleNodesBFS(
   rootPath: string,
   children: Map<string, string[]>,
-  expandAll: boolean,
   expandedNodes: Set<string>,
   initialNodes: Set<string>,
   maxNodes: number
@@ -130,8 +129,7 @@ function findVisibleNodesBFS(
   console.log('🔍 buildGraph: Starting BFS traversal', {
     normalizedCurrentPath: rootPath,
     expandedNodesSize: expandedNodes.size,
-    expandedNodesList: Array.from(expandedNodes),
-    expandAll
+    expandedNodesList: Array.from(expandedNodes)
   });
 
   for (const node of queue) {
@@ -140,13 +138,12 @@ function findVisibleNodesBFS(
     visibleNodes.add(node);
 
     const nodeChildren = children.get(node) || [];
-    const shouldShowChildren = expandAll || expandedNodes.has(node) || node === rootPath;
+    const shouldShowChildren = expandedNodes.has(node) || node === rootPath;
 
     console.log('🔍 buildGraph: Processing node', {
       node,
       hasInExpandedNodes: expandedNodes.has(node),
       isRoot: node === rootPath,
-      expandAll,
       shouldShowChildren,
       childrenCount: nodeChildren.length
     });
@@ -287,7 +284,6 @@ export function buildReactFlowGraph(params: {
   const { visibleNodes, truncated: bfsTruncated } = findVisibleNodesBFS(
     normalizedCurrentPath,
     children,
-    expandAll,
     expandedNodes,
     initialVisibleNodes,
     GRAPH_LIMITS.MAX_RENDER_NODES
@@ -306,7 +302,7 @@ export function buildReactFlowGraph(params: {
       isParent: fileParentsSet.has(path),
       isInCycle: cycles.has(path),
       hasChildren: (children.get(path) || []).length > 0,
-      isExpanded: expandAll || expandedNodes.has(path) || path === normalizedCurrentPath,
+      isExpanded: expandedNodes.has(path) || path === normalizedCurrentPath,
       hasReferencingFiles: hasParents,
       parentCount,
       isParentsVisible: showParents,
