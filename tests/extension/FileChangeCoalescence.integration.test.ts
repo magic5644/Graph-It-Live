@@ -52,7 +52,7 @@ describe('File Change Coalescence Integration', () => {
 
     // Should process exactly once
     expect(processHandler).toHaveBeenCalledTimes(1);
-    expect(processHandler).toHaveBeenCalledWith(filePath, 'change');
+    expect(processHandler).toHaveBeenCalledWith(np(filePath), 'change');
 
     scheduler.dispose();
   });
@@ -87,7 +87,7 @@ describe('File Change Coalescence Integration', () => {
 
     // Should coalesce all three events into single processing
     expect(processHandler).toHaveBeenCalledTimes(1);
-    expect(processHandler).toHaveBeenCalledWith(filePath, 'change');
+    expect(processHandler).toHaveBeenCalledWith(np(filePath), 'change');
 
     scheduler.dispose();
   });
@@ -113,7 +113,7 @@ describe('File Change Coalescence Integration', () => {
 
     // Should only process delete (higher priority)
     expect(processHandler).toHaveBeenCalledTimes(1);
-    expect(processHandler).toHaveBeenCalledWith(filePath, 'delete');
+    expect(processHandler).toHaveBeenCalledWith(np(filePath), 'delete');
 
     scheduler.dispose();
   });
@@ -176,17 +176,17 @@ describe('File Change Coalescence Integration', () => {
     // file1 timer expires first
     await vi.advanceTimersByTimeAsync(100);
     expect(processHandler).toHaveBeenCalledTimes(1);
-    expect(processHandler).toHaveBeenCalledWith(path.join(testRootDir, 'file1.ts'), 'change');
+    expect(processHandler).toHaveBeenCalledWith(np(path.join(testRootDir, 'file1.ts')), 'change');
 
     // file2 timer expires
     await vi.advanceTimersByTimeAsync(100);
     expect(processHandler).toHaveBeenCalledTimes(2);
-    expect(processHandler).toHaveBeenCalledWith(path.join(testRootDir, 'file2.ts'), 'change');
+    expect(processHandler).toHaveBeenCalledWith(np(path.join(testRootDir, 'file2.ts')), 'change');
 
     // file3 timer expires
     await vi.advanceTimersByTimeAsync(100);
     expect(processHandler).toHaveBeenCalledTimes(3);
-    expect(processHandler).toHaveBeenCalledWith(path.join(testRootDir, 'file3.ts'), 'change');
+    expect(processHandler).toHaveBeenCalledWith(np(path.join(testRootDir, 'file3.ts')), 'change');
 
     scheduler.dispose();
   });
@@ -213,7 +213,7 @@ describe('File Change Coalescence Integration', () => {
 
     // All 10 saves should coalesce into single processing
     expect(processHandler).toHaveBeenCalledTimes(1);
-    expect(processHandler).toHaveBeenCalledWith(filePath, 'change');
+    expect(processHandler).toHaveBeenCalledWith(np(filePath), 'change');
 
     scheduler.dispose();
   });
