@@ -52,7 +52,7 @@ describe('FileChangeScheduler', () => {
       await vi.advanceTimersByTimeAsync(300);
 
       expect(processHandler).toHaveBeenCalledTimes(1);
-      expect(processHandler).toHaveBeenCalledWith(filePath, 'change');
+      expect(processHandler).toHaveBeenCalledWith(np(filePath), 'change');
       expect(scheduler.getPendingCount()).toBe(0);
 
       scheduler.dispose();
@@ -76,8 +76,8 @@ describe('FileChangeScheduler', () => {
       await vi.advanceTimersByTimeAsync(300);
 
       expect(processHandler).toHaveBeenCalledTimes(2);
-      expect(processHandler).toHaveBeenCalledWith(file1, 'change');
-      expect(processHandler).toHaveBeenCalledWith(file2, 'change');
+      expect(processHandler).toHaveBeenCalledWith(np(file1), 'change');
+      expect(processHandler).toHaveBeenCalledWith(np(file2), 'change');
 
       scheduler.dispose();
     });
@@ -104,7 +104,7 @@ describe('FileChangeScheduler', () => {
 
       // Only delete should be processed
       expect(processHandler).toHaveBeenCalledTimes(1);
-      expect(processHandler).toHaveBeenCalledWith(filePath, 'delete');
+      expect(processHandler).toHaveBeenCalledWith(np(filePath), 'delete');
 
       scheduler.dispose();
     });
@@ -125,7 +125,7 @@ describe('FileChangeScheduler', () => {
       await vi.advanceTimersByTimeAsync(300);
 
       expect(processHandler).toHaveBeenCalledTimes(1);
-      expect(processHandler).toHaveBeenCalledWith(filePath, 'change');
+      expect(processHandler).toHaveBeenCalledWith(np(filePath), 'change');
 
       scheduler.dispose();
     });
@@ -148,7 +148,7 @@ describe('FileChangeScheduler', () => {
 
       // Delete should still be processed (highest priority)
       expect(processHandler).toHaveBeenCalledTimes(1);
-      expect(processHandler).toHaveBeenCalledWith(filePath, 'delete');
+      expect(processHandler).toHaveBeenCalledWith(np(filePath), 'delete');
 
       scheduler.dispose();
     });
@@ -218,7 +218,7 @@ describe('FileChangeScheduler', () => {
       await vi.advanceTimersByTimeAsync(300);
 
       expect(processHandler).toHaveBeenCalledTimes(1);
-      expect(processHandler).toHaveBeenCalledWith(filePath, 'change');
+      expect(processHandler).toHaveBeenCalledWith(np(filePath), 'change');
 
       // Higher priority event arrives during processing
       scheduler.enqueue(filePath, 'delete');
@@ -231,7 +231,7 @@ describe('FileChangeScheduler', () => {
 
       // Should re-schedule with delete (higher priority)
       expect(processHandler).toHaveBeenCalledTimes(2);
-      expect(processHandler).toHaveBeenCalledWith(filePath, 'delete');
+      expect(processHandler).toHaveBeenCalledWith(np(filePath), 'delete');
 
       scheduler.dispose();
     });

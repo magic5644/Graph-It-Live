@@ -651,9 +651,9 @@ export class PathResolver {
 
   /**
    * Try to resolve @scope/package as a local workspace package
-   * This handles monorepos where @bobbee/auth-lib points to packages/auth-lib
+   * This handles monorepos where @company/auth-lib points to packages/auth-lib
    * Supports:
-   * 1. "file:" dependencies in package.json (e.g., "@bobbee/auth-lib": "file:../packages/auth-lib")
+   * 1. "file:" dependencies in package.json (e.g., "@company/auth-lib": "file:../packages/auth-lib")
    * 2. Common monorepo package locations (packages/, libs/, modules/)
    */
   private async resolveWorkspacePackage(currentFilePath: string, modulePath: string): Promise<string | null> {
@@ -661,7 +661,7 @@ export class PathResolver {
       return null;
     }
 
-    // Extract scope and package name: @bobbee/auth-lib -> bobbee, auth-lib
+    // Extract scope and package name: @company/auth-lib -> company, auth-lib
     const regex = /^@([^/]+)\/([^/]+)(\/.*)?$/;
     const match = regex.exec(modulePath);
     if (!match) {
@@ -669,7 +669,7 @@ export class PathResolver {
     }
 
     const [, , packageName, subpath] = match;
-    const fullPackageName = modulePath.split('/').slice(0, 2).join('/'); // @bobbee/auth-lib
+    const fullPackageName = modulePath.split('/').slice(0, 2).join('/'); // @company/auth-lib
     
     // Try file: dependency resolution first (from nearest package.json dependencies)
     const fileDependencyDir = await this.resolveFileDependency(currentFilePath, fullPackageName);
@@ -692,7 +692,7 @@ export class PathResolver {
    * Resolve a package that's defined as "file:" dependency in package.json
    * Searches upward through all package.json files to find the dependency
    * In monorepos, file: dependencies may be declared in a parent package.json
-   * e.g., "@bobbee/auth-lib": "file:../packages/auth-lib"
+   * e.g., "@company/auth-lib": "file:../packages/auth-lib"
    */
   private async resolveFileDependency(currentFilePath: string, packageName: string): Promise<string | null> {
     const startDir = path.dirname(currentFilePath);
@@ -793,7 +793,7 @@ export class PathResolver {
       
       // Verify this is the right package
       // Package can be named @scope/package or just package (for file: dependencies)
-      const expectedName = modulePath.split('/').slice(0, 2).join('/'); // @bobbee/auth-lib
+      const expectedName = modulePath.split('/').slice(0, 2).join('/'); // @company/auth-lib
       const shortName = modulePath.split('/').slice(1, 2).join('/'); // auth-lib
       const pkgName = pkgJson.name as string;
       
