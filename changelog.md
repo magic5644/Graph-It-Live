@@ -1,5 +1,15 @@
 # Changelog
 
+## v1.3.5
+
+### Improvements
+
+- **File Change Event Coalescence**: Optimized file change detection to prevent redundant analysis
+  - Intelligently coalesces save events and file watcher events into single processing pass
+  - Event priority system (delete > change > create) ensures correct handling
+  - Per-file debouncing (300ms) reduces unnecessary refreshes
+  - Prevents duplicate analysis when saving files with external watchers active
+
 ## v1.3.4
 
 ### New Features

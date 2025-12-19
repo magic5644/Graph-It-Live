@@ -2,12 +2,13 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import type { GraphProvider } from '../../src/extension/GraphProvider';
 import type { VsCodeLogger } from '../../src/extension/extensionLogger';
 import { EditorEventsService } from '../../src/extension/services/EditorEventsService';
+import type { FileChangeScheduler } from '../../src/extension/services/FileChangeScheduler';
 
 type DisposeFn = () => void;
 
 const configListeners: Array<(e: { affectsConfiguration: (s: string) => boolean }) => void> = [];
 const activeEditorListeners: Array<(e: unknown) => void> = [];
-const saveListeners: Array<(doc: { fileName: string }) => Promise<void>> = [];
+const saveListeners: Array<(doc: { fileName: string }) => void> = [];
 
 const createDisposable = (callback: DisposeFn = () => {}) => ({ dispose: callback });
 
@@ -18,7 +19,7 @@ vi.mock('vscode', () => {
         configListeners.push(listener);
         return createDisposable();
       }),
-      onDidSaveTextDocument: vi.fn((listener: (doc: { fileName: string }) => Promise<void>) => {
+      onDidSaveTextDocument: vi.fn((listener: (doc: { fileName: string }) => void) => {
         saveListeners.push(listener);
         return createDisposable();
       }),
@@ -52,6 +53,14 @@ function createLoggerMock(): VsCodeLogger {
   } as unknown as VsCodeLogger;
 }
 
+function createSchedulerMock(): FileChangeScheduler {
+  return {
+    enqueue: vi.fn(),
+    dispose: vi.fn(),
+    getPendingCount: vi.fn(() => 0),
+  } as unknown as FileChangeScheduler;
+}
+
 describe('EditorEventsService', () => {
   beforeEach(() => {
     configListeners.length = 0;
@@ -62,9 +71,10 @@ describe('EditorEventsService', () => {
   it('wires configuration changes to provider and MCP notifier', async () => {
     const provider = createProviderMock();
     const logger = createLoggerMock();
+    const scheduler = createSchedulerMock();
     provider.notifyMcpServerOfConfigChange = vi.fn();
 
-    const service = new EditorEventsService({ provider, logger });
+    const service = new EditorEventsService({ provider, logger, fileChangeScheduler: scheduler });
     service.register();
 
     expect(configListeners).toHaveLength(1);
@@ -79,20 +89,32 @@ describe('EditorEventsService', () => {
     expect(provider.updateConfig as ReturnType<typeof vi.fn>).not.toHaveBeenCalled();
   });
 
-  it('invokes active editor and save handlers', async () => {
+  it('invokes active editor handler', async () => {
     const provider = createProviderMock();
     const logger = createLoggerMock();
-    const service = new EditorEventsService({ provider, logger });
+    const scheduler = createSchedulerMock();
+    const service = new EditorEventsService({ provider, logger, fileChangeScheduler: scheduler });
     service.register();
 
     expect(activeEditorListeners).toHaveLength(1);
     activeEditorListeners[0]({ document: { fileName: 'file.ts' } });
     expect(provider.onActiveFileChanged as ReturnType<typeof vi.fn>).toHaveBeenCalled();
     expect(logger.debug).toHaveBeenCalled();
+  });
+
+  it('enqueues save events to scheduler instead of processing directly', () => {
+    const provider = createProviderMock();
+    const logger = createLoggerMock();
+    const scheduler = createSchedulerMock();
+    const service = new EditorEventsService({ provider, logger, fileChangeScheduler: scheduler });
+    service.register();
 
     expect(saveListeners).toHaveLength(1);
-    await saveListeners[0]({ fileName: 'file.ts' });
-    expect(provider.onFileSaved as ReturnType<typeof vi.fn>).toHaveBeenCalledWith('file.ts');
+    saveListeners[0]({ fileName: 'file.ts' });
+    
+    // Should enqueue to scheduler, not call provider directly
+    expect(scheduler.enqueue).toHaveBeenCalledWith('file.ts', 'change');
+    expect(provider.onFileSaved as ReturnType<typeof vi.fn>).not.toHaveBeenCalled();
     expect(logger.debug).toHaveBeenCalled();
   });
 });

@@ -35,7 +35,19 @@ export function activate(context: vscode.ExtensionContext) {
 
     const provider = new GraphProvider(context.extensionUri, context);
     const commandService = new CommandRegistrationService({ provider, logger: log });
-    const editorEventsService = new EditorEventsService({ provider, logger: log });
+    
+    // Get the fileChangeScheduler from provider (it's created during provider construction)
+    const fileChangeScheduler = provider.fileChangeScheduler;
+    if (!fileChangeScheduler) {
+        log.error('FileChangeScheduler not initialized in GraphProvider');
+        throw new Error('FileChangeScheduler not available');
+    }
+    
+    const editorEventsService = new EditorEventsService({ 
+        provider, 
+        logger: log,
+        fileChangeScheduler 
+    });
     const disposables: vscode.Disposable[] = [
       // Output channel disposal
       outputChannel,
