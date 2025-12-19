@@ -86,7 +86,8 @@ export const isExternalPackage = (path: string): boolean => {
 export const calculateVisibleGraph = (
     graphData: GraphData,
     rootPath: string,
-    expandedNodes: Set<string>
+    expandedNodes: Set<string>,
+    showParentsFlag: boolean = true
 ): { visibleNodes: Set<string>; visibleEdges: { source: string; target: string }[] } => {
     const visibleNodes = new Set<string>();
     const visibleEdges: { source: string; target: string }[] = [];
@@ -119,12 +120,14 @@ export const calculateVisibleGraph = (
 
     addChildren(rootPath);
 
-    // Add incoming edges to root (Referenced By)
-    const incomingEdges = graphData.edges.filter(e => e.target === rootPath);
-    incomingEdges.forEach(edge => {
-        visibleNodes.add(edge.source);
-        addEdge(edge);
-    });
+    // Add incoming edges to root (Referenced By) only when showParentsFlag is true
+    if (showParentsFlag) {
+        const incomingEdges = graphData.edges.filter(e => e.target === rootPath);
+        incomingEdges.forEach(edge => {
+            visibleNodes.add(edge.source);
+            addEdge(edge);
+        });
+    }
 
     return { visibleNodes, visibleEdges };
 };

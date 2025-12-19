@@ -267,7 +267,7 @@
     "mocha": "^11.7.5",
     "playwright": "^1.57.0",
     "typescript": "^5.9.3",
-    "typescript-eslint": "^8.49.0",
-    "vitest": "^4.0.15"
+    "typescript-eslint": "^8.50.0",
+    "vitest": "^4.0.16"
   }
 }

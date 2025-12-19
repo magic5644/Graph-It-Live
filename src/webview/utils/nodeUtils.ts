@@ -5,6 +5,7 @@
 
 import { Node, Edge, Position } from 'reactflow';
 import dagre from 'dagre';
+import { GraphData } from '../../shared/types';
 
 export const nodeWidth = 180;
 export const nodeHeight = 40;
@@ -22,6 +23,14 @@ export interface NodeStyleResult {
     border: string;
     color: string;
     shape: 'rect' | 'circle';
+}
+
+/**
+ * Extract filename from a full path
+ */
+export function getFileName(path: string): string {
+    const parts = path.split(/[/\\]/);
+    return parts[parts.length - 1] || path;
 }
 
 /**
@@ -230,20 +239,19 @@ export function calculateFileNameCounts(paths: Iterable<string>): Map<string, nu
  */
 export function getNodeLabel(
     path: string,
-    nodeLabels?: Record<string, string>,
-    fileNameCounts?: Map<string, number>
+    graphData: GraphData,
+    fileNameCounts: Map<string, number>
 ): string {
-    const parts = path.split(/[/\\]/).filter(p => p.length > 0);
-    const fileName = parts.pop() || path;
+    const fileName = path.split(/[/\\]/).pop() || path;
 
     // Use custom label if available
-    if (nodeLabels?.[path]) {
-        return nodeLabels[path];
+    if (graphData.nodeLabels?.[path]) {
+        return graphData.nodeLabels[path];
     }
 
     // Disambiguate duplicate filenames
-    if (fileNameCounts && (fileNameCounts.get(fileName) || 0) > 1) {
-        const parentDir = parts.pop();
+    if ((fileNameCounts.get(fileName) || 0) > 1) {
+        const parentDir = path.split(/[/\\]/).slice(-2, -1)[0];
         if (parentDir) {
             return `${parentDir}/${fileName}`;
         }

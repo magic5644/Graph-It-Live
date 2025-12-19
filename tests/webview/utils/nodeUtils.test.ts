@@ -8,11 +8,34 @@ import {
     calculateFileNameCounts,
     getNodeLabel,
     getLayoutedElements,
+    getFileName,
     nodeWidth,
     nodeHeight,
 } from '../../../src/webview/utils/nodeUtils';
 
 describe('nodeUtils', () => {
+    describe('getFileName', () => {
+        it('should extract filename from unix path', () => {
+            expect(getFileName('/src/app.ts')).toBe('app.ts');
+        });
+
+        it('should extract filename from windows path', () => {
+            expect(getFileName(String.raw`C:\src\app.ts`)).toBe('app.ts');
+        });
+
+        it('should handle mixed separators', () => {
+            expect(getFileName(String.raw`/src\utils/app.ts`)).toBe('app.ts');
+        });
+
+        it('should return path if no separators', () => {
+            expect(getFileName('app.ts')).toBe('app.ts');
+        });
+
+        it('should handle empty string', () => {
+            expect(getFileName('')).toBe('');
+        });
+    });
+
     describe('collectNodesWithChildren', () => {
         it('should include root file path', () => {
             const result = collectNodesWithChildren('/src/app.ts', []);
@@ -46,6 +69,18 @@ describe('nodeUtils', () => {
         it('should handle empty inputs', () => {
             const result = collectNodesWithChildren(undefined, []);
             expect(result.size).toBe(0);
+        });
+
+        it('should handle Windows paths', () => {
+            const edges = [
+                { source: String.raw`C:\src\a.ts`, target: String.raw`C:\src\b.ts` },
+                { source: String.raw`C:\src\b.ts`, target: String.raw`C:\src\c.ts` },
+            ];
+            const result = collectNodesWithChildren(String.raw`C:\src\app.ts`, edges);
+            
+            expect(result.has(String.raw`C:\src\app.ts`)).toBe(true);
+            expect(result.has(String.raw`C:\src\a.ts`)).toBe(true);
+            expect(result.has(String.raw`C:\src\b.ts`)).toBe(true);
         });
     });
 
@@ -228,36 +263,72 @@ describe('nodeUtils', () => {
             expect(counts.get('project')).toBe(1);
             expect(counts.get('other')).toBe(1);
         });
+
+        it('should handle Windows paths', () => {
+            const paths = [String.raw`C:\src\a.ts`, String.raw`D:\lib\a.ts`, String.raw`C:\src\b.ts`];
+            const counts = calculateFileNameCounts(paths);
+            
+            expect(counts.get('a.ts')).toBe(2);
+            expect(counts.get('b.ts')).toBe(1);
+        });
+
+        it('should handle mixed path separators', () => {
+            const paths = [String.raw`/src/utils\a.ts`, String.raw`C:\lib/utils\a.ts`, '/other/b.ts'];
+            const counts = calculateFileNameCounts(paths);
+            
+            expect(counts.get('a.ts')).toBe(2);
+            expect(counts.get('b.ts')).toBe(1);
+        });
     });
 
     describe('getNodeLabel', () => {
         it('should return custom label if available', () => {
-            const label = getNodeLabel('/src/app.ts', { '/src/app.ts': 'Main App' });
+            const graphData = { nodes: [], edges: [], nodeLabels: { '/src/app.ts': 'Main App' } };
+            const counts = new Map([['app.ts', 1]]);
+            const label = getNodeLabel('/src/app.ts', graphData, counts);
             expect(label).toBe('Main App');
         });
 
         it('should return filename if no duplicates', () => {
+            const graphData = { nodes: [], edges: [] };
             const counts = new Map([['app.ts', 1]]);
-            const label = getNodeLabel('/src/app.ts', undefined, counts);
+            const label = getNodeLabel('/src/app.ts', graphData, counts);
             expect(label).toBe('app.ts');
         });
 
         it('should disambiguate duplicate filenames', () => {
+            const graphData = { nodes: [], edges: [] };
             const counts = new Map([['index.ts', 3]]);
-            const label = getNodeLabel('/src/utils/index.ts', undefined, counts);
+            const label = getNodeLabel('/src/utils/index.ts', graphData, counts);
             expect(label).toBe('utils/index.ts');
         });
 
         it('should prefer custom label over disambiguation', () => {
+            const graphData = { nodes: [], edges: [], nodeLabels: { '/src/utils/index.ts': 'Utils' } };
             const counts = new Map([['index.ts', 3]]);
-            const label = getNodeLabel('/src/utils/index.ts', { '/src/utils/index.ts': 'Utils' }, counts);
+            const label = getNodeLabel('/src/utils/index.ts', graphData, counts);
             expect(label).toBe('Utils');
         });
 
         it('should handle path with no parent', () => {
+            const graphData = { nodes: [], edges: [] };
             const counts = new Map([['app.ts', 2]]);
-            const label = getNodeLabel('app.ts', undefined, counts);
+            const label = getNodeLabel('app.ts', graphData, counts);
             expect(label).toBe('app.ts');
+        });
+
+        it('should handle Windows paths', () => {
+            const graphData = { nodes: [], edges: [] };
+            const counts = new Map([['index.ts', 3]]);
+            const label = getNodeLabel(String.raw`C:\src\utils\index.ts`, graphData, counts);
+            expect(label).toBe('utils/index.ts');
+        });
+
+        it('should handle mixed separators', () => {
+            const graphData = { nodes: [], edges: [] };
+            const counts = new Map([['app.ts', 2]]);
+            const label = getNodeLabel(String.raw`/src\utils/app.ts`, graphData, counts);
+            expect(label).toBe('utils/app.ts');
         });
     });
 

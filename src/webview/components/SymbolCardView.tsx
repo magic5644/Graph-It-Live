@@ -1,5 +1,6 @@
 import React from 'react';
 import { SymbolInfo, SymbolDependency } from '../../shared/types';
+import { getFileName } from '../utils/nodeUtils';
 
 interface SymbolCardViewProps {
     filePath: string;
@@ -32,9 +33,6 @@ const CATEGORY_ICONS: Record<string, string> = {
     type: 'T',
     other: '?',
 };
-
-// Helper to get filename from path
-const getFileName = (path: string): string => path.split(/[/\\]/).pop() || path;
 
 const SymbolCardView: React.FC<SymbolCardViewProps> = ({
     filePath,
