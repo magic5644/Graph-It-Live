@@ -1,7 +1,7 @@
 import type { Edge, Node } from 'reactflow';
 import type { GraphData } from '../../../shared/types';
 import { getLogger } from '../../../shared/logger';
-import { nodeHeight } from '../../utils/nodeUtils';
+import { nodeHeight, createEdgeStyle as createEdgeStyleUtil } from '../../utils/nodeUtils';
 import { normalizePath } from '../../utils/path';
 import type { FileNodeData } from './FileNode';
 import { detectCycles } from './cycles';
@@ -194,15 +194,6 @@ function buildRelationshipMaps(
 }
 
 /**
- * Create edge style based on whether it's part of a cycle
- */
-function createEdgeStyle(isCircular: boolean) {
-  return isCircular
-    ? { stroke: '#ff4d4d', strokeWidth: 2, strokeDasharray: '5,5' }
-    : { stroke: 'var(--vscode-editor-foreground)' };
-}
-
-/**
  * Filter and create edges for the visible nodes
  */
 function createVisibleEdges(
@@ -221,16 +212,15 @@ function createVisibleEdges(
       seenEdgeIds.add(id);
 
       const isCircular = cycles.has(source) && cycles.has(target);
+      const edgeStyle = createEdgeStyleUtil(isCircular);
+
       return [
         {
           id,
           source,
           target,
           animated: true,
-          style: createEdgeStyle(isCircular),
-          label: isCircular ? 'Cycle' : undefined,
-          labelStyle: isCircular ? { fill: '#ff4d4d', fontWeight: 'bold' } : undefined,
-          labelBgStyle: isCircular ? { fill: 'var(--vscode-editor-background)' } : undefined,
+          ...edgeStyle,
         },
       ];
     });

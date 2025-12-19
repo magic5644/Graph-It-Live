@@ -40,28 +40,55 @@ export type LoggerBackend = {
 };
 
 /**
+ * Format error-like objects
+ */
+function formatErrorLike(arg: { name?: unknown; message?: unknown; stack?: unknown }): string | null {
+  const name = typeof arg.name === 'string' ? arg.name : undefined;
+  const message = typeof arg.message === 'string' ? arg.message : undefined;
+  const stack = typeof arg.stack === 'string' ? arg.stack : undefined;
+  if (!name && !message) return null;
+  const errorPrefix = `${name ?? 'Error'}: ${message ?? ''}`;
+  return stack ? `${errorPrefix}\n${stack}` : errorPrefix;
+}
+
+/**
+ * Format a single argument
+ */
+function formatArg(arg: unknown): string {
+  if (typeof arg === 'string') return arg;
+  if (arg instanceof Error) return `${arg.name}: ${arg.message}`;
+  if (arg && typeof arg === 'object') {
+    const formatted = formatErrorLike(arg as { name?: unknown; message?: unknown; stack?: unknown });
+    if (formatted) return formatted;
+  }
+  try {
+    return JSON.stringify(arg);
+  } catch {
+    return String(arg);
+  }
+}
+
+/**
  * Format log arguments for output
  */
 function formatArgs(args: unknown[]): string {
   if (args.length === 0) return '';
-  return ' ' + args.map(arg => {
-    if (typeof arg === 'string') return arg;
-    if (arg instanceof Error) return `${arg.name}: ${arg.message}`;
-    if (arg && typeof arg === 'object') {
-      const maybe = arg as { name?: unknown; message?: unknown; stack?: unknown };
-      const name = typeof maybe.name === 'string' ? maybe.name : undefined;
-      const message = typeof maybe.message === 'string' ? maybe.message : undefined;
-      const stack = typeof maybe.stack === 'string' ? maybe.stack : undefined;
-      if (name || message) {
-        return stack ? `${name ?? 'Error'}: ${message ?? ''}\n${stack}` : `${name ?? 'Error'}: ${message ?? ''}`;
-      }
-    }
-    try {
-      return JSON.stringify(arg);
-    } catch {
-      return String(arg);
-    }
-  }).join(' ');
+  return ' ' + args.map(formatArg).join(' ');
+}
+
+/**
+ * Helper function to log error messages (shared between ConsoleLogger and StderrLogger)
+ */
+function logErrorMessage(
+  shouldLog: boolean,
+  formatMessage: (level: string, message: string) => string,
+  output: (msg: string) => void,
+  message: string,
+  args: unknown[]
+): void {
+  if (shouldLog) {
+    output(formatMessage('error', message + formatArgs(args)));
+  }
 }
 
 /**
@@ -112,10 +139,15 @@ export class ConsoleLogger implements ILogger {
     }
   }
 
+  // NOSONAR: Duplication with StderrLogger.error is intentional (different logger implementations)
   error(message: string, ...args: unknown[]): void {
-    if (this.shouldLog('error')) {
-      console.error(this.formatMessage('error', message + formatArgs(args)));
-    }
+    logErrorMessage(
+      this.shouldLog('error'),
+      this.formatMessage.bind(this),
+      console.error,
+      message,
+      args
+    );
   }
 }
 
@@ -168,10 +200,16 @@ export class StderrLogger implements ILogger {
     }
   }
 
+ 
   error(message: string, ...args: unknown[]): void {
-    if (this.shouldLog('error')) {
-      console.error(this.formatMessage('error', message + formatArgs(args)));
-    }
+    // NOSONAR: Duplication with ConsoleLogger.error is intentional (different logger implementations)
+    logErrorMessage(
+      this.shouldLog("error"),
+      this.formatMessage.bind(this),
+      console.error,
+      message,
+      args
+    );
   }
 }
 

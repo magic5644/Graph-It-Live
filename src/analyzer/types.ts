@@ -196,12 +196,6 @@ export interface FileHash {
   size: number;
 }
 
-/**
- * State of the indexing process
- * @deprecated Use IndexerState from IndexerStatus.ts instead
- */
-export type IndexingState = 'idle' | 'indexing' | 'complete' | 'error';
-
 // Re-export IndexerStatus types for convenience
 export type { IndexerState, IndexerStatusSnapshot, IndexerStatusCallback } from './IndexerStatus';
 

@@ -189,8 +189,3 @@ export class FileReader {
     return `${(bytes / (1024 * 1024)).toFixed(1)}MB`;
   }
 }
-
-/**
- * Default file reader instance
- */
-export const defaultFileReader = new FileReader();
