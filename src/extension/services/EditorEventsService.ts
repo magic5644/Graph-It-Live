@@ -1,10 +1,12 @@
 import * as vscode from 'vscode';
 import type { GraphProvider } from '../GraphProvider';
 import type { VsCodeLogger } from '../extensionLogger';
+import type { FileChangeScheduler } from './FileChangeScheduler';
 
 interface EditorEventsServiceOptions {
   provider: GraphProvider;
   logger: VsCodeLogger;
+  fileChangeScheduler: FileChangeScheduler;
 }
 
 /**
@@ -13,10 +15,12 @@ interface EditorEventsServiceOptions {
 export class EditorEventsService {
   private readonly provider: GraphProvider;
   private readonly logger: VsCodeLogger;
+  private readonly fileChangeScheduler: FileChangeScheduler;
 
   constructor(options: EditorEventsServiceOptions) {
     this.provider = options.provider;
     this.logger = options.logger;
+    this.fileChangeScheduler = options.fileChangeScheduler;
   }
 
   register(): vscode.Disposable[] {
@@ -44,9 +48,10 @@ export class EditorEventsService {
   }
 
   private registerSaveListener(): vscode.Disposable {
-    return vscode.workspace.onDidSaveTextDocument(async (doc) => {
+    return vscode.workspace.onDidSaveTextDocument((doc) => {
       this.logger.debug('Document saved:', doc.fileName);
-      await this.provider.onFileSaved(doc.fileName);
+      // Delegate to scheduler instead of direct processing
+      this.fileChangeScheduler.enqueue(doc.fileName, 'change');
     });
   }
 }

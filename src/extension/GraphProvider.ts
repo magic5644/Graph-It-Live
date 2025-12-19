@@ -8,6 +8,8 @@ import type { IndexerStatusSnapshot } from '../analyzer/IndexerStatus';
 import { BackgroundIndexingManager } from './services/BackgroundIndexingManager';
 import { SourceFileWatcher } from './services/SourceFileWatcher';
 import { WebviewMessageRouter } from './services/WebviewMessageRouter';
+import { FileChangeScheduler } from './services/FileChangeScheduler';
+import type { EventType } from './services/FileChangeScheduler';
 import { GraphViewService } from './services/GraphViewService';
 import { SymbolViewService } from './services/SymbolViewService';
 import { NodeInteractionService } from './services/NodeInteractionService';
@@ -28,6 +30,7 @@ export class GraphProvider implements vscode.WebviewViewProvider {
     private readonly _extensionUri: vscode.Uri;
     private readonly _indexingManager?: BackgroundIndexingManager;
     private readonly _sourceFileWatcher?: SourceFileWatcher;
+    private readonly _fileChangeScheduler?: FileChangeScheduler;
     private _configSnapshot: ProviderConfigSnapshot;
     private readonly _messageRouter: WebviewMessageRouter;
     private readonly _graphViewService?: GraphViewService;
@@ -41,6 +44,13 @@ export class GraphProvider implements vscode.WebviewViewProvider {
      * Populated by extension activation if MCP server is registered.
      */
     public notifyMcpServerOfConfigChange?: () => void;
+
+    /**
+     * Get the file change scheduler for use by EditorEventsService
+     */
+    public get fileChangeScheduler(): FileChangeScheduler | undefined {
+        return this._fileChangeScheduler;
+    }
 
     constructor(extensionUri: vscode.Uri, context: vscode.ExtensionContext) {
         this._extensionUri = extensionUri;
@@ -63,17 +73,19 @@ export class GraphProvider implements vscode.WebviewViewProvider {
                 initialConfig: this._configSnapshot,
             });
 
+            // Initialize FileChangeScheduler with unified handler
+            this._fileChangeScheduler = new FileChangeScheduler({
+                processHandler: async (filePath: string, eventType: EventType) => {
+                    await this.handleFileChange(filePath, eventType);
+                },
+                debounceDelay: 300, // 300ms debounce
+            });
+
             this._sourceFileWatcher = new SourceFileWatcher({
                 context,
                 spider: this._spider,
                 logger: log,
-                symbolView: {
-                    getCurrent: () => this._stateManager.currentSymbol,
-                    refresh: async (filePath: string) => { await this.handleDrillDown(filePath, true); },
-                    clear: () => { this._stateManager.currentSymbol = undefined; },
-                },
-                refreshFileView: () => { this.updateGraph(true); },
-                persistIndex: async () => { await this._indexingManager!.persistIndexIfEnabled(); },
+                fileChangeScheduler: this._fileChangeScheduler,
             });
         }
 
@@ -247,6 +259,72 @@ export class GraphProvider implements vscode.WebviewViewProvider {
         } else {
             // Was in file view - show dependencies for the new file
             await this.updateGraph(true, 'navigation');
+        }
+    }
+
+    /**
+     * Unified handler for file changes from both editor saves and file system watcher.
+     * Called by FileChangeScheduler after debouncing and event coalescence.
+     * @param filePath Normalized file path
+     * @param eventType Type of event (create, change, delete)
+     */
+    public async handleFileChange(filePath: string, eventType: EventType): Promise<void> {
+        if (!this._spider) {
+            return;
+        }
+
+        // Only handle supported file types
+        if (!/\.(ts|tsx|js|jsx|vue|svelte|gql|graphql)$/.test(filePath)) {
+            return;
+        }
+
+        log.debug(`Processing ${eventType} event for:`, filePath);
+
+        switch (eventType) {
+            case 'create':
+            case 'change':
+                // Re-analyze file and update index
+                await this._spider.reanalyzeFile(filePath);
+                await this._indexingManager?.persistIndexIfEnabled();
+                await this._refreshByCurrentView();
+                break;
+
+            case 'delete':
+                // Remove file from cache and index
+                this._spider.handleFileDeleted(filePath);
+                await this._indexingManager?.persistIndexIfEnabled();
+                await this._handleDeletedFileRefresh(filePath);
+                break;
+        }
+    }
+
+    /**
+     * Refresh the appropriate view based on current mode
+     * Private helper for unified file change handling
+     */
+    private async _refreshByCurrentView(): Promise<void> {
+        if (this._stateManager.currentSymbol) {
+            // In symbol view - refresh symbol analysis
+            await this.handleDrillDown(this._stateManager.currentSymbol, true);
+        } else {
+            // In file view - refresh dependency graph
+            await this.updateGraph(true, 'fileChange');
+        }
+    }
+
+    /**
+     * Handle refresh when a file is deleted
+     * If the deleted file is the currently viewed symbol, clear symbol view
+     * Private helper for unified file change handling
+     */
+    private async _handleDeletedFileRefresh(deletedPath: string): Promise<void> {
+        if (this._stateManager.currentSymbol === deletedPath) {
+            // The currently viewed file was deleted - switch to file view
+            this._stateManager.currentSymbol = undefined;
+            await this.updateGraph();
+        } else {
+            // Some other file was deleted - refresh current view
+            await this._refreshByCurrentView();
         }
     }
 
