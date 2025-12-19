@@ -4,11 +4,48 @@ name: Build
 on: [push, pull_request]
 
 jobs:
+  test:
+    name: Test on ${{ matrix.os }}
+    permissions:
+      contents: read
+    runs-on: ${{ matrix.os }}
+    
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+        node-version: ['24.x']
+    
+    steps:
+    - uses: actions/checkout@v5
+    
+    - name: Use Node.js ${{ matrix.node-version }}
+      uses: actions/setup-node@v5
+      with:
+        node-version: ${{ matrix.node-version }}
+        cache: 'npm'
+        
+    - name: Install Dependencies
+      run: npm ci
+
+    - name: Lint
+      run: npm run lint
+      
+    - name: Run Tests (Linux)
+      if: runner.os == 'Linux'
+      run: xvfb-run -a npm run test
+      
+    - name: Run Tests (Windows/macOS)
+      if: runner.os != 'Linux'
+      run: npm run test
+
   build:
+    name: Package Extension
     permissions:
       contents: read
       packages: write
     runs-on: ubuntu-latest
+    needs: test
 
     steps:
     - uses: actions/checkout@v5
@@ -24,12 +61,6 @@ jobs:
     # Install vsce before packaging
     - name: Install VS Code Extension Manager
       run: npm install -g @vscode/vsce
-      
-    - name: Lint
-      run: npm run lint
-      
-    - name: Run Tests
-      run: xvfb-run -a npm run test
       
     - name: Package Extension
       run: npm run package:vsix
