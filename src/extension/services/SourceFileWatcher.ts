@@ -1,6 +1,5 @@
 import * as vscode from 'vscode';
 import {WATCH_GLOB} from '../../shared/constants';
-import { Spider } from '../../analyzer/Spider';
 import type { FileChangeScheduler } from './FileChangeScheduler';
 
 type Logger = {
@@ -10,20 +9,17 @@ type Logger = {
 
 interface SourceFileWatcherOptions {
   context: vscode.ExtensionContext;
-  spider: Spider;
   logger: Logger;
   fileChangeScheduler: FileChangeScheduler;
 }
 
 
 export class SourceFileWatcher {
-  private readonly spider: Spider;
   private readonly logger: Logger;
   private readonly fileChangeScheduler: FileChangeScheduler;
   private readonly watcher: vscode.FileSystemWatcher;
 
   constructor(options: SourceFileWatcherOptions) {
-    this.spider = options.spider;
     this.logger = options.logger;
     this.fileChangeScheduler = options.fileChangeScheduler;
 
