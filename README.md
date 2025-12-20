@@ -120,23 +120,25 @@ The MCP server exposes **17 tools** for AI/LLM consumption:
 
 | Tool | Description |
 | :--- | :--- |
-| `graphItLive_setWorkspace` | Set the project directory to analyze (required first if not auto-detected) |
-| `graphItLive_analyzeDependencies` | Analyze a single file's direct imports and exports |
-| `graphItLive_crawlDependencyGraph` | Crawl the full dependency tree from an entry file |
-| `graphItLive_findReferencingFiles` | Find all files that import a given file (reverse lookup) |
-| `graphItLive_expandNode` | Expand a node to discover dependencies beyond known paths |
-| `graphItLive_parseImports` | Parse raw import statements without path resolution |
-| `graphItLive_resolveModulePath` | Resolve a module specifier to an absolute file path |
-| `graphItLive_getSymbolGraph` | Get symbol-level dependencies (functions, classes) within a file |
-| `graphItLive_findUnusedSymbols` | Find potentially unused exported symbols for dead code detection |
-| `graphItLive_getSymbolDependents` | Find all symbols that depend on a specific symbol |
-| `graphItLive_traceFunctionExecution` | Trace the complete execution path through function calls |
-| `graphItLive_getSymbolCallers` | Find all callers of a symbol with O(1) instant lookup |
-| `graphItLive_analyzeBreakingChanges` | Detect breaking changes when modifying function signatures |
-| `graphItLive_getImpactAnalysis` | Full impact analysis combining callers and breaking changes |
-| `graphItLive_getIndexStatus` | Get the current state of the dependency index |
-| `graphItLive_invalidateFiles` | Invalidate specific files from the cache after modifications |
-| `graphItLive_rebuildIndex` | Rebuild the entire dependency index from scratch |
+| `graphitlive_set_workspace` | Set the project directory to analyze (required first if not auto-detected) |
+| `graphitlive_analyze_dependencies` | Analyze a single file's direct imports and exports |
+| `graphitlive_crawl_dependency_graph` | Crawl the full dependency tree from an entry file |
+| `graphitlive_find_referencing_files` | Find all files that import a given file (reverse lookup) |
+| `graphitlive_expand_node` | Expand a node to discover dependencies beyond known paths |
+| `graphitlive_parse_imports` | Parse raw import statements without path resolution |
+| `graphitlive_resolve_module_path` | Resolve a module specifier to an absolute file path |
+| `graphitlive_get_symbol_graph` | Get symbol-level dependencies (functions, classes) within a file |
+| `graphitlive_find_unused_symbols` | Find potentially unused exported symbols for dead code detection |
+| `graphitlive_get_symbol_dependents` | Find all symbols that depend on a specific symbol |
+| `graphitlive_trace_function_execution` | Trace the complete execution path through function calls |
+| `graphitlive_get_symbol_callers` | Find all callers of a symbol with O(1) instant lookup |
+| `graphitlive_analyze_breaking_changes` | Detect breaking changes when modifying function signatures |
+| `graphitlive_get_impact_analysis` | Full impact analysis combining callers and breaking changes |
+| `graphitlive_get_index_status` | Get the current state of the dependency index |
+| `graphitlive_invalidate_files` | Invalidate specific files from the cache after modifications |
+| `graphitlive_rebuild_index` | Rebuild the entire dependency index from scratch |
+
+Note: Tool names were renamed from `graphItLive_*` to `graphitlive_*` (snake_case).
 
 ### Manual MCP Server Configuration
 

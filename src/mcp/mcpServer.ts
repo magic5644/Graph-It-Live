@@ -106,7 +106,7 @@ const currentConfig = {
 // Check for unresolved variables (common misconfiguration)
 if (currentConfig.workspaceRoot && (currentConfig.workspaceRoot.includes('${') || currentConfig.workspaceRoot.includes('$('))) {
   debugLog('[McpServer] WARNING: WORKSPACE_ROOT contains unresolved variable:', currentConfig.workspaceRoot);
-  debugLog('[McpServer] Workspace not set - use graphItLive_setWorkspace tool to configure');
+  debugLog('[McpServer] Workspace not set - use graphitlive_set_workspace tool to configure');
   currentConfig.workspaceRoot = '';
 }
 
@@ -116,7 +116,7 @@ if (!currentConfig.workspaceRoot) {
   
   // If cwd is root or empty, don't set a default - require explicit configuration
   if (cwd === '/' || cwd === '') {
-    debugLog('[McpServer] No workspace configured - use graphItLive_setWorkspace tool to set workspace');
+    debugLog('[McpServer] No workspace configured - use graphitlive_set_workspace tool to set workspace');
   } else {
     currentConfig.workspaceRoot = cwd;
     debugLog('[McpServer] WORKSPACE_ROOT not set, using current working directory:', currentConfig.workspaceRoot);
@@ -126,7 +126,7 @@ if (!currentConfig.workspaceRoot) {
 // Validate workspace if set
 if (currentConfig.workspaceRoot && !fs.existsSync(currentConfig.workspaceRoot)) {
   debugLog('[McpServer] WARNING: WORKSPACE_ROOT path does not exist:', currentConfig.workspaceRoot);
-  debugLog('[McpServer] Use graphItLive_setWorkspace tool to configure a valid workspace');
+  debugLog('[McpServer] Use graphitlive_set_workspace tool to configure a valid workspace');
   currentConfig.workspaceRoot = '';
 }
 
@@ -280,13 +280,13 @@ async function ensureWorkerReady(): Promise<{ error: true; response: { content: 
 // Tool Definitions - Using registerTool (recommended over deprecated tool())
 // ============================================================================
 
-// Tool: graphItLive_setWorkspace
+// Tool: graphitlive_set_workspace
 // This tool is special - it doesn't require the worker to be ready first
 server.registerTool(
-  'graphItLive_setWorkspace',
+  'graphitlive_set_workspace',
   {
     title: 'Set Workspace Directory',
-    description: `USE THIS TOOL FIRST when working with a new project or when the workspace hasn't been configured yet. This tool MUST be called before any other graphItLive tools if no workspace is set.
+    description: `USE THIS TOOL FIRST when working with a new project or when the workspace hasn't been configured yet. This tool MUST be called before any other graphitlive tools if no workspace is set.
 
 WHY: Graph-It-Live needs to know which project directory to analyze. Without a workspace configured, all other tools will fail. This tool sets the project root and initializes the dependency index for fast queries.
 
@@ -443,9 +443,9 @@ EXAMPLE: If analyzing a project at "/Users/me/my-app", call this tool with works
   }
 );
 
-// Tool: graphItLive_analyzeDependencies
+// Tool: graphitlive_analyze_dependencies
 server.registerTool(
-  'graphItLive_analyzeDependencies',
+  'graphitlive_analyze_dependencies',
   {
     title: 'Analyze File Dependencies',
     description: `USE THIS TOOL WHEN the user asks about a file's imports, dependencies, or what modules a specific file uses. Examples: "What does this file import?", "Show me the dependencies of src/utils.ts", "What modules does this component rely on?"
@@ -477,9 +477,9 @@ RETURNS: A structured JSON with all import/export statements including: resolved
   }
 );
 
-// Tool: graphItLive_crawlDependencyGraph
+// Tool: graphitlive_crawl_dependency_graph
 server.registerTool(
-  'graphItLive_crawlDependencyGraph',
+  'graphitlive_crawl_dependency_graph',
   {
     title: 'Crawl Full Dependency Graph',
     description: `CRITICAL: USE THIS TOOL WHENEVER the user asks about project architecture, module relationships, the full dependency tree, or needs to understand how files are connected. Examples: "Show me the architecture of this module", "What's the dependency tree from main.ts?", "Map out all the files connected to this entry point", "How is this project structured?"
@@ -535,9 +535,9 @@ RETURNS: A complete graph with nodes (files with metadata: path, extension, depe
   }
 );
 
-// Tool: graphItLive_findReferencingFiles
+// Tool: graphitlive_find_referencing_files
 server.registerTool(
-  'graphItLive_findReferencingFiles',
+  'graphitlive_find_referencing_files',
   {
     title: 'Find Files That Import This File',
     description: `CRITICAL: USE THIS TOOL WHENEVER the user asks about impact analysis, refactoring safety, "who uses this file?", "what will break if I change this?", or reverse dependencies. Examples: "What files import utils.ts?", "What's the impact of modifying this component?", "Who depends on this service?", "Is it safe to refactor this file?", "Show me all usages of this module"
@@ -569,9 +569,9 @@ RETURNS: A list of all files that directly import/require/reference the target f
   }
 );
 
-// Tool: graphItLive_expandNode
+// Tool: graphitlive_expand_node
 server.registerTool(
-  'graphItLive_expandNode',
+  'graphitlive_expand_node',
   {
     title: 'Expand Node Dependencies',
     description: `USE THIS TOOL WHEN you need to incrementally explore the dependency graph from a specific node, discovering new files not already in your known set. Examples: "Show me more dependencies from this file", "Expand the graph from this node", "What other files does this connect to that I haven't seen yet?"
@@ -606,16 +606,16 @@ RETURNS: A list of newly discovered nodes (files) and edges (import relationship
   }
 );
 
-// Tool: graphItLive_parseImports
+// Tool: graphitlive_parse_imports
 server.registerTool(
-  'graphItLive_parseImports',
+  'graphitlive_parse_imports',
   {
     title: 'Parse Raw Import Statements',
     description: `USE THIS TOOL WHEN you need to see the exact import statements as written in the source code, without path resolution. Examples: "What import syntax does this file use?", "Show me the raw import statements", "What module specifiers are in this file?"
 
 WHY: Sometimes you need to see exactly how imports are written (relative paths, aliases, bare specifiers) before resolution. This is useful for understanding coding patterns, checking import styles, or debugging path resolution issues. The tool uses fast regex-based parsing and handles Vue/Svelte script extraction automatically.
 
-RETURNS: An array of raw import/require/export statements as they appear in the source code, with the module specifier (e.g., "./utils", "@/components/Button", "lodash"), import type, and line number. Does NOT resolve paths - use graphItLive_analyzeDependencies for resolved paths.`,
+RETURNS: An array of raw import/require/export statements as they appear in the source code, with the module specifier (e.g., "./utils", "@/components/Button", "lodash"), import type, and line number. Does NOT resolve paths - use graphitlive_analyze_dependencies for resolved paths.`,
     inputSchema: {
       filePath: z.string().describe('The absolute path to the file to parse. Works with TypeScript, JavaScript, Vue, Svelte, and GraphQL files.'),
     },
@@ -637,9 +637,9 @@ RETURNS: An array of raw import/require/export statements as they appear in the 
   }
 );
 
-// Tool: graphItLive_resolveModulePath
+// Tool: graphitlive_resolve_module_path
 server.registerTool(
-  'graphItLive_resolveModulePath',
+  'graphitlive_resolve_module_path',
   {
     title: 'Resolve Module Specifier to File Path',
     description: `USE THIS TOOL WHEN you need to convert a module specifier (import path) to an actual file path on disk. Examples: "Where does '@/components/Button' point to?", "Resolve this import path", "What file does './utils' refer to from main.ts?"
@@ -672,9 +672,9 @@ RETURNS: The resolved absolute file path if the module exists, or null if it can
   }
 );
 
-// Tool: graphItLive_getIndexStatus
+// Tool: graphitlive_get_index_status
 server.registerTool(
-  'graphItLive_getIndexStatus',
+  'graphitlive_get_index_status',
   {
     title: 'Get Dependency Index Status',
     description: `USE THIS TOOL WHEN you need to verify the dependency analyzer is ready, check how many files are indexed, or diagnose performance issues. Examples: "Is the dependency index ready?", "How many files are indexed?", "What's the cache hit rate?", "Is the analyzer warmed up?"
@@ -701,9 +701,9 @@ RETURNS: Index state (ready/initializing), number of files indexed, reverse inde
   }
 );
 
-// Tool: graphItLive_invalidateFiles
+// Tool: graphitlive_invalidate_files
 server.registerTool(
-  'graphItLive_invalidateFiles',
+  'graphitlive_invalidate_files',
   {
     title: 'Invalidate File Cache',
     description: `USE THIS TOOL WHEN you have modified files and need to refresh the dependency analysis. Examples: "I just changed utils.ts, refresh the cache", "Invalidate these files I modified", "Clear cache for files I edited", "Refresh dependency data after my changes"
@@ -734,9 +734,9 @@ RETURNS: The number of files invalidated, which files were cleared from cache, a
   }
 );
 
-// Tool: graphItLive_rebuildIndex
+// Tool: graphitlive_rebuild_index
 server.registerTool(
-  'graphItLive_rebuildIndex',
+  'graphitlive_rebuild_index',
   {
     title: 'Rebuild Full Dependency Index',
     description: `USE THIS TOOL WHEN you need to completely rebuild the dependency index from scratch. Examples: "Rebuild the entire index", "Start fresh with dependency analysis", "Clear all cached data and re-index", "The index seems corrupted, rebuild it"
@@ -763,9 +763,9 @@ RETURNS: The number of files re-indexed, time taken to rebuild, new cache size, 
   }
 );
 
-// Tool: graphItLive_getSymbolGraph
+// Tool: graphitlive_get_symbol_graph
 server.registerTool(
-  'graphItLive_getSymbolGraph',
+  'graphitlive_get_symbol_graph',
   {
     title: 'Get Symbol-Level Dependency Graph',
     description: `CRITICAL: USE THIS TOOL WHEN the user wants to drill down from file-level dependencies to symbol-level (functions, classes, methods) dependencies. This enables **surgical refactoring** by showing exactly which symbols within a file depend on which external symbols.
@@ -810,9 +810,9 @@ This enables the **"Drill Down" UX pattern** where users double-click a file nod
   }
 );
 
-// Tool: graphItLive_findUnusedSymbols
+// Tool: graphitlive_find_unused_symbols
 server.registerTool(
-  'graphItLive_findUnusedSymbols',
+  'graphitlive_find_unused_symbols',
   {
     title: 'Find Dead Code (Unused Exports)',
     description: `CRITICAL: USE THIS TOOL WHEN the user wants to identify potential dead code or refactor opportunities by finding exported symbols that are never imported/used anywhere in the project.
@@ -858,9 +858,9 @@ NOTE: Currently returns all exports as potentially unused until full cross-file 
   }
 );
 
-// Tool: graphItLive_getSymbolDependents
+// Tool: graphitlive_get_symbol_dependents
 server.registerTool(
-  'graphItLive_getSymbolDependents',
+  'graphitlive_get_symbol_dependents',
   {
     title: 'Find All Callers of a Symbol (Impact Analysis)',
     description: `CRITICAL: USE THIS TOOL WHEN the user wants to know every file and specific method/function that calls or uses a given symbol. This is essential for surgical refactoring and precise impact analysis.
@@ -912,9 +912,9 @@ User: "I want to add a parameter to formatDate(). What will break?"
   }
 );
 
-// Tool: graphItLive_traceFunctionExecution
+// Tool: graphitlive_trace_function_execution
 server.registerTool(
-  'graphItLive_traceFunctionExecution',
+  'graphitlive_trace_function_execution',
   {
     title: 'Trace Function Execution Chain',
     description: `CRITICAL: USE THIS TOOL WHEN the user wants to trace the full, deep call chain from a root symbol (function, method, or class). This is essential for understanding the execution flow through services, repositories, and utilities.
@@ -932,7 +932,7 @@ This tool provides a complete picture of what a function calls, recursively foll
 2. It hits the max depth limit
 3. It encounters a cycle (already visited symbol)
 
-Unlike graphItLive_getSymbolGraph which shows only direct dependencies, this tool follows the entire execution chain through multiple files.
+Unlike graphitlive_get_symbol_graph which shows only direct dependencies, this tool follows the entire execution chain through multiple files.
 
 RETURNS:
 - Root symbol information (ID, file path, symbol name)
@@ -972,9 +972,9 @@ Use cases:
   }
 );
 
-// Tool: graphItLive_getSymbolCallers
+// Tool: graphitlive_get_symbol_callers
 server.registerTool(
-  'graphItLive_getSymbolCallers',
+  'graphitlive_get_symbol_callers',
   {
     title: 'Get Symbol Callers (Reverse Dependencies)',
     description: `CRITICAL: USE THIS TOOL WHEN the user wants to find all callers of a specific symbol (function, method, class, or variable).
@@ -987,7 +987,7 @@ WHEN TO USE:
 - Pre-refactoring analysis to understand blast radius
 
 WHY YOU NEED THIS:
-Unlike file-level reverse dependencies (graphItLive_findReferencingFiles), this tool provides **symbol-level granularity**.
+Unlike file-level reverse dependencies (graphitlive_find_referencing_files), this tool provides **symbol-level granularity**.
 It answers "Which specific functions call my function?" rather than "Which files import my file?".
 
 RETURNS:
@@ -1026,9 +1026,9 @@ Use cases:
   }
 );
 
-// Tool: graphItLive_analyzeBreakingChanges
+// Tool: graphitlive_analyze_breaking_changes
 server.registerTool(
-  'graphItLive_analyzeBreakingChanges',
+  'graphitlive_analyze_breaking_changes',
   {
     title: 'Analyze Breaking Changes in Signature',
     description: `CRITICAL: USE THIS TOOL WHEN the user wants to detect breaking changes after modifying a function, method, or class signature.
@@ -1088,9 +1088,9 @@ Use cases:
   }
 );
 
-// Tool: graphItLive_getImpactAnalysis
+// Tool: graphitlive_get_impact_analysis
 server.registerTool(
-  'graphItLive_getImpactAnalysis',
+  'graphitlive_get_impact_analysis',
   {
     title: 'Get Comprehensive Impact Analysis',
     description: `CRITICAL: USE THIS TOOL WHEN the user needs a full impact assessment before modifying a symbol.
@@ -1161,7 +1161,7 @@ Use cases:
 
 async function main(): Promise<void> {
   debugLog('[McpServer] Graph-It-Live MCP Server starting...');
-  debugLog(`[McpServer] Workspace: ${getWorkspaceRoot() || '(not configured - use graphItLive_setWorkspace)'}`);
+  debugLog(`[McpServer] Workspace: ${getWorkspaceRoot() || '(not configured - use graphitlive_set_workspace)'}`);
   debugLog(`[McpServer] TSConfig: ${currentConfig.tsConfigPath ?? 'auto-detect'}`);
   debugLog(`[McpServer] Exclude node_modules: ${currentConfig.excludeNodeModules}`);
   debugLog(`[McpServer] Max depth: ${currentConfig.maxDepth}`);
