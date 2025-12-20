@@ -397,6 +397,8 @@ export interface McpToolResponse<T> {
   pagination?: PaginationInfo;
   /** Error message (only present when success is false) */
   error?: string;
+  /** Allow additional properties for MCP SDK compatibility */
+  [key: string]: unknown;
 }
 
 // ============================================================================
