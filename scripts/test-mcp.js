@@ -103,15 +103,15 @@ async function runTests() {
   await new Promise(r => setTimeout(r, 3000));
 
   // =========================================================================
-  // 2. graphItLive_setWorkspace - Set workspace dynamically
+  // 2. graphitlive_set_workspace - Set workspace dynamically
   // =========================================================================
-  console.log('\n📤 [graphItLive_setWorkspace] Setting workspace to fixtures...');
+  console.log('\n📤 [graphitlive_set_workspace] Setting workspace to fixtures...');
   send({
     jsonrpc: '2.0',
     id: ++id,
     method: 'tools/call',
     params: {
-      name: 'graphItLive_setWorkspace',
+      name: 'graphitlive_set_workspace',
       arguments: {
         workspacePath: path.join(rootDir, 'tests/fixtures/sample-project')
       }
@@ -120,15 +120,15 @@ async function runTests() {
   await new Promise(r => setTimeout(r, 2000));
 
   // =========================================================================
-  // 3. graphItLive_setWorkspace - Error case: non-existent path
+  // 3. graphitlive_set_workspace - Error case: non-existent path
   // =========================================================================
-  console.log('\n📤 [graphItLive_setWorkspace] Testing error case: non-existent path...');
+  console.log('\n📤 [graphitlive_set_workspace] Testing error case: non-existent path...');
   send({
     jsonrpc: '2.0',
     id: ++id,
     method: 'tools/call',
     params: {
-      name: 'graphItLive_setWorkspace',
+      name: 'graphitlive_set_workspace',
       arguments: {
         workspacePath: '/non/existent/workspace'
       }
@@ -137,30 +137,30 @@ async function runTests() {
   await new Promise(r => setTimeout(r, 500));
 
   // =========================================================================
-  // 4. graphItLive_getIndexStatus - Verify index is ready
+  // 4. graphitlive_get_index_status - Verify index is ready
   // =========================================================================
-  console.log('\n📤 [graphItLive_getIndexStatus] Getting index status...');
+  console.log('\n📤 [graphitlive_get_index_status] Getting index status...');
   send({
     jsonrpc: '2.0',
     id: ++id,
     method: 'tools/call',
     params: {
-      name: 'graphItLive_getIndexStatus',
+      name: 'graphitlive_get_index_status',
       arguments: {}
     }
   });
   await new Promise(r => setTimeout(r, 500));
 
   // =========================================================================
-  // 5. graphItLive_analyzeDependencies - Analyze a single file
+  // 5. graphitlive_analyze_dependencies - Analyze a single file
   // =========================================================================
-  console.log('\n📤 [graphItLive_analyzeDependencies] Analyzing main.ts...');
+  console.log('\n📤 [graphitlive_analyze_dependencies] Analyzing main.ts...');
   send({
     jsonrpc: '2.0',
     id: ++id,
     method: 'tools/call',
     params: {
-      name: 'graphItLive_analyzeDependencies',
+      name: 'graphitlive_analyze_dependencies',
       arguments: {
         filePath: path.join(fixturesPath, 'main.ts')
       }
@@ -169,15 +169,15 @@ async function runTests() {
   await new Promise(r => setTimeout(r, 500));
 
   // =========================================================================
-  // 4. graphItLive_parseImports - Parse imports without resolution
+  // 4. graphitlive_parse_imports - Parse imports without resolution
   // =========================================================================
-  console.log('\n📤 [graphItLive_parseImports] Parsing imports from main.ts...');
+  console.log('\n📤 [graphitlive_parse_imports] Parsing imports from main.ts...');
   send({
     jsonrpc: '2.0',
     id: ++id,
     method: 'tools/call',
     params: {
-      name: 'graphItLive_parseImports',
+      name: 'graphitlive_parse_imports',
       arguments: {
         filePath: path.join(fixturesPath, 'main.ts')
       }
@@ -186,15 +186,15 @@ async function runTests() {
   await new Promise(r => setTimeout(r, 500));
 
   // =========================================================================
-  // 5. graphItLive_resolveModulePath - Resolve a relative import
+  // 5. graphitlive_resolve_module_path - Resolve a relative import
   // =========================================================================
-  console.log('\n📤 [graphItLive_resolveModulePath] Resolving "./utils" from main.ts...');
+  console.log('\n📤 [graphitlive_resolve_module_path] Resolving "./utils" from main.ts...');
   send({
     jsonrpc: '2.0',
     id: ++id,
     method: 'tools/call',
     params: {
-      name: 'graphItLive_resolveModulePath',
+      name: 'graphitlive_resolve_module_path',
       arguments: {
         fromFile: path.join(fixturesPath, 'main.ts'),
         moduleSpecifier: './utils'
@@ -204,15 +204,15 @@ async function runTests() {
   await new Promise(r => setTimeout(r, 500));
 
   // =========================================================================
-  // 6. graphItLive_resolveModulePath - Resolve a path alias (should fail gracefully)
+  // 6. graphitlive_resolve_module_path - Resolve a path alias (should fail gracefully)
   // =========================================================================
-  console.log('\n📤 [graphItLive_resolveModulePath] Resolving "@components/Button" from main.ts...');
+  console.log('\n📤 [graphitlive_resolve_module_path] Resolving "@components/Button" from main.ts...');
   send({
     jsonrpc: '2.0',
     id: ++id,
     method: 'tools/call',
     params: {
-      name: 'graphItLive_resolveModulePath',
+      name: 'graphitlive_resolve_module_path',
       arguments: {
         fromFile: path.join(fixturesPath, 'main.ts'),
         moduleSpecifier: '@components/Button'
@@ -222,15 +222,15 @@ async function runTests() {
   await new Promise(r => setTimeout(r, 500));
 
   // =========================================================================
-  // 7. graphItLive_crawlDependencyGraph - Build full dependency graph
+  // 7. graphitlive_crawl_dependency_graph - Build full dependency graph
   // =========================================================================
-  console.log('\n📤 [graphItLive_crawlDependencyGraph] Crawling from main.ts (maxDepth=3)...');
+  console.log('\n📤 [graphitlive_crawl_dependency_graph] Crawling from main.ts (maxDepth=3)...');
   send({
     jsonrpc: '2.0',
     id: ++id,
     method: 'tools/call',
     params: {
-      name: 'graphItLive_crawlDependencyGraph',
+      name: 'graphitlive_crawl_dependency_graph',
       arguments: {
         entryFile: path.join(fixturesPath, 'main.ts'),
         maxDepth: 3
@@ -240,15 +240,15 @@ async function runTests() {
   await new Promise(r => setTimeout(r, 500));
 
   // =========================================================================
-  // 8. graphItLive_crawlDependencyGraph - Test pagination
+  // 8. graphitlive_crawl_dependency_graph - Test pagination
   // =========================================================================
-  console.log('\n📤 [graphItLive_crawlDependencyGraph] Crawling with pagination (limit=1, offset=0)...');
+  console.log('\n📤 [graphitlive_crawl_dependency_graph] Crawling with pagination (limit=1, offset=0)...');
   send({
     jsonrpc: '2.0',
     id: ++id,
     method: 'tools/call',
     params: {
-      name: 'graphItLive_crawlDependencyGraph',
+      name: 'graphitlive_crawl_dependency_graph',
       arguments: {
         entryFile: path.join(fixturesPath, 'main.ts'),
         maxDepth: 3,
@@ -260,15 +260,15 @@ async function runTests() {
   await new Promise(r => setTimeout(r, 500));
 
   // =========================================================================
-  // 9. graphItLive_findReferencingFiles - Find files that import utils.ts
+  // 9. graphitlive_find_referencing_files - Find files that import utils.ts
   // =========================================================================
-  console.log('\n📤 [graphItLive_findReferencingFiles] Finding files that reference utils.ts...');
+  console.log('\n📤 [graphitlive_find_referencing_files] Finding files that reference utils.ts...');
   send({
     jsonrpc: '2.0',
     id: ++id,
     method: 'tools/call',
     params: {
-      name: 'graphItLive_findReferencingFiles',
+      name: 'graphitlive_find_referencing_files',
       arguments: {
         targetPath: path.join(fixturesPath, 'utils.ts')
       }
@@ -277,15 +277,15 @@ async function runTests() {
   await new Promise(r => setTimeout(r, 500));
 
   // =========================================================================
-  // 10. graphItLive_expandNode - Expand from a node with known paths
+  // 10. graphitlive_expand_node - Expand from a node with known paths
   // =========================================================================
-  console.log('\n📤 [graphItLive_expandNode] Expanding main.ts excluding known paths...');
+  console.log('\n📤 [graphitlive_expand_node] Expanding main.ts excluding known paths...');
   send({
     jsonrpc: '2.0',
     id: ++id,
     method: 'tools/call',
     params: {
-      name: 'graphItLive_expandNode',
+      name: 'graphitlive_expand_node',
       arguments: {
         filePath: path.join(fixturesPath, 'main.ts'),
         knownPaths: [path.join(fixturesPath, 'main.ts')],
@@ -296,15 +296,15 @@ async function runTests() {
   await new Promise(r => setTimeout(r, 500));
 
   // =========================================================================
-  // 11. Error case: graphItLive_analyzeDependencies with non-existent file
+  // 11. Error case: graphitlive_analyze_dependencies with non-existent file
   // =========================================================================
-  console.log('\n📤 [graphItLive_analyzeDependencies] Testing error case: non-existent file...');
+  console.log('\n📤 [graphitlive_analyze_dependencies] Testing error case: non-existent file...');
   send({
     jsonrpc: '2.0',
     id: ++id,
     method: 'tools/call',
     params: {
-      name: 'graphItLive_analyzeDependencies',
+      name: 'graphitlive_analyze_dependencies',
       arguments: {
         filePath: '/non/existent/file.ts'
       }
@@ -313,15 +313,15 @@ async function runTests() {
   await new Promise(r => setTimeout(r, 500));
 
   // =========================================================================
-  // 12. graphItLive_invalidateFiles - Invalidate specific files from cache
+  // 12. graphitlive_invalidate_files - Invalidate specific files from cache
   // =========================================================================
-  console.log('\n📤 [graphItLive_invalidateFiles] Invalidating main.ts and utils.ts...');
+  console.log('\n📤 [graphitlive_invalidate_files] Invalidating main.ts and utils.ts...');
   send({
     jsonrpc: '2.0',
     id: ++id,
     method: 'tools/call',
     params: {
-      name: 'graphItLive_invalidateFiles',
+      name: 'graphitlive_invalidate_files',
       arguments: {
         filePaths: [
           path.join(fixturesPath, 'main.ts'),
@@ -334,30 +334,30 @@ async function runTests() {
   await new Promise(r => setTimeout(r, 500));
 
   // =========================================================================
-  // 13. graphItLive_rebuildIndex - Rebuild the full index
+  // 13. graphitlive_rebuild_index - Rebuild the full index
   // =========================================================================
-  console.log('\n📤 [graphItLive_rebuildIndex] Rebuilding the entire index...');
+  console.log('\n📤 [graphitlive_rebuild_index] Rebuilding the entire index...');
   send({
     jsonrpc: '2.0',
     id: ++id,
     method: 'tools/call',
     params: {
-      name: 'graphItLive_rebuildIndex',
+      name: 'graphitlive_rebuild_index',
       arguments: {}
     }
   });
   await new Promise(r => setTimeout(r, 2000)); // Give more time for rebuild
 
   // =========================================================================
-  // 14. graphItLive_getSymbolGraph - Get symbol-level dependencies
+  // 14. graphitlive_get_symbol_graph - Get symbol-level dependencies
   // =========================================================================
-  console.log('\n📤 [graphItLive_getSymbolGraph] Analyzing symbol graph for main.ts...');
+  console.log('\n📤 [graphitlive_get_symbol_graph] Analyzing symbol graph for main.ts...');
   send({
     jsonrpc: '2.0',
     id: ++id,
     method: 'tools/call',
     params: {
-      name: 'graphItLive_getSymbolGraph',
+      name: 'graphitlive_get_symbol_graph',
       arguments: {
         filePath: path.join(fixturesPath, 'main.ts')
       }
@@ -366,15 +366,15 @@ async function runTests() {
   await new Promise(r => setTimeout(r, 500));
 
   // =========================================================================
-  // 15. graphItLive_findUnusedSymbols - Find potentially unused exports
+  // 15. graphitlive_find_unused_symbols - Find potentially unused exports
   // =========================================================================
-  console.log('\n📤 [graphItLive_findUnusedSymbols] Finding unused exports in utils.ts...');
+  console.log('\n📤 [graphitlive_find_unused_symbols] Finding unused exports in utils.ts...');
   send({
     jsonrpc: '2.0',
     id: ++id,
     method: 'tools/call',
     params: {
-      name: 'graphItLive_findUnusedSymbols',
+      name: 'graphitlive_find_unused_symbols',
       arguments: {
         filePath: path.join(fixturesPath, 'utils.ts')
       }
@@ -383,15 +383,15 @@ async function runTests() {
   await new Promise(r => setTimeout(r, 500));
 
   // =========================================================================
-  // 16. graphItLive_getSymbolDependents - Find all callers of a symbol
+  // 16. graphitlive_get_symbol_dependents - Find all callers of a symbol
   // =========================================================================
-  console.log('\n📤 [graphItLive_getSymbolDependents] Finding dependents of format function...');
+  console.log('\n📤 [graphitlive_get_symbol_dependents] Finding dependents of format function...');
   send({
     jsonrpc: '2.0',
     id: ++id,
     method: 'tools/call',
     params: {
-      name: 'graphItLive_getSymbolDependents',
+      name: 'graphitlive_get_symbol_dependents',
       arguments: {
         filePath: path.join(fixturesPath, 'utils.ts'),
         symbolName: 'format'
@@ -401,15 +401,15 @@ async function runTests() {
   await new Promise(r => setTimeout(r, 500));
 
   // =========================================================================
-  // 17. graphItLive_traceFunctionExecution - Trace execution call chain
+  // 17. graphitlive_trace_function_execution - Trace execution call chain
   // =========================================================================
-  console.log('\n📤 [graphItLive_traceFunctionExecution] Tracing execution from main function...');
+  console.log('\n📤 [graphitlive_trace_function_execution] Tracing execution from main function...');
   send({
     jsonrpc: '2.0',
     id: ++id,
     method: 'tools/call',
     params: {
-      name: 'graphItLive_traceFunctionExecution',
+      name: 'graphitlive_trace_function_execution',
       arguments: {
         filePath: path.join(fixturesPath, 'main.ts'),
         symbolName: 'main',
@@ -420,16 +420,16 @@ async function runTests() {
   await new Promise(r => setTimeout(r, 500));
 
   // =========================================================================
-  // 18. graphItLive_getSymbolCallers - Find callers of a symbol (O(1) lookup)
+  // 18. graphitlive_get_symbol_callers - Find callers of a symbol (O(1) lookup)
   // =========================================================================
   const utilsPath = path.join(fixturesPath, 'utils.ts');
-  console.log('\n📤 [graphItLive_getSymbolCallers] Finding callers of greet function...');
+  console.log('\n📤 [graphitlive_get_symbol_callers] Finding callers of greet function...');
   send({
     jsonrpc: '2.0',
     id: ++id,
     method: 'tools/call',
     params: {
-      name: 'graphItLive_getSymbolCallers',
+      name: 'graphitlive_get_symbol_callers',
       arguments: {
         filePath: utilsPath,
         symbolName: 'greet'
@@ -439,15 +439,15 @@ async function runTests() {
   await new Promise(r => setTimeout(r, 500));
 
   // =========================================================================
-  // 18. graphItLive_getSymbolCallers - Filter runtime only
+  // 18. graphitlive_get_symbol_callers - Filter runtime only
   // =========================================================================
-  console.log('\n📤 [graphItLive_getSymbolCallers] Finding runtime-only callers...');
+  console.log('\n📤 [graphitlive_get_symbol_callers] Finding runtime-only callers...');
   send({
     jsonrpc: '2.0',
     id: ++id,
     method: 'tools/call',
     params: {
-      name: 'graphItLive_getSymbolCallers',
+      name: 'graphitlive_get_symbol_callers',
       arguments: {
         filePath: utilsPath,
         symbolName: 'add',
@@ -458,15 +458,15 @@ async function runTests() {
   await new Promise(r => setTimeout(r, 500));
 
   // =========================================================================
-  // 19. graphItLive_analyzeBreakingChanges - Analyze signature changes
+  // 19. graphitlive_analyze_breaking_changes - Analyze signature changes
   // =========================================================================
-  console.log('\n📤 [graphItLive_analyzeBreakingChanges] Analyzing breaking changes in utils.ts...');
+  console.log('\n📤 [graphitlive_analyze_breaking_changes] Analyzing breaking changes in utils.ts...');
   send({
     jsonrpc: '2.0',
     id: ++id,
     method: 'tools/call',
     params: {
-      name: 'graphItLive_analyzeBreakingChanges',
+      name: 'graphitlive_analyze_breaking_changes',
       arguments: {
         filePath: utilsPath,
         // Old version had add with one parameter
@@ -491,15 +491,15 @@ export function add(a: number, b: number): number {
   await new Promise(r => setTimeout(r, 500));
 
   // =========================================================================
-  // 20. graphItLive_getImpactAnalysis - Full impact analysis
+  // 20. graphitlive_get_impact_analysis - Full impact analysis
   // =========================================================================
-  console.log('\n📤 [graphItLive_getImpactAnalysis] Getting impact analysis for greet symbol...');
+  console.log('\n📤 [graphitlive_get_impact_analysis] Getting impact analysis for greet symbol...');
   send({
     jsonrpc: '2.0',
     id: ++id,
     method: 'tools/call',
     params: {
-      name: 'graphItLive_getImpactAnalysis',
+      name: 'graphitlive_get_impact_analysis',
       arguments: {
         filePath: utilsPath,
         symbolName: 'greet'
@@ -509,15 +509,15 @@ export function add(a: number, b: number): number {
   await new Promise(r => setTimeout(r, 500));
 
   // =========================================================================
-  // 21. graphItLive_getImpactAnalysis - With transitive analysis
+  // 21. graphitlive_get_impact_analysis - With transitive analysis
   // =========================================================================
-  console.log('\n📤 [graphItLive_getImpactAnalysis] Impact with transitive dependents...');
+  console.log('\n📤 [graphitlive_get_impact_analysis] Impact with transitive dependents...');
   send({
     jsonrpc: '2.0',
     id: ++id,
     method: 'tools/call',
     params: {
-      name: 'graphItLive_getImpactAnalysis',
+      name: 'graphitlive_get_impact_analysis',
       arguments: {
         filePath: utilsPath,
         symbolName: 'add',
@@ -529,15 +529,15 @@ export function add(a: number, b: number): number {
   await new Promise(r => setTimeout(r, 500));
 
   // =========================================================================
-  // 22. Error case: graphItLive_getSymbolGraph with non-existent file
+  // 22. Error case: graphitlive_get_symbol_graph with non-existent file
   // =========================================================================
-  console.log('\n📤 [graphItLive_getSymbolGraph] Testing error case: non-existent file...');
+  console.log('\n📤 [graphitlive_get_symbol_graph] Testing error case: non-existent file...');
   send({
     jsonrpc: '2.0',
     id: ++id,
     method: 'tools/call',
     params: {
-      name: 'graphItLive_getSymbolGraph',
+      name: 'graphitlive_get_symbol_graph',
       arguments: {
         filePath: '/non/existent/symbol-file.ts'
       }
@@ -557,7 +557,7 @@ export function add(a: number, b: number): number {
     id: ++id,
     method: 'tools/call',
     params: {
-      name: 'graphItLive_findReferencingFiles',
+      name: 'graphitlive_find_referencing_files',
       arguments: {
         targetPath: path.join(fixturesPath, 'utils.ts')
       }
@@ -572,7 +572,7 @@ export function add(a: number, b: number): number {
     id: ++id,
     method: 'tools/call',
     params: {
-      name: 'graphItLive_invalidateFiles',
+      name: 'graphitlive_invalidate_files',
       arguments: {
         filePaths: [path.join(fixturesPath, 'main.ts')]
       }
@@ -587,7 +587,7 @@ export function add(a: number, b: number): number {
     id: ++id,
     method: 'tools/call',
     params: {
-      name: 'graphItLive_analyzeDependencies',
+      name: 'graphitlive_analyze_dependencies',
       arguments: {
         filePath: path.join(fixturesPath, 'main.ts')
       }
@@ -602,7 +602,7 @@ export function add(a: number, b: number): number {
     id: ++id,
     method: 'tools/call',
     params: {
-      name: 'graphItLive_findReferencingFiles',
+      name: 'graphitlive_find_referencing_files',
       arguments: {
         targetPath: path.join(fixturesPath, 'utils.ts')
       }
