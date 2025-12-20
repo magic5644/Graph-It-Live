@@ -65,17 +65,14 @@ export class FileChangeScheduler {
 
     // Case 2: Timer pending - replace if higher priority
     if (existing?.timerId) {
-      if (this.shouldReplaceEvent(existing.eventType, eventType)) {
-        log.debug(
-          `Replacing ${existing.eventType} with ${eventType} for ${normalizedPath}`
-        );
-        clearTimeout(existing.timerId);
-        this.scheduleJob(normalizedPath, eventType);
-      } else {
-        log.debug(
-          `Keeping ${existing.eventType} over ${eventType} for ${normalizedPath}`
-        );
-      }
+      const nextEventType = this.shouldReplaceEvent(existing.eventType, eventType)
+        ? eventType
+        : existing.eventType;
+      log.debug(
+        `Debounce reset for ${normalizedPath}: ${existing.eventType} -> ${nextEventType}`
+      );
+      clearTimeout(existing.timerId);
+      this.scheduleJob(normalizedPath, nextEventType);
       return;
     }
 

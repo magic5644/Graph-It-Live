@@ -58,6 +58,31 @@ describe('FileChangeScheduler', () => {
       scheduler.dispose();
     });
 
+    it('resets debounce window on same-priority events', async () => {
+      const processHandler = vi.fn().mockResolvedValue(undefined);
+      const scheduler = new FileChangeScheduler({
+        processHandler,
+        debounceDelay: 300,
+      });
+
+      const filePath = path.join(testRootDir, 'src', 'file.ts');
+
+      scheduler.enqueue(filePath, 'change');
+
+      await vi.advanceTimersByTimeAsync(200);
+      scheduler.enqueue(filePath, 'change');
+
+      await vi.advanceTimersByTimeAsync(200);
+      expect(processHandler).not.toHaveBeenCalled();
+
+      await vi.advanceTimersByTimeAsync(100);
+
+      expect(processHandler).toHaveBeenCalledTimes(1);
+      expect(processHandler).toHaveBeenCalledWith(np(filePath), 'change');
+
+      scheduler.dispose();
+    });
+
     it('processes different files independently', async () => {
       const processHandler = vi.fn().mockResolvedValue(undefined);
       const scheduler = new FileChangeScheduler({

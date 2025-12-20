@@ -83,7 +83,6 @@ export class GraphProvider implements vscode.WebviewViewProvider {
 
             this._sourceFileWatcher = new SourceFileWatcher({
                 context,
-                spider: this._spider,
                 logger: log,
                 fileChangeScheduler: this._fileChangeScheduler,
             });
@@ -519,6 +518,7 @@ export class GraphProvider implements vscode.WebviewViewProvider {
         webviewView.onDidDispose(() => {
             this._indexingManager?.cancelScheduledIndexing();
             this._sourceFileWatcher?.dispose();
+            this._fileChangeScheduler?.dispose();
             // Also clean up the worker if running
             this._spider?.disposeWorker();
         });
@@ -682,7 +682,7 @@ export class GraphProvider implements vscode.WebviewViewProvider {
      */
     public async updateGraph(
         isRefresh: boolean = false,
-        refreshReason: 'manual' | 'indexing' | 'fileSaved' | 'navigation' | 'unknown' = 'unknown'
+        refreshReason: 'manual' | 'indexing' | 'fileSaved' | 'navigation' | 'fileChange' | 'unknown' = 'unknown'
     ) {
         if (!this._view || !this._spider || !this._graphViewService) {
             log.debug('View or Spider not initialized');
@@ -729,7 +729,7 @@ export class GraphProvider implements vscode.WebviewViewProvider {
     private async _sendGraphUpdate(
         filePath: string,
         isRefresh: boolean,
-        refreshReason: 'manual' | 'indexing' | 'fileSaved' | 'navigation' | 'unknown' = 'unknown'
+        refreshReason: 'manual' | 'indexing' | 'fileSaved' | 'fileChange' | 'navigation' | 'unknown' = 'unknown'
     ): Promise<void> {
         if (!this._graphViewService || !this._view) {
             return;
