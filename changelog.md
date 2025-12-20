@@ -1,5 +1,16 @@
 # Changelog
 
+## v1.3.6
+
+### Bug Fixes
+
+- **Fix file change event handling**: Resolved issues with file change detection that could lead to missed or duplicate analyses
+  - Correctly prioritizes delete > change > create events
+  - Ensures single analysis per file change, even with multiple rapid events
+  - Improved debouncing logic to prevent redundant refreshes
+  - Addresses edge cases with external file watchers interfering with save events
+
+
 ## v1.3.5
 
 ### Improvements
