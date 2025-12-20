@@ -286,11 +286,14 @@ Graph-It-Live/
     git clone https://github.com/magic5644/Graph-It-Live.git
     cd Graph-It-Live
     ```
+
 2.**Install**:
     ```bash
     npm install
     ```
+
 3.**Run**:
+
     -   Press `F5` in VS Code to start the Extension Development Host.
 
 ## License
