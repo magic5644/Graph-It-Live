@@ -2,10 +2,6 @@
 
 ## v1.3.6
 
-### Breaking Changes
-
-- **MCP tool names renamed**: Tool names now use `graphitlive_*` (snake_case) instead of `graphItLive_*`. Update any hardcoded tool references accordingly. If tool names are discovered dynamically and not hardcoded in scripts or prompts, there is no impact.
-
 ### Bug Fixes
 
 - **Fix file change event handling**: Resolved issues with file change detection that could lead to missed or duplicate analyses
@@ -13,6 +9,11 @@
   - Ensures single analysis per file change, even with multiple rapid events
   - Improved debouncing logic to prevent redundant refreshes
   - Addresses edge cases with external file watchers interfering with save events
+
+### Improvements
+
+- **MCP tool names renamed**: Tool names now use `graphitlive_*` (snake_case) instead of `graphItLive_*`. Update any hardcoded tool references accordingly. If tool names are discovered dynamically and not hardcoded in scripts or prompts, there is no impact.
+- **MCP Server**: Added tool response schemas, annotations, and structured responses to improve compatibility and validation.
 
 
 ## v1.3.5
