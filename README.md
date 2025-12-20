@@ -17,6 +17,7 @@
 Graph-It-Live is a dual-purpose tool:
 
 1.**For Humans**: A real-time interactive graph to visualize and navigate dependencies in **TypeScript**, **JavaScript**, **Vue**, **Svelte**, and **GraphQL** projects.
+
 2.**For AI**: A built-in **Model Context Protocol (MCP) Server** that lets assistants like **GitHub Copilot**, **Claude**, and **Cursor** analyze your project's architecture, find impact of changes, and understand complex relationships without hallucinating.
 
 <div align="center">
