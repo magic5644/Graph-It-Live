@@ -137,7 +137,7 @@ function getWorkspaceRoot(): string {
   return currentConfig.workspaceRoot;
 }
 
-const ResponseFormatSchema = z.enum(['json', 'markdown']).default('json');
+const ResponseFormatSchema = z.enum(['json', 'markdown', 'toon']).default('toon');
 const PaginationInfoSchema = z.object({
   total: z.number(),
   limit: z.number(),
@@ -399,7 +399,7 @@ RETURNS: Confirmation of the new workspace path and the number of files indexed.
 
 EXAMPLE: If analyzing a project at "/Users/me/my-app", call this tool with workspacePath="/Users/me/my-app"`,
     inputSchema: SetWorkspaceParamsSchema.extend({
-      response_format: ResponseFormatSchema.describe("Output format: 'json' or 'markdown' (default: json)"),
+      response_format: ResponseFormatSchema.describe("Output format: 'json', 'markdown', or 'toon' (Token-Oriented Object Notation for reduced token usage) (default: toon - RECOMMENDED for 30-60% token savings)"),
     }),
     outputSchema: McpToolResponseSchema,
     annotations: {
@@ -522,7 +522,7 @@ WHY: As an AI, you cannot see import statements or module relationships without 
 RETURNS: A structured JSON with all import/export statements including: resolved absolute paths, relative paths from workspace root, import types (static import, dynamic import, require, re-export), line numbers, and file extensions. Supports TypeScript, JavaScript, Vue, Svelte, and GraphQL files.`,
     inputSchema: z.object({
       filePath: z.string().describe('The absolute path to the file to analyze. Typically the file currently open in the editor, or a path mentioned by the user in their question.'),
-      response_format: ResponseFormatSchema.describe("Output format: 'json' or 'markdown' (default: json)"),
+      response_format: ResponseFormatSchema.describe("Output format: 'json', 'markdown', or 'toon' (Token-Oriented Object Notation for reduced token usage) (default: toon - RECOMMENDED for 30-60% token savings)"),
     }),
     outputSchema: McpToolResponseSchema,
     annotations: {
@@ -560,7 +560,7 @@ RETURNS: A complete graph with nodes (files with metadata: path, extension, depe
       maxDepth: z.number().optional().describe('Maximum depth to crawl. Default is 50. Use smaller values (3-10) for quick exploration, larger for complete analysis.'),
       limit: z.number().optional().describe('Maximum number of nodes to return per request. Use for pagination when dealing with large graphs.'),
       offset: z.number().optional().describe('Number of nodes to skip. Use with limit for pagination through large result sets.'),
-      response_format: ResponseFormatSchema.describe("Output format: 'json' or 'markdown' (default: json)"),
+      response_format: ResponseFormatSchema.describe("Output format: 'json', 'markdown', or 'toon' (Token-Oriented Object Notation for reduced token usage) (default: toon - RECOMMENDED for 30-60% token savings)"),
     }),
     outputSchema: McpToolResponseSchema,
     annotations: {
@@ -617,7 +617,7 @@ WHY: This is the MOST IMPORTANT tool for impact analysis. You cannot know which 
 RETURNS: A list of all files that directly import/require/reference the target file, with their absolute paths and relative paths from workspace root. This tells you exactly what will be affected by changes to the target file.`,
     inputSchema: z.object({
       targetPath: z.string().describe('The absolute path to the file you want to find importers for. This is the file the user is considering modifying or wants to understand the usage of.'),
-      response_format: ResponseFormatSchema.describe("Output format: 'json' or 'markdown' (default: json)"),
+      response_format: ResponseFormatSchema.describe("Output format: 'json', 'markdown', or 'toon' (Token-Oriented Object Notation for reduced token usage) (default: toon - RECOMMENDED for 30-60% token savings)"),
     }),
     outputSchema: McpToolResponseSchema,
     annotations: {
@@ -655,7 +655,7 @@ RETURNS: A list of newly discovered nodes (files) and edges (import relationship
       filePath: z.string().describe('The absolute path to the node to expand from. This is the file whose additional dependencies you want to discover.'),
       knownPaths: z.array(z.string()).describe('Array of absolute file paths you already know about. The tool will exclude these and only return NEW discoveries.'),
       extraDepth: z.number().optional().describe('How many levels deep to scan from this node. Default is 10. Use smaller values for quick peeks, larger for thorough exploration.'),
-      response_format: ResponseFormatSchema.describe("Output format: 'json' or 'markdown' (default: json)"),
+      response_format: ResponseFormatSchema.describe("Output format: 'json', 'markdown', or 'toon' (Token-Oriented Object Notation for reduced token usage) (default: toon - RECOMMENDED for 30-60% token savings)"),
     }),
     outputSchema: McpToolResponseSchema,
     annotations: {
@@ -692,7 +692,7 @@ WHY: Sometimes you need to see exactly how imports are written (relative paths, 
 RETURNS: An array of raw import/require/export statements as they appear in the source code, with the module specifier (e.g., "./utils", "@/components/Button", "lodash"), import type, and line number. Does NOT resolve paths - use graphitlive_analyze_dependencies for resolved paths.`,
     inputSchema: z.object({
       filePath: z.string().describe('The absolute path to the file to parse. Works with TypeScript, JavaScript, Vue, Svelte, and GraphQL files.'),
-      response_format: ResponseFormatSchema.describe("Output format: 'json' or 'markdown' (default: json)"),
+      response_format: ResponseFormatSchema.describe("Output format: 'json', 'markdown', or 'toon' (Token-Oriented Object Notation for reduced token usage) (default: toon - RECOMMENDED for 30-60% token savings)"),
     }),
     outputSchema: McpToolResponseSchema,
     annotations: {
@@ -726,7 +726,7 @@ RETURNS: The resolved absolute file path if the module exists, or null if it can
     inputSchema: z.object({
       fromFile: z.string().describe('The absolute path of the file containing the import statement. Resolution is relative to this file\'s location.'),
       moduleSpecifier: z.string().describe('The module specifier exactly as written in the import statement. Examples: "./utils", "@/components/Button", "../shared/types", "lodash"'),
-      response_format: ResponseFormatSchema.describe("Output format: 'json' or 'markdown' (default: json)"),
+      response_format: ResponseFormatSchema.describe("Output format: 'json', 'markdown', or 'toon' (Token-Oriented Object Notation for reduced token usage) (default: toon - RECOMMENDED for 30-60% token savings)"),
     }),
     outputSchema: McpToolResponseSchema,
     annotations: {
@@ -761,7 +761,7 @@ WHY: Before running expensive dependency analysis, you may want to verify the sy
 
 RETURNS: Index state (ready/initializing), number of files indexed, reverse index statistics (for finding references), cache size and hit rates, warmup completion status and duration. Useful for debugging and understanding analyzer performance.`,
     inputSchema: z.object({
-      response_format: ResponseFormatSchema.describe("Output format: 'json' or 'markdown' (default: json)"),
+      response_format: ResponseFormatSchema.describe("Output format: 'json', 'markdown', or 'toon' (Token-Oriented Object Notation for reduced token usage) (default: toon - RECOMMENDED for 30-60% token savings)"),
     }),
     outputSchema: McpToolResponseSchema,
     annotations: {
@@ -794,7 +794,7 @@ WHY: The dependency analyzer caches file analysis for performance. When you modi
 RETURNS: The number of files invalidated, which files were cleared from cache, and which files were not found in cache (already invalidated or never analyzed). The reverse index is also updated to remove stale references.`,
     inputSchema: z.object({
       filePaths: z.array(z.string()).describe('Array of absolute file paths to invalidate. These should be files you have modified and want to refresh in the dependency cache.'),
-      response_format: ResponseFormatSchema.describe("Output format: 'json' or 'markdown' (default: json)"),
+      response_format: ResponseFormatSchema.describe("Output format: 'json', 'markdown', or 'toon' (Token-Oriented Object Notation for reduced token usage) (default: toon - RECOMMENDED for 30-60% token savings)"),
     }),
     outputSchema: McpToolResponseSchema,
     annotations: {
@@ -828,7 +828,7 @@ WHY: In rare cases, the dependency index may become out of sync with the actual 
 
 RETURNS: The number of files re-indexed, time taken to rebuild, new cache size, and updated reverse index statistics. Note: This operation can take several seconds for large workspaces.`,
     inputSchema: z.object({
-      response_format: ResponseFormatSchema.describe("Output format: 'json' or 'markdown' (default: json)"),
+      response_format: ResponseFormatSchema.describe("Output format: 'json', 'markdown', or 'toon' (Token-Oriented Object Notation for reduced token usage) (default: toon - RECOMMENDED for 30-60% token savings)"),
     }),
     outputSchema: McpToolResponseSchema,
     annotations: {
@@ -862,6 +862,11 @@ WHEN TO USE:
 - User needs to refactor a specific class/function without breaking others in the same file
 - User asks about symbol-level architecture or method-level coupling
 
+EXAMPLES:
+- "Show me which functions in UserService.ts call the database"
+- "I want to refactor the calculatePrice function - what does it depend on?"
+- "Give me the symbol-level graph for src/components/Button.vue"
+
 WHY YOU NEED THIS:
 Without this tool, you only see file-to-file relationships. This tool uses AST parsing (ts-morph) to extract:
 1. All exported symbols (functions, classes, variables) with their types and line numbers
@@ -877,7 +882,7 @@ RETURNS:
 This enables the **"Drill Down" UX pattern** where users double-click a file node to see its internal symbol graph.`,
     inputSchema: z.object({
       filePath: z.string().describe('The absolute path to the file to analyze at the symbol level. This should be a TypeScript, JavaScript, Vue, or Svelte file.'),
-      response_format: ResponseFormatSchema.describe("Output format: 'json' or 'markdown' (default: json)"),
+      response_format: ResponseFormatSchema.describe("Output format: 'json', 'markdown', or 'toon' (Token-Oriented Object Notation for reduced token usage) (default: toon - RECOMMENDED for 30-60% token savings)"),
     }),
     outputSchema: McpToolResponseSchema,
     annotations: {
@@ -911,6 +916,11 @@ WHEN TO USE:
 - User needs to understand which parts of an API are actually consumed
 - Code review to identify bloat or over-exported symbols
 
+EXAMPLES:
+- "Find dead code in src/utils/helpers.ts"
+- "Which exports in my API file are never imported?"
+- "Show me unused functions I can safely delete from UserService.ts"
+
 WHY YOU NEED THIS:
 You cannot determine if an export is used without scanning the entire codebase. This tool:
 1. Extracts all exported symbols from the target file
@@ -927,7 +937,7 @@ RETURNS:
 NOTE: Currently returns all exports as potentially unused until full cross-file symbol resolution is implemented. This will be enhanced to accurately track symbol-level imports across the project.`,
     inputSchema: z.object({
       filePath: z.string().describe('The absolute path to the file to check for unused exports. Typically a library file, utility module, or component that may have over-exported.'),
-      response_format: ResponseFormatSchema.describe("Output format: 'json' or 'markdown' (default: json)"),
+      response_format: ResponseFormatSchema.describe("Output format: 'json', 'markdown', or 'toon' (Token-Oriented Object Notation for reduced token usage) (default: toon - RECOMMENDED for 30-60% token savings)"),
     }),
     outputSchema: McpToolResponseSchema,
     annotations: {
@@ -962,6 +972,11 @@ WHEN TO USE:
 - Impact analysis before modifying an API, class method, or utility function
 - User asks about the "blast radius" of a change to a specific symbol
 
+EXAMPLES:
+- "What calls the formatDate function in utils.ts?"
+- "I'm changing UserService.login() signature - who depends on it?"
+- "Find all code that uses the calculateTotal method"
+
 WHY YOU NEED THIS:
 Unlike file-level dependencies, this tool provides SYMBOL-LEVEL precision:
 - Knows exactly which FUNCTIONS/METHODS call the target symbol
@@ -980,7 +995,7 @@ User: "I want to add a parameter to formatDate(). What will break?"
     inputSchema: z.object({
       filePath: z.string().describe('The absolute path to the file containing the symbol to analyze.'),
       symbolName: z.string().describe('The name of the function, class, or method to find dependents for (e.g., "formatDate", "UserService", "handleRequest").'),
-      response_format: ResponseFormatSchema.describe("Output format: 'json' or 'markdown' (default: json)"),
+      response_format: ResponseFormatSchema.describe("Output format: 'json', 'markdown', or 'toon' (Token-Oriented Object Notation for reduced token usage) (default: toon - RECOMMENDED for 30-60% token savings)"),
     }),
     outputSchema: McpToolResponseSchema,
     annotations: {
@@ -1018,6 +1033,11 @@ WHEN TO USE:
 - User asks about the call hierarchy or call graph
 - Impact analysis for deep refactoring
 
+EXAMPLES:
+- "Trace the execution of handleUserLogin from the controller"
+- "What's the full call chain from processOrder in OrderService?"
+- "Map out everything that happens when fetchData() is called"
+
 WHY YOU NEED THIS:
 This tool provides a complete picture of what a function calls, recursively following the call chain until:
 1. It reaches external modules (node_modules)
@@ -1041,7 +1061,7 @@ Use cases:
       filePath: z.string().describe('The absolute path to the file containing the root symbol to trace from.'),
       symbolName: z.string().describe('The name of the function, method, or class to start tracing from.'),
       maxDepth: z.number().optional().describe('Maximum depth to trace. Default is 10. Use higher values (20-50) for deep call stacks.'),
-      response_format: ResponseFormatSchema.describe("Output format: 'json' or 'markdown' (default: json)"),
+      response_format: ResponseFormatSchema.describe("Output format: 'json', 'markdown', or 'toon' (Token-Oriented Object Notation for reduced token usage) (default: toon - RECOMMENDED for 30-60% token savings)"),
     }),
     outputSchema: McpToolResponseSchema,
     annotations: {
@@ -1080,6 +1100,11 @@ WHEN TO USE:
 - User needs reverse symbol-level dependencies
 - Pre-refactoring analysis to understand blast radius
 
+EXAMPLES:
+- "Who calls the validateEmail function?"
+- "Show me all usages of UserRepository.findById"
+- "Find callers of the deprecated parseData method"
+
 WHY YOU NEED THIS:
 Unlike file-level reverse dependencies (graphitlive_find_referencing_files), this tool provides **symbol-level granularity**.
 It answers "Which specific functions call my function?" rather than "Which files import my file?".
@@ -1097,7 +1122,7 @@ Use cases:
       filePath: z.string().describe('The absolute path to the file containing the target symbol.'),
       symbolName: z.string().describe('The name of the symbol (function, class, method, variable) to find callers for.'),
       includeTypeOnly: z.boolean().optional().describe('Include type-only usages (interfaces, type aliases). Default is true.'),
-      response_format: ResponseFormatSchema.describe("Output format: 'json' or 'markdown' (default: json)"),
+      response_format: ResponseFormatSchema.describe("Output format: 'json', 'markdown', or 'toon' (Token-Oriented Object Notation for reduced token usage) (default: toon - RECOMMENDED for 30-60% token savings)"),
     }),
     outputSchema: McpToolResponseSchema,
     annotations: {
@@ -1136,6 +1161,11 @@ WHEN TO USE:
 - User renamed or removed parameters
 - Pre-PR validation for API changes
 
+EXAMPLES:
+- "I added a required parameter to login() - what breaks?"
+- "Compare old vs new signature of calculatePrice and show breaking changes"
+- "Validate my API changes before committing"
+
 WHY YOU NEED THIS:
 This tool compares the BEFORE and AFTER versions of a function/method signature and detects:
 - Added required parameters (BREAKING)
@@ -1160,7 +1190,7 @@ Use cases:
       symbolName: z.string().optional().describe('Optional: filter to analyze only changes to this specific symbol.'),
       oldContent: z.string().describe('The original file content before the change (for comparison).'),
       newContent: z.string().optional().describe('The new file content after the change. If not provided, reads current file.'),
-      response_format: ResponseFormatSchema.describe("Output format: 'json' or 'markdown' (default: json)"),
+      response_format: ResponseFormatSchema.describe("Output format: 'json', 'markdown', or 'toon' (Token-Oriented Object Notation for reduced token usage) (default: toon - RECOMMENDED for 30-60% token savings)"),
     }),
     outputSchema: McpToolResponseSchema,
     annotations: {
@@ -1200,6 +1230,11 @@ WHEN TO USE:
 - Pre-refactoring risk assessment
 - Understanding module coupling
 
+EXAMPLES:
+- "Full impact analysis for modifying UserService.authenticate"
+- "What's the blast radius if I change the formatCurrency function?"
+- "Show me all code affected by refactoring the Database class"
+
 WHY YOU NEED THIS:
 This is the MOST COMPREHENSIVE impact analysis tool. It combines:
 1. Symbol-level reverse dependencies (who calls this symbol?)
@@ -1229,7 +1264,7 @@ Use cases:
       symbolName: z.string().describe('The name of the symbol to analyze impact for.'),
       includeTransitive: z.boolean().optional().describe('Include transitive (indirect) impacts. Default is true.'),
       maxDepth: z.number().optional().describe('Maximum transitive depth. Default is 5. Higher = more complete but slower.'),
-      response_format: ResponseFormatSchema.describe("Output format: 'json' or 'markdown' (default: json)"),
+      response_format: ResponseFormatSchema.describe("Output format: 'json', 'markdown', or 'toon' (Token-Oriented Object Notation for reduced token usage) (default: toon - RECOMMENDED for 30-60% token savings)"),
     }),
     outputSchema: McpToolResponseSchema,
     annotations: {

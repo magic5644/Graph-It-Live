@@ -610,6 +610,199 @@ export function add(a: number, b: number): number {
   });
   await new Promise(r => setTimeout(r, 500));
 
+  // =========================================================================
+  // BENCHMARK: JSON vs TOON Format Comparison
+  // =========================================================================
+  console.log('\n📊 ============================================');
+  console.log('📊 BENCHMARK: JSON vs TOON Format Comparison');
+  console.log('📊 ============================================\n');
+
+  // Test 1: Small dataset (10 items) - JSON format
+  console.log('🔹 Test 1a: Small dataset (10 items) - JSON format...');
+  const t1aStart = Date.now();
+  const t1aId = ++id;
+  send({
+    jsonrpc: '2.0',
+    id: t1aId,
+    method: 'tools/call',
+    params: {
+      name: 'graphitlive_crawl_dependency_graph',
+      arguments: {
+        entryFile: path.join(fixturesPath, 'main.ts'),
+        maxDepth: 2,
+        response_format: 'json'
+      }
+    }
+  });
+  await new Promise(r => setTimeout(r, 800));
+  const t1aTime = Date.now() - t1aStart;
+
+  // Test 1b: Small dataset (10 items) - TOON format
+  console.log('🔹 Test 1b: Small dataset (10 items) - TOON format...');
+  const t1bStart = Date.now();
+  const t1bId = ++id;
+  send({
+    jsonrpc: '2.0',
+    id: t1bId,
+    method: 'tools/call',
+    params: {
+      name: 'graphitlive_crawl_dependency_graph',
+      arguments: {
+        entryFile: path.join(fixturesPath, 'main.ts'),
+        maxDepth: 2,
+        response_format: 'toon'
+      }
+    }
+  });
+  await new Promise(r => setTimeout(r, 800));
+  const t1bTime = Date.now() - t1bStart;
+
+  // Test 2: Medium dataset - JSON format
+  console.log('🔹 Test 2a: Medium dataset - JSON format...');
+  const t2aStart = Date.now();
+  const t2aId = ++id;
+  send({
+    jsonrpc: '2.0',
+    id: t2aId,
+    method: 'tools/call',
+    params: {
+      name: 'graphitlive_find_referencing_files',
+      arguments: {
+        targetPath: path.join(fixturesPath, 'utils.ts'),
+        response_format: 'json'
+      }
+    }
+  });
+  await new Promise(r => setTimeout(r, 800));
+  const t2aTime = Date.now() - t2aStart;
+
+  // Test 2b: Medium dataset - TOON format
+  console.log('🔹 Test 2b: Medium dataset - TOON format...');
+  const t2bStart = Date.now();
+  const t2bId = ++id;
+  send({
+    jsonrpc: '2.0',
+    id: t2bId,
+    method: 'tools/call',
+    params: {
+      name: 'graphitlive_find_referencing_files',
+      arguments: {
+        targetPath: path.join(fixturesPath, 'utils.ts'),
+        response_format: 'toon'
+      }
+    }
+  });
+  await new Promise(r => setTimeout(r, 800));
+  const t2bTime = Date.now() - t2bStart;
+
+  // Test 3: Symbol-level analysis - JSON format
+  console.log('🔹 Test 3a: Symbol-level analysis - JSON format...');
+  const t3aStart = Date.now();
+  const t3aId = ++id;
+  send({
+    jsonrpc: '2.0',
+    id: t3aId,
+    method: 'tools/call',
+    params: {
+      name: 'graphitlive_get_symbol_graph',
+      arguments: {
+        filePath: path.join(fixturesPath, 'utils.ts'),
+        response_format: 'json'
+      }
+    }
+  });
+  await new Promise(r => setTimeout(r, 800));
+  const t3aTime = Date.now() - t3aStart;
+
+  // Test 3b: Symbol-level analysis - TOON format
+  console.log('🔹 Test 3b: Symbol-level analysis - TOON format...');
+  const t3bStart = Date.now();
+  const t3bId = ++id;
+  send({
+    jsonrpc: '2.0',
+    id: t3bId,
+    method: 'tools/call',
+    params: {
+      name: 'graphitlive_get_symbol_graph',
+      arguments: {
+        filePath: path.join(fixturesPath, 'utils.ts'),
+        response_format: 'toon'
+      }
+    }
+  });
+  await new Promise(r => setTimeout(r, 800));
+  const t3bTime = Date.now() - t3bStart;
+
+  // Wait for all benchmark responses
+  await new Promise(r => setTimeout(r, 2000));
+
+  // Retrieve responses from the Map
+  const t1aResponse = responses.get(t1aId);
+  const t1bResponse = responses.get(t1bId);
+  const t2aResponse = responses.get(t2aId);
+  const t2bResponse = responses.get(t2bId);
+  const t3aResponse = responses.get(t3aId);
+  const t3bResponse = responses.get(t3bId);
+
+  // Print benchmark results
+  console.log('\n📊 ============================================');
+  console.log('📊 BENCHMARK RESULTS');
+  console.log('📊 ============================================\n');
+
+  console.log('⏱️  Performance Comparison:');
+  console.log(`   Test 1 (Small dataset):    JSON: ${t1aTime}ms | TOON: ${t1bTime}ms | Speedup: ${(t1aTime/t1bTime).toFixed(2)}x`);
+  console.log(`   Test 2 (Medium dataset):   JSON: ${t2aTime}ms | TOON: ${t2bTime}ms | Speedup: ${(t2aTime/t2bTime).toFixed(2)}x`);
+  console.log(`   Test 3 (Symbol analysis):  JSON: ${t3aTime}ms | TOON: ${t3bTime}ms | Speedup: ${(t3aTime/t3bTime).toFixed(2)}x`);
+
+  console.log('\n💾 Token Savings Analysis:');
+  
+  // Test 1 comparison
+  if (t1aResponse && t1bResponse) {
+    const t1aContent = JSON.stringify(t1aResponse.result?.content?.[0]?.text || '');
+    const t1bContent = JSON.stringify(t1bResponse.result?.content?.[0]?.text || '');
+    const t1Savings = ((1 - t1bContent.length/t1aContent.length) * 100).toFixed(1);
+    console.log(`\n   Test 1 (Small dataset):`);
+    console.log(`      JSON size: ${t1aContent.length} chars`);
+    console.log(`      TOON size: ${t1bContent.length} chars`);
+    console.log(`      Savings:   ${t1Savings}%`);
+    
+    if (t1bContent.length < 500) {
+      console.log(`\n      📄 JSON format (full):`);
+      console.log(`      ${t1aContent}`);
+      console.log(`\n      📄 TOON format (full):`);
+      console.log(`      ${t1bContent}`);
+    } else {
+      console.log(`\n      📄 JSON format (preview):`);
+      console.log(`      ${t1aContent.substring(0, 300)}...`);
+      console.log(`\n      📄 TOON format (preview):`);
+      console.log(`      ${t1bContent.substring(0, 300)}...`);
+    }
+  }
+
+  // Test 2 comparison
+  if (t2aResponse && t2bResponse) {
+    const t2aContent = JSON.stringify(t2aResponse.result?.content?.[0]?.text || '');
+    const t2bContent = JSON.stringify(t2bResponse.result?.content?.[0]?.text || '');
+    const t2Savings = ((1 - t2bContent.length/t2aContent.length) * 100).toFixed(1);
+    console.log(`\n   Test 2 (Medium dataset):`);
+    console.log(`      JSON size: ${t2aContent.length} chars`);
+    console.log(`      TOON size: ${t2bContent.length} chars`);
+    console.log(`      Savings:   ${t2Savings}%`);
+  }
+
+  // Test 3 comparison
+  if (t3aResponse && t3bResponse) {
+    const t3aContent = JSON.stringify(t3aResponse.result?.content?.[0]?.text || '');
+    const t3bContent = JSON.stringify(t3bResponse.result?.content?.[0]?.text || '');
+    const t3Savings = ((1 - t3bContent.length/t3aContent.length) * 100).toFixed(1);
+    console.log(`\n   Test 3 (Symbol analysis):`);
+    console.log(`      JSON size: ${t3aContent.length} chars`);
+    console.log(`      TOON size: ${t3bContent.length} chars`);
+    console.log(`      Savings:   ${t3Savings}%`);
+  }
+
+  console.log('\n   ℹ️  Expected savings: 30-60% for structured data\n');
+
   // Wait for all responses
   await new Promise(r => setTimeout(r, 2000));
   

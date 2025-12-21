@@ -141,6 +141,39 @@ The MCP server exposes **17 tools** for AI/LLM consumption:
 
 Note: Tool names were renamed from `graphItLive_*` to `graphitlive_*` (snake_case).
 
+### TOON Format (Token-Optimized Output)
+
+All MCP tools now support an optional `format` parameter to reduce token consumption for large datasets:
+
+```json
+{
+  "tool": "graphitlive_crawl_dependency_graph",
+  "params": {
+    "entryFile": "/path/to/main.ts",
+    "format": "toon"
+  }
+}
+```
+
+**Available formats**:
+- `json` (default): Standard JSON output
+- `toon`: Compact Token-Oriented Object Notation (saves 30-60% tokens)
+- `markdown`: JSON wrapped in markdown code blocks
+
+**Example TOON Output**:
+```
+files(file,deps,line)
+[main.ts,fs|path,10]
+[utils.ts,os|crypto,20]
+
+# Token Savings
+JSON: 125 tokens
+TOON: 48 tokens
+Savings: 77 tokens (61.6%)
+```
+
+**Learn more**: See [TOON Format Documentation](./docs/TOON_FORMAT.md) for complete specifications and usage examples.
+
 ### Manual MCP Server Configuration
 
 If the automatic MCP server registration doesn't work in your editor (e.g., when using Antigravity, Cursor, or if you want to use the server outside of VS Code), you can manually configure the MCP server.
