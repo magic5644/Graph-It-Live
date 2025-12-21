@@ -78,16 +78,28 @@ export type McpToolName =
 // Zod Schemas for Tool Parameters
 // ============================================================================
 
+/**
+ * Common format parameter for output formatting
+ * - 'json': Standard JSON format (default)
+ * - 'toon': Token-Oriented Object Notation (compact format for large datasets)
+ */
+export const OutputFormatSchema = z.enum(['json', 'toon']).default('json').describe(
+  "Output format: 'json' (default) or 'toon' (Token-Oriented Object Notation for reduced token usage)"
+);
+export type OutputFormat = z.infer<typeof OutputFormatSchema>;
+
 export const SetWorkspaceParamsSchema = z.object({
   workspacePath: z.string().describe('Absolute path to the project/workspace directory to analyze'),
   tsConfigPath: z.string().optional().describe('Optional path to tsconfig.json for path alias resolution'),
   excludeNodeModules: z.boolean().optional().describe('Whether to exclude node_modules (default: true)'),
   maxDepth: z.number().optional().describe('Maximum crawl depth (default: 50)'),
+  format: OutputFormatSchema.optional(),
 });
 export type SetWorkspaceParams = z.infer<typeof SetWorkspaceParamsSchema>;
 
 export const AnalyzeDependenciesParamsSchema = z.object({
   filePath: z.string().describe('Absolute path to the file to analyze'),
+  format: OutputFormatSchema.optional(),
 });
 export type AnalyzeDependenciesParams = z.infer<typeof AnalyzeDependenciesParamsSchema>;
 
@@ -96,11 +108,13 @@ export const CrawlDependencyGraphParamsSchema = z.object({
   maxDepth: z.number().optional().describe('Maximum depth to crawl (default: from config)'),
   limit: z.number().optional().describe('Maximum number of nodes to return (for pagination)'),
   offset: z.number().optional().describe('Number of nodes to skip (for pagination)'),
+  format: OutputFormatSchema.optional(),
 });
 export type CrawlDependencyGraphParams = z.infer<typeof CrawlDependencyGraphParamsSchema>;
 
 export const FindReferencingFilesParamsSchema = z.object({
   targetPath: z.string().describe('Absolute path to the file to find references for'),
+  format: OutputFormatSchema.optional(),
 });
 export type FindReferencingFilesParams = z.infer<typeof FindReferencingFilesParamsSchema>;
 
@@ -108,17 +122,20 @@ export const ExpandNodeParamsSchema = z.object({
   filePath: z.string().describe('Absolute path to the node to expand'),
   knownPaths: z.array(z.string()).describe('Array of already known file paths to exclude'),
   extraDepth: z.number().optional().describe('Additional depth to scan from this node (default: 10)'),
+  format: OutputFormatSchema.optional(),
 });
 export type ExpandNodeParams = z.infer<typeof ExpandNodeParamsSchema>;
 
 export const ParseImportsParamsSchema = z.object({
   filePath: z.string().describe('Absolute path to the file to parse'),
+  format: OutputFormatSchema.optional(),
 });
 export type ParseImportsParams = z.infer<typeof ParseImportsParamsSchema>;
 
 export const ResolveModulePathParamsSchema = z.object({
   fromFile: z.string().describe('Absolute path of the file containing the import'),
   moduleSpecifier: z.string().describe('The module specifier to resolve (e.g., "./utils", "@/components/Button")'),
+  format: OutputFormatSchema.optional(),
 });
 export type ResolveModulePathParams = z.infer<typeof ResolveModulePathParamsSchema>;
 
@@ -139,17 +156,20 @@ export type RebuildIndexParams = z.infer<typeof RebuildIndexParamsSchema>;
 
 export const GetSymbolGraphParamsSchema = z.object({
   filePath: z.string().describe('Absolute path to the file to analyze for symbols'),
+  format: OutputFormatSchema.optional(),
 });
 export type GetSymbolGraphParams = z.infer<typeof GetSymbolGraphParamsSchema>;
 
 export const FindUnusedSymbolsParamsSchema = z.object({
   filePath: z.string().describe('Absolute path to the file to check for unused exported symbols'),
+  format: OutputFormatSchema.optional(),
 });
 export type FindUnusedSymbolsParams = z.infer<typeof FindUnusedSymbolsParamsSchema>;
 
 export const GetSymbolDependentsParamsSchema = z.object({
   filePath: z.string().describe('Absolute path to the file containing the symbol'),
   symbolName: z.string().describe('Name of the symbol to find dependents for'),
+  format: OutputFormatSchema.optional(),
 });
 export type GetSymbolDependentsParams = z.infer<typeof GetSymbolDependentsParamsSchema>;
 
@@ -157,6 +177,7 @@ export const TraceFunctionExecutionParamsSchema = z.object({
   filePath: z.string().describe('Absolute path to the file containing the root symbol'),
   symbolName: z.string().describe('Name of the root symbol to trace from'),
   maxDepth: z.number().optional().describe('Maximum depth to trace the call chain (default: 10)'),
+  format: OutputFormatSchema.optional(),
 });
 export type TraceFunctionExecutionParams = z.infer<typeof TraceFunctionExecutionParamsSchema>;
 
@@ -165,6 +186,7 @@ export const GetSymbolCallersParamsSchema = z.object({
   filePath: z.string().describe('The absolute path to the file containing the target symbol.'),
   symbolName: z.string().describe('The name of the symbol (function, class, method, variable) to find callers for.'),
   includeTypeOnly: z.boolean().optional().describe('Include type-only usages (interfaces, type aliases). Default is true.'),
+  format: OutputFormatSchema.optional(),
 });
 export type GetSymbolCallersParams = z.infer<typeof GetSymbolCallersParamsSchema>;
 
@@ -174,6 +196,7 @@ export const AnalyzeBreakingChangesParamsSchema = z.object({
   symbolName: z.string().optional().describe('Optional: Only analyze changes to this specific symbol'),
   oldContent: z.string().describe('The old version of the file content'),
   newContent: z.string().optional().describe('The new version of the file content (if not provided, reads current file)'),
+  format: OutputFormatSchema.optional(),
 });
 export type AnalyzeBreakingChangesParams = z.infer<typeof AnalyzeBreakingChangesParamsSchema>;
 
@@ -183,6 +206,7 @@ export const GetImpactAnalysisParamsSchema = z.object({
   symbolName: z.string().describe('Name of the symbol being modified'),
   includeTransitive: z.boolean().optional().describe('Include transitive dependents (default: false)'),
   maxDepth: z.number().optional().describe('Maximum depth for transitive analysis (default: 3)'),
+  format: OutputFormatSchema.optional(),
 });
 export type GetImpactAnalysisParams = z.infer<typeof GetImpactAnalysisParamsSchema>;
 
