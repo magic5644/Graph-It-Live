@@ -57,14 +57,20 @@ export class AstWorkerHost {
    */
   constructor(workerPath?: string) {
     // Default to dist/astWorker.js relative to __dirname
-    // When running from dist/: __dirname = dist/
-    // When running tests: __dirname could be src/analyzer or out/
-    this.workerPath = workerPath ?? path.join(__dirname, '../dist/astWorker.js');
+    // When running from dist/extension.js: __dirname = dist/, so look for ./astWorker.js
+    // When running from src/: __dirname = src/analyzer/, so look for ../../dist/astWorker.js
     
-    // Check if dist/astWorker.js exists relative to current dir, fallback to src
-    if (!fs.existsSync(this.workerPath)) {
-      // Try from project root
-      this.workerPath = path.join(__dirname, '../../dist/astWorker.js');
+    if (workerPath) {
+      this.workerPath = workerPath;
+    } else {
+      // Try same directory first (when bundled, all files are in dist/)
+      const sameDirPath = path.join(__dirname, 'astWorker.js');
+      if (fs.existsSync(sameDirPath)) {
+        this.workerPath = sameDirPath;
+      } else {
+        // Fallback: try relative to source structure (for development)
+        this.workerPath = path.join(__dirname, '../../dist/astWorker.js');
+      }
     }
   }
 
