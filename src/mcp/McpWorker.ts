@@ -16,7 +16,7 @@ import { Spider } from '../analyzer/Spider';
 import { Parser } from '../analyzer/Parser';
 import { PathResolver } from '../analyzer/PathResolver';
 import { SymbolReverseIndex } from '../analyzer/SymbolReverseIndex';
-import { SignatureAnalyzer } from '../analyzer/SignatureAnalyzer';
+import { AstWorkerHost } from '../analyzer/AstWorkerHost';
 import type {
   McpWorkerMessage,
   McpWorkerResponse,
@@ -112,6 +112,7 @@ function getRelativePath(absolutePath: string, workspaceRoot: string): string {
 let spider: Spider | null = null;
 let parser: Parser | null = null;
 let resolver: PathResolver | null = null;
+let astWorkerHost: AstWorkerHost | null = null;
 let config: McpWorkerConfig | null = null;
 let isReady = false;
 let warmupInfo: { completed: boolean; durationMs?: number; filesIndexed?: number } = {
@@ -184,6 +185,12 @@ async function handleInit(cfg: McpWorkerConfig): Promise<void> {
     cfg.excludeNodeModules,
     cfg.rootDir // workspaceRoot for package.json discovery
   );
+  
+  // Initialize AstWorkerHost
+  astWorkerHost = new AstWorkerHost();
+  await astWorkerHost.start();
+  log.info('AstWorkerHost started');
+  
   spider = new Spider({
     rootDir: cfg.rootDir,
     tsConfigPath: cfg.tsConfigPath,
@@ -248,7 +255,7 @@ async function handleInit(cfg: McpWorkerConfig): Promise<void> {
 /**
  * Handle shutdown message
  */
-function handleShutdown(): void {
+async function handleShutdown(): Promise<void> {
   log.info('Shutting down...');
   
   // Stop file watcher
@@ -256,6 +263,18 @@ function handleShutdown(): void {
   
   // Cancel any pending operations
   spider?.cancelIndexing();
+  
+  // Stop AstWorkerHost
+  if (astWorkerHost) {
+    await astWorkerHost.stop();
+    log.info('AstWorkerHost stopped');
+  }
+  
+  // Dispose Spider
+  if (spider) {
+    await spider.dispose();
+    log.info('Spider disposed');
+  }
   
   process.exit(0);
 }
@@ -468,7 +487,7 @@ async function handleInvoke(
         break;
       }
       case 'get_index_status':
-        result = executeGetIndexStatus();
+        result = await executeGetIndexStatus();
         break;
       case 'invalidate_files': {
         const p = validatedParams as InvalidateFilesParams;
@@ -784,9 +803,9 @@ async function executeResolveModulePath(
 /**
  * Get current index status and statistics
  */
-function executeGetIndexStatus(): GetIndexStatusResult {
+async function executeGetIndexStatus(): Promise<GetIndexStatusResult> {
   const indexStatus = spider!.getIndexStatus();
-  const cacheStats = spider!.getCacheStats();
+  const cacheStats = await spider!.getCacheStatsAsync();
 
   // Map 'validating' state to 'indexing' for MCP response
   const state = indexStatus.state === 'validating' ? 'indexing' : indexStatus.state;
@@ -856,7 +875,7 @@ async function executeRebuildIndex(): Promise<RebuildIndexResult> {
   });
 
   const rebuildTimeMs = Date.now() - startTime;
-  const cacheStats = spider!.getCacheStats();
+  const cacheStats = await spider!.getCacheStatsAsync();
 
   return {
     reindexedCount: cacheStats.dependencyCache.size,
@@ -1198,12 +1217,13 @@ async function executeAnalyzeBreakingChanges(
     }
   }
   
-  // Create a new SignatureAnalyzer for each call to avoid stale state
-  const analyzer = new SignatureAnalyzer();
+  if (!astWorkerHost) {
+    throw new Error('AstWorkerHost not initialized');
+  }
   
   let results: import('../analyzer/SignatureAnalyzer').SignatureComparisonResult[];
   try {
-    results = analyzer.analyzeBreakingChanges(filePath, oldContent, newContent);
+    results = await astWorkerHost.analyzeBreakingChanges(filePath, oldContent, newContent);
   } catch (error) {
     const errorMsg = error instanceof Error ? error.message : 'Unknown error';
     throw new Error(`Failed to analyze breaking changes: ${errorMsg}`);

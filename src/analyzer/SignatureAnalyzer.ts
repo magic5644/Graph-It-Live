@@ -546,11 +546,21 @@ export class SignatureAnalyzer {
     const name = func.getName();
     if (!name) return null;
 
+    // Safely get return type with fallback
+    let returnType: string;
+    try {
+      const type = func.getReturnType();
+      returnType = this.safeGetTypeText(type, 'void');
+    } catch {
+      // If return type cannot be determined, use 'void' as fallback
+      returnType = 'void';
+    }
+
     return {
       name,
       kind: 'function',
       parameters: this.extractParameters(func.getParameters()),
-      returnType: this.safeGetTypeText(func.getReturnType(), 'void'),
+      returnType,
       isAsync: func.isAsync(),
       typeParameters: func.getTypeParameters().map(tp => this.safeGetText(tp)),
       line: func.getStartLineNumber(),

@@ -4,7 +4,7 @@ import { getLogger } from '../../shared/logger';
 import { Cache } from '../Cache';
 import { FileReader } from '../FileReader';
 import { PathResolver } from '../PathResolver';
-import { SymbolAnalyzer } from '../SymbolAnalyzer';
+import { AstWorkerHost } from '../AstWorkerHost';
 import { SymbolDependencyHelper } from '../SymbolDependencyHelper';
 import { isInIgnoredDirectory } from '../utils/PathPredicates';
 
@@ -20,7 +20,7 @@ export type ReferencingFilesProvider = (targetPath: string) => Promise<Dependenc
  */
 export class SpiderSymbolService {
   constructor(
-    private readonly symbolAnalyzer: SymbolAnalyzer,
+    private readonly astWorkerHost: AstWorkerHost,
     private readonly symbolCache: Cache<SymbolGraph>,
     private readonly fileReader: FileReader,
     private readonly resolver: PathResolver,
@@ -49,7 +49,7 @@ export class SpiderSymbolService {
 
     try {
       const content = await this.fileReader.readFile(filePath);
-      const result = this.symbolAnalyzer.analyzeFile(key, content);
+      const result = await this.astWorkerHost.analyzeFile(key, content);
       this.symbolCache.set(key, result);
       return result;
     } catch (error) {
@@ -75,7 +75,7 @@ export class SpiderSymbolService {
       const usedSymbolIds = await this.collectUsedSymbolIds(referencingFiles, normalizedTarget);
 
       const content = await this.fileReader.readFile(normalizedTarget);
-      const internalGraph = this.symbolAnalyzer.getInternalExportDependencyGraph(normalizedTarget, content);
+      const internalGraph = await this.astWorkerHost.getInternalExportDependencyGraph(normalizedTarget, content);
       const usedWithClosure = this.expandUsedSymbolsViaInternalGraph(usedSymbolIds, internalGraph);
 
       return exportedSymbols.filter((s) => !usedWithClosure.has(s.id));

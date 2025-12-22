@@ -7,7 +7,7 @@ import type { Dependency, IndexingProgressCallback, SpiderConfig } from './types
 import { SourceFileCollector } from './SourceFileCollector';
 import { ReferencingFilesFinder } from './ReferencingFilesFinder';
 import { SymbolDependencyHelper } from './SymbolDependencyHelper';
-import { SymbolAnalyzer } from './SymbolAnalyzer';
+import { AstWorkerHost } from './AstWorkerHost';
 import { FileReader } from './FileReader';
 import { yieldToEventLoop, YIELD_INTERVAL_MS } from './utils/EventLoopYield';
 import { SpiderCacheCoordinator } from './spider/SpiderCacheCoordinator';
@@ -41,7 +41,7 @@ export class Spider {
     dependencies: import('./types').SymbolDependency[];
   }>;
   private readonly fileReader = new FileReader();
-  private readonly symbolAnalyzer: SymbolAnalyzer;
+  private readonly astWorkerHost: AstWorkerHost;
 
   private readonly reverseIndexManager: ReverseIndexManager;
   private readonly indexerStatus = new IndexerStatus();
@@ -79,7 +79,7 @@ export class Spider {
 
     this.cache = new Cache({ maxSize: this.config.maxCacheSize, enableLRU: true });
     this.symbolCache = new Cache({ maxSize: this.config.maxSymbolCacheSize, enableLRU: true });
-    this.symbolAnalyzer = new SymbolAnalyzer({ maxFiles: this.config.maxSymbolAnalyzerFiles });
+    this.astWorkerHost = new AstWorkerHost();
 
     this.reverseIndexManager = new ReverseIndexManager(this.config.rootDir);
     this.workerManager = new SpiderWorkerManager(this.indexerStatus, this.reverseIndexManager, this.cache);
@@ -121,7 +121,7 @@ export class Spider {
     });
 
     this.symbolService = new SpiderSymbolService(
-      this.symbolAnalyzer,
+      this.astWorkerHost,
       this.symbolCache,
       this.fileReader,
       this.resolver,
@@ -149,6 +149,15 @@ export class Spider {
     if (config.enableReverseIndex) {
       this.enableReverseIndex();
     }
+
+    // Note: AstWorker starts lazily on first use
+  }
+
+  /**
+   * Stop the Spider and clean up resources
+   */
+  async dispose(): Promise<void> {
+    await this.astWorkerHost.stop();
   }
 
   updateConfig(config: Partial<SpiderConfig>) {
@@ -335,6 +344,9 @@ export class Spider {
     return this.symbolService.traceFunctionExecution(filePath, symbolName, maxDepth);
   }
 
+  /**
+   * Get cache stats (synchronous, file count may be 0 if worker not queried yet)
+   */
   getCacheStats(): {
     dependencyCache: import('./Cache').CacheStats;
     symbolCache: import('./Cache').CacheStats;
@@ -344,7 +356,32 @@ export class Spider {
     return {
       dependencyCache: this.cache.getStats(),
       symbolCache: this.symbolCache.getStats(),
-      symbolAnalyzerFileCount: this.symbolAnalyzer.getFileCount(),
+      symbolAnalyzerFileCount: 0, // Use getCacheStatsAsync() for accurate count
+      reverseIndexStats: this.reverseIndexManager.getStats(),
+    };
+  }
+
+  /**
+   * Get cache stats with accurate AST worker file count (async)
+   */
+  async getCacheStatsAsync(): Promise<{
+    dependencyCache: import('./Cache').CacheStats;
+    symbolCache: import('./Cache').CacheStats;
+    symbolAnalyzerFileCount: number;
+    reverseIndexStats?: { indexedFiles: number; targetFiles: number; totalReferences: number };
+  }> {
+    // Get file count from worker (returns 0 if worker not started yet)
+    let fileCount = 0;
+    try {
+      fileCount = await this.astWorkerHost.getFileCount();
+    } catch {
+      // Worker not started yet or error - return 0
+    }
+    
+    return {
+      dependencyCache: this.cache.getStats(),
+      symbolCache: this.symbolCache.getStats(),
+      symbolAnalyzerFileCount: fileCount,
       reverseIndexStats: this.reverseIndexManager.getStats(),
     };
   }

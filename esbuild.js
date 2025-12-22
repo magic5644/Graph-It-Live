@@ -1,5 +1,6 @@
 const esbuild = require('esbuild');
 const fs = require('node:fs');
+const path = require('node:path');
 
 const production = process.argv.includes('--production');
 const watch = process.argv.includes('--watch');
@@ -28,6 +29,43 @@ const esbuildProblemMatcherPlugin = {
     });
   },
 };
+
+/**
+ * Saves metafiles with path validation to prevent path traversal
+ * @param {string} metafilePath - Path to save combined metafile
+ * @param {object} results - Build results containing metafiles
+ */
+function saveMetafiles(metafilePath, results) {
+  const { resultExtension, resultWorker, resultAstWorker, resultMcpServer, resultMcpWorker, resultWebview } = results;
+  
+  // Validate and resolve metafile path to prevent path traversal
+  const resolvedPath = path.resolve(metafilePath);
+  const combinedMetafile = {
+    extension: resultExtension.metafile,
+    indexerWorker: resultWorker.metafile,
+    astWorker: resultAstWorker.metafile,
+    mcpServer: resultMcpServer.metafile,
+    mcpWorker: resultMcpWorker.metafile,
+    webview: resultWebview.metafile,
+  };
+  fs.writeFileSync(resolvedPath, JSON.stringify(combinedMetafile, null, 2));
+  console.log(`✓ Metafile saved to ${resolvedPath}`);
+  
+  // Also save individual metafiles for analysis tools
+  if (resultExtension.metafile) {
+    fs.writeFileSync('dist/extension.meta.json', JSON.stringify(resultExtension.metafile, null, 2));
+  }
+  if (resultAstWorker.metafile) {
+    fs.writeFileSync('dist/astWorker.meta.json', JSON.stringify(resultAstWorker.metafile, null, 2));
+  }
+  if (resultWebview.metafile) {
+    fs.writeFileSync('dist/webview.meta.json', JSON.stringify(resultWebview.metafile, null, 2));
+  }
+  if (resultMcpWorker.metafile) {
+    fs.writeFileSync('dist/mcpWorker.meta.json', JSON.stringify(resultMcpWorker.metafile, null, 2));
+  }
+  console.log(`✓ Individual metafiles saved to dist/*.meta.json`);
+}
 
 async function main() {
   // Build Extension (Node.js)
@@ -58,6 +96,24 @@ async function main() {
     sourcesContent: false,
     platform: 'node',
     outfile: 'dist/indexerWorker.js',
+    logLevel: 'silent',
+    plugins: [esbuildProblemMatcherPlugin],
+    target: 'node18',
+    metafile: !!metafilePath,
+  });
+
+  // Build AST Worker (Node.js Worker Thread)
+  // This isolates ts-morph (12MB+) from extension.js and mcpWorker.js
+  // Handles SymbolAnalyzer and SignatureAnalyzer operations
+  const ctxAstWorker = await esbuild.context({
+    entryPoints: ['src/analyzer/AstWorker.ts'],
+    bundle: true,
+    format: 'cjs',
+    minify: production,
+    sourcemap: !production,
+    sourcesContent: false,
+    platform: 'node',
+    outfile: 'dist/astWorker.js',
     logLevel: 'silent',
     plugins: [esbuildProblemMatcherPlugin],
     target: 'node18',
@@ -133,43 +189,33 @@ const __dirname = dirname(__filename);`,
   if (watch) {
     await ctxExtension.watch();
     await ctxWorker.watch();
+    await ctxAstWorker.watch();
     await ctxMcpServer.watch();
     await ctxMcpWorker.watch();
     await ctxWebview.watch();
   } else {
     const resultExtension = await ctxExtension.rebuild();
     const resultWorker = await ctxWorker.rebuild();
+    const resultAstWorker = await ctxAstWorker.rebuild();
     const resultMcpServer = await ctxMcpServer.rebuild();
     const resultMcpWorker = await ctxMcpWorker.rebuild();
     const resultWebview = await ctxWebview.rebuild();
     
     // Save combined metafile if requested
     if (metafilePath) {
-      const combinedMetafile = {
-        extension: resultExtension.metafile,
-        indexerWorker: resultWorker.metafile,
-        mcpServer: resultMcpServer.metafile,
-        mcpWorker: resultMcpWorker.metafile,
-        webview: resultWebview.metafile,
-      };
-      fs.writeFileSync(metafilePath, JSON.stringify(combinedMetafile, null, 2));
-      console.log(`✓ Metafile saved to ${metafilePath}`);
-      
-      // Also save individual metafiles for analysis tools
-      if (resultExtension.metafile) {
-        fs.writeFileSync('dist/extension.meta.json', JSON.stringify(resultExtension.metafile, null, 2));
-      }
-      if (resultWebview.metafile) {
-        fs.writeFileSync('dist/webview.meta.json', JSON.stringify(resultWebview.metafile, null, 2));
-      }
-      if (resultMcpWorker.metafile) {
-        fs.writeFileSync('dist/mcpWorker.meta.json', JSON.stringify(resultMcpWorker.metafile, null, 2));
-      }
-      console.log(`✓ Individual metafiles saved to dist/*.meta.json`);
+      saveMetafiles(metafilePath, {
+        resultExtension,
+        resultWorker,
+        resultAstWorker,
+        resultMcpServer,
+        resultMcpWorker,
+        resultWebview,
+      });
     }
     
     await ctxExtension.dispose();
     await ctxWorker.dispose();
+    await ctxAstWorker.dispose();
     await ctxMcpServer.dispose();
     await ctxMcpWorker.dispose();
     await ctxWebview.dispose();
