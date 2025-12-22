@@ -83,6 +83,11 @@ out-webview
 .nuxt
 dist
 
+# Build metadata files
+metadata.json
+*.meta.json
+*-stats.html
+
 # VS Code Extension specific
 out
 *.vsix

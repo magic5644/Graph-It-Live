@@ -8,7 +8,7 @@
  * NO import * as vscode from 'vscode' allowed!
  */
 
-import * as z from 'zod/v4';
+import { z } from "zod/v4";
 import * as nodePath from 'node:path';
 import { normalizePathForComparison as _normalizePathForComparison, getRelativePath as _getRelativePath } from '../shared/path';
 import type { Dependency } from '../analyzer/types';

@@ -1,7 +1,12 @@
 const esbuild = require('esbuild');
+const fs = require('node:fs');
 
 const production = process.argv.includes('--production');
 const watch = process.argv.includes('--watch');
+
+// Extract metafile path from --metafile=path argument
+const metafileArg = process.argv.find(arg => arg.startsWith('--metafile='));
+const metafilePath = metafileArg ? metafileArg.split('=')[1] : null;
 
 /**
  * @type {import('esbuild').Plugin}
@@ -39,6 +44,7 @@ async function main() {
     logLevel: 'silent',
     plugins: [esbuildProblemMatcherPlugin],
     target: 'node18',
+    metafile: !!metafilePath,
   });
 
   // Build Indexer Worker (Node.js Worker Thread)
@@ -55,6 +61,7 @@ async function main() {
     logLevel: 'silent',
     plugins: [esbuildProblemMatcherPlugin],
     target: 'node18',
+    metafile: !!metafilePath,
   });
 
   // Build MCP Server (Node.js Stdio Process)
@@ -72,6 +79,7 @@ async function main() {
     logLevel: 'silent',
     plugins: [esbuildProblemMatcherPlugin],
     target: 'node18',
+    metafile: !!metafilePath,
     banner: {
       // Required for ESM to have __dirname and __filename
       js: `import { createRequire } from 'module';
@@ -97,6 +105,7 @@ const __dirname = dirname(__filename);`,
     logLevel: 'silent',
     plugins: [esbuildProblemMatcherPlugin],
     target: 'node18',
+    metafile: !!metafilePath,
   });
 
   // Build Webview (Browser)
@@ -112,8 +121,12 @@ const __dirname = dirname(__filename);`,
     logLevel: 'silent',
     plugins: [esbuildProblemMatcherPlugin],
     target: 'es2022',
+    metafile: !!metafilePath,
     loader: {
       '.css': 'text',
+    },
+    define: {
+      'process.env.NODE_ENV': '"production"',
     },
   });
 
@@ -124,11 +137,37 @@ const __dirname = dirname(__filename);`,
     await ctxMcpWorker.watch();
     await ctxWebview.watch();
   } else {
-    await ctxExtension.rebuild();
-    await ctxWorker.rebuild();
-    await ctxMcpServer.rebuild();
-    await ctxMcpWorker.rebuild();
-    await ctxWebview.rebuild();
+    const resultExtension = await ctxExtension.rebuild();
+    const resultWorker = await ctxWorker.rebuild();
+    const resultMcpServer = await ctxMcpServer.rebuild();
+    const resultMcpWorker = await ctxMcpWorker.rebuild();
+    const resultWebview = await ctxWebview.rebuild();
+    
+    // Save combined metafile if requested
+    if (metafilePath) {
+      const combinedMetafile = {
+        extension: resultExtension.metafile,
+        indexerWorker: resultWorker.metafile,
+        mcpServer: resultMcpServer.metafile,
+        mcpWorker: resultMcpWorker.metafile,
+        webview: resultWebview.metafile,
+      };
+      fs.writeFileSync(metafilePath, JSON.stringify(combinedMetafile, null, 2));
+      console.log(`✓ Metafile saved to ${metafilePath}`);
+      
+      // Also save individual metafiles for analysis tools
+      if (resultExtension.metafile) {
+        fs.writeFileSync('dist/extension.meta.json', JSON.stringify(resultExtension.metafile, null, 2));
+      }
+      if (resultWebview.metafile) {
+        fs.writeFileSync('dist/webview.meta.json', JSON.stringify(resultWebview.metafile, null, 2));
+      }
+      if (resultMcpWorker.metafile) {
+        fs.writeFileSync('dist/mcpWorker.meta.json', JSON.stringify(resultMcpWorker.metafile, null, 2));
+      }
+      console.log(`✓ Individual metafiles saved to dist/*.meta.json`);
+    }
+    
     await ctxExtension.dispose();
     await ctxWorker.dispose();
     await ctxMcpServer.dispose();
