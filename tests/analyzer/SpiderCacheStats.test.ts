@@ -76,12 +76,12 @@ describe('Spider Cache Statistics', () => {
     const filePath = path.join(fixturesDir, 'src/main.ts');
     
     // Initial state
-    let stats = spider.getCacheStats();
+    let stats = await spider.getCacheStatsAsync();
     expect(stats.symbolAnalyzerFileCount).toBe(0);
     
     // After symbol analysis
     await spider.getSymbolGraph(filePath);
-    stats = spider.getCacheStats();
+    stats = await spider.getCacheStatsAsync();
     expect(stats.symbolAnalyzerFileCount).toBeGreaterThan(0);
   });
 });

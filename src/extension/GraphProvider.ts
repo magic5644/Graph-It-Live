@@ -521,6 +521,10 @@ export class GraphProvider implements vscode.WebviewViewProvider {
             this._fileChangeScheduler?.dispose();
             // Also clean up the worker if running
             this._spider?.disposeWorker();
+            // Dispose Spider and its AstWorkerHost
+            this._spider?.dispose().then().catch((error: unknown) => {
+                log.error('Error disposing Spider', error instanceof Error ? error : new Error(String(error)));
+            });
         });
 
         // Schedule deferred indexing now that view is ready
