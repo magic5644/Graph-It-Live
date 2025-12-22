@@ -229,11 +229,6 @@ export class Spider {
     return this.reverseIndexManager.validate(staleThreshold);
   }
 
-  /** @deprecated Use getIndexStatus() instead */
-  getIndexingState(): IndexerStatusSnapshot['state'] {
-    return this.indexerStatus.state;
-  }
-
   getIndexStatus(): IndexerStatusSnapshot {
     return this.indexerStatus.getSnapshot();
   }
