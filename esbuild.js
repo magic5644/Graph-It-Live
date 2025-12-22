@@ -81,7 +81,7 @@ async function main() {
     external: ['vscode'],
     logLevel: 'silent',
     plugins: [esbuildProblemMatcherPlugin],
-    target: 'node18',
+    target: 'node20',
     metafile: !!metafilePath,
   });
 
@@ -98,7 +98,7 @@ async function main() {
     outfile: 'dist/indexerWorker.js',
     logLevel: 'silent',
     plugins: [esbuildProblemMatcherPlugin],
-    target: 'node18',
+    target: 'node20',
     metafile: !!metafilePath,
   });
 
@@ -116,7 +116,7 @@ async function main() {
     outfile: 'dist/astWorker.js',
     logLevel: 'silent',
     plugins: [esbuildProblemMatcherPlugin],
-    target: 'node18',
+    target: 'node20',
     metafile: !!metafilePath,
   });
 
@@ -134,7 +134,7 @@ async function main() {
     outfile: 'dist/mcpServer.mjs',
     logLevel: 'silent',
     plugins: [esbuildProblemMatcherPlugin],
-    target: 'node18',
+    target: 'node20',
     metafile: !!metafilePath,
     banner: {
       // Required for ESM to have __dirname and __filename
@@ -160,7 +160,7 @@ const __dirname = dirname(__filename);`,
     outfile: 'dist/mcpWorker.js',
     logLevel: 'silent',
     plugins: [esbuildProblemMatcherPlugin],
-    target: 'node18',
+    target: 'node20',
     metafile: !!metafilePath,
   });
 
