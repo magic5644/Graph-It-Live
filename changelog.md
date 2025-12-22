@@ -1,5 +1,12 @@
 # Changelog
 
+## Unreleased
+
+### Improvements
+- Optimize esbuild builds by generating and saving metafiles for bundle analysis when `--metafile` argument is provided.
+- Reduce esbuild bundle size by defining `process.env.NODE_ENV` as `"production"` during the webview build.
+- Dependency update: Upgrade `zod` to v4 for improved type safety and features.
+
 ## v1.4.0
 
 ### New Features
