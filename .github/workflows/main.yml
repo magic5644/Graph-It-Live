@@ -29,11 +29,11 @@ jobs:
     - name: Lint
       run: npm run lint
       
-    - name: Run Tests
-      run: xvfb-run -a npm run test
-      
     - name: Build
       run: npm run build
+      
+    - name: Run Tests
+      run: xvfb-run -a npm run test
     
   publish:
     permissions:
