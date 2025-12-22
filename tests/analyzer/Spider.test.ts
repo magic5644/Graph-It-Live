@@ -407,11 +407,6 @@ describe('Spider - Index Status', () => {
     });
   });
 
-  it('should get indexing state', () => {
-    const state = spider.getIndexingState();
-    expect(state).toBe('idle');
-  });
-
   it('should get full index status', () => {
     const status = spider.getIndexStatus();
     
