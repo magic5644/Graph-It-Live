@@ -1,18 +1,13 @@
 # Changelog
 
-## Unreleased
+## v1.4.1
 
 ### Performance Improvements
 
-- **Major Bundle Size Optimization**: Isolated ts-morph (12MB) in dedicated AstWorker
-  - `extension.js`: 13MB → **160KB** (-97%, -12.84MB)
-  - `mcpWorker.js`: 14MB → **678KB** (-95%, -13.32MB)
-  - New `astWorker.js`: 13MB (isolated worker thread)
-  - Total bundle reduction: -45% (-12.86MB)
+- **Major Bundle Size Optimization**: 
   - ts-morph AST analysis now runs in dedicated worker thread for improved responsiveness
 
 - **React Production Mode**: Enabled production builds for webview
-  - `webview.js`: 1.87MB → **1.2MB** (-36%, -670KB)
   - React/React-DOM optimized for production (removed dev warnings and checks)
 
 ### Improvements
