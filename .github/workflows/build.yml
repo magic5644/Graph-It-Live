@@ -31,6 +31,9 @@ jobs:
     - name: Lint
       run: npm run lint
       
+    - name: Build
+      run: npm run build
+      
     - name: Run Tests (Linux)
       if: runner.os == 'Linux'
       run: xvfb-run -a npm run test
