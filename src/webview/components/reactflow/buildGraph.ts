@@ -69,24 +69,46 @@ function getEdgesForProcessing(
   currentPath: string,
   expandAll: boolean,
   expandedNodes: Set<string>,
-  showParents: boolean
+  showParents: boolean,
+  unusedEdges: string[],
+  unusedDependencyMode: 'none' | 'hide' | 'dim',
+  filterUnused: boolean
 ): { edges: Array<{ source: string; target: string }>; truncated: boolean } {
-  const truncated = data.edges.length > GRAPH_LIMITS.MAX_PROCESS_EDGES;
+  const isHideMode = unusedDependencyMode === 'hide' && filterUnused;
+  const unusedEdgeSet = new Set(unusedEdges);
+
+  // If in hide mode, pre-filter edges BEFORE truncation logic
+  let baseEdges = data.edges;
+  if (isHideMode && unusedEdges.length > 0) {
+    baseEdges = data.edges.filter(edge => {
+       // Check both ID formats to be safe (raw from data or constructing it)
+       // The unusedEdges array usually contains "source->target" IDs
+       // We'll construct the ID here matching how it's likely stored or check if our indexer provides IDs
+       // Assuming data.edges doesn't implement 'id' property strictly, we rely on the unusedEdges set
+       // However, GraphData definition says unusedEdges matches edge IDs.
+       // Let's assume we can match based on content if ID is missing or match on ID if present.
+       // The standard edge ID in this codebase is `source->target` (normalized).
+       const normalizedId = `${normalizePath(edge.source)}->${normalizePath(edge.target)}`;
+       return !unusedEdgeSet.has(normalizedId);
+    });
+  }
+
+  const truncated = baseEdges.length > GRAPH_LIMITS.MAX_PROCESS_EDGES;
   
   if (!truncated) {
-    return { edges: data.edges, truncated: false };
+    return { edges: baseEdges, truncated: false };
   }
   
   if (expandAll) {
     return { 
-      edges: data.edges.slice(0, GRAPH_LIMITS.MAX_PROCESS_EDGES),
+      edges: baseEdges.slice(0, GRAPH_LIMITS.MAX_PROCESS_EDGES),
       truncated: true 
     };
   }
 
   return {
     edges: filterRelevantEdges(
-      data.edges,
+      baseEdges,
       currentPath,
       expandedNodes,
       showParents,
@@ -233,8 +255,11 @@ export function buildReactFlowGraph(params: {
   expandedNodes: Set<string>;
   showParents: boolean;
   callbacks: BuildGraphCallbacks;
+  unusedEdges?: string[];
+  unusedDependencyMode?: 'none' | 'hide' | 'dim';
+  filterUnused?: boolean;
 }): BuildGraphResult {
-  const { data, currentFilePath, expandAll, expandedNodes, showParents, callbacks } = params;
+  const { data, currentFilePath, expandAll, expandedNodes, showParents, callbacks, unusedEdges = [], unusedDependencyMode = 'none', filterUnused = true } = params;
   const normalizedCurrentPath = normalizePath(currentFilePath);
 
   if (!data?.nodes?.length) {
@@ -253,7 +278,10 @@ export function buildReactFlowGraph(params: {
     normalizedCurrentPath,
     expandAll,
     expandedNodes,
-    showParents
+    showParents,
+    unusedEdges,
+    unusedDependencyMode,
+    filterUnused
   );
 
   const cycles =

@@ -103,6 +103,8 @@ const App: React.FC = () => {
     }, [currentFilePath]);
     const [emptyStateMessage, setEmptyStateMessage] = React.useState<string | null>(null);
     const [resetToken, setResetToken] = React.useState<number>(0);
+    const [unusedDependencyMode, setUnusedDependencyMode] = React.useState<'none' | 'hide' | 'dim'>('none');
+
 
     const handleExpandAllChange = React.useCallback((expand: boolean) => {
         setExpandAll(expand);
@@ -221,11 +223,14 @@ const App: React.FC = () => {
         setGraphData((current) => applyUpdateGraph(current, previousFilePath, message));
         setCurrentFilePath(message.filePath);
         setEmptyStateMessage(null);
-        
+
         // CRITICAL: Synchronize expandAll state with extension's persisted state
         // This ensures the webview button reflects the actual state on first render
         if (message.expandAll !== undefined) {
             setExpandAll(message.expandAll);
+        }
+        if (message.unusedDependencyMode) {
+            setUnusedDependencyMode(message.unusedDependencyMode);
         }
     }, []);
 
@@ -269,7 +274,8 @@ const App: React.FC = () => {
                     edges: [...graphData.edges, ...newEdges.filter(e =>
                         !graphData.edges.some(ge => ge.source === e.source && ge.target === e.target)
                     )],
-                    nodeLabels: { ...(graphData.nodeLabels ?? {}), ...newLabels }
+                    nodeLabels: { ...(graphData.nodeLabels ?? {}), ...newLabels },
+                    unusedEdges: [...new Set([...(graphData.unusedEdges || []), ...(message.data.unusedEdges || [])])]
                 };
 
                 // Only include parentCounts if we have any counts to merge
@@ -397,7 +403,7 @@ const App: React.FC = () => {
 
     const handleFindReferences = (path: string) => {
         log.debug('App: Find references clicked for:', path, 'showParents:', showParents, 'referencingFilesCount:', referencingFiles.length);
-        
+
         if (showParents) {
             // If parents are currently visible, just hide them (no need to re-fetch)
             setShowParents(false);
@@ -417,7 +423,7 @@ const App: React.FC = () => {
         }
     };
 
-    
+
 
     const handleNavigateToFile = (path: string, mode: 'card' | 'file') => {
         log.debug('App: Navigate to file:', path, 'mode:', mode);
@@ -543,76 +549,77 @@ const App: React.FC = () => {
 
     return (
         <ErrorBoundary>
-        <div style={{ width: '100vw', height: '100vh', position: 'relative' }}>
-            {emptyStateMessage && (
-                <div
-                    style={{
-                        position: 'absolute',
-                        top: 12,
-                        left: 12,
-                        right: 12,
-                        zIndex: 2000,
-                        pointerEvents: 'none',
-                        display: 'flex',
-                        justifyContent: 'center',
-                    }}
-                >
+            <div style={{ width: '100vw', height: '100vh', position: 'relative' }}>
+                {emptyStateMessage && (
                     <div
                         style={{
-                            background: 'var(--vscode-editor-background)',
-                            border: '1px solid var(--vscode-widget-border)',
-                            color: 'var(--vscode-descriptionForeground)',
-                            borderRadius: 6,
-                            padding: '6px 10px',
-                            fontSize: 12,
-                            maxWidth: 640,
-                            textAlign: 'center',
-                            boxShadow: '0 4px 12px rgba(0,0,0,0.2)',
+                            position: 'absolute',
+                            top: 12,
+                            left: 12,
+                            right: 12,
+                            zIndex: 2000,
+                            pointerEvents: 'none',
+                            display: 'flex',
+                            justifyContent: 'center',
                         }}
                     >
-                        {emptyStateMessage}
+                        <div
+                            style={{
+                                background: 'var(--vscode-editor-background)',
+                                border: '1px solid var(--vscode-widget-border)',
+                                color: 'var(--vscode-descriptionForeground)',
+                                borderRadius: 6,
+                                padding: '6px 10px',
+                                fontSize: 12,
+                                maxWidth: 640,
+                                textAlign: 'center',
+                                boxShadow: '0 4px 12px rgba(0,0,0,0.2)',
+                            }}
+                        >
+                            {emptyStateMessage}
+                        </div>
                     </div>
-                </div>
-            )}
-            {/* Symbol Card View */}
-            {viewMode === 'symbol' && symbolData && (
-                <SymbolCardView
-                    filePath={currentFilePath}
-                    symbols={symbolData.symbols}
-                    dependencies={symbolData.dependencies}
-                    referencingFiles={referencingFiles}
-                    showTypes={showTypes}
-                    onShowTypesChange={setShowTypes}
-                    onSymbolClick={(_symbolId: string, line: number) => handleNodeClick(currentFilePath, line)}
-                    onNavigateToFile={handleNavigateToFile}
-                    onBack={handleBack}
-                    onRefresh={handleRefresh}
-                />
-            )}
+                )}
+                {/* Symbol Card View */}
+                {viewMode === 'symbol' && symbolData && (
+                    <SymbolCardView
+                        filePath={currentFilePath}
+                        symbols={symbolData.symbols}
+                        dependencies={symbolData.dependencies}
+                        referencingFiles={referencingFiles}
+                        showTypes={showTypes}
+                        onShowTypesChange={setShowTypes}
+                        onSymbolClick={(_symbolId: string, line: number) => handleNodeClick(currentFilePath, line)}
+                        onNavigateToFile={handleNavigateToFile}
+                        onBack={handleBack}
+                        onRefresh={handleRefresh}
+                    />
+                )}
 
-            {/* File Dependencies View - ReactFlow */}
-            {viewMode === 'file' && (
-                <ReactFlowGraph
-                    key={`${normalizePath(currentFilePath)}:${resetToken}`}
-                    data={graphData}
-                    currentFilePath={currentFilePath}
-                    onNodeClick={(path) => handleNodeClick(path)}
-                    onDrillDown={handleDrillDown}
-                    onFindReferences={handleFindReferences}
-                    onExpandNode={handleExpandNode}
-                    autoExpandNodeId={lastExpandedNode}
-                    showParents={showParents}
-                    onToggleParents={(path) => handleFindReferences(path)}
-                    expandAll={expandAll}
-                    onExpandAllChange={handleExpandAllChange}
-                    onRefresh={handleRefresh}
-                    onSwitchToSymbol={() => handleSwitchMode('symbol')}
-                    expansionState={expansionState}
-                    onCancelExpand={handleCancelExpansion}
-                    resetToken={resetToken}
-                />
-            )}
-        </div>
+                {/* File Dependencies View - ReactFlow */}
+                {viewMode === 'file' && (
+                    <ReactFlowGraph
+                        key={`${normalizePath(currentFilePath)}:${resetToken}`}
+                        data={graphData}
+                        currentFilePath={currentFilePath}
+                        onNodeClick={(path) => handleNodeClick(path)}
+                        onDrillDown={handleDrillDown}
+                        onFindReferences={handleFindReferences}
+                        onExpandNode={handleExpandNode}
+                        autoExpandNodeId={lastExpandedNode}
+                        showParents={showParents}
+                        onToggleParents={(path) => handleFindReferences(path)}
+                        expandAll={expandAll}
+                        onExpandAllChange={handleExpandAllChange}
+                        onRefresh={handleRefresh}
+                        onSwitchToSymbol={() => handleSwitchMode('symbol')}
+                        expansionState={expansionState}
+                        onCancelExpand={handleCancelExpansion}
+                        resetToken={resetToken}
+                        unusedDependencyMode={unusedDependencyMode}
+                    />
+                )}
+            </div>
         </ErrorBoundary>
     );
 };

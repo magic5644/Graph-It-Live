@@ -5,6 +5,8 @@ export interface GraphData {
   nodeLabels?: Record<string, string>;
   /** Optional map of parent counts (how many files import a node). If present, used to show/hide the Find References toggle button in the UI. */
   parentCounts?: Record<string, number>;
+  /** Optional list of edge IDs (source-target) that represent unused dependencies (imports that are not used in code). */
+  unusedEdges?: string[];
 }
 
 export interface ShowGraphMessage {
@@ -18,7 +20,8 @@ export interface ShowGraphMessage {
    * Optional refresh reason. Used by the webview to decide whether to replace the
    * graph data or merge it (eg. keep expanded nodes while refreshing parentCounts after indexing).
    */
-  refreshReason?: 'manual' | 'indexing' | 'fileSaved' | 'navigation' | 'fileChange' | 'unknown';
+  refreshReason?: 'manual' | 'indexing' | 'fileSaved' | 'navigation' | 'fileChange' | 'usage-analysis' | 'unknown';
+  unusedDependencyMode?: 'none' | 'hide' | 'dim';
 }
 
 export interface OpenFileMessage {

@@ -61,6 +61,7 @@ interface ReactFlowGraphProps {
     expansionState?: ExpansionState | null;
     onCancelExpand?: (nodeId?: string) => void;
     resetToken?: number;
+    unusedDependencyMode?: 'none' | 'hide' | 'dim';
 }
 
 function stableGlobal<T>(key: string, factory: () => T): T {
@@ -84,25 +85,25 @@ function useExpandedNodes(params: {
     resetToken?: number;
 }) {
     const { expandAll, currentFilePath, edges, autoExpandNodeId, onExpandNode, resetToken } = params;
-    
+
     // Track the last values to detect ACTUAL changes (not re-renders)
     const lastExpandAllRef = React.useRef<boolean>(expandAll);
     const lastResetTokenRef = React.useRef<number | undefined>(resetToken);
-    
+
     const [expandedNodes, setExpandedNodes] = useState<Set<string>>(new Set());
 
     // Effect ONLY for navigation resets (resetToken or currentFilePath changes)
     // This resets expandedNodes according to expandAll state at time of navigation
     useEffect(() => {
-        log.debug('🔄 useExpandedNodes: Navigation effect', { 
-            resetToken, 
-            currentFilePath, 
+        log.debug('🔄 useExpandedNodes: Navigation effect', {
+            resetToken,
+            currentFilePath,
             expandAll,
             edgesCount: edges?.length
         });
-        
+
         lastResetTokenRef.current = resetToken;
-        
+
         if (expandAll && edges && edges.length > 0) {
             // Expand ALL nodes with children
             const allNodesWithChildren = new Set<string>();
@@ -126,15 +127,15 @@ function useExpandedNodes(params: {
         if (expandAll === lastExpandAllRef.current) {
             return; // No change, skip
         }
-        
-        log.debug('🔄 useExpandedNodes: expandAll changed', { 
+
+        log.debug('🔄 useExpandedNodes: expandAll changed', {
             from: lastExpandAllRef.current,
             to: expandAll,
             edgesCount: edges?.length
         });
-        
+
         lastExpandAllRef.current = expandAll;
-        
+
         if (expandAll && edges && edges.length > 0) {
             // Expand ALL nodes with children
             const allNodesWithChildren = new Set<string>();
@@ -155,7 +156,7 @@ function useExpandedNodes(params: {
     useEffect(() => {
         if (!autoExpandNodeId) return;
         const normalized = normalizePath(autoExpandNodeId);
-        
+
         // Use callback form to ensure atomic update
         setExpandedNodes((prev) => {
             if (prev.has(normalized)) return prev; // Already expanded, no change
@@ -172,9 +173,9 @@ function useExpandedNodes(params: {
         setExpandedNodes((prev) => {
             const prevArray = Array.from(prev);
             const had = prev.has(normalized);
-            log.debug('👆 toggleExpandedNode: BEFORE', { 
-                had, 
-                prevSize: prev.size, 
+            log.debug('👆 toggleExpandedNode: BEFORE', {
+                had,
+                prevSize: prev.size,
                 normalized,
                 prevContents: prevArray
             });
@@ -197,10 +198,10 @@ function useExpandedNodes(params: {
     const handleExpandRequest = useCallback(
         (path: string) => {
             const normalized = normalizePath(path);
-            
+
             // Notify parent component first
             onExpandNode?.(normalized);
-            
+
             // Then update local state atomically
             setExpandedNodes((prev) => {
                 if (prev.has(normalized)) return prev; // Already expanded
@@ -282,7 +283,9 @@ const ReactFlowGraphContent: React.FC<ReactFlowGraphProps> = ({
     expansionState,
     onCancelExpand,
     resetToken,
+    unusedDependencyMode = 'none',
 }) => {
+    const [filterUnused, setFilterUnused] = useState<boolean>(true);
     const { fitView } = useReactFlow();
     const nodesInitialized = useNodesInitialized();
     const containerRef = React.useRef<HTMLDivElement | null>(null);
@@ -305,7 +308,7 @@ const ReactFlowGraphContent: React.FC<ReactFlowGraphProps> = ({
         onToggle: toggleExpandedNode,
         onExpandRequest: handleExpandRequest,
     });
-    
+
     // Update ref on every render so buildGraph always uses latest callbacks
     callbacksRef.current = {
         onDrillDown,
@@ -333,6 +336,9 @@ const ReactFlowGraphContent: React.FC<ReactFlowGraphProps> = ({
             expandedNodes,
             showParents,
             callbacks: callbacksRef.current,
+            unusedEdges: data?.unusedEdges,
+            unusedDependencyMode,
+            filterUnused,
         });
         log.debug('🏗️ ReactFlowGraph: build graph END', {
             resultNodes: result.nodes.length,
@@ -346,24 +352,53 @@ const ReactFlowGraphContent: React.FC<ReactFlowGraphProps> = ({
         expandAll,
         expandedNodes,
         showParents,
+        unusedDependencyMode,
+        filterUnused,
         // DO NOT include callbacks in deps! They don't change graph structure,
         // only node data handlers. Including them causes constant re-renders.
     ]);
 
     const isTruncated = graph.nodesTruncated;
 
-    const [nodes, setNodes, onNodesChange] = useNodesState(graph.nodes);
-    const [edges, setEdges, onEdgesChange] = useEdgesState(graph.edges);
+    // Process edges to apply unused dependency filtering/styling
+    const processedEdges = useMemo(() => {
+        if (!filterUnused || unusedDependencyMode === 'none' || !data?.unusedEdges?.length) {
+            return graph.edges;
+        }
 
-    // Sync nodes/edges when graph recalculates (like main branch)
+        const unusedEdgeSet = new Set(data.unusedEdges);
+
+        if (unusedDependencyMode === 'dim') {
+            return graph.edges.map(edge => {
+                if (unusedEdgeSet.has(edge.id)) {
+                    return {
+                        ...edge,
+                        style: { ...edge.style, opacity: 0.2, strokeDasharray: '5 5' },
+                        animated: false,
+                        label: 'unused', // Optional: indicate it's unused
+                        labelStyle: { fill: 'var(--vscode-descriptionForeground)', opacity: 0.5 },
+                        labelBgStyle: { fill: 'transparent' },
+                    };
+                }
+                return edge;
+            });
+        }
+
+        return graph.edges;
+    }, [graph.edges, data?.unusedEdges, unusedDependencyMode, filterUnused]);
+
+    const [nodes, setNodes, onNodesChange] = useNodesState(graph.nodes);
+    const [edges, setEdges, onEdgesChange] = useEdgesState(processedEdges);
+
+    // Sync nodes/edges when graph recalculates
     useEffect(() => {
         log.debug('ReactFlowGraph: Syncing nodes/edges', {
             nodeCount: graph.nodes.length,
-            edgeCount: graph.edges.length,
+            edgeCount: processedEdges.length,
         });
         setNodes(graph.nodes);
-        setEdges(graph.edges);
-    }, [graph.nodes, graph.edges, setNodes, setEdges]);
+        setEdges(processedEdges);
+    }, [graph.nodes, processedEdges, setNodes, setEdges]);
 
     useAutoFitView({
         containerRef,
@@ -393,9 +428,9 @@ const ReactFlowGraphContent: React.FC<ReactFlowGraphProps> = ({
                 fitView
                 proOptions={PRO_OPTIONS}
             >
-                    <Background />
-                    <Controls />
-                </ReactFlow>
+                <Background />
+                <Controls />
+            </ReactFlow>
             {expansionState && (
                 <ExpansionOverlay state={expansionState} onCancel={onCancelExpand} />
             )}
@@ -520,6 +555,24 @@ const ReactFlowGraphContent: React.FC<ReactFlowGraphProps> = ({
                             }}
                         >
                             ↻
+                        </button>
+                    )}
+                    {unusedDependencyMode !== 'none' && (
+                        <button
+                            onClick={() => setFilterUnused(!filterUnused)}
+                            title={`Filter Unused Imports (${unusedDependencyMode === 'hide' ? 'Hide' : 'Dim'})`}
+                            style={{
+                                background: filterUnused ? 'var(--vscode-button-background)' : 'var(--vscode-button-secondaryBackground)',
+                                color: filterUnused ? 'var(--vscode-button-foreground)' : 'var(--vscode-button-secondaryForeground)',
+                                border: '1px solid var(--vscode-button-border)',
+                                visibility: 'hidden',
+                                borderRadius: 4,
+                                padding: '6px 12px',
+                                cursor: 'pointer',
+                                fontSize: 12,
+                            }}
+                        >
+                            {filterUnused ? 'Used Only' : 'Show All'}
                         </button>
                     )}
                     <button

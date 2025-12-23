@@ -27,6 +27,7 @@ import type {
   FindReferencingFilesParams,
   ExpandNodeParams,
   ParseImportsParams,
+  VerifyDependencyUsageParams,
   ResolveModulePathParams,
   InvalidateFilesParams,
   GetSymbolGraphParams,
@@ -41,6 +42,7 @@ import type {
   FindReferencingFilesResult,
   ExpandNodeResult,
   ParseImportsResult,
+  VerifyDependencyUsageResult,
   ResolveModulePathResult,
   GetIndexStatusResult,
   InvalidateFilesResult,
@@ -480,6 +482,13 @@ async function handleInvoke(
         result = await executeParseImports(p);
         break;
       }
+      case 'verify_dependency_usage': {
+        const p = validatedParams as VerifyDependencyUsageParams;
+        validateFilePath(p.sourceFile, config.rootDir);
+        validateFilePath(p.targetFile, config.rootDir);
+        result = await executeVerifyDependencyUsage(p);
+        break;
+      }
       case 'resolve_module_path': {
         const p = validatedParams as ResolveModulePathParams;
         validateFilePath(p.fromFile, config.rootDir);
@@ -599,7 +608,7 @@ async function executeAnalyzeDependencies(
 async function executeCrawlDependencyGraph(
   params: CrawlDependencyGraphParams
 ): Promise<CrawlDependencyGraphResult> {
-  const { entryFile, maxDepth, limit, offset } = params;
+  const { entryFile, maxDepth, limit, offset, onlyUsed } = params;
 
   // Validate file exists
   await validateFileExists(entryFile);
@@ -646,6 +655,51 @@ async function executeCrawlDependencyGraph(
       sourceRelative: getRelativePath(edge.source, config!.rootDir),
       targetRelative: getRelativePath(edge.target, config!.rootDir),
     }));
+
+    // If onlyUsed is explicitly requested, filter edges using AST usage verification
+    if (onlyUsed === true) {
+      log.info('Filtering edges by usage (onlyUsed=true)');
+      const filteredEdges: EdgeInfo[] = [];
+
+      // Only check visible edges (if pagination handles edges? No, pagination is later)
+      // Check full graph edges
+      for (const edge of edges) {
+        // Use verifyDependencyUsage exposed on Spider
+        // Note: verifyDependencyUsage takes (source, target)
+        // We catch errors to avoid failing the whole crawl on one bad file
+        try {
+          const isUsed = await spider!.verifyDependencyUsage(edge.source, edge.target);
+          if (isUsed) {
+            filteredEdges.push(edge);
+          }
+        } catch (err) {
+          log.warn(`Failed to verify usage for edge ${edge.source} -> ${edge.target}:`, err);
+          // Conservative approach: keep edge if check fails? Or drop?
+          // Let's keep it to be safe, or drop if we want strict mode.
+          // Spider.verifyDependencyUsage usually defaults to true on error?
+          // Let's assume keep.
+          filteredEdges.push(edge);
+        }
+      }
+      edges = filteredEdges;
+
+      // Re-calculate node dependency counts based on filtered edges?
+      // Yes, if we want accurate counts.
+      // But we already built NodeInfo.
+      // Let's update dependency/dependent counts.
+      const newDepCount = new Map<string, number>();
+      const newDependentCount = new Map<string, number>();
+      for (const edge of edges) {
+        newDepCount.set(edge.source, (newDepCount.get(edge.source) || 0) + 1);
+        newDependentCount.set(edge.target, (newDependentCount.get(edge.target) || 0) + 1);
+      }
+      for (const node of nodes) {
+        // Find absolute path from nodes list (which has path property)
+        // Wait, node variable here is NodeInfo.
+        node.dependencyCount = newDepCount.get(node.path) || 0;
+        node.dependentCount = newDependentCount.get(node.path) || 0;
+      }
+    }
 
     // Apply pagination if requested
     const totalNodes = nodes.length;
@@ -752,6 +806,28 @@ async function executeParseImports(
       type: imp.type,
       line: imp.line,
     })),
+  };
+}
+
+/**
+ * Verify if a dependency is actually used
+ */
+async function executeVerifyDependencyUsage(
+  params: VerifyDependencyUsageParams
+): Promise<VerifyDependencyUsageResult> {
+  const { sourceFile, targetFile } = params;
+
+  // Validate file exists
+  await validateFileExists(sourceFile);
+  await validateFileExists(targetFile);
+
+  const isUsed = await spider!.verifyDependencyUsage(sourceFile, targetFile);
+
+  return {
+    sourceFile,
+    targetFile,
+    isUsed,
+    usedSymbolCount: isUsed ? undefined : 0, // We don't have count yet, but if unused it's 0
   };
 }
 

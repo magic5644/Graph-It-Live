@@ -27,6 +27,7 @@ export function mergeGraphDataUnion(base: GraphData, incoming: GraphData): Graph
     edges,
     nodeLabels: Object.keys(labels).length > 0 ? labels : undefined,
     parentCounts: Object.keys(parentCounts).length > 0 ? parentCounts : undefined,
+    unusedEdges: [...new Set([...(base.unusedEdges || []), ...(incoming.unusedEdges || [])])],
   };
 }
 

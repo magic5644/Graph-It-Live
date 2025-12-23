@@ -62,6 +62,7 @@ export type McpToolName =
   | 'find_referencing_files'
   | 'expand_node'
   | 'parse_imports'
+  | 'verify_dependency_usage'  // NEW: Verify if a dependency is actually used
   | 'resolve_module_path'
   | 'get_index_status'
   | 'invalidate_files'
@@ -108,6 +109,7 @@ export const CrawlDependencyGraphParamsSchema = z.object({
   maxDepth: z.number().optional().describe('Maximum depth to crawl (default: from config)'),
   limit: z.number().optional().describe('Maximum number of nodes to return (for pagination)'),
   offset: z.number().optional().describe('Number of nodes to skip (for pagination)'),
+  onlyUsed: z.boolean().optional().describe('If true, only returns edges where symbols are actually used (requires AST analysis, slower)'),
   format: OutputFormatSchema.optional(),
 });
 export type CrawlDependencyGraphParams = z.infer<typeof CrawlDependencyGraphParamsSchema>;
@@ -131,6 +133,13 @@ export const ParseImportsParamsSchema = z.object({
   format: OutputFormatSchema.optional(),
 });
 export type ParseImportsParams = z.infer<typeof ParseImportsParamsSchema>;
+
+export const VerifyDependencyUsageParamsSchema = z.object({
+  sourceFile: z.string().describe('Absolute path to the source file (the one importing using symbols)'),
+  targetFile: z.string().describe('Absolute path to the target file (the one providing symbols)'),
+  format: OutputFormatSchema.optional(),
+});
+export type VerifyDependencyUsageParams = z.infer<typeof VerifyDependencyUsageParamsSchema>;
 
 export const ResolveModulePathParamsSchema = z.object({
   fromFile: z.string().describe('Absolute path of the file containing the import'),
@@ -224,6 +233,7 @@ export const toolSchemas: Record<McpToolName, z.ZodType<unknown>> = {
   find_referencing_files: FindReferencingFilesParamsSchema,
   expand_node: ExpandNodeParamsSchema,
   parse_imports: ParseImportsParamsSchema,
+  verify_dependency_usage: VerifyDependencyUsageParamsSchema,
   resolve_module_path: ResolveModulePathParamsSchema,
   get_index_status: GetIndexStatusParamsSchema,
   invalidate_files: InvalidateFilesParamsSchema,
@@ -580,6 +590,21 @@ export interface ParsedImportInfo {
   /** Line number */
   line: number;
 }
+
+/**
+ * Result of verify_dependency_usage tool
+ */
+export interface VerifyDependencyUsageResult {
+  /** The source file */
+  sourceFile: string;
+  /** The target file */
+  targetFile: string;
+  /** Whether the dependency is actually used */
+  isUsed: boolean;
+  /** Number of used symbols (if isUsed is true) */
+  usedSymbolCount?: number;
+}
+
 
 /**
  * Result of resolve_module_path tool
