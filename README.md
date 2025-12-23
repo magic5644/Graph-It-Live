@@ -47,6 +47,18 @@ Stop pasting file paths and explaining your project structure. Graph-It-Live exp
 ## Features
 
 * **MCP Server for AI Integration** *(New)*: Built-in **Model Context Protocol (MCP) Server** exposes dependency analysis tools to AI assistants.
+* **Unused Dependency Filter** *(New)*: Smart filter to show only dependencies that are actually used in your code. Toggle between showing all imports or filtering unused ones with a single click. Configurable to either hide unused edges completely or show them dimmed.
+
+<div align="center">
+  <img src="media/demo-filter-hide-mode.gif" alt="Hide mode - removes unused dependencies" width="600"/>
+  <p><em>Hide mode: Unused dependencies are completely removed from the graph</em></p>
+</div>
+
+<div align="center">
+  <img src="media/demo-filter-dim-mode.gif" alt="Dim mode - shows unused dependencies with reduced opacity" width="600"/>
+  <p><em>Dim mode: Unused dependencies are shown with reduced opacity and dashed lines</em></p>
+</div>
+
 * **Symbol-Level Analysis** *(New)*: Drill down to see function-to-function and class-to-class dependencies within files.
 * **Real-time Dependency Visualization**: Interactive graph showing file dependencies.
 * **Multi-Language Support**: First-class support for **TypeScript** (`.ts`, `.tsx`), **JavaScript** (`.js`, `.jsx`), **Vue** (`.vue`), **Svelte** (`.svelte`), and **GraphQL** (`.gql`, `.graphql`).
@@ -54,6 +66,7 @@ Stop pasting file paths and explaining your project structure. Graph-It-Live exp
 * **Smart Navigation**: Use VS Code's built-in navigation (Go Back / Go Forward) to move through your code history. Graph-It-Live also exposes navigation actions in the webview or panel menu.
 * **Background Indexing** *(New)*: Optionally index your entire workspace in the background for instant reverse dependency lookups. Uses a separate worker thread to avoid blocking the IDE.
 * **Interactive Graph**:
+  * **Filter Unused Dependencies**: Use the eye/eye-closed toggle button in the toolbar to show only imports that are actually used in the code. Choose between hiding unused edges completely or showing them dimmed.
   * **Expand/Collapse**: Dynamically load dependencies using the node controls available in the webview/panel menu or the node's context menu (hover actions may still appear depending on layout).
   * **Bidirectional Navigation**: Use the "Find Referencing Files" action from a node's context menu or the webview/panel menu to see files that import the selected file. With background indexing enabled, this is instant (O(1) lookup).
   * **File Navigation**: Click on any node to instantly open the corresponding file in the editor.
@@ -96,12 +109,18 @@ The extension is also available on the [Open VSX Registry](https://open-vsx.org/
 
 Customize the extension in VS Code Settings (`Cmd+,` or `Ctrl+,`):
 
+<div align="center">
+  <img src="media/unused-dependency-mode-option.png" alt="Unused Dependency Mode configuration" width="700"/>
+  <p><em>Configure how unused dependencies are displayed: hide (remove completely) or dim (show with reduced opacity)</em></p>
+</div>
+
 | Setting | Default | Description |
 | :--- | :--- | :--- |
 | `graph-it-live.enableMcpServer` | `false` | **Enable this for AI features.** Exposes dependency analysis tools via Model Context Protocol. |
 | `graph-it-live.maxDepth` | `50` | Maximum depth of dependencies to analyze initially. |
 | `graph-it-live.excludeNodeModules` | `true` | Whether to exclude `node_modules` imports from the graph. |
 | `graph-it-live.enableBackgroundIndexing` | `true` | Enable background indexing for instant reverse dependency lookups. |
+| `graph-it-live.unusedDependencyMode` | `hide` | How to display unused dependencies. **hide**: Remove unused edges completely. **dim**: Show unused edges with reduced opacity. |
 
 ## MCP Server (AI/LLM Integration)
 
