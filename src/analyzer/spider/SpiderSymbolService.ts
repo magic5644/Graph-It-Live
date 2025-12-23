@@ -50,8 +50,31 @@ export class SpiderSymbolService {
     try {
       const content = await this.fileReader.readFile(filePath);
       const result = await this.astWorkerHost.analyzeFile(key, content);
-      this.symbolCache.set(key, result);
-      return result;
+      
+      // Resolve targetFilePath in dependencies from module specifier to absolute path
+      // This is critical for cross-platform path comparison in verifyDependencyUsage
+      const resolvedDependencies = await Promise.all(
+        result.dependencies.map(async (dep) => {
+          try {
+            const resolved = await this.resolver.resolve(key, dep.targetFilePath);
+            return {
+              ...dep,
+              targetFilePath: normalizePath(resolved),
+            };
+          } catch {
+            // If resolution fails, keep original module specifier
+            return dep;
+          }
+        })
+      );
+
+      const resolvedResult = {
+        symbols: result.symbols,
+        dependencies: resolvedDependencies,
+      };
+      
+      this.symbolCache.set(key, resolvedResult);
+      return resolvedResult;
     } catch (error) {
       const spiderError = SpiderError.fromError(error, filePath);
       log.error('Symbol analysis failed:', spiderError.toUserMessage());

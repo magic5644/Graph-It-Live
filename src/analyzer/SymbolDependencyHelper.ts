@@ -16,17 +16,26 @@ export class SymbolDependencyHelper {
 
   /**
    * Check if a dependency targets the given file path (normalized).
+   * Both targetFilePath in the dependency and the targetFilePath parameter
+   * should be normalized absolute paths for reliable comparison.
    */
   async doesDependencyTargetFile(
     dep: import('./types').SymbolDependency,
     sourceFilePath: string,
     targetFilePath: string
   ): Promise<boolean> {
-    if (dep.targetFilePath === targetFilePath) {
+    // Normalize both paths for cross-platform comparison (handles Windows vs Unix separators)
+    const normalizedDepTarget = normalizePath(dep.targetFilePath);
+    const normalizedTarget = normalizePath(targetFilePath);
+    
+    if (normalizedDepTarget === normalizedTarget) {
       return true;
     }
+    
+    // Fallback: try resolving if dep.targetFilePath is still a module specifier
+    // (shouldn't happen if SpiderSymbolService resolves correctly, but defensive)
     const resolved = await this.resolveFn(sourceFilePath, dep.targetFilePath);
-    return resolved === targetFilePath;
+    return resolved ? normalizePath(resolved) === normalizedTarget : false;
   }
 
   extractSymbolName(symbolId: string): string {

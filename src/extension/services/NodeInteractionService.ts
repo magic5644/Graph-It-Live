@@ -1,4 +1,5 @@
 import { Spider } from '../../analyzer/Spider';
+import { normalizePath } from '../../analyzer/types';
 
 type Logger = {
   debug: (message: string, ...args: unknown[]) => void;
@@ -18,6 +19,7 @@ export interface ReferencingFilesResult {
     nodes: string[];
     edges: { source: string; target: string }[];
     parentCounts?: Record<string, number>;
+    unusedEdges?: string[];
   };
 }
 
@@ -90,6 +92,23 @@ export class NodeInteractionService {
     const referencingFiles = await this.spider.findReferencingFiles(nodeId);
     this.logger.debug('Found', referencingFiles.length, 'referencing files');
 
+    const unusedEdges: string[] = [];
+
+    // Check usage for each referencing file
+    await Promise.all(referencingFiles.map(async (d) => {
+      try {
+        const isUsed = await this.spider.verifyDependencyUsage(d.path, nodeId);
+        if (!isUsed) {
+            // Add to unusedEdges
+            const source = normalizePath(d.path);
+            const target = normalizePath(nodeId);
+            unusedEdges.push(`${source}->${target}`);
+        }
+      } catch (err) {
+        this.logger.error(`Error checking usage for ${d.path} -> ${nodeId}:`, err);
+      }
+    }));
+
     const nodes = referencingFiles.map((d) => d.path);
     const edges = referencingFiles.map((d) => ({
       source: d.path,
@@ -105,6 +124,7 @@ export class NodeInteractionService {
         nodes,
         edges,
         parentCounts: Object.keys(parentCounts).length > 0 ? parentCounts : undefined,
+        unusedEdges: unusedEdges.length > 0 ? unusedEdges : undefined,
       },
     };
   }
