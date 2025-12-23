@@ -57,6 +57,9 @@ export class GraphProvider implements vscode.WebviewViewProvider {
         this._stateManager = new ProviderStateManager(context, DEFAULT_INDEXING_START_DELAY);
         this._configSnapshot = this._stateManager.loadConfiguration();
         
+        // Initialize context for toggle button
+        void vscode.commands.executeCommand('setContext', 'graph-it-live.unusedFilterActive', this._stateManager.getUnusedFilterActive());
+
         this._initializeSpider(this._configSnapshot);
 
         if (this._spider) {
@@ -666,6 +669,43 @@ export class GraphProvider implements vscode.WebviewViewProvider {
             expanded: newExpandAll,
             message: newExpandAll ? 'All nodes expanded' : 'All nodes collapsed'
         };
+        return {
+            expanded: newExpandAll,
+            message: newExpandAll ? 'All nodes expanded' : 'All nodes collapsed'
+        };
+    }
+
+    /**
+     * Get current unused dependency filter state
+     */
+    public getUnusedFilterActive(): boolean {
+        return this._stateManager.getUnusedFilterActive();
+    }
+
+    /**
+     * Toggle unused dependency filter
+     */
+    public async toggleUnusedFilter(): Promise<void> {
+        const currentState = this._stateManager.getUnusedFilterActive();
+        const newState = !currentState;
+        
+        log.info(`Toggling unused filter: ${currentState} -> ${newState}`);
+        
+        await this._stateManager.setUnusedFilterActive(newState);
+        await vscode.commands.executeCommand('setContext', 'graph-it-live.unusedFilterActive', newState);
+        
+        log.info('Context key graph-it-live.unusedFilterActive set to', newState);
+        
+        // Send filter update message to webview without rebuilding the graph
+        // This preserves the current view (including referencing files if shown)
+        if (this._view) {
+            const effectiveMode = newState ? this._configSnapshot.unusedDependencyMode : 'none';
+            this._view.webview.postMessage({
+                command: 'updateFilter',
+                filterUnused: newState,
+                unusedDependencyMode: effectiveMode,
+            });
+        }
     }
 
     /**
@@ -741,7 +781,15 @@ export class GraphProvider implements vscode.WebviewViewProvider {
 
         try {
             // Step 1: Send immediate graph (fast, no usage check)
-            const checkUsage = this._configSnapshot.unusedDependencyMode !== 'none';
+            const filterActive = this._stateManager.getUnusedFilterActive();
+            // Effective mode is 'none' if filter is inactive, otherwise the configured mode ('hide' or 'dim')
+            // Note: If configured mode is 'none' (which we removed from UI but config might lag), treat as 'none'.
+            // Actually package.json update removed 'none' from enum but users might have stale config.
+            const configuredMode = this._configSnapshot.unusedDependencyMode;
+            const effectiveMode = filterActive ? configuredMode : 'none';
+            
+            const checkUsage = effectiveMode !== 'none';
+            
             // Always build without check first to show something quickly
             const initialGraphData = await this._graphViewService.buildGraphData(filePath, false);
             
@@ -758,8 +806,7 @@ export class GraphProvider implements vscode.WebviewViewProvider {
                 expandAll,
                 isRefresh,
                 refreshReason,
-                unusedDependencyMode: this._configSnapshot.unusedDependencyMode,
-            };
+                unusedDependencyMode: effectiveMode,                filterUnused: filterActive,            };
             this._view.webview.postMessage(initialMessage);
 
             // Step 2: If usage check is required, perform it and send update
@@ -787,7 +834,7 @@ export class GraphProvider implements vscode.WebviewViewProvider {
                     isRefresh: true, // Treat as refresh to avoid internal navigation reset?
                     // Actually, if we send isRefresh=true, it merges.
                     refreshReason: 'usage-analysis',
-                    unusedDependencyMode: this._configSnapshot.unusedDependencyMode,
+                    unusedDependencyMode: effectiveMode,
                 };
                 
                 this._view.webview.postMessage(enrichedMessage);

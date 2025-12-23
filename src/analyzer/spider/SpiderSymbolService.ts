@@ -271,24 +271,34 @@ export class SpiderSymbolService {
    */
   async verifyDependencyUsage(sourceFile: string, targetFile: string): Promise<boolean> {
     try {
+      // Normalize paths for comparison
+      const normalizedSource = normalizePath(sourceFile);
+      const normalizedTarget = normalizePath(targetFile);
+      
+      log.debug(`Verifying usage: ${normalizedSource} -> ${normalizedTarget}`);
+      
       // 1. Get AST-based symbol dependencies for the source file
-      const { dependencies } = await this.getSymbolGraph(sourceFile);
+      const { dependencies } = await this.getSymbolGraph(normalizedSource);
+      
+      log.debug(`Found ${dependencies.length} dependencies in ${normalizedSource}`);
 
       // 2. Check if any dependency points to the target file
       for (const dep of dependencies) {
         // Use helper to resolve module specifier to absolute path and compare
         const isMatch = await this.symbolDependencyHelper.doesDependencyTargetFile(
             dep,
-            sourceFile,
-            targetFile
+            normalizedSource,
+            normalizedTarget
         );
 
         if (isMatch) {
           // If we find at least one used symbol, the dependency is "used"
+          log.debug(`✓ Found matching dependency: ${dep.sourceSymbolId} uses ${dep.targetSymbolId}`);
           return true;
         }
       }
 
+      log.debug(`✗ No matching dependencies found for ${normalizedTarget}`);
       return false;
     } catch (error) {
         // If analysis fails, assume used to be safe (avoid hiding potentially useful links)

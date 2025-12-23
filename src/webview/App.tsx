@@ -104,6 +104,7 @@ const App: React.FC = () => {
     const [emptyStateMessage, setEmptyStateMessage] = React.useState<string | null>(null);
     const [resetToken, setResetToken] = React.useState<number>(0);
     const [unusedDependencyMode, setUnusedDependencyMode] = React.useState<'none' | 'hide' | 'dim'>('none');
+    const [filterUnused, setFilterUnused] = React.useState<boolean>(false);
 
 
     const handleExpandAllChange = React.useCallback((expand: boolean) => {
@@ -194,6 +195,17 @@ const App: React.FC = () => {
         };
     }, []);
 
+    // Handler for updateFilter message
+    const handleUpdateFilterMessage = React.useCallback((message: ExtensionToWebviewMessage & { command: 'updateFilter' }) => {
+        log.debug('App: Received updateFilter message:', message);
+        if (message.filterUnused !== undefined) {
+            setFilterUnused(message.filterUnused);
+        }
+        if (message.unusedDependencyMode) {
+            setUnusedDependencyMode(message.unusedDependencyMode);
+        }
+    }, []);
+
     // Handler for updateGraph message
     const handleUpdateGraphMessage = React.useCallback((message: ExtensionToWebviewMessage & { command: 'updateGraph' }) => {
         const previousFilePath = currentFilePathRef.current;
@@ -231,6 +243,9 @@ const App: React.FC = () => {
         }
         if (message.unusedDependencyMode) {
             setUnusedDependencyMode(message.unusedDependencyMode);
+        }
+        if (message.filterUnused !== undefined) {
+            setFilterUnused(message.filterUnused);
         }
     }, []);
 
@@ -297,6 +312,9 @@ const App: React.FC = () => {
             switch (message.command) {
                 case 'updateGraph':
                     handleUpdateGraphMessage(message);
+                    break;
+                case 'updateFilter':
+                    handleUpdateFilterMessage(message);
                     break;
                 case 'emptyState':
                     setEmptyStateMessage(message.message || 'No file is currently open');
@@ -616,8 +634,7 @@ const App: React.FC = () => {
                         expansionState={expansionState}
                         onCancelExpand={handleCancelExpansion}
                         resetToken={resetToken}
-                        unusedDependencyMode={unusedDependencyMode}
-                    />
+                        unusedDependencyMode={unusedDependencyMode}                        filterUnused={filterUnused}                    />
                 )}
             </div>
         </ErrorBoundary>

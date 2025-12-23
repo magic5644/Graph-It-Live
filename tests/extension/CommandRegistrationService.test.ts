@@ -22,6 +22,11 @@ vi.mock('vscode', () => {
       showInformationMessage,
       showErrorMessage,
     },
+    Disposable: {
+      from: (...disposables: { dispose: () => unknown }[]) => ({
+        dispose: () => disposables.forEach((d) => d.dispose()),
+      }),
+    },
     __mocks: {
       registeredHandlers,
       executeCommand,
@@ -85,13 +90,15 @@ describe('CommandRegistrationService', () => {
 
     const disposables = service.registerAll();
 
-    expect(disposables).toHaveLength(6);
-    expect(registerCommand).toHaveBeenCalledTimes(6);
+    expect(disposables).toHaveLength(7);
+    expect(registerCommand).toHaveBeenCalledTimes(8);
     expect(registeredHandlers.has('graph-it-live.showGraph')).toBe(true);
     expect(registeredHandlers.has('graph-it-live.forceReindex')).toBe(true);
     expect(registeredHandlers.has('graph-it-live.expandAllNodes')).toBe(true);
     expect(registeredHandlers.has('graph-it-live.refreshGraph')).toBe(true);
     expect(registeredHandlers.has('graph-it-live.toggleViewMode')).toBe(true);
+    expect(registeredHandlers.has('graph-it-live.enableUnusedFilter')).toBe(true);
+    expect(registeredHandlers.has('graph-it-live.disableUnusedFilter')).toBe(true);
     expect(registeredHandlers.has('graph-it-live.showIndexStatus')).toBe(true);
   });
 

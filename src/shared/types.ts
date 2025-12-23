@@ -22,6 +22,8 @@ export interface ShowGraphMessage {
    */
   refreshReason?: 'manual' | 'indexing' | 'fileSaved' | 'navigation' | 'fileChange' | 'usage-analysis' | 'unknown';
   unusedDependencyMode?: 'none' | 'hide' | 'dim';
+  /** Whether the unused dependency filter is active (controlled by backend state) */
+  filterUnused?: boolean;
 }
 
 export interface OpenFileMessage {
@@ -45,6 +47,12 @@ export interface SetExpandAllMessage {
 export interface CancelExpandNodeMessage {
   command: 'cancelExpandNode';
   nodeId?: string;
+}
+
+export interface UpdateFilterMessage {
+  command: 'updateFilter';
+  filterUnused: boolean;
+  unusedDependencyMode: 'none' | 'hide' | 'dim';
 }
 
 export interface RefreshGraphMessage {
@@ -148,5 +156,5 @@ export interface SymbolGraphMessage {
   };
 }
 
-export type ExtensionToWebviewMessage = ShowGraphMessage | ExpandedGraphMessage | ReferencingFilesMessage | IndexingProgressMessage | SymbolGraphMessage | EmptyStateMessage | SetExpandAllMessage | ExpansionProgressMessage;
+export type ExtensionToWebviewMessage = ShowGraphMessage | ExpandedGraphMessage | ReferencingFilesMessage | IndexingProgressMessage | SymbolGraphMessage | EmptyStateMessage | SetExpandAllMessage | ExpansionProgressMessage | UpdateFilterMessage;
 export type WebviewToExtensionMessage = OpenFileMessage | ExpandNodeMessage | SetExpandAllMessage | RefreshGraphMessage | FindReferencingFilesMessage | DrillDownMessage | ReadyMessage | SwitchModeMessage | WebviewLogMessage | CancelExpandNodeMessage;

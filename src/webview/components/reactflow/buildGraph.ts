@@ -77,17 +77,11 @@ function getEdgesForProcessing(
   const isHideMode = unusedDependencyMode === 'hide' && filterUnused;
   const unusedEdgeSet = new Set(unusedEdges);
 
-  // If in hide mode, pre-filter edges BEFORE truncation logic
+  // In hide mode: filter out ALL unused edges (both incoming and outgoing)
+  // In dim mode: keep all edges, styling is applied in createVisibleEdges
   let baseEdges = data.edges;
   if (isHideMode && unusedEdges.length > 0) {
     baseEdges = data.edges.filter(edge => {
-       // Check both ID formats to be safe (raw from data or constructing it)
-       // The unusedEdges array usually contains "source->target" IDs
-       // We'll construct the ID here matching how it's likely stored or check if our indexer provides IDs
-       // Assuming data.edges doesn't implement 'id' property strictly, we rely on the unusedEdges set
-       // However, GraphData definition says unusedEdges matches edge IDs.
-       // Let's assume we can match based on content if ID is missing or match on ID if present.
-       // The standard edge ID in this codebase is `source->target` (normalized).
        const normalizedId = `${normalizePath(edge.source)}->${normalizePath(edge.target)}`;
        return !unusedEdgeSet.has(normalizedId);
     });
@@ -221,9 +215,14 @@ function buildRelationshipMaps(
 function createVisibleEdges(
   edgesForProcessing: Array<{ source: string; target: string }>,
   visibleNodes: Set<string>,
-  cycles: Set<string>
+  cycles: Set<string>,
+  unusedEdges: string[],
+  unusedDependencyMode: 'none' | 'hide' | 'dim',
+  filterUnused: boolean
 ): Edge[] {
   const seenEdgeIds = new Set<string>();
+  const unusedEdgeSet = new Set(unusedEdges);
+  const isDimMode = unusedDependencyMode === 'dim' && filterUnused;
   
   return edgesForProcessing
     .map(({ source, target }) => ({ source: normalizePath(source), target: normalizePath(target) }))
@@ -233,8 +232,17 @@ function createVisibleEdges(
       if (seenEdgeIds.has(id)) return [];
       seenEdgeIds.add(id);
 
+      const isUnused = unusedEdgeSet.has(id);
       const isCircular = cycles.has(source) && cycles.has(target);
       const edgeStyle = createEdgeStyleUtil(isCircular);
+
+      // In dim mode, apply reduced opacity and dashed style to unused edges
+      const styleOverrides = isDimMode && isUnused
+        ? {
+            style: { ...edgeStyle.style, opacity: 0.3, strokeDasharray: '5 5' },
+            animated: false, // Disable animation for unused edges in dim mode
+          }
+        : {};
 
       return [
         {
@@ -243,6 +251,7 @@ function createVisibleEdges(
           target,
           animated: true,
           ...edgeStyle,
+          ...styleOverrides,
         },
       ];
     });
@@ -348,7 +357,14 @@ export function buildReactFlowGraph(params: {
     };
   });
 
-  let edges: Edge[] = createVisibleEdges(edgesForProcessing, visibleNodes, cycles);
+  let edges: Edge[] = createVisibleEdges(
+    edgesForProcessing,
+    visibleNodes,
+    cycles,
+    unusedEdges,
+    unusedDependencyMode,
+    filterUnused
+  );
 
   const renderEdgesTruncated = edges.length > GRAPH_LIMITS.MAX_RENDER_EDGES;
   if (renderEdgesTruncated) {
