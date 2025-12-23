@@ -1,8 +1,6 @@
-import { Project, SourceFile, SyntaxKind, Node, type FunctionDeclaration, type ClassDeclaration, type VariableDeclaration } from 'ts-morph';
+import { Project, SourceFile, SyntaxKind, Node, type ClassDeclaration} from 'ts-morph';
 import { SymbolInfo, SymbolDependency } from './types';
 
-/** Type for declarations that can have descendants (functions, classes, variables) */
-type SymbolDeclaration = FunctionDeclaration | ClassDeclaration | VariableDeclaration;
 
 /** Map ts-morph kind names to category */
 function getCategory(kind: string): 'function' | 'class' | 'variable' | 'interface' | 'type' | 'other' {
@@ -178,14 +176,7 @@ export class SymbolAnalyzer {
   ): Map<string, Set<string>> {
     this.maybeResetProject();
 
-    let sourceFile = this.project.getSourceFile(filePath);
-    if (sourceFile) {
-      sourceFile.replaceWithText(content);
-    } else {
-      sourceFile = this.project.createSourceFile(filePath, content);
-      this.fileCount++;
-    }
-
+    const sourceFile = this.getOrCreateSourceFile(filePath, content);
     const exportedDeclarations = sourceFile.getExportedDeclarations();
     const exportedNames = new Set<string>(exportedDeclarations.keys());
 
@@ -193,24 +184,68 @@ export class SymbolAnalyzer {
 
     for (const [exportName, declarations] of exportedDeclarations) {
       const sourceId = `${filePath}:${exportName}`;
-      let deps = graph.get(sourceId);
-      if (!deps) {
-        deps = new Set<string>();
-        graph.set(sourceId, deps);
-      }
+      const deps = this.getOrCreateDependencySet(graph, sourceId);
+      
+      this.collectExportDependencies(declarations, exportName, exportedNames, filePath, deps);
+    }
 
-      for (const decl of declarations) {
-        const identifiers = decl.getDescendantsOfKind(SyntaxKind.Identifier);
-        for (const identifier of identifiers) {
-          const usedName = identifier.getText();
-          if (!exportedNames.has(usedName)) continue;
-          if (usedName === exportName) continue;
+    return graph;
+  }
+
+  /**
+   * Get or create a source file in the project
+   */
+  private getOrCreateSourceFile(filePath: string, content: string): SourceFile {
+    let sourceFile = this.project.getSourceFile(filePath);
+    if (sourceFile) {
+      sourceFile.replaceWithText(content);
+    } else {
+      sourceFile = this.project.createSourceFile(filePath, content);
+      this.fileCount++;
+    }
+    return sourceFile;
+  }
+
+  /**
+   * Get or create a dependency set for a source ID
+   */
+  private getOrCreateDependencySet(graph: Map<string, Set<string>>, sourceId: string): Set<string> {
+    let deps = graph.get(sourceId);
+    if (!deps) {
+      deps = new Set<string>();
+      graph.set(sourceId, deps);
+    }
+    return deps;
+  }
+
+  /**
+   * Collect dependencies from declarations for an exported symbol
+   */
+  private collectExportDependencies(
+    declarations: Node[],
+    exportName: string,
+    exportedNames: Set<string>,
+    filePath: string,
+    deps: Set<string>
+  ): void {
+    for (const decl of declarations) {
+      const identifiers = decl.getDescendantsOfKind(SyntaxKind.Identifier);
+      
+      for (const identifier of identifiers) {
+        const usedName = identifier.getText();
+        
+        if (this.isValidDependency(usedName, exportName, exportedNames)) {
           deps.add(`${filePath}:${usedName}`);
         }
       }
     }
+  }
 
-    return graph;
+  /**
+   * Check if a used name is a valid dependency (exported and not self-referencing)
+   */
+  private isValidDependency(usedName: string, exportName: string, exportedNames: Set<string>): boolean {
+    return exportedNames.has(usedName) && usedName !== exportName;
   }
   
   /**
