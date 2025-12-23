@@ -241,7 +241,7 @@ const App: React.FC = () => {
         if (message.expandAll !== undefined) {
             setExpandAll(message.expandAll);
         }
-        if (message.unusedDependencyMode) {
+        if (message.unusedDependencyMode !== undefined) {
             setUnusedDependencyMode(message.unusedDependencyMode);
         }
         if (message.filterUnused !== undefined) {

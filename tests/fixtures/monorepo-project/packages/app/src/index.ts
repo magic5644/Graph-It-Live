@@ -4,5 +4,6 @@ import { formatDate } from '#utils';
 import { helper } from '@shared/helper';
 
 export function App() {
+  console.log(helper());
   return Button;
 }
