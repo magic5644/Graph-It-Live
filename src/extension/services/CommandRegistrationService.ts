@@ -27,6 +27,7 @@ export class CommandRegistrationService {
       this.registerExpandAllCommand(),
       this.registerRefreshGraphCommand(),
       this.registerToggleViewCommand(),
+      this.registerToggleUnusedFilterCommands(),
       this.registerShowIndexStatusCommand(),
     ];
   }
@@ -39,6 +40,30 @@ export class CommandRegistrationService {
         this.handleCommandError('graph-it-live.showGraph', error, 'Graph-It-Live: Could not focus the graph');
       }
     });
+  }
+
+  private registerToggleUnusedFilterCommands(): vscode.Disposable {
+    const d1 = this.registerProviderCommand(
+      'graph-it-live.enableUnusedFilter',
+      async () => {
+        // Enforce state to true
+        if (!this.provider.getUnusedFilterActive()) {
+            await this.provider.toggleUnusedFilter();
+        }
+      },
+      'Graph-It-Live: Enable filter failed'
+    );
+    const d2 = this.registerProviderCommand(
+      'graph-it-live.disableUnusedFilter',
+      async () => {
+        // Enforce state to false
+        if (this.provider.getUnusedFilterActive()) {
+            await this.provider.toggleUnusedFilter();
+        }
+      },
+      'Graph-It-Live: Disable filter failed'
+    );
+    return vscode.Disposable.from(d1, d2);
   }
 
   private registerForceReindexCommand(): vscode.Disposable {

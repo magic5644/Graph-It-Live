@@ -56,4 +56,12 @@ export class ProviderStateManager {
   async setExpandAll(value: boolean): Promise<void> {
     await this.context.globalState.update('expandAll', value);
   }
+
+  getUnusedFilterActive(): boolean {
+    return this.context.globalState.get('unusedFilterActive', false);
+  }
+
+  async setUnusedFilterActive(value: boolean): Promise<void> {
+    await this.context.globalState.update('unusedFilterActive', value);
+  }
 }

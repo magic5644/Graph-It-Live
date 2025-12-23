@@ -98,11 +98,14 @@ export class NodeInteractionService {
     await Promise.all(referencingFiles.map(async (d) => {
       try {
         const isUsed = await this.spider.verifyDependencyUsage(d.path, nodeId);
-        if (!isUsed) {
+        if (isUsed) {
+            this.logger.debug(`✓ Used import: ${d.path} uses ${nodeId}`);
+        } else {
             // Add to unusedEdges
             const source = normalizePath(d.path);
             const target = normalizePath(nodeId);
             unusedEdges.push(`${source}->${target}`);
+            this.logger.error(`⚠️ Unused import detected: ${source} imports but doesn't use ${target}`);
         }
       } catch (err) {
         this.logger.error(`Error checking usage for ${d.path} -> ${nodeId}:`, err);

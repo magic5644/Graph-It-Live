@@ -63,6 +63,9 @@ vi.mock('vscode', () => {
                 },
             },
         },
+        commands: {
+            executeCommand: vi.fn(),
+        },
         ViewColumn: { One: 1 },
         WebviewViewProvider: class {}, //NOSONAR
         ExtensionMode: { Production: 1, Development: 2, Test: 3 },

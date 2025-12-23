@@ -1,4 +1,7 @@
 import { normalizePath } from './types';
+import { getLogger } from '../shared/logger';
+
+const log = getLogger('SymbolDependencyHelper');
 
 export interface SymbolDependencyHelperOptions {
   resolve: (from: string, to: string) => Promise<string | null>;
@@ -28,14 +31,27 @@ export class SymbolDependencyHelper {
     const normalizedDepTarget = normalizePath(dep.targetFilePath);
     const normalizedTarget = normalizePath(targetFilePath);
     
+    log.debug(`Comparing: dep.targetFilePath='${normalizedDepTarget}' vs targetFilePath='${normalizedTarget}'`);
+    
     if (normalizedDepTarget === normalizedTarget) {
+      log.debug('✓ Direct match');
       return true;
     }
     
     // Fallback: try resolving if dep.targetFilePath is still a module specifier
     // (shouldn't happen if SpiderSymbolService resolves correctly, but defensive)
+    log.debug(`Attempting fallback resolution for '${dep.targetFilePath}' from '${sourceFilePath}'`);
     const resolved = await this.resolveFn(sourceFilePath, dep.targetFilePath);
-    return resolved ? normalizePath(resolved) === normalizedTarget : false;
+    if (resolved) {
+      const normalizedResolved = normalizePath(resolved);
+      log.debug(`Resolved to: '${normalizedResolved}'`);
+      const matches = normalizedResolved === normalizedTarget;
+      log.debug(matches ? '✓ Fallback match' : '✗ No match after resolution');
+      return matches;
+    }
+    
+    log.debug('✗ Resolution failed, no match');
+    return false;
   }
 
   extractSymbolName(symbolId: string): string {

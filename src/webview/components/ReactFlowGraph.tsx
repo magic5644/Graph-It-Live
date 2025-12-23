@@ -62,6 +62,8 @@ interface ReactFlowGraphProps {
     onCancelExpand?: (nodeId?: string) => void;
     resetToken?: number;
     unusedDependencyMode?: 'none' | 'hide' | 'dim';
+    /** Whether the unused dependency filter is active (from backend state) */
+    filterUnused?: boolean;
 }
 
 function stableGlobal<T>(key: string, factory: () => T): T {
@@ -284,8 +286,16 @@ const ReactFlowGraphContent: React.FC<ReactFlowGraphProps> = ({
     onCancelExpand,
     resetToken,
     unusedDependencyMode = 'none',
+    filterUnused: backendFilterUnused,
 }) => {
-    const [filterUnused, setFilterUnused] = useState<boolean>(true);
+    const [filterUnused, setFilterUnused] = useState<boolean>(backendFilterUnused ?? false);
+
+    // Sync filterUnused state when backend state changes
+    useEffect(() => {
+        if (backendFilterUnused !== undefined) {
+            setFilterUnused(backendFilterUnused);
+        }
+    }, [backendFilterUnused]);
     const { fitView } = useReactFlow();
     const nodesInitialized = useNodesInitialized();
     const containerRef = React.useRef<HTMLDivElement | null>(null);
@@ -565,7 +575,6 @@ const ReactFlowGraphContent: React.FC<ReactFlowGraphProps> = ({
                                 background: filterUnused ? 'var(--vscode-button-background)' : 'var(--vscode-button-secondaryBackground)',
                                 color: filterUnused ? 'var(--vscode-button-foreground)' : 'var(--vscode-button-secondaryForeground)',
                                 border: '1px solid var(--vscode-button-border)',
-                                visibility: 'hidden',
                                 borderRadius: 4,
                                 padding: '6px 12px',
                                 cursor: 'pointer',

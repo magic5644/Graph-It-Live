@@ -126,6 +126,18 @@
         "title": "Toggle File/Symbol View",
         "icon": "$(sparkle)",
         "category": "Graph-It-Live"
+      },
+      {
+        "command": "graph-it-live.enableUnusedFilter",
+        "title": "Filter Unused Dependencies",
+        "icon": "$(eye)",
+        "category": "Graph-It-Live"
+      },
+      {
+        "command": "graph-it-live.disableUnusedFilter",
+        "title": "Show All Dependencies",
+        "icon": "$(eye-closed)",
+        "category": "Graph-It-Live"
       }
     ],
     "menus": {
@@ -151,6 +163,16 @@
           "command": "graph-it-live.expandAllNodes",
           "when": "view == graph-it-live.graphView",
           "group": "navigation@3"
+        },
+        {
+          "command": "graph-it-live.enableUnusedFilter",
+          "when": "view == graph-it-live.graphView && !graph-it-live.unusedFilterActive",
+          "group": "navigation@4"
+        },
+        {
+          "command": "graph-it-live.disableUnusedFilter",
+          "when": "view == graph-it-live.graphView && graph-it-live.unusedFilterActive",
+          "group": "navigation@4"
         }
       ]
     },
@@ -215,13 +237,12 @@
         "graph-it-live.unusedDependencyMode": {
           "type": "string",
           "enum": [
-            "none",
             "hide",
             "dim"
           ],
-          "default": "none",
-          "description": "How to display unused dependencies (imports not used in code). 'none' shows everything, 'hide' removes unused edges, 'dim' reduces their opacity.",
-          "markdownDescription": "How to display unused dependencies (imports not used in code).\n\n- **none**: Show all dependencies (fastest)\n- **hide**: Remove edges for imports that are not actually used in the code\n- **dim**: Show unused edges with reduced opacity"
+          "default": "hide",
+          "description": "Choose how to display unused dependencies in the graph. 'hide' removes them, 'dim' reduces their opacity.",
+          "markdownDescription": "Choose how to display unused dependencies in the graph.\n\n- **hide**: Remove edges for imports that are not actually used in the code\n- **dim**: Show unused edges with reduced opacity"
         }
       }
     }
