@@ -194,6 +194,19 @@ export class GraphProvider implements vscode.WebviewViewProvider {
                 void this._indexingManager.handleConfigUpdate(this._spider.hasReverseIndex());
             }
 
+            // Notify webview of the updated filter configuration
+            // This ensures the webview has the correct unusedDependencyMode
+            // when the user toggles the filter after changing settings
+            if (this._view) {
+                const filterActive = this._stateManager.getUnusedFilterActive();
+                const effectiveMode = filterActive ? this._configSnapshot.unusedDependencyMode : 'none';
+                this._view.webview.postMessage({
+                    command: 'updateFilter',
+                    filterUnused: filterActive,
+                    unusedDependencyMode: effectiveMode,
+                });
+            }
+
             this.updateGraph();
         }
     }
@@ -835,6 +848,7 @@ export class GraphProvider implements vscode.WebviewViewProvider {
                     // Actually, if we send isRefresh=true, it merges.
                     refreshReason: 'usage-analysis',
                     unusedDependencyMode: effectiveMode,
+                    filterUnused: filterActive,
                 };
                 
                 this._view.webview.postMessage(enrichedMessage);
