@@ -308,6 +308,35 @@ export class SymbolAnalyzer {
       usage[symbolId] = this.extractSymbolDependencies(decl, importMap);
     }
 
+    // New: Scan top-level statements for usage (expressions, export assignments, etc.)
+    const statements = sourceFile.getStatements();
+    const fileScopeUsages: Array<{ symbolId: string; filePath: string; isTypeOnly: boolean }> = [];
+    
+    for (const stmt of statements) {
+      // Skip declarations we already processed
+      if (Node.isFunctionDeclaration(stmt) || 
+          Node.isClassDeclaration(stmt) || 
+          Node.isVariableStatement(stmt) || 
+          Node.isInterfaceDeclaration(stmt) || 
+          Node.isTypeAliasDeclaration(stmt) ||
+          Node.isEnumDeclaration(stmt)) {
+        continue; 
+      }
+      
+      // Skip import declarations (definitions, not usage)
+      if (Node.isImportDeclaration(stmt)) continue;
+
+      // Extract dependencies from this statement
+      const deps = this.extractSymbolDependencies(stmt, importMap);
+      fileScopeUsages.push(...deps);
+    }
+
+    if (fileScopeUsages.length > 0) {
+      // Use a special ID for file-scope usage
+      const fileScopeId = `${filePath}:(file)`;
+      usage[fileScopeId] = fileScopeUsages;
+    }
+
     return usage;
   }
 
@@ -315,14 +344,18 @@ export class SymbolAnalyzer {
    * Extract dependencies for a single symbol declaration
    * Now includes type-only imports with isTypeOnly flag
    */
+  /**
+   * Extract dependencies for a single symbol declaration or node
+   * Now includes type-only imports with isTypeOnly flag
+   */
   private extractSymbolDependencies(
-    decl: SymbolDeclaration,
+    node: Node,
     importMap: Map<string, { originalName: string; modulePath: string; isType: boolean }>
   ): Array<{ symbolId: string; filePath: string; isTypeOnly: boolean }> {
     const dependencies: Array<{ symbolId: string; filePath: string; isTypeOnly: boolean }> = [];
     
     // Find all identifiers used within this symbol's body
-    const identifiers = decl.getDescendantsOfKind(SyntaxKind.Identifier);
+    const identifiers = node.getDescendantsOfKind(SyntaxKind.Identifier);
     
     for (const identifier of identifiers) {
       const name = identifier.getText();

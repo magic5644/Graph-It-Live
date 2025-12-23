@@ -241,5 +241,38 @@ export class SpiderSymbolService {
 
     return dependents;
   }
+
+  /**
+   * Verify if a source file actually uses any symbol from a target file.
+   * This is used to filter out unused imports from the graph.
+   */
+  async verifyDependencyUsage(sourceFile: string, targetFile: string): Promise<boolean> {
+    try {
+      // 1. Get AST-based symbol dependencies for the source file
+      const { dependencies } = await this.getSymbolGraph(sourceFile);
+
+      // 2. Check if any dependency points to the target file
+      for (const dep of dependencies) {
+        // Use helper to resolve module specifier to absolute path and compare
+        const isMatch = await this.symbolDependencyHelper.doesDependencyTargetFile(
+            dep,
+            sourceFile,
+            targetFile
+        );
+
+        if (isMatch) {
+          // If we find at least one used symbol, the dependency is "used"
+          return true;
+        }
+      }
+
+      return false;
+    } catch (error) {
+        // If analysis fails, assume used to be safe (avoid hiding potentially useful links)
+        const spiderError = SpiderError.fromError(error, sourceFile);
+        log.warn('Usage verification failed, assuming used:', spiderError.message);
+        return true;
+    }
+  }
 }
 

@@ -5,6 +5,7 @@ export interface ProviderConfigSnapshot extends BackgroundIndexingConfig {
   excludeNodeModules: boolean;
   maxDepth: number;
   indexingConcurrency: number;
+  unusedDependencyMode: 'none' | 'hide' | 'dim';
 }
 
 export class ProviderStateManager {
@@ -27,6 +28,7 @@ export class ProviderStateManager {
       indexingConcurrency: config.get<number>('indexingConcurrency', 4),
       indexingStartDelay: config.get<number>('indexingStartDelay', this.defaultIndexingDelay),
       persistIndex: config.get<boolean>('persistIndex', false),
+      unusedDependencyMode: config.get<'none' | 'hide' | 'dim'>('unusedDependencyMode', 'none'),
     };
   }
 

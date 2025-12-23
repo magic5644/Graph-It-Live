@@ -686,7 +686,7 @@ export class GraphProvider implements vscode.WebviewViewProvider {
      */
     public async updateGraph(
         isRefresh: boolean = false,
-        refreshReason: 'manual' | 'indexing' | 'fileSaved' | 'navigation' | 'fileChange' | 'unknown' = 'unknown'
+        refreshReason: 'manual' | 'indexing' | 'fileSaved' | 'navigation' | 'fileChange' | 'usage-analysis' | 'unknown' = 'unknown'
     ) {
         if (!this._view || !this._spider || !this._graphViewService) {
             log.debug('View or Spider not initialized');
@@ -733,24 +733,66 @@ export class GraphProvider implements vscode.WebviewViewProvider {
     private async _sendGraphUpdate(
         filePath: string,
         isRefresh: boolean,
-        refreshReason: 'manual' | 'indexing' | 'fileSaved' | 'fileChange' | 'navigation' | 'unknown' = 'unknown'
+        refreshReason: 'manual' | 'indexing' | 'fileSaved' | 'fileChange' | 'navigation' | 'usage-analysis' | 'unknown' = 'unknown'
     ): Promise<void> {
         if (!this._graphViewService || !this._view) {
             return;
         }
 
         try {
-            const graphData = await this._graphViewService.buildGraphData(filePath);
+            // Step 1: Send immediate graph (fast, no usage check)
+            const checkUsage = this._configSnapshot.unusedDependencyMode !== 'none';
+            // Always build without check first to show something quickly
+            const initialGraphData = await this._graphViewService.buildGraphData(filePath, false);
+            
             const expandAll = this._stateManager.getExpandAll();
-            const message: ExtensionToWebviewMessage = {
+            
+            // If checking usage is enabled, we'll send a second update. 
+            // If NOT checking usage, this is the only update.
+            // If checking usage, we still send this one first so the user sees the graph immediately.
+            
+            const initialMessage: ExtensionToWebviewMessage = {
                 command: 'updateGraph',
                 filePath,
-                data: graphData,
+                data: initialGraphData,
                 expandAll,
                 isRefresh,
                 refreshReason,
+                unusedDependencyMode: this._configSnapshot.unusedDependencyMode,
             };
-            this._view.webview.postMessage(message);
+            this._view.webview.postMessage(initialMessage);
+
+            // Step 2: If usage check is required, perform it and send update
+            if (checkUsage) {
+                log.debug('Performing background usage analysis for', filePath);
+                // We reuse the nodes/edges from initial data to avoid re-crawling if possible,
+                // but buildGraphData is cleaner. For now, calling it again with checkUsage=true.
+                // Optimization: GraphViewService could accept existing GraphData?
+                // For now, re-crawling (regex) is cheap compared to AST.
+                const enrichedGraphData = await this._graphViewService.buildGraphData(filePath, true);
+                
+                // Only send update if unused edges were found (or if we need to confirm they are empty?)
+                // Actually, we should confirm if they are computed. 
+                // Using the specific 'done' state or just replacing the data.
+                
+                // Verify if we actually found different data or if we just added unusedEdges (which might be empty).
+                // Ensure we don't trigger unnecessary re-renders if nothing changed.
+                // But unusedEdges property presence is the change.
+                
+                const enrichedMessage: ExtensionToWebviewMessage = {
+                    command: 'updateGraph',
+                    filePath,
+                    data: enrichedGraphData,
+                    expandAll, // Keep same expansion state
+                    isRefresh: true, // Treat as refresh to avoid internal navigation reset?
+                    // Actually, if we send isRefresh=true, it merges.
+                    refreshReason: 'usage-analysis',
+                    unusedDependencyMode: this._configSnapshot.unusedDependencyMode,
+                };
+                
+                this._view.webview.postMessage(enrichedMessage);
+            }
+
         } catch (error) {
             log.error('Failed to analyze file:', error);
         }

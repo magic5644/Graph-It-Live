@@ -560,6 +560,7 @@ RETURNS: A complete graph with nodes (files with metadata: path, extension, depe
       maxDepth: z.number().optional().describe('Maximum depth to crawl. Default is 50. Use smaller values (3-10) for quick exploration, larger for complete analysis.'),
       limit: z.number().optional().describe('Maximum number of nodes to return per request. Use for pagination when dealing with large graphs.'),
       offset: z.number().optional().describe('Number of nodes to skip. Use with limit for pagination through large result sets.'),
+      onlyUsed: z.boolean().optional().describe('If true, only returns edges where symbols are actually used. Requires slower AST analysis but provides a cleaner graph.'),
       response_format: ResponseFormatSchema.describe("Output format: 'json', 'markdown', or 'toon' (Token-Oriented Object Notation for reduced token usage) (default: toon - RECOMMENDED for 30-60% token savings)"),
     }),
     outputSchema: McpToolResponseSchema,
@@ -570,12 +571,12 @@ RETURNS: A complete graph with nodes (files with metadata: path, extension, depe
       openWorldHint: false,
     },
   },
-  async ({ entryFile, maxDepth, limit, offset, response_format }) => {
+  async ({ entryFile, maxDepth, limit, offset, onlyUsed, response_format }) => {
     const workerCheck = await ensureWorkerReady();
     const responseFormat = response_format ?? 'json';
     if (workerCheck.error) return formatToolResponse(workerCheck.response, responseFormat);
 
-    const params = { entryFile, maxDepth, limit, offset };
+    const params = { entryFile, maxDepth, limit, offset, onlyUsed };
     const result = await workerHost!.invoke<CrawlDependencyGraphResult>(
       'crawl_dependency_graph',
       params
@@ -708,6 +709,43 @@ RETURNS: An array of raw import/require/export statements as they appear in the 
     if (workerCheck.error) return formatToolResponse(workerCheck.response, responseFormat);
 
     const response = await invokeToolWithResponse<ParseImportsResult>('parse_imports', { filePath });
+
+    return formatToolResponse(response, responseFormat);
+  }
+);
+
+// Tool: graphitlive_verify_dependency_usage
+server.registerTool(
+  'graphitlive_verify_dependency_usage',
+  {
+    title: 'Verify Dependency Usage',
+    description: `USE THIS TOOL WHEN you want to check if a dependency between two files is real/used, or if it's dead code (unused import). Examples: "Is main.ts actually using utils.ts?", "Check if this import is unused", "Verify dependency usage between these files"
+
+WHY: Raw imports don't tell the whole story. A file might import something but never use it. This tool performs deep AST analysis to verify if symbols from the target file are actually referenced in the source file. This is crucial for identifying dead code or unnecessary dependencies.
+
+RETURNS: Boolean indicating if the dependency is used.`,
+    inputSchema: z.object({
+      sourceFile: z.string().describe('The absolute path to the source file (the one containing the import).'),
+      targetFile: z.string().describe('The absolute path to the target file (the one being imported).'),
+      response_format: ResponseFormatSchema.describe("Output format: 'json', 'markdown', or 'toon' (Token-Oriented Object Notation for reduced token usage) (default: toon - RECOMMENDED for 30-60% token savings)"),
+    }),
+    outputSchema: McpToolResponseSchema,
+    annotations: {
+      readOnlyHint: true,
+      destructiveHint: false,
+      idempotentHint: true,
+      openWorldHint: false,
+    },
+  },
+  async ({ sourceFile, targetFile, response_format }) => {
+    const workerCheck = await ensureWorkerReady();
+    const responseFormat = response_format ?? 'json';
+    if (workerCheck.error) return formatToolResponse(workerCheck.response, responseFormat);
+
+    const response = await invokeToolWithResponse<unknown>('verify_dependency_usage', {
+      sourceFile,
+      targetFile
+    });
 
     return formatToolResponse(response, responseFormat);
   }

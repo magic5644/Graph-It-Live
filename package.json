@@ -211,6 +211,17 @@
           "default": "info",
           "description": "Logging level for the extension. Debug shows all logs, none disables logging.",
           "markdownDescription": "Logging level for the extension output channel.\n\n- **debug**: Verbose output for troubleshooting\n- **info**: Standard operation logs\n- **warn**: Warnings only\n- **error**: Errors only\n- **none**: Disable logging"
+        },
+        "graph-it-live.unusedDependencyMode": {
+          "type": "string",
+          "enum": [
+            "none",
+            "hide",
+            "dim"
+          ],
+          "default": "none",
+          "description": "How to display unused dependencies (imports not used in code). 'none' shows everything, 'hide' removes unused edges, 'dim' reduces their opacity.",
+          "markdownDescription": "How to display unused dependencies (imports not used in code).\n\n- **none**: Show all dependencies (fastest)\n- **hide**: Remove edges for imports that are not actually used in the code\n- **dim**: Show unused edges with reduced opacity"
         }
       }
     }

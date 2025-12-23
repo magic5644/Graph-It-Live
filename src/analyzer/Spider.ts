@@ -321,6 +321,10 @@ export class Spider {
     return this.symbolService.findUnusedSymbols(filePath);
   }
 
+  async verifyDependencyUsage(sourceFile: string, targetFile: string): Promise<boolean> {
+    return this.symbolService.verifyDependencyUsage(sourceFile, targetFile);
+  }
+
   async getSymbolDependents(filePath: string, symbolName: string): Promise<import('./types').SymbolDependency[]> {
     return this.symbolService.getSymbolDependents(filePath, symbolName);
   }
