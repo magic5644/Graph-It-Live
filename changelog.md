@@ -1,5 +1,36 @@
 # Changelog
 
+## Unreleased
+
+### New Features
+
+- **Unused Dependency Filter**: Smart filter to visualize only the dependencies that are actually used in your code
+  - New toolbar button (eye icon) to toggle between showing all dependencies and filtering unused ones
+  - Two display modes configurable via settings:
+    - **hide** (default): Completely removes unused edges from the graph for a cleaner view
+    - **dim**: Shows unused edges with reduced opacity (0.3) and dashed lines for visual distinction
+  - Works for both outgoing dependencies (what you import) and incoming references (files that import you)
+  - Uses AST-based analysis to determine if an imported symbol is actually used in the code
+  - State persists across sessions for consistent experience
+  - New configuration setting: `graph-it-live.unusedDependencyMode`
+  - Commands:
+    - `graph-it-live.enableUnusedFilter`: Enable the filter (shows eye icon)
+    - `graph-it-live.disableUnusedFilter`: Disable the filter (shows eye-closed icon)
+
+### Improvements
+
+- **Filter State Management**: Filter state is now properly synchronized between the extension backend and webview
+  - New `updateFilter` message type for lightweight state updates without rebuilding the graph
+  - Preserves expanded nodes and referencing files when toggling the filter
+  - Context key `graph-it-live.unusedFilterActive` controls toolbar button visibility
+
+### Performance
+
+- **Incremental Filter Updates**: Toggling the filter no longer rebuilds the entire graph from scratch
+  - Only updates edge visibility and styling, preserving all current view state
+  - Significantly faster toggle response time on large graphs
+
+
 ## v1.4.1
 
 ### Performance Improvements
