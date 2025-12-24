@@ -68,4 +68,29 @@ export class SymbolDependencyHelper {
   buildUsedSymbolId(targetFilePath: string, symbolName: string): string {
     return `${normalizePath(targetFilePath)}:${symbolName}`;
   }
+
+  /**
+   * Resolve a dependency's target path to an absolute path.
+   * Returns normalized absolute path or null if resolution fails.
+   * Used for batch processing optimization.
+   */
+  async resolveTargetPath(
+    dep: import('./types').SymbolDependency,
+    sourceFilePath: string
+  ): Promise<string | null> {
+    const normalizedDepTarget = normalizePath(dep.targetFilePath);
+    
+    // If already absolute, return as-is
+    if (normalizedDepTarget.startsWith('/') || /^[a-zA-Z]:\//.test(normalizedDepTarget)) {
+      return normalizedDepTarget;
+    }
+    
+    // Otherwise resolve module specifier
+    try {
+      const resolved = await this.resolveFn(sourceFilePath, dep.targetFilePath);
+      return resolved ? normalizePath(resolved) : null;
+    } catch {
+      return null;
+    }
+  }
 }

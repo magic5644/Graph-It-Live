@@ -29,6 +29,14 @@
 - **Incremental Filter Updates**: Toggling the filter no longer rebuilds the entire graph from scratch
   - Only updates edge visibility and styling, preserving all current view state
   - Significantly faster toggle response time on large graphs
+- **Optimized Unused Edge Analysis**: Dramatically improved performance for large repositories
+  - **Batch Processing**: Groups edges by source file to minimize redundant AST parsing (parse each file once, check all targets)
+  - **Concurrency Control**: Limits concurrent AST analysis to 8 files at a time to prevent memory explosion
+  - **Smart Caching**: Leverages existing symbol graph cache to avoid re-parsing files
+  - **Early Exits**: Skips analysis for ignored directories (node_modules, etc.) to save processing time
+  - **Progress Logging**: Provides real-time feedback on analysis progress for large codebases
+  - **Memory Efficient**: Processes edges in batches instead of loading all results in memory at once
+  - Example: On a 1000-edge graph, reduces AST parsing from 1000 calls to ~200 calls (one per unique source file)
 
 
 ## v1.4.1

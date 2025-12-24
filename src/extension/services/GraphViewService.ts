@@ -63,31 +63,66 @@ export class GraphViewService {
   private async populateUnusedEdges(graphData: GraphData): Promise<void> {
     const unusedEdges: string[] = [];
     
-    // Process edges in parallel with a concurrency limit if needed, 
-    // but here we just use Promise.all as the worker can handle queueing.
-    // However, thousands of messages might overload it.
-    // For now, simple implementation.
-    
-    const checks = await Promise.all(
-      graphData.edges.map(async (edge) => {
-        const isUsed = await this.spider.verifyDependencyUsage(edge.source, edge.target);
-        return { edge, isUsed };
-      })
-    );
+    // Optimization: Group edges by source file to minimize AST parsing
+    // Each source file is only analyzed once using batch API
+    const edgesBySource = new Map<string, Array<{ source: string; target: string }>>();
+    for (const edge of graphData.edges) {
+      const group = edgesBySource.get(edge.source) || [];
+      group.push(edge);
+      edgesBySource.set(edge.source, group);
+    }
 
-    for (const { edge, isUsed } of checks) {
-      if (!isUsed) {
-        // ID format matches buildGraph.ts: `${edge.source}->${edge.target}`
-        // Ideally we should use a shared helper for ID generation
-        // Note: verifyDependencyUsage takes raw paths, but edge.source/target from crawl are usually normalized.
-        // We assume they match what buildGraph uses (normalized).
-        unusedEdges.push(`${edge.source}->${edge.target}`);
+    this.logger.info(`Analyzing ${edgesBySource.size} source files for unused edges (${graphData.edges.length} total edges)`);
+
+    // Process source files with concurrency limit to avoid memory explosion
+    const CONCURRENCY = 8; // Process 8 source files at a time
+    const sourceFiles = Array.from(edgesBySource.keys());
+    
+    for (let i = 0; i < sourceFiles.length; i += CONCURRENCY) {
+      const batch = sourceFiles.slice(i, i + CONCURRENCY);
+      
+      const batchResults = await Promise.all(
+        batch.map(async (sourceFile) => {
+          const edges = edgesBySource.get(sourceFile)!;
+          const targetFiles = edges.map(e => e.target);
+          
+          try {
+            // OPTIMIZATION: Use batch API to analyze all targets from this source in one AST pass
+            const usageMap = await this.spider.verifyDependencyUsageBatch(sourceFile, targetFiles);
+            
+            const results: Array<{ edge: { source: string; target: string }; isUsed: boolean }> = [];
+            for (const edge of edges) {
+              const isUsed = usageMap.get(edge.target) ?? true; // Default to used on missing
+              results.push({ edge, isUsed });
+            }
+            return results;
+          } catch (error) {
+            this.logger.warn(`Failed to analyze ${sourceFile}, assuming all edges used:`, error);
+            // On error, mark all as used to be safe
+            return edges.map(edge => ({ edge, isUsed: true }));
+          }
+        })
+      );
+
+      // Collect unused edges from this batch
+      for (const results of batchResults) {
+        for (const { edge, isUsed } of results) {
+          if (!isUsed) {
+            unusedEdges.push(`${edge.source}->${edge.target}`);
+          }
+        }
       }
+      
+      // Progress logging
+      const processed = Math.min(i + CONCURRENCY, sourceFiles.length);
+      this.logger.debug(`Progress: ${processed}/${sourceFiles.length} source files analyzed`);
     }
 
     if (unusedEdges.length > 0) {
       graphData.unusedEdges = unusedEdges;
-      this.logger.info(`Found ${unusedEdges.length} unused edges`);
+      this.logger.info(`Found ${unusedEdges.length} unused edges out of ${graphData.edges.length} total`);
+    } else {
+      this.logger.info(`All ${graphData.edges.length} edges are in use`);
     }
   }
 }

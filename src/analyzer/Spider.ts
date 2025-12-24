@@ -325,6 +325,10 @@ export class Spider {
     return this.symbolService.verifyDependencyUsage(sourceFile, targetFile);
   }
 
+  async verifyDependencyUsageBatch(sourceFile: string, targetFiles: string[]): Promise<Map<string, boolean>> {
+    return this.symbolService.verifyDependencyUsageBatch(sourceFile, targetFiles);
+  }
+
   async getSymbolDependents(filePath: string, symbolName: string): Promise<import('./types').SymbolDependency[]> {
     return this.symbolService.getSymbolDependents(filePath, symbolName);
   }
