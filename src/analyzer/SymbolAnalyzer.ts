@@ -389,22 +389,31 @@ export class SymbolAnalyzer {
   ): Array<{ symbolId: string; filePath: string; isTypeOnly: boolean }> {
     const dependencies: Array<{ symbolId: string; filePath: string; isTypeOnly: boolean }> = [];
     
-    // Find all identifiers used within this symbol's body
+    // Extract dependencies from static imports
+    this.extractStaticImportDependencies(node, importMap, dependencies);
+    
+    // Extract dependencies from dynamic import() calls
+    this.extractDynamicImportDependencies(node, dependencies);
+
+    return dependencies;
+  }
+
+  /**
+   * Extract dependencies from static import declarations
+   */
+  private extractStaticImportDependencies(
+    node: Node,
+    importMap: Map<string, { originalName: string; modulePath: string; isType: boolean }>,
+    dependencies: Array<{ symbolId: string; filePath: string; isTypeOnly: boolean }>
+  ): void {
     const identifiers = node.getDescendantsOfKind(SyntaxKind.Identifier);
     
     for (const identifier of identifiers) {
-      const name = identifier.getText();
-      
-      // Check if this identifier is an imported symbol
-      const importInfo = importMap.get(name);
+      const importInfo = importMap.get(identifier.getText());
       if (!importInfo) continue;
 
-      // Include both runtime and type-only imports, marking them appropriately
-      const targetSymbolId = importInfo.originalName === 'default'
-        ? `${importInfo.modulePath}:default`
-        : `${importInfo.modulePath}:${importInfo.originalName}`;
+      const targetSymbolId = this.buildTargetSymbolId(importInfo);
       
-      // Avoid duplicates
       if (!dependencies.some(d => d.symbolId === targetSymbolId)) {
         dependencies.push({
           symbolId: targetSymbolId,
@@ -413,8 +422,58 @@ export class SymbolAnalyzer {
         });
       }
     }
+  }
 
-    return dependencies;
+  /**
+   * Extract dependencies from dynamic import() calls
+   */
+  private extractDynamicImportDependencies(
+    node: Node,
+    dependencies: Array<{ symbolId: string; filePath: string; isTypeOnly: boolean }>
+  ): void {
+    const callExpressions = node.getDescendantsOfKind(SyntaxKind.CallExpression);
+    
+    for (const callExpr of callExpressions) {
+      const modulePath = this.extractDynamicImportPath(callExpr);
+      if (!modulePath) continue;
+
+      const targetSymbolId = `${modulePath}:default`;
+      
+      if (!dependencies.some(d => d.symbolId === targetSymbolId)) {
+        dependencies.push({
+          symbolId: targetSymbolId,
+          filePath: modulePath,
+          isTypeOnly: false,
+        });
+      }
+    }
+  }
+
+  /**
+   * Extract module path from dynamic import() call expression
+   */
+  private extractDynamicImportPath(callExpr: Node): string | null {
+    if (!Node.isCallExpression(callExpr)) return null;
+    
+    const expr = callExpr.getExpression();
+    if (expr.getKind() !== SyntaxKind.ImportKeyword) return null;
+
+    const args = callExpr.getArguments();
+    if (args.length === 0) return null;
+
+    const firstArg = args[0];
+    if (!Node.isStringLiteral(firstArg)) return null;
+
+    return firstArg.getLiteralValue();
+  }
+
+  /**
+   * Build target symbol ID from import info
+   */
+  private buildTargetSymbolId(importInfo: { originalName: string; modulePath: string }): string {
+    return importInfo.originalName === 'default'
+      ? `${importInfo.modulePath}:default`
+      : `${importInfo.modulePath}:${importInfo.originalName}`;
   }
 
   /**
