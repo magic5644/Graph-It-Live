@@ -284,6 +284,13 @@ export class SpiderSymbolService {
         return true;
       }
       
+      // GraphQL files don't support AST analysis - skip symbol verification
+      // They use regex-based #import parsing which is already validated by file-level crawl
+      if (this.isGraphQLFile(normalizedSource)) {
+        log.debug(`Skipping symbol analysis for GraphQL file: ${normalizedSource}`);
+        return true; // All imports in GraphQL are considered used
+      }
+      
       // 1. Get AST-based symbol dependencies for the source file (cached)
       const { dependencies } = await this.getSymbolGraph(normalizedSource);
       
@@ -333,57 +340,93 @@ export class SpiderSymbolService {
    * @returns Map of targetFile -> isUsed
    */
   async verifyDependencyUsageBatch(sourceFile: string, targetFiles: string[]): Promise<Map<string, boolean>> {
-    const results = new Map<string, boolean>();
-    
     try {
       const normalizedSource = normalizePath(sourceFile);
+      
+      // GraphQL files don't support AST analysis - all imports are considered used
+      if (this.isGraphQLFile(normalizedSource)) {
+        log.debug(`Skipping symbol analysis for GraphQL file: ${normalizedSource}`);
+        return this.markAllAsUsed(targetFiles);
+      }
       
       // Get symbol graph once for all targets
       const { dependencies } = await this.getSymbolGraph(normalizedSource);
       
       if (dependencies.length === 0) {
-        // No dependencies, all targets are unused
-        for (const target of targetFiles) {
-          results.set(target, false);
-        }
-        return results;
+        return this.markAllAsUnused(targetFiles);
       }
 
-      // Build a set of resolved target paths from dependencies
-      const resolvedTargets = new Set<string>();
-      for (const dep of dependencies) {
-        try {
-          const resolved = await this.symbolDependencyHelper.resolveTargetPath(dep, normalizedSource);
-          if (resolved) {
-            resolvedTargets.add(normalizePath(resolved));
-          }
-        } catch {
-          // Ignore resolution errors
-        }
-      }
+      // Build resolved target paths set
+      const resolvedTargets = await this.buildResolvedTargetsSet(dependencies, normalizedSource);
 
       // Check each target against the resolved set
-      for (const target of targetFiles) {
-        const normalizedTarget = normalizePath(target);
-        
-        // Early exit: if target is in ignored directory, assume used
-        if (isInIgnoredDirectory(normalizedTarget)) {
-          results.set(target, true);
-          continue;
-        }
-
-        results.set(target, resolvedTargets.has(normalizedTarget));
-      }
+      return this.checkTargetsAgainstResolved(targetFiles, resolvedTargets);
     } catch (error) {
       // On error, assume all used to be safe
       const spiderError = SpiderError.fromError(error, sourceFile);
       log.warn('Batch usage verification failed, assuming all used:', spiderError.message);
-      for (const target of targetFiles) {
-        results.set(target, true);
+      return this.markAllAsUsed(targetFiles);
+    }
+  }
+
+  private markAllAsUsed(targetFiles: string[]): Map<string, boolean> {
+    const results = new Map<string, boolean>();
+    for (const target of targetFiles) {
+      results.set(target, true);
+    }
+    return results;
+  }
+
+  private markAllAsUnused(targetFiles: string[]): Map<string, boolean> {
+    const results = new Map<string, boolean>();
+    for (const target of targetFiles) {
+      results.set(target, false);
+    }
+    return results;
+  }
+
+  private async buildResolvedTargetsSet(
+    dependencies: SymbolDependency[],
+    normalizedSource: string
+  ): Promise<Set<string>> {
+    const resolvedTargets = new Set<string>();
+    for (const dep of dependencies) {
+      try {
+        const resolved = await this.symbolDependencyHelper.resolveTargetPath(dep, normalizedSource);
+        if (resolved) {
+          resolvedTargets.add(normalizePath(resolved));
+        }
+      } catch {
+        // Ignore resolution errors
       }
     }
+    return resolvedTargets;
+  }
 
+  private checkTargetsAgainstResolved(
+    targetFiles: string[],
+    resolvedTargets: Set<string>
+  ): Map<string, boolean> {
+    const results = new Map<string, boolean>();
+    for (const target of targetFiles) {
+      const normalizedTarget = normalizePath(target);
+      
+      // Early exit: if target is in ignored directory, assume used
+      if (isInIgnoredDirectory(normalizedTarget)) {
+        results.set(target, true);
+        continue;
+      }
+
+      results.set(target, resolvedTargets.has(normalizedTarget));
+    }
     return results;
+  }
+
+  /**
+   * Check if a file is a GraphQL file (.gql or .graphql)
+   */
+  private isGraphQLFile(filePath: string): boolean {
+    return filePath.endsWith('.gql') || filePath.endsWith('.graphql');
   }
 }
 
