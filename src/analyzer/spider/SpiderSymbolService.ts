@@ -57,14 +57,16 @@ export class SpiderSymbolService {
         result.dependencies.map(async (dep) => {
           try {
             const resolved = await this.resolver.resolve(key, dep.targetFilePath);
-            return {
-              ...dep,
-              targetFilePath: normalizePath(resolved),
-            };
+            if (resolved) {
+              return {
+                ...dep,
+                targetFilePath: normalizePath(resolved),
+              };
+            }
           } catch {
             // If resolution fails, keep original module specifier
-            return dep;
           }
+          return dep;
         })
       );
 
@@ -268,6 +270,8 @@ export class SpiderSymbolService {
   /**
    * Verify if a source file actually uses any symbol from a target file.
    * This is used to filter out unused imports from the graph.
+   * 
+   * OPTIMIZATION: Uses cached symbol graph when available to minimize AST parsing.
    */
   async verifyDependencyUsage(sourceFile: string, targetFile: string): Promise<boolean> {
     try {
@@ -275,15 +279,29 @@ export class SpiderSymbolService {
       const normalizedSource = normalizePath(sourceFile);
       const normalizedTarget = normalizePath(targetFile);
       
-      log.debug(`Verifying usage: ${normalizedSource} -> ${normalizedTarget}`);
+      // Early exit: if target is in node_modules or ignored directory, assume used
+      if (isInIgnoredDirectory(normalizedTarget)) {
+        return true;
+      }
       
-      // 1. Get AST-based symbol dependencies for the source file
+      // 1. Get AST-based symbol dependencies for the source file (cached)
       const { dependencies } = await this.getSymbolGraph(normalizedSource);
       
-      log.debug(`Found ${dependencies.length} dependencies in ${normalizedSource}`);
+      if (dependencies.length === 0) {
+        return false; // No dependencies at all
+      }
 
       // 2. Check if any dependency points to the target file
-      for (const dep of dependencies) {
+      // OPTIMIZATION: Pre-filter by checking if targetFilePath contains the target basename
+      // to avoid expensive path resolution for obviously unrelated dependencies
+      const targetBasename = normalizedTarget.split('/').pop() || '';
+      const candidateDeps = dependencies.filter(dep => 
+        dep.targetFilePath === normalizedTarget || 
+        dep.targetFilePath.includes(targetBasename) ||
+        !dep.targetFilePath.startsWith('/')
+      );
+
+      for (const dep of candidateDeps) {
         // Use helper to resolve module specifier to absolute path and compare
         const isMatch = await this.symbolDependencyHelper.doesDependencyTargetFile(
             dep,
@@ -292,13 +310,10 @@ export class SpiderSymbolService {
         );
 
         if (isMatch) {
-          // If we find at least one used symbol, the dependency is "used"
-          log.debug(`✓ Found matching dependency: ${dep.sourceSymbolId} uses ${dep.targetSymbolId}`);
-          return true;
+          return true; // If we find at least one used symbol, the dependency is "used"
         }
       }
 
-      log.debug(`✗ No matching dependencies found for ${normalizedTarget}`);
       return false;
     } catch (error) {
         // If analysis fails, assume used to be safe (avoid hiding potentially useful links)
@@ -306,6 +321,69 @@ export class SpiderSymbolService {
         log.warn('Usage verification failed, assuming used:', spiderError.message);
         return true;
     }
+  }
+
+  /**
+   * BATCH OPTIMIZATION: Verify multiple target files from the same source in one pass.
+   * This is more efficient than calling verifyDependencyUsage() multiple times
+   * because it only fetches the source's symbol graph once.
+   * 
+   * @param sourceFile - The source file to check
+   * @param targetFiles - Array of target files to verify
+   * @returns Map of targetFile -> isUsed
+   */
+  async verifyDependencyUsageBatch(sourceFile: string, targetFiles: string[]): Promise<Map<string, boolean>> {
+    const results = new Map<string, boolean>();
+    
+    try {
+      const normalizedSource = normalizePath(sourceFile);
+      
+      // Get symbol graph once for all targets
+      const { dependencies } = await this.getSymbolGraph(normalizedSource);
+      
+      if (dependencies.length === 0) {
+        // No dependencies, all targets are unused
+        for (const target of targetFiles) {
+          results.set(target, false);
+        }
+        return results;
+      }
+
+      // Build a set of resolved target paths from dependencies
+      const resolvedTargets = new Set<string>();
+      for (const dep of dependencies) {
+        try {
+          const resolved = await this.symbolDependencyHelper.resolveTargetPath(dep, normalizedSource);
+          if (resolved) {
+            resolvedTargets.add(normalizePath(resolved));
+          }
+        } catch {
+          // Ignore resolution errors
+        }
+      }
+
+      // Check each target against the resolved set
+      for (const target of targetFiles) {
+        const normalizedTarget = normalizePath(target);
+        
+        // Early exit: if target is in ignored directory, assume used
+        if (isInIgnoredDirectory(normalizedTarget)) {
+          results.set(target, true);
+          continue;
+        }
+
+        results.set(target, resolvedTargets.has(normalizedTarget));
+      }
+    } catch (error) {
+      // On error, assume all used to be safe
+      const spiderError = SpiderError.fromError(error, sourceFile);
+      log.warn('Batch usage verification failed, assuming all used:', spiderError.message);
+      for (const target of targetFiles) {
+        results.set(target, true);
+      }
+    }
+
+    return results;
   }
 }
 
