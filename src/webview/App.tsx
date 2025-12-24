@@ -74,7 +74,7 @@ class ErrorBoundary extends React.Component<
                         } catch (e) {
                             console.error('Failed to reset state before reload:', e);
                         }
-                        window.location.reload();
+                        globalThis.location.reload();
                     }}
                     style={{
                         background: 'var(--vscode-button-background)',
@@ -283,13 +283,13 @@ const App: React.FC = () => {
             });
 
             if (newNodes.length > 0 || newEdges.length > 0) {
-                const mergedParentCounts = { ...(graphData.parentCounts ?? {}), ...(message.data.parentCounts ?? {}) };
+                const mergedParentCounts = { ...graphData.parentCounts, ...message.data.parentCounts };
                 const updatedData: GraphData = {
                     nodes: [...new Set([...graphData.nodes, ...newNodes])],
                     edges: [...graphData.edges, ...newEdges.filter(e =>
                         !graphData.edges.some(ge => ge.source === e.source && ge.target === e.target)
                     )],
-                    nodeLabels: { ...(graphData.nodeLabels ?? {}), ...newLabels },
+                    nodeLabels: { ...graphData.nodeLabels, ...newLabels },
                     unusedEdges: [...new Set([...(graphData.unusedEdges || []), ...(message.data.unusedEdges || [])])]
                 };
 

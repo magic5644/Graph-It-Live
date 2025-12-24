@@ -146,7 +146,7 @@ describe('GraphProvider', () => {
             extensionMode: vscode.ExtensionMode.Test,
             asAbsolutePath: vi.fn(),
             storageUri: undefined,
-            globalStorageUri: undefined,
+            globalStorageUri: { fsPath: path.join(process.cwd(), '.test-storage') } as vscode.Uri,
             logUri: undefined,
             environmentVariableCollection: {} as any,
         } as unknown as vscode.ExtensionContext;

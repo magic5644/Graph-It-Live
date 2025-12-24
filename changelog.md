@@ -26,6 +26,28 @@
 
 ### Performance
 
+- **Low-Memory Machine Optimizations**: Comprehensive performance improvements for resource-constrained environments
+  - **Configurable Concurrency**: New setting `graph-it-live.unusedAnalysisConcurrency` (1-16, default: 4) to limit parallel AST processing
+  - **Graph Size Thresholds**: New setting `graph-it-live.unusedAnalysisMaxEdges` (default: 2000) to skip auto-analysis on massive graphs
+  - **Persistent Disk Cache**: New setting `graph-it-live.persistUnusedAnalysisCache` stores analysis results to disk
+    - Avoids re-parsing between extension reloads and VS Code restarts
+    - Invalidates cached results when files change (mtime-based validation)
+    - Expires cache entries after 24 hours automatically
+    - Debounced disk writes (5s) to reduce I/O overhead
+  - **Performance Profiles**: New setting `graph-it-live.performanceProfile` with 4 presets:
+    - `low-memory`: concurrency=2, maxEdges=1000, cache=200/100 (ideal for <8GB RAM)
+    - `default`: concurrency=4, maxEdges=2000, cache=500/200 (balanced for most machines)
+    - `high-performance`: concurrency=12, maxEdges=5000, cache=1500/800 (for powerful workstations)
+    - `custom`: **NEW** - Manual configuration mode where all performance settings become user-editable
+  - **Automatic Profile Application**: When selecting a preset profile (default/low-memory/high-performance):
+    - Settings are automatically updated in VS Code configuration
+    - Related fields become read-only to prevent conflicts
+    - Custom profile allows full manual control of all performance parameters
+  - **Configurable Caches**: Fine-tune memory usage with individual cache size limits:
+    - `graph-it-live.maxCacheSize`: LRU cache for dependency analysis (50-2000, default: 500)
+    - `graph-it-live.maxSymbolCacheSize`: LRU cache for symbol graphs (50-1000, default: 200)
+  - Profile presets override individual settings for easy one-click optimization
+
 - **Incremental Filter Updates**: Toggling the filter no longer rebuilds the entire graph from scratch
   - Only updates edge visibility and styling, preserving all current view state
   - Significantly faster toggle response time on large graphs

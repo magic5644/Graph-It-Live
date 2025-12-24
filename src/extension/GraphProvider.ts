@@ -15,6 +15,7 @@ import { SymbolViewService } from './services/SymbolViewService';
 import { NodeInteractionService } from './services/NodeInteractionService';
 import { EditorNavigationService } from './services/EditorNavigationService';
 import { ProviderStateManager, ProviderConfigSnapshot } from './services/ProviderStateManager';
+import { UnusedAnalysisCache } from './services/UnusedAnalysisCache';
 
 /** Logger instance for GraphProvider */
 const log = getExtensionLogger('GraphProvider');
@@ -39,6 +40,7 @@ export class GraphProvider implements vscode.WebviewViewProvider {
     private readonly _navigationService?: EditorNavigationService;
     private readonly _stateManager: ProviderStateManager;
     private readonly _activeExpansionControllers = new Map<string, AbortController>();
+    private readonly _unusedAnalysisCache?: UnusedAnalysisCache;
     /**
      * Optional callback used by EditorEventsService to notify MCP server.
      * Populated by extension activation if MCP server is registered.
@@ -52,18 +54,49 @@ export class GraphProvider implements vscode.WebviewViewProvider {
         return this._fileChangeScheduler;
     }
 
+    /**
+     * Get the state manager for configuration management
+     */
+    public get stateManager(): ProviderStateManager {
+        return this._stateManager;
+    }
+
+    /**
+     * Flush unused analysis cache to disk (called on deactivation)
+     */
+    public async flushCaches(): Promise<void> {
+        await this._unusedAnalysisCache?.flush();
+    }
+
+    private _initializeFilterContext(): void {
+        void vscode.commands.executeCommand('setContext', 'graph-it-live.unusedFilterActive', this._stateManager.getUnusedFilterActive());
+    }
+
     constructor(extensionUri: vscode.Uri, context: vscode.ExtensionContext) {
         this._extensionUri = extensionUri;
         this._stateManager = new ProviderStateManager(context, DEFAULT_INDEXING_START_DELAY);
         this._configSnapshot = this._stateManager.loadConfiguration();
         
-        // Initialize context for toggle button
-        void vscode.commands.executeCommand('setContext', 'graph-it-live.unusedFilterActive', this._stateManager.getUnusedFilterActive());
-
         this._initializeSpider(this._configSnapshot);
+        
+        // Initialize context for toggle button (async operation moved after init)
+        this._initializeFilterContext();
 
         if (this._spider) {
-            this._graphViewService = new GraphViewService(this._spider, log);
+            this._unusedAnalysisCache = new UnusedAnalysisCache(
+                context,
+                this._configSnapshot.persistUnusedAnalysisCache
+            );
+            
+            this._graphViewService = new GraphViewService(
+                this._spider,
+                log,
+                {
+                    unusedAnalysisConcurrency: this._configSnapshot.unusedAnalysisConcurrency,
+                    unusedAnalysisMaxEdges: this._configSnapshot.unusedAnalysisMaxEdges,
+                },
+                this._unusedAnalysisCache
+            );
             this._symbolViewService = new SymbolViewService(this._spider, log);
             this._nodeInteractionService = new NodeInteractionService(this._spider, log);
             this._navigationService = new EditorNavigationService(this._spider, log);
@@ -172,6 +205,8 @@ export class GraphProvider implements vscode.WebviewViewProvider {
                 maxDepth: config.maxDepth,
                 enableReverseIndex: config.enableBackgroundIndexing,
                 indexingConcurrency: config.indexingConcurrency,
+                maxCacheSize: config.maxCacheSize,
+                maxSymbolCacheSize: config.maxSymbolCacheSize,
             });
 
             // Don't start indexing here - it will be deferred until view is resolved
@@ -228,6 +263,9 @@ export class GraphProvider implements vscode.WebviewViewProvider {
         }
 
         log.debug('Re-analyzing saved file:', filePath);
+        
+        // Invalidate unused analysis cache for this file
+        this._unusedAnalysisCache?.invalidate([filePath]);
         
         // Re-analyze the file (invalidates cache and updates reverse index)
         await this._spider.reanalyzeFile(filePath);
@@ -678,10 +716,6 @@ export class GraphProvider implements vscode.WebviewViewProvider {
             });
         }
 
-        return {
-            expanded: newExpandAll,
-            message: newExpandAll ? 'All nodes expanded' : 'All nodes collapsed'
-        };
         return {
             expanded: newExpandAll,
             message: newExpandAll ? 'All nodes expanded' : 'All nodes collapsed'

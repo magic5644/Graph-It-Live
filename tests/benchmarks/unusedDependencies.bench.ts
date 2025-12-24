@@ -46,6 +46,17 @@ async function getGraphData() {
   return _graphData;
 }
 
+// Helper to reduce nesting depth
+async function processBatchFile(
+  spider: Spider,
+  edgesBySource: Map<string, Array<{ source: string; target: string }>>,
+  sourceFile: string
+) {
+  const edges = edgesBySource.get(sourceFile)!;
+  const targetFiles = edges.map(e => e.target);
+  await spider.verifyDependencyUsageBatch(sourceFile, targetFiles);
+}
+
 describe('Unused Dependency Analysis Performance', () => {
   beforeAll(async () => {
     // Ensure spider and graph are initialized before benchmarks
@@ -88,12 +99,8 @@ describe('Unused Dependency Analysis Performance', () => {
       const spider = await getSpider();
       const graph = await getGraphData();
       
-      const unusedEdges: string[] = [];
       for (const edge of graph.edges) {
-        const isUsed = await spider.verifyDependencyUsage(edge.source, edge.target);
-        if (!isUsed) {
-          unusedEdges.push(`${edge.source}->${edge.target}`);
-        }
+        await spider.verifyDependencyUsage(edge.source, edge.target);
       }
     });
 
@@ -109,14 +116,8 @@ describe('Unused Dependency Analysis Performance', () => {
         edgesBySource.set(edge.source, targets);
       }
       
-      const unusedEdges: string[] = [];
       for (const [source, targets] of edgesBySource) {
-        const usageMap = await spider.verifyDependencyUsageBatch(source, targets);
-        for (const [target, isUsed] of usageMap) {
-          if (!isUsed) {
-            unusedEdges.push(`${source}->${target}`);
-          }
-        }
+        await spider.verifyDependencyUsageBatch(source, targets);
       }
     });
 
@@ -133,31 +134,10 @@ describe('Unused Dependency Analysis Performance', () => {
       
       const CONCURRENCY = 8;
       const sourceFiles = Array.from(edgesBySource.keys());
-      const unusedEdges: string[] = [];
       
       for (let i = 0; i < sourceFiles.length; i += CONCURRENCY) {
         const batch = sourceFiles.slice(i, i + CONCURRENCY);
-        
-        const batchResults = await Promise.all(
-          batch.map(async (sourceFile) => {
-            const edges = edgesBySource.get(sourceFile)!;
-            const targetFiles = edges.map(e => e.target);
-            const usageMap = await spider.verifyDependencyUsageBatch(sourceFile, targetFiles);
-            
-            return edges.map(edge => ({
-              edge,
-              isUsed: usageMap.get(edge.target) ?? true,
-            }));
-          })
-        );
-        
-        for (const results of batchResults) {
-          for (const { edge, isUsed } of results) {
-            if (!isUsed) {
-              unusedEdges.push(`${edge.source}->${edge.target}`);
-            }
-          }
-        }
+        await Promise.all(batch.map(sourceFile => processBatchFile(spider, edgesBySource, sourceFile)));
       }
     });
   });

@@ -211,8 +211,11 @@
           "type": "number",
           "default": 4,
           "description": "Number of files to process in parallel during background indexing. Lower values reduce CPU usage but increase indexing time.",
+          "markdownDescription": "Number of files to process in parallel during background indexing.\n\n⚠️ **Note**: This setting is only editable when Performance Profile is set to 'custom'. Otherwise, it's automatically configured by the selected profile.",
           "minimum": 1,
-          "maximum": 16
+          "maximum": 16,
+          "editPresentation": "multilineText",
+          "order": 100
         },
         "graph-it-live.indexingStartDelay": {
           "type": "number",
@@ -243,6 +246,60 @@
           "default": "hide",
           "description": "Choose how to display unused dependencies in the graph. 'hide' removes them, 'dim' reduces their opacity.",
           "markdownDescription": "Choose how to display unused dependencies in the graph.\n\n- **hide**: Remove edges for imports that are not actually used in the code\n- **dim**: Show unused edges with reduced opacity"
+        },
+        "graph-it-live.unusedAnalysisConcurrency": {
+          "type": "number",
+          "default": 4,
+          "minimum": 1,
+          "maximum": 16,
+          "description": "Number of source files to analyze in parallel for unused dependency detection. Lower values use less memory but are slower. Adjust based on your machine's capabilities.",
+          "markdownDescription": "Number of source files to analyze in parallel for unused dependency detection.\n\n⚠️ **Note**: This setting is only editable when Performance Profile is set to 'custom'. Otherwise, it's automatically configured by the selected profile.\n\n- **1-2**: Low-memory machines (<4GB RAM)\n- **4**: Default, balanced\n- **8-16**: High-performance machines (16GB+ RAM)",
+          "order": 101
+        },
+        "graph-it-live.unusedAnalysisMaxEdges": {
+          "type": "number",
+          "default": 2000,
+          "minimum": 0,
+          "description": "Skip automatic unused dependency analysis if the graph has more edges than this threshold. Set to 0 to disable the limit. Manual analysis via toolbar button still works.",
+          "markdownDescription": "Skip automatic unused dependency analysis if the graph exceeds this edge count.\n\n⚠️ **Note**: This setting is only editable when Performance Profile is set to 'custom'. Otherwise, it's automatically configured by the selected profile.\n\n- **0**: No limit (always analyze)\n- **1000-2000**: Recommended for low-memory machines\n- **5000+**: High-performance machines",
+          "order": 102
+        },
+        "graph-it-live.persistUnusedAnalysisCache": {
+          "type": "boolean",
+          "default": false,
+          "description": "Cache unused dependency analysis results to disk for faster subsequent loads. Results are invalidated when files change.",
+          "markdownDescription": "Cache unused dependency analysis results to disk.\n\n⚠️ **Experimental**: Enable for large projects with stable dependencies. Disable if you experience stale results."
+        },
+        "graph-it-live.maxCacheSize": {
+          "type": "number",
+          "default": 500,
+          "minimum": 50,
+          "maximum": 2000,
+          "description": "Maximum number of file dependency analyses to keep in memory cache. Lower values reduce memory usage.",
+          "markdownDescription": "Maximum number of file dependency analyses to keep in memory cache.\n\n⚠️ **Note**: This setting is only editable when Performance Profile is set to 'custom'. Otherwise, it's automatically configured by the selected profile.",
+          "order": 103
+        },
+        "graph-it-live.maxSymbolCacheSize": {
+          "type": "number",
+          "default": 200,
+          "minimum": 50,
+          "maximum": 1000,
+          "description": "Maximum number of symbol analysis results to keep in memory cache. Lower values reduce memory usage.",
+          "markdownDescription": "Maximum number of symbol analysis results to keep in memory cache.\n\n⚠️ **Note**: This setting is only editable when Performance Profile is set to 'custom'. Otherwise, it's automatically configured by the selected profile.",
+          "order": 104
+        },
+        "graph-it-live.performanceProfile": {
+          "type": "string",
+          "enum": [
+            "default",
+            "low-memory",
+            "high-performance",
+            "custom"
+          ],
+          "default": "default",
+          "description": "Performance profile preset that automatically configures cache sizes and concurrency.",
+          "markdownDescription": "Performance profile preset:\n\n- **default**: Balanced settings (4GB-8GB RAM)\n- **low-memory**: Optimized for machines with <4GB RAM\n- **high-performance**: Maximizes speed on powerful machines (16GB+ RAM)\n- **custom**: Manual configuration (all performance settings become editable)",
+          "order": 99
         }
       }
     }

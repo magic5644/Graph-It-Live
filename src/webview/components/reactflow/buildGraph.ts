@@ -10,6 +10,8 @@ import { calculateNodeWidth, layoutGraph } from './layout';
 /** Logger instance for buildGraph */
 const log = getLogger('buildGraph');
 
+export type UnusedDependencyMode = 'none' | 'hide' | 'dim';
+
 export const GRAPH_LIMITS = {
   MAX_RENDER_NODES: 400,
   MAX_CYCLE_DETECT_EDGES: 3000,
@@ -62,25 +64,32 @@ function filterRelevantEdges(
 }
 
 /**
+ * Configuration for edge processing
+ */
+interface EdgeProcessingConfig {
+  currentPath: string;
+  expandAll: boolean;
+  expandedNodes: Set<string>;
+  showParents: boolean;
+  unusedEdges: string[];
+  unusedDependencyMode: UnusedDependencyMode;
+  filterUnused: boolean;
+}
+
+/**
  * Get edges for processing, applying truncation if needed
  */
 function getEdgesForProcessing(
   data: GraphData,
-  currentPath: string,
-  expandAll: boolean,
-  expandedNodes: Set<string>,
-  showParents: boolean,
-  unusedEdges: string[],
-  unusedDependencyMode: 'none' | 'hide' | 'dim',
-  filterUnused: boolean
+  config: EdgeProcessingConfig
 ): { edges: Array<{ source: string; target: string }>; truncated: boolean } {
-  const isHideMode = unusedDependencyMode === 'hide' && filterUnused;
-  const unusedEdgeSet = new Set(unusedEdges);
+  const isHideMode = config.unusedDependencyMode === 'hide' && config.filterUnused;
+  const unusedEdgeSet = new Set(config.unusedEdges);
 
   // In hide mode: filter out ALL unused edges (both incoming and outgoing)
   // In dim mode: keep all edges, styling is applied in createVisibleEdges
   let baseEdges = data.edges;
-  if (isHideMode && unusedEdges.length > 0) {
+  if (isHideMode && config.unusedEdges.length > 0) {
     baseEdges = data.edges.filter(edge => {
        const normalizedId = `${normalizePath(edge.source)}->${normalizePath(edge.target)}`;
        return !unusedEdgeSet.has(normalizedId);
@@ -93,7 +102,7 @@ function getEdgesForProcessing(
     return { edges: baseEdges, truncated: false };
   }
   
-  if (expandAll) {
+  if (config.expandAll) {
     return { 
       edges: baseEdges.slice(0, GRAPH_LIMITS.MAX_PROCESS_EDGES),
       truncated: true 
@@ -103,9 +112,9 @@ function getEdgesForProcessing(
   return {
     edges: filterRelevantEdges(
       baseEdges,
-      currentPath,
-      expandedNodes,
-      showParents,
+      config.currentPath,
+      config.expandedNodes,
+      config.showParents,
       GRAPH_LIMITS.MAX_PROCESS_EDGES
     ),
     truncated: true
@@ -284,13 +293,15 @@ export function buildReactFlowGraph(params: {
 
   const { edges: edgesForProcessing, truncated: edgesTruncated } = getEdgesForProcessing(
     data,
-    normalizedCurrentPath,
-    expandAll,
-    expandedNodes,
-    showParents,
-    unusedEdges,
-    unusedDependencyMode,
-    filterUnused
+    {
+      currentPath: normalizedCurrentPath,
+      expandAll,
+      expandedNodes,
+      showParents,
+      unusedEdges,
+      unusedDependencyMode,
+      filterUnused
+    }
   );
 
   const cycles =
