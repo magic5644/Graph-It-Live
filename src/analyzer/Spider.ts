@@ -65,8 +65,8 @@ export class Spider {
       excludeNodeModules: true,
       enableReverseIndex: false,
       indexingConcurrency: 4,
-      maxCacheSize: 1000,
-      maxSymbolCacheSize: 500,
+      maxCacheSize: 500,
+      maxSymbolCacheSize: 200,
       maxSymbolAnalyzerFiles: 100,
       ...config,
     };

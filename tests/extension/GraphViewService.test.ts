@@ -17,6 +17,10 @@ const createLogger = () => ({
 describe('GraphViewService', () => {
   let spider: Spider;
   let logger: ReturnType<typeof createLogger>;
+  const defaultConfig = {
+    unusedAnalysisConcurrency: 4,
+    unusedAnalysisMaxEdges: 2000,
+  };
 
   beforeEach(() => {
     spider = createSpider();
@@ -31,7 +35,7 @@ describe('GraphViewService', () => {
     (spider.hasReverseIndex as ReturnType<typeof vi.fn>).mockReturnValue(true);
     (spider.getCallerCount as ReturnType<typeof vi.fn>).mockReturnValue(1);
 
-    const service = new GraphViewService(spider, logger);
+    const service = new GraphViewService(spider, logger, defaultConfig);
     const data = await service.buildGraphData('fileA.ts');
 
     expect(data.parentCounts).toEqual({ 'fileA.ts': 1 });
@@ -45,7 +49,7 @@ describe('GraphViewService', () => {
     });
     (spider.hasReverseIndex as ReturnType<typeof vi.fn>).mockReturnValue(false);
 
-    const service = new GraphViewService(spider, logger);
+    const service = new GraphViewService(spider, logger, defaultConfig);
     const data = await service.buildGraphData('fileA.ts');
 
     expect(data.parentCounts).toBeUndefined();

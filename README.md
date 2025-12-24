@@ -107,6 +107,36 @@ The extension is also available on the [Open VSX Registry](https://open-vsx.org/
 
 ## Configuration
 
+### Performance Profiles
+
+For optimal performance on your machine, configure the performance profile in VS Code settings:
+
+**Setting**: `graph-it-live.performanceProfile`
+
+- **`default`** *(recommended)*: Balanced settings for most machines (4GB-8GB RAM)
+  - Concurrency: 4, Max edges: 2000, Cache: 500/200
+- **`low-memory`**: Optimized for resource-constrained machines (<4GB RAM)
+  - Concurrency: 2, Max edges: 1000, Cache: 200/100
+- **`high-performance`**: Maximizes speed on powerful workstations (16GB+ RAM)
+  - Concurrency: 12, Max edges: 5000, Cache: 1500/800
+- **`custom`**: Manual configuration - all performance settings become editable
+
+#### Automatic Profile Application
+
+When you select a preset profile (`default`, `low-memory`, or `high-performance`):
+- All related performance settings are **automatically configured**
+- Settings like `unusedAnalysisConcurrency`, `maxCacheSize`, etc. update instantly
+- Individual settings become read-only to prevent conflicts
+
+Select **`custom`** profile to unlock manual control of all performance parameters:
+- `graph-it-live.unusedAnalysisConcurrency`: Parallel file analysis (1-16)
+- `graph-it-live.unusedAnalysisMaxEdges`: Skip auto-analysis threshold (0=unlimited)
+- `graph-it-live.maxCacheSize`: Dependency cache size (50-2000)
+- `graph-it-live.maxSymbolCacheSize`: Symbol cache size (50-1000)
+- `graph-it-live.indexingConcurrency`: Background indexing parallelism (1-16)
+
+### General Settings
+
 Customize the extension in VS Code Settings (`Cmd+,` or `Ctrl+,`):
 
 <div align="center">
@@ -116,11 +146,13 @@ Customize the extension in VS Code Settings (`Cmd+,` or `Ctrl+,`):
 
 | Setting | Default | Description |
 | :--- | :--- | :--- |
+| `graph-it-live.performanceProfile` | `default` | **Performance preset**: `default`, `low-memory`, `high-performance`, or `custom` for manual control. |
 | `graph-it-live.enableMcpServer` | `false` | **Enable this for AI features.** Exposes dependency analysis tools via Model Context Protocol. |
 | `graph-it-live.maxDepth` | `50` | Maximum depth of dependencies to analyze initially. |
 | `graph-it-live.excludeNodeModules` | `true` | Whether to exclude `node_modules` imports from the graph. |
 | `graph-it-live.enableBackgroundIndexing` | `true` | Enable background indexing for instant reverse dependency lookups. |
 | `graph-it-live.unusedDependencyMode` | `hide` | How to display unused dependencies. **hide**: Remove unused edges completely. **dim**: Show unused edges with reduced opacity. |
+| `graph-it-live.persistUnusedAnalysisCache` | `false` | Cache unused dependency analysis to disk (experimental, speeds up reloads). |
 
 ## MCP Server (AI/LLM Integration)
 

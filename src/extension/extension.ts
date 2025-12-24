@@ -13,6 +13,7 @@ import { EditorEventsService } from './services/EditorEventsService';
 
 // Keep track of MCP server provider for cleanup
 let mcpServerProvider: McpServerProvider | null = null;
+let graphProvider: GraphProvider | null = null;
 
 export function activate(context: vscode.ExtensionContext) {
     // Initialize logging system
@@ -34,7 +35,22 @@ export function activate(context: vscode.ExtensionContext) {
     log.info('Graph-It-Live is now active!');
 
     const provider = new GraphProvider(context.extensionUri, context);
+    graphProvider = provider; // Keep reference for deactivation
     const commandService = new CommandRegistrationService({ provider, logger: log });
+    
+    // Watch for performance profile changes and apply preset values
+    const profileWatcher = vscode.workspace.onDidChangeConfiguration(async (e) => {
+        if (e.affectsConfiguration('graph-it-live.performanceProfile')) {
+            const config = vscode.workspace.getConfiguration('graph-it-live');
+            const profile = config.get<'default' | 'low-memory' | 'high-performance' | 'custom'>('performanceProfile', 'default');
+            
+            if (profile !== 'custom') {
+                // Apply profile settings automatically
+                await provider.stateManager.applyProfileSettings(profile);
+                log.info(`Applied performance profile: ${profile}`);
+            }
+        }
+    });
     
     // Get the fileChangeScheduler from provider (it's created during provider construction)
     const fileChangeScheduler = provider.fileChangeScheduler;
@@ -51,6 +67,9 @@ export function activate(context: vscode.ExtensionContext) {
     const disposables: vscode.Disposable[] = [
       // Output channel disposal
       outputChannel,
+      
+      // Profile watcher
+      profileWatcher,
 
       // Provider must be registered before command
       vscode.window.registerWebviewViewProvider(
@@ -79,7 +98,11 @@ export function activate(context: vscode.ExtensionContext) {
     context.subscriptions.push(...disposables);
 }
 
-export function deactivate() {
+export async function deactivate() {
+    // Flush caches to disk
+    await graphProvider?.flushCaches();
+    graphProvider = null;
+    
     // Clean up MCP server provider
     mcpServerProvider?.dispose();
     mcpServerProvider = null;
