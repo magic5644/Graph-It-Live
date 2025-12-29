@@ -3,7 +3,7 @@ import { SpiderError, normalizePath } from '../types';
 import { getLogger } from '../../shared/logger';
 import { Cache } from '../Cache';
 import { FileReader } from '../FileReader';
-import { PathResolver } from '../PathResolver';
+import { PathResolver } from '../utils/PathResolver';
 import { AstWorkerHost } from '../AstWorkerHost';
 import { SymbolDependencyHelper } from '../SymbolDependencyHelper';
 import { isInIgnoredDirectory } from '../utils/PathPredicates';

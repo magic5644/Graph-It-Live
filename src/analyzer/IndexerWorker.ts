@@ -9,7 +9,7 @@ import { parentPort, workerData } from 'node:worker_threads';
 import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
 import { Parser } from './Parser';
-import { PathResolver } from './PathResolver';
+import { PathResolver } from './utils/PathResolver';
 import type { Dependency } from './types';
 import { isSupportedSourceFile, shouldSkipDirectory } from './SourceFileFilters';
 

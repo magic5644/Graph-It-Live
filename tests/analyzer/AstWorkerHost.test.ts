@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
-import { AstWorkerHost } from '../../src/analyzer/AstWorkerHost';
+import { AstWorkerHost } from '../../src/analyzer/ast/AstWorkerHost';
 import * as path from 'node:path';
 
 describe('AstWorkerHost', () => {

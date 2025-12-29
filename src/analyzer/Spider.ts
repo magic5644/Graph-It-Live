@@ -1,5 +1,5 @@
 import { Parser } from './Parser';
-import { PathResolver } from './PathResolver';
+import { PathResolver } from './utils/PathResolver';
 import { Cache } from './Cache';
 import { ReverseIndexManager } from './ReverseIndexManager';
 import { IndexerStatus, type IndexerStatusSnapshot } from './IndexerStatus';
@@ -7,7 +7,7 @@ import type { Dependency, IndexingProgressCallback, SpiderConfig } from './types
 import { SourceFileCollector } from './SourceFileCollector';
 import { ReferencingFilesFinder } from './ReferencingFilesFinder';
 import { SymbolDependencyHelper } from './SymbolDependencyHelper';
-import { AstWorkerHost } from './AstWorkerHost';
+import { AstWorkerHost } from './ast/AstWorkerHost';
 import { FileReader } from './FileReader';
 import { yieldToEventLoop, YIELD_INTERVAL_MS } from './utils/EventLoopYield';
 import { SpiderCacheCoordinator } from './spider/SpiderCacheCoordinator';

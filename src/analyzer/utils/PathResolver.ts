@@ -1,7 +1,7 @@
 import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
-import { normalizePath } from './types';
-import { SUPPORTED_FILE_EXTENSIONS } from '../shared/constants';
+import { normalizePath } from '../types';
+import { SUPPORTED_FILE_EXTENSIONS } from '../../shared/constants';
 
 /**
  * Resolves module paths to absolute file paths

@@ -14,9 +14,9 @@ import * as path from 'node:path';
 import { watch, type FSWatcher } from 'chokidar';
 import { Spider } from '../analyzer/Spider';
 import { Parser } from '../analyzer/Parser';
-import { PathResolver } from '../analyzer/PathResolver';
+import { PathResolver } from '../analyzer/utils/PathResolver';
 import { SymbolReverseIndex } from '../analyzer/SymbolReverseIndex';
-import { AstWorkerHost } from '../analyzer/AstWorkerHost';
+import { AstWorkerHost } from '../analyzer/ast/AstWorkerHost';
 import type {
   McpWorkerMessage,
   McpWorkerResponse,
@@ -603,6 +603,111 @@ async function executeAnalyzeDependencies(
 }
 
 /**
+ * Build dependency and dependent counts from edges
+ */
+function buildEdgeCounts(edges: { source: string; target: string }[]): {
+  dependencyCount: Map<string, number>;
+  dependentCount: Map<string, number>;
+} {
+  const dependencyCount = new Map<string, number>();
+  const dependentCount = new Map<string, number>();
+
+  for (const edge of edges) {
+    dependencyCount.set(edge.source, (dependencyCount.get(edge.source) ?? 0) + 1);
+    dependentCount.set(edge.target, (dependentCount.get(edge.target) ?? 0) + 1);
+  }
+
+  return { dependencyCount, dependentCount };
+}
+
+/**
+ * Build node info with counts
+ */
+function buildNodeInfo(
+  nodePaths: string[],
+  dependencyCount: Map<string, number>,
+  dependentCount: Map<string, number>,
+  rootDir: string
+): NodeInfo[] {
+  return nodePaths.map((nodePath) => ({
+    path: nodePath,
+    relativePath: getRelativePath(nodePath, rootDir),
+    extension: nodePath.split('.').pop() ?? '',
+    dependencyCount: dependencyCount.get(nodePath) ?? 0,
+    dependentCount: dependentCount.get(nodePath) ?? 0,
+  }));
+}
+
+/**
+ * Build edge info with relative paths
+ */
+function buildEdgeInfo(
+  edges: { source: string; target: string }[],
+  rootDir: string
+): EdgeInfo[] {
+  return edges.map((edge) => ({
+    source: edge.source,
+    target: edge.target,
+    sourceRelative: getRelativePath(edge.source, rootDir),
+    targetRelative: getRelativePath(edge.target, rootDir),
+  }));
+}
+
+/**
+ * Filter edges by actual usage verification
+ */
+async function filterEdgesByUsage(edges: EdgeInfo[]): Promise<EdgeInfo[]> {
+  log.info('Filtering edges by usage (onlyUsed=true)');
+  const filteredEdges: EdgeInfo[] = [];
+
+  for (const edge of edges) {
+    try {
+      const isUsed = await spider!.verifyDependencyUsage(edge.source, edge.target);
+      if (isUsed) {
+        filteredEdges.push(edge);
+      }
+    } catch (err) {
+      log.warn(`Failed to verify usage for edge ${edge.source} -> ${edge.target}:`, err);
+      // Conservative: keep edge if verification fails
+      filteredEdges.push(edge);
+    }
+  }
+
+  return filteredEdges;
+}
+
+/**
+ * Update node counts after edge filtering
+ */
+function updateNodeCounts(nodes: NodeInfo[], edges: EdgeInfo[]): void {
+  const { dependencyCount, dependentCount } = buildEdgeCounts(edges);
+  
+  for (const node of nodes) {
+    node.dependencyCount = dependencyCount.get(node.path) || 0;
+    node.dependentCount = dependentCount.get(node.path) || 0;
+  }
+}
+
+/**
+ * Apply pagination to nodes and edges
+ */
+function applyPagination(
+  nodes: NodeInfo[],
+  edges: EdgeInfo[],
+  limit?: number,
+  offset: number = 0
+): { nodes: NodeInfo[]; edges: EdgeInfo[] } {
+  const end = limit === undefined ? undefined : offset + limit;
+  const paginatedNodes = nodes.slice(offset, end);
+  
+  // Filter edges to only include those with both nodes in paginated set
+  const nodeSet = new Set(paginatedNodes.map((n) => n.path));
+  const paginatedEdges = edges.filter((e) => nodeSet.has(e.source) && nodeSet.has(e.target));
+  
+  return { nodes: paginatedNodes, edges: paginatedEdges };
+}
+
+/**
  * Crawl the full dependency graph from an entry file
  */
 async function executeCrawlDependencyGraph(
@@ -610,7 +715,6 @@ async function executeCrawlDependencyGraph(
 ): Promise<CrawlDependencyGraphResult> {
   const { entryFile, maxDepth, limit, offset, onlyUsed } = params;
 
-  // Validate file exists
   await validateFileExists(entryFile);
 
   // Temporarily update max depth if specified
@@ -627,91 +731,29 @@ async function executeCrawlDependencyGraph(
       spider!.updateConfig({ maxDepth: originalMaxDepth });
     }
 
-    // Build node info with dependency/dependent counts
-    const dependencyCount = new Map<string, number>();
-    const dependentCount = new Map<string, number>();
-
-    for (const edge of graph.edges) {
-      dependencyCount.set(edge.source, (dependencyCount.get(edge.source) ?? 0) + 1);
-      dependentCount.set(edge.target, (dependentCount.get(edge.target) ?? 0) + 1);
-    }
-
-    // Detect circular dependencies
+    // Build initial counts and detect cycles
+    const { dependencyCount, dependentCount } = buildEdgeCounts(graph.edges);
     const circularDependencies = detectCircularDependencies(graph.edges);
 
-    // Build node info
-    let nodes: NodeInfo[] = graph.nodes.map((nodePath) => ({
-      path: nodePath,
-      relativePath: getRelativePath(nodePath, config!.rootDir),
-      extension: nodePath.split('.').pop() ?? '',
-      dependencyCount: dependencyCount.get(nodePath) ?? 0,
-      dependentCount: dependentCount.get(nodePath) ?? 0,
-    }));
+    // Build node and edge info
+    let nodes = buildNodeInfo(graph.nodes, dependencyCount, dependentCount, config!.rootDir);
+    let edges = buildEdgeInfo(graph.edges, config!.rootDir);
 
-    // Build edge info
-    let edges: EdgeInfo[] = graph.edges.map((edge) => ({
-      source: edge.source,
-      target: edge.target,
-      sourceRelative: getRelativePath(edge.source, config!.rootDir),
-      targetRelative: getRelativePath(edge.target, config!.rootDir),
-    }));
-
-    // If onlyUsed is explicitly requested, filter edges using AST usage verification
+    // Filter by usage if requested
     if (onlyUsed === true) {
-      log.info('Filtering edges by usage (onlyUsed=true)');
-      const filteredEdges: EdgeInfo[] = [];
-
-      // Only check visible edges (if pagination handles edges? No, pagination is later)
-      // Check full graph edges
-      for (const edge of edges) {
-        // Use verifyDependencyUsage exposed on Spider
-        // Note: verifyDependencyUsage takes (source, target)
-        // We catch errors to avoid failing the whole crawl on one bad file
-        try {
-          const isUsed = await spider!.verifyDependencyUsage(edge.source, edge.target);
-          if (isUsed) {
-            filteredEdges.push(edge);
-          }
-        } catch (err) {
-          log.warn(`Failed to verify usage for edge ${edge.source} -> ${edge.target}:`, err);
-          // Conservative approach: keep edge if check fails? Or drop?
-          // Let's keep it to be safe, or drop if we want strict mode.
-          // Spider.verifyDependencyUsage usually defaults to true on error?
-          // Let's assume keep.
-          filteredEdges.push(edge);
-        }
-      }
-      edges = filteredEdges;
-
-      // Re-calculate node dependency counts based on filtered edges?
-      // Yes, if we want accurate counts.
-      // But we already built NodeInfo.
-      // Let's update dependency/dependent counts.
-      const newDepCount = new Map<string, number>();
-      const newDependentCount = new Map<string, number>();
-      for (const edge of edges) {
-        newDepCount.set(edge.source, (newDepCount.get(edge.source) || 0) + 1);
-        newDependentCount.set(edge.target, (newDependentCount.get(edge.target) || 0) + 1);
-      }
-      for (const node of nodes) {
-        // Find absolute path from nodes list (which has path property)
-        // Wait, node variable here is NodeInfo.
-        node.dependencyCount = newDepCount.get(node.path) || 0;
-        node.dependentCount = newDependentCount.get(node.path) || 0;
-      }
+      edges = await filterEdgesByUsage(edges);
+      updateNodeCounts(nodes, edges);
     }
 
-    // Apply pagination if requested
+    // Store totals before pagination
     const totalNodes = nodes.length;
     const totalEdges = edges.length;
 
+    // Apply pagination if requested
     if (limit !== undefined || offset !== undefined) {
-      const start = offset ?? 0;
-      const end = limit === undefined ? undefined : start + limit;
-      nodes = nodes.slice(start, end);
-      // For edges, we filter to only include edges where both source and target are in the paginated nodes
-      const nodeSet = new Set(nodes.map((n) => n.path));
-      edges = edges.filter((e) => nodeSet.has(e.source) && nodeSet.has(e.target));
+      const paginated = applyPagination(nodes, edges, limit, offset);
+      nodes = paginated.nodes;
+      edges = paginated.edges;
     }
 
     return {
