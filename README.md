@@ -1,7 +1,7 @@
 # Graph-It-Live
 
 <div align="center">
-  <img src="media/Graph-It-Live.png" alt="Graph-It-Live Logo" width="200"/>
+  <img src="media/Graph-It-Live-Logo-256.png" alt="Graph-It-Live Logo" width="400"/>
 </div>
 
 [![Version](https://img.shields.io/visual-studio-marketplace/v/magic5644.graph-it-live?label=VS%20Code%20Marketplace&logo=visual-studio-code)](https://marketplace.visualstudio.com/items?itemName=magic5644.graph-it-live)
