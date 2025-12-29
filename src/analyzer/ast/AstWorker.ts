@@ -10,9 +10,9 @@
  */
 
 import { parentPort } from 'node:worker_threads';
-import { SymbolAnalyzer } from './SymbolAnalyzer';
-import { SignatureAnalyzer } from './SignatureAnalyzer';
-import type { SignatureInfo } from './SignatureAnalyzer';
+import { SymbolAnalyzer } from '../SymbolAnalyzer';
+import { SignatureAnalyzer } from '../SignatureAnalyzer';
+import type { SignatureInfo } from '../SignatureAnalyzer';
 
 // Worker message types
 type WorkerRequest =
@@ -145,10 +145,10 @@ if (parentPort) {
 
 // Export types for use in AstWorkerHost
 export type { WorkerRequest, WorkerResponse };
-export type { SymbolInfo, SymbolDependency } from './types';
+export type { SymbolInfo, SymbolDependency } from '../types';
 export type {
   SignatureInfo,
   InterfaceMemberInfo,
   TypeAliasInfo,
   SignatureComparisonResult,
-} from './SignatureAnalyzer';
+} from '../SignatureAnalyzer';

@@ -1,5 +1,5 @@
 import { Parser } from '../Parser';
-import { PathResolver } from '../PathResolver';
+import { PathResolver } from '../utils/PathResolver';
 import { Cache } from '../Cache';
 import { ReverseIndex } from '../ReverseIndex';
 import { ReverseIndexManager } from '../ReverseIndexManager';

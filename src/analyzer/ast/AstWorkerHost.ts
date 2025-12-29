@@ -11,14 +11,14 @@
 import { Worker } from 'node:worker_threads';
 import * as path from 'node:path';
 import * as fs from 'node:fs';
-import type { SymbolInfo, SymbolDependency } from './types';
+import type { SymbolInfo, SymbolDependency } from '../types';
 import type {
   SignatureInfo,
   InterfaceMemberInfo,
   TypeAliasInfo,
   SignatureComparisonResult,
-} from './SignatureAnalyzer';
-import { getLogger } from '../shared/logger';
+} from '../SignatureAnalyzer';
+import { getLogger } from '../../shared/logger';
 
 const log = getLogger('AstWorkerHost');
 
@@ -58,19 +58,34 @@ export class AstWorkerHost {
   constructor(workerPath?: string) {
     // Default to dist/astWorker.js relative to __dirname
     // When running from dist/extension.js: __dirname = dist/, so look for ./astWorker.js
-    // When running from src/: __dirname = src/analyzer/, so look for ../../dist/astWorker.js
+    // When running from src/analyzer/ast/: __dirname = src/analyzer/ast/, so look for ../../../dist/astWorker.js
+    // When running from tests: __dirname = out-webview/tests/analyzer/, so look for ../../../dist/astWorker.js
     
     if (workerPath) {
       this.workerPath = workerPath;
     } else {
-      // Try same directory first (when bundled, all files are in dist/)
-      const sameDirPath = path.join(__dirname, 'astWorker.js');
-      if (fs.existsSync(sameDirPath)) {
-        this.workerPath = sameDirPath;
-      } else {
-        // Fallback: try relative to source structure (for development)
-        this.workerPath = path.join(__dirname, '../../dist/astWorker.js');
+      // Try multiple paths in order of likelihood
+      const possiblePaths = [
+        // Same directory (when bundled, all files are in dist/)
+        path.join(__dirname, 'astWorker.js'),
+        // From src/analyzer/ast/ -> dist/
+        path.join(__dirname, '../../../dist/astWorker.js'),
+        // From out-webview/src/analyzer/ast/ -> dist/
+        path.join(__dirname, '../../../../dist/astWorker.js'),
+        // Absolute fallback to project root
+        path.join(process.cwd(), 'dist/astWorker.js'),
+      ];
+
+      let foundPath = '';
+      for (const candidatePath of possiblePaths) {
+        if (fs.existsSync(candidatePath)) {
+          foundPath = candidatePath;
+          break;
+        }
       }
+
+      // If still not found, use the most common path and let it fail with a clear error
+      this.workerPath = foundPath || path.join(process.cwd(), 'dist/astWorker.js');
     }
   }
 

@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import { Spider } from '../../src/analyzer/Spider';
-import { PathResolver } from '../../src/analyzer/PathResolver';
+import { PathResolver } from '../../src/analyzer/utils/PathResolver';
 import { normalizePath } from '../../src/analyzer/types';
 import path from 'node:path';
 

@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import path from 'node:path';
-import { PathResolver } from '../../src/analyzer/PathResolver';
+import { PathResolver } from '../../src/analyzer/utils/PathResolver';
 import { normalizePath } from '../../src/analyzer/types';
 import * as fs from 'node:fs/promises';
 

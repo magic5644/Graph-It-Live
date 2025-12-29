@@ -106,7 +106,7 @@ async function main() {
   // This isolates ts-morph (12MB+) from extension.js and mcpWorker.js
   // Handles SymbolAnalyzer and SignatureAnalyzer operations
   const ctxAstWorker = await esbuild.context({
-    entryPoints: ['src/analyzer/AstWorker.ts'],
+    entryPoints: ['src/analyzer/ast/AstWorker.ts'],
     bundle: true,
     format: 'cjs',
     minify: production,
