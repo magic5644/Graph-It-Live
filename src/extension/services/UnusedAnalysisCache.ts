@@ -43,6 +43,11 @@ export class UnusedAnalysisCache {
   private readonly MAX_ENTRIES: number;
   private hitCount = 0;
   private missCount = 0;
+  private missNotFoundCount = 0; // Cache entry doesn't exist
+  private missStaleCount = 0; // File modified
+  private missExpiredCount = 0; // Age > MAX_CACHE_AGE_MS
+  private missPartialCount = 0; // Missing some targets
+  private missErrorCount = 0; // Stat error
   private evictionCount = 0;
 
   constructor(
@@ -78,6 +83,8 @@ export class UnusedAnalysisCache {
     const cached = this.cache.get(normalizedSource);
     
     if (!cached) {
+      this.missNotFoundCount++;
+      this.missCount++;
       return null;
     }
 
@@ -90,6 +97,8 @@ export class UnusedAnalysisCache {
         log.debug(`Cache miss for ${sourceFile}: file modified`);
         this.cache.delete(normalizedSource);
         this.isDirty = true;
+        this.missStaleCount++;
+        this.missCount++;
         return null;
       }
 
@@ -99,6 +108,8 @@ export class UnusedAnalysisCache {
         log.debug(`Cache miss for ${sourceFile}: expired (${Math.round(age / 3600000)}h old)`);
         this.cache.delete(normalizedSource);
         this.isDirty = true;
+        this.missExpiredCount++;
+        this.missCount++;
         return null;
       }
 
@@ -106,6 +117,7 @@ export class UnusedAnalysisCache {
       const hasAll = targetFiles.every(t => cached.results.has(normalizePath(t)));
       if (!hasAll) {
         log.debug(`Cache partial hit for ${sourceFile}: missing some targets`);
+        this.missPartialCount++;
         this.missCount++;
         return null; // Partial cache not supported yet
       }
@@ -118,6 +130,7 @@ export class UnusedAnalysisCache {
       return cached.results;
     } catch (error) {
       log.warn(`Failed to stat ${sourceFile}:`, error);
+      this.missErrorCount++;
       this.missCount++;
       return null;
     }
@@ -251,6 +264,15 @@ export class UnusedAnalysisCache {
     oldestEntry: number | null;
     hitRate: number;
     evictions: number;
+    hits: number;
+    misses: number;
+    missBreakdown: {
+      notFound: number;
+      stale: number;
+      expired: number;
+      partial: number;
+      error: number;
+    };
   } {
     let totalTargets = 0;
     let oldestTimestamp: number | null = null;
@@ -272,6 +294,15 @@ export class UnusedAnalysisCache {
       oldestEntry: oldestTimestamp ? Date.now() - oldestTimestamp : null,
       hitRate: Math.round(hitRate * 100) / 100,
       evictions: this.evictionCount,
+      hits: this.hitCount,
+      misses: this.missCount,
+      missBreakdown: {
+        notFound: this.missNotFoundCount,
+        stale: this.missStaleCount,
+        expired: this.missExpiredCount,
+        partial: this.missPartialCount,
+        error: this.missErrorCount,
+      },
     };
   }
 
