@@ -1,6 +1,5 @@
 import { describe, it, expect, vi } from 'vitest';
 import { GraphViewService } from '../../../src/extension/services/GraphViewService';
-import type { GraphData } from '../../../src/shared/types';
 
 describe('GraphViewService - Performance Optimization', () => {
   it('should reuse existing graph data to avoid re-crawling when checking usage', async () => {

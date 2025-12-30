@@ -95,15 +95,8 @@ describe('MCP Server Log Rotation', () => {
     expect(fs.existsSync(testLogPath)).toBe(false);
     
     // Simulate rotation check on non-existent file
-    let errorThrown = false;
-    try {
-      fs.statSync(testLogPath);
-    } catch (error) {
-      errorThrown = true;
-      // This is expected - rotation should handle this gracefully
-    }
-    
-    expect(errorThrown).toBe(true);
+    // This should throw ENOENT error which rotation logic catches
+    expect(() => fs.statSync(testLogPath)).toThrow();
   });
 });
 
