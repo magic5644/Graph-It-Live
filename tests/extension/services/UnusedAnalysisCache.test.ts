@@ -127,8 +127,8 @@ describe('UnusedAnalysisCache - LRU Eviction', () => {
     expect(stats.misses).toBe(0); // True misses (stale/expired/partial), NOT notFound
     expect(stats.notFound).toBe(2); // Never cached
     expect(stats.totalLookups).toBe(5); // hits + misses + notFound
-    expect(stats.effectiveHitRate).toBe(1.0); // Perfect hit rate for cached entries
-    expect(stats.hitRate).toBe(1.0); // Same as effectiveHitRate
+    expect(stats.effectiveHitRate).toBe(1); // Perfect hit rate for cached entries
+    expect(stats.hitRate).toBe(1); // Same as effectiveHitRate
     expect(stats.missBreakdown.notFound).toBe(2);
 
     await cache.flush();
