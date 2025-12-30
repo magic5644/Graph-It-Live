@@ -120,10 +120,15 @@ describe('UnusedAnalysisCache - LRU Eviction', () => {
     await cache.get(nonExistent, [nonExistent]);
 
     const stats = cache.getStats();
-    // 3 hits, 2 misses = 60% hit rate
+    // 3 hits, 0 true misses, 2 notFound
+    // effectiveHitRate = 3/3 = 1.0 (100% for cached entries)
+    // hitRate = same as effectiveHitRate (new behavior)
     expect(stats.hits).toBe(3);
-    expect(stats.misses).toBe(2);
-    expect(stats.hitRate).toBe(0.6);
+    expect(stats.misses).toBe(0); // True misses (stale/expired/partial), NOT notFound
+    expect(stats.notFound).toBe(2); // Never cached
+    expect(stats.totalLookups).toBe(5); // hits + misses + notFound
+    expect(stats.effectiveHitRate).toBe(1.0); // Perfect hit rate for cached entries
+    expect(stats.hitRate).toBe(1.0); // Same as effectiveHitRate
     expect(stats.missBreakdown.notFound).toBe(2);
 
     await cache.flush();
@@ -298,9 +303,11 @@ describe('UnusedAnalysisCache - LRU Eviction', () => {
 
       const stats = cache.getStats();
       expect(stats.hits).toBe(0);
-      expect(stats.misses).toBe(1);
+      expect(stats.misses).toBe(0); // notFound is NOT a true miss
+      expect(stats.notFound).toBe(1); // Separate counter
       expect(stats.missBreakdown.notFound).toBe(1);
-      expect(stats.hitRate).toBe(0);
+      expect(stats.effectiveHitRate).toBe(0); // No cached lookups
+      expect(stats.hitRate).toBe(0); // Same as effectiveHitRate
 
       await cache.flush();
     });
@@ -425,10 +432,14 @@ describe('UnusedAnalysisCache - LRU Eviction', () => {
 
       const stats = cache.getStats();
       expect(stats.hits).toBe(3);
-      expect(stats.misses).toBe(3); // 2 notFound + 1 stale
+      expect(stats.misses).toBe(1); // Only true miss (stale), NOT notFound
+      expect(stats.notFound).toBe(2); // Never cached
       expect(stats.missBreakdown.notFound).toBe(2);
       expect(stats.missBreakdown.stale).toBe(1);
-      expect(stats.hitRate).toBe(0.5); // 3/(3+3) = 0.5
+      // effectiveHitRate = 3/(3+1) = 0.75 (75% for cached entries only)
+      // hitRate = same as effectiveHitRate (new behavior)
+      expect(stats.effectiveHitRate).toBe(0.75);
+      expect(stats.hitRate).toBe(0.75);
 
       await cache.flush();
     });

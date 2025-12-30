@@ -260,24 +260,30 @@ describe('CrawlDependencyGraphParamsSchema', () => {
     }
   });
 
-  it('accepts negative limit (no min constraint)', () => {
+  it('rejects negative limit (min constraint enforced)', () => {
     const result = CrawlDependencyGraphParamsSchema.safeParse({
       entryFile: '/project/src/main.ts',
       limit: -1,
     });
 
-    // No min constraint in current schema
-    expect(result.success).toBe(true);
+    // Min constraint now enforced (min: 1)
+    expect(result.success).toBe(false);
+    if (!result.success) {
+      expect(result.error.issues[0].message).toContain('Too small');
+    }
   });
 
-  it('accepts negative offset (no min constraint)', () => {
+  it('rejects negative offset (min constraint enforced)', () => {
     const result = CrawlDependencyGraphParamsSchema.safeParse({
       entryFile: '/project/src/main.ts',
       offset: -5,
     });
 
-    // No min constraint in current schema
-    expect(result.success).toBe(true);
+    // Min constraint now enforced (min: 0)
+    expect(result.success).toBe(false);
+    if (!result.success) {
+      expect(result.error.issues[0].message).toContain('Too small');
+    }
   });
 });
 
