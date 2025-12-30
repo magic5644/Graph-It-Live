@@ -22,9 +22,11 @@ export class GraphViewService {
     private readonly unusedCache?: UnusedAnalysisCache
   ) {}
 
-  async buildGraphData(filePath: string, checkUsage: boolean = false): Promise<GraphData> {
-    const graphData = await this.spider.crawl(filePath);
-    this.logger.info('Crawl completed:', graphData.nodes.length, 'nodes,', graphData.edges.length, 'edges');
+  async buildGraphData(filePath: string, checkUsage: boolean = false, existingGraphData?: GraphData): Promise<GraphData> {
+    const graphData = existingGraphData ?? await this.spider.crawl(filePath);
+    if (!existingGraphData) {
+      this.logger.info('Crawl completed:', graphData.nodes.length, 'nodes,', graphData.edges.length, 'edges');
+    }
 
     if (graphData.nodes.length === 0) {
       this.logger.warn('No nodes found for', filePath);

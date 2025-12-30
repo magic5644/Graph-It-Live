@@ -25,40 +25,73 @@ import * as fs from 'node:fs';
 import * as os from 'node:os';
 
 // ============================================================================
-// File Logger for Debugging (writes to ~/mcp-debug.log)
+// Secure File Logger with Rotation (opt-in via DEBUG_MCP=true)
 // ============================================================================
+const DEBUG_MCP_ENABLED = process.env.DEBUG_MCP === 'true';
 const DEBUG_LOG_PATH = `${os.homedir()}/mcp-debug.log`;
+const DEBUG_LOG_MAX_SIZE = 5 * 1024 * 1024; // 5MB per file
+const DEBUG_LOG_BACKUP = `${DEBUG_LOG_PATH}.1`;
 
 /**
- * Write a debug message to both stderr and a file for easier debugging
+ * Check log file size and rotate if necessary
+ * Keeps last 2 files: mcp-debug.log (current) and mcp-debug.log.1 (previous)
  */
-function debugLog(...args: unknown[]): void {
-  const timestamp = new Date().toISOString();
-  const message = args.map(a => typeof a === 'string' ? a : JSON.stringify(a)).join(' ');
-  const line = `[${timestamp}] ${message}\n`;
+function rotateLogIfNeeded(): void {
+  if (!DEBUG_MCP_ENABLED) return;
   
-  // Write to stderr for MCP protocol
-  console.error(message);
-  
-  // Also write to file for debugging VS Code/Antigravity issues
   try {
-    fs.appendFileSync(DEBUG_LOG_PATH, line);
+    const stats = fs.statSync(DEBUG_LOG_PATH);
+    if (stats.size >= DEBUG_LOG_MAX_SIZE) {
+      // Delete old backup if exists
+      if (fs.existsSync(DEBUG_LOG_BACKUP)) {
+        fs.unlinkSync(DEBUG_LOG_BACKUP);
+      }
+      // Rotate: current → backup
+      fs.renameSync(DEBUG_LOG_PATH, DEBUG_LOG_BACKUP);
+    }
   } catch {
-    // Ignore write errors
+    // File doesn't exist yet or other error - ignore
   }
 }
 
-// EARLY DEBUG: Log immediately to confirm process starts
-debugLog('[McpServer] ===== PROCESS STARTING =====');
-debugLog('[McpServer] Node version:', process.version);
-debugLog('[McpServer] PID:', process.pid);
-debugLog('[McpServer] cwd:', process.cwd());
-debugLog('[McpServer] argv:', JSON.stringify(process.argv));
-debugLog('[McpServer] Environment vars:');
-debugLog('  WORKSPACE_ROOT:', process.env.WORKSPACE_ROOT ?? '(not set)');
-debugLog('  TSCONFIG_PATH:', process.env.TSCONFIG_PATH ?? '(not set)');
-debugLog('  EXCLUDE_NODE_MODULES:', process.env.EXCLUDE_NODE_MODULES ?? '(not set)');
-debugLog('  MAX_DEPTH:', process.env.MAX_DEPTH ?? '(not set)');
+/**
+ * Write a debug message to both stderr and optionally to file (if DEBUG_MCP=true)
+ * Privacy: Only logs when explicitly enabled to avoid exposing project paths
+ */
+function debugLog(...args: unknown[]): void {
+  const message = args.map(a => typeof a === 'string' ? a : JSON.stringify(a)).join(' ');
+  
+  // Always write to stderr for MCP protocol
+  console.error(message);
+  
+  // Only write to file if DEBUG logging is explicitly enabled
+  if (!DEBUG_MCP_ENABLED) return;
+  
+  try {
+    rotateLogIfNeeded();
+    const timestamp = new Date().toISOString();
+    const line = `[${timestamp}] ${message}\n`;
+    fs.appendFileSync(DEBUG_LOG_PATH, line);
+  } catch {
+    // Ignore write errors to avoid crashing on permission issues
+  }
+}
+
+// EARLY DEBUG: Log immediately to confirm process starts (only if opted-in)
+if (DEBUG_MCP_ENABLED) {
+  debugLog('[McpServer] ===== PROCESS STARTING (DEBUG MODE) =====');
+  debugLog('[McpServer] Node version:', process.version);
+  debugLog('[McpServer] PID:', process.pid);
+  debugLog('[McpServer] cwd:', process.cwd());
+  debugLog('[McpServer] argv:', JSON.stringify(process.argv));
+  debugLog('[McpServer] Environment vars:');
+  debugLog('  WORKSPACE_ROOT:', process.env.WORKSPACE_ROOT ?? '(not set)');
+  debugLog('  TSCONFIG_PATH:', process.env.TSCONFIG_PATH ?? '(not set)');
+  debugLog('  EXCLUDE_NODE_MODULES:', process.env.EXCLUDE_NODE_MODULES ?? '(not set)');
+  debugLog('  MAX_DEPTH:', process.env.MAX_DEPTH ?? '(not set)');
+} else {
+  console.error('[McpServer] Starting (debug logging disabled - set DEBUG_MCP=true to enable)');
+}
 
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
