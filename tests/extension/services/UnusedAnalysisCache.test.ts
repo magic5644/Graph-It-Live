@@ -99,7 +99,7 @@ describe('UnusedAnalysisCache - LRU Eviction', () => {
     await cache.flush();
   });
 
-  it('should track hit rate correctly', async () => {
+  it('should track hit rate correctly with all misses counted', async () => {
     const cache = new UnusedAnalysisCache(mockContext, true, 10);
 
     // Add 4 entries
@@ -113,12 +113,18 @@ describe('UnusedAnalysisCache - LRU Eviction', () => {
     await cache.get(testFiles[1], [testFiles[1]]);
     await cache.get(testFiles[2], [testFiles[2]]);
 
-    // Note: querying a non-existent file doesn't count as miss
-    // Only failures after finding cache entry count
+    // 2 misses (files never cached)
+    await cache.get(testFiles[4], [testFiles[4]]);
+    const nonExistent = normalizePath(path.join(tempDir, 'non-existent.ts'));
+    await fs.writeFile(nonExistent, '// temp');
+    await cache.get(nonExistent, [nonExistent]);
 
     const stats = cache.getStats();
-    // 3 hits, 0 misses = 100% hit rate
-    expect(stats.hitRate).toBe(1);
+    // 3 hits, 2 misses = 60% hit rate
+    expect(stats.hits).toBe(3);
+    expect(stats.misses).toBe(2);
+    expect(stats.hitRate).toBe(0.6);
+    expect(stats.missBreakdown.notFound).toBe(2);
 
     await cache.flush();
   });
@@ -281,5 +287,173 @@ describe('UnusedAnalysisCache - LRU Eviction', () => {
     expect(miss).toBeNull();
 
     await cache.flush();
+  });
+
+  describe('Hit Rate Statistics - All Miss Types', () => {
+    it('should count miss when cache entry does not exist', async () => {
+      const cache = new UnusedAnalysisCache(mockContext, true, 10);
+
+      // Query file never cached
+      await cache.get(testFiles[0], [testFiles[0]]);
+
+      const stats = cache.getStats();
+      expect(stats.hits).toBe(0);
+      expect(stats.misses).toBe(1);
+      expect(stats.missBreakdown.notFound).toBe(1);
+      expect(stats.hitRate).toBe(0);
+
+      await cache.flush();
+    });
+
+    it('should count miss when file is modified (stale)', async () => {
+      const cache = new UnusedAnalysisCache(mockContext, true, 10);
+
+      // Cache entry
+      const results = new Map([[testFiles[0], true]]);
+      await cache.set(testFiles[0], results);
+
+      // Hit first
+      await cache.get(testFiles[0], [testFiles[0]]);
+
+      // Modify file
+      await new Promise(resolve => setTimeout(resolve, 10));
+      await fs.writeFile(testFiles[0], '// modified');
+
+      // Miss due to stale mtime
+      await cache.get(testFiles[0], [testFiles[0]]);
+
+      const stats = cache.getStats();
+      expect(stats.hits).toBe(1);
+      expect(stats.misses).toBe(1);
+      expect(stats.missBreakdown.stale).toBe(1);
+      expect(stats.hitRate).toBe(0.5);
+
+      await cache.flush();
+    });
+
+    it('should count miss when cache is expired', async () => {
+      const cache = new UnusedAnalysisCache(mockContext, true, 10);
+
+      // Cache entry with old timestamp (simulate expiration)
+      const results = new Map([[testFiles[0], true]]);
+      await cache.set(testFiles[0], results);
+
+      // Manually age the cache (access internal cache for testing)
+      const cacheInternal = (cache as any).cache as Map<string, any>;
+      const entry = cacheInternal.get(normalizePath(testFiles[0]));
+      if (entry) {
+        entry.timestamp = Date.now() - (25 * 60 * 60 * 1000); // 25 hours ago
+      }
+
+      // Query expired entry
+      await cache.get(testFiles[0], [testFiles[0]]);
+
+      const stats = cache.getStats();
+      expect(stats.misses).toBe(1);
+      expect(stats.missBreakdown.expired).toBe(1);
+      expect(stats.hits).toBe(0);
+      expect(stats.hitRate).toBe(0);
+
+      await cache.flush();
+    });
+
+    it('should count miss when requested targets are not all cached (partial)', async () => {
+      const cache = new UnusedAnalysisCache(mockContext, true, 10);
+
+      // Cache entry with 2 targets
+      const results = new Map([
+        [testFiles[1], true],
+        [testFiles[2], false],
+      ]);
+      await cache.set(testFiles[0], results);
+
+      // Query with 3 targets (third not cached)
+      await cache.get(testFiles[0], [testFiles[1], testFiles[2], testFiles[3]]);
+
+      const stats = cache.getStats();
+      expect(stats.misses).toBe(1);
+      expect(stats.missBreakdown.partial).toBe(1);
+      expect(stats.hitRate).toBe(0);
+
+      await cache.flush();
+    });
+
+    it('should count miss on stat error', async () => {
+      const cache = new UnusedAnalysisCache(mockContext, true, 10);
+
+      // Create and cache a file
+      const testFile = normalizePath(path.join(tempDir, 'temp-file.ts'));
+      await fs.writeFile(testFile, '// test');
+      const results = new Map([[testFile, true]]);
+      await cache.set(testFile, results);
+
+      // Delete file to cause stat error
+      await fs.unlink(testFile);
+
+      // Query deleted file
+      await cache.get(testFile, [testFile]);
+
+      const stats = cache.getStats();
+      expect(stats.misses).toBe(1);
+      expect(stats.missBreakdown.error).toBe(1);
+
+      await cache.flush();
+    });
+
+    it('should calculate accurate hit rate with mixed hits and misses', async () => {
+      const cache = new UnusedAnalysisCache(mockContext, true, 10);
+
+      // Cache 3 files
+      for (let i = 0; i < 3; i++) {
+        const results = new Map([[testFiles[i], true]]);
+        await cache.set(testFiles[i], results);
+      }
+
+      // 3 hits
+      await cache.get(testFiles[0], [testFiles[0]]);
+      await cache.get(testFiles[1], [testFiles[1]]);
+      await cache.get(testFiles[2], [testFiles[2]]);
+
+      // 2 misses (not found)
+      await cache.get(testFiles[3], [testFiles[3]]);
+      await cache.get(testFiles[4], [testFiles[4]]);
+
+      // Modify file and miss (stale)
+      await new Promise(resolve => setTimeout(resolve, 10));
+      await fs.writeFile(testFiles[0], '// modified');
+      await cache.get(testFiles[0], [testFiles[0]]);
+
+      const stats = cache.getStats();
+      expect(stats.hits).toBe(3);
+      expect(stats.misses).toBe(3); // 2 notFound + 1 stale
+      expect(stats.missBreakdown.notFound).toBe(2);
+      expect(stats.missBreakdown.stale).toBe(1);
+      expect(stats.hitRate).toBe(0.5); // 3/(3+3) = 0.5
+
+      await cache.flush();
+    });
+
+    it('should handle cross-platform paths correctly in statistics', async () => {
+      const cache = new UnusedAnalysisCache(mockContext, true, 10);
+
+      // Use different path separators (simulating cross-platform)
+      const unixPath = normalizePath(path.join(tempDir, 'file1.ts'));
+      await fs.writeFile(unixPath, '// test');
+
+      // Cache with normalized path
+      const results = new Map([[unixPath, true]]);
+      await cache.set(unixPath, results);
+
+      // Query with same logical path (normalization should match)
+      const hit = await cache.get(unixPath, [unixPath]);
+      expect(hit).not.toBeNull();
+
+      const stats = cache.getStats();
+      expect(stats.hits).toBe(1);
+      expect(stats.misses).toBe(0);
+      expect(stats.hitRate).toBe(1);
+
+      await cache.flush();
+    });
   });
 });
