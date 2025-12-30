@@ -4,6 +4,7 @@ import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
 import * as os from 'node:os';
 import { UnusedAnalysisCache } from '../../../src/extension/services/UnusedAnalysisCache';
+import { normalizePath } from '../../../src/shared/path';
 
 // Mock vscode module
 vi.mock('vscode', () => ({
@@ -30,7 +31,7 @@ describe('UnusedAnalysisCache - LRU Eviction', () => {
     tempDir = path.join(os.tmpdir(), `cache-test-${Date.now()}`);
     await fs.mkdir(tempDir, { recursive: true });
 
-    // Create test files
+    // Create test files (use native paths for file system operations)
     testFiles = [];
     for (let i = 0; i < 5; i++) {
       const filePath = path.join(tempDir, `test${i}.ts`);
@@ -61,7 +62,7 @@ describe('UnusedAnalysisCache - LRU Eviction', () => {
     // Ensure we have 11 test files
     while (testFiles.length < 11) {
       const idx = testFiles.length;
-      const filePath = path.join(tempDir, `file${idx}.ts`);
+      const filePath = normalizePath(path.join(tempDir, `file${idx}.ts`));
       await fs.writeFile(filePath, `// file ${idx}`);
       testFiles.push(filePath);
     }
