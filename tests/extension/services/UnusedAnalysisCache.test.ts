@@ -118,7 +118,7 @@ describe('UnusedAnalysisCache - LRU Eviction', () => {
 
     const stats = cache.getStats();
     // 3 hits, 0 misses = 100% hit rate
-    expect(stats.hitRate).toBe(1.0);
+    expect(stats.hitRate).toBe(1);
 
     await cache.flush();
   });
