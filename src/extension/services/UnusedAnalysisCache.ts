@@ -42,8 +42,8 @@ export class UnusedAnalysisCache {
   private readonly MAX_CACHE_AGE_MS = 24 * 60 * 60 * 1000; // 24 hours
   private readonly MAX_ENTRIES: number;
   private hitCount = 0;
-  private missCount = 0;
-  private missNotFoundCount = 0; // Cache entry doesn't exist
+  private missCount = 0; // True cache misses (stale/expired/partial, excluding notFound)
+  private missNotFoundCount = 0; // Cache entry doesn't exist (not counted in hit rate)
   private missStaleCount = 0; // File modified
   private missExpiredCount = 0; // Age > MAX_CACHE_AGE_MS
   private missPartialCount = 0; // Missing some targets
@@ -84,7 +84,7 @@ export class UnusedAnalysisCache {
     
     if (!cached) {
       this.missNotFoundCount++;
-      this.missCount++;
+      // Don't increment missCount for notFound - not a true cache miss
       return null;
     }
 
@@ -98,7 +98,7 @@ export class UnusedAnalysisCache {
         this.cache.delete(normalizedSource);
         this.isDirty = true;
         this.missStaleCount++;
-        this.missCount++;
+        this.missCount++; // True miss - was cached but stale
         return null;
       }
 
@@ -109,7 +109,7 @@ export class UnusedAnalysisCache {
         this.cache.delete(normalizedSource);
         this.isDirty = true;
         this.missExpiredCount++;
-        this.missCount++;
+        this.missCount++; // True miss - was cached but expired
         return null;
       }
 
@@ -118,7 +118,7 @@ export class UnusedAnalysisCache {
       if (!hasAll) {
         log.debug(`Cache partial hit for ${sourceFile}: missing some targets`);
         this.missPartialCount++;
-        this.missCount++;
+        this.missCount++; // True miss - was cached but incomplete
         return null; // Partial cache not supported yet
       }
 
@@ -131,7 +131,7 @@ export class UnusedAnalysisCache {
     } catch (error) {
       log.warn(`Failed to stat ${sourceFile}:`, error);
       this.missErrorCount++;
-      this.missCount++;
+      this.missCount++; // True miss - lookup failed
       return null;
     }
   }
@@ -263,9 +263,12 @@ export class UnusedAnalysisCache {
     totalTargets: number;
     oldestEntry: number | null;
     hitRate: number;
+    effectiveHitRate: number; // Excludes notFound from denominator
     evictions: number;
     hits: number;
     misses: number;
+    notFound: number; // Separate from true misses
+    totalLookups: number; // hits + misses + notFound
     missBreakdown: {
       notFound: number;
       stale: number;
@@ -286,16 +289,25 @@ export class UnusedAnalysisCache {
 
     const totalRequests = this.hitCount + this.missCount;
     const hitRate = totalRequests > 0 ? this.hitCount / totalRequests : 0;
+    
+    // Effective hit rate excludes notFound (never cached) from denominator
+    const cacheLookups = this.hitCount + this.missCount; // Only cached entries
+    const effectiveHitRate = cacheLookups > 0 ? this.hitCount / cacheLookups : 0;
+    
+    const totalLookups = this.hitCount + this.missCount + this.missNotFoundCount;
 
     return {
       entries: this.cache.size,
       maxEntries: this.MAX_ENTRIES,
       totalTargets,
       oldestEntry: oldestTimestamp ? Date.now() - oldestTimestamp : null,
-      hitRate: Math.round(hitRate * 100) / 100,
+      hitRate: Math.round(effectiveHitRate * 100) / 100, // Same as effectiveHitRate (true cached hit rate)
+      effectiveHitRate: Math.round(effectiveHitRate * 100) / 100, // Better metric (excludes notFound)
       evictions: this.evictionCount,
       hits: this.hitCount,
       misses: this.missCount,
+      notFound: this.missNotFoundCount,
+      totalLookups,
       missBreakdown: {
         notFound: this.missNotFoundCount,
         stale: this.missStaleCount,

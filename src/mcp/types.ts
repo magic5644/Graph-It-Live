@@ -148,11 +148,24 @@ export const GenericStringSchema = z.string()
     'String contains null bytes'
   );
 
+/**
+ * Pagination limits for MCP tools
+ * Prevents excessive memory usage and response sizes
+ */
+export const PAGINATION_LIMITS = {
+  /** Maximum number of items per page */
+  MAX_LIMIT: 10000,
+  /** Maximum offset value */
+  MAX_OFFSET: 100000,
+  /** Default limit if not specified */
+  DEFAULT_LIMIT: 1000,
+} as const;
+
 export const SetWorkspaceParamsSchema = z.object({
   workspacePath: FilePathSchema.describe('Absolute path to the project/workspace directory to analyze'),
   tsConfigPath: FilePathSchema.optional().describe('Optional path to tsconfig.json for path alias resolution'),
   excludeNodeModules: z.boolean().optional().describe('Whether to exclude node_modules (default: true)'),
-  maxDepth: z.number().optional().describe('Maximum crawl depth (default: 50)'),
+  maxDepth: z.number().min(1).max(100).optional().describe('Maximum crawl depth (default: 50, min: 1, max: 100)'),
   format: OutputFormatSchema.optional(),
 });
 export type SetWorkspaceParams = z.infer<typeof SetWorkspaceParamsSchema>;
@@ -165,9 +178,9 @@ export type AnalyzeDependenciesParams = z.infer<typeof AnalyzeDependenciesParams
 
 export const CrawlDependencyGraphParamsSchema = z.object({
   entryFile: FilePathSchema.describe('Absolute path to the entry file'),
-  maxDepth: z.number().optional().describe('Maximum depth to crawl (default: from config)'),
-  limit: z.number().optional().describe('Maximum number of nodes to return (for pagination)'),
-  offset: z.number().optional().describe('Number of nodes to skip (for pagination)'),
+  maxDepth: z.number().min(1).max(100).optional().describe('Maximum depth to crawl (default: from config, min: 1, max: 100)'),
+  limit: z.number().min(1).max(PAGINATION_LIMITS.MAX_LIMIT).optional().describe(`Maximum number of nodes to return (for pagination, max: ${PAGINATION_LIMITS.MAX_LIMIT})`),
+  offset: z.number().min(0).max(PAGINATION_LIMITS.MAX_OFFSET).optional().describe(`Number of nodes to skip (for pagination, max: ${PAGINATION_LIMITS.MAX_OFFSET})`),
   onlyUsed: z.boolean().optional().describe('If true, only returns edges where symbols are actually used (requires AST analysis, slower)'),
   format: OutputFormatSchema.optional(),
 });
@@ -181,8 +194,8 @@ export type FindReferencingFilesParams = z.infer<typeof FindReferencingFilesPara
 
 export const ExpandNodeParamsSchema = z.object({
   filePath: FilePathSchema.describe('Absolute path to the node to expand'),
-  knownPaths: z.array(FilePathSchema).describe('Array of already known file paths to exclude'),
-  extraDepth: z.number().optional().describe('Additional depth to scan from this node (default: 10)'),
+  knownPaths: z.array(FilePathSchema).max(50000).describe('Array of already known file paths to exclude (max: 50000)'),
+  extraDepth: z.number().min(1).max(100).optional().describe('Additional depth to scan from this node (default: 10, min: 1, max: 100)'),
   format: OutputFormatSchema.optional(),
 });
 export type ExpandNodeParams = z.infer<typeof ExpandNodeParamsSchema>;
@@ -213,8 +226,9 @@ export type GetIndexStatusParams = z.infer<typeof GetIndexStatusParamsSchema>;
 export const InvalidateFilesParamsSchema = z.object({
   filePaths: z
     .array(FilePathSchema)
+    .max(10000)
     .describe(
-      'Array of absolute file paths to invalidate from the cache. Use this after modifying files to ensure fresh analysis.',
+      'Array of absolute file paths to invalidate from the cache (max: 10000). Use this after modifying files to ensure fresh analysis.',
     ),
 });
 export type InvalidateFilesParams = z.infer<typeof InvalidateFilesParamsSchema>;
@@ -244,7 +258,7 @@ export type GetSymbolDependentsParams = z.infer<typeof GetSymbolDependentsParams
 export const TraceFunctionExecutionParamsSchema = z.object({
   filePath: FilePathSchema.describe('Absolute path to the file containing the root symbol'),
   symbolName: SymbolNameSchema.describe('Name of the root symbol to trace from'),
-  maxDepth: z.number().optional().describe('Maximum depth to trace the call chain (default: 10)'),
+  maxDepth: z.number().min(1).max(100).optional().describe('Maximum depth to trace the call chain (default: 10, min: 1, max: 100)'),
   format: OutputFormatSchema.optional(),
 });
 export type TraceFunctionExecutionParams = z.infer<typeof TraceFunctionExecutionParamsSchema>;
@@ -273,7 +287,7 @@ export const GetImpactAnalysisParamsSchema = z.object({
   filePath: FilePathSchema.describe('Absolute path to the file being modified'),
   symbolName: SymbolNameSchema.describe('Name of the symbol being modified'),
   includeTransitive: z.boolean().optional().describe('Include transitive dependents (default: false)'),
-  maxDepth: z.number().optional().describe('Maximum depth for transitive analysis (default: 3)'),
+  maxDepth: z.number().min(1).max(20).optional().describe('Maximum depth for transitive analysis (default: 3, min: 1, max: 20)'),
   format: OutputFormatSchema.optional(),
 });
 export type GetImpactAnalysisParams = z.infer<typeof GetImpactAnalysisParamsSchema>;
