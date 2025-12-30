@@ -12,6 +12,7 @@ export interface ProviderConfigSnapshot extends BackgroundIndexingConfig {
   unusedAnalysisConcurrency: number;
   unusedAnalysisMaxEdges: number;
   persistUnusedAnalysisCache: boolean;
+  maxUnusedAnalysisCacheSize: number;
   maxCacheSize: number;
   maxSymbolCacheSize: number;
   performanceProfile: PerformanceProfile;
@@ -56,6 +57,7 @@ export class ProviderStateManager {
         ? config.get<number>('unusedAnalysisMaxEdges', profileDefaults.unusedAnalysisMaxEdges)
         : profileDefaults.unusedAnalysisMaxEdges,
       persistUnusedAnalysisCache: config.get<boolean>('persistUnusedAnalysisCache', false),
+      maxUnusedAnalysisCacheSize: config.get<number>('maxUnusedAnalysisCacheSize', 200),
       maxCacheSize: isCustomProfile
         ? config.get<number>('maxCacheSize', profileDefaults.maxCacheSize)
         : profileDefaults.maxCacheSize,

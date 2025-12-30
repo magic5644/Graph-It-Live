@@ -6,42 +6,59 @@ import { getExtensionLogger } from '../extensionLogger';
 
 const log = getExtensionLogger('UnusedAnalysisCache');
 
+interface CacheEntry {
+  results: Map<string, boolean>;
+  timestamp: number;
+  mtime: number;
+  lastAccess: number; // For LRU eviction
+}
+
 /**
- * Persistent cache for unused dependency analysis results.
+ * Persistent cache for unused dependency analysis results with LRU eviction.
  * 
  * Cache structure:
  * {
  *   [sourceFilePath]: {
  *     results: { [targetFilePath]: boolean },
  *     timestamp: number,
- *     mtime: number
+ *     mtime: number,
+ *     lastAccess: number
  *   }
  * }
  * 
- * Invalidation strategy:
+ * Eviction strategy:
+ * - LRU (Least Recently Used) when maxEntries exceeded
  * - File modified (mtime changed)
  * - Cache older than 24 hours
  * - Manual invalidation via file watcher
  */
 export class UnusedAnalysisCache {
-  private readonly cache = new Map<string, { results: Map<string, boolean>; timestamp: number; mtime: number }>();
+  private readonly cache = new Map<string, CacheEntry>();
   private readonly cacheFilePath: string;
   private isDirty = false;
   private saveTimer?: NodeJS.Timeout;
-  private readonly CACHE_VERSION = 1;
+  private cleanupTimer?: NodeJS.Timeout;
+  private readonly CACHE_VERSION = 2; // Bumped for lastAccess field
   private readonly MAX_CACHE_AGE_MS = 24 * 60 * 60 * 1000; // 24 hours
+  private readonly MAX_ENTRIES: number;
+  private hitCount = 0;
+  private missCount = 0;
+  private evictionCount = 0;
 
   constructor(
     context: vscode.ExtensionContext,
-    private readonly enabled: boolean
+    private readonly enabled: boolean,
+    maxEntries: number = 200 // Default to 200 source files
   ) {
     this.cacheFilePath = path.join(
       context.globalStorageUri.fsPath,
       'unused-analysis-cache.json'
     );
+    this.MAX_ENTRIES = Math.max(10, maxEntries); // At least 10 entries
     
     if (this.enabled) {
       this._initializeCache();
+      this._startPeriodicCleanup();
     }
   }
 
@@ -89,13 +106,19 @@ export class UnusedAnalysisCache {
       const hasAll = targetFiles.every(t => cached.results.has(normalizePath(t)));
       if (!hasAll) {
         log.debug(`Cache partial hit for ${sourceFile}: missing some targets`);
+        this.missCount++;
         return null; // Partial cache not supported yet
       }
 
+      // Update last access time for LRU
+      cached.lastAccess = Date.now();
+      this.hitCount++;
+      
       log.debug(`Cache hit for ${sourceFile} with ${targetFiles.length} targets`);
       return cached.results;
     } catch (error) {
       log.warn(`Failed to stat ${sourceFile}:`, error);
+      this.missCount++;
       return null;
     }
   }
@@ -111,12 +134,17 @@ export class UnusedAnalysisCache {
     try {
       const stats = await fs.stat(sourceFile);
       const normalizedSource = normalizePath(sourceFile);
+      const now = Date.now();
       
       this.cache.set(normalizedSource, {
         results,
-        timestamp: Date.now(),
+        timestamp: now,
         mtime: stats.mtimeMs,
+        lastAccess: now,
       });
+
+      // Evict if over limit
+      this._evictIfNeeded();
 
       this.isDirty = true;
       this.scheduleSave();
@@ -158,9 +186,72 @@ export class UnusedAnalysisCache {
   }
 
   /**
+   * Evict least recently used entries if cache exceeds max size
+   */
+  private _evictIfNeeded(): void {
+    if (this.cache.size <= this.MAX_ENTRIES) {
+      return;
+    }
+
+    const excessCount = this.cache.size - this.MAX_ENTRIES;
+    
+    // Sort entries by lastAccess (oldest first)
+    const sortedEntries = Array.from(this.cache.entries())
+      .sort((a, b) => a[1].lastAccess - b[1].lastAccess);
+    
+    // Remove oldest entries
+    for (let i = 0; i < excessCount; i++) {
+      const [key] = sortedEntries[i];
+      this.cache.delete(key);
+      this.evictionCount++;
+    }
+
+    log.debug(`Evicted ${excessCount} LRU entries (limit: ${this.MAX_ENTRIES})`);
+    this.isDirty = true;
+  }
+
+  /**
+   * Proactively clean up expired entries
+   */
+  private _cleanupExpiredEntries(): void {
+    const now = Date.now();
+    let cleaned = 0;
+
+    for (const [key, entry] of this.cache.entries()) {
+      const age = now - entry.timestamp;
+      if (age > this.MAX_CACHE_AGE_MS) {
+        this.cache.delete(key);
+        cleaned++;
+      }
+    }
+
+    if (cleaned > 0) {
+      log.debug(`Cleaned up ${cleaned} expired entries`);
+      this.isDirty = true;
+      this.scheduleSave();
+    }
+  }
+
+  /**
+   * Start periodic cleanup of expired entries (every 30 minutes)
+   */
+  private _startPeriodicCleanup(): void {
+    this.cleanupTimer = setInterval(() => {
+      this._cleanupExpiredEntries();
+    }, 30 * 60 * 1000); // 30 minutes
+  }
+
+  /**
    * Get cache statistics
    */
-  getStats(): { entries: number; totalTargets: number; oldestEntry: number | null } {
+  getStats(): {
+    entries: number;
+    maxEntries: number;
+    totalTargets: number;
+    oldestEntry: number | null;
+    hitRate: number;
+    evictions: number;
+  } {
     let totalTargets = 0;
     let oldestTimestamp: number | null = null;
 
@@ -171,10 +262,16 @@ export class UnusedAnalysisCache {
       }
     }
 
+    const totalRequests = this.hitCount + this.missCount;
+    const hitRate = totalRequests > 0 ? this.hitCount / totalRequests : 0;
+
     return {
       entries: this.cache.size,
+      maxEntries: this.MAX_ENTRIES,
       totalTargets,
       oldestEntry: oldestTimestamp ? Date.now() - oldestTimestamp : null,
+      hitRate: Math.round(hitRate * 100) / 100,
+      evictions: this.evictionCount,
     };
   }
 
@@ -193,17 +290,22 @@ export class UnusedAnalysisCache {
       }
 
       // Deserialize Map structures
+      const now = Date.now();
       for (const [key, value] of Object.entries(data.entries)) {
-        const entry = value as { results: Record<string, boolean>; timestamp: number; mtime: number };
+        const entry = value as { results: Record<string, boolean>; timestamp: number; mtime: number; lastAccess?: number };
         this.cache.set(key, {
           results: new Map(Object.entries(entry.results)),
           timestamp: entry.timestamp,
           mtime: entry.mtime,
+          lastAccess: entry.lastAccess ?? now, // Fallback for old cache version
         });
       }
 
+      // Evict if loaded cache exceeds limit
+      this._evictIfNeeded();
+
       const stats = this.getStats();
-      log.info(`Loaded cache from disk: ${stats.entries} sources, ${stats.totalTargets} targets`);
+      log.info(`Loaded cache from disk: ${stats.entries}/${stats.maxEntries} sources, ${stats.totalTargets} targets`);
     } catch (error) {
       if ((error as NodeJS.ErrnoException).code !== 'ENOENT') {
         log.warn('Failed to load cache from disk:', error);
@@ -236,12 +338,13 @@ export class UnusedAnalysisCache {
       await fs.mkdir(path.dirname(this.cacheFilePath), { recursive: true });
 
       // Serialize Map structures to plain objects
-      const entries: Record<string, { results: Record<string, boolean>; timestamp: number; mtime: number }> = {};
+      const entries: Record<string, { results: Record<string, boolean>; timestamp: number; mtime: number; lastAccess: number }> = {};
       for (const [key, value] of this.cache.entries()) {
         entries[key] = {
           results: Object.fromEntries(value.results),
           timestamp: value.timestamp,
           mtime: value.mtime,
+          lastAccess: value.lastAccess,
         };
       }
 
@@ -267,6 +370,10 @@ export class UnusedAnalysisCache {
     if (this.saveTimer) {
       clearTimeout(this.saveTimer);
       this.saveTimer = undefined;
+    }
+    if (this.cleanupTimer) {
+      clearInterval(this.cleanupTimer);
+      this.cleanupTimer = undefined;
     }
     await this.saveToDisk();
   }
