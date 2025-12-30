@@ -3,6 +3,7 @@ import { Spider } from '../../src/analyzer/Spider';
 import { normalizePath } from '../../src/analyzer/types';
 import path from 'node:path';
 import * as fs from 'node:fs/promises';
+import { removeDirectoryWithRetry } from '../testUtils';
 
 // Use absolute path for test fixtures
 const fixturesPath = path.resolve(process.cwd(), 'tests/fixtures/sample-project');
@@ -228,8 +229,8 @@ describe('Spider - Index Performance', () => {
     });
 
     afterEach(async () => {
-        // Cleanup
-        await fs.rm(perfFixturesPath, { recursive: true, force: true });
+        // Cleanup with retry for Windows compatibility
+        await removeDirectoryWithRetry(perfFixturesPath);
     });
 
     it('should be significantly faster with index for reverse lookup', async () => {
