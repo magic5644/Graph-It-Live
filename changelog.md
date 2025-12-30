@@ -2,6 +2,29 @@
 
 ## Unreleased
 
+### Security & Performance
+
+- **P1 - MCP Payload Size Limits**: Added progressive size limits to all MCP tool parameters to prevent memory exhaustion and DoS attacks
+  - **File paths**: 1 KB limit (~200 chars) - covers deeply nested paths
+  - **Symbol names**: 500 bytes limit - covers reasonable function/class names
+  - **File content** (oldContent/newContent): 1 MB limit (~40K lines) - catches legitimate large files while rejecting minified bundles
+  - **Generic strings** (module specifiers, etc.): 10 KB limit
+  - **Null byte injection prevention**: All string schemas reject null bytes (\0)
+  - **Unicode support**: Limits are byte-based and handle multi-byte characters correctly
+  - **Clear error messages**: Validation failures include specific limits and field names
+  - **Impact**: Protects against accidental or malicious oversized payloads without affecting legitimate use cases
+  - See [Payload Limits Documentation](docs/MCP_PAYLOAD_LIMITS.md) for complete details
+
+### Code Quality & Testing
+
+- **Cross-Platform Compatibility Improvements**: Refactored tests and scripts to ensure consistent behavior on Windows, Linux, and macOS
+  - Replaced hardcoded Unix-style paths with `path.join()` for cross-platform compatibility
+  - Added `String.raw` syntax for Windows path literals in test fixtures
+  - Reduced cognitive complexity in test scripts from 29 to <15 per function
+  - Reduced function nesting depth from 5+ to 3 levels maximum
+  - New comprehensive documentation: [Cross-Platform Testing Guidelines](docs/CROSS_PLATFORM_TESTING.md)
+  - Updated [AGENTS.md](AGENTS.md) with mandatory cross-platform testing rules
+
 ### Security & Privacy
 
 - **P1 - MCP Debug Logging Now Opt-In**: Fixed privacy issue where MCP server logged project paths and environment info to `~/mcp-debug.log` without user consent
