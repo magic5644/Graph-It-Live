@@ -287,9 +287,6 @@ export class UnusedAnalysisCache {
       }
     }
 
-    const totalRequests = this.hitCount + this.missCount;
-    const hitRate = totalRequests > 0 ? this.hitCount / totalRequests : 0;
-    
     // Effective hit rate excludes notFound (never cached) from denominator
     const cacheLookups = this.hitCount + this.missCount; // Only cached entries
     const effectiveHitRate = cacheLookups > 0 ? this.hitCount / cacheLookups : 0;

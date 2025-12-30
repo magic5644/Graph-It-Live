@@ -65,6 +65,11 @@ export async function removeDirectoryWithRetry(
 }
 
 /**
+ * Default options for mkdir operations
+ */
+const DEFAULT_MKDIR_OPTIONS = { recursive: true };
+
+/**
  * Create directory with retries for Windows compatibility
  * 
  * @param dirPath - Directory path to create
@@ -74,7 +79,7 @@ export async function removeDirectoryWithRetry(
  */
 export async function createDirectoryWithRetry(
   dirPath: string,
-  options: { recursive?: boolean } = { recursive: true },
+  options: { recursive?: boolean } = DEFAULT_MKDIR_OPTIONS,
   retries: number = 3,
   delayMs: number = 50
 ): Promise<void> {
