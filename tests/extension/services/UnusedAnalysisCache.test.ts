@@ -28,13 +28,13 @@ describe('UnusedAnalysisCache - LRU Eviction', () => {
 
   beforeEach(async () => {
     // Create temp directory for cache
-    tempDir = path.join(os.tmpdir(), `cache-test-${Date.now()}`);
+    tempDir = normalizePath(path.join(os.tmpdir(), `cache-test-${Date.now()}`));
     await fs.mkdir(tempDir, { recursive: true });
 
-    // Create test files (use native paths for file system operations)
+    // Create test files (normalize paths for cache consistency)
     testFiles = [];
     for (let i = 0; i < 5; i++) {
-      const filePath = path.join(tempDir, `test${i}.ts`);
+      const filePath = normalizePath(path.join(tempDir, `test${i}.ts`));
       await fs.writeFile(filePath, `// test file ${i}`);
       testFiles.push(filePath);
     }
