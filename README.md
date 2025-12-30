@@ -146,14 +146,23 @@ Customize the extension in VS Code Settings (`Cmd+,` or `Ctrl+,`):
 
 | Setting | Default | Description |
 | :--- | :--- | :--- |
-| `graph-it-live.performanceProfile` | `default` | **Performance preset**: `default`, `low-memory`, `high-performance`, or `custom` for manual control. |
-| `graph-it-live.enableMcpServer` | `false` | **Enable this for AI features.** Exposes dependency analysis tools via Model Context Protocol. |
-| `graph-it-live.enableMcpDebugLogging` | `false` | **[Privacy]** Enable detailed MCP debug logging (~/mcp-debug.log). Only enable for troubleshooting. See [Security Guide](docs/MCP_DEBUG_LOGGING_SECURITY.md). |
-| `graph-it-live.maxDepth` | `50` | Maximum depth of dependencies to analyze initially. |
-| `graph-it-live.excludeNodeModules` | `true` | Whether to exclude `node_modules` imports from the graph. |
-| `graph-it-live.enableBackgroundIndexing` | `true` | Enable background indexing for instant reverse dependency lookups. |
-| `graph-it-live.unusedDependencyMode` | `hide` | How to display unused dependencies. **hide**: Remove unused edges completely. **dim**: Show unused edges with reduced opacity. |
-| `graph-it-live.persistUnusedAnalysisCache` | `false` | Cache unused dependency analysis to disk (experimental, speeds up reloads). |
+| `graph-it-live.performanceProfile` | `default` | Performance preset: `default`, `low-memory`, `high-performance`, or `custom` for manual control. When set to a preset, related performance settings are applied automatically. |
+| `graph-it-live.enableMcpServer` | `false` | Enable the MCP (Model Context Protocol) server for AI/LLM integration. Only enable if you need AI assistants to access project analysis tools. |
+| `graph-it-live.enableMcpDebugLogging` | `false` | Privacy-sensitive debug logging for the MCP server (creates `~/mcp-debug.log`). Enable only for troubleshooting; logs rotate automatically. See Security Guide. |
+| `graph-it-live.maxDepth` | `50` | Maximum dependency depth to analyze during crawls and initial graph generation. |
+| `graph-it-live.excludeNodeModules` | `true` | Exclude `node_modules` imports from the graph to reduce noise and improve performance. |
+| `graph-it-live.enableBackgroundIndexing` | `true` | Enable background indexing of the workspace for fast reverse dependency lookups (O(1) queries). |
+| `graph-it-live.persistIndex` | `false` | Persist the reverse index to disk for faster startup. Index entries are validated by `mtime`/size. |
+| `graph-it-live.indexingConcurrency` | `4` | Number of files to process in parallel during background indexing (1-16). Editable only when `performanceProfile` is `custom`. |
+| `graph-it-live.indexingStartDelay` | `1000` | Delay (ms) before starting background indexing after activation; allows VS Code to finish startup. |
+| `graph-it-live.logLevel` | `info` | Logging verbosity: `debug`, `info`, `warn`, `error`, or `none`. |
+| `graph-it-live.unusedDependencyMode` | `hide` | How to display unused dependencies: `hide` removes them, `dim` shows them with reduced opacity and dashed styling. |
+| `graph-it-live.unusedAnalysisConcurrency` | `4` | Number of source files to analyze in parallel for unused dependency detection (1-16). Lower values reduce memory usage. Editable only when `performanceProfile` is `custom`. |
+| `graph-it-live.unusedAnalysisMaxEdges` | `2000` | Skip automatic unused dependency analysis if the graph has more edges than this threshold. Set to `0` for no limit. Editable only when `performanceProfile` is `custom`. |
+| `graph-it-live.persistUnusedAnalysisCache` | `false` | Cache unused dependency analysis results to disk to speed up subsequent loads. Results are invalidated on file change. |
+| `graph-it-live.maxUnusedAnalysisCacheSize` | `200` | Maximum number of source files to cache for unused dependency analysis (LRU eviction). Adjust to tune memory vs hit-rate. |
+| `graph-it-live.maxCacheSize` | `500` | Maximum number of file dependency analyses to keep in memory cache. Useful to control memory usage. |
+| `graph-it-live.maxSymbolCacheSize` | `200` | Maximum number of symbol analysis results to keep in memory cache. |
 
 ## MCP Server (AI/LLM Integration)
 

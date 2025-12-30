@@ -1,40 +1,28 @@
 # Changelog
 
-## Unreleased
+## v1.5.0
 
-### Security & Performance
+### Improvements
 
-- **P1 - MCP Payload Size Limits**: Added progressive size limits to all MCP tool parameters to prevent memory exhaustion and DoS attacks
-  - **File paths**: 1 KB limit (~200 chars) - covers deeply nested paths
-  - **Symbol names**: 500 bytes limit - covers reasonable function/class names
-  - **File content** (oldContent/newContent): 1 MB limit (~40K lines) - catches legitimate large files while rejecting minified bundles
-  - **Generic strings** (module specifiers, etc.): 10 KB limit
-  - **Null byte injection prevention**: All string schemas reject null bytes (\0)
-  - **Unicode support**: Limits are byte-based and handle multi-byte characters correctly
-  - **Clear error messages**: Validation failures include specific limits and field names
-  - **Impact**: Protects against accidental or malicious oversized payloads without affecting legitimate use cases
-  - See [Payload Limits Documentation](docs/MCP_PAYLOAD_LIMITS.md) for complete details
+- **Unused Dependency Filter**: Smart filter to visualize only the dependencies that are actually used in your code
+  - New toolbar button (eye icon) to toggle between showing all dependencies and filtering unused ones
+  - Two display modes configurable via settings:
+    - **hide** (default): Completely removes unused edges from the graph for a cleaner view
+    - **dim**: Shows unused edges with reduced opacity (0.3) and dashed lines for visual distinction
+  - Works for both outgoing dependencies (what you import) and incoming references (files that import you)
+  - Uses AST-based analysis to determine if an imported symbol is actually used in the code
+  - State persists across sessions for consistent experience
+  - New configuration setting: `graph-it-live.unusedDependencyMode`
+  - Commands:
+    - `graph-it-live.enableUnusedFilter`: Enable the filter (shows eye icon)
+    - `graph-it-live.disableUnusedFilter`: Disable the filter (shows eye-closed icon)
 
-### Code Quality & Testing
+- **Filter State Management**: Filter state is now properly synchronized between the extension backend and webview
+  - New `updateFilter` message type for lightweight state updates without rebuilding the graph
+  - Preserves expanded nodes and referencing files when toggling the filter
+  - Context key `graph-it-live.unusedFilterActive` controls toolbar button visibility
 
-- **Cross-Platform Compatibility Improvements**: Refactored tests and scripts to ensure consistent behavior on Windows, Linux, and macOS
-  - Replaced hardcoded Unix-style paths with `path.join()` for cross-platform compatibility
-  - Added `String.raw` syntax for Windows path literals in test fixtures
-  - Reduced cognitive complexity in test scripts from 29 to <15 per function
-  - Reduced function nesting depth from 5+ to 3 levels maximum
-  - New comprehensive documentation: [Cross-Platform Testing Guidelines](docs/CROSS_PLATFORM_TESTING.md)
-  - Updated [AGENTS.md](AGENTS.md) with mandatory cross-platform testing rules
-
-### Security & Privacy
-
-- **P1 - MCP Debug Logging Now Opt-In**: Fixed privacy issue where MCP server logged project paths and environment info to `~/mcp-debug.log` without user consent
-  - Debug logging is now **disabled by default** to prevent exposure of sensitive project information
-  - New setting `graph-it-live.enableMcpDebugLogging` allows explicit opt-in for troubleshooting
-  - Implemented automatic log rotation (5MB max per file, keeps last 2 files) to prevent unbounded disk usage
-  - **Action Required**: If you need debug logs for troubleshooting, enable the new setting explicitly
-  - **Privacy Impact**: Prevents accidental exposure of project paths in shared environments, backups, or support scenarios
-
-### Performance
+### Performances
 
 - **Bounded Unused Analysis Cache with LRU Eviction**: Fixed unbounded memory growth in unused dependency analysis cache
   - Implemented **LRU (Least Recently Used)** eviction strategy when cache limit is reached
@@ -50,35 +38,6 @@
   - **Impact**: 50% reduction in crawl operations (~500ms saved on 200-file projects)
   - Particularly beneficial on large projects with deep dependency trees
   - No behavioral changes, purely a performance optimization
-
-### New Features
-
-- **Unused Dependency Filter**: Smart filter to visualize only the dependencies that are actually used in your code
-  - New toolbar button (eye icon) to toggle between showing all dependencies and filtering unused ones
-  - Two display modes configurable via settings:
-    - **hide** (default): Completely removes unused edges from the graph for a cleaner view
-    - **dim**: Shows unused edges with reduced opacity (0.3) and dashed lines for visual distinction
-  - Works for both outgoing dependencies (what you import) and incoming references (files that import you)
-  - Uses AST-based analysis to determine if an imported symbol is actually used in the code
-  - State persists across sessions for consistent experience
-  - New configuration setting: `graph-it-live.unusedDependencyMode`
-  - Commands:
-    - `graph-it-live.enableUnusedFilter`: Enable the filter (shows eye icon)
-    - `graph-it-live.disableUnusedFilter`: Disable the filter (shows eye-closed icon)
-
-### Improvements
-
-- **Filter State Management**: Filter state is now properly synchronized between the extension backend and webview
-  - New `updateFilter` message type for lightweight state updates without rebuilding the graph
-  - Preserves expanded nodes and referencing files when toggling the filter
-  - Context key `graph-it-live.unusedFilterActive` controls toolbar button visibility
-
-- **MCP Server Default Configuration**: The MCP server is now **disabled by default** (`graph-it-live.enableMcpServer: false`)
-  - Users must explicitly enable it in settings to use AI/LLM integration features
-  - Reduces resource usage for users who don't need MCP functionality
-  - Aligns with documentation and recommended setup for opt-in usage
-
-### Performance
 
 - **Low-Memory Machine Optimizations**: Comprehensive performance improvements for resource-constrained environments
   - **Configurable Concurrency**: New setting `graph-it-live.unusedAnalysisConcurrency` (1-16, default: 4) to limit parallel AST processing
@@ -105,6 +64,7 @@
 - **Incremental Filter Updates**: Toggling the filter no longer rebuilds the entire graph from scratch
   - Only updates edge visibility and styling, preserving all current view state
   - Significantly faster toggle response time on large graphs
+
 - **Optimized Unused Edge Analysis**: Dramatically improved performance for large repositories
   - **Batch Processing**: Groups edges by source file to minimize redundant AST parsing (parse each file once, check all targets)
   - **Concurrency Control**: Limits concurrent AST analysis to 8 files at a time to prevent memory explosion
@@ -113,6 +73,31 @@
   - **Progress Logging**: Provides real-time feedback on analysis progress for large codebases
   - **Memory Efficient**: Processes edges in batches instead of loading all results in memory at once
   - Example: On a 1000-edge graph, reduces AST parsing from 1000 calls to ~200 calls (one per unique source file)
+
+### Security Fixes
+
+- **MCP Payload Size Limits**: Added progressive size limits to all MCP tool parameters to prevent memory exhaustion and DoS attacks
+  - **File paths**: 1 KB limit (~200 chars) - covers deeply nested paths
+  - **Symbol names**: 500 bytes limit - covers reasonable function/class names
+  - **File content** (oldContent/newContent): 1 MB limit (~40K lines) - catches legitimate large files while rejecting minified bundles
+  - **Generic strings** (module specifiers, etc.): 10 KB limit
+  - **Null byte injection prevention**: All string schemas reject null bytes (\0)
+  - **Unicode support**: Limits are byte-based and handle multi-byte characters correctly
+  - **Clear error messages**: Validation failures include specific limits and field names
+  - **Impact**: Protects against accidental or malicious oversized payloads without affecting legitimate use cases
+  - See [Payload Limits Documentation](docs/MCP_PAYLOAD_LIMITS.md) for complete details
+
+- **P1 - MCP Debug Logging Now Opt-In**: Fixed privacy issue where MCP server logged project paths and environment info to `~/mcp-debug.log` without user consent
+  - Debug logging is now **disabled by default** to prevent exposure of sensitive project information
+  - New setting `graph-it-live.enableMcpDebugLogging` allows explicit opt-in for troubleshooting
+  - Implemented automatic log rotation (5MB max per file, keeps last 2 files) to prevent unbounded disk usage
+  - **Action Required**: If you need debug logs for troubleshooting, enable the new setting explicitly
+  - **Privacy Impact**: Prevents accidental exposure of project paths in shared environments, backups, or support scenarios
+
+- **MCP Server Default Configuration**: The MCP server is now **disabled by default** (`graph-it-live.enableMcpServer: false`)
+  - Users must explicitly enable it in settings to use AI/LLM integration features
+  - Reduces resource usage for users who don't need MCP functionality
+  - Aligns with documentation and recommended setup for opt-in usage
 
 
 ## v1.4.1
