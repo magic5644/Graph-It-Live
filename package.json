@@ -276,6 +276,14 @@
           "description": "Cache unused dependency analysis results to disk for faster subsequent loads. Results are invalidated when files change.",
           "markdownDescription": "Cache unused dependency analysis results to disk.\n\n⚠️ **Experimental**: Enable for large projects with stable dependencies. Disable if you experience stale results."
         },
+        "graph-it-live.maxUnusedAnalysisCacheSize": {
+          "type": "number",
+          "default": 200,
+          "minimum": 10,
+          "maximum": 1000,
+          "description": "Maximum number of source files to cache for unused dependency analysis. Uses LRU (Least Recently Used) eviction when limit is reached.",
+          "markdownDescription": "Maximum number of source files to cache for unused dependency analysis.\n\n- **Lower values** (50-100): Reduce memory usage on constrained systems\n- **Higher values** (500-1000): Better cache hit rate on large projects\n\nUses **LRU eviction** - least recently accessed entries are removed when limit is reached."
+        },
         "graph-it-live.maxCacheSize": {
           "type": "number",
           "default": 500,

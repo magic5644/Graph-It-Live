@@ -85,7 +85,8 @@ export class GraphProvider implements vscode.WebviewViewProvider {
         if (this._spider) {
             this._unusedAnalysisCache = new UnusedAnalysisCache(
                 context,
-                this._configSnapshot.persistUnusedAnalysisCache
+                this._configSnapshot.persistUnusedAnalysisCache,
+                this._configSnapshot.maxUnusedAnalysisCacheSize
             );
             
             this._graphViewService = new GraphViewService(

@@ -13,6 +13,14 @@
 
 ### Performance
 
+- **Bounded Unused Analysis Cache with LRU Eviction**: Fixed unbounded memory growth in unused dependency analysis cache
+  - Implemented **LRU (Least Recently Used)** eviction strategy when cache limit is reached
+  - Default limit: **200 source files** (configurable via `graph-it-live.maxUnusedAnalysisCacheSize`)
+  - **Proactive cleanup**: Expired entries (>24h) automatically removed every 30 minutes
+  - **Metrics tracking**: Hit rate, eviction count, and cache utilization now monitored
+  - **Impact**: Prevents memory issues on large projects (thousands of files) while maintaining performance
+  - Cache entries track last access time for intelligent eviction
+
 - **Avoid Double Crawl on Usage Check**: Eliminated redundant graph crawling when unused dependency analysis is enabled
   - Previously crawled the entire dependency graph twice: once for initial display, once for usage enrichment
   - Now reuses the initial graph structure when performing usage analysis
