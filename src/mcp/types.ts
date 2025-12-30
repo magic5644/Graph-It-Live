@@ -89,9 +89,68 @@ export const OutputFormatSchema = z.enum(['json', 'toon']).default('json').descr
 );
 export type OutputFormat = z.infer<typeof OutputFormatSchema>;
 
+// ============================================================================
+// Payload Size Limits (Performance & Security)
+// ============================================================================
+
+/**
+ * Maximum allowed sizes for various payload types to prevent memory exhaustion
+ * and DoS attacks while supporting legitimate use cases.
+ */
+export const PAYLOAD_LIMITS = {
+  /** File paths (1 KB = ~200 chars, covers deeply nested paths) */
+  FILE_PATH: 1024,
+  /** Symbol names (500 bytes, covers reasonable function/class names) */
+  SYMBOL_NAME: 500,
+  /** File content (1 MB = ~40K lines of code, covers large source files) */
+  FILE_CONTENT: 1024 * 1024,
+  /** Generic strings (10 KB, general purpose limit) */
+  GENERIC_STRING: 10 * 1024,
+} as const;
+
+/**
+ * Reusable Zod schema for file paths with size validation
+ */
+export const FilePathSchema = z.string()
+  .max(PAYLOAD_LIMITS.FILE_PATH, `File path exceeds maximum length of ${PAYLOAD_LIMITS.FILE_PATH} bytes`)
+  .refine(
+    (val) => !val.includes('\0'),
+    'File path contains null bytes'
+  );
+
+/**
+ * Reusable Zod schema for symbol names with size validation
+ */
+export const SymbolNameSchema = z.string()
+  .max(PAYLOAD_LIMITS.SYMBOL_NAME, `Symbol name exceeds maximum length of ${PAYLOAD_LIMITS.SYMBOL_NAME} bytes`)
+  .refine(
+    (val) => !val.includes('\0'),
+    'Symbol name contains null bytes'
+  );
+
+/**
+ * Reusable Zod schema for file content with size validation
+ */
+export const FileContentSchema = z.string()
+  .max(PAYLOAD_LIMITS.FILE_CONTENT, `File content exceeds maximum size of ${PAYLOAD_LIMITS.FILE_CONTENT} bytes (~1 MB)`)
+  .refine(
+    (val) => !val.includes('\0'),
+    'File content contains null bytes'
+  );
+
+/**
+ * Reusable Zod schema for generic strings with size validation
+ */
+export const GenericStringSchema = z.string()
+  .max(PAYLOAD_LIMITS.GENERIC_STRING, `String exceeds maximum length of ${PAYLOAD_LIMITS.GENERIC_STRING} bytes`)
+  .refine(
+    (val) => !val.includes('\0'),
+    'String contains null bytes'
+  );
+
 export const SetWorkspaceParamsSchema = z.object({
-  workspacePath: z.string().describe('Absolute path to the project/workspace directory to analyze'),
-  tsConfigPath: z.string().optional().describe('Optional path to tsconfig.json for path alias resolution'),
+  workspacePath: FilePathSchema.describe('Absolute path to the project/workspace directory to analyze'),
+  tsConfigPath: FilePathSchema.optional().describe('Optional path to tsconfig.json for path alias resolution'),
   excludeNodeModules: z.boolean().optional().describe('Whether to exclude node_modules (default: true)'),
   maxDepth: z.number().optional().describe('Maximum crawl depth (default: 50)'),
   format: OutputFormatSchema.optional(),
@@ -99,13 +158,13 @@ export const SetWorkspaceParamsSchema = z.object({
 export type SetWorkspaceParams = z.infer<typeof SetWorkspaceParamsSchema>;
 
 export const AnalyzeDependenciesParamsSchema = z.object({
-  filePath: z.string().describe('Absolute path to the file to analyze'),
+  filePath: FilePathSchema.describe('Absolute path to the file to analyze'),
   format: OutputFormatSchema.optional(),
 });
 export type AnalyzeDependenciesParams = z.infer<typeof AnalyzeDependenciesParamsSchema>;
 
 export const CrawlDependencyGraphParamsSchema = z.object({
-  entryFile: z.string().describe('Absolute path to the entry file'),
+  entryFile: FilePathSchema.describe('Absolute path to the entry file'),
   maxDepth: z.number().optional().describe('Maximum depth to crawl (default: from config)'),
   limit: z.number().optional().describe('Maximum number of nodes to return (for pagination)'),
   offset: z.number().optional().describe('Number of nodes to skip (for pagination)'),
@@ -115,35 +174,35 @@ export const CrawlDependencyGraphParamsSchema = z.object({
 export type CrawlDependencyGraphParams = z.infer<typeof CrawlDependencyGraphParamsSchema>;
 
 export const FindReferencingFilesParamsSchema = z.object({
-  targetPath: z.string().describe('Absolute path to the file to find references for'),
+  targetPath: FilePathSchema.describe('Absolute path to the file to find references for'),
   format: OutputFormatSchema.optional(),
 });
 export type FindReferencingFilesParams = z.infer<typeof FindReferencingFilesParamsSchema>;
 
 export const ExpandNodeParamsSchema = z.object({
-  filePath: z.string().describe('Absolute path to the node to expand'),
-  knownPaths: z.array(z.string()).describe('Array of already known file paths to exclude'),
+  filePath: FilePathSchema.describe('Absolute path to the node to expand'),
+  knownPaths: z.array(FilePathSchema).describe('Array of already known file paths to exclude'),
   extraDepth: z.number().optional().describe('Additional depth to scan from this node (default: 10)'),
   format: OutputFormatSchema.optional(),
 });
 export type ExpandNodeParams = z.infer<typeof ExpandNodeParamsSchema>;
 
 export const ParseImportsParamsSchema = z.object({
-  filePath: z.string().describe('Absolute path to the file to parse'),
+  filePath: FilePathSchema.describe('Absolute path to the file to parse'),
   format: OutputFormatSchema.optional(),
 });
 export type ParseImportsParams = z.infer<typeof ParseImportsParamsSchema>;
 
 export const VerifyDependencyUsageParamsSchema = z.object({
-  sourceFile: z.string().describe('Absolute path to the source file (the one importing using symbols)'),
-  targetFile: z.string().describe('Absolute path to the target file (the one providing symbols)'),
+  sourceFile: FilePathSchema.describe('Absolute path to the source file (the one importing using symbols)'),
+  targetFile: FilePathSchema.describe('Absolute path to the target file (the one providing symbols)'),
   format: OutputFormatSchema.optional(),
 });
 export type VerifyDependencyUsageParams = z.infer<typeof VerifyDependencyUsageParamsSchema>;
 
 export const ResolveModulePathParamsSchema = z.object({
-  fromFile: z.string().describe('Absolute path of the file containing the import'),
-  moduleSpecifier: z.string().describe('The module specifier to resolve (e.g., "./utils", "@/components/Button")'),
+  fromFile: FilePathSchema.describe('Absolute path of the file containing the import'),
+  moduleSpecifier: GenericStringSchema.describe('The module specifier to resolve (e.g., "./utils", "@/components/Button")'),
   format: OutputFormatSchema.optional(),
 });
 export type ResolveModulePathParams = z.infer<typeof ResolveModulePathParamsSchema>;
@@ -153,7 +212,7 @@ export type GetIndexStatusParams = z.infer<typeof GetIndexStatusParamsSchema>;
 
 export const InvalidateFilesParamsSchema = z.object({
   filePaths: z
-    .array(z.string())
+    .array(FilePathSchema)
     .describe(
       'Array of absolute file paths to invalidate from the cache. Use this after modifying files to ensure fresh analysis.',
     ),
@@ -164,27 +223,27 @@ export const RebuildIndexParamsSchema = z.object({});
 export type RebuildIndexParams = z.infer<typeof RebuildIndexParamsSchema>;
 
 export const GetSymbolGraphParamsSchema = z.object({
-  filePath: z.string().describe('Absolute path to the file to analyze for symbols'),
+  filePath: FilePathSchema.describe('Absolute path to the file to analyze for symbols'),
   format: OutputFormatSchema.optional(),
 });
 export type GetSymbolGraphParams = z.infer<typeof GetSymbolGraphParamsSchema>;
 
 export const FindUnusedSymbolsParamsSchema = z.object({
-  filePath: z.string().describe('Absolute path to the file to check for unused exported symbols'),
+  filePath: FilePathSchema.describe('Absolute path to the file to check for unused exported symbols'),
   format: OutputFormatSchema.optional(),
 });
 export type FindUnusedSymbolsParams = z.infer<typeof FindUnusedSymbolsParamsSchema>;
 
 export const GetSymbolDependentsParamsSchema = z.object({
-  filePath: z.string().describe('Absolute path to the file containing the symbol'),
-  symbolName: z.string().describe('Name of the symbol to find dependents for'),
+  filePath: FilePathSchema.describe('Absolute path to the file containing the symbol'),
+  symbolName: SymbolNameSchema.describe('Name of the symbol to find dependents for'),
   format: OutputFormatSchema.optional(),
 });
 export type GetSymbolDependentsParams = z.infer<typeof GetSymbolDependentsParamsSchema>;
 
 export const TraceFunctionExecutionParamsSchema = z.object({
-  filePath: z.string().describe('Absolute path to the file containing the root symbol'),
-  symbolName: z.string().describe('Name of the root symbol to trace from'),
+  filePath: FilePathSchema.describe('Absolute path to the file containing the root symbol'),
+  symbolName: SymbolNameSchema.describe('Name of the root symbol to trace from'),
   maxDepth: z.number().optional().describe('Maximum depth to trace the call chain (default: 10)'),
   format: OutputFormatSchema.optional(),
 });
@@ -192,8 +251,8 @@ export type TraceFunctionExecutionParams = z.infer<typeof TraceFunctionExecution
 
 // NEW: Schema for get_symbol_callers (O(1) lookup)
 export const GetSymbolCallersParamsSchema = z.object({
-  filePath: z.string().describe('The absolute path to the file containing the target symbol.'),
-  symbolName: z.string().describe('The name of the symbol (function, class, method, variable) to find callers for.'),
+  filePath: FilePathSchema.describe('The absolute path to the file containing the target symbol.'),
+  symbolName: SymbolNameSchema.describe('The name of the symbol (function, class, method, variable) to find callers for.'),
   includeTypeOnly: z.boolean().optional().describe('Include type-only usages (interfaces, type aliases). Default is true.'),
   format: OutputFormatSchema.optional(),
 });
@@ -201,18 +260,18 @@ export type GetSymbolCallersParams = z.infer<typeof GetSymbolCallersParamsSchema
 
 // NEW: Schema for analyze_breaking_changes
 export const AnalyzeBreakingChangesParamsSchema = z.object({
-  filePath: z.string().describe('Absolute path to the file to analyze'),
-  symbolName: z.string().optional().describe('Optional: Only analyze changes to this specific symbol'),
-  oldContent: z.string().describe('The old version of the file content'),
-  newContent: z.string().optional().describe('The new version of the file content (if not provided, reads current file)'),
+  filePath: FilePathSchema.describe('Absolute path to the file to analyze'),
+  symbolName: SymbolNameSchema.optional().describe('Optional: Only analyze changes to this specific symbol'),
+  oldContent: FileContentSchema.describe('The old version of the file content'),
+  newContent: FileContentSchema.optional().describe('The new version of the file content (if not provided, reads current file)'),
   format: OutputFormatSchema.optional(),
 });
 export type AnalyzeBreakingChangesParams = z.infer<typeof AnalyzeBreakingChangesParamsSchema>;
 
 // NEW: Schema for get_impact_analysis
 export const GetImpactAnalysisParamsSchema = z.object({
-  filePath: z.string().describe('Absolute path to the file being modified'),
-  symbolName: z.string().describe('Name of the symbol being modified'),
+  filePath: FilePathSchema.describe('Absolute path to the file being modified'),
+  symbolName: SymbolNameSchema.describe('Name of the symbol being modified'),
   includeTransitive: z.boolean().optional().describe('Include transitive dependents (default: false)'),
   maxDepth: z.number().optional().describe('Maximum depth for transitive analysis (default: 3)'),
   format: OutputFormatSchema.optional(),
