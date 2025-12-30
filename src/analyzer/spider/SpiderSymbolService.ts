@@ -4,7 +4,7 @@ import { getLogger } from '../../shared/logger';
 import { Cache } from '../Cache';
 import { FileReader } from '../FileReader';
 import { PathResolver } from '../utils/PathResolver';
-import { AstWorkerHost } from '../AstWorkerHost';
+import { AstWorkerHost } from '../ast/AstWorkerHost';
 import { SymbolDependencyHelper } from '../SymbolDependencyHelper';
 import { isInIgnoredDirectory } from '../utils/PathPredicates';
 

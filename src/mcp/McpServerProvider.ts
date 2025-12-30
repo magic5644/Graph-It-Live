@@ -84,6 +84,11 @@ export class McpServerProvider implements vscode.Disposable {
           if (e.affectsConfiguration('graph-it-live.enableMcpServer')) {
             this.onConfigChanged();
           }
+          // Also trigger when debug logging setting changes
+          if (e.affectsConfiguration('graph-it-live.enableMcpDebugLogging')) {
+            log.info('MCP debug logging setting changed, restarting server...');
+            this.didChangeEmitter.fire();
+          }
         })
       );
 
@@ -110,6 +115,7 @@ export class McpServerProvider implements vscode.Disposable {
     excludeNodeModules: boolean;
     maxDepth: number;
     tsConfigPath: string | undefined;
+    enableDebugLogging: boolean;
   } {
     const config = vscode.workspace.getConfiguration('graph-it-live');
     
@@ -120,6 +126,7 @@ export class McpServerProvider implements vscode.Disposable {
       excludeNodeModules: config.get<boolean>('excludeNodeModules', true),
       maxDepth: config.get<number>('maxDepth', 50),
       tsConfigPath: tsconfigPath,
+      enableDebugLogging: config.get<boolean>('enableMcpDebugLogging', false),
     };
   }
 
@@ -158,6 +165,12 @@ export class McpServerProvider implements vscode.Disposable {
 
     if (config.tsConfigPath) {
       env.TSCONFIG_PATH = config.tsConfigPath;
+    }
+
+    // Pass debug logging setting to MCP server
+    if (config.enableDebugLogging) {
+      env.DEBUG_MCP = 'true';
+      log.info('MCP debug logging enabled - logs will be written to ~/mcp-debug.log');
     }
 
     // Create stdio server definition

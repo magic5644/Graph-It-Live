@@ -148,6 +148,7 @@ Customize the extension in VS Code Settings (`Cmd+,` or `Ctrl+,`):
 | :--- | :--- | :--- |
 | `graph-it-live.performanceProfile` | `default` | **Performance preset**: `default`, `low-memory`, `high-performance`, or `custom` for manual control. |
 | `graph-it-live.enableMcpServer` | `false` | **Enable this for AI features.** Exposes dependency analysis tools via Model Context Protocol. |
+| `graph-it-live.enableMcpDebugLogging` | `false` | **[Privacy]** Enable detailed MCP debug logging (~/mcp-debug.log). Only enable for troubleshooting. See [Security Guide](docs/MCP_DEBUG_LOGGING_SECURITY.md). |
 | `graph-it-live.maxDepth` | `50` | Maximum depth of dependencies to analyze initially. |
 | `graph-it-live.excludeNodeModules` | `true` | Whether to exclude `node_modules` imports from the graph. |
 | `graph-it-live.enableBackgroundIndexing` | `true` | Enable background indexing for instant reverse dependency lookups. |

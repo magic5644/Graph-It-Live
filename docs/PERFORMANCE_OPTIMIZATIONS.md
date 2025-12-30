@@ -1,5 +1,35 @@
 # Performance Optimizations for Unused Dependency Analysis
 
+## Recent Optimizations
+
+### Avoid Double Crawl on Usage Check (December 2025)
+
+**Problem**: When unused dependency analysis was enabled, the graph was being crawled twice:
+1. First crawl for initial display (fast, no usage check)
+2. Second full crawl for usage analysis enrichment
+
+This caused a complete re-parse of all imports even though we already had the graph structure in memory.
+
+**Impact on Large Projects**:
+- 2x crawl time (e.g., 500ms → 1000ms for a 200-file project)
+- Redundant file I/O and regex parsing
+- Wasted CPU cycles on duplicate work
+
+**Solution**: Modified `buildGraphData()` to accept optional `existingGraphData` parameter:
+```typescript
+// Before: Re-crawl everything
+const initialGraph = await buildGraphData(filePath, false);
+const enrichedGraph = await buildGraphData(filePath, true); // ❌ Re-crawls!
+
+// After: Reuse initial graph
+const initialGraph = await buildGraphData(filePath, false);
+const enrichedGraph = await buildGraphData(filePath, true, initialGraph); // ✅ Reuses!
+```
+
+**Results**: 50% reduction in crawl operations when usage analysis is active. See test in `tests/extension/services/GraphViewService.test.ts`.
+
+---
+
 ## Problem Statement
 
 The unused dependency filter analyzes AST (Abstract Syntax Tree) to determine if imported symbols are actually used. On large repositories with 1000+ edges, the initial implementation had severe performance and memory issues:

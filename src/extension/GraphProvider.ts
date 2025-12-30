@@ -859,11 +859,8 @@ export class GraphProvider implements vscode.WebviewViewProvider {
             // Step 2: If usage check is required, perform it and send update
             if (checkUsage) {
                 log.debug('Performing background usage analysis for', filePath);
-                // We reuse the nodes/edges from initial data to avoid re-crawling if possible,
-                // but buildGraphData is cleaner. For now, calling it again with checkUsage=true.
-                // Optimization: GraphViewService could accept existing GraphData?
-                // For now, re-crawling (regex) is cheap compared to AST.
-                const enrichedGraphData = await this._graphViewService.buildGraphData(filePath, true);
+                // Reuse the nodes/edges from initial data to avoid re-crawling (optimized)
+                const enrichedGraphData = await this._graphViewService.buildGraphData(filePath, true, initialGraphData);
                 
                 // Only send update if unused edges were found (or if we need to confirm they are empty?)
                 // Actually, we should confirm if they are computed. 

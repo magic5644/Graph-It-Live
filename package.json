@@ -193,9 +193,15 @@
         },
         "graph-it-live.enableMcpServer": {
           "type": "boolean",
-          "default": true,
+          "default": false,
           "description": "Enable MCP (Model Context Protocol) server for LLM integration. When enabled, exposes dependency analysis tools to GitHub Copilot and other MCP-compatible AI assistants.",
           "markdownDescription": "Enable **MCP (Model Context Protocol)** server for LLM integration. When enabled, exposes dependency analysis tools to GitHub Copilot and other MCP-compatible AI assistants.\n\n[Learn more about MCP](https://code.visualstudio.com/api/extension-guides/ai/mcp)"
+        },
+        "graph-it-live.enableMcpDebugLogging": {
+          "type": "boolean",
+          "default": false,
+          "description": "Enable detailed debug logging for MCP server. Creates ~/mcp-debug.log with automatic rotation (5MB limit per file, keeps 2 files). Only enable for troubleshooting.",
+          "markdownDescription": "**[Privacy Notice]** Enable detailed debug logging for MCP server. Creates `~/mcp-debug.log` with automatic rotation (5MB limit per file, keeps last 2 files). Log file may contain project paths and file names. Only enable temporarily for troubleshooting, then disable to prevent unnecessary data accumulation."
         },
         "graph-it-live.enableBackgroundIndexing": {
           "type": "boolean",
@@ -327,7 +333,7 @@
     "publish": "vsce publish"
   },
   "dependencies": {
-    "@modelcontextprotocol/sdk": "^1.25.1",
+    "@modelcontextprotocol/sdk": "1.25.1",
     "@types/dagre": "^0.7.53",
     "chokidar": "^5.0.0",
     "dagre": "^0.8.5",
