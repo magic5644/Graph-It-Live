@@ -7,8 +7,17 @@ import { normalizePath } from '../types';
  */
 export function isInIgnoredDirectory(filePath: string): boolean {
   const normalized = normalizePath(filePath);
-  return IGNORED_DIRECTORIES.some(
-    (dir) => normalized.includes(`/${dir}/`) || normalized.includes(`/${dir}`)
-  );
+  
+  // Split the path into segments
+  const segments = normalized.split('/');
+  
+  // Check if any segment (excluding the last one which is the filename) matches an ignored directory
+  for (let i = 0; i < segments.length - 1; i++) {
+    if (IGNORED_DIRECTORIES.includes(segments[i])) {
+      return true;
+    }
+  }
+  
+  return false;
 }
 

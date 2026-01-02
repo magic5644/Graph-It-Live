@@ -99,10 +99,10 @@ describe('LanguageService', () => {
       expect(analyzer1).toBe(analyzer2);
     });
 
-    it('should throw error for Python files (not yet implemented)', () => {
-      expect(() => LanguageService.getSymbolAnalyzer('/project/main.py')).toThrow(
-        'Python symbol analyzer not yet implemented'
-      );
+    it('should return PythonSymbolAnalyzer for Python files', () => {
+      const analyzer = LanguageService.getSymbolAnalyzer('/project/main.py');
+      expect(analyzer).toBeDefined();
+      expect(analyzer.constructor.name).toBe('PythonSymbolAnalyzer');
     });
 
     it('should throw error for Rust files (not yet implemented)', () => {

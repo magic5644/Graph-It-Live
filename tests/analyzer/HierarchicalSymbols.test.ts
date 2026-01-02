@@ -24,7 +24,7 @@ describe('SymbolAnalyzer - Hierarchical Symbols', () => {
       }
     `;
 
-    const { symbols } = analyzer.analyzeFile(filePath, content);
+    const { symbols } = analyzer.analyzeFileContent(filePath, content);
 
     // Should have 1 class + 4 methods (constructor, greet, formatName, create)
     expect(symbols.length).toBeGreaterThanOrEqual(4);
@@ -65,7 +65,7 @@ describe('SymbolAnalyzer - Hierarchical Symbols', () => {
       }
     `;
 
-    const { symbols } = analyzer.analyzeFile(filePath, content);
+    const { symbols } = analyzer.analyzeFileContent(filePath, content);
 
     // Find property symbols
     const nameProperty = symbols.find(s => s.name === 'DataClass.name');
@@ -95,7 +95,7 @@ describe('SymbolAnalyzer - Hierarchical Symbols', () => {
       }
     `;
 
-    const { symbols } = analyzer.analyzeFile(filePath, content);
+    const { symbols } = analyzer.analyzeFileContent(filePath, content);
 
     const getter = symbols.find(s => s.name === 'GetSet.value' && s.kind === 'GetAccessor');
     expect(getter).toBeDefined();
@@ -118,7 +118,7 @@ describe('SymbolAnalyzer - Hierarchical Symbols', () => {
       }
     `;
 
-    const { symbols } = analyzer.analyzeFile(filePath, content);
+    const { symbols } = analyzer.analyzeFileContent(filePath, content);
 
     const standaloneFunc = symbols.find(s => s.name === 'standalone');
     expect(standaloneFunc).toBeDefined();

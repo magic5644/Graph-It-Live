@@ -1,4 +1,4 @@
-import { Parser } from '../Parser';
+import { LanguageService } from '../LanguageService';
 import { PathResolver } from '../utils/PathResolver';
 import { Cache } from '../Cache';
 import { ReverseIndex } from '../ReverseIndex';
@@ -15,7 +15,7 @@ const log = getLogger('SpiderDependencyAnalyzer');
  */
 export class SpiderDependencyAnalyzer {
   constructor(
-    private readonly parser: Parser,
+    private readonly languageService: LanguageService,
     private readonly resolver: PathResolver,
     private readonly fileReader: FileReader,
     private readonly dependencyCache: Cache<Dependency[]>,
@@ -32,14 +32,16 @@ export class SpiderDependencyAnalyzer {
     }
 
     try {
-      const content = await this.fileReader.readFile(filePath);
-      const parsedImports = this.parser.parse(content, filePath);
+      // Use LanguageService to get the appropriate analyzer for this file
+      const analyzer = this.languageService.getAnalyzer(filePath);
+      const parsedImports = await analyzer.parseImports(filePath);
 
       const dependencies: Dependency[] = [];
       const seenResolvedPaths = new Set<string>();
 
       for (const imp of parsedImports) {
-        const resolvedPath = await this.resolver.resolve(filePath, imp.module);
+        // Use analyzer's resolvePath method for language-specific resolution
+        const resolvedPath = await analyzer.resolvePath(filePath, imp.module);
         if (!resolvedPath) continue;
 
         const normalizedResolved = normalizePath(resolvedPath);

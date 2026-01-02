@@ -1,4 +1,4 @@
-import { Parser } from './Parser';
+import { LanguageService } from './LanguageService';
 import { PathResolver } from './utils/PathResolver';
 import { Cache } from './Cache';
 import { ReverseIndexManager } from './ReverseIndexManager';
@@ -31,7 +31,7 @@ import { SpiderWorkerManager } from './spider/SpiderWorkerManager';
 export class Spider {
   private readonly config: SpiderConfig;
 
-  private readonly parser = new Parser();
+  private readonly languageService: LanguageService;
   private readonly resolver: PathResolver;
 
   // Kept as `cache` for backward compatibility (some tests/tools access it via `as any`).
@@ -71,6 +71,8 @@ export class Spider {
       ...config,
     };
 
+    this.languageService = new LanguageService(config.rootDir, config.tsConfigPath);
+
     this.resolver = new PathResolver(
       config.tsConfigPath,
       this.config.excludeNodeModules,
@@ -85,7 +87,7 @@ export class Spider {
     this.workerManager = new SpiderWorkerManager(this.indexerStatus, this.reverseIndexManager, this.cache);
 
     this.dependencyAnalyzer = new SpiderDependencyAnalyzer(
-      this.parser,
+      this.languageService,
       this.resolver,
       this.fileReader,
       this.cache,

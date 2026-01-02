@@ -13,7 +13,7 @@ export const routes = [
     }
 ];
 `;
-        const result = analyzer.analyzeFile('/test/router.ts', content);
+        const result = analyzer.analyzeFileContent('/test/router.ts', content);
         
         // Should have the routes export
         expect(result.symbols).toHaveLength(1);
@@ -39,7 +39,7 @@ export const routes = [
     }
 ];
 `;
-        const result = analyzer.analyzeFile('/test/router.ts', content);
+        const result = analyzer.analyzeFileContent('/test/router.ts', content);
         
         // Should detect both dynamic imports
         const infoAboutDeps = result.dependencies.filter(
@@ -67,7 +67,7 @@ export const config = {
     ]
 };
 `;
-        const result = analyzer.analyzeFile('/test/config.ts', content);
+        const result = analyzer.analyzeFileContent('/test/config.ts', content);
         
         const nestedDeps = result.dependencies.filter(
             d => d.targetFilePath === './views/Nested.vue'
@@ -88,7 +88,7 @@ export const router = new Router({
     ]
 });
 `;
-        const result = analyzer.analyzeFile('/test/router-mixed.ts', content);
+        const result = analyzer.analyzeFileContent('/test/router-mixed.ts', content);
         
         // Should have dependency on vue-router (static import)
         const routerDeps = result.dependencies.filter(
@@ -112,7 +112,7 @@ export async function loadComponent(name: string) {
     return import("./views/Fallback.vue");
 }
 `;
-        const result = analyzer.analyzeFile('/test/loader.ts', content);
+        const result = analyzer.analyzeFileContent('/test/loader.ts', content);
         
         const homeDeps = result.dependencies.filter(
             d => d.targetFilePath === './views/Home.vue'

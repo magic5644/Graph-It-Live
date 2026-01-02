@@ -14,7 +14,7 @@ export function myFunction() {
 }
 `;
       
-      const result = analyzer.analyzeFile('/test.ts', content);
+      const result = analyzer.analyzeFileContent('/test.ts', content);
       
       expect(result.symbols).toHaveLength(1);
       expect(result.symbols[0].name).toBe('myFunction');
@@ -32,7 +32,7 @@ export function prettify(text: string) {
 }
 `;
       
-      const result = analyzer.analyzeFile('/test.ts', content);
+      const result = analyzer.analyzeFileContent('/test.ts', content);
       
       // Should track the ORIGINAL name, not the alias
       expect(result.dependencies).toHaveLength(1);
@@ -49,7 +49,7 @@ export function Component() {
 }
 `;
       
-      const result = analyzer.analyzeFile('/test.ts', content);
+      const result = analyzer.analyzeFileContent('/test.ts', content);
       
       expect(result.dependencies).toHaveLength(1);
       expect(result.dependencies[0].targetSymbolId).toBe('react:default');
@@ -65,7 +65,7 @@ export function doSomething() {
 }
 `;
       
-      const result = analyzer.analyzeFile('/test.ts', content);
+      const result = analyzer.analyzeFileContent('/test.ts', content);
       
       expect(result.dependencies).toHaveLength(1);
       expect(result.dependencies[0].targetSymbolId).toBe('./utils:*');
@@ -82,7 +82,7 @@ export function process(x: MyType) {
 }
 `;
       
-      const result = analyzer.analyzeFile('/test.ts', content);
+      const result = analyzer.analyzeFileContent('/test.ts', content);
       
       // Should have both dependencies, but type-only imports are marked with isTypeOnly: true
       expect(result.dependencies).toHaveLength(2);
@@ -107,7 +107,7 @@ export function myFunc() {
 }
 `;
       
-      const result = analyzer.analyzeFile('/test.ts', content);
+      const result = analyzer.analyzeFileContent('/test.ts', content);
       
       // Should only have dependency on 'used', not 'unused'
       expect(result.dependencies).toHaveLength(1);
@@ -130,7 +130,7 @@ export function funcB() {
 }
 `;
       
-      const result = analyzer.analyzeFile('/test.ts', content);
+      const result = analyzer.analyzeFileContent('/test.ts', content);
       
       expect(result.symbols).toHaveLength(2);
       expect(result.dependencies).toHaveLength(2);
@@ -154,7 +154,7 @@ export function calculate(a: number, b: number) {
 }
 `;
       
-      const result = analyzer.analyzeFile('/test.ts', content);
+      const result = analyzer.analyzeFileContent('/test.ts', content);
       
       expect(result.dependencies).toHaveLength(2);
       expect(result.dependencies.some(d => d.targetSymbolId === './math:add')).toBe(true);
@@ -171,7 +171,7 @@ export function standalone() {
 }
 `;
       
-      const result = analyzer.analyzeFile('/test.ts', content);
+      const result = analyzer.analyzeFileContent('/test.ts', content);
       
       expect(result.symbols).toHaveLength(1);
       expect(result.dependencies).toHaveLength(0);
@@ -187,7 +187,7 @@ export function myFunc() {
 }
 `;
       
-      const result = analyzer.analyzeFile('/test.ts', content);
+      const result = analyzer.analyzeFileContent('/test.ts', content);
       
       expect(result.symbols).toHaveLength(1);
       expect(result.dependencies).toHaveLength(0);
@@ -205,7 +205,7 @@ export function myFunc() {
 }
 `;
       
-      const result = analyzer.analyzeFile('/test.ts', content);
+      const result = analyzer.analyzeFileContent('/test.ts', content);
       
       // Should only have ONE dependency edge, despite multiple calls
       expect(result.dependencies).toHaveLength(1);
@@ -232,7 +232,7 @@ export function myFunction() {
 export class MyClass {}
 `;
       
-      const result = analyzer.analyzeFile('/test.ts', content);
+      const result = analyzer.analyzeFileContent('/test.ts', content);
       const runtimeSymbols = analyzer.filterRuntimeSymbols(result.symbols);
       
       // Should only have function and class, not interface or type
