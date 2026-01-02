@@ -3,6 +3,7 @@ import { ILanguageAnalyzer, ISymbolAnalyzer } from './types';
 import { Parser } from './Parser';
 import { SymbolAnalyzer } from './SymbolAnalyzer';
 import { PythonParser } from './languages/PythonParser';
+import { PythonSymbolAnalyzer } from './languages/PythonSymbolAnalyzer';
 
 /**
  * Language detection based on file extension
@@ -20,10 +21,10 @@ export enum Language {
  */
 export class LanguageService {
   private static typeScriptParser: Parser | null = null;
+  private static typeScriptSymbolAnalyzer: SymbolAnalyzer | null = null;
   private static pythonParser: PythonParser | null = null;
-  // Python symbol analyzer will be added in Phase 3 (TASK-027)
-  // Rust analyzers will be added in Phase 5 and Phase 6null;
-  // Python and Rust analyzers will be added in Phase 2 and Phase 5
+  private static pythonSymbolAnalyzer: PythonSymbolAnalyzer | null = null;
+  // Rust analyzers will be added in Phase 5 and Phase 6
 
   /**
    * Detect the language based on file extension
@@ -101,8 +102,10 @@ export class LanguageService {
         return this.typeScriptSymbolAnalyzer;
 
       case Language.Python:
-        // Will be implemented in Phase 3 (TASK-027 to TASK-033)
-        throw new Error(`Python symbol analyzer not yet implemented`);
+        if (!this.pythonSymbolAnalyzer) {
+          this.pythonSymbolAnalyzer = new PythonSymbolAnalyzer(rootDir);
+        }
+        return this.pythonSymbolAnalyzer;
 
       case Language.Rust:
         // Will be implemented in Phase 6 (TASK-069 to TASK-077)
@@ -122,10 +125,11 @@ export class LanguageService {
 
   /**
    * Reset all cached analyzers (useful for testing)
-    this.pythonParser = null;
    */
   static reset(): void {
     this.typeScriptParser = null;
     this.typeScriptSymbolAnalyzer = null;
+    this.pythonParser = null;
+    this.pythonSymbolAnalyzer = null;
   }
 }
