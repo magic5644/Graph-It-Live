@@ -16,6 +16,7 @@ import { NodeInteractionService } from './services/NodeInteractionService';
 import { EditorNavigationService } from './services/EditorNavigationService';
 import { ProviderStateManager, ProviderConfigSnapshot } from './services/ProviderStateManager';
 import { UnusedAnalysisCache } from './services/UnusedAnalysisCache';
+import { SUPPORTED_SOURCE_FILE_REGEX } from '../shared/constants';
 
 /** Logger instance for GraphProvider */
 const log = getExtensionLogger('GraphProvider');
@@ -182,7 +183,7 @@ export class GraphProvider implements vscode.WebviewViewProvider {
                 : undefined;
             const targetFilePath = candidate || fallbackLastFile;
 
-            if (targetFilePath && /\.(ts|tsx|js|jsx|vue|svelte|gql|graphql)$/.test(targetFilePath)) {
+            if (targetFilePath && SUPPORTED_SOURCE_FILE_REGEX.test(targetFilePath)) {
                 await this._sendGraphUpdate(targetFilePath, false);
                 return;
             }
@@ -259,7 +260,7 @@ export class GraphProvider implements vscode.WebviewViewProvider {
         }
 
         // Only handle supported file types
-        if (!/\.(ts|tsx|js|jsx|vue|svelte|gql|graphql)$/.test(filePath)) {
+        if (!SUPPORTED_SOURCE_FILE_REGEX.test(filePath)) {
             return;
         }
 
@@ -299,7 +300,7 @@ export class GraphProvider implements vscode.WebviewViewProvider {
         const newFilePath = editor.document.fileName;
         
         // Only handle supported file types
-        if (!/\.(ts|tsx|js|jsx|vue|svelte|gql|graphql)$/.test(newFilePath)) {
+        if (!SUPPORTED_SOURCE_FILE_REGEX.test(newFilePath)) {
             return;
         }
 
@@ -328,7 +329,7 @@ export class GraphProvider implements vscode.WebviewViewProvider {
         }
 
         // Only handle supported file types
-        if (!/\.(ts|tsx|js|jsx|vue|svelte|gql|graphql)$/.test(filePath)) {
+        if (!SUPPORTED_SOURCE_FILE_REGEX.test(filePath)) {
             return;
         }
 
@@ -789,7 +790,7 @@ export class GraphProvider implements vscode.WebviewViewProvider {
         const editor = vscode.window.activeTextEditor;
         if (editor?.document.uri.scheme !== 'file') {
             const lastFilePath = this._stateManager.getLastActiveFilePath();
-            if (lastFilePath && /\.(ts|tsx|js|jsx|vue|svelte|gql|graphql)$/.test(lastFilePath)) {
+            if (lastFilePath && SUPPORTED_SOURCE_FILE_REGEX.test(lastFilePath)) {
                 log.debug('No active file editor, using last active file', lastFilePath);
                 await this._sendGraphUpdate(lastFilePath, isRefresh, refreshReason);
                 return;
@@ -809,7 +810,7 @@ export class GraphProvider implements vscode.WebviewViewProvider {
         log.debug(isRefresh ? 'Refreshing' : 'Updating', 'graph for', filePath);
 
         // Only analyze supported files
-        if (!/\.(ts|tsx|js|jsx|vue|svelte|gql|graphql)$/.test(filePath)) {
+        if (!SUPPORTED_SOURCE_FILE_REGEX.test(filePath)) {
             log.debug('Unsupported file type');
             return;
         }
