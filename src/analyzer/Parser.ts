@@ -1,10 +1,19 @@
-import { ParsedImport } from './types';
+import { ParsedImport, ILanguageAnalyzer, Dependency } from './types';
+import { FileReader } from './FileReader';
+import { PathResolver } from './utils/PathResolver';
 
 /**
  * Parses import/require/export statements from TypeScript/JavaScript files
  * CRITICAL: NO vscode imports allowed - pure Node.js only
  */
-export class Parser {
+export class Parser implements ILanguageAnalyzer {
+  private readonly fileReader: FileReader;
+  private readonly pathResolver: PathResolver;
+
+  constructor(rootDir?: string) {
+    this.fileReader = new FileReader();
+    this.pathResolver = new PathResolver(rootDir);
+  }
   // Regex patterns for different import types
   private readonly patterns = {
     // import ... from '...'
@@ -138,5 +147,27 @@ export class Parser {
   private getLineNumber(content: string, index: number): number {
     const upToMatch = content.substring(0, index);
     return upToMatch.split('\n').length;
+  }
+
+  /**
+   * ILanguageAnalyzer implementation: Parse imports from a file
+   */
+  async parseImports(filePath: string): Promise<Dependency[]> {
+    const content = await this.fileReader.readFile(filePath);
+    const parsed = this.parse(content, filePath);
+    
+    return parsed.map(p => ({
+      path: '', // Will be resolved separately via resolvePath()
+      type: p.type,
+      line: p.line,
+      module: p.module,
+    }));
+  }
+
+  /**
+   * ILanguageAnalyzer implementation: Resolve module path
+   */
+  async resolvePath(fromFile: string, moduleSpecifier: string): Promise<string | null> {
+    return this.pathResolver.resolve(fromFile, moduleSpecifier);
   }
 }
