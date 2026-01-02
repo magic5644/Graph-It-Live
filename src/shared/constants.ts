@@ -15,6 +15,9 @@ export const SUPPORTED_FILE_EXTENSIONS = [
     '.toml',
 ];
 
+// Unified regex for source files we analyze across extension/webview/mcp
+export const SUPPORTED_SOURCE_FILE_REGEX = /\.(ts|tsx|js|jsx|vue|svelte|gql|graphql|py|pyi|rs)$/;
+
 export const IGNORED_DIRECTORIES = [
     'node_modules',
     '.git',
