@@ -26,6 +26,28 @@ export class LanguageService {
   private static pythonSymbolAnalyzer: PythonSymbolAnalyzer | null = null;
   // Rust analyzers will be added in Phase 5 and Phase 6
 
+  private readonly rootDir?: string;
+  private readonly tsConfigPath?: string;
+
+  constructor(rootDir?: string, tsConfigPath?: string) {
+    this.rootDir = rootDir;
+    this.tsConfigPath = tsConfigPath;
+  }
+
+  /**
+   * Instance method to get analyzer with instance-specific config
+   */
+  getAnalyzer(filePath: string): ILanguageAnalyzer {
+    return LanguageService.getAnalyzer(filePath, this.rootDir);
+  }
+
+  /**
+   * Instance method to get symbol analyzer with instance-specific config
+   */
+  getSymbolAnalyzer(filePath: string): ISymbolAnalyzer {
+    return LanguageService.getSymbolAnalyzer(filePath, this.rootDir);
+  }
+
   /**
    * Detect the language based on file extension
    */

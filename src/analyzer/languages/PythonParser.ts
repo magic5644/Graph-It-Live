@@ -17,7 +17,7 @@ export class PythonParser implements ILanguageAnalyzer {
 
   constructor(rootDir?: string) {
     this.parser = new Parser();
-    this.parser.setLanguage(Python);
+    this.parser.setLanguage(Python as any);
     this.fileReader = new FileReader();
     this.rootDir = rootDir || process.cwd();
   }

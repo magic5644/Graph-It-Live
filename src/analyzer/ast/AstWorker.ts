@@ -31,7 +31,7 @@ type WorkerResponse =
   | { type: 'error'; id: number; error: string; stack?: string };
 
 // Initialize analyzers
-const symbolAnalyzer = new SymbolAnalyzer({ maxFiles: 100 });
+const symbolAnalyzer = new SymbolAnalyzer(undefined, { maxFiles: 100 });
 const signatureAnalyzer = new SignatureAnalyzer();
 
 /**
@@ -43,7 +43,7 @@ function handleMessage(message: WorkerRequest): void {
 
     switch (message.type) {
       case 'analyzeFile': {
-        const { symbols, dependencies } = symbolAnalyzer.analyzeFile(
+        const { symbols, dependencies } = symbolAnalyzer.analyzeFileContent(
           message.filePath,
           message.content
         );

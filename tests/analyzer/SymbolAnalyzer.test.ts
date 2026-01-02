@@ -191,7 +191,7 @@ export function testFunc() {
 }
 `;
     
-    const result = analyzer.analyzeFile('/test.ts', content);
+    const result = analyzer.analyzeFileContent('/test.ts', content);
     
     expect(result.symbols).toHaveLength(1);
     expect(result.symbols[0].name).toBe('testFunc');
