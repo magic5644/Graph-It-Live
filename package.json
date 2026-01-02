@@ -348,6 +348,8 @@
     "react": "^19.2.3",
     "react-dom": "^19.2.3",
     "reactflow": "^11.11.4",
+    "tree-sitter": "^0.25.0",
+    "tree-sitter-python": "^0.25.0",
     "ts-morph": "^27.0.2",
     "zod": "^4.3.4"
   },

@@ -9,6 +9,10 @@ export const SUPPORTED_FILE_EXTENSIONS = [
     '.cjs',
     '.gql',
     '.graphql',
+    '.py',
+    '.pyi',
+    '.rs',
+    '.toml',
 ];
 
 export const IGNORED_DIRECTORIES = [
@@ -20,7 +24,11 @@ export const IGNORED_DIRECTORIES = [
     'coverage',
     '.next',
     '.nuxt',
+    '__pycache__',
+    '.venv',
+    'venv',
+    'target',
 ];
 
 
-export const WATCH_GLOB = "**/*.{ts,tsx,js,jsx,vue,svelte,gql,graphql}";
+export const WATCH_GLOB = "**/*.{ts,tsx,js,jsx,vue,svelte,gql,graphql,py,pyi,rs,toml}";

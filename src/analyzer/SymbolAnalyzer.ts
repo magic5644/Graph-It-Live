@@ -1,5 +1,6 @@
 import { Project, SourceFile, SyntaxKind, Node, type ClassDeclaration} from 'ts-morph';
-import { SymbolInfo, SymbolDependency } from './types';
+import { SymbolInfo, SymbolDependency, ISymbolAnalyzer } from './types';
+import { FileReader } from './FileReader';
 
 
 /** Map ts-morph kind names to category */
@@ -36,14 +37,16 @@ export interface SymbolAnalyzerOptions {
   maxFiles?: number;
 }
 
-export class SymbolAnalyzer {
+export class SymbolAnalyzer implements ISymbolAnalyzer {
   private project: Project;
   private readonly maxFiles: number;
   private fileCount = 0;
+  private readonly fileReader: FileReader;
 
-  constructor(options: SymbolAnalyzerOptions = {}) {
+  constructor(rootDir?: string, options: SymbolAnalyzerOptions = {}) {
     this.maxFiles = options.maxFiles ?? 100;
     this.project = this.createProject();
+    this.fileReader = new FileReader();
   }
 
   /**
@@ -93,8 +96,9 @@ export class SymbolAnalyzer {
 
   /**
    * Analyze a file to extract exported symbols and their dependencies
+   * Internal method that works with file content directly
    */
-  public analyzeFile(filePath: string, content: string): {
+  public analyzeFileContent(filePath: string, content: string): {
     symbols: SymbolInfo[];
     dependencies: SymbolDependency[];
   } {
@@ -564,5 +568,28 @@ export class SymbolAnalyzer {
     ]);
     
     return symbols.filter(s => !typeOnlyKinds.has(s.kind));
+  }
+
+  /**
+   * ISymbolAnalyzer implementation: Analyze file and return symbol map
+   */
+  async analyzeFile(filePath: string): Promise<Map<string, SymbolInfo>> {
+    const content = await this.fileReader.readFile(filePath);
+    const result = this.analyzeFileContent(filePath, content);
+    
+    const symbolMap = new Map<string, SymbolInfo>();
+    for (const symbol of result.symbols) {
+      symbolMap.set(symbol.id, symbol);
+    }
+    return symbolMap;
+  }
+
+  /**
+   * ISymbolAnalyzer implementation: Get symbol dependencies
+   */
+  async getSymbolDependencies(filePath: string): Promise<SymbolDependency[]> {
+    const content = await this.fileReader.readFile(filePath);
+    const result = this.analyzeFileContent(filePath, content);
+    return result.dependencies;
   }
 }
