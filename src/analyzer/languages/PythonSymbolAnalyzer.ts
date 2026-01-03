@@ -61,8 +61,11 @@ export class PythonSymbolAnalyzer implements ISymbolAnalyzer {
     // First pass: collect all symbols
     this.extractSymbols(tree.rootNode, normalizedPath, content, symbolMap);
 
-    // Second pass: extract dependencies
-    this.extractDependencies(tree.rootNode, normalizedPath, content, dependencies, symbolMap);
+    // Build import map: localName -> moduleSpecifier (for tracking external dependencies)
+    const importMap = this.buildImportMap(tree.rootNode, content);
+
+    // Second pass: extract dependencies (both internal and external)
+    this.extractDependencies(tree.rootNode, normalizedPath, content, dependencies, symbolMap, undefined, importMap);
 
     return {
       symbols: Array.from(symbolMap.values()),
@@ -209,6 +212,70 @@ export class PythonSymbolAnalyzer implements ISymbolAnalyzer {
   }
 
   /**
+   * Build a map of imported names to their module specifiers
+   * e.g., format_result -> utils.helpers, connect_db -> utils.database
+   */
+  private buildImportMap(node: Parser.SyntaxNode, content: string): Map<string, string> {
+    const importMap = new Map<string, string>();
+
+    const traverse = (n: Parser.SyntaxNode) => {
+      // Handle: from module import name [as alias]
+      if (n.type === 'import_from_statement') {
+        const moduleNode = n.childForFieldName('module_name');
+        if (!moduleNode) return;
+        
+        const modulePath = this.getNodeText(moduleNode, content);
+        
+        // Extract imported names
+        for (const child of n.children) {
+          if (child.type === 'dotted_name' || child.type === 'identifier') {
+            const nameText = this.getNodeText(child, content);
+            // Skip if it's the module name itself
+            if (nameText === modulePath) continue;
+            // Check if this is part of aliased_import (will be handled separately)
+            if (child.parent?.type === 'aliased_import') continue;
+            importMap.set(nameText, modulePath);
+          } else if (child.type === 'aliased_import') {
+            const nameNode = child.childForFieldName('name');
+            const aliasNode = child.childForFieldName('alias');
+            if (nameNode) {
+              const name = this.getNodeText(nameNode, content);
+              const alias = aliasNode ? this.getNodeText(aliasNode, content) : name;
+              importMap.set(alias, modulePath);
+            }
+          }
+        }
+      }
+      // Handle: import module [as alias]
+      else if (n.type === 'import_statement') {
+        for (const child of n.children) {
+          if (child.type === 'dotted_name' || child.type === 'identifier') {
+            const modulePath = this.getNodeText(child, content);
+            // Skip keywords
+            if (modulePath === 'import') continue;
+            importMap.set(modulePath, modulePath);
+          } else if (child.type === 'aliased_import') {
+            const nameNode = child.childForFieldName('name');
+            const aliasNode = child.childForFieldName('alias');
+            if (nameNode) {
+              const modulePath = this.getNodeText(nameNode, content);
+              const alias = aliasNode ? this.getNodeText(aliasNode, content) : modulePath;
+              importMap.set(alias, modulePath);
+            }
+          }
+        }
+      }
+
+      for (const child of n.children) {
+        traverse(child);
+      }
+    };
+
+    traverse(node);
+    return importMap;
+  }
+
+  /**
    * Extract symbol dependencies from AST
    */
   private extractDependencies(
@@ -217,13 +284,14 @@ export class PythonSymbolAnalyzer implements ISymbolAnalyzer {
     content: string,
     dependencies: SymbolDependency[],
     symbols: Map<string, SymbolInfo>,
-    currentScope?: string
+    currentScope?: string,
+    importMap?: Map<string, string>
   ): void {
     const newScope = this.getScopeForNode(node, filePath, content, currentScope);
-    this.addCallDependencyIfAny(node, filePath, content, dependencies, symbols, newScope);
+    this.addCallDependencyIfAny(node, filePath, content, dependencies, symbols, newScope, importMap);
 
     for (const child of node.children) {
-      this.extractDependencies(child, filePath, content, dependencies, symbols, newScope);
+      this.extractDependencies(child, filePath, content, dependencies, symbols, newScope, importMap);
     }
   }
 
@@ -252,7 +320,8 @@ export class PythonSymbolAnalyzer implements ISymbolAnalyzer {
     content: string,
     dependencies: SymbolDependency[],
     symbols: Map<string, SymbolInfo>,
-    scope?: string
+    scope?: string,
+    importMap?: Map<string, string>
   ): void {
     if (node.type !== 'call') {
       return;
@@ -264,17 +333,31 @@ export class PythonSymbolAnalyzer implements ISymbolAnalyzer {
     }
 
     const calledName = this.getCalledName(funcNode, content);
-    const targetSymbolId = `${filePath}:${calledName}`;
-    if (!symbols.has(targetSymbolId)) {
+    
+    // Check if it's a call to a local symbol (same file)
+    const localTargetSymbolId = `${filePath}:${calledName}`;
+    if (symbols.has(localTargetSymbolId)) {
+      dependencies.push({
+        sourceSymbolId: scope,
+        targetSymbolId: localTargetSymbolId,
+        targetFilePath: filePath,
+        isTypeOnly: false,
+      });
       return;
     }
 
-    dependencies.push({
-      sourceSymbolId: scope,
-      targetSymbolId,
-      targetFilePath: filePath,
-      isTypeOnly: false,
-    });
+    // Check if it's a call to an imported symbol (external file)
+    if (importMap?.has(calledName)) {
+      const moduleSpecifier = importMap.get(calledName)!;
+      // Create dependency with module specifier as targetFilePath
+      // This will be resolved to absolute path by SpiderSymbolService.getSymbolGraph()
+      dependencies.push({
+        sourceSymbolId: scope,
+        targetSymbolId: `${moduleSpecifier}:${calledName}`, // Module specifier + symbol name
+        targetFilePath: moduleSpecifier, // Will be resolved by PathResolver
+        isTypeOnly: false,
+      });
+    }
   }
 
   private getCalledName(funcNode: Parser.SyntaxNode, content: string): string {

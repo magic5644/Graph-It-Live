@@ -128,7 +128,8 @@ export class Spider {
       this.resolver,
       this.symbolDependencyHelper,
       () => this.config,
-      (targetPath) => this.findReferencingFiles(targetPath)
+      (targetPath) => this.findReferencingFiles(targetPath),
+      this.languageService
     );
 
     this.graphCrawler = new SpiderGraphCrawler(this.dependencyAnalyzer, () => this.config);
