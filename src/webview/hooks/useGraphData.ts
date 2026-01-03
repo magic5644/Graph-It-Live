@@ -75,7 +75,7 @@ export const useGraphData = () => {
           log.debug('Collapsing all nodes, keeping root:', rootSet.size, Array.from(rootSet));
           setExpandedNodes(rootSet);
       } else if (shouldExpandAll && !fullGraphData) {
-          console.warn('toggleExpandAll: No fullGraphData available yet');
+        log.warn('toggleExpandAll: No fullGraphData available yet');
       }
 
       if (vscode) {

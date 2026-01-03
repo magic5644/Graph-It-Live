@@ -3,7 +3,6 @@ import { PathResolver } from '../utils/PathResolver';
 import { Cache } from '../Cache';
 import { ReverseIndex } from '../ReverseIndex';
 import { ReverseIndexManager } from '../ReverseIndexManager';
-import { FileReader } from '../FileReader';
 import { Dependency, SpiderError, normalizePath } from '../types';
 import { getLogger } from '../../shared/logger';
 
@@ -17,7 +16,6 @@ export class SpiderDependencyAnalyzer {
   constructor(
     private readonly languageService: LanguageService,
     private readonly resolver: PathResolver,
-    private readonly fileReader: FileReader,
     private readonly dependencyCache: Cache<Dependency[]>,
     private readonly reverseIndexManager: ReverseIndexManager
   ) {}

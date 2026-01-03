@@ -17,7 +17,7 @@ export class PythonParser implements ILanguageAnalyzer {
 
   constructor(rootDir?: string) {
     this.parser = new Parser();
-    this.parser.setLanguage(Python as any);
+    this.parser.setLanguage(Python as unknown as Parser.Language);
     this.fileReader = new FileReader();
     this.rootDir = rootDir || process.cwd();
   }
@@ -135,8 +135,9 @@ export class PythonParser implements ILanguageAnalyzer {
    */
   private async resolveRelativeImport(fromDir: string, moduleSpecifier: string): Promise<string | null> {
     // Count leading dots
-    const dots = moduleSpecifier.match(/^\.*/)![0].length;
-    const modulePath = moduleSpecifier.slice(dots).replace(/\./g, '/');
+    const dotsMatch = /^\.*/u.exec(moduleSpecifier);
+    const dots = dotsMatch ? dotsMatch[0].length : 0;
+    const modulePath = moduleSpecifier.slice(dots).replaceAll('.', '/');
 
     // Navigate up directories based on dot count
     let currentDir = fromDir;
@@ -166,7 +167,7 @@ export class PythonParser implements ILanguageAnalyzer {
    */
   private async resolveAbsoluteImport(moduleSpecifier: string): Promise<string | null> {
     // Convert module.submodule to module/submodule
-    const modulePath = moduleSpecifier.replace(/\./g, '/');
+    const modulePath = moduleSpecifier.replaceAll('.', '/');
 
     // Try different file patterns relative to workspace root
     const candidates = [

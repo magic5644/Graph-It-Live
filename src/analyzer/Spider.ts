@@ -34,7 +34,7 @@ export class Spider {
   private readonly languageService: LanguageService;
   private readonly resolver: PathResolver;
 
-  // Kept as `cache` for backward compatibility (some tests/tools access it via `as any`).
+  // Kept as `cache` for backward compatibility (some tests/tools access it dynamically).
   private readonly cache: Cache<Dependency[]>;
   private readonly symbolCache: Cache<{
     symbols: import('./types').SymbolInfo[];
@@ -89,7 +89,6 @@ export class Spider {
     this.dependencyAnalyzer = new SpiderDependencyAnalyzer(
       this.languageService,
       this.resolver,
-      this.fileReader,
       this.cache,
       this.reverseIndexManager
     );

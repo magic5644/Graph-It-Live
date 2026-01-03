@@ -30,6 +30,10 @@ const FILE_TYPE_COLORS: Record<string, string> = {
   '.svelte': '#ff3e00',
   '.gql': '#e535ab',
   '.graphql': '#e535ab',
+  '.py': '#3776ab',      // Python blue
+  '.pyi': '#3776ab',     // Python interface files
+  '.rs': '#ce422b',      // Rust orange
+  '.toml': '#9c4221',    // TOML brown
 };
 
 const EXTERNAL_PACKAGE_COLOR = '#6b6b6b';

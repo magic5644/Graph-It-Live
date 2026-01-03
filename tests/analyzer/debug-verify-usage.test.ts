@@ -27,7 +27,7 @@ describe('Debug VerifyUsage', () => {
         
         // Clear any cached data for source file
         // @ts-ignore - accessing private field for debugging
-        console.log('\nCache before clear:', spider['symbolService']['symbolCache'].has(source.toLowerCase().replace(/\\/g, '/')));
+        console.log('\nCache before clear:', spider['symbolService']['symbolCache'].has(source.toLowerCase().replaceAll('\\', '/')));
         
         // Get symbol graph
         const symbolGraph = await spider.getSymbolGraph(source);

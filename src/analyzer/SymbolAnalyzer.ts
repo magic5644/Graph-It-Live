@@ -43,7 +43,7 @@ export class SymbolAnalyzer implements ISymbolAnalyzer {
   private fileCount = 0;
   private readonly fileReader: FileReader;
 
-  constructor(rootDir?: string, options: SymbolAnalyzerOptions = {}) {
+  constructor(_rootDir?: string, options: SymbolAnalyzerOptions = {}) {
     this.maxFiles = options.maxFiles ?? 100;
     this.project = this.createProject();
     this.fileReader = new FileReader();

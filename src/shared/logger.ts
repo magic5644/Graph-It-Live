@@ -39,6 +39,19 @@ export type LoggerBackend = {
   createLogger(prefix: string, level?: LogLevel): ILogger;
 };
 
+type NodeWritable = { write: (chunk: string) => boolean };
+
+function getNodeStream(kind: 'stdout' | 'stderr'): NodeWritable | null {
+  const maybeProcess = (globalThis as unknown as { process?: { stdout?: NodeWritable; stderr?: NodeWritable } }).process;
+  const stream = kind === 'stdout' ? maybeProcess?.stdout : maybeProcess?.stderr;
+  return stream?.write ? stream : null;
+}
+
+function writeLine(stream: NodeWritable | null, message: string): void {
+  if (!stream) return;
+  stream.write(message.endsWith('\n') ? message : `${message}\n`);
+}
+
 /**
  * Format error-like objects
  */
@@ -79,21 +92,9 @@ function formatArgs(args: unknown[]): string {
 /**
  * Helper function to log error messages (shared between ConsoleLogger and StderrLogger)
  */
-function logErrorMessage(
-  shouldLog: boolean,
-  formatMessage: (level: string, message: string) => string,
-  output: (msg: string) => void,
-  message: string,
-  args: unknown[]
-): void {
-  if (shouldLog) {
-    output(formatMessage('error', message + formatArgs(args)));
-  }
-}
-
 /**
  * Console Logger - VS Code agnostic
- * Uses console.log/error for output
+ * Uses Node.js stdout/stderr when available (no console)
  */
 export class ConsoleLogger implements ILogger {
   private _level: LogLevel;
@@ -121,33 +122,25 @@ export class ConsoleLogger implements ILogger {
     return `${timestamp} ${this.prefix} [${level.toUpperCase()}] ${message}`;
   }
 
+  private logTo(stream: 'stdout' | 'stderr', level: LogLevel, message: string, args: unknown[]): void {
+    if (!this.shouldLog(level)) return;
+    writeLine(getNodeStream(stream), this.formatMessage(level, message + formatArgs(args)));
+  }
+
   debug(message: string, ...args: unknown[]): void {
-    if (this.shouldLog('debug')) {
-      console.log(this.formatMessage('debug', message + formatArgs(args)));
-    }
+    this.logTo('stdout', 'debug', message, args);
   }
 
   info(message: string, ...args: unknown[]): void {
-    if (this.shouldLog('info')) {
-      console.log(this.formatMessage('info', message + formatArgs(args)));
-    }
+    this.logTo('stdout', 'info', message, args);
   }
 
   warn(message: string, ...args: unknown[]): void {
-    if (this.shouldLog('warn')) {
-      console.warn(this.formatMessage('warn', message + formatArgs(args)));
-    }
+    this.logTo('stderr', 'warn', message, args);
   }
 
-  // NOSONAR: Duplication with StderrLogger.error is intentional (different logger implementations)
   error(message: string, ...args: unknown[]): void {
-    logErrorMessage(
-      this.shouldLog('error'),
-      this.formatMessage.bind(this),
-      console.error,
-      message,
-      args
-    );
+    this.logTo('stderr', 'error', message, args);
   }
 }
 
@@ -181,35 +174,26 @@ export class StderrLogger implements ILogger {
     return `${timestamp} ${this.prefix} [${level.toUpperCase()}] ${message}`;
   }
 
-  // ALL methods write to console.error to keep stdout clean for JSON-RPC
+  private log(level: LogLevel, message: string, args: unknown[]): void {
+    if (!this.shouldLog(level)) return;
+    writeLine(getNodeStream('stderr'), this.formatMessage(level, message + formatArgs(args)));
+  }
+
+  // ALL methods write to stderr to keep stdout clean for JSON-RPC
   debug(message: string, ...args: unknown[]): void {
-    if (this.shouldLog('debug')) {
-      console.error(this.formatMessage('debug', message + formatArgs(args)));
-    }
+    this.log('debug', message, args);
   }
 
   info(message: string, ...args: unknown[]): void {
-    if (this.shouldLog('info')) {
-      console.error(this.formatMessage('info', message + formatArgs(args)));
-    }
+    this.log('info', message, args);
   }
 
   warn(message: string, ...args: unknown[]): void {
-    if (this.shouldLog('warn')) {
-      console.error(this.formatMessage('warn', message + formatArgs(args)));
-    }
+    this.log('warn', message, args);
   }
 
- 
   error(message: string, ...args: unknown[]): void {
-    // NOSONAR: Duplication with ConsoleLogger.error is intentional (different logger implementations)
-    logErrorMessage(
-      this.shouldLog("error"),
-      this.formatMessage.bind(this),
-      console.error,
-      message,
-      args
-    );
+    this.log('error', message, args);
   }
 }
 

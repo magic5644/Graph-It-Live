@@ -1,4 +1,13 @@
 const { Project } = require('ts-morph');
+const util = require('node:util');
+
+function log(...args) {
+  process.stdout.write(`${util.format(...args)}\n`);
+}
+
+function error(...args) {
+  process.stderr.write(`${util.format(...args)}\n`);
+}
 
 // Use virtual paths instead of real paths
 const filePath = '/virtual/utils.ts';
@@ -30,39 +39,39 @@ const project = new Project({
 });
 
 try {
-  console.log('Creating old source file...');
+  log('Creating old source file...');
   const sf1 = project.createSourceFile(`${filePath}.old`, oldContent);
-  console.log('Creating new source file...');
+  log('Creating new source file...');
   const sf2 = project.createSourceFile(`${filePath}.new`, newContent);
   
-  console.log('\n=== Old file ===');
+  log('\n=== Old file ===');
   for (const func of sf1.getFunctions()) {
     const name = func.getName();
-    console.log('Function:', name);
+    log('Function:', name);
     try {
       const returnType = func.getReturnType();
-      console.log('  Return type object:', returnType ? 'exists' : 'undefined');
-      console.log('  Return type text:', returnType?.getText());
+      log('  Return type object:', returnType ? 'exists' : 'undefined');
+      log('  Return type text:', returnType?.getText());
     } catch (e) {
-      console.log('  Return type ERROR:', e.message);
+      log('  Return type ERROR:', e.message);
     }
   }
   
-  console.log('\n=== New file ===');
+  log('\n=== New file ===');
   for (const func of sf2.getFunctions()) {
     const name = func.getName();
-    console.log('Function:', name);
+    log('Function:', name);
     try {
       const returnType = func.getReturnType();
-      console.log('  Return type object:', returnType ? 'exists' : 'undefined');
-      console.log('  Return type text:', returnType?.getText());
+      log('  Return type object:', returnType ? 'exists' : 'undefined');
+      log('  Return type text:', returnType?.getText());
     } catch (e) {
-      console.log('  Return type ERROR:', e.message);
+      log('  Return type ERROR:', e.message);
     }
   }
   
-  console.log('\nSUCCESS');
+  log('\nSUCCESS');
 } catch (e) {
-  console.error('ERROR:', e.message);
-  console.error(e.stack);
+  error('ERROR:', e.message);
+  error(e.stack);
 }

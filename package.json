@@ -329,7 +329,7 @@
     "test:coverage": "vitest run --coverage",
     "test:vscode": "npm run compile && node ./tests/vscode-e2e/runTests.js",
     "test:all": "npm run test:unit",
-    "test:bench": "vitest bench --config vitest.benchmark.config.mts",
+    "test:bench": "LOG_LEVEL=error vitest bench --config vitest.benchmark.config.mts",
     "test:mcp": "node scripts/test-mcp.js",
     "lint": "eslint src",
     "lint:fix": "eslint src --fix",

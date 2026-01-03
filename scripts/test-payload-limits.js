@@ -7,11 +7,20 @@
 const { spawn } = require('node:child_process');
 const path = require('node:path');
 const readline = require('node:readline');
+const util = require('node:util');
+
+function log(...args) {
+  process.stdout.write(`${util.format(...args)}\n`);
+}
+
+function error(...args) {
+  process.stderr.write(`${util.format(...args)}\n`);
+}
 
 const rootDir = path.resolve(__dirname, '..');
 const serverPath = path.join(rootDir, 'dist/mcpServer.mjs');
 
-console.log('🧪 Testing MCP Payload Limits\n');
+log('🧪 Testing MCP Payload Limits\n');
 
 const server = spawn('node', [serverPath], {
   env: {
@@ -52,22 +61,22 @@ function hasResponseError(response) {
 function logTestResult(test, hasError, errorMessage) {
   if (test.expectError) {
     if (hasError) {
-      console.log(`✅ ${test.name}: Correctly rejected`);
+      log(`✅ ${test.name}: Correctly rejected`);
       // Extract validation error for display
       const match = errorMessage.match(/Input validation error: (.*)/);
       if (match) {
-        console.log(`   Validation: ${match[1].substring(0, 100)}...\n`);
+        log(`   Validation: ${match[1].substring(0, 100)}...\n`);
       } else {
-        console.log(`   Error: ${errorMessage.substring(0, 100)}...\n`);
+        log(`   Error: ${errorMessage.substring(0, 100)}...\n`);
       }
     } else {
-      console.log(`❌ ${test.name}: Should have been rejected but succeeded\n`);
+      log(`❌ ${test.name}: Should have been rejected but succeeded\n`);
     }
   } else if (hasError) {
-    console.log(`❌ ${test.name}: Should succeed but got error`);
-    console.log(`   Error: ${errorMessage.substring(0, 100)}...\n`);
+    log(`❌ ${test.name}: Should succeed but got error`);
+    log(`   Error: ${errorMessage.substring(0, 100)}...\n`);
   } else {
-    console.log(`✅ ${test.name}: Correctly accepted\n`);
+    log(`✅ ${test.name}: Correctly accepted\n`);
   }
 }
 
@@ -89,7 +98,7 @@ function handleResponse(response, pendingTests, server) {
   
   // If all tests done, exit
   if (pendingTests.size === 0) {
-    console.log('🎉 All payload limit tests completed');
+    log('🎉 All payload limit tests completed');
     server.kill();
     process.exit(0);
   }
@@ -122,13 +131,13 @@ rl.on('line', (line) => {
 server.stderr.on('data', (data) => {
   const msg = data.toString();
   if (!msg.includes('PROCESS STARTING') && !msg.includes('warmup')) {
-    console.error('Server stderr:', msg);
+    error('Server stderr: %s', msg);
   }
 });
 
 server.on('close', (code) => {
   if (code !== 0 && pendingTests.size > 0) {
-    console.error(`❌ Server exited with code ${code} before completing all tests`);
+    error(`❌ Server exited with code ${code} before completing all tests`);
     process.exit(1);
   }
 });
@@ -155,7 +164,7 @@ function testToolCall(name, toolName, params, expectError = false) {
 
 // Wait for server to initialize
 setTimeout(() => {
-  console.log('Running payload limit tests...\n');
+  log('Running payload limit tests...\n');
   
   // Test 1: Valid file path (should succeed)
   testToolCall(

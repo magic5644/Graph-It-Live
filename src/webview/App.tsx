@@ -2,7 +2,7 @@ import React from 'react';
 import ReactFlowGraph from './components/ReactFlowGraph';
 import SymbolCardView from './components/SymbolCardView';
 import { ExtensionToWebviewMessage, WebviewToExtensionMessage, GraphData, SymbolInfo, SymbolDependency } from '../shared/types';
-import { getLogger } from '../shared/logger';
+import { getLogger, type LogLevel, type ILogger, setLoggerBackend } from '../shared/logger';
 import { normalizePath } from './utils/path';
 import { mergeGraphDataUnion } from './utils/graphMerge';
 import { applyUpdateGraph, isUpdateGraphNavigation } from './utils/updateGraphReducer';
@@ -13,6 +13,66 @@ const log = getLogger('App');
 // VS Code API
 interface VSCodeApi {
     postMessage(message: WebviewToExtensionMessage): void;
+}
+
+function createWebviewPostMessageLogger(
+    prefix: string,
+    level: LogLevel,
+    post: (m: WebviewToExtensionMessage) => void
+): ILogger {
+    let currentLevel: LogLevel = level;
+    const priority: Record<LogLevel, number> = {
+        debug: 0,
+        info: 1,
+        warn: 2,
+        error: 3,
+        none: 4,
+    };
+
+    const shouldLog = (l: LogLevel): boolean => priority[l] >= priority[currentLevel];
+
+    const formatArgs = (args: unknown[]): unknown[] =>
+        args.map((a) => {
+            if (a instanceof Error) {
+                return { name: a.name, message: a.message, stack: a.stack };
+            }
+            return a;
+        });
+
+    const send = (l: LogLevel, message: string, args: unknown[]): void => {
+        if (!shouldLog(l)) return;
+        try {
+            post({
+                command: 'webviewLog',
+                level: l,
+                message: prefix ? `[${prefix}] ${message}` : message,
+                args: formatArgs(args),
+            });
+        } catch {
+            // no-op: avoid throwing from logging
+        }
+    };
+
+    return {
+        get level(): LogLevel {
+            return currentLevel;
+        },
+        setLevel(l: LogLevel): void {
+            currentLevel = l;
+        },
+        debug(message: string, ...args: unknown[]): void {
+            send('debug', message, args);
+        },
+        info(message: string, ...args: unknown[]): void {
+            send('info', message, args);
+        },
+        warn(message: string, ...args: unknown[]): void {
+            send('warn', message, args);
+        },
+        error(message: string, ...args: unknown[]): void {
+            send('error', message, args);
+        },
+    };
 }
 
 declare global {
@@ -41,7 +101,7 @@ class ErrorBoundary extends React.Component<
     }
 
     componentDidCatch(error: unknown) {
-        console.error('Webview render crashed:', error);
+        log.error('Webview render crashed:', error);
     }
 
     render() {
@@ -72,7 +132,7 @@ class ErrorBoundary extends React.Component<
                             vscode?.postMessage({ command: 'setExpandAll', expandAll: false });
                             vscode?.postMessage({ command: 'refreshGraph' });
                         } catch (e) {
-                            console.error('Failed to reset state before reload:', e);
+                            log.error('Failed to reset state before reload:', e);
                         }
                         globalThis.location.reload();
                     }}
@@ -117,56 +177,14 @@ const App: React.FC = () => {
     // Notify extension that webview is ready on mount
     React.useEffect(() => {
         if (vscode) {
+            setLoggerBackend({
+                createLogger(prefix: string, level: LogLevel = 'info'): ILogger {
+                    return createWebviewPostMessageLogger(prefix, level, (m) => vscode.postMessage(m));
+                },
+            });
+
             log.debug('App: Sending ready message to extension');
             vscode.postMessage({ command: 'ready' });
-
-            // Forward console logs from the webview to the extension OutputChannel
-            const origLog = console.log;
-            const origInfo = console.info;
-            const origWarn = console.warn;
-            const origError = console.error;
-            const consoleDebugHolder = console as unknown as { debug?: (...args: unknown[]) => void };
-            const origDebug = consoleDebugHolder.debug ?? origLog;
-
-            console.log = (...args: unknown[]) => {
-                origLog(...args);
-                try {
-                    vscode.postMessage({ command: 'webviewLog', level: 'info', message: String(args[0] ?? ''), args });
-                } catch (error_) { origLog('Webview log forward failed', error_); }
-            };
-            console.info = (...args: unknown[]) => {
-                origInfo(...args);
-                try {
-                    vscode.postMessage({ command: 'webviewLog', level: 'info', message: String(args[0] ?? ''), args });
-                } catch (err) { origLog('Webview log forward failed', err); }
-            };
-            console.warn = (...args: unknown[]) => {
-                origWarn(...args);
-                try {
-                    vscode.postMessage({ command: 'webviewLog', level: 'warn', message: String(args[0] ?? ''), args });
-                } catch (err) { origLog('Webview log forward failed', err); }
-            };
-            console.error = (...args: unknown[]) => {
-                origError(...args);
-                try {
-                    vscode.postMessage({ command: 'webviewLog', level: 'error', message: String(args[0] ?? ''), args });
-                } catch (err) { origLog('Webview log forward failed', err); }
-            };
-            consoleDebugHolder.debug = (...args: unknown[]) => {
-                origDebug(...args);
-                try {
-                    vscode.postMessage({ command: 'webviewLog', level: 'debug', message: String(args[0] ?? ''), args });
-                } catch (error_) { origLog('Webview log forward failed', error_); }
-            };
-
-            return () => {
-                // Restore original console functions
-                console.log = origLog;
-                console.info = origInfo;
-                console.warn = origWarn;
-                console.error = origError;
-                consoleDebugHolder.debug = origDebug;
-            };
         }
     }, []);
     const [viewMode, setViewMode] = React.useState<'file' | 'symbol' | 'references'>('file');

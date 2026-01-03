@@ -62,7 +62,7 @@ function debugLog(...args: unknown[]): void {
   const message = args.map(a => typeof a === 'string' ? a : JSON.stringify(a)).join(' ');
   
   // Always write to stderr for MCP protocol
-  console.error(message);
+  process.stderr.write(message.endsWith('\n') ? message : `${message}\n`);
   
   // Only write to file if DEBUG logging is explicitly enabled
   if (!DEBUG_MCP_ENABLED) return;
@@ -90,7 +90,7 @@ if (DEBUG_MCP_ENABLED) {
   debugLog('  EXCLUDE_NODE_MODULES:', process.env.EXCLUDE_NODE_MODULES ?? '(not set)');
   debugLog('  MAX_DEPTH:', process.env.MAX_DEPTH ?? '(not set)');
 } else {
-  console.error('[McpServer] Starting (debug logging disabled - set DEBUG_MCP=true to enable)');
+  process.stderr.write('[McpServer] Starting (debug logging disabled - set DEBUG_MCP=true to enable)\n');
 }
 
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';

@@ -14,7 +14,7 @@ export class PythonSymbolAnalyzer implements ISymbolAnalyzer {
 
   constructor(_rootDir?: string) {
     this.parser = new Parser();
-    this.parser.setLanguage(Python as any);
+    this.parser.setLanguage(Python as unknown as Parser.Language);
     this.fileReader = new FileReader();
   }
 
@@ -93,67 +93,116 @@ export class PythonSymbolAnalyzer implements ISymbolAnalyzer {
     symbols: Map<string, SymbolInfo>,
     parentSymbolId?: string
   ): void {
-    // Extract function definitions
+    if (this.tryExtractSymbolFromNode(node, filePath, content, symbols, parentSymbolId)) {
+      return;
+    }
+
+    this.extractSymbolsFromChildren(node, filePath, content, symbols, parentSymbolId);
+  }
+
+  private tryExtractSymbolFromNode(
+    node: Parser.SyntaxNode,
+    filePath: string,
+    content: string,
+    symbols: Map<string, SymbolInfo>,
+    parentSymbolId?: string
+  ): boolean {
     if (node.type === 'function_definition') {
-      const nameNode = node.childForFieldName('name');
-      if (nameNode) {
-        const name = this.getNodeText(nameNode, content);
-        const symbolId = `${filePath}:${name}`;
-        const isAsync = this.hasChild(node, 'async');
-        
-        symbols.set(symbolId, {
-          name,
-          kind: isAsync ? 'AsyncFunction' : 'FunctionDeclaration',
-          line: nameNode.startPosition.row + 1,
-          isExported: this.isExported(node, content),
-          id: symbolId,
-          parentSymbolId,
-          category: 'function',
-        });
-
-        // Extract nested functions recursively
-        for (const child of node.children) {
-          this.extractSymbols(child, filePath, content, symbols, symbolId);
-        }
-      }
-      return; // Don't process children again
-    }
-    // Extract class definitions
-    else if (node.type === 'class_definition') {
-      const nameNode = node.childForFieldName('name');
-      if (nameNode) {
-        const name = this.getNodeText(nameNode, content);
-        const symbolId = `${filePath}:${name}`;
-        
-        symbols.set(symbolId, {
-          name,
-          kind: 'ClassDeclaration',
-          line: nameNode.startPosition.row + 1,
-          isExported: this.isExported(node, content),
-          id: symbolId,
-          parentSymbolId,
-          category: 'class',
-        });
-
-        // Extract class methods recursively
-        for (const child of node.children) {
-          this.extractSymbols(child, filePath, content, symbols, symbolId);
-        }
-      }
-      return; // Don't process children again
-    }
-    // Extract decorated definitions (functions/classes with decorators)
-    else if (node.type === 'decorated_definition') {
-      // Process the actual definition inside
-      for (const child of node.children) {
-        if (child.type === 'function_definition' || child.type === 'class_definition') {
-          this.extractSymbols(child, filePath, content, symbols, parentSymbolId);
-        }
-      }
-      return; // Don't process children again
+      this.handleFunctionDefinition(node, filePath, content, symbols, parentSymbolId);
+      return true;
     }
 
-    // Recursively process all children for other node types
+    if (node.type === 'class_definition') {
+      this.handleClassDefinition(node, filePath, content, symbols, parentSymbolId);
+      return true;
+    }
+
+    if (node.type === 'decorated_definition') {
+      this.handleDecoratedDefinition(node, filePath, content, symbols, parentSymbolId);
+      return true;
+    }
+
+    return false;
+  }
+
+  private handleFunctionDefinition(
+    node: Parser.SyntaxNode,
+    filePath: string,
+    content: string,
+    symbols: Map<string, SymbolInfo>,
+    parentSymbolId?: string
+  ): void {
+    const nameNode = node.childForFieldName('name');
+    if (!nameNode) {
+      return;
+    }
+
+    const name = this.getNodeText(nameNode, content);
+    const symbolId = `${filePath}:${name}`;
+    const isAsync = this.hasChild(node, 'async');
+
+    symbols.set(symbolId, {
+      name,
+      kind: isAsync ? 'AsyncFunction' : 'FunctionDeclaration',
+      line: nameNode.startPosition.row + 1,
+      isExported: this.isExported(node, content),
+      id: symbolId,
+      parentSymbolId,
+      category: 'function',
+    });
+
+    this.extractSymbolsFromChildren(node, filePath, content, symbols, symbolId);
+  }
+
+  private handleClassDefinition(
+    node: Parser.SyntaxNode,
+    filePath: string,
+    content: string,
+    symbols: Map<string, SymbolInfo>,
+    parentSymbolId?: string
+  ): void {
+    const nameNode = node.childForFieldName('name');
+    if (!nameNode) {
+      return;
+    }
+
+    const name = this.getNodeText(nameNode, content);
+    const symbolId = `${filePath}:${name}`;
+
+    symbols.set(symbolId, {
+      name,
+      kind: 'ClassDeclaration',
+      line: nameNode.startPosition.row + 1,
+      isExported: this.isExported(node, content),
+      id: symbolId,
+      parentSymbolId,
+      category: 'class',
+    });
+
+    this.extractSymbolsFromChildren(node, filePath, content, symbols, symbolId);
+  }
+
+  private handleDecoratedDefinition(
+    node: Parser.SyntaxNode,
+    filePath: string,
+    content: string,
+    symbols: Map<string, SymbolInfo>,
+    parentSymbolId?: string
+  ): void {
+    for (const child of node.children) {
+      if (child.type === 'function_definition' || child.type === 'class_definition') {
+        this.extractSymbols(child, filePath, content, symbols, parentSymbolId);
+      }
+    }
+  }
+
+  private extractSymbolsFromChildren(
+    node: Parser.SyntaxNode,
+    filePath: string,
+    content: string,
+    symbols: Map<string, SymbolInfo>,
+    parentSymbolId?: string
+  ): void {
     for (const child of node.children) {
       this.extractSymbols(child, filePath, content, symbols, parentSymbolId);
     }
@@ -170,50 +219,75 @@ export class PythonSymbolAnalyzer implements ISymbolAnalyzer {
     symbols: Map<string, SymbolInfo>,
     currentScope?: string
   ): void {
-    // Track when entering function/class scope
-    let newScope = currentScope;
+    const newScope = this.getScopeForNode(node, filePath, content, currentScope);
+    this.addCallDependencyIfAny(node, filePath, content, dependencies, symbols, newScope);
 
-    if (node.type === 'function_definition' || node.type === 'class_definition') {
-      const nameNode = node.childForFieldName('name');
-      if (nameNode) {
-        const name = this.getNodeText(nameNode, content);
-        newScope = `${filePath}:${name}`;
-      }
-    }
-
-    // Extract function/method calls
-    if (node.type === 'call') {
-      const funcNode = node.childForFieldName('function');
-      if (funcNode) {
-        let calledName = this.getNodeText(funcNode, content);
-        
-        // Handle method calls like self.method() or obj.method()
-        // Extract just the method name after the dot
-        if (funcNode.type === 'attribute') {
-          const attrNode = funcNode.childForFieldName('attribute');
-          if (attrNode) {
-            calledName = this.getNodeText(attrNode, content);
-          }
-        }
-        
-        const targetSymbolId = `${filePath}:${calledName}`;
-        
-        // Only add if the target symbol exists in our symbol table
-        if (symbols.has(targetSymbolId) && newScope) {
-          dependencies.push({
-            sourceSymbolId: newScope,
-            targetSymbolId,
-            targetFilePath: filePath,
-            isTypeOnly: false,
-          });
-        }
-      }
-    }
-
-    // Recursively process children
     for (const child of node.children) {
       this.extractDependencies(child, filePath, content, dependencies, symbols, newScope);
     }
+  }
+
+  private getScopeForNode(
+    node: Parser.SyntaxNode,
+    filePath: string,
+    content: string,
+    currentScope?: string
+  ): string | undefined {
+    if (node.type !== 'function_definition' && node.type !== 'class_definition') {
+      return currentScope;
+    }
+
+    const nameNode = node.childForFieldName('name');
+    if (!nameNode) {
+      return currentScope;
+    }
+
+    const name = this.getNodeText(nameNode, content);
+    return `${filePath}:${name}`;
+  }
+
+  private addCallDependencyIfAny(
+    node: Parser.SyntaxNode,
+    filePath: string,
+    content: string,
+    dependencies: SymbolDependency[],
+    symbols: Map<string, SymbolInfo>,
+    scope?: string
+  ): void {
+    if (node.type !== 'call') {
+      return;
+    }
+
+    const funcNode = node.childForFieldName('function');
+    if (!funcNode || !scope) {
+      return;
+    }
+
+    const calledName = this.getCalledName(funcNode, content);
+    const targetSymbolId = `${filePath}:${calledName}`;
+    if (!symbols.has(targetSymbolId)) {
+      return;
+    }
+
+    dependencies.push({
+      sourceSymbolId: scope,
+      targetSymbolId,
+      targetFilePath: filePath,
+      isTypeOnly: false,
+    });
+  }
+
+  private getCalledName(funcNode: Parser.SyntaxNode, content: string): string {
+    if (funcNode.type !== 'attribute') {
+      return this.getNodeText(funcNode, content);
+    }
+
+    const attrNode = funcNode.childForFieldName('attribute');
+    if (!attrNode) {
+      return this.getNodeText(funcNode, content);
+    }
+
+    return this.getNodeText(attrNode, content);
   }
 
   /**
