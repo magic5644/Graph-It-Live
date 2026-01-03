@@ -2,6 +2,14 @@ const esbuild = require('esbuild');
 const fs = require('node:fs');
 const path = require('node:path');
 
+function stdout(line) {
+  process.stdout.write(line.endsWith('\n') ? line : `${line}\n`);
+}
+
+function stderr(line) {
+  process.stderr.write(line.endsWith('\n') ? line : `${line}\n`);
+}
+
 const production = process.argv.includes('--production');
 const watch = process.argv.includes('--watch');
 
@@ -16,16 +24,16 @@ const esbuildProblemMatcherPlugin = {
   name: 'esbuild-problem-matcher',
   setup(build) {
     build.onStart(() => {
-      console.log('[watch] build started');
+      stdout('[watch] build started');
     });
     build.onEnd((result) => {
       result.errors.forEach(({ text, location }) => {
-        console.error(`✘ [ERROR] ${text}`);
+        stderr(`✘ [ERROR] ${text}`);
         if (location) {
-          console.error(`    ${location.file}:${location.line}:${location.column}:`);
+          stderr(`    ${location.file}:${location.line}:${location.column}:`);
         }
       });
-      console.log('[watch] build finished');
+      stdout('[watch] build finished');
     });
   },
 };
@@ -49,7 +57,7 @@ function saveMetafiles(metafilePath, results) {
     webview: resultWebview.metafile,
   };
   fs.writeFileSync(resolvedPath, JSON.stringify(combinedMetafile, null, 2));
-  console.log(`✓ Metafile saved to ${resolvedPath}`);
+  stdout(`✓ Metafile saved to ${resolvedPath}`);
   
   // Also save individual metafiles for analysis tools
   if (resultExtension.metafile) {
@@ -64,7 +72,7 @@ function saveMetafiles(metafilePath, results) {
   if (resultMcpWorker.metafile) {
     fs.writeFileSync('dist/mcpWorker.meta.json', JSON.stringify(resultMcpWorker.metafile, null, 2));
   }
-  console.log(`✓ Individual metafiles saved to dist/*.meta.json`);
+  stdout('✓ Individual metafiles saved to dist/*.meta.json');
 }
 
 async function main() {
@@ -228,6 +236,6 @@ const __dirname = dirname(__filename);`,
 
 // Entry point - CommonJS doesn't support top-level await (NOSONAR)
 main().catch(e => { // NOSONAR
-  console.error(e);
+  stderr(String(e));
   process.exit(1);
 });

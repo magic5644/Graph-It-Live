@@ -94,8 +94,6 @@ export class VsCodeLogger implements ILogger {
       this.outputChannel.appendLine(
         this.formatMessage('error', message + this.formatArgs(args))
       );
-      // Also log errors to console for debugging
-      console.error(this.formatMessage('error', message + this.formatArgs(args)));
     }
   }
 

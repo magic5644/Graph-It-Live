@@ -10,9 +10,12 @@ export default defineConfig({
     globals: true,
     environment: 'node',
     include: ['tests/benchmarks/**/*.bench.ts'],
+    // Reduce log verbosity during benchmarks to avoid buffer overflow
+    silent: false,
+    reporter: 'default',
     benchmark: {
       include: ['tests/benchmarks/**/*.bench.ts'],
-      reporters: ['verbose'],
+      reporters: ['default'], // Changed from 'verbose' to reduce stderr output
     },
   },
   resolve: {

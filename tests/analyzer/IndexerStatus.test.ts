@@ -226,8 +226,8 @@ describe('IndexerStatus', () => {
     });
 
     it('should handle listener errors gracefully', () => {
-      // Mock console.error to avoid noise
-      const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+      // Spy on stderr writes (logger output) to avoid noise
+      const stderrSpy = vi.spyOn(process.stderr, 'write').mockImplementation(() => true);
       
       // Subscribe a good callback first
       const goodCallback = vi.fn();
@@ -251,12 +251,12 @@ describe('IndexerStatus', () => {
       expect(() => status.startCounting()).not.toThrow();
       
       // Error should be logged (using the configurable logger format)
-      expect(consoleSpy).toHaveBeenCalledWith(expect.stringContaining('Listener error'));
+      expect(stderrSpy).toHaveBeenCalledWith(expect.stringContaining('Listener error'));
       
       // Good callback should still be called
       expect(goodCallback).toHaveBeenCalled();
       
-      consoleSpy.mockRestore();
+      stderrSpy.mockRestore();
     });
   });
 

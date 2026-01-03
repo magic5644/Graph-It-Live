@@ -15,6 +15,7 @@ import { SymbolAnalyzer } from '../SymbolAnalyzer';
 import { SignatureAnalyzer } from '../SignatureAnalyzer';
 import { PythonSymbolAnalyzer } from '../languages/PythonSymbolAnalyzer';
 import type { SignatureInfo } from '../SignatureAnalyzer';
+import { getLogger } from '../../shared/logger';
 
 // Worker message types
 type WorkerRequest =
@@ -33,6 +34,7 @@ type WorkerResponse =
   | { type: 'error'; id: number; error: string; stack?: string };
 
 // Initialize analyzers
+const log = getLogger('AstWorker');
 const symbolAnalyzer = new SymbolAnalyzer(undefined, { maxFiles: 100 });
 const pythonSymbolAnalyzer = new PythonSymbolAnalyzer();
 const signatureAnalyzer = new SignatureAnalyzer();
@@ -159,7 +161,7 @@ function handleMessage(message: WorkerRequest): void {
 if (parentPort) {
   parentPort.on('message', handleMessage);
 } else {
-  console.error('AstWorker: parentPort is null - worker not properly initialized');
+  log.error('parentPort is null - worker not properly initialized');
   process.exit(1);
 }
 

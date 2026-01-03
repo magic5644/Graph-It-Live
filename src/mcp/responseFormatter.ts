@@ -8,7 +8,10 @@
  */
 
 import { jsonToToon, estimateTokenSavings } from '../shared/toon';
+import { getLogger } from '../shared/logger';
 import type { McpToolResponse, OutputFormat } from './types';
+
+const log = getLogger('responseFormatter');
 
 export type ResponseFormat = 'json' | 'markdown' | 'toon';
 
@@ -121,7 +124,7 @@ export function formatDataAsToon(
     };
   } catch (error) {
     // Fallback to JSON if TOON conversion fails
-    console.error('[formatDataAsToon] TOON conversion failed:', error);
+    log.error('[formatDataAsToon] TOON conversion failed:', error);
     return {
       content: JSON.stringify(data, null, 2),
       format: 'json',

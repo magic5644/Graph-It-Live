@@ -27,11 +27,9 @@ export class LanguageService {
   // Rust analyzers will be added in Phase 5 and Phase 6
 
   private readonly rootDir?: string;
-  private readonly tsConfigPath?: string;
 
-  constructor(rootDir?: string, tsConfigPath?: string) {
+  constructor(rootDir?: string, _tsConfigPath?: string) {
     this.rootDir = rootDir;
-    this.tsConfigPath = tsConfigPath;
   }
 
   /**
@@ -89,15 +87,11 @@ export class LanguageService {
 
     switch (language) {
       case Language.TypeScript:
-        if (!this.typeScriptParser) {
-          this.typeScriptParser = new Parser(rootDir);
-        }
+        this.typeScriptParser ??= new Parser(rootDir);
         return this.typeScriptParser;
 
       case Language.Python:
-        if (!this.pythonParser) {
-          this.pythonParser = new PythonParser(rootDir);
-        }
+        this.pythonParser ??= new PythonParser(rootDir);
         return this.pythonParser;
 
       case Language.Rust:
@@ -118,15 +112,11 @@ export class LanguageService {
 
     switch (language) {
       case Language.TypeScript:
-        if (!this.typeScriptSymbolAnalyzer) {
-          this.typeScriptSymbolAnalyzer = new SymbolAnalyzer(rootDir);
-        }
+        this.typeScriptSymbolAnalyzer ??= new SymbolAnalyzer(rootDir);
         return this.typeScriptSymbolAnalyzer;
 
       case Language.Python:
-        if (!this.pythonSymbolAnalyzer) {
-          this.pythonSymbolAnalyzer = new PythonSymbolAnalyzer(rootDir);
-        }
+        this.pythonSymbolAnalyzer ??= new PythonSymbolAnalyzer(rootDir);
         return this.pythonSymbolAnalyzer;
 
       case Language.Rust:

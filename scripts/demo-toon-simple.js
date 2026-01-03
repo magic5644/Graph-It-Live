@@ -4,8 +4,13 @@
  */
 
 const { jsonToToon, estimateTokenSavings } = require('../out/shared/toon');
+const util = require('node:util');
 
-console.log('🧪 TOON Format Demo\n');
+function log(...args) {
+  process.stdout.write(`${util.format(...args)}\n`);
+}
+
+log('🧪 TOON Format Demo\n');
 
 // Example data: dependency graph
 const data = [
@@ -22,27 +27,27 @@ const toonStr = jsonToToon(data, { objectName: 'files' });
 // Calculate savings
 const savings = estimateTokenSavings(jsonStr, toonStr);
 
-console.log('📄 Original JSON format:');
-console.log('─'.repeat(60));
-console.log(jsonStr);
-console.log('─'.repeat(60));
-console.log(`Size: ${jsonStr.length} characters (≈${savings.jsonTokens} tokens)\n`);
+log('📄 Original JSON format:');
+log('─'.repeat(60));
+log(jsonStr);
+log('─'.repeat(60));
+log(`Size: ${jsonStr.length} characters (≈${savings.jsonTokens} tokens)\n`);
 
-console.log('📄 TOON format:');
-console.log('─'.repeat(60));
-console.log(toonStr);
-console.log('─'.repeat(60));
-console.log(`Size: ${toonStr.length} characters (≈${savings.toonTokens} tokens)\n`);
+log('📄 TOON format:');
+log('─'.repeat(60));
+log(toonStr);
+log('─'.repeat(60));
+log(`Size: ${toonStr.length} characters (≈${savings.toonTokens} tokens)\n`);
 
-console.log('📊 Savings Summary:');
-console.log(`   • JSON size:   ${jsonStr.length} chars (${savings.jsonTokens} tokens)`);
-console.log(`   • TOON size:   ${toonStr.length} chars (${savings.toonTokens} tokens)`);
-console.log(`   • Saved:       ${savings.savings} tokens (${savings.savingsPercent.toFixed(1)}%)`);
-console.log(`   • Reduction:   ${((1 - toonStr.length/jsonStr.length) * 100).toFixed(1)}% in size\n`);
+log('📊 Savings Summary:');
+log(`   • JSON size:   ${jsonStr.length} chars (${savings.jsonTokens} tokens)`);
+log(`   • TOON size:   ${toonStr.length} chars (${savings.toonTokens} tokens)`);
+log(`   • Saved:       ${savings.savings} tokens (${savings.savingsPercent.toFixed(1)}%)`);
+log(`   • Reduction:   ${((1 - toonStr.length/jsonStr.length) * 100).toFixed(1)}% in size\n`);
 
-console.log('✨ TOON Format Features:');
-console.log('   • Removes JSON syntax overhead (quotes, braces)');
-console.log('   • Uses compact header + data rows format');
-console.log('   • Arrays joined with pipe | delimiter');
-console.log('   • Ideal for large datasets with repeated structure');
-console.log('   • Reduces token consumption for LLMs by 30-60%\n');
+log('✨ TOON Format Features:');
+log('   • Removes JSON syntax overhead (quotes, braces)');
+log('   • Uses compact header + data rows format');
+log('   • Arrays joined with pipe | delimiter');
+log('   • Ideal for large datasets with repeated structure');
+log('   • Reduces token consumption for LLMs by 30-60%\n');

@@ -58,10 +58,10 @@ export class SpiderGraphCrawler {
             nodeLabels[dep.path] = dep.module;
           }
 
-          if (!isInIgnoredDirectory(dep.path)) {
-            await crawlRecursive(dep.path, depth + 1);
-          } else {
+          if (isInIgnoredDirectory(dep.path)) {
             log.debug(`Skipping ${dep.path}: in ignored directory`);
+          } else {
+            await crawlRecursive(dep.path, depth + 1);
           }
         }
       } catch (error) {

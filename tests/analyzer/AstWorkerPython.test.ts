@@ -27,7 +27,7 @@ describe('AstWorkerHost - Python Support', () => {
     expect(result.symbols).toBeDefined();
     expect(result.dependencies).toBeDefined();
 
-    const symbolNames = result.symbols.map(s => s.name);
+    const symbolNames = result.symbols.map((s: { name: string }) => s.name);
     expect(symbolNames).toContain('calculate');
     expect(symbolNames).toContain('format_result');
     expect(symbolNames).toContain('advanced_calc');
@@ -39,7 +39,7 @@ describe('AstWorkerHost - Python Support', () => {
 
     const result = await astWorkerHost.analyzeFile(classesFile, content);
 
-    const symbolNames = result.symbols.map(s => s.name);
+    const symbolNames = result.symbols.map((s: { name: string }) => s.name);
     expect(symbolNames).toContain('Animal');
     expect(symbolNames).toContain('Dog');
     expect(symbolNames).toContain('speak');
@@ -67,7 +67,7 @@ describe('AstWorkerHost - Python Support', () => {
     expect(result.symbols).toBeDefined();
     expect(result.symbols.length).toBeGreaterThan(0);
 
-    const symbolNames = result.symbols.map(s => s.name);
+    const symbolNames = result.symbols.map((s: { name: string }) => s.name);
     expect(symbolNames).toContain('main');
   });
 });

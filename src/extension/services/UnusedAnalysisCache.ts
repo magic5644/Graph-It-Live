@@ -211,6 +211,10 @@ export class UnusedAnalysisCache {
     // Sort entries by lastAccess (oldest first)
     const sortedEntries = Array.from(this.cache.entries())
       .sort((a, b) => a[1].lastAccess - b[1].lastAccess);
+    log.debug(
+      'Cache evict candidates',
+      sortedEntries.slice(0, excessCount).map(([key, entry]) => ({ key, lastAccess: entry.lastAccess }))
+    );
     
     // Remove oldest entries
     for (let i = 0; i < excessCount; i++) {
