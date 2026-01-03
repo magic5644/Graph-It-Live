@@ -2,6 +2,9 @@ import type { Dependency, SpiderConfig } from '../types';
 import { normalizePath } from '../types';
 import { isInIgnoredDirectory } from '../utils/PathPredicates';
 import { SpiderDependencyAnalyzer } from './SpiderDependencyAnalyzer';
+import { getLogger } from '../../shared/logger';
+
+const log = getLogger('SpiderGraphCrawler');
 
 /**
  * Single responsibility: traverse the dependency graph and build (or extend) a graph view model.
@@ -21,17 +24,26 @@ export class SpiderGraphCrawler {
     const visited = new Set<string>();
     const nodeLabels: Record<string, string> = {};
 
+    log.debug(`Starting crawl from: ${startPath}`);
+
     const crawlRecursive = async (filePath: string, depth: number) => {
       const normalizedFile = normalizePath(filePath);
       const maxDepth = this.getConfig().maxDepth ?? 3;
-      if (depth > maxDepth) return;
+      if (depth > maxDepth) {
+        log.debug(`Skipping ${filePath}: max depth ${maxDepth} reached`);
+        return;
+      }
 
-      if (visited.has(normalizedFile)) return;
+      if (visited.has(normalizedFile)) {
+        log.debug(`Skipping ${filePath}: already visited`);
+        return;
+      }
       visited.add(normalizedFile);
       nodes.add(normalizedFile);
 
       try {
         const dependencies = await this.dependencyAnalyzer.analyze(filePath);
+        log.debug(`Found ${dependencies.length} dependencies for ${filePath}`);
 
         for (const dep of dependencies) {
           nodes.add(dep.path);
@@ -39,6 +51,7 @@ export class SpiderGraphCrawler {
           if (!edgeIds.has(edgeId)) {
             edgeIds.add(edgeId);
             edges.push({ source: normalizedFile, target: dep.path });
+            log.debug(`Added edge: ${normalizedFile} -> ${dep.path}`);
           }
 
           if (dep.module.startsWith('@') && dep.module.includes('/') && !dep.module.startsWith('@/')) {
@@ -47,14 +60,19 @@ export class SpiderGraphCrawler {
 
           if (!isInIgnoredDirectory(dep.path)) {
             await crawlRecursive(dep.path, depth + 1);
+          } else {
+            log.debug(`Skipping ${dep.path}: in ignored directory`);
           }
         }
-      } catch {
+      } catch (error) {
         // External package/unreadable: skip
+        log.debug(`Failed to analyze ${filePath}: ${error}`);
       }
     };
 
     await crawlRecursive(startPath, 0);
+
+    log.debug(`Crawl completed: ${nodes.size} nodes, ${edges.length} edges`);
 
     return {
       nodes: Array.from(nodes),
