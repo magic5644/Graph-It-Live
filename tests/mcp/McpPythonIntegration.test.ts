@@ -1,13 +1,21 @@
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import path from 'node:path';
-import { McpWorkerHost, type McpWorkerHostOptions } from '@/mcp/McpWorkerHost';
-import type { 
+import {
+  McpWorkerHost,
+  type McpWorkerHostOptions,
+} from "../../src/mcp/McpWorkerHost";
+import type {
   AnalyzeDependenciesParams,
+  AnalyzeDependenciesResult,
   CrawlDependencyGraphParams,
+  CrawlDependencyGraphResult,
   GetSymbolGraphParams,
+  GetSymbolGraphResult,
   FindReferencingFilesParams,
-  GetImpactAnalysisParams
-} from '@/mcp/types';
+  FindReferencingFilesResult,
+  GetImpactAnalysisParams,
+  GetImpactAnalysisResult,
+} from "../../src/mcp/types";
 
 describe('MCP Python Integration Tests', () => {
   const pythonFixturesDir = path.resolve(__dirname, '../fixtures/python-integration');
@@ -44,7 +52,7 @@ describe('MCP Python Integration Tests', () => {
         filePath: appFile,
       };
 
-      const result = await mcpWorker.invoke('analyze_dependencies', params);
+      const result = await mcpWorker.invoke('analyze_dependencies', params) as AnalyzeDependenciesResult;
 
       expect(result).toBeDefined();
       expect(result).toHaveProperty('dependencies');
@@ -63,7 +71,7 @@ describe('MCP Python Integration Tests', () => {
         filePath: helpersFile,
       };
 
-      const result = await mcpWorker.invoke('analyze_dependencies', params);
+      const result = await mcpWorker.invoke('analyze_dependencies', params) as AnalyzeDependenciesResult;
 
       expect(result).toBeDefined();
       expect(result).toHaveProperty('dependencies');
@@ -80,7 +88,7 @@ describe('MCP Python Integration Tests', () => {
         maxDepth: 20,
       };
 
-      const result = await mcpWorker.invoke('crawl_dependency_graph', params);
+      const result = await mcpWorker.invoke('crawl_dependency_graph', params) as CrawlDependencyGraphResult;
 
       expect(result).toBeDefined();
       expect(result).toHaveProperty('nodes');
@@ -89,7 +97,7 @@ describe('MCP Python Integration Tests', () => {
       expect(result.nodes.length).toBeGreaterThan(1);
       
       // Verify Python files are included
-      const nodePaths = result.nodes.map((n: any) => n.path);
+      const nodePaths = result.nodes.map((n) => n.path);
       expect(nodePaths.some((p: string) => p.includes('app.py'))).toBe(true);
       expect(nodePaths.some((p: string) => p.includes('database.py'))).toBe(true);
     });
@@ -101,13 +109,13 @@ describe('MCP Python Integration Tests', () => {
         maxDepth: 20,
       };
 
-      const result = await mcpWorker.invoke('crawl_dependency_graph', params);
+      const result = await mcpWorker.invoke('crawl_dependency_graph', params) as CrawlDependencyGraphResult;
 
       const nodes = result.nodes;
-      const pythonNode = nodes.find((n: any) => n.path.includes('app.py'));
+      const pythonNode = nodes.find((n) => n.path.includes('app.py'));
       
       expect(pythonNode).toBeDefined();
-      expect(pythonNode.path).toContain('.py');
+      expect(pythonNode?.path).toContain('.py');
     });
   });
 
@@ -118,7 +126,7 @@ describe('MCP Python Integration Tests', () => {
         filePath: databaseFile,
       };
 
-      const result = await mcpWorker.invoke('get_symbol_graph', params);
+      const result = await mcpWorker.invoke('get_symbol_graph', params) as GetSymbolGraphResult;
 
       expect(result).toBeDefined();
       expect(result).toHaveProperty('symbols');
@@ -126,7 +134,7 @@ describe('MCP Python Integration Tests', () => {
       expect(result.symbols.length).toBeGreaterThan(0);
 
       // Check for specific Python functions
-      const symbolNames = result.symbols.map((s: any) => s.name);
+      const symbolNames = result.symbols.map((s) => s.name);
       expect(symbolNames).toContain('connect_db');
       expect(symbolNames).toContain('query_data');
     });
@@ -137,16 +145,16 @@ describe('MCP Python Integration Tests', () => {
         filePath: processorFile,
       };
 
-      const result = await mcpWorker.invoke('get_symbol_graph', params);
+      const result = await mcpWorker.invoke('get_symbol_graph', params) as GetSymbolGraphResult;
 
       expect(result).toBeDefined();
       expect(result.symbols.length).toBeGreaterThan(0);
 
       // Check for DataProcessor class
-      const classSymbols = result.symbols.filter((s: any) => s.kind === 'ClassDeclaration');
+      const classSymbols = result.symbols.filter((s) => s.kind === 'ClassDeclaration');
       expect(classSymbols.length).toBeGreaterThan(0);
       
-      const symbolNames = result.symbols.map((s: any) => s.name);
+      const symbolNames = result.symbols.map((s) => s.name);
       expect(symbolNames).toContain('DataProcessor');
     });
 
@@ -156,7 +164,7 @@ describe('MCP Python Integration Tests', () => {
         filePath: processorFile,
       };
 
-      const result = await mcpWorker.invoke('get_symbol_graph', params);
+      const result = await mcpWorker.invoke('get_symbol_graph', params) as GetSymbolGraphResult;
 
       expect(result).toBeDefined();
       expect(result).toHaveProperty('dependencies');
@@ -179,7 +187,7 @@ describe('MCP Python Integration Tests', () => {
         targetPath: helpersFile,
       };
 
-      const result = await mcpWorker.invoke('find_referencing_files', params);
+      const result = await mcpWorker.invoke('find_referencing_files', params) as FindReferencingFilesResult;
 
       expect(result).toBeDefined();
       expect(result).toHaveProperty('referencingFiles');
@@ -211,7 +219,7 @@ describe('MCP Python Integration Tests', () => {
         maxDepth: 10,
       };
 
-      const result = await mcpWorker.invoke('get_impact_analysis', params);
+      const result = await mcpWorker.invoke('get_impact_analysis', params) as GetImpactAnalysisResult;
 
       expect(result).toBeDefined();
       expect(result).toHaveProperty('targetSymbol');

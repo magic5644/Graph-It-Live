@@ -90,7 +90,7 @@ describe('UnusedAnalysisCache - LRU Eviction', () => {
 
     // Entry 0 should still exist (was accessed recently)
     const hit0 = await cache.get(testFiles[0], [testFiles[0]]);
-    expect(hit0).not.toBeNull();
+    expect(hit0).not.toBe(null);
 
     // Entry 1 should be evicted
     const miss1 = await cache.get(testFiles[1], [testFiles[1]]);

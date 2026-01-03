@@ -4,6 +4,13 @@ import { Spider } from '../../src/analyzer/Spider';
 import * as fs from 'node:fs';
 import path from 'node:path';
 
+const BENCH_OPTIONS = {
+  time: 10,
+  warmupTime: 0,
+  warmupIterations: 0,
+  iterations: 1,
+} as const;
+
 /**
  * Benchmark tests for Symbol Analyzer performance
  * 
@@ -61,25 +68,25 @@ async function getSpider(): Promise<Spider> {
  */
 describe('SymbolAnalyzer Benchmarks', () => {
   bench('analyzeFile - utility file with 50 functions', () => {
-    analyzer.analyzeFile('/test/utils.ts', UTILS_CONTENT);
-  });
+    analyzer.analyzeFileContent(UTILS_PATH, UTILS_CONTENT);
+  }, BENCH_OPTIONS);
 
   bench('analyzeFile - class with 30+ methods', () => {
-    analyzer.analyzeFile('/test/largeClass.ts', LARGE_CLASS_CONTENT);
-  });
+    analyzer.analyzeFileContent(LARGE_CLASS_PATH, LARGE_CLASS_CONTENT);
+  }, BENCH_OPTIONS);
 
   bench('analyzeFile - shared module', () => {
-    analyzer.analyzeFile('/test/shared.ts', SHARED_CONTENT);
-  });
+    analyzer.analyzeFileContent(SHARED_PATH, SHARED_CONTENT);
+  }, BENCH_OPTIONS);
 
   bench('getExportedSymbols - utility file', () => {
-    analyzer.getExportedSymbols('/test/utils.ts', UTILS_CONTENT);
-  });
+    analyzer.getExportedSymbols(UTILS_PATH, UTILS_CONTENT);
+  }, BENCH_OPTIONS);
 
   bench('filterRuntimeSymbols - large class symbols', () => {
-    const { symbols } = analyzer.analyzeFile('/test/largeClass.ts', LARGE_CLASS_CONTENT);
+    const { symbols } = analyzer.analyzeFileContent(LARGE_CLASS_PATH, LARGE_CLASS_CONTENT);
     analyzer.filterRuntimeSymbols(symbols);
-  });
+  }, BENCH_OPTIONS);
 });
 
 /**
@@ -90,27 +97,27 @@ describe('Spider Symbol Analysis Benchmarks', () => {
   bench('getSymbolGraph - utility file', async () => {
     const spider = await getSpider();
     await spider.getSymbolGraph(UTILS_PATH);
-  });
+  }, BENCH_OPTIONS);
 
   bench('getSymbolGraph - class with methods', async () => {
     const spider = await getSpider();
     await spider.getSymbolGraph(LARGE_CLASS_PATH);
-  });
+  }, BENCH_OPTIONS);
 
   bench('findUnusedSymbols - utility file', async () => {
     const spider = await getSpider();
     await spider.findUnusedSymbols(UTILS_PATH);
-  });
+  }, BENCH_OPTIONS);
 
   bench('traceFunctionExecution - 4 layer deep call', async () => {
     const spider = await getSpider();
     await spider.traceFunctionExecution(LAYER1_PATH, 'layer1Entry', 10);
-  });
+  }, BENCH_OPTIONS);
 
   bench('getSymbolDependents - shared export', async () => {
     const spider = await getSpider();
     await spider.getSymbolDependents(SHARED_PATH, 'shared');
-  });
+  }, BENCH_OPTIONS);
 });
 
 /**
@@ -121,5 +128,5 @@ describe('Symbol Cache Performance', () => {
   bench('getSymbolGraph - cache hit', async () => {
     const spider = await getSpider();
     await spider.getSymbolGraph(UTILS_PATH);
-  });
+  }, BENCH_OPTIONS);
 });

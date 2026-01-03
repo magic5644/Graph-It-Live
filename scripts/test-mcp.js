@@ -824,6 +824,7 @@ export function add(a: number, b: number): number {
   server.kill('SIGTERM');
 }
 
+// eslint-disable-next-line unicorn/prefer-top-level-await
 runTests().catch((err) => {
   error(err);
 }); //NOSONAR
