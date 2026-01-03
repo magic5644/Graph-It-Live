@@ -10,8 +10,10 @@
  */
 
 import { parentPort } from 'node:worker_threads';
+import path from 'node:path';
 import { SymbolAnalyzer } from '../SymbolAnalyzer';
 import { SignatureAnalyzer } from '../SignatureAnalyzer';
+import { PythonSymbolAnalyzer } from '../languages/PythonSymbolAnalyzer';
 import type { SignatureInfo } from '../SignatureAnalyzer';
 
 // Worker message types
@@ -32,7 +34,16 @@ type WorkerResponse =
 
 // Initialize analyzers
 const symbolAnalyzer = new SymbolAnalyzer(undefined, { maxFiles: 100 });
+const pythonSymbolAnalyzer = new PythonSymbolAnalyzer();
 const signatureAnalyzer = new SignatureAnalyzer();
+
+/**
+ * Detect language based on file extension
+ */
+function detectLanguage(filePath: string): 'python' | 'typescript' {
+  const ext = path.extname(filePath).toLowerCase();
+  return (ext === '.py' || ext === '.pyi') ? 'python' : 'typescript';
+}
 
 /**
  * Handle incoming messages from the parent thread
@@ -43,11 +54,20 @@ function handleMessage(message: WorkerRequest): void {
 
     switch (message.type) {
       case 'analyzeFile': {
-        const { symbols, dependencies } = symbolAnalyzer.analyzeFileContent(
-          message.filePath,
-          message.content
-        );
-        result = { symbols, dependencies };
+        const language = detectLanguage(message.filePath);
+        if (language === 'python') {
+          const { symbols, dependencies } = pythonSymbolAnalyzer.analyzeFileContent(
+            message.filePath,
+            message.content
+          );
+          result = { symbols, dependencies };
+        } else {
+          const { symbols, dependencies } = symbolAnalyzer.analyzeFileContent(
+            message.filePath,
+            message.content
+          );
+          result = { symbols, dependencies };
+        }
         break;
       }
 
