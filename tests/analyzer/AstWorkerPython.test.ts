@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import path from 'node:path';
 import fs from 'node:fs/promises';
-import { AstWorkerHost } from '@/analyzer/ast/AstWorkerHost';
+import { AstWorkerHost } from '../../src/analyzer/ast/AstWorkerHost';
 
 describe('AstWorkerHost - Python Support', () => {
   const fixturesDir = path.resolve(__dirname, '../fixtures/python-project');

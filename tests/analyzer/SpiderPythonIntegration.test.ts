@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import path from 'node:path';
-import { Spider } from '@/analyzer/Spider';
-import { normalizePath } from '@/shared/path';
+import { Spider } from '../../src/analyzer/Spider';
+import { normalizePath } from "../../src/shared/path";
 
 describe('Spider Python Integration', () => {
   const fixturesDir = path.resolve(__dirname, '../fixtures/python-integration');

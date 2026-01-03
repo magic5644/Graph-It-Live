@@ -2,6 +2,13 @@ import { describe, bench } from 'vitest';
 import { SymbolReverseIndex } from '../../src/analyzer/SymbolReverseIndex';
 import type { SymbolDependency } from '../../src/analyzer/types';
 
+const BENCH_OPTIONS = {
+  time: 10,
+  warmupTime: 0,
+  warmupIterations: 0,
+  iterations: 1,
+} as const;
+
 /**
  * Benchmark tests for SymbolReverseIndex performance
  * 
@@ -52,7 +59,7 @@ describe('SymbolReverseIndex Unit Benchmarks', () => {
 
     // Benchmark the O(1) lookup
     index.getCallers(targetSymbolId);
-  });
+  }, BENCH_OPTIONS);
 
   bench('getRuntimeCallers - 500 runtime + 500 type-only', () => {
     const index = new SymbolReverseIndex('/test');
@@ -76,7 +83,7 @@ describe('SymbolReverseIndex Unit Benchmarks', () => {
 
     // Benchmark runtime-only filtering
     index.getRuntimeCallers(targetSymbolId);
-  });
+  }, BENCH_OPTIONS);
 
   bench('getTypeOnlyCallers - 500 runtime + 500 type-only', () => {
     const index = new SymbolReverseIndex('/test');
@@ -100,7 +107,7 @@ describe('SymbolReverseIndex Unit Benchmarks', () => {
 
     // Benchmark type-only filtering
     index.getTypeOnlyCallers(targetSymbolId);
-  });
+  }, BENCH_OPTIONS);
 
   bench('addDependencies - single file with 20 symbol deps', () => {
     const index = new SymbolReverseIndex('/test');
@@ -117,7 +124,7 @@ describe('SymbolReverseIndex Unit Benchmarks', () => {
     );
 
     index.addDependencies(sourceFile, deps, { mtime: 123, size: 1024 });
-  });
+  }, BENCH_OPTIONS);
 
   bench('addDependencies - batch 100 files', () => {
     const index = new SymbolReverseIndex('/test');
@@ -130,7 +137,7 @@ describe('SymbolReverseIndex Unit Benchmarks', () => {
       ];
       index.addDependencies(sourceFile, deps, { mtime: i, size: i * 10 });
     }
-  });
+  }, BENCH_OPTIONS);
 
   bench('isFileStale - check staleness', () => {
     const index = new SymbolReverseIndex('/test');
@@ -144,7 +151,7 @@ describe('SymbolReverseIndex Unit Benchmarks', () => {
     for (let i = 0; i < 100; i++) {
       index.isFileStale(`/test/file${i}.ts`, { mtime: 1000, size: 100 });
     }
-  });
+  }, BENCH_OPTIONS);
 
   bench('serialize - 500 files with 2 deps each', () => {
     const index = new SymbolReverseIndex('/test');
@@ -159,7 +166,7 @@ describe('SymbolReverseIndex Unit Benchmarks', () => {
     }
 
     index.serialize();
-  });
+  }, BENCH_OPTIONS);
 
   bench('deserialize - 500 files index', () => {
     const index = new SymbolReverseIndex('/test');
@@ -176,7 +183,7 @@ describe('SymbolReverseIndex Unit Benchmarks', () => {
     // Benchmark deserialization
     const newIndex = new SymbolReverseIndex('/test');
     newIndex.deserialize(serialized);
-  });
+  }, BENCH_OPTIONS);
 
   bench('removeDependenciesFromSource - remove file from index', () => {
     const index = new SymbolReverseIndex('/test');
@@ -194,7 +201,7 @@ describe('SymbolReverseIndex Unit Benchmarks', () => {
     for (let i = 0; i < 100; i++) {
       index.removeDependenciesFromSource(`/test/file${i}.ts`);
     }
-  });
+  }, BENCH_OPTIONS);
 
   bench('getStats - 1000 unique symbols', () => {
     const index = new SymbolReverseIndex('/test');
@@ -214,7 +221,7 @@ describe('SymbolReverseIndex Unit Benchmarks', () => {
     }
 
     index.getStats();
-  });
+  }, BENCH_OPTIONS);
 });
 
 /**
@@ -240,7 +247,7 @@ describe('SymbolReverseIndex vs Linear Scan', () => {
 
   bench('O(1) SymbolReverseIndex.getCallers', () => {
     prebuiltIndex.getCallers(targetSymbolId);
-  });
+  }, BENCH_OPTIONS);
 
   bench('O(n) linear scan equivalent', () => {
     // Simulate what a linear scan would do
@@ -254,5 +261,5 @@ describe('SymbolReverseIndex vs Linear Scan', () => {
     }
     // Use count to prevent dead code elimination
     if (count < 0) throw new Error('impossible');
-  });
+  }, BENCH_OPTIONS);
 });

@@ -1,6 +1,7 @@
 import { defineConfig } from 'vitest/config';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import NoSummaryBenchmarkReporter from './scripts/noSummaryBenchmarkReporter';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -10,12 +11,14 @@ export default defineConfig({
     globals: true,
     environment: 'node',
     include: ['tests/benchmarks/**/*.bench.ts'],
-    // Reduce log verbosity during benchmarks to avoid buffer overflow
+    // Benchmarks are very output-heavy; avoid interactive TTY summary rendering.
     silent: false,
-    reporter: 'default',
+    reporters: ['default'],
     benchmark: {
       include: ['tests/benchmarks/**/*.bench.ts'],
-      reporters: ['default'], // Changed from 'verbose' to reduce stderr output
+      // Use a custom reporter that disables SummaryReporter/WindowRenderer to avoid
+      // RangeError: Invalid string length caused by TTY buffering.
+      reporters: [new NoSummaryBenchmarkReporter()],
     },
   },
   resolve: {

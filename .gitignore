@@ -170,3 +170,6 @@ test-results/
 .github/instructions
 .github/skills
 AGENTS.md
+
+# Benchmark temporary files
+tests/fixtures/bench-permanent/src/temp_*.ts

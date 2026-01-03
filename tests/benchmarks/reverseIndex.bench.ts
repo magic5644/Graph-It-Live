@@ -3,6 +3,13 @@ import { Spider } from '../../src/analyzer/Spider';
 import { ReverseIndex } from '../../src/analyzer/ReverseIndex';
 import path from 'node:path';
 
+const BENCH_OPTIONS = {
+  time: 10,
+  warmupTime: 0,
+  warmupIterations: 0,
+  iterations: 1,
+} as const;
+
 /**
  * Benchmark tests for reverse index performance
  * 
@@ -69,7 +76,7 @@ describe('ReverseIndex Unit Benchmarks', () => {
 
     // Benchmark the lookup
     index.getReferencingFiles(targetPath);
-  });
+  }, BENCH_OPTIONS);
 
   bench('addDependencies - single file with 10 deps', () => {
     const index = new ReverseIndex('/test');
@@ -81,7 +88,7 @@ describe('ReverseIndex Unit Benchmarks', () => {
     }));
 
     index.addDependencies('/test/source.ts', deps, { mtime: 123, size: 1024 });
-  });
+  }, BENCH_OPTIONS);
 
   bench('serialize - 500 files index', () => {
     const index = new ReverseIndex('/test');
@@ -94,7 +101,7 @@ describe('ReverseIndex Unit Benchmarks', () => {
     }
 
     index.serialize();
-  });
+  }, BENCH_OPTIONS);
 
   bench('deserialize - 500 files index', () => {
     const index = new ReverseIndex('/test');
@@ -108,7 +115,7 @@ describe('ReverseIndex Unit Benchmarks', () => {
 
     const serialized = index.serialize();
     ReverseIndex.deserialize(serialized, '/test');
-  });
+  }, BENCH_OPTIONS);
 
   bench('isFileStale check - 1000 files', () => {
     const index = new ReverseIndex('/test');
@@ -122,7 +129,7 @@ describe('ReverseIndex Unit Benchmarks', () => {
     for (let i = 0; i < 1000; i++) {
       index.isFileStale(`/test/file${i}.ts`, { mtime: i, size: i * 10 });
     }
-  });
+  }, BENCH_OPTIONS);
 });
 
 /**
@@ -133,12 +140,12 @@ describe('Spider Integration Benchmarks', () => {
   bench('findReferencingFiles WITH index (O(1) lookup)', async () => {
     const spider = await getSpiderWithIndex();
     await spider.findReferencingFiles(SHARED_FILE);
-  });
+  }, BENCH_OPTIONS);
 
   bench('findReferencingFiles WITHOUT index (O(n) scan)', async () => {
     const spider = getSpiderWithoutIndex();
     await spider.findReferencingFiles(SHARED_FILE);
-  });
+  }, BENCH_OPTIONS);
 });
 
 /**
@@ -152,5 +159,5 @@ describe('Index Build Benchmarks', () => {
       indexingConcurrency: 8,
     });
     await spider.buildFullIndex();
-  });
+  }, BENCH_OPTIONS);
 });

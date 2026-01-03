@@ -2,6 +2,13 @@ import { describe, bench, beforeAll } from 'vitest';
 import { Spider } from '../../src/analyzer/Spider';
 import path from 'node:path';
 
+const BENCH_OPTIONS = {
+  time: 10,
+  warmupTime: 0,
+  warmupIterations: 0,
+  iterations: 1,
+} as const;
+
 /**
  * Benchmark tests for unused dependency analysis performance
  * 
@@ -24,6 +31,10 @@ const TEST_FILES = {
 
 let _spider: Spider | null = null;
 let _graphData: { nodes: string[]; edges: Array<{ source: string; target: string }> } | null = null;
+
+function getSymbolService(spider: Spider): { getSymbolGraph: (filePath: string) => Promise<unknown> } {
+  return (spider as unknown as { symbolService: { getSymbolGraph: (filePath: string) => Promise<unknown> } }).symbolService;
+}
 
 async function getSpider(): Promise<Spider> {
   if (!_spider) {
@@ -68,21 +79,25 @@ describe('Unused Dependency Analysis Performance', () => {
     bench('verifyDependencyUsage - single edge', async () => {
       const spider = await getSpider();
       await spider.verifyDependencyUsage(TEST_FILES.app, TEST_FILES.shared);
-    });
+    }, BENCH_OPTIONS);
 
     bench('verifyDependencyUsage - cached result', async () => {
       const spider = await getSpider();
       // Second call should hit cache
       await spider.verifyDependencyUsage(TEST_FILES.app, TEST_FILES.shared);
-    });
+    }, BENCH_OPTIONS);
   });
 
   describe('Batch Verification (Optimized)', () => {
     bench('verifyDependencyUsageBatch - 3 targets', async () => {
       const spider = await getSpider();
-      const targets = [TEST_FILES.shared, TEST_FILES.utils, '/non/existent/file.ts'];
+      const targets = [
+        TEST_FILES.shared,
+        TEST_FILES.utils,
+        path.join(BENCH_PERMANENT_PATH, 'src/unused.ts'),
+      ];
       await spider.verifyDependencyUsageBatch(TEST_FILES.app, targets);
-    });
+    }, BENCH_OPTIONS);
 
     bench('verifyDependencyUsageBatch - 10 targets', async () => {
       const spider = await getSpider();
@@ -91,7 +106,7 @@ describe('Unused Dependency Analysis Performance', () => {
         path.join(BENCH_PERMANENT_PATH, `src/module${i}.ts`)
       );
       await spider.verifyDependencyUsageBatch(TEST_FILES.app, targets);
-    });
+    }, BENCH_OPTIONS);
   });
 
   describe('Full Graph Analysis', () => {
@@ -102,7 +117,7 @@ describe('Unused Dependency Analysis Performance', () => {
       for (const edge of graph.edges) {
         await spider.verifyDependencyUsage(edge.source, edge.target);
       }
-    });
+    }, BENCH_OPTIONS);
 
     bench('analyze all edges with batching (new approach)', async () => {
       const spider = await getSpider();
@@ -119,7 +134,7 @@ describe('Unused Dependency Analysis Performance', () => {
       for (const [source, targets] of edgesBySource) {
         await spider.verifyDependencyUsageBatch(source, targets);
       }
-    });
+    }, BENCH_OPTIONS);
 
     bench('analyze edges with concurrency control (production approach)', async () => {
       const spider = await getSpider();
@@ -139,26 +154,25 @@ describe('Unused Dependency Analysis Performance', () => {
         const batch = sourceFiles.slice(i, i + CONCURRENCY);
         await Promise.all(batch.map(sourceFile => processBatchFile(spider, edgesBySource, sourceFile)));
       }
-    });
+    }, BENCH_OPTIONS);
   });
 
   describe('Cache Performance', () => {
     bench('getSymbolGraph - cache hit', async () => {
       const spider = await getSpider();
+      const symbolService = getSymbolService(spider);
       // This should always hit cache after first call
-      await (spider as any).symbolService.getSymbolGraph(TEST_FILES.app);
-    });
+      await symbolService.getSymbolGraph(TEST_FILES.app);
+    }, BENCH_OPTIONS);
 
     bench('getSymbolGraph - cache miss (new file)', async () => {
       const spider = await getSpider();
-      // Use a timestamp to ensure cache miss
-      const tempPath = path.join(BENCH_PERMANENT_PATH, `src/temp_${Date.now()}.ts`);
-      try {
-        await (spider as any).symbolService.getSymbolGraph(tempPath);
-      } catch {
-        // Expected to fail, just measuring cache miss overhead
-      }
-    });
+      const symbolService = getSymbolService(spider);
+      // Use existing different file to measure cache miss
+      // First call on utils.ts will be a cache miss
+      const utilsFile = path.join(BENCH_PERMANENT_PATH, 'src/utils.ts');
+      await symbolService.getSymbolGraph(utilsFile);
+    }, BENCH_OPTIONS);
   });
 });
 
@@ -172,7 +186,7 @@ describe('Comparison: Individual vs Batch', () => {
     for (const target of targets) {
       await spider.verifyDependencyUsage(TEST_FILES.app, target);
     }
-  });
+  }, BENCH_OPTIONS);
 
   bench('optimized: check 10 targets in batch', async () => {
     const spider = await getSpider();
@@ -181,5 +195,5 @@ describe('Comparison: Individual vs Batch', () => {
     );
     
     await spider.verifyDependencyUsageBatch(TEST_FILES.app, targets);
-  });
+  }, BENCH_OPTIONS);
 });
