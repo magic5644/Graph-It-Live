@@ -24,16 +24,50 @@ export class PythonSymbolAnalyzer implements ISymbolAnalyzer {
   async analyzeFile(filePath: string): Promise<Map<string, SymbolInfo>> {
     try {
       const content = await this.fileReader.readFile(filePath);
-      const tree = this.parser.parse(content);
-      const symbols = new Map<string, SymbolInfo>();
-      const normalizedPath = normalizePath(filePath);
-
-      this.extractSymbols(tree.rootNode, normalizedPath, content, symbols);
-
-      return symbols;
+      return this.analyzeFileFromContent(filePath, content);
     } catch (error) {
       throw SpiderError.fromError(error, filePath);
     }
+  }
+
+  /**
+   * Synchronously analyze Python content and extract symbols
+   * Used by AstWorker when content is already loaded
+   */
+  analyzeFileFromContent(filePath: string, content: string): Map<string, SymbolInfo> {
+    const tree = this.parser.parse(content);
+    const symbols = new Map<string, SymbolInfo>();
+    const normalizedPath = normalizePath(filePath);
+
+    this.extractSymbols(tree.rootNode, normalizedPath, content, symbols);
+
+    return symbols;
+  }
+
+  /**
+   * Synchronously analyze Python content and extract both symbols and dependencies
+   * Used by AstWorker when content is already loaded
+   * @returns Object with symbols and dependencies arrays
+   */
+  analyzeFileContent(filePath: string, content: string): {
+    symbols: SymbolInfo[];
+    dependencies: SymbolDependency[];
+  } {
+    const tree = this.parser.parse(content);
+    const symbolMap = new Map<string, SymbolInfo>();
+    const dependencies: SymbolDependency[] = [];
+    const normalizedPath = normalizePath(filePath);
+
+    // First pass: collect all symbols
+    this.extractSymbols(tree.rootNode, normalizedPath, content, symbolMap);
+
+    // Second pass: extract dependencies
+    this.extractDependencies(tree.rootNode, normalizedPath, content, dependencies, symbolMap);
+
+    return {
+      symbols: Array.from(symbolMap.values()),
+      dependencies,
+    };
   }
 
   /**
@@ -42,18 +76,8 @@ export class PythonSymbolAnalyzer implements ISymbolAnalyzer {
   async getSymbolDependencies(filePath: string): Promise<SymbolDependency[]> {
     try {
       const content = await this.fileReader.readFile(filePath);
-      const tree = this.parser.parse(content);
-      const dependencies: SymbolDependency[] = [];
-      const normalizedPath = normalizePath(filePath);
-      const symbols = new Map<string, SymbolInfo>();
-
-      // First pass: collect all symbols
-      this.extractSymbols(tree.rootNode, normalizedPath, content, symbols);
-
-      // Second pass: extract dependencies
-      this.extractDependencies(tree.rootNode, normalizedPath, content, dependencies, symbols);
-
-      return dependencies;
+      const result = this.analyzeFileContent(filePath, content);
+      return result.dependencies;
     } catch (error) {
       throw SpiderError.fromError(error, filePath);
     }
