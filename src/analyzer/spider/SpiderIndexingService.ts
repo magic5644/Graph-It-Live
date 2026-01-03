@@ -123,6 +123,8 @@ export class SpiderIndexingService {
       return 0;
     }
 
+    log.info(`Re-indexing ${staleFiles.length} stale files`);
+
     const concurrency = this.getConfig().indexingConcurrency ?? 8;
     let processed = 0;
 
@@ -132,11 +134,15 @@ export class SpiderIndexingService {
       await Promise.all(
         batch.map(async (filePath) => {
           const normalized = normalizePath(filePath);
+          log.debug(`Re-indexing stale file: ${filePath}`);
           try {
             this.reverseIndexManager.removeDependenciesFromSource(normalized);
             this.dependencyCache.delete(normalized);
+            log.debug(`Deleted cache for ${filePath}, re-analyzing...`);
             await this.dependencyAnalyzer.analyze(filePath);
-          } catch {
+            log.debug(`Successfully re-analyzed ${filePath}`);
+          } catch (error) {
+            log.error(`Failed to re-index ${filePath}:`, error);
             this.reverseIndexManager.removeDependenciesFromSource(normalized);
           }
         })
@@ -147,6 +153,7 @@ export class SpiderIndexingService {
       await this.yieldToEventLoop();
     }
 
+    log.info(`Completed re-indexing ${processed} files`);
     return processed;
   }
 }

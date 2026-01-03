@@ -27,14 +27,18 @@ export class SpiderDependencyAnalyzer {
 
     const cached = this.dependencyCache.get(key);
     if (cached) {
+      log.debug(`Returning ${cached.length} cached dependencies for ${filePath}`);
       await this.updateReverseIndexIfEnabled(filePath, key, cached);
       return cached;
     }
 
+    log.debug(`Analyzing ${filePath}...`);
     try {
       // Use LanguageService to get the appropriate analyzer for this file
       const analyzer = this.languageService.getAnalyzer(filePath);
       const parsedImports = await analyzer.parseImports(filePath);
+
+      log.debug(`Parsed ${parsedImports.length} imports from ${filePath}`);
 
       const dependencies: Dependency[] = [];
       const seenResolvedPaths = new Set<string>();
@@ -42,7 +46,10 @@ export class SpiderDependencyAnalyzer {
       for (const imp of parsedImports) {
         // Use analyzer's resolvePath method for language-specific resolution
         const resolvedPath = await analyzer.resolvePath(filePath, imp.module);
-        if (!resolvedPath) continue;
+        if (!resolvedPath) {
+          log.debug(`Failed to resolve module "${imp.module}" from ${filePath}`);
+          continue;
+        }
 
         const normalizedResolved = normalizePath(resolvedPath);
         if (seenResolvedPaths.has(normalizedResolved)) continue;
@@ -56,6 +63,7 @@ export class SpiderDependencyAnalyzer {
         });
       }
 
+      log.debug(`Resolved ${dependencies.length} dependencies for ${filePath}`);
       this.dependencyCache.set(key, dependencies);
       await this.updateReverseIndexIfEnabled(filePath, key, dependencies);
 

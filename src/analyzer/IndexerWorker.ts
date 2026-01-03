@@ -8,8 +8,7 @@
 import { parentPort, workerData } from 'node:worker_threads';
 import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
-import { Parser } from './Parser';
-import { PathResolver } from './utils/PathResolver';
+import { LanguageService } from './LanguageService';
 import type { Dependency } from './types';
 import { isSupportedSourceFile, shouldSkipDirectory } from './SourceFileFilters';
 
@@ -92,20 +91,18 @@ async function collectAllSourceFiles(dir: string, excludeNodeModules: boolean): 
  */
 async function analyzeFile(
   filePath: string,
-  parser: Parser,
-  resolver: PathResolver
+  languageService: LanguageService
 ): Promise<IndexedFileData | null> {
   try {
-    const [content, stats] = await Promise.all([
-      fs.readFile(filePath, 'utf-8'),
-      fs.stat(filePath),
-    ]);
+    const stats = await fs.stat(filePath);
 
-    const parsedImports = parser.parse(content, filePath);
+    // Use LanguageService to get the appropriate analyzer for this file
+    const analyzer = languageService.getAnalyzer(filePath);
+    const parsedImports = await analyzer.parseImports(filePath);
     const dependencies: Dependency[] = [];
 
     for (const imp of parsedImports) {
-      const resolvedPath = await resolver.resolve(filePath, imp.module);
+      const resolvedPath = await analyzer.resolvePath(filePath, imp.module);
       if (resolvedPath) {
         dependencies.push({
           path: resolvedPath,
@@ -135,13 +132,8 @@ async function runIndexing(config: WorkerConfig): Promise<void> {
   const progressInterval = config.progressInterval ?? 100;
   
   try {
-    // Create parser and resolver
-    const parser = new Parser();
-    const resolver = new PathResolver(
-      config.tsConfigPath,
-      config.excludeNodeModules ?? true,
-      config.rootDir // workspaceRoot for package.json discovery
-    );
+    // Create language service with root directory and tsconfig path
+    const languageService = new LanguageService(config.rootDir, config.tsConfigPath);
 
     // Phase 1: Collect all files
     postMessage({ type: 'counting' });
@@ -163,7 +155,7 @@ async function runIndexing(config: WorkerConfig): Promise<void> {
         break;
       }
 
-      const result = await analyzeFile(files[i], parser, resolver);
+      const result = await analyzeFile(files[i], languageService);
       if (result) {
         indexedData.push(result);
       }
