@@ -7,6 +7,7 @@ import { PathResolver } from '../utils/PathResolver';
 import { AstWorkerHost } from '../ast/AstWorkerHost';
 import { SymbolDependencyHelper } from '../SymbolDependencyHelper';
 import { isInIgnoredDirectory } from '../utils/PathPredicates';
+import { LanguageService } from '../LanguageService';
 
 const log = getLogger('SpiderSymbolService');
 
@@ -26,7 +27,8 @@ export class SpiderSymbolService {
     private readonly resolver: PathResolver,
     private readonly symbolDependencyHelper: SymbolDependencyHelper,
     private readonly getConfig: () => SpiderConfig,
-    private readonly findReferencingFiles: ReferencingFilesProvider
+    private readonly findReferencingFiles: ReferencingFilesProvider,
+    private readonly languageService: LanguageService
   ) {}
 
   async getSymbolGraph(filePath: string): Promise<SymbolGraph> {
@@ -53,10 +55,13 @@ export class SpiderSymbolService {
       
       // Resolve targetFilePath in dependencies from module specifier to absolute path
       // This is critical for cross-platform path comparison in verifyDependencyUsage
+      // Use language-specific resolver (Python, TypeScript, etc.)
       const resolvedDependencies = await Promise.all(
         result.dependencies.map(async (dep) => {
           try {
-            const resolved = await this.resolver.resolve(key, dep.targetFilePath);
+            // Get language-specific analyzer
+            const analyzer = this.languageService.getAnalyzer(key);
+            const resolved = await analyzer.resolvePath(key, dep.targetFilePath);
             if (resolved) {
               return {
                 ...dep,

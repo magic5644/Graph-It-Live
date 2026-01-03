@@ -1,5 +1,6 @@
 # Relative imports test
 from . import helpers
+from .main import main
 from .utils import helpers as h
 from ..utils.helpers import calculate
 

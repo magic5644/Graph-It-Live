@@ -323,7 +323,7 @@
     "build": "node esbuild.js",
     "watch": "node esbuild.js --watch",
     "compile": "npm run build",
-    "test": "vitest",
+    "test": "vitest --run",
     "test:watch": "vitest --watch",
     "test:unit": "vitest run --run",
     "test:coverage": "vitest run --coverage",
