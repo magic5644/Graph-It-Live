@@ -6,16 +6,52 @@
 src/**
 tests/**
 
-# Dependencies - exclude all except runtime requirements
+# Source maps (NEVER include in production)
+**/*.map
+
+# Dependencies - exclude all, then include only required runtime files
 node_modules/**
-# But include required native modules for tree-sitter
-!node_modules/tree-sitter/**
-!node_modules/tree-sitter-python/**
-!node_modules/ts-morph/**
-!node_modules/typescript/**
-# Also include their dependencies
-!node_modules/code-block-writer/**
-!node_modules/@ts-morph/**
+
+# tree-sitter: only prebuilds/ (native binaries) and core runtime files
+!node_modules/tree-sitter/package.json
+!node_modules/tree-sitter/prebuilds/
+!node_modules/tree-sitter/index.js
+!node_modules/tree-sitter/index.d.ts
+!node_modules/tree-sitter/tree-sitter.js
+!node_modules/tree-sitter/tree-sitter.d.ts
+
+# tree-sitter-python: only prebuilds/ and package files
+!node_modules/tree-sitter-python/package.json
+!node_modules/tree-sitter-python/prebuilds/
+!node_modules/tree-sitter-python/index.js
+
+# node-addon-api: required by tree-sitter binaries
+!node_modules/node-addon-api/package.json
+!node_modules/node-addon-api/napi.h
+!node_modules/node-addon-api/napi-inl.h
+
+# ts-morph: only dist/ and package metadata
+!node_modules/ts-morph/package.json
+!node_modules/ts-morph/LICENSE
+!node_modules/ts-morph/dist/
+!node_modules/ts-morph/lib/
+
+# @ts-morph/common: only dist/ and lib/
+!node_modules/@ts-morph/common/package.json
+!node_modules/@ts-morph/common/LICENSE
+!node_modules/@ts-morph/common/dist/*.js
+!node_modules/@ts-morph/common/lib/*.d.ts
+
+# code-block-writer: only script/ (commonjs) - exclude .map files
+!node_modules/code-block-writer/package.json
+!node_modules/code-block-writer/LICENSE
+!node_modules/code-block-writer/script/**/*.js
+node_modules/code-block-writer/script/**/*.map
+
+# typescript: only lib/ (compiler runtime)
+!node_modules/typescript/package.json
+!node_modules/typescript/LICENSE.txt
+!node_modules/typescript/lib/
 
 # Build artifacts & intermediates
 out/**
@@ -54,9 +90,6 @@ walkthrough.md
 implementation_plan.md
 task.md
 test.log
-
-# Source maps (not needed in production)
-**/*.map
 
 # OS files
 .DS_Store

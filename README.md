@@ -9,8 +9,8 @@
 [![AI Ready](https://img.shields.io/badge/AI%20Ready-MCP%20Server-blue?logo=modelcontextprotocol&logoColor=white)](https://modelcontextprotocol.io)
 [![License](https://img.shields.io/github/license/magic5644/Graph-It-Live)](https://github.com/magic5644/Graph-It-Live/blob/main/LICENSE)
 [![Github stars](https://img.shields.io/github/stars/magic5644/graph-it-live?style=flat&color=gold&logo=github)](https://github.com/magic5644/Graph-It-Live)
-[![vscode downloads](https://img.shields.io/visual-studio-marketplace/i/magic5644.graph-it-live?label=Marketplace%20Installs)](https://marketplace.visualstudio.com/items?itemName=magic5644.graph-it-live)
-[![Open VSX Downloads](https://img.shields.io/open-vsx/dt/magic5644/graph-it-live?label=Open%20VSX%20Installs)](https://open-vsx.org/extension/magic5644/graph-it-live)
+[![vscode downloads](https://img.shields.io/visual-studio-marketplace/d/magic5644.graph-it-live?label=vscode%20Marketplace%20Downloads)](https://marketplace.visualstudio.com/items?itemName=magic5644.graph-it-live)
+[![Open VSX Downloads](https://img.shields.io/open-vsx/dt/magic5644/graph-it-live?label=Open%20VSX%20Downloads)](https://open-vsx.org/extension/magic5644/graph-it-live)
 
 **Give your AI "eyes" to see your entire codebase structure.**
 
