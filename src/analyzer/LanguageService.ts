@@ -4,6 +4,8 @@ import { Parser } from './Parser';
 import { SymbolAnalyzer } from './SymbolAnalyzer';
 import { PythonParser } from './languages/PythonParser';
 import { PythonSymbolAnalyzer } from './languages/PythonSymbolAnalyzer';
+import { RustParser } from './languages/RustParser';
+import { RustSymbolAnalyzer } from './languages/RustSymbolAnalyzer';
 
 /**
  * Language detection based on file extension
@@ -24,7 +26,8 @@ export class LanguageService {
   private static typeScriptSymbolAnalyzer: SymbolAnalyzer | null = null;
   private static pythonParser: PythonParser | null = null;
   private static pythonSymbolAnalyzer: PythonSymbolAnalyzer | null = null;
-  // Rust analyzers will be added in Phase 5 and Phase 6
+  private static rustParser: RustParser | null = null;
+  private static rustSymbolAnalyzer: RustSymbolAnalyzer | null = null;
 
   private readonly rootDir?: string;
 
@@ -95,8 +98,8 @@ export class LanguageService {
         return this.pythonParser;
 
       case Language.Rust:
-        // Will be implemented in Phase 5 (TASK-054 to TASK-062)
-        throw new Error(`Rust parser not yet implemented`);
+        this.rustParser ??= new RustParser(rootDir);
+        return this.rustParser;
 
       default:
         throw new Error(`Unsupported language for file: ${filePath}`);
@@ -120,8 +123,8 @@ export class LanguageService {
         return this.pythonSymbolAnalyzer;
 
       case Language.Rust:
-        // Will be implemented in Phase 6 (TASK-069 to TASK-077)
-        throw new Error(`Rust symbol analyzer not yet implemented`);
+        this.rustSymbolAnalyzer ??= new RustSymbolAnalyzer(rootDir);
+        return this.rustSymbolAnalyzer;
 
       default:
         throw new Error(`Unsupported language for file: ${filePath}`);
@@ -143,5 +146,7 @@ export class LanguageService {
     this.typeScriptSymbolAnalyzer = null;
     this.pythonParser = null;
     this.pythonSymbolAnalyzer = null;
+    this.rustParser = null;
+    this.rustSymbolAnalyzer = null;
   }
 }

@@ -11,9 +11,15 @@
   - Detect unused imports in Python files using AST-based analysis
   - Automatic exclusion of `__pycache__`, `.venv`, and `venv` directories
   - File extensions supported: `.py` (Python source), `.pyi` (type stubs)
-  - **958 tests passing** including comprehensive Python integration tests
   - MCP tools fully compatible with Python analysis
   - Cross-platform path resolution for Windows, macOS, and Linux
+
+- **Rust Language Support**: Full support for Rust projects with tree-sitter-based analysis
+  - Parse Rust imports: `use path::to::module`, `mod declarations`, `extern crate`
+  - Symbol-level analysis: extract functions (`pub fn`, `async fn`), structs, enums, traits, and impl blocks
+  - Resolve Rust modules: handle relative paths (`crate::`, `super::`, `self::`), `.rs` files and `mod.rs` patterns
+  - Detect visibility modifiers (`pub`) for accurate exported symbol tracking
+  - Track symbol-level dependencies within Rust projects (internal and external calls)
 
 - **Language Icons**: Visual language indicators on file nodes
   - Each file node displays a language-specific icon in the top-left corner
@@ -27,7 +33,8 @@
   - New `ILanguageAnalyzer` interface for pluggable language support
   - `LanguageService` factory with lazy-loading to avoid loading unused parsers
   - Zero performance impact on existing TypeScript/JavaScript analysis
-  - Rust support planned for next release
+  - Support for **three languages**: TypeScript, Python, and Rust
+  - Unified module resolution logic across all languages
 
 ### Package Optimization
 

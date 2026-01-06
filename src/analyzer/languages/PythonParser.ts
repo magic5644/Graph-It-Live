@@ -62,7 +62,7 @@ export class PythonParser implements ILanguageAnalyzer {
       }
 
       // Handle absolute imports (workspace-relative)
-      return await this.resolveAbsoluteImport(moduleSpecifier);
+      return await this.resolveAbsoluteImport(fromDir, moduleSpecifier);
     } catch {
       // Resolution failures are not critical - return null
       return null;
@@ -165,21 +165,66 @@ export class PythonParser implements ILanguageAnalyzer {
   /**
    * Resolve absolute import (workspace-relative)
    */
-  private async resolveAbsoluteImport(moduleSpecifier: string): Promise<string | null> {
+  private async resolveAbsoluteImport(fromDir: string, moduleSpecifier: string): Promise<string | null> {
     // Convert module.submodule to module/submodule
     const modulePath = moduleSpecifier.replaceAll('.', '/');
+    const normalizedRoot = normalizePath(this.rootDir);
+    const visited = new Set<string>();
 
-    // Try different file patterns relative to workspace root
-    const candidates = [
-      path.join(this.rootDir, modulePath + '.py'),
-      path.join(this.rootDir, modulePath + '.pyi'),
-      path.join(this.rootDir, modulePath, '__init__.py'),
-      path.join(this.rootDir, modulePath, '__init__.pyi'),
-    ];
+    const tryDirectory = async (dir: string): Promise<string | null> => {
+      const normalizedDir = normalizePath(dir);
+      if (visited.has(normalizedDir)) {
+        return null;
+      }
 
-    for (const candidate of candidates) {
-      if (await this.fileExists(candidate)) {
-        return normalizePath(candidate);
+      visited.add(normalizedDir);
+
+      const candidates = [
+        path.join(dir, modulePath + '.py'),
+        path.join(dir, modulePath + '.pyi'),
+        path.join(dir, modulePath, '__init__.py'),
+        path.join(dir, modulePath, '__init__.pyi'),
+      ];
+
+      for (const candidate of candidates) {
+        if (await this.fileExists(candidate)) {
+          return normalizePath(candidate);
+        }
+      }
+
+      return null;
+    };
+
+    // Walk up from the importing file's directory to the workspace root (or filesystem root)
+    let currentDir = fromDir;
+    while (true) {
+      const resolved = await tryDirectory(currentDir);
+      if (resolved) {
+        return resolved;
+      }
+
+      const parentDir = path.dirname(currentDir);
+      if (parentDir === currentDir) {
+        break; // Reached filesystem root
+      }
+
+      // Stop after checking the workspace root to avoid scanning unrelated paths
+      if (normalizePath(parentDir) === normalizedRoot) {
+        const resolvedAtRoot = await tryDirectory(parentDir);
+        if (resolvedAtRoot) {
+          return resolvedAtRoot;
+        }
+        break;
+      }
+
+      currentDir = parentDir;
+    }
+
+    // Fallback: try the configured root if it was not part of the climb
+    if (!visited.has(normalizedRoot)) {
+      const resolvedAtRoot = await tryDirectory(this.rootDir);
+      if (resolvedAtRoot) {
+        return resolvedAtRoot;
       }
     }
 
