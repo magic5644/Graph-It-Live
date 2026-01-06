@@ -6,8 +6,16 @@
 src/**
 tests/**
 
-# Dependencies
+# Dependencies - exclude all except runtime requirements
 node_modules/**
+# But include required native modules for tree-sitter
+!node_modules/tree-sitter/**
+!node_modules/tree-sitter-python/**
+!node_modules/ts-morph/**
+!node_modules/typescript/**
+# Also include their dependencies
+!node_modules/code-block-writer/**
+!node_modules/@ts-morph/**
 
 # Build artifacts & intermediates
 out/**
