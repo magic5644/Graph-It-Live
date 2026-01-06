@@ -176,3 +176,7 @@ tests/fixtures/bench-permanent/src/temp_*.ts
 
 # Snyk Security Extension - AI Rules (auto-generated)
 .github/instructions/snyk_rules.instructions.md
+
+# _bmad temporary files
+_bmad
+_bmad-output
