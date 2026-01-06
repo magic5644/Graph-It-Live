@@ -1,5 +1,42 @@
 # Changelog
 
+## v1.6.0
+
+### New Features
+
+- **Python Language Support**: Full support for Python projects with tree-sitter-based analysis
+  - Parse Python imports: `import`, `from ... import`, relative imports (`.`, `..`)
+  - Symbol-level analysis: extract functions, classes, and methods from Python files
+  - Resolve Python modules: handle `__init__.py`, package structure, and module paths
+  - Detect unused imports in Python files using AST-based analysis
+  - Automatic exclusion of `__pycache__`, `.venv`, and `venv` directories
+  - File extensions supported: `.py` (Python source), `.pyi` (type stubs)
+  - **958 tests passing** including comprehensive Python integration tests
+  - MCP tools fully compatible with Python analysis
+  - Cross-platform path resolution for Windows, macOS, and Linux
+
+- **Language Icons**: Visual language indicators on file nodes
+  - Each file node displays a language-specific icon in the top-left corner
+  - Supported languages: TypeScript, JavaScript, Python, Rust, Vue, Svelte, GraphQL, and more
+  - SVG-based icons with fallback to text badges
+  - Helps quickly identify file types in large dependency graphs
+
+### Architecture Improvements
+
+- **Multi-Language Architecture**: Introduced Strategy Pattern for language-agnostic analysis
+  - New `ILanguageAnalyzer` interface for pluggable language support
+  - `LanguageService` factory with lazy-loading to avoid loading unused parsers
+  - Zero performance impact on existing TypeScript/JavaScript analysis
+  - Rust support planned for next release
+
+### Package Optimization
+
+- **Extension Package Size**: Reduced from 15 MB to 12 MB (-20%)
+  - **Zero `.map` files** in production package (security & size improvement)
+  - Precise `node_modules` inclusion patterns in `.vscodeignore`
+  - New `npm run package:verify` script to validate package integrity
+  - Automated validation rules to prevent `.map` files in future releases
+
 ## v1.5.0
 
 ### Improvements

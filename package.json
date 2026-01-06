@@ -29,6 +29,7 @@
     "import",
     "typescript",
     "javascript",
+    "python",
     "react",
     "vue",
     "svelte",
@@ -338,6 +339,7 @@
     "audit:fix": "npm audit fix",
     "package": "vsce package",
     "package:vsix": "vsce package",
+    "package:verify": "npx vsce ls | grep '\\.map$' && echo '❌ ERROR: .map files found in package!' && exit 1 || echo '✅ No .map files in package'",
     "publish": "vsce publish"
   },
   "dependencies": {

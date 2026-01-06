@@ -16,7 +16,7 @@
 
 Graph-It-Live is a dual-purpose tool:
 
-1.**For Humans**: A real-time interactive graph to visualize and navigate dependencies in **TypeScript**, **JavaScript**, **Vue**, **Svelte**, and **GraphQL** projects.
+1.**For Humans**: A real-time interactive graph to visualize and navigate dependencies in **TypeScript**, **JavaScript**, **Python**, **Vue**, **Svelte**, and **GraphQL** projects.
 
 2.**For AI**: A built-in **Model Context Protocol (MCP) Server** that lets assistants like **GitHub Copilot**, **Claude**, and **Cursor** analyze your project's architecture, find impact of changes, and understand complex relationships without hallucinating.
 
@@ -61,7 +61,7 @@ Stop pasting file paths and explaining your project structure. Graph-It-Live exp
 
 * **Symbol-Level Analysis** *(New)*: Drill down to see function-to-function and class-to-class dependencies within files.
 * **Real-time Dependency Visualization**: Interactive graph showing file dependencies.
-* **Multi-Language Support**: First-class support for **TypeScript** (`.ts`, `.tsx`), **JavaScript** (`.js`, `.jsx`), **Vue** (`.vue`), **Svelte** (`.svelte`), and **GraphQL** (`.gql`, `.graphql`).
+* **Multi-Language Support**: First-class support for **TypeScript** (`.ts`, `.tsx`), **JavaScript** (`.js`, `.jsx`), **Python** (`.py`, `.pyi`), **Vue** (`.vue`), **Svelte** (`.svelte`), and **GraphQL** (`.gql`, `.graphql`).
 * **Cycle Detection**: Automatically detects and highlights circular dependencies with red dashed lines and badges.
 * **Smart Navigation**: Use VS Code's built-in navigation (Go Back / Go Forward) to move through your code history. Graph-It-Live also exposes navigation actions in the webview or panel menu.
 * **Background Indexing** *(New)*: Optionally index your entire workspace in the background for instant reverse dependency lookups. Uses a separate worker thread to avoid blocking the IDE.
@@ -394,6 +394,10 @@ Graph-It-Live/
 ## License
 
 MIT License - see [LICENSE](LICENSE) file for details.
+
+## Acknowledgements
+
+Language icons provided by [SuperTinyIcons](https://github.com/edent/SuperTinyIcons) - a collection of miniscule SVG versions of website and app logos, under CC0-1.0 license.
 
 ## Author
 

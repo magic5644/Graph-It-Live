@@ -1,6 +1,7 @@
 import React from 'react';
 import { Handle, Position, type NodeProps } from 'reactflow';
 import { actionButtonSize, cycleIndicatorSize } from '../../utils/nodeUtils';
+import { LanguageIcon } from './LanguageIcon';
 
 export interface FileNodeData {
   label: string;
@@ -76,6 +77,9 @@ export const FileNode: React.FC<NodeProps> = ({ data }: NodeProps<FileNodeData>)
       title={data.fullPath}
     >
       <Handle type="target" position={Position.Left} style={{ visibility: 'hidden' }} />
+
+      {/* Language icon in top-left corner */}
+      <LanguageIcon filePath={data.fullPath} label={data.label} />
 
       <div
         style={{
