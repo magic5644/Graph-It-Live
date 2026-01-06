@@ -72,10 +72,11 @@ describe('LanguageService', () => {
       expect(analyzer.parseImports).toBeDefined();
     });
 
-    it('should throw error for Rust files (not yet implemented)', () => {
-      expect(() => LanguageService.getAnalyzer('/project/main.rs')).toThrow(
-        'Rust parser not yet implemented'
-      );
+    it('should return RustParser for Rust files', () => {
+      const analyzer = LanguageService.getAnalyzer('/project/main.rs');
+      expect(analyzer).toBeDefined();
+      expect(analyzer.parseImports).toBeDefined();
+      expect(analyzer.constructor.name).toBe('RustParser');
     });
 
     it('should throw error for unsupported files', () => {
@@ -105,10 +106,10 @@ describe('LanguageService', () => {
       expect(analyzer.constructor.name).toBe('PythonSymbolAnalyzer');
     });
 
-    it('should throw error for Rust files (not yet implemented)', () => {
-      expect(() => LanguageService.getSymbolAnalyzer('/project/main.rs')).toThrow(
-        'Rust symbol analyzer not yet implemented'
-      );
+    it('should return RustSymbolAnalyzer for Rust files', () => {
+      const analyzer = LanguageService.getSymbolAnalyzer('/project/main.rs');
+      expect(analyzer).toBeDefined();
+      expect(analyzer.constructor.name).toBe('RustSymbolAnalyzer');
     });
   });
 

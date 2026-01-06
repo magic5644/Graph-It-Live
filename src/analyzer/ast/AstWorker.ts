@@ -14,6 +14,7 @@ import path from 'node:path';
 import { SymbolAnalyzer } from '../SymbolAnalyzer';
 import { SignatureAnalyzer } from '../SignatureAnalyzer';
 import { PythonSymbolAnalyzer } from '../languages/PythonSymbolAnalyzer';
+import { RustSymbolAnalyzer } from '../languages/RustSymbolAnalyzer';
 import type { SignatureInfo } from '../SignatureAnalyzer';
 import { getLogger } from '../../shared/logger';
 
@@ -37,14 +38,21 @@ type WorkerResponse =
 const log = getLogger('AstWorker');
 const symbolAnalyzer = new SymbolAnalyzer(undefined, { maxFiles: 100 });
 const pythonSymbolAnalyzer = new PythonSymbolAnalyzer();
+const rustSymbolAnalyzer = new RustSymbolAnalyzer();
 const signatureAnalyzer = new SignatureAnalyzer();
 
 /**
  * Detect language based on file extension
  */
-function detectLanguage(filePath: string): 'python' | 'typescript' {
+function detectLanguage(filePath: string): 'python' | 'rust' | 'typescript' {
   const ext = path.extname(filePath).toLowerCase();
-  return (ext === '.py' || ext === '.pyi') ? 'python' : 'typescript';
+  if (ext === '.py' || ext === '.pyi') {
+    return 'python';
+  }
+  if (ext === '.rs') {
+    return 'rust';
+  }
+  return 'typescript';
 }
 
 /**
@@ -59,6 +67,12 @@ function handleMessage(message: WorkerRequest): void {
         const language = detectLanguage(message.filePath);
         if (language === 'python') {
           const { symbols, dependencies } = pythonSymbolAnalyzer.analyzeFileContent(
+            message.filePath,
+            message.content
+          );
+          result = { symbols, dependencies };
+        } else if (language === 'rust') {
+          const { symbols, dependencies } = rustSymbolAnalyzer.analyzeFileContent(
             message.filePath,
             message.content
           );

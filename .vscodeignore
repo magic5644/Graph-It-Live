@@ -85,6 +85,8 @@ package-lock.json
 .spec/**
 docs/**
 scripts/**
+_bmad/**
+_bmad-output/**
 PROMPT_SPEC.md
 walkthrough.md
 implementation_plan.md
