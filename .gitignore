@@ -159,6 +159,7 @@ vite.config.ts.timestamp-*
 .copilot/
 .github/copilot-instructions.md
 .github/agents
+.clavix
 mcp.json
 
 # Playwright files

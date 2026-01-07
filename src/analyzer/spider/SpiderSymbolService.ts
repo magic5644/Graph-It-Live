@@ -377,7 +377,7 @@ export class SpiderSymbolService {
   private markAllAsUsed(targetFiles: string[]): Map<string, boolean> {
     const results = new Map<string, boolean>();
     for (const target of targetFiles) {
-      results.set(target, true);
+      results.set(normalizePath(target), true);
     }
     return results;
   }
@@ -385,7 +385,7 @@ export class SpiderSymbolService {
   private markAllAsUnused(targetFiles: string[]): Map<string, boolean> {
     const results = new Map<string, boolean>();
     for (const target of targetFiles) {
-      results.set(target, false);
+      results.set(normalizePath(target), false);
     }
     return results;
   }
@@ -418,11 +418,11 @@ export class SpiderSymbolService {
       
       // Early exit: if target is in ignored directory, assume used
       if (isInIgnoredDirectory(normalizedTarget)) {
-        results.set(target, true);
+        results.set(normalizedTarget, true);
         continue;
       }
 
-      results.set(target, resolvedTargets.has(normalizedTarget));
+      results.set(normalizedTarget, resolvedTargets.has(normalizedTarget));
     }
     return results;
   }
