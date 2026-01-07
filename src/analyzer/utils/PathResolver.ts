@@ -131,6 +131,12 @@ export class PathResolver {
       return this.resolveSubpathImport(currentFilePath, modulePath);
     }
 
+    // Rust bare module names (e.g., `helper`, `utils::parser`) should resolve to sibling .rs/mod.rs files
+    const rustResolved = await this.resolveRustModule(currentFilePath, modulePath);
+    if (rustResolved) {
+      return rustResolved;
+    }
+
     // Handle @scope/package patterns
     if (this.isPackageJsonAliasCandidate(modulePath)) {
       return this.resolveScopedPackage(currentFilePath, modulePath);
@@ -422,6 +428,39 @@ export class PathResolver {
 
   private isRelativePath(modulePath: string): boolean {
     return modulePath.startsWith('./') || modulePath.startsWith('../');
+  }
+
+  private async resolveRustModule(currentFilePath: string, modulePath: string): Promise<string | null> {
+    // Only apply to Rust sources and bare/qualified module identifiers (no slashes or leading dot/@/#)
+    if (!currentFilePath.endsWith('.rs')) {
+      return null;
+    }
+
+    if (modulePath.startsWith('.') || modulePath.startsWith('@') || modulePath.startsWith('#') || modulePath.startsWith('/')) {
+      return null;
+    }
+
+    // Accept plain identifiers or path segments separated by '::'
+    const isRustLike = /^[A-Za-z0-9_]+(?:::[A-Za-z0-9_]+)*$/u.test(modulePath);
+    if (!isRustLike) {
+      return null;
+    }
+
+    const fromDir = path.dirname(currentFilePath);
+    const moduleRelPath = modulePath.replaceAll('::', path.sep);
+
+    const candidates = [
+      path.join(fromDir, `${moduleRelPath}.rs`),
+      path.join(fromDir, moduleRelPath, 'mod.rs'),
+    ];
+
+    for (const candidate of candidates) {
+      if (await this.fileExists(candidate)) {
+        return normalizePath(candidate);
+      }
+    }
+
+    return null;
   }
 
   private isNodeModule(modulePath: string): boolean {
