@@ -1,6 +1,7 @@
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import * as path from 'node:path';
 import { Spider } from '../../src/analyzer/Spider';
+import { normalizePath } from '../../src/shared/path';
 
 describe('Spider - Verify Usage', () => {
     const fixturesDir = path.resolve(process.cwd(), 'tests/fixtures/verify_usage');
@@ -78,7 +79,8 @@ describe('Spider - Verify Usage - GraphQL', () => {
         
         const results = await spider.verifyDependencyUsageBatch(source, targets);
         
-        expect(results.get(targets[0])).toBe(true);
-        expect(results.get(targets[1])).toBe(true);
+        // verifyDependencyUsageBatch returns normalized paths as keys for cross-platform consistency
+        expect(results.get(normalizePath(targets[0]))).toBe(true);
+        expect(results.get(normalizePath(targets[1]))).toBe(true);
     });
 });
