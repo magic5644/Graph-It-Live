@@ -41,6 +41,7 @@ function createWebviewPostMessageLogger(
 
     const send = (l: LogLevel, message: string, args: unknown[]): void => {
         if (!shouldLog(l)) return;
+        if (l === 'none') return; // 'none' is not a valid WebviewLogMessage level
         try {
             post({
                 command: 'webviewLog',
@@ -215,7 +216,10 @@ const App: React.FC = () => {
 
     // Handler for updateFilter message
     const handleUpdateFilterMessage = React.useCallback((message: ExtensionToWebviewMessage & { command: 'updateFilter' }) => {
-        log.debug('App: Received updateFilter message:', message);
+        log.debug('App: Received updateFilter message', {
+            filterUnused: message.filterUnused,
+            unusedDependencyMode: message.unusedDependencyMode
+        });
         if (message.filterUnused !== undefined) {
             setFilterUnused(message.filterUnused);
         }
@@ -263,6 +267,7 @@ const App: React.FC = () => {
             setUnusedDependencyMode(message.unusedDependencyMode);
         }
         if (message.filterUnused !== undefined) {
+            log.debug('App: updateGraph setting filterUnused to', message.filterUnused);
             setFilterUnused(message.filterUnused);
         }
     }, []);
@@ -286,14 +291,25 @@ const App: React.FC = () => {
         setLastExpandedNode(message.nodeId);
     }, []);
 
+    // Store viewMode and graphData in refs to avoid re-render cascade (per copilot-instructions.md)
+    const viewModeRef = React.useRef(viewMode);
+    const graphDataRef = React.useRef(graphData);
+    React.useEffect(() => {
+        viewModeRef.current = viewMode;
+        graphDataRef.current = graphData;
+    }, [viewMode, graphData]);
+
     // Handler for referencingFiles message
     const handleReferencingFilesMessage = React.useCallback((message: ExtensionToWebviewMessage & { command: 'referencingFiles' }) => {
         log.debug('App: Received referencingFiles message for', message.nodeId, 'nodes:', message.data.nodes.length, 'edges:', (message.data.edges || []).length);
         const files = message.data.nodes.filter((n: string) => n !== message.nodeId);
         setReferencingFiles(files);
 
-        if (viewMode === 'file' && graphData) {
-            const newNodes = files.filter((f: string) => !graphData.nodes.includes(f));
+        const currentViewMode = viewModeRef.current;
+        const currentGraphData = graphDataRef.current;
+
+        if (currentViewMode === 'file' && currentGraphData) {
+            const newNodes = files.filter((f: string) => !currentGraphData.nodes.includes(f));
             const newEdges = files.map((f: string) => ({ source: f, target: message.nodeId }));
             const newLabels: Record<string, string> = {};
             newNodes.forEach((f: string) => {
@@ -301,14 +317,14 @@ const App: React.FC = () => {
             });
 
             if (newNodes.length > 0 || newEdges.length > 0) {
-                const mergedParentCounts = { ...graphData.parentCounts, ...message.data.parentCounts };
+                const mergedParentCounts = { ...currentGraphData.parentCounts, ...message.data.parentCounts };
                 const updatedData: GraphData = {
-                    nodes: [...new Set([...graphData.nodes, ...newNodes])],
-                    edges: [...graphData.edges, ...newEdges.filter(e =>
-                        !graphData.edges.some(ge => ge.source === e.source && ge.target === e.target)
+                    nodes: [...new Set([...currentGraphData.nodes, ...newNodes])],
+                    edges: [...currentGraphData.edges, ...newEdges.filter(e =>
+                        !currentGraphData.edges.some(ge => ge.source === e.source && ge.target === e.target)
                     )],
-                    nodeLabels: { ...graphData.nodeLabels, ...newLabels },
-                    unusedEdges: [...new Set([...(graphData.unusedEdges || []), ...(message.data.unusedEdges || [])])]
+                    nodeLabels: { ...currentGraphData.nodeLabels, ...newLabels },
+                    unusedEdges: [...new Set([...(currentGraphData.unusedEdges || []), ...(message.data.unusedEdges || [])])]
                 };
 
                 // Only include parentCounts if we have any counts to merge
@@ -321,7 +337,7 @@ const App: React.FC = () => {
             // Show parents when we receive referencing files (explicitly requested)
             setShowParents(true);
         }
-    }, [viewMode, graphData]);
+    }, []); // No state/callback deps - prevents re-render cascade
 
     React.useEffect(() => {
         const handleMessage = (event: MessageEvent) => {
@@ -658,5 +674,6 @@ const App: React.FC = () => {
         </ErrorBoundary>
     );
 };
+
 
 export default App;

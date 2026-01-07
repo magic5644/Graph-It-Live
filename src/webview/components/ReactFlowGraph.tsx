@@ -196,13 +196,19 @@ function useExpandedNodes(params: {
         });
     }, []);
 
+    // Store callback in ref to avoid re-render cascade (per copilot-instructions.md)
+    const onExpandNodeRef = React.useRef(onExpandNode);
+    React.useEffect(() => {
+        onExpandNodeRef.current = onExpandNode;
+    }, [onExpandNode]);
+
     // Request expansion of a node (always adds to expanded set)
     const handleExpandRequest = useCallback(
         (path: string) => {
             const normalized = normalizePath(path);
 
-            // Notify parent component first
-            onExpandNode?.(normalized);
+            // Notify parent component first via ref
+            onExpandNodeRef.current?.(normalized);
 
             // Then update local state atomically
             setExpandedNodes((prev) => {
@@ -212,7 +218,7 @@ function useExpandedNodes(params: {
                 return next;
             });
         },
-        [onExpandNode]
+        [] // No callback in deps - prevents re-render cascade
     );
 
     return { expandedNodes, toggleExpandedNode, handleExpandRequest };
@@ -288,14 +294,9 @@ const ReactFlowGraphContent: React.FC<ReactFlowGraphProps> = ({
     unusedDependencyMode = 'none',
     filterUnused: backendFilterUnused,
 }) => {
-    const [filterUnused, setFilterUnused] = useState<boolean>(backendFilterUnused ?? false);
-
-    // Sync filterUnused state when backend state changes
-    useEffect(() => {
-        if (backendFilterUnused !== undefined) {
-            setFilterUnused(backendFilterUnused);
-        }
-    }, [backendFilterUnused]);
+    // Use backendFilterUnused directly - no local state to avoid stale closures
+    const filterUnused = backendFilterUnused ?? false;
+    
     const { fitView } = useReactFlow();
     const nodesInitialized = useNodesInitialized();
     const containerRef = React.useRef<HTMLDivElement | null>(null);
@@ -372,13 +373,33 @@ const ReactFlowGraphContent: React.FC<ReactFlowGraphProps> = ({
 
     // Process edges to apply unused dependency filtering/styling
     const processedEdges = useMemo(() => {
+        log.debug('ReactFlowGraph: processedEdges useMemo triggered', {
+            filterUnused, 
+            unusedDependencyMode, 
+            unusedEdgesCount: data?.unusedEdges?.length,
+            hasUnusedEdges: !!data?.unusedEdges?.length,
+            graphEdgesCount: graph.edges.length
+        });
+        
         if (!filterUnused || unusedDependencyMode === 'none' || !data?.unusedEdges?.length) {
+            log.debug('ReactFlowGraph: Returning all edges (no filtering)', {
+                notFilterUnused: !filterUnused,
+                modeIsNone: unusedDependencyMode === 'none',
+                noUnusedEdges: !data?.unusedEdges?.length
+            });
             return graph.edges;
         }
 
         const unusedEdgeSet = new Set(data.unusedEdges);
 
+        if (unusedDependencyMode === 'hide') {
+            // Filter out unused edges completely
+            log.debug('ReactFlowGraph: Filtering out unused edges (hide mode)');
+            return graph.edges.filter(edge => !unusedEdgeSet.has(edge.id));
+        }
+
         if (unusedDependencyMode === 'dim') {
+            log.debug('ReactFlowGraph: Dimming unused edges (dim mode)');
             return graph.edges.map(edge => {
                 if (unusedEdgeSet.has(edge.id)) {
                     return {
@@ -417,10 +438,16 @@ const ReactFlowGraphContent: React.FC<ReactFlowGraphProps> = ({
         fitView,
     });
 
+    // Store callback in ref to avoid re-render cascade (per copilot-instructions.md)
+    const onNodeClickRef = React.useRef(onNodeClick);
+    React.useEffect(() => {
+        onNodeClickRef.current = onNodeClick;
+    }, [onNodeClick]);
+
     // Handle node click
     const handleNodeClick = useCallback((_: React.MouseEvent, node: Node) => {
-        onNodeClick(node.id);
-    }, [onNodeClick]);
+        onNodeClickRef.current(node.id);
+    }, []); // No callback in deps - prevents re-render cascade
 
     return (
         <div ref={containerRef} style={{ width: '100%', height: '100vh', position: 'relative' }}>
@@ -569,7 +596,7 @@ const ReactFlowGraphContent: React.FC<ReactFlowGraphProps> = ({
                     )}
                     {unusedDependencyMode !== 'none' && (
                         <button
-                            onClick={() => setFilterUnused(!filterUnused)}
+                            onClick={() => {/* Webview button not used - use toolbar button instead */}}
                             title={`Filter Unused Imports (${unusedDependencyMode === 'hide' ? 'Hide' : 'Dim'})`}
                             style={{
                                 background: filterUnused ? 'var(--vscode-button-background)' : 'var(--vscode-button-secondaryBackground)',

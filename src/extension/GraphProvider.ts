@@ -745,15 +745,22 @@ export class GraphProvider implements vscode.WebviewViewProvider {
         
         log.info('Context key graph-it-live.unusedFilterActive set to', newState);
         
-        // Send filter update message to webview without rebuilding the graph
-        // This preserves the current view (including referencing files if shown)
-        if (this._view) {
-            const effectiveMode = newState ? this._configSnapshot.unusedDependencyMode : 'none';
-            this._view.webview.postMessage({
-                command: 'updateFilter',
-                filterUnused: newState,
-                unusedDependencyMode: effectiveMode,
-            });
+        // When activating the filter, rebuild the graph to ensure unusedEdges data is available
+        // When deactivating, just update the filter state (no rebuild needed)
+        if (newState) {
+            // Activating filter - rebuild graph with usage analysis
+            log.debug('Filter activated - rebuilding graph with usage analysis');
+            await this.updateGraph(true, 'usage-analysis');
+        } else {
+            // Deactivating filter - just update filter state in webview
+            log.debug('Filter deactivated - updating filter state only');
+            if (this._view) {
+                this._view.webview.postMessage({
+                    command: 'updateFilter',
+                    filterUnused: false,
+                    unusedDependencyMode: 'none',
+                });
+            }
         }
     }
 
