@@ -41,6 +41,17 @@ jobs:
     - name: Run Tests (Windows/macOS)
       if: runner.os != 'Linux'
       run: npm run test
+      
+    - name: Install VS Code Extension Manager
+      run: npm install -g @vscode/vsce
+      
+    - name: Run E2E Tests (Linux)
+      if: runner.os == 'Linux'
+      run: xvfb-run -a npm run test:vscode:vsix
+      
+    - name: Run E2E Tests (Windows/macOS)
+      if: runner.os != 'Linux'
+      run: npm run test:vscode:vsix
 
   build:
     name: Package Extension
