@@ -3,6 +3,19 @@ import * as path from 'node:path';
 import * as vscode from 'vscode';
 import { after, before } from 'mocha';
 
+/**
+ * Helper to get a file path from a test project within the fixtures workspace
+ * @param projectName - Name of the project folder (e.g., 'sample-project', 'python-project')
+ * @param relativePath - Path relative to the project (e.g., 'src/utils.ts', 'main.py')
+ */
+function getProjectFile(projectName: string, ...pathSegments: string[]): vscode.Uri {
+  const workspaceFolders = vscode.workspace.workspaceFolders;
+  if (!workspaceFolders || workspaceFolders.length === 0) {
+    throw new Error('No workspace folders found');
+  }
+  return vscode.Uri.joinPath(workspaceFolders[0].uri, projectName, ...pathSegments);
+}
+
 suite('Graph-It-Live Extension Test Suite', () => {
   before(() => {
     vscode.window.showInformationMessage('Start all tests.');
@@ -51,14 +64,11 @@ suite('Graph-It-Live Extension Test Suite', () => {
   test('Should analyze a TypeScript file', async function() {
     this.timeout(15000);
     
-    // Open a sample TypeScript file
+    // Open a sample TypeScript file from sample-project
     const workspaceFolders = vscode.workspace.workspaceFolders;
     assert.ok(workspaceFolders && workspaceFolders.length > 0, 'Should have a workspace');
     
-    const sampleFile = vscode.Uri.joinPath(
-      workspaceFolders[0].uri,
-      'src/utils.ts'
-    );
+    const sampleFile = getProjectFile('sample-project', 'src', 'utils.ts');
     
     try {
       const doc = await vscode.workspace.openTextDocument(sampleFile);
@@ -86,14 +96,8 @@ suite('Python Language Analysis', () => {
     const workspaceFolders = vscode.workspace.workspaceFolders;
     assert.ok(workspaceFolders && workspaceFolders.length > 0, 'Should have a workspace');
     
-    // Use cross-platform path construction (see docs/CROSS_PLATFORM_TESTING.md)
-    const pythonFile = vscode.Uri.joinPath(
-      workspaceFolders[0].uri,
-      'tests',
-      'fixtures',
-      'python-project',
-      'main.py'
-    );
+    // Use helper to get Python project file
+    const pythonFile = getProjectFile('python-project', 'main.py');
     
     try {
       const doc = await vscode.workspace.openTextDocument(pythonFile);
@@ -115,13 +119,7 @@ suite('Python Language Analysis', () => {
     const workspaceFolders = vscode.workspace.workspaceFolders;
     assert.ok(workspaceFolders && workspaceFolders.length > 0, 'Should have a workspace');
     
-    const pythonFile = vscode.Uri.joinPath(
-      workspaceFolders[0].uri,
-      'tests',
-      'fixtures',
-      'python-project',
-      'classes.py'
-    );
+    const pythonFile = getProjectFile('python-project', 'classes.py');
     
     try {
       const doc = await vscode.workspace.openTextDocument(pythonFile);
@@ -140,13 +138,7 @@ suite('Python Language Analysis', () => {
     const workspaceFolders = vscode.workspace.workspaceFolders;
     assert.ok(workspaceFolders && workspaceFolders.length > 0, 'Should have a workspace');
     
-    const pythonFile = vscode.Uri.joinPath(
-      workspaceFolders[0].uri,
-      'tests',
-      'fixtures',
-      'python-project',
-      'async_functions.py'
-    );
+    const pythonFile = getProjectFile('python-project', 'async_functions.py');
     
     try {
       const doc = await vscode.workspace.openTextDocument(pythonFile);
@@ -165,13 +157,7 @@ suite('Python Language Analysis', () => {
     const workspaceFolders = vscode.workspace.workspaceFolders;
     assert.ok(workspaceFolders && workspaceFolders.length > 0, 'Should have a workspace');
     
-    const pythonFile = vscode.Uri.joinPath(
-      workspaceFolders[0].uri,
-      'tests',
-      'fixtures',
-      'python-project',
-      'relative_imports.py'
-    );
+    const pythonFile = getProjectFile('python-project', 'relative_imports.py');
     
     try {
       const doc = await vscode.workspace.openTextDocument(pythonFile);
@@ -190,13 +176,7 @@ suite('Python Language Analysis', () => {
     const workspaceFolders = vscode.workspace.workspaceFolders;
     assert.ok(workspaceFolders && workspaceFolders.length > 0, 'Should have a workspace');
     
-    const pythonFile = vscode.Uri.joinPath(
-      workspaceFolders[0].uri,
-      'tests',
-      'fixtures',
-      'python-project',
-      'decorators.py'
-    );
+    const pythonFile = getProjectFile('python-project', 'decorators.py');
     
     try {
       const doc = await vscode.workspace.openTextDocument(pythonFile);
@@ -215,13 +195,7 @@ suite('Python Language Analysis', () => {
     const workspaceFolders = vscode.workspace.workspaceFolders;
     assert.ok(workspaceFolders && workspaceFolders.length > 0, 'Should have a workspace');
     
-    const pythonFile = vscode.Uri.joinPath(
-      workspaceFolders[0].uri,
-      'tests',
-      'fixtures',
-      'python-project',
-      'main.py'
-    );
+    const pythonFile = getProjectFile('python-project', 'main.py');
     
     try {
       const doc = await vscode.workspace.openTextDocument(pythonFile);
@@ -248,14 +222,8 @@ suite('Rust Language Analysis', () => {
     const workspaceFolders = vscode.workspace.workspaceFolders;
     assert.ok(workspaceFolders && workspaceFolders.length > 0, 'Should have a workspace');
     
-    // Cross-platform path construction
-    const rustFile = vscode.Uri.joinPath(
-      workspaceFolders[0].uri,
-      'tests',
-      'fixtures',
-      'rust-integration',
-      'main.rs'
-    );
+    // Cross-platform path construction using helper
+    const rustFile = getProjectFile('rust-integration', 'main.rs');
     
     try {
       const doc = await vscode.workspace.openTextDocument(rustFile);
@@ -274,14 +242,7 @@ suite('Rust Language Analysis', () => {
     const workspaceFolders = vscode.workspace.workspaceFolders;
     assert.ok(workspaceFolders && workspaceFolders.length > 0, 'Should have a workspace');
     
-    const rustModFile = vscode.Uri.joinPath(
-      workspaceFolders[0].uri,
-      'tests',
-      'fixtures',
-      'rust-integration',
-      'utils',
-      'mod.rs'
-    );
+    const rustModFile = getProjectFile('rust-integration', 'utils', 'mod.rs');
     
     try {
       const doc = await vscode.workspace.openTextDocument(rustModFile);
@@ -301,13 +262,7 @@ suite('Rust Language Analysis', () => {
     assert.ok(workspaceFolders && workspaceFolders.length > 0, 'Should have a workspace');
     
     // Test with fixture specifically designed for unused detection
-    const rustFile = vscode.Uri.joinPath(
-      workspaceFolders[0].uri,
-      'tests',
-      'fixtures',
-      'rust-integration',
-      'main.rs'
-    );
+    const rustFile = getProjectFile('rust-integration', 'main.rs');
     
     try {
       const doc = await vscode.workspace.openTextDocument(rustFile);
@@ -327,14 +282,7 @@ suite('Rust Language Analysis', () => {
     const workspaceFolders = vscode.workspace.workspaceFolders;
     assert.ok(workspaceFolders && workspaceFolders.length > 0, 'Should have a workspace');
     
-    const rustFile = vscode.Uri.joinPath(
-      workspaceFolders[0].uri,
-      'tests',
-      'fixtures',
-      'rust-integration',
-      'utils',
-      'helpers.rs'
-    );
+    const rustFile = getProjectFile('rust-integration', 'utils', 'helpers.rs');
     
     try {
       const doc = await vscode.workspace.openTextDocument(rustFile);
@@ -353,13 +301,7 @@ suite('Rust Language Analysis', () => {
     const workspaceFolders = vscode.workspace.workspaceFolders;
     assert.ok(workspaceFolders && workspaceFolders.length > 0, 'Should have a workspace');
     
-    const rustFile = vscode.Uri.joinPath(
-      workspaceFolders[0].uri,
-      'tests',
-      'fixtures',
-      'rust-integration',
-      'main.rs'
-    );
+    const rustFile = getProjectFile('rust-integration', 'main.rs');
     
     try {
       const doc = await vscode.workspace.openTextDocument(rustFile);
@@ -386,14 +328,7 @@ suite('Cycle Detection', () => {
     assert.ok(workspaceFolders && workspaceFolders.length > 0, 'Should have a workspace');
     
     // Test with simple cycle fixture: a.ts <-> b.ts
-    const cyclicFile = vscode.Uri.joinPath(
-      workspaceFolders[0].uri,
-      'tests',
-      'fixtures',
-      'cyclic-project',
-      'simple-cycle',
-      'a.ts'
-    );
+    const cyclicFile = getProjectFile('cyclic-project', 'simple-cycle', 'a.ts');
     
     try {
       const doc = await vscode.workspace.openTextDocument(cyclicFile);
@@ -415,13 +350,7 @@ suite('Cycle Detection', () => {
     const workspaceFolders = vscode.workspace.workspaceFolders;
     assert.ok(workspaceFolders && workspaceFolders.length > 0, 'Should have a workspace');
     
-    const complexCycleDir = vscode.Uri.joinPath(
-      workspaceFolders[0].uri,
-      'tests',
-      'fixtures',
-      'cyclic-project',
-      'complex-cycle'
-    );
+    const complexCycleDir = getProjectFile('cyclic-project', 'complex-cycle');
     
     try {
       // List files in complex-cycle directory
@@ -453,14 +382,7 @@ suite('Cycle Detection', () => {
     const workspaceFolders = vscode.workspace.workspaceFolders;
     assert.ok(workspaceFolders && workspaceFolders.length > 0, 'Should have a workspace');
     
-    const cyclicFile = vscode.Uri.joinPath(
-      workspaceFolders[0].uri,
-      'tests',
-      'fixtures',
-      'cyclic-project',
-      'simple-cycle',
-      'b.ts'
-    );
+    const cyclicFile = getProjectFile('cyclic-project', 'simple-cycle', 'b.ts');
     
     try {
       const doc = await vscode.workspace.openTextDocument(cyclicFile);
@@ -504,13 +426,7 @@ suite('Unused Node Filtering', () => {
     assert.ok(workspaceFolders && workspaceFolders.length > 0, 'Should have a workspace');
     
     // Open file with unused imports (Rust example)
-    const rustFile = vscode.Uri.joinPath(
-      workspaceFolders[0].uri,
-      'tests',
-      'fixtures',
-      'rust-integration',
-      'main.rs'
-    );
+    const rustFile = getProjectFile('rust-integration', 'main.rs');
     
     try {
       const doc = await vscode.workspace.openTextDocument(rustFile);
@@ -577,13 +493,7 @@ suite('Unused Node Filtering', () => {
     const workspaceFolders = vscode.workspace.workspaceFolders;
     assert.ok(workspaceFolders && workspaceFolders.length > 0, 'Should have a workspace');
     
-    const rustUnusedFile = vscode.Uri.joinPath(
-      workspaceFolders[0].uri,
-      'tests',
-      'fixtures',
-      'rust-unused-deps',
-      'unused.rs'
-    );
+    const rustUnusedFile = getProjectFile('rust-unused-deps', 'unused.rs');
     
     try {
       const doc = await vscode.workspace.openTextDocument(rustUnusedFile);
@@ -635,11 +545,8 @@ suite('Cross-Platform Path Handling', () => {
     assert.ok(workspaceFolders && workspaceFolders.length > 0, 'Should have a workspace');
     
     // Use vscode.Uri.joinPath for cross-platform URI construction
-    const uri = vscode.Uri.joinPath(
-      workspaceFolders[0].uri,
-      'tests',
-      'fixtures'
-    );
+    // Since workspace root is now fixtures/, just use sample-project path
+    const uri = getProjectFile('sample-project');
     
     assert.ok(uri.fsPath, 'URI should have fsPath');
     assert.ok(uri.path, 'URI should have path');

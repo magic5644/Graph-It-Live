@@ -56,6 +56,7 @@ tsconfig.webview.json
 tsconfig.test.json
 tsconfig.test.node.json
 tsconfig.test.webview.json
+tsconfig.vscode-e2e.json
 tsconfig.test.tsbuildinfo
 vitest.config.ts
 vitest.config.mjs
