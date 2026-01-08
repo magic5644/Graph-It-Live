@@ -77,4 +77,6 @@ async function main() {
   }
 }
 
+// Top-level await not supported with module: commonjs in tsconfig
+// eslint-disable-next-line unicorn/prefer-top-level-await
 main();

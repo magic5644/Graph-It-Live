@@ -48,8 +48,8 @@ web_modules/
 *.tsbuildinfo
 
 # Compiled e2e test files (generated from .ts sources)
-tests/vscode-e2e/suite/*.js
-tests/vscode-e2e/suite/*.js.map
+tests/vscode-e2e/**/*.js
+tests/vscode-e2e/**/*.js.map
 
 # Optional npm cache directory
 .npm
