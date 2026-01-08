@@ -1,0 +1,18 @@
+{
+  "extends": "./tsconfig.test.json",
+  "compilerOptions": {
+    "module": "commonjs",
+    "target": "es2020",
+    "outDir": "./tests/vscode-e2e",
+    "rootDir": "./tests/vscode-e2e",
+    "skipLibCheck": true,
+    "esModuleInterop": true,
+    "moduleResolution": "node"
+  },
+  "include": [
+    "tests/vscode-e2e/**/*.ts"
+  ],
+  "exclude": [
+    "node_modules"
+  ]
+}

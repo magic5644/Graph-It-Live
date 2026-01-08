@@ -8,6 +8,10 @@
  * - Command execution
  * - Webview creation
  * - File analysis functionality
+ *
+ * Usage:
+ * - `npm run test:vscode` - Test from source (development mode)
+ * - `npm run test:vscode:vsix` - Test from packaged .vsix (production mode)
  */
 var __createBinding = (this && this.__createBinding) || (Object.create ? (function(o, m, k, k2) {
     if (k2 === undefined) k2 = k;
@@ -43,27 +47,58 @@ var __importStar = (this && this.__importStar) || (function () {
     };
 })();
 Object.defineProperty(exports, "__esModule", { value: true });
-const path = __importStar(require("path"));
+const path = __importStar(require("node:path"));
+const fs = __importStar(require("node:fs"));
 const test_electron_1 = require("@vscode/test-electron");
 async function main() {
+    const useVsix = process.argv.includes('--vsix');
     try {
         // The folder containing the Extension Manifest package.json
         const extensionDevelopmentPath = path.resolve(__dirname, '../../');
         // The path to test runner
         const extensionTestsPath = path.resolve(__dirname, './suite/index');
-        // Download VS Code, unzip it and run the integration test
-        await (0, test_electron_1.runTests)({
-            extensionDevelopmentPath,
-            extensionTestsPath,
-            // Use a test workspace
-            launchArgs: [
-                path.resolve(__dirname, '../fixtures/sample-project'),
-                '--disable-extensions', // Disable other extensions for clean testing
-            ],
-        });
+        // Use fixtures as workspace root to allow tests to access all test projects
+        // Use absolute path from extension root to avoid path resolution issues
+        const workspaceRoot = path.resolve(extensionDevelopmentPath, 'tests/fixtures');
+        const launchArgs = [
+            workspaceRoot,
+            '--disable-extensions', // Disable other extensions for clean testing
+        ];
+        if (useVsix) {
+            // Test from packaged .vsix file (production mode)
+            const vsixFiles = fs.readdirSync(extensionDevelopmentPath)
+                .filter(f => f.endsWith('.vsix'))
+                .sort()
+                .reverse(); // Get latest
+            if (vsixFiles.length === 0) {
+                throw new Error('No .vsix file found. Run `npm run package` first.');
+            }
+            const vsixPath = path.resolve(extensionDevelopmentPath, vsixFiles[0]);
+            console.log(`📦 Testing packaged extension: ${vsixFiles[0]}`);
+            // When testing .vsix, we still need extensionDevelopmentPath for the test runner
+            // but the extension is loaded from the installed .vsix
+            await (0, test_electron_1.runTests)({
+                extensionDevelopmentPath,
+                extensionTestsPath,
+                launchArgs: [
+                    ...launchArgs,
+                    `--install-extension=${vsixPath}`,
+                ],
+            });
+        }
+        else {
+            // Test from source (development mode)
+            console.log('🔧 Testing extension from source (development mode)');
+            await (0, test_electron_1.runTests)({
+                extensionDevelopmentPath,
+                extensionTestsPath,
+                launchArgs,
+            });
+        }
+        console.log('✅ All tests passed!');
     }
     catch (err) {
-        console.error('Failed to run tests:', err);
+        console.error('❌ Failed to run tests:', err);
         process.exit(1);
     }
 }
