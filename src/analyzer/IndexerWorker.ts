@@ -77,9 +77,14 @@ async function collectAllSourceFiles(dir: string, excludeNodeModules: boolean): 
           files.push(fullPath);
         }
       }
-      } catch {
-        // Silently skip directories that can't be read (permission denied, etc.)
+    } catch (error) {
+      // Silently skip directories that don't exist or can't be read
+      // This can happen with symbolic links or permission issues
+      if ((error as NodeJS.ErrnoException).code !== 'ENOENT' &&
+          (error as NodeJS.ErrnoException).code !== 'EACCES') {
+        log.error('Error reading directory in IndexerWorker', currentDir, error);
       }
+    }
   };
 
   await walkDir(dir);
