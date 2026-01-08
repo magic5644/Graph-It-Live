@@ -12,7 +12,11 @@
   - Automatic exclusion of `__pycache__`, `.venv`, and `venv` directories
   - File extensions supported: `.py` (Python source), `.pyi` (type stubs)
   - MCP tools fully compatible with Python analysis
-  - Cross-platform path resolution for Windows, macOS, and Linux
+
+  <div align="center">
+    <img src="media/Graph-It-Live-Python.png" alt="Graph-It-Live Python Support" width="600"/>
+    <p><em>Graph-It-Live now supports Python projects with tree-sitter-based analysis</em></p>
+  </div>
 
 - **Rust Language Support**: Full support for Rust projects with tree-sitter-based analysis
   - Parse Rust imports: `use path::to::module`, `mod declarations`, `extern crate`
@@ -20,6 +24,11 @@
   - Resolve Rust modules: handle relative paths (`crate::`, `super::`, `self::`), `.rs` files and `mod.rs` patterns
   - Detect visibility modifiers (`pub`) for accurate exported symbol tracking
   - Track symbol-level dependencies within Rust projects (internal and external calls)
+
+  <div align="center">
+    <img src="media/Graph-It-Live-Rust.png" alt="Graph-It-Live Rust Support" width="600"/>
+    <p><em>Graph-It-Live now supports Rust projects with tree-sitter-based analysis</em></p>
+  </div>
 
 - **Language Icons**: Visual language indicators on file nodes
   - Each file node displays a language-specific icon in the top-left corner
