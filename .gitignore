@@ -47,6 +47,10 @@ web_modules/
 # TypeScript cache
 *.tsbuildinfo
 
+# Compiled e2e test files (generated from .ts sources)
+tests/vscode-e2e/suite/*.js
+tests/vscode-e2e/suite/*.js.map
+
 # Optional npm cache directory
 .npm
 
