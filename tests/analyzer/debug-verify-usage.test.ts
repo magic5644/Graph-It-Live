@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import * as path from 'node:path';
-import { Spider } from './src/analyzer/Spider';
+import { Spider } from '../../src/analyzer/Spider';
 
 describe('Debug VerifyUsage', () => {
     const fixturesDir = path.resolve(process.cwd(), 'tests/fixtures/verify_usage');
