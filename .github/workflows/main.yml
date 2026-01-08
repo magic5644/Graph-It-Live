@@ -1,4 +1,4 @@
-name: Build and Publish
+name: Build, Package, Test and Publish Extension
 
 on:
   push:
