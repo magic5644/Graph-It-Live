@@ -23,35 +23,20 @@ node_modules/**
 # tree-sitter-python: only prebuilds/ and package files
 !node_modules/tree-sitter-python/package.json
 !node_modules/tree-sitter-python/prebuilds/
-!node_modules/tree-sitter-python/index.js
+!node_modules/tree-sitter-python/bindings/
+
+# tree-sitter-rust: only prebuilds/ and package files
+!node_modules/tree-sitter-rust/package.json
+!node_modules/tree-sitter-rust/prebuilds/
+!node_modules/tree-sitter-rust/bindings/
 
 # node-addon-api: required by tree-sitter binaries
 !node_modules/node-addon-api/package.json
 !node_modules/node-addon-api/napi.h
 !node_modules/node-addon-api/napi-inl.h
 
-# ts-morph: only dist/ and package metadata
-!node_modules/ts-morph/package.json
-!node_modules/ts-morph/LICENSE
-!node_modules/ts-morph/dist/
-!node_modules/ts-morph/lib/
-
-# @ts-morph/common: only dist/ and lib/
-!node_modules/@ts-morph/common/package.json
-!node_modules/@ts-morph/common/LICENSE
-!node_modules/@ts-morph/common/dist/*.js
-!node_modules/@ts-morph/common/lib/*.d.ts
-
-# code-block-writer: only script/ (commonjs) - exclude .map files
-!node_modules/code-block-writer/package.json
-!node_modules/code-block-writer/LICENSE
-!node_modules/code-block-writer/script/**/*.js
-node_modules/code-block-writer/script/**/*.map
-
-# typescript: only lib/ (compiler runtime)
-!node_modules/typescript/package.json
-!node_modules/typescript/LICENSE.txt
-!node_modules/typescript/lib/
+# node-gyp-build: required by tree-sitter to load native binaries
+!node_modules/node-gyp-build/
 
 # Build artifacts & intermediates
 out/**
@@ -83,6 +68,7 @@ package-lock.json
 .github/**
 .gemini/**
 .spec/**
+.clavix/**
 docs/**
 scripts/**
 _bmad/**
