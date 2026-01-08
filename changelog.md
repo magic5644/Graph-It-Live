@@ -1,6 +1,6 @@
 # Changelog
 
-## v1.6.0 (Not Released Yet)
+## v1.6.0
 
 ### New Features
 
@@ -26,23 +26,6 @@
   - Supported languages: TypeScript, JavaScript, Python, Rust, Vue, Svelte, GraphQL, and more
   - SVG-based icons with fallback to text badges
   - Helps quickly identify file types in large dependency graphs
-
-### Architecture Improvements
-
-- **Multi-Language Architecture**: Introduced Strategy Pattern for language-agnostic analysis
-  - New `ILanguageAnalyzer` interface for pluggable language support
-  - `LanguageService` factory with lazy-loading to avoid loading unused parsers
-  - Zero performance impact on existing TypeScript/JavaScript analysis
-  - Support for **three languages**: TypeScript, Python, and Rust
-  - Unified module resolution logic across all languages
-
-### Package Optimization
-
-- **Extension Package Size**: Reduced from 15 MB to 12 MB (-20%)
-  - **Zero `.map` files** in production package (security & size improvement)
-  - Precise `node_modules` inclusion patterns in `.vscodeignore`
-  - New `npm run package:verify` script to validate package integrity
-  - Automated validation rules to prevent `.map` files in future releases
 
 ## v1.5.0
 

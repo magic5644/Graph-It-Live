@@ -16,7 +16,7 @@
 
 Graph-It-Live is a dual-purpose tool:
 
-1.**For Humans**: A real-time interactive graph to visualize and navigate dependencies in **TypeScript**, **JavaScript**, **Python**, **Vue**, **Svelte**, and **GraphQL** projects.
+1.**For Humans**: A real-time interactive graph to visualize and navigate dependencies in **TypeScript**, **JavaScript**, **Python**, **Rust**,**Vue**, **Svelte**, and **GraphQL** projects.
 
 2.**For AI**: A built-in **Model Context Protocol (MCP) Server** that lets assistants like **GitHub Copilot**, **Claude**, and **Cursor** analyze your project's architecture, find impact of changes, and understand complex relationships without hallucinating.
 
@@ -61,7 +61,7 @@ Stop pasting file paths and explaining your project structure. Graph-It-Live exp
 
 * **Symbol-Level Analysis** *(New)*: Drill down to see function-to-function and class-to-class dependencies within files.
 * **Real-time Dependency Visualization**: Interactive graph showing file dependencies.
-* **Multi-Language Support**: First-class support for **TypeScript** (`.ts`, `.tsx`), **JavaScript** (`.js`, `.jsx`), **Python** (`.py`, `.pyi`), **Vue** (`.vue`), **Svelte** (`.svelte`), and **GraphQL** (`.gql`, `.graphql`).
+* **Multi-Language Support**: First-class support for **TypeScript** (`.ts`, `.tsx`), **JavaScript** (`.js`, `.jsx`), **Python** (`.py`, `.pyi`), **Rust** (`.rs`), **TOML** (`.toml`), **Vue** (`.vue`), **Svelte** (`.svelte`), and **GraphQL** (`.gql`, `.graphql`).
 * **Cycle Detection**: Automatically detects and highlights circular dependencies with red dashed lines and badges.
 * **Smart Navigation**: Use VS Code's built-in navigation (Go Back / Go Forward) to move through your code history. Graph-It-Live also exposes navigation actions in the webview or panel menu.
 * **Background Indexing** *(New)*: Optionally index your entire workspace in the background for instant reverse dependency lookups. Uses a separate worker thread to avoid blocking the IDE.
@@ -94,7 +94,7 @@ The extension is also available on the [Open VSX Registry](https://open-vsx.org/
 
 ## Usage
 
-1.**Open a Project**: Open a folder containing TypeScript, JavaScript, Vue, Svelte, or GraphQL files.
+1.**Open a Project**: Open a folder containing TypeScript, JavaScript, Python, Rust, TOML, Vue, Svelte, or GraphQL files.
 2.**Open the Graph**:
     -   Click the **Graph-It-Live** icon in the Activity Bar (left sidebar).
     -   Or run the command: `Graph-It-Live: Show Dependency Graph`.
