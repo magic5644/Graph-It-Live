@@ -1,4 +1,11 @@
 # Changelog
+
+## v1.6.2
+
+### Bug Fixes
+
+- **Fixed extension activation failure on Windows**
+
 ## v1.6.1
 
 ### Dependencies

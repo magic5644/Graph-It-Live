@@ -340,10 +340,10 @@
     "check:types": "tsc --noEmit",
     "audit": "npm audit",
     "audit:fix": "npm audit fix",
-    "package": "vsce package --no-dependencies",
-    "package:vsix": "vsce package --no-dependencies",
-    "package:verify": "npx vsce ls --no-dependencies | grep '\\.map$' && echo '❌ ERROR: .map files found in package!' && exit 1 || echo '✅ No .map files in package'",
-    "publish": "vsce publish --no-dependencies"
+    "package": "vsce package",
+    "package:vsix": "vsce package",
+    "package:verify": "npx vsce ls | grep '\\.map$' && echo '❌ ERROR: .map files found in package!' && exit 1 || echo '✅ No .map files in package'",
+    "publish": "vsce publish"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.25.2",
@@ -359,6 +359,16 @@
     "tree-sitter-rust": "^0.24.0",
     "ts-morph": "^27.0.2",
     "zod": "^4.3.5"
+  },
+  "peerDependenciesMeta": {
+    "tree-sitter": {
+      "optional": true
+    }
+  },
+  "overrides": {
+    "tree-sitter-rust": {
+      "tree-sitter": "$tree-sitter"
+    }
   },
   "devDependencies": {
     "@eslint/js": "^9.39.2",
