@@ -82,6 +82,27 @@ Stop pasting file paths and explaining your project structure. Graph-It-Live exp
 * **Node.js**: v18 or higher (v20 LTS recommended)
 * **VS Code**: v1.96.0 or higher
 
+## Known Issues
+
+### ⚠️ Antigravity Compatibility
+
+**Current Status**: Graph-It-Live is **not compatible** with Antigravity (Google's VS Code fork) due to native binary signing restrictions.
+
+**Issue**: Antigravity enforces strict code signature verification on native modules (`.node` files). The tree-sitter language parsers included in this extension use native binaries that are rejected with the error:
+
+```
+code signature not valid for use in process: different Team IDs
+```
+
+**Tracking**: This issue has been reported to the Antigravity development team. We are investigating alternative approaches including:
+- WebAssembly-based parsers (currently incompatible with Node.js runtime)
+- Native module re-signing workflows
+- Pure JavaScript fallback parsers
+
+**Workaround**: Use Graph-It-Live in standard VS Code, VS Code Insiders, Cursor, or other compatible editors.
+
+**Updates**: Follow the GitHub issue for progress updates.
+
 ## Installation
 
 ### From Marketplace
@@ -287,9 +308,15 @@ Create or edit `.cursor/mcp.json` in your workspace or `~/.cursor/mcp.json` for 
 
 #### Antigravity (Google's VS Code fork)
 
-> ⚠️ **Partial Support**: Antigravity's MCP integration is experimental.
+> ⚠️ **NOT CURRENTLY SUPPORTED**: Graph-It-Live is currently **incompatible** with Antigravity due to native binary code signing restrictions.
+> 
+> **Issue**: Antigravity enforces strict code signature verification (Team ID matching) on native modules. The tree-sitter parsers used by this extension fail with "different Team IDs" errors.
+> 
+> **Status**: An issue has been opened with the Antigravity development team. We are exploring WASM-based solutions and other workarounds.
+> 
+> **Recommendation**: Use Graph-It-Live in standard VS Code, VS Code Insiders, or Cursor instead.
 
-Create `.vscode/mcp.json` in your workspace:
+If/when Antigravity support becomes available, create `.vscode/mcp.json` in your workspace:
 
 ```json
 {

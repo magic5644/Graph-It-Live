@@ -1,4 +1,15 @@
 # Changelog
+## v1.6.1 (Not yet published)
+
+### Dependencies
+
+- **Upgraded tree-sitter-python** to 0.25.0 for improved Python parsing capabilities
+- **Configuration**: Added `.npmrc` with `legacy-peer-deps=true` to handle tree-sitter version conflicts
+  - `tree-sitter-rust@0.24.0` requires `tree-sitter@^0.22.1`
+  - `tree-sitter-python@0.25.0` requires `tree-sitter@^0.25.0`
+  - Using `tree-sitter@0.25.0` until tree-sitter-rust publishes a compatible version
+  - This configuration is temporary and will be removed when tree-sitter-rust updates
+- **Build**: Added `--no-dependencies` flag to `vsce package` commands to bypass peer dependency validation during packaging
 
 ## v1.6.0
 

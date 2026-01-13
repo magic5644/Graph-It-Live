@@ -340,21 +340,21 @@
     "check:types": "tsc --noEmit",
     "audit": "npm audit",
     "audit:fix": "npm audit fix",
-    "package": "vsce package",
-    "package:vsix": "vsce package",
+    "package": "vsce package --no-dependencies",
+    "package:vsix": "vsce package --no-dependencies",
     "package:verify": "npx vsce ls | grep '\\.map$' && echo '❌ ERROR: .map files found in package!' && exit 1 || echo '✅ No .map files in package'",
-    "publish": "vsce publish"
+    "publish": "vsce publish --no-dependencies"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.25.2",
     "@types/dagre": "^0.7.53",
     "chokidar": "^5.0.0",
     "dagre": "^0.8.5",
-    "hono": "^4.11.3",
+    "hono": "^4.11.4",
     "react": "^19.2.3",
     "react-dom": "^19.2.3",
     "reactflow": "^11.11.4",
-    "tree-sitter": "^0.22.4",
+    "tree-sitter": "^0.25.0",
     "tree-sitter-python": "^0.25.0",
     "tree-sitter-rust": "^0.24.0",
     "ts-morph": "^27.0.2",
@@ -364,12 +364,12 @@
     "@eslint/js": "^9.39.2",
     "@playwright/test": "^1.57.0",
     "@types/mocha": "^10.0.10",
-    "@types/node": "^25.0.3",
-    "@types/react": "^19.2.7",
+    "@types/node": "^25.0.7",
+    "@types/react": "^19.2.8",
     "@types/react-dom": "^19.2.3",
     "@types/vscode": "^1.96.0",
-    "@vitest/coverage-v8": "^4.0.16",
-    "@vitest/ui": "^4.0.16",
+    "@vitest/coverage-v8": "^4.0.17",
+    "@vitest/ui": "^4.0.17",
     "@vscode/test-electron": "^2.5.2",
     "@vscode/vsce": "^3.7.1",
     "esbuild": "^0.27.2",
@@ -380,7 +380,7 @@
     "mocha": "^11.7.5",
     "playwright": "^1.57.0",
     "typescript": "^5.9.3",
-    "typescript-eslint": "^8.52.0",
-    "vitest": "^4.0.16"
+    "typescript-eslint": "^8.53.0",
+    "vitest": "^4.0.17"
   }
 }

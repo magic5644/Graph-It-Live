@@ -77,6 +77,8 @@ _bmad-output/**
 PROMPT_SPEC.md
 walkthrough.md
 implementation_plan.md
+AGENTS.md
+*.log
 task.md
 test.log
 
