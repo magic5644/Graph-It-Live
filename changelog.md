@@ -9,7 +9,9 @@
   - `tree-sitter-python@0.25.0` requires `tree-sitter@^0.25.0`
   - Using `tree-sitter@0.25.0` until tree-sitter-rust publishes a compatible version
   - This configuration is temporary and will be removed when tree-sitter-rust updates
-- **Build**: Added `--no-dependencies` flag to `vsce package` commands to bypass peer dependency validation during packaging
+- **Build & CI**: Added `--no-dependencies` flag to all `vsce` commands to bypass peer dependency validation
+  - Updated npm scripts: `package`, `package:vsix`, `package:verify`, `publish`
+  - Updated CI workflows: `build.yml` and `main.yml` to use `--no-dependencies` with `vsce ls` and `vsce publish`
 
 ## v1.6.0
 
