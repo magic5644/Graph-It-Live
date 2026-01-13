@@ -4,7 +4,9 @@
 
 ### Bug Fixes
 
-- **Fixed extension activation failure on Windows**
+- **Fixed extension activation failure on Windows**: Resolved "Cannot find module 'tree-sitter'" and "No native build was found for platform=win32" errors
+  - **Root cause**: Version 1.6.1 introduced `tree-sitter@0.25.0` which lacks prebuilt binaries for Electron/VS Code runtime
+  - **Solution**: Reverted to `tree-sitter@0.22.4` which provides prebuilt binaries for all platforms including Windows
 
 ## v1.6.1
 

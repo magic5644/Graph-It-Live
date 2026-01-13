@@ -82,4 +82,4 @@ jobs:
     - name: Verify VSIX Content
       run: |
         echo "Checking VSIX content structure:"
-        vsce ls --tree --no-dependencies graph-it-live-*.vsix
+        vsce ls --tree graph-it-live-*.vsix
