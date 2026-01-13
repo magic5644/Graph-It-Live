@@ -403,20 +403,58 @@ Graph-It-Live/
 
 ### Setup
 
-1.**Clone**:
-    ```bash
-    git clone https://github.com/magic5644/Graph-It-Live.git
-    cd Graph-It-Live
-    ```
+1. **Clone**:
+  ```bash
+  git clone https://github.com/magic5644/Graph-It-Live.git
+  cd Graph-It-Live
+  ```
 
-2.**Install**:
-    ```bash
-    npm install
-    ```
+2. **Install dependencies**:
+  ```bash
+  npm install
+  ```
 
-3.**Run**:
+3. **Run in development**:
+  -   Press `F5` in VS Code to start the Extension Development Host. Remember to open the `extension.ts` file.
 
-    -   Press `F5` in VS Code to start the Extension Development Host.
+---
+
+## 🛠️ Build, Test, and Packaging Commands
+
+All commands must be run from the project root.
+
+| Command | Description |
+|---|---|
+| `npm install` | Install dependencies. Uses `--legacy-peer-deps` (see `.npmrc`) to handle tree-sitter version conflicts. |
+| `npm run build` | Build the extension bundle via `esbuild.js`. |
+| `npm run watch` | Rebuild automatically on file changes. |
+| `npm test` / `npm run test:unit` | Run unit tests (Vitest). |
+| `npm run test:coverage` | Generate coverage report (see `tests/coverage/`). |
+| `npm run test:vscode` | Run VS Code e2e tests from source (development mode). |
+| `npm run test:vscode:vsix` | Run VS Code e2e tests from the packaged .vsix (production mode, required before release). |
+| `npm run lint` / `npm run lint:fix` | Lint TypeScript code (ESLint). |
+| `npm run check:types` | Strict type checking with `tsc`. |
+| `npm run package` | Build the `.vsix` package for distribution. |
+| `npm run package:verify` | Verify that the package contains **no .map files** (mandatory before commit/release). |
+
+### Package Verification (MANDATORY before any build-related commit)
+
+After any change to `esbuild.js`, `.vscodeignore`, or dependencies in `package.json`:
+
+```bash
+npm run build -- --production
+npm run package
+npm run package:verify
+# Expected: "✅ No .map files in package"
+# If any files are listed, fix .vscodeignore before proceeding!
+ls -lh *.vsix
+```
+
+### Tips
+- **E2E tests**: Add an e2e test for any new user-facing feature (command, UI, setting).
+- **Cross-platform**: All code and commands must work on Windows, Linux, and macOS.
+
+---
 
 ## License
 

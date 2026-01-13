@@ -1,5 +1,5 @@
 # Changelog
-## v1.6.1 (Not yet published)
+## v1.6.1
 
 ### Dependencies
 
