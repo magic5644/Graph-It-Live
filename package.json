@@ -342,7 +342,7 @@
     "audit:fix": "npm audit fix",
     "package": "vsce package --no-dependencies",
     "package:vsix": "vsce package --no-dependencies",
-    "package:verify": "npx vsce ls | grep '\\.map$' && echo '❌ ERROR: .map files found in package!' && exit 1 || echo '✅ No .map files in package'",
+    "package:verify": "npx vsce ls --no-dependencies | grep '\\.map$' && echo '❌ ERROR: .map files found in package!' && exit 1 || echo '✅ No .map files in package'",
     "publish": "vsce publish --no-dependencies"
   },
   "dependencies": {
