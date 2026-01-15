@@ -1,5 +1,6 @@
 import type { Edge, Node } from 'reactflow';
-import type { GraphData } from '../../../shared/types';
+import type { GraphData, SymbolInfo, SymbolDependency } from '../../../shared/types';
+import type { SymbolNodeData } from './SymbolNode';
 import { getLogger } from '../../../shared/logger';
 import { nodeHeight, createEdgeStyle as createEdgeStyleUtil } from '../../utils/nodeUtils';
 import { normalizePath } from '../../utils/path';
@@ -29,7 +30,7 @@ export interface BuildGraphCallbacks {
 }
 
 export interface BuildGraphResult {
-  nodes: Node<FileNodeData>[];
+  nodes: Node<FileNodeData | SymbolNodeData>[];
   edges: Edge[];
   cycles: Set<string>;
   edgesTruncated: boolean;
@@ -91,21 +92,21 @@ function getEdgesForProcessing(
   let baseEdges = data.edges;
   if (isHideMode && config.unusedEdges.length > 0) {
     baseEdges = data.edges.filter(edge => {
-       const normalizedId = `${normalizePath(edge.source)}->${normalizePath(edge.target)}`;
-       return !unusedEdgeSet.has(normalizedId);
+      const normalizedId = `${normalizePath(edge.source)}->${normalizePath(edge.target)}`;
+      return !unusedEdgeSet.has(normalizedId);
     });
   }
 
   const truncated = baseEdges.length > GRAPH_LIMITS.MAX_PROCESS_EDGES;
-  
+
   if (!truncated) {
     return { edges: baseEdges, truncated: false };
   }
-  
+
   if (config.expandAll) {
-    return { 
+    return {
       edges: baseEdges.slice(0, GRAPH_LIMITS.MAX_PROCESS_EDGES),
-      truncated: true 
+      truncated: true
     };
   }
 
@@ -205,7 +206,7 @@ function buildRelationshipMaps(
 ): { children: Map<string, string[]>; parents: Map<string, string[]> } {
   const children = new Map<string, string[]>();
   const parents = new Map<string, string[]>();
-  
+
   edges.forEach(({ source, target }) => {
     const ns = normalizePath(source);
     const nt = normalizePath(target);
@@ -222,7 +223,7 @@ function buildRelationshipMaps(
  * Filter and create edges for the visible nodes
  */
 function createVisibleEdges(
-  edgesForProcessing: Array<{ source: string; target: string }>,
+  edgesForProcessing: Array<{ source: string; target: string; relationType?: 'dependency' | 'call' | 'reference' }>,
   visibleNodes: Set<string>,
   cycles: Set<string>,
   unusedEdges: string[],
@@ -232,11 +233,11 @@ function createVisibleEdges(
   const seenEdgeIds = new Set<string>();
   const unusedEdgeSet = new Set(unusedEdges);
   const isDimMode = unusedDependencyMode === 'dim' && filterUnused;
-  
+
   return edgesForProcessing
-    .map(({ source, target }) => ({ source: normalizePath(source), target: normalizePath(target) }))
+    .map(({ source, target, relationType }) => ({ source: normalizePath(source), target: normalizePath(target), relationType }))
     .filter(({ source, target }) => visibleNodes.has(source) && visibleNodes.has(target))
-    .flatMap(({ source, target }) => {
+    .flatMap(({ source, target, relationType }) => {
       const id = `${source}->${target}`;
       if (seenEdgeIds.has(id)) return [];
       seenEdgeIds.add(id);
@@ -246,12 +247,32 @@ function createVisibleEdges(
       const edgeStyle = createEdgeStyleUtil(isCircular);
 
       // In dim mode, apply reduced opacity and dashed style to unused edges
-      const styleOverrides = isDimMode && isUnused
-        ? {
-            style: { ...edgeStyle.style, opacity: 0.3, strokeDasharray: '5 5' },
-            animated: false, // Disable animation for unused edges in dim mode
-          }
-        : {};
+      let styleOverrides: Partial<Edge> = {};
+
+      if (isDimMode && isUnused) {
+        styleOverrides = {
+          style: { ...edgeStyle.style, opacity: 0.3, strokeDasharray: '5 5' },
+          animated: false,
+          label: 'unused',
+          labelStyle: { fill: 'var(--vscode-descriptionForeground)', opacity: 0.5 },
+          labelBgStyle: { fill: 'transparent' },
+        };
+      } else if (relationType === 'reference') {
+        // Dashed style for references
+        styleOverrides = {
+          style: { ...edgeStyle.style, strokeDasharray: '4 4' },
+          animated: true,
+          label: 'references',
+          labelStyle: { fill: 'var(--vscode-descriptionForeground)', fontSize: 10 },
+          labelBgStyle: { fill: 'var(--vscode-editor-background)', fillOpacity: 0.7 },
+        };
+      } else if (relationType === 'call') {
+        // Solid style for calls (default, but explicit)
+        styleOverrides = {
+          style: { ...edgeStyle.style, strokeWidth: 2 },
+          animated: true,
+        };
+      }
 
       return [
         {
@@ -276,8 +297,11 @@ export function buildReactFlowGraph(params: {
   unusedEdges?: string[];
   unusedDependencyMode?: 'none' | 'hide' | 'dim';
   filterUnused?: boolean;
+  mode?: 'file' | 'symbol';
+  symbolData?: { symbols: SymbolInfo[]; dependencies: SymbolDependency[] };
+  layout?: 'hierarchical' | 'force' | 'radial';
 }): BuildGraphResult {
-  const { data, currentFilePath, expandAll, expandedNodes, showParents, callbacks, unusedEdges = [], unusedDependencyMode = 'none', filterUnused = true } = params;
+  const { data, currentFilePath, expandAll, expandedNodes, showParents, callbacks, unusedEdges = [], unusedDependencyMode = 'none', filterUnused = true, mode = 'file', symbolData, layout = 'hierarchical' } = params;
   const normalizedCurrentPath = normalizePath(currentFilePath);
 
   if (!data?.nodes?.length) {
@@ -305,8 +329,8 @@ export function buildReactFlowGraph(params: {
   );
 
   const cycles =
-    edgesForProcessing.length <= GRAPH_LIMITS.MAX_CYCLE_DETECT_EDGES 
-      ? detectCycles(edgesForProcessing) 
+    edgesForProcessing.length <= GRAPH_LIMITS.MAX_CYCLE_DETECT_EDGES
+      ? detectCycles(edgesForProcessing)
       : new Set<string>();
 
   const getLabel = (path: string) => data.nodeLabels?.[path] || path.split(/[/\\]/).pop() || path;
@@ -318,7 +342,7 @@ export function buildReactFlowGraph(params: {
 
   const fileParents = parents.get(normalizedCurrentPath) || [];
   const fileParentsSet = new Set(fileParents);
-  
+
   if (showParents) {
     nodesTruncated = addParentNodes(initialVisibleNodes, fileParents, GRAPH_LIMITS.MAX_RENDER_NODES);
   }
@@ -330,10 +354,32 @@ export function buildReactFlowGraph(params: {
     initialVisibleNodes,
     GRAPH_LIMITS.MAX_RENDER_NODES
   );
-  
+
   nodesTruncated = nodesTruncated || bfsTruncated;
 
-  const createNodeData = (path: string, label: string): FileNodeData => {
+  const createNodeData = (path: string, label: string): FileNodeData | SymbolNodeData => {
+    if (mode === 'symbol' && symbolData) {
+      // Find symbol info
+      const symbol = symbolData.symbols.find(s => s.id === path);
+      if (symbol) {
+        return {
+          label: symbol.name,
+          fullPath: symbol.id,
+          kind: symbol.kind,
+          category: symbol.category,
+          line: symbol.line,
+          isExported: symbol.isExported,
+          isRoot: path === normalizedCurrentPath,
+          onDrillDown: () => callbacks.onDrillDown(path),
+          // Expansion props
+          hasChildren: (children.get(path) || []).length > 0,
+          isExpanded: expandedNodes.has(path) || path === normalizedCurrentPath,
+          onToggle: () => callbacks.onToggle(path),
+          onExpandRequest: () => callbacks.onExpandRequest(path),
+        } as SymbolNodeData;
+      }
+    }
+
     const parentCountRaw = data.parentCounts?.[path];
     const parentCount = typeof parentCountRaw === 'number' && parentCountRaw > 0 ? parentCountRaw : undefined;
     const hasParents = (parents.get(path) || []).length > 0 || (parentCount ? parentCount > 0 : false);
@@ -353,15 +399,15 @@ export function buildReactFlowGraph(params: {
       onToggleParents: callbacks.onToggleParents ? () => callbacks.onToggleParents!(path) : undefined,
       onToggle: () => callbacks.onToggle(path),
       onExpandRequest: () => callbacks.onExpandRequest(path),
-    };
+    } as FileNodeData;
   };
 
-  const nodes: Node<FileNodeData>[] = Array.from(visibleNodes).map((path) => {
+  const nodes: Node<FileNodeData | SymbolNodeData>[] = Array.from(visibleNodes).map((path) => {
     const label = getLabel(path);
     const width = calculateNodeWidth(label);
     return {
       id: path,
-      type: 'file',
+      type: mode === 'symbol' ? 'symbol' : 'file',
       position: { x: 0, y: 0 },
       style: { width, height: nodeHeight },
       data: createNodeData(path, label),
@@ -382,10 +428,13 @@ export function buildReactFlowGraph(params: {
     edges = edges.slice(0, GRAPH_LIMITS.MAX_RENDER_EDGES);
   }
 
-  const layouted = layoutGraph(nodes, edges, normalizedCurrentPath, GRAPH_LIMITS.MAX_DAGRE_NODES);
+  // Determine layout settings
+  const maxNodesForDagre = layout === 'force' || layout === 'radial' ? Infinity : GRAPH_LIMITS.MAX_DAGRE_NODES;
+
+  const layouted = layoutGraph(nodes, edges, normalizedCurrentPath, maxNodesForDagre, layout);
 
   return {
-    nodes: layouted.nodes as Node<FileNodeData>[],
+    nodes: layouted.nodes as Node<FileNodeData | SymbolNodeData>[],
     edges: layouted.edges,
     cycles,
     edgesTruncated,

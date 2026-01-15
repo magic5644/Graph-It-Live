@@ -166,6 +166,9 @@ const App: React.FC = () => {
     const [resetToken, setResetToken] = React.useState<number>(0);
     const [unusedDependencyMode, setUnusedDependencyMode] = React.useState<'none' | 'hide' | 'dim'>('none');
     const [filterUnused, setFilterUnused] = React.useState<boolean>(false);
+    const [layout, setLayout] = React.useState<'hierarchical' | 'force' | 'radial'>('hierarchical');
+    const [symbolViewMode, setSymbolViewMode] = React.useState<'graph' | 'list'>('graph');
+    const [showTypes, setShowTypes] = React.useState<boolean>(true);
 
 
     const handleExpandAllChange = React.useCallback((expand: boolean) => {
@@ -192,7 +195,7 @@ const App: React.FC = () => {
     const [expandAll, setExpandAll] = React.useState<boolean>(false);
     // Toggle to show/hide parent/reference files for the current root file
     const [showParents, setShowParents] = React.useState<boolean>(false);
-    const [showTypes, setShowTypes] = React.useState<boolean>(true);
+
     const [symbolData, setSymbolData] = React.useState<{ symbols: SymbolInfo[]; dependencies: SymbolDependency[] } | undefined>(undefined);
     const [referencingFiles, setReferencingFiles] = React.useState<string[]>([]);
     const [lastExpandedNode, setLastExpandedNode] = React.useState<string | null>(null);
@@ -438,10 +441,7 @@ const App: React.FC = () => {
         }
     };
 
-    const handleBack = () => {
-        // Switch to file view mode
-        handleSwitchMode('file');
-    };
+
 
     const handleRefresh = () => {
         log.debug('App: Refresh button clicked');
@@ -477,24 +477,7 @@ const App: React.FC = () => {
 
 
 
-    const handleNavigateToFile = (path: string, mode: 'card' | 'file') => {
-        log.debug('App: Navigate to file:', path, 'mode:', mode);
-        if (vscode) {
-            if (mode === 'card') {
-                // Drill down to symbol view
-                vscode.postMessage({
-                    command: 'drillDown',
-                    filePath: path,
-                });
-            } else {
-                // Open file in editor (file view will update automatically)
-                vscode.postMessage({
-                    command: 'openFile',
-                    path,
-                });
-            }
-        }
-    };
+
 
     const handleCancelExpansion = (nodeId?: string) => {
         if (!vscode) return;
@@ -632,26 +615,12 @@ const App: React.FC = () => {
                         </div>
                     </div>
                 )}
-                {/* Symbol Card View */}
-                {viewMode === 'symbol' && symbolData && (
-                    <SymbolCardView
-                        filePath={currentFilePath}
-                        symbols={symbolData.symbols}
-                        dependencies={symbolData.dependencies}
-                        referencingFiles={referencingFiles}
-                        showTypes={showTypes}
-                        onShowTypesChange={setShowTypes}
-                        onSymbolClick={(_symbolId: string, line: number) => handleNodeClick(currentFilePath, line)}
-                        onNavigateToFile={handleNavigateToFile}
-                        onBack={handleBack}
-                        onRefresh={handleRefresh}
-                    />
-                )}
 
-                {/* File Dependencies View - ReactFlow */}
-                {viewMode === 'file' && (
+
+                {/* ReactFlow Graph (Handles both File and Symbol modes) */}
+                {(viewMode === 'file' || (viewMode === 'symbol' && symbolViewMode === 'graph')) && (
                     <ReactFlowGraph
-                        key={`${normalizePath(currentFilePath)}:${resetToken}`}
+                        key={`${normalizePath(currentFilePath)}:${resetToken}:${viewMode}`}
                         data={graphData}
                         currentFilePath={currentFilePath}
                         onNodeClick={(path) => handleNodeClick(path)}
@@ -665,10 +634,34 @@ const App: React.FC = () => {
                         onExpandAllChange={handleExpandAllChange}
                         onRefresh={handleRefresh}
                         onSwitchToSymbol={() => handleSwitchMode('symbol')}
+                        onSwitchToListView={() => setSymbolViewMode('list')}
                         expansionState={expansionState}
                         onCancelExpand={handleCancelExpansion}
                         resetToken={resetToken}
-                        unusedDependencyMode={unusedDependencyMode}                        filterUnused={filterUnused}                    />
+                        unusedDependencyMode={unusedDependencyMode}
+                        filterUnused={filterUnused}
+                        mode={viewMode as 'file' | 'symbol'}
+                        symbolData={symbolData}
+                        layout={layout}
+                        onLayoutChange={(l) => setLayout(l)}
+                    />
+                )}
+
+                {/* Symbol List View */}
+                {viewMode === 'symbol' && symbolViewMode === 'list' && symbolData && (
+                    <SymbolCardView
+                        filePath={currentFilePath}
+                        symbols={symbolData.symbols}
+                        dependencies={symbolData.dependencies}
+                        referencingFiles={referencingFiles}
+                        showTypes={showTypes}
+                        onShowTypesChange={setShowTypes}
+                        onSymbolClick={(id, line) => handleNodeClick(id, line)}
+                        onNavigateToFile={(path) => handleDrillDown(path)}
+                        onBack={() => setViewMode('file')}
+                        onSwitchToGraphView={() => setSymbolViewMode('graph')}
+                        onRefresh={handleRefresh}
+                    />
                 )}
             </div>
         </ErrorBoundary>

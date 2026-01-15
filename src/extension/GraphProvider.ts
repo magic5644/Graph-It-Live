@@ -77,9 +77,9 @@ export class GraphProvider implements vscode.WebviewViewProvider {
         this._extensionUri = extensionUri;
         this._stateManager = new ProviderStateManager(context, DEFAULT_INDEXING_START_DELAY);
         this._configSnapshot = this._stateManager.loadConfiguration();
-        
+
         this._initializeSpider(this._configSnapshot);
-        
+
         // Initialize context for toggle button (async operation moved after init)
         this._initializeFilterContext();
 
@@ -89,7 +89,7 @@ export class GraphProvider implements vscode.WebviewViewProvider {
                 this._configSnapshot.persistUnusedAnalysisCache,
                 this._configSnapshot.maxUnusedAnalysisCacheSize
             );
-            
+
             this._graphViewService = new GraphViewService(
                 this._spider,
                 log,
@@ -219,8 +219,8 @@ export class GraphProvider implements vscode.WebviewViewProvider {
         if (this._spider) {
             this._configSnapshot = this._stateManager.loadConfiguration();
 
-            this._spider.updateConfig({ 
-                excludeNodeModules: this._configSnapshot.excludeNodeModules, 
+            this._spider.updateConfig({
+                excludeNodeModules: this._configSnapshot.excludeNodeModules,
                 maxDepth: this._configSnapshot.maxDepth,
                 enableReverseIndex: this._configSnapshot.enableBackgroundIndexing,
                 indexingConcurrency: this._configSnapshot.indexingConcurrency,
@@ -265,16 +265,16 @@ export class GraphProvider implements vscode.WebviewViewProvider {
         }
 
         log.debug('Re-analyzing saved file:', filePath);
-        
+
         // Invalidate unused analysis cache for this file
         this._unusedAnalysisCache?.invalidate([filePath]);
-        
+
         // Re-analyze the file (invalidates cache and updates reverse index)
         await this._spider.reanalyzeFile(filePath);
-        
+
         // Persist the updated index if enabled
         await this._indexingManager?.persistIndexIfEnabled();
-        
+
         // Refresh the appropriate view based on current mode
         if (this._stateManager.currentSymbol) {
             // In symbol view - always refresh to update reverse dependencies (Imported By list)
@@ -298,7 +298,7 @@ export class GraphProvider implements vscode.WebviewViewProvider {
         }
 
         const newFilePath = editor.document.fileName;
-        
+
         // Only handle supported file types
         if (!SUPPORTED_SOURCE_FILE_REGEX.test(newFilePath)) {
             return;
@@ -502,10 +502,10 @@ export class GraphProvider implements vscode.WebviewViewProvider {
         if (!this._symbolViewService || !this._view || !this._navigationService) {
             return;
         }
-        
+
         // Don't eagerly set current symbol yet - we need to resolve relative/module
         // specifiers first so the tracked file is always an absolute path.
-        
+
         try {
             log.debug(isRefresh ? 'Refreshing' : 'Drilling down into', filePath, 'for symbol analysis');
 
@@ -525,8 +525,20 @@ export class GraphProvider implements vscode.WebviewViewProvider {
             const rootNodeId = symbolName ? `${resolvedFilePath}:${symbolName}` : resolvedFilePath;
             this._stateManager.currentSymbol = rootNodeId;
 
-            const symbolGraph = await this._symbolViewService.buildSymbolGraph(resolvedFilePath, rootNodeId);
-            
+            // Read call hierarchy settings from configuration
+            const config = vscode.workspace.getConfiguration('graph-it-live');
+            const enableCallHierarchy = config.get<boolean>('enableCallHierarchy', false);
+            const callHierarchyMaxFileSize = config.get<number>('callHierarchyMaxFileSize', 5000);
+
+            const symbolGraph = await this._symbolViewService.buildSymbolGraph(
+                resolvedFilePath,
+                rootNodeId,
+                {
+                    includeCallHierarchy: enableCallHierarchy,
+                    maxFileLines: callHierarchyMaxFileSize,
+                }
+            );
+
             const response: ExtensionToWebviewMessage = {
                 command: 'symbolGraph',
                 filePath: rootNodeId,
@@ -539,9 +551,25 @@ export class GraphProvider implements vscode.WebviewViewProvider {
                     parentCounts: symbolGraph.parentCounts,
                 }
             };
-            
+
             this._view.webview.postMessage(response);
-            log.debug('Sent symbol graph with', symbolGraph.nodes.length, 'nodes and', symbolGraph.edges.length, 'edges');
+
+            // Log metadata about the analysis
+            const metadata = symbolGraph.metadata;
+            if (metadata) {
+                log.debug(
+                    'Symbol graph analysis:',
+                    symbolGraph.nodes.length, 'nodes,',
+                    symbolGraph.edges.length, 'edges,',
+                    'LSP used:', metadata.lspUsed,
+                    'call edges:', metadata.callEdgesCount
+                );
+                if (metadata.warnings.length > 0) {
+                    log.warn('Analysis warnings:', metadata.warnings.join(', '));
+                }
+            } else {
+                log.debug('Sent symbol graph with', symbolGraph.nodes.length, 'nodes and', symbolGraph.edges.length, 'edges');
+            }
         } catch (error) {
             log.error('Error drilling down into symbols:', error);
             vscode.window.showErrorMessage(
@@ -628,7 +656,7 @@ export class GraphProvider implements vscode.WebviewViewProvider {
         }
 
         log.info('Refreshing current graph view');
-        
+
         // Refresh the appropriate view based on current mode
         if (this._stateManager.currentSymbol) {
             // In symbol view - refresh symbol analysis
@@ -705,7 +733,7 @@ export class GraphProvider implements vscode.WebviewViewProvider {
             command: 'setExpandAll',
             expandAll: newExpandAll
         };
-        
+
         log.info('Sending setExpandAll message to webview:', newExpandAll);
         this._view.webview.postMessage(message);
         log.debug('Toggled expandAll from', currentExpandAll, 'to', newExpandAll);
@@ -737,14 +765,14 @@ export class GraphProvider implements vscode.WebviewViewProvider {
     public async toggleUnusedFilter(): Promise<void> {
         const currentState = this._stateManager.getUnusedFilterActive();
         const newState = !currentState;
-        
+
         log.info(`Toggling unused filter: ${currentState} -> ${newState}`);
-        
+
         await this._stateManager.setUnusedFilterActive(newState);
         await vscode.commands.executeCommand('setContext', 'graph-it-live.unusedFilterActive', newState);
-        
+
         log.info('Context key graph-it-live.unusedFilterActive set to', newState);
-        
+
         // When activating the filter, rebuild the graph to ensure unusedEdges data is available
         // When deactivating, just update the filter state (no rebuild needed)
         if (newState) {
@@ -843,18 +871,18 @@ export class GraphProvider implements vscode.WebviewViewProvider {
             // Actually package.json update removed 'none' from enum but users might have stale config.
             const configuredMode = this._configSnapshot.unusedDependencyMode;
             const effectiveMode = filterActive ? configuredMode : 'none';
-            
+
             const checkUsage = effectiveMode !== 'none';
-            
+
             // Always build without check first to show something quickly
             const initialGraphData = await this._graphViewService.buildGraphData(filePath, false);
-            
+
             const expandAll = this._stateManager.getExpandAll();
-            
+
             // If checking usage is enabled, we'll send a second update. 
             // If NOT checking usage, this is the only update.
             // If checking usage, we still send this one first so the user sees the graph immediately.
-            
+
             const initialMessage: ExtensionToWebviewMessage = {
                 command: 'updateGraph',
                 filePath,
@@ -862,7 +890,8 @@ export class GraphProvider implements vscode.WebviewViewProvider {
                 expandAll,
                 isRefresh,
                 refreshReason,
-                unusedDependencyMode: effectiveMode,                filterUnused: filterActive,            };
+                unusedDependencyMode: effectiveMode, filterUnused: filterActive,
+            };
             this._view.webview.postMessage(initialMessage);
 
             // Step 2: If usage check is required, perform it and send update
@@ -870,15 +899,15 @@ export class GraphProvider implements vscode.WebviewViewProvider {
                 log.debug('Performing background usage analysis for', filePath);
                 // Reuse the nodes/edges from initial data to avoid re-crawling (optimized)
                 const enrichedGraphData = await this._graphViewService.buildGraphData(filePath, true, initialGraphData);
-                
+
                 // Only send update if unused edges were found (or if we need to confirm they are empty?)
                 // Actually, we should confirm if they are computed. 
                 // Using the specific 'done' state or just replacing the data.
-                
+
                 // Verify if we actually found different data or if we just added unusedEdges (which might be empty).
                 // Ensure we don't trigger unnecessary re-renders if nothing changed.
                 // But unusedEdges property presence is the change.
-                
+
                 const enrichedMessage: ExtensionToWebviewMessage = {
                     command: 'updateGraph',
                     filePath,
@@ -890,7 +919,7 @@ export class GraphProvider implements vscode.WebviewViewProvider {
                     unusedDependencyMode: effectiveMode,
                     filterUnused: filterActive,
                 };
-                
+
                 this._view.webview.postMessage(enrichedMessage);
             }
 

@@ -12,6 +12,7 @@ interface SymbolCardViewProps {
     onSymbolClick: (symbolId: string, line: number) => void;
     onNavigateToFile: (filePath: string, mode: 'card' | 'file') => void;
     onBack: () => void;
+    onSwitchToGraphView: () => void;
     onRefresh?: () => void;
 }
 
@@ -44,17 +45,18 @@ const SymbolCardView: React.FC<SymbolCardViewProps> = ({
     onSymbolClick,
     onNavigateToFile,
     onBack,
+    onSwitchToGraphView,
     onRefresh,
 }) => {
     // Filter symbols based on showTypes
-    const filteredSymbols = showTypes 
-        ? symbols 
+    const filteredSymbols = showTypes
+        ? symbols
         : symbols.filter(s => s.category !== 'type' && s.category !== 'interface');
 
     // Group symbols: top-level and their children
     const topLevelSymbols = filteredSymbols.filter(s => !s.parentSymbolId);
     const childrenByParent = new Map<string, SymbolInfo[]>();
-    
+
     filteredSymbols.forEach(s => {
         if (s.parentSymbolId) {
             const children = childrenByParent.get(s.parentSymbolId) || [];
@@ -114,16 +116,33 @@ const SymbolCardView: React.FC<SymbolCardViewProps> = ({
                 >
                     📁 File View
                 </button>
+                <button
+                    onClick={onSwitchToGraphView}
+                    title="Switch to Graph View"
+                    style={{
+                        background: 'var(--vscode-button-secondaryBackground)',
+                        color: 'var(--vscode-button-secondaryForeground)',
+                        border: 'none',
+                        borderRadius: 4,
+                        padding: '6px 12px',
+                        cursor: 'pointer',
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: 6,
+                    }}
+                >
+                    📊 Graph View
+                </button>
                 <div style={{ flex: 1, minWidth: 150 }}>
-                    <div style={{ 
-                        fontSize: 14, 
+                    <div style={{
+                        fontSize: 14,
                         fontWeight: 'bold',
                         color: 'var(--vscode-foreground)',
                     }}>
                         ✨ Symbol View
                     </div>
-                    <div style={{ 
-                        fontSize: 12, 
+                    <div style={{
+                        fontSize: 12,
                         color: 'var(--vscode-descriptionForeground)',
                         marginTop: 2,
                     }}>
@@ -152,9 +171,9 @@ const SymbolCardView: React.FC<SymbolCardViewProps> = ({
                             ↻
                         </button>
                     )}
-                    <label style={{ 
-                        display: 'flex', 
-                        alignItems: 'center', 
+                    <label style={{
+                        display: 'flex',
+                        alignItems: 'center',
                         gap: 6,
                         fontSize: 11,
                         cursor: 'pointer',
@@ -208,8 +227,8 @@ const SymbolCardView: React.FC<SymbolCardViewProps> = ({
             }}>
                 {/* Left: Symbol Cards */}
                 <div>
-                    <h3 style={{ 
-                        fontSize: 12, 
+                    <h3 style={{
+                        fontSize: 12,
                         margin: '0 0 12px 0',
                         color: 'var(--vscode-foreground)',
                         textTransform: 'uppercase',
@@ -243,8 +262,8 @@ const SymbolCardView: React.FC<SymbolCardViewProps> = ({
 
                 {/* Right: Imported By */}
                 <div>
-                    <h3 style={{ 
-                        fontSize: 12, 
+                    <h3 style={{
+                        fontSize: 12,
                         margin: '0 0 12px 0',
                         color: 'var(--vscode-foreground)',
                         textTransform: 'uppercase',
@@ -253,12 +272,12 @@ const SymbolCardView: React.FC<SymbolCardViewProps> = ({
                         alignItems: 'center',
                         gap: 6,
                     }}>◀ Imported By<span style={{
-                            background: 'var(--vscode-badge-background)',
-                            color: 'var(--vscode-badge-foreground)',
-                            padding: '2px 6px',
-                            borderRadius: 10,
-                            fontSize: 10,
-                        }}>
+                        background: 'var(--vscode-badge-background)',
+                        color: 'var(--vscode-badge-foreground)',
+                        padding: '2px 6px',
+                        borderRadius: 10,
+                        fontSize: 10,
+                    }}>
                             {referencingFiles.length}
                         </span>
                     </h3>
@@ -319,9 +338,9 @@ const ImporterRow: React.FC<ImporterRowProps> = ({ filePath, onNavigateToFile })
             onMouseLeave={() => setHovered(false)}
         >
             <span style={{ fontSize: 14 }}>📄</span>
-            <span 
-                style={{ 
-                    flex: 1, 
+            <span
+                style={{
+                    flex: 1,
                     fontSize: 12,
                     overflow: 'hidden',
                     textOverflow: 'ellipsis',
@@ -472,7 +491,7 @@ const SymbolCard: React.FC<SymbolCardProps> = ({
                         const memberColors = CATEGORY_COLORS[member.category] || CATEGORY_COLORS.other;
                         const memberIcon = CATEGORY_ICONS[member.category] || '?';
                         const memberName = member.name.split('.').pop() || member.name;
-                        
+
                         return (
                             <div //NOSONAR
                                 key={member.id}
@@ -576,8 +595,8 @@ const DependencyLink: React.FC<DependencyLinkProps> = ({
                 gap: 6,
                 padding: '4px 6px',
                 borderRadius: 3,
-                background: hovered 
-                    ? 'var(--vscode-textLink-foreground)22' 
+                background: hovered
+                    ? 'var(--vscode-textLink-foreground)22'
                     : 'var(--vscode-textLink-foreground)11',
                 border: 'none',
                 cursor: 'pointer',

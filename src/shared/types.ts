@@ -1,6 +1,12 @@
+export interface GraphEdge {
+  source: string;
+  target: string;
+  relationType?: 'dependency' | 'call' | 'reference';
+}
+
 export interface GraphData {
   nodes: string[];
-  edges: { source: string; target: string }[];
+  edges: GraphEdge[];
   /** Optional custom labels for nodes (key: node path, value: display label) */
   nodeLabels?: Record<string, string>;
   /** Optional map of parent counts (how many files import a node). If present, used to show/hide the Find References toggle button in the UI. */
@@ -132,6 +138,12 @@ export interface SymbolDependency {
   sourceSymbolId: string;
   targetSymbolId: string;
   targetFilePath: string;
+  /** Type of relationship: 'dependency' (import/export), 'call' (function call), 'reference' (variable usage) */
+  relationType?: 'dependency' | 'call' | 'reference';
+  /** For calls: positions of calls in source code (for navigation) */
+  callLocations?: { line: number; character: number }[];
+  /** Whether this is a type-only dependency (interface/type usage vs runtime) */
+  isTypeOnly?: boolean;
 }
 
 export interface EmptyStateMessage {

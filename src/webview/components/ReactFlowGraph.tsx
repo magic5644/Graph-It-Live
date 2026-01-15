@@ -16,8 +16,10 @@ import { getLogger } from '../../shared/logger';
 import { normalizePath } from '../utils/path';
 import { createDebouncedRafScheduler, createSizePoller } from '../utils/fitViewScheduler';
 import { FileNode } from './reactflow/FileNode';
+import { SymbolNode } from './reactflow/SymbolNode';
 import { buildReactFlowGraph, GRAPH_LIMITS } from './reactflow/buildGraph';
 import { ExpansionOverlay, type ExpansionState } from './reactflow/ExpansionOverlay';
+import { SymbolInfo, SymbolDependency } from '../../shared/types';
 
 /** Logger instance for ReactFlowGraph */
 const log = getLogger('ReactFlowGraph');
@@ -46,7 +48,7 @@ if (typeof document !== 'undefined' && !document.getElementById('gil-spin-style'
 interface ReactFlowGraphProps {
     data: GraphData;
     currentFilePath: string;
-    onNodeClick: (path: string) => void;
+    onNodeClick: (path: string, line?: number) => void;
     onDrillDown: (path: string) => void;
     onFindReferences: (path: string) => void;
     onExpandNode?: (path: string) => void;
@@ -55,6 +57,7 @@ interface ReactFlowGraphProps {
     onExpandAllChange: (expand: boolean) => void;
     onRefresh?: () => void;
     onSwitchToSymbol?: () => void;
+    onSwitchToListView?: () => void;
     // Toggle to show/hide parent referencing files for the current root
     showParents?: boolean;
     onToggleParents?: (path: string) => void;
@@ -64,6 +67,10 @@ interface ReactFlowGraphProps {
     unusedDependencyMode?: 'none' | 'hide' | 'dim';
     /** Whether the unused dependency filter is active (from backend state) */
     filterUnused?: boolean;
+    mode?: 'file' | 'symbol';
+    symbolData?: { symbols: SymbolInfo[]; dependencies: SymbolDependency[] };
+    onLayoutChange?: (layout: 'hierarchical' | 'force' | 'radial') => void;
+    layout?: 'hierarchical' | 'force' | 'radial';
 }
 
 function stableGlobal<T>(key: string, factory: () => T): T {
@@ -286,6 +293,7 @@ const ReactFlowGraphContent: React.FC<ReactFlowGraphProps> = ({
     onExpandAllChange,
     onRefresh,
     onSwitchToSymbol,
+    onSwitchToListView,
     showParents = false,
     onToggleParents,
     expansionState,
@@ -293,14 +301,18 @@ const ReactFlowGraphContent: React.FC<ReactFlowGraphProps> = ({
     resetToken,
     unusedDependencyMode = 'none',
     filterUnused: backendFilterUnused,
+    mode = 'file',
+    symbolData,
+    onLayoutChange,
+    layout = 'hierarchical',
 }) => {
     // Use backendFilterUnused directly - no local state to avoid stale closures
     const filterUnused = backendFilterUnused ?? false;
-    
+
     const { fitView } = useReactFlow();
     const nodesInitialized = useNodesInitialized();
     const containerRef = React.useRef<HTMLDivElement | null>(null);
-    const nodeTypes = useMemo(() => Object.freeze({ file: FileNode } as const), []);
+    const nodeTypes = useMemo(() => Object.freeze({ file: FileNode, symbol: SymbolNode } as const), []);
     const { expandedNodes, toggleExpandedNode, handleExpandRequest } = useExpandedNodes({
         expandAll,
         currentFilePath,
@@ -350,6 +362,9 @@ const ReactFlowGraphContent: React.FC<ReactFlowGraphProps> = ({
             unusedEdges: data?.unusedEdges,
             unusedDependencyMode,
             filterUnused,
+            mode,
+            symbolData,
+            layout,
         });
         log.debug('🏗️ ReactFlowGraph: build graph END', {
             resultNodes: result.nodes.length,
@@ -367,6 +382,9 @@ const ReactFlowGraphContent: React.FC<ReactFlowGraphProps> = ({
         filterUnused,
         // DO NOT include callbacks in deps! They don't change graph structure,
         // only node data handlers. Including them causes constant re-renders.
+        mode,
+        symbolData,
+        layout
     ]);
 
     const isTruncated = graph.nodesTruncated;
@@ -374,13 +392,13 @@ const ReactFlowGraphContent: React.FC<ReactFlowGraphProps> = ({
     // Process edges to apply unused dependency filtering/styling
     const processedEdges = useMemo(() => {
         log.debug('ReactFlowGraph: processedEdges useMemo triggered', {
-            filterUnused, 
-            unusedDependencyMode, 
+            filterUnused,
+            unusedDependencyMode,
             unusedEdgesCount: data?.unusedEdges?.length,
             hasUnusedEdges: !!data?.unusedEdges?.length,
             graphEdgesCount: graph.edges.length
         });
-        
+
         if (!filterUnused || unusedDependencyMode === 'none' || !data?.unusedEdges?.length) {
             log.debug('ReactFlowGraph: Returning all edges (no filtering)', {
                 notFilterUnused: !filterUnused,
@@ -446,7 +464,8 @@ const ReactFlowGraphContent: React.FC<ReactFlowGraphProps> = ({
 
     // Handle node click
     const handleNodeClick = useCallback((_: React.MouseEvent, node: Node) => {
-        onNodeClickRef.current(node.id);
+        const line = node.data?.line;
+        onNodeClickRef.current(node.id, line);
     }, []); // No callback in deps - prevents re-render cascade
 
     return (
@@ -536,7 +555,6 @@ const ReactFlowGraphContent: React.FC<ReactFlowGraphProps> = ({
             <div
                 style={{
                     position: 'absolute',
-                    visibility: 'hidden',
                     top: 10,
                     left: 10,
                     right: 10,
@@ -555,7 +573,6 @@ const ReactFlowGraphContent: React.FC<ReactFlowGraphProps> = ({
                                 background: 'var(--vscode-button-secondaryBackground)',
                                 color: 'var(--vscode-button-secondaryForeground)',
                                 border: 'none',
-                                visibility: 'hidden',
                                 borderRadius: 4,
                                 padding: '6px 12px',
                                 cursor: 'pointer',
@@ -581,7 +598,6 @@ const ReactFlowGraphContent: React.FC<ReactFlowGraphProps> = ({
                                 background: 'var(--vscode-button-secondaryBackground)',
                                 color: 'var(--vscode-button-secondaryForeground)',
                                 border: '1px solid var(--vscode-button-border)',
-                                visibility: 'hidden',
                                 borderRadius: 4,
                                 padding: '6px 8px',
                                 cursor: 'pointer',
@@ -596,7 +612,7 @@ const ReactFlowGraphContent: React.FC<ReactFlowGraphProps> = ({
                     )}
                     {unusedDependencyMode !== 'none' && (
                         <button
-                            onClick={() => {/* Webview button not used - use toolbar button instead */}}
+                            onClick={() => {/* Webview button not used - use toolbar button instead */ }}
                             title={`Filter Unused Imports (${unusedDependencyMode === 'hide' ? 'Hide' : 'Dim'})`}
                             style={{
                                 background: filterUnused ? 'var(--vscode-button-background)' : 'var(--vscode-button-secondaryBackground)',
@@ -611,13 +627,61 @@ const ReactFlowGraphContent: React.FC<ReactFlowGraphProps> = ({
                             {filterUnused ? 'Used Only' : 'Show All'}
                         </button>
                     )}
+                    {mode === 'symbol' && (
+                        <div style={{ position: 'relative', display: 'flex' }}>
+                            <select
+                                onChange={(e) => onLayoutChange?.(e.target.value as 'hierarchical' | 'force' | 'radial')}
+                                style={{
+                                    background: 'var(--vscode-button-secondaryBackground)',
+                                    color: 'var(--vscode-button-secondaryForeground)',
+                                    border: '1px solid var(--vscode-button-border)',
+                                    borderRadius: 4,
+                                    padding: '6px 24px 6px 12px',
+                                    fontSize: 12,
+                                    cursor: 'pointer',
+                                    appearance: 'none',
+                                    height: 28
+                                }}
+                                defaultValue="hierarchical"
+                            >
+                                <option value="hierarchical">Hierarchy</option>
+                                <option value="force">Force</option>
+                                <option value="radial">Radial</option>
+                            </select>
+                            <div style={{
+                                position: 'absolute',
+                                right: 8,
+                                top: '50%',
+                                transform: 'translateY(-50%)',
+                                pointerEvents: 'none',
+                                fontSize: 10,
+                                color: 'var(--vscode-button-secondaryForeground)'
+                            }}>▼</div>
+                        </div>
+                    )}
+                    {mode === 'symbol' && onSwitchToListView && (
+                        <button
+                            onClick={onSwitchToListView}
+                            title="Switch to List View"
+                            style={{
+                                background: 'var(--vscode-button-secondaryBackground)',
+                                color: 'var(--vscode-button-secondaryForeground)',
+                                border: '1px solid var(--vscode-button-border)',
+                                borderRadius: 4,
+                                padding: '6px 12px',
+                                cursor: 'pointer',
+                                fontSize: 12,
+                            }}
+                        >
+                            List View
+                        </button>
+                    )}
                     <button
                         onClick={() => onExpandAllChange(!expandAll)}
                         style={{
                             background: 'var(--vscode-button-secondaryBackground)',
                             color: 'var(--vscode-button-secondaryForeground)',
                             border: '1px solid var(--vscode-button-border)',
-                            visibility: 'hidden',
                             borderRadius: 4,
                             padding: '6px 12px',
                             cursor: 'pointer',
@@ -631,13 +695,12 @@ const ReactFlowGraphContent: React.FC<ReactFlowGraphProps> = ({
                             background: 'var(--vscode-editor-background)',
                             padding: '6px 10px',
                             borderRadius: 4,
-                            visibility: 'hidden',
                             border: '1px solid var(--vscode-widget-border)',
                             fontSize: 11,
                             color: 'var(--vscode-descriptionForeground)',
                         }}
                     >
-                        📁 File Dependencies
+                        📁 {mode === 'symbol' ? 'Symbol Graph' : 'File Dependencies'}
                     </div>
                 </div>
             </div>

@@ -316,6 +316,31 @@
           "description": "Performance profile preset that automatically configures cache sizes and concurrency.",
           "markdownDescription": "Performance profile preset:\n\n- **default**: Balanced settings (4GB-8GB RAM)\n- **low-memory**: Optimized for machines with <4GB RAM\n- **high-performance**: Maximizes speed on powerful machines (16GB+ RAM)\n- **custom**: Manual configuration (all performance settings become editable)",
           "order": 99
+        },
+        "graph-it-live.enableCallHierarchy": {
+          "type": "boolean",
+          "default": false,
+          "description": "Enable LSP-based call hierarchy analysis in symbol view. Adds 'call' relationships showing which functions call each other within a file.",
+          "markdownDescription": "**[Experimental]** Enable LSP-based call hierarchy analysis in symbol view.\n\nWhen enabled, the drill-down symbol view will show:\n- **call** edges (which functions call each other)\n- **reference** edges (which symbols reference each other)\n\nThis provides richer information but may be slower for large files. Requires an active language server."
+        },
+        "graph-it-live.callHierarchyMaxFileSize": {
+          "type": "number",
+          "default": 5000,
+          "minimum": 100,
+          "maximum": 50000,
+          "description": "Maximum file size (in lines) for LSP call hierarchy analysis. Files larger than this will use AST-only analysis.",
+          "markdownDescription": "Maximum file size (in lines) for LSP call hierarchy analysis.\n\n- Files exceeding this limit will fall back to **AST-only analysis**\n- A warning will be shown when this happens\n- You can use the 'Analyze Anyway' action to force analysis of larger files\n\n**Recommended values**:\n- **1000-2000**: Low-memory machines\n- **5000**: Default, balanced\n- **10000+**: High-performance machines"
+        },
+        "graph-it-live.symbolViewLayout": {
+          "type": "string",
+          "enum": [
+            "hierarchical",
+            "force-directed",
+            "radial"
+          ],
+          "default": "hierarchical",
+          "description": "Layout algorithm for symbol-level drill-down view.",
+          "markdownDescription": "Layout algorithm for symbol-level drill-down view:\n\n- **hierarchical**: Top-to-bottom layout (Sugiyama/Dagre). Best for call flows\n- **force-directed**: Interactive physics-based layout. Best for exploring relationships\n- **radial**: Concentric circles with the current file at center. Experimental"
         }
       }
     }
