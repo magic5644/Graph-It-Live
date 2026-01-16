@@ -217,8 +217,8 @@
 - [ ] T096 Add documentation to README.md for symbol drill-down feature
 - [ ] T097 Run Snyk security scan on new analyzer code: `npm run snyk:code` (FR per constitution)
 - [ ] T098 Run SonarQube quality scan: check for code smells in LspCallHierarchyAnalyzer and SymbolViewService
-- [ ] T099 Run full E2E test suite from packaged .vsix: `npm run test:vscode:vsix`
-- [ ] T100 Verify package integrity: `npx vsce ls | grep "\.map$"` must be empty (ZERO .map files)
+- [x] T099 Run full E2E test suite from packaged .vsix: `npm run test:vscode:vsix`
+- [x] T100 Verify package integrity: `npx vsce ls | grep "\.map$"` must be empty (ZERO .map files)
 
 ---
 
