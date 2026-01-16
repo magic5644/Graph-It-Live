@@ -171,7 +171,7 @@ A developer edits a function in the file while the symbol graph is displayed. Af
 - **FR-019**: Circular function calls (recursion) MUST be displayed with bidirectional arrows and a "cycle" badge on the edge
 - **FR-020**: When LSP provider is slow (>5 seconds), system MUST show progress indicator for 5 seconds, then display partial results if available with warning "Symbol analysis incomplete (LSP timeout)"
 - **FR-021**: Anonymous functions or lambdas MUST be represented with contextual naming based on assignment/usage (e.g., "map callback", "filter predicate", "onClick handler")
-- **FR-022**: External function calls (to imported functions from other files) MUST be shown as dimmed/grayed-out nodes with dashed edges to visually distinguish them from internal symbols
+- **FR-022**: External function calls (to imported functions from other files) MUST be shown as dimmed/grayed-out nodes (opacity: 0.5) with dashed edges to visually distinguish them from internal symbols
 
 ## Clarifications
 
@@ -183,7 +183,17 @@ A developer edits a function in the file while the symbol graph is displayed. Af
 - Q: How should anonymous functions or lambdas (e.g., `array.map(x => x * 2)` or Python lambdas) be represented in the symbol graph? → A: Use contextual naming based on assignment/usage: "map callback", "filter predicate", "onClick handler"
 - Q: When the system encounters calls to imported functions from other files (external references), how should these be handled in the intra-file symbol graph? → A: Show external calls as dimmed/grayed-out nodes with dashed edges to indicate they're from other files
 
+### Session 2026-01-16
+
+- Q: When a SymbolNode represents an anonymous function like `array.map(x => x * 2)`, which name should appear in the graph visualization? → A: Display contextual name (e.g., "map callback") in the graph, store original AST name (if any) in separate `originalName` field for traceability. The `name` field is for human-readable display, `originalName` preserves AST identity.
+- Q: Are the 5-second LSP timeout (FR-020) and 600ms live update target (SC-006) in conflict or measuring different operations? → A: They are separate concerns with no conflict. 5s LSP timeout applies to initial symbol discovery when drilling down into a file. 600ms live update is: 500ms debounce (waiting for user to stop typing) + 100ms render (graph update) during active editing.
+- Q: Should the breadcrumb component use ">" as a hardcoded visual separator in the UI regardless of the underlying platform path separator? → A: Yes. Always display ">" for cross-platform UI consistency. Internally, use `path.sep` for path operations, then convert to ">" only for display rendering in BreadcrumbNav component.
+- Q: Should the E2E performance test (T087) measure full drill-down time or just UI freeze time? → A: Measure full end-to-end drill-down time (from double-click file node to graph fully rendered) and verify < 2 seconds for 1000-line files per SC-001. Also verify UI freeze < 100ms per SC-005.
+- Q: What opacity value should be used for dimming external symbols (FR-022)? → A: Use opacity: 0.5 (50% transparent). This provides standard semi-transparent effect that clearly distinguishes external from internal symbols while maintaining readability across both light and dark themes.
+
 ### Key Entities
+
+**Note**: For complete field definitions including validation rules and state transitions, see [data-model.md](./data-model.md).
 
 - **SymbolNode**: Represents a code symbol (function, class, method, variable) with attributes: name, kind (from `vscode.SymbolKind`), range (line numbers), type (Class/Function/Variable)
 - **CallEdge**: Represents a relationship between symbols with attributes: source (caller symbol name), target (callee symbol name), relation ('calls' or 'references')

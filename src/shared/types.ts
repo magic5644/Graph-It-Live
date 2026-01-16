@@ -124,6 +124,79 @@ export interface WebviewLogMessage {
   args?: unknown[];
 }
 
+// ===========================
+// Symbol-Level Entities (LSP-Based Call Hierarchy)
+// ===========================
+
+/**
+ * Represents a code symbol (function, class, method, variable) discovered via LSP.
+ * Used for intra-file symbol-level call hierarchy visualization.
+ */
+export interface SymbolNode {
+  /** Unique identifier: ${filePath}:${symbolName} (e.g., "src/utils.ts:calculateSum") */
+  id: string;
+  /** Display name (may be contextual for anonymous functions, e.g., "map callback") */
+  name: string;
+  /** Original AST name if different from display name (for anonymous functions) */
+  originalName?: string;
+  /** LSP symbol kind enum: Function, Class, Method, Variable, etc. */
+  kind: number; // vscode.SymbolKind value
+  /** Simplified category for color coding */
+  type: 'class' | 'function' | 'variable';
+  /** Line range in file (1-indexed) */
+  range: { start: number; end: number };
+  /** Whether symbol is exported (for external call detection) */
+  isExported: boolean;
+  /** Whether symbol is defined in a different file (dimmed rendering with opacity: 0.5) */
+  isExternal: boolean;
+  /** ID of containing symbol (for nested methods in classes) */
+  parentSymbolId?: string;
+}
+
+/**
+ * Represents a relationship between symbols (function call or variable reference).
+ */
+export interface CallEdge {
+  /** Caller symbol ID (SymbolNode.id) */
+  source: string;
+  /** Callee symbol ID (SymbolNode.id) */
+  target: string;
+  /** Type of relationship */
+  relation: 'calls' | 'references';
+  /** Line number where call/reference occurs in source (for navigation) */
+  line: number;
+}
+
+/**
+ * Represents the complete symbol-level dependency graph for a single file.
+ */
+export interface IntraFileGraph {
+  /** File path this graph represents */
+  filePath: string;
+  /** All symbols discovered in the file */
+  nodes: SymbolNode[];
+  /** All call/reference relationships between symbols */
+  edges: CallEdge[];
+  /** True if cycle detected (recursive or mutually recursive calls) */
+  hasCycle: boolean;
+  /** Optional list of node IDs involved in cycles */
+  cycleNodes?: string[];
+}
+
+/**
+ * Represents the breadcrumb navigation path (Project → folder → filename.ts).
+ */
+export interface BreadcrumbPath {
+  /** Segments of the breadcrumb (e.g., ["Project", "src", "utils.ts"]) */
+  segments: string[];
+  /** File path associated with this breadcrumb */
+  filePath: string;
+}
+
+// ===========================
+// Existing Symbol Info (File-Level)
+// ===========================
+
 export interface SymbolInfo {
   name: string;
   kind: string;
@@ -154,19 +227,78 @@ export interface EmptyStateMessage {
 }
 
 export interface SymbolGraphMessage {
-  command: 'symbolGraph';
+  command: "symbolGraph";
   filePath: string;
   /** If true, this is a refresh of the current view, not a navigation - don't push to history */
   isRefresh?: boolean;
-  data: GraphData & {
-    symbolData?: {
-      symbols: SymbolInfo[];
-      dependencies: SymbolDependency[];
-    };
-    /** List of files that import the current file */
-    referencingFiles?: string[];
-  };
+  /** Symbol-level graph data (LSP-based call hierarchy) */
+  graph: IntraFileGraph;
+  /** Breadcrumb navigation path */
+  breadcrumb: BreadcrumbPath;
 }
 
-export type ExtensionToWebviewMessage = ShowGraphMessage | ExpandedGraphMessage | ReferencingFilesMessage | IndexingProgressMessage | SymbolGraphMessage | EmptyStateMessage | SetExpandAllMessage | ExpansionProgressMessage | UpdateFilterMessage;
-export type WebviewToExtensionMessage = OpenFileMessage | ExpandNodeMessage | SetExpandAllMessage | RefreshGraphMessage | FindReferencingFilesMessage | DrillDownMessage | ReadyMessage | SwitchModeMessage | WebviewLogMessage | CancelExpandNodeMessage;
+/**
+ * Sent when symbol analysis is in progress (e.g., waiting for LSP response).
+ * Allows UI to show progress indicators during potentially slow LSP operations.
+ */
+export interface SymbolAnalysisProgressMessage {
+  command: "symbolAnalysisProgress";
+  filePath: string;
+  /** Progress status */
+  status: "started" | "analyzing" | "complete" | "timeout" | "error";
+  /** Optional progress message */
+  message?: string;
+}
+
+/**
+ * Sent when symbol analysis cannot proceed (LSP unavailable, unsupported file type).
+ */
+export interface SymbolEmptyStateMessage {
+  command: "symbolEmptyState";
+  filePath: string;
+  /** Reason why symbol analysis is unavailable */
+  reason:
+    | "lsp-unavailable"
+    | "unsupported-file-type"
+    | "empty-file"
+    | "analysis-error";
+  /** Human-readable message to display */
+  message: string;
+}
+
+/**
+ * Sent from webview to extension to request navigation to a specific symbol in the editor.
+ */
+export interface NavigateToSymbolMessage {
+  command: "navigateToSymbol";
+  filePath: string;
+  /** Line number to navigate to (1-indexed) */
+  line: number;
+  /** Optional symbol ID for context */
+  symbolId?: string;
+}
+
+export type ExtensionToWebviewMessage =
+  | ShowGraphMessage
+  | ExpandedGraphMessage
+  | ReferencingFilesMessage
+  | IndexingProgressMessage
+  | SymbolGraphMessage
+  | SymbolAnalysisProgressMessage
+  | SymbolEmptyStateMessage
+  | EmptyStateMessage
+  | SetExpandAllMessage
+  | ExpansionProgressMessage
+  | UpdateFilterMessage;
+export type WebviewToExtensionMessage =
+  | OpenFileMessage
+  | ExpandNodeMessage
+  | SetExpandAllMessage
+  | RefreshGraphMessage
+  | FindReferencingFilesMessage
+  | DrillDownMessage
+  | NavigateToSymbolMessage
+  | ReadyMessage
+  | SwitchModeMessage
+  | WebviewLogMessage
+  | CancelExpandNodeMessage;

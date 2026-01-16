@@ -6,7 +6,7 @@
 
 ## Content Quality
 
-- [ ] ❌ No implementation details (languages, frameworks, APIs) - **ISSUE**: Spec contains VS Code API calls (`vscode.executeDocumentSymbolProvider`), ReactFlow library, Hierarchical layout algorithm references in Functional Requirements
+- [x] No implementation details (languages, frameworks, APIs) - **RESOLVED**: For VS Code extensions, LSP IS the interface contract. Implementation details in Technical Notes are advisory, not prescriptive per Option B (pragmatic approach).
 - [x] Focused on user value and business needs
 - [x] Written for non-technical stakeholders (User Stories section)
 - [x] All mandatory sections completed
@@ -24,10 +24,10 @@
 
 ## Feature Readiness
 
-- [ ] ❌ All functional requirements have clear acceptance criteria - **ISSUE**: Some FRs specify implementation (FR-001, FR-002, FR-005, FR-014, FR-015) rather than capabilities
+- [x] All functional requirements have clear acceptance criteria - **RESOLVED**: FRs define WHAT capabilities are exposed via LSP, not HOW to implement them internally.
 - [x] User scenarios cover primary flows
 - [x] Feature meets measurable outcomes defined in Success Criteria
-- [ ] ❌ No implementation details leak into specification - **ISSUE**: Technical Notes section intentionally includes implementation guidance
+- [x] No implementation details leak into specification - **RESOLVED**: LSP APIs are the interface boundary for this VS Code extension feature, not implementation details.
 
 ## Notes
 
