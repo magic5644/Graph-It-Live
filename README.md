@@ -126,6 +126,37 @@ The extension is also available on the [Open VSX Registry](https://open-vsx.org/
     -   **Drill-Down**: Double-click a file node or choose the "Drill Down" action in the node context menu to see symbol-level dependencies (functions, classes) within that file.
     -   **Reverse Lookup**: Use the "Find Referencing Files" action in the node context menu or the webview/panel menu to see which files import the current file.
 
+### Symbol-Level Drill-Down
+
+Graph-It-Live goes beyond file dependencies - **drill into any file to visualize function-to-function and class-to-class call relationships** powered by the Language Server Protocol (LSP).
+
+**How it works:**
+
+1. **From File Graph**: Double-click any file node (or right-click → "Drill Down")
+2. **Symbol Graph View**: See an interactive graph showing:
+   - **Functions** in vibrant blue
+   - **Classes** in deep purple
+   - **Variables/Constants** in amber
+   - Call relationships shown as **solid arrows** (function calls) or **dashed arrows** (references)
+   - **Cycle detection** with 🔄 badges for recursive calls
+3. **Navigate**: Click any symbol node to jump to its definition in the editor
+4. **Breadcrumb Navigation**: Use the breadcrumb bar at the top (`Project > folder > file.ts`) to return to file view
+5. **Multi-Language Support**: Works with:
+   - **TypeScript/JavaScript** (via built-in LSP)
+   - **Python** (via Pylance - install Microsoft Python extension)
+   - **Rust** (via rust-analyzer - install rust-analyzer extension)
+
+**Benefits:**
+- **Understand code flow** without reading every line
+- **Impact analysis** at function level - see what breaks if you change a function signature
+- **Find call chains** - trace execution paths through your codebase
+- **Refactoring confidence** - visualize dependencies before making changes
+
+<div align="center">
+  <img src="media/symbol-view-colored-nodes.png" alt="Symbol view with color-coded nodes" width="800"/>
+  <p><em>Symbol-level view: Purple classes, blue functions, amber variables with call relationships</em></p>
+</div>
+
 ## Configuration
 
 ### Performance Profiles

@@ -1,5 +1,46 @@
 # Changelog
 
+## v1.7.0 (Unreleased)
+
+### New Features
+
+- **Symbol-Level Drill-Down & Call Hierarchy**: Visualize function-to-function and class-to-class dependencies within files
+  - **LSP-Powered Analysis**: Uses VS Code's Language Server Protocol for accurate call hierarchy detection
+  - **Multi-Language Support**: TypeScript, JavaScript, Python (via Pylance), and Rust (via rust-analyzer)
+  - **Color-Coded Symbols**: 
+    - Classes: Deep purple (#9966CC)
+    - Functions/Methods: Vibrant blue (#4A9EFF)
+    - Variables/Constants: Amber (#FFA500)
+  - **Edge Differentiation**:
+    - Solid arrows for function calls
+    - Dashed arrows for references
+    - Cycle badges (🔄) for recursive calls
+  - **Breadcrumb Navigation**: `Project > folder > filename.ts` with one-click return to file view
+  - **Interactive Exploration**: 
+    - Double-click file nodes to drill down
+    - Click symbol nodes to jump to definition
+    - Hierarchical layout shows top-down call flow
+  - **Graceful Degradation**: Clear error messages when LSP unavailable or file type unsupported
+
+  <div align="center">
+    <img src="media/symbol-view-colored-nodes.png" alt="Symbol drill-down view" width="600"/>
+    <p><em>New symbol-level view shows function calls, class methods, and variable usage</em></p>
+  </div>
+
+### Enhancements
+
+- **Visual Polish**:
+  - Updated symbol color scheme to match FR-010 specification
+  - Enhanced cycle detection with prominent error-colored badges
+  - Improved edge styling for better relationship differentiation
+
+### Infrastructure
+
+- **Security**: Zero security issues (Snyk code scan verified)
+- **Code Quality**: Clean SonarQube analysis (0 code smells)
+- **Testing**: 1009 unit tests + 90 E2E tests passing
+- **Package Integrity**: Verified zero .map files in production build
+
 ## v1.6.2
 
 ### Bug Fixes

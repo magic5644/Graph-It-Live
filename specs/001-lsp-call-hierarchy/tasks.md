@@ -213,8 +213,8 @@
 - [ ] T092 [P] Add `symbolAnalysisProgress` message type to src/shared/types.ts for progress updates
 - [ ] T093 Add comprehensive error handling for all LSP edge cases in SymbolViewService
 - [ ] T094 Add logging for symbol analysis operations in SymbolViewService using extensionLogger
-- [ ] T095 Update CHANGELOG.md with feature description and user-facing changes
-- [ ] T096 Add documentation to README.md for symbol drill-down feature
+- [x] T095 Update CHANGELOG.md with feature description and user-facing changes
+- [x] T096 Add documentation to README.md for symbol drill-down feature
 - [x] T097 Run Snyk security scan on new analyzer code: `npm run snyk:code` (FR per constitution)
 - [x] T098 Run SonarQube quality scan: check for code smells in LspCallHierarchyAnalyzer and SymbolViewService
 - [x] T099 Run full E2E test suite from packaged .vsix: `npm run test:vscode:vsix`
