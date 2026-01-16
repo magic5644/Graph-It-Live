@@ -149,9 +149,9 @@
 
 ### Implementation for User Story 4
 
-- [ ] T059 [P] Add `graphItLive_analyzeFileLogic` tool definition to src/mcp/mcpServer.ts with WHEN/WHY/WHAT description
+- [ ] T059 [P] Add `graphitlive_analyze_file_logic` tool definition to src/mcp/mcpServer.ts with WHEN/WHY/WHAT description
 - [ ] T060 [P] Create Zod schema for AnalyzeFileLogicRequest in src/mcp/types.ts (filePath, includeExternal, format)
-- [ ] T061 Extend McpWorker.ts handler switch statement to process `graphItLive_analyzeFileLogic` tool
+- [ ] T061 Extend McpWorker.ts handler switch statement to process `graphitlive_analyze_file_logic` tool
 - [ ] T062 Implement TOON format serialization in McpWorker.ts (nodes:Class:Name|Function:Name format)
 - [ ] T063 Implement JSON format fallback in McpWorker.ts (full IntraFileGraph structure)
 - [ ] T064 Add input validation in McpWorker.ts (absolute path, supported extension check, file existence)

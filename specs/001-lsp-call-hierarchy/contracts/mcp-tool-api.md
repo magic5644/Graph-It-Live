@@ -1,6 +1,6 @@
-# MCP Tool Contract: graphItLive_analyzeFileLogic
+# MCP Tool Contract: graphitlive_analyze_file_logic
 
-**Tool Name**: `graphItLive_analyzeFileLogic`  
+**Tool Name**: `graphitlive_analyze_file_logic`  
 **Purpose**: Analyze symbol-level call hierarchy within a single file for AI/LLM consumption  
 **Input Format**: JSON  
 **Output Format**: TOON (Tree Object Oriented Notation) - compressed format for token efficiency
