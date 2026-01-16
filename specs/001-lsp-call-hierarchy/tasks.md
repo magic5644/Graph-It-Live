@@ -86,22 +86,22 @@
 
 ### Implementation for User Story 2
 
-- [ ] T030 [P] Test Pylance LSP provider with executeDocumentSymbolProvider on Python test fixture in tests/fixtures/python-project/
-- [ ] T031 [P] Test rust-analyzer LSP provider with executeDocumentSymbolProvider on Rust test fixture in tests/fixtures/rust-project/
-- [ ] T032 Add language-specific handling in LspCallHierarchyAnalyzer for Python (handle Pylance provider name)
-- [ ] T033 Add language-specific handling in LspCallHierarchyAnalyzer for Rust (handle rust-analyzer provider name)
-- [ ] T034 Implement graceful degradation in SymbolViewService when LSP is unavailable (show `symbolEmptyState` message: "Symbol analysis not available for this file type")
-- [ ] T035 Add `symbolEmptyState` message type to src/shared/types.ts
-- [ ] T036 Add empty state UI in SymbolGraphView.tsx to display "Symbol analysis not available" message
-- [ ] T037 Add unit tests for language detection in tests/analyzer/LspCallHierarchyAnalyzer.test.ts
+- [x] T030 [P] Test Pylance LSP provider with executeDocumentSymbolProvider on Python test fixture in tests/fixtures/python-project/
+- [x] T031 [P] Test rust-analyzer LSP provider with executeDocumentSymbolProvider on Rust test fixture in tests/fixtures/rust-project/
+- [x] T032 Add language-specific handling in LspCallHierarchyAnalyzer for Python (handle Pylance provider name)
+- [x] T033 Add language-specific handling in LspCallHierarchyAnalyzer for Rust (handle rust-analyzer provider name)
+- [x] T034 Implement graceful degradation in SymbolViewService when LSP is unavailable (show `symbolEmptyState` message: "Symbol analysis not available for this file type")
+- [x] T035 Add `symbolEmptyState` message type to src/shared/types.ts
+- [x] T036 Add empty state UI in SymbolGraphView.tsx to display "Symbol analysis not available" message
+- [x] T037 Add unit tests for language detection in tests/analyzer/LspCallHierarchyAnalyzer.test.ts
 
 ### E2E Tests for User Story 2 (MANDATORY)
 
-- [ ] T038 Create Python test fixtures in tests/fixtures/python-project/ with known function calls
-- [ ] T039 Create Rust test fixtures in tests/fixtures/rust-project/ with known function calls
-- [ ] T040 E2E test: Drill-down into Python file shows symbol graph (verify Python functions detected via Pylance)
-- [ ] T041 E2E test: Drill-down into Rust file shows symbol graph (verify Rust functions detected via rust-analyzer)
-- [ ] T042 E2E test: Unsupported file type shows graceful error (drill into .txt file → verify error message)
+- [x] T038 Create Python test fixtures in tests/fixtures/python-project/ with known function calls
+- [x] T039 Create Rust test fixtures in tests/fixtures/rust-project/ with known function calls
+- [x] T040 E2E test: Drill-down into Python file shows symbol graph (verify Python functions detected via Pylance)
+- [x] T041 E2E test: Drill-down into Rust file shows symbol graph (verify Rust functions detected via rust-analyzer)
+- [x] T042 E2E test: Unsupported file type shows graceful error (drill into .txt file → verify error message)
 
 **Checkpoint**: At this point, User Stories 1 AND 2 should both work independently (TypeScript, Python, Rust all supported)
 
