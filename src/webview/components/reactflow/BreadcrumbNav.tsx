@@ -74,7 +74,7 @@ export const BreadcrumbNav: React.FC<BreadcrumbNavProps> = ({
     }, [filePath, workspaceRoot, mode, onBackToProject]);
 
     return (
-        <div
+        <nav
             style={{
                 display: 'flex',
                 alignItems: 'center',
@@ -86,12 +86,11 @@ export const BreadcrumbNav: React.FC<BreadcrumbNavProps> = ({
                 gap: '4px',
                 flexWrap: 'wrap',
             }}
-            role="navigation"
             aria-label="Breadcrumb navigation"
         >
-            {segments.map((segment, index) => (
-                <React.Fragment key={index}>
-                    {index > 0 && (
+            {segments.map((segment) => (
+                <React.Fragment key={segment.label}>
+                    {segments.indexOf(segment) > 0 && (
                         <span
                             style={{
                                 color: 'var(--vscode-descriptionForeground)',
@@ -130,10 +129,10 @@ export const BreadcrumbNav: React.FC<BreadcrumbNavProps> = ({
                     ) : (
                         <span
                             style={{
-                                color: index === segments.length - 1
+                                color: segments.indexOf(segment) === segments.length - 1
                                     ? 'var(--vscode-foreground)'
                                     : 'var(--vscode-descriptionForeground)',
-                                fontWeight: index === segments.length - 1 ? 600 : 400,
+                                fontWeight: segments.indexOf(segment) === segments.length - 1 ? 600 : 400,
                                 padding: '2px 4px',
                             }}
                         >
@@ -142,6 +141,6 @@ export const BreadcrumbNav: React.FC<BreadcrumbNavProps> = ({
                     )}
                 </React.Fragment>
             ))}
-        </div>
+        </nav>
     );
 };
