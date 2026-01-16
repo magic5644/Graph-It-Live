@@ -72,8 +72,8 @@ describe('Webview Integration - Graph Rendering', () => {
             expect(nodeA?.data.isInCycle).toBe(true);
             expect(nodeB?.data.isInCycle).toBe(true);
             
-            // Verify edges are labeled as cycle edges
-            const cycleEdges = graphData.edges.filter(e => e.label === 'Cycle');
+            // Verify edges are labeled as cycle edges (T048: cycle badge implementation)
+            const cycleEdges = graphData.edges.filter(e => e.label?.includes('cycle'));
             expect(cycleEdges.length).toBeGreaterThan(0);
         });
     });

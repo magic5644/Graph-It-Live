@@ -1,11 +1,22 @@
 import React from 'react';
+import {
+  getLogger,
+  type ILogger,
+  type LogLevel,
+  setLoggerBackend,
+} from "../shared/logger";
+import {
+  ExtensionToWebviewMessage,
+  GraphData,
+  SymbolDependency,
+  SymbolInfo,
+  WebviewToExtensionMessage,
+} from "../shared/types";
 import ReactFlowGraph from './components/ReactFlowGraph';
 import SymbolCardView from './components/SymbolCardView';
-import { BreadcrumbNav } from './components/reactflow/BreadcrumbNav';
-import { ExtensionToWebviewMessage, WebviewToExtensionMessage, GraphData, SymbolInfo, SymbolDependency } from '../shared/types';
-import { getLogger, type LogLevel, type ILogger, setLoggerBackend } from '../shared/logger';
-import { normalizePath } from './utils/path';
+import { BreadcrumbNav } from "./components/reactflow/BreadcrumbNav";
 import { mergeGraphDataUnion } from './utils/graphMerge';
+import { normalizePath } from "./utils/path";
 import { applyUpdateGraph, isUpdateGraphNavigation } from './utils/updateGraphReducer';
 
 /** Logger instance for App */

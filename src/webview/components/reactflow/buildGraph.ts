@@ -257,6 +257,15 @@ function createVisibleEdges(
           labelStyle: { fill: 'var(--vscode-descriptionForeground)', opacity: 0.5 },
           labelBgStyle: { fill: 'transparent' },
         };
+      } else if (isCircular) {
+        // Cycle badge for circular dependencies (T048)
+        styleOverrides = {
+          style: { ...edgeStyle.style, strokeWidth: 2.5 },
+          animated: true,
+          label: '🔄 cycle',
+          labelStyle: { fill: 'var(--vscode-errorForeground)', fontSize: 10, fontWeight: 'bold' },
+          labelBgStyle: { fill: 'var(--vscode-editor-background)', fillOpacity: 0.9 },
+        };
       } else if (relationType === 'reference') {
         // Dashed style for references
         styleOverrides = {

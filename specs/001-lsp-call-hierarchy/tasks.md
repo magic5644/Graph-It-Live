@@ -115,12 +115,12 @@
 
 ### Implementation for User Story 3
 
-- [ ] T043 [P] Extend SymbolNode.tsx to add color prop based on symbol type (derive from `SymbolNode.type`: 'class' | 'function' | 'variable')
-- [ ] T044 [P] Add CSS custom properties in src/webview/styles/ for symbol colors (--symbol-class-color: #9966CC, --symbol-function-color: #4A9EFF, --symbol-variable-color: #FFA500)
-- [ ] T045 [P] Test color rendering in both light and dark VS Code themes
-- [ ] T046 Extend edge rendering in buildGraph.ts to add `strokeDasharray` for reference edges (dashed)
-- [ ] T047 Add edge labels in buildGraph.ts to show "calls" vs "references" relation type
-- [ ] T048 Implement cycle visualization in buildGraph.ts (bidirectional arrows + "cycle" badge on edge)
+- [x] T043 [P] Extend SymbolNode.tsx to add color prop based on symbol type (derive from `SymbolNode.type`: 'class' | 'function' | 'variable')
+- [x] T044 [P] Add CSS custom properties in src/webview/styles/ for symbol colors (--symbol-class-color: #9966CC, --symbol-function-color: #4A9EFF, --symbol-variable-color: #FFA500)
+- [x] T045 [P] Test color rendering in both light and dark VS Code themes
+- [x] T046 Extend edge rendering in buildGraph.ts to add `strokeDasharray` for reference edges (dashed)
+- [x] T047 Add edge labels in buildGraph.ts to show "calls" vs "references" relation type
+- [x] T048 Implement cycle visualization in buildGraph.ts (bidirectional arrows + "cycle" badge on edge)
 - [x] T049 [P] Create `BreadcrumbNav.tsx` component in src/webview/components/ to display path segments
 - [x] T050 Populate breadcrumb path in SymbolViewService (Project → folder → filename.ts)
 - [x] T051 Add breadcrumb to SymbolGraphView.tsx layout (top bar above graph)
