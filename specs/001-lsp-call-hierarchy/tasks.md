@@ -49,30 +49,30 @@
 
 ### Implementation for User Story 1
 
-- [ ] T009 [P] Create `SymbolViewService.ts` in src/extension/services/ to orchestrate LSP calls via VS Code API
-- [ ] T010 [P] Create `SymbolGraphView.tsx` in src/webview/components/ as React component for symbol visualization
-- [ ] T011 Implement LSP timeout handling in SymbolViewService using Promise.race with 5-second timeout (wrap all LSP commands)
-- [ ] T012 Implement `buildIntraFileGraph()` method in SymbolViewService to construct IntraFileGraph from LSP results
-- [ ] T013 Extend `GraphProvider.handleDrillDown()` in src/extension/GraphProvider.ts to detect symbol mode and call SymbolViewService
-- [ ] T014 Add `symbolGraph` message sending from GraphProvider to webview with IntraFileGraph payload
-- [ ] T015 Implement message handler in SymbolGraphView.tsx to receive and render symbolGraph message
-- [ ] T016 [P] Create `SymbolNode.tsx` in src/webview/components/reactflow/ for rendering symbol nodes (basic styling)
-- [ ] T017 Extend `buildReactFlowGraph()` in src/webview/utils/buildGraph.ts to support symbol mode with SymbolNode components
-- [ ] T018 Implement Dagre hierarchical layout (TB rankdir) for symbol graphs in buildGraph.ts
-- [ ] T019 Add "Back to Project" button to SymbolGraphView.tsx that sends `switchMode` message to extension
-- [ ] T020 Implement `switchMode` message handler in GraphProvider to return to file-level graph
-- [ ] T021 Implement symbol node click handler in SymbolGraphView.tsx to send `navigateToSymbol` message
-- [ ] T022 Add `navigateToSymbol` message handler in GraphProvider to execute `vscode.window.showTextDocument()` with line range
-- [ ] T023 Add unit tests for SymbolViewService in tests/extension/services/SymbolViewService.test.ts (mock VS Code API)
-- [ ] T024 Add unit tests for buildGraph symbol mode in tests/webview/utils/buildGraph.test.ts
+- [x] T009 [P] Create `SymbolViewService.ts` in src/extension/services/ to orchestrate LSP calls via VS Code API
+- [x] T010 [P] Create `SymbolGraphView.tsx` in src/webview/components/ as React component for symbol visualization
+- [x] T011 Implement LSP timeout handling in SymbolViewService using Promise.race with 5-second timeout (wrap all LSP commands)
+- [x] T012 Implement `buildIntraFileGraph()` method in SymbolViewService to construct IntraFileGraph from LSP results
+- [x] T013 Extend `GraphProvider.handleDrillDown()` in src/extension/GraphProvider.ts to detect symbol mode and call SymbolViewService
+- [x] T014 Add `symbolGraph` message sending from GraphProvider to webview with IntraFileGraph payload
+- [x] T015 Implement message handler in SymbolGraphView.tsx to receive and render symbolGraph message
+- [x] T016 [P] Create `SymbolNode.tsx` in src/webview/components/reactflow/ for rendering symbol nodes (basic styling)
+- [x] T017 Extend `buildReactFlowGraph()` in src/webview/utils/buildGraph.ts to support symbol mode with SymbolNode components
+- [x] T018 Implement Dagre hierarchical layout (TB rankdir) for symbol graphs in buildGraph.ts
+- [x] T019 Add "Back to Project" button to SymbolGraphView.tsx that sends `switchMode` message to extension
+- [x] T020 Implement `switchMode` message handler in GraphProvider to return to file-level graph
+- [x] T021 Implement symbol node click handler in SymbolGraphView.tsx to send `navigateToSymbol` message
+- [x] T022 Add `navigateToSymbol` message handler in GraphProvider to execute `vscode.window.showTextDocument()` with line range
+- [x] T023 Add unit tests for SymbolViewService in tests/extension/services/SymbolViewService.test.ts (mock VS Code API)
+- [x] T024 Add unit tests for buildGraph symbol mode in tests/webview/utils/buildGraph.test.ts
 
 ### E2E Tests for User Story 1 (MANDATORY)
 
-- [ ] T025 Create E2E test file tests/vscode-e2e/suite/symbolDrillDown.test.ts
-- [ ] T026 E2E test: Drill-down from file node to symbol graph (double-click file node → verify symbol nodes appear)
-- [ ] T027 E2E test: Symbol node click navigates to code (click symbol → verify editor opens at correct line)
-- [ ] T028 E2E test: Back to Project button returns to file graph (click button → verify file nodes reappear)
-- [ ] T029 E2E test: Symbol graph shows call relationships (verify edges connect caller → callee functions)
+- [x] T025 Create E2E test file tests/vscode-e2e/suite/symbolDrillDown.test.ts
+- [x] T026 E2E test: Drill-down from file node to symbol graph (double-click file node → verify symbol nodes appear)
+- [x] T027 E2E test: Symbol node click navigates to code (click symbol → verify editor opens at correct line)
+- [x] T028 E2E test: Back to Project button returns to file graph (click button → verify file nodes reappear)
+- [x] T029 E2E test: Symbol graph shows call relationships (verify edges connect caller → callee functions)
 
 **Checkpoint**: At this point, User Story 1 (TypeScript symbol navigation) should be fully functional and testable independently
 
