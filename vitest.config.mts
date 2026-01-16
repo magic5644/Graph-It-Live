@@ -9,7 +9,7 @@ export default defineConfig({
   test: {
     globals: true,
     environment: "node",
-    include: ["tests/**/*.test.ts"],
+    include: ["tests/**/*.test.ts", "tests/**/*.test.tsx"],
     exclude: ["tests/benchmarks/**", "tests/vscode-e2e/**", "tests/e2e/**"],
     coverage: {
       provider: "v8",

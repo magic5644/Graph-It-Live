@@ -1,6 +1,7 @@
 import React from 'react';
 import ReactFlowGraph from './components/ReactFlowGraph';
 import SymbolCardView from './components/SymbolCardView';
+import { BreadcrumbNav } from './components/reactflow/BreadcrumbNav';
 import { ExtensionToWebviewMessage, WebviewToExtensionMessage, GraphData, SymbolInfo, SymbolDependency } from '../shared/types';
 import { getLogger, type LogLevel, type ILogger, setLoggerBackend } from '../shared/logger';
 import { normalizePath } from './utils/path';
@@ -616,6 +617,16 @@ const App: React.FC = () => {
                     </div>
                 )}
 
+
+                {/* Breadcrumb Navigation - Show in symbol mode */}
+                {viewMode === 'symbol' && (
+                    <BreadcrumbNav
+                        filePath={currentFilePath}
+                        workspaceRoot={undefined} // TODO: Get from extension state
+                        onBackToProject={() => setViewMode('file')}
+                        mode={viewMode}
+                    />
+                )}
 
                 {/* ReactFlow Graph (Handles both File and Symbol modes) */}
                 {(viewMode === 'file' || (viewMode === 'symbol' && symbolViewMode === 'graph')) && (

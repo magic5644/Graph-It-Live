@@ -121,10 +121,10 @@
 - [ ] T046 Extend edge rendering in buildGraph.ts to add `strokeDasharray` for reference edges (dashed)
 - [ ] T047 Add edge labels in buildGraph.ts to show "calls" vs "references" relation type
 - [ ] T048 Implement cycle visualization in buildGraph.ts (bidirectional arrows + "cycle" badge on edge)
-- [ ] T049 [P] Create `BreadcrumbNav.tsx` component in src/webview/components/ to display path segments
-- [ ] T050 Populate breadcrumb path in SymbolViewService (Project → folder → filename.ts)
-- [ ] T051 Add breadcrumb to SymbolGraphView.tsx layout (top bar above graph)
-- [ ] T052 Implement breadcrumb segment click handler to navigate up hierarchy
+- [x] T049 [P] Create `BreadcrumbNav.tsx` component in src/webview/components/ to display path segments
+- [x] T050 Populate breadcrumb path in SymbolViewService (Project → folder → filename.ts)
+- [x] T051 Add breadcrumb to SymbolGraphView.tsx layout (top bar above graph)
+- [x] T052 Implement breadcrumb segment click handler to navigate up hierarchy
 - [ ] T053 Add unit tests for edge styling logic in tests/webview/utils/buildGraph.test.ts
 - [ ] T054 Add unit tests for BreadcrumbNav component in tests/webview/components/BreadcrumbNav.test.ts
 
