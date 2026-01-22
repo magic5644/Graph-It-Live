@@ -1,8 +1,9 @@
+import { LspCallHierarchyAnalyzer } from "../../analyzer/LspCallHierarchyAnalyzer";
 import { Spider } from "../../analyzer/Spider";
-import type { SymbolDependency, SymbolInfo } from "../../shared/types";
+import type { IntraFileGraph, SymbolDependency, SymbolInfo } from "../../shared/types";
 import type {
-  CallHierarchyOptions,
-  IntraFileCallGraph,
+    CallHierarchyOptions,
+    IntraFileCallGraph,
 } from "./LspCallHierarchyService";
 
 type Logger = {
@@ -42,6 +43,8 @@ interface SymbolGraphResult {
     /** Number of call edges added by LSP */
     callEdgesCount: number;
   };
+  /** Symbol-level graph with cycle detection (if LSP used) */
+  graph?: IntraFileGraph;
 }
 
 /**
@@ -255,6 +258,23 @@ export class SymbolViewService {
       `Merged ${callGraph.edges.length} call edges from LSP into symbol graph`,
     );
 
+    // Build IntraFileGraph with cycle detection
+    const analyzer = new LspCallHierarchyAnalyzer();
+    const graph = analyzer.buildIntraFileGraph(resolvedFilePath, {
+      symbols: callGraph.nodes.map((node) => ({
+        name: node.name,
+        kind: node.kind,
+        range: {
+          start: node.line - 1, // Convert back to 0-indexed
+          end: node.line - 1,
+        },
+        containerName: undefined,
+        uri: resolvedFilePath,
+      })),
+      callHierarchyItems: new Map(),
+      outgoingCalls: this.buildOutgoingCallsMap(callGraph, resolvedFilePath),
+    });
+
     return {
       ...mergedResult,
       symbolData: this.enrichSymbolDataWithCallRelations(symbolData, callGraph),
@@ -268,6 +288,7 @@ export class SymbolViewService {
         warnings: callGraph.warnings,
         callEdgesCount: callGraph.edges.length,
       },
+      graph,
     };
   }
 
@@ -471,5 +492,55 @@ export class SymbolViewService {
       symbols: symbolData.symbols,
       dependencies: enrichedDependencies,
     };
+  }
+
+  /**
+   * Builds a Map of outgoing calls for LspCallHierarchyAnalyzer
+   */
+  private buildOutgoingCallsMap(
+    callGraph: IntraFileCallGraph,
+    filePath: string,
+  ): Map<string, Array<{ to: { name: string; uri: string; kind: number; range: { start: number; end: number } }; fromRanges: Array<{ start: number; end: number }> }>> {
+    const outgoingCalls = new Map<
+      string,
+      Array<{
+        to: { name: string; uri: string; kind: number; range: { start: number; end: number } };
+        fromRanges: Array<{ start: number; end: number }>;
+      }>
+    >();
+
+    for (const edge of callGraph.edges) {
+      if (!outgoingCalls.has(edge.source)) {
+        outgoingCalls.set(edge.source, []);
+      }
+
+      // Find target node to get its kind
+      const targetNode = callGraph.nodes.find((n) => n.id === edge.target);
+      if (!targetNode) {
+        continue;
+      }
+
+      // Extract target name from symbol ID (format: filePath:symbolName)
+      const targetName = edge.target.split(":").pop() || edge.target;
+
+      outgoingCalls.get(edge.source)!.push({
+        to: {
+          name: targetName,
+          uri: filePath,
+          kind: targetNode.kind,
+          range: {
+            start: targetNode.line - 1,
+            end: targetNode.line - 1,
+          },
+        },
+        fromRanges:
+          edge.locations?.map((loc) => ({
+            start: loc.line - 1,
+            end: loc.line - 1,
+          })) || [],
+      });
+    }
+
+    return outgoingCalls;
   }
 }

@@ -16,7 +16,7 @@
  */
 
 import { normalizePath } from "@/shared/path";
-import type { CallEdge, IntraFileGraph, SymbolNode } from "@/shared/types";
+import type { CallEdge, CycleType, IntraFileGraph, SymbolNode } from "@/shared/types";
 
 /**
  * LSP Symbol Information (subset of vscode.SymbolInformation)
@@ -89,7 +89,10 @@ export class LspCallHierarchyAnalyzer {
     );
 
     // Step 3: Detect cycles using DFS
-    const { hasCycle, cycleNodes } = this.detectCycles(nodes, edges);
+    const { hasCycle, cycleNodes, cycleType } = this.detectCycles(
+      nodes,
+      edges,
+    );
 
     return {
       filePath: normalizedFilePath,
@@ -97,6 +100,7 @@ export class LspCallHierarchyAnalyzer {
       edges,
       hasCycle,
       cycleNodes: hasCycle ? cycleNodes : undefined,
+      cycleType: hasCycle ? cycleType : undefined,
     };
   }
 
@@ -173,7 +177,7 @@ export class LspCallHierarchyAnalyzer {
   private detectCycles(
     nodes: SymbolNode[],
     edges: CallEdge[],
-  ): { hasCycle: boolean; cycleNodes: string[] } {
+  ): { hasCycle: boolean; cycleNodes: string[]; cycleType?: CycleType } {
     const adjacencyList = new Map<string, string[]>();
     const visited = new Set<string>();
     const recursionStack = new Set<string>();
@@ -221,10 +225,54 @@ export class LspCallHierarchyAnalyzer {
       }
     }
 
+    // Analyze cycle pattern if detected
+    if (hasCycle) {
+      const cycleType = this.analyzeCyclePattern(
+        Array.from(cycleNodes),
+        edges,
+      );
+      return {
+        hasCycle,
+        cycleNodes: Array.from(cycleNodes),
+        cycleType,
+      };
+    }
+
     return {
       hasCycle,
-      cycleNodes: Array.from(cycleNodes),
+      cycleNodes: [],
     };
+  }
+
+  /**
+   * Analyzes the pattern of a detected cycle to classify its type.
+   * This helps distinguish intentional recursion (common in interpreters, parsers)
+   * from potentially problematic circular dependencies.
+   *
+   * @param cycleNodes - Node IDs involved in the cycle
+   * @param edges - All call edges in the graph
+   * @returns Classification of the cycle type
+   */
+  private analyzeCyclePattern(
+    cycleNodes: string[],
+    edges: CallEdge[],
+  ): CycleType {
+    // Self-recursive: A function calling itself directly
+    // Example: factorial(n) calls factorial(n-1)
+    const selfLoops = edges.filter((e) => e.source === e.target);
+    if (selfLoops.length > 0 && cycleNodes.length === 1) {
+      return "self-recursive";
+    }
+
+    // Mutual-recursive: Two functions calling each other (A ↔ B)
+    // Example: eval() ↔ execute() in interpreters
+    if (cycleNodes.length === 2) {
+      return "mutual-recursive";
+    }
+
+    // Complex: Cycle involving 3 or more functions (A → B → C → A)
+    // Less common, may indicate architectural issues
+    return "complex";
   }
 
   /**

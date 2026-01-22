@@ -68,6 +68,10 @@ export interface UpdateFilterMessage {
   unusedDependencyMode: "none" | "hide" | "dim";
 }
 
+export interface RefreshingMessage {
+  command: "refreshing";
+}
+
 export interface RefreshGraphMessage {
   command: "refreshGraph";
 }
@@ -183,6 +187,14 @@ export interface CallEdge {
 }
 
 /**
+ * Cycle type classification for better understanding of circular dependencies
+ */
+export type CycleType = 
+  | "self-recursive"    // Single function calling itself (e.g., factorial, tree traversal)
+  | "mutual-recursive"  // Two functions calling each other (e.g., eval ↔ execute)
+  | "complex";          // Cycle involving 3+ functions (e.g., A → B → C → A)
+
+/**
  * Represents the complete symbol-level dependency graph for a single file.
  */
 export interface IntraFileGraph {
@@ -196,6 +208,8 @@ export interface IntraFileGraph {
   hasCycle: boolean;
   /** Optional list of node IDs involved in cycles */
   cycleNodes?: string[];
+  /** Type of cycle detected (helps distinguish intentional recursion from problematic cycles) */
+  cycleType?: CycleType;
 }
 
 /**
@@ -312,7 +326,8 @@ export type ExtensionToWebviewMessage =
   | EmptyStateMessage
   | SetExpandAllMessage
   | ExpansionProgressMessage
-  | UpdateFilterMessage;
+  | UpdateFilterMessage
+  | RefreshingMessage;
 export type WebviewToExtensionMessage =
   | OpenFileMessage
   | ExpandNodeMessage

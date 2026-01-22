@@ -359,6 +359,12 @@ const ReactFlowGraphContent: React.FC<ReactFlowGraphProps> = ({
   const { fitView } = useReactFlow();
   const nodesInitialized = useNodesInitialized();
   const containerRef = React.useRef<HTMLDivElement | null>(null);
+  
+  // T080: Track previous graph state for diffing
+  const prevGraphRef = React.useRef<{ nodeIds: Set<string>; edgeIds: Set<string> } | null>(null);
+  
+  // T081: Track loading/reanalyzing state
+  const [isReanalyzing, setIsReanalyzing] = React.useState(false);
   const nodeTypes = useMemo(
     () => Object.freeze({ file: FileNode, symbol: SymbolNode } as const),
     [],
@@ -498,11 +504,89 @@ const ReactFlowGraphContent: React.FC<ReactFlowGraphProps> = ({
   const [edges, setEdges, onEdgesChange] = useEdgesState(processedEdges);
 
   // Sync nodes/edges when graph recalculates
+  // T079-T080: Preserve expanded nodes and highlight changes
   useEffect(() => {
     log.debug("ReactFlowGraph: Syncing nodes/edges", {
       nodeCount: graph.nodes.length,
       edgeCount: processedEdges.length,
     });
+    
+    // T080: Graph diffing - detect changes
+    if (prevGraphRef.current) {
+      const prevNodeIds = prevGraphRef.current.nodeIds;
+      const newNodeIds = new Set(graph.nodes.map(n => n.id));
+      
+      const prevEdgeIds = prevGraphRef.current.edgeIds;
+      const newEdgeIds = new Set(processedEdges.map(e => `${e.source}-${e.target}`));
+      
+      // Find added nodes/edges
+      const addedNodeIds = new Set([...newNodeIds].filter(id => !prevNodeIds.has(id)));
+      const addedEdgeIds = new Set([...newEdgeIds].filter(id => !prevEdgeIds.has(id)));
+      
+      if (addedNodeIds.size > 0 || addedEdgeIds.size > 0) {
+        log.debug('ReactFlowGraph: Detected graph changes', {
+          addedNodes: addedNodeIds.size,
+          addedEdges: addedEdgeIds.size,
+        });
+        
+        // Apply highlighting to new nodes
+        const highlightedNodes = addedNodeIds.size > 0
+          ? graph.nodes.map(node => {
+              if (addedNodeIds.has(node.id)) {
+                return {
+                  ...node,
+                  style: {
+                    ...node.style,
+                    border: '2px solid #4AFF4A',
+                    boxShadow: '0 0 10px rgba(74, 255, 74, 0.5)',
+                  },
+                };
+              }
+              return node;
+            })
+          : graph.nodes;
+        
+        // Apply highlighting to new edges
+        const highlightedEdges = addedEdgeIds.size > 0
+          ? processedEdges.map(edge => {
+              const edgeId = `${edge.source}-${edge.target}`;
+              if (addedEdgeIds.has(edgeId)) {
+                return {
+                  ...edge,
+                  style: {
+                    ...edge.style,
+                    stroke: '#4AFF4A',
+                    strokeWidth: 2,
+                  },
+                  animated: true,
+                };
+              }
+              return edge;
+            })
+          : processedEdges;
+        
+        setNodes(highlightedNodes);
+        setEdges(highlightedEdges);
+        
+        // Clear highlights after 2 seconds
+        const timeoutId = setTimeout(() => {
+          log.debug('ReactFlowGraph: Clearing highlights');
+          setNodes(graph.nodes);
+          setEdges(processedEdges);
+        }, 2000);
+        
+        // Cleanup on unmount or new changes
+        return () => clearTimeout(timeoutId);
+      }
+    }
+    
+    // Update previous graph state for next comparison
+    prevGraphRef.current = {
+      nodeIds: new Set(graph.nodes.map(n => n.id)),
+      edgeIds: new Set(processedEdges.map(e => `${e.source}-${e.target}`)),
+    };
+    
+    // No highlights - just set directly
     setNodes(graph.nodes);
     setEdges(processedEdges);
   }, [graph.nodes, processedEdges, setNodes, setEdges]);
@@ -513,6 +597,26 @@ const ReactFlowGraphContent: React.FC<ReactFlowGraphProps> = ({
     nodeCount: nodes.length,
     fitView,
   });
+
+  // T081: Listen for refreshing and updateGraph messages
+  React.useEffect(() => {
+    const handleMessage = (event: MessageEvent) => {
+      const message = event.data;
+      
+      if (message.command === 'refreshing') {
+        log.debug('ReactFlowGraph: Received refreshing message');
+        setIsReanalyzing(true);
+      }
+      
+      if (message.command === 'updateGraph') {
+        log.debug('ReactFlowGraph: Received updateGraph message, clearing loading state');
+        setIsReanalyzing(false);
+      }
+    };
+    
+    window.addEventListener('message', handleMessage);
+    return () => window.removeEventListener('message', handleMessage);
+  }, []);
 
   // Store callback in ref to avoid re-render cascade (per copilot-instructions.md)
   const onNodeClickRef = React.useRef(onNodeClick);
@@ -548,6 +652,38 @@ const ReactFlowGraphContent: React.FC<ReactFlowGraphProps> = ({
         <Background />
         <Controls />
       </ReactFlow>
+      {/* T081: Loading indicator during re-analysis */}
+      {isReanalyzing && (
+        <div
+          style={{
+            position: 'absolute',
+            top: 10,
+            right: 10,
+            background: 'var(--vscode-editor-background)',
+            border: '1px solid var(--vscode-panel-border)',
+            padding: '8px 12px',
+            borderRadius: 4,
+            display: 'flex',
+            alignItems: 'center',
+            gap: 8,
+            fontSize: 12,
+            zIndex: 1000,
+            boxShadow: '0 2px 8px rgba(0,0,0,0.15)',
+          }}
+        >
+          <span
+            style={{
+              width: 12,
+              height: 12,
+              border: '2px solid var(--vscode-progressBar-background)',
+              borderTopColor: 'transparent',
+              borderRadius: '50%',
+              animation: 'gil-spin 0.8s linear infinite',
+            }}
+          />
+          <span style={{ color: 'var(--vscode-foreground)' }}>Updating...</span>
+        </div>
+      )}
       {expansionState && (
         <ExpansionOverlay state={expansionState} onCancel={onCancelExpand} />
       )}

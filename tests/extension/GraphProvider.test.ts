@@ -469,4 +469,213 @@ describe("GraphProvider", () => {
       }),
     );
   });
+
+  // T083: Unit tests for debounce logic (Phase 5 - Live Updates)
+  describe("File Save Debounce Logic", () => {
+    let provider: GraphProvider;
+    let extensionUri: vscode.Uri;
+    let mockContext: vscode.ExtensionContext;
+    let webview: any;
+
+    beforeEach(() => {
+      vi.useFakeTimers();
+      vi.clearAllMocks();
+
+      extensionUri = { fsPath: "/extension" } as vscode.Uri;
+      mockContext = {
+        extensionUri,
+        subscriptions: [],
+        workspaceState: {
+          get: vi.fn(),
+          update: vi.fn(),
+        },
+        globalState: {
+          get: vi.fn(),
+          update: vi.fn(),
+          setKeysForSync: vi.fn(),
+        },
+        secrets: {
+          get: vi.fn(),
+          store: vi.fn(),
+          delete: vi.fn(),
+          onDidChange: vi.fn(),
+        },
+        extensionMode: vscode.ExtensionMode.Test,
+        asAbsolutePath: vi.fn(),
+        storageUri: undefined,
+        globalStorageUri: {
+          fsPath: path.join(process.cwd(), ".test-storage"),
+        } as vscode.Uri,
+        logUri: undefined,
+        environmentVariableCollection: {} as any,
+      } as unknown as vscode.ExtensionContext;
+
+      provider = new GraphProvider(extensionUri, mockContext);
+
+      // Clear the periodic cleanup timer from UnusedAnalysisCache to avoid fake timer issues
+      const cache = (provider as any)._unusedAnalysisCache;
+      if (cache && cache.cleanupTimer) {
+        clearInterval(cache.cleanupTimer);
+        cache.cleanupTimer = undefined;
+      }
+
+      // Setup webview
+      webview = {
+        postMessage: vi.fn(),
+        asWebviewUri: vi.fn(),
+        options: {},
+        html: "",
+        onDidReceiveMessage: vi.fn(),
+        cspSource: "test-csp",
+      };
+      const view = {
+        webview,
+        onDidDispose: vi.fn(),
+      };
+      provider.resolveWebviewView(view as any, {} as any, {} as any);
+    });
+
+    afterEach(() => {
+      // Clean up provider's timers
+      const debounceTimer = (provider as any)._fileSaveDebounceTimer;
+      if (debounceTimer) {
+        clearTimeout(debounceTimer);
+      }
+      vi.clearAllTimers();
+      vi.useRealTimers();
+    });
+
+    it("should debounce file save events with 500ms delay", async () => {
+      const mainTsPath = np(path.join(testRootDir, "src", "main.ts"));
+      await (provider as any)["_stateManager"].setLastActiveFilePath(
+        mainTsPath,
+      );
+
+      // Mock document
+      const document = {
+        uri: { fsPath: mainTsPath, scheme: "file" },
+      };
+
+      // Spy on onFileSaved
+      const onFileSavedSpy = vi.spyOn(provider as any, "onFileSaved");
+      onFileSavedSpy.mockResolvedValue(undefined);
+
+      // Trigger file save
+      await (provider as any)._handleFileSave(document);
+
+      // Should not call onFileSaved immediately
+      expect(onFileSavedSpy).not.toHaveBeenCalled();
+
+      // Fast-forward 499ms (not yet triggered)
+      vi.advanceTimersByTime(499);
+      expect(onFileSavedSpy).not.toHaveBeenCalled();
+
+      // Fast-forward 1ms more (500ms total - should trigger)
+      vi.advanceTimersByTime(1);
+      await vi.runOnlyPendingTimersAsync();
+
+      expect(onFileSavedSpy).toHaveBeenCalledTimes(1);
+      expect(onFileSavedSpy).toHaveBeenCalledWith(mainTsPath);
+    });
+
+    it("should reset debounce timer on rapid edits", async () => {
+      const mainTsPath = np(path.join(testRootDir, "src", "main.ts"));
+      await (provider as any)["_stateManager"].setLastActiveFilePath(
+        mainTsPath,
+      );
+
+      const document = {
+        uri: { fsPath: mainTsPath, scheme: "file" },
+      };
+
+      const onFileSavedSpy = vi.spyOn(provider as any, "onFileSaved");
+      onFileSavedSpy.mockResolvedValue(undefined);
+
+      // First save
+      await (provider as any)._handleFileSave(document);
+      vi.advanceTimersByTime(300);
+
+      // Second save before 500ms (should reset timer)
+      await (provider as any)._handleFileSave(document);
+      vi.advanceTimersByTime(300);
+
+      // Third save before 500ms (should reset timer again)
+      await (provider as any)._handleFileSave(document);
+
+      // Should not have called yet
+      expect(onFileSavedSpy).not.toHaveBeenCalled();
+
+      // Fast-forward 500ms from last save
+      vi.advanceTimersByTime(500);
+      await vi.runOnlyPendingTimersAsync();
+
+      // Should only call once despite multiple saves
+      expect(onFileSavedSpy).toHaveBeenCalledTimes(1);
+    });
+
+    it("should skip refresh if saved file is not currently viewed", async () => {
+      const mainTsPath = np(path.join(testRootDir, "src", "main.ts"));
+      const otherFilePath = np(path.join(testRootDir, "src", "other.ts"));
+
+      // Set current file to main.ts
+      await (provider as any)["_stateManager"].setLastActiveFilePath(
+        mainTsPath,
+      );
+
+      // Save different file
+      const document = {
+        uri: { fsPath: otherFilePath, scheme: "file" },
+      };
+
+      const onFileSavedSpy = vi.spyOn(provider as any, "onFileSaved");
+
+      await (provider as any)._handleFileSave(document);
+      vi.advanceTimersByTime(500);
+      await vi.runOnlyPendingTimersAsync();
+
+      // Should NOT call onFileSaved for unrelated file
+      expect(onFileSavedSpy).not.toHaveBeenCalled();
+    });
+
+    it("should skip non-file scheme documents", async () => {
+      // Mock non-file document (e.g., git diff, output channel)
+      const document = {
+        uri: { fsPath: "output:extension-output", scheme: "output" },
+      };
+
+      const onFileSavedSpy = vi.spyOn(provider as any, "onFileSaved");
+
+      await (provider as any)._handleFileSave(document);
+      vi.advanceTimersByTime(500);
+      await vi.runOnlyPendingTimersAsync();
+
+      expect(onFileSavedSpy).not.toHaveBeenCalled();
+    });
+
+    it("should handle errors during refresh gracefully", async () => {
+      const mainTsPath = np(path.join(testRootDir, "src", "main.ts"));
+      await (provider as any)["_stateManager"].setLastActiveFilePath(
+        mainTsPath,
+      );
+
+      const document = {
+        uri: { fsPath: mainTsPath, scheme: "file" },
+      };
+
+      // Mock onFileSaved to throw error
+      const onFileSavedSpy = vi.spyOn(provider as any, "onFileSaved");
+      onFileSavedSpy.mockRejectedValue(new Error("Re-analysis failed"));
+
+      await (provider as any)._handleFileSave(document);
+      vi.advanceTimersByTime(500);
+      await vi.runOnlyPendingTimersAsync();
+
+      // Should have attempted to call onFileSaved
+      expect(onFileSavedSpy).toHaveBeenCalled();
+      // Error should be caught and logged (not thrown)
+      expect(webview.postMessage).not.toHaveBeenCalledWith(
+        expect.objectContaining({ command: "error" }),
+      );
+    });
+  });
 });

@@ -5,11 +5,11 @@ import type { IndexerStatusSnapshot } from "../analyzer/IndexerStatus";
 import { Spider } from "../analyzer/Spider";
 import { SUPPORTED_SOURCE_FILE_REGEX } from "../shared/constants";
 import type {
-  ExtensionToWebviewMessage,
-  SetExpandAllMessage,
-  SwitchModeMessage,
-  WebviewLogMessage,
-  WebviewToExtensionMessage,
+    ExtensionToWebviewMessage,
+    SetExpandAllMessage,
+    SwitchModeMessage,
+    WebviewLogMessage,
+    WebviewToExtensionMessage,
 } from "../shared/types";
 import { extensionLoggerManager, getExtensionLogger } from "./extensionLogger";
 import { BackgroundIndexingManager } from "./services/BackgroundIndexingManager";
@@ -19,8 +19,8 @@ import { FileChangeScheduler } from "./services/FileChangeScheduler";
 import { GraphViewService } from "./services/GraphViewService";
 import { NodeInteractionService } from "./services/NodeInteractionService";
 import {
-  ProviderConfigSnapshot,
-  ProviderStateManager,
+    ProviderConfigSnapshot,
+    ProviderStateManager,
 } from "./services/ProviderStateManager";
 import { SourceFileWatcher } from "./services/SourceFileWatcher";
 import { SymbolViewService } from "./services/SymbolViewService";
@@ -385,6 +385,12 @@ export class GraphProvider implements vscode.WebviewViewProvider {
     // T076: Debounce for 500ms to avoid excessive re-analysis during rapid edits
     this._fileSaveDebounceTimer = setTimeout(() => {
       log.debug(`Debounce complete, refreshing view for: ${filePath}`);
+      
+      // T081: Send refreshing message to show loading indicator
+      if (this._view) {
+        this._view.webview.postMessage({ command: 'refreshing' });
+      }
+      
       // T077-T078: Trigger re-analysis and refresh
       this.onFileSaved(filePath).catch((error: unknown) => {
         log.error(
@@ -692,7 +698,7 @@ export class GraphProvider implements vscode.WebviewViewProvider {
         command: "symbolGraph",
         filePath: rootNodeId,
         isRefresh,
-        graph: {
+        graph: symbolGraph.graph || {
           filePath: rootNodeId,
           nodes: [],
           edges: [],
