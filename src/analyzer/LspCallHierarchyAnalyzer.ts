@@ -202,14 +202,18 @@ export class LspCallHierarchyAnalyzer {
       const neighbors = adjacencyList.get(nodeId) || [];
       for (const neighbor of neighbors) {
         if (!visited.has(neighbor)) {
+          // Recurse but don't mark this node as part of the cycle
+          // Only nodes actually in the cycle should be marked
           if (dfs(neighbor)) {
-            cycleNodes.add(nodeId);
             return true;
           }
         } else if (recursionStack.has(neighbor)) {
-          // Cycle detected
-          cycleNodes.add(nodeId);
-          cycleNodes.add(neighbor);
+          // Cycle detected: mark all nodes in the recursion stack as part of the cycle
+          // This captures the entire cycle path (e.g., A→B→C→A marks all 3 nodes)
+          for (const stackNode of recursionStack) {
+            cycleNodes.add(stackNode);
+          }
+          cycleNodes.add(neighbor); // Also add the node that closes the cycle
           return true;
         }
       }

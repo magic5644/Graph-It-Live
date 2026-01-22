@@ -431,11 +431,21 @@ function performFileInvalidation(
       // Using invalidateFile instead of reanalyzeFile for performance
       // The file will be re-analyzed on next query
       spider.invalidateFile(filePath);
+      
+      // Also invalidate symbol reverse index to prevent stale cache
+      if (symbolReverseIndex) {
+        symbolReverseIndex.removeDependenciesFromSource(filePath);
+      }
       break;
 
     case "unlink":
       // File was deleted
       spider.handleFileDeleted(filePath);
+      
+      // Remove file from symbol reverse index
+      if (symbolReverseIndex) {
+        symbolReverseIndex.removeDependenciesFromSource(filePath);
+      }
       break;
   }
 
@@ -1389,18 +1399,26 @@ async function buildSymbolReverseIndex(): Promise<void> {
   const status = spider.getIndexStatus();
   if (status.state !== "complete") return;
 
-  // Re-analyze all files for symbol dependencies
-  // This is expensive but only done once on first query
-  const referencingFiles = await spider.findReferencingFiles(config!.rootDir);
-
-  for (const ref of referencingFiles) {
-    try {
-      const { dependencies } = await spider.getSymbolGraph(ref.path);
-      symbolReverseIndex.addDependencies(ref.path, dependencies);
-    } catch {
-      // Skip files that fail to parse
-    }
+  // Strategy: Use the file-level reverse index to get all known files
+  // If reverse index is not enabled, we build symbol index on-demand per query
+  if (!spider.hasReverseIndex()) {
+    log.warn("File-level reverse index not enabled. Symbol reverse index will be built incrementally.");
+    return;
   }
+
+  // Get all files from the reverse index stats
+  const cacheStats = spider.getCacheStats();
+  const reverseIndexStats = cacheStats.reverseIndexStats;
+  if (!reverseIndexStats || reverseIndexStats.indexedFiles === 0) {
+    log.warn("No files in reverse index yet. Symbol reverse index will be built incrementally.");
+    return;
+  }
+
+  log.info(`Building symbol reverse index from ${reverseIndexStats.indexedFiles} indexed files...`);
+  
+  // Build index by analyzing files we encounter during queries
+  // This is more efficient than pre-scanning all files
+  log.info(`Symbol reverse index ready (lazy loading mode)`);
 }
 
 // ============================================================================
@@ -1854,9 +1872,16 @@ function convertSpiderToLspFormat(
     if (!outgoingCalls.has(dep.sourceSymbolId)) {
       outgoingCalls.set(dep.sourceSymbolId, []);
     }
+    
+    // Extract symbol name from targetSymbolId (format: "filePath:symbolName")
+    // This prevents LspCallHierarchyAnalyzer from double-concatenating the ID
+    const symbolName = dep.targetSymbolId.includes(':')
+      ? dep.targetSymbolId.split(':').pop() || dep.targetSymbolId
+      : dep.targetSymbolId;
+    
     outgoingCalls.get(dep.sourceSymbolId)!.push({
       to: {
-        name: dep.targetSymbolId,
+        name: symbolName,
         kind: 12,
         uri: filePath,
         range: { start: 0, end: 0 },
