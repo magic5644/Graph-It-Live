@@ -361,7 +361,7 @@ const ReactFlowGraphContent: React.FC<ReactFlowGraphProps> = ({
   const containerRef = React.useRef<HTMLDivElement | null>(null);
   
   // T080: Track previous graph state for diffing
-  const prevGraphRef = React.useRef<{ nodeIds: Set<string>; edgeIds: Set<string> } | null>(null);
+  const prevGraphRef = React.useRef<{ nodeIds: Set<string>; edgeIds: Set<string>; mode?: string } | null>(null);
   
   // T081: Track loading/reanalyzing state
   const [isReanalyzing, setIsReanalyzing] = React.useState(false);
@@ -519,11 +519,25 @@ const ReactFlowGraphContent: React.FC<ReactFlowGraphProps> = ({
       const prevEdgeIds = prevGraphRef.current.edgeIds;
       const newEdgeIds = new Set(processedEdges.map(e => `${e.source}-${e.target}`));
       
+      // Detect mode change (file ↔ symbol)
+      const prevMode = prevGraphRef.current.mode;
+      const currentMode = mode || 'file';
+      const modeChanged = prevMode && prevMode !== currentMode;
+      
       // Find added nodes/edges
       const addedNodeIds = new Set([...newNodeIds].filter(id => !prevNodeIds.has(id)));
       const addedEdgeIds = new Set([...newEdgeIds].filter(id => !prevEdgeIds.has(id)));
       
-      if (addedNodeIds.size > 0 || addedEdgeIds.size > 0) {
+      // Only highlight if changes are incremental (< 50% of graph)
+      // Avoid highlighting on:
+      // - Full graph refresh or navigation
+      // - Mode changes (file ↔ symbol view)
+      const isIncrementalChange = 
+        !modeChanged &&
+        addedNodeIds.size > 0 && 
+        addedNodeIds.size < newNodeIds.size * 0.5;
+      
+      if (isIncrementalChange || (addedEdgeIds.size > 0 && !modeChanged)) {
         log.debug('ReactFlowGraph: Detected graph changes', {
           addedNodes: addedNodeIds.size,
           addedEdges: addedEdgeIds.size,
@@ -575,6 +589,13 @@ const ReactFlowGraphContent: React.FC<ReactFlowGraphProps> = ({
           setEdges(processedEdges);
         }, 2000);
         
+        // Update previous graph state for next comparison
+        prevGraphRef.current = {
+          nodeIds: newNodeIds,
+          edgeIds: newEdgeIds,
+          mode: mode || 'file',
+        };
+        
         // Cleanup on unmount or new changes
         return () => clearTimeout(timeoutId);
       }
@@ -584,9 +605,10 @@ const ReactFlowGraphContent: React.FC<ReactFlowGraphProps> = ({
     prevGraphRef.current = {
       nodeIds: new Set(graph.nodes.map(n => n.id)),
       edgeIds: new Set(processedEdges.map(e => `${e.source}-${e.target}`)),
+      mode: mode || 'file',
     };
     
-    // No highlights - just set directly
+    // No highlights - just set directly (only if no previous graph or no changes detected)
     setNodes(graph.nodes);
     setEdges(processedEdges);
   }, [graph.nodes, processedEdges, setNodes, setEdges]);

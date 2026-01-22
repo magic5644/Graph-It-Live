@@ -1,13 +1,13 @@
 import type { Edge, Node } from "reactflow";
 import { getLogger } from "../../../shared/logger";
 import type {
-  GraphData,
-  SymbolDependency,
-  SymbolInfo,
+    GraphData,
+    SymbolDependency,
+    SymbolInfo,
 } from "../../../shared/types";
 import {
-  createEdgeStyle as createEdgeStyleUtil,
-  nodeHeight,
+    createEdgeStyle as createEdgeStyleUtil,
+    nodeHeight,
 } from "../../utils/nodeUtils";
 import { normalizePath } from "../../utils/path";
 import type { FileNodeData } from "./FileNode";
@@ -444,6 +444,33 @@ export function buildReactFlowGraph(params: {
           onExpandRequest: () => callbacks.onExpandRequest(path),
         } as SymbolNodeData;
       }
+      
+      // External symbol (imported from another file) - infer category from context
+      // These are typically method/function calls from services or dependencies
+      const inferredCategory = (() => {
+        // If label contains '.', it's likely a method call
+        if (label.includes('.')) return 'method';
+        // If label starts with uppercase, likely a class/constructor
+        if (label[0] && label[0] === label[0].toUpperCase()) return 'class';
+        // Default to function for external symbols
+        return 'function';
+      })();
+      
+      return {
+        label,
+        fullPath: path,
+        kind: 'Unknown',
+        category: inferredCategory,
+        line: 0,
+        isExported: false,
+        isRoot: false,
+        onDrillDown: () => callbacks.onDrillDown(path),
+        // Expansion props
+        hasChildren: (children.get(path) || []).length > 0,
+        isExpanded: expandedNodes.has(path),
+        onToggle: () => callbacks.onToggle(path),
+        onExpandRequest: () => callbacks.onExpandRequest(path),
+      } as SymbolNodeData;
     }
 
     const parentCountRaw = data.parentCounts?.[path];

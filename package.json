@@ -371,11 +371,11 @@
     "publish": "vsce publish"
   },
   "dependencies": {
+    "@dagrejs/dagre": "^1.1.8",
     "@modelcontextprotocol/sdk": "^1.25.3",
     "@types/dagre": "^0.7.53",
     "chokidar": "^5.0.0",
-    "dagre": "^0.8.5",
-    "hono": "^4.11.4",
+    "hono": "^4.11.5",
     "react": "^19.2.3",
     "react-dom": "^19.2.3",
     "reactflow": "^11.11.4",
@@ -389,7 +389,7 @@
     "@eslint/js": "^9.39.2",
     "@playwright/test": "^1.57.0",
     "@types/mocha": "^10.0.10",
-    "@types/node": "^25.0.9",
+    "@types/node": "^25.0.10",
     "@types/react": "^19.2.9",
     "@types/react-dom": "^19.2.3",
     "@types/vscode": "^1.96.0",
@@ -402,10 +402,13 @@
     "eslint": "^9.39.2",
     "glob": "^13.0.0",
     "globals": "^16.5.0",
-    "mocha": "^11.7.5",
+    "mocha": "^11.3.0",
     "playwright": "^1.57.0",
     "typescript": "^5.9.3",
     "typescript-eslint": "^8.53.0",
     "vitest": "^4.0.17"
+  },
+  "overrides": {
+    "picomatch": "^4.0.3"
   }
 }

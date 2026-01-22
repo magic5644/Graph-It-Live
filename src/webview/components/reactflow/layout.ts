@@ -1,7 +1,7 @@
-import dagre from 'dagre';
+import dagre from '@dagrejs/dagre';
 import type { Edge, Node } from 'reactflow';
 import { Position } from 'reactflow';
-import { nodeHeight, minNodeWidth, maxNodeWidth, charWidth } from '../../utils/nodeUtils';
+import { charWidth, maxNodeWidth, minNodeWidth, nodeHeight } from '../../utils/nodeUtils';
 import { normalizePath } from '../../utils/path';
 
 export function calculateNodeWidth(label: string): number {

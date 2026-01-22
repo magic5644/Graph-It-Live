@@ -3,8 +3,8 @@
  * These are extracted from useGraphData for testability
  */
 
-import { Node, Edge, Position } from 'reactflow';
-import dagre from 'dagre';
+import dagre from '@dagrejs/dagre';
+import { Edge, Node, Position } from 'reactflow';
 import { GraphData } from '../../shared/types';
 
 export const nodeWidth = 180;
