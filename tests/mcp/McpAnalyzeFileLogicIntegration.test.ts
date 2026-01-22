@@ -19,6 +19,8 @@ import type {
     AnalyzeFileLogicParams,
     AnalyzeFileLogicResult,
 } from "../../src/mcp/types";
+import { SUPPORTED_SYMBOL_ANALYSIS_EXTENSIONS } from "../../src/shared/constants";
+import { detectLanguageFromExtension } from "../../src/shared/utils/languageDetection";
 
 describe("MCP analyze_file_logic Integration Tests (T070-T074)", () => {
   let mcpWorker: McpWorkerHost;
@@ -221,16 +223,15 @@ class Calculator:
     });
 
     it("should accept .ts, .tsx, .js, .jsx, .py, .rs extensions", async () => {
-      const supportedExtensions = [".ts", ".tsx", ".js", ".jsx", ".py", ".rs"];
-
-      for (const ext of supportedExtensions) {
+      for (const ext of SUPPORTED_SYMBOL_ANALYSIS_EXTENSIONS) {
         const file = path.join(tempDir, `test${ext}`);
 
         // Create minimal valid content for each extension
+        const language = detectLanguageFromExtension(ext);
         let content: string;
-        if (ext === ".py") {
-          content = "def test():\n    pass\n";
-        } else if (ext === ".rs") {
+        if (language === "python") {
+          content = "def test(): pass";
+        } else if (language === "rust") {
           content = "fn test() {}\n";
         } else {
           content = "function test() {}\n";

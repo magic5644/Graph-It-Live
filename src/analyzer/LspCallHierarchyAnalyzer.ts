@@ -114,11 +114,14 @@ export class LspCallHierarchyAnalyzer {
     return lspSymbols.map((symbol) => {
       const symbolId = this.generateSymbolId(filePath, symbol.name);
       const symbolType = this.mapKindToType(symbol.kind);
+      
+      // T089: Generate contextual names for anonymous functions
+      const contextualName = this.generateContextualName(symbol);
 
       return {
         id: symbolId,
-        name: symbol.name,
-        originalName: undefined, // Will be set for anonymous functions in Phase 8
+        name: contextualName || symbol.name,
+        originalName: contextualName ? symbol.name : undefined,
         kind: symbol.kind,
         type: symbolType,
         range: symbol.range,
@@ -315,5 +318,58 @@ export class LspCallHierarchyAnalyzer {
     // Heuristic: Top-level symbols (no container) are likely exported
     // This will be refined in implementation with actual LSP data
     return !symbol.containerName;
+  }
+
+  /**
+   * T089: Generate contextual names for anonymous functions
+   * Detects arrow functions and callbacks based on naming patterns
+   * 
+   * Examples:
+   * - "(anonymous)" in "map" container → "map callback"
+   * - "(anonymous)" in "filter" container → "filter predicate"
+   * - "(anonymous)" in "onClick" container → "onClick handler"
+   * - "(anonymous)" in "setTimeout" container → "setTimeout callback"
+   */
+  private generateContextualName(symbol: LspSymbol): string | undefined {
+    const name = symbol.name.toLowerCase();
+    const container = symbol.containerName?.toLowerCase() || '';
+
+    // Skip if not an anonymous function pattern
+    if (!name.includes('anonymous') && !name.includes('arrow') && !name.includes('<function>')) {
+      return undefined;
+    }
+
+    // Array method callbacks
+    if (container.includes('map')) return 'map callback';
+    if (container.includes('filter')) return 'filter predicate';
+    if (container.includes('reduce')) return 'reduce callback';
+    if (container.includes('foreach')) return 'forEach callback';
+    if (container.includes('find')) return 'find predicate';
+    if (container.includes('some') || container.includes('every')) return 'predicate callback';
+    if (container.includes('sort')) return 'sort comparator';
+
+    // Event handlers
+    if (container.includes('onclick')) return 'onClick handler';
+    if (container.includes('onsubmit')) return 'onSubmit handler';
+    if (container.includes('onchange')) return 'onChange handler';
+    if (container.includes('onload')) return 'onLoad handler';
+    if (container.match(/on[a-z]+/)) return `${container} handler`;
+
+    // Promise chains
+    if (container.includes('then')) return 'then callback';
+    if (container.includes('catch')) return 'catch handler';
+    if (container.includes('finally')) return 'finally callback';
+
+    // Timers
+    if (container.includes('settimeout')) return 'setTimeout callback';
+    if (container.includes('setinterval')) return 'setInterval callback';
+    if (container.includes('requestanimationframe')) return 'animation frame callback';
+
+    // Generic callback pattern
+    if (container.includes('callback')) return 'callback function';
+    if (container.includes('handler')) return 'handler function';
+
+    // Default: keep original name
+    return undefined;
   }
 }

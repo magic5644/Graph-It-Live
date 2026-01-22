@@ -12,8 +12,8 @@ import * as nodePath from "node:path";
 import { z } from "zod/v4";
 import type { Dependency } from "../analyzer/types";
 import {
-  getRelativePath as _getRelativePath,
-  normalizePathForComparison as _normalizePathForComparison,
+    getRelativePath as _getRelativePath,
+    normalizePathForComparison as _normalizePathForComparison,
 } from "../shared/path";
 
 // ============================================================================
@@ -1277,6 +1277,10 @@ export interface AnalyzeFileLogicResult {
   };
   /** Human-readable summary */
   summary: string;
+  /** T065: Flag indicating if results are partial due to timeout or errors */
+  isPartial?: boolean;
+  /** T065: List of warnings encountered during analysis */
+  warnings?: string[];
 }
 
 // ============================================================================

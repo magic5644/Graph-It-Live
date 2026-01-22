@@ -145,6 +145,9 @@ export class SymbolViewService {
     rootNodeId: string,
     options: SymbolGraphOptions = {},
   ): Promise<SymbolGraphResult> {
+    // T094: Log symbol analysis start
+    this.logger.debug(`Building symbol graph for: ${resolvedFilePath}`);
+    
     const opts = { ...DEFAULT_SYMBOL_GRAPH_OPTIONS, ...options };
 
     // Step 1: Get AST-based symbol data (always)
@@ -153,11 +156,19 @@ export class SymbolViewService {
       await this.spider.findReferencingFiles(resolvedFilePath);
     const referencingFiles = referencingDependency.map((d) => d.path);
 
+    // T094: Log AST analysis results
+    this.logger.debug(
+      `AST analysis complete: ${symbolData.symbols.length} symbols, ${symbolData.dependencies.length} dependencies`,
+    );
+
     // Build base payload from AST analysis
     const payload = this.buildPayload(symbolData, resolvedFilePath, rootNodeId);
 
     // Step 2: If call hierarchy is enabled, enrich with LSP data
     if (opts.includeCallHierarchy) {
+      // T094: Log LSP enrichment attempt
+      this.logger.debug('Attempting LSP call hierarchy enrichment');
+      
       const enrichedResult = await this.tryEnrichWithLsp(
         payload,
         symbolData,
@@ -167,8 +178,15 @@ export class SymbolViewService {
         opts as SymbolGraphOptions & { includeCallHierarchy: true },
       );
       if (enrichedResult) {
+        // T094: Log successful LSP enrichment
+        this.logger.debug(
+          `LSP enrichment successful: ${enrichedResult.metadata?.callEdgesCount ?? 0} call edges added`,
+        );
         return enrichedResult;
       }
+      
+      // T094: Log fallback to AST-only
+      this.logger.debug('LSP unavailable, using AST-only analysis');
     }
 
     // Return AST-only result
@@ -191,6 +209,7 @@ export class SymbolViewService {
     referencingFiles: string[],
     opts: SymbolGraphOptions & { includeCallHierarchy: true },
   ): Promise<SymbolGraphResult | null> {
+    // T093: Comprehensive error handling for LSP operations
     try {
       const lspService = await this.getLspService();
       if (!lspService) {
@@ -201,28 +220,58 @@ export class SymbolViewService {
       }
 
       const uri = { fsPath: resolvedFilePath };
-      const isAvailable = await lspService.isCallHierarchyAvailable(uri);
+      
+      // T093: Handle LSP availability check failures
+      let isAvailable: boolean;
+      try {
+        isAvailable = await lspService.isCallHierarchyAvailable(uri);
+      } catch (availError) {
+        this.logger.warn(
+          `Failed to check LSP availability for ${resolvedFilePath}: ${availError instanceof Error ? availError.message : String(availError)}`,
+        );
+        return null;
+      }
 
       if (!isAvailable) {
         this.logger.debug("LSP call hierarchy not available for this file");
         return null;
       }
 
-      const callGraph = await lspService.buildIntraFileCallGraph(uri, {
-        maxFileLines: opts.maxFileLines,
-        ...opts.callHierarchyOptions,
-      });
+      // T093: Handle call graph build failures with detailed errors
+      let callGraph: IntraFileCallGraph | undefined;
+      try {
+        callGraph = await lspService.buildIntraFileCallGraph(uri, {
+          maxFileLines: opts.maxFileLines,
+          ...opts.callHierarchyOptions,
+        });
+      } catch (buildError) {
+        this.logger.warn(
+          `Failed to build call graph for ${resolvedFilePath}: ${buildError instanceof Error ? buildError.message : String(buildError)}`,
+        );
+        return null;
+      }
 
-      return this.processCallGraph(
-        callGraph,
-        payload,
-        symbolData,
-        resolvedFilePath,
-        rootNodeId,
-        referencingFiles,
-      );
+      // T093: Handle graph processing failures
+      try {
+        return this.processCallGraph(
+          callGraph,
+          payload,
+          symbolData,
+          resolvedFilePath,
+          rootNodeId,
+          referencingFiles,
+        );
+      } catch (processError) {
+        this.logger.warn(
+          `Failed to process call graph for ${resolvedFilePath}: ${processError instanceof Error ? processError.message : String(processError)}`,
+        );
+        return null;
+      }
     } catch (error) {
-      this.logger.warn("Failed to get LSP call hierarchy:", String(error));
+      // T093: Top-level error handler for unexpected failures
+      this.logger.warn(
+        `Unexpected error during LSP enrichment for ${resolvedFilePath}: ${error instanceof Error ? error.message : String(error)}`,
+      );
       return null;
     }
   }

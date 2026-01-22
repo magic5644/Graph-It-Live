@@ -21,6 +21,7 @@ import { PathResolver } from "../analyzer/utils/PathResolver";
 import {
   IGNORED_DIRECTORIES,
   SUPPORTED_FILE_EXTENSIONS,
+  SUPPORTED_SYMBOL_ANALYSIS_EXTENSIONS,
 } from "../shared/constants";
 import {
   getLogger,
@@ -30,6 +31,7 @@ import {
   StderrLogger,
 } from "../shared/logger";
 import type { IntraFileGraph } from "../shared/types";
+import { detectLanguageFromExtension } from "../shared/utils/languageDetection";
 import type {
   AnalyzeBreakingChangesParams,
   AnalyzeBreakingChangesResult,
@@ -1764,38 +1766,45 @@ async function executeAnalyzeFileLogic(
   graph: IntraFileGraph;
   language: string;
   analysisTimeMs: number;
+  isPartial?: boolean;
+  warnings?: string[];
 }> {
   const { filePath } = params;
   // Note: includeExternal will be used in T066 when integrating LSP call hierarchy
 
-  // Validate file exists
-  await validateFileExists(filePath);
-
-  // Validate supported extension
-  const ext = path.extname(filePath).toLowerCase();
-  const supportedExts = [".ts", ".tsx", ".js", ".jsx", ".py", ".rs"];
-  if (!supportedExts.includes(ext)) {
+  // T064: Enhanced input validation - Absolute path check
+  if (!path.isAbsolute(filePath)) {
     throw new Error(
-      `UNSUPPORTED_FILE_TYPE: File extension '${ext}' not supported. ` +
-        `Supported: ${supportedExts.join(", ")}`,
+      `FILE_NOT_FOUND: Path must be absolute. Got relative path: ${filePath}`,
     );
   }
 
-  // Detect language
-  let language: string;
-  if (ext === ".ts" || ext === ".tsx") {
-    language = "typescript";
-  } else if (ext === ".js" || ext === ".jsx") {
-    language = "javascript";
-  } else if (ext === ".py") {
-    language = "python";
-  } else if (ext === ".rs") {
-    language = "rust";
-  } else {
-    language = "unknown";
+  // T064: Validate file exists
+  try {
+    await validateFileExists(filePath);
+  } catch (error) {
+    const errorMessage = error instanceof Error ? error.message : String(error);
+    throw new Error(
+      `FILE_NOT_FOUND: Cannot access file '${filePath}'. ${errorMessage}`,
+    );
   }
 
+  // T064: Validate supported extension
+  const ext = path.extname(filePath).toLowerCase();
+  if (!SUPPORTED_SYMBOL_ANALYSIS_EXTENSIONS.includes(ext)) {
+    throw new Error(
+      `UNSUPPORTED_FILE_TYPE: File extension '${ext}' is not supported for symbol analysis. ` +
+        `Supported extensions: ${SUPPORTED_SYMBOL_ANALYSIS_EXTENSIONS.join(", ")}. ` +
+        `File: ${filePath}`,
+    );
+  }
+
+  // Detect language using shared utility
+  const language = detectLanguageFromExtension(ext);
+
   const startTime = Date.now();
+  const isPartial = false;
+  const warnings: string[] = [];
 
   try {
     // Get symbol graph data using Spider's AST-based analysis
@@ -1871,21 +1880,51 @@ async function executeAnalyzeFileLogic(
       `Analyzed file logic for ${filePath} in ${analysisTimeMs}ms (${graph.nodes.length} symbols, ${graph.edges.length} edges)`,
     );
 
-    return {
+    // T065: Return with optional partial results flag
+    const result: {
+      filePath: string;
+      graph: IntraFileGraph;
+      language: string;
+      analysisTimeMs: number;
+      isPartial?: boolean;
+      warnings?: string[];
+    } = {
       filePath,
       graph,
       language,
       analysisTimeMs,
     };
+
+    if (isPartial) {
+      result.isPartial = true;
+    }
+
+    if (warnings.length > 0) {
+      result.warnings = warnings;
+    }
+
+    return result;
   } catch (error) {
     const errorMessage = error instanceof Error ? error.message : String(error);
 
+    // T065: Enhanced error code mapping
     // Check for timeout errors
-    if (errorMessage.includes("timeout")) {
-      throw new Error(`ANALYSIS_TIMEOUT: Analysis timed out for ${filePath}`);
+    if (errorMessage.includes("timeout") || errorMessage.includes("timed out")) {
+      throw new Error(`LSP_TIMEOUT: LSP call hierarchy analysis timed out for ${filePath} (exceeded 5 seconds)`);
     }
 
-    throw new Error(`ANALYSIS_FAILED: ${errorMessage}`);
+    // Check for LSP availability errors
+    if (errorMessage.includes("LSP") || errorMessage.includes("language server")) {
+      throw new Error(`LSP_UNAVAILABLE: Language server protocol is not available for ${filePath}. ${errorMessage}`);
+    }
+
+    // Check for file system errors
+    if (errorMessage.includes("ENOENT") || errorMessage.includes("no such file")) {
+      throw new Error(`FILE_NOT_FOUND: File does not exist: ${filePath}`);
+    }
+
+    // Generic analysis failure
+    throw new Error(`ANALYSIS_FAILED: Symbol analysis failed for ${filePath}. ${errorMessage}`);
   }
 }
 

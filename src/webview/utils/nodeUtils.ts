@@ -5,6 +5,7 @@
 
 import dagre from '@dagrejs/dagre';
 import { Edge, Node, Position } from 'reactflow';
+import { EXTENSION_COLORS } from '../../shared/constants';
 import { GraphData } from '../../shared/types';
 
 export const nodeWidth = 180;
@@ -95,19 +96,8 @@ export function getNodeStyle(
         shape: 'rect',
     };
 
-    // File type specific borders
-    const borderColors: Record<string, string> = {
-        '.ts': '#3178c6',     // TS Blue
-        '.tsx': '#3178c6',    // TS Blue
-        '.js': '#f7df1e',     // JS Yellow
-        '.jsx': '#f7df1e',    // JS Yellow
-        '.vue': '#41b883',    // Vue Green
-        '.svelte': '#ff3e00', // Svelte Orange
-        '.gql': '#e535ab',    // GraphQL Pink
-        '.graphql': '#e535ab', // GraphQL Pink
-    };
-
-    for (const [ext, color] of Object.entries(borderColors)) {
+    // File type specific borders using shared color constants
+    for (const [ext, color] of Object.entries(EXTENSION_COLORS)) {
         if (fileName.endsWith(ext)) {
             return { ...baseStyle, border: `1px solid ${color}` };
         }

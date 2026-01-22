@@ -1,5 +1,6 @@
 import React from 'react';
 import { Handle, Position, type NodeProps } from 'reactflow';
+import { EXTENSION_COLORS, LANGUAGE_COLORS } from '../../../shared/constants';
 import { actionButtonSize, cycleIndicatorSize } from '../../utils/nodeUtils';
 import { LanguageIcon } from './LanguageIcon';
 
@@ -21,28 +22,13 @@ export interface FileNodeData {
   onExpandRequest: () => void;
 }
 
-// File type specific border colors
-const FILE_TYPE_COLORS: Record<string, string> = {
-  '.ts': '#3178c6',
-  '.tsx': '#3178c6',
-  '.js': '#f7df1e',
-  '.jsx': '#f7df1e',
-  '.vue': '#41b883',
-  '.svelte': '#ff3e00',
-  '.gql': '#e535ab',
-  '.graphql': '#e535ab',
-  '.py': '#3776ab',      // Python blue
-  '.pyi': '#3776ab',     // Python interface files
-  '.rs': '#ce422b',      // Rust orange
-  '.toml': '#9c4221',    // TOML brown
-};
-
-const EXTERNAL_PACKAGE_COLOR = '#6b6b6b';
+// Use shared extension colors from constants
+const EXTERNAL_PACKAGE_COLOR = LANGUAGE_COLORS.unknown;
 
 function isExternalPackage(path: string): boolean {
   if (!path) return false;
 
-  for (const ext of Object.keys(FILE_TYPE_COLORS)) {
+  for (const ext of Object.keys(EXTENSION_COLORS)) {
     if (path.endsWith(ext)) return false;
   }
 
@@ -61,7 +47,7 @@ function getFileBorderColor(label: string, fullPath: string): string {
   if (isExternalPackage(fullPath || label)) {
     return EXTERNAL_PACKAGE_COLOR;
   }
-  for (const [ext, color] of Object.entries(FILE_TYPE_COLORS)) {
+  for (const [ext, color] of Object.entries(EXTENSION_COLORS)) {
     if (label.endsWith(ext)) return color;
   }
   return EXTERNAL_PACKAGE_COLOR;
@@ -251,4 +237,3 @@ export const FileNode: React.FC<NodeProps> = ({ data }: NodeProps<FileNodeData>)
     </div>
   );
 };
-

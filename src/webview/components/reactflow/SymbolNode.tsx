@@ -10,6 +10,7 @@ export interface SymbolNodeData {
     line: number;
     isExported: boolean;
     isRoot: boolean;
+    isExternal?: boolean; // T090: External symbols from other files (imports)
     onDrillDown: () => void;
     // Expansion props
     hasChildren?: boolean;
@@ -24,6 +25,11 @@ export const SymbolNode: React.FC<NodeProps<SymbolNodeData>> = ({ data }) => {
     const style = getSymbolStyle(data.category);
     const icon = CATEGORY_ICONS[data.category] || '?';
 
+    // T090: Apply dimming style for external references (FR-022)
+    const isExternal = data.isExternal ?? false;
+    const opacity = isExternal ? 0.5 : 1.0;
+    const borderStyle = isExternal ? 'dashed' : 'solid';
+
     return (
         <div
             style={{
@@ -32,14 +38,15 @@ export const SymbolNode: React.FC<NodeProps<SymbolNodeData>> = ({ data }) => {
                 height: 40,
                 borderRadius: '50%',
                 background: data.isRoot ? style.bg : 'var(--vscode-editor-background)',
-                border: `2px solid ${style.border}`,
+                border: `2px ${borderStyle} ${style.border}`,
                 display: 'flex',
                 alignItems: 'center',
                 justifyContent: 'center',
                 boxShadow: data.isRoot ? '0 0 10px rgba(0,0,0,0.2)' : 'none',
                 cursor: 'pointer',
+                opacity,
             }}
-            title={`${data.kind}: ${data.label} (Line ${data.line})`}
+            title={`${data.kind}: ${data.label} (Line ${data.line})${isExternal ? ' [External]' : ''}`}
         >
             <Handle type="target" position={Position.Left} style={{ visibility: 'hidden' }} />
 
@@ -66,6 +73,8 @@ export const SymbolNode: React.FC<NodeProps<SymbolNodeData>> = ({ data }) => {
                 border: '1px solid var(--vscode-widget-border)',
                 zIndex: 10,
                 pointerEvents: 'none',
+                fontStyle: isExternal ? 'italic' : 'normal',
+                opacity,
             }}>
                 {data.label}
             </div>

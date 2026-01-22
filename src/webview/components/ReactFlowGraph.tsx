@@ -873,7 +873,8 @@ const ReactFlowGraphContent: React.FC<ReactFlowGraphProps> = ({
                   fontSize: 12,
                   cursor: "pointer",
                   appearance: "none",
-                  height: 28,
+                  display: "flex",
+                  alignItems: "center",
                 }}
                 defaultValue="hierarchical"
               >

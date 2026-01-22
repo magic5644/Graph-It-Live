@@ -625,6 +625,80 @@ export function add(a: number, b: number): number {
   await new Promise(r => setTimeout(r, 500));
 
   // =========================================================================
+  // 24. graphitlive_analyze_file_logic - TypeScript file with TOON format
+  // =========================================================================
+  log('\n📤 [graphitlive_analyze_file_logic] Analyzing TypeScript file (TOON format)...');
+  send({
+    jsonrpc: '2.0',
+    id: ++id,
+    method: 'tools/call',
+    params: {
+      name: 'graphitlive_analyze_file_logic',
+      arguments: {
+        filePath: utilsPath,
+        includeExternal: false,
+        response_format: 'toon'
+      }
+    }
+  });
+  await new Promise(r => setTimeout(r, 500));
+
+  // =========================================================================
+  // 25. graphitlive_analyze_file_logic - TypeScript file with JSON format
+  // =========================================================================
+  log('\n📤 [graphitlive_analyze_file_logic] Analyzing TypeScript file (JSON format)...');
+  send({
+    jsonrpc: '2.0',
+    id: ++id,
+    method: 'tools/call',
+    params: {
+      name: 'graphitlive_analyze_file_logic',
+      arguments: {
+        filePath: path.join(fixturesPath, 'main.ts'),
+        includeExternal: true,
+        response_format: 'json'
+      }
+    }
+  });
+  await new Promise(r => setTimeout(r, 500));
+
+  // =========================================================================
+  // 26. Error case: graphitlive_analyze_file_logic with unsupported file type
+  // =========================================================================
+  log('\n📤 [graphitlive_analyze_file_logic] Testing error case: unsupported file type...');
+  send({
+    jsonrpc: '2.0',
+    id: ++id,
+    method: 'tools/call',
+    params: {
+      name: 'graphitlive_analyze_file_logic',
+      arguments: {
+        filePath: path.join(rootDir, 'README.md'),
+        response_format: 'json'
+      }
+    }
+  });
+  await new Promise(r => setTimeout(r, 500));
+
+  // =========================================================================
+  // 27. Error case: graphitlive_analyze_file_logic with non-existent file
+  // =========================================================================
+  log('\n📤 [graphitlive_analyze_file_logic] Testing error case: non-existent file...');
+  send({
+    jsonrpc: '2.0',
+    id: ++id,
+    method: 'tools/call',
+    params: {
+      name: 'graphitlive_analyze_file_logic',
+      arguments: {
+        filePath: '/non/existent/file-logic.ts',
+        response_format: 'json'
+      }
+    }
+  });
+  await new Promise(r => setTimeout(r, 500));
+
+  // =========================================================================
   // BENCHMARK: JSON vs TOON Format Comparison
   // =========================================================================
   log('\n📊 ============================================');
