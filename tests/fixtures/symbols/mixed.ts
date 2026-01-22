@@ -12,7 +12,7 @@ export const APP_VERSION = '1.0.0';
 
 // Function - blue color (#4A9EFF)
 export function initializeApp(): void {
-  const service = new UserService(); // Instantiate class
+  const _service = new UserService(); // Instantiate class
   const version = APP_VERSION; // Use variable
   console.log(`App ${version} initialized`);
 }

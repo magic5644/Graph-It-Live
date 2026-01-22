@@ -552,12 +552,12 @@ describe("McpWorker - analyze_file_logic validation and errors (T064-T065)", () 
 
     it("should detect TypeScript language correctly", () => {
       const testCases = [
-        { ext: ".ts", expected: "typescript" },
-        { ext: ".tsx", expected: "typescript" },
-        { ext: ".js", expected: "javascript" },
-        { ext: ".jsx", expected: "javascript" },
-        { ext: ".py", expected: "python" },
-        { ext: ".rs", expected: "rust" },
+        { ext: ".ts" as const, expected: "typescript" },
+        { ext: ".tsx" as const, expected: "typescript" },
+        { ext: ".js" as const, expected: "javascript" },
+        { ext: ".jsx" as const, expected: "javascript" },
+        { ext: ".py" as const, expected: "python" },
+        { ext: ".rs" as const, expected: "rust" },
       ];
 
       for (const { ext, expected } of testCases) {
@@ -579,7 +579,7 @@ describe("McpWorker - analyze_file_logic validation and errors (T064-T065)", () 
       const unsupportedFile = path.join(tempDir, "test.txt");
       const ext = path.extname(unsupportedFile).toLowerCase();
 
-      expect(SUPPORTED_SYMBOL_ANALYSIS_EXTENSIONS.includes(ext)).toBe(false);
+      expect(SUPPORTED_SYMBOL_ANALYSIS_EXTENSIONS.includes(ext as typeof SUPPORTED_SYMBOL_ANALYSIS_EXTENSIONS[number])).toBe(false);
     });
 
     it("should map error messages to correct error codes", () => {
@@ -654,10 +654,6 @@ describe("McpWorker - analyze_file_logic validation and errors (T064-T065)", () 
         ],
         hasCycle: false,
       };
-
-      // Expected TOON format for nodes
-      const expectedToonPattern = /nodes\(id,name,symbolType,line,isExported\)/;
-      const expectedDataPattern = /\[fn1,calculate,Function,10,true\]/;
 
       // Verify structure matches TOON requirements
       expect(graph.nodes.length).toBe(3);

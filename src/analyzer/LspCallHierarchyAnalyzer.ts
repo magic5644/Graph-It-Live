@@ -321,6 +321,61 @@ export class LspCallHierarchyAnalyzer {
   }
 
   /**
+   * Check for array method callbacks (map, filter, reduce, etc.)
+   */
+  private getArrayMethodCallbackName(container: string): string | undefined {
+    if (container.includes('map')) return 'map callback';
+    if (container.includes('filter')) return 'filter predicate';
+    if (container.includes('reduce')) return 'reduce callback';
+    if (container.includes('foreach')) return 'forEach callback';
+    if (container.includes('find')) return 'find predicate';
+    if (container.includes('some') || container.includes('every')) return 'predicate callback';
+    if (container.includes('sort')) return 'sort comparator';
+    return undefined;
+  }
+
+  /**
+   * Check for event handler callbacks (onClick, onSubmit, etc.)
+   */
+  private getEventHandlerName(container: string): string | undefined {
+    if (container.includes('onclick')) return 'onClick handler';
+    if (container.includes('onsubmit')) return 'onSubmit handler';
+    if (container.includes('onchange')) return 'onChange handler';
+    if (container.includes('onload')) return 'onLoad handler';
+    if (/on[a-z]+/.exec(container)) return `${container} handler`;
+    return undefined;
+  }
+
+  /**
+   * Check for promise chain callbacks (then, catch, finally)
+   */
+  private getPromiseCallbackName(container: string): string | undefined {
+    if (container.includes('then')) return 'then callback';
+    if (container.includes('catch')) return 'catch handler';
+    if (container.includes('finally')) return 'finally callback';
+    return undefined;
+  }
+
+  /**
+   * Check for timer callbacks (setTimeout, setInterval, etc.)
+   */
+  private getTimerCallbackName(container: string): string | undefined {
+    if (container.includes('settimeout')) return 'setTimeout callback';
+    if (container.includes('setinterval')) return 'setInterval callback';
+    if (container.includes('requestanimationframe')) return 'animation frame callback';
+    return undefined;
+  }
+
+  /**
+   * Check for generic callback/handler patterns
+   */
+  private getGenericCallbackName(container: string): string | undefined {
+    if (container.includes('callback')) return 'callback function';
+    if (container.includes('handler')) return 'handler function';
+    return undefined;
+  }
+
+  /**
    * T089: Generate contextual names for anonymous functions
    * Detects arrow functions and callbacks based on naming patterns
    * 
@@ -339,37 +394,11 @@ export class LspCallHierarchyAnalyzer {
       return undefined;
     }
 
-    // Array method callbacks
-    if (container.includes('map')) return 'map callback';
-    if (container.includes('filter')) return 'filter predicate';
-    if (container.includes('reduce')) return 'reduce callback';
-    if (container.includes('foreach')) return 'forEach callback';
-    if (container.includes('find')) return 'find predicate';
-    if (container.includes('some') || container.includes('every')) return 'predicate callback';
-    if (container.includes('sort')) return 'sort comparator';
-
-    // Event handlers
-    if (container.includes('onclick')) return 'onClick handler';
-    if (container.includes('onsubmit')) return 'onSubmit handler';
-    if (container.includes('onchange')) return 'onChange handler';
-    if (container.includes('onload')) return 'onLoad handler';
-    if (container.match(/on[a-z]+/)) return `${container} handler`;
-
-    // Promise chains
-    if (container.includes('then')) return 'then callback';
-    if (container.includes('catch')) return 'catch handler';
-    if (container.includes('finally')) return 'finally callback';
-
-    // Timers
-    if (container.includes('settimeout')) return 'setTimeout callback';
-    if (container.includes('setinterval')) return 'setInterval callback';
-    if (container.includes('requestanimationframe')) return 'animation frame callback';
-
-    // Generic callback pattern
-    if (container.includes('callback')) return 'callback function';
-    if (container.includes('handler')) return 'handler function';
-
-    // Default: keep original name
-    return undefined;
+    // Check different callback patterns in order
+    return this.getArrayMethodCallbackName(container) ||
+           this.getEventHandlerName(container) ||
+           this.getPromiseCallbackName(container) ||
+           this.getTimerCallbackName(container) ||
+           this.getGenericCallbackName(container);
   }
 }

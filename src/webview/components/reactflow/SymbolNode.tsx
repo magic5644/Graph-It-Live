@@ -27,7 +27,7 @@ export const SymbolNode: React.FC<NodeProps<SymbolNodeData>> = ({ data }) => {
 
     // T090: Apply dimming style for external references (FR-022)
     const isExternal = data.isExternal ?? false;
-    const opacity = isExternal ? 0.5 : 1.0;
+    const opacity = isExternal ? 0.5 : 1;
     const borderStyle = isExternal ? 'dashed' : 'solid';
 
     return (

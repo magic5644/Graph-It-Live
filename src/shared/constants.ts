@@ -1,28 +1,31 @@
+// Extensions by language for type-safe language detection
+export const TYPESCRIPT_EXTENSIONS = ['.ts', '.tsx'] as const;
+export const JAVASCRIPT_EXTENSIONS = ['.js', '.jsx', '.mjs', '.cjs'] as const;
+export const PYTHON_EXTENSIONS = ['.py', '.pyi'] as const;
+export const RUST_EXTENSIONS = ['.rs'] as const;
+export const VUE_EXTENSIONS = ['.vue'] as const;
+export const SVELTE_EXTENSIONS = ['.svelte'] as const;
+export const GRAPHQL_EXTENSIONS = ['.gql', '.graphql'] as const;
+export const TOML_EXTENSIONS = ['.toml'] as const;
+
+// Derived: All supported file extensions (deduced from language-specific constants)
 export const SUPPORTED_FILE_EXTENSIONS = [
-    '.ts',
-    '.tsx',
-    '.js',
-    '.jsx',
-    '.vue',
-    '.svelte',
-    '.mjs',
-    '.cjs',
-    '.gql',
-    '.graphql',
-    '.py',
-    '.pyi',
-    '.rs',
-    '.toml',
+    ...TYPESCRIPT_EXTENSIONS,
+    ...JAVASCRIPT_EXTENSIONS,
+    ...VUE_EXTENSIONS,
+    ...SVELTE_EXTENSIONS,
+    ...GRAPHQL_EXTENSIONS,
+    ...PYTHON_EXTENSIONS,
+    ...RUST_EXTENSIONS,
+    ...TOML_EXTENSIONS,
 ];
 
-// Extensions supported for LSP-based symbol analysis (TypeScript, JavaScript, Python, Rust)
+// Derived: Extensions supported for LSP-based symbol analysis (TypeScript, JavaScript, Python, Rust)
 export const SUPPORTED_SYMBOL_ANALYSIS_EXTENSIONS = [
-    '.ts',
-    '.tsx',
-    '.js',
-    '.jsx',
-    '.py',
-    '.rs',
+    ...TYPESCRIPT_EXTENSIONS,
+    ...JAVASCRIPT_EXTENSIONS,
+    ...PYTHON_EXTENSIONS,
+    ...RUST_EXTENSIONS,
 ];
 
 // Unified regex for source files we analyze across extension/webview/mcp

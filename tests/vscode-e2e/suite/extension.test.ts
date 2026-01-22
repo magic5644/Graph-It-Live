@@ -926,7 +926,7 @@ suite('Visual Verification', () => {
       
       // Visual verification: recursive edges should show "cycle" badge
       assert.ok(true, 'Cycle detection and badge rendering successful');
-    } catch (error) {
+    } catch {
       // Fixture might not exist yet - create recursion.ts in tests/fixtures/symbols/
       assert.ok(true, 'Test completed (fixture may need creation)');
     }
@@ -980,7 +980,7 @@ suite('Visual Verification', () => {
       
       // Visual verification: arrow functions should show contextual names like "map callback", "onClick handler"
       assert.ok(true, 'Anonymous function naming successful');
-    } catch (error) {
+    } catch {
       // Fixture might not exist yet - create callbacks.ts in tests/fixtures/symbols/
       assert.ok(true, 'Test completed (fixture may need creation)');
     }
@@ -1008,7 +1008,7 @@ suite('Visual Verification', () => {
       
       // Visual verification: external symbols should have opacity: 0.5 and dashed edges per FR-022
       assert.ok(true, 'External reference dimming successful');
-    } catch (error) {
+    } catch {
       // Fixture might not exist yet - create imports.ts in tests/fixtures/symbols/
       assert.ok(true, 'Test completed (fixture may need creation)');
     }

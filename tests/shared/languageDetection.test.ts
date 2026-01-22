@@ -72,8 +72,8 @@ describe('languageDetection', () => {
     });
 
     it('should handle Windows paths', () => {
-      expect(detectLanguageFromExtension('C:\\path\\to\\file.ts')).toBe('typescript');
-      expect(detectLanguageFromExtension('C:\\path\\to\\file.py')).toBe('python');
+      expect(detectLanguageFromExtension(String.raw`C:\path\to\file.ts`)).toBe('typescript');
+      expect(detectLanguageFromExtension(String.raw`C:\path\to\file.py`)).toBe('python');
     });
   });
 

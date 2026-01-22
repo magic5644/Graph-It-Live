@@ -216,7 +216,7 @@ function forceLayout(nodes: Node[], edges: Edge[], _rootId: string): { nodes: No
         const nodeV = currentNodes[v];
         const dx = nodeU.x - nodeV.x;
         const dy = nodeU.y - nodeV.y;
-        let dist = Math.sqrt(dx * dx + dy * dy);
+        let dist = Math.hypot(dx, dy);
         if (dist < 0.1) dist = 0.1; // avoid div by zero
 
         const force = (k * k) / dist;
@@ -235,7 +235,7 @@ function forceLayout(nodes: Node[], edges: Edge[], _rootId: string): { nodes: No
       if (u && v) {
         const dx = v.x - u.x;
         const dy = v.y - u.y;
-        let dist = Math.sqrt(dx * dx + dy * dy);
+        let dist = Math.hypot(dx, dy);
         if (dist < 0.1) dist = 0.1;
 
         const force = (dist * dist) / k;
@@ -253,17 +253,16 @@ function forceLayout(nodes: Node[], edges: Edge[], _rootId: string): { nodes: No
     currentNodes.forEach(n => {
       const dx = center.x - n.x;
       const dy = center.y - n.y;
-      // const dist = Math.sqrt(dx * dx + dy * dy);
       const strength = 0.05;
       n.vx += dx * strength;
       n.vy += dy * strength;
     });
 
     // Update positions
-    const t = 1.0 - (i / iterations); // Temperature cooling
+    const t = 1 - (i / iterations); // Temperature cooling
     currentNodes.forEach(n => {
       // Limit velocity
-      const vMag = Math.sqrt(n.vx * n.vx + n.vy * n.vy);
+      const vMag = Math.hypot(n.vx, n.vy);
       if (vMag > 100) { // cap
         n.vx = (n.vx / vMag) * 100;
         n.vy = (n.vy / vMag) * 100;

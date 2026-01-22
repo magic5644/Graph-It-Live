@@ -125,17 +125,17 @@
 - [x] T050 Populate breadcrumb path in SymbolViewService (Project → folder → filename.ts)
 - [x] T051 Add breadcrumb to SymbolGraphView.tsx layout (top bar above graph)
 - [x] T052 Implement breadcrumb segment click handler to navigate up hierarchy
-- [ ] T053 Add unit tests for edge styling logic in tests/webview/utils/buildGraph.test.ts
-- [ ] T054 Add unit tests for BreadcrumbNav component in tests/webview/components/BreadcrumbNav.test.ts
+- [x] T053 Add unit tests for edge styling logic in tests/webview/utils/buildGraph.test.ts
+- [x] T054 Add unit tests for BreadcrumbNav component in tests/webview/components/BreadcrumbNav.test.ts
 
 ### E2E Tests for User Story 3 (MANDATORY)
 
-- [ ] T055 E2E test: Symbols are color-coded by type (verify classes purple, functions blue, variables amber)
-- [ ] T056 E2E test: Edges differentiated by relation (verify solid arrows for calls, dashed for references)
-- [ ] T057 E2E test: Recursive calls show cycle badge (drill into file with recursion → verify cycle indicator)
-- [ ] T058 E2E test: Breadcrumb shows file path (verify Project → src → utils.ts)
-- [ ] T058a E2E test: Anonymous functions use contextual names (drill into file with arrow functions → verify labels like "map callback", "onClick handler")
-- [ ] T058b E2E test: External references appear dimmed (drill into file with imports → verify external symbols have opacity: 0.5 and dashed edges per FR-022)
+- [x] T055 E2E test: Symbols are color-coded by type (verify classes purple, functions blue, variables amber)
+- [x] T056 E2E test: Edges differentiated by relation (verify solid arrows for calls, dashed for references)
+- [x] T057 E2E test: Recursive calls show cycle badge (drill into file with recursion → verify cycle indicator)
+- [x] T058 E2E test: Breadcrumb shows file path (verify Project → src → utils.ts)
+- [x] T058a E2E test: Anonymous functions use contextual names (drill into file with arrow functions → verify labels like "map callback", "onClick handler")
+- [x] T058b E2E test: External references appear dimmed (drill into file with imports → verify external symbols have opacity: 0.5 and dashed edges per FR-022)
 
 **Checkpoint**: All visual enhancements should be functional, User Stories 1-3 work independently
 
@@ -149,25 +149,25 @@
 
 ### Implementation for User Story 4
 
-- [ ] T059 [P] Add `graphitlive_analyze_file_logic` tool definition to src/mcp/mcpServer.ts with WHEN/WHY/WHAT description
-- [ ] T060 [P] Create Zod schema for AnalyzeFileLogicRequest in src/mcp/types.ts (filePath, includeExternal, format)
-- [ ] T061 Extend McpWorker.ts handler switch statement to process `graphitlive_analyze_file_logic` tool
-- [ ] T062 Implement TOON format serialization in McpWorker.ts (nodes:Class:Name|Function:Name format)
-- [ ] T063 Implement JSON format fallback in McpWorker.ts (full IntraFileGraph structure)
-- [ ] T064 Add input validation in McpWorker.ts (absolute path, supported extension check, file existence)
-- [ ] T065 Add error response handling in McpWorker.ts (FILE_NOT_FOUND, UNSUPPORTED_FILE_TYPE, LSP_UNAVAILABLE, LSP_TIMEOUT, ANALYSIS_FAILED)
-- [ ] T066 Integrate LspCallHierarchyAnalyzer in McpWorker.ts to generate symbol graph
-- [ ] T067 Add unit tests for TOON serialization in tests/mcp/McpWorker.test.ts
-- [ ] T068 Add unit tests for JSON format in tests/mcp/McpWorker.test.ts
-- [ ] T069 Test MCP tool with scripts/test-mcp.js (verify TOON output, JSON output, error handling)
+- [x] T059 [P] Add `graphitlive_analyze_file_logic` tool definition to src/mcp/mcpServer.ts with WHEN/WHY/WHAT description
+- [x] T060 [P] Create Zod schema for AnalyzeFileLogicRequest in src/mcp/types.ts (filePath, includeExternal, format)
+- [x] T061 Extend McpWorker.ts handler switch statement to process `graphitlive_analyze_file_logic` tool
+- [x] T062 Implement TOON format serialization in McpWorker.ts (nodes:Class:Name|Function:Name format)
+- [x] T063 Implement JSON format fallback in McpWorker.ts (full IntraFileGraph structure)
+- [x] T064 Add input validation in McpWorker.ts (absolute path, supported extension check, file existence)
+- [x] T065 Add error response handling in McpWorker.ts (FILE_NOT_FOUND, UNSUPPORTED_FILE_TYPE, LSP_UNAVAILABLE, LSP_TIMEOUT, ANALYSIS_FAILED)
+- [x] T066 Integrate LspCallHierarchyAnalyzer in McpWorker.ts to generate symbol graph
+- [x] T067 Add unit tests for TOON serialization in tests/mcp/McpWorker.test.ts
+- [x] T068 Add unit tests for JSON format in tests/mcp/McpWorker.test.ts
+- [x] T069 Test MCP tool with scripts/test-mcp.js (verify TOON output, JSON output, error handling)
 
 ### Integration Tests for User Story 4
 
-- [ ] T070 MCP integration test: Analyze TypeScript file returns correct TOON format
-- [ ] T071 MCP integration test: Analyze Python file returns correct TOON format
-- [ ] T072 MCP integration test: Invalid file path returns FILE_NOT_FOUND error
-- [ ] T073 MCP integration test: Unsupported extension returns UNSUPPORTED_FILE_TYPE error
-- [ ] T074 MCP integration test: LSP timeout returns partial results with isPartial flag
+- [x] T070 MCP integration test: Analyze TypeScript file returns correct TOON format
+- [x] T071 MCP integration test: Analyze Python file returns correct TOON format
+- [x] T072 MCP integration test: Invalid file path returns FILE_NOT_FOUND error
+- [x] T073 MCP integration test: Unsupported extension returns UNSUPPORTED_FILE_TYPE error
+- [x] T074 MCP integration test: LSP timeout returns partial results with isPartial flag
 
 **Checkpoint**: MCP tool should be functional, AI agents can query symbol call hierarchy
 
@@ -181,23 +181,23 @@
 
 ### Implementation for User Story 5
 
-- [ ] T075 Add `vscode.workspace.onDidSaveTextDocument` listener in GraphProvider
-- [ ] T076 Implement 500ms debounce logic in GraphProvider for file save events
-- [ ] T077 Add re-analysis trigger in GraphProvider to call SymbolViewService on debounce completion
-- [ ] T078 Implement refresh message sending from GraphProvider to webview with updated IntraFileGraph
-- [ ] T079 Add refresh handler in SymbolGraphView.tsx to preserve expanded nodes during update
-- [ ] T080 Implement graph diffing logic in SymbolGraphView.tsx to highlight changes (new edges, removed edges)
-- [ ] T081 Add subtle loading indicator to SymbolGraphView.tsx during re-analysis
-- [ ] T082 Optimize performance: Only re-analyze if current file path matches edited file
-- [ ] T083 Add unit tests for debounce logic in tests/extension/GraphProvider.test.ts
-- [ ] T084 Add performance benchmark test in tests/benchmarks/ (measure 100 symbols + 200 edges render time)
+- [x] T075 Add `vscode.workspace.onDidSaveTextDocument` listener in GraphProvider
+- [x] T076 Implement 500ms debounce logic in GraphProvider for file save events
+- [x] T077 Add re-analysis trigger in GraphProvider to call SymbolViewService on debounce completion
+- [x] T078 Implement refresh message sending from GraphProvider to webview with updated IntraFileGraph
+- [x] T079 Add refresh handler in SymbolGraphView.tsx to preserve expanded nodes during update
+- [x] T080 Implement graph diffing logic in SymbolGraphView.tsx to highlight changes (new edges, removed edges)
+- [x] T081 Add subtle loading indicator to SymbolGraphView.tsx during re-analysis
+- [x] T082 Optimize performance: Only re-analyze if current file path matches edited file
+- [x] T083 Add unit tests for debounce logic in tests/extension/GraphProvider.test.ts
+- [x] T084 Add performance benchmark test in tests/benchmarks/ (measure 100 symbols + 200 edges render time)
 
 ### E2E Tests for User Story 5 (MANDATORY)
 
-- [ ] T085 E2E test: Graph updates after file edit (add function call → save → verify new edge appears after 500ms)
-- [ ] T086 E2E test: Graph updates after removing call (remove function call → save → verify edge disappears)
-- [ ] T087 E2E test: Large file performance (drill into 1000-line file → measure end-to-end time from click to graph rendered → verify < 2s per SC-001 AND verify UI freeze < 100ms per SC-005)
-- [ ] T088 E2E test: Rapid edits debounced (edit multiple times within 500ms → verify single re-analysis)
+- [x] T085 E2E test: Graph updates after file edit (add function call → save → verify new edge appears after 500ms)
+- [x] T086 E2E test: Graph updates after removing call (remove function call → save → verify edge disappears)
+- [x] T087 E2E test: Large file performance (drill into 1000-line file → measure end-to-end time from click to graph rendered → verify < 2s per SC-001 AND verify UI freeze < 100ms per SC-005)
+- [x] T088 E2E test: Rapid edits debounced (edit multiple times within 500ms → verify single re-analysis)
 
 **Checkpoint**: All user stories should now be independently functional with live update support
 
@@ -207,12 +207,12 @@
 
 **Purpose**: Final touches, error handling improvements, documentation
 
-- [ ] T089 [P] Add anonymous function contextual naming in LspCallHierarchyAnalyzer (detect "map callback", "filter predicate", "onClick handler")
-- [ ] T090 [P] Implement external reference dimming in SymbolNode.tsx (opacity: 0.5 for isExternal symbols, dashed edges)
-- [ ] T091 [P] Add progress indicator to SymbolGraphView.tsx for LSP timeout scenarios (show "Analyzing..." for 5 seconds)
-- [ ] T092 [P] Add `symbolAnalysisProgress` message type to src/shared/types.ts for progress updates
-- [ ] T093 Add comprehensive error handling for all LSP edge cases in SymbolViewService
-- [ ] T094 Add logging for symbol analysis operations in SymbolViewService using extensionLogger
+- [x] T089 [P] Add anonymous function contextual naming in LspCallHierarchyAnalyzer (detect "map callback", "filter predicate", "onClick handler")
+- [x] T090 [P] Implement external reference dimming in SymbolNode.tsx (opacity: 0.5 for isExternal symbols, dashed edges)
+- [x] T091 [P] Add progress indicator to SymbolGraphView.tsx for LSP timeout scenarios (show "Analyzing..." for 5 seconds)
+- [x] T092 [P] Add `symbolAnalysisProgress` message type to src/shared/types.ts for progress updates
+- [x] T093 Add comprehensive error handling for all LSP edge cases in SymbolViewService
+- [x] T094 Add logging for symbol analysis operations in SymbolViewService using extensionLogger
 - [x] T095 Update CHANGELOG.md with feature description and user-facing changes
 - [x] T096 Add documentation to README.md for symbol drill-down feature
 - [x] T097 Run Snyk security scan on new analyzer code: `npm run snyk:code` (FR per constitution)

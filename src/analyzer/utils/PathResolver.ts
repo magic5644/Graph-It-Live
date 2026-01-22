@@ -1,6 +1,6 @@
 import * as fs from "node:fs/promises";
 import * as path from "node:path";
-import { SUPPORTED_FILE_EXTENSIONS } from "../../shared/constants";
+import { PYTHON_EXTENSIONS, SUPPORTED_FILE_EXTENSIONS } from "../../shared/constants";
 import { normalizePath } from "../types";
 
 /**
@@ -124,13 +124,10 @@ export class PathResolver {
   /**
    * Resolve a module path to an absolute file path
    */
-  async resolve(
-    currentFilePath: string,
-    modulePath: string,
-  ): Promise<string | null> {
-    // Load static tsconfig if provided (legacy behavior for backwards compatibility)
-    await this.ensureTsConfigLoaded();
-
+  /**
+   * Try to resolve using TypeScript config aliases (static and dynamic)
+   */
+  private async tryTsConfigAliases(currentFilePath: string, modulePath: string): Promise<string | null> {
     // Try static tsconfig alias (priority 1a)
     const staticAliasResolved = this.resolveAlias(modulePath);
     if (staticAliasResolved) {
@@ -146,16 +143,47 @@ export class PathResolver {
       return this.resolveWithExtensions(dynamicAliasResolved);
     }
 
+    return null;
+  }
+
+  /**
+   * Try to resolve Python-specific imports (relative and absolute modules)
+   */
+  private async tryPythonImports(currentFilePath: string, modulePath: string): Promise<string | null> {
+    if (!this.isPythonFile(currentFilePath)) {
+      return null;
+    }
+
+    // Try Python relative imports FIRST (.helpers, ..utils, etc.)
+    if (this.isPythonRelativeImport(modulePath)) {
+      const pythonResolved = await this.resolvePythonRelativeImport(currentFilePath, modulePath);
+      if (pythonResolved) {
+        return pythonResolved;
+      }
+    }
+
+    // Try Python absolute module resolution (utils.database → utils/database.py)
+    if (modulePath.includes('.') && !modulePath.includes('/')) {
+      const pythonResolved = await this.resolvePythonModule(currentFilePath, modulePath);
+      if (pythonResolved) {
+        return pythonResolved;
+      }
+    }
+
+    return null;
+  }
+
+  /**
+   * Try to resolve special module patterns (subpath imports, Rust, scoped packages)
+   */
+  private async trySpecialModulePatterns(currentFilePath: string, modulePath: string): Promise<string | null> {
     // Handle #imports (Node.js subpath imports)
     if (this.isSubpathImport(modulePath)) {
       return this.resolveSubpathImport(currentFilePath, modulePath);
     }
 
-    // Rust bare module names (e.g., `helper`, `utils::parser`) should resolve to sibling .rs/mod.rs files
-    const rustResolved = await this.resolveRustModule(
-      currentFilePath,
-      modulePath,
-    );
+    // Rust bare module names (e.g., `helper`, `utils::parser`)
+    const rustResolved = await this.resolveRustModule(currentFilePath, modulePath);
     if (rustResolved) {
       return rustResolved;
     }
@@ -165,19 +193,63 @@ export class PathResolver {
       return this.resolveScopedPackage(currentFilePath, modulePath);
     }
 
+    return null;
+  }
+
+  /**
+   * Try to resolve relative path with appropriate extensions
+   */
+  private async tryRelativePath(currentFilePath: string, modulePath: string): Promise<string | null> {
+    if (!this.isRelativePath(modulePath)) {
+      return null;
+    }
+
+    const currentDir = path.dirname(currentFilePath);
+    const absolutePath = path.resolve(currentDir, modulePath);
+    
+    // For Python files with relative imports, try with .py extension if not already present
+    if (this.isPythonFile(currentFilePath) && !this.hasFileExtension(modulePath)) {
+      const resolved = await this.resolveWithExtensions(absolutePath);
+      if (resolved) {
+        return resolved;
+      }
+    }
+    
+    return this.resolveWithExtensions(absolutePath);
+  }
+
+  async resolve(
+    currentFilePath: string,
+    modulePath: string,
+  ): Promise<string | null> {
+    // Load static tsconfig if provided (legacy behavior for backwards compatibility)
+    await this.ensureTsConfigLoaded();
+
+    // Try TypeScript config aliases
+    const tsConfigResolved = await this.tryTsConfigAliases(currentFilePath, modulePath);
+    if (tsConfigResolved) {
+      return tsConfigResolved;
+    }
+
+    // Try special module patterns (subpath imports, Rust, scoped packages)
+    const specialPatternResolved = await this.trySpecialModulePatterns(currentFilePath, modulePath);
+    if (specialPatternResolved) {
+      return specialPatternResolved;
+    }
+
+    // Try Python-specific imports
+    const pythonResolved = await this.tryPythonImports(currentFilePath, modulePath);
+    if (pythonResolved) {
+      return pythonResolved;
+    }
+
     // Handle node_modules
     if (this.isNodeModule(modulePath)) {
       return this.excludeNodeModules ? null : modulePath;
     }
 
-    // Resolve relative paths
-    if (this.isRelativePath(modulePath)) {
-      const currentDir = path.dirname(currentFilePath);
-      const absolutePath = path.resolve(currentDir, modulePath);
-      return this.resolveWithExtensions(absolutePath);
-    }
-
-    return null;
+    // Try relative paths
+    return this.tryRelativePath(currentFilePath, modulePath);
   }
 
   /**
@@ -554,6 +626,117 @@ export class PathResolver {
   private isPackageJsonAliasCandidate(modulePath: string): boolean {
     // Match @something/* patterns that could be defined in package.json imports
     return modulePath.startsWith("@");
+  }
+
+  /**
+   * Check if a file is a Python file
+   */
+  private isPythonFile(filePath: string): boolean {
+    return PYTHON_EXTENSIONS.some(ext => filePath.endsWith(ext));
+  }
+
+  /**
+   * Check if a path has a file extension
+   */
+  private hasFileExtension(modulePath: string): boolean {
+    const basename = path.basename(modulePath);
+    return basename.includes('.') && !basename.startsWith('.');
+  }
+
+  /**
+   * Check if a path is a Python relative import (.helpers, ..utils, etc.)
+   * Python uses . and .. prefixes for relative imports
+   */
+  private isPythonRelativeImport(modulePath: string): boolean {
+    // Starts with . or .. but is not a file path (no /)
+    return (modulePath.startsWith('.') || modulePath.startsWith('..')) && 
+           !modulePath.includes('/') &&
+           modulePath !== '.' && modulePath !== '..';
+  }
+
+  /**
+   * Resolve Python relative import (.helpers → ./helpers.py, ..utils → ../utils.py)
+   */
+  private async resolvePythonRelativeImport(
+    currentFilePath: string,
+    modulePath: string,
+  ): Promise<string | null> {
+    const currentDir = path.dirname(currentFilePath);
+    
+    // Count leading dots to determine relative level
+    let level = 0;
+    let moduleName = modulePath;
+    while (moduleName.startsWith('.')) {
+      level++;
+      moduleName = moduleName.substring(1);
+    }
+
+    // Navigate up 'level - 1' directories (one dot is current dir)
+    let targetDir = currentDir;
+    for (let i = 1; i < level; i++) {
+      targetDir = path.dirname(targetDir);
+    }
+
+    // If there's a module name after the dots, append it
+    if (moduleName) {
+      const moduleFilePath = path.join(targetDir, moduleName + '.py');
+      if (await this.fileExists(moduleFilePath)) {
+        return normalizePath(moduleFilePath);
+      }
+      
+      // Try __init__.py
+      const initPath = path.join(targetDir, moduleName, '__init__.py');
+      if (await this.fileExists(initPath)) {
+        return normalizePath(initPath);
+      }
+    }
+
+    return null;
+  }
+
+  /**
+   * Resolve Python module path (utils.database → utils/database.py)
+   * Walks up from current file directory to workspace root
+   */
+  private async resolvePythonModule(
+    currentFilePath: string,
+    modulePath: string,
+  ): Promise<string | null> {
+    // Convert module.submodule to module/submodule
+    const moduleDirPath = modulePath.replaceAll('.', '/');
+    const currentDir = path.dirname(currentFilePath);
+    const workspaceRoot = this.workspaceRoot || currentDir;
+
+    // Walk up from current directory to workspace root
+    let searchDir = currentDir;
+    while (true) {
+      // Try module.py
+      const pyFile = path.resolve(searchDir, moduleDirPath + '.py');
+      if (await this.fileExists(pyFile)) {
+        return normalizePath(pyFile);
+      }
+
+      // Try module/__init__.py
+      const initFile = path.resolve(searchDir, moduleDirPath, '__init__.py');
+      if (await this.fileExists(initFile)) {
+        return normalizePath(initFile);
+      }
+
+      // Stop at workspace root
+      if (normalizePath(searchDir) === normalizePath(workspaceRoot)) {
+        break;
+      }
+
+      // Move up one directory
+      const parentDir = path.dirname(searchDir);
+      if (parentDir === searchDir) {
+        // Reached filesystem root
+        break;
+      }
+      searchDir = parentDir;
+    }
+
+    return null;
   }
 
   /**

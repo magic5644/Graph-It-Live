@@ -38,10 +38,11 @@ export function detectLanguageFromExtension(filePathOrExt: string): string {
   // If it's a full path, extract the extension
   if (filePathOrExt.includes('/') || filePathOrExt.includes('\\')) {
     ext = path.extname(filePathOrExt).toLowerCase();
-  } else if (!ext.startsWith('.')) {
+  } else if (ext.startsWith('.')) {
+    ext = ext.toLowerCase();
+  } else {
     // If it's an extension without dot, add it
     ext = '.' + ext;
-  } else {
     ext = ext.toLowerCase();
   }
   

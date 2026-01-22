@@ -12,11 +12,12 @@ import { watch, type FSWatcher } from "chokidar";
 import * as fs from "node:fs/promises";
 import * as path from "node:path";
 import { parentPort } from "node:worker_threads";
-import { LspCallHierarchyAnalyzer, type LspCallHierarchyItem, type LspOutgoingCall } from "../analyzer/LspCallHierarchyAnalyzer";
+import { AstWorkerHost } from "../analyzer/ast/AstWorkerHost";
+import { LspCallHierarchyAnalyzer, type LspAnalysisResult, type LspCallHierarchyItem, type LspOutgoingCall } from "../analyzer/LspCallHierarchyAnalyzer";
 import { Parser } from "../analyzer/Parser";
 import { Spider } from "../analyzer/Spider";
 import { SymbolReverseIndex } from "../analyzer/SymbolReverseIndex";
-import { AstWorkerHost } from "../analyzer/ast/AstWorkerHost";
+import { type SymbolDependency as AnalyzerSymbolDependency, type SymbolInfo as AnalyzerSymbolInfo } from "../analyzer/types";
 import { PathResolver } from "../analyzer/utils/PathResolver";
 import {
   IGNORED_DIRECTORIES,
@@ -1759,19 +1760,13 @@ function generateImpactSummary(
 /**
  * Analyze intra-file call hierarchy using LSP data
  */
-async function executeAnalyzeFileLogic(
-  params: AnalyzeFileLogicParams,
-): Promise<{
-  filePath: string;
-  graph: IntraFileGraph;
-  language: string;
-  analysisTimeMs: number;
-  isPartial?: boolean;
-  warnings?: string[];
+/**
+ * Validate input parameters for file analysis
+ */
+async function validateAnalysisInput(filePath: string): Promise<{ 
+  ext: typeof SUPPORTED_SYMBOL_ANALYSIS_EXTENSIONS[number]; 
+  language: string 
 }> {
-  const { filePath } = params;
-  // Note: includeExternal will be used in T066 when integrating LSP call hierarchy
-
   // T064: Enhanced input validation - Absolute path check
   if (!path.isAbsolute(filePath)) {
     throw new Error(
@@ -1791,7 +1786,7 @@ async function executeAnalyzeFileLogic(
 
   // T064: Validate supported extension
   const ext = path.extname(filePath).toLowerCase();
-  if (!SUPPORTED_SYMBOL_ANALYSIS_EXTENSIONS.includes(ext)) {
+  if (!SUPPORTED_SYMBOL_ANALYSIS_EXTENSIONS.includes(ext as typeof SUPPORTED_SYMBOL_ANALYSIS_EXTENSIONS[number])) {
     throw new Error(
       `UNSUPPORTED_FILE_TYPE: File extension '${ext}' is not supported for symbol analysis. ` +
         `Supported extensions: ${SUPPORTED_SYMBOL_ANALYSIS_EXTENSIONS.join(", ")}. ` +
@@ -1802,6 +1797,97 @@ async function executeAnalyzeFileLogic(
   // Detect language using shared utility
   const language = detectLanguageFromExtension(ext);
 
+  // After validation, we know ext is one of the supported extensions
+  return { ext: ext as typeof SUPPORTED_SYMBOL_ANALYSIS_EXTENSIONS[number], language };
+}
+
+/**
+ * Map string kind to LSP SymbolKind number (vscode.SymbolKind enum)
+ */
+function mapKindToLspNumber(kind: string): number {
+  switch (kind.toLowerCase()) {
+    case "function":
+    case "method":
+      return 12; // Function
+    case "class":
+      return 5; // Class
+    case "variable":
+    case "property":
+      return 13; // Variable
+    case "interface":
+      return 11; // Interface
+    default:
+      return 13; // Variable (default)
+  }
+}
+
+/**
+ * Convert Spider's symbol graph data to LSP format
+ */
+function convertSpiderToLspFormat(
+  symbolGraphData: { symbols: AnalyzerSymbolInfo[]; dependencies: AnalyzerSymbolDependency[] },
+  filePath: string,
+): LspAnalysisResult {
+  // Convert Spider symbols to LSP format
+  const lspSymbols = symbolGraphData.symbols.map((sym: AnalyzerSymbolInfo) => ({
+    name: sym.name,
+    kind: mapKindToLspNumber(sym.kind),
+    range: { start: sym.line, end: sym.line },
+    containerName: sym.parentSymbolId ? sym.name : undefined, // For hierarchy
+    uri: filePath,
+  }));
+
+  // Convert Spider dependencies to LSP call hierarchy format
+  const callHierarchyItems = new Map<string, LspCallHierarchyItem>();
+  const outgoingCalls = new Map<string, LspOutgoingCall[]>();
+
+  for (const symbol of lspSymbols) {
+    callHierarchyItems.set(symbol.name, {
+      name: symbol.name,
+      kind: symbol.kind,
+      uri: filePath,
+      range: symbol.range,
+    });
+  }
+
+  for (const dep of symbolGraphData.dependencies) {
+    if (!outgoingCalls.has(dep.sourceSymbolId)) {
+      outgoingCalls.set(dep.sourceSymbolId, []);
+    }
+    outgoingCalls.get(dep.sourceSymbolId)!.push({
+      to: {
+        name: dep.targetSymbolId,
+        kind: 12,
+        uri: filePath,
+        range: { start: 0, end: 0 },
+      },
+      fromRanges: [{ start: 0, end: 0 }],
+    });
+  }
+
+  return {
+    symbols: lspSymbols,
+    callHierarchyItems,
+    outgoingCalls,
+  };
+}
+
+async function executeAnalyzeFileLogic(
+  params: AnalyzeFileLogicParams,
+): Promise<{
+  filePath: string;
+  graph: IntraFileGraph;
+  language: string;
+  analysisTimeMs: number;
+  isPartial?: boolean;
+  warnings?: string[];
+}> {
+  const { filePath } = params;
+  // Note: includeExternal will be used in T066 when integrating LSP call hierarchy
+
+  // Validate input parameters
+  const { language } = await validateAnalysisInput(filePath);
+
   const startTime = Date.now();
   const isPartial = false;
   const warnings: string[] = [];
@@ -1811,68 +1897,11 @@ async function executeAnalyzeFileLogic(
     const symbolGraphData = await spider!.getSymbolGraph(filePath);
 
     // Convert Spider's symbol format to LSP format for LspCallHierarchyAnalyzer
-    // Map string kind to LSP SymbolKind number (vscode.SymbolKind enum)
-    const mapKindToLspNumber = (kind: string): number => {
-      switch (kind.toLowerCase()) {
-        case "function":
-        case "method":
-          return 12; // Function
-        case "class":
-          return 5; // Class
-        case "variable":
-        case "property":
-          return 13; // Variable
-        case "interface":
-          return 11; // Interface
-        default:
-          return 13; // Variable (default)
-      }
-    };
-
-    // Convert Spider symbols to LSP format
-    const lspSymbols = symbolGraphData.symbols.map((sym) => ({
-      name: sym.name,
-      kind: mapKindToLspNumber(sym.kind),
-      range: { start: sym.line, end: sym.line },
-      containerName: sym.parentSymbolId ? sym.name : undefined, // For hierarchy
-      uri: filePath,
-    }));
-
-    // Convert Spider dependencies to LSP call hierarchy format
-    const callHierarchyItems = new Map<string, LspCallHierarchyItem>();
-    const outgoingCalls = new Map<string, LspOutgoingCall[]>();
-
-    for (const symbol of lspSymbols) {
-      callHierarchyItems.set(symbol.name, {
-        name: symbol.name,
-        kind: symbol.kind,
-        uri: filePath,
-        range: symbol.range,
-      });
-    }
-
-    for (const dep of symbolGraphData.dependencies) {
-      if (!outgoingCalls.has(dep.sourceSymbolId)) {
-        outgoingCalls.set(dep.sourceSymbolId, []);
-      }
-      outgoingCalls.get(dep.sourceSymbolId)!.push({
-        to: {
-          name: dep.targetSymbolId,
-          kind: 12,
-          uri: filePath,
-          range: { start: 0, end: 0 },
-        },
-        fromRanges: [{ start: 0, end: 0 }],
-      });
-    }
+    const lspData = convertSpiderToLspFormat(symbolGraphData, filePath);
 
     // Use LspCallHierarchyAnalyzer to build the graph (T066)
     const analyzer = new LspCallHierarchyAnalyzer();
-    const graph = analyzer.buildIntraFileGraph(filePath, {
-      symbols: lspSymbols,
-      callHierarchyItems,
-      outgoingCalls,
-    });
+    const graph = analyzer.buildIntraFileGraph(filePath, lspData);
 
     const analysisTimeMs = Date.now() - startTime;
 

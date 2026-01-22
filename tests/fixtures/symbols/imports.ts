@@ -4,8 +4,8 @@
  */
 
 // External module imports - should appear dimmed (opacity: 0.5) with dashed edges per FR-022
-import { readFileSync } from 'fs'; // Node.js built-in
-import { join, resolve } from 'path'; // Node.js built-in
+import { readFileSync } from 'node:fs'; // Node.js built-in
+import { join, resolve } from 'node:path'; // Node.js built-in
 
 // Local imports from same project - should NOT be dimmed
 import { processData } from './callbacks';
