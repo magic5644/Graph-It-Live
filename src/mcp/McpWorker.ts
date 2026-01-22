@@ -715,30 +715,37 @@ function buildEdgeInfo(
 
 /**
  * Filter edges by actual usage verification
+ * Parallelized for better performance on large graphs
  */
 async function filterEdgesByUsage(edges: EdgeInfo[]): Promise<EdgeInfo[]> {
-  log.info("Filtering edges by usage (onlyUsed=true)");
-  const filteredEdges: EdgeInfo[] = [];
-
-  for (const edge of edges) {
-    try {
-      const isUsed = await spider!.verifyDependencyUsage(
-        edge.source,
-        edge.target,
-      );
-      if (isUsed) {
-        filteredEdges.push(edge);
+  log.info(`Filtering ${edges.length} edges by usage (onlyUsed=true) - using parallel verification`);
+  
+  // Parallelize verification with Promise.all for better performance
+  const verificationResults = await Promise.all(
+    edges.map(async (edge) => {
+      try {
+        const isUsed = await spider!.verifyDependencyUsage(
+          edge.source,
+          edge.target,
+        );
+        return { edge, isUsed, error: null };
+      } catch (err) {
+        log.warn(
+          `Failed to verify usage for edge ${edge.source} -> ${edge.target}:`,
+          err,
+        );
+        // Conservative: keep edge if verification fails
+        return { edge, isUsed: true, error: err };
       }
-    } catch (err) {
-      log.warn(
-        `Failed to verify usage for edge ${edge.source} -> ${edge.target}:`,
-        err,
-      );
-      // Conservative: keep edge if verification fails
-      filteredEdges.push(edge);
-    }
-  }
+    })
+  );
 
+  // Filter results
+  const filteredEdges = verificationResults
+    .filter((result) => result.isUsed)
+    .map((result) => result.edge);
+
+  log.info(`Filtered to ${filteredEdges.length} used edges (removed ${edges.length - filteredEdges.length} unused)`);
   return filteredEdges;
 }
 

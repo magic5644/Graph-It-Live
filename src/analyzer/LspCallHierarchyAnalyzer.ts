@@ -112,7 +112,7 @@ export class LspCallHierarchyAnalyzer {
     lspSymbols: LspSymbol[],
   ): SymbolNode[] {
     return lspSymbols.map((symbol) => {
-      const symbolId = this.generateSymbolId(filePath, symbol.name);
+      const symbolId = this.generateSymbolId(filePath, symbol.name, symbol.containerName);
       const symbolType = this.mapKindToType(symbol.kind);
       
       // T089: Generate contextual names for anonymous functions
@@ -155,6 +155,7 @@ export class LspCallHierarchyAnalyzer {
           continue;
         }
 
+        // Try to match target with container if available (for scoped symbols)
         const targetId = this.generateSymbolId(filePath, call.to.name);
 
         // Only create edge if both source and target are in our node list
@@ -284,9 +285,21 @@ export class LspCallHierarchyAnalyzer {
 
   /**
    * Generates a unique symbol ID: ${filePath}:${symbolName}
+   * Optionally includes container name to avoid collisions (e.g., methods with same name in different classes)
    */
-  private generateSymbolId(filePath: string, symbolName: string): string {
+  private generateSymbolId(
+    filePath: string,
+    symbolName: string,
+    containerName?: string
+  ): string {
     const normalized = normalizePath(filePath);
+    
+    // Include container name for scoped symbols to avoid collisions
+    // Example: "file.ts:MyClass.method" vs "file.ts:OtherClass.method"
+    if (containerName) {
+      return `${normalized}:${containerName}.${symbolName}`;
+    }
+    
     return `${normalized}:${symbolName}`;
   }
 
