@@ -1,9 +1,12 @@
-import { describe, it, expect, vi } from 'vitest';
-import { buildReactFlowGraph, GRAPH_LIMITS } from '../../../../src/webview/components/reactflow/buildGraph';
-import type { GraphData } from '../../../../src/shared/types';
-import type { BuildGraphCallbacks } from '../../../../src/webview/components/reactflow/buildGraph';
+import { describe, expect, it, vi } from "vitest";
+import type { GraphData } from "../../../../src/shared/types";
+import type { BuildGraphCallbacks } from "../../../../src/webview/components/reactflow/buildGraph";
+import {
+  buildReactFlowGraph,
+  GRAPH_LIMITS,
+} from "../../../../src/webview/components/reactflow/buildGraph";
 
-describe('buildReactFlowGraph', () => {
+describe("buildReactFlowGraph", () => {
   const createMockCallbacks = (): BuildGraphCallbacks => ({
     onDrillDown: vi.fn(),
     onFindReferences: vi.fn(),
@@ -13,23 +16,23 @@ describe('buildReactFlowGraph', () => {
   });
 
   const createBasicGraphData = (): GraphData => ({
-    nodes: ['root.ts', 'child1.ts', 'child2.ts'],
+    nodes: ["root.ts", "child1.ts", "child2.ts"],
     edges: [
-      { source: 'root.ts', target: 'child1.ts' },
-      { source: 'root.ts', target: 'child2.ts' },
+      { source: "root.ts", target: "child1.ts" },
+      { source: "root.ts", target: "child2.ts" },
     ],
     nodeLabels: {
-      'root.ts': 'root.ts',
-      'child1.ts': 'child1.ts',
-      'child2.ts': 'child2.ts',
+      "root.ts": "root.ts",
+      "child1.ts": "child1.ts",
+      "child2.ts": "child2.ts",
     },
   });
 
-  describe('empty data handling', () => {
-    it('should return empty result when data is undefined', () => {
+  describe("empty data handling", () => {
+    it("should return empty result when data is undefined", () => {
       const result = buildReactFlowGraph({
         data: undefined,
-        currentFilePath: 'root.ts',
+        currentFilePath: "root.ts",
         expandAll: false,
         expandedNodes: new Set(),
         showParents: false,
@@ -43,10 +46,10 @@ describe('buildReactFlowGraph', () => {
       expect(result.nodesTruncated).toBe(false);
     });
 
-    it('should return empty result when nodes array is empty', () => {
+    it("should return empty result when nodes array is empty", () => {
       const result = buildReactFlowGraph({
         data: { nodes: [], edges: [] },
-        currentFilePath: 'root.ts',
+        currentFilePath: "root.ts",
         expandAll: false,
         expandedNodes: new Set(),
         showParents: false,
@@ -58,12 +61,12 @@ describe('buildReactFlowGraph', () => {
     });
   });
 
-  describe('basic graph building', () => {
-    it('should build graph with root node only when nothing is expanded', () => {
+  describe("basic graph building", () => {
+    it("should build graph with root node only when nothing is expanded", () => {
       const data = createBasicGraphData();
       const result = buildReactFlowGraph({
         data,
-        currentFilePath: 'root.ts',
+        currentFilePath: "root.ts",
         expandAll: false,
         expandedNodes: new Set(),
         showParents: false,
@@ -71,31 +74,31 @@ describe('buildReactFlowGraph', () => {
       });
 
       expect(result.nodes.length).toBeGreaterThan(0);
-      expect(result.nodes.some(n => n.id === 'root.ts')).toBe(true);
+      expect(result.nodes.some((n) => n.id === "root.ts")).toBe(true);
     });
 
-    it('should include children when root is expanded', () => {
+    it("should include children when root is expanded", () => {
       const data = createBasicGraphData();
       const result = buildReactFlowGraph({
         data,
-        currentFilePath: 'root.ts',
+        currentFilePath: "root.ts",
         expandAll: false,
-        expandedNodes: new Set(['root.ts']),
+        expandedNodes: new Set(["root.ts"]),
         showParents: false,
         callbacks: createMockCallbacks(),
       });
 
-      expect(result.nodes.some(n => n.id === 'child1.ts')).toBe(true);
-      expect(result.nodes.some(n => n.id === 'child2.ts')).toBe(true);
+      expect(result.nodes.some((n) => n.id === "child1.ts")).toBe(true);
+      expect(result.nodes.some((n) => n.id === "child2.ts")).toBe(true);
     });
 
-    it('should expand all nodes when expandAll is true', () => {
+    it("should expand all nodes when expandAll is true", () => {
       const data = createBasicGraphData();
       // When expandAll=true, expandedNodes should contain all nodes with children
-      const expandedNodes = new Set(['root.ts']);
+      const expandedNodes = new Set(["root.ts"]);
       const result = buildReactFlowGraph({
         data,
-        currentFilePath: 'root.ts',
+        currentFilePath: "root.ts",
         expandAll: true,
         expandedNodes,
         showParents: false,
@@ -104,63 +107,63 @@ describe('buildReactFlowGraph', () => {
 
       expect(result.nodes.length).toBe(3);
       // Only nodes with children (or root) are marked as expanded
-      const rootNode = result.nodes.find(n => n.id === 'root.ts');
+      const rootNode = result.nodes.find((n) => n.id === "root.ts");
       expect(rootNode?.data.isExpanded).toBe(true);
       // Children are visible (meaning root is expanded)
-      expect(result.nodes.some(n => n.id === 'child1.ts')).toBe(true);
-      expect(result.nodes.some(n => n.id === 'child2.ts')).toBe(true);
+      expect(result.nodes.some((n) => n.id === "child1.ts")).toBe(true);
+      expect(result.nodes.some((n) => n.id === "child2.ts")).toBe(true);
     });
   });
 
-  describe('parent nodes handling', () => {
-    it('should include parent nodes when showParents is true', () => {
+  describe("parent nodes handling", () => {
+    it("should include parent nodes when showParents is true", () => {
       const data: GraphData = {
-        nodes: ['parent.ts', 'root.ts', 'child.ts'],
+        nodes: ["parent.ts", "root.ts", "child.ts"],
         edges: [
-          { source: 'parent.ts', target: 'root.ts' },
-          { source: 'root.ts', target: 'child.ts' },
+          { source: "parent.ts", target: "root.ts" },
+          { source: "root.ts", target: "child.ts" },
         ],
         nodeLabels: {
-          'parent.ts': 'parent.ts',
-          'root.ts': 'root.ts',
-          'child.ts': 'child.ts',
+          "parent.ts": "parent.ts",
+          "root.ts": "root.ts",
+          "child.ts": "child.ts",
         },
       };
 
       const result = buildReactFlowGraph({
         data,
-        currentFilePath: 'root.ts',
+        currentFilePath: "root.ts",
         expandAll: false,
         expandedNodes: new Set(),
         showParents: true,
         callbacks: createMockCallbacks(),
       });
 
-      expect(result.nodes.some(n => n.id === 'parent.ts')).toBe(true);
-      const parentNode = result.nodes.find(n => n.id === 'parent.ts');
-      expect(parentNode?.data.isParent).toBe(true);
+      expect(result.nodes.some((n) => n.id === "parent.ts")).toBe(true);
+      const parentNode = result.nodes.find((n) => n.id === "parent.ts");
+      expect((parentNode?.data as any).isParent).toBe(true);
     });
   });
 
-  describe('cycle detection', () => {
-    it('should detect cycles in the graph', () => {
+  describe("cycle detection", () => {
+    it("should detect cycles in the graph", () => {
       const data: GraphData = {
-        nodes: ['a.ts', 'b.ts', 'c.ts'],
+        nodes: ["a.ts", "b.ts", "c.ts"],
         edges: [
-          { source: 'a.ts', target: 'b.ts' },
-          { source: 'b.ts', target: 'c.ts' },
-          { source: 'c.ts', target: 'a.ts' }, // Cycle
+          { source: "a.ts", target: "b.ts" },
+          { source: "b.ts", target: "c.ts" },
+          { source: "c.ts", target: "a.ts" }, // Cycle
         ],
         nodeLabels: {
-          'a.ts': 'a.ts',
-          'b.ts': 'b.ts',
-          'c.ts': 'c.ts',
+          "a.ts": "a.ts",
+          "b.ts": "b.ts",
+          "c.ts": "c.ts",
         },
       };
 
       const result = buildReactFlowGraph({
         data,
-        currentFilePath: 'a.ts',
+        currentFilePath: "a.ts",
         expandAll: true,
         expandedNodes: new Set(),
         showParents: false,
@@ -168,58 +171,61 @@ describe('buildReactFlowGraph', () => {
       });
 
       expect(result.cycles.size).toBeGreaterThan(0);
-      const cyclicNodes = result.nodes.filter(n => n.data.isInCycle);
+      const cyclicNodes = result.nodes.filter((n) => (n.data as any).isInCycle);
       expect(cyclicNodes.length).toBeGreaterThan(0);
     });
 
-    it('should mark cyclic edges with special styling', () => {
+    it("should mark cyclic edges with special styling", () => {
       const data: GraphData = {
-        nodes: ['a.ts', 'b.ts'],
+        nodes: ["a.ts", "b.ts"],
         edges: [
-          { source: 'a.ts', target: 'b.ts' },
-          { source: 'b.ts', target: 'a.ts' }, // Cycle
+          { source: "a.ts", target: "b.ts" },
+          { source: "b.ts", target: "a.ts" }, // Cycle
         ],
         nodeLabels: {
-          'a.ts': 'a.ts',
-          'b.ts': 'b.ts',
+          "a.ts": "a.ts",
+          "b.ts": "b.ts",
         },
       };
 
       const result = buildReactFlowGraph({
         data,
-        currentFilePath: 'a.ts',
+        currentFilePath: "a.ts",
         expandAll: true,
         expandedNodes: new Set(),
         showParents: false,
         callbacks: createMockCallbacks(),
       });
 
-      const cyclicEdge = result.edges.find(e => e.label === 'Cycle');
+      const cyclicEdge = result.edges.find((e) => e.label === "Cycle");
       if (cyclicEdge) {
-        expect(cyclicEdge.style).toHaveProperty('stroke', '#ff4d4d');
-        expect(cyclicEdge.style).toHaveProperty('strokeDasharray', '5,5');
+        expect(cyclicEdge.style).toHaveProperty("stroke", "#ff4d4d");
+        expect(cyclicEdge.style).toHaveProperty("strokeDasharray", "5,5");
       }
     });
   });
 
-  describe('edge truncation', () => {
-    it('should truncate edges when exceeding MAX_PROCESS_EDGES', () => {
-      const edges = Array.from({ length: GRAPH_LIMITS.MAX_PROCESS_EDGES + 100 }, (_, i) => ({
-        source: 'root.ts',
-        target: `child${i}.ts`,
-      }));
+  describe("edge truncation", () => {
+    it("should truncate edges when exceeding MAX_PROCESS_EDGES", () => {
+      const edges = Array.from(
+        { length: GRAPH_LIMITS.MAX_PROCESS_EDGES + 100 },
+        (_, i) => ({
+          source: "root.ts",
+          target: `child${i}.ts`,
+        }),
+      );
 
-      const nodes = ['root.ts', ...edges.map(e => e.target)];
+      const nodes = ["root.ts", ...edges.map((e) => e.target)];
 
       const data: GraphData = {
         nodes,
         edges,
-        nodeLabels: Object.fromEntries(nodes.map(n => [n, n])),
+        nodeLabels: Object.fromEntries(nodes.map((n) => [n, n])),
       };
 
       const result = buildReactFlowGraph({
         data,
-        currentFilePath: 'root.ts',
+        currentFilePath: "root.ts",
         expandAll: true,
         expandedNodes: new Set(),
         showParents: false,
@@ -229,11 +235,11 @@ describe('buildReactFlowGraph', () => {
       expect(result.edgesTruncated).toBe(true);
     });
 
-    it('should not truncate when edges are within limits', () => {
+    it("should not truncate when edges are within limits", () => {
       const data = createBasicGraphData();
       const result = buildReactFlowGraph({
         data,
-        currentFilePath: 'root.ts',
+        currentFilePath: "root.ts",
         expandAll: false,
         expandedNodes: new Set(),
         showParents: false,
@@ -243,15 +249,18 @@ describe('buildReactFlowGraph', () => {
       expect(result.edgesTruncated).toBe(false);
     });
 
-    it('keeps edges relevant to expanded nodes when the full edge list is truncated', () => {
-      const root = '/workspace/src/root.ts';
-      const nodeB = '/workspace/src/b.ts';
-      const nodeC = '/workspace/src/c.ts';
+    it("keeps edges relevant to expanded nodes when the full edge list is truncated", () => {
+      const root = "/workspace/src/root.ts";
+      const nodeB = "/workspace/src/b.ts";
+      const nodeC = "/workspace/src/c.ts";
 
-      const noiseEdges = Array.from({ length: GRAPH_LIMITS.MAX_PROCESS_EDGES + 5 }, (_, i) => ({
-        source: `/workspace/noise/${i}.ts`,
-        target: `/workspace/noise/${i}-dep.ts`,
-      }));
+      const noiseEdges = Array.from(
+        { length: GRAPH_LIMITS.MAX_PROCESS_EDGES + 5 },
+        (_, i) => ({
+          source: `/workspace/noise/${i}.ts`,
+          target: `/workspace/noise/${i}-dep.ts`,
+        }),
+      );
 
       const data: GraphData = {
         nodes: [root, nodeB, nodeC],
@@ -278,82 +287,82 @@ describe('buildReactFlowGraph', () => {
       });
 
       // Root expands by default and nodeB is explicitly expanded, so nodeC must be visible.
-      expect(result.nodes.some((n) => n.id.endsWith('/c.ts'))).toBe(true);
+      expect(result.nodes.some((n) => n.id.endsWith("/c.ts"))).toBe(true);
     });
   });
 
-  describe('node data properties', () => {
-    it('should mark root node correctly', () => {
+  describe("node data properties", () => {
+    it("should mark root node correctly", () => {
       const data = createBasicGraphData();
       const result = buildReactFlowGraph({
         data,
-        currentFilePath: 'root.ts',
+        currentFilePath: "root.ts",
         expandAll: false,
         expandedNodes: new Set(),
         showParents: false,
         callbacks: createMockCallbacks(),
       });
 
-      const rootNode = result.nodes.find(n => n.id === 'root.ts');
+      const rootNode = result.nodes.find((n) => n.id === "root.ts");
       expect(rootNode?.data.isRoot).toBe(true);
       expect(rootNode?.data.isExpanded).toBe(true); // Root is always expanded
     });
 
-    it('should set hasChildren property correctly', () => {
+    it("should set hasChildren property correctly", () => {
       const data = createBasicGraphData();
       const result = buildReactFlowGraph({
         data,
-        currentFilePath: 'root.ts',
+        currentFilePath: "root.ts",
         expandAll: true,
         expandedNodes: new Set(),
         showParents: false,
         callbacks: createMockCallbacks(),
       });
 
-      const rootNode = result.nodes.find(n => n.id === 'root.ts');
+      const rootNode = result.nodes.find((n) => n.id === "root.ts");
       expect(rootNode?.data.hasChildren).toBe(true);
 
-      const childNode = result.nodes.find(n => n.id === 'child1.ts');
+      const childNode = result.nodes.find((n) => n.id === "child1.ts");
       expect(childNode?.data.hasChildren).toBe(false);
     });
 
-    it('should bind callbacks to node data', () => {
+    it("should bind callbacks to node data", () => {
       const callbacks = createMockCallbacks();
       const data = createBasicGraphData();
       const result = buildReactFlowGraph({
         data,
-        currentFilePath: 'root.ts',
+        currentFilePath: "root.ts",
         expandAll: false,
         expandedNodes: new Set(),
         showParents: false,
         callbacks,
       });
 
-      const rootNode = result.nodes.find(n => n.id === 'root.ts');
+      const rootNode = result.nodes.find((n) => n.id === "root.ts");
       expect(rootNode?.data.onDrillDown).toBeDefined();
       expect(rootNode?.data.onToggle).toBeDefined();
       expect(rootNode?.data.onExpandRequest).toBeDefined();
 
       // Test callback execution
-      rootNode?.data.onToggle();
-      expect(callbacks.onToggle).toHaveBeenCalledWith('root.ts');
+      rootNode?.data.onToggle?.();
+      expect(callbacks.onToggle).toHaveBeenCalledWith("root.ts");
     });
   });
 
-  describe('path normalization', () => {
-    it('should normalize paths consistently', () => {
+  describe("path normalization", () => {
+    it("should normalize paths consistently", () => {
       const data: GraphData = {
-        nodes: ['root.ts', 'Child1.ts'],
-        edges: [{ source: 'root.ts', target: 'Child1.ts' }],
+        nodes: ["root.ts", "Child1.ts"],
+        edges: [{ source: "root.ts", target: "Child1.ts" }],
         nodeLabels: {
-          'root.ts': 'root.ts',
-          'Child1.ts': 'Child1.ts',
+          "root.ts": "root.ts",
+          "Child1.ts": "Child1.ts",
         },
       };
 
       const result = buildReactFlowGraph({
         data,
-        currentFilePath: 'root.ts',
+        currentFilePath: "root.ts",
         expandAll: true,
         expandedNodes: new Set(),
         showParents: false,
@@ -365,73 +374,73 @@ describe('buildReactFlowGraph', () => {
     });
   });
 
-  describe('expanded nodes tracking', () => {
-    it('should respect expandedNodes set', () => {
+  describe("expanded nodes tracking", () => {
+    it("should respect expandedNodes set", () => {
       const data: GraphData = {
-        nodes: ['root.ts', 'a.ts', 'b.ts', 'c.ts'],
+        nodes: ["root.ts", "a.ts", "b.ts", "c.ts"],
         edges: [
-          { source: 'root.ts', target: 'a.ts' },
-          { source: 'a.ts', target: 'b.ts' },
-          { source: 'b.ts', target: 'c.ts' },
+          { source: "root.ts", target: "a.ts" },
+          { source: "a.ts", target: "b.ts" },
+          { source: "b.ts", target: "c.ts" },
         ],
         nodeLabels: {
-          'root.ts': 'root.ts',
-          'a.ts': 'a.ts',
-          'b.ts': 'b.ts',
-          'c.ts': 'c.ts',
+          "root.ts": "root.ts",
+          "a.ts": "a.ts",
+          "b.ts": "b.ts",
+          "c.ts": "c.ts",
         },
       };
 
       // Expand only 'a.ts'
       const result = buildReactFlowGraph({
         data,
-        currentFilePath: 'root.ts',
+        currentFilePath: "root.ts",
         expandAll: false,
-        expandedNodes: new Set(['a.ts']),
+        expandedNodes: new Set(["a.ts"]),
         showParents: false,
         callbacks: createMockCallbacks(),
       });
 
       // Should include root, a, and b (child of a), but not necessarily c
-      expect(result.nodes.some(n => n.id === 'root.ts')).toBe(true);
-      expect(result.nodes.some(n => n.id === 'a.ts')).toBe(true);
-      expect(result.nodes.some(n => n.id === 'b.ts')).toBe(true);
+      expect(result.nodes.some((n) => n.id === "root.ts")).toBe(true);
+      expect(result.nodes.some((n) => n.id === "a.ts")).toBe(true);
+      expect(result.nodes.some((n) => n.id === "b.ts")).toBe(true);
     });
   });
 
-  describe('node labels', () => {
-    it('should use provided node labels', () => {
+  describe("node labels", () => {
+    it("should use provided node labels", () => {
       const data: GraphData = {
-        nodes: ['src/components/Button.tsx'],
+        nodes: ["src/components/Button.tsx"],
         edges: [],
         nodeLabels: {
-          'src/components/Button.tsx': 'Button Component',
+          "src/components/Button.tsx": "Button Component",
         },
       };
 
       const result = buildReactFlowGraph({
         data,
-        currentFilePath: 'src/components/Button.tsx',
+        currentFilePath: "src/components/Button.tsx",
         expandAll: false,
         expandedNodes: new Set(),
         showParents: false,
         callbacks: createMockCallbacks(),
       });
 
-      const node = result.nodes.find(n => n.id.includes('Button'));
-      expect(node?.data.label).toBe('Button Component');
+      const node = result.nodes.find((n) => n.id.includes("Button"));
+      expect(node?.data.label).toBe("Button Component");
     });
 
-    it('should fallback to filename when no label provided', () => {
+    it("should fallback to filename when no label provided", () => {
       const data: GraphData = {
-        nodes: ['src/components/Button.tsx'],
+        nodes: ["src/components/Button.tsx"],
         edges: [],
         nodeLabels: {},
       };
 
       const result = buildReactFlowGraph({
         data,
-        currentFilePath: 'src/components/Button.tsx',
+        currentFilePath: "src/components/Button.tsx",
         expandAll: false,
         expandedNodes: new Set(),
         showParents: false,
@@ -439,57 +448,57 @@ describe('buildReactFlowGraph', () => {
       });
 
       const node = result.nodes[0];
-      expect(node?.data.label).toBe('Button.tsx');
+      expect(node?.data.label).toBe("Button.tsx");
     });
   });
 
-  describe('parent count tracking', () => {
-    it('should include parent count in node data', () => {
+  describe("parent count tracking", () => {
+    it("should include parent count in node data", () => {
       const data: GraphData = {
-        nodes: ['root.ts', 'child.ts'],
-        edges: [{ source: 'root.ts', target: 'child.ts' }],
+        nodes: ["root.ts", "child.ts"],
+        edges: [{ source: "root.ts", target: "child.ts" }],
         nodeLabels: {
-          'root.ts': 'root.ts',
-          'child.ts': 'child.ts',
+          "root.ts": "root.ts",
+          "child.ts": "child.ts",
         },
         parentCounts: {
-          'child.ts': 5,
+          "child.ts": 5,
         },
       };
 
       const result = buildReactFlowGraph({
         data,
-        currentFilePath: 'root.ts',
+        currentFilePath: "root.ts",
         expandAll: true,
         expandedNodes: new Set(),
         showParents: false,
         callbacks: createMockCallbacks(),
       });
 
-      const childNode = result.nodes.find(n => n.id === 'child.ts');
-      expect(childNode?.data.parentCount).toBe(5);
-      expect(childNode?.data.hasReferencingFiles).toBe(true);
+      const childNode = result.nodes.find((n) => n.id === "child.ts");
+      expect((childNode?.data as any).parentCount).toBe(5);
+      expect((childNode?.data as any).hasReferencingFiles).toBe(true);
     });
   });
 
-  describe('edge deduplication', () => {
-    it('should deduplicate edges with same source and target', () => {
+  describe("edge deduplication", () => {
+    it("should deduplicate edges with same source and target", () => {
       const data: GraphData = {
-        nodes: ['a.ts', 'b.ts'],
+        nodes: ["a.ts", "b.ts"],
         edges: [
-          { source: 'a.ts', target: 'b.ts' },
-          { source: 'a.ts', target: 'b.ts' }, // Duplicate
-          { source: 'a.ts', target: 'b.ts' }, // Duplicate
+          { source: "a.ts", target: "b.ts" },
+          { source: "a.ts", target: "b.ts" }, // Duplicate
+          { source: "a.ts", target: "b.ts" }, // Duplicate
         ],
         nodeLabels: {
-          'a.ts': 'a.ts',
-          'b.ts': 'b.ts',
+          "a.ts": "a.ts",
+          "b.ts": "b.ts",
         },
       };
 
       const result = buildReactFlowGraph({
         data,
-        currentFilePath: 'a.ts',
+        currentFilePath: "a.ts",
         expandAll: true,
         expandedNodes: new Set(),
         showParents: false,
@@ -497,13 +506,15 @@ describe('buildReactFlowGraph', () => {
       });
 
       // Should only have one edge
-      const edges = result.edges.filter(e => e.source === 'a.ts' && e.target === 'b.ts');
+      const edges = result.edges.filter(
+        (e) => e.source === "a.ts" && e.target === "b.ts",
+      );
       expect(edges.length).toBe(1);
     });
   });
 
-  describe('node truncation', () => {
-    it('should truncate nodes when exceeding MAX_RENDER_NODES', () => {
+  describe("node truncation", () => {
+    it("should truncate nodes when exceeding MAX_RENDER_NODES", () => {
       const nodeCount = GRAPH_LIMITS.MAX_RENDER_NODES + 50;
       const nodes = Array.from({ length: nodeCount }, (_, i) => `node${i}.ts`);
       const edges = nodes.slice(1).map((target, i) => ({
@@ -514,11 +525,11 @@ describe('buildReactFlowGraph', () => {
       const data: GraphData = {
         nodes,
         edges,
-        nodeLabels: Object.fromEntries(nodes.map(n => [n, n])),
+        nodeLabels: Object.fromEntries(nodes.map((n) => [n, n])),
       };
 
       // When expandAll=true, expandedNodes should contain all nodes with children (sources in edges)
-      const expandedNodes = new Set(edges.map(e => e.source));
+      const expandedNodes = new Set(edges.map((e) => e.source));
       const result = buildReactFlowGraph({
         data,
         currentFilePath: nodes[0],
@@ -529,28 +540,33 @@ describe('buildReactFlowGraph', () => {
       });
 
       expect(result.nodesTruncated).toBe(true);
-      expect(result.nodes.length).toBeLessThanOrEqual(GRAPH_LIMITS.MAX_RENDER_NODES);
+      expect(result.nodes.length).toBeLessThanOrEqual(
+        GRAPH_LIMITS.MAX_RENDER_NODES,
+      );
     });
   });
 
-  describe('render edge truncation', () => {
-    it('should truncate rendered edges when exceeding MAX_RENDER_EDGES', () => {
+  describe("render edge truncation", () => {
+    it("should truncate rendered edges when exceeding MAX_RENDER_EDGES", () => {
       const edgeCount = GRAPH_LIMITS.MAX_RENDER_EDGES + 100;
-      const nodes = Array.from({ length: edgeCount + 1 }, (_, i) => `node${i}.ts`);
+      const nodes = Array.from(
+        { length: edgeCount + 1 },
+        (_, i) => `node${i}.ts`,
+      );
       const edges = Array.from({ length: edgeCount }, (_, i) => ({
-        source: 'node0.ts',
+        source: "node0.ts",
         target: `node${i + 1}.ts`,
       }));
 
       const data: GraphData = {
         nodes,
         edges,
-        nodeLabels: Object.fromEntries(nodes.map(n => [n, n])),
+        nodeLabels: Object.fromEntries(nodes.map((n) => [n, n])),
       };
 
       const result = buildReactFlowGraph({
         data,
-        currentFilePath: 'node0.ts',
+        currentFilePath: "node0.ts",
         expandAll: true,
         expandedNodes: new Set(),
         showParents: false,
@@ -558,8 +574,200 @@ describe('buildReactFlowGraph', () => {
       });
 
       expect(result.renderEdgesTruncated).toBe(true);
-      expect(result.edges.length).toBeLessThanOrEqual(GRAPH_LIMITS.MAX_RENDER_EDGES);
+      expect(result.edges.length).toBeLessThanOrEqual(
+        GRAPH_LIMITS.MAX_RENDER_EDGES,
+      );
+    });
+  });
+
+  describe("edge styling - call vs reference (T053)", () => {
+    it("should apply solid style to call edges", () => {
+      const data: GraphData = {
+        nodes: ["a.ts", "b.ts"],
+        edges: [{ source: "a.ts", target: "b.ts", relationType: "call" }],
+        nodeLabels: { "a.ts": "a.ts", "b.ts": "b.ts" },
+      };
+
+      const result = buildReactFlowGraph({
+        data,
+        currentFilePath: "a.ts",
+        expandAll: true,
+        expandedNodes: new Set(["a.ts"]),
+        showParents: false,
+        callbacks: createMockCallbacks(),
+      });
+
+      const edge = result.edges.find(
+        (e) => e.source === "a.ts" && e.target === "b.ts",
+      );
+      expect(edge).toBeDefined();
+      expect(edge?.style?.strokeWidth).toBe(2);
+      expect(edge?.style?.strokeDasharray).toBeUndefined();
+      expect(edge?.animated).toBe(true);
+    });
+
+    it("should apply dashed style to reference edges", () => {
+      const data: GraphData = {
+        nodes: ["a.ts", "b.ts"],
+        edges: [{ source: "a.ts", target: "b.ts", relationType: "reference" }],
+        nodeLabels: { "a.ts": "a.ts", "b.ts": "b.ts" },
+      };
+
+      const result = buildReactFlowGraph({
+        data,
+        currentFilePath: "a.ts",
+        expandAll: true,
+        expandedNodes: new Set(["a.ts"]),
+        showParents: false,
+        callbacks: createMockCallbacks(),
+      });
+
+      const edge = result.edges.find(
+        (e) => e.source === "a.ts" && e.target === "b.ts",
+      );
+      expect(edge).toBeDefined();
+      expect(edge?.style?.strokeDasharray).toBe("4 4");
+      expect(edge?.label).toBe("references");
+      expect(edge?.animated).toBe(true);
+    });
+
+    it("should apply cycle badge to circular dependencies", () => {
+      const data: GraphData = {
+        nodes: ["a.ts", "b.ts"],
+        edges: [
+          { source: "a.ts", target: "b.ts", relationType: "call" },
+          { source: "b.ts", target: "a.ts", relationType: "call" },
+        ],
+        nodeLabels: { "a.ts": "a.ts", "b.ts": "b.ts" },
+      };
+
+      const result = buildReactFlowGraph({
+        data,
+        currentFilePath: "a.ts",
+        expandAll: true,
+        expandedNodes: new Set(["a.ts", "b.ts"]),
+        showParents: false,
+        callbacks: createMockCallbacks(),
+      });
+
+      // Both nodes should be in cycles
+      expect(result.cycles.has("a.ts")).toBe(true);
+      expect(result.cycles.has("b.ts")).toBe(true);
+
+      // At least one edge should have cycle styling
+      const cycleEdge = result.edges.find(
+        (e) => typeof e.label === "string" && e.label.includes("cycle"),
+      );
+      expect(cycleEdge).toBeDefined();
+      expect(cycleEdge?.style?.strokeWidth).toBe(2.5);
+      expect(cycleEdge?.animated).toBe(true);
+    });
+
+    it("should apply dim style to unused edges when mode is dim", () => {
+      const data: GraphData = {
+        nodes: ["a.ts", "b.ts", "c.ts"],
+        edges: [
+          { source: "a.ts", target: "b.ts", relationType: "call" },
+          { source: "a.ts", target: "c.ts", relationType: "call" },
+        ],
+        nodeLabels: { "a.ts": "a.ts", "b.ts": "b.ts", "c.ts": "c.ts" },
+      };
+
+      const result = buildReactFlowGraph({
+        data,
+        currentFilePath: "a.ts",
+        expandAll: true,
+        expandedNodes: new Set(["a.ts"]),
+        showParents: false,
+        callbacks: createMockCallbacks(),
+        unusedEdges: ["a.ts->c.ts"],
+        unusedDependencyMode: "dim",
+        filterUnused: true,
+      });
+
+      const unusedEdge = result.edges.find(
+        (e) => e.source === "a.ts" && e.target === "c.ts",
+      );
+      expect(unusedEdge).toBeDefined();
+      expect(unusedEdge?.style?.opacity).toBe(0.3);
+      expect(unusedEdge?.style?.strokeDasharray).toBe("5 5");
+      expect(unusedEdge?.label).toBe("unused");
+      expect(unusedEdge?.animated).toBe(false);
+
+      const usedEdge = result.edges.find(
+        (e) => e.source === "a.ts" && e.target === "b.ts",
+      );
+      expect(usedEdge).toBeDefined();
+      expect(usedEdge?.style?.opacity).not.toBe(0.3);
+    });
+
+    it("should prioritize cycle styling over reference styling", () => {
+      const data: GraphData = {
+        nodes: ["a.ts", "b.ts"],
+        edges: [
+          { source: "a.ts", target: "b.ts", relationType: "reference" },
+          { source: "b.ts", target: "a.ts", relationType: "reference" },
+        ],
+        nodeLabels: { "a.ts": "a.ts", "b.ts": "b.ts" },
+      };
+
+      const result = buildReactFlowGraph({
+        data,
+        currentFilePath: "a.ts",
+        expandAll: true,
+        expandedNodes: new Set(["a.ts", "b.ts"]),
+        showParents: false,
+        callbacks: createMockCallbacks(),
+      });
+
+      // Cycle detection should override reference styling
+      const edges = result.edges.filter(
+        (e) => typeof e.label === "string" && e.label.includes("cycle"),
+      );
+      expect(edges.length).toBeGreaterThan(0);
+
+      // Cycle styling takes precedence
+      const cycleEdge = edges[0];
+      expect(cycleEdge.style?.strokeWidth).toBe(2.5);
+      expect(typeof cycleEdge.label === "string" && cycleEdge.label).toContain(
+        "cycle",
+      );
+    });
+
+    it("should handle mixed edge types in same graph", () => {
+      const data: GraphData = {
+        nodes: ["a.ts", "b.ts", "c.ts", "d.ts"],
+        edges: [
+          { source: "a.ts", target: "b.ts", relationType: "call" },
+          { source: "a.ts", target: "c.ts", relationType: "reference" },
+          { source: "b.ts", target: "d.ts", relationType: "call" },
+        ],
+        nodeLabels: {
+          "a.ts": "a.ts",
+          "b.ts": "b.ts",
+          "c.ts": "c.ts",
+          "d.ts": "d.ts",
+        },
+      };
+
+      const result = buildReactFlowGraph({
+        data,
+        currentFilePath: "a.ts",
+        expandAll: true,
+        expandedNodes: new Set(["a.ts", "b.ts"]),
+        showParents: false,
+        callbacks: createMockCallbacks(),
+      });
+
+      const callEdges = result.edges.filter(
+        (e) => e.style?.strokeWidth === 2 && !e.style?.strokeDasharray,
+      );
+      const referenceEdges = result.edges.filter(
+        (e) => e.style?.strokeDasharray === "4 4",
+      );
+
+      expect(callEdges.length).toBeGreaterThan(0);
+      expect(referenceEdges.length).toBeGreaterThan(0);
     });
   });
 });
-

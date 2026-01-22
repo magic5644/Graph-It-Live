@@ -1,0 +1,17 @@
+# Markdownlint ignore file
+# Ignore specification files
+.spec/**/*.md
+specs/**/*.md
+_bmad/**/*.md
+_bmad-output/**/*.md
+
+# Ignore vendor/dependency documentation
+node_modules/**/*.md
+
+# Ignore generated documentation
+coverage/**/*.md
+dist/**/*.md
+out/**/*.md
+
+# Ignore VS Code test files
+.vscode-test/**/*.md

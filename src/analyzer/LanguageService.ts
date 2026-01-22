@@ -1,20 +1,21 @@
-import path from 'node:path';
-import { ILanguageAnalyzer, ISymbolAnalyzer } from './types';
-import { Parser } from './Parser';
-import { SymbolAnalyzer } from './SymbolAnalyzer';
-import { PythonParser } from './languages/PythonParser';
-import { PythonSymbolAnalyzer } from './languages/PythonSymbolAnalyzer';
-import { RustParser } from './languages/RustParser';
-import { RustSymbolAnalyzer } from './languages/RustSymbolAnalyzer';
+import path from "node:path";
+import { getLogger } from "../shared/logger";
+import { Parser } from "./Parser";
+import { SymbolAnalyzer } from "./SymbolAnalyzer";
+import { PythonParser } from "./languages/PythonParser";
+import { PythonSymbolAnalyzer } from "./languages/PythonSymbolAnalyzer";
+import { RustParser } from "./languages/RustParser";
+import { RustSymbolAnalyzer } from "./languages/RustSymbolAnalyzer";
+import { ILanguageAnalyzer, ISymbolAnalyzer } from "./types";
 
 /**
  * Language detection based on file extension
  */
 export enum Language {
-  TypeScript = 'typescript',
-  Python = 'python',
-  Rust = 'rust',
-  Unknown = 'unknown',
+  TypeScript = "typescript",
+  Python = "python",
+  Rust = "rust",
+  Unknown = "unknown",
 }
 
 /**
@@ -39,43 +40,85 @@ export class LanguageService {
    * Instance method to get analyzer with instance-specific config
    */
   getAnalyzer(filePath: string): ILanguageAnalyzer {
-    return LanguageService.getAnalyzer(filePath, this.rootDir);
+    const actualPath = LanguageService["extractFilePath"](filePath);
+    return LanguageService.getAnalyzer(actualPath, this.rootDir);
   }
 
   /**
    * Instance method to get symbol analyzer with instance-specific config
    */
   getSymbolAnalyzer(filePath: string): ISymbolAnalyzer {
-    return LanguageService.getSymbolAnalyzer(filePath, this.rootDir);
+    const actualPath = LanguageService["extractFilePath"](filePath);
+    return LanguageService.getSymbolAnalyzer(actualPath, this.rootDir);
+  }
+
+  /**
+   * Extract file path from a potential symbol ID (format: "filePath:symbolName")
+   * Returns the original path if no colon is found
+   */
+  private static extractFilePath(pathOrSymbolId: string): string {
+    // Symbol IDs have format "filePath:symbolName"
+    // File paths should not have colons except for Windows drive letters (e.g., C:\path)
+    // If we detect a colon after a file extension, it's likely a symbol ID
+    const colonIndex = pathOrSymbolId.lastIndexOf(":");
+
+    if (colonIndex === -1) {
+      return pathOrSymbolId;
+    }
+
+    // Check if colon is part of Windows drive letter (position 1)
+    if (colonIndex === 1 && /^[a-zA-Z]:/.test(pathOrSymbolId)) {
+      return pathOrSymbolId;
+    }
+
+    // Check if there's a file extension before the colon (e.g., "file.ts:symbolName")
+    const beforeColon = pathOrSymbolId.substring(0, colonIndex);
+    if (
+      /\.(ts|tsx|js|jsx|mjs|cjs|py|rs|vue|svelte|gql|graphql)$/i.test(
+        beforeColon,
+      )
+    ) {
+      // This is a symbol ID - extract the file path part
+      getLogger("LanguageService").warn(
+        `Symbol ID detected where file path expected: ${pathOrSymbolId}. ` +
+          `Extracting file path: ${beforeColon}`,
+      );
+      return beforeColon;
+    }
+
+    // Not a symbol ID - return as is
+    return pathOrSymbolId;
   }
 
   /**
    * Detect the language based on file extension
    */
   static detectLanguage(filePath: string): Language {
-    const ext = path.extname(filePath).toLowerCase();
-    
+    // Extract file path from potential symbol ID
+    const actualPath = this.extractFilePath(filePath);
+    const ext = path.extname(actualPath).toLowerCase();
+
     switch (ext) {
-      case '.ts':
-      case '.tsx':
-      case '.js':
-      case '.jsx':
-      case '.mjs':
-      case '.cjs':
-      case '.vue':
-      case '.svelte':
-      case '.gql':
-      case '.graphql':
+      case ".ts":
+      case ".tsx":
+      case ".js":
+      case ".jsx":
+      case ".mjs":
+      case ".cjs":
+      case ".vue":
+      case ".svelte":
+      case ".gql":
+      case ".graphql":
         return Language.TypeScript;
-      
-      case '.py':
-      case '.pyi':
+
+      case ".py":
+      case ".pyi":
         return Language.Python;
-      
-      case '.rs':
-      case '.toml':
+
+      case ".rs":
+      case ".toml":
         return Language.Rust;
-      
+
       default:
         return Language.Unknown;
     }
@@ -86,7 +129,8 @@ export class LanguageService {
    * Lazy-loads parsers only when needed.
    */
   static getAnalyzer(filePath: string, rootDir?: string): ILanguageAnalyzer {
-    const language = this.detectLanguage(filePath);
+    const actualPath = this.extractFilePath(filePath);
+    const language = this.detectLanguage(actualPath);
 
     switch (language) {
       case Language.TypeScript:
@@ -110,8 +154,12 @@ export class LanguageService {
    * Get the appropriate symbol analyzer for the given file path.
    * Lazy-loads analyzers only when needed.
    */
-  static getSymbolAnalyzer(filePath: string, rootDir?: string): ISymbolAnalyzer {
-    const language = this.detectLanguage(filePath);
+  static getSymbolAnalyzer(
+    filePath: string,
+    rootDir?: string,
+  ): ISymbolAnalyzer {
+    const actualPath = this.extractFilePath(filePath);
+    const language = this.detectLanguage(actualPath);
 
     switch (language) {
       case Language.TypeScript:

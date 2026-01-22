@@ -1,7 +1,7 @@
 export interface GraphEdge {
   source: string;
   target: string;
-  relationType?: 'dependency' | 'call' | 'reference';
+  relationType?: "dependency" | "call" | "reference";
 }
 
 export interface GraphData {
@@ -16,7 +16,7 @@ export interface GraphData {
 }
 
 export interface ShowGraphMessage {
-  command: 'updateGraph';
+  command: "updateGraph";
   filePath: string;
   data: GraphData;
   expandAll?: boolean;
@@ -26,100 +26,115 @@ export interface ShowGraphMessage {
    * Optional refresh reason. Used by the webview to decide whether to replace the
    * graph data or merge it (eg. keep expanded nodes while refreshing parentCounts after indexing).
    */
-  refreshReason?: 'manual' | 'indexing' | 'fileSaved' | 'navigation' | 'fileChange' | 'usage-analysis' | 'unknown';
-  unusedDependencyMode?: 'none' | 'hide' | 'dim';
+  refreshReason?:
+    | "manual"
+    | "indexing"
+    | "fileSaved"
+    | "navigation"
+    | "fileChange"
+    | "usage-analysis"
+    | "unknown";
+  unusedDependencyMode?: "none" | "hide" | "dim";
   /** Whether the unused dependency filter is active (controlled by backend state) */
   filterUnused?: boolean;
 }
 
 export interface OpenFileMessage {
-  command: 'openFile';
+  command: "openFile";
   path: string;
   /** Optional line number to navigate to (1-indexed) */
   line?: number;
 }
 
 export interface ExpandNodeMessage {
-  command: 'expandNode';
+  command: "expandNode";
   nodeId: string;
   knownNodes: string[];
 }
 
 export interface SetExpandAllMessage {
-  command: 'setExpandAll';
+  command: "setExpandAll";
   expandAll: boolean;
 }
 
 export interface CancelExpandNodeMessage {
-  command: 'cancelExpandNode';
+  command: "cancelExpandNode";
   nodeId?: string;
 }
 
 export interface UpdateFilterMessage {
-  command: 'updateFilter';
+  command: "updateFilter";
   filterUnused: boolean;
-  unusedDependencyMode: 'none' | 'hide' | 'dim';
+  unusedDependencyMode: "none" | "hide" | "dim";
 }
 
 export interface RefreshGraphMessage {
-  command: 'refreshGraph';
+  command: "refreshGraph";
+}
+
+export interface EnableUnusedFilterMessage {
+  command: "enableUnusedFilter";
+}
+
+export interface DisableUnusedFilterMessage {
+  command: "disableUnusedFilter";
 }
 
 export interface ExpandedGraphMessage {
-  command: 'expandedGraph';
+  command: "expandedGraph";
   nodeId: string;
   data: GraphData;
 }
 
 export interface FindReferencingFilesMessage {
-  command: 'findReferencingFiles';
+  command: "findReferencingFiles";
   nodeId: string;
 }
 
 export interface ReferencingFilesMessage {
-  command: 'referencingFiles';
+  command: "referencingFiles";
   nodeId: string;
   data: GraphData;
 }
 
 export interface ExpansionProgressMessage {
-  command: 'expansionProgress';
+  command: "expansionProgress";
   nodeId: string;
-  status: 'started' | 'in-progress' | 'completed' | 'cancelled' | 'error';
+  status: "started" | "in-progress" | "completed" | "cancelled" | "error";
   processed?: number;
   total?: number;
   message?: string;
 }
 
 export interface IndexingProgressMessage {
-  command: 'indexingProgress';
+  command: "indexingProgress";
   /** Number of files processed so far */
   processed: number;
   /** Total number of files to process */
   total: number;
   /** Current status of the indexing operation */
-  status: 'starting' | 'indexing' | 'complete' | 'error' | 'validating';
+  status: "starting" | "indexing" | "complete" | "error" | "validating";
   /** Optional message for additional context */
   message?: string;
 }
 
 export interface DrillDownMessage {
-  command: 'drillDown';
+  command: "drillDown";
   filePath: string;
 }
 
 export interface ReadyMessage {
-  command: 'ready';
+  command: "ready";
 }
 
 export interface SwitchModeMessage {
-  command: 'switchMode';
-  mode: 'file' | 'symbol';
+  command: "switchMode";
+  mode: "file" | "symbol";
 }
 
 export interface WebviewLogMessage {
-  command: 'webviewLog';
-  level: 'debug' | 'info' | 'warn' | 'error';
+  command: "webviewLog";
+  level: "debug" | "info" | "warn" | "error";
   message: string;
   args?: unknown[];
 }
@@ -142,7 +157,7 @@ export interface SymbolNode {
   /** LSP symbol kind enum: Function, Class, Method, Variable, etc. */
   kind: number; // vscode.SymbolKind value
   /** Simplified category for color coding */
-  type: 'class' | 'function' | 'variable';
+  type: "class" | "function" | "variable";
   /** Line range in file (1-indexed) */
   range: { start: number; end: number };
   /** Whether symbol is exported (for external call detection) */
@@ -162,7 +177,7 @@ export interface CallEdge {
   /** Callee symbol ID (SymbolNode.id) */
   target: string;
   /** Type of relationship */
-  relation: 'calls' | 'references';
+  relation: "calls" | "references";
   /** Line number where call/reference occurs in source (for navigation) */
   line: number;
 }
@@ -204,7 +219,7 @@ export interface SymbolInfo {
   isExported: boolean;
   id: string;
   parentSymbolId?: string;
-  category: 'function' | 'class' | 'variable' | 'interface' | 'type' | 'other';
+  category: "function" | "class" | "variable" | "interface" | "type" | "other";
 }
 
 export interface SymbolDependency {
@@ -212,7 +227,7 @@ export interface SymbolDependency {
   targetSymbolId: string;
   targetFilePath: string;
   /** Type of relationship: 'dependency' (import/export), 'call' (function call), 'reference' (variable usage) */
-  relationType?: 'dependency' | 'call' | 'reference';
+  relationType?: "dependency" | "call" | "reference";
   /** For calls: positions of calls in source code (for navigation) */
   callLocations?: { line: number; character: number }[];
   /** Whether this is a type-only dependency (interface/type usage vs runtime) */
@@ -220,8 +235,8 @@ export interface SymbolDependency {
 }
 
 export interface EmptyStateMessage {
-  command: 'emptyState';
-  reason: 'no-file-open' | 'no-workspace';
+  command: "emptyState";
+  reason: "no-file-open" | "no-workspace";
   /** Optional message to display to the user */
   message?: string;
 }
@@ -235,6 +250,14 @@ export interface SymbolGraphMessage {
   graph: IntraFileGraph;
   /** Breadcrumb navigation path */
   breadcrumb: BreadcrumbPath;
+  /** Legacy graph data structure for backward compatibility */
+  data?: {
+    nodes: string[];
+    edges: Array<{ source: string; target: string }>;
+    symbolData?: { symbols: SymbolInfo[]; dependencies: SymbolDependency[] };
+    referencingFiles?: string[];
+    parentCounts?: Record<string, number>;
+  };
 }
 
 /**
@@ -301,4 +324,6 @@ export type WebviewToExtensionMessage =
   | ReadyMessage
   | SwitchModeMessage
   | WebviewLogMessage
-  | CancelExpandNodeMessage;
+  | CancelExpandNodeMessage
+  | EnableUnusedFilterMessage
+  | DisableUnusedFilterMessage;

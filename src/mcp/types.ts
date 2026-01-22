@@ -8,16 +8,19 @@
  * NO import * as vscode from 'vscode' allowed!
  */
 
+import * as nodePath from "node:path";
 import { z } from "zod/v4";
-import * as nodePath from 'node:path';
-import { normalizePathForComparison as _normalizePathForComparison, getRelativePath as _getRelativePath } from '../shared/path';
-import type { Dependency } from '../analyzer/types';
+import type { Dependency } from "../analyzer/types";
+import {
+  getRelativePath as _getRelativePath,
+  normalizePathForComparison as _normalizePathForComparison,
+} from "../shared/path";
 
 // ============================================================================
 // Tool Version (for metadata)
 // ============================================================================
 
-export const MCP_TOOL_VERSION = '1.0.0';
+export const MCP_TOOL_VERSION = "1.0.0";
 
 // ============================================================================
 // Worker Message Protocol
@@ -27,9 +30,9 @@ export const MCP_TOOL_VERSION = '1.0.0';
  * Message sent from McpWorkerHost to McpWorker
  */
 export type McpWorkerMessage =
-  | { type: 'init'; config: McpWorkerConfig }
-  | { type: 'invoke'; requestId: string; tool: McpToolName; params: unknown }
-  | { type: 'shutdown' };
+  | { type: "init"; config: McpWorkerConfig }
+  | { type: "invoke"; requestId: string; tool: McpToolName; params: unknown }
+  | { type: "shutdown" };
 
 /**
  * Configuration for the MCP Worker
@@ -45,35 +48,50 @@ export interface McpWorkerConfig {
  * Response sent from McpWorker to McpWorkerHost
  */
 export type McpWorkerResponse =
-  | { type: 'ready'; warmupDuration: number; indexedFiles: number }
-  | { type: 'result'; requestId: string; data: unknown; executionTimeMs: number }
-  | { type: 'error'; requestId: string; error: string; code?: string }
-  | { type: 'warmup-progress'; processed: number; total: number; currentFile?: string }
-  | { type: 'file-invalidated'; filePath: string; event: 'change' | 'add' | 'unlink' };
+  | { type: "ready"; warmupDuration: number; indexedFiles: number }
+  | {
+      type: "result";
+      requestId: string;
+      data: unknown;
+      executionTimeMs: number;
+    }
+  | { type: "error"; requestId: string; error: string; code?: string }
+  | {
+      type: "warmup-progress";
+      processed: number;
+      total: number;
+      currentFile?: string;
+    }
+  | {
+      type: "file-invalidated";
+      filePath: string;
+      event: "change" | "add" | "unlink";
+    };
 
 // ============================================================================
 // Tool Names
 // ============================================================================
 
 export type McpToolName =
-  | 'set_workspace'             // NEW: Set workspace directory dynamically
-  | 'analyze_dependencies'
-  | 'crawl_dependency_graph'
-  | 'find_referencing_files'
-  | 'expand_node'
-  | 'parse_imports'
-  | 'verify_dependency_usage'  // NEW: Verify if a dependency is actually used
-  | 'resolve_module_path'
-  | 'get_index_status'
-  | 'invalidate_files'
-  | 'rebuild_index'
-  | 'get_symbol_graph'
-  | 'find_unused_symbols'
-  | 'get_symbol_dependents'
-  | 'trace_function_execution'
-  | 'get_symbol_callers'        // NEW: O(1) lookup of symbol callers
-  | 'analyze_breaking_changes'  // NEW: Detect breaking changes
-  | 'get_impact_analysis';      // NEW: Full impact analysis
+  | "set_workspace" // NEW: Set workspace directory dynamically
+  | "analyze_dependencies"
+  | "crawl_dependency_graph"
+  | "find_referencing_files"
+  | "expand_node"
+  | "parse_imports"
+  | "verify_dependency_usage" // NEW: Verify if a dependency is actually used
+  | "resolve_module_path"
+  | "get_index_status"
+  | "invalidate_files"
+  | "rebuild_index"
+  | "get_symbol_graph"
+  | "find_unused_symbols"
+  | "get_symbol_dependents"
+  | "trace_function_execution"
+  | "get_symbol_callers" // NEW: O(1) lookup of symbol callers
+  | "analyze_breaking_changes" // NEW: Detect breaking changes
+  | "get_impact_analysis" // NEW: Full impact analysis
+  | "analyze_file_logic"; // NEW: LSP-based intra-file call hierarchy
 
 // ============================================================================
 // Zod Schemas for Tool Parameters
@@ -84,9 +102,12 @@ export type McpToolName =
  * - 'json': Standard JSON format (default)
  * - 'toon': Token-Oriented Object Notation (compact format for large datasets)
  */
-export const OutputFormatSchema = z.enum(['json', 'toon']).default('json').describe(
-  "Output format: 'json' (default) or 'toon' (Token-Oriented Object Notation for reduced token usage)"
-);
+export const OutputFormatSchema = z
+  .enum(["json", "toon"])
+  .default("json")
+  .describe(
+    "Output format: 'json' (default) or 'toon' (Token-Oriented Object Notation for reduced token usage)",
+  );
 export type OutputFormat = z.infer<typeof OutputFormatSchema>;
 
 // ============================================================================
@@ -111,42 +132,46 @@ export const PAYLOAD_LIMITS = {
 /**
  * Reusable Zod schema for file paths with size validation
  */
-export const FilePathSchema = z.string()
-  .max(PAYLOAD_LIMITS.FILE_PATH, `File path exceeds maximum length of ${PAYLOAD_LIMITS.FILE_PATH} bytes`)
-  .refine(
-    (val) => !val.includes('\0'),
-    'File path contains null bytes'
-  );
+export const FilePathSchema = z
+  .string()
+  .max(
+    PAYLOAD_LIMITS.FILE_PATH,
+    `File path exceeds maximum length of ${PAYLOAD_LIMITS.FILE_PATH} bytes`,
+  )
+  .refine((val) => !val.includes("\0"), "File path contains null bytes");
 
 /**
  * Reusable Zod schema for symbol names with size validation
  */
-export const SymbolNameSchema = z.string()
-  .max(PAYLOAD_LIMITS.SYMBOL_NAME, `Symbol name exceeds maximum length of ${PAYLOAD_LIMITS.SYMBOL_NAME} bytes`)
-  .refine(
-    (val) => !val.includes('\0'),
-    'Symbol name contains null bytes'
-  );
+export const SymbolNameSchema = z
+  .string()
+  .max(
+    PAYLOAD_LIMITS.SYMBOL_NAME,
+    `Symbol name exceeds maximum length of ${PAYLOAD_LIMITS.SYMBOL_NAME} bytes`,
+  )
+  .refine((val) => !val.includes("\0"), "Symbol name contains null bytes");
 
 /**
  * Reusable Zod schema for file content with size validation
  */
-export const FileContentSchema = z.string()
-  .max(PAYLOAD_LIMITS.FILE_CONTENT, `File content exceeds maximum size of ${PAYLOAD_LIMITS.FILE_CONTENT} bytes (~1 MB)`)
-  .refine(
-    (val) => !val.includes('\0'),
-    'File content contains null bytes'
-  );
+export const FileContentSchema = z
+  .string()
+  .max(
+    PAYLOAD_LIMITS.FILE_CONTENT,
+    `File content exceeds maximum size of ${PAYLOAD_LIMITS.FILE_CONTENT} bytes (~1 MB)`,
+  )
+  .refine((val) => !val.includes("\0"), "File content contains null bytes");
 
 /**
  * Reusable Zod schema for generic strings with size validation
  */
-export const GenericStringSchema = z.string()
-  .max(PAYLOAD_LIMITS.GENERIC_STRING, `String exceeds maximum length of ${PAYLOAD_LIMITS.GENERIC_STRING} bytes`)
-  .refine(
-    (val) => !val.includes('\0'),
-    'String contains null bytes'
-  );
+export const GenericStringSchema = z
+  .string()
+  .max(
+    PAYLOAD_LIMITS.GENERIC_STRING,
+    `String exceeds maximum length of ${PAYLOAD_LIMITS.GENERIC_STRING} bytes`,
+  )
+  .refine((val) => !val.includes("\0"), "String contains null bytes");
 
 /**
  * Pagination limits for MCP tools
@@ -162,63 +187,131 @@ export const PAGINATION_LIMITS = {
 } as const;
 
 export const SetWorkspaceParamsSchema = z.object({
-  workspacePath: FilePathSchema.describe('Absolute path to the project/workspace directory to analyze'),
-  tsConfigPath: FilePathSchema.optional().describe('Optional path to tsconfig.json for path alias resolution'),
-  excludeNodeModules: z.boolean().optional().describe('Whether to exclude node_modules (default: true)'),
-  maxDepth: z.number().min(1).max(100).optional().describe('Maximum crawl depth (default: 50, min: 1, max: 100)'),
+  workspacePath: FilePathSchema.describe(
+    "Absolute path to the project/workspace directory to analyze",
+  ),
+  tsConfigPath: FilePathSchema.optional().describe(
+    "Optional path to tsconfig.json for path alias resolution",
+  ),
+  excludeNodeModules: z
+    .boolean()
+    .optional()
+    .describe("Whether to exclude node_modules (default: true)"),
+  maxDepth: z
+    .number()
+    .min(1)
+    .max(100)
+    .optional()
+    .describe("Maximum crawl depth (default: 50, min: 1, max: 100)"),
   format: OutputFormatSchema.optional(),
 });
 export type SetWorkspaceParams = z.infer<typeof SetWorkspaceParamsSchema>;
 
 export const AnalyzeDependenciesParamsSchema = z.object({
-  filePath: FilePathSchema.describe('Absolute path to the file to analyze'),
+  filePath: FilePathSchema.describe("Absolute path to the file to analyze"),
   format: OutputFormatSchema.optional(),
 });
-export type AnalyzeDependenciesParams = z.infer<typeof AnalyzeDependenciesParamsSchema>;
+export type AnalyzeDependenciesParams = z.infer<
+  typeof AnalyzeDependenciesParamsSchema
+>;
 
 export const CrawlDependencyGraphParamsSchema = z.object({
-  entryFile: FilePathSchema.describe('Absolute path to the entry file'),
-  maxDepth: z.number().min(1).max(100).optional().describe('Maximum depth to crawl (default: from config, min: 1, max: 100)'),
-  limit: z.number().min(1).max(PAGINATION_LIMITS.MAX_LIMIT).optional().describe(`Maximum number of nodes to return (for pagination, max: ${PAGINATION_LIMITS.MAX_LIMIT})`),
-  offset: z.number().min(0).max(PAGINATION_LIMITS.MAX_OFFSET).optional().describe(`Number of nodes to skip (for pagination, max: ${PAGINATION_LIMITS.MAX_OFFSET})`),
-  onlyUsed: z.boolean().optional().describe('If true, only returns edges where symbols are actually used (requires AST analysis, slower)'),
+  entryFile: FilePathSchema.describe("Absolute path to the entry file"),
+  maxDepth: z
+    .number()
+    .min(1)
+    .max(100)
+    .optional()
+    .describe(
+      "Maximum depth to crawl (default: from config, min: 1, max: 100)",
+    ),
+  limit: z
+    .number()
+    .min(1)
+    .max(PAGINATION_LIMITS.MAX_LIMIT)
+    .optional()
+    .describe(
+      `Maximum number of nodes to return (for pagination, max: ${PAGINATION_LIMITS.MAX_LIMIT})`,
+    ),
+  offset: z
+    .number()
+    .min(0)
+    .max(PAGINATION_LIMITS.MAX_OFFSET)
+    .optional()
+    .describe(
+      `Number of nodes to skip (for pagination, max: ${PAGINATION_LIMITS.MAX_OFFSET})`,
+    ),
+  onlyUsed: z
+    .boolean()
+    .optional()
+    .describe(
+      "If true, only returns edges where symbols are actually used (requires AST analysis, slower)",
+    ),
   format: OutputFormatSchema.optional(),
 });
-export type CrawlDependencyGraphParams = z.infer<typeof CrawlDependencyGraphParamsSchema>;
+export type CrawlDependencyGraphParams = z.infer<
+  typeof CrawlDependencyGraphParamsSchema
+>;
 
 export const FindReferencingFilesParamsSchema = z.object({
-  targetPath: FilePathSchema.describe('Absolute path to the file to find references for'),
+  targetPath: FilePathSchema.describe(
+    "Absolute path to the file to find references for",
+  ),
   format: OutputFormatSchema.optional(),
 });
-export type FindReferencingFilesParams = z.infer<typeof FindReferencingFilesParamsSchema>;
+export type FindReferencingFilesParams = z.infer<
+  typeof FindReferencingFilesParamsSchema
+>;
 
 export const ExpandNodeParamsSchema = z.object({
-  filePath: FilePathSchema.describe('Absolute path to the node to expand'),
-  knownPaths: z.array(FilePathSchema).max(50000).describe('Array of already known file paths to exclude (max: 50000)'),
-  extraDepth: z.number().min(1).max(100).optional().describe('Additional depth to scan from this node (default: 10, min: 1, max: 100)'),
+  filePath: FilePathSchema.describe("Absolute path to the node to expand"),
+  knownPaths: z
+    .array(FilePathSchema)
+    .max(50000)
+    .describe("Array of already known file paths to exclude (max: 50000)"),
+  extraDepth: z
+    .number()
+    .min(1)
+    .max(100)
+    .optional()
+    .describe(
+      "Additional depth to scan from this node (default: 10, min: 1, max: 100)",
+    ),
   format: OutputFormatSchema.optional(),
 });
 export type ExpandNodeParams = z.infer<typeof ExpandNodeParamsSchema>;
 
 export const ParseImportsParamsSchema = z.object({
-  filePath: FilePathSchema.describe('Absolute path to the file to parse'),
+  filePath: FilePathSchema.describe("Absolute path to the file to parse"),
   format: OutputFormatSchema.optional(),
 });
 export type ParseImportsParams = z.infer<typeof ParseImportsParamsSchema>;
 
 export const VerifyDependencyUsageParamsSchema = z.object({
-  sourceFile: FilePathSchema.describe('Absolute path to the source file (the one importing using symbols)'),
-  targetFile: FilePathSchema.describe('Absolute path to the target file (the one providing symbols)'),
+  sourceFile: FilePathSchema.describe(
+    "Absolute path to the source file (the one importing using symbols)",
+  ),
+  targetFile: FilePathSchema.describe(
+    "Absolute path to the target file (the one providing symbols)",
+  ),
   format: OutputFormatSchema.optional(),
 });
-export type VerifyDependencyUsageParams = z.infer<typeof VerifyDependencyUsageParamsSchema>;
+export type VerifyDependencyUsageParams = z.infer<
+  typeof VerifyDependencyUsageParamsSchema
+>;
 
 export const ResolveModulePathParamsSchema = z.object({
-  fromFile: FilePathSchema.describe('Absolute path of the file containing the import'),
-  moduleSpecifier: GenericStringSchema.describe('The module specifier to resolve (e.g., "./utils", "@/components/Button")'),
+  fromFile: FilePathSchema.describe(
+    "Absolute path of the file containing the import",
+  ),
+  moduleSpecifier: GenericStringSchema.describe(
+    'The module specifier to resolve (e.g., "./utils", "@/components/Button")',
+  ),
   format: OutputFormatSchema.optional(),
 });
-export type ResolveModulePathParams = z.infer<typeof ResolveModulePathParamsSchema>;
+export type ResolveModulePathParams = z.infer<
+  typeof ResolveModulePathParamsSchema
+>;
 
 export const GetIndexStatusParamsSchema = z.object({});
 export type GetIndexStatusParams = z.infer<typeof GetIndexStatusParamsSchema>;
@@ -228,7 +321,7 @@ export const InvalidateFilesParamsSchema = z.object({
     .array(FilePathSchema)
     .max(10000)
     .describe(
-      'Array of absolute file paths to invalidate from the cache (max: 10000). Use this after modifying files to ensure fresh analysis.',
+      "Array of absolute file paths to invalidate from the cache (max: 10000). Use this after modifying files to ensure fresh analysis.",
     ),
 });
 export type InvalidateFilesParams = z.infer<typeof InvalidateFilesParamsSchema>;
@@ -237,60 +330,127 @@ export const RebuildIndexParamsSchema = z.object({});
 export type RebuildIndexParams = z.infer<typeof RebuildIndexParamsSchema>;
 
 export const GetSymbolGraphParamsSchema = z.object({
-  filePath: FilePathSchema.describe('Absolute path to the file to analyze for symbols'),
+  filePath: FilePathSchema.describe(
+    "Absolute path to the file to analyze for symbols",
+  ),
   format: OutputFormatSchema.optional(),
 });
 export type GetSymbolGraphParams = z.infer<typeof GetSymbolGraphParamsSchema>;
 
 export const FindUnusedSymbolsParamsSchema = z.object({
-  filePath: FilePathSchema.describe('Absolute path to the file to check for unused exported symbols'),
+  filePath: FilePathSchema.describe(
+    "Absolute path to the file to check for unused exported symbols",
+  ),
   format: OutputFormatSchema.optional(),
 });
-export type FindUnusedSymbolsParams = z.infer<typeof FindUnusedSymbolsParamsSchema>;
+export type FindUnusedSymbolsParams = z.infer<
+  typeof FindUnusedSymbolsParamsSchema
+>;
 
 export const GetSymbolDependentsParamsSchema = z.object({
-  filePath: FilePathSchema.describe('Absolute path to the file containing the symbol'),
-  symbolName: SymbolNameSchema.describe('Name of the symbol to find dependents for'),
+  filePath: FilePathSchema.describe(
+    "Absolute path to the file containing the symbol",
+  ),
+  symbolName: SymbolNameSchema.describe(
+    "Name of the symbol to find dependents for",
+  ),
   format: OutputFormatSchema.optional(),
 });
-export type GetSymbolDependentsParams = z.infer<typeof GetSymbolDependentsParamsSchema>;
+export type GetSymbolDependentsParams = z.infer<
+  typeof GetSymbolDependentsParamsSchema
+>;
 
 export const TraceFunctionExecutionParamsSchema = z.object({
-  filePath: FilePathSchema.describe('Absolute path to the file containing the root symbol'),
-  symbolName: SymbolNameSchema.describe('Name of the root symbol to trace from'),
-  maxDepth: z.number().min(1).max(100).optional().describe('Maximum depth to trace the call chain (default: 10, min: 1, max: 100)'),
+  filePath: FilePathSchema.describe(
+    "Absolute path to the file containing the root symbol",
+  ),
+  symbolName: SymbolNameSchema.describe(
+    "Name of the root symbol to trace from",
+  ),
+  maxDepth: z
+    .number()
+    .min(1)
+    .max(100)
+    .optional()
+    .describe(
+      "Maximum depth to trace the call chain (default: 10, min: 1, max: 100)",
+    ),
   format: OutputFormatSchema.optional(),
 });
-export type TraceFunctionExecutionParams = z.infer<typeof TraceFunctionExecutionParamsSchema>;
+export type TraceFunctionExecutionParams = z.infer<
+  typeof TraceFunctionExecutionParamsSchema
+>;
 
 // NEW: Schema for get_symbol_callers (O(1) lookup)
 export const GetSymbolCallersParamsSchema = z.object({
-  filePath: FilePathSchema.describe('The absolute path to the file containing the target symbol.'),
-  symbolName: SymbolNameSchema.describe('The name of the symbol (function, class, method, variable) to find callers for.'),
-  includeTypeOnly: z.boolean().optional().describe('Include type-only usages (interfaces, type aliases). Default is true.'),
+  filePath: FilePathSchema.describe(
+    "The absolute path to the file containing the target symbol.",
+  ),
+  symbolName: SymbolNameSchema.describe(
+    "The name of the symbol (function, class, method, variable) to find callers for.",
+  ),
+  includeTypeOnly: z
+    .boolean()
+    .optional()
+    .describe(
+      "Include type-only usages (interfaces, type aliases). Default is true.",
+    ),
   format: OutputFormatSchema.optional(),
 });
-export type GetSymbolCallersParams = z.infer<typeof GetSymbolCallersParamsSchema>;
+export type GetSymbolCallersParams = z.infer<
+  typeof GetSymbolCallersParamsSchema
+>;
 
 // NEW: Schema for analyze_breaking_changes
 export const AnalyzeBreakingChangesParamsSchema = z.object({
-  filePath: FilePathSchema.describe('Absolute path to the file to analyze'),
-  symbolName: SymbolNameSchema.optional().describe('Optional: Only analyze changes to this specific symbol'),
-  oldContent: FileContentSchema.describe('The old version of the file content'),
-  newContent: FileContentSchema.optional().describe('The new version of the file content (if not provided, reads current file)'),
+  filePath: FilePathSchema.describe("Absolute path to the file to analyze"),
+  symbolName: SymbolNameSchema.optional().describe(
+    "Optional: Only analyze changes to this specific symbol",
+  ),
+  oldContent: FileContentSchema.describe("The old version of the file content"),
+  newContent: FileContentSchema.optional().describe(
+    "The new version of the file content (if not provided, reads current file)",
+  ),
   format: OutputFormatSchema.optional(),
 });
-export type AnalyzeBreakingChangesParams = z.infer<typeof AnalyzeBreakingChangesParamsSchema>;
+export type AnalyzeBreakingChangesParams = z.infer<
+  typeof AnalyzeBreakingChangesParamsSchema
+>;
 
 // NEW: Schema for get_impact_analysis
 export const GetImpactAnalysisParamsSchema = z.object({
-  filePath: FilePathSchema.describe('Absolute path to the file being modified'),
-  symbolName: SymbolNameSchema.describe('Name of the symbol being modified'),
-  includeTransitive: z.boolean().optional().describe('Include transitive dependents (default: false)'),
-  maxDepth: z.number().min(1).max(20).optional().describe('Maximum depth for transitive analysis (default: 3, min: 1, max: 20)'),
+  filePath: FilePathSchema.describe("Absolute path to the file being modified"),
+  symbolName: SymbolNameSchema.describe("Name of the symbol being modified"),
+  includeTransitive: z
+    .boolean()
+    .optional()
+    .describe("Include transitive dependents (default: false)"),
+  maxDepth: z
+    .number()
+    .min(1)
+    .max(20)
+    .optional()
+    .describe(
+      "Maximum depth for transitive analysis (default: 3, min: 1, max: 20)",
+    ),
   format: OutputFormatSchema.optional(),
 });
-export type GetImpactAnalysisParams = z.infer<typeof GetImpactAnalysisParamsSchema>;
+export type GetImpactAnalysisParams = z.infer<
+  typeof GetImpactAnalysisParamsSchema
+>;
+
+// NEW: Schema for analyze_file_logic (LSP-based intra-file call hierarchy)
+export const AnalyzeFileLogicParamsSchema = z.object({
+  filePath: FilePathSchema.describe("Absolute path to the file to analyze"),
+  includeExternal: z
+    .boolean()
+    .optional()
+    .describe("Include calls to external modules (default: false)"),
+  format: OutputFormatSchema.optional(),
+});
+export type AnalyzeFileLogicParams = z.infer<
+  typeof AnalyzeFileLogicParamsSchema
+>;
 
 // ============================================================================
 // Validation Utilities
@@ -318,28 +478,29 @@ export const toolSchemas: Record<McpToolName, z.ZodType<unknown>> = {
   get_symbol_callers: GetSymbolCallersParamsSchema,
   analyze_breaking_changes: AnalyzeBreakingChangesParamsSchema,
   get_impact_analysis: GetImpactAnalysisParamsSchema,
+  analyze_file_logic: AnalyzeFileLogicParamsSchema,
 };
 
 /**
  * Result of parameter validation
  */
-export type ValidationResult<T> = 
+export type ValidationResult<T> =
   | { success: true; data: T }
   | { success: false; error: string; issues: z.core.$ZodIssue[] };
 
 /**
  * Validate tool parameters against their Zod schema
- * 
+ *
  * @param tool - The tool name
  * @param params - The raw parameters to validate
  * @returns Validation result with parsed data or error details
  */
 export function validateToolParams<T>(
   tool: McpToolName,
-  params: unknown
+  params: unknown,
 ): ValidationResult<T> {
   const schema = toolSchemas[tool];
-  
+
   if (!schema) {
     return {
       success: false,
@@ -349,7 +510,7 @@ export function validateToolParams<T>(
   }
 
   const result = schema.safeParse(params);
-  
+
   if (result.success) {
     return {
       success: true,
@@ -360,13 +521,13 @@ export function validateToolParams<T>(
   // Format Zod errors for better readability
   const issues = result.error.issues;
   const errorMessages = issues.map((issue) => {
-    const path = issue.path.length > 0 ? `${issue.path.join('.')}: ` : '';
+    const path = issue.path.length > 0 ? `${issue.path.join(".")}: ` : "";
     return `${path}${issue.message}`;
   });
 
   return {
     success: false,
-    error: `Invalid parameters: ${errorMessages.join('; ')}`,
+    error: `Invalid parameters: ${errorMessages.join("; ")}`,
     issues,
   };
 }
@@ -376,7 +537,7 @@ export function validateToolParams<T>(
  * - Converts backslashes to forward slashes
  * - Lowercases drive letters on Windows for consistent comparison
  * - Removes trailing slashes
- * 
+ *
  * @param filePath - The path to normalize
  * @returns Normalized path
  */
@@ -385,44 +546,50 @@ export const normalizePathForComparison = _normalizePathForComparison;
 /**
  * Check if a path is within a root directory (cross-platform safe).
  * Uses path.resolve to handle .. and relative paths correctly.
- * 
+ *
  * @param filePath - The file path to check
  * @param rootDir - The root directory
  * @returns true if filePath is within rootDir
  */
 export function isPathWithinRoot(filePath: string, rootDir: string): boolean {
   // Resolve both paths to absolute paths
-  const resolvedPath = normalizePathForComparison(nodePath.resolve(rootDir, filePath));
+  const resolvedPath = normalizePathForComparison(
+    nodePath.resolve(rootDir, filePath),
+  );
   const resolvedRoot = normalizePathForComparison(nodePath.resolve(rootDir));
-  
+
   // Check if the resolved path starts with the resolved root
   // Add trailing slash to avoid matching /project-other when rootDir is /project
-  return resolvedPath === resolvedRoot || resolvedPath.startsWith(resolvedRoot + '/');
+  return (
+    resolvedPath === resolvedRoot || resolvedPath.startsWith(resolvedRoot + "/")
+  );
 }
 
 /**
  * Validate a file path for security (path traversal prevention)
  * Cross-platform safe: works on Windows (C:\...), Mac, and Linux
- * 
+ *
  * @param filePath - The file path to validate
  * @param rootDir - The workspace root directory
  * @returns true if valid, throws error if invalid
  */
 export function validateFilePath(filePath: string, rootDir: string): boolean {
   const normalizedPath = normalizePathForComparison(filePath);
-  
+
   // Check for obvious path traversal patterns
-  if (normalizedPath.includes('..')) {
+  if (normalizedPath.includes("..")) {
     // Resolve and verify the path is still within root
     if (!isPathWithinRoot(filePath, rootDir)) {
-      throw new Error(`Path traversal detected: ${filePath} resolves outside workspace`);
+      throw new Error(
+        `Path traversal detected: ${filePath} resolves outside workspace`,
+      );
     }
   }
-  
+
   // Check for absolute paths
-  const isAbsoluteUnix = normalizedPath.startsWith('/');
+  const isAbsoluteUnix = normalizedPath.startsWith("/");
   const isAbsoluteWindows = /^[a-z]:/i.test(normalizedPath);
-  
+
   if (isAbsoluteUnix || isAbsoluteWindows) {
     if (!isPathWithinRoot(filePath, rootDir)) {
       throw new Error(`File path is outside workspace: ${filePath}`);
@@ -434,28 +601,28 @@ export function validateFilePath(filePath: string, rootDir: string): boolean {
       throw new Error(`File path is outside workspace: ${filePath}`);
     }
   }
-  
+
   return true;
 }
 
 /**
  * Validate and sanitize string input
- * 
+ *
  * @param input - The string to sanitize
  * @param maxLength - Maximum allowed length (default: 10000)
  * @returns Sanitized string
  */
 export function sanitizeString(input: string, maxLength = 10000): string {
-  if (typeof input !== 'string') {
-    throw new TypeError('Expected string input');
+  if (typeof input !== "string") {
+    throw new TypeError("Expected string input");
   }
-  
+
   if (input.length > maxLength) {
     throw new Error(`Input exceeds maximum length of ${maxLength} characters`);
   }
-  
+
   // Remove null bytes which can cause issues
-  return input.replaceAll('\0', '');
+  return input.replaceAll("\0", "");
 }
 
 // ============================================================================
@@ -515,7 +682,7 @@ export interface McpToolResponse<T> {
 /**
  * Type of import statement
  */
-export type ImportType = 'import' | 'require' | 'export' | 'dynamic';
+export type ImportType = "import" | "require" | "export" | "dynamic";
 
 /**
  * Result of analyze_dependencies tool
@@ -678,7 +845,6 @@ export interface VerifyDependencyUsageResult {
   usedSymbolCount?: number;
 }
 
-
 /**
  * Result of resolve_module_path tool
  */
@@ -720,7 +886,7 @@ export interface SetWorkspaceResult {
  */
 export interface GetIndexStatusResult {
   /** Current indexing state */
-  state: 'idle' | 'counting' | 'indexing' | 'complete' | 'error';
+  state: "idle" | "counting" | "indexing" | "complete" | "error";
   /** Whether the index is ready for queries */
   isReady: boolean;
   /** Whether reverse index is enabled */
@@ -801,7 +967,7 @@ export interface SymbolInfo {
   /** Whether the symbol is exported */
   isExported: boolean;
   /** Symbol type category for filtering */
-  category?: 'function' | 'class' | 'variable' | 'interface' | 'type' | 'other';
+  category?: "function" | "class" | "variable" | "interface" | "type" | "other";
   /** Parent symbol ID (for methods/properties belonging to a class) */
   parentSymbolId?: string;
 }
@@ -956,16 +1122,16 @@ export interface GetSymbolCallersResult {
  * Types of breaking changes that can be detected
  */
 export type BreakingChangeType =
-  | 'parameter-added-required'     // New required parameter added
-  | 'parameter-removed'            // Parameter removed
-  | 'parameter-type-changed'       // Parameter type changed
-  | 'parameter-optional-to-required' // Optional param became required
-  | 'return-type-changed'          // Return type changed
-  | 'visibility-reduced'           // public → private/protected
-  | 'member-removed'               // Interface/class member removed
-  | 'member-type-changed'          // Interface/class member type changed
-  | 'member-optional-to-required'  // Optional member became required
-  | 'type-alias-changed';          // Type alias definition changed
+  | "parameter-added-required" // New required parameter added
+  | "parameter-removed" // Parameter removed
+  | "parameter-type-changed" // Parameter type changed
+  | "parameter-optional-to-required" // Optional param became required
+  | "return-type-changed" // Return type changed
+  | "visibility-reduced" // public → private/protected
+  | "member-removed" // Interface/class member removed
+  | "member-type-changed" // Interface/class member type changed
+  | "member-optional-to-required" // Optional member became required
+  | "type-alias-changed"; // Type alias definition changed
 
 /**
  * A single breaking change detected
@@ -978,7 +1144,7 @@ export interface BreakingChangeInfo {
   /** Human-readable description */
   description: string;
   /** Severity (error = definite break, warning = potential break) */
-  severity: 'error' | 'warning';
+  severity: "error" | "warning";
   /** The old value/signature */
   oldValue?: string;
   /** The new value/signature */
@@ -1016,7 +1182,7 @@ export interface AnalyzeBreakingChangesResult {
 /**
  * Impact level categorization
  */
-export type ImpactLevel = 'high' | 'medium' | 'low';
+export type ImpactLevel = "high" | "medium" | "low";
 
 /**
  * Information about an impacted file/symbol
@@ -1029,7 +1195,7 @@ export interface ImpactedItem {
   /** Relative path from workspace root */
   relativePath: string;
   /** How the item uses the target symbol */
-  usageType: 'runtime' | 'type-only';
+  usageType: "runtime" | "type-only";
   /** Depth in dependency chain (1 = direct, 2+ = transitive) */
   depth: number;
 }
@@ -1065,6 +1231,54 @@ export interface GetImpactAnalysisResult {
   summary: string;
 }
 
+/**
+ * Result of analyze_file_logic tool
+ * Returns LSP-based intra-file call hierarchy with symbol nodes and edges
+ */
+export interface AnalyzeFileLogicResult {
+  /** File path analyzed */
+  filePath: string;
+  /** Relative path from workspace root */
+  relativePath: string;
+  /** Detected programming language */
+  language: string;
+  /** Intra-file graph structure */
+  graph: {
+    /** Symbol nodes (functions, classes, methods) */
+    nodes: Array<{
+      id: string;
+      name: string;
+      symbolType: "Function" | "Class" | "Method" | "ArrowFunction" | "Unknown";
+      line: number;
+      isExported: boolean;
+    }>;
+    /** Call/reference edges between symbols */
+    edges: Array<{
+      source: string;
+      target: string;
+      edgeType: "call" | "reference";
+      line?: number;
+    }>;
+    /** Cycle detection */
+    hasCycle: boolean;
+    /** Node IDs involved in cycles */
+    cycleNodes?: string[];
+  };
+  /** Analysis metadata */
+  metadata: {
+    /** Total symbol count */
+    nodeCount: number;
+    /** Total edge count */
+    edgeCount: number;
+    /** Number of circular dependencies detected */
+    cycleCount: number;
+    /** Time taken to analyze (ms) */
+    analysisTimeMs: number;
+  };
+  /** Human-readable summary */
+  summary: string;
+}
+
 // ============================================================================
 // Helper Functions
 // ============================================================================
@@ -1076,7 +1290,7 @@ export function createSuccessResponse<T>(
   data: T,
   executionTimeMs: number,
   workspaceRoot: string,
-  pagination?: PaginationInfo
+  pagination?: PaginationInfo,
 ): McpToolResponse<T> {
   return {
     success: true,
@@ -1097,7 +1311,7 @@ export function createSuccessResponse<T>(
 export function createErrorResponse<T>(
   error: string,
   executionTimeMs: number,
-  workspaceRoot: string
+  workspaceRoot: string,
 ): McpToolResponse<T> {
   return {
     success: false,
@@ -1116,9 +1330,12 @@ export function createErrorResponse<T>(
  * Convert a Dependency to DependencyInfo with enriched data
  * Cross-platform safe.
  */
-export function enrichDependency(dep: Dependency, workspaceRoot: string): DependencyInfo {
+export function enrichDependency(
+  dep: Dependency,
+  workspaceRoot: string,
+): DependencyInfo {
   const relativePath = getRelativePath(dep.path, workspaceRoot);
-  const extension = dep.path.split('.').pop() ?? '';
+  const extension = dep.path.split(".").pop() ?? "";
 
   return {
     path: dep.path,
@@ -1134,7 +1351,7 @@ export function enrichDependency(dep: Dependency, workspaceRoot: string): Depend
  * Get relative path from workspace root
  * Cross-platform safe: uses Node.js path.relative which handles
  * Windows drive letters and path separators correctly.
- * 
+ *
  * @param absolutePath - The absolute path to convert
  * @param workspaceRoot - The workspace root directory
  * @returns Relative path with forward slashes (for consistent output)

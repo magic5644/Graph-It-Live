@@ -8,77 +8,93 @@
  * NO import * as vscode from 'vscode' allowed!
  */
 
-import { parentPort } from 'node:worker_threads';
-import * as fs from 'node:fs/promises';
-import * as path from 'node:path';
-import { watch, type FSWatcher } from 'chokidar';
-import { Spider } from '../analyzer/Spider';
-import { Parser } from '../analyzer/Parser';
-import { PathResolver } from '../analyzer/utils/PathResolver';
-import { SymbolReverseIndex } from '../analyzer/SymbolReverseIndex';
-import { AstWorkerHost } from '../analyzer/ast/AstWorkerHost';
+import { watch, type FSWatcher } from "chokidar";
+import * as fs from "node:fs/promises";
+import * as path from "node:path";
+import { parentPort } from "node:worker_threads";
+import { LspCallHierarchyAnalyzer, type LspCallHierarchyItem, type LspOutgoingCall } from "../analyzer/LspCallHierarchyAnalyzer";
+import { Parser } from "../analyzer/Parser";
+import { Spider } from "../analyzer/Spider";
+import { SymbolReverseIndex } from "../analyzer/SymbolReverseIndex";
+import { AstWorkerHost } from "../analyzer/ast/AstWorkerHost";
+import { PathResolver } from "../analyzer/utils/PathResolver";
+import {
+  IGNORED_DIRECTORIES,
+  SUPPORTED_FILE_EXTENSIONS,
+} from "../shared/constants";
+import {
+  getLogger,
+  getLogLevelFromEnv,
+  loggerFactory,
+  setLoggerBackend,
+  StderrLogger,
+} from "../shared/logger";
+import type { IntraFileGraph } from "../shared/types";
 import type {
+  AnalyzeBreakingChangesParams,
+  AnalyzeBreakingChangesResult,
+  AnalyzeDependenciesParams,
+  AnalyzeDependenciesResult,
+  AnalyzeFileLogicParams,
+  BreakingChangeInfo,
+  CallChainEntry,
+  CrawlDependencyGraphParams,
+  CrawlDependencyGraphResult,
+  EdgeInfo,
+  ExpandNodeParams,
+  ExpandNodeResult,
+  FindReferencingFilesParams,
+  FindReferencingFilesResult,
+  FindUnusedSymbolsParams,
+  FindUnusedSymbolsResult,
+  GetImpactAnalysisParams,
+  GetImpactAnalysisResult,
+  GetIndexStatusResult,
+  GetSymbolCallersParams,
+  GetSymbolCallersResult,
+  GetSymbolDependentsParams,
+  GetSymbolDependentsResult,
+  GetSymbolGraphParams,
+  GetSymbolGraphResult,
+  ImpactedItem,
+  InvalidateFilesParams,
+  InvalidateFilesResult,
+  McpToolName,
+  McpWorkerConfig,
   McpWorkerMessage,
   McpWorkerResponse,
-  McpWorkerConfig,
-  McpToolName,
-  AnalyzeDependenciesParams,
-  CrawlDependencyGraphParams,
-  FindReferencingFilesParams,
-  ExpandNodeParams,
-  ParseImportsParams,
-  VerifyDependencyUsageParams,
-  ResolveModulePathParams,
-  InvalidateFilesParams,
-  GetSymbolGraphParams,
-  FindUnusedSymbolsParams,
-  GetSymbolDependentsParams,
-  TraceFunctionExecutionParams,
-  GetSymbolCallersParams,
-  AnalyzeBreakingChangesParams,
-  GetImpactAnalysisParams,
-  AnalyzeDependenciesResult,
-  CrawlDependencyGraphResult,
-  FindReferencingFilesResult,
-  ExpandNodeResult,
-  ParseImportsResult,
-  VerifyDependencyUsageResult,
-  ResolveModulePathResult,
-  GetIndexStatusResult,
-  InvalidateFilesResult,
-  RebuildIndexResult,
-  GetSymbolGraphResult,
-  FindUnusedSymbolsResult,
-  GetSymbolDependentsResult,
-  TraceFunctionExecutionResult,
-  GetSymbolCallersResult,
-  AnalyzeBreakingChangesResult,
-  GetImpactAnalysisResult,
-  CallChainEntry,
-  SymbolInfo,
-  SymbolDependencyEdge,
   NodeInfo,
-  EdgeInfo,
+  ParseImportsParams,
+  ParseImportsResult,
+  RebuildIndexResult,
+  ResolveModulePathParams,
+  ResolveModulePathResult,
   SymbolCallerInfo,
-  BreakingChangeInfo,
-  ImpactedItem,
-} from './types';
-import { enrichDependency, validateToolParams, validateFilePath } from './types';
-import { getLogger, getLogLevelFromEnv, loggerFactory, setLoggerBackend, StderrLogger } from '../shared/logger';
+  SymbolDependencyEdge,
+  SymbolInfo,
+  TraceFunctionExecutionParams,
+  TraceFunctionExecutionResult,
+  VerifyDependencyUsageParams,
+  VerifyDependencyUsageResult,
+} from "./types";
+import {
+  enrichDependency,
+  validateFilePath,
+  validateToolParams,
+} from "./types";
 
 // Configure all loggers in this thread to use StderrLogger
 setLoggerBackend({
   createLogger(prefix: string, level) {
     return new StderrLogger(prefix, level);
-  }
+  },
 });
-import { SUPPORTED_FILE_EXTENSIONS, IGNORED_DIRECTORIES } from '../shared/constants';
 
 // Configure log level from environment variable
-loggerFactory.setDefaultLevel(getLogLevelFromEnv('LOG_LEVEL'));
+loggerFactory.setDefaultLevel(getLogLevelFromEnv("LOG_LEVEL"));
 
 /** Logger instance for McpWorker */
-const log = getLogger('McpWorker');
+const log = getLogger("McpWorker");
 
 // ============================================================================
 // Helper Functions
@@ -88,7 +104,7 @@ const log = getLogger('McpWorker');
  * Convert absolute path to relative path from workspace root
  * Cross-platform safe: uses Node.js path.relative which handles
  * Windows drive letters and path separators correctly.
- * 
+ *
  * @param absolutePath - The absolute path to convert
  * @param workspaceRoot - The workspace root directory
  * @returns Relative path with forward slashes (for consistent output)
@@ -96,15 +112,15 @@ const log = getLogger('McpWorker');
 function getRelativePath(absolutePath: string, workspaceRoot: string): string {
   // Use path.relative for cross-platform compatibility
   const relativePath = path.relative(workspaceRoot, absolutePath);
-  
+
   // If the path is outside the workspace, path.relative returns a path starting with ..
   // In that case, return the original absolute path
-  if (relativePath.startsWith('..') || path.isAbsolute(relativePath)) {
+  if (relativePath.startsWith("..") || path.isAbsolute(relativePath)) {
     return absolutePath;
   }
-  
+
   // Normalize to forward slashes for consistent output across platforms
-  return relativePath.replaceAll('\\', '/');
+  return relativePath.replaceAll("\\", "/");
 }
 
 // ============================================================================
@@ -117,7 +133,11 @@ let resolver: PathResolver | null = null;
 let astWorkerHost: AstWorkerHost | null = null;
 let config: McpWorkerConfig | null = null;
 let isReady = false;
-let warmupInfo: { completed: boolean; durationMs?: number; filesIndexed?: number } = {
+let warmupInfo: {
+  completed: boolean;
+  durationMs?: number;
+  filesIndexed?: number;
+} = {
   completed: false,
 };
 
@@ -137,22 +157,23 @@ const WATCHED_EXTENSIONS = SUPPORTED_FILE_EXTENSIONS;
 // Message Handling
 // ============================================================================
 
-parentPort?.on('message', async (msg: McpWorkerMessage) => {
+parentPort?.on("message", async (msg: McpWorkerMessage) => {
   try {
     switch (msg.type) {
-      case 'init':
+      case "init":
         await handleInit(msg.config);
         break;
-      case 'invoke':
+      case "invoke":
         await handleInvoke(msg.requestId, msg.tool, msg.params);
         break;
-      case 'shutdown':
+      case "shutdown":
         handleShutdown();
         break;
     }
   } catch (error) {
-    const errorMessage = error instanceof Error ? error.message : 'Unknown error';
-    log.error('Error handling message:', errorMessage);
+    const errorMessage =
+      error instanceof Error ? error.message : "Unknown error";
+    log.error("Error handling message:", errorMessage);
   }
 });
 
@@ -174,7 +195,7 @@ async function handleInit(cfg: McpWorkerConfig): Promise<void> {
   const startTime = Date.now();
   config = cfg;
 
-  log.info('Initializing with config:', {
+  log.info("Initializing with config:", {
     rootDir: cfg.rootDir,
     excludeNodeModules: cfg.excludeNodeModules,
     maxDepth: cfg.maxDepth,
@@ -185,14 +206,14 @@ async function handleInit(cfg: McpWorkerConfig): Promise<void> {
   resolver = new PathResolver(
     cfg.tsConfigPath,
     cfg.excludeNodeModules,
-    cfg.rootDir // workspaceRoot for package.json discovery
+    cfg.rootDir, // workspaceRoot for package.json discovery
   );
-  
+
   // Initialize AstWorkerHost
   astWorkerHost = new AstWorkerHost();
   await astWorkerHost.start();
-  log.info('AstWorkerHost started');
-  
+  log.info("AstWorkerHost started");
+
   spider = new Spider({
     rootDir: cfg.rootDir,
     tsConfigPath: cfg.tsConfigPath,
@@ -203,9 +224,9 @@ async function handleInit(cfg: McpWorkerConfig): Promise<void> {
 
   // Subscribe to indexing progress for warmup updates
   spider.subscribeToIndexStatus((snapshot) => {
-    if (snapshot.state === 'indexing') {
+    if (snapshot.state === "indexing") {
       postMessage({
-        type: 'warmup-progress',
+        type: "warmup-progress",
         processed: snapshot.processed,
         total: snapshot.total,
         currentFile: snapshot.currentFile,
@@ -214,11 +235,11 @@ async function handleInit(cfg: McpWorkerConfig): Promise<void> {
   });
 
   // Perform warmup: build full index of the workspace
-  log.info('Starting warmup indexing...');
-  
+  log.info("Starting warmup indexing...");
+
   try {
     const result = await spider.buildFullIndex();
-    
+
     warmupInfo = {
       completed: true,
       durationMs: result.duration,
@@ -228,26 +249,33 @@ async function handleInit(cfg: McpWorkerConfig): Promise<void> {
     isReady = true;
     const totalDuration = Date.now() - startTime;
 
-    log.info('Warmup complete:', result.indexedFiles, 'files indexed in', result.duration, 'ms');
+    log.info(
+      "Warmup complete:",
+      result.indexedFiles,
+      "files indexed in",
+      result.duration,
+      "ms",
+    );
 
     // Start file watcher after warmup
     setupFileWatcher();
 
     postMessage({
-      type: 'ready',
+      type: "ready",
       warmupDuration: totalDuration,
       indexedFiles: result.indexedFiles,
     });
   } catch (error) {
-    const errorMessage = error instanceof Error ? error.message : 'Unknown error';
-    log.error('Warmup failed:', errorMessage);
-    
+    const errorMessage =
+      error instanceof Error ? error.message : "Unknown error";
+    log.error("Warmup failed:", errorMessage);
+
     // Still mark as ready, but warmup failed
     warmupInfo = { completed: false };
     isReady = true;
 
     postMessage({
-      type: 'ready',
+      type: "ready",
       warmupDuration: Date.now() - startTime,
       indexedFiles: 0,
     });
@@ -258,26 +286,26 @@ async function handleInit(cfg: McpWorkerConfig): Promise<void> {
  * Handle shutdown message
  */
 async function handleShutdown(): Promise<void> {
-  log.info('Shutting down...');
-  
+  log.info("Shutting down...");
+
   // Stop file watcher
   stopFileWatcher();
-  
+
   // Cancel any pending operations
   spider?.cancelIndexing();
-  
+
   // Stop AstWorkerHost
   if (astWorkerHost) {
     await astWorkerHost.stop();
-    log.info('AstWorkerHost stopped');
+    log.info("AstWorkerHost stopped");
   }
-  
+
   // Dispose Spider
   if (spider) {
     await spider.dispose();
-    log.info('Spider disposed');
+    log.info("Spider disposed");
   }
-  
+
   process.exit(0);
 }
 
@@ -291,19 +319,18 @@ async function handleShutdown(): Promise<void> {
  */
 function setupFileWatcher(): void {
   if (!config?.rootDir) {
-    log.warn('Cannot setup file watcher: no rootDir configured');
+    log.warn("Cannot setup file watcher: no rootDir configured");
     return;
   }
 
   // Build glob pattern for watched extensions
-  const globPattern = `${config.rootDir}/**/*{${WATCHED_EXTENSIONS.join(',')}}`;
-  
-  log.debug('Setting up file watcher for:', globPattern);
+  const globPattern = `${config.rootDir}/**/*{${WATCHED_EXTENSIONS.join(",")}}`;
+
+  log.debug("Setting up file watcher for:", globPattern);
 
   try {
     fileWatcher = watch(globPattern, {
-      ignored: 
-        IGNORED_DIRECTORIES.map(dir => `**/${dir}/**`),
+      ignored: IGNORED_DIRECTORIES.map((dir) => `**/${dir}/**`),
       persistent: true,
       ignoreInitial: true, // Don't fire events for existing files
       awaitWriteFinish: {
@@ -312,30 +339,30 @@ function setupFileWatcher(): void {
       },
     });
 
-    fileWatcher.on('change', (filePath: string) => {
-      handleFileChange('change', filePath);
+    fileWatcher.on("change", (filePath: string) => {
+      handleFileChange("change", filePath);
     });
 
-    fileWatcher.on('add', (filePath: string) => {
-      handleFileChange('add', filePath);
+    fileWatcher.on("add", (filePath: string) => {
+      handleFileChange("add", filePath);
     });
 
-    fileWatcher.on('unlink', (filePath: string) => {
-      handleFileChange('unlink', filePath);
+    fileWatcher.on("unlink", (filePath: string) => {
+      handleFileChange("unlink", filePath);
     });
 
-    fileWatcher.on('error', (error: unknown) => {
+    fileWatcher.on("error", (error: unknown) => {
       const message = error instanceof Error ? error.message : String(error);
-      log.error('File watcher error:', message);
+      log.error("File watcher error:", message);
     });
 
-    fileWatcher.on('ready', () => {
-      log.debug('File watcher ready');
+    fileWatcher.on("ready", () => {
+      log.debug("File watcher ready");
     });
-
   } catch (error) {
-    const errorMessage = error instanceof Error ? error.message : 'Unknown error';
-    log.error('Failed to setup file watcher:', errorMessage);
+    const errorMessage =
+      error instanceof Error ? error.message : "Unknown error";
+    log.error("Failed to setup file watcher:", errorMessage);
   }
 }
 
@@ -344,13 +371,13 @@ function setupFileWatcher(): void {
  */
 function stopFileWatcher(): void {
   if (fileWatcher) {
-    log.debug('Stopping file watcher...');
+    log.debug("Stopping file watcher...");
     fileWatcher.close().catch((error: Error) => {
-      log.error('Error closing file watcher:', error.message);
+      log.error("Error closing file watcher:", error.message);
     });
     fileWatcher = null;
   }
-  
+
   // Clear any pending debounced invalidations
   for (const timeout of pendingInvalidations.values()) {
     clearTimeout(timeout);
@@ -362,7 +389,10 @@ function stopFileWatcher(): void {
  * Handle a file change event with debouncing
  * Debounces rapid changes to the same file to avoid excessive cache invalidations
  */
-function handleFileChange(event: 'change' | 'add' | 'unlink', filePath: string): void {
+function handleFileChange(
+  event: "change" | "add" | "unlink",
+  filePath: string,
+): void {
   // Clear any pending invalidation for this file
   const existingTimeout = pendingInvalidations.get(filePath);
   if (existingTimeout) {
@@ -381,31 +411,34 @@ function handleFileChange(event: 'change' | 'add' | 'unlink', filePath: string):
 /**
  * Actually perform the file invalidation after debounce
  */
-function performFileInvalidation(event: 'change' | 'add' | 'unlink', filePath: string): void {
+function performFileInvalidation(
+  event: "change" | "add" | "unlink",
+  filePath: string,
+): void {
   if (!spider) {
     return;
   }
 
-  log.debug('File', event + ':', path.basename(filePath));
+  log.debug("File", event + ":", path.basename(filePath));
 
   switch (event) {
-    case 'change':
-    case 'add':
+    case "change":
+    case "add":
       // Invalidate and optionally re-analyze
       // Using invalidateFile instead of reanalyzeFile for performance
       // The file will be re-analyzed on next query
       spider.invalidateFile(filePath);
       break;
-      
-    case 'unlink':
+
+    case "unlink":
       // File was deleted
       spider.handleFileDeleted(filePath);
       break;
   }
-  
+
   // Notify parent about cache invalidation (optional, for debugging)
   postMessage({
-    type: 'file-invalidated' as const,
+    type: "file-invalidated" as const,
     filePath,
     event,
   } as McpWorkerResponse);
@@ -421,14 +454,14 @@ function performFileInvalidation(event: 'change' | 'add' | 'unlink', filePath: s
 async function handleInvoke(
   requestId: string,
   tool: McpToolName,
-  params: unknown
+  params: unknown,
 ): Promise<void> {
   if (!isReady || !spider || !parser || !resolver || !config) {
     postMessage({
-      type: 'error',
+      type: "error",
       requestId,
-      error: 'Worker not initialized',
-      code: 'NOT_INITIALIZED',
+      error: "Worker not initialized",
+      code: "NOT_INITIALIZED",
     });
     return;
   }
@@ -440,10 +473,10 @@ async function handleInvoke(
     const validation = validateToolParams(tool, params);
     if (!validation.success) {
       postMessage({
-        type: 'error',
+        type: "error",
         requestId,
         error: validation.error,
-        code: 'VALIDATION_ERROR',
+        code: "VALIDATION_ERROR",
       });
       return;
     }
@@ -452,53 +485,53 @@ async function handleInvoke(
     let result: unknown;
 
     switch (tool) {
-      case 'analyze_dependencies': {
+      case "analyze_dependencies": {
         const p = validatedParams as AnalyzeDependenciesParams;
         validateFilePath(p.filePath, config.rootDir);
         result = await executeAnalyzeDependencies(p);
         break;
       }
-      case 'crawl_dependency_graph': {
+      case "crawl_dependency_graph": {
         const p = validatedParams as CrawlDependencyGraphParams;
         validateFilePath(p.entryFile, config.rootDir);
         result = await executeCrawlDependencyGraph(p);
         break;
       }
-      case 'find_referencing_files': {
+      case "find_referencing_files": {
         const p = validatedParams as FindReferencingFilesParams;
         validateFilePath(p.targetPath, config.rootDir);
         result = await executeFindReferencingFiles(p);
         break;
       }
-      case 'expand_node': {
+      case "expand_node": {
         const p = validatedParams as ExpandNodeParams;
         validateFilePath(p.filePath, config.rootDir);
         result = await executeExpandNode(p);
         break;
       }
-      case 'parse_imports': {
+      case "parse_imports": {
         const p = validatedParams as ParseImportsParams;
         validateFilePath(p.filePath, config.rootDir);
         result = await executeParseImports(p);
         break;
       }
-      case 'verify_dependency_usage': {
+      case "verify_dependency_usage": {
         const p = validatedParams as VerifyDependencyUsageParams;
         validateFilePath(p.sourceFile, config.rootDir);
         validateFilePath(p.targetFile, config.rootDir);
         result = await executeVerifyDependencyUsage(p);
         break;
       }
-      case 'resolve_module_path': {
+      case "resolve_module_path": {
         const p = validatedParams as ResolveModulePathParams;
         validateFilePath(p.fromFile, config.rootDir);
         result = await executeResolveModulePath(p);
         break;
       }
-      case 'get_index_status':
+      case "get_index_status":
         result = await executeGetIndexStatus();
         break;
-      case 'invalidate_files': {
+      case "invalidate_files": {
         const p = validatedParams as InvalidateFilesParams;
         for (const filePath of p.filePaths) {
           validateFilePath(filePath, config.rootDir);
@@ -506,49 +539,55 @@ async function handleInvoke(
         result = executeInvalidateFiles(p);
         break;
       }
-      case 'rebuild_index':
+      case "rebuild_index":
         result = await executeRebuildIndex();
         break;
-      case 'get_symbol_graph': {
+      case "get_symbol_graph": {
         const p = validatedParams as GetSymbolGraphParams;
         validateFilePath(p.filePath, config.rootDir);
         result = await executeGetSymbolGraph(p);
         break;
       }
-      case 'find_unused_symbols': {
+      case "find_unused_symbols": {
         const p = validatedParams as FindUnusedSymbolsParams;
         validateFilePath(p.filePath, config.rootDir);
         result = await executeFindUnusedSymbols(p);
         break;
       }
-      case 'get_symbol_dependents': {
+      case "get_symbol_dependents": {
         const p = validatedParams as GetSymbolDependentsParams;
         validateFilePath(p.filePath, config.rootDir);
         result = await executeGetSymbolDependents(p);
         break;
       }
-      case 'trace_function_execution': {
+      case "trace_function_execution": {
         const p = validatedParams as TraceFunctionExecutionParams;
         validateFilePath(p.filePath, config.rootDir);
         result = await executeTraceFunctionExecution(p);
         break;
       }
-      case 'get_symbol_callers': {
+      case "get_symbol_callers": {
         const p = validatedParams as GetSymbolCallersParams;
         validateFilePath(p.filePath, config.rootDir);
         result = await executeGetSymbolCallers(p);
         break;
       }
-      case 'analyze_breaking_changes': {
+      case "analyze_breaking_changes": {
         const p = validatedParams as AnalyzeBreakingChangesParams;
         validateFilePath(p.filePath, config.rootDir);
         result = await executeAnalyzeBreakingChanges(p);
         break;
       }
-      case 'get_impact_analysis': {
+      case "get_impact_analysis": {
         const p = validatedParams as GetImpactAnalysisParams;
         validateFilePath(p.filePath, config.rootDir);
         result = await executeGetImpactAnalysis(p);
+        break;
+      }
+      case "analyze_file_logic": {
+        const p = validatedParams as AnalyzeFileLogicParams;
+        validateFilePath(p.filePath, config.rootDir);
+        result = await executeAnalyzeFileLogic(p);
         break;
       }
       default:
@@ -558,19 +597,22 @@ async function handleInvoke(
     const executionTimeMs = Date.now() - startTime;
 
     postMessage({
-      type: 'result',
+      type: "result",
       requestId,
       data: result,
       executionTimeMs,
     });
   } catch (error) {
-    const errorMessage = error instanceof Error ? error.message : 'Unknown error';
-    const errorCode = errorMessage.includes('Path traversal') || errorMessage.includes('outside workspace')
-      ? 'SECURITY_ERROR'
-      : 'EXECUTION_ERROR';
-    
+    const errorMessage =
+      error instanceof Error ? error.message : "Unknown error";
+    const errorCode =
+      errorMessage.includes("Path traversal") ||
+      errorMessage.includes("outside workspace")
+        ? "SECURITY_ERROR"
+        : "EXECUTION_ERROR";
+
     postMessage({
-      type: 'error',
+      type: "error",
       requestId,
       error: errorMessage,
       code: errorCode,
@@ -586,7 +628,7 @@ async function handleInvoke(
  * Analyze dependencies of a single file
  */
 async function executeAnalyzeDependencies(
-  params: AnalyzeDependenciesParams
+  params: AnalyzeDependenciesParams,
 ): Promise<AnalyzeDependenciesResult> {
   const { filePath } = params;
 
@@ -598,7 +640,9 @@ async function executeAnalyzeDependencies(
   return {
     filePath,
     dependencyCount: dependencies.length,
-    dependencies: dependencies.map((dep) => enrichDependency(dep, config!.rootDir)),
+    dependencies: dependencies.map((dep) =>
+      enrichDependency(dep, config!.rootDir),
+    ),
   };
 }
 
@@ -613,7 +657,10 @@ function buildEdgeCounts(edges: { source: string; target: string }[]): {
   const dependentCount = new Map<string, number>();
 
   for (const edge of edges) {
-    dependencyCount.set(edge.source, (dependencyCount.get(edge.source) ?? 0) + 1);
+    dependencyCount.set(
+      edge.source,
+      (dependencyCount.get(edge.source) ?? 0) + 1,
+    );
     dependentCount.set(edge.target, (dependentCount.get(edge.target) ?? 0) + 1);
   }
 
@@ -627,12 +674,12 @@ function buildNodeInfo(
   nodePaths: string[],
   dependencyCount: Map<string, number>,
   dependentCount: Map<string, number>,
-  rootDir: string
+  rootDir: string,
 ): NodeInfo[] {
   return nodePaths.map((nodePath) => ({
     path: nodePath,
     relativePath: getRelativePath(nodePath, rootDir),
-    extension: nodePath.split('.').pop() ?? '',
+    extension: nodePath.split(".").pop() ?? "",
     dependencyCount: dependencyCount.get(nodePath) ?? 0,
     dependentCount: dependentCount.get(nodePath) ?? 0,
   }));
@@ -643,7 +690,7 @@ function buildNodeInfo(
  */
 function buildEdgeInfo(
   edges: { source: string; target: string }[],
-  rootDir: string
+  rootDir: string,
 ): EdgeInfo[] {
   return edges.map((edge) => ({
     source: edge.source,
@@ -657,17 +704,23 @@ function buildEdgeInfo(
  * Filter edges by actual usage verification
  */
 async function filterEdgesByUsage(edges: EdgeInfo[]): Promise<EdgeInfo[]> {
-  log.info('Filtering edges by usage (onlyUsed=true)');
+  log.info("Filtering edges by usage (onlyUsed=true)");
   const filteredEdges: EdgeInfo[] = [];
 
   for (const edge of edges) {
     try {
-      const isUsed = await spider!.verifyDependencyUsage(edge.source, edge.target);
+      const isUsed = await spider!.verifyDependencyUsage(
+        edge.source,
+        edge.target,
+      );
       if (isUsed) {
         filteredEdges.push(edge);
       }
     } catch (err) {
-      log.warn(`Failed to verify usage for edge ${edge.source} -> ${edge.target}:`, err);
+      log.warn(
+        `Failed to verify usage for edge ${edge.source} -> ${edge.target}:`,
+        err,
+      );
       // Conservative: keep edge if verification fails
       filteredEdges.push(edge);
     }
@@ -681,7 +734,7 @@ async function filterEdgesByUsage(edges: EdgeInfo[]): Promise<EdgeInfo[]> {
  */
 function updateNodeCounts(nodes: NodeInfo[], edges: EdgeInfo[]): void {
   const { dependencyCount, dependentCount } = buildEdgeCounts(edges);
-  
+
   for (const node of nodes) {
     node.dependencyCount = dependencyCount.get(node.path) || 0;
     node.dependentCount = dependentCount.get(node.path) || 0;
@@ -695,15 +748,17 @@ function applyPagination(
   nodes: NodeInfo[],
   edges: EdgeInfo[],
   limit?: number,
-  offset: number = 0
+  offset: number = 0,
 ): { nodes: NodeInfo[]; edges: EdgeInfo[] } {
   const end = limit === undefined ? undefined : offset + limit;
   const paginatedNodes = nodes.slice(offset, end);
-  
+
   // Filter edges to only include those with both nodes in paginated set
   const nodeSet = new Set(paginatedNodes.map((n) => n.path));
-  const paginatedEdges = edges.filter((e) => nodeSet.has(e.source) && nodeSet.has(e.target));
-  
+  const paginatedEdges = edges.filter(
+    (e) => nodeSet.has(e.source) && nodeSet.has(e.target),
+  );
+
   return { nodes: paginatedNodes, edges: paginatedEdges };
 }
 
@@ -711,14 +766,14 @@ function applyPagination(
  * Crawl the full dependency graph from an entry file
  */
 async function executeCrawlDependencyGraph(
-  params: CrawlDependencyGraphParams
+  params: CrawlDependencyGraphParams,
 ): Promise<CrawlDependencyGraphResult> {
   const { entryFile, maxDepth, limit, offset, onlyUsed } = params;
 
   await validateFileExists(entryFile);
 
   // Temporarily update max depth if specified
-  const originalMaxDepth = spider!['config'].maxDepth;
+  const originalMaxDepth = spider!["config"].maxDepth;
   if (maxDepth !== undefined) {
     spider!.updateConfig({ maxDepth });
   }
@@ -736,7 +791,12 @@ async function executeCrawlDependencyGraph(
     const circularDependencies = detectCircularDependencies(graph.edges);
 
     // Build node and edge info
-    let nodes = buildNodeInfo(graph.nodes, dependencyCount, dependentCount, config!.rootDir);
+    let nodes = buildNodeInfo(
+      graph.nodes,
+      dependencyCount,
+      dependentCount,
+      config!.rootDir,
+    );
     let edges = buildEdgeInfo(graph.edges, config!.rootDir);
 
     // Filter by usage if requested
@@ -778,7 +838,7 @@ async function executeCrawlDependencyGraph(
  * Find all files that reference/import a target file
  */
 async function executeFindReferencingFiles(
-  params: FindReferencingFilesParams
+  params: FindReferencingFilesParams,
 ): Promise<FindReferencingFilesResult> {
   const { targetPath } = params;
 
@@ -803,14 +863,20 @@ async function executeFindReferencingFiles(
 /**
  * Expand a node to discover new dependencies not in the known set
  */
-async function executeExpandNode(params: ExpandNodeParams): Promise<ExpandNodeResult> {
+async function executeExpandNode(
+  params: ExpandNodeParams,
+): Promise<ExpandNodeResult> {
   const { filePath, knownPaths, extraDepth } = params;
 
   // Validate file exists
   await validateFileExists(filePath);
 
   const existingNodes = new Set<string>(knownPaths);
-  const result = await spider!.crawlFrom(filePath, existingNodes, extraDepth ?? 10);
+  const result = await spider!.crawlFrom(
+    filePath,
+    existingNodes,
+    extraDepth ?? 10,
+  );
 
   return {
     expandedNode: filePath,
@@ -830,14 +896,14 @@ async function executeExpandNode(params: ExpandNodeParams): Promise<ExpandNodeRe
  * Parse imports from a file without resolving paths
  */
 async function executeParseImports(
-  params: ParseImportsParams
+  params: ParseImportsParams,
 ): Promise<ParseImportsResult> {
   const { filePath } = params;
 
   // Validate file exists
   await validateFileExists(filePath);
 
-  const content = await fs.readFile(filePath, 'utf-8');
+  const content = await fs.readFile(filePath, "utf-8");
   const imports = parser!.parse(content, filePath);
 
   return {
@@ -855,7 +921,7 @@ async function executeParseImports(
  * Verify if a dependency is actually used
  */
 async function executeVerifyDependencyUsage(
-  params: VerifyDependencyUsageParams
+  params: VerifyDependencyUsageParams,
 ): Promise<VerifyDependencyUsageResult> {
   const { sourceFile, targetFile } = params;
 
@@ -877,7 +943,7 @@ async function executeVerifyDependencyUsage(
  * Resolve a module specifier to an absolute path
  */
 async function executeResolveModulePath(
-  params: ResolveModulePathParams
+  params: ResolveModulePathParams,
 ): Promise<ResolveModulePathResult> {
   const { fromFile, moduleSpecifier } = params;
 
@@ -902,11 +968,13 @@ async function executeResolveModulePath(
         resolved: false,
         resolvedPath: null,
         resolvedRelativePath: null,
-        failureReason: 'Module could not be resolved (may be a node_module or non-existent file)',
+        failureReason:
+          "Module could not be resolved (may be a node_module or non-existent file)",
       };
     }
   } catch (error) {
-    const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+    const errorMessage =
+      error instanceof Error ? error.message : "Unknown error";
     return {
       fromFile,
       moduleSpecifier,
@@ -926,7 +994,8 @@ async function executeGetIndexStatus(): Promise<GetIndexStatusResult> {
   const cacheStats = await spider!.getCacheStatsAsync();
 
   // Map 'validating' state to 'indexing' for MCP response
-  const state = indexStatus.state === 'validating' ? 'indexing' : indexStatus.state;
+  const state =
+    indexStatus.state === "validating" ? "indexing" : indexStatus.state;
 
   return {
     state,
@@ -935,7 +1004,7 @@ async function executeGetIndexStatus(): Promise<GetIndexStatusResult> {
     cacheSize: cacheStats.dependencyCache.size,
     reverseIndexStats: cacheStats.reverseIndexStats,
     progress:
-      indexStatus.state === 'indexing'
+      indexStatus.state === "indexing"
         ? {
             processed: indexStatus.processed,
             total: indexStatus.total,
@@ -950,7 +1019,9 @@ async function executeGetIndexStatus(): Promise<GetIndexStatusResult> {
 /**
  * Invalidate specific files from the cache
  */
-function executeInvalidateFiles(params: InvalidateFilesParams): InvalidateFilesResult {
+function executeInvalidateFiles(
+  params: InvalidateFilesParams,
+): InvalidateFilesResult {
   const { filePaths } = params;
   const invalidatedFiles: string[] = [];
   const notFoundFiles: string[] = [];
@@ -985,7 +1056,7 @@ async function executeRebuildIndex(): Promise<RebuildIndexResult> {
   // This will scan the workspace and rebuild the reverse index
   await spider!.buildFullIndex((processed, total, currentFile) => {
     postMessage({
-      type: 'warmup-progress',
+      type: "warmup-progress",
       processed,
       total,
       currentFile,
@@ -1011,29 +1082,31 @@ async function executeRebuildIndex(): Promise<RebuildIndexResult> {
  * Get symbol graph for a file
  */
 async function executeGetSymbolGraph(
-  params: GetSymbolGraphParams
+  params: GetSymbolGraphParams,
 ): Promise<GetSymbolGraphResult> {
   const { filePath } = params;
   await validateFileExists(filePath);
-  
+
   const { symbols, dependencies } = await spider!.getSymbolGraph(filePath);
-  
+
   // Enrich dependencies with relative paths
-  const enrichedDependencies: SymbolDependencyEdge[] = dependencies.map(dep => ({
-    sourceSymbolId: dep.sourceSymbolId,
-    targetSymbolId: dep.targetSymbolId,
-    targetFilePath: dep.targetFilePath,
-    targetRelativePath: getRelativePath(dep.targetFilePath, config!.rootDir),
-  }));
-  
+  const enrichedDependencies: SymbolDependencyEdge[] = dependencies.map(
+    (dep) => ({
+      sourceSymbolId: dep.sourceSymbolId,
+      targetSymbolId: dep.targetSymbolId,
+      targetFilePath: dep.targetFilePath,
+      targetRelativePath: getRelativePath(dep.targetFilePath, config!.rootDir),
+    }),
+  );
+
   // Categorize symbols
-  const categorizedSymbols: SymbolInfo[] = symbols.map(symbol => ({
+  const categorizedSymbols: SymbolInfo[] = symbols.map((symbol) => ({
     ...symbol,
     category: categorizeSymbolKind(symbol.kind),
   }));
-  
+
   const relativePath = getRelativePath(filePath, config!.rootDir);
-  
+
   return {
     filePath,
     relativePath,
@@ -1049,31 +1122,34 @@ async function executeGetSymbolGraph(
  * Find unused exported symbols in a file
  */
 async function executeFindUnusedSymbols(
-  params: FindUnusedSymbolsParams
+  params: FindUnusedSymbolsParams,
 ): Promise<FindUnusedSymbolsResult> {
   const { filePath } = params;
   await validateFileExists(filePath);
-  
+
   const unusedSymbols = await spider!.findUnusedSymbols(filePath);
-  
+
   // Get all exported symbols to calculate percentage
   const { symbols } = await spider!.getSymbolGraph(filePath);
-  const exportedSymbols = symbols.filter(s => s.isExported);
-  
+  const exportedSymbols = symbols.filter((s) => s.isExported);
+
   // Categorize unused symbols
-  const categorizedUnusedSymbols: SymbolInfo[] = unusedSymbols.map(symbol => ({
-    ...symbol,
-    category: categorizeSymbolKind(symbol.kind),
-  }));
-  
+  const categorizedUnusedSymbols: SymbolInfo[] = unusedSymbols.map(
+    (symbol) => ({
+      ...symbol,
+      category: categorizeSymbolKind(symbol.kind),
+    }),
+  );
+
   const unusedCount = unusedSymbols.length;
   const totalExportedSymbols = exportedSymbols.length;
-  const unusedPercentage = totalExportedSymbols > 0 
-    ? Math.round((unusedCount / totalExportedSymbols) * 100) 
-    : 0;
-  
+  const unusedPercentage =
+    totalExportedSymbols > 0
+      ? Math.round((unusedCount / totalExportedSymbols) * 100)
+      : 0;
+
   const relativePath = getRelativePath(filePath, config!.rootDir);
-  
+
   return {
     filePath,
     relativePath,
@@ -1088,21 +1164,21 @@ async function executeFindUnusedSymbols(
  * Get dependents of a specific symbol
  */
 async function executeGetSymbolDependents(
-  params: GetSymbolDependentsParams
+  params: GetSymbolDependentsParams,
 ): Promise<GetSymbolDependentsResult> {
   const { filePath, symbolName } = params;
   await validateFileExists(filePath);
-  
+
   const dependents = await spider!.getSymbolDependents(filePath, symbolName);
-  
+
   // Enrich dependents with relative paths
-  const enrichedDependents: SymbolDependencyEdge[] = dependents.map(dep => ({
+  const enrichedDependents: SymbolDependencyEdge[] = dependents.map((dep) => ({
     sourceSymbolId: dep.sourceSymbolId,
     targetSymbolId: dep.targetSymbolId,
     targetFilePath: dep.targetFilePath,
     targetRelativePath: getRelativePath(dep.targetFilePath, config!.rootDir),
   }));
-  
+
   return {
     filePath,
     symbolName,
@@ -1115,27 +1191,31 @@ async function executeGetSymbolDependents(
  * Trace the full execution chain from a root symbol
  */
 async function executeTraceFunctionExecution(
-  params: TraceFunctionExecutionParams
+  params: TraceFunctionExecutionParams,
 ): Promise<TraceFunctionExecutionResult> {
   const { filePath, symbolName, maxDepth } = params;
   await validateFileExists(filePath);
-  
-  const result = await spider!.traceFunctionExecution(filePath, symbolName, maxDepth ?? 10);
-  
+
+  const result = await spider!.traceFunctionExecution(
+    filePath,
+    symbolName,
+    maxDepth ?? 10,
+  );
+
   // Enrich call chain entries with relative paths
-  const enrichedCallChain: CallChainEntry[] = result.callChain.map(entry => ({
+  const enrichedCallChain: CallChainEntry[] = result.callChain.map((entry) => ({
     depth: entry.depth,
     callerSymbolId: entry.callerSymbolId,
     calledSymbolId: entry.calledSymbolId,
     calledFilePath: entry.calledFilePath,
     resolvedFilePath: entry.resolvedFilePath,
-    resolvedRelativePath: entry.resolvedFilePath 
-      ? getRelativePath(entry.resolvedFilePath, config!.rootDir) 
+    resolvedRelativePath: entry.resolvedFilePath
+      ? getRelativePath(entry.resolvedFilePath, config!.rootDir)
       : null,
   }));
-  
+
   const relativePath = getRelativePath(filePath, config!.rootDir);
-  
+
   return {
     rootSymbol: {
       id: result.rootSymbol.id,
@@ -1155,13 +1235,20 @@ async function executeTraceFunctionExecution(
 /**
  * Categorize a symbol by its kind
  */
-function categorizeSymbolKind(kind: string): 'function' | 'class' | 'variable' | 'interface' | 'type' | 'other' {
-  if (kind.includes('Function')) return 'function';
-  if (kind.includes('Class')) return 'class';
-  if (kind.includes('Variable') || kind.includes('Const') || kind.includes('Let')) return 'variable';
-  if (kind.includes('Interface')) return 'interface';
-  if (kind.includes('Type')) return 'type';
-  return 'other';
+function categorizeSymbolKind(
+  kind: string,
+): "function" | "class" | "variable" | "interface" | "type" | "other" {
+  if (kind.includes("Function")) return "function";
+  if (kind.includes("Class")) return "class";
+  if (
+    kind.includes("Variable") ||
+    kind.includes("Const") ||
+    kind.includes("Let")
+  )
+    return "variable";
+  if (kind.includes("Interface")) return "interface";
+  if (kind.includes("Type")) return "type";
+  return "other";
 }
 
 // ============================================================================
@@ -1178,7 +1265,7 @@ async function validateFileExists(filePath: string): Promise<void> {
       throw new Error(`Path is not a file: ${filePath}`);
     }
   } catch (error) {
-    if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") {
       throw new Error(`File not found: ${filePath}`);
     }
     throw error;
@@ -1189,7 +1276,7 @@ async function validateFileExists(filePath: string): Promise<void> {
  * Detect circular dependencies in the graph
  */
 function detectCircularDependencies(
-  edges: { source: string; target: string }[]
+  edges: { source: string; target: string }[],
 ): string[][] {
   const graph = new Map<string, Set<string>>();
 
@@ -1251,34 +1338,34 @@ let symbolReverseIndex: SymbolReverseIndex | null = null;
  * Get symbol callers with O(1) lookup
  */
 async function executeGetSymbolCallers(
-  params: GetSymbolCallersParams
+  params: GetSymbolCallersParams,
 ): Promise<GetSymbolCallersResult> {
   const { filePath, symbolName, includeTypeOnly = true } = params;
-  
+
   // Build symbolId from filePath + symbolName
   const symbolId = `${filePath}:${symbolName}`;
-  
+
   // Initialize symbol reverse index if needed
   if (!symbolReverseIndex) {
     symbolReverseIndex = new SymbolReverseIndex(config!.rootDir);
     // Build the index from all cached symbol graphs
     await buildSymbolReverseIndex();
   }
-  
+
   const callers = includeTypeOnly
     ? symbolReverseIndex.getCallers(symbolId)
     : symbolReverseIndex.getRuntimeCallers(symbolId);
-  
-  const callerInfos: SymbolCallerInfo[] = callers.map(caller => ({
+
+  const callerInfos: SymbolCallerInfo[] = callers.map((caller) => ({
     callerSymbolId: caller.callerSymbolId,
     callerFilePath: caller.callerFilePath,
     callerRelativePath: getRelativePath(caller.callerFilePath, config!.rootDir),
     isTypeOnly: caller.isTypeOnly,
   }));
-  
-  const runtimeCallers = callers.filter(c => !c.isTypeOnly);
-  const typeOnlyCallers = callers.filter(c => c.isTypeOnly);
-  
+
+  const runtimeCallers = callers.filter((c) => !c.isTypeOnly);
+  const typeOnlyCallers = callers.filter((c) => c.isTypeOnly);
+
   return {
     symbolId,
     callerCount: callers.length,
@@ -1294,15 +1381,15 @@ async function executeGetSymbolCallers(
  */
 async function buildSymbolReverseIndex(): Promise<void> {
   if (!spider || !symbolReverseIndex) return;
-  
+
   // Get all indexed files from the file-level cache
   const status = spider.getIndexStatus();
-  if (status.state !== 'complete') return;
-  
+  if (status.state !== "complete") return;
+
   // Re-analyze all files for symbol dependencies
   // This is expensive but only done once on first query
   const referencingFiles = await spider.findReferencingFiles(config!.rootDir);
-  
+
   for (const ref of referencingFiles) {
     try {
       const { dependencies } = await spider.getSymbolGraph(ref.path);
@@ -1321,43 +1408,47 @@ async function buildSymbolReverseIndex(): Promise<void> {
  * Analyze breaking changes between old and new file versions
  */
 async function executeAnalyzeBreakingChanges(
-  params: AnalyzeBreakingChangesParams
+  params: AnalyzeBreakingChangesParams,
 ): Promise<AnalyzeBreakingChangesResult> {
   const { filePath, symbolName, oldContent } = params;
-  
+
   // If newContent not provided, read current file
   let newContent = params.newContent;
   if (!newContent) {
     try {
-      newContent = await fs.readFile(filePath, 'utf-8');
+      newContent = await fs.readFile(filePath, "utf-8");
     } catch {
       throw new Error(`Cannot read current file: ${filePath}`);
     }
   }
-  
+
   if (!astWorkerHost) {
-    throw new Error('AstWorkerHost not initialized');
+    throw new Error("AstWorkerHost not initialized");
   }
-  
-  let results: import('../analyzer/SignatureAnalyzer').SignatureComparisonResult[];
+
+  let results: import("../analyzer/SignatureAnalyzer").SignatureComparisonResult[];
   try {
-    results = await astWorkerHost.analyzeBreakingChanges(filePath, oldContent, newContent);
+    results = await astWorkerHost.analyzeBreakingChanges(
+      filePath,
+      oldContent,
+      newContent,
+    );
   } catch (error) {
-    const errorMsg = error instanceof Error ? error.message : 'Unknown error';
+    const errorMsg = error instanceof Error ? error.message : "Unknown error";
     throw new Error(`Failed to analyze breaking changes: ${errorMsg}`);
   }
-  
+
   // Filter by symbolName if provided
   if (symbolName) {
-    results = results.filter(r => r.symbolName === symbolName);
+    results = results.filter((r) => r.symbolName === symbolName);
   }
-  
+
   // Aggregate all breaking changes
   const breakingChanges: BreakingChangeInfo[] = [];
   const nonBreakingChanges: string[] = [];
   const removedSymbols: string[] = [];
   const addedSymbols: string[] = [];
-  
+
   for (const result of results) {
     for (const change of result.breakingChanges) {
       breakingChanges.push({
@@ -1369,18 +1460,22 @@ async function executeAnalyzeBreakingChanges(
         newValue: change.newValue,
         line: change.line,
       });
-      
-      if (change.type === 'member-removed') {
+
+      if (change.type === "member-removed") {
         removedSymbols.push(change.symbolName);
       }
     }
     nonBreakingChanges.push(...result.nonBreakingChanges);
   }
-  
+
   // Count by severity
-  const errorCount = breakingChanges.filter(c => c.severity === 'error').length;
-  const warningCount = breakingChanges.filter(c => c.severity === 'warning').length;
-  
+  const errorCount = breakingChanges.filter(
+    (c) => c.severity === "error",
+  ).length;
+  const warningCount = breakingChanges.filter(
+    (c) => c.severity === "warning",
+  ).length;
+
   return {
     filePath,
     breakingChangeCount: breakingChanges.length,
@@ -1401,15 +1496,15 @@ async function executeAnalyzeBreakingChanges(
  * Create an impacted item from a symbol dependency
  */
 function createImpactedItem(
-  dep: import('../analyzer/types').SymbolDependency,
+  dep: import("../analyzer/types").SymbolDependency,
   depth: number,
-  rootDir: string
+  rootDir: string,
 ): ImpactedItem {
   return {
     symbolId: dep.sourceSymbolId,
     filePath: dep.targetFilePath,
     relativePath: getRelativePath(dep.targetFilePath, rootDir),
-    usageType: dep.isTypeOnly ? 'type-only' : 'runtime',
+    usageType: dep.isTypeOnly ? "type-only" : "runtime",
     depth,
   };
 }
@@ -1419,11 +1514,11 @@ function createImpactedItem(
  */
 function determineImpactLevel(
   runtimeCount: number,
-  totalCount: number
-): 'high' | 'medium' | 'low' {
-  if (runtimeCount >= 10 || totalCount >= 20) return 'high';
-  if (runtimeCount >= 3 || totalCount >= 5) return 'medium';
-  return 'low';
+  totalCount: number,
+): "high" | "medium" | "low" {
+  if (runtimeCount >= 10 || totalCount >= 20) return "high";
+  if (runtimeCount >= 3 || totalCount >= 5) return "medium";
+  return "low";
 }
 
 /**
@@ -1436,25 +1531,27 @@ function calculateImpactMetrics(items: ImpactedItem[]): {
   typeOnlyCount: number;
 } {
   return {
-    directCount: items.filter(i => i.depth === 1).length,
-    transitiveCount: items.filter(i => i.depth > 1).length,
-    runtimeCount: items.filter(i => i.usageType === 'runtime').length,
-    typeOnlyCount: items.filter(i => i.usageType === 'type-only').length,
+    directCount: items.filter((i) => i.depth === 1).length,
+    transitiveCount: items.filter((i) => i.depth > 1).length,
+    runtimeCount: items.filter((i) => i.usageType === "runtime").length,
+    typeOnlyCount: items.filter((i) => i.usageType === "type-only").length,
   };
 }
 
 /**
  * Parse symbolId into file path and symbol name
  */
-function parseSymbolId(symbolId: string): { filePath: string; symbolName: string } | null {
-  const parts = symbolId.split(':');
+function parseSymbolId(
+  symbolId: string,
+): { filePath: string; symbolName: string } | null {
+  const parts = symbolId.split(":");
   if (parts.length < 2) return null;
-  
+
   const symbolName = parts.at(-1);
   if (!symbolName) return null;
-  
+
   return {
-    filePath: parts.slice(0, -1).join(':'),
+    filePath: parts.slice(0, -1).join(":"),
     symbolName,
   };
 }
@@ -1475,16 +1572,16 @@ interface TransitiveContext {
  * Process a single transitive dependent and add to the queue
  */
 function processTransitiveDependent(
-  dep: import('../analyzer/types').SymbolDependency,
+  dep: import("../analyzer/types").SymbolDependency,
   depth: number,
-  ctx: TransitiveContext
+  ctx: TransitiveContext,
 ): void {
   if (ctx.visitedSymbols.has(dep.sourceSymbolId)) return;
-  
+
   ctx.impactedItems.push(createImpactedItem(dep, depth, ctx.rootDir));
   ctx.visitedSymbols.add(dep.sourceSymbolId);
   ctx.affectedFilesSet.add(dep.targetFilePath);
-  
+
   if (depth < ctx.maxDepth) {
     ctx.queue.push({ symbolId: dep.sourceSymbolId, depth: depth + 1 });
   }
@@ -1494,28 +1591,39 @@ function processTransitiveDependent(
  * Process transitive dependents
  */
 async function processTransitiveDependents(
-  directDependents: import('../analyzer/types').SymbolDependency[],
+  directDependents: import("../analyzer/types").SymbolDependency[],
   maxDepth: number,
   rootDir: string,
   visitedSymbols: Set<string>,
   affectedFilesSet: Set<string>,
-  impactedItems: ImpactedItem[]
+  impactedItems: ImpactedItem[],
 ): Promise<void> {
-  const queue = directDependents.map(d => ({ symbolId: d.sourceSymbolId, depth: 2 }));
+  const queue = directDependents.map((d) => ({
+    symbolId: d.sourceSymbolId,
+    depth: 2,
+  }));
   const ctx: TransitiveContext = {
-    maxDepth, rootDir, visitedSymbols, affectedFilesSet, impactedItems, queue
+    maxDepth,
+    rootDir,
+    visitedSymbols,
+    affectedFilesSet,
+    impactedItems,
+    queue,
   };
-  
+
   while (ctx.queue.length > 0) {
     const current = ctx.queue.shift()!;
     if (current.depth > maxDepth) continue;
-    
+
     const parsed = parseSymbolId(current.symbolId);
     if (!parsed) continue;
-    
+
     try {
-      const transitiveDeps = await spider!.getSymbolDependents(parsed.filePath, parsed.symbolName);
-      
+      const transitiveDeps = await spider!.getSymbolDependents(
+        parsed.filePath,
+        parsed.symbolName,
+      );
+
       for (const dep of transitiveDeps) {
         processTransitiveDependent(dep, current.depth, ctx);
       }
@@ -1529,25 +1637,33 @@ async function processTransitiveDependents(
  * Get comprehensive impact analysis for a symbol modification
  */
 async function executeGetImpactAnalysis(
-  params: GetImpactAnalysisParams
+  params: GetImpactAnalysisParams,
 ): Promise<GetImpactAnalysisResult> {
-  const { filePath, symbolName, includeTransitive = false, maxDepth = 3 } = params;
+  const {
+    filePath,
+    symbolName,
+    includeTransitive = false,
+    maxDepth = 3,
+  } = params;
   await validateFileExists(filePath);
-  
+
   const symbolId = `${filePath}:${symbolName}`;
   const impactedItems: ImpactedItem[] = [];
   const visitedSymbols = new Set<string>();
   const affectedFilesSet = new Set<string>();
-  
+
   // Get direct dependents
-  const directDependents = await spider!.getSymbolDependents(filePath, symbolName);
-  
+  const directDependents = await spider!.getSymbolDependents(
+    filePath,
+    symbolName,
+  );
+
   for (const dep of directDependents) {
     impactedItems.push(createImpactedItem(dep, 1, config!.rootDir));
     visitedSymbols.add(dep.sourceSymbolId);
     affectedFilesSet.add(dep.targetFilePath);
   }
-  
+
   // Get transitive dependents if requested
   if (includeTransitive && maxDepth > 1) {
     await processTransitiveDependents(
@@ -1556,14 +1672,17 @@ async function executeGetImpactAnalysis(
       config!.rootDir,
       visitedSymbols,
       affectedFilesSet,
-      impactedItems
+      impactedItems,
     );
   }
-  
+
   // Calculate metrics
   const metrics = calculateImpactMetrics(impactedItems);
-  const impactLevel = determineImpactLevel(metrics.runtimeCount, impactedItems.length);
-  
+  const impactLevel = determineImpactLevel(
+    metrics.runtimeCount,
+    impactedItems.length,
+  );
+
   // Generate summary
   const summary = generateImpactSummary(
     symbolName,
@@ -1571,9 +1690,9 @@ async function executeGetImpactAnalysis(
     metrics.runtimeCount,
     metrics.typeOnlyCount,
     affectedFilesSet.size,
-    impactLevel
+    impactLevel,
   );
-  
+
   return {
     targetSymbol: {
       id: symbolId,
@@ -1602,38 +1721,177 @@ function generateImpactSummary(
   runtimeCount: number,
   typeOnlyCount: number,
   fileCount: number,
-  level: 'high' | 'medium' | 'low'
+  level: "high" | "medium" | "low",
 ): string {
   if (totalCount === 0) {
     return `Symbol '${symbolName}' has no known dependents. Changes should be safe.`;
   }
-  
+
   let levelEmoji: string;
-  if (level === 'high') {
-    levelEmoji = '🔴';
-  } else if (level === 'medium') {
-    levelEmoji = '🟡';
+  if (level === "high") {
+    levelEmoji = "🔴";
+  } else if (level === "medium") {
+    levelEmoji = "🟡";
   } else {
-    levelEmoji = '🟢';
+    levelEmoji = "🟢";
   }
-  
+
   let summary = `${levelEmoji} Impact Level: ${level.toUpperCase()}\n\n`;
   summary += `Modifying '${symbolName}' will affect:\n`;
   summary += `- ${totalCount} symbol(s) across ${fileCount} file(s)\n`;
-  
+
   if (runtimeCount > 0) {
     summary += `- ${runtimeCount} runtime usage(s) - tests should be run\n`;
   }
   if (typeOnlyCount > 0) {
     summary += `- ${typeOnlyCount} type-only usage(s) - only type checking affected\n`;
   }
-  
-  if (level === 'high') {
+
+  if (level === "high") {
     summary += `\n⚠️ High impact: Consider running full test suite and reviewing all affected files.`;
   }
-  
+
   return summary;
 }
 
+/**
+ * Analyze intra-file call hierarchy using LSP data
+ */
+async function executeAnalyzeFileLogic(
+  params: AnalyzeFileLogicParams,
+): Promise<{
+  filePath: string;
+  graph: IntraFileGraph;
+  language: string;
+  analysisTimeMs: number;
+}> {
+  const { filePath } = params;
+  // Note: includeExternal will be used in T066 when integrating LSP call hierarchy
+
+  // Validate file exists
+  await validateFileExists(filePath);
+
+  // Validate supported extension
+  const ext = path.extname(filePath).toLowerCase();
+  const supportedExts = [".ts", ".tsx", ".js", ".jsx", ".py", ".rs"];
+  if (!supportedExts.includes(ext)) {
+    throw new Error(
+      `UNSUPPORTED_FILE_TYPE: File extension '${ext}' not supported. ` +
+        `Supported: ${supportedExts.join(", ")}`,
+    );
+  }
+
+  // Detect language
+  let language: string;
+  if (ext === ".ts" || ext === ".tsx") {
+    language = "typescript";
+  } else if (ext === ".js" || ext === ".jsx") {
+    language = "javascript";
+  } else if (ext === ".py") {
+    language = "python";
+  } else if (ext === ".rs") {
+    language = "rust";
+  } else {
+    language = "unknown";
+  }
+
+  const startTime = Date.now();
+
+  try {
+    // Get symbol graph data using Spider's AST-based analysis
+    const symbolGraphData = await spider!.getSymbolGraph(filePath);
+
+    // Convert Spider's symbol format to LSP format for LspCallHierarchyAnalyzer
+    // Map string kind to LSP SymbolKind number (vscode.SymbolKind enum)
+    const mapKindToLspNumber = (kind: string): number => {
+      switch (kind.toLowerCase()) {
+        case "function":
+        case "method":
+          return 12; // Function
+        case "class":
+          return 5; // Class
+        case "variable":
+        case "property":
+          return 13; // Variable
+        case "interface":
+          return 11; // Interface
+        default:
+          return 13; // Variable (default)
+      }
+    };
+
+    // Convert Spider symbols to LSP format
+    const lspSymbols = symbolGraphData.symbols.map((sym) => ({
+      name: sym.name,
+      kind: mapKindToLspNumber(sym.kind),
+      range: { start: sym.line, end: sym.line },
+      containerName: sym.parentSymbolId ? sym.name : undefined, // For hierarchy
+      uri: filePath,
+    }));
+
+    // Convert Spider dependencies to LSP call hierarchy format
+    const callHierarchyItems = new Map<string, LspCallHierarchyItem>();
+    const outgoingCalls = new Map<string, LspOutgoingCall[]>();
+
+    for (const symbol of lspSymbols) {
+      callHierarchyItems.set(symbol.name, {
+        name: symbol.name,
+        kind: symbol.kind,
+        uri: filePath,
+        range: symbol.range,
+      });
+    }
+
+    for (const dep of symbolGraphData.dependencies) {
+      if (!outgoingCalls.has(dep.sourceSymbolId)) {
+        outgoingCalls.set(dep.sourceSymbolId, []);
+      }
+      outgoingCalls.get(dep.sourceSymbolId)!.push({
+        to: {
+          name: dep.targetSymbolId,
+          kind: 12,
+          uri: filePath,
+          range: { start: 0, end: 0 },
+        },
+        fromRanges: [{ start: 0, end: 0 }],
+      });
+    }
+
+    // Use LspCallHierarchyAnalyzer to build the graph (T066)
+    const analyzer = new LspCallHierarchyAnalyzer();
+    const graph = analyzer.buildIntraFileGraph(filePath, {
+      symbols: lspSymbols,
+      callHierarchyItems,
+      outgoingCalls,
+    });
+
+    const analysisTimeMs = Date.now() - startTime;
+
+    log.info(
+      `Analyzed file logic for ${filePath} in ${analysisTimeMs}ms (${graph.nodes.length} symbols, ${graph.edges.length} edges)`,
+    );
+
+    return {
+      filePath,
+      graph,
+      language,
+      analysisTimeMs,
+    };
+  } catch (error) {
+    const errorMessage = error instanceof Error ? error.message : String(error);
+
+    // Check for timeout errors
+    if (errorMessage.includes("timeout")) {
+      throw new Error(`ANALYSIS_TIMEOUT: Analysis timed out for ${filePath}`);
+    }
+
+    throw new Error(`ANALYSIS_FAILED: ${errorMessage}`);
+  }
+}
+
 // Re-export types for testing
-export type { McpWorkerMessage, McpWorkerResponse, McpWorkerConfig } from './types';
+export type {
+  McpWorkerConfig,
+  McpWorkerMessage,
+  McpWorkerResponse
+} from "./types";

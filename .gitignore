@@ -166,6 +166,9 @@ vite.config.ts.timestamp-*
 .github/prompts
 .clavix
 .specify
+.reports
+codemaps/
+
 mcp.json
 
 # Playwright files
