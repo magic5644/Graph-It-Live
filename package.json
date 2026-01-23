@@ -387,7 +387,6 @@
   },
   "devDependencies": {
     "@eslint/js": "^9.39.2",
-    "@playwright/test": "^1.57.0",
     "@types/mocha": "^10.0.10",
     "@types/node": "^25.0.10",
     "@types/react": "^19.2.9",
@@ -402,7 +401,6 @@
     "glob": "^13.0.0",
     "globals": "^16.5.0",
     "mocha": "^11.7.5",
-    "playwright": "^1.57.0",
     "typescript": "^5.9.3",
     "typescript-eslint": "^8.53.1",
     "vitest": "^4.0.18"
