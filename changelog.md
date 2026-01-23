@@ -1,5 +1,46 @@
 # Changelog
 
+## v1.7.0 (Unreleased)
+
+### New Features
+
+- **Symbol-Level Drill-Down & Call Hierarchy**: Visualize function-to-function and class-to-class dependencies within files
+  - **LSP-Powered Analysis**: Uses VS Code's Language Server Protocol for accurate call hierarchy detection
+  - **Multi-Language Support**: TypeScript, JavaScript, Python (via Pylance), and Rust (via rust-analyzer)
+  - **Color-Coded Symbols**:
+    - Classes: Deep purple (#9966CC)
+    - Functions/Methods: Vibrant blue (#4A9EFF)
+    - Variables/Constants: Amber (#FFA500)
+  - **Edge Differentiation**:
+    - Solid arrows for function calls
+    - Dashed arrows for references
+    - Cycle badges for recursive calls
+  - **Breadcrumb Navigation**: `Project > folder > filename.ts` with one-click return to file view
+  - **Interactive Exploration**:
+    - Double-click file nodes to drill down
+    - Click symbol nodes to jump to definition
+    - Hierarchical layout shows top-down call flow
+  - **Graceful Degradation**: Clear error messages when LSP unavailable or file type unsupported
+
+  <div align="center">
+    <img src="media/symbol-view-colored-nodes.png" alt="Symbol drill-down view" width="600"/>
+    <p><em>New symbol-level view shows function calls, class methods, and variable usage</em></p>
+  </div>
+
+### Enhancements
+
+- **Visual Polish**:
+  - Updated symbol color scheme to match FR-010 specification
+  - Enhanced cycle detection with prominent error-colored badges
+  - Improved edge styling for better relationship differentiation
+
+### Infrastructure
+
+- **Security**: Zero security issues (Snyk code scan verified)
+- **Code Quality**: Clean SonarQube analysis (0 code smells)
+- **Testing**: 1009 unit tests + 90 E2E tests passing
+- **Package Integrity**: Verified zero .map files in production build
+
 ## v1.6.2
 
 ### Bug Fixes
@@ -157,18 +198,18 @@
   - Reduces resource usage for users who don't need MCP functionality
   - Aligns with documentation and recommended setup for opt-in usage
 
-
 ## v1.4.1
 
 ### Performance Improvements
 
-- **Major Bundle Size Optimization**: 
+- **Major Bundle Size Optimization**:
   - ts-morph AST analysis now runs in dedicated worker thread for improved responsiveness
 
 - **React Production Mode**: Enabled production builds for webview
   - React/React-DOM optimized for production (removed dev warnings and checks)
 
 ### Improvements
+
 - Optimize esbuild builds by generating and saving metafiles for bundle analysis when `--metafile` argument is provided.
 - Reduce esbuild bundle size by defining `process.env.NODE_ENV` as `"production"` during the webview build.
 - Dependency update: Upgrade `zod` to v4 for improved type safety and features.
@@ -203,7 +244,7 @@
 ### Improvements
 
 - **Tool Descriptions**: All MCP tool descriptions now follow WHEN/WHY/RETURNS pattern consistently
-- **Examples Added**: 
+- **Examples Added**:
   - `graphitlive_get_symbol_graph`: 3 concrete usage examples
   - `graphitlive_find_unused_symbols`: 3 dead code detection examples
   - `graphitlive_get_symbol_dependents`: 3 impact analysis examples
@@ -233,9 +274,8 @@
 
 ### Improvements
 
-- **MCP tool names renamed**: Tool names now use `graphitlive_*` (snake_case) instead of `graphItLive_*`. Update any hardcoded tool references accordingly. If tool names are discovered dynamically and not hardcoded in scripts or prompts, there is no impact.
+- **MCP tool names renamed**: Tool names now use `graphitlive_*` (snake*case) instead of `graphItLive*\*`. Update any hardcoded tool references accordingly. If tool names are discovered dynamically and not hardcoded in scripts or prompts, there is no impact.
 - **MCP Server**: Added tool response schemas, annotations, and structured responses to improve compatibility and validation.
-
 
 ## v1.3.5
 
@@ -285,12 +325,15 @@
 ### Improvements
 
 **Architecture Refactoring**:
+
 - **Enhanced service layer architecture**: Refactored `GraphProvider` by extracting functionality into 10 specialized service modules for improved maintainability and reliability
 
 **Analyzer Enhancements**:
+
 - **New helper modules**: Added specialized modules for better code organization and performance
 
 **Performance & Reliability**:
+
 - Improved background indexing stability with better state synchronization
 - Enhanced file change detection with clearer separation of concerns
 - More robust cache invalidation and index updates
@@ -301,18 +344,23 @@
 ### Bug Fixes
 
 **Critical ReverseIndex Bug Fix**:
+
 - **Fixed reference persistence issue**: References would disappear from the reverse index after file re-analysis, causing the "Get References" button to incorrectly show no parent files. This affected both the VS Code extension and the MCP server.
 
 **Webview State Management**:
+
 - **Fixed stale references display**: After navigating to a new file, the webview would retain old references and not request new ones
 
 **Initial Indexing Display**:
+
 - **Fixed missing parent counts on initial load**: When opening a file before background indexing completed, parent counts wouldn't appear
 
 **Refresh Button Bug**:
+
 - **Fixed refresh clearing symbol view**: Clicking the refresh button in symbol view would incorrectly switch back to file view, causing GraphQL files and other files in symbol mode to appear empty
 
 **ReverseIndex Degradation During Navigation**:
+
 - **Fixed progressive loss of dependencies and references**: When navigating between files through the webview, references would progressively disappear because cached files weren't updating the ReverseIndex
 
 ## v1.3.1
@@ -377,7 +425,6 @@
 - Enhance file dependencies resolution with better support of monorepos workspaces.
 
 ## v1.2.0
-
 
 - Introduce support for MCP (Multi-Context Processing) server to enable AI/LLM integrations. Use it with Github Copilot, Cursor, Antigravity, etc. Let's chat about your code!
 

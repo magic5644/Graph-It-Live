@@ -1,26 +1,25 @@
-
-export  {normalizePathForComparison, normalizePath} from '../shared/path';
+export { normalizePath, normalizePathForComparison } from "../shared/path";
 
 /**
  * Error codes for Spider analysis errors
  */
 export enum SpiderErrorCode {
   /** File not found or unreadable */
-  FILE_NOT_FOUND = 'FILE_NOT_FOUND',
+  FILE_NOT_FOUND = "FILE_NOT_FOUND",
   /** File read permission denied */
-  PERMISSION_DENIED = 'PERMISSION_DENIED',
+  PERMISSION_DENIED = "PERMISSION_DENIED",
   /** File is too large to process */
-  FILE_TOO_LARGE = 'FILE_TOO_LARGE',
+  FILE_TOO_LARGE = "FILE_TOO_LARGE",
   /** Parse error in file content */
-  PARSE_ERROR = 'PARSE_ERROR',
+  PARSE_ERROR = "PARSE_ERROR",
   /** Module resolution failed */
-  RESOLUTION_FAILED = 'RESOLUTION_FAILED',
+  RESOLUTION_FAILED = "RESOLUTION_FAILED",
   /** Operation timeout */
-  TIMEOUT = 'TIMEOUT',
+  TIMEOUT = "TIMEOUT",
   /** Circular dependency detected */
-  CIRCULAR_DEPENDENCY = 'CIRCULAR_DEPENDENCY',
+  CIRCULAR_DEPENDENCY = "CIRCULAR_DEPENDENCY",
   /** Unknown or unclassified error */
-  UNKNOWN = 'UNKNOWN',
+  UNKNOWN = "UNKNOWN",
 }
 
 /**
@@ -38,10 +37,10 @@ export class SpiderError extends Error {
     options?: {
       filePath?: string;
       cause?: Error;
-    }
+    },
   ) {
     super(message);
-    this.name = 'SpiderError';
+    this.name = "SpiderError";
     this.code = code;
     this.filePath = options?.filePath;
     this.cause = options?.cause;
@@ -68,15 +67,15 @@ export class SpiderError extends Error {
     let code = SpiderErrorCode.UNKNOWN;
     if (cause) {
       const errCode = (cause as NodeJS.ErrnoException).code;
-      if (errCode === 'ENOENT') {
+      if (errCode === "ENOENT") {
         code = SpiderErrorCode.FILE_NOT_FOUND;
-      } else if (errCode === 'EACCES' || errCode === 'EPERM') {
+      } else if (errCode === "EACCES" || errCode === "EPERM") {
         code = SpiderErrorCode.PERMISSION_DENIED;
-      } else if (message.includes('too large') || errCode === 'EFBIG') {
+      } else if (message.includes("too large") || errCode === "EFBIG") {
         code = SpiderErrorCode.FILE_TOO_LARGE;
-      } else if (message.includes('parse') || message.includes('syntax')) {
+      } else if (message.includes("parse") || message.includes("syntax")) {
         code = SpiderErrorCode.PARSE_ERROR;
-      } else if (message.includes('timeout') || errCode === 'ETIMEDOUT') {
+      } else if (message.includes("timeout") || errCode === "ETIMEDOUT") {
         code = SpiderErrorCode.TIMEOUT;
       }
     }
@@ -102,15 +101,15 @@ export class SpiderError extends Error {
   toUserMessage(): string {
     switch (this.code) {
       case SpiderErrorCode.FILE_NOT_FOUND:
-        return `File not found: ${this.filePath || 'unknown'}`;
+        return `File not found: ${this.filePath || "unknown"}`;
       case SpiderErrorCode.PERMISSION_DENIED:
-        return `Permission denied: ${this.filePath || 'unknown'}`;
+        return `Permission denied: ${this.filePath || "unknown"}`;
       case SpiderErrorCode.FILE_TOO_LARGE:
-        return `File too large to process: ${this.filePath || 'unknown'}`;
+        return `File too large to process: ${this.filePath || "unknown"}`;
       case SpiderErrorCode.PARSE_ERROR:
-        return `Failed to parse: ${this.filePath || 'unknown'}`;
+        return `Failed to parse: ${this.filePath || "unknown"}`;
       case SpiderErrorCode.RESOLUTION_FAILED:
-        return `Could not resolve module in: ${this.filePath || 'unknown'}`;
+        return `Could not resolve module in: ${this.filePath || "unknown"}`;
       case SpiderErrorCode.TIMEOUT:
         return `Operation timed out`;
       case SpiderErrorCode.CIRCULAR_DEPENDENCY:
@@ -138,7 +137,7 @@ export class SpiderError extends Error {
 /**
  * Type of import/dependency statement
  */
-export type DependencyType = 'import' | 'require' | 'export' | 'dynamic';
+export type DependencyType = "import" | "require" | "export" | "dynamic";
 
 export interface Dependency {
   path: string;
@@ -197,7 +196,11 @@ export interface FileHash {
 }
 
 // Re-export IndexerStatus types for convenience
-export type { IndexerState, IndexerStatusSnapshot, IndexerStatusCallback } from './IndexerStatus';
+export type {
+  IndexerState,
+  IndexerStatusCallback,
+  IndexerStatusSnapshot,
+} from "./IndexerStatus";
 
 /**
  * Progress callback for indexing operations
@@ -205,7 +208,7 @@ export type { IndexerState, IndexerStatusSnapshot, IndexerStatusCallback } from 
 export type IndexingProgressCallback = (
   processed: number,
   total: number,
-  currentFile?: string
+  currentFile?: string,
 ) => void;
 
 /**
@@ -228,7 +231,7 @@ export interface SymbolInfo {
   isExported: boolean;
   id: string; // Unique ID: filePath:name
   parentSymbolId?: string; // Parent class/namespace ID (for methods/properties)
-  category: 'function' | 'class' | 'variable' | 'interface' | 'type' | 'other';
+  category: "function" | "class" | "variable" | "interface" | "type" | "other";
 }
 
 export interface SymbolDependency {
@@ -257,7 +260,10 @@ export interface ILanguageAnalyzer {
    * @param moduleSpecifier The import path (e.g., './utils', '@/components', 'lodash')
    * @returns Resolved absolute path or null if cannot resolve
    */
-  resolvePath(fromFile: string, moduleSpecifier: string): Promise<string | null>;
+  resolvePath(
+    fromFile: string,
+    moduleSpecifier: string,
+  ): Promise<string | null>;
 }
 
 /**

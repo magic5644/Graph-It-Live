@@ -10,13 +10,13 @@
  */
 
 import { parentPort } from 'node:worker_threads';
-import path from 'node:path';
-import { SymbolAnalyzer } from '../SymbolAnalyzer';
+import { getLogger } from '../../shared/logger';
+import { detectLanguageFromExtension } from '../../shared/utils/languageDetection';
+import type { SignatureInfo } from '../SignatureAnalyzer';
 import { SignatureAnalyzer } from '../SignatureAnalyzer';
+import { SymbolAnalyzer } from '../SymbolAnalyzer';
 import { PythonSymbolAnalyzer } from '../languages/PythonSymbolAnalyzer';
 import { RustSymbolAnalyzer } from '../languages/RustSymbolAnalyzer';
-import type { SignatureInfo } from '../SignatureAnalyzer';
-import { getLogger } from '../../shared/logger';
 
 // Worker message types
 type WorkerRequest =
@@ -45,11 +45,11 @@ const signatureAnalyzer = new SignatureAnalyzer();
  * Detect language based on file extension
  */
 function detectLanguage(filePath: string): 'python' | 'rust' | 'typescript' {
-  const ext = path.extname(filePath).toLowerCase();
-  if (ext === '.py' || ext === '.pyi') {
+  const language = detectLanguageFromExtension(filePath);
+  if (language === 'python') {
     return 'python';
   }
-  if (ext === '.rs') {
+  if (language === 'rust') {
     return 'rust';
   }
   return 'typescript';
@@ -180,11 +180,8 @@ if (parentPort) {
 }
 
 // Export types for use in AstWorkerHost
-export type { WorkerRequest, WorkerResponse };
-export type { SymbolInfo, SymbolDependency } from '../types';
 export type {
-  SignatureInfo,
-  InterfaceMemberInfo,
-  TypeAliasInfo,
-  SignatureComparisonResult,
+    InterfaceMemberInfo, SignatureComparisonResult, SignatureInfo, TypeAliasInfo
 } from '../SignatureAnalyzer';
+export type { SymbolDependency, SymbolInfo } from '../types';
+export type { WorkerRequest, WorkerResponse };

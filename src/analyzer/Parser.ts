@@ -1,6 +1,7 @@
-import { ParsedImport, ILanguageAnalyzer, Dependency } from './types';
-import { FileReader } from './FileReader';
-import { PathResolver } from './utils/PathResolver';
+import { FileReader } from "./FileReader";
+import { LanguageService } from "./LanguageService";
+import { Dependency, ILanguageAnalyzer, ParsedImport } from "./types";
+import { PathResolver } from "./utils/PathResolver";
 
 /**
  * Parses import/require/export statements from TypeScript/JavaScript files
@@ -19,14 +20,16 @@ export class Parser implements ILanguageAnalyzer {
     // import ... from '...'
     // Simplified pattern: comments are stripped before parsing
     // Matches: import [whitespace] [anything except ; or ' or "] [whitespace] from [whitespace] [quote] [path] [quote]
-    importFrom: /import\s+(?:[^;'"]|'[^']*'|"[^"]*")*?\s+from\s+['"]([^'"]+)['"]/g, //NOSONAR
-    
+    importFrom:
+      /import\s+(?:[^;'"]|'[^']*'|"[^"]*")*?\s+from\s+['"]([^'"]+)['"]/g, //NOSONAR
+
     // export ... from '...'
-    exportFrom: /export\s+(?:[^;'"]|'[^']*'|"[^"]*")*?\s+from\s+['"]([^'"]+)['"]/g, //NOSONAR
-    
+    exportFrom:
+      /export\s+(?:[^;'"]|'[^']*'|"[^"]*")*?\s+from\s+['"]([^'"]+)['"]/g, //NOSONAR
+
     // require('...')
     require: /require\s*\(\s*['"]([^'"]+)['"]\s*\)/g,
-    
+
     // import('...') - dynamic imports
     dynamicImport: /import\s*\(\s*['"]([^'"]+)['"]\s*\)/g,
 
@@ -43,20 +46,27 @@ export class Parser implements ILanguageAnalyzer {
   parse(content: string, filePath?: string): ParsedImport[] {
     // Extract script content for Vue/Svelte files
     if (filePath) {
-      if (filePath.endsWith('.vue') || filePath.endsWith('.svelte')) {
+      if (filePath.endsWith(".vue") || filePath.endsWith(".svelte")) {
         content = this.extractScript(content);
       }
     }
 
     const imports: ParsedImport[] = [];
-    
+
     // Track processed modules to avoid duplicates
     const seen = new Set<string>();
 
     // GraphQL files use #import syntax (don't strip comments as # is the import directive)
-    const isGraphQL = filePath?.endsWith('.gql') || filePath?.endsWith('.graphql');
+    const isGraphQL =
+      filePath?.endsWith(".gql") || filePath?.endsWith(".graphql");
     if (isGraphQL) {
-      this.extractImports(content, this.patterns.graphqlImport, 'import', imports, seen);
+      this.extractImports(
+        content,
+        this.patterns.graphqlImport,
+        "import",
+        imports,
+        seen,
+      );
       return imports;
     }
 
@@ -64,16 +74,40 @@ export class Parser implements ILanguageAnalyzer {
     content = this.stripComments(content);
 
     // Parse import ... from
-    this.extractImports(content, this.patterns.importFrom, 'import', imports, seen);
-    
+    this.extractImports(
+      content,
+      this.patterns.importFrom,
+      "import",
+      imports,
+      seen,
+    );
+
     // Parse export ... from
-    this.extractImports(content, this.patterns.exportFrom, 'export', imports, seen);
-    
+    this.extractImports(
+      content,
+      this.patterns.exportFrom,
+      "export",
+      imports,
+      seen,
+    );
+
     // Parse require()
-    this.extractImports(content, this.patterns.require, 'require', imports, seen);
-    
+    this.extractImports(
+      content,
+      this.patterns.require,
+      "require",
+      imports,
+      seen,
+    );
+
     // Parse dynamic import()
-    this.extractImports(content, this.patterns.dynamicImport, 'dynamic', imports, seen);
+    this.extractImports(
+      content,
+      this.patterns.dynamicImport,
+      "dynamic",
+      imports,
+      seen,
+    );
 
     return imports;
   }
@@ -86,9 +120,9 @@ export class Parser implements ILanguageAnalyzer {
     // Use global flag 'g' and matchAll to get all script blocks
     const scriptRegex = /<script[^>]*>([\s\S]*?)<\/script\s*[^>]*>/gi; //NOSONAR
     const matches = [...content.matchAll(scriptRegex)];
-    
+
     // Join all script contents with a newline to ensure separation
-    return matches.map(match => match[1]).join('\n');
+    return matches.map((match) => match[1]).join("\n");
   }
 
   /**
@@ -101,41 +135,44 @@ export class Parser implements ILanguageAnalyzer {
     // Group 2: Comments (single line or block)
     const stringPattern = /'[^']*'|"[^"]*"/;
     const commentPattern = /\/\/[^\n]*|\/\*[\s\S]*?\*\//;
-    const combinedPattern = new RegExp(`(${stringPattern.source})|(${commentPattern.source})`, 'g');
+    const combinedPattern = new RegExp(
+      `(${stringPattern.source})|(${commentPattern.source})`,
+      "g",
+    );
     return content.replaceAll(combinedPattern, (_, str, comment) => {
       if (str) {
         return str; // Keep strings
       }
       // Replace comment with spaces/newlines to preserve line numbers
-      return comment.replaceAll(/[^\n]/g, ' ');
+      return comment.replaceAll(/[^\n]/g, " ");
     });
   }
 
   private extractImports(
     content: string,
     pattern: RegExp,
-    type: ParsedImport['type'],
+    type: ParsedImport["type"],
     imports: ParsedImport[],
-    seen: Set<string>
+    seen: Set<string>,
   ): void {
     let match: RegExpExecArray | null;
-    
+
     // Reset regex state
     pattern.lastIndex = 0;
-    
+
     while ((match = pattern.exec(content)) !== null) {
       const module = match[1];
-      
+
       // Skip if already processed
       if (seen.has(module)) {
         continue;
       }
-      
+
       seen.add(module);
-      
+
       // Find line number
       const line = this.getLineNumber(content, match.index);
-      
+
       imports.push({
         module,
         type,
@@ -146,18 +183,20 @@ export class Parser implements ILanguageAnalyzer {
 
   private getLineNumber(content: string, index: number): number {
     const upToMatch = content.substring(0, index);
-    return upToMatch.split('\n').length;
+    return upToMatch.split("\n").length;
   }
 
   /**
    * ILanguageAnalyzer implementation: Parse imports from a file
    */
   async parseImports(filePath: string): Promise<Dependency[]> {
-    const content = await this.fileReader.readFile(filePath);
-    const parsed = this.parse(content, filePath);
-    
-    return parsed.map(p => ({
-      path: '', // Will be resolved separately via resolvePath()
+    // Extract file path from potential symbol ID
+    const actualPath = LanguageService["extractFilePath"](filePath);
+    const content = await this.fileReader.readFile(actualPath);
+    const parsed = this.parse(content, actualPath);
+
+    return parsed.map((p) => ({
+      path: "", // Will be resolved separately via resolvePath()
       type: p.type,
       line: p.line,
       module: p.module,
@@ -167,7 +206,12 @@ export class Parser implements ILanguageAnalyzer {
   /**
    * ILanguageAnalyzer implementation: Resolve module path
    */
-  async resolvePath(fromFile: string, moduleSpecifier: string): Promise<string | null> {
-    return this.pathResolver.resolve(fromFile, moduleSpecifier);
+  async resolvePath(
+    fromFile: string,
+    moduleSpecifier: string,
+  ): Promise<string | null> {
+    // Extract file path from potential symbol ID
+    const actualFromFile = LanguageService["extractFilePath"](fromFile);
+    return this.pathResolver.resolve(actualFromFile, moduleSpecifier);
   }
 }

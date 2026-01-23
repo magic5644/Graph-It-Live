@@ -1,16 +1,22 @@
 /**
  * Worker Thread for background indexing
- * 
+ *
  * This runs in a separate thread to avoid blocking the VS Code extension host.
  * Node.js Worker Threads allow CPU-intensive work without affecting responsiveness.
  */
 
-import { parentPort, workerData } from 'node:worker_threads';
-import * as fs from 'node:fs/promises';
-import * as path from 'node:path';
-import { LanguageService } from './LanguageService';
-import type { Dependency } from './types';
-import { isSupportedSourceFile, shouldSkipDirectory } from './SourceFileFilters';
+import { ConsoleLogger } from "@/shared/logger";
+import * as fs from "node:fs/promises";
+import * as path from "node:path";
+import { parentPort, workerData } from "node:worker_threads";
+import { LanguageService } from "./LanguageService";
+import {
+  isSupportedSourceFile,
+  shouldSkipDirectory,
+} from "./SourceFileFilters";
+import type { Dependency } from "./types";
+
+const log = new ConsoleLogger("IndexerWorker");
 
 interface WorkerConfig {
   rootDir: string;
@@ -21,11 +27,11 @@ interface WorkerConfig {
 }
 
 interface WorkerMessage {
-  type: 'start' | 'cancel';
+  type: "start" | "cancel";
 }
 
 interface WorkerResponse {
-  type: 'progress' | 'complete' | 'error' | 'counting';
+  type: "progress" | "complete" | "error" | "counting";
   data?: {
     processed?: number;
     total?: number;
@@ -55,20 +61,23 @@ function postMessage(msg: WorkerResponse): void {
 /**
  * Collect all supported source files in a directory tree
  */
-async function collectAllSourceFiles(dir: string, excludeNodeModules: boolean): Promise<string[]> {
+async function collectAllSourceFiles(
+  dir: string,
+  excludeNodeModules: boolean,
+): Promise<string[]> {
   const files: string[] = [];
-  
+
   const walkDir = async (currentDir: string): Promise<void> => {
     if (cancelled) return;
 
     try {
       const entries = await fs.readdir(currentDir, { withFileTypes: true });
-      
+
       for (const entry of entries) {
         if (cancelled) return;
 
         const fullPath = path.join(currentDir, entry.name);
-        
+
         if (entry.isDirectory()) {
           if (!shouldSkipDirectory(entry.name, excludeNodeModules)) {
             await walkDir(fullPath);
@@ -80,9 +89,15 @@ async function collectAllSourceFiles(dir: string, excludeNodeModules: boolean): 
     } catch (error) {
       // Silently skip directories that don't exist or can't be read
       // This can happen with symbolic links or permission issues
-      if ((error as NodeJS.ErrnoException).code !== 'ENOENT' &&
-          (error as NodeJS.ErrnoException).code !== 'EACCES') {
-        log.error('Error reading directory in IndexerWorker', currentDir, error);
+      if (
+        (error as NodeJS.ErrnoException).code !== "ENOENT" &&
+        (error as NodeJS.ErrnoException).code !== "EACCES"
+      ) {
+        log.error(
+          "Error reading directory in IndexerWorker",
+          currentDir,
+          error,
+        );
       }
     }
   };
@@ -96,7 +111,7 @@ async function collectAllSourceFiles(dir: string, excludeNodeModules: boolean): 
  */
 async function analyzeFile(
   filePath: string,
-  languageService: LanguageService
+  languageService: LanguageService,
 ): Promise<IndexedFileData | null> {
   try {
     const stats = await fs.stat(filePath);
@@ -135,23 +150,32 @@ async function analyzeFile(
 async function runIndexing(config: WorkerConfig): Promise<void> {
   const startTime = Date.now();
   const progressInterval = config.progressInterval ?? 100;
-  
+
   try {
     // Create language service with root directory and tsconfig path
-    const languageService = new LanguageService(config.rootDir, config.tsConfigPath);
+    const languageService = new LanguageService(
+      config.rootDir,
+      config.tsConfigPath,
+    );
 
     // Phase 1: Collect all files
-    postMessage({ type: 'counting' });
-    const files = await collectAllSourceFiles(config.rootDir, config.excludeNodeModules ?? true);
-    
+    postMessage({ type: "counting" });
+    const files = await collectAllSourceFiles(
+      config.rootDir,
+      config.excludeNodeModules ?? true,
+    );
+
     if (cancelled) {
-      postMessage({ type: 'complete', data: { duration: Date.now() - startTime, indexData: [] } });
+      postMessage({
+        type: "complete",
+        data: { duration: Date.now() - startTime, indexData: [] },
+      });
       return;
     }
 
     const totalFiles = files.length;
     const indexedData: IndexedFileData[] = [];
-    
+
     // Phase 2: Process files one by one
     // Since we're in a worker thread, we don't need to yield as aggressively
     // but we still send progress updates periodically
@@ -168,7 +192,7 @@ async function runIndexing(config: WorkerConfig): Promise<void> {
       // Send progress update periodically
       if ((i + 1) % progressInterval === 0 || i === files.length - 1) {
         postMessage({
-          type: 'progress',
+          type: "progress",
           data: {
             processed: i + 1,
             total: totalFiles,
@@ -180,7 +204,7 @@ async function runIndexing(config: WorkerConfig): Promise<void> {
 
     const duration = Date.now() - startTime;
     postMessage({
-      type: 'complete',
+      type: "complete",
       data: {
         duration,
         processed: indexedData.length,
@@ -190,24 +214,24 @@ async function runIndexing(config: WorkerConfig): Promise<void> {
     });
   } catch (error) {
     postMessage({
-      type: 'error',
-      error: error instanceof Error ? error.message : 'Unknown error',
+      type: "error",
+      error: error instanceof Error ? error.message : "Unknown error",
     });
   }
 }
 
 // Listen for messages from the parent thread
-parentPort?.on('message', (msg: WorkerMessage) => {
+parentPort?.on("message", (msg: WorkerMessage) => {
   switch (msg.type) {
-    case 'start':
+    case "start":
       cancelled = false;
       runIndexing(workerData as WorkerConfig);
       break;
-    case 'cancel':
+    case "cancel":
       cancelled = true;
       break;
   }
 });
 
 // Export for testing
-export type { WorkerConfig, WorkerMessage, WorkerResponse, IndexedFileData };
+export type { IndexedFileData, WorkerConfig, WorkerMessage, WorkerResponse };

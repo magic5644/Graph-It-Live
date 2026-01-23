@@ -64,12 +64,19 @@ vitest.config.mts
 vitest.benchmark.config.mts
 sonar-project.properties
 package-lock.json
+.markdownlint.json
+.markdownlintignore
+
 
 # Development & documentation files
 .github/**
 .gemini/**
 .spec/**
 .clavix/**
+.reports/**
+.specify/**
+codemaps/**
+specs/**
 docs/**
 scripts/**
 _bmad/**

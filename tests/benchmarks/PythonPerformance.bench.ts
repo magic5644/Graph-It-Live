@@ -5,13 +5,14 @@
  * and performs reasonably for Python projects.
  */
 
-import { describe, bench, expect } from 'vitest';
 import path from 'node:path';
-import { Spider } from "../../src/analyzer/Spider";
+import { bench, describe, expect } from 'vitest';
 import { PythonParser } from "../../src/analyzer/languages/PythonParser";
 import { PythonSymbolAnalyzer } from "../../src/analyzer/languages/PythonSymbolAnalyzer";
 import { Parser } from "../../src/analyzer/Parser";
+import { Spider } from "../../src/analyzer/Spider";
 import { SymbolAnalyzer } from "../../src/analyzer/SymbolAnalyzer";
+import { detectLanguageFromExtension } from '../../src/shared/utils/languageDetection';
 
 const BENCH_OPTIONS = {
   time: 10,
@@ -105,20 +106,15 @@ describe('Python Performance Benchmarks', () => {
 });
 
 describe('Language Detection Performance', () => {
-  const detectLanguage = (filePath: string): 'python' | 'typescript' => {
-    const ext = path.extname(filePath).toLowerCase();
-    return (ext === '.py' || ext === '.pyi') ? 'python' : 'typescript';
-  };
-
   bench('Detect Python file extension (.py)', () => {
-    detectLanguage('/path/to/file.py');
+    detectLanguageFromExtension('/path/to/file.py');
   }, BENCH_OPTIONS);
 
   bench('Detect TypeScript file extension (.ts)', () => {
-    detectLanguage('/path/to/file.ts');
+    detectLanguageFromExtension('/path/to/file.ts');
   }, BENCH_OPTIONS);
 
   bench('Detect Python stub file extension (.pyi)', () => {
-    detectLanguage('/path/to/file.pyi');
+    detectLanguageFromExtension('/path/to/file.pyi');
   }, BENCH_OPTIONS);
 });
