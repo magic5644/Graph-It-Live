@@ -295,7 +295,7 @@ describe("GraphProvider", () => {
     expect(spiderMock.getIndexStatus).toHaveBeenCalled();
   });
 
-  it("should switch from symbol view to file view even without an active file editor", async () => {
+  it("should set view mode to file", async () => {
     const webview = {
       postMessage: vi.fn(),
       asWebviewUri: vi.fn(),
@@ -318,22 +318,191 @@ describe("GraphProvider", () => {
       edges: [],
     });
 
-    // Simulate symbol view for a symbol in main.ts
-    (provider as any)["_stateManager"].currentSymbol = `${mainTsPath}:foo`;
-
-    // And simulate no active file editor (eg. output panel focused)
+    // Set up active editor
     (vscode.window as any).activeTextEditor = {
-      document: { uri: { scheme: "output" }, fileName: "extension-output" },
+      document: { uri: { scheme: "file" }, fileName: mainTsPath },
     };
 
-    await provider.toggleViewMode();
+    await provider.setViewModeFile();
 
+    // Verify mode was set to "file"
+    expect((provider as any)["_stateManager"].viewMode).toBe("file");
+
+    // Verify context key was updated
+    expect(vscode.commands.executeCommand).toHaveBeenCalledWith(
+      "setContext",
+      "graph-it-live.viewMode",
+      "file",
+    );
+
+    // Verify graph was updated
     expect(webview.postMessage).toHaveBeenCalledWith(
       expect.objectContaining({
         command: "updateGraph",
         filePath: mainTsPath,
         isRefresh: false,
       }),
+    );
+  });
+
+  it("should set view mode to list", async () => {
+    const webview = {
+      postMessage: vi.fn(),
+      asWebviewUri: vi.fn(),
+      options: {},
+      html: "",
+      onDidReceiveMessage: vi.fn(),
+      cspSource: "test-csp",
+    };
+    const view = {
+      webview,
+      onDidDispose: vi.fn(),
+    };
+
+    provider.resolveWebviewView(view as any, {} as any, {} as any);
+
+    const mainTsPath = path.join(testRootDir, "src", "main.ts");
+    const spiderMock = (provider as any)["_spider"];
+    spiderMock.getSymbolGraph = vi.fn().mockResolvedValue({
+      symbols: [],
+      dependencies: [],
+    });
+
+    // Set up active editor
+    (vscode.window as any).activeTextEditor = {
+      document: { uri: { scheme: "file" }, fileName: mainTsPath },
+    };
+
+    await provider.setViewModeList();
+
+    // Verify mode was set to "list"
+    expect((provider as any)["_stateManager"].viewMode).toBe("list");
+
+    // Verify context key was updated
+    expect(vscode.commands.executeCommand).toHaveBeenCalledWith(
+      "setContext",
+      "graph-it-live.viewMode",
+      "list",
+    );
+  });
+
+  it("should set view mode to symbol", async () => {
+    const webview = {
+      postMessage: vi.fn(),
+      asWebviewUri: vi.fn(),
+      options: {},
+      html: "",
+      onDidReceiveMessage: vi.fn(),
+      cspSource: "test-csp",
+    };
+    const view = {
+      webview,
+      onDidDispose: vi.fn(),
+    };
+
+    provider.resolveWebviewView(view as any, {} as any, {} as any);
+
+    const mainTsPath = path.join(testRootDir, "src", "main.ts");
+    const spiderMock = (provider as any)["_spider"];
+    spiderMock.getSymbolGraph = vi.fn().mockResolvedValue({
+      symbols: [],
+      dependencies: [],
+    });
+
+    // Set up active editor
+    (vscode.window as any).activeTextEditor = {
+      document: { uri: { scheme: "file" }, fileName: mainTsPath },
+    };
+
+    await provider.setViewModeSymbol();
+
+    // Verify mode was set to "symbol"
+    expect((provider as any)["_stateManager"].viewMode).toBe("symbol");
+
+    // Verify context key was updated
+    expect(vscode.commands.executeCommand).toHaveBeenCalledWith(
+      "setContext",
+      "graph-it-live.viewMode",
+      "symbol",
+    );
+  });
+
+  it("should show reverse dependencies", async () => {
+    const webview = {
+      postMessage: vi.fn(),
+      asWebviewUri: vi.fn(),
+      options: {},
+      html: "",
+      onDidReceiveMessage: vi.fn(),
+      cspSource: "test-csp",
+    };
+    const view = {
+      webview,
+      onDidDispose: vi.fn(),
+    };
+
+    provider.resolveWebviewView(view as any, {} as any, {} as any);
+
+    // Mock showInformationMessage
+    (vscode.window as any).showInformationMessage = vi.fn();
+
+    const mainTsPath = path.join(testRootDir, "src", "main.ts");
+
+    // Set up active editor
+    (vscode.window as any).activeTextEditor = {
+      document: { uri: { scheme: "file" }, fileName: mainTsPath },
+    };
+
+    // Mock the node interaction service
+    const mockService = {
+      getReferencingFiles: vi.fn().mockResolvedValue({
+        command: "referencingFiles",
+        files: [],
+      }),
+    };
+    (provider as any)["_nodeInteractionService"] = mockService;
+
+    await provider.showReverseDependencies();
+
+    // Verify service was called
+    expect(mockService.getReferencingFiles).toHaveBeenCalledWith(mainTsPath);
+
+    // Verify context key was set to true
+    expect(vscode.commands.executeCommand).toHaveBeenCalledWith(
+      "setContext",
+      "graph-it-live.reverseDependenciesVisible",
+      true,
+    );
+  });
+
+  it("should hide reverse dependencies", async () => {
+    const webview = {
+      postMessage: vi.fn(),
+      asWebviewUri: vi.fn(),
+      options: {},
+      html: "",
+      onDidReceiveMessage: vi.fn(),
+      cspSource: "test-csp",
+    };
+    const view = {
+      webview,
+      onDidDispose: vi.fn(),
+    };
+
+    provider.resolveWebviewView(view as any, {} as any, {} as any);
+
+    await provider.hideReverseDependencies();
+
+    // Verify message was posted to webview
+    expect(webview.postMessage).toHaveBeenCalledWith({
+      type: "clearReverseDependencies",
+    });
+
+    // Verify context key was set to false
+    expect(vscode.commands.executeCommand).toHaveBeenCalledWith(
+      "setContext",
+      "graph-it-live.reverseDependenciesVisible",
+      false,
     );
   });
 

@@ -84,6 +84,11 @@ export interface DisableUnusedFilterMessage {
   command: "disableUnusedFilter";
 }
 
+export interface SelectSymbolMessage {
+  command: "selectSymbol";
+  symbolId: string | undefined;
+}
+
 export interface ExpandedGraphMessage {
   command: "expandedGraph";
   nodeId: string;
@@ -136,6 +141,11 @@ export interface SwitchModeMessage {
   mode: "file" | "symbol";
 }
 
+export interface SwitchViewModeMessage {
+  command: "switchViewMode";
+  mode: "file" | "list" | "symbol";
+}
+
 export interface WebviewLogMessage {
   command: "webviewLog";
   level: "debug" | "info" | "warn" | "error";
@@ -182,6 +192,8 @@ export interface CallEdge {
   target: string;
   /** Type of relationship */
   relation: "calls" | "references";
+  /** Direction of call (outgoing = this calls someone, incoming = someone calls this) - Étape 5 */
+  direction?: "outgoing" | "incoming";
   /** Line number where call/reference occurs in source (for navigation) */
   line: number;
 }
@@ -204,6 +216,8 @@ export interface IntraFileGraph {
   nodes: SymbolNode[];
   /** All call/reference relationships between symbols */
   edges: CallEdge[];
+  /** Étape 5: Incoming call edges (callers → callee) - optional, populated when includeIncomingCalls=true */
+  incomingEdges?: CallEdge[];
   /** True if cycle detected (recursive or mutually recursive calls) */
   hasCycle: boolean;
   /** Optional list of node IDs involved in cycles */
@@ -260,6 +274,8 @@ export interface SymbolGraphMessage {
   filePath: string;
   /** If true, this is a refresh of the current view, not a navigation - don't push to history */
   isRefresh?: boolean;
+  /** Target view mode for the webview (overrides automatic mode detection) */
+  targetViewMode?: "symbol" | "list";
   /** Symbol-level graph data (LSP-based call hierarchy) */
   graph: IntraFileGraph;
   /** Breadcrumb navigation path */
@@ -269,6 +285,7 @@ export interface SymbolGraphMessage {
     nodes: string[];
     edges: Array<{ source: string; target: string }>;
     symbolData?: { symbols: SymbolInfo[]; dependencies: SymbolDependency[] };
+    incomingDependencies?: SymbolDependency[]; // External calls TO symbols in this file
     referencingFiles?: string[];
     parentCounts?: Record<string, number>;
   };
@@ -315,6 +332,65 @@ export interface NavigateToSymbolMessage {
   symbolId?: string;
 }
 
+/**
+ * Sent from extension to webview to change the graph layout.
+ * Only applicable in symbol view mode.
+ */
+export interface LayoutChangeMessage {
+  type: "layoutChange";
+  /** Target layout: hierarchical (Dagre), force (d3-force), or radial */
+  layout: "hierarchical" | "force" | "radial";
+}
+
+/**
+ * Sent from extension to webview to show symbol list view.
+ * Displays exported/imported symbols in tabular format.
+ */
+export interface ShowSymbolListMessage {
+  type: "showSymbolList";
+}
+
+// ===========================
+// Symbol Clustering (Hierarchical View)
+// ===========================
+
+/**
+ * Represents a cluster of symbols (namespace/dossier or class).
+ * Used for hierarchical visualization with expand/collapse functionality.
+ */
+export interface SymbolCluster {
+  /** Unique cluster ID (format: "filePath" for namespace, "filePath:className" for class) */
+  id: string;
+  /** Type of cluster: 'namespace' (dossier), 'class' (class/struct) */
+  type: "namespace" | "class";
+  /** Display name (folder name or class name) */
+  name: string;
+  /** Namespace/dossier path (e.g., "src/components") - only for namespace clusters */
+  namespace?: string;
+  /** Parent class name - only for nested class clusters */
+  parentClass?: string;
+  /** IDs of symbols contained in this cluster */
+  symbolIds: string[];
+  /** IDs of child clusters (e.g., classes within a namespace) */
+  childClusterIds: string[];
+  /** Whether this cluster is currently expanded */
+  isOpen: boolean;
+  /** Calculated position for rendering */
+  x?: number;
+  y?: number;
+  /** Calculated dimensions for rendering */
+  width?: number;
+  height?: number;
+}
+
+/**
+ * Extension of IntraFileGraph with clustering information.
+ */
+export interface IntraFileGraphWithClusters extends IntraFileGraph {
+  /** Hierarchical clusters organizing symbols */
+  clusters: SymbolCluster[];
+}
+
 export type ExtensionToWebviewMessage =
   | ShowGraphMessage
   | ExpandedGraphMessage
@@ -327,7 +403,10 @@ export type ExtensionToWebviewMessage =
   | SetExpandAllMessage
   | ExpansionProgressMessage
   | UpdateFilterMessage
-  | RefreshingMessage;
+  | RefreshingMessage
+  | LayoutChangeMessage
+  | ShowSymbolListMessage
+  | SwitchViewModeMessage;
 export type WebviewToExtensionMessage =
   | OpenFileMessage
   | ExpandNodeMessage
@@ -338,7 +417,9 @@ export type WebviewToExtensionMessage =
   | NavigateToSymbolMessage
   | ReadyMessage
   | SwitchModeMessage
+  | SwitchViewModeMessage
   | WebviewLogMessage
   | CancelExpandNodeMessage
   | EnableUnusedFilterMessage
-  | DisableUnusedFilterMessage;
+  | DisableUnusedFilterMessage
+  | SelectSymbolMessage;

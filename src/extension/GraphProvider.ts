@@ -5,11 +5,11 @@ import type { IndexerStatusSnapshot } from "../analyzer/IndexerStatus";
 import { Spider } from "../analyzer/Spider";
 import { SUPPORTED_SOURCE_FILE_REGEX } from "../shared/constants";
 import type {
-    ExtensionToWebviewMessage,
-    SetExpandAllMessage,
-    SwitchModeMessage,
-    WebviewLogMessage,
-    WebviewToExtensionMessage,
+  ExtensionToWebviewMessage,
+  SetExpandAllMessage,
+  SwitchModeMessage,
+  WebviewLogMessage,
+  WebviewToExtensionMessage,
 } from "../shared/types";
 import { extensionLoggerManager, getExtensionLogger } from "./extensionLogger";
 import { BackgroundIndexingManager } from "./services/BackgroundIndexingManager";
@@ -19,8 +19,8 @@ import { FileChangeScheduler } from "./services/FileChangeScheduler";
 import { GraphViewService } from "./services/GraphViewService";
 import { NodeInteractionService } from "./services/NodeInteractionService";
 import {
-    ProviderConfigSnapshot,
-    ProviderStateManager,
+  ProviderConfigSnapshot,
+  ProviderStateManager,
 } from "./services/ProviderStateManager";
 import { SourceFileWatcher } from "./services/SourceFileWatcher";
 import { SymbolViewService } from "./services/SymbolViewService";
@@ -49,6 +49,7 @@ export class GraphProvider implements vscode.WebviewViewProvider {
   private readonly _nodeInteractionService?: NodeInteractionService;
   private readonly _navigationService?: EditorNavigationService;
   private readonly _stateManager: ProviderStateManager;
+  private _reverseDependenciesVisible = false; // Track reverse dependencies visibility state
   private readonly _activeExpansionControllers = new Map<
     string,
     AbortController
@@ -89,6 +90,31 @@ export class GraphProvider implements vscode.WebviewViewProvider {
       "graph-it-live.unusedFilterActive",
       this._stateManager.getUnusedFilterActive(),
     );
+    // Initialize viewMode context key
+    void vscode.commands.executeCommand(
+      "setContext",
+      "graph-it-live.viewMode",
+      this._stateManager.viewMode,
+    );
+    // Initialize reverseDependenciesVisible context key
+    void vscode.commands.executeCommand(
+      "setContext",
+      "graph-it-live.reverseDependenciesVisible",
+      false,
+    );
+  }
+
+  /**
+   * Update the viewMode context key based on current state
+   */
+  private async _updateViewModeContext(): Promise<void> {
+    const mode = this._stateManager.viewMode;
+    await vscode.commands.executeCommand(
+      "setContext",
+      "graph-it-live.viewMode",
+      mode,
+    );
+    log.debug(`Updated viewMode context to: ${mode}`);
   }
 
   constructor(extensionUri: vscode.Uri, context: vscode.ExtensionContext) {
@@ -201,6 +227,14 @@ export class GraphProvider implements vscode.WebviewViewProvider {
             await this.toggleUnusedFilter();
           }
         },
+        selectSymbol: async (m) => {
+          await this.handleSelectSymbol(m.symbolId);
+        },
+        navigateToSymbol: async (m) => {
+          if (m.filePath && m.line) {
+            await this.handleOpenFile(m.filePath, m.line);
+          }
+        },
       },
     });
     // Note: Indexing is now deferred until resolveWebviewView() is called
@@ -226,8 +260,9 @@ export class GraphProvider implements vscode.WebviewViewProvider {
   ): Promise<void> {
     log.debug("Switching to", message.mode, "mode");
     if (message.mode === "file") {
-      const previousSymbolId = this._stateManager.currentSymbol;
-      this._stateManager.currentSymbol = undefined;
+      const previousSymbolId = this._stateManager.selectedSymbolId;
+      await this._stateManager.setViewMode("file");
+      this._stateManager.selectedSymbolId = undefined;
 
       // Switching back to file view should not depend on an active text editor,
       // otherwise clicking "File View" from the Symbol view can get stuck when
@@ -328,6 +363,9 @@ export class GraphProvider implements vscode.WebviewViewProvider {
 
     // Invalidate unused analysis cache for this file
     this._unusedAnalysisCache?.invalidate([filePath]);
+
+    // TASK-016: Invalidate symbol cache for this file
+    this._stateManager.invalidateSymbolCache(filePath);
 
     // Re-analyze the file (invalidates cache and updates reverse index)
     await this._spider.reanalyzeFile(filePath);
@@ -492,9 +530,10 @@ export class GraphProvider implements vscode.WebviewViewProvider {
    * Private helper for unified file change handling
    */
   private async _handleDeletedFileRefresh(deletedPath: string): Promise<void> {
-    if (this._stateManager.currentSymbol === deletedPath) {
+    if (this._stateManager.selectedSymbolId === deletedPath) {
       // The currently viewed file was deleted - switch to file view
-      this._stateManager.currentSymbol = undefined;
+      await this._stateManager.setViewMode("file");
+      this._stateManager.selectedSymbolId = undefined;
       await this.updateGraph();
     } else {
       // Some other file was deleted - refresh current view
@@ -632,15 +671,49 @@ export class GraphProvider implements vscode.WebviewViewProvider {
   }
 
   /**
+   * TASK-014: Handle selectSymbol message
+   * Sets the selected symbol and filters the graph to show only files that reference it
+   * @param symbolId The symbol ID to filter by, or undefined to clear the filter
+   */
+  public async handleSelectSymbol(symbolId: string | undefined): Promise<void> {
+    log.debug("Selecting symbol:", symbolId);
+
+    // Update the selected symbol in state manager
+    this._stateManager.selectedSymbolId = symbolId;
+
+    if (symbolId && this._spider) {
+      // Get referencing files from SymbolReverseIndex
+      const referencingFiles = this._spider.getSymbolReferencingFiles(symbolId);
+      this._stateManager.setSymbolReferencingFiles(symbolId, referencingFiles);
+
+      log.debug(`Symbol ${symbolId} selected - ${referencingFiles.size} referencing files found`);
+    } else {
+      // Clear the filter
+      log.debug("Symbol filter cleared");
+    }
+
+    // Refresh the graph with the updated filter
+    await this.updateGraph(true, "usage-analysis");
+  }
+
+  /**
    * Handle drillDown message (Symbol Analysis)
    * @param filePath The file to analyze
    * @param isRefresh If true, this is a refresh not navigation - don't push to history
+   * @param targetViewMode Optional target view mode to pass to webview
    */
   private async handleDrillDown(
     filePath: string,
     isRefresh: boolean = false,
+    targetViewMode?: "symbol" | "list",
   ): Promise<void> {
+    log.info(
+      `[GraphProvider] handleDrillDown ENTRY: filePath=${filePath}, isRefresh=${isRefresh}`,
+    );
     if (!this._symbolViewService || !this._view || !this._navigationService) {
+      log.warn(
+        `[GraphProvider] handleDrillDown ABORT: Missing services (symbolView=${!!this._symbolViewService}, view=${!!this._view}, navigation=${!!this._navigationService})`,
+      );
       return;
     }
 
@@ -648,7 +721,7 @@ export class GraphProvider implements vscode.WebviewViewProvider {
     // specifiers first so the tracked file is always an absolute path.
 
     try {
-      log.debug(
+      log.info(
         isRefresh ? "Refreshing" : "Drilling down into",
         filePath,
         "for symbol analysis",
@@ -667,12 +740,24 @@ export class GraphProvider implements vscode.WebviewViewProvider {
       if (!resolvedFilePath) return; // Messages already shown by resolver
 
       await this._stateManager.setLastActiveFilePath(resolvedFilePath);
+      await this._stateManager.setCurrentFilePath(resolvedFilePath);
 
       // Track the resolved (absolute) file we are viewing for refreshes
       const rootNodeId = symbolName
         ? `${resolvedFilePath}:${symbolName}`
         : resolvedFilePath;
-      this._stateManager.currentSymbol = rootNodeId;
+
+      // Update state - set mode explicitly if targetViewMode provided
+      if (targetViewMode) {
+        await this._stateManager.setViewMode(targetViewMode);
+      } else {
+        // Default to symbol mode for backward compatibility
+        await this._stateManager.setViewMode("symbol");
+      }
+      this._stateManager.selectedSymbolId = rootNodeId;
+
+      // Update context key for toolbar visibility
+      this._updateViewModeContext();
 
       // Read call hierarchy settings from configuration
       const config = vscode.workspace.getConfiguration("graph-it-live");
@@ -680,9 +765,17 @@ export class GraphProvider implements vscode.WebviewViewProvider {
         "enableCallHierarchy",
         false,
       );
+      const enableIncomingCalls = config.get<boolean>(
+        "enableIncomingCalls",
+        true,
+      );
       const callHierarchyMaxFileSize = config.get<number>(
         "callHierarchyMaxFileSize",
         5000,
+      );
+
+      log.info(
+        `[GraphProvider] Building symbol graph for ${resolvedFilePath}, enableCallHierarchy=${enableCallHierarchy}`,
       );
 
       const symbolGraph = await this._symbolViewService.buildSymbolGraph(
@@ -691,13 +784,21 @@ export class GraphProvider implements vscode.WebviewViewProvider {
         {
           includeCallHierarchy: enableCallHierarchy,
           maxFileLines: callHierarchyMaxFileSize,
+          callHierarchyOptions: {
+            includeIncoming: enableIncomingCalls,
+          },
         },
+      );
+
+      log.info(
+        `[GraphProvider] Symbol graph built: ${symbolGraph.symbolData.symbols.length} symbols, ${symbolGraph.symbolData.dependencies.length} dependencies`,
       );
 
       const response: ExtensionToWebviewMessage = {
         command: "symbolGraph",
         filePath: rootNodeId,
         isRefresh,
+        targetViewMode,
         graph: symbolGraph.graph || {
           filePath: rootNodeId,
           nodes: [],
@@ -712,10 +813,25 @@ export class GraphProvider implements vscode.WebviewViewProvider {
           nodes: symbolGraph.nodes,
           edges: symbolGraph.edges,
           symbolData: symbolGraph.symbolData,
+          incomingDependencies: symbolGraph.incomingDependencies,
           referencingFiles: symbolGraph.referencingFiles,
           parentCounts: symbolGraph.parentCounts,
         },
       };
+
+      log.debug(
+        `[GraphProvider] Sending symbolGraph message: ${symbolGraph.symbolData.symbols.length} symbols, ${symbolGraph.symbolData.dependencies.length} dependencies, ${symbolGraph.edges.length} edges`,
+      );
+      log.info(
+        `[GraphProvider-WEBVIEW] Message content: nodes=${symbolGraph.nodes.length}, edges=${symbolGraph.edges.length}, incomingDeps=${symbolGraph.incomingDependencies?.length ?? 0}`,
+      );
+      log.info(
+        `[GraphProvider-WEBVIEW] Incoming dependency types: ${symbolGraph.incomingDependencies?.map(d => d.relationType).join(', ') || 'none'}`,
+      );
+      log.debug(
+        `[GraphProvider] Sample dependency:`,
+        symbolGraph.symbolData.dependencies[0],
+      );
 
       this._view.webview.postMessage(response);
 
@@ -751,6 +867,36 @@ export class GraphProvider implements vscode.WebviewViewProvider {
         `Failed to analyze symbols: ${error instanceof Error ? error.message : "Unknown error"}`,
       );
     }
+  }
+
+  /**
+   * Refresh the current graph view (used when user navigates in symbol view)
+   * Re-runs LSP analysis to update call hierarchy
+   */
+  public async refreshCurrentGraphView(): Promise<void> {
+    const stateManager = this._stateManager;
+    const currentFilePath = stateManager.currentFilePath;
+    const currentMode = stateManager.viewMode;
+
+    // Check if view is available - if not, skip refresh
+    if (!this._view) {
+      log.debug('View not available, skipping refresh');
+      return;
+    }
+
+    if (!currentFilePath || currentMode !== 'symbol') {
+      return; // Only refresh in symbol mode
+    }
+
+    log.info(`Refreshing current graph view: mode=${currentMode}, file=${currentFilePath}`);
+
+    // Get current symbol if any
+    const currentSymbol = stateManager.currentSymbol;
+    const filePath = currentSymbol || currentFilePath;
+
+    // Call handleDrillDown with isRefresh=true to re-run LSP analysis
+    log.info(`Calling handleDrillDown for refresh in ${currentMode} mode`);
+    await this.handleDrillDown(filePath, true, currentMode);
   }
 
   public resolveWebviewView(
@@ -838,68 +984,254 @@ export class GraphProvider implements vscode.WebviewViewProvider {
    */
   public async refreshGraph(): Promise<void> {
     if (!this._view) {
+      log.warn("Cannot refresh: view not initialized");
       return;
     }
 
-    log.info("Refreshing current graph view");
+    try {
+      const currentMode = this._stateManager.viewMode;
+      const currentFilePath = this._stateManager.currentFilePath;
 
-    // Refresh the appropriate view based on current mode
-    if (this._stateManager.currentSymbol) {
-      // In symbol view - refresh symbol analysis
-      await this.handleDrillDown(this._stateManager.currentSymbol, true);
-    } else {
+      log.info(`Refreshing current graph view: mode=${currentMode}, file=${currentFilePath}`);
+      log.info(`currentSymbol=${this._stateManager.currentSymbol}`);
+
+      // Refresh based on current view mode
+      if (currentMode === "symbol" || currentMode === "list") {
+        // In symbol/list view - refresh symbol analysis
+        if (currentFilePath) {
+          log.info(`Calling handleDrillDown for refresh in ${currentMode} mode`);
+          await this.handleDrillDown(currentFilePath, true, currentMode);
+          log.info("handleDrillDown completed successfully");
+        } else {
+          log.warn("Cannot refresh symbol view: no current file path");
+        }
+      } else {
       // In file view - behave like "re-open current file":
       // reset state in the webview and cancel any ongoing expansions.
-      for (const controller of this._activeExpansionControllers.values()) {
-        controller.abort();
+        log.info("Refreshing file view");
+        for (const controller of this._activeExpansionControllers.values()) {
+          controller.abort();
+        }
+        this._activeExpansionControllers.clear();
+        await this.updateGraph(false, "manual");
       }
-      this._activeExpansionControllers.clear();
-      await this.updateGraph(false, "manual");
+    } catch (error) {
+      log.error("Error during refresh:", error);
+      throw error;
+    }
+  }
+
+
+
+
+
+  /**
+   * Cycle through view modes: file → list → symbol → file
+   * Kept for backward compatibility
+   * @returns The new view mode
+   */
+  public async toggleViewMode(): Promise<{
+    mode: "file" | "list" | "symbol";
+    message: string;
+  }> {
+    const currentMode = this._stateManager.viewMode;
+
+    // Cycle: file → list → symbol → file
+    if (currentMode === "file") {
+      await this.setViewModeList();
+      return { mode: "list", message: "Switched to List View" };
+    } else if (currentMode === "list") {
+      await this.setViewModeSymbol();
+      return { mode: "symbol", message: "Switched to Symbol View" };
+    } else {
+      // currentMode === "symbol"
+      await this.setViewModeFile();
+      return { mode: "file", message: "Switched to File View" };
     }
   }
 
   /**
-   * Toggle between file view and symbol view
-   * @returns The new view mode
+   * Switch directly to file view mode
    */
-  public async toggleViewMode(): Promise<{
-    mode: "file" | "symbol";
-    message: string;
-  }> {
+  public async setViewModeFile(): Promise<void> {
     if (!this._view) {
-      return { mode: "file", message: "View not initialized" };
+      vscode.window.showWarningMessage("View not initialized");
+      return;
     }
 
-    // Toggle based on current mode
-    if (this._stateManager.currentSymbol) {
-      // Currently in symbol view → switch to file view
-      log.info("Toggling from symbol view to file view");
-      const symbolId = this._stateManager.currentSymbol;
-      this._stateManager.currentSymbol = undefined;
-      const filePath =
-        this._navigationService?.parseFilePathAndSymbol(symbolId)
-          .actualFilePath ?? this._stateManager.getLastActiveFilePath();
+    log.info("Switching to file view mode");
+    await this._stateManager.setViewMode("file");
+    await this._updateViewModeContext();
+
+    // Switch to current file in file mode
+    const editor = vscode.window.activeTextEditor;
+    if (editor?.document.uri.scheme === "file") {
+      await this._sendGraphUpdate(editor.document.fileName, false);
+    } else {
+      const filePath = this._stateManager.getLastActiveFilePath();
       if (filePath) {
         await this._sendGraphUpdate(filePath, false);
       } else {
-        this.updateGraph();
+        await this.updateGraph();
       }
-      return { mode: "file", message: "Switched to File View" };
-    } else {
-      // Currently in file view → switch to symbol view
-      log.info("Toggling from file view to symbol view");
-      const editor = vscode.window.activeTextEditor;
-      const filePath =
-        editor?.document.uri.scheme === "file"
-          ? editor.document.fileName
-          : this._stateManager.getLastActiveFilePath();
-      if (!filePath) {
-        vscode.window.showWarningMessage("No active file to toggle view");
-        return { mode: "file", message: "No active file" };
-      }
-      await this.handleDrillDown(filePath);
-      return { mode: "symbol", message: "Switched to Symbol View" };
     }
+  }
+
+  /**
+   * Switch directly to list view mode
+   */
+  public async setViewModeList(): Promise<void> {
+    if (!this._view) {
+      vscode.window.showWarningMessage("View not initialized");
+      return;
+    }
+
+    log.info("Switching to list view mode");
+    await this._stateManager.setViewMode("list");
+    await this._updateViewModeContext();
+
+    // Switch to current file in list mode
+    const editor = vscode.window.activeTextEditor;
+    const filePath =
+      editor?.document.uri.scheme === "file"
+        ? editor.document.fileName
+        : this._stateManager.getLastActiveFilePath();
+
+    if (filePath) {
+      await this.handleDrillDown(filePath, false, "list");
+    } else {
+      vscode.window.showWarningMessage("No active file for list view");
+    }
+  }
+
+  /**
+   * Switch directly to symbol view mode
+   */
+  public async setViewModeSymbol(): Promise<void> {
+    if (!this._view) {
+      vscode.window.showWarningMessage("View not initialized");
+      return;
+    }
+
+    log.info("Switching to symbol view mode");
+    await this._stateManager.setViewMode("symbol");
+    await this._updateViewModeContext();
+
+    // Switch to current file in symbol mode
+    const editor = vscode.window.activeTextEditor;
+    const filePath =
+      editor?.document.uri.scheme === "file"
+        ? editor.document.fileName
+        : this._stateManager.getLastActiveFilePath();
+
+    if (filePath) {
+      await this.handleDrillDown(filePath, false, "symbol");
+    } else {
+      vscode.window.showWarningMessage("No active file for symbol view");
+    }
+  }
+
+  /**
+   * Toggle incoming calls visibility in symbol view
+   */
+  public async toggleIncomingCalls(): Promise<{
+    enabled: boolean;
+    message: string;
+  }> {
+    const config = vscode.workspace.getConfiguration("graph-it-live");
+    const currentValue = config.get<boolean>("enableIncomingCalls", false);
+    const newValue = !currentValue;
+
+    await config.update(
+      "enableIncomingCalls",
+      newValue,
+      vscode.ConfigurationTarget.Global,
+    );
+
+    // Refresh symbol view if in symbol mode
+    const currentMode = this._stateManager.viewMode;
+    const currentSymbolId = this._stateManager.selectedSymbolId;
+
+    if (currentMode === "symbol" && currentSymbolId) {
+      // Refresh with explicit target mode to prevent mode switching
+      await this.handleDrillDown(currentSymbolId, true, "symbol");
+    }
+
+    return {
+      enabled: newValue,
+      message: newValue
+        ? "Incoming calls enabled (green dashed edges)"
+        : "Incoming calls disabled",
+    };
+  }
+
+  /**
+   * Show reverse dependencies (which files import/reference the current file)
+   */
+  public async showReverseDependencies(): Promise<void> {
+    if (!this._view) {
+      vscode.window.showWarningMessage("View not initialized");
+      return;
+    }
+
+    const editor = vscode.window.activeTextEditor;
+    const filePath =
+      editor?.document.uri.scheme === "file"
+        ? editor.document.fileName
+        : this._stateManager.getLastActiveFilePath();
+
+    if (!filePath) {
+      vscode.window.showWarningMessage(
+        "No active file to show reverse dependencies",
+      );
+      return;
+    }
+
+    log.info(`Showing reverse dependencies for: ${filePath}`);
+
+    // Use the existing getReferencingFiles functionality
+    const result = await this._nodeInteractionService?.getReferencingFiles(filePath);
+
+    if (result && this._view) {
+      await this._view.webview.postMessage(result);
+    }
+
+    // Set context to indicate reverse dependencies are visible
+    this._reverseDependenciesVisible = true;
+    await vscode.commands.executeCommand(
+      "setContext",
+      "graph-it-live.reverseDependenciesVisible",
+      true,
+    );
+
+    vscode.window.showInformationMessage(
+      "Showing files that import this file",
+    );
+  }
+
+  /**
+   * Hide reverse dependencies overlay
+   */
+  public async hideReverseDependencies(): Promise<void> {
+    if (!this._view) {
+      vscode.window.showWarningMessage("View not initialized");
+      return;
+    }
+
+    log.info("Hiding reverse dependencies");
+
+    // Post message to webview to clear reverse dependencies
+    await this._view.webview.postMessage({
+      type: "clearReverseDependencies",
+    });
+
+    // Clear context to indicate reverse dependencies are hidden
+    this._reverseDependenciesVisible = false;
+    await vscode.commands.executeCommand(
+      "setContext",
+      "graph-it-live.reverseDependenciesVisible",
+      false,
+    );
   }
 
   /**
@@ -950,6 +1282,22 @@ export class GraphProvider implements vscode.WebviewViewProvider {
    */
   public getUnusedFilterActive(): boolean {
     return this._stateManager.getUnusedFilterActive();
+  }
+
+  /**
+   * Get current view mode
+   * @returns Current view mode ('file', 'list', or 'symbol')
+   */
+  public getViewMode(): 'file' | 'list' | 'symbol' {
+    return this._stateManager.viewMode;
+  }
+
+  /**
+   * Get reverse dependencies visibility state
+   * @returns True if reverse dependencies are visible
+   */
+  public getReverseDependenciesVisible(): boolean {
+    return this._reverseDependenciesVisible;
   }
 
   /**
@@ -1021,10 +1369,9 @@ export class GraphProvider implements vscode.WebviewViewProvider {
       return;
     }
 
-    // Only clear symbol view tracking if this is a navigation, not a refresh
-    if (!isRefresh) {
-      this._stateManager.currentSymbol = undefined;
-    }
+    // Do NOT clear currentSymbol here. View-mode transitions (setViewModeFile/setViewModeList/setViewModeSymbol)
+    // are responsible for resetting symbol state. Clearing it on a plain update would
+    // silently push the context key back to "file", breaking symbol-mode workflows.
 
     const editor = vscode.window.activeTextEditor;
     if (editor?.document.uri.scheme !== "file") {
@@ -1088,10 +1435,18 @@ export class GraphProvider implements vscode.WebviewViewProvider {
 
       const checkUsage = effectiveMode !== "none";
 
+      // Get the referencing files for filtering (if a symbol is selected)
+      const selectedSymbol = this._stateManager.selectedSymbolId;
+      const referencingFiles = selectedSymbol
+        ? this._stateManager.getSymbolReferencingFiles(selectedSymbol)
+        : undefined;
+
       // Always build without check first to show something quickly
       const initialGraphData = await this._graphViewService.buildGraphData(
         filePath,
         false,
+        undefined,
+        referencingFiles,
       );
 
       const expandAll = this._stateManager.getExpandAll();
@@ -1120,6 +1475,7 @@ export class GraphProvider implements vscode.WebviewViewProvider {
           filePath,
           true,
           initialGraphData,
+          referencingFiles,
         );
 
         // Only send update if unused edges were found (or if we need to confirm they are empty?)

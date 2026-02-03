@@ -50,12 +50,22 @@ export interface LspOutgoingCall {
 }
 
 /**
+ * LSP Call Hierarchy Incoming Call (subset of vscode.CallHierarchyIncomingCall)
+ * Étape 5: Support for incoming calls analysis
+ */
+export interface LspIncomingCall {
+  from: LspCallHierarchyItem;
+  fromRanges: Array<{ start: number; end: number }>;
+}
+
+/**
  * Result of LSP analysis
  */
 export interface LspAnalysisResult {
   symbols: LspSymbol[];
   callHierarchyItems: Map<string, LspCallHierarchyItem>;
   outgoingCalls: Map<string, LspOutgoingCall[]>;
+  incomingCalls?: Map<string, LspIncomingCall[]>; // Étape 5: Optional incoming calls
 }
 
 /**
@@ -67,11 +77,13 @@ export class LspCallHierarchyAnalyzer {
    *
    * @param filePath - Absolute path to the file being analyzed
    * @param lspData - LSP analysis results (symbols, call hierarchy)
+   * @param includeIncomingCalls - Whether to include incoming call edges (Étape 5)
    * @returns IntraFileGraph with nodes, edges, cycle detection
    */
   public buildIntraFileGraph(
     filePath: string,
     lspData: LspAnalysisResult,
+    includeIncomingCalls = false, // Étape 5: optional parameter
   ): IntraFileGraph {
     const normalizedFilePath = normalizePath(filePath);
 
@@ -88,6 +100,11 @@ export class LspCallHierarchyAnalyzer {
       nodes,
     );
 
+    // Étape 5: Step 2b: Build incoming call edges if requested
+    const incomingEdges = includeIncomingCalls && lspData.incomingCalls
+      ? this.buildIncomingCallEdges(normalizedFilePath, lspData.incomingCalls, nodes)
+      : undefined;
+
     // Step 3: Detect cycles using DFS
     const { hasCycle, cycleNodes, cycleType } = this.detectCycles(
       nodes,
@@ -98,6 +115,7 @@ export class LspCallHierarchyAnalyzer {
       filePath: normalizedFilePath,
       nodes,
       edges,
+      incomingEdges, // Étape 5
       hasCycle,
       cycleNodes: hasCycle ? cycleNodes : undefined,
       cycleType: hasCycle ? cycleType : undefined,
@@ -166,6 +184,54 @@ export class LspCallHierarchyAnalyzer {
             source: sourceId,
             target: targetId,
             relation: "calls", // LSP call hierarchy always represents calls
+            direction: "outgoing", // Étape 5: Mark as outgoing call
+            line: callLine,
+          });
+        }
+      }
+    }
+
+    return edges;
+  }
+
+  /**
+   * Étape 5: Builds incoming call edges (callers → target) from LSP incoming call hierarchy
+   * 
+   * @param filePath - File path being analyzed
+   * @param incomingCalls - Map of symbol ID to its incoming calls
+   * @param nodes - All symbols in the file
+   * @returns Array of incoming call edges
+   */
+  private buildIncomingCallEdges(
+    filePath: string,
+    incomingCalls: Map<string, LspIncomingCall[]>,
+    nodes: SymbolNode[],
+  ): CallEdge[] {
+    const edges: CallEdge[] = [];
+    const normalizedFilePath = normalizePath(filePath);
+    const nodeIdSet = new Set(nodes.map((n) => n.id));
+
+    for (const [targetId, calls] of incomingCalls.entries()) {
+      for (const call of calls) {
+        // Filter external calls: only include if caller is in the same file
+        const callerUri = normalizePath(call.from.uri);
+        if (callerUri !== normalizedFilePath) {
+          // External caller - skip for intra-file analysis
+          continue;
+        }
+
+        // Generate source ID for the caller
+        const sourceId = this.generateSymbolId(filePath, call.from.name);
+
+        // Only create edge if both source (caller) and target (callee) are in our node list
+        if (nodeIdSet.has(sourceId) && nodeIdSet.has(targetId)) {
+          const callLine = call.fromRanges[0]?.start ?? 0;
+
+          edges.push({
+            source: sourceId,
+            target: targetId,
+            relation: "calls", // Incoming call is still a "calls" relationship
+            direction: "incoming", // Étape 5: Mark as incoming call
             line: callLine,
           });
         }

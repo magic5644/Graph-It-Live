@@ -1,27 +1,29 @@
 import React, { useCallback, useEffect, useMemo, useState } from "react";
 import ReactFlow, {
-    Background,
-    Controls,
-    Node,
-    ReactFlowProvider,
-    useEdgesState,
-    useNodesInitialized,
-    useNodesState,
-    useReactFlow,
+  Background,
+  Controls,
+  Edge,
+  Node,
+  ReactFlowProvider,
+  useEdgesState,
+  useNodesInitialized,
+  useNodesState,
+  useReactFlow,
 } from "reactflow";
 // @ts-expect-error - ReactFlow types are complex
 import reactFlowStyles from "reactflow/dist/style.css";
 import { getLogger } from "../../shared/logger";
 import { GraphData, SymbolDependency, SymbolInfo } from "../../shared/types";
 import {
-    createDebouncedRafScheduler,
-    createSizePoller,
+  createDebouncedRafScheduler,
+  createSizePoller,
 } from "../utils/fitViewScheduler";
+import { computeRelatedNodes } from "../utils/graphTraversal";
 import { normalizePath } from "../utils/path";
 import { buildReactFlowGraph, GRAPH_LIMITS } from "./reactflow/buildGraph";
 import {
-    ExpansionOverlay,
-    type ExpansionState,
+  ExpansionOverlay,
+  type ExpansionState,
 } from "./reactflow/ExpansionOverlay";
 import { FileNode } from "./reactflow/FileNode";
 import { SymbolNode } from "./reactflow/SymbolNode";
@@ -85,6 +87,9 @@ interface ReactFlowGraphProps {
   symbolData?: { symbols: SymbolInfo[]; dependencies: SymbolDependency[] };
   onLayoutChange?: (layout: LayoutType) => void;
   layout?: LayoutType;
+  selectedNodeId?: string | null;
+  /** Callback for symbol highlight on double-click */
+  onHighlight?: (symbolId: string) => void;
 }
 
 function stableGlobal<T>(key: string, factory: () => T): T {
@@ -333,6 +338,7 @@ const ReactFlowGraphContent: React.FC<ReactFlowGraphProps> = ({
   currentFilePath,
   onNodeClick,
   onDrillDown,
+  onHighlight,
   onFindReferences,
   onExpandNode,
   autoExpandNodeId,
@@ -352,6 +358,7 @@ const ReactFlowGraphContent: React.FC<ReactFlowGraphProps> = ({
   symbolData,
   onLayoutChange,
   layout = "hierarchical",
+  selectedNodeId,
 }) => {
   // Use backendFilterUnused directly - no local state to avoid stale closures
   const filterUnused = backendFilterUnused ?? false;
@@ -365,6 +372,13 @@ const ReactFlowGraphContent: React.FC<ReactFlowGraphProps> = ({
   
   // T081: Track loading/reanalyzing state
   const [isReanalyzing, setIsReanalyzing] = React.useState(false);
+  
+  // Étape 4: Highlight state for symbol graph double-click
+  const [highlightState, setHighlightState] = React.useState<{
+    highlightedNodes: Set<string>;
+    highlightedEdges: Set<string>;
+  } | null>(null);
+  
   const nodeTypes = useMemo(
     () => Object.freeze({ file: FileNode, symbol: SymbolNode } as const),
     [],
@@ -379,23 +393,89 @@ const ReactFlowGraphContent: React.FC<ReactFlowGraphProps> = ({
       resetToken,
     });
 
+  // Initialize React Flow states early
+  const [nodes, setNodes, onNodesChange] = useNodesState([]);
+  const [edges, setEdges, onEdgesChange] = useEdgesState([]);
+  
+  // Store graph data in ref so handleHighlight can access the complete graph
+  const graphDataRef = React.useRef<{ nodes: Node[]; edges: Edge[] }>({ nodes: [], edges: [] });
+
+  // Étape 4: Handler for symbol highlight on double-click
+  // Uses graphDataRef to access complete graph data for BFS calculation
+  const handleHighlight = useCallback((symbolId: string) => {
+    log.debug('[ReactFlowGraph] handleHighlight CALLED', { symbolId, mode });
+    if (mode !== "symbol" || !graphDataRef.current.nodes.length) {
+      log.debug('[ReactFlowGraph] handleHighlight ABORT - wrong mode or no nodes', { mode, nodeCount: graphDataRef.current.nodes.length });
+      return;
+    }
+    
+    log.debug('[ReactFlowGraph] Computing highlight for symbol', { 
+      symbolId,
+      totalNodes: graphDataRef.current.nodes.length,
+      totalEdges: graphDataRef.current.edges.length,
+    });
+    log.debug("ReactFlowGraph: Computing highlight for symbol", { 
+      symbolId,
+      totalNodes: graphDataRef.current.nodes.length,
+      totalEdges: graphDataRef.current.edges.length,
+    });
+    
+    // Use complete graph data from ref, not filtered state
+    const relatedNodes = computeRelatedNodes(
+      symbolId, 
+      graphDataRef.current.nodes, 
+      graphDataRef.current.edges
+    );
+    
+    log.debug('[ReactFlowGraph] Highlight computed', {
+      highlightedNodes: relatedNodes.highlightedNodes.size,
+      highlightedEdges: relatedNodes.highlightedEdges.size,
+      nodesList: Array.from(relatedNodes.highlightedNodes),
+    });
+    log.debug("ReactFlowGraph: Highlight computed", {
+      highlightedNodes: relatedNodes.highlightedNodes.size,
+      highlightedEdges: relatedNodes.highlightedEdges.size,
+    });
+    
+    log.debug('[ReactFlowGraph] Setting highlightState...');
+    setHighlightState(relatedNodes);
+    log.debug('[ReactFlowGraph] highlightState set!');
+    
+    // Call parent's onHighlight callback if provided (for logging/tracking)
+    if (onHighlight) {
+      onHighlight(symbolId);
+    }
+  }, [mode, onHighlight]);
+
   // Use refs for callbacks to avoid including them in useMemo deps
   // This prevents constant re-renders when parent component recreates callbacks
-  const callbacksRef = React.useRef({
+  const callbacksRef = React.useRef<{
+    onNodeClick: (path: string, line?: number) => void;
+    onDrillDown: (path: string) => void;
+    onFindReferences: (path: string) => void;
+    onToggleParents?: (path: string) => void;
+    onToggle: (path: string) => void;
+    onExpandRequest: (path: string) => void;
+    onHighlight?: (symbolId: string) => void;
+  }>({
+    onNodeClick,
     onDrillDown,
     onFindReferences,
     onToggleParents,
     onToggle: toggleExpandedNode,
     onExpandRequest: handleExpandRequest,
+    onHighlight: handleHighlight,
   });
 
   // Update ref on every render so buildGraph always uses latest callbacks
   callbacksRef.current = {
+    onNodeClick,
     onDrillDown,
     onFindReferences,
     onToggleParents,
     onToggle: toggleExpandedNode,
     onExpandRequest: handleExpandRequest,
+    onHighlight: handleHighlight,
   };
 
   const graph = useMemo(() => {
@@ -422,12 +502,21 @@ const ReactFlowGraphContent: React.FC<ReactFlowGraphProps> = ({
       mode,
       symbolData,
       layout,
+      selectedNodeId,
+      highlightState, // Étape 4
     });
     log.debug("🏗️ ReactFlowGraph: build graph END", {
       resultNodes: result.nodes.length,
       resultEdges: result.edges.length,
       nodesTruncated: result.nodesTruncated,
     });
+    
+    // Update graphDataRef with complete graph data for handleHighlight
+    graphDataRef.current = {
+      nodes: result.nodes,
+      edges: result.edges,
+    };
+    
     return result;
   }, [
     data,
@@ -442,6 +531,8 @@ const ReactFlowGraphContent: React.FC<ReactFlowGraphProps> = ({
     mode,
     symbolData,
     layout,
+    selectedNodeId,
+    highlightState, // Étape 4
   ]);
 
   const isTruncated = graph.nodesTruncated;
@@ -456,68 +547,220 @@ const ReactFlowGraphContent: React.FC<ReactFlowGraphProps> = ({
       graphEdgesCount: graph.edges.length,
     });
 
+    let edges = graph.edges;
+
+    // Apply unused filtering first
     if (
-      !filterUnused ||
-      unusedDependencyMode === "none" ||
-      !data?.unusedEdges?.length
+      filterUnused &&
+      unusedDependencyMode !== "none" &&
+      data?.unusedEdges?.length
     ) {
-      log.debug("ReactFlowGraph: Returning all edges (no filtering)", {
-        notFilterUnused: !filterUnused,
-        modeIsNone: unusedDependencyMode === "none",
-        noUnusedEdges: !data?.unusedEdges?.length,
-      });
-      return graph.edges;
+      const unusedEdgeSet = new Set(data.unusedEdges);
+
+      if (unusedDependencyMode === "hide") {
+        log.debug("ReactFlowGraph: Filtering out unused edges (hide mode)");
+        edges = edges.filter((edge) => !unusedEdgeSet.has(edge.id));
+      } else if (unusedDependencyMode === "dim") {
+        log.debug("ReactFlowGraph: Dimming unused edges (dim mode)");
+        edges = edges.map((edge) => {
+          if (unusedEdgeSet.has(edge.id)) {
+            return {
+              ...edge,
+              style: { ...edge.style, opacity: 0.2, strokeDasharray: "5 5" },
+              animated: false,
+              label: "unused",
+              labelStyle: {
+                fill: "var(--vscode-descriptionForeground)",
+                opacity: 0.5,
+              },
+              labelBgStyle: { fill: "transparent" },
+            };
+          }
+          return edge;
+        });
+      }
     }
 
-    const unusedEdgeSet = new Set(data.unusedEdges);
-
-    if (unusedDependencyMode === "hide") {
-      // Filter out unused edges completely
-      log.debug("ReactFlowGraph: Filtering out unused edges (hide mode)");
-      return graph.edges.filter((edge) => !unusedEdgeSet.has(edge.id));
-    }
-
-    if (unusedDependencyMode === "dim") {
-      log.debug("ReactFlowGraph: Dimming unused edges (dim mode)");
-      return graph.edges.map((edge) => {
-        if (unusedEdgeSet.has(edge.id)) {
+    // Apply recursive edge styling (self-loops) - only in symbol mode
+    if (mode === "symbol") {
+      edges = edges.map((edge) => {
+        if (edge.source === edge.target) {
+          // Recursive call (self-loop)
           return {
             ...edge,
-            style: { ...edge.style, opacity: 0.2, strokeDasharray: "5 5" },
-            animated: false,
-            label: "unused", // Optional: indicate it's unused
-            labelStyle: {
-              fill: "var(--vscode-descriptionForeground)",
-              opacity: 0.5,
+            style: {
+              ...edge.style,
+              stroke: "#FF6B6B", // Red color for recursion
+              strokeWidth: 3,
             },
-            labelBgStyle: { fill: "transparent" },
+            animated: true,
+            label: "🔄 récursif",
+            labelStyle: {
+              fill: "#FF6B6B",
+              fontWeight: "bold",
+            },
+            labelBgStyle: {
+              fill: "var(--vscode-editor-background)",
+              fillOpacity: 0.8,
+            },
           };
         }
         return edge;
       });
     }
 
-    return graph.edges;
-  }, [graph.edges, data?.unusedEdges, unusedDependencyMode, filterUnused]);
+    return edges;
+  }, [graph.edges, data?.unusedEdges, unusedDependencyMode, filterUnused, mode]);
 
-  const [nodes, setNodes, onNodesChange] = useNodesState(graph.nodes);
-  const [edges, setEdges, onEdgesChange] = useEdgesState(processedEdges);
+  // Étape 5: Style edges based on direction (outgoing vs incoming) and highlight state
+  const styledEdges = useMemo(() => {
+    let edges = processedEdges;
+    
+    // If highlight is active, filter edges to show only highlighted ones
+    if (highlightState && highlightState.highlightedEdges.size > 0) {
+      log.debug("ReactFlowGraph: Filtering and styling highlighted edges", {
+        highlightedEdgesCount: highlightState.highlightedEdges.size,
+        totalEdges: processedEdges.length,
+      });
+      
+      // Filter to only show highlighted edges
+      edges = processedEdges.filter((edge) =>
+        highlightState.highlightedEdges.has(edge.id)
+      );
+    }
+    
+    return edges.map((edge) => {
+      // Check if edge has direction metadata
+      const edgeData = edge as any; // Cast to access direction property
+      
+      // Recursive edges keep their red styling from processedEdges
+      if (edge.source === edge.target) {
+        return edge; // Already styled in processedEdges
+      }
+      
+      // Apply highlight styles if this edge is highlighted
+      if (highlightState && highlightState.highlightedEdges.has(edge.id)) {
+        return {
+          ...edge,
+          style: {
+            ...edge.style,
+            stroke: "var(--vscode-textLink-foreground)",
+            strokeWidth: 2.5,
+          },
+          animated: true,
+        };
+      }
+      
+      if (edgeData.direction === 'incoming') {
+        // Incoming calls: green dashed
+        return {
+          ...edge,
+          style: {
+            ...edge.style,
+            stroke: '#10b981', // Green
+            strokeDasharray: '5,5',
+          },
+        };
+      } else if (edgeData.direction === 'outgoing') {
+        // Outgoing calls: blue solid
+        return {
+          ...edge,
+          style: {
+            ...edge.style,
+            stroke: '#3b82f6', // Blue
+          },
+        };
+      }
+      // Default: no special styling (for file-level edges)
+      return edge;
+    });
+  }, [processedEdges, highlightState]);
 
-  // Sync nodes/edges when graph recalculates
-  // T079-T080: Preserve expanded nodes and highlight changes
-  useEffect(() => {
-    log.debug("ReactFlowGraph: Syncing nodes/edges", {
-      nodeCount: graph.nodes.length,
-      edgeCount: processedEdges.length,
+  // Filter nodes based on highlight state
+  const visibleNodes = useMemo(() => {
+    log.debug('[ReactFlowGraph] visibleNodes useMemo TRIGGERED', {
+      hasHighlight: !!highlightState,
+      highlightedCount: highlightState?.highlightedNodes.size,
+      totalNodes: graph.nodes.length,
     });
     
-    // T080: Graph diffing - detect changes
+    if (highlightState && highlightState.highlightedNodes.size > 0) {
+      log.debug('[ReactFlowGraph] FILTERING nodes to highlighted only');
+      log.debug("ReactFlowGraph: Filtering nodes to highlighted only", {
+        highlightedNodesCount: highlightState.highlightedNodes.size,
+        totalNodes: graph.nodes.length,
+      });
+      const filtered = graph.nodes.filter((node) =>
+        highlightState.highlightedNodes.has(node.id)
+      );
+      log.debug('[ReactFlowGraph] Filtered result', {
+        before: graph.nodes.length,
+        after: filtered.length,
+        filteredIds: filtered.map(n => n.id),
+      });
+      return filtered;
+    }
+    log.debug('[ReactFlowGraph] NO FILTERING - returning all nodes');
+    return graph.nodes;
+  }, [graph.nodes, highlightState]);
+
+  // Use useLayoutEffect for highlight - runs synchronously AFTER useMemo recalculates
+  // This ensures we see the updated visibleNodes/styledEdges values
+  React.useLayoutEffect(() => {
+    if (!highlightState || highlightState.highlightedNodes.size === 0) {
+      log.debug('[ReactFlowGraph] Highlight useLayoutEffect - no highlight, skipping');
+      return;
+    }
+    
+    log.debug('[ReactFlowGraph] Highlight useLayoutEffect APPLYING FILTER', {
+      highlightedNodes: highlightState.highlightedNodes.size,
+      highlightedEdges: highlightState.highlightedEdges.size,
+      visibleNodesCount: visibleNodes.length,
+      styledEdgesCount: styledEdges.length,
+    });
+    
+    log.debug("ReactFlowGraph: Applying highlight filter", {
+      highlightedNodes: highlightState.highlightedNodes.size,
+      highlightedEdges: highlightState.highlightedEdges.size,
+    });
+    
+    log.debug('[ReactFlowGraph] Setting', visibleNodes.length, 'visible nodes');
+    setNodes(visibleNodes);
+    setEdges(styledEdges);
+    
+    // Update prevGraphRef to prevent false change detection
+    prevGraphRef.current = {
+      nodeIds: new Set(visibleNodes.map(n => n.id)),
+      edgeIds: new Set(styledEdges.map(e => `${e.source}-${e.target}`)),
+      mode: mode || 'file',
+    };
+  }, [highlightState, visibleNodes, styledEdges, setNodes, setEdges, mode]);
+
+  // Sync nodes/edges when graph recalculates (but NOT when highlight is active)
+  // T079-T080: Preserve expanded nodes and normal graph changes
+  useEffect(() => {
+    // Skip if highlight is active - handled by separate useEffect above
+    if (highlightState && highlightState.highlightedNodes.size > 0) {
+      log.debug('[ReactFlowGraph] Normal useEffect SKIPPED - highlight active');
+      return;
+    }
+    
+    log.debug('[ReactFlowGraph] Normal useEffect TRIGGERED', {
+      visibleNodesCount: visibleNodes.length,
+      styledEdgesCount: styledEdges.length,
+    });
+    log.debug("ReactFlowGraph: Syncing nodes/edges", {
+      nodeCount: visibleNodes.length,
+      edgeCount: styledEdges.length,
+    });
+    
+    // T080: Graph diffing - detect changes (only when no highlight active)
     if (prevGraphRef.current) {
       const prevNodeIds = prevGraphRef.current.nodeIds;
-      const newNodeIds = new Set(graph.nodes.map(n => n.id));
+      const newNodeIds = new Set(visibleNodes.map(n => n.id));
       
       const prevEdgeIds = prevGraphRef.current.edgeIds;
-      const newEdgeIds = new Set(processedEdges.map(e => `${e.source}-${e.target}`));
+      const newEdgeIds = new Set(styledEdges.map(e => `${e.source}-${e.target}`));
       
       // Detect mode change (file ↔ symbol)
       const prevMode = prevGraphRef.current.mode;
@@ -545,7 +788,7 @@ const ReactFlowGraphContent: React.FC<ReactFlowGraphProps> = ({
         
         // Apply highlighting to new nodes
         const highlightedNodes = addedNodeIds.size > 0
-          ? graph.nodes.map(node => {
+          ? visibleNodes.map(node => {
               if (addedNodeIds.has(node.id)) {
                 return {
                   ...node,
@@ -558,11 +801,11 @@ const ReactFlowGraphContent: React.FC<ReactFlowGraphProps> = ({
               }
               return node;
             })
-          : graph.nodes;
+          : visibleNodes;
         
         // Apply highlighting to new edges
         const highlightedEdges = addedEdgeIds.size > 0
-          ? processedEdges.map(edge => {
+          ? styledEdges.map(edge => {
               const edgeId = `${edge.source}-${edge.target}`;
               if (addedEdgeIds.has(edgeId)) {
                 return {
@@ -577,7 +820,7 @@ const ReactFlowGraphContent: React.FC<ReactFlowGraphProps> = ({
               }
               return edge;
             })
-          : processedEdges;
+          : styledEdges;
         
         setNodes(highlightedNodes);
         setEdges(highlightedEdges);
@@ -585,8 +828,8 @@ const ReactFlowGraphContent: React.FC<ReactFlowGraphProps> = ({
         // Clear highlights after 2 seconds
         const timeoutId = setTimeout(() => {
           log.debug('ReactFlowGraph: Clearing highlights');
-          setNodes(graph.nodes);
-          setEdges(processedEdges);
+          setNodes(visibleNodes);
+          setEdges(styledEdges);
         }, 2000);
         
         // Update previous graph state for next comparison
@@ -603,15 +846,15 @@ const ReactFlowGraphContent: React.FC<ReactFlowGraphProps> = ({
     
     // Update previous graph state for next comparison
     prevGraphRef.current = {
-      nodeIds: new Set(graph.nodes.map(n => n.id)),
-      edgeIds: new Set(processedEdges.map(e => `${e.source}-${e.target}`)),
+      nodeIds: new Set(visibleNodes.map(n => n.id)),
+      edgeIds: new Set(styledEdges.map(e => `${e.source}-${e.target}`)),
       mode: mode || 'file',
     };
     
     // No highlights - just set directly (only if no previous graph or no changes detected)
-    setNodes(graph.nodes);
-    setEdges(processedEdges);
-  }, [graph.nodes, processedEdges, setNodes, setEdges]);
+    setNodes(visibleNodes);
+    setEdges(styledEdges);
+  }, [visibleNodes, styledEdges, setNodes, setEdges, mode]);
 
   useAutoFitView({
     containerRef,
@@ -912,6 +1155,24 @@ const ReactFlowGraphContent: React.FC<ReactFlowGraphProps> = ({
               }}
             >
               List View
+            </button>
+          )}
+          {/* Étape 4: Clear Highlight button - only show in symbol mode when highlight is active */}
+          {mode === "symbol" && highlightState && (
+            <button
+              onClick={() => setHighlightState(null)}
+              title="Clear highlight to show all nodes"
+              style={{
+                background: "var(--vscode-button-background)",
+                color: "var(--vscode-button-foreground)",
+                border: "1px solid var(--vscode-button-border)",
+                borderRadius: 4,
+                padding: "6px 12px",
+                cursor: "pointer",
+                fontSize: 12,
+              }}
+            >
+              ✕ Clear Highlight
             </button>
           )}
           <button

@@ -167,6 +167,17 @@ vite.config.ts.timestamp-*
 .clavix
 .specify
 .reports
+.agents/**
+.agent
+.codex
+.continue
+.cursor
+.gemini
+.roo
+.goose
+.scannerwork
+
+
 codemaps/
 
 mcp.json

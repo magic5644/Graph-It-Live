@@ -15,11 +15,14 @@ export interface FileNodeData {
   hasReferencingFiles: boolean;
   parentCount?: number;
   isParentsVisible: boolean;
+  onNodeClick: () => void;
   onDrillDown: () => void;
   onFindReferences: () => void;
   onToggleParents?: () => void;
   onToggle: () => void;
   onExpandRequest: () => void;
+  selectedNodeId?: string | null;
+  nodeId?: string;
 }
 
 // Use shared extension colors from constants
@@ -53,14 +56,47 @@ function getFileBorderColor(label: string, fullPath: string): string {
   return EXTERNAL_PACKAGE_COLOR;
 }
 
-export const FileNode: React.FC<NodeProps> = ({ data }: NodeProps<FileNodeData>) => {
+export const FileNode: React.FC<NodeProps> = ({ data, id }: NodeProps<FileNodeData>) => {
   const borderColor = getFileBorderColor(data.label, data.fullPath);
   const isExternal = isExternalPackage(data.fullPath || data.label);
+  const isSelected = data.selectedNodeId === (data.nodeId || id);
+
+  // Handle single-click to open file in VS Code
+  const handleClick = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    data.onNodeClick();
+  };
+
+  // Handle double-click to drill down (keep existing behavior)
+  const handleDoubleClick = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    data.onDrillDown();
+  };
+
+  // Handle keyboard interactions for accessibility
+  const handleKeyDown = (e: React.KeyboardEvent) => {
+    if (e.key === 'Enter') {
+      e.stopPropagation();
+      handleClick(e as unknown as React.MouseEvent);
+    }
+  };
 
   return (
-    <div
-      style={{ position: 'relative', width: '100%', height: '100%' }}
+    <button
+      type="button"
+      style={{ 
+        position: 'relative', 
+        width: '100%', 
+        height: '100%',
+        border: 'none',
+        padding: 0,
+        background: 'transparent',
+        cursor: 'pointer'
+      }}
       title={data.fullPath}
+      onClick={handleClick}
+      onDoubleClick={handleDoubleClick}
+      onKeyDown={handleKeyDown}
     >
       <Handle type="target" position={Position.Left} style={{ visibility: 'hidden' }} />
 
@@ -75,7 +111,11 @@ export const FileNode: React.FC<NodeProps> = ({ data }: NodeProps<FileNodeData>)
           height: '100%',
           background: data.isRoot ? borderColor : 'var(--vscode-editor-background)',
           color: data.isRoot ? '#000' : 'var(--vscode-editor-foreground)',
-          border: isExternal ? `2px dashed ${borderColor}` : `2px solid ${borderColor}`,
+          border: (() => {
+            if (isSelected) return '4px solid #0078d4';
+            if (isExternal) return `2px dashed ${borderColor}`;
+            return `2px solid ${borderColor}`;
+          })(),
           borderRadius: 4,
           padding: '0 12px',
           fontSize: 12,
@@ -83,6 +123,7 @@ export const FileNode: React.FC<NodeProps> = ({ data }: NodeProps<FileNodeData>)
           fontStyle: isExternal ? 'italic' : 'normal',
           fontFamily: 'var(--vscode-font-family)',
           pointerEvents: 'none',
+          boxShadow: isSelected ? '0 0 8px rgba(0, 120, 212, 0.5)' : 'none',
         }}
       >
         {data.label}
@@ -234,6 +275,6 @@ export const FileNode: React.FC<NodeProps> = ({ data }: NodeProps<FileNodeData>)
       )}
 
       <Handle type="source" position={Position.Right} style={{ visibility: 'hidden' }} />
-    </div>
+    </button>
   );
 };

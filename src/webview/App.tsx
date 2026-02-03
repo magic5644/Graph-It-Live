@@ -6,15 +6,21 @@ import {
     setLoggerBackend,
 } from "../shared/logger";
 import {
+    ExpandedGraphMessage,
     ExtensionToWebviewMessage,
     GraphData,
+    ReferencingFilesMessage,
+    ShowGraphMessage,
     SymbolDependency,
+    SymbolGraphMessage,
     SymbolInfo,
+    UpdateFilterMessage,
     WebviewToExtensionMessage,
 } from "../shared/types";
+import { AtomicSymbolGraph } from "./components/AtomicSymbolGraph";
+import { BreadcrumbNav } from "./components/reactflow/BreadcrumbNav";
 import ReactFlowGraph from "./components/ReactFlowGraph";
 import SymbolCardView from "./components/SymbolCardView";
-import { BreadcrumbNav } from "./components/reactflow/BreadcrumbNav";
 import { mergeGraphDataUnion } from "./utils/graphMerge";
 import { normalizePath } from "./utils/path";
 import {
@@ -203,8 +209,8 @@ const App: React.FC = () => {
   const [layout, setLayout] = React.useState<
     "hierarchical" | "force" | "radial"
   >("hierarchical");
-  const [symbolViewMode, setSymbolViewMode] = React.useState<"graph" | "list">(
-    "graph",
+  const [symbolViewMode, setSymbolViewMode] = React.useState<"graph" | "list" | "atomic">(
+    "atomic", // Default to Atomic Viz style!
   );
   const [showTypes, setShowTypes] = React.useState<boolean>(true);
 
@@ -231,7 +237,7 @@ const App: React.FC = () => {
     }
   }, []);
   const [viewMode, setViewMode] = React.useState<
-    "file" | "symbol" | "references"
+    "file" | "list" | "symbol" | "references"
   >("file");
   const [expandAll, setExpandAll] = React.useState<boolean>(false);
   // Toggle to show/hide parent/reference files for the current root file
@@ -240,6 +246,9 @@ const App: React.FC = () => {
   const [symbolData, setSymbolData] = React.useState<
     { symbols: SymbolInfo[]; dependencies: SymbolDependency[] } | undefined
   >(undefined);
+  const [incomingDependencies, setIncomingDependencies] = React.useState<
+    SymbolDependency[]
+  >([]);
   const [referencingFiles, setReferencingFiles] = React.useState<string[]>([]);
   const [lastExpandedNode, setLastExpandedNode] = React.useState<string | null>(
     null,
@@ -266,7 +275,7 @@ const App: React.FC = () => {
 
   // Handler for updateFilter message
   const handleUpdateFilterMessage = React.useCallback(
-    (message: ExtensionToWebviewMessage & { command: "updateFilter" }) => {
+    (message: UpdateFilterMessage) => {
       log.debug("App: Received updateFilter message", {
         filterUnused: message.filterUnused,
         unusedDependencyMode: message.unusedDependencyMode,
@@ -283,7 +292,7 @@ const App: React.FC = () => {
 
   // Handler for updateGraph message
   const handleUpdateGraphMessage = React.useCallback(
-    (message: ExtensionToWebviewMessage & { command: "updateGraph" }) => {
+    (message: ShowGraphMessage) => {
       const previousFilePath = currentFilePathRef.current;
       const isNavigation = isUpdateGraphNavigation(
         previousFilePath,
@@ -338,8 +347,17 @@ const App: React.FC = () => {
 
   // Handler for symbolGraph message
   const handleSymbolGraphMessage = React.useCallback(
-    (message: ExtensionToWebviewMessage & { command: "symbolGraph" }) => {
-      if (!message.isRefresh) {
+    (message: SymbolGraphMessage) => {
+      // Switch to target mode if specified, otherwise auto-detect
+      if (message.targetViewMode) {
+        setViewMode(message.targetViewMode);
+        if (message.targetViewMode === "list") {
+          setSymbolViewMode("list");
+        } else {
+          setSymbolViewMode("atomic"); // Use Atomic Viz style by default
+        }
+      } else if (!message.isRefresh && viewMode === "file") {
+        // Default behavior: switch to symbol mode for new drill-downs
         setViewMode("symbol");
       }
       if (message.data) {
@@ -353,15 +371,21 @@ const App: React.FC = () => {
           );
         }
         setReferencingFiles(message.data.referencingFiles || []);
+        // Store incoming dependencies for later use
+        if (message.data.incomingDependencies) {
+          setIncomingDependencies(message.data.incomingDependencies);
+        } else {
+          setIncomingDependencies([]);
+        }
       }
       setCurrentFilePath(message.filePath);
     },
-    [],
+    [viewMode],
   );
 
   // Handler for expandedGraph message
   const handleExpandedGraphMessage = React.useCallback(
-    (message: ExtensionToWebviewMessage & { command: "expandedGraph" }) => {
+    (message: ExpandedGraphMessage) => {
       setGraphData((current) =>
         current ? mergeGraphDataUnion(current, message.data) : message.data,
       );
@@ -380,7 +404,7 @@ const App: React.FC = () => {
 
   // Handler for referencingFiles message
   const handleReferencingFilesMessage = React.useCallback(
-    (message: ExtensionToWebviewMessage & { command: "referencingFiles" }) => {
+    (message: ReferencingFilesMessage) => {
       log.debug(
         "App: Received referencingFiles message for",
         message.nodeId,
@@ -449,70 +473,118 @@ const App: React.FC = () => {
     [],
   ); // No state/callback deps - prevents re-render cascade
 
+  // Handle empty state message
+  const handleEmptyStateMessage = React.useCallback((message: ExtensionToWebviewMessage & { command: 'emptyState' }) => {
+    setEmptyStateMessage(message.message || "No file is currently open");
+    setGraphData((current) =>
+      message.reason === "no-file-open" ? current : null,
+    );
+    if (message.reason !== "no-file-open") {
+      setCurrentFilePath("");
+    }
+  }, []);
+
+  // Handle view mode switching
+  const handleSwitchViewMode = React.useCallback((mode: string) => {
+    log.debug("App: Received switchViewMode message:", mode);
+    if (mode === "list") {
+      setViewMode("list");
+      setSymbolViewMode("list");
+    } else if (mode === "symbol") {
+      setViewMode("symbol");
+      setSymbolViewMode("graph");
+    } else if (mode === "file") {
+      setViewMode("file");
+    }
+  }, []);
+
+  // Handle expand all toggle
+  const handleSetExpandAll = React.useCallback((expandAll: boolean) => {
+    log.debug("App: Received setExpandAll message:", expandAll);
+    setExpandAll(expandAll);
+    if (expandAll) {
+      setExpansionState({
+        nodeId: "expandAll",
+        status: "in-progress",
+        processed: undefined,
+        total: undefined,
+        message: "Expansion globale en cours…",
+      });
+    } else {
+      setExpansionState(null);
+    }
+  }, []);
+
+  // Handle expansion progress updates
+  const handleExpansionProgress = React.useCallback((message: ExtensionToWebviewMessage & { command: 'expansionProgress' }) => {
+    if (clearExpansionTimeoutRef.current) {
+      clearTimeout(clearExpansionTimeoutRef.current);
+      clearExpansionTimeoutRef.current = null;
+    }
+
+    setExpansionState({
+      nodeId: message.nodeId,
+      status: message.status,
+      processed: message.processed,
+      total: message.total,
+      message: message.message,
+    });
+
+    if (["completed", "cancelled", "error"].includes(message.status)) {
+      clearExpansionTimeoutRef.current = setTimeout(() => {
+        setExpansionState(null);
+        clearExpansionTimeoutRef.current = null;
+      }, 1500);
+    }
+  }, []);
+
   React.useEffect(() => {
     const handleMessage = (event: MessageEvent) => {
       const message = event.data as ExtensionToWebviewMessage;
 
+      // Handle messages with 'type' property (legacy)
+      if ('type' in message && message.type === 'layoutChange') {
+        log.debug('Received layoutChange message (not implemented)');
+        return;
+      }
+      if ('type' in message && message.type === 'showSymbolList') {
+        log.debug('Received showSymbolList message (not implemented)');
+        return;
+      }
+
+      // All other messages use 'command' property
+      if (!('command' in message)) {
+        log.warn('Unknown message format:', message);
+        return;
+      }
+
       switch (message.command) {
         case "updateGraph":
-          handleUpdateGraphMessage(message);
+          handleUpdateGraphMessage(message as ShowGraphMessage);
           break;
         case "updateFilter":
-          handleUpdateFilterMessage(message);
+          handleUpdateFilterMessage(message as UpdateFilterMessage);
           break;
         case "emptyState":
-          setEmptyStateMessage(message.message || "No file is currently open");
-          setGraphData((current) =>
-            message.reason === "no-file-open" ? current : null,
-          );
-          if (message.reason !== "no-file-open") {
-            setCurrentFilePath("");
-          }
+          handleEmptyStateMessage(message as ExtensionToWebviewMessage & { command: 'emptyState' });
           break;
         case "symbolGraph":
-          handleSymbolGraphMessage(message);
+          handleSymbolGraphMessage(message as SymbolGraphMessage);
           break;
         case "expandedGraph":
-          handleExpandedGraphMessage(message);
+          handleExpandedGraphMessage(message as ExpandedGraphMessage);
           break;
         case "referencingFiles":
-          handleReferencingFilesMessage(message);
+          handleReferencingFilesMessage(message as ReferencingFilesMessage);
+          break;
+        case "switchViewMode":
+          handleSwitchViewMode(message.mode);
           break;
         case "setExpandAll":
-          log.debug("App: Received setExpandAll message:", message.expandAll);
-          setExpandAll(message.expandAll);
-          if (message.expandAll) {
-            setExpansionState({
-              nodeId: "expandAll",
-              status: "in-progress",
-              processed: undefined,
-              total: undefined,
-              message: "Expansion globale en cours…",
-            });
-          } else {
-            setExpansionState(null);
-          }
+          handleSetExpandAll(message.expandAll);
           break;
         case "expansionProgress":
-          if (clearExpansionTimeoutRef.current) {
-            clearTimeout(clearExpansionTimeoutRef.current);
-            clearExpansionTimeoutRef.current = null;
-          }
-
-          setExpansionState({
-            nodeId: message.nodeId,
-            status: message.status,
-            processed: message.processed,
-            total: message.total,
-            message: message.message,
-          });
-
-          if (["completed", "cancelled", "error"].includes(message.status)) {
-            clearExpansionTimeoutRef.current = setTimeout(() => {
-              setExpansionState(null);
-              clearExpansionTimeoutRef.current = null;
-            }, 1500);
-          }
+          handleExpansionProgress(message as ExtensionToWebviewMessage & { command: 'expansionProgress' });
           break;
       }
     };
@@ -524,6 +596,10 @@ const App: React.FC = () => {
     handleSymbolGraphMessage,
     handleExpandedGraphMessage,
     handleReferencingFilesMessage,
+    handleEmptyStateMessage,
+    handleSwitchViewMode,
+    handleSetExpandAll,
+    handleExpansionProgress,
   ]);
 
   const handleNodeClick = (path: string, line?: number) => {
@@ -543,6 +619,12 @@ const App: React.FC = () => {
         filePath: path,
       });
     }
+  };
+
+  const handleHighlight = (symbolId: string) => {
+    // Highlight is handled locally in ReactFlowGraph.tsx via computeRelatedNodes
+    // No need to send message to extension - the highlighting is purely visual
+    log.debug("App: Symbol highlighted locally:", symbolId);
   };
 
   const handleSwitchMode = (mode: "file" | "symbol") => {
@@ -754,6 +836,33 @@ const App: React.FC = () => {
           />
         )}
 
+        {/* Symbol List View for List Mode (dedicated mode) */}
+        {viewMode === "list" && symbolData && (
+          <SymbolCardView
+            filePath={currentFilePath}
+            symbols={symbolData.symbols}
+            dependencies={symbolData.dependencies}
+            referencingFiles={referencingFiles}
+            showTypes={showTypes}
+            filterUnused={filterUnused}
+            onShowTypesChange={setShowTypes}
+            onSymbolClick={(id, line) => handleNodeClick(id, line)}
+            onNavigateToFile={(path) => handleDrillDown(path)}
+            onBack={() => setViewMode("file")}
+            onSwitchToGraphView={() => setViewMode("symbol")}
+            onRefresh={handleRefresh}
+            onToggleFilterUnused={() => {
+              if (vscode) {
+                vscode.postMessage({
+                  command: filterUnused
+                    ? "disableUnusedFilter"
+                    : "enableUnusedFilter",
+                });
+              }
+            }}
+          />
+        )}
+
         {/* ReactFlow Graph (Handles both File and Symbol modes) */}
         {(viewMode === "file" ||
           (viewMode === "symbol" && symbolViewMode === "graph")) && (
@@ -763,6 +872,7 @@ const App: React.FC = () => {
             currentFilePath={currentFilePath}
             onNodeClick={(path) => handleNodeClick(path)}
             onDrillDown={handleDrillDown}
+            onHighlight={handleHighlight}
             onFindReferences={handleFindReferences}
             onExpandNode={handleExpandNode}
             autoExpandNodeId={lastExpandedNode}
@@ -782,6 +892,18 @@ const App: React.FC = () => {
             symbolData={symbolData}
             layout={layout}
             onLayoutChange={(l) => setLayout(l)}
+          />
+        )}
+
+        {/* Atomic Viz Style Symbol Graph */}
+        {viewMode === "symbol" && symbolViewMode === "atomic" && symbolData && (
+          <AtomicSymbolGraph
+            filePath={currentFilePath}
+            symbols={symbolData.symbols}
+            dependencies={symbolData.dependencies}
+            incomingDependencies={incomingDependencies}
+            onNodeClick={(id, line) => handleNodeClick(id, line)}
+            onBackToProject={() => setViewMode("file")}
           />
         )}
 

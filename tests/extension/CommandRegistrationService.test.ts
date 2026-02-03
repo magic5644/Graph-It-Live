@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { GraphProvider } from '../../src/extension/GraphProvider';
 import type { VsCodeLogger } from '../../src/extension/extensionLogger';
 import { CommandRegistrationService } from '../../src/extension/services/CommandRegistrationService';
@@ -57,8 +57,13 @@ function createProviderMock(): GraphProvider {
     forceReindex: vi.fn(),
     expandAllNodes: vi.fn(),
     refreshGraph: vi.fn(),
-    toggleViewMode: vi.fn(),
+    setViewModeFile: vi.fn(),
+    setViewModeList: vi.fn(),
+    setViewModeSymbol: vi.fn(),
+    showReverseDependencies: vi.fn(),
+    hideReverseDependencies: vi.fn(),
     getIndexStatus: vi.fn(),
+    getViewMode: vi.fn().mockReturnValue('file'), // E2E test helper
   } as unknown as GraphProvider;
 }
 
@@ -83,20 +88,26 @@ describe('CommandRegistrationService', () => {
     registerCommand.mockClear();
   });
 
-  it('registers all Graph-It-Live commands', () => {
+  it('registers all Graph-it-Live commands', () => {
     const provider = createProviderMock();
     const logger = createLoggerMock();
     const service = new CommandRegistrationService({ provider, logger });
 
     const disposables = service.registerAll();
 
-    expect(disposables).toHaveLength(7);
-    expect(registerCommand).toHaveBeenCalledTimes(8);
+    expect(disposables).toHaveLength(13); // 13 disposables (getContext is shared)
+    expect(registerCommand).toHaveBeenCalledTimes(14); // 14 total registered commands
     expect(registeredHandlers.has('graph-it-live.showGraph')).toBe(true);
     expect(registeredHandlers.has('graph-it-live.forceReindex')).toBe(true);
     expect(registeredHandlers.has('graph-it-live.expandAllNodes')).toBe(true);
     expect(registeredHandlers.has('graph-it-live.refreshGraph')).toBe(true);
-    expect(registeredHandlers.has('graph-it-live.toggleViewMode')).toBe(true);
+    expect(registeredHandlers.has('graph-it-live.toggleViewMode')).toBe(true); // Backward compat
+    expect(registeredHandlers.has('graph-it-live.setViewModeFile')).toBe(true);
+    expect(registeredHandlers.has('graph-it-live.setViewModeList')).toBe(true);
+    expect(registeredHandlers.has('graph-it-live.setViewModeSymbol')).toBe(true);
+    expect(registeredHandlers.has('getContext')).toBe(true); // E2E test helper
+    expect(registeredHandlers.has('graph-it-live.showReverseDependencies')).toBe(true);
+    expect(registeredHandlers.has('graph-it-live.hideReverseDependencies')).toBe(true);
     expect(registeredHandlers.has('graph-it-live.enableUnusedFilter')).toBe(true);
     expect(registeredHandlers.has('graph-it-live.disableUnusedFilter')).toBe(true);
     expect(registeredHandlers.has('graph-it-live.showIndexStatus')).toBe(true);

@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { GraphProvider } from '../../src/extension/GraphProvider';
 import type { VsCodeLogger } from '../../src/extension/extensionLogger';
 import { EditorEventsService } from '../../src/extension/services/EditorEventsService';
@@ -9,6 +9,11 @@ type DisposeFn = () => void;
 const configListeners: Array<(e: { affectsConfiguration: (s: string) => boolean }) => void> = [];
 const activeEditorListeners: Array<(e: unknown) => void> = [];
 const saveListeners: Array<(doc: { fileName: string }) => void> = [];
+// Selection listeners mock - captures registered listeners for vscode.window.onDidChangeTextEditorSelection
+// Not directly used in tests but required for complete VS Code API mocking
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
+// NOSONAR: Mock array for VS Code API - required for test infrastructure
+const _selectionListeners: Array<(e: unknown) => void> = [];
 
 const createDisposable = (callback: DisposeFn = () => {}) => ({ dispose: callback });
 
@@ -27,6 +32,10 @@ vi.mock('vscode', () => {
     window: {
       onDidChangeActiveTextEditor: vi.fn((listener: (editor: unknown) => void) => {
         activeEditorListeners.push(listener);
+        return createDisposable();
+      }),
+      onDidChangeTextEditorSelection: vi.fn((listener: (e: unknown) => void) => {
+        _selectionListeners.push(listener);
         return createDisposable();
       }),
     },
@@ -66,6 +75,7 @@ describe('EditorEventsService', () => {
     configListeners.length = 0;
     activeEditorListeners.length = 0;
     saveListeners.length = 0;
+    _selectionListeners.length = 0;
   });
 
   it('wires configuration changes to provider and MCP notifier', async () => {

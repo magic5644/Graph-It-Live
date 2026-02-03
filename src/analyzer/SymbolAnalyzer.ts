@@ -513,6 +513,118 @@ export class SymbolAnalyzer implements ISymbolAnalyzer {
   }
 
   /**
+   * Extract intra-file function/method calls from a declaration
+   * Detects calls like: fibonacci() calling fibonacci(), isEven() calling isOdd()
+   */
+  private extractIntraFileCalls(
+    node: Node,
+    sourceFile: SourceFile
+  ): Array<{ symbolId: string; filePath: string; isTypeOnly: boolean }> {
+    const calls: Array<{ symbolId: string; filePath: string; isTypeOnly: boolean }> = [];
+    const filePath = sourceFile.getFilePath();
+
+    // Get all top-level function names in this file
+    const functionNames = this.collectFunctionNames(sourceFile);
+
+    // Find all CallExpression nodes in this declaration
+    const callExpressions = node.getDescendantsOfKind(SyntaxKind.CallExpression);
+
+    for (const callExpr of callExpressions) {
+      this.processCallExpression(callExpr, functionNames, filePath, calls);
+    }
+
+    return calls;
+  }
+
+  /**
+   * Collect all function and method names from a source file
+   */
+  private collectFunctionNames(sourceFile: SourceFile): Set<string> {
+    const functionNames = new Set<string>();
+
+    // Get all top-level function names
+    for (const func of sourceFile.getFunctions()) {
+      const name = func.getName();
+      if (name) functionNames.add(name);
+    }
+
+    // Get all class methods
+    for (const cls of sourceFile.getClasses()) {
+      for (const method of cls.getMethods()) {
+        const name = method.getName();
+        if (name) functionNames.add(name);
+      }
+    }
+
+    return functionNames;
+  }
+
+  /**
+   * Process a single call expression and add matching calls to the array
+   */
+  private processCallExpression(
+    callExpr: Node,
+    functionNames: Set<string>,
+    filePath: string,
+    calls: Array<{ symbolId: string; filePath: string; isTypeOnly: boolean }>
+  ): void {
+    if (!Node.isCallExpression(callExpr)) return;
+
+    const expression = callExpr.getExpression();
+
+    // Simple case: direct function call like fibonacci()
+    if (Node.isIdentifier(expression)) {
+      this.addDirectFunctionCall(expression, functionNames, filePath, calls);
+      return;
+    }
+
+    // Property access: obj.method()
+    if (Node.isPropertyAccessExpression(expression)) {
+      this.addPropertyAccessCall(expression, functionNames, filePath, calls);
+    }
+  }
+
+  /**
+   * Add a direct function call (e.g., fibonacci())
+   */
+  private addDirectFunctionCall(
+    expression: Node,
+    functionNames: Set<string>,
+    filePath: string,
+    calls: Array<{ symbolId: string; filePath: string; isTypeOnly: boolean }>
+  ): void {
+    const calledName = expression.getText();
+    if (functionNames.has(calledName)) {
+      calls.push({
+        symbolId: `${filePath}:${calledName}`,
+        filePath,
+        isTypeOnly: false
+      });
+    }
+  }
+
+  /**
+   * Add a property access call (e.g., obj.method())
+   */
+  private addPropertyAccessCall(
+    expression: Node,
+    functionNames: Set<string>,
+    filePath: string,
+    calls: Array<{ symbolId: string; filePath: string; isTypeOnly: boolean }>
+  ): void {
+    if (Node.isPropertyAccessExpression(expression)) {
+      const methodName = expression.getName();
+      if (functionNames.has(methodName)) {
+        calls.push({
+          symbolId: `${filePath}:${methodName}`,
+          filePath,
+          isTypeOnly: false
+        });
+      }
+    }
+  }
+
+  /**
    * Find which imported symbols are actually used in the code
    * Returns a map of symbolId -> array of used imports
    */
@@ -544,7 +656,14 @@ export class SymbolAnalyzer implements ISymbolAnalyzer {
       if (!symbolName) continue;
 
       const symbolId = `${filePath}:${symbolName}`;
-      usage[symbolId] = this.extractSymbolDependencies(decl, importMap);
+      const deps = this.extractSymbolDependencies(decl, importMap);
+
+      // CRITICAL: Add intra-file function call detection
+      // This detects calls like fibonacci() -> fibonacci(), isEven() -> isOdd()
+      const intraFileCalls = this.extractIntraFileCalls(decl, sourceFile);
+      deps.push(...intraFileCalls);
+
+      usage[symbolId] = deps;
     }
 
     // New: Scan top-level statements for usage (expressions, export assignments, etc.)

@@ -89,6 +89,16 @@ AGENTS.md
 task.md
 test.log
 
+# AI/Agent configuration directories (may contain large files or binaries)
+.agent/**
+.agents/**
+.codex/**
+.continue/**
+.cursor/**
+.goose/**
+.roo/**
+plan/**
+
 # OS files
 .DS_Store
 **/.DS_Store

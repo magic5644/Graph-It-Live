@@ -16,7 +16,6 @@
     "dist",
     "out",
     "src/webview/**/*",
-    "tests/webview/**/*",
-    "tests/fixtures/**/*"
+    "tests/webview/**/*"
   ]
 }

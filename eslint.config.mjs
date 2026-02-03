@@ -17,6 +17,8 @@ export default tseslint.config(
       "eslint.config.mjs",
       "scripts/**",
       ".vscode-test/**",
+      "**/*.OLD.tsx",
+      "**/*.GRAPHD3.tsx",
     ],
   },
   eslint.configs.recommended,

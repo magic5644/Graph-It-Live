@@ -1,6 +1,15 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { SymbolViewService } from '../../src/extension/services/SymbolViewService';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
+
+// Mock vscode module
+vi.mock('vscode', () => ({
+  default: {},
+  Uri: {
+    file: (p: string) => ({ fsPath: p }),
+  },
+}));
+
 import type { Spider } from '../../src/analyzer/Spider';
+import { SymbolViewService } from '../../src/extension/services/SymbolViewService';
 
 const createSpider = () => ({
   getSymbolGraph: vi.fn(),
@@ -10,6 +19,8 @@ const createSpider = () => ({
 const createLogger = () => ({
   debug: vi.fn(),
   warn: vi.fn(),
+  info: vi.fn(),
+  error: vi.fn(),
 });
 
 describe('SymbolViewService', () => {
@@ -76,5 +87,55 @@ describe('SymbolViewService', () => {
     // Should still return valid result with metadata
     expect(result.nodes).toContain('fileA.ts');
     expect(result.metadata).toBeDefined();
+  });
+
+  it('normalizes incoming dependencies to AST symbol IDs (handles Class.method)', async () => {
+    // Prepare spider to return symbols with class.method full IDs
+    const filePath = '/project/src/geocodingApiService.ts';
+    const otherFile = '/project/src/expenseReportDistance.ts';
+
+    (spider.getSymbolGraph as ReturnType<typeof vi.fn>).mockResolvedValue({
+      symbols: [
+        { id: `${filePath}:GeocodingApiService`, name: 'GeocodingApiService', isExported: true },
+        { id: `${filePath}:GeocodingApiService.calculateDistance`, name: 'GeocodingApiService.calculateDistance', isExported: false },
+      ],
+      dependencies: [],
+    });
+
+    (spider.findReferencingFiles as ReturnType<typeof vi.fn>).mockResolvedValue([]);
+
+    // Fake LSP service that returns incoming edges targeting the short method name
+    const fakeLspService = {
+      isCallHierarchyAvailable: vi.fn().mockResolvedValue(true),
+      buildIntraFileCallGraph: vi.fn().mockResolvedValue({
+        nodes: [],
+        edges: [
+          // incoming edge that uses the short method name as target
+          { source: `${otherFile}:distance`, target: `${filePath}:calculateDistance`, type: 'reference', direction: 'incoming', locations: [] },
+        ],
+        lspUsed: true,
+        warnings: [],
+      }),
+    } as unknown as any;
+
+    const service = new SymbolViewService(spider, logger, fakeLspService);
+
+    // Sanity check: ensure getLspService returns our fake
+    const resolved = await (service as any).getLspService();
+    expect(resolved).toBe(fakeLspService);
+
+    const result = await service.buildSymbolGraph(filePath, filePath, { includeCallHierarchy: true });
+
+    // Ensure LSP was invoked
+    expect((fakeLspService.buildIntraFileCallGraph as ReturnType<typeof vi.fn>).mock.calls.length).toBeGreaterThan(0);
+
+    expect(result.incomingDependencies).toBeDefined();
+    // Should have normalized target to the full AST symbol id
+    // Debug output to see what targetSymbolIds were produced (helpful when test fails)
+    // eslint-disable-next-line no-console
+    console.log('incomingDeps:', result.incomingDependencies!.map(d => d.targetSymbolId));
+
+    const found = result.incomingDependencies!.some(d => d.targetSymbolId === `${filePath}:GeocodingApiService.calculateDistance`);
+    expect(found).toBe(true);
   });
 });

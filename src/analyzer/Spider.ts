@@ -1,15 +1,11 @@
-import { LanguageService } from './LanguageService';
-import { PathResolver } from './utils/PathResolver';
-import { Cache } from './Cache';
-import { ReverseIndexManager } from './ReverseIndexManager';
-import { IndexerStatus, type IndexerStatusSnapshot } from './IndexerStatus';
-import type { Dependency, IndexingProgressCallback, SpiderConfig } from './types';
-import { SourceFileCollector } from './SourceFileCollector';
-import { ReferencingFilesFinder } from './ReferencingFilesFinder';
-import { SymbolDependencyHelper } from './SymbolDependencyHelper';
 import { AstWorkerHost } from './ast/AstWorkerHost';
+import { Cache } from './Cache';
 import { FileReader } from './FileReader';
-import { yieldToEventLoop, YIELD_INTERVAL_MS } from './utils/EventLoopYield';
+import { IndexerStatus, type IndexerStatusSnapshot } from './IndexerStatus';
+import { LanguageService } from './LanguageService';
+import { ReferencingFilesFinder } from './ReferencingFilesFinder';
+import { ReverseIndexManager } from './ReverseIndexManager';
+import { SourceFileCollector } from './SourceFileCollector';
 import { SpiderCacheCoordinator } from './spider/SpiderCacheCoordinator';
 import { SpiderDependencyAnalyzer } from './spider/SpiderDependencyAnalyzer';
 import { SpiderGraphCrawler } from './spider/SpiderGraphCrawler';
@@ -18,6 +14,10 @@ import { SpiderIndexingService } from './spider/SpiderIndexingService';
 import { SpiderReferenceLookup } from './spider/SpiderReferenceLookup';
 import { SpiderSymbolService } from './spider/SpiderSymbolService';
 import { SpiderWorkerManager } from './spider/SpiderWorkerManager';
+import { SymbolDependencyHelper } from './SymbolDependencyHelper';
+import type { Dependency, IndexingProgressCallback, SpiderConfig } from './types';
+import { YIELD_INTERVAL_MS, yieldToEventLoop } from './utils/EventLoopYield';
+import { PathResolver } from './utils/PathResolver';
 
 /**
  * Main analyzer class - "The Spider"
@@ -143,7 +143,8 @@ export class Spider {
       this.workerManager,
       this.cancellation,
       () => this.config,
-      () => yieldToEventLoop()
+      () => yieldToEventLoop(),
+      (filePath) => this.symbolService.getSymbolGraph(filePath)
     );
 
     this.cacheCoordinator = new SpiderCacheCoordinator(this.cache, this.symbolCache, this.reverseIndexManager);
@@ -306,6 +307,19 @@ export class Spider {
 
   async findReferencingFiles(targetPath: string): Promise<Dependency[]> {
     return this.referenceLookup.findReferencingFiles(targetPath);
+  }
+
+  /**
+   * Get files that reference a specific exported symbol
+   * @param symbolId Symbol ID in format "filePath:symbolName" (e.g., "src/utils.ts:formatDate")
+   * @returns Set of file paths that import/reference the symbol
+   */
+  getSymbolReferencingFiles(symbolId: string): Set<string> {
+    if (!this.reverseIndexManager.hasEntries()) {
+      return new Set();
+    }
+    const files = this.reverseIndexManager.getSymbolReferencingFiles(symbolId);
+    return new Set(files);
   }
 
   async getSymbolGraph(filePath: string): Promise<{

@@ -26,9 +26,15 @@ export class CommandRegistrationService {
       this.registerForceReindexCommand(),
       this.registerExpandAllCommand(),
       this.registerRefreshGraphCommand(),
-      this.registerToggleViewCommand(),
+      this.registerToggleViewModeCommand(), // Backward compatibility
+      this.registerSetViewModeFileCommand(),
+      this.registerSetViewModeListCommand(),
+      this.registerSetViewModeSymbolCommand(),
+      this.registerShowReverseDependenciesCommand(),
+      this.registerHideReverseDependenciesCommand(),
       this.registerToggleUnusedFilterCommands(),
       this.registerShowIndexStatusCommand(),
+      this.registerGetContextCommand(), // For E2E testing
     ];
   }
 
@@ -96,14 +102,66 @@ export class CommandRegistrationService {
       'Graph-It-Live: Refresh failed'
     );
   }
-
-  private registerToggleViewCommand(): vscode.Disposable {
+  /**
+   * Register toggleViewMode command for backward compatibility
+   * Toggles between file and symbol views (skips list view)
+   */
+  private registerToggleViewModeCommand(): vscode.Disposable {
     return this.registerProviderCommand(
       'graph-it-live.toggleViewMode',
       async () => {
         await this.provider.toggleViewMode();
       },
-      'Graph-It-Live: Toggle view failed'
+      'Graph-It-Live: Toggle view mode failed'
+    );
+  }
+  private registerSetViewModeFileCommand(): vscode.Disposable {
+    return this.registerProviderCommand(
+      'graph-it-live.setViewModeFile',
+      async () => {
+        await this.provider.setViewModeFile();
+      },
+      'Graph-It-Live: Switch to file view failed'
+    );
+  }
+
+  private registerSetViewModeListCommand(): vscode.Disposable {
+    return this.registerProviderCommand(
+      'graph-it-live.setViewModeList',
+      async () => {
+        await this.provider.setViewModeList();
+      },
+      'Graph-It-Live: Switch to list view failed'
+    );
+  }
+
+  private registerSetViewModeSymbolCommand(): vscode.Disposable {
+    return this.registerProviderCommand(
+      'graph-it-live.setViewModeSymbol',
+      async () => {
+        await this.provider.setViewModeSymbol();
+      },
+      'Graph-It-Live: Switch to symbol view failed'
+    );
+  }
+
+  private registerShowReverseDependenciesCommand(): vscode.Disposable {
+    return this.registerProviderCommand(
+      'graph-it-live.showReverseDependencies',
+      async () => {
+        await this.provider.showReverseDependencies();
+      },
+      'Graph-It-Live: Show reverse dependencies failed'
+    );
+  }
+
+  private registerHideReverseDependenciesCommand(): vscode.Disposable {
+    return this.registerProviderCommand(
+      'graph-it-live.hideReverseDependencies',
+      async () => {
+        await this.provider.hideReverseDependencies();
+      },
+      'Graph-It-Live: Hide reverse dependencies failed'
     );
   }
 
@@ -124,6 +182,26 @@ export class CommandRegistrationService {
           'Graph-It-Live: Could not get index status'
         );
       }
+    });
+  }
+
+  /**
+   * Registers a test helper command to get context key values
+   * This is needed for E2E testing as VS Code doesn't expose context keys directly
+   */
+  private registerGetContextCommand(): vscode.Disposable {
+    return vscode.commands.registerCommand('getContext', async (key: string) => {
+      // For now, we only support our own context keys
+      if (key === 'graph-it-live.viewMode') {
+        return this.provider.getViewMode();
+      }
+      if (key === 'graph-it-live.reverseDependenciesVisible') {
+        // Context keys are stored in VS Code's internal state
+        // We need to track this in GraphProvider to return it here
+        return this.provider.getReverseDependenciesVisible();
+      }
+      // Return undefined for unknown keys
+      return undefined;
     });
   }
 

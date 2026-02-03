@@ -1,3 +1,4 @@
+import * as vscode from "vscode";
 import { LspCallHierarchyAnalyzer } from "../../analyzer/LspCallHierarchyAnalyzer";
 import { Spider } from "../../analyzer/Spider";
 import type { IntraFileGraph, SymbolDependency, SymbolInfo } from "../../shared/types";
@@ -8,7 +9,9 @@ import type {
 
 type Logger = {
   debug: (message: string, ...args: unknown[]) => void;
+  info: (message: string, ...args: unknown[]) => void;
   warn: (message: string, ...args: unknown[]) => void;
+  error: (message: string, ...args: unknown[]) => void;
 };
 
 type RelationType = "dependency" | "call" | "reference";
@@ -32,6 +35,7 @@ interface SymbolGraphResult {
     relationType?: RelationType;
   }[];
   symbolData: { symbols: SymbolInfo[]; dependencies: SymbolDependency[] };
+  incomingDependencies?: SymbolDependency[]; // External calls TO symbols in this file
   referencingFiles: string[];
   parentCounts?: Record<string, number>;
   /** Metadata about the analysis */
@@ -98,13 +102,13 @@ export class SymbolViewService {
       const vscode = await import("vscode");
       const { LspCallHierarchyService } =
         await import("./LspCallHierarchyService");
-      this._lspService = new LspCallHierarchyService();
+      const rawService = new LspCallHierarchyService();
 
       // Helper to convert file path to URI
       const createUri = (filePath: string) => vscode.Uri.file(filePath);
 
       // Wrap the service to accept file paths instead of URIs
-      const originalService = this._lspService as unknown as {
+      const originalService = rawService as unknown as {
         isCallHierarchyAvailable(
           uri: ReturnType<typeof vscode.Uri.file>,
         ): Promise<boolean>;
@@ -114,7 +118,8 @@ export class SymbolViewService {
         ): Promise<IntraFileCallGraph>;
       };
 
-      return {
+      // Create and cache the wrapped service
+      this._lspService = {
         isCallHierarchyAvailable: async (uri: { fsPath: string }) =>
           originalService.isCallHierarchyAvailable(createUri(uri.fsPath)),
         buildIntraFileCallGraph: async (
@@ -126,6 +131,8 @@ export class SymbolViewService {
             options,
           ),
       };
+
+      return this._lspService;
     } catch {
       // vscode not available (e.g., in tests)
       return undefined;
@@ -160,6 +167,11 @@ export class SymbolViewService {
     this.logger.debug(
       `AST analysis complete: ${symbolData.symbols.length} symbols, ${symbolData.dependencies.length} dependencies`,
     );
+
+    // Log first few symbol IDs for debugging
+    if (symbolData.symbols.length > 0) {
+      this.logger.info(`[SYMBOLS] First 2 symbol IDs:`, symbolData.symbols.slice(0, 2).map(s => ({ name: s.name, id: s.id })));
+    }
 
     // Build base payload from AST analysis
     const payload = this.buildPayload(symbolData, resolvedFilePath, rootNodeId);
@@ -219,23 +231,13 @@ export class SymbolViewService {
         return null;
       }
 
-      const uri = { fsPath: resolvedFilePath };
+      const uri = vscode.Uri.file(resolvedFilePath);
       
-      // T093: Handle LSP availability check failures
-      let isAvailable: boolean;
-      try {
-        isAvailable = await lspService.isCallHierarchyAvailable(uri);
-      } catch (availError) {
-        this.logger.warn(
-          `Failed to check LSP availability for ${resolvedFilePath}: ${availError instanceof Error ? availError.message : String(availError)}`,
-        );
-        return null;
-      }
+      this.logger.info(`Attempting LSP call hierarchy analysis for ${resolvedFilePath}`);
 
-      if (!isAvailable) {
-        this.logger.debug("LSP call hierarchy not available for this file");
-        return null;
-      }
+      // T093: Skip availability check and directly try to build call graph
+      // The availability check was too strict and rejected files where LSP actually works
+      // Instead, we rely on buildIntraFileCallGraph's internal error handling
 
       // T093: Handle call graph build failures with detailed errors
       let callGraph: IntraFileCallGraph | undefined;
@@ -260,6 +262,7 @@ export class SymbolViewService {
           resolvedFilePath,
           rootNodeId,
           referencingFiles,
+          opts,
         );
       } catch (processError) {
         this.logger.warn(
@@ -286,6 +289,7 @@ export class SymbolViewService {
     resolvedFilePath: string,
     rootNodeId: string,
     referencingFiles: string[],
+    _opts: SymbolGraphOptions & { includeCallHierarchy: true },
   ): SymbolGraphResult | null {
     if (!callGraph || !callGraph.lspUsed || callGraph.edges.length === 0) {
       if (callGraph?.warnings.length) {
@@ -309,24 +313,89 @@ export class SymbolViewService {
 
     // Build IntraFileGraph with cycle detection
     const analyzer = new LspCallHierarchyAnalyzer();
-    const graph = analyzer.buildIntraFileGraph(resolvedFilePath, {
-      symbols: callGraph.nodes.map((node) => ({
-        name: node.name,
-        kind: node.kind,
-        range: {
-          start: node.line - 1, // Convert back to 0-indexed
-          end: node.line - 1,
-        },
-        containerName: undefined,
-        uri: resolvedFilePath,
-      })),
-      callHierarchyItems: new Map(),
-      outgoingCalls: this.buildOutgoingCallsMap(callGraph, resolvedFilePath),
-    });
+    const includeIncomingCalls = true; // Always enable incoming calls
+    const graph = analyzer.buildIntraFileGraph(
+      resolvedFilePath,
+      {
+        symbols: callGraph.nodes.map((node) => ({
+          name: node.name,
+          kind: node.kind,
+          range: {
+            start: node.line - 1, // Convert back to 0-indexed
+            end: node.line - 1,
+          },
+          containerName: undefined,
+          uri: resolvedFilePath,
+        })),
+        callHierarchyItems: new Map(),
+        outgoingCalls: this.buildOutgoingCallsMap(callGraph, resolvedFilePath),
+        incomingCalls: this.buildIncomingCallsMap(callGraph, resolvedFilePath),
+      },
+      includeIncomingCalls,
+    );
+
+    this.logger.info(`[WEBVIEW-SEND] Incoming edges in graph: ${graph.incomingEdges?.length ?? 0}`);
+
+    // Extract incoming dependencies from callGraph edges (includes external calls AND references)
+    const incomingDeps = callGraph.edges
+      .filter(edge => edge.direction === 'incoming')
+      .map(edge => ({
+        sourceSymbolId: edge.source,
+        targetSymbolId: edge.target,
+        targetFilePath: resolvedFilePath,
+        relationType: edge.type,
+      }));
+
+    // Normalize incomingDeps to use the same symbol IDs as AST-based symbolData
+    // Build a lookup: filePath -> map of simple name -> full symbol id
+    const nameLookup: Record<string, Map<string, string>> = {};
+    for (const s of symbolData.symbols) {
+      const [file, fullName] = s.id.split(":");
+      if (!nameLookup[file]) nameLookup[file] = new Map();
+      // Store exact name
+      nameLookup[file].set(fullName, s.id);
+      // Also store short name (after last dot) to help match methods
+      const short = fullName.includes('.') ? fullName.split('.').pop()! : fullName;
+      if (!nameLookup[file].has(short)) nameLookup[file].set(short, s.id);
+    }
+
+    const findFullId = (symbolId: string): string => {
+      const [file, name] = symbolId.split(":");
+      const map = nameLookup[file];
+      if (!map) return symbolId;
+      if (map.has(name)) return map.get(name)!;
+      // Try suffix match (for cases like Class.method)
+      for (const [k, v] of map.entries()) {
+        if (k.endsWith(`.${name}`)) return v;
+      }
+      return symbolId;
+    };
+
+    // Apply normalization
+    for (const dep of incomingDeps) {
+      const originalTarget = dep.targetSymbolId;
+      const originalSource = dep.sourceSymbolId;
+      dep.targetSymbolId = findFullId(dep.targetSymbolId);
+      dep.sourceSymbolId = findFullId(dep.sourceSymbolId);
+      if (dep.targetSymbolId !== originalTarget || dep.sourceSymbolId !== originalSource) {
+        this.logger.debug('[WEBVIEW-SEND] Normalized incomingDep', { originalTarget, originalSource, newTarget: dep.targetSymbolId, newSource: dep.sourceSymbolId });
+      }
+    }
+
+    this.logger.info(`[WEBVIEW-SEND] callGraph.edges total: ${callGraph.edges.length}`);
+    this.logger.info(`[WEBVIEW-SEND] callGraph incoming edges: ${callGraph.edges.filter(e => e.direction === 'incoming').length}`);
+    this.logger.info(`[WEBVIEW-SEND] callGraph reference edges: ${callGraph.edges.filter(e => e.type === 'reference').length}`);
+    this.logger.info(`[WEBVIEW-SEND] FULL incomingDeps with IDs:`, incomingDeps.slice(0, 2).map(d => ({
+      source: d.sourceSymbolId,
+      target: d.targetSymbolId,
+      type: d.relationType,
+    })));
+    this.logger.info(`[WEBVIEW-SEND] Extracted incomingDependencies: ${incomingDeps.length}`, incomingDeps.map(d => `${d.sourceSymbolId.split(':').pop()} -> ${d.targetSymbolId.split(':').pop()} (${d.relationType})`));
 
     return {
       ...mergedResult,
       symbolData: this.enrichSymbolDataWithCallRelations(symbolData, callGraph),
+      incomingDependencies: incomingDeps,
       referencingFiles,
       parentCounts:
         referencingFiles.length > 0
@@ -353,6 +422,7 @@ export class SymbolViewService {
     return {
       ...payload,
       symbolData,
+      incomingDependencies: [],
       referencingFiles,
       parentCounts:
         referencingFiles.length > 0
@@ -559,6 +629,11 @@ export class SymbolViewService {
     >();
 
     for (const edge of callGraph.edges) {
+      // Only process outgoing edges
+      if (edge.direction && edge.direction !== 'outgoing') {
+        continue;
+      }
+
       if (!outgoingCalls.has(edge.source)) {
         outgoingCalls.set(edge.source, []);
       }
@@ -591,5 +666,61 @@ export class SymbolViewService {
     }
 
     return outgoingCalls;
+  }
+
+  /**
+   * Build map of incoming calls (who calls each symbol) from call graph edges
+   */
+  private buildIncomingCallsMap(
+    callGraph: IntraFileCallGraph,
+    filePath: string,
+  ): Map<string, Array<{ from: { name: string; uri: string; kind: number; range: { start: number; end: number } }; fromRanges: Array<{ start: number; end: number }> }>> {
+    const incomingCalls = new Map<
+      string,
+      Array<{
+        from: { name: string; uri: string; kind: number; range: { start: number; end: number } };
+        fromRanges: Array<{ start: number; end: number }>;
+      }>
+    >();
+
+    for (const edge of callGraph.edges) {
+      // Only process incoming edges
+      if (edge.direction && edge.direction !== 'incoming') {
+        continue;
+      }
+
+      // For incoming calls, the target is being called by the source
+      if (!incomingCalls.has(edge.target)) {
+        incomingCalls.set(edge.target, []);
+      }
+
+      // Find source node to get its kind
+      const sourceNode = callGraph.nodes.find((n) => n.id === edge.source);
+      if (!sourceNode) {
+        continue;
+      }
+
+      // Extract source name from symbol ID (format: filePath:symbolName)
+      const sourceName = edge.source.split(":").pop() || edge.source;
+
+      incomingCalls.get(edge.target)!.push({
+        from: {
+          name: sourceName,
+          uri: filePath,
+          kind: sourceNode.kind,
+          range: {
+            start: sourceNode.line - 1,
+            end: sourceNode.line - 1,
+          },
+        },
+        fromRanges:
+          edge.locations?.map((loc) => ({
+            start: loc.line - 1,
+            end: loc.line - 1,
+          })) || [],
+      });
+    }
+
+    return incomingCalls;
   }
 }

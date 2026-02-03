@@ -22,7 +22,12 @@ export class GraphViewService {
     private readonly unusedCache?: UnusedAnalysisCache
   ) {}
 
-  async buildGraphData(filePath: string, checkUsage: boolean = false, existingGraphData?: GraphData): Promise<GraphData> {
+  async buildGraphData(
+    filePath: string,
+    checkUsage: boolean = false,
+    existingGraphData?: GraphData,
+    referencingFiles?: Set<string>
+  ): Promise<GraphData> {
     const graphData = existingGraphData ?? await this.spider.crawl(filePath);
     if (!existingGraphData) {
       this.logger.info('Crawl completed:', graphData.nodes.length, 'nodes,', graphData.edges.length, 'edges');
@@ -35,9 +40,37 @@ export class GraphViewService {
       this.logger.debug('Nodes:', graphData.nodes);
     }
 
+    // Apply symbol-based filtering if referencingFiles is set
+    let filteredNodes = graphData.nodes;
+    let filteredEdges = graphData.edges;
+
+    if (referencingFiles && referencingFiles.size > 0) {
+      this.logger.debug('Filtering graph to', referencingFiles.size, 'referencing files');
+
+      // Filter nodes to only include files that reference the selected symbol
+      filteredNodes = graphData.nodes.filter(node => referencingFiles.has(node));
+
+      // Filter edges to only include those between referencing files
+      filteredEdges = graphData.edges.filter(edge =>
+        referencingFiles.has(edge.source) && referencingFiles.has(edge.target)
+      );
+
+      this.logger.info(
+        'Symbol filtering applied:',
+        filteredNodes.length,
+        'nodes,',
+        filteredEdges.length,
+        'edges (from',
+        graphData.nodes.length,
+        '/',
+        graphData.edges.length,
+        ')'
+      );
+    }
+
     const enrichedData: GraphData = {
-      nodes: graphData.nodes,
-      edges: graphData.edges,
+      nodes: filteredNodes,
+      edges: filteredEdges,
       nodeLabels: graphData.nodeLabels,
     };
 

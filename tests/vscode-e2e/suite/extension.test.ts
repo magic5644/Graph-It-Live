@@ -2,6 +2,7 @@ import { after, before } from 'mocha';
 import * as assert from 'node:assert';
 import * as path from 'node:path';
 import * as vscode from 'vscode';
+import { waitForViewMode } from './_helpers';
 
 /**
  * Helper to get a file path from a test project within the fixtures workspace
@@ -602,11 +603,11 @@ suite('Additional Commands', () => {
       await vscode.window.showTextDocument(doc);
       
       await vscode.commands.executeCommand('graph-it-live.showGraph');
-      await new Promise(resolve => setTimeout(resolve, 1000));
+      await waitForViewMode('file');
       
       // Toggle view mode (file-level <-> symbol-level)
       await vscode.commands.executeCommand('graph-it-live.toggleViewMode');
-      await new Promise(resolve => setTimeout(resolve, 1000));
+      await waitForViewMode('list');
       
       assert.ok(true, 'ToggleViewMode command executed successfully');
     } catch {
@@ -1445,7 +1446,7 @@ suite('Multiple Node Operations', () => {
       await vscode.window.showTextDocument(doc);
       
       await vscode.commands.executeCommand('graph-it-live.showGraph');
-      await new Promise(resolve => setTimeout(resolve, 1000));
+      await waitForViewMode('file');
       
       // Expand all in file-level mode
       await vscode.commands.executeCommand('graph-it-live.expandAllNodes');
@@ -1453,7 +1454,9 @@ suite('Multiple Node Operations', () => {
       
       // Toggle to symbol-level
       await vscode.commands.executeCommand('graph-it-live.toggleViewMode');
-      await new Promise(resolve => setTimeout(resolve, 2000));
+      await waitForViewMode('list');
+      await vscode.commands.executeCommand('graph-it-live.toggleViewMode');
+      await waitForViewMode('symbol');
       
       // Expand all in symbol-level mode
       await vscode.commands.executeCommand('graph-it-live.expandAllNodes');

@@ -29,11 +29,14 @@ export const GRAPH_LIMITS = {
 } as const;
 
 export interface BuildGraphCallbacks {
+  onNodeClick: (path: string, line?: number) => void;
   onDrillDown: (path: string) => void;
   onFindReferences: (path: string) => void;
   onToggleParents?: (path: string) => void;
   onToggle: (path: string) => void;
   onExpandRequest: (path: string) => void;
+  selectedNodeId?: string | null | undefined;
+  onHighlight?: (symbolId: string) => void; // Étape 4: Highlight callback for symbol double-click
 }
 
 export interface BuildGraphResult {
@@ -347,6 +350,8 @@ export function buildReactFlowGraph(params: {
   mode?: "file" | "symbol";
   symbolData?: { symbols: SymbolInfo[]; dependencies: SymbolDependency[] };
   layout?: "hierarchical" | "force" | "radial";
+  selectedNodeId?: string | null;
+  highlightState?: { highlightedNodes: Set<string>; highlightedEdges: Set<string> } | null; // Étape 4
 }): BuildGraphResult {
   const {
     data,
@@ -361,6 +366,8 @@ export function buildReactFlowGraph(params: {
     mode = "file",
     symbolData,
     layout = "hierarchical",
+    selectedNodeId,
+    highlightState = null, // Étape 4
   } = params;
   const normalizedCurrentPath = normalizePath(currentFilePath);
 
@@ -428,6 +435,7 @@ export function buildReactFlowGraph(params: {
       // Find symbol info
       const symbol = symbolData.symbols.find((s) => s.id === path);
       if (symbol) {
+        // Symbol ID format: filePath:symbolName (not extracted here as not needed)
         return {
           label: symbol.name,
           fullPath: symbol.id,
@@ -436,12 +444,19 @@ export function buildReactFlowGraph(params: {
           line: symbol.line,
           isExported: symbol.isExported,
           isRoot: path === normalizedCurrentPath,
+          onNodeClick: () => callbacks.onNodeClick(symbol.id, symbol.line), // Pass full symbol ID for proper navigation
           onDrillDown: () => callbacks.onDrillDown(path),
           // Expansion props
           hasChildren: (children.get(path) || []).length > 0,
           isExpanded: expandedNodes.has(path) || path === normalizedCurrentPath,
           onToggle: () => callbacks.onToggle(path),
           onExpandRequest: () => callbacks.onExpandRequest(path),
+          selectedNodeId,
+          nodeId: path,
+          // Étape 4: Highlight props
+          isHighlighted: highlightState?.highlightedNodes.has(path) ?? false,
+          isHighlightActive: highlightState !== null,
+          onHighlight: callbacks.onHighlight,
         } as SymbolNodeData;
       }
       
@@ -456,6 +471,9 @@ export function buildReactFlowGraph(params: {
         return 'function';
       })();
       
+      // Parse the symbol ID to extract file path (format: filePath:symbolName)
+      const [filePath] = path.split(':');
+
       return {
         label,
         fullPath: path,
@@ -464,12 +482,19 @@ export function buildReactFlowGraph(params: {
         line: 0,
         isExported: false,
         isRoot: false,
+        onNodeClick: () => callbacks.onNodeClick(filePath, 0),
         onDrillDown: () => callbacks.onDrillDown(path),
         // Expansion props
         hasChildren: (children.get(path) || []).length > 0,
         isExpanded: expandedNodes.has(path),
         onToggle: () => callbacks.onToggle(path),
         onExpandRequest: () => callbacks.onExpandRequest(path),
+        selectedNodeId,
+        nodeId: path,
+        // Étape 4: Highlight props
+        isHighlighted: highlightState?.highlightedNodes.has(path) ?? false,
+        isHighlightActive: highlightState !== null,
+        onHighlight: callbacks.onHighlight,
       } as SymbolNodeData;
     }
 
@@ -492,6 +517,7 @@ export function buildReactFlowGraph(params: {
       hasReferencingFiles: hasParents,
       parentCount,
       isParentsVisible: showParents,
+      onNodeClick: () => callbacks.onNodeClick(path),
       onDrillDown: () => callbacks.onDrillDown(path),
       onFindReferences: () => callbacks.onFindReferences(path),
       onToggleParents: callbacks.onToggleParents
@@ -499,6 +525,8 @@ export function buildReactFlowGraph(params: {
         : undefined,
       onToggle: () => callbacks.onToggle(path),
       onExpandRequest: () => callbacks.onExpandRequest(path),
+      selectedNodeId,
+      nodeId: path,
     } as FileNodeData;
   };
 

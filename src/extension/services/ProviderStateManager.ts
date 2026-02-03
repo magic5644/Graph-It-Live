@@ -3,6 +3,7 @@ import type { BackgroundIndexingConfig } from './BackgroundIndexingManager';
 
 export type UnusedDependencyMode = 'none' | 'hide' | 'dim';
 export type PerformanceProfile = 'default' | 'low-memory' | 'high-performance' | 'custom';
+export type ViewMode = 'file' | 'list' | 'symbol';
 
 export interface ProviderConfigSnapshot extends BackgroundIndexingConfig {
   excludeNodeModules: boolean;
@@ -19,14 +20,19 @@ export interface ProviderConfigSnapshot extends BackgroundIndexingConfig {
 }
 
 export class ProviderStateManager {
-  private currentSymbolFilePath?: string;
+  private _viewMode: ViewMode = 'file';
+  private _currentFilePath?: string;
   private lastActiveFilePath?: string;
+  private _selectedSymbolId?: string;
+  private readonly symbolReferencingFilesCache = new Map<string, Set<string>>();
 
   constructor(
     private readonly context: vscode.ExtensionContext,
     private readonly defaultIndexingDelay: number
   ) {
     this.lastActiveFilePath = this.context.workspaceState?.get('lastActiveFilePath');
+    this._viewMode = this.context.globalState.get('viewMode', 'file');
+    this._currentFilePath = this.context.workspaceState?.get('currentFilePath');
   }
 
   loadConfiguration(): ProviderConfigSnapshot {
@@ -129,11 +135,69 @@ export class ProviderStateManager {
   }
 
   get currentSymbol(): string | undefined {
-    return this.currentSymbolFilePath;
+    // Backward compatibility: return selectedSymbolId when in symbol mode
+    return this._viewMode === 'symbol' ? this._selectedSymbolId : undefined;
   }
 
   set currentSymbol(value: string | undefined) {
-    this.currentSymbolFilePath = value;
+    // Backward compatibility: automatically switch mode based on value
+    // Note: Prefer using setViewMode + selectedSymbolId for new code
+    this._selectedSymbolId = value;
+
+    // Auto-switch mode for backward compatibility
+    if (value === undefined) {
+      this._viewMode = 'file';
+    } else {
+      this._viewMode = 'symbol';
+    }
+  }
+
+  get viewMode(): ViewMode {
+    return this._viewMode;
+  }
+
+  async setViewMode(mode: ViewMode): Promise<void> {
+    this._viewMode = mode;
+    await this.context.globalState.update('viewMode', mode);
+  }
+
+  get currentFilePath(): string | undefined {
+    return this._currentFilePath;
+  }
+
+  async setCurrentFilePath(filePath: string | undefined): Promise<void> {
+    this._currentFilePath = filePath;
+    await this.context.workspaceState?.update('currentFilePath', filePath);
+  }
+
+  get selectedSymbolId(): string | undefined {
+    return this._selectedSymbolId;
+  }
+
+  set selectedSymbolId(value: string | undefined) {
+    this._selectedSymbolId = value;
+  }
+
+  getSymbolReferencingFiles(symbolId: string): Set<string> | undefined {
+    return this.symbolReferencingFilesCache.get(symbolId);
+  }
+
+  setSymbolReferencingFiles(symbolId: string, files: Set<string>): void {
+    this.symbolReferencingFilesCache.set(symbolId, files);
+  }
+
+  invalidateSymbolCache(filePath: string): void {
+    // Invalidate all cache entries that may have been affected by this file change
+    for (const symbolId of this.symbolReferencingFilesCache.keys()) {
+      // If the symbolId starts with the filePath, it's from this file
+      if (symbolId.startsWith(filePath)) {
+        this.symbolReferencingFilesCache.delete(symbolId);
+      }
+    }
+  }
+
+  clearSymbolCache(): void {
+    this.symbolReferencingFilesCache.clear();
   }
 
   getLastActiveFilePath(): string | undefined {

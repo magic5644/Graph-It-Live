@@ -11,42 +11,111 @@ export interface SymbolNodeData {
     isExported: boolean;
     isRoot: boolean;
     isExternal?: boolean; // T090: External symbols from other files (imports)
+    onNodeClick: () => void;
     onDrillDown: () => void;
+    onHighlight?: (symbolId: string) => void; // Étape 4: Highlight handler for double-click
     // Expansion props
     hasChildren?: boolean;
     isExpanded?: boolean;
     onToggle?: () => void;
     onExpandRequest?: () => void;
+    selectedNodeId?: string | null;
+    nodeId?: string;
+    // Étape 4: Highlight state
+    isHighlighted?: boolean;
+    isHighlightActive?: boolean; // Whether highlight mode is active
 }
 
 const actionButtonSize = 20;
 
-export const SymbolNode: React.FC<NodeProps<SymbolNodeData>> = ({ data }) => {
+export const SymbolNode: React.FC<NodeProps<SymbolNodeData>> = ({ data, id }) => {
     const style = getSymbolStyle(data.category);
     const icon = CATEGORY_ICONS[data.category] || '?';
 
     // T090: Apply dimming style for external references (FR-022)
     const isExternal = data.isExternal ?? false;
-    const opacity = isExternal ? 0.5 : 1;
+    
+    // Étape 4: Determine opacity based on highlight state
+    let opacity = 1;
+    if (isExternal) {
+        opacity = 0.5;
+    } else if (data.isHighlightActive && !data.isHighlighted) {
+        opacity = 0.3; // Dim non-highlighted nodes when highlight is active
+    }
+    
     const borderStyle = isExternal ? 'dashed' : 'solid';
+    const isSelected = data.selectedNodeId === (data.nodeId || id);
+
+    // Handle single-click to navigate to symbol in code
+    const handleClick = (e: React.MouseEvent) => {
+        e.stopPropagation();
+        data.onNodeClick();
+    };
+
+    // Étape 4: Handle double-click to highlight related nodes
+    const handleDoubleClick = (e: React.MouseEvent) => {
+        e.stopPropagation();
+        console.log('[SymbolNode] Double-click detected', {
+            nodeId: data.nodeId || id,
+            hasOnHighlight: !!data.onHighlight,
+            onHighlightType: typeof data.onHighlight,
+        });
+        if (data.onHighlight) {
+            console.log('[SymbolNode] Calling onHighlight with:', data.nodeId || id);
+            data.onHighlight(data.nodeId || id);
+        } else {
+            console.log('[SymbolNode] No onHighlight, falling back to drill down');
+            // Fallback to drill down if no highlight handler
+            data.onDrillDown();
+        }
+    };
+
+    // Determine box shadow based on state
+    const getBoxShadow = () => {
+        if (isSelected) return '0 0 8px rgba(0, 120, 212, 0.5)';
+        if (data.isHighlighted) return '0 0 12px rgba(16, 185, 129, 0.6)'; // Étape 4: Green glow for highlighted
+        if (data.isRoot) return '0 0 10px rgba(0,0,0,0.2)';
+        return 'none';
+    };
+    
+    // Étape 4: Determine border style based on highlight state
+    const getBorder = () => {
+        if (data.isHighlighted) {
+            return '3px solid #10b981'; // Green border for highlighted nodes
+        }
+        if (isSelected) {
+            return '4px solid #0078d4';
+        }
+        return `2px ${borderStyle} ${style.border}`;
+    };
 
     return (
-        <div
+        <button
+            type="button"
             style={{
                 position: 'relative',
                 width: 40,
                 height: 40,
                 borderRadius: '50%',
                 background: data.isRoot ? style.bg : 'var(--vscode-editor-background)',
-                border: `2px ${borderStyle} ${style.border}`,
+                border: getBorder(),
                 display: 'flex',
                 alignItems: 'center',
                 justifyContent: 'center',
-                boxShadow: data.isRoot ? '0 0 10px rgba(0,0,0,0.2)' : 'none',
+                boxShadow: getBoxShadow(),
                 cursor: 'pointer',
                 opacity,
+                padding: 0,
             }}
-            title={`${data.kind}: ${data.label} (Line ${data.line})${isExternal ? ' [External]' : ''}`}
+            title={`${data.kind}: ${data.label} (Line ${data.line})${isExternal ? ' [External]' : ''}${isSelected ? ' [Selected]' : ''}${data.isHighlighted ? ' [Highlighted]' : ''}`}
+            onClick={handleClick}
+            onDoubleClick={handleDoubleClick}
+            onKeyDown={(e) => {
+                if (e.key === 'Enter' || e.key === ' ') {
+                    e.preventDefault();
+                    handleClick(e as unknown as React.MouseEvent);
+                }
+            }}
         >
             <Handle type="target" position={Position.Left} style={{ visibility: 'hidden' }} />
 
@@ -138,6 +207,6 @@ export const SymbolNode: React.FC<NodeProps<SymbolNodeData>> = ({ data }) => {
             )}
 
             <Handle type="source" position={Position.Right} style={{ visibility: 'hidden' }} />
-        </div >
+        </button >
     );
 };
