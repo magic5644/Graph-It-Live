@@ -119,19 +119,29 @@ suite('Symbol Selection E2E Tests', () => {
     await vscode.commands.executeCommand('graph-it-live.showGraph', testFile);
     await new Promise((resolve) => setTimeout(resolve, 2000));
 
-    // Make a trivial edit (add a comment)
-    await editor.edit((editBuilder) => {
-      editBuilder.insert(new vscode.Position(0, 0), '// Test comment\n');
-    });
+    const originalContent = document.getText();
 
-    // Save the file (should trigger cache invalidation)
-    await document.save();
-    await new Promise((resolve) => setTimeout(resolve, 1500));
+    try {
+      // Make a trivial edit (add a comment)
+      await editor.edit((editBuilder) => {
+        editBuilder.insert(new vscode.Position(0, 0), '// Test comment\n');
+      });
 
-    // Undo the edit
-    await vscode.commands.executeCommand('undo');
-    await document.save();
-    await new Promise((resolve) => setTimeout(resolve, 500));
+      // Save the file (should trigger cache invalidation)
+      await document.save();
+      await new Promise((resolve) => setTimeout(resolve, 1500));
+    } finally {
+      // Always restore original content to avoid test fixtures drifting
+      const restoreEdit = new vscode.WorkspaceEdit();
+      restoreEdit.replace(
+        document.uri,
+        new vscode.Range(0, 0, document.lineCount, 0),
+        originalContent,
+      );
+      await vscode.workspace.applyEdit(restoreEdit);
+      await document.save();
+      await new Promise((resolve) => setTimeout(resolve, 500));
+    }
 
     assert.ok(true, 'Cache invalidation triggered successfully');
   });

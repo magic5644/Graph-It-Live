@@ -94,7 +94,7 @@ export const AtomicSymbolGraph: React.FC<AtomicSymbolGraphProps> = ({
     // Build hierarchy: add methods to their classes
     const rootNodes: TreeNode[] = [];
     symbols.forEach(symbol => {
-      const parentId = (symbol as any).parentSymbolId;
+      const parentId = symbol.parentSymbolId;
       const node = nodeMap.get(symbol.id)!;
 
       if (parentId && nodeMap.has(parentId)) {

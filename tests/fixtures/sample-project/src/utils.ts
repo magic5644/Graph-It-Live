@@ -1,12 +1,4 @@
 // Test comment
-// Test comment
-// Test comment
-// Test comment
-// Test comment
-// Test comment
-// Test comment
-// Test comment
-// Test comment
 
 export function greet(name: string): string {
   return `Hello, ${name}!`;

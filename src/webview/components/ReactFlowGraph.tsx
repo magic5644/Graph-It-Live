@@ -33,6 +33,15 @@ const log = getLogger("ReactFlowGraph");
 
 /** Layout type for graph visualization */
 type LayoutType = "hierarchical" | "force" | "radial";
+type EdgeDirection = "incoming" | "outgoing";
+type EdgeWithDirection = Edge<{ direction?: EdgeDirection }> & {
+  direction?: EdgeDirection;
+};
+
+const getEdgeDirection = (edge: Edge): EdgeDirection | undefined => {
+  const typedEdge = edge as EdgeWithDirection;
+  return typedEdge.direction ?? typedEdge.data?.direction;
+};
 
 // Inject React Flow CSS
 if (
@@ -630,8 +639,7 @@ const ReactFlowGraphContent: React.FC<ReactFlowGraphProps> = ({
     }
     
     return edges.map((edge) => {
-      // Check if edge has direction metadata
-      const edgeData = edge as any; // Cast to access direction property
+      const direction = getEdgeDirection(edge);
       
       // Recursive edges keep their red styling from processedEdges
       if (edge.source === edge.target) {
@@ -651,7 +659,7 @@ const ReactFlowGraphContent: React.FC<ReactFlowGraphProps> = ({
         };
       }
       
-      if (edgeData.direction === 'incoming') {
+      if (direction === "incoming") {
         // Incoming calls: green dashed
         return {
           ...edge,
@@ -661,7 +669,7 @@ const ReactFlowGraphContent: React.FC<ReactFlowGraphProps> = ({
             strokeDasharray: '5,5',
           },
         };
-      } else if (edgeData.direction === 'outgoing') {
+      } else if (direction === "outgoing") {
         // Outgoing calls: blue solid
         return {
           ...edge,
