@@ -1,5 +1,5 @@
-import { getLogger } from "@/shared/logger";
-import type { SymbolCluster, SymbolNode } from "@/shared/types";
+import { getLogger } from "../../shared/logger";
+import type { SymbolCluster, SymbolNode } from "../../shared/types";
 
 const log = getLogger("clusterUtils");
 

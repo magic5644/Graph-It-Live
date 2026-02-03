@@ -404,7 +404,6 @@
           "description": "Enable LSP-based call hierarchy analysis in symbol view. Adds 'call' relationships showing which functions call each other within a file.",
           "markdownDescription": "**[Experimental]** Enable LSP-based call hierarchy analysis in symbol view.\n\nWhen enabled, the drill-down symbol view will show:\n- **call** edges (which functions call each other)\n- **reference** edges (which symbols reference each other)\n\nThis provides richer information but may be slower for large files. Requires an active language server."
         },
-
         "graph-it-live.callHierarchyMaxFileSize": {
           "type": "number",
           "default": 5000,
@@ -473,7 +472,7 @@
   "devDependencies": {
     "@eslint/js": "^9.39.2",
     "@types/mocha": "^10.0.10",
-    "@types/node": "^25.0.10",
+    "@types/node": "^25.2.0",
     "@types/react": "^19.2.10",
     "@types/react-dom": "^19.2.3",
     "@types/vscode": "^1.96.0",
@@ -487,7 +486,7 @@
     "globals": "^16.5.0",
     "mocha": "^11.7.5",
     "typescript": "^5.9.3",
-    "typescript-eslint": "^8.53.1",
+    "typescript-eslint": "^8.54.0",
     "vitest": "^4.0.18"
   },
   "overrides": {

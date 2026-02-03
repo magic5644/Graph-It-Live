@@ -1,21 +1,23 @@
 import React from "react";
 import {
-    getLogger,
-    type ILogger,
-    type LogLevel,
-    setLoggerBackend,
+  getLogger,
+  type ILogger,
+  type LogLevel,
+  setLoggerBackend,
 } from "../shared/logger";
 import {
-    ExpandedGraphMessage,
-    ExtensionToWebviewMessage,
-    GraphData,
-    ReferencingFilesMessage,
-    ShowGraphMessage,
-    SymbolDependency,
-    SymbolGraphMessage,
-    SymbolInfo,
-    UpdateFilterMessage,
-    WebviewToExtensionMessage,
+  EmptyStateMessage,
+  ExpandedGraphMessage,
+  ExpansionProgressMessage,
+  ExtensionToWebviewMessage,
+  GraphData,
+  ReferencingFilesMessage,
+  ShowGraphMessage,
+  SymbolDependency,
+  SymbolGraphMessage,
+  SymbolInfo,
+  UpdateFilterMessage,
+  WebviewToExtensionMessage,
 } from "../shared/types";
 import { AtomicSymbolGraph } from "./components/AtomicSymbolGraph";
 import { BreadcrumbNav } from "./components/reactflow/BreadcrumbNav";
@@ -24,8 +26,8 @@ import SymbolCardView from "./components/SymbolCardView";
 import { mergeGraphDataUnion } from "./utils/graphMerge";
 import { normalizePath } from "./utils/path";
 import {
-    applyUpdateGraph,
-    isUpdateGraphNavigation,
+  applyUpdateGraph,
+  isUpdateGraphNavigation,
 } from "./utils/updateGraphReducer";
 
 /** Logger instance for App */
@@ -474,7 +476,7 @@ const App: React.FC = () => {
   ); // No state/callback deps - prevents re-render cascade
 
   // Handle empty state message
-  const handleEmptyStateMessage = React.useCallback((message: ExtensionToWebviewMessage & { command: 'emptyState' }) => {
+  const handleEmptyStateMessage = React.useCallback((message: EmptyStateMessage) => {
     setEmptyStateMessage(message.message || "No file is currently open");
     setGraphData((current) =>
       message.reason === "no-file-open" ? current : null,
@@ -516,7 +518,7 @@ const App: React.FC = () => {
   }, []);
 
   // Handle expansion progress updates
-  const handleExpansionProgress = React.useCallback((message: ExtensionToWebviewMessage & { command: 'expansionProgress' }) => {
+  const handleExpansionProgress = React.useCallback((message: ExpansionProgressMessage) => {
     if (clearExpansionTimeoutRef.current) {
       clearTimeout(clearExpansionTimeoutRef.current);
       clearExpansionTimeoutRef.current = null;
@@ -566,7 +568,7 @@ const App: React.FC = () => {
           handleUpdateFilterMessage(message as UpdateFilterMessage);
           break;
         case "emptyState":
-          handleEmptyStateMessage(message as ExtensionToWebviewMessage & { command: 'emptyState' });
+          handleEmptyStateMessage(message as EmptyStateMessage);
           break;
         case "symbolGraph":
           handleSymbolGraphMessage(message as SymbolGraphMessage);
@@ -584,7 +586,7 @@ const App: React.FC = () => {
           handleSetExpandAll(message.expandAll);
           break;
         case "expansionProgress":
-          handleExpansionProgress(message as ExtensionToWebviewMessage & { command: 'expansionProgress' });
+          handleExpansionProgress(message as ExpansionProgressMessage);
           break;
       }
     };
