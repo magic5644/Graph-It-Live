@@ -1,4 +1,3 @@
-import { randomBytes } from "node:crypto";
 import * as path from "node:path";
 import * as vscode from "vscode";
 import type { IndexerStatusSnapshot } from "../analyzer/IndexerStatus";
@@ -26,6 +25,7 @@ import { SourceFileWatcher } from "./services/SourceFileWatcher";
 import { SymbolViewService } from "./services/SymbolViewService";
 import { UnusedAnalysisCache } from "./services/UnusedAnalysisCache";
 import { WebviewMessageRouter } from "./services/WebviewMessageRouter";
+import { WebviewManager } from "./WebviewManager";
 
 /** Logger instance for GraphProvider */
 const log = getExtensionLogger("GraphProvider");
@@ -39,6 +39,7 @@ export class GraphProvider implements vscode.WebviewViewProvider {
   private _view?: vscode.WebviewView;
   private _spider?: Spider;
   private readonly _extensionUri: vscode.Uri;
+  private readonly _webviewManager: WebviewManager;
   private readonly _indexingManager?: BackgroundIndexingManager;
   private readonly _sourceFileWatcher?: SourceFileWatcher;
   private readonly _fileChangeScheduler?: FileChangeScheduler;
@@ -119,6 +120,7 @@ export class GraphProvider implements vscode.WebviewViewProvider {
 
   constructor(extensionUri: vscode.Uri, context: vscode.ExtensionContext) {
     this._extensionUri = extensionUri;
+    this._webviewManager = new WebviewManager(extensionUri);
     this._stateManager = new ProviderStateManager(
       context,
       DEFAULT_INDEXING_START_DELAY,
@@ -906,12 +908,8 @@ export class GraphProvider implements vscode.WebviewViewProvider {
   ) {
     this._view = webviewView;
 
-    webviewView.webview.options = {
-      enableScripts: true,
-      localResourceRoots: [this._extensionUri],
-    };
-
-    webviewView.webview.html = this._getHtmlForWebview(webviewView.webview);
+    webviewView.webview.options = this._webviewManager.getWebviewOptions();
+    webviewView.webview.html = this._webviewManager.getHtmlForWebview(webviewView.webview);
 
     webviewView.webview.onDidReceiveMessage(
       async (message: WebviewToExtensionMessage) => {
@@ -1504,58 +1502,4 @@ export class GraphProvider implements vscode.WebviewViewProvider {
       log.error("Failed to analyze file:", error);
     }
   }
-
-  private _getHtmlForWebview(webview: vscode.Webview) {
-    const scriptUri = webview.asWebviewUri(
-      vscode.Uri.joinPath(this._extensionUri, "dist", "webview.js"),
-    );
-    const nonce = getNonce();
-
-    return `<!DOCTYPE html>
-<html lang="en">
-<head>
-    <meta charset="UTF-8">
-    <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src ${webview.cspSource} 'unsafe-inline'; script-src 'nonce-${nonce}'; img-src ${webview.cspSource} data:;">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Graph-It-Live</title>
-    <style>
-        html, body { height: 100%; margin: 0; padding: 0; overflow: hidden; }
-        body { font-family: var(--vscode-font-family); }
-        #root {
-            height: 100%;
-            margin: 0;
-            padding: 0;
-            overflow: hidden;
-            background-color: var(--vscode-editor-background);
-            color: var(--vscode-editor-foreground);
-        }
-        .control-btn {
-            background: var(--vscode-button-background);
-            color: var(--vscode-button-foreground);
-            border: none;
-            border-radius: 2px;
-            width: 24px;
-            height: 24px;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            cursor: pointer;
-        }
-        .control-btn:hover {
-            background: var(--vscode-button-hoverBackground);
-        }
-        .react-flow__attribution { display: none; }
-    </style>
-</head>
-<body>
-    <div id="root"></div>
-    <script nonce="${nonce}" src="${scriptUri}"></script>
-</body>
-</html>`;
-  }
-}
-
-function getNonce() {
-  // Use cryptographically secure random bytes instead of Math.random (S224)
-  return randomBytes(16).toString("hex"); // 32 hex chars
 }
