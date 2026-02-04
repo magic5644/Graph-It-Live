@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { GraphProvider } from '../../src/extension/GraphProvider';
 import type { VsCodeLogger } from '../../src/extension/extensionLogger';
+import type { CommandCoordinator } from '../../src/extension/services/CommandCoordinator';
 import { CommandRegistrationService } from '../../src/extension/services/CommandRegistrationService';
 
 vi.mock('vscode', () => {
@@ -41,30 +42,37 @@ import * as vscode from 'vscode';
 const {
   registeredHandlers,
   executeCommand,
-  showInformationMessage,
   showErrorMessage,
   registerCommand,
 } = (vscode as unknown as { __mocks: {
   registeredHandlers: Map<string, (...args: unknown[]) => unknown>;
   executeCommand: ReturnType<typeof vi.fn>;
-  showInformationMessage: ReturnType<typeof vi.fn>;
   showErrorMessage: ReturnType<typeof vi.fn>;
   registerCommand: ReturnType<typeof vi.fn>;
 } }).__mocks;
 
 function createProviderMock(): GraphProvider {
   return {
-    forceReindex: vi.fn(),
-    expandAllNodes: vi.fn(),
-    refreshGraph: vi.fn(),
-    setViewModeFile: vi.fn(),
-    setViewModeList: vi.fn(),
-    setViewModeSymbol: vi.fn(),
-    showReverseDependencies: vi.fn(),
-    hideReverseDependencies: vi.fn(),
-    getIndexStatus: vi.fn(),
     getViewMode: vi.fn().mockReturnValue('file'), // E2E test helper
+    getReverseDependenciesVisible: vi.fn().mockReturnValue(false),
   } as unknown as GraphProvider;
+}
+
+function createCommandCoordinatorMock(): CommandCoordinator {
+  return {
+    handleForceReindex: vi.fn(),
+    handleExpandAll: vi.fn(),
+    handleRefreshGraph: vi.fn(),
+    handleToggleViewMode: vi.fn(),
+    handleSetViewModeFile: vi.fn(),
+    handleSetViewModeList: vi.fn(),
+    handleSetViewModeSymbol: vi.fn(),
+    handleShowReverseDependencies: vi.fn(),
+    handleHideReverseDependencies: vi.fn(),
+    handleEnableUnusedFilter: vi.fn(),
+    handleDisableUnusedFilter: vi.fn(),
+    handleShowIndexStatus: vi.fn(),
+  } as unknown as CommandCoordinator;
 }
 
 function createLoggerMock(): VsCodeLogger {
@@ -83,15 +91,15 @@ describe('CommandRegistrationService', () => {
   beforeEach(() => {
     registeredHandlers.clear();
     executeCommand.mockReset();
-    showInformationMessage.mockReset();
     showErrorMessage.mockReset();
     registerCommand.mockClear();
   });
 
   it('registers all Graph-it-Live commands', () => {
     const provider = createProviderMock();
+    const commandCoordinator = createCommandCoordinatorMock();
     const logger = createLoggerMock();
-    const service = new CommandRegistrationService({ provider, logger });
+    const service = new CommandRegistrationService({ provider, commandCoordinator, logger });
 
     const disposables = service.registerAll();
 
@@ -115,8 +123,9 @@ describe('CommandRegistrationService', () => {
 
   it('focuses the view when showGraph is executed', async () => {
     const provider = createProviderMock();
+    const commandCoordinator = createCommandCoordinatorMock();
     const logger = createLoggerMock();
-    const service = new CommandRegistrationService({ provider, logger });
+    const service = new CommandRegistrationService({ provider, commandCoordinator, logger });
 
     service.registerAll();
     const handler = registeredHandlers.get('graph-it-live.showGraph');
@@ -128,23 +137,24 @@ describe('CommandRegistrationService', () => {
 
   it('executes provider commands and reports success', async () => {
     const provider = createProviderMock();
+    const commandCoordinator = createCommandCoordinatorMock();
     const logger = createLoggerMock();
-    const service = new CommandRegistrationService({ provider, logger });
+    const service = new CommandRegistrationService({ provider, commandCoordinator, logger });
 
     service.registerAll();
     const forceReindexHandler = registeredHandlers.get('graph-it-live.forceReindex');
     expect(forceReindexHandler).toBeDefined();
 
     await forceReindexHandler?.();
-    expect((provider.forceReindex as ReturnType<typeof vi.fn>)).toHaveBeenCalled();
-    expect(showInformationMessage).toHaveBeenCalledWith('Graph-It-Live: Re-index triggered');
+    expect((commandCoordinator.handleForceReindex as ReturnType<typeof vi.fn>)).toHaveBeenCalled();
   });
 
   it('logs and shows errors when commands fail', async () => {
     const provider = createProviderMock();
-    (provider.refreshGraph as ReturnType<typeof vi.fn>).mockRejectedValue(new Error('fail'));
+    const commandCoordinator = createCommandCoordinatorMock();
+    (commandCoordinator.handleRefreshGraph as ReturnType<typeof vi.fn>).mockRejectedValue(new Error('fail'));
     const logger = createLoggerMock();
-    const service = new CommandRegistrationService({ provider, logger });
+    const service = new CommandRegistrationService({ provider, commandCoordinator, logger });
 
     service.registerAll();
     const refreshHandler = registeredHandlers.get('graph-it-live.refreshGraph');
@@ -160,20 +170,15 @@ describe('CommandRegistrationService', () => {
 
   it('shows indexer information when available', async () => {
     const provider = createProviderMock();
-    (provider.getIndexStatus as ReturnType<typeof vi.fn>).mockReturnValue({
-      state: 'indexing',
-      processed: 1,
-      total: 10,
-      percentage: 10,
-    });
+    const commandCoordinator = createCommandCoordinatorMock();
     const logger = createLoggerMock();
-    const service = new CommandRegistrationService({ provider, logger });
+    const service = new CommandRegistrationService({ provider, commandCoordinator, logger });
 
     service.registerAll();
     const handler = registeredHandlers.get('graph-it-live.showIndexStatus');
     expect(handler).toBeDefined();
 
     await handler?.();
-    expect(showInformationMessage).toHaveBeenCalledWith('Indexer: indexing 1/10 (10%)');
+    expect((commandCoordinator.handleShowIndexStatus as ReturnType<typeof vi.fn>)).toHaveBeenCalled();
   });
 });
