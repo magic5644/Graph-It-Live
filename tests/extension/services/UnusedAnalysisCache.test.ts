@@ -67,6 +67,9 @@ describe('UnusedAnalysisCache - LRU Eviction', () => {
       testFiles.push(filePath);
     }
 
+    // Small delay to ensure filesystem timestamps are stable
+    await new Promise(resolve => setTimeout(resolve, 10));
+
     // Add 10 entries to fill the cache
     for (let i = 0; i < 10; i++) {
       const results = new Map([[testFiles[i], true]]);
@@ -77,8 +80,14 @@ describe('UnusedAnalysisCache - LRU Eviction', () => {
     expect(stats.entries).toBe(10);
     expect(stats.maxEntries).toBe(10);
 
+    // Small delay before accessing to ensure lastAccess timestamps are different
+    await new Promise(resolve => setTimeout(resolve, 10));
+
     // Access entry 0 to make it more recently used
     await cache.get(testFiles[0], [testFiles[0]]);
+
+    // Small delay before adding new entry to ensure different timestamp
+    await new Promise(resolve => setTimeout(resolve, 10));
 
     // Add 11th entry - should evict entry 1 (oldest access)
     const results11 = new Map([[testFiles[10], true]]);
