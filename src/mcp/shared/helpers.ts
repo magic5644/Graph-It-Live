@@ -8,11 +8,9 @@
 import * as fs from "node:fs/promises";
 import * as path from "node:path";
 import { SUPPORTED_SYMBOL_ANALYSIS_EXTENSIONS } from "../../shared/constants";
-import { getLogger } from "../../shared/logger";
 import { detectLanguageFromExtension } from "../../shared/utils/languageDetection";
 import type { EdgeInfo, NodeInfo } from "../types";
 
-const log = getLogger("McpHelpers");
 
 // ============================================================================
 // Path Utilities
