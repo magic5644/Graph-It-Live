@@ -1,4 +1,5 @@
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
+import type * as vscode from "vscode";
 import { WebviewManager } from "../../src/extension/WebviewManager";
 
 // Mock vscode module
@@ -13,8 +14,8 @@ vi.mock("vscode", () => {
   };
 });
 
-// Import after mocking
-const vscode = await import("vscode");
+// Import vscode for runtime mocking
+const { Uri } = await import("vscode");
 
 describe("WebviewManager", () => {
   let webviewManager: WebviewManager;
@@ -26,7 +27,7 @@ describe("WebviewManager", () => {
     mockExtensionUri = { fsPath: "/test/extension" } as vscode.Uri;
 
     // Mock Uri.joinPath
-    vi.mocked(vscode.Uri.joinPath).mockReturnValue({
+      vi.mocked(Uri.joinPath).mockReturnValue({
       fsPath: "/test/extension/dist",
     } as vscode.Uri);
 
@@ -57,7 +58,7 @@ describe("WebviewManager", () => {
       const options = webviewManager.getWebviewOptions();
 
       expect(options.localResourceRoots).toHaveLength(1);
-      expect(vscode.Uri.joinPath).toHaveBeenCalledWith(
+        expect(Uri.joinPath).toHaveBeenCalledWith(
         mockExtensionUri,
         "dist",
       );
@@ -150,7 +151,7 @@ describe("WebviewManager", () => {
       webviewManager.getHtmlForWebview(mockWebview);
 
       expect(mockWebview.asWebviewUri).toHaveBeenCalled();
-      expect(vscode.Uri.joinPath).toHaveBeenCalledWith(
+        expect(Uri.joinPath).toHaveBeenCalledWith(
         mockExtensionUri,
         "dist",
         "webview.js",
