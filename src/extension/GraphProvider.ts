@@ -38,7 +38,6 @@ export class GraphProvider implements vscode.WebviewViewProvider {
 
   private _view?: vscode.WebviewView;
   private _spider?: Spider;
-  private readonly _extensionUri: vscode.Uri;
   private readonly _webviewManager: WebviewManager;
   private readonly _indexingManager?: BackgroundIndexingManager;
   private readonly _sourceFileWatcher?: SourceFileWatcher;
@@ -119,7 +118,6 @@ export class GraphProvider implements vscode.WebviewViewProvider {
   }
 
   constructor(extensionUri: vscode.Uri, context: vscode.ExtensionContext) {
-    this._extensionUri = extensionUri;
     this._webviewManager = new WebviewManager(extensionUri);
     this._stateManager = new ProviderStateManager(
       context,
