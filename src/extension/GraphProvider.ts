@@ -5,18 +5,17 @@ import { Spider } from "../analyzer/Spider";
 import { SUPPORTED_SOURCE_FILE_REGEX } from "../shared/constants";
 import type {
   ExtensionToWebviewMessage,
-  SetExpandAllMessage,
-  SwitchModeMessage,
-  WebviewLogMessage,
   WebviewToExtensionMessage,
 } from "../shared/types";
-import { extensionLoggerManager, getExtensionLogger } from "./extensionLogger";
+import { getExtensionLogger } from "./extensionLogger";
 import { BackgroundIndexingManager } from "./services/BackgroundIndexingManager";
 import { EditorNavigationService } from "./services/EditorNavigationService";
 import { ExtensionEventHub } from "./services/ExtensionEventHub";
 import type { EventType } from "./services/FileChangeScheduler";
 import { FileChangeScheduler } from "./services/FileChangeScheduler";
+import { GraphState } from "./services/GraphState";
 import { GraphViewService } from "./services/GraphViewService";
+import { MessageDispatcher } from "./services/MessageDispatcher";
 import { NodeInteractionService } from "./services/NodeInteractionService";
 import {
   ProviderConfigSnapshot,
@@ -25,7 +24,6 @@ import {
 import { SourceFileWatcher } from "./services/SourceFileWatcher";
 import { SymbolViewService } from "./services/SymbolViewService";
 import { UnusedAnalysisCache } from "./services/UnusedAnalysisCache";
-import { WebviewMessageRouter } from "./services/WebviewMessageRouter";
 import { WebviewManager } from "./WebviewManager";
 
 /** Logger instance for GraphProvider */
@@ -44,17 +42,13 @@ export class GraphProvider implements vscode.WebviewViewProvider {
   private readonly _sourceFileWatcher?: SourceFileWatcher;
   private readonly _fileChangeScheduler?: FileChangeScheduler;
   private _configSnapshot: ProviderConfigSnapshot;
-  private readonly _messageRouter: WebviewMessageRouter;
+  private readonly _messageDispatcher: MessageDispatcher;
   private readonly _graphViewService?: GraphViewService;
   private readonly _symbolViewService?: SymbolViewService;
   private readonly _nodeInteractionService?: NodeInteractionService;
   private readonly _navigationService?: EditorNavigationService;
   private readonly _stateManager: ProviderStateManager;
-  private _reverseDependenciesVisible = false; // Track reverse dependencies visibility state
-  private readonly _activeExpansionControllers = new Map<
-    string,
-    AbortController
-  >();
+  private readonly _graphState: GraphState;
   private readonly _unusedAnalysisCache?: UnusedAnalysisCache;
   private readonly _fileSaveListener?: vscode.Disposable;
   private readonly _eventHub?: ExtensionEventHub;
@@ -124,6 +118,7 @@ export class GraphProvider implements vscode.WebviewViewProvider {
       context,
       DEFAULT_INDEXING_START_DELAY,
     );
+    this._graphState = new GraphState(this._stateManager);
     this._configSnapshot = this._stateManager.loadConfiguration();
 
     this._initializeSpider(this._configSnapshot);
@@ -195,62 +190,35 @@ export class GraphProvider implements vscode.WebviewViewProvider {
       );
       context.subscriptions.push(this._fileSaveListener);
     }
-
-    this._messageRouter = new WebviewMessageRouter({
-      logger: log,
-      handlers: {
-        openFile: async (m) => {
-          if (m.path) await this.handleOpenFile(m.path, m.line);
-        },
-        expandNode: async (m) => {
-          if (m.nodeId) await this.handleExpandNode(m.nodeId, m.knownNodes);
-        },
-        cancelExpandNode: async (m) => {
-          await this.handleCancelExpandNode(m.nodeId);
-        },
-        setExpandAll: async (m) => {
-          await this._handleSetExpandAllMessage(m);
-        },
-        refreshGraph: async () => {
-          await this.refreshGraph();
-        },
-        findReferencingFiles: async (m) => {
-          if (m.nodeId) await this.handleFindReferencingFiles(m.nodeId);
-        },
-        drillDown: async (m) => {
-          if (m.filePath) await this.handleDrillDown(m.filePath);
-        },
-        ready: async () => {
-          log.debug("Webview ready, sending initial graph");
-          await this.updateGraph();
-        },
-        webviewLog: async (m) => {
-          await this._forwardWebviewLog(m);
-        },
-        switchMode: async (m) => {
-          await this._handleSwitchModeMessage(m);
-        },
-        enableUnusedFilter: async () => {
-          if (!this.getUnusedFilterActive()) {
-            await this.toggleUnusedFilter();
-          }
-        },
-        disableUnusedFilter: async () => {
-          if (this.getUnusedFilterActive()) {
-            await this.toggleUnusedFilter();
-          }
-        },
-        selectSymbol: async (m) => {
-          await this.handleSelectSymbol(m.symbolId);
-        },
-        navigateToSymbol: async (m) => {
-          if (m.filePath && m.line) {
-            await this.handleOpenFile(m.filePath, m.line);
-          }
-        },
+    this._messageDispatcher = new MessageDispatcher({
+      graphState: this._graphState,
+      getUnusedFilterActive: this.getUnusedFilterActive.bind(this),
+      toggleUnusedFilter: this.toggleUnusedFilter.bind(this),
+      handleOpenFile: this.handleOpenFile.bind(this),
+      handleExpandNode: this.handleExpandNode.bind(this),
+      handleCancelExpandNode: this.handleCancelExpandNode.bind(this),
+      handleFindReferencingFiles: this.handleFindReferencingFiles.bind(this),
+      handleDrillDown: this.handleDrillDown.bind(this),
+      updateGraph: this.updateGraph.bind(this),
+      refreshGraph: this.refreshGraph.bind(this),
+      handleSelectSymbol: this.handleSelectSymbol.bind(this),
+      sendGraphUpdate: this._sendGraphUpdate.bind(this),
+      setViewMode: this._stateManager.setViewMode.bind(this._stateManager),
+      getViewMode: () => this._stateManager.viewMode,
+      getSelectedSymbolId: () => this._stateManager.selectedSymbolId,
+      setSelectedSymbolId: (symbolId) => {
+        this._stateManager.selectedSymbolId = symbolId;
       },
+      getLastActiveFilePath: () => this._stateManager.getLastActiveFilePath(),
+      parseFilePathAndSymbol: (symbolId) =>
+        this._navigationService?.parseFilePathAndSymbol(symbolId),
+      getActiveEditorFilePath: () => {
+        const editor = vscode.window.activeTextEditor;
+        if (editor?.document.uri.scheme !== "file") return undefined;
+        return editor.document.fileName;
+      },
+      logger: log,
     });
-    // Note: Indexing is now deferred until resolveWebviewView() is called
   }
 
   private async _refreshAfterIndexing(): Promise<void> {
@@ -258,46 +226,6 @@ export class GraphProvider implements vscode.WebviewViewProvider {
       await this.handleDrillDown(this._stateManager.currentSymbol, true);
     } else {
       await this.updateGraph(true, "indexing");
-    }
-  }
-
-  private async _handleSetExpandAllMessage(
-    message: SetExpandAllMessage,
-  ): Promise<void> {
-    log.debug("Setting expandAll to", message.expandAll);
-    await this._stateManager.setExpandAll(message.expandAll);
-  }
-
-  private async _handleSwitchModeMessage(
-    message: SwitchModeMessage,
-  ): Promise<void> {
-    log.debug("Switching to", message.mode, "mode");
-    if (message.mode === "file") {
-      const previousSymbolId = this._stateManager.selectedSymbolId;
-      await this._stateManager.setViewMode("file");
-      this._stateManager.selectedSymbolId = undefined;
-
-      // Switching back to file view should not depend on an active text editor,
-      // otherwise clicking "File View" from the Symbol view can get stuck when
-      // the active editor is an output/virtual document.
-      const fallbackLastFile = this._stateManager.getLastActiveFilePath();
-      const candidate = previousSymbolId
-        ? this._navigationService?.parseFilePathAndSymbol(previousSymbolId)
-            .actualFilePath
-        : undefined;
-      const targetFilePath = candidate || fallbackLastFile;
-
-      if (targetFilePath && SUPPORTED_SOURCE_FILE_REGEX.test(targetFilePath)) {
-        await this._sendGraphUpdate(targetFilePath, false);
-        return;
-      }
-
-      this.updateGraph();
-    } else if (message.mode === "symbol") {
-      const editor = vscode.window.activeTextEditor;
-      if (editor?.document.uri.scheme === "file") {
-        await this.handleDrillDown(editor.document.fileName);
-      }
     }
   }
 
@@ -431,9 +359,9 @@ export class GraphProvider implements vscode.WebviewViewProvider {
 
     // Cancel only the previous expansion for the same node.
     // Cancelling across different nodes makes fast user interactions unreliable.
-    this._activeExpansionControllers.get(nodeId)?.abort();
+    this._graphState.getExpansionController(nodeId)?.abort();
     const abortController = new AbortController();
-    this._activeExpansionControllers.set(nodeId, abortController);
+    this._graphState.setExpansionController(nodeId, abortController);
 
     const sendProgress = (
       status: "started" | "in-progress" | "completed" | "cancelled" | "error",
@@ -491,9 +419,9 @@ export class GraphProvider implements vscode.WebviewViewProvider {
         e instanceof Error ? e.message : "Unknown error",
       );
     } finally {
-      const current = this._activeExpansionControllers.get(nodeId);
+      const current = this._graphState.getExpansionController(nodeId);
       if (current === abortController)
-        this._activeExpansionControllers.delete(nodeId);
+        this._graphState.deleteExpansionController(nodeId);
     }
   }
 
@@ -502,14 +430,11 @@ export class GraphProvider implements vscode.WebviewViewProvider {
    */
   private async handleCancelExpandNode(nodeId?: string): Promise<void> {
     if (!nodeId) {
-      for (const controller of this._activeExpansionControllers.values()) {
-        controller.abort();
-      }
-      this._activeExpansionControllers.clear();
+      this._graphState.abortAndClearExpansionControllers();
       return;
     }
 
-    const controller = this._activeExpansionControllers.get(nodeId);
+    const controller = this._graphState.getExpansionController(nodeId);
     controller?.abort();
   }
 
@@ -770,7 +695,7 @@ export class GraphProvider implements vscode.WebviewViewProvider {
 
     webviewView.webview.onDidReceiveMessage(
       async (message: WebviewToExtensionMessage) => {
-        await this._messageRouter.handle(message);
+        await this._messageDispatcher.handle(message);
       },
     );
 
@@ -801,26 +726,6 @@ export class GraphProvider implements vscode.WebviewViewProvider {
     this.updateGraph();
   }
 
-  private async _forwardWebviewLog(message: WebviewLogMessage) {
-    const level = message.level ?? "info";
-    const msg = message.message ?? "";
-    const args = message.args ?? [];
-    const webviewLogger = extensionLoggerManager.getLogger("Webview");
-    switch (level) {
-      case "debug":
-        webviewLogger.debug(msg, ...args);
-        break;
-      case "info":
-        webviewLogger.info(msg, ...args);
-        break;
-      case "warn":
-        webviewLogger.warn(msg, ...args);
-        break;
-      case "error":
-        webviewLogger.error(msg, ...args);
-        break;
-    }
-  }
 
   /**
    * Force a full re-index immediately (useful for debugging / command palette)
@@ -860,10 +765,7 @@ export class GraphProvider implements vscode.WebviewViewProvider {
       // In file view - behave like "re-open current file":
       // reset state in the webview and cancel any ongoing expansions.
         log.info("Refreshing file view");
-        for (const controller of this._activeExpansionControllers.values()) {
-          controller.abort();
-        }
-        this._activeExpansionControllers.clear();
+        this._graphState.abortAndClearExpansionControllers();
         await this.updateGraph(false, "manual");
       }
     } catch (error) {
@@ -1048,7 +950,7 @@ export class GraphProvider implements vscode.WebviewViewProvider {
     }
 
     // Set context to indicate reverse dependencies are visible
-    this._reverseDependenciesVisible = true;
+    this._graphState.setReverseDependenciesVisible(true);
     await vscode.commands.executeCommand(
       "setContext",
       "graph-it-live.reverseDependenciesVisible",
@@ -1077,7 +979,7 @@ export class GraphProvider implements vscode.WebviewViewProvider {
     });
 
     // Clear context to indicate reverse dependencies are hidden
-    this._reverseDependenciesVisible = false;
+    this._graphState.setReverseDependenciesVisible(false);
     await vscode.commands.executeCommand(
       "setContext",
       "graph-it-live.reverseDependenciesVisible",
@@ -1098,11 +1000,11 @@ export class GraphProvider implements vscode.WebviewViewProvider {
     }
 
     // Get current state and toggle it
-    const currentExpandAll = this._stateManager.getExpandAll();
+    const currentExpandAll = this._graphState.getExpandAll();
     const newExpandAll = !currentExpandAll;
 
     // Update state
-    await this._stateManager.setExpandAll(newExpandAll);
+    await this._graphState.setExpandAll(newExpandAll);
 
     // Send message to webview to toggle expand/collapse
     const message: ExtensionToWebviewMessage = {
@@ -1132,7 +1034,7 @@ export class GraphProvider implements vscode.WebviewViewProvider {
    * Get current unused dependency filter state
    */
   public getUnusedFilterActive(): boolean {
-    return this._stateManager.getUnusedFilterActive();
+    return this._graphState.getUnusedFilterActive();
   }
 
   /**
@@ -1148,7 +1050,7 @@ export class GraphProvider implements vscode.WebviewViewProvider {
    * @returns True if reverse dependencies are visible
    */
   public getReverseDependenciesVisible(): boolean {
-    return this._reverseDependenciesVisible;
+    return this._graphState.getReverseDependenciesVisible();
   }
 
   /**
