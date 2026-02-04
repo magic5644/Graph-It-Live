@@ -39,7 +39,7 @@ export class WorkerState {
     completed: false,
   };
   private _fileWatcher: FSWatcher | null = null;
-  private _pendingInvalidations = new Map<string, NodeJS.Timeout>();
+    private readonly _pendingInvalidations = new Map<string, NodeJS.Timeout>();
 
   // ============================================================================
   // Core Components

@@ -31,7 +31,7 @@ describe("MCP Worker Helpers", () => {
 
     it("should normalize backslashes to forward slashes (cross-platform)", () => {
       // Test the normalization logic with a realistic relative path
-      const absolutePath = "/Users/test/project/src\\subdir\\file.ts";
+        const absolutePath = "/Users/test/project/src\\subdir\\file.ts"; //NOSONAR
       const workspaceRoot = "/Users/test/project";
       const result = getRelativePath(absolutePath, workspaceRoot);
       // The path.relative will compute the relative path, and we normalize backslashes
