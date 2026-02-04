@@ -90,6 +90,9 @@ async function handleInit(cfg: McpWorkerConfig): Promise<void> {
     maxDepth: cfg.maxDepth,
   });
 
+  // Store configuration
+  workerState.config = cfg;
+
   // Initialize components
   workerState.parser = new Parser();
   workerState.resolver = new PathResolver(

@@ -90,6 +90,16 @@ describe("WorkerState", () => {
       );
     });
 
+      it("should throw if config missing", () => {
+          state.isReady = true;
+          state.spider = {} as any;
+          state.parser = {} as any;
+          state.resolver = {} as any;
+          expect(() => state.requireReady()).toThrow(
+              /Worker not initialized.*Missing:.*config/
+          );
+      });
+
     it("should throw if spider missing", () => {
       state.isReady = true;
       state.parser = {} as any;
@@ -122,6 +132,11 @@ describe("WorkerState", () => {
       state.spider = {} as any;
       state.parser = {} as any;
       state.resolver = {} as any;
+        state.config = {
+            rootDir: "/test",
+            excludeNodeModules: true,
+            maxDepth: 50,
+        };
       expect(() => state.requireReady()).not.toThrow();
     });
   });
@@ -137,6 +152,11 @@ describe("WorkerState", () => {
       state.spider = mockSpider;
       state.parser = {} as any;
       state.resolver = {} as any;
+        state.config = {
+            rootDir: "/test",
+            excludeNodeModules: true,
+            maxDepth: 50,
+        };
       expect(state.getSpider()).toBe(mockSpider);
     });
 
@@ -150,6 +170,11 @@ describe("WorkerState", () => {
       state.spider = {} as any;
       state.parser = mockParser;
       state.resolver = {} as any;
+        state.config = {
+            rootDir: "/test",
+            excludeNodeModules: true,
+            maxDepth: 50,
+        };
       expect(state.getParser()).toBe(mockParser);
     });
 
@@ -163,6 +188,11 @@ describe("WorkerState", () => {
       state.spider = {} as any;
       state.parser = {} as any;
       state.resolver = mockResolver;
+        state.config = {
+            rootDir: "/test",
+            excludeNodeModules: true,
+            maxDepth: 50,
+        };
       expect(state.getResolver()).toBe(mockResolver);
     });
 

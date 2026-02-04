@@ -138,13 +138,14 @@ export class WorkerState {
    * @throws Error if components not ready
    */
   requireReady(): void {
-    if (!this._isReady || !this._spider || !this._parser || !this._resolver) {
+      if (!this._isReady || !this._spider || !this._parser || !this._resolver || !this._config) {
       throw new Error(
         "Worker not initialized. Call init() first. Missing: " +
           [
             !this._spider && "spider",
             !this._parser && "parser",
             !this._resolver && "resolver",
+              !this._config && "config",
             !this._isReady && "ready flag",
           ]
             .filter(Boolean)
