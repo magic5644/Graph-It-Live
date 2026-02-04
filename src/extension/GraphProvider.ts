@@ -13,6 +13,7 @@ import type {
 import { extensionLoggerManager, getExtensionLogger } from "./extensionLogger";
 import { BackgroundIndexingManager } from "./services/BackgroundIndexingManager";
 import { EditorNavigationService } from "./services/EditorNavigationService";
+import { ExtensionEventHub } from "./services/ExtensionEventHub";
 import type { EventType } from "./services/FileChangeScheduler";
 import { FileChangeScheduler } from "./services/FileChangeScheduler";
 import { GraphViewService } from "./services/GraphViewService";
@@ -56,7 +57,7 @@ export class GraphProvider implements vscode.WebviewViewProvider {
   >();
   private readonly _unusedAnalysisCache?: UnusedAnalysisCache;
   private readonly _fileSaveListener?: vscode.Disposable;
-  private _fileSaveDebounceTimer?: NodeJS.Timeout;
+  private readonly _eventHub?: ExtensionEventHub;
   /**
    * Optional callback used by EditorEventsService to notify MCP server.
    * Populated by extension activation if MCP server is registered.
@@ -174,6 +175,18 @@ export class GraphProvider implements vscode.WebviewViewProvider {
         context,
         logger: log,
         fileChangeScheduler: this._fileChangeScheduler,
+      });
+
+      this._eventHub = new ExtensionEventHub({
+        spider: this._spider,
+        indexingManager: this._indexingManager,
+        unusedAnalysisCache: this._unusedAnalysisCache,
+        stateManager: this._stateManager,
+        navigationService: this._navigationService,
+        viewProvider: () => this._view,
+        updateGraph: this.updateGraph.bind(this),
+        handleDrillDown: this.handleDrillDown.bind(this),
+        logger: log,
       });
 
       // T075: Add file save listener for live updates (User Story 5)
@@ -350,38 +363,7 @@ export class GraphProvider implements vscode.WebviewViewProvider {
    * @param filePath Path to the saved file
    */
   public async onFileSaved(filePath: string): Promise<void> {
-    if (!this._spider) {
-      return;
-    }
-
-    // Only handle supported file types
-    if (!SUPPORTED_SOURCE_FILE_REGEX.test(filePath)) {
-      return;
-    }
-
-    log.debug("Re-analyzing saved file:", filePath);
-
-    // Invalidate unused analysis cache for this file
-    this._unusedAnalysisCache?.invalidate([filePath]);
-
-    // TASK-016: Invalidate symbol cache for this file
-    this._stateManager.invalidateSymbolCache(filePath);
-
-    // Re-analyze the file (invalidates cache and updates reverse index)
-    await this._spider.reanalyzeFile(filePath);
-
-    // Persist the updated index if enabled
-    await this._indexingManager?.persistIndexIfEnabled();
-
-    // Refresh the appropriate view based on current mode
-    if (this._stateManager.currentSymbol) {
-      // In symbol view - always refresh to update reverse dependencies (Imported By list)
-      // even if the saved file is different from the viewed one
-      await this.handleDrillDown(this._stateManager.currentSymbol, true);
-    } else {
-      // In file view - refresh the graph (preserve view mode)
-      await this.updateGraph(true, "fileSaved");
-    }
+    await this._eventHub?.handleFileSaved(filePath);
   }
 
   /**
@@ -390,54 +372,10 @@ export class GraphProvider implements vscode.WebviewViewProvider {
    * @param document The saved text document
    */
   private _handleFileSave(document: vscode.TextDocument): void {
-    // T082: Only process files in the workspace
-    if (document.uri.scheme !== "file") {
-      return;
-    }
-
-    const filePath = document.uri.fsPath;
-
-    // T082: Optimization - only re-analyze if currently viewing this file
-    const currentFilePath = this._stateManager.currentSymbol
-      ? this._navigationService?.parseFilePathAndSymbol(
-          this._stateManager.currentSymbol,
-        ).actualFilePath
-      : this._stateManager.getLastActiveFilePath();
-
-    const shouldRefresh =
-      currentFilePath &&
-      path.normalize(currentFilePath) === path.normalize(filePath);
-
-    if (!shouldRefresh) {
-      log.debug(
-        `File saved but not currently viewing: ${filePath}, skipping refresh`,
-      );
-      return;
-    }
-
-    // T076: Clear existing debounce timer if any
-    if (this._fileSaveDebounceTimer) {
-      clearTimeout(this._fileSaveDebounceTimer);
-    }
-
-    // T076: Debounce for 500ms to avoid excessive re-analysis during rapid edits
-    this._fileSaveDebounceTimer = setTimeout(() => {
-      log.debug(`Debounce complete, refreshing view for: ${filePath}`);
-      
-      // T081: Send refreshing message to show loading indicator
-      if (this._view) {
-        this._view.webview.postMessage({ command: 'refreshing' });
-      }
-      
-      // T077-T078: Trigger re-analysis and refresh
-      this.onFileSaved(filePath).catch((error: unknown) => {
-        log.error(
-          "Error refreshing view after file save",
-          error instanceof Error ? error : new Error(String(error)),
-        );
-      });
-      this._fileSaveDebounceTimer = undefined;
-    }, 500);
+    this._eventHub?.handleFileSaveDocument(
+      document,
+      this.onFileSaved.bind(this),
+    );
   }
 
   /**
@@ -446,29 +384,7 @@ export class GraphProvider implements vscode.WebviewViewProvider {
    * If in file view, show dependencies for new file
    */
   public async onActiveFileChanged(): Promise<void> {
-    const editor = vscode.window.activeTextEditor;
-    if (editor?.document.uri.scheme !== "file") {
-      return;
-    }
-
-    const newFilePath = editor.document.fileName;
-
-    // Only handle supported file types
-    if (!SUPPORTED_SOURCE_FILE_REGEX.test(newFilePath)) {
-      return;
-    }
-
-    log.debug("Active file changed to:", newFilePath);
-
-    // Preserve the current view type
-    if (this._stateManager.currentSymbol) {
-      // Was in symbol view - show symbols for the new file
-      // Update tracking to new file and refresh symbol view
-      await this.handleDrillDown(newFilePath, true);
-    } else {
-      // Was in file view - show dependencies for the new file
-      await this.updateGraph(true, "navigation");
-    }
+    await this._eventHub?.handleActiveFileChanged();
   }
 
   /**
@@ -481,64 +397,7 @@ export class GraphProvider implements vscode.WebviewViewProvider {
     filePath: string,
     eventType: EventType,
   ): Promise<void> {
-    if (!this._spider) {
-      return;
-    }
-
-    // Only handle supported file types
-    if (!SUPPORTED_SOURCE_FILE_REGEX.test(filePath)) {
-      return;
-    }
-
-    log.debug(`Processing ${eventType} event for:`, filePath);
-
-    switch (eventType) {
-      case "create":
-      case "change":
-        // Re-analyze file and update index
-        await this._spider.reanalyzeFile(filePath);
-        await this._indexingManager?.persistIndexIfEnabled();
-        await this._refreshByCurrentView();
-        break;
-
-      case "delete":
-        // Remove file from cache and index
-        this._spider.handleFileDeleted(filePath);
-        await this._indexingManager?.persistIndexIfEnabled();
-        await this._handleDeletedFileRefresh(filePath);
-        break;
-    }
-  }
-
-  /**
-   * Refresh the appropriate view based on current mode
-   * Private helper for unified file change handling
-   */
-  private async _refreshByCurrentView(): Promise<void> {
-    if (this._stateManager.currentSymbol) {
-      // In symbol view - refresh symbol analysis
-      await this.handleDrillDown(this._stateManager.currentSymbol, true);
-    } else {
-      // In file view - refresh dependency graph
-      await this.updateGraph(true, "fileChange");
-    }
-  }
-
-  /**
-   * Handle refresh when a file is deleted
-   * If the deleted file is the currently viewed symbol, clear symbol view
-   * Private helper for unified file change handling
-   */
-  private async _handleDeletedFileRefresh(deletedPath: string): Promise<void> {
-    if (this._stateManager.selectedSymbolId === deletedPath) {
-      // The currently viewed file was deleted - switch to file view
-      await this._stateManager.setViewMode("file");
-      this._stateManager.selectedSymbolId = undefined;
-      await this.updateGraph();
-    } else {
-      // Some other file was deleted - refresh current view
-      await this._refreshByCurrentView();
-    }
+    await this._eventHub?.handleFileChange(filePath, eventType);
   }
 
   /**
@@ -921,10 +780,6 @@ export class GraphProvider implements vscode.WebviewViewProvider {
       this._sourceFileWatcher?.dispose();
       this._fileChangeScheduler?.dispose();
       this._fileSaveListener?.dispose();
-      if (this._fileSaveDebounceTimer) {
-        clearTimeout(this._fileSaveDebounceTimer);
-        this._fileSaveDebounceTimer = undefined;
-      }
       // Also clean up the worker if running
       this._spider?.disposeWorker();
       // Dispose Spider and its AstWorkerHost

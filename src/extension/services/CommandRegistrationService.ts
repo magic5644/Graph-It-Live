@@ -1,9 +1,11 @@
 import * as vscode from 'vscode';
 import type { GraphProvider } from '../GraphProvider';
 import type { VsCodeLogger } from '../extensionLogger';
+import type { CommandCoordinator } from './CommandCoordinator';
 
 interface CommandRegistrationServiceOptions {
   provider: GraphProvider;
+  commandCoordinator: CommandCoordinator;
   logger: VsCodeLogger;
 }
 
@@ -13,10 +15,12 @@ interface CommandRegistrationServiceOptions {
  */
 export class CommandRegistrationService {
   private readonly provider: GraphProvider;
+  private readonly commandCoordinator: CommandCoordinator;
   private readonly logger: VsCodeLogger;
 
   constructor(options: CommandRegistrationServiceOptions) {
     this.provider = options.provider;
+    this.commandCoordinator = options.commandCoordinator;
     this.logger = options.logger;
   }
 
@@ -52,20 +56,14 @@ export class CommandRegistrationService {
     const d1 = this.registerProviderCommand(
       'graph-it-live.enableUnusedFilter',
       async () => {
-        // Enforce state to true
-        if (!this.provider.getUnusedFilterActive()) {
-            await this.provider.toggleUnusedFilter();
-        }
+        await this.commandCoordinator.handleEnableUnusedFilter();
       },
       'Graph-It-Live: Enable filter failed'
     );
     const d2 = this.registerProviderCommand(
       'graph-it-live.disableUnusedFilter',
       async () => {
-        // Enforce state to false
-        if (this.provider.getUnusedFilterActive()) {
-            await this.provider.toggleUnusedFilter();
-        }
+        await this.commandCoordinator.handleDisableUnusedFilter();
       },
       'Graph-It-Live: Disable filter failed'
     );
@@ -76,8 +74,7 @@ export class CommandRegistrationService {
     return this.registerProviderCommand(
       'graph-it-live.forceReindex',
       async () => {
-        await this.provider.forceReindex();
-        vscode.window.showInformationMessage('Graph-It-Live: Re-index triggered');
+        await this.commandCoordinator.handleForceReindex();
       },
       'Graph-It-Live: Re-index failed'
     );
@@ -87,7 +84,7 @@ export class CommandRegistrationService {
     return this.registerProviderCommand(
       'graph-it-live.expandAllNodes',
       async () => {
-        await this.provider.expandAllNodes();
+        await this.commandCoordinator.handleExpandAll();
       },
       'Graph-It-Live: Toggle expand all failed'
     );
@@ -97,7 +94,7 @@ export class CommandRegistrationService {
     return this.registerProviderCommand(
       'graph-it-live.refreshGraph',
       async () => {
-        await this.provider.refreshGraph();
+        await this.commandCoordinator.handleRefreshGraph();
       },
       'Graph-It-Live: Refresh failed'
     );
@@ -110,7 +107,7 @@ export class CommandRegistrationService {
     return this.registerProviderCommand(
       'graph-it-live.toggleViewMode',
       async () => {
-        await this.provider.toggleViewMode();
+        await this.commandCoordinator.handleToggleViewMode();
       },
       'Graph-It-Live: Toggle view mode failed'
     );
@@ -119,7 +116,7 @@ export class CommandRegistrationService {
     return this.registerProviderCommand(
       'graph-it-live.setViewModeFile',
       async () => {
-        await this.provider.setViewModeFile();
+        await this.commandCoordinator.handleSetViewModeFile();
       },
       'Graph-It-Live: Switch to file view failed'
     );
@@ -129,7 +126,7 @@ export class CommandRegistrationService {
     return this.registerProviderCommand(
       'graph-it-live.setViewModeList',
       async () => {
-        await this.provider.setViewModeList();
+        await this.commandCoordinator.handleSetViewModeList();
       },
       'Graph-It-Live: Switch to list view failed'
     );
@@ -139,7 +136,7 @@ export class CommandRegistrationService {
     return this.registerProviderCommand(
       'graph-it-live.setViewModeSymbol',
       async () => {
-        await this.provider.setViewModeSymbol();
+        await this.commandCoordinator.handleSetViewModeSymbol();
       },
       'Graph-It-Live: Switch to symbol view failed'
     );
@@ -149,7 +146,7 @@ export class CommandRegistrationService {
     return this.registerProviderCommand(
       'graph-it-live.showReverseDependencies',
       async () => {
-        await this.provider.showReverseDependencies();
+        await this.commandCoordinator.handleShowReverseDependencies();
       },
       'Graph-It-Live: Show reverse dependencies failed'
     );
@@ -159,7 +156,7 @@ export class CommandRegistrationService {
     return this.registerProviderCommand(
       'graph-it-live.hideReverseDependencies',
       async () => {
-        await this.provider.hideReverseDependencies();
+        await this.commandCoordinator.handleHideReverseDependencies();
       },
       'Graph-It-Live: Hide reverse dependencies failed'
     );
@@ -168,13 +165,7 @@ export class CommandRegistrationService {
   private registerShowIndexStatusCommand(): vscode.Disposable {
     return vscode.commands.registerCommand('graph-it-live.showIndexStatus', async () => {
       try {
-        const status = this.provider.getIndexStatus();
-        if (status) {
-          const message = `Indexer: ${status.state} ${status.processed}/${status.total} (${status.percentage}%)`;
-          vscode.window.showInformationMessage(message);
-        } else {
-          vscode.window.showInformationMessage('Graph-It-Live: No indexer available');
-        }
+        await this.commandCoordinator.handleShowIndexStatus();
       } catch (error) {
         this.handleCommandError(
           'graph-it-live.showIndexStatus',

@@ -1,13 +1,14 @@
 import * as vscode from 'vscode';
-import { GraphProvider } from './GraphProvider';
 import { createMcpServerProvider, McpServerProvider } from '../mcp/McpServerProvider';
-import { 
-  extensionLoggerManager, 
-  getExtensionLogger, 
-  getLogLevelFromConfig,
-  watchLogLevelConfig 
-} from './extensionLogger';
 import { setLoggerBackend } from '../shared/logger';
+import {
+    extensionLoggerManager,
+    getExtensionLogger,
+    getLogLevelFromConfig,
+    watchLogLevelConfig
+} from './extensionLogger';
+import { GraphProvider } from './GraphProvider';
+import { CommandCoordinator } from './services/CommandCoordinator';
 import { CommandRegistrationService } from './services/CommandRegistrationService';
 import { EditorEventsService } from './services/EditorEventsService';
 
@@ -36,7 +37,15 @@ export function activate(context: vscode.ExtensionContext) {
 
     const provider = new GraphProvider(context.extensionUri, context);
     graphProvider = provider; // Keep reference for deactivation
-    const commandService = new CommandRegistrationService({ provider, logger: log });
+    const commandCoordinator = new CommandCoordinator({
+        provider,
+        ui: vscode.window,
+    });
+    const commandService = new CommandRegistrationService({
+        provider,
+        commandCoordinator,
+        logger: log,
+    });
     
     // Watch for performance profile changes and apply preset values
     const profileWatcher = vscode.workspace.onDidChangeConfiguration(async (e) => {
@@ -60,7 +69,7 @@ export function activate(context: vscode.ExtensionContext) {
     }
     
     const editorEventsService = new EditorEventsService({ 
-        provider, 
+        target: provider, 
         logger: log,
         fileChangeScheduler 
     });

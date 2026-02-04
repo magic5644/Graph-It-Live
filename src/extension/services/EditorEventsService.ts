@@ -1,10 +1,18 @@
 import * as vscode from 'vscode';
-import type { GraphProvider } from '../GraphProvider';
 import type { VsCodeLogger } from '../extensionLogger';
 import type { FileChangeScheduler } from './FileChangeScheduler';
+import type { ProviderStateManager } from './ProviderStateManager';
+
+export interface EditorEventsTarget {
+  updateConfig(): void;
+  notifyMcpServerOfConfigChange?: () => void;
+  onActiveFileChanged(): Promise<void>;
+  refreshCurrentGraphView(): Promise<void>;
+  stateManager: ProviderStateManager;
+}
 
 interface EditorEventsServiceOptions {
-  provider: GraphProvider;
+  target: EditorEventsTarget;
   logger: VsCodeLogger;
   fileChangeScheduler: FileChangeScheduler;
 }
@@ -13,12 +21,12 @@ interface EditorEventsServiceOptions {
  * Centralizes editor/workspace event subscriptions so extension.ts stays lean.
  */
 export class EditorEventsService {
-  private readonly provider: GraphProvider;
+  private readonly target: EditorEventsTarget;
   private readonly logger: VsCodeLogger;
   private readonly fileChangeScheduler: FileChangeScheduler;
 
   constructor(options: EditorEventsServiceOptions) {
-    this.provider = options.provider;
+    this.target = options.target;
     this.logger = options.logger;
     this.fileChangeScheduler = options.fileChangeScheduler;
   }
@@ -35,8 +43,8 @@ export class EditorEventsService {
   private registerConfigChangeListener(): vscode.Disposable {
     return vscode.workspace.onDidChangeConfiguration((event) => {
       if (event.affectsConfiguration('graph-it-live')) {
-        this.provider.updateConfig();
-        this.provider.notifyMcpServerOfConfigChange?.();
+        this.target.updateConfig();
+        this.target.notifyMcpServerOfConfigChange?.();
       }
     });
   }
@@ -44,7 +52,7 @@ export class EditorEventsService {
   private registerActiveEditorListener(): vscode.Disposable {
     return vscode.window.onDidChangeActiveTextEditor((editor) => {
       this.logger.debug('Active editor changed:', editor?.document.fileName);
-      this.provider.onActiveFileChanged();
+      this.target.onActiveFileChanged();
     });
   }
 
@@ -67,7 +75,7 @@ export class EditorEventsService {
 
     return vscode.window.onDidChangeTextEditorSelection((event) => {
       // Only process if currently viewing symbols
-      const stateManager = this.provider.stateManager;
+      const stateManager = this.target.stateManager;
       if (stateManager.viewMode !== 'symbol' || !stateManager.currentFilePath) {
         return;
       }
@@ -87,7 +95,7 @@ export class EditorEventsService {
         this.logger.debug(`Cursor position changed in ${event.textEditor.document.fileName}`);
         // Trigger refresh of symbol view to update LSP analysis
         lastRefreshTime = Date.now();
-        this.provider.refreshCurrentGraphView();
+        this.target.refreshCurrentGraphView();
         debounceTimer = undefined;
       }, 500); // Wait 500ms after user stops moving cursor
     });
