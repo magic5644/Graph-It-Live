@@ -7,19 +7,20 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { beforeEach, describe, expect, it } from "vitest";
 import {
-    applyPagination,
-    buildEdgeCounts,
-    buildEdgeInfo,
-    buildNodeInfo,
-    convertSpiderToLspFormat,
-    detectCircularDependencies,
-    getRelativePath,
-    mapKindToLspNumber,
-    updateNodeCounts,
-    validateAnalysisInput,
-    validateFileExists,
+  applyPagination,
+  buildEdgeCounts,
+  buildEdgeInfo,
+  buildNodeInfo,
+  convertSpiderToLspFormat,
+  detectCircularDependencies,
+  getRelativePath,
+  mapKindToLspNumber,
+  updateNodeCounts,
+  validateAnalysisInput,
+  validateFileExists,
 } from "../../../src/mcp/shared/helpers";
 import type { EdgeInfo, NodeInfo } from "../../../src/mcp/types";
+import { normalizePath } from "../../../src/shared/path";
 
 describe("MCP Worker Helpers", () => {
   describe("getRelativePath", () => {
@@ -434,6 +435,7 @@ describe("MCP Worker Helpers", () => {
       };
 
       const result = convertSpiderToLspFormat(symbolGraphData, "/test/file.ts");
+      const normalizedFilePath = normalizePath("/test/file.ts");
 
       expect(result.symbols).toHaveLength(2);
       expect(result.symbols[0]).toEqual({
@@ -441,11 +443,11 @@ describe("MCP Worker Helpers", () => {
         kind: 12, // Function
         range: { start: 10, end: 10 },
         containerName: undefined,
-        uri: "/test/file.ts",
+        uri: normalizedFilePath,
       });
 
       expect(result.callHierarchyItems.size).toBe(2);
-      expect(result.outgoingCalls.get("myFunction")).toHaveLength(1);
+      expect(result.outgoingCalls.get(`${normalizedFilePath}:myFunction`)).toHaveLength(1);
     });
 
     it("should handle symbol IDs with colon separator", () => {
@@ -457,8 +459,9 @@ describe("MCP Worker Helpers", () => {
       };
 
       const result = convertSpiderToLspFormat(symbolGraphData, "/test/file.ts");
+      const normalizedFilePath = normalizePath("/test/file.ts");
 
-      const calls = result.outgoingCalls.get("caller");
+      const calls = result.outgoingCalls.get(`${normalizedFilePath}:caller`);
       expect(calls).toBeDefined();
       expect(calls![0].to.name).toBe("callee"); // Should extract only the symbol name
     });
