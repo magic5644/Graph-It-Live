@@ -1,59 +1,59 @@
 # Graph-It-Live Coding Standards
 
-Ensemble complet des meilleures pratiques de développement pour maintenir la cohérence, la qualité et la maintenabilité du projet Graph-It-Live.
+Complete set of development best practices to maintain consistency, quality, and maintainability of the Graph-It-Live project.
 
 ## 🏗️ Architecture & Module Organization
 
 ### Layer Separation
 
-Le projet suit une architecture **quatre couches** stricte :
+The project follows a strict **four-layer architecture**:
 
-- **`src/analyzer/`** : Analyse des dépendances (Node.js pur, **AUCUNE importation vscode**)
-  - Analyse syntaxique AST via ts-morph et tree-sitter
-  - Cache, indexation, résolution de chemins
-  - Types et utilitaires purs
+- **`src/analyzer/`**: Dependency analysis (Pure Node.js, **NO vscode imports**)
+  - AST-based analysis via ts-morph and tree-sitter
+  - Caching, indexing, path resolution
+  - Pure types and utilities
 
-- **`src/extension/`** : Hôte d'extension VS Code
-  - Services d'orchestration dans `extension/services/`
-  - Gestion des fichiers, commandes, éditeur
-  - Communication avec la webview
+- **`src/extension/`**: VS Code extension host
+  - Orchestration services in `extension/services/`
+  - File management, commands, editor
+  - Webview communication
 
-- **`src/mcp/`** : Serveur MCP pour LLM/AI (Node.js pur, **AUCUNE importation vscode**)
-  - Processus indépendant avec transport stdio
-  - 17+ outils d'analyse des dépendances
-  - Validation Zod
+- **`src/mcp/`**: MCP server for LLM/AI (Pure Node.js, **NO vscode imports**)
+  - Standalone process with stdio transport
+  - 17+ dependency analysis tools
+  - Zod validation
 
-- **`src/shared/`** : Types et utilitaires partagés
-  - Types de messages extension ↔ webview
-  - Constantes, utilitaires, logger
-  - Protocoles de communication
+- **`src/shared/`**: Shared types and utilities
+  - Extension ↔ webview message types
+  - Constants, utilities, logger
+  - Communication protocols
 
-- **`src/webview/`** : Interface React + ReactFlow
-  - Composants React (contexte navigateur)
-  - Visualisation des graphes de dépendances
-  - Communication typée via le protocole partagé
+- **`src/webview/`**: React + ReactFlow interface
+  - React components (browser context)
+  - Dependency graph visualization
+  - Typed communication via shared protocol
 
-### Rule Stricte
+### Strict Rules
 
-- ⚠️ **JAMAIS** importer `vscode` dans `analyzer/` ou `mcp/`
-- ⚠️ **JAMAIS** importer `node` (fs, path bruts) dans `webview/`
-- ✅ Toujours utiliser les utilitaires `src/shared/` pour les chemins
+- ⚠️ **NEVER** import `vscode` in `analyzer/` or `mcp/`
+- ⚠️ **NEVER** import `node` (raw fs, path) in `webview/`
+- ✅ Always use `src/shared/` utilities for paths
 
 ---
 
-## 🌐 Cross-Platform Compatibility (OBLIGATOIRE)
+## 🌐 Cross-Platform Compatibility (MANDATORY)
 
-Tous les chemins et opérations doivent fonctionner sur Windows, Linux et macOS.
+All paths and operations must work on Windows, Linux, and macOS.
 
-### Règles de Chemins
+### Path Rules
 
 ```typescript
-// ❌ INTERDIT
+// ❌ FORBIDDEN
 const path = `/home/user/file.ts`;           // Hardcoded Unix path
 const path = `C:\\Users\\user\\file.ts`;     // Hardcoded Windows path
 if (filePath.includes("\\")) { ... }          // Assuming backslashes
 
-// ✅ BON
+// ✅ CORRECT
 import path from "node:path";
 import { normalizePath } from "@/shared/path";
 
@@ -61,43 +61,43 @@ const fullPath = path.join(baseDir, "src", "file.ts");
 const normalized = normalizePath(filePath);   // Converts \ to /, lowercase drive
 if (normalized.includes("\\")) { ... }        // Checks for escaped backslashes
 
-// ✅ Pour les literal Windows paths en tests
+// ✅ For Windows path literals in tests
 const winPath = String.raw`C:\Users\user\project\file.ts`;
 ```
 
-### Fonctions Essentielles
+### Essential Functions
 
-- `path.join()` : Jointure sécurisée de chemins
-- `path.resolve()` : Chemins absolus
-- `normalizePath(path)` de `@/shared/path` : Normalise avant Set/Map
-- `String.raw` : Template literals avec backslashes littéraux en tests
+- `path.join()`: Safe path joining
+- `path.resolve()`: Absolute paths
+- `normalizePath(path)` from `@/shared/path`: Normalize before Set/Map
+- `String.raw`: Template literals with literal backslashes in tests
 
-### Considérations Filesystem
+### Filesystem Considerations
 
-- ❌ Jamais supposer que le filesystem est sensible à la casse (Windows ne l'est pas)
-- ✅ Normaliser avant stockage dans Set/Map: `set.add(normalizePath(path))`
-- ✅ Tester les cas Windows dans les tests cross-platform
+- ❌ Never assume case-sensitive filesystem (Windows is not)
+- ✅ Normalize before storing in Set/Map: `set.add(normalizePath(path))`
+- ✅ Test Windows cases in cross-platform tests
 
 ---
 
 ## 🧪 Testing Guidelines
 
-### Principes
+### Principles
 
-- **Unit tests** : Logique métier, mocks pour dépendances externes
-- **E2E tests** : Intégration complète VS Code (90+ tests couvrant 95% des features)
-- **Cross-Platform** : Tous les tests doivent passer sur Windows, Linux, macOS
+- **Unit tests**: Business logic, mocks for external dependencies
+- **E2E tests**: Full VS Code integration (90+ tests covering 95% of features)
+- **Cross-Platform**: All tests must pass on Windows, Linux, macOS
 
-### Conventions de Nommage
+### Naming Conventions
 
-- `*.test.ts` : Fichiers de test (vitest)
-- `*.test.tsx` : Tests composants React
-- `tests/fixtures/` : Données de test
+- `*.test.ts`: Test files (vitest)
+- `*.test.tsx`: React component tests
+- `tests/fixtures/`: Test data
 
 ### Assertion Patterns
 
 ```typescript
-// ✅ BON
+// ✅ CORRECT
 import { describe, expect, it, vi, beforeEach } from "vitest";
 
 describe("ComponentName", () => {
@@ -112,20 +112,20 @@ describe("ComponentName", () => {
   });
 });
 
-// ❌ ÉVITER
+// ❌ AVOID
 describe("ComponentName", () => {
-  const mockCallback = vi.fn(); // Pas de reset entre tests
+  const mockCallback = vi.fn(); // No reset between tests
 });
 ```
 
-### E2E Tests Obligatoires
+### Mandatory E2E Tests
 
-Ajouter un test e2e pour **CHAQUE** nouvelle feature utilisateur :
+Add an e2e test for **EVERY** new user-facing feature:
 
-- Commandes VS Code
-- Paramètres de configuration
-- Interactions d'interface
-- Support multi-langage (TS/JS/Python/Rust/GraphQL)
+- VS Code commands
+- Configuration settings
+- UI interactions
+- Multi-language support (TS/JS/Python/Rust/GraphQL)
 
 ---
 
@@ -133,29 +133,29 @@ Ajouter un test e2e pour **CHAQUE** nouvelle feature utilisateur :
 
 ### Configuration
 
-- `tsconfig.json` : `strict: true`, `noImplicitAny: true`, `noUnusedLocals: true`
-- ❌ Jamais utiliser `any`
-- ✅ Toujours typer explicitement
+- `tsconfig.json`: `strict: true`, `noImplicitAny: true`, `noUnusedLocals: true`
+- ❌ Never use `any`
+- ✅ Always type explicitly
 
-### Patterns Courants
+### Common Patterns
 
 ```typescript
-// ❌ MAUVAIS - Type any implicite
+// ❌ WRONG - Implicit any type
 function parseData(input) {
   return JSON.parse(input);
 }
 
-// ✅ BON - Types explicites
+// ✅ CORRECT - Explicit types
 function parseData(input: string): Record<string, unknown> {
   return JSON.parse(input) as Record<string, unknown>;
 }
 
-// ❌ MAUVAIS - Variable non utilisée
+// ❌ WRONG - Unused variable
 function process(data: Data, options?: Options) {
-  processData(data); // options non utilisé
+  processData(data); // options not used
 }
 
-// ✅ BON - Enlever les variables non utilisées
+// ✅ CORRECT - Remove unused variables
 function process(data: Data) {
   processData(data);
 }
@@ -163,10 +163,10 @@ function process(data: Data) {
 
 ### Type Casts
 
-Utiliser le cast de type explicite quand nécessaire :
+Use explicit type casting when necessary:
 
 ```typescript
-// ✅ BON
+// ✅ CORRECT
 const result = analysisOutput as AnalyzeFileLogicResult;
 const nodeData = (node.data as any).label; // Type narrowing
 ```
@@ -175,39 +175,39 @@ const nodeData = (node.data as any).label; // Type narrowing
 
 ## ⚛️ React Best Practices
 
-### Dependencies en useMemo/useCallback
+### Dependencies in useMemo/useCallback
 
-⚠️ **RÈGLE CRITIQUE** : Ne JAMAIS inclure de callback props dans les dépendances
+⚠️ **CRITICAL RULE**: NEVER include callback props in dependencies
 
 ```typescript
-// ❌ INTERDIT - Causes boucles de re-render
+// ❌ FORBIDDEN - Causes re-render loops
 const graph = useMemo(() => {
   return buildGraph({ data, callbacks: { onDrillDown } });
-}, [data, onDrillDown]); // onDrillDown change à chaque render!
+}, [data, onDrillDown]); // onDrillDown changes every render!
 
-// ✅ CORRECT - Utiliser useRef pour callbacks
+// ✅ CORRECT - Use useRef for callbacks
 const callbacksRef = useRef({ onDrillDown });
 callbacksRef.current = { onDrillDown };
 
 const graph = useMemo(() => {
   return buildGraph({ data, callbacks: callbacksRef.current });
-}, [data]); // Pas de callbacks dans deps
+}, [data]); // No callbacks in deps
 ```
 
-### Set/Map Direct
+### Direct Set/Map
 
 ```typescript
-// ✅ CORRECT - Sets/Maps comparés par référence
+// ✅ CORRECT - Sets/Maps compared by reference
 const [expandedNodes, setExpandedNodes] = useState<Set<string>>(new Set());
 const expanded = useMemo(() => {
   return filterGraph(graph, expandedNodes);
-}, [graph, expandedNodes]); // Set par référence OK
+}, [graph, expandedNodes]); // Set by reference OK
 ```
 
-### Pattern d'useEffect pour Reset
+### useEffect Pattern for Reset
 
 ```typescript
-// ✅ CORRECT - Dépend UNIQUEMENT de tokens de reset
+// ✅ CORRECT - Depends ONLY on reset tokens
 useEffect(() => {
   expandAllRef.current = false;
   resetTokenRef.current = undefined;
@@ -220,25 +220,25 @@ useEffect(() => {
 
 ### ESLint Configuration
 
-- Source de vérité : `eslint.config.mjs`
-- Exécuter : `npm run lint` avant PR
-- Fixer automatiquement : `npm run lint:fix`
+- Source of truth: `eslint.config.mjs`
+- Run: `npm run lint` before PR
+- Auto-fix: `npm run lint:fix`
 
-### Conventions de Nommage
+### Naming Conventions
 
-- Imports : `camelCase` ou `PascalCase` (enforced by ESLint)
-- Variables : `camelCase`
-- Classes/Types : `PascalCase`
-- Constantes : `UPPER_SNAKE_CASE`
+- Imports: `camelCase` or `PascalCase` (enforced by ESLint)
+- Variables: `camelCase`
+- Classes/Types: `PascalCase`
+- Constants: `UPPER_SNAKE_CASE`
 
 ```typescript
-// ✅ BON
+// ✅ CORRECT
 import { FileReader, cacheSize } from "@/analyzer";
 class DependencyAnalyzer {}
 const MAX_DEPTH = 10;
 let currentFile: string;
 
-// ❌ MAUVAIS
+// ❌ WRONG
 import { file_reader, CacheSize } from "@/analyzer";
 class dependency_analyzer {}
 const maxDepth = 10;
@@ -247,14 +247,14 @@ let CURRENT_FILE: string;
 
 ### Path Alias
 
-Utiliser `@/` pour les imports `src/` quand cela améliore la clarté :
+Use `@/` for `src/` imports when it improves clarity:
 
 ```typescript
-// ✅ PRÉFÉRÉ
+// ✅ PREFERRED
 import { Spider } from "@/analyzer/Spider";
 import { normalizePath } from "@/shared/path";
 
-// ✅ AUSSI BON
+// ✅ ALSO GOOD
 import { buildGraph } from "../utils/buildGraph";
 ```
 
@@ -262,51 +262,51 @@ import { buildGraph } from "../utils/buildGraph";
 
 ## 🔒 SonarQube Compliance
 
-### Règles Clés à Respecter
+### Key Rules to Follow
 
-| Règle     | Pattern                        | Fix                            |
+| Rule      | Pattern                        | Fix                            |
 | --------- | ------------------------------ | ------------------------------ |
-| **S7780** | `"C:\\path"` sans String.raw   | `String.raw`C:\path``          |
+| **S7780** | `"C:\\path"` without String.raw   | `String.raw`C:\path``          |
 | **S1845** | `.replace(/pattern/g, ...)`    | `.replaceAll(old, new)`        |
-| **S3776** | Complexité cognitive > 15      | Refactoriser en fonctions      |
-| **S1542** | Fonctions sans `return` unique | Ajouter return/else            |
-| **S2715** | Valeurs magiques               | Extraire en constantes nommées |
+| **S3776** | Cognitive complexity > 15      | Refactor into functions      |
+| **S1542** | Functions without single `return` | Add return/else            |
+| **S2715** | Magic values               | Extract to named constants |
 
 ### Scanning
 
 ```bash
-# Analyser un fichier
+# Analyze a file
 npx sonarqube analyze-file src/analyzer/Spider.ts
 
-# Ou dans VS Code: Tools > SonarQube > Analyze Current File
+# Or in VS Code: Tools > SonarQube > Analyze Current File
 ```
 
 ---
 
 ## 📦 VS Code Extension Packaging
 
-### ⚠️ Règles CRITIQUES
+### ⚠️ CRITICAL Rules
 
-**ZÉRO fichier source map (.map) autorisé dans le package .vsix**
+**ZERO source map files (.map) allowed in .vsix package**
 
 ```bash
-# Build production
+# Production build
 npm run build -- --production
 
-# Package l'extension
+# Package the extension
 npm run package
 
-# VÉRIFIER (OBLIGATOIRE)
-npx vsce ls | grep "\.map$"  # Doit être vide!
+# VERIFY (MANDATORY)
+npx vsce ls | grep "\.map$"  # Must be empty!
 
-# Ou utiliser le script npm
-npm run package:verify       # ✅ Préféré
+# Or use npm script
+npm run package:verify       # ✅ Preferred
 ```
 
-### Dépendances Externes
+### External Dependencies
 
-- ✅ Garder externe : Native binaries (`tree-sitter`, `tree-sitter-python`, `tree-sitter-rust`)
-- ❌ Ne JAMAIS externe : Modules JS/TS purs (seront bundlés)
+- ✅ Keep external: Native binaries (`tree-sitter`, `tree-sitter-python`, `tree-sitter-rust`)
+- ❌ NEVER external: Pure JS/TS modules (will be bundled)
 
 ### .vscodeignore Strategy
 
@@ -326,16 +326,16 @@ node_modules/**
 # ❌ !node_modules/package/**  (includes .map files)
 ```
 
-### Taille du Package
+### Package Size
 
-- ✅ Cible : ~16 MB
-- ❌ Limiter les dépendances, exclure tests/docs
+- ✅ Target: ~16 MB
+- ❌ Limit dependencies, exclude tests/docs
 
 ---
 
-## 📝 Conventions de Commits
+## 📝 Commit Conventions
 
-### Format Conventional Commits
+### Conventional Commits Format
 
 ```
 feat: Add symbol-level cycle detection
@@ -348,18 +348,18 @@ chore: Update dependencies
 
 ### Pull Request Template
 
-- Résumé court de la feature/fix
-- Commandes d'exécution et résultats (ex: `npm test`)
-- Screenshots/GIFs pour changements UI
-- Lien vers issues/discussions pertinentes
+- Brief summary of the feature/fix
+- Command execution and results (e.g., `npm test`)
+- Screenshots/GIFs for UI changes
+- Link to relevant issues/discussions
 
-### Avant PR
+### Before PR
 
-1. ✅ Tous les tests passent : `npm test`
-2. ✅ Pas d'erreurs TS : `npm run check:types`
-3. ✅ Pas d'erreurs lint : `npm run lint`
-4. ✅ E2E tests pour features utilisateur : `npm run test:vscode:vsix`
-5. ✅ Pour changes build config : Package verification ✓
+1. ✅ All tests pass: `npm test`
+2. ✅ No TS errors: `npm run check:types`
+3. ✅ No lint errors: `npm run lint`
+4. ✅ E2E tests for user features: `npm run test:vscode:vsix`
+5. ✅ For build config changes: Package verification ✓
 
 ---
 
@@ -392,9 +392,9 @@ try {
 
 ### Validation & Security
 
-- Utiliser **Zod v4** pour la validation des entrées
-- Valider les chemins pour éviter path traversal
-- Loguer les erreurs avec contexte
+- Use **Zod v4** for input validation
+- Validate paths to prevent path traversal
+- Log errors with context
 
 ```typescript
 import { z } from "zod";
@@ -413,7 +413,7 @@ const filePath = filePathSchema.parse(userInput);
 
 ### Tool Description Format
 
-Tous les tools doivent suivre le pattern **WHEN/WHY/WHAT** :
+All tools must follow the **WHEN/WHY/WHAT** pattern:
 
 ```typescript
 {
@@ -429,9 +429,9 @@ Tous les tools doivent suivre le pattern **WHEN/WHY/WHAT** :
 
 ### Tool Naming
 
-- Tous les tools préfixés : `graphItLive_` (ex: `graphItLive_setWorkspace`)
-- Camel case après préfixe
-- Noms descriptifs et verbes d'action
+- All tools prefixed: `graphItLive_` (e.g., `graphItLive_setWorkspace`)
+- Camel case after prefix
+- Descriptive names with action verbs
 
 ---
 
@@ -439,7 +439,7 @@ Tous les tools doivent suivre le pattern **WHEN/WHY/WHAT** :
 
 ### Debouncing
 
-Utiliser pour les opérations coûteuses (re-indexation, refresh du graphe) :
+Use for costly operations (re-indexing, graph refresh):
 
 ```typescript
 private _debounceTimer?: NodeJS.Timeout;
@@ -450,22 +450,22 @@ handleFileChange(filePath: string) {
   }
   this._debounceTimer = setTimeout(() => {
     this._reindexFile(filePath);
-  }, 500);  // 500ms debounce standard
+  }, 500);  // Standard 500ms debounce
 }
 ```
 
 ### Caching
 
-- Implémenter cache avec invalidation intelligente
-- Utiliser `ReverseIndex` pour lazy cleanup (ne pas supprimer immédiatement)
-- Voir `src/analyzer/Cache.ts`
+- Implement cache with smart invalidation
+- Use `ReverseIndex` for lazy cleanup (don't delete immediately)
+- See `src/analyzer/Cache.ts`
 
 ### Indexing Concurrency
 
-Configuration : `indexingConcurrency` (1-16, défaut: 4)
+Configuration: `indexingConcurrency` (1-16, default: 4)
 
-- Contrôlé via settings VS Code
-- Respecter limite en simultané
+- Controlled via VS Code settings
+- Respect concurrent limit
 
 ---
 
@@ -473,15 +473,15 @@ Configuration : `indexingConcurrency` (1-16, défaut: 4)
 
 ### README
 
-- Quick Start clair avec commandes
-- Installation et dev workflow
+- Clear Quick Start with commands
+- Installation and dev workflow
 - Architecture overview
 - Architecture Diagram
 
 ### Code Comments
 
-- Documenter le **POURQUOI**, pas le **QUOI**
-- Utiliser JSDoc pour les exports publics
+- Document the **WHY**, not the **WHAT**
+- Use JSDoc for public exports
 
 ```typescript
 /**
@@ -497,18 +497,18 @@ export function analyzeFileLevelDeps(filePath: string): string[] {
 
 ### Instruction Files
 
-Les règles importantes sont centralisées :
+Important rules are centralized:
 
-- `.github/instructions/package_validation.instructions.md` : Extension packaging
-- `.github/instructions/snyk_rules.instructions.md` : Security scanning
-- `.github/instructions/sonarqube_rules.instructions.md` : Code quality
-- `.github/copilot-instructions.md` : Dev guide complet
+- `.github/instructions/package_validation.instructions.md`: Extension packaging
+- `.github/instructions/snyk_rules.instructions.md`: Security scanning
+- `.github/instructions/sonarqube_rules.instructions.md`: Code quality
+- `.github/copilot-instructions.md`: Complete dev guide
 
 ---
 
 ## 🔄 Development Workflow
 
-### Setup Initial
+### Initial Setup
 
 ```bash
 npm install              # Uses --legacy-peer-deps
@@ -519,39 +519,39 @@ npm test                # Run Vitest tests
 
 ### Development Loop
 
-1. Faire changements en TypeScript
-2. `npm run watch` pour rebuild continu
-3. Presser F5 dans VS Code pour Extension Development Host
-4. Tester dans l'extension en dev
-5. `npm test` pour valider
-6. `npm run lint` et `npm run check:types`
-7. Commiter via Conventional Commits
+1. Make TypeScript changes
+2. `npm run watch` for continuous rebuild
+3. Press F5 in VS Code for Extension Development Host
+4. Test in dev extension
+5. `npm test` to validate
+6. `npm run lint` and `npm run check:types`
+7. Commit via Conventional Commits
 
 ### Pre-PR Checklist
 
-- [ ] `npm test` - tous tests passent
-- [ ] `npm run check:types` - 0 erreurs TS
-- [ ] `npm run lint` - 0 erreurs ESLint
+- [ ] `npm test` - all tests pass
+- [ ] `npm run check:types` - 0 TS errors
+- [ ] `npm run lint` - 0 ESLint errors
 - [ ] `npm run test:vscode:vsix` - E2E tests OK
-- [ ] SonarQube scan sur fichiers modifiés
-- [ ] Documentation/comments à jour
-- [ ] Commits bien formatés
-- [ ] Si build config changed: Package verification ✓
+- [ ] SonarQube scan on modified files
+- [ ] Documentation/comments updated
+- [ ] Commits properly formatted
+- [ ] If build config changed: Package verification ✓
 
 ---
 
-## 🚨 Anti-Patterns à Éviter
+## 🚨 Anti-Patterns to Avoid
 
-| Anti-Pattern                     | Raison                                  | Lieu                 |
+| Anti-Pattern                     | Reason                                  | Location                 |
 | -------------------------------- | --------------------------------------- | -------------------- |
-| `any` type                       | Perd la sécurité de type                | Partout              |
-| Callback props en deps           | Re-render cascades et corruption d'état | React                |
-| `require()` dynamique            | Problèmes de bundling                   | Extension            |
-| Hardcoded paths `/` ou `\`       | Incompatibilité cross-platform          | Partout              |
-| Skip source map exclusion        | Explose taille du package .vsix         | Extension            |
-| Pas de e2e tests pour features   | Regressions non détectées               | Features utilisateur |
-| Logique d'analyse dans extension | Couple analyzer à VS Code               | analyzer/, mcp/      |
-| Error silent suppression         | Bugs difficiles à déboguer              | Partout              |
+| `any` type                       | Loses type safety                | Everywhere              |
+| Callback props in deps           | Re-render cascades and state corruption | React                |
+| Dynamic `require()`            | Bundling issues                   | Extension            |
+| Hardcoded paths `/` or `\`       | Cross-platform incompatibility          | Everywhere              |
+| Skip source map exclusion        | Package size explosion         | Extension            |
+| No e2e tests for features   | Undetected regressions               | User features |
+| Analysis logic in extension | Couples analyzer to VS Code               | analyzer/, mcp/      |
+| Silent error suppression         | Hard to debug bugs              | Everywhere              |
 
 ---
 
@@ -559,43 +559,43 @@ npm test                # Run Vitest tests
 
 ### Targets
 
-- **Test Coverage** : ~95% des features utilisateur couverts par e2e
-- **TypeScript** : 0 erreurs, strict mode
-- **ESLint** : 0 erreurs, configurations appliquées
-- **SonarQube** : Compliance avec règles du projet
-- **Package Size** : ~16 MB for .vsix
+- **Test Coverage**: ~95% of user features covered by e2e
+- **TypeScript**: 0 errors, strict mode
+- **ESLint**: 0 errors, configurations applied
+- **SonarQube**: Compliance with project rules
+- **Package Size**: ~16 MB for .vsix
 
 ---
 
-## ✅ Checklist de Qualité
+## ✅ Quality Checklist
 
-Avant de soumettre une PR :
+Before submitting a PR:
 
-- [ ] Code compiles sans erreurs (`npm run check:types`)
-- [ ] Tous les tests passent (`npm test`)
-- [ ] Pas de lint warnings (`npm run lint`)
-- [ ] E2E tests pour nouvelles features utilisateur
-- [ ] Package validation si build config changed (`npm run package:verify`)
-- [ ] SonarQube scan effectué sur fichiers modifiés
-- [ ] Cross-platform paths avec `path.join()` ou `normalizePath()`
-- [ ] Pas de `any` types
-- [ ] Comments pour logique complexe
-- [ ] Commits Conventional Commits formatés
-- [ ] Pas de `.map` files dans le package
-- [ ] README/docs à jour si feature visible
-
----
-
-## 📚 Ressources Complémentaires
-
-- **Architecture Détaillée** : Voir `AGENTS.md`
-- **MCP Server** : Voir `src/mcp/README.md` (à créer)
-- **Testing Cross-Platform** : Voir `docs/CROSS_PLATFORM_TESTING.md`
-- **Performance** : Voir `docs/PERFORMANCE_OPTIMIZATIONS.md`
-- **Git Workflow** : Conventional Commits style
+- [ ] Code compiles without errors (`npm run check:types`)
+- [ ] All tests pass (`npm test`)
+- [ ] No lint warnings (`npm run lint`)
+- [ ] E2E tests for new user features
+- [ ] Package validation if build config changed (`npm run package:verify`)
+- [ ] SonarQube scan performed on modified files
+- [ ] Cross-platform paths with `path.join()` or `normalizePath()`
+- [ ] No `any` types
+- [ ] Comments for complex logic
+- [ ] Conventional Commits formatted commits
+- [ ] No `.map` files in package
+- [ ] README/docs updated if visible feature
 
 ---
 
-**Maintenu par** : Graph-It-Live Development Team  
-**Dernière mise à jour** : Janvier 2026  
-**Version du document** : 1.0
+## 📚 Complementary Resources
+
+- **Detailed Architecture**: See `AGENTS.md`
+- **MCP Server**: See `src/mcp/README.md` (to be created)
+- **Cross-Platform Testing**: See `docs/CROSS_PLATFORM_TESTING.md`
+- **Performance**: See `docs/PERFORMANCE_OPTIMIZATIONS.md`
+- **Git Workflow**: Conventional Commits style
+
+---
+
+**Maintained by**: Graph-It-Live Development Team  
+**Last updated**: January 2026  
+**Document version**: 1.0
