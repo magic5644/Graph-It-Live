@@ -32,9 +32,8 @@ export function extractFilePath(pathOrSymbolId: string): string {
   // If we detect a colon after a file extension, it's likely a symbol ID
   
   // Use regex to find the first colon that follows a file extension
-  const match = pathOrSymbolId.match(
-    /^(.+\.(ts|tsx|js|jsx|mjs|cjs|py|pyi|rs|vue|svelte|gql|graphql)):(.+)$/i
-  );
+    const regex = /^(.+\.(ts|tsx|js|jsx|mjs|cjs|py|pyi|rs|vue|svelte|gql|graphql)):(.+)$/i;
+    const match = regex.exec(pathOrSymbolId);
   
   if (!match) {
     // No symbol ID pattern found - return as is
