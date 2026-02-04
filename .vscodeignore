@@ -64,12 +64,19 @@ vitest.config.mts
 vitest.benchmark.config.mts
 sonar-project.properties
 package-lock.json
+.markdownlint.json
+.markdownlintignore
+
 
 # Development & documentation files
 .github/**
 .gemini/**
 .spec/**
 .clavix/**
+.reports/**
+.specify/**
+codemaps/**
+specs/**
 docs/**
 scripts/**
 _bmad/**
@@ -81,6 +88,16 @@ AGENTS.md
 *.log
 task.md
 test.log
+
+# AI/Agent configuration directories (may contain large files or binaries)
+.agent/**
+.agents/**
+.codex/**
+.continue/**
+.cursor/**
+.goose/**
+.roo/**
+plan/**
 
 # OS files
 .DS_Store

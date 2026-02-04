@@ -1,137 +1,244 @@
-import { describe, it, expect, beforeEach } from 'vitest';
-import { LanguageService, Language } from '@/analyzer/LanguageService';
+import { beforeEach, describe, expect, it } from "vitest";
+import { Language, LanguageService } from "../../src/analyzer/LanguageService";
 
-describe('LanguageService', () => {
+describe("LanguageService", () => {
   beforeEach(() => {
     // Reset cached analyzers before each test
     LanguageService.reset();
   });
 
-  describe('detectLanguage', () => {
-    it('should detect TypeScript files', () => {
-      expect(LanguageService.detectLanguage('/project/file.ts')).toBe(Language.TypeScript);
-      expect(LanguageService.detectLanguage('/project/component.tsx')).toBe(Language.TypeScript);
+  describe("detectLanguage", () => {
+    it("should detect TypeScript files", () => {
+      expect(LanguageService.detectLanguage("/project/file.ts")).toBe(
+        Language.TypeScript,
+      );
+      expect(LanguageService.detectLanguage("/project/component.tsx")).toBe(
+        Language.TypeScript,
+      );
     });
 
-    it('should detect JavaScript files', () => {
-      expect(LanguageService.detectLanguage('/project/file.js')).toBe(Language.TypeScript);
-      expect(LanguageService.detectLanguage('/project/component.jsx')).toBe(Language.TypeScript);
-      expect(LanguageService.detectLanguage('/project/module.mjs')).toBe(Language.TypeScript);
-      expect(LanguageService.detectLanguage('/project/module.cjs')).toBe(Language.TypeScript);
+    it("should detect JavaScript files", () => {
+      expect(LanguageService.detectLanguage("/project/file.js")).toBe(
+        Language.TypeScript,
+      );
+      expect(LanguageService.detectLanguage("/project/component.jsx")).toBe(
+        Language.TypeScript,
+      );
+      expect(LanguageService.detectLanguage("/project/module.mjs")).toBe(
+        Language.TypeScript,
+      );
+      expect(LanguageService.detectLanguage("/project/module.cjs")).toBe(
+        Language.TypeScript,
+      );
     });
 
-    it('should detect Vue/Svelte files as TypeScript', () => {
-      expect(LanguageService.detectLanguage('/project/Component.vue')).toBe(Language.TypeScript);
-      expect(LanguageService.detectLanguage('/project/Component.svelte')).toBe(Language.TypeScript);
+    it("should detect Vue/Svelte files as TypeScript", () => {
+      expect(LanguageService.detectLanguage("/project/Component.vue")).toBe(
+        Language.TypeScript,
+      );
+      expect(LanguageService.detectLanguage("/project/Component.svelte")).toBe(
+        Language.TypeScript,
+      );
     });
 
-    it('should detect GraphQL files as TypeScript', () => {
-      expect(LanguageService.detectLanguage('/project/schema.gql')).toBe(Language.TypeScript);
-      expect(LanguageService.detectLanguage('/project/query.graphql')).toBe(Language.TypeScript);
+    it("should detect GraphQL files as TypeScript", () => {
+      expect(LanguageService.detectLanguage("/project/schema.gql")).toBe(
+        Language.TypeScript,
+      );
+      expect(LanguageService.detectLanguage("/project/query.graphql")).toBe(
+        Language.TypeScript,
+      );
     });
 
-    it('should detect Python files', () => {
-      expect(LanguageService.detectLanguage('/project/main.py')).toBe(Language.Python);
-      expect(LanguageService.detectLanguage('/project/types.pyi')).toBe(Language.Python);
+    it("should detect Python files", () => {
+      expect(LanguageService.detectLanguage("/project/main.py")).toBe(
+        Language.Python,
+      );
+      expect(LanguageService.detectLanguage("/project/types.pyi")).toBe(
+        Language.Python,
+      );
     });
 
-    it('should detect Rust files', () => {
-      expect(LanguageService.detectLanguage('/project/main.rs')).toBe(Language.Rust);
-      expect(LanguageService.detectLanguage('/project/Cargo.toml')).toBe(Language.Rust);
+    it("should detect Rust files", () => {
+      expect(LanguageService.detectLanguage("/project/main.rs")).toBe(
+        Language.Rust,
+      );
+      expect(LanguageService.detectLanguage("/project/Cargo.toml")).toBe(
+        Language.Rust,
+      );
     });
 
-    it('should return Unknown for unsupported extensions', () => {
-      expect(LanguageService.detectLanguage('/project/file.txt')).toBe(Language.Unknown);
-      expect(LanguageService.detectLanguage('/project/README.md')).toBe(Language.Unknown);
+    it("should return Unknown for unsupported extensions", () => {
+      expect(LanguageService.detectLanguage("/project/file.txt")).toBe(
+        Language.Unknown,
+      );
+      expect(LanguageService.detectLanguage("/project/README.md")).toBe(
+        Language.Unknown,
+      );
     });
 
-    it('should be case-insensitive', () => {
-      expect(LanguageService.detectLanguage('/project/FILE.TS')).toBe(Language.TypeScript);
-      expect(LanguageService.detectLanguage('/project/MAIN.PY')).toBe(Language.Python);
-      expect(LanguageService.detectLanguage('/project/LIB.RS')).toBe(Language.Rust);
+    it("should be case-insensitive", () => {
+      expect(LanguageService.detectLanguage("/project/FILE.TS")).toBe(
+        Language.TypeScript,
+      );
+      expect(LanguageService.detectLanguage("/project/MAIN.PY")).toBe(
+        Language.Python,
+      );
+      expect(LanguageService.detectLanguage("/project/LIB.RS")).toBe(
+        Language.Rust,
+      );
+    });
+
+    it("should extract file path from symbol IDs", () => {
+      // TypeScript symbol ID
+      expect(
+        LanguageService.detectLanguage("/project/file.ts:functionName"),
+      ).toBe(Language.TypeScript);
+      expect(
+        LanguageService.detectLanguage("/project/component.tsx:Component"),
+      ).toBe(Language.TypeScript);
+
+      // Python symbol ID
+      expect(LanguageService.detectLanguage("/project/main.py:main")).toBe(
+        Language.Python,
+      );
+
+      // Rust symbol ID
+      expect(LanguageService.detectLanguage("/project/lib.rs:function")).toBe(
+        Language.Rust,
+      );
+
+      // Vue/Svelte symbol ID
+      expect(
+        LanguageService.detectLanguage("/project/Component.vue:setup"),
+      ).toBe(Language.TypeScript);
+      expect(
+        LanguageService.detectLanguage("/project/Component.svelte:onMount"),
+      ).toBe(Language.TypeScript);
+
+      // GraphQL symbol ID
+      expect(LanguageService.detectLanguage("/project/schema.gql:User")).toBe(
+        Language.TypeScript,
+      );
+      expect(
+        LanguageService.detectLanguage("/project/query.graphql:getUsers"),
+      ).toBe(Language.TypeScript);
+    });
+
+    it("should handle Windows paths with drive letters correctly", () => {
+      // Windows drive letter should not be confused with symbol ID
+      expect(LanguageService.detectLanguage("C:/project/file.ts")).toBe(
+        Language.TypeScript,
+      );
+      expect(
+        LanguageService.detectLanguage(String.raw`C:\project\file.ts`),
+      ).toBe(Language.TypeScript);
+      expect(LanguageService.detectLanguage("D:/work/main.py")).toBe(
+        Language.Python,
+      );
+
+      // Windows path with symbol ID
+      expect(
+        LanguageService.detectLanguage("C:/project/file.ts:functionName"),
+      ).toBe(Language.TypeScript);
+      expect(
+        LanguageService.detectLanguage(
+          String.raw`C:\project\file.ts:functionName`,
+        ),
+      ).toBe(Language.TypeScript);
+    });
+
+    it("should not treat colons in paths without extensions as symbol IDs", () => {
+      // Edge case: colon in path but no file extension
+      expect(LanguageService.detectLanguage("/project:name/file.ts")).toBe(
+        Language.TypeScript,
+      );
+      expect(LanguageService.detectLanguage("/project/folder:name")).toBe(
+        Language.Unknown,
+      );
     });
   });
 
-  describe('getAnalyzer', () => {
-    it('should return TypeScript parser for .ts files', () => {
-      const analyzer = LanguageService.getAnalyzer('/project/file.ts');
+  describe("getAnalyzer", () => {
+    it("should return TypeScript parser for .ts files", () => {
+      const analyzer = LanguageService.getAnalyzer("/project/file.ts");
       expect(analyzer).toBeDefined();
       expect(analyzer.parseImports).toBeDefined();
       expect(analyzer.resolvePath).toBeDefined();
     });
 
-    it('should return the same instance for multiple TypeScript files (singleton)', () => {
-      const analyzer1 = LanguageService.getAnalyzer('/project/file1.ts');
-      const analyzer2 = LanguageService.getAnalyzer('/project/file2.ts');
+    it("should return the same instance for multiple TypeScript files (singleton)", () => {
+      const analyzer1 = LanguageService.getAnalyzer("/project/file1.ts");
+      const analyzer2 = LanguageService.getAnalyzer("/project/file2.ts");
       expect(analyzer1).toBe(analyzer2);
     });
 
-    it('should throw error for Python files (not yet implemented)', () => {
-      const analyzer = LanguageService.getAnalyzer('/project/main.py');
+    it("should throw error for Python files (not yet implemented)", () => {
+      const analyzer = LanguageService.getAnalyzer("/project/main.py");
       expect(analyzer).toBeDefined();
       expect(analyzer.parseImports).toBeDefined();
     });
 
-    it('should return RustParser for Rust files', () => {
-      const analyzer = LanguageService.getAnalyzer('/project/main.rs');
+    it("should return RustParser for Rust files", () => {
+      const analyzer = LanguageService.getAnalyzer("/project/main.rs");
       expect(analyzer).toBeDefined();
       expect(analyzer.parseImports).toBeDefined();
-      expect(analyzer.constructor.name).toBe('RustParser');
+      expect(analyzer.constructor.name).toBe("RustParser");
     });
 
-    it('should throw error for unsupported files', () => {
-      expect(() => LanguageService.getAnalyzer('/project/file.txt')).toThrow(
-        'Unsupported language for file'
+    it("should throw error for unsupported files", () => {
+      expect(() => LanguageService.getAnalyzer("/project/file.txt")).toThrow(
+        "Unsupported language for file",
       );
     });
   });
 
-  describe('getSymbolAnalyzer', () => {
-    it('should return TypeScript symbol analyzer for .ts files', () => {
-      const analyzer = LanguageService.getSymbolAnalyzer('/project/file.ts');
+  describe("getSymbolAnalyzer", () => {
+    it("should return TypeScript symbol analyzer for .ts files", () => {
+      const analyzer = LanguageService.getSymbolAnalyzer("/project/file.ts");
       expect(analyzer).toBeDefined();
       expect(analyzer.analyzeFile).toBeDefined();
       expect(analyzer.getSymbolDependencies).toBeDefined();
     });
 
-    it('should return the same instance for multiple TypeScript files (singleton)', () => {
-      const analyzer1 = LanguageService.getSymbolAnalyzer('/project/file1.ts');
-      const analyzer2 = LanguageService.getSymbolAnalyzer('/project/file2.ts');
+    it("should return the same instance for multiple TypeScript files (singleton)", () => {
+      const analyzer1 = LanguageService.getSymbolAnalyzer("/project/file1.ts");
+      const analyzer2 = LanguageService.getSymbolAnalyzer("/project/file2.ts");
       expect(analyzer1).toBe(analyzer2);
     });
 
-    it('should return PythonSymbolAnalyzer for Python files', () => {
-      const analyzer = LanguageService.getSymbolAnalyzer('/project/main.py');
+    it("should return PythonSymbolAnalyzer for Python files", () => {
+      const analyzer = LanguageService.getSymbolAnalyzer("/project/main.py");
       expect(analyzer).toBeDefined();
-      expect(analyzer.constructor.name).toBe('PythonSymbolAnalyzer');
+      expect(analyzer.constructor.name).toBe("PythonSymbolAnalyzer");
     });
 
-    it('should return RustSymbolAnalyzer for Rust files', () => {
-      const analyzer = LanguageService.getSymbolAnalyzer('/project/main.rs');
+    it("should return RustSymbolAnalyzer for Rust files", () => {
+      const analyzer = LanguageService.getSymbolAnalyzer("/project/main.rs");
       expect(analyzer).toBeDefined();
-      expect(analyzer.constructor.name).toBe('RustSymbolAnalyzer');
+      expect(analyzer.constructor.name).toBe("RustSymbolAnalyzer");
     });
   });
 
-  describe('isSupported', () => {
-    it('should return true for supported file types', () => {
-      expect(LanguageService.isSupported('/project/file.ts')).toBe(true);
-      expect(LanguageService.isSupported('/project/file.js')).toBe(true);
-      expect(LanguageService.isSupported('/project/main.py')).toBe(true);
-      expect(LanguageService.isSupported('/project/main.rs')).toBe(true);
+  describe("isSupported", () => {
+    it("should return true for supported file types", () => {
+      expect(LanguageService.isSupported("/project/file.ts")).toBe(true);
+      expect(LanguageService.isSupported("/project/file.js")).toBe(true);
+      expect(LanguageService.isSupported("/project/main.py")).toBe(true);
+      expect(LanguageService.isSupported("/project/main.rs")).toBe(true);
     });
 
-    it('should return false for unsupported file types', () => {
-      expect(LanguageService.isSupported('/project/file.txt')).toBe(false);
-      expect(LanguageService.isSupported('/project/README.md')).toBe(false);
+    it("should return false for unsupported file types", () => {
+      expect(LanguageService.isSupported("/project/file.txt")).toBe(false);
+      expect(LanguageService.isSupported("/project/README.md")).toBe(false);
     });
   });
 
-  describe('reset', () => {
-    it('should clear cached analyzers', () => {
-      const analyzer1 = LanguageService.getAnalyzer('/project/file.ts');
+  describe("reset", () => {
+    it("should clear cached analyzers", () => {
+      const analyzer1 = LanguageService.getAnalyzer("/project/file.ts");
       LanguageService.reset();
-      const analyzer2 = LanguageService.getAnalyzer('/project/file.ts');
+      const analyzer2 = LanguageService.getAnalyzer("/project/file.ts");
       expect(analyzer1).not.toBe(analyzer2);
     });
   });

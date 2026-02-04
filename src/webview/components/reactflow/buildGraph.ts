@@ -1,16 +1,24 @@
-import type { Edge, Node } from 'reactflow';
-import type { GraphData } from '../../../shared/types';
-import { getLogger } from '../../../shared/logger';
-import { nodeHeight, createEdgeStyle as createEdgeStyleUtil } from '../../utils/nodeUtils';
-import { normalizePath } from '../../utils/path';
-import type { FileNodeData } from './FileNode';
-import { detectCycles } from './cycles';
-import { calculateNodeWidth, layoutGraph } from './layout';
+import type { Edge, Node } from "reactflow";
+import { getLogger } from "../../../shared/logger";
+import type {
+    GraphData,
+    SymbolDependency,
+    SymbolInfo,
+} from "../../../shared/types";
+import {
+    createEdgeStyle as createEdgeStyleUtil,
+    nodeHeight,
+} from "../../utils/nodeUtils";
+import { normalizePath } from "../../utils/path";
+import type { FileNodeData } from "./FileNode";
+import type { SymbolNodeData } from "./SymbolNode";
+import { detectCycles } from "./cycles";
+import { calculateNodeWidth, layoutGraph } from "./layout";
 
 /** Logger instance for buildGraph */
-const log = getLogger('buildGraph');
+const log = getLogger("buildGraph");
 
-export type UnusedDependencyMode = 'none' | 'hide' | 'dim';
+export type UnusedDependencyMode = "none" | "hide" | "dim";
 
 export const GRAPH_LIMITS = {
   MAX_RENDER_NODES: 400,
@@ -21,15 +29,18 @@ export const GRAPH_LIMITS = {
 } as const;
 
 export interface BuildGraphCallbacks {
+  onNodeClick: (path: string, line?: number) => void;
   onDrillDown: (path: string) => void;
   onFindReferences: (path: string) => void;
   onToggleParents?: (path: string) => void;
   onToggle: (path: string) => void;
   onExpandRequest: (path: string) => void;
+  selectedNodeId?: string | null | undefined;
+  onHighlight?: (symbolId: string) => void; // Étape 4: Highlight callback for symbol double-click
 }
 
 export interface BuildGraphResult {
-  nodes: Node<FileNodeData>[];
+  nodes: Node<FileNodeData | SymbolNodeData>[];
   edges: Edge[];
   cycles: Set<string>;
   edgesTruncated: boolean;
@@ -46,7 +57,7 @@ function filterRelevantEdges(
   currentPath: string,
   expandedNodes: Set<string>,
   showParents: boolean,
-  maxEdges: number
+  maxEdges: number,
 ): Array<{ source: string; target: string }> {
   const allowedSources = new Set<string>([normalizePath(currentPath)]);
   expandedNodes.forEach((n) => allowedSources.add(normalizePath(n)));
@@ -55,7 +66,10 @@ function filterRelevantEdges(
   for (const edge of edges) {
     const source = normalizePath(edge.source);
     const target = normalizePath(edge.target);
-    if (allowedSources.has(source) || (showParents && target === normalizePath(currentPath))) {
+    if (
+      allowedSources.has(source) ||
+      (showParents && target === normalizePath(currentPath))
+    ) {
       selected.push({ source, target });
       if (selected.length >= maxEdges) break;
     }
@@ -81,31 +95,32 @@ interface EdgeProcessingConfig {
  */
 function getEdgesForProcessing(
   data: GraphData,
-  config: EdgeProcessingConfig
+  config: EdgeProcessingConfig,
 ): { edges: Array<{ source: string; target: string }>; truncated: boolean } {
-  const isHideMode = config.unusedDependencyMode === 'hide' && config.filterUnused;
+  const isHideMode =
+    config.unusedDependencyMode === "hide" && config.filterUnused;
   const unusedEdgeSet = new Set(config.unusedEdges);
 
   // In hide mode: filter out ALL unused edges (both incoming and outgoing)
   // In dim mode: keep all edges, styling is applied in createVisibleEdges
   let baseEdges = data.edges;
   if (isHideMode && config.unusedEdges.length > 0) {
-    baseEdges = data.edges.filter(edge => {
-       const normalizedId = `${normalizePath(edge.source)}->${normalizePath(edge.target)}`;
-       return !unusedEdgeSet.has(normalizedId);
+    baseEdges = data.edges.filter((edge) => {
+      const normalizedId = `${normalizePath(edge.source)}->${normalizePath(edge.target)}`;
+      return !unusedEdgeSet.has(normalizedId);
     });
   }
 
   const truncated = baseEdges.length > GRAPH_LIMITS.MAX_PROCESS_EDGES;
-  
+
   if (!truncated) {
     return { edges: baseEdges, truncated: false };
   }
-  
+
   if (config.expandAll) {
-    return { 
+    return {
       edges: baseEdges.slice(0, GRAPH_LIMITS.MAX_PROCESS_EDGES),
-      truncated: true 
+      truncated: true,
     };
   }
 
@@ -115,9 +130,9 @@ function getEdgesForProcessing(
       config.currentPath,
       config.expandedNodes,
       config.showParents,
-      GRAPH_LIMITS.MAX_PROCESS_EDGES
+      GRAPH_LIMITS.MAX_PROCESS_EDGES,
     ),
-    truncated: true
+    truncated: true,
   };
 }
 
@@ -127,7 +142,7 @@ function getEdgesForProcessing(
 function addParentNodes(
   visibleNodes: Set<string>,
   parents: string[],
-  maxNodes: number
+  maxNodes: number,
 ): boolean {
   let truncated = false;
   for (const parent of parents) {
@@ -148,17 +163,17 @@ function findVisibleNodesBFS(
   children: Map<string, string[]>,
   expandedNodes: Set<string>,
   initialNodes: Set<string>,
-  maxNodes: number
+  maxNodes: number,
 ): { visibleNodes: Set<string>; truncated: boolean } {
   const visibleNodes = new Set(initialNodes);
   const queue = [rootPath];
   const visited = new Set<string>();
   let truncated = false;
 
-  log.debug('🔍 buildGraph: Starting BFS traversal', {
+  log.debug("🔍 buildGraph: Starting BFS traversal", {
     normalizedCurrentPath: rootPath,
     expandedNodesSize: expandedNodes.size,
-    expandedNodesList: Array.from(expandedNodes)
+    expandedNodesList: Array.from(expandedNodes),
   });
 
   for (const node of queue) {
@@ -169,12 +184,12 @@ function findVisibleNodesBFS(
     const nodeChildren = children.get(node) || [];
     const shouldShowChildren = expandedNodes.has(node) || node === rootPath;
 
-    log.debug('🔍 buildGraph: Processing node', {
+    log.debug("🔍 buildGraph: Processing node", {
       node,
       hasInExpandedNodes: expandedNodes.has(node),
       isRoot: node === rootPath,
       shouldShowChildren,
-      childrenCount: nodeChildren.length
+      childrenCount: nodeChildren.length,
     });
 
     if (shouldShowChildren) {
@@ -189,9 +204,9 @@ function findVisibleNodesBFS(
     if (truncated) break;
   }
 
-  log.debug('🔍 buildGraph: BFS complete', {
+  log.debug("🔍 buildGraph: BFS complete", {
     visibleNodesSize: visibleNodes.size,
-    visibleNodesList: Array.from(visibleNodes)
+    visibleNodesList: Array.from(visibleNodes),
   });
 
   return { visibleNodes, truncated };
@@ -201,11 +216,11 @@ function findVisibleNodesBFS(
  * Build relationship maps from edges
  */
 function buildRelationshipMaps(
-  edges: Array<{ source: string; target: string }>
+  edges: Array<{ source: string; target: string }>,
 ): { children: Map<string, string[]>; parents: Map<string, string[]> } {
   const children = new Map<string, string[]>();
   const parents = new Map<string, string[]>();
-  
+
   edges.forEach(({ source, target }) => {
     const ns = normalizePath(source);
     const nt = normalizePath(target);
@@ -222,21 +237,32 @@ function buildRelationshipMaps(
  * Filter and create edges for the visible nodes
  */
 function createVisibleEdges(
-  edgesForProcessing: Array<{ source: string; target: string }>,
+  edgesForProcessing: Array<{
+    source: string;
+    target: string;
+    relationType?: "dependency" | "call" | "reference";
+  }>,
   visibleNodes: Set<string>,
   cycles: Set<string>,
   unusedEdges: string[],
-  unusedDependencyMode: 'none' | 'hide' | 'dim',
-  filterUnused: boolean
+  unusedDependencyMode: "none" | "hide" | "dim",
+  filterUnused: boolean,
 ): Edge[] {
   const seenEdgeIds = new Set<string>();
   const unusedEdgeSet = new Set(unusedEdges);
-  const isDimMode = unusedDependencyMode === 'dim' && filterUnused;
-  
+  const isDimMode = unusedDependencyMode === "dim" && filterUnused;
+
   return edgesForProcessing
-    .map(({ source, target }) => ({ source: normalizePath(source), target: normalizePath(target) }))
-    .filter(({ source, target }) => visibleNodes.has(source) && visibleNodes.has(target))
-    .flatMap(({ source, target }) => {
+    .map(({ source, target, relationType }) => ({
+      source: normalizePath(source),
+      target: normalizePath(target),
+      relationType,
+    }))
+    .filter(
+      ({ source, target }) =>
+        visibleNodes.has(source) && visibleNodes.has(target),
+    )
+    .flatMap(({ source, target, relationType }) => {
       const id = `${source}->${target}`;
       if (seenEdgeIds.has(id)) return [];
       seenEdgeIds.add(id);
@@ -246,12 +272,57 @@ function createVisibleEdges(
       const edgeStyle = createEdgeStyleUtil(isCircular);
 
       // In dim mode, apply reduced opacity and dashed style to unused edges
-      const styleOverrides = isDimMode && isUnused
-        ? {
-            style: { ...edgeStyle.style, opacity: 0.3, strokeDasharray: '5 5' },
-            animated: false, // Disable animation for unused edges in dim mode
-          }
-        : {};
+      let styleOverrides: Partial<Edge> = {};
+
+      if (isDimMode && isUnused) {
+        styleOverrides = {
+          style: { ...edgeStyle.style, opacity: 0.3, strokeDasharray: "5 5" },
+          animated: false,
+          label: "unused",
+          labelStyle: {
+            fill: "var(--vscode-descriptionForeground)",
+            opacity: 0.5,
+          },
+          labelBgStyle: { fill: "transparent" },
+        };
+      } else if (isCircular) {
+        // Cycle badge for circular dependencies (T048)
+        styleOverrides = {
+          style: { ...edgeStyle.style, strokeWidth: 2.5 },
+          animated: true,
+          label: "cycle",
+          labelStyle: {
+            fill: "var(--vscode-errorForeground)",
+            fontSize: 10,
+            fontWeight: "bold",
+          },
+          labelBgStyle: {
+            fill: "var(--vscode-editor-background)",
+            fillOpacity: 0.9,
+          },
+        };
+      } else if (relationType === "reference") {
+        // Dashed style for references
+        styleOverrides = {
+          style: { ...edgeStyle.style, strokeDasharray: "4 4" },
+          animated: true,
+          label: "references",
+          labelStyle: {
+            fill: "var(--vscode-descriptionForeground)",
+            fontSize: 10,
+          },
+          labelBgStyle: {
+            fill: "var(--vscode-editor-background)",
+            fillOpacity: 0.7,
+          },
+        };
+      } else if (relationType === "call") {
+        // Solid style for calls (default, but explicit)
+        styleOverrides = {
+          style: { ...edgeStyle.style, strokeWidth: 2 },
+          animated: true,
+        };
+      }
 
       return [
         {
@@ -274,10 +345,30 @@ export function buildReactFlowGraph(params: {
   showParents: boolean;
   callbacks: BuildGraphCallbacks;
   unusedEdges?: string[];
-  unusedDependencyMode?: 'none' | 'hide' | 'dim';
+  unusedDependencyMode?: "none" | "hide" | "dim";
   filterUnused?: boolean;
+  mode?: "file" | "symbol";
+  symbolData?: { symbols: SymbolInfo[]; dependencies: SymbolDependency[] };
+  layout?: "hierarchical" | "force" | "radial";
+  selectedNodeId?: string | null;
+  highlightState?: { highlightedNodes: Set<string>; highlightedEdges: Set<string> } | null; // Étape 4
 }): BuildGraphResult {
-  const { data, currentFilePath, expandAll, expandedNodes, showParents, callbacks, unusedEdges = [], unusedDependencyMode = 'none', filterUnused = true } = params;
+  const {
+    data,
+    currentFilePath,
+    expandAll,
+    expandedNodes,
+    showParents,
+    callbacks,
+    unusedEdges = [],
+    unusedDependencyMode = "none",
+    filterUnused = true,
+    mode = "file",
+    symbolData,
+    layout = "hierarchical",
+    selectedNodeId,
+    highlightState = null, // Étape 4
+  } = params;
   const normalizedCurrentPath = normalizePath(currentFilePath);
 
   if (!data?.nodes?.length) {
@@ -291,25 +382,24 @@ export function buildReactFlowGraph(params: {
     };
   }
 
-  const { edges: edgesForProcessing, truncated: edgesTruncated } = getEdgesForProcessing(
-    data,
-    {
+  const { edges: edgesForProcessing, truncated: edgesTruncated } =
+    getEdgesForProcessing(data, {
       currentPath: normalizedCurrentPath,
       expandAll,
       expandedNodes,
       showParents,
       unusedEdges,
       unusedDependencyMode,
-      filterUnused
-    }
-  );
+      filterUnused,
+    });
 
   const cycles =
-    edgesForProcessing.length <= GRAPH_LIMITS.MAX_CYCLE_DETECT_EDGES 
-      ? detectCycles(edgesForProcessing) 
+    edgesForProcessing.length <= GRAPH_LIMITS.MAX_CYCLE_DETECT_EDGES
+      ? detectCycles(edgesForProcessing)
       : new Set<string>();
 
-  const getLabel = (path: string) => data.nodeLabels?.[path] || path.split(/[/\\]/).pop() || path;
+  const getLabel = (path: string) =>
+    data.nodeLabels?.[path] || path.split(/[/\\]/).pop() || path;
 
   const { children, parents } = buildRelationshipMaps(edgesForProcessing);
 
@@ -318,9 +408,13 @@ export function buildReactFlowGraph(params: {
 
   const fileParents = parents.get(normalizedCurrentPath) || [];
   const fileParentsSet = new Set(fileParents);
-  
+
   if (showParents) {
-    nodesTruncated = addParentNodes(initialVisibleNodes, fileParents, GRAPH_LIMITS.MAX_RENDER_NODES);
+    nodesTruncated = addParentNodes(
+      initialVisibleNodes,
+      fileParents,
+      GRAPH_LIMITS.MAX_RENDER_NODES,
+    );
   }
 
   const { visibleNodes, truncated: bfsTruncated } = findVisibleNodesBFS(
@@ -328,15 +422,90 @@ export function buildReactFlowGraph(params: {
     children,
     expandedNodes,
     initialVisibleNodes,
-    GRAPH_LIMITS.MAX_RENDER_NODES
+    GRAPH_LIMITS.MAX_RENDER_NODES,
   );
-  
+
   nodesTruncated = nodesTruncated || bfsTruncated;
 
-  const createNodeData = (path: string, label: string): FileNodeData => {
+  const createNodeData = (
+    path: string,
+    label: string,
+  ): FileNodeData | SymbolNodeData => {
+    if (mode === "symbol" && symbolData) {
+      // Find symbol info
+      const symbol = symbolData.symbols.find((s) => s.id === path);
+      if (symbol) {
+        // Symbol ID format: filePath:symbolName (not extracted here as not needed)
+        return {
+          label: symbol.name,
+          fullPath: symbol.id,
+          kind: symbol.kind,
+          category: symbol.category,
+          line: symbol.line,
+          isExported: symbol.isExported,
+          isRoot: path === normalizedCurrentPath,
+          onNodeClick: () => callbacks.onNodeClick(symbol.id, symbol.line), // Pass full symbol ID for proper navigation
+          onDrillDown: () => callbacks.onDrillDown(path),
+          // Expansion props
+          hasChildren: (children.get(path) || []).length > 0,
+          isExpanded: expandedNodes.has(path) || path === normalizedCurrentPath,
+          onToggle: () => callbacks.onToggle(path),
+          onExpandRequest: () => callbacks.onExpandRequest(path),
+          selectedNodeId,
+          nodeId: path,
+          // Étape 4: Highlight props
+          isHighlighted: highlightState?.highlightedNodes.has(path) ?? false,
+          isHighlightActive: highlightState !== null,
+          onHighlight: callbacks.onHighlight,
+        } as SymbolNodeData;
+      }
+      
+      // External symbol (imported from another file) - infer category from context
+      // These are typically method/function calls from services or dependencies
+      const inferredCategory = (() => {
+        // If label contains '.', it's likely a method call
+        if (label.includes('.')) return 'method';
+        // If label starts with uppercase, likely a class/constructor
+        if (label[0] && label[0] === label[0].toUpperCase()) return 'class';
+        // Default to function for external symbols
+        return 'function';
+      })();
+      
+      // Parse the symbol ID to extract file path (format: filePath:symbolName)
+      const [filePath] = path.split(':');
+
+      return {
+        label,
+        fullPath: path,
+        kind: 'Unknown',
+        category: inferredCategory,
+        line: 0,
+        isExported: false,
+        isRoot: false,
+        onNodeClick: () => callbacks.onNodeClick(filePath, 0),
+        onDrillDown: () => callbacks.onDrillDown(path),
+        // Expansion props
+        hasChildren: (children.get(path) || []).length > 0,
+        isExpanded: expandedNodes.has(path),
+        onToggle: () => callbacks.onToggle(path),
+        onExpandRequest: () => callbacks.onExpandRequest(path),
+        selectedNodeId,
+        nodeId: path,
+        // Étape 4: Highlight props
+        isHighlighted: highlightState?.highlightedNodes.has(path) ?? false,
+        isHighlightActive: highlightState !== null,
+        onHighlight: callbacks.onHighlight,
+      } as SymbolNodeData;
+    }
+
     const parentCountRaw = data.parentCounts?.[path];
-    const parentCount = typeof parentCountRaw === 'number' && parentCountRaw > 0 ? parentCountRaw : undefined;
-    const hasParents = (parents.get(path) || []).length > 0 || (parentCount ? parentCount > 0 : false);
+    const parentCount =
+      typeof parentCountRaw === "number" && parentCountRaw > 0
+        ? parentCountRaw
+        : undefined;
+    const hasParents =
+      (parents.get(path) || []).length > 0 ||
+      (parentCount ? parentCount > 0 : false);
     return {
       label,
       fullPath: path,
@@ -348,20 +517,27 @@ export function buildReactFlowGraph(params: {
       hasReferencingFiles: hasParents,
       parentCount,
       isParentsVisible: showParents,
+      onNodeClick: () => callbacks.onNodeClick(path),
       onDrillDown: () => callbacks.onDrillDown(path),
       onFindReferences: () => callbacks.onFindReferences(path),
-      onToggleParents: callbacks.onToggleParents ? () => callbacks.onToggleParents!(path) : undefined,
+      onToggleParents: callbacks.onToggleParents
+        ? () => callbacks.onToggleParents!(path)
+        : undefined,
       onToggle: () => callbacks.onToggle(path),
       onExpandRequest: () => callbacks.onExpandRequest(path),
-    };
+      selectedNodeId,
+      nodeId: path,
+    } as FileNodeData;
   };
 
-  const nodes: Node<FileNodeData>[] = Array.from(visibleNodes).map((path) => {
+  const nodes: Node<FileNodeData | SymbolNodeData>[] = Array.from(
+    visibleNodes,
+  ).map((path) => {
     const label = getLabel(path);
     const width = calculateNodeWidth(label);
     return {
       id: path,
-      type: 'file',
+      type: mode === "symbol" ? "symbol" : "file",
       position: { x: 0, y: 0 },
       style: { width, height: nodeHeight },
       data: createNodeData(path, label),
@@ -374,7 +550,7 @@ export function buildReactFlowGraph(params: {
     cycles,
     unusedEdges,
     unusedDependencyMode,
-    filterUnused
+    filterUnused,
   );
 
   const renderEdgesTruncated = edges.length > GRAPH_LIMITS.MAX_RENDER_EDGES;
@@ -382,10 +558,22 @@ export function buildReactFlowGraph(params: {
     edges = edges.slice(0, GRAPH_LIMITS.MAX_RENDER_EDGES);
   }
 
-  const layouted = layoutGraph(nodes, edges, normalizedCurrentPath, GRAPH_LIMITS.MAX_DAGRE_NODES);
+  // Determine layout settings
+  const maxNodesForDagre =
+    layout === "force" || layout === "radial"
+      ? Infinity
+      : GRAPH_LIMITS.MAX_DAGRE_NODES;
+
+  const layouted = layoutGraph(
+    nodes,
+    edges,
+    normalizedCurrentPath,
+    maxNodesForDagre,
+    layout,
+  );
 
   return {
-    nodes: layouted.nodes as Node<FileNodeData>[],
+    nodes: layouted.nodes as Node<FileNodeData | SymbolNodeData>[],
     edges: layouted.edges,
     cycles,
     edgesTruncated,

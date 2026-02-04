@@ -1,0 +1,26 @@
+{
+"cSpell.words": [
+    "graphitlive",
+    "metafile",
+    "metafiles",
+    "pycache",
+    "reactflow",
+    "reindex",
+    "toon",
+    "venv"
+],
+"chat.promptFilesRecommendations": {
+    "speckit.constitution": true,
+    "speckit.specify": true,
+    "speckit.plan": true,
+    "speckit.tasks": true,
+    "speckit.implement": true
+},
+"chat.tools.terminal.autoApprove": {
+    ".specify/scripts/bash/": true,
+    ".specify/scripts/powershell/": true
+},
+"snyk.advanced.organization": "6b710926-1f1b-40ee-bceb-66b9edbdcf42",
+"snyk.advanced.autoSelectOrganization": true,
+"graph-it-live.enableCallHierarchy": true
+}

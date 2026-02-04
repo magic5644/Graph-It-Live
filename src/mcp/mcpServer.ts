@@ -11,23 +11,23 @@
  * NO import * as vscode from 'vscode' allowed!
  */
 
-import { setLoggerBackend, StderrLogger } from '../shared/logger';
+import { setLoggerBackend, StderrLogger } from "../shared/logger";
 
 // Configure all loggers in this process to use StderrLogger
 // This ensures stdout is kept clean for JSON-RPC
 setLoggerBackend({
   createLogger(prefix: string, level) {
     return new StderrLogger(prefix, level);
-  }
+  },
 });
 
-import * as fs from 'node:fs';
-import * as os from 'node:os';
+import * as fs from "node:fs";
+import * as os from "node:os";
 
 // ============================================================================
 // Secure File Logger with Rotation (opt-in via DEBUG_MCP=true)
 // ============================================================================
-const DEBUG_MCP_ENABLED = process.env.DEBUG_MCP === 'true';
+const DEBUG_MCP_ENABLED = process.env.DEBUG_MCP === "true";
 const DEBUG_LOG_PATH = `${os.homedir()}/mcp-debug.log`;
 const DEBUG_LOG_MAX_SIZE = 5 * 1024 * 1024; // 5MB per file
 const DEBUG_LOG_BACKUP = `${DEBUG_LOG_PATH}.1`;
@@ -38,7 +38,7 @@ const DEBUG_LOG_BACKUP = `${DEBUG_LOG_PATH}.1`;
  */
 function rotateLogIfNeeded(): void {
   if (!DEBUG_MCP_ENABLED) return;
-  
+
   try {
     const stats = fs.statSync(DEBUG_LOG_PATH);
     if (stats.size >= DEBUG_LOG_MAX_SIZE) {
@@ -59,14 +59,16 @@ function rotateLogIfNeeded(): void {
  * Privacy: Only logs when explicitly enabled to avoid exposing project paths
  */
 function debugLog(...args: unknown[]): void {
-  const message = args.map(a => typeof a === 'string' ? a : JSON.stringify(a)).join(' ');
-  
+  const message = args
+    .map((a) => (typeof a === "string" ? a : JSON.stringify(a)))
+    .join(" ");
+
   // Always write to stderr for MCP protocol
-  process.stderr.write(message.endsWith('\n') ? message : `${message}\n`);
-  
+  process.stderr.write(message.endsWith("\n") ? message : `${message}\n`);
+
   // Only write to file if DEBUG logging is explicitly enabled
   if (!DEBUG_MCP_ENABLED) return;
-  
+
   try {
     rotateLogIfNeeded();
     const timestamp = new Date().toISOString();
@@ -79,68 +81,73 @@ function debugLog(...args: unknown[]): void {
 
 // EARLY DEBUG: Log immediately to confirm process starts (only if opted-in)
 if (DEBUG_MCP_ENABLED) {
-  debugLog('[McpServer] ===== PROCESS STARTING (DEBUG MODE) =====');
-  debugLog('[McpServer] Node version:', process.version);
-  debugLog('[McpServer] PID:', process.pid);
-  debugLog('[McpServer] cwd:', process.cwd());
-  debugLog('[McpServer] argv:', JSON.stringify(process.argv));
-  debugLog('[McpServer] Environment vars:');
-  debugLog('  WORKSPACE_ROOT:', process.env.WORKSPACE_ROOT ?? '(not set)');
-  debugLog('  TSCONFIG_PATH:', process.env.TSCONFIG_PATH ?? '(not set)');
-  debugLog('  EXCLUDE_NODE_MODULES:', process.env.EXCLUDE_NODE_MODULES ?? '(not set)');
-  debugLog('  MAX_DEPTH:', process.env.MAX_DEPTH ?? '(not set)');
+  debugLog("[McpServer] ===== PROCESS STARTING (DEBUG MODE) =====");
+  debugLog("[McpServer] Node version:", process.version);
+  debugLog("[McpServer] PID:", process.pid);
+  debugLog("[McpServer] cwd:", process.cwd());
+  debugLog("[McpServer] argv:", JSON.stringify(process.argv));
+  debugLog("[McpServer] Environment vars:");
+  debugLog("  WORKSPACE_ROOT:", process.env.WORKSPACE_ROOT ?? "(not set)");
+  debugLog("  TSCONFIG_PATH:", process.env.TSCONFIG_PATH ?? "(not set)");
+  debugLog(
+    "  EXCLUDE_NODE_MODULES:",
+    process.env.EXCLUDE_NODE_MODULES ?? "(not set)",
+  );
+  debugLog("  MAX_DEPTH:", process.env.MAX_DEPTH ?? "(not set)");
 } else {
-  process.stderr.write('[McpServer] Starting (debug logging disabled - set DEBUG_MCP=true to enable)\n');
+  process.stderr.write(
+    "[McpServer] Starting (debug logging disabled - set DEBUG_MCP=true to enable)\n",
+  );
 }
 
-import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
-import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
-import * as path from 'node:path';
-import * as z from 'zod/v4';
-import { McpWorkerHost } from './McpWorkerHost';
+import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
+import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
+import * as path from "node:path";
+import * as z from "zod/v4";
+import { McpWorkerHost } from "./McpWorkerHost";
+import { formatToolResponse } from "./responseFormatter";
 import {
-  createSuccessResponse,
+  AnalyzeBreakingChangesParamsSchema,
+  type AnalyzeBreakingChangesResult,
+  AnalyzeDependenciesParamsSchema,
+  type AnalyzeDependenciesResult,
+  CrawlDependencyGraphParamsSchema,
+  type CrawlDependencyGraphResult,
   createErrorResponse,
+  createSuccessResponse,
+  ExpandNodeParamsSchema,
+  type ExpandNodeResult,
+  FindReferencingFilesParamsSchema,
+  type FindReferencingFilesResult,
+  FindUnusedSymbolsParamsSchema,
+  type FindUnusedSymbolsResult,
+  GetImpactAnalysisParamsSchema,
+  type GetImpactAnalysisResult,
+  type GetIndexStatusResult,
+  GetSymbolCallersParamsSchema,
+  type GetSymbolCallersResult,
+  GetSymbolDependentsParamsSchema,
+  type GetSymbolDependentsResult,
+  GetSymbolGraphParamsSchema,
+  type GetSymbolGraphResult,
+  InvalidateFilesParamsSchema,
+  type InvalidateFilesResult,
   MCP_TOOL_VERSION,
   type McpToolResponse,
-  type AnalyzeDependenciesResult,
-  type CrawlDependencyGraphResult,
-  type FindReferencingFilesResult,
-  type ExpandNodeResult,
-  type ParseImportsResult,
-  type ResolveModulePathResult,
-  type GetIndexStatusResult,
-  type InvalidateFilesResult,
-  type RebuildIndexResult,
-  type GetSymbolGraphResult,
-  type FindUnusedSymbolsResult,
-  type GetSymbolDependentsResult,
-  type TraceFunctionExecutionResult,
-  type GetSymbolCallersResult,
-  type AnalyzeBreakingChangesResult,
-  type GetImpactAnalysisResult,
-  type SetWorkspaceResult,
   type PaginationInfo,
+  ParseImportsParamsSchema,
+  type ParseImportsResult,
+  type RebuildIndexResult,
+  ResolveModulePathParamsSchema,
+  type ResolveModulePathResult,
   // Import all parameter schemas with payload limits
   SetWorkspaceParamsSchema,
-  AnalyzeDependenciesParamsSchema,
-  CrawlDependencyGraphParamsSchema,
-  FindReferencingFilesParamsSchema,
-  ExpandNodeParamsSchema,
-  ParseImportsParamsSchema,
-  VerifyDependencyUsageParamsSchema,
-  ResolveModulePathParamsSchema,
-  InvalidateFilesParamsSchema,
-  GetSymbolGraphParamsSchema,
-  FindUnusedSymbolsParamsSchema,
-  GetSymbolDependentsParamsSchema,
+  type SetWorkspaceResult,
   TraceFunctionExecutionParamsSchema,
-  GetSymbolCallersParamsSchema,
-  AnalyzeBreakingChangesParamsSchema,
-  GetImpactAnalysisParamsSchema,
+  type TraceFunctionExecutionResult,
   validateFilePath,
-} from './types';
-import { formatToolResponse } from './responseFormatter';
+  VerifyDependencyUsageParamsSchema,
+} from "./types";
 
 // ============================================================================
 // Environment Configuration
@@ -148,37 +155,59 @@ import { formatToolResponse } from './responseFormatter';
 
 // Mutable configuration - can be changed via setWorkspace tool
 const currentConfig = {
-  workspaceRoot: process.env.WORKSPACE_ROOT ?? '',
+  workspaceRoot: process.env.WORKSPACE_ROOT ?? "",
   tsConfigPath: process.env.TSCONFIG_PATH,
-  excludeNodeModules: process.env.EXCLUDE_NODE_MODULES !== 'false',
-  maxDepth: Number.parseInt(process.env.MAX_DEPTH ?? '50', 10),
+  excludeNodeModules: process.env.EXCLUDE_NODE_MODULES !== "false",
+  maxDepth: Number.parseInt(process.env.MAX_DEPTH ?? "50", 10),
 };
 
 // Check for unresolved variables (common misconfiguration)
-if (currentConfig.workspaceRoot && (currentConfig.workspaceRoot.includes('${') || currentConfig.workspaceRoot.includes('$('))) {
-  debugLog('[McpServer] WARNING: WORKSPACE_ROOT contains unresolved variable:', currentConfig.workspaceRoot);
-  debugLog('[McpServer] Workspace not set - use graphitlive_set_workspace tool to configure');
-  currentConfig.workspaceRoot = '';
+if (
+  currentConfig.workspaceRoot &&
+  (currentConfig.workspaceRoot.includes("${") ||
+    currentConfig.workspaceRoot.includes("$("))
+) {
+  debugLog(
+    "[McpServer] WARNING: WORKSPACE_ROOT contains unresolved variable:",
+    currentConfig.workspaceRoot,
+  );
+  debugLog(
+    "[McpServer] Workspace not set - use graphitlive_set_workspace tool to configure",
+  );
+  currentConfig.workspaceRoot = "";
 }
 
 // Fallback logic for WORKSPACE_ROOT (only if set via env)
 if (!currentConfig.workspaceRoot) {
   const cwd = process.cwd();
-  
+
   // If cwd is root or empty, don't set a default - require explicit configuration
-  if (cwd === '/' || cwd === '') {
-    debugLog('[McpServer] No workspace configured - use graphitlive_set_workspace tool to set workspace');
+  if (cwd === "/" || cwd === "") {
+    debugLog(
+      "[McpServer] No workspace configured - use graphitlive_set_workspace tool to set workspace",
+    );
   } else {
     currentConfig.workspaceRoot = cwd;
-    debugLog('[McpServer] WORKSPACE_ROOT not set, using current working directory:', currentConfig.workspaceRoot);
+    debugLog(
+      "[McpServer] WORKSPACE_ROOT not set, using current working directory:",
+      currentConfig.workspaceRoot,
+    );
   }
 }
 
 // Validate workspace if set
-if (currentConfig.workspaceRoot && !fs.existsSync(currentConfig.workspaceRoot)) {
-  debugLog('[McpServer] WARNING: WORKSPACE_ROOT path does not exist:', currentConfig.workspaceRoot);
-  debugLog('[McpServer] Use graphitlive_set_workspace tool to configure a valid workspace');
-  currentConfig.workspaceRoot = '';
+if (
+  currentConfig.workspaceRoot &&
+  !fs.existsSync(currentConfig.workspaceRoot)
+) {
+  debugLog(
+    "[McpServer] WARNING: WORKSPACE_ROOT path does not exist:",
+    currentConfig.workspaceRoot,
+  );
+  debugLog(
+    "[McpServer] Use graphitlive_set_workspace tool to configure a valid workspace",
+  );
+  currentConfig.workspaceRoot = "";
 }
 
 // Helper to get current workspace (may be empty if not configured)
@@ -186,7 +215,9 @@ function getWorkspaceRoot(): string {
   return currentConfig.workspaceRoot;
 }
 
-const ResponseFormatSchema = z.enum(['json', 'markdown', 'toon']).default('toon');
+const ResponseFormatSchema = z
+  .enum(["json", "markdown", "toon"])
+  .default("toon");
 const PaginationInfoSchema = z.object({
   total: z.number(),
   limit: z.number(),
@@ -212,7 +243,7 @@ const McpToolResponseSchema = z.object({
 // ============================================================================
 
 const server = new McpServer({
-  name: 'graph-it-live',
+  name: "graph-it-live",
   version: MCP_TOOL_VERSION,
 });
 
@@ -238,17 +269,18 @@ async function initializeWorker(): Promise<void> {
 
   // Initialization already in progress, wait for it
   if (initializationPromise) {
-    debugLog('[McpServer] Waiting for existing initialization...');
+    debugLog("[McpServer] Waiting for existing initialization...");
     return initializationPromise;
   }
 
   // Start new initialization
   initializationPromise = doInitializeWorker();
-  
+
   try {
     await initializationPromise;
   } catch (error) {
-    initializationError = error instanceof Error ? error : new Error(String(error));
+    initializationError =
+      error instanceof Error ? error : new Error(String(error));
     throw initializationError;
   }
 }
@@ -257,19 +289,19 @@ async function initializeWorker(): Promise<void> {
  * Actual worker initialization logic
  */
 async function doInitializeWorker(): Promise<void> {
-  const workerPath = path.join(__dirname, 'mcpWorker.js');
-  
+  const workerPath = path.join(__dirname, "mcpWorker.js");
+
   // Debug: Log worker path resolution
   debugLog(`[McpServer] __dirname: ${__dirname}`);
   debugLog(`[McpServer] Worker path: ${workerPath}`);
-  
+
   // Check if worker file exists
   try {
-    const fs = await import('node:fs/promises');
+    const fs = await import("node:fs/promises");
     await fs.access(workerPath);
-    debugLog('[McpServer] Worker file exists: true');
+    debugLog("[McpServer] Worker file exists: true");
   } catch {
-    debugLog('[McpServer] Worker file exists: false - THIS IS THE PROBLEM!');
+    debugLog("[McpServer] Worker file exists: false - THIS IS THE PROBLEM!");
     throw new Error(`Worker file not found at ${workerPath}`);
   }
 
@@ -279,7 +311,7 @@ async function doInitializeWorker(): Promise<void> {
     invokeTimeout: 60000, // 1 minute per tool call
   });
 
-  debugLog('[McpServer] Starting worker with warmup...');
+  debugLog("[McpServer] Starting worker with warmup...");
 
   try {
     const result = await workerHost.start(
@@ -290,12 +322,14 @@ async function doInitializeWorker(): Promise<void> {
         maxDepth: currentConfig.maxDepth,
       },
       (processed, total, currentFile) => {
-        debugLog(`[McpServer] Warmup progress: ${processed}/${total} - ${currentFile ?? ''}`);
-      }
+        debugLog(
+          `[McpServer] Warmup progress: ${processed}/${total} - ${currentFile ?? ""}`,
+        );
+      },
     );
 
     debugLog(
-      `[McpServer] Worker ready: ${result.filesIndexed} files indexed in ${result.durationMs}ms`
+      `[McpServer] Worker ready: ${result.filesIndexed} files indexed in ${result.durationMs}ms`,
     );
     isInitialized = true;
   } catch (error) {
@@ -309,22 +343,30 @@ async function doInitializeWorker(): Promise<void> {
  */
 async function invokeToolWithResponse<T>(
   toolName: string,
-  params: unknown
+  params: unknown,
 ): Promise<McpToolResponse<T>> {
   if (!workerHost?.ready()) {
-    return createErrorResponse<T>('Worker not ready', 0, getWorkspaceRoot());
+    return createErrorResponse<T>("Worker not ready", 0, getWorkspaceRoot());
   }
 
   const startTime = Date.now();
 
   try {
-    const result = await workerHost.invoke<T>(toolName as Parameters<typeof workerHost.invoke>[0], params);
+    const result = await workerHost.invoke<T>(
+      toolName as Parameters<typeof workerHost.invoke>[0],
+      params,
+    );
     const executionTimeMs = Date.now() - startTime;
     return createSuccessResponse(result, executionTimeMs, getWorkspaceRoot());
   } catch (error) {
     const executionTimeMs = Date.now() - startTime;
-    const errorMessage = error instanceof Error ? error.message : 'Unknown error';
-    return createErrorResponse<T>(errorMessage, executionTimeMs, getWorkspaceRoot());
+    const errorMessage =
+      error instanceof Error ? error.message : "Unknown error";
+    return createErrorResponse<T>(
+      errorMessage,
+      executionTimeMs,
+      getWorkspaceRoot(),
+    );
   }
 }
 
@@ -338,11 +380,18 @@ async function ensureWorkerReady(): Promise<
     await initializeWorker();
     return { error: false };
   } catch (error) {
-    const errorMessage = error instanceof Error ? error.message : 'Worker initialization failed';
-    debugLog(`[McpServer] Tool call failed - worker init error: ${errorMessage}`);
+    const errorMessage =
+      error instanceof Error ? error.message : "Worker initialization failed";
+    debugLog(
+      `[McpServer] Tool call failed - worker init error: ${errorMessage}`,
+    );
     return {
       error: true,
-      response: createErrorResponse<unknown>(errorMessage, 0, getWorkspaceRoot()),
+      response: createErrorResponse<unknown>(
+        errorMessage,
+        0,
+        getWorkspaceRoot(),
+      ),
     };
   }
 }
@@ -358,7 +407,7 @@ function createSetWorkspaceErrorResponse(
   workspacePath: string,
   previousWorkspace: string,
   errorMessage: string,
-  startTime: number
+  startTime: number,
 ): McpToolResponse<SetWorkspaceResult> {
   return {
     success: false,
@@ -387,12 +436,12 @@ function validateWorkspacePath(workspacePath: string): string | null {
   if (!fs.existsSync(workspacePath)) {
     return `Path does not exist: ${workspacePath}`;
   }
-  
+
   const stats = fs.statSync(workspacePath);
   if (!stats.isDirectory()) {
     return `Path is not a directory: ${workspacePath}`;
   }
-  
+
   return null;
 }
 
@@ -401,7 +450,7 @@ function validateWorkspacePath(workspacePath: string): string | null {
  */
 function validateTsConfigPath(
   tsConfigPath: string | undefined,
-  workspacePath: string
+  workspacePath: string,
 ): { resolvedPath: string | undefined; error: string | null } {
   if (!tsConfigPath) {
     return { resolvedPath: undefined, error: null };
@@ -412,18 +461,25 @@ function validateTsConfigPath(
     : path.join(workspacePath, tsConfigPath);
 
   if (!fs.existsSync(resolvedPath)) {
-    return { resolvedPath: undefined, error: `tsConfigPath does not exist: ${resolvedPath}` };
+    return {
+      resolvedPath: undefined,
+      error: `tsConfigPath does not exist: ${resolvedPath}`,
+    };
   }
 
   const stats = fs.statSync(resolvedPath);
   if (!stats.isFile()) {
-    return { resolvedPath: undefined, error: `tsConfigPath is not a file: ${resolvedPath}` };
+    return {
+      resolvedPath: undefined,
+      error: `tsConfigPath is not a file: ${resolvedPath}`,
+    };
   }
 
   try {
     validateFilePath(resolvedPath, workspacePath);
   } catch (error) {
-    const message = error instanceof Error ? error.message : 'Invalid tsConfigPath';
+    const message =
+      error instanceof Error ? error.message : "Invalid tsConfigPath";
     return { resolvedPath: undefined, error: message };
   }
 
@@ -437,9 +493,9 @@ function validateTsConfigPath(
 // Tool: graphitlive_set_workspace
 // This tool is special - it doesn't require the worker to be ready first
 server.registerTool(
-  'graphitlive_set_workspace',
+  "graphitlive_set_workspace",
   {
-    title: 'Set Workspace Directory',
+    title: "Set Workspace Directory",
     description: `USE THIS TOOL FIRST when working with a new project or when the workspace hasn't been configured yet. This tool MUST be called before any other graphitlive tools if no workspace is set.
 
 WHY: Graph-It-Live needs to know which project directory to analyze. Without a workspace configured, all other tools will fail. This tool sets the project root and initializes the dependency index for fast queries.
@@ -448,7 +504,9 @@ RETURNS: Confirmation of the new workspace path and the number of files indexed.
 
 EXAMPLE: If analyzing a project at "/Users/me/my-app", call this tool with workspacePath="/Users/me/my-app"`,
     inputSchema: SetWorkspaceParamsSchema.extend({
-      response_format: ResponseFormatSchema.describe("Output format: 'json', 'markdown', or 'toon' (Token-Oriented Object Notation for reduced token usage) (default: toon - RECOMMENDED for 30-60% token savings)"),
+      response_format: ResponseFormatSchema.describe(
+        "Output format: 'json', 'markdown', or 'toon' (Token-Oriented Object Notation for reduced token usage) (default: toon - RECOMMENDED for 30-60% token savings)",
+      ),
     }),
     outputSchema: McpToolResponseSchema,
     annotations: {
@@ -458,69 +516,88 @@ EXAMPLE: If analyzing a project at "/Users/me/my-app", call this tool with works
       openWorldHint: false,
     },
   },
-  async ({ workspacePath, tsConfigPath, excludeNodeModules, maxDepth, response_format }) => {
+  async ({
+    workspacePath,
+    tsConfigPath,
+    excludeNodeModules,
+    maxDepth,
+    response_format,
+  }) => {
     const startTime = Date.now();
     const previousWorkspace = getWorkspaceRoot();
-    const responseFormat = response_format ?? 'json';
-    
+    const responseFormat = response_format ?? "json";
+
     debugLog(`[McpServer] setWorkspace called with: ${workspacePath}`);
-    
+
     // Validate workspace path
     const workspaceError = validateWorkspacePath(workspacePath);
     if (workspaceError) {
       return formatToolResponse(
-        createSetWorkspaceErrorResponse(workspacePath, previousWorkspace, workspaceError, startTime),
-        responseFormat
+        createSetWorkspaceErrorResponse(
+          workspacePath,
+          previousWorkspace,
+          workspaceError,
+          startTime,
+        ),
+        responseFormat,
       );
     }
 
     // Validate tsConfigPath if provided
-    const { resolvedPath: resolvedTsConfigPath, error: tsConfigError } = validateTsConfigPath(
-      tsConfigPath,
-      workspacePath
-    );
+    const { resolvedPath: resolvedTsConfigPath, error: tsConfigError } =
+      validateTsConfigPath(tsConfigPath, workspacePath);
     if (tsConfigError) {
       return formatToolResponse(
-        createSetWorkspaceErrorResponse(workspacePath, previousWorkspace, tsConfigError, startTime),
-        responseFormat
+        createSetWorkspaceErrorResponse(
+          workspacePath,
+          previousWorkspace,
+          tsConfigError,
+          startTime,
+        ),
+        responseFormat,
       );
     }
-    
+
     // Update configuration
     currentConfig.workspaceRoot = workspacePath;
-    if (resolvedTsConfigPath !== undefined) currentConfig.tsConfigPath = resolvedTsConfigPath;
-    if (excludeNodeModules !== undefined) currentConfig.excludeNodeModules = excludeNodeModules;
+    if (resolvedTsConfigPath !== undefined)
+      currentConfig.tsConfigPath = resolvedTsConfigPath;
+    if (excludeNodeModules !== undefined)
+      currentConfig.excludeNodeModules = excludeNodeModules;
     if (maxDepth !== undefined) currentConfig.maxDepth = maxDepth;
-    
+
     debugLog(`[McpServer] Workspace updated to: ${workspacePath}`);
-    
+
     // Dispose existing worker if any
     if (workerHost) {
-      debugLog('[McpServer] Disposing previous worker...');
+      debugLog("[McpServer] Disposing previous worker...");
       workerHost.dispose();
       workerHost = null;
     }
-    
+
     // Reset initialization state
     isInitialized = false;
     initializationPromise = null;
     initializationError = null;
-    
+
     // Initialize with new workspace
     try {
       await initializeWorker();
-      
+
       const executionTimeMs = Date.now() - startTime;
       let filesIndexed = 0;
-      
+
       // Get index status to report number of files indexed
       // workerHost is reassigned in initializeWorker() - use type assertion since TS can't track this
       const currentWorker = workerHost as McpWorkerHost | null;
       if (currentWorker?.ready()) {
-        const statusResult = await currentWorker.invoke<GetIndexStatusResult>('get_index_status', {});
+        const statusResult = await currentWorker.invoke<GetIndexStatusResult>(
+          "get_index_status",
+          {},
+        );
         filesIndexed = statusResult.cacheSize;
       }
-      
+
       const response: McpToolResponse<SetWorkspaceResult> = {
         success: true,
         data: {
@@ -538,39 +615,46 @@ EXAMPLE: If analyzing a project at "/Users/me/my-app", call this tool with works
           workspaceRoot: workspacePath,
         },
       };
-      
-      debugLog(`[McpServer] Workspace configured successfully: ${filesIndexed} files indexed`);
-      
+
+      debugLog(
+        `[McpServer] Workspace configured successfully: ${filesIndexed} files indexed`,
+      );
+
       return formatToolResponse(response, responseFormat);
     } catch (error) {
-      const errorMessage = error instanceof Error ? error.message : 'Unknown error during initialization';
+      const errorMessage =
+        error instanceof Error
+          ? error.message
+          : "Unknown error during initialization";
       debugLog(`[McpServer] setWorkspace failed: ${errorMessage}`);
-      
+
       return formatToolResponse(
         createSetWorkspaceErrorResponse(
           workspacePath,
           previousWorkspace,
           `Failed to initialize workspace: ${errorMessage}`,
-          startTime
+          startTime,
         ),
-        responseFormat
+        responseFormat,
       );
     }
-  }
+  },
 );
 
 // Tool: graphitlive_analyze_dependencies
 server.registerTool(
-  'graphitlive_analyze_dependencies',
+  "graphitlive_analyze_dependencies",
   {
-    title: 'Analyze File Dependencies',
+    title: "Analyze File Dependencies",
     description: `USE THIS TOOL WHEN the user asks about a file's imports, dependencies, or what modules a specific file uses. Examples: "What does this file import?", "Show me the dependencies of src/utils.ts", "What modules does this component rely on?"
 
 WHY: As an AI, you cannot see import statements or module relationships without parsing the actual source code. This tool provides the ground truth by analyzing real import/export statements on disk. Without it, you would have to guess dependencies and risk hallucinating non-existent relationships.
 
 RETURNS: A structured JSON with all import/export statements including: resolved absolute paths, relative paths from workspace root, import types (static import, dynamic import, require, re-export), line numbers, and file extensions. Supports TypeScript, JavaScript, Vue, Svelte, and GraphQL files.`,
     inputSchema: AnalyzeDependenciesParamsSchema.extend({
-      response_format: ResponseFormatSchema.describe("Output format: 'json', 'markdown', or 'toon' (Token-Oriented Object Notation for reduced token usage) (default: toon - RECOMMENDED for 30-60% token savings)"),
+      response_format: ResponseFormatSchema.describe(
+        "Output format: 'json', 'markdown', or 'toon' (Token-Oriented Object Notation for reduced token usage) (default: toon - RECOMMENDED for 30-60% token savings)",
+      ),
     }),
     outputSchema: McpToolResponseSchema,
     annotations: {
@@ -582,29 +666,35 @@ RETURNS: A structured JSON with all import/export statements including: resolved
   },
   async ({ filePath, response_format }) => {
     const workerCheck = await ensureWorkerReady();
-    if (workerCheck.error) return formatToolResponse(workerCheck.response, response_format ?? 'json');
+    if (workerCheck.error)
+      return formatToolResponse(
+        workerCheck.response,
+        response_format ?? "json",
+      );
 
     const response = await invokeToolWithResponse<AnalyzeDependenciesResult>(
-      'analyze_dependencies',
-      { filePath }
+      "analyze_dependencies",
+      { filePath },
     );
 
-    return formatToolResponse(response, response_format ?? 'json');
-  }
+    return formatToolResponse(response, response_format ?? "json");
+  },
 );
 
 // Tool: graphitlive_crawl_dependency_graph
 server.registerTool(
-  'graphitlive_crawl_dependency_graph',
+  "graphitlive_crawl_dependency_graph",
   {
-    title: 'Crawl Full Dependency Graph',
+    title: "Crawl Full Dependency Graph",
     description: `CRITICAL: USE THIS TOOL WHENEVER the user asks about project architecture, module relationships, the full dependency tree, or needs to understand how files are connected. Examples: "Show me the architecture of this module", "What's the dependency tree from main.ts?", "Map out all the files connected to this entry point", "How is this project structured?"
 
 WHY: You cannot "see" or infer the complete project structure or transitive dependencies. This tool crawls the actual codebase starting from an entry point and builds the real dependency graph. It detects circular dependencies and counts how many files depend on each node. Without this tool, any attempt to describe project architecture would be pure speculation.
 
 RETURNS: A complete graph with nodes (files with metadata: path, extension, dependency count, dependent count, circular dependency flag) and edges (import relationships between files). Supports pagination for large codebases. Works with TypeScript, JavaScript, Vue, Svelte, and GraphQL.`,
     inputSchema: CrawlDependencyGraphParamsSchema.extend({
-      response_format: ResponseFormatSchema.describe("Output format: 'json', 'markdown', or 'toon' (Token-Oriented Object Notation for reduced token usage) (default: toon - RECOMMENDED for 30-60% token savings)"),
+      response_format: ResponseFormatSchema.describe(
+        "Output format: 'json', 'markdown', or 'toon' (Token-Oriented Object Notation for reduced token usage) (default: toon - RECOMMENDED for 30-60% token savings)",
+      ),
     }),
     outputSchema: McpToolResponseSchema,
     annotations: {
@@ -616,13 +706,14 @@ RETURNS: A complete graph with nodes (files with metadata: path, extension, depe
   },
   async ({ entryFile, maxDepth, limit, offset, onlyUsed, response_format }) => {
     const workerCheck = await ensureWorkerReady();
-    const responseFormat = response_format ?? 'json';
-    if (workerCheck.error) return formatToolResponse(workerCheck.response, responseFormat);
+    const responseFormat = response_format ?? "json";
+    if (workerCheck.error)
+      return formatToolResponse(workerCheck.response, responseFormat);
 
     const params = { entryFile, maxDepth, limit, offset, onlyUsed };
     const result = await workerHost!.invoke<CrawlDependencyGraphResult>(
-      'crawl_dependency_graph',
-      params
+      "crawl_dependency_graph",
+      params,
     );
 
     // Build pagination info if limit/offset were used
@@ -642,25 +733,27 @@ RETURNS: A complete graph with nodes (files with metadata: path, extension, depe
       result,
       0, // We don't track time here, worker already includes it
       getWorkspaceRoot(),
-      pagination
+      pagination,
     );
 
     return formatToolResponse(response, responseFormat);
-  }
+  },
 );
 
 // Tool: graphitlive_find_referencing_files
 server.registerTool(
-  'graphitlive_find_referencing_files',
+  "graphitlive_find_referencing_files",
   {
-    title: 'Find Files That Import This File',
+    title: "Find Files That Import This File",
     description: `CRITICAL: USE THIS TOOL WHENEVER the user asks about impact analysis, refactoring safety, "who uses this file?", "what will break if I change this?", or reverse dependencies. Examples: "What files import utils.ts?", "What's the impact of modifying this component?", "Who depends on this service?", "Is it safe to refactor this file?", "Show me all usages of this module"
 
 WHY: This is the MOST IMPORTANT tool for impact analysis. You cannot know which files import a given file without this reverse lookup. If a user asks about the consequences of changing a file and you don't use this tool, you will miss critical dependencies and give dangerous advice. The tool uses a pre-built index for instant O(1) lookups across the entire codebase.
 
 RETURNS: A list of all files that directly import/require/reference the target file, with their absolute paths and relative paths from workspace root. This tells you exactly what will be affected by changes to the target file.`,
     inputSchema: FindReferencingFilesParamsSchema.extend({
-      response_format: ResponseFormatSchema.describe("Output format: 'json', 'markdown', or 'toon' (Token-Oriented Object Notation for reduced token usage) (default: toon - RECOMMENDED for 30-60% token savings)"),
+      response_format: ResponseFormatSchema.describe(
+        "Output format: 'json', 'markdown', or 'toon' (Token-Oriented Object Notation for reduced token usage) (default: toon - RECOMMENDED for 30-60% token savings)",
+      ),
     }),
     outputSchema: McpToolResponseSchema,
     annotations: {
@@ -672,30 +765,33 @@ RETURNS: A list of all files that directly import/require/reference the target f
   },
   async ({ targetPath, response_format }) => {
     const workerCheck = await ensureWorkerReady();
-    const responseFormat = response_format ?? 'json';
-    if (workerCheck.error) return formatToolResponse(workerCheck.response, responseFormat);
+    const responseFormat = response_format ?? "json";
+    if (workerCheck.error)
+      return formatToolResponse(workerCheck.response, responseFormat);
 
     const response = await invokeToolWithResponse<FindReferencingFilesResult>(
-      'find_referencing_files',
-      { targetPath }
+      "find_referencing_files",
+      { targetPath },
     );
 
     return formatToolResponse(response, responseFormat);
-  }
+  },
 );
 
 // Tool: graphitlive_expand_node
 server.registerTool(
-  'graphitlive_expand_node',
+  "graphitlive_expand_node",
   {
-    title: 'Expand Node Dependencies',
+    title: "Expand Node Dependencies",
     description: `USE THIS TOOL WHEN you need to incrementally explore the dependency graph from a specific node, discovering new files not already in your known set. Examples: "Show me more dependencies from this file", "Expand the graph from this node", "What other files does this connect to that I haven't seen yet?"
 
 WHY: When building a dependency graph incrementally or exploring a large codebase, you may already know about some files and want to discover NEW dependencies without re-analyzing everything. This tool efficiently finds only the files you don't already know about, making it perfect for lazy loading or step-by-step exploration.
 
 RETURNS: A list of newly discovered nodes (files) and edges (import relationships) that were not in the known set. Includes the same metadata as the crawl tool: paths, extensions, dependency counts.`,
     inputSchema: ExpandNodeParamsSchema.extend({
-      response_format: ResponseFormatSchema.describe("Output format: 'json', 'markdown', or 'toon' (Token-Oriented Object Notation for reduced token usage) (default: toon - RECOMMENDED for 30-60% token savings)"),
+      response_format: ResponseFormatSchema.describe(
+        "Output format: 'json', 'markdown', or 'toon' (Token-Oriented Object Notation for reduced token usage) (default: toon - RECOMMENDED for 30-60% token savings)",
+      ),
     }),
     outputSchema: McpToolResponseSchema,
     annotations: {
@@ -707,31 +803,37 @@ RETURNS: A list of newly discovered nodes (files) and edges (import relationship
   },
   async ({ filePath, knownPaths, extraDepth, response_format }) => {
     const workerCheck = await ensureWorkerReady();
-    const responseFormat = response_format ?? 'json';
-    if (workerCheck.error) return formatToolResponse(workerCheck.response, responseFormat);
+    const responseFormat = response_format ?? "json";
+    if (workerCheck.error)
+      return formatToolResponse(workerCheck.response, responseFormat);
 
-    const response = await invokeToolWithResponse<ExpandNodeResult>('expand_node', {
-      filePath,
-      knownPaths,
-      extraDepth,
-    });
+    const response = await invokeToolWithResponse<ExpandNodeResult>(
+      "expand_node",
+      {
+        filePath,
+        knownPaths,
+        extraDepth,
+      },
+    );
 
     return formatToolResponse(response, responseFormat);
-  }
+  },
 );
 
 // Tool: graphitlive_parse_imports
 server.registerTool(
-  'graphitlive_parse_imports',
+  "graphitlive_parse_imports",
   {
-    title: 'Parse Raw Import Statements',
+    title: "Parse Raw Import Statements",
     description: `USE THIS TOOL WHEN you need to see the exact import statements as written in the source code, without path resolution. Examples: "What import syntax does this file use?", "Show me the raw import statements", "What module specifiers are in this file?"
 
 WHY: Sometimes you need to see exactly how imports are written (relative paths, aliases, bare specifiers) before resolution. This is useful for understanding coding patterns, checking import styles, or debugging path resolution issues. The tool uses fast regex-based parsing and handles Vue/Svelte script extraction automatically.
 
 RETURNS: An array of raw import/require/export statements as they appear in the source code, with the module specifier (e.g., "./utils", "@/components/Button", "lodash"), import type, and line number. Does NOT resolve paths - use graphitlive_analyze_dependencies for resolved paths.`,
     inputSchema: ParseImportsParamsSchema.extend({
-      response_format: ResponseFormatSchema.describe("Output format: 'json', 'markdown', or 'toon' (Token-Oriented Object Notation for reduced token usage) (default: toon - RECOMMENDED for 30-60% token savings)"),
+      response_format: ResponseFormatSchema.describe(
+        "Output format: 'json', 'markdown', or 'toon' (Token-Oriented Object Notation for reduced token usage) (default: toon - RECOMMENDED for 30-60% token savings)",
+      ),
     }),
     outputSchema: McpToolResponseSchema,
     annotations: {
@@ -743,27 +845,33 @@ RETURNS: An array of raw import/require/export statements as they appear in the 
   },
   async ({ filePath, response_format }) => {
     const workerCheck = await ensureWorkerReady();
-    const responseFormat = response_format ?? 'json';
-    if (workerCheck.error) return formatToolResponse(workerCheck.response, responseFormat);
+    const responseFormat = response_format ?? "json";
+    if (workerCheck.error)
+      return formatToolResponse(workerCheck.response, responseFormat);
 
-    const response = await invokeToolWithResponse<ParseImportsResult>('parse_imports', { filePath });
+    const response = await invokeToolWithResponse<ParseImportsResult>(
+      "parse_imports",
+      { filePath },
+    );
 
     return formatToolResponse(response, responseFormat);
-  }
+  },
 );
 
 // Tool: graphitlive_verify_dependency_usage
 server.registerTool(
-  'graphitlive_verify_dependency_usage',
+  "graphitlive_verify_dependency_usage",
   {
-    title: 'Verify Dependency Usage',
+    title: "Verify Dependency Usage",
     description: `USE THIS TOOL WHEN you want to check if a dependency between two files is real/used, or if it's dead code (unused import). Examples: "Is main.ts actually using utils.ts?", "Check if this import is unused", "Verify dependency usage between these files"
 
 WHY: Raw imports don't tell the whole story. A file might import something but never use it. This tool performs deep AST analysis to verify if symbols from the target file are actually referenced in the source file. This is crucial for identifying dead code or unnecessary dependencies.
 
 RETURNS: Boolean indicating if the dependency is used.`,
     inputSchema: VerifyDependencyUsageParamsSchema.extend({
-      response_format: ResponseFormatSchema.describe("Output format: 'json', 'markdown', or 'toon' (Token-Oriented Object Notation for reduced token usage) (default: toon - RECOMMENDED for 30-60% token savings)"),
+      response_format: ResponseFormatSchema.describe(
+        "Output format: 'json', 'markdown', or 'toon' (Token-Oriented Object Notation for reduced token usage) (default: toon - RECOMMENDED for 30-60% token savings)",
+      ),
     }),
     outputSchema: McpToolResponseSchema,
     annotations: {
@@ -775,30 +883,36 @@ RETURNS: Boolean indicating if the dependency is used.`,
   },
   async ({ sourceFile, targetFile, response_format }) => {
     const workerCheck = await ensureWorkerReady();
-    const responseFormat = response_format ?? 'json';
-    if (workerCheck.error) return formatToolResponse(workerCheck.response, responseFormat);
+    const responseFormat = response_format ?? "json";
+    if (workerCheck.error)
+      return formatToolResponse(workerCheck.response, responseFormat);
 
-    const response = await invokeToolWithResponse<unknown>('verify_dependency_usage', {
-      sourceFile,
-      targetFile
-    });
+    const response = await invokeToolWithResponse<unknown>(
+      "verify_dependency_usage",
+      {
+        sourceFile,
+        targetFile,
+      },
+    );
 
     return formatToolResponse(response, responseFormat);
-  }
+  },
 );
 
 // Tool: graphitlive_resolve_module_path
 server.registerTool(
-  'graphitlive_resolve_module_path',
+  "graphitlive_resolve_module_path",
   {
-    title: 'Resolve Module Specifier to File Path',
+    title: "Resolve Module Specifier to File Path",
     description: `USE THIS TOOL WHEN you need to convert a module specifier (import path) to an actual file path on disk. Examples: "Where does '@/components/Button' point to?", "Resolve this import path", "What file does './utils' refer to from main.ts?"
 
 WHY: Module specifiers in code (like "./utils", "@/components/Button", "../shared/types") don't directly tell you the actual file path. This tool handles all the complexity: tsconfig.json path aliases, implicit file extensions (.ts, .tsx, .js, .jsx, .vue, .svelte, .gql), index file resolution, and relative path calculation. Without it, you would guess incorrectly about where imports actually point.
 
 RETURNS: The resolved absolute file path if the module exists, or null if it cannot be resolved (e.g., external npm package or non-existent file). Also indicates whether the path is inside or outside the workspace.`,
     inputSchema: ResolveModulePathParamsSchema.extend({
-      response_format: ResponseFormatSchema.describe("Output format: 'json', 'markdown', or 'toon' (Token-Oriented Object Notation for reduced token usage) (default: toon - RECOMMENDED for 30-60% token savings)"),
+      response_format: ResponseFormatSchema.describe(
+        "Output format: 'json', 'markdown', or 'toon' (Token-Oriented Object Notation for reduced token usage) (default: toon - RECOMMENDED for 30-60% token savings)",
+      ),
     }),
     outputSchema: McpToolResponseSchema,
     annotations: {
@@ -810,30 +924,33 @@ RETURNS: The resolved absolute file path if the module exists, or null if it can
   },
   async ({ fromFile, moduleSpecifier, response_format }) => {
     const workerCheck = await ensureWorkerReady();
-    const responseFormat = response_format ?? 'json';
-    if (workerCheck.error) return formatToolResponse(workerCheck.response, responseFormat);
+    const responseFormat = response_format ?? "json";
+    if (workerCheck.error)
+      return formatToolResponse(workerCheck.response, responseFormat);
 
     const response = await invokeToolWithResponse<ResolveModulePathResult>(
-      'resolve_module_path',
-      { fromFile, moduleSpecifier }
+      "resolve_module_path",
+      { fromFile, moduleSpecifier },
     );
 
     return formatToolResponse(response, responseFormat);
-  }
+  },
 );
 
 // Tool: graphitlive_get_index_status
 server.registerTool(
-  'graphitlive_get_index_status',
+  "graphitlive_get_index_status",
   {
-    title: 'Get Dependency Index Status',
+    title: "Get Dependency Index Status",
     description: `USE THIS TOOL WHEN you need to verify the dependency analyzer is ready, check how many files are indexed, or diagnose performance issues. Examples: "Is the dependency index ready?", "How many files are indexed?", "What's the cache hit rate?", "Is the analyzer warmed up?"
 
 WHY: Before running expensive dependency analysis, you may want to verify the system is ready and understand its current state. This tool gives you insight into the indexing status, cache efficiency, and overall health of the dependency analyzer.
 
 RETURNS: Index state (ready/initializing), number of files indexed, reverse index statistics (for finding references), cache size and hit rates, warmup completion status and duration. Useful for debugging and understanding analyzer performance.`,
     inputSchema: z.object({
-      response_format: ResponseFormatSchema.describe("Output format: 'json', 'markdown', or 'toon' (Token-Oriented Object Notation for reduced token usage) (default: toon - RECOMMENDED for 30-60% token savings)"),
+      response_format: ResponseFormatSchema.describe(
+        "Output format: 'json', 'markdown', or 'toon' (Token-Oriented Object Notation for reduced token usage) (default: toon - RECOMMENDED for 30-60% token savings)",
+      ),
     }),
     outputSchema: McpToolResponseSchema,
     annotations: {
@@ -845,27 +962,33 @@ RETURNS: Index state (ready/initializing), number of files indexed, reverse inde
   },
   async ({ response_format }) => {
     const workerCheck = await ensureWorkerReady();
-    const responseFormat = response_format ?? 'json';
-    if (workerCheck.error) return formatToolResponse(workerCheck.response, responseFormat);
+    const responseFormat = response_format ?? "json";
+    if (workerCheck.error)
+      return formatToolResponse(workerCheck.response, responseFormat);
 
-    const response = await invokeToolWithResponse<GetIndexStatusResult>('get_index_status', {});
+    const response = await invokeToolWithResponse<GetIndexStatusResult>(
+      "get_index_status",
+      {},
+    );
 
     return formatToolResponse(response, responseFormat);
-  }
+  },
 );
 
 // Tool: graphitlive_invalidate_files
 server.registerTool(
-  'graphitlive_invalidate_files',
+  "graphitlive_invalidate_files",
   {
-    title: 'Invalidate File Cache',
+    title: "Invalidate File Cache",
     description: `USE THIS TOOL WHEN you have modified files and need to refresh the dependency analysis. Examples: "I just changed utils.ts, refresh the cache", "Invalidate these files I modified", "Clear cache for files I edited", "Refresh dependency data after my changes"
 
 WHY: The dependency analyzer caches file analysis for performance. When you modify a file's imports or exports, the cache becomes stale. This tool clears the cache for specific files, forcing re-analysis on the next query. Use this after file modifications to ensure accurate dependency data.
 
 RETURNS: The number of files invalidated, which files were cleared from cache, and which files were not found in cache (already invalidated or never analyzed). The reverse index is also updated to remove stale references.`,
     inputSchema: InvalidateFilesParamsSchema.extend({
-      response_format: ResponseFormatSchema.describe("Output format: 'json', 'markdown', or 'toon' (Token-Oriented Object Notation for reduced token usage) (default: toon - RECOMMENDED for 30-60% token savings)"),
+      response_format: ResponseFormatSchema.describe(
+        "Output format: 'json', 'markdown', or 'toon' (Token-Oriented Object Notation for reduced token usage) (default: toon - RECOMMENDED for 30-60% token savings)",
+      ),
     }),
     outputSchema: McpToolResponseSchema,
     annotations: {
@@ -877,29 +1000,35 @@ RETURNS: The number of files invalidated, which files were cleared from cache, a
   },
   async ({ filePaths, response_format }) => {
     const workerCheck = await ensureWorkerReady();
-    const responseFormat = response_format ?? 'json';
-    if (workerCheck.error) return formatToolResponse(workerCheck.response, responseFormat);
+    const responseFormat = response_format ?? "json";
+    if (workerCheck.error)
+      return formatToolResponse(workerCheck.response, responseFormat);
 
-    const response = await invokeToolWithResponse<InvalidateFilesResult>('invalidate_files', {
-      filePaths,
-    });
+    const response = await invokeToolWithResponse<InvalidateFilesResult>(
+      "invalidate_files",
+      {
+        filePaths,
+      },
+    );
 
     return formatToolResponse(response, responseFormat);
-  }
+  },
 );
 
 // Tool: graphitlive_rebuild_index
 server.registerTool(
-  'graphitlive_rebuild_index',
+  "graphitlive_rebuild_index",
   {
-    title: 'Rebuild Full Dependency Index',
+    title: "Rebuild Full Dependency Index",
     description: `USE THIS TOOL WHEN you need to completely rebuild the dependency index from scratch. Examples: "Rebuild the entire index", "Start fresh with dependency analysis", "Clear all cached data and re-index", "The index seems corrupted, rebuild it"
 
 WHY: In rare cases, the dependency index may become out of sync with the actual codebase (e.g., after major refactoring, branch switches, or git operations that changed many files). This tool clears ALL cached data and re-indexes the entire workspace, ensuring the dependency graph is accurate.
 
 RETURNS: The number of files re-indexed, time taken to rebuild, new cache size, and updated reverse index statistics. Note: This operation can take several seconds for large workspaces.`,
     inputSchema: z.object({
-      response_format: ResponseFormatSchema.describe("Output format: 'json', 'markdown', or 'toon' (Token-Oriented Object Notation for reduced token usage) (default: toon - RECOMMENDED for 30-60% token savings)"),
+      response_format: ResponseFormatSchema.describe(
+        "Output format: 'json', 'markdown', or 'toon' (Token-Oriented Object Notation for reduced token usage) (default: toon - RECOMMENDED for 30-60% token savings)",
+      ),
     }),
     outputSchema: McpToolResponseSchema,
     annotations: {
@@ -911,20 +1040,24 @@ RETURNS: The number of files re-indexed, time taken to rebuild, new cache size, 
   },
   async ({ response_format }) => {
     const workerCheck = await ensureWorkerReady();
-    const responseFormat = response_format ?? 'json';
-    if (workerCheck.error) return formatToolResponse(workerCheck.response, responseFormat);
+    const responseFormat = response_format ?? "json";
+    if (workerCheck.error)
+      return formatToolResponse(workerCheck.response, responseFormat);
 
-    const response = await invokeToolWithResponse<RebuildIndexResult>('rebuild_index', {});
+    const response = await invokeToolWithResponse<RebuildIndexResult>(
+      "rebuild_index",
+      {},
+    );
 
     return formatToolResponse(response, responseFormat);
-  }
+  },
 );
 
 // Tool: graphitlive_get_symbol_graph
 server.registerTool(
-  'graphitlive_get_symbol_graph',
+  "graphitlive_get_symbol_graph",
   {
-    title: 'Get Symbol-Level Dependency Graph',
+    title: "Get Symbol-Level Dependency Graph",
     description: `CRITICAL: USE THIS TOOL WHEN the user wants to drill down from file-level dependencies to symbol-level (functions, classes, methods) dependencies. This enables **surgical refactoring** by showing exactly which symbols within a file depend on which external symbols.
 
 WHEN TO USE:
@@ -952,7 +1085,9 @@ RETURNS:
 
 This enables the **"Drill Down" UX pattern** where users double-click a file node to see its internal symbol graph.`,
     inputSchema: GetSymbolGraphParamsSchema.extend({
-      response_format: ResponseFormatSchema.describe("Output format: 'json', 'markdown', or 'toon' (Token-Oriented Object Notation for reduced token usage) (default: toon - RECOMMENDED for 30-60% token savings)"),
+      response_format: ResponseFormatSchema.describe(
+        "Output format: 'json', 'markdown', or 'toon' (Token-Oriented Object Notation for reduced token usage) (default: toon - RECOMMENDED for 30-60% token savings)",
+      ),
     }),
     outputSchema: McpToolResponseSchema,
     annotations: {
@@ -964,20 +1099,24 @@ This enables the **"Drill Down" UX pattern** where users double-click a file nod
   },
   async ({ filePath, response_format }) => {
     const workerCheck = await ensureWorkerReady();
-    const responseFormat = response_format ?? 'json';
-    if (workerCheck.error) return formatToolResponse(workerCheck.response, responseFormat);
+    const responseFormat = response_format ?? "json";
+    if (workerCheck.error)
+      return formatToolResponse(workerCheck.response, responseFormat);
 
-    const response = await invokeToolWithResponse<GetSymbolGraphResult>('get_symbol_graph', { filePath });
+    const response = await invokeToolWithResponse<GetSymbolGraphResult>(
+      "get_symbol_graph",
+      { filePath },
+    );
 
     return formatToolResponse(response, responseFormat);
-  }
+  },
 );
 
 // Tool: graphitlive_find_unused_symbols
 server.registerTool(
-  'graphitlive_find_unused_symbols',
+  "graphitlive_find_unused_symbols",
   {
-    title: 'Find Dead Code (Unused Exports)',
+    title: "Find Dead Code (Unused Exports)",
     description: `CRITICAL: USE THIS TOOL WHEN the user wants to identify potential dead code or refactor opportunities by finding exported symbols that are never imported/used anywhere in the project.
 
 WHEN TO USE:
@@ -1006,7 +1145,9 @@ RETURNS:
 
 NOTE: Currently returns all exports as potentially unused until full cross-file symbol resolution is implemented. This will be enhanced to accurately track symbol-level imports across the project.`,
     inputSchema: FindUnusedSymbolsParamsSchema.extend({
-      response_format: ResponseFormatSchema.describe("Output format: 'json', 'markdown', or 'toon' (Token-Oriented Object Notation for reduced token usage) (default: toon - RECOMMENDED for 30-60% token savings)"),
+      response_format: ResponseFormatSchema.describe(
+        "Output format: 'json', 'markdown', or 'toon' (Token-Oriented Object Notation for reduced token usage) (default: toon - RECOMMENDED for 30-60% token savings)",
+      ),
     }),
     outputSchema: McpToolResponseSchema,
     annotations: {
@@ -1018,20 +1159,24 @@ NOTE: Currently returns all exports as potentially unused until full cross-file 
   },
   async ({ filePath, response_format }) => {
     const workerCheck = await ensureWorkerReady();
-    const responseFormat = response_format ?? 'json';
-    if (workerCheck.error) return formatToolResponse(workerCheck.response, responseFormat);
+    const responseFormat = response_format ?? "json";
+    if (workerCheck.error)
+      return formatToolResponse(workerCheck.response, responseFormat);
 
-    const response = await invokeToolWithResponse<FindUnusedSymbolsResult>('find_unused_symbols', { filePath });
+    const response = await invokeToolWithResponse<FindUnusedSymbolsResult>(
+      "find_unused_symbols",
+      { filePath },
+    );
 
     return formatToolResponse(response, responseFormat);
-  }
+  },
 );
 
 // Tool: graphitlive_get_symbol_dependents
 server.registerTool(
-  'graphitlive_get_symbol_dependents',
+  "graphitlive_get_symbol_dependents",
   {
-    title: 'Find All Callers of a Symbol (Impact Analysis)',
+    title: "Find All Callers of a Symbol (Impact Analysis)",
     description: `CRITICAL: USE THIS TOOL WHEN the user wants to know every file and specific method/function that calls or uses a given symbol. This is essential for surgical refactoring and precise impact analysis.
 
 WHEN TO USE:
@@ -1062,7 +1207,9 @@ EXAMPLE USE CASE:
 User: "I want to add a parameter to formatDate(). What will break?"
 → Use this tool with symbolName="formatDate" to get all callers, then the user knows exactly which functions need updating.`,
     inputSchema: GetSymbolDependentsParamsSchema.extend({
-      response_format: ResponseFormatSchema.describe("Output format: 'json', 'markdown', or 'toon' (Token-Oriented Object Notation for reduced token usage) (default: toon - RECOMMENDED for 30-60% token savings)"),
+      response_format: ResponseFormatSchema.describe(
+        "Output format: 'json', 'markdown', or 'toon' (Token-Oriented Object Notation for reduced token usage) (default: toon - RECOMMENDED for 30-60% token savings)",
+      ),
     }),
     outputSchema: McpToolResponseSchema,
     annotations: {
@@ -1074,23 +1221,27 @@ User: "I want to add a parameter to formatDate(). What will break?"
   },
   async ({ filePath, symbolName, response_format }) => {
     const workerCheck = await ensureWorkerReady();
-    const responseFormat = response_format ?? 'json';
-    if (workerCheck.error) return formatToolResponse(workerCheck.response, responseFormat);
+    const responseFormat = response_format ?? "json";
+    if (workerCheck.error)
+      return formatToolResponse(workerCheck.response, responseFormat);
 
-    const response = await invokeToolWithResponse<GetSymbolDependentsResult>('get_symbol_dependents', { 
-      filePath, 
-      symbolName,
-    });
+    const response = await invokeToolWithResponse<GetSymbolDependentsResult>(
+      "get_symbol_dependents",
+      {
+        filePath,
+        symbolName,
+      },
+    );
 
     return formatToolResponse(response, responseFormat);
-  }
+  },
 );
 
 // Tool: graphitlive_trace_function_execution
 server.registerTool(
-  'graphitlive_trace_function_execution',
+  "graphitlive_trace_function_execution",
   {
-    title: 'Trace Function Execution Chain',
+    title: "Trace Function Execution Chain",
     description: `CRITICAL: USE THIS TOOL WHEN the user wants to trace the full, deep call chain from a root symbol (function, method, or class). This is essential for understanding the execution flow through services, repositories, and utilities.
 
 WHEN TO USE:
@@ -1125,7 +1276,9 @@ Use cases:
 - Understand which utilities a feature depends on
 - Map out the blast radius of a function change`,
     inputSchema: TraceFunctionExecutionParamsSchema.extend({
-      response_format: ResponseFormatSchema.describe("Output format: 'json', 'markdown', or 'toon' (Token-Oriented Object Notation for reduced token usage) (default: toon - RECOMMENDED for 30-60% token savings)"),
+      response_format: ResponseFormatSchema.describe(
+        "Output format: 'json', 'markdown', or 'toon' (Token-Oriented Object Notation for reduced token usage) (default: toon - RECOMMENDED for 30-60% token savings)",
+      ),
     }),
     outputSchema: McpToolResponseSchema,
     annotations: {
@@ -1137,24 +1290,28 @@ Use cases:
   },
   async ({ filePath, symbolName, maxDepth, response_format }) => {
     const workerCheck = await ensureWorkerReady();
-    const responseFormat = response_format ?? 'json';
-    if (workerCheck.error) return formatToolResponse(workerCheck.response, responseFormat);
+    const responseFormat = response_format ?? "json";
+    if (workerCheck.error)
+      return formatToolResponse(workerCheck.response, responseFormat);
 
-    const response = await invokeToolWithResponse<TraceFunctionExecutionResult>('trace_function_execution', { 
-      filePath, 
-      symbolName,
-      maxDepth,
-    });
+    const response = await invokeToolWithResponse<TraceFunctionExecutionResult>(
+      "trace_function_execution",
+      {
+        filePath,
+        symbolName,
+        maxDepth,
+      },
+    );
 
     return formatToolResponse(response, responseFormat);
-  }
+  },
 );
 
 // Tool: graphitlive_get_symbol_callers
 server.registerTool(
-  'graphitlive_get_symbol_callers',
+  "graphitlive_get_symbol_callers",
   {
-    title: 'Get Symbol Callers (Reverse Dependencies)',
+    title: "Get Symbol Callers (Reverse Dependencies)",
     description: `CRITICAL: USE THIS TOOL WHEN the user wants to find all callers of a specific symbol (function, method, class, or variable).
 
 WHEN TO USE:
@@ -1183,7 +1340,9 @@ Use cases:
 - Identify dead code (symbols with no callers)
 - Understand symbol coupling across modules`,
     inputSchema: GetSymbolCallersParamsSchema.extend({
-      response_format: ResponseFormatSchema.describe("Output format: 'json', 'markdown', or 'toon' (Token-Oriented Object Notation for reduced token usage) (default: toon - RECOMMENDED for 30-60% token savings)"),
+      response_format: ResponseFormatSchema.describe(
+        "Output format: 'json', 'markdown', or 'toon' (Token-Oriented Object Notation for reduced token usage) (default: toon - RECOMMENDED for 30-60% token savings)",
+      ),
     }),
     outputSchema: McpToolResponseSchema,
     annotations: {
@@ -1195,24 +1354,28 @@ Use cases:
   },
   async ({ filePath, symbolName, includeTypeOnly, response_format }) => {
     const workerCheck = await ensureWorkerReady();
-    const responseFormat = response_format ?? 'json';
-    if (workerCheck.error) return formatToolResponse(workerCheck.response, responseFormat);
+    const responseFormat = response_format ?? "json";
+    if (workerCheck.error)
+      return formatToolResponse(workerCheck.response, responseFormat);
 
-    const response = await invokeToolWithResponse<GetSymbolCallersResult>('get_symbol_callers', { 
-      filePath, 
-      symbolName,
-      includeTypeOnly,
-    });
+    const response = await invokeToolWithResponse<GetSymbolCallersResult>(
+      "get_symbol_callers",
+      {
+        filePath,
+        symbolName,
+        includeTypeOnly,
+      },
+    );
 
     return formatToolResponse(response, responseFormat);
-  }
+  },
 );
 
 // Tool: graphitlive_analyze_breaking_changes
 server.registerTool(
-  'graphitlive_analyze_breaking_changes',
+  "graphitlive_analyze_breaking_changes",
   {
-    title: 'Analyze Breaking Changes in Signature',
+    title: "Analyze Breaking Changes in Signature",
     description: `CRITICAL: USE THIS TOOL WHEN the user wants to detect breaking changes after modifying a function, method, or class signature.
 
 WHEN TO USE:
@@ -1247,7 +1410,9 @@ Use cases:
 - Generate migration notes for API changes
 - Identify which call sites need updates`,
     inputSchema: AnalyzeBreakingChangesParamsSchema.extend({
-      response_format: ResponseFormatSchema.describe("Output format: 'json', 'markdown', or 'toon' (Token-Oriented Object Notation for reduced token usage) (default: toon - RECOMMENDED for 30-60% token savings)"),
+      response_format: ResponseFormatSchema.describe(
+        "Output format: 'json', 'markdown', or 'toon' (Token-Oriented Object Notation for reduced token usage) (default: toon - RECOMMENDED for 30-60% token savings)",
+      ),
     }),
     outputSchema: McpToolResponseSchema,
     annotations: {
@@ -1259,25 +1424,29 @@ Use cases:
   },
   async ({ filePath, symbolName, oldContent, newContent, response_format }) => {
     const workerCheck = await ensureWorkerReady();
-    const responseFormat = response_format ?? 'json';
-    if (workerCheck.error) return formatToolResponse(workerCheck.response, responseFormat);
+    const responseFormat = response_format ?? "json";
+    if (workerCheck.error)
+      return formatToolResponse(workerCheck.response, responseFormat);
 
-    const response = await invokeToolWithResponse<AnalyzeBreakingChangesResult>('analyze_breaking_changes', { 
-      filePath, 
-      symbolName,
-      oldContent,
-      newContent,
-    });
+    const response = await invokeToolWithResponse<AnalyzeBreakingChangesResult>(
+      "analyze_breaking_changes",
+      {
+        filePath,
+        symbolName,
+        oldContent,
+        newContent,
+      },
+    );
 
     return formatToolResponse(response, responseFormat);
-  }
+  },
 );
 
 // Tool: graphitlive_get_impact_analysis
 server.registerTool(
-  'graphitlive_get_impact_analysis',
+  "graphitlive_get_impact_analysis",
   {
-    title: 'Get Comprehensive Impact Analysis',
+    title: "Get Comprehensive Impact Analysis",
     description: `CRITICAL: USE THIS TOOL WHEN the user needs a full impact assessment before modifying a symbol.
 
 WHEN TO USE:
@@ -1317,7 +1486,9 @@ Use cases:
 - Generate change impact reports
 - Prioritize which call sites to update first`,
     inputSchema: GetImpactAnalysisParamsSchema.extend({
-      response_format: ResponseFormatSchema.describe("Output format: 'json', 'markdown', or 'toon' (Token-Oriented Object Notation for reduced token usage) (default: toon - RECOMMENDED for 30-60% token savings)"),
+      response_format: ResponseFormatSchema.describe(
+        "Output format: 'json', 'markdown', or 'toon' (Token-Oriented Object Notation for reduced token usage) (default: toon - RECOMMENDED for 30-60% token savings)",
+      ),
     }),
     outputSchema: McpToolResponseSchema,
     annotations: {
@@ -1327,20 +1498,118 @@ Use cases:
       openWorldHint: false,
     },
   },
-  async ({ filePath, symbolName, includeTransitive, maxDepth, response_format }) => {
+  async ({
+    filePath,
+    symbolName,
+    includeTransitive,
+    maxDepth,
+    response_format,
+  }) => {
     const workerCheck = await ensureWorkerReady();
-    const responseFormat = response_format ?? 'json';
-    if (workerCheck.error) return formatToolResponse(workerCheck.response, responseFormat);
+    const responseFormat = response_format ?? "json";
+    if (workerCheck.error)
+      return formatToolResponse(workerCheck.response, responseFormat);
 
-    const response = await invokeToolWithResponse<GetImpactAnalysisResult>('get_impact_analysis', { 
-      filePath, 
-      symbolName,
-      includeTransitive,
-      maxDepth,
+    const response = await invokeToolWithResponse<GetImpactAnalysisResult>(
+      "get_impact_analysis",
+      {
+        filePath,
+        symbolName,
+        includeTransitive,
+        maxDepth,
+      },
+    );
+
+    return formatToolResponse(response, responseFormat);
+  },
+);
+
+// Tool: graphitlive_analyze_file_logic
+server.registerTool(
+  "graphitlive_analyze_file_logic",
+  {
+    title: "Analyze File Logic & Call Hierarchy",
+    description: `CRITICAL: USE THIS TOOL WHEN analyzing symbol-level call hierarchies and code flow within a single file.
+
+WHEN TO USE:
+- User asks "How does this file work?" or "Explain the logic in this file"
+- User wants to understand function call relationships within a file
+- User needs to see which functions call which (intra-file analysis)
+- Identifying code flow and control structures
+- Understanding symbol-level dependencies before refactoring
+
+EXAMPLES:
+- "Show me the call hierarchy in src/utils/parser.ts"
+- "What functions does processData call?"
+- "Explain the code flow in this file"
+- "Which symbols are called by the main function?"
+
+WHY YOU NEED THIS:
+Without this tool, you cannot see the actual call relationships between functions/methods within a file. This tool uses LSP (Language Server Protocol) to get precise call hierarchy data from the TypeScript compiler (or Pylance/rust-analyzer for Python/Rust), giving you ground truth about:
+- Which functions/methods call which
+- Symbol types (function, class, variable)
+- Export status of each symbol
+- Circular/recursive call detection
+- Line numbers for navigation
+
+RETURNS:
+IntraFileGraph with:
+- nodes: All symbols (functions, classes, variables) with:
+  - Symbol ID format: "filePath:symbolName"
+  - Type: 'function' | 'class' | 'variable'
+  - isExported: Whether symbol is exported
+  - Line number range
+- edges: Call relationships with:
+  - source/target symbol IDs
+  - relation type: 'calls' (for function calls)
+  - Line number of the call
+- hasCycle: Boolean indicating recursive/circular calls
+- cycleNodes: Array of symbol IDs in cycles (if detected)
+
+Format options:
+- 'toon': Token-efficient format (30-60% savings) - RECOMMENDED
+- 'json': Full structured data
+- 'markdown': Human-readable narrative
+
+Supported languages: TypeScript, JavaScript, Python, Rust (requires LSP extension)
+
+Use cases:
+- Code comprehension for new codebases
+- Pre-refactoring impact analysis (intra-file scope)
+- Detecting recursive functions
+- Understanding call chains
+- AI-powered code explanation`,
+    inputSchema: z.object({
+      filePath: z.string().describe("Absolute path to the file to analyze"),
+      includeExternal: z
+        .boolean()
+        .optional()
+        .describe("Include external calls (default: false - intra-file only)"),
+      response_format: ResponseFormatSchema.describe(
+        "Output format: 'json', 'markdown', or 'toon' (default: toon - RECOMMENDED for 30-60% token savings)",
+      ),
+    }),
+    outputSchema: McpToolResponseSchema,
+    annotations: {
+      readOnlyHint: true,
+      destructiveHint: false,
+      idempotentHint: true,
+      openWorldHint: false,
+    },
+  },
+  async ({ filePath, includeExternal, response_format }) => {
+    const workerCheck = await ensureWorkerReady();
+    const responseFormat = response_format ?? "toon";
+    if (workerCheck.error)
+      return formatToolResponse(workerCheck.response, responseFormat);
+
+    const response = await invokeToolWithResponse("analyze_file_logic", {
+      filePath,
+      includeExternal: includeExternal ?? false,
     });
 
     return formatToolResponse(response, responseFormat);
-  }
+  },
 );
 
 // ============================================================================
@@ -1348,17 +1617,23 @@ Use cases:
 // ============================================================================
 
 async function main(): Promise<void> {
-  debugLog('[McpServer] Graph-It-Live MCP Server starting...');
-  debugLog(`[McpServer] Workspace: ${getWorkspaceRoot() || '(not configured - use graphitlive_set_workspace)'}`);
-  debugLog(`[McpServer] TSConfig: ${currentConfig.tsConfigPath ?? 'auto-detect'}`);
-  debugLog(`[McpServer] Exclude node_modules: ${currentConfig.excludeNodeModules}`);
+  debugLog("[McpServer] Graph-It-Live MCP Server starting...");
+  debugLog(
+    `[McpServer] Workspace: ${getWorkspaceRoot() || "(not configured - use graphitlive_set_workspace)"}`,
+  );
+  debugLog(
+    `[McpServer] TSConfig: ${currentConfig.tsConfigPath ?? "auto-detect"}`,
+  );
+  debugLog(
+    `[McpServer] Exclude node_modules: ${currentConfig.excludeNodeModules}`,
+  );
   debugLog(`[McpServer] Max depth: ${currentConfig.maxDepth}`);
 
   // Connect to stdio transport
   const transport = new StdioServerTransport();
   await server.connect(transport);
 
-  debugLog('[McpServer] MCP Server connected via stdio');
+  debugLog("[McpServer] MCP Server connected via stdio");
 
   // Start warmup immediately in background
   initializeWorker().catch((error) => {
@@ -1366,21 +1641,21 @@ async function main(): Promise<void> {
   });
 
   // Handle graceful shutdown
-  process.on('SIGINT', () => {
-    debugLog('[McpServer] Received SIGINT, shutting down...');
+  process.on("SIGINT", () => {
+    debugLog("[McpServer] Received SIGINT, shutting down...");
     workerHost?.dispose();
     process.exit(0);
   });
 
-  process.on('SIGTERM', () => {
-    debugLog('[McpServer] Received SIGTERM, shutting down...');
+  process.on("SIGTERM", () => {
+    debugLog("[McpServer] Received SIGTERM, shutting down...");
     workerHost?.dispose();
     process.exit(0);
   });
 }
 
 // Run main - IIFE pattern for entry point (NOSONAR: top-level await not supported by tsconfig)
-main().catch((error: unknown) => { // NOSONAR
+main().catch((error: unknown) => {// NOSONAR
   debugLog(`[McpServer] Fatal error: ${error}`);
   process.exit(1);
 });

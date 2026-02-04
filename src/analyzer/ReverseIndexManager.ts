@@ -1,17 +1,20 @@
 import { ReverseIndex } from './ReverseIndex';
-import type { Dependency, FileHash } from './types';
+import { SymbolReverseIndex } from './SymbolReverseIndex';
+import type { Dependency, FileHash, SymbolDependency } from './types';
 
 /**
  * Encapsulates reverse index lifecycle and operations for Spider/MCP.
  */
 export class ReverseIndexManager {
   private reverseIndex: ReverseIndex | null = null;
+  private symbolReverseIndex: SymbolReverseIndex | null = null;
 
   constructor(private readonly rootDir: string) {}
 
   enable(serializedData?: string): boolean {
     let restored = false;
     this.reverseIndex ??= new ReverseIndex(this.rootDir);
+    this.symbolReverseIndex ??= new SymbolReverseIndex(this.rootDir);
 
     if (serializedData) {
       try {
@@ -32,10 +35,13 @@ export class ReverseIndexManager {
   disable(): void {
     this.reverseIndex?.clear();
     this.reverseIndex = null;
+    this.symbolReverseIndex?.clear();
+    this.symbolReverseIndex = null;
   }
 
   clear(): void {
     this.reverseIndex?.clear();
+    this.symbolReverseIndex?.clear();
   }
 
   isEnabled(): boolean {
@@ -76,5 +82,39 @@ export class ReverseIndexManager {
 
   getStats() {
     return this.reverseIndex?.getStats();
+  }
+
+  // ===========================
+  // Symbol Reverse Index Methods
+  // ===========================
+
+  /**
+   * Add symbol dependencies to the symbol reverse index
+   */
+  addSymbolDependencies(sourcePath: string, dependencies: SymbolDependency[], fileHash?: FileHash): void {
+    this.symbolReverseIndex?.addDependencies(sourcePath, dependencies, fileHash);
+  }
+
+  /**
+   * Remove symbol dependencies from a source file
+   */
+  removeSymbolDependenciesFromSource(sourcePath: string): void {
+    this.symbolReverseIndex?.removeDependenciesFromSource(sourcePath);
+  }
+
+  /**
+   * Get all files that reference a symbol
+   * @param symbolId Symbol ID in format "filePath:symbolName"
+   * @returns Array of file paths that import/reference the symbol
+   */
+  getSymbolReferencingFiles(symbolId: string): string[] {
+    return this.symbolReverseIndex?.getCallerFiles(symbolId) ?? [];
+  }
+
+  /**
+   * Get symbol reverse index stats
+   */
+  getSymbolStats() {
+    return this.symbolReverseIndex?.getStats();
   }
 }

@@ -1,10 +1,11 @@
-import Parser from 'tree-sitter';
-import Python from 'tree-sitter-python';
-import path from 'node:path';
-import fs from 'node:fs/promises';
-import { ILanguageAnalyzer, Dependency, SpiderError } from '../types';
-import { FileReader } from '../FileReader';
-import { normalizePath } from '../../shared/path';
+import fs from "node:fs/promises";
+import path from "node:path";
+import Parser from "tree-sitter";
+import Python from "tree-sitter-python";
+import { normalizePath } from "../../shared/path";
+import { FileReader } from "../FileReader";
+import { LanguageService } from "../LanguageService";
+import { Dependency, ILanguageAnalyzer, SpiderError } from "../types";
 
 /**
  * Python import parser using tree-sitter-python
@@ -27,18 +28,20 @@ export class PythonParser implements ILanguageAnalyzer {
    */
   async parseImports(filePath: string): Promise<Dependency[]> {
     try {
-      const content = await this.fileReader.readFile(filePath);
+      // Extract file path from potential symbol ID
+      const actualPath = LanguageService["extractFilePath"](filePath);
+      const content = await this.fileReader.readFile(actualPath);
       const tree = this.parser.parse(content);
       const dependencies: Dependency[] = [];
       const seen = new Set<string>();
 
       this.traverseTree(tree.rootNode, (node) => {
         // Handle: import module [as alias]
-        if (node.type === 'import_statement') {
+        if (node.type === "import_statement") {
           this.extractImportStatement(node, dependencies, seen, content);
         }
         // Handle: from module import name [as alias]
-        else if (node.type === 'import_from_statement') {
+        else if (node.type === "import_from_statement") {
           this.extractImportFromStatement(node, dependencies, seen, content);
         }
       });
@@ -52,12 +55,17 @@ export class PythonParser implements ILanguageAnalyzer {
   /**
    * Resolve Python module path to absolute file path
    */
-  async resolvePath(fromFile: string, moduleSpecifier: string): Promise<string | null> {
+  async resolvePath(
+    fromFile: string,
+    moduleSpecifier: string,
+  ): Promise<string | null> {
     try {
-      const fromDir = path.dirname(fromFile);
+      // Extract file path from potential symbol ID
+      const actualFromFile = LanguageService["extractFilePath"](fromFile);
+      const fromDir = path.dirname(actualFromFile);
 
       // Handle relative imports (., ..)
-      if (moduleSpecifier.startsWith('.')) {
+      if (moduleSpecifier.startsWith(".")) {
         return await this.resolveRelativeImport(fromDir, moduleSpecifier);
       }
 
@@ -76,18 +84,18 @@ export class PythonParser implements ILanguageAnalyzer {
     node: Parser.SyntaxNode,
     dependencies: Dependency[],
     seen: Set<string>,
-    content: string
+    content: string,
   ): void {
     // Find dotted_name nodes (the module being imported)
-    const dottedNames = this.findChildrenByType(node, 'dotted_name');
-    
+    const dottedNames = this.findChildrenByType(node, "dotted_name");
+
     for (const dottedName of dottedNames) {
       const module = this.getNodeText(dottedName, content);
       if (module && !seen.has(module)) {
         seen.add(module);
         dependencies.push({
-          path: '',
-          type: 'import',
+          path: "",
+          type: "import",
           line: dottedName.startPosition.row + 1,
           module,
         });
@@ -102,18 +110,18 @@ export class PythonParser implements ILanguageAnalyzer {
     node: Parser.SyntaxNode,
     dependencies: Dependency[],
     seen: Set<string>,
-    content: string
+    content: string,
   ): void {
     // Find the module path (can be dotted_name or relative_import)
     let module: string | null = null;
-    
+
     // Check for relative imports (., .., .module)
-    const relativeImport = this.findChildByType(node, 'relative_import');
+    const relativeImport = this.findChildByType(node, "relative_import");
     if (relativeImport) {
       module = this.getNodeText(relativeImport, content);
     } else {
       // Absolute import
-      const dottedName = this.findChildByType(node, 'dotted_name');
+      const dottedName = this.findChildByType(node, "dotted_name");
       if (dottedName) {
         module = this.getNodeText(dottedName, content);
       }
@@ -122,8 +130,8 @@ export class PythonParser implements ILanguageAnalyzer {
     if (module && !seen.has(module)) {
       seen.add(module);
       dependencies.push({
-        path: '',
-        type: 'import',
+        path: "",
+        type: "import",
         line: node.startPosition.row + 1,
         module,
       });
@@ -133,11 +141,14 @@ export class PythonParser implements ILanguageAnalyzer {
   /**
    * Resolve relative import (., .., .module)
    */
-  private async resolveRelativeImport(fromDir: string, moduleSpecifier: string): Promise<string | null> {
+  private async resolveRelativeImport(
+    fromDir: string,
+    moduleSpecifier: string,
+  ): Promise<string | null> {
     // Count leading dots
     const dotsMatch = /^\.*/u.exec(moduleSpecifier);
     const dots = dotsMatch ? dotsMatch[0].length : 0;
-    const modulePath = moduleSpecifier.slice(dots).replaceAll('.', '/');
+    const modulePath = moduleSpecifier.slice(dots).replaceAll(".", "/");
 
     // Navigate up directories based on dot count
     let currentDir = fromDir;
@@ -147,10 +158,10 @@ export class PythonParser implements ILanguageAnalyzer {
 
     // Try different file patterns
     const candidates = [
-      path.join(currentDir, modulePath + '.py'),
-      path.join(currentDir, modulePath + '.pyi'),
-      path.join(currentDir, modulePath, '__init__.py'),
-      path.join(currentDir, modulePath, '__init__.pyi'),
+      path.join(currentDir, modulePath + ".py"),
+      path.join(currentDir, modulePath + ".pyi"),
+      path.join(currentDir, modulePath, "__init__.py"),
+      path.join(currentDir, modulePath, "__init__.pyi"),
     ];
 
     for (const candidate of candidates) {
@@ -165,9 +176,12 @@ export class PythonParser implements ILanguageAnalyzer {
   /**
    * Resolve absolute import (workspace-relative)
    */
-  private async resolveAbsoluteImport(fromDir: string, moduleSpecifier: string): Promise<string | null> {
+  private async resolveAbsoluteImport(
+    fromDir: string,
+    moduleSpecifier: string,
+  ): Promise<string | null> {
     // Convert module.submodule to module/submodule
-    const modulePath = moduleSpecifier.replaceAll('.', '/');
+    const modulePath = moduleSpecifier.replaceAll(".", "/");
     const normalizedRoot = normalizePath(this.rootDir);
     const visited = new Set<string>();
 
@@ -180,10 +194,10 @@ export class PythonParser implements ILanguageAnalyzer {
       visited.add(normalizedDir);
 
       const candidates = [
-        path.join(dir, modulePath + '.py'),
-        path.join(dir, modulePath + '.pyi'),
-        path.join(dir, modulePath, '__init__.py'),
-        path.join(dir, modulePath, '__init__.pyi'),
+        path.join(dir, modulePath + ".py"),
+        path.join(dir, modulePath + ".pyi"),
+        path.join(dir, modulePath, "__init__.py"),
+        path.join(dir, modulePath, "__init__.pyi"),
       ];
 
       for (const candidate of candidates) {
@@ -246,7 +260,10 @@ export class PythonParser implements ILanguageAnalyzer {
   /**
    * Traverse tree and call visitor for each node
    */
-  private traverseTree(node: Parser.SyntaxNode, visitor: (node: Parser.SyntaxNode) => void): void {
+  private traverseTree(
+    node: Parser.SyntaxNode,
+    visitor: (node: Parser.SyntaxNode) => void,
+  ): void {
     visitor(node);
     for (const child of node.children) {
       this.traverseTree(child, visitor);
@@ -256,7 +273,10 @@ export class PythonParser implements ILanguageAnalyzer {
   /**
    * Find all children of a specific type
    */
-  private findChildrenByType(node: Parser.SyntaxNode, type: string): Parser.SyntaxNode[] {
+  private findChildrenByType(
+    node: Parser.SyntaxNode,
+    type: string,
+  ): Parser.SyntaxNode[] {
     const results: Parser.SyntaxNode[] = [];
     for (const child of node.children) {
       if (child.type === type) {
@@ -269,7 +289,10 @@ export class PythonParser implements ILanguageAnalyzer {
   /**
    * Find first child of a specific type
    */
-  private findChildByType(node: Parser.SyntaxNode, type: string): Parser.SyntaxNode | null {
+  private findChildByType(
+    node: Parser.SyntaxNode,
+    type: string,
+  ): Parser.SyntaxNode | null {
     for (const child of node.children) {
       if (child.type === type) {
         return child;

@@ -1,7 +1,7 @@
-import * as fs from 'node:fs/promises';
-import * as path from 'node:path';
-import { normalizePath } from '../types';
-import { SUPPORTED_FILE_EXTENSIONS } from '../../shared/constants';
+import * as fs from "node:fs/promises";
+import * as path from "node:path";
+import { PYTHON_EXTENSIONS, SUPPORTED_FILE_EXTENSIONS } from "../../shared/constants";
+import { normalizePath } from "../types";
 
 /**
  * Resolves module paths to absolute file paths
@@ -11,9 +11,9 @@ import { SUPPORTED_FILE_EXTENSIONS } from '../../shared/constants';
  * - Node.js subpath imports (#internal/utils) via package.json "imports" field
  * - Implicit extensions (.ts, .tsx, .js, .jsx)
  * - Index files (/index.ts)
- * 
+ *
  * Monorepo-aware: discovers the nearest package.json for #imports resolution
- * 
+ *
  * CRITICAL: NO vscode imports allowed - pure Node.js only
  */
 export class PathResolver {
@@ -28,28 +28,42 @@ export class PathResolver {
   private readonly workspaceRoot?: string;
 
   // Cache: directory path -> nearest package.json path (or null if none found)
-  private readonly directoryToPackageJson: Map<string, string | null> = new Map();
+  private readonly directoryToPackageJson: Map<string, string | null> =
+    new Map();
 
   // Cache: directory path -> nearest tsconfig.json path (or null if none found)
   private readonly directoryToTsConfig: Map<string, string | null> = new Map();
 
   // Cache: tsconfig.json path -> parsed path aliases map (alias -> target path)
-  private readonly tsConfigPathAliases: Map<string, Map<string, string>> = new Map();
+  private readonly tsConfigPathAliases: Map<string, Map<string, string>> =
+    new Map();
 
   // Cache: package.json path -> parsed imports map (alias -> target path)
-  private readonly packageJsonImports: Map<string, Map<string, string>> = new Map();
+  private readonly packageJsonImports: Map<string, Map<string, string>> =
+    new Map();
 
   // Promises for loading package.json files (to avoid concurrent loads)
-  private readonly packageJsonLoadPromises: Map<string, Promise<Map<string, string>>> = new Map();
+  private readonly packageJsonLoadPromises: Map<
+    string,
+    Promise<Map<string, string>>
+  > = new Map();
 
   // Promises for loading tsconfig.json files (to avoid concurrent loads)
-  private readonly tsConfigLoadPromises: Map<string, Promise<Map<string, string>>> = new Map();
+  private readonly tsConfigLoadPromises: Map<
+    string,
+    Promise<Map<string, string>>
+  > = new Map();
 
-  constructor(tsConfigPath?: string, excludeNodeModules: boolean = true, workspaceRoot?: string) {
+  constructor(
+    tsConfigPath?: string,
+    excludeNodeModules: boolean = true,
+    workspaceRoot?: string,
+  ) {
     this.excludeNodeModules = excludeNodeModules;
     this.tsConfigPath = tsConfigPath;
     // Use provided workspaceRoot, or derive from tsConfigPath, or undefined
-    this.workspaceRoot = workspaceRoot ?? (tsConfigPath ? path.dirname(tsConfigPath) : undefined);
+    this.workspaceRoot =
+      workspaceRoot ?? (tsConfigPath ? path.dirname(tsConfigPath) : undefined);
   }
 
   /**
@@ -79,20 +93,20 @@ export class PathResolver {
    */
   private async loadTsConfig(tsConfigPath: string): Promise<void> {
     try {
-      const content = await fs.readFile(tsConfigPath, 'utf-8');
+      const content = await fs.readFile(tsConfigPath, "utf-8");
       const tsConfig = JSON.parse(content);
-      
+
       const paths = tsConfig?.compilerOptions?.paths;
-      const baseUrl = tsConfig?.compilerOptions?.baseUrl || '.';
-      
+      const baseUrl = tsConfig?.compilerOptions?.baseUrl || ".";
+
       if (paths) {
         for (const [alias, targets] of Object.entries(paths)) {
           // Remove trailing /* from alias
-          const cleanAlias = alias.replace(/\/\*$/, '');
-          
+          const cleanAlias = alias.replace(/\/\*$/, "");
+
           // Get first target and remove trailing /*
-          const target = (targets as string[])[0]?.replace(/\/\*$/, '');
-          
+          const target = (targets as string[])[0]?.replace(/\/\*$/, "");
+
           if (target) {
             // Resolve relative to tsconfig directory
             const tsConfigDir = path.dirname(tsConfigPath);
@@ -110,10 +124,10 @@ export class PathResolver {
   /**
    * Resolve a module path to an absolute file path
    */
-  async resolve(currentFilePath: string, modulePath: string): Promise<string | null> {
-    // Load static tsconfig if provided (legacy behavior for backwards compatibility)
-    await this.ensureTsConfigLoaded();
-    
+  /**
+   * Try to resolve using TypeScript config aliases (static and dynamic)
+   */
+  private async tryTsConfigAliases(currentFilePath: string, modulePath: string): Promise<string | null> {
     // Try static tsconfig alias (priority 1a)
     const staticAliasResolved = this.resolveAlias(modulePath);
     if (staticAliasResolved) {
@@ -121,17 +135,54 @@ export class PathResolver {
     }
 
     // Try dynamic tsconfig alias (priority 1b)
-    const dynamicAliasResolved = await this.resolveDynamicTsConfigAlias(currentFilePath, modulePath);
+    const dynamicAliasResolved = await this.resolveDynamicTsConfigAlias(
+      currentFilePath,
+      modulePath,
+    );
     if (dynamicAliasResolved) {
       return this.resolveWithExtensions(dynamicAliasResolved);
     }
 
+    return null;
+  }
+
+  /**
+   * Try to resolve Python-specific imports (relative and absolute modules)
+   */
+  private async tryPythonImports(currentFilePath: string, modulePath: string): Promise<string | null> {
+    if (!this.isPythonFile(currentFilePath)) {
+      return null;
+    }
+
+    // Try Python relative imports FIRST (.helpers, ..utils, etc.)
+    if (this.isPythonRelativeImport(modulePath)) {
+      const pythonResolved = await this.resolvePythonRelativeImport(currentFilePath, modulePath);
+      if (pythonResolved) {
+        return pythonResolved;
+      }
+    }
+
+    // Try Python absolute module resolution (utils.database → utils/database.py)
+    if (modulePath.includes('.') && !modulePath.includes('/')) {
+      const pythonResolved = await this.resolvePythonModule(currentFilePath, modulePath);
+      if (pythonResolved) {
+        return pythonResolved;
+      }
+    }
+
+    return null;
+  }
+
+  /**
+   * Try to resolve special module patterns (subpath imports, Rust, scoped packages)
+   */
+  private async trySpecialModulePatterns(currentFilePath: string, modulePath: string): Promise<string | null> {
     // Handle #imports (Node.js subpath imports)
     if (this.isSubpathImport(modulePath)) {
       return this.resolveSubpathImport(currentFilePath, modulePath);
     }
 
-    // Rust bare module names (e.g., `helper`, `utils::parser`) should resolve to sibling .rs/mod.rs files
+    // Rust bare module names (e.g., `helper`, `utils::parser`)
     const rustResolved = await this.resolveRustModule(currentFilePath, modulePath);
     if (rustResolved) {
       return rustResolved;
@@ -142,26 +193,76 @@ export class PathResolver {
       return this.resolveScopedPackage(currentFilePath, modulePath);
     }
 
+    return null;
+  }
+
+  /**
+   * Try to resolve relative path with appropriate extensions
+   */
+  private async tryRelativePath(currentFilePath: string, modulePath: string): Promise<string | null> {
+    if (!this.isRelativePath(modulePath)) {
+      return null;
+    }
+
+    const currentDir = path.dirname(currentFilePath);
+    const absolutePath = path.resolve(currentDir, modulePath);
+    
+    // For Python files with relative imports, try with .py extension if not already present
+    if (this.isPythonFile(currentFilePath) && !this.hasFileExtension(modulePath)) {
+      const resolved = await this.resolveWithExtensions(absolutePath);
+      if (resolved) {
+        return resolved;
+      }
+    }
+    
+    return this.resolveWithExtensions(absolutePath);
+  }
+
+  async resolve(
+    currentFilePath: string,
+    modulePath: string,
+  ): Promise<string | null> {
+    // Load static tsconfig if provided (legacy behavior for backwards compatibility)
+    await this.ensureTsConfigLoaded();
+
+    // Try TypeScript config aliases
+    const tsConfigResolved = await this.tryTsConfigAliases(currentFilePath, modulePath);
+    if (tsConfigResolved) {
+      return tsConfigResolved;
+    }
+
+    // Try special module patterns (subpath imports, Rust, scoped packages)
+    const specialPatternResolved = await this.trySpecialModulePatterns(currentFilePath, modulePath);
+    if (specialPatternResolved) {
+      return specialPatternResolved;
+    }
+
+    // Try Python-specific imports
+    const pythonResolved = await this.tryPythonImports(currentFilePath, modulePath);
+    if (pythonResolved) {
+      return pythonResolved;
+    }
+
     // Handle node_modules
     if (this.isNodeModule(modulePath)) {
       return this.excludeNodeModules ? null : modulePath;
     }
 
-    // Resolve relative paths
-    if (this.isRelativePath(modulePath)) {
-      const currentDir = path.dirname(currentFilePath);
-      const absolutePath = path.resolve(currentDir, modulePath);
-      return this.resolveWithExtensions(absolutePath);
-    }
-
-    return null;
+    // Try relative paths
+    return this.tryRelativePath(currentFilePath, modulePath);
   }
 
   /**
    * Resolve Node.js subpath import (#import)
    */
-  private async resolveSubpathImport(currentFilePath: string, modulePath: string): Promise<string | null> {
-    const resolved = await this.resolvePackageJsonImport(currentFilePath, modulePath);
+  private async resolveSubpathImport(
+    currentFilePath: string,
+    modulePath: string,
+  ): Promise<string | null> {
+    const resolved = await this.resolvePackageJsonImport(
+      currentFilePath,
+      modulePath,
+    );
     if (resolved) {
       return this.resolveWithExtensions(resolved);
     }
@@ -171,15 +272,24 @@ export class PathResolver {
   /**
    * Resolve @scope/package pattern (package.json imports, workspace package, or node_module)
    */
-  private async resolveScopedPackage(currentFilePath: string, modulePath: string): Promise<string | null> {
+  private async resolveScopedPackage(
+    currentFilePath: string,
+    modulePath: string,
+  ): Promise<string | null> {
     // Try package.json imports field
-    const pkgJsonResolved = await this.resolvePackageJsonImport(currentFilePath, modulePath);
+    const pkgJsonResolved = await this.resolvePackageJsonImport(
+      currentFilePath,
+      modulePath,
+    );
     if (pkgJsonResolved) {
       return this.resolveWithExtensions(pkgJsonResolved);
     }
 
     // Try file: dependency resolution (from package.json dependencies)
-    const fileDependencyResolved = await this.resolveWorkspacePackage(currentFilePath, modulePath);
+    const fileDependencyResolved = await this.resolveWorkspacePackage(
+      currentFilePath,
+      modulePath,
+    );
     if (fileDependencyResolved) {
       return fileDependencyResolved;
     }
@@ -191,7 +301,10 @@ export class PathResolver {
   /**
    * Resolve an alias using the nearest tsconfig.json (dynamic discovery)
    */
-  private async resolveDynamicTsConfigAlias(currentFilePath: string, modulePath: string): Promise<string | null> {
+  private async resolveDynamicTsConfigAlias(
+    currentFilePath: string,
+    modulePath: string,
+  ): Promise<string | null> {
     // Only try for potential aliases (starts with @ or other non-relative patterns)
     if (!this.isPackageJsonAliasCandidate(modulePath)) {
       return null;
@@ -203,11 +316,11 @@ export class PathResolver {
     }
 
     const aliases = await this.getTsConfigPathAliases(tsConfigPath);
-    
+
     for (const [alias, target] of aliases.entries()) {
-      if (modulePath === alias || modulePath.startsWith(alias + '/')) {
-            const resolved = modulePath.replace(alias, target);
-            return normalizePath(resolved);
+      if (modulePath === alias || modulePath.startsWith(alias + "/")) {
+        const resolved = modulePath.replace(alias, target);
+        return normalizePath(resolved);
       }
     }
 
@@ -248,7 +361,7 @@ export class PathResolver {
         return cachedResult;
       }
 
-      const tsConfigPath = path.join(currentDir, 'tsconfig.json');
+      const tsConfigPath = path.join(currentDir, "tsconfig.json");
       const exists = await this.fileExists(tsConfigPath);
       if (exists) {
         this.cacheTsConfigResultForDirs(checkedDirs, tsConfigPath);
@@ -270,7 +383,10 @@ export class PathResolver {
   /**
    * Cache the tsconfig.json result for all checked directories
    */
-  private cacheTsConfigResultForDirs(dirs: string[], result: string | null): void {
+  private cacheTsConfigResultForDirs(
+    dirs: string[],
+    result: string | null,
+  ): void {
     for (const dir of dirs) {
       this.directoryToTsConfig.set(dir, result);
     }
@@ -279,7 +395,9 @@ export class PathResolver {
   /**
    * Get parsed path aliases from a tsconfig.json file (cached)
    */
-  private async getTsConfigPathAliases(tsConfigPath: string): Promise<Map<string, string>> {
+  private async getTsConfigPathAliases(
+    tsConfigPath: string,
+  ): Promise<Map<string, string>> {
     // Return from cache if already loaded
     if (this.tsConfigPathAliases.has(tsConfigPath)) {
       return this.tsConfigPathAliases.get(tsConfigPath)!;
@@ -307,7 +425,9 @@ export class PathResolver {
    * Load and parse path aliases from a tsconfig.json file
    * Follows the "extends" chain to inherit aliases from parent configs
    */
-  private async loadTsConfigPathAliases(tsConfigPath: string): Promise<Map<string, string>> {
+  private async loadTsConfigPathAliases(
+    tsConfigPath: string,
+  ): Promise<Map<string, string>> {
     const aliases = new Map<string, string>();
     const visited = new Set<string>();
 
@@ -322,7 +442,7 @@ export class PathResolver {
   private async loadTsConfigPathAliasesRecursive(
     tsConfigPath: string,
     aliases: Map<string, string>,
-    visited: Set<string>
+    visited: Set<string>,
   ): Promise<void> {
     // Prevent infinite loops
     const normalizedPath = path.resolve(tsConfigPath);
@@ -332,7 +452,7 @@ export class PathResolver {
     visited.add(normalizedPath);
 
     try {
-      const content = await fs.readFile(tsConfigPath, 'utf-8');
+      const content = await fs.readFile(tsConfigPath, "utf-8");
       const tsConfig = JSON.parse(content);
       const tsConfigDir = path.dirname(tsConfigPath);
 
@@ -340,25 +460,33 @@ export class PathResolver {
       if (tsConfig.extends) {
         const extendsPath = path.resolve(tsConfigDir, tsConfig.extends);
         // Try with .json extension if not present
-        const parentPath = extendsPath.endsWith('.json') ? extendsPath : extendsPath + '.json';
-        const actualParentPath = await this.fileExists(parentPath) ? parentPath : extendsPath;
-        
+        const parentPath = extendsPath.endsWith(".json")
+          ? extendsPath
+          : extendsPath + ".json";
+        const actualParentPath = (await this.fileExists(parentPath))
+          ? parentPath
+          : extendsPath;
+
         if (await this.fileExists(actualParentPath)) {
-          await this.loadTsConfigPathAliasesRecursive(actualParentPath, aliases, visited);
+          await this.loadTsConfigPathAliasesRecursive(
+            actualParentPath,
+            aliases,
+            visited,
+          );
         }
       }
 
       // Then, process this config's paths (they override parent aliases)
       const paths = tsConfig?.compilerOptions?.paths;
-      const baseUrl = tsConfig?.compilerOptions?.baseUrl || '.';
+      const baseUrl = tsConfig?.compilerOptions?.baseUrl || ".";
 
       if (paths) {
         for (const [alias, targets] of Object.entries(paths)) {
           // Remove trailing /* from alias
-          const cleanAlias = alias.replace(/\/\*$/, '');
+          const cleanAlias = alias.replace(/\/\*$/, "");
 
           // Get first target and remove trailing /*
-          const target = (targets as string[])[0]?.replace(/\/\*$/, '');
+          const target = (targets as string[])[0]?.replace(/\/\*$/, "");
 
           if (target) {
             // Resolve relative to this tsconfig's directory
@@ -378,7 +506,7 @@ export class PathResolver {
    */
   private resolveAlias(modulePath: string): string | null {
     for (const [alias, target] of this.pathAliases.entries()) {
-      if (modulePath === alias || modulePath.startsWith(alias + '/')) {
+      if (modulePath === alias || modulePath.startsWith(alias + "/")) {
         // Replace alias with target path
         const resolved = modulePath.replace(alias, target);
         return resolved;
@@ -390,9 +518,11 @@ export class PathResolver {
   /**
    * Try different file extensions
    */
-  private async resolveWithExtensions(basePath: string): Promise<string | null> {
+  private async resolveWithExtensions(
+    basePath: string,
+  ): Promise<string | null> {
     const extensions = SUPPORTED_FILE_EXTENSIONS;
-    
+
     // Try exact path first
     if (await this.fileExists(basePath)) {
       return normalizePath(basePath);
@@ -427,31 +557,39 @@ export class PathResolver {
   }
 
   private isRelativePath(modulePath: string): boolean {
-    return modulePath.startsWith('./') || modulePath.startsWith('../');
+    return modulePath.startsWith("./") || modulePath.startsWith("../");
   }
 
-  private async resolveRustModule(currentFilePath: string, modulePath: string): Promise<string | null> {
+  private async resolveRustModule(
+    currentFilePath: string,
+    modulePath: string,
+  ): Promise<string | null> {
     // Only apply to Rust sources and bare/qualified module identifiers (no slashes or leading dot/@/#)
-    if (!currentFilePath.endsWith('.rs')) {
+    if (!currentFilePath.endsWith(".rs")) {
       return null;
     }
 
-    if (modulePath.startsWith('.') || modulePath.startsWith('@') || modulePath.startsWith('#') || modulePath.startsWith('/')) {
+    if (
+      modulePath.startsWith(".") ||
+      modulePath.startsWith("@") ||
+      modulePath.startsWith("#") ||
+      modulePath.startsWith("/")
+    ) {
       return null;
     }
 
     // Accept plain identifiers or path segments separated by '::'
-    const isRustLike = /^[A-Za-z0-9_]+(?:::[A-Za-z0-9_]+)*$/u.test(modulePath);
+    const isRustLike = /^\w+(?:::\w+)*$/u.test(modulePath);
     if (!isRustLike) {
       return null;
     }
 
     const fromDir = path.dirname(currentFilePath);
-    const moduleRelPath = modulePath.replaceAll('::', path.sep);
+    const moduleRelPath = modulePath.replaceAll("::", path.sep);
 
     const candidates = [
       path.join(fromDir, `${moduleRelPath}.rs`),
-      path.join(fromDir, moduleRelPath, 'mod.rs'),
+      path.join(fromDir, moduleRelPath, "mod.rs"),
     ];
 
     for (const candidate of candidates) {
@@ -466,14 +604,19 @@ export class PathResolver {
   private isNodeModule(modulePath: string): boolean {
     // Node modules don't start with . or / or # or @
     // Note: @scoped/packages are handled separately via isPackageJsonAliasCandidate
-    return !modulePath.startsWith('.') && !modulePath.startsWith('/') && !modulePath.startsWith('#') && !modulePath.startsWith('@');
+    return (
+      !modulePath.startsWith(".") &&
+      !modulePath.startsWith("/") &&
+      !modulePath.startsWith("#") &&
+      !modulePath.startsWith("@")
+    );
   }
 
   /**
    * Check if module path is a Node.js subpath import (#import)
    */
   private isSubpathImport(modulePath: string): boolean {
-    return modulePath.startsWith('#');
+    return modulePath.startsWith("#");
   }
 
   /**
@@ -482,14 +625,128 @@ export class PathResolver {
    */
   private isPackageJsonAliasCandidate(modulePath: string): boolean {
     // Match @something/* patterns that could be defined in package.json imports
-    return modulePath.startsWith('@');
+    return modulePath.startsWith("@");
+  }
+
+  /**
+   * Check if a file is a Python file
+   */
+  private isPythonFile(filePath: string): boolean {
+    return PYTHON_EXTENSIONS.some(ext => filePath.endsWith(ext));
+  }
+
+  /**
+   * Check if a path has a file extension
+   */
+  private hasFileExtension(modulePath: string): boolean {
+    const basename = path.basename(modulePath);
+    return basename.includes('.') && !basename.startsWith('.');
+  }
+
+  /**
+   * Check if a path is a Python relative import (.helpers, ..utils, etc.)
+   * Python uses . and .. prefixes for relative imports
+   */
+  private isPythonRelativeImport(modulePath: string): boolean {
+    // Starts with . or .. but is not a file path (no /)
+    return (modulePath.startsWith('.') || modulePath.startsWith('..')) && 
+           !modulePath.includes('/') &&
+           modulePath !== '.' && modulePath !== '..';
+  }
+
+  /**
+   * Resolve Python relative import (.helpers → ./helpers.py, ..utils → ../utils.py)
+   */
+  private async resolvePythonRelativeImport(
+    currentFilePath: string,
+    modulePath: string,
+  ): Promise<string | null> {
+    const currentDir = path.dirname(currentFilePath);
+    
+    // Count leading dots to determine relative level
+    let level = 0;
+    let moduleName = modulePath;
+    while (moduleName.startsWith('.')) {
+      level++;
+      moduleName = moduleName.substring(1);
+    }
+
+    // Navigate up 'level - 1' directories (one dot is current dir)
+    let targetDir = currentDir;
+    for (let i = 1; i < level; i++) {
+      targetDir = path.dirname(targetDir);
+    }
+
+    // If there's a module name after the dots, append it
+    if (moduleName) {
+      const moduleFilePath = path.join(targetDir, moduleName + '.py');
+      if (await this.fileExists(moduleFilePath)) {
+        return normalizePath(moduleFilePath);
+      }
+      
+      // Try __init__.py
+      const initPath = path.join(targetDir, moduleName, '__init__.py');
+      if (await this.fileExists(initPath)) {
+        return normalizePath(initPath);
+      }
+    }
+
+    return null;
+  }
+
+  /**
+   * Resolve Python module path (utils.database → utils/database.py)
+   * Walks up from current file directory to workspace root
+   */
+  private async resolvePythonModule(
+    currentFilePath: string,
+    modulePath: string,
+  ): Promise<string | null> {
+    // Convert module.submodule to module/submodule
+    const moduleDirPath = modulePath.replaceAll('.', '/');
+    const currentDir = path.dirname(currentFilePath);
+    const workspaceRoot = this.workspaceRoot || currentDir;
+
+    // Walk up from current directory to workspace root
+    let searchDir = currentDir;
+    while (true) {
+      // Try module.py
+      const pyFile = path.resolve(searchDir, moduleDirPath + '.py');
+      if (await this.fileExists(pyFile)) {
+        return normalizePath(pyFile);
+      }
+
+      // Try module/__init__.py
+      const initFile = path.resolve(searchDir, moduleDirPath, '__init__.py');
+      if (await this.fileExists(initFile)) {
+        return normalizePath(initFile);
+      }
+
+      // Stop at workspace root
+      if (normalizePath(searchDir) === normalizePath(workspaceRoot)) {
+        break;
+      }
+
+      // Move up one directory
+      const parentDir = path.dirname(searchDir);
+      if (parentDir === searchDir) {
+        // Reached filesystem root
+        break;
+      }
+      searchDir = parentDir;
+    }
+
+    return null;
   }
 
   /**
    * Resolve an import via the nearest package.json imports field
    * Supports both #imports and @alias imports
    */
-  private async resolvePackageJsonImport(currentFilePath: string, modulePath: string): Promise<string | null> {
+  private async resolvePackageJsonImport(
+    currentFilePath: string,
+    modulePath: string,
+  ): Promise<string | null> {
     const packageJsonPath = await this.findNearestPackageJson(currentFilePath);
     if (!packageJsonPath) {
       return null;
@@ -506,11 +763,13 @@ export class PathResolver {
 
     // Try wildcard match (e.g., #internal/* -> ./src/internal/*)
     for (const [alias, target] of imports.entries()) {
-      if (alias.endsWith('/*')) {
+      if (alias.endsWith("/*")) {
         const aliasPrefix = alias.slice(0, -2); // Remove /*
-        if (modulePath.startsWith(aliasPrefix + '/')) {
+        if (modulePath.startsWith(aliasPrefix + "/")) {
           const suffix = modulePath.slice(aliasPrefix.length + 1); // Get part after prefix/
-          const targetPrefix = target.endsWith('/*') ? target.slice(0, -2) : target;
+          const targetPrefix = target.endsWith("/*")
+            ? target.slice(0, -2)
+            : target;
           const resolved = path.resolve(packageDir, targetPrefix, suffix);
           return normalizePath(resolved);
         }
@@ -524,7 +783,9 @@ export class PathResolver {
    * Find the nearest package.json by traversing up from the file's directory
    * Stops at workspaceRoot
    */
-  private async findNearestPackageJson(filePath: string): Promise<string | null> {
+  private async findNearestPackageJson(
+    filePath: string,
+  ): Promise<string | null> {
     const startDir = path.dirname(filePath);
 
     // Check cache first for this directory
@@ -540,7 +801,9 @@ export class PathResolver {
    * Search for package.json by traversing up directories
    * Caches results for all checked directories
    */
-  private async searchPackageJsonUpward(startDir: string): Promise<string | null> {
+  private async searchPackageJsonUpward(
+    startDir: string,
+  ): Promise<string | null> {
     const checkedDirs: string[] = [];
     let currentDir = startDir;
 
@@ -554,7 +817,7 @@ export class PathResolver {
         return cachedResult;
       }
 
-      const packageJsonPath = path.join(currentDir, 'package.json');
+      const packageJsonPath = path.join(currentDir, "package.json");
       if (await this.fileExists(packageJsonPath)) {
         this.cacheResultForDirs(checkedDirs, packageJsonPath);
         return packageJsonPath;
@@ -576,7 +839,9 @@ export class PathResolver {
    * Check if we should stop searching for package.json
    */
   private shouldStopSearch(currentDir: string): boolean {
-    return Boolean(this.workspaceRoot && currentDir === path.dirname(this.workspaceRoot));
+    return Boolean(
+      this.workspaceRoot && currentDir === path.dirname(this.workspaceRoot),
+    );
   }
 
   /**
@@ -591,7 +856,9 @@ export class PathResolver {
   /**
    * Get parsed imports from a package.json file (cached)
    */
-  private async getPackageJsonImports(packageJsonPath: string): Promise<Map<string, string>> {
+  private async getPackageJsonImports(
+    packageJsonPath: string,
+  ): Promise<Map<string, string>> {
     // Return from cache if already loaded
     if (this.packageJsonImports.has(packageJsonPath)) {
       return this.packageJsonImports.get(packageJsonPath)!;
@@ -619,11 +886,13 @@ export class PathResolver {
    * Load and parse the imports field from a package.json file
    * Also loads aliases field if present (custom extension for @alias support)
    */
-  private async loadPackageJsonImports(packageJsonPath: string): Promise<Map<string, string>> {
+  private async loadPackageJsonImports(
+    packageJsonPath: string,
+  ): Promise<Map<string, string>> {
     const imports = new Map<string, string>();
 
     try {
-      const content = await fs.readFile(packageJsonPath, 'utf-8');
+      const content = await fs.readFile(packageJsonPath, "utf-8");
       const packageJson = JSON.parse(content);
 
       // Load standard Node.js subpath imports (#imports)
@@ -641,8 +910,11 @@ export class PathResolver {
   /**
    * Parse the imports field from package.json
    */
-  private parseImportsField(importsField: unknown, imports: Map<string, string>): void {
-    if (!importsField || typeof importsField !== 'object') {
+  private parseImportsField(
+    importsField: unknown,
+    imports: Map<string, string>,
+  ): void {
+    if (!importsField || typeof importsField !== "object") {
       return;
     }
 
@@ -658,31 +930,34 @@ export class PathResolver {
    * Resolve an import target (handles simple strings and conditional exports)
    */
   private resolveImportTarget(target: unknown): string | null {
-    if (typeof target === 'string') {
+    if (typeof target === "string") {
       return target;
     }
-    
-    if (typeof target === 'object' && target !== null) {
+
+    if (typeof target === "object" && target !== null) {
       const obj = target as Record<string, unknown>;
       const resolved = obj.default ?? obj.import ?? obj.require ?? obj.node;
-      if (typeof resolved === 'string') {
+      if (typeof resolved === "string") {
         return resolved;
       }
     }
-    
+
     return null;
   }
 
   /**
    * Parse the aliases field from package.json (custom extension)
    */
-  private parseAliasesField(aliasesField: unknown, imports: Map<string, string>): void {
-    if (!aliasesField || typeof aliasesField !== 'object') {
+  private parseAliasesField(
+    aliasesField: unknown,
+    imports: Map<string, string>,
+  ): void {
+    if (!aliasesField || typeof aliasesField !== "object") {
       return;
     }
 
     for (const [alias, target] of Object.entries(aliasesField)) {
-      if (typeof target === 'string') {
+      if (typeof target === "string") {
         imports.set(alias, target);
       }
     }
@@ -695,8 +970,11 @@ export class PathResolver {
    * 1. "file:" dependencies in package.json (e.g., "@company/auth-lib": "file:../packages/auth-lib")
    * 2. Common monorepo package locations (packages/, libs/, modules/)
    */
-  private async resolveWorkspacePackage(currentFilePath: string, modulePath: string): Promise<string | null> {
-    if (!modulePath.startsWith('@')) {
+  private async resolveWorkspacePackage(
+    currentFilePath: string,
+    modulePath: string,
+  ): Promise<string | null> {
+    if (!modulePath.startsWith("@")) {
       return null;
     }
 
@@ -708,14 +986,17 @@ export class PathResolver {
     }
 
     const [, , packageName, subpath] = match;
-    const fullPackageName = modulePath.split('/').slice(0, 2).join('/'); // @company/auth-lib
-    
+    const fullPackageName = modulePath.split("/").slice(0, 2).join("/"); // @company/auth-lib
+
     // Try file: dependency resolution first (from nearest package.json dependencies)
-    const fileDependencyDir = await this.resolveFileDependency(currentFilePath, fullPackageName);
+    const fileDependencyDir = await this.resolveFileDependency(
+      currentFilePath,
+      fullPackageName,
+    );
     if (fileDependencyDir) {
       return this.resolvePackageEntry(fileDependencyDir, modulePath, subpath);
     }
-    
+
     // Fallback: try common monorepo package locations
     if (this.workspaceRoot) {
       const packageDir = await this.findWorkspacePackageDir(packageName);
@@ -726,23 +1007,29 @@ export class PathResolver {
 
     return null;
   }
-  
+
   /**
    * Resolve a package that's defined as "file:" dependency in package.json
    * Searches upward through all package.json files to find the dependency
    * In monorepos, file: dependencies may be declared in a parent package.json
    * e.g., "@company/auth-lib": "file:../packages/auth-lib"
    */
-  private async resolveFileDependency(currentFilePath: string, packageName: string): Promise<string | null> {
+  private async resolveFileDependency(
+    currentFilePath: string,
+    packageName: string,
+  ): Promise<string | null> {
     const startDir = path.dirname(currentFilePath);
     let currentDir = startDir;
 
     // Search upward through all package.json files
     while (!this.shouldStopSearch(currentDir)) {
-      const packageJsonPath = path.join(currentDir, 'package.json');
-      
+      const packageJsonPath = path.join(currentDir, "package.json");
+
       if (await this.fileExists(packageJsonPath)) {
-        const result = await this.findFileDependencyInPackageJson(packageJsonPath, packageName);
+        const result = await this.findFileDependencyInPackageJson(
+          packageJsonPath,
+          packageName,
+        );
         if (result) {
           return result;
         }
@@ -761,31 +1048,34 @@ export class PathResolver {
   /**
    * Look for a file: dependency in a package.json file
    */
-  private async findFileDependencyInPackageJson(packageJsonPath: string, packageName: string): Promise<string | null> {
+  private async findFileDependencyInPackageJson(
+    packageJsonPath: string,
+    packageName: string,
+  ): Promise<string | null> {
     try {
-      const content = await fs.readFile(packageJsonPath, 'utf-8');
+      const content = await fs.readFile(packageJsonPath, "utf-8");
       const pkgJson = JSON.parse(content);
       const packageDir = path.dirname(packageJsonPath);
-      
+
       // Check dependencies, devDependencies, and peerDependencies for file: references
       const allDeps = {
         ...pkgJson.dependencies,
         ...pkgJson.devDependencies,
         ...pkgJson.peerDependencies,
       };
-      
+
       const depValue = allDeps[packageName];
-      
-      if (typeof depValue === 'string' && depValue.startsWith('file:')) {
+
+      if (typeof depValue === "string" && depValue.startsWith("file:")) {
         // Remove "file:" prefix and resolve relative to package.json directory
         const relativePath = depValue.slice(5);
         const absolutePath = path.resolve(packageDir, relativePath);
         const normalized = normalizePath(absolutePath);
-        
+
         // Verify the directory exists and has a package.json
-        const depPackageJson = path.join(absolutePath, 'package.json');
+        const depPackageJson = path.join(absolutePath, "package.json");
         const exists = await this.fileExists(depPackageJson);
-        
+
         if (exists) {
           return normalized;
         }
@@ -800,18 +1090,20 @@ export class PathResolver {
   /**
    * Find the package directory in the workspace
    */
-  private async findWorkspacePackageDir(packageName: string): Promise<string | null> {
+  private async findWorkspacePackageDir(
+    packageName: string,
+  ): Promise<string | null> {
     if (!this.workspaceRoot) {
       return null;
     }
 
     // Common monorepo package locations
-    const locations = ['packages', 'libs', 'modules'];
-    
+    const locations = ["packages", "libs", "modules"];
+
     for (const loc of locations) {
       const packageDir = path.join(this.workspaceRoot, loc, packageName);
-      const packageJsonPath = path.join(packageDir, 'package.json');
-      
+      const packageJsonPath = path.join(packageDir, "package.json");
+
       if (await this.fileExists(packageJsonPath)) {
         return packageDir;
       }
@@ -823,19 +1115,23 @@ export class PathResolver {
   /**
    * Resolve the entry point of a workspace package
    */
-  private async resolvePackageEntry(packageDir: string, modulePath: string, subpath?: string): Promise<string | null> {
-    const packageJsonPath = path.join(packageDir, 'package.json');
+  private async resolvePackageEntry(
+    packageDir: string,
+    modulePath: string,
+    subpath?: string,
+  ): Promise<string | null> {
+    const packageJsonPath = path.join(packageDir, "package.json");
 
     try {
-      const content = await fs.readFile(packageJsonPath, 'utf-8');
+      const content = await fs.readFile(packageJsonPath, "utf-8");
       const pkgJson = JSON.parse(content);
-      
+
       // Verify this is the right package
       // Package can be named @scope/package or just package (for file: dependencies)
-      const expectedName = modulePath.split('/').slice(0, 2).join('/'); // @company/auth-lib
-      const shortName = modulePath.split('/').slice(1, 2).join('/'); // auth-lib
+      const expectedName = modulePath.split("/").slice(0, 2).join("/"); // @company/auth-lib
+      const shortName = modulePath.split("/").slice(1, 2).join("/"); // auth-lib
       const pkgName = pkgJson.name as string;
-      
+
       // Accept if package name matches either the full scoped name or just the short name
       if (pkgName !== expectedName && pkgName !== shortName) {
         return null;
@@ -843,7 +1139,7 @@ export class PathResolver {
 
       // Handle subpath imports
       if (subpath) {
-        const srcDir = pkgJson.source ? path.dirname(pkgJson.source) : 'src';
+        const srcDir = pkgJson.source ? path.dirname(pkgJson.source) : "src";
         const subpathResolved = path.join(packageDir, srcDir, subpath);
         return this.resolveWithExtensions(subpathResolved);
       }
@@ -858,15 +1154,19 @@ export class PathResolver {
   /**
    * Find the entry point of a package
    */
-  private async findPackageEntryPoint(packageDir: string, pkgJson: Record<string, unknown>): Promise<string | null> {
-    const main = (pkgJson.main as string) || (pkgJson.module as string) || 'index';
-    
+  private async findPackageEntryPoint(
+    packageDir: string,
+    pkgJson: Record<string, unknown>,
+  ): Promise<string | null> {
+    const main =
+      (pkgJson.main as string) || (pkgJson.module as string) || "index";
+
     const entryPoints = [
-      path.join(packageDir, 'src', 'index'),
+      path.join(packageDir, "src", "index"),
       path.join(packageDir, main),
-      path.join(packageDir, 'index'),
+      path.join(packageDir, "index"),
     ];
-    
+
     for (const entry of entryPoints) {
       const resolved = await this.resolveWithExtensions(entry);
       if (resolved) {

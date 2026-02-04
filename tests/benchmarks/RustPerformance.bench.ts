@@ -5,13 +5,14 @@
  * and performs reasonably for Rust projects.
  */
 
-import { describe, bench, expect } from 'vitest';
 import path from 'node:path';
-import { Spider } from "../../src/analyzer/Spider";
+import { bench, describe, expect } from 'vitest';
 import { RustParser } from "../../src/analyzer/languages/RustParser";
 import { RustSymbolAnalyzer } from "../../src/analyzer/languages/RustSymbolAnalyzer";
 import { Parser } from "../../src/analyzer/Parser";
+import { Spider } from "../../src/analyzer/Spider";
 import { SymbolAnalyzer } from "../../src/analyzer/SymbolAnalyzer";
+import { detectLanguageFromExtension } from '../../src/shared/utils/languageDetection';
 
 const BENCH_OPTIONS = {
   time: 10,
@@ -138,16 +139,11 @@ describe('Rust Performance Benchmarks', () => {
 });
 
 describe('Language Detection Performance', () => {
-  const detectLanguage = (filePath: string): 'rust' | 'typescript' => {
-    const ext = path.extname(filePath).toLowerCase();
-    return ext === '.rs' ? 'rust' : 'typescript';
-  };
-
   bench('Detect Rust file extension (.rs)', () => {
-    detectLanguage('/path/to/file.rs');
+    detectLanguageFromExtension('/path/to/file.rs');
   }, BENCH_OPTIONS);
 
   bench('Detect TypeScript file extension (.ts)', () => {
-    detectLanguage('/path/to/file.ts');
+    detectLanguageFromExtension('/path/to/file.ts');
   }, BENCH_OPTIONS);
 });

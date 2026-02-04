@@ -1,14 +1,14 @@
-import type { Dependency, IndexingProgressCallback, SpiderConfig } from '../types';
-import { normalizePath, SpiderError } from '../types';
 import { getLogger } from '../../shared/logger';
+import { Cache } from '../Cache';
+import { IndexerStatus } from '../IndexerStatus';
 import { ReverseIndexManager } from '../ReverseIndexManager';
 import { SourceFileCollector } from '../SourceFileCollector';
-import { IndexerStatus } from '../IndexerStatus';
-import { SpiderWorkerManager } from './SpiderWorkerManager';
-import { Cache } from '../Cache';
-import { SpiderDependencyAnalyzer } from './SpiderDependencyAnalyzer';
+import type { Dependency, IndexingProgressCallback, SpiderConfig, SymbolDependency, SymbolInfo } from '../types';
+import { normalizePath, SpiderError } from '../types';
 import { YIELD_INTERVAL_MS } from '../utils/EventLoopYield';
+import { SpiderDependencyAnalyzer } from './SpiderDependencyAnalyzer';
 import { SpiderIndexingCancellation } from './SpiderIndexingCancellation';
+import { SpiderWorkerManager } from './SpiderWorkerManager';
 
 const log = getLogger('SpiderIndexingService');
 
@@ -26,7 +26,8 @@ export class SpiderIndexingService {
     private readonly workerManager: SpiderWorkerManager,
     private readonly cancellation: SpiderIndexingCancellation,
     private readonly getConfig: () => SpiderConfig,
-    private readonly yieldToEventLoop: () => Promise<void>
+    private readonly yieldToEventLoop: () => Promise<void>,
+    private readonly getSymbolGraph?: (filePath: string) => Promise<{ symbols: SymbolInfo[]; dependencies: SymbolDependency[] }>
   ) {}
 
   cancel(): void {
@@ -38,6 +39,53 @@ export class SpiderIndexingService {
     this.workerManager.dispose();
   }
 
+  /**
+   * Analyze a single file and update the reverse index.
+   * Handles both file dependencies and symbol dependencies.
+   * @param filePath - Path to the file to analyze
+   * @param processedCount - Number of files already processed (for symbol analysis limit)
+   * @returns true if analysis succeeded, false otherwise
+   */
+  private async analyzeFileForIndex(filePath: string, processedCount: number): Promise<boolean> {
+    try {
+      await this.dependencyAnalyzer.analyze(filePath);
+
+      // Also analyze symbols if getSymbolGraph is provided and within limit
+      if (this.getSymbolGraph && processedCount < (this.getConfig().maxSymbolAnalyzerFiles ?? 100)) {
+        try {
+          const symbolGraph = await this.getSymbolGraph(filePath);
+          if (symbolGraph.dependencies.length > 0) {
+            this.reverseIndexManager.addSymbolDependencies(filePath, symbolGraph.dependencies);
+          }
+        } catch {
+          // Skip files where symbol analysis fails (non-TypeScript/Python/Rust, etc.)
+        }
+      }
+      return true;
+    } catch {
+      // Skip failed files (malformed/binary/inaccessible)
+      return false;
+    }
+  }
+
+  /**
+   * Check if indexing was cancelled and update status accordingly.
+   * @param processed - Number of files processed so far
+   * @returns Indexing result if cancelled, undefined otherwise
+   */
+  private checkCancellation(processed: number): { indexedFiles: number; duration: number; cancelled: boolean } | undefined {
+    if (!this.cancellation.isCancelled()) {
+      return undefined;
+    }
+
+    this.indexerStatus.setCancelled();
+    return {
+      indexedFiles: processed,
+      duration: Date.now() - (this.indexerStatus.getSnapshot().startTime ?? Date.now()),
+      cancelled: true,
+    };
+  }
+
   async buildFullIndex(
     progressCallback?: IndexingProgressCallback
   ): Promise<{ indexedFiles: number; duration: number; cancelled: boolean }> {
@@ -47,9 +95,9 @@ export class SpiderIndexingService {
     this.indexerStatus.startCounting();
     const allFiles = await this.sourceFileCollector.collectAllSourceFiles(this.getConfig().rootDir);
 
-    if (this.cancellation.isCancelled()) {
-      this.indexerStatus.setCancelled();
-      return { indexedFiles: 0, duration: 0, cancelled: true };
+    const cancellationResult = this.checkCancellation(0);
+    if (cancellationResult) {
+      return cancellationResult;
     }
 
     const totalFiles = allFiles.length;
@@ -62,20 +110,12 @@ export class SpiderIndexingService {
 
     try {
       for (const filePath of allFiles) {
-        if (this.cancellation.isCancelled()) {
-          this.indexerStatus.setCancelled();
-          return {
-            indexedFiles: processed,
-            duration: Date.now() - (this.indexerStatus.getSnapshot().startTime ?? Date.now()),
-            cancelled: true,
-          };
+        const cancellationResult = this.checkCancellation(processed);
+        if (cancellationResult) {
+          return cancellationResult;
         }
 
-        try {
-          await this.dependencyAnalyzer.analyze(filePath);
-        } catch {
-          // Skip failed files (malformed/binary/inaccessible)
-        }
+        await this.analyzeFileForIndex(filePath, processed);
 
         processed++;
         this.indexerStatus.updateProgress(processed, filePath);
@@ -157,4 +197,3 @@ export class SpiderIndexingService {
     return processed;
   }
 }
-

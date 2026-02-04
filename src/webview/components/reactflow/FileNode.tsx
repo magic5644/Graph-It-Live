@@ -1,5 +1,6 @@
 import React from 'react';
 import { Handle, Position, type NodeProps } from 'reactflow';
+import { EXTENSION_COLORS, LANGUAGE_COLORS } from '../../../shared/constants';
 import { actionButtonSize, cycleIndicatorSize } from '../../utils/nodeUtils';
 import { LanguageIcon } from './LanguageIcon';
 
@@ -14,35 +15,23 @@ export interface FileNodeData {
   hasReferencingFiles: boolean;
   parentCount?: number;
   isParentsVisible: boolean;
+  onNodeClick: () => void;
   onDrillDown: () => void;
   onFindReferences: () => void;
   onToggleParents?: () => void;
   onToggle: () => void;
   onExpandRequest: () => void;
+  selectedNodeId?: string | null;
+  nodeId?: string;
 }
 
-// File type specific border colors
-const FILE_TYPE_COLORS: Record<string, string> = {
-  '.ts': '#3178c6',
-  '.tsx': '#3178c6',
-  '.js': '#f7df1e',
-  '.jsx': '#f7df1e',
-  '.vue': '#41b883',
-  '.svelte': '#ff3e00',
-  '.gql': '#e535ab',
-  '.graphql': '#e535ab',
-  '.py': '#3776ab',      // Python blue
-  '.pyi': '#3776ab',     // Python interface files
-  '.rs': '#ce422b',      // Rust orange
-  '.toml': '#9c4221',    // TOML brown
-};
-
-const EXTERNAL_PACKAGE_COLOR = '#6b6b6b';
+// Use shared extension colors from constants
+const EXTERNAL_PACKAGE_COLOR = LANGUAGE_COLORS.unknown;
 
 function isExternalPackage(path: string): boolean {
   if (!path) return false;
 
-  for (const ext of Object.keys(FILE_TYPE_COLORS)) {
+  for (const ext of Object.keys(EXTENSION_COLORS)) {
     if (path.endsWith(ext)) return false;
   }
 
@@ -61,20 +50,53 @@ function getFileBorderColor(label: string, fullPath: string): string {
   if (isExternalPackage(fullPath || label)) {
     return EXTERNAL_PACKAGE_COLOR;
   }
-  for (const [ext, color] of Object.entries(FILE_TYPE_COLORS)) {
+  for (const [ext, color] of Object.entries(EXTENSION_COLORS)) {
     if (label.endsWith(ext)) return color;
   }
   return EXTERNAL_PACKAGE_COLOR;
 }
 
-export const FileNode: React.FC<NodeProps> = ({ data }: NodeProps<FileNodeData>) => {
+export const FileNode: React.FC<NodeProps> = ({ data, id }: NodeProps<FileNodeData>) => {
   const borderColor = getFileBorderColor(data.label, data.fullPath);
   const isExternal = isExternalPackage(data.fullPath || data.label);
+  const isSelected = data.selectedNodeId === (data.nodeId || id);
+
+  // Handle single-click to open file in VS Code
+  const handleClick = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    data.onNodeClick();
+  };
+
+  // Handle double-click to drill down (keep existing behavior)
+  const handleDoubleClick = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    data.onDrillDown();
+  };
+
+  // Handle keyboard interactions for accessibility
+  const handleKeyDown = (e: React.KeyboardEvent) => {
+    if (e.key === 'Enter') {
+      e.stopPropagation();
+      handleClick(e as unknown as React.MouseEvent);
+    }
+  };
 
   return (
-    <div
-      style={{ position: 'relative', width: '100%', height: '100%' }}
+    <button
+      type="button"
+      style={{ 
+        position: 'relative', 
+        width: '100%', 
+        height: '100%',
+        border: 'none',
+        padding: 0,
+        background: 'transparent',
+        cursor: 'pointer'
+      }}
       title={data.fullPath}
+      onClick={handleClick}
+      onDoubleClick={handleDoubleClick}
+      onKeyDown={handleKeyDown}
     >
       <Handle type="target" position={Position.Left} style={{ visibility: 'hidden' }} />
 
@@ -89,7 +111,11 @@ export const FileNode: React.FC<NodeProps> = ({ data }: NodeProps<FileNodeData>)
           height: '100%',
           background: data.isRoot ? borderColor : 'var(--vscode-editor-background)',
           color: data.isRoot ? '#000' : 'var(--vscode-editor-foreground)',
-          border: isExternal ? `2px dashed ${borderColor}` : `2px solid ${borderColor}`,
+          border: (() => {
+            if (isSelected) return '4px solid #0078d4';
+            if (isExternal) return `2px dashed ${borderColor}`;
+            return `2px solid ${borderColor}`;
+          })(),
           borderRadius: 4,
           padding: '0 12px',
           fontSize: 12,
@@ -97,6 +123,7 @@ export const FileNode: React.FC<NodeProps> = ({ data }: NodeProps<FileNodeData>)
           fontStyle: isExternal ? 'italic' : 'normal',
           fontFamily: 'var(--vscode-font-family)',
           pointerEvents: 'none',
+          boxShadow: isSelected ? '0 0 8px rgba(0, 120, 212, 0.5)' : 'none',
         }}
       >
         {data.label}
@@ -248,7 +275,6 @@ export const FileNode: React.FC<NodeProps> = ({ data }: NodeProps<FileNodeData>)
       )}
 
       <Handle type="source" position={Position.Right} style={{ visibility: 'hidden' }} />
-    </div>
+    </button>
   );
 };
-
