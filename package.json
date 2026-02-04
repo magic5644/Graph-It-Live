@@ -453,7 +453,7 @@
   },
   "dependencies": {
     "@dagrejs/dagre": "^1.1.8",
-    "@modelcontextprotocol/sdk": "^1.25.3",
+    "@modelcontextprotocol/sdk": "^1.26.0",
     "@types/d3": "^7.4.3",
     "@types/dagre": "^0.7.53",
     "chokidar": "^5.0.0",
