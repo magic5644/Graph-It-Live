@@ -106,6 +106,10 @@ export interface ReferencingFilesMessage {
   data: GraphData;
 }
 
+export interface ClearReverseDependenciesMessage {
+  command: "clearReverseDependencies";
+}
+
 export interface ExpansionProgressMessage {
   command: "expansionProgress";
   nodeId: string;
@@ -395,6 +399,7 @@ export type ExtensionToWebviewMessage =
   | ShowGraphMessage
   | ExpandedGraphMessage
   | ReferencingFilesMessage
+  | ClearReverseDependenciesMessage
   | IndexingProgressMessage
   | SymbolGraphMessage
   | SymbolAnalysisProgressMessage

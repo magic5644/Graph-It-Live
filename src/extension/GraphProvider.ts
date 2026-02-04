@@ -1222,7 +1222,7 @@ export class GraphProvider implements vscode.WebviewViewProvider {
 
     // Post message to webview to clear reverse dependencies
     await this._view.webview.postMessage({
-      type: "clearReverseDependencies",
+      command: "clearReverseDependencies",
     });
 
     // Clear context to indicate reverse dependencies are hidden

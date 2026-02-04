@@ -495,7 +495,7 @@ describe("GraphProvider", () => {
 
     // Verify message was posted to webview
     expect(webview.postMessage).toHaveBeenCalledWith({
-      type: "clearReverseDependencies",
+      command: "clearReverseDependencies",
     });
 
     // Verify context key was set to false

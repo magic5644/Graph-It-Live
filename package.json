@@ -132,7 +132,7 @@
       {
         "command": "graph-it-live.setViewModeFile",
         "title": "Switch to Graph View",
-        "icon": "$(graph)",
+        "icon": "$(type-hierarchy-sub)",
         "category": "Graph-It-Live"
       },
       {

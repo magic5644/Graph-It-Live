@@ -7,7 +7,6 @@ interface AtomicSymbolGraphProps {
   incomingDependencies?: SymbolDependency[]; // External calls TO these symbols
   filePath: string;
   onNodeClick: (symbolId: string, line?: number) => void;
-  onBackToProject: () => void;
 }
 
 interface TreeNode {
@@ -32,7 +31,6 @@ export const AtomicSymbolGraph: React.FC<AtomicSymbolGraphProps> = ({
   incomingDependencies = [],
   filePath,
   onNodeClick,
-  onBackToProject,
 }) => {
   // Debug logging
   React.useEffect(() => {
@@ -444,20 +442,6 @@ export const AtomicSymbolGraph: React.FC<AtomicSymbolGraphProps> = ({
           gap: "8px",
         }}
       >
-        <button
-          onClick={onBackToProject}
-          style={{
-            padding: "4px 8px",
-            background: "var(--vscode-button-background)",
-            color: "white",
-            border: "none",
-            cursor: "pointer",
-            borderRadius: "4px",
-            fontSize: "12px",
-          }}
-        >
-          ← Back
-        </button>
         <span style={{ fontWeight: '600' }}>{fileName}</span>
         <span style={{ marginLeft: 'auto', opacity: 0.7 }}>
           {symbols.length} symbols

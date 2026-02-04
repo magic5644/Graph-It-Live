@@ -1,33 +1,32 @@
 import React from "react";
 import {
-  getLogger,
-  type ILogger,
-  type LogLevel,
-  setLoggerBackend,
+    getLogger,
+    type ILogger,
+    type LogLevel,
+    setLoggerBackend,
 } from "../shared/logger";
 import {
-  EmptyStateMessage,
-  ExpandedGraphMessage,
-  ExpansionProgressMessage,
-  ExtensionToWebviewMessage,
-  GraphData,
-  ReferencingFilesMessage,
-  ShowGraphMessage,
-  SymbolDependency,
-  SymbolGraphMessage,
-  SymbolInfo,
-  UpdateFilterMessage,
-  WebviewToExtensionMessage,
+    EmptyStateMessage,
+    ExpandedGraphMessage,
+    ExpansionProgressMessage,
+    ExtensionToWebviewMessage,
+    GraphData,
+    ReferencingFilesMessage,
+    ShowGraphMessage,
+    SymbolDependency,
+    SymbolGraphMessage,
+    SymbolInfo,
+    UpdateFilterMessage,
+    WebviewToExtensionMessage,
 } from "../shared/types";
 import { AtomicSymbolGraph } from "./components/AtomicSymbolGraph";
-import { BreadcrumbNav } from "./components/reactflow/BreadcrumbNav";
 import ReactFlowGraph from "./components/ReactFlowGraph";
 import SymbolCardView from "./components/SymbolCardView";
 import { mergeGraphDataUnion } from "./utils/graphMerge";
 import { normalizePath } from "./utils/path";
 import {
-  applyUpdateGraph,
-  isUpdateGraphNavigation,
+    applyUpdateGraph,
+    isUpdateGraphNavigation,
 } from "./utils/updateGraphReducer";
 
 /** Logger instance for App */
@@ -404,6 +403,20 @@ const App: React.FC = () => {
     graphDataRef.current = graphData;
   }, [viewMode, graphData]);
 
+  // Handler for clearReverseDependencies message
+  const handleClearReverseDependencies = React.useCallback(() => {
+    log.debug("App: Received clearReverseDependencies message");
+    // Clear referencing files and hide parents
+    setReferencingFiles([]);
+    setShowParents(false);
+    // Refresh the graph to remove added nodes/edges
+    if (vscode) {
+      vscode.postMessage({
+        command: "refreshGraph",
+      });
+    }
+  }, []);
+
   // Handler for referencingFiles message
   const handleReferencingFilesMessage = React.useCallback(
     (message: ReferencingFilesMessage) => {
@@ -579,6 +592,9 @@ const App: React.FC = () => {
         case "referencingFiles":
           handleReferencingFilesMessage(message as ReferencingFilesMessage);
           break;
+        case "clearReverseDependencies":
+          handleClearReverseDependencies();
+          break;
         case "switchViewMode":
           handleSwitchViewMode(message.mode);
           break;
@@ -598,6 +614,7 @@ const App: React.FC = () => {
     handleSymbolGraphMessage,
     handleExpandedGraphMessage,
     handleReferencingFilesMessage,
+    handleClearReverseDependencies,
     handleEmptyStateMessage,
     handleSwitchViewMode,
     handleSetExpandAll,
@@ -828,16 +845,6 @@ const App: React.FC = () => {
           </div>
         )}
 
-        {/* Breadcrumb Navigation - Show in symbol mode */}
-        {viewMode === "symbol" && (
-          <BreadcrumbNav
-            filePath={currentFilePath}
-            workspaceRoot={undefined} // Workspace root not available in webview context - component handles undefined gracefully
-            onBackToProject={() => setViewMode("file")}
-            mode={viewMode}
-          />
-        )}
-
         {/* Symbol List View for List Mode (dedicated mode) */}
         {viewMode === "list" && symbolData && (
           <SymbolCardView
@@ -905,7 +912,6 @@ const App: React.FC = () => {
             dependencies={symbolData.dependencies}
             incomingDependencies={incomingDependencies}
             onNodeClick={(id, line) => handleNodeClick(id, line)}
-            onBackToProject={() => setViewMode("file")}
           />
         )}
 
