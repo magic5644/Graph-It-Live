@@ -1,6 +1,6 @@
 import { FileReader } from "./FileReader";
-import { LanguageService } from "./LanguageService";
 import { Dependency, ILanguageAnalyzer, ParsedImport } from "./types";
+import { extractFilePath } from "./utils/PathExtractor";
 import { PathResolver } from "./utils/PathResolver";
 
 /**
@@ -191,7 +191,7 @@ export class Parser implements ILanguageAnalyzer {
    */
   async parseImports(filePath: string): Promise<Dependency[]> {
     // Extract file path from potential symbol ID
-    const actualPath = LanguageService["extractFilePath"](filePath);
+    const actualPath = extractFilePath(filePath);
     const content = await this.fileReader.readFile(actualPath);
     const parsed = this.parse(content, actualPath);
 
@@ -211,7 +211,7 @@ export class Parser implements ILanguageAnalyzer {
     moduleSpecifier: string,
   ): Promise<string | null> {
     // Extract file path from potential symbol ID
-    const actualFromFile = LanguageService["extractFilePath"](fromFile);
+    const actualFromFile = extractFilePath(fromFile);
     return this.pathResolver.resolve(actualFromFile, moduleSpecifier);
   }
 }

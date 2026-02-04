@@ -4,8 +4,8 @@ import Parser from "tree-sitter";
 import Python from "tree-sitter-python";
 import { normalizePath } from "../../shared/path";
 import { FileReader } from "../FileReader";
-import { LanguageService } from "../LanguageService";
 import { Dependency, ILanguageAnalyzer, SpiderError } from "../types";
+import { extractFilePath } from "../utils/PathExtractor";
 
 /**
  * Python import parser using tree-sitter-python
@@ -29,7 +29,7 @@ export class PythonParser implements ILanguageAnalyzer {
   async parseImports(filePath: string): Promise<Dependency[]> {
     try {
       // Extract file path from potential symbol ID
-      const actualPath = LanguageService["extractFilePath"](filePath);
+      const actualPath = extractFilePath(filePath);
       const content = await this.fileReader.readFile(actualPath);
       const tree = this.parser.parse(content);
       const dependencies: Dependency[] = [];
@@ -61,7 +61,7 @@ export class PythonParser implements ILanguageAnalyzer {
   ): Promise<string | null> {
     try {
       // Extract file path from potential symbol ID
-      const actualFromFile = LanguageService["extractFilePath"](fromFile);
+      const actualFromFile = extractFilePath(fromFile);
       const fromDir = path.dirname(actualFromFile);
 
       // Handle relative imports (., ..)
