@@ -5,21 +5,23 @@ describe("PathExtractor", () => {
   describe("extractFilePath", () => {
     it("should return the original path if no colon is found", () => {
       expect(extractFilePath("/src/file.ts")).toBe("/src/file.ts");
-      expect(extractFilePath("C:\\src\\file.ts")).toBe("C:\\src\\file.ts");
+        expect(extractFilePath(String.raw`C:\src\file.ts`)).toBe(
+            String.raw`C:\src\file.ts`,
+        );
       expect(extractFilePath("/Users/test/project/main.py")).toBe(
         "/Users/test/project/main.py",
       );
     });
 
     it("should handle Windows drive letters (C:, D:, etc.)", () => {
-      expect(extractFilePath("C:\\Users\\test\\file.ts")).toBe(
-        "C:\\Users\\test\\file.ts",
+        expect(extractFilePath(String.raw`C:\Users\test\file.ts`)).toBe(
+            String.raw`C:\Users\test\file.ts`,
       );
-      expect(extractFilePath("D:\\project\\src\\module.py")).toBe(
-        "D:\\project\\src\\module.py",
+        expect(extractFilePath(String.raw`D:\project\src\module.py`)).toBe(
+            String.raw`D:\project\src\module.py`,
       );
-      expect(extractFilePath("E:\\code\\lib\\utils.rs")).toBe(
-        "E:\\code\\lib\\utils.rs",
+        expect(extractFilePath(String.raw`E:\code\lib\utils.rs`)).toBe(
+            String.raw`E:\code\lib\utils.rs`,
       );
     });
 
@@ -58,11 +60,11 @@ describe("PathExtractor", () => {
     });
 
     it("should handle Windows paths with symbol IDs", () => {
-      expect(extractFilePath("C:\\Users\\test\\file.ts:MyClass")).toBe(
-        "C:\\Users\\test\\file.ts",
+        expect(extractFilePath(String.raw`C:\Users\test\file.ts:MyClass`)).toBe(
+            String.raw`C:\Users\test\file.ts`,
       );
-      expect(extractFilePath("D:\\project\\module.py:function")).toBe(
-        "D:\\project\\module.py",
+        expect(extractFilePath(String.raw`D:\project\module.py:function`)).toBe(
+            String.raw`D:\project\module.py`,
       );
     });
 
@@ -114,8 +116,8 @@ describe("PathExtractor", () => {
       expect(extractFilePath("/my project/file.ts:MyClass")).toBe(
         "/my project/file.ts",
       );
-      expect(extractFilePath("C:\\My Documents\\code.py:func")).toBe(
-        "C:\\My Documents\\code.py",
+        expect(extractFilePath(String.raw`C:\My Documents\code.py:func`)).toBe(
+            String.raw`C:\My Documents\code.py`,
       );
     });
 
