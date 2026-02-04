@@ -11,6 +11,11 @@ describe("workspace tools", () => {
     workerState.spider = spiderMock;
     workerState.parser = {} as any;
     workerState.resolver = {} as any;
+    workerState.config = {
+      rootDir: "/test",
+      excludeNodeModules: true,
+      maxDepth: 50,
+    };
     workerState.isReady = true;
   };
 
