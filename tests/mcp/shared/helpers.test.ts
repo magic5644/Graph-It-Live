@@ -2,24 +2,24 @@
  * Tests for MCP Worker Helper Functions
  */
 
-import { beforeEach, describe, expect, it } from "vitest";
-import * as path from "node:path";
 import * as fs from "node:fs/promises";
 import * as os from "node:os";
+import * as path from "node:path";
+import { beforeEach, describe, expect, it } from "vitest";
 import {
-  applyPagination,
-  buildEdgeCounts,
-  buildEdgeInfo,
-  buildNodeInfo,
-  convertSpiderToLspFormat,
-  detectCircularDependencies,
-  getRelativePath,
-  mapKindToLspNumber,
-  updateNodeCounts,
-  validateAnalysisInput,
-  validateFileExists,
-} from "@/mcp/shared/helpers";
-import type { EdgeInfo, NodeInfo } from "@/mcp/types";
+    applyPagination,
+    buildEdgeCounts,
+    buildEdgeInfo,
+    buildNodeInfo,
+    convertSpiderToLspFormat,
+    detectCircularDependencies,
+    getRelativePath,
+    mapKindToLspNumber,
+    updateNodeCounts,
+    validateAnalysisInput,
+    validateFileExists,
+} from "../../../src/mcp/shared/helpers";
+import type { EdgeInfo, NodeInfo } from "../../../src/mcp/types";
 
 describe("MCP Worker Helpers", () => {
   describe("getRelativePath", () => {

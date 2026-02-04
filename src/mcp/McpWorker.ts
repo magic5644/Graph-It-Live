@@ -8,21 +8,19 @@
  * NO import * as vscode from 'vscode' allowed!
  */
 
-import { watch, type FSWatcher } from "chokidar";
+import { watch } from "chokidar";
 import * as fs from "node:fs/promises";
 import * as path from "node:path";
 import { parentPort } from "node:worker_threads";
 import { AstWorkerHost } from "../analyzer/ast/AstWorkerHost";
-import { LspCallHierarchyAnalyzer, type LspAnalysisResult, type LspCallHierarchyItem, type LspOutgoingCall } from "../analyzer/LspCallHierarchyAnalyzer";
+import { LspCallHierarchyAnalyzer } from "../analyzer/LspCallHierarchyAnalyzer";
 import { Parser } from "../analyzer/Parser";
 import { Spider } from "../analyzer/Spider";
 import { SymbolReverseIndex } from "../analyzer/SymbolReverseIndex";
-import { type SymbolDependency as AnalyzerSymbolDependency, type SymbolInfo as AnalyzerSymbolInfo } from "../analyzer/types";
 import { PathResolver } from "../analyzer/utils/PathResolver";
 import {
   IGNORED_DIRECTORIES,
   SUPPORTED_FILE_EXTENSIONS,
-  SUPPORTED_SYMBOL_ANALYSIS_EXTENSIONS,
 } from "../shared/constants";
 import {
   getLogger,
@@ -32,9 +30,9 @@ import {
   StderrLogger,
 } from "../shared/logger";
 import type { IntraFileGraph } from "../shared/types";
-import { detectLanguageFromExtension } from "../shared/utils/languageDetection";
 import {
   applyPagination,
+  buildEdgeCounts,
   buildEdgeInfo,
   buildNodeInfo,
   convertSpiderToLspFormat,
@@ -44,6 +42,12 @@ import {
   validateAnalysisInput,
   validateFileExists,
 } from "./shared/helpers";
+import { workerState } from "./shared/state";
+import {
+  executeGetIndexStatus,
+  executeInvalidateFiles,
+  executeRebuildIndex,
+} from "./tools/workspace";
 import type {
   AnalyzeBreakingChangesParams,
   AnalyzeBreakingChangesResult,
@@ -63,7 +67,6 @@ import type {
   FindUnusedSymbolsResult,
   GetImpactAnalysisParams,
   GetImpactAnalysisResult,
-  GetIndexStatusResult,
   GetSymbolCallersParams,
   GetSymbolCallersResult,
   GetSymbolDependentsParams,
@@ -72,15 +75,12 @@ import type {
   GetSymbolGraphResult,
   ImpactedItem,
   InvalidateFilesParams,
-  InvalidateFilesResult,
   McpToolName,
   McpWorkerConfig,
   McpWorkerMessage,
   McpWorkerResponse,
-  NodeInfo,
   ParseImportsParams,
   ParseImportsResult,
-  RebuildIndexResult,
   ResolveModulePathParams,
   ResolveModulePathResult,
   SymbolCallerInfo,
@@ -128,28 +128,11 @@ const log = getLogger("McpWorker");
 // Worker State
 // ============================================================================
 
-let spider: Spider | null = null;
-let parser: Parser | null = null;
-let resolver: PathResolver | null = null;
-let astWorkerHost: AstWorkerHost | null = null;
-let config: McpWorkerConfig | null = null;
-let isReady = false;
-let warmupInfo: {
-  completed: boolean;
-  durationMs?: number;
-  filesIndexed?: number;
-} = {
-  completed: false,
-};
-
-// File watcher state
-let fileWatcher: FSWatcher | null = null;
+// Use centralized state management
+// Legacy module-level variables replaced with workerState singleton
 
 /** Debounce delay for file change events (ms) */
 const FILE_CHANGE_DEBOUNCE_MS = 300;
-
-/** Pending file invalidations (debounced) */
-const pendingInvalidations = new Map<string, NodeJS.Timeout>();
 
 /** Extensions to watch for changes */
 const WATCHED_EXTENSIONS = SUPPORTED_FILE_EXTENSIONS;
@@ -194,7 +177,7 @@ function postMessage(msg: McpWorkerResponse): void {
  */
 async function handleInit(cfg: McpWorkerConfig): Promise<void> {
   const startTime = Date.now();
-  config = cfg;
+  workerState.config = cfg;
 
   log.info("Initializing with config:", {
     rootDir: cfg.rootDir,
@@ -203,25 +186,30 @@ async function handleInit(cfg: McpWorkerConfig): Promise<void> {
   });
 
   // Initialize components
-  parser = new Parser();
-  resolver = new PathResolver(
+  workerState.parser = new Parser();
+  workerState.resolver = new PathResolver(
     cfg.tsConfigPath,
     cfg.excludeNodeModules,
     cfg.rootDir, // workspaceRoot for package.json discovery
   );
 
   // Initialize AstWorkerHost
-  astWorkerHost = new AstWorkerHost();
-  await astWorkerHost.start();
+  workerState.astWorkerHost = new AstWorkerHost();
+  await workerState.astWorkerHost.start();
   log.info("AstWorkerHost started");
 
-  spider = new Spider({
+  workerState.spider = new Spider({
     rootDir: cfg.rootDir,
     tsConfigPath: cfg.tsConfigPath,
     maxDepth: cfg.maxDepth,
     excludeNodeModules: cfg.excludeNodeModules,
     enableReverseIndex: true, // Always enable for MCP server
   });
+
+  const spider = workerState.spider;
+  if (!spider) {
+    throw new Error("Spider not initialized");
+  }
 
   // Subscribe to indexing progress for warmup updates
   spider.subscribeToIndexStatus((snapshot) => {
@@ -241,13 +229,13 @@ async function handleInit(cfg: McpWorkerConfig): Promise<void> {
   try {
     const result = await spider.buildFullIndex();
 
-    warmupInfo = {
+    workerState.warmupInfo = {
       completed: true,
       durationMs: result.duration,
       filesIndexed: result.indexedFiles,
     };
 
-    isReady = true;
+    workerState.isReady = true;
     const totalDuration = Date.now() - startTime;
 
     log.info(
@@ -272,8 +260,8 @@ async function handleInit(cfg: McpWorkerConfig): Promise<void> {
     log.error("Warmup failed:", errorMessage);
 
     // Still mark as ready, but warmup failed
-    warmupInfo = { completed: false };
-    isReady = true;
+    workerState.warmupInfo = { completed: false };
+    workerState.isReady = true;
 
     postMessage({
       type: "ready",
@@ -293,17 +281,17 @@ async function handleShutdown(): Promise<void> {
   stopFileWatcher();
 
   // Cancel any pending operations
-  spider?.cancelIndexing();
+  workerState.spider?.cancelIndexing();
 
   // Stop AstWorkerHost
-  if (astWorkerHost) {
-    await astWorkerHost.stop();
+  if (workerState.astWorkerHost) {
+    await workerState.astWorkerHost.stop();
     log.info("AstWorkerHost stopped");
   }
 
   // Dispose Spider
-  if (spider) {
-    await spider.dispose();
+  if (workerState.spider) {
+    await workerState.spider.dispose();
     log.info("Spider disposed");
   }
 
@@ -319,18 +307,18 @@ async function handleShutdown(): Promise<void> {
  * Watches the workspace for file changes and invalidates the cache accordingly
  */
 function setupFileWatcher(): void {
-  if (!config?.rootDir) {
+  if (!workerState.config?.rootDir) {
     log.warn("Cannot setup file watcher: no rootDir configured");
     return;
   }
 
   // Build glob pattern for watched extensions
-  const globPattern = `${config.rootDir}/**/*{${WATCHED_EXTENSIONS.join(",")}}`;
+  const globPattern = `${workerState.config.rootDir}/**/*{${WATCHED_EXTENSIONS.join(",")}}`;
 
   log.debug("Setting up file watcher for:", globPattern);
 
   try {
-    fileWatcher = watch(globPattern, {
+    workerState.fileWatcher = watch(globPattern, {
       ignored: IGNORED_DIRECTORIES.map((dir) => `**/${dir}/**`),
       persistent: true,
       ignoreInitial: true, // Don't fire events for existing files
@@ -340,24 +328,24 @@ function setupFileWatcher(): void {
       },
     });
 
-    fileWatcher.on("change", (filePath: string) => {
+    workerState.fileWatcher.on("change", (filePath: string) => {
       handleFileChange("change", filePath);
     });
 
-    fileWatcher.on("add", (filePath: string) => {
+    workerState.fileWatcher.on("add", (filePath: string) => {
       handleFileChange("add", filePath);
     });
 
-    fileWatcher.on("unlink", (filePath: string) => {
+    workerState.fileWatcher.on("unlink", (filePath: string) => {
       handleFileChange("unlink", filePath);
     });
 
-    fileWatcher.on("error", (error: unknown) => {
+    workerState.fileWatcher.on("error", (error: unknown) => {
       const message = error instanceof Error ? error.message : String(error);
       log.error("File watcher error:", message);
     });
 
-    fileWatcher.on("ready", () => {
+    workerState.fileWatcher.on("ready", () => {
       log.debug("File watcher ready");
     });
   } catch (error) {
@@ -371,19 +359,19 @@ function setupFileWatcher(): void {
  * Stop the file watcher and cleanup
  */
 function stopFileWatcher(): void {
-  if (fileWatcher) {
+  if (workerState.fileWatcher) {
     log.debug("Stopping file watcher...");
-    fileWatcher.close().catch((error: Error) => {
+    workerState.fileWatcher.close().catch((error: Error) => {
       log.error("Error closing file watcher:", error.message);
     });
-    fileWatcher = null;
+    workerState.fileWatcher = null;
   }
 
   // Clear any pending debounced invalidations
-  for (const timeout of pendingInvalidations.values()) {
+  for (const timeout of workerState.pendingInvalidations.values()) {
     clearTimeout(timeout);
   }
-  pendingInvalidations.clear();
+  workerState.pendingInvalidations.clear();
 }
 
 /**
@@ -395,18 +383,18 @@ function handleFileChange(
   filePath: string,
 ): void {
   // Clear any pending invalidation for this file
-  const existingTimeout = pendingInvalidations.get(filePath);
+  const existingTimeout = workerState.pendingInvalidations.get(filePath);
   if (existingTimeout) {
     clearTimeout(existingTimeout);
   }
 
   // Schedule a debounced invalidation
   const timeout = setTimeout(() => {
-    pendingInvalidations.delete(filePath);
+    workerState.pendingInvalidations.delete(filePath);
     performFileInvalidation(event, filePath);
   }, FILE_CHANGE_DEBOUNCE_MS);
 
-  pendingInvalidations.set(filePath, timeout);
+  workerState.pendingInvalidations.set(filePath, timeout);
 }
 
 /**
@@ -416,7 +404,7 @@ function performFileInvalidation(
   event: "change" | "add" | "unlink",
   filePath: string,
 ): void {
-  if (!spider) {
+  if (!workerState.spider) {
     return;
   }
 
@@ -428,21 +416,21 @@ function performFileInvalidation(
       // Invalidate and optionally re-analyze
       // Using invalidateFile instead of reanalyzeFile for performance
       // The file will be re-analyzed on next query
-      spider.invalidateFile(filePath);
+      workerState.spider.invalidateFile(filePath);
       
       // Also invalidate symbol reverse index to prevent stale cache
-      if (symbolReverseIndex) {
-        symbolReverseIndex.removeDependenciesFromSource(filePath);
+      if (workerState.symbolReverseIndex) {
+        workerState.symbolReverseIndex.removeDependenciesFromSource(filePath);
       }
       break;
 
     case "unlink":
       // File was deleted
-      spider.handleFileDeleted(filePath);
+      workerState.spider.handleFileDeleted(filePath);
       
       // Remove file from symbol reverse index
-      if (symbolReverseIndex) {
-        symbolReverseIndex.removeDependenciesFromSource(filePath);
+      if (workerState.symbolReverseIndex) {
+        workerState.symbolReverseIndex.removeDependenciesFromSource(filePath);
       }
       break;
   }
@@ -467,7 +455,13 @@ async function handleInvoke(
   tool: McpToolName,
   params: unknown,
 ): Promise<void> {
-  if (!isReady || !spider || !parser || !resolver || !config) {
+  if (
+    !workerState.isReady ||
+    !workerState.spider ||
+    !workerState.parser ||
+    !workerState.resolver ||
+    !workerState.config
+  ) {
     postMessage({
       type: "error",
       requestId,
@@ -493,6 +487,7 @@ async function handleInvoke(
     }
 
     const validatedParams = validation.data;
+    const config = workerState.getConfig();
     let result: unknown;
 
     switch (tool) {
@@ -551,7 +546,7 @@ async function handleInvoke(
         break;
       }
       case "rebuild_index":
-        result = await executeRebuildIndex();
+        result = await executeRebuildIndex(postMessage);
         break;
       case "get_symbol_graph": {
         const p = validatedParams as GetSymbolGraphParams;
@@ -642,17 +637,19 @@ async function executeAnalyzeDependencies(
   params: AnalyzeDependenciesParams,
 ): Promise<AnalyzeDependenciesResult> {
   const { filePath } = params;
+  const spider = workerState.getSpider();
+  const config = workerState.getConfig();
 
   // Validate file exists
   await validateFileExists(filePath);
 
-  const dependencies = await spider!.analyze(filePath);
+  const dependencies = await spider.analyze(filePath);
 
   return {
     filePath,
     dependencyCount: dependencies.length,
     dependencies: dependencies.map((dep) =>
-      enrichDependency(dep, config!.rootDir),
+      enrichDependency(dep, config.rootDir),
     ),
   };
 }
@@ -668,12 +665,13 @@ async function executeAnalyzeDependencies(
  */
 async function filterEdgesByUsage(edges: EdgeInfo[]): Promise<EdgeInfo[]> {
   log.info(`Filtering ${edges.length} edges by usage (onlyUsed=true) - using parallel verification`);
+  const spider = workerState.getSpider();
   
   // Parallelize verification with Promise.all for better performance
   const verificationResults = await Promise.all(
     edges.map(async (edge) => {
       try {
-        const isUsed = await spider!.verifyDependencyUsage(
+        const isUsed = await spider.verifyDependencyUsage(
           edge.source,
           edge.target,
         );
@@ -709,21 +707,23 @@ async function executeCrawlDependencyGraph(
   params: CrawlDependencyGraphParams,
 ): Promise<CrawlDependencyGraphResult> {
   const { entryFile, maxDepth, limit, offset, onlyUsed } = params;
+  const spider = workerState.getSpider();
+  const config = workerState.getConfig();
 
   await validateFileExists(entryFile);
 
   // Temporarily update max depth if specified
-  const originalMaxDepth = spider!["config"].maxDepth;
+  const originalMaxDepth = spider["config"].maxDepth;
   if (maxDepth !== undefined) {
-    spider!.updateConfig({ maxDepth });
+    spider.updateConfig({ maxDepth });
   }
 
   try {
-    const graph = await spider!.crawl(entryFile);
+    const graph = await spider.crawl(entryFile);
 
     // Restore original max depth
     if (maxDepth !== undefined) {
-      spider!.updateConfig({ maxDepth: originalMaxDepth });
+      spider.updateConfig({ maxDepth: originalMaxDepth });
     }
 
     // Build initial counts and detect cycles
@@ -735,9 +735,9 @@ async function executeCrawlDependencyGraph(
       graph.nodes,
       dependencyCount,
       dependentCount,
-      config!.rootDir,
+      config.rootDir,
     );
-    let edges = buildEdgeInfo(graph.edges, config!.rootDir);
+    let edges = buildEdgeInfo(graph.edges, config.rootDir);
 
     // Filter by usage if requested
     if (onlyUsed === true) {
@@ -768,7 +768,7 @@ async function executeCrawlDependencyGraph(
   } catch (error) {
     // Restore original max depth on error
     if (maxDepth !== undefined) {
-      spider!.updateConfig({ maxDepth: originalMaxDepth });
+      spider.updateConfig({ maxDepth: originalMaxDepth });
     }
     throw error;
   }
@@ -781,18 +781,20 @@ async function executeFindReferencingFiles(
   params: FindReferencingFilesParams,
 ): Promise<FindReferencingFilesResult> {
   const { targetPath } = params;
+  const spider = workerState.getSpider();
+  const config = workerState.getConfig();
 
   // Validate file exists
   await validateFileExists(targetPath);
 
-  const references = await spider!.findReferencingFiles(targetPath);
+  const references = await spider.findReferencingFiles(targetPath);
 
   return {
     targetPath,
     referencingFileCount: references.length,
     referencingFiles: references.map((ref) => ({
       path: ref.path,
-      relativePath: getRelativePath(ref.path, config!.rootDir),
+      relativePath: getRelativePath(ref.path, config.rootDir),
       type: ref.type,
       line: ref.line,
       module: ref.module,
@@ -807,12 +809,14 @@ async function executeExpandNode(
   params: ExpandNodeParams,
 ): Promise<ExpandNodeResult> {
   const { filePath, knownPaths, extraDepth } = params;
+  const spider = workerState.getSpider();
+  const config = workerState.getConfig();
 
   // Validate file exists
   await validateFileExists(filePath);
 
   const existingNodes = new Set<string>(knownPaths);
-  const result = await spider!.crawlFrom(
+  const result = await spider.crawlFrom(
     filePath,
     existingNodes,
     extraDepth ?? 10,
@@ -826,8 +830,8 @@ async function executeExpandNode(
     newEdges: result.edges.map((edge) => ({
       source: edge.source,
       target: edge.target,
-      sourceRelative: getRelativePath(edge.source, config!.rootDir),
-      targetRelative: getRelativePath(edge.target, config!.rootDir),
+      sourceRelative: getRelativePath(edge.source, config.rootDir),
+      targetRelative: getRelativePath(edge.target, config.rootDir),
     })),
   };
 }
@@ -839,12 +843,13 @@ async function executeParseImports(
   params: ParseImportsParams,
 ): Promise<ParseImportsResult> {
   const { filePath } = params;
+  const parser = workerState.getParser();
 
   // Validate file exists
   await validateFileExists(filePath);
 
   const content = await fs.readFile(filePath, "utf-8");
-  const imports = parser!.parse(content, filePath);
+  const imports = parser.parse(content, filePath);
 
   return {
     filePath,
@@ -864,12 +869,13 @@ async function executeVerifyDependencyUsage(
   params: VerifyDependencyUsageParams,
 ): Promise<VerifyDependencyUsageResult> {
   const { sourceFile, targetFile } = params;
+  const spider = workerState.getSpider();
 
   // Validate file exists
   await validateFileExists(sourceFile);
   await validateFileExists(targetFile);
 
-  const isUsed = await spider!.verifyDependencyUsage(sourceFile, targetFile);
+  const isUsed = await spider.verifyDependencyUsage(sourceFile, targetFile);
 
   return {
     sourceFile,
@@ -886,12 +892,14 @@ async function executeResolveModulePath(
   params: ResolveModulePathParams,
 ): Promise<ResolveModulePathResult> {
   const { fromFile, moduleSpecifier } = params;
+  const resolver = workerState.getResolver();
+  const config = workerState.getConfig();
 
   // Validate source file exists
   await validateFileExists(fromFile);
 
   try {
-    const resolvedPath = await resolver!.resolve(fromFile, moduleSpecifier);
+    const resolvedPath = await resolver.resolve(fromFile, moduleSpecifier);
 
     if (resolvedPath) {
       return {
@@ -899,7 +907,7 @@ async function executeResolveModulePath(
         moduleSpecifier,
         resolved: true,
         resolvedPath,
-        resolvedRelativePath: getRelativePath(resolvedPath, config!.rootDir),
+        resolvedRelativePath: getRelativePath(resolvedPath, config.rootDir),
       };
     } else {
       return {
@@ -927,107 +935,17 @@ async function executeResolveModulePath(
 }
 
 /**
- * Get current index status and statistics
- */
-async function executeGetIndexStatus(): Promise<GetIndexStatusResult> {
-  const indexStatus = spider!.getIndexStatus();
-  const cacheStats = await spider!.getCacheStatsAsync();
-
-  // Map 'validating' state to 'indexing' for MCP response
-  const state =
-    indexStatus.state === "validating" ? "indexing" : indexStatus.state;
-
-  return {
-    state,
-    isReady,
-    reverseIndexEnabled: spider!.hasReverseIndex(),
-    cacheSize: cacheStats.dependencyCache.size,
-    reverseIndexStats: cacheStats.reverseIndexStats,
-    progress:
-      indexStatus.state === "indexing"
-        ? {
-            processed: indexStatus.processed,
-            total: indexStatus.total,
-            percentage: indexStatus.percentage,
-            currentFile: indexStatus.currentFile,
-          }
-        : undefined,
-    warmup: warmupInfo,
-  };
-}
-
-/**
- * Invalidate specific files from the cache
- */
-function executeInvalidateFiles(
-  params: InvalidateFilesParams,
-): InvalidateFilesResult {
-  const { filePaths } = params;
-  const invalidatedFiles: string[] = [];
-  const notFoundFiles: string[] = [];
-
-  for (const filePath of filePaths) {
-    const wasInvalidated = spider!.invalidateFile(filePath);
-    if (wasInvalidated) {
-      invalidatedFiles.push(filePath);
-    } else {
-      notFoundFiles.push(filePath);
-    }
-  }
-
-  return {
-    invalidatedCount: invalidatedFiles.length,
-    invalidatedFiles,
-    notFoundFiles,
-    reverseIndexUpdated: spider!.hasReverseIndex(),
-  };
-}
-
-/**
- * Rebuild the entire index from scratch
- */
-async function executeRebuildIndex(): Promise<RebuildIndexResult> {
-  const startTime = Date.now();
-
-  // Clear all cached data
-  spider!.clearCache();
-
-  // Re-index by building full index again
-  // This will scan the workspace and rebuild the reverse index
-  await spider!.buildFullIndex((processed, total, currentFile) => {
-    postMessage({
-      type: "warmup-progress",
-      processed,
-      total,
-      currentFile,
-    });
-  });
-
-  const rebuildTimeMs = Date.now() - startTime;
-  const cacheStats = await spider!.getCacheStatsAsync();
-
-  return {
-    reindexedCount: cacheStats.dependencyCache.size,
-    rebuildTimeMs,
-    newCacheSize: cacheStats.dependencyCache.size,
-    reverseIndexStats: cacheStats.reverseIndexStats ?? {
-      indexedFiles: 0,
-      targetFiles: 0,
-      totalReferences: 0,
-    },
-  };
-}
-
-/**
  * Get symbol graph for a file
  */
 async function executeGetSymbolGraph(
   params: GetSymbolGraphParams,
 ): Promise<GetSymbolGraphResult> {
   const { filePath } = params;
+  const spider = workerState.getSpider();
+  const config = workerState.getConfig();
   await validateFileExists(filePath);
 
-  const { symbols, dependencies } = await spider!.getSymbolGraph(filePath);
+  const { symbols, dependencies } = await spider.getSymbolGraph(filePath);
 
   // Enrich dependencies with relative paths
   const enrichedDependencies: SymbolDependencyEdge[] = dependencies.map(
@@ -1035,7 +953,7 @@ async function executeGetSymbolGraph(
       sourceSymbolId: dep.sourceSymbolId,
       targetSymbolId: dep.targetSymbolId,
       targetFilePath: dep.targetFilePath,
-      targetRelativePath: getRelativePath(dep.targetFilePath, config!.rootDir),
+      targetRelativePath: getRelativePath(dep.targetFilePath, config.rootDir),
     }),
   );
 
@@ -1045,7 +963,7 @@ async function executeGetSymbolGraph(
     category: categorizeSymbolKind(symbol.kind),
   }));
 
-  const relativePath = getRelativePath(filePath, config!.rootDir);
+  const relativePath = getRelativePath(filePath, config.rootDir);
 
   return {
     filePath,
@@ -1065,12 +983,14 @@ async function executeFindUnusedSymbols(
   params: FindUnusedSymbolsParams,
 ): Promise<FindUnusedSymbolsResult> {
   const { filePath } = params;
+  const spider = workerState.getSpider();
+  const config = workerState.getConfig();
   await validateFileExists(filePath);
 
-  const unusedSymbols = await spider!.findUnusedSymbols(filePath);
+  const unusedSymbols = await spider.findUnusedSymbols(filePath);
 
   // Get all exported symbols to calculate percentage
-  const { symbols } = await spider!.getSymbolGraph(filePath);
+  const { symbols } = await spider.getSymbolGraph(filePath);
   const exportedSymbols = symbols.filter((s) => s.isExported);
 
   // Categorize unused symbols
@@ -1088,7 +1008,7 @@ async function executeFindUnusedSymbols(
       ? Math.round((unusedCount / totalExportedSymbols) * 100)
       : 0;
 
-  const relativePath = getRelativePath(filePath, config!.rootDir);
+  const relativePath = getRelativePath(filePath, config.rootDir);
 
   return {
     filePath,
@@ -1107,16 +1027,18 @@ async function executeGetSymbolDependents(
   params: GetSymbolDependentsParams,
 ): Promise<GetSymbolDependentsResult> {
   const { filePath, symbolName } = params;
+  const spider = workerState.getSpider();
+  const config = workerState.getConfig();
   await validateFileExists(filePath);
 
-  const dependents = await spider!.getSymbolDependents(filePath, symbolName);
+  const dependents = await spider.getSymbolDependents(filePath, symbolName);
 
   // Enrich dependents with relative paths
   const enrichedDependents: SymbolDependencyEdge[] = dependents.map((dep) => ({
     sourceSymbolId: dep.sourceSymbolId,
     targetSymbolId: dep.targetSymbolId,
     targetFilePath: dep.targetFilePath,
-    targetRelativePath: getRelativePath(dep.targetFilePath, config!.rootDir),
+    targetRelativePath: getRelativePath(dep.targetFilePath, config.rootDir),
   }));
 
   return {
@@ -1134,9 +1056,11 @@ async function executeTraceFunctionExecution(
   params: TraceFunctionExecutionParams,
 ): Promise<TraceFunctionExecutionResult> {
   const { filePath, symbolName, maxDepth } = params;
+  const spider = workerState.getSpider();
+  const config = workerState.getConfig();
   await validateFileExists(filePath);
 
-  const result = await spider!.traceFunctionExecution(
+  const result = await spider.traceFunctionExecution(
     filePath,
     symbolName,
     maxDepth ?? 10,
@@ -1150,11 +1074,11 @@ async function executeTraceFunctionExecution(
     calledFilePath: entry.calledFilePath,
     resolvedFilePath: entry.resolvedFilePath,
     resolvedRelativePath: entry.resolvedFilePath
-      ? getRelativePath(entry.resolvedFilePath, config!.rootDir)
+      ? getRelativePath(entry.resolvedFilePath, config.rootDir)
       : null,
   }));
 
-  const relativePath = getRelativePath(filePath, config!.rootDir);
+  const relativePath = getRelativePath(filePath, config.rootDir);
 
   return {
     rootSymbol: {
@@ -1204,9 +1128,6 @@ function categorizeSymbolKind(
 // NEW: Symbol Callers (O(1) Lookup)
 // ============================================================================
 
-/** Symbol reverse index for O(1) caller lookups */
-let symbolReverseIndex: SymbolReverseIndex | null = null;
-
 /**
  * Get symbol callers with O(1) lookup
  */
@@ -1214,25 +1135,26 @@ async function executeGetSymbolCallers(
   params: GetSymbolCallersParams,
 ): Promise<GetSymbolCallersResult> {
   const { filePath, symbolName, includeTypeOnly = true } = params;
+  const config = workerState.getConfig();
 
   // Build symbolId from filePath + symbolName
   const symbolId = `${filePath}:${symbolName}`;
 
   // Initialize symbol reverse index if needed
-  if (!symbolReverseIndex) {
-    symbolReverseIndex = new SymbolReverseIndex(config!.rootDir);
+  if (!workerState.symbolReverseIndex) {
+    workerState.symbolReverseIndex = new SymbolReverseIndex(config.rootDir);
     // Build the index from all cached symbol graphs
     await buildSymbolReverseIndex();
   }
 
   const callers = includeTypeOnly
-    ? symbolReverseIndex.getCallers(symbolId)
-    : symbolReverseIndex.getRuntimeCallers(symbolId);
+    ? workerState.symbolReverseIndex.getCallers(symbolId)
+    : workerState.symbolReverseIndex.getRuntimeCallers(symbolId);
 
   const callerInfos: SymbolCallerInfo[] = callers.map((caller) => ({
     callerSymbolId: caller.callerSymbolId,
     callerFilePath: caller.callerFilePath,
-    callerRelativePath: getRelativePath(caller.callerFilePath, config!.rootDir),
+    callerRelativePath: getRelativePath(caller.callerFilePath, config.rootDir),
     isTypeOnly: caller.isTypeOnly,
   }));
 
@@ -1245,7 +1167,7 @@ async function executeGetSymbolCallers(
     runtimeCallerCount: runtimeCallers.length,
     typeOnlyCallerCount: typeOnlyCallers.length,
     callers: callerInfos,
-    callerFiles: symbolReverseIndex.getCallerFiles(symbolId),
+    callerFiles: workerState.symbolReverseIndex.getCallerFiles(symbolId),
   };
 }
 
@@ -1253,7 +1175,8 @@ async function executeGetSymbolCallers(
  * Build symbol reverse index from all known files
  */
 async function buildSymbolReverseIndex(): Promise<void> {
-  if (!spider || !symbolReverseIndex) return;
+  const spider = workerState.spider;
+  if (!spider || !workerState.symbolReverseIndex) return;
 
   // Get all indexed files from the file-level cache
   const status = spider.getIndexStatus();
@@ -1303,9 +1226,7 @@ async function executeAnalyzeBreakingChanges(
     }
   }
 
-  if (!astWorkerHost) {
-    throw new Error("AstWorkerHost not initialized");
-  }
+  const astWorkerHost = workerState.getAstWorkerHost();
 
   let results: import("../analyzer/SignatureAnalyzer").SignatureComparisonResult[];
   try {
@@ -1479,6 +1400,7 @@ async function processTransitiveDependents(
   affectedFilesSet: Set<string>,
   impactedItems: ImpactedItem[],
 ): Promise<void> {
+  const spider = workerState.getSpider();
   const queue = directDependents.map((d) => ({
     symbolId: d.sourceSymbolId,
     depth: 2,
@@ -1500,7 +1422,7 @@ async function processTransitiveDependents(
     if (!parsed) continue;
 
     try {
-      const transitiveDeps = await spider!.getSymbolDependents(
+      const transitiveDeps = await spider.getSymbolDependents(
         parsed.filePath,
         parsed.symbolName,
       );
@@ -1526,6 +1448,8 @@ async function executeGetImpactAnalysis(
     includeTransitive = false,
     maxDepth = 3,
   } = params;
+  const spider = workerState.getSpider();
+  const config = workerState.getConfig();
   await validateFileExists(filePath);
 
   const symbolId = `${filePath}:${symbolName}`;
@@ -1534,13 +1458,13 @@ async function executeGetImpactAnalysis(
   const affectedFilesSet = new Set<string>();
 
   // Get direct dependents
-  const directDependents = await spider!.getSymbolDependents(
+  const directDependents = await spider.getSymbolDependents(
     filePath,
     symbolName,
   );
 
   for (const dep of directDependents) {
-    impactedItems.push(createImpactedItem(dep, 1, config!.rootDir));
+    impactedItems.push(createImpactedItem(dep, 1, config.rootDir));
     visitedSymbols.add(dep.sourceSymbolId);
     affectedFilesSet.add(dep.targetFilePath);
   }
@@ -1550,7 +1474,7 @@ async function executeGetImpactAnalysis(
     await processTransitiveDependents(
       directDependents,
       maxDepth,
-      config!.rootDir,
+      config.rootDir,
       visitedSymbols,
       affectedFilesSet,
       impactedItems,
@@ -1578,7 +1502,7 @@ async function executeGetImpactAnalysis(
     targetSymbol: {
       id: symbolId,
       filePath,
-      relativePath: getRelativePath(filePath, config!.rootDir),
+      relativePath: getRelativePath(filePath, config.rootDir),
       symbolName,
     },
     impactLevel,
@@ -1654,6 +1578,7 @@ async function executeAnalyzeFileLogic(
   warnings?: string[];
 }> {
   const { filePath } = params;
+  const spider = workerState.getSpider();
   // Note: includeExternal will be used in T066 when integrating LSP call hierarchy
 
   // Validate input parameters
@@ -1665,7 +1590,7 @@ async function executeAnalyzeFileLogic(
 
   try {
     // Get symbol graph data using Spider's AST-based analysis
-    const symbolGraphData = await spider!.getSymbolGraph(filePath);
+    const symbolGraphData = await spider.getSymbolGraph(filePath);
 
     // Convert Spider's symbol format to LSP format for LspCallHierarchyAnalyzer
     const lspData = convertSpiderToLspFormat(symbolGraphData, filePath);
