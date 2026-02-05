@@ -4,6 +4,7 @@ import * as vscode from "vscode";
 import { Spider } from "../../src/analyzer/Spider";
 import { normalizePath } from "../../src/analyzer/types";
 import { GraphProvider } from "../../src/extension/GraphProvider";
+import { graphProviderServiceTokens } from "../../src/extension/services/graphProviderServiceContainer";
 
 const testRootDir = path.resolve(process.cwd(), "temp-test-root");
 const np = (p: string) => normalizePath(p);
@@ -136,6 +137,9 @@ describe("GraphProvider", () => {
   let extensionUri: vscode.Uri;
   let mockContext: vscode.ExtensionContext;
 
+  const getService = <T,>(token: symbol): T =>
+    (provider as any)._container.get(token);
+
   beforeEach(() => {
     vi.clearAllMocks();
     extensionUri = { fsPath: "/extension" } as vscode.Uri;
@@ -202,7 +206,8 @@ describe("GraphProvider", () => {
       nodes: [mainTsPath],
       edges: [],
     };
-    ((provider as any)["_spider"].crawl as any).mockResolvedValue(
+    const spiderMock = getService<any>(graphProviderServiceTokens.spider);
+    (spiderMock.crawl as any).mockResolvedValue(
       mockGraphData,
     );
 
@@ -235,7 +240,7 @@ describe("GraphProvider", () => {
     // Resolve the view first
     provider.resolveWebviewView(view as any, {} as any, {} as any);
 
-    const spiderMock = (provider as any)["_spider"];
+    const spiderMock = getService<any>(graphProviderServiceTokens.spider);
     // ensure getSymbolGraph returns something useful
     spiderMock.getSymbolGraph = vi.fn().mockResolvedValue({
       symbols: [
@@ -265,7 +270,7 @@ describe("GraphProvider", () => {
 
   it("should trigger force reindex", async () => {
     // Ensure spider mock has a worker call available
-    const spiderMock = (provider as any)["_spider"];
+    const spiderMock = getService<any>(graphProviderServiceTokens.spider);
     spiderMock.buildFullIndexInWorker = vi.fn().mockResolvedValue({
       indexedFiles: 1,
       duration: 10,
@@ -279,7 +284,7 @@ describe("GraphProvider", () => {
   });
 
   it("should return index status", () => {
-    const spiderMock = (provider as any)["_spider"];
+    const spiderMock = getService<any>(graphProviderServiceTokens.spider);
     spiderMock.getIndexStatus = vi.fn().mockReturnValue({
       state: "idle",
       processed: 0,
@@ -312,7 +317,7 @@ describe("GraphProvider", () => {
     provider.resolveWebviewView(view as any, {} as any, {} as any);
 
     const mainTsPath = path.join(testRootDir, "src", "main.ts");
-    const spiderMock = (provider as any)["_spider"];
+    const spiderMock = getService<any>(graphProviderServiceTokens.spider);
     (spiderMock.crawl as any).mockResolvedValue({
       nodes: [np(mainTsPath)],
       edges: [],
@@ -362,7 +367,7 @@ describe("GraphProvider", () => {
     provider.resolveWebviewView(view as any, {} as any, {} as any);
 
     const mainTsPath = path.join(testRootDir, "src", "main.ts");
-    const spiderMock = (provider as any)["_spider"];
+    const spiderMock = getService<any>(graphProviderServiceTokens.spider);
     spiderMock.getSymbolGraph = vi.fn().mockResolvedValue({
       symbols: [],
       dependencies: [],
@@ -403,7 +408,7 @@ describe("GraphProvider", () => {
     provider.resolveWebviewView(view as any, {} as any, {} as any);
 
     const mainTsPath = path.join(testRootDir, "src", "main.ts");
-    const spiderMock = (provider as any)["_spider"];
+    const spiderMock = getService<any>(graphProviderServiceTokens.spider);
     spiderMock.getSymbolGraph = vi.fn().mockResolvedValue({
       symbols: [],
       dependencies: [],
@@ -454,13 +459,13 @@ describe("GraphProvider", () => {
     };
 
     // Mock the node interaction service
-    const mockService = {
-      getReferencingFiles: vi.fn().mockResolvedValue({
-        command: "referencingFiles",
-        files: [],
-      }),
-    };
-    (provider as any)["_nodeInteractionService"] = mockService;
+    const mockService = getService<any>(
+      graphProviderServiceTokens.nodeInteractionService,
+    );
+    mockService.getReferencingFiles = vi.fn().mockResolvedValue({
+      command: "referencingFiles",
+      files: [],
+    });
 
     await provider.showReverseDependencies();
 
@@ -523,7 +528,7 @@ describe("GraphProvider", () => {
     provider.resolveWebviewView(view as any, {} as any, {} as any);
 
     const mainTsPath = path.join(testRootDir, "src", "main.ts");
-    const spiderMock = (provider as any)["_spider"];
+    const spiderMock = getService<any>(graphProviderServiceTokens.spider);
     (spiderMock.crawl as any).mockResolvedValue({
       nodes: [np(mainTsPath)],
       edges: [],
@@ -566,21 +571,21 @@ describe("GraphProvider", () => {
     const createDeferred = () =>
       new Promise<void>((resolve) => pending.push(resolve));
 
-    const service = {
-      expandNode: vi.fn(
-        async (_nodeId: string, _known: string[] | undefined, opts?: any) => {
-          await createDeferred();
-          // ensure we can observe the abort signal state when it resolves
-          if (opts?.signal?.aborted) throw new Error("aborted");
-          return {
-            command: "expandedGraph",
-            nodeId: _nodeId,
-            data: { nodes: [], edges: [] },
-          };
-        },
-      ),
-    };
-    (provider as any)["_nodeInteractionService"] = service;
+    const service = getService<any>(
+      graphProviderServiceTokens.nodeInteractionService,
+    );
+    service.expandNode = vi.fn(
+      async (_nodeId: string, _known: string[] | undefined, opts?: any) => {
+        await createDeferred();
+        // ensure we can observe the abort signal state when it resolves
+        if (opts?.signal?.aborted) throw new Error("aborted");
+        return {
+          command: "expandedGraph",
+          nodeId: _nodeId,
+          data: { nodes: [], edges: [] },
+        };
+      },
+    );
 
     const p1 = (provider as any).handleExpandNode("/a", []);
     const p2 = (provider as any).handleExpandNode("/b", []);
@@ -616,7 +621,7 @@ describe("GraphProvider", () => {
     provider.resolveWebviewView(view as any, {} as any, {} as any);
 
     const mainTsPath = path.join(testRootDir, "src", "main.ts");
-    const spiderMock = (provider as any)["_spider"];
+    const spiderMock = getService<any>(graphProviderServiceTokens.spider);
     (spiderMock.crawl as any).mockResolvedValue({
       nodes: [np(mainTsPath)],
       edges: [],
@@ -641,9 +646,6 @@ describe("GraphProvider", () => {
 
   // T083: Unit tests for debounce logic (Phase 5 - Live Updates)
   describe("File Save Debounce Logic", () => {
-    let provider: GraphProvider;
-    let extensionUri: vscode.Uri;
-    let mockContext: vscode.ExtensionContext;
     let webview: any;
 
     beforeEach(() => {
@@ -682,7 +684,9 @@ describe("GraphProvider", () => {
       provider = new GraphProvider(extensionUri, mockContext);
 
       // Clear the periodic cleanup timer from UnusedAnalysisCache to avoid fake timer issues
-      const cache = (provider as any)._unusedAnalysisCache;
+      const cache = getService<any>(
+        graphProviderServiceTokens.unusedAnalysisCache,
+      );
       if (cache && cache.cleanupTimer) {
         clearInterval(cache.cleanupTimer);
         cache.cleanupTimer = undefined;
@@ -706,7 +710,8 @@ describe("GraphProvider", () => {
 
     afterEach(() => {
       // Clean up provider's timers
-      const debounceTimer = (provider as any)._fileSaveDebounceTimer;
+      const eventHub = getService<any>(graphProviderServiceTokens.eventHub);
+      const debounceTimer = eventHub?.fileSaveDebounceTimer;
       if (debounceTimer) {
         clearTimeout(debounceTimer);
       }

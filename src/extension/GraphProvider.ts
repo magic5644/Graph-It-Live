@@ -1,4 +1,3 @@
-import * as path from "node:path";
 import * as vscode from "vscode";
 import type { IndexerStatusSnapshot } from "../analyzer/IndexerStatus";
 import { Spider } from "../analyzer/Spider";
@@ -8,23 +7,28 @@ import type {
   WebviewToExtensionMessage,
 } from "../shared/types";
 import { getExtensionLogger } from "./extensionLogger";
-import { BackgroundIndexingManager } from "./services/BackgroundIndexingManager";
-import { EditorNavigationService } from "./services/EditorNavigationService";
+import type { BackgroundIndexingManager } from "./services/BackgroundIndexingManager";
+import type { EditorNavigationService } from "./services/EditorNavigationService";
 import { ExtensionEventHub } from "./services/ExtensionEventHub";
 import type { EventType } from "./services/FileChangeScheduler";
-import { FileChangeScheduler } from "./services/FileChangeScheduler";
+import type { FileChangeScheduler } from "./services/FileChangeScheduler";
 import { GraphState } from "./services/GraphState";
-import { GraphViewService } from "./services/GraphViewService";
+import type { GraphViewService } from "./services/GraphViewService";
 import { MessageDispatcher } from "./services/MessageDispatcher";
-import { NodeInteractionService } from "./services/NodeInteractionService";
-import {
+import type { NodeInteractionService } from "./services/NodeInteractionService";
+import type {
   ProviderConfigSnapshot,
   ProviderStateManager,
 } from "./services/ProviderStateManager";
-import { SourceFileWatcher } from "./services/SourceFileWatcher";
-import { SymbolViewService } from "./services/SymbolViewService";
-import { UnusedAnalysisCache } from "./services/UnusedAnalysisCache";
-import { WebviewManager } from "./WebviewManager";
+import type { SourceFileWatcher } from "./services/SourceFileWatcher";
+import type { SymbolViewService } from "./services/SymbolViewService";
+import type { UnusedAnalysisCache } from "./services/UnusedAnalysisCache";
+import {
+  createGraphProviderServiceContainer,
+  graphProviderServiceTokens,
+} from "./services/graphProviderServiceContainer";
+import { ServiceContainer } from "./services/ServiceContainer";
+import type { WebviewManager } from "./WebviewManager";
 
 /** Logger instance for GraphProvider */
 const log = getExtensionLogger("GraphProvider");
@@ -36,27 +40,76 @@ export class GraphProvider implements vscode.WebviewViewProvider {
   public static readonly viewType = "graph-it-live.graphView";
 
   private _view?: vscode.WebviewView;
-  private _spider?: Spider;
-  private readonly _webviewManager: WebviewManager;
-  private readonly _indexingManager?: BackgroundIndexingManager;
-  private readonly _sourceFileWatcher?: SourceFileWatcher;
-  private readonly _fileChangeScheduler?: FileChangeScheduler;
+  private readonly _container: ServiceContainer;
   private _configSnapshot: ProviderConfigSnapshot;
+  private readonly _fileChangeScheduler?: FileChangeScheduler;
   private readonly _messageDispatcher: MessageDispatcher;
-  private readonly _graphViewService?: GraphViewService;
-  private readonly _symbolViewService?: SymbolViewService;
-  private readonly _nodeInteractionService?: NodeInteractionService;
-  private readonly _navigationService?: EditorNavigationService;
   private readonly _stateManager: ProviderStateManager;
   private readonly _graphState: GraphState;
-  private readonly _unusedAnalysisCache?: UnusedAnalysisCache;
   private readonly _fileSaveListener?: vscode.Disposable;
-  private readonly _eventHub?: ExtensionEventHub;
   /**
    * Optional callback used by EditorEventsService to notify MCP server.
    * Populated by extension activation if MCP server is registered.
    */
   public notifyMcpServerOfConfigChange?: () => void;
+
+  private get spider(): Spider | undefined {
+    return this._container.has(graphProviderServiceTokens.spider)
+      ? this._container.get(graphProviderServiceTokens.spider)
+      : undefined;
+  }
+
+  private get webviewManager(): WebviewManager {
+    return this._container.get(graphProviderServiceTokens.webviewManager);
+  }
+
+  private get indexingManager(): BackgroundIndexingManager | undefined {
+    return this._container.has(graphProviderServiceTokens.indexingManager)
+      ? this._container.get(graphProviderServiceTokens.indexingManager)
+      : undefined;
+  }
+
+  private get sourceFileWatcher(): SourceFileWatcher | undefined {
+    return this._container.has(graphProviderServiceTokens.sourceFileWatcher)
+      ? this._container.get(graphProviderServiceTokens.sourceFileWatcher)
+      : undefined;
+  }
+
+  private get graphViewService(): GraphViewService | undefined {
+    return this._container.has(graphProviderServiceTokens.graphViewService)
+      ? this._container.get(graphProviderServiceTokens.graphViewService)
+      : undefined;
+  }
+
+  private get symbolViewService(): SymbolViewService | undefined {
+    return this._container.has(graphProviderServiceTokens.symbolViewService)
+      ? this._container.get(graphProviderServiceTokens.symbolViewService)
+      : undefined;
+  }
+
+  private get nodeInteractionService(): NodeInteractionService | undefined {
+    return this._container.has(graphProviderServiceTokens.nodeInteractionService)
+      ? this._container.get(graphProviderServiceTokens.nodeInteractionService)
+      : undefined;
+  }
+
+  private get navigationService(): EditorNavigationService | undefined {
+    return this._container.has(graphProviderServiceTokens.navigationService)
+      ? this._container.get(graphProviderServiceTokens.navigationService)
+      : undefined;
+  }
+
+  private get unusedAnalysisCache(): UnusedAnalysisCache | undefined {
+    return this._container.has(graphProviderServiceTokens.unusedAnalysisCache)
+      ? this._container.get(graphProviderServiceTokens.unusedAnalysisCache)
+      : undefined;
+  }
+
+  private get eventHub(): ExtensionEventHub | undefined {
+    return this._container.has(graphProviderServiceTokens.eventHub)
+      ? this._container.get(graphProviderServiceTokens.eventHub)
+      : undefined;
+  }
 
   /**
    * Get the file change scheduler for use by EditorEventsService
@@ -76,7 +129,7 @@ export class GraphProvider implements vscode.WebviewViewProvider {
    * Flush unused analysis cache to disk (called on deactivation)
    */
   public async flushCaches(): Promise<void> {
-    await this._unusedAnalysisCache?.flush();
+    await this.unusedAnalysisCache?.flush();
   }
 
   private _initializeFilterContext(): void {
@@ -113,112 +166,68 @@ export class GraphProvider implements vscode.WebviewViewProvider {
   }
 
   constructor(extensionUri: vscode.Uri, context: vscode.ExtensionContext) {
-    this._webviewManager = new WebviewManager(extensionUri);
-    this._stateManager = new ProviderStateManager(
+    const { container, configSnapshot } = createGraphProviderServiceContainer({
+      extensionUri,
       context,
-      DEFAULT_INDEXING_START_DELAY,
-    );
-    this._graphState = new GraphState(this._stateManager);
-    this._configSnapshot = this._stateManager.loadConfiguration();
+      defaultIndexingStartDelay: DEFAULT_INDEXING_START_DELAY,
+      logger: log,
+      callbacks: {
+        getUnusedFilterActive: this.getUnusedFilterActive.bind(this),
+        toggleUnusedFilter: this.toggleUnusedFilter.bind(this),
+        handleOpenFile: this.handleOpenFile.bind(this),
+        handleExpandNode: this.handleExpandNode.bind(this),
+        handleCancelExpandNode: this.handleCancelExpandNode.bind(this),
+        handleFindReferencingFiles: this.handleFindReferencingFiles.bind(this),
+        handleDrillDown: this.handleDrillDown.bind(this),
+        updateGraph: this.updateGraph.bind(this),
+        refreshGraph: this.refreshGraph.bind(this),
+        handleSelectSymbol: this.handleSelectSymbol.bind(this),
+        sendGraphUpdate: this._sendGraphUpdate.bind(this),
+        setViewMode: (mode) => this._stateManager.setViewMode(mode),
+        getViewMode: () => this._stateManager.viewMode,
+        getSelectedSymbolId: () => this._stateManager.selectedSymbolId,
+        setSelectedSymbolId: (symbolId) => {
+          this._stateManager.selectedSymbolId = symbolId;
+        },
+        getLastActiveFilePath: () => this._stateManager.getLastActiveFilePath(),
+        parseFilePathAndSymbol: (symbolId) =>
+          this.navigationService?.parseFilePathAndSymbol(symbolId),
+        getActiveEditorFilePath: () => {
+          const editor = vscode.window.activeTextEditor;
+          if (editor?.document.uri.scheme !== "file") return undefined;
+          return editor.document.fileName;
+        },
+      },
+      onIndexingComplete: () => this._refreshAfterIndexing(),
+      viewProvider: () => this._view,
+      updateGraph: this.updateGraph.bind(this),
+      handleDrillDown: this.handleDrillDown.bind(this),
+      handleFileChange: this.handleFileChange.bind(this),
+    });
 
-    this._initializeSpider(this._configSnapshot);
+    this._container = container;
+    this._stateManager = container.get(graphProviderServiceTokens.stateManager);
+    this._graphState = container.get(graphProviderServiceTokens.graphState);
+    this._configSnapshot = configSnapshot;
+    this._fileChangeScheduler = container.has(
+      graphProviderServiceTokens.fileChangeScheduler,
+    )
+      ? container.get(graphProviderServiceTokens.fileChangeScheduler)
+      : undefined;
+    this._messageDispatcher = container.get(
+      graphProviderServiceTokens.messageDispatcher,
+    );
 
     // Initialize context for toggle button (async operation moved after init)
     this._initializeFilterContext();
 
-    if (this._spider) {
-      this._unusedAnalysisCache = new UnusedAnalysisCache(
-        context,
-        this._configSnapshot.persistUnusedAnalysisCache,
-        this._configSnapshot.maxUnusedAnalysisCacheSize,
-      );
-
-      this._graphViewService = new GraphViewService(
-        this._spider,
-        log,
-        {
-          unusedAnalysisConcurrency:
-            this._configSnapshot.unusedAnalysisConcurrency,
-          unusedAnalysisMaxEdges: this._configSnapshot.unusedAnalysisMaxEdges,
-        },
-        this._unusedAnalysisCache,
-      );
-      this._symbolViewService = new SymbolViewService(this._spider, log);
-      this._nodeInteractionService = new NodeInteractionService(
-        this._spider,
-        log,
-      );
-      this._navigationService = new EditorNavigationService(this._spider, log);
-      this._indexingManager = new BackgroundIndexingManager({
-        context,
-        extensionUri,
-        spider: this._spider,
-        logger: log,
-        onIndexingComplete: () => this._refreshAfterIndexing(),
-        initialConfig: this._configSnapshot,
-      });
-
-      // Initialize FileChangeScheduler with unified handler
-      this._fileChangeScheduler = new FileChangeScheduler({
-        processHandler: async (filePath: string, eventType: EventType) => {
-          await this.handleFileChange(filePath, eventType);
-        },
-        debounceDelay: 300, // 300ms debounce
-      });
-
-      this._sourceFileWatcher = new SourceFileWatcher({
-        context,
-        logger: log,
-        fileChangeScheduler: this._fileChangeScheduler,
-      });
-
-      this._eventHub = new ExtensionEventHub({
-        spider: this._spider,
-        indexingManager: this._indexingManager,
-        unusedAnalysisCache: this._unusedAnalysisCache,
-        stateManager: this._stateManager,
-        navigationService: this._navigationService,
-        viewProvider: () => this._view,
-        updateGraph: this.updateGraph.bind(this),
-        handleDrillDown: this.handleDrillDown.bind(this),
-        logger: log,
-      });
-
+    if (this.spider) {
       // T075: Add file save listener for live updates (User Story 5)
       this._fileSaveListener = vscode.workspace.onDidSaveTextDocument(
         (document) => this._handleFileSave(document),
       );
       context.subscriptions.push(this._fileSaveListener);
     }
-    this._messageDispatcher = new MessageDispatcher({
-      graphState: this._graphState,
-      getUnusedFilterActive: this.getUnusedFilterActive.bind(this),
-      toggleUnusedFilter: this.toggleUnusedFilter.bind(this),
-      handleOpenFile: this.handleOpenFile.bind(this),
-      handleExpandNode: this.handleExpandNode.bind(this),
-      handleCancelExpandNode: this.handleCancelExpandNode.bind(this),
-      handleFindReferencingFiles: this.handleFindReferencingFiles.bind(this),
-      handleDrillDown: this.handleDrillDown.bind(this),
-      updateGraph: this.updateGraph.bind(this),
-      refreshGraph: this.refreshGraph.bind(this),
-      handleSelectSymbol: this.handleSelectSymbol.bind(this),
-      sendGraphUpdate: this._sendGraphUpdate.bind(this),
-      setViewMode: this._stateManager.setViewMode.bind(this._stateManager),
-      getViewMode: () => this._stateManager.viewMode,
-      getSelectedSymbolId: () => this._stateManager.selectedSymbolId,
-      setSelectedSymbolId: (symbolId) => {
-        this._stateManager.selectedSymbolId = symbolId;
-      },
-      getLastActiveFilePath: () => this._stateManager.getLastActiveFilePath(),
-      parseFilePathAndSymbol: (symbolId) =>
-        this._navigationService?.parseFilePathAndSymbol(symbolId),
-      getActiveEditorFilePath: () => {
-        const editor = vscode.window.activeTextEditor;
-        if (editor?.document.uri.scheme !== "file") return undefined;
-        return editor.document.fileName;
-      },
-      logger: log,
-    });
   }
 
   private async _refreshAfterIndexing(): Promise<void> {
@@ -229,39 +238,22 @@ export class GraphProvider implements vscode.WebviewViewProvider {
     }
   }
 
-  private _initializeSpider(config: ProviderConfigSnapshot) {
-    const workspaceRoot = vscode.workspace.workspaceFolders?.[0].uri.fsPath;
-    if (workspaceRoot) {
-      this._spider = new Spider({
-        rootDir: workspaceRoot,
-        tsConfigPath: path.join(workspaceRoot, "tsconfig.json"),
-        excludeNodeModules: config.excludeNodeModules,
-        maxDepth: config.maxDepth,
-        enableReverseIndex: config.enableBackgroundIndexing,
-        indexingConcurrency: config.indexingConcurrency,
-        maxCacheSize: config.maxCacheSize,
-        maxSymbolCacheSize: config.maxSymbolCacheSize,
-      });
-
-      // Don't start indexing here - it will be deferred until view is resolved
-    }
-  }
-
   public updateConfig() {
-    if (this._spider) {
+    const spider = this.spider;
+    if (spider) {
       this._configSnapshot = this._stateManager.loadConfiguration();
 
-      this._spider.updateConfig({
+      spider.updateConfig({
         excludeNodeModules: this._configSnapshot.excludeNodeModules,
         maxDepth: this._configSnapshot.maxDepth,
         enableReverseIndex: this._configSnapshot.enableBackgroundIndexing,
         indexingConcurrency: this._configSnapshot.indexingConcurrency,
       });
 
-      if (this._indexingManager) {
-        this._indexingManager.updateConfiguration(this._configSnapshot);
-        void this._indexingManager.handleConfigUpdate(
-          this._spider.hasReverseIndex(),
+      if (this.indexingManager) {
+        this.indexingManager.updateConfiguration(this._configSnapshot);
+        void this.indexingManager.handleConfigUpdate(
+          spider.hasReverseIndex(),
         );
       }
 
@@ -291,7 +283,7 @@ export class GraphProvider implements vscode.WebviewViewProvider {
    * @param filePath Path to the saved file
    */
   public async onFileSaved(filePath: string): Promise<void> {
-    await this._eventHub?.handleFileSaved(filePath);
+    await this.eventHub?.handleFileSaved(filePath);
   }
 
   /**
@@ -300,7 +292,7 @@ export class GraphProvider implements vscode.WebviewViewProvider {
    * @param document The saved text document
    */
   private _handleFileSave(document: vscode.TextDocument): void {
-    this._eventHub?.handleFileSaveDocument(
+    this.eventHub?.handleFileSaveDocument(
       document,
       this.onFileSaved.bind(this),
     );
@@ -312,7 +304,7 @@ export class GraphProvider implements vscode.WebviewViewProvider {
    * If in file view, show dependencies for new file
    */
   public async onActiveFileChanged(): Promise<void> {
-    await this._eventHub?.handleActiveFileChanged();
+    await this.eventHub?.handleActiveFileChanged();
   }
 
   /**
@@ -325,7 +317,7 @@ export class GraphProvider implements vscode.WebviewViewProvider {
     filePath: string,
     eventType: EventType,
   ): Promise<void> {
-    await this._eventHub?.handleFileChange(filePath, eventType);
+    await this.eventHub?.handleFileChange(filePath, eventType);
   }
 
   /**
@@ -335,11 +327,11 @@ export class GraphProvider implements vscode.WebviewViewProvider {
    * @param line Optional line number to navigate to (1-indexed)
    */
   private async handleOpenFile(filePath: string, line?: number): Promise<void> {
-    if (!this._navigationService) {
+    if (!this.navigationService) {
       return;
     }
     try {
-      await this._navigationService.openFile(filePath, line);
+      await this.navigationService.openFile(filePath, line);
     } catch (e) {
       log.error("Error opening file:", e);
       vscode.window.showErrorMessage(`Could not open file: ${filePath}`);
@@ -353,7 +345,7 @@ export class GraphProvider implements vscode.WebviewViewProvider {
     nodeId: string,
     knownNodes: string[] | undefined,
   ): Promise<void> {
-    if (!this._nodeInteractionService || !this._view) {
+    if (!this.nodeInteractionService || !this._view) {
       return;
     }
 
@@ -382,7 +374,7 @@ export class GraphProvider implements vscode.WebviewViewProvider {
     sendProgress("started");
 
     try {
-      const result = await this._nodeInteractionService.expandNode(
+      const result = await this.nodeInteractionService.expandNode(
         nodeId,
         knownNodes,
         {
@@ -442,12 +434,12 @@ export class GraphProvider implements vscode.WebviewViewProvider {
    * Handle findReferencingFiles message
    */
   private async handleFindReferencingFiles(nodeId: string): Promise<void> {
-    if (!this._nodeInteractionService || !this._view) {
+    if (!this.nodeInteractionService || !this._view) {
       return;
     }
     try {
       const result =
-        await this._nodeInteractionService.getReferencingFiles(nodeId);
+        await this.nodeInteractionService.getReferencingFiles(nodeId);
       this._view.webview.postMessage(result);
     } catch (e) {
       log.error("Error finding referencing files:", e);
@@ -465,9 +457,9 @@ export class GraphProvider implements vscode.WebviewViewProvider {
     // Update the selected symbol in state manager
     this._stateManager.selectedSymbolId = symbolId;
 
-    if (symbolId && this._spider) {
+    if (symbolId && this.spider) {
       // Get referencing files from SymbolReverseIndex
-      const referencingFiles = this._spider.getSymbolReferencingFiles(symbolId);
+      const referencingFiles = this.spider.getSymbolReferencingFiles(symbolId);
       this._stateManager.setSymbolReferencingFiles(symbolId, referencingFiles);
 
       log.debug(`Symbol ${symbolId} selected - ${referencingFiles.size} referencing files found`);
@@ -494,9 +486,9 @@ export class GraphProvider implements vscode.WebviewViewProvider {
     log.info(
       `[GraphProvider] handleDrillDown ENTRY: filePath=${filePath}, isRefresh=${isRefresh}`,
     );
-    if (!this._symbolViewService || !this._view || !this._navigationService) {
+    if (!this.symbolViewService || !this._view || !this.navigationService) {
       log.warn(
-        `[GraphProvider] handleDrillDown ABORT: Missing services (symbolView=${!!this._symbolViewService}, view=${!!this._view}, navigation=${!!this._navigationService})`,
+        `[GraphProvider] handleDrillDown ABORT: Missing services (symbolView=${!!this.symbolViewService}, view=${!!this._view}, navigation=${!!this.navigationService})`,
       );
       return;
     }
@@ -513,11 +505,11 @@ export class GraphProvider implements vscode.WebviewViewProvider {
 
       // Parse symbol ID (e.g. './utils:format') to separate file path from symbol name
       const { actualFilePath: requestedPath, symbolName } =
-        this._navigationService.parseFilePathAndSymbol(filePath);
+        this.navigationService.parseFilePathAndSymbol(filePath);
 
       // Resolve the file path to an absolute path if needed
       const resolvedFilePath =
-        await this._navigationService.resolveDrillDownPath(
+        await this.navigationService.resolveDrillDownPath(
           requestedPath,
           this._stateManager.currentSymbol,
         );
@@ -562,7 +554,7 @@ export class GraphProvider implements vscode.WebviewViewProvider {
         `[GraphProvider] Building symbol graph for ${resolvedFilePath}, enableCallHierarchy=${enableCallHierarchy}`,
       );
 
-      const symbolGraph = await this._symbolViewService.buildSymbolGraph(
+      const symbolGraph = await this.symbolViewService.buildSymbolGraph(
         resolvedFilePath,
         rootNodeId,
         {
@@ -690,8 +682,8 @@ export class GraphProvider implements vscode.WebviewViewProvider {
   ) {
     this._view = webviewView;
 
-    webviewView.webview.options = this._webviewManager.getWebviewOptions();
-    webviewView.webview.html = this._webviewManager.getHtmlForWebview(webviewView.webview);
+    webviewView.webview.options = this.webviewManager.getWebviewOptions();
+    webviewView.webview.html = this.webviewManager.getHtmlForWebview(webviewView.webview);
 
     webviewView.webview.onDidReceiveMessage(
       async (message: WebviewToExtensionMessage) => {
@@ -701,14 +693,14 @@ export class GraphProvider implements vscode.WebviewViewProvider {
 
     // Clean up timer and worker when view is disposed
     webviewView.onDidDispose(() => {
-      this._indexingManager?.cancelScheduledIndexing();
-      this._sourceFileWatcher?.dispose();
+      this.indexingManager?.cancelScheduledIndexing();
+      this.sourceFileWatcher?.dispose();
       this._fileChangeScheduler?.dispose();
       this._fileSaveListener?.dispose();
       // Also clean up the worker if running
-      this._spider?.disposeWorker();
+      this.spider?.disposeWorker();
       // Dispose Spider and its AstWorkerHost
-      this._spider
+      this.spider
         ?.dispose()
         .then()
         .catch((error: unknown) => {
@@ -720,7 +712,7 @@ export class GraphProvider implements vscode.WebviewViewProvider {
     });
 
     // Schedule deferred indexing now that view is ready
-    this._indexingManager?.scheduleDeferredIndexing();
+    this.indexingManager?.scheduleDeferredIndexing();
 
     // Initial update if we have an active editor
     this.updateGraph();
@@ -732,7 +724,7 @@ export class GraphProvider implements vscode.WebviewViewProvider {
    * Public wrapper so other components (or commands) can trigger indexing.
    */
   public async forceReindex(): Promise<void> {
-    await this._indexingManager?.forceReindex();
+    await this.indexingManager?.forceReindex();
   }
 
   /**
@@ -943,7 +935,7 @@ export class GraphProvider implements vscode.WebviewViewProvider {
     log.info(`Showing reverse dependencies for: ${filePath}`);
 
     // Use the existing getReferencingFiles functionality
-    const result = await this._nodeInteractionService?.getReferencingFiles(filePath);
+    const result = await this.nodeInteractionService?.getReferencingFiles(filePath);
 
     if (result && this._view) {
       await this._view.webview.postMessage(result);
@@ -1094,9 +1086,9 @@ export class GraphProvider implements vscode.WebviewViewProvider {
    * Return current indexer status snapshot (or null if spider not initialized)
    */
   public getIndexStatus(): IndexerStatusSnapshot | null {
-    if (!this._spider) return null;
+    if (!this.spider) return null;
     try {
-      return this._spider.getIndexStatus();
+      return this.spider.getIndexStatus();
     } catch {
       return null;
     }
@@ -1117,7 +1109,7 @@ export class GraphProvider implements vscode.WebviewViewProvider {
       | "usage-analysis"
       | "unknown" = "unknown",
   ) {
-    if (!this._view || !this._spider || !this._graphViewService) {
+    if (!this._view || !this.spider || !this.graphViewService) {
       log.debug("View or Spider not initialized");
       return;
     }
@@ -1173,7 +1165,7 @@ export class GraphProvider implements vscode.WebviewViewProvider {
       | "usage-analysis"
       | "unknown" = "unknown",
   ): Promise<void> {
-    if (!this._graphViewService || !this._view) {
+    if (!this.graphViewService || !this._view) {
       return;
     }
 
@@ -1195,7 +1187,7 @@ export class GraphProvider implements vscode.WebviewViewProvider {
         : undefined;
 
       // Always build without check first to show something quickly
-      const initialGraphData = await this._graphViewService.buildGraphData(
+      const initialGraphData = await this.graphViewService.buildGraphData(
         filePath,
         false,
         undefined,
@@ -1224,7 +1216,7 @@ export class GraphProvider implements vscode.WebviewViewProvider {
       if (checkUsage) {
         log.debug("Performing background usage analysis for", filePath);
         // Reuse the nodes/edges from initial data to avoid re-crawling (optimized)
-        const enrichedGraphData = await this._graphViewService.buildGraphData(
+        const enrichedGraphData = await this.graphViewService.buildGraphData(
           filePath,
           true,
           initialGraphData,
