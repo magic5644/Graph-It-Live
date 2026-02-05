@@ -176,6 +176,7 @@ vite.config.ts.timestamp-*
 .roo
 .goose
 .scannerwork
+.kiro
 
 
 codemaps/
