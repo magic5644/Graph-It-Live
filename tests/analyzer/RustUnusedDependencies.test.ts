@@ -1,5 +1,6 @@
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { Spider } from '../../src/analyzer/Spider';
+import { SpiderBuilder } from '../../src/analyzer/SpiderBuilder';
 import { normalizePath } from '../../src/shared/path';
 import path from 'node:path';
 
@@ -8,12 +9,12 @@ describe('Rust Unused Dependencies', () => {
   const fixtureRoot = path.resolve(__dirname, '../fixtures/rust-unused-deps');
 
   beforeAll(async () => {
-    spider = new Spider({
-      rootDir: fixtureRoot,
-      maxDepth: 10,
-      excludeNodeModules: true,
-      indexingConcurrency: 4,
-    });
+    spider = new SpiderBuilder()
+     .withRootDir(fixtureRoot)
+     .withMaxDepth(10)
+     .withExcludeNodeModules(true)
+     .withIndexingConcurrency(4)
+     .build();
   });
 
   afterAll(() => {

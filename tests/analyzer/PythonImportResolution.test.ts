@@ -1,6 +1,7 @@
 import { describe, it, expect, beforeAll, afterAll, beforeEach } from 'vitest';
 import path from 'node:path';
 import { Spider } from '../../src/analyzer/Spider';
+import { SpiderBuilder } from '../../src/analyzer/SpiderBuilder';
 import { normalizePath } from '../../src/shared/path';
 
 const repoRoot = path.resolve(__dirname, '..', '..');
@@ -10,10 +11,10 @@ describe('Python import resolution', () => {
   let spider: Spider;
 
   beforeAll(() => {
-    spider = new Spider({
-      rootDir: repoRoot,
-      enableReverseIndex: true,
-    });
+    spider = new SpiderBuilder()
+     .withRootDir(repoRoot)
+     .withReverseIndex(true)
+     .build();
   });
 
   afterAll(async () => {

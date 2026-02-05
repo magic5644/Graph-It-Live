@@ -5,6 +5,7 @@
 
 import { LspCallHierarchyAnalyzer } from '@/analyzer/LspCallHierarchyAnalyzer';
 import { Spider } from '@/analyzer/Spider';
+import { SpiderBuilder } from '@/analyzer/SpiderBuilder';
 import { SUPPORTED_SYMBOL_ANALYSIS_EXTENSIONS } from '@/shared/constants';
 import type { IntraFileGraph } from '@/shared/types';
 import * as fs from 'node:fs/promises';
@@ -18,12 +19,12 @@ describe('MCP Integration - analyze_file_logic (T070-T074)', () => {
 
   beforeAll(async () => {
     tempDir = await fs.mkdtemp(path.join(tmpdir(), 'mcp-integration-'));
-    spider = new Spider({
-      rootDir: tempDir,
-      excludeNodeModules: true,
-      maxDepth: 10,
-      enableReverseIndex: false,
-    });
+    spider = new SpiderBuilder()
+     .withRootDir(tempDir)
+     .withMaxDepth(10)
+     .withReverseIndex(false)
+     .withExcludeNodeModules(true)
+     .build();
   });
 
   afterAll(async () => {

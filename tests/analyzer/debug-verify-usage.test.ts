@@ -1,16 +1,17 @@
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import * as path from 'node:path';
 import { Spider } from '../../src/analyzer/Spider';
+import { SpiderBuilder } from '../../src/analyzer/SpiderBuilder';
 
 describe('Debug VerifyUsage', () => {
     const fixturesDir = path.resolve(process.cwd(), 'tests/fixtures/verify_usage');
     let spider: Spider;
 
     beforeAll(async () => {
-        spider = new Spider({
-            rootDir: fixturesDir,
-            enableReverseIndex: true
-        });
+        spider = new SpiderBuilder()
+     .withRootDir(fixturesDir)
+     .withReverseIndex(true)
+     .build();
         await spider.buildFullIndex();
     });
 

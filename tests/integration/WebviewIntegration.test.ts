@@ -1,6 +1,7 @@
 import * as path from "node:path";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { Spider } from "../../src/analyzer/Spider";
+import { SpiderBuilder } from "../../src/analyzer/SpiderBuilder";
 import type { BuildGraphCallbacks } from "../../src/webview/components/reactflow/buildGraph";
 import { buildReactFlowGraph } from "../../src/webview/components/reactflow/buildGraph";
 
@@ -28,10 +29,10 @@ describe("Webview Integration - Graph Rendering", () => {
     let spider: Spider;
 
     beforeAll(async () => {
-      spider = new Spider({
-        rootDir: cyclicDir,
-        enableReverseIndex: true,
-      });
+      spider = new SpiderBuilder()
+     .withRootDir(cyclicDir)
+     .withReverseIndex(true)
+     .build();
       await spider.buildFullIndex();
     });
 
@@ -91,10 +92,10 @@ describe("Webview Integration - Graph Rendering", () => {
     let spider: Spider;
 
     beforeAll(async () => {
-      spider = new Spider({
-        rootDir: sampleDir,
-        enableReverseIndex: true,
-      });
+      spider = new SpiderBuilder()
+     .withRootDir(sampleDir)
+     .withReverseIndex(true)
+     .build();
       await spider.buildFullIndex();
     });
 
@@ -144,10 +145,10 @@ describe("Webview Integration - Graph Rendering", () => {
     let spider: Spider;
 
     beforeAll(async () => {
-      spider = new Spider({
-        rootDir: sampleDir,
-        enableReverseIndex: true,
-      });
+      spider = new SpiderBuilder()
+     .withRootDir(sampleDir)
+     .withReverseIndex(true)
+     .build();
       await spider.buildFullIndex();
     });
 
@@ -216,10 +217,10 @@ describe("Webview Integration - Graph Rendering", () => {
     let spider: Spider;
 
     beforeAll(async () => {
-      spider = new Spider({
-        rootDir: pythonDir,
-        enableReverseIndex: true,
-      });
+      spider = new SpiderBuilder()
+     .withRootDir(pythonDir)
+     .withReverseIndex(true)
+     .build();
       await spider.buildFullIndex();
     });
 

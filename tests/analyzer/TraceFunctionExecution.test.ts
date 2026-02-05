@@ -1,6 +1,7 @@
 import { describe, it, expect, beforeAll } from 'vitest';
 import * as path from 'node:path';
 import { Spider } from '../../src/analyzer/Spider';
+import { SpiderBuilder } from '../../src/analyzer/SpiderBuilder';
 
 describe('Spider - Trace Function Execution', () => {
   const fixturesDir = path.join(__dirname, '../fixtures/trace');
@@ -10,10 +11,10 @@ describe('Spider - Trace Function Execution', () => {
   let spider: Spider;
 
   beforeAll(async () => {
-    spider = new Spider({
-      rootDir: fixturesDir,
-      enableReverseIndex: true
-    });
+    spider = new SpiderBuilder()
+     .withRootDir(fixturesDir)
+     .withReverseIndex(true)
+     .build();
     
     // Build the index first
     await spider.buildFullIndex();

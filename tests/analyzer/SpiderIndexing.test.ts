@@ -1,5 +1,6 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { Spider } from '../../src/analyzer/Spider';
+import { SpiderBuilder } from '../../src/analyzer/SpiderBuilder';
 import { normalizePath } from '../../src/analyzer/types';
 import path from 'node:path';
 import * as fs from 'node:fs/promises';
@@ -12,12 +13,12 @@ describe('Spider - Reverse Index Integration', () => {
     let spider: Spider;
 
     beforeEach(() => {
-        spider = new Spider({
-            rootDir: fixturesPath,
-            tsConfigPath: path.join(fixturesPath, 'tsconfig.json'),
-            enableReverseIndex: true,
-            indexingConcurrency: 4,
-        });
+        spider = new SpiderBuilder()
+            .withRootDir(fixturesPath)
+            .withTsConfigPath(path.join(fixturesPath, 'tsconfig.json'))
+            .withReverseIndex(true)
+            .withIndexingConcurrency(4)
+            .build();
     });
 
     describe('buildFullIndex', () => {
@@ -90,11 +91,11 @@ describe('Spider - Reverse Index Integration', () => {
     describe('findReferencingFiles fallback', () => {
         it('should fall back to directory scan when index is not available', async () => {
             // Create spider without reverse index
-            const spiderNoIndex = new Spider({
-                rootDir: fixturesPath,
-                tsConfigPath: path.join(fixturesPath, 'tsconfig.json'),
-                enableReverseIndex: false,
-            });
+            const spiderNoIndex = new SpiderBuilder()
+                .withRootDir(fixturesPath)
+                .withTsConfigPath(path.join(fixturesPath, 'tsconfig.json'))
+                .withReverseIndex(false)
+                .build();
 
             const utilsFile = path.join(fixturesPath, 'src/utils.ts');
             const refs = await spiderNoIndex.findReferencingFiles(utilsFile);
@@ -110,11 +111,11 @@ describe('Spider - Reverse Index Integration', () => {
             const refsWithIndex = await spider.findReferencingFiles(utilsFile);
 
             // Spider without index (fallback)
-            const spiderNoIndex = new Spider({
-                rootDir: fixturesPath,
-                tsConfigPath: path.join(fixturesPath, 'tsconfig.json'),
-                enableReverseIndex: false,
-            });
+            const spiderNoIndex = new SpiderBuilder()
+                .withRootDir(fixturesPath)
+                .withTsConfigPath(path.join(fixturesPath, 'tsconfig.json'))
+                .withReverseIndex(false)
+                .build();
             const refsWithoutIndex = await spiderNoIndex.findReferencingFiles(utilsFile);
 
             // Should find the same files
@@ -148,11 +149,11 @@ describe('Spider - Reverse Index Integration', () => {
             expect(serialized).not.toBeNull();
 
             // Create new spider and restore
-            const newSpider = new Spider({
-                rootDir: fixturesPath,
-                tsConfigPath: path.join(fixturesPath, 'tsconfig.json'),
-                enableReverseIndex: true,
-            });
+            const newSpider = new SpiderBuilder()
+                .withRootDir(fixturesPath)
+                .withTsConfigPath(path.join(fixturesPath, 'tsconfig.json'))
+                .withReverseIndex(true)
+                .build();
 
             const restored = newSpider.enableReverseIndex(serialized!);
             expect(restored).toBe(true);
@@ -168,10 +169,10 @@ describe('Spider - Reverse Index Integration', () => {
             const serialized = spider.getSerializedReverseIndex();
 
             // Create spider with different rootDir
-            const newSpider = new Spider({
-                rootDir: '/different/root',
-                enableReverseIndex: true,
-            });
+            const newSpider = new SpiderBuilder()
+                .withRootDir('/different/root')
+                .withReverseIndex(true)
+                .build();
 
             const restored = newSpider.enableReverseIndex(serialized!);
             expect(restored).toBe(false);
@@ -234,11 +235,11 @@ describe('Spider - Index Performance', () => {
     });
 
     it('should be significantly faster with index for reverse lookup', async () => {
-        const spider = new Spider({
-            rootDir: perfFixturesPath,
-            enableReverseIndex: true,
-            indexingConcurrency: 8,
-        });
+        const spider = new SpiderBuilder()
+            .withRootDir(perfFixturesPath)
+            .withReverseIndex(true)
+            .withIndexingConcurrency(8)
+            .build();
 
         // Build index
         await spider.buildFullIndex();
@@ -251,10 +252,10 @@ describe('Spider - Index Performance', () => {
         const durationIndexed = performance.now() - startIndexed;
 
         // Measure fallback lookup (should be slower)
-        const spiderNoIndex = new Spider({
-            rootDir: perfFixturesPath,
-            enableReverseIndex: false,
-        });
+        const spiderNoIndex = new SpiderBuilder()
+            .withRootDir(perfFixturesPath)
+            .withReverseIndex(false)
+            .build();
 
         const startFallback = performance.now();
         const refsFallback = await spiderNoIndex.findReferencingFiles(sharedFile);
@@ -273,11 +274,11 @@ describe('Spider - Index Performance', () => {
     });
 
     it('should handle many files during indexing', async () => {
-        const spider = new Spider({
-            rootDir: perfFixturesPath,
-            enableReverseIndex: true,
-            indexingConcurrency: 8,
-        });
+        const spider = new SpiderBuilder()
+            .withRootDir(perfFixturesPath)
+            .withReverseIndex(true)
+            .withIndexingConcurrency(8)
+            .build();
 
         const result = await spider.buildFullIndex();
 

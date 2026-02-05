@@ -1,6 +1,7 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import path from 'node:path';
 import { Spider } from '../../src/analyzer/Spider';
+import { SpiderBuilder } from '../../src/analyzer/SpiderBuilder';
 import { normalizePath } from "../../src/shared/path";
 
 describe('Spider Rust Integration', () => {
@@ -8,10 +9,10 @@ describe('Spider Rust Integration', () => {
   let spider: Spider;
 
   beforeEach(() => {
-    spider = new Spider({
-      rootDir: fixturesDir,
-      enableReverseIndex: true,
-    });
+    spider = new SpiderBuilder()
+     .withRootDir(fixturesDir)
+     .withReverseIndex(true)
+     .build();
   });
 
   afterEach(async () => {

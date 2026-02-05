@@ -1,6 +1,7 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import path from 'node:path';
 import { Spider } from '../../src/analyzer/Spider';
+import { SpiderBuilder } from '../../src/analyzer/SpiderBuilder';
 import { normalizePath } from "../../src/shared/path";
 
 describe('Spider Python Integration', () => {
@@ -8,10 +9,10 @@ describe('Spider Python Integration', () => {
   let spider: Spider;
 
   beforeEach(() => {
-    spider = new Spider({
-      rootDir: fixturesDir,
-      enableReverseIndex: true,
-    });
+    spider = new SpiderBuilder()
+     .withRootDir(fixturesDir)
+     .withReverseIndex(true)
+     .build();
   });
 
   afterEach(async () => {
@@ -202,10 +203,10 @@ describe('Spider Python Integration', () => {
       // This test would require a mixed fixture
       // For now, just verify Python analysis doesn't break TS
       const tsFixturesDir = path.resolve(__dirname, '../fixtures/sample-project');
-      const tsSpider = new Spider({
-        rootDir: tsFixturesDir,
-        tsConfigPath: path.join(tsFixturesDir, 'tsconfig.json'),
-      });
+      const tsSpider = new SpiderBuilder()
+     .withRootDir(tsFixturesDir)
+     .withTsConfigPath(path.join(tsFixturesDir, 'tsconfig.json'))
+     .build();
 
       const tsEntryFile = path.join(tsFixturesDir, 'src/main.ts');
       const tsResult = await tsSpider.crawl(tsEntryFile);

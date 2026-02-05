@@ -1,6 +1,7 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import path from 'node:path';
 import { Spider } from '../../src/analyzer/Spider';
+import { SpiderBuilder } from '../../src/analyzer/SpiderBuilder';
 
 // Use absolute path for test fixtures
 const fixturesPath = path.resolve(process.cwd(), 'tests/fixtures/graphql-project');
@@ -9,11 +10,11 @@ describe('Spider - GraphQL Support', () => {
     let spider: Spider;
 
     beforeEach(() => {
-        spider = new Spider({
-            rootDir: fixturesPath,
-            maxDepth: 10,
-            excludeNodeModules: true,
-        });
+        spider = new SpiderBuilder()
+     .withRootDir(fixturesPath)
+     .withMaxDepth(10)
+     .withExcludeNodeModules(true)
+     .build();
     });
 
     it('should analyze .gql file and find #import dependencies', async () => {

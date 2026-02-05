@@ -1,5 +1,6 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import { Spider } from '../../src/analyzer/Spider';
+import { SpiderBuilder } from '../../src/analyzer/SpiderBuilder';
 import { PathResolver } from '../../src/analyzer/utils/PathResolver';
 import { normalizePath } from '../../src/analyzer/types';
 import path from 'node:path';
@@ -120,10 +121,10 @@ describe('Package.json imports field support', () => {
     let spider: Spider;
 
     beforeEach(() => {
-      spider = new Spider({
-        rootDir: fixturesPath,
-        tsConfigPath: path.join(fixturesPath, 'tsconfig.json'),
-      });
+      spider = new SpiderBuilder()
+     .withRootDir(fixturesPath)
+     .withTsConfigPath(path.join(fixturesPath, 'tsconfig.json'))
+     .build();
     });
 
     it('should crawl dependencies through #imports in app package', async () => {

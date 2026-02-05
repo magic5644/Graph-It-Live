@@ -1,5 +1,6 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import { Spider } from '@/analyzer/Spider';
+import { SpiderBuilder } from '@/analyzer/SpiderBuilder';
 import { normalizePath } from '@/shared/path';
 import path from 'node:path';
 
@@ -9,11 +10,11 @@ describe('Spider - Python Integration', () => {
   let spider: Spider;
 
   beforeEach(() => {
-    spider = new Spider({
-      rootDir: pythonFixturesPath,
-      maxDepth: 10,
-      excludeNodeModules: true,
-    });
+    spider = new SpiderBuilder()
+     .withRootDir(pythonFixturesPath)
+     .withMaxDepth(10)
+     .withExcludeNodeModules(true)
+     .build();
   });
 
   describe('Python import crawling', () => {
@@ -62,11 +63,11 @@ describe('Spider - Python Integration', () => {
     });
 
     it('should respect maxDepth when crawling Python files', async () => {
-      const shallowSpider = new Spider({
-        rootDir: pythonFixturesPath,
-        maxDepth: 1,
-        excludeNodeModules: true,
-      });
+      const shallowSpider = new SpiderBuilder()
+     .withRootDir(pythonFixturesPath)
+     .withMaxDepth(1)
+     .withExcludeNodeModules(true)
+     .build();
 
       const mainFile = path.join(pythonFixturesPath, 'main.py');
       const result = await shallowSpider.crawl(mainFile);

@@ -2,6 +2,7 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import * as path from 'node:path';
 import * as fs from 'node:fs/promises';
 import { Spider } from '../../src/analyzer/Spider';
+import { SpiderBuilder } from '../../src/analyzer/SpiderBuilder';
 import { normalizePath } from '../../src/analyzer/types';
 
 const FIXTURES_BASE = path.join(__dirname, 'fixtures', 'reverse-deps');
@@ -28,10 +29,10 @@ describe('Spider - Reverse Dependencies', () => {
         // d.ts imports a.ts
         await fs.writeFile(path.join(FIXTURES_DIR, 'd.ts'), `import { a } from './a';`);
 
-        spider = new Spider({
-            rootDir: FIXTURES_DIR,
-            excludeNodeModules: true
-        });
+        spider = new SpiderBuilder()
+     .withRootDir(FIXTURES_DIR)
+     .withExcludeNodeModules(true)
+     .build();
     });
 
     afterEach(async () => {

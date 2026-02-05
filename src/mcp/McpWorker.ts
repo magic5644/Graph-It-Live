@@ -11,7 +11,7 @@
 import { parentPort } from "node:worker_threads";
 import { AstWorkerHost } from "../analyzer/ast/AstWorkerHost";
 import { Parser } from "../analyzer/Parser";
-import { Spider } from "../analyzer/Spider";
+import { SpiderBuilder } from "../analyzer/SpiderBuilder";
 import { PathResolver } from "../analyzer/utils/PathResolver";
 import {
   getLogger,
@@ -106,13 +106,17 @@ async function handleInit(cfg: McpWorkerConfig): Promise<void> {
   await workerState.astWorkerHost.start();
   log.info("AstWorkerHost started");
 
-  workerState.spider = new Spider({
-    rootDir: cfg.rootDir,
-    tsConfigPath: cfg.tsConfigPath,
-    maxDepth: cfg.maxDepth,
-    excludeNodeModules: cfg.excludeNodeModules,
-    enableReverseIndex: true, // Always enable for MCP server
-  });
+  const builder = new SpiderBuilder()
+    .withRootDir(cfg.rootDir)
+    .withMaxDepth(cfg.maxDepth)
+    .withExcludeNodeModules(cfg.excludeNodeModules)
+    .withReverseIndex(true); // Always enable for MCP server
+
+  if (cfg.tsConfigPath) {
+    builder.withTsConfigPath(cfg.tsConfigPath);
+  }
+
+  workerState.spider = builder.build();
 
   const spider = workerState.spider;
   if (!spider) {

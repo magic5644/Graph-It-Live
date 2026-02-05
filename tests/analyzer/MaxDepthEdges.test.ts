@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import path from 'node:path';
 import { Spider } from '../../src/analyzer/Spider';
+import { SpiderBuilder } from '../../src/analyzer/SpiderBuilder';
 import { normalizePath } from '../../src/analyzer/types';
 import * as fs from 'node:fs/promises';
 
@@ -14,7 +15,9 @@ describe('Spider - Max Depth Edges', () => {
 
     beforeEach(() => {
         vi.clearAllMocks();
-        spider = new Spider({ rootDir });
+        spider = new SpiderBuilder()
+            .withRootDir(rootDir)
+            .build();
     });
 
     it('should create edges for node at maxDepth, but not for its children', async () => {

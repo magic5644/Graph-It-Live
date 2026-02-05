@@ -1,6 +1,7 @@
 import * as path from "node:path";
 import * as vscode from "vscode";
 import { Spider } from "../../analyzer/Spider";
+import { SpiderBuilder } from "../../analyzer/SpiderBuilder";
 import type { VsCodeLogger } from "../extensionLogger";
 import { WebviewManager } from "../WebviewManager";
 import { BackgroundIndexingManager } from "./BackgroundIndexingManager";
@@ -114,16 +115,18 @@ export function createGraphProviderServiceContainer(
 
   if (hasWorkspace && workspaceRoot) {
     container.register(graphProviderServiceTokens.spider, () => {
-      return new Spider({
-        rootDir: workspaceRoot,
-        tsConfigPath: path.join(workspaceRoot, "tsconfig.json"),
-        excludeNodeModules: configSnapshot.excludeNodeModules,
-        maxDepth: configSnapshot.maxDepth,
-        enableReverseIndex: configSnapshot.enableBackgroundIndexing,
-        indexingConcurrency: configSnapshot.indexingConcurrency,
-        maxCacheSize: configSnapshot.maxCacheSize,
-        maxSymbolCacheSize: configSnapshot.maxSymbolCacheSize,
-      });
+      return new SpiderBuilder()
+        .withRootDir(workspaceRoot)
+        .withTsConfigPath(path.join(workspaceRoot, "tsconfig.json"))
+        .withExcludeNodeModules(configSnapshot.excludeNodeModules)
+        .withMaxDepth(configSnapshot.maxDepth)
+        .withReverseIndex(configSnapshot.enableBackgroundIndexing)
+        .withIndexingConcurrency(configSnapshot.indexingConcurrency)
+        .withCacheConfig({
+          maxCacheSize: configSnapshot.maxCacheSize,
+          maxSymbolCacheSize: configSnapshot.maxSymbolCacheSize,
+        })
+        .build();
     });
 
     container.register(
