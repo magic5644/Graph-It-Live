@@ -1,5 +1,6 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import { Spider } from '../../src/analyzer/Spider';
+import { SpiderBuilder } from '../../src/analyzer/SpiderBuilder';
 import { normalizePath } from '../../src/analyzer/types';
 import path from 'node:path';
 
@@ -11,10 +12,10 @@ describe('Spider', () => {
   let spider: Spider;
 
   beforeEach(() => {
-    spider = new Spider({
-      rootDir: fixturesPath,
-      tsConfigPath: path.join(fixturesPath, 'tsconfig.json'),
-    });
+    spider = new SpiderBuilder()
+      .withRootDir(fixturesPath)
+      .withTsConfigPath(path.join(fixturesPath, 'tsconfig.json'))
+      .build();
   });
 
   it('should resolve relative imports', async () => {
@@ -93,11 +94,11 @@ describe('Spider', () => {
   });
 
   it('should enable reverse index via updateConfig', () => {
-    const spiderNoIndex = new Spider({
-      rootDir: fixturesPath,
-      tsConfigPath: path.join(fixturesPath, 'tsconfig.json'),
-      enableReverseIndex: false,
-    });
+    const spiderNoIndex = new SpiderBuilder()
+      .withRootDir(fixturesPath)
+      .withTsConfigPath(path.join(fixturesPath, 'tsconfig.json'))
+      .withReverseIndex(false)
+      .build();
     
     expect(spiderNoIndex.hasReverseIndex()).toBe(false);
     
@@ -106,11 +107,11 @@ describe('Spider', () => {
   });
 
   it('should disable reverse index via updateConfig', async () => {
-    const spiderWithIndex = new Spider({
-      rootDir: fixturesPath,
-      tsConfigPath: path.join(fixturesPath, 'tsconfig.json'),
-      enableReverseIndex: true,
-    });
+    const spiderWithIndex = new SpiderBuilder()
+      .withRootDir(fixturesPath)
+      .withTsConfigPath(path.join(fixturesPath, 'tsconfig.json'))
+      .withReverseIndex(true)
+      .build();
     
     // Analyze a file to populate the reverse index
     const mainFile = path.join(fixturesPath, 'src/main.ts');
@@ -150,10 +151,10 @@ describe('Spider - crawlFrom', () => {
   let spider: Spider;
 
   beforeEach(() => {
-    spider = new Spider({
-      rootDir: fixturesPath,
-      tsConfigPath: path.join(fixturesPath, 'tsconfig.json'),
-    });
+    spider = new SpiderBuilder()
+      .withRootDir(fixturesPath)
+      .withTsConfigPath(path.join(fixturesPath, 'tsconfig.json'))
+      .build();
   });
 
   it('should discover new dependencies from a node', async () => {
@@ -200,11 +201,11 @@ describe('Spider - File Invalidation', () => {
   let spider: Spider;
 
   beforeEach(() => {
-    spider = new Spider({
-      rootDir: fixturesPath,
-      tsConfigPath: path.join(fixturesPath, 'tsconfig.json'),
-      enableReverseIndex: true,
-    });
+    spider = new SpiderBuilder()
+      .withRootDir(fixturesPath)
+      .withTsConfigPath(path.join(fixturesPath, 'tsconfig.json'))
+      .withReverseIndex(true)
+      .build();
   });
 
   it('should invalidate a single file from cache', async () => {
@@ -305,11 +306,11 @@ describe('Spider - Reverse Index Management', () => {
   let spider: Spider;
 
   beforeEach(() => {
-    spider = new Spider({
-      rootDir: fixturesPath,
-      tsConfigPath: path.join(fixturesPath, 'tsconfig.json'),
-      enableReverseIndex: false, // Start without reverse index
-    });
+    spider = new SpiderBuilder()
+      .withRootDir(fixturesPath)
+      .withTsConfigPath(path.join(fixturesPath, 'tsconfig.json'))
+      .withReverseIndex(false) // Start without reverse index
+      .build();
   });
 
   it('should enable reverse index', () => {
@@ -323,11 +324,11 @@ describe('Spider - Reverse Index Management', () => {
 
   it('should enable reverse index with valid serialized data', async () => {
     // First, create a spider with reverse index and populate it
-    const spiderWithIndex = new Spider({
-      rootDir: fixturesPath,
-      tsConfigPath: path.join(fixturesPath, 'tsconfig.json'),
-      enableReverseIndex: true,
-    });
+    const spiderWithIndex = new SpiderBuilder()
+      .withRootDir(fixturesPath)
+      .withTsConfigPath(path.join(fixturesPath, 'tsconfig.json'))
+      .withReverseIndex(true)
+      .build();
     
     const mainFile = path.join(fixturesPath, 'src/main.ts');
     await spiderWithIndex.analyze(mainFile);
@@ -401,10 +402,10 @@ describe('Spider - Index Status', () => {
   let spider: Spider;
 
   beforeEach(() => {
-    spider = new Spider({
-      rootDir: fixturesPath,
-      tsConfigPath: path.join(fixturesPath, 'tsconfig.json'),
-    });
+    spider = new SpiderBuilder()
+      .withRootDir(fixturesPath)
+      .withTsConfigPath(path.join(fixturesPath, 'tsconfig.json'))
+      .build();
   });
 
   it('should get full index status', () => {

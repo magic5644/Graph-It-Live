@@ -1,6 +1,7 @@
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import * as path from 'node:path';
 import { Spider } from '../../src/analyzer/Spider';
+import { SpiderBuilder } from '../../src/analyzer/SpiderBuilder';
 import { normalizePath } from '../../src/shared/path';
 
 describe('Spider - Verify Usage', () => {
@@ -8,10 +9,10 @@ describe('Spider - Verify Usage', () => {
     let spider: Spider;
 
     beforeAll(async () => {
-        spider = new Spider({
-            rootDir: fixturesDir,
-            enableReverseIndex: true
-        });
+        spider = new SpiderBuilder()
+     .withRootDir(fixturesDir)
+     .withReverseIndex(true)
+     .build();
         await spider.buildFullIndex();
     });
 
@@ -47,10 +48,10 @@ describe('Spider - Verify Usage - GraphQL', () => {
     let spider: Spider;
 
     beforeAll(async () => {
-        spider = new Spider({
-            rootDir: fixturesDir,
-            enableReverseIndex: true
-        });
+        spider = new SpiderBuilder()
+     .withRootDir(fixturesDir)
+     .withReverseIndex(true)
+     .build();
         await spider.buildFullIndex();
     });
 

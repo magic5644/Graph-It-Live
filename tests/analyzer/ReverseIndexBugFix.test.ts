@@ -1,5 +1,6 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import { Spider } from '../../src/analyzer/Spider';
+import { SpiderBuilder } from '../../src/analyzer/SpiderBuilder';
 import { normalizePathForComparison } from '../../src/analyzer/types';
 import path from 'node:path';
 
@@ -10,12 +11,12 @@ describe('ReverseIndex - Bug Fix: References not disappearing on re-analysis', (
     let spider: Spider;
 
     beforeEach(() => {
-        spider = new Spider({
-            rootDir: fixturesPath,
-            tsConfigPath: path.join(fixturesPath, 'tsconfig.json'),
-            enableReverseIndex: true,
-            indexingConcurrency: 4,
-        });
+        spider = new SpiderBuilder()
+     .withRootDir(fixturesPath)
+     .withTsConfigPath(path.join(fixturesPath, 'tsconfig.json'))
+     .withReverseIndex(true)
+     .withIndexingConcurrency(4)
+     .build();
     });
 
     it('should preserve references after re-analyzing a file that imports utils.ts', async () => {

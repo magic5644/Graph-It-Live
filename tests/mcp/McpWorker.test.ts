@@ -10,6 +10,7 @@ import { tmpdir } from "node:os";
 import * as path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { Spider } from "../../src/analyzer/Spider";
+import { SpiderBuilder } from "../../src/analyzer/SpiderBuilder";
 import { normalizePath } from "../../src/analyzer/types";
 import { SUPPORTED_SYMBOL_ANALYSIS_EXTENSIONS } from "../../src/shared/constants";
 import { detectLanguageFromExtension } from "../../src/shared/utils/languageDetection";
@@ -35,12 +36,12 @@ describe("McpWorker - ReverseIndex Integration", () => {
     await fs.writeFile(fileB, `export function helper() { return 42; }`);
 
     // Initialize Spider with reverse index enabled (like MCP server does)
-    spider = new Spider({
-      rootDir: tempDir,
-      excludeNodeModules: true,
-      maxDepth: 10,
-      enableReverseIndex: true, // Critical: same as MCP server config
-    });
+    spider = new SpiderBuilder()
+     .withRootDir(tempDir)
+     .withMaxDepth(10)
+     .withReverseIndex(true)
+     .withExcludeNodeModules(true)
+     .build();
   });
 
   afterEach(async () => {
@@ -244,12 +245,12 @@ describe("McpWorker - File Watching Simulation", () => {
       `export function format(s: string) { return s.toUpperCase(); }`,
     );
 
-    spider = new Spider({
-      rootDir: tempDir,
-      excludeNodeModules: true,
-      maxDepth: 10,
-      enableReverseIndex: true,
-    });
+    spider = new SpiderBuilder()
+     .withRootDir(tempDir)
+     .withMaxDepth(10)
+     .withReverseIndex(true)
+     .withExcludeNodeModules(true)
+     .build();
   });
 
   afterEach(async () => {
@@ -343,12 +344,12 @@ describe("McpWorker - analyze_file_logic tool", () => {
   beforeEach(async () => {
     tempDir = await fs.mkdtemp(path.join(tmpdir(), "mcp-analyze-logic-"));
 
-    spider = new Spider({
-      rootDir: tempDir,
-      excludeNodeModules: true,
-      maxDepth: 10,
-      enableReverseIndex: false, // Not needed for symbol analysis
-    });
+    spider = new SpiderBuilder()
+     .withRootDir(tempDir)
+     .withMaxDepth(10)
+     .withReverseIndex(false)
+     .withExcludeNodeModules(true)
+     .build();
   });
 
   afterEach(async () => {

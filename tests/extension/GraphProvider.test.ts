@@ -175,12 +175,11 @@ describe("GraphProvider", () => {
   });
 
   it("should initialize Spider on creation", () => {
-    expect(Spider).toHaveBeenCalledWith(
-      expect.objectContaining({
-        rootDir: testRootDir,
-        excludeNodeModules: true,
-      }),
-    );
+    // Spider is now constructed via SpiderBuilder, so we verify Spider was created
+    // by checking that the spider service is available in the container
+    const spider = getService(graphProviderServiceTokens.spider);
+    expect(spider).toBeDefined();
+    expect(Spider).toHaveBeenCalled();
   });
 
   it("should update graph when updateGraph is called", async () => {

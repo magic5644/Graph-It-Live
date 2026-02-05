@@ -1,6 +1,7 @@
 import { describe, it, expect, beforeAll } from 'vitest';
 import * as path from 'path';
 import { Spider } from '../../src/analyzer/Spider';
+import { SpiderBuilder } from '../../src/analyzer/SpiderBuilder';
 
 describe('Spider - Symbol Analysis', () => {
   const fixturesDir = path.resolve(process.cwd(), 'tests/fixtures/symbols');
@@ -9,10 +10,10 @@ describe('Spider - Symbol Analysis', () => {
   let spider: Spider;
 
   beforeAll(async () => {
-    spider = new Spider({
-      rootDir: fixturesDir,
-      enableReverseIndex: true
-    });
+    spider = new SpiderBuilder()
+     .withRootDir(fixturesDir)
+     .withReverseIndex(true)
+     .build();
     
     // Build the index first
     await spider.buildFullIndex();

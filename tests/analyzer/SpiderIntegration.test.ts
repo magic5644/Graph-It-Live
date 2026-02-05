@@ -1,5 +1,6 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import { Spider } from '../../src/analyzer/Spider';
+import { SpiderBuilder } from '../../src/analyzer/SpiderBuilder';
 import { normalizePath } from '../../src/analyzer/types';
 import path from 'node:path';
 
@@ -9,11 +10,11 @@ describe('Spider Integration - Cache and Advanced Features', () => {
     let spider: Spider;
 
     beforeEach(() => {
-        spider = new Spider({
-            rootDir: fixturesPath,
-            tsConfigPath: path.join(fixturesPath, 'tsconfig.json'),
-            enableReverseIndex: true,
-        });
+        spider = new SpiderBuilder()
+     .withRootDir(fixturesPath)
+     .withTsConfigPath(path.join(fixturesPath, 'tsconfig.json'))
+     .withReverseIndex(true)
+     .build();
     });
 
     describe('Cache invalidation', () => {

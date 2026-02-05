@@ -1,6 +1,7 @@
 import path from "node:path";
 import { describe, expect, it } from "vitest";
 import { Spider } from "../../src/analyzer/Spider";
+import { SpiderBuilder } from "../../src/analyzer/SpiderBuilder";
 import { RustParser } from "../../src/analyzer/languages/RustParser";
 
 /**
@@ -19,9 +20,9 @@ describe("Rust False Cycles Regression Test", () => {
   const fixturesDir = path.resolve(__dirname, "../fixtures/rust-integration");
 
   it("should not detect false cycles caused by external crate imports", async () => {
-    const spider = new Spider({
-      rootDir: fixturesDir,
-    });
+    const spider = new SpiderBuilder()
+     .withRootDir(fixturesDir)
+     .build();
 
     try {
       const graph = await spider.crawl(path.join(fixturesDir, "lib.rs"));

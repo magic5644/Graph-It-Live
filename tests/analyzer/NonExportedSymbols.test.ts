@@ -3,6 +3,7 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { Spider } from "../../src/analyzer/Spider";
+import { SpiderBuilder } from "../../src/analyzer/SpiderBuilder";
 import type { SymbolInfo } from "../../src/shared/types";
 
 describe("SymbolAnalyzer - Non-Exported Symbols", () => {
@@ -58,11 +59,11 @@ export const config = {
     );
 
     // Initialize Spider
-    spider = new Spider({
-      rootDir: tempDir,
-      maxDepth: 10,
-      excludeNodeModules: true,
-    });
+    spider = new SpiderBuilder()
+     .withRootDir(tempDir)
+     .withMaxDepth(10)
+     .withExcludeNodeModules(true)
+     .build();
   });
 
   afterAll(() => {

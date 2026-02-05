@@ -483,6 +483,7 @@
     "esbuild": "^0.27.2",
     "esbuild-css-modules-plugin": "^3.1.5",
     "eslint": "^9.39.2",
+    "fast-check": "^4.5.3",
     "glob": "^13.0.1",
     "globals": "^16.5.0",
     "mocha": "^11.7.5",

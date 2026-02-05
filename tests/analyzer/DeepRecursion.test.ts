@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { Spider } from '../../src/analyzer/Spider';
+import { SpiderBuilder } from '../../src/analyzer/SpiderBuilder';
 import { normalizePath } from '../../src/analyzer/types';
 import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
@@ -16,7 +17,9 @@ describe('Spider - Deep Recursion', () => {
 
     beforeEach(() => {
         vi.clearAllMocks();
-        spider = new Spider({ rootDir: ROOT_DIR });
+        spider = new SpiderBuilder()
+     .withRootDir(ROOT_DIR)
+     .build();
     });
 
     it('should crawl 10 levels deep when maxDepth is sufficient', async () => {

@@ -1,6 +1,7 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import * as path from 'node:path';
 import { Spider } from '../../src/analyzer/Spider';
+import { SpiderBuilder } from '../../src/analyzer/SpiderBuilder';
 
 const fixturesDir = path.join(__dirname, '../fixtures/sample-project');
 
@@ -8,13 +9,11 @@ describe('Spider Cache Statistics', () => {
   let spider: Spider;
 
   beforeEach(() => {
-    spider = new Spider({
-      rootDir: fixturesDir,
-      maxDepth: 10,
-      maxCacheSize: 100,
-      maxSymbolCacheSize: 50,
-      maxSymbolAnalyzerFiles: 20,
-    });
+    spider = new SpiderBuilder()
+     .withRootDir(fixturesDir)
+     .withMaxDepth(10)
+     .withCacheConfig({ maxCacheSize: 100, maxSymbolCacheSize: 50 })
+     .build();
   });
 
   it('should return comprehensive cache stats', async () => {
@@ -53,11 +52,11 @@ describe('Spider Cache Statistics', () => {
   });
 
   it('should evict old entries when cache is full', async () => {
-    const tinySpider = new Spider({
-      rootDir: fixturesDir,
-      maxDepth: 5,
-      maxCacheSize: 2, // Very small cache
-    });
+    const tinySpider = new SpiderBuilder()
+     .withRootDir(fixturesDir)
+     .withMaxDepth(5)
+     .withCacheConfig({ maxCacheSize: 2 })
+     .build();
     
     // Analyze multiple files
     await tinySpider.analyze(path.join(fixturesDir, 'src/main.ts'));
@@ -88,12 +87,10 @@ describe('Spider Cache Statistics', () => {
 
 describe('Spider Memory Management', () => {
   it('should handle many files without memory issues', async () => {
-    const spider = new Spider({
-      rootDir: fixturesDir,
-      maxDepth: 3,
-      maxCacheSize: 10,
-      maxSymbolAnalyzerFiles: 5,
-    });
+    const spider = new SpiderBuilder()
+     .withRootDir(fixturesDir)
+     .withMaxDepth(3)
+     .build();
     
     // Analyze the same file multiple times (simulating heavy usage)
     const filePath = path.join(fixturesDir, 'src/main.ts');
