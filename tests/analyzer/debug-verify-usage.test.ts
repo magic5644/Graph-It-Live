@@ -11,6 +11,7 @@ describe('Debug VerifyUsage', () => {
         spider = new SpiderBuilder()
      .withRootDir(fixturesDir)
      .withReverseIndex(true)
+     .withExtensionPath(process.cwd())
      .build();
         await spider.buildFullIndex();
     });

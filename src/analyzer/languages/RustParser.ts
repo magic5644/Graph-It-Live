@@ -1,26 +1,101 @@
 import fs from "node:fs/promises";
 import path from "node:path";
-import Parser from "tree-sitter";
-import Rust from "tree-sitter-rust";
+import { Node, Parser } from "web-tree-sitter";
 import { normalizePath } from "../../shared/path";
 import { FileReader } from "../FileReader";
 import { Dependency, ILanguageAnalyzer, SpiderError } from "../types";
 import { extractFilePath } from "../utils/PathExtractor";
+import { WasmParserFactory } from "./WasmParserFactory";
 
 /**
- * Rust import parser using tree-sitter-rust
- * Handles: use, mod, extern crate
+ * Rust import parser backed by tree-sitter WASM.
+ * Requires `extensionPath` to locate `dist/wasm`.
+ * In unit tests, mock `WasmParserFactory` directly to avoid WASM initialization.
  */
 export class RustParser implements ILanguageAnalyzer {
-  private readonly parser: Parser;
+  private parser: Parser | null = null;
   private readonly fileReader: FileReader;
   private readonly rootDir: string;
+  private readonly extensionPath?: string;
+  private initPromise: Promise<void> | null = null;
 
-  constructor(rootDir?: string) {
-    this.parser = new Parser();
-    this.parser.setLanguage(Rust as unknown as Parser.Language);
+  constructor(rootDir?: string, extensionPath?: string) {
     this.fileReader = new FileReader();
     this.rootDir = rootDir || process.cwd();
+    this.extensionPath = extensionPath;
+  }
+
+  /** Lazily initializes the WASM parser and reuses a single init promise. */
+  private async ensureInitialized(): Promise<void> {
+    // If parser is already initialized, return immediately
+    if (this.parser) {
+      return;
+    }
+
+    // If initialization is in progress, wait for it
+    if (this.initPromise) {
+      return this.initPromise;
+    }
+
+    // Start initialization
+    this.initPromise = (async () => {
+      const extensionPath = await this.resolveExtensionPath();
+      if (!extensionPath) {
+        throw new Error(
+          "Extension path required for WASM parser initialization. " +
+          "Ensure RustParser is constructed with extensionPath parameter."
+        );
+      }
+
+      try {
+        const factory = WasmParserFactory.getInstance();
+
+        // Initialize web-tree-sitter with core WASM file
+        const treeSitterWasmPath = path.join(
+          extensionPath,
+          "dist",
+          "wasm",
+          "tree-sitter.wasm"
+        );
+        await factory.init(treeSitterWasmPath);
+
+        // Load Rust language WASM and get parser
+        const rustWasmPath = path.join(
+          extensionPath,
+          "dist",
+          "wasm",
+          "tree-sitter-rust.wasm"
+        );
+        this.parser = await factory.getParser("rust", rustWasmPath);
+      } catch (error) {
+        // Clear the promise so retry is possible
+        this.initPromise = null;
+        
+        const errorMessage = error instanceof Error ? error.message : String(error);
+        throw new Error(
+          `Failed to initialize Rust WASM parser: ${errorMessage}`
+        );
+      }
+    })();
+
+    await this.initPromise;
+  }
+
+  private async resolveExtensionPath(): Promise<string | undefined> {
+    if (this.extensionPath) {
+      return this.extensionPath;
+    }
+
+    // Test/dev fallback: if running from repository root, use local dist/wasm.
+    const cwdExtensionPath = process.cwd();
+    const fallbackWasmPath = path.join(cwdExtensionPath, "dist", "wasm", "tree-sitter.wasm");
+
+    try {
+      await fs.access(fallbackWasmPath);
+      return cwdExtensionPath;
+    } catch {
+      return undefined;
+    }
   }
 
   /**
@@ -28,10 +103,16 @@ export class RustParser implements ILanguageAnalyzer {
    */
   async parseImports(filePath: string): Promise<Dependency[]> {
     try {
+      // Ensure WASM parser is initialized
+      await this.ensureInitialized();
+
       // Extract file path from potential symbol ID
       const actualPath = extractFilePath(filePath);
       const content = await this.fileReader.readFile(actualPath);
-      const tree = this.parser.parse(content);
+      const tree = this.parser!.parse(content);
+      if (!tree) {
+        throw new Error(`Failed to parse Rust file: ${actualPath}`);
+      }
       const dependencies: Dependency[] = [];
       const seen = new Set<string>();
 
@@ -66,6 +147,9 @@ export class RustParser implements ILanguageAnalyzer {
     moduleSpecifier: string,
   ): Promise<string | null> {
     try {
+      // Ensure WASM parser is initialized
+      await this.ensureInitialized();
+
       // Extract first component - if it's an external crate, return null
       const firstComponent = moduleSpecifier.split("::")[0];
       const externalCrates = new Set([
@@ -106,7 +190,7 @@ export class RustParser implements ILanguageAnalyzer {
    * Extract use declaration: use path::to::module;
    */
   private extractUseDeclaration(
-    node: Parser.SyntaxNode,
+    node: Node,
     dependencies: Dependency[],
     seen: Set<string>,
     content: string,
@@ -155,7 +239,7 @@ export class RustParser implements ILanguageAnalyzer {
    * Extract mod item: mod module_name;
    */
   private extractModItem(
-    node: Parser.SyntaxNode,
+    node: Node,
     dependencies: Dependency[],
     seen: Set<string>,
     content: string,
@@ -191,7 +275,7 @@ export class RustParser implements ILanguageAnalyzer {
    * IMPORTANT: External crates are not file dependencies, skip them
    */
   private extractExternCrate(
-    node: Parser.SyntaxNode,
+    node: Node,
     dependencies: Dependency[],
     seen: Set<string>,
     content: string,
@@ -234,7 +318,7 @@ export class RustParser implements ILanguageAnalyzer {
    * IMPORTANT: Only collect module paths (snake_case), not type names (PascalCase)
    */
   private collectIdentifiers(
-    node: Parser.SyntaxNode,
+    node: Node,
     content: string,
   ): string[] {
     const identifiers: string[] = [];
@@ -355,8 +439,8 @@ export class RustParser implements ILanguageAnalyzer {
    * Traverse tree and call visitor for each node
    */
   private traverseTree(
-    node: Parser.SyntaxNode,
-    visitor: (node: Parser.SyntaxNode) => void,
+    node: Node,
+    visitor: (node: Node) => void,
   ): void {
     visitor(node);
     for (const child of node.children) {
@@ -368,9 +452,9 @@ export class RustParser implements ILanguageAnalyzer {
    * Find first child of a specific type
    */
   private findChildByType(
-    node: Parser.SyntaxNode,
+    node: Node,
     type: string,
-  ): Parser.SyntaxNode | null {
+  ): Node | null {
     for (const child of node.children) {
       if (child.type === type) {
         return child;
@@ -383,12 +467,12 @@ export class RustParser implements ILanguageAnalyzer {
    * Find all nodes of a specific type
    */
   private findAllByType(
-    node: Parser.SyntaxNode,
+    node: Node,
     type: string,
-  ): Parser.SyntaxNode[] {
-    const results: Parser.SyntaxNode[] = [];
+  ): Node[] {
+    const results: Node[] = [];
 
-    const traverse = (n: Parser.SyntaxNode) => {
+    const traverse = (n: Node) => {
       if (n.type === type) {
         results.push(n);
       }
@@ -404,7 +488,7 @@ export class RustParser implements ILanguageAnalyzer {
   /**
    * Get text content of a node
    */
-  private getNodeText(node: Parser.SyntaxNode, content: string): string {
+  private getNodeText(node: Node, content: string): string {
     return content.slice(node.startIndex, node.endIndex);
   }
 }

@@ -23,17 +23,19 @@ export enum Language {
  * Implements lazy-loading to avoid loading parsers for unused languages.
  */
 export class LanguageService {
-  private static typeScriptParser: Parser | null = null;
-  private static typeScriptSymbolAnalyzer: SymbolAnalyzer | null = null;
-  private static pythonParser: PythonParser | null = null;
-  private static pythonSymbolAnalyzer: PythonSymbolAnalyzer | null = null;
-  private static rustParser: RustParser | null = null;
-  private static rustSymbolAnalyzer: RustSymbolAnalyzer | null = null;
+  private static readonly typeScriptParsers = new Map<string, Parser>();
+  private static readonly typeScriptSymbolAnalyzers = new Map<string, SymbolAnalyzer>();
+  private static readonly pythonParsers = new Map<string, PythonParser>();
+  private static readonly pythonSymbolAnalyzers = new Map<string, PythonSymbolAnalyzer>();
+  private static readonly rustParsers = new Map<string, RustParser>();
+  private static readonly rustSymbolAnalyzers = new Map<string, RustSymbolAnalyzer>();
 
   private readonly rootDir?: string;
+  private readonly extensionPath?: string;
 
-  constructor(rootDir?: string, _tsConfigPath?: string) {
+  constructor(rootDir?: string, _tsConfigPath?: string, extensionPath?: string) {
     this.rootDir = rootDir;
+    this.extensionPath = extensionPath;
   }
 
   /**
@@ -41,7 +43,7 @@ export class LanguageService {
    */
   getAnalyzer(filePath: string): ILanguageAnalyzer {
     const actualPath = extractFilePath(filePath);
-    return LanguageService.getAnalyzer(actualPath, this.rootDir);
+    return LanguageService.getAnalyzer(actualPath, this.rootDir, this.extensionPath);
   }
 
   /**
@@ -49,7 +51,7 @@ export class LanguageService {
    */
   getSymbolAnalyzer(filePath: string): ISymbolAnalyzer {
     const actualPath = extractFilePath(filePath);
-    return LanguageService.getSymbolAnalyzer(actualPath, this.rootDir);
+    return LanguageService.getSymbolAnalyzer(actualPath, this.rootDir, this.extensionPath);
   }
 
   /**
@@ -90,22 +92,43 @@ export class LanguageService {
    * Get the appropriate parser for the given file path.
    * Lazy-loads parsers only when needed.
    */
-  static getAnalyzer(filePath: string, rootDir?: string): ILanguageAnalyzer {
+  static getAnalyzer(filePath: string, rootDir?: string, extensionPath?: string): ILanguageAnalyzer {
     const actualPath = extractFilePath(filePath);
     const language = this.detectLanguage(actualPath);
 
     switch (language) {
-      case Language.TypeScript:
-        this.typeScriptParser ??= new Parser(rootDir);
-        return this.typeScriptParser;
+      case Language.TypeScript: {
+        const cacheKey = this.buildCacheKey(rootDir);
+        const cached = this.typeScriptParsers.get(cacheKey);
+        if (cached) {
+          return cached;
+        }
+        const created = new Parser(rootDir);
+        this.typeScriptParsers.set(cacheKey, created);
+        return created;
+      }
 
-      case Language.Python:
-        this.pythonParser ??= new PythonParser(rootDir);
-        return this.pythonParser;
+      case Language.Python: {
+        const cacheKey = this.buildCacheKey(rootDir, extensionPath);
+        const cached = this.pythonParsers.get(cacheKey);
+        if (cached) {
+          return cached;
+        }
+        const created = new PythonParser(rootDir, extensionPath);
+        this.pythonParsers.set(cacheKey, created);
+        return created;
+      }
 
-      case Language.Rust:
-        this.rustParser ??= new RustParser(rootDir);
-        return this.rustParser;
+      case Language.Rust: {
+        const cacheKey = this.buildCacheKey(rootDir, extensionPath);
+        const cached = this.rustParsers.get(cacheKey);
+        if (cached) {
+          return cached;
+        }
+        const created = new RustParser(rootDir, extensionPath);
+        this.rustParsers.set(cacheKey, created);
+        return created;
+      }
 
       default:
         throw new Error(`Unsupported language for file: ${filePath}`);
@@ -119,22 +142,44 @@ export class LanguageService {
   static getSymbolAnalyzer(
     filePath: string,
     rootDir?: string,
+    extensionPath?: string,
   ): ISymbolAnalyzer {
     const actualPath = extractFilePath(filePath);
     const language = this.detectLanguage(actualPath);
 
     switch (language) {
-      case Language.TypeScript:
-        this.typeScriptSymbolAnalyzer ??= new SymbolAnalyzer(rootDir);
-        return this.typeScriptSymbolAnalyzer;
+      case Language.TypeScript: {
+        const cacheKey = this.buildCacheKey(rootDir);
+        const cached = this.typeScriptSymbolAnalyzers.get(cacheKey);
+        if (cached) {
+          return cached;
+        }
+        const created = new SymbolAnalyzer(rootDir);
+        this.typeScriptSymbolAnalyzers.set(cacheKey, created);
+        return created;
+      }
 
-      case Language.Python:
-        this.pythonSymbolAnalyzer ??= new PythonSymbolAnalyzer(rootDir);
-        return this.pythonSymbolAnalyzer;
+      case Language.Python: {
+        const cacheKey = this.buildCacheKey(rootDir, extensionPath);
+        const cached = this.pythonSymbolAnalyzers.get(cacheKey);
+        if (cached) {
+          return cached;
+        }
+        const created = new PythonSymbolAnalyzer(rootDir, extensionPath);
+        this.pythonSymbolAnalyzers.set(cacheKey, created);
+        return created;
+      }
 
-      case Language.Rust:
-        this.rustSymbolAnalyzer ??= new RustSymbolAnalyzer(rootDir);
-        return this.rustSymbolAnalyzer;
+      case Language.Rust: {
+        const cacheKey = this.buildCacheKey(rootDir, extensionPath);
+        const cached = this.rustSymbolAnalyzers.get(cacheKey);
+        if (cached) {
+          return cached;
+        }
+        const created = new RustSymbolAnalyzer(rootDir, extensionPath);
+        this.rustSymbolAnalyzers.set(cacheKey, created);
+        return created;
+      }
 
       default:
         throw new Error(`Unsupported language for file: ${filePath}`);
@@ -152,11 +197,15 @@ export class LanguageService {
    * Reset all cached analyzers (useful for testing)
    */
   static reset(): void {
-    this.typeScriptParser = null;
-    this.typeScriptSymbolAnalyzer = null;
-    this.pythonParser = null;
-    this.pythonSymbolAnalyzer = null;
-    this.rustParser = null;
-    this.rustSymbolAnalyzer = null;
+    this.typeScriptParsers.clear();
+    this.typeScriptSymbolAnalyzers.clear();
+    this.pythonParsers.clear();
+    this.pythonSymbolAnalyzers.clear();
+    this.rustParsers.clear();
+    this.rustSymbolAnalyzers.clear();
+  }
+
+  private static buildCacheKey(...parts: Array<string | undefined>): string {
+    return parts.map((part) => part ?? "").join("\u0000");
   }
 }

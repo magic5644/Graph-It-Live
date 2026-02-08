@@ -1,21 +1,100 @@
-import Parser from 'tree-sitter';
-import Rust from 'tree-sitter-rust';
+import path from "node:path";
+import fs from "node:fs/promises";
+import { Node, Parser } from "web-tree-sitter";
 import { ISymbolAnalyzer, SymbolInfo, SymbolDependency, SpiderError } from '../types';
 import { FileReader } from '../FileReader';
 import { normalizePath } from '../../shared/path';
+import { WasmParserFactory } from './WasmParserFactory';
 
 /**
- * Rust symbol analyzer using tree-sitter-rust
- * Extracts functions, structs, traits, impls and their dependencies
+ * Rust symbol analyzer backed by tree-sitter WASM.
+ * Requires `extensionPath` to locate `dist/wasm`.
+ * In unit tests, mock `WasmParserFactory` directly to avoid WASM initialization.
  */
 export class RustSymbolAnalyzer implements ISymbolAnalyzer {
-  private readonly parser: Parser;
+  private parser: Parser | null = null;
   private readonly fileReader: FileReader;
+  private initPromise: Promise<void> | null = null;
+  private readonly extensionPath?: string;
 
-  constructor(_rootDir?: string) {
-    this.parser = new Parser();
-    this.parser.setLanguage(Rust as unknown as Parser.Language);
+  constructor(rootDirOrExtensionPath?: string, extensionPath?: string) {
+    // Backward compatibility:
+    // Historically some call sites passed only extensionPath as first argument.
+    this.extensionPath = extensionPath ?? rootDirOrExtensionPath;
     this.fileReader = new FileReader();
+  }
+
+  /** Lazily initializes the WASM parser and reuses a single init promise. */
+  async ensureInitialized(): Promise<void> {
+    // If parser is already initialized, return immediately
+    if (this.parser) {
+      return;
+    }
+
+    // If initialization is in progress, wait for it
+    if (this.initPromise) {
+      return this.initPromise;
+    }
+
+    // Start initialization
+    this.initPromise = (async () => {
+      const extensionPath = await this.resolveExtensionPath();
+      if (!extensionPath) {
+        throw new Error(
+          "Extension path required for WASM parser initialization. " +
+          "Ensure RustSymbolAnalyzer is constructed with extensionPath parameter."
+        );
+      }
+
+      try {
+        const factory = WasmParserFactory.getInstance();
+
+        // Initialize web-tree-sitter with core WASM file
+        const treeSitterWasmPath = path.join(
+          extensionPath,
+          "dist",
+          "wasm",
+          "tree-sitter.wasm"
+        );
+        await factory.init(treeSitterWasmPath);
+
+        // Load Rust language WASM and get parser
+        const rustWasmPath = path.join(
+          extensionPath,
+          "dist",
+          "wasm",
+          "tree-sitter-rust.wasm"
+        );
+        this.parser = await factory.getParser("rust", rustWasmPath);
+      } catch (error) {
+        // Clear the promise so retry is possible
+        this.initPromise = null;
+        
+        const errorMessage = error instanceof Error ? error.message : String(error);
+        throw new Error(
+          `Failed to initialize Rust WASM parser for symbol analysis: ${errorMessage}`
+        );
+      }
+    })();
+
+    await this.initPromise;
+  }
+
+  private async resolveExtensionPath(): Promise<string | undefined> {
+    if (this.extensionPath) {
+      return this.extensionPath;
+    }
+
+    // Test/dev fallback: if running from repository root, use local dist/wasm.
+    const cwdExtensionPath = process.cwd();
+    const fallbackWasmPath = path.join(cwdExtensionPath, "dist", "wasm", "tree-sitter.wasm");
+
+    try {
+      await fs.access(fallbackWasmPath);
+      return cwdExtensionPath;
+    } catch {
+      return undefined;
+    }
   }
 
   /**
@@ -23,6 +102,9 @@ export class RustSymbolAnalyzer implements ISymbolAnalyzer {
    */
   async analyzeFile(filePath: string): Promise<Map<string, SymbolInfo>> {
     try {
+      // Ensure WASM parser is initialized
+      await this.ensureInitialized();
+      
       const content = await this.fileReader.readFile(filePath);
       return this.analyzeFileFromContent(filePath, content);
     } catch (error) {
@@ -33,9 +115,19 @@ export class RustSymbolAnalyzer implements ISymbolAnalyzer {
   /**
    * Synchronously analyze Rust content and extract symbols
    * Used by AstWorker when content is already loaded
+   * NOTE: Parser must be initialized before calling this method (call ensureInitialized() first)
    */
   analyzeFileFromContent(filePath: string, content: string): Map<string, SymbolInfo> {
+    if (!this.parser) {
+      throw new Error(
+        "Parser not initialized. Call ensureInitialized() before using analyzeFileFromContent()."
+      );
+    }
+    
     const tree = this.parser.parse(content);
+    if (!tree) {
+      throw new Error(`Failed to parse Rust file: ${filePath}`);
+    }
     const symbols = new Map<string, SymbolInfo>();
     const normalizedPath = normalizePath(filePath);
 
@@ -47,13 +139,23 @@ export class RustSymbolAnalyzer implements ISymbolAnalyzer {
   /**
    * Synchronously analyze Rust content and extract both symbols and dependencies
    * Used by AstWorker when content is already loaded
+   * NOTE: Parser must be initialized before calling this method (call ensureInitialized() first)
    * @returns Object with symbols and dependencies arrays
    */
   analyzeFileContent(filePath: string, content: string): {
     symbols: SymbolInfo[];
     dependencies: SymbolDependency[];
   } {
+    if (!this.parser) {
+      throw new Error(
+        "Parser not initialized. Call ensureInitialized() before using analyzeFileContent()."
+      );
+    }
+    
     const tree = this.parser.parse(content);
+    if (!tree) {
+      throw new Error(`Failed to parse Rust file: ${filePath}`);
+    }
     const symbolMap = new Map<string, SymbolInfo>();
     const dependencies: SymbolDependency[] = [];
     const normalizedPath = normalizePath(filePath);
@@ -78,6 +180,9 @@ export class RustSymbolAnalyzer implements ISymbolAnalyzer {
    */
   async getSymbolDependencies(filePath: string): Promise<SymbolDependency[]> {
     try {
+      // Ensure WASM parser is initialized
+      await this.ensureInitialized();
+      
       const content = await this.fileReader.readFile(filePath);
       const result = this.analyzeFileContent(filePath, content);
       return result.dependencies;
@@ -90,7 +195,7 @@ export class RustSymbolAnalyzer implements ISymbolAnalyzer {
    * Extract symbols from AST
    */
   private extractSymbols(
-    node: Parser.SyntaxNode,
+    node: Node,
     filePath: string,
     content: string,
     symbols: Map<string, SymbolInfo>,
@@ -104,7 +209,7 @@ export class RustSymbolAnalyzer implements ISymbolAnalyzer {
   }
 
   private tryExtractSymbolFromNode(
-    node: Parser.SyntaxNode,
+    node: Node,
     filePath: string,
     content: string,
     symbols: Map<string, SymbolInfo>,
@@ -139,7 +244,7 @@ export class RustSymbolAnalyzer implements ISymbolAnalyzer {
   }
 
   private handleFunctionItem(
-    node: Parser.SyntaxNode,
+    node: Node,
     filePath: string,
     content: string,
     symbols: Map<string, SymbolInfo>,
@@ -169,7 +274,7 @@ export class RustSymbolAnalyzer implements ISymbolAnalyzer {
   }
 
   private handleStructItem(
-    node: Parser.SyntaxNode,
+    node: Node,
     filePath: string,
     content: string,
     symbols: Map<string, SymbolInfo>,
@@ -198,7 +303,7 @@ export class RustSymbolAnalyzer implements ISymbolAnalyzer {
   }
 
   private handleEnumItem(
-    node: Parser.SyntaxNode,
+    node: Node,
     filePath: string,
     content: string,
     symbols: Map<string, SymbolInfo>,
@@ -227,7 +332,7 @@ export class RustSymbolAnalyzer implements ISymbolAnalyzer {
   }
 
   private handleTraitItem(
-    node: Parser.SyntaxNode,
+    node: Node,
     filePath: string,
     content: string,
     symbols: Map<string, SymbolInfo>,
@@ -256,7 +361,7 @@ export class RustSymbolAnalyzer implements ISymbolAnalyzer {
   }
 
   private handleImplItem(
-    node: Parser.SyntaxNode,
+    node: Node,
     filePath: string,
     content: string,
     symbols: Map<string, SymbolInfo>,
@@ -267,7 +372,7 @@ export class RustSymbolAnalyzer implements ISymbolAnalyzer {
   }
 
   private extractSymbolsFromChildren(
-    node: Parser.SyntaxNode,
+    node: Node,
     filePath: string,
     content: string,
     symbols: Map<string, SymbolInfo>,
@@ -282,10 +387,10 @@ export class RustSymbolAnalyzer implements ISymbolAnalyzer {
    * Build a map of imported names to their module specifiers
    * e.g., HashMap -> std::collections::HashMap
    */
-  private buildImportMap(node: Parser.SyntaxNode, content: string): Map<string, string> {
+  private buildImportMap(node: Node, content: string): Map<string, string> {
     const importMap = new Map<string, string>();
 
-    const traverse = (n: Parser.SyntaxNode) => {
+    const traverse = (n: Node) => {
       // Handle: use path::to::module;
       if (n.type === 'use_declaration') {
         this.extractUseDeclarationImports(n, content, importMap);
@@ -312,7 +417,7 @@ export class RustSymbolAnalyzer implements ISymbolAnalyzer {
   }
 
   private extractUseDeclarationImports(
-    node: Parser.SyntaxNode,
+    node: Node,
     content: string,
     importMap: Map<string, string>
   ): void {
@@ -330,7 +435,7 @@ export class RustSymbolAnalyzer implements ISymbolAnalyzer {
    * Extract imports from use_list syntax (e.g., use path::{A, B, C})
    */
   private extractFromUseLists(
-    node: Parser.SyntaxNode,
+    node: Node,
     content: string,
     importMap: Map<string, string>
   ): void {
@@ -344,7 +449,7 @@ export class RustSymbolAnalyzer implements ISymbolAnalyzer {
   /**
    * Find the base module path for a use_list by traversing parent nodes
    */
-  private findBaseModuleForUseList(useList: Parser.SyntaxNode, content: string): string {
+  private findBaseModuleForUseList(useList: Node, content: string): string {
     let current = useList.parent;
     while (current) {
       if (current.type === 'scoped_use_list') {
@@ -359,7 +464,7 @@ export class RustSymbolAnalyzer implements ISymbolAnalyzer {
   /**
    * Find scoped_identifier in children nodes
    */
-  private findScopedIdentifierInChildren(node: Parser.SyntaxNode, content: string): string {
+  private findScopedIdentifierInChildren(node: Node, content: string): string {
     for (const child of node.children) {
       if (child.type === 'scoped_identifier') {
         return this.getNodeText(child, content);
@@ -372,7 +477,7 @@ export class RustSymbolAnalyzer implements ISymbolAnalyzer {
    * Extract all identifiers from a use_list and add to import map
    */
   private extractIdentifiersFromUseList(
-    useList: Parser.SyntaxNode,
+    useList: Node,
     baseModule: string,
     content: string,
     importMap: Map<string, string>
@@ -391,7 +496,7 @@ export class RustSymbolAnalyzer implements ISymbolAnalyzer {
    * Extract imports from scoped_identifier nodes (e.g., std::collections::HashMap)
    */
   private extractFromScopedIdentifiers(
-    node: Parser.SyntaxNode,
+    node: Node,
     content: string,
     importMap: Map<string, string>
   ): void {
@@ -425,7 +530,7 @@ export class RustSymbolAnalyzer implements ISymbolAnalyzer {
    * Extract imports from use_as_clause (aliasing syntax)
    */
   private extractFromUseAsClauses(
-    node: Parser.SyntaxNode,
+    node: Node,
     content: string,
     importMap: Map<string, string>
   ): void {
@@ -445,7 +550,7 @@ export class RustSymbolAnalyzer implements ISymbolAnalyzer {
    * Extract symbol dependencies from AST
    */
   private extractDependencies(
-    node: Parser.SyntaxNode,
+    node: Node,
     filePath: string,
     content: string,
     dependencies: SymbolDependency[],
@@ -462,7 +567,7 @@ export class RustSymbolAnalyzer implements ISymbolAnalyzer {
   }
 
   private getScopeForNode(
-    node: Parser.SyntaxNode,
+    node: Node,
     filePath: string,
     content: string,
     currentScope?: string
@@ -481,7 +586,7 @@ export class RustSymbolAnalyzer implements ISymbolAnalyzer {
   }
 
   private addCallDependencyIfAny(
-    node: Parser.SyntaxNode,
+    node: Node,
     filePath: string,
     content: string,
     dependencies: SymbolDependency[],
@@ -548,7 +653,7 @@ export class RustSymbolAnalyzer implements ISymbolAnalyzer {
    *   format_data          -> { moduleName: undefined, symbolName: 'format_data' }
    *   obj.method           -> { moduleName: undefined, symbolName: 'method' }
    */
-  private extractModuleAndSymbolName(funcNode: Parser.SyntaxNode, content: string): {
+  private extractModuleAndSymbolName(funcNode: Node, content: string): {
     moduleName?: string;
     symbolName: string;
   } {
@@ -595,7 +700,7 @@ export class RustSymbolAnalyzer implements ISymbolAnalyzer {
   /**
    * Check if node has a visibility modifier (pub)
    */
-  private hasVisibilityModifier(node: Parser.SyntaxNode, _modifier: string): boolean {
+  private hasVisibilityModifier(node: Node, _modifier: string): boolean {
     // Check field name first
     const visNode = node.childForFieldName('visibility_modifier');
     if (visNode) {
@@ -615,7 +720,7 @@ export class RustSymbolAnalyzer implements ISymbolAnalyzer {
   /**
    * Check if node has an ancestor of a specific type
    */
-  private hasAncestorOfType(node: Parser.SyntaxNode, ancestorType: string): boolean {
+  private hasAncestorOfType(node: Node, ancestorType: string): boolean {
     let current = node.parent;
     while (current) {
       if (current.type === ancestorType) {
@@ -629,7 +734,7 @@ export class RustSymbolAnalyzer implements ISymbolAnalyzer {
   /**
    * Check if node has a specific modifier
    */
-  private hasModifier(node: Parser.SyntaxNode, modifier: string): boolean {
+  private hasModifier(node: Node, modifier: string): boolean {
     for (const child of node.children) {
       if (child.type === modifier) {
         return true;
@@ -641,10 +746,10 @@ export class RustSymbolAnalyzer implements ISymbolAnalyzer {
   /**
    * Find all nodes of a specific type
    */
-  private findAllByType(node: Parser.SyntaxNode, type: string): Parser.SyntaxNode[] {
-    const results: Parser.SyntaxNode[] = [];
+  private findAllByType(node: Node, type: string): Node[] {
+    const results: Node[] = [];
     
-    const traverse = (n: Parser.SyntaxNode) => {
+    const traverse = (n: Node) => {
       if (n.type === type) {
         results.push(n);
       }
@@ -660,7 +765,7 @@ export class RustSymbolAnalyzer implements ISymbolAnalyzer {
   /**
    * Get text content of a node
    */
-  private getNodeText(node: Parser.SyntaxNode, content: string): string {
+  private getNodeText(node: Node, content: string): string {
     return content.slice(node.startIndex, node.endIndex);
   }
 }

@@ -463,10 +463,9 @@
     "react": "^19.2.4",
     "react-dom": "^19.2.4",
     "reactflow": "^11.11.4",
-    "tree-sitter": "^0.22.4",
-    "tree-sitter-python": "^0.23.6",
-    "tree-sitter-rust": "^0.24.0",
+    "tree-sitter-wasms": "^0.1.11",
     "ts-morph": "^27.0.2",
+    "web-tree-sitter": "^0.26.5",
     "zod": "^4.3.6"
   },
   "devDependencies": {

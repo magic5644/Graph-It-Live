@@ -24,6 +24,7 @@ describe('MCP Integration - analyze_file_logic (T070-T074)', () => {
      .withMaxDepth(10)
      .withReverseIndex(false)
      .withExcludeNodeModules(true)
+     .withExtensionPath(process.cwd())
      .build();
   });
 

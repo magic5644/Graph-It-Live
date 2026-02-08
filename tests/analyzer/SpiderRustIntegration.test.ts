@@ -12,6 +12,7 @@ describe('Spider Rust Integration', () => {
     spider = new SpiderBuilder()
      .withRootDir(fixturesDir)
      .withReverseIndex(true)
+     .withExtensionPath(process.cwd())
      .build();
   });
 

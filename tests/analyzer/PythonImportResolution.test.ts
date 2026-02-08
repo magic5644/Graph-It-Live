@@ -14,6 +14,7 @@ describe('Python import resolution', () => {
     spider = new SpiderBuilder()
      .withRootDir(repoRoot)
      .withReverseIndex(true)
+     .withExtensionPath(process.cwd())
      .build();
   });
 

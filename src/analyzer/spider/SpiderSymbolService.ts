@@ -1,3 +1,4 @@
+import path from 'node:path';
 import type { Dependency, SpiderConfig, SymbolDependency, SymbolInfo } from '../types';
 import { SpiderError, normalizePath } from '../types';
 import { getLogger } from '../../shared/logger';
@@ -32,7 +33,7 @@ export class SpiderSymbolService {
   ) {}
 
   async getSymbolGraph(filePath: string): Promise<SymbolGraph> {
-    if (!filePath.startsWith('/') && !/^[a-zA-Z]:\//.test(filePath)) {
+    if (!path.isAbsolute(filePath)) {
       try {
         const maybeResolved = await this.resolveModuleSpecifier(this.getConfig().rootDir, filePath);
         if (maybeResolved) {
@@ -434,4 +435,3 @@ export class SpiderSymbolService {
     return filePath.endsWith('.gql') || filePath.endsWith('.graphql');
   }
 }
-

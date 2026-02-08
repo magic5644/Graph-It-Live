@@ -14,6 +14,7 @@ interface WorkerConfig {
   rootDir: string;
   excludeNodeModules?: boolean;
   tsConfigPath?: string;
+  extensionPath?: string;
 }
 
 interface WorkerResponse {

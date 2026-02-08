@@ -1,21 +1,100 @@
-import Parser from 'tree-sitter';
-import Python from 'tree-sitter-python';
+import path from "node:path";
+import fs from "node:fs/promises";
+import { Node, Parser } from "web-tree-sitter";
 import { ISymbolAnalyzer, SymbolInfo, SymbolDependency, SpiderError } from '../types';
 import { FileReader } from '../FileReader';
 import { normalizePath } from '../../shared/path';
+import { WasmParserFactory } from './WasmParserFactory';
 
 /**
- * Python symbol analyzer using tree-sitter-python
- * Extracts functions, classes, methods, decorators and their dependencies
+ * Python symbol analyzer backed by tree-sitter WASM.
+ * Requires `extensionPath` to locate `dist/wasm`.
+ * In unit tests, mock `WasmParserFactory` directly to avoid WASM initialization.
  */
 export class PythonSymbolAnalyzer implements ISymbolAnalyzer {
-  private readonly parser: Parser;
+  private parser: Parser | null = null;
   private readonly fileReader: FileReader;
+  private initPromise: Promise<void> | null = null;
+  private readonly extensionPath?: string;
 
-  constructor(_rootDir?: string) {
-    this.parser = new Parser();
-    this.parser.setLanguage(Python as unknown as Parser.Language);
+  constructor(rootDirOrExtensionPath?: string, extensionPath?: string) {
+    // Backward compatibility:
+    // Historically some call sites passed only extensionPath as first argument.
+    this.extensionPath = extensionPath ?? rootDirOrExtensionPath;
     this.fileReader = new FileReader();
+  }
+
+  /** Lazily initializes the WASM parser and reuses a single init promise. */
+  async ensureInitialized(): Promise<void> {
+    // If parser is already initialized, return immediately
+    if (this.parser) {
+      return;
+    }
+
+    // If initialization is in progress, wait for it
+    if (this.initPromise) {
+      return this.initPromise;
+    }
+
+    // Start initialization
+    this.initPromise = (async () => {
+      const extensionPath = await this.resolveExtensionPath();
+      if (!extensionPath) {
+        throw new Error(
+          "Extension path required for WASM parser initialization. " +
+          "Ensure PythonSymbolAnalyzer is constructed with extensionPath parameter."
+        );
+      }
+
+      try {
+        const factory = WasmParserFactory.getInstance();
+
+        // Initialize web-tree-sitter with core WASM file
+        const treeSitterWasmPath = path.join(
+          extensionPath,
+          "dist",
+          "wasm",
+          "tree-sitter.wasm"
+        );
+        await factory.init(treeSitterWasmPath);
+
+        // Load Python language WASM and get parser
+        const pythonWasmPath = path.join(
+          extensionPath,
+          "dist",
+          "wasm",
+          "tree-sitter-python.wasm"
+        );
+        this.parser = await factory.getParser("python", pythonWasmPath);
+      } catch (error) {
+        // Clear the promise so retry is possible
+        this.initPromise = null;
+        
+        const errorMessage = error instanceof Error ? error.message : String(error);
+        throw new Error(
+          `Failed to initialize Python WASM parser for symbol analysis: ${errorMessage}`
+        );
+      }
+    })();
+
+    await this.initPromise;
+  }
+
+  private async resolveExtensionPath(): Promise<string | undefined> {
+    if (this.extensionPath) {
+      return this.extensionPath;
+    }
+
+    // Test/dev fallback: if running from repository root, use local dist/wasm.
+    const cwdExtensionPath = process.cwd();
+    const fallbackWasmPath = path.join(cwdExtensionPath, "dist", "wasm", "tree-sitter.wasm");
+
+    try {
+      await fs.access(fallbackWasmPath);
+      return cwdExtensionPath;
+    } catch {
+      return undefined;
+    }
   }
 
   /**
@@ -23,6 +102,9 @@ export class PythonSymbolAnalyzer implements ISymbolAnalyzer {
    */
   async analyzeFile(filePath: string): Promise<Map<string, SymbolInfo>> {
     try {
+      // Ensure WASM parser is initialized
+      await this.ensureInitialized();
+      
       const content = await this.fileReader.readFile(filePath);
       return this.analyzeFileFromContent(filePath, content);
     } catch (error) {
@@ -33,9 +115,19 @@ export class PythonSymbolAnalyzer implements ISymbolAnalyzer {
   /**
    * Synchronously analyze Python content and extract symbols
    * Used by AstWorker when content is already loaded
+   * NOTE: Parser must be initialized before calling this method (call ensureInitialized() first)
    */
   analyzeFileFromContent(filePath: string, content: string): Map<string, SymbolInfo> {
+    if (!this.parser) {
+      throw new Error(
+        "Parser not initialized. Call ensureInitialized() before using analyzeFileFromContent()."
+      );
+    }
+    
     const tree = this.parser.parse(content);
+    if (!tree) {
+      throw new Error(`Failed to parse Python file: ${filePath}`);
+    }
     const symbols = new Map<string, SymbolInfo>();
     const normalizedPath = normalizePath(filePath);
 
@@ -47,13 +139,23 @@ export class PythonSymbolAnalyzer implements ISymbolAnalyzer {
   /**
    * Synchronously analyze Python content and extract both symbols and dependencies
    * Used by AstWorker when content is already loaded
+   * NOTE: Parser must be initialized before calling this method (call ensureInitialized() first)
    * @returns Object with symbols and dependencies arrays
    */
   analyzeFileContent(filePath: string, content: string): {
     symbols: SymbolInfo[];
     dependencies: SymbolDependency[];
   } {
+    if (!this.parser) {
+      throw new Error(
+        "Parser not initialized. Call ensureInitialized() before using analyzeFileContent()."
+      );
+    }
+    
     const tree = this.parser.parse(content);
+    if (!tree) {
+      throw new Error(`Failed to parse Python file: ${filePath}`);
+    }
     const symbolMap = new Map<string, SymbolInfo>();
     const dependencies: SymbolDependency[] = [];
     const normalizedPath = normalizePath(filePath);
@@ -78,6 +180,9 @@ export class PythonSymbolAnalyzer implements ISymbolAnalyzer {
    */
   async getSymbolDependencies(filePath: string): Promise<SymbolDependency[]> {
     try {
+      // Ensure WASM parser is initialized
+      await this.ensureInitialized();
+      
       const content = await this.fileReader.readFile(filePath);
       const result = this.analyzeFileContent(filePath, content);
       return result.dependencies;
@@ -90,7 +195,7 @@ export class PythonSymbolAnalyzer implements ISymbolAnalyzer {
    * Extract symbols from AST
    */
   private extractSymbols(
-    node: Parser.SyntaxNode,
+    node: Node,
     filePath: string,
     content: string,
     symbols: Map<string, SymbolInfo>,
@@ -104,7 +209,7 @@ export class PythonSymbolAnalyzer implements ISymbolAnalyzer {
   }
 
   private tryExtractSymbolFromNode(
-    node: Parser.SyntaxNode,
+    node: Node,
     filePath: string,
     content: string,
     symbols: Map<string, SymbolInfo>,
@@ -129,7 +234,7 @@ export class PythonSymbolAnalyzer implements ISymbolAnalyzer {
   }
 
   private handleFunctionDefinition(
-    node: Parser.SyntaxNode,
+    node: Node,
     filePath: string,
     content: string,
     symbols: Map<string, SymbolInfo>,
@@ -158,7 +263,7 @@ export class PythonSymbolAnalyzer implements ISymbolAnalyzer {
   }
 
   private handleClassDefinition(
-    node: Parser.SyntaxNode,
+    node: Node,
     filePath: string,
     content: string,
     symbols: Map<string, SymbolInfo>,
@@ -186,7 +291,7 @@ export class PythonSymbolAnalyzer implements ISymbolAnalyzer {
   }
 
   private handleDecoratedDefinition(
-    node: Parser.SyntaxNode,
+    node: Node,
     filePath: string,
     content: string,
     symbols: Map<string, SymbolInfo>,
@@ -200,7 +305,7 @@ export class PythonSymbolAnalyzer implements ISymbolAnalyzer {
   }
 
   private extractSymbolsFromChildren(
-    node: Parser.SyntaxNode,
+    node: Node,
     filePath: string,
     content: string,
     symbols: Map<string, SymbolInfo>,
@@ -215,10 +320,10 @@ export class PythonSymbolAnalyzer implements ISymbolAnalyzer {
    * Build a map of imported names to their module specifiers
    * e.g., format_result -> utils.helpers, connect_db -> utils.database
    */
-  private buildImportMap(node: Parser.SyntaxNode, content: string): Map<string, string> {
+  private buildImportMap(node: Node, content: string): Map<string, string> {
     const importMap = new Map<string, string>();
 
-    const traverse = (n: Parser.SyntaxNode) => {
+    const traverse = (n: Node) => {
       // Handle: from module import name [as alias]
       if (n.type === 'import_from_statement') {
         const moduleNode = n.childForFieldName('module_name');
@@ -279,7 +384,7 @@ export class PythonSymbolAnalyzer implements ISymbolAnalyzer {
    * Extract symbol dependencies from AST
    */
   private extractDependencies(
-    node: Parser.SyntaxNode,
+    node: Node,
     filePath: string,
     content: string,
     dependencies: SymbolDependency[],
@@ -296,7 +401,7 @@ export class PythonSymbolAnalyzer implements ISymbolAnalyzer {
   }
 
   private getScopeForNode(
-    node: Parser.SyntaxNode,
+    node: Node,
     filePath: string,
     content: string,
     currentScope?: string
@@ -315,7 +420,7 @@ export class PythonSymbolAnalyzer implements ISymbolAnalyzer {
   }
 
   private addCallDependencyIfAny(
-    node: Parser.SyntaxNode,
+    node: Node,
     filePath: string,
     content: string,
     dependencies: SymbolDependency[],
@@ -360,7 +465,7 @@ export class PythonSymbolAnalyzer implements ISymbolAnalyzer {
     }
   }
 
-  private getCalledName(funcNode: Parser.SyntaxNode, content: string): string {
+  private getCalledName(funcNode: Node, content: string): string {
     if (funcNode.type !== 'attribute') {
       return this.getNodeText(funcNode, content);
     }
@@ -376,7 +481,7 @@ export class PythonSymbolAnalyzer implements ISymbolAnalyzer {
   /**
    * Check if a symbol is exported (Python doesn't have explicit exports, so we check if it's not private)
    */
-  private isExported(node: Parser.SyntaxNode, content: string): boolean {
+  private isExported(node: Node, content: string): boolean {
     const nameNode = node.childForFieldName('name');
     if (!nameNode) {
       return false;
@@ -389,7 +494,7 @@ export class PythonSymbolAnalyzer implements ISymbolAnalyzer {
   /**
    * Check if node has a child of specific type
    */
-  private hasChild(node: Parser.SyntaxNode, type: string): boolean {
+  private hasChild(node: Node, type: string): boolean {
     for (const child of node.children) {
       if (child.type === type) {
         return true;
@@ -401,7 +506,7 @@ export class PythonSymbolAnalyzer implements ISymbolAnalyzer {
   /**
    * Get text content of a node
    */
-  private getNodeText(node: Parser.SyntaxNode, content: string): string {
+  private getNodeText(node: Node, content: string): string {
     return content.slice(node.startIndex, node.endIndex);
   }
 }

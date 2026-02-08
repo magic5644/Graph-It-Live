@@ -14,6 +14,7 @@ describe('Spider - Python Integration', () => {
      .withRootDir(pythonFixturesPath)
      .withMaxDepth(10)
      .withExcludeNodeModules(true)
+     .withExtensionPath(process.cwd())
      .build();
   });
 

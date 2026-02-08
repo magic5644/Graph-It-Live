@@ -10,7 +10,8 @@ import { RustParser } from "../../src/analyzer/languages/RustParser";
  */
 describe("Rust extern crate filtering", () => {
   const rootDir = path.resolve(__dirname, "../fixtures/rust-integration");
-  const parser = new RustParser(rootDir);
+  const extensionPath = path.resolve(process.cwd());
+  const parser = new RustParser(rootDir, extensionPath);
 
   it("should not include extern crate declarations in dependencies", async () => {
     // `extern crate vm;` and `extern crate rustpython_vm;` declarations

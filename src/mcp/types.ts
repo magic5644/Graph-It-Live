@@ -40,6 +40,19 @@ export type McpWorkerMessage =
 export interface McpWorkerConfig {
   rootDir: string;
   tsConfigPath?: string;
+  /**
+   * Path to the VS Code extension directory.
+   * Required for WASM parser initialization (locating .wasm files in dist/).
+   *
+   * **IMPORTANT:** This must be provided by the extension host when creating the worker.
+   * Without it, WASM parsers (PythonParser, RustParser) cannot initialize and parsing
+   * for Python/Rust files will fail.
+   *
+   * Example: context.extensionPath from VS Code extension activation
+   *
+   * @see Requirements 5.3 - Support Electron Environment
+   */
+  extensionPath?: string;
   excludeNodeModules: boolean;
   maxDepth: number;
 }

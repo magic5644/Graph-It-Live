@@ -36,6 +36,7 @@ describe('MCP Rust Integration Tests', () => {
       rootDir: rustFixturesDir,
       excludeNodeModules: true,
       maxDepth: 50,
+      extensionPath: process.cwd(),
     });
   }, 20000);
 

@@ -10,7 +10,6 @@ import { bench, describe, expect } from 'vitest';
 import { PythonParser } from "../../src/analyzer/languages/PythonParser";
 import { PythonSymbolAnalyzer } from "../../src/analyzer/languages/PythonSymbolAnalyzer";
 import { Parser } from "../../src/analyzer/Parser";
-import { Spider } from "../../src/analyzer/Spider";
 import { SymbolAnalyzer } from "../../src/analyzer/SymbolAnalyzer";
 import { detectLanguageFromExtension } from '../../src/shared/utils/languageDetection';
 
@@ -24,11 +23,15 @@ const BENCH_OPTIONS = {
 describe('Python Performance Benchmarks', () => {
   const pythonFixturesDir = path.resolve(__dirname, '../fixtures/python-integration');
   const tsFixturesDir = path.resolve(__dirname, '../fixtures/sample-project');
+  
+  // Extension path for WASM parser initialization
+  // Points to project root where dist/wasm directory is located
+  const extensionPath = path.resolve(__dirname, '../..');
 
   // Initialize synchronously at suite definition time to avoid any
   // benchmark warmup/hook ordering issues.
-  const pythonParser = new PythonParser();
-  const pythonSymbolAnalyzer = new PythonSymbolAnalyzer();
+  const pythonParser = new PythonParser(undefined, extensionPath);
+  const pythonSymbolAnalyzer = new PythonSymbolAnalyzer(extensionPath);
   const tsParser = new Parser();
   const tsSymbolAnalyzer = new SymbolAnalyzer();
 
@@ -68,13 +71,23 @@ describe('Python Performance Benchmarks', () => {
 
   describe('Full project crawl', () => {
     bench('Python: Crawl python-integration project (6 files)', async () => {
-      const spider = new Spider({ rootDir: pythonFixturesDir, maxDepth: 20 });
+      const { SpiderBuilder } = await import('../../src/analyzer/SpiderBuilder');
+      const spider = new SpiderBuilder()
+        .withRootDir(pythonFixturesDir)
+        .withMaxDepth(20)
+        .withExtensionPath(extensionPath)
+        .build();
       const appFile = path.join(pythonFixturesDir, 'app.py');
       await spider.crawl(appFile);
     }, BENCH_OPTIONS);
 
     bench('TypeScript: Crawl sample-project (similar size)', async () => {
-      const spider = new Spider({ rootDir: tsFixturesDir, maxDepth: 20 });
+      const { SpiderBuilder } = await import('../../src/analyzer/SpiderBuilder');
+      const spider = new SpiderBuilder()
+        .withRootDir(tsFixturesDir)
+        .withMaxDepth(20)
+        .withExtensionPath(extensionPath)
+        .build();
       const mainFile = path.join(tsFixturesDir, 'src/main.ts');
       await spider.crawl(mainFile);
     }, BENCH_OPTIONS);
@@ -97,7 +110,12 @@ describe('Python Performance Benchmarks', () => {
   describe('Zero overhead for TypeScript-only projects', () => {
     bench('TypeScript project: Spider should not load Python parser', async () => {
       // This benchmark ensures Python parser is only loaded when needed
-      const spider = new Spider({ rootDir: tsFixturesDir, maxDepth: 20 });
+      const { SpiderBuilder } = await import('../../src/analyzer/SpiderBuilder');
+      const spider = new SpiderBuilder()
+        .withRootDir(tsFixturesDir)
+        .withMaxDepth(20)
+        .withExtensionPath(extensionPath)
+        .build();
       const mainFile = path.join(tsFixturesDir, 'src/main.ts');
       await spider.crawl(mainFile);
       // Python parser should NOT be instantiated here
