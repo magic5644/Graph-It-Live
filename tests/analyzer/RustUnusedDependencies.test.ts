@@ -14,6 +14,7 @@ describe('Rust Unused Dependencies', () => {
      .withMaxDepth(10)
      .withExcludeNodeModules(true)
      .withIndexingConcurrency(4)
+     .withExtensionPath(process.cwd())
      .build();
   });
 

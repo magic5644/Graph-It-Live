@@ -75,6 +75,48 @@ function saveMetafiles(metafilePath, results) {
   stdout('✓ Individual metafiles saved to dist/*.meta.json');
 }
 
+/**
+ * Copy WASM files from node_modules to dist directory
+ * Required for web-tree-sitter WASM parsers
+ */
+function copyWasmFiles() {
+  const wasmOutDir = path.join('dist', 'wasm');
+  fs.mkdirSync(wasmOutDir, { recursive: true });
+
+  const wasmFiles = [
+    {
+      src: 'node_modules/web-tree-sitter/web-tree-sitter.wasm',
+      fileName: 'tree-sitter.wasm',
+    },
+    {
+      src: 'node_modules/tree-sitter-wasms/out/tree-sitter-python.wasm',
+      fileName: 'tree-sitter-python.wasm',
+    },
+    {
+      src: 'node_modules/tree-sitter-wasms/out/tree-sitter-rust.wasm',
+      fileName: 'tree-sitter-rust.wasm',
+    },
+  ];
+
+  for (const { src, fileName } of wasmFiles) {
+    const destinations = [
+      path.join(wasmOutDir, fileName),      // Current runtime location
+      path.join('dist', fileName),          // Legacy compatibility for existing tests/tools
+    ];
+
+    try {
+      for (const dest of destinations) {
+        fs.copyFileSync(src, dest);
+      }
+      stdout(`✓ Copied ${fileName}`);
+    } catch (error) {
+      stderr(`✘ Failed to copy ${src}: ${error.message}`);
+      throw error;
+    }
+  }
+  stdout('✓ All WASM files copied to dist/');
+}
+
 async function main() {
   // Build Extension (Node.js)
   const ctxExtension = await esbuild.context({
@@ -86,11 +128,14 @@ async function main() {
     sourcesContent: false,
     platform: 'node',
     outfile: 'dist/extension.js',
-    external: ['vscode', 'tree-sitter', 'tree-sitter-python', 'tree-sitter-rust'],
+    external: ['vscode', 'web-tree-sitter'],
     logLevel: 'silent',
     plugins: [esbuildProblemMatcherPlugin],
     target: 'node20',
     metafile: !!metafilePath,
+    loader: {
+      '.wasm': 'file',
+    },
   });
 
   // Build Indexer Worker (Node.js Worker Thread)
@@ -104,11 +149,14 @@ async function main() {
     sourcesContent: false,
     platform: 'node',
     outfile: 'dist/indexerWorker.js',
-    external: ['tree-sitter', 'tree-sitter-python', 'tree-sitter-rust'],
+    external: ['web-tree-sitter'],
     logLevel: 'silent',
     plugins: [esbuildProblemMatcherPlugin],
     target: 'node20',
     metafile: !!metafilePath,
+    loader: {
+      '.wasm': 'file',
+    },
   });
 
   // Build AST Worker (Node.js Worker Thread)
@@ -123,11 +171,14 @@ async function main() {
     sourcesContent: false,
     platform: 'node',
     outfile: 'dist/astWorker.js',
-    external: ['tree-sitter', 'tree-sitter-python', 'tree-sitter-rust'],
+    external: ['web-tree-sitter'],
     logLevel: 'silent',
     plugins: [esbuildProblemMatcherPlugin],
     target: 'node20',
     metafile: !!metafilePath,
+    loader: {
+      '.wasm': 'file',
+    },
   });
 
   // Build MCP Server (Node.js Stdio Process)
@@ -142,11 +193,14 @@ async function main() {
     sourcesContent: false,
     platform: 'node',
     outfile: 'dist/mcpServer.mjs',
-    external: ['tree-sitter', 'tree-sitter-python', 'tree-sitter-rust'],
+    external: ['web-tree-sitter'],
     logLevel: 'silent',
     plugins: [esbuildProblemMatcherPlugin],
     target: 'node20',
     metafile: !!metafilePath,
+    loader: {
+      '.wasm': 'file',
+    },
     banner: {
       // Required for ESM to have __dirname and __filename
       js: `import { createRequire } from 'module';
@@ -169,11 +223,14 @@ const __dirname = dirname(__filename);`,
     sourcesContent: false,
     platform: 'node',
     outfile: 'dist/mcpWorker.js',
-    external: ['tree-sitter', 'tree-sitter-python', 'tree-sitter-rust'],
+    external: ['web-tree-sitter'],
     logLevel: 'silent',
     plugins: [esbuildProblemMatcherPlugin],
     target: 'node20',
     metafile: !!metafilePath,
+    loader: {
+      '.wasm': 'file',
+    },
   });
 
   // Build Webview (Browser)
@@ -212,6 +269,9 @@ const __dirname = dirname(__filename);`,
     const resultMcpServer = await ctxMcpServer.rebuild();
     const resultMcpWorker = await ctxMcpWorker.rebuild();
     const resultWebview = await ctxWebview.rebuild();
+    
+    // Copy WASM files to dist directory
+    copyWasmFiles();
     
     // Save combined metafile if requested
     if (metafilePath) {

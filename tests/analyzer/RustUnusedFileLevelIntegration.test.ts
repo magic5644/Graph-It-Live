@@ -12,6 +12,7 @@ describe('Rust Unused Dependencies Integration', () => {
     spider = new SpiderBuilder()
      .withRootDir(fixtureRoot)
      .withMaxDepth(20)
+     .withExtensionPath(process.cwd())
      .build();
   });
 

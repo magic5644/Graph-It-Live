@@ -14,6 +14,8 @@ export default tseslint.config(
       "vitest.benchmark.config.mts",
       "**/*.d.ts",
       "tests/**",
+      ".agents/**",
+      ".github/**",
       "eslint.config.mjs",
       "scripts/**",
       ".vscode-test/**",

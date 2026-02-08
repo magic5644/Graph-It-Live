@@ -13,7 +13,8 @@ import { describe, expect, it } from "vitest";
  */
 describe("Rust PascalCase symbol filtering", () => {
   const rootDir = path.resolve(__dirname, "../fixtures/rust-integration");
-  const parser = new RustParser(rootDir);
+  const extensionPath = path.resolve(process.cwd());
+  const parser = new RustParser(rootDir, extensionPath);
 
   it("should not extract PascalCase identifiers as modules", async () => {
     // When parsing `use crate::interpreter::SomeStruct;`, we extract:

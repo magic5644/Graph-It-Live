@@ -51,11 +51,14 @@ export class AstWorkerHost {
   private nextId = 1;
   private readonly pendingRequests = new Map<number, PendingRequest>();
   private readonly workerPath: string;
+  private readonly extensionPath?: string;
 
   /**
    * @param workerPath - Absolute path to the compiled astWorker.js bundle
+   * @param extensionPath - Absolute path to the extension directory (for WASM files)
    */
-  constructor(workerPath?: string) {
+  constructor(workerPath?: string, extensionPath?: string) {
+    this.extensionPath = extensionPath;
     // Default to dist/astWorker.js relative to __dirname
     // When running from dist/extension.js: __dirname = dist/, so look for ./astWorker.js
     // When running from src/analyzer/ast/: __dirname = src/analyzer/ast/, so look for ../../../dist/astWorker.js
@@ -101,7 +104,9 @@ export class AstWorkerHost {
     log.info(`Starting AstWorker from ${this.workerPath}`);
 
     try {
-      this.worker = new Worker(this.workerPath);
+      this.worker = new Worker(this.workerPath, {
+        workerData: { extensionPath: this.extensionPath },
+      });
 
       this.worker.on('message', (response: WorkerResponse) => {
         this.handleResponse(response);

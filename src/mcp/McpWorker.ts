@@ -4,6 +4,35 @@
  * Runs in a separate thread to handle CPU-intensive dependency analysis
  * without blocking the VS Code extension host or MCP server.
  *
+ * ## WASM Parser Usage in Worker Threads
+ *
+ * This worker uses WASM-based parsers (PythonParser, RustParser) for dependency analysis.
+ * The parsers require the `extensionPath` to locate WASM files in the dist/ directory.
+ *
+ * **Current Implementation:**
+ * - Worker receives `extensionPath` via `McpWorkerConfig`
+ * - Passes `extensionPath` to `SpiderBuilder` via `withExtensionPath()`
+ * - Spider creates parsers with `extensionPath` through `LanguageService`
+ * - Parsers initialize WASM from extension's dist/ directory
+ * - WASM files: tree-sitter.wasm, tree-sitter-python.wasm, tree-sitter-rust.wasm
+ *
+ * **Known Limitations:**
+ * - web-tree-sitter has known compatibility issues in Node.js Worker Thread contexts
+ * - WASM initialization may fail with LinkError in some environments
+ * - If WASM fails, parsing errors will be caught and tools will return errors
+ *
+ * **Alternative Approach (if WASM issues persist):**
+ * If WASM parsing proves unreliable in worker threads, consider delegating parsing
+ * to the extension host via message passing:
+ * 1. Worker sends file path to extension host
+ * 2. Extension host performs parsing (WASM works reliably in Electron)
+ * 3. Extension host sends parsed dependencies back to worker
+ * 4. Worker continues with analysis
+ *
+ * This would add message passing overhead but ensure reliable parsing.
+ *
+ * @see Requirements 5.3 - Support Electron Environment (workers delegate to extension host)
+ *
  * CRITICAL ARCHITECTURE RULE: This module is completely VS Code agnostic!
  * NO import * as vscode from 'vscode' allowed!
  */
@@ -102,7 +131,7 @@ async function handleInit(cfg: McpWorkerConfig): Promise<void> {
   );
 
   // Initialize AstWorkerHost
-  workerState.astWorkerHost = new AstWorkerHost();
+  workerState.astWorkerHost = new AstWorkerHost(undefined, cfg.extensionPath);
   await workerState.astWorkerHost.start();
   log.info("AstWorkerHost started");
 
@@ -114,6 +143,15 @@ async function handleInit(cfg: McpWorkerConfig): Promise<void> {
 
   if (cfg.tsConfigPath) {
     builder.withTsConfigPath(cfg.tsConfigPath);
+  }
+
+  // Pass extensionPath to enable WASM parser initialization
+  // The extensionPath is required for Python and Rust parsers to locate WASM files
+  // in the extension's dist/ directory (tree-sitter-python.wasm, tree-sitter-rust.wasm)
+  // If extensionPath is not provided, WASM initialization will fail and parsing
+  // for Python/Rust files will throw errors (caught in tool invocation handlers)
+  if (cfg.extensionPath) {
+    builder.withExtensionPath(cfg.extensionPath);
   }
 
   workerState.spider = builder.build();

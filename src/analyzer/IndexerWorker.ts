@@ -3,6 +3,34 @@
  *
  * This runs in a separate thread to avoid blocking the VS Code extension host.
  * Node.js Worker Threads allow CPU-intensive work without affecting responsiveness.
+ *
+ * ## WASM Parser Usage in Worker Threads
+ *
+ * This worker uses WASM-based parsers (PythonParser, RustParser) for dependency analysis.
+ * The parsers require the `extensionPath` to locate WASM files in the dist/ directory.
+ *
+ * **Current Implementation:**
+ * - Worker receives `extensionPath` via `WorkerConfig`
+ * - Passes `extensionPath` to `LanguageService` constructor
+ * - `LanguageService` creates parsers with `extensionPath`
+ * - Parsers initialize WASM from extension's dist/ directory
+ *
+ * **Known Limitations:**
+ * - web-tree-sitter has known compatibility issues in Node.js Worker Thread contexts
+ * - WASM initialization may fail with LinkError in some environments
+ * - If WASM fails, parsing errors will be caught and files will be skipped
+ *
+ * **Alternative Approach (if WASM issues persist):**
+ * If WASM parsing proves unreliable in worker threads, consider delegating parsing
+ * to the extension host via message passing:
+ * 1. Worker sends file path to extension host
+ * 2. Extension host performs parsing (WASM works reliably in Electron)
+ * 3. Extension host sends parsed dependencies back to worker
+ * 4. Worker continues with indexing
+ *
+ * This would add message passing overhead but ensure reliable parsing.
+ *
+ * @see Requirements 5.3 - Support Electron Environment (workers delegate to extension host)
  */
 
 import { ConsoleLogger } from "@/shared/logger";
@@ -24,6 +52,16 @@ interface WorkerConfig {
   excludeNodeModules?: boolean;
   tsConfigPath?: string;
   progressInterval?: number;
+  /**
+   * Path to the VS Code extension directory.
+   * Required for WASM parser initialization (locating .wasm files in dist/).
+   *
+   * **IMPORTANT:** This must be provided by the extension host when creating the worker.
+   * Without it, WASM parsers cannot initialize and parsing will fail.
+   *
+   * Example: context.extensionPath from VS Code extension activation
+   */
+  extensionPath?: string;
 }
 
 interface WorkerMessage {
@@ -108,6 +146,19 @@ async function collectAllSourceFiles(
 
 /**
  * Analyze a single file and extract its dependencies
+ *
+ * Uses LanguageService to get the appropriate analyzer (parser) for the file type.
+ * For Python and Rust files, this will use WASM-based parsers.
+ *
+ * **Error Handling:**
+ * If parsing fails (including WASM initialization failures), the function returns null
+ * and the file is skipped. This ensures the indexing process continues even if
+ * individual files cannot be parsed.
+ *
+ * **WASM Considerations:**
+ * - First call to parseImports() triggers WASM initialization
+ * - WASM files must be available in extension's dist/ directory
+ * - If WASM fails to load, parsing will throw and file will be skipped
  */
 async function analyzeFile(
   filePath: string,
@@ -153,9 +204,13 @@ async function runIndexing(config: WorkerConfig): Promise<void> {
 
   try {
     // Create language service with root directory and tsconfig path
+    // The extensionPath is passed to enable WASM parser initialization
+    // Parsers (PythonParser, RustParser) need extensionPath to locate WASM files
+    // in the extension's dist/ directory (tree-sitter-python.wasm, tree-sitter-rust.wasm)
     const languageService = new LanguageService(
       config.rootDir,
       config.tsConfigPath,
+      config.extensionPath,
     );
 
     // Phase 1: Collect all files

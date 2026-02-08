@@ -149,6 +149,7 @@ export interface Dependency {
 export interface SpiderConfig {
   rootDir: string;
   tsConfigPath?: string;
+  extensionPath?: string;
   maxDepth?: number;
   excludeNodeModules?: boolean;
   /** Interval for worker progress reporting (defaults to 100 files) */

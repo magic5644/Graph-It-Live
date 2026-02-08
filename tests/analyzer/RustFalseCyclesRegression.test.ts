@@ -22,6 +22,7 @@ describe("Rust False Cycles Regression Test", () => {
   it("should not detect false cycles caused by external crate imports", async () => {
     const spider = new SpiderBuilder()
      .withRootDir(fixturesDir)
+     .withExtensionPath(process.cwd())
      .build();
 
     try {
@@ -100,7 +101,8 @@ describe("Rust False Cycles Regression Test", () => {
     // - Modules: lowercase, snake_case → interpreter, my_module, database_config
     // - Types/Symbols: PascalCase → Settings, MyType, HashMap
 
-    const parser = new RustParser(fixturesDir);
+    const extensionPath = path.resolve(process.cwd());
+    const parser = new RustParser(fixturesDir, extensionPath);
     const mainFile = path.join(fixturesDir, "lib.rs");
 
     try {

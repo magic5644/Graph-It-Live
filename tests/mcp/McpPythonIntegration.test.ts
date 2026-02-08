@@ -36,6 +36,7 @@ describe('MCP Python Integration Tests', () => {
       rootDir: pythonFixturesDir,
       excludeNodeModules: true,
       maxDepth: 50,
+      extensionPath: process.cwd(),
     });
   }, 20000);
 

@@ -12,6 +12,7 @@ describe('Spider Python Integration', () => {
     spider = new SpiderBuilder()
      .withRootDir(fixturesDir)
      .withReverseIndex(true)
+     .withExtensionPath(process.cwd())
      .build();
   });
 
@@ -206,6 +207,7 @@ describe('Spider Python Integration', () => {
       const tsSpider = new SpiderBuilder()
      .withRootDir(tsFixturesDir)
      .withTsConfigPath(path.join(tsFixturesDir, 'tsconfig.json'))
+     .withExtensionPath(process.cwd())
      .build();
 
       const tsEntryFile = path.join(tsFixturesDir, 'src/main.ts');

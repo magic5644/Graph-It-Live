@@ -16,7 +16,8 @@ import { RustParser } from "../../src/analyzer/languages/RustParser";
  */
 describe("Rust External Crate Imports", () => {
   const rootDir = path.resolve(__dirname, "../fixtures/rust-integration");
-  const parser = new RustParser(rootDir);
+  const extensionPath = path.resolve(process.cwd());
+  const parser = new RustParser(rootDir, extensionPath);
 
   it("should distinguish external crates from local modules by rejecting known crates", async () => {
     // The RustParser has a whitelist of known external crates.

@@ -41,6 +41,7 @@ describe("McpWorker - ReverseIndex Integration", () => {
      .withMaxDepth(10)
      .withReverseIndex(true)
      .withExcludeNodeModules(true)
+     .withExtensionPath(process.cwd())
      .build();
   });
 
@@ -250,6 +251,7 @@ describe("McpWorker - File Watching Simulation", () => {
      .withMaxDepth(10)
      .withReverseIndex(true)
      .withExcludeNodeModules(true)
+     .withExtensionPath(process.cwd())
      .build();
   });
 
@@ -349,6 +351,7 @@ describe("McpWorker - analyze_file_logic tool", () => {
      .withMaxDepth(10)
      .withReverseIndex(false)
      .withExcludeNodeModules(true)
+     .withExtensionPath(process.cwd())
      .build();
   });
 

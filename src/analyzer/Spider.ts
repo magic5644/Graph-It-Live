@@ -291,11 +291,15 @@ export class Spider {
       };
 
       // Initialize services in dependency order
-      this.languageService = new LanguageService(config.rootDir, config.tsConfigPath);
+      this.languageService = new LanguageService(
+        config.rootDir,
+        config.tsConfigPath,
+        config.extensionPath
+      );
       this.resolver = new PathResolver(config.tsConfigPath, this.config.excludeNodeModules, config.rootDir);
       this.cache = new Cache({ maxSize: this.config.maxCacheSize, enableLRU: true });
       this.symbolCache = new Cache({ maxSize: this.config.maxSymbolCacheSize, enableLRU: true });
-      this.astWorkerHost = new AstWorkerHost();
+      this.astWorkerHost = new AstWorkerHost(undefined, config.extensionPath);
       this.reverseIndexManager = new ReverseIndexManager(this.config.rootDir);
       this.fileReader = new FileReader();
       this.indexerStatus = new IndexerStatus();

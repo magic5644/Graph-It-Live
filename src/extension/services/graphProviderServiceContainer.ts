@@ -118,6 +118,7 @@ export function createGraphProviderServiceContainer(
       return new SpiderBuilder()
         .withRootDir(workspaceRoot)
         .withTsConfigPath(path.join(workspaceRoot, "tsconfig.json"))
+        .withExtensionPath(options.context.extensionPath)
         .withExcludeNodeModules(configSnapshot.excludeNodeModules)
         .withMaxDepth(configSnapshot.maxDepth)
         .withReverseIndex(configSnapshot.enableBackgroundIndexing)

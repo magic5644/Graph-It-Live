@@ -151,6 +151,7 @@ export class McpServerProvider implements vscode.Disposable {
 
     const serverPath = vscode.Uri.joinPath(this.extensionUri, 'dist', 'mcpServer.mjs').fsPath;
     const workspaceRoot = this.workspaceFolder.uri.fsPath;
+    const extensionPath = this.extensionUri.fsPath;
     const config = this.getConfig();
 
     log.debug('Providing MCP server definition for', workspaceRoot);
@@ -159,6 +160,7 @@ export class McpServerProvider implements vscode.Disposable {
     // Note: env type is Record<string, string | number> per VS Code API
     const env: Record<string, string | number> = {
       WORKSPACE_ROOT: workspaceRoot,
+      EXTENSION_PATH: extensionPath,
       EXCLUDE_NODE_MODULES: String(config.excludeNodeModules),
       MAX_DEPTH: config.maxDepth, // Keep as number
     };

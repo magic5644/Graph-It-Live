@@ -267,6 +267,7 @@ export class SpiderBuilder {
   // Configuration state
   private rootDir?: string;
   private tsConfigPath?: string;
+  private extensionPath?: string;
   private maxDepth: number = 50;
   private excludeNodeModules: boolean = true;
   private enableReverseIndex: boolean = false;
@@ -323,6 +324,28 @@ export class SpiderBuilder {
    */
   withTsConfigPath(tsConfigPath: string): this {
     this.tsConfigPath = tsConfigPath;
+    return this;
+  }
+
+  /**
+   * Set the extension path (optional, required for WASM parsers).
+   * 
+   * The extension path is used to locate WASM files for Python and Rust parsers.
+   * This should be the VS Code extension's installation directory (context.extensionPath).
+   * 
+   * @param extensionPath - Absolute path to the extension directory
+   * @returns This builder instance for method chaining
+   * 
+   * @example
+   * ```typescript
+   * const spider = new SpiderBuilder()
+   *   .withRootDir('/path/to/project')
+   *   .withExtensionPath(context.extensionPath)
+   *   .build();
+   * ```
+   */
+  withExtensionPath(extensionPath: string): this {
+    this.extensionPath = extensionPath;
     return this;
   }
 
@@ -526,6 +549,9 @@ export class SpiderBuilder {
     this.rootDir = config.rootDir;
     if (config.tsConfigPath !== undefined) {
       this.tsConfigPath = config.tsConfigPath;
+    }
+    if (config.extensionPath !== undefined) {
+      this.extensionPath = config.extensionPath;
     }
     if (config.maxDepth !== undefined) {
       this.maxDepth = config.maxDepth;
@@ -755,7 +781,7 @@ export class SpiderBuilder {
 
     // Phase 1: Core services (no dependencies)
     const languageService = this.customLanguageService ?? 
-      new LanguageService(this.rootDir!, this.tsConfigPath);
+      new LanguageService(this.rootDir!, this.tsConfigPath, this.extensionPath);
     
     const resolver = this.customPathResolver ?? 
       new PathResolver(this.tsConfigPath, this.excludeNodeModules, this.rootDir!);
@@ -769,7 +795,7 @@ export class SpiderBuilder {
         enableLRU: true 
       });
     
-    const astWorkerHost = this.customAstWorkerHost ?? new AstWorkerHost();
+    const astWorkerHost = this.customAstWorkerHost ?? new AstWorkerHost(undefined, this.extensionPath);
     
     const reverseIndexManager = this.customReverseIndexManager ?? 
       new ReverseIndexManager(this.rootDir!);
@@ -915,6 +941,7 @@ export class SpiderBuilder {
     return {
       rootDir: this.rootDir!,
       tsConfigPath: this.tsConfigPath,
+      extensionPath: this.extensionPath,
       maxDepth: this.maxDepth,
       excludeNodeModules: this.excludeNodeModules,
       enableReverseIndex: this.enableReverseIndex,

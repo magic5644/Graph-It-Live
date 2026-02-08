@@ -44,6 +44,7 @@ describe("MCP analyze_file_logic Integration Tests (T070-T074)", () => {
       rootDir: tempDir,
       excludeNodeModules: true,
       maxDepth: 50,
+      extensionPath: process.cwd(),
     });
   }, 20000);
 

@@ -154,6 +154,7 @@ export class SpiderIndexingService {
         excludeNodeModules: config.excludeNodeModules,
         tsConfigPath: config.tsConfigPath,
         progressInterval: config.indexingProgressInterval,
+        extensionPath: config.extensionPath,
       },
     });
   }
