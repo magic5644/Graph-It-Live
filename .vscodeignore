@@ -9,34 +9,18 @@ tests/**
 # Source maps (NEVER include in production)
 **/*.map
 
+# WASM files (MUST be included for tree-sitter parsers)
+!dist/*.wasm
+
 # Dependencies - exclude all, then include only required runtime files
 node_modules/**
 
-# tree-sitter: only prebuilds/ (native binaries) and core runtime files
-!node_modules/tree-sitter/package.json
-!node_modules/tree-sitter/prebuilds/
-!node_modules/tree-sitter/index.js
-!node_modules/tree-sitter/index.d.ts
-!node_modules/tree-sitter/tree-sitter.js
-!node_modules/tree-sitter/tree-sitter.d.ts
-
-# tree-sitter-python: only prebuilds/ and package files
-!node_modules/tree-sitter-python/package.json
-!node_modules/tree-sitter-python/prebuilds/
-!node_modules/tree-sitter-python/bindings/
-
-# tree-sitter-rust: only prebuilds/ and package files
-!node_modules/tree-sitter-rust/package.json
-!node_modules/tree-sitter-rust/prebuilds/
-!node_modules/tree-sitter-rust/bindings/
-
-# node-addon-api: required by tree-sitter binaries
-!node_modules/node-addon-api/package.json
-!node_modules/node-addon-api/napi.h
-!node_modules/node-addon-api/napi-inl.h
-
-# node-gyp-build: required by tree-sitter to load native binaries
-!node_modules/node-gyp-build/
+# web-tree-sitter is externalized by esbuild for extension/workers.
+# Include only runtime files required by Node CJS + ESM resolution.
+!node_modules/web-tree-sitter/package.json
+!node_modules/web-tree-sitter/web-tree-sitter.cjs
+!node_modules/web-tree-sitter/web-tree-sitter.js
+!node_modules/web-tree-sitter/web-tree-sitter.wasm
 
 # Build artifacts & intermediates
 out/**
@@ -97,6 +81,7 @@ test.log
 .cursor/**
 .goose/**
 .roo/**
+.kiro/**
 plan/**
 
 # OS files
