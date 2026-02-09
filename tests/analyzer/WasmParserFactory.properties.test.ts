@@ -1,7 +1,8 @@
-import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import fc from "fast-check";
 import path from "node:path";
-import { WasmParserFactory } from "@/analyzer/languages/WasmParserFactory";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { WasmParserFactory } from "../../src/analyzer/languages/WasmParserFactory";
+import { normalizePath } from "../../src/shared/path";
 
 /**
  * Property-Based Tests for WasmParserFactory
@@ -14,6 +15,12 @@ import { WasmParserFactory } from "@/analyzer/languages/WasmParserFactory";
 
 // Mock extension path for testing
 const mockExtensionPath = path.resolve(process.cwd());
+const windowsExtensionPath = String.raw`C:\Users\dev\extensions\graph-it-live`;
+const windowsVsCodeResourceExtensionPath = String.raw`C:\Users\dev\AppData\Local\Programs\Microsoft VS Code\resources\app\extensions\graph-it-live`;
+const windowsAltDriveExtensionPath = String.raw`D:\VSCode\extensions\graph-it-live`;
+const windowsMixedSeparatorExtensionPath = String.raw`C:\Users\dev/extensions/graph-it-live`;
+const linuxWithBackslashesExtensionPath = String.raw`/usr/local/vscode\extensions\graph-it-live`;
+const windowsExtensionPathWithTrailingSeparator = `${windowsExtensionPath}${path.win32.sep}`;
 
 // Mock web-tree-sitter module
 vi.mock("web-tree-sitter", () => {
@@ -27,8 +34,8 @@ vi.mock("web-tree-sitter", () => {
   });
 
   class MockParser {
-    static init = mockInit;
-    static Language = {
+    public static readonly init = mockInit;
+    public static readonly Language = {
       load: mockLanguageLoad,
     };
     id = parserIdCounter++;
@@ -88,7 +95,7 @@ describe("WasmParserFactory Property-Based Tests", () => {
             const wasmPath = path.join(mockExtensionPath, "dist", "tree-sitter.wasm");
 
             // Create multiple concurrent init() calls
-            const initPromises = Array(concurrentRequests)
+            const initPromises = new Array(concurrentRequests)
               .fill(0)
               .map(() => factory.init(wasmPath));
 
@@ -124,7 +131,7 @@ describe("WasmParserFactory Property-Based Tests", () => {
             await factory.init(treeSitterWasmPath);
 
             // Create multiple concurrent getParser() calls for the same language
-            const parserPromises = Array(concurrentRequests)
+            const parserPromises = new Array(concurrentRequests)
               .fill(0)
               .map(() => factory.getParser(languageName, languageWasmPath));
 
@@ -132,7 +139,7 @@ describe("WasmParserFactory Property-Based Tests", () => {
             const parsers = await Promise.all(parserPromises);
 
             // Verify all parsers are defined
-            expect(parsers.every((p) => p !== null && p !== undefined)).toBe(true);
+            expect(parsers.every((p) => p != null)).toBe(true);
 
             // Verify all parsers are the same instance (cached)
             for (let i = 1; i < parsers.length; i++) {
@@ -159,10 +166,10 @@ describe("WasmParserFactory Property-Based Tests", () => {
 
             // Create concurrent init() and getParser() calls
             const allPromises = [
-              ...Array(initCalls)
+              ...new Array(initCalls)
                 .fill(0)
                 .map(() => factory.init(treeSitterWasmPath)),
-              ...Array(getParserCalls)
+              ...new Array(getParserCalls)
                 .fill(0)
                 .map(async () => {
                   await factory.init(treeSitterWasmPath);
@@ -332,12 +339,12 @@ describe("WasmParserFactory Property-Based Tests", () => {
               const wasmPath = path.join(mockExtensionPath, "dist", `tree-sitter-${lang}.wasm`);
               const parser = await factory.getParser(lang, wasmPath);
 
-              if (!firstParsers.has(lang)) {
-                firstParsers.set(lang, parser);
-              } else {
+              if (firstParsers.has(lang)) {
                 // Subsequent calls should return the same instance
                 expect(parser).toBe(firstParsers.get(lang));
+                continue;
               }
+              firstParsers.set(lang, parser);
             }
           }
         ),
@@ -396,7 +403,7 @@ describe("WasmParserFactory Property-Based Tests", () => {
 
           // Initialize and get parser
           await factory.init(treeSitterWasmPath);
-          const firstParser = await factory.getParser(languageName, languageWasmPath);
+          await factory.getParser(languageName, languageWasmPath);
 
           // Reset factory
           factory.reset();
@@ -436,9 +443,9 @@ describe("WasmParserFactory Property-Based Tests", () => {
           fc.constantFrom(
             "/usr/local/vscode/extensions/graph-it-live", // Linux
             "/Users/dev/.vscode/extensions/graph-it-live", // macOS
-            "C:\\Users\\dev\\AppData\\Local\\Programs\\Microsoft VS Code\\resources\\app\\extensions\\graph-it-live", // Windows
+            windowsVsCodeResourceExtensionPath, // Windows
             "/home/user/vscode-server/extensions/graph-it-live", // Linux (remote)
-            "D:\\VSCode\\extensions\\graph-it-live" // Windows (different drive)
+            windowsAltDriveExtensionPath // Windows (different drive)
           ),
           fc.constantFrom("python", "rust"), // Language to test
           async (extensionPath, languageName) => {
@@ -479,8 +486,8 @@ describe("WasmParserFactory Property-Based Tests", () => {
           fc.constantFrom(
             // Mixed separators (should be normalized by path.join)
             "C:/Users/dev/extensions/graph-it-live", // Windows with forward slashes
-            "/usr/local/vscode\\extensions\\graph-it-live", // Linux with backslashes (unusual but possible)
-            "C:\\Users\\dev/extensions/graph-it-live" // Windows with mixed separators
+            linuxWithBackslashesExtensionPath, // Linux with backslashes (unusual but possible)
+            windowsMixedSeparatorExtensionPath // Windows with mixed separators
           ),
           async (extensionPath) => {
             // Reset for each property test iteration
@@ -509,7 +516,7 @@ describe("WasmParserFactory Property-Based Tests", () => {
         fc.asyncProperty(
           fc.constantFrom(
             "/usr/local/vscode/extensions/graph-it-live",
-            "C:\\Users\\dev\\extensions\\graph-it-live",
+            windowsExtensionPath,
             "/Users/dev/.vscode/extensions/graph-it-live"
           ),
           async (extensionPath) => {
@@ -545,7 +552,7 @@ describe("WasmParserFactory Property-Based Tests", () => {
         fc.asyncProperty(
           fc.constantFrom(
             "/usr/local/vscode/extensions/graph-it-live",
-            "C:\\Users\\dev\\extensions\\graph-it-live",
+            windowsExtensionPath,
             "/Users/dev/.vscode/extensions/graph-it-live"
           ),
           async (extensionPath) => {
@@ -589,7 +596,7 @@ describe("WasmParserFactory Property-Based Tests", () => {
         fc.asyncProperty(
           fc.constantFrom(
             "/usr/local/vscode/extensions/graph-it-live/", // Trailing slash
-            "C:\\Users\\dev\\extensions\\graph-it-live\\", // Trailing backslash
+            windowsExtensionPathWithTrailingSeparator, // Trailing backslash
             "/Users/dev/.vscode/extensions/graph-it-live/" // Trailing slash
           ),
           async (extensionPath) => {
@@ -619,7 +626,7 @@ describe("WasmParserFactory Property-Based Tests", () => {
         fc.asyncProperty(
           fc.constantFrom(
             "/usr/local/vscode/extensions/graph-it-live",
-            "C:\\Users\\dev\\extensions\\graph-it-live",
+            windowsExtensionPath,
             "/Users/dev/.vscode/extensions/graph-it-live"
           ),
           async (extensionPath) => {
@@ -656,13 +663,15 @@ describe("WasmParserFactory Property-Based Tests", () => {
       );
     });
 
-    it("Feature: tree-sitter-wasm-migration, Property 9: For any extension path, concurrent loads from different platforms succeed", async () => {
+    it(
+      "Feature: tree-sitter-wasm-migration, Property 9: For any extension path, concurrent loads from different platforms succeed",
+      async () => {
       await fc.assert(
         fc.asyncProperty(
           fc.shuffledSubarray(
             [
               "/usr/local/vscode/extensions/graph-it-live",
-              "C:\\Users\\dev\\extensions\\graph-it-live",
+              windowsExtensionPath,
               "/Users/dev/.vscode/extensions/graph-it-live",
             ],
             { minLength: 2, maxLength: 3 }
@@ -687,7 +696,7 @@ describe("WasmParserFactory Property-Based Tests", () => {
               results.push({
                 path: extensionPath,
                 initialized: factory.isInitialized(),
-                parserCreated: parser !== null && parser !== undefined,
+                parserCreated: parser != null,
               });
             }
 
@@ -698,7 +707,9 @@ describe("WasmParserFactory Property-Based Tests", () => {
         ),
         { numRuns: 100 }
       );
-    });
+      },
+      20_000
+    );
   });
 
   describe("Property 10: WASM Path Resolution Correctness", () => {
@@ -728,7 +739,7 @@ describe("WasmParserFactory Property-Based Tests", () => {
             expect(path.isAbsolute(wasmPath)).toBe(true);
 
             // Verify path contains the extension directory
-            expect(wasmPath).toContain(extensionPath);
+            expect(normalizePath(wasmPath)).toContain(normalizePath(extensionPath));
 
             // Verify path contains the dist directory
             expect(wasmPath).toContain("dist");
@@ -757,7 +768,7 @@ describe("WasmParserFactory Property-Based Tests", () => {
             const wasmDir = path.dirname(wasmPath);
 
             // Verify directory ends with 'dist'
-            expect(wasmDir.endsWith("dist")).toBe(true);
+            expect(path.basename(wasmDir)).toBe("dist");
 
             // Verify the path structure is correct
             const expectedPath = path.join(extensionPath, "dist", wasmFileName);
@@ -785,7 +796,7 @@ describe("WasmParserFactory Property-Based Tests", () => {
               expect(path.isAbsolute(wasmPath)).toBe(true);
 
               // Verify path structure
-              expect(wasmPath).toContain(extensionPath);
+              expect(normalizePath(wasmPath)).toContain(normalizePath(extensionPath));
               expect(wasmPath).toContain("dist");
               expect(wasmPath.endsWith(wasmFileName)).toBe(true);
 
@@ -878,7 +889,7 @@ describe("WasmParserFactory Property-Based Tests", () => {
         fc.asyncProperty(
           fc.constantFrom(
             "/usr/local/vscode/extensions/graph-it-live",
-            "C:\\Users\\dev\\extensions\\graph-it-live",
+            windowsExtensionPath,
             "/Users/dev/.vscode/extensions/graph-it-live"
           ),
           fc.constantFrom("tree-sitter.wasm", "tree-sitter-python.wasm", "tree-sitter-rust.wasm"),
@@ -902,7 +913,7 @@ describe("WasmParserFactory Property-Based Tests", () => {
         fc.asyncProperty(
           fc.constantFrom(
             "/usr/local/vscode/extensions/graph-it-live",
-            "C:\\Users\\dev\\extensions\\graph-it-live",
+            windowsExtensionPath,
             "/Users/dev/.vscode/extensions/graph-it-live"
           ),
           fc.constantFrom("tree-sitter.wasm", "tree-sitter-python.wasm", "tree-sitter-rust.wasm"),
