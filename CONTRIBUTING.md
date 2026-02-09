@@ -127,7 +127,6 @@ docs: update WASM architecture documentation
 - **Formatting**: Follow existing code style
 - **Naming**: Use camelCase for variables/functions, PascalCase for classes/types
 
-For complete coding standards, see `.kiro/steering/coding-standards.md`.
 
 ## Testing
 
@@ -271,8 +270,6 @@ const testPath = String.raw`C:\Users\test\file.ts`; // Windows literal
 const filePath = baseDir + '/src/file.ts';
 const testPath = 'C:\\Users\\test\\file.ts';
 ```
-
-For complete coding standards, see `.kiro/steering/coding-standards.md`.
 
 ## Documentation
 
