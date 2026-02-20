@@ -34,6 +34,21 @@
   - Enhanced cycle detection with prominent error-colored badges
   - Improved edge styling for better relationship differentiation
 
+### Architecture
+
+- **WASM Parser Migration**: Replaced native tree-sitter binaries with WebAssembly (WASM) parsers
+  - **Removed native dependencies**: `tree-sitter`, `tree-sitter-python`, `tree-sitter-rust` (native binaries)
+  - **Added WASM dependencies**: `web-tree-sitter` (official WASM port), `tree-sitter-wasms` (pre-compiled language grammars)
+  - ✅ No native compilation required during installation (no Python, C++ compiler, etc.)
+  - ✅ Eliminates code signature verification issues in restrictive environments (e.g. Antigravity)
+  - ✅ Cross-platform reliability: identical behavior on Windows, Linux, and macOS
+  - ✅ Enhanced security: pure JavaScript + WASM (no native `.node` binaries)
+  - ✅ Reduced package size: WASM files ~2-3 MB vs native binaries
+  - ✅ Removed `.npmrc` `legacy-peer-deps` workaround (no longer needed)
+  - **WasmParserFactory**: New singleton factory managing async WASM initialization and parser caching
+  - **WASM files**: bundled in `dist/wasm/` (`tree-sitter.wasm`, `tree-sitter-python.wasm`, `tree-sitter-rust.wasm`)
+  - **Unit tests**: use mocked parsers (WASM not compatible with Node.js); E2E tests validate with real WASM
+
 ### Infrastructure
 
 - **Security**: Zero security issues (Snyk code scan verified)
