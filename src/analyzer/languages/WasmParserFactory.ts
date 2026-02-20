@@ -1,5 +1,5 @@
-import { Language, Parser } from "web-tree-sitter";
 import fs from "node:fs/promises";
+import { Language, Parser } from "web-tree-sitter";
 
 /**
  * Singleton factory for the lifecycle of WASM tree-sitter parsers.
@@ -16,9 +16,9 @@ import fs from "node:fs/promises";
 export class WasmParserFactory {
   private static instance: WasmParserFactory | null = null;
   private initPromise: Promise<void> | null = null;
-  private parsers: Map<string, Parser> = new Map();
-  private parserPromises: Map<string, Promise<Parser>> = new Map();
-  private languages: Map<string, Language> = new Map();
+  private readonly parsers: Map<string, Parser> = new Map();
+  private readonly parserPromises: Map<string, Promise<Parser>> = new Map();
+  private readonly languages: Map<string, Language> = new Map();
   private initialized = false;
   private readonly textEncoder = new TextEncoder();
 
@@ -32,9 +32,7 @@ export class WasmParserFactory {
    * @returns The singleton instance
    */
   static getInstance(): WasmParserFactory {
-    if (!WasmParserFactory.instance) {
-      WasmParserFactory.instance = new WasmParserFactory();
-    }
+    WasmParserFactory.instance ??= new WasmParserFactory();
     return WasmParserFactory.instance;
   }
 

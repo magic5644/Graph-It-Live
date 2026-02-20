@@ -1,6 +1,5 @@
 import path from "node:path";
 import { describe, expect, it } from "vitest";
-import { Spider } from "../../src/analyzer/Spider";
 import { SpiderBuilder } from "../../src/analyzer/SpiderBuilder";
 import { RustParser } from "../../src/analyzer/languages/RustParser";
 

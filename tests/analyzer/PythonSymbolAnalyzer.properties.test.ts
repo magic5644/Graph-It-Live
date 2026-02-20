@@ -1,10 +1,10 @@
-import { describe, it, expect, beforeEach, vi } from 'vitest';
 import fc from 'fast-check';
+import fs from 'node:fs/promises';
 import path from 'node:path';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
+import type Parser from 'web-tree-sitter';
 import { PythonSymbolAnalyzer } from '../../src/analyzer/languages/PythonSymbolAnalyzer';
 import { normalizePath } from '../../src/shared/path';
-import fs from 'node:fs/promises';
-import type Parser from 'web-tree-sitter';
 
 /**
  * Property-Based Tests for PythonSymbolAnalyzer WASM Migration
@@ -32,8 +32,7 @@ vi.mock('web-tree-sitter', () => {
     startCol: number = 0,
     children: Parser.SyntaxNode[] = [],
     startIndex: number = 0,
-    endIndex: number = 0,
-    fieldName?: string
+    endIndex: number = 0
   ): Parser.SyntaxNode => {
     const node: any = {
       type,
@@ -57,7 +56,6 @@ vi.mock('web-tree-sitter', () => {
       parent: null,
       id: 0,
       tree: null as any,
-      fieldName,
       isNamed: () => true,
       isMissing: () => false,
       hasChanges: () => false,
@@ -89,14 +87,84 @@ vi.mock('web-tree-sitter', () => {
     return node;
   };
 
+  const createNameNode = (
+    text: string,
+    row: number,
+    col: number = 0,
+    startIndex: number = 0,
+    endIndex: number = 0
+  ): Parser.SyntaxNode => {
+    const node = createMockNode('identifier', text, row, col, [], startIndex, endIndex);
+    (node as any).fieldName = 'name';
+    return node;
+  };
+
+  const processDecoratorLookahead = (
+    lineIndex: number,
+    line: string,
+    lineStartOffset: number,
+    lines: string[],
+    lineOffsets: number[],
+    children: Parser.SyntaxNode[],
+    processedLines: Set<number>
+  ): void => {
+    for (let i = lineIndex + 1; i < lines.length; i++) {
+      const nextLine = lines[i].trim();
+      if (!nextLine || nextLine.startsWith('#')) continue;
+      const decoratedFuncMatch = /^(async\s+)?def\s+([a-zA-Z_]\w*)\s*\(.*\)\s*:/.exec(nextLine);
+      const decoratedClassMatch = /^class\s+([a-zA-Z_]\w*)\s*[:(]/.exec(nextLine);
+      if (decoratedFuncMatch) {
+        const isAsync = !!decoratedFuncMatch[1];
+        const funcName = decoratedFuncMatch[2];
+        const funcLineOffset = lineOffsets[i];
+        const funcNameStart = funcLineOffset + lines[i].indexOf(funcName);
+        const funcNameEnd = funcNameStart + funcName.length;
+        const nameNode = createNameNode(funcName, i, 0, funcNameStart, funcNameEnd);
+        const funcChildren: Parser.SyntaxNode[] = [];
+        if (isAsync) {
+          const asyncStart = funcLineOffset + lines[i].indexOf('async');
+          const asyncEnd = asyncStart + 5;
+          funcChildren.push(createMockNode('async', 'async', i, 0, [], asyncStart, asyncEnd));
+        }
+        funcChildren.push(nameNode);
+        const funcStart = funcLineOffset;
+        const funcEnd = funcLineOffset + lines[i].length;
+        const funcNode = createMockNode('function_definition', lines[i], i, 0, funcChildren, funcStart, funcEnd);
+        const decoratedNode = createMockNode(
+          'decorated_definition', `${line}\n${lines[i]}`, lineIndex, 0, [funcNode], lineStartOffset, funcEnd
+        );
+        children.push(decoratedNode);
+        processedLines.add(lineIndex);
+        processedLines.add(i);
+        break;
+      } else if (decoratedClassMatch) {
+        const className = decoratedClassMatch[1];
+        const classLineOffset = lineOffsets[i];
+        const classNameStart = classLineOffset + lines[i].indexOf(className);
+        const classNameEnd = classNameStart + className.length;
+        const nameNode = createNameNode(className, i, 0, classNameStart, classNameEnd);
+        const classStart = classLineOffset;
+        const classEnd = classLineOffset + lines[i].length;
+        const classNode = createMockNode('class_definition', lines[i], i, 0, [nameNode], classStart, classEnd);
+        const decoratedNode = createMockNode(
+          'decorated_definition', `${line}\n${lines[i]}`, lineIndex, 0, [classNode], lineStartOffset, classEnd
+        );
+        children.push(decoratedNode);
+        processedLines.add(lineIndex);
+        processedLines.add(i);
+        break;
+      }
+    }
+  };
+
   const mockParse = vi.fn((content: string) => {
     // Debug: log when parse is called
     // console.log('[MOCK] Parse called with content length:', content.length);
-    
+
     const lines = content.split('\n');
     const children: Parser.SyntaxNode[] = [];
     const processedLines = new Set<number>(); // Track which lines we've processed
-    
+
     // Calculate byte offset for each line
     const lineOffsets: number[] = [0];
     for (let i = 0; i < lines.length - 1; i++) {
@@ -115,112 +183,12 @@ vi.mock('web-tree-sitter', () => {
 
       // Match: @decorator
       if (trimmed.startsWith('@')) {
-        // Look ahead for the next non-empty line to find the decorated definition
-        for (let i = lineIndex + 1; i < lines.length; i++) {
-          const nextLine = lines[i].trim();
-          if (!nextLine || nextLine.startsWith('#')) continue;
-          
-          const decoratedFuncMatch = /^(async\s+)?def\s+([a-zA-Z_][a-zA-Z0-9_]*)\s*\(.*\)\s*:/.exec(nextLine);
-          const decoratedClassMatch = /^class\s+([a-zA-Z_][a-zA-Z0-9_]*)\s*[:(]/.exec(nextLine);
-          
-          if (decoratedFuncMatch) {
-            const isAsync = !!decoratedFuncMatch[1];
-            const funcName = decoratedFuncMatch[2];
-            const funcLineOffset = lineOffsets[i];
-            const funcNameStart = funcLineOffset + lines[i].indexOf(funcName);
-            const funcNameEnd = funcNameStart + funcName.length;
-            
-            // Create identifier node for function name (at function line)
-            const nameNode = createMockNode('identifier', funcName, i, 0, [], funcNameStart, funcNameEnd, 'name');
-            const funcChildren: Parser.SyntaxNode[] = [];
-            
-            // Add async keyword as a child if present
-            if (isAsync) {
-              const asyncStart = funcLineOffset + lines[i].indexOf('async');
-              const asyncEnd = asyncStart + 5;
-              const asyncNode = createMockNode('async', 'async', i, 0, [], asyncStart, asyncEnd);
-              funcChildren.push(asyncNode);
-            }
-            
-            // Add name node
-            funcChildren.push(nameNode);
-            
-            // Create function_definition node (at function line, not decorator line)
-            const funcStart = funcLineOffset;
-            const funcEnd = funcLineOffset + lines[i].length;
-            const funcNode = createMockNode(
-              'function_definition',
-              lines[i],
-              i,
-              0,
-              funcChildren,
-              funcStart,
-              funcEnd
-            );
-            
-            // Create decorated_definition node (at decorator line)
-            const decoratedStart = lineStartOffset;
-            const decoratedEnd = funcEnd;
-            const decoratedNode = createMockNode(
-              'decorated_definition',
-              `${line}\n${lines[i]}`,
-              lineIndex,
-              0,
-              [funcNode],
-              decoratedStart,
-              decoratedEnd
-            );
-            
-            children.push(decoratedNode);
-            processedLines.add(lineIndex);
-            processedLines.add(i);
-            break;
-          } else if (decoratedClassMatch) {
-            const className = decoratedClassMatch[1];
-            const classLineOffset = lineOffsets[i];
-            const classNameStart = classLineOffset + lines[i].indexOf(className);
-            const classNameEnd = classNameStart + className.length;
-            
-            // Create identifier node for class name (at class line)
-            const nameNode = createMockNode('identifier', className, i, 0, [], classNameStart, classNameEnd, 'name');
-            
-            // Create class_definition node (at class line, not decorator line)
-            const classStart = classLineOffset;
-            const classEnd = classLineOffset + lines[i].length;
-            const classNode = createMockNode(
-              'class_definition',
-              lines[i],
-              i,
-              0,
-              [nameNode],
-              classStart,
-              classEnd
-            );
-            
-            // Create decorated_definition node (at decorator line)
-            const decoratedStart = lineStartOffset;
-            const decoratedEnd = classEnd;
-            const decoratedNode = createMockNode(
-              'decorated_definition',
-              `${line}\n${lines[i]}`,
-              lineIndex,
-              0,
-              [classNode],
-              decoratedStart,
-              decoratedEnd
-            );
-            
-            children.push(decoratedNode);
-            processedLines.add(lineIndex);
-            processedLines.add(i);
-            break;
-          }
-        }
+        processDecoratorLookahead(lineIndex, line, lineStartOffset, lines, lineOffsets, children, processedLines);
         return;
       }
 
       // Match: def function_name(...): or def function_name():
-      const funcMatch = /^(async\s+)?def\s+([a-zA-Z_][a-zA-Z0-9_]*)\s*\(.*\)\s*:/.exec(trimmed);
+      const funcMatch = /^(async\s+)?def\s+([a-zA-Z_]\w*)\s*\(.*\)\s*:/.exec(trimmed);
       if (funcMatch) {
         const isAsync = !!funcMatch[1];
         const funcName = funcMatch[2];
@@ -228,7 +196,7 @@ vi.mock('web-tree-sitter', () => {
         const funcNameEnd = funcNameStart + funcName.length;
         
         // Create identifier node for function name with 'name' field
-        const nameNode = createMockNode('identifier', funcName, lineIndex, 0, [], funcNameStart, funcNameEnd, 'name');
+        const nameNode = createNameNode(funcName, lineIndex, 0, funcNameStart, funcNameEnd);
         const funcChildren: Parser.SyntaxNode[] = [];
         
         // Add async keyword as a child if present
@@ -261,14 +229,14 @@ vi.mock('web-tree-sitter', () => {
       }
 
       // Match: class ClassName:
-      const classMatch = /^class\s+([a-zA-Z_][a-zA-Z0-9_]*)\s*[:(]/.exec(trimmed);
+      const classMatch = /^class\s+([a-zA-Z_]\w*)\s*[:(]/.exec(trimmed);
       if (classMatch) {
         const className = classMatch[1];
         const classNameStart = lineStartOffset + line.indexOf(className);
         const classNameEnd = classNameStart + className.length;
         
         // Create identifier node for class name with 'name' field
-        const nameNode = createMockNode('identifier', className, lineIndex, 0, [], classNameStart, classNameEnd, 'name');
+        const nameNode = createNameNode(className, lineIndex, 0, classNameStart, classNameEnd);
         
         // Create class_definition node
         const classStart = lineStartOffset;
@@ -285,7 +253,6 @@ vi.mock('web-tree-sitter', () => {
         
         children.push(classNode);
         processedLines.add(lineIndex);
-        return;
       }
     });
 
@@ -304,8 +271,8 @@ vi.mock('web-tree-sitter', () => {
 
   return {
     default: class MockParser {
-      static init = vi.fn().mockResolvedValue(undefined);
-      static Language = {
+      static readonly init = vi.fn().mockResolvedValue(undefined);
+      static readonly Language = {
         load: vi.fn().mockResolvedValue({}),
       };
       setLanguage = vi.fn();
@@ -390,11 +357,11 @@ describe('PythonSymbolAnalyzer Property-Based Tests', () => {
 
     // Arbitrary for generating valid Python function names
     const pythonFunctionNameArbitrary = () =>
-      fc.stringMatching(/^[a-zA-Z_][a-zA-Z0-9_]*$/);
+      fc.stringMatching(/^[a-zA-Z_]\w*$/);
 
     // Arbitrary for generating valid Python class names
     const pythonClassNameArbitrary = () =>
-      fc.stringMatching(/^[a-zA-Z_][a-zA-Z0-9_]*$/);
+      fc.stringMatching(/^[a-zA-Z_]\w*$/);
 
     // Arbitrary for generating Python symbol types
     const pythonSymbolTypeArbitrary = () =>
@@ -681,12 +648,10 @@ describe('PythonSymbolAnalyzer Property-Based Tests', () => {
 
               // Alternate between async and regular functions
               if (index % 2 === 0) {
-                lines.push(`async def ${name}():`);
-                lines.push('    pass');
+                lines.push(`async def ${name}():`, '    pass');
                 expectedAsyncFunctions.push(name);
               } else {
-                lines.push(`def ${name}():`);
-                lines.push('    pass');
+                lines.push(`def ${name}():`, '    pass');
               }
             });
 
@@ -739,14 +704,12 @@ describe('PythonSymbolAnalyzer Property-Based Tests', () => {
               // Alternate between private and public
               if (index % 2 === 0) {
                 const privateName = `_${uniqueName}`;
-                lines.push(`def ${privateName}():`);
-                lines.push('    pass');
+                lines.push(`def ${privateName}():`, '    pass');
                 privateNames.push(privateName);
               } else {
                 // For public names, ensure they don't start with underscore
                 const publicName = uniqueName.startsWith('_') ? `pub${uniqueName}` : uniqueName;
-                lines.push(`def ${publicName}():`);
-                lines.push('    pass');
+                lines.push(`def ${publicName}():`, '    pass');
                 publicNames.push(publicName);
               }
             });
@@ -794,9 +757,7 @@ describe('PythonSymbolAnalyzer Property-Based Tests', () => {
               }
               seenNames.add(name);
 
-              lines.push('@decorator');
-              lines.push(`def ${name}():`);
-              lines.push('    pass');
+              lines.push('@decorator', `def ${name}():`, '    pass');
               expectedNames.push(name);
             });
 
@@ -893,7 +854,8 @@ describe('PythonSymbolAnalyzer Property-Based Tests', () => {
 
               // Replace only the symbol name, not all occurrences
               // Use word boundary regex to avoid replacing parts of keywords
-              const namePattern = new RegExp(`\\b${symbol.name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\b`);
+              const escapedName = symbol.name.replaceAll(/[.*+?^${}()|[\]\\]/g, String.raw`\$&`);
+              const namePattern = new RegExp(String.raw`\b${escapedName}\b`);
               const symbolCode = symbol.code.replace(namePattern, uniqueName);
               const symbolLines = symbolCode.split('\n');
 

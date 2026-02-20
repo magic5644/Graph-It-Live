@@ -1,10 +1,10 @@
-import { describe, it, expect, beforeEach, vi } from 'vitest';
 import fc from 'fast-check';
+import fs from 'node:fs/promises';
 import path from 'node:path';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
+import type Parser from 'web-tree-sitter';
 import { PythonParser } from '../../src/analyzer/languages/PythonParser';
 import { normalizePath } from '../../src/shared/path';
-import fs from 'node:fs/promises';
-import type Parser from 'web-tree-sitter';
 
 /**
  * Property-Based Tests for PythonParser WASM Migration
@@ -158,8 +158,8 @@ vi.mock('web-tree-sitter', () => {
   });
 
   class MockParser {
-    static init = vi.fn().mockResolvedValue(undefined);
-    static Language = {
+    static readonly init = vi.fn().mockResolvedValue(undefined);
+    static readonly Language = {
       load: vi.fn().mockResolvedValue({}),
     };
     setLanguage = vi.fn();
@@ -797,7 +797,7 @@ describe('PythonParser Property-Based Tests', () => {
           fc.oneof(
             fc.constant('...'),                 // Too many dots
             fc.constant('....module'),          // Too many dots with module
-            fc.stringMatching(/^[0-9]/),       // Starts with number (invalid)
+            fc.stringMatching(/^\d/),       // Starts with number (invalid)
             fc.constant('/absolute/path'),      // Absolute file path (invalid)
             fc.constant('nonexistent_module_xyz123')  // Non-existent module
           ),
