@@ -253,7 +253,7 @@ export class Spider {
     // Check if we received SpiderServices (has dependencyAnalyzer property) or SpiderConfig
     if ('dependencyAnalyzer' in configOrServices) {
       // SpiderServices path (used by SpiderBuilder)
-      const services = configOrServices as SpiderServices;
+      const services = configOrServices;
       this.config = services.config;
       this.languageService = services.languageService;
       this.resolver = services.resolver;
@@ -276,7 +276,7 @@ export class Spider {
       this.cacheCoordinator = services.cacheCoordinator;
     } else {
       // SpiderConfig path (backward compatibility - initialize services inline)
-      const config = configOrServices as SpiderConfig;
+      const config = configOrServices;
       
       // Apply defaults
       this.config = {

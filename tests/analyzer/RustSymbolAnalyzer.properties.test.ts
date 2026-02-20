@@ -1,8 +1,8 @@
-import { describe, it, expect, beforeEach, vi } from 'vitest';
-import fc from 'fast-check';
-import path from 'node:path';
 import { RustSymbolAnalyzer } from '@/analyzer/languages/RustSymbolAnalyzer';
 import { normalizePath } from '@/shared/path';
+import fc from 'fast-check';
+import path from 'node:path';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type Parser from 'web-tree-sitter';
 
 /**
@@ -88,193 +88,61 @@ vi.mock('web-tree-sitter', () => {
     toString: () => text,
   });
 
+  const createRustItem = (
+    kind: string,
+    name: string,
+    line: string,
+    lineIndex: number,
+    lineStartIndex: number,
+    children: Parser.SyntaxNode[],
+    options: { isPublic: boolean; isAsync?: boolean }
+  ): void => {
+    const nameIndex = line.indexOf(name);
+    const nameNode = createMockNode('identifier', name, lineIndex, nameIndex, lineStartIndex + nameIndex);
+    const itemChildren: Parser.SyntaxNode[] = [nameNode];
+    if (options.isAsync) {
+      const asyncIndex = line.indexOf('async');
+      itemChildren.unshift(createMockNode('async', 'async', lineIndex, asyncIndex, lineStartIndex + asyncIndex));
+    }
+    if (options.isPublic) {
+      const pubIndex = line.indexOf('pub');
+      itemChildren.unshift(createMockNode('visibility_modifier', 'pub', lineIndex, pubIndex, lineStartIndex + pubIndex));
+    }
+    children.push(createMockNode(kind, line, lineIndex, 0, lineStartIndex, itemChildren));
+  };
+
+  const processRustLine = (
+    line: string,
+    lineIndex: number,
+    lines: string[],
+    children: Parser.SyntaxNode[]
+  ): void => {
+    const trimmed = line.trim();
+    if (!trimmed || trimmed.startsWith('//')) return;
+    const lineStartIndex = lines.slice(0, lineIndex).reduce((acc, l) => acc + l.length + 1, 0);
+    if (trimmed.includes('fn ')) {
+      const match = /(?:pub\s+)?(?:async\s+)?fn\s+([a-z_]\w*)\s*\(/i.exec(trimmed);
+      if (match) createRustItem('function_item', match[1], line, lineIndex, lineStartIndex, children, { isPublic: trimmed.includes('pub fn'), isAsync: trimmed.includes('async fn') });
+    } else if (trimmed.includes('struct ')) {
+      const match = /(?:pub\s+)?struct\s+([a-z_]\w*)/i.exec(trimmed);
+      if (match) createRustItem('struct_item', match[1], line, lineIndex, lineStartIndex, children, { isPublic: trimmed.includes('pub struct') });
+    } else if (trimmed.includes('enum ')) {
+      const match = /(?:pub\s+)?enum\s+([a-z_]\w*)/i.exec(trimmed);
+      if (match) createRustItem('enum_item', match[1], line, lineIndex, lineStartIndex, children, { isPublic: trimmed.includes('pub enum') });
+    } else if (trimmed.includes('trait ')) {
+      const match = /(?:pub\s+)?trait\s+([a-z_]\w*)/i.exec(trimmed);
+      if (match) createRustItem('trait_item', match[1], line, lineIndex, lineStartIndex, children, { isPublic: trimmed.includes('pub trait') });
+    } else if (trimmed.startsWith('impl ')) {
+      children.push(createMockNode('impl_item', line, lineIndex, 0, lineStartIndex, []));
+    }
+  };
+
   const mockParse = vi.fn((content: string) => {
     const lines = content.split('\n');
     const children: Parser.SyntaxNode[] = [];
-    
     lines.forEach((line, lineIndex) => {
-      const trimmed = line.trim();
-      
-      // Skip empty lines and comments
-      if (!trimmed || trimmed.startsWith('//')) {
-        return;
-      }
-      
-      // Calculate the start index of this line in the content
-      const lineStartIndex = lines.slice(0, lineIndex).reduce((acc, l) => acc + l.length + 1, 0);
-      
-      // Match: pub fn function_name(...) or fn function_name(...)
-      if (trimmed.includes('fn ')) {
-        const match = /(?:pub\s+)?(?:async\s+)?fn\s+([a-zA-Z_][a-zA-Z0-9_]*)\s*\(/i.exec(trimmed);
-        if (match) {
-          const funcName = match[1];
-          const isPublic = trimmed.includes('pub fn');
-          const isAsync = trimmed.includes('async fn');
-          
-          // Find the position of the function name in the line
-          const funcNameIndex = line.indexOf(funcName);
-          const funcNameStartIndex = lineStartIndex + funcNameIndex;
-          
-          // Create identifier node for function name
-          const nameNode = createMockNode('identifier', funcName, lineIndex, funcNameIndex, funcNameStartIndex);
-          
-          const funcChildren: Parser.SyntaxNode[] = [nameNode];
-          
-          // Add visibility modifier if public
-          if (isPublic) {
-            const pubIndex = line.indexOf('pub');
-            const visNode = createMockNode('visibility_modifier', 'pub', lineIndex, pubIndex, lineStartIndex + pubIndex);
-            funcChildren.unshift(visNode);
-          }
-          
-          // Add async keyword if present
-          if (isAsync) {
-            const asyncIndex = line.indexOf('async');
-            const asyncNode = createMockNode('async', 'async', lineIndex, asyncIndex, lineStartIndex + asyncIndex);
-            funcChildren.unshift(asyncNode);
-          }
-          
-          // Create function_item node
-          const funcNode = createMockNode(
-            'function_item',
-            line,
-            lineIndex,
-            0,
-            lineStartIndex,
-            funcChildren
-          );
-          
-          children.push(funcNode);
-        }
-      }
-      
-      // Match: pub struct StructName or struct StructName
-      else if (trimmed.includes('struct ')) {
-        const match = /(?:pub\s+)?struct\s+([a-zA-Z_][a-zA-Z0-9_]*)/i.exec(trimmed);
-        if (match) {
-          const structName = match[1];
-          const isPublic = trimmed.includes('pub struct');
-          
-          // Find the position of the struct name in the line
-          const structNameIndex = line.indexOf(structName);
-          const structNameStartIndex = lineStartIndex + structNameIndex;
-          
-          // Create identifier node for struct name
-          const nameNode = createMockNode('identifier', structName, lineIndex, structNameIndex, structNameStartIndex);
-          
-          const structChildren: Parser.SyntaxNode[] = [nameNode];
-          
-          // Add visibility modifier if public
-          if (isPublic) {
-            const pubIndex = line.indexOf('pub');
-            const visNode = createMockNode('visibility_modifier', 'pub', lineIndex, pubIndex, lineStartIndex + pubIndex);
-            structChildren.unshift(visNode);
-          }
-          
-          // Create struct_item node
-          const structNode = createMockNode(
-            'struct_item',
-            line,
-            lineIndex,
-            0,
-            lineStartIndex,
-            structChildren
-          );
-          
-          children.push(structNode);
-        }
-      }
-      
-      // Match: pub enum EnumName or enum EnumName
-      else if (trimmed.includes('enum ')) {
-        const match = /(?:pub\s+)?enum\s+([a-zA-Z_][a-zA-Z0-9_]*)/i.exec(trimmed);
-        if (match) {
-          const enumName = match[1];
-          const isPublic = trimmed.includes('pub enum');
-          
-          // Find the position of the enum name in the line
-          const enumNameIndex = line.indexOf(enumName);
-          const enumNameStartIndex = lineStartIndex + enumNameIndex;
-          
-          // Create identifier node for enum name
-          const nameNode = createMockNode('identifier', enumName, lineIndex, enumNameIndex, enumNameStartIndex);
-          
-          const enumChildren: Parser.SyntaxNode[] = [nameNode];
-          
-          // Add visibility modifier if public
-          if (isPublic) {
-            const pubIndex = line.indexOf('pub');
-            const visNode = createMockNode('visibility_modifier', 'pub', lineIndex, pubIndex, lineStartIndex + pubIndex);
-            enumChildren.unshift(visNode);
-          }
-          
-          // Create enum_item node
-          const enumNode = createMockNode(
-            'enum_item',
-            line,
-            lineIndex,
-            0,
-            lineStartIndex,
-            enumChildren
-          );
-          
-          children.push(enumNode);
-        }
-      }
-      
-      // Match: pub trait TraitName or trait TraitName
-      else if (trimmed.includes('trait ')) {
-        const match = /(?:pub\s+)?trait\s+([a-zA-Z_][a-zA-Z0-9_]*)/i.exec(trimmed);
-        if (match) {
-          const traitName = match[1];
-          const isPublic = trimmed.includes('pub trait');
-          
-          // Find the position of the trait name in the line
-          const traitNameIndex = line.indexOf(traitName);
-          const traitNameStartIndex = lineStartIndex + traitNameIndex;
-          
-          // Create identifier node for trait name
-          const nameNode = createMockNode('identifier', traitName, lineIndex, traitNameIndex, traitNameStartIndex);
-          
-          const traitChildren: Parser.SyntaxNode[] = [nameNode];
-          
-          // Add visibility modifier if public
-          if (isPublic) {
-            const pubIndex = line.indexOf('pub');
-            const visNode = createMockNode('visibility_modifier', 'pub', lineIndex, pubIndex, lineStartIndex + pubIndex);
-            traitChildren.unshift(visNode);
-          }
-          
-          // Create trait_item node
-          const traitNode = createMockNode(
-            'trait_item',
-            line,
-            lineIndex,
-            0,
-            lineStartIndex,
-            traitChildren
-          );
-          
-          children.push(traitNode);
-        }
-      }
-      
-      // Match: impl blocks
-      else if (trimmed.startsWith('impl ')) {
-        // Create impl_item node (no name, just a container)
-        const implNode = createMockNode(
-          'impl_item',
-          line,
-          lineIndex,
-          0,
-          lineStartIndex,
-          []
-        );
-        
-        children.push(implNode);
-      }
+      processRustLine(line, lineIndex, lines, children);
     });
-
     return {
       rootNode: createMockNode('source_file', content, 0, 0, 0, children),
     };
@@ -282,8 +150,8 @@ vi.mock('web-tree-sitter', () => {
 
   return {
     default: class MockParser {
-      static init = vi.fn().mockResolvedValue(undefined);
-      static Language = {
+      static readonly init = vi.fn().mockResolvedValue(undefined);
+      static readonly Language = {
         load: vi.fn().mockResolvedValue({
           id: 1,
           fieldCount: 0,

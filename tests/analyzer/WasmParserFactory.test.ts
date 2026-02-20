@@ -1,6 +1,6 @@
-import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
-import path from "node:path";
 import { WasmParserFactory } from "@/analyzer/languages/WasmParserFactory";
+import path from "node:path";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 /**
  * Unit Tests for WasmParserFactory
@@ -18,8 +18,8 @@ vi.mock("web-tree-sitter", () => {
   const mockLanguageLoad = vi.fn().mockResolvedValue({});
 
   class MockParser {
-    static init = mockInit;
-    static Language = {
+    static readonly init = mockInit;
+    static readonly Language = {
       load: mockLanguageLoad,
     };
     setLanguage = vi.fn();
@@ -70,7 +70,7 @@ describe("WasmParserFactory Unit Tests", () => {
       factory1.reset();
       (WasmParserFactory as any).instance = null;
 
-      const factory2 = WasmParserFactory.getInstance();
+      WasmParserFactory.getInstance();
       const instance2 = (WasmParserFactory as any).instance;
 
       expect(instance1).not.toBe(instance2);
@@ -236,7 +236,7 @@ describe("WasmParserFactory Unit Tests", () => {
       const pythonWasmPath = path.join(mockExtensionPath, "dist", "tree-sitter-python.wasm");
 
       await factory.init(treeSitterWasmPath);
-      const parser1 = await factory.getParser("python", pythonWasmPath);
+      await factory.getParser("python", pythonWasmPath);
 
       factory.reset();
 

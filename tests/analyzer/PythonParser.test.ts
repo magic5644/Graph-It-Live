@@ -1,8 +1,7 @@
-import { describe, it, expect, beforeEach, vi } from 'vitest';
-import path from 'node:path';
 import { PythonParser } from '@/analyzer/languages/PythonParser';
 import { normalizePath } from '@/shared/path';
-import type Parser from 'web-tree-sitter';
+import path from 'node:path';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 // Mock WasmParserFactory to avoid WASM initialization in unit tests
 vi.mock('@/analyzer/languages/WasmParserFactory', () => {
