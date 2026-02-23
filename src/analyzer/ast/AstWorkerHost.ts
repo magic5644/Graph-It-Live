@@ -8,17 +8,17 @@
  * NO import * as vscode from 'vscode' allowed!
  */
 
-import { Worker } from 'node:worker_threads';
-import * as path from 'node:path';
 import * as fs from 'node:fs';
-import type { SymbolInfo, SymbolDependency } from '../types';
-import type {
-  SignatureInfo,
-  InterfaceMemberInfo,
-  TypeAliasInfo,
-  SignatureComparisonResult,
-} from '../SignatureAnalyzer';
+import * as path from 'node:path';
+import { Worker } from 'node:worker_threads';
 import { getLogger } from '../../shared/logger';
+import type {
+  InterfaceMemberInfo,
+  SignatureComparisonResult,
+  SignatureInfo,
+  TypeAliasInfo,
+} from '../SignatureAnalyzer';
+import type { SymbolDependency, SymbolInfo } from '../types';
 
 const log = getLogger('AstWorkerHost');
 
@@ -132,7 +132,7 @@ export class AstWorkerHost {
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       log.error(`Failed to start AstWorker: ${message}`);
-      throw new Error(`Failed to start AstWorker: ${message}`);
+      throw new Error(`Failed to start AstWorker: ${message}`, { cause: error });
     }
   }
 

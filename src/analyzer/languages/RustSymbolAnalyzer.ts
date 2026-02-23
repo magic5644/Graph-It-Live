@@ -1,9 +1,9 @@
-import path from "node:path";
 import fs from "node:fs/promises";
+import path from "node:path";
 import { Node, Parser } from "web-tree-sitter";
-import { ISymbolAnalyzer, SymbolInfo, SymbolDependency, SpiderError } from '../types';
-import { FileReader } from '../FileReader';
 import { normalizePath } from '../../shared/path';
+import { FileReader } from '../FileReader';
+import { ISymbolAnalyzer, SpiderError, SymbolDependency, SymbolInfo } from '../types';
 import { WasmParserFactory } from './WasmParserFactory';
 
 /**
@@ -72,7 +72,8 @@ export class RustSymbolAnalyzer implements ISymbolAnalyzer {
         
         const errorMessage = error instanceof Error ? error.message : String(error);
         throw new Error(
-          `Failed to initialize Rust WASM parser for symbol analysis: ${errorMessage}`
+          `Failed to initialize Rust WASM parser for symbol analysis: ${errorMessage}`,
+          { cause: error }
         );
       }
     })();

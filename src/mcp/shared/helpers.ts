@@ -199,7 +199,7 @@ export async function validateFileExists(filePath: string): Promise<void> {
     }
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code === "ENOENT") {
-      throw new Error(`File not found: ${filePath}`);
+      throw new Error(`File not found: ${filePath}`, { cause: error });
     }
     throw error;
   }
@@ -226,6 +226,7 @@ export async function validateAnalysisInput(filePath: string): Promise<{
     const errorMessage = error instanceof Error ? error.message : String(error);
     throw new Error(
       `FILE_NOT_FOUND: Cannot access file '${filePath}'. ${errorMessage}`,
+      { cause: error }
     );
   }
 

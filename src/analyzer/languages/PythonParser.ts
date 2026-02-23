@@ -73,7 +73,8 @@ export class PythonParser implements ILanguageAnalyzer {
         
         const errorMessage = error instanceof Error ? error.message : String(error);
         throw new Error(
-          `Failed to initialize Python WASM parser: ${errorMessage}`
+          `Failed to initialize Python WASM parser: ${errorMessage}`,
+          { cause: error }
         );
       }
     })();

@@ -1,9 +1,9 @@
-import path from "node:path";
 import fs from "node:fs/promises";
+import path from "node:path";
 import { Node, Parser } from "web-tree-sitter";
-import { ISymbolAnalyzer, SymbolInfo, SymbolDependency, SpiderError } from '../types';
-import { FileReader } from '../FileReader';
 import { normalizePath } from '../../shared/path';
+import { FileReader } from '../FileReader';
+import { ISymbolAnalyzer, SpiderError, SymbolDependency, SymbolInfo } from '../types';
 import { WasmParserFactory } from './WasmParserFactory';
 
 /**
@@ -72,7 +72,8 @@ export class PythonSymbolAnalyzer implements ISymbolAnalyzer {
         
         const errorMessage = error instanceof Error ? error.message : String(error);
         throw new Error(
-          `Failed to initialize Python WASM parser for symbol analysis: ${errorMessage}`
+          `Failed to initialize Python WASM parser for symbol analysis: ${errorMessage}`,
+          { cause: error }
         );
       }
     })();
@@ -322,62 +323,103 @@ export class PythonSymbolAnalyzer implements ISymbolAnalyzer {
    */
   private buildImportMap(node: Node, content: string): Map<string, string> {
     const importMap = new Map<string, string>();
-
-    const traverse = (n: Node) => {
-      // Handle: from module import name [as alias]
-      if (n.type === 'import_from_statement') {
-        const moduleNode = n.childForFieldName('module_name');
-        if (!moduleNode) return;
-        
-        const modulePath = this.getNodeText(moduleNode, content);
-        
-        // Extract imported names
-        for (const child of n.children) {
-          if (child.type === 'dotted_name' || child.type === 'identifier') {
-            const nameText = this.getNodeText(child, content);
-            // Skip if it's the module name itself
-            if (nameText === modulePath) continue;
-            // Check if this is part of aliased_import (will be handled separately)
-            if (child.parent?.type === 'aliased_import') continue;
-            importMap.set(nameText, modulePath);
-          } else if (child.type === 'aliased_import') {
-            const nameNode = child.childForFieldName('name');
-            const aliasNode = child.childForFieldName('alias');
-            if (nameNode) {
-              const name = this.getNodeText(nameNode, content);
-              const alias = aliasNode ? this.getNodeText(aliasNode, content) : name;
-              importMap.set(alias, modulePath);
-            }
-          }
-        }
-      }
-      // Handle: import module [as alias]
-      else if (n.type === 'import_statement') {
-        for (const child of n.children) {
-          if (child.type === 'dotted_name' || child.type === 'identifier') {
-            const modulePath = this.getNodeText(child, content);
-            // Skip keywords
-            if (modulePath === 'import') continue;
-            importMap.set(modulePath, modulePath);
-          } else if (child.type === 'aliased_import') {
-            const nameNode = child.childForFieldName('name');
-            const aliasNode = child.childForFieldName('alias');
-            if (nameNode) {
-              const modulePath = this.getNodeText(nameNode, content);
-              const alias = aliasNode ? this.getNodeText(aliasNode, content) : modulePath;
-              importMap.set(alias, modulePath);
-            }
-          }
-        }
-      }
-
-      for (const child of n.children) {
-        traverse(child);
-      }
-    };
-
-    traverse(node);
+    this.traverseForImports(node, importMap, content);
     return importMap;
+  }
+
+  private traverseForImports(node: Node, importMap: Map<string, string>, content: string): void {
+    if (node.type === 'import_from_statement') {
+      this.processFromImport(node, importMap, content);
+    } else if (node.type === 'import_statement') {
+      this.processImportStatement(node, importMap, content);
+    }
+
+    for (const child of node.children) {
+      this.traverseForImports(child, importMap, content);
+    }
+  }
+
+  /** Handle: from module import name [as alias] */
+  private processFromImport(node: Node, importMap: Map<string, string>, content: string): void {
+    const moduleNode = node.childForFieldName('module_name');
+    if (!moduleNode) {
+      return;
+    }
+
+    const modulePath = this.getNodeText(moduleNode, content);
+
+    for (const child of node.children) {
+      this.processFromImportChild(child, importMap, content, modulePath);
+    }
+  }
+
+  private processFromImportChild(
+    child: Node,
+    importMap: Map<string, string>,
+    content: string,
+    modulePath: string
+  ): void {
+    if (child.type === 'aliased_import') {
+      this.addAliasedFromImport(child, importMap, content, modulePath);
+      return;
+    }
+
+    if (child.type === 'dotted_name' || child.type === 'identifier') {
+      const nameText = this.getNodeText(child, content);
+      // Skip the module name itself and names that are part of an aliased_import
+      if (nameText === modulePath || child.parent?.type === 'aliased_import') {
+        return;
+      }
+      importMap.set(nameText, modulePath);
+    }
+  }
+
+  private addAliasedFromImport(
+    child: Node,
+    importMap: Map<string, string>,
+    content: string,
+    modulePath: string
+  ): void {
+    const nameNode = child.childForFieldName('name');
+    if (!nameNode) {
+      return;
+    }
+    const name = this.getNodeText(nameNode, content);
+    const aliasNode = child.childForFieldName('alias');
+    const alias = aliasNode ? this.getNodeText(aliasNode, content) : name;
+    importMap.set(alias, modulePath);
+  }
+
+  /** Handle: import module [as alias] */
+  private processImportStatement(node: Node, importMap: Map<string, string>, content: string): void {
+    for (const child of node.children) {
+      this.processImportStatementChild(child, importMap, content);
+    }
+  }
+
+  private processImportStatementChild(
+    child: Node,
+    importMap: Map<string, string>,
+    content: string
+  ): void {
+    if (child.type === 'aliased_import') {
+      const nameNode = child.childForFieldName('name');
+      if (!nameNode) {
+        return;
+      }
+      const modulePath = this.getNodeText(nameNode, content);
+      const aliasNode = child.childForFieldName('alias');
+      const alias = aliasNode ? this.getNodeText(aliasNode, content) : modulePath;
+      importMap.set(alias, modulePath);
+      return;
+    }
+
+    if (child.type === 'dotted_name' || child.type === 'identifier') {
+      const modulePath = this.getNodeText(child, content);
+      if (modulePath !== 'import') {
+        importMap.set(modulePath, modulePath);
+      }
+    }
   }
 
   /**
