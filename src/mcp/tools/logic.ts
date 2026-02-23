@@ -80,6 +80,7 @@ export async function executeAnalyzeFileLogic(
     if (errorMessage.includes("timeout") || errorMessage.includes("timed out")) {
       throw new Error(
         `LSP_TIMEOUT: LSP call hierarchy analysis timed out for ${filePath} (exceeded 5 seconds)`,
+        { cause: error }
       );
     }
 
@@ -87,17 +88,19 @@ export async function executeAnalyzeFileLogic(
     if (errorMessage.includes("LSP") || errorMessage.includes("language server")) {
       throw new Error(
         `LSP_UNAVAILABLE: Language server protocol is not available for ${filePath}. ${errorMessage}`,
+        { cause: error }
       );
     }
 
     // Check for file system errors
     if (errorMessage.includes("ENOENT") || errorMessage.includes("no such file")) {
-      throw new Error(`FILE_NOT_FOUND: File does not exist: ${filePath}`);
+      throw new Error(`FILE_NOT_FOUND: File does not exist: ${filePath}`, { cause: error });
     }
 
     // Generic analysis failure
     throw new Error(
       `ANALYSIS_FAILED: Symbol analysis failed for ${filePath}. ${errorMessage}`,
+      { cause: error }
     );
   }
 }

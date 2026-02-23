@@ -73,7 +73,8 @@ export class RustParser implements ILanguageAnalyzer {
         
         const errorMessage = error instanceof Error ? error.message : String(error);
         throw new Error(
-          `Failed to initialize Rust WASM parser: ${errorMessage}`
+          `Failed to initialize Rust WASM parser: ${errorMessage}`,
+          { cause: error }
         );
       }
     })();

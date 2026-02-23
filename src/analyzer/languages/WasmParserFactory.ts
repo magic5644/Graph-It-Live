@@ -69,7 +69,8 @@ export class WasmParserFactory {
         const errorMessage = error instanceof Error ? error.message : String(error);
         throw new Error(
           `Failed to initialize web-tree-sitter from ${wasmPath}: ${errorMessage}. ` +
-          `Ensure the WASM file exists and is not corrupted.`
+          `Ensure the WASM file exists and is not corrupted.`,
+          { cause: error }
         );
       }
     })();
@@ -174,16 +175,19 @@ export class WasmParserFactory {
       if (errorMessage.includes("ENOENT") || errorMessage.includes("not found")) {
         throw new Error(
           `Language WASM file not found: ${wasmPath}. ` +
-          `Ensure the extension is properly installed and WASM files are in the dist directory.`
+          `Ensure the extension is properly installed and WASM files are in the dist directory.`,
+          { cause: error }
         );
       } else if (errorMessage.includes("magic") || errorMessage.includes("invalid")) {
         throw new Error(
           `Failed to load language WASM from ${wasmPath}: ${errorMessage}. ` +
-          `The WASM file may be corrupted. Try reinstalling the extension.`
+          `The WASM file may be corrupted. Try reinstalling the extension.`,
+          { cause: error }
         );
       } else {
         throw new Error(
-          `Failed to load language WASM from ${wasmPath}: ${errorMessage}`
+          `Failed to load language WASM from ${wasmPath}: ${errorMessage}`,
+          { cause: error }
         );
       }
     }

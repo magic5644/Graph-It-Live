@@ -40,7 +40,7 @@ export async function executeAnalyzeBreakingChanges(
     );
   } catch (error) {
     const errorMsg = error instanceof Error ? error.message : "Unknown error";
-    throw new Error(`Failed to analyze breaking changes: ${errorMsg}`);
+    throw new Error(`Failed to analyze breaking changes: ${errorMsg}`, { cause: error });
   }
 
   // Filter by symbolName if provided
