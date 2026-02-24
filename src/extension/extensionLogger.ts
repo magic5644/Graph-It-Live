@@ -6,7 +6,7 @@
  */
 
 import * as vscode from 'vscode';
-import { type LogLevel, type ILogger, loggerFactory, LOG_LEVEL_PRIORITY } from '../shared/logger';
+import { type ILogger, LOG_LEVEL_PRIORITY, loggerFactory, type LogLevel } from '../shared/logger';
 
 /**
  * VS Code Logger - uses OutputChannel for output

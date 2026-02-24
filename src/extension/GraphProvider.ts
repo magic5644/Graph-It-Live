@@ -10,8 +10,11 @@ import { getExtensionLogger } from "./extensionLogger";
 import type { BackgroundIndexingManager } from "./services/BackgroundIndexingManager";
 import type { EditorNavigationService } from "./services/EditorNavigationService";
 import { ExtensionEventHub } from "./services/ExtensionEventHub";
-import type { EventType } from "./services/FileChangeScheduler";
-import type { FileChangeScheduler } from "./services/FileChangeScheduler";
+import type { EventType, FileChangeScheduler } from "./services/FileChangeScheduler";
+import {
+  createGraphProviderServiceContainer,
+  graphProviderServiceTokens,
+} from "./services/graphProviderServiceContainer";
 import { GraphState } from "./services/GraphState";
 import type { GraphViewService } from "./services/GraphViewService";
 import { MessageDispatcher } from "./services/MessageDispatcher";
@@ -20,14 +23,10 @@ import type {
   ProviderConfigSnapshot,
   ProviderStateManager,
 } from "./services/ProviderStateManager";
+import { ServiceContainer } from "./services/ServiceContainer";
 import type { SourceFileWatcher } from "./services/SourceFileWatcher";
 import type { SymbolViewService } from "./services/SymbolViewService";
 import type { UnusedAnalysisCache } from "./services/UnusedAnalysisCache";
-import {
-  createGraphProviderServiceContainer,
-  graphProviderServiceTokens,
-} from "./services/graphProviderServiceContainer";
-import { ServiceContainer } from "./services/ServiceContainer";
 import type { WebviewManager } from "./WebviewManager";
 
 /** Logger instance for GraphProvider */

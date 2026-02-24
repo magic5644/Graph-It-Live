@@ -16,14 +16,16 @@ const log = getLogger("clusterUtils");
 export function buildClusters(symbols: SymbolNode[]): SymbolCluster[] {
   const clusters: SymbolCluster[] = [];
 
-  // Group symbols by namespace (extracted from symbol ID)
+  // Group symbols by namespace (file path extracted from symbol ID).
+  // Each file forms its own namespace cluster. A future enhancement could parse
+  // file content to extract language-level namespaces (TS namespaces, Python
+  // packages, Rust modules), but that requires access to file content.
   const symbolsByNamespace = new Map<string, SymbolNode[]>();
 
   for (const symbol of symbols) {
-    // Extract namespace from symbol ID (format: "filePath:symbolName")
-    // For now, use file path as namespace (will be enhanced for language-specific namespaces)
+    // Extract file path from symbol ID (format: "filePath:symbolName")
     const [filePath] = symbol.id.split(":");
-    const namespace = filePath; // TODO: Extract namespace from file content for TypeScript, Python, etc.
+    const namespace = filePath;
 
     if (!symbolsByNamespace.has(namespace)) {
       symbolsByNamespace.set(namespace, []);
