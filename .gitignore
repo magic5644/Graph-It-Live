@@ -191,6 +191,7 @@ test-results/
 # Snyk Security Extension - AI Rules (auto-generated)
 .github/instructions
 .github/skills
+.github/hooks
 AGENTS.md
 
 # Benchmark temporary files
