@@ -55,16 +55,9 @@ export const SymbolNode: React.FC<NodeProps<SymbolNodeData>> = ({ data, id }) =>
     // Étape 4: Handle double-click to highlight related nodes
     const handleDoubleClick = (e: React.MouseEvent) => {
         e.stopPropagation();
-        console.log('[SymbolNode] Double-click detected', {
-            nodeId: data.nodeId || id,
-            hasOnHighlight: !!data.onHighlight,
-            onHighlightType: typeof data.onHighlight,
-        });
         if (data.onHighlight) {
-            console.log('[SymbolNode] Calling onHighlight with:', data.nodeId || id);
             data.onHighlight(data.nodeId || id);
         } else {
-            console.log('[SymbolNode] No onHighlight, falling back to drill down');
             // Fallback to drill down if no highlight handler
             data.onDrillDown();
         }

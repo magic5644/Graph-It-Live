@@ -12,7 +12,7 @@
 export type LogLevel = 'debug' | 'info' | 'warn' | 'error' | 'none';
 
 /** Log level priority (lower = more verbose) */
-const LOG_LEVEL_PRIORITY: Record<LogLevel, number> = {
+export const LOG_LEVEL_PRIORITY: Record<LogLevel, number> = {
   debug: 0,
   info: 1,
   warn: 2,

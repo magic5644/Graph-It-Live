@@ -32,20 +32,6 @@ export const AtomicSymbolGraph: React.FC<AtomicSymbolGraphProps> = ({
   filePath,
   onNodeClick,
 }) => {
-  // Debug logging
-  React.useEffect(() => {
-    console.log('[AtomicSymbolGraph] Component mounted/updated');
-    console.log('[AtomicSymbolGraph] symbols:', symbols.length);
-    if (symbols.length > 0) {
-      console.log('[AtomicSymbolGraph] First 3 symbol IDs:', symbols.slice(0, 3).map(s => ({ name: s.name, id: s.id })));
-    }
-    console.log('[AtomicSymbolGraph] dependencies:', dependencies.length);
-    console.log('[AtomicSymbolGraph] incomingDependencies:', incomingDependencies.length);
-    if (incomingDependencies.length > 0) {
-      console.log('[AtomicSymbolGraph] First 2 incoming dep targetSymbolIds:', incomingDependencies.slice(0, 2).map(d => ({ target: d.targetSymbolId })));
-    }
-  }, [symbols, dependencies, incomingDependencies]);
-
   const [expandedNodes, setExpandedNodes] = useState<Set<string>>(() => {
     // Expand all classes by default
     const initialExpanded = new Set<string>();
@@ -79,14 +65,6 @@ export const AtomicSymbolGraph: React.FC<AtomicSymbolGraphProps> = ({
         dependsOn: depOn,
         dependsFrom: depFrom,
       });
-      if (depFrom.length > 0 || symbol.name === 'calculateDistance') {
-        console.log('[buildTree] Node for', symbol.name, ':', {
-          symbolId: symbol.id,
-          depFromKeys: Object.keys(depMap.dependsFrom),
-          depFrom: depFrom,
-          depOn: depOn,
-        });
-      }
     });
 
     // Build hierarchy: add methods to their classes
@@ -131,18 +109,13 @@ export const AtomicSymbolGraph: React.FC<AtomicSymbolGraphProps> = ({
       dependsFrom[dep.targetSymbolId].push(dep.sourceSymbolId);
     });
 
-    console.log('[buildDependencyMap] After dependencies:', { dependsFromKeys: Object.keys(dependsFrom) });
-
     // Add incoming dependencies (calls FROM external files TO current file)
     // Store the FULL external symbol ID so we can navigate to it later
-    incomingDependencies.forEach((dep, idx) => {
-      console.log(`[buildDependencyMap] Incoming dep ${idx}: source='${dep.sourceSymbolId.split(':').pop()}' -> target='${dep.targetSymbolId.split(':').pop()}'`);
+    incomingDependencies.forEach((dep) => {
       if (!dependsFrom[dep.targetSymbolId]) dependsFrom[dep.targetSymbolId] = [];
       // Store the FULL source symbol ID (with file path) so we can navigate to it
       dependsFrom[dep.targetSymbolId].push(dep.sourceSymbolId);
     });
-
-    console.log('[buildDependencyMap] Final dependsFrom keys:', Object.keys(dependsFrom));
 
     // Remove duplicates from all arrays
     Object.keys(dependsOn).forEach(key => {
@@ -256,17 +229,6 @@ export const AtomicSymbolGraph: React.FC<AtomicSymbolGraphProps> = ({
     const hasChildren = node.children.length > 0;
     const isExpanded = expandedNodes.has(node.id);
     const showDeps = isSelected && (node.dependsOn.length > 0 || node.dependsFrom.length > 0);
-
-    if (isSelected || node.dependsFrom.length > 0) {
-      console.log('[renderNode]', node.name, {
-        selected: isSelected,
-        dependsOnLength: node.dependsOn.length,
-        dependsOnList: node.dependsOn,
-        dependsFromLength: node.dependsFrom.length,
-        dependsFromList: node.dependsFrom,
-        showDeps: showDeps,
-      });
-    }
 
     return (
       <div key={node.id}>

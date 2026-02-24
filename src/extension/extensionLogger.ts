@@ -6,16 +6,7 @@
  */
 
 import * as vscode from 'vscode';
-import { type LogLevel, type ILogger, loggerFactory } from '../shared/logger';
-
-/** Log level priority for comparison */
-const LOG_LEVEL_PRIORITY: Record<LogLevel, number> = {
-  debug: 0,
-  info: 1,
-  warn: 2,
-  error: 3,
-  none: 4,
-};
+import { type LogLevel, type ILogger, loggerFactory, LOG_LEVEL_PRIORITY } from '../shared/logger';
 
 /**
  * VS Code Logger - uses OutputChannel for output
