@@ -89,6 +89,10 @@ function copyWasmFiles() {
       fileName: 'tree-sitter.wasm',
     },
     {
+      src: 'node_modules/tree-sitter-wasms/out/tree-sitter-typescript.wasm',
+      fileName: 'tree-sitter-typescript.wasm',
+    },
+    {
       src: 'node_modules/tree-sitter-wasms/out/tree-sitter-python.wasm',
       fileName: 'tree-sitter-python.wasm',
     },

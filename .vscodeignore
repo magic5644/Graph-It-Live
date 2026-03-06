@@ -11,6 +11,7 @@ tests/**
 
 # WASM files (MUST be included for tree-sitter parsers)
 !dist/*.wasm
+!dist/wasm/**
 
 # Dependencies - exclude all, then include only required runtime files
 node_modules/**
