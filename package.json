@@ -170,6 +170,12 @@
         "title": "Show All Dependencies",
         "icon": "$(eye-closed)",
         "category": "Graph-It-Live"
+      },
+      {
+        "command": "graph-it-live.showCallGraph",
+        "title": "Show Call Graph",
+        "category": "Graph-It-Live",
+        "icon": "$(call-incoming)"
       }
     ],
     "menus": {
@@ -233,29 +239,41 @@
           "icon": "$(symbol-class)"
         },
         {
+          "command": "graph-it-live.showCallGraph",
+          "when": "view == graph-it-live.graphView",
+          "group": "navigation@7"
+        },
+        {
           "command": "graph-it-live.showReverseDependencies",
           "when": "view == graph-it-live.graphView && graph-it-live.viewMode == 'file' && !graph-it-live.reverseDependenciesVisible",
-          "group": "navigation@7"
+          "group": "navigation@8"
         },
         {
           "command": "graph-it-live.hideReverseDependencies",
           "when": "view == graph-it-live.graphView && graph-it-live.viewMode == 'file' && graph-it-live.reverseDependenciesVisible",
-          "group": "navigation@7"
-        },
-        {
-          "command": "graph-it-live.expandAllNodes",
-          "when": "view == graph-it-live.graphView",
           "group": "navigation@8"
         },
         {
           "command": "graph-it-live.enableUnusedFilter",
-          "when": "view == graph-it-live.graphView && !graph-it-live.unusedFilterActive",
+          "when": "view == graph-it-live.graphView && graph-it-live.viewMode == 'file' && !graph-it-live.unusedFilterActive",
           "group": "navigation@9"
         },
         {
           "command": "graph-it-live.disableUnusedFilter",
-          "when": "view == graph-it-live.graphView && graph-it-live.unusedFilterActive",
+          "when": "view == graph-it-live.graphView && graph-it-live.viewMode == 'file' && graph-it-live.unusedFilterActive",
           "group": "navigation@9"
+        },
+        {
+          "command": "graph-it-live.expandAllNodes",
+          "when": "view == graph-it-live.graphView && graph-it-live.viewMode == 'file'",
+          "group": "navigation@10"
+        }
+      ],
+      "editor/context": [
+        {
+          "command": "graph-it-live.showCallGraph",
+          "when": "editorTextFocus",
+          "group": "navigation@99"
         }
       ]
     },
@@ -290,6 +308,11 @@
           "type": "boolean",
           "default": true,
           "description": "Enable background indexing for faster reverse dependency lookups. When enabled, the extension will index all files in the workspace at startup."
+        },
+        "graph-it-live.preIndexCallGraph": {
+          "type": "boolean",
+          "default": true,
+          "description": "Pre-index the call graph database at startup alongside background indexing. When enabled, the first 'Show Call Graph' command is near-instant because the symbol-level index is already built."
         },
         "graph-it-live.persistIndex": {
           "type": "boolean",
@@ -457,12 +480,15 @@
     "@types/d3": "^7.4.3",
     "@types/dagre": "^0.7.53",
     "chokidar": "^5.0.0",
+    "cytoscape": "^3.33.1",
+    "cytoscape-fcose": "^2.2.0",
     "d3": "^7.9.0",
     "dagre": "^0.8.5",
     "hono": "^4.12.2",
     "react": "^19.2.4",
     "react-dom": "^19.2.4",
     "reactflow": "^11.11.4",
+    "sql.js": "^1.14.0",
     "tree-sitter-wasms": "^0.1.13",
     "ts-morph": "^27.0.2",
     "web-tree-sitter": "^0.26.5",
@@ -470,10 +496,12 @@
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",
+    "@types/cytoscape": "^3.21.9",
     "@types/mocha": "^10.0.10",
     "@types/node": "^25.3.0",
     "@types/react": "^19.2.14",
     "@types/react-dom": "^19.2.3",
+    "@types/sql.js": "^1.4.9",
     "@types/vscode": "^1.96.0",
     "@vitest/coverage-v8": "^4.0.18",
     "@vitest/ui": "^4.0.18",

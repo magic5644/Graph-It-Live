@@ -1,4 +1,4 @@
-import type { ProviderStateManager } from "./ProviderStateManager";
+import type { ProviderStateManager, ViewMode } from "./ProviderStateManager";
 
 export class GraphState {
   private reverseDependenciesVisible = false;
@@ -9,7 +9,7 @@ export class GraphState {
     this.stateManager = stateManager;
   }
 
-  getViewMode(): "file" | "list" | "symbol" {
+  getViewMode(): ViewMode {
     return this.stateManager.viewMode;
   }
 

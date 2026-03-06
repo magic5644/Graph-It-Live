@@ -10,8 +10,9 @@
  * This module is the ONLY MCP-related file that imports from 'vscode'.
  */
 
-import * as vscode from 'vscode';
+import * as fs from 'node:fs';
 import * as path from 'node:path';
+import * as vscode from 'vscode';
 import { getExtensionLogger } from '../extension/extensionLogger';
 
 /** Logger instance for McpServerProvider */
@@ -63,8 +64,12 @@ export class McpServerProvider implements vscode.Disposable {
       return { dispose: () => {} };
     }
 
-    log.info('Registering MCP server provider...');
-    log.debug('MCP server currently', this.isEnabled ? 'enabled' : 'disabled', 'in settings');
+    if (!vscode.McpStdioServerDefinition) {
+      log.warn('vscode.McpStdioServerDefinition not available. MCP server requires a newer VS Code version.');
+      return { dispose: () => { } };
+    }
+
+    log.info('Registering MCP server provider (enabled:', this.isEnabled, ')...');
 
     try {
       // Always register the provider, but return empty list if disabled
@@ -93,6 +98,22 @@ export class McpServerProvider implements vscode.Disposable {
       );
 
       log.info('MCP server provider registered');
+
+      // Verify the server file exists to catch packaging issues early
+      const serverPath = vscode.Uri.joinPath(this.extensionUri, 'dist', 'mcpServer.mjs').fsPath;
+      if (!fs.existsSync(serverPath)) {
+        log.error('MCP server file not found at:', serverPath, '— run "npm run build" to generate it');
+      }
+
+      // Inform about org policy limitations
+      if (this.isEnabled) {
+        log.info(
+          'MCP server definitions will be provided to VS Code. ' +
+          'If tools do not appear in "Configure Tools", your Copilot organization policy may restrict MCP servers. ' +
+          'Check: GitHub.com → Your Org → Settings → Copilot → Policies → "Agent Mode" and "MCP Servers".'
+        );
+      }
+
       return this.registration;
     } catch (error) {
       log.error('Failed to register MCP server provider:', error);
@@ -146,48 +167,55 @@ export class McpServerProvider implements vscode.Disposable {
    */
   private provideMcpServerDefinitions(): vscode.McpServerDefinition[] {
     if (!this.isEnabled) {
+      log.debug('MCP server is disabled in settings, returning empty definitions');
       return [];
     }
 
-    const serverPath = vscode.Uri.joinPath(this.extensionUri, 'dist', 'mcpServer.mjs').fsPath;
-    const workspaceRoot = this.workspaceFolder.uri.fsPath;
-    const extensionPath = this.extensionUri.fsPath;
-    const config = this.getConfig();
+    try {
+      const serverPath = vscode.Uri.joinPath(this.extensionUri, 'dist', 'mcpServer.mjs').fsPath;
+      const workspaceRoot = this.workspaceFolder.uri.fsPath;
+      const extensionPath = this.extensionUri.fsPath;
+      const config = this.getConfig();
 
-    log.debug('Providing MCP server definition for', workspaceRoot);
+      log.info('Providing MCP server definition:', { serverPath, workspaceRoot });
 
-    // Build environment variables for the server
-    // Note: env type is Record<string, string | number> per VS Code API
-    const env: Record<string, string | number> = {
-      WORKSPACE_ROOT: workspaceRoot,
-      EXTENSION_PATH: extensionPath,
-      EXCLUDE_NODE_MODULES: String(config.excludeNodeModules),
-      MAX_DEPTH: config.maxDepth, // Keep as number
-    };
+      // Build environment variables for the server
+      // Note: env type is Record<string, string | number | null> per VS Code API
+      const env: Record<string, string | number> = {
+        WORKSPACE_ROOT: workspaceRoot,
+        EXTENSION_PATH: extensionPath,
+        EXCLUDE_NODE_MODULES: String(config.excludeNodeModules),
+        MAX_DEPTH: config.maxDepth, // Keep as number
+      };
 
-    if (config.tsConfigPath) {
-      env.TSCONFIG_PATH = config.tsConfigPath;
+      if (config.tsConfigPath) {
+        env.TSCONFIG_PATH = config.tsConfigPath;
+      }
+
+      // Pass debug logging setting to MCP server
+      if (config.enableDebugLogging) {
+        env.DEBUG_MCP = 'true';
+        log.info('MCP debug logging enabled - logs will be written to ~/mcp-debug.log');
+      }
+
+      // Create stdio server definition
+      // Constructor: (label, command, args?, env?, version?)
+      const serverDefinition = new vscode.McpStdioServerDefinition(
+        'Graph-It-Live Dependency Analyzer',
+        'node',
+        [serverPath],
+        env
+      );
+
+      // Set cwd on the definition
+      serverDefinition.cwd = vscode.Uri.file(workspaceRoot);
+
+      log.info('MCP server definition created successfully');
+      return [serverDefinition];
+    } catch (error) {
+      log.error('Failed to create MCP server definition:', error);
+      return [];
     }
-
-    // Pass debug logging setting to MCP server
-    if (config.enableDebugLogging) {
-      env.DEBUG_MCP = 'true';
-      log.info('MCP debug logging enabled - logs will be written to ~/mcp-debug.log');
-    }
-
-    // Create stdio server definition
-    // Constructor: (label, command, args?, env?, version?)
-    const serverDefinition = new vscode.McpStdioServerDefinition(
-      'Graph-It-Live Dependency Analyzer',
-      'node',
-      [serverPath],
-      env
-    );
-
-    // Set cwd on the definition
-    serverDefinition.cwd = vscode.Uri.file(workspaceRoot);
-
-    return [serverDefinition];
   }
 
   /**

@@ -4,6 +4,9 @@ export {
     executeVerifyDependencyUsage
 } from "./analysis";
 export {
+    executeGenerateCodemap
+} from "./codemap";
+export {
     executeGetSymbolCallers,
     executeTraceFunctionExecution
 } from "./execution";

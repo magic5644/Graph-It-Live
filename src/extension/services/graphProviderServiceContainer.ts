@@ -2,6 +2,7 @@ import * as path from "node:path";
 import * as vscode from "vscode";
 import { Spider } from "../../analyzer/Spider";
 import { SpiderBuilder } from "../../analyzer/SpiderBuilder";
+import type { CallGraphWebviewCommand } from "../../shared/callgraph-types";
 import type { VsCodeLogger } from "../extensionLogger";
 import { WebviewManager } from "../WebviewManager";
 import { BackgroundIndexingManager } from "./BackgroundIndexingManager";
@@ -17,11 +18,12 @@ import { NodeInteractionService } from "./NodeInteractionService";
 import {
   ProviderConfigSnapshot,
   ProviderStateManager,
+  ViewMode,
 } from "./ProviderStateManager";
+import { ServiceContainer, ServiceToken } from "./ServiceContainer";
 import { SourceFileWatcher } from "./SourceFileWatcher";
 import { SymbolViewService } from "./SymbolViewService";
 import { UnusedAnalysisCache } from "./UnusedAnalysisCache";
-import { ServiceContainer, ServiceToken } from "./ServiceContainer";
 
 export const graphProviderServiceTokens = {
   spider: Symbol("Spider") as ServiceToken<Spider>,
@@ -57,7 +59,7 @@ export interface MessageDispatcherCallbacks {
   handleSelectSymbol(symbolId: string | undefined): Promise<void>;
   sendGraphUpdate(filePath: string, isRefresh?: boolean): Promise<void>;
   setViewMode(mode: "file" | "list" | "symbol"): Promise<void>;
-  getViewMode(): "file" | "list" | "symbol";
+  getViewMode(): ViewMode;
   getSelectedSymbolId(): string | undefined;
   setSelectedSymbolId(symbolId: string | undefined): void;
   getLastActiveFilePath(): string | undefined;
@@ -65,6 +67,7 @@ export interface MessageDispatcherCallbacks {
     symbolId: string,
   ): { actualFilePath: string } | undefined;
   getActiveEditorFilePath(): string | undefined;
+  handleCallGraphMessage?: (msg: CallGraphWebviewCommand) => void;
 }
 
 export interface GraphProviderServiceContainerOptions {
@@ -239,6 +242,7 @@ export function createGraphProviderServiceContainer(
         getLastActiveFilePath: options.callbacks.getLastActiveFilePath,
         parseFilePathAndSymbol: options.callbacks.parseFilePathAndSymbol,
         getActiveEditorFilePath: options.callbacks.getActiveEditorFilePath,
+        handleCallGraphMessage: options.callbacks.handleCallGraphMessage,
         logger: options.logger,
       }),
   );

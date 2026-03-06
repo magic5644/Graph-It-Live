@@ -1,3 +1,4 @@
+import type { CallGraphWebviewCommand } from "../../shared/callgraph-types";
 import { SUPPORTED_SOURCE_FILE_REGEX } from "../../shared/constants";
 import type {
     SetExpandAllMessage,
@@ -7,6 +8,7 @@ import type {
 } from "../../shared/types";
 import { extensionLoggerManager } from "../extensionLogger";
 import type { GraphState } from "./GraphState";
+import type { ViewMode } from "./ProviderStateManager";
 import { WebviewMessageRouter } from "./WebviewMessageRouter";
 
 interface MessageDispatcherDependencies {
@@ -23,12 +25,13 @@ interface MessageDispatcherDependencies {
   handleSelectSymbol(symbolId: string | undefined): Promise<void>;
   sendGraphUpdate(filePath: string, isRefresh?: boolean): Promise<void>;
   setViewMode(mode: "file" | "list" | "symbol"): Promise<void>;
-  getViewMode(): "file" | "list" | "symbol";
+  getViewMode(): ViewMode;
   getSelectedSymbolId(): string | undefined;
   setSelectedSymbolId(symbolId: string | undefined): void;
   getLastActiveFilePath(): string | undefined;
   parseFilePathAndSymbol(symbolId: string): { actualFilePath: string } | undefined;
   getActiveEditorFilePath(): string | undefined;
+  handleCallGraphMessage?: (msg: CallGraphWebviewCommand) => void;
   logger: { debug: (message: string, ...args: unknown[]) => void };
 }
 
@@ -89,6 +92,24 @@ export class MessageDispatcher {
           if (m.filePath && m.line) {
             await deps.handleOpenFile(m.filePath, m.line);
           }
+        },
+        callGraphOpenFile: async (m) => {
+          deps.handleCallGraphMessage?.(m);
+        },
+        callGraphSymbolFocus: async (m) => {
+          deps.handleCallGraphMessage?.(m);
+        },
+        callGraphReady: async (m) => {
+          deps.handleCallGraphMessage?.(m);
+        },
+        callGraphMounted: async (m) => {
+          deps.handleCallGraphMessage?.(m);
+        },
+        callGraphDepthChanged: async (m) => {
+          deps.handleCallGraphMessage?.(m);
+        },
+        callGraphFilterChanged: async (m) => {
+          deps.handleCallGraphMessage?.(m);
         },
       },
     });

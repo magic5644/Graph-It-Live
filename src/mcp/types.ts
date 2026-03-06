@@ -104,7 +104,8 @@ export type McpToolName =
   | "get_symbol_callers" // NEW: O(1) lookup of symbol callers
   | "analyze_breaking_changes" // NEW: Detect breaking changes
   | "get_impact_analysis" // NEW: Full impact analysis
-  | "analyze_file_logic"; // NEW: LSP-based intra-file call hierarchy
+  | "analyze_file_logic" // NEW: LSP-based intra-file call hierarchy
+  | "generate_codemap"; // NEW: Full codemap generation for a single file
 
 // ============================================================================
 // Zod Schemas for Tool Parameters
@@ -465,6 +466,15 @@ export type AnalyzeFileLogicParams = z.infer<
   typeof AnalyzeFileLogicParamsSchema
 >;
 
+// NEW: Schema for generate_codemap (comprehensive file codemap)
+export const GenerateCodemapParamsSchema = z.object({
+  filePath: FilePathSchema.describe("Absolute path to the file to generate a codemap for"),
+  format: OutputFormatSchema.optional(),
+});
+export type GenerateCodemapParams = z.infer<
+  typeof GenerateCodemapParamsSchema
+>;
+
 // ============================================================================
 // Validation Utilities
 // ============================================================================
@@ -492,6 +502,7 @@ export const toolSchemas: Record<McpToolName, z.ZodType<unknown>> = {
   analyze_breaking_changes: AnalyzeBreakingChangesParamsSchema,
   get_impact_analysis: GetImpactAnalysisParamsSchema,
   analyze_file_logic: AnalyzeFileLogicParamsSchema,
+  generate_codemap: GenerateCodemapParamsSchema,
 };
 
 /**

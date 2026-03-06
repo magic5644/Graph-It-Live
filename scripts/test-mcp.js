@@ -699,6 +699,77 @@ export function add(a: number, b: number): number {
   await new Promise(r => setTimeout(r, 500));
 
   // =========================================================================
+  // 28. graphitlive_generate_codemap — JSON format
+  // =========================================================================
+  log('\n📤 [graphitlive_generate_codemap] Testing JSON format for utils.ts...');
+  send({
+    jsonrpc: '2.0',
+    id: ++id,
+    method: 'tools/call',
+    params: {
+      name: 'graphitlive_generate_codemap',
+      arguments: {
+        filePath: path.join(fixturesPath, 'utils.ts'),
+        format: 'json'
+      }
+    }
+  });
+  await new Promise(r => setTimeout(r, 500));
+
+  // =========================================================================
+  // 29. graphitlive_generate_codemap — TOON format
+  // =========================================================================
+  log('\n📤 [graphitlive_generate_codemap] Testing TOON format for main.ts...');
+  send({
+    jsonrpc: '2.0',
+    id: ++id,
+    method: 'tools/call',
+    params: {
+      name: 'graphitlive_generate_codemap',
+      arguments: {
+        filePath: path.join(fixturesPath, 'main.ts'),
+        format: 'toon'
+      }
+    }
+  });
+  await new Promise(r => setTimeout(r, 500));
+
+  // =========================================================================
+  // 30. graphitlive_generate_codemap — default format (should be json)
+  // =========================================================================
+  log('\n📤 [graphitlive_generate_codemap] Testing default format for index.ts...');
+  send({
+    jsonrpc: '2.0',
+    id: ++id,
+    method: 'tools/call',
+    params: {
+      name: 'graphitlive_generate_codemap',
+      arguments: {
+        filePath: path.join(fixturesPath, 'index.ts')
+      }
+    }
+  });
+  await new Promise(r => setTimeout(r, 500));
+
+  // =========================================================================
+  // 31. Error case: graphitlive_generate_codemap with non-existent file
+  // =========================================================================
+  log('\n📤 [graphitlive_generate_codemap] Testing error case: non-existent file...');
+  send({
+    jsonrpc: '2.0',
+    id: ++id,
+    method: 'tools/call',
+    params: {
+      name: 'graphitlive_generate_codemap',
+      arguments: {
+        filePath: '/non/existent/codemap-target.ts',
+        format: 'json'
+      }
+    }
+  });
+  await new Promise(r => setTimeout(r, 500));
+
+  // =========================================================================
   // BENCHMARK: JSON vs TOON Format Comparison
   // =========================================================================
   log('\n📊 ============================================');

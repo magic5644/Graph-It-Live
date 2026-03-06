@@ -8,6 +8,7 @@ import type {
 } from "../shared/types";
 import { getExtensionLogger } from "./extensionLogger";
 import type { BackgroundIndexingManager } from "./services/BackgroundIndexingManager";
+import type { CallGraphViewService } from "./services/CallGraphViewService";
 import type { EditorNavigationService } from "./services/EditorNavigationService";
 import { ExtensionEventHub } from "./services/ExtensionEventHub";
 import type { EventType, FileChangeScheduler } from "./services/FileChangeScheduler";
@@ -22,6 +23,7 @@ import type { NodeInteractionService } from "./services/NodeInteractionService";
 import type {
   ProviderConfigSnapshot,
   ProviderStateManager,
+  ViewMode,
 } from "./services/ProviderStateManager";
 import { ServiceContainer } from "./services/ServiceContainer";
 import type { SourceFileWatcher } from "./services/SourceFileWatcher";
@@ -51,6 +53,20 @@ export class GraphProvider implements vscode.WebviewViewProvider {
    * Populated by extension activation if MCP server is registered.
    */
   public notifyMcpServerOfConfigChange?: () => void;
+
+  /**
+   * Reference to the Call Graph view service, set after construction.
+   * Used to route call-graph webview messages and provide sidebar webview.
+   */
+  private _callGraphViewService: CallGraphViewService | null = null;
+
+  /**
+   * Wire the CallGraphViewService into this provider.
+   * Must be called before the webview is resolved.
+   */
+  public setCallGraphViewService(service: CallGraphViewService): void {
+    this._callGraphViewService = service;
+  }
 
   private get spider(): Spider | undefined {
     return this._container.has(graphProviderServiceTokens.spider)
@@ -195,6 +211,9 @@ export class GraphProvider implements vscode.WebviewViewProvider {
           const editor = vscode.window.activeTextEditor;
           if (editor?.document.uri.scheme !== "file") return undefined;
           return editor.document.fileName;
+        },
+        handleCallGraphMessage: (msg) => {
+          this._callGraphViewService?.handleWebviewMessage(msg);
         },
       },
       onIndexingComplete: () => this._refreshAfterIndexing(),
@@ -681,6 +700,9 @@ export class GraphProvider implements vscode.WebviewViewProvider {
   ) {
     this._view = webviewView;
 
+    // Share the sidebar webview with CallGraphViewService so it can postMessage
+    this._callGraphViewService?.setSidebarWebview(webviewView);
+
     webviewView.webview.options = this.webviewManager.getWebviewOptions();
     webviewView.webview.html = this.webviewManager.getHtmlForWebview(webviewView.webview);
 
@@ -696,6 +718,7 @@ export class GraphProvider implements vscode.WebviewViewProvider {
       this.sourceFileWatcher?.dispose();
       this._fileChangeScheduler?.dispose();
       this._fileSaveListener?.dispose();
+      this._callGraphViewService?.setSidebarWebview(null);
       // Also clean up the worker if running
       this.spider?.disposeWorker();
       // Dispose Spider and its AstWorkerHost
@@ -705,13 +728,27 @@ export class GraphProvider implements vscode.WebviewViewProvider {
         .catch((error: unknown) => {
           log.error(
             "Error disposing Spider",
-            error instanceof Error ? error : new Error(String(error)),
+            error instanceof Error ? error : new Error("Unknown error disposing Spider"),
           );
         });
     });
 
     // Schedule deferred indexing now that view is ready
     this.indexingManager?.scheduleDeferredIndexing();
+
+    // Pre-index call graph in background, independent of the reverse-index lifecycle.
+    // Delayed 2 s so it doesn't compete with the initial graph render.
+    const config = vscode.workspace.getConfiguration("graph-it-live");
+    if (config.get<boolean>("preIndexCallGraph", true)) {
+      const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+      if (workspaceRoot && this._callGraphViewService) {
+        setTimeout(() => {
+          this._callGraphViewService
+            ?.indexWorkspaceIfNeeded(workspaceRoot)
+            .catch(() => { /* best-effort */ });
+        }, 2000);
+      }
+    }
 
     // Initial update if we have an active editor
     this.updateGraph();
@@ -807,6 +844,11 @@ export class GraphProvider implements vscode.WebviewViewProvider {
     await this._stateManager.setViewMode("file");
     await this._updateViewModeContext();
 
+    // Explicitly tell the webview to switch view mode. This is required when
+    // transitioning from callgraph mode, because _sendGraphUpdate's updateGraph
+    // message deliberately does NOT override viewMode when it is "callgraph".
+    await this._view.webview.postMessage({ command: "switchViewMode", mode: "file" });
+
     // Switch to current file in file mode
     const editor = vscode.window.activeTextEditor;
     if (editor?.document.uri.scheme === "file") {
@@ -873,6 +915,15 @@ export class GraphProvider implements vscode.WebviewViewProvider {
     } else {
       vscode.window.showWarningMessage("No active file for symbol view");
     }
+  }
+
+  /**
+   * Switch to call graph view mode (updates context key so toolbar buttons hide)
+   */
+  public async setViewModeCallgraph(): Promise<void> {
+    log.info("Switching to call graph view mode");
+    await this._stateManager.setViewMode("callgraph");
+    await this._updateViewModeContext();
   }
 
   /**
@@ -1032,7 +1083,7 @@ export class GraphProvider implements vscode.WebviewViewProvider {
    * Get current view mode
    * @returns Current view mode ('file', 'list', or 'symbol')
    */
-  public getViewMode(): 'file' | 'list' | 'symbol' {
+  public getViewMode(): ViewMode {
     return this._stateManager.viewMode;
   }
 
