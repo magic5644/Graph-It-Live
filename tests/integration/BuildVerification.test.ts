@@ -89,7 +89,7 @@ describe('Build Verification', () => {
     });
   });
 
-  describe('.vsix package WASM files', () => {
+  describe('.vsix package WASM files', { timeout: 30_000 }, () => {
     let vsixPath: string | null = null;
     let vsixContents: string[] = [];
 

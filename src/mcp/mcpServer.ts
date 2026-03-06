@@ -616,8 +616,10 @@ EXAMPLE: If analyzing a project at "/Users/me/my-app", call this tool with works
       let filesIndexed = 0;
 
       // Get index status to report number of files indexed
-      // workerHost is reassigned inside initializeWorker() — re-read the module-level variable
-      const activeWorker = workerHost as McpWorkerHost | null;
+      // workerHost is reassigned inside initializeWorker() — re-read the module-level variable.
+      // Type assertion required: TS control-flow narrows workerHost to `null` (set above)
+      // but initializeWorker() reassigns it — TS cannot track cross-function mutations.
+      const activeWorker = workerHost as McpWorkerHost | null; // NOSONAR
       if (activeWorker?.ready()) {
         const statusResult = await activeWorker.invoke<GetIndexStatusResult>(
           "get_index_status",
