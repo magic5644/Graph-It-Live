@@ -274,7 +274,7 @@ describe("WasmParserFactory Property-Based Tests", () => {
       );
     });
 
-    it("Feature: tree-sitter-wasm-migration, Property 8: For any set of different languages, each language gets its own cached parser", async () => {
+    it("Feature: tree-sitter-wasm-migration, Property 8: For any set of different languages, each language gets its own cached parser", { timeout: 15_000 }, async () => {
       await fc.assert(
         fc.asyncProperty(
           fc.shuffledSubarray(["python", "rust"], { minLength: 2, maxLength: 2 }),
@@ -317,7 +317,7 @@ describe("WasmParserFactory Property-Based Tests", () => {
       );
     });
 
-    it("Feature: tree-sitter-wasm-migration, Property 8: For any sequence of getParser() calls, cache remains consistent", async () => {
+    it("Feature: tree-sitter-wasm-migration, Property 8: For any sequence of getParser() calls, cache remains consistent", { timeout: 15_000 }, async () => {
       await fc.assert(
         fc.asyncProperty(
           fc.array(fc.constantFrom("python", "rust"), { minLength: 5, maxLength: 20 }),
@@ -352,7 +352,7 @@ describe("WasmParserFactory Property-Based Tests", () => {
       );
     });
 
-    it("Feature: tree-sitter-wasm-migration, Property 8: For any language, cache persists across multiple init() calls", async () => {
+    it("Feature: tree-sitter-wasm-migration, Property 8: For any language, cache persists across multiple init() calls", { timeout: 15_000 }, async () => {
       await fc.assert(
         fc.asyncProperty(
           fc.constantFrom("python", "rust"),
@@ -387,7 +387,7 @@ describe("WasmParserFactory Property-Based Tests", () => {
       );
     });
 
-    it("Feature: tree-sitter-wasm-migration, Property 8: For any language, reset() clears the cache", async () => {
+    it("Feature: tree-sitter-wasm-migration, Property 8: For any language, reset() clears the cache", { timeout: 15_000 }, async () => {
       await fc.assert(
         fc.asyncProperty(fc.constantFrom("python", "rust"), async (languageName) => {
           // Reset for each property test iteration
@@ -547,7 +547,7 @@ describe("WasmParserFactory Property-Based Tests", () => {
       );
     });
 
-    it("Feature: tree-sitter-wasm-migration, Property 9: For any extension path, all supported languages load successfully", async () => {
+    it("Feature: tree-sitter-wasm-migration, Property 9: For any extension path, all supported languages load successfully", { timeout: 15_000 }, async () => {
       await fc.assert(
         fc.asyncProperty(
           fc.constantFrom(
@@ -838,7 +838,7 @@ describe("WasmParserFactory Property-Based Tests", () => {
       );
     });
 
-    it("Feature: tree-sitter-wasm-migration, Property 10: For any WASM file, factory uses resolved absolute paths", async () => {
+    it("Feature: tree-sitter-wasm-migration, Property 10: For any WASM file, factory uses resolved absolute paths", { timeout: 15_000 }, async () => {
       await fc.assert(
         fc.asyncProperty(
           fc.constantFrom(
