@@ -15,7 +15,9 @@
     "noEmit": true
   },
   "include": [
-    "src/webview/**/*"
+    "src/webview/**/*",
+    "src/analyzer/callgraph/cycleUtils.ts",
+    "src/shared/**/*"
   ],
   "exclude": [
     "node_modules"

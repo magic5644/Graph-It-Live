@@ -37,6 +37,13 @@ import * as vscode from "vscode";
 const DEFAULT_DEPTH = 1;
 /** Debounce delay (ms) for the live-refresh save listener — matches FileChangeScheduler pattern */
 const SAVE_DEBOUNCE_MS = 500;
+
+/** Safely extract a human-readable message from an unknown catch value. */
+function errorMessage(err: unknown): string {
+  if (err instanceof Error) return err.message;
+  if (typeof err === "string") return err;
+  try { return JSON.stringify(err); } catch { return "[unknown error]"; }
+}
 /** Maximum depth the user can request via the depth slider */
 const MAX_DEPTH = 5;
 /** Parallel file extraction batch size — higher = faster indexing on multi-core machines */
@@ -287,7 +294,7 @@ export class CallGraphViewService implements vscode.Disposable {
       this.currentNeighbourhoodPaths = new Set(result.nodes.map((n) => n.path));
       this.registerSaveListener(workspaceRoot);
     } catch (err: unknown) {
-      const message = err instanceof Error ? err.message : String(err);
+      const message = errorMessage(err);
       this.outputChannel.appendLine(`[CallGraph] Error: ${message}`);
       this.postMessage({ type: "callGraphIndexing", status: "error", message });
     }
@@ -320,7 +327,7 @@ export class CallGraphViewService implements vscode.Disposable {
 
   private postMessage(message: CallGraphExtensionMessage): void {
     this.sidebarWebview?.webview.postMessage(message).then(undefined, (err: unknown) => {
-      this.outputChannel.appendLine(`[CallGraph] postMessage failed: ${String(err)}`);
+      this.outputChannel.appendLine(`[CallGraph] postMessage failed: ${errorMessage(err)}`);
     });
   }
 
@@ -377,7 +384,7 @@ export class CallGraphViewService implements vscode.Disposable {
       return;
     }
 
-    if (this.indexWorkspacePromise) {
+    if (this.indexWorkspacePromise !== null) {
       // Another call is already walking the workspace — join it.
       // If this caller is interactive (not silent) but the running walk is silent,
       // upgrade the in-flight walk to stream progress from the next batch onward.
@@ -467,7 +474,7 @@ export class CallGraphViewService implements vscode.Disposable {
           try {
             return { job, extracted: await extractor.extractFile(job.filePath, job.lang, job.mtime), ok: true as const };
           } catch (err: unknown) {
-            this.outputChannel.appendLine(`[CallGraph] Skipping ${job.filePath}: ${String(err)}`);
+            this.outputChannel.appendLine(`[CallGraph] Skipping ${job.filePath}: ${errorMessage(err)}`);
             return { job, extracted: null, ok: false as const };
           }
         }),
@@ -584,11 +591,11 @@ export class CallGraphViewService implements vscode.Disposable {
   public handleWebviewMessage(msg: CallGraphWebviewCommand): void {
     if (msg.command === "callGraphOpenFile") {
       this.handleOpenFile(msg).catch((err: unknown) => {
-        this.outputChannel.appendLine(`[CallGraph] openFile error: ${String(err)}`);
+        this.outputChannel.appendLine(`[CallGraph] openFile error: ${errorMessage(err)}`);
       });
     } else if (msg.command === "callGraphSymbolFocus") {
       this.handleSymbolFocus(msg).catch((err: unknown) => {
-        this.outputChannel.appendLine(`[CallGraph] symbolFocus error: ${String(err)}`);
+        this.outputChannel.appendLine(`[CallGraph] symbolFocus error: ${errorMessage(err)}`);
       });
     } else if (msg.command === "callGraphMounted") {
       // Webview message listener is now active — replay any buffered graph data
@@ -619,6 +626,12 @@ export class CallGraphViewService implements vscode.Disposable {
   }
 
   private async handleOpenFile(msg: CallGraphOpenFileCommand): Promise<void> {
+    // Validate the URI is an absolute path (defence-in-depth against webview injection)
+    if (!msg.uri || !path.isAbsolute(msg.uri)) {
+      this.outputChannel.appendLine(`[CallGraph] openFile: invalid URI "${msg.uri ?? ""}"`);
+      return;
+    }
+
     let doc: vscode.TextDocument;
     try {
       doc = await vscode.workspace.openTextDocument(vscode.Uri.file(msg.uri));
@@ -702,7 +715,7 @@ export class CallGraphViewService implements vscode.Disposable {
     this.clearSaveDebounce();
     this.saveDebounceTimer = setTimeout(() => {
       this.refreshFile(filePath, languageId, workspaceRoot).catch((err: unknown) => {
-        this.outputChannel.appendLine(`[CallGraph] refresh error: ${String(err)}`);
+        this.outputChannel.appendLine(`[CallGraph] refresh error: ${errorMessage(err)}`);
       });
     }, SAVE_DEBOUNCE_MS);
   }

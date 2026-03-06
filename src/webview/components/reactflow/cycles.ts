@@ -5,4 +5,4 @@
  * @deprecated Import directly from '@/analyzer/callgraph/cycleUtils' instead.
  * This file re-exports for backward compatibility.
  */
-export { detectCycles } from '@/analyzer/callgraph/cycleUtils';
+export { detectCycles } from '../../../analyzer/callgraph/cycleUtils';

@@ -4,6 +4,23 @@
 
 ### New Features
 
+- **Live Call Graph** (`graph-it-live.showCallGraph`): Visualize intra-project symbol call relationships in a Cytoscape.js panel backed by an in-memory sql.js SQLite database
+  - **Tree-sitter AST extraction**: Scans TypeScript, Python, and Rust files using WASM tree-sitter with language-specific `.scm` query files
+  - **Neighbourhood queries**: BFS expansion around a root symbol with configurable depth (1–5)
+  - **Cycle detection**: Identifies recursive / mutual-recursion edges, displayed with `#ff4d4d` dashed styling
+  - **Compound node layout**: Symbols grouped by folder with `cytoscape-fcose` layout
+  - **Theme-aware colours**: Detects VS Code dark/light/high-contrast themes via `MutationObserver` and adapts node & edge colours dynamically
+  - **Call order edges**: Numbered CALLS edges showing invocation order within each caller
+  - **Full folder paths**: Compound (folder) nodes display full relative paths for disambiguation
+  - **Live refresh**: On file save, re-extracts the changed file and re-queries the neighbourhood (500 ms debounce)
+  - **Filter legend**: Toggle visibility by symbol type (function, class, variable) and folder, plus edge-colour legend
+  - **Sidebar integration**: Renders inside the main Graph-It-Live sidebar panel (shared webview with dependency graph)
+
+  <div align="center">
+    <img src="media/call-graph-view-example.png" alt="Live call graph view" width="600"/>
+    <p><em>Live Call Graph — symbol call relationships with cycle detection and folder grouping</em></p>
+  </div>
+
 - **Symbol-Level Drill-Down & Call Hierarchy**: Visualize function-to-function and class-to-class dependencies within files
   - **LSP-Powered Analysis**: Uses VS Code's Language Server Protocol for accurate call hierarchy detection
   - **Multi-Language Support**: TypeScript, JavaScript, Python (via Pylance), and Rust (via rust-analyzer)
@@ -27,12 +44,24 @@
     <p><em>New symbol-level view shows function calls, class methods, and variable usage</em></p>
   </div>
 
+- **MCP Codemap Tool** (`graphitlive_generate_codemap`): New MCP tool that generates structured code maps for AI/LLM context
+  - Produces Markdown-formatted architecture, backend, data, and frontend maps
+  - Token-efficient format optimised for LLM consumption
+  - Integrates with the existing 19-tool MCP server (now 20 tools)
+
 ### Enhancements
 
+- **ViewMode extension**: Added `callgraph` to the `ViewMode` type, enabling toolbar buttons to react to the active view (file, list, symbol, or callgraph)
+- **Toolbar navigation**: Toolbar buttons moved to the `navigation` group with `when` clauses gated on `graph-it-live.viewMode`
 - **Visual Polish**:
   - Updated symbol color scheme to match FR-010 specification
   - Enhanced cycle detection with prominent error-colored badges
   - Improved edge styling for better relationship differentiation
+
+### Bug Fixes
+
+- **Fixed viewMode context key** not updating to `callgraph` when switching to the Live Call Graph view
+- **Fixed MCP worker auto-recovery**: Worker now restarts automatically after crash without requiring extension reload
 
 ### Architecture
 
@@ -49,11 +78,18 @@
   - **WASM files**: bundled in `dist/wasm/` (`tree-sitter.wasm`, `tree-sitter-python.wasm`, `tree-sitter-rust.wasm`)
   - **Unit tests**: use mocked parsers (WASM not compatible with Node.js); E2E tests validate with real WASM
 
+### Code Quality
+
+- **Error handling**: Replaced all `String(err)` patterns with safe `errorMessage()` helper that avoids `[object Object]` output
+- **Promise safety**: Fixed promise-in-boolean-conditional patterns (`if (promise)` → `if (promise !== null)`)
+- **Input validation**: Added path validation on `callGraphOpenFile` handler (defence-in-depth)
+- **TypeScript strictness**: Removed unnecessary non-null assertions (`!`) and type assertions
+
 ### Infrastructure
 
 - **Security**: Zero security issues (Snyk code scan verified)
 - **Code Quality**: Clean SonarQube analysis (0 code smells)
-- **Testing**: 1009 unit tests + 90 E2E tests passing
+- **Testing**: 1489 unit tests + 90 E2E tests passing across 135 test files
 - **Package Integrity**: Verified zero .map files in production build
 
 ## v1.6.2
