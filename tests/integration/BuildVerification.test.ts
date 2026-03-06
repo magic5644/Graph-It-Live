@@ -8,10 +8,10 @@
  * Requirements: 7.1, 7.2, 7.3
  */
 
-import { describe, it, expect, beforeAll } from 'vitest';
+import { execSync } from 'node:child_process';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
-import { execSync } from 'node:child_process';
+import { beforeAll, describe, expect, it } from 'vitest';
 
 describe('Build Verification', () => {
   const distDir = path.join(process.cwd(), 'dist');
@@ -117,8 +117,9 @@ describe('Build Verification', () => {
         .sort((a, b) => b.mtime.getTime() - a.mtime.getTime())[0].path;
       
       // List contents of .vsix package using vsce
+      // --no-dependencies skips @types/vscode vs engines.vscode version validation
       try {
-        const output = execSync('npx vsce ls', {
+        const output = execSync('npx vsce ls --no-dependencies', {
           cwd: workspaceRoot,
           encoding: 'utf-8',
         });

@@ -502,7 +502,7 @@
     "@types/react": "^19.2.14",
     "@types/react-dom": "^19.2.3",
     "@types/sql.js": "^1.4.9",
-    "@types/vscode": "^1.109.0",
+    "@types/vscode": "^1.96.0",
     "@vitest/coverage-v8": "^4.0.18",
     "@vitest/ui": "^4.0.18",
     "@vscode/test-electron": "^2.5.2",
@@ -525,7 +525,8 @@
       "minimatch": "^3.0.3"
     },
     "mocha": {
-      "diff": ">=8.0.3"
+      "diff": ">=8.0.3",
+      "serialize-javascript": ">=7.0.3"
     }
   }
 }

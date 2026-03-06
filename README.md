@@ -2,6 +2,11 @@
 
 <div align="center">
   <img src="media/Graph-It-Live-Logo-256.png" alt="Graph-It-Live Logo" width="400"/>
+
+  **The AI-first dependency intelligence platform for VS Code.**
+
+  See your codebase the way your AI does — as a graph.
+
 </div>
 
 [![Version](https://img.shields.io/visual-studio-marketplace/v/magic5644.graph-it-live?label=VS%20Code%20Marketplace&logo=visual-studio-code)](https://marketplace.visualstudio.com/items?itemName=magic5644.graph-it-live)
@@ -12,293 +17,292 @@
 [![vscode downloads](https://img.shields.io/visual-studio-marketplace/d/magic5644.graph-it-live?label=vscode%20Marketplace%20Downloads)](https://marketplace.visualstudio.com/items?itemName=magic5644.graph-it-live)
 [![Open VSX Downloads](https://img.shields.io/open-vsx/dt/magic5644/graph-it-live?label=Open%20VSX%20Downloads)](https://open-vsx.org/extension/magic5644/graph-it-live)
 
-**Give your AI "eyes" to see your entire codebase structure.**
+---
 
-Graph-It-Live is a dual-purpose tool:
+Graph-It-Live turns your codebase into a live, interactive dependency graph — one that both **you** and your **AI assistant** can query in real time.
 
-1.**For Humans**: A real-time interactive graph to visualize and navigate dependencies in **TypeScript**, **JavaScript**, **Python**, **Rust**,**Vue**, **Svelte**, and **GraphQL** projects.
+Built for **architects** who need the big picture and **developers** who need to ship safely, it combines three analysis layers in one tool:
 
-2.**For AI**: A built-in **Model Context Protocol (MCP) Server** that lets assistants like **GitHub Copilot**, **Claude**, and **Cursor** analyze your project's architecture, find impact of changes, and understand complex relationships without hallucinating.
+| Layer | What you see | Powered by |
+|-------|-------------|------------|
+| **File Graph** | File-to-file import relationships | Regex + AST parsing |
+| **Symbol View** | Function/class call hierarchy inside a file | VS Code LSP |
+| **Live Call Graph** | Cross-file symbol call relationships | Tree-sitter + SQLite |
+
+All three layers are also exposed to AI via a **20-tool MCP server**, so your assistant can answer architecture questions with zero hallucination.
 
 <div align="center">
   <img src="media/demo-plugin-graph-it-live.gif" alt="Graph-It-Live Demo" width="800"/>
 </div>
 
+---
+
+## Why Graph-It-Live?
+
+| Pain point | Without Graph-It-Live | With Graph-It-Live |
+|---|---|---|
+| "What breaks if I touch this file?" | Grep + hope | One-click reverse dependency lookup |
+| "Explain this module's architecture" | Read 30 files | AI generates a codemap in seconds |
+| "Are there circular deps?" | Manual tracing | Auto-detected, red-highlighted cycles |
+| "What calls this function across the project?" | Global search + noise | Live Call Graph with depth control |
+| "Onboard a new developer" | Hours of walkthroughs | Interactive graph + AI-generated overviews |
+
+---
+
+## Table of Contents
+
+- [For AI — MCP Server](#-supercharge-your-ai-assistant)
+  - [Codemap Generation](#-codemap-generation-new)
+  - [All 20 MCP Tools](#available-tools)
+  - [TOON Format (Token Savings)](#toon-format-token-optimized-output)
+- [For Humans — Visual Features](#-features-for-humans)
+  - [File Dependency Graph](#file-dependency-graph)
+  - [Symbol-Level Drill-Down](#symbol-level-drill-down)
+  - [Live Call Graph](#-live-call-graph-new)
+  - [Unused Dependency Filter](#unused-dependency-filter)
+- [Installation & Usage](#installation)
+- [Configuration](#configuration)
+- [Development](#development)
+
+---
+
 ## 🤖 Supercharge Your AI Assistant
 
-Stop pasting file paths and explaining your project structure. Graph-It-Live exposes **17 powerful dependency analysis tools** directly to your AI assistant via the [Model Context Protocol (MCP)](https://modelcontextprotocol.io).
+Stop pasting file paths and explaining your project structure. Graph-It-Live exposes **20 powerful dependency analysis tools** directly to your AI assistant via the [Model Context Protocol (MCP)](https://modelcontextprotocol.io).
 
-**What your AI can do with Graph-It-Live:**
+**Works with:** GitHub Copilot, Claude (Desktop & Code), Cursor, Windsurf, and any MCP-compatible client.
 
-- **"Map out the architecture of the `auth` module"** -> AI crawls the dependency tree.
-- **"What breaks if I change `User.ts`?"** -> AI performs instant reverse lookup to find all dependents.
-- **"What calls `formatDate()` function?"** -> AI finds all symbol-level callers with O(1) lookup.
-- **"Show me function-level dependencies in this file"** -> AI analyzes symbol-level relationships.
-- **"Analyze the impact of changing `calculateTotal`'s signature"** -> AI detects breaking changes.
-- **"Find unused exports in the codebase"** -> AI detects dead code automatically.
-- **"Are there circular dependencies?"** -> AI detects cycles automatically.
-- **"Explain how data flows from `App.vue` to the API"** -> AI traces the import path.
+### What your AI can do with Graph-It-Live
+
+| You ask | AI uses | Result |
+|---------|---------|--------|
+| *"Map out the architecture of the auth module"* | `crawl_dependency_graph` | Full dependency tree as structured data |
+| *"What breaks if I change User.ts?"* | `find_referencing_files` | All dependent files with O(1) lookup |
+| *"Give me an overview of Spider.ts"* | `generate_codemap` | Exports, internals, deps, dependents, call flow — in one call |
+| *"What calls formatDate() across the project?"* | `get_symbol_callers` | All callers with instant lookup |
+| *"Show function-level flow in this file"* | `analyze_file_logic` | Intra-file call hierarchy |
+| *"Analyze the impact of changing calculateTotal's signature"* | `get_impact_analysis` | Breaking change detection + all affected callers |
+| *"Find unused exports in the codebase"* | `find_unused_symbols` | Dead code detection |
+| *"Are there circular dependencies?"* | `crawl_dependency_graph` | Cycle detection built in |
 
 <div align="center">
   <img src="media/graph-it-live-tools-in-copilot.gif" alt="Using Graph-It-Live tools with GitHub Copilot" width="800"/>
-  <p><em>Example: Asking GitHub Copilot to analyze dependencies using Graph-It-Live tools</em></p>
+  <p><em>GitHub Copilot querying Graph-It-Live to analyze a project's dependency structure</em></p>
 </div>
 
-## Features
+### 🗺️ Codemap Generation *(New)*
 
-- **MCP Server for AI Integration** _(New)_: Built-in **Model Context Protocol (MCP) Server** exposes dependency analysis tools to AI assistants.
-- **Unused Dependency Filter** _(New)_: Smart filter to show only dependencies that are actually used in your code. Toggle between showing all imports or filtering unused ones with a single click. Configurable to either hide unused edges completely or show them dimmed.
+The `graphitlive_generate_codemap` tool gives your AI a **complete structural overview of any file** in a single call — no more chaining 5 different tools.
+
+**What it returns:**
+
+```
+┌─────────────────────────────────────────────────┐
+│  Spider.ts  (247 lines, TypeScript)             │
+├─────────────────────────────────────────────────┤
+│  EXPORTS: Spider, SpiderOptions                 │
+│  INTERNALS: crawlFile, resolveImport, visitNode │
+│  DEPENDENCIES: Parser.ts, PathResolver.ts, ...  │
+│  DEPENDENTS: SpiderBuilder.ts, extension.ts     │
+│  CALL FLOW: crawl → crawlFile → resolveImport  │
+│  CYCLES: none                                   │
+└─────────────────────────────────────────────────┘
+```
+
+**Use cases:**
+
+- **Onboarding:** *"Give me an overview of every file in src/analyzer/"* — AI maps the full module
+- **Pre-refactor audit:** *"Generate codemaps for all files that import UserService"* — understand coupling before changing
+- **Documentation:** *"Create architecture docs from codemaps"* — structured data → Markdown in seconds
+- **Code review:** *"What does this new file export and who depends on it?"* — instant context
+
+> **Token-efficient:** Output uses a compact format optimised for LLM consumption. Combine with `format: "toon"` for up to 60% token savings.
+
+<!-- TODO: Add screenshot or video of AI generating a codemap -->
+
+### 📊 File Logic Analysis *(New)*
+
+The `graphitlive_analyze_file_logic` tool reveals the **call hierarchy inside a single file** — which functions call which, in what order.
+
+**Example prompt:** *"Show me how data flows through src/mcp/mcpServer.ts"*
+
+**AI response (powered by the tool):**
+```
+Entry points: initializeServer(), main()
+  └── initializeServer()
+      ├── registerAllTools()      [call #1]
+      ├── setupFileWatcher()      [call #2]
+      └── startListening()        [call #3]
+          └── handleToolCall()
+              ├── validateWorkspace()
+              └── invokeWorker()
+```
+
+**Use cases:**
+
+- **Understand complex files** without reading every line
+- **Find entry points** and trace execution paths
+- **Detect internal cycles** (recursive calls between functions)
+- **Refactoring confidence** — see what internal logic is affected
+
+<!-- TODO: Add screenshot of AI analyzing file logic -->
+
+---
+
+## 👁️ Features for Humans
+
+### File Dependency Graph
+
+The core of Graph-It-Live: a **real-time interactive graph** showing file-to-file import relationships across your project.
+
+- **Multi-language:** TypeScript, JavaScript, Python, Rust, Vue, Svelte, GraphQL
+- **Cycle detection:** Circular dependencies highlighted with red dashed lines and badges
+- **Smart navigation:** Click any node to open the file; expand/collapse dependencies dynamically
+- **Reverse lookup:** Right-click → "Find Referencing Files" for instant reverse dependency discovery
+- **Background indexing:** Workspace indexed in a background thread for O(1) queries
+
+<div align="center">
+  <img src="media/demo-plugin-graph-it-live.gif" alt="File dependency graph" width="800"/>
+  <p><em>Interactive file dependency graph with expand/collapse and cycle detection</em></p>
+</div>
+
+### Symbol-Level Drill-Down
+
+Go beyond file dependencies — **drill into any file to visualize function-to-function and class-to-class call relationships** powered by the Language Server Protocol (LSP).
+
+**How it works:**
+
+1. **From the File Graph:** Double-click any file node (or right-click → "Drill Down")
+2. **Instant symbol graph:** See an interactive graph showing:
+   - **Functions** in vibrant blue
+   - **Classes** in deep purple
+   - **Variables/Constants** in amber
+   - **Calls** as solid arrows, **references** as dashed arrows
+   - **Recursive calls** with cycle badges
+3. **Click-to-navigate:** Click any symbol to jump to its definition
+4. **Breadcrumb nav:** `Project > folder > file.ts` — one click to return to file view
+
+**Multi-language support:**
+- TypeScript / JavaScript (built-in LSP)
+- Python (via Pylance)
+- Rust (via rust-analyzer)
+
+**Benefits:**
+- **Understand code flow** without reading every line
+- **Function-level impact analysis** — see what breaks before changing a signature
+- **Trace call chains** through complex files
+- **Refactoring confidence** — visualize all internal dependencies
+
+<div align="center">
+  <img src="media/drill-down-symbol-view.png" alt="Symbol-level drill-down view" width="600"/>
+  <p><em>Symbol drill-down: purple classes, blue functions, amber variables with call relationships</em></p>
+</div>
+
+### 🔷 Live Call Graph *(New)*
+
+The **Live Call Graph** visualises **cross-file symbol call relationships** across your entire project in a Cytoscape.js panel backed by an in-memory SQLite database.
+
+Unlike the Symbol View (which shows relationships *within* a single file via LSP), the Call Graph shows how symbols call each other *across files* using Tree-sitter AST extraction.
+
+**Key capabilities:**
+
+| Feature | Description |
+|---------|-------------|
+| **Cross-file analysis** | See function calls that span multiple files |
+| **Neighbourhood queries** | BFS expansion from any symbol, configurable depth (1–5) |
+| **Cycle detection** | Mutual-recursion and self-recursion highlighted in red |
+| **Compound node layout** | Symbols grouped by folder for visual clarity |
+| **Call order numbering** | CALLS edges numbered to show invocation order |
+| **Theme-aware** | Adapts to dark, light, and high-contrast VS Code themes |
+| **Live refresh** | On file save, the graph updates automatically (500ms debounce) |
+| **Filter legend** | Toggle visibility by symbol type (function, class, variable) and by folder |
+
+**How to use:**
+
+1. Open the command palette → `Graph-It-Live: Show Call Graph`
+2. The extension indexes your workspace (Tree-sitter AST extraction)
+3. Click any symbol to re-center the neighbourhood
+4. Use the depth slider to expand or narrow the view
+5. Filter by symbol type or folder using the legend overlay
+
+<div align="center">
+  <img src="media/call-graph-view-example.png" alt="Live call graph with cycle detection" width="800"/>
+  <p><em>Live Call Graph — cross-file symbol relationships with cycle detection and folder grouping</em></p>
+</div>
+
+<!-- TODO: Add a short video/gif showing the call graph in action (indexing → symbol click → depth change → live refresh on save) -->
+
+### Unused Dependency Filter
+
+Smart filter to show only dependencies that are actually used in your code. Toggle between showing all imports or filtering unused ones with a single click.
+
+- **Hide mode:** Unused dependencies completely removed from the graph
+- **Dim mode:** Unused dependencies shown with reduced opacity and dashed lines
 
 <div align="center">
   <img src="media/demo-filter-hide-mode.gif" alt="Hide mode - removes unused dependencies" width="600"/>
-  <p><em>Hide mode: Unused dependencies are completely removed from the graph</em></p>
+  <p><em>Hide mode: Unused dependencies completely removed</em></p>
 </div>
 
 <div align="center">
   <img src="media/demo-filter-dim-mode.gif" alt="Dim mode - shows unused dependencies with reduced opacity" width="600"/>
-  <p><em>Dim mode: Unused dependencies are shown with reduced opacity and dashed lines</em></p>
+  <p><em>Dim mode: Unused dependencies shown with reduced opacity</em></p>
 </div>
 
-- **Symbol-Level Analysis** _(New)_: Drill down to see function-to-function and class-to-class dependencies within files.
-- **Real-time Dependency Visualization**: Interactive graph showing file dependencies.
-- **Multi-Language Support**: First-class support for **TypeScript** (`.ts`, `.tsx`), **JavaScript** (`.js`, `.jsx`), **Python** (`.py`, `.pyi`), **Rust** (`.rs`), **TOML** (`.toml`), **Vue** (`.vue`), **Svelte** (`.svelte`), and **GraphQL** (`.gql`, `.graphql`).
-- **Cycle Detection**: Automatically detects and highlights circular dependencies with red dashed lines and badges.
-- **Smart Navigation**: Use VS Code's built-in navigation (Go Back / Go Forward) to move through your code history. Graph-It-Live also exposes navigation actions in the webview or panel menu.
-- **Background Indexing** _(New)_: Optionally index your entire workspace in the background for instant reverse dependency lookups. Uses a separate worker thread to avoid blocking the IDE.
-- **Interactive Graph**:
-  - **Filter Unused Dependencies**: Use the eye/eye-closed toggle button in the toolbar to show only imports that are actually used in the code. Choose between hiding unused edges completely or showing them dimmed.
-  - **Expand/Collapse**: Dynamically load dependencies using the node controls available in the webview/panel menu or the node's context menu (hover actions may still appear depending on layout).
-  - **Bidirectional Navigation**: Use the "Find Referencing Files" action from a node's context menu or the webview/panel menu to see files that import the selected file. With background indexing enabled, this is instant (O(1) lookup).
-  - **File Navigation**: Click on any node to instantly open the corresponding file in the editor.
-  - **Drill-Down** _(New)_: Double-click a file node or choose the "Drill Down" action in the node context menu or webview/panel menu to see symbol-level dependencies within that file.
-
-<div align="center">
-  <img src="media/drill-down-symbol-view.png" alt="Symbol-level drill-down view" width="600"/>
-  <p><em>Symbol-level drill-down: explore function and class dependencies within a file</em></p>
-</div>
+---
 
 ## Prerequisites
 
 - **Node.js**: v18 or higher (v20 LTS recommended)
 - **VS Code**: v1.96.0 or higher
 
-**Note**: No build tools required! The extension uses WebAssembly (WASM) parsers, eliminating the need for native compilation tools (Python, C++ compiler, etc.) during installation.
-
-## Known Issues
-
-### ✅ Antigravity Compatibility (Resolved)
-
-**Current Status**: Graph-It-Live now uses **WebAssembly (WASM)** parsers, eliminating native binary dependencies and improving compatibility with restrictive IDE environments like Antigravity.
-
-**Migration**: The extension has migrated from native tree-sitter bindings to `web-tree-sitter` (official WASM port) and `tree-sitter-wasms` (pre-compiled language grammars). This change:
-
-- ✅ Eliminates native compilation requirements during installation
-- ✅ Removes code signature verification issues
-- ✅ Improves installation reliability across all platforms
-- ✅ Enhances security by using pure JavaScript and WASM
-- ✅ Reduces package size (WASM files ~2-3 MB vs native binaries)
-
-**Note**: Some unit tests may show WASM-related errors in Node.js environments due to web-tree-sitter compatibility limitations. The extension functions correctly in VS Code's Electron runtime environment. See [WASM Architecture](#wasm-architecture) section below for details.
-
-**Workaround**: Use Graph-It-Live in standard VS Code, VS Code Insiders, Cursor, or other compatible editors.
-
-**Updates**: Follow the GitHub issue for progress updates.
-
-## WASM Architecture
-
-Graph-It-Live uses WebAssembly (WASM) versions of tree-sitter parsers for improved installation reliability, security, and cross-platform compatibility.
-
-### Benefits
-
-- **No Native Compilation**: Installation doesn't require build tools (Python, C++ compiler, etc.)
-- **Cross-Platform**: Works identically on Windows, Linux, and macOS
-- **Security**: Pure JavaScript and WASM (no native binaries)
-- **Lightweight**: WASM files are small (~2-3 MB total)
-- **Reliable**: No code signature verification issues in restrictive environments
-
-### Architecture Overview
-
-```
-VS Code Extension Host (Electron)
-├── WasmParserFactory (Singleton)
-│   ├── tree-sitter.wasm (Core WASM runtime)
-│   ├── tree-sitter-python.wasm (Python grammar)
-│   └── tree-sitter-rust.wasm (Rust grammar)
-├── PythonParser (uses WASM)
-├── RustParser (uses WASM)
-└── Symbol Analyzers (use WASM)
-```
-
-### WASM File Locations
-
-WASM files are located in the extension's `dist/wasm/` directory:
-
-- `tree-sitter.wasm` - Core web-tree-sitter runtime
-- `tree-sitter-python.wasm` - Python language grammar
-- `tree-sitter-rust.wasm` - Rust language grammar
-
-These files are automatically copied during the build process and included in the `.vsix` package.
-
-### Initialization
-
-Parsers initialize asynchronously on first use:
-
-1. Extension activates and provides extension path to parsers
-2. First parse operation triggers WASM initialization
-3. WasmParserFactory loads core `tree-sitter.wasm`
-4. Language-specific WASM files loaded on demand
-5. Parser instances cached and reused (singleton pattern)
-
-### Testing Approach
-
-**Unit Tests**: Use mocked parsers for speed and reliability (WASM doesn't work in Node.js)
-
-**E2E Tests**: Use real WASM parsers in VS Code's Electron environment
-
-**Validation**: 90+ E2E tests verify all functionality with real WASM parsers
-
-### Troubleshooting WASM Loading Failures
-
-#### Error: "Extension path required for WASM parser initialization"
-
-**Cause**: Parser created without extension path parameter
-
-**Solution**: This is an internal error. If you encounter this, please report it as a bug. The extension should automatically provide the extension path to all parsers.
-
-#### Error: "LinkError: WebAssembly.instantiate()"
-
-**Cause**: web-tree-sitter compatibility issue in Node.js environment
-
-**Solution**: This error is expected in unit tests and benchmarks. The extension works correctly in VS Code's runtime environment. If you see this error while using the extension in VS Code, please report it as a bug.
-
-#### Error: "WASM file not found"
-
-**Cause**: WASM files missing from `dist/wasm/` directory
-
-**Solution**: 
-1. Verify WASM files exist: Check if `dist/wasm/*.wasm` files are present
-2. Reinstall the extension from the marketplace
-3. If developing locally, run `npm run build` to copy WASM files
-
-**Verification**:
-```bash
-# Check WASM files in installed extension
-ls ~/.vscode/extensions/magic5644.graph-it-live-*/dist/wasm/*.wasm
-
-# Expected output:
-# tree-sitter.wasm
-# tree-sitter-python.wasm
-# tree-sitter-rust.wasm
-```
-
-#### Performance Considerations
-
-**WASM Performance**: WASM parsers perform comparably to native parsers in production:
-
-- ✅ All E2E tests pass without timeouts
-- ✅ Large project analysis completes successfully
-- ✅ Background indexing works efficiently
-- ✅ No user-reported performance issues
-
-**Memory Usage**: WASM parsers maintain efficient memory usage:
-
-- ✅ Parser instances cached and reused (singleton pattern)
-- ✅ Lazy loading (parsers initialized only when needed)
-- ✅ Lightweight WASM files (~2-3 MB total)
-- ✅ No memory leaks detected in E2E tests
-
-### Known Limitations
-
-**Node.js Compatibility**: web-tree-sitter is designed for browser/Electron environments and has known issues in pure Node.js contexts:
-
-- ❌ Unit tests with real WASM parsers fail in Node.js
-- ❌ Benchmark tests cannot measure WASM performance in Node.js
-- ✅ Extension works correctly in VS Code's Electron environment
-- ✅ E2E tests validate all functionality with real WASM parsers
-
-**Workaround for Tests**: Unit tests use mocked parsers instead of real WASM for speed and reliability. E2E tests (`npm run test:vscode:vsix`) validate the extension with real WASM parsers in the production environment.
+**No build tools required** — the extension uses WebAssembly (WASM) parsers. No Python, C++ compiler, or native compilation needed.
 
 ## Installation
 
 ### From Marketplace
 
-Install directly from the VS Code Marketplace (when published) or search for "Graph-It-Live" in the Extensions view (`Ctrl+Shift+X` or `Cmd+Shift+X`).
+Search for **"Graph-It-Live"** in the Extensions view (`Ctrl+Shift+X` / `Cmd+Shift+X`), or install from the [VS Code Marketplace](https://marketplace.visualstudio.com/items?itemName=magic5644.graph-it-live).
 
 ### From Open VSX Registry
 
-The extension is also available on the [Open VSX Registry](https://open-vsx.org/). You can install it using a compatible editor (like VSCodium) or by downloading the `.vsix` from the registry page.
+Also available on the [Open VSX Registry](https://open-vsx.org/extension/magic5644/graph-it-live) for VSCodium and other compatible editors.
 
 ## Usage
 
-1.**Open a Project**: Open a folder containing TypeScript, JavaScript, Python, Rust, TOML, Vue, Svelte, or GraphQL files. 2.**Open the Graph**: - Click the **Graph-It-Live** icon in the Activity Bar (left sidebar). - Or run the command: `Graph-It-Live: Show Dependency Graph`. - Or click the graph icon in the editor title bar when viewing a supported file. 3.**Interact**: - **Navigate**: Click a node to open the file. - **Expand**: Use the "Expand" action from the node context menu or the webview/panel menu to reveal a node's dependencies. - **Drill-Down**: Double-click a file node or choose the "Drill Down" action in the node context menu to see symbol-level dependencies (functions, classes) within that file. - **Reverse Lookup**: Use the "Find Referencing Files" action in the node context menu or the webview/panel menu to see which files import the current file.
+1. **Open a Project** — TypeScript, JavaScript, Python, Rust, Vue, Svelte, or GraphQL
+2. **Open the Graph** — Click the Graph-It-Live icon in the Activity Bar, or run `Graph-It-Live: Show Dependency Graph`
+3. **Interact:**
+   - **Click** a node → open the file
+   - **Double-click** a node → drill down to symbol view
+   - **Right-click** a node → expand, collapse, find referencing files
+   - **Command palette** → `Show Call Graph` for cross-file symbol analysis
 
-### Symbol-Level Drill-Down
-
-Graph-It-Live goes beyond file dependencies - **drill into any file to visualize function-to-function and class-to-class call relationships** powered by the Language Server Protocol (LSP).
-
-**How it works:**
-
-1. **From File Graph**: Double-click any file node (or right-click → "Drill Down")
-2. **Symbol Graph View**: See an interactive graph showing:
-   - **Functions** in vibrant blue
-   - **Classes** in deep purple
-   - **Variables/Constants** in amber
-   - Call relationships shown as **solid arrows** (function calls) or **dashed arrows** (references)
-   - **Cycle detection** with badges for recursive calls
-3. **Navigate**: Click any symbol node to jump to its definition in the editor
-4. **Breadcrumb Navigation**: Use the breadcrumb bar at the top (`Project > folder > file.ts`) to return to file view
-5. **Multi-Language Support**: Works with:
-   - **TypeScript/JavaScript** (via built-in LSP)
-   - **Python** (via Pylance - install Microsoft Python extension)
-   - **Rust** (via rust-analyzer - install rust-analyzer extension)
-
-**Benefits:**
-
-- **Understand code flow** without reading every line
-- **Impact analysis** at function level - see what breaks if you change a function signature
-- **Find call chains** - trace execution paths through your codebase
-- **Refactoring confidence** - visualize dependencies before making changes
-
-<div align="center">
-  <img src="media/symbol-view-colored-nodes.png" alt="Symbol view with color-coded nodes" width="800"/>
-  <p><em>Symbol-level view: Purple classes, blue functions, amber variables with call relationships</em></p>
-</div>
+---
 
 ## Configuration
 
 ### Performance Profiles
 
-For optimal performance on your machine, configure the performance profile in VS Code settings:
+Choose a performance profile based on your machine:
 
-**Setting**: `graph-it-live.performanceProfile`
+| Profile | RAM | Concurrency | Max Edges | Cache |
+|---------|-----|-------------|-----------|-------|
+| **`default`** *(recommended)* | 4-8 GB | 4 | 2000 | 500/200 |
+| **`low-memory`** | < 4 GB | 2 | 1000 | 200/100 |
+| **`high-performance`** | 16 GB+ | 12 | 5000 | 1500/800 |
+| **`custom`** | Any | Manual | Manual | Manual |
 
-- **`default`** _(recommended)_: Balanced settings for most machines (4GB-8GB RAM)
-  - Concurrency: 4, Max edges: 2000, Cache: 500/200
-- **`low-memory`**: Optimized for resource-constrained machines (<4GB RAM)
-  - Concurrency: 2, Max edges: 1000, Cache: 200/100
-- **`high-performance`**: Maximizes speed on powerful workstations (16GB+ RAM)
-  - Concurrency: 12, Max edges: 5000, Cache: 1500/800
-- **`custom`**: Manual configuration - all performance settings become editable
+Set via `graph-it-live.performanceProfile` in VS Code settings.
 
-#### Automatic Profile Application
+With **`custom`** profile, you can fine-tune:
+- `unusedAnalysisConcurrency` (1-16)
+- `unusedAnalysisMaxEdges` (0 = unlimited)
+- `maxCacheSize` (50-2000)
+- `maxSymbolCacheSize` (50-1000)
+- `indexingConcurrency` (1-16)
 
-When you select a preset profile (`default`, `low-memory`, or `high-performance`):
-
-- All related performance settings are **automatically configured**
-- Settings like `unusedAnalysisConcurrency`, `maxCacheSize`, etc. update instantly
-- Individual settings become read-only to prevent conflicts
-
-Select **`custom`** profile to unlock manual control of all performance parameters:
-
-- `graph-it-live.unusedAnalysisConcurrency`: Parallel file analysis (1-16)
-- `graph-it-live.unusedAnalysisMaxEdges`: Skip auto-analysis threshold (0=unlimited)
-- `graph-it-live.maxCacheSize`: Dependency cache size (50-2000)
-- `graph-it-live.maxSymbolCacheSize`: Symbol cache size (50-1000)
-- `graph-it-live.indexingConcurrency`: Background indexing parallelism (1-16)
-
-### General Settings
-
-Customize the extension in VS Code Settings (`Cmd+,` or `Ctrl+,`):
+### All Settings
 
 <div align="center">
   <img src="media/unused-dependency-mode-option.png" alt="Unused Dependency Mode configuration" width="700"/>
@@ -307,31 +311,35 @@ Customize the extension in VS Code Settings (`Cmd+,` or `Ctrl+,`):
 
 | Setting                                    | Default   | Description                                                                                                                                                                    |
 | :----------------------------------------- | :-------- | :----------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `graph-it-live.performanceProfile`         | `default` | Performance preset: `default`, `low-memory`, `high-performance`, or `custom` for manual control. When set to a preset, related performance settings are applied automatically. |
-| `graph-it-live.enableMcpServer`            | `false`   | Enable the MCP (Model Context Protocol) server for AI/LLM integration. Only enable if you need AI assistants to access project analysis tools.                                 |
-| `graph-it-live.enableMcpDebugLogging`      | `false`   | Privacy-sensitive debug logging for the MCP server (creates `~/mcp-debug.log`). Enable only for troubleshooting; logs rotate automatically. See Security Guide.                |
-| `graph-it-live.maxDepth`                   | `50`      | Maximum dependency depth to analyze during crawls and initial graph generation.                                                                                                |
-| `graph-it-live.excludeNodeModules`         | `true`    | Exclude `node_modules` imports from the graph to reduce noise and improve performance.                                                                                         |
-| `graph-it-live.enableBackgroundIndexing`   | `true`    | Enable background indexing of the workspace for fast reverse dependency lookups (O(1) queries).                                                                                |
-| `graph-it-live.persistIndex`               | `false`   | Persist the reverse index to disk for faster startup. Index entries are validated by `mtime`/size.                                                                             |
-| `graph-it-live.indexingConcurrency`        | `4`       | Number of files to process in parallel during background indexing (1-16). Editable only when `performanceProfile` is `custom`.                                                 |
-| `graph-it-live.indexingStartDelay`         | `1000`    | Delay (ms) before starting background indexing after activation; allows VS Code to finish startup.                                                                             |
-| `graph-it-live.logLevel`                   | `info`    | Logging verbosity: `debug`, `info`, `warn`, `error`, or `none`.                                                                                                                |
-| `graph-it-live.unusedDependencyMode`       | `hide`    | How to display unused dependencies: `hide` removes them, `dim` shows them with reduced opacity and dashed styling.                                                             |
-| `graph-it-live.unusedAnalysisConcurrency`  | `4`       | Number of source files to analyze in parallel for unused dependency detection (1-16). Lower values reduce memory usage. Editable only when `performanceProfile` is `custom`.   |
-| `graph-it-live.unusedAnalysisMaxEdges`     | `2000`    | Skip automatic unused dependency analysis if the graph has more edges than this threshold. Set to `0` for no limit. Editable only when `performanceProfile` is `custom`.       |
-| `graph-it-live.persistUnusedAnalysisCache` | `false`   | Cache unused dependency analysis results to disk to speed up subsequent loads. Results are invalidated on file change.                                                         |
-| `graph-it-live.maxUnusedAnalysisCacheSize` | `200`     | Maximum number of source files to cache for unused dependency analysis (LRU eviction). Adjust to tune memory vs hit-rate.                                                      |
-| `graph-it-live.maxCacheSize`               | `500`     | Maximum number of file dependency analyses to keep in memory cache. Useful to control memory usage.                                                                            |
-| `graph-it-live.maxSymbolCacheSize`         | `200`     | Maximum number of symbol analysis results to keep in memory cache.                                                                                                             |
+| `graph-it-live.performanceProfile`         | `default` | Performance preset: `default`, `low-memory`, `high-performance`, or `custom` for manual control.                                                                               |
+| `graph-it-live.enableMcpServer`            | `false`   | Enable the MCP server for AI/LLM integration.                                                                                                                                  |
+| `graph-it-live.enableMcpDebugLogging`      | `false`   | Privacy-sensitive debug logging for MCP (creates `~/mcp-debug.log`). Enable only for troubleshooting.                                                                          |
+| `graph-it-live.maxDepth`                   | `50`      | Maximum dependency depth to analyze.                                                                                                                                           |
+| `graph-it-live.excludeNodeModules`         | `true`    | Exclude `node_modules` imports from the graph.                                                                                                                                 |
+| `graph-it-live.enableBackgroundIndexing`   | `true`    | Enable background indexing for O(1) reverse dependency lookups.                                                                                                                |
+| `graph-it-live.persistIndex`               | `false`   | Persist reverse index to disk for faster startup.                                                                                                                              |
+| `graph-it-live.indexingConcurrency`        | `4`       | Parallel file processing during indexing (1-16).                                                                                                                               |
+| `graph-it-live.indexingStartDelay`         | `1000`    | Delay (ms) before starting background indexing after activation.                                                                                                               |
+| `graph-it-live.logLevel`                   | `info`    | Logging verbosity: `debug`, `info`, `warn`, `error`, or `none`.                                                                                                               |
+| `graph-it-live.unusedDependencyMode`       | `hide`    | How to display unused dependencies: `hide` or `dim`.                                                                                                                           |
+| `graph-it-live.unusedAnalysisConcurrency`  | `4`       | Parallel file analysis for unused detection (1-16).                                                                                                                            |
+| `graph-it-live.unusedAnalysisMaxEdges`     | `2000`    | Skip auto unused analysis above this edge count (0 = no limit).                                                                                                               |
+| `graph-it-live.persistUnusedAnalysisCache` | `false`   | Cache unused analysis results to disk.                                                                                                                                         |
+| `graph-it-live.maxUnusedAnalysisCacheSize` | `200`     | Max cached unused analysis results (LRU eviction).                                                                                                                             |
+| `graph-it-live.maxCacheSize`               | `500`     | Max cached file dependency analyses.                                                                                                                                           |
+| `graph-it-live.maxSymbolCacheSize`         | `200`     | Max cached symbol analysis results.                                                                                                                                            |
+
+---
 
 ## MCP Server (AI/LLM Integration)
 
-Graph-It-Live includes an optional **Model Context Protocol (MCP) Server** that exposes its dependency analysis capabilities to AI assistants and LLMs.
+Graph-It-Live includes an optional **MCP server** that exposes its full analysis engine to AI assistants and LLMs.
 
-### Enabling the MCP Server
+### Setup
 
-Set `graph-it-live.enableMcpServer` to `true` in your VS Code settings. The server will automatically start when the extension activates.
+1. Set `graph-it-live.enableMcpServer` to `true` in VS Code settings
+2. The server starts automatically when the extension activates
+3. Your AI assistant detects the tools via MCP auto-discovery
 
 <div align="center">
   <img src="media/enable-mcp-server-tools.gif" alt="Enable MCP Server in VS Code Settings" width="800"/>
@@ -339,33 +347,34 @@ Set `graph-it-live.enableMcpServer` to `true` in your VS Code settings. The serv
 
 ### Available Tools
 
-The MCP server exposes **17 tools** for AI/LLM consumption:
+The MCP server exposes **20 tools** for AI/LLM consumption:
 
-| Tool                                   | Description                                                                |
-| :------------------------------------- | :------------------------------------------------------------------------- |
-| `graphitlive_set_workspace`            | Set the project directory to analyze (required first if not auto-detected) |
-| `graphitlive_analyze_dependencies`     | Analyze a single file's direct imports and exports                         |
-| `graphitlive_crawl_dependency_graph`   | Crawl the full dependency tree from an entry file                          |
-| `graphitlive_find_referencing_files`   | Find all files that import a given file (reverse lookup)                   |
-| `graphitlive_expand_node`              | Expand a node to discover dependencies beyond known paths                  |
-| `graphitlive_parse_imports`            | Parse raw import statements without path resolution                        |
-| `graphitlive_resolve_module_path`      | Resolve a module specifier to an absolute file path                        |
-| `graphitlive_get_symbol_graph`         | Get symbol-level dependencies (functions, classes) within a file           |
-| `graphitlive_find_unused_symbols`      | Find potentially unused exported symbols for dead code detection           |
-| `graphitlive_get_symbol_dependents`    | Find all symbols that depend on a specific symbol                          |
-| `graphitlive_trace_function_execution` | Trace the complete execution path through function calls                   |
-| `graphitlive_get_symbol_callers`       | Find all callers of a symbol with O(1) instant lookup                      |
-| `graphitlive_analyze_breaking_changes` | Detect breaking changes when modifying function signatures                 |
-| `graphitlive_get_impact_analysis`      | Full impact analysis combining callers and breaking changes                |
-| `graphitlive_get_index_status`         | Get the current state of the dependency index                              |
-| `graphitlive_invalidate_files`         | Invalidate specific files from the cache after modifications               |
-| `graphitlive_rebuild_index`            | Rebuild the entire dependency index from scratch                           |
-
-Note: Tool names were renamed from `graphItLive_*` to `graphitlive_*` (snake_case).
+| Tool | Description |
+| :--- | :---------- |
+| `graphitlive_set_workspace` | Set the project directory to analyze |
+| `graphitlive_analyze_dependencies` | Analyze a single file's direct imports and exports |
+| `graphitlive_crawl_dependency_graph` | Crawl the full dependency tree from an entry file |
+| `graphitlive_find_referencing_files` | Find all files that import a given file (reverse lookup) |
+| `graphitlive_expand_node` | Expand a node to discover dependencies beyond known paths |
+| `graphitlive_parse_imports` | Parse raw import statements without path resolution |
+| `graphitlive_verify_dependency_usage` | Verify whether a specific dependency is actually used in a file |
+| `graphitlive_resolve_module_path` | Resolve a module specifier to an absolute file path |
+| `graphitlive_get_symbol_graph` | Get symbol-level dependencies (functions, classes) within a file |
+| `graphitlive_find_unused_symbols` | Find potentially unused exported symbols (dead code detection) |
+| `graphitlive_get_symbol_dependents` | Find all symbols that depend on a specific symbol |
+| `graphitlive_trace_function_execution` | Trace the complete execution path through function calls |
+| `graphitlive_get_symbol_callers` | Find all callers of a symbol with O(1) instant lookup |
+| `graphitlive_analyze_breaking_changes` | Detect breaking changes when modifying function signatures |
+| `graphitlive_get_impact_analysis` | Full impact analysis combining callers and breaking changes |
+| `graphitlive_get_index_status` | Get the current state of the dependency index |
+| `graphitlive_invalidate_files` | Invalidate specific files from the cache after modifications |
+| `graphitlive_rebuild_index` | Rebuild the entire dependency index from scratch |
+| `graphitlive_analyze_file_logic` | Analyze symbol-level call hierarchy and code flow within a file |
+| `graphitlive_generate_codemap` | Generate a comprehensive structured overview of any source file |
 
 ### TOON Format (Token-Optimized Output)
 
-All MCP tools now support an optional `format` parameter to reduce token consumption for large datasets:
+All tools support an optional `format` parameter to reduce token consumption:
 
 ```json
 {
@@ -377,33 +386,20 @@ All MCP tools now support an optional `format` parameter to reduce token consump
 }
 ```
 
-**Available formats**:
+| Format | Description | Token Savings |
+|--------|-------------|---------------|
+| `json` *(default)* | Standard JSON output | — |
+| `toon` | Compact Token-Oriented Object Notation | 30-60% |
+| `markdown` | JSON wrapped in markdown code blocks | — |
 
-- `json` (default): Standard JSON output
-- `toon`: Compact Token-Oriented Object Notation (saves 30-60% tokens)
-- `markdown`: JSON wrapped in markdown code blocks
-
-**Example TOON Output**:
-
-```
-files(file,deps,line)
-[main.ts,fs|path,10]
-[utils.ts,os|crypto,20]
-
-# Token Savings
-JSON: 125 tokens
-TOON: 48 tokens
-Savings: 77 tokens (61.6%)
-```
-
-**Learn more**: See [TOON Format Documentation](./docs/TOON_FORMAT.md) for complete specifications and usage examples.
+See [TOON Format Documentation](./docs/TOON_FORMAT.md) for full specifications.
 
 ### Manual MCP Server Configuration
 
-If the automatic MCP server registration doesn't work in your editor (e.g., when using Antigravity, Cursor, or if you want to use the server outside of VS Code), you can manually configure the MCP server.
+If automatic MCP registration doesn't work in your editor, you can configure the server manually.
 
 <details>
-<summary><strong>Click to expand configuration instructions for VS Code, Cursor, Claude Desktop, etc.</strong></summary>
+<summary><strong>Click to expand configuration instructions for VS Code, Cursor, Claude Desktop, Windsurf, etc.</strong></summary>
 
 #### VS Code / VS Code Insiders
 
@@ -425,8 +421,6 @@ Create or edit `.vscode/mcp.json` in your workspace:
   }
 }
 ```
-
-> **Note**: The `${extensionPath:magic5644.graph-it-live}` variable automatically resolves to the extension's installation directory.
 
 #### Cursor
 
@@ -451,46 +445,9 @@ Create or edit `.cursor/mcp.json` in your workspace or `~/.cursor/mcp.json` for 
 }
 ```
 
-#### Antigravity (Google's VS Code fork)
-
-> ⚠️ **NOT CURRENTLY SUPPORTED**: Graph-It-Live is currently **incompatible** with Antigravity due to native binary code signing restrictions.
->
-> **Issue**: Antigravity enforces strict code signature verification (Team ID matching) on native modules. The tree-sitter parsers used by this extension fail with "different Team IDs" errors.
->
-> **Status**: An issue has been opened with the Antigravity development team. We are exploring WASM-based solutions and other workarounds.
->
-> **Recommendation**: Use Graph-It-Live in standard VS Code, VS Code Insiders, or Cursor instead.
-
-If/when Antigravity support becomes available, create `.vscode/mcp.json` in your workspace:
-
-```json
-{
-  "mcpServers": {
-    "graph-it-live": {
-      "command": "node",
-      "args": ["${extensionPath:magic5644.graph-it-live}/dist/mcpServer.mjs"],
-      "env": {
-        "WORKSPACE_ROOT": "${workspaceFolder}",
-        "EXCLUDE_NODE_MODULES": "true",
-        "MAX_DEPTH": "50"
-      }
-    }
-  }
-}
-```
-
 #### Claude Desktop
 
-Add to your Claude Desktop configuration (`~/Library/Application Support/Claude/claude_desktop_config.json` on macOS).
-
-First, find your extension path:
-
-```bash
-ls ~/.vscode/extensions/ | grep graph-it-live
-# Example output: magic5644.graph-it-live-1.0.0
-```
-
-Then use the full path in your config:
+Add to `~/Library/Application Support/Claude/claude_desktop_config.json` (macOS):
 
 ```json
 {
@@ -513,8 +470,6 @@ Then use the full path in your config:
 
 #### Development / Local Testing
 
-When developing the extension locally:
-
 ```json
 {
   "mcpServers": {
@@ -534,105 +489,111 @@ When developing the extension locally:
 
 </details>
 
+---
+
 ## Development
 
 For comprehensive development instructions, see:
 
-- **[DEVELOPMENT.md](DEVELOPMENT.md)** - Complete development guide (setup, build, testing, WASM architecture)
-- **[CONTRIBUTING.md](CONTRIBUTING.md)** - Contribution guidelines and workflow
+- **[DEVELOPMENT.md](DEVELOPMENT.md)** — Setup, build, testing, WASM architecture
+- **[CONTRIBUTING.md](CONTRIBUTING.md)** — Contribution guidelines and workflow
 
 ### Quick Start
-
-1. **Clone**:
 
 ```bash
 git clone https://github.com/magic5644/Graph-It-Live.git
 cd Graph-It-Live
-```
-
-2. **Install dependencies**:
-
-```bash
 npm install
-```
-
-3. **Build**:
-
-```bash
 npm run build
+# Press F5 in VS Code to launch the Extension Development Host
 ```
-
-4. **Run in development**:
-
-- Press `F5` in VS Code to start the Extension Development Host. Remember to open the `extension.ts` file.
 
 ### Project Structure
 
-```bash
+```
 Graph-It-Live/
 ├── src/
-│   ├── analyzer/          # Dependency analysis (AST parsing)
-│   ├── extension/         # VS Code extension host logic
-│   ├── shared/            # Shared types
-│   └── webview/           # React + ReactFlow UI
-├── tests/                 # Vitest unit tests
-├── docs/                  # Technical documentation
-├── DEVELOPMENT.md         # Development guide
-└── CONTRIBUTING.md        # Contribution guidelines
+│   ├── analyzer/              # Dependency analysis (AST, Tree-sitter, SQLite)
+│   │   └── callgraph/         # Live Call Graph engine
+│   ├── extension/             # VS Code extension host
+│   │   └── services/          # Service layer (graph, symbol, call graph, indexing)
+│   ├── mcp/                   # MCP server (20 AI tools)
+│   ├── shared/                # Types, protocols, utilities
+│   └── webview/               # React UI (ReactFlow + Cytoscape.js)
+│       ├── callgraph/         # Call graph panel entry point
+│       └── components/
+│           ├── reactflow/     # File graph + symbol view
+│           └── cytoscape/     # Live call graph rendering
+├── tests/                     # 1494+ tests (Vitest + VS Code E2E)
+├── resources/queries/         # Tree-sitter .scm queries (TS, Python, Rust)
+└── docs/                      # Technical documentation
 ```
+
+### Build & Test Commands
+
+| Command | Description |
+|---------|-------------|
+| `npm run build` | Bundle via esbuild + copy WASM files |
+| `npm run watch` | Rebuild on change |
+| `npm test` | Run unit tests (Vitest, mocked parsers) |
+| `npm run test:vscode` | E2E tests from source with real WASM |
+| `npm run test:vscode:vsix` | E2E tests from .vsix (pre-release) |
+| `npm run lint` | Lint TypeScript (ESLint) |
+| `npm run check:types` | Strict type checking |
+| `npm run package` | Build .vsix package |
+| `npm run package:verify` | Verify no .map files in package |
 
 ---
 
-## 🛠️ Build, Test, and Packaging Commands
+## WASM Architecture
 
-All commands must be run from the project root.
+Graph-It-Live uses **WebAssembly** tree-sitter parsers for cross-platform compatibility and security:
 
-| Command                             | Description                                                                                             |
-| ----------------------------------- | ------------------------------------------------------------------------------------------------------- |
-| `npm install`                       | Install dependencies. No native compilation required - uses WASM parsers for cross-platform compatibility. |
-| `npm run build`                     | Build the extension bundle via `esbuild.js`. Automatically copies WASM files to `dist/wasm/`.                                                            |
-| `npm run watch`                     | Rebuild automatically on file changes.                                                                  |
-| `npm test` / `npm run test:unit`    | Run unit tests (Vitest) with mocked parsers.                                                                                |
-| `npm run test:coverage`             | Generate coverage report (see `tests/coverage/`).                                                       |
-| `npm run test:vscode`               | Run VS Code e2e tests from source (development mode) with real WASM parsers.                                                   |
-| `npm run test:vscode:vsix`          | Run VS Code e2e tests from the packaged .vsix (production mode, required before release) with real WASM parsers.               |
-| `npm run lint` / `npm run lint:fix` | Lint TypeScript code (ESLint).                                                                          |
-| `npm run check:types`               | Strict type checking with `tsc`.                                                                        |
-| `npm run package`                   | Build the `.vsix` package for distribution. Includes WASM files in the package.                                                             |
-| `npm run package:verify`            | Verify that the package contains **no .map files** (mandatory before commit/release). Also verifies WASM files are included.                   |
+- No native compilation needed — no Python, C++ compiler, or build tools
+- Pure JavaScript + WASM (~2-3 MB total)
+- Works identically on Windows, Linux, and macOS
+- Parsers: `tree-sitter.wasm`, `tree-sitter-python.wasm`, `tree-sitter-rust.wasm`
 
-### Package Verification (MANDATORY before any build-related commit)
+<details>
+<summary><strong>Click to expand WASM technical details</strong></summary>
 
-After any change to `esbuild.js`, `.vscodeignore`, or dependencies in `package.json`:
+### Architecture
 
-```bash
-npm run build -- --production
-npm run package
-npm run package:verify
-# Expected: "✅ No .map files in package"
-# If any files are listed, fix .vscodeignore before proceeding!
-
-# Verify WASM files are included
-npx vsce ls | grep "\.wasm$"
-# Expected: dist/wasm/tree-sitter.wasm, dist/wasm/tree-sitter-python.wasm, dist/wasm/tree-sitter-rust.wasm
-
-ls -lh *.vsix
+```
+VS Code Extension Host (Electron)
+├── WasmParserFactory (Singleton)
+│   ├── tree-sitter.wasm (Core runtime)
+│   ├── tree-sitter-python.wasm (Python grammar)
+│   └── tree-sitter-rust.wasm (Rust grammar)
+├── PythonParser, RustParser (use WASM)
+└── GraphExtractor (tree-sitter queries for call graph)
 ```
 
-### Tips
+### Testing
 
-- **E2E tests**: Add an e2e test for any new user-facing feature (command, UI, setting).
-- **Cross-platform**: All code and commands must work on Windows, Linux, and macOS.
+- **Unit tests:** Mocked parsers (WASM doesn't run in Node.js)
+- **E2E tests:** Real WASM parsers in VS Code's Electron environment
+- **90+ E2E tests** validate all functionality with real parsers
+
+### Troubleshooting
+
+| Error | Cause | Solution |
+|-------|-------|---------|
+| "Extension path required" | Internal error | Report as bug |
+| "LinkError: WebAssembly.instantiate()" | Node.js limitation | Expected in unit tests; works in VS Code |
+| "WASM file not found" | Missing from dist/wasm/ | Run `npm run build` or reinstall |
+
+</details>
 
 ---
 
 ## License
 
-MIT License - see [LICENSE](LICENSE) file for details.
+MIT License — see [LICENSE](LICENSE) file for details.
 
 ## Acknowledgements
 
-Language icons provided by [SuperTinyIcons](https://github.com/edent/SuperTinyIcons) - a collection of miniscule SVG versions of website and app logos, under CC0-1.0 license.
+Language icons provided by [SuperTinyIcons](https://github.com/edent/SuperTinyIcons) — CC0-1.0 license.
 
 ## Author
 

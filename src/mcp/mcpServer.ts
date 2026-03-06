@@ -296,7 +296,7 @@ async function initializeWorker(): Promise<void> {
   }
 
   // Initialization already in progress, wait for it
-  if (initializationPromise) {
+  if (initializationPromise !== null) {
     debugLog("[McpServer] Waiting for existing initialization...");
     return initializationPromise;
   }
@@ -616,10 +616,10 @@ EXAMPLE: If analyzing a project at "/Users/me/my-app", call this tool with works
       let filesIndexed = 0;
 
       // Get index status to report number of files indexed
-      // workerHost is reassigned in initializeWorker() - use type assertion since TS can't track this
-      const currentWorker = workerHost as McpWorkerHost | null;
-      if (currentWorker?.ready()) {
-        const statusResult = await currentWorker.invoke<GetIndexStatusResult>(
+      // workerHost is reassigned inside initializeWorker() — re-read the module-level variable
+      const activeWorker = workerHost as McpWorkerHost | null;
+      if (activeWorker?.ready()) {
+        const statusResult = await activeWorker.invoke<GetIndexStatusResult>(
           "get_index_status",
           {},
         );
@@ -739,10 +739,16 @@ RETURNS: A complete graph with nodes (files with metadata: path, extension, depe
       return formatToolResponse(workerCheck.response, responseFormat);
 
     const params = { entryFile, maxDepth, limit, offset, onlyUsed };
-    const result = await workerHost!.invoke<CrawlDependencyGraphResult>(
+    const result = await workerHost?.invoke<CrawlDependencyGraphResult>(
       "crawl_dependency_graph",
       params,
     );
+    if (!result) {
+      return formatToolResponse(
+        createErrorResponse<CrawlDependencyGraphResult>("Worker not available", 0, getWorkspaceRoot()),
+        responseFormat,
+      );
+    }
 
     // Build pagination info if limit/offset were used
     let pagination: PaginationInfo | undefined;
@@ -1746,6 +1752,6 @@ async function main(): Promise<void> {
 
 // Run main - IIFE pattern for entry point (NOSONAR: top-level await not supported by tsconfig)
 main().catch((error: unknown) => {// NOSONAR
-  debugLog(`[McpServer] Fatal error: ${error}`);
+  debugLog(`[McpServer] Fatal error: ${error instanceof Error ? error.message : String(error)}`);
   process.exit(1);
 });
