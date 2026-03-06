@@ -70,7 +70,7 @@ All three layers are also exposed to AI via a **20-tool MCP server**, so your as
 
 Stop pasting file paths and explaining your project structure. Graph-It-Live exposes **20 powerful dependency analysis tools** directly to your AI assistant via the [Model Context Protocol (MCP)](https://modelcontextprotocol.io).
 
-**Works with:** GitHub Copilot, Claude (Desktop & Code), Cursor, Windsurf, and any MCP-compatible client.
+**Works with:** GitHub Copilot, Claude (Desktop & Code), Cursor, Windsurf, Antigravity, and any MCP-compatible client.
 
 ### What your AI can do with Graph-It-Live
 
@@ -253,7 +253,7 @@ Smart filter to show only dependencies that are actually used in your code. Togg
 
 ## Prerequisites
 
-- **Node.js**: v18 or higher (v20 LTS recommended)
+- **Node.js**: v20 or higher
 - **VS Code**: v1.96.0 or higher
 
 **No build tools required** — the extension uses WebAssembly (WASM) parsers. No Python, C++ compiler, or native compilation needed.
@@ -328,6 +328,10 @@ With **`custom`** profile, you can fine-tune:
 | `graph-it-live.maxUnusedAnalysisCacheSize` | `200`     | Max cached unused analysis results (LRU eviction).                                                                                                                             |
 | `graph-it-live.maxCacheSize`               | `500`     | Max cached file dependency analyses.                                                                                                                                           |
 | `graph-it-live.maxSymbolCacheSize`         | `200`     | Max cached symbol analysis results.                                                                                                                                            |
+| `graph-it-live.preIndexCallGraph`          | `true`    | Pre-index the call graph database at startup for near-instant first query.                                                                                                     |
+| `graph-it-live.enableCallHierarchy`        | `false`   | **[Experimental]** Enable LSP-based call hierarchy in symbol view (adds call edges).                                                                                           |
+| `graph-it-live.callHierarchyMaxFileSize`   | `5000`    | Max file size (lines) for LSP call hierarchy analysis. Larger files fall back to AST-only.                                                                                     |
+| `graph-it-live.symbolViewLayout`           | `hierarchical` | Layout for symbol drill-down: `hierarchical`, `force-directed`, or `radial`.                                                                                              |
 
 ---
 
@@ -479,6 +483,52 @@ Add to `~/Library/Application Support/Claude/claude_desktop_config.json` (macOS)
       "env": {
         "WORKSPACE_ROOT": "/absolute/path/to/your/project",
         "TSCONFIG_PATH": "/absolute/path/to/your/project/tsconfig.json",
+        "EXCLUDE_NODE_MODULES": "true",
+        "MAX_DEPTH": "50"
+      }
+    }
+  }
+}
+```
+
+#### Windsurf
+
+Create or edit `~/.codeium/windsurf/mcp_config.json`:
+
+```json
+{
+  "mcpServers": {
+    "graph-it-live": {
+      "command": "bash",
+      "args": [
+        "-c",
+        "node ~/.windsurf/extensions/magic5644.graph-it-live-*/dist/mcpServer.mjs"
+      ],
+      "env": {
+        "WORKSPACE_ROOT": "${workspaceFolder}",
+        "EXCLUDE_NODE_MODULES": "true",
+        "MAX_DEPTH": "50"
+      }
+    }
+  }
+}
+```
+
+#### Antigravity
+
+Create or edit `.antigravity/mcp.json` in your workspace or configure globally:
+
+```json
+{
+  "mcpServers": {
+    "graph-it-live": {
+      "command": "bash",
+      "args": [
+        "-c",
+        "node ~/.vscode/extensions/magic5644.graph-it-live-*/dist/mcpServer.mjs"
+      ],
+      "env": {
+        "WORKSPACE_ROOT": "${workspaceFolder}",
         "EXCLUDE_NODE_MODULES": "true",
         "MAX_DEPTH": "50"
       }

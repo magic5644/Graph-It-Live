@@ -1,7 +1,7 @@
 {
   "name": "graph-it-live",
   "displayName": "Graph-It-Live",
-  "description": "Visualize file dependencies as an interactive graph. Analyze imports, detect circular dependencies, and explore project architecture. Includes MCP Server for AI/LLM integration with GitHub Copilot, cursor, Antigravity or other AI assistants.",
+  "description": "AI-first dependency graph & code intelligence for VS Code. Visualize file imports, symbol call hierarchies, and cross-file call graphs. Detect circular dependencies, dead code, and breaking changes. Built-in MCP Server with 20 tools for GitHub Copilot, Cursor, Claude, Windsurf, and Antigravity. Generate AI-friendly codemaps. TypeScript, JavaScript, Python, Rust, Vue, Svelte, GraphQL.",
   "version": "0.0.1",
   "publisher": "magic5644",
   "author": {
@@ -23,6 +23,7 @@
     "theme": "dark"
   },
   "keywords": [
+    "dependency graph",
     "dependency",
     "graph",
     "visualization",
@@ -30,28 +31,38 @@
     "typescript",
     "javascript",
     "python",
-    "react",
     "rust",
     "vue",
     "svelte",
     "graphql",
     "circular dependency",
+    "cycle detection",
     "architecture",
     "code analysis",
-    "symbol",
-    "ast",
+    "code map",
+    "codemap",
     "call graph",
+    "call hierarchy",
+    "symbol",
     "dead code",
     "unused exports",
     "breaking changes",
+    "impact analysis",
+    "reverse dependency",
+    "refactoring",
+    "code navigation",
+    "project structure",
     "mcp",
     "mcp server",
     "model context protocol",
     "copilot",
+    "cursor",
+    "claude",
+    "windsurf",
+    "antigravity",
     "ai",
     "llm",
-    "refactoring",
-    "impact analysis"
+    "ai agent"
   ],
   "engines": {
     "vscode": "^1.96.0",
@@ -60,7 +71,6 @@
   "categories": [
     "Visualization",
     "Programming Languages",
-    "Linters",
     "AI",
     "Other"
   ],
