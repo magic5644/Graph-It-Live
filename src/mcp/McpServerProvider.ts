@@ -79,7 +79,7 @@ export class McpServerProvider implements vscode.Disposable {
         {
           onDidChangeMcpServerDefinitions: this.didChangeEmitter.event,
           provideMcpServerDefinitions: () => this.provideMcpServerDefinitions(),
-          resolveMcpServerDefinition: (definition) => definition,
+          resolveMcpServerDefinition: (definition: vscode.McpServerDefinition) => definition,
         }
       );
 
@@ -114,7 +114,7 @@ export class McpServerProvider implements vscode.Disposable {
         );
       }
 
-      return this.registration;
+      return this.registration ?? { dispose: () => { } };
     } catch (error) {
       log.error('Failed to register MCP server provider:', error);
       return { dispose: () => {} };

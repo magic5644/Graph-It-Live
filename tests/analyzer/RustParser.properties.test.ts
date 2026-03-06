@@ -1,10 +1,10 @@
-import { describe, it, expect, beforeEach, vi } from 'vitest';
 import fc from 'fast-check';
+import fs from 'node:fs/promises';
 import path from 'node:path';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
+import type Parser from 'web-tree-sitter';
 import { RustParser } from '../../src/analyzer/languages/RustParser';
 import { normalizePath } from '../../src/shared/path';
-import fs from 'node:fs/promises';
-import type Parser from 'web-tree-sitter';
 
 /**
  * Property-Based Tests for RustParser WASM Migration
@@ -22,8 +22,9 @@ const fixturesDir = path.resolve(__dirname, '../fixtures/rust-integration');
 
 // Mock tree-sitter to simulate parsing without requiring WASM files
 vi.mock('web-tree-sitter', () => {
-  const createMockNode = (type: string, text: string, startRow: number): Parser.SyntaxNode => ({
+  const createMockNode = (type: string, text: string, startRow: number) => ({
     type,
+    typeId: 0,
     startPosition: { row: startRow, column: 0 },
     endPosition: { row: startRow, column: text.length },
     startIndex: 0,
@@ -54,12 +55,16 @@ vi.mock('web-tree-sitter', () => {
     nextParseState: 0,
     grammarId: 0,
     grammarType: type,
+    equals: () => false,
     childForFieldName: () => null,
     childForFieldId: () => null,
     fieldNameForChild: () => null,
     fieldNameForNamedChild: () => null,
     child: () => null,
     namedChild: () => null,
+    firstChildForIndex: () => null,
+    firstNamedChildForIndex: () => null,
+    namedChildren: [],
     childrenForFieldName: () => [],
     childrenForFieldId: () => [],
     descendantForIndex: () => null as any,
@@ -69,11 +74,11 @@ vi.mock('web-tree-sitter', () => {
     descendantsOfType: () => [],
     walk: () => null as any,
     toString: () => text,
-  });
+  }) as unknown as Parser.Node;
 
   const mockParse = vi.fn((content: string) => {
     const lines = content.split('\n');
-    const children: Parser.SyntaxNode[] = [];
+    const children: Parser.Node[] = [];
     
     // Calculate absolute byte positions for each line
     let currentPosition = 0;
@@ -184,8 +189,8 @@ vi.mock('web-tree-sitter', () => {
   });
 
   class MockParser {
-    static init = vi.fn().mockResolvedValue(undefined);
-    static Language = {
+    static readonly init = vi.fn().mockResolvedValue(undefined);
+    static readonly Language = {
       load: vi.fn().mockResolvedValue({}),
     };
     setLanguage = vi.fn();
@@ -278,6 +283,43 @@ describe('RustParser Property-Based Tests', () => {
         return data;
       });
 
+    // Generate import line from type and module
+    const buildImportLine = (type: string, module: string, firstComponent: string): string => {
+      if (type === 'use') return `use ${module};`;
+      if (type === 'mod') return `mod ${firstComponent};`;
+      return `extern crate ${firstComponent};`;
+    };
+
+    // Track local/external imports and deduplicate
+    const trackImport = (
+      type: string, firstComponent: string, module: string, isExternal: boolean,
+      ctx: { seenModules: Set<string>; localImports: Array<{ module: string; line: number }>; externalImports: string[] },
+      lineNumber: number
+    ): void => {
+      if (type === 'use') {
+        if (isExternal) { ctx.externalImports.push(firstComponent); return; }
+        const normalized = module.toLowerCase();
+        if (!ctx.seenModules.has(normalized)) {
+          ctx.seenModules.add(normalized);
+          ctx.localImports.push({ module: normalized, line: lineNumber });
+        }
+      } else if (type === 'mod') {
+        const normalized = firstComponent.toLowerCase();
+        if (!ctx.seenModules.has(normalized)) {
+          ctx.seenModules.add(normalized);
+          ctx.localImports.push({ module: normalized, line: lineNumber });
+        }
+        if (isExternal) ctx.externalImports.push(firstComponent);
+      } else if (type === 'extern_crate') {
+        if (isExternal) { ctx.externalImports.push(firstComponent); return; }
+        const normalized = firstComponent.toLowerCase();
+        if (!ctx.seenModules.has(normalized)) {
+          ctx.seenModules.add(normalized);
+          ctx.localImports.push({ module: normalized, line: lineNumber });
+        }
+      }
+    };
+
     // Generate a Rust file with known imports
     const rustFileWithImportsArbitrary = () =>
       fc.record({
@@ -288,69 +330,18 @@ describe('RustParser Property-Based Tests', () => {
         const externalImports: string[] = [];
         const seenModules = new Set<string>(); // Track seen modules for deduplication
 
-        data.imports.forEach((imp) => {
-          let importLine = '';
+        for (const imp of data.imports) {
           const firstComponent = imp.module.split('::')[0];
           const isExternal = externalCrates.includes(firstComponent);
+          const importLine = buildImportLine(imp.type, imp.module, firstComponent);
 
-          if (imp.type === 'use') {
-            importLine = `use ${imp.module};`;
-            
-            // use declarations: external crates are filtered
-            if (isExternal) {
-              externalImports.push(firstComponent);
-            } else {
-              const normalizedModule = imp.module.toLowerCase();
-              
-              if (!seenModules.has(normalizedModule)) {
-                seenModules.add(normalizedModule);
-                localImports.push({
-                  module: normalizedModule,
-                  line: lines.length + 1,
-                });
-              }
-            }
-          } else if (imp.type === 'mod') {
-            // mod declarations: NOT filtered (even if they match external crate names)
-            // This is because mod std; could theoretically be a local file std.rs
-            importLine = `mod ${firstComponent};`;
-            
-            const normalizedModule = firstComponent.toLowerCase();
-            
-            if (!seenModules.has(normalizedModule)) {
-              seenModules.add(normalizedModule);
-              localImports.push({
-                module: normalizedModule,
-                line: lines.length + 1,
-              });
-            }
-            
-            // Track as external for test purposes (to verify use filtering)
-            if (isExternal) {
-              externalImports.push(firstComponent);
-            }
-          } else if (imp.type === 'extern_crate') {
-            // extern crate declarations: external crates are filtered
-            importLine = `extern crate ${firstComponent};`;
-            
-            if (isExternal) {
-              externalImports.push(firstComponent);
-            } else {
-              // Non-external extern crate (rare, but possible for local crates)
-              const normalizedModule = firstComponent.toLowerCase();
-              
-              if (!seenModules.has(normalizedModule)) {
-                seenModules.add(normalizedModule);
-                localImports.push({
-                  module: normalizedModule,
-                  line: lines.length + 1,
-                });
-              }
-            }
-          }
+          trackImport(
+            imp.type, firstComponent, imp.module, isExternal,
+            { seenModules, localImports, externalImports }, lines.length + 1
+          );
 
           lines.push(importLine);
-        });
+        }
 
         return {
           content: lines.join('\n'),
@@ -452,7 +443,7 @@ describe('RustParser Property-Based Tests', () => {
       await fc.assert(
         fc.asyncProperty(
           fc.array(
-            fc.stringMatching(/^[A-Z][a-zA-Z0-9_]{0,15}$/), // PascalCase module names
+            fc.stringMatching(/^[A-Z]\w{0,15}$/), // PascalCase module names
             { minLength: 1, maxLength: 5 }
           ),
           async (moduleNames) => {
@@ -774,8 +765,8 @@ describe('RustParser Property-Based Tests', () => {
               const deps = await parser.parseImports(tempFilePath);
 
               // Verify line numbers match expected positions
-              const actualLineNumbers = deps.map((d) => d.line).sort((a, b) => a - b);
-              const sortedExpectedLines = expectedLineNumbers.sort((a, b) => a - b);
+              const actualLineNumbers = [...deps.map((d) => d.line)].sort((a, b) => a - b);
+              const sortedExpectedLines = [...expectedLineNumbers].sort((a, b) => a - b);
 
               expect(actualLineNumbers).toEqual(sortedExpectedLines);
             } finally {
@@ -850,6 +841,10 @@ describe('RustParser Property-Based Tests', () => {
     // Arbitrary for generating external crate names
     const externalCrateArbitrary = () =>
       fc.constantFrom(...externalCrates);
+
+    // Arbitrary for generating local module names that don't collide with external crates
+    const localModuleNameArbitrary = () =>
+      rustModuleNameArbitrary().filter(name => !externalCrates.includes(name));
 
     it('Feature: tree-sitter-wasm-migration, Property 5: For any valid module specifier, resolvePath returns a valid path or null', async () => {
       await fc.assert(
@@ -938,7 +933,7 @@ describe('RustParser Property-Based Tests', () => {
     it('Feature: tree-sitter-wasm-migration, Property 5: For any module with uppercase letters, resolvePath returns null', async () => {
       await fc.assert(
         fc.asyncProperty(
-          fc.stringMatching(/^[A-Z][a-zA-Z0-9_]{0,15}$/), // PascalCase module names
+          fc.stringMatching(/^[A-Z]\w{0,15}$/), // PascalCase module names
           async (moduleSpecifier) => {
             const fromFile = path.join(fixturesDir, 'main.rs');
             const resolvedPath = await parser.resolvePath(fromFile, moduleSpecifier);
@@ -955,7 +950,7 @@ describe('RustParser Property-Based Tests', () => {
     it('Feature: tree-sitter-wasm-migration, Property 5: For any local module, resolution handles mod.rs pattern', async () => {
       await fc.assert(
         fc.asyncProperty(
-          rustModuleNameArbitrary(),
+          localModuleNameArbitrary(),
           async (moduleName) => {
             // Create a temporary module directory with mod.rs
             const moduleDir = path.join(fixturesDir, moduleName);
@@ -993,7 +988,7 @@ describe('RustParser Property-Based Tests', () => {
     it('Feature: tree-sitter-wasm-migration, Property 5: For any local module, resolution handles direct .rs file', async () => {
       await fc.assert(
         fc.asyncProperty(
-          rustModuleNameArbitrary(),
+          localModuleNameArbitrary(),
           async (moduleName) => {
             // Create a temporary .rs file
             const moduleFilePath = path.join(fixturesDir, `${moduleName}.rs`);
@@ -1027,7 +1022,7 @@ describe('RustParser Property-Based Tests', () => {
     it('Feature: tree-sitter-wasm-migration, Property 5: For any local module, .rs file takes precedence over mod.rs', async () => {
       await fc.assert(
         fc.asyncProperty(
-          rustModuleNameArbitrary(),
+          localModuleNameArbitrary(),
           async (moduleName) => {
             // Create both .rs file and mod.rs directory
             const moduleFilePath = path.join(fixturesDir, `${moduleName}.rs`);
@@ -1069,8 +1064,8 @@ describe('RustParser Property-Based Tests', () => {
     it('Feature: tree-sitter-wasm-migration, Property 5: For any scoped local module path, resolution handles nested modules', async () => {
       await fc.assert(
         fc.asyncProperty(
-          rustModuleNameArbitrary(),
-          rustModuleNameArbitrary(),
+          localModuleNameArbitrary(),
+          localModuleNameArbitrary(),
           async (parentModule, childModule) => {
             // Create nested module structure: parent/child.rs
             const parentDir = path.join(fixturesDir, parentModule);
@@ -1136,7 +1131,7 @@ describe('RustParser Property-Based Tests', () => {
             fc.constant(''),                    // Empty string
             fc.constant('::'),                  // Just separator
             fc.constant(':::module'),           // Triple colon
-            fc.stringMatching(/^[0-9]/),       // Starts with number (invalid)
+            fc.stringMatching(/^\d/),          // Starts with number (invalid)
             fc.constant('/absolute/path'),      // Absolute file path (invalid)
             fc.constant('nonexistent_module_xyz123')  // Non-existent module
           ),
