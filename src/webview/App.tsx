@@ -1,4 +1,7 @@
 import React from "react";
+import type {
+    CallGraphExtensionMessage,
+} from "../shared/callgraph-types";
 import {
     getLogger,
     type ILogger,
@@ -20,6 +23,7 @@ import {
     WebviewToExtensionMessage,
 } from "../shared/types";
 import { AtomicSymbolGraph } from "./components/AtomicSymbolGraph";
+import { CytoscapeGraph } from "./components/cytoscape/CytoscapeGraph";
 import ReactFlowGraph from "./components/ReactFlowGraph";
 import SymbolCardView from "./components/SymbolCardView";
 import { mergeGraphDataUnion } from "./utils/graphMerge";
@@ -123,7 +127,7 @@ class ErrorBoundary extends React.Component<
   static getDerivedStateFromError(error: unknown) {
     return {
       hasError: true,
-      message: error instanceof Error ? error.message : String(error),
+      message: error instanceof Error ? error.message : "Unknown error",
     };
   }
 
@@ -238,7 +242,7 @@ const App: React.FC = () => {
     }
   }, []);
   const [viewMode, setViewMode] = React.useState<
-    "file" | "list" | "symbol" | "references"
+    "file" | "list" | "symbol" | "references" | "callgraph"
   >("file");
   const [expandAll, setExpandAll] = React.useState<boolean>(false);
   // Toggle to show/hide parent/reference files for the current root file
@@ -301,7 +305,11 @@ const App: React.FC = () => {
       );
 
       if (!message.isRefresh || isNavigation) {
-        setViewMode("file");
+        // Don't override callgraph viewMode — the call graph should stay visible
+        // until the user explicitly navigates back.
+        if (viewModeRef.current !== "callgraph") {
+          setViewMode("file");
+        }
         setSymbolData(undefined);
         setShowParents(false);
         setReferencingFiles([]);
@@ -567,6 +575,21 @@ const App: React.FC = () => {
         return;
       }
 
+      // Call graph messages use 'type' property — CytoscapeGraph is always
+      // mounted and handles its own rendering via its own window.message listener.
+      // Only switch viewMode to 'callgraph' when the user explicitly triggers
+      // Show Call Graph (status === 'started'). Subsequent progress/complete
+      // messages and showCallGraph data replays must NOT override the current
+      // viewMode so the toolbar can switch away without being hijacked.
+      if ('type' in message) {
+        const cgMsg = message as CallGraphExtensionMessage;
+        if (cgMsg.type === 'callGraphIndexing' && cgMsg.status === 'started') {
+          setViewMode('callgraph');
+        }
+        // CytoscapeGraph's own listener processes all callGraph* messages.
+        return;
+      }
+
       // All other messages use 'command' property
       if (!('command' in message)) {
         log.warn('Unknown message format:', message);
@@ -575,22 +598,22 @@ const App: React.FC = () => {
 
       switch (message.command) {
         case "updateGraph":
-          handleUpdateGraphMessage(message as ShowGraphMessage);
+          handleUpdateGraphMessage(message);
           break;
         case "updateFilter":
-          handleUpdateFilterMessage(message as UpdateFilterMessage);
+          handleUpdateFilterMessage(message);
           break;
         case "emptyState":
-          handleEmptyStateMessage(message as EmptyStateMessage);
+          handleEmptyStateMessage(message);
           break;
         case "symbolGraph":
-          handleSymbolGraphMessage(message as SymbolGraphMessage);
+          handleSymbolGraphMessage(message);
           break;
         case "expandedGraph":
-          handleExpandedGraphMessage(message as ExpandedGraphMessage);
+          handleExpandedGraphMessage(message);
           break;
         case "referencingFiles":
-          handleReferencingFilesMessage(message as ReferencingFilesMessage);
+          handleReferencingFilesMessage(message);
           break;
         case "clearReverseDependencies":
           handleClearReverseDependencies();
@@ -602,7 +625,7 @@ const App: React.FC = () => {
           handleSetExpandAll(message.expandAll);
           break;
         case "expansionProgress":
-          handleExpansionProgress(message as ExpansionProgressMessage);
+          handleExpansionProgress(message);
           break;
       }
     };
@@ -941,6 +964,20 @@ const App: React.FC = () => {
             }}
           />
         )}
+
+        {/* Call Graph — always rendered so CytoscapeGraph's message listener is
+            active from app startup, eliminating the mount-timing race condition
+            where showCallGraph / callGraphIndexing messages arrive before the
+            listener is registered. Visibility is controlled via display:none. */}
+        <div style={{
+          width: "100%", height: "100%", position: "relative",
+          display: viewMode === "callgraph" ? "block" : "none",
+        }}>
+
+          <CytoscapeGraph
+            postMessage={(msg: unknown) => vscode?.postMessage(msg as WebviewToExtensionMessage)}
+          />
+        </div>
       </div>
     </ErrorBoundary>
   );

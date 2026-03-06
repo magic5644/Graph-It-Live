@@ -4,38 +4,40 @@
  * Tests for the MCP type definitions, Zod schemas, and response helper functions.
  */
 
-import { describe, it, expect } from 'vitest';
-import {
-  createSuccessResponse,
-  createErrorResponse,
-  enrichDependency,
-  getRelativePath,
-  MCP_TOOL_VERSION,
-  AnalyzeDependenciesParamsSchema,
-  CrawlDependencyGraphParamsSchema,
-  FindReferencingFilesParamsSchema,
-  ExpandNodeParamsSchema,
-  ParseImportsParamsSchema,
-  ResolveModulePathParamsSchema,
-  GetIndexStatusParamsSchema,
-  GetSymbolGraphParamsSchema,
-  FindUnusedSymbolsParamsSchema,
-  GetSymbolDependentsParamsSchema,
-  TraceFunctionExecutionParamsSchema,
-  InvalidateFilesParamsSchema,
-  RebuildIndexParamsSchema,
-  SetWorkspaceParamsSchema,
-  GetSymbolCallersParamsSchema,
-  AnalyzeBreakingChangesParamsSchema,
-  GetImpactAnalysisParamsSchema,
-  validateToolParams,
-  validateFilePath,
-  sanitizeString,
-  normalizePathForComparison,
-  isPathWithinRoot,
-} from '../../src/mcp/types';
+import { describe, expect, it } from 'vitest';
 import type { Dependency } from '../../src/analyzer/types';
 import type { McpWorkerResponse } from '../../src/mcp/types';
+import {
+  AnalyzeBreakingChangesParamsSchema,
+  AnalyzeDependenciesParamsSchema,
+  AnalyzeFileLogicParamsSchema,
+  CrawlDependencyGraphParamsSchema,
+  createErrorResponse,
+  createSuccessResponse,
+  enrichDependency,
+  ExpandNodeParamsSchema,
+  FindReferencingFilesParamsSchema,
+  FindUnusedSymbolsParamsSchema,
+  GenerateCodemapParamsSchema,
+  GetImpactAnalysisParamsSchema,
+  GetIndexStatusParamsSchema,
+  getRelativePath,
+  GetSymbolCallersParamsSchema,
+  GetSymbolDependentsParamsSchema,
+  GetSymbolGraphParamsSchema,
+  InvalidateFilesParamsSchema,
+  isPathWithinRoot,
+  MCP_TOOL_VERSION,
+  normalizePathForComparison,
+  ParseImportsParamsSchema,
+  RebuildIndexParamsSchema,
+  ResolveModulePathParamsSchema,
+  sanitizeString,
+  SetWorkspaceParamsSchema,
+  TraceFunctionExecutionParamsSchema,
+  validateFilePath,
+  validateToolParams,
+} from '../../src/mcp/types';
 
 // ============================================================================
 // Response Helper Tests
@@ -677,6 +679,83 @@ describe('GetImpactAnalysisParamsSchema', () => {
       filePath: '/project/src/service.ts',
     });
 
+    expect(result.success).toBe(false);
+  });
+});
+
+describe('AnalyzeFileLogicParamsSchema', () => {
+  it('validates minimal parameters', () => {
+    const result = AnalyzeFileLogicParamsSchema.safeParse({
+      filePath: '/project/src/service.ts',
+    });
+
+    expect(result.success).toBe(true);
+    if (result.success) {
+      expect(result.data.filePath).toBe('/project/src/service.ts');
+      expect(result.data.includeExternal).toBeUndefined();
+    }
+  });
+
+  it('validates with includeExternal option', () => {
+    const result = AnalyzeFileLogicParamsSchema.safeParse({
+      filePath: '/project/src/service.ts',
+      includeExternal: true,
+    });
+
+    expect(result.success).toBe(true);
+    if (result.success) {
+      expect(result.data.includeExternal).toBe(true);
+    }
+  });
+
+  it('rejects missing filePath', () => {
+    const result = AnalyzeFileLogicParamsSchema.safeParse({});
+    expect(result.success).toBe(false);
+  });
+});
+
+describe('GenerateCodemapParamsSchema', () => {
+  it('validates minimal parameters', () => {
+    const result = GenerateCodemapParamsSchema.safeParse({
+      filePath: '/project/src/service.ts',
+    });
+
+    expect(result.success).toBe(true);
+    if (result.success) {
+      expect(result.data.filePath).toBe('/project/src/service.ts');
+      expect(result.data.format).toBe('json'); // default
+    }
+  });
+
+  it('validates with format option', () => {
+    const result = GenerateCodemapParamsSchema.safeParse({
+      filePath: '/project/src/service.ts',
+      format: 'toon',
+    });
+
+    expect(result.success).toBe(true);
+    if (result.success) {
+      expect(result.data.format).toBe('toon');
+    }
+  });
+
+  it('rejects missing filePath', () => {
+    const result = GenerateCodemapParamsSchema.safeParse({});
+    expect(result.success).toBe(false);
+  });
+
+  it('rejects invalid format', () => {
+    const result = GenerateCodemapParamsSchema.safeParse({
+      filePath: '/project/src/service.ts',
+      format: 'xml',
+    });
+    expect(result.success).toBe(false);
+  });
+
+  it('rejects null bytes in path', () => {
+    const result = GenerateCodemapParamsSchema.safeParse({
+      filePath: '/project/src/\0evil.ts',
+    });
     expect(result.success).toBe(false);
   });
 });

@@ -1,47 +1,49 @@
 import { workerState } from "../shared/state";
 import {
-    executeAnalyzeBreakingChanges,
-    executeAnalyzeDependencies,
-    executeAnalyzeFileLogic,
-    executeCrawlDependencyGraph,
-    executeExpandNode,
-    executeFindReferencingFiles,
-    executeFindUnusedSymbols,
-    executeGetImpactAnalysis,
-    executeGetIndexStatus,
-    executeGetSymbolCallers,
-    executeGetSymbolDependents,
-    executeGetSymbolGraph,
-    executeInvalidateFiles,
-    executeParseImports,
-    executeRebuildIndex,
-    executeResolveModulePath,
-    executeTraceFunctionExecution,
-    executeVerifyDependencyUsage,
+  executeAnalyzeBreakingChanges,
+  executeAnalyzeDependencies,
+  executeAnalyzeFileLogic,
+  executeCrawlDependencyGraph,
+  executeExpandNode,
+  executeFindReferencingFiles,
+  executeFindUnusedSymbols,
+  executeGenerateCodemap,
+  executeGetImpactAnalysis,
+  executeGetIndexStatus,
+  executeGetSymbolCallers,
+  executeGetSymbolDependents,
+  executeGetSymbolGraph,
+  executeInvalidateFiles,
+  executeParseImports,
+  executeRebuildIndex,
+  executeResolveModulePath,
+  executeTraceFunctionExecution,
+  executeVerifyDependencyUsage,
 } from "../tools";
 import type {
-    AnalyzeBreakingChangesParams,
-    AnalyzeDependenciesParams,
-    AnalyzeFileLogicParams,
-    CrawlDependencyGraphParams,
-    ExpandNodeParams,
-    FindReferencingFilesParams,
-    FindUnusedSymbolsParams,
-    GetImpactAnalysisParams,
-    GetSymbolCallersParams,
-    GetSymbolDependentsParams,
-    GetSymbolGraphParams,
-    InvalidateFilesParams,
-    McpToolName,
-    McpWorkerResponse,
-    ParseImportsParams,
-    ResolveModulePathParams,
-    TraceFunctionExecutionParams,
-    VerifyDependencyUsageParams,
+  AnalyzeBreakingChangesParams,
+  AnalyzeDependenciesParams,
+  AnalyzeFileLogicParams,
+  CrawlDependencyGraphParams,
+  ExpandNodeParams,
+  FindReferencingFilesParams,
+  FindUnusedSymbolsParams,
+  GenerateCodemapParams,
+  GetImpactAnalysisParams,
+  GetSymbolCallersParams,
+  GetSymbolDependentsParams,
+  GetSymbolGraphParams,
+  InvalidateFilesParams,
+  McpToolName,
+  McpWorkerResponse,
+  ParseImportsParams,
+  ResolveModulePathParams,
+  TraceFunctionExecutionParams,
+  VerifyDependencyUsageParams,
 } from "../types";
 import {
-    validateFilePath,
-    validateToolParams,
+  validateFilePath,
+  validateToolParams,
 } from "../types";
 
 export async function invokeTool(
@@ -189,6 +191,12 @@ export async function invokeTool(
         const p = validatedParams as AnalyzeFileLogicParams;
         validateFilePath(p.filePath, config.rootDir);
         result = await executeAnalyzeFileLogic(p);
+        break;
+      }
+      case "generate_codemap": {
+        const p = validatedParams as GenerateCodemapParams;
+        validateFilePath(p.filePath, config.rootDir);
+        result = await executeGenerateCodemap(p);
         break;
       }
       default:

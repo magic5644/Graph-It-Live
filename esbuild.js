@@ -96,6 +96,10 @@ function copyWasmFiles() {
       src: 'node_modules/tree-sitter-wasms/out/tree-sitter-rust.wasm',
       fileName: 'tree-sitter-rust.wasm',
     },
+    {
+      src: 'node_modules/sql.js/dist/sql-wasm.wasm',
+      fileName: 'sqljs.wasm',
+    },
   ];
 
   for (const { src, fileName } of wasmFiles) {
@@ -115,6 +119,33 @@ function copyWasmFiles() {
     }
   }
   stdout('✓ All WASM files copied to dist/');
+}
+
+/**
+ * Copy Tree-sitter query files from resources/queries/ to dist/queries/
+ * Required for runtime query file lookup via extensionPath
+ */
+function copyQueryFiles() {
+  const queriesSrcDir = path.join('resources', 'queries');
+  const queriesOutDir = path.join('dist', 'queries');
+
+  if (!fs.existsSync(queriesSrcDir)) {
+    stdout('⚠ resources/queries/ not found, skipping query file copy');
+    return;
+  }
+
+  fs.mkdirSync(queriesOutDir, { recursive: true });
+
+  const queryFiles = fs.readdirSync(queriesSrcDir).filter(f => f.endsWith('.scm'));
+
+  for (const fileName of queryFiles) {
+    const src = path.join(queriesSrcDir, fileName);
+    const dest = path.join(queriesOutDir, fileName);
+    fs.copyFileSync(src, dest);
+    stdout(`✓ Copied query file ${fileName}`);
+  }
+
+  stdout(`✓ Query files copied to dist/queries/ (${queryFiles.length} files)`);
 }
 
 async function main() {
@@ -255,6 +286,28 @@ const __dirname = dirname(__filename);`,
     },
   });
 
+  // Build Call Graph Webview (Browser) — separate panel entry point
+  const ctxCallGraphWebview = await esbuild.context({
+    entryPoints: ['src/webview/callgraph/index.tsx'],
+    bundle: true,
+    format: 'iife',
+    minify: production,
+    sourcemap: !production,
+    sourcesContent: false,
+    platform: 'browser',
+    outfile: 'dist/callgraph.js',
+    logLevel: 'silent',
+    plugins: [esbuildProblemMatcherPlugin],
+    target: 'es2022',
+    metafile: !!metafilePath,
+    loader: {
+      '.css': 'text',
+    },
+    define: {
+      'process.env.NODE_ENV': '"production"',
+    },
+  });
+
   if (watch) {
     await ctxExtension.watch();
     await ctxWorker.watch();
@@ -262,6 +315,7 @@ const __dirname = dirname(__filename);`,
     await ctxMcpServer.watch();
     await ctxMcpWorker.watch();
     await ctxWebview.watch();
+    await ctxCallGraphWebview.watch();
   } else {
     const resultExtension = await ctxExtension.rebuild();
     const resultWorker = await ctxWorker.rebuild();
@@ -269,9 +323,13 @@ const __dirname = dirname(__filename);`,
     const resultMcpServer = await ctxMcpServer.rebuild();
     const resultMcpWorker = await ctxMcpWorker.rebuild();
     const resultWebview = await ctxWebview.rebuild();
+    await ctxCallGraphWebview.rebuild();
     
     // Copy WASM files to dist directory
     copyWasmFiles();
+
+    // Copy Tree-sitter query files to dist/queries/
+    copyQueryFiles();
     
     // Save combined metafile if requested
     if (metafilePath) {
@@ -289,6 +347,7 @@ const __dirname = dirname(__filename);`,
     await ctxWorker.dispose();
     await ctxAstWorker.dispose();
     await ctxMcpServer.dispose();
+    await ctxCallGraphWebview.dispose();
     await ctxMcpWorker.dispose();
     await ctxWebview.dispose();
   }

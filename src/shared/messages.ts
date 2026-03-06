@@ -4,6 +4,16 @@
  * between the VS Code extension host and the webview React app.
  */
 
+import type {
+  CallGraphDepthChangedCommand,
+  CallGraphFilterChangedCommand,
+  CallGraphIndexingMessage,
+  CallGraphMountedCommand,
+  CallGraphOpenFileCommand,
+  CallGraphReadyCommand,
+  CallGraphSymbolFocusCommand,
+  ShowCallGraphMessage,
+} from "./callgraph-types";
 import type { GraphData } from "./graph-types";
 import type {
     BreadcrumbPath,
@@ -216,7 +226,9 @@ export type ExtensionToWebviewMessage =
   | RefreshingMessage
   | LayoutChangeMessage
   | ShowSymbolListMessage
-  | SwitchViewModeMessage;
+  | SwitchViewModeMessage
+  | ShowCallGraphMessage
+  | CallGraphIndexingMessage;
 
 export type WebviewToExtensionMessage =
   | OpenFileMessage
@@ -233,4 +245,10 @@ export type WebviewToExtensionMessage =
   | CancelExpandNodeMessage
   | EnableUnusedFilterMessage
   | DisableUnusedFilterMessage
-  | SelectSymbolMessage;
+  | SelectSymbolMessage
+  | CallGraphOpenFileCommand
+  | CallGraphReadyCommand
+  | CallGraphDepthChangedCommand
+  | CallGraphFilterChangedCommand
+  | CallGraphSymbolFocusCommand
+  | CallGraphMountedCommand;

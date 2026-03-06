@@ -254,18 +254,45 @@ let initializationPromise: Promise<void> | null = null;
 let initializationError: Error | null = null;
 
 /**
+ * Reset initialization state so the next call to initializeWorker()
+ * creates a fresh worker. Used for auto-recovery after a worker crash.
+ */
+function resetInitializationState(): void {
+  isInitialized = false;
+  initializationPromise = null;
+  initializationError = null;
+}
+
+/**
  * Initialize the worker host with warmup
- * Uses a singleton pattern to avoid multiple initializations
+ * Uses a singleton pattern to avoid multiple initializations.
+ * Automatically recovers from dead workers and transient init failures.
  */
 async function initializeWorker(): Promise<void> {
-  // Already initialized successfully
+  // If we previously succeeded but the worker has since died, reset and re-init
+  if (isInitialized && !workerHost?.ready()) {
+    debugLog(
+      "[McpServer] Worker was initialized but is no longer ready — auto-recovering",
+    );
+    if (workerHost) {
+      workerHost.dispose();
+      workerHost = null;
+    }
+    resetInitializationState();
+  }
+
+  // Already initialized and worker is alive
   if (isInitialized) {
     return;
   }
 
-  // Previous initialization failed
+  // Previous initialization failed — allow a single retry so callers
+  // don't stay permanently stuck (set_workspace still does a full reset)
   if (initializationError) {
-    throw initializationError;
+    debugLog(
+      "[McpServer] Previous init failed, allowing retry",
+    );
+    resetInitializationState();
   }
 
   // Initialization already in progress, wait for it
@@ -282,6 +309,7 @@ async function initializeWorker(): Promise<void> {
   } catch (error) {
     initializationError =
       error instanceof Error ? error : new Error(String(error));
+    initializationPromise = null;
     throw initializationError;
   }
 }
@@ -578,9 +606,7 @@ EXAMPLE: If analyzing a project at "/Users/me/my-app", call this tool with works
     }
 
     // Reset initialization state
-    isInitialized = false;
-    initializationPromise = null;
-    initializationError = null;
+    resetInitializationState();
 
     // Initialize with new workspace
     try {
@@ -1608,6 +1634,68 @@ Use cases:
     const response = await invokeToolWithResponse("analyze_file_logic", {
       filePath,
       includeExternal: includeExternal ?? false,
+    });
+
+    return formatToolResponse(response, responseFormat);
+  },
+);
+
+// Tool: graphitlive_generate_codemap
+server.registerTool(
+  "graphitlive_generate_codemap",
+  {
+    title: "Generate File Codemap",
+    description: `CRITICAL: USE THIS TOOL WHEN you need a comprehensive overview of a single source file — its exports, internals, dependencies, dependents, and intra-file call flow.
+
+WHEN TO USE:
+- User asks "Give me an overview of this file" or "What does this file do?"
+- Before refactoring: understand the full context of a file (what it exports, who depends on it, internal call flow)
+- Onboarding to a new codebase: get a structured summary of any file
+- Documentation generation: extract a per-file codemap for architecture docs
+- Understanding coupling: see both who this file imports and who imports it
+
+EXAMPLES:
+- "Generate a codemap for src/analyzer/Spider.ts"
+- "What are the exports and dependencies of this file?"
+- "Give me a full structural overview of this module"
+- "Who depends on this file and what does it export?"
+
+WHY YOU NEED THIS:
+This is the SINGLE tool that gathers ALL available information about a file in one call. Without it you would need to call 4-5 separate tools (analyze_dependencies + get_symbol_graph + find_referencing_files + analyze_file_logic). This tool orchestrates them for you and returns a unified, compact result.
+
+RETURNS:
+- filePath, relativePath, language, lineCount
+- exports: all exported symbols (name, kind, line)
+- internals: all non-exported symbols
+- dependencies: files this file imports (module, resolvedPath, importType, line)
+- dependents: files that import this file (reverse dependencies)
+- callFlow: intra-file caller→callee edges
+- hasCycle, cycleSymbols: circular call detection
+- analysisTimeMs
+
+Supported languages: TypeScript, JavaScript, Python, Rust, Vue, Svelte`,
+    inputSchema: z.object({
+      filePath: z.string().describe("Absolute path to the file to generate a codemap for"),
+      response_format: ResponseFormatSchema.describe(
+        "Output format: 'json', 'markdown', or 'toon' (default: toon - RECOMMENDED for 30-60% token savings)",
+      ),
+    }),
+    outputSchema: McpToolResponseSchema,
+    annotations: {
+      readOnlyHint: true,
+      destructiveHint: false,
+      idempotentHint: true,
+      openWorldHint: false,
+    },
+  },
+  async ({ filePath, response_format }) => {
+    const workerCheck = await ensureWorkerReady();
+    const responseFormat = response_format ?? "toon";
+    if (workerCheck.error)
+      return formatToolResponse(workerCheck.response, responseFormat);
+
+    const response = await invokeToolWithResponse("generate_codemap", {
+      filePath,
     });
 
     return formatToolResponse(response, responseFormat);

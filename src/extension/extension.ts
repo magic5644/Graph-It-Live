@@ -8,6 +8,7 @@ import {
     watchLogLevelConfig
 } from './extensionLogger';
 import { GraphProvider } from './GraphProvider';
+import { CallGraphViewService } from './services/CallGraphViewService';
 import { CommandCoordinator } from './services/CommandCoordinator';
 import { CommandRegistrationService } from './services/CommandRegistrationService';
 import { EditorEventsService } from './services/EditorEventsService';
@@ -73,12 +74,28 @@ export function activate(context: vscode.ExtensionContext) {
         logger: log,
         fileChangeScheduler 
     });
+
+    // Call Graph panel — T019: register showCallGraph command
+    const callGraphViewService = new CallGraphViewService(context);
+    provider.setCallGraphViewService(callGraphViewService);
+
     const disposables: vscode.Disposable[] = [
       // Output channel disposal
       outputChannel,
       
       // Profile watcher
       profileWatcher,
+
+        // Call Graph panel service
+        callGraphViewService,
+
+        // showCallGraph command
+        vscode.commands.registerCommand('graph-it-live.showCallGraph', () => {
+            provider.setViewModeCallgraph();
+            callGraphViewService.show().catch((err: unknown) => {
+                log.error('graph-it-live.showCallGraph error:', err);
+            });
+        }),
 
       // Provider must be registered before command
       vscode.window.registerWebviewViewProvider(
