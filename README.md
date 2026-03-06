@@ -219,7 +219,7 @@ Unlike the Symbol View (which shows relationships *within* a single file via LSP
 
 **How to use:**
 
-1. Open the command palette → `Graph-It-Live: Show Call Graph`
+1. Open a source file and place the cursor on a symbol (function, class, method…). Then open the command palette → `Graph-It-Live: Show Call Graph` or click the "Call Graph" button in the sidebar toolbar
 2. The extension indexes your workspace (Tree-sitter AST extraction)
 3. Click any symbol to re-center the neighbourhood
 4. Use the depth slider to expand or narrow the view
