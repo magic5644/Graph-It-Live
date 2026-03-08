@@ -161,6 +161,7 @@ vite.config.ts.timestamp-*
 
 # Copilot files
 .copilot/
+docs/agent-instructions/*
 .github/copilot-instructions.md
 .github/agents
 .github/prompts

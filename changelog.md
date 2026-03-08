@@ -1,6 +1,12 @@
 # Changelog
 
-## v1.7.0 (Unreleased)
+## v1.7.1
+
+### Bug Fixes
+
+- **Remove redundant files from package**: Fixed issue where `dist/queries/*.scm` and `dist/wasm/*.wasm` were included twice in the VSIX package, causing bloat and potential confusion about canonical runtime asset locations. Now only the intended single copy in `dist/wasm/` is included.
+
+## v1.7.0
 
 ### New Features
 
