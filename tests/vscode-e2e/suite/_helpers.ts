@@ -57,3 +57,43 @@ export async function openGraphFor(
 
   return doc;
 }
+
+/**
+ * Open a file, execute `graph-it-live.showCallGraph`, and wait until
+ * the webview posts `callGraphReady` (detected via the
+ * `graph-it-live.callGraphRenderCount` context key incrementing).
+ *
+ * Focuses the sidebar view first to guarantee `resolveWebviewView` has been
+ * called (i.e. `sidebarWebview` is non-null in CallGraphViewService) before
+ * `showCallGraph` posts any graph data. Without this, the first call in a
+ * fresh test run would silently drop all postMessage calls and time out.
+ */
+export async function openCallGraphFor(
+  projectName: string,
+  ...pathSegments: string[]
+): Promise<vscode.TextDocument> {
+  // Reveal the sidebar so the WebviewViewProvider resolves and CallGraphViewService
+  // receives a valid sidebarWebview reference before any postMessage calls.
+  await vscode.commands.executeCommand('graph-it-live.graphView.focus');
+  await sleep(800); // allow resolveWebviewView + React mount to complete
+
+  const file = getProjectFile(projectName, ...pathSegments);
+  const doc = await vscode.workspace.openTextDocument(file);
+  await vscode.window.showTextDocument(doc);
+
+  const prevCount = (await getContextKey<number>('graph-it-live.callGraphRenderCount')) ?? 0;
+  await vscode.commands.executeCommand('graph-it-live.showCallGraph');
+
+  // Poll until callGraphRenderCount increments (callGraphReady received by service)
+  const timeoutMs = 45000;
+  const intervalMs = 200;
+  const start = Date.now();
+  while (Date.now() - start < timeoutMs) {
+    const current = await getContextKey<number>('graph-it-live.callGraphRenderCount');
+    if ((current ?? 0) > prevCount) return doc;
+    await sleep(intervalMs);
+  }
+  throw new Error(
+    `openCallGraphFor: timed out waiting for callGraphReady for ${pathSegments.join('/')}`,
+  );
+}

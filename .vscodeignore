@@ -9,9 +9,6 @@ tests/**
 # Source maps (NEVER include in production)
 **/*.map
 
-# Avoid duplicate WASM payload in package (keep only dist/wasm/**)
-dist/*.wasm
-
 # Query files are copied to dist/queries/ at build time
 resources/queries/**
 

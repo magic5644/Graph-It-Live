@@ -108,8 +108,7 @@ function copyWasmFiles() {
 
   for (const { src, fileName } of wasmFiles) {
     const destinations = [
-      path.join(wasmOutDir, fileName),      // Current runtime location
-      path.join('dist', fileName),          // Legacy compatibility for existing tests/tools
+      path.join(wasmOutDir, fileName),      // Canonical runtime location (dist/wasm/)
     ];
 
     try {

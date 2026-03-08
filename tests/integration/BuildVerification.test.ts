@@ -2,7 +2,7 @@
  * Build Verification Tests
  * 
  * Validates that the build process correctly handles WASM files:
- * - WASM files are copied to dist/ directory
+ * - WASM files are copied to dist/wasm/ directory (canonical runtime location)
  * - WASM files are included in .vsix package
  * 
  * Requirements: 7.1, 7.2, 7.3
@@ -14,19 +14,19 @@ import * as path from 'node:path';
 import { beforeAll, describe, expect, it } from 'vitest';
 
 describe('Build Verification', () => {
-  const distDir = path.join(process.cwd(), 'dist');
+  const distDir = path.join(process.cwd(), 'dist', 'wasm');
   const requiredWasmFiles = [
     'tree-sitter.wasm',
     'tree-sitter-python.wasm',
     'tree-sitter-rust.wasm',
   ];
 
-  describe('dist/ directory WASM files', () => {
+  describe('dist/wasm/ directory WASM files', () => {
     beforeAll(() => {
-      // Ensure dist directory exists
+      // Ensure dist/wasm directory exists
       if (!fs.existsSync(distDir)) {
         throw new Error(
-          'dist/ directory not found. Run "npm run build" before running this test.'
+          'dist/wasm/ directory not found. Run "npm run build" before running this test.'
         );
       }
     });
@@ -234,26 +234,29 @@ describe('Build Verification', () => {
   });
 
   describe('build configuration validation', () => {
-    it('should have .vscodeignore that includes WASM files', () => {
+    it('should have .vscodeignore that includes dist/wasm/ WASM files', () => {
       const vscodeignorePath = path.join(process.cwd(), '.vscodeignore');
       expect(fs.existsSync(vscodeignorePath), '.vscodeignore file not found').toBe(true);
       
       const content = fs.readFileSync(vscodeignorePath, 'utf-8');
-      
-      // Should NOT exclude .wasm files
-      const excludesWasm = content.split('\n').some(line => {
-        const trimmed = line.trim();
-        // Check for patterns that would exclude WASM files
-        return (
-          trimmed === '*.wasm' ||
-          trimmed === '**/*.wasm' ||
-          trimmed === 'dist/*.wasm'
-        );
-      });
-      
+      const lines = content.split('\n').map(l => l.trim());
+
+      // Must have the re-inclusion pattern for the canonical WASM directory
+      const includesWasmDir = lines.some(line =>
+        line === '!dist/wasm/**' || line === '!dist/wasm/'
+      );
       expect(
-        excludesWasm,
-        '.vscodeignore should NOT exclude .wasm files'
+        includesWasmDir,
+        '.vscodeignore must contain "!dist/wasm/**" to include runtime WASM files'
+      ).toBe(true);
+
+      // Must NOT contain a bare exclusion that would silently drop the whole wasm dir
+      const excludesWasmDir = lines.some(line =>
+        line === 'dist/wasm/**' || line === 'dist/wasm/'
+      );
+      expect(
+        excludesWasmDir,
+        '.vscodeignore must NOT unconditionally exclude dist/wasm/**'
       ).toBe(false);
     });
 

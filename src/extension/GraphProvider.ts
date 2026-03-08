@@ -1095,6 +1095,20 @@ export class GraphProvider implements vscode.WebviewViewProvider {
     return this._graphState.getReverseDependenciesVisible();
   }
 
+  /** E2E observability pass-throughs to CallGraphViewService */
+  public getCallGraphRenderCount(): number {
+    return this._callGraphViewService?.getCallGraphRenderCount() ?? 0;
+  }
+  public getCallGraphNodeCount(): number {
+    return this._callGraphViewService?.getCallGraphNodeCount() ?? 0;
+  }
+  public getCallGraphEdgeCount(): number {
+    return this._callGraphViewService?.getCallGraphEdgeCount() ?? 0;
+  }
+  public getCallGraphCycleCount(): number {
+    return this._callGraphViewService?.getCallGraphCycleCount() ?? 0;
+  }
+
   /**
    * Toggle unused dependency filter
    */

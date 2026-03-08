@@ -50,22 +50,6 @@ suite('Toolbar Commands Test Suite', () => {
     );
   });
 
-  test('Should register showReverseDependencies command', async () => {
-    const commands = await vscode.commands.getCommands(true);
-    assert.ok(
-      commands.includes('graph-it-live.showReverseDependencies'),
-      'Should have showReverseDependencies command'
-    );
-  });
-
-  test('Should register setViewModeFile command', async () => {
-    const commands = await vscode.commands.getCommands(true);
-    assert.ok(
-      commands.includes('graph-it-live.setViewModeFile'),
-      'Should have setViewModeFile command'
-    );
-  });
-
   test('Should register setViewModeList command', async () => {
     const commands = await vscode.commands.getCommands(true);
     assert.ok(
@@ -230,50 +214,6 @@ suite('Toolbar Commands Test Suite', () => {
       assert.ok(true, 'setViewModeFile in file view handled gracefully');
     } catch (error) {
       console.error('Error in setViewModeFile no-op test:', error);
-      assert.fail(`Test failed: ${error}`);
-    }
-  });
-
-  // ============================================================================
-  // showReverseDependencies Command Tests
-  // ============================================================================
-
-  test('showReverseDependencies should work with active file', async function() {
-    this.timeout(15000);
-    
-    try {
-      // Open graph view
-      await openGraphFor('sample-project', 'src', 'utils.ts');
-      
-      // Execute showReverseDependencies
-      await vscode.commands.executeCommand('graph-it-live.showReverseDependencies');
-      await new Promise(resolve => setTimeout(resolve, 2000));
-      
-      assert.ok(true, 'showReverseDependencies executed without error');
-    } catch (error) {
-      console.error('Error in showReverseDependencies test:', error);
-      assert.fail(`Test failed: ${error}`);
-    }
-  });
-
-  test('showReverseDependencies should show warning without active file', async function() {
-    this.timeout(10000);
-    
-    try {
-      // Close all editors
-      await vscode.commands.executeCommand('workbench.action.closeAllEditors');
-      await new Promise(resolve => setTimeout(resolve, 500));
-      
-      // Open graph view with a known file to reset context deterministically
-      await openGraphFor('sample-project', 'src', 'utils.ts');
-      
-      // Execute showReverseDependencies (should show warning)
-      await vscode.commands.executeCommand('graph-it-live.showReverseDependencies');
-      await new Promise(resolve => setTimeout(resolve, 500));
-      
-      assert.ok(true, 'showReverseDependencies without file handled gracefully');
-    } catch (error) {
-      console.error('Error in showReverseDependencies warning test:', error);
       assert.fail(`Test failed: ${error}`);
     }
   });

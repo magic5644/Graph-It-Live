@@ -191,6 +191,18 @@ export class CommandRegistrationService {
         // We need to track this in GraphProvider to return it here
         return this.provider.getReverseDependenciesVisible();
       }
+      if (key === 'graph-it-live.callGraphRenderCount') {
+        return this.provider.getCallGraphRenderCount();
+      }
+      if (key === 'graph-it-live.callGraphNodeCount') {
+        return this.provider.getCallGraphNodeCount();
+      }
+      if (key === 'graph-it-live.callGraphEdgeCount') {
+        return this.provider.getCallGraphEdgeCount();
+      }
+      if (key === 'graph-it-live.callGraphCycleCount') {
+        return this.provider.getCallGraphCycleCount();
+      }
       // Return undefined for unknown keys
       return undefined;
     });

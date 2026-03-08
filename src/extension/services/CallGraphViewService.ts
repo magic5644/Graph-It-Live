@@ -140,6 +140,12 @@ export class CallGraphViewService implements vscode.Disposable {
   private currentDepth = DEFAULT_DEPTH;
   /** ID of the current root symbol (for depth-change re-queries). */
   private currentRootSymbolId: string | null = null;
+  /** Monotonic counter incremented on each callGraphReady — used by E2E tests for observability. */
+  private callGraphRenderCount = 0;
+  /** Last reported node/edge/cycle counts from callGraphReady — used by E2E getContext queries. */
+  private callGraphNodeCount = 0;
+  private callGraphEdgeCount = 0;
+  private callGraphCycleCount = 0;
 
   constructor(private readonly context: vscode.ExtensionContext) {
     this.outputChannel = vscode.window.createOutputChannel("Call Graph");
@@ -157,7 +163,11 @@ export class CallGraphViewService implements vscode.Disposable {
   setSidebarWebview(view: vscode.WebviewView | null): void {
     this.sidebarWebview = view;
   }
-
+  /** E2E observability getters — read by the custom `getContext` command. */
+  public getCallGraphRenderCount(): number { return this.callGraphRenderCount; }
+  public getCallGraphNodeCount(): number { return this.callGraphNodeCount; }
+  public getCallGraphEdgeCount(): number { return this.callGraphEdgeCount; }
+  public getCallGraphCycleCount(): number { return this.callGraphCycleCount; }
   // ---------------------------------------------------------------------------
   // Public API
   // ---------------------------------------------------------------------------
@@ -344,6 +354,11 @@ export class CallGraphViewService implements vscode.Disposable {
    *   sendGraphToWebview → pendingGraph set → callGraphReady → sendGraphToWebview → …
    */
   private postGraphData(result: ReturnType<typeof queryNeighbourhood>): void {
+    // E2E observability: store cycle count as a field (readable via getContext command)
+    // and also set VS Code context key for `when` clause use.
+    const cycleCount = result.edges.filter((e) => e.isCyclic).length;
+    this.callGraphCycleCount = cycleCount;
+    void vscode.commands.executeCommand("setContext", "graph-it-live.callGraphCycleCount", cycleCount);
     this.postMessage({
       type: "showCallGraph",
       rootSymbolId: result.rootSymbolId,
@@ -615,6 +630,14 @@ export class CallGraphViewService implements vscode.Disposable {
       );
       // Clear stale pending buffer now that we know the webview rendered.
       this.pendingGraph = null;
+      // E2E observability: store render metrics as fields (readable via getContext command)
+      // and also set VS Code context keys for `when` clause use.
+      this.callGraphRenderCount += 1;
+      this.callGraphNodeCount = msg.nodeCount;
+      this.callGraphEdgeCount = msg.edgeCount;
+      void vscode.commands.executeCommand("setContext", "graph-it-live.callGraphNodeCount", msg.nodeCount);
+      void vscode.commands.executeCommand("setContext", "graph-it-live.callGraphEdgeCount", msg.edgeCount);
+      void vscode.commands.executeCommand("setContext", "graph-it-live.callGraphRenderCount", this.callGraphRenderCount);
     } else if (msg.command === "callGraphDepthChanged") {
       this.handleDepthChanged(msg.depth);
     } else if (msg.command === "callGraphFilterChanged") {

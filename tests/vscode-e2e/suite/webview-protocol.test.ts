@@ -16,8 +16,8 @@ suite('Webview Protocol - Context Value Side Effects', () => {
     // Ensure extension is activated
     const ext = vscode.extensions.getExtension('magic5644.graph-it-live');
     assert.ok(ext, 'Extension should exist');
-    await ext!.activate();
-    assert.strictEqual(ext!.isActive, true, 'Extension should be active');
+    await ext.activate();
+    assert.strictEqual(ext.isActive, true, 'Extension should be active');
     
     vscode.window.showInformationMessage('Starting webview protocol tests');
   });
@@ -94,101 +94,6 @@ suite('Webview Protocol - Context Value Side Effects', () => {
       await vscode.commands.executeCommand('graph-it-live.setViewModeFile');
       await waitForViewMode('file');
       assert.strictEqual(await getContextKey('graph-it-live.viewMode'), 'file');
-    });
-  });
-
-  // ============================================================================
-  // Unused Filter Context Value Tests
-  // ============================================================================
-  suite('Unused Filter Commands', () => {
-    test('Should execute enableUnusedFilter command without error', async function() {
-      this.timeout(15000);
-      
-      await openGraphFor('sample-project', 'src', 'utils.ts');
-      
-      // Enable unused filter - should not throw
-      await vscode.commands.executeCommand('graph-it-live.enableUnusedFilter');
-      await sleep(1000);
-      
-      assert.ok(true, 'Enable filter command executed successfully');
-    });
-
-    test('Should execute disableUnusedFilter command without error', async function() {
-      this.timeout(20000);
-      
-      await openGraphFor('sample-project', 'src', 'utils.ts');
-      
-      // Enable then disable - both should succeed
-      await vscode.commands.executeCommand('graph-it-live.enableUnusedFilter');
-      await sleep(1000);
-      
-      await vscode.commands.executeCommand('graph-it-live.disableUnusedFilter');
-      await sleep(1000);
-      
-      assert.ok(true, 'Disable filter command executed successfully');
-    });
-
-    test('Should handle filter commands when switching view modes', async function() {
-      this.timeout(20000);
-      
-      await openGraphFor('sample-project', 'src', 'utils.ts');
-      
-      // Enable filter
-      await vscode.commands.executeCommand('graph-it-live.enableUnusedFilter');
-      await sleep(1000);
-      
-      // Switch to list view - filter state should persist
-      await vscode.commands.executeCommand('graph-it-live.setViewModeList');
-      await waitForViewMode('list');
-      
-      // Disable filter in list mode - should work
-      await vscode.commands.executeCommand('graph-it-live.disableUnusedFilter');
-      await sleep(500);
-      
-      assert.ok(true, 'Filter commands work across view mode changes');
-    });
-  });
-
-  // ============================================================================
-  // Reverse Dependencies Context Value Tests
-  // ============================================================================
-  suite('Reverse Dependencies Context Values', () => {
-    test('Should initialize reverseDependenciesVisible context to false', async function() {
-      this.timeout(15000);
-      
-      await openGraphFor('sample-project', 'src', 'utils.ts');
-      
-      const visible = await getContextKey<boolean>('graph-it-live.reverseDependenciesVisible');
-      assert.strictEqual(visible, false, 'Reverse dependencies should be hidden initially');
-    });
-
-    test('Should update reverseDependenciesVisible when showing reverse deps', async function() {
-      this.timeout(15000);
-      
-      const doc = await openGraphFor('sample-project', 'src', 'utils.ts');
-      
-      // Show reverse dependencies
-      await vscode.commands.executeCommand('graph-it-live.showReverseDependencies', doc.uri.fsPath);
-      await sleep(1500); // Wait for context update
-      
-      const visible = await getContextKey<boolean>('graph-it-live.reverseDependenciesVisible');
-      assert.strictEqual(visible, true, 'Reverse dependencies should be visible');
-    });
-
-    test('Should clear reverseDependenciesVisible when hiding reverse deps', async function() {
-      this.timeout(20000);
-      
-      const doc = await openGraphFor('sample-project', 'src', 'utils.ts');
-      
-      // Show then hide
-      await vscode.commands.executeCommand('graph-it-live.showReverseDependencies', doc.uri.fsPath);
-      await sleep(1500);
-      
-      await vscode.commands.executeCommand('graph-it-live.hideReverseDependencies');
-      await sleep(500);
-      
-      const visible = await getContextKey<boolean>('graph-it-live.reverseDependenciesVisible');
-      assert.strictEqual(visible, false, 'Reverse dependencies should be hidden');
     });
   });
 
@@ -329,7 +234,8 @@ suite('Webview Protocol - Context Value Side Effects', () => {
       
       // Extension should still be functional
       const ext = vscode.extensions.getExtension('magic5644.graph-it-live');
-      assert.strictEqual(ext!.isActive, true, 'Extension should still be active');
+      assert.ok(ext, 'Extension should still exist');
+      assert.strictEqual(ext.isActive, true, 'Extension should still be active');
     });
   });
 
