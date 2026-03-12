@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useMemo, useState } from "react";
 import type { SymbolDependency, SymbolInfo } from "../../shared/types";
 
 interface AtomicSymbolGraphProps {
@@ -71,15 +71,19 @@ export const AtomicSymbolGraph: React.FC<AtomicSymbolGraphProps> = ({
     const rootNodes: TreeNode[] = [];
     symbols.forEach(symbol => {
       const parentId = symbol.parentSymbolId;
-      const node = nodeMap.get(symbol.id)!;
+      // nodeMap always contains symbol.id because we populated it in the loop above
+      const node = nodeMap.get(symbol.id);
+      if (!node) return; // unreachable but satisfies strict null checks
 
-      if (parentId && nodeMap.has(parentId)) {
-        // This is a child (method/property of a class)
-        nodeMap.get(parentId)!.children.push(node);
-      } else {
-        // This is a root (class, function, etc.)
-        rootNodes.push(node);
+      if (parentId) {
+        const parentNode = nodeMap.get(parentId);
+        if (parentNode) {
+          parentNode.children.push(node);
+          return;
+        }
       }
+      // Top-level symbol (no parent, or parent not found)
+      rootNodes.push(node);
     });
 
     // Sort: classes first, then by name
@@ -96,6 +100,8 @@ export const AtomicSymbolGraph: React.FC<AtomicSymbolGraphProps> = ({
     return rootNodes;
   };
 
+  // buildDependencyMap and buildTree are kept as local helpers and memoized
+  // below; do not call them outside of the useMemo block.
   const buildDependencyMap = () => {
     const dependsOn: Record<string, string[]> = {};
     const dependsFrom: Record<string, string[]> = {};
@@ -127,6 +133,11 @@ export const AtomicSymbolGraph: React.FC<AtomicSymbolGraphProps> = ({
 
     return { dependsOn, dependsFrom };
   };
+
+  // Memoised tree — rebuilt only when symbol data or dependency lists change,
+  // NOT on every expand/collapse or selection (renderNode reads expandedNodes
+  // directly from state, so isExpanded in TreeNode is not used by the renderer).
+  const tree = useMemo(() => buildTree(), [symbols, dependencies, incomingDependencies]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const toggleNode = (nodeId: string) => {
     const newExpanded = new Set(expandedNodes);
@@ -172,7 +183,7 @@ export const AtomicSymbolGraph: React.FC<AtomicSymbolGraphProps> = ({
   const getSymbolName = (id: string): string => {
     // Extract name from id (format: path/file.ts:symbolName)
     const parts = id.split(':');
-    return parts.length > 1 ? parts[parts.length - 1] : id;
+    return parts.length > 1 ? (parts.at(-1) ?? id) : id;
   };
 
   // Find a node by ID in the tree structure
@@ -198,7 +209,7 @@ export const AtomicSymbolGraph: React.FC<AtomicSymbolGraphProps> = ({
 
   // Navigate to a symbol by clicking on it in dependencies
   const handleDependencyClick = (depId: string) => {
-    const roots = buildTree();
+    const roots = tree;
     const targetNode = findNodeById(roots, depId);
     
     if (targetNode) {
@@ -379,7 +390,6 @@ export const AtomicSymbolGraph: React.FC<AtomicSymbolGraphProps> = ({
     );
   };
 
-  const tree = buildTree();
   const fileName = filePath.split("/").pop() || "symbol-view";
 
   return (

@@ -53,7 +53,7 @@ describe('SymbolViewService', () => {
     expect(result.parentCounts).toEqual({ 'fileA.ts': 1 });
   });
 
-  it('builds symbol graph without call hierarchy by default', async () => {
+  it('returns empty incoming dependencies (AST-only analysis)', async () => {
     (spider.getSymbolGraph as ReturnType<typeof vi.fn>).mockResolvedValue({
       symbols: [{ id: 'fileA.ts:main', name: 'main', isExported: true }],
       dependencies: [],
@@ -63,79 +63,28 @@ describe('SymbolViewService', () => {
     const service = new SymbolViewService(spider, logger);
     const result = await service.buildSymbolGraph('fileA.ts', 'fileA.ts');
 
-    // Should have metadata indicating LSP was not used
-    expect(result.metadata).toBeDefined();
-    expect(result.metadata?.lspUsed).toBe(false);
-    expect(result.metadata?.callEdgesCount).toBe(0);
+    expect(result.nodes).toContain('fileA.ts');
+    expect(result.nodes).toContain('fileA.ts:main');
+    expect(result.incomingDependencies).toEqual([]);
   });
 
-  it('includes call hierarchy when option is enabled (falls back gracefully without LSP)', async () => {
+  it('includes nested symbols with structural edges', async () => {
     (spider.getSymbolGraph as ReturnType<typeof vi.fn>).mockResolvedValue({
-      symbols: [{ id: 'fileA.ts:main', name: 'main', isExported: true }],
+      symbols: [
+        { id: 'fileA.ts:MyClass', name: 'MyClass', isExported: true },
+        { id: 'fileA.ts:MyClass.method', name: 'MyClass.method', isExported: false, parentSymbolId: 'fileA.ts:MyClass' },
+      ],
       dependencies: [],
     });
     (spider.findReferencingFiles as ReturnType<typeof vi.fn>).mockResolvedValue([]);
 
     const service = new SymbolViewService(spider, logger);
+    const result = await service.buildSymbolGraph('fileA.ts', 'fileA.ts');
 
-    // Even with option enabled, should gracefully fall back when LSP is not available
-    // (since we're running in a test environment without VS Code)
-    const result = await service.buildSymbolGraph('fileA.ts', 'fileA.ts', {
-      includeCallHierarchy: true,
-    });
-
-    // Should still return valid result with metadata
-    expect(result.nodes).toContain('fileA.ts');
-    expect(result.metadata).toBeDefined();
-  });
-
-  it('normalizes incoming dependencies to AST symbol IDs (handles Class.method)', async () => {
-    // Prepare spider to return symbols with class.method full IDs
-    const filePath = '/project/src/geocodingApiService.ts';
-    const otherFile = '/project/src/expenseReportDistance.ts';
-
-    (spider.getSymbolGraph as ReturnType<typeof vi.fn>).mockResolvedValue({
-      symbols: [
-        { id: `${filePath}:GeocodingApiService`, name: 'GeocodingApiService', isExported: true },
-        { id: `${filePath}:GeocodingApiService.calculateDistance`, name: 'GeocodingApiService.calculateDistance', isExported: false },
-      ],
-      dependencies: [],
-    });
-
-    (spider.findReferencingFiles as ReturnType<typeof vi.fn>).mockResolvedValue([]);
-
-    // Fake LSP service that returns incoming edges targeting the short method name
-    const fakeLspService = {
-      isCallHierarchyAvailable: vi.fn().mockResolvedValue(true),
-      buildIntraFileCallGraph: vi.fn().mockResolvedValue({
-        nodes: [],
-        edges: [
-          // incoming edge that uses the short method name as target
-          { source: `${otherFile}:distance`, target: `${filePath}:calculateDistance`, type: 'reference', direction: 'incoming', locations: [] },
-        ],
-        lspUsed: true,
-        warnings: [],
-      }),
-    } as unknown as any;
-
-    const service = new SymbolViewService(spider, logger, fakeLspService);
-
-    // Sanity check: ensure getLspService returns our fake
-    const resolved = await (service as any).getLspService();
-    expect(resolved).toBe(fakeLspService);
-
-    const result = await service.buildSymbolGraph(filePath, filePath, { includeCallHierarchy: true });
-
-    // Ensure LSP was invoked
-    expect((fakeLspService.buildIntraFileCallGraph as ReturnType<typeof vi.fn>).mock.calls.length).toBeGreaterThan(0);
-
-    expect(result.incomingDependencies).toBeDefined();
-    // Should have normalized target to the full AST symbol id
-    // Debug output to see what targetSymbolIds were produced (helpful when test fails)
-    // eslint-disable-next-line no-console
-    console.log('incomingDeps:', result.incomingDependencies!.map(d => d.targetSymbolId));
-
-    const found = result.incomingDependencies!.some(d => d.targetSymbolId === `${filePath}:GeocodingApiService.calculateDistance`);
-    expect(found).toBe(true);
+    // Root -> top-level class
+    expect(result.edges).toContainEqual({ source: 'fileA.ts', target: 'fileA.ts:MyClass', relationType: 'dependency' });
+    // Class -> method (structural)
+    expect(result.edges).toContainEqual({ source: 'fileA.ts:MyClass', target: 'fileA.ts:MyClass.method', relationType: 'dependency' });
+    expect(result.parentCounts).toBeUndefined(); // no referencing files
   });
 });
