@@ -26,6 +26,7 @@ import type {
   SupportedLang,
 } from "@/shared/callgraph-types";
 import { normalizePath } from "@/shared/path";
+import crypto from "node:crypto";
 import fs from "node:fs/promises";
 import path from "node:path";
 import * as vscode from "vscode";
@@ -49,7 +50,7 @@ const MAX_DEPTH = 5;
 /** Parallel file extraction batch size — higher = faster indexing on multi-core machines */
 // WASM Tree-sitter is single-threaded; a small batch size keeps the
 // extension-host event loop responsive between batches.
-const EXTRACT_BATCH = 6;
+const EXTRACT_BATCH = 12;
 
 // ---------------------------------------------------------------------------
 // Language helpers
@@ -121,6 +122,8 @@ export class CallGraphViewService implements vscode.Disposable {
   /** Sidebar webview managed by GraphProvider — set via setSidebarWebview(). */
   private sidebarWebview: vscode.WebviewView | null = null;
   private indexer: CallGraphIndexer | null = null;
+  /** Long-lived GraphExtractor — caches compiled tree-sitter Query objects across files */
+  private extractor: GraphExtractor | null = null;
   private readonly outputChannel: vscode.OutputChannel;
   /** Buffered graph result — replayed if callGraphMounted arrives after initial postMessage */
   private pendingGraph: ReturnType<typeof queryNeighbourhood> | null = null;
@@ -189,10 +192,7 @@ export class CallGraphViewService implements vscode.Disposable {
     }
 
     const indexer = await this.ensureIndexer();
-    const extractor = new GraphExtractor({
-      extensionPath: this.context.extensionPath,
-      workspaceRoot: normRoot,
-    });
+    const extractor = this.ensureExtractor(normRoot);
 
     // silent=true: no postMessage calls — this runs in background before the user opens the call graph
     await this.indexWorkspace(normRoot, indexer, extractor, undefined, true);
@@ -229,10 +229,7 @@ export class CallGraphViewService implements vscode.Disposable {
         vscode.workspace.workspaceFolders?.[0]?.uri.fsPath ?? path.dirname(filePath),
       );
       const indexer = await this.ensureIndexer();
-      const extractor = new GraphExtractor({
-        extensionPath: this.context.extensionPath,
-        workspaceRoot,
-      });
+      const extractor = this.ensureExtractor(workspaceRoot);
 
       // Step 1: Extract + index the active file immediately (fast; needed for root resolution).
       this.postMessage({ type: "callGraphIndexing", status: "progress", percent: 5, message: "Parsing current file…" });
@@ -310,11 +307,45 @@ export class CallGraphViewService implements vscode.Disposable {
     }
   }
 
+  /**
+   * Force a full call graph reindex: drop the in-memory DB, delete the
+   * persisted file, and re-run `show()` so the user sees fresh results.
+   */
+  async forceReindex(): Promise<void> {
+    // 1. Drop the current DB and persisted file
+    this.workspaceIndexedRoot = null;
+    this.indexWorkspacePromise = null;
+    if (this.indexer) {
+      this.indexer.dispose();
+      this.indexer = null;
+    }
+    // Delete persisted DB so loadFromFile won't restore stale data
+    const dbPath = this.getDbFilePath();
+    if (dbPath) {
+      try { await vscode.workspace.fs.delete(vscode.Uri.file(dbPath)); }
+      catch { /* file may not exist — that's fine */ }
+    }
+
+    // 2. Re-show the call graph (triggers full workspace re-index)
+    await this.show();
+  }
+
   dispose(): void {
     this.clearSaveDebounce();
     this.saveListener?.dispose();
     this.saveListener = null;
     this.sidebarWebview = null;
+    // Persist DB to disk before closing (best-effort, fire-and-forget)
+    if (this.indexer && this.workspaceIndexedRoot) {
+      const dbPath = this.getDbFilePath();
+      if (dbPath) {
+        this.indexer.saveToFile(dbPath).catch((err: unknown) => {
+          this.outputChannel.appendLine(`[CallGraph] Failed to persist DB: ${errorMessage(err)}`);
+        });
+      }
+    }
+    this.extractor?.dispose();
+    this.extractor = null;
     this.indexer?.dispose();
     this.indexer = null;
     // Reset workspace index state so the next activation starts fresh with an empty DB.
@@ -330,9 +361,43 @@ export class CallGraphViewService implements vscode.Disposable {
     if (!this.indexer) {
       const wasmPath = getSqlJsWasmPath(this.context.extensionPath);
       this.indexer = new CallGraphIndexer(wasmPath);
+
+      // Try to restore from persisted DB file (fast path — avoids full re-index)
+      const dbPath = this.getDbFilePath();
+      if (dbPath) {
+        const loaded = await this.indexer.loadFromFile(dbPath);
+        if (loaded) {
+          this.outputChannel.appendLine("[CallGraph] Restored DB from disk");
+          return this.indexer;
+        }
+      }
+
       await this.indexer.init();
     }
     return this.indexer;
+  }
+
+  private ensureExtractor(workspaceRoot: string): GraphExtractor {
+    this.extractor ??= new GraphExtractor({
+      extensionPath: this.context.extensionPath,
+      workspaceRoot,
+    });
+    return this.extractor;
+  }
+
+  /**
+   * Compute the path to the persisted call graph DB file.
+   * Returns null if globalStorageUri is unavailable.
+   * DB file name is derived from viewport workspace root hash for isolation.
+   */
+  private getDbFilePath(): string | null {
+    const storageUri = this.context.globalStorageUri;
+    if (!storageUri) return null;
+    const workspaceRoot = this.workspaceIndexedRoot
+      ?? normalizePath(vscode.workspace.workspaceFolders?.[0]?.uri.fsPath ?? "");
+    if (!workspaceRoot) return null;
+    const hash = crypto.createHash("sha256").update(workspaceRoot).digest("hex").slice(0, 12);
+    return path.join(storageUri.fsPath, `callgraph-${hash}.db`);
   }
 
   private postMessage(message: CallGraphExtensionMessage): void {
@@ -495,14 +560,24 @@ export class CallGraphViewService implements vscode.Disposable {
         }),
       );
 
-      for (const r of results) {
-        if (r.ok && r.extracted) {
-          indexer.indexFile(r.extracted.nodes, r.extracted.edges, r.job.filePath, r.job.lang, r.job.mtime);
-          for (const e of r.extracted.edges) {
-            allEdges.push({ sourceId: e.sourceId, targetId: e.targetId, typeRelation: e.typeRelation });
+      // Batch transaction: wrap all DB insertions for this EXTRACT_BATCH in a single transaction
+      indexer.beginBatch();
+      try {
+        for (const r of results) {
+          if (r.ok && r.extracted) {
+            indexer.indexFile(r.extracted.nodes, r.extracted.edges, r.job.filePath, r.job.lang, r.job.mtime);
+            for (const e of r.extracted.edges) {
+              allEdges.push({ sourceId: e.sourceId, targetId: e.targetId, typeRelation: e.typeRelation });
+            }
           }
+          progressState.done++;
         }
-        progressState.done++;
+        indexer.commitBatch();
+      } catch (batchErr: unknown) {
+        indexer.rollbackBatch();
+        this.outputChannel.appendLine(`[CallGraph] Batch commit failed, falling back to per-file: ${errorMessage(batchErr)}`);
+        // Fallback: re-index failed batch file-by-file with individual transactions
+        this.indexResultsOneByOne(results, indexer, allEdges, progressState);
       }
 
       // Check the runtime flag so a silent background walk can be "upgraded"
@@ -522,6 +597,28 @@ export class CallGraphViewService implements vscode.Disposable {
       await new Promise<void>((resolve) => setImmediate(resolve));
     }
     return allEdges;
+  }
+
+  /** Fallback: index extraction results one file at a time (used when a batch transaction fails). */
+  private indexResultsOneByOne(
+    results: Array<{ job: { filePath: string; lang: SupportedLang; mtime: number }; extracted: { nodes: import("@/analyzer/callgraph/CallGraphIndexer").CallGraphNode[]; edges: import("@/analyzer/callgraph/CallGraphIndexer").CallGraphEdge[] } | null; ok: boolean }>,
+    indexer: CallGraphIndexer,
+    allEdges: Array<{ sourceId: string; targetId: string; typeRelation: string }>,
+    progressState: { done: number; total: number },
+  ): void {
+    for (const r of results) {
+      if (r.ok && r.extracted) {
+        try {
+          indexer.indexFile(r.extracted.nodes, r.extracted.edges, r.job.filePath, r.job.lang, r.job.mtime);
+          for (const e of r.extracted.edges) {
+            allEdges.push({ sourceId: e.sourceId, targetId: e.targetId, typeRelation: e.typeRelation });
+          }
+        } catch (fileErr: unknown) {
+          this.outputChannel.appendLine(`[CallGraph] Index failed for ${r.job.filePath}: ${errorMessage(fileErr)}`);
+        }
+      }
+      progressState.done++;
+    }
   }
 
   private async doIndexWorkspace(
@@ -575,6 +672,14 @@ export class CallGraphViewService implements vscode.Disposable {
     this.outputChannel.appendLine(
       `[CallGraph] Cross-file edge resolution: resolved=${resolveStats.resolved} unresolved=${resolveStats.deleted}`,
     );
+
+    // Persist updated DB to disk (best-effort, non-blocking)
+    const dbPath = this.getDbFilePath();
+    if (dbPath) {
+      indexer.saveToFile(dbPath).catch((err: unknown) => {
+        this.outputChannel.appendLine(`[CallGraph] Failed to persist DB after indexing: ${errorMessage(err)}`);
+      });
+    }
   }
 
   /**
@@ -755,12 +860,10 @@ export class CallGraphViewService implements vscode.Disposable {
     if (!lang || !this.currentFilePath) { return; }
 
     const indexer = await this.ensureIndexer();
-    indexer.invalidateFile(filePath);
+    // No invalidateFile() here — indexFile() handles atomic replacement of
+    // outgoing edges while preserving incoming edges from other files.
 
-    const extractor = new GraphExtractor({
-      extensionPath: this.context.extensionPath,
-      workspaceRoot,
-    });
+    const extractor = this.ensureExtractor(workspaceRoot);
     const mtime = Date.now();
     const { nodes, edges } = await extractor.extractFile(filePath, lang, mtime);
     indexer.indexFile(nodes, edges, filePath, lang, mtime);
@@ -776,26 +879,10 @@ export class CallGraphViewService implements vscode.Disposable {
     // Re-resolve cross-file edges since this file may introduce or change call stubs.
     indexer.resolveExternalEdges();
 
-    // Re-query using the same root and re-send the graph
-    if (this.currentFilePath) {
-      // Re-extract the root symbol from the previously used rootSymbolId isn't stored,
-      // so we re-query from the primary file's first node as fallback.
-      // A future enhancement could persist the rootSymbolId.
-      const rootRecord = indexer.getFileRecord(this.currentFilePath);
-      if (!rootRecord) { return; }
-      // Query from the indexed root file — get first node as root
-      const db = indexer.getDb();
-      const stmt = db.prepare("SELECT id FROM nodes WHERE path = ? LIMIT 1");
-      stmt.bind([this.currentFilePath]);
-      let rootId = "";
-      if (stmt.step()) {
-        const row = stmt.getAsObject() as { id: string };
-        rootId = row.id;
-      }
-      stmt.free();
-      if (!rootId) { return; }
-
-      const result = queryNeighbourhood(db, rootId, this.currentDepth);
+    // Re-query using the saved root symbol and re-send the graph
+    const rootId = this.currentRootSymbolId;
+    if (rootId) {
+      const result = queryNeighbourhood(indexer.getDb(), rootId, this.currentDepth);
       this.currentNeighbourhoodPaths = new Set(result.nodes.map((n) => n.path));
       this.sendGraphToWebview(result);
     }

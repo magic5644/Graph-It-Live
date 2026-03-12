@@ -892,8 +892,13 @@ export class GraphProvider implements vscode.WebviewViewProvider {
       log.info(`Refreshing current graph view: mode=${currentMode}, file=${currentFilePath}`);
       log.info(`currentSymbol=${this._stateManager.currentSymbol}`);
 
-      // Refresh based on current view mode
-      if (currentMode === "symbol" || currentMode === "list") {
+      if (currentMode === "callgraph") {
+        // In call graph view — force a full reindex + re-render
+        if (this._callGraphViewService) {
+          log.info("Triggering call graph force reindex via refresh");
+          await this._callGraphViewService.forceReindex();
+        }
+      } else if (currentMode === "symbol" || currentMode === "list") {
         // In symbol/list view - refresh symbol analysis
         if (currentFilePath) {
           log.info(`Calling handleDrillDown for refresh in ${currentMode} mode`);

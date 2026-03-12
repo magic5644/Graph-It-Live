@@ -223,4 +223,91 @@ describe("CallGraphIndexer", () => {
     expect(result).toContain("sqljs.wasm");
     expect(result).toContain("dist");
   });
+
+  // -------------------------------------------------------------------------
+  // Incoming edge preservation (cross-file relationships)
+  // -------------------------------------------------------------------------
+
+  const FILE_B = "/workspace/src/main.ts";
+
+  it("indexFile() preserves incoming edges from other files when re-indexing target file", () => {
+    // Setup: file A has helper(), file B has main() which calls helper()
+    const helperNode = makeNode({ id: `${FILE_A}:helper:5`, name: "helper", startLine: 5 });
+    const mainNode = makeNode({
+      id: `${FILE_B}:main:1`, name: "main", startLine: 1,
+      path: FILE_B, folder: "/workspace/src",
+    });
+
+    // Index file A (defines helper)
+    indexer.indexFile([helperNode], [], FILE_A, "typescript", Date.now());
+    // Index file B (defines main, calls helper) — cross-file edge
+    const crossEdge = makeEdge({ sourceId: mainNode.id, targetId: helperNode.id, sourceLine: 3 });
+    indexer.indexFile([mainNode], [crossEdge], FILE_B, "typescript", Date.now());
+
+    // Verify the cross-file edge exists
+    const db = indexer.getDb();
+    let edgeRows = db.exec(
+      "SELECT source_id, target_id FROM edges WHERE source_id = ? AND target_id = ?",
+      [mainNode.id, helperNode.id],
+    );
+    expect(edgeRows[0]?.values.length).toBe(1);
+
+    // ACT: Re-index file A (simulate saving file A — body change, same symbols)
+    const helperNodeV2 = makeNode({ id: `${FILE_A}:helper:5`, name: "helper", startLine: 5 });
+    indexer.indexFile([helperNodeV2], [], FILE_A, "typescript", Date.now());
+
+    // ASSERT: The incoming edge from B→A must still exist
+    edgeRows = db.exec(
+      "SELECT source_id, target_id FROM edges WHERE source_id = ? AND target_id = ?",
+      [mainNode.id, helperNode.id],
+    );
+    expect(edgeRows[0]?.values.length).toBe(1);
+  });
+
+  it("indexFile() cleans up incoming edges when target node is removed/renamed", () => {
+    // Setup: file A has oldFunc(), file B calls oldFunc()
+    const oldFunc = makeNode({ id: `${FILE_A}:oldFunc:5`, name: "oldFunc", startLine: 5 });
+    const caller = makeNode({
+      id: `${FILE_B}:caller:1`, name: "caller", startLine: 1,
+      path: FILE_B, folder: "/workspace/src",
+    });
+    const crossEdge = makeEdge({ sourceId: caller.id, targetId: oldFunc.id, sourceLine: 3 });
+
+    indexer.indexFile([oldFunc], [], FILE_A, "typescript", Date.now());
+    indexer.indexFile([caller], [crossEdge], FILE_B, "typescript", Date.now());
+
+    // ACT: Re-index file A with renamed function (different node ID)
+    const newFunc = makeNode({ id: `${FILE_A}:newFunc:5`, name: "newFunc", startLine: 5 });
+    indexer.indexFile([newFunc], [], FILE_A, "typescript", Date.now());
+
+    // ASSERT: Dangling incoming edge targeting oldFunc should be cleaned up
+    const db = indexer.getDb();
+    const danglingEdges = db.exec(
+      "SELECT * FROM edges WHERE target_id = ?",
+      [oldFunc.id],
+    );
+    expect(danglingEdges.length).toBe(0);
+  });
+
+  it("indexFile() preserves outgoing edges from the re-indexed file", () => {
+    // Setup: file A has helper(), file A's main() calls helper()
+    const mainNode = makeNode({ id: `${FILE_A}:main:1`, name: "main", startLine: 1 });
+    const helperNode = makeNode({ id: `${FILE_A}:helper:10`, name: "helper", startLine: 10 });
+    const internalEdge = makeEdge({ sourceId: mainNode.id, targetId: helperNode.id });
+
+    indexer.indexFile([mainNode, helperNode], [internalEdge], FILE_A, "typescript", Date.now());
+
+    // ACT: Re-index file A with different outgoing edge
+    const newEdge = makeEdge({ sourceId: mainNode.id, targetId: helperNode.id, sourceLine: 99 });
+    indexer.indexFile([mainNode, helperNode], [newEdge], FILE_A, "typescript", Date.now());
+
+    // ASSERT: The old outgoing edge is replaced by the new one
+    const db = indexer.getDb();
+    const edgeRows = db.exec(
+      "SELECT source_line FROM edges WHERE source_id = ? AND target_id = ?",
+      [mainNode.id, helperNode.id],
+    );
+    expect(edgeRows[0]?.values.length).toBe(1);
+    expect(edgeRows[0]?.values[0][0]).toBe(99);
+  });
 });
