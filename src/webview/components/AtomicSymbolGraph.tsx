@@ -45,10 +45,44 @@ export const AtomicSymbolGraph: React.FC<AtomicSymbolGraphProps> = ({
 
   const [selectedNode, setSelectedNode] = useState<string | null>(null);
 
-  // Build tree structure: classes contain methods
-  const buildTree = (): TreeNode[] => {
-    const nodeMap = new Map<string, TreeNode>();
+  // Memoised tree — rebuilt only when symbol data or dependency lists change,
+  // NOT on every expand/collapse or selection (renderNode reads expandedNodes
+  // directly from state, so isExpanded in TreeNode is not used by the renderer).
+  const tree = useMemo(() => {
+    const buildDependencyMap = () => {
+      const dependsOn: Record<string, string[]> = {};
+      const dependsFrom: Record<string, string[]> = {};
+
+      // Add outgoing dependencies (calls from current file)
+      dependencies.forEach(dep => {
+        if (!dependsOn[dep.sourceSymbolId]) dependsOn[dep.sourceSymbolId] = [];
+        if (!dependsFrom[dep.targetSymbolId]) dependsFrom[dep.targetSymbolId] = [];
+
+        dependsOn[dep.sourceSymbolId].push(dep.targetSymbolId);
+        dependsFrom[dep.targetSymbolId].push(dep.sourceSymbolId);
+      });
+
+      // Add incoming dependencies (calls FROM external files TO current file)
+      // Store the FULL external symbol ID so we can navigate to it later
+      incomingDependencies.forEach((dep) => {
+        if (!dependsFrom[dep.targetSymbolId]) dependsFrom[dep.targetSymbolId] = [];
+        // Store the FULL source symbol ID (with file path) so we can navigate to it
+        dependsFrom[dep.targetSymbolId].push(dep.sourceSymbolId);
+      });
+
+      // Remove duplicates from all arrays
+      Object.keys(dependsOn).forEach(key => {
+        dependsOn[key] = Array.from(new Set(dependsOn[key]));
+      });
+      Object.keys(dependsFrom).forEach(key => {
+        dependsFrom[key] = Array.from(new Set(dependsFrom[key]));
+      });
+
+      return { dependsOn, dependsFrom };
+    };
+
     const depMap = buildDependencyMap();
+    const nodeMap = new Map<string, TreeNode>();
 
     // Create nodes for all symbols
     symbols.forEach(symbol => {
@@ -61,7 +95,7 @@ export const AtomicSymbolGraph: React.FC<AtomicSymbolGraphProps> = ({
         category: symbol.category,
         line: symbol.line,
         children: [],
-        isExpanded: expandedNodes.has(symbol.id),
+        isExpanded: false,
         dependsOn: depOn,
         dependsFrom: depFrom,
       });
@@ -71,9 +105,8 @@ export const AtomicSymbolGraph: React.FC<AtomicSymbolGraphProps> = ({
     const rootNodes: TreeNode[] = [];
     symbols.forEach(symbol => {
       const parentId = symbol.parentSymbolId;
-      // nodeMap always contains symbol.id because we populated it in the loop above
       const node = nodeMap.get(symbol.id);
-      if (!node) return; // unreachable but satisfies strict null checks
+      if (!node) return;
 
       if (parentId) {
         const parentNode = nodeMap.get(parentId);
@@ -82,7 +115,6 @@ export const AtomicSymbolGraph: React.FC<AtomicSymbolGraphProps> = ({
           return;
         }
       }
-      // Top-level symbol (no parent, or parent not found)
       rootNodes.push(node);
     });
 
@@ -98,46 +130,7 @@ export const AtomicSymbolGraph: React.FC<AtomicSymbolGraphProps> = ({
     });
 
     return rootNodes;
-  };
-
-  // buildDependencyMap and buildTree are kept as local helpers and memoized
-  // below; do not call them outside of the useMemo block.
-  const buildDependencyMap = () => {
-    const dependsOn: Record<string, string[]> = {};
-    const dependsFrom: Record<string, string[]> = {};
-
-    // Add outgoing dependencies (calls from current file)
-    dependencies.forEach(dep => {
-      if (!dependsOn[dep.sourceSymbolId]) dependsOn[dep.sourceSymbolId] = [];
-      if (!dependsFrom[dep.targetSymbolId]) dependsFrom[dep.targetSymbolId] = [];
-
-      dependsOn[dep.sourceSymbolId].push(dep.targetSymbolId);
-      dependsFrom[dep.targetSymbolId].push(dep.sourceSymbolId);
-    });
-
-    // Add incoming dependencies (calls FROM external files TO current file)
-    // Store the FULL external symbol ID so we can navigate to it later
-    incomingDependencies.forEach((dep) => {
-      if (!dependsFrom[dep.targetSymbolId]) dependsFrom[dep.targetSymbolId] = [];
-      // Store the FULL source symbol ID (with file path) so we can navigate to it
-      dependsFrom[dep.targetSymbolId].push(dep.sourceSymbolId);
-    });
-
-    // Remove duplicates from all arrays
-    Object.keys(dependsOn).forEach(key => {
-      dependsOn[key] = Array.from(new Set(dependsOn[key]));
-    });
-    Object.keys(dependsFrom).forEach(key => {
-      dependsFrom[key] = Array.from(new Set(dependsFrom[key]));
-    });
-
-    return { dependsOn, dependsFrom };
-  };
-
-  // Memoised tree — rebuilt only when symbol data or dependency lists change,
-  // NOT on every expand/collapse or selection (renderNode reads expandedNodes
-  // directly from state, so isExpanded in TreeNode is not used by the renderer).
-  const tree = useMemo(() => buildTree(), [symbols, dependencies, incomingDependencies]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [symbols, dependencies, incomingDependencies]);
 
   const toggleNode = (nodeId: string) => {
     const newExpanded = new Set(expandedNodes);
