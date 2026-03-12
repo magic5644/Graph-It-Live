@@ -1,21 +1,23 @@
 # Changelog
 
-## v1.8.0
+## v1.7.2
 
 ### Performance
 
-- **Remove experimental LSP call hierarchy**: Removed the `enableCallHierarchy` and `callHierarchyMaxFileSize` settings along with the slow LSP-based enrichment path (~60 s latency). Symbol drill-down now uses fast AST-only analysis. The Live Call Graph feature already provides equivalent call relationship visualization with near-instant results.
+- **Call Graph indexer optimizations**: Compiled tree-sitter Query objects are now cached per language across files, batch size increased to 12, and multi-file indexing uses SQLite transactions — reducing full-workspace indexing time significantly
+- **Call Graph BFS queries**: Frontier queries use batched `IN (...)` clauses instead of per-node queries
+- **Call Graph DB persistence**: The SQLite database is exported to disk (`globalStorageUri`) between sessions and restored on next activation, avoiding full re-index on extension restart. Schema versioning via `metadata` table ensures stale DBs are discarded automatically
+- **Remove experimental LSP call hierarchy**: Removed the `enableCallHierarchy` and `callHierarchyMaxFileSize` settings along with the slow LSP-based enrichment path (~60 s latency). Symbol drill-down now uses fast AST-only analysis
   - Deleted `LspCallHierarchyService` (800+ lines of sequential VS Code LSP roundtrips)
   - Simplified `SymbolViewService` from 723 → 149 lines (pure AST pipeline)
   - Removed progress indicator UI (no longer needed — analysis is fast)
   - Removed cursor-position listener that only existed for LSP refresh
 
-### Enhancements
-
-- **Call Graph observability**: Added metrics tracking and comprehensive E2E test coverage for the Live Call Graph feature
-
 ### Bug Fixes
 
+- **Call Graph incoming edges lost on re-index**: Fixed `indexFile()` deleting incoming edges from other files during re-indexation. The DELETE was bidirectional (`OR target_id IN (...)`) — now only outgoing edges are removed, and dangling incoming edges for renamed/removed symbols are cleaned up separately
+- **Call Graph false-positive cross-file edges**: Fixed member/method access calls (`Object.keys()`, `Math.round()`, `array.sort()`, etc.) being resolved to unrelated symbols in other files. Member expression `@call` captures are now excluded from cross-file `@@external:` stub creation — only direct function calls (`foo()`) create cross-file edges
+- **Call Graph refresh button**: The toolbar refresh button now triggers a full call graph reindex when in call graph view mode, instead of being a no-op
 - **Symbol drill-down freezing**: Fixed drill-down views freezing when background indexing interfered with in-flight LSP analysis
 - **Symbol graph cache placement**: Fixed cache storing results after the stale check instead of before, causing repeated slow analysis
 - **SpiderReferenceLookup cache**: Fixed stale cache entries causing incorrect reverse dependency results
@@ -26,7 +28,7 @@
 ### Maintenance
 
 - **Removed unused dependencies**: Cleaned up stale packages from `package.json`
-- **Testing**: 1494 unit tests + 90 E2E tests passing across 135 test files
+- **Testing**: 1500 unit tests + 90 E2E tests passing across 135 test files
 
 ## v1.7.1
 

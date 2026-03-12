@@ -84,6 +84,27 @@ function captureNameToRelationType(captureName: string): RelationType | null {
   return RELATION_CAPTURE_MAP[captureName] ?? null;
 }
 
+/**
+ * Check whether a @call capture node comes from a member/method access pattern
+ * rather than a direct function call.  Member calls cannot be reliably resolved
+ * across files because tree-sitter captures only the method name (e.g. `keys`
+ * from `Object.keys()`), not the owning object's type.
+ *
+ * Language-specific parent node types:
+ *  - TypeScript/JavaScript: `member_expression`  (obj.method())
+ *  - Python:                `attribute`           (obj.method())
+ *  - Rust:                  `field_expression`    (obj.method())
+ */
+const MEMBER_ACCESS_PARENT_TYPES = new Set([
+  "member_expression",  // TS/JS
+  "attribute",          // Python
+  "field_expression",   // Rust
+]);
+
+function isMemberAccessCapture(node: TreeNode): boolean {
+  return MEMBER_ACCESS_PARENT_TYPES.has(node.parent?.type ?? "");
+}
+
 // ---------------------------------------------------------------------------
 // GraphExtractor
 // ---------------------------------------------------------------------------
@@ -314,6 +335,19 @@ export class GraphExtractor {
       if (!sourceNodeId) continue;
       const targetNodeIds = nameToNodeIds.get(targetName);
       const targetId = targetNodeIds?.[0] ?? `@@external:${targetName}`;
+
+      // Skip cross-file edges from member/method access calls (e.g. obj.method()).
+      // Without type information, name-only resolution creates false positives:
+      // Object.keys() → user's `keys`, Math.round() → user's `round`, etc.
+      // Intra-file member calls (this.method()) are kept — targetNodeIds is set.
+      if (
+        relationType === "CALLS" &&
+        targetId.startsWith("@@external:") &&
+        isMemberAccessCapture(capture.node)
+      ) {
+        continue;
+      }
+
       const edgeKey = `${sourceNodeId}::${targetId}::${relationType}`;
       if (seenEdges.has(edgeKey)) continue;
       seenEdges.add(edgeKey);

@@ -274,4 +274,169 @@ describe("GraphExtractor", () => {
       expect(result.edges).toHaveLength(0);
     });
   });
+
+  // -------------------------------------------------------------------------
+  // Member access false-positive filtering
+  // -------------------------------------------------------------------------
+
+  describe("member access cross-file filtering", () => {
+    it("drops cross-file edges from member_expression calls (e.g. Object.keys())", async () => {
+      // Simulate: inside function `processData`, a call to `obj.keys()`.
+      // `keys` is NOT defined in this file → would be `@@external:keys`.
+      // Because the capture comes from a member_expression, the edge must be dropped.
+      const funcDeclNode = {
+        text: "processData",
+        startPosition: { row: 0, column: 0 },
+        endPosition: { row: 10, column: 1 },
+        parent: null,
+        type: "function_declaration",
+      };
+
+      const memberExprNode = {
+        text: "Object.keys",
+        startPosition: { row: 2, column: 2 },
+        endPosition: { row: 2, column: 13 },
+        type: "member_expression",
+        parent: funcDeclNode,
+      };
+
+      mockCapturesResult = [
+        {
+          name: "def.function",
+          node: funcDeclNode,
+        },
+        {
+          name: "call",
+          node: {
+            text: "keys",
+            startPosition: { row: 2, column: 9 },
+            endPosition: { row: 2, column: 13 },
+            type: "property_identifier",
+            parent: memberExprNode,
+          },
+        },
+      ];
+
+      const result = await extractor.extractSource(
+        "/mock/workspace/src/data.ts",
+        "typescript",
+        "function processData() { Object.keys(obj); }",
+      );
+
+      expect(result.nodes).toHaveLength(1);
+      expect(result.nodes[0].name).toBe("processData");
+      // No edges: member access `keys` must NOT create a cross-file stub
+      expect(result.edges).toHaveLength(0);
+    });
+
+    it("keeps intra-file member access calls (e.g. this.bar())", async () => {
+      // Simulate: class Foo defines bar() and baz(), baz calls this.bar().
+      // Because bar IS in the same file, the edge should be created.
+      const classNode = {
+        text: "Foo",
+        startPosition: { row: 0, column: 0 },
+        endPosition: { row: 20, column: 1 },
+        parent: null,
+        type: "class_declaration",
+      };
+
+      const barMethodNode = {
+        text: "bar",
+        startPosition: { row: 1, column: 2 },
+        endPosition: { row: 1, column: 5 },
+        parent: classNode,
+        type: "property_identifier",
+      };
+
+      // baz is defined at row 5, nested inside the class
+      const bazDeclNode = {
+        text: "baz",
+        startPosition: { row: 5, column: 2 },
+        endPosition: { row: 5, column: 5 },
+        parent: classNode,
+        type: "property_identifier",
+      };
+
+      // `this.bar()` inside baz — parent is a member_expression inside the class
+      const memberExprNode = {
+        text: "this.bar",
+        startPosition: { row: 6, column: 4 },
+        endPosition: { row: 6, column: 12 },
+        type: "member_expression",
+        parent: classNode, // nested inside class body
+      };
+
+      mockCapturesResult = [
+        { name: "def.class", node: classNode },
+        { name: "def.method", node: barMethodNode },
+        { name: "def.method", node: bazDeclNode },
+        {
+          name: "call",
+          node: {
+            text: "bar",
+            startPosition: { row: 6, column: 9 },
+            endPosition: { row: 6, column: 12 },
+            type: "property_identifier",
+            parent: memberExprNode, // member_expression → would normally be filtered
+          },
+        },
+      ];
+
+      const result = await extractor.extractSource(
+        "/mock/workspace/src/Foo.ts",
+        "typescript",
+        "class Foo { bar() {} baz() { this.bar(); } }",
+      );
+
+      expect(result.nodes).toHaveLength(3); // Foo, bar, baz
+      // bar IS in the same file → intra-file edge should be kept
+      const callEdges = result.edges.filter((e) => e.typeRelation === "CALLS");
+      expect(callEdges).toHaveLength(1);
+      expect(callEdges[0].targetId).toContain("bar");
+      expect(callEdges[0].targetId).not.toContain("@@external");
+    });
+
+    it("keeps direct function calls as cross-file edges (e.g. foo())", async () => {
+      // Direct call `doSomething()` — NOT a member expression.
+      // The @@external: stub should be created as before.
+      const funcDeclNode = {
+        text: "main",
+        startPosition: { row: 0, column: 0 },
+        endPosition: { row: 10, column: 1 },
+        parent: null,
+        type: "function_declaration",
+      };
+
+      mockCapturesResult = [
+        { name: "def.function", node: funcDeclNode },
+        {
+          name: "call",
+          node: {
+            text: "doSomething",
+            startPosition: { row: 3, column: 4 },
+            endPosition: { row: 3, column: 15 },
+            type: "identifier",
+            // Parent is call_expression, NOT member_expression
+            parent: {
+              text: "doSomething()",
+              startPosition: { row: 3, column: 4 },
+              endPosition: { row: 3, column: 17 },
+              type: "call_expression",
+              parent: funcDeclNode,
+            },
+          },
+        },
+      ];
+
+      const result = await extractor.extractSource(
+        "/mock/workspace/src/main.ts",
+        "typescript",
+        "function main() { doSomething(); }",
+      );
+
+      expect(result.nodes).toHaveLength(1);
+      expect(result.edges).toHaveLength(1);
+      expect(result.edges[0].targetId).toBe("@@external:doSomething");
+    });
+  });
 });
