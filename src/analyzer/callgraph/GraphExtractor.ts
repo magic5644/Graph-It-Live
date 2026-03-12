@@ -90,9 +90,25 @@ function captureNameToRelationType(captureName: string): RelationType | null {
 
 export class GraphExtractor {
   private readonly config: ExtractorConfig;
+  /** In-memory cache for .scm query sources — avoids re-reading from disk per file */
+  private readonly querySourceCache = new Map<string, string>();
+  /** Compiled tree-sitter Query objects cached per language — avoids recompilation per file */
+  private readonly compiledQueryCache = new Map<string, Query>();
 
   constructor(config: ExtractorConfig) {
     this.config = config;
+  }
+
+  /**
+   * Release all cached compiled Query objects (frees WASM memory).
+   * Must be called when the extractor is no longer needed.
+   */
+  dispose(): void {
+    for (const query of this.compiledQueryCache.values()) {
+      query.delete();
+    }
+    this.compiledQueryCache.clear();
+    this.querySourceCache.clear();
   }
 
   // ---------------------------------------------------------------------------
@@ -168,7 +184,26 @@ export class GraphExtractor {
       return { nodes: [], edges: [] };
     }
 
-    // Run query
+    // Run query (compiled Query is cached per language — safe to reuse across files)
+    const query = this.getOrCompileQuery(language, querySrc, lang);
+    const captures = query.captures(tree.rootNode);
+
+    return this.processCaptures(captures, normalizedPath, lang, source);
+  }
+
+  // ---------------------------------------------------------------------------
+  // Private helpers — Query compilation cache
+  // ---------------------------------------------------------------------------
+
+  /**
+   * Return a cached compiled Query for the given language, compiling on first use.
+   * The Query object is safe to reuse across multiple tree parses — `.captures()` is stateless.
+   */
+  private getOrCompileQuery(language: ConstructorParameters<typeof Query>[0], querySrc: string, lang: SupportedLang): Query {
+    const key = this.normalizeQueryLang(lang);
+    const cached = this.compiledQueryCache.get(key);
+    if (cached) return cached;
+
     let query: Query;
     try {
       query = new Query(language, querySrc);
@@ -176,11 +211,8 @@ export class GraphExtractor {
       const msg = err instanceof Error ? err.message : String(err);
       throw new Error(`Failed to parse Tree-sitter query for ${lang}: ${msg}`, { cause: err });
     }
-
-    const captures = query.captures(tree.rootNode);
-    query.delete();
-
-    return this.processCaptures(captures, normalizedPath, lang, source);
+    this.compiledQueryCache.set(key, query);
+    return query;
   }
 
   // ---------------------------------------------------------------------------
@@ -356,7 +388,11 @@ export class GraphExtractor {
    * Empty string if the file is not found or is empty.
    */
   private async loadQuerySource(lang: SupportedLang): Promise<string> {
-    const queryFileName = `${this.normalizeQueryLang(lang)}.scm`;
+    const normalizedLang = this.normalizeQueryLang(lang);
+    const cached = this.querySourceCache.get(normalizedLang);
+    if (cached !== undefined) return cached;
+
+    const queryFileName = `${normalizedLang}.scm`;
     const queryPath = path.join(
       this.config.extensionPath,
       "dist",
@@ -364,9 +400,12 @@ export class GraphExtractor {
       queryFileName,
     );
     try {
-      return await fs.readFile(queryPath, "utf8");
+      const src = await fs.readFile(queryPath, "utf8");
+      this.querySourceCache.set(normalizedLang, src);
+      return src;
     } catch (err) {
       console.error(`[CallGraph] Query file not found: ${queryPath}`, err);
+      this.querySourceCache.set(normalizedLang, "");
       return "";
     }
   }

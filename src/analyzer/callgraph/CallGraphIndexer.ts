@@ -100,7 +100,15 @@ CREATE TABLE IF NOT EXISTS edges (
 CREATE INDEX IF NOT EXISTS idx_edges_source ON edges(source_id);
 CREATE INDEX IF NOT EXISTS idx_edges_target ON edges(target_id);
 CREATE INDEX IF NOT EXISTS idx_edges_cyclic ON edges(is_cyclic) WHERE is_cyclic = 1;
+
+CREATE TABLE IF NOT EXISTS metadata (
+    key   TEXT PRIMARY KEY,
+    value TEXT NOT NULL
+);
 `;
+
+/** Bump when the schema changes — forces a full rebuild on load. */
+const CURRENT_SCHEMA_VERSION = 1;
 
 // ---------------------------------------------------------------------------
 // CallGraphIndexer
@@ -115,6 +123,8 @@ export class CallGraphIndexer {
   private SQL: SqlJsStatic | null = null;
   private initPromise: Promise<void> | null = null;
   private readonly wasmPath: string;
+  /** True when an explicit batch transaction is active (beginBatch/commitBatch). */
+  private inBatch = false;
 
   constructor(wasmPath: string) {
     this.wasmPath = wasmPath;
@@ -139,6 +149,10 @@ export class CallGraphIndexer {
       this.SQL = await initSqlJs({ wasmBinary });
       this.db = new this.SQL.Database();
       this.db.run(SCHEMA_SQL);
+      this.db.run(
+        "INSERT OR REPLACE INTO metadata (key, value) VALUES ('schema_version', ?)",
+        [String(CURRENT_SCHEMA_VERSION)],
+      );
     })();
 
     return this.initPromise;
@@ -153,6 +167,39 @@ export class CallGraphIndexer {
       throw new Error("CallGraphIndexer not initialized — call init() first");
     }
     return this.db;
+  }
+
+  // ---------------------------------------------------------------------------
+  // Batch transaction API (multi-file indexing)
+  // ---------------------------------------------------------------------------
+
+  /**
+   * Begin an explicit batch transaction.
+   * While a batch is active, `indexFile()` skips its own BEGIN/COMMIT,
+   * reducing per-file transaction overhead when indexing many files.
+   */
+  beginBatch(): void {
+    if (this.inBatch) return; // idempotent
+    this.getDb().run("BEGIN TRANSACTION");
+    this.inBatch = true;
+  }
+
+  /**
+   * Commit the current batch transaction.
+   */
+  commitBatch(): void {
+    if (!this.inBatch) return;
+    this.getDb().run("COMMIT");
+    this.inBatch = false;
+  }
+
+  /**
+   * Roll back the current batch transaction.
+   */
+  rollbackBatch(): void {
+    if (!this.inBatch) return;
+    this.getDb().run("ROLLBACK");
+    this.inBatch = false;
   }
 
   // ---------------------------------------------------------------------------
@@ -179,29 +226,39 @@ export class CallGraphIndexer {
   ): void {
     const db = this.getDb();
     const now = Date.now();
+    const ownTransaction = !this.inBatch;
 
-    db.run("BEGIN TRANSACTION");
+    if (ownTransaction) db.run("BEGIN TRANSACTION");
     try {
-      // Upsert file_index record
+      // Collect old node IDs BEFORE any mutation — needed to clean up dangling
+      // incoming edges later. Must happen before file_index upsert because
+      // INSERT OR REPLACE triggers FK CASCADE which deletes nodes.
+      const oldNodeIds = new Set<string>();
+      const oldRows = db.exec("SELECT id FROM nodes WHERE path = ?", [filePath]);
+      if (oldRows[0]) {
+        for (const r of oldRows[0].values) oldNodeIds.add(r[0] as string);
+      }
+
+      // Delete only OUTGOING edges (source is in this file).
+      // Incoming edges (from other files targeting nodes in this file) are preserved
+      // so that cross-file call relationships survive incremental re-indexation.
+      // Must also happen before file_index upsert (FK CASCADE would delete nodes
+      // that the subselect references).
+      db.run(
+        `DELETE FROM edges
+         WHERE source_id IN (SELECT id FROM nodes WHERE path = ?)`,
+        [filePath],
+      );
+
+      // Upsert file_index record.
+      // INSERT OR REPLACE triggers FK CASCADE which deletes all nodes for this file.
       db.run(
         `INSERT OR REPLACE INTO file_index (path, lang, last_modified, indexed_at)
          VALUES (?, ?, ?, ?)`,
         [filePath, lang, mtime, now],
       );
 
-      // Manually delete edges touching nodes in this file BEFORE removing the nodes.
-      // (FK CASCADE is not used on the edges table so that @@external: stubs can be stored.)
-      db.run(
-        `DELETE FROM edges
-         WHERE source_id IN (SELECT id FROM nodes WHERE path = ?)
-            OR target_id IN (SELECT id FROM nodes WHERE path = ?)`,
-        [filePath, filePath],
-      );
-
-      // Delete existing nodes
-      db.run("DELETE FROM nodes WHERE path = ?", [filePath]);
-
-      // Insert all nodes
+      // Insert all nodes (old nodes were cascade-deleted by file_index upsert)
       const nodeStmt = db.prepare(
         `INSERT OR REPLACE INTO nodes
            (id, name, type, lang, path, folder, start_line, end_line, start_col, is_exported, indexed_at)
@@ -238,9 +295,17 @@ export class CallGraphIndexer {
       }
       edgeStmt.free();
 
-      db.run("COMMIT");
+      // Clean up dangling incoming edges: if a node was removed or renamed (ID changed),
+      // incoming edges targeting its old ID are now orphaned and must be deleted.
+      const newNodeIds = new Set(nodes.map((n) => n.id));
+      const removedIds = [...oldNodeIds].filter((id) => !newNodeIds.has(id));
+      for (const removedId of removedIds) {
+        db.run("DELETE FROM edges WHERE target_id = ?", [removedId]);
+      }
+
+      if (ownTransaction) db.run("COMMIT");
     } catch (err) {
-      db.run("ROLLBACK");
+      if (ownTransaction) db.run("ROLLBACK");
       throw err;
     }
   }
@@ -400,6 +465,67 @@ export class CallGraphIndexer {
     }
     stmt.free();
     return result;
+  }
+
+  // ---------------------------------------------------------------------------
+  // Persistence (export / import)
+  // ---------------------------------------------------------------------------
+
+  /**
+   * Export the current database as a binary blob.
+   * Returns a Uint8Array that can be written to disk and later loaded with `loadFromBytes()`.
+   */
+  exportDb(): Uint8Array {
+    return this.getDb().export();
+  }
+
+  /**
+   * Save the current database to a file on disk.
+   */
+  async saveToFile(filePath: string): Promise<void> {
+    const data = this.exportDb();
+    const dir = path.dirname(filePath);
+    await fs.mkdir(dir, { recursive: true });
+    await fs.writeFile(filePath, data);
+  }
+
+  /**
+   * Load a database from a file on disk, replacing the current in-memory DB.
+   * Returns `true` if the file was loaded successfully AND the schema version matches.
+   * Returns `false` if the file doesn't exist, is corrupted, or has a stale schema version
+   * (in which case the caller should fall back to a full re-index with a fresh DB).
+   */
+  async loadFromFile(filePath: string): Promise<boolean> {
+    if (!this.SQL) {
+      const wasmBinary = await fs.readFile(this.wasmPath);
+      // eslint-disable-next-line @typescript-eslint/no-require-imports
+      const initSqlJs = require("sql.js") as (config: { wasmBinary: Uint8Array }) => Promise<SqlJsStatic>;
+      this.SQL = await initSqlJs({ wasmBinary });
+    }
+
+    let data: Buffer;
+    try {
+      data = await fs.readFile(filePath);
+    } catch {
+      return false; // file does not exist or is unreadable
+    }
+
+    try {
+      const loadedDb = new this.SQL.Database(new Uint8Array(data));
+      // Verify schema version
+      const rows = loadedDb.exec("SELECT value FROM metadata WHERE key = 'schema_version'");
+      const storedVersion = rows[0]?.values?.[0]?.[0];
+      if (Number(storedVersion) !== CURRENT_SCHEMA_VERSION) {
+        loadedDb.close();
+        return false; // stale schema → caller should rebuild
+      }
+      // Replace current DB
+      this.db?.close();
+      this.db = loadedDb;
+      return true;
+    } catch {
+      return false; // corrupted DB
+    }
   }
 
   /**

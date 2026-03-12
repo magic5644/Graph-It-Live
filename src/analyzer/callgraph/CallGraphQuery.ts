@@ -168,41 +168,45 @@ function bfsBidirectional(
 
   for (let hop = 0; hop < depth; hop++) {
     if (frontier.size === 0) break;
-    const nextFrontier = new Set<string>();
-    for (const nodeId of frontier) {
-      collectNeighbours(db, nodeId, visited, nextFrontier);
-    }
-    frontier = nextFrontier;
+    frontier = collectFrontierNeighbours(db, frontier, visited);
   }
 
   return visited;
 }
 
 /**
- * Collect immediate neighbours (outgoing + incoming) of a single node,
- * adding unvisited non-stub IDs to `nextFrontier`.
+ * Collect neighbours for an entire frontier set in two SQL queries
+ * (outgoing + incoming), instead of 2 queries per node.
+ * Returns the new frontier (unvisited, non-stub neighbours).
  */
-function collectNeighbours(
+function collectFrontierNeighbours(
   db: Database,
-  nodeId: string,
+  frontier: Set<string>,
   visited: Set<string>,
-  nextFrontier: Set<string>,
-): void {
+): Set<string> {
+  const nextFrontier = new Set<string>();
+  const frontierArr = [...frontier];
+  const placeholders = frontierArr.map(() => "?").join(", ");
+
+  // Outgoing: frontier nodes as sources → get their targets
   const outgoing = db.exec(
-    `SELECT target_id FROM edges WHERE source_id = ?`,
-    [nodeId],
+    `SELECT target_id FROM edges WHERE source_id IN (${placeholders})`,
+    frontierArr,
   );
   for (const row of outgoing[0]?.values ?? []) {
     addIfReachable(row[0] as string, visited, nextFrontier);
   }
 
+  // Incoming: frontier nodes as targets → get their sources
   const incoming = db.exec(
-    `SELECT source_id FROM edges WHERE target_id = ?`,
-    [nodeId],
+    `SELECT source_id FROM edges WHERE target_id IN (${placeholders})`,
+    frontierArr,
   );
   for (const row of incoming[0]?.values ?? []) {
     addIfReachable(row[0] as string, visited, nextFrontier);
   }
+
+  return nextFrontier;
 }
 
 function addIfReachable(
