@@ -576,6 +576,10 @@ export class CallGraphViewService implements vscode.Disposable {
       } catch (batchErr: unknown) {
         indexer.rollbackBatch();
         this.outputChannel.appendLine(`[CallGraph] Batch commit failed, falling back to per-file: ${errorMessage(batchErr)}`);
+        // Undo the progress counted in the try block — indexResultsOneByOne will re-count.
+        progressState.done -= results.length;
+        // Also undo any edges pushed before the failure — the fallback re-pushes them.
+        allEdges.length = allEdges.length - results.reduce((n, r) => n + (r.ok && r.extracted ? r.extracted.edges.length : 0), 0);
         // Fallback: re-index failed batch file-by-file with individual transactions
         this.indexResultsOneByOne(results, indexer, allEdges, progressState);
       }
