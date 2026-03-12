@@ -55,6 +55,34 @@ export class GraphProvider implements vscode.WebviewViewProvider {
   public notifyMcpServerOfConfigChange?: () => void;
 
   /**
+   * Sequence counter for handleDrillDown calls.
+   * Incremented on each new call; checked after async buildSymbolGraph
+   * to discard stale results when multiple analyses run concurrently.
+   */
+  private _drillDownSeq = 0;
+
+  /**
+   * Sequence number of the last completed (or errored) handleDrillDown invocation.
+   * Compared against _drillDownSeq to detect in-flight analyses.
+   * When _drillDownSeq > _drillDownCompleteSeq an analysis is in progress and
+   * cursor-triggered refreshes should be suppressed to avoid livelocking.
+   */
+  private _drillDownCompleteSeq = 0;
+
+  /**
+   * Cache for the last successful buildSymbolGraph result.
+   * Avoids re-running the expensive (~60 s) LSP analysis when the user
+   * switches between list and symbol view for the same file.
+   * Invalidated on file save / file-system change for that file.
+   */
+  private _symbolGraphCache: {
+    filePath: string;
+    rootNodeId: string;
+    result: Awaited<ReturnType<SymbolViewService['buildSymbolGraph']>>;
+    timestamp: number;
+  } | null = null;
+
+  /**
    * Reference to the Call Graph view service, set after construction.
    * Used to route call-graph webview messages and provide sidebar webview.
    */
@@ -301,6 +329,11 @@ export class GraphProvider implements vscode.WebviewViewProvider {
    * @param filePath Path to the saved file
    */
   public async onFileSaved(filePath: string): Promise<void> {
+    // Invalidate symbol graph cache so the next analysis reflects the new content.
+    if (this._symbolGraphCache?.filePath === filePath) {
+      this._symbolGraphCache = null;
+      log.debug(`[GraphProvider] Symbol graph cache invalidated (saved): ${filePath}`);
+    }
     await this.eventHub?.handleFileSaved(filePath);
   }
 
@@ -335,6 +368,11 @@ export class GraphProvider implements vscode.WebviewViewProvider {
     filePath: string,
     eventType: EventType,
   ): Promise<void> {
+    // Invalidate symbol graph cache when the analysed file changes on disk.
+    if (this._symbolGraphCache?.filePath === filePath) {
+      this._symbolGraphCache = null;
+      log.debug(`[GraphProvider] Symbol graph cache invalidated (${eventType}): ${filePath}`);
+    }
     await this.eventHub?.handleFileChange(filePath, eventType);
   }
 
@@ -511,6 +549,9 @@ export class GraphProvider implements vscode.WebviewViewProvider {
       return;
     }
 
+    // Stamp this invocation so we can discard stale concurrent analyses.
+    const drillDownSeq = ++this._drillDownSeq;
+
     // Don't eagerly set current symbol yet - we need to resolve relative/module
     // specifiers first so the tracked file is always an absolute path.
 
@@ -521,151 +562,214 @@ export class GraphProvider implements vscode.WebviewViewProvider {
         "for symbol analysis",
       );
 
-      // Parse symbol ID (e.g. './utils:format') to separate file path from symbol name
-      const { actualFilePath: requestedPath, symbolName } =
-        this.navigationService.parseFilePathAndSymbol(filePath);
+      const resolved = await this._resolveDrillDownTarget(filePath, targetViewMode);
+      if (!resolved) return;
+      const { resolvedFilePath, rootNodeId } = resolved;
 
-      // Resolve the file path to an absolute path if needed
-      const resolvedFilePath =
-        await this.navigationService.resolveDrillDownPath(
-          requestedPath,
-          this._stateManager.currentSymbol,
-        );
-      if (!resolvedFilePath) return; // Messages already shown by resolver
-
-      await this._stateManager.setLastActiveFilePath(resolvedFilePath);
-      await this._stateManager.setCurrentFilePath(resolvedFilePath);
-
-      // Track the resolved (absolute) file we are viewing for refreshes
-      const rootNodeId = symbolName
-        ? `${resolvedFilePath}:${symbolName}`
-        : resolvedFilePath;
-
-      // Update state - set mode explicitly if targetViewMode provided
-      if (targetViewMode) {
-        await this._stateManager.setViewMode(targetViewMode);
-      } else {
-        // Default to symbol mode for backward compatibility
-        await this._stateManager.setViewMode("symbol");
+      // Skip the expensive LSP analysis when a fresh cached result exists
+      // (e.g. user switching list ↔ symbol view for the same file).
+      if (this._trySymbolGraphFromCache(resolvedFilePath, rootNodeId, drillDownSeq, isRefresh, targetViewMode)) {
+        return;
       }
-      this._stateManager.selectedSymbolId = rootNodeId;
-
-      // Update context key for toolbar visibility
-      this._updateViewModeContext();
-
-      // Read call hierarchy settings from configuration
-      const config = vscode.workspace.getConfiguration("graph-it-live");
-      const enableCallHierarchy = config.get<boolean>(
-        "enableCallHierarchy",
-        false,
-      );
-      const enableIncomingCalls = config.get<boolean>(
-        "enableIncomingCalls",
-        true,
-      );
-      const callHierarchyMaxFileSize = config.get<number>(
-        "callHierarchyMaxFileSize",
-        5000,
-      );
 
       log.info(
-        `[GraphProvider] Building symbol graph for ${resolvedFilePath}, enableCallHierarchy=${enableCallHierarchy}`,
+        `[GraphProvider] Building symbol graph for ${resolvedFilePath}`,
       );
 
       const symbolGraph = await this.symbolViewService.buildSymbolGraph(
         resolvedFilePath,
         rootNodeId,
-        {
-          includeCallHierarchy: enableCallHierarchy,
-          maxFileLines: callHierarchyMaxFileSize,
-          callHierarchyOptions: {
-            includeIncoming: enableIncomingCalls,
-          },
-        },
       );
 
-      log.info(
-        `[GraphProvider] Symbol graph built: ${symbolGraph.symbolData.symbols.length} symbols, ${symbolGraph.symbolData.dependencies.length} dependencies`,
-      );
-
-      const response: ExtensionToWebviewMessage = {
-        command: "symbolGraph",
-        filePath: rootNodeId,
-        isRefresh,
-        targetViewMode,
-        graph: symbolGraph.graph || {
-          filePath: rootNodeId,
-          nodes: [],
-          edges: [],
-          hasCycle: false,
-        },
-        breadcrumb: {
-          segments: [rootNodeId.split("/").pop() || rootNodeId],
-          filePath: rootNodeId,
-        },
-        data: {
-          nodes: symbolGraph.nodes,
-          edges: symbolGraph.edges,
-          symbolData: symbolGraph.symbolData,
-          incomingDependencies: symbolGraph.incomingDependencies,
-          referencingFiles: symbolGraph.referencingFiles,
-          parentCounts: symbolGraph.parentCounts,
-        },
+      // Always cache valid analysis results — even stale ones. The data is
+      // correct for this file; it just arrived after a newer request was fired.
+      // Caching here means the very next handleDrillDown for the same file will
+      // get an instant cache hit instead of re-running the 60 s LSP analysis.
+      this._symbolGraphCache = {
+        filePath: resolvedFilePath,
+        rootNodeId,
+        result: symbolGraph,
+        timestamp: Date.now(),
       };
 
-      log.debug(
-        `[GraphProvider] Sending symbolGraph message: ${symbolGraph.symbolData.symbols.length} symbols, ${symbolGraph.symbolData.dependencies.length} dependencies, ${symbolGraph.edges.length} edges`,
-      );
-      log.info(
-        `[GraphProvider-WEBVIEW] Message content: nodes=${symbolGraph.nodes.length}, edges=${symbolGraph.edges.length}, incomingDeps=${symbolGraph.incomingDependencies?.length ?? 0}`,
-      );
-      log.info(
-        `[GraphProvider-WEBVIEW] Incoming dependency types: ${symbolGraph.incomingDependencies?.map(d => d.relationType).join(', ') || 'none'}`,
-      );
-      log.debug(
-        `[GraphProvider] Sample dependency:`,
-        symbolGraph.symbolData.dependencies[0],
-      );
-
-      this._view.webview.postMessage(response);
-
-      // Log metadata about the analysis
-      const metadata = symbolGraph.metadata;
-      if (metadata) {
-        log.debug(
-          "Symbol graph analysis:",
-          symbolGraph.nodes.length,
-          "nodes,",
-          symbolGraph.edges.length,
-          "edges,",
-          "LSP used:",
-          metadata.lspUsed,
-          "call edges:",
-          metadata.callEdgesCount,
+      // Discard this result if a newer analysis was triggered while we awaited.
+      if (drillDownSeq !== this._drillDownSeq) {
+        log.info(
+          `[GraphProvider] handleDrillDown: discarding stale result for ${resolvedFilePath} (seq=${drillDownSeq}, current=${this._drillDownSeq}) — cached for next request`,
         );
-        if (metadata.warnings.length > 0) {
-          log.warn("Analysis warnings:", metadata.warnings.join(", "));
-        }
-      } else {
-        log.debug(
-          "Sent symbol graph with",
-          symbolGraph.nodes.length,
-          "nodes and",
-          symbolGraph.edges.length,
-          "edges",
-        );
+        return;
       }
+
+      // Confirmed latest analysis — commit the selected symbol state.
+      this._stateManager.selectedSymbolId = rootNodeId;
+
+      this._sendSymbolGraphToWebview(symbolGraph, rootNodeId, isRefresh, targetViewMode);
     } catch (error) {
       log.error("Error drilling down into symbols:", error);
       vscode.window.showErrorMessage(
         `Failed to analyze symbols: ${error instanceof Error ? error.message : "Unknown error"}`,
       );
+    } finally {
+      // Mark as complete so cursor-triggered refreshes can resume.
+      // Only update when this is still the latest dispatched analysis —
+      // stale invocations (drillDownSeq < _drillDownSeq) must NOT clear the
+      // in-flight flag because the newer analysis is still running.
+      if (drillDownSeq === this._drillDownSeq) {
+        this._drillDownCompleteSeq = drillDownSeq;
+      }
     }
   }
 
   /**
-   * Refresh the current graph view (used when user navigates in symbol view)
-   * Re-runs LSP analysis to update call hierarchy
+   * Resolve the drill-down target: parse symbol ID, resolve absolute path,
+   * update state manager, and set view mode. Returns null when resolution fails.
+   */
+  private async _resolveDrillDownTarget(
+    filePath: string,
+    targetViewMode?: "symbol" | "list",
+  ): Promise<{ resolvedFilePath: string; rootNodeId: string } | null> {
+    // Parse symbol ID (e.g. './utils:format') to separate file path from symbol name
+    const { actualFilePath: requestedPath, symbolName } =
+      this.navigationService!.parseFilePathAndSymbol(filePath);
+
+    // Resolve the file path to an absolute path if needed
+    const resolvedFilePath =
+      await this.navigationService!.resolveDrillDownPath(
+        requestedPath,
+        this._stateManager.currentSymbol,
+      );
+    if (!resolvedFilePath) return null; // Messages already shown by resolver
+
+    await this._stateManager.setLastActiveFilePath(resolvedFilePath);
+    await this._stateManager.setCurrentFilePath(resolvedFilePath);
+
+    // Track the resolved (absolute) file we are viewing for refreshes
+    const rootNodeId = symbolName
+      ? `${resolvedFilePath}:${symbolName}`
+      : resolvedFilePath;
+
+    // Update state — set mode explicitly if targetViewMode provided
+    await this._stateManager.setViewMode(targetViewMode ?? "symbol");
+    // NOTE: selectedSymbolId is intentionally NOT set here.
+    // Setting it before buildSymbolGraph would allow background tasks (e.g.
+    // indexing completion) to see an active currentSymbol and call
+    // handleDrillDown again, creating a concurrency race. It is assigned
+    // after the stale-result check confirms this invocation is still the latest one.
+
+    // Update context key for toolbar visibility
+    this._updateViewModeContext();
+
+    return { resolvedFilePath, rootNodeId };
+  }
+
+  /** Build the symbolGraph webview message and post it (extracted to keep handleDrillDown complexity low). */
+  private _sendSymbolGraphToWebview(
+    symbolGraph: Awaited<ReturnType<SymbolViewService["buildSymbolGraph"]>>,
+    rootNodeId: string,
+    isRefresh: boolean,
+    targetViewMode?: "symbol" | "list",
+  ): void {
+    if (!this._view) return;
+
+    log.info(
+      `[GraphProvider] Symbol graph built: ${symbolGraph.symbolData.symbols.length} symbols, ${symbolGraph.symbolData.dependencies.length} dependencies`,
+    );
+
+    const response: ExtensionToWebviewMessage = {
+      command: "symbolGraph",
+      filePath: rootNodeId,
+      isRefresh,
+      targetViewMode,
+      graph: {
+        filePath: rootNodeId,
+        nodes: [],
+        edges: [],
+        hasCycle: false,
+      },
+      breadcrumb: {
+        segments: [rootNodeId.split("/").pop() || rootNodeId],
+        filePath: rootNodeId,
+      },
+      data: {
+        nodes: symbolGraph.nodes,
+        edges: symbolGraph.edges,
+        symbolData: symbolGraph.symbolData,
+        incomingDependencies: symbolGraph.incomingDependencies,
+        referencingFiles: symbolGraph.referencingFiles,
+        parentCounts: symbolGraph.parentCounts,
+      },
+    };
+
+    log.debug(
+      `[GraphProvider] Sending symbolGraph message: ${symbolGraph.symbolData.symbols.length} symbols, ${symbolGraph.symbolData.dependencies.length} dependencies, ${symbolGraph.edges.length} edges`,
+    );
+
+    this._view.webview.postMessage(response);
+    log.debug(
+      "Sent symbol graph with",
+      symbolGraph.nodes.length, "nodes and",
+      symbolGraph.edges.length, "edges",
+    );
+  }
+
+  /**
+   * Returns true (and posts the cached symbolGraph message) when a fresh cache
+   * entry exists for the given file. Falls back to false so the caller runs a
+   * full LSP analysis.
+   */
+  private _trySymbolGraphFromCache(
+    resolvedFilePath: string,
+    rootNodeId: string,
+    drillDownSeq: number,
+    isRefresh: boolean,
+    targetViewMode: 'symbol' | 'list' | undefined,
+  ): boolean {
+    const CACHE_TTL_MS = 10 * 60 * 1000; // 10 minutes
+    const entry = this._symbolGraphCache;
+    if (
+      entry?.filePath !== resolvedFilePath ||
+      entry.rootNodeId !== rootNodeId ||
+      Date.now() - entry.timestamp >= CACHE_TTL_MS
+    ) {
+      return false;
+    }
+
+    log.info(
+      `[GraphProvider] Cache HIT for ${resolvedFilePath} (age=${Math.round((Date.now() - entry.timestamp) / 1000)}s) — reusing cached analysis`,
+    );
+
+    // Guard against a concurrent explicit navigation that arrived while we
+    // were resolving the file path above.
+    if (drillDownSeq !== this._drillDownSeq || !this._view) {
+      return true; // cache hit; caller should still return early
+    }
+
+    this._stateManager.selectedSymbolId = entry.rootNodeId;
+    const sg = entry.result;
+    this._view.webview.postMessage({
+      command: 'symbolGraph',
+      filePath: entry.rootNodeId,
+      isRefresh,
+      targetViewMode,
+      graph: { filePath: entry.rootNodeId, nodes: [], edges: [], hasCycle: false },
+      breadcrumb: {
+        segments: [entry.rootNodeId.split('/').pop() ?? entry.rootNodeId],
+        filePath: entry.rootNodeId,
+      },
+      data: {
+        nodes: sg.nodes,
+        edges: sg.edges,
+        symbolData: sg.symbolData,
+        incomingDependencies: sg.incomingDependencies,
+        referencingFiles: sg.referencingFiles,
+        parentCounts: sg.parentCounts,
+      },
+    } satisfies ExtensionToWebviewMessage);
+    return true;
+  }
+
+  /**
+   * Refresh the current graph view (used when the file is saved in symbol view)
    */
   public async refreshCurrentGraphView(): Promise<void> {
     const stateManager = this._stateManager;
@@ -680,6 +784,15 @@ export class GraphProvider implements vscode.WebviewViewProvider {
 
     if (!currentFilePath || currentMode !== 'symbol') {
       return; // Only refresh in symbol mode
+    }
+
+    // Guard against livelock: if an analysis is already running, skip this
+    // cursor-triggered refresh. The analysis will update the view when done.
+    if (this._drillDownSeq !== this._drillDownCompleteSeq) {
+      log.debug(
+        `refreshCurrentGraphView: skipping, analysis in progress (seq=${this._drillDownSeq}, complete=${this._drillDownCompleteSeq})`,
+      );
+      return;
     }
 
     log.info(`Refreshing current graph view: mode=${currentMode}, file=${currentFilePath}`);
@@ -924,40 +1037,6 @@ export class GraphProvider implements vscode.WebviewViewProvider {
     log.info("Switching to call graph view mode");
     await this._stateManager.setViewMode("callgraph");
     await this._updateViewModeContext();
-  }
-
-  /**
-   * Toggle incoming calls visibility in symbol view
-   */
-  public async toggleIncomingCalls(): Promise<{
-    enabled: boolean;
-    message: string;
-  }> {
-    const config = vscode.workspace.getConfiguration("graph-it-live");
-    const currentValue = config.get<boolean>("enableIncomingCalls", false);
-    const newValue = !currentValue;
-
-    await config.update(
-      "enableIncomingCalls",
-      newValue,
-      vscode.ConfigurationTarget.Global,
-    );
-
-    // Refresh symbol view if in symbol mode
-    const currentMode = this._stateManager.viewMode;
-    const currentSymbolId = this._stateManager.selectedSymbolId;
-
-    if (currentMode === "symbol" && currentSymbolId) {
-      // Refresh with explicit target mode to prevent mode switching
-      await this.handleDrillDown(currentSymbolId, true, "symbol");
-    }
-
-    return {
-      enabled: newValue,
-      message: newValue
-        ? "Incoming calls enabled (green dashed edges)"
-        : "Incoming calls disabled",
-    };
   }
 
   /**

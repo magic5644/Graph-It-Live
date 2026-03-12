@@ -411,9 +411,11 @@ export class Spider {
 
   clearCache(): void {
     this.cacheCoordinator.clearAll();
+    this.referenceLookup.clearFallbackCache();
   }
 
   invalidateFile(filePath: string): boolean {
+    this.referenceLookup.clearFallbackCache();
     return this.cacheCoordinator.invalidateFile(filePath);
   }
 

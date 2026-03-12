@@ -12,6 +12,21 @@ import { SpiderDependencyAnalyzer } from './SpiderDependencyAnalyzer';
 export class SpiderReferenceLookup {
   private fallbackFinder: ReferencingFilesFinder | null = null;
 
+  /**
+   * Cache for fallback scan results (used when reverse index is not populated).
+   * Keyed by normalised target path. Invalidated as a whole whenever any file
+   * in the project is modified (by incrementing `_fallbackCacheVersion`).
+   * This prevents repeated O(n) full-project scans for each symbol-view
+   * refresh while background indexing is still completing.
+   */
+  private readonly _fallbackCache = new Map<string, Dependency[]>();
+  /**
+   * Version counter – incremented on any file change so stale entries are
+   * never served without being invalidated.
+   */
+  private _fallbackCacheVersion = 0;
+  private readonly _fallbackCacheEntryVersion = new Map<string, number>();
+
   constructor(
     private readonly reverseIndexManager: ReverseIndexManager,
     private readonly dependencyAnalyzer: SpiderDependencyAnalyzer,
@@ -22,11 +37,35 @@ export class SpiderReferenceLookup {
     this.fallbackFinder = finder;
   }
 
+  /**
+   * Invalidate the fallback cache.  Should be called whenever any source file
+   * is added, modified or deleted so that the next lookup re-scans if needed.
+   */
+  clearFallbackCache(): void {
+    this._fallbackCacheVersion++;
+  }
+
   async findReferencingFiles(targetPath: string): Promise<Dependency[]> {
     if (this.reverseIndexManager.hasEntries()) {
       return this.reverseIndexManager.getReferencingFiles(targetPath);
     }
-    return this.fallbackFinder ? this.fallbackFinder.findReferencingFilesFallback(targetPath) : [];
+
+    // Check fallback cache before doing an expensive O(n) project-wide scan
+    const cachedVersion = this._fallbackCacheEntryVersion.get(targetPath);
+    if (cachedVersion === this._fallbackCacheVersion) {
+      const cached = this._fallbackCache.get(targetPath);
+      if (cached !== undefined) {
+        return cached;
+      }
+    }
+
+    const result = this.fallbackFinder
+      ? await this.fallbackFinder.findReferencingFilesFallback(targetPath)
+      : [];
+
+    this._fallbackCache.set(targetPath, result);
+    this._fallbackCacheEntryVersion.set(targetPath, this._fallbackCacheVersion);
+    return result;
   }
 
   async findReferenceInFile(
@@ -58,4 +97,3 @@ export class SpiderReferenceLookup {
     }
   }
 }
-

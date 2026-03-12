@@ -265,6 +265,7 @@ const App: React.FC = () => {
     total?: number;
     message?: string;
   } | null>(null);
+
   const clearExpansionTimeoutRef = React.useRef<ReturnType<
     typeof setTimeout
   > | null>(null);
@@ -561,6 +562,8 @@ const App: React.FC = () => {
     }
   }, []);
 
+
+
   React.useEffect(() => {
     const handleMessage = (event: MessageEvent) => {
       const message = event.data as ExtensionToWebviewMessage;
@@ -627,6 +630,7 @@ const App: React.FC = () => {
         case "expansionProgress":
           handleExpansionProgress(message);
           break;
+
       }
     };
 
@@ -867,6 +871,7 @@ const App: React.FC = () => {
             </div>
           </div>
         )}
+
 
         {/* Symbol List View for List Mode (dedicated mode) */}
         {viewMode === "list" && symbolData && (

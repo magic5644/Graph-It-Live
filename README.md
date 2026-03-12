@@ -329,8 +329,6 @@ With **`custom`** profile, you can fine-tune:
 | `graph-it-live.maxCacheSize`               | `500`     | Max cached file dependency analyses.                                                                                                                                           |
 | `graph-it-live.maxSymbolCacheSize`         | `200`     | Max cached symbol analysis results.                                                                                                                                            |
 | `graph-it-live.preIndexCallGraph`          | `true`    | Pre-index the call graph database at startup for near-instant first query.                                                                                                     |
-| `graph-it-live.enableCallHierarchy`        | `false`   | **[Experimental]** Enable LSP-based call hierarchy in symbol view (adds call edges).                                                                                           |
-| `graph-it-live.callHierarchyMaxFileSize`   | `5000`    | Max file size (lines) for LSP call hierarchy analysis. Larger files fall back to AST-only.                                                                                     |
 | `graph-it-live.symbolViewLayout`           | `hierarchical` | Layout for symbol drill-down: `hierarchical`, `force-directed`, or `radial`.                                                                                              |
 
 ---

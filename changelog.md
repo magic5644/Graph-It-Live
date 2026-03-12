@@ -1,5 +1,33 @@
 # Changelog
 
+## v1.8.0
+
+### Performance
+
+- **Remove experimental LSP call hierarchy**: Removed the `enableCallHierarchy` and `callHierarchyMaxFileSize` settings along with the slow LSP-based enrichment path (~60 s latency). Symbol drill-down now uses fast AST-only analysis. The Live Call Graph feature already provides equivalent call relationship visualization with near-instant results.
+  - Deleted `LspCallHierarchyService` (800+ lines of sequential VS Code LSP roundtrips)
+  - Simplified `SymbolViewService` from 723 → 149 lines (pure AST pipeline)
+  - Removed progress indicator UI (no longer needed — analysis is fast)
+  - Removed cursor-position listener that only existed for LSP refresh
+
+### Enhancements
+
+- **Call Graph observability**: Added metrics tracking and comprehensive E2E test coverage for the Live Call Graph feature
+
+### Bug Fixes
+
+- **Symbol drill-down freezing**: Fixed drill-down views freezing when background indexing interfered with in-flight LSP analysis
+- **Symbol graph cache placement**: Fixed cache storing results after the stale check instead of before, causing repeated slow analysis
+- **SpiderReferenceLookup cache**: Fixed stale cache entries causing incorrect reverse dependency results
+- **Spider invalidation**: Fixed file invalidation not propagating correctly through the dependency chain
+- **Editor cursor guards**: Fixed three missing null-checks in `EditorEventsService` that could throw on rapid editor switching
+- **AtomicSymbolGraph stability**: Fixed `useMemo` null assertions and callback-in-dependencies patterns causing re-render cascades
+
+### Maintenance
+
+- **Removed unused dependencies**: Cleaned up stale packages from `package.json`
+- **Testing**: 1494 unit tests + 90 E2E tests passing across 135 test files
+
 ## v1.7.1
 
 ### Bug Fixes

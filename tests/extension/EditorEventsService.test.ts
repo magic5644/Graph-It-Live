@@ -12,7 +12,7 @@ const saveListeners: Array<(doc: { fileName: string }) => void> = [];
 // Not directly used in tests but required for complete VS Code API mocking
 // eslint-disable-next-line @typescript-eslint/no-unused-vars
 // NOSONAR: Mock array for VS Code API - required for test infrastructure
-const _selectionListeners: Array<(e: unknown) => void> = [];
+const _selectionListeners: Array<(e: unknown) => void> = []; // eslint-disable-line sonarjs/no-unused-collection
 
 const createDisposable = (callback: DisposeFn = () => {}) => ({ dispose: callback });
 
@@ -27,6 +27,9 @@ vi.mock('vscode', () => {
         saveListeners.push(listener);
         return createDisposable();
       }),
+      getConfiguration: vi.fn((_section: string) => ({
+        get: vi.fn((_key: string, defaultValue: unknown) => defaultValue),
+      })),
     },
     window: {
       onDidChangeActiveTextEditor: vi.fn((listener: (editor: unknown) => void) => {
@@ -113,7 +116,6 @@ describe('EditorEventsService', () => {
     activeEditorListeners[0]({ document: { fileName: 'file.ts' } });
     expect(target.onActiveFileChanged as ReturnType<typeof vi.fn>).toHaveBeenCalled();
     expect(logger.debug).toHaveBeenCalled();
-    expect(_selectionListeners).toHaveLength(1);
   });
 
   it('enqueues save events to scheduler instead of processing directly', () => {

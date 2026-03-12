@@ -176,13 +176,6 @@ export interface SymbolGraphMessage {
   };
 }
 
-export interface SymbolAnalysisProgressMessage {
-  command: "symbolAnalysisProgress";
-  filePath: string;
-  status: "started" | "analyzing" | "complete" | "timeout" | "error";
-  message?: string;
-}
-
 export interface SymbolEmptyStateMessage {
   command: "symbolEmptyState";
   filePath: string;
@@ -217,7 +210,6 @@ export type ExtensionToWebviewMessage =
   | ClearReverseDependenciesMessage
   | IndexingProgressMessage
   | SymbolGraphMessage
-  | SymbolAnalysisProgressMessage
   | SymbolEmptyStateMessage
   | EmptyStateMessage
   | SetExpandAllMessage

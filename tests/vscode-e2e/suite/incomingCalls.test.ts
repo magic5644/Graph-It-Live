@@ -10,7 +10,6 @@ import { getProjectFile, openGraphFor, sleep, waitForViewMode } from './_helpers
  */
 
 suite('Incoming Calls Test Suite (Étape 5)', () => {
-  let originalEnableCallHierarchy: boolean;
 
   before(async function() {
     this.timeout(30000);
@@ -21,26 +20,13 @@ suite('Incoming Calls Test Suite (Étape 5)', () => {
     if (ext && !ext.isActive) {
       await ext.activate();
     }
-    
-    // Save original setting
-    const config = vscode.workspace.getConfiguration('graph-it-live');
-    originalEnableCallHierarchy = config.get<boolean>('enableCallHierarchy', true);
-    
-    // Ensure call hierarchy is enabled for these tests
-    await config.update('enableCallHierarchy', true, vscode.ConfigurationTarget.Global);
-    await new Promise(resolve => setTimeout(resolve, 500));
-    
+
     // Wait for indexing to complete
     await new Promise(resolve => setTimeout(resolve, 3000));
   });
 
   after(async function() {
     this.timeout(10000);
-    
-    // Restore original setting
-    const config = vscode.workspace.getConfiguration('graph-it-live');
-    await config.update('enableCallHierarchy', originalEnableCallHierarchy, vscode.ConfigurationTarget.Global);
-    
     vscode.window.showInformationMessage('Incoming calls tests done!');
   });
   
