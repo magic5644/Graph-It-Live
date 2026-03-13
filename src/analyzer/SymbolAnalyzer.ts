@@ -166,22 +166,25 @@ export class SymbolAnalyzer implements ISymbolAnalyzer {
     const exportedNames = new Set<string>(exportedDeclarations.keys());
 
     for (const [name, declarations] of exportedDeclarations) {
-      for (const decl of declarations) {
-        this.addSymbol(
-          symbols,
-          name,
-          decl.getKindName(),
-          decl.getStartLineNumber(),
-          filePath,
-          true,
-        );
+      // Use only the first declaration per name to avoid duplicates
+      // (function overloads, merged interfaces return multiple declarations)
+      const decl = declarations[0];
+      if (!decl) continue;
 
-        if (
-          decl.getKindName() === "ClassDeclaration" &&
-          Node.isClassDeclaration(decl)
-        ) {
-          this.extractClassMembers(decl, filePath, symbols);
-        }
+      this.addSymbol(
+        symbols,
+        name,
+        decl.getKindName(),
+        decl.getStartLineNumber(),
+        filePath,
+        true,
+      );
+
+      if (
+        decl.getKindName() === "ClassDeclaration" &&
+        Node.isClassDeclaration(decl)
+      ) {
+        this.extractClassMembers(decl, filePath, symbols);
       }
     }
 
@@ -892,17 +895,19 @@ export class SymbolAnalyzer implements ISymbolAnalyzer {
     const exportedDeclarations = sourceFile.getExportedDeclarations();
 
     for (const [name, declarations] of exportedDeclarations) {
-      for (const decl of declarations) {
-        const kind = decl.getKindName();
-        symbols.push({
-          name,
-          kind,
-          line: decl.getStartLineNumber(),
-          isExported: true,
-          id: `${filePath}:${name}`,
-          category: getCategory(kind),
-        });
-      }
+      // Use only the first declaration per name to avoid duplicates
+      const decl = declarations[0];
+      if (!decl) continue;
+
+      const kind = decl.getKindName();
+      symbols.push({
+        name,
+        kind,
+        line: decl.getStartLineNumber(),
+        isExported: true,
+        id: `${filePath}:${name}`,
+        category: getCategory(kind),
+      });
     }
     return symbols;
   }

@@ -680,7 +680,7 @@ export class GraphProvider implements vscode.WebviewViewProvider {
       filePath: rootNodeId,
       isRefresh,
       targetViewMode,
-      graph: {
+      graph: symbolGraph.intraFileGraph ?? {
         filePath: rootNodeId,
         nodes: [],
         edges: [],

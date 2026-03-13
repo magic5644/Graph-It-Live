@@ -26,7 +26,7 @@ Built for **architects** who need the big picture and **developers** who need to
 | Layer | What you see | Powered by |
 |-------|-------------|------------|
 | **File Graph** | File-to-file import relationships | Regex + AST parsing |
-| **Symbol View** | Function/class call hierarchy inside a file | VS Code LSP |
+| **Symbol View** | Function/class call hierarchy inside a file | AST (ts-morph) |
 | **Live Call Graph** | Cross-file symbol call relationships | Tree-sitter + SQLite |
 
 All three layers are also exposed to AI via a **20-tool MCP server**, so your assistant can answer architecture questions with zero hallucination.
@@ -168,29 +168,30 @@ The core of Graph-It-Live: a **real-time interactive graph** showing file-to-fil
 
 ### Symbol-Level Drill-Down
 
-Go beyond file dependencies — **drill into any file to visualize function-to-function and class-to-class call relationships** powered by the Language Server Protocol (LSP).
+Go beyond file dependencies — **drill into any file to visualize function-to-function and class-to-class call relationships** powered by AST analysis (ts-morph for TypeScript/JavaScript, tree-sitter for Python/Rust).
 
 **How it works:**
 
 1. **From the File Graph:** Double-click any file node (or right-click → "Drill Down")
-2. **Instant symbol graph:** See an interactive graph showing:
+2. **Instant symbol graph:** See an interactive tree showing:
    - **Functions** in vibrant blue
    - **Classes** in deep purple
    - **Variables/Constants** in amber
-   - **Calls** as solid arrows, **references** as dashed arrows
+   - **→ calls** — outgoing calls from each symbol
+   - **← called by** — incoming callers (including from other files)
    - **Recursive calls** with cycle badges
 3. **Click-to-navigate:** Click any symbol to jump to its definition
 4. **Breadcrumb nav:** `Project > folder > file.ts` — one click to return to file view
 
 **Multi-language support:**
-- TypeScript / JavaScript (built-in LSP)
-- Python (via Pylance)
-- Rust (via rust-analyzer)
+- TypeScript / JavaScript (ts-morph AST)
+- Python (tree-sitter WASM)
+- Rust (tree-sitter WASM)
 
 **Benefits:**
 - **Understand code flow** without reading every line
-- **Function-level impact analysis** — see what breaks before changing a signature
-- **Trace call chains** through complex files
+- **See who calls your exports** — incoming dependencies from other files
+- **Detect recursive calls** — cycle detection with visual indicators
 - **Refactoring confidence** — visualize all internal dependencies
 
 <div align="center">
@@ -202,7 +203,7 @@ Go beyond file dependencies — **drill into any file to visualize function-to-f
 
 The **Live Call Graph** visualises **cross-file symbol call relationships** across your entire project in a Cytoscape.js panel backed by an in-memory SQLite database.
 
-Unlike the Symbol View (which shows relationships *within* a single file via LSP), the Call Graph shows how symbols call each other *across files* using Tree-sitter AST extraction.
+Unlike the Symbol View (which shows relationships *within* a single file via AST), the Call Graph shows how symbols call each other *across files* using Tree-sitter AST extraction.
 
 **Key capabilities:**
 

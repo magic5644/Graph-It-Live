@@ -474,5 +474,36 @@ describe("MCP Worker Helpers", () => {
       expect(result.callHierarchyItems.size).toBe(0);
       expect(result.outgoingCalls.size).toBe(0);
     });
+
+    it("should not double-qualify class member names via containerName", () => {
+      // Spider provides fully-qualified names like "MyClass.calculate"
+      // containerName must be undefined so generateSymbolId doesn't produce
+      // "path:MyClass.calculate.MyClass.calculate"
+      const symbolGraphData = {
+        symbols: [
+          { name: "MyClass", kind: "class", line: 1, parentSymbolId: undefined },
+          { name: "MyClass.calculate", kind: "method", line: 5, parentSymbolId: "/test/file.ts:MyClass" },
+          { name: "MyClass.helper", kind: "method", line: 10, parentSymbolId: "/test/file.ts:MyClass" },
+        ],
+        dependencies: [
+          { sourceSymbolId: "/test/file.ts:MyClass.calculate", targetSymbolId: "/test/file.ts:MyClass.helper" },
+        ],
+      };
+
+      const result = convertSpiderToLspFormat(symbolGraphData, "/test/file.ts");
+      const normalizedFilePath = normalizePath("/test/file.ts");
+
+      // All symbols must have containerName=undefined
+      for (const sym of result.symbols) {
+        expect(sym.containerName).toBeUndefined();
+      }
+
+      // Outgoing calls key must use the simple name format: "path:MyClass.calculate"
+      const callsKey = `${normalizedFilePath}:MyClass.calculate`;
+      const calls = result.outgoingCalls.get(callsKey);
+      expect(calls).toBeDefined();
+      expect(calls).toHaveLength(1);
+      expect(calls?.[0].to.name).toBe("MyClass.helper");
+    });
   });
 });
