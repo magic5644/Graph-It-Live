@@ -1,4 +1,4 @@
-import { describe, it, expect } from 'vitest';
+import { describe, expect, it } from 'vitest';
 import { SymbolAnalyzer } from '../../src/analyzer/SymbolAnalyzer';
 
 describe('SymbolAnalyzer', () => {
@@ -196,5 +196,56 @@ export function testFunc() {
     expect(result.symbols).toHaveLength(1);
     expect(result.symbols[0].name).toBe('testFunc');
     expect(result.dependencies).toEqual([]); // Dependencies not yet implemented
+  });
+
+  it('should not produce duplicate symbols for function overloads', () => {
+    const analyzer = new SymbolAnalyzer();
+    const content = `
+export function greet(name: string): string;
+export function greet(name: string, greeting: string): string;
+export function greet(name: string, greeting?: string): string {
+  return (greeting ?? 'Hello') + ', ' + name;
+}
+`;
+
+    const result = analyzer.getExportedSymbols('/overloads.ts', content);
+
+    // Should produce exactly one symbol for 'greet', not three
+    const greetSymbols = result.filter(s => s.name === 'greet');
+    expect(greetSymbols).toHaveLength(1);
+  });
+
+  it('should not produce duplicate symbols for merged interfaces', () => {
+    const analyzer = new SymbolAnalyzer();
+    const content = `
+export interface Config {
+  host: string;
+}
+
+export interface Config {
+  port: number;
+}
+`;
+
+    const result = analyzer.getExportedSymbols('/merged.ts', content);
+
+    const configSymbols = result.filter(s => s.name === 'Config');
+    expect(configSymbols).toHaveLength(1);
+  });
+
+  it('should not produce duplicate symbols via analyzeFileContent for overloads', () => {
+    const analyzer = new SymbolAnalyzer();
+    const content = `
+export function parse(input: string): number;
+export function parse(input: string, radix: number): number;
+export function parse(input: string, radix?: number): number {
+  return parseInt(input, radix);
+}
+`;
+
+    const result = analyzer.analyzeFileContent('/parse.ts', content);
+
+    const parseSymbols = result.symbols.filter(s => s.name === 'parse');
+    expect(parseSymbols).toHaveLength(1);
   });
 });

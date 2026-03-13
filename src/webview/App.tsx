@@ -14,6 +14,7 @@ import {
     ExpansionProgressMessage,
     ExtensionToWebviewMessage,
     GraphData,
+    IntraFileGraph,
     ReferencingFilesMessage,
     ShowGraphMessage,
     SymbolDependency,
@@ -254,6 +255,9 @@ const App: React.FC = () => {
   const [incomingDependencies, setIncomingDependencies] = React.useState<
     SymbolDependency[]
   >([]);
+  const [intraFileGraph, setIntraFileGraph] = React.useState<
+    IntraFileGraph | undefined
+  >(undefined);
   const [referencingFiles, setReferencingFiles] = React.useState<string[]>([]);
   const [lastExpandedNode, setLastExpandedNode] = React.useState<string | null>(
     null,
@@ -312,6 +316,7 @@ const App: React.FC = () => {
           setViewMode("file");
         }
         setSymbolData(undefined);
+        setIntraFileGraph(undefined);
         setShowParents(false);
         setReferencingFiles([]);
         setLastExpandedNode(null);
@@ -387,6 +392,12 @@ const App: React.FC = () => {
         } else {
           setIncomingDependencies([]);
         }
+      }
+      // Store intra-file call graph (call edges + cycles)
+      if (message.graph && message.graph.nodes.length > 0) {
+        setIntraFileGraph(message.graph);
+      } else {
+        setIntraFileGraph(undefined);
       }
       setCurrentFilePath(message.filePath);
     },
@@ -939,6 +950,7 @@ const App: React.FC = () => {
             symbols={symbolData.symbols}
             dependencies={symbolData.dependencies}
             incomingDependencies={incomingDependencies}
+            intraFileGraph={intraFileGraph}
             onNodeClick={(id, line) => handleNodeClick(id, line)}
           />
         )}

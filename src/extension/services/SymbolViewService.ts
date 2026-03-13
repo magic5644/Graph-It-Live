@@ -1,5 +1,8 @@
+import { LspCallHierarchyAnalyzer } from "../../analyzer/LspCallHierarchyAnalyzer";
 import { Spider } from "../../analyzer/Spider";
-import type { SymbolDependency, SymbolInfo } from "../../shared/types";
+import { convertSpiderToLspFormat } from "../../shared/converters";
+import { normalizePath } from "../../shared/path";
+import type { IntraFileGraph, SymbolDependency, SymbolInfo } from "../../shared/types";
 
 type Logger = {
   debug: (message: string, ...args: unknown[]) => void;
@@ -21,6 +24,7 @@ interface SymbolGraphResult {
   incomingDependencies?: SymbolDependency[];
   referencingFiles: string[];
   parentCounts?: Record<string, number>;
+  intraFileGraph?: IntraFileGraph;
 }
 
 /**
@@ -58,18 +62,41 @@ export class SymbolViewService {
       `AST analysis complete: ${symbolData.symbols.length} symbols, ${symbolData.dependencies.length} dependencies`,
     );
 
+    // Build intra-file call graph from AST data
+    let intraFileGraph: IntraFileGraph | undefined;
+    try {
+      const lspData = convertSpiderToLspFormat(symbolData, resolvedFilePath);
+      const analyzer = new LspCallHierarchyAnalyzer();
+      intraFileGraph = analyzer.buildIntraFileGraph(resolvedFilePath, lspData);
+      this.logger.debug(
+        `Intra-file graph: ${intraFileGraph.nodes.length} nodes, ${intraFileGraph.edges.length} edges, hasCycle=${intraFileGraph.hasCycle}`,
+      );
+    } catch (err) {
+      this.logger.warn(`Failed to build intra-file graph: ${err}`);
+    }
+
+    // Collect incoming dependencies from files that reference this one
+    const incomingDependencies = await this.collectIncomingDependencies(
+      referencingFiles,
+      resolvedFilePath,
+    );
+    this.logger.debug(
+      `Incoming dependencies: ${incomingDependencies.length} from ${referencingFiles.length} referencing files`,
+    );
+
     // Build payload from AST analysis
     const payload = this.buildPayload(symbolData, resolvedFilePath, rootNodeId);
 
     return {
       ...payload,
       symbolData,
-      incomingDependencies: [],
+      incomingDependencies,
       referencingFiles,
       parentCounts:
         referencingFiles.length > 0
           ? { [rootNodeId]: referencingFiles.length }
           : undefined,
+      intraFileGraph,
     };
   }
 
@@ -145,5 +172,39 @@ export class SymbolViewService {
       nodes: Array.from(nodes),
       edges,
     };
+  }
+
+  /**
+   * Collect incoming dependencies: symbols in the current file that are called
+   * by other files. For each referencing file, analyse its symbol graph and
+   * pick the dependencies whose resolved targetFilePath matches ours.
+   */
+  private async collectIncomingDependencies(
+    referencingFilePaths: string[],
+    targetFilePath: string,
+  ): Promise<SymbolDependency[]> {
+    const normalizedTarget = normalizePath(targetFilePath);
+    const incoming: SymbolDependency[] = [];
+
+    for (const refPath of referencingFilePaths) {
+      try {
+        const { dependencies } = await this.spider.getSymbolGraph(refPath);
+        for (const dep of dependencies) {
+          if (normalizePath(dep.targetFilePath) === normalizedTarget) {
+            // Reconstruct targetSymbolId with the normalised path so it
+            // matches the current file's symbol IDs
+            const symbolName = dep.targetSymbolId.split(":").pop() ?? "";
+            incoming.push({
+              ...dep,
+              targetSymbolId: `${normalizedTarget}:${symbolName}`,
+            });
+          }
+        }
+      } catch {
+        // Skip files that fail to analyse
+      }
+    }
+
+    return incoming;
   }
 }

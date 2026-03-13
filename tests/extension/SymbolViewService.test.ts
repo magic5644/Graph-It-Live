@@ -87,4 +87,107 @@ describe('SymbolViewService', () => {
     expect(result.edges).toContainEqual({ source: 'fileA.ts:MyClass', target: 'fileA.ts:MyClass.method', relationType: 'dependency' });
     expect(result.parentCounts).toBeUndefined(); // no referencing files
   });
+
+  it('collects incoming dependencies from referencing files', async () => {
+    // fileA.ts is the target file being analyzed
+    const getSymbolGraph = spider.getSymbolGraph as ReturnType<typeof vi.fn>;
+    getSymbolGraph.mockImplementation(async (filePath: string) => {
+      if (filePath === 'fileA.ts') {
+        return {
+          symbols: [
+            { id: 'fileA.ts:helperFn', name: 'helperFn', isExported: true },
+            { id: 'fileA.ts:internal', name: 'internal', isExported: false },
+          ],
+          dependencies: [],
+        };
+      }
+      // fileC.ts imports helperFn from fileA.ts
+      return {
+        symbols: [
+          { id: 'fileC.ts:main', name: 'main', isExported: true },
+        ],
+        dependencies: [
+          {
+            sourceSymbolId: 'fileC.ts:main',
+            targetSymbolId: './fileA:helperFn',
+            targetFilePath: 'fileA.ts',
+            relationType: 'call',
+          },
+        ],
+      };
+    });
+    (spider.findReferencingFiles as ReturnType<typeof vi.fn>).mockResolvedValue([
+      { path: 'fileC.ts' },
+    ]);
+
+    const service = new SymbolViewService(spider, logger);
+    const result = await service.buildSymbolGraph('fileA.ts', 'fileA.ts');
+
+    // Should have one incoming dependency: fileC.ts:main → fileA.ts:helperFn
+    expect(result.incomingDependencies).toHaveLength(1);
+    expect(result.incomingDependencies?.[0]).toMatchObject({
+      sourceSymbolId: 'fileC.ts:main',
+      targetSymbolId: 'fileA.ts:helperFn',
+      targetFilePath: 'fileA.ts',
+      relationType: 'call',
+    });
+  });
+
+  it('skips referencing files that fail to analyze', async () => {
+    const getSymbolGraph = spider.getSymbolGraph as ReturnType<typeof vi.fn>;
+    getSymbolGraph.mockImplementation(async (filePath: string) => {
+      if (filePath === 'fileA.ts') {
+        return {
+          symbols: [{ id: 'fileA.ts:fn', name: 'fn', isExported: true }],
+          dependencies: [],
+        };
+      }
+      throw new Error('parse error');
+    });
+    (spider.findReferencingFiles as ReturnType<typeof vi.fn>).mockResolvedValue([
+      { path: 'broken.ts' },
+    ]);
+
+    const service = new SymbolViewService(spider, logger);
+    const result = await service.buildSymbolGraph('fileA.ts', 'fileA.ts');
+
+    expect(result.incomingDependencies).toEqual([]);
+  });
+
+  it('deduplicates incoming dependencies from multiple referencing files', async () => {
+    const getSymbolGraph = spider.getSymbolGraph as ReturnType<typeof vi.fn>;
+    getSymbolGraph.mockImplementation(async (filePath: string) => {
+      if (filePath === 'fileA.ts') {
+        return {
+          symbols: [{ id: 'fileA.ts:util', name: 'util', isExported: true }],
+          dependencies: [],
+        };
+      }
+      // Both fileB.ts and fileC.ts call util from fileA.ts
+      return {
+        symbols: [{ id: `${filePath}:caller`, name: 'caller', isExported: true }],
+        dependencies: [
+          {
+            sourceSymbolId: `${filePath}:caller`,
+            targetSymbolId: './fileA:util',
+            targetFilePath: 'fileA.ts',
+          },
+        ],
+      };
+    });
+    (spider.findReferencingFiles as ReturnType<typeof vi.fn>).mockResolvedValue([
+      { path: 'fileB.ts' },
+      { path: 'fileC.ts' },
+    ]);
+
+    const service = new SymbolViewService(spider, logger);
+    const result = await service.buildSymbolGraph('fileA.ts', 'fileA.ts');
+
+    // Two distinct incoming deps (different source symbol IDs)
+    expect(result.incomingDependencies).toHaveLength(2);
+    expect(result.incomingDependencies?.map(d => d.sourceSymbolId)).toEqual([
+      'fileB.ts:caller',
+      'fileC.ts:caller',
+    ]);
+  });
 });

@@ -1,10 +1,11 @@
 import React, { useMemo, useState } from "react";
-import type { SymbolDependency, SymbolInfo } from "../../shared/types";
+import type { IntraFileGraph, SymbolDependency, SymbolInfo } from "../../shared/types";
 
 interface AtomicSymbolGraphProps {
   symbols: SymbolInfo[];
   dependencies: SymbolDependency[];
   incomingDependencies?: SymbolDependency[]; // External calls TO these symbols
+  intraFileGraph?: IntraFileGraph; // Intra-file call edges + cycle data
   filePath: string;
   onNodeClick: (symbolId: string, line?: number) => void;
 }
@@ -19,6 +20,7 @@ interface TreeNode {
   isExpanded: boolean;
   dependsOn: string[];
   dependsFrom: string[];
+  isCycleNode: boolean;
 }
 
 /**
@@ -29,6 +31,7 @@ export const AtomicSymbolGraph: React.FC<AtomicSymbolGraphProps> = ({
   symbols,
   dependencies,
   incomingDependencies = [],
+  intraFileGraph,
   filePath,
   onNodeClick,
 }) => {
@@ -44,6 +47,12 @@ export const AtomicSymbolGraph: React.FC<AtomicSymbolGraphProps> = ({
   });
 
   const [selectedNode, setSelectedNode] = useState<string | null>(null);
+
+  // Set of symbol IDs that participate in cycles
+  const cycleNodeSet = useMemo(() => {
+    if (!intraFileGraph?.hasCycle || !intraFileGraph.cycleNodes) return new Set<string>();
+    return new Set(intraFileGraph.cycleNodes);
+  }, [intraFileGraph]);
 
   // Memoised tree — rebuilt only when symbol data or dependency lists change,
   // NOT on every expand/collapse or selection (renderNode reads expandedNodes
@@ -61,6 +70,16 @@ export const AtomicSymbolGraph: React.FC<AtomicSymbolGraphProps> = ({
         dependsOn[dep.sourceSymbolId].push(dep.targetSymbolId);
         dependsFrom[dep.targetSymbolId].push(dep.sourceSymbolId);
       });
+
+      // Enrich with intra-file call graph edges (from LspCallHierarchyAnalyzer)
+      if (intraFileGraph?.edges) {
+        for (const edge of intraFileGraph.edges) {
+          if (!dependsOn[edge.source]) dependsOn[edge.source] = [];
+          dependsOn[edge.source].push(edge.target);
+          if (!dependsFrom[edge.target]) dependsFrom[edge.target] = [];
+          dependsFrom[edge.target].push(edge.source);
+        }
+      }
 
       // Add incoming dependencies (calls FROM external files TO current file)
       // Store the FULL external symbol ID so we can navigate to it later
@@ -98,12 +117,17 @@ export const AtomicSymbolGraph: React.FC<AtomicSymbolGraphProps> = ({
         isExpanded: false,
         dependsOn: depOn,
         dependsFrom: depFrom,
+        isCycleNode: cycleNodeSet.has(symbol.id),
       });
     });
 
     // Build hierarchy: add methods to their classes
     const rootNodes: TreeNode[] = [];
+    const placedNodes = new Set<string>();
     symbols.forEach(symbol => {
+      if (placedNodes.has(symbol.id)) return; // Skip duplicate symbol IDs
+      placedNodes.add(symbol.id);
+
       const parentId = symbol.parentSymbolId;
       const node = nodeMap.get(symbol.id);
       if (!node) return;
@@ -130,7 +154,7 @@ export const AtomicSymbolGraph: React.FC<AtomicSymbolGraphProps> = ({
     });
 
     return rootNodes;
-  }, [symbols, dependencies, incomingDependencies]);
+  }, [symbols, dependencies, incomingDependencies, intraFileGraph, cycleNodeSet]);
 
   const toggleNode = (nodeId: string) => {
     const newExpanded = new Set(expandedNodes);
@@ -232,7 +256,7 @@ export const AtomicSymbolGraph: React.FC<AtomicSymbolGraphProps> = ({
     const isSelected = node.id === selectedNode;
     const hasChildren = node.children.length > 0;
     const isExpanded = expandedNodes.has(node.id);
-    const showDeps = isSelected && (node.dependsOn.length > 0 || node.dependsFrom.length > 0);
+    const showDeps = isSelected && (node.dependsOn.length > 0 || node.dependsFrom.length > 0 || node.isCycleNode);
 
     return (
       <div key={node.id}>
@@ -297,6 +321,21 @@ export const AtomicSymbolGraph: React.FC<AtomicSymbolGraphProps> = ({
           <span style={{ flex: 1, fontWeight: isSelected ? '600' : '500' }}>
             {node.name}
           </span>
+
+          {/* Cycle indicator */}
+          {node.isCycleNode && (
+            <span
+              style={{
+                color: '#f87171',
+                fontSize: '12px',
+                marginLeft: '4px',
+                flexShrink: 0,
+              }}
+              title={`Recursive (${intraFileGraph?.cycleType ?? 'cycle'})`}
+            >
+              ⟳
+            </span>
+          )}
         </button>
 
         {/* Dependencies detail - only when selected */}
@@ -368,6 +407,44 @@ export const AtomicSymbolGraph: React.FC<AtomicSymbolGraphProps> = ({
                     {idx < node.dependsFrom.length - 1 && ', '}
                   </span>
                 ))}
+              </div>
+            )}
+
+            {/* Cycle detail */}
+            {node.isCycleNode && intraFileGraph && (
+              <div style={{ marginTop: '4px' }}>
+                <span style={{ color: '#f87171', fontWeight: '600' }}>
+                  ⟳ {intraFileGraph.cycleType ?? 'recursive'}
+                </span>
+                {intraFileGraph.cycleNodes && intraFileGraph.cycleNodes.length > 1 && (
+                  <>
+                    {': '}
+                    {intraFileGraph.cycleNodes
+                      .filter(id => id !== node.id)
+                      .map((id, idx, arr) => (
+                        <span key={id}>
+                          <button
+                            onClick={() => handleDependencyClick(id)}
+                            style={{
+                              color: '#f87171',
+                              cursor: 'pointer',
+                              textDecoration: 'underline',
+                              fontWeight: '500',
+                              border: 'none',
+                              background: 'none',
+                              padding: 0,
+                              font: 'inherit',
+                            }}
+                            title="Click to navigate"
+                            aria-label={`Navigate to ${getSymbolName(id)}`}
+                          >
+                            {getSymbolName(id)}
+                          </button>
+                          {idx < arr.length - 1 && ', '}
+                        </span>
+                      ))}
+                  </>
+                )}
               </div>
             )}
           </div>
