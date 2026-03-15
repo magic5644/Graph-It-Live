@@ -94,6 +94,8 @@ export class GraphProvider implements vscode.WebviewViewProvider {
    */
   public setCallGraphViewService(service: CallGraphViewService): void {
     this._callGraphViewService = service;
+    // Also inject into SymbolViewService for cross-file caller enrichment
+    this.symbolViewService?.setCallGraphQueryService(service);
   }
 
   private get spider(): Spider | undefined {

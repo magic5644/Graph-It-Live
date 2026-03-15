@@ -5,6 +5,7 @@
 ### Enhancements
 
 - **Symbol View — Incoming dependencies**: The "← called by" section now shows **external callers** (symbols from other files that call into the current file). Previously only intra-file callers were displayed. `SymbolViewService` now analyses all referencing files and collects symbol-level incoming edges
+- **Symbol View — Cross-file callers via Call Graph**: When the call graph SQLite database is indexed, external callers discovered by tree-sitter analysis are merged into the symbol view's "← called by" section — providing broader coverage than Spider-only import analysis. Results are deduplicated against Spider-based incoming dependencies
 - **Symbol View — Intra-file call enrichment**: AST-based call edges (from `LspCallHierarchyAnalyzer`) and cycle detection data are now merged into the symbol tree, providing richer "→ calls" / "← called by" annotations even for internal symbols
 
 ### Bug Fixes
@@ -12,6 +13,7 @@
 - **Duplicate symbols for overloads / merged declarations**: `SymbolAnalyzer.extractExportedSymbols()` and `getExportedSymbols()` iterated all declarations from `ts-morph.getExportedDeclarations()`, producing duplicate `SymbolInfo` entries for function overloads and merged interfaces. Now only the first declaration per name is used
 - **Duplicate tree nodes in Symbol View**: `AtomicSymbolGraph` tree builder could push the same `TreeNode` into `rootNodes` or `children` multiple times when duplicate symbol IDs existed. Added a `placedNodes` Set guard
 - **containerName double-qualification**: `convertSpiderToLspFormat()` used the symbol's own name as `containerName` for child symbols, causing `generateSymbolId()` to produce double-qualified IDs like `path:MyClass.calculate.MyClass.calculate`. Fixed by always setting `containerName: undefined` since Spider already provides fully-qualified names
+- **False-positive incoming callers for same-name methods**: When a file had both a top-level exported function and a class method with the same name (e.g. `export function run()` and `Worker.run()`), calls to the method were incorrectly attributed to the function. Fixed by excluding `method`-type nodes in the call graph SQL query and validating caller targets against the actual exported symbol set
 
 ### Refactoring
 
@@ -19,8 +21,8 @@
 
 ### Testing
 
-- 1507 unit tests + 90 E2E tests passing across 135 test files
-- New tests: symbol dedup for overloads, merged interfaces, containerName regression, incoming dependencies collection, error resilience for referencing file analysis
+- 1517 unit tests + 90 E2E tests passing across 136 test files
+- New tests: symbol dedup for overloads, merged interfaces, containerName regression, incoming dependencies collection, error resilience for referencing file analysis, call graph enrichment (merge, dedup, not-indexed skip, error handling, exported-only filtering, method name collision false-positive rejection, valid export retention despite collision), ICallGraphQueryService contract tests
 
 ## v1.7.2
 
