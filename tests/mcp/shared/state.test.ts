@@ -288,6 +288,8 @@ describe("WorkerState", () => {
         warmupCompleted: false,
         hasFileWatcher: false,
         pendingInvalidationCount: 0,
+        hasCallGraphIndexer: false,
+        callGraphIndexedRoot: null,
       });
     });
 
@@ -315,6 +317,8 @@ describe("WorkerState", () => {
         warmupCompleted: true,
         hasFileWatcher: true,
         pendingInvalidationCount: 1,
+        hasCallGraphIndexer: false,
+        callGraphIndexedRoot: null,
       });
 
       // Cleanup

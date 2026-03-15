@@ -4,6 +4,9 @@ export {
     executeVerifyDependencyUsage
 } from "./analysis";
 export {
+    executeQueryCallGraph
+} from "./callgraph";
+export {
     executeGenerateCodemap
 } from "./codemap";
 export {

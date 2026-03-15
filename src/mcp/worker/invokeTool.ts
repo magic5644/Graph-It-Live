@@ -15,6 +15,7 @@ import {
   executeGetSymbolGraph,
   executeInvalidateFiles,
   executeParseImports,
+  executeQueryCallGraph,
   executeRebuildIndex,
   executeResolveModulePath,
   executeTraceFunctionExecution,
@@ -37,6 +38,7 @@ import type {
   McpToolName,
   McpWorkerResponse,
   ParseImportsParams,
+  QueryCallGraphParams,
   ResolveModulePathParams,
   TraceFunctionExecutionParams,
   VerifyDependencyUsageParams,
@@ -197,6 +199,12 @@ export async function invokeTool(
         const p = validatedParams as GenerateCodemapParams;
         validateFilePath(p.filePath, config.rootDir);
         result = await executeGenerateCodemap(p);
+        break;
+      }
+      case "query_call_graph": {
+        const p = validatedParams as QueryCallGraphParams;
+        validateFilePath(p.filePath, config.rootDir);
+        result = await executeQueryCallGraph(p);
         break;
       }
       default:

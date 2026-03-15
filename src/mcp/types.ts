@@ -105,7 +105,8 @@ export type McpToolName =
   | "analyze_breaking_changes" // NEW: Detect breaking changes
   | "get_impact_analysis" // NEW: Full impact analysis
   | "analyze_file_logic" // NEW: LSP-based intra-file call hierarchy
-  | "generate_codemap"; // NEW: Full codemap generation for a single file
+  | "generate_codemap" // NEW: Full codemap generation for a single file
+  | "query_call_graph"; // NEW: Cross-file call graph query (callers/callees via SQLite)
 
 // ============================================================================
 // Zod Schemas for Tool Parameters
@@ -475,6 +476,34 @@ export type GenerateCodemapParams = z.infer<
   typeof GenerateCodemapParamsSchema
 >;
 
+// NEW: Schema for query_call_graph (cross-file call graph query)
+export const QueryCallGraphParamsSchema = z.object({
+  filePath: FilePathSchema.describe(
+    "Absolute path to the file containing the target symbol.",
+  ),
+  symbolName: SymbolNameSchema.describe(
+    "Name of the symbol to query (function, class, method).",
+  ),
+  direction: z
+    .enum(["callers", "callees", "both"])
+    .optional()
+    .describe("Direction of traversal: 'callers', 'callees', or 'both' (default: 'both')"),
+  depth: z
+    .number()
+    .min(1)
+    .max(10)
+    .optional()
+    .describe("Maximum BFS traversal depth (default: 2, min: 1, max: 10)"),
+  relationTypes: z
+    .array(z.enum(["CALLS", "INHERITS", "IMPLEMENTS", "USES"]))
+    .optional()
+    .describe("Filter by relation types (default: all)"),
+  format: OutputFormatSchema.optional(),
+});
+export type QueryCallGraphParams = z.infer<
+  typeof QueryCallGraphParamsSchema
+>;
+
 // ============================================================================
 // Validation Utilities
 // ============================================================================
@@ -503,6 +532,7 @@ export const toolSchemas: Record<McpToolName, z.ZodType<unknown>> = {
   get_impact_analysis: GetImpactAnalysisParamsSchema,
   analyze_file_logic: AnalyzeFileLogicParamsSchema,
   generate_codemap: GenerateCodemapParamsSchema,
+  query_call_graph: QueryCallGraphParamsSchema,
 };
 
 /**

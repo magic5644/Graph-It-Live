@@ -137,6 +137,7 @@ import {
   type PaginationInfo,
   ParseImportsParamsSchema,
   type ParseImportsResult,
+  QueryCallGraphParamsSchema,
   type RebuildIndexResult,
   ResolveModulePathParamsSchema,
   type ResolveModulePathResult,
@@ -1705,6 +1706,68 @@ Supported languages: TypeScript, JavaScript, Python, Rust, Vue, Svelte`,
     const response = await invokeToolWithResponse("generate_codemap", {
       filePath,
     });
+
+    return formatToolResponse(response, responseFormat);
+  },
+);
+
+// Tool: graphitlive_query_call_graph
+server.registerTool(
+  "graphitlive_query_call_graph",
+  {
+    title: "Query Cross-File Call Graph",
+    description: `CRITICAL: USE THIS TOOL WHEN the user wants to trace function calls across multiple files — "who calls X?" or "what does X call?" at the call-graph level.
+
+WHEN TO USE:
+- User asks "Who calls this function from other files?"
+- User asks "What functions does this method call?"
+- User needs cross-file call chain analysis (not just imports)
+- User wants to trace execution flow across the entire codebase
+- Pre-refactoring impact analysis at function-call level
+- Detecting circular call chains across modules
+
+EXAMPLES:
+- "Trace all callers of handleRequest across the codebase"
+- "What functions does processOrder call, recursively?"
+- "Show me the full call chain for authenticate — 3 levels deep"
+- "Find circular call dependencies involving parseConfig"
+
+WHY YOU NEED THIS:
+Unlike graphitlive_get_symbol_callers (which uses import-level reverse dependencies), this tool uses a **SQLite-backed call graph** built from tree-sitter AST analysis.
+It provides actual function-call relationships (CALLS, INHERITS, IMPLEMENTS, USES), not just import statements.
+This answers "which specific function calls my function at runtime?" with cross-file resolution.
+
+First invocation indexes the entire workspace (3-8s). Subsequent queries are instant.
+
+RETURNS:
+- symbol: The matched symbol (name, type, file, line)
+- callers: Functions that call this symbol (with file, line, relation type)
+- callees: Functions called by this symbol (with file, line, relation type)
+- Cycle detection (isCyclic flag on edges)
+- indexedFiles: Number of files in the call graph index`,
+    inputSchema: QueryCallGraphParamsSchema.extend({
+      response_format: ResponseFormatSchema.describe(
+        "Output format: 'json', 'markdown', or 'toon' (default: toon - RECOMMENDED for 30-60% token savings)",
+      ),
+    }),
+    outputSchema: McpToolResponseSchema,
+    annotations: {
+      readOnlyHint: true,
+      destructiveHint: false,
+      idempotentHint: true,
+      openWorldHint: false,
+    },
+  },
+  async ({ filePath, symbolName, direction, depth, relationTypes, response_format }) => {
+    const workerCheck = await ensureWorkerReady();
+    const responseFormat = response_format ?? "toon";
+    if (workerCheck.error)
+      return formatToolResponse(workerCheck.response, responseFormat);
+
+    const response = await invokeToolWithResponse(
+      "query_call_graph",
+      { filePath, symbolName, direction, depth, relationTypes },
+    );
 
     return formatToolResponse(response, responseFormat);
   },
