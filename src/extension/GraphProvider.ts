@@ -851,17 +851,15 @@ export class GraphProvider implements vscode.WebviewViewProvider {
     // Schedule deferred indexing now that view is ready
     this.indexingManager?.scheduleDeferredIndexing();
 
-    // Pre-index call graph in background, independent of the reverse-index lifecycle.
-    // Delayed 2 s so it doesn't compete with the initial graph render.
+    // Pre-index call graph in background, alongside the reverse-index lifecycle.
+    // Both indexers are independent (different parsers, no shared resources).
     const config = vscode.workspace.getConfiguration("graph-it-live");
     if (config.get<boolean>("preIndexCallGraph", true)) {
       const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
       if (workspaceRoot && this._callGraphViewService) {
-        setTimeout(() => {
-          this._callGraphViewService
-            ?.indexWorkspaceIfNeeded(workspaceRoot)
-            .catch(() => { /* best-effort */ });
-        }, 2000);
+        this._callGraphViewService
+          .indexWorkspaceIfNeeded(workspaceRoot)
+          .catch(() => { /* best-effort */ });
       }
     }
 

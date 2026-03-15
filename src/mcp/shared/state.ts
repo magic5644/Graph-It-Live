@@ -9,6 +9,8 @@
 
 import type { FSWatcher } from "chokidar";
 import type { AstWorkerHost } from "../../analyzer/ast/AstWorkerHost";
+import type { CallGraphIndexer } from "../../analyzer/callgraph/CallGraphIndexer";
+import type { GraphExtractor } from "../../analyzer/callgraph/GraphExtractor";
 import type { Parser } from "../../analyzer/Parser";
 import type { Spider } from "../../analyzer/Spider";
 import type { SymbolReverseIndex } from "../../analyzer/SymbolReverseIndex";
@@ -40,6 +42,9 @@ export class WorkerState {
   };
   private _fileWatcher: FSWatcher | null = null;
     private readonly _pendingInvalidations = new Map<string, NodeJS.Timeout>();
+  private _callGraphIndexer: CallGraphIndexer | null = null;
+  private _graphExtractor: GraphExtractor | null = null;
+  private _callGraphIndexedRoot: string | null = null;
 
   // ============================================================================
   // Core Components
@@ -83,6 +88,34 @@ export class WorkerState {
 
   set symbolReverseIndex(value: SymbolReverseIndex | null) {
     this._symbolReverseIndex = value;
+  }
+
+  // ============================================================================
+  // Call Graph Components
+  // ============================================================================
+
+  get callGraphIndexer(): CallGraphIndexer | null {
+    return this._callGraphIndexer;
+  }
+
+  set callGraphIndexer(value: CallGraphIndexer | null) {
+    this._callGraphIndexer = value;
+  }
+
+  get graphExtractor(): GraphExtractor | null {
+    return this._graphExtractor;
+  }
+
+  set graphExtractor(value: GraphExtractor | null) {
+    this._graphExtractor = value;
+  }
+
+  get callGraphIndexedRoot(): string | null {
+    return this._callGraphIndexedRoot;
+  }
+
+  set callGraphIndexedRoot(value: string | null) {
+    this._callGraphIndexedRoot = value;
   }
 
   // ============================================================================
@@ -226,6 +259,17 @@ export class WorkerState {
 
     this._symbolReverseIndex = null;
 
+    // Dispose call graph resources
+    if (this._graphExtractor) {
+      this._graphExtractor.dispose();
+      this._graphExtractor = null;
+    }
+    if (this._callGraphIndexer) {
+      this._callGraphIndexer.dispose();
+      this._callGraphIndexer = null;
+    }
+    this._callGraphIndexedRoot = null;
+
     // Clear components
     this._spider = null;
     this._parser = null;
@@ -249,6 +293,8 @@ export class WorkerState {
     warmupCompleted: boolean;
     hasFileWatcher: boolean;
     pendingInvalidationCount: number;
+    hasCallGraphIndexer: boolean;
+    callGraphIndexedRoot: string | null;
   } {
     return {
       isReady: this._isReady,
@@ -261,6 +307,8 @@ export class WorkerState {
       warmupCompleted: this._warmupInfo.completed,
       hasFileWatcher: this._fileWatcher !== null,
       pendingInvalidationCount: this._pendingInvalidations.size,
+      hasCallGraphIndexer: this._callGraphIndexer !== null,
+      callGraphIndexedRoot: this._callGraphIndexedRoot,
     };
   }
 }
