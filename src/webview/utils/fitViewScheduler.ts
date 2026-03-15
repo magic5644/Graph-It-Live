@@ -1,11 +1,10 @@
 export type TimeoutId = ReturnType<typeof setTimeout>;
-export type RafId = number;
 
 export interface FitViewSchedulerDeps {
   setTimeout: (handler: () => void, timeoutMs: number) => TimeoutId;
   clearTimeout: (timeoutId: TimeoutId) => void;
-  requestAnimationFrame: (handler: () => void) => RafId;
-  cancelAnimationFrame: (rafId: RafId) => void;
+  requestAnimationFrame: (handler: () => void) => number;
+  cancelAnimationFrame: (rafId: number) => void;
 }
 
 function getDefaultDeps(): FitViewSchedulerDeps {
@@ -49,7 +48,7 @@ export function createDebouncedRafScheduler(
   deps: FitViewSchedulerDeps = getDefaultDeps()
 ): { trigger: () => void; dispose: () => void } {
   let timeoutId: TimeoutId | null = null;
-  let rafId: RafId | null = null;
+  let rafId: number | null = null;
 
   const dispose = () => {
     if (timeoutId !== null) deps.clearTimeout(timeoutId);

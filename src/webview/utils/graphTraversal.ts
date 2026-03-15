@@ -51,7 +51,8 @@ export function computeRelatedNodes(
   const visited = new Set<string>([symbolId]);
 
   while (queue.length > 0) {
-    const currentId = queue.shift()!;
+    const currentId = queue.shift();
+    if (!currentId) break;
     highlightedNodes.add(currentId);
 
     // Traverse outgoing edges (dependencies)

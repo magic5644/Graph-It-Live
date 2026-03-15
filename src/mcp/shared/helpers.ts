@@ -141,7 +141,7 @@ export function detectCircularDependencies(
     if (!graph.has(edge.source)) {
       graph.set(edge.source, new Set());
     }
-    graph.get(edge.source)!.add(edge.target);
+    graph.get(edge.source)?.add(edge.target);
   }
 
   const cycles: string[][] = [];

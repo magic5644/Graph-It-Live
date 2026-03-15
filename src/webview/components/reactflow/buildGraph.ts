@@ -1,13 +1,13 @@
 import type { Edge, Node } from "reactflow";
 import { getLogger } from "../../../shared/logger";
 import type {
-    GraphData,
-    SymbolDependency,
-    SymbolInfo,
+  GraphData,
+  SymbolDependency,
+  SymbolInfo,
 } from "../../../shared/types";
 import {
-    createEdgeStyle as createEdgeStyleUtil,
-    nodeHeight,
+  createEdgeStyle as createEdgeStyleUtil,
+  nodeHeight,
 } from "../../utils/nodeUtils";
 import { normalizePath } from "../../utils/path";
 import type { FileNodeData } from "./FileNode";
@@ -35,7 +35,7 @@ export interface BuildGraphCallbacks {
   onToggleParents?: (path: string) => void;
   onToggle: (path: string) => void;
   onExpandRequest: (path: string) => void;
-  selectedNodeId?: string | null | undefined;
+  selectedNodeId?: string | null;
   onHighlight?: (symbolId: string) => void; // Étape 4: Highlight callback for symbol double-click
 }
 
@@ -225,9 +225,9 @@ function buildRelationshipMaps(
     const ns = normalizePath(source);
     const nt = normalizePath(target);
     if (!children.has(ns)) children.set(ns, []);
-    children.get(ns)!.push(nt);
+    children.get(ns)?.push(nt);
     if (!parents.has(nt)) parents.set(nt, []);
-    parents.get(nt)!.push(ns);
+    parents.get(nt)?.push(ns);
   });
 
   return { children, parents };
@@ -466,7 +466,7 @@ export function buildReactFlowGraph(params: {
         // If label contains '.', it's likely a method call
         if (label.includes('.')) return 'method';
         // If label starts with uppercase, likely a class/constructor
-        if (label[0] && label[0] === label[0].toUpperCase()) return 'class';
+        if (label[0]?.toUpperCase() === label[0]) return 'class';
         // Default to function for external symbols
         return 'function';
       })();
@@ -521,7 +521,7 @@ export function buildReactFlowGraph(params: {
       onDrillDown: () => callbacks.onDrillDown(path),
       onFindReferences: () => callbacks.onFindReferences(path),
       onToggleParents: callbacks.onToggleParents
-        ? () => callbacks.onToggleParents!(path)
+        ? () => callbacks.onToggleParents?.(path)
         : undefined,
       onToggle: () => callbacks.onToggle(path),
       onExpandRequest: () => callbacks.onExpandRequest(path),

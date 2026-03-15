@@ -16,7 +16,7 @@ function fastLayout(nodes: Node[], edges: Edge[], rootId: string): { nodes: Node
     const source = normalizePath(edge.source);
     const target = normalizePath(edge.target);
     if (!children.has(source)) children.set(source, []);
-    children.get(source)!.push(target);
+    children.get(source)?.push(target);
   });
 
   const depth = new Map<string, number>();
@@ -40,7 +40,7 @@ function fastLayout(nodes: Node[], edges: Edge[], rootId: string): { nodes: Node
     const d = depth.get(normalizePath(node.id));
     if (typeof d === 'number') {
       if (!nodesByDepth.has(d)) nodesByDepth.set(d, []);
-      nodesByDepth.get(d)!.push(node);
+      nodesByDepth.get(d)?.push(node);
     } else {
       unconnected.push(node);
     }
@@ -51,8 +51,8 @@ function fastLayout(nodes: Node[], edges: Edge[], rootId: string): { nodes: Node
   const positioned: Node[] = [];
   const sortedDepths = [...nodesByDepth.keys()].sort((a, b) => a - b);
   for (const d of sortedDepths) {
-    const group = nodesByDepth.get(d)!;
-    group.forEach((node, idx) => {
+    const group = nodesByDepth.get(d);
+    group?.forEach((node, idx) => {
       positioned.push({
         ...node,
         position: { x: d * xStep, y: idx * yStep },
@@ -62,7 +62,7 @@ function fastLayout(nodes: Node[], edges: Edge[], rootId: string): { nodes: Node
     });
   }
 
-  const maxDepth = sortedDepths.length ? sortedDepths[sortedDepths.length - 1]! : 0;
+  const maxDepth = sortedDepths.length ? sortedDepths.at(-1) ?? 0 : 0;
   const unconnectedX = (maxDepth + 1) * xStep;
   unconnected.forEach((node, idx) => {
     positioned.push({
@@ -106,22 +106,11 @@ function dagreLayout(nodes: Node[], edges: Edge[], direction: 'TB' | 'LR' = 'LR'
   return { nodes: layoutedNodes, edges };
 }
 
-
-function radialLayout(nodes: Node[], edges: Edge[], rootId: string): { nodes: Node[]; edges: Edge[] } {
-  const root = normalizePath(rootId);
-  const children = new Map<string, string[]>();
-  edges.forEach((edge) => {
-    const source = normalizePath(edge.source);
-    const target = normalizePath(edge.target);
-    if (!children.has(source)) children.set(source, []);
-    children.get(source)!.push(target);
-  });
-
+function bfsDepth(root: string, children: Map<string, string[]>): Map<string, number> {
   const depth = new Map<string, number>();
   const queue: string[] = [root];
   depth.set(root, 0);
 
-  // BFS for depth
   for (const current of queue) {
     const currentDepth = depth.get(current) ?? 0;
     const nextDepth = currentDepth + 1;
@@ -133,6 +122,21 @@ function radialLayout(nodes: Node[], edges: Edge[], rootId: string): { nodes: No
     }
   }
 
+  return depth;
+}
+
+function radialLayout(nodes: Node[], edges: Edge[], rootId: string): { nodes: Node[]; edges: Edge[] } {
+  const root = normalizePath(rootId);
+  const children = new Map<string, string[]>();
+  edges.forEach((edge) => {
+    const source = normalizePath(edge.source);
+    const target = normalizePath(edge.target);
+    if (!children.has(source)) children.set(source, []);
+    children.get(source)?.push(target);
+  });
+
+  const depth = bfsDepth(root, children);
+
   const nodesByDepth = new Map<number, Node[]>();
   const unconnected: Node[] = [];
 
@@ -140,7 +144,7 @@ function radialLayout(nodes: Node[], edges: Edge[], rootId: string): { nodes: No
     const d = depth.get(normalizePath(node.id));
     if (typeof d === 'number') {
       if (!nodesByDepth.has(d)) nodesByDepth.set(d, []);
-      nodesByDepth.get(d)!.push(node);
+      nodesByDepth.get(d)?.push(node);
     } else {
       unconnected.push(node);
     }
@@ -151,7 +155,7 @@ function radialLayout(nodes: Node[], edges: Edge[], rootId: string): { nodes: No
   const layerHeight = 250;
 
   for (const d of sortedDepths) {
-    const group = nodesByDepth.get(d)!;
+    const group = nodesByDepth.get(d) ?? [];
     const radius = d * layerHeight;
     const angleStep = (2 * Math.PI) / group.length;
 

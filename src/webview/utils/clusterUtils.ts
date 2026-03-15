@@ -30,7 +30,7 @@ export function buildClusters(symbols: SymbolNode[]): SymbolCluster[] {
     if (!symbolsByNamespace.has(namespace)) {
       symbolsByNamespace.set(namespace, []);
     }
-    symbolsByNamespace.get(namespace)!.push(symbol);
+    symbolsByNamespace.get(namespace)?.push(symbol);
   }
 
   // Create namespace clusters and nested class clusters
@@ -133,7 +133,7 @@ function addVisibleSymbolsFromNamespace(
     } else if (childCluster) {
       // Add only the class node itself
       const classSymbol = symbols.find((s) => s.id === childCluster.symbolIds[0]);
-      if (classSymbol && classSymbol.type === "class") {
+      if (classSymbol?.type === "class") {
         visible.add(classSymbol.id);
       }
     }
@@ -186,10 +186,10 @@ export function calculateClusterBounds(
   let maxY = -Infinity;
 
   for (const cluster of withBounds) {
-    const x = cluster.x!;
-    const y = cluster.y!;
-    const w = cluster.width!;
-    const h = cluster.height!;
+    const x = cluster.x ?? 0;
+    const y = cluster.y ?? 0;
+    const w = cluster.width ?? 0;
+    const h = cluster.height ?? 0;
 
     minX = Math.min(minX, x);
     minY = Math.min(minY, y);

@@ -1,5 +1,5 @@
-import { GraphData } from '../../shared/types';
 import { SUPPORTED_FILE_EXTENSIONS } from '../../shared/constants';
+import { GraphData } from '../../shared/types';
 
 /**
  * Extract filename from a full path
@@ -14,7 +14,7 @@ export const getFileName = (path: string): string => {
  */
 export const getParentDir = (path: string): string | undefined => {
     const parts = path.split(/[/\\]/);
-    return parts.length >= 2 ? parts[parts.length - 2] : undefined;
+    return parts.length >= 2 ? parts.at(-2) : undefined;
 };
 
 /**
