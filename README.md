@@ -350,7 +350,7 @@ Graph-It-Live includes an optional **MCP server** that exposes its full analysis
 
 ### Available Tools
 
-The MCP server exposes **20 tools** for AI/LLM consumption:
+The MCP server exposes **21 tools** for AI/LLM consumption:
 
 | Tool | Description |
 | :--- | :---------- |
@@ -374,6 +374,7 @@ The MCP server exposes **20 tools** for AI/LLM consumption:
 | `graphitlive_rebuild_index` | Rebuild the entire dependency index from scratch |
 | `graphitlive_analyze_file_logic` | Analyze symbol-level call hierarchy and code flow within a file |
 | `graphitlive_generate_codemap` | Generate a comprehensive structured overview of any source file |
+| `graphitlive_query_call_graph` | Query cross-file callers/callees via BFS on the call graph SQLite database |
 
 ### TOON Format (Token-Optimized Output)
 

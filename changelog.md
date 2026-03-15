@@ -7,6 +7,13 @@
 - **Symbol View — Incoming dependencies**: The "← called by" section now shows **external callers** (symbols from other files that call into the current file). Previously only intra-file callers were displayed. `SymbolViewService` now analyses all referencing files and collects symbol-level incoming edges
 - **Symbol View — Cross-file callers via Call Graph**: When the call graph SQLite database is indexed, external callers discovered by tree-sitter analysis are merged into the symbol view's "← called by" section — providing broader coverage than Spider-only import analysis. Results are deduplicated against Spider-based incoming dependencies
 - **Symbol View — Intra-file call enrichment**: AST-based call edges (from `LspCallHierarchyAnalyzer`) and cycle detection data are now merged into the symbol tree, providing richer "→ calls" / "← called by" annotations even for internal symbols
+- **Simultaneous indexation**: Call graph pre-indexing now starts immediately alongside the reverse index on activation, removing the previous 2-second stagger. Both indexers are independent (different parsers, no shared resources), resulting in faster overall startup
+- **MCP tool: `graphitlive_query_call_graph`** (tool #21): New cross-file call graph query tool for AI/LLM agents. Query callers and callees of any symbol via BFS traversal on the sql.js SQLite call graph database. Features:
+  - Configurable direction (`callers`, `callees`, `both`) and depth (1–10)
+  - Filter by relation type (`CALLS`, `INHERITS`, `IMPLEMENTS`, `USES`)
+  - Lazy-initializes the call graph DB in the MCP worker on first invocation (transparent to users)
+  - Cycle detection and cross-file edge resolution
+  - Returns structured results with source/target file paths, line numbers, and relation metadata
 
 ### Bug Fixes
 
@@ -21,8 +28,8 @@
 
 ### Testing
 
-- 1517 unit tests + 90 E2E tests passing across 136 test files
-- New tests: symbol dedup for overloads, merged interfaces, containerName regression, incoming dependencies collection, error resilience for referencing file analysis, call graph enrichment (merge, dedup, not-indexed skip, error handling, exported-only filtering, method name collision false-positive rejection, valid export retention despite collision), ICallGraphQueryService contract tests
+- 1536 unit tests + 90 E2E tests passing across 137 test files
+- New tests: symbol dedup for overloads, merged interfaces, containerName regression, incoming dependencies collection, error resilience for referencing file analysis, call graph enrichment (merge, dedup, not-indexed skip, error handling, exported-only filtering, method name collision false-positive rejection, valid export retention despite collision), ICallGraphQueryService contract tests, QueryCallGraphParamsSchema validation (direction, depth bounds, relation type filters, path traversal), MCP call graph tool execution (symbol lookup, BFS callers/callees, direction/depth defaults, relation type filtering, metadata)
 
 ## v1.7.2
 

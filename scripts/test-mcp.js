@@ -35,6 +35,7 @@ const server = spawn('node', [serverPath], { //NOSONAR
   env: {
     ...process.env,
     WORKSPACE_ROOT: path.join(rootDir, 'tests/fixtures/sample-project'),
+    EXTENSION_PATH: rootDir,
   },
   stdio: ['pipe', 'pipe', 'pipe'],
 });
@@ -764,6 +765,104 @@ export function add(a: number, b: number): number {
       arguments: {
         filePath: '/non/existent/codemap-target.ts',
         format: 'json'
+      }
+    }
+  });
+  await new Promise(r => setTimeout(r, 500));
+
+  // =========================================================================
+  // 32. graphitlive_query_call_graph — callees of a known symbol
+  // =========================================================================
+  log('\n📤 [graphitlive_query_call_graph] Querying callees of main function...');
+  send({
+    jsonrpc: '2.0',
+    id: ++id,
+    method: 'tools/call',
+    params: {
+      name: 'graphitlive_query_call_graph',
+      arguments: {
+        filePath: path.join(fixturesPath, 'main.ts'),
+        symbolName: 'main',
+        direction: 'callees',
+        depth: 3
+      }
+    }
+  });
+  await new Promise(r => setTimeout(r, 2000)); // First call triggers indexing
+
+  // =========================================================================
+  // 33. graphitlive_query_call_graph — callers of a symbol
+  // =========================================================================
+  log('\n📤 [graphitlive_query_call_graph] Querying callers of greet function...');
+  send({
+    jsonrpc: '2.0',
+    id: ++id,
+    method: 'tools/call',
+    params: {
+      name: 'graphitlive_query_call_graph',
+      arguments: {
+        filePath: path.join(fixturesPath, 'utils.ts'),
+        symbolName: 'greet',
+        direction: 'callers',
+        depth: 2
+      }
+    }
+  });
+  await new Promise(r => setTimeout(r, 500));
+
+  // =========================================================================
+  // 34. graphitlive_query_call_graph — both directions (default)
+  // =========================================================================
+  log('\n📤 [graphitlive_query_call_graph] Querying both directions for greet...');
+  send({
+    jsonrpc: '2.0',
+    id: ++id,
+    method: 'tools/call',
+    params: {
+      name: 'graphitlive_query_call_graph',
+      arguments: {
+        filePath: path.join(fixturesPath, 'utils.ts'),
+        symbolName: 'greet'
+      }
+    }
+  });
+  await new Promise(r => setTimeout(r, 500));
+
+  // =========================================================================
+  // 35. graphitlive_query_call_graph — non-existent symbol
+  // =========================================================================
+  log('\n📤 [graphitlive_query_call_graph] Testing non-existent symbol...');
+  send({
+    jsonrpc: '2.0',
+    id: ++id,
+    method: 'tools/call',
+    params: {
+      name: 'graphitlive_query_call_graph',
+      arguments: {
+        filePath: path.join(fixturesPath, 'utils.ts'),
+        symbolName: 'nonExistentFunction',
+        direction: 'both'
+      }
+    }
+  });
+  await new Promise(r => setTimeout(r, 500));
+
+  // =========================================================================
+  // 36. graphitlive_query_call_graph — with relation type filter
+  // =========================================================================
+  log('\n📤 [graphitlive_query_call_graph] Querying with CALLS relation filter...');
+  send({
+    jsonrpc: '2.0',
+    id: ++id,
+    method: 'tools/call',
+    params: {
+      name: 'graphitlive_query_call_graph',
+      arguments: {
+        filePath: path.join(fixturesPath, 'main.ts'),
+        symbolName: 'main',
+        direction: 'callees',
+        depth: 2,
+        relationTypes: ['CALLS']
       }
     }
   });
