@@ -8,11 +8,11 @@
  * NO vscode imports — this module is VS Code agnostic.
  */
 
-import { CallGraphIndexer } from "@/analyzer/callgraph/CallGraphIndexer";
 import type { CallGraphEdge } from "@/analyzer/callgraph/CallGraphIndexer";
+import { CallGraphIndexer } from "@/analyzer/callgraph/CallGraphIndexer";
 import { detectCycleEdges } from "@/analyzer/callgraph/cycleUtils";
-import { fileExtToLang, GraphExtractor } from "@/analyzer/callgraph/GraphExtractor";
 import type { ExtractorConfig } from "@/analyzer/callgraph/GraphExtractor";
+import { fileExtToLang, GraphExtractor } from "@/analyzer/callgraph/GraphExtractor";
 import { SourceFileCollector } from "@/analyzer/SourceFileCollector";
 import type { RelationType } from "@/shared/callgraph-types";
 import { getLogger } from "@/shared/logger";

@@ -30,6 +30,7 @@ import {
   MCP_TOOL_VERSION,
   normalizePathForComparison,
   ParseImportsParamsSchema,
+  QueryCallGraphParamsSchema,
   RebuildIndexParamsSchema,
   ResolveModulePathParamsSchema,
   sanitizeString,
@@ -760,6 +761,117 @@ describe('GenerateCodemapParamsSchema', () => {
   });
 });
 
+describe('QueryCallGraphParamsSchema', () => {
+  it('validates minimal parameters', () => {
+    const result = QueryCallGraphParamsSchema.safeParse({
+      filePath: '/project/src/service.ts',
+      symbolName: 'processData',
+    });
+
+    expect(result.success).toBe(true);
+    if (result.success) {
+      expect(result.data.filePath).toBe('/project/src/service.ts');
+      expect(result.data.symbolName).toBe('processData');
+      expect(result.data.direction).toBeUndefined();
+      expect(result.data.depth).toBeUndefined();
+      expect(result.data.relationTypes).toBeUndefined();
+    }
+  });
+
+  it('validates with all optional parameters', () => {
+    const result = QueryCallGraphParamsSchema.safeParse({
+      filePath: '/project/src/service.ts',
+      symbolName: 'processData',
+      direction: 'callers',
+      depth: 5,
+      relationTypes: ['CALLS', 'INHERITS'],
+    });
+
+    expect(result.success).toBe(true);
+    if (result.success) {
+      expect(result.data.direction).toBe('callers');
+      expect(result.data.depth).toBe(5);
+      expect(result.data.relationTypes).toEqual(['CALLS', 'INHERITS']);
+    }
+  });
+
+  it('accepts all direction values', () => {
+    for (const direction of ['callers', 'callees', 'both'] as const) {
+      const result = QueryCallGraphParamsSchema.safeParse({
+        filePath: '/project/src/file.ts',
+        symbolName: 'fn',
+        direction,
+      });
+      expect(result.success).toBe(true);
+    }
+  });
+
+  it('rejects invalid direction', () => {
+    const result = QueryCallGraphParamsSchema.safeParse({
+      filePath: '/project/src/file.ts',
+      symbolName: 'fn',
+      direction: 'sideways',
+    });
+    expect(result.success).toBe(false);
+  });
+
+  it('enforces depth min/max bounds', () => {
+    const tooLow = QueryCallGraphParamsSchema.safeParse({
+      filePath: '/project/src/file.ts',
+      symbolName: 'fn',
+      depth: 0,
+    });
+    expect(tooLow.success).toBe(false);
+
+    const tooHigh = QueryCallGraphParamsSchema.safeParse({
+      filePath: '/project/src/file.ts',
+      symbolName: 'fn',
+      depth: 11,
+    });
+    expect(tooHigh.success).toBe(false);
+  });
+
+  it('accepts all valid relation types', () => {
+    const result = QueryCallGraphParamsSchema.safeParse({
+      filePath: '/project/src/file.ts',
+      symbolName: 'fn',
+      relationTypes: ['CALLS', 'INHERITS', 'IMPLEMENTS', 'USES'],
+    });
+    expect(result.success).toBe(true);
+  });
+
+  it('rejects invalid relation type', () => {
+    const result = QueryCallGraphParamsSchema.safeParse({
+      filePath: '/project/src/file.ts',
+      symbolName: 'fn',
+      relationTypes: ['CALLS', 'EXTENDS'],
+    });
+    expect(result.success).toBe(false);
+  });
+
+  it('rejects missing filePath', () => {
+    const result = QueryCallGraphParamsSchema.safeParse({
+      symbolName: 'fn',
+    });
+    expect(result.success).toBe(false);
+  });
+
+  it('rejects missing symbolName', () => {
+    const result = QueryCallGraphParamsSchema.safeParse({
+      filePath: '/project/src/file.ts',
+    });
+    expect(result.success).toBe(false);
+  });
+
+  it('rejects null bytes in path', () => {
+    const result = QueryCallGraphParamsSchema.safeParse({
+      filePath: '/project/src/\0evil.ts',
+      symbolName: 'fn',
+    });
+    expect(result.success).toBe(false);
+  });
+});
+
 // ============================================================================
 // McpWorkerResponse Type Tests
 // ============================================================================
@@ -818,7 +930,7 @@ describe('McpWorkerResponse type', () => {
 
 describe('validateToolParams', () => {
   it('validates correct analyze_dependencies params', () => {
-    const result = validateToolParams('analyze_dependencies', {
+    const result = validateToolParams<{ filePath: string }>('analyze_dependencies', {
       filePath: '/project/src/index.ts',
     });
 
@@ -829,7 +941,7 @@ describe('validateToolParams', () => {
   });
 
   it('validates crawl_dependency_graph params with options', () => {
-    const result = validateToolParams('crawl_dependency_graph', {
+    const result = validateToolParams<{ entryFile: string; maxDepth: number; limit: number }>('crawl_dependency_graph', {
       entryFile: '/project/src/main.ts',
       maxDepth: 5,
       limit: 100,
@@ -847,7 +959,9 @@ describe('validateToolParams', () => {
     const result = validateToolParams('analyze_dependencies', {});
 
     expect(result.success).toBe(false);
-    expect(result.error).toContain('filePath');
+    if (!result.success) {
+      expect(result.error).toContain('filePath');
+    }
   });
 
   it('returns error for wrong field types', () => {
@@ -857,7 +971,9 @@ describe('validateToolParams', () => {
     });
 
     expect(result.success).toBe(false);
-    expect(result.error).toContain('maxDepth');
+    if (!result.success) {
+      expect(result.error).toContain('maxDepth');
+    }
   });
 
   it('validates get_index_status with empty params', () => {
@@ -867,7 +983,7 @@ describe('validateToolParams', () => {
   });
 
   it('validates find_referencing_files params', () => {
-    const result = validateToolParams('find_referencing_files', {
+    const result = validateToolParams<{ targetPath: string }>('find_referencing_files', {
       targetPath: '/project/src/utils.ts',
     });
 
@@ -886,7 +1002,7 @@ describe('validateToolParams', () => {
   });
 
   it('validates trace_function_execution params', () => {
-    const result = validateToolParams('trace_function_execution', {
+    const result = validateToolParams<{ filePath: string; symbolName: string; maxDepth: number }>('trace_function_execution', {
       filePath: '/project/src/service.ts',
       symbolName: 'processData',
       maxDepth: 10,

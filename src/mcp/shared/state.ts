@@ -192,7 +192,10 @@ export class WorkerState {
    */
   getSpider(): Spider {
     this.requireReady();
-    return this._spider!;
+    // requireReady() guarantees non-null; local alias helps TS narrow
+    const spider = this._spider;
+    if (!spider) throw new Error("Spider not available after requireReady()");
+    return spider;
   }
 
   /**
@@ -200,7 +203,9 @@ export class WorkerState {
    */
   getParser(): Parser {
     this.requireReady();
-    return this._parser!;
+    const parser = this._parser;
+    if (!parser) throw new Error("Parser not available after requireReady()");
+    return parser;
   }
 
   /**
@@ -208,7 +213,9 @@ export class WorkerState {
    */
   getResolver(): PathResolver {
     this.requireReady();
-    return this._resolver!;
+    const resolver = this._resolver;
+    if (!resolver) throw new Error("Resolver not available after requireReady()");
+    return resolver;
   }
 
   /**
