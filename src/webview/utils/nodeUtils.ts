@@ -31,7 +31,7 @@ export interface NodeStyleResult {
  */
 export function getFileName(path: string): string {
     const parts = path.split(/[/\\]/);
-    return parts[parts.length - 1] || path;
+    return parts.at(-1) || path;
 }
 
 /**
@@ -241,7 +241,7 @@ export function getNodeLabel(
 
     // Disambiguate duplicate filenames
     if ((fileNameCounts.get(fileName) || 0) > 1) {
-        const parentDir = path.split(/[/\\]/).slice(-2, -1)[0];
+        const parentDir = path.split(/[/\\]/).at(-2);
         if (parentDir) {
             return `${parentDir}/${fileName}`;
         }

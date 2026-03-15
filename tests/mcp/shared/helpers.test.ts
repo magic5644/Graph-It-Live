@@ -463,7 +463,7 @@ describe("MCP Worker Helpers", () => {
 
       const calls = result.outgoingCalls.get(`${normalizedFilePath}:caller`);
       expect(calls).toBeDefined();
-      expect(calls![0].to.name).toBe("callee"); // Should extract only the symbol name
+      expect(calls?.[0].to.name).toBe("callee"); // Should extract only the symbol name
     });
 
     it("should handle empty symbol graph", () => {

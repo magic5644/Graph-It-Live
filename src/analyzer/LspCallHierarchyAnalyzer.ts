@@ -258,7 +258,7 @@ export class LspCallHierarchyAnalyzer {
       if (!adjacencyList.has(edge.source)) {
         adjacencyList.set(edge.source, []);
       }
-      adjacencyList.get(edge.source)!.push(edge.target);
+      adjacencyList.get(edge.source)?.push(edge.target);
     }
 
     // DFS helper function

@@ -647,7 +647,7 @@ const ReactFlowGraphContent: React.FC<ReactFlowGraphProps> = ({
       }
       
       // Apply highlight styles if this edge is highlighted
-      if (highlightState && highlightState.highlightedEdges.has(edge.id)) {
+      if (highlightState?.highlightedEdges.has(edge.id)) {
         return {
           ...edge,
           style: {
