@@ -3,6 +3,7 @@ import { Spider } from "../../analyzer/Spider";
 import { convertSpiderToLspFormat } from "../../shared/converters";
 import { normalizePath } from "../../shared/path";
 import type { IntraFileGraph, SymbolDependency, SymbolInfo } from "../../shared/types";
+import type { ICallGraphQueryService } from "./ICallGraphQueryService";
 
 type Logger = {
   debug: (message: string, ...args: unknown[]) => void;
@@ -34,10 +35,20 @@ interface SymbolGraphResult {
  * symbol extraction and dependency analysis.
  */
 export class SymbolViewService {
+  private callGraphQuery?: ICallGraphQueryService;
+
   constructor(
     private readonly spider: Spider,
     private readonly logger: Logger,
   ) { }
+
+  /**
+   * Inject the call graph query service for cross-file caller enrichment.
+   * Optional — symbol view works without it (graceful degradation).
+   */
+  setCallGraphQueryService(service: ICallGraphQueryService): void {
+    this.callGraphQuery = service;
+  }
 
   /**
    * Build a symbol graph for a file.
@@ -82,6 +93,13 @@ export class SymbolViewService {
     );
     this.logger.debug(
       `Incoming dependencies: ${incomingDependencies.length} from ${referencingFiles.length} referencing files`,
+    );
+
+    // Enrich with cross-file callers from the call graph SQLite DB
+    this.enrichWithCallGraphCallers(
+      incomingDependencies,
+      resolvedFilePath,
+      symbolData.symbols,
     );
 
     // Build payload from AST analysis
@@ -148,10 +166,10 @@ export class SymbolViewService {
 
     // Add structural edges (Parent -> Child) for nested symbols (methods inside classes)
     symbolData.symbols
-      .filter((s) => s.parentSymbolId)
+      .filter((s): s is typeof s & { parentSymbolId: string } => !!s.parentSymbolId)
       .forEach((s) =>
         edges.push({
-          source: s.parentSymbolId!,
+          source: s.parentSymbolId,
           target: s.id,
           relationType: "dependency",
         }),
@@ -206,5 +224,75 @@ export class SymbolViewService {
     }
 
     return incoming;
+  }
+
+  /**
+   * Enrich incoming dependencies with cross-file callers from the call graph
+   * SQLite database. Mutates the `incomingDependencies` array in place,
+   * deduplicating against existing entries.
+   */
+  private enrichWithCallGraphCallers(
+    incomingDependencies: SymbolDependency[],
+    targetFilePath: string,
+    symbols: SymbolInfo[],
+  ): void {
+    if (!this.callGraphQuery?.isIndexed()) return;
+
+    // Only query top-level exported symbols to limit DB load
+    const exportedSymbols = symbols
+      .filter((s) => s.isExported && !s.parentSymbolId);
+    const exportedNames = exportedSymbols.map((s) => s.name);
+
+    if (exportedNames.length === 0) return;
+
+    try {
+      const externalCallers = this.callGraphQuery.findExternalCallers(
+        targetFilePath,
+        exportedNames,
+      );
+
+      if (externalCallers.length === 0) return;
+
+      const normalizedTarget = normalizePath(targetFilePath);
+
+      // Build set of valid exported symbol IDs to guard against name collisions
+      // (e.g., a top-level function and a class method sharing the same bare name)
+      const exportedIdSet = new Set(
+        exportedSymbols.map((s) => `${normalizedTarget}:${s.name}`),
+      );
+
+      // Build dedup set from existing incoming deps
+      const existingKeys = new Set(
+        incomingDependencies.map(
+          (d) => `${d.sourceSymbolId}\0${d.targetSymbolId}`,
+        ),
+      );
+
+      for (const caller of externalCallers) {
+        const sourceId = `${caller.callerFilePath}:${caller.callerName}`;
+        const targetId = `${normalizedTarget}:${caller.targetSymbolName}`;
+
+        // Skip if the target doesn't match an actual exported symbol
+        if (!exportedIdSet.has(targetId)) continue;
+
+        const key = `${sourceId}\0${targetId}`;
+
+        if (!existingKeys.has(key)) {
+          existingKeys.add(key);
+          incomingDependencies.push({
+            sourceSymbolId: sourceId,
+            targetSymbolId: targetId,
+            targetFilePath: caller.callerFilePath,
+            relationType: "call",
+          });
+        }
+      }
+
+      this.logger.debug(
+        `Call graph enrichment: ${externalCallers.length} external callers found`,
+      );
+    } catch (err) {
+      this.logger.warn(`Failed to query call graph for external callers: ${err}`);
+    }
   }
 }

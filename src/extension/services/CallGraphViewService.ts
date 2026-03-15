@@ -30,6 +30,7 @@ import crypto from "node:crypto";
 import fs from "node:fs/promises";
 import path from "node:path";
 import * as vscode from "vscode";
+import type { ExternalCallerResult, ICallGraphQueryService } from "./ICallGraphQueryService";
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -118,7 +119,7 @@ async function getQueryFreshnessCutoffs(extensionPath: string): Promise<Record<S
 // CallGraphViewService
 // ---------------------------------------------------------------------------
 
-export class CallGraphViewService implements vscode.Disposable {
+export class CallGraphViewService implements vscode.Disposable, ICallGraphQueryService {
   /** Sidebar webview managed by GraphProvider — set via setSidebarWebview(). */
   private sidebarWebview: vscode.WebviewView | null = null;
   private indexer: CallGraphIndexer | null = null;
@@ -153,6 +154,60 @@ export class CallGraphViewService implements vscode.Disposable {
   constructor(private readonly context: vscode.ExtensionContext) {
     this.outputChannel = vscode.window.createOutputChannel("Call Graph");
     context.subscriptions.push(this.outputChannel);
+  }
+
+  // ---------------------------------------------------------------------------
+  // ICallGraphQueryService — cross-file caller queries for SymbolViewService
+  // ---------------------------------------------------------------------------
+
+  isIndexed(): boolean {
+    return this.workspaceIndexedRoot !== null;
+  }
+
+  findExternalCallers(
+    filePath: string,
+    symbolNames: string[],
+    maxResults = 50,
+  ): ExternalCallerResult[] {
+    if (!this.indexer || !this.workspaceIndexedRoot || symbolNames.length === 0) {
+      return [];
+    }
+
+    try {
+      const db = this.indexer.getDb();
+      const normalizedPath = normalizePath(filePath);
+      const namePlaceholders = symbolNames.map(() => "?").join(", ");
+
+      const result = db.exec(
+        `SELECT
+           source_n.name  AS caller_name,
+           source_n.path  AS caller_path,
+           source_n.start_line AS caller_start_line,
+           target_n.name  AS target_name
+         FROM edges e
+         JOIN nodes target_n ON e.target_id = target_n.id
+         JOIN nodes source_n ON e.source_id = source_n.id
+         WHERE target_n.path = ?
+           AND source_n.path != ?
+           AND target_n.name IN (${namePlaceholders})
+           AND target_n.type != 'method'
+           AND source_n.id NOT LIKE '@@external:%'
+         ORDER BY target_n.name, source_n.path
+         LIMIT ?`,
+        [normalizedPath, normalizedPath, ...symbolNames, maxResults],
+      );
+
+      if (!result[0]?.values) return [];
+
+      return result[0].values.map((row) => ({
+        callerName: row[0] as string,
+        callerFilePath: row[1] as string,
+        callerStartLine: row[2] as number,
+        targetSymbolName: row[3] as string,
+      }));
+    } catch {
+      return [];
+    }
   }
 
   // ---------------------------------------------------------------------------
