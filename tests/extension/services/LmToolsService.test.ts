@@ -65,8 +65,8 @@ vi.mock('node:fs/promises', () => ({
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
-import * as vscode from 'vscode';
 import * as fsPromises from 'node:fs/promises';
+import * as vscode from 'vscode';
 
 function createLogger(): VsCodeLogger {
   return {
