@@ -887,7 +887,8 @@ export class CallGraphViewService implements vscode.Disposable, ICallGraphQueryS
   // ---------------------------------------------------------------------------
 
   private registerSaveListener(workspaceRoot: string): void {
-    // Only one listener at a time
+    // Only one listener at a time — dispose() already handles cleanup of this.saveListener;
+    // do NOT push to context.subscriptions here or it accumulates a dead entry per show() call.
     this.saveListener?.dispose();
     this.saveListener = vscode.workspace.onDidSaveTextDocument((doc) => {
       const savedPath = normalizePath(doc.uri.fsPath);
@@ -895,7 +896,6 @@ export class CallGraphViewService implements vscode.Disposable, ICallGraphQueryS
         this.scheduleRefresh(savedPath, doc.languageId, workspaceRoot);
       }
     });
-    this.context.subscriptions.push(this.saveListener);
   }
 
   private scheduleRefresh(filePath: string, languageId: string, workspaceRoot: string): void {

@@ -821,7 +821,7 @@ export class GraphProvider implements vscode.WebviewViewProvider {
     webviewView.webview.options = this.webviewManager.getWebviewOptions();
     webviewView.webview.html = this.webviewManager.getHtmlForWebview(webviewView.webview);
 
-    webviewView.webview.onDidReceiveMessage(
+    const messageListener = webviewView.webview.onDidReceiveMessage(
       async (message: WebviewToExtensionMessage) => {
         await this._messageDispatcher.handle(message);
       },
@@ -829,6 +829,7 @@ export class GraphProvider implements vscode.WebviewViewProvider {
 
     // Clean up timer and worker when view is disposed
     webviewView.onDidDispose(() => {
+      messageListener.dispose();
       this.indexingManager?.cancelScheduledIndexing();
       this.sourceFileWatcher?.dispose();
       this._fileChangeScheduler?.dispose();
