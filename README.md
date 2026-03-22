@@ -53,7 +53,7 @@ All three layers are also exposed to AI via a **20-tool MCP server**, so your as
 
 - [For AI — MCP Server](#-supercharge-your-ai-assistant)
   - [Codemap Generation](#-codemap-generation-new)
-  - [All 20 MCP Tools](#available-tools)
+  - [All 21 MCP Tools](#available-tools)
   - [TOON Format (Token Savings)](#toon-format-token-optimized-output)
 - [For Humans — Visual Features](#-features-for-humans)
   - [File Dependency Graph](#file-dependency-graph)
@@ -68,7 +68,7 @@ All three layers are also exposed to AI via a **20-tool MCP server**, so your as
 
 ## 🤖 Supercharge Your AI Assistant
 
-Stop pasting file paths and explaining your project structure. Graph-It-Live exposes **20 powerful dependency analysis tools** directly to your AI assistant via the [Model Context Protocol (MCP)](https://modelcontextprotocol.io).
+Stop pasting file paths and explaining your project structure. Graph-It-Live exposes **21 powerful dependency analysis tools** directly to your AI assistant via the [Model Context Protocol (MCP)](https://modelcontextprotocol.io).
 
 **Works with:** GitHub Copilot, Claude (Desktop & Code), Cursor, Windsurf, Antigravity, and any MCP-compatible client.
 
@@ -223,8 +223,9 @@ Unlike the Symbol View (which shows relationships *within* a single file via AST
 1. Open a source file and place the cursor on a symbol (function, class, method…). Then open the command palette → `Graph-It-Live: Show Call Graph` or click the "Call Graph" button in the sidebar toolbar
 2. The extension indexes your workspace (Tree-sitter AST extraction)
 3. Click any symbol to re-center the neighbourhood
-4. Use the depth slider to expand or narrow the view
-5. Filter by symbol type or folder using the legend overlay
+4. **Drag any node** (symbol or entire file/folder group) to rearrange the layout freely
+5. Use the depth slider to expand or narrow the view
+6. Filter by symbol type or folder using the legend overlay
 
 <div align="center">
   <img src="media/call-graph-view-example.png" alt="Live call graph with cycle detection" width="800"/>
