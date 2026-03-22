@@ -226,6 +226,8 @@ export class CallGraphViewService implements vscode.Disposable, ICallGraphQueryS
   public getCallGraphNodeCount(): number { return this.callGraphNodeCount; }
   public getCallGraphEdgeCount(): number { return this.callGraphEdgeCount; }
   public getCallGraphCycleCount(): number { return this.callGraphCycleCount; }
+  /** Expose the indexer for LM Tools (query_call_graph). Returns null if not yet initialized. */
+  public getCallGraphIndexerForLmTools(): CallGraphIndexer | null { return this.indexer; }
   // ---------------------------------------------------------------------------
   // Public API
   // ---------------------------------------------------------------------------

@@ -51,6 +51,9 @@ export class VsCodeLogger implements ILogger {
       try {
         return JSON.stringify(arg);
       } catch {
+        if (typeof arg === 'object' && arg !== null) {
+          return Object.prototype.toString.call(arg);
+        }
         return String(arg);
       }
     }).join(' ');
