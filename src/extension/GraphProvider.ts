@@ -104,6 +104,18 @@ export class GraphProvider implements vscode.WebviewViewProvider {
       : undefined;
   }
 
+  /**
+   * Expose the Spider instance for use by LmToolsService.
+   * Returns undefined when no workspace folder is open.
+   */
+  public getSpiderForLmTools(): Spider | undefined {
+    return this.spider;
+  }
+
+  public getCallGraphViewServiceForLmTools(): import('./services/CallGraphViewService').CallGraphViewService | null {
+    return this._callGraphViewService;
+  }
+
   private get webviewManager(): WebviewManager {
     return this._container.get(graphProviderServiceTokens.webviewManager);
   }

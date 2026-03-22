@@ -12,6 +12,7 @@ import { CallGraphViewService } from './services/CallGraphViewService';
 import { CommandCoordinator } from './services/CommandCoordinator';
 import { CommandRegistrationService } from './services/CommandRegistrationService';
 import { EditorEventsService } from './services/EditorEventsService';
+import { LmToolsService } from './services/LmToolsService';
 
 // Keep track of MCP server provider for cleanup
 let mcpServerProvider: McpServerProvider | null = null;
@@ -47,6 +48,7 @@ export function activate(context: vscode.ExtensionContext) {
         commandCoordinator,
         logger: log,
     });
+    const lmToolsService = new LmToolsService({ provider, logger: log });
     
     // Watch for performance profile changes and apply preset values
     const profileWatcher = vscode.workspace.onDidChangeConfiguration(async (e) => {
@@ -105,6 +107,8 @@ export function activate(context: vscode.ExtensionContext) {
 
       // Register commands via centralized service
       ...commandService.registerAll(),
+        // Native VS Code Language Model Tools (always active, targets Copilot Chat)
+        ...lmToolsService.registerAll(),
       // Editor/workspace event listeners
       ...editorEventsService.register(),
     ];

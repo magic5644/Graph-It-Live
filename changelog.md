@@ -1,5 +1,17 @@
 # Changelog
 
+## v1.8.0
+
+### Enhancements
+
+- **Native LM Tools — 10 → 20 tools, full MCP parity**: The native VS Code Language Model Tools surface now covers all 20 analysis tools (vs 21 MCP tools — only `set_workspace` is MCP-only). All support `#` reference in Copilot Agent mode. Added in two batches:
+  - *Batch 1 (7 tools):* `#graphExpand`, `#graphVerifyUsage`, `#graphInvalidate`, `#graphRebuildIndex`, `#graphDependents`, `#graphTrace`, `#graphFileLogic`
+  - *Batch 2 (3 tools):* `#graphResolve` (resolve module specifier → absolute path), `#graphBreaking` (breaking change detection between old/new file content), `#graphCallGraph` (BFS callers/callees via the SQLite call graph index)
+
+### Bug Fixes
+
+- **Extension logger — object serialization**: Fixed `formatArgs()` producing the meaningless `[object Object]` string when a non-serialisable object was passed as a log argument (e.g. a circular-reference object that throws in `JSON.stringify`). The fallback now uses `Object.prototype.toString.call(arg)` which returns a descriptive tag like `[object Array]`, `[object Map]`, `[object MyClass]`, etc. without any type assertions.
+
 ## v1.7.5
 
 ### Bug Fixes

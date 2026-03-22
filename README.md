@@ -68,7 +68,7 @@ All three layers are also exposed to AI via a **20-tool MCP server**, so your as
 
 ## 🤖 Supercharge Your AI Assistant
 
-Stop pasting file paths and explaining your project structure. Graph-It-Live exposes **21 powerful dependency analysis tools** directly to your AI assistant via the [Model Context Protocol (MCP)](https://modelcontextprotocol.io).
+Stop pasting file paths and explaining your project structure. Graph-It-Live exposes **21 powerful dependency analysis tools** directly to your AI assistant via the [Model Context Protocol (MCP)](https://modelcontextprotocol.io), and **20 native LM Tools** directly in Copilot Agent mode (no MCP setup required).
 
 **Works with:** GitHub Copilot, Claude (Desktop & Code), Cursor, Windsurf, Antigravity, and any MCP-compatible client.
 
@@ -351,7 +351,7 @@ Graph-It-Live includes an optional **MCP server** that exposes its full analysis
 
 ### Available Tools
 
-The MCP server exposes **21 tools** for AI/LLM consumption:
+The MCP server exposes **21 tools** for AI/LLM consumption. All tools except `set_workspace` are also available as **native LM Tools** (`#graphResolve`, `#graphBreaking`, `#graphCallGraph`, etc.) directly in Copilot Agent mode — no MCP server required for those.
 
 | Tool | Description |
 | :--- | :---------- |
@@ -398,6 +398,35 @@ All tools support an optional `format` parameter to reduce token consumption:
 | `markdown` | JSON wrapped in markdown code blocks | — |
 
 See [TOON Format Documentation](./docs/TOON_FORMAT.md) for full specifications.
+
+### Native LM Tools (Copilot Agent Mode)
+
+All 20 analysis tools are also available **natively in GitHub Copilot** — no MCP server required. Reference them with `#` in Agent mode:
+
+| Reference | Tool | Description |
+|---|---|---|
+| `#graphFindRefs` | `find_referencing_files` | All files that import a given file |
+| `#graphDeps` | `analyze_dependencies` | Direct imports and exports of a file |
+| `#graphCrawl` | `crawl_dependency_graph` | Full dependency tree from an entry file |
+| `#graphSymbols` | `get_symbol_graph` | Symbol-level dependencies within a file |
+| `#graphUnused` | `find_unused_symbols` | Dead code detection |
+| `#graphCallers` | `get_symbol_callers` | All callers of a symbol |
+| `#graphImpact` | `get_impact_analysis` | Full impact analysis |
+| `#graphIndexStatus` | `get_index_status` | Current state of the dependency index |
+| `#graphImports` | `parse_imports` | Raw import statements |
+| `#graphCodemap` | `generate_codemap` | Comprehensive file structural overview |
+| `#graphExpand` | `expand_node` | Incremental dependency exploration |
+| `#graphVerifyUsage` | `verify_dependency_usage` | Is an import actually used? |
+| `#graphInvalidate` | `invalidate_files` | Flush cache for specific files |
+| `#graphRebuildIndex` | `rebuild_index` | Full index rebuild |
+| `#graphDependents` | `get_symbol_dependents` | All symbols depending on a given symbol |
+| `#graphTrace` | `trace_function_execution` | Full recursive call chain |
+| `#graphFileLogic` | `analyze_file_logic` | Intra-file call hierarchy |
+| `#graphResolve` | `resolve_module_path` | Resolve a module specifier to its absolute path |
+| `#graphBreaking` | `analyze_breaking_changes` | Detect breaking changes between two file versions |
+| `#graphCallGraph` | `query_call_graph` | BFS callers/callees via the SQLite call graph index |
+
+> **Note:** `#graphCallGraph` requires the Call Graph panel (`graph-it-live.showCallGraph`) to be opened at least once to build the index.
 
 ### Manual MCP Server Configuration
 
