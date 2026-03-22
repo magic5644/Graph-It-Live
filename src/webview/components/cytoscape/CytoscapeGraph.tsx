@@ -266,6 +266,14 @@ export function CytoscapeGraph({ onReady, postMessage }: Readonly<CytoscapeGraph
   const onReadyRef = useRef(onReady);
   onReadyRef.current = onReady;
 
+  // Track the pending layout setTimeout so it can be cancelled when a new
+  // showCallGraph arrives before the previous one has run layout.run().
+  const layoutTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // Safety timeout ref: clears isLoading if layoutstop never fires (e.g. on
+  // certain Cytoscape edge cases or rapid component teardown).
+  const safetyTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
   // ---------------------------------------------------------------------------
   // Initialize / destroy Cytoscape instance
   // ---------------------------------------------------------------------------
@@ -370,6 +378,14 @@ export function CytoscapeGraph({ onReady, postMessage }: Readonly<CytoscapeGraph
 
     return () => {
       if (resizeTimer !== null) clearTimeout(resizeTimer);
+      if (layoutTimerRef.current !== null) {
+        clearTimeout(layoutTimerRef.current);
+        layoutTimerRef.current = null;
+      }
+      if (safetyTimerRef.current !== null) {
+        clearTimeout(safetyTimerRef.current);
+        safetyTimerRef.current = null;
+      }
       resizeObserver?.disconnect();
       themeObserver?.disconnect();
       window.removeEventListener("resize", handleResize);
@@ -458,7 +474,9 @@ export function CytoscapeGraph({ onReady, postMessage }: Readonly<CytoscapeGraph
     });
     cy.add(edgeElements);
 
-    cy.nodes(":parent").ungrabify();
+    // Do NOT call ungrabify() on compound nodes — cy.autoungrabify(false) (set
+    // at init) ensures all nodes including compounds are grabifiable so users
+    // can freely move both individual symbols and entire file/folder groups.
     cy.resize();
 
     // Extract unique nodeTypes and folders for legend (T027)
@@ -470,6 +488,18 @@ export function CytoscapeGraph({ onReady, postMessage }: Readonly<CytoscapeGraph
     setGraphFolders(folders);
     hiddenFiltersRef.current = new Set();
     setHiddenFilters(new Set());
+
+    // Cancel any layout timer still pending from a previous showCallGraph
+    // to avoid running two layouts on the same graph data.
+    if (layoutTimerRef.current !== null) {
+      clearTimeout(layoutTimerRef.current);
+      layoutTimerRef.current = null;
+    }
+    // Cancel any safety timer from a previous layout cycle.
+    if (safetyTimerRef.current !== null) {
+      clearTimeout(safetyTimerRef.current);
+      safetyTimerRef.current = null;
+    }
 
     // Show a "Calculating layout…" overlay while fcose runs.
     // fcose is synchronous and blocks the entire browser thread for several
@@ -495,8 +525,22 @@ export function CytoscapeGraph({ onReady, postMessage }: Readonly<CytoscapeGraph
       tilingPaddingHorizontal: 60,
     } as cytoscape.LayoutOptions);
 
+    // Safety net: if layoutstop never fires (e.g. destroyed Cytoscape instance
+    // or rapid component teardown while layout timer is pending), clear the
+    // loading overlay after 15 s to avoid permanently blocking interaction.
+    safetyTimerRef.current = setTimeout(() => {
+      safetyTimerRef.current = null;
+      setIsLoading(false);
+    }, 15000);
+
     // Register layoutstop BEFORE running to avoid missing the event on fast graphs.
     layout.on("layoutstop", () => {
+      // Disarm the safety net — layoutstop fired normally.
+      if (safetyTimerRef.current !== null) {
+        clearTimeout(safetyTimerRef.current);
+        safetyTimerRef.current = null;
+      }
+
       cy.fit(undefined, 60);
       cy.style().update();
       triggerCanvasRepaint(cy);
@@ -532,7 +576,8 @@ export function CytoscapeGraph({ onReady, postMessage }: Readonly<CytoscapeGraph
 
     // Defer layout.run() by one frame so React can paint the loading overlay
     // before fcose monopolises the thread.
-    setTimeout(() => {
+    layoutTimerRef.current = setTimeout(() => {
+      layoutTimerRef.current = null;
       layout.run();
     }, 20);
   }

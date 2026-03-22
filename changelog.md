@@ -1,5 +1,14 @@
 # Changelog
 
+## v1.7.4
+
+### Bug Fixes
+
+- **Call Graph — nodes intermittently impossible to move**: Fixed a regression where all graph nodes became non-draggable after certain interactions. Three root causes were resolved:
+  - **Loading overlay blocking mouse events**: The semi-transparent `isLoading` overlay (`position: absolute; inset: 0`) captured all pointer events when `layoutstop` never fired (e.g. rapid consecutive `showCallGraph` messages, or component teardown mid-layout). Added a **15-second safety timeout** that guarantees the overlay is dismissed and interaction is restored even if the fcose layout callback is lost.
+  - **Duplicate layout timers**: Multiple rapid `showCallGraph` messages could queue several deferred `layout.run()` calls running simultaneously. Now each new graph update cancels any pending layout timer before scheduling its own, preventing race conditions in the loading state machine.
+  - **Compound nodes `ungrabify()` override**: `cy.nodes(":parent").ungrabify()` was called on every graph update, re-locking all file/folder group nodes despite `cy.autoungrabify(false)` being set at init time to ensure all nodes are always draggable. Removed the `ungrabify()` call — users can now freely drag both individual symbol nodes and entire file/folder compound groups.
+
 ## v1.7.3
 
 ### Enhancements
