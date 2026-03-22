@@ -1,5 +1,12 @@
 # Changelog
 
+## v1.7.5
+
+### Bug Fixes
+
+- **Memory leak in Call Graph live-refresh listener**: Each invocation of "Show Call Graph" was pushing the save listener (`onDidSaveTextDocument`) into `context.subscriptions` without ever removing the previous entry. After repeated use, the subscriptions array accumulated stale disposed references. The listener is now managed exclusively through its own `dispose()` call — no accumulation occurs between sessions.
+- **Memory leak in sidebar message listener**: The `IDisposable` returned by `webviewView.webview.onDidReceiveMessage()` was discarded instead of being tracked. It is now captured and explicitly disposed when the webview is closed, preventing a dangling listener if the sidebar panel is closed and reopened.
+
 ## v1.7.4
 
 ### Bug Fixes
