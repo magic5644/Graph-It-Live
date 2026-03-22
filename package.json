@@ -511,6 +511,7 @@
   "overrides": {
     "picomatch": "^4.0.3",
     "minimatch": ">=10.2.1",
+    "flatted": ">=3.4.2",
     "@vscode/vsce": {
       "minimatch": "^3.0.3"
     },
