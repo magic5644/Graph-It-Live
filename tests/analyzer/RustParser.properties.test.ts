@@ -1213,9 +1213,20 @@ describe('RustParser Property-Based Tests', () => {
     });
 
     it('Feature: tree-sitter-wasm-migration, Property 5: For any module specifier, module names are normalized to lowercase', async () => {
+      // These names are treated as external crates by resolvePath and will never resolve to a file
+      const externalCratesSet = new Set([
+        "std", "core", "alloc", "proc_macro", "test",
+        "serde", "tokio", "async_std", "futures",
+        "vm", "rustpython_vm", "rustpython",
+        "rustpython_parser", "rustpython_compiler",
+        "num_traits", "enum_dispatch", "dashmap",
+      ]);
       await fc.assert(
         fc.asyncProperty(
-          fc.stringMatching(/^[a-z][a-z0-9_]{0,15}$/),
+          fc.stringMatching(/^[a-z][a-z0-9_]{0,15}$/).filter(
+            // Exclude external crate names and 'main' (the fromFile fixture)
+            name => !externalCratesSet.has(name) && name !== 'main'
+          ),
           async (moduleName) => {
             // Create a lowercase module file
             const moduleFilePath = path.join(fixturesDir, `${moduleName}.rs`);
