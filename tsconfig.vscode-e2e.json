@@ -1,13 +1,17 @@
 {
   "extends": "./tsconfig.test.json",
   "compilerOptions": {
-    "module": "commonjs",
+    "module": "nodenext",
     "target": "es2020",
     "outDir": "./tests/vscode-e2e",
     "rootDir": "./tests/vscode-e2e",
     "skipLibCheck": true,
     "esModuleInterop": true,
-    "moduleResolution": "node"
+    "moduleResolution": "nodenext",
+    "types": [
+      "node",
+      "mocha"
+    ]
   },
   "include": [
     "tests/vscode-e2e/**/*.ts"

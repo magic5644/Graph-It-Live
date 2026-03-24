@@ -78,13 +78,15 @@ server.stderr.on('data', (data) => {
   }
 });
 
-server.on('close', (code) => {
+server.on('close', (code, signal) => {
   log(`\n📊 Test Summary:`);
   log(`   Expected responses: ${expectedResponses}`);
   log(`   Responses received: ${responseCount}`);
   log(`   Exit code: ${code}`);
+  log(`   Exit signal: ${signal ?? 'none'}`);
   
-  const success = responseCount >= expectedResponses && code === 0;
+  const terminatedByScript = signal === 'SIGTERM';
+  const success = responseCount >= expectedResponses && (code === 0 || terminatedByScript);
   process.exit(success ? 0 : 1);
 });
 

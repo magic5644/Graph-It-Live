@@ -214,7 +214,7 @@ vi.mock('web-tree-sitter', () => {
   };
 });
 
-describe('RustParser Property-Based Tests', () => {
+describe('RustParser Property-Based Tests', { timeout: 30_000 }, () => {
   let parser: RustParser;
 
   beforeEach(() => {

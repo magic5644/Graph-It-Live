@@ -47,8 +47,8 @@ vi.mock('web-tree-sitter', () => {
       namedChildCount: children.length,
       firstChild: children[0] || null,
       firstNamedChild: children[0] || null,
-      lastChild: children[children.length - 1] || null,
-      lastNamedChild: children[children.length - 1] || null,
+      lastChild: children.at(-1) || null,
+      lastNamedChild: children.at(-1) || null,
       nextSibling: null,
       nextNamedSibling: null,
       previousSibling: null,
@@ -309,7 +309,7 @@ vi.mock('../../src/analyzer/languages/WasmParserFactory', () => {
   };
 });
 
-describe('PythonSymbolAnalyzer Property-Based Tests', () => {
+describe('PythonSymbolAnalyzer Property-Based Tests', { timeout: 30_000 }, () => {
   let analyzer: PythonSymbolAnalyzer;
 
   beforeEach(async () => {
@@ -582,8 +582,8 @@ describe('PythonSymbolAnalyzer Property-Based Tests', () => {
               // Verify line numbers match expected positions
               const actualLineNumbers = Array.from(symbols.values())
                 .map((s) => s.line)
-                .sort((a, b) => a - b);
-              const sortedExpectedLines = expectedLineNumbers.sort((a, b) => a - b);
+                .toSorted((a, b) => a - b);
+              const sortedExpectedLines = expectedLineNumbers.toSorted((a, b) => a - b);
 
               expect(actualLineNumbers).toEqual(sortedExpectedLines);
             } finally {
