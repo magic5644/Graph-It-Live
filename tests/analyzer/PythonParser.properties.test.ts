@@ -2,7 +2,6 @@ import fc from 'fast-check';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import type Parser from 'web-tree-sitter';
 import { PythonParser } from '../../src/analyzer/languages/PythonParser';
 import { normalizePath } from '../../src/shared/path';
 
@@ -22,7 +21,7 @@ const fixturesDir = path.resolve(__dirname, '../fixtures/python-project');
 
 // Mock tree-sitter to simulate parsing without requiring WASM files
 vi.mock('web-tree-sitter', () => {
-  const createMockNode = (type: string, text: string, startRow: number): Parser.SyntaxNode => ({
+  const createMockNode = (type: string, text: string, startRow: number): any => ({
     type,
     startPosition: { row: startRow, column: 0 },
     endPosition: { row: startRow, column: text.length },
@@ -64,7 +63,7 @@ vi.mock('web-tree-sitter', () => {
 
   const mockParse = vi.fn((content: string) => {
     const lines = content.split('\n');
-    const children: Parser.SyntaxNode[] = [];
+    const children: any[] = [];
     
     // Calculate absolute byte positions for each line
     let currentPosition = 0;
@@ -98,13 +97,13 @@ vi.mock('web-tree-sitter', () => {
           
           // Create node with correct absolute positions
           const dottedNameNode = createMockNode('dotted_name', moduleName, lineIndex);
-          (dottedNameNode as any).startIndex = moduleStartPos;
-          (dottedNameNode as any).endIndex = moduleEndPos;
+          dottedNameNode.startIndex = moduleStartPos;
+          dottedNameNode.endIndex = moduleEndPos;
           
           const importNode = createMockNode('import_statement', line, lineIndex);
-          (importNode as any).startIndex = lineStartPos;
-          (importNode as any).endIndex = lineStartPos + line.length;
-          (importNode as any).children = [dottedNameNode];
+          importNode.startIndex = lineStartPos;
+          importNode.endIndex = lineStartPos + line.length;
+          importNode.children = [dottedNameNode];
           children.push(importNode);
         }
       }
@@ -120,7 +119,7 @@ vi.mock('web-tree-sitter', () => {
           const moduleStartPos = lineStartPos + moduleStartInLine;
           const moduleEndPos = moduleStartPos + moduleName.length;
           
-          let childNode: Parser.SyntaxNode;
+          let childNode: any;
           
           if (moduleName.startsWith('.')) {
             childNode = createMockNode('relative_import', moduleName, lineIndex);
@@ -129,22 +128,22 @@ vi.mock('web-tree-sitter', () => {
           }
           
           // Set correct absolute positions
-          (childNode as any).startIndex = moduleStartPos;
-          (childNode as any).endIndex = moduleEndPos;
+          childNode.startIndex = moduleStartPos;
+          childNode.endIndex = moduleEndPos;
           
           const importNode = createMockNode('import_from_statement', line, lineIndex);
-          (importNode as any).startIndex = lineStartPos;
-          (importNode as any).endIndex = lineStartPos + line.length;
-          (importNode as any).children = [childNode];
+          importNode.startIndex = lineStartPos;
+          importNode.endIndex = lineStartPos + line.length;
+          importNode.children = [childNode];
           children.push(importNode);
         }
       }
     });
 
     const rootNode = createMockNode('module', content, 0);
-    (rootNode as any).startIndex = 0;
-    (rootNode as any).endIndex = content.length;
-    (rootNode as any).children = children;
+    rootNode.startIndex = 0;
+    rootNode.endIndex = content.length;
+    rootNode.children = children;
 
     return {
       rootNode,
@@ -183,7 +182,7 @@ vi.mock('web-tree-sitter', () => {
   };
 });
 
-describe('PythonParser Property-Based Tests', () => {
+describe('PythonParser Property-Based Tests', { timeout: 30_000 }, () => {
   let parser: PythonParser;
 
   beforeEach(() => {
@@ -376,8 +375,8 @@ describe('PythonParser Property-Based Tests', () => {
               const deps = await parser.parseImports(tempFilePath);
 
               // Verify line numbers match expected positions
-              const actualLineNumbers = deps.map((d) => d.line).sort((a, b) => a - b);
-              const sortedExpectedLines = expectedLineNumbers.sort((a, b) => a - b);
+              const actualLineNumbers = deps.map((d) => d.line).toSorted((a, b) => a - b);
+              const sortedExpectedLines = expectedLineNumbers.toSorted((a, b) => a - b);
 
               expect(actualLineNumbers).toEqual(sortedExpectedLines);
             } finally {

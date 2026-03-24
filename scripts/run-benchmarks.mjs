@@ -5,9 +5,8 @@ import * as fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-function getVitestBin(rootDir) {
-  const binName = process.platform === 'win32' ? 'vitest.cmd' : 'vitest';
-  return path.join(rootDir, 'node_modules', '.bin', binName);
+function getVitestEntrypoint(rootDir) {
+  return path.join(rootDir, 'node_modules', 'vitest', 'vitest.mjs');
 }
 
 function listBenchFiles(rootDir) {
@@ -37,11 +36,11 @@ async function main() {
   const __dirname = path.dirname(__filename);
 
   const rootDir = path.resolve(__dirname, '..');
-  const vitestBin = getVitestBin(rootDir);
+  const vitestEntrypoint = getVitestEntrypoint(rootDir);
   const configPath = path.join(rootDir, 'vitest.benchmark.config.mts');
 
-  if (!fs.existsSync(vitestBin)) {
-    process.stderr.write(`Vitest binary not found: ${vitestBin}\n`);
+  if (!fs.existsSync(vitestEntrypoint)) {
+    process.stderr.write(`Vitest entrypoint not found: ${vitestEntrypoint}\n`);
     process.stderr.write('Run `npm install` first.\n');
     process.exit(1);
   }
@@ -66,7 +65,7 @@ async function main() {
       benchFile,
     ];
 
-    const { code, signal } = await runProcess(vitestBin, args, {
+    const { code, signal } = await runProcess(process.execPath, [vitestEntrypoint, ...args], {
       cwd: rootDir,
       env: {
         ...process.env,
