@@ -204,3 +204,6 @@ tests/fixtures/bench-permanent/src/temp_*.ts
 # _bmad temporary files
 _bmad
 _bmad-output
+
+# VS Code settings (may contain user-specific or machine-specific settings)
+.vscode/settings.json
