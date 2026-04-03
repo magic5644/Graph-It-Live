@@ -1,4 +1,5 @@
 import type { Edge, Node } from "reactflow";
+import { detectCycles } from "../../../analyzer/callgraph/cycleUtils";
 import { getLogger } from "../../../shared/logger";
 import type {
   GraphData,
@@ -11,9 +12,8 @@ import {
 } from "../../utils/nodeUtils";
 import { normalizePath } from "../../utils/path";
 import type { FileNodeData } from "./FileNode";
-import type { SymbolNodeData } from "./SymbolNode";
-import { detectCycles } from "./cycles";
 import { calculateNodeWidth, layoutGraph } from "./layout";
+import type { SymbolNodeData } from "./SymbolNode";
 
 /** Logger instance for buildGraph */
 const log = getLogger("buildGraph");

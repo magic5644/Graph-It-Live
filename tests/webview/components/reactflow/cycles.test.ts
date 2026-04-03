@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { detectCycles } from '../../../../src/webview/components/reactflow/cycles';
+import { detectCycles } from '../../../../src/analyzer/callgraph/cycleUtils';
 
 describe('detectCycles', () => {
   it('returns nodes involved in a cycle', () => {
@@ -15,4 +15,3 @@ describe('detectCycles', () => {
     expect(cycles.has('x')).toBe(false);
   });
 });
-

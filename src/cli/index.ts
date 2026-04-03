@@ -25,13 +25,13 @@
  * NO import * as vscode from 'vscode' allowed!
  */
 
-import { parseArgs } from "node:util";
-import * as process from "node:process";
 import * as path from "node:path";
-import { CliError, classifyError, ExitCode } from "./errors";
+import * as process from "node:process";
+import { parseArgs } from "node:util";
+import { classifyError, CliError, ExitCode } from "./errors";
 import type { CliOutputFormat } from "./formatter";
 import { CLI_OUTPUT_FORMATS } from "./formatter";
-import { findWorkspaceRoot, CliRuntime } from "./runtime";
+import { CliRuntime, findWorkspaceRoot } from "./runtime";
 
 // ============================================================================
 // Version (injected at build time via define, fallback to package.json read)
@@ -155,39 +155,39 @@ async function dispatch(
 ): Promise<string> {
   switch (command) {
     case "scan": {
-      const { run } = await import("./commands/scan");
+      const { run } = await import("./commands/scan.js");
       return run(args, runtime, format);
     }
     case "summary": {
-      const { run } = await import("./commands/summary");
+      const { run } = await import("./commands/summary.js");
       return run(args, runtime, format);
     }
     case "trace": {
-      const { run } = await import("./commands/trace");
+      const { run } = await import("./commands/trace.js");
       return run(args, runtime, format);
     }
     case "explain": {
-      const { run } = await import("./commands/explain");
+      const { run } = await import("./commands/explain.js");
       return run(args, runtime, format);
     }
     case "path": {
-      const { run } = await import("./commands/path");
+      const { run } = await import("./commands/path.js");
       return run(args, runtime, format);
     }
     case "check": {
-      const { run } = await import("./commands/check");
+      const { run } = await import("./commands/check.js");
       return run(args, runtime, format);
     }
     case "serve": {
-      const { run } = await import("./commands/serve");
+      const { run } = await import("./commands/serve.js");
       return run(args, runtime, format);
     }
     case "tool": {
-      const { run } = await import("./commands/tool");
+      const { run } = await import("./commands/tool.js");
       return run(args, runtime, format);
     }
     case "install": {
-      const { run } = await import("./install");
+      const { run } = await import("./install.js");
       return run(args, runtime, format);
     }
     default:
