@@ -3,7 +3,9 @@ import * as path from "node:path";
 import { parseSymbolRef } from "@/cli/symbols";
 import { CliError, ExitCode } from "@/cli/errors";
 
-const ROOT = "/workspace/project";
+// Use path.resolve so ROOT is a fully-qualified absolute path on all platforms
+// (on Windows path.resolve adds the current drive letter, e.g. "D:\workspace\project")
+const ROOT = path.resolve("/workspace/project");
 
 describe("parseSymbolRef", () => {
   it("parses file-only reference", () => {
