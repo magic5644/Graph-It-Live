@@ -4,6 +4,9 @@
     "lib": [
       "ESNext"
     ],
+    "types": [
+      "node"
+    ],
     "module": "nodenext",
     "moduleResolution": "nodenext",
     "strict": true,
