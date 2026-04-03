@@ -8,7 +8,6 @@
 
 import { spawn } from "node:child_process";
 import * as path from "node:path";
-import { fileURLToPath } from "node:url";
 import { CliError, ExitCode } from "../errors";
 import type { CliOutputFormat } from "../formatter";
 import type { CliRuntime } from "../runtime";
@@ -18,9 +17,8 @@ export async function run(
   _runtime: CliRuntime,
   _format: CliOutputFormat,
 ): Promise<string> {
-  // Locate mcpServer.mjs relative to this CLI bundle
-  const thisFile = fileURLToPath(import.meta.url);
-  const distDir = path.dirname(thisFile);
+  // __dirname is injected by the esbuild ESM banner shim
+  const distDir = __dirname;
   const mcpServerPath = path.join(distDir, "mcpServer.mjs");
 
   const child = spawn(process.execPath, [mcpServerPath], {

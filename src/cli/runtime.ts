@@ -109,7 +109,10 @@ export class CliRuntime {
       this.workspaceRoot,
     );
 
-    // AstWorkerHost (pass undefined extensionPath — WASM resolved from dist/ via __dirname)
+    // AstWorkerHost:
+    //   - First arg (workerPath): undefined → uses default dist/astWorker.js resolution
+    //   - Second arg (extensionPath): undefined → acceptable for CLI since WASM files are
+    //     co-located in the same dist/ directory as the CLI binary (resolved via __dirname)
     workerState.astWorkerHost = new AstWorkerHost(undefined, undefined);
     await workerState.astWorkerHost.start();
 

@@ -195,6 +195,9 @@ test-results/
 .github/hooks
 AGENTS.md
 
+# .graph-it/ — ephemeral CLI state/cache directory (graph-it-live CLI)
+.graph-it/
+
 # Benchmark temporary files
 tests/fixtures/bench-permanent/src/temp_*.ts
 

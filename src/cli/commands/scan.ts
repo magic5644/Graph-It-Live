@@ -6,7 +6,7 @@
  * CRITICAL ARCHITECTURE RULE: This module is completely VS Code agnostic!
  */
 
-import { executeGetIndexStatus, executeRebuildIndex } from "../../mcp/tools";
+import { executeGetIndexStatus } from "../../mcp/tools";
 import type { CliOutputFormat } from "../formatter";
 import { formatOutput } from "../formatter";
 import type { CliRuntime } from "../runtime";

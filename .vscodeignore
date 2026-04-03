@@ -32,6 +32,10 @@ coverage/**
 verbose/**
 *.vsix
 
+# CLI standalone binary — not part of the VS Code extension package
+dist/graph-it.mjs
+dist/graph-it.mjs.map
+
 # Config files
 .gitignore
 .eslintignore
