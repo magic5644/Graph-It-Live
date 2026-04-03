@@ -1051,15 +1051,20 @@
       }
     }
   },
+  "bin": {
+    "graph-it": "./dist/graph-it.mjs"
+  },
   "scripts": {
     "vscode:prepublish": "npm run build -- --production",
     "build": "node esbuild.js",
+    "build:cli": "node esbuild.js --cli-only",
     "watch": "node esbuild.js --watch",
     "compile": "npm run build",
     "compile:tests": "tsc -p tsconfig.vscode-e2e.json",
     "test": "vitest --run",
     "test:watch": "vitest --watch",
     "test:unit": "vitest run --run",
+    "test:cli": "vitest run tests/cli",
     "test:coverage": "vitest run --coverage",
     "test:vscode": "npm run compile:tests && npm run compile && node ./tests/vscode-e2e/runTests.js",
     "test:vscode:vsix": "npm run package && npm run compile:tests && node ./tests/vscode-e2e/runTests.js --vsix",

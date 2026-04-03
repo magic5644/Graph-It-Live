@@ -289,6 +289,37 @@ const __dirname = dirname(__filename);`,
     },
   });
 
+  // Build CLI (Node.js ESM standalone binary)
+  // Entry point for the standalone 'graph-it' CLI tool.
+  // Uses ESM format (same as mcpServer.mjs) for compatibility with ESM-only dependencies.
+  const ctxCli = await esbuild.context({
+    entryPoints: ['src/cli/index.ts'],
+    bundle: true,
+    format: 'esm',
+    minify: production,
+    sourcemap: !production,
+    sourcesContent: false,
+    platform: 'node',
+    outfile: 'dist/graph-it.mjs',
+    external: ['vscode', 'web-tree-sitter'],
+    logLevel: 'silent',
+    plugins: [esbuildProblemMatcherPlugin],
+    target: 'node20',
+    metafile: !!metafilePath,
+    loader: {
+      '.wasm': 'file',
+    },
+    banner: {
+      // Required for ESM to have __dirname and __filename
+      js: `import { createRequire } from 'module';
+import { fileURLToPath } from 'url';
+import { dirname } from 'path';
+const require = createRequire(import.meta.url);
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = dirname(__filename);`,
+    },
+  });
+
   // Build Call Graph Webview (Browser) — separate panel entry point
   const ctxCallGraphWebview = await esbuild.context({
     entryPoints: ['src/webview/callgraph/index.tsx'],
@@ -319,6 +350,7 @@ const __dirname = dirname(__filename);`,
     await ctxMcpWorker.watch();
     await ctxWebview.watch();
     await ctxCallGraphWebview.watch();
+    await ctxCli.watch();
   } else {
     const resultExtension = await ctxExtension.rebuild();
     const resultWorker = await ctxWorker.rebuild();
@@ -327,6 +359,15 @@ const __dirname = dirname(__filename);`,
     const resultMcpWorker = await ctxMcpWorker.rebuild();
     const resultWebview = await ctxWebview.rebuild();
     await ctxCallGraphWebview.rebuild();
+    await ctxCli.rebuild();
+    // Mark CLI as executable (chmod is a no-op on Windows; chmodSync throws — ignore it)
+    try {
+      fs.chmodSync('dist/graph-it.mjs', 0o755);
+    } catch (err) {
+      if (process.platform !== 'win32') {
+        stderr(`⚠ Could not chmod dist/graph-it.mjs: ${err.message}`);
+      }
+    }
     
     // Copy WASM files to dist directory
     copyWasmFiles();
@@ -353,6 +394,7 @@ const __dirname = dirname(__filename);`,
     await ctxCallGraphWebview.dispose();
     await ctxMcpWorker.dispose();
     await ctxWebview.dispose();
+    await ctxCli.dispose();
   }
 }
 
