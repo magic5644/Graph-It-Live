@@ -5,7 +5,8 @@
     "composite": true,
     "declaration": true,
     "declarationMap": true,
-    "emitDeclarationOnly": true
+    "emitDeclarationOnly": true,
+    "types": ["node", "vitest/globals"]
   },
   "include": [
     "src/**/*",

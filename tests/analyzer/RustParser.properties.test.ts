@@ -1173,7 +1173,7 @@ describe('RustParser Property-Based Tests', { timeout: 30_000 }, () => {
     it('Feature: tree-sitter-wasm-migration, Property 5: For any module specifier with :: separator, resolution converts to path separators', async () => {
       await fc.assert(
         fc.asyncProperty(
-          rustModuleNameArbitrary(),
+          localModuleNameArbitrary(),
           rustModuleNameArbitrary(),
           async (parentModule, childModule) => {
             // Create nested module structure
