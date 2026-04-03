@@ -8,7 +8,7 @@
  * NO import * as vscode from 'vscode' allowed!
  */
 
-import { jsonToToon, estimateTokenSavings } from "../shared/toon";
+import { estimateTokenSavings, jsonToToon } from "../shared/toon";
 import { CliError, ExitCode } from "./errors";
 
 export type CliOutputFormat = "text" | "json" | "toon" | "markdown" | "mermaid";
@@ -177,8 +177,8 @@ interface GraphLike {
 }
 
 interface TraceLike {
-  trace?: { caller?: string; callee?: string; file?: string; depth?: number }[];
-  steps?: { from?: string; to?: string }[];
+  trace?: { caller?: string; callee?: string; from?: string; to?: string; file?: string; depth?: number }[];
+  steps?: { caller?: string; callee?: string; from?: string; to?: string }[];
 }
 
 function tryBuildMermaid(data: unknown): string | null {

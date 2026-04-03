@@ -1140,7 +1140,7 @@ export class LmToolsService {
             }
           }
           try {
-            const { SignatureAnalyzer } = await import('@/analyzer/SignatureAnalyzer');
+            const { SignatureAnalyzer } = await import('../../analyzer/SignatureAnalyzer.js');
             const analyzer = new SignatureAnalyzer();
             let results = analyzer.analyzeBreakingChanges(filePath, oldContent, newContent);
             if (symbolName) {
@@ -1188,7 +1188,7 @@ export class LmToolsService {
           }
           const { filePath, symbolName, direction = 'both', depth = 2, relationTypes } = options.input;
           try {
-            const { normalizePath } = await import('@/shared/path');
+            const { normalizePath } = await import('../../shared/path.js');
             const db = indexer.getDb();
             const normalizedPath = normalizePath(filePath);
             const symbolRows = db.exec(
