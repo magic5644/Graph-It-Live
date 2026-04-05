@@ -1,10 +1,10 @@
-import { describe, it, expect } from "vitest";
+import { describe, expect, it } from "vitest";
+import { CliError, ExitCode } from "../../src/cli/errors";
 import {
+  CLI_OUTPUT_FORMATS,
   formatOutput,
   validateFormatForCommand,
-  CLI_OUTPUT_FORMATS,
-} from "@/cli/formatter";
-import { CliError, ExitCode } from "@/cli/errors";
+} from "../../src/cli/formatter";
 
 // Sample data used across tests
 const arrayData = [
