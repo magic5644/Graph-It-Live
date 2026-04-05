@@ -87,13 +87,17 @@ function formatToon(data: unknown): string {
   }
 }
 
-function formatText(data: unknown, _command: string): string {
+function formatText(data: unknown, command: string): string {
   if (data === null || data === undefined) {
     return "";
   }
 
   if (typeof data === "string") {
     return data;
+  }
+
+  if (command === "trace" && typeof data === "object" && data !== null && !Array.isArray(data)) {
+    return formatTrace(data as Record<string, unknown>);
   }
 
   if (Array.isArray(data)) {
@@ -104,18 +108,20 @@ function formatText(data: unknown, _command: string): string {
     return formatTextObject(data as Record<string, unknown>, 0);
   }
 
-  return String(data);
+  // data is a primitive at this point (number, boolean, bigint, symbol)
+  return String(data as number | boolean | bigint | symbol);
 }
 
 function formatTextItem(item: unknown, index: number): string {
   if (typeof item === "object" && item !== null) {
     const obj = item as Record<string, unknown>;
-    const label = obj["file"] ?? obj["filePath"] ?? obj["name"] ?? obj["symbolName"] ?? `[${index}]`;
+    const rawLabel = obj["file"] ?? obj["filePath"] ?? obj["name"] ?? obj["symbolName"] ?? `[${index}]`;
+    const label = typeof rawLabel === "string" || typeof rawLabel === "number" ? String(rawLabel) : `[${index}]`;
     const rest = Object.entries(obj)
       .filter(([k]) => k !== "file" && k !== "filePath" && k !== "name" && k !== "symbolName")
       .map(([k, v]) => `${k}=${formatTextValue(v)}`)
       .join(" ");
-    return rest ? `${String(label)}  ${rest}` : String(label);
+    return rest ? `${label}  ${rest}` : label;
   }
   return String(item);
 }
@@ -137,9 +143,49 @@ function formatTextObject(obj: Record<string, unknown>, indent: number): string 
       if (typeof v === "object" && v !== null && !Array.isArray(v)) {
         return `${prefix}${k}:\n${formatTextObject(v as Record<string, unknown>, indent + 1)}`;
       }
+      if (Array.isArray(v) && v.length > 0 && typeof v[0] === "object" && v[0] !== null) {
+        const items = v.map((item, i) =>
+          `${prefix}  [${i}]:\n${formatTextObject(item as Record<string, unknown>, indent + 2)}`
+        );
+        return `${prefix}${k}:\n${items.join("\n")}`;
+      }
       return `${prefix}${k}: ${formatTextValue(v)}`;
     })
     .join("\n");
+}
+
+function formatTrace(data: Record<string, unknown>): string {
+  const root = data["rootSymbol"] as { relativePath?: string; symbolName?: string } | undefined;
+  type ChainEntry = { depth: number; callerSymbolId: string; calledSymbolId: string; resolvedRelativePath: string | null };
+  const callChain = (data["callChain"] as ChainEntry[] | undefined) ?? [];
+  const visitedSymbols = (data["visitedSymbols"] as string[] | undefined) ?? [];
+
+  const header = root ? `Trace: ${root.relativePath} :: ${root.symbolName}` : "Trace";
+  const callCount = typeof data["callCount"] === "number" ? data["callCount"] : callChain.length;
+  const uniqueCount = typeof data["uniqueSymbolCount"] === "number" ? data["uniqueSymbolCount"] : visitedSymbols.length;
+  const maxDepthReached = typeof data["maxDepthReached"] === "boolean" ? data["maxDepthReached"] : false;
+  const stats = `calls: ${callCount}  unique symbols: ${uniqueCount}  maxDepthReached: ${maxDepthReached}`;
+
+  const chainLines = callChain.map((entry) => {
+    const callerSymbol = entry.callerSymbolId.split(":").pop() ?? entry.callerSymbolId;
+    const calledSymbol = entry.calledSymbolId.split(":").pop() ?? entry.calledSymbolId;
+    const where = entry.resolvedRelativePath ? `  (${entry.resolvedRelativePath})` : "";
+    return `  depth ${entry.depth}  ${callerSymbol} → ${calledSymbol}${where}`;
+  });
+
+  const visitedLines = visitedSymbols.map((sym) => {
+    const colon = sym.lastIndexOf(":");
+    return colon >= 0 ? `  - ${sym.slice(colon + 1)}  (${sym.slice(0, colon)})` : `  - ${sym}`;
+  });
+
+  return [
+    header,
+    `  ${stats}`,
+    "",
+    callChain.length > 0 ? `Call Chain:\n${chainLines.join("\n")}` : "Call Chain: (empty)",
+    "",
+    visitedSymbols.length > 0 ? `Visited Symbols:\n${visitedLines.join("\n")}` : "Visited Symbols: (none)",
+  ].join("\n");
 }
 
 function formatMarkdown(data: unknown, command: string): string {
@@ -193,16 +239,23 @@ function tryBuildMermaid(data: unknown): string | null {
     return buildMermaidFromGraph(obj as unknown as GraphLike);
   }
 
-  // Trace-like data
+  // Trace-like data (generic)
   if (Array.isArray(obj["trace"]) || Array.isArray(obj["steps"])) {
     return buildMermaidFromTrace(obj as unknown as TraceLike);
+  }
+
+  // Trace result with callChain (from executeTraceFunctionExecution)
+  if (Array.isArray(obj["callChain"])) {
+    return buildMermaidFromCallChain(
+      obj["callChain"] as { callerSymbolId: string; calledSymbolId: string }[],
+    );
   }
 
   return null;
 }
 
 function sanitizeMermaidId(id: string): string {
-  return id.replace(/[^a-zA-Z0-9_]/g, "_");
+  return id.replaceAll(/\W/g, "_");
 }
 
 function buildMermaidFromGraph(graph: GraphLike): string | null {
@@ -243,6 +296,27 @@ function buildMermaidFromTrace(trace: TraceLike): string | null {
   return lines.join("\n");
 }
 
+function buildMermaidFromCallChain(
+  chain: { callerSymbolId: string; calledSymbolId: string }[],
+): string | null {
+  if (chain.length === 0) return null;
+
+  const lines = ["graph TD"];
+  const seen = new Set<string>();
+
+  for (const entry of chain) {
+    const from = sanitizeMermaidId(entry.callerSymbolId.split(":").pop() ?? entry.callerSymbolId);
+    const to = sanitizeMermaidId(entry.calledSymbolId.split(":").pop() ?? entry.calledSymbolId);
+    const edge = `  ${from} --> ${to}`;
+    if (!seen.has(edge)) {
+      lines.push(edge);
+      seen.add(edge);
+    }
+  }
+
+  return lines.join("\n");
+}
+
 // ============================================================================
 // TOON helpers
 // ============================================================================
@@ -254,7 +328,7 @@ function extractArrayForToon(data: unknown): unknown[] | null {
     const obj = data as Record<string, unknown>;
     const arrayKeys = [
       "items", "results", "data", "nodes", "edges",
-      "dependencies", "symbols", "callers", "files",
+      "dependencies", "symbols", "callers", "files", "callChain",
     ];
     for (const key of arrayKeys) {
       if (Array.isArray(obj[key])) return obj[key] as unknown[];

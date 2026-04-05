@@ -85,6 +85,29 @@ describe("formatOutput - text", () => {
     expect(out).toContain("filesIndexed");
     expect(out).toContain("42");
   });
+
+  it("renders trace result as human-readable call chain", () => {
+    const traceData = {
+      rootSymbol: { id: "src/cli/index.ts:main", filePath: "/abs/src/cli/index.ts", relativePath: "src/cli/index.ts", symbolName: "main" },
+      maxDepth: 10,
+      callCount: 1,
+      uniqueSymbolCount: 2,
+      maxDepthReached: false,
+      callChain: [
+        { depth: 1, callerSymbolId: "/abs/src/cli/index.ts:main", calledSymbolId: "/abs/src/cli/index.ts:run", calledFilePath: "./index", resolvedFilePath: "/abs/src/cli/index.ts", resolvedRelativePath: "src/cli/index.ts" },
+      ],
+      visitedSymbols: ["/abs/src/cli/index.ts:main", "/abs/src/cli/index.ts:run"],
+    };
+    const out = formatOutput(traceData, "text", "trace");
+    expect(out).toContain("Trace: src/cli/index.ts :: main");
+    expect(out).toContain("calls: 1");
+    expect(out).toContain("Call Chain:");
+    expect(out).toContain("depth 1");
+    expect(out).toContain("main \u2192 run");
+    expect(out).not.toContain("[object Object]");
+    expect(out).toContain("Visited Symbols:");
+    expect(out).toContain("- main");
+  });
 });
 
 describe("formatOutput - toon", () => {
@@ -117,6 +140,23 @@ describe("formatOutput - mermaid", () => {
     const out = formatOutput(graphData, "mermaid", "path");
     expect(out).toContain("graph LR");
     expect(out).toContain("-->");
+  });
+
+  it("generates graph from callChain (trace result)", () => {
+    const traceData = {
+      rootSymbol: { id: "src/a.ts:main", filePath: "/abs/src/a.ts", relativePath: "src/a.ts", symbolName: "main" },
+      maxDepth: 10,
+      callCount: 1,
+      uniqueSymbolCount: 2,
+      maxDepthReached: false,
+      callChain: [
+        { depth: 1, callerSymbolId: "/abs/src/a.ts:main", calledSymbolId: "/abs/src/a.ts:helper", calledFilePath: "./a", resolvedFilePath: "/abs/src/a.ts", resolvedRelativePath: "src/a.ts" },
+      ],
+      visitedSymbols: ["/abs/src/a.ts:main", "/abs/src/a.ts:helper"],
+    };
+    const out = formatOutput(traceData, "mermaid", "trace");
+    expect(out).toContain("graph TD");
+    expect(out).toContain("main --> helper");
   });
 
   it("throws UNSUPPORTED_FORMAT when no graph data", () => {
