@@ -6,11 +6,10 @@
  * CRITICAL ARCHITECTURE RULE: This module is completely VS Code agnostic!
  */
 
-import { validateToolParams, validateFilePath } from "../../mcp/types";
-import type { McpToolName } from "../../mcp/types";
+import { workerState } from "../../mcp/shared/state";
 import {
-  executeAnalyzeDependencies,
   executeAnalyzeBreakingChanges,
+  executeAnalyzeDependencies,
   executeAnalyzeFileLogic,
   executeCrawlDependencyGraph,
   executeExpandNode,
@@ -30,7 +29,8 @@ import {
   executeTraceFunctionExecution,
   executeVerifyDependencyUsage,
 } from "../../mcp/tools";
-import { workerState } from "../../mcp/shared/state";
+import type { McpToolName } from "../../mcp/types";
+import { validateFilePath, validateToolParams } from "../../mcp/types";
 import { CliError, ExitCode } from "../errors";
 import type { CliOutputFormat } from "../formatter";
 import { formatOutput } from "../formatter";
@@ -60,13 +60,42 @@ const TOOL_NAMES: McpToolName[] = [
   "query_call_graph",
 ];
 
+/** One-line descriptions for `graph-it tool --list` */
+const TOOL_DESCRIPTIONS: Record<string, string> = {
+  analyze_dependencies: "Show direct imports and exports of a file",
+  crawl_dependency_graph: "Full dependency tree from an entry file (BFS)",
+  find_referencing_files: "All files that import a given file",
+  expand_node: "Incrementally expand dependencies of a node",
+  parse_imports: "Raw import statements parsed from a file",
+  verify_dependency_usage: "Check if an import is actually used in source",
+  resolve_module_path: "Resolve a module specifier to its absolute path",
+  get_index_status: "Current state of the dependency index",
+  invalidate_files: "Flush cache entries for specific files",
+  rebuild_index: "Trigger a full index rebuild",
+  get_symbol_graph: "Symbol-level call graph within a file",
+  find_unused_symbols: "Detect dead/unused exported symbols",
+  get_symbol_dependents: "All symbols that depend on a given symbol",
+  trace_function_execution: "Full recursive call chain from a symbol",
+  get_symbol_callers: "All callers of a symbol across the project",
+  analyze_breaking_changes: "Detect breaking API changes between two versions",
+  get_impact_analysis: "Full impact analysis of changing a file/symbol",
+  analyze_file_logic: "Intra-file call hierarchy (AST-based)",
+  generate_codemap: "AI-friendly structural overview of a file (TOON)",
+  query_call_graph: "BFS callers/callees via the SQLite call graph index",
+};
+
 export async function run(
   args: string[],
   runtime: CliRuntime,
   format: CliOutputFormat,
 ): Promise<string> {
   if (args.length === 0) {
-    return `Available tools:\n${TOOL_NAMES.map((t) => `  ${t}`).join("\n")}`;
+    return "Available tools:\n" + TOOL_NAMES.map((t) => `  ${t}`).join("\n");
+  }
+
+  if (args[0] === "--list") {
+    const lines = TOOL_NAMES.map((t) => `  ${t.padEnd(28)} ${TOOL_DESCRIPTIONS[t] ?? ""}`);
+    return "Available MCP tools:\n\n" + lines.join("\n") + "\n";
   }
 
   const toolName = args[0] as McpToolName;

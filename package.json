@@ -1130,5 +1130,20 @@
       "diff": ">=8.0.3",
       "serialize-javascript": ">=7.0.3"
     }
+  },
+  "files": [
+    "dist/graph-it.mjs",
+    "dist/astWorker.js",
+    "dist/mcpServer.mjs",
+    "dist/mcpWorker.js",
+    "dist/indexerWorker.js",
+    "dist/wasm/",
+    "dist/queries/",
+    "README.md",
+    "LICENSE"
+  ],
+  "publishConfig": {
+    "access": "public",
+    "registry": "https://registry.npmjs.org"
   }
 }

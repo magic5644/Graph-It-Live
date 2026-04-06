@@ -26,7 +26,6 @@
  */
 
 import * as path from "node:path";
-import * as process from "node:process";
 import { parseArgs } from "node:util";
 import { classifyError, CliError, ExitCode } from "./errors";
 import type { CliOutputFormat } from "./formatter";
@@ -34,9 +33,9 @@ import { CLI_OUTPUT_FORMATS } from "./formatter";
 import { CliRuntime, findWorkspaceRoot } from "./runtime";
 
 // ============================================================================
-// Version (injected at build time via define, fallback to package.json read)
+// Version (injected at build time via define, fallback for dev/test)
 // ============================================================================
-const VERSION = "0.0.1";
+const VERSION = process.env.CLI_VERSION ?? "0.0.0-dev";
 
 const HELP = `
 graph-it — Graph-It-Live standalone CLI
@@ -59,6 +58,57 @@ Options:
   --format, -f      Output format: text|json|toon|markdown|mermaid (default: text)
   --help, -h        Show this help
   --version, -v     Show version
+
+Output Format Availability:
+  Format    | scan | summary | trace | explain | path | check | tool
+  ----------|------|---------|-------|---------|------|-------|-----
+  text      |  ✓   |    ✓    |   ✓   |    ✓    |  ✓   |   ✓   |  ✓
+  json      |  ✓   |    ✓    |   ✓   |    ✓    |  ✓   |   ✓   |  ✓
+  toon      |  ✓   |    ✓    |   ✓   |    ✓    |  ✓   |   ✓   |  ✓
+  markdown  |  ✓   |    ✓    |   ✓   |    ✓    |  ✓   |   ✓   |  ✓
+  mermaid   |  —   |    —    |   ✓   |    —    |  ✓   |   —   |  —
+
+MCP Client Integration:
+  Use "graph-it serve" as the MCP server command in any MCP-compatible client.
+
+  Claude Desktop (~/.config/claude/claude_desktop_config.json or macOS equivalent):
+    {
+      "mcpServers": {
+        "graph-it-live": {
+          "command": "graph-it",
+          "args": ["serve"],
+          "env": { "WORKSPACE_ROOT": "/path/to/project" }
+        }
+      }
+    }
+
+  VS Code / Cursor (.vscode/mcp.json or .cursor/mcp.json):
+    {
+      "servers": {
+        "graph-it-live": {
+          "type": "stdio",
+          "command": "graph-it",
+          "args": ["serve"],
+          "env": { "WORKSPACE_ROOT": "\${workspaceFolder}" }
+        }
+      }
+    }
+
+  Claude Code CLI:
+    claude mcp add graph-it -- graph-it serve
+
+  Windsurf (~/.codeium/windsurf/mcp_config.json):
+    {
+      "mcpServers": {
+        "graph-it-live": {
+          "command": "graph-it",
+          "args": ["serve"],
+          "env": { "WORKSPACE_ROOT": "\${workspaceFolder}" }
+        }
+      }
+    }
+
+  Run "graph-it tool --list" to see all 20 available MCP tools.
 
 Examples:
   graph-it scan
@@ -113,6 +163,27 @@ async function main(): Promise<void> {
     process.exit(ExitCode.SUCCESS);
   }
 
+  // Per-command --help dispatch (check both parsed positionals and raw argv flags)
+  const rawArgvSlice = process.argv.slice(2);
+  const hasCommandHelp = commandArgs.includes("--help") || commandArgs.includes("-h") ||
+    (rawArgvSlice.includes("--help") && rawArgvSlice.indexOf(command) < rawArgvSlice.indexOf("--help")) ||
+    (rawArgvSlice.includes("-h") && rawArgvSlice.indexOf(command) < rawArgvSlice.indexOf("-h"));
+  if (hasCommandHelp) {
+    const { getCommandHelp } = await import("./commandHelp.js");
+    process.stdout.write(getCommandHelp(command));
+    process.exit(ExitCode.SUCCESS);
+  }
+
+  // Build raw subcommand args from process.argv (preserves flags like --list
+  // that parseArgs would absorb before they reach the subcommand)
+  const argvAfterBinary = process.argv.slice(2);
+  const commandPosInArgv = argvAfterBinary.findIndex(
+    (a, i) => a === command && !argvAfterBinary.slice(0, i).some(prev => !prev.startsWith("-") && prev !== command),
+  );
+  const rawCommandArgs = commandPosInArgv >= 0
+    ? argvAfterBinary.slice(commandPosInArgv + 1)
+    : commandArgs;
+
   // Validate output format
   const format = (values.format ?? "text") as CliOutputFormat;
   if (!CLI_OUTPUT_FORMATS.includes(format)) {
@@ -129,7 +200,7 @@ async function main(): Promise<void> {
 
   try {
     await runtime.init();
-    const output = await dispatch(command, commandArgs, runtime, format);
+    const output = await dispatch(command, rawCommandArgs, runtime, format);
     if (output) {
       process.stdout.write(output.endsWith("\n") ? output : output + "\n");
     }

@@ -107,3 +107,32 @@ jobs:
           prerelease: false
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Set up Node.js 22 for npm publish
+        uses: actions/setup-node@v6
+        with:
+          node-version: '22.x'
+          registry-url: 'https://registry.npmjs.org'
+
+      - name: Build CLI bundle
+        run: npm run build:cli -- --production
+
+      - name: Verify no .map files in CLI bundle
+        run: |
+          if ls dist/graph-it.mjs.map 2>/dev/null; then
+            echo "ERROR: .map file found in CLI bundle"
+            exit 1
+          fi
+          echo "OK: no .map files"
+
+      - name: Scope package name for npm publish
+        run: |
+          node -e "
+          const fs = require('fs');
+          const pkg = JSON.parse(fs.readFileSync('package.json', 'utf8'));
+          pkg.name = '@magic5644/graph-it-live';
+          fs.writeFileSync('package.json', JSON.stringify(pkg, null, 2) + '\n');
+          "
+
+      - name: Publish CLI to npm (OIDC)
+        run: npm publish --access public
