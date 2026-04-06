@@ -12,6 +12,9 @@ function stderr(line) {
 
 const production = process.argv.includes('--production');
 const watch = process.argv.includes('--watch');
+const cliOnly = process.argv.includes('--cli-only');
+
+const pkg = JSON.parse(fs.readFileSync('package.json', 'utf8'));
 
 // Extract metafile path from --metafile=path argument
 const metafileArg = process.argv.find(arg => arg.startsWith('--metafile='));
@@ -151,250 +154,122 @@ function copyQueryFiles() {
   stdout(`✓ Query files copied to dist/queries/ (${queryFiles.length} files)`);
 }
 
+/** Shared esbuild options for all Node.js bundles */
+function nodeBundle(entryPoint, outfile, extra = {}) {
+  return {
+    entryPoints: [entryPoint],
+    bundle: true,
+    format: 'cjs',
+    minify: production,
+    sourcemap: !production,
+    sourcesContent: false,
+    platform: 'node',
+    outfile,
+    logLevel: 'silent',
+    plugins: [esbuildProblemMatcherPlugin],
+    target: 'node20',
+    metafile: !!metafilePath,
+    loader: { '.wasm': 'file' },
+    ...extra,
+  };
+}
+
+/** Shared esbuild options for all browser bundles */
+function browserBundle(entryPoint, outfile, extra = {}) {
+  return {
+    entryPoints: [entryPoint],
+    bundle: true,
+    format: 'iife',
+    minify: production,
+    sourcemap: !production,
+    sourcesContent: false,
+    platform: 'browser',
+    outfile,
+    logLevel: 'silent',
+    plugins: [esbuildProblemMatcherPlugin],
+    target: 'es2022',
+    metafile: !!metafilePath,
+    loader: { '.css': 'text' },
+    define: { 'process.env.NODE_ENV': '"production"' },
+    ...extra,
+  };
+}
+
+const ESM_BANNER = {
+  js: `import { createRequire } from 'module';
+import { fileURLToPath } from 'url';
+import { dirname } from 'path';
+const require = createRequire(import.meta.url);
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = dirname(__filename);`,
+};
+
+async function createAllContexts() {
+  const extension = cliOnly ? null : await esbuild.context(nodeBundle(
+    'src/extension/extension.ts', 'dist/extension.js',
+    { external: ['vscode', 'web-tree-sitter'] },
+  ));
+  const worker = await esbuild.context(nodeBundle('src/analyzer/IndexerWorker.ts', 'dist/indexerWorker.js', { external: ['web-tree-sitter'] }));
+  const astWorker = await esbuild.context(nodeBundle('src/analyzer/ast/AstWorker.ts', 'dist/astWorker.js', { external: ['web-tree-sitter'] }));
+  const mcpServer = await esbuild.context(nodeBundle('src/mcp/mcpServer.ts', 'dist/mcpServer.mjs', { format: 'esm', external: ['web-tree-sitter'], banner: ESM_BANNER }));
+  const mcpWorker = await esbuild.context(nodeBundle('src/mcp/McpWorker.ts', 'dist/mcpWorker.js', { external: ['web-tree-sitter'] }));
+  const cli = await esbuild.context(nodeBundle('src/cli/index.ts', 'dist/graph-it.mjs', { format: 'esm', external: ['vscode', 'web-tree-sitter'], define: { 'process.env.CLI_VERSION': JSON.stringify(pkg.version) }, banner: ESM_BANNER }));
+  const webview = cliOnly ? null : await esbuild.context(browserBundle('src/webview/index.tsx', 'dist/webview.js'));
+  const callgraphWebview = cliOnly ? null : await esbuild.context(browserBundle('src/webview/callgraph/index.tsx', 'dist/callgraph.js'));
+  return { extension, worker, astWorker, mcpServer, mcpWorker, cli, webview, callgraphWebview };
+}
+
+async function watchContexts(ctxs) {
+  if (ctxs.extension) await ctxs.extension.watch();
+  await ctxs.worker.watch();
+  await ctxs.astWorker.watch();
+  await ctxs.mcpServer.watch();
+  await ctxs.mcpWorker.watch();
+  await ctxs.cli.watch();
+  if (ctxs.webview) await ctxs.webview.watch();
+  if (ctxs.callgraphWebview) await ctxs.callgraphWebview.watch();
+}
+
+async function rebuildAndDispose(ctxs) {
+  const resultExtension = ctxs.extension ? await ctxs.extension.rebuild() : null;
+  const resultWorker = await ctxs.worker.rebuild();
+  const resultAstWorker = await ctxs.astWorker.rebuild();
+  const resultMcpServer = await ctxs.mcpServer.rebuild();
+  const resultMcpWorker = await ctxs.mcpWorker.rebuild();
+  const resultWebview = ctxs.webview ? await ctxs.webview.rebuild() : null;
+  if (ctxs.callgraphWebview) await ctxs.callgraphWebview.rebuild();
+  await ctxs.cli.rebuild();
+
+  // 0o755 = owner:rwx group:rx others:rx — standard for a CLI executable // NOSONAR
+  try {
+    fs.chmodSync('dist/graph-it.mjs', 0o755); // NOSONAR
+  } catch (chmodErr) {
+    if (process.platform !== 'win32') stderr(`⚠ Could not chmod dist/graph-it.mjs: ${chmodErr.message}`);
+  }
+
+  copyWasmFiles();
+  copyQueryFiles();
+
+  if (metafilePath && !cliOnly && resultExtension && resultWebview) {
+    saveMetafiles(metafilePath, { resultExtension, resultWorker, resultAstWorker, resultMcpServer, resultMcpWorker, resultWebview });
+  }
+
+  if (ctxs.extension) await ctxs.extension.dispose();
+  await ctxs.worker.dispose();
+  await ctxs.astWorker.dispose();
+  await ctxs.mcpServer.dispose();
+  await ctxs.mcpWorker.dispose();
+  await ctxs.cli.dispose();
+  if (ctxs.callgraphWebview) await ctxs.callgraphWebview.dispose();
+  if (ctxs.webview) await ctxs.webview.dispose();
+}
+
 async function main() {
-  // Build Extension (Node.js)
-  const ctxExtension = await esbuild.context({
-    entryPoints: ['src/extension/extension.ts'],
-    bundle: true,
-    format: 'cjs',
-    minify: production,
-    sourcemap: !production,
-    sourcesContent: false,
-    platform: 'node',
-    outfile: 'dist/extension.js',
-    external: ['vscode', 'web-tree-sitter'],
-    logLevel: 'silent',
-    plugins: [esbuildProblemMatcherPlugin],
-    target: 'node20',
-    metafile: !!metafilePath,
-    loader: {
-      '.wasm': 'file',
-    },
-  });
-
-  // Build Indexer Worker (Node.js Worker Thread)
-  // This runs in a separate thread for CPU-intensive indexing
-  const ctxWorker = await esbuild.context({
-    entryPoints: ['src/analyzer/IndexerWorker.ts'],
-    bundle: true,
-    format: 'cjs',
-    minify: production,
-    sourcemap: !production,
-    sourcesContent: false,
-    platform: 'node',
-    outfile: 'dist/indexerWorker.js',
-    external: ['web-tree-sitter'],
-    logLevel: 'silent',
-    plugins: [esbuildProblemMatcherPlugin],
-    target: 'node20',
-    metafile: !!metafilePath,
-    loader: {
-      '.wasm': 'file',
-    },
-  });
-
-  // Build AST Worker (Node.js Worker Thread)
-  // This isolates ts-morph (12MB+) from extension.js and mcpWorker.js
-  // Handles SymbolAnalyzer and SignatureAnalyzer operations
-  const ctxAstWorker = await esbuild.context({
-    entryPoints: ['src/analyzer/ast/AstWorker.ts'],
-    bundle: true,
-    format: 'cjs',
-    minify: production,
-    sourcemap: !production,
-    sourcesContent: false,
-    platform: 'node',
-    outfile: 'dist/astWorker.js',
-    external: ['web-tree-sitter'],
-    logLevel: 'silent',
-    plugins: [esbuildProblemMatcherPlugin],
-    target: 'node20',
-    metafile: !!metafilePath,
-    loader: {
-      '.wasm': 'file',
-    },
-  });
-
-  // Build MCP Server (Node.js Stdio Process)
-  // This is the entry point spawned by VS Code for MCP communication
-  // Uses ESM format to support @modelcontextprotocol/sdk which is ESM-only
-  const ctxMcpServer = await esbuild.context({
-    entryPoints: ['src/mcp/mcpServer.ts'],
-    bundle: true,
-    format: 'esm',
-    minify: production,
-    sourcemap: !production,
-    sourcesContent: false,
-    platform: 'node',
-    outfile: 'dist/mcpServer.mjs',
-    external: ['web-tree-sitter'],
-    logLevel: 'silent',
-    plugins: [esbuildProblemMatcherPlugin],
-    target: 'node20',
-    metafile: !!metafilePath,
-    loader: {
-      '.wasm': 'file',
-    },
-    banner: {
-      // Required for ESM to have __dirname and __filename
-      js: `import { createRequire } from 'module';
-import { fileURLToPath } from 'url';
-import { dirname } from 'path';
-const require = createRequire(import.meta.url);
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = dirname(__filename);`,
-    },
-  });
-
-  // Build MCP Worker (Node.js Worker Thread)
-  // This runs in a separate thread for CPU-intensive MCP operations
-  const ctxMcpWorker = await esbuild.context({
-    entryPoints: ['src/mcp/McpWorker.ts'],
-    bundle: true,
-    format: 'cjs',
-    minify: production,
-    sourcemap: !production,
-    sourcesContent: false,
-    platform: 'node',
-    outfile: 'dist/mcpWorker.js',
-    external: ['web-tree-sitter'],
-    logLevel: 'silent',
-    plugins: [esbuildProblemMatcherPlugin],
-    target: 'node20',
-    metafile: !!metafilePath,
-    loader: {
-      '.wasm': 'file',
-    },
-  });
-
-  // Build Webview (Browser)
-  const ctxWebview = await esbuild.context({
-    entryPoints: ['src/webview/index.tsx'],
-    bundle: true,
-    format: 'iife',
-    minify: production,
-    sourcemap: !production,
-    sourcesContent: false,
-    platform: 'browser',
-    outfile: 'dist/webview.js',
-    logLevel: 'silent',
-    plugins: [esbuildProblemMatcherPlugin],
-    target: 'es2022',
-    metafile: !!metafilePath,
-    loader: {
-      '.css': 'text',
-    },
-    define: {
-      'process.env.NODE_ENV': '"production"',
-    },
-  });
-
-  // Build CLI (Node.js ESM standalone binary)
-  // Entry point for the standalone 'graph-it' CLI tool.
-  // Uses ESM format (same as mcpServer.mjs) for compatibility with ESM-only dependencies.
-  const ctxCli = await esbuild.context({
-    entryPoints: ['src/cli/index.ts'],
-    bundle: true,
-    format: 'esm',
-    minify: production,
-    sourcemap: !production,
-    sourcesContent: false,
-    platform: 'node',
-    outfile: 'dist/graph-it.mjs',
-    external: ['vscode', 'web-tree-sitter'],
-    logLevel: 'silent',
-    plugins: [esbuildProblemMatcherPlugin],
-    target: 'node20',
-    metafile: !!metafilePath,
-    loader: {
-      '.wasm': 'file',
-    },
-    banner: {
-      // Required for ESM to have __dirname and __filename
-      js: `import { createRequire } from 'module';
-import { fileURLToPath } from 'url';
-import { dirname } from 'path';
-const require = createRequire(import.meta.url);
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = dirname(__filename);`,
-    },
-  });
-
-  // Build Call Graph Webview (Browser) — separate panel entry point
-  const ctxCallGraphWebview = await esbuild.context({
-    entryPoints: ['src/webview/callgraph/index.tsx'],
-    bundle: true,
-    format: 'iife',
-    minify: production,
-    sourcemap: !production,
-    sourcesContent: false,
-    platform: 'browser',
-    outfile: 'dist/callgraph.js',
-    logLevel: 'silent',
-    plugins: [esbuildProblemMatcherPlugin],
-    target: 'es2022',
-    metafile: !!metafilePath,
-    loader: {
-      '.css': 'text',
-    },
-    define: {
-      'process.env.NODE_ENV': '"production"',
-    },
-  });
-
+  const ctxs = await createAllContexts();
   if (watch) {
-    await ctxExtension.watch();
-    await ctxWorker.watch();
-    await ctxAstWorker.watch();
-    await ctxMcpServer.watch();
-    await ctxMcpWorker.watch();
-    await ctxWebview.watch();
-    await ctxCallGraphWebview.watch();
-    await ctxCli.watch();
+    await watchContexts(ctxs);
   } else {
-    const resultExtension = await ctxExtension.rebuild();
-    const resultWorker = await ctxWorker.rebuild();
-    const resultAstWorker = await ctxAstWorker.rebuild();
-    const resultMcpServer = await ctxMcpServer.rebuild();
-    const resultMcpWorker = await ctxMcpWorker.rebuild();
-    const resultWebview = await ctxWebview.rebuild();
-    await ctxCallGraphWebview.rebuild();
-    await ctxCli.rebuild();
-    // Mark CLI as executable (chmod is a no-op on Windows; chmodSync throws — ignore it)
-    try {
-      fs.chmodSync('dist/graph-it.mjs', 0o755);
-    } catch (err) {
-      if (process.platform !== 'win32') {
-        stderr(`⚠ Could not chmod dist/graph-it.mjs: ${err.message}`);
-      }
-    }
-    
-    // Copy WASM files to dist directory
-    copyWasmFiles();
-
-    // Copy Tree-sitter query files to dist/queries/
-    copyQueryFiles();
-    
-    // Save combined metafile if requested
-    if (metafilePath) {
-      saveMetafiles(metafilePath, {
-        resultExtension,
-        resultWorker,
-        resultAstWorker,
-        resultMcpServer,
-        resultMcpWorker,
-        resultWebview,
-      });
-    }
-    
-    await ctxExtension.dispose();
-    await ctxWorker.dispose();
-    await ctxAstWorker.dispose();
-    await ctxMcpServer.dispose();
-    await ctxCallGraphWebview.dispose();
-    await ctxMcpWorker.dispose();
-    await ctxWebview.dispose();
-    await ctxCli.dispose();
+    await rebuildAndDispose(ctxs);
   }
 }
 

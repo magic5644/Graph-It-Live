@@ -335,6 +335,40 @@ With **`custom`** profile, you can fine-tune:
 
 ---
 
+## Standalone CLI
+
+Graph-It-Live is also available as a standalone npm package — no VS Code required.
+
+```bash
+npm install -g @magic5644/graph-it-live
+```
+
+After install, `graph-it` is available on your PATH:
+
+```bash
+graph-it --version           # Show installed version
+graph-it --help              # Full help with MCP config snippets
+graph-it scan                # Index/re-index the workspace
+graph-it summary             # Workspace overview
+graph-it summary src/api.ts  # Per-file codemap
+graph-it trace src/index.ts#main        # Trace execution flow
+graph-it explain src/utils.ts           # File logic analysis
+graph-it path src/index.ts              # Dependency graph from file
+graph-it check src/api.ts               # Unused exported symbols
+graph-it serve                          # Launch MCP stdio server
+graph-it tool --list                    # List all 20 MCP tools
+graph-it tool analyze_dependencies --filePath=/abs/path/file.ts
+```
+
+**Without installing globally:**
+
+```bash
+npx @magic5644/graph-it-live scan
+npx @magic5644/graph-it-live serve
+```
+
+---
+
 ## MCP Server (AI/LLM Integration)
 
 Graph-It-Live includes an optional **MCP server** that exposes its full analysis engine to AI assistants and LLMs.
@@ -444,8 +478,8 @@ Create or edit `.vscode/mcp.json` in your workspace:
   "servers": {
     "graph-it-live": {
       "type": "stdio",
-      "command": "node",
-      "args": ["${extensionPath:magic5644.graph-it-live}/dist/mcpServer.mjs"],
+      "command": "graph-it",
+      "args": ["serve"],
       "env": {
         "WORKSPACE_ROOT": "${workspaceFolder}",
         "EXCLUDE_NODE_MODULES": "true",
@@ -455,6 +489,8 @@ Create or edit `.vscode/mcp.json` in your workspace:
   }
 }
 ```
+
+> **Fallback (if CLI not installed):** replace `"command": "graph-it"` with `"command": "node"` and add `"args": ["${extensionPath:magic5644.graph-it-live}/dist/mcpServer.mjs"]`.
 
 #### Cursor
 
@@ -464,11 +500,8 @@ Create or edit `.cursor/mcp.json` in your workspace or `~/.cursor/mcp.json` for 
 {
   "mcpServers": {
     "graph-it-live": {
-      "command": "bash",
-      "args": [
-        "-c",
-        "node ~/.cursor/extensions/magic5644.graph-it-live-*/dist/mcpServer.mjs"
-      ],
+      "command": "graph-it",
+      "args": ["serve"],
       "env": {
         "WORKSPACE_ROOT": "${workspaceFolder}",
         "EXCLUDE_NODE_MODULES": "true",
@@ -479,6 +512,8 @@ Create or edit `.cursor/mcp.json` in your workspace or `~/.cursor/mcp.json` for 
 }
 ```
 
+> **Fallback (if CLI not installed):** `"command": "bash", "args": ["-c", "node ~/.cursor/extensions/magic5644.graph-it-live-*/dist/mcpServer.mjs"]`
+
 #### Claude Desktop
 
 Add to `~/Library/Application Support/Claude/claude_desktop_config.json` (macOS):
@@ -487,11 +522,8 @@ Add to `~/Library/Application Support/Claude/claude_desktop_config.json` (macOS)
 {
   "mcpServers": {
     "graph-it-live": {
-      "command": "bash",
-      "args": [
-        "-c",
-        "node ~/.vscode/extensions/magic5644.graph-it-live-*/dist/mcpServer.mjs"
-      ],
+      "command": "graph-it",
+      "args": ["serve"],
       "env": {
         "WORKSPACE_ROOT": "/path/to/your/project",
         "EXCLUDE_NODE_MODULES": "true",
@@ -501,6 +533,8 @@ Add to `~/Library/Application Support/Claude/claude_desktop_config.json` (macOS)
   }
 }
 ```
+
+> **Fallback (if CLI not installed):** `"command": "bash", "args": ["-c", "node ~/.vscode/extensions/magic5644.graph-it-live-*/dist/mcpServer.mjs"]`
 
 #### Development / Local Testing
 
@@ -529,11 +563,8 @@ Create or edit `~/.codeium/windsurf/mcp_config.json`:
 {
   "mcpServers": {
     "graph-it-live": {
-      "command": "bash",
-      "args": [
-        "-c",
-        "node ~/.windsurf/extensions/magic5644.graph-it-live-*/dist/mcpServer.mjs"
-      ],
+      "command": "graph-it",
+      "args": ["serve"],
       "env": {
         "WORKSPACE_ROOT": "${workspaceFolder}",
         "EXCLUDE_NODE_MODULES": "true",
@@ -543,6 +574,8 @@ Create or edit `~/.codeium/windsurf/mcp_config.json`:
   }
 }
 ```
+
+> **Fallback (if CLI not installed):** `"command": "bash", "args": ["-c", "node ~/.windsurf/extensions/magic5644.graph-it-live-*/dist/mcpServer.mjs"]`
 
 #### Antigravity
 
@@ -552,11 +585,8 @@ Create or edit `.antigravity/mcp.json` in your workspace or configure globally:
 {
   "mcpServers": {
     "graph-it-live": {
-      "command": "bash",
-      "args": [
-        "-c",
-        "node ~/.vscode/extensions/magic5644.graph-it-live-*/dist/mcpServer.mjs"
-      ],
+      "command": "graph-it",
+      "args": ["serve"],
       "env": {
         "WORKSPACE_ROOT": "${workspaceFolder}",
         "EXCLUDE_NODE_MODULES": "true",
@@ -566,6 +596,8 @@ Create or edit `.antigravity/mcp.json` in your workspace or configure globally:
   }
 }
 ```
+
+> **Fallback (if CLI not installed):** `"command": "bash", "args": ["-c", "node ~/.vscode/extensions/magic5644.graph-it-live-*/dist/mcpServer.mjs"]`
 
 </details>
 

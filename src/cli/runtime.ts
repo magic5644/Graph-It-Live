@@ -16,11 +16,11 @@ import { SpiderBuilder } from "../analyzer/SpiderBuilder";
 import { PathResolver } from "../analyzer/utils/PathResolver";
 import { workerState } from "../mcp/shared/state";
 import {
+  getLogger,
   getLogLevelFromEnv,
   loggerFactory,
   setLoggerBackend,
   StderrLogger,
-  getLogger,
 } from "../shared/logger";
 import { CliError, ExitCode } from "./errors";
 
@@ -128,11 +128,14 @@ export class CliRuntime {
     }
 
     workerState.spider = builder.build();
+    // In the CLI bundle, __dirname = dist/, so path.resolve(__dirname, '..') is the
+    // package root — enabling query_call_graph to locate dist/wasm/sqljs.wasm.
     workerState.config = {
       rootDir: this.workspaceRoot,
       tsConfigPath,
       excludeNodeModules: true,
       maxDepth: 50,
+      extensionPath: path.resolve(__dirname, '..'),
     };
     workerState.isReady = true;
     this._initialized = true;
