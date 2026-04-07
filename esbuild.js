@@ -213,7 +213,7 @@ async function createAllContexts() {
   const astWorker = await esbuild.context(nodeBundle('src/analyzer/ast/AstWorker.ts', 'dist/astWorker.js', { external: ['web-tree-sitter'] }));
   const mcpServer = await esbuild.context(nodeBundle('src/mcp/mcpServer.ts', 'dist/mcpServer.mjs', { format: 'esm', external: ['web-tree-sitter'], banner: ESM_BANNER }));
   const mcpWorker = await esbuild.context(nodeBundle('src/mcp/McpWorker.ts', 'dist/mcpWorker.js', { external: ['web-tree-sitter'] }));
-  const cli = await esbuild.context(nodeBundle('src/cli/index.ts', 'dist/graph-it.mjs', { format: 'esm', external: ['vscode', 'web-tree-sitter'], define: { 'process.env.CLI_VERSION': JSON.stringify(pkg.version) }, banner: ESM_BANNER }));
+  const cli = await esbuild.context(nodeBundle('src/cli/index.ts', 'dist/graph-it.js', { external: ['vscode', 'web-tree-sitter'], define: { 'process.env.CLI_VERSION': JSON.stringify(pkg.version) } }));
   const webview = cliOnly ? null : await esbuild.context(browserBundle('src/webview/index.tsx', 'dist/webview.js'));
   const callgraphWebview = cliOnly ? null : await esbuild.context(browserBundle('src/webview/callgraph/index.tsx', 'dist/callgraph.js'));
   return { extension, worker, astWorker, mcpServer, mcpWorker, cli, webview, callgraphWebview };
@@ -242,9 +242,9 @@ async function rebuildAndDispose(ctxs) {
 
   // 0o755 = owner:rwx group:rx others:rx — standard for a CLI executable // NOSONAR
   try {
-    fs.chmodSync('dist/graph-it.mjs', 0o755); // NOSONAR
+    fs.chmodSync('dist/graph-it.js', 0o755); // NOSONAR
   } catch (chmodErr) {
-    if (process.platform !== 'win32') stderr(`⚠ Could not chmod dist/graph-it.mjs: ${chmodErr.message}`);
+    if (process.platform !== 'win32') stderr(`⚠ Could not chmod dist/graph-it.js: ${chmodErr.message}`);
   }
 
   copyWasmFiles();
