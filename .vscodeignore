@@ -33,8 +33,9 @@ verbose/**
 *.vsix
 
 # CLI standalone binary — not part of the VS Code extension package
-dist/graph-it.mjs
-dist/graph-it.mjs.map
+dist/graph-it.js
+dist/graph-it.js.map
+bin/**
 
 # Config files
 .gitignore
