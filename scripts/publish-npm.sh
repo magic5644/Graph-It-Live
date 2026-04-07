@@ -81,6 +81,7 @@ node -e "
 const fs = require('fs');
 const p = JSON.parse(fs.readFileSync('package.json', 'utf8'));
 p.name = '@magic5644/graph-it-live';
+p.files = ['bin/', 'dist/graph-it.js', 'dist/astWorker.js', 'dist/mcpServer.mjs', 'dist/mcpWorker.js', 'dist/indexerWorker.js', 'dist/wasm/', 'dist/queries/', 'README.md', 'LICENSE'];
 fs.writeFileSync('package.json', JSON.stringify(p, null, 2) + '\n');
 "
 echo "  ✓ name  → @magic5644/graph-it-live"
