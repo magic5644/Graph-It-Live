@@ -5,14 +5,14 @@ on:
     branches: [ main ]
     tags:
       - 'v*' # Run workflow on version tags, e.g. v1.0.0
+  pull_request:
+    branches: [ main ]
 
 jobs:
   build:
     permissions:
       contents: read
-      packages: write
     runs-on: ubuntu-latest
-    if: startsWith(github.ref, 'refs/tags/v')
     steps:
     - uses: actions/checkout@v6
     - name: Use Node.js
@@ -20,19 +20,19 @@ jobs:
       with:
         node-version: '20.x'
         cache: 'npm'
-        
+
     - name: Install Dependencies
       run: npm ci
 
     - name: Lint
       run: npm run lint
-      
+
     - name: Build
       run: npm run build
-      
-    - name: Run Tests
-      run: xvfb-run -a npm run test
-    
+
+    - name: Run Unit Tests
+      run: npm test
+
   publish:
     permissions:
       contents: write
@@ -49,22 +49,20 @@ jobs:
         with:
           node-version: '20.x'
           cache: 'npm'
-          
+
       - name: Get Version from Tag
         id: get_version
         run: echo "VERSION=${GITHUB_REF#refs/tags/v}" >> $GITHUB_OUTPUT
-        
+
       - name: Update Package Version
-        run: |
-          npm version ${{ steps.get_version.outputs.VERSION }} --no-git-tag-version
-          
+        run: npm version ${{ steps.get_version.outputs.VERSION }} --no-git-tag-version
+
       - name: Install Dependencies
         run: npm ci
 
-      # Install vsce before packaging
       - name: Install VS Code Extension Manager
         run: npm install -g @vscode/vsce
-        
+
       - name: Package Extension
         run: npm run package:vsix
 
@@ -72,7 +70,7 @@ jobs:
         uses: actions/attest-build-provenance@v4
         with:
           subject-path: "graph-it-live-${{ steps.get_version.outputs.VERSION }}.vsix"
-        
+
       - name: Verify VSIX Content
         run: |
           echo "Checking VSIX content structure:"
@@ -84,18 +82,16 @@ jobs:
           name: graph-it-live
           path: "*.vsix"
           if-no-files-found: error
-          
+
       - name: Publish to VS Code Marketplace
         env:
           VSCE_PAT: ${{ secrets.VSCE_PAT }}
-        run: |
-          vsce publish -p $VSCE_PAT --packagePath graph-it-live-${{ steps.get_version.outputs.VERSION }}.vsix
+        run: vsce publish -p $VSCE_PAT --packagePath graph-it-live-${{ steps.get_version.outputs.VERSION }}.vsix
 
       - name: Publish to Open VSX Marketplace
         env:
           OVSX_PAT: ${{ secrets.OVSX_PAT }}
-        run: |
-          npx ovsx publish -p $OVSX_PAT --packagePath graph-it-live-${{ steps.get_version.outputs.VERSION }}.vsix
+        run: npx ovsx publish -p $OVSX_PAT --packagePath graph-it-live-${{ steps.get_version.outputs.VERSION }}.vsix
 
       - name: Publish artifact to GitHub Release
         uses: softprops/action-gh-release@v2
@@ -108,10 +104,10 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Set up Node.js 22 for npm publish
+      - name: Set up Node.js for npm publish
         uses: actions/setup-node@v6
         with:
-          node-version: '22.x'
+          node-version: '20.x'
           registry-url: 'https://registry.npmjs.org'
 
       - name: Build CLI bundle
@@ -119,8 +115,10 @@ jobs:
 
       - name: Verify no .map files in CLI bundle
         run: |
-          if ls dist/graph-it.mjs.map 2>/dev/null; then
-            echo "ERROR: .map file found in CLI bundle"
+          MAP_COUNT=$(find dist/ -name "*.map" | wc -l | tr -d ' ')
+          if [ "$MAP_COUNT" -gt 0 ]; then
+            echo "ERROR: .map files found in CLI bundle:"
+            find dist/ -name "*.map"
             exit 1
           fi
           echo "OK: no .map files"
@@ -134,5 +132,5 @@ jobs:
           fs.writeFileSync('package.json', JSON.stringify(pkg, null, 2) + '\n');
           "
 
-      - name: Publish CLI to npm (OIDC)
-        run: npm publish --access public
+      - name: Publish CLI to npm
+        run: npm publish --access public --ignore-scripts
