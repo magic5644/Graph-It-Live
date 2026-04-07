@@ -174,13 +174,14 @@ async function main(): Promise<void> {
     process.exit(ExitCode.SUCCESS);
   }
 
-  // Build raw subcommand args from process.argv (preserves flags like --list
-  // that parseArgs would absorb before they reach the subcommand)
+  // Preserve raw argv only for `tool`, where subcommand-specific flags may need
+  // to survive top-level parsing. Other commands should use parsed positionals so
+  // global flags like --workspace/--format are not treated as command args.
   const argvAfterBinary = process.argv.slice(2);
   const commandPosInArgv = argvAfterBinary.findIndex(
     (a, i) => a === command && !argvAfterBinary.slice(0, i).some(prev => !prev.startsWith("-") && prev !== command),
   );
-  const rawCommandArgs = commandPosInArgv >= 0
+  const rawCommandArgs = command === "tool" && commandPosInArgv >= 0
     ? argvAfterBinary.slice(commandPosInArgv + 1)
     : commandArgs;
 
