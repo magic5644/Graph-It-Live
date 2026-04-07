@@ -218,7 +218,7 @@ function formatMermaid(data: unknown, _command: string): string {
 // ============================================================================
 
 interface GraphLike {
-  nodes?: { id?: string; file?: string; filePath?: string; name?: string }[];
+  nodes?: { id?: string; file?: string; filePath?: string; path?: string; relativePath?: string; name?: string }[];
   edges?: { source?: string; target?: string; from?: string; to?: string }[];
 }
 
@@ -263,18 +263,23 @@ function buildMermaidFromGraph(graph: GraphLike): string | null {
   const edges = graph.edges ?? [];
   if (nodes.length === 0 && edges.length === 0) return null;
 
+  // Map original node id → short numeric id to keep Mermaid IDs compact
+  const idMap = new Map<string, string>();
   const lines = ["graph LR"];
 
-  for (const node of nodes) {
-    const id = node.id ?? node.file ?? node.filePath ?? node.name ?? "unknown";
-    const safeId = sanitizeMermaidId(id);
-    const label = node.name ?? node.file ?? node.filePath ?? id;
-    lines.push(`  ${safeId}["${label}"]`);
-  }
+  nodes.forEach((node, i) => {
+    const originalId = node.id ?? node.file ?? node.filePath ?? node.path ?? node.name ?? "unknown";
+    const shortId = `N${i}`;
+    idMap.set(originalId, shortId);
+    const label = node.relativePath ?? node.name ?? node.file ?? node.filePath ?? originalId;
+    lines.push(`  ${shortId}["${label}"]`);
+  });
 
   for (const edge of edges) {
-    const src = sanitizeMermaidId(String(edge.source ?? edge.from ?? "?"));
-    const tgt = sanitizeMermaidId(String(edge.target ?? edge.to ?? "?"));
+    const srcOriginal = String(edge.source ?? edge.from ?? "?");
+    const tgtOriginal = String(edge.target ?? edge.to ?? "?");
+    const src = idMap.get(srcOriginal) ?? sanitizeMermaidId(srcOriginal);
+    const tgt = idMap.get(tgtOriginal) ?? sanitizeMermaidId(tgtOriginal);
     lines.push(`  ${src} --> ${tgt}`);
   }
 
