@@ -22,9 +22,9 @@ export async function run(
   _runtime: CliRuntime,
   _format: CliOutputFormat,
 ): Promise<string> {
-  // __dirname is injected by the esbuild ESM banner shim
+  // __dirname is injected by the esbuild banner shim; dist/graph-it.js is the built CLI entry
   const distDir = __dirname;
-  const cliSrc = path.join(distDir, "graph-it.mjs");
+  const cliSrc = path.join(distDir, "graph-it.js");
 
   if (!fs.existsSync(cliSrc)) {
     throw new CliError(
