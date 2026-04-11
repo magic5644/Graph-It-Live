@@ -121,6 +121,16 @@ Examples:
 `.trimStart();
 
 // ============================================================================
+// Helpers
+// ============================================================================
+
+function commandWantsHelp(command: string, commandArgs: string[], rawArgvSlice: string[]): boolean {
+  return commandArgs.includes("--help") || commandArgs.includes("-h") ||
+    (rawArgvSlice.includes("--help") && rawArgvSlice.indexOf(command) < rawArgvSlice.indexOf("--help")) ||
+    (rawArgvSlice.includes("-h") && rawArgvSlice.indexOf(command) < rawArgvSlice.indexOf("-h"));
+}
+
+// ============================================================================
 // Main
 // ============================================================================
 
@@ -165,10 +175,7 @@ async function main(): Promise<void> {
 
   // Per-command --help dispatch (check both parsed positionals and raw argv flags)
   const rawArgvSlice = process.argv.slice(2);
-  const hasCommandHelp = commandArgs.includes("--help") || commandArgs.includes("-h") ||
-    (rawArgvSlice.includes("--help") && rawArgvSlice.indexOf(command) < rawArgvSlice.indexOf("--help")) ||
-    (rawArgvSlice.includes("-h") && rawArgvSlice.indexOf(command) < rawArgvSlice.indexOf("-h"));
-  if (hasCommandHelp) {
+  if (commandWantsHelp(command, commandArgs, rawArgvSlice)) {
     const { getCommandHelp } = await import("./commandHelp.js");
     process.stdout.write(getCommandHelp(command));
     process.exit(ExitCode.SUCCESS);
