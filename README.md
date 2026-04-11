@@ -51,18 +51,49 @@ All three layers are also exposed to AI via a **20-tool MCP server**, so your as
 
 ## Table of Contents
 
-- [For AI — MCP Server](#-supercharge-your-ai-assistant)
-  - [Codemap Generation](#-codemap-generation-new)
-  - [All 21 MCP Tools](#available-tools)
-  - [TOON Format (Token Savings)](#toon-format-token-optimized-output)
-- [For Humans — Visual Features](#-features-for-humans)
+- [Why Graph-It-Live?](#why-graph-it-live)
+- [Table of Contents](#table-of-contents)
+- [🤖 Supercharge Your AI Assistant](#-supercharge-your-ai-assistant)
+  - [What your AI can do with Graph-It-Live](#what-your-ai-can-do-with-graph-it-live)
+  - [🗺️ Codemap Generation *(New)*](#️-codemap-generation-new)
+  - [📊 File Logic Analysis *(New)*](#-file-logic-analysis-new)
+- [👁️ Features for Humans](#️-features-for-humans)
   - [File Dependency Graph](#file-dependency-graph)
   - [Symbol-Level Drill-Down](#symbol-level-drill-down)
-  - [Live Call Graph](#-live-call-graph-new)
+  - [🔷 Live Call Graph *(New)*](#-live-call-graph-new)
   - [Unused Dependency Filter](#unused-dependency-filter)
-- [Installation & Usage](#installation)
+- [Prerequisites](#prerequisites)
+- [Installation](#installation)
+  - [From Marketplace](#from-marketplace)
+  - [From Open VSX Registry](#from-open-vsx-registry)
+- [Usage](#usage)
 - [Configuration](#configuration)
+  - [Performance Profiles](#performance-profiles)
+  - [All Settings](#all-settings)
+- [Standalone CLI](#standalone-cli)
+- [MCP Server (AI/LLM Integration)](#mcp-server-aillm-integration)
+  - [Setup](#setup)
+  - [Available Tools](#available-tools)
+  - [TOON Format (Token-Optimized Output)](#toon-format-token-optimized-output)
+  - [Native LM Tools (Copilot Agent Mode)](#native-lm-tools-copilot-agent-mode)
+  - [Manual MCP Server Configuration](#manual-mcp-server-configuration)
+    - [VS Code / VS Code Insiders](#vs-code--vs-code-insiders)
+    - [Cursor](#cursor)
+    - [Claude Desktop](#claude-desktop)
+    - [Development / Local Testing](#development--local-testing)
+    - [Windsurf](#windsurf)
+    - [Antigravity](#antigravity)
 - [Development](#development)
+  - [Quick Start](#quick-start)
+  - [Project Structure](#project-structure)
+  - [Build \& Test Commands](#build--test-commands)
+- [WASM Architecture](#wasm-architecture)
+  - [Architecture](#architecture)
+  - [Testing](#testing)
+  - [Troubleshooting](#troubleshooting)
+- [License](#license)
+- [Acknowledgements](#acknowledgements)
+- [Author](#author)
 
 ---
 
@@ -355,9 +386,10 @@ graph-it trace src/index.ts#main        # Trace execution flow
 graph-it explain src/utils.ts           # File logic analysis
 graph-it path src/index.ts              # Dependency graph from file
 graph-it check src/api.ts               # Unused exported symbols
-graph-it serve                          # Launch MCP stdio server
-graph-it tool --list                    # List all 20 MCP tools
+graph-it serve                          # Launch MCP stdio server (for AI clients)
+graph-it tool --list                    # List all 21 MCP tools
 graph-it tool analyze_dependencies --filePath=/abs/path/file.ts
+graph-it update                         # Update graph-it to the latest version
 ```
 
 **Without installing globally:**
@@ -367,6 +399,28 @@ npx @magic5644/graph-it-live scan
 npx @magic5644/graph-it-live serve
 ```
 
+**Output formats:** All analysis commands support `--format json|toon|markdown`. Use `toon` for AI consumption (30–60% token savings). The `trace` and `path` commands additionally support `--format mermaid` to generate a Mermaid diagram of the call or dependency flow:
+
+```bash
+graph-it summary src/api.ts --format toon
+graph-it path src/index.ts --format markdown
+graph-it path src/index.ts --format mermaid    # → Mermaid flowchart of dependency graph
+graph-it trace src/index.ts#main --format mermaid  # → Mermaid sequence/flowchart of execution trace
+```
+
+Example `--format mermaid` output for `graph-it path src/index.ts`:
+
+```mermaid
+graph LR
+  src/index.ts --> src/app.ts
+  src/app.ts --> src/router.ts
+  src/app.ts --> src/db.ts
+```
+
+This output can be pasted directly into any Markdown renderer (GitHub, Notion, VS Code Preview, etc.) or piped to a diagramming tool.
+
+**Use as MCP server (no VS Code):** Run `graph-it serve` and point your AI client at it — see [Manual MCP Server Configuration](#manual-mcp-server-configuration).
+
 ---
 
 ## MCP Server (AI/LLM Integration)
@@ -375,9 +429,17 @@ Graph-It-Live includes an optional **MCP server** that exposes its full analysis
 
 ### Setup
 
+**Option A — VS Code extension:**
+
 1. Set `graph-it-live.enableMcpServer` to `true` in VS Code settings
 2. The server starts automatically when the extension activates
 3. Your AI assistant detects the tools via MCP auto-discovery
+
+**Option B — Standalone CLI (no VS Code required):**
+
+1. Install: `npm install -g @magic5644/graph-it-live`
+2. Run `graph-it serve` — starts an MCP stdio server pointing at your current directory
+3. Configure your AI client to invoke `graph-it serve` as the MCP server command (see [Manual MCP Server Configuration](#manual-mcp-server-configuration))
 
 <div align="center">
   <img src="media/enable-mcp-server-tools.gif" alt="Enable MCP Server in VS Code Settings" width="800"/>
@@ -608,7 +670,11 @@ Create or edit `.antigravity/mcp.json` in your workspace or configure globally:
 For comprehensive development instructions, see:
 
 - **[DEVELOPMENT.md](DEVELOPMENT.md)** — Setup, build, testing, WASM architecture
-- **[CONTRIBUTING.md](CONTRIBUTING.md)** — Contribution guidelines and workflow
+- **[CONTRIBUTING.md](CONTRIBUTING.md)** — Contribution guidelines, branch naming, commit conventions
+- **[docs/CODING_STANDARDS.md](docs/CODING_STANDARDS.md)** — TypeScript conventions and code style rules
+- **[docs/CROSS_PLATFORM_TESTING.md](docs/CROSS_PLATFORM_TESTING.md)** — Cross-platform compatibility requirements (Windows/Linux/macOS)
+- **[docs/TOON_FORMAT.md](docs/TOON_FORMAT.md)** — Token-Optimized Output format specification for AI tools
+- **[docs/PERFORMANCE_OPTIMIZATIONS.md](docs/PERFORMANCE_OPTIMIZATIONS.md)** — Performance tuning and caching strategies
 
 ### Quick Start
 
@@ -646,8 +712,10 @@ Graph-It-Live/
 | Command | Description |
 |---------|-------------|
 | `npm run build` | Bundle via esbuild + copy WASM files |
+| `npm run build:cli` | Build standalone CLI only (`dist/graph-it.js`) |
 | `npm run watch` | Rebuild on change |
 | `npm test` | Run unit tests (Vitest, mocked parsers) |
+| `npm run test:cli` | Run CLI unit tests |
 | `npm run test:vscode` | E2E tests from source with real WASM |
 | `npm run test:vscode:vsix` | E2E tests from .vsix (pre-release) |
 | `npm run lint` | Lint TypeScript (ESLint) |
