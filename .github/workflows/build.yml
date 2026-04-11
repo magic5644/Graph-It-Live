@@ -1,7 +1,31 @@
 
 name: Build-Test-Package-E2E
 
-on: [push, pull_request]
+on:
+  push:
+    paths:
+      - 'src/**'
+      - 'tests/**'
+      - 'resources/**'
+      - 'package.json'
+      - 'package-lock.json'
+      - 'tsconfig*.json'
+      - 'vitest*.config.mts'
+      - 'esbuild.js'
+      - 'eslint.config.mjs'
+      - '.github/workflows/**'
+  pull_request:
+    paths:
+      - 'src/**'
+      - 'tests/**'
+      - 'resources/**'
+      - 'package.json'
+      - 'package-lock.json'
+      - 'tsconfig*.json'
+      - 'vitest*.config.mts'
+      - 'esbuild.js'
+      - 'eslint.config.mjs'
+      - '.github/workflows/**'
 
 jobs:
   test:
