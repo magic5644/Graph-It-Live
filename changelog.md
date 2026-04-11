@@ -1,5 +1,20 @@
 # Changelog
 
+## v1.9.0
+
+### Features
+
+- **Standalone CLI (`graph-it`)**: Graph-It-Live is now available as a standalone npm package (`@magic5644/graph-it-live`) — no VS Code required. After `npm install -g @magic5644/graph-it-live`, the `graph-it` binary is available on your PATH.
+  - Commands: `scan`, `summary [file]`, `trace <file#Symbol>`, `explain <file>`, `path <file>`, `check <file>`, `serve`, `tool <mcp-tool>`, `install`
+  - Output formats: `text`, `json`, `toon`, `markdown`, `mermaid` (mermaid available for `trace` and `path`)
+  - `--workspace / -w` flag to specify workspace root; auto-detected by default
+  - `graph-it serve` launches the MCP stdio server as a standalone process for Claude, Cursor, Windsurf, and other MCP clients
+  - `graph-it tool <name>` exposes all 21 MCP tools directly from the terminal
+  - `graph-it install` opt-in helper to symlink the binary into your system PATH
+  - Build: `npm run build:cli` — produces `dist/graph-it.js`
+  - E2E test script: `scripts/test-cli-e2e.sh`
+  - Published via `scripts/publish-npm.sh <version>`
+
 ## v1.8.0
 
 ### Enhancements

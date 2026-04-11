@@ -160,6 +160,21 @@ Description:
 Examples:
   graph-it install
 `,
+  update: `graph-it update — Update to the latest version
+
+Usage: graph-it update [options]
+
+Options:
+  --help, -h        Show this help
+
+Description:
+  Checks the npm registry for the latest version of @magic5644/graph-it-live
+  and runs "npm install -g @magic5644/graph-it-live@<latest>" if an update is
+  available. Requires an active internet connection and npm in PATH.
+
+Examples:
+  graph-it update
+`,
 };
 
 const FALLBACK_HELP = `graph-it <command> --help

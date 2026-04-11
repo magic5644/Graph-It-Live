@@ -42,7 +42,8 @@ npm install
 5. **Build the extension**:
 
 ```bash
-npm run build
+npm run build           # Build VS Code extension
+npm run build:cli       # Build standalone CLI (dist/graph-it.js)
 ```
 
 For detailed development setup instructions, see [DEVELOPMENT.md](DEVELOPMENT.md).
@@ -154,6 +155,9 @@ All contributions must include appropriate tests:
 ```bash
 # Unit tests (fast, mocked parsers)
 npm test
+
+# CLI unit tests
+npm run test:cli
 
 # E2E tests from source (development mode)
 npm run test:vscode

@@ -14,6 +14,7 @@
  *   serve             Launch MCP stdio server
  *   tool <name>       Invoke any MCP tool directly
  *   install           Install CLI to system PATH (opt-in)
+ *   update            Update CLI to the latest npm version
  *
  * Options:
  *   --workspace, -w   Workspace root (default: auto-detected)
@@ -52,6 +53,7 @@ Commands:
   serve             Launch MCP stdio server (passthrough)
   tool <name>       Invoke any MCP tool: graph-it tool get_index_status
   install           Install CLI to system PATH (VS Code opt-in)
+  update            Update graph-it to the latest version on npm
 
 Options:
   --workspace, -w   Workspace root directory (default: auto-detected)
@@ -118,6 +120,7 @@ Examples:
   graph-it path src/index.ts
   graph-it check src/api.ts
   graph-it tool analyze_dependencies --filePath=/abs/path/file.ts
+  graph-it update
 `.trimStart();
 
 // ============================================================================
@@ -206,8 +209,13 @@ async function main(): Promise<void> {
   const workspaceRoot = findWorkspaceRoot(path.resolve(workspaceRaw));
   const runtime = new CliRuntime(workspaceRoot);
 
+  // Commands that don't need a workspace (skip runtime init to avoid side-effects)
+  const WORKSPACE_FREE = new Set(["install", "update"]);
+
   try {
-    await runtime.init();
+    if (!WORKSPACE_FREE.has(command)) {
+      await runtime.init();
+    }
     const output = await dispatch(command, rawCommandArgs, runtime, format);
     if (output) {
       process.stdout.write(output.endsWith("\n") ? output : output + "\n");
@@ -267,6 +275,10 @@ async function dispatch(
     }
     case "install": {
       const { run } = await import("./install.js");
+      return run(args, runtime, format);
+    }
+    case "update": {
+      const { run } = await import("./commands/update.js");
       return run(args, runtime, format);
     }
     default:

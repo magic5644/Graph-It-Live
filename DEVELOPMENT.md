@@ -63,6 +63,8 @@ This will:
 |---------|-------------|
 | `npm run build` | Build the extension bundle (development mode) |
 | `npm run build -- --production` | Build with production optimizations |
+| `npm run build:cli` | Build standalone CLI only (`dist/graph-it.js`) |
+| `npm run build:cli -- --production` | Build CLI with production optimizations |
 | `npm run watch` | Rebuild automatically on file changes |
 
 ### Build Output
@@ -80,6 +82,7 @@ dist/
 ├── astWorker.js                   # Symbol analysis worker (CommonJS)
 ├── mcpServer.mjs                  # MCP server entry point (ESM)
 ├── mcpWorker.js                   # MCP operations worker (CommonJS)
+├── graph-it.js                    # Standalone CLI entry point (CJS)
 └── webview.js                     # React UI bundle (IIFE)
 ```
 
