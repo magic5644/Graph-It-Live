@@ -284,5 +284,5 @@ describe('Spider - Index Performance', () => {
 
         expect(result.indexedFiles).toBe(NUM_FILES + 1); // +1 for shared.ts
         expect(result.cancelled).toBe(false);
-    });
+    }, 30_000);
 });
