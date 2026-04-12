@@ -66,7 +66,6 @@ export class CSharpParser implements ILanguageAnalyzer {
   }
 
 
-
   async parseImports(filePath: string): Promise<Dependency[]> {
     const actualPath = extractFilePath(filePath);
 
