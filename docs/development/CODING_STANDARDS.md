@@ -6,36 +6,41 @@ Complete set of development best practices to maintain consistency, quality, and
 
 ### Layer Separation
 
-The project follows a strict **four-layer architecture**:
+The project follows a **six-layer architecture**:
 
 - **`src/analyzer/`**: Dependency analysis (Pure Node.js, **NO vscode imports**)
   - AST-based analysis via ts-morph and tree-sitter
-  - Caching, indexing, path resolution
-  - Pure types and utilities
+  - Caching, indexing, path resolution, SymbolReverseIndex
+  - Call graph layer: GraphExtractor, CallGraphIndexer, CallGraphQuery
 
 - **`src/extension/`**: VS Code extension host
   - Orchestration services in `extension/services/`
-  - File management, commands, editor
-  - Webview communication
+  - Service container, event hub, message dispatcher
+  - File watching, editor navigation, webview management
+
+- **`src/cli/`**: Standalone terminal interface (Pure Node.js, **NO vscode imports**)
+  - Published as `graph-it` npm package
+  - 9 commands: scan, summary, trace, explain, path, check, serve, tool, update
+  - CliRuntime, SymbolRef addressing, ExitCode, CliOutputFormat
 
 - **`src/mcp/`**: MCP server for LLM/AI (Pure Node.js, **NO vscode imports**)
   - Standalone process with stdio transport
-  - 17+ dependency analysis tools
-  - Zod validation
+  - 21 dependency analysis tools in `mcp/tools/`
+  - Zod v4 validation with payload size limits
 
 - **`src/shared/`**: Shared types and utilities
   - Extension ↔ webview message types
-  - Constants, utilities, logger
+  - Constants, utilities, logger, TOON serialization
   - Communication protocols
 
-- **`src/webview/`**: React + ReactFlow interface
+- **`src/webview/`**: React + ReactFlow / Cytoscape interface
   - React components (browser context)
-  - Dependency graph visualization
+  - File graph, symbol graph, call graph panels
   - Typed communication via shared protocol
 
 ### Strict Rules
 
-- ⚠️ **NEVER** import `vscode` in `analyzer/` or `mcp/`
+- ⚠️ **NEVER** import `vscode` in `analyzer/`, `mcp/`, or `cli/`
 - ⚠️ **NEVER** import `node` (raw fs, path) in `webview/`
 - ✅ Always use `src/shared/` utilities for paths
 
@@ -590,8 +595,8 @@ Before submitting a PR:
 
 - **Detailed Architecture**: See `AGENTS.md`
 - **MCP Server**: See `src/mcp/README.md` (to be created)
-- **Cross-Platform Testing**: See `docs/CROSS_PLATFORM_TESTING.md`
-- **Performance**: See `docs/PERFORMANCE_OPTIMIZATIONS.md`
+- **Cross-Platform Testing**: See `docs/development/CROSS_PLATFORM_TESTING.md`
+- **Performance**: See `docs/architecture/PERFORMANCE_OPTIMIZATIONS.md`
 - **Git Workflow**: Conventional Commits style
 
 ---
