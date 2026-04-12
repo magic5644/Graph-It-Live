@@ -103,6 +103,9 @@ const LANG_COLORS: ReadonlyArray<[string, string]> = [
   ["javascript", LANGUAGE_COLORS.javascript ?? UNKNOWN_COLOR],
   ["python", LANGUAGE_COLORS.python ?? UNKNOWN_COLOR],
   ["rust", LANGUAGE_COLORS.rust ?? UNKNOWN_COLOR],
+  ["csharp", LANGUAGE_COLORS.csharp ?? UNKNOWN_COLOR],
+  ["go", LANGUAGE_COLORS.go ?? UNKNOWN_COLOR],
+  ["java", LANGUAGE_COLORS.java ?? UNKNOWN_COLOR],
 ];
 
 // ---------------------------------------------------------------------------

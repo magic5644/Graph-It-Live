@@ -104,6 +104,18 @@ function copyWasmFiles() {
       fileName: 'tree-sitter-rust.wasm',
     },
     {
+      src: 'node_modules/tree-sitter-wasms/out/tree-sitter-c_sharp.wasm',
+      fileName: 'tree-sitter-c_sharp.wasm',
+    },
+    {
+      src: 'node_modules/tree-sitter-wasms/out/tree-sitter-go.wasm',
+      fileName: 'tree-sitter-go.wasm',
+    },
+    {
+      src: 'node_modules/tree-sitter-wasms/out/tree-sitter-java.wasm',
+      fileName: 'tree-sitter-java.wasm',
+    },
+    {
       src: 'node_modules/sql.js/dist/sql-wasm.wasm',
       fileName: 'sqljs.wasm',
     },

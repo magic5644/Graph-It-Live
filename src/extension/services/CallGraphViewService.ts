@@ -72,6 +72,12 @@ function toSupportedLang(languageId: string): SupportedLang | null {
       return "python";
     case "rust":
       return "rust";
+    case "csharp":
+      return "csharp";
+    case "go":
+      return "go";
+    case "java":
+      return "java";
     default:
       return null;
   }
@@ -84,6 +90,10 @@ function langFromPath(filePath: string): SupportedLang | null {
   if (ext === ".vue" || ext === ".svelte") return "typescript";
   if ([".py", ".pyi"].includes(ext)) return "python";
   if (ext === ".rs") return "rust";
+  if (ext === ".cs") return "csharp";
+  if (ext === ".go") return "go";
+  if (ext === ".java") return "java";
+  // .csproj is XML — not suitable for call graph extraction
   return null;
 }
 
@@ -98,6 +108,9 @@ async function getQueryFreshnessCutoffs(extensionPath: string): Promise<Record<S
     javascript: path.join(extensionPath, "dist", "queries", "typescript.scm"),
     python: path.join(extensionPath, "dist", "queries", "python.scm"),
     rust: path.join(extensionPath, "dist", "queries", "rust.scm"),
+    csharp: path.join(extensionPath, "dist", "queries", "csharp.scm"),
+    go: path.join(extensionPath, "dist", "queries", "go.scm"),
+    java: path.join(extensionPath, "dist", "queries", "java.scm"),
   };
 
   const entries = await Promise.all(

@@ -100,6 +100,9 @@ const MEMBER_ACCESS_PARENT_TYPES = new Set([
   "member_expression",  // TS/JS
   "attribute",          // Python
   "field_expression",   // Rust
+  "member_access_expression", // C#
+  "selector_expression",      // Go
+  "field_access",             // Java
 ]);
 
 function isMemberAccessCapture(node: TreeNode): boolean {
@@ -469,6 +472,12 @@ export class GraphExtractor {
         return "tree-sitter-python.wasm";
       case "rust":
         return "tree-sitter-rust.wasm";
+      case "csharp":
+        return "tree-sitter-c_sharp.wasm";
+      case "go":
+        return "tree-sitter-go.wasm";
+      case "java":
+        return "tree-sitter-java.wasm";
     }
   }
 }
@@ -502,6 +511,13 @@ export function fileExtToLang(filePath: string): SupportedLang | null {
       return "python";
     case ".rs":
       return "rust";
+    case ".cs":
+    case ".csproj":
+      return "csharp";
+    case ".go":
+      return "go";
+    case ".java":
+      return "java";
     default:
       return null;
   }

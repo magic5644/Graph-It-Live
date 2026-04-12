@@ -68,6 +68,27 @@ describe("LanguageService", () => {
       );
     });
 
+    it("should detect C# files", () => {
+      expect(LanguageService.detectLanguage("/project/Program.cs")).toBe(
+        Language.CSharp,
+      );
+      expect(LanguageService.detectLanguage("/project/MyApp.csproj")).toBe(
+        Language.CSharp,
+      );
+    });
+
+    it("should detect Go files", () => {
+      expect(LanguageService.detectLanguage("/project/main.go")).toBe(
+        Language.Go,
+      );
+    });
+
+    it("should detect Java files", () => {
+      expect(LanguageService.detectLanguage("/project/Main.java")).toBe(
+        Language.Java,
+      );
+    });
+
     it("should return Unknown for unsupported extensions", () => {
       expect(LanguageService.detectLanguage("/project/file.txt")).toBe(
         Language.Unknown,
@@ -186,6 +207,27 @@ describe("LanguageService", () => {
       expect(analyzer.constructor.name).toBe("RustParser");
     });
 
+    it("should return CSharpParser for C# files", () => {
+      const analyzer = LanguageService.getAnalyzer("/project/Program.cs");
+      expect(analyzer).toBeDefined();
+      expect(analyzer.parseImports).toBeDefined();
+      expect(analyzer.constructor.name).toBe("CSharpParser");
+    });
+
+    it("should return GoParser for Go files", () => {
+      const analyzer = LanguageService.getAnalyzer("/project/main.go");
+      expect(analyzer).toBeDefined();
+      expect(analyzer.parseImports).toBeDefined();
+      expect(analyzer.constructor.name).toBe("GoParser");
+    });
+
+    it("should return JavaParser for Java files", () => {
+      const analyzer = LanguageService.getAnalyzer("/project/Main.java");
+      expect(analyzer).toBeDefined();
+      expect(analyzer.parseImports).toBeDefined();
+      expect(analyzer.constructor.name).toBe("JavaParser");
+    });
+
     it("should throw error for unsupported files", () => {
       expect(() => LanguageService.getAnalyzer("/project/file.txt")).toThrow(
         "Unsupported language for file",
@@ -226,6 +268,9 @@ describe("LanguageService", () => {
       expect(LanguageService.isSupported("/project/file.js")).toBe(true);
       expect(LanguageService.isSupported("/project/main.py")).toBe(true);
       expect(LanguageService.isSupported("/project/main.rs")).toBe(true);
+      expect(LanguageService.isSupported("/project/Program.cs")).toBe(true);
+      expect(LanguageService.isSupported("/project/main.go")).toBe(true);
+      expect(LanguageService.isSupported("/project/Main.java")).toBe(true);
     });
 
     it("should return false for unsupported file types", () => {

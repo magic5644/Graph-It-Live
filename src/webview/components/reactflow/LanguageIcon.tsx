@@ -29,6 +29,9 @@ const SVG_ICONS = {
   svelte: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><path d="m0 0H512V512H0" fill="#fff"/><path fill="#ff3e00" d="M149 138a103 103 0 00-36 138A115 115 0 00274 431l89-57a108 108 0 0036-138A115 115 0 00238 81zm99 256a70 70 0 01-102-83 109 109 0 0043 21 22 22 0 0032 23l89-57a20 20 0 00-23-33l-34 21A66 66 0 01175 175l89-57a70 70 0 01102 83 115 115 0 00-43-21 21 21 0 00-32-23l-89 57a20 20 0 0023 33l34-21a66 66 0 0178 111z"/></svg>',
   graphql: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" fill="#e10098"><path d="m0 0H512V512H0" fill="#fff"/><g id="b" stroke="#e10098" transform="translate(-127 -127) scale(1.5)"><g id="a"><path stroke-width="11" d="m256 151-91 52"/><circle cx="256" cy="151" r="22"/></g><use href="#a" transform="rotate(60 256 256)"/><path stroke-width="11" d="m256 151-94 162"/></g><use href="#b" transform="rotate(120 256 256)"/><use href="#b" transform="rotate(-120 256 256)"/></svg>',
   toml: '<svg viewBox="0 0 24 24"><rect width="24" height="24" rx="2" fill="white"/><path fill="#9c4221" d="M6 7h4v2H8v8H6zm6 0h4a2 2 0 0 1 2 2v6a2 2 0 0 1-2 2h-4v-2h4V9h-4z"/></svg>',
+  go: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><path d="m0 0H512V512H0" fill="#fff"/><path fill="#00acd7" d="M308 220c1 2-1 2-2 2l-34 9c-3 2-5-1-5-1-21-26-65-8-67 30-2 36 45 50 67 14h-38c-3 0-8-1-3-10l8-17c2-4 3-4 9-4h70c0 81-90 117-138 68-22-23-29-75 16-112 36-29 96-29 117 21m16 96c-45-39-21-120 50-133 73-13 105 55 76 106-24 43-88 61-126 27m94-51c9-25-9-49-36-47-30 3-51 42-32 65 19 22 58 12 68-18m-321-2v-1l2-5 2-1h41l1 1-1 5-1 1H97m-48-18s-2 0-1-1l4-6 2-1h92l1 1-2 5-1 1-95 1m30-19-1-1 5-5 2-1h72v1l-3 5-2 1H79"/></svg>',
+  java: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" fill="none"><path d="m0 0H512V512H0" fill="#fff"/><path d="M274 235c18 21-5 40-5 40s47-24 25-54-35-42 48-90c0-1-131 32-68 104M294 53s40 40-38 100c-62 49-14 77 0 109-36-33-63-61-45-88 27-40 99-59 83-121" fill="#f8981d"/><path d="M206 347s-15 8 10 11 46 3 79-3a137 137 0 0021 10c-74 32-169-1-110-18m-9-42s-16 12 9 15 58 4 102-5a45 45 0 0016 10c-91 26-192 2-127-20m175 73s11 9-12 16c-43 13-179 17-217 1-14-6 15-17 33-17-17-10-98 21-42 30 153 24 278-12 238-30M213 262s-69 16-25 22c19 3 57 2 92-1s57-8 57-8a122 122 0 00-17 9c-70 18-206 10-167-9s60-13 60-13m124 69c73-37 39-80 7-66 36-30 101 36-9 68zM220 432c69 4 174-2 176-35 0 0-5 12-57 22s-131 10-174 3c1 0 10 7 55 10" fill="#5382a1"/></svg>',
+  csharp: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><path d="m0 0H512V512H0" fill="#fff"/><path fill="#9b4f96" d="M64 256c0-106 86-192 192-192 54 0 103 22 138 58l-45 45c-24-24-57-38-93-38-72 0-130 58-130 127s58 127 130 127c36 0 69-14 93-38l45 45c-35 36-84 58-138 58-106 0-192-86-192-192zm268-80h-30v-52h-30v52h-28v-52h-30v52a14 14 0 000 28h14v56h-14a14 14 0 000 28h30v52h30v-52h28v52h30v-52a14 14 0 000-28h-14v-56h14a14 14 0 000-28z"/></svg>',
 } as const;
 
 // Language configurations mapping extensions to their SVG icons and colors
@@ -64,6 +67,16 @@ const LANGUAGE_CONFIGS: Record<string, LanguageConfig> = {
   
   // TOML
   '.toml': { id: 'toml', fallback: 'TOML', color: LANGUAGE_COLORS.toml, svg: SVG_ICONS.toml },
+
+  // C#
+  '.cs': { id: 'csharp', fallback: 'C#', color: LANGUAGE_COLORS.csharp, svg: SVG_ICONS.csharp },
+  '.csproj': { id: 'csharp', fallback: 'CSP', color: LANGUAGE_COLORS.csharp, svg: SVG_ICONS.csharp },
+
+  // Go
+  '.go': { id: 'go', fallback: 'Go', color: LANGUAGE_COLORS.go, svg: SVG_ICONS.go },
+
+  // Java
+  '.java': { id: 'java', fallback: 'Java', color: LANGUAGE_COLORS.java, svg: SVG_ICONS.java },
 };
 
 const DEFAULT_CONFIG: LanguageConfig = {
