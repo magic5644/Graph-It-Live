@@ -170,9 +170,32 @@ describe('CSharpParser', () => {
   });
 
   describe('resolvePath', () => {
-    it('should always return null (namespaces are not file paths)', async () => {
+      it('should return null for System (framework) namespaces', async () => {
       const result = await parser.resolvePath('/project/Program.cs', 'System.Collections.Generic');
       expect(result).toBeNull();
     });
+
+      it('should return null for Microsoft namespaces', async () => {
+          const result = await parser.resolvePath('/project/Program.cs', 'Microsoft.Extensions.DependencyInjection');
+          expect(result).toBeNull();
+      });
+
+      it('should resolve a project namespace to a .cs file', async () => {
+          const result = await parser.resolvePath(
+              path.join(fixturesDir, 'Program.cs'),
+              'MyApp.Services',
+          );
+          expect(result).toBeTruthy();
+          expect(result).toMatch(/\.cs$/);
+      });
+
+      it('should resolve a nested project namespace to a .cs file', async () => {
+          const result = await parser.resolvePath(
+              path.join(fixturesDir, 'Services/UserService.cs'),
+              'MyApp.Models',
+          );
+          expect(result).toBeTruthy();
+          expect(result).toMatch(/\.cs$/);
+      });
   });
 });

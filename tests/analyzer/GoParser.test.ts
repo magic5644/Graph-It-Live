@@ -153,13 +153,27 @@ describe('GoParser', () => {
       expect(result).toBeNull();
     });
 
-    it('should resolve module-relative imports starting with the module root', async () => {
+      it('should return null for net/http stdlib package', async () => {
+          const result = await parser.resolvePath('/project/main.go', 'net/http');
+          expect(result).toBeNull();
+      });
+
+      it('should resolve a module-local package via go.mod', async () => {
       const result = await parser.resolvePath(
-        `${fixturesDir}/main.go`,
-        `${path.basename(fixturesDir)}/utils`,
+          path.join(fixturesDir, 'main.go'),
+          'github.com/example/myapp/config',
       );
-      // May resolve or return null depending on filesystem; just verify it doesn't throw
-      expect(result === null || typeof result === 'string').toBe(true);
+        expect(result).toBeTruthy();
+        expect(result).toMatch(/\.go$/);
+    });
+
+      it('should resolve a module-local package via last-segment fallback', async () => {
+          const result = await parser.resolvePath(
+              path.join(fixturesDir, 'main.go'),
+              'github.com/example/myapp/utils',
+          );
+          expect(result).toBeTruthy();
+          expect(result).toMatch(/\.go$/);
     });
   });
 });

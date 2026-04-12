@@ -1,0 +1,24 @@
+{
+  "hooks": {
+    "PostToolUse": [
+      {
+        "type": "command",
+        "command": "./.github/hooks/scripts/lint-after-edit.sh",
+        "cwd": ".",
+        "timeout": 60,
+        "env": {
+          "HOOKS_DIR": ".github/hooks"
+        }
+      },
+      {
+        "type": "command",
+        "command": "./.github/hooks/scripts/verify-package-integrity.sh",
+        "cwd": ".",
+        "timeout": 30,
+        "env": {
+          "HOOKS_DIR": ".github/hooks"
+        }
+      }
+    ]
+  }
+}

@@ -1,14 +1,14 @@
 import path from 'node:path';
-import type { Dependency, SpiderConfig, SymbolDependency, SymbolInfo } from '../types';
-import { SpiderError, normalizePath } from '../types';
 import { getLogger } from '../../shared/logger';
+import { AstWorkerHost } from '../ast/AstWorkerHost';
 import { Cache } from '../Cache';
 import { FileReader } from '../FileReader';
-import { PathResolver } from '../utils/PathResolver';
-import { AstWorkerHost } from '../ast/AstWorkerHost';
-import { SymbolDependencyHelper } from '../SymbolDependencyHelper';
-import { isInIgnoredDirectory } from '../utils/PathPredicates';
 import { LanguageService } from '../LanguageService';
+import { SymbolDependencyHelper } from '../SymbolDependencyHelper';
+import type { Dependency, SpiderConfig, SymbolDependency, SymbolInfo } from '../types';
+import { SpiderError, normalizePath } from '../types';
+import { isInIgnoredDirectory } from '../utils/PathPredicates';
+import { PathResolver } from '../utils/PathResolver';
 
 const log = getLogger('SpiderSymbolService');
 
@@ -290,11 +290,11 @@ export class SpiderSymbolService {
         return true;
       }
       
-      // GraphQL files don't support AST analysis - skip symbol verification
-      // They use regex-based #import parsing which is already validated by file-level crawl
-      if (this.isGraphQLFile(normalizedSource)) {
-        log.debug(`Skipping symbol analysis for GraphQL file: ${normalizedSource}`);
-        return true; // All imports in GraphQL are considered used
+      // GraphQL, C#, Go, and Java files don't support AST symbol analysis - skip verification
+      // They use their own parsers for file-level crawl which is already validated
+      if (this.isAstUnsupportedFile(normalizedSource)) {
+        log.debug(`Skipping symbol analysis for unsupported file type: ${normalizedSource}`);
+        return true; // All imports in these languages are considered used
       }
       
       // 1. Get AST-based symbol dependencies for the source file (cached)
@@ -349,9 +349,9 @@ export class SpiderSymbolService {
     try {
       const normalizedSource = normalizePath(sourceFile);
       
-      // GraphQL files don't support AST analysis - all imports are considered used
-      if (this.isGraphQLFile(normalizedSource)) {
-        log.debug(`Skipping symbol analysis for GraphQL file: ${normalizedSource}`);
+      // GraphQL, C#, Go, and Java files don't support AST symbol analysis - all imports are considered used
+      if (this.isAstUnsupportedFile(normalizedSource)) {
+        log.debug(`Skipping symbol analysis for unsupported file type: ${normalizedSource}`);
         return this.markAllAsUsed(targetFiles);
       }
       
@@ -429,9 +429,20 @@ export class SpiderSymbolService {
   }
 
   /**
-   * Check if a file is a GraphQL file (.gql or .graphql)
+   * Check if a file is NOT supported by the AST worker for symbol analysis.
+   * The AST worker only handles TypeScript/JavaScript, Python, and Rust.
+   * C#, Go, and Java files use file-level parsers only — symbol-level
+   * verification would always return empty dependencies, causing all
+   * of their imports to be incorrectly marked as unused.
    */
-  private isGraphQLFile(filePath: string): boolean {
-    return filePath.endsWith('.gql') || filePath.endsWith('.graphql');
+  private isAstUnsupportedFile(filePath: string): boolean {
+    return (
+      filePath.endsWith('.gql') ||
+      filePath.endsWith('.graphql') ||
+      filePath.endsWith('.cs') ||
+      filePath.endsWith('.csproj') ||
+      filePath.endsWith('.go') ||
+      filePath.endsWith('.java')
+    );
   }
 }

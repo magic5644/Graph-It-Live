@@ -1,3 +1,4 @@
+import fs from "node:fs/promises";
 import path from "node:path";
 import { Node, Parser } from "web-tree-sitter";
 import { normalizePath } from "../../shared/path";
@@ -14,11 +15,13 @@ import { WasmParserFactory } from "./WasmParserFactory";
 export class GoParser implements ILanguageAnalyzer {
   private parser: Parser | null = null;
   private readonly fileReader: FileReader;
+    private readonly rootDir: string;
   private readonly extensionPath?: string;
   private initPromise: Promise<void> | null = null;
 
-  constructor(_rootDir?: string, extensionPath?: string) {
+    constructor(rootDir?: string, extensionPath?: string) {
     this.fileReader = new FileReader();
+        this.rootDir = rootDir ?? process.cwd();
     this.extensionPath = extensionPath;
   }
 
@@ -113,9 +116,135 @@ export class GoParser implements ILanguageAnalyzer {
     }
   }
 
-  async resolvePath(_fromFile: string, _moduleSpecifier: string): Promise<string | null> {
-    // Go import paths are module paths (e.g. "github.com/user/repo/pkg").
-    // File-level resolution requires the module graph — beyond Spider's file-crawl scope.
-    return null;
-  }
+    async resolvePath(fromFile: string, moduleSpecifier: string): Promise<string | null> {
+        if (this.isGoStdlibImport(moduleSpecifier)) return null;
+        // Guard against path traversal: reject any empty or '..' segment
+        const specParts = moduleSpecifier.split('/');
+        if (specParts.some(GoParser.isUnsafePart)) return null;
+        return this.resolveGoImport(extractFilePath(fromFile), moduleSpecifier, specParts);
+    }
+
+    /** Wraps resolution in try/catch so no errors propagate from the async helpers. */
+    private async resolveGoImport(
+        fromFile: string,
+        moduleSpecifier: string,
+        specParts: string[],
+    ): Promise<string | null> {
+        try {
+            const goFile =
+                await this.resolveViaGoMod(fromFile, moduleSpecifier) ??
+                await this.resolveViaLastSegment(specParts);
+            return goFile ? normalizePath(goFile) : null;
+        } catch {
+            return null;
+        }
+    }
+
+    /** Rejects path parts that are empty or represent parent-directory traversal. */
+    private static isUnsafePart(part: string): boolean {
+        return part === '..' || part === '';
+    }
+
+    /** Try to resolve using go.mod module prefix. */
+    private async resolveViaGoMod(fromFile: string, moduleSpecifier: string): Promise<string | null> {
+        const moduleInfo = await this.findGoModuleInfo(path.dirname(fromFile));
+        if (!moduleInfo) return null;
+        if (!moduleSpecifier.startsWith(moduleInfo.moduleName + '/')) return null;
+
+        const relPath = moduleSpecifier.slice(moduleInfo.moduleName.length + 1);
+        const relParts = relPath.split('/');
+        if (relParts.some(GoParser.isUnsafePart)) return null;
+
+        const pkgDir = path.resolve(moduleInfo.moduleDir, ...relParts);
+        if (!this.isWithinRoot(pkgDir)) return null;
+        return this.findFirstGoFile(pkgDir);
+    }
+
+    /** Fallback: match last path segment to a directory name within rootDir. */
+    private async resolveViaLastSegment(specParts: string[]): Promise<string | null> {
+        const pkgDirName = specParts.at(-1) ?? '';
+        if (!pkgDirName) return null;
+
+        const foundDir = await this.findDirectory(this.rootDir, pkgDirName, 3);
+        if (!foundDir || !this.isWithinRoot(foundDir)) return null;
+        return this.findFirstGoFile(foundDir);
+    }
+
+    /** Verify that a resolved path remains inside the workspace root (prevent path traversal). */
+    private isWithinRoot(resolvedPath: string): boolean {
+        const target = normalizePath(path.resolve(resolvedPath));
+        const root = normalizePath(path.resolve(this.rootDir));
+        return target === root || target.startsWith(root + '/');
+    }
+
+    private isGoStdlibImport(moduleSpecifier: string): boolean {
+        // Stdlib paths have no dot in the first path component (e.g. "fmt", "net", "encoding")
+        const firstPart = moduleSpecifier.split('/')[0] ?? '';
+        return !firstPart.includes('.');
+    }
+
+    /** Walk up from startDir to find the nearest go.mod within rootDir. */
+    private async findGoModuleInfo(
+        startDir: string,
+    ): Promise<{ moduleDir: string; moduleName: string } | null> {
+        let currentDir = startDir;
+        const rootNorm = normalizePath(this.rootDir);
+
+        while (true) {
+            const moduleName = await this.readGoModuleName(path.join(currentDir, 'go.mod'));
+            if (moduleName) return { moduleDir: currentDir, moduleName };
+
+            const parent = path.dirname(currentDir);
+            if (parent === currentDir) break; // filesystem root
+            if (!normalizePath(parent).startsWith(rootNorm)) break; // left workspace
+            currentDir = parent;
+        }
+        return null;
+    }
+
+    /** Read the module name from a go.mod file; returns null if missing or unreadable. */
+    private async readGoModuleName(goModPath: string): Promise<string | null> {
+        try {
+            const content = await fs.readFile(goModPath, 'utf-8');
+            const match = /^module\s+(\S+)/mu.exec(content);
+            return match ? match[1] : null;
+        } catch {
+            return null;
+        }
+    }
+
+    /** Return the first non-test .go file in a directory, sorted alphabetically. */
+    private async findFirstGoFile(dir: string): Promise<string | null> {
+        try {
+            const entries = await fs.readdir(dir, { withFileTypes: true });
+            const goFiles = entries
+                .filter(e => e.isFile() && e.name.endsWith('.go') && !e.name.endsWith('_test.go'))
+                .sort((a, b) => a.name.localeCompare(b.name));
+            return goFiles.length > 0 ? path.join(dir, goFiles[0].name) : null;
+        } catch {
+            return null;
+        }
+    }
+
+    /** Recursively find a directory by name within dir (depth-limited). */
+    private async findDirectory(dir: string, dirName: string, maxDepth: number): Promise<string | null> {
+        if (maxDepth <= 0) return null;
+        try {
+            const entries = await fs.readdir(dir, { withFileTypes: true });
+            const subdirs = entries.filter(GoParser.isTraversableDir);
+            for (const entry of subdirs) {
+                if (entry.name === dirName) return path.join(dir, entry.name);
+                const found = await this.findDirectory(path.join(dir, entry.name), dirName, maxDepth - 1);
+                if (found) return found;
+            }
+        } catch {
+            // Directory not accessible
+        }
+        return null;
+    }
+
+    private static isTraversableDir(entry: { isDirectory(): boolean; name: string }): boolean {
+        return entry.isDirectory() && !entry.name.startsWith('.') && entry.name !== 'node_modules';
+    }
+
 }
