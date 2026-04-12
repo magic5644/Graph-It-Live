@@ -1,3 +1,4 @@
+import fs from "node:fs/promises";
 import path from "node:path";
 import { Node, Parser } from "web-tree-sitter";
 import { normalizePath } from "../../shared/path";
@@ -14,11 +15,13 @@ import { WasmParserFactory } from "./WasmParserFactory";
 export class JavaParser implements ILanguageAnalyzer {
   private parser: Parser | null = null;
   private readonly fileReader: FileReader;
+    private readonly rootDir: string;
   private readonly extensionPath?: string;
   private initPromise: Promise<void> | null = null;
 
-  constructor(_rootDir?: string, extensionPath?: string) {
+    constructor(rootDir?: string, extensionPath?: string) {
     this.fileReader = new FileReader();
+      this.rootDir = rootDir ?? process.cwd();
     this.extensionPath = extensionPath;
   }
 
@@ -114,9 +117,85 @@ export class JavaParser implements ILanguageAnalyzer {
     }
   }
 
-  async resolvePath(_fromFile: string, _moduleSpecifier: string): Promise<string | null> {
-    // Java import paths are fully-qualified class names (e.g. "com.example.Foo").
-    // File-level resolution requires a classpath/project model — beyond Spider's scope.
+    async resolvePath(_fromFile: string, moduleSpecifier: string): Promise<string | null> {
+        try {
+            // Skip Java standard library and well-known javax/sun packages
+            if (this.isJavaStdlibImport(moduleSpecifier)) {
+                return null;
+            }
+            // Skip wildcard imports — cannot resolve to a single file
+            if (moduleSpecifier.endsWith('.*')) {
+                return null;
+            }
+
+            const segments = moduleSpecifier.split('.');
+            // Guard against path traversal: reject empty, dot-only, or slash-containing segments
+            if (segments.some(s => s === '' || s === '..' || s.includes('/'))) {
+                return null;
+            }
+
+            const className = segments.at(-1) ?? '';
+
+            // Try 1: Standard Maven layout — full package path from rootDir
+            // e.g., com.example.myapp.UserService → rootDir/com/example/myapp/UserService.java
+            const packagePath = segments.join(path.sep) + '.java';
+            const directPath = path.resolve(this.rootDir, packagePath);
+            if (this.isWithinRoot(directPath) && await this.fileExists(directPath)) {
+                return normalizePath(directPath);
+            }
+
+            // Try 2: Search for ClassName.java anywhere within rootDir (handles non-standard layouts)
+            const found = await this.findFile(this.rootDir, className + '.java', 4);
+            return found ? normalizePath(found) : null;
+        } catch {
+            return null;
+        }
+    }
+
+    /** Verify that a resolved path remains inside the workspace root (prevent path traversal). */
+    private isWithinRoot(resolvedPath: string): boolean {
+        const target = normalizePath(path.resolve(resolvedPath));
+        const root = normalizePath(path.resolve(this.rootDir));
+        return target === root || target.startsWith(root + '/');
+    }
+
+    private isJavaStdlibImport(moduleSpecifier: string): boolean {
+        const stdPrefixes = [
+            'java.', 'javax.', 'sun.', 'com.sun.',
+            'org.w3c.', 'org.xml.', 'org.ietf.',
+            'org.omg.', 'jdk.', 'javafx.',
+        ];
+        return stdPrefixes.some(prefix => moduleSpecifier.startsWith(prefix));
+    }
+
+    /** Recursively search for a file by exact name within a directory tree (depth-limited). */
+    private async findFile(dir: string, fileName: string, maxDepth: number): Promise<string | null> {
+        if (maxDepth <= 0) return null;
+        try {
+            const entries = await fs.readdir(dir, { withFileTypes: true });
+            for (const entry of entries) {
+                if (entry.isFile() && entry.name === fileName) {
+                    return path.join(dir, entry.name);
+                }
+            }
+            for (const entry of entries) {
+                if (entry.isDirectory() && !entry.name.startsWith('.') && entry.name !== 'node_modules') {
+                    const found = await this.findFile(path.join(dir, entry.name), fileName, maxDepth - 1);
+                    if (found) return found;
+                }
+            }
+        } catch {
+            // Directory not accessible
+        }
     return null;
   }
+
+    private async fileExists(filePath: string): Promise<boolean> {
+        try {
+            await fs.access(filePath);
+            return true;
+        } catch {
+            return false;
+        }
+    }
 }

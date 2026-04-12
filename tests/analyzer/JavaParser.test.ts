@@ -159,9 +159,32 @@ describe('JavaParser', () => {
   });
 
   describe('resolvePath', () => {
-    it('should always return null (package paths are not file paths)', async () => {
+      it('should return null for java stdlib imports', async () => {
       const result = await parser.resolvePath('/project/Main.java', 'java.util.List');
       expect(result).toBeNull();
     });
+
+      it('should return null for wildcard imports', async () => {
+          const result = await parser.resolvePath('/project/Main.java', 'com.example.myapp.*');
+          expect(result).toBeNull();
+      });
+
+      it('should resolve a project-local FQN to a .java file', async () => {
+          const result = await parser.resolvePath(
+              path.join(fixturesDir, 'Main.java'),
+              'com.example.myapp.UserService',
+          );
+          expect(result).toBeTruthy();
+          expect(result).toMatch(/UserService\.java$/);
+      });
+
+      it('should resolve a nested class to a .java file', async () => {
+          const result = await parser.resolvePath(
+              path.join(fixturesDir, 'Main.java'),
+              'com.example.myapp.models.User',
+          );
+          expect(result).toBeTruthy();
+          expect(result).toMatch(/User\.java$/);
+      });
   });
 });

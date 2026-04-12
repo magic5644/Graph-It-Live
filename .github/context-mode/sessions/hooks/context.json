@@ -1,0 +1,12 @@
+{
+  "hooks": {
+    "SessionStart": [
+      {
+        "type": "command",
+        "command": "./.github/hooks/scripts/inject-context.sh",
+        "cwd": ".",
+        "timeout": 15
+      }
+    ]
+  }
+}
