@@ -29,6 +29,11 @@
       ]
     }
   },
+  "references": [
+    {
+      "path": "./tsconfig.test.node.json"
+    }
+  ],
   "include": [
     "src/**/*.ts"
   ],
