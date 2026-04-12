@@ -18,6 +18,13 @@ type CyStylesheet = cytoscape.StylesheetStyle | cytoscape.StylesheetCSS;
 /** Cycle highlight color — red accent aligned with ReactFlow cycle color (#ff4d4d) */
 const CYCLE_COLOR = "#ff4d4d";
 
+/**
+ * Root (focal) node highlight color.
+ * Chosen to be clearly distinct from all language colors — particularly Java
+ * orange (#f8981d). Lime-green (hue ~84°) is not used by any supported language.
+ */
+const ROOT_COLOR = "#b2ff59";
+
 /** Fallback node color when language is unrecognised */
 const UNKNOWN_COLOR = LANGUAGE_COLORS.unknown ?? "#6b6b6b";
 
@@ -167,25 +174,6 @@ export function buildCallGraphStylesheet(isDark = true): CyStylesheet[] {
         "border-width": 2,
         "border-color": UNKNOWN_COLOR,
         "background-color": UNKNOWN_COLOR,
-      },
-    },
-    {
-      selector: "node[?isRoot]",
-      style: {
-        "background-color": "#f5a623",
-        "border-width": 4,
-        "border-style": "solid",
-        "border-color": t.selectionBorder,
-        "font-weight": "bold",
-        color: "#1a1a1a",
-        "text-outline-color": "#f5a623",
-        "text-outline-width": 2,
-        // Glow effect
-        "shadow-blur": 18,
-        "shadow-color": "#f5a623",
-        "shadow-opacity": 0.85,
-        "shadow-offset-x": 0,
-        "shadow-offset-y": 0,
       },
     },
     {
@@ -365,5 +353,27 @@ export function buildCallGraphStylesheet(isDark = true): CyStylesheet[] {
     },
     ...shapeStyles,
     ...langStyles,
+    // Root override MUST come after langStyles — same CSS specificity,
+    // so later position wins. This ensures the focal node is always
+    // visually distinct regardless of its language color.
+    {
+      selector: "node[?isRoot]",
+      style: {
+        "background-color": ROOT_COLOR,
+        "border-width": 4,
+        "border-style": "solid",
+        "border-color": t.selectionBorder,
+        "font-weight": "bold",
+        color: "#1a1a1a",
+        "text-outline-color": ROOT_COLOR,
+        "text-outline-width": 2,
+        // Glow effect
+        "shadow-blur": 18,
+        "shadow-color": ROOT_COLOR,
+        "shadow-opacity": 0.85,
+        "shadow-offset-x": 0,
+        "shadow-offset-y": 0,
+      },
+    },
   ];
 }
