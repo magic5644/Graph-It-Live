@@ -494,7 +494,7 @@ All tools support an optional `format` parameter to reduce token consumption:
 | `toon` | Compact Token-Oriented Object Notation | 30-60% |
 | `markdown` | JSON wrapped in markdown code blocks | — |
 
-See [TOON Format Documentation](./docs/TOON_FORMAT.md) for full specifications.
+See [TOON Format Documentation](./docs/architecture/TOON_FORMAT.md) for full specifications.
 
 ### Native LM Tools (Copilot Agent Mode)
 
@@ -672,10 +672,10 @@ For comprehensive development instructions, see:
 
 - **[DEVELOPMENT.md](DEVELOPMENT.md)** — Setup, build, testing, WASM architecture
 - **[CONTRIBUTING.md](CONTRIBUTING.md)** — Contribution guidelines, branch naming, commit conventions
-- **[docs/CODING_STANDARDS.md](docs/CODING_STANDARDS.md)** — TypeScript conventions and code style rules
-- **[docs/CROSS_PLATFORM_TESTING.md](docs/CROSS_PLATFORM_TESTING.md)** — Cross-platform compatibility requirements (Windows/Linux/macOS)
-- **[docs/TOON_FORMAT.md](docs/TOON_FORMAT.md)** — Token-Optimized Output format specification for AI tools
-- **[docs/PERFORMANCE_OPTIMIZATIONS.md](docs/PERFORMANCE_OPTIMIZATIONS.md)** — Performance tuning and caching strategies
+- **[docs/development/CODING_STANDARDS.md](docs/development/CODING_STANDARDS.md)** — TypeScript conventions and code style rules
+- **[docs/development/CROSS_PLATFORM_TESTING.md](docs/development/CROSS_PLATFORM_TESTING.md)** — Cross-platform compatibility requirements (Windows/Linux/macOS)
+- **[docs/architecture/TOON_FORMAT.md](docs/architecture/TOON_FORMAT.md)** — Token-Optimized Output format specification for AI tools
+- **[docs/architecture/PERFORMANCE_OPTIMIZATIONS.md](docs/architecture/PERFORMANCE_OPTIMIZATIONS.md)** — Performance tuning and caching strategies
 
 ### Quick Start
 
