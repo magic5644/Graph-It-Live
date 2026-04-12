@@ -67,25 +67,25 @@
 ; INHERITS
 ; --------------------------------------------------------------------------
 
-; Base class in class_declaration: class Foo : Bar
+; Primary constructor base type: record Foo(int X) : Bar(X)
 (base_list
   (primary_constructor_base_type
     (identifier) @inherit))
 
-(base_list
-  (simple_base_type
-    (identifier) @inherit))
+; Simple base class / interface: class Foo : Bar, IFoo
+; In tree-sitter-c-sharp 0.20.x base_list directly contains _type nodes —
+; there is no 'simple_base_type' wrapper in this grammar version.
+(base_list (identifier) @inherit)
+(base_list (qualified_name) @inherit)
 
 ; --------------------------------------------------------------------------
 ; IMPLEMENTS
 ; --------------------------------------------------------------------------
 
-; Interface in base list — tree-sitter C# does not distinguish base-class from
-; interface in base_list, so we capture all base types as @impl if they start
-; with a capital letter convention (best-effort for C#)
-(base_list
-  (simple_base_type
-    (identifier) @impl))
+; C# does not distinguish base-class from interface at the AST level.
+; Both appear as the same _type nodes directly under base_list.
+(base_list (identifier) @impl)
+(base_list (qualified_name) @impl)
 
 ; --------------------------------------------------------------------------
 ; USES (type references in fields, parameters, locals)
