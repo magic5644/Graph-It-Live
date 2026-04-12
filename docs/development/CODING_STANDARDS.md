@@ -130,7 +130,7 @@ Add an e2e test for **EVERY** new user-facing feature:
 - VS Code commands
 - Configuration settings
 - UI interactions
-- Multi-language support (TS/JS/Python/Rust/GraphQL)
+- Multi-language support (TS/JS/Python/Rust/C#/Go/Java/GraphQL)
 
 ---
 

@@ -208,7 +208,7 @@ test('Python import extraction completeness', async () => {
 - Extension activation and all commands
 - Settings (read/write operations)
 - Performance profiles (default/low-memory/high-performance)
-- Multi-language analysis (TypeScript, JavaScript, Python, Rust, GraphQL)
+- Multi-language analysis (TypeScript, JavaScript, Python, Rust, C#, Go, Java, GraphQL)
 - Cycle detection and unused filtering
 - Symbol-level analysis with LSP-based call hierarchy
 - Node operations (expand, collapse, filter toggle)
