@@ -48,7 +48,7 @@ function fetchLatestVersion(): Promise<string> {
       });
     });
     req.on("error", (err) => {
-      reject(new CliError(`Network error: ${(err as Error).message}`, ExitCode.GENERAL_ERROR));
+      reject(new CliError(`Network error: ${err.message}`, ExitCode.GENERAL_ERROR));
     });
     req.setTimeout(10_000, () => {
       req.destroy();
