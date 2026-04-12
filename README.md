@@ -30,7 +30,7 @@ Built for **architects** who need the big picture and **developers** who need to
 | **Symbol View** | Function/class call hierarchy inside a file | AST (ts-morph) |
 | **Live Call Graph** | Cross-file symbol call relationships | Tree-sitter + SQLite |
 
-All three layers are also exposed to AI via a **20-tool MCP server**, so your assistant can answer architecture questions with zero hallucination.
+All three layers are also exposed to AI via a **21-tool MCP server**, so your assistant can answer architecture questions with zero hallucination.
 
 <div align="center">
   <img src="media/demo-plugin-graph-it-live.gif" alt="Graph-It-Live Demo" width="800"/>
@@ -220,7 +220,7 @@ Go beyond file dependencies — **drill into any file to visualize function-to-f
 - Python (tree-sitter WASM)
 - Rust (tree-sitter WASM)
 
-> **Note:** C#, Go, and Java are supported at the **file dependency graph level** (L1). Symbol drill-down is not yet available for these languages.
+> **Note:** C#, Go, and Java are supported at the **file dependency graph level** (L1) and the **Live Call Graph** level (L3). Symbol drill-down (intra-file view, L2) is not yet available for these languages.
 
 **Benefits:**
 - **Understand code flow** without reading every line
@@ -265,6 +265,14 @@ Unlike the Symbol View (which shows relationships *within* a single file via AST
   <img src="media/call-graph-view-example.png" alt="Live call graph with cycle detection" width="800"/>
   <p><em>Live Call Graph — cross-file symbol relationships with cycle detection and folder grouping</em></p>
 </div>
+
+**Language support (Live Call Graph):**
+- TypeScript / JavaScript (including Vue, Svelte)
+- Python
+- Rust
+- C# *(New)*
+- Go *(New)*
+- Java *(New)*
 
 <!-- TODO: Add a short video/gif showing the call graph in action (indexing → symbol click → depth change → live refresh on save) -->
 

@@ -1,7 +1,7 @@
 {
   "name": "graph-it-live",
   "displayName": "Graph-It-Live",
-  "description": "AI-first dependency graph & code intelligence for VS Code. Visualize file imports, symbol call hierarchies, and cross-file call graphs. Detect circular dependencies, dead code, and breaking changes. Built-in MCP Server with 21 tools for GitHub Copilot, Cursor, Claude, Windsurf, and Antigravity. Generate AI-friendly codemaps. TypeScript, JavaScript, Python, Rust, Vue, Svelte, GraphQL.",
+  "description": "AI-first dependency graph & code intelligence for VS Code. Visualize file imports, symbol call hierarchies, and cross-file call graphs. Detect circular dependencies, dead code, and breaking changes. Built-in MCP Server with 21 tools for GitHub Copilot, Cursor, Claude, Windsurf, and Antigravity. Generate AI-friendly codemaps. TypeScript, JavaScript, C#, Go, Java, Python, Rust, Vue, Svelte, GraphQL.",
   "version": "0.0.1",
   "publisher": "magic5644",
   "author": {
@@ -31,6 +31,9 @@
     "typescript",
     "javascript",
     "python",
+    "java",
+    "go",
+    "csharp",
     "rust",
     "vue",
     "svelte",
