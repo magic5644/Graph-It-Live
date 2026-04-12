@@ -25,6 +25,10 @@ export const LANGUAGE_BY_EXTENSION: Record<string, string> = {
   '.svelte': 'svelte',
   '.gql': 'graphql',
   '.graphql': 'graphql',
+  '.cs': 'csharp',
+  '.csproj': 'csharp',
+  '.go': 'go',
+  '.java': 'java',
 };
 
 /**

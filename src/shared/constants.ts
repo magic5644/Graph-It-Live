@@ -7,6 +7,9 @@ export const VUE_EXTENSIONS = ['.vue'] as const;
 export const SVELTE_EXTENSIONS = ['.svelte'] as const;
 export const GRAPHQL_EXTENSIONS = ['.gql', '.graphql'] as const;
 export const TOML_EXTENSIONS = ['.toml'] as const;
+export const CSHARP_EXTENSIONS = ['.cs', '.csproj'] as const;
+export const GO_EXTENSIONS = ['.go'] as const;
+export const JAVA_EXTENSIONS = ['.java'] as const;
 
 // Derived: All supported file extensions (deduced from language-specific constants)
 export const SUPPORTED_FILE_EXTENSIONS = [
@@ -18,6 +21,9 @@ export const SUPPORTED_FILE_EXTENSIONS = [
     ...PYTHON_EXTENSIONS,
     ...RUST_EXTENSIONS,
     ...TOML_EXTENSIONS,
+    ...CSHARP_EXTENSIONS,
+    ...GO_EXTENSIONS,
+    ...JAVA_EXTENSIONS,
 ];
 
 // Derived: Extensions supported for LSP-based symbol analysis (TypeScript, JavaScript, Python, Rust)
@@ -29,7 +35,7 @@ export const SUPPORTED_SYMBOL_ANALYSIS_EXTENSIONS = [
 ];
 
 // Unified regex for source files we analyze across extension/webview/mcp
-export const SUPPORTED_SOURCE_FILE_REGEX = /\.(ts|tsx|js|jsx|vue|svelte|gql|graphql|py|pyi|rs)$/;
+export const SUPPORTED_SOURCE_FILE_REGEX = /\.(ts|tsx|js|jsx|vue|svelte|gql|graphql|py|pyi|rs|cs|csproj|go|java)$/;
 
 export const IGNORED_DIRECTORIES = [
     'node_modules',
@@ -47,7 +53,7 @@ export const IGNORED_DIRECTORIES = [
 ];
 
 
-export const WATCH_GLOB = "**/*.{ts,tsx,js,jsx,vue,svelte,gql,graphql,py,pyi,rs,toml}";
+export const WATCH_GLOB = "**/*.{ts,tsx,js,jsx,vue,svelte,gql,graphql,py,pyi,rs,toml,cs,csproj,go,java}";
 
 // Language-specific colors for UI visualization
 // Used in webview for syntax highlighting, borders, and icons
@@ -68,6 +74,12 @@ export const LANGUAGE_COLORS: Record<string, string> = {
     graphql: '#e535ab',
     // TOML (Rust config)
     toml: '#9c4221',
+    // C#
+    csharp: '#9b4f96',
+    // Go
+    go: '#00acd7',
+    // Java
+    java: '#f8981d',
     // Unknown/default
     unknown: '#6b6b6b',
 };
@@ -91,4 +103,8 @@ export const EXTENSION_COLORS: Record<string, string> = {
     '.gql': LANGUAGE_COLORS.graphql,
     '.graphql': LANGUAGE_COLORS.graphql,
     '.toml': LANGUAGE_COLORS.toml,
+    '.cs': LANGUAGE_COLORS.csharp,
+    '.csproj': LANGUAGE_COLORS.csharp,
+    '.go': LANGUAGE_COLORS.go,
+    '.java': LANGUAGE_COLORS.java,
 };

@@ -1,6 +1,9 @@
 import path from "node:path";
 import { Parser } from "./Parser";
 import { SymbolAnalyzer } from "./SymbolAnalyzer";
+import { CSharpParser } from "./languages/CSharpParser";
+import { GoParser } from "./languages/GoParser";
+import { JavaParser } from "./languages/JavaParser";
 import { PythonParser } from "./languages/PythonParser";
 import { PythonSymbolAnalyzer } from "./languages/PythonSymbolAnalyzer";
 import { RustParser } from "./languages/RustParser";
@@ -15,6 +18,9 @@ export enum Language {
   TypeScript = "typescript",
   Python = "python",
   Rust = "rust",
+  CSharp = "csharp",
+  Go = "go",
+  Java = "java",
   Unknown = "unknown",
 }
 
@@ -29,6 +35,9 @@ export class LanguageService {
   private static readonly pythonSymbolAnalyzers = new Map<string, PythonSymbolAnalyzer>();
   private static readonly rustParsers = new Map<string, RustParser>();
   private static readonly rustSymbolAnalyzers = new Map<string, RustSymbolAnalyzer>();
+  private static readonly csharpParsers = new Map<string, CSharpParser>();
+  private static readonly goParsers = new Map<string, GoParser>();
+  private static readonly javaParsers = new Map<string, JavaParser>();
 
   private readonly rootDir?: string;
   private readonly extensionPath?: string;
@@ -83,6 +92,16 @@ export class LanguageService {
       case ".toml":
         return Language.Rust;
 
+      case ".cs":
+      case ".csproj":
+        return Language.CSharp;
+
+      case ".go":
+        return Language.Go;
+
+      case ".java":
+        return Language.Java;
+
       default:
         return Language.Unknown;
     }
@@ -130,6 +149,38 @@ export class LanguageService {
         return created;
       }
 
+      case Language.CSharp: {
+        const cacheKey = this.buildCacheKey(rootDir, extensionPath);
+        const cached = this.csharpParsers.get(cacheKey);
+        if (cached) {
+          return cached;
+        }
+        const created = new CSharpParser(rootDir, extensionPath);
+        this.csharpParsers.set(cacheKey, created);
+        return created;
+      }
+
+      case Language.Go: {
+        const cacheKey = this.buildCacheKey(rootDir, extensionPath);
+        const cached = this.goParsers.get(cacheKey);
+        if (cached) {
+          return cached;
+        }
+        const created = new GoParser(rootDir, extensionPath);
+        this.goParsers.set(cacheKey, created);
+        return created;
+      }
+
+      case Language.Java: {
+        const cacheKey = this.buildCacheKey(rootDir, extensionPath);
+        const cached = this.javaParsers.get(cacheKey);
+        if (cached) {
+          return cached;
+        }
+        const created = new JavaParser(rootDir, extensionPath);
+        this.javaParsers.set(cacheKey, created);
+        return created;
+      }
       default:
         throw new Error(`Unsupported language for file: ${filePath}`);
     }
@@ -203,6 +254,9 @@ export class LanguageService {
     this.pythonSymbolAnalyzers.clear();
     this.rustParsers.clear();
     this.rustSymbolAnalyzers.clear();
+    this.csharpParsers.clear();
+    this.goParsers.clear();
+    this.javaParsers.clear();
   }
 
   private static buildCacheKey(...parts: Array<string | undefined>): string {
