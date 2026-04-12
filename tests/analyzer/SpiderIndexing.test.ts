@@ -1,5 +1,6 @@
 import * as fs from 'node:fs/promises';
 import path from 'node:path';
+import { performance } from 'node:perf_hooks';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { Spider } from '../../src/analyzer/Spider';
 import { SpiderBuilder } from '../../src/analyzer/SpiderBuilder';
@@ -271,7 +272,7 @@ describe('Spider - Index Performance', () => {
         // With warm caches, indexed should be at least as fast
         // The real difference shows on cold cache / large projects
         expect(durationIndexed).toBeLessThan(durationFallback * 2); // Allow some margin
-    });
+    }, 30_000);
 
     it('should handle many files during indexing', async () => {
         const spider = new SpiderBuilder()

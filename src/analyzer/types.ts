@@ -61,7 +61,11 @@ export class SpiderError extends Error {
     }
 
     const cause = error instanceof Error ? error : undefined;
-    const message = cause?.message || String(error);
+    const message =
+      cause?.message ??
+      (error !== null && typeof error === "object"
+        ? JSON.stringify(error)
+        : String(error));
 
     // Classify error based on message/code
     let code = SpiderErrorCode.UNKNOWN;
@@ -200,7 +204,7 @@ export interface FileHash {
 export type {
   IndexerState,
   IndexerStatusCallback,
-  IndexerStatusSnapshot,
+  IndexerStatusSnapshot
 } from "./IndexerStatus";
 
 /**

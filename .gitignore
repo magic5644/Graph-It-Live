@@ -178,6 +178,7 @@ docs/agent-instructions/*
 .goose
 .scannerwork
 .kiro
+.obsidian
 
 
 codemaps/
