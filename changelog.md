@@ -4,6 +4,11 @@
 
 ### Features
 
+- **Language support — C#, Go, Java**: File-level dependency graph (L1) and call graph (L2) analysis now covers C#, Go, and Java in addition to TypeScript, JavaScript, Python, and Rust.
+  - **C# parser** (`CSharpParser.ts`): resolves `using` directives and project-relative paths; handles `#` badge via pure path geometry in the language icon
+  - **Go parser** (`GoParser.ts`): resolves `import` statements with module-path and relative path strategies
+  - **Java parser** (`JavaParser.ts`): resolves `import` statements using package-to-path conversion
+
 - **Standalone CLI (`graph-it`)**: Graph-It-Live is now available as a standalone npm package (`@magic5644/graph-it-live`) — no VS Code required. After `npm install -g @magic5644/graph-it-live`, the `graph-it` binary is available on your PATH.
   - Commands: `scan`, `summary [file]`, `trace <file#Symbol>`, `explain <file>`, `path <file>`, `check <file>`, `serve`, `tool <mcp-tool>`, `install`
   - Output formats: `text`, `json`, `toon`, `markdown`, `mermaid` (mermaid available for `trace` and `path`)
