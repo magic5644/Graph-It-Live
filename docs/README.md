@@ -44,6 +44,7 @@ Design documents and approved feature specs.
 | File | Description |
 |------|-------------|
 | [specs/2026-03-17-graph-it-cli-design.md](specs/2026-03-17-graph-it-cli-design.md) | CLI design spec — approved 2026-03-17, implemented in PR #80 |
+| [specs/2026-04-12-csharp-go-java-language-support.md](specs/2026-04-12-csharp-go-java-language-support.md) | C#, Go, Java language support — implemented |
 
 ---
 

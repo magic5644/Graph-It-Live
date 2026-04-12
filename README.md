@@ -187,7 +187,7 @@ Entry points: initializeServer(), main()
 
 The core of Graph-It-Live: a **real-time interactive graph** showing file-to-file import relationships across your project.
 
-- **Multi-language:** TypeScript, JavaScript, Python, Rust, Vue, Svelte, GraphQL
+- **Multi-language:** TypeScript, JavaScript, Python, Rust, C#, Go, Java, Vue, Svelte, GraphQL
 - **Cycle detection:** Circular dependencies highlighted with red dashed lines and badges
 - **Smart navigation:** Click any node to open the file; expand/collapse dependencies dynamically
 - **Reverse lookup:** Right-click → "Find Referencing Files" for instant reverse dependency discovery
@@ -215,10 +215,12 @@ Go beyond file dependencies — **drill into any file to visualize function-to-f
 3. **Click-to-navigate:** Click any symbol to jump to its definition
 4. **Breadcrumb nav:** `Project > folder > file.ts` — one click to return to file view
 
-**Multi-language support:**
+**Multi-language support (symbol drill-down):**
 - TypeScript / JavaScript (ts-morph AST)
 - Python (tree-sitter WASM)
 - Rust (tree-sitter WASM)
+
+> **Note:** C#, Go, and Java are supported at the **file dependency graph level** (L1). Symbol drill-down is not yet available for these languages.
 
 **Benefits:**
 - **Understand code flow** without reading every line
@@ -304,7 +306,7 @@ Also available on the [Open VSX Registry](https://open-vsx.org/extension/magic56
 
 ## Usage
 
-1. **Open a Project** — TypeScript, JavaScript, Python, Rust, Vue, Svelte, or GraphQL
+1. **Open a Project** — TypeScript, JavaScript, Python, Rust, C#, Go, Java, Vue, Svelte, or GraphQL
 2. **Open the Graph** — Click the Graph-It-Live icon in the Activity Bar, or run `Graph-It-Live: Show Dependency Graph`
 3. **Interact:**
    - **Click** a node → open the file
