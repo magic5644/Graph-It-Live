@@ -2,11 +2,20 @@
 .vscode/**
 .vscode-test/**
 
-# Local Python/tool environments (must never be packaged)
+# Local tool/editor dirs (must never be packaged)
 .venv/**
 .env/**
+.graph-it/**
+.obsidian/**
 __pycache__/**
 *.pyc
+
+# Build info & generated metadata files
+tsconfig.tsbuildinfo
+*.tsbuildinfo
+meta.json
+metadata.json
+DEVELOPMENT.md
 
 # Source code (bundled in dist/)
 src/**
