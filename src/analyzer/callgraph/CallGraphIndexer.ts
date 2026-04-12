@@ -108,7 +108,7 @@ CREATE TABLE IF NOT EXISTS metadata (
 `;
 
 /** Bump when the schema changes — forces a full rebuild on load. */
-const CURRENT_SCHEMA_VERSION = 1;
+const CURRENT_SCHEMA_VERSION = 2;
 
 // ---------------------------------------------------------------------------
 // CallGraphIndexer
@@ -369,11 +369,11 @@ export class CallGraphIndexer {
    * Must be called AFTER all files have been indexed for the result to be correct.
    *
    * Resolution strategy: for each @@external:name stub, find all nodes in the DB
-   * that have the same symbol name, then pick the one whose file path shares the
-   * most leading path segments with the source file.  Ties are broken by
-   * preferring exported symbols and then most-recently indexed files.  This
-   * correctly resolves same-named symbols from different projects (e.g. two
-   * fixtures each exporting `formatDate`) to the version nearest the caller.
+   * that share both the same language AND the same symbol name, then pick the one
+   * whose file path shares the most leading path segments with the caller's file.
+   * Ties are broken by preferring exported symbols and then most-recently indexed
+   * files.  Restricting to same-language candidates prevents cross-language
+   * false matches (e.g. a Java `User` binding to a Go `User` struct).
    */
   resolveExternalEdges(): { before: number; resolved: number; deleted: number } {
     const db = this.getDb();
@@ -386,47 +386,48 @@ export class CallGraphIndexer {
       return { before: 0, resolved: 0, deleted: 0 };
     }
 
-    // Fetch all external stub edges together with the source node's file path.
-    // Joining nodes gives us the source file path without having to parse the
-    // composite source_id string.
+    // Fetch all external stub edges together with the source node's file path and lang.
+    // Joining nodes gives us the source file path + lang without parsing the composite ID.
     const stubRows = db.exec(`
-      SELECT e.rowid, s.path AS source_path, SUBSTR(e.target_id, 12) AS sym_name
+      SELECT e.rowid, s.path AS source_path, s.lang AS source_lang, SUBSTR(e.target_id, 12) AS sym_name
       FROM edges e
       JOIN nodes s ON s.id = e.source_id
       WHERE e.target_id LIKE '@@external:%'
     `);
 
     // Fetch all candidate target nodes that could satisfy any stub.
+    // Include lang so we can restrict resolution to same-language candidates only.
     const candidateRows = db.exec(`
-      SELECT name, id, path, is_exported, indexed_at
+      SELECT name, id, path, is_exported, indexed_at, lang
       FROM nodes
       WHERE name IN (
         SELECT DISTINCT SUBSTR(target_id, 12) FROM edges WHERE target_id LIKE '@@external:%'
       )
     `);
 
-    // Build name → candidates map.
+    // Build (lang + "\0" + name) → candidates map so lookups are language-scoped.
     const candidateMap = new Map<string, Array<{ id: string; path: string; isExported: number; indexedAt: number }>>();
     if (candidateRows[0]) {
-      for (const row of candidateRows[0].values as [string, string, string, number, number][]) {
-        const [name, id, nodePath, isExported, indexedAt] = row;
-        const existing = candidateMap.get(name);
+      for (const row of candidateRows[0].values as [string, string, string, number, number, string][]) {
+        const [name, id, nodePath, isExported, indexedAt, lang] = row;
+        const key = `${lang}\0${name}`;
+        const existing = candidateMap.get(key);
         if (existing) {
           existing.push({ id, path: nodePath, isExported, indexedAt });
         } else {
-          candidateMap.set(name, [{ id, path: nodePath, isExported, indexedAt }]);
+          candidateMap.set(key, [{ id, path: nodePath, isExported, indexedAt }]);
         }
       }
     }
 
-    // Apply best-match updates: for each stub, pick the candidate whose file
-    // shares the most leading path segments with the caller's file.
+    // Apply best-match updates: for each stub, pick the same-language candidate
+    // whose file shares the most leading path segments with the caller's file.
     const updateStmt = db.prepare("UPDATE OR IGNORE edges SET target_id = ? WHERE rowid = ?");
     let resolved = 0;
     if (stubRows[0]) {
-      for (const row of stubRows[0].values as [number, string, string][]) {
-        const [rowid, sourcePath, symName] = row;
-        const candidates = candidateMap.get(symName);
+      for (const row of stubRows[0].values as [number, string, string, string][]) {
+        const [rowid, sourcePath, sourceLang, symName] = row;
+        const candidates = candidateMap.get(`${sourceLang}\0${symName}`);
         if (!candidates || candidates.length === 0) { continue; }
         const best = pickBestCandidate(sourcePath, candidates);
         updateStmt.run([best.id, rowid]);

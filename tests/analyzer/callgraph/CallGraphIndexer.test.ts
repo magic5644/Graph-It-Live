@@ -289,6 +289,64 @@ describe("CallGraphIndexer", () => {
     expect(danglingEdges.length).toBe(0);
   });
 
+  // -------------------------------------------------------------------------
+  // resolveExternalEdges — cross-language isolation
+  // -------------------------------------------------------------------------
+
+  it("resolveExternalEdges() does not resolve @@external stub to a same-named node in a different language", () => {
+    // Java file defines a `User` class; Go file also exports a `User` symbol.
+    // A Java caller that references @@external:User must NOT be linked to the Go node.
+    const JAVA_FILE = "/workspace/src/Main.java";
+    const GO_FILE = "/workspace/go-project/models/user.go";
+
+    const javaCallerNode = makeNode({
+      id: `${JAVA_FILE}:main:1`, name: "main", type: "method",
+      lang: "java" as SupportedLang, path: JAVA_FILE, folder: "/workspace/src",
+      startLine: 1, endLine: 10, startCol: 0, isExported: true,
+    });
+    const javaUserNode = makeNode({
+      id: `${JAVA_FILE}:User:20`, name: "User", type: "class",
+      lang: "java" as SupportedLang, path: JAVA_FILE, folder: "/workspace/src",
+      startLine: 20, endLine: 30, startCol: 0, isExported: true,
+    });
+    const goUserNode = makeNode({
+      id: `${GO_FILE}:User:5`, name: "User", type: "class",
+      lang: "go" as SupportedLang, path: GO_FILE, folder: "/workspace/go-project/models",
+      startLine: 5, endLine: 15, startCol: 0, isExported: true,
+    });
+
+    // Java stub edge: main → @@external:User (unresolved cross-file ref)
+    const stubEdge = makeEdge({
+      sourceId: javaCallerNode.id,
+      targetId: "@@external:User",
+      typeRelation: "CALLS",
+      sourceLine: 5,
+    });
+
+    indexer.indexFile([javaCallerNode, javaUserNode], [stubEdge], JAVA_FILE, "java", Date.now());
+    indexer.indexFile([goUserNode], [], GO_FILE, "go", Date.now());
+
+    const result = indexer.resolveExternalEdges();
+
+    const db = indexer.getDb();
+
+    // The stub should be resolved to the Java User node, NOT the Go User node.
+    const edgeToJava = db.exec(
+      "SELECT source_id, target_id FROM edges WHERE source_id = ? AND target_id = ?",
+      [javaCallerNode.id, javaUserNode.id],
+    );
+    expect(edgeToJava[0]?.values.length).toBe(1);
+
+    // No edge should exist from the Java caller to the Go User node.
+    const edgeToGo = db.exec(
+      "SELECT source_id, target_id FROM edges WHERE source_id = ? AND target_id = ?",
+      [javaCallerNode.id, goUserNode.id],
+    );
+    expect(edgeToGo.length).toBe(0);
+
+    expect(result.resolved).toBe(1);
+  });
+
   it("indexFile() preserves outgoing edges from the re-indexed file", () => {
     // Setup: file A has helper(), file A's main() calls helper()
     const mainNode = makeNode({ id: `${FILE_A}:main:1`, name: "main", startLine: 1 });

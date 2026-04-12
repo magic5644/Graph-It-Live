@@ -95,14 +95,22 @@ function captureNameToRelationType(captureName: string): RelationType | null {
  *  - TypeScript/JavaScript: `member_expression`  (obj.method())
  *  - Python:                `attribute`           (obj.method())
  *  - Rust:                  `field_expression`    (obj.method())
+ *  - C#:                    `member_access_expression` (obj.Method())
+ *
+ * NOTE: Go's `selector_expression` is intentionally excluded. In Go it covers
+ * both method calls (obj.Method()) and package-qualified function calls
+ * (pkg.Func()). Filtering it would drop all cross-file package calls and
+ * produce an empty call graph for Go files.
+ *
+ * NOTE: Java's `field_access` is not listed because Java @call captures sit
+ * inside `method_invocation` nodes (name field), not `field_access`. Adding
+ * it would be dead code and would not affect Java call extraction.
  */
 const MEMBER_ACCESS_PARENT_TYPES = new Set([
-  "member_expression",  // TS/JS
-  "attribute",          // Python
-  "field_expression",   // Rust
+  "member_expression",        // TS/JS
+  "attribute",                // Python
+  "field_expression",         // Rust
   "member_access_expression", // C#
-  "selector_expression",      // Go
-  "field_access",             // Java
 ]);
 
 function isMemberAccessCapture(node: TreeNode): boolean {
