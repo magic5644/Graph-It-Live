@@ -12,7 +12,7 @@ public class Main {
 
     public static void main(String[] args) {
         UserService service = new UserService();
-        List<User> users = service.getUsers();
+        List<User> users = service.getAllUsers();
         LOGGER.log(Level.INFO, "Found {0} users", users.size());
     }
 }

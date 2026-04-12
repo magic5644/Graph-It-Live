@@ -290,11 +290,11 @@ export class SpiderSymbolService {
         return true;
       }
       
-      // GraphQL, C#, Go, and Java files don't support AST symbol analysis - skip verification
-      // They use their own parsers for file-level crawl which is already validated
+      // GraphQL, C#, Go, and Java files don't support AST-based symbol analysis here, so skip verification
+      // These languages may still use tree-sitter for file-level imports, but without AST-based symbol verification all imports are considered used
       if (this.isAstUnsupportedFile(normalizedSource)) {
         log.debug(`Skipping symbol analysis for unsupported file type: ${normalizedSource}`);
-        return true; // All imports in these languages are considered used
+        return true; // Without AST-based symbol verification, conservatively treat all imports as used
       }
       
       // 1. Get AST-based symbol dependencies for the source file (cached)
