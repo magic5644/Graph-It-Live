@@ -1113,7 +1113,7 @@
     "eslint": "^10.2.0",
     "fast-check": "^4.6.0",
     "glob": "^13.0.6",
-    "globals": "^17.4.0",
+    "globals": "^17.5.0",
     "mocha": "^11.7.5",
     "typescript": "^6.0.2",
     "typescript-eslint": "^8.58.1",
