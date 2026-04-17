@@ -390,19 +390,20 @@ npm install -g @magic5644/graph-it-live
 After install, `graph-it` is available on your PATH:
 
 ```bash
-graph-it --version           # Show installed version
-graph-it --help              # Full help with MCP config snippets
-graph-it scan                # Index/re-index the workspace
-graph-it summary             # Workspace overview
-graph-it summary src/api.ts  # Per-file codemap
-graph-it trace src/index.ts#main        # Trace execution flow
-graph-it explain src/utils.ts           # File logic analysis
-graph-it path src/index.ts              # Dependency graph from file
-graph-it check src/api.ts               # Unused exported symbols
-graph-it serve                          # Launch MCP stdio server (for AI clients)
-graph-it tool --list                    # List all 21 MCP tools
-graph-it tool analyze_dependencies --filePath=/abs/path/file.ts
-graph-it update                         # Update graph-it to the latest version
+graph-it --version              # Show installed version
+graph-it --help                 # Full help with MCP config snippets
+graph-it scan                   # Index/re-index the workspace
+graph-it summary                # Workspace overview
+graph-it summary <file>         # Per-file codemap (exports, internals, deps, call flow)
+graph-it trace <file#Symbol>    # Trace execution flow from an entry symbol
+graph-it explain <file>         # File logic analysis — intra-file call hierarchy
+graph-it path <file>            # Full dependency graph from a file
+graph-it check <file>           # Detect unused exported symbols (dead code)
+graph-it serve                  # Launch MCP stdio server (for AI clients)
+graph-it tool --list            # List all 21 MCP tools
+graph-it tool <mcp-tool> [args] # Run any MCP tool directly from the terminal
+graph-it update                 # Update graph-it to the latest version
+graph-it install                # Symlink the binary into your system PATH (opt-in)
 ```
 
 **Without installing globally:**
@@ -415,10 +416,10 @@ npx @magic5644/graph-it-live serve
 **Output formats:** All analysis commands support `--format json|toon|markdown`. Use `toon` for AI consumption (30–60% token savings). The `trace` and `path` commands additionally support `--format mermaid` to generate a Mermaid diagram of the call or dependency flow:
 
 ```bash
-graph-it summary src/api.ts --format toon
-graph-it path src/index.ts --format markdown
-graph-it path src/index.ts --format mermaid    # → Mermaid flowchart of dependency graph
-graph-it trace src/index.ts#main --format mermaid  # → Mermaid sequence/flowchart of execution trace
+graph-it summary <file> --format toon
+graph-it path <file> --format markdown
+graph-it path <file> --format mermaid          # → Mermaid flowchart of dependency graph
+graph-it trace <file#Symbol> --format mermaid  # → Mermaid sequence/flowchart of execution trace
 ```
 
 Example `--format mermaid` output for `graph-it path src/index.ts`:
@@ -431,6 +432,8 @@ graph LR
 ```
 
 This output can be pasted directly into any Markdown renderer (GitHub, Notion, VS Code Preview, etc.) or piped to a diagramming tool.
+
+**Workspace flag:** Use `--workspace <path>` (or `-w`) to specify the project root explicitly; defaults to the current working directory.
 
 **Use as MCP server (no VS Code):** Run `graph-it serve` and point your AI client at it — see [Manual MCP Server Configuration](#manual-mcp-server-configuration).
 
