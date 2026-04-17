@@ -52,49 +52,51 @@ All three layers are also exposed to AI via a **21-tool MCP server**, so your as
 
 ## Table of Contents
 
-- [Why Graph-It-Live?](#why-graph-it-live)
-- [Table of Contents](#table-of-contents)
-- [🤖 Supercharge Your AI Assistant](#-supercharge-your-ai-assistant)
-  - [What your AI can do with Graph-It-Live](#what-your-ai-can-do-with-graph-it-live)
-  - [🗺️ Codemap Generation *(New)*](#️-codemap-generation-new)
-  - [📊 File Logic Analysis *(New)*](#-file-logic-analysis-new)
-- [👁️ Features for Humans](#️-features-for-humans)
-  - [File Dependency Graph](#file-dependency-graph)
-  - [Symbol-Level Drill-Down](#symbol-level-drill-down)
-  - [🔷 Live Call Graph *(New)*](#-live-call-graph-new)
-  - [Unused Dependency Filter](#unused-dependency-filter)
-- [Prerequisites](#prerequisites)
-- [Installation](#installation)
-  - [From Marketplace](#from-marketplace)
-  - [From Open VSX Registry](#from-open-vsx-registry)
-- [Usage](#usage)
-- [Configuration](#configuration)
-  - [Performance Profiles](#performance-profiles)
-  - [All Settings](#all-settings)
-- [Standalone CLI](#standalone-cli)
-- [MCP Server (AI/LLM Integration)](#mcp-server-aillm-integration)
-  - [Setup](#setup)
-  - [Available Tools](#available-tools)
-  - [TOON Format (Token-Optimized Output)](#toon-format-token-optimized-output)
-  - [Native LM Tools (Copilot Agent Mode)](#native-lm-tools-copilot-agent-mode)
-  - [Manual MCP Server Configuration](#manual-mcp-server-configuration)
-    - [VS Code / VS Code Insiders](#vs-code--vs-code-insiders)
-    - [Cursor](#cursor)
-    - [Claude Desktop](#claude-desktop)
-    - [Development / Local Testing](#development--local-testing)
-    - [Windsurf](#windsurf)
-    - [Antigravity](#antigravity)
-- [Development](#development)
-  - [Quick Start](#quick-start)
-  - [Project Structure](#project-structure)
-  - [Build \& Test Commands](#build--test-commands)
-- [WASM Architecture](#wasm-architecture)
-  - [Architecture](#architecture)
-  - [Testing](#testing)
-  - [Troubleshooting](#troubleshooting)
-- [License](#license)
-- [Acknowledgements](#acknowledgements)
-- [Author](#author)
+- [Graph-It-Live](#graph-it-live)
+  - [Why Graph-It-Live?](#why-graph-it-live)
+  - [Table of Contents](#table-of-contents)
+  - [🤖 Supercharge Your AI Assistant](#-supercharge-your-ai-assistant)
+    - [What your AI can do with Graph-It-Live](#what-your-ai-can-do-with-graph-it-live)
+    - [🗺️ Codemap Generation *(New)*](#️-codemap-generation-new)
+    - [📊 File Logic Analysis *(New)*](#-file-logic-analysis-new)
+  - [👁️ Features for Humans](#️-features-for-humans)
+    - [File Dependency Graph](#file-dependency-graph)
+    - [Symbol-Level Drill-Down](#symbol-level-drill-down)
+    - [🔷 Live Call Graph *(New)*](#-live-call-graph-new)
+    - [Unused Dependency Filter](#unused-dependency-filter)
+  - [Prerequisites](#prerequisites)
+  - [Installation](#installation)
+    - [From Marketplace](#from-marketplace)
+    - [From Open VSX Registry](#from-open-vsx-registry)
+  - [Usage](#usage)
+  - [Configuration](#configuration)
+    - [Performance Profiles](#performance-profiles)
+    - [All Settings](#all-settings)
+  - [Standalone CLI](#standalone-cli)
+  - [Agent Skill](#agent-skill)
+  - [MCP Server (AI/LLM Integration)](#mcp-server-aillm-integration)
+    - [Setup](#setup)
+    - [Available Tools](#available-tools)
+    - [TOON Format (Token-Optimized Output)](#toon-format-token-optimized-output)
+    - [Native LM Tools (Copilot Agent Mode)](#native-lm-tools-copilot-agent-mode)
+    - [Manual MCP Server Configuration](#manual-mcp-server-configuration)
+      - [VS Code / VS Code Insiders](#vs-code--vs-code-insiders)
+      - [Cursor](#cursor)
+      - [Claude Desktop](#claude-desktop)
+      - [Development / Local Testing](#development--local-testing)
+      - [Windsurf](#windsurf)
+      - [Antigravity](#antigravity)
+  - [Development](#development)
+    - [Quick Start](#quick-start)
+    - [Project Structure](#project-structure)
+    - [Build \& Test Commands](#build--test-commands)
+  - [WASM Architecture](#wasm-architecture)
+    - [Architecture](#architecture)
+    - [Testing](#testing)
+    - [Troubleshooting](#troubleshooting)
+  - [License](#license)
+  - [Acknowledgements](#acknowledgements)
+  - [Author](#author)
 
 ---
 
@@ -431,6 +433,20 @@ graph LR
 This output can be pasted directly into any Markdown renderer (GitHub, Notion, VS Code Preview, etc.) or piped to a diagramming tool.
 
 **Use as MCP server (no VS Code):** Run `graph-it serve` and point your AI client at it — see [Manual MCP Server Configuration](#manual-mcp-server-configuration).
+
+---
+
+## Agent Skill
+
+A **Graph-It-Live skill** is available for AI agents (GitHub Copilot, Claude Code, Cursor, and others). It gives your agent pre-built knowledge of all Graph-It-Live tools, workflows, and best practices — so it can use the extension and CLI without any manual guidance.
+
+Install it with:
+
+```bash
+npx skills add magic5644/skills/graph-it-live
+```
+
+Once installed, your agent automatically knows how to query the dependency graph, use MCP tools, generate codemaps, detect breaking changes, and more.
 
 ---
 
