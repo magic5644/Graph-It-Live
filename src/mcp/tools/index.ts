@@ -10,6 +10,9 @@ export {
     executeGenerateCodemap
 } from "./codemap";
 export {
+    executeScanDeadCode
+} from "./deadcode";
+export {
     executeGetSymbolCallers,
     executeTraceFunctionExecution
 } from "./execution";

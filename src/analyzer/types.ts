@@ -20,6 +20,8 @@ export enum SpiderErrorCode {
   CIRCULAR_DEPENDENCY = "CIRCULAR_DEPENDENCY",
   /** Unknown or unclassified error */
   UNKNOWN = "UNKNOWN",
+  /** Reverse index not ready (dead code scan guard) */
+  INDEX_NOT_READY = "INDEX_NOT_READY",
 }
 
 /**

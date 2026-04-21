@@ -29,7 +29,8 @@ echo "  Packed: $TGZ"
 
 # ── 2. Install ───────────────────────────────────────────────────────────────
 section "Install from tgz"
-npm install -g "./$TGZ"
+npm uninstall -g graph-it-live 2>/dev/null || true
+npm install -g --force "./$TGZ"
 BINARY=$(which graph-it || echo "")
 [[ -n "$BINARY" ]] && pass "graph-it found at $BINARY" || fail "graph-it not in PATH"
 
@@ -79,7 +80,13 @@ graph-it "$W" tool analyze_breaking_changes --args "{\"filePath\":\"$SAMPLE_FILE
 section "Call graph"
 graph-it "$W" tool query_call_graph        "--filePath=$SAMPLE_FILE" "--symbolName=$SYMBOL"        && pass "query_call_graph"        || fail "query_call_graph"
 
-# ── 9. High-level CLI commands (no -w: auto-detected from CWD = workspace) ───
+# ── 9. Dead code scan ─────────────────────────────────────────────────────────
+section "Dead code scan (tool)"
+graph-it "$W" tool scan_dead_code                              && pass "scan_dead_code"              || fail "scan_dead_code"
+graph-it "$W" tool scan_dead_code "--scopePath=$WORKSPACE/src" && pass "scan_dead_code --scopePath" || fail "scan_dead_code --scopePath"
+graph-it "$W" tool scan_dead_code "--maxFiles=5"               && pass "scan_dead_code --maxFiles"   || fail "scan_dead_code --maxFiles"
+
+# ── 10. High-level CLI commands (no -w: auto-detected from CWD = workspace) ──
 # Note: global flags with a space-separated value (-w VAL) end up in rawCommandArgs
 # and get misinterpreted as the file pos-arg.  Omit -w; rely on CWD detection.
 section "CLI commands"
@@ -91,7 +98,7 @@ graph-it path "$ENTRY_FILE_REL"            && pass "path"            || fail "pa
 graph-it check "$SAMPLE_FILE_REL"          && pass "check"           || fail "check"
 graph-it trace "$SAMPLE_FILE_REL#$SYMBOL"  && pass "trace"           || fail "trace"
 
-# ── 10. Uninstall ─────────────────────────────────────────────────────────────
+# ── 11. Uninstall ─────────────────────────────────────────────────────────────
 section "Cleanup"
 npm uninstall -g graph-it-live && pass "uninstalled" || fail "uninstall"
 rm -f "$TGZ" && pass "tgz removed"

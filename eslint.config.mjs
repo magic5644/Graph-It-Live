@@ -2,7 +2,7 @@ import eslint from "@eslint/js";
 import globals from "globals";
 import tseslint from "typescript-eslint";
 
-export default tseslint.config(
+export default [
   {
     ignores: [
       "dist/**",
@@ -35,8 +35,9 @@ export default tseslint.config(
         ...globals.es2020,
       },
       parserOptions: {
-        // Main source tsconfigs only - tests are excluded from linting
-        project: ["./tsconfig.json", "./tsconfig.webview.json"],
+        // tsconfig.eslint.json extends tsconfig.json but has no "references",
+        // so parserOptions.project can resolve files directly without issues.
+        project: ["./tsconfig.eslint.json", "./tsconfig.webview.json"],
         tsconfigRootDir: import.meta.dirname,
       },
     },
@@ -57,4 +58,4 @@ export default tseslint.config(
       "no-console": "off",
     },
   },
-);
+];

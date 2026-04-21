@@ -112,6 +112,11 @@ interface QueryCallGraphInput {
   relationTypes?: string[];
 }
 
+interface ScanDeadCodeInput {
+  scopePath?: string;
+  maxFiles?: number;
+}
+
 // ─── Service options ──────────────────────────────────────────────────────────
 
 interface LmToolsServiceOptions {
@@ -176,6 +181,7 @@ export class LmToolsService {
       this.registerResolveModulePath(),
       this.registerAnalyzeBreakingChanges(),
       this.registerQueryCallGraph(),
+      this.registerScanDeadCode(),
     ];
   }
 
@@ -1283,5 +1289,30 @@ export class LmToolsService {
       const nextId = (dir === 'callers' ? r[0] : r[1]) as string;
       if (!visited.has(nextId)) next.add(nextId);
     }
+  }
+
+  // ─── Tool: scan_dead_code ─────────────────────────────────────────────────
+
+  private registerScanDeadCode(): vscode.Disposable {
+    return vscode.lm.registerTool<ScanDeadCodeInput>(
+      'graph-it-live_scan_dead_code',
+      {
+        invoke: async (
+          options: vscode.LanguageModelToolInvocationOptions<ScanDeadCodeInput>,
+          _token: vscode.CancellationToken,
+        ): Promise<vscode.LanguageModelToolResult> => {
+          const { scopePath, maxFiles } = options.input;
+          try {
+            const { executeScanDeadCode } = await import('../../mcp/tools/deadcode.js');
+            const result = await executeScanDeadCode({ scopePath, maxFiles });
+            return new vscode.LanguageModelToolResult([
+              new vscode.LanguageModelTextPart(JSON.stringify(result)),
+            ]);
+          } catch (error) {
+            return this.errorResult(error instanceof Error ? error.message : String(error));
+          }
+        },
+      },
+    );
   }
 }

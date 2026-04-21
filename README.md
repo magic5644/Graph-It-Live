@@ -398,7 +398,9 @@ graph-it summary <file>         # Per-file codemap (exports, internals, deps, ca
 graph-it trace <file#Symbol>    # Trace execution flow from an entry symbol
 graph-it explain <file>         # File logic analysis — intra-file call hierarchy
 graph-it path <file>            # Full dependency graph from a file
-graph-it check <file>           # Detect unused exported symbols (dead code)
+graph-it check                  # Scan whole workspace for dead code (unused exports)
+graph-it check <dir>            # Scan a subdirectory for dead code
+graph-it check <file>           # Detect unused exported symbols in a single file
 graph-it serve                  # Launch MCP stdio server (for AI clients)
 graph-it tool --list            # List all 21 MCP tools
 graph-it tool <mcp-tool> [args] # Run any MCP tool directly from the terminal
@@ -502,6 +504,7 @@ The MCP server exposes **21 tools** for AI/LLM consumption. All tools except `se
 | `graphitlive_analyze_file_logic` | Analyze symbol-level call hierarchy and code flow within a file |
 | `graphitlive_generate_codemap` | Generate a comprehensive structured overview of any source file |
 | `graphitlive_query_call_graph` | Query cross-file callers/callees via BFS on the call graph SQLite database |
+| `graphitlive_scan_dead_code` | Scan the entire workspace (or a directory) for unused exported symbols in one call |
 
 ### TOON Format (Token-Optimized Output)
 
@@ -527,7 +530,7 @@ See [TOON Format Documentation](./docs/architecture/TOON_FORMAT.md) for full spe
 
 ### Native LM Tools (Copilot Agent Mode)
 
-All 20 analysis tools are also available **natively in GitHub Copilot** — no MCP server required. Reference them with `#` in Agent mode:
+All 21 analysis tools are also available **natively in GitHub Copilot** — no MCP server required. Reference them with `#` in Agent mode:
 
 | Reference | Tool | Description |
 |---|---|---|
@@ -551,6 +554,7 @@ All 20 analysis tools are also available **natively in GitHub Copilot** — no M
 | `#graphResolve` | `resolve_module_path` | Resolve a module specifier to its absolute path |
 | `#graphBreaking` | `analyze_breaking_changes` | Detect breaking changes between two file versions |
 | `#graphCallGraph` | `query_call_graph` | BFS callers/callees via the SQLite call graph index |
+| `#graphDeadCode` | `scan_dead_code` | Workspace-wide dead code scan — all unused exported symbols |
 
 > **Note:** `#graphCallGraph` requires the Call Graph panel (`graph-it-live.showCallGraph`) to be opened at least once to build the index.
 

@@ -1,7 +1,7 @@
 /**
  * E2E Tests for native Language Model Tools registration.
  *
- * Verifies that after extension activation all 20 Graph-It-Live LM tools
+ * Verifies that after extension activation all 21 Graph-It-Live LM tools
  * are present in `vscode.lm.tools`.  Tests are skipped gracefully when the
  * VS Code host doesn't support `vscode.lm.tools` (pre-1.90 or non-Copilot
  * environments) so they never cause false failures on older CI agents.
@@ -10,13 +10,14 @@
  *   - graph-it-live_resolve_module_path
  *   - graph-it-live_analyze_breaking_changes
  *   - graph-it-live_query_call_graph
+ *   - graph-it-live_scan_dead_code
  */
 
 import { before } from 'mocha';
 import * as assert from 'node:assert';
 import * as vscode from 'vscode';
 
-// Minimum set of expected tool names (all 20).
+// Minimum set of expected tool names (all 21).
 const EXPECTED_TOOLS = [
   'graph-it-live_find_referencing_files',
   'graph-it-live_analyze_dependencies',
@@ -39,6 +40,7 @@ const EXPECTED_TOOLS = [
   'graph-it-live_resolve_module_path',
   'graph-it-live_analyze_breaking_changes',
   'graph-it-live_query_call_graph',
+  'graph-it-live_scan_dead_code',
 ];
 
 /** Returns true when vscode.lm.tools is supported by the current host. */

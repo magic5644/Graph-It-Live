@@ -556,6 +556,17 @@ export class Spider {
     return this.symbolService.findUnusedSymbols(filePath);
   }
 
+  async scanDeadCode(
+    scopePath?: string,
+    options?: { maxFiles?: number }
+  ): Promise<{ entries: Array<{ filePath: string; unusedSymbols: import('./types').SymbolInfo[] }>; scannedFiles: number; skippedFiles: number }> {
+    const resolvedScope = scopePath ?? this.config.rootDir;
+    return this.symbolService.scanDeadCode(resolvedScope, {
+      maxFiles: options?.maxFiles,
+      hasReverseIndex: this.hasReverseIndex(),
+    });
+  }
+
   async verifyDependencyUsage(sourceFile: string, targetFile: string): Promise<boolean> {
     return this.symbolService.verifyDependencyUsage(sourceFile, targetFile);
   }

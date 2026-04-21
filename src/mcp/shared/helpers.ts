@@ -246,6 +246,40 @@ export async function validateAnalysisInput(filePath: string): Promise<{
   return { ext: ext as typeof SUPPORTED_SYMBOL_ANALYSIS_EXTENSIONS[number], language };
 }
 
+/**
+ * Validate that a scope path is a directory inside the workspace root.
+ * Prevents path traversal attacks.
+ *
+ * @param scopePath - The scope path to validate (must be absolute)
+ * @param rootDir   - The workspace root directory
+ * @throws if scopePath is not absolute, contains null bytes, or is outside rootDir
+ */
+export function validateScopePath(scopePath: string, rootDir: string): void {
+  // Reject null bytes (common injection vector)
+  if (scopePath.includes("\0")) {
+    throw new Error(`INVALID_SCOPE_PATH: Path contains null bytes: ${scopePath}`);
+  }
+
+  if (!path.isAbsolute(scopePath)) {
+    throw new Error(`INVALID_SCOPE_PATH: Scope path must be absolute. Got: ${scopePath}`);
+  }
+
+  const resolvedScope = path.resolve(scopePath);
+  const resolvedRoot = path.resolve(rootDir);
+
+  // Ensure scope is the root itself or a subdirectory of root
+  const withinRoot =
+    resolvedScope === resolvedRoot ||
+    resolvedScope.startsWith(resolvedRoot + path.sep) ||
+    resolvedScope.startsWith(resolvedRoot + "/");
+
+  if (!withinRoot) {
+    throw new Error(
+      `INVALID_SCOPE_PATH: Scope path '${scopePath}' is outside workspace root '${rootDir}'`,
+    );
+  }
+}
+
 // ============================================================================
 // LSP Conversion Utilities (re-exported from shared/converters)
 // ============================================================================
