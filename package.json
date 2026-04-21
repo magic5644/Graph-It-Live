@@ -1084,6 +1084,12 @@
   "bin": {
     "graph-it": "./bin/graph-it"
   },
+  "files": [
+    "bin/",
+    "dist/graph-it.js",
+    "dist/wasm/",
+    "dist/queries/"
+  ],
   "scripts": {
     "vscode:prepublish": "npm run build -- --production",
     "build": "node esbuild.js",
