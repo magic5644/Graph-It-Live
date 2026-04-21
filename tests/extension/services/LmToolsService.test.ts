@@ -145,13 +145,13 @@ describe('LmToolsService', () => {
   // ─── registerAll ──────────────────────────────────────────────────────────
 
   describe('registerAll', () => {
-    it('registers 20 tools and returns 20 disposables', () => {
+    it('registers 21 tools and returns 21 disposables', () => {
       const provider = createProvider();
       const service = new LmToolsService({ provider, logger });
       const disposables = service.registerAll();
 
-      expect(disposables).toHaveLength(20);
-      expect(registerToolFn).toHaveBeenCalledTimes(20);
+      expect(disposables).toHaveLength(21);
+      expect(registerToolFn).toHaveBeenCalledTimes(21);
     });
 
     it('returns empty array when vscode.lm.registerTool is unavailable', () => {
@@ -189,6 +189,13 @@ describe('LmToolsService', () => {
       const service = new LmToolsService({ provider, logger });
       service.registerAll();
       expect(registeredTools.has('graph-it-live_query_call_graph')).toBe(true);
+    });
+
+    it('registers graph-it-live_scan_dead_code', () => {
+      const provider = createProvider();
+      const service = new LmToolsService({ provider, logger });
+      service.registerAll();
+      expect(registeredTools.has('graph-it-live_scan_dead_code')).toBe(true);
     });
   });
 

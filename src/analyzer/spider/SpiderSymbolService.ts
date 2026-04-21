@@ -1,12 +1,14 @@
 import path from 'node:path';
+import { SUPPORTED_SYMBOL_ANALYSIS_EXTENSIONS } from '../../shared/constants';
 import { getLogger } from '../../shared/logger';
 import { AstWorkerHost } from '../ast/AstWorkerHost';
 import { Cache } from '../Cache';
 import { FileReader } from '../FileReader';
 import { LanguageService } from '../LanguageService';
+import { SourceFileCollector } from '../SourceFileCollector';
 import { SymbolDependencyHelper } from '../SymbolDependencyHelper';
 import type { Dependency, SpiderConfig, SymbolDependency, SymbolInfo } from '../types';
-import { SpiderError, normalizePath } from '../types';
+import { SpiderError, SpiderErrorCode, normalizePath } from '../types';
 import { isInIgnoredDirectory } from '../utils/PathPredicates';
 import { PathResolver } from '../utils/PathResolver';
 
@@ -444,5 +446,70 @@ export class SpiderSymbolService {
       filePath.endsWith('.go') ||
       filePath.endsWith('.java')
     );
+  }
+
+  // ──────────────────────────────────────────────────────────────────────────
+  // Workspace-wide dead code scan
+  // ──────────────────────────────────────────────────────────────────────────
+
+  /**
+   * Scan all files under `scopePath` for unused exported symbols.
+   *
+   * @param scopePath - Absolute path to a directory (or file) to scope the
+   *   scan.  Must be inside the workspace root (caller is responsible for
+   *   validating this).
+   * @param options.maxFiles - Hard cap on files analysed (default: 500).
+   * @param options.hasReverseIndex - Whether the reverse index is available.
+   *   If false, throws INDEX_NOT_READY — we never fall back to O(n²) lookups.
+   * @returns Array of { filePath, unusedSymbols } entries (only files that
+   *   have at least one unused export are included).
+   */
+  async scanDeadCode(
+    scopePath: string,
+    options: { maxFiles?: number; hasReverseIndex: boolean }
+  ): Promise<{ entries: Array<{ filePath: string; unusedSymbols: SymbolInfo[] }>; scannedFiles: number; skippedFiles: number }> {
+    const { maxFiles = 500, hasReverseIndex } = options;
+
+    if (!hasReverseIndex) {
+      throw new SpiderError(
+        'Dead code scan requires the reverse index. Wait for indexing to complete or call rebuild_index first.',
+        SpiderErrorCode.INDEX_NOT_READY,
+      );
+    }
+
+    const config = this.getConfig();
+    const collector = new SourceFileCollector({ excludeNodeModules: config.excludeNodeModules });
+
+    // Collect all source files under scopePath
+    const allFiles = await collector.collectAllSourceFiles(scopePath);
+
+    // Filter to files supported by the symbol analyser
+    const SUPPORTED_EXTENSIONS_SET = new Set(SUPPORTED_SYMBOL_ANALYSIS_EXTENSIONS as readonly string[]);
+    const analysableFiles = allFiles.filter((f) => {
+      const ext = path.extname(f).toLowerCase();
+      return SUPPORTED_EXTENSIONS_SET.has(ext);
+    });
+
+    // Apply hard cap
+    const filesToScan = analysableFiles.slice(0, maxFiles);
+
+    const entries: Array<{ filePath: string; unusedSymbols: SymbolInfo[] }> = [];
+    let skippedFiles = 0;
+
+    for (const filePath of filesToScan) {
+      try {
+        const unusedSymbols = await this.findUnusedSymbols(filePath);
+        if (unusedSymbols.length > 0) {
+          entries.push({ filePath, unusedSymbols });
+        }
+      } catch (error) {
+        // Per-file errors are silently skipped so the batch continues.
+        const spiderError = SpiderError.fromError(error, filePath);
+        log.warn('scanDeadCode: skipping file due to error:', filePath, spiderError.message);
+        skippedFiles++;
+      }
+    }
+
+    return { entries, scannedFiles: filesToScan.length, skippedFiles };
   }
 }

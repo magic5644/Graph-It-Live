@@ -141,6 +141,7 @@ import {
   type RebuildIndexResult,
   ResolveModulePathParamsSchema,
   type ResolveModulePathResult,
+  ScanDeadCodeParamsSchema,
   // Import all parameter schemas with payload limits
   SetWorkspaceParamsSchema,
   type SetWorkspaceResult,
@@ -1767,6 +1768,65 @@ RETURNS:
     const response = await invokeToolWithResponse(
       "query_call_graph",
       { filePath, symbolName, direction, depth, relationTypes },
+    );
+
+    return formatToolResponse(response, responseFormat);
+  },
+);
+
+// Tool: graphitlive_scan_dead_code
+server.registerTool(
+  "graphitlive_scan_dead_code",
+  {
+    title: "Scan Workspace for Dead Code",
+    description: `CRITICAL: USE THIS TOOL WHEN the user wants to find unused exported symbols across a workspace or directory.
+
+WHEN TO USE:
+- User asks "Find dead code in this project"
+- User asks "What symbols are exported but never used?"
+- User wants to clean up unused exports before a refactor
+- User wants to identify code that can be safely deleted
+- User is performing a code quality audit
+
+EXAMPLES:
+- "Scan the whole project for dead code"
+- "Find unused exports in src/utils"
+- "Which functions are never called anywhere?"
+
+WHY YOU NEED THIS:
+This tool combines the reverse dependency index with per-file symbol analysis to efficiently find exported symbols that are not referenced elsewhere in the codebase.
+Without the index this would require O(n²) file scanning — this tool requires background indexing to be complete first.
+
+RETURNS:
+- rootDir: Workspace root
+- scopePath: Directory that was scanned
+- scannedFiles: Total files analysed
+- filesWithDeadCode: Number of files containing unused exports
+- totalUnusedSymbols: Sum of all unused exported symbols found
+- entries[]: Per-file list with filePath, relativePath, unusedCount, unusedSymbols[]
+- analysisTimeMs: Wall-clock time for the scan`,
+    inputSchema: ScanDeadCodeParamsSchema.extend({
+      response_format: ResponseFormatSchema.describe(
+        "Output format: 'json', 'markdown', or 'toon' (default: toon)",
+      ),
+    }),
+    outputSchema: McpToolResponseSchema,
+    annotations: {
+      readOnlyHint: true,
+      destructiveHint: false,
+      idempotentHint: true,
+      openWorldHint: false,
+    },
+  },
+  async ({ scopePath, maxFiles, response_format }) => {
+    const workerCheck = await ensureWorkerReady();
+    const responseFormat = response_format ?? "toon";
+    if (workerCheck.error)
+      return formatToolResponse(workerCheck.response, responseFormat);
+
+    const response = await invokeToolWithResponse(
+      "scan_dead_code",
+      { scopePath, maxFiles },
     );
 
     return formatToolResponse(response, responseFormat);

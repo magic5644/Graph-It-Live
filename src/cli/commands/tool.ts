@@ -58,6 +58,7 @@ const TOOL_NAMES: McpToolName[] = [
   "analyze_file_logic",
   "generate_codemap",
   "query_call_graph",
+  "scan_dead_code",
 ];
 
 /** One-line descriptions for `graph-it tool --list` */
@@ -82,6 +83,7 @@ const TOOL_DESCRIPTIONS: Record<string, string> = {
   analyze_file_logic: "Intra-file call hierarchy (AST-based)",
   generate_codemap: "AI-friendly structural overview of a file (TOON)",
   query_call_graph: "BFS callers/callees via the SQLite call graph index",
+  scan_dead_code: "Workspace-wide scan for unused exported symbols (dead code)",
 };
 
 export async function run(

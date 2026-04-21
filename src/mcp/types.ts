@@ -10,7 +10,7 @@
 
 import * as nodePath from "node:path";
 import { z } from "zod/v4";
-import type { Dependency } from "../analyzer/types";
+import type { Dependency, DependencyType } from "../analyzer/types";
 import {
   getRelativePath as _getRelativePath,
   normalizePathForComparison as _normalizePathForComparison,
@@ -106,7 +106,8 @@ export type McpToolName =
   | "get_impact_analysis" // NEW: Full impact analysis
   | "analyze_file_logic" // NEW: LSP-based intra-file call hierarchy
   | "generate_codemap" // NEW: Full codemap generation for a single file
-  | "query_call_graph"; // NEW: Cross-file call graph query (callers/callees via SQLite)
+  | "query_call_graph" // NEW: Cross-file call graph query (callers/callees via SQLite)
+  | "scan_dead_code"; // NEW: Workspace-wide dead code scan
 
 // ============================================================================
 // Zod Schemas for Tool Parameters
@@ -504,6 +505,25 @@ export type QueryCallGraphParams = z.infer<
   typeof QueryCallGraphParamsSchema
 >;
 
+// NEW: Schema for scan_dead_code (workspace-wide dead code scan)
+export const ScanDeadCodeParamsSchema = z.object({
+  scopePath: FilePathSchema.optional().describe(
+    "Absolute path to a directory to scope the scan (default: workspace root). Must be inside the workspace.",
+  ),
+  maxFiles: z
+    .number()
+    .int()
+    .min(1)
+    .max(10_000)
+    .default(500)
+    .optional()
+    .describe(
+      "Maximum number of files to analyse (default: 500). Prevents OOM on very large monorepos.",
+    ),
+  format: OutputFormatSchema.optional(),
+});
+export type ScanDeadCodeParams = z.infer<typeof ScanDeadCodeParamsSchema>;
+
 // ============================================================================
 // Validation Utilities
 // ============================================================================
@@ -533,6 +553,7 @@ export const toolSchemas: Record<McpToolName, z.ZodType<unknown>> = {
   analyze_file_logic: AnalyzeFileLogicParamsSchema,
   generate_codemap: GenerateCodemapParamsSchema,
   query_call_graph: QueryCallGraphParamsSchema,
+  scan_dead_code: ScanDeadCodeParamsSchema,
 };
 
 /**
@@ -734,9 +755,9 @@ export interface McpToolResponse<T> {
 // ============================================================================
 
 /**
- * Type of import statement
+ * Type of import statement (alias for DependencyType from analyzer)
  */
-export type ImportType = "import" | "require" | "export" | "dynamic";
+export type ImportType = DependencyType;
 
 /**
  * Result of analyze_dependencies tool
@@ -1382,6 +1403,46 @@ export function createErrorResponse<T>(
       workspaceRoot,
     },
   };
+}
+
+// ============================================================================
+// NEW: Scan Dead Code Result
+// ============================================================================
+
+/**
+ * Per-file entry in the dead code scan result
+ */
+export interface DeadCodeFileEntry {
+  /** Absolute path to the file */
+  filePath: string;
+  /** Relative path from workspace root */
+  relativePath: string;
+  /** Number of unused exported symbols found */
+  unusedCount: number;
+  /** Unused exported symbols */
+  unusedSymbols: SymbolInfo[];
+}
+
+/**
+ * Result of scan_dead_code tool
+ */
+export interface ScanDeadCodeResult {
+  /** Workspace root directory */
+  rootDir: string;
+  /** Absolute path of the scanned scope */
+  scopePath: string;
+  /** Number of files that were analysed */
+  scannedFiles: number;
+  /** Number of files containing at least one unused exported symbol */
+  filesWithDeadCode: number;
+  /** Total unused exported symbols across all files */
+  totalUnusedSymbols: number;
+  /** Per-file entries (only files with dead code are included) */
+  entries: DeadCodeFileEntry[];
+  /** Number of files skipped (unsupported language / parse error) */
+  skippedFiles: number;
+  /** Total analysis time in milliseconds */
+  analysisTimeMs: number;
 }
 
 /**

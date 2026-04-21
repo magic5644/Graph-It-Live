@@ -871,6 +871,72 @@ export function add(a: number, b: number): number {
   await new Promise(r => setTimeout(r, 500));
 
   // =========================================================================
+  // 37. graphitlive_scan_dead_code — full workspace scan
+  // =========================================================================
+  log('\n📤 [graphitlive_scan_dead_code] Scanning full workspace for dead exports...');
+  send({
+    jsonrpc: '2.0',
+    id: ++id,
+    method: 'tools/call',
+    params: {
+      name: 'graphitlive_scan_dead_code',
+      arguments: {}
+    }
+  });
+  await new Promise(r => setTimeout(r, 2000)); // index may need warming
+
+  // =========================================================================
+  // 38. graphitlive_scan_dead_code — scoped to fixtures/sample-project/src
+  // =========================================================================
+  log('\n📤 [graphitlive_scan_dead_code] Scanning scoped to fixtures/sample-project/src...');
+  send({
+    jsonrpc: '2.0',
+    id: ++id,
+    method: 'tools/call',
+    params: {
+      name: 'graphitlive_scan_dead_code',
+      arguments: {
+        scopePath: fixturesPath
+      }
+    }
+  });
+  await new Promise(r => setTimeout(r, 1000));
+
+  // =========================================================================
+  // 39. graphitlive_scan_dead_code — with maxFiles cap
+  // =========================================================================
+  log('\n📤 [graphitlive_scan_dead_code] Scanning with maxFiles=3 cap...');
+  send({
+    jsonrpc: '2.0',
+    id: ++id,
+    method: 'tools/call',
+    params: {
+      name: 'graphitlive_scan_dead_code',
+      arguments: {
+        maxFiles: 3
+      }
+    }
+  });
+  await new Promise(r => setTimeout(r, 500));
+
+  // =========================================================================
+  // 40. graphitlive_scan_dead_code — error case: scopePath outside workspace
+  // =========================================================================
+  log('\n📤 [graphitlive_scan_dead_code] Error case: scopePath outside workspace...');
+  send({
+    jsonrpc: '2.0',
+    id: ++id,
+    method: 'tools/call',
+    params: {
+      name: 'graphitlive_scan_dead_code',
+      arguments: {
+        scopePath: '/tmp/outside-workspace'
+      }
+    }
+  });
+  await new Promise(r => setTimeout(r, 500));
+
+  // =========================================================================
   // BENCHMARK: JSON vs TOON Format Comparison
   // =========================================================================
   log('\n📊 ============================================');

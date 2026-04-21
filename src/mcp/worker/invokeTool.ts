@@ -18,6 +18,7 @@ import {
   executeQueryCallGraph,
   executeRebuildIndex,
   executeResolveModulePath,
+  executeScanDeadCode,
   executeTraceFunctionExecution,
   executeVerifyDependencyUsage,
 } from "../tools";
@@ -40,6 +41,7 @@ import type {
   ParseImportsParams,
   QueryCallGraphParams,
   ResolveModulePathParams,
+  ScanDeadCodeParams,
   TraceFunctionExecutionParams,
   VerifyDependencyUsageParams,
 } from "../types";
@@ -205,6 +207,11 @@ export async function invokeTool(
         const p = validatedParams as QueryCallGraphParams;
         validateFilePath(p.filePath, config.rootDir);
         result = await executeQueryCallGraph(p);
+        break;
+      }
+      case "scan_dead_code": {
+        const p = validatedParams as ScanDeadCodeParams;
+        result = await executeScanDeadCode(p);
         break;
       }
       default:

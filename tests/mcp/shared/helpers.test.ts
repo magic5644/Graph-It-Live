@@ -18,6 +18,7 @@ import {
   updateNodeCounts,
   validateAnalysisInput,
   validateFileExists,
+  validateScopePath,
 } from "../../../src/mcp/shared/helpers";
 import type { EdgeInfo, NodeInfo } from "../../../src/mcp/types";
 import { normalizePath } from "../../../src/shared/path";
@@ -504,6 +505,50 @@ describe("MCP Worker Helpers", () => {
       expect(calls).toBeDefined();
       expect(calls).toHaveLength(1);
       expect(calls?.[0].to.name).toBe("MyClass.helper");
+    });
+  });
+
+  describe("validateScopePath", () => {
+    const root = "/workspace/project";
+
+    it("should pass when scopePath equals rootDir", () => {
+      expect(() => validateScopePath(root, root)).not.toThrow();
+    });
+
+    it("should pass when scopePath is a subdirectory of rootDir", () => {
+      expect(() => validateScopePath(`${root}/src`, root)).not.toThrow();
+      expect(() => validateScopePath(`${root}/src/utils`, root)).not.toThrow();
+    });
+
+    it("should throw when scopePath contains null bytes", () => {
+      expect(() => validateScopePath(`${root}/\0evil`, root)).toThrow(
+        "INVALID_SCOPE_PATH: Path contains null bytes",
+      );
+    });
+
+    it("should throw when scopePath is not absolute", () => {
+      expect(() => validateScopePath("relative/path", root)).toThrow(
+        "INVALID_SCOPE_PATH: Scope path must be absolute",
+      );
+    });
+
+    it("should throw when scopePath is outside rootDir (traversal attempt)", () => {
+      expect(() => validateScopePath("/workspace/other", root)).toThrow(
+        "INVALID_SCOPE_PATH: Scope path",
+      );
+    });
+
+    it("should throw for path traversal via .. segments", () => {
+      expect(() => validateScopePath(`${root}/../outside`, root)).toThrow(
+        "INVALID_SCOPE_PATH:",
+      );
+    });
+
+    it("should reject paths that share a prefix but are not subdirectories", () => {
+      // /workspace/project-evil should NOT be accepted as subdirectory of /workspace/project
+      expect(() => validateScopePath(`${root}-evil`, root)).toThrow(
+        "INVALID_SCOPE_PATH:",
+      );
     });
   });
 });
