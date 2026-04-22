@@ -102,7 +102,7 @@ All three layers are also exposed to AI via a **21-tool MCP server**, so your as
 
 ## 🤖 Supercharge Your AI Assistant
 
-Stop pasting file paths and explaining your project structure. Graph-It-Live exposes **21 powerful dependency analysis tools** directly to your AI assistant via the [Model Context Protocol (MCP)](https://modelcontextprotocol.io), and **20 native LM Tools** directly in Copilot Agent mode (no MCP setup required).
+Stop pasting file paths and explaining your project structure. Graph-It-Live exposes **22 powerful dependency analysis tools** directly to your AI assistant via the [Model Context Protocol (MCP)](https://modelcontextprotocol.io), and **21 native LM Tools** directly in Copilot Agent mode (no MCP setup required).
 
 **Works with:** GitHub Copilot, Claude (Desktop & Code), Cursor, Windsurf, Antigravity, and any MCP-compatible client.
 
@@ -439,6 +439,8 @@ This output can be pasted directly into any Markdown renderer (GitHub, Notion, V
 
 **Use as MCP server (no VS Code):** Run `graph-it serve` and point your AI client at it — see [Manual MCP Server Configuration](#manual-mcp-server-configuration).
 
+**Full CLI reference:** See **[docs/CLI.md](docs/CLI.md)** for complete documentation on every command, all options, output format examples, advanced workflows, and the full MCP tools reference.
+
 ---
 
 ## Agent Skill
@@ -729,7 +731,7 @@ Graph-It-Live/
 │   │   └── callgraph/         # Live Call Graph engine
 │   ├── extension/             # VS Code extension host
 │   │   └── services/          # Service layer (graph, symbol, call graph, indexing)
-│   ├── mcp/                   # MCP server (20 AI tools)
+│   ├── mcp/                   # MCP server (22 AI tools)
 │   ├── shared/                # Types, protocols, utilities
 │   └── webview/               # React UI (ReactFlow + Cytoscape.js)
 │       ├── callgraph/         # Call graph panel entry point

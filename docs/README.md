@@ -31,6 +31,7 @@ Standards and guidelines for contributors.
 
 | File | Description |
 |------|-------------|
+| [CLI.md](CLI.md) | **CLI reference** — all commands, options, output formats, tools, and advanced workflows |
 | [development/CODING_STANDARDS.md](development/CODING_STANDARDS.md) | TypeScript conventions, layer rules, React patterns |
 | [development/CROSS_PLATFORM_TESTING.md](development/CROSS_PLATFORM_TESTING.md) | Cross-platform path handling and test guidelines |
 | [development/ADR-001-package-manager-choice.md](development/ADR-001-package-manager-choice.md) | ADR: npm vs Yarn decision |
