@@ -89,6 +89,7 @@ package-lock.json
 codemaps/**
 specs/**
 docs/**
+!docs/CLI.md
 scripts/**
 _bmad/**
 _bmad-output/**
