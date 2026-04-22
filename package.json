@@ -1135,8 +1135,8 @@
     "@types/react-dom": "^19.2.3",
     "@types/sql.js": "^1.4.11",
     "@types/vscode": "^1.96.0",
-    "@vitest/coverage-v8": "^4.1.4",
-    "@vitest/ui": "^4.1.4",
+    "@vitest/coverage-v8": "^4.1.5",
+    "@vitest/ui": "^4.1.5",
     "@vscode/test-electron": "^2.5.2",
     "@vscode/vsce": "^3.9.1",
     "esbuild": "^0.27.7",
@@ -1147,8 +1147,8 @@
     "globals": "^17.5.0",
     "mocha": "^11.7.5",
     "typescript": "^6.0.3",
-    "typescript-eslint": "^8.58.2",
-    "vitest": "^4.1.4"
+    "typescript-eslint": "^8.59.0",
+    "vitest": "^4.1.5"
   },
   "overrides": {
     "picomatch": "^4.0.4",
