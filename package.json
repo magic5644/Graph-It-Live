@@ -894,6 +894,33 @@
             "symbolName"
           ]
         }
+      },
+      {
+        "name": "graph-it-live_scan_dead_code",
+        "canBeReferencedInPrompt": true,
+        "toolReferenceName": "graphDeadCode",
+        "tags": [
+          "graph-it-live",
+          "symbols",
+          "dead-code"
+        ],
+        "displayName": "Graph-It-Live: Scan Dead Code",
+        "icon": "$(trash)",
+        "userDescription": "Workspace-wide scan for unused exported symbols (dead code) across the entire project or a scoped directory",
+        "modelDescription": "WHEN: you need a workspace-wide scan for all unused exported symbols (dead code), not just a single file. WHY: detecting dead code across an entire project requires building and querying a full reverse symbol index — impossible to do by reading files individually. WHAT: returns a list of unused exported symbols with their file paths, symbol names, and kinds. Supports optional scopePath to restrict the scan to a subdirectory and maxFiles to cap processing.",
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "scopePath": {
+              "type": "string",
+              "description": "Optional absolute path to a directory to restrict the scan scope (defaults to entire workspace)"
+            },
+            "maxFiles": {
+              "type": "number",
+              "description": "Optional maximum number of files to process (defaults to no limit)"
+            }
+          }
+        }
       }
     ],
     "configuration": {
