@@ -1,0 +1,367 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Graph-It-Live Architecture Diagram</title>
+  <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --bg: #020617;
+      --panel: #0b1220;
+      --border: #1e293b;
+      --text: #e2e8f0;
+      --muted: #94a3b8;
+      --cyan: #22d3ee;
+      --emerald: #34d399;
+      --violet: #a78bfa;
+      --amber: #fbbf24;
+      --rose: #fb7185;
+      --orange: #fb923c;
+      --slate: #94a3b8;
+    }
+
+    * { box-sizing: border-box; }
+
+    body {
+      margin: 0;
+      background: var(--bg);
+      color: var(--text);
+      font-family: "JetBrains Mono", monospace;
+      padding: 24px;
+    }
+
+    .container {
+      max-width: 1200px;
+      margin: 0 auto;
+    }
+
+    .header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 16px;
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      background: linear-gradient(180deg, #0b1220, #0a1020);
+      padding: 14px 16px;
+    }
+
+    .title-wrap {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+
+    .pulse-dot {
+      width: 10px;
+      height: 10px;
+      border-radius: 999px;
+      background: var(--emerald);
+      box-shadow: 0 0 0 0 rgba(52, 211, 153, 0.8);
+      animation: pulse 2s infinite;
+    }
+
+    @keyframes pulse {
+      0% { box-shadow: 0 0 0 0 rgba(52, 211, 153, 0.8); }
+      70% { box-shadow: 0 0 0 10px rgba(52, 211, 153, 0); }
+      100% { box-shadow: 0 0 0 0 rgba(52, 211, 153, 0); }
+    }
+
+    h1 {
+      margin: 0;
+      font-size: 15px;
+      font-weight: 700;
+      color: #f8fafc;
+    }
+
+    .subtitle {
+      margin-top: 4px;
+      font-size: 10px;
+      color: var(--muted);
+    }
+
+    .badge {
+      border: 1px solid var(--border);
+      border-radius: 999px;
+      padding: 4px 10px;
+      font-size: 9px;
+      color: var(--muted);
+      background: rgba(30, 41, 59, 0.5);
+    }
+
+    .diagram-card {
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      overflow: hidden;
+      background: var(--panel);
+      margin-bottom: 16px;
+    }
+
+    svg { display: block; width: 100%; height: auto; }
+
+    .cards {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 12px;
+      margin-bottom: 8px;
+    }
+
+    .card {
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      background: rgba(15, 23, 42, 0.85);
+      padding: 12px;
+    }
+
+    .card-header {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      margin-bottom: 8px;
+    }
+
+    .card-dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 999px;
+    }
+
+    .cyan { background: var(--cyan); }
+    .emerald { background: var(--emerald); }
+    .amber { background: var(--amber); }
+
+    h3 {
+      margin: 0;
+      font-size: 11px;
+      color: #f1f5f9;
+    }
+
+    ul {
+      margin: 0;
+      padding-left: 0;
+      list-style: none;
+    }
+
+    li {
+      font-size: 9px;
+      color: var(--muted);
+      line-height: 1.5;
+      margin-bottom: 3px;
+    }
+
+    .footer {
+      font-size: 8px;
+      color: #64748b;
+      text-align: right;
+      margin-top: 6px;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <div class="header">
+      <div>
+        <div class="title-wrap">
+          <div class="pulse-dot"></div>
+          <h1>Graph-It-Live — Architecture Diagram</h1>
+        </div>
+        <div class="subtitle">VS Code Extension + Analyzer + MCP Server + CLI + CI/CD Distribution</div>
+      </div>
+      <div class="badge">C4 Container Style</div>
+    </div>
+
+    <div class="diagram-card">
+      <svg viewBox="0 0 1200 760" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Graph-It-Live architecture diagram">
+        <defs>
+          <pattern id="grid" width="40" height="40" patternUnits="userSpaceOnUse">
+            <path d="M 40 0 L 0 0 0 40" fill="none" stroke="#1e293b" stroke-width="0.5"/>
+          </pattern>
+          <marker id="arrowhead" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto">
+            <polygon points="0 0, 10 3.5, 0 7" fill="#64748b" />
+          </marker>
+          <marker id="arrowhead-rose" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto">
+            <polygon points="0 0, 10 3.5, 0 7" fill="#fb7185" />
+          </marker>
+        </defs>
+
+        <rect x="0" y="0" width="1200" height="760" fill="#020617"/>
+        <rect x="0" y="0" width="1200" height="760" fill="url(#grid)"/>
+
+        <!-- Arrows first (rendered behind boxes) -->
+        <line x1="130" y1="170" x2="210" y2="170" stroke="#64748b" stroke-width="1.2" marker-end="url(#arrowhead)"/>
+        <line x1="130" y1="250" x2="650" y2="430" stroke="#64748b" stroke-width="1.2" marker-end="url(#arrowhead)"/>
+        <line x1="450" y1="170" x2="540" y2="170" stroke="#64748b" stroke-width="1.2" marker-end="url(#arrowhead)"/>
+        <line x1="450" y1="170" x2="540" y2="260" stroke="#64748b" stroke-width="1.2" marker-end="url(#arrowhead)"/>
+        <line x1="450" y1="170" x2="540" y2="350" stroke="#64748b" stroke-width="1.2" marker-end="url(#arrowhead)"/>
+        <line x1="770" y1="260" x2="860" y2="260" stroke="#64748b" stroke-width="1.2" marker-end="url(#arrowhead)"/>
+        <line x1="770" y1="350" x2="860" y2="350" stroke="#64748b" stroke-width="1.2" marker-end="url(#arrowhead)"/>
+        <line x1="770" y1="440" x2="860" y2="440" stroke="#64748b" stroke-width="1.2" marker-end="url(#arrowhead)"/>
+        <line x1="1020" y1="120" x2="1020" y2="170" stroke="#64748b" stroke-width="1.2" marker-end="url(#arrowhead)"/>
+        <line x1="1020" y1="120" x2="1020" y2="260" stroke="#64748b" stroke-width="1.2" marker-end="url(#arrowhead)"/>
+        <line x1="1020" y1="120" x2="1020" y2="350" stroke="#64748b" stroke-width="1.2" marker-end="url(#arrowhead)"/>
+        <line x1="1020" y1="120" x2="1020" y2="440" stroke="#64748b" stroke-width="1.2" marker-end="url(#arrowhead)"/>
+
+        <!-- Security / MCP trust boundary path -->
+        <path d="M 330 200 C 500 120, 780 120, 950 170" fill="none" stroke="#fb7185" stroke-width="1" stroke-dasharray="4,4" marker-end="url(#arrowhead-rose)"/>
+
+        <!-- Boundaries -->
+        <rect x="180" y="70" width="650" height="470" rx="12" fill="none" stroke="#fbbf24" stroke-width="1.5" stroke-dasharray="8,4"/>
+        <text x="200" y="90" fill="#fbbf24" font-size="9">Graph-It-Live Platform</text>
+
+        <rect x="840" y="70" width="320" height="470" rx="12" fill="none" stroke="#fbbf24" stroke-width="1.5" stroke-dasharray="8,4"/>
+        <text x="860" y="90" fill="#fbbf24" font-size="9">Distribution & CI/CD</text>
+
+        <!-- Actors -->
+        <rect x="30" y="140" width="100" height="60" rx="6" fill="#0f172a"/>
+        <rect x="30" y="140" width="100" height="60" rx="6" fill="rgba(30, 41, 59, 0.5)" stroke="#94a3b8" stroke-width="1.5"/>
+        <text x="80" y="163" fill="white" font-size="12" text-anchor="middle">Developer</text>
+        <text x="80" y="178" fill="#94a3b8" font-size="8" text-anchor="middle">VS Code + CLI</text>
+
+        <rect x="30" y="220" width="100" height="60" rx="6" fill="#0f172a"/>
+        <rect x="30" y="220" width="100" height="60" rx="6" fill="rgba(30, 41, 59, 0.5)" stroke="#94a3b8" stroke-width="1.5"/>
+        <text x="80" y="243" fill="white" font-size="12" text-anchor="middle">AI Assistant</text>
+        <text x="80" y="258" fill="#94a3b8" font-size="8" text-anchor="middle">MCP / LM Tools</text>
+
+        <!-- Extension host -->
+        <rect x="210" y="140" width="240" height="60" rx="6" fill="#0f172a"/>
+        <rect x="210" y="140" width="240" height="60" rx="6" fill="rgba(6, 78, 59, 0.4)" stroke="#34d399" stroke-width="1.5"/>
+        <text x="330" y="163" fill="white" font-size="12" text-anchor="middle">VS Code Extension Host</text>
+        <text x="330" y="178" fill="#94a3b8" font-size="8" text-anchor="middle">GraphProvider + Services</text>
+
+        <!-- Webview -->
+        <rect x="540" y="140" width="230" height="60" rx="6" fill="#0f172a"/>
+        <rect x="540" y="140" width="230" height="60" rx="6" fill="rgba(8, 51, 68, 0.4)" stroke="#22d3ee" stroke-width="1.5"/>
+        <text x="655" y="163" fill="white" font-size="12" text-anchor="middle">Webview UI</text>
+        <text x="655" y="178" fill="#94a3b8" font-size="8" text-anchor="middle">React + ReactFlow + Cytoscape</text>
+
+        <!-- Analyzer -->
+        <rect x="540" y="230" width="230" height="60" rx="6" fill="#0f172a"/>
+        <rect x="540" y="230" width="230" height="60" rx="6" fill="rgba(6, 78, 59, 0.4)" stroke="#34d399" stroke-width="1.5"/>
+        <text x="655" y="253" fill="white" font-size="12" text-anchor="middle">Analyzer Core</text>
+        <text x="655" y="268" fill="#94a3b8" font-size="8" text-anchor="middle">ts-morph + Tree-sitter WASM</text>
+
+        <!-- MCP -->
+        <rect x="540" y="320" width="230" height="60" rx="6" fill="#0f172a"/>
+        <rect x="540" y="320" width="230" height="60" rx="6" fill="rgba(6, 78, 59, 0.4)" stroke="#34d399" stroke-width="1.5"/>
+        <text x="655" y="343" fill="white" font-size="12" text-anchor="middle">MCP Server</text>
+        <text x="655" y="358" fill="#94a3b8" font-size="8" text-anchor="middle">MCP SDK + Zod + Worker Host</text>
+
+        <!-- CLI -->
+        <rect x="540" y="410" width="230" height="60" rx="6" fill="#0f172a"/>
+        <rect x="540" y="410" width="230" height="60" rx="6" fill="rgba(30, 41, 59, 0.5)" stroke="#94a3b8" stroke-width="1.5"/>
+        <text x="655" y="433" fill="white" font-size="12" text-anchor="middle">Standalone CLI</text>
+        <text x="655" y="448" fill="#94a3b8" font-size="8" text-anchor="middle">scan / summary / trace / serve</text>
+
+        <!-- Shared -->
+        <rect x="300" y="320" width="190" height="60" rx="6" fill="#0f172a"/>
+        <rect x="300" y="320" width="190" height="60" rx="6" fill="rgba(76, 29, 149, 0.4)" stroke="#a78bfa" stroke-width="1.5"/>
+        <text x="395" y="343" fill="white" font-size="12" text-anchor="middle">Shared Contracts</text>
+        <text x="395" y="358" fill="#94a3b8" font-size="8" text-anchor="middle">types + path + logger + TOON</text>
+
+        <!-- CI/CD -->
+        <rect x="860" y="100" width="320" height="80" rx="6" fill="#0f172a"/>
+        <rect x="860" y="100" width="320" height="80" rx="6" fill="rgba(120, 53, 15, 0.3)" stroke="#fbbf24" stroke-width="1.5"/>
+        <text x="1020" y="124" fill="white" font-size="12" text-anchor="middle">GitHub Actions</text>
+        <text x="1020" y="141" fill="#94a3b8" font-size="8" text-anchor="middle">build, test, package, publish</text>
+
+        <rect x="860" y="230" width="150" height="60" rx="6" fill="#0f172a"/>
+        <rect x="860" y="230" width="150" height="60" rx="6" fill="rgba(120, 53, 15, 0.3)" stroke="#fbbf24" stroke-width="1.5"/>
+        <text x="935" y="252" fill="white" font-size="10" text-anchor="middle">VS Code Marketplace</text>
+        <text x="935" y="266" fill="#94a3b8" font-size="7" text-anchor="middle">VSIX publish</text>
+
+        <rect x="1030" y="230" width="150" height="60" rx="6" fill="#0f172a"/>
+        <rect x="1030" y="230" width="150" height="60" rx="6" fill="rgba(120, 53, 15, 0.3)" stroke="#fbbf24" stroke-width="1.5"/>
+        <text x="1105" y="252" fill="white" font-size="11" text-anchor="middle">Open VSX</text>
+        <text x="1105" y="266" fill="#94a3b8" font-size="7" text-anchor="middle">VSIX publish</text>
+
+        <rect x="860" y="320" width="150" height="60" rx="6" fill="#0f172a"/>
+        <rect x="860" y="320" width="150" height="60" rx="6" fill="rgba(120, 53, 15, 0.3)" stroke="#fbbf24" stroke-width="1.5"/>
+        <text x="935" y="343" fill="white" font-size="11" text-anchor="middle">npm Registry</text>
+        <text x="935" y="357" fill="#94a3b8" font-size="7" text-anchor="middle">@magic5644/graph-it-live</text>
+
+        <rect x="1030" y="320" width="150" height="60" rx="6" fill="#0f172a"/>
+        <rect x="1030" y="320" width="150" height="60" rx="6" fill="rgba(120, 53, 15, 0.3)" stroke="#fbbf24" stroke-width="1.5"/>
+        <text x="1105" y="343" fill="white" font-size="10" text-anchor="middle">GitHub Releases</text>
+        <text x="1105" y="357" fill="#94a3b8" font-size="7" text-anchor="middle">VSIX artifacts</text>
+
+        <rect x="945" y="410" width="150" height="60" rx="6" fill="#0f172a"/>
+        <rect x="945" y="410" width="150" height="60" rx="6" fill="rgba(120, 53, 15, 0.3)" stroke="#fbbf24" stroke-width="1.5"/>
+        <text x="1020" y="433" fill="white" font-size="10" text-anchor="middle">Build Attestation</text>
+        <text x="1020" y="448" fill="#94a3b8" font-size="7" text-anchor="middle">provenance metadata</text>
+
+        <!-- Message bus connector in safe gap -->
+        <rect x="575" y="294" width="160" height="20" rx="4" fill="rgba(251, 146, 60, 0.3)" stroke="#fb923c" stroke-width="1"/>
+        <text x="655" y="308" fill="#fb923c" font-size="7" text-anchor="middle">MCP Tool Calls / Typed Responses</text>
+
+        <!-- Labels on key links -->
+        <text x="468" y="160" fill="#64748b" font-size="7">postMessage</text>
+        <text x="470" y="252" fill="#64748b" font-size="7">analysis APIs</text>
+        <text x="468" y="345" fill="#64748b" font-size="7">stdio + MCP defs</text>
+        <text x="474" y="436" fill="#64748b" font-size="7">runtime commands</text>
+
+        <!-- Legend outside all boundaries -->
+        <rect x="160" y="585" width="880" height="135" rx="8" fill="#0b1220" stroke="#1e293b" stroke-width="1"/>
+        <text x="180" y="607" fill="#e2e8f0" font-size="10">Legend</text>
+
+        <rect x="180" y="620" width="16" height="10" rx="2" fill="rgba(8, 51, 68, 0.4)" stroke="#22d3ee" stroke-width="1"/>
+        <text x="205" y="629" fill="#94a3b8" font-size="8">Frontend / UI</text>
+
+        <rect x="320" y="620" width="16" height="10" rx="2" fill="rgba(6, 78, 59, 0.4)" stroke="#34d399" stroke-width="1"/>
+        <text x="345" y="629" fill="#94a3b8" font-size="8">Backend / Services</text>
+
+        <rect x="500" y="620" width="16" height="10" rx="2" fill="rgba(76, 29, 149, 0.4)" stroke="#a78bfa" stroke-width="1"/>
+        <text x="525" y="629" fill="#94a3b8" font-size="8">Shared / Contracts</text>
+
+        <rect x="680" y="620" width="16" height="10" rx="2" fill="rgba(120, 53, 15, 0.3)" stroke="#fbbf24" stroke-width="1"/>
+        <text x="705" y="629" fill="#94a3b8" font-size="8">Cloud / Distribution</text>
+
+        <line x1="860" y1="625" x2="900" y2="625" stroke="#fb7185" stroke-width="1.2" stroke-dasharray="4,4" marker-end="url(#arrowhead-rose)"/>
+        <text x="910" y="629" fill="#94a3b8" font-size="8">Security / trust boundary flow</text>
+
+        <text x="180" y="651" fill="#64748b" font-size="7">All runtime analysis is local-first; cloud services are used for CI/CD and distribution.</text>
+      </svg>
+    </div>
+
+    <div class="cards">
+      <div class="card">
+        <div class="card-header">
+          <div class="card-dot cyan"></div>
+          <h3>Presentation Layer</h3>
+        </div>
+        <ul>
+          <li>• VS Code extension commands and panel</li>
+          <li>• React webview for file/symbol/call graph</li>
+          <li>• Two-way typed messaging via shared contracts</li>
+        </ul>
+      </div>
+
+      <div class="card">
+        <div class="card-header">
+          <div class="card-dot emerald"></div>
+          <h3>Analysis & AI Layer</h3>
+        </div>
+        <ul>
+          <li>• Analyzer core (ts-morph + tree-sitter WASM)</li>
+          <li>• MCP server exposes tools for AI assistants</li>
+          <li>• CLI supports direct and MCP-compatible usage</li>
+        </ul>
+      </div>
+
+      <div class="card">
+        <div class="card-header">
+          <div class="card-dot amber"></div>
+          <h3>Delivery Layer</h3>
+        </div>
+        <ul>
+          <li>• GitHub Actions: build, test, package, attest</li>
+          <li>• VS Code Marketplace + Open VSX releases</li>
+          <li>• npm package for standalone CLI distribution</li>
+        </ul>
+      </div>
+    </div>
+
+    <div class="footer">Generated with architecture-diagram skill · Graph-It-Live · 2026-04-24</div>
+  </div>
+</body>
+</html>

@@ -1,0 +1,20 @@
+{
+	"folders": [
+		{
+			"path": "../.."
+		},
+		{
+			"path": "../../../skills-1"
+		}
+	],
+	"settings": {
+		"chat.tools.terminal.autoApprove": {
+			".specify/scripts/bash/": true,
+			".specify/scripts/powershell/": true,
+			"/^node scripts/test-mcp\\.js$/": {
+				"approve": true,
+				"matchCommandLine": true
+			}
+		}
+	}
+}

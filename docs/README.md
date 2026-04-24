@@ -1,6 +1,6 @@
 # Graph-It-Live Documentation
 
-**Last Updated:** 2026-04-12
+**Last Updated:** 2026-04-24
 
 This directory is the single source of truth for technical documentation. It is organized into three sections.
 
@@ -22,6 +22,8 @@ Documentation describing how the system is built and how the layers interact.
 | [architecture/MCP_DEBUG_LOGGING_SECURITY.md](architecture/MCP_DEBUG_LOGGING_SECURITY.md) | MCP debug logging — opt-in, rotation, privacy |
 | [architecture/PERFORMANCE_OPTIMIZATIONS.md](architecture/PERFORMANCE_OPTIMIZATIONS.md) | Performance patterns: batch processing, concurrency, caching |
 | [architecture/graph-it-live-architecture.svg](architecture/graph-it-live-architecture.svg) | Architecture diagram (SVG) |
+| [architecture/graph-it-live-architecture-diagram.html](architecture/graph-it-live-architecture-diagram.html) | Architecture diagram (interactive HTML) |
+| [architecture/graph-it-live-runtime-flows-diagram.html](architecture/graph-it-live-runtime-flows-diagram.html) | Runtime flows diagram — extension ↔ analyzer ↔ MCP ↔ CLI |
 
 ---
 
