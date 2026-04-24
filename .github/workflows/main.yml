@@ -18,7 +18,7 @@ jobs:
     - name: Use Node.js
       uses: actions/setup-node@v6
       with:
-        node-version: '20.x'
+        node-version: '24.x'
         cache: 'npm'
 
     - name: Install Dependencies
@@ -47,7 +47,7 @@ jobs:
       - name: Use Node.js
         uses: actions/setup-node@v6
         with:
-          node-version: '20.x'
+          node-version: '24.x'
           cache: 'npm'
 
       - name: Get Version from Tag
@@ -107,7 +107,7 @@ jobs:
       - name: Set up Node.js for npm publish
         uses: actions/setup-node@v6
         with:
-          node-version: '20.x'
+          node-version: '24.x'
           registry-url: 'https://registry.npmjs.org'
           scope: '@magic5644'
 
@@ -137,9 +137,11 @@ jobs:
           const fs = require('fs');
           const pkg = JSON.parse(fs.readFileSync('package.json', 'utf8'));
           pkg.name = '@magic5644/graph-it-live';
-          pkg.files = ['bin/', 'dist/graph-it.js', 'dist/astWorker.js', 'dist/mcpServer.mjs', 'dist/mcpWorker.js', 'dist/indexerWorker.js', 'dist/wasm/', 'dist/queries/', 'README.md', 'LICENSE'];
+          pkg.files = ['bin/', 'dist/graph-it.js', 'dist/astWorker.js', 'dist/mcpServer.mjs', 'dist/mcpWorker.js', 'dist/indexerWorker.js', 'dist/wasm/', 'dist/queries/', 'README.md', 'LICENSE', 'docs/CLI.md'];
           fs.writeFileSync('package.json', JSON.stringify(pkg, null, 2) + '\n');
           "
 
       - name: Publish CLI to npm
         run: npm publish --access public --provenance --ignore-scripts
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
