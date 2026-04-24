@@ -38,7 +38,7 @@ jobs:
       fail-fast: false
       matrix:
         os: [ubuntu-latest, windows-latest, macos-latest]
-        node-version: ['20.x']
+        node-version: ['24.x']
     
     steps:
     - uses: actions/checkout@v6
@@ -90,7 +90,7 @@ jobs:
     - name: Use Node.js
       uses: actions/setup-node@v6
       with:
-        node-version: '20.x'
+        node-version: '24.x'
         cache: 'npm'
         
     - name: Install Dependencies

@@ -1,5 +1,18 @@
 # Changelog
 
+## v1.9.1
+
+### Features
+
+- **Workspace-wide dead code scanner (`scan_dead_code`)**: New MCP tool and CLI command that scans the entire workspace (or a scoped directory) for unused exported symbols. Surfaces functions, classes, variables, interfaces, and types that are exported but never imported anywhere in the project.
+  - CLI: `graph-it check` with no argument triggers a full workspace scan; passing a directory path scopes the scan to that subtree
+  - MCP tool: `graphitlive_scan_dead_code` — accepts optional `scopePath` (must be inside the workspace root, path traversal is blocked) and `maxFiles` (default 500, cap 10 000) to prevent OOM on large monorepos
+  - Returns per-file entries with `unusedSymbols`, `unusedCount`, `relativePath`, plus workspace-level totals (`totalUnusedSymbols`, `filesWithDeadCode`, `scannedFiles`, `skippedFiles`, `analysisTimeMs`)
+  - Symbols are categorised by kind: `function`, `class`, `variable`, `interface`, `type`, `other`
+  - Security: `scopePath` is validated against the workspace root via `validateScopePath()` to prevent path traversal (CWE-22)
+
+- **CLI documentation included in npm package**: `docs/CLI.md` is now bundled with the `@magic5644/graph-it-live` npm package, making the full command reference available offline after installation.
+
 ## v1.9.0
 
 ### Features
