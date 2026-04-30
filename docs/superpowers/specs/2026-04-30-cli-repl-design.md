@@ -124,7 +124,7 @@ Le REPL intercepte les erreurs au lieu de terminer le process :
 
 ### Non-TTY / CI
 
-Si `process.stdin.isTTY === false`, le REPL refuse de démarrer et affiche :
+Si `!process.stdin.isTTY` (valeur `false` ou `undefined`), le REPL refuse de démarrer et affiche :
 ```
 Mode interactif non disponible (pas de TTY).
 Utilise les commandes directes : graph-it --help
