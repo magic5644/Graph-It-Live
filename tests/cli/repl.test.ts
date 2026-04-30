@@ -5,7 +5,7 @@ import { describe, expect, it } from 'vitest';
 import {
   createSessionState,
   type SessionState,
-} from '../../src/cli/repl/sessionState.js';
+} from '../../src/cli/repl/sessionState';
 
 describe('createSessionState', () => {
   it('sets workspaceRoot from argument', () => {
@@ -31,7 +31,7 @@ describe('createSessionState', () => {
   });
 });
 
-import { filterFiles } from '../../src/cli/repl/fileSearch.js';
+import { filterFiles } from '../../src/cli/repl/fileSearch';
 
 describe('filterFiles', () => {
   const workspaceRoot = '/home/user/project';
