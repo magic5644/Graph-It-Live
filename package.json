@@ -1114,6 +1114,7 @@
   },
   "dependencies": {
     "@dagrejs/dagre": "^2.0.4",
+    "@inquirer/prompts": "^8.4.2",
     "@modelcontextprotocol/sdk": "^1.29.0",
     "chokidar": "^5.0.0",
     "cytoscape": "^3.33.2",
