@@ -137,6 +137,19 @@ function commandWantsHelp(command: string, commandArgs: string[], rawArgvSlice: 
 // Main
 // ============================================================================
 
+/** Handle the no-command case: launch REPL in TTY, print help otherwise. */
+async function handleNoCommand(values: Record<string, unknown>): Promise<void> {
+  if (process.stdin.isTTY) {
+    const workspaceRaw = (values.workspace as string | undefined) ?? process.cwd();
+    const workspaceRoot = findWorkspaceRoot(path.resolve(workspaceRaw));
+    const { run } = await import("./commands/repl.js");
+    await run(new CliRuntime(workspaceRoot));
+    process.exit(ExitCode.SUCCESS);
+  }
+  process.stdout.write(HELP);
+  process.exit(ExitCode.SUCCESS);
+}
+
 async function main(): Promise<void> {
   let parsedArgs: ReturnType<typeof parseArgs>;
 
@@ -172,8 +185,8 @@ async function main(): Promise<void> {
   const [command, ...commandArgs] = positionals;
 
   if (!command) {
-    process.stdout.write(HELP);
-    process.exit(ExitCode.SUCCESS);
+    await handleNoCommand(values);
+    return;
   }
 
   // Per-command --help dispatch (check both parsed positionals and raw argv flags)
