@@ -8,6 +8,7 @@
  */
 
 import * as path from 'node:path';
+import { normalizePath } from '../../shared/path.js';
 
 /**
  * Filter `files` (absolute paths) by `query` substring against relative paths.
@@ -24,7 +25,7 @@ export function filterFiles(
 ): string[] {
   const q = query.toLowerCase();
   const matches = files
-    .map((f) => path.relative(workspaceRoot, f))
+    .map((f) => normalizePath(path.relative(workspaceRoot, f)))
     .filter((rel) => rel.toLowerCase().includes(q));
   matches.sort((a, b) => a.localeCompare(b));
   return matches;

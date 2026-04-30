@@ -1,6 +1,7 @@
 /**
  * Tests for REPL utilities: sessionState and fileSearch.
  */
+import * as path from 'node:path';
 import { describe, expect, it } from 'vitest';
 import {
   createSessionState,
@@ -34,12 +35,12 @@ describe('createSessionState', () => {
 import { filterFiles } from '../../src/cli/repl/fileSearch';
 
 describe('filterFiles', () => {
-  const workspaceRoot = '/home/user/project';
+  const workspaceRoot = path.join('home', 'user', 'project');
   const files = [
-    '/home/user/project/src/index.ts',
-    '/home/user/project/src/utils/helpers.ts',
-    '/home/user/project/src/cli/commands/scan.ts',
-    '/home/user/project/tests/cli/repl.test.ts',
+    path.join(workspaceRoot, 'src', 'index.ts'),
+    path.join(workspaceRoot, 'src', 'utils', 'helpers.ts'),
+    path.join(workspaceRoot, 'src', 'cli', 'commands', 'scan.ts'),
+    path.join(workspaceRoot, 'tests', 'cli', 'repl.test.ts'),
   ];
 
   it('returns all files when query is empty', () => {
@@ -57,7 +58,7 @@ describe('filterFiles', () => {
   it('returns relative paths (not absolute)', () => {
     const result = filterFiles(files, 'index', workspaceRoot);
     expect(result).toContain('src/index.ts');
-    expect(result.every((r: string) => !r.startsWith('/'))).toBe(true);
+    expect(result.every((r: string) => !path.isAbsolute(r))).toBe(true);
   });
 
   it('returns results sorted alphabetically', () => {
