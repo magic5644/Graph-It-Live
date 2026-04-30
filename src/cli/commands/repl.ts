@@ -23,6 +23,25 @@ import {
 } from '../repl/prompts.js';
 import { createSessionState } from '../repl/sessionState.js';
 
+const VERSION = process.env.CLI_VERSION ?? '0.0.0-dev';
+
+// ANSI helpers — skipped when NO_COLOR is set (https://no-color.org)
+const useColor = !process.env.NO_COLOR && process.stdout.isTTY;
+const DIM   = useColor ? '\x1b[2m'  : '';
+const BOLD  = useColor ? '\x1b[1m'  : '';
+const CYAN  = useColor ? '\x1b[36m' : '';
+const RESET = useColor ? '\x1b[0m'  : '';
+const BLUE  = useColor ? '\x1b[34m' : '';
+
+const BANNER = [
+  '',
+  `  ${CYAN}${BOLD}◆ Graph-It-Live${RESET}  ${DIM}v${VERSION}${RESET}`,
+  `  ${BLUE}${'─'.repeat(38)}${RESET}`,
+  `  ${DIM}Interactive dependency explorer${RESET}`,
+  `  ${DIM}Ctrl+C to quit · graph-it --help for commands${RESET}`,
+  '',
+].join('\n');
+
 const NON_TTY_MESSAGE =
   'Interactive mode unavailable (no TTY).\n' +
   'Use direct commands: graph-it --help\n';
@@ -72,7 +91,7 @@ export async function run(runtime: CliRuntime): Promise<void> {
 
   const state = createSessionState(runtime.workspaceRoot);
 
-  process.stdout.write('\n  Graph-It-Live — interactive mode  (Ctrl+C to quit)\n\n');
+  process.stdout.write(BANNER);
 
   // ── Main loop ────────────────────────────────────────────────────────────
   let quit = false;
