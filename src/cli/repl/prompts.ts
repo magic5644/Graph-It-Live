@@ -25,13 +25,13 @@ export type ExportFormat = 'json' | 'markdown' | 'mermaid';
 /** Main menu: what would you like to do? */
 export async function selectMainAction(): Promise<MainAction> {
   return select<MainAction>({
-    message: 'Que voulez-vous faire ?',
+    message: 'What would you like to do?',
     choices: [
-      { name: 'Analyser un fichier ou symbole', value: 'trace' },
-      { name: "Cartographier les dépendances d'un fichier", value: 'path' },
-      { name: 'Trouver du code mort', value: 'check' },
-      { name: 'Résumé du workspace', value: 'summary' },
-      { name: 'Quitter', value: 'quit' },
+      { name: 'Analyse a file or symbol', value: 'trace' },
+      { name: 'Map dependencies of a file', value: 'path' },
+      { name: 'Find dead code', value: 'check' },
+      { name: 'Workspace summary', value: 'summary' },
+      { name: 'Quit', value: 'quit' },
     ],
   });
 }
@@ -47,7 +47,7 @@ export async function searchFile(
   workspaceRoot: string,
 ): Promise<string> {
   return search<string>({
-    message: 'Rechercher un fichier',
+    message: 'Search for a file',
     source: async (input) => {
       const matches = filterFiles(allFiles, input ?? '', workspaceRoot);
       return matches.slice(0, 20).map((rel) => ({ name: rel, value: rel }));
@@ -63,7 +63,7 @@ export async function searchFile(
  */
 export async function inputSymbol(displayPath: string): Promise<string> {
   return input({
-    message: `Symbole à analyser dans ${displayPath} (laisser vide = tout le fichier)`,
+    message: `Symbol to analyse in ${displayPath} (leave empty for whole file)`,
     default: '',
   });
 }
@@ -71,12 +71,12 @@ export async function inputSymbol(displayPath: string): Promise<string> {
 /** Post-result menu. */
 export async function selectPostResultAction(): Promise<PostResultAction> {
   return select<PostResultAction>({
-    message: 'Que faire ensuite ?',
+    message: 'What next?',
     choices: [
-      { name: 'Explorer un nœud de ce graphe', value: 'drillDown' },
-      { name: 'Exporter (json / markdown / mermaid)', value: 'export' },
-      { name: 'Nouvelle analyse', value: 'newAnalysis' },
-      { name: 'Quitter', value: 'quit' },
+      { name: 'Drill into a node from this graph', value: 'drillDown' },
+      { name: 'Export (json / markdown / mermaid)', value: 'export' },
+      { name: 'New analysis', value: 'newAnalysis' },
+      { name: 'Quit', value: 'quit' },
     ],
   });
 }
@@ -84,7 +84,7 @@ export async function selectPostResultAction(): Promise<PostResultAction> {
 /** Export format selector. */
 export async function selectExportFormat(): Promise<ExportFormat> {
   return select<ExportFormat>({
-    message: "Format d'export",
+    message: 'Export format',
     choices: [
       { name: 'JSON', value: 'json' },
       { name: 'Markdown', value: 'markdown' },
@@ -95,5 +95,5 @@ export async function selectExportFormat(): Promise<ExportFormat> {
 
 /** Offer to re-index when the workspace has no index yet. */
 export async function confirmScan(reason: string): Promise<boolean> {
-  return confirm({ message: `${reason} Scanner maintenant ?`, default: true });
+  return confirm({ message: `${reason} Scan now?`, default: true });
 }
