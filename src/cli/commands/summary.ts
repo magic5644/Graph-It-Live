@@ -10,6 +10,7 @@ import { executeGetIndexStatus, executeGenerateCodemap } from "../../mcp/tools";
 import type { CliOutputFormat } from "../formatter";
 import { formatOutput } from "../formatter";
 import type { CliRuntime } from "../runtime";
+import { parseSymbolRef } from "../symbols";
 
 export async function run(
   args: string[],
@@ -22,8 +23,8 @@ export async function run(
 
   // If a file argument is provided, also generate a codemap for it
   if (args.length > 0) {
-    const filePath = args[0];
-    const codemap = await executeGenerateCodemap({ filePath });
+    const ref = parseSymbolRef(args[0], runtime.workspaceRoot);
+    const codemap = await executeGenerateCodemap({ filePath: ref.filePath });
     return formatOutput({ indexStatus: status, codemap }, format, "summary");
   }
 

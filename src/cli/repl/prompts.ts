@@ -61,10 +61,13 @@ export async function searchFile(
  *
  * @param displayPath - Relative path shown in the prompt label
  */
-export async function inputSymbol(displayPath: string): Promise<string> {
+export async function inputSymbol(
+  displayPath: string,
+  defaultSymbol = '',
+): Promise<string> {
   return input({
     message: `Symbol to analyse in ${displayPath} (leave empty for whole file)`,
-    default: '',
+    default: defaultSymbol,
   });
 }
 

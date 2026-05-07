@@ -7,6 +7,7 @@
  */
 
 import fs from "node:fs/promises";
+import path from "node:path";
 import { executeFindUnusedSymbols, executeScanDeadCode } from "../../mcp/tools";
 import type { CliOutputFormat } from "../formatter";
 import { formatOutput } from "../formatter";
@@ -26,22 +27,26 @@ export async function run(
     return formatOutput(result, format, "check");
   }
 
+  const candidatePath = path.isAbsolute(args[0])
+    ? path.resolve(args[0])
+    : path.resolve(runtime.workspaceRoot, args[0]);
+
   // Check if the argument is a directory → scoped dead code scan
   let isDirectory = false;
   try {
-    const stat = await fs.stat(args[0]);
+    const stat = await fs.stat(candidatePath);
     isDirectory = stat.isDirectory();
   } catch {
     // Not found or not accessible — treat as file reference below
   }
 
   if (isDirectory) {
-    const result = await executeScanDeadCode({ scopePath: args[0] });
+    const result = await executeScanDeadCode({ scopePath: candidatePath });
     return formatOutput(result, format, "check");
   }
 
   // File argument → existing per-file unused symbol check
-  const ref = parseSymbolRef(args[0], runtime.workspaceRoot);
+  const ref = parseSymbolRef(candidatePath, runtime.workspaceRoot);
 
   const result = await executeFindUnusedSymbols({
     filePath: ref.filePath,
