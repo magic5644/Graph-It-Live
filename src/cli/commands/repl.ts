@@ -127,14 +127,18 @@ async function runOneCycle(
   if (action === 'quit') return true;
 
   try {
-    const output = await runAction(action, runtime, state, allFiles);
+    const result = await runAction(action, runtime, state, allFiles);
+    const { output, contextFile, contextSymbol } = result;
+
+    state.lastFile = contextFile;
+    state.lastSymbol = contextSymbol;
 
     if (output) {
       state.lastResult = output;
       process.stdout.write(output.endsWith('\n') ? output : `${output}\n`);
     }
 
-    return await handlePostResult(output, action, runtime, state);
+    return await handlePostResult(output, action, runtime, state, contextFile);
   } catch (err) {
     if (err instanceof ExitPromptError) return true;
     process.stderr.write(`Error: ${err instanceof Error ? err.message : String(err)}\n`);
@@ -151,6 +155,7 @@ async function handlePostResult(
   command: string,
   runtime: CliRuntime,
   state: ReturnType<typeof createSessionState>,
+  contextFile: string | undefined,
 ): Promise<boolean> {
   let postAction: Awaited<ReturnType<typeof selectPostResultAction>>;
   try {
@@ -162,10 +167,21 @@ async function handlePostResult(
 
   if (postAction === 'quit') return true;
   if (postAction === 'export' && output) await handleExport(output, command);
-  if (postAction === 'drillDown' && state.lastFile) {
-    await handleDrillDown(state.lastFile, runtime, state);
+  if (postAction === 'drillDown') {
+    const drillDownFile = contextFile ?? state.lastFile;
+    if (!drillDownFile) {
+      process.stdout.write('Drill-down unavailable for this result (no file context).\n');
+      return false;
+    }
+    await handleDrillDown(drillDownFile, runtime, state);
   }
   return false; // 'newAnalysis' or handled above → keep looping
+}
+
+interface ReplActionResult {
+  output?: string;
+  contextFile?: string;
+  contextSymbol?: string;
 }
 
 async function runAction(
@@ -173,37 +189,55 @@ async function runAction(
   runtime: CliRuntime,
   state: ReturnType<typeof createSessionState>,
   allFiles: string[],
-): Promise<string | undefined> {
+): Promise<ReplActionResult> {
   if (action === 'summary') {
     const { run } = await import('./summary.js');
-    return run([], runtime, state.preferredFormat);
+    const args = state.lastFile ? [state.lastFile] : [];
+    const output = await run(args, runtime, state.preferredFormat);
+    return {
+      output,
+      contextFile: state.lastFile,
+      contextSymbol: state.lastSymbol,
+    };
   }
 
   if (action === 'check') {
     const { run } = await import('./check.js');
-    return run([], runtime, state.preferredFormat);
+    const args = state.lastFile ? [state.lastFile] : [];
+    const output = await run(args, runtime, state.preferredFormat);
+    return {
+      output,
+      contextFile: state.lastFile,
+      contextSymbol: state.lastSymbol,
+    };
   }
 
   // 'trace' and 'path' both need a file picker
   const rel = await searchFile(allFiles, runtime.workspaceRoot);
-  const absoluteFile = path.join(runtime.workspaceRoot, rel);
-  state.lastFile = absoluteFile;
+  const absoluteFile = path.resolve(runtime.workspaceRoot, rel);
 
   if (action === 'path') {
     const { run } = await import('./path.js');
-    return run([absoluteFile], runtime, state.preferredFormat);
+    const output = await run([absoluteFile], runtime, state.preferredFormat);
+    return { output, contextFile: absoluteFile };
   }
 
   // 'trace' — optionally pick a symbol
   const symbolName = await inputSymbol(rel);
   if (symbolName.trim()) {
     const { run } = await import('./trace.js');
-    return run([`${absoluteFile}#${symbolName.trim()}`], runtime, state.preferredFormat);
+    const output = await run([`${absoluteFile}#${symbolName.trim()}`], runtime, state.preferredFormat);
+    return {
+      output,
+      contextFile: absoluteFile,
+      contextSymbol: symbolName.trim(),
+    };
   }
 
   // No symbol entered → explain (intra-file analysis)
   const { run } = await import('./explain.js');
-  return run([absoluteFile], runtime, state.preferredFormat);
+  const output = await run([absoluteFile], runtime, state.preferredFormat);
+  return { output, contextFile: absoluteFile };
 }
 
 async function handleExport(output: string, command: string): Promise<void> {
@@ -228,7 +262,7 @@ async function handleDrillDown(
   state: ReturnType<typeof createSessionState>,
 ): Promise<void> {
   const rel = path.relative(runtime.workspaceRoot, filePath);
-  const symbolName = await inputSymbol(rel).catch(() => '');
+  const symbolName = await inputSymbol(rel, state.lastSymbol).catch(() => '');
   try {
     if (symbolName.trim()) {
       const { run } = await import('./trace.js');
@@ -237,11 +271,15 @@ async function handleDrillDown(
         runtime,
         state.preferredFormat,
       );
+      state.lastFile = filePath;
+      state.lastSymbol = symbolName.trim();
       state.lastResult = output;
       process.stdout.write(output.endsWith('\n') ? output : `${output}\n`);
     } else {
       const { run } = await import('./explain.js');
       const output = await run([filePath], runtime, state.preferredFormat);
+      state.lastFile = filePath;
+      state.lastSymbol = undefined;
       state.lastResult = output;
       process.stdout.write(output.endsWith('\n') ? output : `${output}\n`);
     }

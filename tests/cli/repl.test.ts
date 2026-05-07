@@ -19,9 +19,10 @@ describe('createSessionState', () => {
     expect(state.preferredFormat).toBe('text');
   });
 
-  it('has no lastFile or lastResult initially', () => {
+  it('has no lastFile, lastSymbol, or lastResult initially', () => {
     const state = createSessionState('/tmp/ws');
     expect(state.lastFile).toBeUndefined();
+    expect(state.lastSymbol).toBeUndefined();
     expect(state.lastResult).toBeUndefined();
   });
 

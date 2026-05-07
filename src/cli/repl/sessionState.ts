@@ -12,6 +12,7 @@ import type { CliOutputFormat } from '../formatter.js';
 export interface SessionState {
   workspaceRoot: string;
   lastFile?: string;
+  lastSymbol?: string;
   lastResult?: unknown;
   preferredFormat: CliOutputFormat;
 }
