@@ -78,6 +78,7 @@ export class CliRuntime {
   readonly workspaceRoot: string;
   private readonly stateDir: string;
   private _initialized = false;
+  private _indexReady = false;
 
   constructor(workspaceRoot: string) {
     this.workspaceRoot = path.resolve(workspaceRoot);
@@ -147,7 +148,7 @@ export class CliRuntime {
    * Ensure the workspace is indexed (warmup / full build).
    * Streams progress to stderr.
    */
-  async ensureIndexed(): Promise<{ filesIndexed: number; durationMs: number }> {
+  async ensureIndexed(options?: { silent?: boolean }): Promise<{ filesIndexed: number; durationMs: number }> {
     if (!this._initialized || !workerState.spider) {
       throw new CliError(
         "Runtime not initialized. Call init() first.",
@@ -155,12 +156,21 @@ export class CliRuntime {
       );
     }
 
+    if (this._indexReady) {
+      const warm = workerState.warmupInfo;
+      return {
+        filesIndexed: warm?.filesIndexed ?? 0,
+        durationMs: warm?.durationMs ?? 0,
+      };
+    }
+
     const spider = workerState.spider;
     const startTime = Date.now();
+    const silent = options?.silent ?? false;
 
     // Subscribe to progress → stderr
     const unsubscribe = spider.subscribeToIndexStatus((snapshot) => {
-      if (snapshot.state === "indexing") {
+      if (!silent && snapshot.state === "indexing") {
         process.stderr.write(
           `\r  Indexing: ${snapshot.processed}/${snapshot.total} files...`,
         );
@@ -170,7 +180,9 @@ export class CliRuntime {
     try {
       const result = await spider.buildFullIndex();
       const durationMs = Date.now() - startTime;
-      process.stderr.write("\n");
+      if (!silent) {
+        process.stderr.write("\n");
+      }
       log.info("Indexed", result.indexedFiles, "files in", result.duration, "ms");
 
       // Persist state
@@ -185,6 +197,8 @@ export class CliRuntime {
         durationMs: result.duration,
         filesIndexed: result.indexedFiles,
       };
+
+      this._indexReady = true;
 
       return { filesIndexed: result.indexedFiles, durationMs };
     } finally {
@@ -204,6 +218,7 @@ export class CliRuntime {
     }
     workerState.reset();
     this._initialized = false;
+    this._indexReady = false;
   }
 
   // ============================================================================

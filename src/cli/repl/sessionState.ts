@@ -14,6 +14,7 @@ export interface SessionState {
   lastFile?: string;
   lastSymbol?: string;
   lastResult?: unknown;
+  lastCommandLine?: string;
   preferredFormat: CliOutputFormat;
 }
 
