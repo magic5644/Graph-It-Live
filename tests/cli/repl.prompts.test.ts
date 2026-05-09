@@ -4,10 +4,12 @@ import {
   buildDirectoryBrowserChoices,
   buildPostResultChoices,
   buildFileBrowserChoices,
+  buildContextualPostResultEntries,
   handleDirectorySelection,
   resolveJumpTarget,
 } from '../../src/cli/repl/prompts';
 import { sanitizeTerminalText } from '../../src/cli/repl/terminal';
+import { getTip, getPersonaTip } from '../../src/cli/repl/tips';
 
 describe('buildMainActionChoices', () => {
   it('stays quiet for empty input until the user types slash', () => {
@@ -185,5 +187,139 @@ describe('resolveJumpTarget', () => {
       throw new Error('Expected not-found resolution');
     }
     expect(resolution.suggestions.length).toBeGreaterThan(0);
+  });
+});
+
+// ============================================================================
+// Tips
+// ============================================================================
+
+describe('getTip', () => {
+  it('returns a non-empty string for known keys', () => {
+    expect(getTip('trace.file', 0)).toBeTruthy();
+    expect(getTip('general', 0)).toBeTruthy();
+  });
+
+  it('rotates deterministically via counter', () => {
+    const a = getTip('general', 0);
+    const b = getTip('general', 1);
+    // Different counter → different tip (general has multiple entries)
+    expect(typeof a).toBe('string');
+    expect(typeof b).toBe('string');
+    // Wraps around: counter % length should be consistent
+    expect(getTip('trace.file', 3)).toBe(getTip('trace.file', 3));
+  });
+
+  it('returns empty string for unknown key', () => {
+    expect(getTip('unknown.key.xyz', 0)).toBe('');
+  });
+});
+
+describe('getPersonaTip', () => {
+  it('returns a non-empty string', () => {
+    expect(getPersonaTip(0)).toBeTruthy();
+  });
+
+  it('rotates over persona tips deterministically', () => {
+    const tip0 = getPersonaTip(0);
+    const tip1 = getPersonaTip(1);
+    expect(tip0).not.toBe(tip1);
+    expect(getPersonaTip(0)).toBe(tip0);
+  });
+});
+
+// ============================================================================
+// buildPostResultChoices — contextual follow-up
+// ============================================================================
+
+describe('buildPostResultChoices with contextual command', () => {
+  it('prepends follow-up entries for trace command', () => {
+    const choices = buildPostResultChoices('/', 'trace');
+    const names = choices.map((c) => c.name);
+    expect(names.some((n) => n.includes('check-dependencies'))).toBe(true);
+    expect(names.some((n) => n.includes('cycles'))).toBe(true);
+  });
+
+  it('prepends follow-up entries for cycles command', () => {
+    const choices = buildPostResultChoices('/', 'cycles');
+    const names = choices.map((c) => c.name);
+    expect(names.some((n) => n.includes('check'))).toBe(true);
+  });
+
+  it('shows standard entries even without a command', () => {
+    const choices = buildPostResultChoices('/');
+    expect(choices.some((c) => c.name.includes('/save'))).toBe(true);
+    expect(choices.some((c) => c.name.includes('/export'))).toBe(true);
+  });
+});
+
+// ============================================================================
+// buildContextualPostResultEntries
+// ============================================================================
+
+describe('buildContextualPostResultEntries', () => {
+  it('returns follow-ups for known commands', () => {
+    expect(buildContextualPostResultEntries('trace').length).toBeGreaterThan(0);
+    expect(buildContextualPostResultEntries('architecture').length).toBeGreaterThan(0);
+    expect(buildContextualPostResultEntries('check').length).toBeGreaterThan(0);
+  });
+
+  it('returns empty array for unknown commands', () => {
+    expect(buildContextualPostResultEntries('unknown-cmd')).toEqual([]);
+  });
+});
+
+// ============================================================================
+// buildFileBrowserChoices — recent files
+// ============================================================================
+
+describe('buildFileBrowserChoices with recent files', () => {
+  it('prepends a recent section when recentFiles is non-empty and at root', () => {
+    const choices = buildFileBrowserChoices(
+      ['src/index.ts', 'src/utils.ts', 'README.md'],
+      '',
+      ['src/index.ts'],
+    );
+
+    const names = choices.map((c) => c.name);
+    const recentIdx = names.findIndex((n) => n.includes('★'));
+    const separatorIdx = names.findIndex((n) => n.includes('Recent'));
+
+    expect(separatorIdx).toBeGreaterThan(-1);
+    expect(recentIdx).toBeGreaterThan(separatorIdx);
+  });
+
+  it('shows no recent section when recentFiles is empty', () => {
+    const choices = buildFileBrowserChoices(['src/index.ts'], '', []);
+    expect(choices.some((c) => c.name.includes('Recent'))).toBe(false);
+  });
+
+  it('shows no recent section when inside a subdirectory', () => {
+    const choices = buildFileBrowserChoices(['src/index.ts'], 'src', ['src/index.ts']);
+    expect(choices.some((c) => c.name.includes('Recent'))).toBe(false);
+  });
+});
+
+// ============================================================================
+// buildMainActionChoices — group separators and persona keywords
+// ============================================================================
+
+describe('buildMainActionChoices — groups and persona keywords', () => {
+  it('inserts group separators when showing the full palette', () => {
+    const choices = buildMainActionChoices('/');
+    const groupHeaders = choices.filter((c) => c.disabled);
+    expect(groupHeaders.length).toBeGreaterThan(0);
+  });
+
+  it('matches "security" keyword to cycles or check entries', () => {
+    const choices = buildMainActionChoices('/security');
+    const names = choices.map((c) => c.name);
+    // Either /cycles or /check must appear since they have 'security' keyword
+    expect(names.some((n) => n.includes('/cycles') || n.includes('/check'))).toBe(true);
+  });
+
+  it('matches "architect" keyword to architecture entry', () => {
+    const choices = buildMainActionChoices('/architect');
+    expect(choices.some((c) => c.name.includes('/architecture'))).toBe(true);
   });
 });

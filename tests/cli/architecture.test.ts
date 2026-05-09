@@ -1,5 +1,6 @@
 import * as path from 'node:path';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { normalizePath } from '../../src/shared/path';
 
 const mocks = vi.hoisted(() => ({
   collectAllSourceFiles: vi.fn(),
@@ -26,8 +27,8 @@ describe('architecture command', () => {
 
   it('builds workspace architecture graph from all source files', async () => {
     const workspaceRoot = '/workspace';
-    const fileA = path.resolve(workspaceRoot, 'src/index.ts');
-    const fileB = path.resolve(workspaceRoot, 'src/utils.ts');
+    const fileA = normalizePath(path.resolve(workspaceRoot, 'src/index.ts'));
+    const fileB = normalizePath(path.resolve(workspaceRoot, 'src/utils.ts'));
 
     mocks.collectAllSourceFiles.mockResolvedValueOnce([fileA, fileB]);
     mocks.executeAnalyzeDependencies

@@ -22,9 +22,12 @@ import {
   confirmScan,
   inputCommandLine,
   inputSavePath,
-  inputSymbol,
   searchDirectory,
   searchFile,
+  selectOrInputSymbol,
+  askTraceOptions,
+  askArchitectureOptions,
+  askCheckDepsOptions,
   type MainActionSelection,
   selectExportFormat,
   selectMainAction,
@@ -34,6 +37,7 @@ import {
 import { createSessionState } from '../repl/sessionState.js';
 import { sanitizeTerminalText } from '../repl/terminal.js';
 import { tokenizeCommandLine } from '../repl/tokenize.js';
+import { getTip, getPersonaTip } from '../repl/tips.js';
 
 const VERSION = process.env.CLI_VERSION ?? '0.0.0-dev';
 
@@ -166,11 +170,14 @@ function buildPromptChrome(state: ReturnType<typeof createSessionState>): string
     ? path.relative(state.workspaceRoot, state.lastFile)
     : 'none';
   const symbol = state.lastSymbol ?? 'none';
+  const generalTip = getTip('general', state.tipCounter);
+  const personaTip = getPersonaTip(state.tipCounter);
 
   return [
     buildBanner(),
     `${DIM}workspace:${RESET} ${formatStatusValue(state.workspaceRoot)}  ${DIM}format:${RESET} ${state.preferredFormat}  ${DIM}last file:${RESET} ${formatStatusValue(relFile)}  ${DIM}last symbol:${RESET} ${formatStatusValue(symbol)}`,
-    `${DIM}tip:${RESET} Type ${BOLD}/${RESET} to browse commands. Use ${BOLD}/help${RESET} for examples.`,
+    `${DIM}tip:${RESET} ${generalTip}`,
+    `${DIM}    ${personaTip}${RESET}`,
   ].join('\n');
 }
 
@@ -310,6 +317,16 @@ function applyResultToSession(
 ): void {
   state.lastFile = result.contextFile;
   state.lastSymbol = result.contextSymbol;
+  state.tipCounter += 1;
+
+  // Track recently-visited files (deduped, newest first, max 5)
+  if (result.contextFile) {
+    const relFile = path.relative(state.workspaceRoot, result.contextFile);
+    state.recentFiles = [
+      relFile,
+      ...state.recentFiles.filter((f) => f !== relFile),
+    ].slice(0, 5);
+  }
 
   if (result.output) {
     state.lastResult = result.rawData ?? result.output;
@@ -739,6 +756,44 @@ async function selectMainActionWithRecovery(
   }
 }
 
+async function handleFollowUpAction(
+  postAction: string,
+  contextFile: string | undefined,
+  runtime: CliRuntime,
+  state: ReturnType<typeof createSessionState>,
+): Promise<void> {
+  const fileForFollowUp = contextFile ?? state.lastFile;
+
+  if (postAction === 'followUpDeps' && fileForFollowUp) {
+    const result = await runFileDrivenActionFor('checkDependencies', fileForFollowUp, runtime, state, state.preferredFormat);
+    applyResultToSession(state, result);
+    return;
+  }
+
+  if (postAction === 'followUpCycles' && fileForFollowUp) {
+    const result = await runFileDrivenActionFor('cycles', fileForFollowUp, runtime, state, state.preferredFormat);
+    applyResultToSession(state, result);
+    return;
+  }
+
+  if (postAction === 'followUpTrace' && fileForFollowUp) {
+    const result = await runFileDrivenActionForTrace(fileForFollowUp, runtime, state, state.preferredFormat);
+    applyResultToSession(state, result);
+    return;
+  }
+
+  if (postAction === 'followUpDeadCode') {
+    const result = await runStickyContextAction('check', runtime, state, state.preferredFormat);
+    applyResultToSession(state, result);
+    return;
+  }
+
+  if (postAction === 'followUpArchitecture') {
+    const result = await runStickyContextAction('architecture', runtime, state, state.preferredFormat);
+    applyResultToSession(state, result);
+  }
+}
+
 async function handlePostResult(
   rawData: unknown,
   output: string | undefined,
@@ -748,10 +803,14 @@ async function handlePostResult(
   state: ReturnType<typeof createSessionState>,
   contextFile: string | undefined,
 ): Promise<boolean> {
+  const resultTip = getTip(`result.${command}`, state.tipCounter);
+  const tipSuffix = resultTip ? `\n${DIM}  💡 ${resultTip}${RESET}` : '';
+
   let postAction: Awaited<ReturnType<typeof selectPostResultAction>>;
   try {
     postAction = await selectPostResultAction(
-      `${buildPromptChrome(state)}\n${DIM}current result:${RESET} ${sanitizeTerminalText(command, 40)}\n${DIM}tip:${RESET} Type ${BOLD}/${RESET} for follow-up actions.`,
+      `${buildPromptChrome(state)}\n${DIM}current result:${RESET} ${sanitizeTerminalText(command, 40)}\n${DIM}tip:${RESET} Type ${BOLD}/${RESET} for follow-up actions.${tipSuffix}`,
+      command,
     );
   } catch (err) {
     if (err instanceof ExitPromptError) return true;
@@ -781,6 +840,9 @@ async function handlePostResult(
     }
     await handleDrillDown(drillDownFile, runtime, state);
   }
+
+  // Context-aware follow-up actions — delegated to helper to keep complexity low
+  await handleFollowUpAction(postAction, contextFile, runtime, state);
 
   return false;
 }
@@ -878,7 +940,7 @@ async function runStickyContextAction(
     ReplStickyAction,
     {
       command: 'architecture' | 'summary' | 'check';
-      getArgs: () => string[];
+      getArgs: () => Promise<string[]> | string[];
       loadRunner: () => Promise<{
         run: (args: string[], rt: CliRuntime, fmt: CliOutputFormat) => Promise<string>;
       }>;
@@ -886,7 +948,11 @@ async function runStickyContextAction(
   > = {
     architecture: {
       command: 'architecture',
-      getArgs: () => [],
+      getArgs: async () => {
+        const opts = await askArchitectureOptions(state.tipCounter);
+        if (opts.maxFiles !== undefined) return [`--maxFiles=${opts.maxFiles}`];
+        return [];
+      },
       loadRunner: () => import('./architecture.js'),
     },
     summary: {
@@ -903,9 +969,10 @@ async function runStickyContextAction(
 
   const config = actionConfig[action];
   const { run } = await config.loadRunner();
+  const args = await config.getArgs();
   const result = await executeCommandForRepl(
     config.command,
-    config.getArgs(),
+    args,
     runtime,
     preferredFormat,
     run,
@@ -926,41 +993,137 @@ async function runFileDrivenAction(
   preferredFormat: CliOutputFormat,
 ): Promise<ReplActionResult> {
   const scopedFiles = getScopedFiles(allFiles, state.workspaceRoot);
-  const rel = await searchFile(scopedFiles, state.workspaceRoot);
+  const rel = await searchFile(
+    scopedFiles,
+    state.workspaceRoot,
+    state.recentFiles,
+    'trace.file',
+    state.tipCounter,
+  );
   const absoluteFile = path.resolve(state.workspaceRoot, rel);
 
+  if (action === 'checkDependencies') {
+    const opts = await askCheckDepsOptions(state.tipCounter);
+    return runCheckDepsWithDirection(opts.direction, absoluteFile, runtime, preferredFormat);
+  }
+
+  if (action === 'cycles') {
+    return runFileDrivenActionFor('cycles', absoluteFile, runtime, state, preferredFormat);
+  }
+
+  return runFileDrivenActionForTrace(absoluteFile, runtime, state, preferredFormat, rel);
+}
+
+/** Run check-dependencies, path, or path-in depending on chosen direction. */
+async function runCheckDepsWithDirection(
+  direction: 'both' | 'outgoing' | 'incoming',
+  absoluteFile: string,
+  runtime: CliRuntime,
+  preferredFormat: CliOutputFormat,
+): Promise<ReplActionResult> {
+  if (direction === 'outgoing') {
+    const { run } = await import('./path.js');
+    const result = await executeCommandForRepl('path', [absoluteFile], runtime, preferredFormat, run);
+    return { ...result, contextFile: absoluteFile };
+  }
+
+  if (direction === 'incoming') {
+    const { run } = await import('./pathIn.js');
+    const result = await executeCommandForRepl('path-in', [absoluteFile], runtime, preferredFormat, run);
+    return { ...result, contextFile: absoluteFile };
+  }
+
+  const { run } = await import('./checkDependencies.js');
+  const result = await executeCommandForRepl('check-dependencies', [absoluteFile], runtime, preferredFormat, run);
+  return { ...result, contextFile: absoluteFile };
+}
+
+/** Run cycles or checkDependencies for a pre-known file (used by follow-up actions). */
+async function runFileDrivenActionFor(
+  action: 'cycles' | 'checkDependencies',
+  absoluteFile: string,
+  runtime: CliRuntime,
+  _state: ReturnType<typeof createSessionState>,
+  preferredFormat: CliOutputFormat,
+): Promise<ReplActionResult> {
   if (action === 'checkDependencies') {
     const { run } = await import('./checkDependencies.js');
     const result = await executeCommandForRepl('check-dependencies', [absoluteFile], runtime, preferredFormat, run);
     return { ...result, contextFile: absoluteFile };
   }
 
-  if (action === 'cycles') {
-    const { run } = await import('./cycles.js');
-    const result = await executeCommandForRepl('cycles', [absoluteFile], runtime, preferredFormat, run);
-    return { ...result, contextFile: absoluteFile };
-  }
+  const { run } = await import('./cycles.js');
+  const result = await executeCommandForRepl('cycles', [absoluteFile], runtime, preferredFormat, run);
+  return { ...result, contextFile: absoluteFile };
+}
 
-  const symbolName = await inputSymbol(rel);
+/** Run trace (with symbol autocomplete) for a pre-known file (used by follow-up actions). */
+async function runFileDrivenActionForTrace(
+  absoluteFile: string,
+  runtime: CliRuntime,
+  state: ReturnType<typeof createSessionState>,
+  preferredFormat: CliOutputFormat,
+  rel?: string,
+): Promise<ReplActionResult> {
+  const displayPath = rel ?? path.relative(state.workspaceRoot, absoluteFile);
+  const symbols = await extractFileSymbols(absoluteFile, runtime);
+  const opts = await askTraceOptions(state.tipCounter);
+  const symbolName = await selectOrInputSymbol(displayPath, symbols, state.tipCounter, state.lastSymbol ?? '');
+
   if (symbolName.trim()) {
+    const args: string[] = [`${absoluteFile}#${symbolName.trim()}`];
+    if (opts.maxDepth !== undefined) args.push(`--maxDepth=${opts.maxDepth}`);
     const { run } = await import('./trace.js');
-    const result = await executeCommandForRepl(
-      'trace',
-      [`${absoluteFile}#${symbolName.trim()}`],
-      runtime,
-      preferredFormat,
-      run,
-    );
-    return {
-      ...result,
-      contextFile: absoluteFile,
-      contextSymbol: symbolName.trim(),
-    };
+    const result = await executeCommandForRepl('trace', args, runtime, preferredFormat, run);
+    return { ...result, contextFile: absoluteFile, contextSymbol: symbolName.trim() };
   }
 
   const { run } = await import('./explain.js');
   const result = await executeCommandForRepl('explain', [absoluteFile], runtime, preferredFormat, run);
   return { ...result, contextFile: absoluteFile };
+}
+
+/**
+ * Silently extract symbol names from a file by running the explain command in JSON mode.
+ * Returns an empty array on any error or timeout — never throws.
+ */
+async function extractFileSymbols(
+  absoluteFile: string,
+  runtime: CliRuntime,
+): Promise<string[]> {
+  try {
+    const { run } = await import('./explain.js');
+    const jsonOutput = await Promise.race([
+      run([absoluteFile], runtime, 'json'),
+      new Promise<never>((_, reject) => {
+        setTimeout(() => reject(new Error('timeout')), 5000);
+      }),
+    ]);
+
+    const parsed: unknown = JSON.parse(jsonOutput);
+    if (typeof parsed !== 'object' || parsed === null) return [];
+
+    const names = new Set<string>();
+    const record = parsed as Record<string, unknown>;
+
+    const extractFromArray = (arr: unknown): void => {
+      if (!Array.isArray(arr)) return;
+      for (const item of arr) {
+        if (typeof item === 'object' && item !== null) {
+          const obj = item as Record<string, unknown>;
+          if (typeof obj['symbolName'] === 'string') names.add(obj['symbolName']);
+          if (typeof obj['name'] === 'string') names.add(obj['name']);
+        }
+      }
+    };
+
+    extractFromArray(record['nodes']);
+    extractFromArray(record['symbols']);
+
+    return [...names].sort((a, b) => a.localeCompare(b));
+  } catch {
+    return [];
+  }
 }
 
 async function handleExport(rawData: unknown, command: string): Promise<void> {
@@ -1034,7 +1197,8 @@ async function handleDrillDown(
   state: ReturnType<typeof createSessionState>,
 ): Promise<void> {
   const rel = path.relative(runtime.workspaceRoot, filePath);
-  const symbolName = await inputSymbol(rel, state.lastSymbol).catch(() => '');
+  const symbols = await extractFileSymbols(filePath, runtime);
+  const symbolName = await selectOrInputSymbol(rel, symbols, state.tipCounter, state.lastSymbol ?? '').catch(() => '');
   try {
     if (symbolName.trim()) {
       const { run } = await import('./trace.js');
