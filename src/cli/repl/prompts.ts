@@ -13,6 +13,7 @@ import { sanitizeTerminalText } from './terminal.js';
 import { normalizePath } from '../../shared/path.js';
 import * as path from 'node:path';
 import { filterFiles } from './fileSearch.js';
+import { getTip } from './tips.js';
 
 // ============================================================================
 // Action types
@@ -30,7 +31,18 @@ export type MainAction =
   | 'format'
   | 'help'
   | 'quit';
-export type PostResultAction = 'drillDown' | 'export' | 'saveToFile' | 'setFormat' | 'newAnalysis' | 'quit';
+export type PostResultAction =
+  | 'drillDown'
+  | 'export'
+  | 'saveToFile'
+  | 'setFormat'
+  | 'newAnalysis'
+  | 'followUpDeps'
+  | 'followUpCycles'
+  | 'followUpTrace'
+  | 'followUpDeadCode'
+  | 'followUpArchitecture'
+  | 'quit';
 export type ExportFormat = 'json' | 'markdown' | 'mermaid';
 
 export interface MainActionSelection {
@@ -46,6 +58,7 @@ interface PaletteEntry<TValue> {
   aliases: string[];
   keywords: string[];
   value: TValue;
+  group: string;
 }
 
 interface BrowserEntries {
@@ -78,56 +91,63 @@ const MAIN_ACTION_ENTRIES: PaletteEntry<MainAction>[] = [
     title: 'Trace a symbol or file',
     description: 'Select a file, then optionally drill into a symbol.',
     aliases: ['trace'],
-    keywords: ['symbol', 'call', 'flow', 'execution'],
+    keywords: ['symbol', 'call', 'flow', 'execution', 'developer', 'qa'],
     value: 'trace',
+    group: '🔍 Code Analysis',
   },
   {
     slash: '/path',
     title: 'Set workspace directory',
     description: 'Navigate directories and set the active workspace scope.',
     aliases: ['path', 'workspace'],
-    keywords: ['directory', 'root', 'scope', 'folder'],
+    keywords: ['directory', 'root', 'scope', 'folder', 'architect'],
     value: 'setPath',
+    group: '📐 Architecture',
   },
   {
     slash: '/check-dependencies',
     title: 'Check incoming & outgoing deps',
     description: 'Analyze both importers (in) and imports (out) for a file.',
     aliases: ['check-dependencies', 'deps', 'dependencies'],
-    keywords: ['incoming', 'outgoing', 'in', 'out', 'graph'],
+    keywords: ['incoming', 'outgoing', 'in', 'out', 'graph', 'developer', 'architect'],
     value: 'checkDependencies',
+    group: '🔍 Code Analysis',
   },
   {
     slash: '/cycles',
     title: 'List confirmed dependency cycles',
     description: 'Detect and list cycle chains that include the selected file.',
     aliases: ['cycles', 'cycle'],
-    keywords: ['circular', 'dependencies', 'loop'],
+    keywords: ['circular', 'dependencies', 'loop', 'security', 'qa'],
     value: 'cycles',
+    group: '🔍 Code Analysis',
   },
   {
     slash: '/summary',
     title: 'Summarize workspace or file',
     description: 'Show the current file summary when available, otherwise the workspace.',
     aliases: ['summary', 'codemap'],
-    keywords: ['overview', 'map', 'workspace'],
+    keywords: ['overview', 'map', 'workspace', 'architect', 'functional'],
     value: 'summary',
+    group: '📐 Architecture',
   },
   {
     slash: '/architecture',
     title: 'Build workspace architecture',
     description: 'Render the full project graph, including Mermaid when supported.',
     aliases: ['architecture', 'arch'],
-    keywords: ['workspace', 'mermaid', 'graph'],
+    keywords: ['workspace', 'mermaid', 'graph', 'architect'],
     value: 'architecture',
+    group: '📐 Architecture',
   },
   {
     slash: '/check',
     title: 'Find dead code',
     description: 'Inspect the current file or workspace for unused exports.',
     aliases: ['check', 'unused'],
-    keywords: ['dead', 'unused', 'analysis'],
+    keywords: ['dead', 'unused', 'analysis', 'security', 'qa'],
     value: 'check',
+    group: '🔍 Code Analysis',
   },
   {
     slash: '/command',
@@ -136,6 +156,7 @@ const MAIN_ACTION_ENTRIES: PaletteEntry<MainAction>[] = [
     aliases: ['command', 'raw'],
     keywords: ['cli', 'manual', 'freeform'],
     value: 'command',
+    group: '⚙ Session',
   },
   {
     slash: '/file',
@@ -144,6 +165,7 @@ const MAIN_ACTION_ENTRIES: PaletteEntry<MainAction>[] = [
     aliases: ['file', 'context'],
     keywords: ['current', 'active', 'path'],
     value: 'command',
+    group: '⚙ Session',
   },
   {
     slash: '/format',
@@ -152,6 +174,7 @@ const MAIN_ACTION_ENTRIES: PaletteEntry<MainAction>[] = [
     aliases: ['format'],
     keywords: ['text', 'json', 'markdown', 'toon', 'mermaid'],
     value: 'format',
+    group: '⚙ Session',
   },
   {
     slash: '/help',
@@ -160,6 +183,7 @@ const MAIN_ACTION_ENTRIES: PaletteEntry<MainAction>[] = [
     aliases: ['help'],
     keywords: ['commands', 'examples', 'tips'],
     value: 'help',
+    group: '⚙ Session',
   },
   {
     slash: '/quit',
@@ -168,6 +192,7 @@ const MAIN_ACTION_ENTRIES: PaletteEntry<MainAction>[] = [
     aliases: ['quit', 'exit'],
     keywords: ['leave', 'close'],
     value: 'quit',
+    group: '⚙ Session',
   },
 ];
 
@@ -179,6 +204,7 @@ const POST_RESULT_ENTRIES: PaletteEntry<PostResultAction>[] = [
     aliases: ['drill-down', 'drill'],
     keywords: ['symbol', 'node', 'trace'],
     value: 'drillDown',
+    group: '🔍 Analysis',
   },
   {
     slash: '/export',
@@ -187,6 +213,7 @@ const POST_RESULT_ENTRIES: PaletteEntry<PostResultAction>[] = [
     aliases: ['export'],
     keywords: ['json', 'markdown', 'mermaid'],
     value: 'export',
+    group: '💾 Save',
   },
   {
     slash: '/save',
@@ -195,9 +222,11 @@ const POST_RESULT_ENTRIES: PaletteEntry<PostResultAction>[] = [
     aliases: ['save'],
     keywords: ['file', 'write'],
     value: 'saveToFile',
+    group: '💾 Save',
   },
   {
     slash: '/format',
+    group: '⚙ Session',
     title: 'Change default format',
     description: 'Update the session default rendering format.',
     aliases: ['format'],
@@ -211,6 +240,7 @@ const POST_RESULT_ENTRIES: PaletteEntry<PostResultAction>[] = [
     aliases: ['again', 'new'],
     keywords: ['analysis', 'back'],
     value: 'newAnalysis',
+    group: '⚙ Session',
   },
   {
     slash: '/quit',
@@ -219,8 +249,53 @@ const POST_RESULT_ENTRIES: PaletteEntry<PostResultAction>[] = [
     aliases: ['quit', 'exit'],
     keywords: ['leave', 'close'],
     value: 'quit',
+    group: '⚙ Session',
   },
 ];
+
+/** Contextual follow-up entries keyed by last command. */
+const FOLLOW_UP_ENTRIES: Record<string, PaletteEntry<PostResultAction>[]> = {
+  'trace': [
+    { slash: '/→ check-dependencies', title: 'Check who depends on this file', description: 'See incoming and outgoing imports for the traced file.', aliases: [], keywords: [], value: 'followUpDeps', group: '🔍 Follow-up' },
+    { slash: '/→ cycles',            title: 'Find circular dependencies',   description: 'Detect cycles that include the traced file.',          aliases: [], keywords: [], value: 'followUpCycles', group: '🔍 Follow-up' },
+  ],
+  'explain': [
+    { slash: '/→ check-dependencies', title: 'Check who depends on this file', description: 'See incoming and outgoing imports for this file.',       aliases: [], keywords: [], value: 'followUpDeps', group: '🔍 Follow-up' },
+    { slash: '/→ cycles',            title: 'Find circular dependencies',   description: 'Detect cycles that include this file.',                  aliases: [], keywords: [], value: 'followUpCycles', group: '🔍 Follow-up' },
+  ],
+  'check-dependencies': [
+    { slash: '/→ trace',  title: 'Trace a symbol in this file', description: 'Dive into a specific symbol\'s execution path.', aliases: [], keywords: [], value: 'followUpTrace', group: '🔍 Follow-up' },
+    { slash: '/→ cycles', title: 'Find circular dependencies',  description: 'Detect cycles involving this file.',              aliases: [], keywords: [], value: 'followUpCycles', group: '🔍 Follow-up' },
+  ],
+  'cycles': [
+    { slash: '/→ check-dependencies', title: 'Check file dependencies',  description: 'See all imports for a file in the cycle.',    aliases: [], keywords: [], value: 'followUpDeps',     group: '🔍 Follow-up' },
+    { slash: '/→ check',              title: 'Find dead code',            description: 'Detect unused exports in the cycle members.', aliases: [], keywords: [], value: 'followUpDeadCode', group: '🔍 Follow-up' },
+  ],
+  'architecture': [
+    { slash: '/→ check', title: 'Find dead code across workspace', description: 'Detect unused exports after mapping the graph.',        aliases: [], keywords: [], value: 'followUpDeadCode',     group: '🔍 Follow-up' },
+    { slash: '/→ trace', title: 'Trace a symbol',                  description: 'Drill into a specific file\'s execution flow.',           aliases: [], keywords: [], value: 'followUpTrace',        group: '🔍 Follow-up' },
+  ],
+  'check': [
+    { slash: '/→ architecture',       title: 'Build workspace architecture', description: 'Map the full dependency graph.',                       aliases: [], keywords: [], value: 'followUpArchitecture', group: '🔍 Follow-up' },
+    { slash: '/→ check-dependencies', title: 'Check file dependencies',      description: 'See incoming and outgoing imports for a flagged file.', aliases: [], keywords: [], value: 'followUpDeps',         group: '🔍 Follow-up' },
+  ],
+  'summary': [
+    { slash: '/→ architecture', title: 'Build workspace architecture', description: 'Get the full project dependency map.',         aliases: [], keywords: [], value: 'followUpArchitecture', group: '🔍 Follow-up' },
+    { slash: '/→ trace',        title: 'Trace a symbol',              description: 'Follow the execution flow from a key symbol.', aliases: [], keywords: [], value: 'followUpTrace',        group: '🔍 Follow-up' },
+  ],
+  'path': [
+    { slash: '/→ check-dependencies', title: 'Check full deps (in + out)', description: 'See both import directions for the entry file.', aliases: [], keywords: [], value: 'followUpDeps',   group: '🔍 Follow-up' },
+    { slash: '/→ cycles',             title: 'Find circular dependencies', description: 'Detect cycles in the dependency graph.',       aliases: [], keywords: [], value: 'followUpCycles', group: '🔍 Follow-up' },
+  ],
+};
+
+/**
+ * Return contextual follow-up palette entries for a given command result.
+ * Returns [] for unknown commands.
+ */
+export function buildContextualPostResultEntries(command: string): PaletteEntry<PostResultAction>[] {
+  return FOLLOW_UP_ENTRIES[command] ?? [];
+}
 
 function normalizePaletteQuery(input: string | undefined): string {
   return (input ?? '').trim().toLowerCase();
@@ -243,11 +318,13 @@ function scorePaletteEntry<TValue>(entry: PaletteEntry<TValue>, query: string): 
   const haystack = [entry.title, entry.description, ...entry.aliases, ...entry.keywords]
     .join(' ')
     .toLowerCase();
-  return haystack.includes(query) ? 10 : Number.POSITIVE_INFINITY;
+  const bareQuery = query.startsWith('/') ? query.slice(1) : query;
+  return haystack.includes(bareQuery) ? 10 : Number.POSITIVE_INFINITY;
 }
 
-function renderPaletteLabel<TValue>(entry: PaletteEntry<TValue>): string {
-  return `${entry.slash.padEnd(14)} ${entry.title} — ${entry.description}`;
+function renderPaletteLabel<TValue>(entry: PaletteEntry<TValue>, showGroup = false): string {
+  const groupSuffix = showGroup ? `  [${entry.group}]` : '';
+  return `${entry.slash.padEnd(22)} ${entry.title} — ${entry.description}${groupSuffix}`;
 }
 
 function filterPaletteEntries<TValue>(
@@ -266,6 +343,22 @@ function filterPaletteEntries<TValue>(
     .map(({ entry }) => entry);
 }
 
+/** Insert disabled group-header separators between groups when showing the full palette (query = '/'). */
+function injectGroupSeparators<TValue>(
+  entries: PaletteEntry<TValue>[],
+): Array<{ name: string; value: TValue; disabled?: boolean }> {
+  const result: Array<{ name: string; value: TValue; disabled?: boolean }> = [];
+  let lastGroup = '';
+  for (const entry of entries) {
+    if (entry.group !== lastGroup) {
+      result.push({ name: `── ${entry.group} ──`, value: entry.value, disabled: true });
+      lastGroup = entry.group;
+    }
+    result.push({ name: renderPaletteLabel(entry), value: entry.value });
+  }
+  return result;
+}
+
 function shouldOfferTypedCommand(trimmedInput: string): boolean {
   return trimmedInput.startsWith('/');
 }
@@ -273,15 +366,35 @@ function shouldOfferTypedCommand(trimmedInput: string): boolean {
 export function buildMainActionChoices(input?: string): Array<{
   name: string;
   value: MainActionSelection;
+  disabled?: boolean;
 }> {
   const trimmed = (input ?? '').trim();
-  const matchedEntries = filterPaletteEntries(MAIN_ACTION_ENTRIES, input).slice(0, 8);
-  const choices: Array<{ name: string; value: MainActionSelection }> = matchedEntries.map((entry) => ({
-    name: renderPaletteLabel(entry),
-    value: entry.value === 'quit'
-      ? ({ kind: 'quit' } satisfies MainActionSelection)
-      : ({ kind: 'action', action: entry.value } satisfies MainActionSelection),
-  }));
+  const isShowAll = !trimmed || trimmed === '/';
+  const matchedEntries = filterPaletteEntries(MAIN_ACTION_ENTRIES, input).slice(0, 12);
+
+  let choices: Array<{ name: string; value: MainActionSelection; disabled?: boolean }>;
+
+  if (isShowAll) {
+    // Insert group separators between sections
+    choices = injectGroupSeparators(matchedEntries).map((c) => ({
+      ...c,
+      value: (() => {
+        if (c.disabled) return { kind: 'action', action: 'help' } satisfies MainActionSelection;
+        const entry = matchedEntries.find((e) => renderPaletteLabel(e) === c.name);
+        if (!entry) return { kind: 'action', action: 'help' } satisfies MainActionSelection;
+        return entry.value === 'quit'
+          ? ({ kind: 'quit' } satisfies MainActionSelection)
+          : ({ kind: 'action', action: entry.value } satisfies MainActionSelection);
+      })(),
+    }));
+  } else {
+    choices = matchedEntries.map((entry) => ({
+      name: renderPaletteLabel(entry),
+      value: entry.value === 'quit'
+        ? ({ kind: 'quit' } satisfies MainActionSelection)
+        : ({ kind: 'action', action: entry.value } satisfies MainActionSelection),
+    }));
+  }
 
   if (trimmed && trimmed !== '/' && shouldOfferTypedCommand(trimmed)) {
     const preview = sanitizeTerminalText(trimmed, 96);
@@ -294,13 +407,23 @@ export function buildMainActionChoices(input?: string): Array<{
   return choices;
 }
 
-export function buildPostResultChoices(input?: string): Array<{
-  name: string;
-  value: PostResultAction;
-}> {
-  return filterPaletteEntries(POST_RESULT_ENTRIES, input)
-    .slice(0, 8)
-    .map((entry) => ({ name: renderPaletteLabel(entry), value: entry.value }));
+export function buildPostResultChoices(
+  input?: string,
+  command?: string,
+): Array<{ name: string; value: PostResultAction; disabled?: boolean }> {
+  const contextual = command ? buildContextualPostResultEntries(command) : [];
+  const standard = filterPaletteEntries(POST_RESULT_ENTRIES, input).slice(0, 8);
+
+  const filteredContextual = input && input !== '/'
+    ? contextual.filter((e) => {
+        const q = normalizePaletteQuery(input);
+        const haystack = [e.title, e.description].join(' ').toLowerCase();
+        return haystack.includes(q);
+      })
+    : contextual;
+
+  const all = [...filteredContextual, ...standard];
+  return all.map((entry) => ({ name: renderPaletteLabel(entry), value: entry.value }));
 }
 
 // ============================================================================
@@ -324,48 +447,56 @@ export async function selectMainAction(message = 'Type / to browse commands'): P
 export async function searchFile(
   allFiles: string[],
   workspaceRoot: string,
+  recentFiles: string[] = [],
+  tipKey?: string,
+  tipCounter = 0,
 ): Promise<string> {
   const relativeFiles = allFiles
     .map((absPath) => normalizePath(path.relative(workspaceRoot, absPath)))
     .sort((left, right) => left.localeCompare(right));
 
+  const tip = tipKey ? getTip(tipKey, tipCounter) : '';
+  const tipLine = tip ? `\n  💡 ${tip}` : '';
+
   let currentDirectory = '';
 
   for (;;) {
-    const choices = buildFileBrowserChoices(relativeFiles, currentDirectory);
+    const choices = buildFileBrowserChoices(relativeFiles, currentDirectory, recentFiles);
     const location = currentDirectory || '.';
+    const message = `Browse files (${location})${currentDirectory ? '' : tipLine}`;
 
-    const selected = await select<string>({
-      message: `Browse files (${location})`,
-      choices,
-    });
+    const selected = await select<string>({ message, choices });
+    const next = await resolveFileBrowserSelection(selected, relativeFiles, currentDirectory);
 
-    if (selected === '__jump__') {
-      const jumpResult = await handleJumpSelection(relativeFiles, currentDirectory);
-      if (jumpResult.filePath) {
-        return jumpResult.filePath;
-      }
-      if (jumpResult.nextDirectory !== undefined) {
-        currentDirectory = jumpResult.nextDirectory;
-        continue;
-      }
-      continue;
-    }
-
-    if (selected === '__up__') {
-      currentDirectory = parentDirectoryOf(currentDirectory);
-      continue;
-    }
-
-    if (selected.startsWith('dir:')) {
-      currentDirectory = selected.slice('dir:'.length);
-      continue;
-    }
-
-    if (selected.startsWith('file:')) {
-      return selected.slice('file:'.length);
-    }
+    if (next.filePath !== undefined) return next.filePath;
+    if (next.nextDirectory !== undefined) currentDirectory = next.nextDirectory;
   }
+}
+
+async function resolveFileBrowserSelection(
+  selected: string,
+  relativeFiles: string[],
+  currentDirectory: string,
+): Promise<{ filePath?: string; nextDirectory?: string }> {
+  if (selected === '__jump__') {
+    const jumpResult = await handleJumpSelection(relativeFiles, currentDirectory);
+    return jumpResult;
+  }
+
+  if (selected === '__up__') {
+    return { nextDirectory: parentDirectoryOf(currentDirectory) };
+  }
+
+  if (selected.startsWith('dir:')) {
+    return { nextDirectory: selected.slice('dir:'.length) };
+  }
+
+  if (selected.startsWith('file:')) {
+    return { filePath: selected.slice('file:'.length) };
+  }
+
+  // Disabled separators and unknown values — stay in current directory
+  return { nextDirectory: currentDirectory };
 }
 
 /**
@@ -607,6 +738,7 @@ function listSubdirectories(
 export function buildFileBrowserChoices(
   relativeFiles: string[],
   currentDirectory: string,
+  recentFiles: string[] = [],
 ): FileBrowserChoice[] {
   const { directories, files } = listDirectoryEntries(relativeFiles, currentDirectory);
   const choices: FileBrowserChoice[] = [
@@ -615,6 +747,20 @@ export function buildFileBrowserChoices(
       value: '__jump__',
     },
   ];
+
+  // Recent files section (only show at root level)
+  const visibleRecent = recentFiles.filter((f) => !currentDirectory || f.startsWith(`${currentDirectory}/`));
+  if (visibleRecent.length > 0 && !currentDirectory) {
+    choices.push({ name: '─── Recent ───', value: '__recent_sep__', disabled: true });
+    for (const recentRel of visibleRecent) {
+      const basename = recentRel.split('/').at(-1) ?? recentRel;
+      choices.push({
+        name: `★ ${sanitizeTerminalText(basename, 80)}  ${sanitizeTerminalText(recentRel, 160)}`,
+        value: `file:${recentRel}`,
+      });
+    }
+    choices.push({ name: '─── All files ───', value: '__all_sep__', disabled: true });
+  }
 
   if (currentDirectory) {
     choices.push({
@@ -709,16 +855,142 @@ export async function inputSymbol(
   defaultSymbol = '',
 ): Promise<string> {
   return input({
-    message: `Symbol to analyze in ${displayPath} (leave empty for full-file analysis)`,
+    message: `Symbol to analyze in ${displayPath} · e.g. MyClass, processRequest, handleClick (leave empty for full-file)`,
     default: defaultSymbol,
   });
 }
 
-/** Post-result menu. */
-export async function selectPostResultAction(message = 'Type / for next actions'): Promise<PostResultAction> {
+/**
+ * Symbol selector with autocomplete when symbols are available.
+ * Falls back to plain text input when the symbol list is empty.
+ *
+ * @param displayPath  - Relative path shown in the prompt label
+ * @param symbols      - Candidate symbol names extracted from the file's AST (may be empty)
+ * @param tipCounter   - Session tip counter for deterministic tip rotation
+ * @param defaultSymbol - Pre-filled default (last used symbol)
+ */
+export async function selectOrInputSymbol(
+  displayPath: string,
+  symbols: string[],
+  tipCounter = 0,
+  defaultSymbol = '',
+): Promise<string> {
+  const tip = getTip('trace.symbol', tipCounter);
+  const msgSuffix = tip ? `\n  💡 ${tip}` : '';
+
+  if (symbols.length === 0) {
+    return input({
+      message: `Symbol to analyze in ${displayPath} · e.g. MyClass, handleClick (empty = full-file)${msgSuffix}`,
+      default: defaultSymbol,
+    });
+  }
+
+  const symbolChoices = [
+    { name: '(full-file analysis)', value: '' },
+    ...symbols.map((s) => ({ name: s, value: s })),
+  ];
+
+  return search<string>({
+    message: `Symbol in ${displayPath} — type to filter · Enter for full-file${msgSuffix}`,
+    source: async (inp) => {
+      if (!inp) return symbolChoices;
+      const q = inp.toLowerCase();
+      return symbolChoices.filter((c) => c.name.toLowerCase().includes(q));
+    },
+  });
+}
+
+// ============================================================================
+// Option configurators (always shown, Enter = accept pre-selected default)
+// ============================================================================
+
+export interface TraceOptions {
+  maxDepth: number | undefined;
+}
+
+/**
+ * Ask the user for trace depth. Pre-selects 10 (sensible default).
+ * User can press Enter immediately to accept without thinking.
+ */
+export async function askTraceOptions(tipCounter = 0): Promise<TraceOptions> {
+  const tip = getTip('trace.file', tipCounter);
+  const msgSuffix = tip ? `\n  💡 ${tip}` : '';
+
+  const depthValue = await select<string>({
+    message: `Trace depth (Enter to accept default)${msgSuffix}`,
+    choices: [
+      { name: '3  — surface-level calls',    value: '3' },
+      { name: '5  — moderate depth',         value: '5' },
+      { name: '10 — standard (recommended)', value: '10' },
+      { name: '20 — deep analysis',          value: '20' },
+      { name: 'Unlimited — full traversal',  value: 'unlimited' },
+    ],
+    default: '10',
+  });
+
+  return { maxDepth: depthValue === 'unlimited' ? undefined : Number.parseInt(depthValue, 10) };
+}
+
+export interface ArchitectureOptions {
+  maxFiles: number | undefined;
+}
+
+/**
+ * Ask the user for the architecture file cap.
+ * Pre-selects "All" — user can press Enter to accept.
+ */
+export async function askArchitectureOptions(tipCounter = 0): Promise<ArchitectureOptions> {
+  const tip = getTip('architecture.start', tipCounter);
+  const msgSuffix = tip ? `\n  💡 ${tip}` : '';
+
+  const value = await select<string>({
+    message: `Files to include in architecture map (Enter to accept default)${msgSuffix}`,
+    choices: [
+      { name: '100  — fast preview',          value: '100' },
+      { name: '500  — medium workspace',       value: '500' },
+      { name: 'All  — full workspace (recommended)', value: 'all' },
+    ],
+    default: 'all',
+  });
+
+  return { maxFiles: value === 'all' ? undefined : Number.parseInt(value, 10) };
+}
+
+export type CheckDepsDirection = 'both' | 'outgoing' | 'incoming';
+
+export interface CheckDepsOptions {
+  direction: CheckDepsDirection;
+}
+
+/**
+ * Ask the user which dependency direction to analyse.
+ * Pre-selects "Both" — user can press Enter to accept.
+ */
+export async function askCheckDepsOptions(tipCounter = 0): Promise<CheckDepsOptions> {
+  const tip = getTip('checkDeps.file', tipCounter);
+  const msgSuffix = tip ? `\n  💡 ${tip}` : '';
+
+  const direction = await select<CheckDepsDirection>({
+    message: `Dependency direction to analyze (Enter to accept default)${msgSuffix}`,
+    choices: [
+      { name: 'Both  — incoming + outgoing (recommended)', value: 'both' },
+      { name: 'Outgoing only — what this file imports',    value: 'outgoing' },
+      { name: 'Incoming only — who imports this file',     value: 'incoming' },
+    ],
+    default: 'both',
+  });
+
+  return { direction };
+}
+
+/** Post-result menu. Accepts the last command name to inject contextual follow-up suggestions. */
+export async function selectPostResultAction(
+  message = 'Type / for next actions',
+  command?: string,
+): Promise<PostResultAction> {
   return search<PostResultAction>({
     message,
-    source: async (input) => buildPostResultChoices(input),
+    source: async (inp) => buildPostResultChoices(inp, command),
   });
 }
 

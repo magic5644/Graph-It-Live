@@ -7,6 +7,7 @@
  */
 
 import * as path from 'node:path';
+import { normalizePath } from '../../shared/path.js';
 import { executeCrawlDependencyGraph } from '../../mcp/tools';
 import { CliError, ExitCode } from '../errors';
 import type { CliOutputFormat } from '../formatter';
@@ -40,10 +41,10 @@ export async function run(
 
   const result = {
     filePath: targetFile,
-    relativePath: path.relative(runtime.workspaceRoot, targetFile),
+    relativePath: normalizePath(path.relative(runtime.workspaceRoot, targetFile)),
     cycleCount: confirmedCycles.length,
     confirmedCycles: confirmedCycles.map((cycle) =>
-      cycle.map((absPath) => path.relative(runtime.workspaceRoot, absPath)),
+      cycle.map((absPath) => normalizePath(path.relative(runtime.workspaceRoot, absPath))),
     ),
   };
 

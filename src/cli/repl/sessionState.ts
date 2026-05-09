@@ -16,6 +16,10 @@ export interface SessionState {
   lastResult?: unknown;
   lastCommandLine?: string;
   preferredFormat: CliOutputFormat;
+  /** Most-recently-visited files, newest first. Max 5. Session-only. */
+  recentFiles: string[];
+  /** Monotonic counter for deterministic tip rotation (incremented each cycle). */
+  tipCounter: number;
 }
 
 /**
@@ -25,5 +29,7 @@ export function createSessionState(workspaceRoot: string): SessionState {
   return {
     workspaceRoot,
     preferredFormat: 'text',
+    recentFiles: [],
+    tipCounter: 0,
   };
 }
