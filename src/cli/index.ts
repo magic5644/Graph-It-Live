@@ -10,6 +10,10 @@
  *   trace <sym>       Trace execution flow from a symbol
  *   explain <file>    Explain file logic
  *   path <file>       Crawl dependency graph from file
+ *   path-in <file>    List files that depend on a file
+ *   check-dependencies <file>  Check incoming and outgoing dependencies
+ *   cycles <file>     List confirmed dependency cycles involving file
+ *   architecture      Build full workspace architecture graph
  *   check <file>      Check for unused symbols
  *   serve             Launch MCP stdio server
  *   tool <name>       Invoke any MCP tool directly
@@ -49,6 +53,11 @@ Commands:
   trace <sym>       Trace execution flow: file.ts#FunctionName
   explain <file>    Analyze file logic (intra-file call hierarchy)
   path <file>       Crawl dependency graph from entry file
+  path-in <file>    Find incoming dependencies (who imports this file)
+  check-dependencies <file>
+                    Check incoming and outgoing dependencies for a file
+  cycles <file>     List confirmed dependency cycles for a file
+  architecture      Build full workspace architecture graph
   check <file>      Find unused exported symbols
   serve             Launch MCP stdio server (passthrough)
   tool <name>       Invoke any MCP tool: graph-it tool get_index_status
@@ -62,13 +71,13 @@ Options:
   --version, -v     Show version
 
 Output Format Availability:
-  Format    | scan | summary | trace | explain | path | check | tool
-  ----------|------|---------|-------|---------|------|-------|-----
-  text      |  ✓   |    ✓    |   ✓   |    ✓    |  ✓   |   ✓   |  ✓
-  json      |  ✓   |    ✓    |   ✓   |    ✓    |  ✓   |   ✓   |  ✓
-  toon      |  ✓   |    ✓    |   ✓   |    ✓    |  ✓   |   ✓   |  ✓
-  markdown  |  ✓   |    ✓    |   ✓   |    ✓    |  ✓   |   ✓   |  ✓
-  mermaid   |  —   |    —    |   ✓   |    —    |  ✓   |   —   |  —
+  Format    | scan | summary | trace | explain | path | architecture | check | tool
+  ----------|------|---------|-------|---------|------|--------------|-------|-----
+  text      |  ✓   |    ✓    |   ✓   |    ✓    |  ✓   |      ✓       |   ✓   |  ✓
+  json      |  ✓   |    ✓    |   ✓   |    ✓    |  ✓   |      ✓       |   ✓   |  ✓
+  toon      |  ✓   |    ✓    |   ✓   |    ✓    |  ✓   |      ✓       |   ✓   |  ✓
+  markdown  |  ✓   |    ✓    |   ✓   |    ✓    |  ✓   |      ✓       |   ✓   |  ✓
+  mermaid   |  ✓   |    ✓    |   ✓   |    ✓    |  ✓   |      ✓       |   ✓   |  ✓
 
 MCP Client Integration:
   Use "graph-it serve" as the MCP server command in any MCP-compatible client.
@@ -118,6 +127,11 @@ Examples:
   graph-it trace src/index.ts#main
   graph-it explain src/utils.ts
   graph-it path src/index.ts
+  graph-it path-in src/index.ts
+  graph-it check-dependencies src/index.ts
+  graph-it cycles src/index.ts
+  graph-it architecture
+  graph-it architecture --format mermaid
   graph-it check src/api.ts
   graph-it tool analyze_dependencies --filePath=/abs/path/file.ts
   graph-it update
@@ -272,6 +286,22 @@ async function dispatch(
     }
     case "path": {
       const { run } = await import("./commands/path.js");
+      return run(args, runtime, format);
+    }
+    case "path-in": {
+      const { run } = await import("./commands/pathIn.js");
+      return run(args, runtime, format);
+    }
+    case "check-dependencies": {
+      const { run } = await import("./commands/checkDependencies.js");
+      return run(args, runtime, format);
+    }
+    case "cycles": {
+      const { run } = await import("./commands/cycles.js");
+      return run(args, runtime, format);
+    }
+    case "architecture": {
+      const { run } = await import("./commands/architecture.js");
       return run(args, runtime, format);
     }
     case "check": {

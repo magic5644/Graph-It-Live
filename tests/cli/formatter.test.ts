@@ -1,5 +1,4 @@
 import { describe, expect, it } from "vitest";
-import { CliError, ExitCode } from "../../src/cli/errors";
 import {
   CLI_OUTPUT_FORMATS,
   formatOutput,
@@ -25,25 +24,24 @@ describe("CLI_OUTPUT_FORMATS", () => {
 });
 
 describe("validateFormatForCommand", () => {
-  it("allows mermaid for trace command", () => {
-    expect(() => validateFormatForCommand("mermaid", "trace")).not.toThrow();
-  });
+  it("allows mermaid for all formatOutput-based commands", () => {
+    const commands = [
+      "scan",
+      "summary",
+      "trace",
+      "explain",
+      "path",
+      "path-in",
+      "check-dependencies",
+      "cycles",
+      "architecture",
+      "check",
+      "tool",
+    ];
 
-  it("allows mermaid for path command", () => {
-    expect(() => validateFormatForCommand("mermaid", "path")).not.toThrow();
-  });
-
-  it("throws UNSUPPORTED_FORMAT for mermaid on summary", () => {
-    expect(() => validateFormatForCommand("mermaid", "summary")).toThrow(CliError);
-    try {
-      validateFormatForCommand("mermaid", "summary");
-    } catch (err) {
-      expect((err as CliError).exitCode).toBe(ExitCode.UNSUPPORTED_FORMAT);
+    for (const command of commands) {
+      expect(() => validateFormatForCommand("mermaid", command)).not.toThrow();
     }
-  });
-
-  it("throws UNSUPPORTED_FORMAT for mermaid on explain", () => {
-    expect(() => validateFormatForCommand("mermaid", "explain")).toThrow(CliError);
   });
 
   it("allows all formats for non-mermaid-restricted commands", () => {
@@ -108,6 +106,30 @@ describe("formatOutput - text", () => {
     expect(out).toContain("Visited Symbols:");
     expect(out).toContain("- main");
   });
+
+  it("renders architecture summary without dumping failure details", () => {
+    const architectureData = {
+      workspaceRoot: "/workspace",
+      scannedFiles: 10,
+      analyzedFiles: 10,
+      skippedFiles: 2,
+      nodeCount: 12,
+      edgeCount: 18,
+      nodes: [
+        { relativePath: "src/index.ts", dependencyCount: 3, dependentCount: 7 },
+        { relativePath: "src/utils.ts", dependencyCount: 1, dependentCount: 2 },
+      ],
+      failedFiles: [
+        { relativePath: "src/bad.ts", reason: "Parse error: unexpected token" },
+      ],
+    };
+
+    const out = formatOutput(architectureData, "text", "architecture");
+    expect(out).toContain("Workspace Architecture");
+    expect(out).toContain("skipped files: 2");
+    expect(out).toContain("details available with --format json");
+    expect(out).not.toContain("Parse error: unexpected token");
+  });
 });
 
 describe("formatOutput - toon", () => {
@@ -159,12 +181,97 @@ describe("formatOutput - mermaid", () => {
     expect(out).toContain("main --> helper");
   });
 
-  it("throws UNSUPPORTED_FORMAT when no graph data", () => {
-    expect(() => formatOutput(objectData, "mermaid", "trace")).toThrow(CliError);
-    try {
-      formatOutput(objectData, "mermaid", "trace");
-    } catch (err) {
-      expect((err as CliError).exitCode).toBe(ExitCode.UNSUPPORTED_FORMAT);
-    }
+  it("generates graph from check-dependencies result", () => {
+    const dependencyData = {
+      filePath: "/workspace/src/index.ts",
+      relativePath: "src/index.ts",
+      outgoing: {
+        dependencyCount: 1,
+        dependencies: [{ path: "src/utils.ts" }],
+      },
+      incoming: {
+        referencingFileCount: 1,
+        referencingFiles: [{ path: "src/app.ts" }],
+      },
+    };
+
+    const out = formatOutput(dependencyData, "mermaid", "check-dependencies");
+    expect(out).toContain("graph LR");
+    expect(out).toContain("index.ts");
+    expect(out).toContain("utils.ts");
+    expect(out).toContain("app.ts");
+    expect(out).toContain("--> ");
+  });
+
+  it("falls back to a generic graph when payload is not graph-shaped", () => {
+    const out = formatOutput(objectData, "mermaid", "summary");
+    expect(out).toContain("graph TD");
+    expect(out).toContain("summary");
+    expect(out).toContain("state");
+  });
+
+  it("applies generic fallback to primitive payloads", () => {
+    const out = formatOutput("done", "mermaid", "scan");
+    expect(out).toContain("graph TD");
+    expect(out).toContain("done");
+  });
+
+  it("strips control characters from Mermaid node labels", () => {
+    const graphData = {
+      nodes: [
+        { id: "a", name: "a\nwith\nnewlines.ts" },
+        { id: "b", name: "b\twith\ttabs.ts" },
+      ],
+      edges: [{ source: "a", target: "b" }],
+    };
+    const out = formatOutput(graphData, "mermaid", "path");
+    // Raw newlines/tabs must not appear inside the quoted label strings
+    // (the overall diagram has legitimate newlines between statements — that's fine).
+    expect(out).not.toMatch(/"\w*\n\w*"/);  // no newline inside a quoted label
+    expect(out).not.toContain("\t");
+    expect(out).toContain("graph LR");
+  });
+
+  it("escapes double-quotes in Mermaid node labels", () => {
+    const graphData = {
+      nodes: [{ id: "a", name: 'he said "hello"' }],
+      edges: [],
+    };
+    const out = formatOutput(graphData, "mermaid", "path");
+    expect(out).not.toContain('"he said "');
+    expect(out).toContain("he said 'hello'");
+  });
+
+  it('truncates oversized graph payloads with an explicit marker', () => {
+    const nodes = Array.from({ length: 400 }, (_, i) => ({
+      id: `node-${i}`,
+      name: `node-${i}.ts`,
+    }));
+    const edges = Array.from({ length: 900 }, (_, i) => ({
+      source: `node-${i % 399}`,
+      target: `node-${(i + 1) % 399}`,
+    }));
+
+    const out = formatOutput({ nodes, edges }, 'mermaid', 'architecture');
+    expect(out).toContain('graph LR');
+    expect(out).toContain('more node(s)');
+    expect(out).not.toContain('output truncated');
+    expect(out.split('\n').length).toBeLessThanOrEqual(700);
+  });
+
+  it('truncates oversized dependency-check payloads silently within output budget', () => {
+    const outgoing = Array.from({ length: 600 }, (_, i) => ({ path: `src/out-${i}.ts` }));
+    const incoming = Array.from({ length: 650 }, (_, i) => ({ path: `src/in-${i}.ts` }));
+
+    const out = formatOutput({
+      filePath: '/workspace/src/index.ts',
+      relativePath: 'src/index.ts',
+      outgoing: { dependencyCount: outgoing.length, dependencies: outgoing },
+      incoming: { referencingFileCount: incoming.length, referencingFiles: incoming },
+    }, 'mermaid', 'check-dependencies');
+
+    expect(out).toContain('graph LR');
+    expect(out).not.toContain('output truncated');
+    expect(out.split('\n').length).toBeLessThanOrEqual(700);
   });
 });

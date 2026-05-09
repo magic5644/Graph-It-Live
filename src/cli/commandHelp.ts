@@ -11,7 +11,7 @@ Usage: graph-it scan [options]
 
 Options:
   --workspace, -w   Workspace root directory (default: auto-detected)
-  --format, -f      Output format: text|json|toon|markdown (default: text)
+  --format, -f      Output format: text|json|toon|markdown|mermaid (default: text)
   --help, -h        Show this help
 
 Examples:
@@ -27,7 +27,7 @@ Arguments:
 
 Options:
   --workspace, -w   Workspace root directory (default: auto-detected)
-  --format, -f      Output format: text|json|toon|markdown (default: text)
+  --format, -f      Output format: text|json|toon|markdown|mermaid (default: text)
   --help, -h        Show this help
 
 Examples:
@@ -59,7 +59,7 @@ Arguments:
 
 Options:
   --workspace, -w   Workspace root directory (default: auto-detected)
-  --format, -f      Output format: text|json|toon|markdown (default: text)
+  --format, -f      Output format: text|json|toon|markdown|mermaid (default: text)
   --help, -h        Show this help
 
 Examples:
@@ -81,6 +81,67 @@ Examples:
   graph-it path src/index.ts
   graph-it path src/index.ts --format mermaid
 `,
+  "path-in": `graph-it path-in — Find incoming dependencies for a target file
+
+Usage: graph-it path-in <file> [options]
+
+Arguments:
+  <file>            Target file whose importers should be listed
+
+Options:
+  --workspace, -w   Workspace root directory (default: auto-detected)
+  --format, -f      Output format: text|json|toon|markdown|mermaid (default: text)
+  --help, -h        Show this help
+
+Examples:
+  graph-it path-in src/index.ts
+  graph-it path-in src/index.ts --format mermaid
+`,
+  "check-dependencies": `graph-it check-dependencies — Check incoming and outgoing dependencies
+
+Usage: graph-it check-dependencies <file> [options]
+
+Arguments:
+  <file>            Target file to analyze
+
+Options:
+  --workspace, -w   Workspace root directory (default: auto-detected)
+  --format, -f      Output format: text|json|toon|markdown|mermaid (default: text)
+  --help, -h        Show this help
+
+Examples:
+  graph-it check-dependencies src/index.ts
+`,
+  cycles: `graph-it cycles — List confirmed dependency cycles for a file
+
+Usage: graph-it cycles <file> [options]
+
+Arguments:
+  <file>            Target file to inspect for cycles
+
+Options:
+  --workspace, -w   Workspace root directory (default: auto-detected)
+  --format, -f      Output format: text|json|toon|markdown|mermaid (default: text)
+  --help, -h        Show this help
+
+Examples:
+  graph-it cycles src/index.ts
+`,
+  architecture: `graph-it architecture — Build full workspace dependency architecture
+
+Usage: graph-it architecture [options]
+
+Options:
+  --maxFiles N       Optional cap on analyzed source files
+  --workspace, -w    Workspace root directory (default: auto-detected)
+  --format, -f       Output format: text|json|toon|markdown|mermaid (default: text)
+  --help, -h         Show this help
+
+Examples:
+  graph-it architecture
+  graph-it architecture --format mermaid
+  graph-it architecture --maxFiles 2000
+`,
   check: `graph-it check — Find unused exported symbols in a file
 
 Usage: graph-it check <file> [options]
@@ -90,7 +151,7 @@ Arguments:
 
 Options:
   --workspace, -w   Workspace root directory (default: auto-detected)
-  --format, -f      Output format: text|json|toon|markdown (default: text)
+  --format, -f      Output format: text|json|toon|markdown|mermaid (default: text)
   --help, -h        Show this help
 
 Examples:
@@ -136,7 +197,7 @@ Options:
   --list            List all available MCP tools with descriptions
   --args '<json>'   Pass parameters as a JSON object
   --workspace, -w   Workspace root directory (default: auto-detected)
-  --format, -f      Output format: text|json|toon|markdown (default: text)
+  --format, -f      Output format: text|json|toon|markdown|mermaid (default: text)
   --help, -h        Show this help
 
 Examples:
