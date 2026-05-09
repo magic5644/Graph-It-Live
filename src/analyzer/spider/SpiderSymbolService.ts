@@ -478,7 +478,9 @@ export class SpiderSymbolService {
     }
 
     const config = this.getConfig();
-    const collector = new SourceFileCollector({ excludeNodeModules: config.excludeNodeModules });
+    const collector = new SourceFileCollector({
+      excludeNodeModules: config.excludeNodeModules ?? true,
+    });
 
     // Collect all source files under scopePath
     const allFiles = await collector.collectAllSourceFiles(scopePath);

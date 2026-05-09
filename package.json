@@ -1104,7 +1104,8 @@
     "test:cli:e2e": "bash scripts/test-cli-e2e.sh",
     "lint": "eslint src",
     "lint:fix": "eslint src --fix",
-    "check:types": "tsc --noEmit",
+    "check:types": "npm run check:types:clean",
+    "check:types:clean": "node -e \"require('node:fs').rmSync('out', { recursive: true, force: true });\" && tsc --noEmit",
     "audit": "npm audit",
     "audit:fix": "npm audit fix",
     "package": "vsce package",
@@ -1114,6 +1115,7 @@
   },
   "dependencies": {
     "@dagrejs/dagre": "^2.0.4",
+    "@inquirer/core": "^11.1.9",
     "@inquirer/prompts": "^8.4.2",
     "@modelcontextprotocol/sdk": "^1.29.0",
     "chokidar": "^5.0.0",

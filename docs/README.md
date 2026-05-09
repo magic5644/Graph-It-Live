@@ -1,6 +1,6 @@
 # Graph-It-Live Documentation
 
-**Last Updated:** 2026-04-24
+**Last Updated:** 2026-05-09
 
 This directory is the single source of truth for technical documentation. It is organized into three sections.
 
@@ -33,7 +33,7 @@ Standards and guidelines for contributors.
 
 | File | Description |
 |------|-------------|
-| [CLI.md](CLI.md) | **CLI reference** — all commands, options, output formats, tools, and advanced workflows |
+| [CLI.md](CLI.md) | **CLI + interactive REPL reference** — commands, options, output formats, tools, and interactive workflows |
 | [development/CODING_STANDARDS.md](development/CODING_STANDARDS.md) | TypeScript conventions, layer rules, React patterns |
 | [development/CROSS_PLATFORM_TESTING.md](development/CROSS_PLATFORM_TESTING.md) | Cross-platform path handling and test guidelines |
 | [development/ADR-001-package-manager-choice.md](development/ADR-001-package-manager-choice.md) | ADR: npm vs Yarn decision |
