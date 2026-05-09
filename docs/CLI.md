@@ -11,6 +11,7 @@ The `graph-it` CLI gives you full access to the dependency analysis engine of Gr
 - [Global Options](#global-options)
 - [Output Formats](#output-formats)
 - [Commands](#commands)
+  - [graph-it (no arguments)](#graph-it-no-arguments)
   - [scan](#scan)
   - [summary](#summary)
   - [explain](#explain)
@@ -145,6 +146,76 @@ graph-it summary --format toon                    # → feed to an LLM
 ---
 
 ## Commands
+
+### graph-it (no arguments)
+
+Launches interactive mode when invoked without a command in a TTY session.
+
+```
+graph-it [options]
+```
+
+**Behavior:**
+
+- If `stdin` is a TTY, starts the interactive REPL.
+- If `stdin` is not a TTY, interactive mode is not started. Use direct commands such as `graph-it summary`, `graph-it trace`, or `graph-it check`.
+- REPL session default output format is `text` unless changed with `/format`.
+
+#### REPL slash commands
+
+| Command | Description |
+|--------|-------------|
+| `/trace` | Run trace flow for a selected file and optional symbol |
+| `/path` | Set session workspace scope (directory) |
+| `/file` | Set active file context for context-aware commands |
+| `/check-dependencies` | Check incoming and outgoing dependencies |
+| `/cycles` | List confirmed dependency cycles for a file |
+| `/summary` | Summarize current file context or workspace |
+| `/architecture` | Build workspace architecture graph |
+| `/check` | Find unused exports |
+| `/format` | Set preferred output format for the session |
+| `/command` | Run a raw CLI command line inside REPL |
+| `/help` | Show REPL command help |
+| `/quit` | Exit interactive mode |
+
+#### Post-result actions
+
+After each result, the REPL supports contextual actions:
+
+- drill-down into current file/symbol context
+- export current structured result in another format
+- save current output to file
+- set default session format
+- run context-aware follow-up actions (for example dependency, cycle, trace, dead-code, or architecture follow-ups)
+
+#### Session state
+
+REPL session state is in-memory for the current invocation and tracks:
+
+- `workspaceRoot`
+- `lastFile`
+- `lastSymbol`
+- `lastResult`
+- `lastCommandLine`
+- `preferredFormat`
+- `recentFiles` (max 5, newest first)
+- `tipCounter`
+
+#### Tips
+
+The REPL tip system includes:
+
+- general rotating tips
+- command-step tips (for example trace/check-dependencies/cycles/result steps)
+- persona-tagged tips (role-oriented hints)
+
+#### Save path safety
+
+When saving from REPL:
+
+- writes are restricted to paths inside the workspace root
+- path checks are enforced using resolved/real paths
+- symlink targets are refused for overwrite
 
 ### scan
 

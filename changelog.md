@@ -1,5 +1,34 @@
 # Changelog
 
+## v1.9.2
+
+### Features
+
+- **Interactive CLI REPL entry path**: Running `graph-it` with no arguments in a TTY now enters an interactive REPL flow.
+
+### Enhancements
+
+- **REPL guidance and interaction improvements**:
+  - Added contextual tips and persona tips in interactive flows
+  - Improved slash-command command-palette UX
+  - Added contextual follow-up prompts after command results
+- **Session state enrichment**:
+  - Added `recentFiles` (up to 5 entries)
+  - Added `tipCounter`
+- **Prompt/browser context improvements**:
+  - Added a recent files section in prompt/browser UI
+  - Added `/file` command context support
+
+### Bug Fixes
+
+- **SpiderSymbolService default option handling**: `excludeNodeModules` now defaults to `true` when the option is `undefined`.
+
+### Maintenance
+
+- **Dependency update**: Added runtime dependency `@inquirer/core`.
+- **Typecheck workflow cleanup**: `check:types` now runs the clean path (`check:types:clean`) to avoid stale `out` artifacts.
+- **TypeScript references cleanup**: Removed the `test.node` reference from project tsconfig references.
+
 ## v1.9.1
 
 ### Features
