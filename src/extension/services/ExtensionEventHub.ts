@@ -184,6 +184,13 @@ export class ExtensionEventHub {
     }
   }
 
+  dispose(): void {
+    if (this.fileSaveDebounceTimer) {
+      clearTimeout(this.fileSaveDebounceTimer);
+      this.fileSaveDebounceTimer = undefined;
+    }
+  }
+
   private async refreshByCurrentView(): Promise<void> {
     if (this.stateManager.currentSymbol) {
       await this.handleDrillDown(this.stateManager.currentSymbol, true);

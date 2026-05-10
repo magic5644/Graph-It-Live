@@ -846,6 +846,7 @@ export class GraphProvider implements vscode.WebviewViewProvider {
       this.sourceFileWatcher?.dispose();
       this._fileChangeScheduler?.dispose();
       this._fileSaveListener?.dispose();
+      this.eventHub?.dispose();
       this._callGraphViewService?.setSidebarWebview(null);
       // Also clean up the worker if running
       this.spider?.disposeWorker();
