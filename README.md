@@ -707,6 +707,8 @@ For comprehensive development instructions, see:
 
 - **[DEVELOPMENT.md](DEVELOPMENT.md)** — Setup, build, testing, WASM architecture
 - **[CONTRIBUTING.md](CONTRIBUTING.md)** — Contribution guidelines, branch naming, commit conventions
+- **[docs/architecture/codemaps/architecture.md](docs/architecture/codemaps/architecture.md)** — **System architecture overview** with 5-layer diagram and 50+ component descriptions
+- **[docs/architecture/codemaps/class-hierarchy.md](docs/architecture/codemaps/class-hierarchy.md)** — **Class hierarchy diagram** with 45+ core classes, interfaces, and design patterns
 - **[docs/development/CODING_STANDARDS.md](docs/development/CODING_STANDARDS.md)** — TypeScript conventions and code style rules
 - **[docs/development/CROSS_PLATFORM_TESTING.md](docs/development/CROSS_PLATFORM_TESTING.md)** — Cross-platform compatibility requirements (Windows/Linux/macOS)
 - **[docs/architecture/TOON_FORMAT.md](docs/architecture/TOON_FORMAT.md)** — Token-Optimized Output format specification for AI tools

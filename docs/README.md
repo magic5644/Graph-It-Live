@@ -13,6 +13,7 @@ Documentation describing how the system is built and how the layers interact.
 | File | Description |
 |------|-------------|
 | [architecture/codemaps/architecture.md](architecture/codemaps/architecture.md) | System overview — layers, services, file count |
+| [architecture/codemaps/class-hierarchy.md](architecture/codemaps/class-hierarchy.md) | **Class hierarchy diagram** — core interfaces, 45+ classes, design patterns |
 | [architecture/codemaps/backend.md](architecture/codemaps/backend.md) | Analyzer, MCP, and extension services |
 | [architecture/codemaps/cli.md](architecture/codemaps/cli.md) | Standalone CLI layer (`graph-it`) |
 | [architecture/codemaps/frontend.md](architecture/codemaps/frontend.md) | Webview / React components |

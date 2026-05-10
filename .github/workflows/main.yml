@@ -5,8 +5,30 @@ on:
     branches: [ main ]
     tags:
       - 'v*' # Run workflow on version tags, e.g. v1.0.0
+    paths:
+      - 'src/**'
+      - 'tests/**'
+      - 'resources/**'
+      - 'package.json'
+      - 'package-lock.json'
+      - 'tsconfig*.json'
+      - 'vitest*.config.mts'
+      - 'esbuild.js'
+      - 'eslint.config.mjs'
+      - '.github/workflows/**'
   pull_request:
     branches: [ main ]
+    paths:
+      - 'src/**'
+      - 'tests/**'
+      - 'resources/**'
+      - 'package.json'
+      - 'package-lock.json'
+      - 'tsconfig*.json'
+      - 'vitest*.config.mts'
+      - 'esbuild.js'
+      - 'eslint.config.mjs'
+      - '.github/workflows/**'
 
 jobs:
   build:
