@@ -1,5 +1,11 @@
 # Changelog
 
+## v1.9.3
+
+### Bug Fixes
+
+- **Memory leak cleanup**: Fixed lingering timers and listeners in the graph webview and extension teardown path, including call graph save listeners, background indexing status timers, and Cytoscape post-layout resize timers.
+
 ## v1.9.2
 
 ### Features
