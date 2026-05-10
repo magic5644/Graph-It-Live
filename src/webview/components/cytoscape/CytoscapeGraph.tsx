@@ -270,6 +270,9 @@ export function CytoscapeGraph({ onReady, postMessage }: Readonly<CytoscapeGraph
   // showCallGraph arrives before the previous one has run layout.run().
   const layoutTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
+  // Track the post-layout resize timer so teardown can cancel it.
+  const postLayoutResizeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
   // Safety timeout ref: clears isLoading if layoutstop never fires (e.g. on
   // certain Cytoscape edge cases or rapid component teardown).
   const safetyTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -381,6 +384,10 @@ export function CytoscapeGraph({ onReady, postMessage }: Readonly<CytoscapeGraph
       if (layoutTimerRef.current !== null) {
         clearTimeout(layoutTimerRef.current);
         layoutTimerRef.current = null;
+      }
+      if (postLayoutResizeTimerRef.current !== null) {
+        clearTimeout(postLayoutResizeTimerRef.current);
+        postLayoutResizeTimerRef.current = null;
       }
       if (safetyTimerRef.current !== null) {
         clearTimeout(safetyTimerRef.current);
@@ -550,7 +557,11 @@ export function CytoscapeGraph({ onReady, postMessage }: Readonly<CytoscapeGraph
 
       // Safety retry: if the container was still sizing during the layout run
       // (VS Code sidebar animation), a deferred resize + fit corrects it.
-      setTimeout(() => {
+      if (postLayoutResizeTimerRef.current !== null) {
+        clearTimeout(postLayoutResizeTimerRef.current);
+      }
+      postLayoutResizeTimerRef.current = setTimeout(() => {
+        postLayoutResizeTimerRef.current = null;
         if (!cyRef.current) return;
         cyRef.current.resize();
         cyRef.current.fit(undefined, 60);

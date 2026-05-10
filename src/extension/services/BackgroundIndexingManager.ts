@@ -37,6 +37,7 @@ export class BackgroundIndexingManager {
   private config: BackgroundIndexingConfig;
   private isIndexing = false;
   private indexingStartTimer?: ReturnType<typeof setTimeout>;
+  private hideStatusTimer?: ReturnType<typeof setTimeout>;
 
   constructor(options: BackgroundIndexingManagerOptions) {
     this.context = options.context;
@@ -109,6 +110,10 @@ export class BackgroundIndexingManager {
 
   dispose(): void {
     this.cancelScheduledIndexing();
+    if (this.hideStatusTimer) {
+      clearTimeout(this.hideStatusTimer);
+      this.hideStatusTimer = undefined;
+    }
     this.statusBarItem.dispose();
   }
 
@@ -208,14 +213,24 @@ export class BackgroundIndexingManager {
         await this.onIndexingComplete();
       }
 
-      setTimeout(() => {
+      if (this.hideStatusTimer) {
+        clearTimeout(this.hideStatusTimer);
+      }
+      this.hideStatusTimer = setTimeout(() => {
+        this.hideStatusTimer = undefined;
         this.statusBarItem.hide();
       }, 3000);
     } catch (error) {
       this.log.error('Background indexing failed:', error);
       this.statusBarItem.text = '$(error) Graph-It-Live: Indexing failed';
       this.statusBarItem.tooltip = error instanceof Error ? error.message : 'Unknown error';
-      setTimeout(() => this.statusBarItem.hide(), 5000);
+      if (this.hideStatusTimer) {
+        clearTimeout(this.hideStatusTimer);
+      }
+      this.hideStatusTimer = setTimeout(() => {
+        this.hideStatusTimer = undefined;
+        this.statusBarItem.hide();
+      }, 5000);
       vscode.window.showErrorMessage(
         `Graph-It-Live: Indexing failed - ${error instanceof Error ? error.message : 'Unknown error'}`
       );

@@ -1115,20 +1115,20 @@
   },
   "dependencies": {
     "@dagrejs/dagre": "^2.0.4",
-    "@inquirer/core": "^11.1.9",
-    "@inquirer/prompts": "^8.4.2",
+    "@inquirer/core": "^11.1.10",
+    "@inquirer/prompts": "^8.4.3",
     "@modelcontextprotocol/sdk": "^1.29.0",
     "chokidar": "^5.0.0",
-    "cytoscape": "^3.33.2",
+    "cytoscape": "^3.33.3",
     "cytoscape-fcose": "^2.2.0",
-    "react": "^19.2.5",
-    "react-dom": "^19.2.5",
+    "react": "^19.2.6",
+    "react-dom": "^19.2.6",
     "reactflow": "^11.11.4",
     "sql.js": "^1.14.1",
     "tree-sitter-wasms": "^0.1.13",
     "ts-morph": "^27.0.2",
     "web-tree-sitter": "^0.26.8",
-    "zod": "^4.3.6"
+    "zod": "^4.4.3"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",
@@ -1144,13 +1144,13 @@
     "@vscode/vsce": "^3.9.1",
     "esbuild": "^0.27.7",
     "esbuild-css-modules-plugin": "^3.1.5",
-    "eslint": "^10.2.1",
+    "eslint": "^10.3.0",
     "fast-check": "^4.7.0",
     "glob": "^13.0.6",
-    "globals": "^17.5.0",
+    "globals": "^17.6.0",
     "mocha": "^11.7.5",
     "typescript": "^6.0.3",
-    "typescript-eslint": "^8.59.0",
+    "typescript-eslint": "^8.59.2",
     "vitest": "^4.1.5"
   },
   "overrides": {
