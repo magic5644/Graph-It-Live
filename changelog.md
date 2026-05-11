@@ -1,5 +1,15 @@
 # Changelog
 
+## v1.9.4 (not released yet)
+
+### Bug Fixes
+
+- **CLI update on Windows (`spawnSync npm ENOENT`)**: Fixed `graph-it update` failing on Windows when `npm` is not directly resolvable. The updater now retries installation with `npm.cmd` after an `ENOENT` failure on `npm`, restoring self-update reliability on Windows shells.
+
+### Testing
+
+- **Regression test for updater fallback**: Added CLI test coverage to validate the Windows fallback path (`npm` ➜ `npm.cmd`) when running `graph-it update`.
+
 ## v1.9.3
 
 ### Bug Fixes

@@ -5,8 +5,10 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 // Hoisted mock — must appear before any dynamic import of the module under test
 vi.mock("node:https", () => ({ get: vi.fn() }));
+vi.mock("node:child_process", () => ({ execFileSync: vi.fn() }));
 
 import * as https from "node:https";
+import { execFileSync } from "node:child_process";
 
 const runtimeStub = {
   workspaceRoot: "/tmp",
@@ -85,5 +87,24 @@ describe("update command", () => {
     const { run } = await import("../../src/cli/commands/update.js");
     const { CliError } = await import("../../src/cli/errors.js");
     await expect(run([], runtimeStub, "text")).rejects.toBeInstanceOf(CliError);
+  });
+
+  it("retries with npm.cmd when npm is not found (ENOENT)", async () => {
+    mockRegistryResponse(200, { version: "1.0.1" });
+
+    const enoent = Object.assign(new Error("spawnSync npm ENOENT"), { code: "ENOENT" });
+    vi.mocked(execFileSync)
+      .mockImplementationOnce(() => {
+        throw enoent;
+      })
+      .mockImplementationOnce(() => Buffer.from("ok"));
+
+    const { run } = await import("../../src/cli/commands/update.js");
+    const output = await run([], runtimeStub, "text");
+
+    expect(output).toContain("Updated graph-it-live to v1.0.1");
+    expect(execFileSync).toHaveBeenCalledTimes(2);
+    expect(vi.mocked(execFileSync).mock.calls[0]?.[0]).toBe("npm");
+    expect(vi.mocked(execFileSync).mock.calls[1]?.[0]).toBe("npm.cmd");
   });
 });

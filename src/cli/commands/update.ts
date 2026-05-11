@@ -17,6 +17,31 @@ import type { CliRuntime } from "../runtime";
 const NPM_PACKAGE = "@magic5644/graph-it-live";
 const REGISTRY_URL = `https://registry.npmjs.org/${NPM_PACKAGE}/latest`;
 
+function runGlobalInstall(version: string): void {
+  const args = ["install", "--global", `${NPM_PACKAGE}@${version}`] as const;
+
+  try {
+    execFileSync("npm", args, {
+      stdio: "inherit",
+      // shell: false (default) — args are passed directly to the OS, no shell injection risk
+    });
+    return;
+  } catch (err) {
+    const isNpmMissing =
+      (err as { code?: string })?.code === "ENOENT" ||
+      (err instanceof Error && err.message.includes("spawnSync npm ENOENT"));
+
+    if (!isNpmMissing) {
+      throw err;
+    }
+  }
+
+  // Windows frequently resolves npm via npm.cmd in PATH, retry explicitly.
+  execFileSync("npm.cmd", args, {
+    stdio: "inherit",
+  });
+}
+
 /** Basic semver validation — rejects any string that could be used for injection. */
 function isValidVersion(v: string): boolean {
   return /^\d+\.\d+\.\d+(-[\w.]+)?$/.test(v);
@@ -75,10 +100,7 @@ export async function run(
   process.stdout.write(`Latest version  : v${latestVersion}\nInstalling update…\n`);
 
   try {
-    execFileSync("npm", ["install", "--global", `${NPM_PACKAGE}@${latestVersion}`], {
-      stdio: "inherit",
-      // shell: false (default) — args are passed directly to the OS, no shell injection risk
-    });
+    runGlobalInstall(latestVersion);
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
     throw new CliError(`npm install failed: ${msg}`, ExitCode.GENERAL_ERROR);
