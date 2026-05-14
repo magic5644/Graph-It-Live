@@ -36,6 +36,7 @@ import { classifyError, CliError, ExitCode } from "./errors";
 import type { CliOutputFormat } from "./formatter";
 import { CLI_OUTPUT_FORMATS } from "./formatter";
 import { CliRuntime, findWorkspaceRoot } from "./runtime";
+import { maybeNotifyCliUpdate } from "./versionCheck";
 
 // ============================================================================
 // Version (injected at build time via define, fallback for dev/test)
@@ -156,12 +157,24 @@ async function handleNoCommand(values: Record<string, unknown>): Promise<void> {
   if (process.stdin.isTTY) {
     const workspaceRaw = (values.workspace as string | undefined) ?? process.cwd();
     const workspaceRoot = findWorkspaceRoot(path.resolve(workspaceRaw));
+    await maybeNotifyCliUpdate({ workspaceRoot, currentVersion: VERSION });
     const { run } = await import("./commands/repl.js");
     await run(new CliRuntime(workspaceRoot));
     process.exit(ExitCode.SUCCESS);
   }
   process.stdout.write(HELP);
   process.exit(ExitCode.SUCCESS);
+}
+
+async function maybeRunStartupUpdateCheck(command: string, workspaceRoot: string): Promise<void> {
+  if (command === "install" || command === "update") {
+    return;
+  }
+
+  await maybeNotifyCliUpdate({
+    workspaceRoot,
+    currentVersion: VERSION,
+  });
 }
 
 async function main(): Promise<void> {
@@ -245,6 +258,9 @@ async function main(): Promise<void> {
       await runtime.init();
       runtime.disableErrorCollection(); // Discard init errors (parse/analysis)
     }
+
+    await maybeRunStartupUpdateCheck(command, workspaceRoot);
+
     runtime.enableErrorCollection();
     const output = await dispatch(command, rawCommandArgs, runtime, format);
     runtime.disableErrorCollection(); // Discard command parse errors

@@ -9,13 +9,12 @@
  */
 
 import { execFileSync } from "node:child_process";
-import * as https from "node:https";
 import { CliError, ExitCode } from "../errors";
 import type { CliOutputFormat } from "../formatter";
 import type { CliRuntime } from "../runtime";
+import { fetchLatestVersion } from "../versionCheck";
 
 const NPM_PACKAGE = "@magic5644/graph-it-live";
-const REGISTRY_URL = `https://registry.npmjs.org/${NPM_PACKAGE}/latest`;
 
 function runGlobalInstall(version: string): void {
   const args = ["install", "--global", `${NPM_PACKAGE}@${version}`] as const;
@@ -42,46 +41,6 @@ function runGlobalInstall(version: string): void {
   });
 }
 
-/** Basic semver validation — rejects any string that could be used for injection. */
-function isValidVersion(v: string): boolean {
-  return /^\d+\.\d+\.\d+(-[\w.]+)?$/.test(v);
-}
-
-/** Fetch latest version string from the npm registry. */
-function fetchLatestVersion(): Promise<string> {
-  return new Promise((resolve, reject) => {
-    const req = https.get(REGISTRY_URL, { headers: { Accept: "application/json" } }, (res) => {
-      if (res.statusCode !== 200) {
-        reject(new CliError(`npm registry returned HTTP ${res.statusCode}`, ExitCode.GENERAL_ERROR));
-        res.resume();
-        return;
-      }
-      const chunks: Buffer[] = [];
-      res.on("data", (chunk: Buffer) => chunks.push(chunk));
-      res.on("end", () => {
-        try {
-          const body = JSON.parse(Buffer.concat(chunks).toString("utf-8")) as Record<string, unknown>;
-          const version = body["version"];
-          if (typeof version !== "string" || !isValidVersion(version)) {
-            reject(new CliError("Unexpected or invalid version from npm registry", ExitCode.GENERAL_ERROR));
-          } else {
-            resolve(version);
-          }
-        } catch {
-          reject(new CliError("Failed to parse npm registry response", ExitCode.GENERAL_ERROR));
-        }
-      });
-    });
-    req.on("error", (err) => {
-      reject(new CliError(`Network error: ${err.message}`, ExitCode.GENERAL_ERROR));
-    });
-    req.setTimeout(10_000, () => {
-      req.destroy();
-      reject(new CliError("Registry request timed out after 10 s", ExitCode.GENERAL_ERROR));
-    });
-  });
-}
-
 export async function run(
   _args: string[],
   _runtime: CliRuntime,
@@ -91,7 +50,13 @@ export async function run(
   process.stdout.write(`Current version : v${currentVersion}\n`);
   process.stdout.write(`Checking npm registry for ${NPM_PACKAGE}…\n`);
 
-  const latestVersion = await fetchLatestVersion();
+  let latestVersion: string;
+  try {
+    latestVersion = await fetchLatestVersion(10_000);
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    throw new CliError(message, ExitCode.GENERAL_ERROR);
+  }
 
   if (latestVersion === currentVersion) {
     return `✓ Already up to date (v${currentVersion})`;
