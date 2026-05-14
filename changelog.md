@@ -5,10 +5,17 @@
 ### Bug Fixes
 
 - **CLI update on Windows (`spawnSync npm ENOENT`)**: Fixed `graph-it update` failing on Windows when `npm` is not directly resolvable. The updater now retries installation with `npm.cmd` after an `ENOENT` failure on `npm`, restoring self-update reliability on Windows shells.
+- **CLI parse/analysis error silencing**: Prevented parse and analysis logs from polluting CLI stderr during workspace initialization and command execution. The CLI now switches to an in-memory collector while analysis runs and restores stderr logging afterward, keeping user-facing output clean.
+
+### Enhancements
+
+- **New CLI error collector backend**: Added a dedicated silent logger backend (`ErrorCollectorBackend` / `ErrorCollectorLogger`) for CLI workflows, with bounded in-memory buffering, entry inspection, and clear/reset helpers for runtime control.
 
 ### Testing
 
 - **Regression test for updater fallback**: Added CLI test coverage to validate the Windows fallback path (`npm` ➜ `npm.cmd`) when running `graph-it update`.
+- **Error silencing coverage**: Added unit and E2E-style tests to verify that errors are collected silently (without stderr noise), and that enable/disable/peek/clear collection flows behave correctly.
+- **Demo script**: Added `scripts/demo-silent-errors.mjs` to demonstrate clean CLI output while parse errors are collected in memory.
 
 ## v1.9.3
 
