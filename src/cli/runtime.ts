@@ -23,6 +23,7 @@ import {
   StderrLogger,
 } from "../shared/logger";
 import { CliError, ExitCode } from "./errors";
+import { ErrorCollectorBackend, type CollectedLogEntry } from "./errorCollector";
 
 // Send all logs to stderr so stdout stays clean for data output
 setLoggerBackend({
@@ -79,6 +80,7 @@ export class CliRuntime {
   private readonly stateDir: string;
   private _initialized = false;
   private _indexReady = false;
+  private errorCollectorBackend: ErrorCollectorBackend | null = null;
 
   constructor(workspaceRoot: string) {
     this.workspaceRoot = path.resolve(workspaceRoot);
@@ -88,6 +90,52 @@ export class CliRuntime {
   /** Whether the runtime has been initialized (Spider built + index ready) */
   get initialized(): boolean {
     return this._initialized;
+  }
+
+  /**
+   * Enable silent error collection mode.
+   * All log output goes to in-memory collector instead of stderr.
+   * Call disableErrorCollection() to restore normal logging and retrieve errors.
+   */
+  enableErrorCollection(): void {
+    if (this.errorCollectorBackend) {
+      return; // Already enabled
+    }
+    this.errorCollectorBackend = new ErrorCollectorBackend();
+    setLoggerBackend(this.errorCollectorBackend);
+  }
+
+  /**
+   * Disable error collection and restore normal stderr logging.
+   * Returns all collected log entries.
+   */
+  disableErrorCollection(): CollectedLogEntry[] {
+    if (!this.errorCollectorBackend) {
+      return [];
+    }
+    const entries = this.errorCollectorBackend.getCollectedEntries();
+    // Restore StderrLogger backend
+    setLoggerBackend({
+      createLogger(prefix: string, level) {
+        return new StderrLogger(prefix, level);
+      },
+    });
+    this.errorCollectorBackend = null;
+    return entries;
+  }
+
+  /**
+   * Get currently collected log entries (without stopping collection).
+   */
+  getCollectedErrors(): CollectedLogEntry[] {
+    return this.errorCollectorBackend?.getCollectedEntries() ?? [];
+  }
+
+  /**
+   * Clear all collected log entries.
+   */
+  clearCollectedErrors(): void {
+    this.errorCollectorBackend?.clear();
   }
 
   /**

@@ -241,9 +241,13 @@ async function main(): Promise<void> {
 
   try {
     if (!WORKSPACE_FREE.has(command)) {
+      runtime.enableErrorCollection();
       await runtime.init();
+      runtime.disableErrorCollection(); // Discard init errors (parse/analysis)
     }
+    runtime.enableErrorCollection();
     const output = await dispatch(command, rawCommandArgs, runtime, format);
+    runtime.disableErrorCollection(); // Discard command parse errors
     if (output) {
       process.stdout.write(output.endsWith("\n") ? output : output + "\n");
     }
