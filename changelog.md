@@ -10,6 +10,7 @@
 ### Enhancements
 
 - **New CLI error collector backend**: Added a dedicated silent logger backend (`ErrorCollectorBackend` / `ErrorCollectorLogger`) for CLI workflows, with bounded in-memory buffering, entry inspection, and clear/reset helpers for runtime control.
+- **CLI startup update notification**: Added lightweight npm version checks at REPL startup and before regular command execution (excluding `install`/`update`). When a newer version exists, CLI prints a one-line hint (`graph-it update`). Checks are cached in `.graph-it/update-check.json` to avoid repeated network calls.
 
 ### Testing
 
