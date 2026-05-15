@@ -18,6 +18,7 @@ The `graph-it` CLI gives you full access to the dependency analysis engine of Gr
   - [path](#path)
   - [check](#check)
   - [trace](#trace)
+  - [sequence](#sequence)
   - [tool](#tool)
   - [serve](#serve)
   - [install](#install)
@@ -126,13 +127,13 @@ All analysis commands support multiple output formats via `--format`:
 
 **Format availability per command:**
 
-| Format | scan | summary | explain | path | check | trace | tool |
-|--------|:----:|:-------:|:-------:|:----:|:-----:|:-----:|:----:|
-| `text` | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
-| `json` | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
-| `toon` | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
-| `markdown` | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
-| `mermaid` | — | — | — | ✓ | — | ✓ | — |
+| Format | scan | summary | explain | path | check | trace | sequence | tool |
+|--------|:----:|:-------:|:-------:|:----:|:-----:|:-----:|:--------:|:----:|
+| `text` | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
+| `json` | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
+| `toon` | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
+| `markdown` | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
+| `mermaid` | — | — | — | ✓ | — | ✓ | ✓ | — |
 
 **Examples:**
 
@@ -604,6 +605,39 @@ graph-it trace src/mcp/mcpServer.ts#initializeServer --format json
 ```
 
 > **Use case:** Before changing a function signature, run `trace` to see every downstream function that will be affected, all the way to leaf functions.
+
+---
+
+### sequence
+
+Generate a sequence diagram from an entry symbol.
+
+```
+graph-it sequence <file>#<Symbol> [options]
+```
+
+**Arguments:**
+
+| Argument | Format | Description |
+|----------|--------|-------------|
+| `<file>#<Symbol>` | `path/to/file.ts#FunctionName` | Entry symbol for sequence generation |
+
+**Options:**
+
+| Option | Default | Description |
+|--------|---------|-------------|
+| `--workspace, -w` | auto-detected | Project root |
+| `--format, -f` | `text` | Output format (`mermaid` recommended for diagrams) |
+| `--maxDepth <N>` | `6` | Maximum call depth |
+| `--maxSteps <N>` | `200` | Maximum emitted sequence messages |
+
+**Examples:**
+
+```bash
+graph-it sequence src/api/handler.ts#handleRequest
+graph-it sequence src/services/auth.ts#login --format mermaid
+graph-it sequence src/services/auth.ts#login --format markdown --maxDepth 4 --maxSteps 120
+```
 
 ---
 

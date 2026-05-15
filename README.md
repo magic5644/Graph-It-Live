@@ -323,6 +323,7 @@ Also available on the [Open VSX Registry](https://open-vsx.org/extension/magic56
    - **Double-click** a node → drill down to symbol view
    - **Right-click** a node → expand, collapse, find referencing files
    - **Command palette** → `Show Call Graph` for cross-file symbol analysis
+  - **Command palette** → `Show Sequence Diagram` to generate a sequence view from the symbol under cursor
 
 ---
 
@@ -398,6 +399,7 @@ graph-it summary <file>         # Per-file codemap (exports, internals, deps, ca
 graph-it trace <file#Symbol>    # Trace execution flow from an entry symbol
 graph-it explain <file>         # File logic analysis — intra-file call hierarchy
 graph-it path <file>            # Full dependency graph from a file
+graph-it sequence <file#Symbol> # Generate sequence diagram from an entry symbol
 graph-it check                  # Scan whole workspace for dead code (unused exports)
 graph-it check <dir>            # Scan a subdirectory for dead code
 graph-it check <file>           # Detect unused exported symbols in a single file
@@ -415,13 +417,14 @@ npx @magic5644/graph-it-live scan
 npx @magic5644/graph-it-live serve
 ```
 
-**Output formats:** All analysis commands support `--format json|toon|markdown`. Use `toon` for AI consumption (30–60% token savings). The `trace` and `path` commands additionally support `--format mermaid` to generate a Mermaid diagram of the call or dependency flow:
+**Output formats:** All analysis commands support `--format json|toon|markdown`. Use `toon` for AI consumption (30–60% token savings). The `trace`, `path`, and `sequence` commands additionally support `--format mermaid` for diagrams:
 
 ```bash
 graph-it summary <file> --format toon
 graph-it path <file> --format markdown
 graph-it path <file> --format mermaid          # → Mermaid flowchart of dependency graph
 graph-it trace <file#Symbol> --format mermaid  # → Mermaid sequence/flowchart of execution trace
+graph-it sequence <file#Symbol> --format mermaid
 ```
 
 Example `--format mermaid` output for `graph-it path src/index.ts`:

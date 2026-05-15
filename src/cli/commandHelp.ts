@@ -221,6 +221,26 @@ Description:
 Examples:
   graph-it install
 `,
+  sequence: `graph-it sequence — Generate a sequence diagram for a function
+
+Usage: graph-it sequence <file#SymbolName> [options]
+
+Arguments:
+  <file#SymbolName>  Entry point as file path + symbol name separated by #
+                     e.g. src/api/handler.ts#handleRequest
+
+Options:
+  --maxDepth N      Maximum call depth to trace (default: 6)
+  --maxSteps N      Maximum messages before truncation (default: 200)
+  --workspace, -w   Workspace root directory (default: auto-detected)
+  --format, -f      Output format: text|json|toon|markdown|mermaid (default: text)
+  --help, -h        Show this help
+
+Examples:
+  graph-it sequence src/api/handler.ts#handleRequest
+  graph-it sequence src/services/auth.ts#login --format mermaid
+  graph-it sequence src/services/auth.ts#login --format markdown --maxDepth 4
+`,
   update: `graph-it update — Update to the latest version
 
 Usage: graph-it update [options]

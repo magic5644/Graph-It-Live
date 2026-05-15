@@ -25,6 +25,7 @@ import type {
   ProviderStateManager,
   ViewMode,
 } from "./services/ProviderStateManager";
+import type { SequenceViewService } from "./services/SequenceViewService";
 import { ServiceContainer } from "./services/ServiceContainer";
 import type { SourceFileWatcher } from "./services/SourceFileWatcher";
 import type { SymbolViewService } from "./services/SymbolViewService";
@@ -87,6 +88,7 @@ export class GraphProvider implements vscode.WebviewViewProvider {
    * Used to route call-graph webview messages and provide sidebar webview.
    */
   private _callGraphViewService: CallGraphViewService | null = null;
+  private _sequenceViewService: SequenceViewService | null = null;
 
   /**
    * Wire the CallGraphViewService into this provider.
@@ -96,6 +98,10 @@ export class GraphProvider implements vscode.WebviewViewProvider {
     this._callGraphViewService = service;
     // Also inject into SymbolViewService for cross-file caller enrichment
     this.symbolViewService?.setCallGraphQueryService(service);
+  }
+
+  public setSequenceViewService(service: SequenceViewService): void {
+    this._sequenceViewService = service;
   }
 
   private get spider(): Spider | undefined {
@@ -256,6 +262,9 @@ export class GraphProvider implements vscode.WebviewViewProvider {
         },
         handleCallGraphMessage: (msg) => {
           this._callGraphViewService?.handleWebviewMessage(msg);
+        },
+        handleSequenceMessage: async (msg) => {
+          await this._sequenceViewService?.handleWebviewMessage(msg);
         },
       },
       onIndexingComplete: () => this._refreshAfterIndexing(),
@@ -829,6 +838,7 @@ export class GraphProvider implements vscode.WebviewViewProvider {
 
     // Share the sidebar webview with CallGraphViewService so it can postMessage
     this._callGraphViewService?.setSidebarWebview(webviewView);
+    this._sequenceViewService?.setSidebarWebview(webviewView);
 
     webviewView.webview.options = this.webviewManager.getWebviewOptions();
     webviewView.webview.html = this.webviewManager.getHtmlForWebview(webviewView.webview);
@@ -848,6 +858,7 @@ export class GraphProvider implements vscode.WebviewViewProvider {
       this._fileSaveListener?.dispose();
       this.eventHub?.dispose();
       this._callGraphViewService?.setSidebarWebview(null);
+      this._sequenceViewService?.setSidebarWebview(null);
       // Also clean up the worker if running
       this.spider?.disposeWorker();
       // Dispose Spider and its AstWorkerHost
@@ -1055,6 +1066,12 @@ export class GraphProvider implements vscode.WebviewViewProvider {
   public async setViewModeCallgraph(): Promise<void> {
     log.info("Switching to call graph view mode");
     await this._stateManager.setViewMode("callgraph");
+    await this._updateViewModeContext();
+  }
+
+  public async setViewModeSequence(): Promise<void> {
+    log.info("Switching to sequence view mode");
+    await this._stateManager.setViewMode("sequence");
     await this._updateViewModeContext();
   }
 

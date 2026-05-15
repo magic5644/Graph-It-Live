@@ -107,7 +107,8 @@ export type McpToolName =
   | "analyze_file_logic" // NEW: LSP-based intra-file call hierarchy
   | "generate_codemap" // NEW: Full codemap generation for a single file
   | "query_call_graph" // NEW: Cross-file call graph query (callers/callees via SQLite)
-  | "scan_dead_code"; // NEW: Workspace-wide dead code scan
+  | "scan_dead_code" // NEW: Workspace-wide dead code scan
+  | "generate_sequence_diagram"; // NEW: Generate sequence diagram from entry symbol
 
 // ============================================================================
 // Zod Schemas for Tool Parameters
@@ -524,6 +525,30 @@ export const ScanDeadCodeParamsSchema = z.object({
 });
 export type ScanDeadCodeParams = z.infer<typeof ScanDeadCodeParamsSchema>;
 
+// NEW: Schema for generate_sequence_diagram
+export const GenerateSequenceDiagramParamsSchema = z.object({
+  filePath: FilePathSchema,
+  symbolName: SymbolNameSchema,
+  maxDepth: z.number().int().min(1).max(20).optional().describe(
+    "Maximum call depth to trace (default: 6).",
+  ),
+  maxSteps: z.number().int().min(1).max(1000).optional().describe(
+    "Maximum messages before truncation (default: 200).",
+  ),
+  includeExternal: z.boolean().optional().describe(
+    "Include calls to external (node_modules) symbols (default: true).",
+  ),
+  includeAnnotations: z.boolean().optional().describe(
+    "Include return-value annotations in the diagram (default: true).",
+  ),
+  diagram_format: z.enum(["mermaid", "json"]).default("mermaid").optional().describe(
+    "Diagram output format: mermaid (default) or json (raw SequenceModel).",
+  ),
+  format: OutputFormatSchema.optional(),
+  response_format: OutputFormatSchema.optional(),
+});
+export type GenerateSequenceDiagramParams = z.infer<typeof GenerateSequenceDiagramParamsSchema>;
+
 // ============================================================================
 // Validation Utilities
 // ============================================================================
@@ -554,6 +579,7 @@ export const toolSchemas: Record<McpToolName, z.ZodType<unknown>> = {
   generate_codemap: GenerateCodemapParamsSchema,
   query_call_graph: QueryCallGraphParamsSchema,
   scan_dead_code: ScanDeadCodeParamsSchema,
+  generate_sequence_diagram: GenerateSequenceDiagramParamsSchema,
 };
 
 /**
@@ -1442,6 +1468,26 @@ export interface ScanDeadCodeResult {
   /** Number of files skipped (unsupported language / parse error) */
   skippedFiles: number;
   /** Total analysis time in milliseconds */
+  analysisTimeMs: number;
+}
+
+/**
+ * Result of generate_sequence_diagram tool
+ */
+export interface GenerateSequenceDiagramResult {
+  /** Mermaid diagram string or JSON-serialised SequenceModel */
+  diagram: string;
+  /** Symbol that was used as the root */
+  rootSymbol: string;
+  /** Number of distinct participants in the diagram */
+  participantsCount: number;
+  /** Number of messages in the diagram */
+  messagesCount: number;
+  /** Whether the diagram was truncated due to maxSteps */
+  truncated: boolean;
+  /** Any warnings collected during analysis */
+  warnings: Array<{ code: string; message: string }>;
+  /** Analysis time in milliseconds */
   analysisTimeMs: number;
 }
 

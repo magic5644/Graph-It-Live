@@ -189,6 +189,12 @@
         "title": "Show Call Graph",
         "category": "Graph-It-Live",
         "icon": "$(call-incoming)"
+      },
+      {
+        "command": "graph-it-live.showSequence",
+        "title": "Show Sequence Diagram",
+        "category": "Graph-It-Live",
+        "icon": "$(list-tree)"
       }
     ],
     "menus": {
@@ -257,6 +263,11 @@
           "group": "navigation@7"
         },
         {
+          "command": "graph-it-live.showSequence",
+          "when": "view == graph-it-live.graphView",
+          "group": "navigation@7"
+        },
+        {
           "command": "graph-it-live.showReverseDependencies",
           "when": "view == graph-it-live.graphView && graph-it-live.viewMode == 'file' && !graph-it-live.reverseDependenciesVisible",
           "group": "navigation@8"
@@ -287,6 +298,11 @@
           "command": "graph-it-live.showCallGraph",
           "when": "editorTextFocus",
           "group": "navigation@99"
+        },
+        {
+          "command": "graph-it-live.showSequence",
+          "when": "editorTextFocus",
+          "group": "navigation@100"
         }
       ]
     },
@@ -1121,6 +1137,8 @@
     "chokidar": "^5.0.0",
     "cytoscape": "^3.33.3",
     "cytoscape-fcose": "^2.2.0",
+    "html2canvas": "^1.4.1",
+    "mermaid": "^11.15.0",
     "react": "^19.2.6",
     "react-dom": "^19.2.6",
     "reactflow": "^11.11.4",

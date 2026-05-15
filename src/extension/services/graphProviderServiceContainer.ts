@@ -3,6 +3,7 @@ import * as vscode from "vscode";
 import { Spider } from "../../analyzer/Spider";
 import { SpiderBuilder } from "../../analyzer/SpiderBuilder";
 import type { CallGraphWebviewCommand } from "../../shared/callgraph-types";
+import type { SequenceWebviewCommand } from "../../shared/types";
 import type { VsCodeLogger } from "../extensionLogger";
 import { WebviewManager } from "../WebviewManager";
 import { BackgroundIndexingManager } from "./BackgroundIndexingManager";
@@ -68,6 +69,7 @@ export interface MessageDispatcherCallbacks {
   ): { actualFilePath: string } | undefined;
   getActiveEditorFilePath(): string | undefined;
   handleCallGraphMessage?: (msg: CallGraphWebviewCommand) => void;
+  handleSequenceMessage?: (msg: SequenceWebviewCommand) => Promise<void> | void;
 }
 
 export interface GraphProviderServiceContainerOptions {
@@ -243,6 +245,7 @@ export function createGraphProviderServiceContainer(
         parseFilePathAndSymbol: options.callbacks.parseFilePathAndSymbol,
         getActiveEditorFilePath: options.callbacks.getActiveEditorFilePath,
         handleCallGraphMessage: options.callbacks.handleCallGraphMessage,
+        handleSequenceMessage: options.callbacks.handleSequenceMessage,
         logger: options.logger,
       }),
   );

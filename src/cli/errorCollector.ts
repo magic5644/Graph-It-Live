@@ -24,19 +24,17 @@ export interface CollectedLogEntry {
  */
 export class ErrorCollectorLogger implements ILogger {
   readonly level: LogLevel;
-  private _level: LogLevel;
 
   constructor(
     readonly source: string,
     level: LogLevel = 'info',
-    private entries: CollectedLogEntry[] = [],
+    private readonly entries: CollectedLogEntry[] = [],
   ) {
-    this._level = level;
     this.level = level;
   }
 
-  setLevel(level: LogLevel): void {
-    this._level = level;
+  setLevel(): void {
+    // No-op: ErrorCollectorLogger is immutable
   }
 
   debug(message: string): void {
@@ -82,7 +80,7 @@ export class ErrorCollectorLogger implements ILogger {
  * Creates ErrorCollectorLogger instances and manages shared entry storage.
  */
 export class ErrorCollectorBackend implements LoggerBackend {
-  private sharedEntries: CollectedLogEntry[] = [];
+  private readonly sharedEntries: CollectedLogEntry[] = [];
 
   createLogger(source: string, level?: LogLevel): ILogger {
     return new ErrorCollectorLogger(source, level ?? 'info', this.sharedEntries);

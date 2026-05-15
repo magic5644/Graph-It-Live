@@ -41,3 +41,6 @@ export {
     executeInvalidateFiles,
     executeRebuildIndex
 } from "./workspace";
+export {
+    executeGenerateSequenceDiagram
+} from "./sequence";

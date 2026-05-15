@@ -194,6 +194,80 @@ export interface NavigateToSymbolMessage {
   symbolId?: string;
 }
 
+export interface SequenceParticipantPayload {
+  id: string;
+  label: string;
+  filePath: string | null;
+  external: boolean;
+}
+
+export interface SequenceMessagePayload {
+  id: string;
+  fromParticipantId: string;
+  toParticipantId: string;
+  label: string;
+  relationType: "CALLS" | "USES" | "RETURNS" | "THROWS";
+  async: boolean;
+  confidence: "high" | "medium" | "low" | "unresolved";
+  sourceFile: string;
+  startLine: number;
+  startCol: number;
+  endLine: number;
+  endCol: number;
+}
+
+export interface SequenceWarningPayload {
+  code: "UNRESOLVED_TARGET" | "TRUNCATED" | "AMBIGUOUS_TARGET";
+  message: string;
+  sourceFile?: string;
+  startLine?: number;
+}
+
+export interface SequenceModelPayload {
+  root: {
+    id: string;
+    symbolName: string;
+    filePath: string;
+  };
+  participants: SequenceParticipantPayload[];
+  messages: SequenceMessagePayload[];
+  warnings: SequenceWarningPayload[];
+  truncated: boolean;
+  stats: {
+    participantsCount: number;
+    messagesCount: number;
+    analysisTimeMs: number;
+  };
+}
+
+export interface ShowSequenceDiagramMessage {
+  type: "showSequenceDiagram";
+  mermaid: string;
+  model: SequenceModelPayload;
+  sourceFilePath: string;
+  symbolName: string;
+  maxDepth: number;
+  maxSteps: number;
+}
+
+export interface SequenceGenerateCommand {
+  command: "sequenceGenerate";
+  filePath?: string;
+  symbolName?: string;
+  maxDepth?: number;
+  maxSteps?: number;
+}
+
+export interface SequenceOpenFileCommand {
+  command: "sequenceOpenFile";
+  path: string;
+  line: number;
+}
+
+export type SequenceWebviewCommand =
+  | SequenceGenerateCommand
+  | SequenceOpenFileCommand;
+
 export interface LayoutChangeMessage {
   type: "layoutChange";
   layout: "hierarchical" | "force" | "radial";
@@ -218,6 +292,7 @@ export type ExtensionToWebviewMessage =
   | RefreshingMessage
   | LayoutChangeMessage
   | ShowSymbolListMessage
+  | ShowSequenceDiagramMessage
   | SwitchViewModeMessage
   | ShowCallGraphMessage
   | CallGraphIndexingMessage;
@@ -238,6 +313,8 @@ export type WebviewToExtensionMessage =
   | EnableUnusedFilterMessage
   | DisableUnusedFilterMessage
   | SelectSymbolMessage
+  | SequenceGenerateCommand
+  | SequenceOpenFileCommand
   | CallGraphOpenFileCommand
   | CallGraphReadyCommand
   | CallGraphDepthChangedCommand

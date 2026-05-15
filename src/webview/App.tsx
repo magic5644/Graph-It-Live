@@ -1,7 +1,4 @@
 import React from "react";
-import type {
-    CallGraphExtensionMessage,
-} from "../shared/callgraph-types";
 import {
     getLogger,
     type ILogger,
@@ -16,6 +13,7 @@ import {
     GraphData,
     IntraFileGraph,
     ReferencingFilesMessage,
+  SequenceModelPayload,
     ShowGraphMessage,
     SymbolDependency,
     SymbolGraphMessage,
@@ -26,6 +24,7 @@ import {
 import { AtomicSymbolGraph } from "./components/AtomicSymbolGraph";
 import { CytoscapeGraph } from "./components/cytoscape/CytoscapeGraph";
 import ReactFlowGraph from "./components/ReactFlowGraph";
+import { SequenceView } from "./components/sequence/SequenceView";
 import SymbolCardView from "./components/SymbolCardView";
 import { mergeGraphDataUnion } from "./utils/graphMerge";
 import { normalizePath } from "./utils/path";
@@ -243,11 +242,24 @@ const App: React.FC = () => {
     }
   }, []);
   const [viewMode, setViewMode] = React.useState<
-    "file" | "list" | "symbol" | "references" | "callgraph"
+    "file" | "list" | "symbol" | "references" | "callgraph" | "sequence"
   >("file");
   const [expandAll, setExpandAll] = React.useState<boolean>(false);
   // Toggle to show/hide parent/reference files for the current root file
   const [showParents, setShowParents] = React.useState<boolean>(false);
+  const [sequenceMermaid, setSequenceMermaid] = React.useState<string>("sequenceDiagram");
+  const [sequenceModel, setSequenceModel] = React.useState<SequenceModelPayload>({
+    root: { id: "root", symbolName: "main", filePath: "" },
+    participants: [],
+    messages: [],
+    warnings: [],
+    truncated: false,
+    stats: { participantsCount: 0, messagesCount: 0, analysisTimeMs: 0 },
+  });
+  const [sequenceSourceFilePath, setSequenceSourceFilePath] = React.useState<string>("");
+  const [sequenceSymbolName, setSequenceSymbolName] = React.useState<string>("main");
+  const [sequenceMaxDepth, setSequenceMaxDepth] = React.useState<number>(6);
+  const [sequenceMaxSteps, setSequenceMaxSteps] = React.useState<number>(200);
 
   const [symbolData, setSymbolData] = React.useState<
     { symbols: SymbolInfo[]; dependencies: SymbolDependency[] } | undefined
@@ -378,12 +390,7 @@ const App: React.FC = () => {
       if (message.data) {
         setGraphData(message.data);
         if (message.data.symbolData) {
-          setSymbolData(
-            message.data.symbolData as {
-              symbols: SymbolInfo[];
-              dependencies: SymbolDependency[];
-            },
-          );
+          setSymbolData(message.data.symbolData);
         }
         setReferencingFiles(message.data.referencingFiles || []);
         // Store incoming dependencies for later use
@@ -596,7 +603,18 @@ const App: React.FC = () => {
       // messages and showCallGraph data replays must NOT override the current
       // viewMode so the toolbar can switch away without being hijacked.
       if ('type' in message) {
-        const cgMsg = message as CallGraphExtensionMessage;
+        if (message.type === 'showSequenceDiagram') {
+          setViewMode('sequence');
+          setSequenceMermaid(message.mermaid);
+          setSequenceModel(message.model);
+          setSequenceSourceFilePath(message.sourceFilePath);
+          setSequenceSymbolName(message.symbolName);
+          setSequenceMaxDepth(message.maxDepth);
+          setSequenceMaxSteps(message.maxSteps);
+          return;
+        }
+
+        const cgMsg = message;
         if (cgMsg.type === 'callGraphIndexing' && cgMsg.status === 'started') {
           setViewMode('callgraph');
         }
@@ -763,6 +781,34 @@ const App: React.FC = () => {
     });
   };
 
+  const handleSequenceGenerate = React.useCallback(
+    (input: {
+      filePath: string;
+      symbolName: string;
+      maxDepth: number;
+      maxSteps: number;
+    }) => {
+      if (!vscode) return;
+      vscode.postMessage({
+        command: "sequenceGenerate",
+        filePath: input.filePath,
+        symbolName: input.symbolName,
+        maxDepth: input.maxDepth,
+        maxSteps: input.maxSteps,
+      });
+    },
+    [],
+  );
+
+  const handleSequenceOpenFile = React.useCallback((path: string, line: number) => {
+    if (!vscode) return;
+    vscode.postMessage({
+      command: "sequenceOpenFile",
+      path,
+      line,
+    });
+  }, []);
+
   // Lightweight overlay when expandAll is toggled locally (no backend progress events)
   // Must NOT depend on `expansionState`, otherwise it can loop (setState → effect rerun → setState...).
   React.useEffect(() => {
@@ -798,7 +844,7 @@ const App: React.FC = () => {
     };
   }, [expandAll]);
 
-  if (!graphData) {
+  if (!graphData && viewMode !== "sequence") {
     return (
       <div
         style={{
@@ -912,8 +958,9 @@ const App: React.FC = () => {
         )}
 
         {/* ReactFlow Graph (Handles both File and Symbol modes) */}
-        {(viewMode === "file" ||
-          (viewMode === "symbol" && symbolViewMode === "graph")) && (
+        {graphData &&
+          (viewMode === "file" ||
+            (viewMode === "symbol" && symbolViewMode === "graph")) && (
           <ReactFlowGraph
             key={`${normalizePath(currentFilePath)}:${resetToken}:${viewMode}`}
             data={graphData}
@@ -936,12 +983,12 @@ const App: React.FC = () => {
             resetToken={resetToken}
             unusedDependencyMode={unusedDependencyMode}
             filterUnused={filterUnused}
-            mode={viewMode as "file" | "symbol"}
+            mode={viewMode === "file" ? "file" : "symbol"}
             symbolData={symbolData}
             layout={layout}
             onLayoutChange={(l) => setLayout(l)}
           />
-        )}
+          )}
 
         {/* Atomic Viz Style Symbol Graph */}
         {viewMode === "symbol" && symbolViewMode === "atomic" && symbolData && (
@@ -995,6 +1042,19 @@ const App: React.FC = () => {
             postMessage={(msg: unknown) => vscode?.postMessage(msg as WebviewToExtensionMessage)}
           />
         </div>
+
+        {viewMode === "sequence" && (
+          <SequenceView
+            mermaid={sequenceMermaid}
+            model={sequenceModel}
+            filePath={sequenceSourceFilePath}
+            symbolName={sequenceSymbolName}
+            maxDepth={sequenceMaxDepth}
+            maxSteps={sequenceMaxSteps}
+            onGenerate={handleSequenceGenerate}
+            onOpenFile={handleSequenceOpenFile}
+          />
+        )}
       </div>
     </ErrorBoundary>
   );

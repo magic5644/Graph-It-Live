@@ -11,6 +11,10 @@
 
 - **New CLI error collector backend**: Added a dedicated silent logger backend (`ErrorCollectorBackend` / `ErrorCollectorLogger`) for CLI workflows, with bounded in-memory buffering, entry inspection, and clear/reset helpers for runtime control.
 - **CLI startup update notification**: Added lightweight npm version checks at REPL startup and before regular command execution (excluding `install`/`update`). When a newer version exists, CLI prints a one-line hint (`graph-it update`). Checks are cached in `.graph-it/update-check.json` to avoid repeated network calls.
+- **Sequence diagrams (CLI + MCP + extension view)**: Added first sequence-diagram flow from entry symbol:
+  - CLI command: `graph-it sequence <file#Symbol>` with `--maxDepth`, `--maxSteps`, and `--format mermaid|markdown|json|toon|text`
+  - MCP tool: `graphitlive_generate_sequence_diagram`
+  - Extension command: `Graph-It-Live: Show Sequence Diagram` with dedicated sequence mode in the sidebar webview
 
 ### Testing
 

@@ -121,6 +121,8 @@ import {
   type FindReferencingFilesResult,
   FindUnusedSymbolsParamsSchema,
   type FindUnusedSymbolsResult,
+  GenerateSequenceDiagramParamsSchema,
+  type GenerateSequenceDiagramResult,
   GetImpactAnalysisParamsSchema,
   type GetImpactAnalysisResult,
   type GetIndexStatusResult,
@@ -1827,6 +1829,71 @@ RETURNS:
     const response = await invokeToolWithResponse(
       "scan_dead_code",
       { scopePath, maxFiles },
+    );
+
+    return formatToolResponse(response, responseFormat);
+  },
+);
+
+// Tool: graphitlive_generate_sequence_diagram
+server.registerTool(
+  "graphitlive_generate_sequence_diagram",
+  {
+    title: "Generate Sequence Diagram",
+    description: `USE THIS TOOL WHEN the user wants a sequence diagram starting from a function/method symbol, through CLI/MCP flows.
+
+WHEN TO USE:
+- User asks "generate a sequence diagram for X"
+- User asks to trace execution as Mermaid sequence
+- User needs call flow documentation from a symbol entry point
+
+WHY: This tool builds a call trace model and renders a Mermaid sequence diagram (or JSON model) with depth/step limits for safety on large codebases.
+
+RETURNS:
+- diagram: Mermaid string or JSON stringified model
+- rootSymbol: requested root symbol
+- participantsCount/messagesCount
+- truncated flag
+- warnings and analysisTimeMs`,
+    inputSchema: GenerateSequenceDiagramParamsSchema.extend({
+      response_format: ResponseFormatSchema.describe(
+        "Output format: 'json', 'markdown', or 'toon' (default: toon)",
+      ),
+    }),
+    outputSchema: McpToolResponseSchema,
+    annotations: {
+      readOnlyHint: true,
+      destructiveHint: false,
+      idempotentHint: true,
+      openWorldHint: false,
+    },
+  },
+  async ({
+    filePath,
+    symbolName,
+    maxDepth,
+    maxSteps,
+    includeExternal,
+    includeAnnotations,
+    diagram_format,
+    response_format,
+  }) => {
+    const workerCheck = await ensureWorkerReady();
+    const responseFormat = response_format ?? "toon";
+    if (workerCheck.error)
+      return formatToolResponse(workerCheck.response, responseFormat);
+
+    const response = await invokeToolWithResponse<GenerateSequenceDiagramResult>(
+      "generate_sequence_diagram",
+      {
+        filePath,
+        symbolName,
+        maxDepth,
+        maxSteps,
+        includeExternal,
+        includeAnnotations,
+        diagram_format,
+      },
     );
 
     return formatToolResponse(response, responseFormat);

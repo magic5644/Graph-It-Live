@@ -60,6 +60,7 @@ Commands:
   cycles <file>     List confirmed dependency cycles for a file
   architecture      Build full workspace architecture graph
   check <file>      Find unused exported symbols
+  sequence <sym>    Generate sequence diagram: file.ts#FunctionName
   serve             Launch MCP stdio server (passthrough)
   tool <name>       Invoke any MCP tool: graph-it tool get_index_status
   install           Install CLI to system PATH (VS Code opt-in)
@@ -72,13 +73,13 @@ Options:
   --version, -v     Show version
 
 Output Format Availability:
-  Format    | scan | summary | trace | explain | path | architecture | check | tool
-  ----------|------|---------|-------|---------|------|--------------|-------|-----
-  text      |  ✓   |    ✓    |   ✓   |    ✓    |  ✓   |      ✓       |   ✓   |  ✓
-  json      |  ✓   |    ✓    |   ✓   |    ✓    |  ✓   |      ✓       |   ✓   |  ✓
-  toon      |  ✓   |    ✓    |   ✓   |    ✓    |  ✓   |      ✓       |   ✓   |  ✓
-  markdown  |  ✓   |    ✓    |   ✓   |    ✓    |  ✓   |      ✓       |   ✓   |  ✓
-  mermaid   |  ✓   |    ✓    |   ✓   |    ✓    |  ✓   |      ✓       |   ✓   |  ✓
+  Format    | scan | summary | trace | explain | path | architecture | check | sequence | tool
+  ----------|------|---------|-------|---------|------|--------------|-------|----------|-----
+  text      |  ✓   |    ✓    |   ✓   |    ✓    |  ✓   |      ✓       |   ✓   |    ✓     |  ✓
+  json      |  ✓   |    ✓    |   ✓   |    ✓    |  ✓   |      ✓       |   ✓   |    ✓     |  ✓
+  toon      |  ✓   |    ✓    |   ✓   |    ✓    |  ✓   |      ✓       |   ✓   |    ✓     |  ✓
+  markdown  |  ✓   |    ✓    |   ✓   |    ✓    |  ✓   |      ✓       |   ✓   |    ✓     |  ✓
+  mermaid   |  ✓   |    ✓    |   ✓   |    ✓    |  ✓   |      ✓       |   ✓   |    ✓     |  ✓
 
 MCP Client Integration:
   Use "graph-it serve" as the MCP server command in any MCP-compatible client.
@@ -326,6 +327,10 @@ async function dispatch(
     }
     case "check": {
       const { run } = await import("./commands/check.js");
+      return run(args, runtime, format);
+    }
+    case "sequence": {
+      const { run } = await import("./commands/sequence.js");
       return run(args, runtime, format);
     }
     case "serve": {

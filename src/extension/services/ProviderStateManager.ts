@@ -3,7 +3,7 @@ import type { BackgroundIndexingConfig } from './BackgroundIndexingManager';
 
 export type UnusedDependencyMode = 'none' | 'hide' | 'dim';
 export type PerformanceProfile = 'default' | 'low-memory' | 'high-performance' | 'custom';
-export type ViewMode = 'file' | 'list' | 'symbol' | 'callgraph';
+export type ViewMode = 'file' | 'list' | 'symbol' | 'callgraph' | 'sequence';
 
 export interface ProviderConfigSnapshot extends BackgroundIndexingConfig {
   excludeNodeModules: boolean;

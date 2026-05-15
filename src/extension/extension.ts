@@ -13,6 +13,7 @@ import { CommandCoordinator } from './services/CommandCoordinator';
 import { CommandRegistrationService } from './services/CommandRegistrationService';
 import { EditorEventsService } from './services/EditorEventsService';
 import { LmToolsService } from './services/LmToolsService';
+import { SequenceViewService } from './services/SequenceViewService';
 
 // Keep track of MCP server provider for cleanup
 let mcpServerProvider: McpServerProvider | null = null;
@@ -80,6 +81,8 @@ export function activate(context: vscode.ExtensionContext) {
     // Call Graph panel — T019: register showCallGraph command
     const callGraphViewService = new CallGraphViewService(context);
     provider.setCallGraphViewService(callGraphViewService);
+    const sequenceViewService = new SequenceViewService(context);
+    provider.setSequenceViewService(sequenceViewService);
 
     const disposables: vscode.Disposable[] = [
       // Output channel disposal
@@ -90,12 +93,20 @@ export function activate(context: vscode.ExtensionContext) {
 
         // Call Graph panel service
         callGraphViewService,
+        sequenceViewService,
 
         // showCallGraph command
         vscode.commands.registerCommand('graph-it-live.showCallGraph', () => {
             provider.setViewModeCallgraph();
             callGraphViewService.show().catch((err: unknown) => {
                 log.error('graph-it-live.showCallGraph error:', err);
+            });
+        }),
+
+        vscode.commands.registerCommand('graph-it-live.showSequence', () => {
+            provider.setViewModeSequence();
+            sequenceViewService.show().catch((err: unknown) => {
+                log.error('graph-it-live.showSequence error:', err);
             });
         }),
 

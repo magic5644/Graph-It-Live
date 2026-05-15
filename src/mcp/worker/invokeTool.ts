@@ -8,6 +8,7 @@ import {
   executeFindReferencingFiles,
   executeFindUnusedSymbols,
   executeGenerateCodemap,
+  executeGenerateSequenceDiagram,
   executeGetImpactAnalysis,
   executeGetIndexStatus,
   executeGetSymbolCallers,
@@ -31,6 +32,7 @@ import type {
   FindReferencingFilesParams,
   FindUnusedSymbolsParams,
   GenerateCodemapParams,
+  GenerateSequenceDiagramParams,
   GetImpactAnalysisParams,
   GetSymbolCallersParams,
   GetSymbolDependentsParams,
@@ -212,6 +214,12 @@ export async function invokeTool(
       case "scan_dead_code": {
         const p = validatedParams as ScanDeadCodeParams;
         result = await executeScanDeadCode(p);
+        break;
+      }
+      case "generate_sequence_diagram": {
+        const p = validatedParams as GenerateSequenceDiagramParams;
+        validateFilePath(p.filePath, config.rootDir);
+        result = await executeGenerateSequenceDiagram(p);
         break;
       }
       default:

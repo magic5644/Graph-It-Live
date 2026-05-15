@@ -53,4 +53,42 @@ describe("MessageDispatcher", () => {
 
     expect(graphState.setExpandAll as ReturnType<typeof vi.fn>).toHaveBeenCalledWith(true);
   });
+
+  it("routes sequenceGenerate messages to sequence handler", async () => {
+    const graphState = createGraphStateMock();
+    const handleSequenceMessage = vi.fn();
+    const dispatcher = new MessageDispatcher({
+      graphState,
+      getUnusedFilterActive: vi.fn().mockReturnValue(false),
+      toggleUnusedFilter: vi.fn(),
+      handleOpenFile: vi.fn(),
+      handleExpandNode: vi.fn(),
+      handleCancelExpandNode: vi.fn(),
+      handleFindReferencingFiles: vi.fn(),
+      handleDrillDown: vi.fn(),
+      updateGraph: vi.fn(),
+      refreshGraph: vi.fn(),
+      handleSelectSymbol: vi.fn(),
+      sendGraphUpdate: vi.fn(),
+      setViewMode: vi.fn(),
+      getViewMode: vi.fn().mockReturnValue("file"),
+      getSelectedSymbolId: vi.fn().mockReturnValue(undefined),
+      setSelectedSymbolId: vi.fn(),
+      getLastActiveFilePath: vi.fn().mockReturnValue(undefined),
+      parseFilePathAndSymbol: vi.fn().mockReturnValue(undefined),
+      getActiveEditorFilePath: vi.fn().mockReturnValue(undefined),
+      handleSequenceMessage,
+      logger: { debug: vi.fn() },
+    });
+
+    await dispatcher.handle({
+      command: "sequenceGenerate",
+      filePath: "/repo/src/app.ts",
+      symbolName: "main",
+      maxDepth: 4,
+      maxSteps: 20,
+    });
+
+    expect(handleSequenceMessage).toHaveBeenCalledTimes(1);
+  });
 });

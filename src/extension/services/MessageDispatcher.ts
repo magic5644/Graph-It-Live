@@ -1,6 +1,7 @@
 import type { CallGraphWebviewCommand } from "../../shared/callgraph-types";
 import { SUPPORTED_SOURCE_FILE_REGEX } from "../../shared/constants";
 import type {
+  SequenceWebviewCommand,
     SetExpandAllMessage,
     SwitchModeMessage,
     WebviewLogMessage,
@@ -32,6 +33,7 @@ interface MessageDispatcherDependencies {
   parseFilePathAndSymbol(symbolId: string): { actualFilePath: string } | undefined;
   getActiveEditorFilePath(): string | undefined;
   handleCallGraphMessage?: (msg: CallGraphWebviewCommand) => void;
+  handleSequenceMessage?: (msg: SequenceWebviewCommand) => Promise<void> | void;
   logger: { debug: (message: string, ...args: unknown[]) => void };
 }
 
@@ -110,6 +112,12 @@ export class MessageDispatcher {
         },
         callGraphFilterChanged: async (m) => {
           deps.handleCallGraphMessage?.(m);
+        },
+        sequenceGenerate: async (m) => {
+          deps.handleSequenceMessage?.(m);
+        },
+        sequenceOpenFile: async (m) => {
+          deps.handleSequenceMessage?.(m);
         },
       },
     });
