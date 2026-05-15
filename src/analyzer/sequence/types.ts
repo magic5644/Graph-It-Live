@@ -46,6 +46,7 @@ export interface SequenceWarning {
 export interface SequenceStats {
   participantsCount: number;
   messagesCount: number;
+  maxDepthReached: number;
   analysisTimeMs: number;
 }
 

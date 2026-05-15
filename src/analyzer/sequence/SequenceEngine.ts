@@ -1,6 +1,7 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { SpiderBuilder } from "@/analyzer/SpiderBuilder";
+import { normalizePath } from "@/shared/path";
 import { IntraFileCallAnalyzer } from "@/analyzer/sequence/IntraFileCallAnalyzer";
 import { orderMessages } from "@/analyzer/sequence/order";
 import type {
@@ -49,11 +50,11 @@ function splitSymbolId(symbolId: string): SymbolRef {
 }
 
 function isPathInsideRoot(candidatePath: string, workspaceRoot: string): boolean {
-  const resolvedRoot = path.resolve(workspaceRoot);
-  const resolvedCandidate = path.resolve(candidatePath);
+  const normalizedRoot = normalizePath(path.resolve(workspaceRoot));
+  const normalizedCandidate = normalizePath(path.resolve(candidatePath));
   return (
-    resolvedCandidate === resolvedRoot ||
-    resolvedCandidate.startsWith(`${resolvedRoot}${path.sep}`)
+    normalizedCandidate === normalizedRoot ||
+    normalizedCandidate.startsWith(`${normalizedRoot}/`)
   );
 }
 
@@ -224,57 +225,70 @@ async function buildSequenceGraph(
   maxDepth: number,
   maxSteps: number,
   warnings: SequenceWarning[],
-): Promise<{ messages: SequenceMessage[]; participants: SequenceParticipant[]; truncated: boolean }> {
+): Promise<{
+  messages: SequenceMessage[];
+  participants: SequenceParticipant[];
+  truncated: boolean;
+  maxDepthReached: number;
+}> {
   const messages: SequenceMessage[] = [];
+  let maxDepthReached = 0;
   const queue: Array<{ symbolId: string; depth: number }> = [{ symbolId: rootId, depth: 0 }];
   const expanded = new Set<string>();
   const { ensureParticipant, getParticipants } = createParticipantRegistry(workspaceRoot);
 
   ensureParticipant(rootId, params.filePath);
 
-  // Extract intra-file calls from root method
-  const rootRef = splitSymbolId(rootId);
-  if (rootRef.filePath && fs.existsSync(rootRef.filePath)) {
+  // Intra-file analyser shared across all BFS nodes
+  const intraAnalyzer = new IntraFileCallAnalyzer();
+  const expandedIntraFile = new Set<string>();
+  const messageDedupeKeys = new Set<string>();
+
+  const processIntraFileCallsForSymbol = async (symbolId: string, depth: number): Promise<void> => {
+    if (expandedIntraFile.has(symbolId)) return;
+    expandedIntraFile.add(symbolId);
+
+    const ref = splitSymbolId(symbolId);
+    if (!ref.filePath || !fs.existsSync(ref.filePath)) return;
+
     try {
-      const analyzer = new IntraFileCallAnalyzer();
-      const intraFileCalls = await analyzer.extractCallsFromMethod(
-        rootRef.filePath,
-        rootRef.symbolName,
-      );
+      const intraCalls = await intraAnalyzer.extractCallsFromMethod(ref.filePath, ref.symbolName);
+      if (intraCalls.length === 0) return;
 
-      const symbolGraph = await loadSymbolGraph(rootRef.filePath);
-      const fromAlias = ensureParticipant(rootId, rootRef.filePath);
+      const symbolGraph = await loadSymbolGraph(ref.filePath);
+      const fromAlias = ensureParticipant(symbolId, ref.filePath);
 
-      for (const call of intraFileCalls) {
-        // Try to find matching symbol in graph
+      for (const call of intraCalls) {
         const matchingSymbol = symbolGraph.symbols.find(
-          (sym) =>
-            sym.name === call.calleeName ||
-            sym.name.endsWith(`.${call.calleeName}`),
+          (sym) => sym.name === call.calleeName || sym.name.endsWith(`.${call.calleeName}`),
         );
+        if (!matchingSymbol) continue;
 
-        if (matchingSymbol) {
-          const toAlias = ensureParticipant(matchingSymbol.id, rootRef.filePath);
-          messages.push({
-            id: `${rootId}->${matchingSymbol.id}@${messages.length}`,
-            fromParticipantId: fromAlias,
-            toParticipantId: toAlias,
-            label: call.calleeName,
-            relationType: "CALLS",
-            async: false,
-            confidence: "high",
-            sourceFile: rootRef.filePath,
-            startLine: call.line,
-            startCol: call.column,
-            endLine: call.endLine,
-            endCol: call.endColumn,
-          });
-        }
+        const dedupeKey = `${symbolId}→${matchingSymbol.id}:${call.calleeName}`;
+        if (messageDedupeKeys.has(dedupeKey)) continue;
+        messageDedupeKeys.add(dedupeKey);
+
+        const toAlias = ensureParticipant(matchingSymbol.id, ref.filePath);
+        maxDepthReached = Math.max(maxDepthReached, depth + 1);
+        messages.push({
+          id: `intra-${symbolId}->${matchingSymbol.id}@${messages.length}`,
+          fromParticipantId: fromAlias,
+          toParticipantId: toAlias,
+          label: call.calleeName,
+          relationType: "CALLS",
+          async: false,
+          confidence: "high",
+          sourceFile: ref.filePath,
+          startLine: call.line,
+          startCol: call.column,
+          endLine: call.endLine,
+          endCol: call.endColumn,
+        });
       }
     } catch {
-      // Ignore intra-file extraction errors
+      // Ignore intra-file extraction errors silently
     }
-  }
+  };
 
   const markQueueItem = (current: { symbolId: string; depth: number }): boolean => {
     const expandedKey = `${current.depth}:${current.symbolId}`;
@@ -324,9 +338,12 @@ async function buildSequenceGraph(
     });
 
     if (targetInsideWorkspace) {
+      maxDepthReached = Math.max(maxDepthReached, current.depth + 1);
       queue.push({ symbolId: dependency.targetSymbolId, depth: current.depth + 1 });
       return;
     }
+
+    maxDepthReached = Math.max(maxDepthReached, current.depth + 1);
 
     warnings.push({
       code: "UNRESOLVED_TARGET",
@@ -345,6 +362,7 @@ async function buildSequenceGraph(
     warnings,
     messages,
     processDependency,
+    onNodeExpanded: processIntraFileCallsForSymbol,
   });
 
   if (truncated) {
@@ -363,6 +381,7 @@ async function buildSequenceGraph(
     messages,
     participants: getParticipants(),
     truncated,
+    maxDepthReached,
   };
 }
 
@@ -381,6 +400,7 @@ async function traverseQueueForMessages(input: {
     dependency: MinimalDependency,
     confidence: "high" | "medium",
   ) => void;
+  onNodeExpanded?: (symbolId: string, depth: number) => Promise<void>;
 }): Promise<boolean> {
   let truncated = false;
 
@@ -396,6 +416,10 @@ async function traverseQueueForMessages(input: {
 
     const wasTruncated = await expandCurrentQueueItem(input, current);
     if (wasTruncated) truncated = true;
+
+    if (input.onNodeExpanded) {
+      await input.onNodeExpanded(current.symbolId, current.depth);
+    }
   }
 
   return truncated || (input.messages.length >= input.maxSteps && input.queue.length > 0);
@@ -464,20 +488,20 @@ export async function generateSequence(
   const spider = params.resolveSymbolGraph ? null : createSpider(workspaceRoot, maxDepth);
 
   const loadSymbolGraph = async (filePath: string): Promise<SymbolGraph> => {
-    const resolvedPath = path.resolve(filePath);
-    const cached = graphCache.get(resolvedPath);
+    const cacheKey = normalizePath(filePath);
+    const cached = graphCache.get(cacheKey);
     if (cached) return cached;
 
     let graph: SymbolGraph;
     if (params.resolveSymbolGraph) {
-      graph = await params.resolveSymbolGraph(resolvedPath);
+      graph = await params.resolveSymbolGraph(cacheKey);
     } else if (spider) {
-      graph = await spider.getSymbolGraph(resolvedPath);
+      graph = await spider.getSymbolGraph(path.resolve(filePath));
     } else {
       graph = { symbols: [], dependencies: [] };
     }
 
-    graphCache.set(resolvedPath, graph);
+    graphCache.set(cacheKey, graph);
     return graph;
   };
 
@@ -509,6 +533,7 @@ export async function generateSequence(
       stats: {
         participantsCount: buildResult.participants.length,
         messagesCount: orderedMessages.length,
+        maxDepthReached: buildResult.maxDepthReached,
         analysisTimeMs: Date.now() - startedAt,
       },
     };

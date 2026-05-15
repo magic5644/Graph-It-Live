@@ -131,8 +131,9 @@ export class PythonSymbolAnalyzer implements ISymbolAnalyzer {
     }
     const symbols = new Map<string, SymbolInfo>();
     const normalizedPath = normalizePath(filePath);
+    const moduleAllExports = this.parseModuleAllExports(content);
 
-    this.extractSymbols(tree.rootNode, normalizedPath, content, symbols);
+    this.extractSymbols(tree.rootNode, normalizedPath, content, symbols, undefined, moduleAllExports);
 
     return symbols;
   }
@@ -200,13 +201,14 @@ export class PythonSymbolAnalyzer implements ISymbolAnalyzer {
     filePath: string,
     content: string,
     symbols: Map<string, SymbolInfo>,
-    parentSymbolId?: string
+    parentSymbolId?: string,
+    moduleAllExports?: Set<string> | null,
   ): void {
-    if (this.tryExtractSymbolFromNode(node, filePath, content, symbols, parentSymbolId)) {
+    if (this.tryExtractSymbolFromNode(node, filePath, content, symbols, parentSymbolId, moduleAllExports)) {
       return;
     }
 
-    this.extractSymbolsFromChildren(node, filePath, content, symbols, parentSymbolId);
+    this.extractSymbolsFromChildren(node, filePath, content, symbols, parentSymbolId, moduleAllExports);
   }
 
   private tryExtractSymbolFromNode(
@@ -214,20 +216,21 @@ export class PythonSymbolAnalyzer implements ISymbolAnalyzer {
     filePath: string,
     content: string,
     symbols: Map<string, SymbolInfo>,
-    parentSymbolId?: string
+    parentSymbolId?: string,
+    moduleAllExports?: Set<string> | null,
   ): boolean {
     if (node.type === 'function_definition') {
-      this.handleFunctionDefinition(node, filePath, content, symbols, parentSymbolId);
+      this.handleFunctionDefinition(node, filePath, content, symbols, parentSymbolId, moduleAllExports);
       return true;
     }
 
     if (node.type === 'class_definition') {
-      this.handleClassDefinition(node, filePath, content, symbols, parentSymbolId);
+      this.handleClassDefinition(node, filePath, content, symbols, parentSymbolId, moduleAllExports);
       return true;
     }
 
     if (node.type === 'decorated_definition') {
-      this.handleDecoratedDefinition(node, filePath, content, symbols, parentSymbolId);
+      this.handleDecoratedDefinition(node, filePath, content, symbols, parentSymbolId, moduleAllExports);
       return true;
     }
 
@@ -239,7 +242,8 @@ export class PythonSymbolAnalyzer implements ISymbolAnalyzer {
     filePath: string,
     content: string,
     symbols: Map<string, SymbolInfo>,
-    parentSymbolId?: string
+    parentSymbolId?: string,
+    moduleAllExports?: Set<string> | null,
   ): void {
     const nameNode = node.childForFieldName('name');
     if (!nameNode) {
@@ -254,13 +258,13 @@ export class PythonSymbolAnalyzer implements ISymbolAnalyzer {
       name,
       kind: isAsync ? 'AsyncFunction' : 'FunctionDeclaration',
       line: nameNode.startPosition.row + 1,
-      isExported: this.isExported(node, content),
+      isExported: this.isExported(node, content, moduleAllExports),
       id: symbolId,
       parentSymbolId,
       category: 'function',
     });
 
-    this.extractSymbolsFromChildren(node, filePath, content, symbols, symbolId);
+    this.extractSymbolsFromChildren(node, filePath, content, symbols, symbolId, moduleAllExports);
   }
 
   private handleClassDefinition(
@@ -268,7 +272,8 @@ export class PythonSymbolAnalyzer implements ISymbolAnalyzer {
     filePath: string,
     content: string,
     symbols: Map<string, SymbolInfo>,
-    parentSymbolId?: string
+    parentSymbolId?: string,
+    moduleAllExports?: Set<string> | null,
   ): void {
     const nameNode = node.childForFieldName('name');
     if (!nameNode) {
@@ -282,13 +287,13 @@ export class PythonSymbolAnalyzer implements ISymbolAnalyzer {
       name,
       kind: 'ClassDeclaration',
       line: nameNode.startPosition.row + 1,
-      isExported: this.isExported(node, content),
+      isExported: this.isExported(node, content, moduleAllExports),
       id: symbolId,
       parentSymbolId,
       category: 'class',
     });
 
-    this.extractSymbolsFromChildren(node, filePath, content, symbols, symbolId);
+    this.extractSymbolsFromChildren(node, filePath, content, symbols, symbolId, moduleAllExports);
   }
 
   private handleDecoratedDefinition(
@@ -296,11 +301,12 @@ export class PythonSymbolAnalyzer implements ISymbolAnalyzer {
     filePath: string,
     content: string,
     symbols: Map<string, SymbolInfo>,
-    parentSymbolId?: string
+    parentSymbolId?: string,
+    moduleAllExports?: Set<string> | null,
   ): void {
     for (const child of node.children) {
       if (child.type === 'function_definition' || child.type === 'class_definition') {
-        this.extractSymbols(child, filePath, content, symbols, parentSymbolId);
+        this.extractSymbols(child, filePath, content, symbols, parentSymbolId, moduleAllExports);
       }
     }
   }
@@ -310,11 +316,44 @@ export class PythonSymbolAnalyzer implements ISymbolAnalyzer {
     filePath: string,
     content: string,
     symbols: Map<string, SymbolInfo>,
-    parentSymbolId?: string
+    parentSymbolId?: string,
+    moduleAllExports?: Set<string> | null,
   ): void {
     for (const child of node.children) {
-      this.extractSymbols(child, filePath, content, symbols, parentSymbolId);
+      this.extractSymbols(child, filePath, content, symbols, parentSymbolId, moduleAllExports);
     }
+  }
+
+  /**
+   * Parse module-level __all__ declarations from source text.
+   *
+   * Supported patterns:
+   *   __all__ = ["a", 'b']
+   *   __all__ = ("a", "b")
+   *   __all__ += ["c"]
+   */
+  private parseModuleAllExports(content: string): Set<string> | null {
+    const exports = new Set<string>();
+    let foundAllDeclaration = false;
+
+    const assignmentRegex = /^\s*__all__\s*(?:=|\+=)\s*(\[[^\]]*\]|\([^)]*\))/gm;
+    let match = assignmentRegex.exec(content);
+    while (match !== null) {
+      foundAllDeclaration = true;
+      const listContent = match[1] ?? "";
+      const stringRegex = /['"]([^'"]+)['"]/g;
+      let stringMatch = stringRegex.exec(listContent);
+      while (stringMatch !== null) {
+        const symbolName = stringMatch[1]?.trim();
+        if (symbolName) {
+          exports.add(symbolName);
+        }
+        stringMatch = stringRegex.exec(listContent);
+      }
+      match = assignmentRegex.exec(content);
+    }
+
+    return foundAllDeclaration ? exports : null;
   }
 
   /**
@@ -521,15 +560,23 @@ export class PythonSymbolAnalyzer implements ISymbolAnalyzer {
   }
 
   /**
-   * Check if a symbol is exported (Python doesn't have explicit exports, so we check if it's not private)
+   * Check if a symbol is exported.
+   *
+   * Python semantics:
+   * - If module defines __all__, exported symbols are exactly those names.
+   * - Otherwise fallback to underscore convention (_name treated as internal).
    */
-  private isExported(node: Node, content: string): boolean {
+  private isExported(node: Node, content: string, moduleAllExports?: Set<string> | null): boolean {
     const nameNode = node.childForFieldName('name');
     if (!nameNode) {
       return false;
     }
     const name = this.getNodeText(nameNode, content);
-    // In Python, names starting with _ are considered private
+    if (moduleAllExports) {
+      return moduleAllExports.has(name);
+    }
+
+    // Fallback convention when __all__ is absent.
     return !name.startsWith('_');
   }
 

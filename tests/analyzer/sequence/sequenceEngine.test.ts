@@ -36,6 +36,7 @@ describe("sequence types contract", () => {
       stats: {
         participantsCount: 0,
         messagesCount: 0,
+        maxDepthReached: 0,
         analysisTimeMs: 0,
       },
     };
@@ -123,6 +124,7 @@ describe("SequenceEngine determinism", () => {
       first.messages.some((message: SequenceMessage) => message.sourceFile === "/repo/src/service.ts"),
     ).toBe(true);
     expect(first.participants.length).toBeGreaterThan(1);
+    expect(first.stats.maxDepthReached).toBe(2);
   });
 
   it("falls back to unresolved symbol to unique call-root", async () => {
@@ -289,12 +291,49 @@ describe("sequence renderers", () => {
       stats: {
         participantsCount: 1,
         messagesCount: 0,
+        maxDepthReached: 0,
         analysisTimeMs: 1,
       },
     });
 
     expect(mermaid).toContain("sequenceDiagram");
     expect(mermaid).toContain("participant p1 as main");
+  });
+
+  it("renders compact warning notes in mermaid output", () => {
+    const longPath = "/repo/src/services/accountableAccount/AccountableAccountService.ts:AccountableAccountService.getOrCreateDoubtfulCustomersAccount";
+    const mermaid = renderMermaidSequence({
+      root: {
+        id: "a",
+        symbolName: "main",
+        filePath: "/repo/src/index.ts",
+      },
+      participants: [
+        {
+          id: "p1",
+          label: "main",
+          filePath: "/repo/src/index.ts",
+          external: false,
+        },
+      ],
+      messages: [],
+      warnings: [
+        {
+          code: "AMBIGUOUS_TARGET",
+          message: `Resolved method name 'getOrCreateDoubtfulCustomersAccount' to '${longPath}'.`,
+        },
+      ],
+      truncated: false,
+      stats: {
+        participantsCount: 1,
+        messagesCount: 0,
+        maxDepthReached: 0,
+        analysisTimeMs: 1,
+      },
+    });
+
+    expect(mermaid).toContain("Warnings: AMBIGUOUS_TARGET");
+    expect(mermaid).not.toContain(longPath);
   });
 
   it("renders markdown wrapper around mermaid output", () => {
@@ -311,6 +350,7 @@ describe("sequence renderers", () => {
       stats: {
         participantsCount: 0,
         messagesCount: 0,
+        maxDepthReached: 0,
         analysisTimeMs: 0,
       },
     };

@@ -1,11 +1,13 @@
 import { generateSequence } from "@/analyzer/sequence/SequenceEngine";
 import { renderMermaidSequence } from "@/analyzer/sequence/renderers/mermaidSequenceRenderer";
+import { resolveBestCallableSymbolAtCursor } from "@/extension/services/cursorSymbolResolver";
 import type {
   SequenceGenerateCommand,
   SequenceOpenFileCommand,
   SequenceWebviewCommand,
   ShowSequenceDiagramMessage,
 } from "@/shared/types";
+import * as path from "node:path";
 import * as vscode from "vscode";
 
 type SequenceDefaults = {
@@ -18,118 +20,6 @@ const DEFAULTS: SequenceDefaults = {
   maxSteps: 200,
 };
 
-function extractSymbolFromEditor(editor: vscode.TextEditor): string | null {
-  const selected = editor.document.getText(editor.selection).trim();
-  if (selected.length > 0) return selected;
-  return null;
-}
-
-function isCallableSymbolKind(kind: vscode.SymbolKind): boolean {
-  return (
-    kind === vscode.SymbolKind.Function ||
-    kind === vscode.SymbolKind.Method ||
-    kind === vscode.SymbolKind.Constructor
-  );
-}
-
-async function getDocumentSymbols(
-  editor: vscode.TextEditor,
-): Promise<vscode.DocumentSymbol[]> {
-  const documentSymbols = await vscode.commands.executeCommand<
-    vscode.DocumentSymbol[] | undefined
-  >("vscode.executeDocumentSymbolProvider", editor.document.uri);
-
-  return documentSymbols ?? [];
-}
-
-function isCursorOnSymbolLine(
-  symbol: vscode.DocumentSymbol,
-  cursor: vscode.Position,
-): boolean {
-  const startLine = symbol.range?.start?.line;
-  const endLine = symbol.range?.end?.line;
-
-  if (
-    typeof startLine === "number" &&
-    typeof endLine === "number" &&
-    typeof cursor?.line === "number"
-  ) {
-    return cursor.line >= startLine && cursor.line <= endLine;
-  }
-
-  return symbol.range?.contains?.(cursor) ?? false;
-}
-
-function hasCallableSymbolNamed(
-  symbols: vscode.DocumentSymbol[],
-  symbolName: string,
-): boolean {
-  const trimmed = symbolName.trim();
-  if (trimmed.length === 0) return false;
-
-  const visit = (symbol: vscode.DocumentSymbol): boolean => {
-    if (
-      isCallableSymbolKind(symbol.kind) &&
-      (symbol.name === trimmed || symbol.name.endsWith(`.${trimmed}`))
-    ) {
-      return true;
-    }
-
-    return symbol.children.some((child) => visit(child));
-  };
-
-  return symbols.some((symbol) => visit(symbol));
-}
-
-async function getEnclosingCallableSymbol(
-  editor: vscode.TextEditor,
-): Promise<string | null> {
-  const documentSymbols = await getDocumentSymbols(editor);
-  if (documentSymbols.length === 0) return null;
-
-  let bestName: string | null = null;
-  let bestDepth = -1;
-  const cursor = editor.selection.active;
-
-  const visit = (symbol: vscode.DocumentSymbol, depth: number): void => {
-    if (!isCursorOnSymbolLine(symbol, cursor)) return;
-
-    if (isCallableSymbolKind(symbol.kind) && depth > bestDepth) {
-      bestName = symbol.name;
-      bestDepth = depth;
-    }
-
-    for (const child of symbol.children) {
-      visit(child, depth + 1);
-    }
-  };
-
-  for (const symbol of documentSymbols) {
-    visit(symbol, 0);
-  }
-
-  return bestName;
-}
-
-async function extractBestSymbolFromEditor(
-  editor: vscode.TextEditor,
-): Promise<string | null> {
-  const selected = extractSymbolFromEditor(editor);
-  const documentSymbols = await getDocumentSymbols(editor);
-
-  if (selected && hasCallableSymbolNamed(documentSymbols, selected)) {
-    return selected;
-  }
-
-  const enclosingCallable = await getEnclosingCallableSymbol(editor);
-  if (enclosingCallable) return enclosingCallable;
-
-  const range = editor.document.getWordRangeAtPosition(editor.selection.active);
-  if (!range) return null;
-  const word = editor.document.getText(range).trim();
-  return word.length > 0 ? word : null;
-}
-
 function errorMessage(error: unknown): string {
   if (error instanceof Error) return error.message;
   try {
@@ -137,6 +27,16 @@ function errorMessage(error: unknown): string {
   } catch {
     return "Unknown error";
   }
+}
+
+function resolveWorkspaceRootForFile(filePath: string): string {
+  const uri = vscode.Uri.file(filePath);
+  const workspaceFolder =
+    typeof vscode.workspace.getWorkspaceFolder === "function"
+      ? vscode.workspace.getWorkspaceFolder(uri)
+      : undefined;
+
+  return workspaceFolder?.uri.fsPath ?? path.dirname(filePath);
 }
 
 export class SequenceViewService implements vscode.Disposable {
@@ -163,7 +63,7 @@ export class SequenceViewService implements vscode.Disposable {
       return;
     }
 
-    const symbolName = await extractBestSymbolFromEditor(editor);
+    const symbolName = await resolveBestCallableSymbolAtCursor(editor);
     if (!symbolName) {
       await vscode.window.showInformationMessage(
         "Graph-It-Live: Place cursor on a symbol or select a symbol name.",
@@ -200,7 +100,7 @@ export class SequenceViewService implements vscode.Disposable {
     const activeFilePath =
       editor?.document.uri.scheme === "file" ? editor.document.uri.fsPath : null;
     const selectedSymbol = editor
-      ? await extractBestSymbolFromEditor(editor)
+      ? await resolveBestCallableSymbolAtCursor(editor)
       : null;
 
     const filePath = message.filePath ?? this.lastFilePath ?? activeFilePath;
@@ -227,11 +127,10 @@ export class SequenceViewService implements vscode.Disposable {
     maxDepth: number;
     maxSteps: number;
   }): Promise<void> {
-    const workspaceRoot =
-      vscode.workspace.workspaceFolders?.[0]?.uri.fsPath ?? params.filePath;
+    const workspaceRoot = resolveWorkspaceRootForFile(params.filePath);
 
     this.outputChannel.appendLine(
-      `[Sequence] Generate ${params.filePath}#${params.symbolName} depth=${params.maxDepth} steps=${params.maxSteps}`,
+      `[Sequence] Generate ${params.filePath}#${params.symbolName} workspaceRoot=${workspaceRoot} depth=${params.maxDepth} steps=${params.maxSteps}`,
     );
 
     try {
@@ -262,7 +161,7 @@ export class SequenceViewService implements vscode.Disposable {
         },
         sourceFilePath: params.filePath,
         symbolName: params.symbolName,
-        maxDepth: params.maxDepth,
+        maxDepth: Math.max(1, model.stats.maxDepthReached || params.maxDepth),
         maxSteps: params.maxSteps,
       };
 

@@ -8,9 +8,11 @@ const mocks = vi.hoisted(() => ({
   postMessage: vi.fn().mockResolvedValue(undefined),
   showInformationMessage: vi.fn(),
   showErrorMessage: vi.fn(),
+  showWarningMessage: vi.fn(),
   showTextDocument: vi.fn(),
   openTextDocument: vi.fn(),
   executeCommand: vi.fn(),
+  getWorkspaceFolder: vi.fn(),
   createOutputChannel: vi.fn(() => ({ appendLine: vi.fn(), dispose: vi.fn() })),
 }));
 
@@ -29,16 +31,19 @@ vi.mock("vscode", () => ({
         uri: { scheme: "file", fsPath: "/repo/src/app.ts" },
         getText: vi.fn(() => ""),
         getWordRangeAtPosition: vi.fn(() => ({ start: {}, end: {} })),
+        lineAt: vi.fn(() => ({ text: "function main() {}" })),
       },
       selection: { active: { line: 3, character: 99 } },
     },
     showInformationMessage: mocks.showInformationMessage,
     showErrorMessage: mocks.showErrorMessage,
+    showWarningMessage: mocks.showWarningMessage,
     showTextDocument: mocks.showTextDocument,
     createOutputChannel: mocks.createOutputChannel,
   },
   workspace: {
     workspaceFolders: [{ uri: { fsPath: "/repo" } }],
+    getWorkspaceFolder: mocks.getWorkspaceFolder,
     openTextDocument: mocks.openTextDocument,
   },
   commands: {
@@ -70,9 +75,20 @@ describe("SequenceViewService", () => {
       messages: [],
       warnings: [],
       truncated: false,
-      stats: { participantsCount: 0, messagesCount: 0, analysisTimeMs: 1 },
+      stats: { participantsCount: 0, messagesCount: 0, maxDepthReached: 0, analysisTimeMs: 1 },
     });
     mocks.renderMermaidSequence.mockReturnValue("sequenceDiagram");
+    const workspace = vscode.workspace as unknown as {
+      workspaceFolders: Array<{ uri: { fsPath: string } }>;
+    };
+    workspace.workspaceFolders = [{ uri: { fsPath: "/repo" } }];
+    mocks.getWorkspaceFolder.mockImplementation((uri: { fsPath: string }) =>
+      workspace.workspaceFolders.find(
+        (folder) =>
+          uri.fsPath === folder.uri.fsPath ||
+          uri.fsPath.startsWith(`${folder.uri.fsPath}/`),
+      ),
+    );
 
     const activeEditor = vscode.window.activeTextEditor;
     if (activeEditor) {
@@ -99,6 +115,30 @@ describe("SequenceViewService", () => {
     );
   });
 
+  it("posts calculated depth in showSequenceDiagram payload", async () => {
+    mocks.generateSequence.mockResolvedValueOnce({
+      root: { id: "root", symbolName: "main", filePath: "/repo/src/app.ts" },
+      participants: [],
+      messages: [],
+      warnings: [],
+      truncated: false,
+      stats: { participantsCount: 0, messagesCount: 0, maxDepthReached: 2, analysisTimeMs: 1 },
+    });
+
+    const context = { subscriptions: [] } as unknown as import("vscode").ExtensionContext;
+    const service = new SequenceViewService(context);
+
+    service.setSidebarWebview({
+      webview: { postMessage: mocks.postMessage },
+    } as unknown as import("vscode").WebviewView);
+
+    await service.show();
+
+    expect(mocks.postMessage).toHaveBeenCalledWith(
+      expect.objectContaining({ maxDepth: 2 }),
+    );
+  });
+
   it("uses enclosing callable symbol when cursor is on local variable", async () => {
     const context = { subscriptions: [] } as unknown as import("vscode").ExtensionContext;
     const service = new SequenceViewService(context);
@@ -114,7 +154,11 @@ describe("SequenceViewService", () => {
         {
           name: "main",
           kind: 12,
-          range: { contains: () => true },
+          range: {
+            start: { line: 1, character: 0 },
+            end: { line: 20, character: 0 },
+            contains: () => true,
+          },
           children: [],
         },
       ]);
@@ -144,8 +188,8 @@ describe("SequenceViewService", () => {
           name: "getUser",
           kind: 6,
           range: {
-            start: { line: 10 },
-            end: { line: 20 },
+            start: { line: 10, character: 0 },
+            end: { line: 20, character: 0 },
             contains: () => false,
           },
           children: [],
@@ -178,6 +222,35 @@ describe("SequenceViewService", () => {
 
     expect(mocks.generateSequence).toHaveBeenCalledWith(
       expect.objectContaining({ filePath: "/repo/src/service.ts", symbolName: "run", maxDepth: 4, maxSteps: 50 }),
+    );
+  });
+
+  it("uses the workspace folder containing the generated file", async () => {
+    const workspace = vscode.workspace as unknown as {
+      workspaceFolders: Array<{ uri: { fsPath: string } }>;
+    };
+    workspace.workspaceFolders = [
+      { uri: { fsPath: "/old-workspace" } },
+      { uri: { fsPath: "/repo" } },
+    ];
+
+    const context = { subscriptions: [] } as unknown as import("vscode").ExtensionContext;
+    const service = new SequenceViewService(context);
+
+    service.setSidebarWebview({
+      webview: { postMessage: mocks.postMessage },
+    } as unknown as import("vscode").WebviewView);
+
+    await service.handleWebviewMessage({
+      command: "sequenceGenerate",
+      filePath: "/repo/src/service.ts",
+      symbolName: "run",
+      maxDepth: 4,
+      maxSteps: 50,
+    });
+
+    expect(mocks.generateSequence).toHaveBeenCalledWith(
+      expect.objectContaining({ workspaceRoot: "/repo" }),
     );
   });
 });

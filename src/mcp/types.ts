@@ -1483,6 +1483,8 @@ export interface GenerateSequenceDiagramResult {
   participantsCount: number;
   /** Number of messages in the diagram */
   messagesCount: number;
+  /** Maximum call depth reached while building the diagram */
+  maxDepthReached: number;
   /** Whether the diagram was truncated due to maxSteps */
   truncated: boolean;
   /** Any warnings collected during analysis */

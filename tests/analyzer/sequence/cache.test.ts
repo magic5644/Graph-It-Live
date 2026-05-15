@@ -19,6 +19,7 @@ function createModel(symbolName: string): SequenceModel {
     stats: {
       participantsCount: 0,
       messagesCount: 0,
+      maxDepthReached: 0,
       analysisTimeMs: 0,
     },
   };

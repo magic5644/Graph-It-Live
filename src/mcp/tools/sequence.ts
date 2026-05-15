@@ -47,6 +47,7 @@ export async function executeGenerateSequenceDiagram(
     rootSymbol: `${params.filePath}:${params.symbolName}`,
     participantsCount: model.participants.length,
     messagesCount: model.messages.length,
+    maxDepthReached: model.stats.maxDepthReached,
     truncated: model.truncated,
     warnings: model.warnings.map((w) => ({ code: w.code, message: w.message })),
     analysisTimeMs: Date.now() - startedAt,

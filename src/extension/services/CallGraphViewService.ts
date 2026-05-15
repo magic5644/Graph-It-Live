@@ -18,6 +18,10 @@ import { queryNeighbourhood } from "@/analyzer/callgraph/CallGraphQuery";
 import { detectCycleEdges } from "@/analyzer/callgraph/cycleUtils";
 import { GraphExtractor } from "@/analyzer/callgraph/GraphExtractor";
 import { SourceFileCollector } from "@/analyzer/SourceFileCollector";
+import {
+  resolveBestCallableSymbolAtCursor,
+  resolveBestRootNodeByCursor,
+} from "@/extension/services/cursorSymbolResolver";
 import type {
   CallGraphExtensionMessage,
   CallGraphOpenFileCommand,
@@ -291,6 +295,8 @@ export class CallGraphViewService implements vscode.Disposable, ICallGraphQueryS
 
     const filePath = normalizePath(editor.document.uri.fsPath);
     const cursorLine = editor.selection.active.line; // 0-based
+    const cursorCharacter = editor.selection.active.character; // 0-based
+    const preferredSymbolName = await resolveBestCallableSymbolAtCursor(editor);
 
     this.postMessage({ type: "callGraphIndexing", status: "started", message: "Extracting current file…" });
 
@@ -318,7 +324,12 @@ export class CallGraphViewService implements vscode.Disposable, ICallGraphQueryS
       }
 
       // Resolve root node from the just-extracted symbols (avoids DB round-trip).
-      const rootNode = this.resolveRootNode(nodes, cursorLine);
+      const rootNode = this.resolveRootNode(
+        nodes,
+        cursorLine,
+        cursorCharacter,
+        preferredSymbolName,
+      );
       if (!rootNode) {
         this.postMessage({ type: "callGraphIndexing", status: "complete" });
         this.sendGraphToWebview(queryNeighbourhood(indexer.getDb(), "", DEFAULT_DEPTH));
@@ -761,21 +772,23 @@ export class CallGraphViewService implements vscode.Disposable, ICallGraphQueryS
    * If the cursor is outside all node ranges, returns the first node.
    */
   private resolveRootNode(
-    nodes: Array<{ id: string; startLine: number; endLine: number }>,
+    nodes: Array<{
+      id: string;
+      name: string;
+      startLine: number;
+      endLine: number;
+      startCol: number;
+    }>,
     cursorLine: number,
+    cursorCharacter: number,
+    preferredSymbolName?: string | null,
   ): { id: string } | null {
-    if (nodes.length === 0) { return null; }
-
-    // Find nodes whose range contains the cursor, pick the most specific (latest start)
-    let best: { id: string; startLine: number } | null = null;
-    for (const n of nodes) {
-      if (n.startLine <= cursorLine && cursorLine <= n.endLine) {
-        if (!best || n.startLine > best.startLine) {
-          best = n;
-        }
-      }
-    }
-    return best ?? nodes[0];
+    return resolveBestRootNodeByCursor(
+      nodes,
+      cursorLine,
+      cursorCharacter,
+      preferredSymbolName,
+    );
   }
 
   // ---------------------------------------------------------------------------

@@ -1,4 +1,5 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
+import fs from 'node:fs/promises';
 import path from 'node:path';
 import { PythonSymbolAnalyzer } from '@/analyzer/languages/PythonSymbolAnalyzer';
 import { normalizePath } from '@/shared/path';
@@ -239,6 +240,59 @@ describe('PythonSymbolAnalyzer', () => {
 
       expect(publicMethod?.isExported).toBe(true);
       expect(privateMethod?.isExported).toBe(false);
+    });
+
+    it('should respect __all__ declarations when present', async () => {
+      const tempFile = path.join(fixturesDir, `temp_all_${Date.now()}.py`);
+      const content = [
+        'def public_fn():',
+        '    pass',
+        '',
+        'def hidden_fn():',
+        '    pass',
+        '',
+        '__all__ = ["hidden_fn"]',
+      ].join('\n');
+
+      try {
+        await fs.writeFile(tempFile, content, 'utf8');
+        const symbols = await analyzer.analyzeFile(tempFile);
+        const symbolArray = Array.from(symbols.values());
+        const publicFn = symbolArray.find((s) => s.name === 'public_fn');
+        const hiddenFn = symbolArray.find((s) => s.name === 'hidden_fn');
+
+        expect(publicFn?.isExported).toBe(false);
+        expect(hiddenFn?.isExported).toBe(true);
+      } finally {
+        await fs.unlink(tempFile).catch(() => undefined);
+      }
+    });
+
+    it('should support __all__ extension via +=', async () => {
+      const tempFile = path.join(fixturesDir, `temp_all_plus_${Date.now()}.py`);
+      const content = [
+        'def a():',
+        '    pass',
+        '',
+        'def b():',
+        '    pass',
+        '',
+        '__all__ = ["a"]',
+        '__all__ += ["b"]',
+      ].join('\n');
+
+      try {
+        await fs.writeFile(tempFile, content, 'utf8');
+        const symbols = await analyzer.analyzeFile(tempFile);
+        const symbolArray = Array.from(symbols.values());
+        const symbolA = symbolArray.find((s) => s.name === 'a');
+        const symbolB = symbolArray.find((s) => s.name === 'b');
+
+        expect(symbolA?.isExported).toBe(true);
+        expect(symbolB?.isExported).toBe(true);
+      } finally {
+        await fs.unlink(tempFile).catch(() => undefined);
+      }
     });
 
     it('should handle decorated functions', async () => {

@@ -21,6 +21,7 @@ describe("executeGenerateSequenceDiagram", () => {
       messages: [{ from: "svc", to: "repo", label: "find" }],
       truncated: false,
       warnings: [{ code: "W_TEST", message: "test warning" }],
+      stats: { maxDepthReached: 2 },
     };
 
     mocks.generateSequence.mockResolvedValueOnce(model);
@@ -46,6 +47,7 @@ describe("executeGenerateSequenceDiagram", () => {
     expect(result.rootSymbol).toBe("/workspace/src/service.ts:loadUser");
     expect(result.participantsCount).toBe(2);
     expect(result.messagesCount).toBe(1);
+    expect(result.maxDepthReached).toBe(2);
     expect(result.truncated).toBe(false);
     expect(result.warnings).toEqual([{ code: "W_TEST", message: "test warning" }]);
   });
@@ -56,6 +58,7 @@ describe("executeGenerateSequenceDiagram", () => {
       messages: [],
       truncated: false,
       warnings: [],
+      stats: { maxDepthReached: 0 },
     };
 
     mocks.generateSequence.mockResolvedValueOnce(model);

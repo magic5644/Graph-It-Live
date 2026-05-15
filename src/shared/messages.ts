@@ -236,6 +236,7 @@ export interface SequenceModelPayload {
   stats: {
     participantsCount: number;
     messagesCount: number;
+    maxDepthReached: number;
     analysisTimeMs: number;
   };
 }

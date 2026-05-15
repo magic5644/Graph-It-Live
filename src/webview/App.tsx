@@ -254,7 +254,7 @@ const App: React.FC = () => {
     messages: [],
     warnings: [],
     truncated: false,
-    stats: { participantsCount: 0, messagesCount: 0, analysisTimeMs: 0 },
+    stats: { participantsCount: 0, messagesCount: 0, maxDepthReached: 0, analysisTimeMs: 0 },
   });
   const [sequenceSourceFilePath, setSequenceSourceFilePath] = React.useState<string>("");
   const [sequenceSymbolName, setSequenceSymbolName] = React.useState<string>("main");
