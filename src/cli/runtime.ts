@@ -158,33 +158,39 @@ export class CliRuntime {
       this.workspaceRoot,
     );
 
+    // In the CLI bundle, __dirname = dist/, so path.resolve(__dirname, '..') is the
+    // package root — used to locate dist/wasm/*.wasm and dist/queries/*.scm for all
+    // WASM-based language parsers (Python, Rust, Go, Java, C#) and the call graph.
+    const cliExtensionPath = path.resolve(__dirname, '..');
+
     // AstWorkerHost:
     //   - First arg (workerPath): undefined → uses default dist/astWorker.js resolution
-    //   - Second arg (extensionPath): undefined → acceptable for CLI since WASM files are
-    //     co-located in the same dist/ directory as the CLI binary (resolved via __dirname)
-    workerState.astWorkerHost = new AstWorkerHost(undefined, undefined);
+    //   - Second arg (extensionPath): cliExtensionPath → enables WASM parsers for
+    //     Python/Rust symbol extraction (tree-sitter-python.wasm, tree-sitter-rust.wasm)
+    workerState.astWorkerHost = new AstWorkerHost(undefined, cliExtensionPath);
     await workerState.astWorkerHost.start();
 
     // Build Spider via SpiderBuilder
+    // extensionPath is required for LanguageService to locate WASM files for
+    // Python, Rust, Go, Java, and C# parsers used during file-level dependency analysis.
     const builder = new SpiderBuilder()
       .withRootDir(this.workspaceRoot)
       .withMaxDepth(50)
       .withExcludeNodeModules(true)
-      .withReverseIndex(true);
+      .withReverseIndex(true)
+      .withExtensionPath(cliExtensionPath);
 
     if (tsConfigPath) {
       builder.withTsConfigPath(tsConfigPath);
     }
 
     workerState.spider = builder.build();
-    // In the CLI bundle, __dirname = dist/, so path.resolve(__dirname, '..') is the
-    // package root — enabling query_call_graph to locate dist/wasm/sqljs.wasm.
     workerState.config = {
       rootDir: this.workspaceRoot,
       tsConfigPath,
       excludeNodeModules: true,
       maxDepth: 50,
-      extensionPath: path.resolve(__dirname, '..'),
+      extensionPath: cliExtensionPath,
     };
     workerState.isReady = true;
     this._initialized = true;
