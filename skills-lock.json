@@ -1,0 +1,11 @@
+{
+  "version": 1,
+  "skills": {
+    "graph-it-live": {
+      "source": "magic5644/skills",
+      "sourceType": "github",
+      "skillPath": "graph-it-live/SKILL.md",
+      "computedHash": "94622b2ca8ae30111a267d9eb39107a81269829d49bff54401c0209879333157"
+    }
+  }
+}

@@ -299,7 +299,7 @@ Smart filter to show only dependencies that are actually used in your code. Togg
 
 ## Prerequisites
 
-- **Node.js**: v20 or higher
+- **Node.js**: v22 or higher
 - **VS Code**: v1.96.0 or higher
 
 **No build tools required** — the extension uses WebAssembly (WASM) parsers. No Python, C++ compiler, or native compilation needed.
@@ -719,6 +719,7 @@ For comprehensive development instructions, see:
 ```bash
 git clone https://github.com/magic5644/Graph-It-Live.git
 cd Graph-It-Live
+nvm use # optional, uses Node.js 22 when nvm is installed
 npm install
 npm run build
 # Press F5 in VS Code to launch the Extension Development Host

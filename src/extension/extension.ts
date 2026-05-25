@@ -1,5 +1,5 @@
 import * as vscode from 'vscode';
-import { createMcpServerProvider, McpServerProvider } from '../mcp/McpServerProvider';
+import { createMcpServerProvider, McpServerProvider } from './McpServerProvider';
 import { setLoggerBackend } from '../shared/logger';
 import {
     extensionLoggerManager,

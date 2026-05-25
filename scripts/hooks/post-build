@@ -1,0 +1,71 @@
+#!/bin/bash
+# Post-build hook for Graph-It-Live
+# Verifies WASM files and query files copied correctly
+
+set -e
+
+echo "🔍 Post-build verification..."
+
+# Check dist/wasm/ directory exists
+if [ ! -d "dist/wasm" ]; then
+  echo "❌ FAIL: dist/wasm/ directory not found"
+  echo "Build may have failed or copyWasmFiles() not executed"
+  exit 1
+fi
+
+# Check WASM files
+echo "Checking WASM files..."
+WASM_COUNT=$(ls dist/wasm/*.wasm 2>/dev/null | wc -l | tr -d ' ')
+if [ "$WASM_COUNT" -ne 8 ]; then
+  echo ""
+  echo "❌ FAIL: Expected 8 WASM files, found $WASM_COUNT"
+  echo ""
+  echo "Missing WASM files:"
+  echo "Expected:"
+  echo "  - tree-sitter.wasm"
+  echo "  - tree-sitter-typescript.wasm"
+  echo "  - tree-sitter-tsx.wasm"
+  echo "  - tree-sitter-python.wasm"
+  echo "  - tree-sitter-rust.wasm"
+  echo "  - tree-sitter-c-sharp.wasm"
+  echo "  - tree-sitter-java.wasm"
+  echo "  - sqljs.wasm"
+  echo ""
+  echo "Actual:"
+  ls dist/wasm/*.wasm 2>/dev/null || echo "  (none)"
+  echo ""
+  echo "Fix: Check esbuild.js copyWasmFiles() function"
+  echo ""
+  exit 1
+fi
+echo "✅ All 8 WASM files present"
+
+# Check query files
+echo "Checking query files..."
+QUERY_COUNT=$(ls dist/queries/*.scm 2>/dev/null | wc -l | tr -d ' ')
+if [ "$QUERY_COUNT" -ne 3 ]; then
+  echo ""
+  echo "❌ FAIL: Expected 3 query files, found $QUERY_COUNT"
+  echo ""
+  echo "Expected:"
+  echo "  - typescript.scm"
+  echo "  - python.scm"
+  echo "  - rust.scm"
+  echo ""
+  echo "Actual:"
+  ls dist/queries/*.scm 2>/dev/null || echo "  (none)"
+  echo ""
+  echo "Fix: Check esbuild.js copyQueryFiles() function"
+  echo ""
+  exit 1
+fi
+echo "✅ All 3 query files present"
+
+# List built bundles
+echo ""
+echo "📦 Build output:"
+ls -lh dist/*.{js,mjs} 2>/dev/null | awk '{printf "  %s - %s\n", $9, $5}'
+
+echo ""
+echo "✅ Post-build verification passed"
+echo "✅ Build artifacts ready"

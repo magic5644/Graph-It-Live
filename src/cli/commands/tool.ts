@@ -26,6 +26,7 @@ import {
   executeQueryCallGraph,
   executeRebuildIndex,
   executeResolveModulePath,
+  executeScanDeadCode,
   executeTraceFunctionExecution,
   executeVerifyDependencyUsage,
 } from "../../mcp/tools";
@@ -223,6 +224,8 @@ async function invokeTool(tool: McpToolName, params: any): Promise<unknown> {
     case "query_call_graph":
       vfp(params.filePath);
       return executeQueryCallGraph(params);
+    case "scan_dead_code":
+      return executeScanDeadCode(params);
     default:
       throw new CliError(`Unknown tool: ${tool}`, ExitCode.GENERAL_ERROR);
   }

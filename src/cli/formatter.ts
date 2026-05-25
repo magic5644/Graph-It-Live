@@ -115,8 +115,19 @@ function formatText(data: unknown, command: string): string {
     return formatTextObject(data as Record<string, unknown>, 0);
   }
 
-  // data is a primitive at this point (number, boolean, bigint, symbol)
-  return String(data as number | boolean | bigint | symbol);
+  // Remaining non-object, non-string values (e.g. number/boolean/bigint/symbol/function)
+  switch (typeof data) {
+    case "number":
+    case "bigint":
+    case "boolean":
+      return `${data}`;
+    case "symbol":
+      return data.description ?? "symbol";
+    case "function":
+      return "[function]";
+    default:
+      return "value";
+  }
 }
 
 function formatArchitecture(data: Record<string, unknown>): string {
@@ -175,17 +186,30 @@ function formatTextItem(item: unknown, index: number): string {
       .join(" ");
     return rest ? `${label}  ${rest}` : label;
   }
-  return String(item);
+  return formatScalar(item);
 }
 
 function formatTextValue(v: unknown): string {
   if (Array.isArray(v)) {
-    return `[${v.map(String).join(", ")}]`;
+    return `[${v.map((item) => formatScalar(item)).join(", ")}]`;
   }
   if (typeof v === "object" && v !== null) {
     return JSON.stringify(v);
   }
-  return String(v);
+  return formatScalar(v);
+}
+
+function formatScalar(value: unknown): string {
+  if (value === null) return "null";
+  if (value === undefined) return "undefined";
+  if (typeof value === "string") return value;
+  if (typeof value === "number" || typeof value === "bigint" || typeof value === "boolean") {
+    return String(value);
+  }
+  if (typeof value === "symbol") {
+    return value.description ?? "symbol";
+  }
+  return JSON.stringify(value);
 }
 
 function formatTextObject(obj: Record<string, unknown>, indent: number): string {
@@ -265,13 +289,13 @@ function formatMermaid(data: unknown, command: string): string {
 // ============================================================================
 
 interface GraphLike {
-  nodes?: { id?: string; file?: string; filePath?: string; path?: string; relativePath?: string; name?: string }[];
-  edges?: { source?: string; target?: string; from?: string; to?: string }[];
+  nodes?: unknown[];
+  edges?: unknown[];
 }
 
 interface TraceLike {
-  trace?: { caller?: string; callee?: string; from?: string; to?: string; file?: string; depth?: number }[];
-  steps?: { caller?: string; callee?: string; from?: string; to?: string }[];
+  trace?: unknown[];
+  steps?: unknown[];
 }
 
 interface DependencyCheckLike {
@@ -294,18 +318,32 @@ function tryBuildMermaid(data: unknown): string | null {
 
   // Graph-like data (nodes + edges)
   if (Array.isArray(obj["nodes"]) && Array.isArray(obj["edges"])) {
-    return buildMermaidFromGraph(obj as unknown as GraphLike);
+    const graph: GraphLike = {
+      nodes: obj["nodes"],
+      edges: obj["edges"],
+    };
+    return buildMermaidFromGraph(graph);
   }
 
   // Trace-like data (generic)
   if (Array.isArray(obj["trace"]) || Array.isArray(obj["steps"])) {
-    return buildMermaidFromTrace(obj as unknown as TraceLike);
+    const trace: TraceLike = {
+      trace: Array.isArray(obj["trace"]) ? obj["trace"] : undefined,
+      steps: Array.isArray(obj["steps"]) ? obj["steps"] : undefined,
+    };
+    return buildMermaidFromTrace(trace);
   }
 
   // Trace result with callChain (from executeTraceFunctionExecution)
   if (Array.isArray(obj["callChain"])) {
+    const chain = obj["callChain"]
+      .filter((entry): entry is Record<string, unknown> => typeof entry === "object" && entry !== null)
+      .map((entry) => ({
+        callerSymbolId: pickMermaidString([entry["callerSymbolId"]], "?"),
+        calledSymbolId: pickMermaidString([entry["calledSymbolId"]], "?"),
+      }));
     return buildMermaidFromCallChain(
-      obj["callChain"] as { callerSymbolId: string; calledSymbolId: string }[],
+      chain,
     );
   }
 
@@ -317,10 +355,43 @@ function tryBuildMermaid(data: unknown): string | null {
     && typeof obj["incoming"] === "object"
     && obj["incoming"] !== null
   ) {
-    return buildMermaidFromDependencyCheck(obj as unknown as DependencyCheckLike);
+    const dependencyCheck: DependencyCheckLike = {
+      filePath: obj["filePath"],
+      relativePath: typeof obj["relativePath"] === "string" ? obj["relativePath"] : undefined,
+      outgoing: obj["outgoing"],
+      incoming: obj["incoming"],
+    };
+    return buildMermaidFromDependencyCheck(dependencyCheck);
   }
 
   return null;
+}
+
+function valueToMermaidString(value: unknown, fallback = "?"): string {
+  if (typeof value === "string") return value;
+  if (typeof value === "number" || typeof value === "bigint" || typeof value === "boolean") {
+    return String(value);
+  }
+  return fallback;
+}
+
+function pickMermaidString(values: unknown[], fallback: string): string {
+  for (const value of values) {
+    if (typeof value === "string" && value.length > 0) {
+      return value;
+    }
+    if (typeof value === "number" || typeof value === "bigint" || typeof value === "boolean") {
+      return String(value);
+    }
+  }
+  return fallback;
+}
+
+function toRecord(value: unknown): Record<string, unknown> | undefined {
+  if (typeof value !== "object" || value === null) {
+    return undefined;
+  }
+  return value as Record<string, unknown>;
 }
 
 function sanitizeMermaidId(id: string): string {
@@ -335,7 +406,7 @@ function escapeMermaidLabel(label: string): string {
   if (cleaned.length <= MAX_MERMAID_LABEL_LENGTH) {
     return cleaned;
   }
-  return `${cleaned.slice(0, MAX_MERMAID_LABEL_LENGTH - 1)}…`;
+  return cleaned.slice(0, MAX_MERMAID_LABEL_LENGTH - 1) + "…";
 }
 
 function finalizeMermaid(lines: string[]): string {
@@ -357,23 +428,29 @@ function buildMermaidFromGraph(graph: GraphLike): string | null {
 
   const visibleNodeCount = Math.min(nodes.length, MAX_GRAPH_NODES);
   for (let i = 0; i < visibleNodeCount; i += 1) {
-    const node = nodes[i];
-    const originalId = node.id ?? node.file ?? node.filePath ?? node.path ?? node.name ?? "unknown";
-    const shortId = `N${i}`;
+    const node = toRecord(nodes[i]);
+    const originalId = pickMermaidString(
+      [node?.["id"], node?.["file"], node?.["filePath"], node?.["path"], node?.["name"]],
+      "unknown",
+    );
+    const shortId = "N" + String(i);
     idMap.set(originalId, shortId);
-    const label = node.relativePath ?? node.name ?? node.file ?? node.filePath ?? originalId;
-    lines.push(`  ${shortId}["${escapeMermaidLabel(String(label))}"]`);
+    const label = pickMermaidString(
+      [node?.["relativePath"], node?.["name"], node?.["file"], node?.["filePath"], originalId],
+      originalId,
+    );
+    lines.push("  " + shortId + "[\"" + escapeMermaidLabel(label) + "\"]");
   }
 
   if (nodes.length > visibleNodeCount) {
-    lines.push(`  NTRUNC["… ${nodes.length - visibleNodeCount} more node(s)"]`);
+    lines.push("  NTRUNC[\"… " + String(nodes.length - visibleNodeCount) + " more node(s)\"]");
   }
 
   const visibleEdgeCount = Math.min(edges.length, MAX_GRAPH_EDGES);
   for (let i = 0; i < visibleEdgeCount; i += 1) {
-    const edge = edges[i];
-    const srcOriginal = String(edge.source ?? edge.from ?? "?");
-    const tgtOriginal = String(edge.target ?? edge.to ?? "?");
+    const edge = toRecord(edges[i]);
+    const srcOriginal = pickMermaidString([edge?.["source"], edge?.["from"]], "?");
+    const tgtOriginal = pickMermaidString([edge?.["target"], edge?.["to"]], "?");
     const src = idMap.get(srcOriginal) ?? sanitizeMermaidId(srcOriginal);
     const tgt = idMap.get(tgtOriginal) ?? sanitizeMermaidId(tgtOriginal);
     lines.push(`  ${src} --> ${tgt}`);
@@ -394,9 +471,9 @@ function buildMermaidFromTrace(trace: TraceLike): string | null {
 
   const visibleStepCount = Math.min(steps.length, MAX_TRACE_EDGES);
   for (let i = 0; i < visibleStepCount; i += 1) {
-    const step = steps[i];
-    const from = sanitizeMermaidId(String(step.caller ?? step.from ?? "?"));
-    const to = sanitizeMermaidId(String(step.callee ?? step.to ?? "?"));
+    const step = toRecord(steps[i]);
+    const from = sanitizeMermaidId(valueToMermaidString(step?.["caller"] ?? step?.["from"], "?"));
+    const to = sanitizeMermaidId(valueToMermaidString(step?.["callee"] ?? step?.["to"], "?"));
     lines.push(`  ${from} --> ${to}`);
   }
 

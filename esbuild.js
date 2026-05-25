@@ -225,7 +225,10 @@ async function createAllContexts() {
   const astWorker = await esbuild.context(nodeBundle('src/analyzer/ast/AstWorker.ts', 'dist/astWorker.js', { external: ['web-tree-sitter'] }));
   const mcpServer = await esbuild.context(nodeBundle('src/mcp/mcpServer.ts', 'dist/mcpServer.mjs', { format: 'esm', external: ['web-tree-sitter'], banner: ESM_BANNER }));
   const mcpWorker = await esbuild.context(nodeBundle('src/mcp/McpWorker.ts', 'dist/mcpWorker.js', { external: ['web-tree-sitter'] }));
-  const cli = await esbuild.context(nodeBundle('src/cli/index.ts', 'dist/graph-it.js', { external: ['vscode', 'web-tree-sitter'], define: { 'process.env.CLI_VERSION': JSON.stringify(pkg.version) } }));
+  const cli = await esbuild.context(nodeBundle('src/cli/index.ts', 'dist/graph-it.js', {
+    external: ['vscode', 'web-tree-sitter', 'ink', 'react', 'react-dom', 'react-devtools-core'],
+    define: { 'process.env.CLI_VERSION': JSON.stringify(pkg.version) },
+  }));
   const webview = cliOnly ? null : await esbuild.context(browserBundle('src/webview/index.tsx', 'dist/webview.js'));
   const callgraphWebview = cliOnly ? null : await esbuild.context(browserBundle('src/webview/callgraph/index.tsx', 'dist/callgraph.js'));
   return { extension, worker, astWorker, mcpServer, mcpWorker, cli, webview, callgraphWebview };

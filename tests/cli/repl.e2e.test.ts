@@ -5,8 +5,11 @@
  * to validate command chaining and input propagation between cycles.
  */
 
+/// <reference types="node" />
+
 import * as path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import type { CliRuntime } from '../../src/cli/runtime';
 
 const mocks = vi.hoisted(() => ({
   selectMainAction: vi.fn(),
@@ -71,7 +74,7 @@ vi.mock('../../src/cli/commands/checkDependencies.js', () => ({ run: mocks.check
 vi.mock('../../src/cli/commands/cycles.js', () => ({ run: mocks.cyclesRun }));
 vi.mock('../../src/cli/commands/check.js', () => ({ run: mocks.checkRun }));
 
-import { run } from '@/cli/commands/repl';
+import { run } from '../../src/cli/commands/repl';
 
 function createRuntimeStub() {
   return {
@@ -79,6 +82,10 @@ function createRuntimeStub() {
     init: vi.fn().mockResolvedValue(undefined),
     ensureIndexed: vi.fn().mockResolvedValue({ filesIndexed: 2, durationMs: 1 }),
   };
+}
+
+async function runWithRuntimeStub(runtime: ReturnType<typeof createRuntimeStub>): Promise<void> {
+  await run(runtime as unknown as CliRuntime);
 }
 
 describe('REPL command chaining e2e', () => {
@@ -137,7 +144,7 @@ describe('REPL command chaining e2e', () => {
     mocks.selectOrInputSymbol.mockResolvedValueOnce('main');
 
     const runtime = createRuntimeStub();
-    await run(runtime as never);
+    await runWithRuntimeStub(runtime);
 
     const expectedFile = path.resolve('/workspace', 'src/index.ts');
 
@@ -163,7 +170,7 @@ describe('REPL command chaining e2e', () => {
     mocks.selectOrInputSymbol.mockResolvedValueOnce('handler');
 
     const runtime = createRuntimeStub();
-    await run(runtime as never);
+    await runWithRuntimeStub(runtime);
 
     const expectedFile = path.resolve('/workspace', 'src/index.ts');
     expect(mocks.summaryRun).toHaveBeenCalledWith([expectedFile], runtime, 'json');
@@ -177,7 +184,7 @@ describe('REPL command chaining e2e', () => {
     mocks.selectPostResultAction.mockResolvedValueOnce('drillDown');
 
     const runtime = createRuntimeStub();
-    await run(runtime as never);
+    await runWithRuntimeStub(runtime);
 
     expect(mocks.summaryRun).toHaveBeenCalledWith([], runtime, 'json');
     expect(mocks.traceRun).not.toHaveBeenCalled();
@@ -198,7 +205,7 @@ describe('REPL command chaining e2e', () => {
     mocks.selectOrInputSymbol.mockResolvedValueOnce('');
 
     const runtime = createRuntimeStub();
-    await run(runtime as never);
+    await runWithRuntimeStub(runtime);
 
     const expectedFile = path.resolve('/workspace', 'src/utils.ts');
 
@@ -219,7 +226,7 @@ describe('REPL command chaining e2e', () => {
       .mockResolvedValueOnce('');
 
     const runtime = createRuntimeStub();
-    await run(runtime as never);
+    await runWithRuntimeStub(runtime);
 
     const expectedFile = path.resolve('/workspace', 'src/index.ts');
     const expectedRelative = path.relative('/workspace', expectedFile);
@@ -255,7 +262,7 @@ describe('REPL command chaining e2e', () => {
     mocks.selectOrInputSymbol.mockResolvedValueOnce('');
 
     const runtime = createRuntimeStub();
-    await run(runtime as never);
+    await runWithRuntimeStub(runtime);
 
     const expectedFile = path.resolve('/workspace', 'src/utils.ts');
 
@@ -271,7 +278,7 @@ describe('REPL command chaining e2e', () => {
     mocks.selectPostResultAction.mockResolvedValueOnce('quit');
 
     const runtime = createRuntimeStub();
-    await run(runtime as never);
+    await runWithRuntimeStub(runtime);
 
     // Architecture called with no args when unlimited (no maxFiles)
     expect(mocks.architectureRun).toHaveBeenCalledWith([], runtime, 'json');
@@ -285,7 +292,7 @@ describe('REPL command chaining e2e', () => {
     mocks.askArchitectureOptions.mockResolvedValueOnce({ maxFiles: 100 });
 
     const runtime = createRuntimeStub();
-    await run(runtime as never);
+    await runWithRuntimeStub(runtime);
 
     expect(mocks.architectureRun).toHaveBeenCalledWith(['--maxFiles=100'], runtime, 'json');
   });
@@ -294,7 +301,7 @@ describe('REPL command chaining e2e', () => {
     mocks.selectMainAction.mockResolvedValueOnce({ kind: 'quit' });
 
     const runtime = createRuntimeStub();
-    await run(runtime as never);
+    await runWithRuntimeStub(runtime);
 
     expect(stdoutSpy).not.toHaveBeenCalledWith(expect.stringContaining('Type / to browse commands'));
     expect(stdoutSpy).toHaveBeenCalledWith('\nGoodbye!\n');
@@ -313,7 +320,7 @@ describe('REPL command chaining e2e', () => {
     mocks.selectPreferredFormat.mockResolvedValueOnce('json');
 
     const runtime = createRuntimeStub();
-    await run(runtime as never);
+    await runWithRuntimeStub(runtime);
 
     expect(mocks.summaryRun).toHaveBeenNthCalledWith(1, [], runtime, 'json');
     expect(mocks.summaryRun).toHaveBeenNthCalledWith(2, [], runtime, 'json');
@@ -330,7 +337,7 @@ describe('REPL command chaining e2e', () => {
     mocks.checkDependenciesRun.mockResolvedValueOnce('{"outgoing":{"dependencyCount":1},"incoming":{"referencingFileCount":2}}');
 
     const runtime = createRuntimeStub();
-    await run(runtime as never);
+    await runWithRuntimeStub(runtime);
 
     expect(stdoutSpy).toHaveBeenCalledWith(expect.stringContaining('"outgoing"'));
   });
@@ -351,7 +358,7 @@ describe('REPL command chaining e2e', () => {
       .mockResolvedValueOnce('{"filesIndexed":2}');
 
     const runtime = createRuntimeStub();
-    await run(runtime as never);
+    await runWithRuntimeStub(runtime);
 
     expect(stdoutSpy).toHaveBeenCalledWith(expect.stringContaining('graph TD'));
     expect(stdoutSpy).not.toHaveBeenCalledWith(
@@ -371,7 +378,7 @@ describe('REPL command chaining e2e', () => {
     );
 
     const runtime = createRuntimeStub();
-    await run(runtime as never);
+    await runWithRuntimeStub(runtime);
 
     expect(mocks.architectureRun).toHaveBeenCalledWith([], runtime, 'json');
     expect(stdoutSpy).toHaveBeenCalledWith(expect.stringContaining('graph LR'));
@@ -387,7 +394,7 @@ describe('REPL command chaining e2e', () => {
     mocks.architectureRun.mockResolvedValueOnce('{"nodes":[],"edges":[]}');
 
     const runtime = createRuntimeStub();
-    await run(runtime as never);
+    await runWithRuntimeStub(runtime);
 
     expect(stdoutSpy).toHaveBeenCalledWith(
       expect.stringContaining('Unknown format "banana"'),
@@ -403,7 +410,7 @@ describe('REPL command chaining e2e', () => {
     mocks.architectureRun.mockResolvedValueOnce('{"nodes":[],"edges":[]}');
 
     const runtime = createRuntimeStub();
-    await run(runtime as never);
+    await runWithRuntimeStub(runtime);
 
     expect(stdoutSpy).toHaveBeenCalledWith(
       expect.stringContaining('Unknown format "(missing value)"'),
@@ -418,7 +425,7 @@ describe('REPL command chaining e2e', () => {
     mocks.selectPostResultAction.mockResolvedValueOnce('quit');
 
     const runtime = createRuntimeStub();
-    await run(runtime as never);
+    await runWithRuntimeStub(runtime);
 
     expect(mocks.checkDependenciesRun).toHaveBeenCalledWith(
       [path.resolve('/workspace', 'src/my file.ts')],
@@ -435,7 +442,7 @@ describe('REPL command chaining e2e', () => {
     mocks.selectPostResultAction.mockResolvedValueOnce('quit');
 
     const runtime = createRuntimeStub();
-    await run(runtime as never);
+    await runWithRuntimeStub(runtime);
 
     expect(mocks.cyclesRun).toHaveBeenCalledWith(
       [path.resolve('/workspace', 'src/index.ts')],
@@ -453,7 +460,7 @@ describe('REPL command chaining e2e', () => {
     mocks.askCheckDepsOptions.mockResolvedValueOnce({ direction: 'outgoing' });
 
     const runtime = createRuntimeStub();
-    await run(runtime as never);
+    await runWithRuntimeStub(runtime);
 
     expect(mocks.pathRun).toHaveBeenCalledWith(
       [path.resolve('/workspace', 'src/index.ts')],
@@ -472,7 +479,7 @@ describe('REPL command chaining e2e', () => {
     mocks.askCheckDepsOptions.mockResolvedValueOnce({ direction: 'incoming' });
 
     const runtime = createRuntimeStub();
-    await run(runtime as never);
+    await runWithRuntimeStub(runtime);
 
     expect(mocks.pathInRun).toHaveBeenCalledWith(
       [path.resolve('/workspace', 'src/utils.ts')],
@@ -491,7 +498,7 @@ describe('REPL command chaining e2e', () => {
     mocks.selectOrInputSymbol.mockResolvedValueOnce('myFn');
 
     const runtime = createRuntimeStub();
-    await run(runtime as never);
+    await runWithRuntimeStub(runtime);
 
     const expectedFile = path.resolve('/workspace', 'src/index.ts');
     expect(mocks.traceRun).toHaveBeenCalledWith(
@@ -511,7 +518,7 @@ describe('REPL command chaining e2e', () => {
     mocks.selectOrInputSymbol.mockResolvedValueOnce('parse');
 
     const runtime = createRuntimeStub();
-    await run(runtime as never);
+    await runWithRuntimeStub(runtime);
 
     const expectedFile = path.resolve('/workspace', 'src/utils.ts');
     expect(mocks.cyclesRun).toHaveBeenCalledWith([expectedFile], runtime, 'json');
@@ -528,7 +535,7 @@ describe('REPL command chaining e2e', () => {
       .mockResolvedValueOnce('quit');
 
     const runtime = createRuntimeStub();
-    await run(runtime as never);
+    await runWithRuntimeStub(runtime);
 
     expect(mocks.summaryRun).toHaveBeenCalledWith(
       [path.resolve('/workspace', 'src/index.ts')],
@@ -548,7 +555,7 @@ describe('REPL command chaining e2e', () => {
     );
 
     const runtime = createRuntimeStub();
-    await run(runtime as never);
+    await runWithRuntimeStub(runtime);
 
     expect(mocks.architectureRun).toHaveBeenCalledWith([], runtime, 'json');
     expect(stdoutSpy).toHaveBeenCalledWith(expect.stringContaining('graph LR'));
@@ -560,7 +567,7 @@ describe('REPL command chaining e2e', () => {
       .mockResolvedValueOnce({ kind: 'quit' });
 
     const runtime = createRuntimeStub();
-    await run(runtime as never);
+    await runWithRuntimeStub(runtime);
 
     expect(stdoutSpy).toHaveBeenCalledWith(expect.stringContaining('Slash commands'));
     expect(stdoutSpy).toHaveBeenCalledWith(expect.stringContaining('/trace'));
@@ -575,7 +582,7 @@ describe('REPL command chaining e2e', () => {
     mocks.selectPreferredFormat.mockResolvedValueOnce('markdown');
 
     const runtime = createRuntimeStub();
-    await run(runtime as never);
+    await runWithRuntimeStub(runtime);
 
     expect(mocks.selectPreferredFormat).toHaveBeenCalledWith('text');
     expect(stdoutSpy).toHaveBeenCalledWith('Default format set to markdown.\n');
@@ -592,7 +599,7 @@ describe('REPL command chaining e2e', () => {
     );
 
     const runtime = createRuntimeStub();
-    await run(runtime as never);
+    await runWithRuntimeStub(runtime);
 
     const exportDir = path.join('.graph-it', 'exports', '');
     const escapedDir = exportDir.replaceAll('\\', '\\\\');

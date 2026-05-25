@@ -35,6 +35,8 @@ The `graph-it` CLI gives you full access to the dependency analysis engine of Gr
 
 ## Installation
 
+**Prerequisite:** Node.js v22 or higher.
+
 **Global install (recommended):**
 
 ```bash

@@ -1,0 +1,78 @@
+#!/bin/bash
+# Pre-push hook for Graph-It-Live
+# Validates package integrity before pushing to remote
+
+set -e
+
+echo "🔍 Running pre-push validation..."
+
+# Get the branch being pushed
+CURRENT_BRANCH=$(git rev-parse --abbrev-ref HEAD)
+
+# Only run full validation on main/develop branches or release branches
+if [[ "$CURRENT_BRANCH" =~ ^(main|develop|release/.*)$ ]]; then
+  echo "📦 Critical branch detected: $CURRENT_BRANCH"
+  echo "Running full package validation..."
+  
+  # Ensure clean build
+  echo "Building extension..."
+  npm run build -- --production > /dev/null 2>&1
+  
+  # Create package
+  echo "Creating package..."
+  npm run package > /dev/null 2>&1
+  
+  # Check for .map files (CRITICAL)
+  echo "Checking for source maps..."
+  MAPS=$(npx vsce ls 2>/dev/null | grep "\.map$" || true)
+  if [ -n "$MAPS" ]; then
+    echo ""
+    echo "❌ FAIL: .map files found in package"
+    echo ""
+    echo "$MAPS"
+    echo ""
+    echo "Fix: Update .vscodeignore to exclude **/*.map"
+    echo "Then re-package: npm run package"
+    echo ""
+    exit 1
+  fi
+  echo "✅ No source maps found"
+  
+  # Check WASM files
+  echo "Checking WASM files..."
+  WASM_COUNT=$(npx vsce ls 2>/dev/null | grep "\.wasm$" | wc -l | tr -d ' ')
+  if [ "$WASM_COUNT" -ne 8 ]; then
+    echo ""
+    echo "❌ FAIL: Expected 8 WASM files, found $WASM_COUNT"
+    echo ""
+    echo "Fix: Check esbuild.js copyWasmFiles() function"
+    echo "Then re-build: npm run build"
+    echo ""
+    exit 1
+  fi
+  echo "✅ All 8 WASM files present"
+  
+  # Check package size
+  echo "Checking package size..."
+  PACKAGE_FILE=$(ls -1 graph-it-live-*.vsix 2>/dev/null | head -1)
+  if [ -n "$PACKAGE_FILE" ]; then
+    SIZE_MB=$(du -m "$PACKAGE_FILE" | cut -f1)
+    if [ "$SIZE_MB" -gt 20 ]; then
+      echo ""
+      echo "⚠️  WARNING: Package size is ${SIZE_MB} MB (target: ~16 MB)"
+      echo ""
+      echo "Package may be bloated. Consider investigating."
+      echo ""
+    else
+      echo "✅ Package size OK: ${SIZE_MB} MB"
+    fi
+  fi
+  
+  echo ""
+  echo "✅ Pre-push validation passed"
+  echo "📦 Package is ready for release"
+  echo ""
+else
+  echo "ℹ️  Feature branch: $CURRENT_BRANCH"
+  echo "Skipping full package validation (only required for main/develop/release)"
+fi

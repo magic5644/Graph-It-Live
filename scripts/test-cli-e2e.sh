@@ -3,7 +3,8 @@
 # Usage: bash scripts/test-cli-e2e.sh [workspace_path]
 set -euo pipefail
 
-WORKSPACE=$(cd "${1:-$(pwd)}" && pwd)   # absolute path
+SCRIPT_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
+WORKSPACE=$(cd "${1:-$SCRIPT_DIR/..}" && pwd)   # absolute path (default: repo root)
 ENTRY_FILE="$WORKSPACE/src/extension/extension.ts"
 SAMPLE_FILE="$WORKSPACE/src/cli/index.ts"
 SAMPLE_FILE_REL="src/cli/index.ts"      # relative (for CLI commands)
@@ -20,6 +21,32 @@ PASS=0; FAIL=0
 pass() { echo -e "${GREEN}✔ $1${NC}"; PASS=$((PASS+1)); }
 fail() { echo -e "${RED}✗ $1${NC}"; FAIL=$((FAIL+1)); }
 section() { echo -e "\n${YELLOW}── $1 ──${NC}"; }
+
+# ── package.json patch / restore ─────────────────────────────────────────────
+# The default packaging target is the VS Code extension (.vsix via vsce).
+# For the CLI npm package we need a temporary `files` field so that dist/
+# (gitignored) is included. We patch before pack and always restore via trap.
+PKG_BACKUP="$WORKSPACE/package.json.bak"
+restore_package_json() {
+  if [[ -f "$PKG_BACKUP" ]]; then
+    mv "$PKG_BACKUP" "$WORKSPACE/package.json"
+    echo -e "\n  package.json restored"
+  fi
+}
+trap restore_package_json EXIT
+
+cp "$WORKSPACE/package.json" "$PKG_BACKUP"
+node -e "
+const fs = require('fs');
+const p = '$WORKSPACE/package.json';
+const pkg = JSON.parse(fs.readFileSync(p, 'utf8'));
+pkg.files = ['bin/', 'dist/graph-it.js', 'dist/astWorker.js', 'dist/mcpServer.mjs', 'dist/mcpWorker.js', 'dist/indexerWorker.js', 'dist/wasm/', 'dist/queries/', 'README.md', 'LICENSE', 'docs/CLI.md'];
+fs.writeFileSync(p, JSON.stringify(pkg, null, 2) + '\n');
+"
+echo "  package.json patched with CLI files field"
+
+# All npm commands must run from the repo root
+cd "$WORKSPACE"
 
 # ── 1. Build + pack ──────────────────────────────────────────────────────────
 section "Build & pack"
