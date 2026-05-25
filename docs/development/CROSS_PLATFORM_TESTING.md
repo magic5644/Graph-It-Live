@@ -224,7 +224,7 @@ Example GitHub Actions matrix:
 strategy:
   matrix:
     os: [ubuntu-latest, macos-latest, windows-latest]
-    node: [20]
+    node: [22]
 runs-on: ${{ matrix.os }}
 ```
 

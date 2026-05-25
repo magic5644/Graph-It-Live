@@ -162,13 +162,14 @@ vite.config.ts.timestamp-*
 # Copilot files
 .copilot/
 docs/agent-instructions/*
+docs/AGENT_*
 .github/copilot-instructions.md
 .github/agents
 .github/prompts
+.github/context-mode
 .clavix
 .specify
 .reports
-.agents/**
 .agent
 .codex
 .continue
@@ -179,6 +180,9 @@ docs/agent-instructions/*
 .scannerwork
 .kiro
 .obsidian
+.antigravitycli
+.prompts
+.agents/*
 
 
 codemaps/

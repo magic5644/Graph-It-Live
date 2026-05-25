@@ -38,6 +38,7 @@ import { createSessionState } from '../repl/sessionState.js';
 import { sanitizeTerminalText } from '../repl/terminal.js';
 import { tokenizeCommandLine } from '../repl/tokenize.js';
 import { getTip, getPersonaTip } from '../repl/tips.js';
+import { runInkReplSession, type InkReplCommandResponse } from '../repl/ink/ReplInkApp.js';
 
 const VERSION = process.env.CLI_VERSION ?? '0.0.0-dev';
 
@@ -64,6 +65,14 @@ interface ReplActionResult {
   shouldQuit?: boolean;
   skipPostAction?: boolean;
 }
+
+interface TypedCommandOptions {
+  uiMode: 'legacy' | 'ink';
+}
+
+const LEGACY_TYPED_COMMAND_OPTIONS: TypedCommandOptions = { uiMode: 'legacy' };
+const INK_TYPED_COMMAND_OPTIONS: TypedCommandOptions = { uiMode: 'ink' };
+type DependencyDirection = 'both' | 'outgoing' | 'incoming';
 
 type ReplMainAction = 'trace' | 'command' | 'setPath' | 'checkDependencies' | 'cycles' | 'check' | 'summary' | 'architecture' | 'format' | 'help';
 type ReplStickyAction = 'architecture' | 'summary' | 'check';
@@ -229,14 +238,72 @@ export async function run(runtime: CliRuntime): Promise<void> {
   }
 
   const collector = new SourceFileCollector({ excludeNodeModules: true });
-  const allFiles = await runQuietlyDuringBootstrap(
+  let allFiles = await runQuietlyDuringBootstrap(
     () => collector.collectAllSourceFiles(runtime.workspaceRoot),
   );
   const state = createSessionState(runtime.workspaceRoot);
+  const useLegacyUi = process.env.GRAPH_IT_REPL_LEGACY === '1' || Boolean(process.env.VITEST);
 
-  let quit = false;
-  while (!quit) {
-    quit = await runOneCycle(runtime, state, allFiles);
+  if (useLegacyUi) {
+    let quit = false;
+    while (!quit) {
+      quit = await runOneCycle(runtime, state, allFiles);
+    }
+  } else {
+    await runInkReplSession({
+      version: VERSION,
+      workspaceRoot: state.workspaceRoot,
+      allFiles,
+      preferredFormat: state.preferredFormat,
+      lastFile: state.lastFile,
+      lastSymbol: state.lastSymbol,
+      onSubmitCommand: async (commandLine: string) => {
+        const prevWorkspaceRoot = state.workspaceRoot;
+        const prevLastFile = state.lastFile;
+        const prevLastSymbol = state.lastSymbol;
+
+        const result = await runTypedCommandLine(
+          runtime,
+          state,
+          state.preferredFormat,
+          commandLine,
+          allFiles,
+          INK_TYPED_COMMAND_OPTIONS,
+        );
+
+        applyResultToSession(state, result, false);
+
+        const response: InkReplCommandResponse = {
+          command: result.command,
+          output: result.output
+            ? stripSavedOutputNoise(result.output, result.effectiveFormat)
+            : undefined,
+          shouldQuit: result.shouldQuit,
+        };
+
+        // Propagate state changes back to the REPL for display/autocomplete
+        const workspaceChanged = state.workspaceRoot !== prevWorkspaceRoot;
+        const lastFileChanged = state.lastFile !== prevLastFile;
+        const lastSymbolChanged = state.lastSymbol !== prevLastSymbol;
+        if (workspaceChanged || lastFileChanged || lastSymbolChanged) {
+          response.updatedContext = {};
+          if (workspaceChanged) {
+            const newAllFiles = await collector.collectAllSourceFiles(state.workspaceRoot);
+            allFiles = newAllFiles;
+            response.updatedContext.workspaceRoot = state.workspaceRoot;
+            response.updatedContext.allFiles = newAllFiles;
+          }
+          if (lastFileChanged) {
+            response.updatedContext.lastFile = state.lastFile ?? null;
+          }
+          if (lastSymbolChanged) {
+            response.updatedContext.lastSymbol = state.lastSymbol ?? null;
+          }
+        }
+
+        return response;
+      },
+    });
   }
 
   process.stdout.write('\nGoodbye!\n');
@@ -314,6 +381,7 @@ async function executeCommandForRepl(
 function applyResultToSession(
   state: ReturnType<typeof createSessionState>,
   result: ReplActionResult,
+  emitOutput = true,
 ): void {
   state.lastFile = result.contextFile;
   state.lastSymbol = result.contextSymbol;
@@ -330,8 +398,10 @@ function applyResultToSession(
 
   if (result.output) {
     state.lastResult = result.rawData ?? result.output;
-    const sanitizedOutput = stripSavedOutputNoise(result.output, result.effectiveFormat);
-    process.stdout.write(sanitizedOutput.endsWith('\n') ? sanitizedOutput : `${sanitizedOutput}\n`);
+    if (emitOutput) {
+      const sanitizedOutput = stripSavedOutputNoise(result.output, result.effectiveFormat);
+      process.stdout.write(sanitizedOutput.endsWith('\n') ? sanitizedOutput : `${sanitizedOutput}\n`);
+    }
   }
 
   if (result.effectiveFormat && result.effectiveFormat !== state.preferredFormat) {
@@ -348,7 +418,14 @@ async function runTypedCommandFromPrompt(
   allFiles: string[],
 ): Promise<ReplActionResult> {
   const commandLine = await inputCommandLine(state.lastCommandLine ?? '');
-  return runTypedCommandLine(runtime, state, preferredFormat, commandLine, allFiles);
+  return runTypedCommandLine(
+    runtime,
+    state,
+    preferredFormat,
+    commandLine,
+    allFiles,
+    LEGACY_TYPED_COMMAND_OPTIONS,
+  );
 }
 
 async function runTypedCommandLine(
@@ -357,7 +434,9 @@ async function runTypedCommandLine(
   preferredFormat: CliOutputFormat,
   commandLine: string,
   allFiles: string[],
+  options?: TypedCommandOptions,
 ): Promise<ReplActionResult> {
+  const resolvedOptions = options ?? LEGACY_TYPED_COMMAND_OPTIONS;
   const trimmedCommandLine = commandLine.trim();
   const parsed = tokenizeCommandLine(trimmedCommandLine);
   const tokens = parsed.tokens;
@@ -412,9 +491,23 @@ async function runTypedCommandLine(
     state,
     runtime,
     allFiles,
+    resolvedOptions,
   );
   if (sessionCommand) {
     return sessionCommand;
+  }
+
+  if (resolvedOptions.uiMode === 'ink') {
+    const guidedResult = await runInkGuidedCommand(
+      normalizedCommand,
+      contextualArgs,
+      runtime,
+      state,
+      effectiveFormat,
+    );
+    if (guidedResult) {
+      return guidedResult;
+    }
   }
 
   const runnerKey = resolveTypedRunnerKey(normalizedCommand);
@@ -424,7 +517,13 @@ async function runTypedCommandLine(
     const commandLabel = runnerKey === 'checkDependencies'
       ? 'check-dependencies'
       : runnerKey;
-    return executeCommandForRepl(commandLabel, contextualArgs, runtime, effectiveFormat, run);
+    return executeCommandForRepl(
+      commandLabel,
+      normalizeTypedRunnerArgs(commandLabel, contextualArgs),
+      runtime,
+      effectiveFormat,
+      run,
+    );
   }
 
   return {
@@ -440,6 +539,7 @@ async function handleTypedSessionCommand(
   state: ReturnType<typeof createSessionState>,
   runtime: CliRuntime,
   allFiles: string[],
+  options: TypedCommandOptions,
 ): Promise<ReplActionResult | undefined> {
   if (command === 'help') {
     return {
@@ -454,14 +554,14 @@ async function handleTypedSessionCommand(
   }
 
   if (command === 'path') {
-    return handlePathSessionCommand(args, state, runtime, allFiles);
+    return handlePathSessionCommand(args, state, runtime, allFiles, options);
   }
 
   if (command !== 'format') {
     if (command !== 'file') {
       return undefined;
     }
-    return handleFileSessionCommand(args, state, runtime, allFiles);
+    return handleFileSessionCommand(args, state, runtime, allFiles, options);
   }
 
   const requestedFormat = args[0];
@@ -473,8 +573,14 @@ async function handleTypedSessionCommand(
       output: `Unknown format "${sanitizeTerminalText(requestedFormat)}". Valid formats: ${CLI_OUTPUT_FORMATS.join(', ')}`,
       skipPostAction: true,
     };
-  } else {
+  } else if (options.uiMode === 'legacy') {
     state.preferredFormat = await selectPreferredFormat(state.preferredFormat);
+  } else {
+    return {
+      command: 'format',
+      output: `Current format: ${state.preferredFormat}. Set a value explicitly, e.g. /format markdown. Valid formats: ${CLI_OUTPUT_FORMATS.join(', ')}`,
+      skipPostAction: true,
+    };
   }
 
   return {
@@ -505,12 +611,19 @@ async function handlePathSessionCommand(
   state: ReturnType<typeof createSessionState>,
   runtime: CliRuntime,
   allFiles: string[],
+  options: TypedCommandOptions,
 ): Promise<ReplActionResult> {
   let targetDirectory: string;
   if (args[0]) {
     targetDirectory = path.isAbsolute(args[0])
       ? path.resolve(args[0])
       : path.resolve(state.workspaceRoot, args[0]);
+  } else if (options.uiMode === 'ink') {
+    return {
+      command: 'path',
+      output: `Current workspace scope: ${path.relative(runtime.workspaceRoot, state.workspaceRoot) || '.'}. Usage: /path <directory>`,
+      skipPostAction: true,
+    };
   } else {
     const selectedRelativeDirectory = await searchDirectory(
       getScopedFiles(allFiles, state.workspaceRoot),
@@ -544,7 +657,18 @@ async function handleFileSessionCommand(
   state: ReturnType<typeof createSessionState>,
   runtime: CliRuntime,
   allFiles: string[],
+  options: TypedCommandOptions,
 ): Promise<ReplActionResult> {
+  if (!args[0] && options.uiMode === 'ink') {
+    return {
+      command: 'file',
+      output: state.lastFile
+        ? `Current file context: ${path.relative(runtime.workspaceRoot, state.lastFile)}. Usage: /file <path>`
+        : 'No file context set. Usage: /file <path>',
+      skipPostAction: true,
+    };
+  }
+
   const resolvedFile = args[0]
     ? parseSymbolRef(args[0], state.workspaceRoot).filePath
     : path.resolve(
@@ -669,6 +793,161 @@ function extractFormatOverride(
   }
 
   return { effectiveFormat: override ?? preferredFormat, cleanedArgs, invalidFormatValue };
+}
+
+function extractTraceDepthArg(args: string[]): { cleanedArgs: string[]; maxDepth?: number } {
+  const cleanedArgs: string[] = [];
+  let maxDepth: number | undefined;
+
+  for (let i = 0; i < args.length; i += 1) {
+    const arg = args[i];
+    if (arg === '--maxDepth' && args[i + 1]) {
+      const parsed = Number.parseInt(args[i + 1], 10);
+      if (!Number.isNaN(parsed) && parsed > 0) {
+        maxDepth = parsed;
+      }
+      i += 1;
+      continue;
+    }
+
+    if (arg.startsWith('--maxDepth=')) {
+      const parsed = Number.parseInt(arg.slice('--maxDepth='.length), 10);
+      if (!Number.isNaN(parsed) && parsed > 0) {
+        maxDepth = parsed;
+      }
+      continue;
+    }
+
+    cleanedArgs.push(arg);
+  }
+
+  return { cleanedArgs, maxDepth };
+}
+
+function extractDepsDirectionArg(args: string[]): { cleanedArgs: string[]; direction: DependencyDirection } {
+  const cleanedArgs: string[] = [];
+  let direction: DependencyDirection = 'both';
+
+  for (const arg of args) {
+    if (arg === '--incoming' || arg === '--in') {
+      direction = 'incoming';
+      continue;
+    }
+    if (arg === '--outgoing' || arg === '--out') {
+      direction = 'outgoing';
+      continue;
+    }
+    if (arg === '--both') {
+      direction = 'both';
+      continue;
+    }
+    cleanedArgs.push(arg);
+  }
+
+  return { cleanedArgs, direction };
+}
+
+function normalizeTypedRunnerArgs(command: string, args: string[]): string[] {
+  if (command !== 'architecture') {
+    return args;
+  }
+
+  const normalized: string[] = [];
+  for (const arg of args) {
+    if (arg.startsWith('--maxFiles=')) {
+      const value = arg.slice('--maxFiles='.length);
+      normalized.push('--maxFiles', value);
+      continue;
+    }
+    normalized.push(arg);
+  }
+  return normalized;
+}
+
+async function runInkGuidedCommand(
+  command: string,
+  args: string[],
+  runtime: CliRuntime,
+  state: ReturnType<typeof createSessionState>,
+  preferredFormat: CliOutputFormat,
+): Promise<ReplActionResult | undefined> {
+  if (command === 'trace') {
+    return runInkGuidedTrace(args, runtime, state, preferredFormat);
+  }
+
+  if (command === 'check-dependencies' || command === 'deps' || command === 'dependencies') {
+    return runInkGuidedCheckDependencies(args, runtime, state, preferredFormat);
+  }
+
+  return undefined;
+}
+
+async function runInkGuidedTrace(
+  args: string[],
+  runtime: CliRuntime,
+  state: ReturnType<typeof createSessionState>,
+  preferredFormat: CliOutputFormat,
+): Promise<ReplActionResult> {
+  const { cleanedArgs, maxDepth } = extractTraceDepthArg(args);
+  const target = cleanedArgs[0] ?? buildDefaultTraceTarget(state);
+  if (!target) {
+    return {
+      command: 'trace',
+      output: 'Trace needs a file context. Usage: /trace <file#Symbol> or set a file with /file <path>.',
+      skipPostAction: true,
+    };
+  }
+
+  return runTraceOrExplainForTarget(target, maxDepth, runtime, state, preferredFormat);
+}
+
+function buildDefaultTraceTarget(state: ReturnType<typeof createSessionState>): string | undefined {
+  if (!state.lastFile) return undefined;
+  if (state.lastSymbol) return `${state.lastFile}#${state.lastSymbol}`;
+  return state.lastFile;
+}
+
+async function runTraceOrExplainForTarget(
+  target: string,
+  maxDepth: number | undefined,
+  runtime: CliRuntime,
+  state: ReturnType<typeof createSessionState>,
+  preferredFormat: CliOutputFormat,
+): Promise<ReplActionResult> {
+  const parsed = parseSymbolRef(target, state.workspaceRoot);
+  if (parsed.symbolName) {
+    const traceArgs = [`${parsed.filePath}#${parsed.symbolName}`];
+    if (maxDepth !== undefined) {
+      traceArgs.push('--maxDepth', String(maxDepth));
+    }
+    const { run } = await import('./trace.js');
+    const result = await executeCommandForRepl('trace', traceArgs, runtime, preferredFormat, run);
+    return { ...result, contextFile: parsed.filePath, contextSymbol: parsed.symbolName };
+  }
+
+  const { run } = await import('./explain.js');
+  const result = await executeCommandForRepl('explain', [parsed.filePath], runtime, preferredFormat, run);
+  return { ...result, contextFile: parsed.filePath };
+}
+
+async function runInkGuidedCheckDependencies(
+  args: string[],
+  runtime: CliRuntime,
+  state: ReturnType<typeof createSessionState>,
+  preferredFormat: CliOutputFormat,
+): Promise<ReplActionResult> {
+  const { cleanedArgs, direction } = extractDepsDirectionArg(args);
+  const fileArg = cleanedArgs[0] ?? state.lastFile;
+  if (!fileArg) {
+    return {
+      command: 'check-dependencies',
+      output: 'check-dependencies needs a file path. Usage: /check-dependencies <file> [--incoming|--outgoing|--both]',
+      skipPostAction: true,
+    };
+  }
+
+  const absoluteFile = parseSymbolRef(fileArg, state.workspaceRoot).filePath;
+  return runCheckDepsWithDirection(direction, absoluteFile, runtime, preferredFormat);
 }
 
 function getDefaultSaveExtension(format: CliOutputFormat | undefined): string {
@@ -860,6 +1139,7 @@ async function runAction(
       state.preferredFormat,
       selection.commandLine ?? '',
       allFiles,
+      LEGACY_TYPED_COMMAND_OPTIONS,
     );
   }
 

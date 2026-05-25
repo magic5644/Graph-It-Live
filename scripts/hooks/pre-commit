@@ -1,0 +1,57 @@
+#!/bin/bash
+# Pre-commit hook for Graph-It-Live
+# Validates layer isolation before allowing commits
+
+set -e
+
+echo "🔍 Running pre-commit validation..."
+
+# Only run if build/architecture files changed
+CHANGED_FILES=$(git diff --cached --name-only)
+
+if echo "$CHANGED_FILES" | grep -qE "esbuild\.js|\.vscodeignore|package\.json|src/analyzer/|src/mcp/"; then
+  echo "📁 Build or layer files changed - running layer isolation check..."
+  
+  # Check analyzer layer (match actual import statements only, not comments)
+  if grep -rE "^\s*import\s+.*from\s+['\"]vscode['\"]" src/analyzer/ 2>/dev/null; then
+    echo ""
+    echo "❌ FAIL: vscode imports found in src/analyzer/"
+    echo ""
+    echo "Analyzer layer must be VS Code-agnostic (shared by CLI and MCP server)."
+    echo "Fix: Remove vscode imports and pass required data as constructor parameters."
+    echo ""
+    echo "Run this to see violations:"
+    echo "  grep -rE \"^\\s*import\\s+.*from\\s+['\\\"]vscode['\\\"]\" src/analyzer/"
+    echo ""
+    exit 1
+  fi
+  
+  # Check MCP layer (match actual import statements only, not comments)
+  if grep -rE "^\s*import\s+.*from\s+['\"]vscode['\"]" src/mcp/ 2>/dev/null; then
+    echo ""
+    echo "❌ FAIL: vscode imports found in src/mcp/"
+    echo ""
+    echo "MCP layer must be VS Code-agnostic (runs in separate Node.js process)."
+    echo "Fix: Remove vscode imports and use Node.js APIs instead."
+    echo ""
+    echo "Run this to see violations:"
+    echo "  grep -rE \"^\\s*import\\s+.*from\\s+['\\\"]vscode['\\\"]\" src/mcp/"
+    echo ""
+    exit 1
+  fi
+  
+  echo "✅ PASS: Layer isolation intact"
+else
+  echo "ℹ️  Skipping layer check (no relevant files changed)"
+fi
+
+# If package.json or build config changed, verify package would be valid
+if echo "$CHANGED_FILES" | grep -qE "esbuild\.js|\.vscodeignore|package\.json"; then
+  echo ""
+  echo "⚠️  Build configuration changed. After commit, run:"
+  echo "  npm run package"
+  echo "  npm run package:verify"
+  echo ""
+fi
+
+echo "✅ Pre-commit validation passed"

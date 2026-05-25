@@ -15,7 +15,7 @@ This guide provides comprehensive instructions for developing, building, testing
 
 ## Prerequisites
 
-- **Node.js**: v18 or higher (v20 LTS recommended)
+- **Node.js**: v22 or higher
 - **VS Code**: v1.96.0 or higher
 - **Git**: For version control
 
@@ -33,6 +33,7 @@ cd Graph-It-Live
 2. **Install dependencies**:
 
 ```bash
+nvm use # optional, uses Node.js 22 when nvm is installed
 npm install
 ```
 

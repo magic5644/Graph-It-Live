@@ -69,7 +69,7 @@
   ],
   "engines": {
     "vscode": "^1.96.0",
-    "node": ">=20.0.0"
+    "node": ">=22.0.0"
   },
   "categories": [
     "Visualization",
@@ -1121,7 +1121,9 @@
     "chokidar": "^5.0.0",
     "cytoscape": "^3.33.3",
     "cytoscape-fcose": "^2.2.0",
+    "ink": "^7.0.3",
     "react": "^19.2.6",
+    "react-devtools-core": "^6.1.5",
     "react-dom": "^19.2.6",
     "reactflow": "^11.11.4",
     "sql.js": "^1.14.1",
@@ -1133,7 +1135,7 @@
   "devDependencies": {
     "@eslint/js": "^10.0.1",
     "@types/mocha": "^10.0.10",
-    "@types/node": "^25.7.0",
+    "@types/node": "^25.8.0",
     "@types/react": "^19.2.14",
     "@types/react-dom": "^19.2.3",
     "@types/sql.js": "^1.4.11",
@@ -1144,7 +1146,7 @@
     "@vscode/vsce": "^3.9.1",
     "esbuild": "^0.27.7",
     "esbuild-css-modules-plugin": "^3.1.5",
-    "eslint": "^10.3.0",
+    "eslint": "^10.4.0",
     "fast-check": "^4.8.0",
     "glob": "^13.0.6",
     "globals": "^17.6.0",
