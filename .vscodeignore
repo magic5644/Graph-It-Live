@@ -9,6 +9,9 @@
 .obsidian/**
 __pycache__/**
 *.pyc
+.nvmrc
+.antigravitycli/**
+.prompts/**
 
 # Build info & generated metadata files
 tsconfig.tsbuildinfo
@@ -73,10 +76,13 @@ vitest.config.ts
 vitest.config.mjs
 vitest.config.mts
 vitest.benchmark.config.mts
+vitest.memory.config.mts
 sonar-project.properties
 package-lock.json
 .markdownlint.json
 .markdownlintignore
+skills-lock.json
+tsconfig.eslint.json
 
 
 # Development & documentation files
