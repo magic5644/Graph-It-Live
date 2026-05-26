@@ -143,7 +143,7 @@ async function countSourceFiles(
   excludeNodeModules: boolean,
 ): Promise<number> {
   let count = 0;
-  for await (const _ of walkSourceFilesAsync(dir, excludeNodeModules)) {
+  for await (const _file of walkSourceFilesAsync(dir, excludeNodeModules)) {
     if (cancelled) break;
     count++;
   }
