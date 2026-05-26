@@ -11,6 +11,19 @@ export class Parser implements ILanguageAnalyzer {
   private readonly fileReader: FileReader;
   private readonly pathResolver: PathResolver;
 
+  /**
+   * Compiled once at class definition time.
+   * Group 1 matches quoted strings (which must be kept as-is).
+   * Group 2 matches single-line and block comments (replaced with whitespace).
+   */
+  private static readonly STRIP_COMMENTS_RE: RegExp = (() => {
+    const stringPattern = /'[^']*'|"[^"]*"/;
+    const commentPattern = /\/\/[^\n]*|\/\*[\s\S]*?\*\//;
+    return new RegExp(
+      `(${stringPattern.source})|(${commentPattern.source})`,
+      "g",
+    );
+  })();
   constructor(rootDir?: string) {
     this.fileReader = new FileReader();
     this.pathResolver = new PathResolver(rootDir);
@@ -130,16 +143,10 @@ export class Parser implements ILanguageAnalyzer {
    * Replaces comments with spaces
    */
   private stripComments(content: string): string {
-    // Match strings OR comments
-    // Group 1: Strings (single or double quoted)
-    // Group 2: Comments (single line or block)
-    const stringPattern = /'[^']*'|"[^"]*"/;
-    const commentPattern = /\/\/[^\n]*|\/\*[\s\S]*?\*\//;
-    const combinedPattern = new RegExp(
-      `(${stringPattern.source})|(${commentPattern.source})`,
-      "g",
-    );
-    return content.replaceAll(combinedPattern, (_, str, comment) => {
+    // Re-use the statically compiled pattern. Must reset lastIndex because
+    // the /g flag keeps state when the same RegExp object is reused.
+    Parser.STRIP_COMMENTS_RE.lastIndex = 0;
+    return content.replaceAll(Parser.STRIP_COMMENTS_RE, (_, str, comment) => {
       if (str) {
         return str; // Keep strings
       }

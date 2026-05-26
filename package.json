@@ -1100,6 +1100,7 @@
     "test:vscode:vsix": "npm run package && npm run compile:tests && node ./tests/vscode-e2e/runTests.js --vsix",
     "test:all": "npm run test:unit",
     "test:bench": "node scripts/run-benchmarks.mjs",
+    "test:bench:memory": "node scripts/run-memory-bench.mjs",
     "test:mcp": "node scripts/test-mcp.js",
     "test:cli:e2e": "bash scripts/test-cli-e2e.sh",
     "lint": "eslint src",
@@ -1115,8 +1116,8 @@
   },
   "dependencies": {
     "@dagrejs/dagre": "^2.0.4",
-    "@inquirer/core": "^11.1.10",
-    "@inquirer/prompts": "^8.4.3",
+    "@inquirer/core": "^11.2.0",
+    "@inquirer/prompts": "^8.5.0",
     "@modelcontextprotocol/sdk": "^1.29.0",
     "chokidar": "^5.0.0",
     "cytoscape": "^3.33.4",
@@ -1152,7 +1153,7 @@
     "globals": "^17.6.0",
     "mocha": "^11.7.6",
     "typescript": "^6.0.3",
-    "typescript-eslint": "^8.59.4",
+    "typescript-eslint": "^8.60.0",
     "vitest": "^4.1.7"
   },
   "overrides": {

@@ -8,6 +8,7 @@
 import * as fs from "node:fs/promises";
 import * as path from "node:path";
 import { SUPPORTED_SYMBOL_ANALYSIS_EXTENSIONS } from "../../shared/constants";
+import { normalizePath } from "../../shared/path";
 import { detectLanguageFromExtension } from "../../shared/utils/languageDetection";
 import type { EdgeInfo, NodeInfo } from "../types";
 
@@ -264,13 +265,13 @@ export function validateScopePath(scopePath: string, rootDir: string): void {
     throw new Error(`INVALID_SCOPE_PATH: Scope path must be absolute. Got: ${scopePath}`);
   }
 
-  const resolvedScope = path.resolve(scopePath);
-  const resolvedRoot = path.resolve(rootDir);
+  const resolvedScope = normalizePath(path.resolve(scopePath));
+  const resolvedRoot = normalizePath(path.resolve(rootDir));
 
   // Ensure scope is the root itself or a subdirectory of root
+  // Both paths are already normalized (forward slashes), so only "/" separator is needed.
   const withinRoot =
     resolvedScope === resolvedRoot ||
-    resolvedScope.startsWith(resolvedRoot + path.sep) ||
     resolvedScope.startsWith(resolvedRoot + "/");
 
   if (!withinRoot) {

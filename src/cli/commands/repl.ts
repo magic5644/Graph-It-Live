@@ -344,10 +344,10 @@ async function isSafeWorkspaceWritePath(
   const existingParent = await findNearestExistingParent(path.dirname(targetPath));
   const realParent = normalizePathForComparison(await fs.realpath(existingParent));
 
+  // Both paths are normalised (forward slashes only), so path.sep check is redundant.
   return (
     realParent === realWorkspaceRoot ||
-    realParent.startsWith(`${realWorkspaceRoot}/`) ||
-    realParent.startsWith(`${realWorkspaceRoot}${path.sep}`)
+    realParent.startsWith(`${realWorkspaceRoot}/`)
   );
 }
 

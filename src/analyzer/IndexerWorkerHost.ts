@@ -15,6 +15,12 @@ interface WorkerConfig {
   excludeNodeModules?: boolean;
   tsConfigPath?: string;
   extensionPath?: string;
+  /**
+   * Maximum ms to wait for indexing before forcefully terminating the worker.
+   * Protects against hangs due to WASM initialization failures or silent crashes.
+   * Defaults to 10 minutes (600 000 ms).
+   */
+  timeoutMs?: number;
 }
 
 interface WorkerResponse {
@@ -120,6 +126,14 @@ export class IndexerWorkerHost {
   }
 
   /**
+   * Return the number of pending (in-flight) indexing requests.
+   * Currently at most 1 — used for monitoring and testing.
+   */
+  getPendingCount(): number {
+    return this.worker ? 1 : 0;
+  }
+
+  /**
    * Start background indexing in a worker thread
    */
   async startIndexing(config: WorkerConfig): Promise<IndexingResult> {
@@ -131,7 +145,28 @@ export class IndexerWorkerHost {
     this.startTime = Date.now();
     this.updateState('counting');
 
+    const timeoutMs = config.timeoutMs ?? 10 * 60 * 1000; // 10 minutes default
+
     return new Promise((resolve, reject) => {
+      let timeoutId: ReturnType<typeof setTimeout> | undefined;
+
+      const safeResolve = (result: IndexingResult): void => {
+        if (timeoutId !== undefined) clearTimeout(timeoutId);
+        resolve(result);
+      };
+
+      const safeReject = (reason: unknown): void => {
+        if (timeoutId !== undefined) clearTimeout(timeoutId);
+        reject(reason);
+      };
+
+      // Safety net: terminate hung workers after timeoutMs
+      timeoutId = setTimeout(() => {
+        this.cancel();
+        this.updateState('error');
+        this.cleanupWorker();
+        reject(new Error(`Indexing timed out after ${Math.round(timeoutMs / 60_000)} minute(s)`));
+      }, timeoutMs);
       try {
         // Create the worker with the config as workerData
         this.worker = new Worker(this.workerPath, {
@@ -173,13 +208,13 @@ export class IndexerWorkerHost {
               }
               this.updateState('complete');
               this.cleanupWorker();
-              resolve(result);
+              safeResolve(result);
               break;
 
             case 'error':
               this.updateState('error');
               this.cleanupWorker();
-              reject(new Error(msg.error ?? 'Unknown worker error'));
+              safeReject(new Error(msg.error ?? 'Unknown worker error'));
               break;
           }
         });
@@ -187,14 +222,14 @@ export class IndexerWorkerHost {
         this.worker.on('error', (error) => {
           this.updateState('error');
           this.cleanupWorker();
-          reject(error);
+          safeReject(error);
         });
 
         this.worker.on('exit', (code) => {
           if (code !== 0 && this.currentState !== 'complete' && this.currentState !== 'error') {
             this.updateState('error');
             this.cleanupWorker();
-            reject(new Error(`Worker stopped with exit code ${code}`));
+            safeReject(new Error(`Worker stopped with exit code ${code}`));
           }
         });
 
@@ -203,7 +238,7 @@ export class IndexerWorkerHost {
       } catch (error) {
         this.updateState('error');
         this.cleanupWorker();
-        reject(error);
+        safeReject(error);
       }
     });
   }

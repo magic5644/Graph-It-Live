@@ -56,7 +56,7 @@ function getFileBorderColor(label: string, fullPath: string): string {
   return EXTERNAL_PACKAGE_COLOR;
 }
 
-export const FileNode: React.FC<NodeProps> = ({ data, id }: NodeProps<FileNodeData>) => {
+export const FileNode = React.memo<NodeProps<FileNodeData>>(function FileNode({ data, id }) {
   const borderColor = getFileBorderColor(data.label, data.fullPath);
   const isExternal = isExternalPackage(data.fullPath || data.label);
   const isSelected = data.selectedNodeId === (data.nodeId || id);
@@ -277,4 +277,25 @@ export const FileNode: React.FC<NodeProps> = ({ data, id }: NodeProps<FileNodeDa
       <Handle type="source" position={Position.Right} style={{ visibility: 'hidden' }} />
     </button>
   );
-};
+},
+// Custom comparator: compare only data props, never callback props.
+// Callbacks change reference on every parent render and would cause constant re-renders.
+(prev, next) => {
+  const pd = prev.data;
+  const nd = next.data;
+  return (
+    prev.id === next.id &&
+    pd.label === nd.label &&
+    pd.fullPath === nd.fullPath &&
+    pd.isRoot === nd.isRoot &&
+    pd.isParent === nd.isParent &&
+    pd.isInCycle === nd.isInCycle &&
+    pd.hasChildren === nd.hasChildren &&
+    pd.isExpanded === nd.isExpanded &&
+    pd.hasReferencingFiles === nd.hasReferencingFiles &&
+    pd.parentCount === nd.parentCount &&
+    pd.isParentsVisible === nd.isParentsVisible &&
+    pd.selectedNodeId === nd.selectedNodeId &&
+    pd.nodeId === nd.nodeId
+  );
+});
