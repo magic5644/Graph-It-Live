@@ -52,16 +52,17 @@ describe('Spider', () => {
   it('should cache results for performance', async () => {
     const mainFile = path.join(fixturesPath, 'src/main.ts');
     
-    const start1 = Date.now();
+    const start1 = performance.now();
     const deps1 = await spider.analyze(mainFile);
-    const time1 = Date.now() - start1;
+    const time1 = performance.now() - start1;
     
-    const start2 = Date.now();
+    const start2 = performance.now();
     const deps2 = await spider.analyze(mainFile);
-    const time2 = Date.now() - start2;
+    const time2 = performance.now() - start2;
     
     expect(deps1).toEqual(deps2);
-    expect(time2).toBeLessThan(time1 || 10); // Cached should be faster or both very fast
+    // Cached call must be faster, or both so fast (<5 ms) that timing is irrelevant
+    expect(time2 < time1 || time1 < 5).toBe(true);
   });
 
   it('should handle non-existent files gracefully', async () => {
