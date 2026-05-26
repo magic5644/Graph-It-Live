@@ -243,32 +243,50 @@ export const useGraphData = () => {
   }, []);
 
   // Re-calculate visible nodes and edges when fullGraphData or expandedNodes changes
+  const layoutTimerRef = React.useRef<ReturnType<typeof setTimeout> | null>(null);
   useEffect(() => {
     if (!fullGraphData || !currentFilePath) return;
 
-    const { visibleNodes, visibleEdges } = calculateVisibleGraphLocal(
-      fullGraphData,
-      currentFilePath,
-      expandedNodes,
-      showParents
-    );
+    // Debounce layout computation to avoid running Dagre on every intermediate
+    // state change (e.g. rapid expand/collapse). 100 ms is imperceptible to the
+    // user but prevents multiple expensive layout passes in a single tick.
+    if (layoutTimerRef.current !== null) {
+      clearTimeout(layoutTimerRef.current);
+    }
 
-    // Calculate filename frequencies for disambiguation
-    const fileNameCounts = calculateFileNameCounts(visibleNodes);
+    layoutTimerRef.current = setTimeout(() => {
+      layoutTimerRef.current = null;
 
-    // Create React Flow nodes
-    const newNodes: Node[] = Array.from(visibleNodes).map(path =>
-      createFlowNode(path, fullGraphData, currentFilePath, expandedNodes, fileNameCounts, nodesInCycles)
-    );
+      const { visibleNodes, visibleEdges } = calculateVisibleGraphLocal(
+        fullGraphData,
+        currentFilePath,
+        expandedNodes,
+        showParents
+      );
 
-    // Create React Flow edges
-    const newEdges = createFlowEdges(visibleEdges, circularEdges);
+      // Calculate filename frequencies for disambiguation
+      const fileNameCounts = calculateFileNameCounts(visibleNodes);
 
-    // Apply layout
-    const layouted = getLayoutedElements(newNodes, newEdges);
-    setNodes(layouted.nodes);
-    setEdges(layouted.edges);
+      // Create React Flow nodes
+      const newNodes: Node[] = Array.from(visibleNodes).map(path =>
+        createFlowNode(path, fullGraphData, currentFilePath, expandedNodes, fileNameCounts, nodesInCycles)
+      );
 
+      // Create React Flow edges
+      const newEdges = createFlowEdges(visibleEdges, circularEdges);
+
+      // Apply layout
+      const layouted = getLayoutedElements(newNodes, newEdges);
+      setNodes(layouted.nodes);
+      setEdges(layouted.edges);
+    }, 100);
+
+    return () => {
+      if (layoutTimerRef.current !== null) {
+        clearTimeout(layoutTimerRef.current);
+        layoutTimerRef.current = null;
+      }
+    };
   }, [fullGraphData, expandedNodes, currentFilePath, setNodes, setEdges, circularEdges, nodesInCycles, calculateVisibleGraphLocal, createFlowNode, createFlowEdges, showParents]);
 
   // Function to request on-demand scan when expanding a node

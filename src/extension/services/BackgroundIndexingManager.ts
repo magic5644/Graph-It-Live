@@ -33,7 +33,7 @@ export class BackgroundIndexingManager {
   private readonly spider: Spider;
   private readonly log: Logger;
   private readonly onIndexingComplete: () => Promise<void>;
-  private readonly statusBarItem: vscode.StatusBarItem;
+  private _statusBarItem: vscode.StatusBarItem | null = null;
   private config: BackgroundIndexingConfig;
   private isIndexing = false;
   private indexingStartTimer?: ReturnType<typeof setTimeout>;
@@ -46,13 +46,19 @@ export class BackgroundIndexingManager {
     this.log = options.logger;
     this.onIndexingComplete = options.onIndexingComplete;
     this.config = options.initialConfig;
+  }
 
-    this.statusBarItem = vscode.window.createStatusBarItem(
-      vscode.StatusBarAlignment.Left,
-      100
-    );
-    this.statusBarItem.name = 'Graph-It-Live Indexing';
-    this.context.subscriptions.push(this.statusBarItem);
+  /** Lazily creates the status bar item on first use to reduce activation overhead. */
+  private get statusBarItem(): vscode.StatusBarItem {
+    if (!this._statusBarItem) {
+      this._statusBarItem = vscode.window.createStatusBarItem(
+        vscode.StatusBarAlignment.Left,
+        100,
+      );
+      this._statusBarItem.name = 'Graph-It-Live Indexing';
+      this.context.subscriptions.push(this._statusBarItem);
+    }
+    return this._statusBarItem;
   }
 
   updateConfiguration(config: BackgroundIndexingConfig): void {
@@ -114,7 +120,8 @@ export class BackgroundIndexingManager {
       clearTimeout(this.hideStatusTimer);
       this.hideStatusTimer = undefined;
     }
-    this.statusBarItem.dispose();
+    // Only dispose if the status bar item was actually created (lazy initialization)
+    this._statusBarItem?.dispose();
   }
 
   private clearScheduledIndexing(): void {

@@ -97,52 +97,59 @@ function postMessage(msg: WorkerResponse): void {
 }
 
 /**
- * Collect all supported source files in a directory tree
+ * Async generator that streams supported source file paths from a directory tree.
+ * Never accumulates all paths in memory — yields one path at a time.
+ * Safe to cancel mid-stream via the module-level `cancelled` flag.
  */
-async function collectAllSourceFiles(
+async function* walkSourceFilesAsync(
   dir: string,
   excludeNodeModules: boolean,
-): Promise<string[]> {
-  const files: string[] = [];
+): AsyncGenerator<string> {
+  if (cancelled) return;
 
-  const walkDir = async (currentDir: string): Promise<void> => {
-    if (cancelled) return;
-
-    try {
-      const entries = await fs.readdir(currentDir, { withFileTypes: true });
-
-      for (const entry of entries) {
-        if (cancelled) return;
-
-        const fullPath = path.join(currentDir, entry.name);
-
-        if (entry.isDirectory()) {
-          if (!shouldSkipDirectory(entry.name, excludeNodeModules)) {
-            await walkDir(fullPath);
-          }
-        } else if (entry.isFile() && isSupportedSourceFile(entry.name)) {
-          files.push(fullPath);
-        }
-      }
-    } catch (error) {
-      // Silently skip directories that don't exist or can't be read
-      // This can happen with symbolic links or permission issues
-      if (
-        (error as NodeJS.ErrnoException).code !== "ENOENT" &&
-        (error as NodeJS.ErrnoException).code !== "EACCES"
-      ) {
-        log.error(
-          "Error reading directory in IndexerWorker",
-          currentDir,
-          error,
-        );
-      }
+  let entries;
+  try {
+    entries = await fs.readdir(dir, { withFileTypes: true });
+  } catch (error) {
+    // Silently skip directories that don't exist or can't be read
+    if (
+      (error as NodeJS.ErrnoException).code !== "ENOENT" &&
+      (error as NodeJS.ErrnoException).code !== "EACCES"
+    ) {
+      log.error("Error reading directory in IndexerWorker", dir, error);
     }
-  };
+    return;
+  }
 
-  await walkDir(dir);
-  return files;
+  for (const entry of entries) {
+    if (cancelled) return;
+    const fullPath = path.join(dir, entry.name);
+    if (entry.isDirectory()) {
+      if (!shouldSkipDirectory(entry.name, excludeNodeModules)) {
+        yield* walkSourceFilesAsync(fullPath, excludeNodeModules);
+      }
+    } else if (entry.isFile() && isSupportedSourceFile(entry.name)) {
+      yield fullPath;
+    }
+  }
 }
+
+/**
+ * Count supported source files without storing their paths.
+ * Uses `walkSourceFilesAsync` under the hood so it consumes O(1) memory.
+ */
+async function countSourceFiles(
+  dir: string,
+  excludeNodeModules: boolean,
+): Promise<number> {
+  let count = 0;
+  for await (const _ of walkSourceFilesAsync(dir, excludeNodeModules)) {
+    if (cancelled) break;
+    count++;
+  }
+  return count;
+}
+
 
 /**
  * Analyze a single file and extract its dependencies
@@ -213,9 +220,9 @@ async function runIndexing(config: WorkerConfig): Promise<void> {
       config.extensionPath,
     );
 
-    // Phase 1: Collect all files
+    // Phase 1: Count files without loading paths into memory
     postMessage({ type: "counting" });
-    const files = await collectAllSourceFiles(
+    const totalFiles = await countSourceFiles(
       config.rootDir,
       config.excludeNodeModules ?? true,
     );
@@ -228,30 +235,32 @@ async function runIndexing(config: WorkerConfig): Promise<void> {
       return;
     }
 
-    const totalFiles = files.length;
     const indexedData: IndexedFileData[] = [];
+    let processed = 0;
 
-    // Phase 2: Process files one by one
-    // Since we're in a worker thread, we don't need to yield as aggressively
-    // but we still send progress updates periodically
-    for (let i = 0; i < files.length; i++) {
+    // Phase 2: Stream files one at a time — never stores all paths in memory
+    for await (const filePath of walkSourceFilesAsync(
+      config.rootDir,
+      config.excludeNodeModules ?? true,
+    )) {
       if (cancelled) {
         break;
       }
 
-      const result = await analyzeFile(files[i], languageService);
+      const result = await analyzeFile(filePath, languageService);
       if (result) {
         indexedData.push(result);
       }
+      processed++;
 
       // Send progress update periodically
-      if ((i + 1) % progressInterval === 0 || i === files.length - 1) {
+      if (processed % progressInterval === 0 || processed === totalFiles) {
         postMessage({
           type: "progress",
           data: {
-            processed: i + 1,
+            processed,
             total: totalFiles,
-            currentFile: files[i],
+            currentFile: filePath,
           },
         });
       }

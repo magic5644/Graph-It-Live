@@ -212,6 +212,19 @@ export class ReverseIndex {
   }
 
   /**
+   * Count the number of target entries in the reverse map that have no
+   * remaining source references (empty Maps). Useful for monitoring memory
+   * pressure and verifying that lazy eviction is working.
+   */
+  getEmptyMapCount(): number {
+    let count = 0;
+    for (const sourceMap of this.reverseMap.values()) {
+      if (sourceMap.size === 0) count++;
+    }
+    return count;
+  }
+
+  /**
    * Clean up empty maps in the reverse index
    * This removes target paths that have no references left
    * @returns Number of empty maps removed

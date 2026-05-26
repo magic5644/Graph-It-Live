@@ -1,5 +1,31 @@
 # Changelog
 
+## v1.9.5 _(not released yet)_
+
+### Performance
+
+- **Streaming file walker in IndexerWorker**: Replaced array-accumulating `collectAllSourceFiles()` with an async generator `walkSourceFilesAsync()`. Peak memory during background indexing is now O(1) instead of O(n) — no longer loads the full file list into memory before processing.
+- **IndexerWorkerHost timeout**: Worker threads now auto-cancel after 10 minutes (`WorkerConfig.timeoutMs`, default 600 000 ms), preventing hung workers from holding memory indefinitely. Added `getPendingCount()` for observability.
+- **Lazy `StatusBarItem` creation**: `BackgroundIndexingManager` no longer creates the VS Code status bar item at construction time. It is now initialised on first use, reducing startup allocation when background indexing is disabled.
+- **`FileNode` memoisation**: Wrapped the React `FileNode` component with `React.memo` and a custom comparator that excludes callback props, eliminating unnecessary re-renders when only unrelated state changes.
+- **Dagre layout debounce**: Layout recomputation in `useGraphData` is now debounced by 100 ms, coalescing rapid resize or data-change events and preventing redundant `getLayoutedElements` calls.
+- **Parser regex compiled once**: `Parser.STRIP_COMMENTS_RE` is now a static class-level constant compiled once at class definition. The regex `lastIndex` is explicitly reset before each call to prevent state leak when the flag `g` is active.
+- **CallGraphIndexer eviction API**: Added `getDatabaseSizeMB()`, `evictOldestFiles(n)`, and `checkAndEvict(maxSizeMB?)` to `CallGraphIndexer`. Allows automatic eviction of oldest indexed files when the sql.js in-memory database exceeds a configurable size threshold (default 256 MB).
+- **ReverseIndex diagnostics**: Added `getEmptyMapCount()` to `ReverseIndex` for runtime observability of lazy-cleanup state.
+- **Cross-platform path normalization hardening**: Removed dead `path.sep` branches in `McpWorker` helpers and CLI REPL. MCP scope validation now normalises both scope and root with `normalizePath(path.resolve(...))` before comparison, fixing false-positive path traversal rejections on Windows.
+- **`getNormalizedFsPath` utility**: Added helper `getNormalizedFsPath(uri)` to `src/shared/path.ts` to centralise VS Code URI → normalised string conversion.
+
+### Testing
+
+- **Memory benchmark infrastructure**: New dedicated Vitest config (`vitest.memory.config.mts`) and runner script (`scripts/run-memory-bench.mjs`) for `vitest run`-based memory tests (separate from `vitest bench`).
+- **`ReverseIndex` memory benchmarks**: 4 tests measuring heap bounds for 10K and 50K add/remove cycles, lazy cleanup behaviour, and cross-platform Windows path normalisation.
+- **`CallGraphIndexer` memory benchmarks**: 5 tests measuring DB size growth (empty, 100 files/1K symbols, 500 files/10K symbols), eviction correctness (`evictOldestFiles`), and `checkAndEvict` threshold logic.
+- **`npm run test:bench:memory`**: New script entry running the memory benchmark suite via `run-memory-bench.mjs`.
+
+### Maintenance
+
+- **`NoSummaryBenchmarkReporter`** (`scripts/noSummaryBenchmarkReporter.ts`): Extracted as a standalone file imported by `vitest.benchmark.config.mts`. Avoids `RangeError: Invalid string length` caused by TTY buffering on large benchmark result tables.
+
 ## v1.9.4
 
 ### Bug Fixes

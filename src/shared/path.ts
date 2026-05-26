@@ -44,6 +44,15 @@ export function normalizePathForComparison(filePath: string): string {
 }
 
 /**
+ * Normalize the `fsPath` of a VS Code URI to use forward slashes consistently.
+ * Use this instead of `uri.fsPath` directly when the path will be stored,
+ * compared, or looked up in the reverse index.
+ */
+export function getNormalizedFsPath(uri: { fsPath: string }): string {
+  return normalizePath(uri.fsPath);
+}
+
+/**
  * Convert an absolute path to a path relative to a root. Returns the original
  * absolute path if it resolves outside the root. The returned relative path
  * always uses forward slashes (POSIX-style) for consistency.
