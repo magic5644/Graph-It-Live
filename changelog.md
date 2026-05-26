@@ -1,6 +1,6 @@
 # Changelog
 
-## v1.9.5 _(not released yet)_
+## v1.9.5
 
 ### Performance
 
