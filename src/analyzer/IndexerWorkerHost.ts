@@ -148,20 +148,18 @@ export class IndexerWorkerHost {
     const timeoutMs = config.timeoutMs ?? 10 * 60 * 1000; // 10 minutes default
 
     return new Promise((resolve, reject) => {
-      let timeoutId: ReturnType<typeof setTimeout> | undefined;
-
       const safeResolve = (result: IndexingResult): void => {
-        if (timeoutId !== undefined) clearTimeout(timeoutId);
+        clearTimeout(timeoutId);
         resolve(result);
       };
 
       const safeReject = (reason: unknown): void => {
-        if (timeoutId !== undefined) clearTimeout(timeoutId);
+        clearTimeout(timeoutId);
         reject(reason);
       };
 
       // Safety net: terminate hung workers after timeoutMs
-      timeoutId = setTimeout(() => {
+      const timeoutId = setTimeout(() => {
         this.cancel();
         this.updateState('error');
         this.cleanupWorker();
