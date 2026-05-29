@@ -71,7 +71,7 @@ function formatArg(arg: unknown): string {
   if (typeof arg === 'string') return arg;
   if (arg instanceof Error) return `${arg.name}: ${arg.message}`;
   if (arg && typeof arg === 'object') {
-    const formatted = formatErrorLike(arg as { name?: unknown; message?: unknown; stack?: unknown });
+    const formatted = formatErrorLike(arg);
     if (formatted) return formatted;
   }
   try {

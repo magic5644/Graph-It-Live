@@ -35,9 +35,7 @@ export class ServiceContainer {
     }
 
     if (registration.lifetime === "singleton") {
-      if (!registration.instance) {
-        registration.instance = registration.factory();
-      }
+      registration.instance ??= registration.factory();
       return registration.instance;
     }
 
@@ -53,8 +51,8 @@ export class ServiceContainer {
         | undefined;
       if (instance?.dispose) {
         const result = instance.dispose();
-        if (result && typeof (result as Promise<void>).then === "function") {
-          disposals.push(result as Promise<void>);
+        if (result instanceof Promise) {
+          disposals.push(result);
         }
       }
     }

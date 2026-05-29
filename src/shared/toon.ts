@@ -80,7 +80,7 @@ function valueToToon(value: unknown, options: ToonOptions): string {
   }
 
   // Numbers and booleans can be safely converted (objects are already handled above)
-  const strValue = String(value as string | number | boolean);
+  const strValue = String(value);
   return options.escapeValues ? escapeValue(strValue) : strValue;
 }
 

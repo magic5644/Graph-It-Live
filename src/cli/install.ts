@@ -101,7 +101,7 @@ function installUnix(cliSrc: string, target: string): string {
   }
 
   fs.symlinkSync(cliSrc, target);
-  fs.chmodSync(cliSrc, 0o755);
+  fs.chmodSync(cliSrc, 0o755); // NOSONAR - intentional: CLI binary needs executable permissions
 
   return `✓ graph-it installed to ${target}\n  Add ${targetDir} to your PATH if needed.`;
 }

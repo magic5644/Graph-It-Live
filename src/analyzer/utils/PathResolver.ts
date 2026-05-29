@@ -399,13 +399,15 @@ export class PathResolver {
     tsConfigPath: string,
   ): Promise<Map<string, string>> {
     // Return from cache if already loaded
-    if (this.tsConfigPathAliases.has(tsConfigPath)) {
-      return this.tsConfigPathAliases.get(tsConfigPath)!;
+    const cachedAliases = this.tsConfigPathAliases.get(tsConfigPath);
+    if (cachedAliases !== undefined) {
+      return cachedAliases;
     }
 
     // Check if already loading
-    if (this.tsConfigLoadPromises.has(tsConfigPath)) {
-      return this.tsConfigLoadPromises.get(tsConfigPath)!;
+    const loadingAliasPromise = this.tsConfigLoadPromises.get(tsConfigPath);
+    if (loadingAliasPromise !== undefined) {
+      return loadingAliasPromise;
     }
 
     // Start loading and cache the promise
@@ -756,8 +758,8 @@ export class PathResolver {
     const packageDir = path.dirname(packageJsonPath);
 
     // Try exact match first
-    if (imports.has(modulePath)) {
-      const target = imports.get(modulePath)!;
+    const target = imports.get(modulePath);
+    if (target !== undefined) {
       return normalizePath(path.resolve(packageDir, target));
     }
 
@@ -860,13 +862,15 @@ export class PathResolver {
     packageJsonPath: string,
   ): Promise<Map<string, string>> {
     // Return from cache if already loaded
-    if (this.packageJsonImports.has(packageJsonPath)) {
-      return this.packageJsonImports.get(packageJsonPath)!;
+    const cachedImports = this.packageJsonImports.get(packageJsonPath);
+    if (cachedImports !== undefined) {
+      return cachedImports;
     }
 
     // Check if already loading
-    if (this.packageJsonLoadPromises.has(packageJsonPath)) {
-      return this.packageJsonLoadPromises.get(packageJsonPath)!;
+    const loadingImportPromise = this.packageJsonLoadPromises.get(packageJsonPath);
+    if (loadingImportPromise !== undefined) {
+      return loadingImportPromise;
     }
 
     // Start loading and cache the promise

@@ -99,6 +99,6 @@ describe('Spider - Crawl', () => {
         
         // Let's verify we didn't analyze grandchild - check the normalized path pattern
         const readFileCalls = vi.mocked(fs.readFile).mock.calls.map(call => np(call[0].toString()));
-        expect(readFileCalls.some(p => p === np(grandchildFile))).toBe(false);
+        expect(readFileCalls.includes(np(grandchildFile))).toBe(false);
     });
 });

@@ -31,13 +31,8 @@ export class PythonSymbolAnalyzer implements ISymbolAnalyzer {
       return;
     }
 
-    // If initialization is in progress, wait for it
-    if (this.initPromise) {
-      return this.initPromise;
-    }
-
-    // Start initialization
-    this.initPromise = (async () => {
+    // Start initialization if not already in progress
+    this.initPromise ??= (async () => {
       const extensionPath = await this.resolveExtensionPath();
       if (!extensionPath) {
         throw new Error(
@@ -495,7 +490,8 @@ export class PythonSymbolAnalyzer implements ISymbolAnalyzer {
 
     // Check if it's a call to an imported symbol (external file)
     if (importMap?.has(calledName)) {
-      const moduleSpecifier = importMap.get(calledName)!;
+      const moduleSpecifier = importMap.get(calledName);
+      if (moduleSpecifier === undefined) return;
       // Create dependency with module specifier as targetFilePath
       // This will be resolved to absolute path by SpiderSymbolService.getSymbolGraph()
       dependencies.push({

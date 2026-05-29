@@ -131,7 +131,7 @@ export function buildCallGraphStylesheet(isDark = true): CyStylesheet[] {
   const t = isDark ? DARK_THEME : LIGHT_THEME;
   const shapeStyles = SYMBOL_SHAPES.map(([symbolType, shape]) => ({
     selector: `node[type="${symbolType}"]`,
-    style: { shape } as Record<string, unknown>,
+    style: { shape },
   }));
 
   const langStyles = LANG_COLORS.flatMap(([lang, color]) => {

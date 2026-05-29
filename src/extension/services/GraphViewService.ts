@@ -179,7 +179,7 @@ export class GraphViewService {
     edgesBySource: Map<string, Array<{ source: string; target: string }>>
   ): Promise<Array<Array<{ edge: { source: string; target: string }; isUsed: boolean }>>> {
     return Promise.all(
-      batch.map(sourceFile => this.analyzeSourceFile(sourceFile, edgesBySource.get(sourceFile)!))
+      batch.map(sourceFile => this.analyzeSourceFile(sourceFile, edgesBySource.get(sourceFile) ?? []))
     );
   }
 

@@ -50,13 +50,8 @@ export class WasmParserFactory {
       return;
     }
 
-    // If initialization is in progress, wait for it
-    if (this.initPromise) {
-      return this.initPromise;
-    }
-
-    // Start initialization
-    this.initPromise = (async () => {
+    // Start initialization if not already in progress
+    this.initPromise ??= (async () => {
       try {
         await Parser.init({
           locateFile: () => wasmPath,
@@ -96,13 +91,15 @@ export class WasmParserFactory {
     }
 
     // Return cached parser if available
-    if (this.parsers.has(languageName)) {
-      return this.parsers.get(languageName)!;
+    const cachedParser = this.parsers.get(languageName);
+    if (cachedParser !== undefined) {
+      return cachedParser;
     }
 
     // If parser creation is in progress, wait for it
-    if (this.parserPromises.has(languageName)) {
-      return this.parserPromises.get(languageName)!;
+    const inProgressPromise = this.parserPromises.get(languageName);
+    if (inProgressPromise !== undefined) {
+      return inProgressPromise;
     }
 
     // Start parser creation
@@ -115,7 +112,10 @@ export class WasmParserFactory {
 
         // Create new parser with the language
         const parser = new Parser();
-        const language = this.languages.get(languageName)!;
+        const language = this.languages.get(languageName);
+        if (language == null) {
+          throw new Error(`Failed to load language WASM for: ${languageName}`);
+        }
         parser.setLanguage(language);
 
         // Cache the parser
