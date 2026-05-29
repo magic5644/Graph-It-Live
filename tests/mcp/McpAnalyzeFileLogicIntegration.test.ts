@@ -27,8 +27,12 @@ describe("MCP analyze_file_logic Integration Tests (T070-T074)", () => {
   let tempDir: string;
 
   beforeAll(async () => {
-    // Create temporary test directory
-    tempDir = await fs.mkdtemp(path.join(tmpdir(), "mcp-analyze-file-logic-"));
+    // Create temporary test directory and resolve to real long path.
+    // On Windows CI, os.tmpdir() may return an 8.3 short path (RUNNER~1).
+    // Passing the short path to chokidar causes libuv to abort() when
+    // ReadDirectoryChangesW fires events with the long-name path.
+    const rawTempDir = await fs.mkdtemp(path.join(tmpdir(), "mcp-analyze-file-logic-"));
+    tempDir = await fs.realpath(rawTempDir);
 
     const workerPath = path.resolve(__dirname, "../../dist/mcpWorker.js");
     const options: McpWorkerHostOptions = {
