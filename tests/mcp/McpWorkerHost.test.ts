@@ -27,8 +27,17 @@ vi.mock('node:worker_threads', () => {
       
       constructor() {
         super();
-        this.postMessage = vi.fn();
-        this.terminate = vi.fn().mockResolvedValue(0);
+        this.postMessage = vi.fn().mockImplementation((msg: { type: string }) => {
+          // When a shutdown message is sent, simulate the worker exiting
+          if (msg?.type === 'shutdown') {
+            setImmediate(() => this.emit('exit', 0));
+          }
+        });
+        this.terminate = vi.fn().mockImplementation(() => {
+          // Emit 'exit' so that McpWorkerHost.dispose() resolves immediately
+          setImmediate(() => this.emit('exit', 0));
+          return Promise.resolve(0);
+        });
         currentMockWorker = this as unknown as MockWorkerInstance;
       }
     }
@@ -399,9 +408,8 @@ describe('McpWorkerHost', () => {
 
       host.dispose();
 
-      // Should have posted shutdown message
+      // Should have posted shutdown message; terminate is only called on timeout
       expect(getMockWorker().postMessage).toHaveBeenCalledWith({ type: 'shutdown' });
-      expect(getMockWorker().terminate).toHaveBeenCalled();
     });
 
     it('should reject pending requests on dispose', async () => {

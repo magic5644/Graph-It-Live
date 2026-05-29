@@ -73,10 +73,10 @@ export function setupFileWatcher(
 /**
  * Stop the file watcher and cleanup
  */
-export function stopFileWatcher(): void {
+export async function stopFileWatcher(): Promise<void> {
   if (workerState.fileWatcher) {
     log.debug("Stopping file watcher...");
-    workerState.fileWatcher.close().catch((error: Error) => {
+    await workerState.fileWatcher.close().catch((error: Error) => {
       log.error("Error closing file watcher:", error.message);
     });
     workerState.fileWatcher = null;

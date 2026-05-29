@@ -93,7 +93,7 @@ export class McpWorkerHost {
 
     return new Promise((resolve, reject) => {
       const timeoutId = setTimeout(() => {
-        this.dispose();
+        void this.dispose();
         reject(new Error(`Worker warmup timeout after ${this.warmupTimeout}ms`));
       }, this.warmupTimeout);
 
@@ -110,7 +110,7 @@ export class McpWorkerHost {
         this.worker.on('error', (error) => {
           clearTimeout(timeoutId);
           this.isStarting = false;
-          this.dispose();
+          void this.dispose();
           reject(error);
         });
 
@@ -129,7 +129,7 @@ export class McpWorkerHost {
       } catch (error) {
         clearTimeout(timeoutId);
         this.isStarting = false;
-        this.dispose();
+        void this.dispose();
         reject(error);
       }
     });
@@ -223,22 +223,50 @@ export class McpWorkerHost {
   }
 
   /**
-   * Dispose the worker and clean up resources
+   * Dispose the worker and clean up resources.
+   * Sends a shutdown message and waits for the worker to exit gracefully
+   * (with a 5 s timeout fallback) before resolving. This ensures any chokidar
+   * file-watchers inside the worker are fully closed before callers proceed
+   * with cleanup such as deleting the watched directory.
    */
-  dispose(): void {
-    if (this.worker) {
-      // Send shutdown message
-      try {
-        this.postMessage({ type: 'shutdown' });
-      } catch {
-        // Ignore errors when posting to terminated worker
-      }
-
-      // Terminate the worker
-      this.worker.terminate().catch(() => {
-        // Ignore termination errors
-      });
+  async dispose(): Promise<void> {
+    if (!this.worker) {
+      this.cleanup();
+      return;
     }
+
+    // Mark as not ready immediately so callers see consistent state
+    this.isReady = false;
+
+    const worker = this.worker;
+    // Clear this.worker first so cleanup() won't try to use it
+    this.worker = null;
+
+    // Listen for the worker exit BEFORE sending shutdown so we don't miss it
+    const exitPromise = new Promise<void>((resolve) => {
+      worker.once('exit', () => resolve());
+    });
+
+    // Ask the worker to shut down gracefully
+    try {
+      worker.postMessage({ type: 'shutdown' });
+    } catch {
+      // Worker may have already terminated — force-terminate below
+    }
+
+    // Wait up to 5 s for graceful exit, then force-terminate
+    const SHUTDOWN_TIMEOUT_MS = 5000;
+    await Promise.race([
+      exitPromise,
+      new Promise<void>((_resolve, reject) =>
+        setTimeout(() => reject(new Error('Worker shutdown timeout')), SHUTDOWN_TIMEOUT_MS)
+      ),
+    ]).catch(async () => {
+      // Graceful shutdown timed out — force terminate
+      await worker.terminate().catch(() => {
+        // Ignore errors
+      });
+    });
 
     this.cleanup();
   }

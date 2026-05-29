@@ -277,7 +277,7 @@ async function initializeWorker(): Promise<void> {
       "[McpServer] Worker was initialized but is no longer ready — auto-recovering",
     );
     if (workerHost) {
-      workerHost.dispose();
+      await workerHost.dispose();
       workerHost = null;
     }
     resetInitializationState();
@@ -603,7 +603,7 @@ EXAMPLE: If analyzing a project at "/Users/me/my-app", call this tool with works
     // Dispose existing worker if any
     if (workerHost) {
       debugLog("[McpServer] Disposing previous worker...");
-      workerHost.dispose();
+      await workerHost.dispose();
       workerHost = null;
     }
 
@@ -1864,14 +1864,12 @@ async function main(): Promise<void> {
   // Handle graceful shutdown
   process.on("SIGINT", () => {
     debugLog("[McpServer] Received SIGINT, shutting down...");
-    workerHost?.dispose();
-    process.exit(0);
+    void workerHost?.dispose().then(() => process.exit(0)).catch(() => process.exit(0));
   });
 
   process.on("SIGTERM", () => {
     debugLog("[McpServer] Received SIGTERM, shutting down...");
-    workerHost?.dispose();
-    process.exit(0);
+    void workerHost?.dispose().then(() => process.exit(0)).catch(() => process.exit(0));
   });
 }
 
