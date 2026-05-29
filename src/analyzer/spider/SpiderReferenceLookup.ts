@@ -30,7 +30,9 @@ export class SpiderReferenceLookup {
   constructor(
     private readonly reverseIndexManager: ReverseIndexManager,
     private readonly dependencyAnalyzer: SpiderDependencyAnalyzer,
-    private readonly fileReader: FileReader
+    private readonly fileReader: FileReader,
+    private readonly isIndexReady: () => boolean = () => true,
+    private readonly isIndexingActive: () => boolean = () => false
   ) {}
 
   setFallbackFinder(finder: ReferencingFilesFinder): void {
@@ -46,26 +48,71 @@ export class SpiderReferenceLookup {
   }
 
   async findReferencingFiles(targetPath: string): Promise<Dependency[]> {
-    if (this.reverseIndexManager.hasEntries()) {
-      return this.reverseIndexManager.getReferencingFiles(targetPath);
+    const normalizedTargetPath = normalizePath(targetPath);
+    const hasReverseIndexEntries = this.reverseIndexManager.hasEntries();
+
+    if (hasReverseIndexEntries && this.isIndexReady()) {
+      return this.reverseIndexManager.getReferencingFiles(normalizedTargetPath);
+    }
+
+    const indexedResults = hasReverseIndexEntries
+      ? this.reverseIndexManager.getReferencingFiles(normalizedTargetPath)
+      : [];
+
+    // If index has entries but indexing is not currently running, prefer
+    // indexed results as authoritative to preserve deterministic MCP semantics
+    // (only analyzed files contribute references).
+    if (hasReverseIndexEntries && !this.isIndexingActive()) {
+      return indexedResults;
+    }
+
+    if (!this.fallbackFinder) {
+      return indexedResults;
+    }
+
+    const fallbackResults = await this.getFallbackReferencingFiles(normalizedTargetPath);
+    if (indexedResults.length === 0) {
+      return fallbackResults;
+    }
+    if (fallbackResults.length === 0) {
+      return indexedResults;
+    }
+
+    return this.mergeDependencies(indexedResults, fallbackResults);
+  }
+
+  private async getFallbackReferencingFiles(normalizedTargetPath: string): Promise<Dependency[]> {
+    if (!this.fallbackFinder) {
+      return [];
     }
 
     // Check fallback cache before doing an expensive O(n) project-wide scan
-    const cachedVersion = this._fallbackCacheEntryVersion.get(targetPath);
+    const cachedVersion = this._fallbackCacheEntryVersion.get(normalizedTargetPath);
     if (cachedVersion === this._fallbackCacheVersion) {
-      const cached = this._fallbackCache.get(targetPath);
+      const cached = this._fallbackCache.get(normalizedTargetPath);
       if (cached !== undefined) {
         return cached;
       }
     }
 
-    const result = this.fallbackFinder
-      ? await this.fallbackFinder.findReferencingFilesFallback(targetPath)
-      : [];
+    const result = await this.fallbackFinder.findReferencingFilesFallback(normalizedTargetPath);
 
-    this._fallbackCache.set(targetPath, result);
-    this._fallbackCacheEntryVersion.set(targetPath, this._fallbackCacheVersion);
+    this._fallbackCache.set(normalizedTargetPath, result);
+    this._fallbackCacheEntryVersion.set(normalizedTargetPath, this._fallbackCacheVersion);
     return result;
+  }
+
+  private mergeDependencies(primary: Dependency[], secondary: Dependency[]): Dependency[] {
+    const merged = new Map<string, Dependency>();
+
+    for (const dependency of [...primary, ...secondary]) {
+      const key = normalizePath(dependency.path);
+      if (!merged.has(key)) {
+        merged.set(key, dependency);
+      }
+    }
+
+    return [...merged.values()];
   }
 
   async findReferenceInFile(

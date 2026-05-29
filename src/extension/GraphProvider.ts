@@ -47,7 +47,6 @@ export class GraphProvider implements vscode.WebviewViewProvider {
   private readonly _messageDispatcher: MessageDispatcher;
   private readonly _stateManager: ProviderStateManager;
   private readonly _graphState: GraphState;
-  private readonly _fileSaveListener?: vscode.Disposable;
   /**
    * Optional callback used by EditorEventsService to notify MCP server.
    * Populated by extension activation if MCP server is registered.
@@ -281,13 +280,6 @@ export class GraphProvider implements vscode.WebviewViewProvider {
     // Initialize context for toggle button (async operation moved after init)
     this._initializeFilterContext();
 
-    if (this.spider) {
-      // T075: Add file save listener for live updates (User Story 5)
-      this._fileSaveListener = vscode.workspace.onDidSaveTextDocument(
-        (document) => this._handleFileSave(document),
-      );
-      context.subscriptions.push(this._fileSaveListener);
-    }
   }
 
   private async _refreshAfterIndexing(): Promise<void> {
@@ -334,33 +326,6 @@ export class GraphProvider implements vscode.WebviewViewProvider {
 
       this.updateGraph();
     }
-  }
-
-  /**
-   * Handle a file being saved - invalidate cache, re-analyze, and refresh view
-   * This ensures the index reflects the latest file content
-   * Preserves the current view mode (file view or symbol view)
-   * @param filePath Path to the saved file
-   */
-  public async onFileSaved(filePath: string): Promise<void> {
-    // Invalidate symbol graph cache so the next analysis reflects the new content.
-    if (this._symbolGraphCache?.filePath === filePath) {
-      this._symbolGraphCache = null;
-      log.debug(`[GraphProvider] Symbol graph cache invalidated (saved): ${filePath}`);
-    }
-    await this.eventHub?.handleFileSaved(filePath);
-  }
-
-  /**
-   * T076-T078: Handle file save events with 500ms debounce
-   * Automatically refreshes symbol graph when viewing a file that was edited
-   * @param document The saved text document
-   */
-  private _handleFileSave(document: vscode.TextDocument): void {
-    this.eventHub?.handleFileSaveDocument(
-      document,
-      this.onFileSaved.bind(this),
-    );
   }
 
   /**
@@ -845,7 +810,6 @@ export class GraphProvider implements vscode.WebviewViewProvider {
       this.indexingManager?.cancelScheduledIndexing();
       this.sourceFileWatcher?.dispose();
       this._fileChangeScheduler?.dispose();
-      this._fileSaveListener?.dispose();
       this.eventHub?.dispose();
       this._callGraphViewService?.setSidebarWebview(null);
       // Also clean up the worker if running

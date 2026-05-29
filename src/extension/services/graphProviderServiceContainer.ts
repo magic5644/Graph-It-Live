@@ -92,6 +92,22 @@ export interface GraphProviderServiceContainerResult {
   configSnapshot: ProviderConfigSnapshot;
 }
 
+function resolvePreferredWorkspaceFolder(): vscode.WorkspaceFolder | undefined {
+  const activeEditor = vscode.window.activeTextEditor;
+  const getWorkspaceFolder = (vscode.workspace as typeof vscode.workspace & {
+    getWorkspaceFolder?: (uri: vscode.Uri) => vscode.WorkspaceFolder | undefined;
+  }).getWorkspaceFolder;
+
+  if (activeEditor?.document.uri.scheme === "file" && typeof getWorkspaceFolder === "function") {
+    const editorFolder = getWorkspaceFolder(activeEditor.document.uri);
+    if (editorFolder) {
+      return editorFolder;
+    }
+  }
+
+  return vscode.workspace.workspaceFolders?.[0];
+}
+
 export function createGraphProviderServiceContainer(
   options: GraphProviderServiceContainerOptions,
 ): GraphProviderServiceContainerResult {
@@ -113,7 +129,8 @@ export function createGraphProviderServiceContainer(
   const stateManager = container.get(graphProviderServiceTokens.stateManager);
   const configSnapshot = stateManager.loadConfiguration();
 
-  const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+  const workspaceFolder = resolvePreferredWorkspaceFolder();
+  const workspaceRoot = workspaceFolder?.uri.fsPath;
   const hasWorkspace = Boolean(workspaceRoot);
 
   if (hasWorkspace && workspaceRoot) {

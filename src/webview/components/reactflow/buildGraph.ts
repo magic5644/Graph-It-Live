@@ -503,9 +503,13 @@ export function buildReactFlowGraph(params: {
       typeof parentCountRaw === "number" && parentCountRaw > 0
         ? parentCountRaw
         : undefined;
-    const hasParents =
+    const hasParentsFromGraph =
       (parents.get(path) || []).length > 0 ||
       (parentCount ? parentCount > 0 : false);
+    // Always allow reverse lookup toggle on the root node.
+    // Parent counts may be unavailable before/without reverse-index precomputation,
+    // but on-demand referencing lookup still works via extension request.
+    const hasParents = path === normalizedCurrentPath || hasParentsFromGraph;
     return {
       label,
       fullPath: path,

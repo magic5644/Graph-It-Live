@@ -825,7 +825,9 @@ export class SpiderBuilder {
     const referenceLookup = new SpiderReferenceLookup(
       reverseIndexManager,
       dependencyAnalyzer,
-      fileReader
+      fileReader,
+      () => indexerStatus.isReady(),
+      () => indexerStatus.isActive()
     );
     
     const referencingFilesFinder = new ReferencingFilesFinder({

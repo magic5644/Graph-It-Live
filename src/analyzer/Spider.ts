@@ -319,7 +319,13 @@ export class Spider {
         isCancelled: () => this.cancellation.isCancelled(),
       });
 
-      this.referenceLookup = new SpiderReferenceLookup(this.reverseIndexManager, this.dependencyAnalyzer, this.fileReader);
+      this.referenceLookup = new SpiderReferenceLookup(
+        this.reverseIndexManager,
+        this.dependencyAnalyzer,
+        this.fileReader,
+        () => this.indexerStatus.isReady(),
+        () => this.indexerStatus.isActive()
+      );
       this.referencingFilesFinder = new ReferencingFilesFinder({
         sourceFileCollector: this.sourceFileCollector,
         getRootDir: () => this.config.rootDir,
@@ -420,6 +426,7 @@ export class Spider {
   }
 
   invalidateFiles(filePaths: string[]): number {
+    this.referenceLookup.clearFallbackCache();
     return this.cacheCoordinator.invalidateFiles(filePaths);
   }
 
@@ -433,6 +440,7 @@ export class Spider {
   }
 
   handleFileDeleted(filePath: string): void {
+    this.referenceLookup.clearFallbackCache();
     this.cacheCoordinator.handleFileDeleted(filePath);
   }
 

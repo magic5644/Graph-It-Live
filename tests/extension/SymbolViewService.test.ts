@@ -235,6 +235,7 @@ describe('SymbolViewService', () => {
         expect.objectContaining({
           sourceSymbolId: '/src/main.ts:main',
           targetSymbolId: 'fileA.ts:exportedFn',
+          targetFilePath: 'fileA.ts',
           relationType: 'call',
         }),
       );
@@ -242,6 +243,7 @@ describe('SymbolViewService', () => {
         expect.objectContaining({
           sourceSymbolId: '/src/bootstrap.ts:bootstrap',
           targetSymbolId: 'fileA.ts:exportedFn',
+          targetFilePath: 'fileA.ts',
           relationType: 'call',
         }),
       );
@@ -443,9 +445,10 @@ describe('SymbolViewService', () => {
 
       // "format" matches the top-level exported function — should be kept
       expect(result.incomingDependencies).toHaveLength(1);
-      expect(result.incomingDependencies[0]).toEqual(
+      expect(result.incomingDependencies?.[0]).toEqual(
         expect.objectContaining({
           targetSymbolId: 'utils.ts:format',
+          targetFilePath: 'utils.ts',
           sourceSymbolId: '/src/view.ts:render',
           relationType: 'call',
         }),
