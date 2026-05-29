@@ -263,11 +263,15 @@ export class IndexerWorkerHost {
    */
   private cleanupWorker(): void {
     if (this.worker) {
-      this.worker.removeAllListeners();
-      this.worker.terminate().catch(() => {
+      const w = this.worker;
+      this.worker = null;
+      w.removeAllListeners();
+      // Add a no-op error handler to prevent unhandled-error events
+      // during the async termination window after removeAllListeners().
+      w.on('error', () => {});
+      w.terminate().catch(() => {
         // Ignore termination errors
       });
-      this.worker = null;
     }
   }
 

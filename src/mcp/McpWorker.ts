@@ -228,7 +228,7 @@ async function handleShutdown(): Promise<void> {
   log.info("Shutting down...");
 
   // Stop file watcher
-  stopFileWatcher();
+  await stopFileWatcher(); // ensure chokidar closes before exit
 
   // Cancel any pending operations
   workerState.spider?.cancelIndexing();
