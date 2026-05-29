@@ -1,4 +1,5 @@
 import { watch } from "chokidar";
+import * as fs from "node:fs";
 import * as path from "node:path";
 import {
     IGNORED_DIRECTORIES,
@@ -7,6 +8,30 @@ import {
 import { getLogger } from "../../shared/logger";
 import { workerState } from "../shared/state";
 import type { McpWorkerResponse } from "../types";
+
+/**
+ * Resolve a directory path to its real long-name form.
+ *
+ * On Windows, os.tmpdir() (and paths derived from it) may contain 8.3 short
+ * path components (e.g. RUNNER~1). If chokidar registers a watcher with the
+ * short-name path while the OS fires ReadDirectoryChangesW events using the
+ * long-name path, libuv asserts `!_wcsnicmp(filename, dir, dirlen)` and calls
+ * abort(), crashing the process. Resolving the real path before handing it to
+ * chokidar keeps both names consistent.
+ *
+ * Uses fs.realpathSync.native which calls GetFinalPathNameByHandle on Windows,
+ * fully resolving short names and symlinks without the forward-slash
+ * normalization done by fs.realpathSync.
+ */
+function resolveRealPath(dirPath: string): string {
+  try {
+    return fs.realpathSync.native(dirPath);
+  } catch {
+    // Directory may not exist yet or access is denied — fall back to the
+    // original path so startup is not blocked.
+    return dirPath;
+  }
+}
 
 const log = getLogger("McpWorker");
 
@@ -28,10 +53,17 @@ export function setupFileWatcher(
     return;
   }
 
+  // Resolve to real long-name path to avoid Windows 8.3 short-name mismatch
+  // that causes libuv to abort() when ReadDirectoryChangesW fires events.
+  const watchRoot = resolveRealPath(workerState.config.rootDir);
+
   // Build glob pattern for watched extensions
-  const globPattern = `${workerState.config.rootDir}/**/*{${WATCHED_EXTENSIONS.join(",")}}`;
+  const globPattern = `${watchRoot}/**/*{${WATCHED_EXTENSIONS.join(",")}}`;
 
   log.debug("Setting up file watcher for:", globPattern);
+  if (watchRoot !== workerState.config.rootDir) {
+    log.debug("Resolved rootDir short path:", workerState.config.rootDir, "→", watchRoot);
+  }
 
   try {
     workerState.fileWatcher = watch(globPattern, {
