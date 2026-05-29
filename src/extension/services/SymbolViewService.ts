@@ -204,6 +204,8 @@ export class SymbolViewService {
     const normalizedTarget = normalizePath(targetFilePath);
     const incoming: SymbolDependency[] = [];
 
+    // NOTE: keep sequential for reliability.
+    // Some analyzer/parser paths are not safe under parallel symbolGraph calls.
     for (const refPath of referencingFilePaths) {
       try {
         const { dependencies } = await this.spider.getSymbolGraph(refPath);
@@ -218,8 +220,10 @@ export class SymbolViewService {
             });
           }
         }
-      } catch {
-        // Skip files that fail to analyse
+      } catch (error) {
+        this.logger.debug(
+          `Skipping incoming dependency scan for ${refPath}: ${error instanceof Error ? error.message : String(error)}`,
+        );
       }
     }
 
@@ -282,7 +286,7 @@ export class SymbolViewService {
           incomingDependencies.push({
             sourceSymbolId: sourceId,
             targetSymbolId: targetId,
-            targetFilePath: caller.callerFilePath,
+            targetFilePath: normalizedTarget,
             relationType: "call",
           });
         }

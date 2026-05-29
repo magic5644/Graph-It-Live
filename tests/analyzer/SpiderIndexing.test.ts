@@ -1,3 +1,4 @@
+/// <reference types="node" />
 import * as fs from 'node:fs/promises';
 import path from 'node:path';
 import { performance } from 'node:perf_hooks';
@@ -41,7 +42,10 @@ describe('Spider - Reverse Index Integration', () => {
 
             expect(progressUpdates.length).toBeGreaterThan(0);
             // Last update should show all files processed
-            const lastUpdate = progressUpdates.at(-1)!;
+            const lastUpdate = progressUpdates.at(-1);
+            if (!lastUpdate) {
+                throw new Error('Expected at least one progress update');
+            }
             expect(lastUpdate.processed).toBe(lastUpdate.total);
         });
 
@@ -120,9 +124,26 @@ describe('Spider - Reverse Index Integration', () => {
             const refsWithoutIndex = await spiderNoIndex.findReferencingFiles(utilsFile);
 
             // Should find the same files
-            const pathsWithIndex = refsWithIndex.map(r => r.path).sort();
-            const pathsWithoutIndex = refsWithoutIndex.map(r => r.path).sort();
+            const pathsWithIndex = refsWithIndex.map(r => r.path).sort((a, b) => a.localeCompare(b));
+            const pathsWithoutIndex = refsWithoutIndex.map(r => r.path).sort((a, b) => a.localeCompare(b));
             expect(pathsWithIndex).toEqual(pathsWithoutIndex);
+        });
+
+        it('should use indexed references only when indexing is idle', async () => {
+            const mainFile = path.join(fixturesPath, 'src/main.ts');
+            const buttonFile = path.join(fixturesPath, 'src/components/Button.tsx');
+            const utilsFile = path.join(fixturesPath, 'src/utils.ts');
+
+            // Populate a partial reverse index entry without running full indexing
+            await spider.analyze(mainFile);
+
+            // Index state is idle (not actively indexing), so only indexed results
+            // should be returned for deterministic behavior.
+            const refs = await spider.findReferencingFiles(utilsFile);
+            const normalizedPaths = refs.map((ref) => normalizePath(ref.path));
+
+            expect(normalizedPaths).toContain(normalizePath(mainFile));
+            expect(normalizedPaths).not.toContain(normalizePath(buttonFile));
         });
     });
 
@@ -148,6 +169,9 @@ describe('Spider - Reverse Index Integration', () => {
             const serialized = spider.getSerializedReverseIndex();
 
             expect(serialized).not.toBeNull();
+            if (serialized === null) {
+                throw new Error('Expected serialized reverse index to be available');
+            }
 
             // Create new spider and restore
             const newSpider = new SpiderBuilder()
@@ -156,7 +180,7 @@ describe('Spider - Reverse Index Integration', () => {
                 .withReverseIndex(true)
                 .build();
 
-            const restored = newSpider.enableReverseIndex(serialized!);
+            const restored = newSpider.enableReverseIndex(serialized);
             expect(restored).toBe(true);
 
             // Verify restored index works
@@ -168,6 +192,9 @@ describe('Spider - Reverse Index Integration', () => {
         it('should reject index from different rootDir', async () => {
             await spider.buildFullIndex();
             const serialized = spider.getSerializedReverseIndex();
+            if (serialized === null) {
+                throw new Error('Expected serialized reverse index to be available');
+            }
 
             // Create spider with different rootDir
             const newSpider = new SpiderBuilder()
@@ -175,7 +202,7 @@ describe('Spider - Reverse Index Integration', () => {
                 .withReverseIndex(true)
                 .build();
 
-            const restored = newSpider.enableReverseIndex(serialized!);
+            const restored = newSpider.enableReverseIndex(serialized);
             expect(restored).toBe(false);
         });
     });
@@ -187,8 +214,11 @@ describe('Spider - Reverse Index Integration', () => {
             const validation = await spider.validateReverseIndex();
 
             expect(validation).not.toBeNull();
-            expect(validation!.isValid).toBe(true);
-            expect(validation!.stalePercentage).toBeLessThan(0.2);
+            if (validation === null) {
+                throw new Error('Expected reverse index validation result');
+            }
+            expect(validation.isValid).toBe(true);
+            expect(validation.stalePercentage).toBeLessThan(0.2);
         });
     });
 
@@ -199,9 +229,12 @@ describe('Spider - Reverse Index Integration', () => {
             const stats = spider.getCacheStats();
 
             expect(stats.reverseIndexStats).toBeDefined();
-            expect(stats.reverseIndexStats!.indexedFiles).toBeGreaterThan(0);
-            expect(stats.reverseIndexStats!.targetFiles).toBeGreaterThanOrEqual(0);
-            expect(stats.reverseIndexStats!.totalReferences).toBeGreaterThanOrEqual(0);
+            if (!stats.reverseIndexStats) {
+                throw new Error('Expected reverse index stats to be present');
+            }
+            expect(stats.reverseIndexStats.indexedFiles).toBeGreaterThan(0);
+            expect(stats.reverseIndexStats.targetFiles).toBeGreaterThanOrEqual(0);
+            expect(stats.reverseIndexStats.totalReferences).toBeGreaterThanOrEqual(0);
         });
     });
 });

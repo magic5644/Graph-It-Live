@@ -18,6 +18,22 @@ import { LmToolsService } from './services/LmToolsService';
 let mcpServerProvider: McpServerProvider | null = null;
 let graphProvider: GraphProvider | null = null;
 
+function resolvePreferredWorkspaceFolder(): vscode.WorkspaceFolder | undefined {
+    const activeEditor = vscode.window.activeTextEditor;
+    const getWorkspaceFolder = (vscode.workspace as typeof vscode.workspace & {
+        getWorkspaceFolder?: (uri: vscode.Uri) => vscode.WorkspaceFolder | undefined;
+    }).getWorkspaceFolder;
+
+    if (activeEditor?.document.uri.scheme === 'file' && typeof getWorkspaceFolder === 'function') {
+        const editorFolder = getWorkspaceFolder(activeEditor.document.uri);
+        if (editorFolder) {
+            return editorFolder;
+        }
+    }
+
+    return vscode.workspace.workspaceFolders?.[0];
+}
+
 export function activate(context: vscode.ExtensionContext) {
     // Initialize logging system
     const outputChannel = vscode.window.createOutputChannel('Graph-It-Live');
@@ -114,7 +130,7 @@ export function activate(context: vscode.ExtensionContext) {
     ];
 
     // Register MCP server provider if a workspace folder is open
-    const workspaceFolder = vscode.workspace.workspaceFolders?.[0];
+    const workspaceFolder = resolvePreferredWorkspaceFolder();
     if (workspaceFolder) {
         mcpServerProvider = createMcpServerProvider(context.extensionUri, workspaceFolder);
         const mcpDisposable = mcpServerProvider.register(context);

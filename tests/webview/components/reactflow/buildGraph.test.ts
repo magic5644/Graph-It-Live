@@ -8,6 +8,7 @@ import {
 
 describe("buildReactFlowGraph", () => {
   const createMockCallbacks = (): BuildGraphCallbacks => ({
+    onNodeClick: vi.fn(),
     onDrillDown: vi.fn(),
     onFindReferences: vi.fn(),
     onToggleParents: vi.fn(),
@@ -279,6 +280,7 @@ describe("buildReactFlowGraph", () => {
         expandedNodes: new Set([nodeB]),
         showParents: false,
         callbacks: {
+          onNodeClick: () => {},
           onDrillDown: () => {},
           onFindReferences: () => {},
           onToggle: () => {},
@@ -478,6 +480,29 @@ describe("buildReactFlowGraph", () => {
       const childNode = result.nodes.find((n) => n.id === "child.ts");
       expect((childNode?.data as any).parentCount).toBe(5);
       expect((childNode?.data as any).hasReferencingFiles).toBe(true);
+    });
+
+    it("should keep root reverse-dependency toggle available without parentCounts", () => {
+      const data: GraphData = {
+        nodes: ["root.ts", "child.ts"],
+        edges: [{ source: "root.ts", target: "child.ts" }],
+        nodeLabels: {
+          "root.ts": "root.ts",
+          "child.ts": "child.ts",
+        },
+      };
+
+      const result = buildReactFlowGraph({
+        data,
+        currentFilePath: "root.ts",
+        expandAll: false,
+        expandedNodes: new Set(),
+        showParents: false,
+        callbacks: createMockCallbacks(),
+      });
+
+      const rootNode = result.nodes.find((n) => n.id === "root.ts");
+      expect((rootNode?.data as any).hasReferencingFiles).toBe(true);
     });
   });
 

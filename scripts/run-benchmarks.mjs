@@ -2,6 +2,7 @@
 
 import { spawn } from 'node:child_process';
 import * as fs from 'node:fs';
+import { readdir, rm } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -19,6 +20,26 @@ function listBenchFiles(rootDir) {
     .filter((name) => name.endsWith('.bench.ts'))
     .sort((a, b) => a.localeCompare(b))
     .map((name) => path.join(benchDir, name));
+}
+
+async function cleanupSequenceCacheDirs(rootDir) {
+  const testsDir = path.join(rootDir, 'tests');
+  const prefix = '.tmp-sequence-cache-';
+
+  let entries;
+  try {
+    entries = await readdir(testsDir, { withFileTypes: true });
+  } catch {
+    return;
+  }
+
+  const staleDirs = entries
+    .filter((entry) => entry.isDirectory() && entry.name.startsWith(prefix))
+    .map((entry) => path.join(testsDir, entry.name));
+
+  await Promise.all(
+    staleDirs.map((dirPath) => rm(dirPath, { recursive: true, force: true })),
+  );
 }
 
 function runProcess(command, args, options) {
@@ -50,6 +71,8 @@ async function main() {
     process.stdout.write('No benchmark files found under tests/benchmarks.\n');
     process.exit(0);
   }
+
+  await cleanupSequenceCacheDirs(rootDir);
 
   for (const benchFile of benchFiles) {
     process.stdout.write(`\n=== Running benchmark: ${path.relative(rootDir, benchFile)} ===\n`);
@@ -83,7 +106,11 @@ async function main() {
       process.stderr.write(`Benchmark failed with exit code: ${code}\n`);
       process.exit(code);
     }
+
+    await cleanupSequenceCacheDirs(rootDir);
   }
+
+  await cleanupSequenceCacheDirs(rootDir);
 }
 
 try {

@@ -28,7 +28,7 @@ export interface SymbolNodeData {
 
 const actionButtonSize = 20;
 
-export const SymbolNode: React.FC<NodeProps<SymbolNodeData>> = ({ data, id }) => {
+export const SymbolNode = React.memo<NodeProps<SymbolNodeData>>(function SymbolNode({ data, id }) {
     const style = getSymbolStyle(data.category);
     const icon = CATEGORY_ICONS[data.category] || '?';
 
@@ -202,4 +202,29 @@ export const SymbolNode: React.FC<NodeProps<SymbolNodeData>> = ({ data, id }) =>
             <Handle type="source" position={Position.Right} style={{ visibility: 'hidden' }} />
         </button >
     );
-};
+},
+// Custom comparator: compare visual/state fields only.
+// Callback props are intentionally ignored because references can change
+// frequently without changing rendered output.
+(prev, next) => {
+    const pd = prev.data;
+    const nd = next.data;
+
+    return (
+        prev.id === next.id
+        && pd.label === nd.label
+        && pd.fullPath === nd.fullPath
+        && pd.kind === nd.kind
+        && pd.category === nd.category
+        && pd.line === nd.line
+        && pd.isExported === nd.isExported
+        && pd.isRoot === nd.isRoot
+        && pd.isExternal === nd.isExternal
+        && pd.hasChildren === nd.hasChildren
+        && pd.isExpanded === nd.isExpanded
+        && pd.selectedNodeId === nd.selectedNodeId
+        && pd.nodeId === nd.nodeId
+        && pd.isHighlighted === nd.isHighlighted
+        && pd.isHighlightActive === nd.isHighlightActive
+    );
+});
