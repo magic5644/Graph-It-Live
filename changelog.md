@@ -1,5 +1,31 @@
 # Changelog
 
+## v1.9.6
+
+### Bug Fixes
+
+- **Windows file-watcher crash (short 8.3 paths)**: `fileWatcher.ts` now resolves the watch directory through `fs.realpathSync.native` before handing it to chokidar. On Windows, `os.tmpdir()` and paths derived from it can contain 8.3 short components (e.g. `RUNNER~1`); when chokidar registers with a short-name path while the OS fires `ReadDirectoryChangesW` events using the long-name path, libuv asserts and aborts the process. Resolving the real path keeps both sides consistent.
+- **Duplicate file-save listener removed from `GraphProvider`**: The `onDidSaveTextDocument` subscription and `onFileSaved`/`_handleFileSave` methods have been removed from `GraphProvider`. Live-update handling is now consolidated in the service layer (`EditorEventsService`), eliminating a redundant listener that could trigger double refresh and hold references after disposal.
+- **`SymbolViewService` intra-file caller path normalization**: `targetFilePath` for intra-file callers is now set to the normalized target path rather than the raw `callerFilePath`, fixing mismatches in symbol graph edges on case-insensitive or Windows filesystems.
+
+### Enhancements
+
+- **Graceful `McpWorkerHost` shutdown**: `dispose()` is now `async`. It sends a `shutdown` message to the worker and waits up to 5 seconds for a clean exit before falling back to `worker.terminate()`. This ensures chokidar file-watchers inside the worker are fully closed before callers proceed with cleanup (e.g. deleting watched directories in tests). All call sites in `mcpServer.ts` updated to `await dispose()`, including `SIGINT`/`SIGTERM` handlers.
+- **`SpiderReferenceLookup` index-readiness awareness**: The lookup now accepts `isIndexReady` and `isIndexActive` callbacks. When the reverse index is ready, it is used authoritatively. When indexing is still in progress, results from the reverse index and the fallback file-system scan are merged (deduped by normalized path) to avoid returning incomplete sets during warm-up. Fallback cache keys are now normalized before storage, fixing cache misses on Windows.
+- **`clearFallbackCache()` on file invalidation**: `Spider.invalidateFiles()` and `handleFileDeleted()` now call `referenceLookup.clearFallbackCache()`, keeping the fallback cache consistent after on-disk changes.
+- **Multi-root workspace folder detection**: `graphProviderServiceContainer` now resolves the workspace root from the active editor's workspace folder first, falling back to the first workspace folder. This ensures the correct project root is used when multiple folders are open.
+- **Root node always shows reverse-lookup toggle**: `buildGraph.ts` forces `hasParents = true` for the current root file node regardless of whether the reverse index has precomputed parent counts. On-demand referencing lookup via extension request still works even before full index precomputation.
+
+### Performance
+
+- **`SymbolNode` memoisation**: Wrapped `SymbolNode` with `React.memo` and a custom comparator that checks only visual/state fields (`label`, `fullPath`, `kind`, `category`, `line`, `isExported`, `isRoot`, `isExternal`, `hasChildren`, `isExpanded`, `selectedNodeId`, `nodeId`, `isHighlighted`, `isHighlightActive`). Callback props are intentionally excluded from comparison, preventing re-renders caused by new function references from parent components.
+
+### Testing
+
+- **`McpWorkerHost` dispose coverage**: Updated tests to handle the new `async dispose()` contract; added assertions for graceful-exit and force-terminate paths.
+- **`buildGraph` root-node `hasParents` assertion**: New test verifying that the root node always receives `hasParents = true` independent of reverse-index state.
+- **`SpiderReferenceLookup` merge path**: Extended `SpiderIndexing` tests to cover the index-ready vs. indexing-active branching and merged-dependency deduplication.
+
 ## v1.9.5
 
 ### Performance
