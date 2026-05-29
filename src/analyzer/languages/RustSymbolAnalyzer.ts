@@ -31,13 +31,8 @@ export class RustSymbolAnalyzer implements ISymbolAnalyzer {
       return;
     }
 
-    // If initialization is in progress, wait for it
-    if (this.initPromise) {
-      return this.initPromise;
-    }
-
-    // Start initialization
-    this.initPromise = (async () => {
+    // Start initialization if not already in progress
+    this.initPromise ??= (async () => {
       const extensionPath = await this.resolveExtensionPath();
       if (!extensionPath) {
         throw new Error(
@@ -522,7 +517,7 @@ export class RustSymbolAnalyzer implements ISymbolAnalyzer {
    */
   private splitModulePath(fullPath: string): { localName: string; modulePath: string } {
     const parts = fullPath.split('::');
-    const localName = parts.at(-1)!;
+    const localName = parts.at(-1) ?? '';
     const modulePath = parts.slice(0, -1).join('::');
     return { localName, modulePath };
   }
@@ -623,7 +618,8 @@ export class RustSymbolAnalyzer implements ISymbolAnalyzer {
     // Check if it's a call to an imported symbol (external file)
     // For qualified calls like helper::format_data, check if module is imported
     if (moduleName && importMap?.has(moduleName)) {
-      const moduleSpecifier = importMap.get(moduleName)!;
+        const moduleSpecifier = importMap.get(moduleName);
+        if (moduleSpecifier === undefined) return;
       // Create dependency with module specifier as targetFilePath
       // This will be resolved to absolute path by SpiderSymbolService.getSymbolGraph()
       dependencies.push({
@@ -637,7 +633,8 @@ export class RustSymbolAnalyzer implements ISymbolAnalyzer {
 
     // For unqualified calls, check if the symbol name itself is in the import map
     if (importMap?.has(symbolName)) {
-      const moduleSpecifier = importMap.get(symbolName)!;
+      const moduleSpecifier = importMap.get(symbolName);
+      if (moduleSpecifier === undefined) return;
       dependencies.push({
         sourceSymbolId: scope,
         targetSymbolId: `${moduleSpecifier}:${symbolName}`,
@@ -677,7 +674,7 @@ export class RustSymbolAnalyzer implements ISymbolAnalyzer {
       if (parts.length >= 2) {
         // For helper::format_data, moduleName='helper', symbolName='format_data'
         // For std::collections::HashMap, moduleName='std::collections', symbolName='HashMap'
-        const symbolName = parts.at(-1)!;
+        const symbolName = parts.at(-1) ?? '';
         const moduleName = parts.slice(0, -1).join('::');
         
         return {

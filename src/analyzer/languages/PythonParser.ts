@@ -32,13 +32,8 @@ export class PythonParser implements ILanguageAnalyzer {
       return;
     }
 
-    // If initialization is in progress, wait for it
-    if (this.initPromise) {
-      return this.initPromise;
-    }
-
-    // Start initialization
-    this.initPromise = (async () => {
+    // Start initialization if not already in progress
+    this.initPromise ??= (async () => {
       const extensionPath = await this.resolveExtensionPath();
       if (!extensionPath) {
         throw new Error(
@@ -110,7 +105,7 @@ export class PythonParser implements ILanguageAnalyzer {
       // Extract file path from potential symbol ID
       const actualPath = extractFilePath(filePath);
       const content = await this.fileReader.readFile(actualPath);
-      const tree = this.parser!.parse(content);
+      const tree = this.parser?.parse(content);
       if (!tree) {
         throw new Error(`Failed to parse Python file: ${actualPath}`);
       }

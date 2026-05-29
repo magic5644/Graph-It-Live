@@ -1394,7 +1394,7 @@ export function createErrorResponse<T>(
 ): McpToolResponse<T> {
   return {
     success: false,
-    data: null as T,
+    data: null as unknown as T,
     error,
     metadata: {
       executionTimeMs,

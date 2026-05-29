@@ -222,7 +222,8 @@ export class SpiderSymbolService {
     const queue: string[] = Array.from(expanded);
 
     while (queue.length > 0) {
-      const current = queue.pop()!;
+      const current = queue.pop();
+      if (current === undefined) continue;
       const deps = internalGraph.get(current);
       if (!deps) continue;
       for (const dep of deps) {

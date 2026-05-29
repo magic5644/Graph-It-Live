@@ -28,7 +28,7 @@ describe('Spider - Deep Recursion', () => {
         // Mock file content for a chain of 10 files: file0 -> file1 -> ... -> file9
         vi.mocked(fs.readFile).mockImplementation(async (filePath) => {
             const p = np(filePath.toString());
-            const match = p.match(/file(\d+)\.ts$/);
+            const match = /file(\d+)\.ts$/.exec(p);
             if (match) {
                 const index = Number.parseInt(match[1]);
                 if (index < 9) {
@@ -67,7 +67,7 @@ describe('Spider - Deep Recursion', () => {
         // Mock file content for a chain of 10 files
         vi.mocked(fs.readFile).mockImplementation(async (filePath) => {
             const p = np(filePath.toString());
-            const match = p.match(/file(\d+)\.ts$/);
+            const match = /file(\d+)\.ts$/.exec(p);
             if (match) {
                 const index = Number.parseInt(match[1]);
                 if (index < 9) {
