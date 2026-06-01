@@ -72,6 +72,31 @@ describe("tool command", () => {
     expect(output).toContain("Available tools:");
     expect(output).toContain("analyze_dependencies");
   });
+
+  it("normalizes --filepath to filePath", async () => {
+    const { parseToolArgs } = await import("../../src/cli/commands/tool.js");
+    const samplePath = path.join(os.tmpdir(), "project", "src", "index.ts");
+
+    const params = parseToolArgs([`--filepath=${samplePath}`]);
+
+    expect(params).toEqual({ filePath: samplePath });
+  });
+
+  it("normalizes kebab/snake args to canonical camelCase", async () => {
+    const { parseToolArgs } = await import("../../src/cli/commands/tool.js");
+
+    const params = parseToolArgs([
+      "--symbol-name=crawl",
+      "--max_depth=3",
+      "--relation-types=[\"CALLS\"]",
+    ]);
+
+    expect(params).toEqual({
+      symbolName: "crawl",
+      maxDepth: 3,
+      relationTypes: ["CALLS"],
+    });
+  });
 });
 
 // ---------------------------------------------------------------------------
