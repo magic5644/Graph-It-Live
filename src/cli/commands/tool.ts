@@ -87,6 +87,42 @@ const TOOL_DESCRIPTIONS: Record<string, string> = {
   scan_dead_code: "Workspace-wide scan for unused exported symbols (dead code)",
 };
 
+/**
+ * Canonical parameter names accepted by MCP tools.
+ * Used to normalize CLI flag variants such as --filepath, --file-path, --file_path.
+ */
+const CANONICAL_TOOL_ARG_KEYS = new Set([
+  "entryFile",
+  "filePath",
+  "filePaths",
+  "targetPath",
+  "knownPaths",
+  "extraDepth",
+  "sourceFile",
+  "targetFile",
+  "fromFile",
+  "moduleSpecifier",
+  "symbolName",
+  "includeTypeOnly",
+  "oldContent",
+  "newContent",
+  "includeTransitive",
+  "includeExternal",
+  "maxDepth",
+  "relationTypes",
+  "scopePath",
+  "maxFiles",
+  "limit",
+  "offset",
+  "onlyUsed",
+  "direction",
+  "format",
+]);
+
+const LOWERCASE_TOOL_ARG_ALIASES = new Map<string, string>(
+  [...CANONICAL_TOOL_ARG_KEYS].map((key) => [key.toLowerCase(), key]),
+);
+
 export async function run(
   args: string[],
   runtime: CliRuntime,
@@ -124,7 +160,19 @@ export async function run(
   return formatOutput(result, format, "tool");
 }
 
-function parseToolArgs(args: string[]): Record<string, unknown> {
+function normalizeToolArgKey(key: string): string {
+  // Convert kebab/snake case to camelCase first.
+  const camelCased = key.replace(/[-_]+([a-zA-Z0-9])/g, (_match, group: string) => group.toUpperCase());
+
+  if (CANONICAL_TOOL_ARG_KEYS.has(camelCased)) {
+    return camelCased;
+  }
+
+  // Handle lowercase aliases without separators, e.g. "filepath" -> "filePath".
+  return LOWERCASE_TOOL_ARG_ALIASES.get(camelCased.toLowerCase()) ?? camelCased;
+}
+
+export function parseToolArgs(args: string[]): Record<string, unknown> {
   // Check for --args '{"key": "value"}'
   const argsIdx = args.indexOf("--args");
   if (argsIdx >= 0 && args[argsIdx + 1]) {
@@ -143,7 +191,7 @@ function parseToolArgs(args: string[]): Record<string, unknown> {
   for (const arg of args) {
     if (arg.startsWith("--") && arg.includes("=")) {
       const eqIdx = arg.indexOf("=");
-      const key = arg.slice(2, eqIdx);
+      const key = normalizeToolArgKey(arg.slice(2, eqIdx));
       const val = arg.slice(eqIdx + 1);
       // Try to parse as JSON value (number, boolean, array)
       try {
