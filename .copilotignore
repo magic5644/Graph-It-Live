@@ -1,0 +1,52 @@
+# ---------------------------------------------------------------------
+# Configuration .copilotignore pour Projet Moderne Node.js / Vue 3 / TS
+# ---------------------------------------------------------------------
+
+# Dependances (Le plus gros goulot d'étranglement)
+**/node_modules/**
+**/bower_components/**
+
+# Dossiers de Build et Sorties de Compilation
+**/dist/**
+**/.output/**
+**/build/**
+**/.nuxt/**
+**/.next/**
+**/out/**
+
+# Couverture de tests et Logs
+**/coverage/**
+**/.nyc_output/**
+**/*.log
+**/logs/**
+
+# Fichiers d'environnement et secrets (Securité + Performance)
+**/.env
+**/.env.*
+!**/.env.example
+
+# Caches d'outils de dev et IDE
+**/.vscode/**
+**/.idea/**
+**/.eslintcache
+**/.prettiercache
+**/.vite-inspect/**
+**/.turbo/**
+
+# Fichiers volumineux ou binaires non pertinents pour le code
+**/*.mp4
+**/*.mp3
+**/*.png
+**/*.jpg
+**/*.jpeg
+**/*.gif
+**/*.svg
+**/*.ico
+**/*.pdf
+**/*.epub
+
+# Fichiers de verrouillage de dependances (Trop lourds et inutiles en prompt)
+**/package-lock.json
+**/yarn.lock
+**/pnpm-lock.yaml
+**/bun.lockb
