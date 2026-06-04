@@ -1,8 +1,8 @@
 # Graph-It-Live Documentation
 
-**Last Updated:** 2026-05-09
+**Last Updated:** 2026-06-04
 
-This directory is the single source of truth for technical documentation. It is organized into three sections.
+This directory is the single source of truth for technical documentation. It is organized into four sections.
 
 ---
 
@@ -49,6 +49,18 @@ Design documents and approved feature specs.
 |------|-------------|
 | [specs/2026-03-17-graph-it-cli-design.md](specs/2026-03-17-graph-it-cli-design.md) | CLI design spec — approved 2026-03-17, implemented in PR #80 |
 | [specs/2026-04-12-csharp-go-java-language-support.md](specs/2026-04-12-csharp-go-java-language-support.md) | C#, Go, Java language support — implemented |
+| [specs/2026-04-21-dead-code-scan.md](specs/2026-04-21-dead-code-scan.md) | Workspace-wide dead code scan — implemented via MCP, LM Tool, and `graph-it check` |
+
+---
+
+## Superpowers
+
+Planning and design artifacts produced with the Superpowers workflow.
+
+| File | Description |
+|------|-------------|
+| [superpowers/specs/2026-04-30-cli-repl-design.md](superpowers/specs/2026-04-30-cli-repl-design.md) | CLI guided REPL design spec — approved for the no-argument TTY workflow |
+| [superpowers/plans/2026-04-30-cli-repl.md](superpowers/plans/2026-04-30-cli-repl.md) | CLI guided REPL implementation plan |
 
 ---
 

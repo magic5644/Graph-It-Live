@@ -30,7 +30,7 @@ Built for **architects** who need the big picture and **developers** who need to
 | **Symbol View** | Function/class call hierarchy inside a file | AST (ts-morph) |
 | **Live Call Graph** | Cross-file symbol call relationships | Tree-sitter + SQLite |
 
-All three layers are also exposed to AI via a **21-tool MCP server**, so your assistant can answer architecture questions with zero hallucination.
+All three layers are also exposed to AI via a **22-tool MCP server**, so your assistant can answer architecture questions with zero hallucination.
 
 <div align="center">
   <img src="media/demo-plugin-graph-it-live.gif" alt="Graph-It-Live Demo" width="800"/>
@@ -402,7 +402,7 @@ graph-it check                  # Scan whole workspace for dead code (unused exp
 graph-it check <dir>            # Scan a subdirectory for dead code
 graph-it check <file>           # Detect unused exported symbols in a single file
 graph-it serve                  # Launch MCP stdio server (for AI clients)
-graph-it tool --list            # List all 21 MCP tools
+graph-it tool --list            # List all 21 CLI analysis tools
 graph-it tool <mcp-tool> [args] # Run any MCP tool directly from the terminal
 graph-it update                 # Update graph-it to the latest version
 graph-it install                # Symlink the binary into your system PATH (opt-in)
@@ -481,7 +481,7 @@ Graph-It-Live includes an optional **MCP server** that exposes its full analysis
 
 ### Available Tools
 
-The MCP server exposes **21 tools** for AI/LLM consumption. All tools except `set_workspace` are also available as **native LM Tools** (`#graphResolve`, `#graphBreaking`, `#graphCallGraph`, etc.) directly in Copilot Agent mode — no MCP server required for those.
+The MCP server exposes **22 tools** for AI/LLM consumption. The 21 analysis tools, excluding the server-management-only `set_workspace`, are also available as **native LM Tools** (`#graphResolve`, `#graphBreaking`, `#graphCallGraph`, etc.) directly in Copilot Agent mode — no MCP server required for those.
 
 | Tool | Description |
 | :--- | :---------- |

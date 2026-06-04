@@ -1,5 +1,25 @@
 # Changelog
 
+## v1.9.7
+
+### Features
+
+- **CLI `tool` command argument key normalization**: `graph-it tool` now normalises argument keys to support various flag formats (`--tool-name`, `--tool_name`, `--toolname`), making MCP tool invocation more flexible from the CLI.
+
+### Refactoring
+
+- **Parser and analyzer initialization optimisation**: Consolidated WASM parser initialisation across Python, Rust, and WASM parser factory. Moved `this.initialized = true` into the `finally` block to ensure the flag is set even when parsing fails, preventing redundant re-initialisation attempts. Reduced boilerplate in `PythonParser`, `RustParser`, `PythonSymbolAnalyzer`, `RustSymbolAnalyzer`, and `WasmParserFactory`.
+- **Shared utility cleanup**: Removed redundant `path.resolve` calls in `PathResolver`, `logger.ts`, `toon.ts`, `CytoscapeTheme.ts`, and `ServiceContainer.ts` where the path was already absolute or resolved upstream.
+
+### Maintenance
+
+- **Dependency updates**: Updated `@inquirer/core` (^11.2.0 → ^11.2.1), `@inquirer/prompts` (^8.5.0 → ^8.5.2), `@vitest/coverage-v8` (^4.1.7 → ^4.1.8), `@vitest/ui` (^4.1.7 → ^4.1.8), `eslint` (^10.4.0 → ^10.4.1), and `vitest` (^4.1.7 → ^4.1.8).
+- **`tmp` package update**: Updated `tmp` to version 0.2.7 for improved stability.
+
+### Testing
+
+- **CLI `tool` command tests**: Added unit tests covering argument key normalisation (kebab-case, snake_case, camelCase inputs all resolve to the correct tool name).
+
 ## v1.9.6
 
 ### Bug Fixes
