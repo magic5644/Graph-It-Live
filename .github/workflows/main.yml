@@ -1,5 +1,8 @@
 name: Main Branch Validation
 
+permissions:
+  contents: read
+
 on:
   push:
     branches: [ main ]
@@ -21,6 +24,8 @@ concurrency:
 
 jobs:
   validate:
+    permissions:
+      contents: read
     uses: ./.github/workflows/reusable-ci.yml
     with:
       node-version: '24.x'

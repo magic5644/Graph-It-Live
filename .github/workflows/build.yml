@@ -1,6 +1,9 @@
 
 name: CI
 
+permissions:
+  contents: read
+
 on:
   push:
     branches-ignore:
@@ -37,7 +40,50 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  validate:
+  detect_open_pr:
+    if: github.event_name == 'push'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: read
+    outputs:
+      has_open_pr: ${{ steps.pr_check.outputs.has_open_pr }}
+    steps:
+      - name: Check for open PR from branch
+        id: pr_check
+        uses: actions/github-script@v8
+        with:
+          script: |
+            const { owner, repo } = context.repo;
+            const branch = context.ref.replace('refs/heads/', '');
+            const head = `${owner}:${branch}`;
+            const pulls = await github.rest.pulls.list({
+              owner,
+              repo,
+              state: 'open',
+              head,
+              per_page: 1,
+            });
+
+            const hasOpenPr = pulls.data.length > 0;
+            core.info(`Open PR for ${head}: ${hasOpenPr}`);
+            core.setOutput('has_open_pr', String(hasOpenPr));
+
+  validate_pr:
+    if: github.event_name == 'pull_request'
+    permissions:
+      contents: read
+    uses: ./.github/workflows/reusable-ci.yml
+    with:
+      node-version: '24.x'
+      run-e2e: true
+      package-extension: true
+
+  validate_push:
+    if: github.event_name == 'push' && needs.detect_open_pr.outputs.has_open_pr != 'true'
+    needs: detect_open_pr
+    permissions:
+      contents: read
     uses: ./.github/workflows/reusable-ci.yml
     with:
       node-version: '24.x'
