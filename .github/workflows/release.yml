@@ -1,0 +1,165 @@
+name: Release and Publish Extension
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      version:
+        description: Release version (e.g. 1.2.3 or v1.2.3)
+        required: true
+        type: string
+      prerelease:
+        description: Mark GitHub release as prerelease
+        required: false
+        default: false
+        type: boolean
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  validate:
+    uses: ./.github/workflows/reusable-ci.yml
+    with:
+      node-version: '24.x'
+      run-e2e: true
+      package-extension: true
+
+  publish:
+    permissions:
+      contents: write
+      packages: write
+      id-token: write
+      attestations: write
+    runs-on: ubuntu-latest
+    needs: validate
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Use Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: '24.x'
+          cache: npm
+
+      - name: Resolve release tag and version
+        id: release_meta
+        run: |
+          if [ "${GITHUB_EVENT_NAME}" = "push" ]; then
+            RELEASE_TAG="${GITHUB_REF_NAME}"
+          else
+            RAW_INPUT="${{ inputs.version }}"
+            if [[ "$RAW_INPUT" == v* ]]; then
+              RELEASE_TAG="$RAW_INPUT"
+            else
+              RELEASE_TAG="v$RAW_INPUT"
+            fi
+          fi
+
+          VERSION="${RELEASE_TAG#v}"
+          if ! [[ "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+([.-][0-9A-Za-z.-]+)?$ ]]; then
+            echo "ERROR: Invalid version '$VERSION'. Expected semver like 1.2.3 or 1.2.3-rc.1"
+            exit 1
+          fi
+
+          echo "release_tag=$RELEASE_TAG" >> "$GITHUB_OUTPUT"
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+
+      - name: Update Package Version
+        run: npm version ${{ steps.release_meta.outputs.version }} --no-git-tag-version
+
+      - name: Install Dependencies
+        run: npm ci
+
+      - name: Install VS Code Extension Manager
+        run: npm install -g @vscode/vsce
+
+      - name: Package Extension
+        run: npm run package:vsix
+
+      - name: Attest Build Provenance
+        uses: actions/attest-build-provenance@v4
+        with:
+          subject-path: "graph-it-live-${{ steps.release_meta.outputs.version }}.vsix"
+
+      - name: Verify VSIX Content
+        run: |
+          echo "Checking VSIX content structure:"
+          vsce ls --tree graph-it-live-*.vsix
+
+      - name: Upload VSIX as Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: graph-it-live
+          path: "*.vsix"
+          if-no-files-found: error
+
+      - name: Publish to VS Code Marketplace
+        env:
+          VSCE_PAT: ${{ secrets.VSCE_PAT }}
+        run: vsce publish -p $VSCE_PAT --packagePath graph-it-live-${{ steps.release_meta.outputs.version }}.vsix
+
+      - name: Publish to Open VSX Marketplace
+        env:
+          OVSX_PAT: ${{ secrets.OVSX_PAT }}
+        run: npx ovsx publish -p $OVSX_PAT --packagePath graph-it-live-${{ steps.release_meta.outputs.version }}.vsix
+
+      - name: Publish artifact to GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: "graph-it-live-*.vsix"
+          tag_name: "${{ steps.release_meta.outputs.release_tag }}"
+          target_commitish: "${{ github.sha }}"
+          name: "${{ steps.release_meta.outputs.release_tag }}"
+          generate_release_notes: true
+          draft: false
+          prerelease: ${{ github.event_name == 'workflow_dispatch' && inputs.prerelease || false }}
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Set up Node.js for npm publish
+        uses: actions/setup-node@v6
+        with:
+          node-version: '24.x'
+          registry-url: 'https://registry.npmjs.org'
+          scope: '@magic5644'
+
+      - name: Build CLI bundle
+        run: npm run build:cli -- --production
+
+      - name: Verify no .map files in CLI bundle
+        run: |
+          MAP_COUNT=$(find dist/ -name "*.map" | wc -l | tr -d ' ')
+          if [ "$MAP_COUNT" -gt 0 ]; then
+            echo "ERROR: .map files found in CLI bundle:"
+            find dist/ -name "*.map"
+            exit 1
+          fi
+          echo "OK: no .map files"
+
+      - name: Check if npm package exists
+        run: |
+          if npm view @magic5644/graph-it-live version 2>/dev/null; then
+            echo "Package exists, continuing..."
+          else
+            echo "ERROR: Package does not exist on npm. Publish manually first."
+            exit 1
+          fi
+
+      - name: Scope package name for npm publish
+        run: |
+          node -e "
+          const fs = require('fs');
+          const pkg = JSON.parse(fs.readFileSync('package.json', 'utf8'));
+          pkg.name = '@magic5644/graph-it-live';
+          pkg.files = ['bin/', 'dist/graph-it.js', 'dist/astWorker.js', 'dist/mcpServer.mjs', 'dist/mcpWorker.js', 'dist/indexerWorker.js', 'dist/wasm/', 'dist/queries/', 'README.md', 'LICENSE', 'docs/CLI.md'];
+          fs.writeFileSync('package.json', JSON.stringify(pkg, null, 2) + '\n');
+          "
+
+      - name: Publish CLI to npm
+        run: npm publish --access public --provenance --ignore-scripts
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
