@@ -68,7 +68,6 @@ jobs:
     name: Package Extension
     permissions:
       contents: read
-      packages: write
     runs-on: ubuntu-latest
     needs: test
     if: inputs.package-extension
