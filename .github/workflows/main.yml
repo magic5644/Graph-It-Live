@@ -16,19 +16,10 @@ on:
       - 'esbuild.js'
       - 'eslint.config.mjs'
       - '.github/workflows/**'
-  pull_request:
-    branches: [ main ]
-    paths:
-      - 'src/**'
-      - 'tests/**'
-      - 'resources/**'
-      - 'package.json'
-      - 'package-lock.json'
-      - 'tsconfig*.json'
-      - 'vitest*.config.mts'
-      - 'esbuild.js'
-      - 'eslint.config.mjs'
-      - '.github/workflows/**'
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
   build:
