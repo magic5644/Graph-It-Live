@@ -3,6 +3,10 @@ name: Build-Test-Package-E2E
 
 on:
   push:
+    branches-ignore:
+      - main
+    tags-ignore:
+      - 'v*'
     paths:
       - 'src/**'
       - 'tests/**'
@@ -15,6 +19,8 @@ on:
       - 'eslint.config.mjs'
       - '.github/workflows/**'
   pull_request:
+    branches:
+      - main
     paths:
       - 'src/**'
       - 'tests/**'
@@ -26,6 +32,10 @@ on:
       - 'esbuild.js'
       - 'eslint.config.mjs'
       - '.github/workflows/**'
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
   test:
