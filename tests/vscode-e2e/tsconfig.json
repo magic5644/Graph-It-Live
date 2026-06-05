@@ -1,0 +1,9 @@
+{
+  "extends": "../../tsconfig.vscode-e2e.json",
+  "compilerOptions": {
+    "noEmit": true
+  },
+  "include": [
+    "./**/*.ts"
+  ]
+}
