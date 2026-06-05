@@ -5,9 +5,9 @@ import { glob } from 'glob';
 export async function run(): Promise<void> {
   const reporter = process.env.E2E_MOCHA_REPORTER || 'spec';
   const reporterOptions = process.env.E2E_MOCHA_REPORT_FILE
-    ? [
-      `output=${path.resolve(process.env.E2E_MOCHA_REPORT_FILE)}`,
-    ]
+    ? {
+      output: path.resolve(process.env.E2E_MOCHA_REPORT_FILE),
+    }
     : undefined;
 
   // Create the mocha test
