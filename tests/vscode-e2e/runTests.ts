@@ -30,6 +30,26 @@ async function main() {
     // Use fixtures as workspace root to allow tests to access all test projects
     // Use absolute path from extension root to avoid path resolution issues
     const workspaceRoot = path.resolve(extensionDevelopmentPath, 'tests/fixtures');
+    const reportFileFromEnv = process.env.E2E_MOCHA_REPORT_FILE;
+    let resolvedReportFile: string | undefined;
+
+    if (reportFileFromEnv) {
+      if (path.isAbsolute(reportFileFromEnv)) {
+        resolvedReportFile = reportFileFromEnv;
+      } else {
+        resolvedReportFile = path.resolve(extensionDevelopmentPath, reportFileFromEnv);
+      }
+    }
+
+    if (resolvedReportFile) {
+      fs.mkdirSync(path.dirname(resolvedReportFile), { recursive: true });
+    }
+
+    const extensionTestsEnv = {
+      ...process.env,
+      ...(resolvedReportFile ? { E2E_MOCHA_REPORT_FILE: resolvedReportFile } : {}),
+    };
+
     const launchArgs = [
       workspaceRoot,
       '--disable-extensions', // Disable other extensions for clean testing
@@ -39,7 +59,7 @@ async function main() {
       // Test from packaged .vsix file (production mode)
       const vsixFiles = fs.readdirSync(extensionDevelopmentPath)
         .filter(f => f.endsWith('.vsix'))
-        .sort()
+        .sort((a, b) => a.localeCompare(b))
         .reverse(); // Get latest
 
       if (vsixFiles.length === 0) {
@@ -54,6 +74,7 @@ async function main() {
       await runTests({
         extensionDevelopmentPath,
         extensionTestsPath,
+        extensionTestsEnv,
         launchArgs: [
           ...launchArgs,
           `--install-extension=${vsixPath}`,
@@ -66,6 +87,7 @@ async function main() {
       await runTests({
         extensionDevelopmentPath,
         extensionTestsPath,
+        extensionTestsEnv,
         launchArgs,
       });
     }
