@@ -4,7 +4,7 @@ import { glob } from 'glob';
 
 export async function run(): Promise<void> {
   const reporter = process.env.E2E_MOCHA_REPORTER || 'spec';
-  const reporterOption = process.env.E2E_MOCHA_REPORT_FILE
+  const reporterOptions = process.env.E2E_MOCHA_REPORT_FILE
     ? [
       `output=${path.resolve(process.env.E2E_MOCHA_REPORT_FILE)}`,
     ]
@@ -16,7 +16,7 @@ export async function run(): Promise<void> {
     color: true,
     timeout: 20000, // VSCode operations can be slow
     reporter,
-    reporterOption,
+    reporterOptions,
   });
 
   const testsRoot = path.resolve(__dirname, '..');
