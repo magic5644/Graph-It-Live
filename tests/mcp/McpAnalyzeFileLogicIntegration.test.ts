@@ -15,12 +15,39 @@ import {
     McpWorkerHost,
     type McpWorkerHostOptions,
 } from "../../src/mcp/McpWorkerHost";
+import { SpiderBuilder } from "../../src/analyzer/SpiderBuilder";
+import { LspCallHierarchyAnalyzer } from "../../src/analyzer/LspCallHierarchyAnalyzer";
 import type {
     AnalyzeFileLogicParams,
-    AnalyzeFileLogicResult,
+  AnalyzeFileLogicResult,
 } from "../../src/mcp/types";
+import { convertSpiderToLspFormat } from "../../src/shared/converters";
 import { SUPPORTED_SYMBOL_ANALYSIS_EXTENSIONS } from "../../src/shared/constants";
 import { detectLanguageFromExtension } from "../../src/shared/utils/languageDetection";
+
+function assertAnalyzeFileLogicResult(value: unknown): asserts value is AnalyzeFileLogicResult {
+  if (!value || typeof value !== "object") {
+    throw new Error("Expected object result from analyze_file_logic");
+  }
+  const candidate = value as { filePath?: unknown; language?: unknown; graph?: unknown };
+  if (
+    typeof candidate.filePath !== "string"
+    || typeof candidate.language !== "string"
+    || !candidate.graph
+    || typeof candidate.graph !== "object"
+  ) {
+    throw new Error("Invalid analyze_file_logic result shape");
+  }
+}
+
+async function invokeAnalyze(
+  worker: McpWorkerHost,
+  params: AnalyzeFileLogicParams,
+): Promise<AnalyzeFileLogicResult> {
+  const result = await worker.invoke("analyze_file_logic", params);
+  assertAnalyzeFileLogicResult(result);
+  return result;
+}
 
 describe("MCP analyze_file_logic Integration Tests (T070-T074)", () => {
   let mcpWorker: McpWorkerHost;
@@ -90,10 +117,7 @@ export class Calculator {
         format: "toon",
       };
 
-      const result = (await mcpWorker.invoke(
-        "analyze_file_logic",
-        params,
-      )) as AnalyzeFileLogicResult;
+      const result = await invokeAnalyze(mcpWorker, params);
 
       expect(result).toBeDefined();
       expect(result).toHaveProperty("filePath");
@@ -156,10 +180,7 @@ class Calculator:
         format: "toon",
       };
 
-      const result = (await mcpWorker.invoke(
-        "analyze_file_logic",
-        params,
-      )) as AnalyzeFileLogicResult;
+      const result = await invokeAnalyze(mcpWorker, params);
 
       expect(result).toBeDefined();
       expect(result.filePath).toBe(pyFile);
@@ -187,7 +208,7 @@ class Calculator:
     });
 
     it("should handle path outside workspace", async () => {
-      const outsideFile = "/tmp/outside-workspace.ts";
+      const outsideFile = path.resolve(tempDir, "..", "outside-workspace.ts");
 
       const params: AnalyzeFileLogicParams = {
         filePath: outsideFile,
@@ -248,10 +269,7 @@ class Calculator:
           filePath: file,
         };
 
-        const result = (await mcpWorker.invoke(
-          "analyze_file_logic",
-          params,
-        )) as AnalyzeFileLogicResult;
+        const result = await invokeAnalyze(mcpWorker, params);
         expect(result).toBeDefined();
         expect(result.graph).toBeDefined();
       }
@@ -280,10 +298,7 @@ module.exports = { main };
         format: "json",
       };
 
-      const result = (await mcpWorker.invoke(
-        "analyze_file_logic",
-        params,
-      )) as AnalyzeFileLogicResult;
+      const result = await invokeAnalyze(mcpWorker, params);
 
       expect(result).toBeDefined();
       expect(result.language).toBe("javascript");
@@ -310,14 +325,66 @@ module.exports = { main };
         filePath: tsFile,
       };
 
-      const result = (await mcpWorker.invoke(
-        "analyze_file_logic",
-        params,
-      )) as AnalyzeFileLogicResult;
+      const result = await invokeAnalyze(mcpWorker, params);
 
       expect(result).toBeDefined();
       expect(result.graph).toBeDefined();
       expect(result.filePath).toBe(tsFile);
+    });
+  });
+
+  describe("MCP parity with extension analysis pipeline", () => {
+    it("matches direct Spider + LspCallHierarchyAnalyzer graph for TypeScript file", async () => {
+      const tsFile = path.join(tempDir, "parity.ts");
+      await fs.writeFile(
+        tsFile,
+        `export function alpha(x: number): number {
+  return beta(x);
+}
+
+function beta(y: number): number {
+  return gamma(y) + 1;
+}
+
+function gamma(z: number): number {
+  return z * 2;
+}
+`,
+      );
+
+      const mcpParams: AnalyzeFileLogicParams = {
+        filePath: tsFile,
+        format: "json",
+      };
+
+      const mcpResult = await invokeAnalyze(mcpWorker, mcpParams);
+
+      const spider = new SpiderBuilder()
+        .withRootDir(tempDir)
+        .withExtensionPath(process.cwd())
+        .build();
+
+      try {
+        const symbolGraphData = await spider.getSymbolGraph(tsFile);
+        const lspData = convertSpiderToLspFormat(symbolGraphData, tsFile);
+        const analyzer = new LspCallHierarchyAnalyzer();
+        const directGraph = analyzer.buildIntraFileGraph(tsFile, lspData);
+
+        const mcpNodes = new Set(mcpResult.graph.nodes.map((n: any) => n.id));
+        const directNodes = new Set(directGraph.nodes.map((n) => n.id));
+        expect(mcpNodes).toEqual(directNodes);
+
+        const mcpEdges = new Set(
+          mcpResult.graph.edges.map((e: any) => `${e.source}->${e.target}`),
+        );
+        const directEdges = new Set(
+          directGraph.edges.map((e) => `${e.source}->${e.target}`),
+        );
+        expect(mcpEdges).toEqual(directEdges);
+        expect(mcpResult.graph.hasCycle).toBe(directGraph.hasCycle);
+      } finally {
+        await spider.dispose();
+      }
     });
   });
 
@@ -330,10 +397,7 @@ module.exports = { main };
         filePath: emptyFile,
       };
 
-      const result = (await mcpWorker.invoke(
-        "analyze_file_logic",
-        params,
-      )) as AnalyzeFileLogicResult;
+      const result = await invokeAnalyze(mcpWorker, params);
 
       expect(result).toBeDefined();
       expect(result.graph.nodes.length).toBe(0);
@@ -354,10 +418,7 @@ module.exports = { main };
         filePath: commentsFile,
       };
 
-      const result = (await mcpWorker.invoke(
-        "analyze_file_logic",
-        params,
-      )) as AnalyzeFileLogicResult;
+      const result = await invokeAnalyze(mcpWorker, params);
 
       expect(result).toBeDefined();
       // Should have no symbols (only comments)
@@ -379,10 +440,7 @@ module.exports = { main };
       };
 
       const startTime = Date.now();
-      const result = (await mcpWorker.invoke(
-        "analyze_file_logic",
-        params,
-      )) as AnalyzeFileLogicResult;
+      const result = await invokeAnalyze(mcpWorker, params);
       const duration = Date.now() - startTime;
 
       expect(result).toBeDefined();

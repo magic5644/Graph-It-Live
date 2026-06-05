@@ -196,6 +196,7 @@ npm run check:types
 ```bash
 npm test
 npm run test:vscode
+npm run test:vscode:vsix # required for user-facing changes
 ```
 
 3. **Verify package** (if build config changed):
@@ -242,6 +243,26 @@ git push origin feature/your-feature-name
 - [ ] Commit messages follow Conventional Commits style
 - [ ] Cross-platform compatibility verified
 - [ ] Package verification passed (if build config changed)
+
+### Required PR Evidence
+
+For all PRs, include command output (or CI links) for:
+
+- `npm run lint`
+- `npm run check:types`
+- `npm test`
+
+For user-facing changes, include:
+
+- `npm run test:vscode:vsix`
+
+For build config or dependency changes (`esbuild.js`, `.vscodeignore`, `package.json`), include:
+
+- `npm run package:verify` (must print `✅ No .map files in package`)
+- `npx vsce ls graph-it-live-*.vsix | grep "\.wasm$"`
+- `ls -lh graph-it-live-*.vsix` (target ≤ 16 MB; warn if above)
+
+Use `.github/pull_request_template.md` and complete all checkboxes before requesting review.
 
 ## Coding Standards
 

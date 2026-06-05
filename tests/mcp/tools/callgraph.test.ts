@@ -12,9 +12,10 @@ import {
     type CallGraphEdge,
     type CallGraphNode,
 } from "../../../src/analyzer/callgraph/CallGraphIndexer";
+import { queryNeighbourhood } from "../../../src/analyzer/callgraph/CallGraphQuery";
 import { workerState } from "../../../src/mcp/shared/state";
 import { executeQueryCallGraph } from "../../../src/mcp/tools/callgraph";
-import type { SupportedLang } from "../../../src/shared/callgraph-types";
+import type { RelationType } from "../../../src/shared/callgraph-types";
 
 // ---------------------------------------------------------------------------
 // sql.js WASM path (real WASM from node_modules)
@@ -45,7 +46,7 @@ function node(
     id: `${filePath}:${name}:${line}`,
     name,
     type: "function",
-    lang: "typescript" as SupportedLang,
+    lang: "typescript",
     path: filePath,
     folder: path.dirname(filePath),
     startLine: line,
@@ -59,7 +60,7 @@ function node(
 function edge(
   source: CallGraphNode,
   target: CallGraphNode,
-  relation: string = "CALLS",
+  relation: RelationType = "CALLS",
 ): CallGraphEdge {
   return {
     sourceId: source.id,
@@ -276,5 +277,31 @@ describe("executeQueryCallGraph", () => {
 
     expect(result.totalCallers).toBe(result.callers.length);
     expect(result.totalCallees).toBe(result.callees.length);
+  });
+
+  it("matches queryNeighbourhood outgoing edges for depth=2 callee traversal", async () => {
+    const mcpResult = await executeQueryCallGraph({
+      filePath: FILE_A,
+      symbolName: "main",
+      direction: "callees",
+      depth: 2,
+    });
+
+    expect(mcpResult.symbol).not.toBeNull();
+    const rootId = mcpResult.symbol!.id;
+    const neighbourhood = queryNeighbourhood(indexer.getDb(), rootId, 2);
+
+    const mcpEdges = new Set(
+      mcpResult.callees.map((e) => `${e.sourceId}->${e.targetId}`),
+    );
+
+    const neighbourhoodOutgoing = new Set(
+      neighbourhood.edges
+        .filter((e) => e.direction === "outgoing" || e.direction === "lateral")
+        .map((e) => `${e.sourceId}->${e.targetId}`),
+    );
+
+    // The neighbourhood contains the same subgraph; MCP callee traversal should match outgoing/lateral edges.
+    expect(mcpEdges).toEqual(neighbourhoodOutgoing);
   });
 });

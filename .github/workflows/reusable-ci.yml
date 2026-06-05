@@ -9,7 +9,7 @@ on:
         default: '24.x'
         type: string
       run-e2e:
-        description: Run VS Code E2E tests on Linux
+        description: Run VS Code E2E tests on Linux and VSIX smoke validation on Windows/macOS
         required: false
         default: false
         type: boolean
@@ -64,6 +64,14 @@ jobs:
         if: inputs.run-e2e && runner.os == 'Linux'
         run: xvfb-run -a npm run test:vscode:vsix
 
+      - name: Run VSIX Smoke Validation (Windows/macOS)
+        if: inputs.run-e2e && runner.os != 'Linux'
+        run: |
+          npm run package:vsix
+          npm run package:verify
+          echo "Verifying WASM files are present in VSIX"
+          npx vsce ls graph-it-live-*.vsix | grep "\.wasm$"
+
   package:
     name: Package Extension
     permissions:
@@ -94,3 +102,27 @@ jobs:
         run: |
           echo "Checking VSIX content structure:"
           vsce ls --tree graph-it-live-*.vsix
+
+      - name: Verify no source maps in VSIX
+        run: |
+          if npx vsce ls graph-it-live-*.vsix | grep -q "\.map$"; then
+            echo "❌ ERROR: .map files found in package!"
+            npx vsce ls graph-it-live-*.vsix | grep "\.map$"
+            exit 1
+          fi
+          echo "✅ No .map files in package"
+
+      - name: Verify WASM files in VSIX
+        run: |
+          WASM_COUNT=$(npx vsce ls graph-it-live-*.vsix | grep -c "\.wasm$")
+          if [ "$WASM_COUNT" -lt 8 ]; then
+            echo "❌ ERROR: Expected at least 8 WASM files, found $WASM_COUNT"
+            npx vsce ls graph-it-live-*.vsix | grep "\.wasm$" || true
+            exit 1
+          fi
+          echo "✅ WASM files detected: $WASM_COUNT"
+
+      - name: Report VSIX package size
+        run: |
+          SIZE=$(ls -lh graph-it-live-*.vsix | awk '{print $5}')
+          echo "VSIX package size: $SIZE"

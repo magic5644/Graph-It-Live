@@ -354,6 +354,17 @@ ls -lh *.vsix
 3. **Package size**: Should be around 12 MB (reasonable size)
 4. **All tests pass**: Run `npm run test:vscode:vsix` before release
 
+### PR-Only Enforcement (No Nightly Requirement)
+
+Validation is enforced during pull requests (not via scheduled nightly workflows):
+
+1. Reusable CI fails if `.map` files are found in the VSIX.
+2. Reusable CI checks that expected WASM files are present in the VSIX.
+3. Reusable CI reports package size for review.
+4. PRs must include evidence in `.github/pull_request_template.md`.
+
+For review consistency, keep `CONTRIBUTING.md` and the PR template aligned.
+
 ### Troubleshooting Package Issues
 
 **Problem**: .map files found in package
