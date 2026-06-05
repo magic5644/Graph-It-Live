@@ -1,0 +1,17 @@
+{
+  "extends": "../tsconfig.test.node.json",
+  "compilerOptions": {
+    "types": ["node", "vitest/globals"]
+  },
+  "include": [
+    "./**/*.ts",
+    "../src/**/*.ts"
+  ],
+  "exclude": [
+    "../node_modules",
+    "../dist",
+    "../out",
+    "./webview/**/*",
+    "./vscode-e2e/**/*"
+  ]
+}

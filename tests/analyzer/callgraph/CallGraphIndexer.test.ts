@@ -1,3 +1,5 @@
+/// <reference types="node" />
+
 /**
  * Unit tests for CallGraphIndexer.
  *
@@ -10,8 +12,7 @@
 import type {
     CallGraphEdge,
     CallGraphNode,
-} from "@/analyzer/callgraph/CallGraphIndexer";
-import type { SupportedLang } from "@/shared/callgraph-types";
+} from "../../../src/analyzer/callgraph/CallGraphIndexer";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
@@ -20,7 +21,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 // ---------------------------------------------------------------------------
 
 const SQL_WASM_PATH = path.join(
-  process.cwd(),
+  path.resolve(),
   "node_modules",
   "sql.js",
   "dist",
@@ -34,7 +35,7 @@ const SQL_WASM_PATH = path.join(
 import {
     CallGraphIndexer,
     getSqlJsWasmPath,
-} from "@/analyzer/callgraph/CallGraphIndexer";
+} from "../../../src/analyzer/callgraph/CallGraphIndexer";
 
 // ---------------------------------------------------------------------------
 // Test helpers
@@ -46,7 +47,7 @@ const makeNode = (overrides: Partial<CallGraphNode> = {}): CallGraphNode => ({
   id: `${FILE_A}:myFunc:5`,
   name: "myFunc",
   type: "function",
-  lang: "typescript" as SupportedLang,
+  lang: "typescript",
   path: FILE_A,
   folder: "/workspace/src",
   startLine: 5,
@@ -112,6 +113,52 @@ describe("CallGraphIndexer", () => {
     expect(() => indexer.getDb()).toThrow();
     await indexer.init();
     expect(() => indexer.getDb()).not.toThrow();
+  });
+
+  it("batch indexing commits multiple files atomically", () => {
+    const fileB = "/workspace/src/fileB.ts";
+    const nodeA = makeNode({ id: `${FILE_A}:a:1`, name: "a", startLine: 1 });
+    const nodeB = makeNode({
+      id: `${fileB}:b:1`,
+      name: "b",
+      startLine: 1,
+      path: fileB,
+      folder: "/workspace/src",
+    });
+
+    indexer.beginBatch();
+    indexer.indexFile([nodeA], [], FILE_A, "typescript", Date.now());
+    indexer.indexFile([nodeB], [], fileB, "typescript", Date.now());
+    indexer.commitBatch();
+
+    const db = indexer.getDb();
+    const fileRows = db.exec(
+      "SELECT path FROM file_index WHERE path IN (?, ?) ORDER BY path",
+      [FILE_A, fileB],
+    );
+    expect(fileRows[0]?.values.length).toBe(2);
+  });
+
+  it("batch rollback cancels pending writes", () => {
+    const tempFile = "/workspace/src/rollback.ts";
+    const tempNode = makeNode({
+      id: `${tempFile}:temp:1`,
+      name: "temp",
+      startLine: 1,
+      path: tempFile,
+      folder: "/workspace/src",
+    });
+
+    indexer.beginBatch();
+    indexer.indexFile([tempNode], [], tempFile, "typescript", Date.now());
+    indexer.rollbackBatch();
+
+    const db = indexer.getDb();
+    const fileRows = db.exec("SELECT path FROM file_index WHERE path = ?", [tempFile]);
+    expect(fileRows.length).toBe(0);
+
+    const nodeRows = db.exec("SELECT id FROM nodes WHERE id = ?", [tempNode.id]);
+    expect(nodeRows.length).toBe(0);
   });
 
   // -------------------------------------------------------------------------
@@ -301,17 +348,17 @@ describe("CallGraphIndexer", () => {
 
     const javaCallerNode = makeNode({
       id: `${JAVA_FILE}:main:1`, name: "main", type: "method",
-      lang: "java" as SupportedLang, path: JAVA_FILE, folder: "/workspace/src",
+      lang: "java", path: JAVA_FILE, folder: "/workspace/src",
       startLine: 1, endLine: 10, startCol: 0, isExported: true,
     });
     const javaUserNode = makeNode({
       id: `${JAVA_FILE}:User:20`, name: "User", type: "class",
-      lang: "java" as SupportedLang, path: JAVA_FILE, folder: "/workspace/src",
+      lang: "java", path: JAVA_FILE, folder: "/workspace/src",
       startLine: 20, endLine: 30, startCol: 0, isExported: true,
     });
     const goUserNode = makeNode({
       id: `${GO_FILE}:User:5`, name: "User", type: "class",
-      lang: "go" as SupportedLang, path: GO_FILE, folder: "/workspace/go-project/models",
+      lang: "go", path: GO_FILE, folder: "/workspace/go-project/models",
       startLine: 5, endLine: 15, startCol: 0, isExported: true,
     });
 

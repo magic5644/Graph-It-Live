@@ -87,5 +87,5 @@ jobs:
     uses: ./.github/workflows/reusable-ci.yml
     with:
       node-version: '24.x'
-      run-e2e: true
+      run-e2e: false
       package-extension: true

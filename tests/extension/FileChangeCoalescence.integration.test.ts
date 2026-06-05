@@ -1,10 +1,12 @@
+/// <reference types="node" />
+
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { FileChangeScheduler } from '../../src/extension/services/FileChangeScheduler';
 import type { EventType } from '../../src/extension/services/FileChangeScheduler';
 import * as path from 'node:path';
 import { normalizePath } from '../../src/shared/path';
 
-const testRootDir = path.resolve(process.cwd(), 'temp-test-root');
+const testRootDir = path.resolve('temp-test-root');
 const np = (p: string) => normalizePath(p);
 
 // Mock the extension logger
@@ -124,7 +126,7 @@ describe('File Change Coalescence Integration', () => {
     const symbolRefreshCalls: string[] = [];
     const fileRefreshCalls: number[] = [];
 
-    const processHandler = vi.fn().mockImplementation(async (filePath: string, eventType: EventType) => {
+    const processHandler = vi.fn().mockImplementation(async (_filePath: string, _eventType: EventType) => {
       // Simulate refresh behavior based on view mode
       if (currentSymbol) {
         symbolRefreshCalls.push(currentSymbol);
@@ -219,9 +221,11 @@ describe('File Change Coalescence Integration', () => {
   });
 
   it('reschedules if new event arrives during processing', async () => {
-    let resolveFirstProcessing: (() => void) | null = null;
+    let resolveFirstProcessing: () => void = () => {
+      throw new Error('Expected first processing resolver to be initialized');
+    };
     const firstProcessingPromise = new Promise<void>((resolve) => {
-      resolveFirstProcessing = resolve;
+      resolveFirstProcessing = () => resolve();
     });
 
     let callCount = 0;
@@ -252,13 +256,56 @@ describe('File Change Coalescence Integration', () => {
     scheduler.enqueue(filePath, 'change');
 
     // Complete first processing
-    resolveFirstProcessing!();
+    resolveFirstProcessing();
     await vi.runAllTimersAsync();
 
     // Should re-schedule
     await vi.advanceTimersByTimeAsync(300);
 
     expect(processHandler).toHaveBeenCalledTimes(2);
+
+    scheduler.dispose();
+  });
+
+  it('reschedules delete with priority when delete arrives during in-flight change', async () => {
+    let resolveFirstProcessing: () => void = () => {
+      throw new Error('Expected first processing resolver to be initialized');
+    };
+    const firstProcessingPromise = new Promise<void>((resolve) => {
+      resolveFirstProcessing = () => resolve();
+    });
+
+    const calls: Array<{ filePath: string; eventType: EventType }> = [];
+    let callCount = 0;
+    const processHandler = vi.fn().mockImplementation(async (filePath: string, eventType: EventType) => {
+      calls.push({ filePath, eventType });
+      callCount++;
+      if (callCount === 1) {
+        await firstProcessingPromise;
+      }
+    });
+
+    const scheduler = new FileChangeScheduler({
+      processHandler,
+      debounceDelay: 300,
+    });
+
+    const filePath = '/project/src/to-delete.ts';
+
+    scheduler.enqueue(filePath, 'change');
+    await vi.advanceTimersByTimeAsync(300);
+    expect(processHandler).toHaveBeenCalledTimes(1);
+    expect(calls[0]).toEqual({ filePath: np(filePath), eventType: 'change' });
+
+    // Higher-priority delete arrives while change is still processing
+    scheduler.enqueue(filePath, 'delete');
+
+    resolveFirstProcessing();
+    await vi.runAllTimersAsync();
+    await vi.advanceTimersByTimeAsync(300);
+
+    expect(processHandler).toHaveBeenCalledTimes(2);
+    expect(calls[1]).toEqual({ filePath: np(filePath), eventType: 'delete' });
 
     scheduler.dispose();
   });
