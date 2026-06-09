@@ -91,7 +91,7 @@ jobs:
 
       - name: Upload E2E Test Report (Linux)
         if: always() && inputs.run-e2e && runner.os == 'Linux'
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: e2e-test-report-linux
           path: |
