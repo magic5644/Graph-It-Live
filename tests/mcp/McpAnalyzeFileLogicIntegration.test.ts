@@ -130,7 +130,7 @@ export class Calculator {
       expect(result.graph.nodes.length).toBeGreaterThan(0);
 
       // Verify symbols are present
-      const symbolNames = result.graph.nodes.map((n: any) => n.name);
+      const symbolNames = result.graph.nodes.map(n => n.name);
       expect(symbolNames).toContain("calculate");
       expect(symbolNames).toContain("helper");
       expect(symbolNames).toContain("Calculator");
@@ -189,7 +189,7 @@ class Calculator:
       expect(result.graph.nodes.length).toBeGreaterThan(0);
 
       // Python analysis should detect functions and classes
-      const symbolNames = result.graph.nodes.map((n: any) => n.name);
+      const symbolNames = result.graph.nodes.map(n => n.name);
       expect(symbolNames.length).toBeGreaterThan(0);
     });
   });
@@ -207,17 +207,16 @@ class Calculator:
       ).rejects.toThrow(/not found|does not exist/i);
     });
 
-    it("should handle path outside workspace", async () => {
+    it("should reject path outside workspace", async () => {
       const outsideFile = path.resolve(tempDir, "..", "outside-workspace.ts");
-
-      const params: AnalyzeFileLogicParams = {
-        filePath: outsideFile,
-      };
-
-      // Should either reject due to path validation or file not found
-      await expect(
-        mcpWorker.invoke("analyze_file_logic", params),
-      ).rejects.toThrow();
+      await fs.writeFile(outsideFile, "export function outside() {}\n");
+      try {
+        await expect(
+          mcpWorker.invoke("analyze_file_logic", { filePath: outsideFile }),
+        ).rejects.toThrow(/outside workspace/i);
+      } finally {
+        await fs.rm(outsideFile, { force: true }).catch(() => {});
+      }
     });
   });
 
@@ -370,12 +369,12 @@ function gamma(z: number): number {
         const analyzer = new LspCallHierarchyAnalyzer();
         const directGraph = analyzer.buildIntraFileGraph(tsFile, lspData);
 
-        const mcpNodes = new Set(mcpResult.graph.nodes.map((n: any) => n.id));
+        const mcpNodes = new Set(mcpResult.graph.nodes.map(n => n.id));
         const directNodes = new Set(directGraph.nodes.map((n) => n.id));
         expect(mcpNodes).toEqual(directNodes);
 
         const mcpEdges = new Set(
-          mcpResult.graph.edges.map((e: any) => `${e.source}->${e.target}`),
+          mcpResult.graph.edges.map(e => `${e.source}->${e.target}`),
         );
         const directEdges = new Set(
           directGraph.edges.map((e) => `${e.source}->${e.target}`),
