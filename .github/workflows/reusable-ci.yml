@@ -72,10 +72,12 @@ jobs:
           set -o pipefail
           E2E_LOG="${{ runner.temp }}/e2e-vscode-linux.log"
           mkdir -p "$(dirname "$E2E_LOG")"
-          xvfb-run -a npm run test:vscode:vsix | tee "$E2E_LOG"
+          E2E_EXIT=0
+          xvfb-run -a npm run test:vscode:vsix | tee "$E2E_LOG" || E2E_EXIT=$?
           mkdir -p test-results
           awk 'BEGIN{capture=0} /<testsuite /{capture=1} capture{print} /<\/testsuite>/{if (capture) { exit }}' \
             "$E2E_LOG" > "${{ github.workspace }}/test-results/e2e-vscode-linux.xml"
+          exit $E2E_EXIT
 
       - name: Debug E2E report location (Linux)
         if: always() && inputs.run-e2e && runner.os == 'Linux'
@@ -150,6 +152,11 @@ jobs:
 
       - name: Package Extension
         run: npm run package:vsix
+
+      - name: Assert single VSIX
+        run: |
+          count=$(ls graph-it-live-*.vsix 2>/dev/null | wc -l)
+          [ "$count" -eq 1 ] || { echo "❌ Expected exactly 1 VSIX, found $count:"; ls graph-it-live-*.vsix; exit 1; }
 
       - name: Verify VSIX Content
         run: |
