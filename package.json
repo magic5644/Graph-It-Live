@@ -1136,7 +1136,7 @@
   "devDependencies": {
     "@eslint/js": "^10.0.1",
     "@types/mocha": "^10.0.10",
-    "@types/node": "^25.9.2",
+    "@types/node": "^25.9.3",
     "@types/react": "^19.2.17",
     "@types/react-dom": "^19.2.3",
     "@types/sql.js": "^1.4.11",
@@ -1160,9 +1160,6 @@
     "picomatch": "^4.0.4",
     "minimatch": ">=10.2.1",
     "flatted": ">=3.4.2",
-    "@vscode/vsce": {
-      "minimatch": "^3.0.3"
-    },
     "mocha": {
       "diff": ">=8.0.3",
       "serialize-javascript": ">=7.0.3"
