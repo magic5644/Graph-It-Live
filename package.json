@@ -1122,7 +1122,7 @@
     "chokidar": "^5.0.0",
     "cytoscape": "^3.34.0",
     "cytoscape-fcose": "^2.2.0",
-    "ink": "^7.0.5",
+    "ink": "^7.1.0",
     "react": "^19.2.7",
     "react-devtools-core": "^6.1.5",
     "react-dom": "^19.2.7",
@@ -1141,8 +1141,8 @@
     "@types/react-dom": "^19.2.3",
     "@types/sql.js": "^1.4.11",
     "@types/vscode": "^1.96.0",
-    "@vitest/coverage-v8": "^4.1.8",
-    "@vitest/ui": "^4.1.8",
+    "@vitest/coverage-v8": "^4.1.9",
+    "@vitest/ui": "^4.1.9",
     "@vscode/test-electron": "^2.5.2",
     "@vscode/vsce": "^3.9.2",
     "esbuild": "^0.27.7",
@@ -1153,8 +1153,8 @@
     "globals": "^17.6.0",
     "mocha": "^11.7.6",
     "typescript": "^6.0.3",
-    "typescript-eslint": "^8.61.0",
-    "vitest": "^4.1.8"
+    "typescript-eslint": "^8.61.1",
+    "vitest": "^4.1.9"
   },
   "overrides": {
     "picomatch": "^4.0.4",
