@@ -1,10 +1,18 @@
 # Changelog
 
-## v1.9.7
+## v1.9.7 (not released yet)
+
+### Bug Fixes
+
+- **Reverse index always reported disabled in standalone MCP server (issue #106)**: `get_index_status` was calling `spider.hasReverseIndex()` (checks if entries exist) to report `reverseIndexEnabled`, so the field read `false` whenever the index was enabled but not yet populated — during warmup, after `rebuild_index` clears the cache, or when the MCP server first starts. Added `Spider.isReverseIndexEnabled()` which checks the configuration state rather than data presence, and updated both `get_index_status` and `invalidate_files` to use it. The standalone `graph-it serve` MCP server already enabled reverse indexing via `.withReverseIndex(true)`; this fix makes the status reporting reflect that correctly.
+- **`invalidate_files` `reverseIndexUpdated` field used wrong check**: Same `hasReverseIndex()` vs `isReverseIndexEnabled()` confusion — an enabled-but-empty index would report `reverseIndexUpdated: false` after invalidation. Fixed to match the semantics of `get_index_status`.
+- **Graph view path normalization in cycle detection and edge traversal**: `graphUtils.ts` was comparing edge sources/targets with raw path strings instead of normalized paths, causing missed matches on Windows or case-insensitive filesystems. All comparisons and set insertions now use `normalizePath()`, fixing incorrect cycle detection and broken graph expansion.
+- **`AstWorkerHost` logs false error on clean shutdown**: `Worker.terminate()` (Node.js worker_threads) always exits with code 1 by design. The `exit` event handler was logging this as an error unconditionally, producing spurious `AstWorker exited with code 1` messages at the end of every MCP test run. Added an `isStopping` flag set before `terminate()` so intentional shutdown is silently ignored; genuine unexpected exits still log the error.
 
 ### Features
 
-- **CLI `tool` command argument key normalization**: `graph-it tool` now normalises argument keys to support various flag formats (`--tool-name`, `--tool_name`, `--toolname`), making MCP tool invocation more flexible from the CLI.
+- **`Graph-It-Live: Set Workspace Folder` command**: New VS Code command (`graph-it-live.setWorkspace`) available from the Command Palette. In multi-root workspaces, shows a QuickPick of all open workspace folders and immediately restarts the MCP server against the selected folder (the MCP server process receives the new `WORKSPACE_ROOT` env var). A reload prompt is shown since the graph view Spider is initialized at extension startup and requires a window reload for a full root switch.
+- **Auto-recover MCP server on workspace folder changes**: The extension now listens to `onDidChangeWorkspaceFolders`. When the currently analyzed folder is removed from the workspace, the MCP server automatically switches to the first remaining folder. When VS Code opens its first folder with no MCP provider running yet, the provider is registered automatically.
 
 ### Refactoring
 
@@ -18,6 +26,11 @@
 
 ### Testing
 
+- **Reverse index status regression guards**: Added `Spider.isReverseIndexEnabled()` lifecycle tests covering enabled-before-indexing, `clearCache()` does not disable, `disableReverseIndex()`, and `updateConfig({ enableReverseIndex })` transitions. MCP workspace tool tests cover the enabled-but-empty edge case for both `get_index_status` and `invalidate_files`, and a rebuild cycle test verifying stats are non-zero after clear+rebuild.
+- **`McpServerProvider` unit tests**: New test file covering `workspaceRoot` getter, `updateWorkspaceFolder` no-op on same path, folder update propagation, and `onDidChangeMcpServerDefinitions` event firing.
+- **Reverse index init contract tests**: Tests added to `McpWorker.test.ts` and `cli/runtime.test.ts` documenting that both entry points build Spider with `.withReverseIndex(true)`, and that `isReverseIndexEnabled()` returns `true` before any indexing while `hasReverseIndex()` remains `false`.
+- **`find_referencing_files` empty-index edge case**: Test verifying no crash and empty result when the reverse index has no entries for the queried target.
+- **E2E command registration**: `graph-it-live.setWorkspace` is asserted present in VS Code's command registry via the toolbar commands E2E suite.
 - **CLI `tool` command tests**: Added unit tests covering argument key normalisation (kebab-case, snake_case, camelCase inputs all resolve to the correct tool name).
 
 ## v1.9.6

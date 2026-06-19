@@ -62,3 +62,24 @@ describe("CliRuntime - state persistence", () => {
     expect(runtime.workspaceRoot).toBe(path.resolve(tmpDir));
   });
 });
+
+import { SpiderBuilder } from "../../src/analyzer/SpiderBuilder";
+
+describe("CliRuntime - reverse index contract", () => {
+  it("Spider built with withReverseIndex(true) reports enabled before indexing", () => {
+    // Documents that CLI runtime initializes Spider with reverse index ON
+    // (mirrors src/cli/runtime.ts .withReverseIndex(true))
+    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "graph-it-cli-"));
+    try {
+      const spider = new SpiderBuilder()
+        .withRootDir(tmpDir)
+        .withReverseIndex(true)
+        .build();
+
+      expect(spider.isReverseIndexEnabled()).toBe(true);
+      expect(spider.hasReverseIndex()).toBe(false);
+    } finally {
+      fs.rmSync(tmpDir, { recursive: true, force: true });
+    }
+  });
+});

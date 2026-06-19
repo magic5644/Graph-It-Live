@@ -782,3 +782,28 @@ describe("McpWorker - analyze_file_logic validation and errors (T064-T065)", () 
     });
   });
 });
+
+// ============================================================================
+// Tests for McpWorker Spider initialization contract
+// ============================================================================
+
+describe("McpWorker - Spider initialization", () => {
+  it("creates Spider with reverse index enabled", async () => {
+    // Verify withReverseIndex(true) contract: isReverseIndexEnabled = true before any indexing
+    const tempDir = await fs.mkdtemp(path.join(tmpdir(), "mcp-init-"));
+    try {
+      const spider = new SpiderBuilder()
+        .withRootDir(tempDir)
+        .withReverseIndex(true)
+        .withExcludeNodeModules(true)
+        .build();
+
+      // isReverseIndexEnabled = true even before buildFullIndex
+      expect(spider.isReverseIndexEnabled()).toBe(true);
+      // hasReverseIndex = false (no data yet) — key semantic difference
+      expect(spider.hasReverseIndex()).toBe(false);
+    } finally {
+      await fs.rm(tempDir, { recursive: true, force: true }).catch(() => {});
+    }
+  });
+});

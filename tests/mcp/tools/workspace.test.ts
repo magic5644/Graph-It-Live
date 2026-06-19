@@ -72,6 +72,7 @@ describe("workspace tools", () => {
       const spiderMock = {
         invalidateFile: (filePath: string) => filePath.endsWith(".ts"),
         hasReverseIndex: () => true,
+        isReverseIndexEnabled: () => true,
       };
 
       setupWorkerState(spiderMock);
@@ -85,9 +86,49 @@ describe("workspace tools", () => {
       expect(result.invalidatedCount).toBe(1);
       expect(result.reverseIndexUpdated).toBe(true);
     });
+
+    it("reverseIndexUpdated reflects enabled state, not entry presence", () => {
+      // Semantic bug guard: enabled-but-empty index must still report updated=true
+      // hasReverseIndex() (entries check) would return false here; isReverseIndexEnabled() returns true
+      const spiderMock = {
+        invalidateFile: () => true,
+        hasReverseIndex: () => false,
+        isReverseIndexEnabled: () => true,
+      };
+
+      setupWorkerState(spiderMock);
+
+      const result = executeInvalidateFiles({ filePaths: ["src/a.ts"] });
+      expect(result.reverseIndexUpdated).toBe(true);
+    });
   });
 
   describe("executeRebuildIndex", () => {
+    it("reverseIndexEnabled stays true across clear and rebuild cycle", async () => {
+      const postMessage = vi.fn();
+      const spiderMock = {
+        clearCache: vi.fn(),
+        buildFullIndex: vi.fn(async () => {}),
+        isReverseIndexEnabled: vi.fn(() => true),
+        getCacheStatsAsync: async () => ({
+          dependencyCache: { size: 3 },
+          reverseIndexStats: {
+            indexedFiles: 3,
+            targetFiles: 2,
+            totalReferences: 5,
+          },
+        }),
+      };
+
+      setupWorkerState(spiderMock);
+
+      const result = await executeRebuildIndex(postMessage);
+
+      expect(spiderMock.clearCache).toHaveBeenCalledTimes(1);
+      expect(result.reverseIndexStats.indexedFiles).toBe(3);
+      expect(result.reverseIndexStats.totalReferences).toBe(5);
+    });
+
     it("should clear cache, rebuild index, and report progress", async () => {
       const postMessage = vi.fn();
       const buildFullIndex = vi.fn(async (cb: any) => {

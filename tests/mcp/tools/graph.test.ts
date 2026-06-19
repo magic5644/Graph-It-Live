@@ -102,6 +102,21 @@ describe("graph tools", () => {
   });
 
   describe("executeFindReferencingFiles", () => {
+    it("should return empty array when reverse index has no entries for target", async () => {
+      const targetFile = await createTempFile(tempDir, "target.ts", "");
+
+      const spiderMock = {
+        findReferencingFiles: vi.fn(async () => []),
+      };
+
+      setupWorkerState(spiderMock);
+
+      const result = await executeFindReferencingFiles({ targetPath: targetFile });
+
+      expect(result.referencingFileCount).toBe(0);
+      expect(result.referencingFiles).toEqual([]);
+    });
+
     it("should return referencing files with relative paths", async () => {
       const targetFile = await createTempFile(tempDir, "target.ts", "");
       const refFile = path.join(tempDir, "ref.ts");

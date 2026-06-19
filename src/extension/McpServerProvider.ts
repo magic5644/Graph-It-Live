@@ -39,7 +39,7 @@ export interface McpServerProviderOptions {
  */
 export class McpServerProvider implements vscode.Disposable {
   private readonly extensionUri: vscode.Uri;
-  private readonly workspaceFolder: vscode.WorkspaceFolder;
+  private workspaceFolder: vscode.WorkspaceFolder;
   private registration: vscode.Disposable | null = null;
   private readonly didChangeEmitter = new vscode.EventEmitter<void>();
   private isEnabled = false;
@@ -47,6 +47,24 @@ export class McpServerProvider implements vscode.Disposable {
   constructor(options: McpServerProviderOptions) {
     this.extensionUri = options.extensionUri;
     this.workspaceFolder = options.workspaceFolder;
+  }
+
+  /**
+   * Switch the workspace folder analyzed by the MCP server.
+   * VS Code will restart the server process with the new WORKSPACE_ROOT env var.
+   */
+  updateWorkspaceFolder(folder: vscode.WorkspaceFolder): void {
+    if (this.workspaceFolder.uri.fsPath === folder.uri.fsPath) {
+      return;
+    }
+    this.workspaceFolder = folder;
+    log.info('Workspace folder updated to:', folder.uri.fsPath);
+    this.didChangeEmitter.fire();
+  }
+
+  /** Current workspace folder root path */
+  get workspaceRoot(): string {
+    return this.workspaceFolder.uri.fsPath;
   }
 
   /**

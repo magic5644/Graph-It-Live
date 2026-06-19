@@ -37,6 +37,7 @@ export class AstWorkerHost {
   private readonly pendingRequests = new Map<number, PendingRequest>();
   private readonly workerPath: string;
   private readonly extensionPath?: string;
+  private isStopping = false;
 
   /**
    * @param workerPath - Absolute path to the compiled astWorker.js bundle
@@ -107,10 +108,12 @@ export class AstWorkerHost {
       });
 
       this.worker.on('exit', (code: number) => {
-        if (code !== 0) {
+        // terminate() always exits with code 1 — suppress during intentional shutdown
+        if (code !== 0 && !this.isStopping) {
           log.error(`AstWorker exited with code ${code}`);
         }
         this.worker = null;
+        this.isStopping = false;
       });
 
       log.info('AstWorker started successfully');
@@ -137,6 +140,7 @@ export class AstWorkerHost {
       this.pendingRequests.delete(id);
     }
 
+    this.isStopping = true;
     await this.worker.terminate();
     this.worker = null;
 
