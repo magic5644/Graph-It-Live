@@ -497,4 +497,21 @@ describe('Spider.isReverseIndexEnabled (issue #106)', () => {
     expect(spider.isReverseIndexEnabled()).toBe(true);
     expect(spider.hasReverseIndex()).toBe(false); // enabled but not yet populated
   });
+
+  it('should remain enabled after clearCache()', async () => {
+    // Verifies clearCache() clears data but does not disable the reverse index
+    const spider = new SpiderBuilder()
+      .withRootDir(fixturesPath)
+      .withReverseIndex(true)
+      .build();
+
+    await spider.buildFullIndex();
+    expect(spider.hasReverseIndex()).toBe(true); // data populated
+
+    spider.clearCache();
+    // isReverseIndexEnabled must still be true — clear != disable
+    expect(spider.isReverseIndexEnabled()).toBe(true);
+    // hasReverseIndex reflects data was cleared
+    expect(spider.hasReverseIndex()).toBe(false);
+  });
 });

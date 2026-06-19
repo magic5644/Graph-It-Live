@@ -62,7 +62,7 @@ export function executeInvalidateFiles(
     invalidatedCount: invalidatedFiles.length,
     invalidatedFiles,
     notFoundFiles,
-    reverseIndexUpdated: spider.hasReverseIndex(),
+    reverseIndexUpdated: spider.isReverseIndexEnabled(),
   };
 }
 

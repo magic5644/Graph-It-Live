@@ -66,6 +66,14 @@ suite('Toolbar Commands Test Suite', () => {
     );
   });
 
+  test('Should register setWorkspace command', async () => {
+    const commands = await vscode.commands.getCommands(true);
+    assert.ok(
+      commands.includes('graph-it-live.setWorkspace'),
+      'Should have setWorkspace command'
+    );
+  });
+
   // ============================================================================
   // Context Key Tests
   // ============================================================================

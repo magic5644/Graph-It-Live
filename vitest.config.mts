@@ -22,6 +22,10 @@ export default defineConfig({
         "src/analyzer/IndexerWorker.ts",
         "src/analyzer/IndexerWorkerHost.ts",
       ],
+      thresholds: {
+        lines: 80,
+        functions: 80,
+      },
     },
   },
   resolve: {

@@ -141,6 +141,80 @@ export function activate(context: vscode.ExtensionContext) {
         log.info('No workspace folder open, MCP server not registered');
     }
 
+    // Command: switch the workspace root the graph and MCP server analyze
+    disposables.push(
+        vscode.commands.registerCommand('graph-it-live.setWorkspace', async () => {
+            const folders = vscode.workspace.workspaceFolders;
+            if (!folders || folders.length === 0) {
+                vscode.window.showWarningMessage('Graph-It-Live: No workspace folders are open.');
+                return;
+            }
+            if (folders.length === 1) {
+                vscode.window.showInformationMessage(
+                    `Graph-It-Live: Already analyzing "${folders[0].name}".`
+                );
+                return;
+            }
+            const items = folders.map(f => ({
+                label: f.name,
+                description: f.uri.fsPath,
+                folder: f,
+            }));
+            const current = mcpServerProvider?.workspaceRoot;
+            const pick = await vscode.window.showQuickPick(items, {
+                placeHolder: `Current workspace: ${current ?? 'none'} — select a folder to analyze`,
+                title: 'Graph-It-Live: Set Workspace Folder',
+            });
+            if (!pick) {
+                return;
+            }
+            if (mcpServerProvider) {
+                mcpServerProvider.updateWorkspaceFolder(pick.folder);
+            }
+            log.info('Workspace switched to:', pick.folder.uri.fsPath);
+            // MCP server restarts immediately with new workspace root.
+            // The graph view Spider is initialized at extension startup, so a
+            // window reload is required for it to analyze the new root.
+            vscode.window.showInformationMessage(
+                `Graph-It-Live: MCP server switched to "${pick.folder.name}". Reload the window to update the graph view.`,
+                'Reload Window'
+            ).then(action => {
+                if (action === 'Reload Window') {
+                    vscode.commands.executeCommand('workbench.action.reloadWindow');
+                }
+            });
+        })
+    );
+
+    // Auto-update MCP server when workspace folders change (add/remove)
+    disposables.push(
+        vscode.workspace.onDidChangeWorkspaceFolders((e) => {
+            if (!mcpServerProvider) {
+                // No MCP provider yet — try to create one if a folder was added
+                const first = vscode.workspace.workspaceFolders?.[0];
+                if (first) {
+                    mcpServerProvider = createMcpServerProvider(context.extensionUri, first);
+                    mcpServerProvider.register(context);
+                    context.subscriptions.push(mcpServerProvider);
+                    provider.notifyMcpServerOfConfigChange = () => mcpServerProvider?.notifyChange();
+                    log.info('MCP server registered after workspace folder added:', first.uri.fsPath);
+                }
+                return;
+            }
+            // If the current root was removed, fall back to first remaining folder
+            const removed = e.removed.some(
+                f => f.uri.fsPath === mcpServerProvider!.workspaceRoot
+            );
+            if (removed) {
+                const fallback = vscode.workspace.workspaceFolders?.[0];
+                if (fallback) {
+                    mcpServerProvider.updateWorkspaceFolder(fallback);
+                    log.info('Workspace folder removed — MCP switched to:', fallback.uri.fsPath);
+                }
+            }
+        })
+    );
+
     context.subscriptions.push(...disposables);
 }
 
