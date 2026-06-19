@@ -437,3 +437,64 @@ describe('Spider - Index Status', () => {
     expect(() => spider.cancelIndexing()).not.toThrow();
   });
 });
+
+describe('Spider.isReverseIndexEnabled (issue #106)', () => {
+  const fixturesPath = path.join(__dirname, '../fixtures/sample-project');
+
+  it('should return false when built without reverse index', () => {
+    const spider = new SpiderBuilder()
+      .withRootDir(fixturesPath)
+      .withReverseIndex(false)
+      .build();
+
+    expect(spider.isReverseIndexEnabled()).toBe(false);
+    expect(spider.hasReverseIndex()).toBe(false);
+  });
+
+  it('should return true when built with reverse index, before any indexing', () => {
+    const spider = new SpiderBuilder()
+      .withRootDir(fixturesPath)
+      .withReverseIndex(true)
+      .build();
+
+    // isReverseIndexEnabled = configured (true), hasReverseIndex = has data (false until indexed)
+    expect(spider.isReverseIndexEnabled()).toBe(true);
+    expect(spider.hasReverseIndex()).toBe(false);
+  });
+
+  it('should return true after enableReverseIndex(), before indexing', () => {
+    const spider = new SpiderBuilder()
+      .withRootDir(fixturesPath)
+      .withReverseIndex(false)
+      .build();
+
+    spider.enableReverseIndex();
+
+    expect(spider.isReverseIndexEnabled()).toBe(true);
+    expect(spider.hasReverseIndex()).toBe(false); // still no data
+  });
+
+  it('should return false after disableReverseIndex()', () => {
+    const spider = new SpiderBuilder()
+      .withRootDir(fixturesPath)
+      .withReverseIndex(true)
+      .build();
+
+    spider.disableReverseIndex();
+
+    expect(spider.isReverseIndexEnabled()).toBe(false);
+    expect(spider.hasReverseIndex()).toBe(false);
+  });
+
+  it('should return true after updateConfig({ enableReverseIndex: true })', () => {
+    const spider = new SpiderBuilder()
+      .withRootDir(fixturesPath)
+      .withReverseIndex(false)
+      .build();
+
+    spider.updateConfig({ enableReverseIndex: true });
+
+    expect(spider.isReverseIndexEnabled()).toBe(true);
+    expect(spider.hasReverseIndex()).toBe(false); // enabled but not yet populated
+  });
+});

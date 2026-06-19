@@ -22,7 +22,7 @@ export async function executeGetIndexStatus(): Promise<GetIndexStatusResult> {
   return {
     state,
     isReady: workerState.isReady,
-    reverseIndexEnabled: spider.hasReverseIndex(),
+    reverseIndexEnabled: spider.isReverseIndexEnabled(),
     cacheSize: cacheStats.dependencyCache.size,
     reverseIndexStats: cacheStats.reverseIndexStats,
     progress:
