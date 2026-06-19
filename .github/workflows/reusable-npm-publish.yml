@@ -73,12 +73,5 @@ jobs:
           fs.writeFileSync('package.json', JSON.stringify(pkg, null, 2) + '\n');
           "
 
-      - name: Set up Node.js for npm publish
-        uses: actions/setup-node@v6
-        with:
-          node-version: ${{ inputs.node-version }}
-          registry-url: 'https://registry.npmjs.org'
-          scope: '@magic5644'
-
       - name: Publish CLI to npm
         run: npm publish --access public --provenance --ignore-scripts
