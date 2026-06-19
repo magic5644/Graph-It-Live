@@ -104,3 +104,92 @@ Options :
 - Bundles séparés : webview.js + callgraph.js (Règle 05)
 - Tests : unit mock WASM, E2E WASM réel (Règle 06)
 - Cross-platform : normalizePath obligatoire (Règle 03)
+
+---
+
+## Sprint CI — Workflow de republication sélective
+
+Date : 2026-06-19
+Statut : **GATE-0 — en attente validation**
+
+### Problème
+
+`release.yml` déclenché uniquement par tag `v*`. Si une publication échoue sur un store
+(ex: timeout Open VSX), impossible de relancer uniquement ce store sans poser un nouveau tag.
+Le tag suivant impose un saut de version non désiré.
+
+### Solution : nouveau workflow `republish.yml`
+
+Déclencheur : `workflow_dispatch` uniquement (manuel GitHub Actions UI).
+
+#### Inputs
+
+| Nom | Type | Requis | Défaut | Description |
+|-----|------|--------|--------|-------------|
+| `version` | string | oui | — | Semver cible ex: `1.9.7` ou `v1.9.7` |
+| `ref` | string | oui | `main` | Branche ou tag à checkout (ex: `v1.9.7`, `main`) |
+| `skip_tests` | boolean | non | `false` | Skip E2E + reusable-ci.yml avant publication |
+| `publish_vscode` | boolean | non | `false` | Publier sur VS Code Marketplace |
+| `publish_openvsx` | boolean | non | `false` | Publier sur Open VSX |
+| `publish_npm` | boolean | non | `false` | Publier sur npm registry |
+
+Au moins un store doit être sélectionné (validation en début de job).
+
+#### Jobs
+
+**Job `validate`** (conditionnel : `skip_tests == false`)
+- Appelle `reusable-ci.yml` avec `run-e2e: true, package-extension: true`
+- Identique au job `validate` de `release.yml`
+
+**Job `publish`** (`needs: validate` si `skip_tests == false`, sinon direct)
+1. Checkout du `ref` fourni
+2. `npm version $VERSION --no-git-tag-version`
+3. `npm ci` + `npm install -g @vscode/vsce`
+4. `npm run package:vsix` → build .vsix local
+5. Attest build provenance
+6. Upload artifact .vsix
+7. Si `publish_vscode == true` → `vsce publish`
+8. Si `publish_openvsx == true` → `ovsx publish`
+9. Si `publish_npm == true` :
+   - Vérifier si version existe déjà sur npm (`npm view @magic5644/graph-it-live@$VERSION`)
+   - Si oui → **exit 1** avec message explicite `"Version $VERSION already exists on npm. Cannot republish."`
+   - Sinon → publish CLI bundle + `npm publish`
+
+#### GitHub Release
+
+Comportement : **créer si absente, ignorer si existante** (via `softprops/action-gh-release` avec `fail_on_unmatched_files: false`).
+Permet d'attacher le .vsix à une release qui aurait été créée partiellement.
+
+#### Secrets requis (déjà présents)
+
+- `VSCE_PAT` — VS Code Marketplace
+- `OVSX_PAT` — Open VSX
+- `NPM_TOKEN` — npm registry
+
+### Périmètre
+
+**Dans le scope :**
+- Fichier `.github/workflows/republish.yml` (nouveau)
+- Aucune modification de `release.yml` existant
+
+**Hors scope :**
+- Modification du workflow tag-based existant
+- Gestion de rollback de version publiée
+- Auto-détection du store ayant échoué
+
+### Acteurs
+
+- Owner CI : Alex
+- Reviewer : Nathan (secrets + permissions)
+
+### Critères d'acceptation
+
+- [ ] Lancement depuis GitHub Actions UI avec sélection de stores
+- [ ] `skip_tests=false` → E2E exécutés avant publication
+- [ ] `skip_tests=true` → publication directe sans E2E
+- [ ] Un seul store sélectionné → publication unique, autres ignorés
+- [ ] npm version déjà publiée → échec explicite avec message clair
+- [ ] npm version absente → publication réussie
+- [ ] `ref=v1.9.7` (tag) → checkout tag, build, publish
+- [ ] `ref=main` (branche) → checkout branche, build, publish
+- [ ] Aucun store sélectionné → échec en début de job avec message explicite
