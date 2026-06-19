@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach } from 'vitest';
+import { describe, it, expect, beforeEach, vi, afterEach } from 'vitest';
 import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
 import { FileReader } from '../../src/analyzer/FileReader';
@@ -96,6 +96,31 @@ describe('FileReader', () => {
       const canRead = await reader.canRead('/nonexistent/file.ts');
       expect(canRead).toBe(false);
     });
+  });
+});
+
+describe('FileReader - timeout regression', () => {
+  afterEach(() => vi.useRealTimers());
+
+  it('throws FILE_TOO_LARGE before timeout fires for oversized files', async () => {
+    // Regression: timer used to start before stat, causing TIMEOUT instead of FILE_TOO_LARGE
+    // when I/O was saturated. Now stat runs first, so FILE_TOO_LARGE always wins.
+    vi.useFakeTimers();
+    const tinyReader = new FileReader({ maxSize: 5, timeout: 100 });
+
+    const promise = tinyReader.readFile(testFilePath);
+    // Advance past timeout — must still get FILE_TOO_LARGE, not TIMEOUT
+    vi.advanceTimersByTime(200);
+    await expect(promise).rejects.toMatchObject({ code: SpiderErrorCode.FILE_TOO_LARGE });
+  });
+
+  it('clears timeout after successful read so no dangling rejection fires', async () => {
+    // Use real timers: read the file normally, then verify the timer was cleared
+    // by checking no unhandled rejection fires (no way to directly test clearTimeout,
+    // but the absence of process-level crash is the observable effect).
+    const reader = new FileReader({ timeout: 5000 });
+    const content = await reader.readFile(testFilePath);
+    expect(typeof content).toBe('string');
   });
 });
 

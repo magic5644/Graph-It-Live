@@ -3,7 +3,7 @@ import { PathResolver } from '../utils/PathResolver';
 import { Cache } from '../Cache';
 import { ReverseIndex } from '../ReverseIndex';
 import { ReverseIndexManager } from '../ReverseIndexManager';
-import { Dependency, SpiderError, normalizePath } from '../types';
+import { Dependency, SpiderError, SpiderErrorCode, normalizePath } from '../types';
 import { getLogger } from '../../shared/logger';
 
 const log = getLogger('SpiderDependencyAnalyzer');
@@ -68,6 +68,10 @@ export class SpiderDependencyAnalyzer {
       return dependencies;
     } catch (error) {
       const spiderError = SpiderError.fromError(error, filePath);
+      if (spiderError.code === SpiderErrorCode.FILE_TOO_LARGE || spiderError.code === SpiderErrorCode.TIMEOUT) {
+        log.warn(`Skipping ${filePath}: ${spiderError.toUserMessage()}`);
+        return [];
+      }
       log.error('Analysis failed:', spiderError.toUserMessage(), spiderError.code);
       throw spiderError;
     }
