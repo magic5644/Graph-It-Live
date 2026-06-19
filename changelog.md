@@ -1,6 +1,6 @@
 # Changelog
 
-## v1.9.7 (not released yet)
+## v1.9.7
 
 ### Bug Fixes
 
