@@ -1,4 +1,5 @@
 import { SUPPORTED_FILE_EXTENSIONS } from '../../shared/constants';
+import { normalizePath } from '../../shared/path';
 import { GraphData } from '../../shared/types';
 
 /**
@@ -94,7 +95,8 @@ export const calculateVisibleGraph = (
     const visited = new Set<string>();
     const addedEdgeIds = new Set<string>();
 
-    visibleNodes.add(rootPath);
+    const normalizedRoot = normalizePath(rootPath);
+    visibleNodes.add(normalizedRoot);
 
     const addEdge = (edge: { source: string; target: string }) => {
         const edgeId = `${edge.source}-${edge.target}`;
@@ -108,23 +110,24 @@ export const calculateVisibleGraph = (
         if (visited.has(parentId)) return;
         visited.add(parentId);
 
-        const childrenEdges = graphData.edges.filter(e => e.source === parentId);
+        const childrenEdges = graphData.edges.filter(e => normalizePath(e.source) === parentId);
         childrenEdges.forEach(edge => {
-            visibleNodes.add(edge.target);
+            const normalizedTarget = normalizePath(edge.target);
+            visibleNodes.add(normalizedTarget);
             addEdge(edge);
-            if (expandedNodes.has(edge.target)) {
-                addChildren(edge.target);
+            if (expandedNodes.has(normalizedTarget)) {
+                addChildren(normalizedTarget);
             }
         });
     };
 
-    addChildren(rootPath);
+    addChildren(normalizedRoot);
 
     // Add incoming edges to root (Referenced By) only when showParentsFlag is true
     if (showParentsFlag) {
-        const incomingEdges = graphData.edges.filter(e => e.target === rootPath);
+        const incomingEdges = graphData.edges.filter(e => normalizePath(e.target) === normalizedRoot);
         incomingEdges.forEach(edge => {
-            visibleNodes.add(edge.source);
+            visibleNodes.add(normalizePath(edge.source));
             addEdge(edge);
         });
     }
@@ -170,20 +173,21 @@ export const detectCycles = (graphData: GraphData) => {
         visited.add(node);
         recursionStack.add(node);
 
-        const edges = graphData.edges.filter(e => e.source === node);
+        const edges = graphData.edges.filter(e => normalizePath(e.source) === node);
         for (const edge of edges) {
-            if (recursionStack.has(edge.target)) {
+            const normalizedTarget = normalizePath(edge.target);
+            if (recursionStack.has(normalizedTarget)) {
                 // Cycle detected!
                 cycleEdges.add(`${edge.source}-${edge.target}`);
 
                 // Add all nodes in the cycle path to cycleNodes
-                cycleNodes.add(edge.source);
-                cycleNodes.add(edge.target);
+                cycleNodes.add(normalizePath(edge.source));
+                cycleNodes.add(normalizedTarget);
 
                 // Add all nodes in the current recursion stack (they're part of the cycle)
                 recursionStack.forEach(n => cycleNodes.add(n));
-            } else if (!visited.has(edge.target)) {
-                detectCycleRecursive(edge.target, [...path, edge.target]);
+            } else if (!visited.has(normalizedTarget)) {
+                detectCycleRecursive(normalizedTarget, [...path, normalizedTarget]);
             }
         }
 
@@ -193,8 +197,8 @@ export const detectCycles = (graphData: GraphData) => {
     // Run detection starting from all nodes to cover disconnected components
     const allNodes = new Set<string>();
     graphData.edges.forEach(e => {
-        allNodes.add(e.source);
-        allNodes.add(e.target);
+        allNodes.add(normalizePath(e.source));
+        allNodes.add(normalizePath(e.target));
     });
 
     allNodes.forEach(node => {

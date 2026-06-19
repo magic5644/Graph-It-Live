@@ -46,6 +46,7 @@ import { SignatureAnalyzer } from '../SignatureAnalyzer';
 import { SymbolAnalyzer } from '../SymbolAnalyzer';
 import { PythonSymbolAnalyzer } from '../languages/PythonSymbolAnalyzer';
 import { RustSymbolAnalyzer } from '../languages/RustSymbolAnalyzer';
+import type { WorkerRequest, WorkerResponse } from './AstWorkerProtocol';
 
 // Worker data
 interface WorkerData {
@@ -66,22 +67,6 @@ interface WorkerData {
 
 const data = workerData as WorkerData;
 const extensionPath = data.extensionPath ?? process.cwd();
-
-// Worker message types
-type WorkerRequest =
-  | { type: 'analyzeFile'; id: number; filePath: string; content: string }
-  | { type: 'getInternalExportDeps'; id: number; filePath: string; content: string }
-  | { type: 'extractSignatures'; id: number; filePath: string; content: string }
-  | { type: 'extractInterfaceMembers'; id: number; filePath: string; content: string }
-  | { type: 'extractTypeAliases'; id: number; filePath: string; content: string }
-  | { type: 'compareSignatures'; id: number; oldSig: SignatureInfo; newSig: SignatureInfo }
-  | { type: 'analyzeBreakingChanges'; id: number; filePath: string; oldContent: string; newContent: string }
-  | { type: 'reset'; id: number }
-  | { type: 'getFileCount'; id: number };
-
-type WorkerResponse =
-  | { type: 'success'; id: number; result: unknown }
-  | { type: 'error'; id: number; error: string; stack?: string };
 
 // Initialize analyzers
 const log = getLogger('AstWorker');

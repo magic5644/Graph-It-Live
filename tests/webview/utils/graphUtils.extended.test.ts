@@ -350,11 +350,89 @@ describe('graphUtils - extended tests', () => {
 
         it('should handle empty graph', () => {
             const graphData: GraphData = { nodes: [], edges: [] };
-            
+
             const { cycleEdges, cycleNodes } = detectCycles(graphData);
-            
+
             expect(cycleEdges.size).toBe(0);
             expect(cycleNodes.size).toBe(0);
+        });
+    });
+
+    describe('cross-platform path normalization', () => {
+        it('calculateVisibleGraph: expandedNodes with forward slashes matches graph edges with backslashes', () => {
+            const graphData: GraphData = {
+                nodes: ['C:\\src\\a.ts', 'C:\\src\\b.ts', 'C:\\src\\c.ts'],
+                edges: [
+                    { source: 'C:\\src\\a.ts', target: 'C:\\src\\b.ts' },
+                    { source: 'C:\\src\\b.ts', target: 'C:\\src\\c.ts' },
+                ],
+            };
+            // expandedNodes use Unix forward slashes (lowercase drive letter)
+            const expanded = new Set(['c:/src/a.ts', 'c:/src/b.ts']);
+
+            const result = calculateVisibleGraph(graphData, 'C:\\src\\a.ts', expanded);
+
+            // b.ts is expanded so c.ts should be visible too
+            expect(result.visibleNodes.has('c:/src/a.ts')).toBe(true);
+            expect(result.visibleNodes.has('c:/src/b.ts')).toBe(true);
+            expect(result.visibleNodes.has('c:/src/c.ts')).toBe(true);
+        });
+
+        it('calculateVisibleGraph: visibleNodes always contain normalized paths', () => {
+            const graphData: GraphData = {
+                nodes: ['C:\\src\\a.ts', 'C:\\src\\b.ts'],
+                edges: [{ source: 'C:\\src\\a.ts', target: 'C:\\src\\b.ts' }],
+            };
+            const expanded = new Set<string>();
+
+            const result = calculateVisibleGraph(graphData, 'C:\\src\\a.ts', expanded);
+
+            expect(result.visibleNodes.has('c:/src/a.ts')).toBe(true);
+            expect(result.visibleNodes.has('C:\\src\\a.ts')).toBe(false);
+        });
+
+        it('calculateVisibleGraph: incoming edges with mixed separators are normalized', () => {
+            const graphData: GraphData = {
+                nodes: ['C:\\src\\root.ts', 'C:\\src\\parent.ts'],
+                edges: [{ source: 'C:\\src\\parent.ts', target: 'C:\\src\\root.ts' }],
+            };
+            const expanded = new Set<string>();
+
+            const result = calculateVisibleGraph(graphData, 'c:/src/root.ts', expanded, true);
+
+            expect(result.visibleNodes.has('c:/src/parent.ts')).toBe(true);
+        });
+
+        it('detectCycles: cycleNodes contain normalized paths', () => {
+            const graphData: GraphData = {
+                nodes: ['C:\\src\\a.ts', 'C:\\src\\b.ts'],
+                edges: [
+                    { source: 'C:\\src\\a.ts', target: 'C:\\src\\b.ts' },
+                    { source: 'C:\\src\\b.ts', target: 'C:\\src\\a.ts' },
+                ],
+            };
+
+            const { cycleNodes } = detectCycles(graphData);
+
+            expect(cycleNodes.has('c:/src/a.ts')).toBe(true);
+            expect(cycleNodes.has('c:/src/b.ts')).toBe(true);
+            expect(cycleNodes.has('C:\\src\\a.ts')).toBe(false);
+        });
+
+        it('detectCycles: double-slash paths deduplicate correctly', () => {
+            const graphData: GraphData = {
+                nodes: ['/src//a.ts', '/src/a.ts'],
+                edges: [
+                    { source: '/src//a.ts', target: '/src/b.ts' },
+                    { source: '/src/b.ts', target: '/src/a.ts' },
+                ],
+            };
+
+            const { cycleNodes } = detectCycles(graphData);
+
+            // /src//a.ts and /src/a.ts normalize to the same path
+            expect(cycleNodes.has('/src/a.ts')).toBe(true);
+            expect(cycleNodes.has('/src/b.ts')).toBe(true);
         });
     });
 });

@@ -476,6 +476,10 @@ export class Spider {
     return this.indexerStatus.subscribe(callback);
   }
 
+  isReverseIndexEnabled(): boolean {
+    return this.reverseIndexManager.isEnabled();
+  }
+
   hasReverseIndex(): boolean {
     return this.reverseIndexManager.hasEntries();
   }

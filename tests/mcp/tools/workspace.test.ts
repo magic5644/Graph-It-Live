@@ -42,6 +42,7 @@ describe("workspace tools", () => {
           },
         }),
         hasReverseIndex: () => true,
+        isReverseIndexEnabled: () => true,
       };
 
       setupWorkerState(spiderMock);
