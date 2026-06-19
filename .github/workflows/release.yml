@@ -164,5 +164,3 @@ jobs:
 
       - name: Publish CLI to npm
         run: npm publish --access public --provenance --ignore-scripts
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}

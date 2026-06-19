@@ -183,8 +183,6 @@ jobs:
       - name: Publish CLI to npm
         if: ${{ inputs.publish_npm == true }}
         run: npm publish --access public --provenance --ignore-scripts
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
 
       - name: Publish artifact to GitHub Release
         uses: softprops/action-gh-release@v2
