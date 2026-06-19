@@ -1,5 +1,16 @@
 # Changelog
 
+## v1.9.8
+
+### Bug Fixes
+
+- **CLI crashes with timeout on large files (issue #114)**: `FileReader.readFile()` started the 30 s timeout timer before calling `fs.stat()`. On I/O-saturated systems (many concurrent file reads during indexing), the timer fired while `stat` was still pending, producing an unhandled promise rejection that Node.js 15+ converts to a process crash. Observed on 19 MB Prisma-generated `.graphql` schemas (`fullPrisma.graphql`). Fixed by running `fs.stat()` first so oversized files throw `FILE_TOO_LARGE` immediately without touching the timer, and by adding `clearTimeout()` on all exit paths to prevent dangling rejections. `SpiderDependencyAnalyzer` now catches `FILE_TOO_LARGE` and `TIMEOUT` and skips the file (returns empty dependencies with a warning) instead of rethrowing, so the CLI continues indexing rather than crashing.
+
+### Testing
+
+- **FileReader timeout regression**: Added test verifying `FILE_TOO_LARGE` fires before the timeout even when fake timers advance past the deadline, and a test confirming successful reads do not leave dangling timers.
+- **SpiderDependencyAnalyzer skip behaviour**: New test file covering `FILE_TOO_LARGE` → skip (return `[]`), `TIMEOUT` → skip, and other errors → rethrow.
+
 ## v1.9.7
 
 ### Bug Fixes
