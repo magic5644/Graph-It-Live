@@ -1,4 +1,4 @@
-name: Republish Extension (Selective)
+name: Publish (Selective)
 
 permissions:
   contents: write
@@ -23,6 +23,11 @@ on:
         required: false
         default: false
         type: boolean
+      publish_npm:
+        description: 'Publish to npm registry'
+        required: false
+        default: true
+        type: boolean
       publish_vscode:
         description: 'Publish to VS Code Marketplace'
         required: false
@@ -30,11 +35,6 @@ on:
         type: boolean
       publish_openvsx:
         description: 'Publish to Open VSX Registry'
-        required: false
-        default: false
-        type: boolean
-      publish_npm:
-        description: 'Publish to npm registry'
         required: false
         default: false
         type: boolean
@@ -61,15 +61,13 @@ jobs:
     runs-on: ubuntu-latest
     needs: [validate]
     if: always() && (needs.validate.result == 'success' || needs.validate.result == 'skipped')
-    outputs:
-      version: ${{ steps.release_meta.outputs.version }}
     steps:
       - name: Validate at least one store is selected
         run: |
-          if [ "${{ inputs.publish_vscode }}" != "true" ] && \
-             [ "${{ inputs.publish_openvsx }}" != "true" ] && \
-             [ "${{ inputs.publish_npm }}" != "true" ]; then
-            echo "ERROR: At least one publish target must be selected (publish_vscode, publish_openvsx, or publish_npm)."
+          if [ "${{ inputs.publish_npm }}" != "true" ] && \
+             [ "${{ inputs.publish_vscode }}" != "true" ] && \
+             [ "${{ inputs.publish_openvsx }}" != "true" ]; then
+            echo "ERROR: At least one publish target must be selected."
             exit 1
           fi
 
@@ -119,17 +117,21 @@ jobs:
         run: npm ci
 
       - name: Install VS Code Extension Manager
+        if: ${{ inputs.publish_vscode == true || inputs.publish_openvsx == true }}
         run: npm install -g @vscode/vsce
 
       - name: Package Extension
+        if: ${{ inputs.publish_vscode == true || inputs.publish_openvsx == true }}
         run: npm run package:vsix
 
       - name: Attest Build Provenance
+        if: ${{ inputs.publish_vscode == true || inputs.publish_openvsx == true }}
         uses: actions/attest-build-provenance@v4
         with:
           subject-path: "graph-it-live-${{ steps.release_meta.outputs.version }}.vsix"
 
       - name: Upload VSIX as Artifact
+        if: ${{ inputs.publish_vscode == true || inputs.publish_openvsx == true }}
         uses: actions/upload-artifact@v4
         with:
           name: graph-it-live
@@ -149,6 +151,7 @@ jobs:
         run: npx ovsx publish -p $OVSX_PAT --packagePath graph-it-live-${{ steps.release_meta.outputs.version }}.vsix
 
       - name: Publish artifact to GitHub Release
+        if: ${{ inputs.publish_vscode == true || inputs.publish_openvsx == true }}
         uses: softprops/action-gh-release@v2
         continue-on-error: true
         with:
@@ -160,14 +163,50 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-  npm-publish:
-    needs: [validate, publish]
-    if: |
-      always() &&
-      inputs.publish_npm == true &&
-      (needs.validate.result == 'success' || needs.validate.result == 'skipped') &&
-      needs.publish.result == 'success'
-    uses: ./.github/workflows/reusable-npm-publish.yml
-    with:
-      version: ${{ needs.publish.outputs.version }}
-      ref: ${{ inputs.ref }}
+      - name: Build CLI bundle
+        if: ${{ inputs.publish_npm == true }}
+        run: npm run build:cli -- --production
+
+      - name: Verify no .map files in CLI bundle
+        if: ${{ inputs.publish_npm == true }}
+        run: |
+          MAP_COUNT=$(find dist/ -name "*.map" | wc -l | tr -d ' ')
+          if [ "$MAP_COUNT" -gt 0 ]; then
+            echo "ERROR: .map files found in CLI bundle:"
+            find dist/ -name "*.map"
+            exit 1
+          fi
+          echo "OK: no .map files"
+
+      - name: Check npm package exists
+        if: ${{ inputs.publish_npm == true }}
+        run: |
+          if npm view @magic5644/graph-it-live version 2>/dev/null; then
+            echo "Package exists, continuing..."
+          else
+            echo "ERROR: Package does not exist on npm. Publish manually first."
+            exit 1
+          fi
+
+      - name: Scope package name for npm publish
+        if: ${{ inputs.publish_npm == true }}
+        run: |
+          node -e "
+          const fs = require('fs');
+          const pkg = JSON.parse(fs.readFileSync('package.json', 'utf8'));
+          pkg.name = '@magic5644/graph-it-live';
+          pkg.files = ['bin/', 'dist/graph-it.js', 'dist/astWorker.js', 'dist/mcpServer.mjs', 'dist/mcpWorker.js', 'dist/indexerWorker.js', 'dist/wasm/', 'dist/queries/', 'README.md', 'LICENSE', 'docs/CLI.md'];
+          fs.writeFileSync('package.json', JSON.stringify(pkg, null, 2) + '\n');
+          "
+
+      - name: Set up Node.js for npm publish
+        if: ${{ inputs.publish_npm == true }}
+        uses: actions/setup-node@v6
+        with:
+          node-version: '24.x'
+          registry-url: 'https://registry.npmjs.org'
+          scope: '@magic5644'
+
+      - name: Publish CLI to npm
+        if: ${{ inputs.publish_npm == true }}
+        run: npm publish --access public --provenance --ignore-scripts
