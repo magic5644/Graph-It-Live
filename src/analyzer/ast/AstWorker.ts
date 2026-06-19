@@ -41,7 +41,6 @@
 import { parentPort, workerData } from 'node:worker_threads';
 import { getLogger } from '../../shared/logger';
 import { detectLanguageFromExtension } from '../../shared/utils/languageDetection';
-import type { SignatureInfo } from '../SignatureAnalyzer';
 import { SignatureAnalyzer } from '../SignatureAnalyzer';
 import { SymbolAnalyzer } from '../SymbolAnalyzer';
 import { PythonSymbolAnalyzer } from '../languages/PythonSymbolAnalyzer';
