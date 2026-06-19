@@ -84,9 +84,28 @@ export class FileReader {
     const timeout = options?.timeout ?? this.timeout;
     const streaming = options?.streaming ?? false;
 
-    // Create timeout promise
+    // Stat before starting timer: oversized files throw FILE_TOO_LARGE immediately,
+    // preventing the timer from firing as an unhandled rejection while stat is pending.
+    let stats: Awaited<ReturnType<typeof fs.stat>>;
+    try {
+      stats = await fs.stat(filePath);
+    } catch (error) {
+      throw SpiderError.fromError(error, filePath);
+    }
+
+    if (stats.size > maxSize) {
+      throw new SpiderError(
+        `File too large: ${filePath} (${this.formatSize(stats.size)} > ${this.formatSize(maxSize)})`,
+        SpiderErrorCode.FILE_TOO_LARGE,
+        { filePath }
+      );
+    }
+
+    // Timer covers only the actual read. clearTimeout on completion prevents
+    // dangling rejections that would crash Node.js as unhandled rejections.
+    let timeoutHandle!: ReturnType<typeof setTimeout>;
     const timeoutPromise = new Promise<never>((_, reject) => {
-      setTimeout(() => {
+      timeoutHandle = setTimeout(() => {
         reject(new SpiderError(
           `File read timed out after ${timeout}ms: ${filePath}`,
           SpiderErrorCode.TIMEOUT,
@@ -96,35 +115,18 @@ export class FileReader {
     });
 
     try {
-      // Check size first
-      const stats = await fs.stat(filePath);
-      
-      if (stats.size > maxSize) {
-        throw new SpiderError(
-          `File too large: ${filePath} (${this.formatSize(stats.size)} > ${this.formatSize(maxSize)})`,
-          SpiderErrorCode.FILE_TOO_LARGE,
-          { filePath }
-        );
-      }
-
-      // Use streaming for files larger than 1MB
+      let result: string;
       if (streaming || stats.size > 1024 * 1024) {
         log.debug(`Streaming read for large file: ${filePath} (${this.formatSize(stats.size)})`);
-        return await Promise.race([
-          this.readFileStreaming(filePath),
-          timeoutPromise,
-        ]);
+        result = await Promise.race([this.readFileStreaming(filePath), timeoutPromise]);
+      } else {
+        result = await Promise.race([fs.readFile(filePath, 'utf-8'), timeoutPromise]);
       }
-
-      // Standard read for smaller files
-      return await Promise.race([
-        fs.readFile(filePath, 'utf-8'),
-        timeoutPromise,
-      ]);
+      clearTimeout(timeoutHandle);
+      return result;
     } catch (error) {
-      if (error instanceof SpiderError) {
-        throw error;
-      }
+      clearTimeout(timeoutHandle);
+      if (error instanceof SpiderError) throw error;
       throw SpiderError.fromError(error, filePath);
     }
   }
