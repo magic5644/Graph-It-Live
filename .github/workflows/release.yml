@@ -39,6 +39,8 @@ jobs:
       attestations: write
     runs-on: ubuntu-latest
     needs: validate
+    outputs:
+      version: ${{ steps.release_meta.outputs.version }}
     steps:
       - uses: actions/checkout@v6
 
@@ -123,44 +125,9 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Set up Node.js for npm publish
-        uses: actions/setup-node@v6
-        with:
-          node-version: '24.x'
-          registry-url: 'https://registry.npmjs.org'
-          scope: '@magic5644'
-
-      - name: Build CLI bundle
-        run: npm run build:cli -- --production
-
-      - name: Verify no .map files in CLI bundle
-        run: |
-          MAP_COUNT=$(find dist/ -name "*.map" | wc -l | tr -d ' ')
-          if [ "$MAP_COUNT" -gt 0 ]; then
-            echo "ERROR: .map files found in CLI bundle:"
-            find dist/ -name "*.map"
-            exit 1
-          fi
-          echo "OK: no .map files"
-
-      - name: Check if npm package exists
-        run: |
-          if npm view @magic5644/graph-it-live version 2>/dev/null; then
-            echo "Package exists, continuing..."
-          else
-            echo "ERROR: Package does not exist on npm. Publish manually first."
-            exit 1
-          fi
-
-      - name: Scope package name for npm publish
-        run: |
-          node -e "
-          const fs = require('fs');
-          const pkg = JSON.parse(fs.readFileSync('package.json', 'utf8'));
-          pkg.name = '@magic5644/graph-it-live';
-          pkg.files = ['bin/', 'dist/graph-it.js', 'dist/astWorker.js', 'dist/mcpServer.mjs', 'dist/mcpWorker.js', 'dist/indexerWorker.js', 'dist/wasm/', 'dist/queries/', 'README.md', 'LICENSE', 'docs/CLI.md'];
-          fs.writeFileSync('package.json', JSON.stringify(pkg, null, 2) + '\n');
-          "
-
-      - name: Publish CLI to npm
-        run: npm publish --access public --provenance --ignore-scripts
+  npm-publish:
+    needs: [publish]
+    uses: ./.github/workflows/reusable-npm-publish.yml
+    with:
+      version: ${{ needs.publish.outputs.version }}
+      ref: ${{ github.sha }}
