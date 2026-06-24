@@ -30,6 +30,11 @@ npm run check:types    # TypeScript strict check
 # Package
 npm run package        # Build .vsix
 npm run package:verify # Verify no .map files in package
+
+# dependencies
+npm audit
+npm audit fix
+cve-lite --verbose # use npm install -g cve-lite to install cve-lite
 ```
 
 Requires Node.js ≥22. No native compilation needed — Tree-sitter uses WASM.
