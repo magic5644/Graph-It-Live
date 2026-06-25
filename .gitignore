@@ -216,3 +216,13 @@ _bmad-output
 
 # VS Code settings (may contain user-specific or machine-specific settings)
 .vscode/settings.json
+
+.serena
+
+/graphify-out/
+.graphifyignore
+graphify-out/cost.json        # local only
+graphify-out/.graphify_python # local only
+graphify-out/.graphify_root # local only
+graphify-out/cost.json # local only
+# graphify-out/cache/         # optional: commit for speed, skip to keep repo small
