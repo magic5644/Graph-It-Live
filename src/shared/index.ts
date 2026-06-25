@@ -21,3 +21,6 @@ export type * from './types';
 // TOON (Token-Oriented Object Notation) format
 export { jsonToToon, toonToJson, estimateTokenSavings } from './toon';
 export type { ToonOptions } from './toon';
+
+// Query types
+export * from './query-types';

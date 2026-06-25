@@ -101,6 +101,10 @@ CREATE INDEX IF NOT EXISTS idx_edges_source ON edges(source_id);
 CREATE INDEX IF NOT EXISTS idx_edges_target ON edges(target_id);
 CREATE INDEX IF NOT EXISTS idx_edges_cyclic ON edges(is_cyclic) WHERE is_cyclic = 1;
 
+-- FTS5 virtual table for fast symbol name search (requires FTS5 WASM build).
+-- Applied separately via tryApplyFts5Schema() — skipped gracefully if FTS5 unavailable.
+-- SCHEMA_FTS5_SQL constant defined below.
+
 CREATE TABLE IF NOT EXISTS metadata (
     key   TEXT PRIMARY KEY,
     value TEXT NOT NULL
@@ -108,7 +112,30 @@ CREATE TABLE IF NOT EXISTS metadata (
 `;
 
 /** Bump when the schema changes — forces a full rebuild on load. */
-const CURRENT_SCHEMA_VERSION = 2;
+const CURRENT_SCHEMA_VERSION = 3;
+
+/**
+ * Optional FTS5 schema for fast symbol name search.
+ * Applied after the main schema via tryApplyFts5Schema().
+ * Silently skipped when the sql.js WASM build does not include FTS5.
+ */
+const SCHEMA_FTS5_SQL = `
+CREATE VIRTUAL TABLE IF NOT EXISTS nodes_fts USING fts5(
+    name,
+    content='nodes',
+    content_rowid='rowid'
+);
+CREATE TRIGGER IF NOT EXISTS nodes_fts_ai AFTER INSERT ON nodes BEGIN
+    INSERT INTO nodes_fts(rowid, name) VALUES (new.rowid, new.name);
+END;
+CREATE TRIGGER IF NOT EXISTS nodes_fts_ad AFTER DELETE ON nodes BEGIN
+    INSERT INTO nodes_fts(nodes_fts, rowid, name) VALUES ('delete', old.rowid, old.name);
+END;
+CREATE TRIGGER IF NOT EXISTS nodes_fts_au AFTER UPDATE ON nodes BEGIN
+    INSERT INTO nodes_fts(nodes_fts, rowid, name) VALUES ('delete', old.rowid, old.name);
+    INSERT INTO nodes_fts(rowid, name) VALUES (new.rowid, new.name);
+END;
+`;
 
 // ---------------------------------------------------------------------------
 // Configuration
@@ -163,6 +190,12 @@ export class CallGraphIndexer {
       this.SQL = await initSqlJs({ wasmBinary });
       this.db = new this.SQL.Database();
       this.db.run(SCHEMA_SQL);
+      // FTS5 is optional — silently skip if the WASM build does not include it
+      try {
+        this.db.run(SCHEMA_FTS5_SQL);
+      } catch {
+        // FTS5 not available in this WASM build — keyword search falls back to LIKE
+      }
       this.db.run(
         "INSERT OR REPLACE INTO metadata (key, value) VALUES ('schema_version', ?)",
         [String(CURRENT_SCHEMA_VERSION)],
