@@ -337,6 +337,307 @@ describe("CallGraphIndexer", () => {
   });
 
   // -------------------------------------------------------------------------
+  // evictOldestFiles
+  // -------------------------------------------------------------------------
+
+  it("evictOldestFiles(0) is a no-op and returns empty array", () => {
+    indexer.indexFile([makeNode()], [], FILE_A, "typescript", Date.now());
+    const result = indexer.evictOldestFiles(0);
+    expect(result).toEqual([]);
+
+    const db = indexer.getDb();
+    const rows = db.exec("SELECT path FROM file_index WHERE path = ?", [FILE_A]);
+    expect(rows[0]?.values.length).toBe(1);
+  });
+
+  it("evictOldestFiles(1) removes the oldest indexed file and its nodes", () => {
+    const FILE_B = "/workspace/src/newer.ts";
+    const nodeA = makeNode({ id: `${FILE_A}:a:1`, name: "a", startLine: 1 });
+    const nodeB = makeNode({
+      id: `${FILE_B}:b:1`, name: "b", startLine: 1,
+      path: FILE_B, folder: "/workspace/src",
+    });
+
+    // Index A first (older indexed_at), then B
+    indexer.indexFile([nodeA], [], FILE_A, "typescript", 1000);
+    indexer.indexFile([nodeB], [], FILE_B, "typescript", 2000);
+
+    const result = indexer.evictOldestFiles(1);
+    expect(result).toHaveLength(1);
+    expect(result[0]).toBe(FILE_A);
+
+    const db = indexer.getDb();
+    const evictedFile = db.exec("SELECT path FROM file_index WHERE path = ?", [FILE_A]);
+    expect(evictedFile.length).toBe(0);
+
+    const evictedNode = db.exec("SELECT id FROM nodes WHERE path = ?", [FILE_A]);
+    expect(evictedNode.length).toBe(0);
+
+    // FILE_B must still be present
+    const keptFile = db.exec("SELECT path FROM file_index WHERE path = ?", [FILE_B]);
+    expect(keptFile[0]?.values.length).toBe(1);
+  });
+
+  it("evictOldestFiles(2) removes the two oldest files in order", () => {
+    const FILE_B = "/workspace/src/b.ts";
+    const FILE_C = "/workspace/src/c.ts";
+    indexer.indexFile([], [], FILE_A, "typescript", 1000);
+    indexer.indexFile([], [], FILE_B, "typescript", 2000);
+    indexer.indexFile([], [], FILE_C, "typescript", 3000);
+
+    const result = indexer.evictOldestFiles(2);
+    expect(result).toHaveLength(2);
+    expect(result).toContain(FILE_A);
+    expect(result).toContain(FILE_B);
+
+    const db = indexer.getDb();
+    const remaining = db.exec("SELECT path FROM file_index");
+    expect(remaining[0]?.values.length).toBe(1);
+    expect(remaining[0]?.values[0][0]).toBe(FILE_C);
+  });
+
+  it("evictOldestFiles() on empty DB returns empty array", () => {
+    const result = indexer.evictOldestFiles(5);
+    expect(result).toEqual([]);
+  });
+
+  // -------------------------------------------------------------------------
+  // checkAndEvict
+  // -------------------------------------------------------------------------
+
+  it("checkAndEvict() with maxSizeMB=0 disables eviction (no-op)", () => {
+    indexer.indexFile([makeNode()], [], FILE_A, "typescript", Date.now());
+    // maxSizeMB=0 disables eviction regardless of DB size
+    indexer.checkAndEvict(0);
+
+    const db = indexer.getDb();
+    const rows = db.exec("SELECT path FROM file_index WHERE path = ?", [FILE_A]);
+    expect(rows[0]?.values.length).toBe(1);
+  });
+
+  it("checkAndEvict() does not evict when DB is below the threshold", () => {
+    indexer.indexFile([makeNode()], [], FILE_A, "typescript", Date.now());
+    // Very high limit — DB is in-memory with a few rows, never reaches 999 MB
+    indexer.checkAndEvict(999);
+
+    const db = indexer.getDb();
+    const rows = db.exec("SELECT path FROM file_index WHERE path = ?", [FILE_A]);
+    expect(rows[0]?.values.length).toBe(1);
+  });
+
+  it("checkAndEvict() evicts ~10% of files when DB exceeds threshold", () => {
+    // Index 10 files
+    for (let i = 0; i < 10; i++) {
+      const filePath = `/workspace/src/file${i}.ts`;
+      const node = makeNode({
+        id: `${filePath}:fn${i}:1`, name: `fn${i}`, startLine: 1,
+        path: filePath, folder: "/workspace/src",
+      });
+      indexer.indexFile([node], [], filePath, "typescript", i * 1000);
+    }
+
+    const db = indexer.getDb();
+    const beforeRows = db.exec("SELECT COUNT(*) FROM file_index");
+    const countBefore = beforeRows[0]?.values[0]?.[0] as number;
+    expect(countBefore).toBe(10);
+
+    // Force eviction: override getDatabaseSizeMB on the prototype temporarily via
+    // a property override on the instance (TypeScript cast to any for test spy).
+    const instanceAny = indexer as unknown as { getDatabaseSizeMB: () => number };
+    const realGetSize = instanceAny.getDatabaseSizeMB;
+    instanceAny.getDatabaseSizeMB = () => 100; // pretend DB is 100 MB
+    indexer.checkAndEvict(1); // limit = 1 MB → triggers eviction
+    instanceAny.getDatabaseSizeMB = realGetSize; // restore
+
+    const afterRows = db.exec("SELECT COUNT(*) FROM file_index");
+    const countAfter = afterRows[0]?.values[0]?.[0] as number;
+    // Should have evicted ceil(10 * 0.1) = 1 file
+    expect(countAfter).toBeLessThan(countBefore);
+    expect(countAfter).toBe(9);
+  });
+
+  it("checkAndEvict() created with maxDbSizeMB=0 config never evicts", async () => {
+    const noEvictIndexer = new CallGraphIndexer(SQL_WASM_PATH, { maxDbSizeMB: 0 });
+    await noEvictIndexer.init();
+
+    noEvictIndexer.indexFile([makeNode()], [], FILE_A, "typescript", Date.now());
+    noEvictIndexer.checkAndEvict(); // no arg → uses config maxDbSizeMB = 0
+
+    const db = noEvictIndexer.getDb();
+    const rows = db.exec("SELECT path FROM file_index WHERE path = ?", [FILE_A]);
+    expect(rows[0]?.values.length).toBe(1);
+
+    noEvictIndexer.dispose();
+  });
+
+  // -------------------------------------------------------------------------
+  // sharedPathSegments + pickBestCandidate (tested indirectly via resolveExternalEdges)
+  // -------------------------------------------------------------------------
+
+  it("resolveExternalEdges() resolves stub to the candidate in the closest directory (sharedPathSegments)", () => {
+    // Two files both export `compute()`. One is in /workspace/src/utils/ (close to caller),
+    // the other in /workspace/lib/ (further away). The stub should resolve to the closer one.
+    const CALLER_FILE  = "/workspace/src/main.ts";
+    const NEAR_FILE    = "/workspace/src/utils/compute.ts";
+    const FAR_FILE     = "/workspace/lib/compute.ts";
+
+    const callerNode = makeNode({
+      id: `${CALLER_FILE}:main:1`, name: "main", startLine: 1,
+      path: CALLER_FILE, folder: "/workspace/src",
+    });
+    const nearNode = makeNode({
+      id: `${NEAR_FILE}:compute:1`, name: "compute", startLine: 1,
+      path: NEAR_FILE, folder: "/workspace/src/utils",
+      lang: "typescript", isExported: true,
+    });
+    const farNode = makeNode({
+      id: `${FAR_FILE}:compute:1`, name: "compute", startLine: 1,
+      path: FAR_FILE, folder: "/workspace/lib",
+      lang: "typescript", isExported: true,
+    });
+
+    const stubEdge = makeEdge({
+      sourceId: callerNode.id,
+      targetId: "@@external:compute",
+      typeRelation: "CALLS",
+      sourceLine: 5,
+    });
+
+    indexer.indexFile([callerNode], [stubEdge], CALLER_FILE, "typescript", Date.now());
+    indexer.indexFile([nearNode], [], NEAR_FILE, "typescript", Date.now());
+    indexer.indexFile([farNode], [], FAR_FILE, "typescript", Date.now());
+
+    const result = indexer.resolveExternalEdges();
+    expect(result.resolved).toBeGreaterThanOrEqual(1);
+
+    const db = indexer.getDb();
+
+    // Must resolve to nearNode (closer directory)
+    const edgeToNear = db.exec(
+      "SELECT source_id, target_id FROM edges WHERE source_id = ? AND target_id = ?",
+      [callerNode.id, nearNode.id],
+    );
+    expect(edgeToNear[0]?.values.length).toBe(1);
+
+    // Must NOT resolve to farNode
+    const edgeToFar = db.exec(
+      "SELECT source_id, target_id FROM edges WHERE source_id = ? AND target_id = ?",
+      [callerNode.id, farNode.id],
+    );
+    expect(edgeToFar.length).toBe(0);
+  });
+
+  it("resolveExternalEdges() prefers exported candidate over unexported when similarity ties (pickBestCandidate)", () => {
+    // Two candidates in the exact same directory, same similarity score.
+    // One is exported, the other is not. Exported wins.
+    const CALLER_FILE     = "/workspace/src/a.ts";
+    const EXPORTED_FILE   = "/workspace/src/b.ts";
+    const UNEXPORTED_FILE = "/workspace/src/c.ts";
+
+    const callerNode = makeNode({
+      id: `${CALLER_FILE}:caller:1`, name: "caller", startLine: 1,
+      path: CALLER_FILE, folder: "/workspace/src",
+    });
+    const exportedNode = makeNode({
+      id: `${EXPORTED_FILE}:helper:1`, name: "helper", startLine: 1,
+      path: EXPORTED_FILE, folder: "/workspace/src",
+      lang: "typescript", isExported: true,
+    });
+    const unexportedNode = makeNode({
+      id: `${UNEXPORTED_FILE}:helper:1`, name: "helper", startLine: 1,
+      path: UNEXPORTED_FILE, folder: "/workspace/src",
+      lang: "typescript", isExported: false,
+    });
+
+    const stubEdge = makeEdge({
+      sourceId: callerNode.id,
+      targetId: "@@external:helper",
+      typeRelation: "CALLS",
+      sourceLine: 3,
+    });
+
+    indexer.indexFile([callerNode], [stubEdge], CALLER_FILE, "typescript", 1000);
+    indexer.indexFile([unexportedNode], [], UNEXPORTED_FILE, "typescript", 2000);
+    indexer.indexFile([exportedNode], [], EXPORTED_FILE, "typescript", 1000);
+
+    const result = indexer.resolveExternalEdges();
+    expect(result.resolved).toBeGreaterThanOrEqual(1);
+
+    const db = indexer.getDb();
+
+    // Must resolve to exported node
+    const edgeToExported = db.exec(
+      "SELECT source_id, target_id FROM edges WHERE source_id = ? AND target_id = ?",
+      [callerNode.id, exportedNode.id],
+    );
+    expect(edgeToExported[0]?.values.length).toBe(1);
+
+    // Must NOT resolve to unexported node
+    const edgeToUnexported = db.exec(
+      "SELECT source_id, target_id FROM edges WHERE source_id = ? AND target_id = ?",
+      [callerNode.id, unexportedNode.id],
+    );
+    expect(edgeToUnexported.length).toBe(0);
+  });
+
+  it("resolveExternalEdges() picks most-recently-indexed candidate when exported/similarity tie (pickBestCandidate)", () => {
+    // Two exported candidates in the same directory — tie in both similarity and export.
+    // The more recently indexed one must win.
+    // We force distinct indexed_at values by updating the DB directly after indexFile().
+    const CALLER_FILE = "/workspace/src/caller.ts";
+    const OLDER_FILE  = "/workspace/src/older.ts";
+    const NEWER_FILE  = "/workspace/src/newer.ts";
+
+    const callerNode = makeNode({
+      id: `${CALLER_FILE}:caller:1`, name: "caller", startLine: 1,
+      path: CALLER_FILE, folder: "/workspace/src",
+    });
+    const olderNode = makeNode({
+      id: `${OLDER_FILE}:doWork:1`, name: "doWork", startLine: 1,
+      path: OLDER_FILE, folder: "/workspace/src",
+      lang: "typescript", isExported: true,
+    });
+    const newerNode = makeNode({
+      id: `${NEWER_FILE}:doWork:1`, name: "doWork", startLine: 1,
+      path: NEWER_FILE, folder: "/workspace/src",
+      lang: "typescript", isExported: true,
+    });
+
+    const stubEdge = makeEdge({
+      sourceId: callerNode.id,
+      targetId: "@@external:doWork",
+      typeRelation: "CALLS",
+      sourceLine: 7,
+    });
+
+    indexer.indexFile([callerNode], [stubEdge], CALLER_FILE, "typescript", 1000);
+    indexer.indexFile([olderNode], [], OLDER_FILE, "typescript", 1000);
+    indexer.indexFile([newerNode], [], NEWER_FILE, "typescript", 9999);
+
+    // Force distinct indexed_at values so the tie-breaker is deterministic.
+    const db = indexer.getDb();
+    db.run("UPDATE nodes SET indexed_at = 1000 WHERE id = ?", [olderNode.id]);
+    db.run("UPDATE nodes SET indexed_at = 9999 WHERE id = ?", [newerNode.id]);
+
+    const result = indexer.resolveExternalEdges();
+    expect(result.resolved).toBeGreaterThanOrEqual(1);
+
+    // Must resolve to newer (higher indexed_at) node
+    const edgeToNewer = db.exec(
+      "SELECT source_id, target_id FROM edges WHERE source_id = ? AND target_id = ?",
+      [callerNode.id, newerNode.id],
+    );
+    expect(edgeToNewer[0]?.values.length).toBe(1);
+
+    // Must NOT resolve to older node
+    const edgeToOlder = db.exec(
+      "SELECT source_id, target_id FROM edges WHERE source_id = ? AND target_id = ?",
+      [callerNode.id, olderNode.id],
+    );
+    expect(edgeToOlder.length).toBe(0);
+  });
+
+  // -------------------------------------------------------------------------
   // resolveExternalEdges — cross-language isolation
   // -------------------------------------------------------------------------
 
