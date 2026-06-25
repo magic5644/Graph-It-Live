@@ -353,3 +353,120 @@ function buildCompounds(nodes: SerializedCallNode[]): SerializedCompoundNode[] {
 
   return [...folderMap.values(), ...fileMap.values()];
 }
+
+// ---------------------------------------------------------------------------
+// Multi-seed BFS helpers for QueryEngine
+// ---------------------------------------------------------------------------
+
+/**
+ * Splits a camelCase/PascalCase/snake_case/dot-separated identifier
+ * into lowercase tokens of length > 1.
+ *
+ * Examples:
+ *   "callGraph"    → ["call", "graph"]
+ *   "PathResolver" → ["path", "resolver"]
+ *   "src/utils.ts" → ["src", "utils", "ts"]
+ */
+export function splitIdentifier(identifier: string): string[] {
+  return identifier
+    .replace(/([a-z])([A-Z])/g, '$1 $2')
+    .replace(/[_\-./]/g, ' ')
+    .toLowerCase()
+    .split(/\s+/)
+    .filter(t => t.length > 1);
+}
+
+/**
+ * Returns outgoing + incoming neighbour IDs for a single node.
+ * Filters out @@external: prefixed IDs (stubs for external packages).
+ */
+function collectNeighbourIds(db: Database, nodeId: string): string[] {
+  const ids: string[] = [];
+
+  const outgoing = db.exec(
+    `SELECT target_id FROM edges WHERE source_id = ?`,
+    [nodeId],
+  );
+  for (const row of outgoing[0]?.values ?? []) {
+    const id = row[0] as string;
+    if (id && !id.startsWith('@@external:')) {
+      ids.push(id);
+    }
+  }
+
+  const incoming = db.exec(
+    `SELECT source_id FROM edges WHERE target_id = ?`,
+    [nodeId],
+  );
+  for (const row of incoming[0]?.values ?? []) {
+    const id = row[0] as string;
+    if (id && !id.startsWith('@@external:')) {
+      ids.push(id);
+    }
+  }
+
+  return ids;
+}
+
+/**
+ * Multi-seed BFS. Starts from all seed node IDs simultaneously.
+ *
+ * Seeds are sorted by score DESC before expanding each hop, so
+ * higher-relevance branches are explored first.
+ *
+ * Truncation: when `maxNodes` is reached mid-hop, the hop is interrupted.
+ *
+ * @param db        Initialized sql.js Database.
+ * @param seeds     Array of { id, score } pairs (score used for hop ordering).
+ * @param depth     Maximum BFS hop count.
+ * @param maxNodes  Maximum total nodes to return (default: 200).
+ * @returns         Set of visited node IDs (includes seed nodes).
+ */
+export function bfsFromSeeds(
+  db: Database,
+  seeds: Array<{ id: string; score: number }>,
+  depth: number,
+  maxNodes = 200,
+): Set<string> {
+  const visited = new Set<string>();
+
+  // Add all valid seeds first
+  for (const seed of seeds) {
+    if (seed.id && !seed.id.startsWith('@@external:')) {
+      visited.add(seed.id);
+    }
+  }
+
+  if (depth === 0 || visited.size === 0) {
+    return visited;
+  }
+
+  // Frontier: sorted by score DESC for priority expansion
+  let frontier = [...seeds]
+    .filter(s => s.id && !s.id.startsWith('@@external:'))
+    .sort((a, b) => b.score - a.score)
+    .map(s => s.id);
+
+  for (let hop = 0; hop < depth; hop++) {
+    if (frontier.length === 0) break;
+
+    const nextFrontier: string[] = [];
+
+    for (const nodeId of frontier) {
+      if (visited.size >= maxNodes) break;
+
+      const neighbours = collectNeighbourIds(db, nodeId);
+      for (const neighbourId of neighbours) {
+        if (!visited.has(neighbourId)) {
+          visited.add(neighbourId);
+          nextFrontier.push(neighbourId);
+          if (visited.size >= maxNodes) break;
+        }
+      }
+    }
+
+    frontier = nextFrontier;
+  }
+
+  return visited;
+}
