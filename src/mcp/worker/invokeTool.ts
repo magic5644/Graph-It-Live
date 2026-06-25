@@ -21,6 +21,7 @@ import {
   executeScanDeadCode,
   executeTraceFunctionExecution,
   executeVerifyDependencyUsage,
+  executeQueryNaturalLanguage,
 } from "../tools";
 import type {
   AnalyzeBreakingChangesParams,
@@ -44,6 +45,7 @@ import type {
   ScanDeadCodeParams,
   TraceFunctionExecutionParams,
   VerifyDependencyUsageParams,
+  QueryNaturalLanguageParams,
 } from "../types";
 import {
   validateFilePath,
@@ -212,6 +214,11 @@ export async function invokeTool(
       case "scan_dead_code": {
         const p = validatedParams as ScanDeadCodeParams;
         result = await executeScanDeadCode(p);
+        break;
+      }
+      case "query_natural_language": {
+        const p = validatedParams as QueryNaturalLanguageParams;
+        result = await executeQueryNaturalLanguage(p);
         break;
       }
       default:

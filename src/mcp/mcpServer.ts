@@ -142,6 +142,7 @@ import {
   ResolveModulePathParamsSchema,
   type ResolveModulePathResult,
   ScanDeadCodeParamsSchema,
+  QueryNaturalLanguageParamsSchema,
   // Import all parameter schemas with payload limits
   SetWorkspaceParamsSchema,
   type SetWorkspaceResult,
@@ -1827,6 +1828,67 @@ RETURNS:
     const response = await invokeToolWithResponse(
       "scan_dead_code",
       { scopePath, maxFiles },
+    );
+
+    return formatToolResponse(response, responseFormat);
+  },
+);
+
+// Tool: graphitlive_query_natural_language
+server.registerTool(
+  "graphitlive_query_natural_language",
+  {
+    title: "Query Codebase with Natural Language",
+    description: `Query the codebase graph with a natural language question. Returns a TOON-format subgraph (token-optimized) representing the relevant nodes and edges. The LLM caller should synthesize the subgraph into a human-readable answer.
+
+WHEN TO USE:
+- User asks an open-ended question about the codebase ("How does authentication work?")
+- User wants to explore relationships around a concept without knowing exact file/symbol names
+- User asks "What calls X?" or "Where is Y defined?" when they only know the concept, not the path
+- Codebase exploration before targeted analysis (precedes more specific tools)
+
+EXAMPLES:
+- "How does the MCP server handle tool invocations?"
+- "What are the entry points for call graph indexing?"
+- "Where is workspace configuration stored?"
+- "How does the TOON format get generated?"
+
+WHY YOU NEED THIS:
+This tool performs keyword extraction from the question, scores seed nodes in the call graph index using FTS5 full-text search, then runs BFS traversal to return a relevant subgraph.
+Unlike graphitlive_query_call_graph (which requires exact file+symbol), this tool works from natural language alone.
+The returned subgraph lets the calling LLM synthesize a precise answer grounded in the actual code graph.
+
+IMPORTANT: This tool returns the subgraph data only. YOU (the calling LLM) must synthesize the answer from that data.
+
+First invocation indexes the entire workspace (3-8s). Subsequent queries are instant.
+
+RETURNS:
+- question: The original question
+- extractedKeywords: Keywords used to seed the graph search
+- toon/nodes+edges: The relevant subgraph in requested format
+- meta: Performance metadata (timing, token estimate, truncation flag)`,
+    inputSchema: QueryNaturalLanguageParamsSchema.extend({
+      response_format: ResponseFormatSchema.describe(
+        "Output format: 'json', 'markdown', or 'toon' (default: toon - RECOMMENDED for 30-60% token savings)",
+      ),
+    }),
+    outputSchema: McpToolResponseSchema,
+    annotations: {
+      readOnlyHint: true,
+      destructiveHint: false,
+      idempotentHint: true,
+      openWorldHint: false,
+    },
+  },
+  async ({ question, depth, tokenBudget, fileFilter, outputFormat, response_format }) => {
+    const workerCheck = await ensureWorkerReady();
+    const responseFormat = response_format ?? "toon";
+    if (workerCheck.error)
+      return formatToolResponse(workerCheck.response, responseFormat);
+
+    const response = await invokeToolWithResponse(
+      "query_natural_language",
+      { question, depth, tokenBudget, fileFilter, outputFormat },
     );
 
     return formatToolResponse(response, responseFormat);
