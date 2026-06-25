@@ -41,3 +41,7 @@ export {
     executeInvalidateFiles,
     executeRebuildIndex
 } from "./workspace";
+export {
+    executeQueryNaturalLanguage,
+    QueryNaturalLanguageSchema
+} from "./query";

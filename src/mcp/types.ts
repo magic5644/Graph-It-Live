@@ -107,7 +107,8 @@ export type McpToolName =
   | "analyze_file_logic" // NEW: LSP-based intra-file call hierarchy
   | "generate_codemap" // NEW: Full codemap generation for a single file
   | "query_call_graph" // NEW: Cross-file call graph query (callers/callees via SQLite)
-  | "scan_dead_code"; // NEW: Workspace-wide dead code scan
+  | "scan_dead_code" // NEW: Workspace-wide dead code scan
+  | "query_natural_language"; // NEW: Natural language query over the call graph
 
 // ============================================================================
 // Zod Schemas for Tool Parameters
@@ -505,6 +506,41 @@ export type QueryCallGraphParams = z.infer<
   typeof QueryCallGraphParamsSchema
 >;
 
+// NEW: Schema for query_natural_language (natural language query over call graph)
+export const QueryNaturalLanguageParamsSchema = z.object({
+  question: z
+    .string()
+    .max(1024)
+    .describe("Natural language question about the codebase"),
+  depth: z
+    .number()
+    .int()
+    .min(1)
+    .max(5)
+    .default(2)
+    .optional()
+    .describe("BFS traversal depth from seed nodes (default: 2, min: 1, max: 5)"),
+  tokenBudget: z
+    .number()
+    .int()
+    .min(500)
+    .max(16000)
+    .default(4000)
+    .optional()
+    .describe("Maximum token budget for the output subgraph (default: 4000)"),
+  fileFilter: z
+    .string()
+    .max(256)
+    .optional()
+    .describe("Glob pattern to restrict search scope"),
+  outputFormat: z
+    .enum(["toon", "json"])
+    .default("toon")
+    .optional()
+    .describe("Output format: 'toon' (default) or 'json'"),
+});
+export type QueryNaturalLanguageParams = z.infer<typeof QueryNaturalLanguageParamsSchema>;
+
 // NEW: Schema for scan_dead_code (workspace-wide dead code scan)
 export const ScanDeadCodeParamsSchema = z.object({
   scopePath: FilePathSchema.optional().describe(
@@ -554,6 +590,7 @@ export const toolSchemas: Record<McpToolName, z.ZodType<unknown>> = {
   generate_codemap: GenerateCodemapParamsSchema,
   query_call_graph: QueryCallGraphParamsSchema,
   scan_dead_code: ScanDeadCodeParamsSchema,
+  query_natural_language: QueryNaturalLanguageParamsSchema,
 };
 
 /**
