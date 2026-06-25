@@ -64,6 +64,7 @@ Commands:
   tool <name>       Invoke any MCP tool: graph-it tool get_index_status
   install           Install CLI to system PATH (VS Code opt-in)
   update            Update graph-it to the latest version on npm
+  query <question>   Query the codebase with natural language
 
 Options:
   --workspace, -w   Workspace root directory (default: auto-detected)
@@ -342,6 +343,10 @@ async function dispatch(
     }
     case "update": {
       const { run } = await import("./commands/update.js");
+      return run(args, runtime, format);
+    }
+    case "query": {
+      const { run } = await import("./commands/query.js");
       return run(args, runtime, format);
     }
     default:
