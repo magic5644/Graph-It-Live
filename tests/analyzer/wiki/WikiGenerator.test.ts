@@ -142,6 +142,20 @@ describe("WikiGenerator", () => {
     expect(article.articlePath.startsWith(tmpDir)).toBe(true);
   });
 
+  it("escapes backslashes and pipes in rendered table cells", () => {
+    const workspaceRoot = "/workspace";
+    const db = makeDb({
+      fileIndex: ["/workspace/src/d.ts"],
+      nodes: [{ path: "/workspace/src/d.ts", name: String.raw`foo\bar|baz`, type: "function", start_line: 3 }],
+    });
+    const gen = new WikiGenerator({ db, outputDir: tmpDir, workspaceRoot });
+
+    const article = gen.buildArticle("/workspace/src/d.ts", 50);
+    const rendered = gen.renderArticle(article);
+
+    expect(rendered).toContain(String.raw`foo\\bar\|baz`);
+  });
+
   it("relLink produces relative paths only", async () => {
     const workspaceRoot = "/workspace";
     const db = makeDb({
