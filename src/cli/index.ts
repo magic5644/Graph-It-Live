@@ -349,6 +349,10 @@ async function dispatch(
       const { run } = await import("./commands/query.js");
       return run(args, runtime, format);
     }
+    case "wiki": {
+      const { run } = await import("./commands/wiki.js");
+      return run(args, runtime, format);
+    }
     default:
       throw new CliError(
         `Unknown command "${command}". Run graph-it --help for usage.`,

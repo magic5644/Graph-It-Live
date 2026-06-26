@@ -151,6 +151,7 @@ import {
   validateFilePath,
   VerifyDependencyUsageParamsSchema,
 } from "./types";
+import { GenerateWikiSchema } from "./tools/wiki.js";
 
 // ============================================================================
 // Environment Configuration
@@ -1889,6 +1890,53 @@ RETURNS:
     const response = await invokeToolWithResponse(
       "query_natural_language",
       { question, depth, tokenBudget, fileFilter, outputFormat },
+    );
+
+    return formatToolResponse(response, responseFormat);
+  },
+);
+
+// Tool: graphitlive_generate_wiki
+server.registerTool(
+  "graphitlive_generate_wiki",
+  {
+    title: "Generate Markdown Wiki from Call Graph",
+    description: `Generate a navigable markdown wiki from the call graph index. Creates one article per source file with hub scores, symbol lists, caller/callee cross-links, and a grouped index.
+
+WHEN TO USE:
+- User wants to produce documentation from the codebase
+- User wants a navigable overview of the project files and their relationships
+- Useful after indexing to create a persistent, browsable artifact
+
+RETURNS:
+- articlesCount: Number of markdown files written
+- indexPath: Relative path to the generated index.md (relative to workspaceRoot)
+- articlesDir: Relative path to the articles directory (relative to workspaceRoot)
+- topHubs: Top files by hub score (most depended-upon)
+
+First invocation indexes the entire workspace (3-8s). Subsequent calls are fast.`,
+    inputSchema: GenerateWikiSchema.extend({
+      response_format: ResponseFormatSchema.describe(
+        "Output format: 'json', 'markdown', or 'toon' (default: json). scope and exclude filtering is applied before generation — limitations are documented in the generated wiki itself.",
+      ),
+    }),
+    outputSchema: McpToolResponseSchema,
+    annotations: {
+      readOnlyHint: false,
+      destructiveHint: false,
+      idempotentHint: true,
+      openWorldHint: false,
+    },
+  },
+  async ({ workspaceRoot, outputDir, topHubsLimit, scope, exclude, response_format }) => {
+    const workerCheck = await ensureWorkerReady();
+    const responseFormat = response_format ?? "json";
+    if (workerCheck.error)
+      return formatToolResponse(workerCheck.response, responseFormat);
+
+    const response = await invokeToolWithResponse(
+      "generate_wiki",
+      { workspaceRoot, outputDir, topHubsLimit, scope, exclude },
     );
 
     return formatToolResponse(response, responseFormat);
