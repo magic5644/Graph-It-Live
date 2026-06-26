@@ -110,6 +110,7 @@ test.log
 # AI/Agent configuration directories (may contain large files or binaries)
 .agent/**
 .agents/**
+.claude/**
 .codex/**
 .continue/**
 .cursor/**
@@ -117,6 +118,10 @@ test.log
 .roo/**
 .kiro/**
 plan/**
+
+# Knowledge graph & analysis output (dev-only, never ship)
+graphify-out/**
+.serena/**
 
 # OS files
 .DS_Store
