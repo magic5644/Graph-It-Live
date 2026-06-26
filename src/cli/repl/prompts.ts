@@ -28,6 +28,7 @@ export type MainAction =
   | 'check'
   | 'summary'
   | 'architecture'
+  | 'query'
   | 'format'
   | 'help'
   | 'quit';
@@ -147,6 +148,15 @@ const MAIN_ACTION_ENTRIES: PaletteEntry<MainAction>[] = [
     aliases: ['check', 'unused'],
     keywords: ['dead', 'unused', 'analysis', 'security', 'qa'],
     value: 'check',
+    group: '🔍 Code Analysis',
+  },
+  {
+    slash: '/query',
+    title: 'Query with natural language',
+    description: 'Ask a question about the codebase and get a subgraph answer.',
+    aliases: ['query', 'q', 'search'],
+    keywords: ['query', 'search', 'ask', 'natural language', 'question'],
+    value: 'query',
     group: '🔍 Code Analysis',
   },
   {
@@ -286,6 +296,10 @@ const FOLLOW_UP_ENTRIES: Record<string, PaletteEntry<PostResultAction>[]> = {
   'path': [
     { slash: '/→ check-dependencies', title: 'Check full deps (in + out)', description: 'See both import directions for the entry file.', aliases: [], keywords: [], value: 'followUpDeps',   group: '🔍 Follow-up' },
     { slash: '/→ cycles',             title: 'Find circular dependencies', description: 'Detect cycles in the dependency graph.',       aliases: [], keywords: [], value: 'followUpCycles', group: '🔍 Follow-up' },
+  ],
+  'query': [
+    { slash: '/→ trace',              title: 'Trace a matching symbol',    description: 'Follow the execution flow from a key result.', aliases: [], keywords: [], value: 'followUpTrace',  group: '🔍 Follow-up' },
+    { slash: '/→ architecture',       title: 'Build workspace architecture', description: 'Map the full dependency graph.',              aliases: [], keywords: [], value: 'followUpArchitecture', group: '🔍 Follow-up' },
   ],
 };
 
@@ -1020,6 +1034,14 @@ export async function selectPreferredFormat(
       { name: 'Mermaid (diagram output)', value: 'mermaid' },
     ],
     default: currentFormat,
+  });
+}
+
+/** Prompt for a natural language question for the query command. */
+export async function inputQueryQuestion(defaultValue = ''): Promise<string> {
+  return input({
+    message: 'Ask a question about the codebase (e.g. "how does Spider crawl files")',
+    default: defaultValue,
   });
 }
 
