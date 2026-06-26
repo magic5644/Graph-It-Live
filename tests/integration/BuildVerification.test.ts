@@ -37,7 +37,7 @@ describe('Build Verification', () => {
       
       // Verify it's a valid WASM file (starts with WASM magic number)
       const buffer = fs.readFileSync(wasmPath);
-      const magicNumber = buffer.slice(0, 4);
+      const magicNumber = buffer.subarray(0, 4);
       expect(magicNumber.toString('hex')).toBe('0061736d'); // \0asm in hex
     });
 
@@ -47,7 +47,7 @@ describe('Build Verification', () => {
       
       // Verify it's a valid WASM file
       const buffer = fs.readFileSync(wasmPath);
-      const magicNumber = buffer.slice(0, 4);
+      const magicNumber = buffer.subarray(0, 4);
       expect(magicNumber.toString('hex')).toBe('0061736d');
     });
 
@@ -57,7 +57,7 @@ describe('Build Verification', () => {
       
       // Verify it's a valid WASM file
       const buffer = fs.readFileSync(wasmPath);
-      const magicNumber = buffer.slice(0, 4);
+      const magicNumber = buffer.subarray(0, 4);
       expect(magicNumber.toString('hex')).toBe('0061736d');
     });
 
