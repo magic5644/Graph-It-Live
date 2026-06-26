@@ -260,58 +260,63 @@ export class WikiGenerator {
   renderArticle(article: WikiArticle): string {
     const lines: string[] = [];
     const relSrc = displayPath(article.filePath, this.workspaceRoot);
-    const safe = (s: string) => s.replace(/\|/g, "\\|");
+    const escapedBackslash = String.raw`\\`;
+    const escapedPipe = String.raw`\|`;
+    const safe = (s: string) => s.replaceAll("\\", escapedBackslash).replaceAll("|", escapedPipe);
 
-    lines.push(`# ${article.title}`);
-    lines.push(`> ${relSrc} | Hub Score: ${article.hubScore}/100`);
-    lines.push("");
+    const headerLines = [`# ${article.title}`, `> ${relSrc} | Hub Score: ${article.hubScore}/100`, ""];
+    lines.push(...headerLines);
 
     if (article.symbols.length > 0) {
-      lines.push("## Symbols");
-      lines.push("| Name | Type | Line |");
-      lines.push("|------|------|------|");
-      for (const s of article.symbols) {
-        lines.push(`| ${safe(s.name)} | ${s.type} | ${s.declarationLine} |`);
-      }
-      lines.push("");
+      const symbolLines = [
+        "## Symbols",
+        "| Name | Type | Line |",
+        "|------|------|------|",
+        ...article.symbols.map((s) => `| ${safe(s.name)} | ${s.type} | ${s.declarationLine} |`),
+        "",
+      ];
+      lines.push(...symbolLines);
     }
 
     if (article.callers.length > 0) {
-      lines.push("## Called by");
-      lines.push("| Symbol | File | Line |");
-      lines.push("|--------|------|------|");
-      for (const c of article.callers) {
-        const link = relLink(article.articlePath, this.articlePathFor(c.filePath));
-        const fileDisplay = displayPath(c.filePath, this.workspaceRoot);
-        lines.push(`| ${safe(c.name)} | [${safe(fileDisplay)}](${link}) | ${c.callSiteLine} |`);
-      }
-      lines.push("");
+      const callerLines = [
+        "## Called by",
+        "| Symbol | File | Line |",
+        "|--------|------|------|",
+        ...article.callers.map((c) => {
+          const link = relLink(article.articlePath, this.articlePathFor(c.filePath));
+          const fileDisplay = displayPath(c.filePath, this.workspaceRoot);
+          return `| ${safe(c.name)} | [${safe(fileDisplay)}](${link}) | ${c.callSiteLine} |`;
+        }),
+        "",
+      ];
+      lines.push(...callerLines);
     }
 
     if (article.callees.length > 0) {
-      lines.push("## External calls");
-      lines.push("| Symbol | File | Line |");
-      lines.push("|--------|------|------|");
-      for (const c of article.callees) {
-        const link = relLink(article.articlePath, this.articlePathFor(c.filePath));
-        const fileDisplay = displayPath(c.filePath, this.workspaceRoot);
-        lines.push(`| ${safe(c.name)} | [${safe(fileDisplay)}](${link}) | ${c.callSiteLine} |`);
-      }
-      lines.push("");
+      const calleeLines = [
+        "## External calls",
+        "| Symbol | File | Line |",
+        "|--------|------|------|",
+        ...article.callees.map((c) => {
+          const link = relLink(article.articlePath, this.articlePathFor(c.filePath));
+          const fileDisplay = displayPath(c.filePath, this.workspaceRoot);
+          return `| ${safe(c.name)} | [${safe(fileDisplay)}](${link}) | ${c.callSiteLine} |`;
+        }),
+        "",
+      ];
+      lines.push(...calleeLines);
     }
 
-    // Diagrams
-    for (const diagram of article.diagrams) {
-      lines.push(`## ${diagram.title}`);
+    const diagramLines = article.diagrams.flatMap((diagram) => {
+      const block = [`## ${diagram.title}`];
       if (diagram.truncationNote) {
-        lines.push(`> ⚠️ ${diagram.truncationNote}`);
-        lines.push("");
+        block.push(`> ⚠️ ${diagram.truncationNote}`, "");
       }
-      lines.push("```mermaid");
-      lines.push(diagram.mermaid);
-      lines.push("```");
-      lines.push("");
-    }
+      block.push("```mermaid", diagram.mermaid, "```", "");
+      return block;
+    });
+    lines.push(...diagramLines);
 
     return lines.join("\n");
   }
@@ -325,26 +330,22 @@ export class WikiGenerator {
     const godNode = sorted[0];
     const lines: string[] = [];
 
-    lines.push(`# Wiki — ${path.basename(this.workspaceRoot)}`);
-    lines.push("");
+    const headerLines = [`# Wiki — ${path.basename(this.workspaceRoot)}`, ""];
+    lines.push(...headerLines);
 
     // Scope note
     if (scopeNote) {
-      lines.push(`> ℹ️ ${scopeNote}`);
-      lines.push("");
+      lines.push(...[`> ℹ️ ${scopeNote}`, ""]);
     }
 
     // Architecture diagram
     if (archDiagram) {
-      lines.push("## Architecture overview");
+      const archLines = ["## Architecture overview"];
       if (archDiagram.truncationNote) {
-        lines.push(`> ⚠️ ${archDiagram.truncationNote}`);
-        lines.push("");
+        archLines.push(`> ⚠️ ${archDiagram.truncationNote}`, "");
       }
-      lines.push("```mermaid");
-      lines.push(archDiagram.mermaid);
-      lines.push("```");
-      lines.push("");
+      archLines.push("```mermaid", archDiagram.mermaid, "```", "");
+      lines.push(...archLines);
     }
 
     if (godNode) {
@@ -352,11 +353,11 @@ export class WikiGenerator {
         path.join(this.outputDir, "index.md"),
         godNode.articlePath,
       );
-      lines.push("## God Node");
-      lines.push(
+      lines.push(...[
+        "## God Node",
         `[${godNode.title}](${godLink}) — Hub Score: ${godNode.hubScore}/100 — ${godNode.symbols.length} symbols — ${godNode.callers.length} callers`,
-      );
-      lines.push("");
+        "",
+      ]);
     }
 
     // Group by folder
@@ -372,19 +373,20 @@ export class WikiGenerator {
     }
 
     for (const [folder, folderArticles] of folders) {
-      lines.push(`## ${folder}/`);
-      lines.push("| File | Hub Score | Symbols | Callers | Diagrams |");
-      lines.push("|------|-----------|---------|---------|----------|");
-      for (const a of folderArticles) {
-        const link = relLink(
-          path.join(this.outputDir, "index.md"),
-          a.articlePath,
-        );
-        lines.push(
-          `| [${a.title}](${link}) | ${a.hubScore} | ${a.symbols.length} | ${a.callers.length} | ${a.diagrams.length} |`,
-        );
-      }
-      lines.push("");
+      const folderLines = [
+        `## ${folder}/`,
+        "| File | Hub Score | Symbols | Callers | Diagrams |",
+        "|------|-----------|---------|---------|----------|",
+        ...folderArticles.map((a) => {
+          const link = relLink(
+            path.join(this.outputDir, "index.md"),
+            a.articlePath,
+          );
+          return `| [${a.title}](${link}) | ${a.hubScore} | ${a.symbols.length} | ${a.callers.length} | ${a.diagrams.length} |`;
+        }),
+        "",
+      ];
+      lines.push(...folderLines);
     }
 
     return lines.join("\n");
