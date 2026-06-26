@@ -45,3 +45,7 @@ export {
     executeQueryNaturalLanguage,
     QueryNaturalLanguageSchema
 } from "./query";
+export {
+    executeGenerateWiki,
+    GenerateWikiSchema
+} from "./wiki";

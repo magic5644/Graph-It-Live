@@ -403,6 +403,7 @@ graph-it check                  # Scan whole workspace for dead code (unused exp
 graph-it check <dir>            # Scan a subdirectory for dead code
 graph-it check <file>           # Detect unused exported symbols in a single file
 graph-it query "<question>"     # Natural language query over the call graph (LLM or heuristic fallback)
+graph-it wiki                   # Generate a navigable markdown wiki from the call graph
 graph-it serve                  # Launch MCP stdio server (for AI clients)
 graph-it tool --list            # List all 22 CLI analysis tools
 graph-it tool <mcp-tool> [args] # Run any MCP tool directly from the terminal
@@ -441,7 +442,7 @@ This output can be pasted directly into any Markdown renderer (GitHub, Notion, V
 
 **Use as MCP server (no VS Code):** Run `graph-it serve` and point your AI client at it — see [Manual MCP Server Configuration](#manual-mcp-server-configuration).
 
-**Interactive REPL:** Run `graph-it` with no arguments to enter interactive mode. Type `/query how does X work` to ask natural language questions about your codebase (no quotes needed). Other slash commands: `/trace`, `/summary`, `/architecture`, `/check`, `/cycles`, `/format`, `/help`.
+**Interactive REPL:** Run `graph-it` with no arguments to enter interactive mode. Type `/query how does X work` to ask natural language questions about your codebase (no quotes needed). Use `/wiki` to generate a navigable markdown wiki from the call graph. Other slash commands: `/trace`, `/summary`, `/architecture`, `/check`, `/cycles`, `/format`, `/help`.
 
 **Full CLI reference:** See **[docs/CLI.md](docs/CLI.md)** for complete documentation on every command, all options, output format examples, advanced workflows, and the full MCP tools reference.
 
@@ -512,6 +513,7 @@ The MCP server exposes **23 tools** for AI/LLM consumption. The 22 analysis tool
 | `graphitlive_query_call_graph` | Query cross-file callers/callees via BFS on the call graph SQLite database |
 | `graphitlive_scan_dead_code` | Scan the entire workspace (or a directory) for unused exported symbols in one call |
 | `query_natural_language` | Answer a natural language question about the codebase using the call graph (LLM or heuristic fallback) |
+| `graphitlive_generate_wiki` | Generate a navigable markdown wiki from the call graph (one article per file, hub scores, cross-links) |
 
 ### TOON Format (Token-Optimized Output)
 

@@ -22,6 +22,7 @@ import {
   executeTraceFunctionExecution,
   executeVerifyDependencyUsage,
   executeQueryNaturalLanguage,
+  executeGenerateWiki,
 } from "../tools";
 import type {
   AnalyzeBreakingChangesParams,
@@ -47,6 +48,7 @@ import type {
   VerifyDependencyUsageParams,
   QueryNaturalLanguageParams,
 } from "../types";
+import type { GenerateWikiParams } from "../types.js";
 import {
   validateFilePath,
   validateToolParams,
@@ -219,6 +221,11 @@ export async function invokeTool(
       case "query_natural_language": {
         const p = validatedParams as QueryNaturalLanguageParams;
         result = await executeQueryNaturalLanguage(p);
+        break;
+      }
+      case "generate_wiki": {
+        const p = validatedParams as GenerateWikiParams;
+        result = await executeGenerateWiki(p);
         break;
       }
       default:

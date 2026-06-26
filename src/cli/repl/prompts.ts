@@ -29,6 +29,7 @@ export type MainAction =
   | 'summary'
   | 'architecture'
   | 'query'
+  | 'wiki'
   | 'format'
   | 'help'
   | 'quit';
@@ -157,6 +158,15 @@ const MAIN_ACTION_ENTRIES: PaletteEntry<MainAction>[] = [
     aliases: ['query', 'q', 'search'],
     keywords: ['query', 'search', 'ask', 'natural language', 'question'],
     value: 'query',
+    group: '🔍 Code Analysis',
+  },
+  {
+    slash: '/wiki',
+    title: 'Generate markdown wiki',
+    description: 'Generate a navigable markdown wiki from the call graph.',
+    aliases: ['wiki', 'docs', 'documentation'],
+    keywords: ['wiki', 'docs', 'generate', 'markdown', 'documentation'],
+    value: 'wiki',
     group: '🔍 Code Analysis',
   },
   {
@@ -1041,6 +1051,14 @@ export async function selectPreferredFormat(
 export async function inputQueryQuestion(defaultValue = ''): Promise<string> {
   return input({
     message: 'Ask a question about the codebase (e.g. "how does Spider crawl files")',
+    default: defaultValue,
+  });
+}
+
+/** Prompt for a wiki output directory. */
+export async function inputWikiOutputDir(defaultValue = 'wiki'): Promise<string> {
+  return input({
+    message: 'Output directory for wiki (relative to workspace root)',
     default: defaultValue,
   });
 }

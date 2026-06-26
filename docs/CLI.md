@@ -169,6 +169,7 @@ graph-it [options]
 | Command | Description |
 |--------|-------------|
 | `/query` | Query the codebase with natural language (no quotes needed for multi-word questions) |
+| `/wiki` | Generate a navigable markdown wiki from the call graph |
 | `/trace` | Run trace flow for a selected file and optional symbol |
 | `/path` | Set session workspace scope (directory) |
 | `/file` | Set active file context for context-aware commands |
@@ -659,6 +660,55 @@ graph-it query "what is the entry point for the CLI" --format json
 
 ---
 
+### wiki
+
+Generate a navigable markdown wiki from the call graph. Creates one article per source file with hub scores, symbol lists, caller/callee cross-links, and a grouped index — all with relative links only (portable, can be committed to the repo).
+
+```
+graph-it wiki [options]
+```
+
+**Options:**
+
+| Option | Default | Description |
+|--------|---------|-------------|
+| `--output <dir>` | `wiki` | Output directory (relative to workspace root, or absolute) |
+| `--top <N>` | `10` | Number of top hub files to list in the index (1–50) |
+| `--format <fmt>` | `markdown` | Output summary format: `markdown`, `json`, `toon` |
+| `--workspace, -w` | auto-detected | Project root |
+
+**Examples:**
+
+```bash
+graph-it wiki                                  # write to ./wiki/
+graph-it wiki --output docs/wiki               # write to ./docs/wiki/
+graph-it wiki --top 20 --format json           # JSON summary, top 20 hubs
+graph-it wiki --output /tmp/preview            # absolute output path
+```
+
+**Output structure:**
+
+```
+wiki/
+  index.md          # Grouped file index with hub scores
+  articles/
+    src_foo.ts.md   # One article per source file
+    src_bar.ts.md
+    ...
+```
+
+Each article contains:
+- Hub score (0–100, higher = more depended-upon)
+- Symbols (functions, classes, interfaces, types)
+- Called by (callers from other files)
+- Calls (callees in other files)
+- All internal links are **relative** — safe to commit and view on any OS
+
+> **REPL equivalent:** Use `/wiki` inside `graph-it` interactive mode.
+> **MCP equivalent:** `graphitlive_generate_wiki` tool.
+
+---
+
 ### tool
 
 Invoke any of the 22 MCP analysis tools directly from the terminal — full MCP parity without a running server.
@@ -717,6 +767,7 @@ Available MCP tools:
   query_call_graph               BFS callers/callees via the SQLite call graph index
   scan_dead_code                 Workspace-wide scan for unused exported symbols
   query_natural_language         Answer a natural language question about the codebase (LLM or heuristic)
+  generate_wiki                  Generate a navigable markdown wiki from the call graph
 ```
 
 **Calling a tool with parameters:**
@@ -1180,6 +1231,25 @@ graph-it tool query_natural_language --question="explain the MCP server" --token
 - No key set → heuristic fallback (warning printed to stderr)
 
 > **Note:** The LLM calling this tool performs the synthesis — the tool returns a structured subgraph that the model interprets.
+
+---
+
+#### `generate_wiki`
+
+Generate a navigable markdown wiki from the call graph. One article per source file, hub scores, symbol lists, caller/callee cross-links, and a grouped index — all with relative links only.
+
+| Parameter | Type | Default | Description |
+|-----------|------|---------|-------------|
+| `workspaceRoot` | string | configured workspace | Absolute path to workspace root |
+| `outputDir` | string | `wiki` | Output directory for wiki files |
+| `topHubsLimit` | number | `10` | Number of top hub files to list (1–50) |
+| `response_format` | string | `json` | Output summary format: `json`, `markdown`, or `toon` |
+
+```bash
+graph-it tool generate_wiki
+graph-it tool generate_wiki --outputDir=docs/wiki
+graph-it tool generate_wiki --topHubsLimit=20 --response_format=toon
+```
 
 ---
 

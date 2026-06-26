@@ -108,7 +108,8 @@ export type McpToolName =
   | "generate_codemap" // NEW: Full codemap generation for a single file
   | "query_call_graph" // NEW: Cross-file call graph query (callers/callees via SQLite)
   | "scan_dead_code" // NEW: Workspace-wide dead code scan
-  | "query_natural_language"; // NEW: Natural language query over the call graph
+  | "query_natural_language" // Natural language query over the call graph
+  | "generate_wiki"; // Generate markdown wiki from call graph
 
 // ============================================================================
 // Zod Schemas for Tool Parameters
@@ -541,6 +542,22 @@ export const QueryNaturalLanguageParamsSchema = z.object({
 });
 export type QueryNaturalLanguageParams = z.infer<typeof QueryNaturalLanguageParamsSchema>;
 
+// Schema for generate_wiki
+export const GenerateWikiParamsSchema = z.object({
+  workspaceRoot: z.string().optional().describe("Absolute path to workspace root. Defaults to configured workspace."),
+  outputDir: z.string().optional().describe("Output directory for wiki files (default: wiki)"),
+  topHubsLimit: z
+    .number()
+    .int()
+    .min(1)
+    .max(50)
+    .optional()
+    .describe("Number of top hub files to list (max: 50, default: 10)"),
+  scope: z.string().optional().describe("Relative path within workspace to restrict wiki to (e.g. 'src/')"),
+  exclude: z.array(z.string()).optional().describe("Relative glob-like patterns to exclude"),
+});
+export type GenerateWikiParams = z.infer<typeof GenerateWikiParamsSchema>;
+
 // NEW: Schema for scan_dead_code (workspace-wide dead code scan)
 export const ScanDeadCodeParamsSchema = z.object({
   scopePath: FilePathSchema.optional().describe(
@@ -591,6 +608,7 @@ export const toolSchemas: Record<McpToolName, z.ZodType<unknown>> = {
   query_call_graph: QueryCallGraphParamsSchema,
   scan_dead_code: ScanDeadCodeParamsSchema,
   query_natural_language: QueryNaturalLanguageParamsSchema,
+  generate_wiki: GenerateWikiParamsSchema,
 };
 
 /**

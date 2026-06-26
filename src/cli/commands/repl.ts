@@ -22,6 +22,7 @@ import {
   confirmScan,
   inputCommandLine,
   inputQueryQuestion,
+  inputWikiOutputDir,
   inputSavePath,
   searchDirectory,
   searchFile,
@@ -92,6 +93,7 @@ const REPL_TYPED_RUNNER_LOADERS = {
   explain: () => import('./explain.js'),
   scan: () => import('./scan.js'),
   query: () => import('./query.js'),
+  wiki: () => import('./wiki.js'),
 } satisfies Record<string, () => Promise<{ run: ReplRunner }>>;
 
 function resolveTypedRunnerKey(command: string): keyof typeof REPL_TYPED_RUNNER_LOADERS | undefined {
@@ -106,6 +108,9 @@ function resolveTypedRunnerKey(command: string): keyof typeof REPL_TYPED_RUNNER_
   }
   if (command === 'q' || command === 'search') {
     return 'query';
+  }
+  if (command === 'docs' || command === 'documentation') {
+    return 'wiki';
   }
   if (command in REPL_TYPED_RUNNER_LOADERS) {
     return command as keyof typeof REPL_TYPED_RUNNER_LOADERS;
@@ -136,6 +141,7 @@ function buildReplHelpText(state: ReturnType<typeof createSessionState>): string
     '  /architecture   Build the workspace graph',
     '  /check          Find unused exports',
     '  /query          Query the codebase with natural language',
+    '  /wiki           Generate a markdown wiki from the call graph',
     '  /format         Change the default display format',
     '  /command        Run a raw CLI command line',
     '  /help           Show this help',
@@ -1215,6 +1221,11 @@ async function runAction(
       };
     }
     return executeCommandForRepl('query', [question], runtime, preferredFormat, (await import('./query.js')).run);
+  }
+
+  if (action === 'wiki') {
+    const outputDir = await inputWikiOutputDir();
+    return executeCommandForRepl('wiki', outputDir ? ['--output', outputDir] : [], runtime, preferredFormat, (await import('./wiki.js')).run);
   }
 
   if (action === 'architecture' || action === 'summary' || action === 'check') {

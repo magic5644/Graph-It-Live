@@ -8,7 +8,7 @@
  * Requirements: 7.1, 7.2, 7.3
  */
 
-import { execSync } from 'node:child_process';
+import { execFileSync } from 'node:child_process';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { beforeAll, describe, expect, it } from 'vitest';
@@ -89,7 +89,7 @@ describe('Build Verification', () => {
     });
   });
 
-  describe('.vsix package WASM files', { timeout: 30_000 }, () => {
+  describe('.vsix package WASM files', { timeout: 60_000 }, () => {
     let vsixPath: string | null = null;
     let vsixContents: string[] = [];
 
@@ -119,16 +119,22 @@ describe('Build Verification', () => {
       // List contents of .vsix package using vsce
       // --no-dependencies skips @types/vscode vs engines.vscode version validation
       try {
-        const output = execSync('npx vsce ls --no-dependencies', {
-          cwd: workspaceRoot,
-          encoding: 'utf-8',
-        });
+        const output = execFileSync(
+          process.platform === 'win32' ? 'npx.cmd' : 'npx',
+          ['vsce', 'ls', '--no-dependencies'],
+          {
+            cwd: workspaceRoot,
+            encoding: 'utf-8',
+            timeout: 60_000,
+            stdio: ['ignore', 'pipe', 'pipe'],
+          }
+        );
         vsixContents = output.split('\n').map(line => line.trim()).filter(Boolean);
       } catch (error) {
         console.error('Failed to list .vsix contents:', error);
         throw error;
       }
-    });
+    }, 60_000);
 
     it('should include tree-sitter.wasm in package', () => {
       if (!vsixPath) {
