@@ -78,12 +78,13 @@ export async function run(
 
   const workspaceRoot = normalizePath(runtime.workspaceRoot);
   const absoluteOutputDir = path.isAbsolute(outputDir)
-    ? outputDir
+    ? path.resolve(outputDir)
     : path.resolve(workspaceRoot, outputDir);
+  const normalizedOutputDir = normalizePath(absoluteOutputDir);
 
   const result = await executeGenerateWiki({
     workspaceRoot,
-    outputDir: absoluteOutputDir,
+    outputDir: normalizedOutputDir,
     topHubsLimit,
     scope,
     exclude: exclude.length > 0 ? exclude : undefined,
@@ -93,11 +94,12 @@ export async function run(
     case "json":
       return JSON.stringify(result, null, 2);
     case "toon": {
+      const topHubsSummary = result.topHubs.map((h) => `${h.name}(${h.score})`).join(", ");
       const lines = [
         `wiki articles=${result.articlesCount}`,
         `index=${result.indexPath}`,
         `dir=${result.articlesDir}`,
-        `topHubs: ${result.topHubs.map((h) => `${h.name}(${h.score})`).join(", ")}`,
+        `topHubs: ${topHubsSummary}`,
       ];
       if (result.scopeNote) lines.push(`scope: ${result.scopeNote}`);
       return lines.join("\n");
@@ -114,8 +116,8 @@ export async function run(
       if (result.scopeNote) {
         lines.push(`- **Scope**: ${result.scopeNote}`);
       }
-      lines.push(``, `## Top hub files`);
-      lines.push(...result.topHubs.map((h) => `- ${h.name} (score: ${h.score})`));
+      const topHubLines = result.topHubs.map((h) => `- ${h.name} (score: ${h.score})`);
+      lines.push(``, `## Top hub files`, ...topHubLines);
       return lines.join("\n");
     }
   }
