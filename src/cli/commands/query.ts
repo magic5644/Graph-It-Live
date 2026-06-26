@@ -99,9 +99,7 @@ function formatTextOutput(
   workspaceRoot: string,
 ): string {
   const lines: string[] = [];
-  lines.push(`Question: ${result.question}`);
-  lines.push(`Keywords: ${result.extractedKeywords.join(", ") || "(none)"}`);
-  lines.push(`Nodes: ${result.nodeCount}  Edges: ${result.edgeCount}`);
+  lines.push(`Question: ${result.question}`, `Keywords: ${result.extractedKeywords.join(", ") || "(none)"}`, `Nodes: ${result.nodeCount}  Edges: ${result.edgeCount}`);
   if (result.meta.truncated) {
     lines.push("(result truncated — increase --token-budget for more)");
   }
@@ -143,8 +141,8 @@ export async function run(
   const depth = parseDepth(args);
   const tokenBudget = parseTokenBudget(args);
   // --format in args overrides the top-level CLI format (e.g. REPL session default)
-  const queryFormat: 'toon' | 'json' | 'text' =
-    parseQueryFormatFromArgs(args) ?? (format === 'json' ? 'json' : format === 'toon' ? 'toon' : 'toon');
+  const queryFormatFromArgs = parseQueryFormatFromArgs(args);
+  const queryFormat: 'toon' | 'json' | 'text' = queryFormatFromArgs ?? (format === 'json' ? 'json' : 'toon');
 
   await runtime.ensureIndexed();
 

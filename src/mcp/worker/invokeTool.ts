@@ -39,6 +39,7 @@ import type {
   GetSymbolGraphParams,
   InvalidateFilesParams,
   McpToolName,
+  McpWorkerConfig,
   McpWorkerResponse,
   ParseImportsParams,
   QueryCallGraphParams,
@@ -53,6 +54,126 @@ import {
   validateFilePath,
   validateToolParams,
 } from "../types";
+
+type ToolHandler = (
+  params: unknown,
+  config: McpWorkerConfig,
+  postMessage: (msg: McpWorkerResponse) => void,
+) => Promise<unknown> | unknown;
+
+function validateRootPath(filePath: string, config: McpWorkerConfig): void {
+  validateFilePath(filePath, config.rootDir);
+}
+
+const toolHandlers: Partial<Record<McpToolName, ToolHandler>> = {
+  analyze_dependencies: async (params, config) => {
+    const p = params as AnalyzeDependenciesParams;
+    validateRootPath(p.filePath, config);
+    return executeAnalyzeDependencies(p);
+  },
+  crawl_dependency_graph: async (params, config) => {
+    const p = params as CrawlDependencyGraphParams;
+    validateRootPath(p.entryFile, config);
+    return executeCrawlDependencyGraph(p);
+  },
+  find_referencing_files: async (params, config) => {
+    const p = params as FindReferencingFilesParams;
+    validateRootPath(p.targetPath, config);
+    return executeFindReferencingFiles(p);
+  },
+  expand_node: async (params, config) => {
+    const p = params as ExpandNodeParams;
+    validateRootPath(p.filePath, config);
+    return executeExpandNode(p);
+  },
+  parse_imports: async (params, config) => {
+    const p = params as ParseImportsParams;
+    validateRootPath(p.filePath, config);
+    return executeParseImports(p);
+  },
+  verify_dependency_usage: async (params, config) => {
+    const p = params as VerifyDependencyUsageParams;
+    validateRootPath(p.sourceFile, config);
+    validateRootPath(p.targetFile, config);
+    return executeVerifyDependencyUsage(p);
+  },
+  resolve_module_path: async (params, config) => {
+    const p = params as ResolveModulePathParams;
+    validateRootPath(p.fromFile, config);
+    return executeResolveModulePath(p);
+  },
+  get_index_status: () => executeGetIndexStatus(),
+  invalidate_files: (params, config) => {
+    const p = params as InvalidateFilesParams;
+    for (const filePath of p.filePaths) validateRootPath(filePath, config);
+    return executeInvalidateFiles(p);
+  },
+  rebuild_index: (_params, _config, postMessage) => executeRebuildIndex(postMessage),
+  get_symbol_graph: async (params, config) => {
+    const p = params as GetSymbolGraphParams;
+    validateRootPath(p.filePath, config);
+    return executeGetSymbolGraph(p);
+  },
+  find_unused_symbols: async (params, config) => {
+    const p = params as FindUnusedSymbolsParams;
+    validateRootPath(p.filePath, config);
+    return executeFindUnusedSymbols(p);
+  },
+  get_symbol_dependents: async (params, config) => {
+    const p = params as GetSymbolDependentsParams;
+    validateRootPath(p.filePath, config);
+    return executeGetSymbolDependents(p);
+  },
+  trace_function_execution: async (params, config) => {
+    const p = params as TraceFunctionExecutionParams;
+    validateRootPath(p.filePath, config);
+    return executeTraceFunctionExecution(p);
+  },
+  get_symbol_callers: async (params, config) => {
+    const p = params as GetSymbolCallersParams;
+    validateRootPath(p.filePath, config);
+    return executeGetSymbolCallers(p);
+  },
+  analyze_breaking_changes: async (params, config) => {
+    const p = params as AnalyzeBreakingChangesParams;
+    validateRootPath(p.filePath, config);
+    return executeAnalyzeBreakingChanges(p);
+  },
+  get_impact_analysis: async (params, config) => {
+    const p = params as GetImpactAnalysisParams;
+    validateRootPath(p.filePath, config);
+    return executeGetImpactAnalysis(p);
+  },
+  analyze_file_logic: async (params, config) => {
+    const p = params as AnalyzeFileLogicParams;
+    validateRootPath(p.filePath, config);
+    return executeAnalyzeFileLogic(p);
+  },
+  generate_codemap: async (params, config) => {
+    const p = params as GenerateCodemapParams;
+    validateRootPath(p.filePath, config);
+    return executeGenerateCodemap(p);
+  },
+  query_call_graph: async (params, config) => {
+    const p = params as QueryCallGraphParams;
+    validateRootPath(p.filePath, config);
+    return executeQueryCallGraph(p);
+  },
+  scan_dead_code: (params) => executeScanDeadCode(params as ScanDeadCodeParams),
+  query_natural_language: (params) => executeQueryNaturalLanguage(params as QueryNaturalLanguageParams),
+  generate_wiki: (params) => executeGenerateWiki(params as GenerateWikiParams),
+};
+
+async function executeValidatedTool(
+  tool: McpToolName,
+  params: unknown,
+  config: McpWorkerConfig,
+  postMessage: (msg: McpWorkerResponse) => void,
+): Promise<unknown> {
+  const handler = toolHandlers[tool];
+  if (!handler) throw new Error(`Unknown tool: ${tool}`);
+  return handler(params, config, postMessage);
+}
 
 export async function invokeTool(
   requestId: string,
@@ -93,144 +214,7 @@ export async function invokeTool(
 
     const validatedParams = validation.data;
     const config = workerState.getConfig();
-    let result: unknown;
-
-    switch (tool) {
-      case "analyze_dependencies": {
-        const p = validatedParams as AnalyzeDependenciesParams;
-        validateFilePath(p.filePath, config.rootDir);
-        result = await executeAnalyzeDependencies(p);
-        break;
-      }
-      case "crawl_dependency_graph": {
-        const p = validatedParams as CrawlDependencyGraphParams;
-        validateFilePath(p.entryFile, config.rootDir);
-        result = await executeCrawlDependencyGraph(p);
-        break;
-      }
-      case "find_referencing_files": {
-        const p = validatedParams as FindReferencingFilesParams;
-        validateFilePath(p.targetPath, config.rootDir);
-        result = await executeFindReferencingFiles(p);
-        break;
-      }
-      case "expand_node": {
-        const p = validatedParams as ExpandNodeParams;
-        validateFilePath(p.filePath, config.rootDir);
-        result = await executeExpandNode(p);
-        break;
-      }
-      case "parse_imports": {
-        const p = validatedParams as ParseImportsParams;
-        validateFilePath(p.filePath, config.rootDir);
-        result = await executeParseImports(p);
-        break;
-      }
-      case "verify_dependency_usage": {
-        const p = validatedParams as VerifyDependencyUsageParams;
-        validateFilePath(p.sourceFile, config.rootDir);
-        validateFilePath(p.targetFile, config.rootDir);
-        result = await executeVerifyDependencyUsage(p);
-        break;
-      }
-      case "resolve_module_path": {
-        const p = validatedParams as ResolveModulePathParams;
-        validateFilePath(p.fromFile, config.rootDir);
-        result = await executeResolveModulePath(p);
-        break;
-      }
-      case "get_index_status":
-        result = await executeGetIndexStatus();
-        break;
-      case "invalidate_files": {
-        const p = validatedParams as InvalidateFilesParams;
-        for (const filePath of p.filePaths) {
-          validateFilePath(filePath, config.rootDir);
-        }
-        result = executeInvalidateFiles(p);
-        break;
-      }
-      case "rebuild_index":
-        result = await executeRebuildIndex(postMessage);
-        break;
-      case "get_symbol_graph": {
-        const p = validatedParams as GetSymbolGraphParams;
-        validateFilePath(p.filePath, config.rootDir);
-        result = await executeGetSymbolGraph(p);
-        break;
-      }
-      case "find_unused_symbols": {
-        const p = validatedParams as FindUnusedSymbolsParams;
-        validateFilePath(p.filePath, config.rootDir);
-        result = await executeFindUnusedSymbols(p);
-        break;
-      }
-      case "get_symbol_dependents": {
-        const p = validatedParams as GetSymbolDependentsParams;
-        validateFilePath(p.filePath, config.rootDir);
-        result = await executeGetSymbolDependents(p);
-        break;
-      }
-      case "trace_function_execution": {
-        const p = validatedParams as TraceFunctionExecutionParams;
-        validateFilePath(p.filePath, config.rootDir);
-        result = await executeTraceFunctionExecution(p);
-        break;
-      }
-      case "get_symbol_callers": {
-        const p = validatedParams as GetSymbolCallersParams;
-        validateFilePath(p.filePath, config.rootDir);
-        result = await executeGetSymbolCallers(p);
-        break;
-      }
-      case "analyze_breaking_changes": {
-        const p = validatedParams as AnalyzeBreakingChangesParams;
-        validateFilePath(p.filePath, config.rootDir);
-        result = await executeAnalyzeBreakingChanges(p);
-        break;
-      }
-      case "get_impact_analysis": {
-        const p = validatedParams as GetImpactAnalysisParams;
-        validateFilePath(p.filePath, config.rootDir);
-        result = await executeGetImpactAnalysis(p);
-        break;
-      }
-      case "analyze_file_logic": {
-        const p = validatedParams as AnalyzeFileLogicParams;
-        validateFilePath(p.filePath, config.rootDir);
-        result = await executeAnalyzeFileLogic(p);
-        break;
-      }
-      case "generate_codemap": {
-        const p = validatedParams as GenerateCodemapParams;
-        validateFilePath(p.filePath, config.rootDir);
-        result = await executeGenerateCodemap(p);
-        break;
-      }
-      case "query_call_graph": {
-        const p = validatedParams as QueryCallGraphParams;
-        validateFilePath(p.filePath, config.rootDir);
-        result = await executeQueryCallGraph(p);
-        break;
-      }
-      case "scan_dead_code": {
-        const p = validatedParams as ScanDeadCodeParams;
-        result = await executeScanDeadCode(p);
-        break;
-      }
-      case "query_natural_language": {
-        const p = validatedParams as QueryNaturalLanguageParams;
-        result = await executeQueryNaturalLanguage(p);
-        break;
-      }
-      case "generate_wiki": {
-        const p = validatedParams as GenerateWikiParams;
-        result = await executeGenerateWiki(p);
-        break;
-      }
-      default:
-        throw new Error(`Unknown tool: ${tool}`);
-    }
+    const result = await executeValidatedTool(tool, validatedParams, config, postMessage);
 
     const executionTimeMs = Date.now() - startTime;
 

@@ -24,11 +24,11 @@ import {
 function relLink(fromArticlePath: string, toArticlePath: string): string {
   return path
     .relative(path.dirname(fromArticlePath), toArticlePath)
-    .replace(/\\/g, "/");
+    .replaceAll('\\', "/");
 }
 
 function displayPath(filePath: string, workspaceRoot: string): string {
-  return path.relative(workspaceRoot, filePath).replace(/\\/g, "/");
+  return path.relative(workspaceRoot, filePath).replaceAll('\\', "/");
 }
 
 // ---------------------------------------------------------------------------
@@ -66,7 +66,7 @@ const DEFAULT_EXCLUDE_SUFFIXES = [
 
 function matchesSimplePattern(relPath: string, pattern: string): boolean {
   // "tests/**" or "tests/" → starts with
-  const p = pattern.replace(/\/\*\*$/, "/").replace(/\*\*\//g, "").replace(/\*/g, "");
+  const p = pattern.replace(/\/\*\*$/, "/").replaceAll('**/', "").replaceAll('*', "");
   if (pattern.endsWith("/**") || pattern.endsWith("/")) {
     return relPath.startsWith(p);
   }
@@ -88,11 +88,11 @@ function buildScopePredicate(
   const useDefaults = exclude === undefined;
 
   return (absPath: string): boolean => {
-    const rel = path.relative(workspaceRoot, absPath).replace(/\\/g, "/");
+    const rel = path.relative(workspaceRoot, absPath).replaceAll('\\', "/");
 
     // Scope restriction
     if (scope) {
-      const normalizedScope = scope.replace(/\\/g, "/").replace(/\/$/, "") + "/";
+      const normalizedScope = scope.replaceAll('\\', "/").replace(/\/$/, "") + "/";
       if (!rel.startsWith(normalizedScope) && rel !== scope.replace(/\/$/, "")) {
         return false;
       }
@@ -139,7 +139,7 @@ export class WikiGenerator {
 
   constructor(opts: WikiGeneratorOptions) {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    this.db = opts.db as any;
+    this.db = opts.db;
     this.outputDir = opts.outputDir;
     this.workspaceRoot = opts.workspaceRoot;
     this.topHubsLimit = opts.topHubsLimit ?? 10;
@@ -230,7 +230,7 @@ export class WikiGenerator {
     const articlePath = path.join(
       this.outputDir,
       "articles",
-      displayPath(filePath, this.workspaceRoot).replace(/\//g, "_") + ".md",
+      displayPath(filePath, this.workspaceRoot).replaceAll('/', "_") + ".md",
     );
 
     const symbols = this.querySymbols(filePath);
@@ -335,7 +335,7 @@ export class WikiGenerator {
 
     // Scope note
     if (scopeNote) {
-      lines.push(...[`> ℹ️ ${scopeNote}`, ""]);
+      lines.push(`> ℹ️ ${scopeNote}`, "");
     }
 
     // Architecture diagram
@@ -353,11 +353,11 @@ export class WikiGenerator {
         path.join(this.outputDir, "index.md"),
         godNode.articlePath,
       );
-      lines.push(...[
+      lines.push(
         "## God Node",
         `[${godNode.title}](${godLink}) — Hub Score: ${godNode.hubScore}/100 — ${godNode.symbols.length} symbols — ${godNode.callers.length} callers`,
-        "",
-      ]);
+        ""
+      );
     }
 
     // Group by folder
@@ -366,7 +366,7 @@ export class WikiGenerator {
       const folder =
         path
           .relative(this.workspaceRoot, path.dirname(article.filePath))
-          .replace(/\\/g, "/") || ".";
+          .replaceAll('\\', "/") || ".";
       const key = normalizePath(folder);
       if (!folders.has(key)) folders.set(key, []);
       folders.get(key)!.push(article);
@@ -397,7 +397,7 @@ export class WikiGenerator {
     return path.join(
       this.outputDir,
       "articles",
-      displayPath(normalized, this.workspaceRoot).replace(/\//g, "_") + ".md",
+      displayPath(normalized, this.workspaceRoot).replaceAll('/', "_") + ".md",
     );
   }
 
