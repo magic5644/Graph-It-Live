@@ -21,6 +21,7 @@ import { parseSymbolRef } from '../symbols.js';
 import {
   confirmScan,
   inputCommandLine,
+  inputQueryQuestion,
   inputSavePath,
   searchDirectory,
   searchFile,
@@ -74,7 +75,7 @@ const LEGACY_TYPED_COMMAND_OPTIONS: TypedCommandOptions = { uiMode: 'legacy' };
 const INK_TYPED_COMMAND_OPTIONS: TypedCommandOptions = { uiMode: 'ink' };
 type DependencyDirection = 'both' | 'outgoing' | 'incoming';
 
-type ReplMainAction = 'trace' | 'command' | 'setPath' | 'checkDependencies' | 'cycles' | 'check' | 'summary' | 'architecture' | 'format' | 'help';
+type ReplMainAction = 'trace' | 'command' | 'setPath' | 'checkDependencies' | 'cycles' | 'check' | 'summary' | 'architecture' | 'query' | 'format' | 'help';
 type ReplStickyAction = 'architecture' | 'summary' | 'check';
 type ReplFileAction = 'trace' | 'checkDependencies' | 'cycles';
 type ReplRunner = (args: string[], runtime: CliRuntime, format: CliOutputFormat) => Promise<string>;
@@ -90,6 +91,7 @@ const REPL_TYPED_RUNNER_LOADERS = {
   trace: () => import('./trace.js'),
   explain: () => import('./explain.js'),
   scan: () => import('./scan.js'),
+  query: () => import('./query.js'),
 } satisfies Record<string, () => Promise<{ run: ReplRunner }>>;
 
 function resolveTypedRunnerKey(command: string): keyof typeof REPL_TYPED_RUNNER_LOADERS | undefined {
@@ -101,6 +103,9 @@ function resolveTypedRunnerKey(command: string): keyof typeof REPL_TYPED_RUNNER_
   }
   if (command === 'cycles' || command === 'cycle') {
     return 'cycles';
+  }
+  if (command === 'q' || command === 'search') {
+    return 'query';
   }
   if (command in REPL_TYPED_RUNNER_LOADERS) {
     return command as keyof typeof REPL_TYPED_RUNNER_LOADERS;
@@ -130,6 +135,7 @@ function buildReplHelpText(state: ReturnType<typeof createSessionState>): string
     '  /summary        Summarize the current file or whole workspace',
     '  /architecture   Build the workspace graph',
     '  /check          Find unused exports',
+    '  /query          Query the codebase with natural language',
     '  /format         Change the default display format',
     '  /command        Run a raw CLI command line',
     '  /help           Show this help',
@@ -528,7 +534,7 @@ async function runTypedCommandLine(
 
   return {
     command: normalizedCommand,
-    output: `Unknown REPL command "${sanitizeTerminalText(normalizedCommand)}". Try: /path, /file, /check-dependencies, /cycles, /summary, /check, /trace, /format, /help.`,
+    output: `Unknown REPL command "${sanitizeTerminalText(normalizedCommand)}". Try: /path, /file, /check-dependencies, /cycles, /summary, /check, /trace, /query, /format, /help.`,
     skipPostAction: true,
   };
 }
@@ -1197,6 +1203,18 @@ async function runAction(
       output: buildReplHelpText(state),
       skipPostAction: true,
     };
+  }
+
+  if (action === 'query') {
+    const question = await inputQueryQuestion();
+    if (!question.trim()) {
+      return {
+        command: 'query',
+        output: 'No question provided. Try: /query "how does Spider crawl files"',
+        skipPostAction: true,
+      };
+    }
+    return executeCommandForRepl('query', [question], runtime, preferredFormat, (await import('./query.js')).run);
   }
 
   if (action === 'architecture' || action === 'summary' || action === 'check') {

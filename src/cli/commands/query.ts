@@ -47,10 +47,10 @@ function parseTokenBudget(args: string[]): number {
 
 /**
  * Parse --format from command args.
- * Returns "toon" | "json" | "text" — overrides the top-level CLI format for
- * this command because query has its own output logic.
+ * Returns "toon" | "json" | "text" when the flag is present, undefined otherwise.
+ * This allows the caller to fall back to the top-level CLI format when absent.
  */
-function parseQueryFormat(args: string[]): "toon" | "json" | "text" {
+function parseQueryFormatFromArgs(args: string[]): "toon" | "json" | "text" | undefined {
   const idx = args.indexOf("--format");
   if (idx >= 0 && args[idx + 1]) {
     const val = args[idx + 1];
@@ -58,7 +58,7 @@ function parseQueryFormat(args: string[]): "toon" | "json" | "text" {
       return val;
     }
   }
-  return "toon";
+  return undefined;
 }
 
 /** Flags that consume the next argument as their value. */
@@ -138,8 +138,9 @@ export async function run(
 
   const depth = parseDepth(args);
   const tokenBudget = parseTokenBudget(args);
+  // --format in args overrides the top-level CLI format (e.g. REPL session default)
   const queryFormat: 'toon' | 'json' | 'text' =
-    format === 'json' ? 'json' : format === 'toon' ? 'toon' : 'text';
+    parseQueryFormatFromArgs(args) ?? (format === 'json' ? 'json' : format === 'toon' ? 'toon' : 'toon');
 
   await runtime.ensureIndexed();
 
