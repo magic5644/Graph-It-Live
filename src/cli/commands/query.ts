@@ -125,7 +125,7 @@ function formatTextOutput(
 export async function run(
   args: string[],
   runtime: CliRuntime,
-  _format: CliOutputFormat,
+  format: CliOutputFormat,
 ): Promise<string> {
   const question = parseQuestion(args);
 
@@ -138,7 +138,8 @@ export async function run(
 
   const depth = parseDepth(args);
   const tokenBudget = parseTokenBudget(args);
-  const queryFormat = parseQueryFormat(args);
+  const queryFormat: 'toon' | 'json' | 'text' =
+    format === 'json' ? 'json' : format === 'toon' ? 'toon' : 'text';
 
   await runtime.ensureIndexed();
 

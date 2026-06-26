@@ -102,7 +102,7 @@ All three layers are also exposed to AI via a **22-tool MCP server**, so your as
 
 ## 🤖 Supercharge Your AI Assistant
 
-Stop pasting file paths and explaining your project structure. Graph-It-Live exposes **22 powerful dependency analysis tools** directly to your AI assistant via the [Model Context Protocol (MCP)](https://modelcontextprotocol.io), and **21 native LM Tools** directly in Copilot Agent mode (no MCP setup required).
+Stop pasting file paths and explaining your project structure. Graph-It-Live exposes **23 powerful dependency analysis tools** directly to your AI assistant via the [Model Context Protocol (MCP)](https://modelcontextprotocol.io), and **22 native LM Tools** directly in Copilot Agent mode (no MCP setup required).
 
 **Works with:** GitHub Copilot, Claude (Desktop & Code), Cursor, Windsurf, Antigravity, and any MCP-compatible client.
 
@@ -118,6 +118,7 @@ Stop pasting file paths and explaining your project structure. Graph-It-Live exp
 | *"Analyze the impact of changing calculateTotal's signature"* | `get_impact_analysis` | Breaking change detection + all affected callers |
 | *"Find unused exports in the codebase"* | `find_unused_symbols` | Dead code detection |
 | *"Are there circular dependencies?"* | `crawl_dependency_graph` | Cycle detection built in |
+| *"How does Spider crawl files?"* | `query_natural_language` | Natural language answer synthesised from the call graph |
 
 <div align="center">
   <img src="media/graph-it-live-tools-in-copilot.gif" alt="Using Graph-It-Live tools with GitHub Copilot" width="800"/>
@@ -401,8 +402,9 @@ graph-it path <file>            # Full dependency graph from a file
 graph-it check                  # Scan whole workspace for dead code (unused exports)
 graph-it check <dir>            # Scan a subdirectory for dead code
 graph-it check <file>           # Detect unused exported symbols in a single file
+graph-it query "<question>"     # Natural language query over the call graph (LLM or heuristic fallback)
 graph-it serve                  # Launch MCP stdio server (for AI clients)
-graph-it tool --list            # List all 21 CLI analysis tools
+graph-it tool --list            # List all 22 CLI analysis tools
 graph-it tool <mcp-tool> [args] # Run any MCP tool directly from the terminal
 graph-it update                 # Update graph-it to the latest version
 graph-it install                # Symlink the binary into your system PATH (opt-in)
@@ -481,7 +483,7 @@ Graph-It-Live includes an optional **MCP server** that exposes its full analysis
 
 ### Available Tools
 
-The MCP server exposes **22 tools** for AI/LLM consumption. The 21 analysis tools, excluding the server-management-only `set_workspace`, are also available as **native LM Tools** (`#graphResolve`, `#graphBreaking`, `#graphCallGraph`, etc.) directly in Copilot Agent mode — no MCP server required for those.
+The MCP server exposes **23 tools** for AI/LLM consumption. The 22 analysis tools, excluding the server-management-only `set_workspace`, are also available as **native LM Tools** (`#graphResolve`, `#graphBreaking`, `#graphCallGraph`, etc.) directly in Copilot Agent mode — no MCP server required for those.
 
 | Tool | Description |
 | :--- | :---------- |
@@ -507,6 +509,7 @@ The MCP server exposes **22 tools** for AI/LLM consumption. The 21 analysis tool
 | `graphitlive_generate_codemap` | Generate a comprehensive structured overview of any source file |
 | `graphitlive_query_call_graph` | Query cross-file callers/callees via BFS on the call graph SQLite database |
 | `graphitlive_scan_dead_code` | Scan the entire workspace (or a directory) for unused exported symbols in one call |
+| `query_natural_language` | Answer a natural language question about the codebase using the call graph (LLM or heuristic fallback) |
 
 ### TOON Format (Token-Optimized Output)
 
@@ -557,6 +560,7 @@ All 21 analysis tools are also available **natively in GitHub Copilot** — no M
 | `#graphBreaking` | `analyze_breaking_changes` | Detect breaking changes between two file versions |
 | `#graphCallGraph` | `query_call_graph` | BFS callers/callees via the SQLite call graph index |
 | `#graphDeadCode` | `scan_dead_code` | Workspace-wide dead code scan — all unused exported symbols |
+| `#graphQuery` | `query_natural_language` | Natural language question over the call graph (LLM or heuristic fallback) |
 
 > **Note:** `#graphCallGraph` requires the Call Graph panel (`graph-it-live.showCallGraph`) to be opened at least once to build the index.
 

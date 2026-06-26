@@ -18,6 +18,7 @@ The `graph-it` CLI gives you full access to the dependency analysis engine of Gr
   - [path](#path)
   - [check](#check)
   - [trace](#trace)
+  - [query](#query)
   - [tool](#tool)
   - [serve](#serve)
   - [install](#install)
@@ -128,13 +129,13 @@ All analysis commands support multiple output formats via `--format`:
 
 **Format availability per command:**
 
-| Format | scan | summary | explain | path | check | trace | tool |
-|--------|:----:|:-------:|:-------:|:----:|:-----:|:-----:|:----:|
-| `text` | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
-| `json` | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
-| `toon` | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
-| `markdown` | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
-| `mermaid` | — | — | — | ✓ | — | ✓ | — |
+| Format | scan | summary | explain | path | check | trace | query | tool |
+|--------|:----:|:-------:|:-------:|:----:|:-----:|:-----:|:-----:|:----:|
+| `text` | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
+| `json` | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
+| `toon` | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
+| `markdown` | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | — | ✓ |
+| `mermaid` | — | — | — | ✓ | — | ✓ | — | — |
 
 **Examples:**
 
@@ -609,9 +610,57 @@ graph-it trace src/mcp/mcpServer.ts#initializeServer --format json
 
 ---
 
+### query
+
+Answer a natural language question about the codebase using the call graph. When an LLM API key is configured the answer is synthesised by the model; otherwise a heuristic fallback is used and a warning is printed to stderr.
+
+```
+graph-it query "<question>" [options]
+```
+
+**Arguments:**
+
+| Argument | Description |
+|----------|-------------|
+| `<question>` | Natural language question about the codebase (max 1024 characters) |
+
+**Options:**
+
+| Option | Default | Description |
+|--------|---------|-------------|
+| `--workspace, -w` | auto-detected | Project root |
+| `--depth <N>` | `2` | BFS depth for call graph traversal (1–5) |
+| `--token-budget <N>` | `4000` | Max tokens for the subgraph context (500–16000) |
+| `--format <fmt>` | `text` | Output format: `text`, `json`, `toon` |
+
+**LLM configuration (environment variables):**
+
+| Variable | Description |
+|----------|-------------|
+| `ANTHROPIC_API_KEY` | Use Anthropic (`claude-haiku-4-5`) |
+| `OPENAI_API_KEY` | Use OpenAI-compatible provider |
+| `OPENAI_BASE_URL` | Base URL for OpenAI-compatible endpoint |
+| `OPENAI_MODEL` | Model name for OpenAI-compatible provider |
+
+When neither key is set, the command falls back to a heuristic analysis and prints a notice to stderr.
+
+**Examples:**
+
+```bash
+graph-it query "how does Spider crawl files"
+graph-it query "how does Spider crawl files" --format text
+graph-it query "what calls CallGraphIndexer" --depth 3
+graph-it query "explain the MCP server architecture" --token-budget 8000
+graph-it query "what is the entry point for the CLI" --format json
+```
+
+> **Breaking change:** `CallGraphIndexer` SCHEMA_VERSION was bumped from 2 to 3 alongside this feature. The index is automatically rebuilt on first use after upgrading.
+
+---
+
 ### tool
 
-Invoke any of the 21 MCP analysis tools directly from the terminal — full MCP parity without a running server.
+Invoke any of the 22 MCP analysis tools directly from the terminal — full MCP parity without a running server.
 
 ```
 graph-it tool <name> [--<param>=<value>...] [options]
@@ -624,7 +673,7 @@ graph-it tool --args '<json>' <name>
 | Argument | Description |
 |----------|-------------|
 | `<name>` | MCP tool name (see `--list`) |
-| `--list` | Print all 21 available tools with one-line descriptions |
+| `--list` | Print all 22 available tools with one-line descriptions |
 
 **Options:**
 
@@ -666,6 +715,7 @@ Available MCP tools:
   generate_codemap               AI-friendly structural overview of a file (TOON)
   query_call_graph               BFS callers/callees via the SQLite call graph index
   scan_dead_code                 Workspace-wide scan for unused exported symbols
+  query_natural_language         Answer a natural language question about the codebase (LLM or heuristic)
 ```
 
 **Calling a tool with parameters:**
@@ -1103,6 +1153,35 @@ graph-it tool scan_dead_code --scopePath=/abs/path/to/src/utils/
 
 ---
 
+#### `query_natural_language`
+
+**What it returns:** A natural language answer to a question about the codebase, grounded in a call graph subgraph. When an LLM key is configured the model synthesises the answer; otherwise a heuristic summary is returned.
+
+**Parameters:**
+
+| Parameter | Type | Default | Description |
+|-----------|------|---------|-------------|
+| `question` | string | — | Natural language question (max 1024 characters) |
+| `depth` | number | `2` | BFS depth for call graph traversal (1–5) |
+| `tokenBudget` | number | `4000` | Max tokens for subgraph context (500–16000) |
+| `fileFilter` | string | — | Glob pattern to restrict which files are included |
+| `outputFormat` | string | `toon` | Subgraph format passed to the LLM: `toon` or `json` |
+
+```bash
+graph-it tool query_natural_language --question="how does Spider crawl files"
+graph-it tool query_natural_language --question="what calls CallGraphIndexer" --depth=3
+graph-it tool query_natural_language --question="explain the MCP server" --tokenBudget=8000
+```
+
+**LLM configuration:**
+- `ANTHROPIC_API_KEY` → uses `claude-haiku-4-5`
+- `OPENAI_API_KEY` + `OPENAI_BASE_URL` + `OPENAI_MODEL` → uses OpenAI-compatible provider
+- No key set → heuristic fallback (warning printed to stderr)
+
+> **Note:** The LLM calling this tool performs the synthesis — the tool returns a structured subgraph that the model interprets.
+
+---
+
 ## Advanced Analysis Workflows
 
 ### Pre-Refactor Safety Check
@@ -1233,12 +1312,12 @@ graph-it tool verify_dependency_usage \
 
 ## Tool Count: CLI vs MCP
 
-The CLI exposes **21 tools** via `graph-it tool --list`, while the MCP server provides **22 tools** in total. This is by design:
+The CLI exposes **22 tools** via `graph-it tool --list`, while the MCP server provides **23 tools** in total. This is by design:
 
 | Context | Tool count | Notes |
 |---------|-----------|-------|
-| `graph-it tool --list` | 21 | All analysis tools |
-| MCP server (`graph-it serve`) | 22 | Same 21 + `set_workspace` |
+| `graph-it tool --list` | 22 | All analysis tools |
+| MCP server (`graph-it serve`) | 23 | Same 22 + `set_workspace` |
 
 The extra tool, `set_workspace`, is a **server management tool** — it tells a running MCP server instance which directory to analyze. In CLI context this is handled by the `--workspace` flag (or auto-detection from `cwd`), so it is intentionally excluded from the CLI tool list.
 
