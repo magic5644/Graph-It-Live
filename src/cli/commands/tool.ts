@@ -30,7 +30,28 @@ import {
   executeTraceFunctionExecution,
   executeVerifyDependencyUsage,
 } from "../../mcp/tools";
-import type { McpToolName } from "../../mcp/types";
+import type {
+  AnalyzeBreakingChangesParams,
+  AnalyzeDependenciesParams,
+  AnalyzeFileLogicParams,
+  CrawlDependencyGraphParams,
+  ExpandNodeParams,
+  FindReferencingFilesParams,
+  FindUnusedSymbolsParams,
+  GenerateCodemapParams,
+  GetImpactAnalysisParams,
+  GetSymbolCallersParams,
+  GetSymbolDependentsParams,
+  GetSymbolGraphParams,
+  InvalidateFilesParams,
+  McpToolName,
+  ParseImportsParams,
+  QueryCallGraphParams,
+  ResolveModulePathParams,
+  ScanDeadCodeParams,
+  TraceFunctionExecutionParams,
+  VerifyDependencyUsageParams,
+} from "../../mcp/types";
 import { validateFilePath, validateToolParams } from "../../mcp/types";
 import { CliError, ExitCode } from "../errors";
 import type { CliOutputFormat } from "../formatter";
@@ -156,78 +177,112 @@ function parseToolArgs(args: string[]): Record<string, unknown> {
   return result;
 }
 
-/* eslint-disable @typescript-eslint/no-explicit-any */
-async function invokeTool(tool: McpToolName, params: any): Promise<unknown> {
-  const config = workerState.getConfig();
-  const rootDir = config.rootDir;
+type CliToolHandler = (params: unknown, rootDir: string) => Promise<unknown> | unknown;
 
-  // Helper for path validation on common fields
-  const vfp = (p: string) => validateFilePath(p, rootDir);
-
-  switch (tool) {
-    case "analyze_dependencies":
-      vfp(params.filePath);
-      return executeAnalyzeDependencies(params);
-    case "crawl_dependency_graph":
-      vfp(params.entryFile);
-      return executeCrawlDependencyGraph(params);
-    case "find_referencing_files":
-      vfp(params.targetPath);
-      return executeFindReferencingFiles(params);
-    case "expand_node":
-      vfp(params.filePath);
-      return executeExpandNode(params);
-    case "parse_imports":
-      vfp(params.filePath);
-      return executeParseImports(params);
-    case "verify_dependency_usage":
-      vfp(params.sourceFile);
-      vfp(params.targetFile);
-      return executeVerifyDependencyUsage(params);
-    case "resolve_module_path":
-      vfp(params.fromFile);
-      return executeResolveModulePath(params);
-    case "get_index_status":
-      return executeGetIndexStatus();
-    case "invalidate_files":
-      for (const fp of params.filePaths) vfp(fp);
-      return executeInvalidateFiles(params);
-    case "rebuild_index":
-      return executeRebuildIndex(() => {/* no-op progress for CLI */});
-    case "get_symbol_graph":
-      vfp(params.filePath);
-      return executeGetSymbolGraph(params);
-    case "find_unused_symbols":
-      vfp(params.filePath);
-      return executeFindUnusedSymbols(params);
-    case "get_symbol_dependents":
-      vfp(params.filePath);
-      return executeGetSymbolDependents(params);
-    case "trace_function_execution":
-      vfp(params.filePath);
-      return executeTraceFunctionExecution(params);
-    case "get_symbol_callers":
-      vfp(params.filePath);
-      return executeGetSymbolCallers(params);
-    case "analyze_breaking_changes":
-      vfp(params.filePath);
-      return executeAnalyzeBreakingChanges(params);
-    case "get_impact_analysis":
-      vfp(params.filePath);
-      return executeGetImpactAnalysis(params);
-    case "analyze_file_logic":
-      vfp(params.filePath);
-      return executeAnalyzeFileLogic(params);
-    case "generate_codemap":
-      vfp(params.filePath);
-      return executeGenerateCodemap(params);
-    case "query_call_graph":
-      vfp(params.filePath);
-      return executeQueryCallGraph(params);
-    case "scan_dead_code":
-      return executeScanDeadCode(params);
-    default:
-      throw new CliError(`Unknown tool: ${tool}`, ExitCode.GENERAL_ERROR);
-  }
+function validateCliPath(filePath: string, rootDir: string): void {
+  validateFilePath(filePath, rootDir);
 }
-/* eslint-enable @typescript-eslint/no-explicit-any */
+
+const cliToolHandlers: Partial<Record<McpToolName, CliToolHandler>> = {
+  analyze_dependencies: (params, rootDir) => {
+    const p = params as AnalyzeDependenciesParams;
+    validateCliPath(p.filePath, rootDir);
+    return executeAnalyzeDependencies(p);
+  },
+  crawl_dependency_graph: (params, rootDir) => {
+    const p = params as CrawlDependencyGraphParams;
+    validateCliPath(p.entryFile, rootDir);
+    return executeCrawlDependencyGraph(p);
+  },
+  find_referencing_files: (params, rootDir) => {
+    const p = params as FindReferencingFilesParams;
+    validateCliPath(p.targetPath, rootDir);
+    return executeFindReferencingFiles(p);
+  },
+  expand_node: (params, rootDir) => {
+    const p = params as ExpandNodeParams;
+    validateCliPath(p.filePath, rootDir);
+    return executeExpandNode(p);
+  },
+  parse_imports: (params, rootDir) => {
+    const p = params as ParseImportsParams;
+    validateCliPath(p.filePath, rootDir);
+    return executeParseImports(p);
+  },
+  verify_dependency_usage: (params, rootDir) => {
+    const p = params as VerifyDependencyUsageParams;
+    validateCliPath(p.sourceFile, rootDir);
+    validateCliPath(p.targetFile, rootDir);
+    return executeVerifyDependencyUsage(p);
+  },
+  resolve_module_path: (params, rootDir) => {
+    const p = params as ResolveModulePathParams;
+    validateCliPath(p.fromFile, rootDir);
+    return executeResolveModulePath(p);
+  },
+  get_index_status: () => executeGetIndexStatus(),
+  invalidate_files: (params, rootDir) => {
+    const p = params as InvalidateFilesParams;
+    for (const filePath of p.filePaths) validateCliPath(filePath, rootDir);
+    return executeInvalidateFiles(p);
+  },
+  rebuild_index: () => executeRebuildIndex(() => {/* no-op progress for CLI */}),
+  get_symbol_graph: (params, rootDir) => {
+    const p = params as GetSymbolGraphParams;
+    validateCliPath(p.filePath, rootDir);
+    return executeGetSymbolGraph(p);
+  },
+  find_unused_symbols: (params, rootDir) => {
+    const p = params as FindUnusedSymbolsParams;
+    validateCliPath(p.filePath, rootDir);
+    return executeFindUnusedSymbols(p);
+  },
+  get_symbol_dependents: (params, rootDir) => {
+    const p = params as GetSymbolDependentsParams;
+    validateCliPath(p.filePath, rootDir);
+    return executeGetSymbolDependents(p);
+  },
+  trace_function_execution: (params, rootDir) => {
+    const p = params as TraceFunctionExecutionParams;
+    validateCliPath(p.filePath, rootDir);
+    return executeTraceFunctionExecution(p);
+  },
+  get_symbol_callers: (params, rootDir) => {
+    const p = params as GetSymbolCallersParams;
+    validateCliPath(p.filePath, rootDir);
+    return executeGetSymbolCallers(p);
+  },
+  analyze_breaking_changes: (params, rootDir) => {
+    const p = params as AnalyzeBreakingChangesParams;
+    validateCliPath(p.filePath, rootDir);
+    return executeAnalyzeBreakingChanges(p);
+  },
+  get_impact_analysis: (params, rootDir) => {
+    const p = params as GetImpactAnalysisParams;
+    validateCliPath(p.filePath, rootDir);
+    return executeGetImpactAnalysis(p);
+  },
+  analyze_file_logic: (params, rootDir) => {
+    const p = params as AnalyzeFileLogicParams;
+    validateCliPath(p.filePath, rootDir);
+    return executeAnalyzeFileLogic(p);
+  },
+  generate_codemap: (params, rootDir) => {
+    const p = params as GenerateCodemapParams;
+    validateCliPath(p.filePath, rootDir);
+    return executeGenerateCodemap(p);
+  },
+  query_call_graph: (params, rootDir) => {
+    const p = params as QueryCallGraphParams;
+    validateCliPath(p.filePath, rootDir);
+    return executeQueryCallGraph(p);
+  },
+  scan_dead_code: (params) => executeScanDeadCode(params as ScanDeadCodeParams),
+};
+
+async function invokeTool(tool: McpToolName, params: unknown): Promise<unknown> {
+  const config = workerState.getConfig();
+  const handler = cliToolHandlers[tool];
+  if (!handler) throw new CliError(`Unknown tool: ${tool}`, ExitCode.GENERAL_ERROR);
+  return handler(params, config.rootDir);
+}

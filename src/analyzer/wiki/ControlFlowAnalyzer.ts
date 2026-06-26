@@ -48,54 +48,62 @@ function collectExportedFunctions(sf: ts.SourceFile): FunctionInfo[] {
   const result: FunctionInfo[] = [];
 
   function visit(node: ts.Node) {
-    // export function foo() {}
-    if (ts.isFunctionDeclaration(node) && node.body && hasExportModifier(node)) {
-      const name = node.name?.text ?? "(anonymous)";
-      result.push({ name, body: node.body, complexity: countComplexity(node.body) });
-    }
-
-    // export class Foo { method() {} }
-    if (ts.isClassDeclaration(node) && hasExportModifier(node)) {
-      const className = node.name?.text ?? "Class";
-      for (const member of node.members) {
-        if (ts.isMethodDeclaration(member) && member.body) {
-          const methodName = `${className}.${member.name.getText(sf)}`;
-          result.push({
-            name: methodName,
-            body: member.body,
-            complexity: countComplexity(member.body),
-          });
-        }
-      }
-    }
-
-    // export const foo = () => {} or export const foo = function() {}
-    if (ts.isVariableStatement(node) && hasExportModifier(node)) {
-      for (const decl of node.declarationList.declarations) {
-        const name = ts.isIdentifier(decl.name) ? decl.name.text : "(var)";
-        if (decl.initializer) {
-          if (ts.isArrowFunction(decl.initializer) && ts.isBlock(decl.initializer.body)) {
-            result.push({
-              name,
-              body: decl.initializer.body,
-              complexity: countComplexity(decl.initializer.body),
-            });
-          } else if (ts.isFunctionExpression(decl.initializer) && decl.initializer.body) {
-            result.push({
-              name,
-              body: decl.initializer.body,
-              complexity: countComplexity(decl.initializer.body),
-            });
-          }
-        }
-      }
-    }
+    collectExportedFunctionDeclaration(node, result);
+    collectExportedClassMethods(sf, node, result);
+    collectExportedVariableFunctions(node, result);
 
     ts.forEachChild(node, visit);
   }
 
   visit(sf);
   return result;
+}
+
+function collectExportedFunctionDeclaration(node: ts.Node, result: FunctionInfo[]): void {
+  if (!ts.isFunctionDeclaration(node) || !node.body || !hasExportModifier(node)) return;
+
+  const name = node.name?.text ?? "(anonymous)";
+  result.push({ name, body: node.body, complexity: countComplexity(node.body) });
+}
+
+function collectExportedClassMethods(
+  sf: ts.SourceFile,
+  node: ts.Node,
+  result: FunctionInfo[],
+): void {
+  if (!ts.isClassDeclaration(node) || !hasExportModifier(node)) return;
+
+  const className = node.name?.text ?? "Class";
+  for (const member of node.members) {
+    if (!ts.isMethodDeclaration(member) || !member.body) continue;
+
+    const name = `${className}.${member.name.getText(sf)}`;
+    result.push({ name, body: member.body, complexity: countComplexity(member.body) });
+  }
+}
+
+function collectExportedVariableFunctions(node: ts.Node, result: FunctionInfo[]): void {
+  if (!ts.isVariableStatement(node) || !hasExportModifier(node)) return;
+
+  for (const decl of node.declarationList.declarations) {
+    collectVariableFunction(decl, result);
+  }
+}
+
+function collectVariableFunction(decl: ts.VariableDeclaration, result: FunctionInfo[]): void {
+  const body = getVariableFunctionBody(decl);
+  if (!body) return;
+
+  const name = ts.isIdentifier(decl.name) ? decl.name.text : "(var)";
+  result.push({ name, body, complexity: countComplexity(body) });
+}
+
+function getVariableFunctionBody(decl: ts.VariableDeclaration): ts.Block | undefined {
+  const initializer = decl.initializer;
+  if (!initializer) return undefined;
+  if (ts.isFunctionExpression(initializer)) return initializer.body;
+  if (ts.isArrowFunction(initializer) && ts.isBlock(initializer.body)) return initializer.body;
+  return undefined;
 }
 
 function hasExportModifier(node: ts.Node): boolean {
@@ -107,6 +115,16 @@ function hasExportModifier(node: ts.Node): boolean {
   );
 }
 
+function isLoopStatement(stmt: ts.Statement): boolean {
+  return (
+    ts.isForStatement(stmt) ||
+    ts.isWhileStatement(stmt) ||
+    ts.isForInStatement(stmt) ||
+    ts.isForOfStatement(stmt) ||
+    ts.isDoStatement(stmt)
+  );
+}
+
 // ---------------------------------------------------------------------------
 // Mermaid generation
 // ---------------------------------------------------------------------------
@@ -114,9 +132,9 @@ function hasExportModifier(node: ts.Node): boolean {
 function sanitize(text: string): string {
   return text
     .replace(/['\n\r`"]/g, "")       // remove quotes, backticks, newlines
-    .replace(/\|/g, " or ")          // | breaks Mermaid diamond syntax
-    .replace(/&&/g, " and ")         // && before & to avoid double-replace
-    .replace(/&/g, " and ")          // remaining &
+    .replaceAll('|', " or ")          // | breaks Mermaid diamond syntax
+    .replaceAll('&&', " and ")         // && before & to avoid double-replace
+    .replaceAll('&', " and ")          // remaining &
     .replace(/[{}[\]()<>]/g, "")     // remove all brackets
     .replace(/[#;@!%^*=\\]/g, "")    // remove other special chars
     .replace(/\s+/g, " ")            // normalize whitespace
@@ -142,164 +160,6 @@ function buildControlFlowMermaid(
     lines.push(label ? `  ${from} -- ${label} --> ${to}` : `  ${from} --> ${to}`);
   }
 
-  // Returns the "exit" node id to chain next statement onto
-  function processStatement(stmt: ts.Statement, prevId: string): string {
-    if (counter >= MAX_NODES_PER_DIAGRAM) {
-      truncated = true;
-      return prevId;
-    }
-
-    if (ts.isReturnStatement(stmt)) {
-      const retId = newId();
-      const label = stmt.expression
-        ? sanitize(stmt.expression.getText(sf)).substring(0, 20)
-        : "void";
-      lines.push(`  ${retId}([return: ${label}])`);
-      connect(prevId, retId);
-      return retId;
-    }
-
-    if (ts.isThrowStatement(stmt)) {
-      const throwId = newId();
-      lines.push(`  ${throwId}[/throw/]`);
-      connect(prevId, throwId);
-      return throwId;
-    }
-
-    if (ts.isIfStatement(stmt)) {
-      const condId = newId();
-      const condText = sanitize(stmt.expression.getText(sf));
-      lines.push(`  ${condId}{${condText}?}`);
-      connect(prevId, condId);
-
-      // YES branch
-      const thenId = newId();
-      lines.push(`  ${thenId}[then]`);
-      connect(condId, thenId, "yes");
-      const thenExit = ts.isBlock(stmt.thenStatement)
-        ? processBlock(stmt.thenStatement, thenId)
-        : thenId;
-
-      // NO branch
-      let noExit = condId;
-      if (stmt.elseStatement && !truncated) {
-        const elseId = newId();
-        lines.push(`  ${elseId}[else]`);
-        connect(condId, elseId, "no");
-        noExit = ts.isBlock(stmt.elseStatement)
-          ? processBlock(stmt.elseStatement, elseId)
-          : elseId;
-      }
-
-      // Merge node
-      if (!truncated) {
-        const mergeId = newId();
-        lines.push(`  ${mergeId}[ ]`);
-        connect(thenExit, mergeId);
-        if (noExit !== condId) connect(noExit, mergeId);
-        else connect(condId, mergeId, "no");
-        return mergeId;
-      }
-      return thenExit;
-    }
-
-    if (ts.isSwitchStatement(stmt)) {
-      const switchId = newId();
-      const switchText = sanitize(stmt.expression.getText(sf));
-      lines.push(`  ${switchId}{switch: ${switchText}}`);
-      connect(prevId, switchId);
-
-      const exits: string[] = [];
-      const maxCases = Math.min(stmt.caseBlock.clauses.length, 4);
-      for (let i = 0; i < maxCases && !truncated; i++) {
-        const clause = stmt.caseBlock.clauses[i];
-        const caseId = newId();
-        const caseLabel =
-          ts.isCaseClause(clause)
-            ? sanitize(clause.expression.getText(sf))
-            : "default";
-        lines.push(`  ${caseId}[${caseLabel}]`);
-        connect(switchId, caseId, caseLabel);
-        exits.push(caseId);
-      }
-
-      if (stmt.caseBlock.clauses.length > maxCases && !truncated) {
-        const moreId = newId();
-        lines.push(`  ${moreId}[...${stmt.caseBlock.clauses.length - maxCases} more]`);
-        connect(switchId, moreId);
-        exits.push(moreId);
-      }
-
-      if (!truncated && exits.length > 0) {
-        const mergeId = newId();
-        lines.push(`  ${mergeId}[ ]`);
-        for (const e of exits) connect(e, mergeId);
-        return mergeId;
-      }
-      return switchId;
-    }
-
-    if (
-      ts.isForStatement(stmt) ||
-      ts.isWhileStatement(stmt) ||
-      ts.isForInStatement(stmt) ||
-      ts.isForOfStatement(stmt) ||
-      ts.isDoStatement(stmt)
-    ) {
-      const loopId = newId();
-      let loopLabel = "loop";
-      if (ts.isForOfStatement(stmt)) {
-        loopLabel = `forEach ${sanitize(stmt.expression.getText(sf))}`;
-      } else if (ts.isForInStatement(stmt)) {
-        loopLabel = `for...in ${sanitize(stmt.expression.getText(sf))}`;
-      } else if (ts.isWhileStatement(stmt)) {
-        loopLabel = `while ${sanitize(stmt.expression.getText(sf))}`;
-      } else if (ts.isDoStatement(stmt)) {
-        loopLabel = `do...while`;
-      }
-      lines.push(`  ${loopId}["${loopLabel}"]`);
-      connect(prevId, loopId);
-      return loopId;
-    }
-
-    if (ts.isTryStatement(stmt)) {
-      const tryId = newId();
-      lines.push(`  ${tryId}[try block]`);
-      connect(prevId, tryId);
-
-      if (stmt.catchClause && !truncated) {
-        const catchId = newId();
-        const catchLabel = stmt.catchClause.variableDeclaration
-          ? `catch ${sanitize(stmt.catchClause.variableDeclaration.name.getText(sf))}`
-          : "catch";
-        lines.push(`  ${catchId}[${catchLabel}]`);
-        connect(tryId, catchId, "error");
-      }
-
-      if (stmt.finallyBlock && !truncated) {
-        const finallyId = newId();
-        lines.push(`  ${finallyId}[finally]`);
-        connect(tryId, finallyId);
-        return finallyId;
-      }
-      return tryId;
-    }
-
-    // Generic expression statement — show if it's an await call (usually important)
-    if (ts.isExpressionStatement(stmt)) {
-      const expr = stmt.expression;
-      if (ts.isAwaitExpression(expr) || ts.isCallExpression(expr)) {
-        const exprId = newId();
-        const text = sanitize(stmt.expression.getText(sf));
-        lines.push(`  ${exprId}[${text}]`);
-        connect(prevId, exprId);
-        return exprId;
-      }
-    }
-
-    return prevId;
-  }
-
   function processBlock(block: ts.Block, prevId: string): string {
     let cur = prevId;
     for (const stmt of block.statements) {
@@ -309,12 +169,168 @@ function buildControlFlowMermaid(
     return cur;
   }
 
+  function processReturn(stmt: ts.ReturnStatement, prevId: string): string {
+    const retId = newId();
+    const label = stmt.expression
+      ? sanitize(stmt.expression.getText(sf)).substring(0, 20)
+      : "void";
+    lines.push(`  ${retId}([return: ${label}])`);
+    connect(prevId, retId);
+    return retId;
+  }
+
+  function processThrow(prevId: string): string {
+    const throwId = newId();
+    lines.push(`  ${throwId}[/throw/]`);
+    connect(prevId, throwId);
+    return throwId;
+  }
+
+  function processIf(stmt: ts.IfStatement, prevId: string): string {
+    const condId = newId();
+    const condText = sanitize(stmt.expression.getText(sf));
+    lines.push(`  ${condId}{${condText}?}`);
+    connect(prevId, condId);
+
+    const thenId = newId();
+    lines.push(`  ${thenId}[then]`);
+    connect(condId, thenId, "yes");
+    const thenExit = ts.isBlock(stmt.thenStatement)
+      ? processBlock(stmt.thenStatement, thenId)
+      : thenId;
+
+    let noExit = condId;
+    if (stmt.elseStatement && !truncated) {
+      const elseId = newId();
+      lines.push(`  ${elseId}[else]`);
+      connect(condId, elseId, "no");
+      noExit = ts.isBlock(stmt.elseStatement)
+        ? processBlock(stmt.elseStatement, elseId)
+        : elseId;
+    }
+
+    return connectIfMerge(condId, thenExit, noExit);
+  }
+
+  function connectIfMerge(condId: string, thenExit: string, noExit: string): string {
+    if (truncated) return thenExit;
+
+    const mergeId = newId();
+    lines.push(`  ${mergeId}[ ]`);
+    connect(thenExit, mergeId);
+    if (noExit === condId) {connect(condId, mergeId, "no");}
+    else {connect(noExit, mergeId);}
+    return mergeId;
+  }
+
+  function processSwitch(stmt: ts.SwitchStatement, prevId: string): string {
+    const switchId = newId();
+    const switchText = sanitize(stmt.expression.getText(sf));
+    lines.push(`  ${switchId}{switch: ${switchText}}`);
+    connect(prevId, switchId);
+
+    const exits = addSwitchCases(stmt, switchId);
+    if (truncated || exits.length === 0) return switchId;
+
+    const mergeId = newId();
+    lines.push(`  ${mergeId}[ ]`);
+    for (const exitId of exits) connect(exitId, mergeId);
+    return mergeId;
+  }
+
+  function addSwitchCases(stmt: ts.SwitchStatement, switchId: string): string[] {
+    const exits: string[] = [];
+    const maxCases = Math.min(stmt.caseBlock.clauses.length, 4);
+    for (let i = 0; i < maxCases && !truncated; i++) {
+      const clause = stmt.caseBlock.clauses[i];
+      const caseId = newId();
+      const caseLabel = ts.isCaseClause(clause)
+        ? sanitize(clause.expression.getText(sf))
+        : "default";
+      lines.push(`  ${caseId}[${caseLabel}]`);
+      connect(switchId, caseId, caseLabel);
+      exits.push(caseId);
+    }
+
+    if (stmt.caseBlock.clauses.length > maxCases && !truncated) {
+      const moreId = newId();
+      lines.push(`  ${moreId}[...${stmt.caseBlock.clauses.length - maxCases} more]`);
+      connect(switchId, moreId);
+      exits.push(moreId);
+    }
+    return exits;
+  }
+
+  function processLoop(stmt: ts.Statement, prevId: string): string {
+    const loopId = newId();
+    lines.push(`  ${loopId}["${getLoopLabel(stmt)}"]`);
+    connect(prevId, loopId);
+    return loopId;
+  }
+
+  function getLoopLabel(stmt: ts.Statement): string {
+    if (ts.isForOfStatement(stmt)) return `forEach ${sanitize(stmt.expression.getText(sf))}`;
+    if (ts.isForInStatement(stmt)) return `for...in ${sanitize(stmt.expression.getText(sf))}`;
+    if (ts.isWhileStatement(stmt)) return `while ${sanitize(stmt.expression.getText(sf))}`;
+    if (ts.isDoStatement(stmt)) return "do...while";
+    return "loop";
+  }
+
+  function processTry(stmt: ts.TryStatement, prevId: string): string {
+    const tryId = newId();
+    lines.push(`  ${tryId}[try block]`);
+    connect(prevId, tryId);
+
+    if (stmt.catchClause && !truncated) {
+      const catchId = newId();
+      const catchLabel = stmt.catchClause.variableDeclaration
+        ? `catch ${sanitize(stmt.catchClause.variableDeclaration.name.getText(sf))}`
+        : "catch";
+      lines.push(`  ${catchId}[${catchLabel}]`);
+      connect(tryId, catchId, "error");
+    }
+
+    if (!stmt.finallyBlock || truncated) return tryId;
+
+    const finallyId = newId();
+    lines.push(`  ${finallyId}[finally]`);
+    connect(tryId, finallyId);
+    return finallyId;
+  }
+
+  function processExpression(stmt: ts.ExpressionStatement, prevId: string): string {
+    const expr = stmt.expression;
+    if (!ts.isAwaitExpression(expr) && !ts.isCallExpression(expr)) return prevId;
+
+    const exprId = newId();
+    const text = sanitize(stmt.expression.getText(sf));
+    lines.push(`  ${exprId}[${text}]`);
+    connect(prevId, exprId);
+    return exprId;
+  }
+
+  // Returns the "exit" node id to chain next statement onto
+  function processStatement(stmt: ts.Statement, prevId: string): string {
+    if (counter >= MAX_NODES_PER_DIAGRAM) {
+      truncated = true;
+      return prevId;
+    }
+
+    if (ts.isReturnStatement(stmt)) return processReturn(stmt, prevId);
+    if (ts.isThrowStatement(stmt)) return processThrow(prevId);
+    if (ts.isIfStatement(stmt)) return processIf(stmt, prevId);
+    if (ts.isSwitchStatement(stmt)) return processSwitch(stmt, prevId);
+    if (isLoopStatement(stmt)) return processLoop(stmt, prevId);
+    if (ts.isTryStatement(stmt)) return processTry(stmt, prevId);
+    if (ts.isExpressionStatement(stmt)) return processExpression(stmt, prevId);
+    return prevId;
+  }
+
   prev = processBlock(fn.body, prev);
 
   // End node (only if we didn't end on a return/throw)
   const endId = newId();
-  lines.push(`  ${endId}([end])`);
-  lines.push(`  ${prev} --> ${endId}`);
+  lines.push(`  ${endId}([end])`, `  ${prev} --> ${endId}`);
 
   return {
     mermaid: lines.join("\n"),
@@ -346,7 +362,7 @@ export function analyzeControlFlow(filePath: string): MermaidDiagram[] {
   const totalComplex = candidates.length;
 
   return top.map((fn, idx) => {
-    const { mermaid, nodeCount, truncated } = buildControlFlowMermaid(sf, fn);
+    const { mermaid, truncated } = buildControlFlowMermaid(sf, fn);
 
     const notes: string[] = [];
     if (truncated) notes.push(`Diagram truncated at ${MAX_NODES_PER_DIAGRAM} nodes — function too complex to render fully.`);
