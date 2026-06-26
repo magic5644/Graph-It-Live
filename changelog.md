@@ -1,5 +1,26 @@
 # Changelog
 je confirme par contre je vzais 
+## [Unreleased] — graph-it query
+
+### Added
+
+- **QueryEngine** (`analyzer/`): BFS multi-seeds over the call graph SQLite index, FTS5 full-text search, TOON output support. Heuristic fallback when no LLM key is configured.
+- **LLM client layer**: `AnthropicLlmClient` (ANTHROPIC_API_KEY → `claude-haiku-4-5`) and `OpenAiCompatibleLlmClient` (OPENAI_API_KEY + OPENAI_BASE_URL + OPENAI_MODEL). Automatic selection at runtime; stderr warning when falling back to heuristic mode.
+- **MCP tool `query_natural_language`** (`mcp/`): Zod-validated tool exposing natural language queries over the call graph. Returns a TOON subgraph. Available as `#graphQuery` in Copilot Agent mode.
+- **CLI command `graph-it query "<question>"`** (`cli/`): Top-level command with `--depth` and `--format` flags. Supports `json`, `toon`, and `text` output formats.
+- **REPL `/query` slash command**: Natural language query available interactively inside the `graph-it repl` session.
+
+### Fixed
+
+- **`--format` flag ignored on `query` command**: Top-level CLI argument parser was consuming `--format` before the `query` sub-command handler could read it. Flag now correctly forwarded.
+- **`/query` absent from REPL help display**: `SLASH_COMMANDS` visual table did not include `/query`; entry added.
+- **`parseQuestion` returning only first word**: Function was splitting on whitespace and returning `tokens[0]`; now joins all positional arguments as the full question string.
+
+### Notes
+
+- S-4 (VS Code inline query panel) is out of scope for this branch — tracked separately.
+- No breaking changes. Existing MCP tools, CLI commands, and extension behaviour are unchanged.
+
 ## v1.9.8
 
 ### Bug Fixes
