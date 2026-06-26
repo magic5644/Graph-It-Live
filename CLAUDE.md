@@ -50,7 +50,7 @@ VS Code extension + standalone CLI + MCP server for AI-friendly dependency visua
 
 2. **`extension/`** — VS Code host. GraphProvider orchestrates 8+ services in `extension/services/`: BackgroundIndexingManager, CallGraphViewService, CommandRegistrationService, EditorEventsService, GraphViewService, SymbolViewService, WebviewMessageRouter, etc.
 
-3. **`mcp/`** — MCP server (stdio transport). **NO vscode imports**. 22 tools for LLM clients (Copilot, Claude, Cursor). Standalone Node.js process.
+3. **`mcp/`** — MCP server (stdio transport). **NO vscode imports**. 23 tools for LLM clients (Copilot, Claude, Cursor). Standalone Node.js process.
 
 4. **`webview/`** — React 19 browser context. ReactFlow for file/symbol graphs (`webview/components/reactflow/`), Cytoscape.js for live call graph (`webview/components/cytoscape/`). Entry points: `webview/index.tsx` → `dist/webview.js` and `webview/callgraph/index.tsx` → `dist/callgraph.js`.
 
@@ -84,6 +84,13 @@ For broad tasks spanning multiple folders, bootstrap with:
 graph-it architecture --format toon
 ```
 Returns a TOON-format token-optimized snapshot (`nodes`, `edges`, `nodeCount`, `edgeCount`). Then use targeted MCP tools (`generate_codemap`, `query_call_graph`, `analyze_file_logic`) on specific files/symbols.
+
+For natural language questions about the codebase:
+```bash
+graph-it query "how does Spider crawl files" --format text
+graph-it query "what calls CallGraphIndexer" --depth 3
+```
+Requires `ANTHROPIC_API_KEY` (uses `claude-haiku-4-5`) or `OPENAI_API_KEY` + `OPENAI_BASE_URL` + `OPENAI_MODEL`. Falls back to heuristic analysis when no key is set (stderr warning).
 
 ## Key Docs
 
