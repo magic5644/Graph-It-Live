@@ -65,25 +65,29 @@ function parseQueryFormatFromArgs(args: string[]): "toon" | "json" | "text" | un
 const FLAG_WITH_VALUE = new Set(["--depth", "--token-budget", "--format"]);
 
 /**
- * Extract the question: first positional non-flag argument.
+ * Extract the question: all positional non-flag arguments joined as a sentence.
+ * Supports both quoted single-arg form ("how does X work") and unquoted multi-word
+ * form (how does X work) so REPL users don't need quotes.
  * Skips values that belong to known flags (e.g. --depth 3 → skip "3").
  */
 function parseQuestion(args: string[]): string | undefined {
+  const parts: string[] = [];
   let i = 0;
   while (i < args.length) {
     const arg = args[i];
     if (arg.startsWith("-")) {
-      // Skip this flag and its value if it consumes one
       if (FLAG_WITH_VALUE.has(arg)) {
         i += 2;
       } else {
         i += 1;
       }
     } else {
-      return arg;
+      parts.push(arg);
+      i += 1;
     }
   }
-  return undefined;
+  const joined = parts.join(" ").trim();
+  return joined.length > 0 ? joined : undefined;
 }
 
 // ---------------------------------------------------------------------------
