@@ -441,6 +441,8 @@ This output can be pasted directly into any Markdown renderer (GitHub, Notion, V
 
 **Use as MCP server (no VS Code):** Run `graph-it serve` and point your AI client at it — see [Manual MCP Server Configuration](#manual-mcp-server-configuration).
 
+**Interactive REPL:** Run `graph-it` with no arguments to enter interactive mode. Type `/query how does X work` to ask natural language questions about your codebase (no quotes needed). Other slash commands: `/trace`, `/summary`, `/architecture`, `/check`, `/cycles`, `/format`, `/help`.
+
 **Full CLI reference:** See **[docs/CLI.md](docs/CLI.md)** for complete documentation on every command, all options, output format examples, advanced workflows, and the full MCP tools reference.
 
 ---
