@@ -1,5 +1,18 @@
 # Changelog
-je confirme par contre je vzais 
+
+## [Unreleased] — graph-it wiki
+
+### Added
+
+- **`graph-it wiki` CLI command**: Generates a navigable Markdown wiki from the call graph. Flags: `--scope <dir>`, `--exclude <pattern>` (repeatable), `--output <dir>` (default `wiki/`), `--top <N>`, `--format markdown|json|toon`.
+- **`/wiki` REPL slash command**: Interactive wiki generation inside `graph-it repl`.
+- **MCP tool `graphitlive_generate_wiki`**: Zod-validated tool for LLM clients (Copilot, Claude, Cursor). Returns relative paths and scopeNote.
+- **WikiGenerator** (`analyzer/wiki/`): Reads call graph SQLite index, applies scope/exclude filters, builds per-file articles with hub scores and Mermaid diagrams.
+- **DiagramBuilder**: Four diagram types — *External calls* (up to 50 nodes, deduplicated), *Called by* (all files), *Architecture overview* (index, top hubs), *Control flow* per function. All self-loop-free.
+- **ControlFlowAnalyzer**: TypeScript AST analysis via `ts.createSourceFile` — `flowchart TD` for every exported function with complexity ≥ 2. Covers if/else, switch/case, try/catch, loops.
+- **Scope filtering**: Auto-excludes `tests/`, `dist/`, `*.test.ts` etc. by default. Scope note rendered inline in index as `> ℹ️` blockquote.
+- **Restriction transparency**: Truncation limits documented as `> ⚠️` blockquotes directly in generated articles.
+
 ## [Unreleased] — graph-it query
 
 ### Added
