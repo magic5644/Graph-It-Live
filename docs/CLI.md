@@ -168,6 +168,7 @@ graph-it [options]
 
 | Command | Description |
 |--------|-------------|
+| `/query` | Query the codebase with natural language (no quotes needed for multi-word questions) |
 | `/trace` | Run trace flow for a selected file and optional symbol |
 | `/path` | Set session workspace scope (directory) |
 | `/file` | Set active file context for context-aware commands |
