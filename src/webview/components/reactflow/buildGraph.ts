@@ -337,6 +337,21 @@ function createVisibleEdges(
     });
 }
 
+/**
+ * Compute hub scores (0-100) for visible nodes based on parent import counts.
+ * The node with the most imports gets score 100; others are proportional.
+ */
+export function computeHubScores(
+  visibleNodes: string[],
+  parentCounts: Record<string, number>,
+): Record<string, number> {
+  const counts = visibleNodes.map((p) => Math.max(0, parentCounts[p] ?? 0));
+  const max = Math.max(...counts, 1);
+  return Object.fromEntries(
+    visibleNodes.map((p, i) => [p, Math.round((counts[i] / max) * 100)]),
+  );
+}
+
 export function buildReactFlowGraph(params: {
   data: GraphData | undefined;
   currentFilePath: string;
@@ -426,6 +441,11 @@ export function buildReactFlowGraph(params: {
   );
 
   nodesTruncated = nodesTruncated || bfsTruncated;
+
+  const hubScores = computeHubScores(
+    Array.from(visibleNodes),
+    data.parentCounts ?? {},
+  );
 
   const createNodeData = (
     path: string,
@@ -531,6 +551,7 @@ export function buildReactFlowGraph(params: {
       onExpandRequest: () => callbacks.onExpandRequest(path),
       selectedNodeId,
       nodeId: path,
+      hubScore: hubScores[path],
     } as FileNodeData;
   };
 

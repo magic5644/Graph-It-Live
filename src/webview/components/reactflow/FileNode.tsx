@@ -15,6 +15,7 @@ export interface FileNodeData {
   hasReferencingFiles: boolean;
   parentCount?: number;
   isParentsVisible: boolean;
+  hubScore?: number; // 0-100, undefined en mode symbol
   onNodeClick: () => void;
   onDrillDown: () => void;
   onFindReferences: () => void;
@@ -44,6 +45,14 @@ function isExternalPackage(path: string): boolean {
   }
 
   return true;
+}
+
+export function getHubBorderWidth(score: number | undefined): number {
+  if (score === undefined) return 2;
+  if (score >= 80) return 5;
+  if (score >= 50) return 4;
+  if (score >= 20) return 3;
+  return 2;
 }
 
 function getFileBorderColor(label: string, fullPath: string): string {
@@ -113,13 +122,14 @@ export const FileNode = React.memo<NodeProps<FileNodeData>>(function FileNode({ 
           color: data.isRoot ? '#000' : 'var(--vscode-editor-foreground)',
           border: (() => {
             if (isSelected) return '4px solid #0078d4';
-            if (isExternal) return `2px dashed ${borderColor}`;
-            return `2px solid ${borderColor}`;
+            const width = getHubBorderWidth(data.hubScore);
+            const style = isExternal ? 'dashed' : 'solid';
+            return `${width}px ${style} ${borderColor}`;
           })(),
           borderRadius: 4,
           padding: '0 12px',
-          fontSize: 12,
-          fontWeight: data.isRoot ? 'bold' : 'normal',
+          fontSize: (!data.isRoot && (data.hubScore ?? 0) >= 80) ? 13 : 12,
+          fontWeight: data.isRoot ? 'bold' : (data.hubScore ?? 0) >= 50 ? 'bold' : 'normal',
           fontStyle: isExternal ? 'italic' : 'normal',
           fontFamily: 'var(--vscode-font-family)',
           pointerEvents: 'none',
@@ -295,6 +305,7 @@ export const FileNode = React.memo<NodeProps<FileNodeData>>(function FileNode({ 
     pd.hasReferencingFiles === nd.hasReferencingFiles &&
     pd.parentCount === nd.parentCount &&
     pd.isParentsVisible === nd.isParentsVisible &&
+    pd.hubScore === nd.hubScore &&
     pd.selectedNodeId === nd.selectedNodeId &&
     pd.nodeId === nd.nodeId
   );
