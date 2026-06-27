@@ -1,8 +1,8 @@
 # Changelog
 
-## [Unreleased] — graph-it wiki
+## v1.10.0
 
-### Added
+### Added — graph-it wiki
 
 - **`graph-it wiki` CLI command**: Generates a navigable Markdown wiki from the call graph. Flags: `--scope <dir>`, `--exclude <pattern>` (repeatable), `--output <dir>` (default `wiki/`), `--top <N>`, `--format markdown|json|toon`.
 - **`/wiki` REPL slash command**: Interactive wiki generation inside `graph-it repl`.
@@ -13,9 +13,7 @@
 - **Scope filtering**: Auto-excludes `tests/`, `dist/`, `*.test.ts` etc. by default. Scope note rendered inline in index as `> ℹ️` blockquote.
 - **Restriction transparency**: Truncation limits documented as `> ⚠️` blockquotes directly in generated articles.
 
-## [Unreleased] — graph-it query
-
-### Added
+### Added — graph-it query
 
 - **QueryEngine** (`analyzer/`): BFS multi-seeds over the call graph SQLite index, FTS5 full-text search, TOON output support. Heuristic fallback when no LLM key is configured.
 - **LLM client layer**: `AnthropicLlmClient` (ANTHROPIC_API_KEY → `claude-haiku-4-5`) and `OpenAiCompatibleLlmClient` (OPENAI_API_KEY + OPENAI_BASE_URL + OPENAI_MODEL). Automatic selection at runtime; stderr warning when falling back to heuristic mode.
@@ -28,11 +26,6 @@
 - **`--format` flag ignored on `query` command**: Top-level CLI argument parser was consuming `--format` before the `query` sub-command handler could read it. Flag now correctly forwarded.
 - **`/query` absent from REPL help display**: `SLASH_COMMANDS` visual table did not include `/query`; entry added.
 - **`parseQuestion` returning only first word**: Function was splitting on whitespace and returning `tokens[0]`; now joins all positional arguments as the full question string.
-
-### Notes
-
-- S-4 (VS Code inline query panel) is out of scope for this branch — tracked separately.
-- No breaking changes. Existing MCP tools, CLI commands, and extension behaviour are unchanged.
 
 ## v1.9.8
 

@@ -18,6 +18,12 @@
 [![License](https://img.shields.io/github/license/magic5644/Graph-It-Live)](https://github.com/magic5644/Graph-It-Live/blob/main/LICENSE)
 [![Github stars](https://img.shields.io/github/stars/magic5644/graph-it-live?style=flat&color=gold&logo=github)](https://github.com/magic5644/Graph-It-Live)
 
+<p align="center">
+  <a href="https://star-history.com/#magic5644/graph-it-live&Date">
+    <img src="https://api.star-history.com/svg?repos=magic5644/graph-it-live&type=Date" alt="Star History Chart" width="370"/>
+  </a>
+</p>
+
 ---
 
 Graph-It-Live turns your codebase into a live, interactive dependency graph — one that both **you** and your **AI assistant** can query in real time.
