@@ -1135,6 +1135,7 @@
     "sql.js": "^1.14.1",
     "tree-sitter-wasms": "^0.1.13",
     "ts-morph": "^27.0.2",
+    "vis-network": "10.1.0",
     "web-tree-sitter": "^0.26.9",
     "zod": "^4.4.3"
   },

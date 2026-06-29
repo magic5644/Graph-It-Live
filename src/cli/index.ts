@@ -353,6 +353,18 @@ async function dispatch(
       const { run } = await import("./commands/wiki.js");
       return run(args, runtime, format);
     }
+    case "export": {
+      if (format === "html") {
+        const { runExportHtml } = await import("./commands/ExportHtmlCommand.js");
+        const workspaceName = runtime.workspaceRoot.split("/").pop() ?? "workspace";
+        await runExportHtml(runtime, workspaceName, args);
+        return "";
+      }
+      throw new CliError(
+        `Command "export" only supports --format html. Got: "${format}".`,
+        ExitCode.GENERAL_ERROR,
+      );
+    }
     default:
       throw new CliError(
         `Unknown command "${command}". Run graph-it --help for usage.`,

@@ -19,6 +19,8 @@ tsconfig.tsbuildinfo
 meta.json
 metadata.json
 DEVELOPMENT.md
+CLAUDE.md
+.claude/**
 
 # Source code (bundled in dist/)
 src/**
