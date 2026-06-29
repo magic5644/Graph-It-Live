@@ -10,9 +10,9 @@
 
 import { estimateTokenSavings, jsonToToon } from "../shared/toon";
 
-export type CliOutputFormat = "text" | "json" | "toon" | "markdown" | "mermaid";
+export type CliOutputFormat = "text" | "json" | "toon" | "markdown" | "mermaid" | "html";
 
-export const CLI_OUTPUT_FORMATS: readonly CliOutputFormat[] = ["text", "json", "toon", "markdown", "mermaid"];
+export const CLI_OUTPUT_FORMATS: readonly CliOutputFormat[] = ["text", "json", "toon", "markdown", "mermaid", "html"];
 
 /** Commands that can produce graph / mermaid output */
 const GRAPH_COMMANDS = new Set(["trace", "path", "scan", "architecture"]);
@@ -55,6 +55,8 @@ export function formatOutput(data: unknown, format: CliOutputFormat, command: st
       return formatMarkdown(data, command);
     case "mermaid":
       return formatMermaid(data, command);
+    case "html":
+      throw new Error('Format "html" must be handled before formatOutput — use runExportHtml directly.');
   }
 }
 
