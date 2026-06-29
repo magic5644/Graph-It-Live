@@ -204,6 +204,47 @@ export const PAGINATION_LIMITS = {
   DEFAULT_LIMIT: 1000,
 } as const;
 
+// ============================================================================
+// GraphData Schemas (F2: hub-score-visual)
+// ============================================================================
+
+/**
+ * Zod schema for per-node visual/structural metadata.
+ * Validates hubScore in [0, 1], optional loc (positive int), optional fileExtension string.
+ */
+export const GraphNodeMetadataSchema = z.object({
+  hubScore: z
+    .number()
+    .min(0, "hubScore must be >= 0")
+    .max(1, "hubScore must be <= 1"),
+  loc: z.number().int().positive().optional(),
+  fileExtension: z.string().optional(),
+});
+export type GraphNodeMetadataSchemaType = z.infer<typeof GraphNodeMetadataSchema>;
+
+/**
+ * Zod schema for a graph edge (source → target with optional relationType).
+ */
+export const GraphEdgeSchema = z.object({
+  source: z.string(),
+  target: z.string(),
+  relationType: z.enum(["dependency", "call", "reference"]).optional(),
+});
+
+/**
+ * Zod schema for GraphData — validates the full graph payload including
+ * the optional F2 nodeMetadata field.
+ */
+export const GraphDataSchema = z.object({
+  nodes: z.array(z.string()),
+  edges: z.array(GraphEdgeSchema),
+  nodeLabels: z.record(z.string(), z.string()).optional(),
+  parentCounts: z.record(z.string(), z.number()).optional(),
+  unusedEdges: z.array(z.string()).optional(),
+  nodeMetadata: z.record(z.string(), GraphNodeMetadataSchema).optional(),
+});
+export type GraphDataSchemaType = z.infer<typeof GraphDataSchema>;
+
 export const SetWorkspaceParamsSchema = z.object({
   workspacePath: FilePathSchema.describe(
     "Absolute path to the project/workspace directory to analyze",

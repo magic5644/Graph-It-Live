@@ -340,8 +340,9 @@ function createVisibleEdges(
 /**
  * Compute hub scores (0-100) for visible nodes based on parent import counts.
  * The node with the most imports gets score 100; others are proportional.
+ * Private: used only as fallback when nodeMetadata is absent (retro-compat).
  */
-export function computeHubScores(
+function computeHubScores(
   visibleNodes: string[],
   parentCounts: Record<string, number>,
 ): Record<string, number> {
@@ -442,10 +443,11 @@ export function buildReactFlowGraph(params: {
 
   nodesTruncated = nodesTruncated || bfsTruncated;
 
-  const hubScores = computeHubScores(
-    Array.from(visibleNodes),
-    data.parentCounts ?? {},
-  );
+  // F2: if nodeMetadata is present (server-side scores), skip local computation.
+  // Otherwise compute locally for retro-compat (e.g. old extension versions).
+  const computedFallback = data.nodeMetadata
+    ? {}
+    : computeHubScores(Array.from(visibleNodes), data.parentCounts ?? {});
 
   const createNodeData = (
     path: string,
@@ -551,7 +553,15 @@ export function buildReactFlowGraph(params: {
       onExpandRequest: () => callbacks.onExpandRequest(path),
       selectedNodeId,
       nodeId: path,
-      hubScore: hubScores[path],
+      hubScore: (() => {
+        const meta = data.nodeMetadata?.[normalizePath(path)];
+        if (meta?.hubScore !== undefined) {
+          // nodeMetadata.hubScore is [0-1] → convert to [0-100] for FileNodeData
+          return Math.round(meta.hubScore * 100);
+        }
+        // Fallback: nodeMetadata absent → use locally-computed scores (retro-compat)
+        return computedFallback[path] ?? 0;
+      })(),
     } as FileNodeData;
   };
 

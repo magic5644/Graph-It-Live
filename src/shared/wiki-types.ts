@@ -51,6 +51,13 @@ export interface WikiGeneratorOptions extends WikiScopeOptions {
   outputDir: string; // absolute
   workspaceRoot: string; // absolute
   topHubsLimit?: number; // default 10
+  /**
+   * Optional per-node metadata from GraphData.nodeMetadata.
+   * When present, WikiGenerator uses nodeMetadata[normalizePath(filePath)].hubScore
+   * (scaled ×100 to match WikiArticle 0-100 range) instead of computing from DB edges.
+   * Key = normalizePath(filePath).
+   */
+  nodeMetadata?: Record<string, import('./graph-types.js').GraphNodeMetadata>;
 }
 
 export interface WikiGenerateResult {

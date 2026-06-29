@@ -13,6 +13,8 @@ import {
   AnalyzeFileLogicParamsSchema,
   CrawlDependencyGraphParamsSchema,
   createErrorResponse,
+  GraphDataSchema,
+  GraphNodeMetadataSchema,
   createSuccessResponse,
   enrichDependency,
   ExpandNodeParamsSchema,
@@ -1184,5 +1186,273 @@ describe('sanitizeString', () => {
   it('respects custom max length', () => {
     const mediumString = 'a'.repeat(100);
     expect(() => sanitizeString(mediumString, 50)).toThrow('exceeds maximum length');
+  });
+});
+
+// ============================================================================
+// F2: GraphNodeMetadataSchema Tests
+// ============================================================================
+
+describe('GraphNodeMetadataSchema', () => {
+  it('validates minimal metadata with only hubScore', () => {
+    const result = GraphNodeMetadataSchema.safeParse({ hubScore: 0.5 });
+    expect(result.success).toBe(true);
+    if (result.success) {
+      expect(result.data.hubScore).toBe(0.5);
+      expect(result.data.loc).toBeUndefined();
+      expect(result.data.fileExtension).toBeUndefined();
+    }
+  });
+
+  it('validates metadata with all optional fields', () => {
+    const result = GraphNodeMetadataSchema.safeParse({
+      hubScore: 0.8,
+      loc: 120,
+      fileExtension: 'ts',
+    });
+    expect(result.success).toBe(true);
+    if (result.success) {
+      expect(result.data.loc).toBe(120);
+      expect(result.data.fileExtension).toBe('ts');
+    }
+  });
+
+  it('accepts hubScore boundary values 0 and 1', () => {
+    expect(GraphNodeMetadataSchema.safeParse({ hubScore: 0 }).success).toBe(true);
+    expect(GraphNodeMetadataSchema.safeParse({ hubScore: 1 }).success).toBe(true);
+  });
+
+  it('rejects hubScore below 0', () => {
+    const result = GraphNodeMetadataSchema.safeParse({ hubScore: -0.1 });
+    expect(result.success).toBe(false);
+  });
+
+  it('rejects hubScore above 1', () => {
+    const result = GraphNodeMetadataSchema.safeParse({ hubScore: 1.1 });
+    expect(result.success).toBe(false);
+  });
+
+  it('rejects missing hubScore', () => {
+    const result = GraphNodeMetadataSchema.safeParse({});
+    expect(result.success).toBe(false);
+  });
+
+  it('rejects non-positive loc', () => {
+    const result = GraphNodeMetadataSchema.safeParse({ hubScore: 0.5, loc: 0 });
+    expect(result.success).toBe(false);
+  });
+
+  it('rejects non-integer loc', () => {
+    const result = GraphNodeMetadataSchema.safeParse({ hubScore: 0.5, loc: 1.5 });
+    expect(result.success).toBe(false);
+  });
+
+  it('rejects negative loc', () => {
+    const result = GraphNodeMetadataSchema.safeParse({ hubScore: 0.5, loc: -1 });
+    expect(result.success).toBe(false);
+  });
+
+  it('accepts hubScore exact boundary -0.001 rejected, 1.001 rejected (tighter bounds)', () => {
+    expect(GraphNodeMetadataSchema.safeParse({ hubScore: -0.001 }).success).toBe(false);
+    expect(GraphNodeMetadataSchema.safeParse({ hubScore: 1.001 }).success).toBe(false);
+  });
+
+  it('accepts fileExtension as empty string', () => {
+    const result = GraphNodeMetadataSchema.safeParse({ hubScore: 0.5, fileExtension: '' });
+    expect(result.success).toBe(true);
+    if (result.success) {
+      expect(result.data.fileExtension).toBe('');
+    }
+  });
+
+  it('accepts valid positive integer loc', () => {
+    const result = GraphNodeMetadataSchema.safeParse({ hubScore: 0.5, loc: 1 });
+    expect(result.success).toBe(true);
+    if (result.success) {
+      expect(result.data.loc).toBe(1);
+    }
+  });
+});
+
+// ============================================================================
+// F2: GraphDataSchema Tests
+// ============================================================================
+
+describe('GraphDataSchema', () => {
+  it('validates minimal GraphData (no optional fields)', () => {
+    const result = GraphDataSchema.safeParse({
+      nodes: ['/src/a.ts', '/src/b.ts'],
+      edges: [{ source: '/src/a.ts', target: '/src/b.ts' }],
+    });
+    expect(result.success).toBe(true);
+    if (result.success) {
+      expect(result.data.nodes).toHaveLength(2);
+      expect(result.data.edges).toHaveLength(1);
+      expect(result.data.nodeMetadata).toBeUndefined();
+    }
+  });
+
+  it('validates GraphData with nodeMetadata present (backward compat with F2)', () => {
+    const result = GraphDataSchema.safeParse({
+      nodes: ['/src/hub.ts', '/src/leaf.ts'],
+      edges: [{ source: '/src/hub.ts', target: '/src/leaf.ts' }],
+      nodeMetadata: {
+        '/src/hub.ts': { hubScore: 0.9, loc: 350, fileExtension: 'ts' },
+        '/src/leaf.ts': { hubScore: 0.1 },
+      },
+    });
+    expect(result.success).toBe(true);
+    if (result.success) {
+      expect(result.data.nodeMetadata?.['/src/hub.ts'].hubScore).toBe(0.9);
+      expect(result.data.nodeMetadata?.['/src/leaf.ts'].hubScore).toBe(0.1);
+      expect(result.data.nodeMetadata?.['/src/leaf.ts'].loc).toBeUndefined();
+    }
+  });
+
+  it('validates GraphData with all optional fields including nodeMetadata', () => {
+    const result = GraphDataSchema.safeParse({
+      nodes: ['/src/a.ts'],
+      edges: [],
+      nodeLabels: { '/src/a.ts': 'a' },
+      parentCounts: { '/src/a.ts': 3 },
+      unusedEdges: [],
+      nodeMetadata: { '/src/a.ts': { hubScore: 0.5 } },
+    });
+    expect(result.success).toBe(true);
+  });
+
+  it('validates GraphData without nodeMetadata (backward compat — pre-F2 data)', () => {
+    const result = GraphDataSchema.safeParse({
+      nodes: ['/src/a.ts'],
+      edges: [],
+    });
+    expect(result.success).toBe(true);
+    if (result.success) {
+      expect(result.data.nodeMetadata).toBeUndefined();
+    }
+  });
+
+  it('rejects GraphData with invalid nodeMetadata (hubScore out of range)', () => {
+    const result = GraphDataSchema.safeParse({
+      nodes: ['/src/a.ts'],
+      edges: [],
+      nodeMetadata: {
+        '/src/a.ts': { hubScore: 2.5 },
+      },
+    });
+    expect(result.success).toBe(false);
+  });
+
+  it('rejects GraphData with missing nodes array', () => {
+    const result = GraphDataSchema.safeParse({ edges: [] });
+    expect(result.success).toBe(false);
+  });
+
+  it('rejects GraphData with missing edges array', () => {
+    const result = GraphDataSchema.safeParse({ nodes: [] });
+    expect(result.success).toBe(false);
+  });
+
+  it('validates edge with relationType field', () => {
+    const result = GraphDataSchema.safeParse({
+      nodes: ['/src/a.ts', '/src/b.ts'],
+      edges: [{ source: '/src/a.ts', target: '/src/b.ts', relationType: 'call' }],
+    });
+    expect(result.success).toBe(true);
+  });
+
+  it('rejects edge with invalid relationType', () => {
+    const result = GraphDataSchema.safeParse({
+      nodes: ['/src/a.ts', '/src/b.ts'],
+      edges: [{ source: '/src/a.ts', target: '/src/b.ts', relationType: 'unknown' }],
+    });
+    expect(result.success).toBe(false);
+  });
+
+  it('validates edge with relationType dependency', () => {
+    const result = GraphDataSchema.safeParse({
+      nodes: ['/src/a.ts', '/src/b.ts'],
+      edges: [{ source: '/src/a.ts', target: '/src/b.ts', relationType: 'dependency' }],
+    });
+    expect(result.success).toBe(true);
+  });
+
+  it('validates edge with relationType reference', () => {
+    const result = GraphDataSchema.safeParse({
+      nodes: ['/src/a.ts', '/src/b.ts'],
+      edges: [{ source: '/src/a.ts', target: '/src/b.ts', relationType: 'reference' }],
+    });
+    expect(result.success).toBe(true);
+  });
+
+  it('validates edge without relationType (optional field absent)', () => {
+    const result = GraphDataSchema.safeParse({
+      nodes: ['/src/a.ts', '/src/b.ts'],
+      edges: [{ source: '/src/a.ts', target: '/src/b.ts' }],
+    });
+    expect(result.success).toBe(true);
+    if (result.success) {
+      expect(result.data.edges[0].relationType).toBeUndefined();
+    }
+  });
+
+  it('rejects edge missing source', () => {
+    const result = GraphDataSchema.safeParse({
+      nodes: ['/src/a.ts', '/src/b.ts'],
+      edges: [{ target: '/src/b.ts' }],
+    });
+    expect(result.success).toBe(false);
+  });
+
+  it('rejects edge missing target', () => {
+    const result = GraphDataSchema.safeParse({
+      nodes: ['/src/a.ts', '/src/b.ts'],
+      edges: [{ source: '/src/a.ts' }],
+    });
+    expect(result.success).toBe(false);
+  });
+
+  it('validates nodeMetadata as empty Record', () => {
+    const result = GraphDataSchema.safeParse({
+      nodes: [],
+      edges: [],
+      nodeMetadata: {},
+    });
+    expect(result.success).toBe(true);
+    if (result.success) {
+      expect(result.data.nodeMetadata).toEqual({});
+    }
+  });
+});
+
+describe('validateToolParams — uncovered branches', () => {
+  it('returns failure for unknown tool name', () => {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const result = validateToolParams('nonexistent_tool_xyz' as any, {});
+    expect(result.success).toBe(false);
+    if (!result.success) {
+      expect(result.error).toContain('nonexistent_tool_xyz');
+    }
+  });
+
+  it('returns failure with root-level message when issue path is empty', () => {
+    // get_index_status takes no params — passing a wrong type triggers a root-level Zod error
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const result = validateToolParams('graphitlive_get_index_status' as any, 'not-an-object');
+    expect(result.success).toBe(false);
+  });
+});
+
+describe('validateFilePath — uncovered branches', () => {
+  it('accepts a valid relative path within rootDir', () => {
+    expect(() =>
+      validateFilePath('src/index.ts', '/project')
+    ).not.toThrow();
+  });
+
+  it('accepts an absolute path at exact rootDir boundary', () => {
+    expect(() =>
+      validateFilePath('/project/src/deeply/nested/file.ts', '/project')
+    ).not.toThrow();
   });
 });

@@ -9,6 +9,7 @@ import type {
   WikiLink,
   WikiSymbol,
 } from "../../shared/wiki-types.js";
+import type { GraphNodeMetadata } from "../../shared/graph-types.js";
 import { analyzeControlFlow } from "./ControlFlowAnalyzer.js";
 import {
   buildArchitectureDiagram,
@@ -136,15 +137,17 @@ export class WikiGenerator {
   private readonly topHubsLimit: number;
   private readonly scope: string | undefined;
   private readonly exclude: string[] | undefined;
+  private readonly externalNodeMetadata: Record<string, GraphNodeMetadata> | undefined;
 
   constructor(opts: WikiGeneratorOptions) {
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+     
     this.db = opts.db;
     this.outputDir = opts.outputDir;
     this.workspaceRoot = opts.workspaceRoot;
     this.topHubsLimit = opts.topHubsLimit ?? 10;
     this.scope = opts.scope;
     this.exclude = opts.exclude;
+    this.externalNodeMetadata = opts.nodeMetadata;
   }
 
   async generate(): Promise<WikiGenerateResult> {
@@ -154,7 +157,7 @@ export class WikiGenerator {
       this.exclude,
     );
 
-    // Build hub score map
+    // Build hub score map (DB-derived, 0-100 scale)
     const hubMap = this.buildHubMap();
 
     // Enumerate files — with scope/exclude applied
@@ -164,7 +167,12 @@ export class WikiGenerator {
     // Build all articles (pure, no I/O)
     const articles: WikiArticle[] = files.map((filePath) => {
       const normalized = normalizePath(filePath);
-      const score = hubMap.get(normalized) ?? 0;
+      // ADR-F2-01: prefer hubScore from GraphData.nodeMetadata when available.
+      // externalNodeMetadata.hubScore is in [0-1]; scale to 0-100 to match WikiArticle range.
+      const externalScore = this.externalNodeMetadata?.[normalized]?.hubScore;
+      const score = externalScore !== undefined
+        ? Math.min(Math.round(externalScore * 100), 100)
+        : (hubMap.get(normalized) ?? 0);
       return this.buildArticle(normalized, score);
     });
 

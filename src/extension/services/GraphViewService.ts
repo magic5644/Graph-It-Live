@@ -1,4 +1,6 @@
 import { Spider } from '../../analyzer/Spider';
+import { computeNodeMetadata } from '../../analyzer/NodeMetadataBuilder';
+import { normalizePath } from '../../shared/path';
 import type { UnusedAnalysisCache } from './UnusedAnalysisCache';
 
 type Logger = {
@@ -82,6 +84,10 @@ export class GraphViewService {
       await this.populateParentCounts(enrichedData);
     }
 
+    // Compute per-node metadata (hubScore, fileExtension) from parentCounts.
+    // computeNodeMetadata is pure — no FS reads, no vscode imports.
+    computeNodeMetadata(enrichedData);
+
     return enrichedData;
   }
 
@@ -94,7 +100,7 @@ export class GraphViewService {
     for (const node of graphData.nodes) {
       const count = this.spider.getCallerCount(node);
       if (count > 0) {
-        parentCounts[node] = count;
+        parentCounts[normalizePath(node)] = count;
       }
     }
 
