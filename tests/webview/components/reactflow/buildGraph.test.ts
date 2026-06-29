@@ -1602,4 +1602,163 @@ describe("buildReactFlowGraph", () => {
       expect(callbacks.onDrillDown).toHaveBeenCalledWith("file.ts:FnA");
     });
   });
+
+  describe("F2: hubScore from nodeMetadata (ADR-F2-01)", () => {
+    // AC3: nodeMetadata[path].hubScore = 0.42 → FileNodeData.hubScore = 42
+    it("AC3: reads hubScore from nodeMetadata and converts [0-1] to [0-100]", () => {
+      const data: GraphData = {
+        nodes: ["root.ts", "hub.ts"],
+        edges: [{ source: "root.ts", target: "hub.ts" }],
+        nodeLabels: { "root.ts": "root.ts", "hub.ts": "hub.ts" },
+        nodeMetadata: {
+          "root.ts": { hubScore: 1.0 },
+          "hub.ts": { hubScore: 0.42 },
+        },
+      };
+
+      const result = buildReactFlowGraph({
+        data,
+        currentFilePath: "root.ts",
+        expandAll: true,
+        expandedNodes: new Set(["root.ts"]),
+        showParents: false,
+        callbacks: createMockCallbacks(),
+      });
+
+      const hubNode = result.nodes.find((n) => n.id === "hub.ts");
+      expect((hubNode?.data as any).hubScore).toBe(42);
+      const rootNode = result.nodes.find((n) => n.id === "root.ts");
+      expect((rootNode?.data as any).hubScore).toBe(100);
+    });
+
+    // AC3 rounding: Math.round(0.425 * 100) = 43
+    it("AC3: rounds hubScore correctly (0.425 → 43, 0.005 → 1)", () => {
+      const data: GraphData = {
+        nodes: ["root.ts", "a.ts", "b.ts"],
+        edges: [
+          { source: "root.ts", target: "a.ts" },
+          { source: "root.ts", target: "b.ts" },
+        ],
+        nodeMetadata: {
+          "root.ts": { hubScore: 1.0 },
+          "a.ts": { hubScore: 0.425 },
+          "b.ts": { hubScore: 0.005 },
+        },
+      };
+
+      const result = buildReactFlowGraph({
+        data,
+        currentFilePath: "root.ts",
+        expandAll: true,
+        expandedNodes: new Set(["root.ts"]),
+        showParents: false,
+        callbacks: createMockCallbacks(),
+      });
+
+      const aNode = result.nodes.find((n) => n.id === "a.ts");
+      expect((aNode?.data as any).hubScore).toBe(43);
+      const bNode = result.nodes.find((n) => n.id === "b.ts");
+      expect((bNode?.data as any).hubScore).toBe(1);
+    });
+
+    // AC4: without nodeMetadata → fallback computeHubScores → same result as F1
+    it("AC4: falls back to computeHubScores when nodeMetadata is absent", () => {
+      const parentCounts = { "root.ts": 0, "hub.ts": 5 };
+      const data: GraphData = {
+        nodes: ["root.ts", "hub.ts"],
+        edges: [{ source: "root.ts", target: "hub.ts" }],
+        parentCounts,
+        // no nodeMetadata
+      };
+
+      const result = buildReactFlowGraph({
+        data,
+        currentFilePath: "root.ts",
+        expandAll: true,
+        expandedNodes: new Set(["root.ts"]),
+        showParents: false,
+        callbacks: createMockCallbacks(),
+      });
+
+      // hub.ts has 5 parents, root.ts has 0 → hub.ts should get score 100, root.ts 0
+      const hubNode = result.nodes.find((n) => n.id === "hub.ts");
+      expect((hubNode?.data as any).hubScore).toBe(100);
+      const rootNode = result.nodes.find((n) => n.id === "root.ts");
+      expect((rootNode?.data as any).hubScore).toBe(0);
+    });
+
+    // AC4: nodeMetadata present but hubScore undefined on a node → falls back to 0
+    it("AC4: nodeMetadata present but entry missing hubScore → returns 0", () => {
+      const data: GraphData = {
+        nodes: ["root.ts", "other.ts"],
+        edges: [{ source: "root.ts", target: "other.ts" }],
+        nodeMetadata: {
+          "root.ts": { hubScore: 0.8 },
+          // other.ts has no hubScore defined
+          "other.ts": {},
+        },
+      };
+
+      const result = buildReactFlowGraph({
+        data,
+        currentFilePath: "root.ts",
+        expandAll: true,
+        expandedNodes: new Set(["root.ts"]),
+        showParents: false,
+        callbacks: createMockCallbacks(),
+      });
+
+      const otherNode = result.nodes.find((n) => n.id === "other.ts");
+      expect((otherNode?.data as any).hubScore).toBe(0);
+    });
+
+    // AC7: lookup uses normalizePath — node not found in nodeMetadata due to no key → returns 0
+    it("AC7: nodeMetadata lookup uses normalizePath — absent key returns 0 not undefined", () => {
+      const data: GraphData = {
+        nodes: ["src/root.ts", "src/hub.ts"],
+        edges: [{ source: "src/root.ts", target: "src/hub.ts" }],
+        nodeMetadata: {
+          "src/root.ts": { hubScore: 1.0 },
+          "src/hub.ts": { hubScore: 0.77 },
+        },
+      };
+
+      const result = buildReactFlowGraph({
+        data,
+        currentFilePath: "src/root.ts",
+        expandAll: true,
+        expandedNodes: new Set(["src/root.ts"]),
+        showParents: false,
+        callbacks: createMockCallbacks(),
+      });
+
+      // hub.ts score must be correctly read
+      const hubNode = result.nodes.find((n) => n.id === "src/hub.ts");
+      expect((hubNode?.data as any).hubScore).toBe(77);
+    });
+
+    // AC7: normalizePath applied — node absent from nodeMetadata returns 0 (not undefined)
+    it("AC7: nodeMetadata absent for a node → hubScore is 0, not undefined", () => {
+      const data: GraphData = {
+        nodes: ["root.ts", "orphan.ts"],
+        edges: [{ source: "root.ts", target: "orphan.ts" }],
+        nodeMetadata: {
+          "root.ts": { hubScore: 0.5 },
+          // orphan.ts not in nodeMetadata at all
+        },
+      };
+
+      const result = buildReactFlowGraph({
+        data,
+        currentFilePath: "root.ts",
+        expandAll: true,
+        expandedNodes: new Set(["root.ts"]),
+        showParents: false,
+        callbacks: createMockCallbacks(),
+      });
+
+      const orphanNode = result.nodes.find((n) => n.id === "orphan.ts");
+      expect((orphanNode?.data as any).hubScore).toBe(0);
+    });
+  });
 });
