@@ -574,7 +574,12 @@ async function handleTypedSessionCommand(
   if (command === 'export') {
     const workspaceName = path.basename(runtime.workspaceRoot);
     const { runExportHtml } = await import('./ExportHtmlCommand.js');
-    await runExportHtml(runtime, workspaceName, args, state.lastFile);
+    // Respect /path narrowing: if state.workspaceRoot was narrowed to a subdir,
+    // use it as default scope so /export stays within the active workspace scope.
+    const defaultScope = state.workspaceRoot !== runtime.workspaceRoot
+      ? state.workspaceRoot
+      : undefined;
+    await runExportHtml(runtime, workspaceName, args, state.lastFile ?? defaultScope);
     return { command: 'export', skipPostAction: true };
   }
 
