@@ -59,14 +59,14 @@ describe('runExportHtml', () => {
     await runExportHtml(fakeRuntime, 'my-project', ['--output', '/custom/output.html']);
 
     const config = mockExportHtml.mock.calls[0][0];
-    expect(config.outputPath).toBe('/custom/output.html');
+    expect(config.outputPath).toBe(path.resolve('/custom/output.html'));
   });
 
   it('uses -o short flag for output path', async () => {
     await runExportHtml(fakeRuntime, 'my-project', ['-o', '/short/flag.html']);
 
     const config = mockExportHtml.mock.calls[0][0];
-    expect(config.outputPath).toBe('/short/flag.html');
+    expect(config.outputPath).toBe(path.resolve('/short/flag.html'));
   });
 
   it('resolves relative output path to absolute', async () => {
@@ -74,7 +74,7 @@ describe('runExportHtml', () => {
 
     const config = mockExportHtml.mock.calls[0][0];
     expect(path.isAbsolute(config.outputPath)).toBe(true);
-    expect(config.outputPath).toContain('relative/graph.html');
+    expect(config.outputPath).toContain(path.join('relative', 'graph.html'));
   });
 
   it('passes workspaceName to exportHtml', async () => {
