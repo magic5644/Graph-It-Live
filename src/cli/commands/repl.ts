@@ -142,7 +142,7 @@ function buildReplHelpText(state: ReturnType<typeof createSessionState>): string
     '  /check          Find unused exports',
     '  /query          Query the codebase with natural language',
     '  /wiki           Generate a markdown wiki from the call graph',
-    '  /export --format html   Export graph as standalone HTML (vis.js)',
+    '  /export                 Export graph as standalone HTML (vis.js)',
     '  /format         Change the default display format',
     '  /command        Run a raw CLI command line',
     '  /help           Show this help',
@@ -155,7 +155,7 @@ function buildReplHelpText(state: ReturnType<typeof createSessionState>): string
     '  /cycles src/cli/index.ts',
     '  /trace src/index.ts#main',
     '  /architecture --format mermaid',
-    '  /export --format html --output my-graph.html',
+    '  /export --output my-graph.html',
     '',
     `${DIM}session:${RESET} format=${state.preferredFormat}  last-file=${lastFile}`,
   ].join('\n');
@@ -571,7 +571,7 @@ async function handleTypedSessionCommand(
     return handlePathSessionCommand(args, state, runtime, allFiles, options);
   }
 
-  if (command === 'export' && args.includes('--format') && args[args.indexOf('--format') + 1] === 'html') {
+  if (command === 'export') {
     const workspaceName = path.basename(runtime.workspaceRoot);
     const { runExportHtml } = await import('./ExportHtmlCommand.js');
     await runExportHtml(runtime, workspaceName, args);
