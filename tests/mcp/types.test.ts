@@ -1272,6 +1272,40 @@ describe('GraphNodeMetadataSchema', () => {
       expect(result.data.loc).toBe(1);
     }
   });
+
+  it('accepts communityId: 0 (noeud isolé)', () => {
+    const result = GraphNodeMetadataSchema.safeParse({ hubScore: 0.5, communityId: 0 });
+    expect(result.success).toBe(true);
+    if (result.success) {
+      expect(result.data.communityId).toBe(0);
+    }
+  });
+
+  it('accepts communityId: 5 (cluster)', () => {
+    const result = GraphNodeMetadataSchema.safeParse({ hubScore: 0.5, communityId: 5 });
+    expect(result.success).toBe(true);
+    if (result.success) {
+      expect(result.data.communityId).toBe(5);
+    }
+  });
+
+  it('rejects communityId: -1 (min(0) violated)', () => {
+    const result = GraphNodeMetadataSchema.safeParse({ hubScore: 0.5, communityId: -1 });
+    expect(result.success).toBe(false);
+  });
+
+  it('rejects communityId: 1.5 (int violated)', () => {
+    const result = GraphNodeMetadataSchema.safeParse({ hubScore: 0.5, communityId: 1.5 });
+    expect(result.success).toBe(false);
+  });
+
+  it('accepts without communityId (optional)', () => {
+    const result = GraphNodeMetadataSchema.safeParse({ hubScore: 0.5 });
+    expect(result.success).toBe(true);
+    if (result.success) {
+      expect(result.data.communityId).toBeUndefined();
+    }
+  });
 });
 
 // ============================================================================

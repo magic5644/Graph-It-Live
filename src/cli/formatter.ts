@@ -420,6 +420,8 @@ function finalizeMermaid(lines: string[]): string {
 }
 
 function buildMermaidFromGraph(graph: GraphLike): string | null {
+  // TODO F4b: community subgraphs in Mermaid — GraphLike nodes carry no communityId today;
+  // requires either extending GraphLike or a dedicated community-aware formatter.
   const nodes = graph.nodes ?? [];
   const edges = graph.edges ?? [];
   if (nodes.length === 0 && edges.length === 0) return null;

@@ -1,6 +1,7 @@
 import * as path from 'node:path';
 import type { GraphData, GraphNodeMetadata } from '../shared/graph-types.js';
 import { normalizePath } from '../shared/path.js';
+import { detectCommunities } from './community/LouvainDetector.js';
 
 /**
  * Computes and attaches `nodeMetadata` to a `GraphData` object.
@@ -41,4 +42,17 @@ export function computeNodeMetadata(graphData: GraphData): void {
   }
 
   graphData.nodeMetadata = nodeMetadata;
+
+  try {
+    const result = detectCommunities({
+      nodes: graphData.nodes,
+      edges: graphData.edges,
+    });
+    for (const [normalizedPath, meta] of Object.entries(graphData.nodeMetadata ?? {})) {
+      const cid = result.assignments.get(normalizedPath);
+      if (cid !== undefined) meta.communityId = cid;
+    }
+  } catch (err) {
+    console.warn('[NodeMetadataBuilder] Community detection failed, skipping:', err);
+  }
 }

@@ -21,11 +21,13 @@ import {
 import { computeRelatedNodes } from "../utils/graphTraversal";
 import { normalizePath } from "../utils/path";
 import { buildReactFlowGraph, GRAPH_LIMITS } from "./reactflow/buildGraph";
+import { CommunityLegend } from "./reactflow/CommunityLegend";
+import { communityColor } from "../utils/communityColor";
 import {
   ExpansionOverlay,
   type ExpansionState,
 } from "./reactflow/ExpansionOverlay";
-import { FileNode } from "./reactflow/FileNode";
+import { FileNode, type FileNodeData } from "./reactflow/FileNode";
 import { SymbolNode } from "./reactflow/SymbolNode";
 
 /** Logger instance for ReactFlowGraph */
@@ -712,6 +714,26 @@ const ReactFlowGraphContent: React.FC<ReactFlowGraphProps> = ({
     return graph.nodes;
   }, [graph.nodes, highlightState]);
 
+  // Derive communities with hub-label for the legend
+  const communities = useMemo(() => {
+    function basename(p: string): string {
+      return p.split('/').pop() ?? p;
+    }
+    const bestByComm = new Map<number, { label: string; hubScore: number }>();
+    for (const n of graph.nodes) {
+      const d = n.data as FileNodeData;
+      if (!d.communityId || d.communityId === 0) continue;
+      const score = d.hubScore ?? 0;
+      const current = bestByComm.get(d.communityId);
+      if (!current || score > current.hubScore) {
+        bestByComm.set(d.communityId, { label: basename(n.id ?? d.label ?? ''), hubScore: score });
+      }
+    }
+    return [...bestByComm.entries()]
+      .sort(([a], [b]) => a - b)
+      .map(([id, { label }]) => ({ id, label, color: communityColor(id) }));
+  }, [graph.nodes]);
+
   // Use useLayoutEffect for highlight - runs synchronously AFTER useMemo recalculates
   // This ensures we see the updated visibleNodes/styledEdges values
   React.useLayoutEffect(() => {
@@ -925,6 +947,7 @@ const ReactFlowGraphContent: React.FC<ReactFlowGraphProps> = ({
         <Background />
         <Controls />
       </ReactFlow>
+      <CommunityLegend communities={communities} />
       {/* T081: Loading indicator during re-analysis */}
       {isReanalyzing && (
         <div

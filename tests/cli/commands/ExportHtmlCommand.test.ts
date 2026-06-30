@@ -3,6 +3,7 @@ import * as path from 'node:path';
 
 const mockExportHtml = vi.hoisted(() => vi.fn());
 const mockArchitectureRun = vi.hoisted(() => vi.fn());
+const mockComputeNodeMetadata = vi.hoisted(() => vi.fn());
 
 vi.mock('../../../src/analyzer/export/HtmlExporter', () => ({
   exportHtml: mockExportHtml,
@@ -14,6 +15,10 @@ vi.mock('../../../src/cli/commands/architecture.js', () => ({
 
 vi.mock('../../../src/shared/path', () => ({
   normalizePath: (p: string) => p.replace(/\\/g, '/'),
+}));
+
+vi.mock('../../../src/analyzer/NodeMetadataBuilder', () => ({
+  computeNodeMetadata: mockComputeNodeMetadata,
 }));
 
 import { runExportHtml } from '../../../src/cli/commands/ExportHtmlCommand';
@@ -37,6 +42,7 @@ describe('runExportHtml', () => {
   beforeEach(() => {
     mockExportHtml.mockReset();
     mockArchitectureRun.mockReset();
+    mockComputeNodeMetadata.mockReset();
     mockArchitectureRun.mockResolvedValue(architectureJsonOutput);
     vi.spyOn(process.stdout, 'write').mockImplementation(() => true);
   });
@@ -196,15 +202,50 @@ describe('runExportHtml', () => {
       })
     );
 
-    // The nodeMetadata field comes from graphData, but ExportHtmlCommand builds
-    // graphData without nodeMetadata (it only sets nodes/edges/unusedEdges).
-    // To cover the optional-chain branch, we need graphData.nodeMetadata defined.
-    // Since the current code never sets nodeMetadata on graphData, hubScore is
-    // always undefined — the branch is structurally uncoverable from the outside.
-    // This test documents that hubScore is undefined when nodeMetadata is absent.
+    // computeNodeMetadata is now mocked and does not populate nodeMetadata by default,
+    // so hubScore remains undefined unless the mock explicitly sets it.
     await runExportHtml(fakeRuntime, 'my-project', []);
 
     const config = mockExportHtml.mock.calls[0][0];
     expect(config.nodes[0].hubScore).toBeUndefined();
+  });
+
+  it('calls computeNodeMetadata with graphData after parentCounts reconstruction', async () => {
+    const nodeId = '/workspace/my-project/src/a.ts';
+    mockArchitectureRun.mockResolvedValue(
+      JSON.stringify({
+        nodes: [{ id: nodeId, path: nodeId, dependentCount: 5 }],
+        edges: [],
+      })
+    );
+
+    await runExportHtml(fakeRuntime, 'my-project', []);
+
+    expect(mockComputeNodeMetadata).toHaveBeenCalledOnce();
+    const graphDataArg = mockComputeNodeMetadata.mock.calls[0][0];
+    expect(graphDataArg.parentCounts).toEqual({ [nodeId]: 5 });
+    expect(graphDataArg.nodes).toEqual([nodeId]);
+  });
+
+  it('passes communityId from nodeMetadata to exportHtml nodes', async () => {
+    const nodeId = '/workspace/my-project/src/a.ts';
+    mockArchitectureRun.mockResolvedValue(
+      JSON.stringify({
+        nodes: [{ id: nodeId, path: nodeId, dependentCount: 3 }],
+        edges: [],
+      })
+    );
+    // Simulate computeNodeMetadata populating communityId on graphData
+    mockComputeNodeMetadata.mockImplementation(
+      (graphData: { nodeMetadata?: Record<string, { hubScore: number; communityId?: number }> }) => {
+        graphData.nodeMetadata = { [nodeId]: { hubScore: 0.75, communityId: 2 } };
+      }
+    );
+
+    await runExportHtml(fakeRuntime, 'my-project', []);
+
+    const config = mockExportHtml.mock.calls[0][0];
+    expect(config.nodes[0].communityId).toBe(2);
+    expect(config.nodes[0].hubScore).toBe(0.75);
   });
 });

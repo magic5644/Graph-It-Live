@@ -562,6 +562,7 @@ export function buildReactFlowGraph(params: {
         // Fallback: nodeMetadata absent → use locally-computed scores (retro-compat)
         return computedFallback[path] ?? 0;
       })(),
+      communityId: data.nodeMetadata?.[normalizePath(path)]?.communityId,
     } as FileNodeData;
   };
 

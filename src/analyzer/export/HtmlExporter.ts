@@ -1,11 +1,13 @@
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { normalizePath } from '../../shared/path';
+import { COMMUNITY_PALETTE } from '../../shared/communityPalette';
 
 export interface HtmlNodeData {
   id: string;
   label: string;
   hubScore?: number;
+  communityId?: number;
 }
 
 export interface HtmlEdgeData {
@@ -37,6 +39,14 @@ export function hubScoreColor(score: number | undefined): { background: string; 
   return { background: '#3a0000', border: '#ff4444' };
 }
 
+export function nodeColor(communityId?: number, hubScore?: number): { background: string; border: string } {
+  if (communityId !== undefined && communityId > 0) {
+    const bg = COMMUNITY_PALETTE[(communityId - 1) % COMMUNITY_PALETTE.length];
+    return { background: bg, border: '#333' };
+  }
+  return hubScoreColor(hubScore); // fallback: garder hubScoreColor existante
+}
+
 export function hubScoreBorderWidth(score: number | undefined): number {
   if (score === undefined || score < 0.2) return 1;
   if (score < 0.5) return 2;
@@ -57,7 +67,7 @@ export function exportHtml(config: HtmlExporterConfig): void {
     id: normalizePath(n.id),
     label: htmlEscape(n.label),
     title: htmlEscape(normalizePath(n.id)),
-    color: hubScoreColor(n.hubScore),
+    color: nodeColor(n.communityId, n.hubScore),
     borderWidth: hubScoreBorderWidth(n.hubScore),
   })));
 

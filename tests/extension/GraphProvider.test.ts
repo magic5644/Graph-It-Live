@@ -216,7 +216,7 @@ describe("GraphProvider", () => {
       expect.objectContaining({
         command: "updateGraph",
         filePath: mainTsPath,
-        data: mockGraphData,
+        data: expect.objectContaining(mockGraphData),
         expandAll: undefined, // globalState.get returns undefined by default mock
       }),
     );
