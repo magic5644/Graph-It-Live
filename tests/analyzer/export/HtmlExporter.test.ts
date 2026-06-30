@@ -202,7 +202,7 @@ describe('buildCommunityLegend', () => {
     ];
     const html = buildCommunityLegend(nodes);
     // Label should be the common directory path, not a specific file
-    expect(html).toContain('src/analyzer');
+    expect(html).toContain('analyzer');
     // No individual filenames should appear as labels
     expect(html).not.toContain('low.ts');
     expect(html).not.toContain('high.ts');
@@ -215,7 +215,7 @@ describe('buildCommunityLegend', () => {
       { id: '/workspace/src/webview/b.ts', label: 'b.ts', communityId: 1, hubScore: 0.4 },
     ];
     const html = buildCommunityLegend(nodes);
-    expect(html).toContain('src/webview');
+    expect(html).toContain('webview');
   });
 
   it('sorts clusters by communityId ascending', () => {

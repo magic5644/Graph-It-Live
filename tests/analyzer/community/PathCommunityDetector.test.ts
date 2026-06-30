@@ -136,17 +136,16 @@ describe('detectPathCommunities', () => {
     expect(result.get(a)).not.toBe(result.get(b));
   });
 
-  it('mixed shallow and deep files both get a communityId ≥ 1', () => {
-    // /project/index.ts: parts=['','project','index.ts'] (len 3)
-    // /project/src/analyzer/Spider.ts: parts=['','project','src','analyzer','Spider.ts'] (len 5)
-    // minPartCount=3, cap=max(0,3-2)=1 → prefix=['']
-    // index.ts: relParts=['project','index.ts'], dirParts=['project'], key='project' → id 1
-    // Spider.ts: relParts=['project','src','analyzer','Spider.ts'], dirParts=['project','src'], key='project/src' → id 2
-    const shallow = normalizePath('/project/index.ts');
-    const deep = normalizePath('/project/src/analyzer/Spider.ts');
+  it('mixed shallow and deep files: src-root file isolated, domain file gets id ≥ 1', () => {
+    // /workspace/src/index.ts: after prefix strip ['','workspace'], relParts=['src','index.ts']
+    // dirParts=['src'] → UMBRELLA skip → no domain → communityId 0
+    // /workspace/src/analyzer/Spider.ts: relParts=['src','analyzer','Spider.ts']
+    // dirParts=['src','analyzer'] → UMBRELLA skip → domain='analyzer' → communityId 1
+    const shallow = normalizePath('/workspace/src/index.ts');
+    const deep = normalizePath('/workspace/src/analyzer/Spider.ts');
     const result = detectPathCommunities([shallow, deep]);
-    expect(result.get(shallow)).toBeDefined();
-    expect(result.get(deep)).toBeDefined();
+    expect(result.get(shallow)).toBe(0);
+    expect(result.get(deep)).toBeGreaterThanOrEqual(1);
     expect(result.get(shallow)).not.toBe(result.get(deep));
   });
 

@@ -730,13 +730,14 @@ const ReactFlowGraphContent: React.FC<ReactFlowGraphProps> = ({
     const allIds = graph.nodes.map(n => n.id ?? '');
     const prefixLen = workspacePrefixLen(allIds);
 
+    const UMBRELLA = new Set(['src', 'tests', 'test', 'lib', 'app', 'packages', 'dist', 'out']);
     function communityLabel(anyNodeId: string): string {
       const parts = anyNodeId.split('/');
       const relParts = parts.slice(prefixLen);
       const dirParts = relParts.slice(0, -1); // strip filename
-      const depth = Math.min(2, dirParts.length);
-      const dir = dirParts.slice(0, depth).join('/');
-      return dir || (parts[parts.length - 1] ?? anyNodeId); // fallback to filename
+      const startIdx = dirParts.length > 0 && UMBRELLA.has(dirParts[0]) ? 1 : 0;
+      const domain = dirParts[startIdx];
+      return domain || (parts[parts.length - 1] ?? anyNodeId); // fallback to filename
     }
 
     // Collect one representative node ID per community
