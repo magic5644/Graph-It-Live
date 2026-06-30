@@ -17,7 +17,7 @@ import { detectPathCommunities } from './community/PathCommunityDetector.js';
  *
  * CRITICAL ARCHITECTURE RULE: NO import from 'vscode' — pure Node.js only.
  */
-export function computeNodeMetadata(graphData: GraphData): void {
+export function computeNodeMetadata(graphData: GraphData, workspaceRoot?: string): void {
   const nodes = graphData.nodes;
   if (nodes.length === 0) return;
 
@@ -44,7 +44,7 @@ export function computeNodeMetadata(graphData: GraphData): void {
   graphData.nodeMetadata = nodeMetadata;
 
   try {
-    const communityMap = detectPathCommunities(graphData.nodes);
+    const communityMap = detectPathCommunities(graphData.nodes, workspaceRoot);
     for (const [filePath, communityId] of communityMap) {
       const meta = graphData.nodeMetadata?.[normalizePath(filePath)];
       if (meta) meta.communityId = communityId;

@@ -379,6 +379,10 @@ export class Spider {
     }
   }
 
+  get workspaceRoot(): string {
+    return this.config.rootDir;
+  }
+
   /**
    * Stop the Spider and clean up resources
    */
