@@ -2,6 +2,7 @@ import { parseArgs } from 'node:util';
 import * as path from 'node:path';
 import { normalizePath } from '../../shared/path';
 import { exportHtml } from '../../analyzer/export/HtmlExporter';
+import { computeNodeMetadata } from '../../analyzer/NodeMetadataBuilder';
 import type { CliRuntime } from '../runtime';
 import type { GraphData } from '../../shared/graph-types';
 
@@ -37,10 +38,25 @@ export async function runExportHtml(
     unusedEdges: [],
   };
 
+  // Reconstruct parentCounts from dependentCount field (nb of files that import each node)
+  const parentCounts: Record<string, number> = {};
+  for (const n of rawNodes) {
+    const depCount = Number(n['dependentCount'] ?? 0);
+    if (depCount > 0) {
+      const id = normalizePath(String(n['id'] ?? n['path'] ?? ''));
+      if (id) parentCounts[id] = depCount;
+    }
+  }
+  if (Object.keys(parentCounts).length > 0) {
+    graphData.parentCounts = parentCounts;
+  }
+  computeNodeMetadata(graphData); // populates hubScore + communityId
+
   const nodes = graphData.nodes.map(filePath => ({
     id: filePath,
     label: path.basename(filePath),
-    hubScore: graphData.nodeMetadata?.[filePath]?.hubScore,
+    hubScore: graphData.nodeMetadata?.[normalizePath(filePath)]?.hubScore,
+    communityId: graphData.nodeMetadata?.[normalizePath(filePath)]?.communityId,
   }));
 
   const edges = graphData.edges.map(e => ({

@@ -2,6 +2,7 @@ import React from 'react';
 import { Handle, Position, type NodeProps } from 'reactflow';
 import { EXTENSION_COLORS, LANGUAGE_COLORS } from '../../../shared/constants';
 import { actionButtonSize, cycleIndicatorSize } from '../../utils/nodeUtils';
+import { communityColor } from '../../utils/communityColor';
 import { LanguageIcon } from './LanguageIcon';
 
 export interface FileNodeData {
@@ -16,6 +17,7 @@ export interface FileNodeData {
   parentCount?: number;
   isParentsVisible: boolean;
   hubScore?: number; // 0-100, undefined en mode symbol
+  communityId?: number;
   onNodeClick: () => void;
   onDrillDown: () => void;
   onFindReferences: () => void;
@@ -118,7 +120,12 @@ export const FileNode = React.memo<NodeProps<FileNodeData>>(function FileNode({ 
           alignItems: 'center',
           justifyContent: 'center',
           height: '100%',
-          background: data.isRoot ? borderColor : 'var(--vscode-editor-background)',
+          background: data.isRoot
+            ? borderColor
+            : (() => {
+                const commBg = communityColor(data.communityId);
+                return commBg !== 'transparent' ? commBg + '22' : 'var(--vscode-editor-background)';
+              })(),
           color: data.isRoot ? '#000' : 'var(--vscode-editor-foreground)',
           border: (() => {
             if (isSelected) return '4px solid #0078d4';
@@ -306,6 +313,7 @@ export const FileNode = React.memo<NodeProps<FileNodeData>>(function FileNode({ 
     pd.parentCount === nd.parentCount &&
     pd.isParentsVisible === nd.isParentsVisible &&
     pd.hubScore === nd.hubScore &&
+    pd.communityId === nd.communityId &&
     pd.selectedNodeId === nd.selectedNodeId &&
     pd.nodeId === nd.nodeId
   );

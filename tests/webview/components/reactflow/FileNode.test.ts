@@ -481,6 +481,45 @@ describe("FileNode", () => {
   // The comparator is only called by React during re-renders, so we use
   // RTL's rerender() to trigger it.
   // ------------------------------------------------------------------
+  describe("community background color", () => {
+    it("applies non-transparent backgroundColor when communityId is 1", () => {
+      const { container } = renderNode(makeData({ communityId: 1, fullPath: '/src/index.ts' }));
+      const inner = container.querySelector('div') as HTMLElement;
+      // Should NOT be the default vscode editor background
+      expect(inner.style.background).not.toBe('var(--vscode-editor-background)');
+    });
+
+    it("applies var(--vscode-editor-background) when communityId is 0", () => {
+      const { container } = renderNode(makeData({ communityId: 0, fullPath: '/src/index.ts' }));
+      const inner = container.querySelector('div') as HTMLElement;
+      expect(inner.style.background).toBe('var(--vscode-editor-background)');
+    });
+
+    it("applies var(--vscode-editor-background) when communityId is undefined", () => {
+      const { container } = renderNode(makeData({ communityId: undefined, fullPath: '/src/index.ts' }));
+      const inner = container.querySelector('div') as HTMLElement;
+      expect(inner.style.background).toBe('var(--vscode-editor-background)');
+    });
+  });
+
+  describe("memo comparator — communityId", () => {
+    it("includes communityId in equality check", () => {
+      // Render with communityId=1, then re-render with communityId=2
+      // The component should re-render (communityId changed)
+      const data1 = makeData({ communityId: 1, fullPath: '/src/index.ts' });
+      const data2 = makeData({ communityId: 2, fullPath: '/src/index.ts' });
+      const { container, rerender } = renderNode(data1);
+      const inner1 = container.querySelector('div') as HTMLElement;
+      const bg1 = inner1.style.background;
+
+      rerender(React.createElement(FileNode as React.ComponentType<any>, { data: data2, id: 'node-1' }));
+      const inner2 = container.querySelector('div') as HTMLElement;
+      const bg2 = inner2.style.background;
+
+      expect(bg1).not.toBe(bg2);
+    });
+  });
+
   describe("React.memo comparator (areEqual)", () => {
     it("does not re-render when all tracked data props are unchanged", () => {
       const data = makeData({ label: "stable.ts" });

@@ -1284,6 +1284,52 @@ describe("buildReactFlowGraph", () => {
     });
   });
 
+  describe("communityId propagation", () => {
+    it("passes communityId from nodeMetadata to FileNodeData", () => {
+      const data = createBasicGraphData();
+      data.nodeMetadata = { "root.ts": { hubScore: 0.5, communityId: 3 } };
+      const result = buildReactFlowGraph({
+        data,
+        currentFilePath: "root.ts",
+        expandAll: false,
+        expandedNodes: new Set(),
+        showParents: false,
+        callbacks: createMockCallbacks(),
+      });
+      const rootNode = result.nodes.find((n) => n.id === "root.ts");
+      expect((rootNode?.data as any).communityId).toBe(3);
+    });
+
+    it("passes undefined communityId when not in nodeMetadata", () => {
+      const data = createBasicGraphData();
+      data.nodeMetadata = { "root.ts": { hubScore: 0.5 } };
+      const result = buildReactFlowGraph({
+        data,
+        currentFilePath: "root.ts",
+        expandAll: false,
+        expandedNodes: new Set(),
+        showParents: false,
+        callbacks: createMockCallbacks(),
+      });
+      const rootNode = result.nodes.find((n) => n.id === "root.ts");
+      expect((rootNode?.data as any).communityId).toBeUndefined();
+    });
+
+    it("passes undefined communityId when nodeMetadata absent", () => {
+      const data = createBasicGraphData();
+      const result = buildReactFlowGraph({
+        data,
+        currentFilePath: "root.ts",
+        expandAll: false,
+        expandedNodes: new Set(),
+        showParents: false,
+        callbacks: createMockCallbacks(),
+      });
+      const rootNode = result.nodes.find((n) => n.id === "root.ts");
+      expect((rootNode?.data as any).communityId).toBeUndefined();
+    });
+  });
+
   // ---------------------------------------------------------------------------
   // Callback invocation — covers the inline arrow functions in createNodeData
   // These are created but never called unless we explicitly invoke them.
