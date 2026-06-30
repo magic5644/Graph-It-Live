@@ -714,24 +714,43 @@ const ReactFlowGraphContent: React.FC<ReactFlowGraphProps> = ({
     return graph.nodes;
   }, [graph.nodes, highlightState]);
 
-  // Derive communities with hub-label for the legend
+  // Derive communities with directory-path label for the legend
   const communities = useMemo(() => {
-    function basename(p: string): string {
-      return p.split('/').pop() ?? p;
+    // Compute workspace-root prefix length, capped so each path retains
+    // at least (2 dir segments + filename) = 3 segments after stripping.
+    function workspacePrefixLen(paths: string[]): number {
+      if (!paths.length) return 0;
+      const split = paths.map(p => p.split('/'));
+      const minLen = Math.min(...split.map(p => p.length));
+      const cap = Math.max(0, minLen - 3);
+      let i = 0;
+      while (i < cap && split.every(p => p[i] === split[0][i])) i++;
+      return i;
     }
-    const bestByComm = new Map<number, { label: string; hubScore: number }>();
+    const allIds = graph.nodes.map(n => n.id ?? '');
+    const prefixLen = workspacePrefixLen(allIds);
+
+    function communityLabel(anyNodeId: string): string {
+      const parts = anyNodeId.split('/');
+      const relParts = parts.slice(prefixLen);
+      const dirParts = relParts.slice(0, -1); // strip filename
+      const depth = Math.min(2, dirParts.length);
+      const dir = dirParts.slice(0, depth).join('/');
+      return dir || (parts[parts.length - 1] ?? anyNodeId); // fallback to filename
+    }
+
+    // Collect one representative node ID per community
+    const repByComm = new Map<number, string>();
     for (const n of graph.nodes) {
       const d = n.data as FileNodeData;
       if (!d.communityId || d.communityId === 0) continue;
-      const score = d.hubScore ?? 0;
-      const current = bestByComm.get(d.communityId);
-      if (!current || score > current.hubScore) {
-        bestByComm.set(d.communityId, { label: basename(n.id ?? d.label ?? ''), hubScore: score });
+      if (!repByComm.has(d.communityId)) {
+        repByComm.set(d.communityId, n.id ?? '');
       }
     }
-    return [...bestByComm.entries()]
+    return [...repByComm.entries()]
       .sort(([a], [b]) => a - b)
-      .map(([id, { label }]) => ({ id, label, color: communityColor(id) }));
+      .map(([id, nodeId]) => ({ id, label: communityLabel(nodeId), color: communityColor(id) }));
   }, [graph.nodes]);
 
   // Use useLayoutEffect for highlight - runs synchronously AFTER useMemo recalculates

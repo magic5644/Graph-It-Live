@@ -194,25 +194,28 @@ describe('buildCommunityLegend', () => {
     expect(html.split('Cluster 1').length - 1).toBe(1);
   });
 
-  it('picks the highest-hubScore node label per community', () => {
+  it('uses directory path from any community node as label', () => {
     const nodes: HtmlNodeData[] = [
-      { id: '/src/low.ts', label: 'low.ts', communityId: 1, hubScore: 0.1 },
-      { id: '/src/high.ts', label: 'high.ts', communityId: 1, hubScore: 0.9 },
-      { id: '/src/mid.ts', label: 'mid.ts', communityId: 1, hubScore: 0.5 },
+      { id: '/workspace/src/analyzer/low.ts', label: 'low.ts', communityId: 1, hubScore: 0.1 },
+      { id: '/workspace/src/analyzer/high.ts', label: 'high.ts', communityId: 1, hubScore: 0.9 },
+      { id: '/workspace/src/analyzer/mid.ts', label: 'mid.ts', communityId: 1, hubScore: 0.5 },
     ];
     const html = buildCommunityLegend(nodes);
-    expect(html).toContain('high.ts');
+    // Label should be the common directory path, not a specific file
+    expect(html).toContain('src/analyzer');
+    // No individual filenames should appear as labels
     expect(html).not.toContain('low.ts');
+    expect(html).not.toContain('high.ts');
     expect(html).not.toContain('mid.ts');
   });
 
-  it('uses hubScore 0 as default when hubScore is undefined', () => {
+  it('uses directory path label regardless of hubScore', () => {
     const nodes: HtmlNodeData[] = [
-      { id: '/src/a.ts', label: 'a.ts', communityId: 1 },
-      { id: '/src/b.ts', label: 'b.ts', communityId: 1, hubScore: 0.4 },
+      { id: '/workspace/src/webview/a.ts', label: 'a.ts', communityId: 1 },
+      { id: '/workspace/src/webview/b.ts', label: 'b.ts', communityId: 1, hubScore: 0.4 },
     ];
     const html = buildCommunityLegend(nodes);
-    expect(html).toContain('b.ts'); // b.ts wins (0.4 > 0)
+    expect(html).toContain('src/webview');
   });
 
   it('sorts clusters by communityId ascending', () => {
@@ -237,13 +240,14 @@ describe('buildCommunityLegend', () => {
     expect(html).toContain(COMMUNITY_PALETTE[1]); // index (2-1) % 12 = 1
   });
 
-  it('escapes special characters in node labels (Règle 10)', () => {
+  it('escapes special characters in node paths (Règle 10)', () => {
     const nodes: HtmlNodeData[] = [
-      { id: '/src/a.ts', label: '<script>alert("xss")</script>', communityId: 1, hubScore: 0.5 },
+      { id: '/src/<evil>&dir/a.ts', label: 'a.ts', communityId: 1, hubScore: 0.5 },
     ];
     const html = buildCommunityLegend(nodes);
-    expect(html).not.toContain('<script>');
-    expect(html).toContain('&lt;script&gt;');
+    expect(html).not.toContain('<evil>');
+    expect(html).toContain('&lt;evil&gt;');
+    expect(html).toContain('&amp;dir');
   });
 
   it('is a fixed-position overlay with inline CSS only', () => {
