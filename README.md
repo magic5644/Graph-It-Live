@@ -413,6 +413,7 @@ graph-it wiki                   # Generate a navigable markdown wiki from the ca
 graph-it serve                  # Launch MCP stdio server (for AI clients)
 graph-it tool --list            # List all 22 CLI analysis tools
 graph-it tool <mcp-tool> [args] # Run any MCP tool directly from the terminal
+graph-it export [path] [--format html]  # Export graph as standalone HTML (vis.js)
 graph-it update                 # Update graph-it to the latest version
 graph-it install                # Symlink the binary into your system PATH (opt-in)
 ```
@@ -448,7 +449,7 @@ This output can be pasted directly into any Markdown renderer (GitHub, Notion, V
 
 **Use as MCP server (no VS Code):** Run `graph-it serve` and point your AI client at it — see [Manual MCP Server Configuration](#manual-mcp-server-configuration).
 
-**Interactive REPL:** Run `graph-it` with no arguments to enter interactive mode. Type `/query how does X work` to ask natural language questions about your codebase (no quotes needed). Use `/wiki` to generate a navigable markdown wiki from the call graph. Other slash commands: `/trace`, `/summary`, `/architecture`, `/check`, `/cycles`, `/format`, `/help`.
+**Interactive REPL:** Run `graph-it` with no arguments to enter interactive mode. Type `/query how does X work` to ask natural language questions about your codebase (no quotes needed). Use `/wiki` to generate a navigable markdown wiki from the call graph. Other slash commands: `/trace`, `/summary`, `/architecture`, `/check`, `/cycles`, `/export` (export dependency graph as standalone HTML), `/format`, `/help`.
 
 **Full CLI reference:** See **[docs/CLI.md](docs/CLI.md)** for complete documentation on every command, all options, output format examples, advanced workflows, and the full MCP tools reference.
 
