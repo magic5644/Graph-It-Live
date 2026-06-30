@@ -55,24 +55,47 @@ export function hubScoreBorderWidth(score: number | undefined): number {
 }
 
 export function buildCommunityLegend(nodes: HtmlNodeData[]): string {
-  // Collect communities with communityId > 0
-  const communityMap = new Map<number, { label: string; hubScore: number }>();
+  // Compute common workspace-root prefix length, capped so each path retains
+  // at least (2 dir segments + filename) = 3 segments after stripping.
+  function workspacePrefixLen(paths: string[]): number {
+    if (!paths.length) return 0;
+    const split = paths.map(p => p.split('/'));
+    // Cap: never strip more than (minPathLen - 3) segments so 2 dir levels remain
+    const minLen = Math.min(...split.map(p => p.length));
+    const cap = Math.max(0, minLen - 3);
+    let i = 0;
+    while (i < cap && split.every(p => p[i] === split[0][i])) i++;
+    return i;
+  }
+
+  function dirLabel(filePath: string, prefixLen: number): string {
+    const parts = filePath.split('/');
+    const relParts = parts.slice(prefixLen);
+    const dirParts = relParts.slice(0, -1); // strip filename
+    const depth = Math.min(2, dirParts.length);
+    const dir = dirParts.slice(0, depth).join('/');
+    return dir || parts[parts.length - 1]; // fallback to filename
+  }
+
+  // Collect one representative node path per community (first seen)
+  const repByComm = new Map<number, string>();
   for (const node of nodes) {
     const cid = node.communityId;
     if (cid === undefined || cid <= 0) continue;
-    const hub = node.hubScore ?? 0;
-    const existing = communityMap.get(cid);
-    if (!existing || hub > existing.hubScore) {
-      communityMap.set(cid, { label: node.label, hubScore: hub });
+    if (!repByComm.has(cid)) {
+      repByComm.set(cid, node.id);
     }
   }
-  if (communityMap.size === 0) return '';
+  if (repByComm.size === 0) return '';
 
-  const sortedIds = Array.from(communityMap.keys()).sort((a, b) => a - b);
+  const allPaths = nodes.map(n => n.id);
+  const prefixLen = workspacePrefixLen(allPaths);
+
+  const sortedIds = Array.from(repByComm.keys()).sort((a, b) => a - b);
 
   const items = sortedIds.map(cid => {
     const color = COMMUNITY_PALETTE[(cid - 1) % COMMUNITY_PALETTE.length];
-    const topLabel = htmlEscape(communityMap.get(cid)!.label);
+    const topLabel = htmlEscape(dirLabel(repByComm.get(cid)!, prefixLen));
     return `    <div style="display:flex;align-items:center;gap:6px;margin-bottom:4px;">` +
       `<span style="display:inline-block;width:12px;height:12px;border-radius:2px;background:${color};flex-shrink:0;"></span>` +
       `<span style="font-size:11px;white-space:nowrap;">Cluster ${cid} — ${topLabel}</span>` +

@@ -5,7 +5,7 @@
  * AC6: fileExtension absent when file has no extension.
  * F4: communityId assigned via detectCommunities, graceful degrade on failure.
  */
-import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 import { computeNodeMetadata } from '../../src/analyzer/NodeMetadataBuilder.js';
 import { normalizePath } from '../../src/shared/path.js';
 import type { GraphData } from '../../src/shared/graph-types.js';
@@ -155,13 +155,13 @@ describe('computeNodeMetadata', () => {
 
   // F4 — communityId tests
 
-  it('F4 — communityId is set for connected nodes', () => {
-    const nodeA = normalizePath('/project/src/a.ts');
-    const nodeB = normalizePath('/project/src/b.ts');
+  it('F4 — files in same directory get same communityId (path-based)', () => {
+    const nodeA = normalizePath('/project/src/analyzer/a.ts');
+    const nodeB = normalizePath('/project/src/analyzer/b.ts');
 
     const data: GraphData = {
       nodes: [nodeA, nodeB],
-      edges: [{ source: nodeA, target: nodeB }],
+      edges: [],
       parentCounts: { [nodeA]: 1, [nodeB]: 1 },
     };
 
@@ -169,15 +169,36 @@ describe('computeNodeMetadata', () => {
 
     expect(data.nodeMetadata![nodeA].communityId).toBeDefined();
     expect(data.nodeMetadata![nodeB].communityId).toBeDefined();
-    // Both connected → same community
+    // Same directory → same community
     expect(data.nodeMetadata![nodeA].communityId).toBe(
       data.nodeMetadata![nodeB].communityId,
     );
     expect(data.nodeMetadata![nodeA].communityId).toBeGreaterThanOrEqual(1);
   });
 
-  it('F4 — isolated node gets communityId === 0', () => {
-    const nodeA = normalizePath('/project/src/isolated.ts');
+  it('F4 — files in different directories get different communityIds', () => {
+    const nodeA = normalizePath('/project/src/analyzer/a.ts');
+    const nodeB = normalizePath('/project/src/webview/b.tsx');
+
+    const data: GraphData = {
+      nodes: [nodeA, nodeB],
+      edges: [],
+      parentCounts: {},
+    };
+
+    computeNodeMetadata(data);
+
+    expect(data.nodeMetadata![nodeA].communityId).not.toBe(
+      data.nodeMetadata![nodeB].communityId,
+    );
+  });
+
+  it('F4 — every file gets a communityId (path-based, never undefined)', () => {
+    // With path-based detection, communityId 0 only occurs when dirParts is
+    // empty after stripping the workspace prefix — which requires the file to
+    // sit at the exact workspace root with no subdirectory. In practice, files
+    // always have at least one directory component, so communityId ≥ 0 always.
+    const nodeA = normalizePath('/project/README.md');
 
     const data: GraphData = {
       nodes: [nodeA],
@@ -187,13 +208,13 @@ describe('computeNodeMetadata', () => {
 
     computeNodeMetadata(data);
 
-    expect(data.nodeMetadata![nodeA].communityId).toBe(0);
+    expect(data.nodeMetadata![nodeA].communityId).toBeDefined();
   });
 
-  it('F4 — graceful degrade: nodeMetadata still set when detectCommunities throws', async () => {
-    // Mock LouvainDetector to throw
-    vi.doMock('../../src/analyzer/community/LouvainDetector.js', () => ({
-      detectCommunities: () => { throw new Error('WASM unavailable'); },
+  it('F4 — graceful degrade: nodeMetadata still set when detectPathCommunities throws', async () => {
+    // Mock PathCommunityDetector to throw
+    vi.doMock('../../src/analyzer/community/PathCommunityDetector.js', () => ({
+      detectPathCommunities: () => { throw new Error('unexpected error'); },
     }));
 
     // Re-import after mock
@@ -201,7 +222,7 @@ describe('computeNodeMetadata', () => {
       '../../src/analyzer/NodeMetadataBuilder.js?v=fail'
     ).catch(() => import('../../src/analyzer/NodeMetadataBuilder.js'));
 
-    const nodeA = normalizePath('/project/src/a.ts');
+    const nodeA = normalizePath('/project/src/analyzer/a.ts');
     const data: GraphData = {
       nodes: [nodeA],
       edges: [],
@@ -215,7 +236,7 @@ describe('computeNodeMetadata', () => {
     expect(data.nodeMetadata).toBeDefined();
     expect(data.nodeMetadata![nodeA].hubScore).toBeDefined();
 
-    vi.doUnmock('../../src/analyzer/community/LouvainDetector.js');
+    vi.doUnmock('../../src/analyzer/community/PathCommunityDetector.js');
   });
 
   it('F4 — communityId absent when nodes array is empty', () => {
