@@ -574,7 +574,7 @@ async function handleTypedSessionCommand(
   if (command === 'export') {
     const workspaceName = path.basename(runtime.workspaceRoot);
     const { runExportHtml } = await import('./ExportHtmlCommand.js');
-    await runExportHtml(runtime, workspaceName, args);
+    await runExportHtml(runtime, workspaceName, args, state.lastFile);
     return { command: 'export', skipPostAction: true };
   }
 
