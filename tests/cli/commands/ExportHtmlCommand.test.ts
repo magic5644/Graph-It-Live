@@ -14,7 +14,7 @@ vi.mock('../../../src/cli/commands/architecture.js', () => ({
 }));
 
 vi.mock('../../../src/shared/path', () => ({
-  normalizePath: (p: string) => p.replace(/\\/g, '/'),
+  normalizePath: (p: string) => p.replaceAll('\\', '/'),
 }));
 
 vi.mock('../../../src/analyzer/NodeMetadataBuilder', () => ({
@@ -53,7 +53,7 @@ describe('runExportHtml', () => {
 
     expect(mockExportHtml).toHaveBeenCalledOnce();
     const config = mockExportHtml.mock.calls[0][0];
-    expect(config.outputPath).toBe(path.join(process.cwd(), 'graph.html'));
+    expect(config.outputPath).toBe(normalizePath(path.join(process.cwd(), 'graph.html')));
   });
 
   it('uses --output absolute path when provided', async () => {
