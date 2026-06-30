@@ -116,28 +116,93 @@ export function exportHtml(config: HtmlExporterConfig): void {
   <meta charset="UTF-8">
   <title>${title} — Graph-It</title>
   <style>
-    body { margin: 0; background: #1e1e1e; color: #ccc; font-family: sans-serif; }
-    h1 { padding: 8px 16px; margin: 0; font-size: 14px; background: #252526; border-bottom: 1px solid #333; }
+    body { margin: 0; background: #1e1e1e; color: #ccc; font-family: sans-serif; overflow: hidden; }
+    #titlebar { padding: 8px 16px; margin: 0; font-size: 14px; background: #252526; border-bottom: 1px solid #333; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
     #graph { width: 100vw; height: calc(100vh - 36px); }
+    #toolbar { position: fixed; top: 6px; right: 8px; z-index: 200; display: flex; gap: 4px; }
+    #toolbar button { background: #3c3c3c; color: #ccc; border: 1px solid #555; border-radius: 3px; padding: 3px 8px; font-size: 12px; cursor: pointer; }
+    #toolbar button:hover { background: #505050; }
+    #toolbar button.active { background: #0e639c; border-color: #1177bb; color: #fff; }
+    #progress { position: fixed; bottom: 12px; left: 50%; transform: translateX(-50%); background: #252526; border: 1px solid #444; border-radius: 4px; padding: 6px 16px; font-size: 12px; z-index: 200; }
   </style>
 </head>
 <body>
-  <h1>${title}</h1>
+  <div id="titlebar">${title}</div>
+  <div id="toolbar">
+    <button onclick="network.fit()">⊞ Fit</button>
+    <button id="btn-physics" class="active" onclick="togglePhysics()">⚡ Physics</button>
+    <button onclick="resetLayout()">↺ Reset</button>
+  </div>
+  <div id="progress">Laying out graph…</div>
   <div id="graph"></div>
   <script>${safeVisSource}</script>
   <script>
-    const nodes = new vis.DataSet(${nodesJson});
-    const edges = new vis.DataSet(${edgesJson});
+    const nodesData = ${nodesJson};
+    const edgesData = ${edgesJson};
+    const nodes = new vis.DataSet(nodesData);
+    const edges = new vis.DataSet(edgesData);
     const container = document.getElementById('graph');
-    const network = new vis.Network(container, { nodes, edges }, {
-      physics: { stabilization: { iterations: 150 } },
-      edges: { smooth: { type: 'cubicBezier' } },
-      nodes: { shape: 'box', font: { color: '#ccc' }, color: { border: '#555' } }
+    const options = {
+      physics: {
+        barnesHut: {
+          gravitationalConstant: -8000,
+          springLength: 130,
+          springConstant: 0.04,
+          damping: 0.09,
+          avoidOverlap: 0.9,
+        },
+        stabilization: { iterations: 300, updateInterval: 30 },
+      },
+      edges: {
+        smooth: { type: 'continuous' },
+        arrows: { to: { enabled: true, scaleFactor: 0.4 } },
+        color: { color: '#555', opacity: 0.55 },
+        width: 0.8,
+      },
+      nodes: {
+        shape: 'box',
+        font: { color: '#ccc', size: 11 },
+        color: { border: '#555', highlight: { border: '#fff', background: '#3a3a3a' } },
+        margin: { top: 4, bottom: 4, left: 6, right: 6 },
+      },
+      interaction: { dragNodes: true, zoomView: true, dragView: true, hover: true },
+    };
+    const network = new vis.Network(container, { nodes, edges }, options);
+    let physicsOn = true;
+
+    network.once('stabilizationIterationsDone', () => {
+      network.setOptions({ physics: { enabled: false } });
+      physicsOn = false;
+      document.getElementById('btn-physics').classList.remove('active');
+      document.getElementById('progress').style.display = 'none';
+      network.fit();
     });
+
+    function togglePhysics() {
+      physicsOn = !physicsOn;
+      network.setOptions({ physics: { enabled: physicsOn } });
+      const btn = document.getElementById('btn-physics');
+      btn.classList.toggle('active', physicsOn);
+    }
+
+    function resetLayout() {
+      network.setOptions({ physics: { enabled: true } });
+      physicsOn = true;
+      document.getElementById('btn-physics').classList.add('active');
+      document.getElementById('progress').style.display = '';
+      network.stabilize(300);
+      network.once('stabilizationIterationsDone', () => {
+        network.setOptions({ physics: { enabled: false } });
+        physicsOn = false;
+        document.getElementById('btn-physics').classList.remove('active');
+        document.getElementById('progress').style.display = 'none';
+        network.fit();
+      });
+    }
+
     network.on('click', params => {
       if (params.nodes.length > 0) {
-        const nodeId = params.nodes[0];
-        document.querySelector('h1').textContent = nodeId;
+        document.getElementById('titlebar').textContent = params.nodes[0];
       }
     });
   </script>
