@@ -54,9 +54,37 @@ export function hubScoreBorderWidth(score: number | undefined): number {
   return 4;
 }
 
+export function buildCommunityLegend(nodes: HtmlNodeData[]): string {
+  // Collect communities with communityId > 0
+  const communityMap = new Map<number, { label: string; hubScore: number }>();
+  for (const node of nodes) {
+    const cid = node.communityId;
+    if (cid === undefined || cid <= 0) continue;
+    const hub = node.hubScore ?? 0;
+    const existing = communityMap.get(cid);
+    if (!existing || hub > existing.hubScore) {
+      communityMap.set(cid, { label: node.label, hubScore: hub });
+    }
+  }
+  if (communityMap.size === 0) return '';
+
+  const sortedIds = Array.from(communityMap.keys()).sort((a, b) => a - b);
+
+  const items = sortedIds.map(cid => {
+    const color = COMMUNITY_PALETTE[(cid - 1) % COMMUNITY_PALETTE.length];
+    const topLabel = htmlEscape(communityMap.get(cid)!.label);
+    return `    <div style="display:flex;align-items:center;gap:6px;margin-bottom:4px;">` +
+      `<span style="display:inline-block;width:12px;height:12px;border-radius:2px;background:${color};flex-shrink:0;"></span>` +
+      `<span style="font-size:11px;white-space:nowrap;">Cluster ${cid} — ${topLabel}</span>` +
+      `</div>`;
+  }).join('\n');
+
+  return `<div style="position:fixed;bottom:16px;left:16px;background:#252526;border:1px solid #444;border-radius:6px;padding:10px 14px;z-index:1000;max-width:220px;">` +
+    `<div style="font-size:11px;font-weight:600;margin-bottom:8px;color:#aaa;text-transform:uppercase;letter-spacing:.05em;">Import clusters</div>\n` +
+    items + `\n</div>`;
+}
+
 export function exportHtml(config: HtmlExporterConfig): void {
-  // CJS context: require is available globally (nodenext module without "type":"module")
-  // eslint-disable-next-line @typescript-eslint/no-require-imports
   const visPath = (require as NodeRequire).resolve('vis-network/standalone/umd/vis-network.min.js');
   const visSource = fs.readFileSync(visPath, 'utf-8');
   const safeVisSource = visSource.replaceAll('</script>', '<\\/script>');
@@ -80,6 +108,7 @@ export function exportHtml(config: HtmlExporterConfig): void {
   })));
 
   const title = htmlEscape(config.workspaceName);
+  const legend = buildCommunityLegend(config.nodes);
 
   const html = `<!DOCTYPE html>
 <html lang="en">
@@ -112,6 +141,7 @@ export function exportHtml(config: HtmlExporterConfig): void {
       }
     });
   </script>
+  ${legend}
 </body>
 </html>`;
 
