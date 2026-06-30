@@ -1,52 +1,42 @@
 import { normalizePath } from '../../shared/path.js';
 
 /**
- * Finds the workspace prefix to strip before grouping.
- *
- * We strip the longest common path prefix, but cap it so that at least
- * ONE directory segment always remains after stripping (i.e. files are never
- * left with an empty dirParts and a non-zero groupKey).
- *
- * Rule: strip at most (minPartCount - 2) parts, where minPartCount is the
- * minimum number of slash-split parts across all paths. "- 2" reserves one
- * part for a directory and one for the filename.
- *
- * Example — all files in same deep dir:
- *   ['/project/src/analyzer/Spider.ts', '/project/src/analyzer/PathResolver.ts']
- *   shared = ['', 'project', 'src', 'analyzer']  (len 4)
- *   minPartCount = 5  (each path has 5 parts)
- *   cap = min(4, 5-2) = 3  → prefix = ['', 'project', 'src']
- *   relParts(Spider.ts) = ['analyzer', 'Spider.ts']
- *   dirParts = ['analyzer'], groupKey = 'analyzer'  ✓ (communityId ≥ 1)
+ * Top-level directories that are structural containers, not functional domains.
+ * When encountered as the first relative path segment, we skip to the next one.
+ * e.g. src/analyzer/types.ts → skip 'src' → domain = 'analyzer'
+ *      tests/analyzer/foo.test.ts → skip 'tests' → domain = 'analyzer'
+ */
+const UMBRELLA_DIRS = new Set(['src', 'tests', 'test', 'lib', 'app', 'packages', 'dist', 'out']);
+
+/**
+ * Returns the longest common path prefix (as an array of parts),
+ * capped so at least 2 parts remain after stripping (1 dir + 1 filename).
  */
 function workspacePrefix(paths: string[]): string[] {
   if (paths.length === 0) return [];
-
   const split = paths.map(p => p.split('/'));
-  const minPartCount = Math.min(...split.map(p => p.length));
-
+  const minLen = Math.min(...split.map(p => p.length));
   const shared: string[] = [];
-  for (let i = 0; i < minPartCount; i++) {
+  for (let i = 0; i < minLen; i++) {
     if (split.every(p => p[i] === split[0][i])) shared.push(split[0][i]);
     else break;
   }
-
-  // Reserve at least 1 directory segment + 1 filename after the prefix.
-  const maxStrip = Math.max(0, minPartCount - 2);
+  const maxStrip = Math.max(0, minLen - 2);
   return shared.slice(0, Math.min(shared.length, maxStrip));
 }
 
 /**
- * Groups files by their first 2 path components relative to the workspace root.
+ * Groups files by their first functional domain (first non-umbrella subdirectory).
  *
- * - Files with no directory after stripping the workspace prefix → communityId 0.
+ * - Umbrella dirs (src, tests, lib…) are skipped: src/analyzer → domain 'analyzer'.
+ * - Files with no domain after stripping → communityId 0 (isolated).
  * - All others → 1-indexed communityId, contiguous, assigned in encounter order.
  *
  * Examples (workspace = /project):
- *   /project/src/analyzer/Spider.ts       → group 'src/analyzer'  → id 1
- *   /project/src/webview/App.tsx          → group 'src/webview'   → id 2
- *   /project/src/analyzer/callgraph/X.ts  → group 'src/analyzer'  → id 1 (depth capped at 2)
- *   /project/index.ts (when mixed)        → dirParts=[], id 0
+ *   /project/src/analyzer/Spider.ts       → 'analyzer' → id 1
+ *   /project/src/webview/App.tsx          → 'webview'  → id 2
+ *   /project/tests/analyzer/foo.test.ts   → 'analyzer' → id 1 (same domain)
+ *   /project/src/index.ts                 → id 0 (no domain after skipping 'src')
  *
  * CRITICAL ARCHITECTURE RULE: NO import from 'vscode' — pure Node.js only.
  */
@@ -64,16 +54,18 @@ export function detectPathCommunities(nodes: string[]): Map<string, number> {
     const parts = fp.split('/');
     const relParts = parts.slice(prefix.length); // strip workspace prefix
     const dirParts = relParts.slice(0, -1);       // strip filename
-    const depth = Math.min(2, dirParts.length);
-    const groupKey = dirParts.slice(0, depth).join('/');
 
-    if (!groupKey) {
-      result.set(fp, 0); // file sits directly at workspace root → isolated
+    // Skip leading umbrella directory (src, tests, lib…)
+    const startIdx = dirParts.length > 0 && UMBRELLA_DIRS.has(dirParts[0]) ? 1 : 0;
+    const domain = dirParts[startIdx]; // first functional subdirectory
+
+    if (!domain) {
+      result.set(fp, 0); // no functional domain → isolated
       continue;
     }
 
-    if (!groupToId.has(groupKey)) groupToId.set(groupKey, nextId++);
-    result.set(fp, groupToId.get(groupKey)!);
+    if (!groupToId.has(domain)) groupToId.set(domain, nextId++);
+    result.set(fp, groupToId.get(domain)!);
   }
 
   return result;
