@@ -34,13 +34,13 @@ describe('CommunityLegend', () => {
     expect(screen.getByText('Spider.ts')).toBeTruthy();
   });
 
-  it('sets title="Community N" on the label span', () => {
+  it('sets title="Cluster N — M clusters total" on the label span', () => {
     render(
       React.createElement(CommunityLegend, {
         communities: [{ id: 1, label: 'Spider.ts', color: '#4E79A7' }],
       })
     );
-    const span = screen.getByTitle('Community 1');
+    const span = screen.getByTitle('Cluster 1 — 1 clusters total');
     expect(span).toBeTruthy();
     expect(span.textContent).toBe('Spider.ts');
   });
@@ -73,12 +73,36 @@ describe('CommunityLegend', () => {
     expect(screen.getByText('Query.ts')).toBeTruthy();
   });
 
-  it('renders "Communities" header', () => {
+  it('renders "Import clusters" header', () => {
     render(
       React.createElement(CommunityLegend, {
         communities: [{ id: 1, label: 'Hub.ts', color: '#4E79A7' }],
       })
     );
-    expect(screen.getByText('Communities')).toBeTruthy();
+    expect(screen.getByText('Import clusters')).toBeTruthy();
+  });
+
+  it('renders subtitle "Groups of closely connected files"', () => {
+    render(
+      React.createElement(CommunityLegend, {
+        communities: [{ id: 1, label: 'Hub.ts', color: '#4E79A7' }],
+      })
+    );
+    expect(screen.getByText('Groups of closely connected files')).toBeTruthy();
+  });
+
+  it('title includes total cluster count for multiple communities', () => {
+    render(
+      React.createElement(CommunityLegend, {
+        communities: [
+          { id: 1, label: 'A.ts', color: '#4E79A7' },
+          { id: 2, label: 'B.ts', color: '#F28E2B' },
+        ],
+      })
+    );
+    const span1 = screen.getByTitle('Cluster 1 — 2 clusters total');
+    const span2 = screen.getByTitle('Cluster 2 — 2 clusters total');
+    expect(span1.textContent).toBe('A.ts');
+    expect(span2.textContent).toBe('B.ts');
   });
 });
