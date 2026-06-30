@@ -6,6 +6,95 @@ import { computeNodeMetadata } from '../../analyzer/NodeMetadataBuilder';
 import type { CliRuntime } from '../runtime';
 import type { GraphData } from '../../shared/graph-types';
 
+type RawRecord = Record<string, unknown>;
+
+function getStringValue(value: unknown): string {
+  return typeof value === 'string' ? value : '';
+}
+
+function getNormalizedNodeId(node: RawRecord): string {
+  const id = getStringValue(node['id']);
+  if (id) {
+    return normalizePath(id);
+  }
+
+  const filePath = getStringValue(node['path']);
+  return filePath ? normalizePath(filePath) : '';
+}
+
+function getNormalizedEdgeEndpoint(edge: RawRecord, key: 'source' | 'target'): string {
+  const value = getStringValue(edge[key]);
+  return value ? normalizePath(value) : '';
+}
+
+function parseArchitectureOutput(raw: RawRecord): {
+  rawNodes: RawRecord[];
+  rawEdges: RawRecord[];
+} {
+  const rawNodes = Array.isArray(raw['nodes']) ? (raw['nodes'] as RawRecord[]) : [];
+  const rawEdges = Array.isArray(raw['edges']) ? (raw['edges'] as RawRecord[]) : [];
+  return { rawNodes, rawEdges };
+}
+
+function buildGraphData(rawNodes: RawRecord[], rawEdges: RawRecord[]): GraphData {
+  const graphData: GraphData = {
+    nodes: rawNodes.map(getNormalizedNodeId),
+    edges: rawEdges.map(edge => ({
+      source: getNormalizedEdgeEndpoint(edge, 'source'),
+      target: getNormalizedEdgeEndpoint(edge, 'target'),
+    })),
+    unusedEdges: [],
+  };
+
+  const parentCounts: Record<string, number> = {};
+  for (const node of rawNodes) {
+    const depCount = Number(node['dependentCount'] ?? 0);
+    if (depCount <= 0) {
+      continue;
+    }
+
+    const id = getNormalizedNodeId(node);
+    if (id) {
+      parentCounts[id] = depCount;
+    }
+  }
+
+  if (Object.keys(parentCounts).length > 0) {
+    graphData.parentCounts = parentCounts;
+  }
+
+  return graphData;
+}
+
+function filterGraphByScope(graphData: GraphData, resolvedScope?: string): void {
+  if (!resolvedScope) {
+    return;
+  }
+
+  const isFile = graphData.nodes.includes(resolvedScope);
+  let kept: Set<string>;
+  if (isFile) {
+    kept = new Set([resolvedScope]);
+    for (const edge of graphData.edges) {
+      if (edge.source === resolvedScope) {
+        kept.add(edge.target);
+      }
+      if (edge.target === resolvedScope) {
+        kept.add(edge.source);
+      }
+    }
+  } else {
+    const prefix = resolvedScope.endsWith('/') ? resolvedScope : resolvedScope + '/';
+    kept = new Set(graphData.nodes.filter(node => node === resolvedScope || node.startsWith(prefix)));
+  }
+
+  graphData.nodes = graphData.nodes.filter(node => kept.has(node));
+  graphData.edges = graphData.edges.filter(edge => kept.has(edge.source) && kept.has(edge.target));
+  if (graphData.unusedEdges) {
+    graphData.unusedEdges = graphData.unusedEdges.filter(edge => kept.has(edge));
+  }
+}
+
 export async function runExportHtml(
   runtime: CliRuntime,
   workspaceName: string,
@@ -29,57 +118,13 @@ export async function runExportHtml(
   // Build graph data by delegating to the architecture command (json format)
   const { run: architectureRun } = await import('./architecture.js');
   const jsonOutput = await architectureRun([], runtime, 'json');
-  const raw = JSON.parse(jsonOutput) as Record<string, unknown>;
-
-  // Convert architecture output shape to GraphData
-  const rawNodes = Array.isArray(raw['nodes']) ? (raw['nodes'] as Array<Record<string, unknown>>) : [];
-  const rawEdges = Array.isArray(raw['edges']) ? (raw['edges'] as Array<Record<string, unknown>>) : [];
-
-  const graphData: GraphData = {
-    nodes: rawNodes.map(n => normalizePath(String(n['id'] ?? n['path'] ?? ''))),
-    edges: rawEdges.map(e => ({
-      source: normalizePath(String(e['source'] ?? '')),
-      target: normalizePath(String(e['target'] ?? '')),
-    })),
-    unusedEdges: [],
-  };
-
-  // Reconstruct parentCounts from dependentCount field (nb of files that import each node)
-  const parentCounts: Record<string, number> = {};
-  for (const n of rawNodes) {
-    const depCount = Number(n['dependentCount'] ?? 0);
-    if (depCount > 0) {
-      const id = normalizePath(String(n['id'] ?? n['path'] ?? ''));
-      if (id) parentCounts[id] = depCount;
-    }
-  }
-  if (Object.keys(parentCounts).length > 0) {
-    graphData.parentCounts = parentCounts;
-  }
+  const raw = JSON.parse(jsonOutput) as RawRecord;
+  const { rawNodes, rawEdges } = parseArchitectureOutput(raw);
+  const graphData = buildGraphData(rawNodes, rawEdges);
   computeNodeMetadata(graphData, runtime.workspaceRoot); // populates hubScore + communityId
 
   // Scope filter: positional arg or state.lastFile narrows the graph
-  if (resolvedScope) {
-    const isFile = graphData.nodes.includes(resolvedScope);
-    let kept: Set<string>;
-    if (isFile) {
-      // 1-hop neighborhood: scope node + direct imports + direct importers
-      kept = new Set([resolvedScope]);
-      for (const e of graphData.edges) {
-        if (e.source === resolvedScope) kept.add(e.target);
-        if (e.target === resolvedScope) kept.add(e.source);
-      }
-    } else {
-      // Directory prefix: all nodes under that path
-      const prefix = resolvedScope.endsWith('/') ? resolvedScope : resolvedScope + '/';
-      kept = new Set(graphData.nodes.filter(n => n === resolvedScope || n.startsWith(prefix)));
-    }
-    graphData.nodes = graphData.nodes.filter(n => kept.has(n));
-    graphData.edges = graphData.edges.filter(e => kept.has(e.source) && kept.has(e.target));
-    if (graphData.unusedEdges) {
-      graphData.unusedEdges = graphData.unusedEdges.filter(e => kept.has(e));
-    }
-  }
+  filterGraphByScope(graphData, resolvedScope);
 
   const nodes = graphData.nodes.map(filePath => ({
     id: filePath,
