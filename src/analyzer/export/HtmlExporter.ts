@@ -22,6 +22,7 @@ export interface HtmlExporterConfig {
   unusedEdges: string[];
   workspaceName: string;
   outputPath: string;
+  workspaceRoot?: string;
 }
 
 export function htmlEscape(s: string): string {
@@ -54,13 +55,12 @@ export function hubScoreBorderWidth(score: number | undefined): number {
   return 4;
 }
 
-export function buildCommunityLegend(nodes: HtmlNodeData[]): string {
-  // Compute common workspace-root prefix length, capped so each path retains
-  // at least (2 dir segments + filename) = 3 segments after stripping.
+export function buildCommunityLegend(nodes: HtmlNodeData[], workspaceRoot?: string): string {
+  const UMBRELLA = new Set(['src', 'tests', 'test', 'lib', 'app', 'packages', 'dist', 'out']);
+
   function workspacePrefixLen(paths: string[]): number {
     if (!paths.length) return 0;
     const split = paths.map(p => p.split('/'));
-    // Cap: never strip more than (minPathLen - 3) segments so 2 dir levels remain
     const minLen = Math.min(...split.map(p => p.length));
     const cap = Math.max(0, minLen - 3);
     let i = 0;
@@ -68,11 +68,12 @@ export function buildCommunityLegend(nodes: HtmlNodeData[]): string {
     return i;
   }
 
-  const UMBRELLA = new Set(['src', 'tests', 'test', 'lib', 'app', 'packages', 'dist', 'out']);
   function dirLabel(filePath: string, prefixLen: number): string {
-    const parts = filePath.split('/');
-    const relParts = parts.slice(prefixLen);
-    const dirParts = relParts.slice(0, -1); // strip filename
+    const rel = workspaceRoot
+      ? path.relative(workspaceRoot, filePath).replaceAll('\\', '/')
+      : filePath.split('/').slice(prefixLen).join('/');
+    const parts = rel.split('/');
+    const dirParts = parts.slice(0, -1); // strip filename
     const startIdx = dirParts.length > 0 && UMBRELLA.has(dirParts[0]) ? 1 : 0;
     const domain = dirParts[startIdx];
     return domain || parts[parts.length - 1]; // fallback to filename
@@ -90,7 +91,7 @@ export function buildCommunityLegend(nodes: HtmlNodeData[]): string {
   if (repByComm.size === 0) return '';
 
   const allPaths = nodes.map(n => n.id);
-  const prefixLen = workspacePrefixLen(allPaths);
+  const prefixLen = workspaceRoot ? 0 : workspacePrefixLen(allPaths);
 
   const sortedIds = Array.from(repByComm.keys()).sort((a, b) => a - b);
 
@@ -132,7 +133,7 @@ export function exportHtml(config: HtmlExporterConfig): void {
   })));
 
   const title = htmlEscape(config.workspaceName);
-  const legend = buildCommunityLegend(config.nodes);
+  const legend = buildCommunityLegend(config.nodes, config.workspaceRoot);
 
   const html = `<!DOCTYPE html>
 <html lang="en">

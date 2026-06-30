@@ -100,6 +100,7 @@ export async function runExportHtml(
     unusedEdges: graphData.unusedEdges ?? [],
     workspaceName,
     outputPath,
+    workspaceRoot: runtime.workspaceRoot,
   });
 
   process.stdout.write(`Graph exported to ${outputPath}\n`);
