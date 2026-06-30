@@ -180,6 +180,7 @@ graph-it [options]
 | `/check` | Find unused exports |
 | `/format` | Set preferred output format for the session |
 | `/command` | Run a raw CLI command line inside REPL |
+| `/export` | Export dependency graph as standalone HTML (vis.js). Optional `--output <path>` / `-o <path>`. Scope: active file context → workspace scope (set via `/path`) → full workspace |
 | `/help` | Show REPL command help |
 | `/quit` | Exit interactive mode |
 

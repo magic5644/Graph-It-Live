@@ -1,5 +1,24 @@
 # Changelog
 
+## v1.11.0
+
+### Added — Path-based community detection (F4)
+
+- **`PathCommunityDetector`**: Replaces Louvain algorithm. Groups files by first non-umbrella subdirectory (e.g. `src/analyzer/Spider.ts` → community `analyzer`). Umbrella dirs skipped: `src`, `tests`, `test`, `lib`, `app`, `packages`, `dist`, `out`.
+- **`Spider.workspaceRoot` getter**: Exposes `config.rootDir` for downstream consumers. Threaded from `Spider` → `GraphViewService` → `computeNodeMetadata` → `detectPathCommunities`.
+- **Community legend in webview**: Header "Import clusters", subtitle "Groups of closely connected files". `buildCommunityLegend` uses `path.relative(workspaceRoot, filePath)` for correct labels on scoped exports.
+
+### Added — HTML vis.js export
+
+- **`graph-it export --format html` / REPL `/export`**: Exports an interactive vis.js graph. Toolbar with Fit / Physics / Reset buttons. Physics disabled after stabilization so nodes stay when dragged. Community legend overlay (bottom-left) with domain names and palette colors.
+- **REPL `/export` command**: Standalone (no `--format html` needed). Optional `--output <path>` / `-o <path>` flag. Respects `/path` workspace narrowing as default scope; falls back to `state.lastFile` → `state.workspaceRoot` → full workspace.
+
+### Fixed
+
+- **Community label showed workspace dir instead of functional domain**: Shallow files reduced `workspacePrefixLen` cap incorrectly — fixed with `path.relative(workspaceRoot)` in `buildCommunityLegend`.
+- **`normalizePath` applied to `outputPath`**: Cross-platform path compliance (Règle 03).
+- **Windows CI path assertions in `ExportHtmlCommand` tests**: Test comparisons now use `normalizePath` to handle Windows separators.
+
 ## v1.10.0
 
 ### Added — graph-it wiki
