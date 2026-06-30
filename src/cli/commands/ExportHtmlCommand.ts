@@ -18,9 +18,9 @@ export async function runExportHtml(
     strict: false,
     allowPositionals: true,
   });
-  const outputPath = typeof cmdValues.output === 'string'
+  const outputPath = normalizePath(typeof cmdValues.output === 'string'
     ? path.resolve(cmdValues.output)
-    : path.join(process.cwd(), 'graph.html');
+    : path.join(process.cwd(), 'graph.html'));
 
   // Resolve scope: positional arg > scopePath from session state
   const rawScope = positionals[0] ?? scopePath;

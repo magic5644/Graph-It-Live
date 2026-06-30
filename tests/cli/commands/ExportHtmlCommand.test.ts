@@ -22,6 +22,7 @@ vi.mock('../../../src/analyzer/NodeMetadataBuilder', () => ({
 }));
 
 import { runExportHtml } from '../../../src/cli/commands/ExportHtmlCommand';
+import { normalizePath } from '../../../src/shared/path';
 import type { CliRuntime } from '../../../src/cli/runtime';
 
 const fakeRuntime = {
@@ -59,14 +60,14 @@ describe('runExportHtml', () => {
     await runExportHtml(fakeRuntime, 'my-project', ['--output', '/custom/output.html']);
 
     const config = mockExportHtml.mock.calls[0][0];
-    expect(config.outputPath).toBe(path.resolve('/custom/output.html'));
+    expect(config.outputPath).toBe(normalizePath(path.resolve('/custom/output.html')));
   });
 
   it('uses -o short flag for output path', async () => {
     await runExportHtml(fakeRuntime, 'my-project', ['-o', '/short/flag.html']);
 
     const config = mockExportHtml.mock.calls[0][0];
-    expect(config.outputPath).toBe(path.resolve('/short/flag.html'));
+    expect(config.outputPath).toBe(normalizePath(path.resolve('/short/flag.html')));
   });
 
   it('resolves relative output path to absolute', async () => {
