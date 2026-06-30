@@ -75,7 +75,7 @@ describe('runExportHtml', () => {
 
     const config = mockExportHtml.mock.calls[0][0];
     expect(path.isAbsolute(config.outputPath)).toBe(true);
-    expect(config.outputPath).toContain(path.join('relative', 'graph.html'));
+    expect(config.outputPath).toContain(normalizePath(path.join('relative', 'graph.html')));
   });
 
   it('passes workspaceName to exportHtml', async () => {
