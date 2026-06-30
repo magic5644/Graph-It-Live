@@ -56,7 +56,7 @@ export async function runExportHtml(
   if (Object.keys(parentCounts).length > 0) {
     graphData.parentCounts = parentCounts;
   }
-  computeNodeMetadata(graphData); // populates hubScore + communityId
+  computeNodeMetadata(graphData, runtime.workspaceRoot); // populates hubScore + communityId
 
   // Scope filter: positional arg or state.lastFile narrows the graph
   if (resolvedScope) {

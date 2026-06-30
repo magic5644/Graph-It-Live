@@ -86,7 +86,7 @@ export class GraphViewService {
 
     // Compute per-node metadata (hubScore, fileExtension) from parentCounts.
     // computeNodeMetadata is pure — no FS reads, no vscode imports.
-    computeNodeMetadata(enrichedData);
+    computeNodeMetadata(enrichedData, this.spider.workspaceRoot);
 
     return enrichedData;
   }

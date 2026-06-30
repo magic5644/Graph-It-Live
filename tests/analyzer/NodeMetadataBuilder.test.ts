@@ -165,7 +165,7 @@ describe('computeNodeMetadata', () => {
       parentCounts: { [nodeA]: 1, [nodeB]: 1 },
     };
 
-    computeNodeMetadata(data);
+    computeNodeMetadata(data, '/project');
 
     expect(data.nodeMetadata![nodeA].communityId).toBeDefined();
     expect(data.nodeMetadata![nodeB].communityId).toBeDefined();
