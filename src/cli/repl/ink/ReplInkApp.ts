@@ -86,6 +86,7 @@ const SLASH_COMMANDS: SlashCommandEntry[] = [
   { command: '/scan', description: 'Force indexing scan' },
   { command: '/query', description: 'Query the codebase with natural language', argsHint: '/query "<question>" [--depth N] [--token-budget N]' },
   { command: '/wiki', description: 'Generate a markdown wiki from the call graph', argsHint: '/wiki [--output <dir>] [--top N] [--format markdown|json|toon]' },
+  { command: '/export', description: 'Export graph as standalone HTML (vis.js)', argsHint: '/export [path] [--output <file>|-o <file>]' },
   { command: '/command', description: 'Run raw command line', argsHint: '/command <graph-it command...>' },
   { command: '/format', description: 'Set default output format', argsHint: '/format <text|json|toon|markdown|mermaid>' },
   { command: '/help', description: 'Show REPL help' },
