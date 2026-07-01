@@ -2,39 +2,44 @@ import * as nodePath from 'node:path';
 import { normalizePath } from '../../shared/path.js';
 
 /**
- * Top-level directories that are structural containers, not functional domains.
- * When encountered as the first relative path segment, we skip to the next one.
+ * Well-known structural container dirs — skip ONE level when encountered.
  * e.g. src/analyzer/types.ts → skip 'src' → domain = 'analyzer'
  *      tests/analyzer/foo.test.ts → skip 'tests' → domain = 'analyzer'
  */
 const UMBRELLA_DIRS = new Set(['src', 'tests', 'test', 'lib', 'app', 'packages', 'dist', 'out']);
 
-/** Longest common path prefix from a set of absolute paths (no cap). */
-function inferWorkspaceRoot(paths: string[]): string {
-  if (paths.length === 0) return '';
-  const split = paths.map(p => p.split('/'));
-  const minLen = Math.min(...split.map(p => p.length));
-  const common: string[] = [];
-  for (let i = 0; i < minLen; i++) {
-    if (split.every(p => p[i] === split[0][i])) common.push(split[0][i]);
-    else break;
-  }
-  // Drop the last common segment if it looks like a filename (has an extension)
-  // so we don't accidentally include a shared filename as part of the root.
-  return common.join('/');
+/**
+ * Length of the common dir prefix across all relative paths.
+ * e.g. ['vue/src/services/a.ts', 'vue/src/store/b.ts'] → 2 ('vue' + 'src')
+ * Operates on paths ALREADY relative to workspace root.
+ */
+function inferCommonDirPrefixLen(relPaths: string[]): number {
+  if (!relPaths.length) return 0;
+  const dirParts = relPaths.map(p => p.split('/').slice(0, -1)); // without filename
+  const minLen = Math.min(...dirParts.map(p => p.length));
+  // Cap at minLen-1: never strip ALL dir segments — leave at least one for domain detection.
+  const cap = Math.max(0, minLen - 1);
+  let i = 0;
+  while (i < cap && dirParts.every(p => p[i] === dirParts[0][i])) i++;
+  return i;
 }
 
 /**
- * Groups files by their first functional domain (first non-umbrella subdirectory).
+ * Groups files by their first functional domain (first non-umbrella subdirectory
+ * after stripping any common path prefix).
  *
- * workspaceRoot is optional: when omitted it is inferred as the longest common
- * path prefix of all nodes (correct for single-project workspaces).
- * Pass it explicitly when available to handle mixed-depth edge cases.
+ * Algorithm:
+ *  1. Compute relative path from workspaceRoot (or infer from common absolute prefix)
+ *  2. Strip any directory prefix shared by ALL files (handles monorepos where all
+ *     sources live under e.g. vue/src/ or packages/app/src/)
+ *  3. Skip a single UMBRELLA dir if present (src, tests, lib…)
+ *  4. First remaining dir = functional domain
  *
  * Examples (workspaceRoot = /project):
- *   /project/src/analyzer/Spider.ts       → 'analyzer' → id 1
- *   /project/src/webview/App.tsx          → 'webview'  → id 2
- *   /project/tests/analyzer/foo.test.ts   → 'analyzer' → id 1 (same domain)
+ *   /project/src/analyzer/Spider.ts       → domain 'analyzer' → id 1
+ *   /project/src/webview/App.tsx          → domain 'webview'  → id 2
+ *   /project/tests/analyzer/foo.test.ts   → domain 'analyzer' → id 1 (same)
+ *   /project/vue/src/services/a.ts        → common 'vue/src' stripped → domain 'services'
  *   /project/src/index.ts                 → id 0 (no domain after skipping 'src')
  *   /project/package.json                 → id 0 (root-level file)
  *
@@ -46,27 +51,41 @@ export function detectPathCommunities(nodes: string[], workspaceRoot?: string): 
   const normalized = nodes.map(normalizePath);
   const root = workspaceRoot
     ? normalizePath(workspaceRoot)
-    : inferWorkspaceRoot(normalized);
+    : (() => {
+        // Fallback: infer from longest common absolute path prefix
+        const split = normalized.map(p => p.split('/'));
+        const minLen = Math.min(...split.map(p => p.length));
+        const common: string[] = [];
+        for (let i = 0; i < minLen; i++) {
+          if (split.every(p => p[i] === split[0][i])) common.push(split[0][i]);
+          else break;
+        }
+        return common.join('/');
+      })();
+
+  // Compute all relative paths once
+  const rels = normalized.map(fp =>
+    root ? nodePath.relative(root, fp).replaceAll('\\', '/') : fp,
+  );
+
+  // Skip dir segments shared by ALL files (e.g. 'vue/src' in a vue monorepo)
+  const commonPrefixLen = inferCommonDirPrefixLen(rels);
 
   const groupToId = new Map<string, number>();
   const result = new Map<string, number>();
   let nextId = 1;
 
-  for (const fp of normalized) {
-    const rel = root
-      ? normalizePath(nodePath.relative(root, fp))
-      : fp;
-    const parts = rel.split('/');
+  for (let i = 0; i < normalized.length; i++) {
+    const fp = normalized[i];
+    const parts = rels[i].split('/');
     const dirParts = parts.slice(0, -1); // strip filename
 
-    // Skip leading umbrella directory (src, tests, lib…)
-    const startIdx = dirParts.length > 0 && UMBRELLA_DIRS.has(dirParts[0]) ? 1 : 0;
-    const domain = dirParts[startIdx];
+    let startIdx = commonPrefixLen;
+    // Skip one UMBRELLA dir at startIdx if present
+    if (dirParts[startIdx] !== undefined && UMBRELLA_DIRS.has(dirParts[startIdx])) startIdx++;
 
-    if (!domain) {
-      result.set(fp, 0);
-      continue;
-    }
+    const domain = dirParts[startIdx];
+    if (!domain) { result.set(fp, 0); continue; }
 
     if (!groupToId.has(domain)) groupToId.set(domain, nextId++);
     result.set(fp, groupToId.get(domain)!);

@@ -716,9 +716,11 @@ const ReactFlowGraphContent: React.FC<ReactFlowGraphProps> = ({
 
   // Derive communities with directory-path label for the legend
   const communities = useMemo(() => {
-    // Compute workspace-root prefix length, capped so each path retains
-    // at least (2 dir segments + filename) = 3 segments after stripping.
-    function workspacePrefixLen(paths: string[]): number {
+    const UMBRELLA = new Set(['src', 'tests', 'test', 'lib', 'app', 'packages', 'dist', 'out']);
+    const allIds = graph.nodes.map(n => n.id ?? '');
+
+    // Strip common absolute prefix (/Users/x/github/project/…)
+    function absolutePrefixLen(paths: string[]): number {
       if (!paths.length) return 0;
       const split = paths.map(p => p.split('/'));
       const minLen = Math.min(...split.map(p => p.length));
@@ -727,15 +729,27 @@ const ReactFlowGraphContent: React.FC<ReactFlowGraphProps> = ({
       while (i < cap && split.every(p => p[i] === split[0][i])) i++;
       return i;
     }
-    const allIds = graph.nodes.map(n => n.id ?? '');
-    const prefixLen = workspacePrefixLen(allIds);
 
-    const UMBRELLA = new Set(['src', 'tests', 'test', 'lib', 'app', 'packages', 'dist', 'out']);
+    // Strip common dir prefix inside relative paths (e.g. 'vue/src' in monorepos)
+    function commonRelDirPrefixLen(relPaths: string[]): number {
+      if (!relPaths.length) return 0;
+      const dirParts = relPaths.map(p => p.split('/').slice(0, -1));
+      const minLen = Math.min(...dirParts.map(p => p.length));
+      let i = 0;
+      while (i < minLen && dirParts.every(p => p[i] === dirParts[0][i])) i++;
+      return i;
+    }
+
+    const absPrefixLen = absolutePrefixLen(allIds);
+    const relIds = allIds.map(id => id.split('/').slice(absPrefixLen).join('/'));
+    const relDirPrefixLen = commonRelDirPrefixLen(relIds);
+
     function communityLabel(anyNodeId: string): string {
       const parts = anyNodeId.split('/');
-      const relParts = parts.slice(prefixLen);
+      const relParts = parts.slice(absPrefixLen);
       const dirParts = relParts.slice(0, -1); // strip filename
-      const startIdx = dirParts.length > 0 && UMBRELLA.has(dirParts[0]) ? 1 : 0;
+      let startIdx = relDirPrefixLen; // skip shared monorepo prefix (e.g. vue/src)
+      if (dirParts[startIdx] !== undefined && UMBRELLA.has(dirParts[startIdx])) startIdx++;
       const domain = dirParts[startIdx];
       return domain || (parts[parts.length - 1] ?? anyNodeId); // fallback to filename
     }

@@ -110,4 +110,27 @@ describe('detectPathCommunities', () => {
     expect(result.has(a)).toBe(true);
     expect(result.has(b)).toBe(true);
   });
+
+  it('monorepo: non-umbrella container dir (vue/src/…) → distinct communities', () => {
+    const a = normalizePath('/project/vue/src/services/userServices.ts');
+    const b = normalizePath('/project/vue/src/store/store.ts');
+    const c = normalizePath('/project/vue/src/types/generics.types.ts');
+    const result = detectPathCommunities([a, b, c], ROOT);
+    // All three should have distinct, non-zero communityIds
+    expect(result.get(a)).toBeGreaterThanOrEqual(1);
+    expect(result.get(b)).toBeGreaterThanOrEqual(1);
+    expect(result.get(c)).toBeGreaterThanOrEqual(1);
+    expect(result.get(a)).not.toBe(result.get(b)); // services ≠ store
+    expect(result.get(a)).not.toBe(result.get(c)); // services ≠ types
+    expect(result.get(b)).not.toBe(result.get(c)); // store ≠ types
+  });
+
+  it('monorepo: files in same subdir get same communityId', () => {
+    const a = normalizePath('/project/vue/src/services/userServices.ts');
+    const b = normalizePath('/project/vue/src/services/companyServices.ts');
+    const c = normalizePath('/project/vue/src/store/store.ts');
+    const result = detectPathCommunities([a, b, c], ROOT);
+    expect(result.get(a)).toBe(result.get(b)); // both services
+    expect(result.get(a)).not.toBe(result.get(c)); // services ≠ store
+  });
 });
