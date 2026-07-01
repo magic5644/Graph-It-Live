@@ -62,6 +62,8 @@ interface WorkerConfig {
    * Example: context.extensionPath from VS Code extension activation
    */
   extensionPath?: string;
+  /** When true, type-only imports/exports are not treated as file dependencies. */
+  ignoreTypeImports?: boolean;
 }
 
 interface WorkerMessage {
@@ -218,6 +220,7 @@ async function runIndexing(config: WorkerConfig): Promise<void> {
       config.rootDir,
       config.tsConfigPath,
       config.extensionPath,
+      config.ignoreTypeImports,
     );
 
     // Phase 1: Count files without loading paths into memory

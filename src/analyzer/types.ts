@@ -158,6 +158,8 @@ export interface SpiderConfig {
   extensionPath?: string;
   maxDepth?: number;
   excludeNodeModules?: boolean;
+  /** Ignore type-only imports/exports on TypeScript files */
+  ignoreTypeImports?: boolean;
   /** Interval for worker progress reporting (defaults to 100 files) */
   indexingProgressInterval?: number;
   /** Enable reverse index for O(1) reverse dependency lookups */

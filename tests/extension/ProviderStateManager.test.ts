@@ -8,6 +8,7 @@ const configValues: Record<string, unknown> = {
   indexingConcurrency: 8,
   indexingStartDelay: 2000,
   persistIndex: true,
+  ignoreTypeImports: true,
 };
 
 vi.mock('vscode', () => ({
@@ -51,6 +52,7 @@ describe('ProviderStateManager', () => {
     expect(snapshot.maxDepth).toBe(25);
     expect(snapshot.enableBackgroundIndexing).toBe(true);
     expect(snapshot.indexingStartDelay).toBe(2000);
+    expect(snapshot.ignoreTypeImports).toBe(true);
   });
 
   it('tracks current symbol path', () => {

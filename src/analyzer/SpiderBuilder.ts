@@ -276,6 +276,7 @@ export class SpiderBuilder {
   private maxSymbolCacheSize: number = 200;
   private maxSymbolAnalyzerFiles: number = 100;
   private indexingProgressInterval?: number;
+  private ignoreTypeImports: boolean = false;
 
   // Service overrides (for testing)
   private customCache?: Cache<Dependency[]>;
@@ -390,6 +391,17 @@ export class SpiderBuilder {
    */
   withExcludeNodeModules(exclude: boolean): this {
     this.excludeNodeModules = exclude;
+    return this;
+  }
+
+  /**
+   * Set whether to ignore type-only imports and exports when parsing dependencies (default: false).
+   * 
+   * @param ignore - Whether to ignore type-only imports/exports
+   * @returns This builder instance for method chaining
+   */
+  withIgnoreTypeImports(ignore: boolean): this {
+    this.ignoreTypeImports = ignore;
     return this;
   }
 
@@ -558,6 +570,9 @@ export class SpiderBuilder {
     }
     if (config.excludeNodeModules !== undefined) {
       this.excludeNodeModules = config.excludeNodeModules;
+    }
+    if (config.ignoreTypeImports !== undefined) {
+      this.ignoreTypeImports = config.ignoreTypeImports;
     }
     if (config.enableReverseIndex !== undefined) {
       this.enableReverseIndex = config.enableReverseIndex;
@@ -781,7 +796,7 @@ export class SpiderBuilder {
 
     // Phase 1: Core services (no dependencies)
     const languageService = this.customLanguageService ?? 
-      new LanguageService(this.rootDir!, this.tsConfigPath, this.extensionPath);
+      new LanguageService(this.rootDir!, this.tsConfigPath, this.extensionPath, this.ignoreTypeImports);
     
     const resolver = this.customPathResolver ?? 
       new PathResolver(this.tsConfigPath, this.excludeNodeModules, this.rootDir!);
@@ -946,6 +961,7 @@ export class SpiderBuilder {
       extensionPath: this.extensionPath,
       maxDepth: this.maxDepth,
       excludeNodeModules: this.excludeNodeModules,
+      ignoreTypeImports: this.ignoreTypeImports,
       enableReverseIndex: this.enableReverseIndex,
       indexingConcurrency: this.indexingConcurrency,
       maxCacheSize: this.maxCacheSize,

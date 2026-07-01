@@ -24,9 +24,11 @@ export class Parser implements ILanguageAnalyzer {
       "g",
     );
   })();
-  constructor(rootDir?: string) {
+  private readonly ignoreTypeImports: boolean;
+  constructor(rootDir?: string, ignoreTypeImports?: boolean) {
     this.fileReader = new FileReader();
     this.pathResolver = new PathResolver(rootDir);
+    this.ignoreTypeImports = ignoreTypeImports ?? false;
   }
   // Regex patterns for different import types
   private readonly patterns = {
@@ -173,6 +175,14 @@ export class Parser implements ILanguageAnalyzer {
       // Skip if already processed
       if (seen.has(module)) {
         continue;
+      }
+
+      // Skip type-only imports if configured to ignore them
+      if (this.ignoreTypeImports) {
+        const fullMatch = match[0].trim();
+        if (fullMatch.startsWith("import type") || fullMatch.startsWith("export type")) {
+          continue;
+        }
       }
 
       seen.add(module);

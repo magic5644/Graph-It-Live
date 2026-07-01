@@ -155,6 +155,7 @@ export class SpiderIndexingService {
         tsConfigPath: config.tsConfigPath,
         progressInterval: config.indexingProgressInterval,
         extensionPath: config.extensionPath,
+        ignoreTypeImports: config.ignoreTypeImports,
       },
     });
   }

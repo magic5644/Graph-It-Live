@@ -194,6 +194,25 @@ describe("LanguageService", () => {
       expect(analyzer1).toBe(analyzer2);
     });
 
+    it("should use a separate TypeScript parser when ignoreTypeImports changes", () => {
+      const analyzer1 = LanguageService.getAnalyzer("/project/file1.ts");
+      const analyzer2 = LanguageService.getAnalyzer(
+        "/project/file2.ts",
+        undefined,
+        undefined,
+        true,
+      );
+      const analyzer3 = LanguageService.getAnalyzer(
+        "/project/file3.ts",
+        undefined,
+        undefined,
+        true,
+      );
+
+      expect(analyzer1).not.toBe(analyzer2);
+      expect(analyzer2).toBe(analyzer3);
+    });
+
     it("should throw error for Python files (not yet implemented)", () => {
       const analyzer = LanguageService.getAnalyzer("/project/main.py");
       expect(analyzer).toBeDefined();
