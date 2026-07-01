@@ -122,6 +122,62 @@ describe("MCP Worker Helpers", () => {
       expect(nodes[0].dependencyCount).toBe(0);
       expect(nodes[0].dependentCount).toBe(0);
     });
+
+    it("should not include hubScore/communityId when metadata is undefined", () => {
+      const nodePaths = [normalizePath("/proj/src/a.ts")];
+      const nodes = buildNodeInfo(nodePaths, new Map(), new Map(), "/proj", undefined);
+      expect(nodes[0]).not.toHaveProperty("hubScore");
+      expect(nodes[0]).not.toHaveProperty("communityId");
+    });
+
+    it("should attach hubScore and communityId from metadata when present", () => {
+      const nodePathA = normalizePath("/proj/src/a.ts");
+      const nodePathB = normalizePath("/proj/src/b.ts");
+      const nodePaths = [nodePathA, nodePathB];
+      const metadata = {
+        [nodePathA]: { hubScore: 0.9, communityId: 1 },
+        [nodePathB]: { hubScore: 0.3, communityId: 2 },
+      };
+
+      const nodes = buildNodeInfo(nodePaths, new Map(), new Map(), "/proj", metadata);
+
+      expect(nodes[0].hubScore).toBe(0.9);
+      expect(nodes[0].communityId).toBe(1);
+      expect(nodes[1].hubScore).toBe(0.3);
+      expect(nodes[1].communityId).toBe(2);
+    });
+
+    it("should omit hubScore/communityId for nodes missing from metadata", () => {
+      const nodePathA = normalizePath("/proj/src/a.ts");
+      const nodePathB = normalizePath("/proj/src/b.ts");
+      const nodePaths = [nodePathA, nodePathB];
+      // Only nodePathA has metadata
+      const metadata = {
+        [nodePathA]: { hubScore: 0.5, communityId: 0 },
+      };
+
+      const nodes = buildNodeInfo(nodePaths, new Map(), new Map(), "/proj", metadata);
+
+      expect(nodes[0].hubScore).toBe(0.5);
+      expect(nodes[0].communityId).toBe(0);
+      expect(nodes[1]).not.toHaveProperty("hubScore");
+      expect(nodes[1]).not.toHaveProperty("communityId");
+    });
+
+    it("should lookup metadata using normalized nodePaths keys (Règle 03)", () => {
+      // Simulate un chemin brut (backslash Windows-like) vs clé normalisée
+      const rawPath = "/proj/src/a.ts";
+      const normalizedKey = normalizePath(rawPath);
+      const nodePaths = [normalizedKey];
+      const metadata = {
+        [normalizedKey]: { hubScore: 0.75, communityId: 3 },
+      };
+
+      const nodes = buildNodeInfo(nodePaths, new Map(), new Map(), "/proj", metadata);
+
+      expect(nodes[0].hubScore).toBe(0.75);
+      expect(nodes[0].communityId).toBe(3);
+    });
   });
 
   describe("buildEdgeInfo", () => {

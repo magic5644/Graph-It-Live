@@ -69,6 +69,66 @@ describe("graph tools", () => {
       expect(result.edges).toHaveLength(1);
       expect(result.circularDependencies).toEqual([]);
     });
+
+    it("should populate hubScore on each returned node", async () => {
+      const entryFile = await createTempFile(tempDir, "entry.ts", "");
+      const depFile = await createTempFile(tempDir, "dep.ts", "");
+
+      const spiderMock = {
+        config: { maxDepth: 5 },
+        updateConfig: vi.fn(),
+        crawl: vi.fn(async () => ({
+          nodes: [entryFile, depFile],
+          edges: [{ source: entryFile, target: depFile }],
+        })),
+        verifyDependencyUsage: vi.fn(async () => true),
+      };
+
+      setupWorkerState(spiderMock);
+
+      const result = await executeCrawlDependencyGraph({ entryFile });
+
+      // computeNodeMetadata attache toujours hubScore (même 0)
+      for (const node of result.nodes) {
+        expect(node).toHaveProperty("hubScore");
+        expect(typeof node.hubScore).toBe("number");
+      }
+    });
+
+    it("should assign distinct communityIds to nodes in different directories", async () => {
+      // Crée deux fichiers dans des sous-dossiers différents pour forcer des communautés distinctes
+      const subDirA = path.join(tempDir, "moduleA");
+      const subDirB = path.join(tempDir, "moduleB");
+      await fs.mkdir(subDirA);
+      await fs.mkdir(subDirB);
+
+      const fileA = await createTempFile(subDirA, "index.ts", "");
+      const fileB = await createTempFile(subDirB, "index.ts", "");
+
+      const spiderMock = {
+        config: { maxDepth: 5 },
+        updateConfig: vi.fn(),
+        crawl: vi.fn(async () => ({
+          nodes: [fileA, fileB],
+          edges: [],
+        })),
+        verifyDependencyUsage: vi.fn(async () => true),
+      };
+
+      setupWorkerState(spiderMock);
+
+      const result = await executeCrawlDependencyGraph({ entryFile: fileA });
+
+      // Les deux nodes doivent avoir un communityId défini
+      for (const node of result.nodes) {
+        expect(node).toHaveProperty("communityId");
+        expect(typeof node.communityId).toBe("number");
+      }
+
+      // Les communityIds des deux nodes doivent être distincts (dossiers différents)
+      const communityIds = result.nodes.map((n) => n.communityId);
+      expect(communityIds[0]).not.toBe(communityIds[1]);
+    });
   });
 
   describe("executeExpandNode", () => {
