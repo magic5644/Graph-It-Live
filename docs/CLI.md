@@ -969,7 +969,11 @@ graph-it tool crawl_dependency_graph --entryFile=/abs/path/to/index.ts
 graph-it tool crawl_dependency_graph --entryFile=/abs/path/to/index.ts --maxDepth=5
 ```
 
-**Output fields:** `files[]`, `edges[]`, `cycles[]`, `totalFiles`, `totalEdges`
+**Output fields:** `nodes[]`, `edges[]`, `circularDependencies[]`, `nodeCount`, `edgeCount`
+
+Each node in `nodes[]` includes:
+- `hubScore` (0–1): proportion of workspace files that import this node
+- `communityId` (0+): path-based functional cluster — 0 = isolated, 1+ = first non-umbrella subdirectory group (e.g. files under `src/analyzer/` → same `communityId`)
 
 ---
 
