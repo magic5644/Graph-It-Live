@@ -133,4 +133,28 @@ describe('detectPathCommunities', () => {
     expect(result.get(a)).toBe(result.get(b)); // both services
     expect(result.get(a)).not.toBe(result.get(c)); // services ≠ store
   });
+
+  it('divergent roots (vue/src/ + backend/): nested src split by subdir', () => {
+    // app-bobbee case: two top-level roots, no common prefix, vue not umbrella
+    const views = normalizePath('/project/vue/src/views/GeneralLedger2.vue');
+    const store = normalizePath('/project/vue/src/store/store.ts');
+    const types = normalizePath('/project/vue/src/types/x.types.ts');
+    const back = normalizePath('/project/backend/handlers/h.ts');
+    const result = detectPathCommunities([views, store, types, back], ROOT);
+    // vue subdirs must be distinct (not all collapsed to 'vue')
+    expect(result.get(views)).not.toBe(result.get(store));
+    expect(result.get(views)).not.toBe(result.get(types));
+    expect(result.get(store)).not.toBe(result.get(types));
+    // backend is its own cluster (no umbrella marker → first segment)
+    expect(result.get(back)).toBeGreaterThanOrEqual(1);
+    expect(result.get(back)).not.toBe(result.get(views));
+  });
+
+  it('deeply nested container: packages/app/src/store/ → store', () => {
+    const a = normalizePath('/project/packages/app/src/store/s.ts');
+    const b = normalizePath('/project/packages/app/src/views/v.ts');
+    const result = detectPathCommunities([a, b], ROOT);
+    expect(result.get(a)).not.toBe(result.get(b)); // store ≠ views
+    expect(result.get(a)).toBeGreaterThanOrEqual(1);
+  });
 });

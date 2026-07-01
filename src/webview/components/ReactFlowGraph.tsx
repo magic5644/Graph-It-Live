@@ -748,8 +748,11 @@ const ReactFlowGraphContent: React.FC<ReactFlowGraphProps> = ({
       const parts = anyNodeId.split('/');
       const relParts = parts.slice(absPrefixLen);
       const dirParts = relParts.slice(0, -1); // strip filename
-      let startIdx = relDirPrefixLen; // skip shared monorepo prefix (e.g. vue/src)
-      if (dirParts[startIdx] !== undefined && UMBRELLA.has(dirParts[startIdx])) startIdx++;
+      // Skip up to and INCLUDING the last umbrella dir → handles nested roots (vue/src/)
+      let startIdx = relDirPrefixLen;
+      for (let i = relDirPrefixLen; i < dirParts.length; i++) {
+        if (UMBRELLA.has(dirParts[i])) startIdx = i + 1;
+      }
       const domain = dirParts[startIdx];
       return domain || (parts[parts.length - 1] ?? anyNodeId); // fallback to filename
     }

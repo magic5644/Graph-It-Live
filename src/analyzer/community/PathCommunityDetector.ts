@@ -25,21 +25,43 @@ function inferCommonDirPrefixLen(relPaths: string[]): number {
 }
 
 /**
- * Groups files by their first functional domain (first non-umbrella subdirectory
- * after stripping any common path prefix).
+ * Domain = first meaningful directory segment of a file, given the dir segments
+ * (filename already stripped) and the common-prefix length shared by all files.
+ *
+ * Rule: skip the common prefix, then skip everything up to and INCLUDING the last
+ * UMBRELLA dir found — the segment right after it is the functional domain. This
+ * handles nested source roots at any depth:
+ *   vue/src/views/x.vue      → last umbrella 'src' → 'views'
+ *   packages/app/src/store/y → last umbrella 'src' → 'store'
+ *   src/analyzer/z.ts        → last umbrella 'src' → 'analyzer'
+ *   backend/services/w.ts    → no umbrella → 'backend' (fallback: first seg after prefix)
+ * Exported for reuse (webview legend keeps its own copy — no cross-layer import).
+ */
+export function domainFromDirParts(dirParts: string[], commonPrefixLen: number): string | undefined {
+  let startIdx = commonPrefixLen;
+  // Advance past the LAST umbrella dir in the leading run so nested roots collapse.
+  for (let i = commonPrefixLen; i < dirParts.length; i++) {
+    if (UMBRELLA_DIRS.has(dirParts[i])) startIdx = i + 1;
+  }
+  return dirParts[startIdx];
+}
+
+/**
+ * Groups files by their first functional domain.
  *
  * Algorithm:
  *  1. Compute relative path from workspaceRoot (or infer from common absolute prefix)
- *  2. Strip any directory prefix shared by ALL files (handles monorepos where all
- *     sources live under e.g. vue/src/ or packages/app/src/)
- *  3. Skip a single UMBRELLA dir if present (src, tests, lib…)
+ *  2. Strip any directory prefix shared by ALL files (monorepo container dirs)
+ *  3. Skip up to and including the LAST umbrella dir (src, tests, lib…) — handles
+ *     nested source roots like vue/src/, packages/app/src/
  *  4. First remaining dir = functional domain
  *
  * Examples (workspaceRoot = /project):
- *   /project/src/analyzer/Spider.ts       → domain 'analyzer' → id 1
- *   /project/src/webview/App.tsx          → domain 'webview'  → id 2
- *   /project/tests/analyzer/foo.test.ts   → domain 'analyzer' → id 1 (same)
- *   /project/vue/src/services/a.ts        → common 'vue/src' stripped → domain 'services'
+ *   /project/src/analyzer/Spider.ts       → 'analyzer' → id 1
+ *   /project/src/webview/App.tsx          → 'webview'  → id 2
+ *   /project/tests/analyzer/foo.test.ts   → 'analyzer' → id 1 (same)
+ *   /project/vue/src/services/a.ts        → 'services'
+ *   /project/vue/src/store/b.ts           → 'store' (distinct — nested src handled)
  *   /project/src/index.ts                 → id 0 (no domain after skipping 'src')
  *   /project/package.json                 → id 0 (root-level file)
  *
@@ -68,7 +90,7 @@ export function detectPathCommunities(nodes: string[], workspaceRoot?: string): 
     root ? nodePath.relative(root, fp).replaceAll('\\', '/') : fp,
   );
 
-  // Skip dir segments shared by ALL files (e.g. 'vue/src' in a vue monorepo)
+  // Skip dir segments shared by ALL files (e.g. a single 'vue/src' root)
   const commonPrefixLen = inferCommonDirPrefixLen(rels);
 
   const groupToId = new Map<string, number>();
@@ -77,14 +99,9 @@ export function detectPathCommunities(nodes: string[], workspaceRoot?: string): 
 
   for (let i = 0; i < normalized.length; i++) {
     const fp = normalized[i];
-    const parts = rels[i].split('/');
-    const dirParts = parts.slice(0, -1); // strip filename
+    const dirParts = rels[i].split('/').slice(0, -1); // strip filename
 
-    let startIdx = commonPrefixLen;
-    // Skip one UMBRELLA dir at startIdx if present
-    if (dirParts[startIdx] !== undefined && UMBRELLA_DIRS.has(dirParts[startIdx])) startIdx++;
-
-    const domain = dirParts[startIdx];
+    const domain = domainFromDirParts(dirParts, commonPrefixLen);
     if (!domain) { result.set(fp, 0); continue; }
 
     if (!groupToId.has(domain)) groupToId.set(domain, nextId++);
