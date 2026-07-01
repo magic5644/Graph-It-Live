@@ -91,9 +91,10 @@ export async function executeCrawlDependencyGraph(
     const graphData: GraphData = { nodes: graph.nodes.map(normalizePath), edges: graph.edges, parentCounts };
     computeNodeMetadata(graphData, config.rootDir);
 
-    // Build node and edge info
+    // Build node and edge info — use graphData.nodes (already normalized) so
+    // metadata lookup keys match nodeMetadata index (Règle 03).
     let nodes = buildNodeInfo(
-      graph.nodes,
+      graphData.nodes,
       dependencyCount,
       dependentCount,
       config.rootDir,

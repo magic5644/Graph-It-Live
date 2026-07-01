@@ -13,6 +13,10 @@
 - **`graph-it export --format html` / REPL `/export`**: Exports an interactive vis.js graph. Toolbar with Fit / Physics / Reset buttons. Physics disabled after stabilization so nodes stay when dragged. Community legend overlay (bottom-left) with domain names and palette colors.
 - **REPL `/export` command**: Standalone (no `--format html` needed). Optional `--output <path>` / `-o <path>` flag. Respects `/path` workspace narrowing as default scope; falls back to `state.lastFile` → `state.workspaceRoot` → full workspace.
 
+### Added — MCP `crawl_dependency_graph`
+
+- **`hubScore` + `communityId` on each node**: `crawl_dependency_graph` now populates both fields using the same `PathCommunityDetector` logic as the VS Code extension and CLI. All three surfaces are aligned.
+
 ### Fixed
 
 - **Community label showed workspace dir instead of functional domain**: Shallow files reduced `workspacePrefixLen` cap incorrectly — fixed with `path.relative(workspaceRoot)` in `buildCommunityLegend`.
