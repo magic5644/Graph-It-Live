@@ -11,6 +11,7 @@ import { SUPPORTED_SYMBOL_ANALYSIS_EXTENSIONS } from "../../shared/constants";
 import { normalizePath } from "../../shared/path";
 import { detectLanguageFromExtension } from "../../shared/utils/languageDetection";
 import type { EdgeInfo, NodeInfo } from "../types";
+import type { GraphNodeMetadata } from "../../shared/graph-types";
 
 
 // ============================================================================
@@ -67,14 +68,21 @@ export function buildNodeInfo(
   dependencyCount: Map<string, number>,
   dependentCount: Map<string, number>,
   rootDir: string,
+  metadata?: Record<string, GraphNodeMetadata>,
 ): NodeInfo[] {
-  return nodePaths.map((nodePath) => ({
-    path: nodePath,
-    relativePath: getRelativePath(nodePath, rootDir),
-    extension: nodePath.split(".").pop() ?? "",
-    dependencyCount: dependencyCount.get(nodePath) ?? 0,
-    dependentCount: dependentCount.get(nodePath) ?? 0,
-  }));
+  return nodePaths.map((nodePath) => {
+    const meta = metadata?.[nodePath];
+    const node: NodeInfo = {
+      path: nodePath,
+      relativePath: getRelativePath(nodePath, rootDir),
+      extension: nodePath.split(".").pop() ?? "",
+      dependencyCount: dependencyCount.get(nodePath) ?? 0,
+      dependentCount: dependentCount.get(nodePath) ?? 0,
+    };
+    if (meta?.hubScore !== undefined) node.hubScore = meta.hubScore;
+    if (meta?.communityId !== undefined) node.communityId = meta.communityId;
+    return node;
+  });
 }
 
 /**

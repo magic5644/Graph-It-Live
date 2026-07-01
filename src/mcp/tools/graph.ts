@@ -1,4 +1,7 @@
 import { getLogger } from "../../shared/logger";
+import { normalizePath } from "../../shared/path";
+import { computeNodeMetadata } from "../../analyzer/NodeMetadataBuilder";
+import type { GraphData } from "../../shared/graph-types";
 import {
     applyPagination,
     buildEdgeCounts,
@@ -82,12 +85,19 @@ export async function executeCrawlDependencyGraph(
     const { dependencyCount, dependentCount } = buildEdgeCounts(graph.edges);
     const circularDependencies = detectCircularDependencies(graph.edges);
 
+    // Compute hubScore + communityId — same logic as CLI and extension
+    const parentCounts: Record<string, number> = {};
+    for (const [fp, cnt] of dependentCount) parentCounts[normalizePath(fp)] = cnt;
+    const graphData: GraphData = { nodes: graph.nodes.map(normalizePath), edges: graph.edges, parentCounts };
+    computeNodeMetadata(graphData, config.rootDir);
+
     // Build node and edge info
     let nodes = buildNodeInfo(
       graph.nodes,
       dependencyCount,
       dependentCount,
       config.rootDir,
+      graphData.nodeMetadata,
     );
     let edges = buildEdgeInfo(graph.edges, config.rootDir);
 

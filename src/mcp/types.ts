@@ -920,6 +920,10 @@ export interface NodeInfo {
   dependencyCount: number;
   /** Number of incoming edges (dependents) */
   dependentCount: number;
+  /** Hub score 0–1: proportion of workspace files that import this node */
+  hubScore?: number;
+  /** Community id: 0 = isolated, 1+ = functional subdirectory cluster */
+  communityId?: number;
 }
 
 /**
