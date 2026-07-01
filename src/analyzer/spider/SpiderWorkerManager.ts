@@ -12,6 +12,7 @@ interface WorkerBuildOptions {
     tsConfigPath?: string;
     progressInterval?: number;
     extensionPath?: string;
+    ignoreTypeImports?: boolean;
   };
   progressCallback?: IndexingProgressCallback;
 }
@@ -74,6 +75,7 @@ export class SpiderWorkerManager {
         excludeNodeModules: config.excludeNodeModules,
         tsConfigPath: config.tsConfigPath,
         extensionPath: config.extensionPath,
+        ignoreTypeImports: config.ignoreTypeImports,
       });
 
       this.importWorkerResult(result);

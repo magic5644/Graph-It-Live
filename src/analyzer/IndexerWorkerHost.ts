@@ -15,6 +15,7 @@ interface WorkerConfig {
   excludeNodeModules?: boolean;
   tsConfigPath?: string;
   extensionPath?: string;
+  ignoreTypeImports?: boolean;
   /**
    * Maximum ms to wait for indexing before forcefully terminating the worker.
    * Protects against hangs due to WASM initialization failures or silent crashes.

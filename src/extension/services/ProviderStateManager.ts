@@ -9,6 +9,7 @@ export interface ProviderConfigSnapshot extends BackgroundIndexingConfig {
   excludeNodeModules: boolean;
   maxDepth: number;
   indexingConcurrency: number;
+  ignoreTypeImports: boolean;
   unusedDependencyMode: UnusedDependencyMode;
   unusedAnalysisConcurrency: number;
   unusedAnalysisMaxEdges: number;
@@ -56,6 +57,7 @@ export class ProviderStateManager {
         : profileDefaults.indexingConcurrency,
       indexingStartDelay: config.get<number>('indexingStartDelay', this.defaultIndexingDelay),
       persistIndex: config.get<boolean>('persistIndex', false),
+      ignoreTypeImports: config.get<boolean>('ignoreTypeImports', false),
       unusedDependencyMode: config.get<'none' | 'hide' | 'dim'>('unusedDependencyMode', 'none'),
       unusedAnalysisConcurrency: isCustomProfile
         ? config.get<number>('unusedAnalysisConcurrency', profileDefaults.unusedAnalysisConcurrency)

@@ -943,6 +943,11 @@
           "default": true,
           "description": "Exclude node_modules from graph"
         },
+        "graph-it-live.ignoreTypeImports": {
+          "type": "boolean",
+          "default": false,
+          "description": "Ignore TypeScript type-only imports and exports in the dependency graph. You might need to restart VS Code for this setting to take effect."
+        },
         "graph-it-live.enableMcpServer": {
           "type": "boolean",
           "default": false,

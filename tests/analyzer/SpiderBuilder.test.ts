@@ -18,11 +18,12 @@ describe('SpiderBuilder', () => {
       const result1 = builder.withRootDir(fixturesPath);
       const result2 = result1.withMaxDepth(50);
       const result3 = result2.withExcludeNodeModules(true);
-      const result4 = result3.withReverseIndex(false);
-      const result5 = result4.withIndexingConcurrency(4);
-      const result6 = result5.withCacheConfig({ maxCacheSize: 500 });
-      const result7 = result6.withTsConfigPath(path.join(fixturesPath, 'tsconfig.json'));
-      const result8 = result7.withIndexingProgressInterval(100);
+      const result4 = result3.withIgnoreTypeImports(true);
+      const result5 = result4.withReverseIndex(false);
+      const result6 = result5.withIndexingConcurrency(4);
+      const result7 = result6.withCacheConfig({ maxCacheSize: 500 });
+      const result8 = result7.withTsConfigPath(path.join(fixturesPath, 'tsconfig.json'));
+      const result9 = result8.withIndexingProgressInterval(100);
       
       // All methods should return the same builder instance
       expect(result1).toBe(builder);
@@ -33,6 +34,7 @@ describe('SpiderBuilder', () => {
       expect(result6).toBe(builder);
       expect(result7).toBe(builder);
       expect(result8).toBe(builder);
+      expect(result9).toBe(builder);
     });
 
     it('should support method chaining in a single expression', () => {
@@ -277,6 +279,7 @@ describe('SpiderBuilder', () => {
         tsConfigPath: path.join(fixturesPath, 'tsconfig.json'),
         maxDepth: 30,
         excludeNodeModules: false,
+        ignoreTypeImports: true,
         enableReverseIndex: true,
         indexingConcurrency: 8,
         maxCacheSize: 1000,

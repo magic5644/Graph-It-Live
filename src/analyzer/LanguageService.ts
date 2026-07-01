@@ -41,10 +41,12 @@ export class LanguageService {
 
   private readonly rootDir?: string;
   private readonly extensionPath?: string;
+  private readonly ignoreTypeImports?: boolean;
 
-  constructor(rootDir?: string, _tsConfigPath?: string, extensionPath?: string) {
+  constructor(rootDir?: string, _tsConfigPath?: string, extensionPath?: string, ignoreTypeImports?: boolean) {
     this.rootDir = rootDir;
     this.extensionPath = extensionPath;
+    this.ignoreTypeImports = ignoreTypeImports;
   }
 
   /**
@@ -52,7 +54,7 @@ export class LanguageService {
    */
   getAnalyzer(filePath: string): ILanguageAnalyzer {
     const actualPath = extractFilePath(filePath);
-    return LanguageService.getAnalyzer(actualPath, this.rootDir, this.extensionPath);
+    return LanguageService.getAnalyzer(actualPath, this.rootDir, this.extensionPath, this.ignoreTypeImports);
   }
 
   /**
@@ -111,18 +113,18 @@ export class LanguageService {
    * Get the appropriate parser for the given file path.
    * Lazy-loads parsers only when needed.
    */
-  static getAnalyzer(filePath: string, rootDir?: string, extensionPath?: string): ILanguageAnalyzer {
+  static getAnalyzer(filePath: string, rootDir?: string, extensionPath?: string, ignoreTypeImports?: boolean): ILanguageAnalyzer {
     const actualPath = extractFilePath(filePath);
     const language = this.detectLanguage(actualPath);
 
     switch (language) {
       case Language.TypeScript: {
-        const cacheKey = this.buildCacheKey(rootDir);
+        const cacheKey = this.buildCacheKey(rootDir, ignoreTypeImports ? "ignore-types" : "");
         const cached = this.typeScriptParsers.get(cacheKey);
         if (cached) {
           return cached;
         }
-        const created = new Parser(rootDir);
+        const created = new Parser(rootDir, ignoreTypeImports);
         this.typeScriptParsers.set(cacheKey, created);
         return created;
       }
