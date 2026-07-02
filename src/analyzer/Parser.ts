@@ -180,8 +180,23 @@ export class Parser implements ILanguageAnalyzer {
       // Skip type-only imports if configured to ignore them
       if (this.ignoreTypeImports) {
         const fullMatch = match[0].trim();
-        if (fullMatch.startsWith("import type") || fullMatch.startsWith("export type")) {
+
+        // `import type ...` / `export type ...`
+        if (/^(import|export)\s+type\b/.test(fullMatch)) {
           continue;
+        }
+
+        // TS 5+ type-only named imports/exports: `import { type Foo } from '...'`
+        const braceMatch = fullMatch.match(/^(import|export)\s+\{([\s\S]*?)\}\s+from\b/);
+        if (braceMatch) {
+          const specifiers = braceMatch[2]
+            .split(',')
+            .map((s) => s.trim())
+            .filter(Boolean);
+
+          if (specifiers.length > 0 && specifiers.every((s) => /^type\b/.test(s))) {
+            continue;
+          }
         }
       }
 
