@@ -647,4 +647,58 @@ describe("GraphProvider", () => {
     const onDidSaveSpy = vi.mocked(vscode.workspace.onDidSaveTextDocument);
     expect(onDidSaveSpy).not.toHaveBeenCalled();
   });
+
+  it("_sendGraphUpdate: enrichedMessage contains showCommunities when checkUsage=true (unusedFilter active + mode=hide)", async () => {
+    // Patch _configSnapshot directly — no provider rebuild needed.
+    const snap = (provider as any)["_configSnapshot"];
+    snap.unusedDependencyMode = "hide";
+    snap.showCommunities = true;
+
+    // Force unusedFilterActive=true so getUnusedFilterActive() → true → checkUsage=true.
+    (mockContext.globalState.get as ReturnType<typeof vi.fn>).mockImplementation(
+      (key: string, def?: unknown) => {
+        if (key === "unusedFilterActive") return true;
+        return def;
+      },
+    );
+
+    // Replace graphViewService in the DI container with a stub so buildGraphData
+    // resolves synchronously without Spider or SymbolAnalyzer involvement.
+    const mockGraphData = { nodes: [], edges: [] };
+    const mockGraphViewService = {
+      buildGraphData: vi.fn().mockResolvedValue(mockGraphData),
+    };
+    (provider as any)._container.register(
+      graphProviderServiceTokens.graphViewService,
+      () => mockGraphViewService,
+    );
+
+    const webview = {
+      postMessage: vi.fn(),
+      asWebviewUri: vi.fn(),
+      options: {},
+      html: "",
+      onDidReceiveMessage: vi.fn(),
+      cspSource: "test-csp",
+    };
+    const view = { webview, onDidDispose: vi.fn() };
+    provider.resolveWebviewView(view as any, {} as any, {} as any);
+
+    // Call _sendGraphUpdate directly — it's private but accessible via (provider as any).
+    const mainTsPath = path.join(testRootDir, "src", "main.ts");
+    await (provider as any)._sendGraphUpdate(mainTsPath, false, "unknown");
+
+    // The enrichedMessage (second postMessage call) must carry showCommunities.
+    const calls = (webview.postMessage as ReturnType<typeof vi.fn>).mock.calls;
+    const enrichedCall = calls.find(
+      ([msg]: [any]) =>
+        msg.command === "updateGraph" && msg.refreshReason === "usage-analysis",
+    );
+    expect(enrichedCall).toBeDefined();
+    expect(enrichedCall![0]).toMatchObject({
+      command: "updateGraph",
+      refreshReason: "usage-analysis",
+      showCommunities: true,
+    });
+  });
 });

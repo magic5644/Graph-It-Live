@@ -180,4 +180,28 @@ describe('ProviderStateManager', () => {
     expect(manager.getLastActiveFilePath()).toBe('/workspace/src/main.ts');
     expect(context.workspaceState.update).toHaveBeenCalledWith('lastActiveFilePath', '/workspace/src/main.ts');
   });
+
+  describe('showCommunities', () => {
+    it('returns true by default when config does not override', () => {
+      const manager = new ProviderStateManager(context, 1000);
+      const snapshot = manager.loadConfiguration();
+      expect(snapshot.showCommunities).toBe(true);
+    });
+
+    it('returns false when config sets showCommunities=false', () => {
+      configValues['showCommunities'] = false;
+      const manager = new ProviderStateManager(context, 1000);
+      const snapshot = manager.loadConfiguration();
+      expect(snapshot.showCommunities).toBe(false);
+      delete configValues['showCommunities'];
+    });
+
+    it('returns true when config explicitly sets showCommunities=true', () => {
+      configValues['showCommunities'] = true;
+      const manager = new ProviderStateManager(context, 1000);
+      const snapshot = manager.loadConfiguration();
+      expect(snapshot.showCommunities).toBe(true);
+      delete configValues['showCommunities'];
+    });
+  });
 });

@@ -101,6 +101,8 @@ interface ReactFlowGraphProps {
   selectedNodeId?: string | null;
   /** Callback for symbol highlight on double-click */
   onHighlight?: (symbolId: string) => void;
+  /** Whether to show community tint and legend (default true) */
+  showCommunities?: boolean;
 }
 
 function stableGlobal<T>(key: string, factory: () => T): T {
@@ -365,6 +367,7 @@ const ReactFlowGraphContent: React.FC<ReactFlowGraphProps> = ({
   resetToken,
   unusedDependencyMode = "none",
   filterUnused: backendFilterUnused,
+  showCommunities = true,
   mode = "file",
   symbolData,
   onLayoutChange,
@@ -510,6 +513,7 @@ const ReactFlowGraphContent: React.FC<ReactFlowGraphProps> = ({
       unusedEdges: data?.unusedEdges,
       unusedDependencyMode,
       filterUnused,
+      showCommunities,
       mode,
       symbolData,
       layout,
@@ -537,6 +541,7 @@ const ReactFlowGraphContent: React.FC<ReactFlowGraphProps> = ({
     showParents,
     unusedDependencyMode,
     filterUnused,
+    showCommunities,
     // DO NOT include callbacks in deps! They don't change graph structure,
     // only node data handlers. Including them causes constant re-renders.
     mode,
@@ -984,7 +989,7 @@ const ReactFlowGraphContent: React.FC<ReactFlowGraphProps> = ({
         <Background />
         <Controls />
       </ReactFlow>
-      <CommunityLegend communities={communities} />
+      {showCommunities && <CommunityLegend communities={communities} />}
       {/* T081: Loading indicator during re-analysis */}
       {isReanalyzing && (
         <div

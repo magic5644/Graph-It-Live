@@ -1335,6 +1335,7 @@ export class GraphProvider implements vscode.WebviewViewProvider {
         refreshReason,
         unusedDependencyMode: effectiveMode,
         filterUnused: filterActive,
+        showCommunities: this._configSnapshot.showCommunities,
       };
       this._view.webview.postMessage(initialMessage);
 
@@ -1367,6 +1368,7 @@ export class GraphProvider implements vscode.WebviewViewProvider {
           refreshReason: "usage-analysis",
           unusedDependencyMode: effectiveMode,
           filterUnused: filterActive,
+          showCommunities: this._configSnapshot.showCommunities,
         };
 
         this._view.webview.postMessage(enrichedMessage);
