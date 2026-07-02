@@ -1,7 +1,7 @@
 import fc from 'fast-check';
 import fs from 'node:fs/promises';
 import path from 'node:path';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import type Parser from 'web-tree-sitter';
 import { PythonSymbolAnalyzer } from '../../src/analyzer/languages/PythonSymbolAnalyzer';
 import { normalizePath } from '../../src/shared/path';
@@ -19,6 +19,26 @@ import { normalizePath } from '../../src/shared/path';
 // Mock extension path for testing
 const mockExtensionPath = path.resolve(process.cwd());
 const fixturesDir = path.resolve(__dirname, '../fixtures/python-project');
+
+/**
+ * Crash-safe sweep of temp_*.py fixtures left behind by interrupted runs.
+ * Per-test `finally`/unlink handles the happy path; this catches orphans
+ * when the process dies between writeFile and unlink. Cross-OS: uses
+ * fs.readdir + path.join + unlink (no shell/glob).
+ */
+async function sweepTempFixtures(): Promise<void> {
+  let entries: string[];
+  try {
+    entries = await fs.readdir(fixturesDir);
+  } catch {
+    return; // dir missing → nothing to sweep
+  }
+  await Promise.all(
+    entries
+      .filter((name) => name.startsWith('temp_') && name.endsWith('.py'))
+      .map((name) => fs.unlink(path.join(fixturesDir, name)).catch(() => {})),
+  );
+}
 
 // Create a mock parser instance that will be reused
 let mockParserInstance: any = null;
@@ -311,6 +331,11 @@ vi.mock('../../src/analyzer/languages/WasmParserFactory', () => {
 
 describe('PythonSymbolAnalyzer Property-Based Tests', { timeout: 30_000 }, () => {
   let analyzer: PythonSymbolAnalyzer;
+
+  // Sweep orphans from any prior interrupted run before starting, and clean
+  // up after the suite regardless of per-test unlink outcome.
+  beforeAll(sweepTempFixtures);
+  afterAll(sweepTempFixtures);
 
   beforeEach(async () => {
     vi.clearAllMocks();
