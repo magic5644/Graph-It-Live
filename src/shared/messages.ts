@@ -38,6 +38,7 @@ export interface ShowGraphMessage {
     | "unknown";
   unusedDependencyMode?: "none" | "hide" | "dim";
   filterUnused?: boolean;
+  showCommunities?: boolean;
 }
 
 export interface OpenFileMessage {

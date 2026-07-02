@@ -368,6 +368,7 @@ export function buildReactFlowGraph(params: {
   layout?: "hierarchical" | "force" | "radial";
   selectedNodeId?: string | null;
   highlightState?: { highlightedNodes: Set<string>; highlightedEdges: Set<string> } | null; // Étape 4
+  showCommunities?: boolean;
 }): BuildGraphResult {
   const {
     data,
@@ -379,6 +380,7 @@ export function buildReactFlowGraph(params: {
     unusedEdges = [],
     unusedDependencyMode = "none",
     filterUnused = true,
+    showCommunities = true,
     mode = "file",
     symbolData,
     layout = "hierarchical",
@@ -563,6 +565,7 @@ export function buildReactFlowGraph(params: {
         return computedFallback[path] ?? 0;
       })(),
       communityId: data.nodeMetadata?.[normalizePath(path)]?.communityId,
+      showCommunities,
     } as FileNodeData;
   };
 

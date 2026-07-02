@@ -1010,6 +1010,11 @@
           "description": "Choose how to display unused dependencies in the graph. 'hide' removes them, 'dim' reduces their opacity.",
           "markdownDescription": "Choose how to display unused dependencies in the graph.\n\n- **hide**: Remove edges for imports that are not actually used in the code\n- **dim**: Show unused edges with reduced opacity"
         },
+        "graph-it-live.showCommunities": {
+          "type": "boolean",
+          "default": true,
+          "markdownDescription": "Show community clustering on the dependency graph (background tint on nodes + community legend). Disable to hide community visualization."
+        },
         "graph-it-live.unusedAnalysisConcurrency": {
           "type": "number",
           "default": 4,

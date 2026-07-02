@@ -598,5 +598,46 @@ describe("FileNode", () => {
       // fullPath appears in title attribute
       expect(container.innerHTML).not.toBe(before);
     });
+
+    it("re-renders when showCommunities changes", () => {
+      const data1 = makeData({ communityId: 3, showCommunities: true });
+      const { container, rerender } = renderNode(data1, "n1");
+      const before = container.innerHTML;
+      const data2 = makeData({ communityId: 3, showCommunities: false });
+      rerender(
+        React.createElement(FileNode as React.ComponentType<any>, { data: data2, id: "n1" }),
+      );
+      expect(container.innerHTML).not.toBe(before);
+    });
+  });
+
+  // ------------------------------------------------------------------
+  // showCommunities tint
+  // ------------------------------------------------------------------
+  describe("community tint — showCommunities", () => {
+    it("applies community tint when showCommunities is true and node has communityId", () => {
+      const { container } = renderNode(
+        makeData({ communityId: 1, showCommunities: true }),
+      );
+      const inner = container.querySelector("div") as HTMLElement;
+      // community color is not transparent, so background should NOT be editor-background
+      expect(inner.style.background).not.toBe("var(--vscode-editor-background)");
+    });
+
+    it("uses editor-background when showCommunities is false regardless of communityId", () => {
+      const { container } = renderNode(
+        makeData({ communityId: 1, showCommunities: false }),
+      );
+      const inner = container.querySelector("div") as HTMLElement;
+      expect(inner.style.background).toBe("var(--vscode-editor-background)");
+    });
+
+    it("uses editor-background when showCommunities is undefined and communityId is undefined", () => {
+      const { container } = renderNode(
+        makeData({ communityId: undefined, showCommunities: undefined }),
+      );
+      const inner = container.querySelector("div") as HTMLElement;
+      expect(inner.style.background).toBe("var(--vscode-editor-background)");
+    });
   });
 });

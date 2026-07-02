@@ -212,6 +212,7 @@ const App: React.FC = () => {
     "none" | "hide" | "dim"
   >("none");
   const [filterUnused, setFilterUnused] = React.useState<boolean>(false);
+  const [showCommunities, setShowCommunities] = React.useState<boolean>(true);
   const [layout, setLayout] = React.useState<
     "hierarchical" | "force" | "radial"
   >("hierarchical");
@@ -355,6 +356,9 @@ const App: React.FC = () => {
           message.filterUnused,
         );
         setFilterUnused(message.filterUnused);
+      }
+      if (message.showCommunities !== undefined) {
+        setShowCommunities(message.showCommunities);
       }
     },
     [],
@@ -936,6 +940,7 @@ const App: React.FC = () => {
             resetToken={resetToken}
             unusedDependencyMode={unusedDependencyMode}
             filterUnused={filterUnused}
+            showCommunities={showCommunities}
             mode={viewMode as "file" | "symbol"}
             symbolData={symbolData}
             layout={layout}

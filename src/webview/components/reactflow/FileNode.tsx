@@ -18,6 +18,7 @@ export interface FileNodeData {
   isParentsVisible: boolean;
   hubScore?: number; // 0-100, undefined en mode symbol
   communityId?: number;
+  showCommunities?: boolean;
   onNodeClick: () => void;
   onDrillDown: () => void;
   onFindReferences: () => void;
@@ -123,6 +124,7 @@ export const FileNode = React.memo<NodeProps<FileNodeData>>(function FileNode({ 
           background: data.isRoot
             ? borderColor
             : (() => {
+                if (data.showCommunities === false) return 'var(--vscode-editor-background)';
                 const commBg = communityColor(data.communityId);
                 return commBg !== 'transparent' ? commBg + '22' : 'var(--vscode-editor-background)';
               })(),
@@ -314,6 +316,7 @@ export const FileNode = React.memo<NodeProps<FileNodeData>>(function FileNode({ 
     pd.isParentsVisible === nd.isParentsVisible &&
     pd.hubScore === nd.hubScore &&
     pd.communityId === nd.communityId &&
+    pd.showCommunities === nd.showCommunities &&
     pd.selectedNodeId === nd.selectedNodeId &&
     pd.nodeId === nd.nodeId
   );

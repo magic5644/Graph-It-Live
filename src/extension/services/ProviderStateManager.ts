@@ -17,6 +17,7 @@ export interface ProviderConfigSnapshot extends BackgroundIndexingConfig {
   maxCacheSize: number;
   maxSymbolCacheSize: number;
   performanceProfile: PerformanceProfile;
+  showCommunities: boolean;
 }
 
 export class ProviderStateManager {
@@ -71,6 +72,7 @@ export class ProviderStateManager {
         ? config.get<number>('maxSymbolCacheSize', profileDefaults.maxSymbolCacheSize)
         : profileDefaults.maxSymbolCacheSize,
       performanceProfile: profile,
+      showCommunities: config.get<boolean>('showCommunities', true),
     };
   }
 
