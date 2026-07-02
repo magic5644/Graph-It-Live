@@ -1141,7 +1141,7 @@
     "tree-sitter-wasms": "^0.1.13",
     "ts-morph": "^27.0.2",
     "vis-network": "10.1.0",
-    "web-tree-sitter": "^0.26.9",
+    "web-tree-sitter": "^0.26.10",
     "zod": "^4.4.3"
   },
   "devDependencies": {
@@ -1159,14 +1159,14 @@
     "@vscode/vsce": "^3.9.2",
     "esbuild": "^0.28.1",
     "esbuild-css-modules-plugin": "^3.1.5",
-    "eslint": "^10.5.0",
+    "eslint": "^10.6.0",
     "fast-check": "^4.8.0",
     "glob": "^13.0.6",
     "globals": "^17.7.0",
     "happy-dom": "^20.10.6",
     "mocha": "^11.7.6",
     "typescript": "^6.0.3",
-    "typescript-eslint": "^8.62.0",
+    "typescript-eslint": "^8.62.1",
     "vitest": "^4.1.9"
   },
   "overrides": {
