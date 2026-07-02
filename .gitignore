@@ -216,7 +216,7 @@ _bmad-output
 
 # VS Code settings (may contain user-specific or machine-specific settings)
 .vscode/settings.json
-
+.tokensave/
 .serena
 
 /graphify-out/
