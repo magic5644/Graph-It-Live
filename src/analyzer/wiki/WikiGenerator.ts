@@ -140,7 +140,6 @@ export class WikiGenerator {
   private readonly externalNodeMetadata: Record<string, GraphNodeMetadata> | undefined;
 
   constructor(opts: WikiGeneratorOptions) {
-     
     this.db = opts.db;
     this.outputDir = opts.outputDir;
     this.workspaceRoot = opts.workspaceRoot;
