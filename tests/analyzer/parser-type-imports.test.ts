@@ -38,4 +38,38 @@ export { Quux } from './quux';
       './quux',
     ]);
   });
+
+  it('should skip TS 5+ per-specifier type-only imports when configured', () => {
+    const parser = new Parser(undefined, true);
+
+    const content = `
+import { type Foo } from './foo';
+import { type Bar, type Baz } from './types';
+import { Quux } from './quux';
+export { type Corge } from './corge';
+`;
+
+    const imports = parser.parse(content, '/project/file.ts');
+
+    expect(imports).toHaveLength(1);
+    expect(imports.map((entry) => entry.module)).toEqual(['./quux']);
+  });
+
+  it('should NOT skip mixed imports (type + value specifiers) when configured', () => {
+    const parser = new Parser(undefined, true);
+
+    const content = `
+import { type Foo, Bar } from './mixed';
+import { type Baz, type Qux } from './types-only';
+import { Value } from './value';
+`;
+
+    const imports = parser.parse(content, '/project/file.ts');
+
+    // './mixed' has a value specifier (Bar) → must be kept
+    // './types-only' has only type specifiers → skipped
+    // './value' is a value import → kept
+    expect(imports).toHaveLength(2);
+    expect(imports.map((entry) => entry.module)).toEqual(['./mixed', './value']);
+  });
 });
