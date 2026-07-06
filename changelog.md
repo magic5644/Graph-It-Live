@@ -2,6 +2,18 @@
 
 ## v1.11.0
 
+### Added
+
+- **TypeScript type-only import handling setting**: Added `graph-it-live.ignoreTypeImports` to optionally ignore TypeScript `import type` and type-only export relations in dependency analysis.
+
+### Fixed
+
+- **Inside-braces type imports**: Correct handling of inline type specifiers in mixed imports (e.g. `import { type A, B } from "..."`) when `ignoreTypeImports` is enabled.
+
+### External contribution
+
+- Thanks to **Óscar Grimal Torres** for the implementation and fixes around TypeScript type-only imports.
+
 ### Added — Path-based community detection (F4)
 
 - **`PathCommunityDetector`**: Replaces Louvain algorithm. Groups files by first non-umbrella subdirectory (e.g. `src/analyzer/Spider.ts` → community `analyzer`). Umbrella dirs skipped: `src`, `tests`, `test`, `lib`, `app`, `packages`, `dist`, `out`.
