@@ -6,6 +6,7 @@
  */
 
 import type { LlmClient, LlmCompletionOptions, LlmCompletionResult, LlmMessage } from './LlmClient';
+import { sessionStats } from '@/shared/sessionStats';
 
 const DEFAULT_MODEL = 'claude-haiku-4-5-20251001';
 const API_URL = 'https://api.anthropic.com/v1/messages';
@@ -76,6 +77,10 @@ export class AnthropicLlmClient implements LlmClient {
     const tokensUsed = data.usage
       ? data.usage.input_tokens + data.usage.output_tokens
       : undefined;
+
+    if (tokensUsed !== undefined) {
+      sessionStats.recordLlmUsage({ provider: 'anthropic', tokensUsed, timestamp: Date.now() });
+    }
 
     return { text, tokensUsed };
   }

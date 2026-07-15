@@ -8,6 +8,7 @@
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { AnthropicLlmClient } from '../../../src/analyzer/llm/AnthropicLlmClient';
+import { sessionStats } from '../../../src/shared/sessionStats';
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -247,5 +248,38 @@ describe('AnthropicLlmClient', () => {
     await expect(
       client.complete([{ role: 'user', content: 'hi' }]),
     ).rejects.toThrow('Anthropic API error 503');
+  });
+
+  // -------------------------------------------------------------------------
+  // complete() — session stats wiring
+  // -------------------------------------------------------------------------
+
+  it('complete() records llmUsage in sessionStats when tokensUsed is defined', async () => {
+    sessionStats.reset();
+    const fakeBody = {
+      content: [{ type: 'text', text: 'ok' }],
+      usage: { input_tokens: 10, output_tokens: 5 },
+    };
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(makeOkResponse(fakeBody)));
+
+    const client = new AnthropicLlmClient('sk-ant-key');
+    await client.complete([{ role: 'user', content: 'hi' }]);
+
+    const snap = sessionStats.snapshot();
+    expect(snap.llmUsage).toEqual({ calls: 1, tokensUsed: 15 });
+    // llmUsage stays separate from encoding totals.
+    expect(snap.totals.calls).toBe(0);
+    sessionStats.reset();
+  });
+
+  it('complete() does not record llmUsage when usage field is absent', async () => {
+    sessionStats.reset();
+    const fakeBody = { content: [{ type: 'text', text: 'ok' }] };
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(makeOkResponse(fakeBody)));
+
+    const client = new AnthropicLlmClient('sk-ant-key');
+    await client.complete([{ role: 'user', content: 'hi' }]);
+
+    expect(sessionStats.snapshot().llmUsage).toEqual({ calls: 0, tokensUsed: 0 });
   });
 });

@@ -1,5 +1,6 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, beforeEach } from 'vitest';
 import { createSuccessResponse } from '../../src/mcp/types';
+import { sessionStats } from '../../src/shared/sessionStats';
 import { formatToolResponse, formatDataAsToon, suggestFormat, extractArrayData, inferObjectName } from '../../src/mcp/responseFormatter';
 
 describe('formatToolResponse', () => {
@@ -220,5 +221,80 @@ describe('inferObjectName', () => {
 
   it('defaults to data for non-arrays', () => {
     expect(inferObjectName({ id: 1 })).toBe('data');
+  });
+});
+
+describe('session stats recording', () => {
+  beforeEach(() => {
+    // Shared singleton — isolate every test.
+    sessionStats.reset();
+  });
+
+  const sampleData = [
+    { file: 'main.ts', line: 10 },
+    { file: 'utils.ts', line: 20 },
+  ];
+
+  it('records an entry with the provided toolName on formatDataAsToon', () => {
+    formatDataAsToon(sampleData, 'files', 'graphitlive_generate_codemap');
+
+    const snapshot = sessionStats.snapshot();
+    expect(snapshot.totals.calls).toBe(1);
+    expect(snapshot.byTool['graphitlive_generate_codemap']).toBeDefined();
+    expect(snapshot.byTool['graphitlive_generate_codemap'].calls).toBe(1);
+    expect(snapshot.byTool['graphitlive_generate_codemap'].jsonTokens).toBeGreaterThan(0);
+    expect(snapshot.byTool['graphitlive_generate_codemap'].toonTokens).toBeGreaterThan(0);
+  });
+
+  it('records under "unknown" when no toolName is provided', () => {
+    formatDataAsToon(sampleData, 'files');
+
+    const snapshot = sessionStats.snapshot();
+    expect(snapshot.byTool['unknown']).toBeDefined();
+    expect(snapshot.byTool['unknown'].calls).toBe(1);
+  });
+
+  it('records with truncated=false (truncation metadata not visible at this layer)', () => {
+    formatDataAsToon(sampleData, 'files', 'graphitlive_query_call_graph');
+
+    const snapshot = sessionStats.snapshot();
+    expect(snapshot.totals.truncations).toBe(0);
+  });
+
+  it('propagates toolName through formatToolResponse for toon format', () => {
+    const response = createSuccessResponse(sampleData, 5, '/workspace');
+    formatToolResponse(response, 'toon', 'graphitlive_analyze_dependencies');
+
+    const snapshot = sessionStats.snapshot();
+    expect(snapshot.byTool['graphitlive_analyze_dependencies']).toBeDefined();
+    expect(snapshot.totals.calls).toBe(1);
+  });
+
+  it('does not record for json or markdown formats', () => {
+    const response = createSuccessResponse(sampleData, 5, '/workspace');
+    formatToolResponse(response, 'json', 'graphitlive_analyze_dependencies');
+    formatToolResponse(response, 'markdown', 'graphitlive_analyze_dependencies');
+
+    expect(sessionStats.snapshot().totals.calls).toBe(0);
+  });
+
+  it('does not record when TOON conversion fails (fallback to JSON)', () => {
+    formatDataAsToon([Symbol('invalid')] as never, 'items', 'graphitlive_x');
+
+    expect(sessionStats.snapshot().totals.calls).toBe(0);
+  });
+
+  it('accumulates totals across multiple calls', () => {
+    formatDataAsToon(sampleData, 'files', 'tool_a');
+    formatDataAsToon(sampleData, 'files', 'tool_a');
+    formatDataAsToon(sampleData, 'files', 'tool_b');
+
+    const snapshot = sessionStats.snapshot();
+    expect(snapshot.totals.calls).toBe(3);
+    expect(snapshot.byTool['tool_a'].calls).toBe(2);
+    expect(snapshot.byTool['tool_b'].calls).toBe(1);
+    expect(snapshot.totals.jsonTokens).toBe(
+      snapshot.byTool['tool_a'].jsonTokens + snapshot.byTool['tool_b'].jsonTokens,
+    );
   });
 });

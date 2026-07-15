@@ -49,3 +49,7 @@ export {
     executeGenerateWiki,
     GenerateWikiSchema
 } from "./wiki";
+export {
+    executeGetSessionStats,
+    GetSessionStatsSchema
+} from "./stats";

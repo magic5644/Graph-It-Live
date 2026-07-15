@@ -9,6 +9,7 @@
  */
 
 import { estimateTokenSavings, jsonToToon } from "../shared/toon";
+import { sessionStats } from "../shared/sessionStats";
 
 export type CliOutputFormat = "text" | "json" | "toon" | "markdown" | "mermaid" | "html";
 
@@ -48,7 +49,7 @@ export function formatOutput(data: unknown, format: CliOutputFormat, command: st
     case "json":
       return formatJson(data);
     case "toon":
-      return formatToon(data);
+      return formatToon(data, command);
     case "text":
       return formatText(data, command);
     case "markdown":
@@ -68,7 +69,7 @@ function formatJson(data: unknown): string {
   return JSON.stringify(data, null, 2);
 }
 
-function formatToon(data: unknown): string {
+function formatToon(data: unknown, command: string): string {
   // Extract array data for TOON
   const arrayData = extractArrayForToon(data);
   if (!arrayData || arrayData.length === 0) {
@@ -81,6 +82,17 @@ function formatToon(data: unknown): string {
     const toonContent = jsonToToon(arrayData, { objectName });
     const jsonStr = JSON.stringify(data, null, 2);
     const savings = estimateTokenSavings(jsonStr, toonContent);
+
+    // Session stats: TOON encoding size vs JSON equivalent (estimated, chars/4
+    // heuristic). Recorded only on successful TOON conversion, like the MCP side.
+    sessionStats.record({
+      toolName: command,
+      jsonTokens: savings.jsonTokens,
+      toonTokens: savings.toonTokens,
+      savings: savings.savings,
+      truncated: false,
+      timestamp: Date.now(),
+    });
 
     return (
       toonContent +
