@@ -51,8 +51,8 @@ export interface GetSessionStatsResult {
   description: "TOON encoding size vs JSON equivalent";
   /** How the numbers are computed. */
   estimationNote: "estimated (chars/4 heuristic)";
-  /** Why llmUsage is reported separately. */
-  llmUsageNote: "llmUsage is real provider-reported token consumption; it is never summed into the estimated encoding totals";
+  /** Why llmUsage is reported separately, and why it stays 0 on the MCP side. */
+  llmUsageNote: string;
   /** Current in-memory session (llmUsage is a separate section inside the snapshot). */
   currentSession: SessionStatsSnapshot;
   /** Persisted session history aggregated by source. Empty when no history exists. */
@@ -118,11 +118,19 @@ export function executeGetSessionStats(statsDir?: string): GetSessionStatsResult
     // History is best-effort — the current session must always be reported.
   }
 
+  // The MCP server never instantiates an LLM client (query_natural_language
+  // delegates synthesis to the calling LLM), so llmUsage can only be non-zero
+  // for CLI sessions (`graph-it query`). Say so instead of showing a section
+  // that looks broken.
+  const llmUsageNote =
+    currentSession.source === "mcp" && currentSession.llmUsage.calls === 0
+      ? "llmUsage is tracked for CLI `graph-it query` only — the MCP server delegates LLM synthesis to the calling client and makes no LLM API calls itself"
+      : "llmUsage is real provider-reported token consumption; it is never summed into the estimated encoding totals";
+
   return {
     description: "TOON encoding size vs JSON equivalent",
     estimationNote: "estimated (chars/4 heuristic)",
-    llmUsageNote:
-      "llmUsage is real provider-reported token consumption; it is never summed into the estimated encoding totals",
+    llmUsageNote,
     currentSession,
     history,
   };
