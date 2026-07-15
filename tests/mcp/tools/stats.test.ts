@@ -68,6 +68,33 @@ describe("get_session_stats tool", () => {
     expect(result.currentSession.estimationMethod).toBe("chars/4 heuristic");
   });
 
+  it("explains why llmUsage is 0 for an MCP session with no LLM calls", () => {
+    const savedSource = sessionStats.getSource();
+    try {
+      sessionStats.setSource("mcp");
+      const result = executeGetSessionStats(tempDir);
+
+      expect(result.currentSession.llmUsage.calls).toBe(0);
+      expect(result.llmUsageNote).toContain("CLI `graph-it query` only");
+      expect(result.llmUsageNote).toContain("delegates LLM synthesis to the calling client");
+    } finally {
+      sessionStats.setSource(savedSource);
+    }
+  });
+
+  it("keeps the separation note when real LLM usage exists", () => {
+    const savedSource = sessionStats.getSource();
+    try {
+      sessionStats.setSource("mcp");
+      sessionStats.recordLlmUsage({ provider: "anthropic", tokensUsed: 42, timestamp: 1 });
+      const result = executeGetSessionStats(tempDir);
+
+      expect(result.llmUsageNote).toContain("never summed into the estimated encoding totals");
+    } finally {
+      sessionStats.setSource(savedSource);
+    }
+  });
+
   it('never claims tokens were "saved by the tool"', () => {
     const serialized = JSON.stringify(executeGetSessionStats(tempDir)).toLowerCase();
 

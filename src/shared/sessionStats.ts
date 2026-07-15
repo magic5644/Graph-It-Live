@@ -13,7 +13,15 @@
  * produce a dishonest metric.
  */
 
-/** Source of the stats collection — encoded into persisted file names. */
+/**
+ * Source of the stats collection — encoded into persisted file names.
+ *
+ * 'extension' is the safe default for the singleton: the extension host has
+ * no TOON-encoding call sites and no flush wired (deliberate — MCP and CLI
+ * are the only reporting surfaces), so extension-side collection stays
+ * in-memory and inert. If extension code ever imports sessionStats, nothing
+ * is persisted and nothing crashes.
+ */
 export type SessionStatsSource = 'mcp' | 'cli' | 'extension';
 
 /** One TOON-vs-JSON encoding comparison for a tool response. */
