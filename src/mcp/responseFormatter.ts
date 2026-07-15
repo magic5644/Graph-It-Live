@@ -8,6 +8,7 @@
  */
 
 import { jsonToToon, estimateTokenSavings } from '../shared/toon';
+import { sessionStats } from '../shared/sessionStats';
 import { getLogger } from '../shared/logger';
 import type { McpToolResponse, OutputFormat } from './types';
 
@@ -20,17 +21,19 @@ export type ResponseFormat = 'json' | 'markdown' | 'toon';
  * 
  * @param response - The full MCP tool response
  * @param responseFormat - The requested response format
+ * @param toolName - Name of the MCP tool producing this response (session stats attribution)
  * @returns Formatted response with content and structured data
  */
 export function formatToolResponse<T>(
   response: McpToolResponse<T>,
-  responseFormat: ResponseFormat
+  responseFormat: ResponseFormat,
+  toolName?: string
 ): { content: { type: 'text'; text: string }[]; structuredContent: McpToolResponse<T> } {
   let text: string;
 
   if (responseFormat === 'toon') {
     // Try to format the data as TOON
-    const formatted = formatDataAsToon(response.data, inferObjectNameFromResponse(response));
+    const formatted = formatDataAsToon(response.data, inferObjectNameFromResponse(response), toolName);
     text = formatted.content;
 
     // Add metadata if available
@@ -85,11 +88,13 @@ function extractArrayFromData(data: unknown): unknown[] {
  * 
  * @param data - The raw data to format
  * @param objectName - The name to use for TOON format
+ * @param toolName - Name of the MCP tool producing this data (session stats attribution)
  * @returns Formatted response with token savings info
  */
 export function formatDataAsToon(
   data: unknown,
-  objectName = 'data'
+  objectName = 'data',
+  toolName?: string
 ): {
   content: string;
   format: OutputFormat;
@@ -116,6 +121,17 @@ export function formatDataAsToon(
     const toonContent = jsonToToon(arrayData, { objectName });
     const jsonContent = JSON.stringify(data, null, 2);
     const savings = estimateTokenSavings(jsonContent, toonContent);
+
+    // Session stats: TOON encoding size vs JSON equivalent (estimated, chars/4 heuristic).
+    // truncated stays false here: truncation metadata is not visible at this layer.
+    sessionStats.record({
+      toolName: toolName ?? 'unknown',
+      jsonTokens: savings.jsonTokens,
+      toonTokens: savings.toonTokens,
+      savings: savings.savings,
+      truncated: false,
+      timestamp: Date.now(),
+    });
 
     return {
       content: toonContent,

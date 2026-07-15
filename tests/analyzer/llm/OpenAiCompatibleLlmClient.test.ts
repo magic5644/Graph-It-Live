@@ -8,6 +8,7 @@
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { OpenAiCompatibleLlmClient } from '../../../src/analyzer/llm/OpenAiCompatibleLlmClient';
+import { sessionStats } from '../../../src/shared/sessionStats';
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -274,5 +275,38 @@ describe('OpenAiCompatibleLlmClient', () => {
     await expect(
       client.complete([{ role: 'user', content: 'hi' }]),
     ).rejects.toThrow('OpenAI API error 503');
+  });
+
+  // -------------------------------------------------------------------------
+  // complete() — session stats wiring
+  // -------------------------------------------------------------------------
+
+  it('complete() records llmUsage in sessionStats when tokensUsed is defined', async () => {
+    sessionStats.reset();
+    const fakeBody = {
+      choices: [{ message: { content: 'ok' } }],
+      usage: { total_tokens: 33 },
+    };
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(makeOkResponse(fakeBody)));
+
+    const client = new OpenAiCompatibleLlmClient('sk-key');
+    await client.complete([{ role: 'user', content: 'hi' }]);
+
+    const snap = sessionStats.snapshot();
+    expect(snap.llmUsage).toEqual({ calls: 1, tokensUsed: 33 });
+    // llmUsage stays separate from encoding totals.
+    expect(snap.totals.calls).toBe(0);
+    sessionStats.reset();
+  });
+
+  it('complete() does not record llmUsage when usage field is absent', async () => {
+    sessionStats.reset();
+    const fakeBody = { choices: [{ message: { content: 'ok' } }] };
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(makeOkResponse(fakeBody)));
+
+    const client = new OpenAiCompatibleLlmClient('sk-key');
+    await client.complete([{ role: 'user', content: 'hi' }]);
+
+    expect(sessionStats.snapshot().llmUsage).toEqual({ calls: 0, tokensUsed: 0 });
   });
 });

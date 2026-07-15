@@ -152,6 +152,27 @@ import {
   VerifyDependencyUsageParamsSchema,
 } from "./types";
 import { GenerateWikiSchema } from "./tools/wiki.js";
+import { executeGetSessionStats, GetSessionStatsSchema, type GetSessionStatsResult } from "./tools/stats.js";
+import { flushSession } from "../analyzer/stats/statsPersistence";
+import { sessionStats } from "../shared/sessionStats";
+
+// Session stats: this process is the MCP entry point.
+sessionStats.setSource("mcp");
+
+// Idempotent stats flush — signal handlers and exit path may all fire.
+let statsFlushed = false;
+function flushStatsOnce(): void {
+  if (statsFlushed) {
+    return;
+  }
+  statsFlushed = true;
+  try {
+    // flushSession is synchronous — safe inside signal/exit handlers.
+    flushSession(sessionStats.snapshot());
+  } catch (error) {
+    debugLog(`[McpServer] Stats flush failed: ${error instanceof Error ? error.message : String(error)}`);
+  }
+}
 
 // ============================================================================
 // Environment Configuration
@@ -574,6 +595,7 @@ EXAMPLE: If analyzing a project at "/Users/me/my-app", call this tool with works
           startTime,
         ),
         responseFormat,
+      "graphitlive_set_workspace",
       );
     }
 
@@ -589,6 +611,7 @@ EXAMPLE: If analyzing a project at "/Users/me/my-app", call this tool with works
           startTime,
         ),
         responseFormat,
+      "graphitlive_set_workspace",
       );
     }
 
@@ -654,7 +677,7 @@ EXAMPLE: If analyzing a project at "/Users/me/my-app", call this tool with works
         `[McpServer] Workspace configured successfully: ${filesIndexed} files indexed`,
       );
 
-      return formatToolResponse(response, responseFormat);
+      return formatToolResponse(response, responseFormat, "graphitlive_set_workspace");
     } catch (error) {
       const errorMessage =
         error instanceof Error
@@ -670,6 +693,7 @@ EXAMPLE: If analyzing a project at "/Users/me/my-app", call this tool with works
           startTime,
         ),
         responseFormat,
+      "graphitlive_set_workspace",
       );
     }
   },
@@ -704,6 +728,7 @@ RETURNS: A structured JSON with all import/export statements including: resolved
       return formatToolResponse(
         workerCheck.response,
         response_format ?? "json",
+      "graphitlive_analyze_dependencies",
       );
 
     const response = await invokeToolWithResponse<AnalyzeDependenciesResult>(
@@ -711,7 +736,7 @@ RETURNS: A structured JSON with all import/export statements including: resolved
       { filePath },
     );
 
-    return formatToolResponse(response, response_format ?? "json");
+    return formatToolResponse(response, response_format ?? "json", "graphitlive_analyze_dependencies");
   },
 );
 
@@ -742,7 +767,7 @@ RETURNS: A complete graph with nodes (files with metadata: path, extension, depe
     const workerCheck = await ensureWorkerReady();
     const responseFormat = response_format ?? "json";
     if (workerCheck.error)
-      return formatToolResponse(workerCheck.response, responseFormat);
+      return formatToolResponse(workerCheck.response, responseFormat, "graphitlive_crawl_dependency_graph");
 
     const params = { entryFile, maxDepth, limit, offset, onlyUsed };
     const result = await workerHost?.invoke<CrawlDependencyGraphResult>(
@@ -753,6 +778,7 @@ RETURNS: A complete graph with nodes (files with metadata: path, extension, depe
       return formatToolResponse(
         createErrorResponse<CrawlDependencyGraphResult>("Worker not available", 0, getWorkspaceRoot()),
         responseFormat,
+      "graphitlive_crawl_dependency_graph",
       );
     }
 
@@ -776,7 +802,7 @@ RETURNS: A complete graph with nodes (files with metadata: path, extension, depe
       pagination,
     );
 
-    return formatToolResponse(response, responseFormat);
+    return formatToolResponse(response, responseFormat, "graphitlive_crawl_dependency_graph");
   },
 );
 
@@ -807,14 +833,14 @@ RETURNS: A list of all files that directly import/require/reference the target f
     const workerCheck = await ensureWorkerReady();
     const responseFormat = response_format ?? "json";
     if (workerCheck.error)
-      return formatToolResponse(workerCheck.response, responseFormat);
+      return formatToolResponse(workerCheck.response, responseFormat, "graphitlive_find_referencing_files");
 
     const response = await invokeToolWithResponse<FindReferencingFilesResult>(
       "find_referencing_files",
       { targetPath },
     );
 
-    return formatToolResponse(response, responseFormat);
+    return formatToolResponse(response, responseFormat, "graphitlive_find_referencing_files");
   },
 );
 
@@ -845,7 +871,7 @@ RETURNS: A list of newly discovered nodes (files) and edges (import relationship
     const workerCheck = await ensureWorkerReady();
     const responseFormat = response_format ?? "json";
     if (workerCheck.error)
-      return formatToolResponse(workerCheck.response, responseFormat);
+      return formatToolResponse(workerCheck.response, responseFormat, "graphitlive_expand_node");
 
     const response = await invokeToolWithResponse<ExpandNodeResult>(
       "expand_node",
@@ -856,7 +882,7 @@ RETURNS: A list of newly discovered nodes (files) and edges (import relationship
       },
     );
 
-    return formatToolResponse(response, responseFormat);
+    return formatToolResponse(response, responseFormat, "graphitlive_expand_node");
   },
 );
 
@@ -887,14 +913,14 @@ RETURNS: An array of raw import/require/export statements as they appear in the 
     const workerCheck = await ensureWorkerReady();
     const responseFormat = response_format ?? "json";
     if (workerCheck.error)
-      return formatToolResponse(workerCheck.response, responseFormat);
+      return formatToolResponse(workerCheck.response, responseFormat, "graphitlive_parse_imports");
 
     const response = await invokeToolWithResponse<ParseImportsResult>(
       "parse_imports",
       { filePath },
     );
 
-    return formatToolResponse(response, responseFormat);
+    return formatToolResponse(response, responseFormat, "graphitlive_parse_imports");
   },
 );
 
@@ -925,7 +951,7 @@ RETURNS: Boolean indicating if the dependency is used.`,
     const workerCheck = await ensureWorkerReady();
     const responseFormat = response_format ?? "json";
     if (workerCheck.error)
-      return formatToolResponse(workerCheck.response, responseFormat);
+      return formatToolResponse(workerCheck.response, responseFormat, "graphitlive_verify_dependency_usage");
 
     const response = await invokeToolWithResponse<unknown>(
       "verify_dependency_usage",
@@ -935,7 +961,7 @@ RETURNS: Boolean indicating if the dependency is used.`,
       },
     );
 
-    return formatToolResponse(response, responseFormat);
+    return formatToolResponse(response, responseFormat, "graphitlive_verify_dependency_usage");
   },
 );
 
@@ -966,14 +992,14 @@ RETURNS: The resolved absolute file path if the module exists, or null if it can
     const workerCheck = await ensureWorkerReady();
     const responseFormat = response_format ?? "json";
     if (workerCheck.error)
-      return formatToolResponse(workerCheck.response, responseFormat);
+      return formatToolResponse(workerCheck.response, responseFormat, "graphitlive_resolve_module_path");
 
     const response = await invokeToolWithResponse<ResolveModulePathResult>(
       "resolve_module_path",
       { fromFile, moduleSpecifier },
     );
 
-    return formatToolResponse(response, responseFormat);
+    return formatToolResponse(response, responseFormat, "graphitlive_resolve_module_path");
   },
 );
 
@@ -1004,14 +1030,14 @@ RETURNS: Index state (ready/initializing), number of files indexed, reverse inde
     const workerCheck = await ensureWorkerReady();
     const responseFormat = response_format ?? "json";
     if (workerCheck.error)
-      return formatToolResponse(workerCheck.response, responseFormat);
+      return formatToolResponse(workerCheck.response, responseFormat, "graphitlive_get_index_status");
 
     const response = await invokeToolWithResponse<GetIndexStatusResult>(
       "get_index_status",
       {},
     );
 
-    return formatToolResponse(response, responseFormat);
+    return formatToolResponse(response, responseFormat, "graphitlive_get_index_status");
   },
 );
 
@@ -1042,7 +1068,7 @@ RETURNS: The number of files invalidated, which files were cleared from cache, a
     const workerCheck = await ensureWorkerReady();
     const responseFormat = response_format ?? "json";
     if (workerCheck.error)
-      return formatToolResponse(workerCheck.response, responseFormat);
+      return formatToolResponse(workerCheck.response, responseFormat, "graphitlive_invalidate_files");
 
     const response = await invokeToolWithResponse<InvalidateFilesResult>(
       "invalidate_files",
@@ -1051,7 +1077,7 @@ RETURNS: The number of files invalidated, which files were cleared from cache, a
       },
     );
 
-    return formatToolResponse(response, responseFormat);
+    return formatToolResponse(response, responseFormat, "graphitlive_invalidate_files");
   },
 );
 
@@ -1082,14 +1108,14 @@ RETURNS: The number of files re-indexed, time taken to rebuild, new cache size, 
     const workerCheck = await ensureWorkerReady();
     const responseFormat = response_format ?? "json";
     if (workerCheck.error)
-      return formatToolResponse(workerCheck.response, responseFormat);
+      return formatToolResponse(workerCheck.response, responseFormat, "graphitlive_rebuild_index");
 
     const response = await invokeToolWithResponse<RebuildIndexResult>(
       "rebuild_index",
       {},
     );
 
-    return formatToolResponse(response, responseFormat);
+    return formatToolResponse(response, responseFormat, "graphitlive_rebuild_index");
   },
 );
 
@@ -1141,14 +1167,14 @@ This enables the **"Drill Down" UX pattern** where users double-click a file nod
     const workerCheck = await ensureWorkerReady();
     const responseFormat = response_format ?? "json";
     if (workerCheck.error)
-      return formatToolResponse(workerCheck.response, responseFormat);
+      return formatToolResponse(workerCheck.response, responseFormat, "graphitlive_get_symbol_graph");
 
     const response = await invokeToolWithResponse<GetSymbolGraphResult>(
       "get_symbol_graph",
       { filePath },
     );
 
-    return formatToolResponse(response, responseFormat);
+    return formatToolResponse(response, responseFormat, "graphitlive_get_symbol_graph");
   },
 );
 
@@ -1201,14 +1227,14 @@ NOTE: Currently returns all exports as potentially unused until full cross-file 
     const workerCheck = await ensureWorkerReady();
     const responseFormat = response_format ?? "json";
     if (workerCheck.error)
-      return formatToolResponse(workerCheck.response, responseFormat);
+      return formatToolResponse(workerCheck.response, responseFormat, "graphitlive_find_unused_symbols");
 
     const response = await invokeToolWithResponse<FindUnusedSymbolsResult>(
       "find_unused_symbols",
       { filePath },
     );
 
-    return formatToolResponse(response, responseFormat);
+    return formatToolResponse(response, responseFormat, "graphitlive_find_unused_symbols");
   },
 );
 
@@ -1263,7 +1289,7 @@ User: "I want to add a parameter to formatDate(). What will break?"
     const workerCheck = await ensureWorkerReady();
     const responseFormat = response_format ?? "json";
     if (workerCheck.error)
-      return formatToolResponse(workerCheck.response, responseFormat);
+      return formatToolResponse(workerCheck.response, responseFormat, "graphitlive_get_symbol_dependents");
 
     const response = await invokeToolWithResponse<GetSymbolDependentsResult>(
       "get_symbol_dependents",
@@ -1273,7 +1299,7 @@ User: "I want to add a parameter to formatDate(). What will break?"
       },
     );
 
-    return formatToolResponse(response, responseFormat);
+    return formatToolResponse(response, responseFormat, "graphitlive_get_symbol_dependents");
   },
 );
 
@@ -1332,7 +1358,7 @@ Use cases:
     const workerCheck = await ensureWorkerReady();
     const responseFormat = response_format ?? "json";
     if (workerCheck.error)
-      return formatToolResponse(workerCheck.response, responseFormat);
+      return formatToolResponse(workerCheck.response, responseFormat, "graphitlive_trace_function_execution");
 
     const response = await invokeToolWithResponse<TraceFunctionExecutionResult>(
       "trace_function_execution",
@@ -1343,7 +1369,7 @@ Use cases:
       },
     );
 
-    return formatToolResponse(response, responseFormat);
+    return formatToolResponse(response, responseFormat, "graphitlive_trace_function_execution");
   },
 );
 
@@ -1396,7 +1422,7 @@ Use cases:
     const workerCheck = await ensureWorkerReady();
     const responseFormat = response_format ?? "json";
     if (workerCheck.error)
-      return formatToolResponse(workerCheck.response, responseFormat);
+      return formatToolResponse(workerCheck.response, responseFormat, "graphitlive_get_symbol_callers");
 
     const response = await invokeToolWithResponse<GetSymbolCallersResult>(
       "get_symbol_callers",
@@ -1407,7 +1433,7 @@ Use cases:
       },
     );
 
-    return formatToolResponse(response, responseFormat);
+    return formatToolResponse(response, responseFormat, "graphitlive_get_symbol_callers");
   },
 );
 
@@ -1466,7 +1492,7 @@ Use cases:
     const workerCheck = await ensureWorkerReady();
     const responseFormat = response_format ?? "json";
     if (workerCheck.error)
-      return formatToolResponse(workerCheck.response, responseFormat);
+      return formatToolResponse(workerCheck.response, responseFormat, "graphitlive_analyze_breaking_changes");
 
     const response = await invokeToolWithResponse<AnalyzeBreakingChangesResult>(
       "analyze_breaking_changes",
@@ -1478,7 +1504,7 @@ Use cases:
       },
     );
 
-    return formatToolResponse(response, responseFormat);
+    return formatToolResponse(response, responseFormat, "graphitlive_analyze_breaking_changes");
   },
 );
 
@@ -1548,7 +1574,7 @@ Use cases:
     const workerCheck = await ensureWorkerReady();
     const responseFormat = response_format ?? "json";
     if (workerCheck.error)
-      return formatToolResponse(workerCheck.response, responseFormat);
+      return formatToolResponse(workerCheck.response, responseFormat, "graphitlive_get_impact_analysis");
 
     const response = await invokeToolWithResponse<GetImpactAnalysisResult>(
       "get_impact_analysis",
@@ -1560,7 +1586,7 @@ Use cases:
       },
     );
 
-    return formatToolResponse(response, responseFormat);
+    return formatToolResponse(response, responseFormat, "graphitlive_get_impact_analysis");
   },
 );
 
@@ -1641,14 +1667,14 @@ Use cases:
     const workerCheck = await ensureWorkerReady();
     const responseFormat = response_format ?? "toon";
     if (workerCheck.error)
-      return formatToolResponse(workerCheck.response, responseFormat);
+      return formatToolResponse(workerCheck.response, responseFormat, "graphitlive_analyze_file_logic");
 
     const response = await invokeToolWithResponse("analyze_file_logic", {
       filePath,
       includeExternal: includeExternal ?? false,
     });
 
-    return formatToolResponse(response, responseFormat);
+    return formatToolResponse(response, responseFormat, "graphitlive_analyze_file_logic");
   },
 );
 
@@ -1704,13 +1730,13 @@ Supported languages: TypeScript, JavaScript, Python, Rust, Vue, Svelte`,
     const workerCheck = await ensureWorkerReady();
     const responseFormat = response_format ?? "toon";
     if (workerCheck.error)
-      return formatToolResponse(workerCheck.response, responseFormat);
+      return formatToolResponse(workerCheck.response, responseFormat, "graphitlive_generate_codemap");
 
     const response = await invokeToolWithResponse("generate_codemap", {
       filePath,
     });
 
-    return formatToolResponse(response, responseFormat);
+    return formatToolResponse(response, responseFormat, "graphitlive_generate_codemap");
   },
 );
 
@@ -1765,14 +1791,14 @@ RETURNS:
     const workerCheck = await ensureWorkerReady();
     const responseFormat = response_format ?? "toon";
     if (workerCheck.error)
-      return formatToolResponse(workerCheck.response, responseFormat);
+      return formatToolResponse(workerCheck.response, responseFormat, "graphitlive_query_call_graph");
 
     const response = await invokeToolWithResponse(
       "query_call_graph",
       { filePath, symbolName, direction, depth, relationTypes },
     );
 
-    return formatToolResponse(response, responseFormat);
+    return formatToolResponse(response, responseFormat, "graphitlive_query_call_graph");
   },
 );
 
@@ -1824,14 +1850,14 @@ RETURNS:
     const workerCheck = await ensureWorkerReady();
     const responseFormat = response_format ?? "toon";
     if (workerCheck.error)
-      return formatToolResponse(workerCheck.response, responseFormat);
+      return formatToolResponse(workerCheck.response, responseFormat, "graphitlive_scan_dead_code");
 
     const response = await invokeToolWithResponse(
       "scan_dead_code",
       { scopePath, maxFiles },
     );
 
-    return formatToolResponse(response, responseFormat);
+    return formatToolResponse(response, responseFormat, "graphitlive_scan_dead_code");
   },
 );
 
@@ -1885,14 +1911,14 @@ RETURNS:
     const workerCheck = await ensureWorkerReady();
     const responseFormat = response_format ?? "toon";
     if (workerCheck.error)
-      return formatToolResponse(workerCheck.response, responseFormat);
+      return formatToolResponse(workerCheck.response, responseFormat, "graphitlive_query_natural_language");
 
     const response = await invokeToolWithResponse(
       "query_natural_language",
       { question, depth, tokenBudget, fileFilter, outputFormat },
     );
 
-    return formatToolResponse(response, responseFormat);
+    return formatToolResponse(response, responseFormat, "graphitlive_query_natural_language");
   },
 );
 
@@ -1932,14 +1958,56 @@ First invocation indexes the entire workspace (3-8s). Subsequent calls are fast.
     const workerCheck = await ensureWorkerReady();
     const responseFormat = response_format ?? "json";
     if (workerCheck.error)
-      return formatToolResponse(workerCheck.response, responseFormat);
+      return formatToolResponse(workerCheck.response, responseFormat, "graphitlive_generate_wiki");
 
     const response = await invokeToolWithResponse(
       "generate_wiki",
       { workspaceRoot, outputDir, topHubsLimit, scope, exclude },
     );
 
-    return formatToolResponse(response, responseFormat);
+    return formatToolResponse(response, responseFormat, "graphitlive_generate_wiki");
+  },
+);
+
+// Tool: graphitlive_get_session_stats
+// Runs in the server process (no worker needed): the sessionStats singleton
+// is populated by responseFormatter in this same process.
+server.registerTool(
+  "graphitlive_get_session_stats",
+  {
+    title: "Get Session Token Stats",
+    description: `Report session statistics: TOON encoding size vs JSON equivalent (estimated, chars/4 heuristic) per tool and in total, plus real LLM token usage as a separate section.
+
+WHEN TO USE:
+- User asks how many tokens the TOON responses represent compared to their JSON equivalent
+- User wants a summary of tool usage in the current session or across persisted sessions
+
+RETURNS:
+- description: "TOON encoding size vs JSON equivalent"
+- estimationNote: "estimated (chars/4 heuristic)" — encoding numbers are estimates, not measured billing tokens
+- currentSession: per-tool and total aggregates for this session; llmUsage is a separate section (real provider-reported tokens, never summed into the estimated totals)
+- history: persisted sessions aggregated by source (mcp/cli)
+
+IMPORTANT: These numbers compare two encodings of the same data. They are NOT a savings claim attributable to the tool.`,
+    inputSchema: GetSessionStatsSchema,
+    outputSchema: McpToolResponseSchema,
+    annotations: {
+      readOnlyHint: true,
+      destructiveHint: false,
+      idempotentHint: true,
+      openWorldHint: false,
+    },
+  },
+  async () => {
+    const startTime = Date.now();
+    const result = executeGetSessionStats();
+    const response = createSuccessResponse<GetSessionStatsResult>(
+      result,
+      Date.now() - startTime,
+      getWorkspaceRoot(),
+    );
+    // Always JSON: stats output is small and must stay exact (no TOON re-encoding).
+    return formatToolResponse(response, "json", "graphitlive_get_session_stats");
   },
 );
 
@@ -1974,12 +2042,19 @@ async function main(): Promise<void> {
   // Handle graceful shutdown
   process.on("SIGINT", () => {
     debugLog("[McpServer] Received SIGINT, shutting down...");
+    flushStatsOnce();
     void workerHost?.dispose().then(() => process.exit(0)).catch(() => process.exit(0));
   });
 
   process.on("SIGTERM", () => {
     debugLog("[McpServer] Received SIGTERM, shutting down...");
+    flushStatsOnce();
     void workerHost?.dispose().then(() => process.exit(0)).catch(() => process.exit(0));
+  });
+
+  // Covers stdio transport close / normal exit paths (flushStatsOnce is idempotent).
+  process.on("exit", () => {
+    flushStatsOnce();
   });
 }
 

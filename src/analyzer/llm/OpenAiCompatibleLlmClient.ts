@@ -7,6 +7,7 @@
  */
 
 import type { LlmClient, LlmCompletionOptions, LlmCompletionResult, LlmMessage } from './LlmClient';
+import { sessionStats } from '@/shared/sessionStats';
 
 const DEFAULT_BASE_URL = 'https://api.openai.com/v1';
 const DEFAULT_MODEL = 'gpt-4o-mini';
@@ -67,6 +68,14 @@ export class OpenAiCompatibleLlmClient implements LlmClient {
 
     const text = data.choices?.[0]?.message?.content ?? '';
     const tokensUsed = data.usage?.total_tokens;
+
+    if (tokensUsed !== undefined) {
+      sessionStats.recordLlmUsage({
+        provider: 'openai-compatible',
+        tokensUsed,
+        timestamp: Date.now(),
+      });
+    }
 
     return { text, tokensUsed };
   }

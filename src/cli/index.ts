@@ -32,6 +32,8 @@
 
 import * as path from "node:path";
 import { parseArgs } from "node:util";
+import { flushSession } from "../analyzer/stats/statsPersistence";
+import { sessionStats } from "../shared/sessionStats";
 import { classifyError, CliError, ExitCode } from "./errors";
 import type { CliOutputFormat } from "./formatter";
 import { CLI_OUTPUT_FORMATS } from "./formatter";
@@ -42,6 +44,38 @@ import { maybeNotifyCliUpdate } from "./versionCheck";
 // Version (injected at build time via define, fallback for dev/test)
 // ============================================================================
 const VERSION = process.env.CLI_VERSION ?? "0.0.0-dev";
+
+// Session stats: this process is the CLI entry point.
+sessionStats.setSource("cli");
+
+// Idempotent stats flush — end-of-run and exit paths may both fire.
+let statsFlushed = false;
+function flushStatsOnce(): void {
+  if (statsFlushed) {
+    return;
+  }
+  statsFlushed = true;
+  try {
+    // flushSession is synchronous — safe inside an exit handler.
+    flushSession(sessionStats.snapshot());
+  } catch {
+    // Stats persistence is best-effort — never break the CLI run.
+  }
+}
+
+// Covers every exit path (main uses process.exit throughout).
+process.on("exit", () => {
+  flushStatsOnce();
+});
+
+// Node does not emit 'exit' on unhandled SIGINT/SIGTERM (e.g. Ctrl+C during a
+// long run) — flush, then exit with the conventional signal code.
+for (const signal of ["SIGINT", "SIGTERM"] as const) {
+  process.on(signal, () => {
+    flushStatsOnce();
+    process.exit(signal === "SIGINT" ? 130 : 143);
+  });
+}
 
 const HELP = `
 graph-it — Graph-It-Live standalone CLI
@@ -65,6 +99,7 @@ Commands:
   install           Install CLI to system PATH (VS Code opt-in)
   update            Update graph-it to the latest version on npm
   query <question>   Query the codebase with natural language
+  stats             Session token stats (TOON encoding size vs JSON equivalent + LLM usage)
 
 Options:
   --workspace, -w   Workspace root directory (default: auto-detected)
@@ -251,7 +286,7 @@ async function main(): Promise<void> {
   const runtime = new CliRuntime(workspaceRoot);
 
   // Commands that don't need a workspace (skip runtime init to avoid side-effects)
-  const WORKSPACE_FREE = new Set(["install", "update"]);
+  const WORKSPACE_FREE = new Set(["install", "update", "stats"]);
 
   try {
     if (!WORKSPACE_FREE.has(command)) {
@@ -351,6 +386,10 @@ async function dispatch(
     }
     case "wiki": {
       const { run } = await import("./commands/wiki.js");
+      return run(args, runtime, format);
+    }
+    case "stats": {
+      const { run } = await import("./commands/stats.js");
       return run(args, runtime, format);
     }
     case "export": {

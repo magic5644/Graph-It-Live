@@ -4,6 +4,7 @@ import {
   formatOutput,
   validateFormatForCommand,
 } from "../../src/cli/formatter";
+import { sessionStats } from "../../src/shared/sessionStats";
 
 // Sample data used across tests
 const arrayData = [
@@ -141,6 +142,35 @@ describe("formatOutput - toon", () => {
   it("falls back to JSON for non-array object", () => {
     const out = formatOutput(objectData, "toon", "summary");
     // Non-array: should fall through to JSON
+    expect(() => JSON.parse(out)).not.toThrow();
+  });
+
+  it("records a session stats entry on successful TOON conversion", () => {
+    sessionStats.reset();
+    formatOutput(arrayData, "toon", "architecture");
+    const snapshot = sessionStats.snapshot();
+    expect(snapshot.totals.calls).toBe(1);
+    expect(snapshot.byTool["architecture"].calls).toBe(1);
+    expect(snapshot.byTool["architecture"].jsonTokens).toBeGreaterThan(0);
+    expect(snapshot.byTool["architecture"].toonTokens).toBeGreaterThan(0);
+  });
+
+  it("does not record session stats when falling back to JSON", () => {
+    sessionStats.reset();
+    formatOutput(objectData, "toon", "summary");
+    expect(sessionStats.hasEntries()).toBe(false);
+  });
+
+  it("infers object name from caller and dependency keys", () => {
+    const callers = formatOutput([{ caller: "main", line: 3 }], "toon", "callers");
+    expect(callers).toMatch(/callers\(/);
+    const deps = formatOutput([{ dependency: "lodash" }], "toon", "deps");
+    expect(deps).toMatch(/dependencies\(/);
+  });
+
+  it("falls back to generic name for primitive arrays", () => {
+    const out = formatOutput([1, 2, 3], "toon", "scan");
+    // Primitive rows cannot be TOON-encoded; output falls back to JSON
     expect(() => JSON.parse(out)).not.toThrow();
   });
 });
