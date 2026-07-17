@@ -19,6 +19,8 @@ The `graph-it` CLI gives you full access to the dependency analysis engine of Gr
   - [check](#check)
   - [trace](#trace)
   - [query](#query)
+  - [stats](#stats)
+  - [wiki](#wiki)
   - [tool](#tool)
   - [serve](#serve)
   - [install](#install)
@@ -658,6 +660,68 @@ graph-it query "what is the entry point for the CLI" --format json
 ```
 
 > **Breaking change:** `CallGraphIndexer` SCHEMA_VERSION was bumped from 2 to 3 alongside this feature. The index is automatically rebuilt on first use after upgrading.
+
+---
+
+### stats
+
+Report session-level token metrics with strict separation between:
+- **estimated JSON vs TOON encoding sizes** (chars/4 heuristic), and
+- **real provider-reported LLM usage** (`llmUsage`).
+
+```
+graph-it stats [options]
+```
+
+**Options:**
+
+| Option | Default | Description |
+|--------|---------|-------------|
+| `--workspace, -w` | auto-detected | Project root |
+| `--stats-dir <dir>` | `~/.graph-it/stats` | Override persisted stats directory |
+| `--format, -f` | `text` | Output format (`text`, `json`, `markdown`) |
+
+**What it reports:**
+- current process session (`byTool`, totals, `llmUsage`)
+- persisted history (`bySource`, `byTool`)
+- required wording that `llmUsage` is never summed into estimated encoding totals
+
+**Local zero-LLM proof workflow:**
+
+```bash
+# Runs architecture, codemap, impact, and call-graph analyses twice (JSON + TOON).
+# ANTHROPIC_API_KEY and OPENAI_API_KEY are removed from child processes.
+# Raw outputs and report.json are written under .reports/context-economy/.
+npm run test:context-economy
+```
+
+The generated `report.json` stores, for every corpus operation:
+
+- `llmUsage.calls = 0` and `llmUsage.tokensUsed = 0`;
+- raw JSON and TOON output paths;
+- UTF-8 bytes, characters, and `estimateTokenSavings()` values;
+- persisted CLI session snapshots, which also must show zero provider usage.
+
+The `chars / 4` values are **encoding estimates**, not provider billing tokens or a
+claim that an LLM was called. Local graph traversal performs no LLM request. The
+optional `query` command may use an LLM only to extract keywords; without a
+provider key it uses the deterministic heuristic fallback. MCP response synthesis
+belongs to the calling AI client, not to Graph-It-Live's local analyzers.
+
+**TOON secondary benchmark workflow:**
+
+```bash
+# Primary + secondary payload benchmarks for session-stats TOON encoding
+npx vitest bench tests/benchmarks/sessionStatsToon.bench.ts
+```
+
+**Examples:**
+
+```bash
+graph-it stats
+graph-it stats --format json
+graph-it stats --stats-dir /tmp/graph-it-stats --format markdown
+```
 
 ---
 

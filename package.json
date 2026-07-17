@@ -1116,6 +1116,7 @@
     "test:all": "npm run test:unit",
     "test:bench": "node scripts/run-benchmarks.mjs",
     "test:bench:memory": "node scripts/run-memory-bench.mjs",
+    "test:context-economy": "npm run build:cli && node scripts/context-economy-corpus.mjs",
     "test:mcp": "node scripts/test-mcp.js",
     "test:cli:e2e": "bash scripts/test-cli-e2e.sh",
     "lint": "eslint src",

@@ -446,6 +446,20 @@ graph LR
 
 This output can be pasted directly into any Markdown renderer (GitHub, Notion, VS Code Preview, etc.) or piped to a diagramming tool.
 
+### Analyze Locally. Send Less Context.
+
+Graph-It-Live reduces the context an AI assistant needs to inspect. Instead of sending source files or a broad repository dump to a model, use the CLI or MCP tools to ask for the specific dependency, symbol, caller, impact, or call-graph result you need.
+
+The analysis happens locally. Graph-It-Live builds its index and extracts code structure with AST analysis and Tree-sitter, then computes graph traversal, reverse dependencies, and impact analysis in the local process. Architecture, codemap, impact, and call-graph tools do not need an LLM to calculate their results.
+
+For AI-facing workflows, request `toon` output when the result contains structured lists or graphs. TOON (Token-Oriented Object Notation) removes repeated JSON field names while retaining the data an agent needs. This compounds the main saving: targeted local analysis first, compact structured output second.
+
+The practical alternative is often much larger: pass a tool result to the model rather than the source files, imports, and unrelated modules it would otherwise need to reconstruct the same relationship. The exact reduction depends on the repository and the question. Measure it for your workflow by comparing the bytes or characters of the Graph-It-Live output with the raw source/context you would otherwise provide.
+
+Run `npm run test:context-economy` to produce a reproducible JSON-versus-TOON corpus for architecture, codemap, impact, and call-graph analysis. Its report records bytes, characters, and `chars/4` token estimates separately from actual `llmUsage`. These are representation estimates, not provider billing tokens or a universal cost-saving guarantee.
+
+The optional `query` command is deliberately narrower: a configured LLM can extract search keywords, but graph scoring and traversal stay local. Without provider credentials, it uses the heuristic keyword fallback.
+
 **Workspace flag:** Use `--workspace <path>` (or `-w`) to specify the project root explicitly; defaults to the current working directory.
 
 **Use as MCP server (no VS Code):** Run `graph-it serve` and point your AI client at it — see [Manual MCP Server Configuration](#manual-mcp-server-configuration).
@@ -543,7 +557,7 @@ All tools support an optional `format` parameter to reduce token consumption:
 | `toon` | Compact Token-Oriented Object Notation | 30-60% |
 | `markdown` | JSON wrapped in markdown code blocks | — |
 
-See [TOON Format Documentation](./docs/architecture/TOON_FORMAT.md) for full specifications.
+See [TOON Format Documentation](./docs/architecture/TOON_FORMAT.md) for full specifications, including the reproducible local-analysis and encoding-measurement protocol.
 
 ### Native LM Tools (Copilot Agent Mode)
 

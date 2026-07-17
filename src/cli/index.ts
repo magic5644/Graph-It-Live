@@ -267,7 +267,7 @@ async function main(): Promise<void> {
   const commandPosInArgv = argvAfterBinary.findIndex(
     (a, i) => a === command && !argvAfterBinary.slice(0, i).some(prev => !prev.startsWith("-") && prev !== command),
   );
-  const rawCommandArgs = command === "tool" && commandPosInArgv >= 0
+  const rawCommandArgs = (command === "tool" || command === "architecture") && commandPosInArgv >= 0
     ? argvAfterBinary.slice(commandPosInArgv + 1)
     : commandArgs;
 
@@ -303,11 +303,11 @@ async function main(): Promise<void> {
     if (output) {
       process.stdout.write(output.endsWith("\n") ? output : output + "\n");
     }
-    process.exit(ExitCode.SUCCESS);
+    process.exitCode = ExitCode.SUCCESS;
   } catch (err) {
     const { message, exitCode } = classifyError(err);
     process.stderr.write(`Error: ${message}\n`);
-    process.exit(exitCode);
+    process.exitCode = exitCode;
   } finally {
     await runtime.dispose().catch(() => {/* best-effort */});
   }
