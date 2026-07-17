@@ -12,7 +12,7 @@ export interface ReviewCallGraphTarget {
 export function validateReviewCallGraphTarget(target: unknown): ReviewCallGraphTarget {
   if (!target || typeof target !== "object") throw new Error("Invalid review call graph target");
   const value = target as { file?: unknown; symbol?: unknown; depth?: unknown };
-  if (typeof value.file !== "string" || value.file.length === 0 || path.isAbsolute(value.file)) {
+  if (typeof value.file !== "string" || value.file.length === 0 || path.isAbsolute(value.file) || path.win32.isAbsolute(value.file)) {
     throw new Error("Review target must contain a workspace-relative file path");
   }
   if (value.symbol !== undefined && (typeof value.symbol !== "string" || value.symbol.length === 0)) {
@@ -35,7 +35,7 @@ export function parseReviewCallGraphDepth(requested: string | null = "3"): numbe
 
 export function resolveReviewCallGraphPath(workspaceRoot: string, relativePath: string): string {
   const normalizedRoot = normalizePath(path.resolve(workspaceRoot));
-  const resolvedPath = normalizePath(path.resolve(workspaceRoot, relativePath));
+  const resolvedPath = normalizePath(path.resolve(workspaceRoot, normalizePath(relativePath)));
   if (resolvedPath === normalizedRoot || !resolvedPath.startsWith(`${normalizedRoot}/`)) {
     throw new Error("Review target resolves outside the workspace");
   }

@@ -1,11 +1,14 @@
+import path from "node:path";
 import { describe, expect, it } from "vitest";
+import { normalizePath } from "../../src/shared/path";
 import { parseReviewCallGraphDepth, resolveReviewCallGraphPath, validateReviewCallGraphTarget } from "../../src/shared/reviewTarget";
 
 describe("review call graph targets", () => {
   it("accepts relative POSIX and Windows-style targets and defaults the depth", () => {
+    const workspaceRoot = path.join(path.sep, "workspace");
     expect(validateReviewCallGraphTarget({ file: "src/api.ts", symbol: "greet", depth: 3 })).toEqual({ file: "src/api.ts", symbol: "greet", depth: 3 });
     expect(validateReviewCallGraphTarget({ file: "src\\api.ts" })).toEqual({ file: "src\\api.ts", symbol: undefined, depth: 3 });
-    expect(resolveReviewCallGraphPath("/workspace", "src/api.ts")).toBe("/workspace/src/api.ts");
+    expect(resolveReviewCallGraphPath(workspaceRoot, "src/api.ts")).toBe(normalizePath(path.join(workspaceRoot, "src/api.ts")));
     expect(parseReviewCallGraphDepth("3")).toBe(3);
     expect(parseReviewCallGraphDepth()).toBe(3);
     expect(parseReviewCallGraphDepth(null)).toBe(3);
@@ -13,7 +16,7 @@ describe("review call graph targets", () => {
   });
 
   it("rejects missing and malformed targets, numeric coercion, root paths, and traversal", () => {
-    for (const target of [undefined, null, "src/api.ts", {}, { file: "" }, { file: "/tmp/api.ts" }, { file: "src/api.ts", symbol: "" }, { file: "src/api.ts", symbol: 1 }]) {
+    for (const target of [undefined, null, "src/api.ts", {}, { file: "" }, { file: "/tmp/api.ts" }, { file: "C:\\tmp\\api.ts" }, { file: "src/api.ts", symbol: "" }, { file: "src/api.ts", symbol: 1 }]) {
       expect(() => validateReviewCallGraphTarget(target)).toThrow();
     }
     expect(() => validateReviewCallGraphTarget({ file: "src/api.ts", depth: "3" })).toThrow("depth");
@@ -24,6 +27,7 @@ describe("review call graph targets", () => {
     expect(() => validateReviewCallGraphTarget({ file: "src/api.ts", depth: 1.5 })).toThrow("depth");
     expect(() => resolveReviewCallGraphPath("/workspace", ".")).toThrow("outside the workspace");
     expect(() => resolveReviewCallGraphPath("/workspace", "../outside.ts")).toThrow("outside the workspace");
+    expect(() => resolveReviewCallGraphPath("/workspace", "..\\outside.ts")).toThrow("outside the workspace");
     expect(() => parseReviewCallGraphDepth("0")).toThrow("depth");
     expect(() => parseReviewCallGraphDepth("6")).toThrow("depth");
     expect(() => parseReviewCallGraphDepth("")).toThrow("depth");
