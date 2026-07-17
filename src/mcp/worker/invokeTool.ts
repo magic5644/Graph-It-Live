@@ -16,6 +16,7 @@ import {
   executeInvalidateFiles,
   executeParseImports,
   executeQueryCallGraph,
+  executeReviewPr,
   executeRebuildIndex,
   executeResolveModulePath,
   executeScanDeadCode,
@@ -42,6 +43,7 @@ import type {
   McpWorkerConfig,
   McpWorkerResponse,
   ParseImportsParams,
+  ReviewPrParams,
   QueryCallGraphParams,
   ResolveModulePathParams,
   ScanDeadCodeParams,
@@ -59,7 +61,7 @@ type ToolHandler = (
   params: unknown,
   config: McpWorkerConfig,
   postMessage: (msg: McpWorkerResponse) => void,
-) => Promise<unknown> | unknown;
+) => unknown;
 
 function validateRootPath(filePath: string, config: McpWorkerConfig): void {
   validateFilePath(filePath, config.rootDir);
@@ -139,6 +141,7 @@ const toolHandlers: Partial<Record<McpToolName, ToolHandler>> = {
     validateRootPath(p.filePath, config);
     return executeAnalyzeBreakingChanges(p);
   },
+  review_pr: (params) => executeReviewPr(params as ReviewPrParams),
   get_impact_analysis: async (params, config) => {
     const p = params as GetImpactAnalysisParams;
     validateRootPath(p.filePath, config);

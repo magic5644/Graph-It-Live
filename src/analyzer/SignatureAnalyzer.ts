@@ -32,6 +32,7 @@ export interface ParameterInfo {
 export interface SignatureInfo {
   name: string;
   kind: 'function' | 'method' | 'constructor' | 'arrow';
+  isExported?: boolean;
   parameters: ParameterInfo[];
   returnType: string;
   isAsync: boolean;
@@ -140,6 +141,7 @@ export class SignatureAnalyzer {
         signatures.push({
           name: `${className}.constructor`,
           kind: 'constructor',
+          isExported: classDecl.isExported(),
           parameters: this.extractParameters(ctor.getParameters()),
           returnType: className,
           isAsync: false,
@@ -150,14 +152,16 @@ export class SignatureAnalyzer {
       // Methods
       for (const method of classDecl.getMethods()) {
         const methodName = method.getName();
+        const visibility = this.getVisibility(method);
         signatures.push({
           name: `${className}.${methodName}`,
           kind: 'method',
+          isExported: classDecl.isExported() && visibility !== 'private',
           parameters: this.extractParameters(method.getParameters()),
-          returnType: this.safeGetTypeText(method.getReturnType(), 'void'),
+          returnType: this.safeGetTypeNodeText(method.getReturnTypeNode(), 'void'),
           isAsync: method.isAsync(),
           isStatic: method.isStatic(),
-          visibility: this.getVisibility(method),
+          visibility,
           typeParameters: method.getTypeParameters().map(tp => this.safeGetText(tp)),
           line: method.getStartLineNumber(),
         });
@@ -172,8 +176,9 @@ export class SignatureAnalyzer {
         signatures.push({
           name: varDecl.getName(),
           kind: 'arrow',
+          isExported: varDecl.getVariableStatement()?.isExported() ?? false,
           parameters: this.extractParameters(arrowFunc.getParameters()),
-          returnType: this.safeGetTypeText(arrowFunc.getReturnType(), 'unknown'),
+          returnType: this.safeGetTypeNodeText(arrowFunc.getReturnTypeNode(), 'unknown'),
           isAsync: arrowFunc.isAsync(),
           line: varDecl.getStartLineNumber(),
         });
@@ -190,7 +195,7 @@ export class SignatureAnalyzer {
     const sourceFile = this.getOrCreateSourceFile(filePath, content);
     const result = new Map<string, InterfaceMemberInfo[]>();
 
-    for (const iface of sourceFile.getInterfaces()) {
+    for (const iface of sourceFile.getInterfaces().filter((candidate) => candidate.isExported())) {
       const name = iface.getName();
       const members: InterfaceMemberInfo[] = [];
 
@@ -199,7 +204,7 @@ export class SignatureAnalyzer {
         members.push({
           name: prop.getName(),
           kind: 'property',
-          type: this.safeGetTypeText(prop.getType(), 'unknown'),
+          type: this.safeGetTypeNodeText(prop.getTypeNode(), 'unknown'),
           isOptional: prop.hasQuestionToken(),
           isReadonly: prop.isReadonly(),
         });
@@ -207,8 +212,8 @@ export class SignatureAnalyzer {
 
       // Methods
       for (const method of iface.getMethods()) {
-        const params = method.getParameters().map(p => `${p.getName()}: ${this.safeGetTypeText(p.getType(), 'unknown')}`).join(', ');
-        const returnType = this.safeGetTypeText(method.getReturnType(), 'unknown');
+        const params = method.getParameters().map(p => `${p.getName()}: ${this.safeGetTypeNodeText(p.getTypeNode(), 'unknown')}`).join(', ');
+        const returnType = this.safeGetTypeNodeText(method.getReturnTypeNode(), 'unknown');
         members.push({
           name: method.getName(),
           kind: 'method',
@@ -231,10 +236,10 @@ export class SignatureAnalyzer {
     const sourceFile = this.getOrCreateSourceFile(filePath, content);
     const types: TypeAliasInfo[] = [];
 
-    for (const typeAlias of sourceFile.getTypeAliases()) {
+    for (const typeAlias of sourceFile.getTypeAliases().filter((candidate) => candidate.isExported())) {
       types.push({
         name: typeAlias.getName(),
-        type: this.safeGetTypeText(typeAlias.getType(), 'unknown'),
+        type: this.safeGetTypeNodeText(typeAlias.getTypeNode(), 'unknown'),
         typeParameters: typeAlias.getTypeParameters().map(tp => this.safeGetText(tp)),
       });
     }
@@ -445,6 +450,7 @@ export class SignatureAnalyzer {
     const newSigMap = new Map(newSigs.map(s => [s.name, s]));
 
     for (const [name, oldSig] of oldSigMap) {
+      if (oldSig.isExported === false) continue;
       const newSig = newSigMap.get(name);
       if (newSig) {
         const result = this.compareSignatures(oldSig, newSig);
@@ -546,21 +552,12 @@ export class SignatureAnalyzer {
     const name = func.getName();
     if (!name) return null;
 
-    // Safely get return type with fallback
-    let returnType: string;
-    try {
-      const type = func.getReturnType();
-      returnType = this.safeGetTypeText(type, 'void');
-    } catch {
-      // If return type cannot be determined, use 'void' as fallback
-      returnType = 'void';
-    }
-
     return {
       name,
       kind: 'function',
+      isExported: func.isExported(),
       parameters: this.extractParameters(func.getParameters()),
-      returnType,
+      returnType: this.safeGetTypeNodeText(func.getReturnTypeNode(), 'void'),
       isAsync: func.isAsync(),
       typeParameters: func.getTypeParameters().map(tp => this.safeGetText(tp)),
       line: func.getStartLineNumber(),
@@ -570,7 +567,7 @@ export class SignatureAnalyzer {
   private extractParameters(params: ParameterDeclaration[]): ParameterInfo[] {
     return params.map((param, index) => ({
       name: param.getName(),
-      type: this.safeGetTypeText(param.getType(), 'unknown'),
+      type: this.safeGetTypeNodeText(param.getTypeNode(), 'unknown'),
       isOptional: param.isOptional(),
       hasDefault: param.hasInitializer(),
       isRest: param.isRestParameter(),
@@ -579,17 +576,15 @@ export class SignatureAnalyzer {
   }
 
   /**
-   * Safely get type text, handling edge cases where getText() may fail
+   * Read the declared syntax instead of asking TypeScript's semantic checker.
+   * A review diff commonly omits the full project context, so semantic type
+   * resolution can throw for unresolved imports even when the declaration is valid.
    */
-  private safeGetTypeText(type: import('ts-morph').Type | undefined, fallback: string): string {
-    if (!type) return fallback;
+  private safeGetTypeNodeText(typeNode: { getText?: () => string } | undefined, fallback: string): string {
+    if (!typeNode) return fallback;
     try {
-      const text = type.getText();
-      // Avoid overly complex type representations
-      if (text.length > 200) {
-        return type.getBaseTypeOfLiteralType()?.getText() ?? fallback;
-      }
-      return text || fallback;
+      const text = typeNode.getText?.() ?? '';
+      return text.length <= 200 ? text || fallback : fallback;
     } catch {
       return fallback;
     }
@@ -613,9 +608,9 @@ export class SignatureAnalyzer {
     const scope = node.getScope?.();
     if (!scope) return 'public';
     
-    const scopeText = scope.toString();
-    if (scopeText.includes('Private')) return 'private';
-    if (scopeText.includes('Protected')) return 'protected';
+    const scopeText = scope.toString().toLowerCase();
+    if (scopeText.includes('private')) return 'private';
+    if (scopeText.includes('protected')) return 'protected';
     return 'public';
   }
 

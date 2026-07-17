@@ -109,6 +109,8 @@ import { formatToolResponse } from "./responseFormatter";
 import {
   AnalyzeBreakingChangesParamsSchema,
   type AnalyzeBreakingChangesResult,
+  ReviewPrParamsSchema,
+  type ReviewPrResult,
   AnalyzeDependenciesParamsSchema,
   type AnalyzeDependenciesResult,
   CrawlDependencyGraphParamsSchema,
@@ -1505,6 +1507,29 @@ Use cases:
     );
 
     return formatToolResponse(response, responseFormat, "graphitlive_analyze_breaking_changes");
+  },
+);
+
+// Tool: graphitlive_review_pr
+server.registerTool(
+  "graphitlive_review_pr",
+  {
+    title: "Review Pull Request Diff",
+    description: `WHEN reviewing a local Git diff before a pull request or CI gate. WHY signature changes and symbol impact require parsing both revisions and the workspace index. WHAT returns deterministic risk, per-symbol evidence, impact counts, and explicit partial-analysis limitations.`,
+    inputSchema: ReviewPrParamsSchema.extend({
+      response_format: ResponseFormatSchema.describe("Output format: 'json', 'markdown', or 'toon'"),
+    }),
+    outputSchema: McpToolResponseSchema,
+    annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
+  },
+  async ({ baseRef, headRef, maxFiles, maxDepth, response_format }) => {
+    const workerCheck = await ensureWorkerReady();
+    const responseFormat = response_format ?? "json";
+    if (workerCheck.error) {
+      return formatToolResponse(workerCheck.response, responseFormat, "graphitlive_review_pr");
+    }
+    const response = await invokeToolWithResponse<ReviewPrResult>("review_pr", { baseRef, headRef, maxFiles, maxDepth });
+    return formatToolResponse(response, responseFormat, "graphitlive_review_pr");
   },
 );
 

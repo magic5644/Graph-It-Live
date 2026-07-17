@@ -94,6 +94,7 @@ Commands:
   cycles <file>     List confirmed dependency cycles for a file
   architecture      Build full workspace architecture graph
   check <file>      Find unused exported symbols
+  review-pr         Review a Git diff: --base <ref> [--head <ref>]
   serve             Launch MCP stdio server (passthrough)
   tool <name>       Invoke any MCP tool: graph-it tool get_index_status
   install           Install CLI to system PATH (VS Code opt-in)
@@ -170,6 +171,7 @@ Examples:
   graph-it architecture
   graph-it architecture --format mermaid
   graph-it check src/api.ts
+  graph-it review-pr --base origin/main --format markdown
   graph-it tool analyze_dependencies --filePath=/abs/path/file.ts
   graph-it update
 `.trimStart();
@@ -267,7 +269,7 @@ async function main(): Promise<void> {
   const commandPosInArgv = argvAfterBinary.findIndex(
     (a, i) => a === command && !argvAfterBinary.slice(0, i).some(prev => !prev.startsWith("-") && prev !== command),
   );
-  const rawCommandArgs = (command === "tool" || command === "architecture") && commandPosInArgv >= 0
+  const rawCommandArgs = (command === "tool" || command === "architecture" || command === "review-pr") && commandPosInArgv >= 0
     ? argvAfterBinary.slice(commandPosInArgv + 1)
     : commandArgs;
 
@@ -362,6 +364,10 @@ async function dispatch(
     }
     case "check": {
       const { run } = await import("./commands/check.js");
+      return run(args, runtime, format);
+    }
+    case "review-pr": {
+      const { run } = await import("./commands/reviewPr.js");
       return run(args, runtime, format);
     }
     case "serve": {

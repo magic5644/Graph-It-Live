@@ -1022,6 +1022,12 @@ export class GraphProvider implements vscode.WebviewViewProvider {
     await this._updateViewModeContext();
   }
 
+  public async showReviewCallGraph(relativePath: string, symbolName: string | undefined, depth: number): Promise<void> {
+    if (!this._callGraphViewService) throw new Error("Call graph service is unavailable");
+    await this.setViewModeCallgraph();
+    await this._callGraphViewService.showReviewTarget(relativePath, symbolName, depth);
+  }
+
   /**
    * Show reverse dependencies (which files import/reference the current file)
    */

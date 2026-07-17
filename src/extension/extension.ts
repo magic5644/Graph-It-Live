@@ -9,6 +9,7 @@ import {
 } from './extensionLogger';
 import { GraphProvider } from './GraphProvider';
 import { CallGraphViewService } from './services/CallGraphViewService';
+import { parseReviewCallGraphDepth } from '../shared/reviewTarget';
 import { CommandCoordinator } from './services/CommandCoordinator';
 import { CommandRegistrationService } from './services/CommandRegistrationService';
 import { EditorEventsService } from './services/EditorEventsService';
@@ -115,6 +116,25 @@ export function activate(context: vscode.ExtensionContext) {
             });
         }),
 
+        vscode.window.registerUriHandler({
+            handleUri: async (uri) => {
+                if (uri.path !== '/graph-it-live.reviewCallGraph') return;
+                const query = new URLSearchParams(uri.query);
+                const file = query.get('file');
+                const symbol = query.get('symbol') ?? undefined;
+                if (!file) {
+                    vscode.window.showErrorMessage('Graph-It-Live: Invalid review link');
+                    return;
+                }
+                try {
+                    const depth = parseReviewCallGraphDepth(query.get('depth'));
+                    await vscode.commands.executeCommand('graph-it-live.reviewCallGraph', { file, symbol, depth });
+                } catch {
+                    vscode.window.showErrorMessage('Graph-It-Live: Invalid review link');
+                }
+            },
+        }),
+
       // Provider must be registered before command
       vscode.window.registerWebviewViewProvider(
         GraphProvider.viewType,
@@ -183,11 +203,9 @@ export function activate(context: vscode.ExtensionContext) {
                     vscode.commands.executeCommand('workbench.action.reloadWindow');
                 }
             });
-        })
-    );
+        }),
 
     // Auto-update MCP server when workspace folders change (add/remove)
-    disposables.push(
         vscode.workspace.onDidChangeWorkspaceFolders((e) => {
             if (!mcpServerProvider) {
                 // No MCP provider yet — try to create one if a folder was added

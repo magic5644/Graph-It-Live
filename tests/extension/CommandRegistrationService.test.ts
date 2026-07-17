@@ -55,6 +55,7 @@ function createProviderMock(): GraphProvider {
   return {
     getViewMode: vi.fn().mockReturnValue('file'), // E2E test helper
     getReverseDependenciesVisible: vi.fn().mockReturnValue(false),
+    showReviewCallGraph: vi.fn(),
   } as unknown as GraphProvider;
 }
 
@@ -103,8 +104,8 @@ describe('CommandRegistrationService', () => {
 
     const disposables = service.registerAll();
 
-    expect(disposables).toHaveLength(13); // 13 disposables (getContext is shared)
-    expect(registerCommand).toHaveBeenCalledTimes(14); // 14 total registered commands
+    expect(disposables).toHaveLength(14); // getContext is shared; filter commands share one disposable
+    expect(registerCommand).toHaveBeenCalledTimes(15);
     expect(registeredHandlers.has('graph-it-live.showGraph')).toBe(true);
     expect(registeredHandlers.has('graph-it-live.forceReindex')).toBe(true);
     expect(registeredHandlers.has('graph-it-live.expandAllNodes')).toBe(true);
@@ -119,6 +120,7 @@ describe('CommandRegistrationService', () => {
     expect(registeredHandlers.has('graph-it-live.enableUnusedFilter')).toBe(true);
     expect(registeredHandlers.has('graph-it-live.disableUnusedFilter')).toBe(true);
     expect(registeredHandlers.has('graph-it-live.showIndexStatus')).toBe(true);
+    expect(registeredHandlers.has('graph-it-live.reviewCallGraph')).toBe(true);
   });
 
   it('focuses the view when showGraph is executed', async () => {
@@ -180,5 +182,34 @@ describe('CommandRegistrationService', () => {
 
     await handler?.();
     expect((commandCoordinator.handleShowIndexStatus as ReturnType<typeof vi.fn>)).toHaveBeenCalled();
+  });
+
+  it('forwards only validated review call graph targets', async () => {
+    const provider = createProviderMock();
+    const service = new CommandRegistrationService({ provider, commandCoordinator: createCommandCoordinatorMock(), logger: createLoggerMock() });
+    service.registerAll();
+    const handler = registeredHandlers.get('graph-it-live.reviewCallGraph');
+
+    await handler?.({ file: 'src/api.ts', symbol: 'greet', depth: 3 });
+    expect(provider.showReviewCallGraph).toHaveBeenCalledWith('src/api.ts', 'greet', 3);
+
+    for (const target of [undefined, null, 'src/api.ts', {}, { file: '' }, { file: '/tmp/api.ts' }, { file: 'src/api.ts', symbol: '' }, { file: 'src/api.ts', depth: '3' }, { file: 'src/api.ts', depth: Number.NaN }]) {
+      await handler?.(target);
+    }
+    expect(showErrorMessage).toHaveBeenCalledTimes(9);
+    expect(showErrorMessage).toHaveBeenLastCalledWith('Graph-It-Live: Invalid review link');
+    expect(provider.showReviewCallGraph).toHaveBeenCalledTimes(1);
+  });
+
+  it('reports provider failures for valid review call graph targets', async () => {
+    const provider = createProviderMock();
+    const logger = createLoggerMock();
+    (provider.showReviewCallGraph as ReturnType<typeof vi.fn>).mockRejectedValue(new Error('graph unavailable'));
+    new CommandRegistrationService({ provider, commandCoordinator: createCommandCoordinatorMock(), logger }).registerAll();
+
+    await registeredHandlers.get('graph-it-live.reviewCallGraph')?.({ file: 'src/api.ts', depth: 1 });
+
+    expect(logger.error).toHaveBeenCalledWith('graph-it-live.reviewCallGraph failed:', expect.any(Error));
+    expect(showErrorMessage).toHaveBeenCalledWith('Graph-It-Live: Invalid review link');
   });
 });
