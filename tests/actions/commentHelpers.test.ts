@@ -1,5 +1,6 @@
 import { readFileSync } from "node:fs";
 import { spawnSync } from "node:child_process";
+import { fileURLToPath } from "node:url";
 import { describe, expect, it, vi } from "vitest";
 
 // @ts-expect-error The composite Action runs this JavaScript module directly in Node.
@@ -65,19 +66,20 @@ describe("review-gate CLI version validation", () => {
 
 describe("review-gate action risk threshold", () => {
   const actionPath = new URL("../../.github/actions/graph-it-review-gate/action.yml", import.meta.url);
+  const riskGatePath = fileURLToPath(new URL("../../.github/actions/graph-it-review-gate/riskGate.cjs", import.meta.url));
   const action = readFileSync(actionPath, "utf8");
-  const riskGate = action.slice(action.indexOf("    - name: Apply optional risk gate\n"))
-    .split("\n")
-    .slice(6)
-    .map((line) => line.replace(/^        /, ""))
-    .join("\n");
 
   function runRiskGate(risk: string, threshold: string) {
-    return spawnSync("bash", ["-e", "-c", riskGate], {
+    return spawnSync(process.execPath, [riskGatePath], {
       encoding: "utf8",
       env: { ...process.env, RISK: risk, THRESHOLD: threshold },
     });
   }
+
+  it("runs the risk gate with Node rather than a Bash-only script", () => {
+    expect(action).toContain("shell: node {0}");
+    expect(action).toContain('riskGate.cjs');
+  });
 
   it("remains informative below the configured risk threshold under errexit", () => {
     expect(runRiskGate("low", "").status).toBe(0);

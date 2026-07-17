@@ -3,6 +3,7 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { execFileSync } from "node:child_process";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { normalizePath } from "../../../src/shared/path";
 import { workerState } from "../../../src/mcp/shared/state";
 import {
     executeAnalyzeBreakingChanges,
@@ -136,8 +137,9 @@ describe("impact tools", () => {
     expect(result.limitations).toEqual([]);
     expect(result.symbols[0]).toMatchObject({ impactedSymbolCount: 1, cycleEvidence: ["greet"], unusedExportEvidence: true });
     expect(result.symbols[0].evidence.map((e) => e.kind)).toEqual(expect.arrayContaining(["impact", "cycle", "unused-export"]));
-    expect(spiderMock.getSymbolDependents).toHaveBeenCalledWith(apiPath, "greet");
-    expect(spiderMock.getSymbolGraph).toHaveBeenCalledWith(apiPath);
-    expect(spiderMock.findUnusedSymbols).toHaveBeenCalledWith(apiPath);
+    const normalizedApiPath = normalizePath(apiPath);
+    expect(spiderMock.getSymbolDependents).toHaveBeenCalledWith(normalizedApiPath, "greet");
+    expect(spiderMock.getSymbolGraph).toHaveBeenCalledWith(normalizedApiPath);
+    expect(spiderMock.findUnusedSymbols).toHaveBeenCalledWith(normalizedApiPath);
   });
 });

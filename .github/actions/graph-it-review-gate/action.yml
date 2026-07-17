@@ -77,27 +77,11 @@ runs:
         REVIEW_FILE: ${{ runner.temp }}/graph-it-review.json
       run: node "$GITHUB_ACTION_PATH/comment.mjs"
     - name: Apply optional risk gate
-      shell: bash
+      shell: node {0}
       env:
         RISK: ${{ steps.review.outputs.risk }}
         THRESHOLD: ${{ inputs.fail-on-risk }}
       run: |
-        should_fail=false
-        case "$THRESHOLD" in
-          "") exit 0 ;;
-          high)
-            if [ "$RISK" = "high" ] || [ "$RISK" = "critical" ]; then
-              should_fail=true
-            fi
-            ;;
-          critical)
-            if [ "$RISK" = "critical" ]; then
-              should_fail=true
-            fi
-            ;;
-          *) echo "Invalid fail-on-risk value: $THRESHOLD (use high or critical)" >&2; exit 2 ;;
-        esac
-        if [ "$should_fail" = true ]; then
-          echo "Graph-It Review Gate failed: risk=$RISK threshold=$THRESHOLD" >&2
-          exit 1
-        fi
+        const path = require("node:path");
+        const { runRiskGate } = require(path.join(process.env.GITHUB_ACTION_PATH, "riskGate.cjs"));
+        process.exitCode = runRiskGate(process.env.RISK, process.env.THRESHOLD);
