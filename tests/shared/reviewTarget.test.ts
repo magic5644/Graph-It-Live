@@ -8,7 +8,7 @@ describe("review call graph targets", () => {
     const workspaceRoot = path.join(path.sep, "workspace");
     expect(validateReviewCallGraphTarget({ file: "src/api.ts", symbol: "greet", depth: 3 })).toEqual({ file: "src/api.ts", symbol: "greet", depth: 3 });
     expect(validateReviewCallGraphTarget({ file: "src\\api.ts" })).toEqual({ file: "src\\api.ts", symbol: undefined, depth: 3 });
-    expect(resolveReviewCallGraphPath(workspaceRoot, "src/api.ts")).toBe(normalizePath(path.join(workspaceRoot, "src/api.ts")));
+    expect(resolveReviewCallGraphPath(workspaceRoot, "src/api.ts")).toBe(normalizePath(path.resolve(workspaceRoot, "src/api.ts")));
     expect(parseReviewCallGraphDepth("3")).toBe(3);
     expect(parseReviewCallGraphDepth()).toBe(3);
     expect(parseReviewCallGraphDepth(null)).toBe(3);
