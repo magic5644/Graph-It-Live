@@ -46,6 +46,23 @@ All three layers are also exposed to AI via a **22-tool MCP server**, so your as
 
 ## Why Graph-It-Live?
 
+## Graph-It Review Gate
+
+`graph-it review-pr --base origin/main --format markdown` performs a deterministic, local Git-diff review before CI. It compares exported TypeScript signatures and, when the warmed local index supports them, reports cycle and unused-export evidence, known dependents, and conventional test-file candidates. Every score factor and unavailable analysis capability is explicit; bounded work is marked partial rather than complete. The composite Action is informational by default; set `fail-on-risk: high` or `critical` to gate a PR. It sends only a sanitized report to GitHub, verifies GitHub API responses, and emits an encoded VS Code link only when a workspace-relative risky symbol exists.
+
+The Action does not trigger itself: add a consumer workflow such as [`docs/examples/graph-it-review-gate.yml`](docs/examples/graph-it-review-gate.yml). It installs `@magic5644/graph-it-live@latest` into an isolated temporary directory and analyzes the consumer checkout; it never runs `npm ci` or builds that checkout. Set `cli-version` to an npm version, tag, or range to override `latest`. The Action logs and exposes the resolved `cli-version`, and rejects an installed version below `1.12.0`.
+
+```yaml
+- uses: magic5644/Graph-It-Live/.github/actions/graph-it-review-gate@v1.12.0
+  with:
+    token: ${{ secrets.GITHUB_TOKEN }}
+    cli-version: 1.12.0 # optional; omitted means npm latest
+    comment: true
+    fail-on-risk: high
+```
+
+Use `pull_request`, not `pull_request_target`, for untrusted PR code. Fork workflows should set `comment: false`; remove `pull-requests: write` when comments are disabled. The npm publication of `1.12.0`, the public `npx` verification, and the immutable Git tag `v1.12.0` are manual post-merge release steps, not part of this PR.
+
 | Pain point | Without Graph-It-Live | With Graph-It-Live |
 |---|---|---|
 | "What breaks if I touch this file?" | Grep + hope | One-click reverse dependency lookup |

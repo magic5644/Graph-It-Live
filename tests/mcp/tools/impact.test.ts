@@ -1,11 +1,13 @@
 import * as fs from "node:fs/promises";
 import * as os from "node:os";
 import * as path from "node:path";
+import { execFileSync } from "node:child_process";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { workerState } from "../../../src/mcp/shared/state";
 import {
     executeAnalyzeBreakingChanges,
     executeGetImpactAnalysis,
+    executeReviewPr,
 } from "../../../src/mcp/tools/impact";
 
 const createTempFile = async (dir: string, name: string, content = ""): Promise<string> => {
@@ -102,5 +104,40 @@ describe("impact tools", () => {
       expect(result.targetSymbol.relativePath).toBe("utils.ts");
       expect(result.impactedItems[0].relativePath).toBe("consumer.ts");
     });
+  });
+
+  it("uses the warmed Spider provider for dependent, cycle, and unused-export review evidence", async () => {
+    execFileSync("git", ["init", "--initial-branch=main"], { cwd: tempDir });
+    execFileSync("git", ["config", "user.email", "test@example.com"], { cwd: tempDir });
+    execFileSync("git", ["config", "user.name", "Test"], { cwd: tempDir });
+    const sourceDir = path.join(tempDir, "src");
+    await fs.mkdir(sourceDir);
+    const apiPath = await createTempFile(sourceDir, "api.ts", "export function greet(name: string): string { return name; }\n");
+    execFileSync("git", ["add", "."], { cwd: tempDir });
+    execFileSync("git", ["commit", "-m", "base"], { cwd: tempDir });
+    await fs.writeFile(apiPath, "export function greet(name: string, formal: boolean): string { return name; }\n");
+
+    const consumerPath = path.join(sourceDir, "consumer.ts");
+    const spiderMock = {
+      getSymbolDependents: vi.fn(async () => [{ sourceSymbolId: `${consumerPath}:useGreeting` }]),
+      getSymbolGraph: vi.fn(async () => ({
+        symbols: [],
+        dependencies: [
+          { sourceSymbolId: `${apiPath}:greet`, targetSymbolId: `${apiPath}:helper`, targetFilePath: apiPath },
+          { sourceSymbolId: `${apiPath}:helper`, targetSymbolId: `${apiPath}:greet`, targetFilePath: apiPath },
+        ],
+      })),
+      findUnusedSymbols: vi.fn(async () => [{ name: "greet" }]),
+    };
+    setupWorkerState(spiderMock);
+
+    const result = await executeReviewPr({ baseRef: "main", maxDepth: 1 });
+
+    expect(result.limitations).toEqual([]);
+    expect(result.symbols[0]).toMatchObject({ impactedSymbolCount: 1, cycleEvidence: ["greet"], unusedExportEvidence: true });
+    expect(result.symbols[0].evidence.map((e) => e.kind)).toEqual(expect.arrayContaining(["impact", "cycle", "unused-export"]));
+    expect(spiderMock.getSymbolDependents).toHaveBeenCalledWith(apiPath, "greet");
+    expect(spiderMock.getSymbolGraph).toHaveBeenCalledWith(apiPath);
+    expect(spiderMock.findUnusedSymbols).toHaveBeenCalledWith(apiPath);
   });
 });

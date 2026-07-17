@@ -194,6 +194,11 @@
         "title": "Show Call Graph",
         "category": "Graph-It-Live",
         "icon": "$(call-incoming)"
+      },
+      {
+        "command": "graph-it-live.reviewCallGraph",
+        "title": "Open Review Call Graph",
+        "category": "Graph-It-Live"
       }
     ],
     "menus": {

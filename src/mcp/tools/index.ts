@@ -23,7 +23,8 @@ export {
 } from "./graph";
 export {
     executeAnalyzeBreakingChanges,
-    executeGetImpactAnalysis
+    executeGetImpactAnalysis,
+    executeReviewPr
 } from "./impact";
 export {
     executeAnalyzeFileLogic

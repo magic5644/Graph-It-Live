@@ -11,6 +11,7 @@
 import * as nodePath from "node:path";
 import { z } from "zod/v4";
 import type { Dependency, DependencyType } from "../analyzer/types";
+import type { ReviewGateResult } from "../analyzer/ReviewGateAnalyzer";
 import {
   getRelativePath as _getRelativePath,
   normalizePathForComparison as _normalizePathForComparison,
@@ -103,6 +104,7 @@ export type McpToolName =
   | "trace_function_execution"
   | "get_symbol_callers" // NEW: O(1) lookup of symbol callers
   | "analyze_breaking_changes" // NEW: Detect breaking changes
+  | "review_pr" // Deterministic local Git diff review
   | "get_impact_analysis" // NEW: Full impact analysis
   | "analyze_file_logic" // NEW: LSP-based intra-file call hierarchy
   | "generate_codemap" // NEW: Full codemap generation for a single file
@@ -477,6 +479,15 @@ export type AnalyzeBreakingChangesParams = z.infer<
   typeof AnalyzeBreakingChangesParamsSchema
 >;
 
+export const ReviewPrParamsSchema = z.object({
+  baseRef: GenericStringSchema.describe("Git base ref to compare against, for example origin/main"),
+  headRef: GenericStringSchema.optional().describe("Optional Git head ref; defaults to the checked-out worktree"),
+  maxFiles: z.number().int().min(1).max(1000).optional(),
+  maxDepth: z.number().int().min(1).max(10).optional(),
+  format: OutputFormatSchema.optional(),
+});
+export type ReviewPrParams = z.infer<typeof ReviewPrParamsSchema>;
+
 // NEW: Schema for get_impact_analysis
 export const GetImpactAnalysisParamsSchema = z.object({
   filePath: FilePathSchema.describe("Absolute path to the file being modified"),
@@ -644,6 +655,7 @@ export const toolSchemas: Record<McpToolName, z.ZodType<unknown>> = {
   trace_function_execution: TraceFunctionExecutionParamsSchema,
   get_symbol_callers: GetSymbolCallersParamsSchema,
   analyze_breaking_changes: AnalyzeBreakingChangesParamsSchema,
+  review_pr: ReviewPrParamsSchema,
   get_impact_analysis: GetImpactAnalysisParamsSchema,
   analyze_file_logic: AnalyzeFileLogicParamsSchema,
   generate_codemap: GenerateCodemapParamsSchema,
@@ -1350,6 +1362,9 @@ export interface AnalyzeBreakingChangesResult {
   /** Symbols that were added */
   addedSymbols: string[];
 }
+
+/** Result of deterministic local PR review analysis. */
+export type ReviewPrResult = ReviewGateResult;
 
 // ============================================================================
 // NEW: Impact Analysis Result

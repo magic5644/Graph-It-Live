@@ -1,4 +1,5 @@
 import * as vscode from 'vscode';
+import { validateReviewCallGraphTarget } from '@/shared/reviewTarget';
 import type { GraphProvider } from '../GraphProvider';
 import type { VsCodeLogger } from '../extensionLogger';
 import type { CommandCoordinator } from './CommandCoordinator';
@@ -38,6 +39,7 @@ export class CommandRegistrationService {
       this.registerHideReverseDependenciesCommand(),
       this.registerToggleUnusedFilterCommands(),
       this.registerShowIndexStatusCommand(),
+      this.registerReviewCallGraphCommand(),
       this.registerGetContextCommand(), // For E2E testing
     ];
   }
@@ -172,6 +174,17 @@ export class CommandRegistrationService {
           error,
           'Graph-It-Live: Could not get index status'
         );
+      }
+    });
+  }
+
+  private registerReviewCallGraphCommand(): vscode.Disposable {
+    return vscode.commands.registerCommand('graph-it-live.reviewCallGraph', async (target: unknown) => {
+      try {
+        const value = validateReviewCallGraphTarget(target);
+        await this.provider.showReviewCallGraph(value.file, value.symbol, value.depth);
+      } catch (error) {
+        this.handleCommandError('graph-it-live.reviewCallGraph', error, 'Graph-It-Live: Invalid review link');
       }
     });
   }

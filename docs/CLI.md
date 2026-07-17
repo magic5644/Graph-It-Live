@@ -72,6 +72,18 @@ graph-it install     # adds graph-it to your system PATH
 
 ## Quick Start
 
+## `review-pr`
+
+Run deterministic local PR review: `graph-it review-pr --base origin/main [--head <ref>] [--depth 3] [--max-files 200] --format json|toon|markdown`. The command exits non-zero for invalid refs or invalid limits; risk is data, not a gate by default. MCP clients can call `graphitlive_review_pr` with the same bounded parameters and `response_format`. Results expose signature/dependent/cycle/unused-export/test-candidate score factors; unavailable local capabilities and bounded work are limitations, not negative findings. Markdown output escapes table and HTML control characters. The Action emits `vscode://magic5644.graph-it-live/graph-it-live.reviewCallGraph?file=<workspace-relative>&symbol=<encoded>&depth=3` only when a risky symbol has a workspace-relative file; the extension accepts depth 1–5 and validates the path again.
+
+### GitHub Actions consumer workflow
+
+The composite Action has no trigger of its own. Consumer repositories must add a `pull_request` workflow; see [`examples/graph-it-review-gate.yml`](examples/graph-it-review-gate.yml). It installs `@magic5644/graph-it-live@latest` in a temporary prefix and runs `graph-it review-pr --workspace "$GITHUB_WORKSPACE"` against the checked-out consumer repository. It never installs or builds consumer dependencies.
+
+`cli-version` is optional: omit it to use npm `latest`, or supply an npm version, tag, or range. The Action validates the CLI's actual `graph-it-live vX.Y.Z` output, logs it, exposes it as `outputs.cli-version`, and rejects versions below `1.12.0`. It also exposes `risk` and `score` outputs.
+
+Use `magic5644/Graph-It-Live/.github/actions/graph-it-review-gate@v1.12.0` only after the manual npm publication and immutable Git tag release are complete. Never use `pull_request_target` to inspect untrusted PR code. Set `comment: false` for fork PRs; then grant only `contents: read` rather than `pull-requests: write`.
+
 ```bash
 # 1. Go to your project root
 cd /path/to/your/project

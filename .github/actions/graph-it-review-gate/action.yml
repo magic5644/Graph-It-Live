@@ -1,0 +1,103 @@
+name: Graph-It Review Gate
+description: Analyze a pull request diff locally and optionally publish a sticky risk report.
+outputs:
+  cli-version:
+    description: Version of @magic5644/graph-it-live actually installed for this run.
+    value: ${{ steps.cli-version.outputs.cli-version }}
+  risk:
+    description: Computed review risk level.
+    value: ${{ steps.review.outputs.risk }}
+  score:
+    description: Computed review risk score.
+    value: ${{ steps.review.outputs.score }}
+inputs:
+  token:
+    description: GitHub token. Required only when comment is true.
+    required: false
+  base-ref:
+    description: Base Git ref. Defaults to the PR base SHA when available.
+    required: false
+  comment:
+    description: Publish or update the sticky pull-request comment.
+    default: "true"
+  fail-on-risk:
+    description: "Optional gate threshold: high or critical. Empty keeps the gate informative."
+    default: ""
+  cli-version:
+    description: Optional npm version, tag, or range for @magic5644/graph-it-live. Empty installs latest.
+    required: false
+  max-depth:
+    description: Maximum transitive symbol-impact depth (1-10).
+    default: "3"
+  max-files:
+    description: Maximum changed files to analyze (1-1000).
+    default: "200"
+runs:
+  using: composite
+  steps:
+    - name: Install Graph-It-Live CLI
+      id: install-cli
+      shell: bash
+      env:
+        CLI_VERSION: ${{ inputs.cli-version }}
+      run: |
+        set -euo pipefail
+        CLI_DIR="$RUNNER_TEMP/graph-it-review-gate-cli"
+        PACKAGE_SPEC="@magic5644/graph-it-live@latest"
+        if [ -n "$CLI_VERSION" ]; then
+          PACKAGE_SPEC="@magic5644/graph-it-live@$CLI_VERSION"
+        fi
+        npm install --no-audit --no-fund --ignore-scripts --prefix "$CLI_DIR" "$PACKAGE_SPEC"
+        printf 'cli-dir=%s\n' "$CLI_DIR" >> "$GITHUB_OUTPUT"
+    - name: Validate installed Graph-It-Live CLI version
+      id: cli-version
+      shell: bash
+      env:
+        CLI_DIR: ${{ steps.install-cli.outputs.cli-dir }}
+      run: |
+        set -euo pipefail
+        npx --no-install --prefix "$CLI_DIR" graph-it --version | node "$GITHUB_ACTION_PATH/verifyCliVersion.mjs"
+    - name: Analyze diff
+      id: review
+      shell: bash
+      env:
+        CLI_DIR: ${{ steps.install-cli.outputs.cli-dir }}
+        BASE_REF: ${{ inputs.base-ref || github.event.pull_request.base.sha || 'HEAD~1' }}
+        MAX_DEPTH: ${{ inputs.max-depth }}
+        MAX_FILES: ${{ inputs.max-files }}
+      run: |
+        cd "$GITHUB_WORKSPACE"
+        npx --no-install --prefix "$CLI_DIR" graph-it review-pr --workspace "$GITHUB_WORKSPACE" --base "$BASE_REF" --depth "$MAX_DEPTH" --max-files "$MAX_FILES" --format json > "$RUNNER_TEMP/graph-it-review.json"
+        node -e 'const fs=require("node:fs"); const result=JSON.parse(fs.readFileSync(process.env.RUNNER_TEMP+"/graph-it-review.json","utf8")); fs.appendFileSync(process.env.GITHUB_OUTPUT, "risk="+result.risk+"\nscore="+result.score+"\n")'
+    - name: Update review comment
+      if: inputs.comment == 'true' && github.event_name == 'pull_request' && inputs.token != ''
+      shell: bash
+      env:
+        GITHUB_TOKEN: ${{ inputs.token }}
+        REVIEW_FILE: ${{ runner.temp }}/graph-it-review.json
+      run: node "$GITHUB_ACTION_PATH/comment.mjs"
+    - name: Apply optional risk gate
+      shell: bash
+      env:
+        RISK: ${{ steps.review.outputs.risk }}
+        THRESHOLD: ${{ inputs.fail-on-risk }}
+      run: |
+        should_fail=false
+        case "$THRESHOLD" in
+          "") exit 0 ;;
+          high)
+            if [ "$RISK" = "high" ] || [ "$RISK" = "critical" ]; then
+              should_fail=true
+            fi
+            ;;
+          critical)
+            if [ "$RISK" = "critical" ]; then
+              should_fail=true
+            fi
+            ;;
+          *) echo "Invalid fail-on-risk value: $THRESHOLD (use high or critical)" >&2; exit 2 ;;
+        esac
+        if [ "$should_fail" = true ]; then
+          echo "Graph-It Review Gate failed: risk=$RISK threshold=$THRESHOLD" >&2
+          exit 1
+        fi

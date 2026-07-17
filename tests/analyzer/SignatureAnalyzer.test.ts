@@ -31,6 +31,7 @@ describe('SignatureAnalyzer', () => {
       const greet = signatures.find(s => s.name === 'greet');
       expect(greet).toBeDefined();
       expect(greet!.kind).toBe('function');
+      expect(greet!.isExported).toBe(true);
       expect(greet!.parameters).toHaveLength(1);
       expect(greet!.parameters[0].name).toBe('name');
       expect(greet!.parameters[0].type).toBe('string');
@@ -497,6 +498,28 @@ describe('SignatureAnalyzer', () => {
   });
 
   describe('analyzeBreakingChanges', () => {
+    it('compares declared signatures without resolving unavailable imported types', () => {
+      const oldContent = `
+        import type { MissingType } from './missing';
+        export function configure(value: MissingType): MissingType { return value; }
+      `;
+      const newContent = `
+        import type { MissingType } from './missing';
+        export function configure(value: MissingType, strict: boolean): MissingType { return value; }
+      `;
+
+      const results = analyzer.analyzeBreakingChanges('/unresolved.ts', oldContent, newContent);
+
+      expect(results).toEqual(expect.arrayContaining([
+        expect.objectContaining({
+          symbolName: 'configure',
+          breakingChanges: expect.arrayContaining([
+            expect.objectContaining({ type: 'parameter-added-required' }),
+          ]),
+        }),
+      ]));
+    });
+
     it('should detect removed functions', () => {
       const oldContent = `
         export function helperA(): void {}
@@ -511,6 +534,22 @@ describe('SignatureAnalyzer', () => {
       
       const removed = results.find(r => r.symbolName === 'helperB' && r.hasBreakingChanges);
       expect(removed).toBeDefined();
+    });
+
+    it('ignores removed private methods from an exported class API', () => {
+      const oldContent = `
+        export class Service {
+          public execute(): void {}
+          private internalOnly(): void {}
+        }
+      `;
+      const newContent = `
+        export class Service {
+          public execute(): void {}
+        }
+      `;
+
+      expect(analyzer.analyzeBreakingChanges('/service.ts', oldContent, newContent)).toEqual([]);
     });
 
     it('should detect interface changes', () => {

@@ -26,6 +26,7 @@ import type {
   SupportedLang,
 } from "@/shared/callgraph-types";
 import { normalizePath } from "@/shared/path";
+import { resolveReviewCallGraphPath, REVIEW_CALL_GRAPH_MAX_DEPTH, validateReviewCallGraphTarget } from "@/shared/reviewTarget";
 import crypto from "node:crypto";
 import fs from "node:fs/promises";
 import path from "node:path";
@@ -47,7 +48,7 @@ function errorMessage(err: unknown): string {
   try { return JSON.stringify(err); } catch { return "[unknown error]"; }
 }
 /** Maximum depth the user can request via the depth slider */
-const MAX_DEPTH = 5;
+const MAX_DEPTH = REVIEW_CALL_GRAPH_MAX_DEPTH;
 /** Parallel file extraction batch size — higher = faster indexing on multi-core machines */
 // WASM Tree-sitter is single-threaded; a small batch size keeps the
 // extension-host event loop responsive between batches.
@@ -375,6 +376,21 @@ export class CallGraphViewService implements vscode.Disposable, ICallGraphQueryS
       this.outputChannel.appendLine(`[CallGraph] Error: ${message}`);
       this.postMessage({ type: "callGraphIndexing", status: "error", message });
     }
+  }
+
+  /** Open a validated workspace-relative review target in the existing call graph. */
+  async showReviewTarget(relativePath: string, symbolName: string | undefined, depth: number): Promise<void> {
+    const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+    if (!workspaceRoot) throw new Error("Review target requires an open workspace");
+    const target = validateReviewCallGraphTarget({ file: relativePath, symbol: symbolName, depth });
+    const filePath = resolveReviewCallGraphPath(workspaceRoot, target.file);
+    const document = await vscode.workspace.openTextDocument(vscode.Uri.file(filePath));
+    const content = document.getText();
+    const symbolOffset = target.symbol ? content.indexOf(target.symbol) : -1;
+    const line = symbolOffset >= 0 ? content.slice(0, symbolOffset).split("\n").length - 1 : 0;
+    await vscode.window.showTextDocument(document, { selection: new vscode.Range(line, 0, line, 0), preview: true });
+    this.currentDepth = target.depth;
+    await this.show();
   }
 
   /**
