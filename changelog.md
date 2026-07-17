@@ -1,5 +1,27 @@
 # Changelog
 
+## v1.12.0
+
+### Added
+
+- **Session token statistics for MCP and CLI**: Added the `get_session_stats` MCP tool and `graph-it stats` CLI command. Both report current-session and persisted history for TOON encoding size versus the JSON equivalent, grouped by tool and source.
+- **Clear token accounting**: JSON/TOON values use the documented `chars/4` encoding estimate. Provider-reported LLM usage is tracked separately and is never added to those estimates. CLI sessions record Anthropic and OpenAI-compatible usage; MCP reports zero LLM calls because synthesis is delegated to the calling client.
+- **Persisted session history**: CLI and MCP statistics snapshots are saved locally and safely tolerate missing or corrupted history files.
+- **Reproducible local-analysis corpus**: Added `npm run test:context-economy`. It runs architecture, codemap, impact, and call-graph analysis without Anthropic/OpenAI credentials; stores raw JSON and TOON results; reports bytes, characters, `chars/4` estimates, and validates `llmUsage.calls = 0` and `llmUsage.tokensUsed = 0`.
+- **TOON statistics benchmark**: Added a Vitest benchmark for session-statistics JSON/TOON encoding.
+
+### Fixed
+
+- **CLI architecture arguments and large output**: Preserved raw `architecture` command arguments such as `--maxFiles`, and replaced forced process exit after output writes so large CLI responses are fully flushed.
+
+### Packaging
+
+- **Smaller VSIX package**: Excluded local analysis databases, token-statistics data, generated wikis, test results, editor metadata, and esbuild metafiles. The package retains the runtime bundles, eight required WASM files, query files, and required `web-tree-sitter` JavaScript files. Removed a redundant packaged copy of the core Tree-sitter WASM file.
+
+### Documentation
+
+- **Local-analysis and context-efficiency guidance**: Documented how AST/Tree-sitter analysis, targeted CLI/MCP results, and TOON output reduce LLM context requirements. Added the reproducible measurement protocol and its limits to the README, CLI reference, and TOON format documentation.
+
 ## v1.11.0
 
 ### Added
