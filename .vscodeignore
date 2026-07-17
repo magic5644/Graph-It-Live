@@ -7,11 +7,16 @@
 .env/**
 .graph-it/**
 .obsidian/**
+.code-review-graph/**
+.qoder/**
+.tokensave/**
 __pycache__/**
 *.pyc
 .nvmrc
 .antigravitycli/**
 .prompts/**
+.copilotignore
+.graphifyignore
 
 # Build info & generated metadata files
 tsconfig.tsbuildinfo
@@ -39,18 +44,20 @@ resources/queries/**
 node_modules/**
 
 # web-tree-sitter is externalized by esbuild for extension/workers.
-# Include only runtime files required by Node CJS + ESM resolution.
+# Parser initialization explicitly loads dist/wasm/tree-sitter.wasm, so only
+# JavaScript module-resolution files are needed here.
 !node_modules/web-tree-sitter/package.json
 !node_modules/web-tree-sitter/web-tree-sitter.cjs
 !node_modules/web-tree-sitter/web-tree-sitter.js
-!node_modules/web-tree-sitter/web-tree-sitter.wasm
 
 # Build artifacts & intermediates
 out/**
 out-webview/**
 coverage/**
 verbose/**
+test-results/**
 *.vsix
+dist/*.meta.json
 
 # CLI standalone binary — not part of the VS Code extension package
 # All variants (CJS .js and ESM .mjs) are excluded; the extension uses
@@ -124,6 +131,7 @@ plan/**
 # Knowledge graph & analysis output (dev-only, never ship)
 graphify-out/**
 .serena/**
+wiki/**
 
 # OS files
 .DS_Store
