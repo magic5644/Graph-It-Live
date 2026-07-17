@@ -24,6 +24,7 @@ import { bfsFromSeeds, splitIdentifier } from '../../src/analyzer/callgraph/Call
 import { QueryEngine } from '../../src/analyzer/QueryEngine';
 import type { LlmClient } from '../../src/analyzer/llm/LlmClient';
 import type { LlmCompletionOptions, LlmCompletionResult, LlmMessage } from '../../src/analyzer/llm/LlmClient';
+import { resolveLlmClient } from '../../src/analyzer/llm/LlmClientFactory';
 
 // ---------------------------------------------------------------------------
 // Test DB helpers
@@ -104,6 +105,7 @@ function insertEdge(db: Database, sourceId: string, targetId: string): void {
 
 class MockLlmClient implements LlmClient {
   readonly providerName = 'anthropic' as const;
+  readonly calls: Array<{ messages: LlmMessage[]; options: LlmCompletionOptions | undefined }> = [];
 
   constructor(private readonly response: string) {}
 
@@ -112,9 +114,10 @@ class MockLlmClient implements LlmClient {
   }
 
   async complete(
-    _messages: LlmMessage[],
-    _options?: LlmCompletionOptions,
+    messages: LlmMessage[],
+    options?: LlmCompletionOptions,
   ): Promise<LlmCompletionResult> {
+    this.calls.push({ messages, options });
     return { text: this.response };
   }
 }
@@ -244,6 +247,28 @@ describe('QueryEngine.extractKeywords', () => {
     expect(keywords).not.toContain('les');
     // meaningful tokens kept
     expect(keywords.some(k => k.length > 1)).toBe(true);
+  });
+
+  it('uses the heuristic fallback when no provider key is configured', async () => {
+    const originalAnthropicKey = process.env.ANTHROPIC_API_KEY;
+    const originalOpenAiKey = process.env.OPENAI_API_KEY;
+    delete process.env.ANTHROPIC_API_KEY;
+    delete process.env.OPENAI_API_KEY;
+
+    try {
+      const client = await resolveLlmClient();
+      expect(client).toBeNull();
+
+      const engine = new QueryEngine(db, client);
+      const keywords = await engine.extractKeywords('Spider crawl files');
+      expect(keywords).toContain('spider');
+      expect(keywords).toContain('crawl');
+    } finally {
+      if (originalAnthropicKey === undefined) delete process.env.ANTHROPIC_API_KEY;
+      else process.env.ANTHROPIC_API_KEY = originalAnthropicKey;
+      if (originalOpenAiKey === undefined) delete process.env.OPENAI_API_KEY;
+      else process.env.OPENAI_API_KEY = originalOpenAiKey;
+    }
   });
 
   it('falls back to heuristic when LLM returns invalid JSON', async () => {
@@ -388,6 +413,17 @@ describe('QueryEngine.query (end-to-end)', () => {
     expect(result.meta.totalMs).toBeGreaterThanOrEqual(0);
     expect(result.nodeCount).toBeGreaterThanOrEqual(0);
     expect(result.toon).toBeDefined();
+    expect(mockLlm.calls).toHaveLength(1);
+    expect(mockLlm.calls[0].options).toEqual({ maxTokens: 256, temperature: 0 });
+    expect(mockLlm.calls[0].messages).toHaveLength(2);
+    expect(mockLlm.calls[0].messages.map(message => message.content).join('\n'))
+      .not.toContain('spider-id');
+    expect(mockLlm.calls[0].messages.map(message => message.content).join('\n'))
+      .not.toContain('crawl-id');
+    expect(result.seedNodeIds).toContain('spider-id');
+    expect(result.edges).toEqual(expect.arrayContaining([
+      expect.objectContaining({ source: 'spider-id', target: 'crawl-id' }),
+    ]));
   });
 
   it('returns a QueryResult with llmProvider=none when no LLM', async () => {

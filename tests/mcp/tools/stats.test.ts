@@ -82,6 +82,33 @@ describe("get_session_stats tool", () => {
     }
   });
 
+  it("proves local MCP analysis can produce TOON stats with zero LLM calls", () => {
+    const savedSource = sessionStats.getSource();
+    try {
+      sessionStats.setSource("mcp");
+      sessionStats.record({
+        toolName: "graphitlive_analyze_dependencies",
+        jsonTokens: 240,
+        toonTokens: 140,
+        savings: 100,
+        truncated: false,
+        timestamp: Date.now(),
+      });
+
+      const result = executeGetSessionStats(tempDir);
+
+      // Local MCP analysis recorded TOON-vs-JSON stats...
+      expect(result.currentSession.totals.calls).toBe(1);
+      expect(result.currentSession.totals.jsonTokens).toBe(240);
+      expect(result.currentSession.totals.toonTokens).toBe(140);
+      // ...with zero provider LLM calls in the MCP process.
+      expect(result.currentSession.llmUsage).toEqual({ calls: 0, tokensUsed: 0 });
+      expect(result.llmUsageNote).toContain("CLI `graph-it query` only");
+    } finally {
+      sessionStats.setSource(savedSource);
+    }
+  });
+
   it("keeps the separation note when real LLM usage exists", () => {
     const savedSource = sessionStats.getSource();
     try {

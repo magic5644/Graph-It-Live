@@ -75,6 +75,30 @@ TOON can save **30-60%** tokens compared to JSON for structured data:
 | JSON (minified) | ~80 | ~300 bytes |
 | TOON | ~40 | ~200 bytes |
 
+### Measurement Protocol and Limits
+
+TOON changes the representation returned by a local analysis. It does **not**
+make architecture, codemap, impact, or call-graph analysis depend on an LLM.
+`estimateTokenSavings()` estimates representation size with `ceil(chars / 4)`;
+it must be kept separate from actual provider usage recorded as `llmUsage`.
+
+Run the reproducible local corpus with:
+
+```bash
+npm run test:context-economy
+```
+
+It removes `ANTHROPIC_API_KEY` and `OPENAI_API_KEY` from child processes, runs
+the same four local analyses in JSON and TOON, and writes raw outputs plus a
+`report.json` under `.reports/context-economy/`. Every report run asserts
+`llmUsage.calls = 0` and `llmUsage.tokensUsed = 0`. Byte, character, and
+`chars / 4` values in the report are encoding estimates only; they are not
+provider billing-token measurements and cannot prove a universal cost reduction.
+
+The optional natural-language `query` command is the narrow exception: an
+available provider can help extract search keywords. Its graph scoring and BFS
+remain local, and missing credentials activate the heuristic keyword fallback.
+
 ### Usage in MCP Server
 
 #### Request Format Parameter
