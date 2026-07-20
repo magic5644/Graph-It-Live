@@ -1,6 +1,6 @@
 import { appendFile } from "node:fs/promises";
 
-export const MINIMUM_CLI_VERSION = "1.12.0";
+export const MINIMUM_CLI_VERSION = "1.13.0";
 
 function isAlphanumericHyphen(value) {
   return [...value].every((character) => /[0-9A-Za-z-]/.test(character));
@@ -70,7 +70,7 @@ export function compareSemver(left, right) {
 export function assertSupportedCliVersion(output) {
   const version = parseCliVersion(output);
   if (!version) {
-    throw new Error("Unable to parse Graph-It-Live CLI version. Expected output such as: graph-it-live v1.12.0");
+    throw new Error("Unable to parse Graph-It-Live CLI version. Expected output such as: graph-it-live v1.13.0");
   }
   if (compareSemver(version, MINIMUM_CLI_VERSION) < 0) {
     throw new Error(`Graph-It-Live CLI ${version} is unsupported; version ${MINIMUM_CLI_VERSION} or newer is required.`);

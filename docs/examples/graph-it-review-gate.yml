@@ -16,9 +16,9 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
-      - uses: magic5644/Graph-It-Live/.github/actions/graph-it-review-gate@v1.12.0
+      - uses: magic5644/Graph-It-Live/.github/actions/graph-it-review-gate@v1.13.0
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
-          # Empty uses npm's latest tag. Set cli-version: 1.12.0 to pin a release.
+          # Empty uses npm's latest tag. Set cli-version: 1.13.0 to pin a release.
           comment: ${{ github.event.pull_request.head.repo.fork && 'false' || 'true' }}
           fail-on-risk: high

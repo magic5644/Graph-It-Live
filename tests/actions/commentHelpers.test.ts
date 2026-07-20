@@ -52,15 +52,15 @@ describe("review-gate comment helpers", () => {
 
 describe("review-gate CLI version validation", () => {
   it("accepts the minimum and newer installed CLI versions", () => {
-    expect(parseCliVersion("graph-it-live v1.12.0\n")).toBe("1.12.0");
+    expect(parseCliVersion("graph-it-live v1.13.0\n")).toBe("1.13.0");
     expect(assertSupportedCliVersion("notice\ngraph-it-live v1.13.2\n")).toBe("1.13.2");
-    expect(compareSemver("1.13.0", "1.12.0")).toBeGreaterThan(0);
+    expect(compareSemver("1.14.0", "1.13.0")).toBeGreaterThan(0);
   });
 
   it("rejects old, prerelease-minimum, and malformed CLI output", () => {
-    expect(() => assertSupportedCliVersion("graph-it-live v1.11.9\n")).toThrow("1.12.0 or newer");
-    expect(() => assertSupportedCliVersion("graph-it-live v1.12.0-rc.1\n")).toThrow("1.12.0 or newer");
-    expect(() => assertSupportedCliVersion("graph-it v1.12.0\n")).toThrow("Unable to parse");
+    expect(() => assertSupportedCliVersion("graph-it-live v1.12.9\n")).toThrow("1.13.0 or newer");
+    expect(() => assertSupportedCliVersion("graph-it-live v1.13.0-rc.1\n")).toThrow("1.13.0 or newer");
+    expect(() => assertSupportedCliVersion("graph-it v1.13.0\n")).toThrow("Unable to parse");
   });
 });
 

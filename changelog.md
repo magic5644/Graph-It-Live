@@ -6,10 +6,10 @@
 - Graph-It Review Gate: deterministic local Git-diff review through analyzer, CLI (`review-pr`), and read-only MCP (`graphitlive_review_pr`) with explicit signature, dependent, cycle, unused-export, and conventional test-candidate score factors.
 - Composite PR Action with sanitized sticky comments, GitHub REST response validation, partial-analysis limitations, and optional `high`/`critical` failure threshold.
 - Validated and URI-encoded workspace-relative VS Code review deep links focused on the existing Cytoscape call graph; no link is emitted without a valid risky symbol target.
-- External Review Gate distribution: the composite Action installs the published `@magic5644/graph-it-live` CLI in an isolated temporary prefix rather than building the consumer checkout. It defaults to npm `latest`, supports optional `cli-version` pinning, exposes the resolved CLI version, and rejects versions below `1.12.0`.
+- External Review Gate distribution: the composite Action installs the published `@magic5644/graph-it-live` CLI in an isolated temporary prefix rather than building the consumer checkout. It defaults to npm `latest`, supports optional `cli-version` pinning, exposes the resolved CLI version, and rejects versions below `1.13.0`.
 
 ### Release notes
-- Publishing npm `1.12.0`, verifying public `npx`, and creating the immutable `v1.12.0` Action tag are manual post-merge release tasks; this change does not publish or tag.
+- Publishing npm `1.13.0`, verifying public `npx`, and creating the immutable `v1.13.0` Action tag are manual post-merge release tasks; this change does not publish or tag.
 
 ## v1.12.0
 
