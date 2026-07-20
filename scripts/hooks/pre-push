@@ -41,17 +41,17 @@ if [[ "$CURRENT_BRANCH" =~ ^(main|develop|release/.*)$ ]]; then
   # Check WASM files
   echo "Checking WASM files..."
   WASM_COUNT=$(npx vsce ls 2>/dev/null | grep "\.wasm$" | wc -l | tr -d ' ')
-  if [ "$WASM_COUNT" -ne 9 ]; then
+  if [ "$WASM_COUNT" -ne 8 ]; then
     echo ""
-    echo "❌ FAIL: Expected 9 WASM files, found $WASM_COUNT"
-    echo "Expected: 7 tree-sitter language WASMs + sqljs.wasm (dist/wasm/) + web-tree-sitter.wasm (node_modules/)"
+    echo "❌ FAIL: Expected 8 WASM files, found $WASM_COUNT"
+    echo "Expected: tree-sitter runtime + 6 language WASMs + sqljs.wasm (dist/wasm/)"
     echo ""
     echo "Fix: Check esbuild.js copyWasmFiles() function"
     echo "Then re-build: npm run build"
     echo ""
     exit 1
   fi
-  echo "✅ All 9 WASM files present"
+  echo "✅ All 8 WASM files present"
   
   # Check package size
   echo "Checking package size..."
