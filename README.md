@@ -18,11 +18,9 @@
 [![License](https://img.shields.io/github/license/magic5644/Graph-It-Live)](https://github.com/magic5644/Graph-It-Live/blob/main/LICENSE)
 [![Github stars](https://img.shields.io/github/stars/magic5644/graph-it-live?style=flat&color=gold&logo=github)](https://github.com/magic5644/Graph-It-Live)
 
-<p align="center">
-  <a href="https://star-history.com/#magic5644/graph-it-live&Date">
-    <img src="https://api.star-history.com/svg?repos=magic5644/graph-it-live&type=Date" alt="Star History Chart" width="370"/>
-  </a>
-</p>
+## Star History
+
+[![Star History Chart](https://api.star-history.com/chart?repos=magic5644/graph-it-live&type=timeline&logscale&legend=top-left&sealed_token=c1x5zPh24JWb5e30epfy4edlDcIVWv-8hEDcO7yuYzOz-78Uwk29waGc6I9bgeSYZ5PAA8PkRUZWoRi2c8SZczZiTm0ztsGR6z4tlCvd3ZabgoohSfCkYH09nYdfMfhAE3UbciOVacOnLPQiHXRTvxFcNoqayExwvUqm53gQBP6dVCyyUB-7B2sQucsq)](https://www.star-history.com/?repos=magic5644%2Fgraph-it-live&type=timeline&logscale=&legend=top-left)
 
 ---
 
