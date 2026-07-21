@@ -1,4 +1,4 @@
-import type { GraphData } from '../../shared/types';
+import type { GraphData, GraphNodeMetadata } from '../../shared/types';
 
 export function mergeEdgesUnique(
   base: Array<{ source: string; target: string }>,
@@ -21,12 +21,19 @@ export function mergeGraphDataUnion(base: GraphData, incoming: GraphData): Graph
 
   const labels = { ...base.nodeLabels, ...incoming.nodeLabels };
   const parentCounts = { ...base.parentCounts, ...incoming.parentCounts };
+  // Merge nodeMetadata (communityId) so cluster grouping survives expand/
+  // referencing-file merges (GH #122) — dropping this loses all cluster colors.
+  const nodeMetadata: Record<string, GraphNodeMetadata> = {
+    ...base.nodeMetadata,
+    ...incoming.nodeMetadata,
+  };
 
   return {
     nodes,
     edges,
     nodeLabels: Object.keys(labels).length > 0 ? labels : undefined,
     parentCounts: Object.keys(parentCounts).length > 0 ? parentCounts : undefined,
+    nodeMetadata: Object.keys(nodeMetadata).length > 0 ? nodeMetadata : undefined,
     unusedEdges: [...new Set([...(base.unusedEdges || []), ...(incoming.unusedEdges || [])])],
   };
 }

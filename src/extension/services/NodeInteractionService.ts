@@ -1,5 +1,7 @@
 import { Spider } from '../../analyzer/Spider';
 import { normalizePath } from '../../analyzer/types';
+import { computeNodeMetadata } from '../../analyzer/NodeMetadataBuilder';
+import type { GraphData, GraphNodeMetadata } from '../../shared/types';
 
 type Logger = {
   debug: (message: string, ...args: unknown[]) => void;
@@ -9,7 +11,9 @@ type Logger = {
 export interface NodeExpansionResult {
   command: 'expandedGraph';
   nodeId: string;
-  data: Awaited<ReturnType<Spider['crawlFrom']>>;
+  data: Awaited<ReturnType<Spider['crawlFrom']>> & {
+    nodeMetadata?: Record<string, GraphNodeMetadata>;
+  };
 }
 
 export interface ReferencingFilesResult {
@@ -20,6 +24,7 @@ export interface ReferencingFilesResult {
     edges: { source: string; target: string }[];
     parentCounts?: Record<string, number>;
     unusedEdges?: string[];
+    nodeMetadata?: Record<string, GraphNodeMetadata>;
   };
 }
 
@@ -76,6 +81,12 @@ export class NodeInteractionService {
     // Ensure final batch is captured even if no streaming callback
     await handleBatch(newGraphData);
 
+    // Recompute community metadata over the FULL known+new node set (GH #122):
+    // community detection is path-based and needs the whole graph to stay
+    // self-consistent, otherwise newly expanded nodes render with no cluster color.
+    const fullNodes = Array.from(new Set([...knownNodesSet, ...aggregatedNodes]));
+    const nodeMetadata = await this.computeMetadataForNodes(fullNodes);
+
     return {
       command: 'expandedGraph',
       nodeId,
@@ -83,11 +94,15 @@ export class NodeInteractionService {
         nodes: Array.from(aggregatedNodes),
         edges: aggregatedEdges,
         nodeLabels: Object.keys(aggregatedLabels).length > 0 ? aggregatedLabels : undefined,
+        nodeMetadata,
       },
     };
   }
 
-  async getReferencingFiles(nodeId: string): Promise<ReferencingFilesResult> {
+  async getReferencingFiles(
+    nodeId: string,
+    knownNodes?: string[]
+  ): Promise<ReferencingFilesResult> {
     this.logger.debug('Finding referencing files for', nodeId);
     const referencingFiles = await this.spider.findReferencingFiles(nodeId);
     this.logger.debug('Found', referencingFiles.length, 'referencing files');
@@ -120,6 +135,12 @@ export class NodeInteractionService {
 
     const parentCounts = await this.populateParentCounts(nodes);
 
+    // Recompute community metadata over the FULL known+new node set (GH #122):
+    // extension never sent nodeMetadata for on-demand referencing-file lookups,
+    // so the merged graph lost all cluster/color assignments for these nodes.
+    const fullNodes = Array.from(new Set([...(knownNodes ?? []), ...nodes, nodeId]));
+    const nodeMetadata = await this.computeMetadataForNodes(fullNodes);
+
     return {
       command: 'referencingFiles',
       nodeId,
@@ -128,8 +149,24 @@ export class NodeInteractionService {
         edges,
         parentCounts: Object.keys(parentCounts).length > 0 ? parentCounts : undefined,
         unusedEdges: unusedEdges.length > 0 ? unusedEdges : undefined,
+        nodeMetadata,
       },
     };
+  }
+
+  private async computeMetadataForNodes(
+    nodes: string[]
+  ): Promise<Record<string, GraphNodeMetadata> | undefined> {
+    if (nodes.length === 0) return undefined;
+
+    const parentCounts = await this.populateParentCounts(nodes);
+    const tempData: GraphData = {
+      nodes,
+      edges: [],
+      parentCounts: Object.keys(parentCounts).length > 0 ? parentCounts : undefined,
+    };
+    computeNodeMetadata(tempData, this.spider.workspaceRoot);
+    return tempData.nodeMetadata;
   }
 
   private async populateParentCounts(nodes: string[]): Promise<Record<string, number>> {
