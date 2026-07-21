@@ -48,7 +48,7 @@ export interface MessageDispatcherCallbacks {
   handleOpenFile(filePath: string, line?: number): Promise<void>;
   handleExpandNode(nodeId: string, knownNodes?: string[]): Promise<void>;
   handleCancelExpandNode(nodeId?: string): Promise<void>;
-  handleFindReferencingFiles(nodeId: string): Promise<void>;
+  handleFindReferencingFiles(nodeId: string, knownNodes?: string[]): Promise<void>;
   handleDrillDown(
     filePath: string,
     isRefresh?: boolean,

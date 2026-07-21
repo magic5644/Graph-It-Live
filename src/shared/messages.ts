@@ -99,6 +99,7 @@ export interface ExpandedGraphMessage {
 export interface FindReferencingFilesMessage {
   command: "findReferencingFiles";
   nodeId: string;
+  knownNodes?: string[];
 }
 
 export interface ReferencingFilesMessage {

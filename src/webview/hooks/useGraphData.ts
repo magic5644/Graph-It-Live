@@ -308,11 +308,19 @@ export const useGraphData = () => {
 
   const requestFindReferencingFiles = useCallback((nodeId: string) => {
     if (!vscode) return;
+    const knownNodes = fullGraphData
+      ? Array.from(new Set([
+          ...fullGraphData.nodes,
+          ...fullGraphData.edges.map(e => e.source),
+          ...fullGraphData.edges.map(e => e.target),
+        ]))
+      : undefined;
     vscode.postMessage({
       command: 'findReferencingFiles',
       nodeId,
+      knownNodes,
     });
-  }, []);
+  }, [fullGraphData]);
 
   // Keep track of fullGraphData in a ref to access it in the event listener
   const fullGraphDataRef = React.useRef(fullGraphData);

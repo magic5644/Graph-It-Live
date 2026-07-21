@@ -18,7 +18,7 @@ interface MessageDispatcherDependencies {
   handleOpenFile(filePath: string, line?: number): Promise<void>;
   handleExpandNode(nodeId: string, knownNodes?: string[]): Promise<void>;
   handleCancelExpandNode(nodeId?: string): Promise<void>;
-  handleFindReferencingFiles(nodeId: string): Promise<void>;
+  handleFindReferencingFiles(nodeId: string, knownNodes?: string[]): Promise<void>;
   handleDrillDown(filePath: string): Promise<void>;
   updateGraph(): Promise<void>;
   refreshGraph(): Promise<void>;
@@ -60,7 +60,7 @@ export class MessageDispatcher {
           await deps.refreshGraph();
         },
         findReferencingFiles: async (m) => {
-          if (m.nodeId) await deps.handleFindReferencingFiles(m.nodeId);
+          if (m.nodeId) await deps.handleFindReferencingFiles(m.nodeId, m.knownNodes);
         },
         drillDown: async (m) => {
           if (m.filePath) await deps.handleDrillDown(m.filePath);

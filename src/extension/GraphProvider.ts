@@ -468,13 +468,13 @@ export class GraphProvider implements vscode.WebviewViewProvider {
   /**
    * Handle findReferencingFiles message
    */
-  private async handleFindReferencingFiles(nodeId: string): Promise<void> {
+  private async handleFindReferencingFiles(nodeId: string, knownNodes?: string[]): Promise<void> {
     if (!this.nodeInteractionService || !this._view) {
       return;
     }
     try {
       const result =
-        await this.nodeInteractionService.getReferencingFiles(nodeId);
+        await this.nodeInteractionService.getReferencingFiles(nodeId, knownNodes);
       this._view.webview.postMessage(result);
     } catch (e) {
       log.error("Error finding referencing files:", e);

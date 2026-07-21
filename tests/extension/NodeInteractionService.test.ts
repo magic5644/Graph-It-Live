@@ -7,6 +7,8 @@ const createSpider = () => ({
   findReferencingFiles: vi.fn(),
   hasReverseIndex: vi.fn(),
   getCallerCount: vi.fn(),
+  verifyDependencyUsage: vi.fn().mockResolvedValue(true),
+  workspaceRoot: '/workspace',
 }) as unknown as Spider;
 
 const createLogger = () => ({
@@ -55,5 +57,44 @@ describe('NodeInteractionService', () => {
     expect(result.data.nodes).toEqual(['fileB.ts']);
     expect(result.data.parentCounts).toEqual({ 'fileB.ts': 1 });
     expect(spider.getCallerCount).toHaveBeenCalledWith('fileB.ts');
+  });
+
+  it('expandNode computes nodeMetadata (communityId) over the full known+new node union (GH #122)', async () => {
+    (spider.crawlFrom as ReturnType<typeof vi.fn>).mockResolvedValue({
+      nodes: ['src/analyzer/newFile.ts'],
+      edges: [{ source: 'src/analyzer/root.ts', target: 'src/analyzer/newFile.ts' }],
+    });
+
+    const service = new NodeInteractionService(spider, logger);
+    const result = await service.expandNode('src/analyzer/root.ts', ['src/analyzer/root.ts']);
+
+    expect(result.data.nodeMetadata).toBeDefined();
+    // Both the already-known node and the newly-expanded node must get metadata —
+    // otherwise the newly expanded node renders with no cluster color.
+    expect(Object.keys(result.data.nodeMetadata ?? {})).toEqual(
+      expect.arrayContaining(['src/analyzer/root.ts', 'src/analyzer/newFile.ts']),
+    );
+  });
+
+  it('getReferencingFiles computes nodeMetadata over the full known+new node union (GH #122)', async () => {
+    (spider.findReferencingFiles as ReturnType<typeof vi.fn>).mockResolvedValue([
+      { path: 'src/analyzer/caller.ts' },
+    ]);
+    (spider.hasReverseIndex as ReturnType<typeof vi.fn>).mockReturnValue(false);
+
+    const service = new NodeInteractionService(spider, logger);
+    const result = await service.getReferencingFiles('src/analyzer/root.ts', [
+      'src/analyzer/root.ts',
+      'src/analyzer/sibling.ts',
+    ]);
+
+    expect(result.data.nodeMetadata).toBeDefined();
+    expect(Object.keys(result.data.nodeMetadata ?? {})).toEqual(
+      expect.arrayContaining([
+        'src/analyzer/root.ts',
+        'src/analyzer/sibling.ts',
+        'src/analyzer/caller.ts',
+      ]),
+    );
   });
 });

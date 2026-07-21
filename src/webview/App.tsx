@@ -503,6 +503,17 @@ const App: React.FC = () => {
             updatedData.parentCounts = mergedParentCounts;
           }
 
+          // Merge nodeMetadata (communityId) so cluster grouping survives
+          // this on-demand referencing-file merge (GH #122) — dropping this
+          // loses all cluster colors, not just for the newly-added nodes.
+          const mergedNodeMetadata = {
+            ...currentGraphData.nodeMetadata,
+            ...message.data.nodeMetadata,
+          };
+          if (Object.keys(mergedNodeMetadata).length > 0) {
+            updatedData.nodeMetadata = mergedNodeMetadata;
+          }
+
           setGraphData(updatedData);
         }
         // Show parents when we receive referencing files (explicitly requested)
