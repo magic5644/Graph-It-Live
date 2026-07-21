@@ -736,9 +736,20 @@ const App: React.FC = () => {
       // We haven't fetched referencing files yet, request them from the extension
       // IMPORTANT: Don't toggle showParents yet - wait for the response
       if (vscode) {
+        const normalizedId = normalizePath(path);
+        const knownNodes = new Set<string>(
+          (graphData?.nodes ?? []).map((node) => normalizePath(node)),
+        );
+        (graphData?.edges ?? []).forEach((edge) => {
+          knownNodes.add(normalizePath(edge.source));
+          knownNodes.add(normalizePath(edge.target));
+        });
+        knownNodes.add(normalizedId);
+
         vscode.postMessage({
           command: "findReferencingFiles",
-          nodeId: path,
+          nodeId: normalizedId,
+          knownNodes: Array.from(knownNodes),
         });
       }
       // handleReferencingFilesMessage will set showParents=true when data arrives
