@@ -91,6 +91,17 @@ describe('CommunityLegend', () => {
     expect(screen.getByText('Groups of closely connected files')).toBeTruthy();
   });
 
+  it('positions itself bottom-right so it does not overlap the bottom-left ReactFlow Controls (GH #122)', () => {
+    const { container } = render(
+      React.createElement(CommunityLegend, {
+        communities: [{ id: 1, label: 'Hub.ts', color: '#4E79A7' }],
+      })
+    );
+    const root = container.firstChild as HTMLElement;
+    expect(root.style.right).toBe('8px');
+    expect(root.style.left).toBe('');
+  });
+
   it('title includes total cluster count for multiple communities', () => {
     render(
       React.createElement(CommunityLegend, {
