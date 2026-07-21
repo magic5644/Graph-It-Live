@@ -1,5 +1,6 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 import { mergeGraphData, detectCycles } from '../../../src/webview/utils/graphUtils';
+import { buildReactFlowGraph } from '../../../src/webview/components/reactflow/buildGraph';
 import { GraphData } from '../../../src/shared/types';
 
 describe('graphUtils', () => {
@@ -95,6 +96,47 @@ describe('graphUtils', () => {
             const result = mergeGraphData(currentData, newData);
 
             expect(result.unusedEdges).toEqual(['A->B']);
+        });
+
+        it('end-to-end: communityId survives a "show referencing file" merge and reaches buildReactFlowGraph node data (GH #122)', () => {
+            // Shape mirrors NodeInteractionService.getReferencingFiles' actual payload:
+            // nodes/edges/parentCounts/unusedEdges only — NEVER nodeMetadata.
+            const currentData: GraphData = {
+                nodes: ['root.ts', 'child.ts'],
+                edges: [{ source: 'root.ts', target: 'child.ts' }],
+                nodeMetadata: {
+                    'root.ts': { hubScore: 0.9, communityId: 1 },
+                    'child.ts': { hubScore: 0.4, communityId: 2 },
+                },
+            };
+            const referencingFilesPayload: GraphData = {
+                nodes: ['parent.ts'],
+                edges: [{ source: 'parent.ts', target: 'root.ts' }],
+                parentCounts: { 'root.ts': 1 },
+            };
+
+            const merged = mergeGraphData(currentData, referencingFilesPayload);
+
+            const result = buildReactFlowGraph({
+                data: merged,
+                currentFilePath: 'root.ts',
+                expandAll: false,
+                expandedNodes: new Set(['root.ts']),
+                showParents: true,
+                callbacks: {
+                    onNodeClick: vi.fn(),
+                    onDrillDown: vi.fn(),
+                    onFindReferences: vi.fn(),
+                    onToggleParents: vi.fn(),
+                    onToggle: vi.fn(),
+                    onExpandRequest: vi.fn(),
+                },
+            });
+
+            const rootNode = result.nodes.find(n => n.id === 'root.ts');
+            const childNode = result.nodes.find(n => n.id === 'child.ts');
+            expect(rootNode?.data).toMatchObject({ communityId: 1 });
+            expect(childNode?.data).toMatchObject({ communityId: 2 });
         });
     });
 

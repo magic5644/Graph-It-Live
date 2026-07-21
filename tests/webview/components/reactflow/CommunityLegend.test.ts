@@ -91,15 +91,17 @@ describe('CommunityLegend', () => {
     expect(screen.getByText('Groups of closely connected files')).toBeTruthy();
   });
 
-  it('positions itself bottom-right so it does not overlap the bottom-left ReactFlow Controls (GH #122)', () => {
+  it('does not self-position — positioning is owned by the wrapper in ReactFlowGraph (GH #122)', () => {
     const { container } = render(
       React.createElement(CommunityLegend, {
         communities: [{ id: 1, label: 'Hub.ts', color: '#4E79A7' }],
       })
     );
     const root = container.firstChild as HTMLElement;
-    expect(root.style.right).toBe('8px');
+    expect(root.style.position).toBe('');
+    expect(root.style.right).toBe('');
     expect(root.style.left).toBe('');
+    expect(root.style.bottom).toBe('');
   });
 
   it('title includes total cluster count for multiple communities', () => {
