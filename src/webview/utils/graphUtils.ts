@@ -1,6 +1,6 @@
 import { SUPPORTED_FILE_EXTENSIONS } from '../../shared/constants';
 import { normalizePath } from '../../shared/path';
-import { GraphData } from '../../shared/types';
+import { GraphData, GraphNodeMetadata } from '../../shared/types';
 
 /**
  * Extract filename from a full path
@@ -155,11 +155,22 @@ export const mergeGraphData = (currentData: GraphData, newData: GraphData): Grap
     if (currentData.parentCounts) Object.assign(mergedParentCounts, currentData.parentCounts);
     if (newData.parentCounts) Object.assign(mergedParentCounts, newData.parentCounts);
 
+    // Merge nodeMetadata (e.g. communityId) so cluster grouping survives on-demand
+    // merges such as "show referencing file" (GH #122) — without this, the merged
+    // graph loses all community assignments and clusters disappear.
+    const mergedNodeMetadata: Record<string, GraphNodeMetadata> = {};
+    if (currentData.nodeMetadata) Object.assign(mergedNodeMetadata, currentData.nodeMetadata);
+    if (newData.nodeMetadata) Object.assign(mergedNodeMetadata, newData.nodeMetadata);
+
+    const mergedUnusedEdges = [...new Set([...(currentData.unusedEdges ?? []), ...(newData.unusedEdges ?? [])])];
+
     return {
         nodes: mergedNodes,
         edges: mergedEdges,
         nodeLabels: Object.keys(mergedNodeLabels).length > 0 ? mergedNodeLabels : undefined,
         parentCounts: Object.keys(mergedParentCounts).length > 0 ? mergedParentCounts : undefined,
+        nodeMetadata: Object.keys(mergedNodeMetadata).length > 0 ? mergedNodeMetadata : undefined,
+        unusedEdges: mergedUnusedEdges.length > 0 ? mergedUnusedEdges : undefined,
     };
 };
 
