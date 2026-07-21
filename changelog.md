@@ -1,6 +1,19 @@
 # Changelog
 
-## Unreleased
+## v1.13.1
+
+### Fixed
+
+- **Community and cluster metadata preserved after graph updates**: Expanding nodes, expanding all nodes, and finding referencing files now retain community IDs and colours. The extension recomputes metadata from the complete known-and-new node set, and the webview merges that metadata on each live update.
+- **Community legend no longer overlaps circular-dependency status**: The legend and cycle badge now share a bottom-right stack in the React Flow view.
+- **Referencing-file node identity normalization**: `findReferencingFiles` now normalizes node IDs and receives the existing graph nodes, keeping metadata and lookup results consistent across platforms.
+- **Python import verification tests**: Updated Python parser test expectations to reflect the current import-verification behaviour.
+
+### Maintenance
+
+- **Dependency updates**: Updated `body-parser` and related dependencies, `happy-dom`, and `typescript-eslint`.
+
+## v1.13.0
 
 ### Added
 - Graph-It Review Gate: deterministic local Git-diff review through analyzer, CLI (`review-pr`), and read-only MCP (`graphitlive_review_pr`) with explicit signature, dependent, cycle, unused-export, and conventional test-candidate score factors.
