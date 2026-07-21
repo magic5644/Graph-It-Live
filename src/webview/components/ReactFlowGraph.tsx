@@ -989,7 +989,6 @@ const ReactFlowGraphContent: React.FC<ReactFlowGraphProps> = ({
         <Background />
         <Controls />
       </ReactFlow>
-      {showCommunities && <CommunityLegend communities={communities} />}
       {/* T081: Loading indicator during re-analysis */}
       {isReanalyzing && (
         <div
@@ -1277,36 +1276,45 @@ const ReactFlowGraphContent: React.FC<ReactFlowGraphProps> = ({
         </div>
       </div>
 
-      {/* Legend */}
-      {graph.cycles.size > 0 && (
-        <div
-          style={{
-            position: "absolute",
-            bottom: 50,
-            left: "80%",
-            transform: "translateX(-80%)",
-            zIndex: 1000,
-            background: "var(--vscode-editor-background)",
-            padding: "8px 12px",
-            borderRadius: 4,
-            border: "1px solid var(--vscode-widget-border)",
-            fontSize: 11,
-            display: "flex",
-            alignItems: "center",
-            gap: 6,
-          }}
-        >
+      {/* Legend — cycles badge + community legend stacked so they never overlap (GH #122) */}
+      <div
+        style={{
+          position: "absolute",
+          bottom: 8,
+          right: 8,
+          zIndex: 1000,
+          display: "flex",
+          flexDirection: "column",
+          alignItems: "flex-end",
+          gap: 8,
+        }}
+      >
+        {graph.cycles.size > 0 && (
           <div
             style={{
-              width: 10,
-              height: 10,
-              borderRadius: "50%",
-              background: "#dc3545",
+              background: "var(--vscode-editor-background)",
+              padding: "8px 12px",
+              borderRadius: 4,
+              border: "1px solid var(--vscode-widget-border)",
+              fontSize: 11,
+              display: "flex",
+              alignItems: "center",
+              gap: 6,
             }}
-          />
-          <span>Circular dependency ({graph.cycles.size} files)</span>
-        </div>
-      )}
+          >
+            <div
+              style={{
+                width: 10,
+                height: 10,
+                borderRadius: "50%",
+                background: "#dc3545",
+              }}
+            />
+            <span>Circular dependency ({graph.cycles.size} files)</span>
+          </div>
+        )}
+        {showCommunities && <CommunityLegend communities={communities} />}
+      </div>
     </div>
   );
 };

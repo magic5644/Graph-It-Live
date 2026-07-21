@@ -15,10 +15,6 @@ export function CommunityLegend({ communities }: CommunityLegendProps) {
 
   return (
     <div style={{
-      position: 'absolute',
-      bottom: 8,
-      right: 8,
-      zIndex: 10,
       background: 'var(--vscode-editor-background)',
       border: '1px solid var(--vscode-editorWidget-border, #333)',
       borderRadius: 4,
