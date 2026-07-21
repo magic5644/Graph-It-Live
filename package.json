@@ -1174,10 +1174,10 @@
     "fast-check": "^4.9.0",
     "glob": "^13.0.6",
     "globals": "^17.7.0",
-    "happy-dom": "^20.10.6",
+    "happy-dom": "^20.11.0",
     "mocha": "^11.7.6",
     "typescript": "^6.0.3",
-    "typescript-eslint": "^8.64.0",
+    "typescript-eslint": "^8.65.0",
     "vitest": "^4.1.10"
   },
   "overrides": {
