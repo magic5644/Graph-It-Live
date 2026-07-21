@@ -303,7 +303,7 @@ describe('PythonParser Property-Based Tests', { timeout: 30_000 }, () => {
               // Verify no duplicate imports
               const modules = deps.map((d) => d.module);
               const uniqueModules = [...new Set(modules)];
-              expect(modules.length).toBe(uniqueModules.length);
+              expect(modules).toHaveLength(uniqueModules.length);
 
               // Verify all imports have valid line numbers
               expect(deps.every((d) => d.line > 0)).toBe(true);
@@ -461,7 +461,7 @@ describe('PythonParser Property-Based Tests', { timeout: 30_000 }, () => {
               }
 
               // Verify we extracted the right number of imports
-              expect(deps.length).toBe(expectedModules.length);
+              expect(deps).toHaveLength(expectedModules.length);
             } finally {
               try {
                 await fs.unlink(tempFilePath);
@@ -510,12 +510,18 @@ describe('PythonParser Property-Based Tests', { timeout: 30_000 }, () => {
             const lines: string[] = ['# Import aliases test'];
             const expectedModules: string[] = [];
             const seenModules = new Set<string>();
+            const expectedImports: Array<{ alias: string; line: number; module: string }> = [];
 
             const count = Math.min(modules.length, aliases.length);
             for (let i = 0; i < count; i++) {
               // Make module unique by appending index
               const uniqueModule = `${modules[i]}${i}`;
               lines.push(`import ${uniqueModule} as ${aliases[i]}`);
+              expectedImports.push({
+                alias: aliases[i],
+                line: lines.length,
+                module: uniqueModule,
+              });
               
               if (!seenModules.has(uniqueModule)) {
                 seenModules.add(uniqueModule);
@@ -536,9 +542,11 @@ describe('PythonParser Property-Based Tests', { timeout: 30_000 }, () => {
                 expect(actualModules).toContain(expectedModule);
               }
 
-              // Verify aliases are not in the module list
-              for (const alias of aliases.slice(0, count)) {
-                expect(actualModules).not.toContain(alias);
+              // Verify each import line extracts its module rather than its alias.
+              for (const expectedImport of expectedImports) {
+                const dependency = deps.find((item) => item.line === expectedImport.line);
+                expect(dependency?.module).toBe(expectedImport.module);
+                expect(dependency?.module).not.toBe(expectedImport.alias);
               }
             } finally {
               try {
