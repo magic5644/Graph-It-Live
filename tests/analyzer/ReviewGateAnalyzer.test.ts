@@ -67,6 +67,7 @@ describe("ReviewGateAnalyzer", () => {
       isPartial: false,
       limitations: [],
     });
+    expect(markdown).toContain("## Graph-It Review Gate: CRITICAL (80/100)");
     expect(markdown).not.toContain("<script>");
     expect(markdown).not.toContain("bad|<");
   });
