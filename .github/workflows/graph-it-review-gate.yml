@@ -22,7 +22,7 @@ jobs:
         with:
           fetch-depth: 0
 
-      - uses: magic5644/Graph-It-Live/.github/actions/graph-it-review-gate@v1.13.0
+      - uses: ./.github/actions/graph-it-review-gate
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
           cli-version: 1.13.0
