@@ -34,6 +34,17 @@ export function getCommentUpsert(endpoint, existing) {
   };
 }
 
+export async function upsertReviewComment(fetchImpl, endpoint, headers, existing, body) {
+  const update = getCommentUpsert(endpoint, existing);
+  try {
+    return await fetchJsonOrThrow(fetchImpl, update.url, { method: update.method, headers, body: JSON.stringify({ body }) }, update.operation);
+  } catch (error) {
+    if (update.method !== "PATCH" || error?.status !== 404) throw error;
+    const create = getCommentUpsert(endpoint, undefined);
+    return fetchJsonOrThrow(fetchImpl, create.url, { method: create.method, headers, body: JSON.stringify({ body }) }, create.operation);
+  }
+}
+
 export function renderReviewComment(result, extensionId) {
   const symbols = Array.isArray(result?.symbols) ? result.symbols : [];
   const limitations = Array.isArray(result?.limitations) ? result.limitations : [];
@@ -69,7 +80,9 @@ export async function fetchJsonOrThrow(fetchImpl, url, options, operation) {
   try { data = text ? JSON.parse(text) : undefined; } catch { data = text; }
   if (!response.ok) {
     const detail = typeof data === "object" && data?.message ? data.message : sanitize(text).slice(0, 300);
-    throw new Error(`GitHub ${operation} failed (${response.status}): ${detail || response.statusText}`);
+    const error = new Error(`GitHub ${operation} failed (${response.status}): ${detail || response.statusText}`);
+    error.status = response.status;
+    throw error;
   }
   return data;
 }

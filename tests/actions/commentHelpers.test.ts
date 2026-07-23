@@ -1,10 +1,10 @@
 import { readFileSync } from "node:fs";
 import { spawnSync } from "node:child_process";
-import { fileURLToPath } from "node:url";
+import { resolve } from "node:path";
 import { describe, expect, it, vi } from "vitest";
 
 // @ts-expect-error The composite Action runs this JavaScript module directly in Node.
-import { MARKER, buildReviewDeepLink, fetchJsonOrThrow, findStickyComment, getCommentUpsert, renderReviewComment } from "../../.github/actions/graph-it-review-gate/commentHelpers.mjs";
+import { MARKER, buildReviewDeepLink, fetchJsonOrThrow, findStickyComment, getCommentUpsert, renderReviewComment, upsertReviewComment } from "../../.github/actions/graph-it-review-gate/commentHelpers.mjs";
 // @ts-expect-error The composite Action runs this JavaScript module directly in Node.
 import { assertSupportedCliVersion, compareSemver, parseCliVersion } from "../../.github/actions/graph-it-review-gate/verifyCliVersion.mjs";
 
@@ -45,6 +45,25 @@ describe("review-gate comment helpers", () => {
     await expect(fetchJsonOrThrow(vi.fn().mockResolvedValue({ ok: false, status: 500, statusText: "Error", text: async () => "" }), "https://example.test", {}, "list comments")).rejects.toThrow("Error");
   });
 
+  it("recreates a sticky comment when its update target no longer exists", async () => {
+    const endpoint = "https://example.test/comments";
+    const headers = { authorization: "Bearer token" };
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce({ ok: false, status: 404, statusText: "Not Found", text: async () => '{"message":"Not Found"}' })
+      .mockResolvedValueOnce({ ok: true, text: async () => '{"id":8}' });
+
+    await expect(upsertReviewComment(fetchMock, endpoint, headers, { id: 7 }, "updated report")).resolves.toEqual({ id: 8 });
+    expect(fetchMock).toHaveBeenNthCalledWith(1, `${endpoint}/7`, expect.objectContaining({ method: "PATCH" }));
+    expect(fetchMock).toHaveBeenNthCalledWith(2, endpoint, expect.objectContaining({ method: "POST" }));
+  });
+
+  it("preserves update failures other than a missing comment", async () => {
+    const fetchMock = vi.fn().mockResolvedValue({ ok: false, status: 403, statusText: "Forbidden", text: async () => '{"message":"Resource not accessible"}' });
+
+    await expect(upsertReviewComment(fetchMock, "https://example.test/comments", {}, { id: 7 }, "updated report")).rejects.toThrow("GitHub update comment failed (403): Resource not accessible");
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
   it("stringifies scalar values before rendering them", () => {
     expect(renderReviewComment({ risk: null, score: 2.6, changedFiles: [1], symbols: [{ risk: false, score: -5, filePath: 1, name: null, impactedSymbolCount: undefined, cycleEvidence: "invalid", unusedExportEvidence: 0, evidence: [{ detail: null }] }], limitations: [null] }, "extension")).toContain("| false | 0 | 1 |  |  | 0 | no |");
   });
@@ -65,8 +84,8 @@ describe("review-gate CLI version validation", () => {
 });
 
 describe("review-gate action risk threshold", () => {
-  const actionPath = new URL("../../.github/actions/graph-it-review-gate/action.yml", import.meta.url);
-  const riskGatePath = fileURLToPath(new URL("../../.github/actions/graph-it-review-gate/riskGate.cjs", import.meta.url));
+  const actionPath = resolve(process.cwd(), ".github/actions/graph-it-review-gate/action.yml");
+  const riskGatePath = resolve(process.cwd(), ".github/actions/graph-it-review-gate/riskGate.cjs");
   const action = readFileSync(actionPath, "utf8");
 
   function runRiskGate(risk: string, threshold: string) {

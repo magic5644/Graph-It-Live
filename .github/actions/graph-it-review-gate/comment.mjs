@@ -1,5 +1,5 @@
 import { readFile } from "node:fs/promises";
-import { fetchJsonOrThrow, findStickyComment, getCommentUpsert, renderReviewComment } from "./commentHelpers.mjs";
+import { fetchJsonOrThrow, findStickyComment, renderReviewComment, upsertReviewComment } from "./commentHelpers.mjs";
 
 const eventPath = process.env.GITHUB_EVENT_PATH;
 if (!process.env.REVIEW_FILE || !eventPath || !process.env.GITHUB_TOKEN || !process.env.GITHUB_REPOSITORY) {
@@ -23,5 +23,4 @@ const endpoint = `https://api.github.com/repos/${encodeURIComponent(owner)}/${en
 const comments = await fetchJsonOrThrow(fetch, endpoint, { headers }, "list comments");
 if (!Array.isArray(comments)) throw new Error("GitHub list comments returned an invalid response");
 const existing = findStickyComment(comments);
-const upsert = getCommentUpsert(endpoint, existing);
-await fetchJsonOrThrow(fetch, upsert.url, { method: upsert.method, headers, body: JSON.stringify({ body }) }, upsert.operation);
+await upsertReviewComment(fetch, endpoint, headers, existing, body);
