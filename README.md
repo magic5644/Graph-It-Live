@@ -54,7 +54,7 @@ The Action does not trigger itself: add a consumer workflow such as [`docs/examp
 - uses: magic5644/Graph-It-Live/.github/actions/graph-it-review-gate@v1.13.0
   with:
     token: ${{ secrets.GITHUB_TOKEN }}
-    cli-version: 1.13.0 # optional; omitted means npm latest
+    cli-version: 1.13.2 # optional; omitted means npm latest
     comment: true
     fail-on-risk: high
 ```
