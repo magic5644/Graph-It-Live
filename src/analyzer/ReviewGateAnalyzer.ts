@@ -213,7 +213,7 @@ export class ReviewGateAnalyzer {
       .filter(Boolean)
       .slice(0, maxFiles)
       .map((filePath) => normalizePath(filePath))
-      .sort();
+      .sort((left, right) => left.localeCompare(right));
   }
 
   private resolveWorkspacePath(relativePath: string): string {
@@ -368,7 +368,7 @@ export function renderReviewMarkdown(result: ReviewGateResult): string {
   );
   return [
     "<!-- graph-it-review-gate -->",
-    `## Graph-It Review Risk Gate: ${result.risk.toUpperCase()} (${result.score}/100)`,
+    `## Graph-It Review Gate: ${result.risk.toUpperCase()} (${result.score}/100)`,
     "",
     `Changed files: ${result.changedFiles.length}. ${result.isPartial ? "Partial analysis; see limitations." : "Complete within configured limits."}`,
     "",
