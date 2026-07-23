@@ -1,5 +1,20 @@
 # Changelog
 
+## v1.13.2
+
+### Fixed
+
+- **Consistent file-path sorting in review gate output**: File paths are now sorted with `localeCompare` instead of the default byte-order comparison, ensuring stable, locale-aware ordering across platforms.
+- **Review gate markdown header label**: Renamed the sticky comment header from "Graph-It Review Risk Gate" to "Graph-It Review Gate" for consistency with the action name.
+
+### Refactored
+
+- **PR comment upsert in the review gate Action**: Replaced `getCommentUpsert` with a dedicated `upsertReviewComment` helper for clearer intent and better testability.
+
+### Maintenance
+
+- **Dependency updates**: Updated `react` and `react-dom` to 19.2.8, and `happy-dom` to 20.11.1.
+
 ## v1.13.1
 
 ### Fixed
