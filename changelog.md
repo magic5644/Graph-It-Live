@@ -1,5 +1,23 @@
 # Changelog
 
+## v1.13.3
+
+### Security
+
+- **MCP wiki output confinement**: `graphitlive_generate_wiki` now accepts only workspace-relative output and scope paths, ignores caller-supplied workspace roots, and rejects paths that escape the configured workspace.
+- **Symbolic-link path traversal protection**: MCP file-path validation now resolves existing symbolic links before checking workspace containment, preventing links inside a workspace from reaching files outside it.
+- **Safe HTML graph export data**: JSON embedded in exported HTML graph `<script>` elements now escapes HTML-significant characters and Unicode line separators, preventing injected project metadata from terminating the script context.
+
+### Fixed
+
+- **Release validation pinned to one revision**: Selective publishing resolves the chosen branch or tag to an immutable commit SHA. Validation and publishing now use that same revision, avoiding release artifacts built from a moving ref.
+- **VSIX pre-publish validation**: Marketplace and Open VSX release jobs now fail if the package contains source maps or fewer than the eight required WASM assets.
+
+### Maintenance
+
+- **Dependency security updates**: Updated transitive dependencies including `@hono/node-server`, `fast-uri`, `hono`, and `linkify-it`; pinned `@hono/node-server` to 2.0.10 through npm overrides.
+- **Review Gate workflow cleanup**: Removed the redundant `cli-version` setting so the Review Gate uses its default CLI resolution.
+
 ## v1.13.2
 
 ### Fixed
