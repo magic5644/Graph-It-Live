@@ -25,6 +25,5 @@ jobs:
       - uses: ./.github/actions/graph-it-review-gate
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
-          cli-version: 1.13.0
           comment: ${{ github.event.pull_request.head.repo.fork && 'false' || 'true' }}
           fail-on-risk: high
