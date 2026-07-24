@@ -11,6 +11,11 @@ on:
         required: false
         default: '24.x'
         type: string
+      ref:
+        description: Immutable commit SHA to validate
+        required: false
+        default: ''
+        type: string
       run-e2e:
         description: Run VS Code E2E tests on Linux and VSIX smoke validation on Windows/macOS
         required: false
@@ -35,6 +40,8 @@ jobs:
 
     steps:
       - uses: actions/checkout@v6
+        with:
+          ref: ${{ inputs.ref || github.sha }}
 
       - name: Use Node.js ${{ inputs.node-version }}
         uses: actions/setup-node@v6
@@ -135,6 +142,8 @@ jobs:
 
     steps:
       - uses: actions/checkout@v6
+        with:
+          ref: ${{ inputs.ref || github.sha }}
 
       - name: Use Node.js
         uses: actions/setup-node@v6

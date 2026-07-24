@@ -33,6 +33,26 @@ export function htmlEscape(s: string): string {
           .replaceAll("'", '&#39;');
 }
 
+/** Escapes JSON for safe interpolation inside an HTML script element. */
+export function jsonForScript(value: unknown): string {
+  return JSON.stringify(value)
+    .replaceAll('<', String.raw`\u003C`)
+    .replaceAll('>', String.raw`\u003E`)
+    .replaceAll('&', String.raw`\u0026`)
+    .replaceAll('\u2028', String.raw`\u2028`)
+    .replaceAll('\u2029', String.raw`\u2029`);
+}
+
+function workspacePrefixLen(paths: string[]): number {
+  if (!paths.length) return 0;
+  const split = paths.map(p => p.split('/'));
+  const minLen = Math.min(...split.map(p => p.length));
+  const cap = Math.max(0, minLen - 3);
+  let i = 0;
+  while (i < cap && split.every(p => p[i] === split[0][i])) i++;
+  return i;
+}
+
 export function hubScoreColor(score: number | undefined): { background: string; border: string } {
   if (score === undefined || score < 0.2) return { background: '#2d2d2d', border: '#555' };
   if (score < 0.5) return { background: '#1a3a5c', border: '#4a9eff' };
@@ -58,16 +78,6 @@ export function hubScoreBorderWidth(score: number | undefined): number {
 export function buildCommunityLegend(nodes: HtmlNodeData[], workspaceRoot?: string): string {
   const UMBRELLA = new Set(['src', 'tests', 'test', 'lib', 'app', 'packages', 'dist', 'out']);
 
-  function workspacePrefixLen(paths: string[]): number {
-    if (!paths.length) return 0;
-    const split = paths.map(p => p.split('/'));
-    const minLen = Math.min(...split.map(p => p.length));
-    const cap = Math.max(0, minLen - 3);
-    let i = 0;
-    while (i < cap && split.every(p => p[i] === split[0][i])) i++;
-    return i;
-  }
-
   function dirLabel(filePath: string, prefixLen: number): string {
     const rel = workspaceRoot
       ? path.relative(workspaceRoot, filePath).replaceAll('\\', '/')
@@ -76,7 +86,7 @@ export function buildCommunityLegend(nodes: HtmlNodeData[], workspaceRoot?: stri
     const dirParts = parts.slice(0, -1); // strip filename
     const startIdx = dirParts.length > 0 && UMBRELLA.has(dirParts[0]) ? 1 : 0;
     const domain = dirParts[startIdx];
-    return domain || parts[parts.length - 1]; // fallback to filename
+    return domain || parts.at(-1) || ''; // fallback to filename
   }
 
   // Collect one representative node path per community (first seen)
@@ -110,13 +120,13 @@ export function buildCommunityLegend(nodes: HtmlNodeData[], workspaceRoot?: stri
 }
 
 export function exportHtml(config: HtmlExporterConfig): void {
-  const visPath = (require as NodeRequire).resolve('vis-network/standalone/umd/vis-network.min.js');
+  const visPath = (require as { resolve(id: string): string }).resolve('vis-network/standalone/umd/vis-network.min.js');
   const visSource = fs.readFileSync(visPath, 'utf-8');
-  const safeVisSource = visSource.replaceAll('</script>', '<\\/script>');
+  const safeVisSource = visSource.replaceAll('</script>', String.raw`<\/script>`);
 
   const unusedSet = new Set(config.unusedEdges.map(id => normalizePath(id)));
 
-  const nodesJson = JSON.stringify(config.nodes.map(n => ({
+  const nodesJson = jsonForScript(config.nodes.map(n => ({
     id: normalizePath(n.id),
     label: htmlEscape(n.label),
     title: htmlEscape(normalizePath(n.id)),
@@ -124,7 +134,7 @@ export function exportHtml(config: HtmlExporterConfig): void {
     borderWidth: hubScoreBorderWidth(n.hubScore),
   })));
 
-  const edgesJson = JSON.stringify(config.edges.map(e => ({
+  const edgesJson = jsonForScript(config.edges.map(e => ({
     from: normalizePath(e.from),
     to: normalizePath(e.to),
     id: normalizePath(e.id),

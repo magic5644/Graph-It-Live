@@ -8,6 +8,7 @@
  * NO import * as vscode from 'vscode' allowed!
  */
 
+import * as fs from "node:fs";
 import * as nodePath from "node:path";
 import { z } from "zod/v4";
 import type { Dependency, DependencyType } from "../analyzer/types";
@@ -597,8 +598,9 @@ export type QueryNaturalLanguageParams = z.infer<typeof QueryNaturalLanguagePara
 
 // Schema for generate_wiki
 export const GenerateWikiParamsSchema = z.object({
-  workspaceRoot: z.string().optional().describe("Absolute path to workspace root. Defaults to configured workspace."),
-  outputDir: z.string().optional().describe("Output directory for wiki files (default: wiki)"),
+  outputDir: FilePathSchema.optional()
+    .refine((value) => value === undefined || !nodePath.isAbsolute(value), "Output directory must be relative to the workspace")
+    .describe("Workspace-relative output directory for wiki files (default: wiki)"),
   topHubsLimit: z
     .number()
     .int()
@@ -606,9 +608,11 @@ export const GenerateWikiParamsSchema = z.object({
     .max(50)
     .optional()
     .describe("Number of top hub files to list (max: 50, default: 10)"),
-  scope: z.string().optional().describe("Relative path within workspace to restrict wiki to (e.g. 'src/')"),
-  exclude: z.array(z.string()).optional().describe("Relative glob-like patterns to exclude"),
-});
+  scope: FilePathSchema.optional()
+    .refine((value) => value === undefined || !nodePath.isAbsolute(value), "Scope must be relative to the workspace")
+    .describe("Relative path within workspace to restrict wiki to (e.g. 'src/')"),
+  exclude: z.array(GenericStringSchema).max(100).optional().describe("Relative glob-like patterns to exclude"),
+}).strict();
 export type GenerateWikiParams = z.infer<typeof GenerateWikiParamsSchema>;
 
 // NEW: Schema for scan_dead_code (workspace-wide dead code scan)
@@ -749,6 +753,31 @@ export function isPathWithinRoot(filePath: string, rootDir: string): boolean {
   );
 }
 
+function resolveExistingPath(filePath: string): string {
+  let currentPath = filePath;
+
+  while (!fs.existsSync(currentPath)) {
+    const parentPath = nodePath.dirname(currentPath);
+    if (parentPath === currentPath) return filePath;
+    currentPath = parentPath;
+  }
+
+  return fs.realpathSync.native(currentPath);
+}
+
+/** Verifies containment after resolving existing symbolic links. */
+export function isPathWithinRootCanonical(filePath: string, rootDir: string): boolean {
+  if (!isPathWithinRoot(filePath, rootDir)) return false;
+
+  const resolvedRoot = nodePath.resolve(rootDir);
+  const resolvedPath = nodePath.resolve(rootDir, filePath);
+  if (!fs.existsSync(resolvedRoot)) return true;
+
+  const canonicalRoot = normalizePathForComparison(fs.realpathSync.native(resolvedRoot));
+  const canonicalPath = normalizePathForComparison(resolveExistingPath(resolvedPath));
+  return canonicalPath === canonicalRoot || canonicalPath.startsWith(canonicalRoot + "/");
+}
+
 /**
  * Validate a file path for security (path traversal prevention)
  * Cross-platform safe: works on Windows (C:\...), Mac, and Linux
@@ -784,6 +813,10 @@ export function validateFilePath(filePath: string, rootDir: string): boolean {
     if (!isPathWithinRoot(resolvedPath, rootDir)) {
       throw new Error(`File path is outside workspace: ${filePath}`);
     }
+  }
+
+  if (!isPathWithinRootCanonical(filePath, rootDir)) {
+    throw new Error(`File path escapes workspace through a symbolic link: ${filePath}`);
   }
 
   return true;
