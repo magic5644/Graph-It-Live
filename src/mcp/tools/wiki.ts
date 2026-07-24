@@ -86,7 +86,7 @@ export async function executeGenerateWiki(
   params: GenerateWikiParams,
 ): Promise<GenerateWikiMcpResult> {
   const config = workerState.getConfig();
-  const workspaceRoot = normalizePath(params.workspaceRoot ?? config.rootDir);
+  const workspaceRoot = normalizePath(config.rootDir);
 
   await ensureCallGraphReady(workspaceRoot);
 
@@ -119,8 +119,8 @@ export async function executeGenerateWiki(
   // Constraint #0: return relative paths to workspaceRoot
   return {
     articlesCount: result.articlesCount,
-    indexPath: path.relative(workspaceRoot, result.indexPath).replace(/\\/g, "/"),
-    articlesDir: path.relative(workspaceRoot, result.articlesDir).replace(/\\/g, "/"),
+    indexPath: path.relative(workspaceRoot, result.indexPath).replaceAll("\\", "/"),
+    articlesDir: path.relative(workspaceRoot, result.articlesDir).replaceAll("\\", "/"),
     topHubs: result.topHubs,
     scopeNote: result.scopeNote,
   };

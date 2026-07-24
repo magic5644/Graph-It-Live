@@ -1,3 +1,4 @@
+import * as nodePath from "node:path";
 import { workerState } from "../shared/state";
 import {
   executeAnalyzeBreakingChanges,
@@ -65,6 +66,21 @@ type ToolHandler = (
 
 function validateRootPath(filePath: string, config: McpWorkerConfig): void {
   validateFilePath(filePath, config.rootDir);
+}
+
+function validateGenerateWikiParams(
+  params: GenerateWikiParams,
+  config: McpWorkerConfig,
+): GenerateWikiParams {
+  const outputDir = params.outputDir ?? "wiki";
+  if (nodePath.isAbsolute(outputDir)) {
+    throw new Error("Wiki output directory must be relative to the workspace");
+  }
+  validateRootPath(outputDir, config);
+
+  if (params.scope !== undefined) validateRootPath(params.scope, config);
+
+  return { ...params, outputDir };
 }
 
 const toolHandlers: Partial<Record<McpToolName, ToolHandler>> = {
@@ -164,7 +180,8 @@ const toolHandlers: Partial<Record<McpToolName, ToolHandler>> = {
   },
   scan_dead_code: (params) => executeScanDeadCode(params as ScanDeadCodeParams),
   query_natural_language: (params) => executeQueryNaturalLanguage(params as QueryNaturalLanguageParams),
-  generate_wiki: (params) => executeGenerateWiki(params as GenerateWikiParams),
+  generate_wiki: (params, config) =>
+    executeGenerateWiki(validateGenerateWikiParams(params as GenerateWikiParams, config)),
 };
 
 async function executeValidatedTool(

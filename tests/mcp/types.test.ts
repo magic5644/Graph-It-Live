@@ -4,7 +4,10 @@
  * Tests for the MCP type definitions, Zod schemas, and response helper functions.
  */
 
-import { describe, expect, it } from 'vitest';
+import * as fs from 'node:fs';
+import * as os from 'node:os';
+import * as path from 'node:path';
+import { afterEach, describe, expect, it } from 'vitest';
 import type { Dependency } from '../../src/analyzer/types';
 import type { McpWorkerResponse } from '../../src/mcp/types';
 import {
@@ -41,6 +44,14 @@ import {
   validateFilePath,
   validateToolParams,
 } from '../../src/mcp/types';
+
+const temporaryPaths: string[] = [];
+
+afterEach(() => {
+  for (const temporaryPath of temporaryPaths.splice(0)) {
+    fs.rmSync(temporaryPath, { recursive: true, force: true });
+  }
+});
 
 // ============================================================================
 // Response Helper Tests
@@ -1015,6 +1026,18 @@ describe('validateToolParams', () => {
       expect(result.data.symbolName).toBe('processData');
     }
   });
+
+  it('rejects an absolute MCP wiki output directory', () => {
+    const result = validateToolParams('generate_wiki', { outputDir: '/tmp/wiki' });
+
+    expect(result.success).toBe(false);
+  });
+
+  it('rejects a caller-supplied MCP wiki workspace root', () => {
+    const result = validateToolParams('generate_wiki', { workspaceRoot: '/tmp' });
+
+    expect(result.success).toBe(false);
+  });
 });
 
 // ============================================================================
@@ -1132,6 +1155,18 @@ describe('validateFilePath', () => {
   it.skipIf(process.platform !== 'win32')('rejects Windows path traversal', () => {
     const winRoot = String.raw`C:\project`;
     expect(() => validateFilePath(String.raw`C:\project\..\Windows\System32\config`, winRoot)).toThrow('outside workspace');
+  });
+
+  it('rejects a workspace path that escapes through a symbolic link', () => {
+    const rootDir = fs.mkdtempSync(path.join(os.tmpdir(), 'graph-it-root-'));
+    const outsideDir = fs.mkdtempSync(path.join(os.tmpdir(), 'graph-it-outside-'));
+    temporaryPaths.push(rootDir, outsideDir);
+    const outsideFile = path.join(outsideDir, 'secret.ts');
+    const linkedPath = path.join(rootDir, 'linked.ts');
+    fs.writeFileSync(outsideFile, 'export const secret = true;');
+    fs.symlinkSync(outsideFile, linkedPath);
+
+    expect(() => validateFilePath(linkedPath, rootDir)).toThrow('symbolic link');
   });
 });
 
@@ -1387,36 +1422,17 @@ describe('GraphDataSchema', () => {
     expect(result.success).toBe(false);
   });
 
-  it('validates edge with relationType field', () => {
+  it.each([
+    ['call', true],
+    ['dependency', true],
+    ['reference', true],
+    ['unknown', false],
+  ])('validates relationType %s as %s', (relationType, expectedSuccess) => {
     const result = GraphDataSchema.safeParse({
       nodes: ['/src/a.ts', '/src/b.ts'],
-      edges: [{ source: '/src/a.ts', target: '/src/b.ts', relationType: 'call' }],
+      edges: [{ source: '/src/a.ts', target: '/src/b.ts', relationType }],
     });
-    expect(result.success).toBe(true);
-  });
-
-  it('rejects edge with invalid relationType', () => {
-    const result = GraphDataSchema.safeParse({
-      nodes: ['/src/a.ts', '/src/b.ts'],
-      edges: [{ source: '/src/a.ts', target: '/src/b.ts', relationType: 'unknown' }],
-    });
-    expect(result.success).toBe(false);
-  });
-
-  it('validates edge with relationType dependency', () => {
-    const result = GraphDataSchema.safeParse({
-      nodes: ['/src/a.ts', '/src/b.ts'],
-      edges: [{ source: '/src/a.ts', target: '/src/b.ts', relationType: 'dependency' }],
-    });
-    expect(result.success).toBe(true);
-  });
-
-  it('validates edge with relationType reference', () => {
-    const result = GraphDataSchema.safeParse({
-      nodes: ['/src/a.ts', '/src/b.ts'],
-      edges: [{ source: '/src/a.ts', target: '/src/b.ts', relationType: 'reference' }],
-    });
-    expect(result.success).toBe(true);
+    expect(result.success).toBe(expectedSuccess);
   });
 
   it('validates edge without relationType (optional field absent)', () => {

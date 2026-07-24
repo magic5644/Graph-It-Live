@@ -1181,6 +1181,7 @@
     "vitest": "^4.1.10"
   },
   "overrides": {
+    "@hono/node-server": "2.0.10",
     "picomatch": "^4.0.4",
     "minimatch": ">=10.2.1",
     "flatted": ">=3.4.2",

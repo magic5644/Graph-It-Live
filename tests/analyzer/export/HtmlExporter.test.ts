@@ -22,6 +22,7 @@ import {
   nodeColor,
   buildCommunityLegend,
   exportHtml,
+  jsonForScript,
   type HtmlExporterConfig,
   type HtmlNodeData,
 } from '../../../src/analyzer/export/HtmlExporter';
@@ -46,6 +47,15 @@ describe('htmlEscape', () => {
 
   it('returns plain string unchanged', () => {
     expect(htmlEscape('hello world')).toBe('hello world');
+  });
+});
+
+describe('jsonForScript', () => {
+  it('neutralizes HTML script terminators in repository-derived values', () => {
+    const serialized = jsonForScript({ id: '</script><script>alert(1)</script>' });
+
+    expect(serialized).not.toContain('</script>');
+    expect(serialized).toContain('\\u003C/script\\u003E');
   });
 });
 
@@ -306,22 +316,14 @@ describe('exportHtml', () => {
     );
   });
 
-  it('inlines vis-network source', () => {
+  it.each([
+    ['inlines vis-network source', 'vis-network mock'],
+    ['marks unused edges as dashes:true', '"dashes":true'],
+    ['marks used edges as dashes:false', '"dashes":false'],
+  ])('%s', (_description, expectedText) => {
     exportHtml(baseConfig);
     const html = mockWriteFileSync.mock.calls[0][1] as string;
-    expect(html).toContain('vis-network mock');
-  });
-
-  it('marks unused edges as dashes:true', () => {
-    exportHtml(baseConfig);
-    const html = mockWriteFileSync.mock.calls[0][1] as string;
-    expect(html).toContain('"dashes":true');
-  });
-
-  it('marks used edges as dashes:false', () => {
-    exportHtml(baseConfig);
-    const html = mockWriteFileSync.mock.calls[0][1] as string;
-    expect(html).toContain('"dashes":false');
+    expect(html).toContain(expectedText);
   });
 
   it('escapes workspaceName in HTML title', () => {
@@ -337,6 +339,19 @@ describe('exportHtml', () => {
     const html = mockWriteFileSync.mock.calls[0][1] as string;
     expect(html).toContain('a.ts');
     expect(html).toContain('b.ts');
+  });
+
+  it('does not interpolate a repository path as a raw script terminator', () => {
+    const config: HtmlExporterConfig = {
+      ...baseConfig,
+      nodes: [{ id: '</script><script>alert(1)</script>', label: 'unsafe.ts' }],
+    };
+
+    exportHtml(config);
+
+    const html = mockWriteFileSync.mock.calls[0][1] as string;
+    expect(html).not.toContain('const nodesData = [{"id":"</script>');
+    expect(html).toContain('const nodesData = [{"id":"\\u003C/script\\u003E');
   });
 
   it('uses custom outputPath', () => {
