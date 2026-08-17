@@ -1,5 +1,15 @@
 # Changelog
 
+## v1.13.4
+
+### Fixed
+
+- **Release notes alignment for the 1.13.4 patch release**: Updated the changelog entry to reflect the latest security hardening and validation work included in this patch line.
+
+### Maintenance
+
+- **Patch release preparation**: Finalized the 1.13.4 release notes and kept the documentation consistent with the current release workflow and validation checks.
+
 ## v1.13.3
 
 ### Security
