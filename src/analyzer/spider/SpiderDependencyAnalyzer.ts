@@ -49,6 +49,11 @@ export class SpiderDependencyAnalyzer {
           continue;
         }
 
+        if (!this.resolver.isWithinWorkspace(resolvedPath)) {
+          log.warn(`Skipping dependency outside workspace: ${imp.module}`);
+          continue;
+        }
+
         const normalizedResolved = normalizePath(resolvedPath);
         if (seenResolvedPaths.has(normalizedResolved)) continue;
         seenResolvedPaths.add(normalizedResolved);

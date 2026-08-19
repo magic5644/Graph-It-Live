@@ -1,6 +1,7 @@
 import * as fs from "node:fs/promises";
 import * as path from "node:path";
 import { PYTHON_EXTENSIONS, SUPPORTED_FILE_EXTENSIONS } from "../../shared/constants";
+import { isPathWithinRootCanonical } from "../../shared/pathSecurity";
 import { normalizePath } from "../types";
 
 /**
@@ -218,6 +219,20 @@ export class PathResolver {
     return this.resolveWithExtensions(absolutePath);
   }
 
+  private keepWithinWorkspace(candidate: string | null): string | null {
+    if (!candidate || !this.workspaceRoot || !path.isAbsolute(candidate)) {
+      return candidate;
+    }
+
+    return isPathWithinRootCanonical(candidate, this.workspaceRoot)
+      ? candidate
+      : null;
+  }
+
+  isWithinWorkspace(candidate: string): boolean {
+    return this.keepWithinWorkspace(candidate) !== null;
+  }
+
   async resolve(
     currentFilePath: string,
     modulePath: string,
@@ -228,19 +243,19 @@ export class PathResolver {
     // Try TypeScript config aliases
     const tsConfigResolved = await this.tryTsConfigAliases(currentFilePath, modulePath);
     if (tsConfigResolved) {
-      return tsConfigResolved;
+      return this.keepWithinWorkspace(tsConfigResolved);
     }
 
     // Try special module patterns (subpath imports, Rust, scoped packages)
     const specialPatternResolved = await this.trySpecialModulePatterns(currentFilePath, modulePath);
     if (specialPatternResolved) {
-      return specialPatternResolved;
+      return this.keepWithinWorkspace(specialPatternResolved);
     }
 
     // Try Python-specific imports
     const pythonResolved = await this.tryPythonImports(currentFilePath, modulePath);
     if (pythonResolved) {
-      return pythonResolved;
+      return this.keepWithinWorkspace(pythonResolved);
     }
 
     // Handle node_modules
@@ -249,7 +264,7 @@ export class PathResolver {
     }
 
     // Try relative paths
-    return this.tryRelativePath(currentFilePath, modulePath);
+    return this.keepWithinWorkspace(await this.tryRelativePath(currentFilePath, modulePath));
   }
 
   /**

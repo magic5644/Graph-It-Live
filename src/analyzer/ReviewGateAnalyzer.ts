@@ -168,12 +168,15 @@ export class ReviewGateAnalyzer {
     maxDepth: number,
     fileEvidence: FileEvidence,
   ): Promise<ReviewSymbol> {
-    const impact = comparison.breakingChanges.length > 0
+    const errorBreakingChanges = comparison.breakingChanges.filter(
+      (change) => change.severity === "error",
+    );
+    const impact = errorBreakingChanges.length > 0
       ? await this.getImpact(absolutePath, comparison.symbolName, maxDepth)
       : { count: 0, partial: false };
     const cycles = fileEvidence.cycleSymbols.has(this.toSymbolId(absolutePath, comparison.symbolName));
     const unusedExport = fileEvidence.unusedSymbols.has(comparison.symbolName);
-    const scoreFactors = this.getScoreFactors(comparison.breakingChanges.length, impact, cycles, unusedExport, fileEvidence.testCandidates.length);
+    const scoreFactors = this.getScoreFactors(errorBreakingChanges.length, impact, cycles, unusedExport, fileEvidence.testCandidates.length);
     const score = Math.min(100, Object.values(scoreFactors).reduce((total, value) => total + value, 0));
     return {
       name: comparison.symbolName, filePath: relativePath, score, risk: riskForScore(score),

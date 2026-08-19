@@ -1,4 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
+import fsSync from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
 import { PathResolver } from '../../src/analyzer/utils/PathResolver';
 import { normalizePath } from '../../src/analyzer/types';
@@ -43,5 +45,16 @@ describe('PathResolver - Directory Handling', () => {
         
         // We expect it to resolve to the index file, NOT the directory
         expect(np(result!)).toBe(np(indexPath));
+    });
+
+    it('rejects an absolute resolved path outside the configured workspace', () => {
+        const workspace = fsSync.mkdtempSync(path.join(os.tmpdir(), 'graph-it-workspace-'));
+        const outside = fsSync.mkdtempSync(path.join(os.tmpdir(), 'graph-it-outside-'));
+        const scopedResolver = new PathResolver(undefined, true, workspace);
+
+        expect((scopedResolver as any).keepWithinWorkspace(outside)).toBeNull();
+
+        fsSync.rmSync(workspace, { recursive: true, force: true });
+        fsSync.rmSync(outside, { recursive: true, force: true });
     });
 });

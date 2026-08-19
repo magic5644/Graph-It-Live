@@ -90,7 +90,7 @@ parentPort?.on("message", async (msg: McpWorkerMessage) => {
         invocationControllers.get(msg.requestId)?.abort();
         break;
       case "shutdown":
-        handleShutdown();
+        await handleShutdown();
         break;
     }
   } catch (error) {

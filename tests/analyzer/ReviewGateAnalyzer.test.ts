@@ -114,6 +114,28 @@ describe("ReviewGateAnalyzer", () => {
     expect(result.symbols[0].evidence.some((e) => e.kind === "impact")).toBe(false);
   });
 
+  it("does not score dependents for a warning-only type alias change", async () => {
+    const workspace = await createGitWorkspaceWithDiff(
+      'export type Message = { type: "init" };\n',
+      'export type Message = { type: "init" } | { type: "cancel" };\n',
+    );
+    const analyzer = new ReviewGateAnalyzer(workspace, {
+      getSymbolDependents: async () => Array.from({ length: 10 }, (_, index) => ({
+        sourceSymbolId: `${path.join(workspace, "src", `consumer${index}.ts`)}:useMessage`,
+      })),
+    });
+
+    const result = await analyzer.analyze({ baseRef: "main" });
+
+    expect(result.symbols[0]).toMatchObject({
+      name: "Message",
+      score: 10,
+      risk: "low",
+      impactedSymbolCount: 0,
+      scoreFactors: { breakingChanges: 0, dependents: 0, missingTestCandidate: 10 },
+    });
+  });
+
   it("reports cycle, unused-export, and conventional test-candidate evidence", async () => {
     const workspace = await createGitWorkspace();
     await fs.mkdir(path.join(workspace, "tests", "src"), { recursive: true });
