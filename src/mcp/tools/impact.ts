@@ -233,8 +233,7 @@ async function processTransitiveDependents(
     queue,
   };
 
-  while (ctx.queue.length > 0) {
-    const current = ctx.queue.shift()!;
+  for (const current of ctx.queue) {
     if (current.depth > maxDepth) continue;
 
     const parsed = parseSymbolId(current.symbolId);

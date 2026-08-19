@@ -23,11 +23,16 @@ import type {
     FindReferencingFilesResult,
 } from "../types";
 
+const MAX_USAGE_VERIFICATIONS = 5_000;
+
 /**
  * Filter edges by actual usage verification
  * Parallelized for better performance on large graphs
  */
-async function filterEdgesByUsage(edges: EdgeInfo[]): Promise<EdgeInfo[]> {
+async function filterEdgesByUsage(
+  edges: EdgeInfo[],
+  signal?: AbortSignal,
+): Promise<EdgeInfo[]> {
   const spider = workerState.getSpider();
   const log = getLogger("McpWorker");
   const verificationResults = new Array<{ edge: EdgeInfo; isUsed: boolean }>(edges.length);
@@ -36,6 +41,7 @@ async function filterEdgesByUsage(edges: EdgeInfo[]): Promise<EdgeInfo[]> {
 
   await Promise.all(Array.from({ length: concurrency }, async () => {
     while (nextIndex < edges.length) {
+      if (signal?.aborted) throw createAbortError();
       const index = nextIndex++;
       const edge = edges[index];
       try {
@@ -99,7 +105,12 @@ export async function executeCrawlDependencyGraph(
 
     // Filter by usage if requested
     if (onlyUsed === true) {
-      edges = await filterEdgesByUsage(edges);
+      if (edges.length > MAX_USAGE_VERIFICATIONS) {
+        throw new Error(
+          `onlyUsed supports at most ${MAX_USAGE_VERIFICATIONS} edges per request`,
+        );
+      }
+      edges = await filterEdgesByUsage(edges, signal);
       updateNodeCounts(nodes, edges);
     }
 
@@ -123,6 +134,12 @@ export async function executeCrawlDependencyGraph(
     edges,
     circularDependencies,
   };
+}
+
+function createAbortError(): Error {
+  const error = new Error("Tool invocation cancelled");
+  error.name = "AbortError";
+  return error;
 }
 
 /**

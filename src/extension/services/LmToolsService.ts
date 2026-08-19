@@ -588,9 +588,8 @@ export class LmToolsService {
     const queue = directDependents.map((d) => ({ symbolId: d.sourceSymbolId, depth: 2 }));
     const transitiveItems: ReturnType<LmToolsService['buildImpactItem']>[] = [];
 
-    while (queue.length > 0) {
-      const current = queue.shift();
-      if (!current || current.depth > maxDepth) continue;
+    for (const current of queue) {
+      if (current.depth > maxDepth) continue;
 
       const colonIdx = current.symbolId.lastIndexOf(':');
       if (colonIdx <= 0) continue;

@@ -3,7 +3,10 @@ import { SpiderDependencyAnalyzer } from '../../src/analyzer/spider/SpiderDepend
 import { SpiderError, SpiderErrorCode } from '../../src/analyzer/types';
 import { Cache } from '../../src/analyzer/Cache';
 
-function makeAnalyzer(parseImports: () => Promise<unknown>) {
+function makeAnalyzer(
+  parseImports: () => Promise<unknown>,
+  isWithinWorkspace: (candidate: string) => boolean = () => true,
+) {
   const languageService = {
     getAnalyzer: vi.fn(() => ({
       parseImports,
@@ -11,7 +14,9 @@ function makeAnalyzer(parseImports: () => Promise<unknown>) {
     })),
   } as unknown as ConstructorParameters<typeof SpiderDependencyAnalyzer>[0];
 
-  const resolver = {} as ConstructorParameters<typeof SpiderDependencyAnalyzer>[1];
+  const resolver = {
+    isWithinWorkspace,
+  } as unknown as ConstructorParameters<typeof SpiderDependencyAnalyzer>[1];
 
   const cache = new Cache<Parameters<typeof SpiderDependencyAnalyzer.prototype.analyze>[0][]>({ maxSize: 100 });
 
@@ -48,6 +53,30 @@ describe('SpiderDependencyAnalyzer', () => {
       await expect(analyzer.analyze('/bad.ts')).rejects.toMatchObject({
         code: SpiderErrorCode.PARSE_ERROR,
       });
+    });
+
+    it('skips a resolved dependency outside the workspace', async () => {
+      const resolvedPath = '/outside/secret.ts';
+      const languageService = {
+        getAnalyzer: vi.fn(() => ({
+          parseImports: vi.fn().mockResolvedValue([
+            { path: '/workspace/app.ts', type: 'import', line: 1, module: '../secret' },
+          ]),
+          resolvePath: vi.fn().mockResolvedValue(resolvedPath),
+        })),
+      } as unknown as ConstructorParameters<typeof SpiderDependencyAnalyzer>[0];
+      const resolver = {
+        isWithinWorkspace: vi.fn().mockReturnValue(false),
+      } as unknown as ConstructorParameters<typeof SpiderDependencyAnalyzer>[1];
+      const dependencyAnalyzer = new SpiderDependencyAnalyzer(
+        languageService,
+        resolver,
+        new Cache({ maxSize: 100 }),
+        { isEnabled: () => false } as never,
+      );
+
+      await expect(dependencyAnalyzer.analyze('/workspace/app.ts')).resolves.toEqual([]);
+      expect(resolver.isWithinWorkspace).toHaveBeenCalledWith(resolvedPath);
     });
   });
 });

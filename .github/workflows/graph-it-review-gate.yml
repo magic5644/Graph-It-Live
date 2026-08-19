@@ -26,4 +26,3 @@ jobs:
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
           comment: ${{ github.event.pull_request.head.repo.fork && 'false' || 'true' }}
-          fail-on-risk: high

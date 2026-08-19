@@ -157,6 +157,27 @@ describe("graph tools", () => {
       expect(maximumActive).toBeLessThanOrEqual(8);
       expect(result.edges.map((edge) => edge.target)).toEqual(edges.map((edge) => edge.target));
     });
+
+    it("should reject onlyUsed before verifying an unbounded graph", async () => {
+      const entryFile = await createTempFile(tempDir, "entry.ts", "");
+      const edges = Array.from({ length: 5_001 }, (_, index) => ({
+        source: entryFile,
+        target: path.join(tempDir, `dep-${index}.ts`),
+      }));
+      const spiderMock = {
+        crawl: vi.fn(async () => ({
+          nodes: [entryFile, ...edges.map((edge) => edge.target)],
+          edges,
+        })),
+        verifyDependencyUsage: vi.fn(),
+      };
+      setupWorkerState(spiderMock);
+
+      await expect(
+        executeCrawlDependencyGraph({ entryFile, onlyUsed: true }),
+      ).rejects.toThrow("onlyUsed supports at most 5000 edges");
+      expect(spiderMock.verifyDependencyUsage).not.toHaveBeenCalled();
+    });
   });
 
   describe("executeExpandNode", () => {
