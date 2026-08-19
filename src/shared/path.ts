@@ -8,8 +8,11 @@ export function normalizePath(filePath: string): string {
   if (!filePath) return filePath;
   // Convert backslashes to forward slashes
   let p = filePath.replaceAll('\\', '/');
-  // Collapse multiple slashes
-  p = p.replaceAll(/\/+/g, '/');
+  // Preserve the double leading slash used by UNC paths.
+  const isUncPath = p.startsWith('//');
+  p = isUncPath
+    ? `//${p.slice(2).replaceAll(/\/+/g, '/')}`
+    : p.replaceAll(/\/+/g, '/');
   // Lowercase Windows drive letter if present to keep a stable canonical form
   if (/^[A-Za-z]:\//.test(p)) {
     p = p[0].toLowerCase() + p.slice(1);
@@ -38,6 +41,11 @@ export function normalizePathForComparison(filePath: string): string {
   // Keep single-roots like '/' or 'c:/' as-is. Otherwise strip trailing slash
   if (p.length > 1 && p.endsWith('/') && !/^[a-zA-Z]:\/$/.test(p)) {
     p = p.slice(0, -1);
+  }
+
+  // Windows paths are case-insensitive, including UNC server/share paths.
+  if (process.platform === 'win32') {
+    p = p.toLowerCase();
   }
 
   return p;

@@ -24,8 +24,13 @@ vi.mock('vscode', () => {
   }
 
   class LanguageModelToolResult {
-    constructor(public readonly parts: LanguageModelTextPart[]) {}
+    constructor(public readonly content: LanguageModelTextPart[]) {}
+    get parts(): LanguageModelTextPart[] {
+      return this.content;
+    }
   }
+
+  class CancellationError extends Error {}
 
   return {
     lm: {
@@ -36,6 +41,7 @@ vi.mock('vscode', () => {
     },
     LanguageModelTextPart,
     LanguageModelToolResult,
+    CancellationError,
   };
 });
 
@@ -57,6 +63,7 @@ vi.mock('@/analyzer/SignatureAnalyzer', () => ({
 
 vi.mock('@/shared/path', () => ({
   normalizePath: (p: string) => p.replaceAll('\\', '/'),
+  normalizePathForComparison: (p: string) => p.replaceAll('\\', '/').replace(/\/$/u, ''),
 }));
 
 vi.mock('node:fs/promises', () => ({
@@ -115,7 +122,10 @@ function makeOptions<T>(input: T): vscode.LanguageModelToolInvocationOptions<T> 
   return { input } as vscode.LanguageModelToolInvocationOptions<T>;
 }
 
-const fakeToken = {} as vscode.CancellationToken;
+const fakeToken = {
+  isCancellationRequested: false,
+  onCancellationRequested: vi.fn(() => ({ dispose: vi.fn() })),
+} as unknown as vscode.CancellationToken;
 
 function parseResult(result: unknown): unknown {
   const parts = (result as { parts: { value: string }[] }).parts;
@@ -170,32 +180,30 @@ describe('LmToolsService', () => {
       (vscode.lm as Record<string, unknown>).registerTool = origRegisterTool;
     });
 
-    it('registers graph-it-live_resolve_module_path', () => {
+    it.each([
+      'graph-it-live_resolve_module_path',
+      'graph-it-live_analyze_breaking_changes',
+      'graph-it-live_query_call_graph',
+      'graph-it-live_scan_dead_code',
+    ])('registers %s', (toolName) => {
       const provider = createProvider();
       const service = new LmToolsService({ provider, logger });
       service.registerAll();
-      expect(registeredTools.has('graph-it-live_resolve_module_path')).toBe(true);
+      expect(registeredTools.has(toolName)).toBe(true);
     });
 
-    it('registers graph-it-live_analyze_breaking_changes', () => {
+    it('rejects a pre-cancelled invocation before running the tool', async () => {
       const provider = createProvider();
-      const service = new LmToolsService({ provider, logger });
-      service.registerAll();
-      expect(registeredTools.has('graph-it-live_analyze_breaking_changes')).toBe(true);
-    });
+      new LmToolsService({ provider, logger }).registerAll();
+      const handler = registeredTools.get('graph-it-live_get_index_status');
+      const cancelledToken = {
+        isCancellationRequested: true,
+        onCancellationRequested: vi.fn(),
+      } as unknown as vscode.CancellationToken;
 
-    it('registers graph-it-live_query_call_graph', () => {
-      const provider = createProvider();
-      const service = new LmToolsService({ provider, logger });
-      service.registerAll();
-      expect(registeredTools.has('graph-it-live_query_call_graph')).toBe(true);
-    });
-
-    it('registers graph-it-live_scan_dead_code', () => {
-      const provider = createProvider();
-      const service = new LmToolsService({ provider, logger });
-      service.registerAll();
-      expect(registeredTools.has('graph-it-live_scan_dead_code')).toBe(true);
+      await expect(handler?.invoke(makeOptions({}), cancelledToken)).rejects.toBeInstanceOf(
+        vscode.CancellationError,
+      );
     });
   });
 
@@ -237,6 +245,16 @@ describe('LmToolsService', () => {
       expect(result.resolvedRelativePath).toBeNull();
     });
 
+    it('rejects a source path outside every open workspace', async () => {
+      const handler = registeredTools.get(TOOL);
+      expect(handler).toBeDefined();
+
+      await expect(handler?.invoke(
+        makeOptions({ fromFile: '/private/secret.ts', moduleSpecifier: './b' }),
+        fakeToken,
+      )).rejects.toThrow('inside an open workspace');
+    });
+
     it('returns resolved: true with relative path when specifier resolves', async () => {
       registeredTools.clear();
       const spider = {
@@ -251,7 +269,7 @@ describe('LmToolsService', () => {
       }) as Record<string, unknown>;
 
       expect(result.resolved).toBe(true);
-      expect(result.resolvedPath).toBe('/workspace/src/b.ts');
+      expect(result.resolvedPath).toBe('src/b.ts');
       expect(result.resolvedRelativePath).toBe('src/b.ts');
     });
 

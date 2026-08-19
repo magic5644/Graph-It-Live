@@ -237,8 +237,7 @@ export function activate(context: vscode.ExtensionContext) {
 }
 
 export async function deactivate() {
-    // Flush caches to disk
-    await graphProvider?.flushCaches();
+    await graphProvider?.dispose();
     graphProvider = null;
     
     // Clean up MCP server provider

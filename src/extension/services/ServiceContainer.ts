@@ -12,6 +12,7 @@ interface ServiceRegistration<T> {
 
 export class ServiceContainer {
   private readonly services = new Map<symbol, ServiceRegistration<unknown>>();
+  private disposePromise: Promise<void> | null = null;
 
   register<T>(
     token: ServiceToken<T>,
@@ -42,26 +43,24 @@ export class ServiceContainer {
     return registration.factory();
   }
 
-  async dispose(): Promise<void> {
-    const disposals: Promise<void>[] = [];
+  dispose(): Promise<void> {
+    this.disposePromise ??= this.disposeServices();
+    return this.disposePromise;
+  }
 
-    for (const registration of this.services.values()) {
-      const instance = registration.instance as
-        | { dispose?: () => void | Promise<void> }
-        | undefined;
-      if (instance?.dispose) {
-        const result = instance.dispose();
-        if (result instanceof Promise) {
-          disposals.push(result);
-        }
-      }
-    }
-
-    if (disposals.length > 0) {
-      await Promise.all(disposals);
-    }
-
+  private async disposeServices(): Promise<void> {
+    const instances = [...this.services.values()]
+      .map((registration) => registration.instance as
+        | { dispose?: () => void | PromiseLike<void> }
+        | undefined)
+      .filter((instance): instance is { dispose?: () => void | PromiseLike<void> } =>
+        instance !== undefined,
+      );
     this.services.clear();
+
+    await Promise.all(instances.map(async (instance) => {
+      await instance.dispose?.();
+    }));
   }
 }
 

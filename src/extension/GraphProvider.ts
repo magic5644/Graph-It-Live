@@ -26,7 +26,6 @@ import type {
   ViewMode,
 } from "./services/ProviderStateManager";
 import { ServiceContainer } from "./services/ServiceContainer";
-import type { SourceFileWatcher } from "./services/SourceFileWatcher";
 import type { SymbolViewService } from "./services/SymbolViewService";
 import type { UnusedAnalysisCache } from "./services/UnusedAnalysisCache";
 import type { WebviewManager } from "./WebviewManager";
@@ -86,6 +85,7 @@ export class GraphProvider implements vscode.WebviewViewProvider {
    * Used to route call-graph webview messages and provide sidebar webview.
    */
   private _callGraphViewService: CallGraphViewService | null = null;
+  private _disposePromise: Promise<void> | null = null;
 
   /**
    * Wire the CallGraphViewService into this provider.
@@ -122,12 +122,6 @@ export class GraphProvider implements vscode.WebviewViewProvider {
   private get indexingManager(): BackgroundIndexingManager | undefined {
     return this._container.has(graphProviderServiceTokens.indexingManager)
       ? this._container.get(graphProviderServiceTokens.indexingManager)
-      : undefined;
-  }
-
-  private get sourceFileWatcher(): SourceFileWatcher | undefined {
-    return this._container.has(graphProviderServiceTokens.sourceFileWatcher)
-      ? this._container.get(graphProviderServiceTokens.sourceFileWatcher)
       : undefined;
   }
 
@@ -186,6 +180,17 @@ export class GraphProvider implements vscode.WebviewViewProvider {
    */
   public async flushCaches(): Promise<void> {
     await this.unusedAnalysisCache?.flush();
+  }
+
+  public dispose(): Promise<void> {
+    this._disposePromise ??= this.disposeServices();
+    return this._disposePromise;
+  }
+
+  private async disposeServices(): Promise<void> {
+    this._graphState.abortAndClearExpansionControllers();
+    await this.unusedAnalysisCache?.flush();
+    await this._container.dispose();
   }
 
   private _initializeFilterContext(): void {
@@ -804,26 +809,12 @@ export class GraphProvider implements vscode.WebviewViewProvider {
       },
     );
 
-    // Clean up timer and worker when view is disposed
+    // Dispose only resources owned by this webview instance. Provider services
+    // remain alive so VS Code can recreate the view without reactivating extension.
     webviewView.onDidDispose(() => {
       messageListener.dispose();
-      this.indexingManager?.cancelScheduledIndexing();
-      this.sourceFileWatcher?.dispose();
-      this._fileChangeScheduler?.dispose();
-      this.eventHub?.dispose();
+      if (this._view === webviewView) this._view = undefined;
       this._callGraphViewService?.setSidebarWebview(null);
-      // Also clean up the worker if running
-      this.spider?.disposeWorker();
-      // Dispose Spider and its AstWorkerHost
-      this.spider
-        ?.dispose()
-        .then()
-        .catch((error: unknown) => {
-          log.error(
-            "Error disposing Spider",
-            error instanceof Error ? error : new Error("Unknown error disposing Spider"),
-          );
-        });
     });
 
     // Schedule deferred indexing now that view is ready

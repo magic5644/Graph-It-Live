@@ -41,17 +41,17 @@ describe("MCP Worker Helpers", () => {
       expect(result).toContain("/");
     });
 
-    it("should return absolute path if outside workspace", () => {
+    it("should redact paths outside workspace", () => {
       const absolutePath = "/Users/other/file.ts";
       const workspaceRoot = "/Users/test/project";
-      expect(getRelativePath(absolutePath, workspaceRoot)).toBe(absolutePath);
+      expect(getRelativePath(absolutePath, workspaceRoot)).toBe("[external:file.ts]");
     });
 
-    it("should return absolute path if already absolute and no relative calc possible", () => {
+    it("should redact an unrelated absolute path", () => {
       const absolutePath = "/absolute/path/file.ts";
       const workspaceRoot = "/Users/test/project";
       const result = getRelativePath(absolutePath, workspaceRoot);
-      expect(result).toBe(absolutePath);
+      expect(result).toBe("[external:file.ts]");
     });
   });
 
@@ -367,6 +367,15 @@ describe("MCP Worker Helpers", () => {
     it("should handle empty graph", () => {
       const cycles = detectCircularDependencies([]);
       expect(cycles).toHaveLength(0);
+    });
+
+    it("should handle a deeply nested acyclic graph without overflowing the stack", () => {
+      const edges = Array.from({ length: 10_000 }, (_, index) => ({
+        source: `node-${index}`,
+        target: `node-${index + 1}`,
+      }));
+
+      expect(detectCircularDependencies(edges)).toEqual([]);
     });
   });
 

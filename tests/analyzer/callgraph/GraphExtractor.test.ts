@@ -6,6 +6,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 // so tests can reassign it in beforeEach / per-test without issues.
 // ---------------------------------------------------------------------------
 let mockCapturesResult: Array<{ name: string; node: object }> = [];
+const mockTreeDelete = vi.hoisted(() => vi.fn());
 
 // ---------------------------------------------------------------------------
 // Mock web-tree-sitter
@@ -27,7 +28,7 @@ vi.mock("web-tree-sitter", () => {
     };
     language: object = { __isMockLanguage: true };
     setLanguage = vi.fn();
-    parse = vi.fn().mockReturnValue({ rootNode: {} });
+    parse = vi.fn().mockReturnValue({ rootNode: {}, delete: mockTreeDelete });
     getLanguage = vi.fn();
     reset = vi.fn();
     delete = vi.fn();
@@ -51,7 +52,7 @@ vi.mock("@/analyzer/languages/WasmParserFactory", () => ({
       init: vi.fn().mockResolvedValue(undefined),
       getParser: vi.fn().mockResolvedValue({
         language: { __isMockLanguage: true },
-        parse: vi.fn().mockReturnValue({ rootNode: {} }),
+        parse: vi.fn().mockReturnValue({ rootNode: {}, delete: mockTreeDelete }),
         setLanguage: vi.fn(),
       }),
     }),
@@ -175,6 +176,7 @@ describe("GraphExtractor", () => {
       expect(result.nodes[0].lang).toBe("typescript");
       expect(result.nodes[0].path).toBe("/mock/workspace/src/utils.ts");
       expect(result.edges).toHaveLength(0);
+      expect(mockTreeDelete).toHaveBeenCalledOnce();
     });
 
     it("returns 1 node and 1 CALLS edge when captures include @def.class and @call", async () => {

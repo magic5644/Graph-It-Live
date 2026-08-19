@@ -71,4 +71,22 @@ describe('Spider - Max Depth Edges', () => {
         
         // If user looks at child3, they see no (+), even though child3.ts has imports.
     });
+
+    it('should apply maxDepth per invocation without mutating configured depth', async () => {
+        spider.updateConfig({ maxDepth: 3 });
+        vi.mocked(fs.readFile).mockImplementation(async (filePath) => {
+            const p = np(filePath.toString());
+            if (p.endsWith('root.ts')) return "import {} from './child1'";
+            if (p.endsWith('child1.ts')) return "import {} from './child2'";
+            if (p.endsWith('child2.ts')) return "import {} from './child3'";
+            return "";
+        });
+        vi.mocked(fs.stat).mockResolvedValue({ isFile: () => true } as any);
+        const rootFile = path.join(rootDir, 'root.ts');
+
+        const shallow = await spider.crawl(rootFile, { maxDepth: 1 });
+
+        expect(shallow.edges.some((edge) => edge.source.endsWith('child2.ts'))).toBe(false);
+        expect((spider as unknown as { config: { maxDepth: number } }).config.maxDepth).toBe(3);
+    });
 });

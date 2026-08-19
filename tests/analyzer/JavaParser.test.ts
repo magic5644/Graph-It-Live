@@ -1,4 +1,6 @@
 import { JavaParser } from '@/analyzer/languages/JavaParser';
+import fs from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -97,7 +99,7 @@ vi.mock('@/analyzer/languages/WasmParserFactory', () => {
     rootNode.descendantsOfType = (nodeType: string) =>
       nodeType === 'import_declaration' ? children : [];
 
-    return { rootNode };
+    return { rootNode, delete: vi.fn() };
   };
 
   const MockWasmParserFactory = {
@@ -142,6 +144,7 @@ describe('JavaParser', () => {
     });
 
     it('should return empty array for a file with no imports', async () => {
+      const deleteTree = vi.fn();
       vi.spyOn(parser as any, 'ensureInitialized').mockResolvedValue(undefined);
       (parser as any).parser = {
         parse: (_: string) => ({
@@ -150,11 +153,13 @@ describe('JavaParser', () => {
             children: [],
             descendantsOfType: () => [],
           },
+          delete: deleteTree,
         }),
       };
 
       const deps = await parser.parseImports(path.join(fixturesDir, 'Main.java'));
       expect(deps).toEqual([]);
+      expect(deleteTree).toHaveBeenCalledOnce();
     });
   });
 
@@ -186,5 +191,18 @@ describe('JavaParser', () => {
           expect(result).toBeTruthy();
           expect(result).toMatch(/User\.java$/);
       });
+
+          it('should reject a path escaping through a symbolic link', () => {
+            const root = fs.mkdtempSync(path.join(os.tmpdir(), 'graph-it-java-root-'));
+            const outside = fs.mkdtempSync(path.join(os.tmpdir(), 'graph-it-java-outside-'));
+            const linkedPath = path.join(root, 'linked');
+            fs.symlinkSync(outside, linkedPath);
+            const scopedParser = new JavaParser(root, process.cwd());
+
+            expect((scopedParser as any).isWithinRoot(linkedPath)).toBe(false);
+
+            fs.rmSync(root, { recursive: true, force: true });
+            fs.rmSync(outside, { recursive: true, force: true });
+          });
   });
 });

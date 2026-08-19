@@ -1,4 +1,6 @@
 import { GoParser } from '@/analyzer/languages/GoParser';
+import fs from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -94,7 +96,7 @@ vi.mock('@/analyzer/languages/WasmParserFactory', () => {
     rootNode.descendantsOfType = (nodeType: string) =>
       nodeType === 'import_spec' ? children : [];
 
-    return { rootNode };
+    return { rootNode, delete: vi.fn() };
   };
 
   const MockWasmParserFactory = {
@@ -131,6 +133,7 @@ describe('GoParser', () => {
     });
 
     it('should return empty array for a file with no imports', async () => {
+      const deleteTree = vi.fn();
       vi.spyOn(parser as any, 'ensureInitialized').mockResolvedValue(undefined);
       (parser as any).parser = {
         parse: (_: string) => ({
@@ -139,11 +142,13 @@ describe('GoParser', () => {
             children: [],
             descendantsOfType: () => [],
           },
+          delete: deleteTree,
         }),
       };
 
       const deps = await parser.parseImports(path.join(fixturesDir, 'main.go'));
       expect(deps).toEqual([]);
+      expect(deleteTree).toHaveBeenCalledOnce();
     });
   });
 
@@ -175,5 +180,18 @@ describe('GoParser', () => {
           expect(result).toBeTruthy();
           expect(result).toMatch(/\.go$/);
     });
+
+          it('should reject a path escaping through a symbolic link', () => {
+            const root = fs.mkdtempSync(path.join(os.tmpdir(), 'graph-it-go-root-'));
+            const outside = fs.mkdtempSync(path.join(os.tmpdir(), 'graph-it-go-outside-'));
+            const linkedPath = path.join(root, 'linked');
+            fs.symlinkSync(outside, linkedPath);
+            const scopedParser = new GoParser(root, process.cwd());
+
+            expect((scopedParser as any).isWithinRoot(linkedPath)).toBe(false);
+
+            fs.rmSync(root, { recursive: true, force: true });
+            fs.rmSync(outside, { recursive: true, force: true });
+          });
   });
 });

@@ -2,13 +2,26 @@
 
 ## v1.13.4
 
+### Security
+
+- **Canonical workspace confinement across MCP and VS Code LM tools**: Centralized lexical and symbolic-link-aware path validation, applied it to dead-code scopes, language resolvers, native LM tools, and editor navigation.
+- **Relative public MCP paths**: MCP response formatting now converts workspace paths to relative values and redacts external absolute paths before producing JSON, Markdown, TOON, or structured responses.
+
 ### Fixed
 
-- **Release notes alignment for the 1.13.4 patch release**: Updated the changelog entry to reflect the latest security hardening and validation work included in this patch line.
+- **Per-invocation crawl depth**: Dependency crawls no longer mutate shared Spider configuration, preventing concurrent requests from restoring or using another request's depth.
+- **MCP and VS Code cancellation**: Timed-out MCP requests now cancel their worker operation, while native LM dependency crawls propagate VS Code cancellation tokens.
+- **Webview lifecycle isolation**: Closing and reopening the graph view no longer destroys provider-wide analyzers, watchers, or workers; extension deactivation now awaits idempotent service disposal.
+
+### Performance
+
+- **Tree-sitter WASM memory release**: Call graph extraction and C#, Go, Java, Python, and Rust analysis now explicitly delete syntax trees after processing.
+- **Bounded dependency usage analysis**: MCP usage verification is limited to eight concurrent operations while preserving edge order.
+- **Stack-safe cycle detection**: Dependency cycle traversal now uses an iterative stack and handles graphs with at least 10,000 edges without recursive stack overflow.
 
 ### Maintenance
 
-- **Patch release preparation**: Finalized the 1.13.4 release notes and kept the documentation consistent with the current release workflow and validation checks.
+- **Dead-code scanner layer separation**: Moved reusable dead-code scanning into the analyzer layer so MCP and VS Code wrappers use their own injected Spider instances.
 
 ## v1.13.3
 

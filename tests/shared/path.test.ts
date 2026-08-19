@@ -17,6 +17,12 @@ describe('shared normalizePath', () => {
     expect(normalizePath('C:/')).toBe('c:/');
   });
 
+  it('preserves the leading double slash of UNC paths', () => {
+    expect(normalizePath(String.raw`\\SERVER\Share\src\file.ts`)).toBe(
+      '//SERVER/Share/src/file.ts',
+    );
+  });
+
   it('returns empty input unchanged', () => {
     expect(normalizePath('')).toBe('');
   });
@@ -35,6 +41,15 @@ describe('shared normalizePathForComparison', () => {
     expect(normalizePathForComparison('C:/')).toBe('c:/');
     expect(normalizePathForComparison('/repo/src/')).toBe('/repo/src');
   });
+
+  it.skipIf(process.platform !== 'win32')('compares Windows paths case-insensitively', () => {
+    expect(normalizePathForComparison(String.raw`C:\Project\Src\File.ts`)).toBe(
+      'c:/project/src/file.ts',
+    );
+    expect(normalizePathForComparison(String.raw`c:\project\src\file.ts`)).toBe(
+      'c:/project/src/file.ts',
+    );
+  });
 });
 
 describe('shared getRelativePath', () => {
@@ -42,7 +57,7 @@ describe('shared getRelativePath', () => {
     expect(getRelativePath('/repo/src/module/file.ts', '/repo')).toBe('src/module/file.ts');
   });
 
-  it('returns absolute path unchanged when outside workspace', () => {
+  it('keeps the legacy absolute fallback outside workspace', () => {
     const outside = '/other/place/file.ts';
     expect(getRelativePath(outside, '/repo')).toBe(outside);
   });

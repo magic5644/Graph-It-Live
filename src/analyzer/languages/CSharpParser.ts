@@ -2,6 +2,7 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import { Node, Parser } from "web-tree-sitter";
 import { normalizePath } from "../../shared/path";
+import { isPathWithinRootCanonical } from "../../shared/pathSecurity";
 import { FileReader } from "../FileReader";
 import { Dependency, ILanguageAnalyzer, SpiderError } from "../types";
 import { extractFilePath } from "../utils/PathExtractor";
@@ -86,9 +87,13 @@ export class CSharpParser implements ILanguageAnalyzer {
     if (!tree) {
       return [];
     }
-    const deps: Dependency[] = [];
-    this.extractUsings(tree.rootNode, actualPath, deps);
-    return deps;
+    try {
+      const deps: Dependency[] = [];
+      this.extractUsings(tree.rootNode, actualPath, deps);
+      return deps;
+    } finally {
+      tree.delete();
+    }
   }
 
   /**
@@ -164,9 +169,7 @@ export class CSharpParser implements ILanguageAnalyzer {
 
     /** Verify that a resolved path remains inside the workspace root (prevent path traversal). */
     private isWithinRoot(resolvedPath: string): boolean {
-        const target = normalizePath(path.resolve(resolvedPath));
-        const root = normalizePath(path.resolve(this.rootDir));
-        return target === root || target.startsWith(root + '/');
+      return isPathWithinRootCanonical(resolvedPath, this.rootDir);
     }
 
     private isFrameworkNamespace(ns: string): boolean {

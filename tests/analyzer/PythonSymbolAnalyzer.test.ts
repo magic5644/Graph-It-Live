@@ -173,7 +173,7 @@ vi.mock('@/analyzer/languages/WasmParserFactory', () => {
       return children.filter(child => types.includes(child.type));
     };
 
-    return { rootNode };
+    return { rootNode, delete: vi.fn() };
   };
 
   return {

@@ -10,6 +10,8 @@
 import { jsonToToon, estimateTokenSavings } from '../shared/toon';
 import { sessionStats } from '../shared/sessionStats';
 import { getLogger } from '../shared/logger';
+import { normalizePath } from '../shared/path';
+import path from 'node:path';
 import type { McpToolResponse, OutputFormat } from './types';
 
 const log = getLogger('responseFormatter');
@@ -29,11 +31,12 @@ export function formatToolResponse<T>(
   responseFormat: ResponseFormat,
   toolName?: string
 ): { content: { type: 'text'; text: string }[]; structuredContent: McpToolResponse<T> } {
+  const publicResponse = redactAbsolutePaths(response, response.metadata.workspaceRoot);
   let text: string;
 
   if (responseFormat === 'toon') {
     // Try to format the data as TOON
-    const formatted = formatDataAsToon(response.data, inferObjectNameFromResponse(response), toolName);
+    const formatted = formatDataAsToon(publicResponse.data, inferObjectNameFromResponse(publicResponse), toolName);
     text = formatted.content;
 
     // Add metadata if available
@@ -44,15 +47,41 @@ export function formatToolResponse<T>(
       text += `Savings: ${formatted.tokenSavings.savings} tokens (${formatted.tokenSavings.savingsPercent.toFixed(1)}%)\n`;
     }
   } else if (responseFormat === 'markdown') {
-    text = `\`\`\`json\n${JSON.stringify(response, null, 2)}\n\`\`\``;
+    text = `\`\`\`json\n${JSON.stringify(publicResponse, null, 2)}\n\`\`\``;
   } else {
-    text = JSON.stringify(response, null, 2);
+    text = JSON.stringify(publicResponse, null, 2);
   }
 
   return {
     content: [{ type: 'text', text }],
-    structuredContent: response,
+    structuredContent: publicResponse,
   };
+}
+
+function redactAbsolutePaths<T>(
+  response: McpToolResponse<T>,
+  workspaceRoot: string,
+): McpToolResponse<T> {
+  const normalizedRoot = normalizePath(workspaceRoot);
+
+  const redact = (value: unknown): unknown => {
+    if (typeof value === 'string') {
+      const normalizedValue = normalizePath(value);
+      if (normalizedRoot && normalizedValue === normalizedRoot) return '.';
+      if (normalizedRoot && normalizedValue.startsWith(`${normalizedRoot}/`)) {
+        return normalizedValue.slice(normalizedRoot.length + 1);
+      }
+      if (path.isAbsolute(value)) return `[external:${path.basename(value)}]`;
+      return value;
+    }
+    if (Array.isArray(value)) return value.map(redact);
+    if (typeof value !== 'object' || value === null) return value;
+    return Object.fromEntries(
+      Object.entries(value).map(([key, child]) => [key, redact(child)]),
+    );
+  };
+
+  return redact(response) as McpToolResponse<T>;
 }
 
 /**
