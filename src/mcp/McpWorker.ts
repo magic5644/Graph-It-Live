@@ -88,7 +88,6 @@ parentPort?.on("message", async (msg: McpWorkerMessage) => {
         break;
       case "cancel":
         invocationControllers.get(msg.requestId)?.abort();
-        workerState.spider?.cancelIndexing();
         break;
       case "shutdown":
         handleShutdown();
