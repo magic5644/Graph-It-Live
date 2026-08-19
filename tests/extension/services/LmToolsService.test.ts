@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import path from 'node:path';
 import type { GraphProvider } from '../../../src/extension/GraphProvider';
 import type { VsCodeLogger } from '../../../src/extension/extensionLogger';
 import { LmToolsService } from '../../../src/extension/services/LmToolsService';
@@ -359,7 +360,10 @@ describe('LmToolsService', () => {
       }) as Record<string, unknown>;
 
       expect(result.hasBreakingChanges).toBe(true);
-      expect(fsPromises.readFile).toHaveBeenCalledWith('/workspace/src/a.ts', 'utf-8');
+      expect(fsPromises.readFile).toHaveBeenCalledWith(
+        path.resolve('/workspace/src/a.ts'),
+        'utf-8',
+      );
     });
   });
 

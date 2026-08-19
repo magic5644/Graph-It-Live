@@ -1050,9 +1050,11 @@ describe('normalizePathForComparison', () => {
     expect(result).toBe('c:/project/src/file.ts');
   });
 
-  it('lowercases Windows drive letters', () => {
+  it('normalizes Windows path casing for comparison', () => {
     const result = normalizePathForComparison('D:/Project/Src');
-    expect(result).toBe('d:/Project/Src');
+    expect(result).toBe(
+      process.platform === 'win32' ? 'd:/project/src' : 'd:/Project/Src',
+    );
   });
 
   it('removes trailing slashes', () => {
