@@ -8,7 +8,8 @@ describe('formatToolResponse', () => {
     const response = createSuccessResponse({ ok: true }, 5, '/workspace');
     const result = formatToolResponse(response, 'json');
 
-    expect(result.structuredContent).toBe(response);
+    expect(result.structuredContent).not.toBe(response);
+    expect(result.structuredContent.metadata.workspaceRoot).toBe('.');
     expect(result.content[0].text).toContain('"success": true');
   });
 
@@ -16,7 +17,7 @@ describe('formatToolResponse', () => {
     const response = createSuccessResponse({ ok: true }, 5, '/workspace');
     const result = formatToolResponse(response, 'markdown');
 
-    expect(result.structuredContent).toBe(response);
+    expect(result.structuredContent).not.toBe(response);
     expect(result.content[0].text).toMatch(/```json/);
   });
 
@@ -28,7 +29,7 @@ describe('formatToolResponse', () => {
     const response = createSuccessResponse(data, 5, '/workspace');
     const result = formatToolResponse(response, 'toon');
 
-    expect(result.structuredContent).toBe(response);
+    expect(result.structuredContent).not.toBe(response);
     // inferObjectName detects 'file' key and uses 'files' as object name
     expect(result.content[0].text).toContain('files(');
     expect(result.content[0].text).toContain('[main.ts,10]');
@@ -47,6 +48,21 @@ describe('formatToolResponse', () => {
     expect(result.content[0].text).toContain('JSON:');
     expect(result.content[0].text).toContain('TOON:');
     expect(result.content[0].text).toContain('Savings:');
+  });
+
+  it('redacts internal and external absolute paths in public output', () => {
+    const response = createSuccessResponse({
+      filePath: '/workspace/src/main.ts',
+      externalPath: '/private/secret.ts',
+    }, 5, '/workspace');
+
+    const result = formatToolResponse(response, 'json');
+
+    expect(result.structuredContent.data).toEqual({
+      filePath: 'src/main.ts',
+      externalPath: '[external:secret.ts]',
+    });
+    expect(result.content[0].text).not.toContain('/private/secret.ts');
   });
 });
 

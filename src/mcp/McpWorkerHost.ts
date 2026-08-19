@@ -197,6 +197,7 @@ export class McpWorkerHost {
     return new Promise((resolve, reject) => {
       const timeoutId = setTimeout(() => {
         this.pendingRequests.delete(requestId);
+        this.worker?.postMessage({ type: 'cancel', requestId });
         reject(new Error(`Tool invocation timeout after ${this.invokeTimeout}ms`));
       }, this.invokeTimeout);
 

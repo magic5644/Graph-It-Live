@@ -71,6 +71,7 @@ loggerFactory.setDefaultLevel(getLogLevelFromEnv("LOG_LEVEL"));
 
 /** Logger instance for McpWorker */
 const log = getLogger("McpWorker");
+const invocationControllers = new Map<string, AbortController>();
 
 // ============================================================================
 // Message Handling
@@ -83,7 +84,11 @@ parentPort?.on("message", async (msg: McpWorkerMessage) => {
         await handleInit(msg.config);
         break;
       case "invoke":
-        await handleInvoke(msg.requestId, msg.tool, msg.params);
+        await handleInvokeWithCancellation(msg.requestId, msg.tool, msg.params);
+        break;
+      case "cancel":
+        invocationControllers.get(msg.requestId)?.abort();
+        workerState.spider?.cancelIndexing();
         break;
       case "shutdown":
         handleShutdown();
@@ -227,6 +232,9 @@ async function handleInit(cfg: McpWorkerConfig): Promise<void> {
 async function handleShutdown(): Promise<void> {
   log.info("Shutting down...");
 
+  for (const controller of invocationControllers.values()) controller.abort();
+  invocationControllers.clear();
+
   // Stop file watcher
   await stopFileWatcher(); // ensure chokidar closes before exit
 
@@ -259,8 +267,23 @@ async function handleInvoke(
   requestId: string,
   tool: McpToolName,
   params: unknown,
+  signal: AbortSignal,
 ): Promise<void> {
-  await invokeTool(requestId, tool, params, postMessage);
+  await invokeTool(requestId, tool, params, postMessage, signal);
+}
+
+async function handleInvokeWithCancellation(
+  requestId: string,
+  tool: McpToolName,
+  params: unknown,
+): Promise<void> {
+  const controller = new AbortController();
+  invocationControllers.set(requestId, controller);
+  try {
+    await handleInvoke(requestId, tool, params, controller.signal);
+  } finally {
+    invocationControllers.delete(requestId);
+  }
 }
 
 // Re-export types for testing

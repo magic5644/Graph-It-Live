@@ -322,6 +322,13 @@ describe('McpWorkerHost', () => {
       // Don't emit result - let it timeout
 
       await expect(invokePromise).rejects.toThrow('Tool invocation timeout after 50ms');
+      const invokeMessage = getMockWorker().postMessage.mock.calls.find(
+        (call) => call[0]?.type === 'invoke',
+      )?.[0];
+      expect(getMockWorker().postMessage).toHaveBeenCalledWith({
+        type: 'cancel',
+        requestId: invokeMessage.requestId,
+      });
     });
 
     it('should reject if worker not ready', async () => {
@@ -462,6 +469,7 @@ describe('McpWorkerHost', () => {
       host.dispose();
       host.dispose();
       host.dispose();
+      expect(host.ready()).toBe(false);
     });
   });
 

@@ -216,12 +216,14 @@ export class GraphExtractor {
     if (!tree) {
       return { nodes: [], edges: [] };
     }
-
-    // Run query (compiled Query is cached per language — safe to reuse across files)
-    const query = this.getOrCompileQuery(language, querySrc, lang);
-    const captures = query.captures(tree.rootNode);
-
-    return this.processCaptures(captures, normalizedPath, lang, source);
+    try {
+      // Run query (compiled Query is cached per language — safe to reuse across files)
+      const query = this.getOrCompileQuery(language, querySrc, lang);
+      const captures = query.captures(tree.rootNode);
+      return this.processCaptures(captures, normalizedPath, lang, source);
+    } finally {
+      tree.delete();
+    }
   }
 
   // ---------------------------------------------------------------------------

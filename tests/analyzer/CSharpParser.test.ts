@@ -1,4 +1,6 @@
 import { CSharpParser } from '@/analyzer/languages/CSharpParser';
+import fs from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -99,7 +101,7 @@ vi.mock('@/analyzer/languages/WasmParserFactory', () => {
     rootNode.descendantsOfType = (nodeType: string) =>
       nodeType === 'using_directive' ? children : [];
 
-    return { rootNode };
+    return { rootNode, delete: vi.fn() };
   };
 
   const MockWasmParserFactory = {
@@ -153,6 +155,7 @@ describe('CSharpParser', () => {
 
     it('should return empty array for a file with no using directives', async () => {
       const filePath = path.join(fixturesDir, 'Program.cs');
+      const deleteTree = vi.fn();
       vi.spyOn(parser as any, 'ensureInitialized').mockResolvedValue(undefined);
       (parser as any).parser = {
         parse: (_: string) => ({
@@ -161,11 +164,13 @@ describe('CSharpParser', () => {
             children: [],
             descendantsOfType: () => [],
           },
+          delete: deleteTree,
         }),
       };
 
       const deps = await parser.parseImports(filePath);
       expect(deps).toEqual([]);
+      expect(deleteTree).toHaveBeenCalledOnce();
     });
   });
 
@@ -197,5 +202,18 @@ describe('CSharpParser', () => {
           expect(result).toBeTruthy();
           expect(result).toMatch(/\.cs$/);
       });
+
+          it('should reject a path escaping through a symbolic link', () => {
+            const root = fs.mkdtempSync(path.join(os.tmpdir(), 'graph-it-csharp-root-'));
+            const outside = fs.mkdtempSync(path.join(os.tmpdir(), 'graph-it-csharp-outside-'));
+            const linkedPath = path.join(root, 'linked');
+            fs.symlinkSync(outside, linkedPath);
+            const scopedParser = new CSharpParser(root, process.cwd());
+
+            expect((scopedParser as any).isWithinRoot(linkedPath)).toBe(false);
+
+            fs.rmSync(root, { recursive: true, force: true });
+            fs.rmSync(outside, { recursive: true, force: true });
+          });
   });
 });

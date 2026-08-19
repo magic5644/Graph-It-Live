@@ -62,6 +62,7 @@ type ToolHandler = (
   params: unknown,
   config: McpWorkerConfig,
   postMessage: (msg: McpWorkerResponse) => void,
+  signal: AbortSignal,
 ) => unknown;
 
 function validateRootPath(filePath: string, config: McpWorkerConfig): void {
@@ -89,10 +90,10 @@ const toolHandlers: Partial<Record<McpToolName, ToolHandler>> = {
     validateRootPath(p.filePath, config);
     return executeAnalyzeDependencies(p);
   },
-  crawl_dependency_graph: async (params, config) => {
+  crawl_dependency_graph: async (params, config, _postMessage, signal) => {
     const p = params as CrawlDependencyGraphParams;
     validateRootPath(p.entryFile, config);
-    return executeCrawlDependencyGraph(p);
+    return executeCrawlDependencyGraph(p, signal);
   },
   find_referencing_files: async (params, config) => {
     const p = params as FindReferencingFilesParams;
@@ -189,10 +190,11 @@ async function executeValidatedTool(
   params: unknown,
   config: McpWorkerConfig,
   postMessage: (msg: McpWorkerResponse) => void,
+  signal: AbortSignal,
 ): Promise<unknown> {
   const handler = toolHandlers[tool];
   if (!handler) throw new Error(`Unknown tool: ${tool}`);
-  return handler(params, config, postMessage);
+  return handler(params, config, postMessage, signal);
 }
 
 export async function invokeTool(
@@ -200,6 +202,7 @@ export async function invokeTool(
   tool: McpToolName,
   params: unknown,
   postMessage: (msg: McpWorkerResponse) => void,
+  signal: AbortSignal = new AbortController().signal,
 ): Promise<void> {
   if (
     !workerState.isReady ||
@@ -220,6 +223,7 @@ export async function invokeTool(
   const startTime = Date.now();
 
   try {
+    if (signal.aborted) throw createAbortError();
     // Validate parameters using Zod schema
     const validation = validateToolParams(tool, params);
     if (!validation.success) {
@@ -234,7 +238,8 @@ export async function invokeTool(
 
     const validatedParams = validation.data;
     const config = workerState.getConfig();
-    const result = await executeValidatedTool(tool, validatedParams, config, postMessage);
+    const result = await executeValidatedTool(tool, validatedParams, config, postMessage, signal);
+    if (signal.aborted) throw createAbortError();
 
     const executionTimeMs = Date.now() - startTime;
 
@@ -246,11 +251,15 @@ export async function invokeTool(
     });
   } catch (error) {
     const errorMessage = error instanceof Error ? error.message : "Unknown error";
-    const errorCode =
+    let errorCode = "EXECUTION_ERROR";
+    if (error instanceof Error && error.name === "AbortError") {
+      errorCode = "CANCELLED";
+    } else if (
       errorMessage.includes("Path traversal") ||
       errorMessage.includes("outside workspace")
-        ? "SECURITY_ERROR"
-        : "EXECUTION_ERROR";
+    ) {
+      errorCode = "SECURITY_ERROR";
+    }
 
     postMessage({
       type: "error",
@@ -259,4 +268,10 @@ export async function invokeTool(
       code: errorCode,
     });
   }
+}
+
+function createAbortError(): Error {
+  const error = new Error("Tool invocation cancelled");
+  error.name = "AbortError";
+  return error;
 }

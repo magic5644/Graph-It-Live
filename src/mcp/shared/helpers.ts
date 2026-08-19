@@ -8,7 +8,10 @@
 import * as fs from "node:fs/promises";
 import * as path from "node:path";
 import { SUPPORTED_SYMBOL_ANALYSIS_EXTENSIONS } from "../../shared/constants";
-import { normalizePath } from "../../shared/path";
+import {
+  toWorkspaceRelativePath,
+  validateWorkspacePath,
+} from "../../shared/pathSecurity";
 import { detectLanguageFromExtension } from "../../shared/utils/languageDetection";
 import type { EdgeInfo, NodeInfo } from "../types";
 import type { GraphNodeMetadata } from "../../shared/graph-types";
@@ -22,17 +25,7 @@ import type { GraphNodeMetadata } from "../../shared/graph-types";
  * Get relative path from workspace root, with cross-platform compatibility
  */
 export function getRelativePath(absolutePath: string, workspaceRoot: string): string {
-  // Use path.relative for cross-platform compatibility
-  const relativePath = path.relative(workspaceRoot, absolutePath);
-
-  // If the path is outside the workspace, path.relative returns a path starting with ..
-  // In that case, return the original absolute path
-  if (relativePath.startsWith("..") || path.isAbsolute(relativePath)) {
-    return absolutePath;
-  }
-
-  // Normalize to forward slashes for consistent output across platforms
-  return relativePath.replaceAll("\\", "/");
+  return toWorkspaceRelativePath(absolutePath, workspaceRoot);
 }
 
 // ============================================================================
@@ -137,6 +130,54 @@ export function applyPagination(
 // Circular Dependency Detection
 // ============================================================================
 
+interface DfsFrame {
+  node: string;
+  neighbors: string[];
+  index: number;
+}
+
+function collectCyclesFrom(
+  startNode: string,
+  graph: Map<string, Set<string>>,
+  visited: Set<string>,
+  cycles: string[][],
+): void {
+  const active = new Set<string>([startNode]);
+  const path = [startNode];
+  const stack: DfsFrame[] = [{
+    node: startNode,
+    neighbors: [...(graph.get(startNode) ?? [])],
+    index: 0,
+  }];
+  visited.add(startNode);
+
+  while (stack.length > 0) {
+    const frame = stack.at(-1);
+    if (!frame) return;
+    if (frame.index >= frame.neighbors.length) {
+      active.delete(frame.node);
+      path.pop();
+      stack.pop();
+      continue;
+    }
+
+    const neighbor = frame.neighbors[frame.index++];
+    if (!visited.has(neighbor)) {
+      visited.add(neighbor);
+      active.add(neighbor);
+      path.push(neighbor);
+      stack.push({
+        node: neighbor,
+        neighbors: [...(graph.get(neighbor) ?? [])],
+        index: 0,
+      });
+    } else if (active.has(neighbor)) {
+      const cycleStart = path.indexOf(neighbor);
+      cycles.push([...path.slice(cycleStart), neighbor]);
+    }
+  }
+}
+
 /**
  * Detect circular dependencies in the graph using DFS
  */
@@ -155,38 +196,10 @@ export function detectCircularDependencies(
 
   const cycles: string[][] = [];
   const visited = new Set<string>();
-  const recursionStack = new Set<string>();
-  const path: string[] = [];
-
-  function dfs(node: string): void {
-    visited.add(node);
-    recursionStack.add(node);
-    path.push(node);
-
-    const neighbors = graph.get(node);
-    if (neighbors) {
-      for (const neighbor of neighbors) {
-        if (!visited.has(neighbor)) {
-          dfs(neighbor);
-        } else if (recursionStack.has(neighbor)) {
-          // Found a cycle
-          const cycleStart = path.indexOf(neighbor);
-          const cycle = path.slice(cycleStart);
-          cycle.push(neighbor); // Complete the cycle
-          cycles.push(cycle);
-        }
-      }
-    }
-
-    path.pop();
-    recursionStack.delete(node);
-  }
 
   // Run DFS from each unvisited node
-  for (const node of graph.keys()) {
-    if (!visited.has(node)) {
-      dfs(node);
-    }
+  for (const startNode of graph.keys()) {
+    if (!visited.has(startNode)) collectCyclesFrom(startNode, graph, visited, cycles);
   }
 
   return cycles;
@@ -273,18 +286,12 @@ export function validateScopePath(scopePath: string, rootDir: string): void {
     throw new Error(`INVALID_SCOPE_PATH: Scope path must be absolute. Got: ${scopePath}`);
   }
 
-  const resolvedScope = normalizePath(path.resolve(scopePath));
-  const resolvedRoot = normalizePath(path.resolve(rootDir));
-
-  // Ensure scope is the root itself or a subdirectory of root
-  // Both paths are already normalized (forward slashes), so only "/" separator is needed.
-  const withinRoot =
-    resolvedScope === resolvedRoot ||
-    resolvedScope.startsWith(resolvedRoot + "/");
-
-  if (!withinRoot) {
+  try {
+    validateWorkspacePath(scopePath, rootDir);
+  } catch (error) {
     throw new Error(
       `INVALID_SCOPE_PATH: Scope path '${scopePath}' is outside workspace root '${rootDir}'`,
+      { cause: error },
     );
   }
 }

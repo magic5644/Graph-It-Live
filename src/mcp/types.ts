@@ -8,15 +8,18 @@
  * NO import * as vscode from 'vscode' allowed!
  */
 
-import * as fs from "node:fs";
 import * as nodePath from "node:path";
 import { z } from "zod/v4";
 import type { Dependency, DependencyType } from "../analyzer/types";
 import type { ReviewGateResult } from "../analyzer/ReviewGateAnalyzer";
 import {
   getRelativePath as _getRelativePath,
-  normalizePathForComparison as _normalizePathForComparison,
 } from "../shared/path";
+import {
+  isPathWithinRoot as _isPathWithinRoot,
+  isPathWithinRootCanonical as _isPathWithinRootCanonical,
+  validateWorkspacePath,
+} from "../shared/pathSecurity";
 
 // ============================================================================
 // Tool Version (for metadata)
@@ -34,6 +37,7 @@ export const MCP_TOOL_VERSION = "1.0.0";
 export type McpWorkerMessage =
   | { type: "init"; config: McpWorkerConfig }
   | { type: "invoke"; requestId: string; tool: McpToolName; params: unknown }
+  | { type: "cancel"; requestId: string }
   | { type: "shutdown" };
 
 /**
@@ -729,7 +733,7 @@ export function validateToolParams<T>(
  * @param filePath - The path to normalize
  * @returns Normalized path
  */
-export const normalizePathForComparison = _normalizePathForComparison;
+export { normalizePathForComparison } from "../shared/path";
 
 /**
  * Check if a path is within a root directory (cross-platform safe).
@@ -740,42 +744,12 @@ export const normalizePathForComparison = _normalizePathForComparison;
  * @returns true if filePath is within rootDir
  */
 export function isPathWithinRoot(filePath: string, rootDir: string): boolean {
-  // Resolve both paths to absolute paths
-  const resolvedPath = normalizePathForComparison(
-    nodePath.resolve(rootDir, filePath),
-  );
-  const resolvedRoot = normalizePathForComparison(nodePath.resolve(rootDir));
-
-  // Check if the resolved path starts with the resolved root
-  // Add trailing slash to avoid matching /project-other when rootDir is /project
-  return (
-    resolvedPath === resolvedRoot || resolvedPath.startsWith(resolvedRoot + "/")
-  );
-}
-
-function resolveExistingPath(filePath: string): string {
-  let currentPath = filePath;
-
-  while (!fs.existsSync(currentPath)) {
-    const parentPath = nodePath.dirname(currentPath);
-    if (parentPath === currentPath) return filePath;
-    currentPath = parentPath;
-  }
-
-  return fs.realpathSync.native(currentPath);
+  return _isPathWithinRoot(filePath, rootDir);
 }
 
 /** Verifies containment after resolving existing symbolic links. */
 export function isPathWithinRootCanonical(filePath: string, rootDir: string): boolean {
-  if (!isPathWithinRoot(filePath, rootDir)) return false;
-
-  const resolvedRoot = nodePath.resolve(rootDir);
-  const resolvedPath = nodePath.resolve(rootDir, filePath);
-  if (!fs.existsSync(resolvedRoot)) return true;
-
-  const canonicalRoot = normalizePathForComparison(fs.realpathSync.native(resolvedRoot));
-  const canonicalPath = normalizePathForComparison(resolveExistingPath(resolvedPath));
-  return canonicalPath === canonicalRoot || canonicalPath.startsWith(canonicalRoot + "/");
+  return _isPathWithinRootCanonical(filePath, rootDir);
 }
 
 /**
@@ -787,38 +761,7 @@ export function isPathWithinRootCanonical(filePath: string, rootDir: string): bo
  * @returns true if valid, throws error if invalid
  */
 export function validateFilePath(filePath: string, rootDir: string): boolean {
-  const normalizedPath = normalizePathForComparison(filePath);
-
-  // Check for obvious path traversal patterns
-  if (normalizedPath.includes("..")) {
-    // Resolve and verify the path is still within root
-    if (!isPathWithinRoot(filePath, rootDir)) {
-      throw new Error(
-        `Path traversal detected: ${filePath} resolves outside workspace`,
-      );
-    }
-  }
-
-  // Check for absolute paths
-  const isAbsoluteUnix = normalizedPath.startsWith("/");
-  const isAbsoluteWindows = /^[a-z]:/i.test(normalizedPath);
-
-  if (isAbsoluteUnix || isAbsoluteWindows) {
-    if (!isPathWithinRoot(filePath, rootDir)) {
-      throw new Error(`File path is outside workspace: ${filePath}`);
-    }
-  } else {
-    // Relative path - resolve and check
-    const resolvedPath = nodePath.resolve(rootDir, filePath);
-    if (!isPathWithinRoot(resolvedPath, rootDir)) {
-      throw new Error(`File path is outside workspace: ${filePath}`);
-    }
-  }
-
-  if (!isPathWithinRootCanonical(filePath, rootDir)) {
-    throw new Error(`File path escapes workspace through a symbolic link: ${filePath}`);
-  }
-
+  validateWorkspacePath(filePath, rootDir);
   return true;
 }
 

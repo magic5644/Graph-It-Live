@@ -1,5 +1,6 @@
 import * as vscode from 'vscode';
 import { Spider } from '../../analyzer/Spider';
+import { validateWorkspacePath } from '../../shared/pathSecurity';
 
 type Logger = {
   debug: (message: string, ...args: unknown[]) => void;
@@ -114,6 +115,18 @@ export class EditorNavigationService {
     }
   }
 
+  private isWorkspaceFile(filePath: string): boolean {
+    for (const folder of vscode.workspace.workspaceFolders ?? []) {
+      try {
+        validateWorkspacePath(filePath, folder.uri.fsPath);
+        return true;
+      } catch {
+        // Try next root in multi-root workspaces.
+      }
+    }
+    return false;
+  }
+
   async openFile(filePath: string, line?: number): Promise<void> {
     const { actualFilePath, symbolName } = this.parseFilePathAndSymbol(filePath);
 
@@ -142,6 +155,12 @@ export class EditorNavigationService {
 
     this.logger.debug('[NAVIGATION] About to open file with resolvedPath:', resolvedPath);
 
+    if (!this.isWorkspaceFile(resolvedPath)) {
+      this.logger.warn('[NAVIGATION] Refused to open path outside workspace');
+      vscode.window.showErrorMessage('Cannot open file: path is outside the current workspace.');
+      return;
+    }
+
     try {
       this.logger.debug('[NAVIGATION] Attempting to open file:', resolvedPath);
       const doc = await vscode.workspace.openTextDocument(resolvedPath);
@@ -162,7 +181,7 @@ export class EditorNavigationService {
 
   async resolveDrillDownPath(requestedPath: string, currentSymbolFilePath?: string): Promise<string | undefined> {
     if (this.isAbsolutePath(requestedPath)) {
-      return requestedPath;
+      return this.isWorkspaceFile(requestedPath) ? requestedPath : undefined;
     }
 
     const baseForResolve = this.getBasePath(currentSymbolFilePath);
@@ -180,7 +199,7 @@ export class EditorNavigationService {
       );
       return undefined;
     }
-    return resolved;
+    return this.isWorkspaceFile(resolved) ? resolved : undefined;
   }
 
   private getBasePath(currentSymbolFilePath?: string): string | undefined {

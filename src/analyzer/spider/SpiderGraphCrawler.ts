@@ -16,19 +16,29 @@ export class SpiderGraphCrawler {
   ) {}
 
   async crawl(
-    startPath: string
+    startPath: string,
+    options?: { maxDepth?: number; signal?: AbortSignal },
   ): Promise<{ nodes: string[]; edges: { source: string; target: string }[]; nodeLabels?: Record<string, string> }> {
     const nodes = new Set<string>();
     const edges: { source: string; target: string }[] = [];
     const edgeIds = new Set<string>();
     const visited = new Set<string>();
     const nodeLabels: Record<string, string> = {};
+    const maxDepth = options?.maxDepth ?? this.getConfig().maxDepth ?? 3;
+
+    const throwIfAborted = (): void => {
+      if (options?.signal?.aborted) {
+        const error = new Error('Crawl cancelled');
+        error.name = 'AbortError';
+        throw error;
+      }
+    };
 
     log.debug(`Starting crawl from: ${startPath}`);
 
     const crawlRecursive = async (filePath: string, depth: number) => {
+      throwIfAborted();
       const normalizedFile = normalizePath(filePath);
-      const maxDepth = this.getConfig().maxDepth ?? 3;
       if (depth > maxDepth) {
         log.debug(`Skipping ${filePath}: max depth ${maxDepth} reached`);
         return;
@@ -43,9 +53,11 @@ export class SpiderGraphCrawler {
 
       try {
         const dependencies = await this.dependencyAnalyzer.analyze(filePath);
+        throwIfAborted();
         log.debug(`Found ${dependencies.length} dependencies for ${filePath}`);
 
         for (const dep of dependencies) {
+          throwIfAborted();
           nodes.add(dep.path);
           const edgeId = `${normalizedFile}->${dep.path}`;
           if (!edgeIds.has(edgeId)) {
@@ -65,6 +77,7 @@ export class SpiderGraphCrawler {
           }
         }
       } catch (error) {
+        if (error instanceof Error && error.name === 'AbortError') throw error;
         // External package/unreadable: skip
         log.debug(`Failed to analyze ${filePath}: ${error}`);
       }

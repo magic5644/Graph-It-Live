@@ -124,12 +124,14 @@ export class PythonSymbolAnalyzer implements ISymbolAnalyzer {
     if (!tree) {
       throw new Error(`Failed to parse Python file: ${filePath}`);
     }
-    const symbols = new Map<string, SymbolInfo>();
-    const normalizedPath = normalizePath(filePath);
-
-    this.extractSymbols(tree.rootNode, normalizedPath, content, symbols);
-
-    return symbols;
+    try {
+      const symbols = new Map<string, SymbolInfo>();
+      const normalizedPath = normalizePath(filePath);
+      this.extractSymbols(tree.rootNode, normalizedPath, content, symbols);
+      return symbols;
+    } finally {
+      tree.delete();
+    }
   }
 
   /**
@@ -152,23 +154,22 @@ export class PythonSymbolAnalyzer implements ISymbolAnalyzer {
     if (!tree) {
       throw new Error(`Failed to parse Python file: ${filePath}`);
     }
-    const symbolMap = new Map<string, SymbolInfo>();
-    const dependencies: SymbolDependency[] = [];
-    const normalizedPath = normalizePath(filePath);
+    try {
+      const symbolMap = new Map<string, SymbolInfo>();
+      const dependencies: SymbolDependency[] = [];
+      const normalizedPath = normalizePath(filePath);
 
-    // First pass: collect all symbols
-    this.extractSymbols(tree.rootNode, normalizedPath, content, symbolMap);
+      this.extractSymbols(tree.rootNode, normalizedPath, content, symbolMap);
+      const importMap = this.buildImportMap(tree.rootNode, content);
+      this.extractDependencies(tree.rootNode, normalizedPath, content, dependencies, symbolMap, undefined, importMap);
 
-    // Build import map: localName -> moduleSpecifier (for tracking external dependencies)
-    const importMap = this.buildImportMap(tree.rootNode, content);
-
-    // Second pass: extract dependencies (both internal and external)
-    this.extractDependencies(tree.rootNode, normalizedPath, content, dependencies, symbolMap, undefined, importMap);
-
-    return {
-      symbols: Array.from(symbolMap.values()),
-      dependencies,
-    };
+      return {
+        symbols: Array.from(symbolMap.values()),
+        dependencies,
+      };
+    } finally {
+      tree.delete();
+    }
   }
 
   /**

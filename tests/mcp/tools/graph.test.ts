@@ -61,8 +61,8 @@ describe("graph tools", () => {
         maxDepth: 2,
       });
 
-      expect(spiderMock.updateConfig).toHaveBeenCalledWith({ maxDepth: 2 });
-      expect(spiderMock.updateConfig).toHaveBeenCalledWith({ maxDepth: 5 });
+      expect(spiderMock.updateConfig).not.toHaveBeenCalled();
+      expect(spiderMock.crawl).toHaveBeenCalledWith(entryFile, { maxDepth: 2 });
       expect(result.nodeCount).toBe(2);
       expect(result.edgeCount).toBe(1);
       expect(result.nodes).toHaveLength(2);
@@ -128,6 +128,34 @@ describe("graph tools", () => {
       // Les communityIds des deux nodes doivent être distincts (dossiers différents)
       const communityIds = result.nodes.map((n) => n.communityId);
       expect(communityIds[0]).not.toBe(communityIds[1]);
+    });
+
+    it("should bound concurrent usage verification and preserve edge order", async () => {
+      const entryFile = await createTempFile(tempDir, "entry.ts", "");
+      const nodes = Array.from({ length: 21 }, (_, index) =>
+        index === 0 ? entryFile : path.join(tempDir, `dep-${index}.ts`),
+      );
+      const edges = nodes.slice(1).map((target) => ({ source: entryFile, target }));
+      let active = 0;
+      let maximumActive = 0;
+      const spiderMock = {
+        config: { maxDepth: 5 },
+        updateConfig: vi.fn(),
+        crawl: vi.fn(async () => ({ nodes, edges })),
+        verifyDependencyUsage: vi.fn(async () => {
+          active++;
+          maximumActive = Math.max(maximumActive, active);
+          await Promise.resolve();
+          active--;
+          return true;
+        }),
+      };
+      setupWorkerState(spiderMock);
+
+      const result = await executeCrawlDependencyGraph({ entryFile, onlyUsed: true });
+
+      expect(maximumActive).toBeLessThanOrEqual(8);
+      expect(result.edges.map((edge) => edge.target)).toEqual(edges.map((edge) => edge.target));
     });
   });
 

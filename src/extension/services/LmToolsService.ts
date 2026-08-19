@@ -10,8 +10,13 @@
  */
 
 import { LspCallHierarchyAnalyzer } from '@/analyzer/LspCallHierarchyAnalyzer';
+import { scanDeadCode } from '@/analyzer/deadcode/DeadCodeScanner';
 import type { Dependency } from '@/analyzer/types';
 import { convertSpiderToLspFormat } from '@/shared/converters';
+import {
+  toWorkspaceRelativePath,
+  validateWorkspacePath,
+} from '@/shared/pathSecurity';
 import { detectLanguageFromExtension } from '@/shared/utils/languageDetection';
 import * as fs from 'node:fs/promises';
 import * as nodePath from 'node:path';
@@ -193,14 +198,81 @@ export class LmToolsService {
     ]);
   }
 
+  private registerTool<T>(
+    name: string,
+    tool: vscode.LanguageModelTool<T>,
+  ): vscode.Disposable {
+    return vscode.lm.registerTool<T>(name, {
+      ...tool,
+      invoke: async (options, token) => {
+        if (token.isCancellationRequested) throw new vscode.CancellationError();
+        const result = await tool.invoke(options, token);
+        return result ? this.redactToolResult(result) : result;
+      },
+    });
+  }
+
+  private redactToolResult(
+    result: vscode.LanguageModelToolResult,
+  ): vscode.LanguageModelToolResult {
+    const content: Array<
+      vscode.LanguageModelTextPart | vscode.LanguageModelPromptTsxPart
+    > = result.content.map((part) => {
+      if (!(part instanceof vscode.LanguageModelTextPart)) {
+        return part as vscode.LanguageModelPromptTsxPart;
+      }
+      try {
+        const parsed = JSON.parse(part.value) as unknown;
+        return new vscode.LanguageModelTextPart(
+          JSON.stringify(this.redactPublicValue(parsed)),
+        );
+      } catch {
+        return part;
+      }
+    });
+    return new vscode.LanguageModelToolResult(content);
+  }
+
+  private redactPublicValue(value: unknown): unknown {
+    if (typeof value === 'string' && nodePath.isAbsolute(value)) {
+      for (const folder of vscode.workspace.workspaceFolders ?? []) {
+        const relative = toWorkspaceRelativePath(value, folder.uri.fsPath);
+        if (!relative.startsWith('[external:')) return relative;
+      }
+      return `[external:${nodePath.basename(value)}]`;
+    }
+    if (Array.isArray(value)) return value.map((item) => this.redactPublicValue(item));
+    if (typeof value !== 'object' || value === null) return value;
+    return Object.fromEntries(
+      Object.entries(value).map(([key, child]) => [key, this.redactPublicValue(child)]),
+    );
+  }
+
   private getWorkspaceRoot(): string | undefined {
     return vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+  }
+
+  private resolveWorkspacePath(inputPath: string): string {
+    if (inputPath.length > 1024 || inputPath.includes('\0') || !nodePath.isAbsolute(inputPath)) {
+      throw new Error('File path must be an absolute path of at most 1024 characters.');
+    }
+
+    const resolvedPath = nodePath.resolve(inputPath);
+    for (const folder of vscode.workspace.workspaceFolders ?? []) {
+      try {
+        validateWorkspacePath(resolvedPath, folder.uri.fsPath);
+        return resolvedPath;
+      } catch {
+        // Try the next root in a multi-root workspace.
+      }
+    }
+    throw new Error('File path must remain inside an open workspace folder.');
   }
 
   // ─── Tool: find_referencing_files ─────────────────────────────────────────
 
   private registerFindReferencingFiles(): vscode.Disposable {
-    return vscode.lm.registerTool<FindReferencingFilesInput>(
+    return this.registerTool<FindReferencingFilesInput>(
       'graph-it-live_find_referencing_files',
       {
         invoke: async (
@@ -211,7 +283,7 @@ export class LmToolsService {
           if (!spider) {
             return this.errorResult('No workspace open or dependency index not initialized.');
           }
-          const { targetPath } = options.input;
+          const targetPath = this.resolveWorkspacePath(options.input.targetPath);
           const rootDir = this.getWorkspaceRoot();
           try {
             const references = await spider.findReferencingFiles(targetPath);
@@ -241,7 +313,7 @@ export class LmToolsService {
   // ─── Tool: analyze_dependencies ──────────────────────────────────────────
 
   private registerAnalyzeDependencies(): vscode.Disposable {
-    return vscode.lm.registerTool<AnalyzeDependenciesInput>(
+    return this.registerTool<AnalyzeDependenciesInput>(
       'graph-it-live_analyze_dependencies',
       {
         invoke: async (
@@ -252,7 +324,7 @@ export class LmToolsService {
           if (!spider) {
             return this.errorResult('No workspace open or dependency index not initialized.');
           }
-          const { filePath } = options.input;
+          const filePath = this.resolveWorkspacePath(options.input.filePath);
           const rootDir = this.getWorkspaceRoot();
           try {
             const dependencies = await spider.analyze(filePath);
@@ -282,27 +354,27 @@ export class LmToolsService {
   // ─── Tool: crawl_dependency_graph ────────────────────────────────────────
 
   private registerCrawlDependencyGraph(): vscode.Disposable {
-    return vscode.lm.registerTool<CrawlDependencyGraphInput>(
+    return this.registerTool<CrawlDependencyGraphInput>(
       'graph-it-live_crawl_dependency_graph',
       {
         invoke: async (
           options: vscode.LanguageModelToolInvocationOptions<CrawlDependencyGraphInput>,
-          _token: vscode.CancellationToken,
+          token: vscode.CancellationToken,
         ): Promise<vscode.LanguageModelToolResult> => {
           const spider = this.provider.getSpiderForLmTools();
           if (!spider) {
             return this.errorResult('No workspace open or dependency index not initialized.');
           }
-          const { entryFile, maxDepth } = options.input;
+          const { maxDepth } = options.input;
+          const entryFile = this.resolveWorkspacePath(options.input.entryFile);
           const rootDir = this.getWorkspaceRoot();
-          const configuredMaxDepth = vscode.workspace
-            .getConfiguration('graph-it-live')
-            .get<number>('maxDepth', 50);
-          if (maxDepth !== undefined) {
-            spider.updateConfig({ maxDepth });
-          }
+          const controller = new AbortController();
+          const cancellation = token.onCancellationRequested(() => controller.abort());
           try {
-            const graph = await spider.crawl(entryFile);
+            const graph = await spider.crawl(entryFile, {
+              maxDepth,
+              signal: controller.signal,
+            });
             return new vscode.LanguageModelToolResult([
               new vscode.LanguageModelTextPart(
                 JSON.stringify({
@@ -323,11 +395,12 @@ export class LmToolsService {
               ),
             ]);
           } catch (error) {
+            if (controller.signal.aborted || (error instanceof Error && error.name === 'AbortError')) {
+              throw new vscode.CancellationError();
+            }
             return this.errorResult(error instanceof Error ? error.message : String(error));
           } finally {
-            if (maxDepth !== undefined) {
-              spider.updateConfig({ maxDepth: configuredMaxDepth });
-            }
+            cancellation.dispose();
           }
         },
       },
@@ -337,7 +410,7 @@ export class LmToolsService {
   // ─── Tool: get_symbol_graph ───────────────────────────────────────────────
 
   private registerGetSymbolGraph(): vscode.Disposable {
-    return vscode.lm.registerTool<GetSymbolGraphInput>(
+    return this.registerTool<GetSymbolGraphInput>(
       'graph-it-live_get_symbol_graph',
       {
         invoke: async (
@@ -348,7 +421,7 @@ export class LmToolsService {
           if (!spider) {
             return this.errorResult('No workspace open or dependency index not initialized.');
           }
-          const { filePath } = options.input;
+          const filePath = this.resolveWorkspacePath(options.input.filePath);
           const rootDir = this.getWorkspaceRoot();
           try {
             const { symbols, dependencies } = await spider.getSymbolGraph(filePath);
@@ -380,7 +453,7 @@ export class LmToolsService {
   // ─── Tool: find_unused_symbols ───────────────────────────────────────────
 
   private registerFindUnusedSymbols(): vscode.Disposable {
-    return vscode.lm.registerTool<FindUnusedSymbolsInput>(
+    return this.registerTool<FindUnusedSymbolsInput>(
       'graph-it-live_find_unused_symbols',
       {
         invoke: async (
@@ -391,7 +464,7 @@ export class LmToolsService {
           if (!spider) {
             return this.errorResult('No workspace open or dependency index not initialized.');
           }
-          const { filePath } = options.input;
+          const filePath = this.resolveWorkspacePath(options.input.filePath);
           const rootDir = this.getWorkspaceRoot();
           try {
             const [unusedSymbols, { symbols }] = await Promise.all([
@@ -425,7 +498,7 @@ export class LmToolsService {
   // ─── Tool: get_symbol_callers ─────────────────────────────────────────────
 
   private registerGetSymbolCallers(): vscode.Disposable {
-    return vscode.lm.registerTool<GetSymbolCallersInput>(
+    return this.registerTool<GetSymbolCallersInput>(
       'graph-it-live_get_symbol_callers',
       {
         invoke: async (
@@ -436,7 +509,8 @@ export class LmToolsService {
           if (!spider) {
             return this.errorResult('No workspace open or dependency index not initialized.');
           }
-          const { filePath, symbolName } = options.input;
+          const { symbolName } = options.input;
+          const filePath = this.resolveWorkspacePath(options.input.filePath);
           const rootDir = this.getWorkspaceRoot();
           try {
             const dependents = await spider.getSymbolDependents(filePath, symbolName);
@@ -537,7 +611,7 @@ export class LmToolsService {
   }
 
   private registerGetImpactAnalysis(): vscode.Disposable {
-    return vscode.lm.registerTool<GetImpactAnalysisInput>(
+    return this.registerTool<GetImpactAnalysisInput>(
       'graph-it-live_get_impact_analysis',
       {
         invoke: async (
@@ -548,7 +622,8 @@ export class LmToolsService {
           if (!spider) {
             return this.errorResult('No workspace open or dependency index not initialized.');
           }
-          const { filePath, symbolName, includeTransitive = false, maxDepth = 3 } = options.input;
+          const { symbolName, includeTransitive = false, maxDepth = 3 } = options.input;
+          const filePath = this.resolveWorkspacePath(options.input.filePath);
           const rootDir = this.getWorkspaceRoot();
           try {
             const directDependents = await spider.getSymbolDependents(filePath, symbolName);
@@ -591,7 +666,7 @@ export class LmToolsService {
   // ─── Tool: get_index_status ───────────────────────────────────────────────
 
   private registerGetIndexStatus(): vscode.Disposable {
-    return vscode.lm.registerTool<Record<string, never>>(
+    return this.registerTool<Record<string, never>>(
       'graph-it-live_get_index_status',
       {
         invoke: async (
@@ -639,7 +714,7 @@ export class LmToolsService {
   // ─── Tool: parse_imports ──────────────────────────────────────────────────
 
   private registerParseImports(): vscode.Disposable {
-    return vscode.lm.registerTool<ParseImportsInput>(
+    return this.registerTool<ParseImportsInput>(
       'graph-it-live_parse_imports',
       {
         invoke: async (
@@ -650,7 +725,7 @@ export class LmToolsService {
           if (!spider) {
             return this.errorResult('No workspace open or dependency index not initialized.');
           }
-          const { filePath } = options.input;
+          const filePath = this.resolveWorkspacePath(options.input.filePath);
           try {
             // spider.analyze() runs the full parser pipeline and returns resolved imports
             const imports = await spider.analyze(filePath);
@@ -678,7 +753,7 @@ export class LmToolsService {
   // ─── Tool: generate_codemap ───────────────────────────────────────────────
 
   private registerGenerateCodemap(): vscode.Disposable {
-    return vscode.lm.registerTool<GenerateCodemapInput>(
+    return this.registerTool<GenerateCodemapInput>(
       'graph-it-live_generate_codemap',
       {
         invoke: async (
@@ -689,7 +764,7 @@ export class LmToolsService {
           if (!spider) {
             return this.errorResult('No workspace open or dependency index not initialized.');
           }
-          const { filePath } = options.input;
+          const filePath = this.resolveWorkspacePath(options.input.filePath);
           const rootDir = this.getWorkspaceRoot();
           const startTime = Date.now();
           try {
@@ -787,7 +862,7 @@ export class LmToolsService {
   // ─── Tool: expand_node ─────────────────────────────────────────────────────
 
   private registerExpandNode(): vscode.Disposable {
-    return vscode.lm.registerTool<ExpandNodeInput>(
+    return this.registerTool<ExpandNodeInput>(
       'graph-it-live_expand_node',
       {
         invoke: async (
@@ -798,7 +873,10 @@ export class LmToolsService {
           if (!spider) {
             return this.errorResult('No workspace open or dependency index not initialized.');
           }
-          const { filePath, knownPaths = [] } = options.input;
+          const filePath = this.resolveWorkspacePath(options.input.filePath);
+          const knownPaths = (options.input.knownPaths ?? []).map((knownPath) =>
+            this.resolveWorkspacePath(knownPath),
+          );
           const rootDir = this.getWorkspaceRoot();
           try {
             const graph = await spider.crawl(filePath);
@@ -840,7 +918,7 @@ export class LmToolsService {
   // ─── Tool: verify_dependency_usage ─────────────────────────────────────────
 
   private registerVerifyDependencyUsage(): vscode.Disposable {
-    return vscode.lm.registerTool<VerifyDependencyUsageInput>(
+    return this.registerTool<VerifyDependencyUsageInput>(
       'graph-it-live_verify_dependency_usage',
       {
         invoke: async (
@@ -851,7 +929,8 @@ export class LmToolsService {
           if (!spider) {
             return this.errorResult('No workspace open or dependency index not initialized.');
           }
-          const { sourceFile, targetFile } = options.input;
+          const sourceFile = this.resolveWorkspacePath(options.input.sourceFile);
+          const targetFile = this.resolveWorkspacePath(options.input.targetFile);
           try {
             const isUsed = await spider.verifyDependencyUsage(sourceFile, targetFile);
             return new vscode.LanguageModelToolResult([
@@ -870,7 +949,7 @@ export class LmToolsService {
   // ─── Tool: invalidate_files ────────────────────────────────────────────────
 
   private registerInvalidateFiles(): vscode.Disposable {
-    return vscode.lm.registerTool<InvalidateFilesInput>(
+    return this.registerTool<InvalidateFilesInput>(
       'graph-it-live_invalidate_files',
       {
         invoke: async (
@@ -881,7 +960,12 @@ export class LmToolsService {
           if (!spider) {
             return this.errorResult('No workspace open or dependency index not initialized.');
           }
-          const { filePaths } = options.input;
+          if (options.input.filePaths.length > 10_000) {
+            return this.errorResult('At most 10000 files can be invalidated per invocation.');
+          }
+          const filePaths = options.input.filePaths.map((filePath) =>
+            this.resolveWorkspacePath(filePath),
+          );
           try {
             const invalidatedFiles: string[] = [];
             const notFoundFiles: string[] = [];
@@ -913,7 +997,7 @@ export class LmToolsService {
   // ─── Tool: rebuild_index ───────────────────────────────────────────────────
 
   private registerRebuildIndex(): vscode.Disposable {
-    return vscode.lm.registerTool<Record<string, never>>(
+    return this.registerTool<Record<string, never>>(
       'graph-it-live_rebuild_index',
       {
         invoke: async (
@@ -949,7 +1033,7 @@ export class LmToolsService {
   // ─── Tool: get_symbol_dependents ──────────────────────────────────────────
 
   private registerGetSymbolDependents(): vscode.Disposable {
-    return vscode.lm.registerTool<GetSymbolDependentsInput>(
+    return this.registerTool<GetSymbolDependentsInput>(
       'graph-it-live_get_symbol_dependents',
       {
         invoke: async (
@@ -960,7 +1044,8 @@ export class LmToolsService {
           if (!spider) {
             return this.errorResult('No workspace open or dependency index not initialized.');
           }
-          const { filePath, symbolName } = options.input;
+          const { symbolName } = options.input;
+          const filePath = this.resolveWorkspacePath(options.input.filePath);
           const rootDir = this.getWorkspaceRoot();
           try {
             const dependents = await spider.getSymbolDependents(filePath, symbolName);
@@ -991,7 +1076,7 @@ export class LmToolsService {
   // ─── Tool: trace_function_execution ───────────────────────────────────────
 
   private registerTraceFunctionExecution(): vscode.Disposable {
-    return vscode.lm.registerTool<TraceFunctionExecutionInput>(
+    return this.registerTool<TraceFunctionExecutionInput>(
       'graph-it-live_trace_function_execution',
       {
         invoke: async (
@@ -1002,7 +1087,8 @@ export class LmToolsService {
           if (!spider) {
             return this.errorResult('No workspace open or dependency index not initialized.');
           }
-          const { filePath, symbolName, maxDepth = 10 } = options.input;
+          const { symbolName, maxDepth = 10 } = options.input;
+          const filePath = this.resolveWorkspacePath(options.input.filePath);
           const rootDir = this.getWorkspaceRoot();
           try {
             const result = await spider.traceFunctionExecution(filePath, symbolName, maxDepth);
@@ -1045,7 +1131,7 @@ export class LmToolsService {
   // ─── Tool: analyze_file_logic ──────────────────────────────────────────────
 
   private registerAnalyzeFileLogic(): vscode.Disposable {
-    return vscode.lm.registerTool<AnalyzeFileLogicInput>(
+    return this.registerTool<AnalyzeFileLogicInput>(
       'graph-it-live_analyze_file_logic',
       {
         invoke: async (
@@ -1056,7 +1142,7 @@ export class LmToolsService {
           if (!spider) {
             return this.errorResult('No workspace open or dependency index not initialized.');
           }
-          const { filePath } = options.input;
+          const filePath = this.resolveWorkspacePath(options.input.filePath);
           const startTime = Date.now();
           try {
             const symbolGraphData = await spider.getSymbolGraph(filePath);
@@ -1090,7 +1176,7 @@ export class LmToolsService {
   // ─── Tool: resolve_module_path ─────────────────────────────────────────────
 
   private registerResolveModulePath(): vscode.Disposable {
-    return vscode.lm.registerTool<ResolveModulePathInput>(
+    return this.registerTool<ResolveModulePathInput>(
       'graph-it-live_resolve_module_path',
       {
         invoke: async (
@@ -1101,7 +1187,8 @@ export class LmToolsService {
           if (!spider) {
             return this.errorResult('No workspace open or dependency index not initialized.');
           }
-          const { fromFile, moduleSpecifier } = options.input;
+          const { moduleSpecifier } = options.input;
+          const fromFile = this.resolveWorkspacePath(options.input.fromFile);
           const rootDir = this.getWorkspaceRoot();
           try {
             const resolvedPath = await spider.resolveModuleSpecifier(fromFile, moduleSpecifier);
@@ -1129,14 +1216,15 @@ export class LmToolsService {
   // ─── Tool: analyze_breaking_changes ───────────────────────────────────────
 
   private registerAnalyzeBreakingChanges(): vscode.Disposable {
-    return vscode.lm.registerTool<AnalyzeBreakingChangesInput>(
+    return this.registerTool<AnalyzeBreakingChangesInput>(
       'graph-it-live_analyze_breaking_changes',
       {
         invoke: async (
           options: vscode.LanguageModelToolInvocationOptions<AnalyzeBreakingChangesInput>,
           _token: vscode.CancellationToken,
         ): Promise<vscode.LanguageModelToolResult> => {
-          const { filePath, oldContent, symbolName, newContent: inputNewContent } = options.input;
+          const { oldContent, symbolName, newContent: inputNewContent } = options.input;
+          const filePath = this.resolveWorkspacePath(options.input.filePath);
           let newContent = inputNewContent;
           if (!newContent) {
             try {
@@ -1178,7 +1266,7 @@ export class LmToolsService {
   // ─── Tool: query_call_graph ────────────────────────────────────────────────
 
   private registerQueryCallGraph(): vscode.Disposable {
-    return vscode.lm.registerTool<QueryCallGraphInput>(
+    return this.registerTool<QueryCallGraphInput>(
       'graph-it-live_query_call_graph',
       {
         invoke: async (
@@ -1192,7 +1280,8 @@ export class LmToolsService {
               'Call graph index not available. Open the Call Graph panel (graph-it-live.showCallGraph) first to build the index.',
             );
           }
-          const { filePath, symbolName, direction = 'both', depth = 2, relationTypes } = options.input;
+          const { symbolName, direction = 'both', depth = 2, relationTypes } = options.input;
+          const filePath = this.resolveWorkspacePath(options.input.filePath);
           try {
             const { normalizePath } = await import('../../shared/path.js');
             const db = indexer.getDb();
@@ -1294,17 +1383,24 @@ export class LmToolsService {
   // ─── Tool: scan_dead_code ─────────────────────────────────────────────────
 
   private registerScanDeadCode(): vscode.Disposable {
-    return vscode.lm.registerTool<ScanDeadCodeInput>(
+    return this.registerTool<ScanDeadCodeInput>(
       'graph-it-live_scan_dead_code',
       {
         invoke: async (
           options: vscode.LanguageModelToolInvocationOptions<ScanDeadCodeInput>,
           _token: vscode.CancellationToken,
         ): Promise<vscode.LanguageModelToolResult> => {
-          const { scopePath, maxFiles } = options.input;
+          const { maxFiles } = options.input;
+          const scopePath = options.input.scopePath
+            ? this.resolveWorkspacePath(options.input.scopePath)
+            : undefined;
+          const spider = this.provider.getSpiderForLmTools();
+          const rootDir = this.getWorkspaceRoot();
+          if (!spider || !rootDir) {
+            return this.errorResult('No workspace open or dependency index not initialized.');
+          }
           try {
-            const { executeScanDeadCode } = await import('../../mcp/tools/deadcode.js');
-            const result = await executeScanDeadCode({ scopePath, maxFiles });
+            const result = await scanDeadCode(spider, rootDir, { scopePath, maxFiles });
             return new vscode.LanguageModelToolResult([
               new vscode.LanguageModelTextPart(JSON.stringify(result)),
             ]);

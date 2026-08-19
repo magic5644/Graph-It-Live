@@ -91,6 +91,12 @@ describe('EditorNavigationService', () => {
     expect(resolved).toBe('/workspace/src/utils.ts');
   });
 
+  it('rejects an absolute drill-down path outside the workspace', async () => {
+    const service = new EditorNavigationService(spider, console);
+
+    await expect(service.resolveDrillDownPath('/private/secret.ts')).resolves.toBeUndefined();
+  });
+
   it('shows message when resolution base is missing', async () => {
     const service = new EditorNavigationService(spider, console);
     (mockEditor as any).document.uri.scheme = 'untitled';

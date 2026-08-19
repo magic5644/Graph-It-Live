@@ -521,9 +521,10 @@ export class Spider {
   }
 
   async crawl(
-    startPath: string
+    startPath: string,
+    options?: { maxDepth?: number; signal?: AbortSignal },
   ): Promise<{ nodes: string[]; edges: { source: string; target: string }[]; nodeLabels?: Record<string, string> }> {
-    return this.graphCrawler.crawl(startPath);
+    return this.graphCrawler.crawl(startPath, options);
   }
 
   async crawlFrom(

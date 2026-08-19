@@ -145,6 +145,7 @@ vi.mock('web-tree-sitter', () => {
     });
     return {
       rootNode: createMockNode('source_file', content, 0, 0, 0, children),
+      delete: vi.fn(),
     };
   });
 

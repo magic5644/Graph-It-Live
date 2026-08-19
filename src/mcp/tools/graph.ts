@@ -30,25 +30,30 @@ import type {
 async function filterEdgesByUsage(edges: EdgeInfo[]): Promise<EdgeInfo[]> {
   const spider = workerState.getSpider();
   const log = getLogger("McpWorker");
+  const verificationResults = new Array<{ edge: EdgeInfo; isUsed: boolean }>(edges.length);
+  let nextIndex = 0;
+  const concurrency = Math.min(8, edges.length);
 
-  const verificationResults = await Promise.all(
-    edges.map(async (edge) => {
+  await Promise.all(Array.from({ length: concurrency }, async () => {
+    while (nextIndex < edges.length) {
+      const index = nextIndex++;
+      const edge = edges[index];
       try {
         const isUsed = await spider.verifyDependencyUsage(
           edge.source,
           edge.target,
         );
-        return { edge, isUsed };
+        verificationResults[index] = { edge, isUsed };
       } catch (err) {
         log.warn(
           `Failed to verify usage for edge ${edge.source} -> ${edge.target}`,
           err,
         );
         // Conservative: keep edge if verification fails
-        return { edge, isUsed: true };
+        verificationResults[index] = { edge, isUsed: true };
       }
-    }),
-  );
+    }
+  }));
 
   return verificationResults
     .filter((result) => result.isUsed)
@@ -60,26 +65,16 @@ async function filterEdgesByUsage(edges: EdgeInfo[]): Promise<EdgeInfo[]> {
  */
 export async function executeCrawlDependencyGraph(
   params: CrawlDependencyGraphParams,
+  signal?: AbortSignal,
 ): Promise<CrawlDependencyGraphResult> {
   const { entryFile, maxDepth, limit, offset, onlyUsed } = params;
   const spider = workerState.getSpider();
   const config = workerState.getConfig();
 
   await validateFileExists(entryFile);
+  const configuredMaxDepth = config.maxDepth;
 
-  // Temporarily update max depth if specified
-  const originalMaxDepth = spider["config"].maxDepth;
-  if (maxDepth !== undefined) {
-    spider.updateConfig({ maxDepth });
-  }
-
-  try {
-    const graph = await spider.crawl(entryFile);
-
-    // Restore original max depth
-    if (maxDepth !== undefined) {
-      spider.updateConfig({ maxDepth: originalMaxDepth });
-    }
+  const graph = await spider.crawl(entryFile, { maxDepth, signal });
 
     // Build initial counts and detect cycles
     const { dependencyCount, dependentCount } = buildEdgeCounts(graph.edges);
@@ -119,22 +114,15 @@ export async function executeCrawlDependencyGraph(
       edges = paginated.edges;
     }
 
-    return {
-      entryFile,
-      maxDepth: maxDepth ?? originalMaxDepth ?? 3,
-      nodeCount: totalNodes,
-      edgeCount: totalEdges,
-      nodes,
-      edges,
-      circularDependencies,
-    };
-  } catch (error) {
-    // Restore original max depth on error
-    if (maxDepth !== undefined) {
-      spider.updateConfig({ maxDepth: originalMaxDepth });
-    }
-    throw error;
-  }
+  return {
+    entryFile,
+    maxDepth: maxDepth ?? configuredMaxDepth ?? 3,
+    nodeCount: totalNodes,
+    edgeCount: totalEdges,
+    nodes,
+    edges,
+    circularDependencies,
+  };
 }
 
 /**
