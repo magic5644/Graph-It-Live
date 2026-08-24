@@ -1139,7 +1139,7 @@
     "@dagrejs/dagre": "^2.0.4",
     "@inquirer/core": "^11.2.1",
     "@inquirer/prompts": "^8.5.2",
-    "@modelcontextprotocol/sdk": "^1.30.0",
+    "@modelcontextprotocol/server": "^2.0.0",
     "chokidar": "^5.0.0",
     "cytoscape": "^3.34.1",
     "cytoscape-fcose": "^2.2.0",

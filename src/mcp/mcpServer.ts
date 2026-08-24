@@ -99,9 +99,8 @@ if (DEBUG_MCP_ENABLED) {
     "[McpServer] Starting (debug logging disabled - set DEBUG_MCP=true to enable)\n",
   );
 }
-
-import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
-import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
+import { McpServer } from "@modelcontextprotocol/server";
+import { StdioServerTransport } from "@modelcontextprotocol/server/stdio";
 import * as path from "node:path";
 import * as z from "zod/v4";
 import { McpWorkerHost } from "./McpWorkerHost";
