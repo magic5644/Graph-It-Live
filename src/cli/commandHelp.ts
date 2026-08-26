@@ -157,6 +157,102 @@ Options:
 Examples:
   graph-it check src/api.ts
 `,
+  "review-pr": `graph-it review-pr — Review a Git diff against a base ref
+
+Usage: graph-it review-pr --base <git-ref> [options]
+
+Options:
+  --base <ref>       Required: Git ref to diff against (e.g. origin/main)
+  --head <ref>        Optional: Git ref for the changed side (default: working tree)
+  --depth N            Optional: max dependency-impact traversal depth
+  --max-files N        Optional: cap on files analyzed
+  --workspace, -w      Workspace root directory (default: auto-detected)
+  --format, -f         Output format: text|json|toon|markdown|mermaid (default: text)
+  --help, -h           Show this help
+
+Examples:
+  graph-it review-pr --base origin/main
+  graph-it review-pr --base origin/main --head HEAD --format markdown
+`,
+  query: `graph-it query — Query the codebase with natural language
+
+Usage: graph-it query "<question>" [options]
+
+Arguments:
+  <question>          Natural language question about the codebase
+
+Options:
+  --depth N            Optional: call-graph traversal depth (default varies)
+  --token-budget N     Optional: cap on response size
+  --workspace, -w      Workspace root directory (default: auto-detected)
+  --format, -f         Output format: text|json|toon (default: text)
+  --help, -h           Show this help
+
+Description:
+  Uses ANTHROPIC_API_KEY (claude-haiku-4-5) or OPENAI_API_KEY +
+  OPENAI_BASE_URL + OPENAI_MODEL when set. Falls back to heuristic
+  keyword analysis (with a stderr warning) when no key is configured.
+
+Examples:
+  graph-it query "how does Spider crawl files"
+  graph-it query "what calls CallGraphIndexer" --depth 3
+`,
+  wiki: `graph-it wiki — Generate a navigable markdown wiki from the call graph
+
+Usage: graph-it wiki [options]
+
+Options:
+  --output <dir>       Output directory, relative to workspace root (default: wiki)
+  --scope <rel-path>   Restrict wiki to a relative path within the workspace
+  --exclude <pattern>  Glob-like pattern to exclude (repeatable)
+  --top N              Number of top hub files to include, 1-50 (default: 10)
+  --workspace, -w      Workspace root directory (default: auto-detected)
+  --format, -f         Output format: markdown|json|toon (default: markdown)
+  --help, -h           Show this help
+
+Description:
+  tests/, dist/, *.test.ts and similar are excluded automatically unless
+  --exclude is passed, which replaces the default exclusions.
+
+Examples:
+  graph-it wiki
+  graph-it wiki --output docs/wiki --top 15
+  graph-it wiki --scope src/analyzer --exclude "**/*.spec.ts"
+`,
+  stats: `graph-it stats — Session token stats
+
+Usage: graph-it stats [options]
+
+Options:
+  --stats-dir <dir>    Directory containing session stats files (default: .graph-it)
+  --format, -f         Output format: text|json|markdown (default: text)
+  --help, -h           Show this help
+
+Description:
+  Reports TOON encoding size vs. JSON equivalent and LLM usage recorded
+  across CLI/MCP sessions. Does not require a workspace scan.
+
+Examples:
+  graph-it stats
+  graph-it stats --format json
+`,
+  export: `graph-it export — Export dependency graph as standalone HTML
+
+Usage: graph-it export [scope] --format html [options]
+
+Arguments:
+  [scope]              Optional: relative path to scope the exported graph to
+
+Options:
+  --output, -o <file>  Output HTML file path (default: graph.html)
+  --format, -f          Must be "html" — this is the only supported format
+  --workspace, -w       Workspace root directory (default: auto-detected)
+  --help, -h            Show this help
+
+Examples:
+  graph-it export --format html
+  graph-it export src/analyzer --format html --output analyzer.html
+`,
   serve: `graph-it serve — Launch MCP stdio server
 
 Usage: graph-it serve [options]

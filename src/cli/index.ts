@@ -45,6 +45,16 @@ import { maybeNotifyCliUpdate } from "./versionCheck";
 // ============================================================================
 const VERSION = process.env.CLI_VERSION ?? "0.0.0-dev";
 
+// Global flags recognized by the top-level parseArgs call below. Kept as a
+// standalone table so findCommandStart() can skip their values when locating
+// where subcommand-specific args begin in raw argv.
+const GLOBAL_OPTIONS: Record<string, { type: "string" | "boolean"; short?: string }> = {
+  workspace: { type: "string", short: "w" },
+  format: { type: "string", short: "f" },
+  help: { type: "boolean", short: "h" },
+  version: { type: "boolean", short: "v" },
+};
+
 // Session stats: this process is the CLI entry point.
 sessionStats.setSource("cli");
 
@@ -99,8 +109,10 @@ Commands:
   tool <name>       Invoke any MCP tool: graph-it tool get_index_status
   install           Install CLI to system PATH (VS Code opt-in)
   update            Update graph-it to the latest version on npm
-  query <question>   Query the codebase with natural language
+  query <question>  Query the codebase with natural language
+  wiki              Generate a navigable markdown wiki: --output <dir>
   stats             Session token stats (TOON encoding size vs JSON equivalent + LLM usage)
+  export [scope]    Export dependency graph as standalone HTML: --format html --output <file>
 
 Options:
   --workspace, -w   Workspace root directory (default: auto-detected)
@@ -157,7 +169,7 @@ MCP Client Integration:
       }
     }
 
-  Run "graph-it tool --list" to see all 20 available MCP tools.
+  Run "graph-it tool --list" to see all 21 available MCP tools.
 
 Examples:
   graph-it scan
@@ -173,6 +185,10 @@ Examples:
   graph-it check src/api.ts
   graph-it review-pr --base origin/main --format markdown
   graph-it tool analyze_dependencies --filePath=/abs/path/file.ts
+  graph-it query "how does Spider crawl files"
+  graph-it wiki --output wiki --top 15
+  graph-it stats
+  graph-it export --format html --output graph.html
   graph-it update
 `.trimStart();
 
@@ -180,7 +196,31 @@ Examples:
 // Helpers
 // ============================================================================
 
-function commandWantsHelp(command: string, commandArgs: string[], rawArgvSlice: string[]): boolean {
+/**
+ * Find the index of `command` in raw argv, skipping over global flags and — for
+ * string-typed global flags (e.g. --workspace <path>) — their value, so a value
+ * that happens to equal the command name (or precede it) isn't mistaken for it.
+ */
+export function findCommandStart(argv: string[], command: string): number {
+  let i = 0;
+  while (i < argv.length) {
+    const token = argv[i];
+    if (token === command) return i;
+    const longName = token.replace(/^--/, "");
+    const shortEntry = token.startsWith("-") && !token.startsWith("--")
+      ? Object.entries(GLOBAL_OPTIONS).find(([, opt]) => `-${opt.short}` === token)
+      : undefined;
+    const optDef = GLOBAL_OPTIONS[longName] ?? shortEntry?.[1];
+    if (optDef?.type === "string" && i + 1 < argv.length) {
+      i += 2;
+      continue;
+    }
+    i += 1;
+  }
+  return -1;
+}
+
+export function commandWantsHelp(command: string, commandArgs: string[], rawArgvSlice: string[]): boolean {
   return commandArgs.includes("--help") || commandArgs.includes("-h") ||
     (rawArgvSlice.includes("--help") && rawArgvSlice.indexOf(command) < rawArgvSlice.indexOf("--help")) ||
     (rawArgvSlice.includes("-h") && rawArgvSlice.indexOf(command) < rawArgvSlice.indexOf("-h"));
@@ -221,12 +261,7 @@ async function main(): Promise<void> {
   try {
     parsedArgs = parseArgs({
       args: process.argv.slice(2),
-      options: {
-        workspace: { type: "string", short: "w" },
-        format: { type: "string", short: "f" },
-        help: { type: "boolean", short: "h" },
-        version: { type: "boolean", short: "v" },
-      },
+      options: GLOBAL_OPTIONS,
       allowPositionals: true,
       strict: false,
     });
@@ -237,7 +272,13 @@ async function main(): Promise<void> {
 
   const { values, positionals } = parsedArgs;
 
-  if (values.help) {
+  const [command, ...commandArgs] = positionals;
+
+  // --help/-h is a global flag recognized regardless of position, so
+  // `graph-it <command> --help` must resolve to per-command help, not the
+  // generic top-level HELP text. Only fall back to the generic HELP when
+  // no command was given at all.
+  if (values.help && !command) {
     process.stdout.write(HELP);
     process.exit(ExitCode.SUCCESS);
   }
@@ -247,8 +288,6 @@ async function main(): Promise<void> {
     process.exit(ExitCode.SUCCESS);
   }
 
-  const [command, ...commandArgs] = positionals;
-
   if (!command) {
     await handleNoCommand(values);
     return;
@@ -256,20 +295,20 @@ async function main(): Promise<void> {
 
   // Per-command --help dispatch (check both parsed positionals and raw argv flags)
   const rawArgvSlice = process.argv.slice(2);
-  if (commandWantsHelp(command, commandArgs, rawArgvSlice)) {
+  if (values.help || commandWantsHelp(command, commandArgs, rawArgvSlice)) {
     const { getCommandHelp } = await import("./commandHelp.js");
     process.stdout.write(getCommandHelp(command));
     process.exit(ExitCode.SUCCESS);
   }
 
-  // Preserve raw argv only for `tool`, where subcommand-specific flags may need
-  // to survive top-level parsing. Other commands should use parsed positionals so
-  // global flags like --workspace/--format are not treated as command args.
+  // Use raw argv (not the top-level parsed positionals) for every command's args.
+  // node:util's parseArgs({ strict: false }) silently swallows any subcommand flag
+  // it doesn't recognize (e.g. `wiki --output`, `query --depth`) into `values` and
+  // strips it from `positionals`, so subcommand parsers never see it. Slicing argv
+  // right after the command name preserves those flags untouched.
   const argvAfterBinary = process.argv.slice(2);
-  const commandPosInArgv = argvAfterBinary.findIndex(
-    (a, i) => a === command && !argvAfterBinary.slice(0, i).some(prev => !prev.startsWith("-") && prev !== command),
-  );
-  const rawCommandArgs = (command === "tool" || command === "architecture" || command === "review-pr") && commandPosInArgv >= 0
+  const commandPosInArgv = findCommandStart(argvAfterBinary, command);
+  const rawCommandArgs = commandPosInArgv >= 0
     ? argvAfterBinary.slice(commandPosInArgv + 1)
     : commandArgs;
 
@@ -418,8 +457,12 @@ async function dispatch(
   }
 }
 
-// Start
-main().catch((err) => {
-  process.stderr.write(`Fatal: ${err instanceof Error ? err.message : String(err)}\n`);
-  process.exit(ExitCode.GENERAL_ERROR);
-});
+// Start — guarded so importing this module (e.g. from tests, to reach the
+// exported pure helpers below) doesn't trigger a real CLI run + process.exit.
+// Bundled to CJS (esbuild), so require.main is the standard entry-point check.
+if (require.main === module) {
+  main().catch((err) => {
+    process.stderr.write(`Fatal: ${err instanceof Error ? err.message : String(err)}\n`);
+    process.exit(ExitCode.GENERAL_ERROR);
+  });
+}

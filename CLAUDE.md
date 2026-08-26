@@ -50,7 +50,7 @@ VS Code extension + standalone CLI + MCP server for AI-friendly dependency visua
 
 2. **`extension/`** — VS Code host. GraphProvider orchestrates 8+ services in `extension/services/`: BackgroundIndexingManager, CallGraphViewService, CommandRegistrationService, EditorEventsService, GraphViewService, SymbolViewService, WebviewMessageRouter, etc.
 
-3. **`mcp/`** — MCP server (stdio transport). **NO vscode imports**. 23 tools for LLM clients (Copilot, Claude, Cursor). Standalone Node.js process.
+3. **`mcp/`** — MCP server (stdio transport). **NO vscode imports**. 26 tools for LLM clients (Copilot, Claude, Cursor). Standalone Node.js process.
 
 4. **`webview/`** — React 19 browser context. ReactFlow for file/symbol graphs (`webview/components/reactflow/`), Cytoscape.js for live call graph (`webview/components/cytoscape/`). Entry points: `webview/index.tsx` → `dist/webview.js` and `webview/callgraph/index.tsx` → `dist/callgraph.js`.
 
