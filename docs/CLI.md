@@ -16,11 +16,17 @@ The `graph-it` CLI gives you full access to the dependency analysis engine of Gr
   - [summary](#summary)
   - [explain](#explain)
   - [path](#path)
+  - [path-in](#path-in)
+  - [check-dependencies](#check-dependencies)
+  - [cycles](#cycles)
+  - [architecture](#architecture)
   - [check](#check)
   - [trace](#trace)
+  - [review-pr](#review-pr)
   - [query](#query)
   - [stats](#stats)
   - [wiki](#wiki)
+  - [export](#export)
   - [tool](#tool)
   - [serve](#serve)
   - [install](#install)
@@ -473,6 +479,123 @@ graph-it path src/index.ts --format json | jq '.files | length'
 
 ---
 
+### path-in
+
+Find incoming dependencies — which files import a given target file.
+
+```
+graph-it path-in <file> [options]
+```
+
+**Arguments:**
+
+| Argument | Description |
+|----------|-------------|
+| `<file>` | Target file whose importers should be listed |
+
+**Options:**
+
+| Option | Default | Description |
+|--------|---------|-------------|
+| `--workspace, -w` | auto-detected | Project root |
+| `--format, -f` | `text` | Output format (`mermaid` generates a flowchart) |
+
+**Examples:**
+
+```bash
+graph-it path-in src/index.ts
+graph-it path-in src/index.ts --format mermaid
+```
+
+---
+
+### check-dependencies
+
+Check both incoming and outgoing dependencies for a file in one call — combines `path` and `path-in` for a single target.
+
+```
+graph-it check-dependencies <file> [options]
+```
+
+**Arguments:**
+
+| Argument | Description |
+|----------|-------------|
+| `<file>` | Target file to analyze |
+
+**Options:**
+
+| Option | Default | Description |
+|--------|---------|-------------|
+| `--workspace, -w` | auto-detected | Project root |
+| `--format, -f` | `text` | Output format |
+
+**Examples:**
+
+```bash
+graph-it check-dependencies src/index.ts
+```
+
+---
+
+### cycles
+
+List confirmed circular-dependency cycles that involve a given file.
+
+```
+graph-it cycles <file> [options]
+```
+
+**Arguments:**
+
+| Argument | Description |
+|----------|-------------|
+| `<file>` | Target file to inspect for cycles |
+
+**Options:**
+
+| Option | Default | Description |
+|--------|---------|-------------|
+| `--workspace, -w` | auto-detected | Project root |
+| `--format, -f` | `text` | Output format |
+
+**Examples:**
+
+```bash
+graph-it cycles src/index.ts
+```
+
+---
+
+### architecture
+
+Build the full workspace dependency architecture graph by aggregating direct dependencies across every source file.
+
+```
+graph-it architecture [options]
+```
+
+**Options:**
+
+| Option | Default | Description |
+|--------|---------|-------------|
+| `--maxFiles <N>` | unlimited | Cap on the number of analyzed source files |
+| `--workspace, -w` | auto-detected | Project root |
+| `--format, -f` | `text` | Output format (`toon` recommended for large graphs; `mermaid` for diagrams) |
+
+**Examples:**
+
+```bash
+graph-it architecture
+graph-it architecture --format mermaid
+graph-it architecture --format toon
+graph-it architecture --maxFiles 2000
+```
+
+> **Use case:** Bootstrap AI-assisted exploration of an unfamiliar codebase — pipe `--format toon` into an LLM prompt for a token-efficient architecture snapshot.
+
+---
+
 ### check
 
 Find unused exported symbols (dead code) — either workspace-wide, scoped to a directory, or for a single file.
@@ -750,9 +873,13 @@ graph-it wiki [options]
 | Option | Default | Description |
 |--------|---------|-------------|
 | `--output <dir>` | `wiki` | Output directory (relative to workspace root, or absolute) |
+| `--scope <rel-path>` | entire workspace | Restrict the wiki to a relative path within the workspace |
+| `--exclude <pattern>` | — | Glob-like pattern to exclude (repeatable). Replaces the default exclusions when passed |
 | `--top <N>` | `10` | Number of top hub files to list in the index (1–50) |
 | `--format <fmt>` | `markdown` | Output summary format: `markdown`, `json`, `toon` |
 | `--workspace, -w` | auto-detected | Project root |
+
+`tests/`, `dist/`, `*.test.ts` and similar are excluded automatically unless `--exclude` is passed.
 
 **Examples:**
 
@@ -761,6 +888,7 @@ graph-it wiki                                  # write to ./wiki/
 graph-it wiki --output docs/wiki               # write to ./docs/wiki/
 graph-it wiki --top 20 --format json           # JSON summary, top 20 hubs
 graph-it wiki --output /tmp/preview            # absolute output path
+graph-it wiki --scope src/analyzer --exclude "**/*.spec.ts"
 ```
 
 **Output structure:**
@@ -783,6 +911,37 @@ Each article contains:
 
 > **REPL equivalent:** Use `/wiki` inside `graph-it` interactive mode.
 > **MCP equivalent:** `graphitlive_generate_wiki` tool.
+
+---
+
+### export
+
+Export the dependency graph as a standalone, self-contained HTML file (no server required) — open it directly in a browser.
+
+```
+graph-it export [scope] --format html [options]
+```
+
+**Arguments:**
+
+| Argument | Description |
+|----------|-------------|
+| `[scope]` | Optional relative path to scope the exported graph to |
+
+**Options:**
+
+| Option | Default | Description |
+|--------|---------|-------------|
+| `--output, -o <file>` | `graph.html` | Output HTML file path |
+| `--format, -f` | — | Must be `html` — this is the only supported format for `export` |
+| `--workspace, -w` | auto-detected | Project root |
+
+**Examples:**
+
+```bash
+graph-it export --format html
+graph-it export src/analyzer --format html --output analyzer.html
+```
 
 ---
 
@@ -1020,7 +1179,7 @@ Requires an active internet connection and `npm` in `PATH`.
 
 ## MCP Tools Reference (via `graph-it tool`)
 
-The `graph-it tool` command provides direct access to all 21 analysis tools (the MCP server exposes 22 including `set_workspace`, which is server-management only and not needed in CLI context — see [Tool Count: CLI vs MCP](#tool-count-cli-vs-mcp)).
+The `graph-it tool` command provides direct access to 21 general-purpose analysis tools. The MCP server exposes 26 tools in total — the same 21 plus `review_pr`, `query_natural_language`, `generate_wiki`, and `get_session_stats` (which have first-class CLI commands: `review-pr`, `query`, `wiki`, `stats`), plus `set_workspace` (server-management only, not needed in CLI context — see [Tool Count: CLI vs MCP](#tool-count-cli-vs-mcp)).
 
 ### Tool Details
 
@@ -1464,13 +1623,16 @@ graph-it tool verify_dependency_usage \
 
 ## Tool Count: CLI vs MCP
 
-The CLI exposes **22 tools** via `graph-it tool --list`, while the MCP server provides **23 tools** in total. This is by design:
+The CLI exposes **21 tools** via `graph-it tool --list`, while the MCP server provides **26 tools** in total. This is by design:
 
 | Context | Tool count | Notes |
 |---------|-----------|-------|
-| `graph-it tool --list` | 22 | All analysis tools |
-| MCP server (`graph-it serve`) | 23 | Same 22 + `set_workspace` |
+| `graph-it tool --list` | 21 | General-purpose analysis tools |
+| MCP server (`graph-it serve`) | 26 | Same 21 + 5 excluded (see below) |
 
-The extra tool, `set_workspace`, is a **server management tool** — it tells a running MCP server instance which directory to analyze. In CLI context this is handled by the `--workspace` flag (or auto-detection from `cwd`), so it is intentionally excluded from the CLI tool list.
+The 5 tools excluded from `tool --list` fall into two groups:
 
-**Summary:** The CLI gives you 100% parity with the MCP analysis tools. `set_workspace` is the only tool that exists in MCP but not in the CLI, and it would be redundant there.
+- **`set_workspace`** — a **server management tool**. It tells a running MCP server instance which directory to analyze. In CLI context this is handled by the `--workspace` flag (or auto-detection from `cwd`), so it is intentionally excluded from the CLI tool list.
+- **`review_pr`, `query_natural_language`, `generate_wiki`, `get_session_stats`** — each has a dedicated, first-class CLI command instead of being invoked generically via `tool`: [`review-pr`](#review-pr), [`query`](#query), [`wiki`](#wiki), [`stats`](#stats).
+
+**Summary:** The CLI gives you 100% parity with the MCP tools. Nothing in MCP is unreachable from the CLI — `set_workspace` is redundant in CLI context, and the other 4 tools are exposed via friendlier dedicated commands rather than the generic `tool` invocation.

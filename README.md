@@ -433,7 +433,7 @@ graph-it check <file>           # Detect unused exported symbols in a single fil
 graph-it query "<question>"     # Natural language query over the call graph (LLM or heuristic fallback)
 graph-it wiki                   # Generate a navigable markdown wiki from the call graph
 graph-it serve                  # Launch MCP stdio server (for AI clients)
-graph-it tool --list            # List all 22 CLI analysis tools
+graph-it tool --list            # List all 21 CLI analysis tools
 graph-it tool <mcp-tool> [args] # Run any MCP tool directly from the terminal
 graph-it export [path] [--format html]  # Export graph as standalone HTML (vis.js)
 graph-it update                 # Update graph-it to the latest version
@@ -529,7 +529,7 @@ Graph-It-Live includes an optional **MCP server** that exposes its full analysis
 
 ### Available Tools
 
-The MCP server exposes **23 tools** for AI/LLM consumption. The 22 analysis tools, excluding the server-management-only `set_workspace`, are also available as **native LM Tools** (`#graphResolve`, `#graphBreaking`, `#graphCallGraph`, etc.) directly in Copilot Agent mode — no MCP server required for those.
+The MCP server exposes **26 tools** for AI/LLM consumption. The 21 general-purpose analysis tools, excluding the server-management-only `set_workspace` and the 4 tools with dedicated CLI commands (`review-pr`, `query`, `wiki`, `stats`), are also available as **native LM Tools** (`#graphResolve`, `#graphBreaking`, `#graphCallGraph`, etc.) directly in Copilot Agent mode — no MCP server required for those.
 
 | Tool | Description |
 | :--- | :---------- |
