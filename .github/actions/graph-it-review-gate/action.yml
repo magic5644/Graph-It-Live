@@ -24,7 +24,10 @@ inputs:
     description: "Optional gate threshold: high or critical. Empty keeps the gate informative."
     default: ""
   cli-version:
-    description: Optional npm version, tag, or range for @magic5644/graph-it-live. Empty installs latest.
+    description: Optional npm version, tag, or range for @magic5644/graph-it-live. Empty installs latest. Ignored when local-dist is set.
+    required: false
+  local-dist:
+    description: Path (relative to GITHUB_WORKSPACE) to a locally-built graph-it.js CLI entry point (e.g. dist/graph-it.js). When set, skips the npm install/version-check steps and runs this build directly — use this to review a PR against the exact code under test instead of the last published npm release.
     required: false
   max-depth:
     description: Maximum transitive symbol-impact depth (1-10).
@@ -37,6 +40,7 @@ runs:
   steps:
     - name: Install Graph-It-Live CLI
       id: install-cli
+      if: inputs.local-dist == ''
       shell: bash
       env:
         CLI_VERSION: ${{ inputs.cli-version }}
@@ -51,6 +55,7 @@ runs:
         printf 'cli-dir=%s\n' "$CLI_DIR" >> "$GITHUB_OUTPUT"
     - name: Validate installed Graph-It-Live CLI version
       id: cli-version
+      if: inputs.local-dist == ''
       shell: bash
       env:
         CLI_DIR: ${{ steps.install-cli.outputs.cli-dir }}
@@ -62,12 +67,19 @@ runs:
       shell: bash
       env:
         CLI_DIR: ${{ steps.install-cli.outputs.cli-dir }}
+        LOCAL_DIST: ${{ inputs.local-dist }}
         BASE_REF: ${{ inputs.base-ref || github.event.pull_request.base.sha || 'HEAD~1' }}
         MAX_DEPTH: ${{ inputs.max-depth }}
         MAX_FILES: ${{ inputs.max-files }}
       run: |
+        set -euo pipefail
         cd "$GITHUB_WORKSPACE"
-        npx --no-install --prefix "$CLI_DIR" graph-it review-pr --workspace "$GITHUB_WORKSPACE" --base "$BASE_REF" --depth "$MAX_DEPTH" --max-files "$MAX_FILES" --format json > "$RUNNER_TEMP/graph-it-review.json"
+        if [ -n "$LOCAL_DIST" ]; then
+          CLI_CMD=(node "$GITHUB_WORKSPACE/$LOCAL_DIST")
+        else
+          CLI_CMD=(npx --no-install --prefix "$CLI_DIR" graph-it)
+        fi
+        "${CLI_CMD[@]}" review-pr --workspace "$GITHUB_WORKSPACE" --base "$BASE_REF" --depth "$MAX_DEPTH" --max-files "$MAX_FILES" --format json > "$RUNNER_TEMP/graph-it-review.json"
         node -e 'const fs=require("node:fs"); const result=JSON.parse(fs.readFileSync(process.env.RUNNER_TEMP+"/graph-it-review.json","utf8")); fs.appendFileSync(process.env.GITHUB_OUTPUT, "risk="+result.risk+"\nscore="+result.score+"\n")'
     - name: Update review comment
       if: inputs.comment == 'true' && github.event_name == 'pull_request' && inputs.token != ''
