@@ -184,6 +184,7 @@ docs/AGENT_*
 .antigravitycli
 .prompts
 .agents/*
+.qoder
 
 
 codemaps/
