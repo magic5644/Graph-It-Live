@@ -173,6 +173,74 @@ describe("formatOutput - toon", () => {
     // Primitive rows cannot be TOON-encoded; output falls back to JSON
     expect(() => JSON.parse(out)).not.toThrow();
   });
+
+  it("produces toon rows for check-dependencies (nested outgoing/incoming), not a JSON fallback", () => {
+    const dependencyData = {
+      filePath: "/workspace/src/index.ts",
+      relativePath: "src/index.ts",
+      outgoing: {
+        dependencyCount: 1,
+        dependencies: [{ path: "src/utils.ts", relativePath: "src/utils.ts", type: "import", line: 1 }],
+      },
+      incoming: {
+        referencingFileCount: 1,
+        referencingFiles: [{ path: "src/app.ts", relativePath: "src/app.ts", type: "import", line: 2 }],
+      },
+    };
+
+    const out = formatOutput(dependencyData, "toon", "check-dependencies");
+    expect(out).toMatch(/dependencies\(direction,path/);
+    expect(out).toContain("outgoing");
+    expect(out).toContain("incoming");
+    expect(out).toContain("Token Savings");
+    // A JSON fallback would pretty-print with 2-space indented braces; TOON rows should not.
+    expect(() => JSON.parse(out)).toThrow();
+  });
+
+  it("produces toon rows for explain (nested graph.nodes), not a JSON fallback", () => {
+    const explainData = {
+      filePath: "/workspace/src/index.ts",
+      graph: {
+        filePath: "/workspace/src/index.ts",
+        nodes: [{ id: "src/index.ts:foo", name: "foo", kind: 13 }],
+        edges: [],
+        hasCycle: false,
+      },
+      language: "typescript",
+      analysisTimeMs: 5,
+    };
+
+    const out = formatOutput(explainData, "toon", "explain");
+    expect(out).toContain("Token Savings");
+    expect(() => JSON.parse(out)).toThrow();
+  });
+
+  it("produces toon rows for check (unusedSymbols), not a JSON fallback", () => {
+    const checkData = {
+      filePath: "/workspace/src/index.ts",
+      relativePath: "src/index.ts",
+      unusedCount: 1,
+      unusedSymbols: [{ name: "foo", kind: "FunctionDeclaration", line: 1, isExported: true }],
+      totalExportedSymbols: 1,
+      unusedPercentage: 100,
+    };
+
+    const out = formatOutput(checkData, "toon", "check");
+    expect(out).toContain("Token Savings");
+    expect(() => JSON.parse(out)).toThrow();
+  });
+
+  it("falls back to JSON for cycles with no confirmed cycles (empty array, nothing to encode)", () => {
+    const cyclesData = {
+      filePath: "/workspace/src/index.ts",
+      relativePath: "src/index.ts",
+      cycleCount: 0,
+      confirmedCycles: [],
+    };
+
+    const out = formatOutput(cyclesData, "toon", "cycles");
+    expect(() => JSON.parse(out)).not.toThrow();
+  });
 });
 
 describe("formatOutput - markdown", () => {
