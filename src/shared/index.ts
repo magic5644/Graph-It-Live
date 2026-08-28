@@ -19,7 +19,7 @@ export type { ILogger, LogLevel, LoggerBackend } from './logger';
 export type * from './types';
 
 // TOON (Token-Oriented Object Notation) format
-export { jsonToToon, toonToJson, estimateTokenSavings } from './toon';
+export { jsonToToon, toonToJson, estimateTokenSavings, estimateTokens } from './toon';
 export type { ToonOptions } from './toon';
 
 // Query types

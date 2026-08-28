@@ -8,12 +8,12 @@
  *   2. scoreSeedNodes(keywords) — FTS5 SQL query
  *   3. bfsFromSeeds(db, seeds, depth) — multi-seed BFS traversal
  *   4. fetchEdges between visited nodes
- *   5. toToon(nodes, edges, budget) — compact serialization
+ *   5. toCompactJson(nodes, edges, budget) — compact serialization
  */
 
 import { normalizePath } from '@/shared/path';
 import type { QueryRequest, QueryResult, QueryResultEdge, QueryResultNode } from '@/shared/query-types';
-import { estimateTokenSavings } from '@/shared/toon';
+import { estimateTokens } from '@/shared/toon';
 import type { Database } from 'sql.js';
 import { bfsFromSeeds, splitIdentifier } from './callgraph/CallGraphQuery';
 import type { LlmClient } from './llm/LlmClient';
@@ -103,8 +103,8 @@ export class QueryEngine {
     // 5. Fetch edges between visited nodes
     const edges = this.fetchEdges(visitedIds);
 
-    // 6. Serialize to TOON if requested
-    const { toon, truncated, tokenEstimate } = this.toToon(nodes, edges, tokenBudget);
+    // 6. Serialize to a compact JSON string if requested
+    const { json, truncated, tokenEstimate } = this.toCompactJson(nodes, edges, tokenBudget);
 
     const totalMs = Date.now() - t0;
 
@@ -116,7 +116,7 @@ export class QueryEngine {
       edges,
       nodeCount: nodes.length,
       edgeCount: edges.length,
-      toon,
+      json,
       meta: {
         llmProvider,
         keywordExtractionMs,
@@ -342,11 +342,11 @@ export class QueryEngine {
    * Format: {nodes:[{id,n,t,p,l,r},...],edges:[{src,tgt,rel},...],
    *          nodeCount,edgeCount,question,keywords,truncated}
    */
-  toToon(
+  toCompactJson(
     nodes: QueryResultNode[],
     edges: QueryResultEdge[],
     tokenBudget: number,
-  ): { toon: string; truncated: boolean; tokenEstimate: number } {
+  ): { json: string; truncated: boolean; tokenEstimate: number } {
     const compactNodes = nodes.map(n => ({
       id: n.id,
       n: n.name,
@@ -371,42 +371,53 @@ export class QueryEngine {
     };
 
     const fullJson = JSON.stringify(payload);
-    const { jsonTokens } = estimateTokenSavings(fullJson, fullJson);
+    const jsonTokens = estimateTokens(fullJson);
 
     if (jsonTokens <= tokenBudget) {
-      return { toon: fullJson, truncated: false, tokenEstimate: jsonTokens };
+      return { json: fullJson, truncated: false, tokenEstimate: jsonTokens };
     }
 
-    // Truncate nodes to fit within budget
-    const overhead = JSON.stringify({ ...payload, nodes: [], edges: [], truncated: true }).length;
-    const budgetChars = tokenBudget * 4 - overhead;
-
-    let nodeChars = 0;
-    const fittingNodes: typeof compactNodes = [];
-    for (const n of compactNodes) {
-      const s = JSON.stringify(n);
-      if (nodeChars + s.length > budgetChars) break;
-      fittingNodes.push(n);
-      nodeChars += s.length + 1; // +1 for comma
-    }
-
-    const fittingNodeIds = new Set(fittingNodes.map(n => n.id));
-    const fittingEdges = compactEdges.filter(
-      e => fittingNodeIds.has(e.src) && fittingNodeIds.has(e.tgt),
-    );
-
-    const truncatedPayload = {
-      nodes: fittingNodes,
-      edges: fittingEdges,
-      nodeCount: nodes.length,
-      edgeCount: edges.length,
-      truncated: true,
+    // Truncate nodes to fit within budget.
+    // Selection uses the REAL tokenizer (estimateTokens), not a chars/4 heuristic:
+    // char-length approximations under-truncate by ~2x on realistic identifiers/paths
+    // (cl100k_base ratio is well below 4 chars/token), letting the payload blow past
+    // tokenBudget after re-verification. Binary search bounds tokenizer calls to
+    // O(log n) instead of one call per node.
+    const buildTruncated = (k: number): { json: string; tokens: number } => {
+      const selectedNodes = compactNodes.slice(0, k);
+      const selectedIds = new Set(selectedNodes.map(n => n.id));
+      const selectedEdges = compactEdges.filter(
+        e => selectedIds.has(e.src) && selectedIds.has(e.tgt),
+      );
+      const truncatedPayload = {
+        nodes: selectedNodes,
+        edges: selectedEdges,
+        nodeCount: nodes.length,
+        edgeCount: edges.length,
+        truncated: true,
+      };
+      const json = JSON.stringify(truncatedPayload);
+      return { json, tokens: estimateTokens(json) };
     };
 
-    const truncatedJson = JSON.stringify(truncatedPayload);
-    const { jsonTokens: truncTokens } = estimateTokenSavings(truncatedJson, truncatedJson);
+    // Node count k -> token count is monotonic non-decreasing (adding a node can
+    // only add matching edges, never remove any), so binary search for the largest
+    // k whose real token count still fits the budget is safe.
+    let lo = 0;
+    let hi = compactNodes.length;
+    while (lo < hi) {
+      const mid = Math.ceil((lo + hi) / 2);
+      const { tokens } = buildTruncated(mid);
+      if (tokens <= tokenBudget) {
+        lo = mid;
+      } else {
+        hi = mid - 1;
+      }
+    }
 
-    return { toon: truncatedJson, truncated: true, tokenEstimate: truncTokens };
+    const { json: truncatedJson, tokens: truncTokens } = buildTruncated(lo);
+
+    return { json: truncatedJson, truncated: true, tokenEstimate: truncTokens };
   }
 }
 

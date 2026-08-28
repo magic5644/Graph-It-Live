@@ -40,7 +40,13 @@ export interface QueryResult {
   edges: QueryResultEdge[];
   nodeCount: number;
   edgeCount: number;
-  toon?: string;
+  /**
+   * Compact JSON string (short keys: n/t/p/l/r for nodes, src/tgt/rel for edges).
+   * Naming asymmetry: this is JAMAIS du vrai TOON à cette couche — it is
+   * mcp/tools/query.ts (QueryNaturalLanguageResult.toon) that encodes the
+   * actual TOON format from this field.
+   */
+  json?: string;
   meta: {
     llmProvider: 'anthropic' | 'openai-compatible' | 'vscode-lm' | 'none';
     keywordExtractionMs: number;

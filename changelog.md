@@ -1,5 +1,27 @@
 # Changelog
 
+## Unreleased
+
+### Fixed — Breaking
+
+- **MCP tool `query_natural_language` — `toon` field was JSON, not TOON**: The `outputFormat: 'toon'` branch (default) returned a JSON passthrough of the analyzer's compact payload under the `toon` field name, instead of a real TOON encoding. Fixed to produce a genuine TOON string (`# nodeCount=... edgeCount=... truncated=...` meta line + `nodes(...)` / `edges(...)` header+rows blocks). The field name `toon` is unchanged (see `docs/architecture/ADR-S2-01-toon-field-mcp-compat.md`); only its content changed.
+
+  **Before**:
+  ```json
+  {"nodes":[{"id":"a","n":"funcA","t":"function","p":"src/a.ts","l":10,"r":1}],"edges":[{"src":"a","tgt":"b","rel":"CALLS"}],"nodeCount":1,"edgeCount":1,"truncated":false}
+  ```
+
+  **After**:
+  ```
+  # nodeCount=1 edgeCount=1 truncated=false
+  nodes(id,n,t,p,l,r)
+  [a,funcA,function,src/a.ts,10,1]
+  edges(src,tgt,rel)
+  [a,b,CALLS]
+  ```
+
+  A JSON-strict consumer of `result.toon` (e.g. `JSON.parse(result.toon)`) will now get an explicit parse error instead of silently succeeding on the wrong format. `meta.tokenEstimate` is now computed on the real TOON output. `MCP_TOOL_VERSION` bumped `1.0.0` → `1.1.0` as an informational signal (see `docs/architecture/TOON_FORMAT.md`).
+
 ## v1.14.0
 
 ### Fixed

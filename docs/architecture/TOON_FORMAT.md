@@ -124,6 +124,39 @@ All MCP tools now accept a `format` parameter:
 
 The server automatically suggests TOON format for large datasets (>10 items).
 
+#### Fixed — Breaking: `query_natural_language` `toon` field (v1.1.0, ADR-S2-01)
+
+Prior to this fix, the `query_natural_language` MCP tool's `outputFormat: 'toon'`
+branch (the default) returned a **JSON passthrough** of the analyzer's compact
+payload — not real TOON — despite the field being named `toon`. A client doing
+`JSON.parse(result.toon)` worked by accident; a client expecting header+rows
+TOON got JSON instead.
+
+The field name `toon` is unchanged (see
+`docs/architecture/ADR-S2-01-toon-field-mcp-compat.md` for the rationale), but
+its content is now a real TOON encoding: a `#`-prefixed meta line followed by
+two TOON blocks (`nodes(...)` / `edges(...)`).
+
+**Before** (JSON passthrough, mislabeled as `toon`):
+```json
+{"nodes":[{"id":"a","n":"funcA","t":"function","p":"src/a.ts","l":10,"r":1}],"edges":[{"src":"a","tgt":"b","rel":"CALLS"}],"nodeCount":1,"edgeCount":1,"truncated":false}
+```
+
+**After** (real TOON):
+```
+# nodeCount=1 edgeCount=1 truncated=false
+nodes(id,n,t,p,l,r)
+[a,funcA,function,src/a.ts,10,1]
+edges(src,tgt,rel)
+[a,b,CALLS]
+```
+
+Detect the fixed format by the leading `# nodeCount=... edgeCount=... truncated=...`
+meta line, or by the presence of `nodes(...)` / `edges(...)` TOON headers. The
+`MCP_TOOL_VERSION` constant (`src/mcp/types.ts`) was bumped `1.0.0` → `1.1.0` as
+an informational signal only — it is not read by the MCP SDK for protocol
+negotiation.
+
 #### Token Savings Metadata
 
 When using TOON format, responses include token savings information:

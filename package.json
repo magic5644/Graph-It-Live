@@ -1143,6 +1143,7 @@
     "chokidar": "^5.0.0",
     "cytoscape": "^3.34.2",
     "cytoscape-fcose": "^2.2.0",
+    "gpt-tokenizer": "^4.0.0",
     "ink": "^7.1.1",
     "react": "^19.2.8",
     "react-devtools-core": "^6.1.5",

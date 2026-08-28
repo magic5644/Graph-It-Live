@@ -3,7 +3,7 @@
  */
 
 import { describe, it, expect } from 'vitest';
-import { jsonToToon, toonToJson, estimateTokenSavings } from '../../src/shared/toon';
+import { jsonToToon, toonToJson, estimateTokenSavings, estimateTokens } from '../../src/shared/toon';
 
 describe('TOON Format', () => {
   describe('jsonToToon', () => {
@@ -268,6 +268,36 @@ describe('TOON Format', () => {
 
       // TOON should save at least 30% for structured data
       expect(savings.savingsPercent).toBeGreaterThan(30);
+    });
+
+    it('should guard against division by zero when jsonStr is empty', () => {
+      const savings = estimateTokenSavings('', '');
+
+      expect(savings.jsonTokens).toBe(0);
+      expect(savings.toonTokens).toBe(0);
+      expect(savings.savings).toBe(0);
+      expect(savings.savingsPercent).toBe(0);
+      expect(savings.savingsPercent).not.toBeNaN();
+    });
+  });
+
+  describe('estimateTokens', () => {
+    it('returns 0 for an empty string', () => {
+      expect(estimateTokens('')).toBe(0);
+    });
+
+    it('returns a positive token count for a short string', () => {
+      const tokens = estimateTokens('hello world');
+      expect(tokens).toBeGreaterThan(0);
+      // Real tokenizer, not chars/4 heuristic — sanity bound only.
+      expect(tokens).toBeLessThan('hello world'.length);
+    });
+
+    it('returns a larger token count for a longer string', () => {
+      const shortTokens = estimateTokens('hello');
+      const longStr = 'hello world, this is a much longer string with many more tokens in it';
+      const longTokens = estimateTokens(longStr);
+      expect(longTokens).toBeGreaterThan(shortTokens);
     });
   });
 

@@ -321,10 +321,10 @@ describe('QueryEngine.scoreSeedNodes', () => {
 });
 
 // ---------------------------------------------------------------------------
-// QueryEngine.toToon tests
+// QueryEngine.toCompactJson tests
 // ---------------------------------------------------------------------------
 
-describe('QueryEngine.toToon', () => {
+describe('QueryEngine.toCompactJson', () => {
   let db: Database;
 
   beforeEach(async () => {
@@ -340,8 +340,8 @@ describe('QueryEngine.toToon', () => {
     ];
     const edges = [{ source: 'a', target: 'b', relation: 'CALLS' as const }];
 
-    const { toon } = engine.toToon(nodes, edges, 4000);
-    const parsed = JSON.parse(toon) as Record<string, unknown>;
+    const { json } = engine.toCompactJson(nodes, edges, 4000);
+    const parsed = JSON.parse(json) as Record<string, unknown>;
 
     expect(parsed).toHaveProperty('nodes');
     expect(parsed).toHaveProperty('edges');
@@ -360,7 +360,7 @@ describe('QueryEngine.toToon', () => {
       { id: 'a', name: 'funcA', type: 'function', path: '/src/a.ts', relevanceScore: 1 },
     ];
 
-    const { truncated } = engine.toToon(nodes, [], 4000);
+    const { truncated } = engine.toCompactJson(nodes, [], 4000);
     expect(truncated).toBe(false);
   });
 
@@ -376,8 +376,116 @@ describe('QueryEngine.toToon', () => {
       relevanceScore: i,
     }));
 
-    const { truncated } = engine.toToon(nodes, [], 10); // tiny budget
+    // Budget=10 is smaller than the fixed JSON overhead itself (empty
+    // nodes/edges arrays + nodeCount/edgeCount/truncated keys already cost
+    // more tokens than this), so even zero nodes cannot fit — this case
+    // cannot honor the budget by construction. See the realistic 500/4000
+    // budget tests below for the actual budget-respecting guarantee.
+    const { truncated } = engine.toCompactJson(nodes, [], 10); // tiny budget
     expect(truncated).toBe(true);
+  });
+
+  it('edges are still correctly filtered by fittingNodeIds after truncation', () => {
+    const engine = new QueryEngine(db, null);
+    const nodes = Array.from({ length: 50 }, (_, i) => ({
+      id: `node-${i}`,
+      name: `someVeryLongFunctionNameThatTakesUpSpace${i}`,
+      type: 'function',
+      path: `/workspace/src/very/long/path/to/file${i}.ts`,
+      startLine: i * 10,
+      relevanceScore: i,
+    }));
+    // Edge chaining consecutive nodes plus one edge referencing a node
+    // guaranteed to be truncated out (last one).
+    const edges = nodes.slice(0, -1).map((n, i) => ({
+      source: n.id,
+      target: nodes[i + 1].id,
+      relation: 'CALLS' as const,
+    }));
+
+    const { json, truncated } = engine.toCompactJson(nodes, edges, 20); // tiny budget
+    expect(truncated).toBe(true);
+    const parsed = JSON.parse(json) as { nodes: { id: string }[]; edges: { src: string; tgt: string }[] };
+    const fittingIds = new Set(parsed.nodes.map(n => n.id));
+    for (const edge of parsed.edges) {
+      expect(fittingIds.has(edge.src)).toBe(true);
+      expect(fittingIds.has(edge.tgt)).toBe(true);
+    }
+  });
+
+  it.each([500, 4000])(
+    'respects the real token budget (%i) when truncating realistic identifiers/paths — ' +
+    'regression guard against the chars/4 selection heuristic that let payloads ' +
+    'overshoot the announced budget by up to ~88%',
+    (tokenBudget) => {
+      const engine = new QueryEngine(db, null);
+
+      // Realistic camelCase symbol names and deep repo-like paths — short
+      // synthetic ids like "a"/"b" hide the chars/4 vs real-tokenizer gap
+      // because they compress almost 1:1 with either estimator.
+      const realisticNames = [
+        'normalizePathForCrossPlatformComparison',
+        'buildCallGraphIndexFromTreeSitterQueries',
+        'resolveWorkspaceRelativeImportSpecifier',
+        'extractSymbolReferencesFromAstNode',
+        'computeReverseIndexLazyCleanupSchedule',
+        'serializeCompactJsonWithShortKeys',
+        'detectCyclicDependenciesInCallGraph',
+        'estimateTokenUsageForToonEncoding',
+        'registerBackgroundIndexingManagerService',
+        'dispatchWebviewMessageToRouterHandlers',
+      ];
+      const realisticDirs = [
+        'src/analyzer/callgraph/GraphExtractor',
+        'src/analyzer/callgraph/CallGraphIndexer',
+        'src/extension/services/BackgroundIndexingManager',
+        'src/extension/services/WebviewMessageRouter',
+        'src/webview/components/reactflow/GraphView',
+        'src/webview/components/cytoscape/CallGraphPanel',
+        'src/mcp/tools/query',
+        'src/shared/path',
+      ];
+
+      const nodeCount = 400;
+      const nodes = Array.from({ length: nodeCount }, (_, i) => ({
+        id: `node-${i}`,
+        name: `${realisticNames[i % realisticNames.length]}${i}`,
+        type: i % 3 === 0 ? 'function' : i % 3 === 1 ? 'method' : 'class',
+        path: `${realisticDirs[i % realisticDirs.length]}/file${i}.ts`,
+        startLine: (i * 7) % 500,
+        relevanceScore: nodeCount - i,
+      }));
+      const edges = nodes.slice(0, -1).map((n, i) => ({
+        source: n.id,
+        target: nodes[i + 1].id,
+        relation: 'CALLS' as const,
+      }));
+
+      const { truncated, tokenEstimate } = engine.toCompactJson(nodes, edges, tokenBudget);
+
+      // With 400 realistic nodes this must actually trigger truncation for
+      // both the 500 and 4000 budgets — otherwise the test proves nothing.
+      expect(truncated).toBe(true);
+      expect(tokenEstimate).toBeLessThanOrEqual(tokenBudget);
+    },
+  );
+
+  it('tokenEstimate matches estimateTokens(json) — regression guard against the ' +
+     'former estimateTokenSavings(fullJson, fullJson) misuse', async () => {
+    // Regression guard: toCompactJson previously misused
+    // estimateTokenSavings(fullJson, fullJson) purely to read jsonTokens,
+    // ignoring the rest of the return value. It now calls estimateTokens()
+    // directly — the `estimateTokenSavings` import was removed from
+    // QueryEngine.ts entirely.
+    const { estimateTokens } = await import('../../src/shared/toon');
+    const engine = new QueryEngine(db, null);
+    const nodes = [
+      { id: 'a', name: 'funcA', type: 'function', path: '/src/a.ts', relevanceScore: 1 },
+    ];
+
+    const { json, tokenEstimate } = engine.toCompactJson(nodes, [], 4000);
+
+    expect(tokenEstimate).toBe(estimateTokens(json));
   });
 });
 
@@ -412,7 +520,7 @@ describe('QueryEngine.query (end-to-end)', () => {
     expect(result.extractedKeywords).toContain('Spider');
     expect(result.meta.totalMs).toBeGreaterThanOrEqual(0);
     expect(result.nodeCount).toBeGreaterThanOrEqual(0);
-    expect(result.toon).toBeDefined();
+    expect(result.json).toBeDefined();
     expect(mockLlm.calls).toHaveLength(1);
     expect(mockLlm.calls[0].options).toEqual({ maxTokens: 256, temperature: 0 });
     expect(mockLlm.calls[0].messages).toHaveLength(2);

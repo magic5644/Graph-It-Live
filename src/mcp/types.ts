@@ -25,7 +25,7 @@ import {
 // Tool Version (for metadata)
 // ============================================================================
 
-export const MCP_TOOL_VERSION = "1.0.0";
+export const MCP_TOOL_VERSION = "1.1.0";
 
 // ============================================================================
 // Worker Message Protocol
@@ -596,7 +596,13 @@ export const QueryNaturalLanguageParamsSchema = z.object({
     .enum(["toon", "json"])
     .default("toon")
     .optional()
-    .describe("Output format: 'toon' (default) or 'json'"),
+    .describe(
+      "Output format. 'toon' (default): compact TOON encoding (header+rows), " +
+        "typically 30-50% fewer tokens than JSON for node/edge lists — prefer this " +
+        "unless you need to re-parse structured JSON programmatically. " +
+        "'json': short-key JSON object per node/edge — use when the calling client " +
+        "needs to JSON.parse() the result directly (e.g. building its own graph structure).",
+    ),
 });
 export type QueryNaturalLanguageParams = z.infer<typeof QueryNaturalLanguageParamsSchema>;
 
