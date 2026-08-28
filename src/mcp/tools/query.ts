@@ -11,8 +11,34 @@
 
 import { QueryEngine } from "../../analyzer/QueryEngine";
 import type { QueryRequest, QueryResultEdge, QueryResultNode } from "../../shared/query-types";
+import { estimateTokens, jsonToToon } from "../../shared/toon";
 import { z } from "zod/v4";
 import { workerState } from "../shared/state";
+
+// ---------------------------------------------------------------------------
+// TOON encoding of the compact composite JSON payload (ADR-S2-01)
+//
+// QueryEngine.toCompactJson() returns a compact JSON string (`QueryResult.json`)
+// that is NOT TOON — it is a short-key JSON object. This function converts that
+// compact JSON into a real TOON encoding (2 blocks: nodes/edges + a meta line)
+// for the MCP `toon` output field. See docs/architecture/ADR-S2-01-toon-field-mcp-compat.md.
+// ---------------------------------------------------------------------------
+
+interface CompactQueryPayload {
+  nodes: Record<string, unknown>[];
+  edges: Record<string, unknown>[];
+  nodeCount: number;
+  edgeCount: number;
+  truncated: boolean;
+}
+
+function encodeCompositeAsToon(compactJsonStr: string): string {
+  const payload = JSON.parse(compactJsonStr) as CompactQueryPayload;
+  const nodesToon = jsonToToon(payload.nodes, { objectName: "nodes" });
+  const edgesToon = jsonToToon(payload.edges, { objectName: "edges" });
+  const metaLine = `# nodeCount=${payload.nodeCount} edgeCount=${payload.edgeCount} truncated=${payload.truncated}`;
+  return [metaLine, nodesToon, edgesToon].join("\n");
+}
 
 // ---------------------------------------------------------------------------
 // Zod schema (exported for mcpServer registration)
@@ -48,7 +74,13 @@ export const QueryNaturalLanguageSchema = z.object({
     .enum(["toon", "json"])
     .default("toon")
     .optional()
-    .describe("Output format: 'toon' (token-optimized, default) or 'json'"),
+    .describe(
+      "Output format. 'toon' (default): compact TOON encoding (header+rows), " +
+        "typically 30-50% fewer tokens than JSON for node/edge lists — prefer this " +
+        "unless you need to re-parse structured JSON programmatically. " +
+        "'json': short-key JSON object per node/edge — use when the calling client " +
+        "needs to JSON.parse() the result directly (e.g. building its own graph structure).",
+    ),
 });
 
 export type QueryNaturalLanguageParams = z.infer<typeof QueryNaturalLanguageSchema>;
@@ -62,7 +94,12 @@ export interface QueryNaturalLanguageResult {
   extractedKeywords: string[];
   nodeCount: number;
   edgeCount: number;
-  /** TOON-format string when outputFormat='toon' */
+  /**
+   * Vrai encodage TOON (2 blocs nodes/edges + ligne meta), reconstruit à partir
+   * de QueryResult.json (JSON compact, analyzer). Asymétrie de nommage
+   * volontaire : QueryResult.json (analyzer) n'est JAMAIS du TOON ; ce champ
+   * (MCP) l'est. Voir ADR-S2-01-toon-field-mcp-compat.md.
+   */
   toon?: string;
   /** Full JSON payload when outputFormat='json' */
   nodes?: QueryResultNode[];
@@ -161,13 +198,19 @@ export async function executeQueryNaturalLanguage(
     };
   }
 
-  // Default: toon
+  // Default: toon — result.json (analyzer) is compact JSON, NOT toon; encode it.
+  if (!result.json) {
+    throw new Error(
+      "QueryEngine.query() did not return a compact JSON payload (result.json) for outputFormat='toon'.",
+    );
+  }
+  const toonOutput = encodeCompositeAsToon(result.json);
   return {
     question: result.question,
     extractedKeywords: result.extractedKeywords,
     nodeCount: result.nodeCount,
     edgeCount: result.edgeCount,
-    toon: result.toon,
-    meta: result.meta,
+    toon: toonOutput,
+    meta: { ...result.meta, tokenEstimate: estimateTokens(toonOutput) },
   };
 }

@@ -20,6 +20,8 @@
  * NO import * as vscode from 'vscode' allowed!
  */
 
+import { encode } from 'gpt-tokenizer/encoding/cl100k_base';
+
 /**
  * Options for TOON serialization
  */
@@ -371,8 +373,21 @@ export function toonToJson(toonStr: string, options: ToonOptions = {}): unknown[
 }
 
 /**
+ * Estimate the exact token count of a string using the cl100k_base encoding
+ * (same family used by Claude/GPT tokenizers), replacing the previous
+ * chars/4 heuristic.
+ *
+ * @param str - String to tokenize
+ * @returns Number of tokens (0 for an empty string)
+ */
+export function estimateTokens(str: string): number {
+  if (str.length === 0) return 0;
+  return encode(str).length;
+}
+
+/**
  * Estimate token savings when using TOON vs JSON
- * 
+ *
  * @param jsonStr - JSON string to compare
  * @param toonStr - TOON string to compare
  * @returns Object with token counts and savings percentage
@@ -383,11 +398,11 @@ export function estimateTokenSavings(jsonStr: string, toonStr: string): {
   savings: number;
   savingsPercent: number;
 } {
-  // Rough estimate: 1 token ≈ 4 characters
-  const jsonTokens = Math.ceil(jsonStr.length / 4);
-  const toonTokens = Math.ceil(toonStr.length / 4);
+  const jsonTokens = estimateTokens(jsonStr);
+  const toonTokens = estimateTokens(toonStr);
   const savings = jsonTokens - toonTokens;
-  const savingsPercent = (savings / jsonTokens) * 100;
+  // Guard against division by zero when jsonStr has no tokens.
+  const savingsPercent = jsonTokens === 0 ? 0 : (savings / jsonTokens) * 100;
 
   return {
     jsonTokens,
