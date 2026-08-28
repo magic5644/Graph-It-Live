@@ -74,6 +74,21 @@ If you have the VS Code extension installed, you can expose the bundled binary t
 graph-it install     # adds graph-it to your system PATH
 ```
 
+**Troubleshooting: `graph-it` runs but prints nothing (fixed in v1.14.0)**
+
+Versions v1.13.6 and earlier shipped a `bin/graph-it` wrapper that silently
+broke `npm install -g` installs — every command exited `0` with no output at
+all. If you're stuck on an affected version, `graph-it update` can't fix
+itself (the whole CLI is dead on arrival, including the update command).
+Reinstall manually instead:
+
+```bash
+npm install -g @magic5644/graph-it-live@latest
+```
+
+Once you're on v1.14.0+, `graph-it update` works normally again for future
+releases.
+
 ---
 
 ## Quick Start

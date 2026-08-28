@@ -1,5 +1,15 @@
 # Changelog
 
+## v1.14.0
+
+### Fixed
+
+- **Broken CLI on npm global install**: `npm install -g @magic5644/graph-it-live` produced a CLI that silently exited `0` with no output on every command (`--version`, `--help`, `scan`, etc.). Caused by the `bin/graph-it` wrapper's `require('../dist/graph-it.js')` indirection defeating the `require.main === module` entry-point guard in `src/cli/index.ts`. The npm `bin` field now points directly at `dist/graph-it.js`, matching the pattern already used by `graph-it install`. Users on v1.13.6 or earlier must reinstall manually (`npm install -g @magic5644/graph-it-live@latest`) since the broken CLI cannot run its own `update` command to fix itself.
+
+### Documentation
+
+- **CLI troubleshooting note**: Documented the broken-install recovery steps in `README.md` and `docs/CLI.md`.
+
 ## v1.13.6
 
 ### Changed

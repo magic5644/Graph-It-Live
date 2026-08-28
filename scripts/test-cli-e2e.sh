@@ -40,7 +40,7 @@ node -e "
 const fs = require('fs');
 const p = '$WORKSPACE/package.json';
 const pkg = JSON.parse(fs.readFileSync(p, 'utf8'));
-pkg.files = ['bin/', 'dist/graph-it.js', 'dist/astWorker.js', 'dist/mcpServer.mjs', 'dist/mcpWorker.js', 'dist/indexerWorker.js', 'dist/wasm/', 'dist/queries/', 'README.md', 'LICENSE', 'docs/CLI.md'];
+pkg.files = ['dist/graph-it.js', 'dist/astWorker.js', 'dist/mcpServer.mjs', 'dist/mcpWorker.js', 'dist/indexerWorker.js', 'dist/wasm/', 'dist/queries/', 'README.md', 'LICENSE', 'docs/CLI.md'];
 fs.writeFileSync(p, JSON.stringify(pkg, null, 2) + '\n');
 "
 echo "  package.json patched with CLI files field"
@@ -63,7 +63,7 @@ BINARY=$(which graph-it || echo "")
 
 # ── 3. Basic commands ────────────────────────────────────────────────────────
 section "Basic commands"
-graph-it --version   && pass "--version"       || fail "--version"
+graph-it --version | grep -q "graph-it-live v"  && pass "--version"       || fail "--version"
 graph-it --help | grep -q "Commands:"          && pass "--help"         || fail "--help"
 graph-it tool --list | grep -q "analyze_dependencies" && pass "tool --list" || fail "tool --list"
 graph-it tool --help | grep -q "Usage:"        && pass "tool --help"   || fail "tool --help"

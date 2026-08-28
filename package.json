@@ -1102,7 +1102,7 @@
     }
   },
   "bin": {
-    "graph-it": "./bin/graph-it"
+    "graph-it": "./dist/graph-it.js"
   },
   "scripts": {
     "vscode:prepublish": "npm run build -- --production",

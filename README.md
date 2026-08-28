@@ -440,6 +440,12 @@ graph-it update                 # Update graph-it to the latest version
 graph-it install                # Symlink the binary into your system PATH (opt-in)
 ```
 
+> **Troubleshooting:** if `graph-it` runs but prints nothing at all (versions
+> ≤ v1.13.6 shipped a broken npm `bin` wrapper), `graph-it update` can't help
+> — the CLI is silently dead on arrival. Reinstall directly instead:
+> `npm install -g @magic5644/graph-it-live@latest`. Fixed in v1.14.0; see
+> [`docs/CLI.md`](docs/CLI.md#installation) for details.
+
 **Without installing globally:**
 
 ```bash
