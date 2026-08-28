@@ -50,7 +50,7 @@ VS Code extension + standalone CLI + MCP server for AI-friendly dependency visua
 
 2. **`extension/`** — VS Code host. GraphProvider orchestrates 8+ services in `extension/services/`: BackgroundIndexingManager, CallGraphViewService, CommandRegistrationService, EditorEventsService, GraphViewService, SymbolViewService, WebviewMessageRouter, etc.
 
-3. **`mcp/`** — MCP server (stdio transport). **NO vscode imports**. 26 tools for LLM clients (Copilot, Claude, Cursor). Standalone Node.js process.
+3. **`mcp/`** — MCP server (stdio transport). **NO vscode imports**. 23 tools (`McpToolName` in `src/mcp/types.ts`) for LLM clients (Copilot, Claude, Cursor). Standalone Node.js process. Includes `review_pr` — deterministic local Git-diff review (also exposed via CLI as `graph-it review-pr` and as a reusable GitHub Action `.github/actions/graph-it-review-gate`).
 
 4. **`webview/`** — React 19 browser context. ReactFlow for file/symbol graphs (`webview/components/reactflow/`), Cytoscape.js for live call graph (`webview/components/cytoscape/`). Entry points: `webview/index.tsx` → `dist/webview.js` and `webview/callgraph/index.tsx` → `dist/callgraph.js`.
 
@@ -76,6 +76,17 @@ Extension ↔ Webview uses typed messages defined in `src/shared/types.ts`. Alwa
 **Cross-platform paths** — use `normalizePath()` from `src/shared/path.ts` before storing paths in Sets/Maps. Never assume case-sensitive filesystem.
 
 **React: no callback props in useMemo/useCallback deps** — causes re-render cascades. Use `useRef` to hold callbacks, omit from deps arrays.
+
+**ReverseIndex lazy cleanup** — never delete empty maps immediately in `removeDependenciesFromSource()`. Empty maps are cleaned up lazily during queries to avoid race conditions during file re-analysis; see `tests/analyzer/ReverseIndexBugFix.test.ts`.
+
+**Structured errors** — throw `SpiderError` with `SpiderErrorCode` enum (not raw `Error`) for anything callers need to branch on (e.g. `FILE_NOT_FOUND`, `PARSE_ERROR`).
+
+**sql.js WASM for Live Call Graph** — `dist/wasm/sqljs.wasm` must ship in the `.vsix`; verify with `npx vsce ls | grep sqljs.wasm` after touching `esbuild.js` or call-graph deps.
+
+## Adding a Feature — Recipes
+
+- **New webview message**: add type to `src/shared/types.ts` → add handler in the relevant `extension/services/*` → register in `WebviewMessageRouter` → call `vscode.postMessage()` from React.
+- **New MCP tool**: add name to `McpToolName` in `src/mcp/types.ts` → Zod param schema + result type → register in `src/mcp/mcpServer.ts` with a WHEN/WHY/WHAT description → handle in `src/mcp/McpWorker.ts` switch → test via `node scripts/test-mcp.js`.
 
 ## Codebase Exploration
 
