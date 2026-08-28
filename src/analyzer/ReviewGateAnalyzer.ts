@@ -171,37 +171,57 @@ export class ReviewGateAnalyzer {
     const errorBreakingChanges = comparison.breakingChanges.filter(
       (change) => change.severity === "error",
     );
+    // Member-level changes (a single interface/class member removed or retyped) only
+    // implicate direct consumers of that member. Hop 2+ chases callers of the *type's*
+    // consumers (e.g. everyone who calls a class that merely returns the type) — noise
+    // unrelated to the specific member being changed.
+    const isMemberLevelChange = errorBreakingChanges.length > 0
+      && errorBreakingChanges.every((change) => change.type === "member-removed" || change.type === "member-type-changed" || change.type === "member-optional-to-required");
+    const effectiveMaxDepth = isMemberLevelChange ? 1 : maxDepth;
     const impact = errorBreakingChanges.length > 0
-      ? await this.getImpact(absolutePath, comparison.symbolName, maxDepth)
-      : { count: 0, partial: false };
+      ? await this.getImpact(absolutePath, comparison.symbolName, effectiveMaxDepth)
+      : { count: 0, partial: false, testDependents: [] };
     const cycles = fileEvidence.cycleSymbols.has(this.toSymbolId(absolutePath, comparison.symbolName));
     const unusedExport = fileEvidence.unusedSymbols.has(comparison.symbolName);
-    const scoreFactors = this.getScoreFactors(errorBreakingChanges.length, impact, cycles, unusedExport, fileEvidence.testCandidates.length);
+    // A dependents provider that actually ran and found zero live consumers (not just
+    // "no provider configured", which also reports count: 0 but means unknown impact)
+    // means this breaking change already has no real callers to break.
+    const hasConfirmedZeroImpact = Boolean(this.dependents) && errorBreakingChanges.length > 0 && impact.count === 0 && !impact.partial;
+    // A test that directly depends on the changed symbol fails loudly on a real
+    // incompatibility (compile error or assertion failure) — that's live regression
+    // coverage, distinct from "no provider configured" (unknown) or "confirmed zero" (untested by definition).
+    const hasTestCoverage = impact.testDependents.length > 0;
+    const allTestCandidates = [...new Set([...fileEvidence.testCandidates, ...impact.testDependents])];
+    const scoreFactors = this.getScoreFactors(errorBreakingChanges.length, impact, cycles, unusedExport, allTestCandidates.length, hasConfirmedZeroImpact, hasTestCoverage);
     const score = Math.min(100, Object.values(scoreFactors).reduce((total, value) => total + value, 0));
     return {
       name: comparison.symbolName, filePath: relativePath, score, risk: riskForScore(score),
       breakingChanges: comparison.breakingChanges, impactedSymbolCount: impact.count,
       cycleEvidence: cycles ? [comparison.symbolName] : [], unusedExportEvidence: unusedExport,
-      testCandidates: fileEvidence.testCandidates, scoreFactors,
-      evidence: this.getEvidence(comparison.breakingChanges, impact, cycles, unusedExport, fileEvidence.testCandidates),
+      testCandidates: allTestCandidates, scoreFactors,
+      evidence: this.getEvidence(comparison.breakingChanges, impact, cycles, unusedExport, allTestCandidates, hasTestCoverage),
     };
   }
 
-  private getScoreFactors(breakingChangeCount: number, impact: { count: number; partial: boolean }, cycles: boolean, unusedExport: boolean, testCandidateCount: number): ReviewScoreFactors {
+  private getScoreFactors(breakingChangeCount: number, impact: { count: number; partial: boolean }, cycles: boolean, unusedExport: boolean, testCandidateCount: number, hasConfirmedZeroImpact: boolean, hasTestCoverage: boolean): ReviewScoreFactors {
+    const breakingChangeWeight = hasConfirmedZeroImpact ? 5 : hasTestCoverage ? 25 : 50;
     return {
-      breakingChanges: breakingChangeCount * 50, dependents: impact.count * 5, cycles: cycles ? 20 : 0,
+      breakingChanges: breakingChangeCount * breakingChangeWeight, dependents: impact.count * 5, cycles: cycles ? 20 : 0,
       unusedExport: unusedExport ? 10 : 0, missingTestCandidate: testCandidateCount === 0 ? 10 : 0, partialImpact: impact.partial ? 10 : 0,
     };
   }
 
-  private getEvidence(breakingChanges: BreakingChange[], impact: { count: number; partial: boolean }, cycles: boolean, unusedExport: boolean, testCandidates: string[]): ReviewEvidence[] {
+  private getEvidence(breakingChanges: BreakingChange[], impact: { count: number; partial: boolean }, cycles: boolean, unusedExport: boolean, testCandidates: string[], hasTestCoverage: boolean): ReviewEvidence[] {
     const evidence: ReviewEvidence[] = breakingChanges.map((change) => ({ kind: "breaking-change", detail: change.description }));
     if (impact.count > 0) evidence.push({ kind: "impact", detail: `${impact.count} known dependent symbol(s).` });
     if (cycles) evidence.push({ kind: "cycle", detail: "Changed symbol participates in a detected symbol dependency cycle." });
     if (unusedExport) evidence.push({ kind: "unused-export", detail: "Changed exported symbol is currently reported as unused." });
-    evidence.push(testCandidates.length > 0
-      ? { kind: "test-candidate", detail: `Conventional test candidate(s): ${testCandidates.join(", ")}.` }
-      : { kind: "test-candidate", detail: "No conventional test candidate found; manual test selection is required." });
+    if (testCandidates.length > 0) {
+      evidence.push({ kind: "test-candidate", detail: `Conventional test candidate(s): ${testCandidates.join(", ")}.` });
+    } else {
+      evidence.push({ kind: "test-candidate", detail: "No conventional test candidate found; manual test selection is required." });
+    }
+    if (hasTestCoverage) evidence.push({ kind: "test-candidate", detail: "Symbol is directly depended on by an existing test — a real incompatibility would fail that test." });
     if (impact.partial) evidence.push({ kind: "partial", detail: "Impact traversal reached its configured depth limit." });
     return evidence;
   }
@@ -250,14 +270,24 @@ export class ReviewGateAnalyzer {
     return this.gitShow(headRef, relativePath);
   }
 
-  private async getImpact(filePath: string, symbolName: string, maxDepth: number): Promise<{ count: number; partial: boolean }> {
-    if (!this.dependents) return { count: 0, partial: false };
+  private async getImpact(filePath: string, symbolName: string, maxDepth: number): Promise<{ count: number; partial: boolean; testDependents: string[] }> {
+    if (!this.dependents) return { count: 0, partial: false, testDependents: [] };
     const seen = new Set<string>();
+    const testDependents = new Set<string>();
     let frontier = [{ filePath, symbolName }];
     for (let depth = 0; depth < maxDepth && frontier.length > 0; depth += 1) {
       frontier = await this.collectDependentFrontier(frontier, seen);
+      for (const { filePath: dependentPath } of frontier) {
+        if (this.isTestFilePath(dependentPath)) testDependents.add(dependentPath);
+      }
     }
-    return { count: seen.size, partial: frontier.length > 0 };
+    return { count: seen.size, partial: frontier.length > 0, testDependents: [...testDependents] };
+  }
+
+  // A test file that directly depends on the changed symbol will fail to compile/run
+  // on a real incompatibility — that's live regression coverage, not just a naming hint.
+  private isTestFilePath(filePath: string): boolean {
+    return /(^|\/)tests\//.test(filePath) || /\.(test|spec)\.[^/]+$/.test(filePath);
   }
 
   private async collectDependentFrontier(
