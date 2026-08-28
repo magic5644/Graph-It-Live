@@ -1,5 +1,27 @@
 # Changelog
 
+## v1.13.6
+
+### Changed
+
+- **MCP server package v2**: Migrated the standalone MCP server from `@modelcontextprotocol/sdk` to `@modelcontextprotocol/server` v2 and updated the stdio transport imports accordingly.
+
+### Fixed
+
+- **CLI subcommand argument parsing**: Preserved command-specific flags for all CLI commands, including `wiki --output`, `query --depth`, `review-pr --base`, and `export --output`, even when global flags such as `--workspace` or `--format` appear before the command.
+- **Per-command CLI help**: `graph-it <command> --help` now displays the command-specific help instead of the generic top-level help.
+- **Responsive Star History chart**: Updated the README Star History section to use responsive light and dark image sources.
+
+### Documentation
+
+- **Expanded CLI reference**: Added missing reference sections for `path-in`, `check-dependencies`, `cycles`, `architecture`, and `export`.
+- **Updated command help coverage**: Added dedicated CLI help text for `review-pr`, `query`, `wiki`, `stats`, and `export`.
+- **CLI and MCP tool counts**: Aligned the documentation with the current split between 21 generic CLI tools and 26 MCP tools, including the first-class CLI commands that replace generic `tool` invocation.
+
+### Maintenance
+
+- **Repository-local generated files**: Removed the obsolete `skills-lock.json` file and ignored future `skills-lock.json` and `.graph-it/` outputs.
+
 ## v1.13.5
 
 ### Security
