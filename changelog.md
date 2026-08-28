@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+### Fixed
+
+- **CLI `--format toon` silently fell back to JSON for several commands**: `extractArrayForToon` only scanned top-level object keys, missing arrays nested one level deeper or under unlisted key names. Affected: `check-dependencies` (`outgoing.dependencies` / `incoming.referencingFiles`), `explain` (`graph.nodes` / `graph.edges`), `check` (`unusedSymbols`), `cycles` (`confirmedCycles`). Added a nested-array fallback and extended the known-key list; each command now produces real TOON rows instead of pretty-printed JSON.
+
 ### Fixed — Breaking
 
 - **MCP tool `query_natural_language` — `toon` field was JSON, not TOON**: The `outputFormat: 'toon'` branch (default) returned a JSON passthrough of the analyzer's compact payload under the `toon` field name, instead of a real TOON encoding. Fixed to produce a genuine TOON string (`# nodeCount=... edgeCount=... truncated=...` meta line + `nodes(...)` / `edges(...)` header+rows blocks). The field name `toon` is unchanged (see `docs/architecture/ADR-S2-01-toon-field-mcp-compat.md`); only its content changed.
