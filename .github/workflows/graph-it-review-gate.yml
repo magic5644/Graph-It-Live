@@ -27,3 +27,8 @@ jobs:
           token: ${{ secrets.GITHUB_TOKEN }}
           comment: ${{ github.event.pull_request.head.repo.fork && 'false' || 'true' }}
           fail-on-risk: high
+          # TEMPORARY: v1.13.6 shipped a broken npm bin entry (CLI silently
+          # prints nothing — see changelog.md v1.14.0 "Fixed"). Pin to the
+          # last known-good published version until v1.14.0 is published,
+          # then remove this pin to go back to @latest.
+          cli-version: "1.13.5"
