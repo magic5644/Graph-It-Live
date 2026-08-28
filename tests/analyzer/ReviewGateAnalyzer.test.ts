@@ -114,6 +114,69 @@ describe("ReviewGateAnalyzer", () => {
     expect(result.symbols[0].evidence.some((e) => e.kind === "impact")).toBe(false);
   });
 
+  it("downgrades breaking-change weight when a dependents provider confirms zero live consumers", async () => {
+    const workspace = await createGitWorkspaceWithDiff(
+      "export function greet(name: string): string { return name; }\n",
+      "export function greet(name: string, formal: boolean): string { return name; }\n",
+    );
+    const analyzer = new ReviewGateAnalyzer(workspace, { getSymbolDependents: async () => [] });
+
+    const result = await analyzer.analyze({ baseRef: "main" });
+
+    expect(result.symbols[0]).toMatchObject({
+      name: "greet",
+      score: 15,
+      risk: "low",
+      impactedSymbolCount: 0,
+      scoreFactors: { breakingChanges: 5, dependents: 0, missingTestCandidate: 10 },
+    });
+  });
+
+  it("keeps full breaking-change weight when no dependents provider is configured (unknown impact)", async () => {
+    const workspace = await createGitWorkspaceWithDiff(
+      "export function greet(name: string): string { return name; }\n",
+      "export function greet(name: string, formal: boolean): string { return name; }\n",
+    );
+    const analyzer = new ReviewGateAnalyzer(workspace);
+
+    const result = await analyzer.analyze({ baseRef: "main" });
+
+    expect(result.symbols[0]).toMatchObject({
+      name: "greet",
+      score: 60,
+      risk: "high",
+      scoreFactors: { breakingChanges: 50, dependents: 0, missingTestCandidate: 10 },
+    });
+  });
+
+  it("gives partial credit when a test directly depends on the changed symbol, even with real production dependents", async () => {
+    const workspace = await createGitWorkspaceWithDiff(
+      "export function greet(name: string): string { return name; }\n",
+      "export function greet(name: string, formal: boolean): string { return name; }\n",
+    );
+    const testConsumer = path.join(workspace, "tests", "consumer.test.ts");
+    const prodConsumer = path.join(workspace, "src", "consumer.ts");
+    const analyzer = new ReviewGateAnalyzer(workspace, {
+      getSymbolDependents: async () => [
+        { sourceSymbolId: `${testConsumer}:testsGreet` },
+        { sourceSymbolId: `${prodConsumer}:useGreeting` },
+      ],
+    });
+
+    const result = await analyzer.analyze({ baseRef: "main", maxDepth: 1 });
+
+    expect(result.symbols[0]).toMatchObject({
+      name: "greet",
+      score: 45,
+      risk: "medium",
+      impactedSymbolCount: 2,
+      scoreFactors: { breakingChanges: 25, dependents: 10, missingTestCandidate: 0 },
+    });
+    expect(result.symbols[0].evidence).toEqual(expect.arrayContaining([
+      { kind: "test-candidate", detail: "Symbol is directly depended on by an existing test — a real incompatibility would fail that test." },
+    ]));
+  });
+
   it("does not score dependents for a warning-only type alias change", async () => {
     const workspace = await createGitWorkspaceWithDiff(
       'export type Message = { type: "init" };\n',
