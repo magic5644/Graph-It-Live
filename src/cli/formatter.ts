@@ -71,7 +71,10 @@ function formatJson(data: unknown): string {
 
 function formatToon(data: unknown, command: string): string {
   // Extract array data for TOON
-  const arrayData = extractArrayForToon(data);
+  const arrayData =
+    extractArrayForToon(data) ??
+    extractDependencyCheckArrayForToon(data) ??
+    extractNestedArrayForToon(data);
   if (!arrayData || arrayData.length === 0) {
     // Fallback to JSON for non-array / empty data
     return JSON.stringify(data, null, 2);
@@ -720,21 +723,77 @@ function buildMermaidFromGenericJson(data: unknown, command: string): string {
 // TOON helpers
 // ============================================================================
 
+const TOON_ARRAY_KEYS = [
+  "items", "results", "data", "nodes", "edges",
+  "dependencies", "symbols", "unusedSymbols", "confirmedCycles", "callers", "files", "callChain",
+];
+
 function extractArrayForToon(data: unknown): unknown[] | null {
   if (Array.isArray(data)) return data;
 
   if (typeof data === "object" && data !== null) {
     const obj = data as Record<string, unknown>;
-    const arrayKeys = [
-      "items", "results", "data", "nodes", "edges",
-      "dependencies", "symbols", "callers", "files", "callChain",
-    ];
-    for (const key of arrayKeys) {
+    for (const key of TOON_ARRAY_KEYS) {
       if (Array.isArray(obj[key])) return obj[key] as unknown[];
     }
   }
 
   return null;
+}
+
+/**
+ * Fallback for shapes like explain's { graph: { nodes, edges } }, where the
+ * array lives one level deeper than extractArrayForToon's top-level key scan.
+ */
+function extractNestedArrayForToon(data: unknown): unknown[] | null {
+  if (typeof data !== "object" || data === null) return null;
+  const obj = data as Record<string, unknown>;
+
+  for (const value of Object.values(obj)) {
+    if (typeof value !== "object" || value === null || Array.isArray(value)) continue;
+    const nested = value as Record<string, unknown>;
+    for (const key of TOON_ARRAY_KEYS) {
+      if (Array.isArray(nested[key])) return nested[key] as unknown[];
+    }
+  }
+
+  return null;
+}
+
+/**
+ * check-dependencies returns { outgoing: { dependencies }, incoming: { referencingFiles } } —
+ * both nested one level deeper than extractArrayForToon's top-level key scan can see.
+ * Flatten them into one tagged array so TOON encoding doesn't silently fall back to JSON.
+ */
+function extractDependencyCheckArrayForToon(data: unknown): unknown[] | null {
+  if (typeof data !== "object" || data === null) return null;
+  const obj = data as Record<string, unknown>;
+
+  const outgoing = obj["outgoing"];
+  const incoming = obj["incoming"];
+  const dependencies = typeof outgoing === "object" && outgoing !== null
+    ? (outgoing as Record<string, unknown>)["dependencies"]
+    : undefined;
+  const referencingFiles = typeof incoming === "object" && incoming !== null
+    ? (incoming as Record<string, unknown>)["referencingFiles"]
+    : undefined;
+
+  if (!Array.isArray(dependencies) && !Array.isArray(referencingFiles)) {
+    return null;
+  }
+
+  const tagged: unknown[] = [];
+  if (Array.isArray(dependencies)) {
+    for (const dep of dependencies) {
+      tagged.push(typeof dep === "object" && dep !== null ? { direction: "outgoing", ...dep } : dep);
+    }
+  }
+  if (Array.isArray(referencingFiles)) {
+    for (const ref of referencingFiles) {
+      tagged.push(typeof ref === "object" && ref !== null ? { direction: "incoming", ...ref } : ref);
+    }
+  }
+  return tagged;
 }
 
 function inferObjectName(data: unknown[]): string {
@@ -744,6 +803,7 @@ function inferObjectName(data: unknown[]): string {
   if (typeof first !== "object" || first === null) return "data";
 
   const keys = Object.keys(first);
+  if (keys.includes("direction") && keys.includes("path")) return "dependencies";
   if (keys.includes("file") || keys.includes("filePath")) return "files";
   if (keys.includes("symbolName") || keys.includes("symbol")) return "symbols";
   if (keys.includes("source") && keys.includes("target")) return "edges";
