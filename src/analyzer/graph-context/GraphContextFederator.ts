@@ -33,7 +33,7 @@ export class GraphContextFederator {
     const indexSnapshot = this.callGraphIndexer.getIndexSnapshot();
     const fileState = await getFileState(indexSnapshot);
     const fileGraphs = await Promise.all(
-      indexSnapshot.files.map(async (file) => this.spider.crawl(file.path, { maxDepth: 0 })),
+      indexSnapshot.files.map(async (file) => this.spider.getReadOnlyDependencyGraph(file.path)),
     );
     const nodesById = new Map<string, GraphContextNode>();
     const edgesByKey = new Map<string, GraphContextEdge>();
