@@ -32,6 +32,20 @@ describe('compileFileScope', () => {
     expect(scope.matches('/other/src/index.ts')).toBe(false);
   });
 
+  it('canonicalizes a trailing separator on the workspace root', () => {
+    const scope = compileFileScope('/workspace/', 'src/**');
+
+    expect(scope.sqlGlob).toBe('/workspace/src/*');
+    expect(scope.matches('/workspace/src/index.ts')).toBe(true);
+  });
+
+  it('joins patterns and paths correctly at the filesystem root', () => {
+    const scope = compileFileScope('/', '**');
+
+    expect(scope.sqlGlob).toBe('/*');
+    expect(scope.matches('/src/index.ts')).toBe(true);
+  });
+
   it('normalizes Windows separators in roots, patterns, and candidates', () => {
     const scope = compileFileScope('C:\\workspace', 'src\\analyzer\\**');
 

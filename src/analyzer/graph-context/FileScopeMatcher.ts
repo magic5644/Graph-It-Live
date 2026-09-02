@@ -7,6 +7,7 @@ export interface CompiledFileScope {
 }
 
 const WINDOWS_ABSOLUTE_PATH = /^[a-zA-Z]:\//;
+const WINDOWS_ROOT_PATH = /^[a-zA-Z]:\/$/;
 
 function isAbsolutePath(filePath: string): boolean {
   return filePath.startsWith('/') || filePath.startsWith('//') || WINDOWS_ABSOLUTE_PATH.test(filePath);
@@ -19,8 +20,26 @@ function normalizeResolvedPath(filePath: string): string {
   return isUncPath && !resolved.startsWith('//') ? `/${resolved}` : resolved;
 }
 
+function canonicalizeWorkspaceRoot(workspaceRoot: string): string {
+  const normalizedRoot = normalizeResolvedPath(workspaceRoot);
+  if (normalizedRoot === '/' || WINDOWS_ROOT_PATH.test(normalizedRoot)) {
+    return normalizedRoot;
+  }
+  return normalizedRoot.replace(/\/+$/, '');
+}
+
+function joinToRoot(workspaceRoot: string, relativePath: string): string {
+  return workspaceRoot.endsWith('/')
+    ? `${workspaceRoot}${relativePath}`
+    : `${workspaceRoot}/${relativePath}`;
+}
+
+function rootBoundary(workspaceRoot: string): string {
+  return workspaceRoot.endsWith('/') ? workspaceRoot : `${workspaceRoot}/`;
+}
+
 function isWithinRoot(filePath: string, workspaceRoot: string): boolean {
-  return filePath === workspaceRoot || filePath.startsWith(`${workspaceRoot}/`);
+  return filePath === workspaceRoot || filePath.startsWith(rootBoundary(workspaceRoot));
 }
 
 function escapeRegexCharacter(character: string): string {
@@ -80,12 +99,12 @@ function globToSqlGlob(pattern: string): string {
 }
 
 export function compileFileScope(workspaceRoot: string, pattern: string): CompiledFileScope {
-  const normalizedRoot = normalizeResolvedPath(workspaceRoot);
+  const normalizedRoot = canonicalizeWorkspaceRoot(workspaceRoot);
   const normalizedPattern = normalizePath(pattern || '**');
   const qualifiedPattern = normalizeResolvedPath(
     isAbsolutePath(normalizedPattern)
       ? normalizedPattern
-      : `${normalizedRoot}/${normalizedPattern}`,
+      : joinToRoot(normalizedRoot, normalizedPattern),
   );
 
   if (!isWithinRoot(qualifiedPattern, normalizedRoot)) {
@@ -94,16 +113,17 @@ export function compileFileScope(workspaceRoot: string, pattern: string): Compil
 
   const relativePattern = qualifiedPattern === normalizedRoot
     ? ''
-    : qualifiedPattern.slice(normalizedRoot.length + 1);
+    : qualifiedPattern.slice(rootBoundary(normalizedRoot).length);
   const rootRegexSource = [...normalizedRoot].map(escapeRegexCharacter).join('');
   const qualifiedRegex = new RegExp(
     relativePattern.length > 0
-      ? `^${rootRegexSource}/${globToRegexSource(relativePattern)}$`
+      ? `^${joinToRoot(rootRegexSource, globToRegexSource(relativePattern))}$`
       : `^${rootRegexSource}$`,
   );
+  const escapedSqlRoot = escapeSqlGlobLiteral(normalizedRoot);
   const sqlGlob = relativePattern.length > 0
-    ? `${escapeSqlGlobLiteral(normalizedRoot)}/${globToSqlGlob(relativePattern)}`
-    : escapeSqlGlobLiteral(normalizedRoot);
+    ? joinToRoot(escapedSqlRoot, globToSqlGlob(relativePattern))
+    : escapedSqlRoot;
 
   return {
     sqlGlob,
