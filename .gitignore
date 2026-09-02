@@ -237,3 +237,6 @@ skills-lock.json
 
 # Local worktrees used for isolated feature execution
 .worktrees/
+
+# Local Superpowers workflow state
+.superpowers/
