@@ -44,12 +44,8 @@ export interface GraphContextSeed {
   label?: string;
 }
 
-export interface GraphContextRequest {
-  question?: string;
-  seeds?: GraphContextSeed[];
+interface GraphContextRequestOptions {
   mode?: GraphContextMode;
-  from?: GraphContextSeed;
-  to?: GraphContextSeed;
   relations?: GraphContextRelation[];
   scope?: string;
   depth?: number;
@@ -59,6 +55,28 @@ export interface GraphContextRequest {
   cursor?: string;
   format?: 'toon' | 'json';
 }
+
+/** A request must contain a question, a non-empty seed list, or both path endpoints. */
+export type GraphContextRequest = GraphContextRequestOptions & (
+  | {
+      question: string;
+      seeds?: GraphContextSeed[];
+      from?: GraphContextSeed;
+      to?: GraphContextSeed;
+    }
+  | {
+      question?: never;
+      seeds: [GraphContextSeed, ...GraphContextSeed[]];
+      from?: never;
+      to?: never;
+    }
+  | {
+      question?: string;
+      seeds?: GraphContextSeed[];
+      from: GraphContextSeed;
+      to: GraphContextSeed;
+    }
+);
 
 export interface GraphContextNode {
   id: string;
@@ -92,6 +110,7 @@ export interface GraphContextEdge {
 
 export interface GraphContextPath {
   nodeIds: string[];
+  /** Positional indexes into the response edge array; the formal spec is canonical over edge IDs. */
   edgeIndexes: number[];
   hops: number;
 }
