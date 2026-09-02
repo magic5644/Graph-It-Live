@@ -546,4 +546,19 @@ describe('QueryEngine.query (end-to-end)', () => {
     expect(result.meta.llmProvider).toBe('none');
     expect(Array.isArray(result.extractedKeywords)).toBe(true);
   });
+
+  it('restricts seed scoring and traversal to fileFilter', async () => {
+    insertNode(db, 'a', 'resolvePath', 'function', '/workspace/src/analyzer/path.ts');
+    insertNode(db, 'b', 'resolvePath', 'function', '/workspace/src/webview/path.ts');
+
+    const engine = new QueryEngine(db, null);
+    const result = await engine.query({
+      question: 'resolvePath',
+      workspaceRoot: '/workspace',
+      fileFilter: 'src/analyzer/**',
+    });
+
+    expect(result.seedNodeIds).toEqual(['a']);
+    expect(result.nodes.every(node => node.path.startsWith('/workspace/src/analyzer/'))).toBe(true);
+  });
 });

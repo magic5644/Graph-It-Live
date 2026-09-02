@@ -278,6 +278,12 @@ describe("executeQueryNaturalLanguage", () => {
     expect(valid.success).toBe(true);
   });
 
+  it("rejects a request without a question when no seed or path is supplied", () => {
+    const validation = QueryNaturalLanguageSchema.safeParse({});
+
+    expect(validation.success).toBe(false);
+  });
+
   // -----------------------------------------------------------------------
   // 7. Throws when indexer is not initialized
   // -----------------------------------------------------------------------
