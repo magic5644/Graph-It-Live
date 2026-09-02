@@ -55,6 +55,7 @@ interface RetrievalSelection {
   ambiguous: GraphContextCandidate[];
   eligibleNodeCount: number;
   eligibleEdgeCount: number;
+  suggestionSnapshot?: GraphContextSnapshot;
 }
 
 /** Retrieves a ranked graph response before token-budget selection is applied. */
@@ -94,7 +95,7 @@ export class GraphContextRetriever {
       paths: selection.paths,
       ambiguous: selection.ambiguous,
       omitted,
-      nextQueries: buildNextQueries(snapshot, selection, request),
+      nextQueries: buildNextQueries(selection.suggestionSnapshot ?? snapshot, selection, request),
       tokenEstimate: 0,
       truncated: omitted.nodes > 0 || omitted.edges > 0,
     };
@@ -108,29 +109,31 @@ export class GraphContextRetriever {
     mode: Exclude<GraphContextMode, 'path' | 'overview'>,
   ): Promise<RetrievalSelection> {
     const { seeds: resolvedSeeds, ambiguous } = resolveRequestedSeeds(request.seeds, snapshot);
+    const scoredSearchSeeds = request.question
+      ? this.scorer.scoreSearchNodes(request.question, snapshot.nodes, request.scope)
+      : [];
+    const hasRequestedSeeds = (request.seeds?.length ?? 0) > 0;
+    const requestedMaxNodes = request.maxNodes ?? DEFAULT_MAX_NODES;
+    const generatedSeedLimit = Math.min(
+      MAX_SEARCH_SEEDS,
+      Math.max(0, requestedMaxNodes - resolvedSeeds.length),
+    );
+    const searchSeeds = mode === 'search' || (!hasRequestedSeeds && resolvedSeeds.length === 0)
+      ? selectGeneratedSeeds(scoredSearchSeeds, resolvedSeeds, generatedSeedLimit)
+      : [];
+    const seeds = mergeSeeds(resolvedSeeds, searchSeeds);
+    const depth = mode === 'neighbors' ? 1 : normalizeDepth(request.depth);
     const retrievalSnapshot = mode === 'impact' || mode === 'refactor'
       ? await augmentWithDependents(
         snapshot,
-        resolvedSeeds,
-        normalizeDepth(request.depth),
+        seeds,
+        depth,
         this.options.dependentsProvider,
         this.options.workspaceRoot,
       )
       : snapshot;
-    const scoredSearchSeeds = request.question
-      ? this.scorer.scoreSearchNodes(request.question, retrievalSnapshot.nodes, request.scope)
-      : [];
-    const hasRequestedSeeds = (request.seeds?.length ?? 0) > 0;
-    const searchSeeds = mode === 'search' || (!hasRequestedSeeds && resolvedSeeds.length === 0)
-      ? scoredSearchSeeds.slice(0, MAX_SEARCH_SEEDS).map(candidate => ({
-        ...candidate.node,
-        score: candidate.score,
-        isSeed: true,
-      }))
-      : [];
-    const seeds = mergeSeeds(resolvedSeeds, searchSeeds);
-    const depth = mode === 'neighbors' ? 1 : normalizeDepth(request.depth);
     const direction = mode === 'impact' || mode === 'refactor' ? 'incoming' : 'both';
+    const maxNodes = Math.max(requestedMaxNodes, resolvedSeeds.length);
     const traversal = traverseSnapshot(
       retrievalSnapshot,
       seeds,
@@ -140,9 +143,9 @@ export class GraphContextRetriever {
       mode,
       request.question ?? '',
       this.scorer,
+      maxNodes,
     );
-    const maxNodes = Math.max(request.maxNodes ?? DEFAULT_MAX_NODES, seeds.length);
-    const selectedEntries = traversal.entries.slice(0, maxNodes);
+    const selectedEntries = traversal.entries;
     const selectedIds = new Set(selectedEntries.map(entry => entry.nodeId));
     const seedIds = new Set(seeds.map(seed => seed.id));
     const nodeById = new Map(retrievalSnapshot.nodes.map(node => [node.id, node]));
@@ -165,8 +168,9 @@ export class GraphContextRetriever {
       edges,
       paths: [],
       ambiguous,
-      eligibleNodeCount: traversal.entries.length,
-      eligibleEdgeCount: traversal.edgeIndexes.length,
+      eligibleNodeCount: traversal.eligibleNodeCount,
+      eligibleEdgeCount: traversal.eligibleEdgeCount,
+      suggestionSnapshot: retrievalSnapshot,
     };
   }
 
@@ -392,8 +396,20 @@ function resolveRequestedSeeds(
   };
 }
 
+function selectGeneratedSeeds(
+  scoredSeeds: Array<{ node: GraphContextNode; score: number }>,
+  explicitSeeds: GraphContextNode[],
+  limit: number,
+): GraphContextNode[] {
+  const explicitIds = new Set(explicitSeeds.map(seed => seed.id));
+  return scoredSeeds
+    .filter(candidate => !explicitIds.has(candidate.node.id))
+    .slice(0, limit)
+    .map(candidate => ({ ...candidate.node, score: candidate.score, isSeed: true }));
+}
+
 function mergeSeeds(explicitSeeds: GraphContextNode[], searchSeeds: GraphContextNode[]): GraphContextNode[] {
-  return dedupeNodes([...explicitSeeds, ...searchSeeds]).slice(0, MAX_SEARCH_SEEDS);
+  return dedupeNodes([...explicitSeeds, ...searchSeeds]);
 }
 
 function traverseSnapshot(
@@ -405,7 +421,13 @@ function traverseSnapshot(
   mode: GraphContextMode,
   question: string,
   scorer: GraphContextScorer,
-): { entries: TraversalEntry[]; edgeIndexes: number[] } {
+  maxNodes: number,
+): {
+  entries: TraversalEntry[];
+  edgeIndexes: number[];
+  eligibleNodeCount: number;
+  eligibleEdgeCount: number;
+} {
   const nodeById = new Map(snapshot.nodes.map(node => [node.id, node]));
   const bestEntries = new Map<string, TraversalEntry>();
   let frontier = seeds.map(seed => seed.id);
@@ -413,9 +435,12 @@ function traverseSnapshot(
     bestEntries.set(seed.id, { nodeId: seed.id, depth: 0, score: seed.score ?? 1 });
   }
   const traversedEdgeIndexes = new Set<number>();
+  const eligibleEdgeIndexes = new Set<number>();
+  const eligibleNodeIds = new Set(frontier);
+  const nodeLimit = Math.max(maxNodes, seeds.length);
 
   for (let depth = 1; depth <= maxDepth && frontier.length > 0; depth += 1) {
-    const nextCandidates = new Map<string, TraversalEntry>();
+    const nextCandidates = new Map<string, TraversalEntry & { edgeIndexes: Set<number> }>();
     const frontierIds = new Set(frontier);
 
     snapshot.edges.forEach((edge, edgeIndex) => {
@@ -425,20 +450,42 @@ function traverseSnapshot(
       if (direction === 'both' && frontierIds.has(edge.source)) nextIds.push(edge.target);
       if (nextIds.length === 0) return;
 
-      traversedEdgeIndexes.add(edgeIndex);
       for (const nextId of nextIds) {
-        if (bestEntries.has(nextId)) continue;
         const graphNode = nodeById.get(nextId);
         if (!graphNode) continue;
+        eligibleEdgeIndexes.add(edgeIndex);
+        eligibleNodeIds.add(nextId);
+        if (bestEntries.has(nextId)) {
+          if (bestEntries.has(edge.source) && bestEntries.has(edge.target)) {
+            traversedEdgeIndexes.add(edgeIndex);
+          }
+          continue;
+        }
         const relationScore = scorer.scoreRelation(mode, edge.relation, question, graphNode);
-        const candidate = { nodeId: nextId, depth, score: relationScore / depth };
+        const candidate = {
+          nodeId: nextId,
+          depth,
+          score: relationScore / depth,
+          edgeIndexes: new Set([edgeIndex]),
+        };
         const existing = nextCandidates.get(nextId);
-        if (!existing || candidate.score > existing.score) nextCandidates.set(nextId, candidate);
+        if (!existing) {
+          nextCandidates.set(nextId, candidate);
+        } else {
+          existing.edgeIndexes.add(edgeIndex);
+          existing.score = Math.max(existing.score, candidate.score);
+        }
       }
     });
 
-    const nextEntries = [...nextCandidates.values()].sort(compareTraversalEntries);
-    for (const entry of nextEntries) bestEntries.set(entry.nodeId, entry);
+    const availableNodes = Math.max(0, nodeLimit - bestEntries.size);
+    const nextEntries = [...nextCandidates.values()]
+      .sort(compareTraversalEntries)
+      .slice(0, availableNodes);
+    for (const entry of nextEntries) {
+      bestEntries.set(entry.nodeId, entry);
+      for (const edgeIndex of entry.edgeIndexes) traversedEdgeIndexes.add(edgeIndex);
+    }
     frontier = nextEntries.map(entry => entry.nodeId);
   }
 
@@ -447,6 +494,7 @@ function traverseSnapshot(
     const leftSeed = seedIds.has(left.nodeId);
     const rightSeed = seedIds.has(right.nodeId);
     if (leftSeed !== rightSeed) return leftSeed ? -1 : 1;
+    if (mode === 'impact' && left.depth !== right.depth) return left.depth - right.depth;
     return compareTraversalEntries(left, right);
   });
   const eligibleIds = new Set(entries.map(entry => entry.nodeId));
@@ -457,7 +505,12 @@ function traverseSnapshot(
     })
     .sort((left, right) => left - right);
 
-  return { entries, edgeIndexes };
+  return {
+    entries,
+    edgeIndexes,
+    eligibleNodeCount: eligibleNodeIds.size,
+    eligibleEdgeCount: eligibleEdgeIndexes.size,
+  };
 }
 
 function buildNextQueries(

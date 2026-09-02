@@ -7,6 +7,7 @@ import type { Database } from 'sql.js';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { QueryEngine } from '../../../src/analyzer/QueryEngine';
 import { GraphContextRetriever } from '../../../src/analyzer/graph-context/GraphContextRetriever';
+import { GraphContextScorer } from '../../../src/analyzer/graph-context/GraphContextScorer';
 import type {
   GraphContextEdge,
   GraphContextNode,
@@ -217,6 +218,78 @@ describe('GraphContextRetriever golden modes', () => {
     expect(response.nodes.find(result => result.id === IDS.authControllerFile)?.score).toBe(0.5);
   });
 
+  it('loads file dependents for a question-only impact request', async () => {
+    const serviceId = 'file:src/billing/InvoiceService.ts';
+    const apiId = 'file:src/api/BillingApi.ts';
+    const questionSnapshot: GraphContextSnapshot = {
+      revision: 'question-impact',
+      fresh: true,
+      nodes: [
+        node(serviceId, 'file', 'InvoiceService.ts', 'src/billing/InvoiceService.ts'),
+        node(apiId, 'file', 'BillingApi.ts', 'src/api/BillingApi.ts'),
+      ],
+      edges: [],
+    };
+    const questionRetriever = new GraphContextRetriever({
+      snapshotProvider: { buildSnapshot: async () => questionSnapshot },
+      dependentsProvider: {
+        findReferencingFiles: async () => [{ path: `${WORKSPACE_ROOT}/src/api/BillingApi.ts` }],
+        getSymbolDependents: async () => [],
+      },
+      workspaceRoot: WORKSPACE_ROOT,
+    });
+
+    const response = await questionRetriever.retrieve({
+      question: 'What depends on the InvoiceService file?',
+      mode: 'impact',
+      maxNodes: 2,
+    });
+
+    expect(response.seeds.map(seed => seed.id)).toEqual([serviceId]);
+    expect(response.edges).toContainEqual(expect.objectContaining({
+      source: apiId,
+      target: serviceId,
+      relation: 'IMPACTED_BY',
+    }));
+  });
+
+  it('loads symbol dependents for a question-only refactor request', async () => {
+    const gatewayId = 'symbol:src/billing/BillingGateway.ts:BillingGateway:3';
+    const coordinatorId = 'symbol:src/checkout/Coordinator.ts:CheckoutCoordinator:7';
+    const questionSnapshot: GraphContextSnapshot = {
+      revision: 'question-refactor',
+      fresh: true,
+      nodes: [
+        node(gatewayId, 'symbol', 'BillingGateway', 'src/billing/BillingGateway.ts', 3),
+        node(coordinatorId, 'symbol', 'CheckoutCoordinator', 'src/checkout/Coordinator.ts', 7),
+      ],
+      edges: [],
+    };
+    const questionRetriever = new GraphContextRetriever({
+      snapshotProvider: { buildSnapshot: async () => questionSnapshot },
+      dependentsProvider: {
+        findReferencingFiles: async () => [],
+        getSymbolDependents: async () => [{
+          sourceSymbolId: `${WORKSPACE_ROOT}/src/checkout/Coordinator.ts:CheckoutCoordinator`,
+        }],
+      },
+      workspaceRoot: WORKSPACE_ROOT,
+    });
+
+    const response = await questionRetriever.retrieve({
+      question: 'Which implementations change if I refactor BillingGateway?',
+      mode: 'refactor',
+      maxNodes: 2,
+    });
+
+    expect(response.seeds.map(seed => seed.id)).toEqual([gatewayId]);
+    expect(response.edges).toContainEqual(expect.objectContaining({
+      source: coordinatorId,
+      target: gatewayId,
+      relation: 'IMPACTED_BY',
+    }));
+  });
+
   it('prioritizes implementations, runtime callers, and tests for an interface refactor', async () => {
     const response = await retriever.retrieve({
       question: 'What must change if I refactor the AuthGateway interface?',
@@ -327,12 +400,179 @@ describe('GraphContextRetriever golden modes', () => {
       workspaceRoot: WORKSPACE_ROOT,
     });
 
-    const response = await cappedRetriever.retrieve({
+    const constrainedResponse = await cappedRetriever.retrieve({
+      question: 'rankedSeed',
+      mode: 'search',
+      maxNodes: 3,
+    });
+    const mixedResponse = await cappedRetriever.retrieve({
+      question: 'rankedSeed',
+      mode: 'search',
+      seeds: [{ id: manyNodes[0].id }],
+      maxNodes: 3,
+    });
+    const cappedResponse = await cappedRetriever.retrieve({
       question: 'rankedSeed',
       mode: 'search',
       maxNodes: 100,
     });
 
-    expect(response.seeds).toHaveLength(20);
+    expect(constrainedResponse.seeds).toHaveLength(3);
+    expect(constrainedResponse.nodes).toHaveLength(3);
+    expect(mixedResponse.seeds).toHaveLength(3);
+    expect(mixedResponse.seeds[0]?.id).toBe(manyNodes[0].id);
+    expect(cappedResponse.seeds).toHaveLength(20);
+  });
+
+  it('preserves every explicit seed beyond the generated search seed cap', async () => {
+    const requestedNodes = Array.from({ length: 22 }, (_, index) => node(
+      `file:src/requested/Requested${index}.ts`,
+      'file',
+      `Requested${index}.ts`,
+      `src/requested/Requested${index}.ts`,
+    ));
+    const requestedRetriever = new GraphContextRetriever({
+      snapshotProvider: {
+        buildSnapshot: async () => ({
+          revision: 'explicit-seeds',
+          fresh: true,
+          nodes: requestedNodes,
+          edges: [],
+        }),
+      },
+      workspaceRoot: WORKSPACE_ROOT,
+    });
+
+    const response = await requestedRetriever.retrieve({
+      question: 'Preserve all requested entities',
+      mode: 'search',
+      seeds: requestedNodes.map(requestedNode => ({ id: requestedNode.id })),
+      maxNodes: 5,
+    });
+
+    expect(response.seeds.map(seed => seed.id)).toEqual(requestedNodes.map(requestedNode => requestedNode.id));
+    expect(response.nodes).toHaveLength(requestedNodes.length);
+    expect(response.nodes.map(result => result.id)).toEqual(expect.arrayContaining(
+      requestedNodes.map(requestedNode => requestedNode.id),
+    ));
+  });
+
+  it('keeps traversal connectors when maxNodes excludes deeper higher-scored nodes', async () => {
+    const rootId = 'symbol:src/root/RootGateway.ts:RootGateway:1';
+    const connectorId = 'symbol:src/bridge/Bridge.ts:Bridge:1';
+    const implementationId = 'symbol:src/impl/BridgeImplementation.ts:BridgeImplementation:1';
+    const connectedSnapshot: GraphContextSnapshot = {
+      revision: 'connected-frontier',
+      fresh: true,
+      nodes: [
+        node(rootId, 'symbol', 'RootGateway', 'src/root/RootGateway.ts', 1),
+        node(connectorId, 'symbol', 'Bridge', 'src/bridge/Bridge.ts', 1),
+        node(implementationId, 'symbol', 'BridgeImplementation', 'src/impl/BridgeImplementation.ts', 1),
+      ],
+      edges: [
+        edge(connectorId, rootId, 'CONTAINS'),
+        edge(implementationId, connectorId, 'IMPLEMENTS'),
+      ],
+    };
+    const connectedRetriever = new GraphContextRetriever({
+      snapshotProvider: { buildSnapshot: async () => connectedSnapshot },
+      workspaceRoot: WORKSPACE_ROOT,
+    });
+
+    const response = await connectedRetriever.retrieve({
+      question: 'What changes when I refactor RootGateway?',
+      mode: 'refactor',
+      seeds: [{ id: rootId }],
+      depth: 2,
+      maxNodes: 2,
+    });
+
+    expect(response.nodes.map(result => result.id)).toEqual([rootId, connectorId]);
+    expect(response.edges).toEqual([
+      expect.objectContaining({ source: connectorId, target: rootId, relation: 'CONTAINS' }),
+    ]);
+  });
+
+  it('orders direct impact dependents ahead of transitive higher-scored dependents', async () => {
+    const rootId = 'symbol:src/root/Root.ts:Root:1';
+    const directId = 'symbol:src/direct/Direct.ts:Direct:1';
+    const transitiveId = 'symbol:src/transitive/Transitive.ts:Transitive:1';
+    const impactSnapshot: GraphContextSnapshot = {
+      revision: 'impact-frontier-order',
+      fresh: true,
+      nodes: [
+        node(rootId, 'symbol', 'Root', 'src/root/Root.ts', 1),
+        node(directId, 'symbol', 'Direct', 'src/direct/Direct.ts', 1),
+        node(transitiveId, 'symbol', 'Transitive', 'src/transitive/Transitive.ts', 1),
+      ],
+      edges: [
+        edge(directId, rootId, 'REFERENCES'),
+        edge(transitiveId, directId, 'CALLS'),
+      ],
+    };
+    const impactRetriever = new GraphContextRetriever({
+      snapshotProvider: { buildSnapshot: async () => impactSnapshot },
+      workspaceRoot: WORKSPACE_ROOT,
+    });
+
+    const response = await impactRetriever.retrieve({
+      question: 'Which callers are impacted?',
+      mode: 'impact',
+      seeds: [{ id: rootId }],
+      depth: 2,
+      maxNodes: 3,
+    });
+
+    expect(response.nodes.map(result => result.id)).toEqual([rootId, directId, transitiveId]);
+  });
+
+  it('uses inferred dependent edges for follow-up suggestions', async () => {
+    const serviceId = 'file:src/orders/OrderService.ts';
+    const apiId = 'file:src/api/OrderApi.ts';
+    const suggestionSnapshot: GraphContextSnapshot = {
+      revision: 'inferred-suggestion',
+      fresh: true,
+      nodes: [
+        node(serviceId, 'file', 'OrderService.ts', 'src/orders/OrderService.ts'),
+        node(apiId, 'file', 'OrderApi.ts', 'src/api/OrderApi.ts'),
+      ],
+      edges: [],
+    };
+    const suggestionRetriever = new GraphContextRetriever({
+      snapshotProvider: { buildSnapshot: async () => suggestionSnapshot },
+      dependentsProvider: {
+        findReferencingFiles: async () => [{ path: `${WORKSPACE_ROOT}/src/api/OrderApi.ts` }],
+        getSymbolDependents: async () => [],
+      },
+      workspaceRoot: WORKSPACE_ROOT,
+    });
+
+    const response = await suggestionRetriever.retrieve({
+      question: 'What depends on the OrderService file?',
+      mode: 'impact',
+      maxNodes: 1,
+    });
+
+    expect(response.edges).toEqual([]);
+    expect(response.nextQueries).toContain(
+      'Explore IMPACTED_BY around OrderService.ts in src/orders/OrderService.ts',
+    );
+  });
+});
+
+describe('GraphContextScorer relation intent', () => {
+  const scorer = new GraphContextScorer({ workspaceRoot: WORKSPACE_ROOT });
+  const target = node('symbol:src/example.ts:target:1', 'symbol', 'target', 'src/example.ts', 1);
+
+  it.each(['calls', 'callers'])('boosts CALLS for the %s word form', word => {
+    expect(scorer.scoreRelation('search', 'CALLS', `Which ${word} reach target?`, target)).toBe(130);
+  });
+
+  it('boosts dependency relations for the dependencies word form', () => {
+    expect(scorer.scoreRelation('impact', 'IMPORTS', 'Which dependencies change?', target)).toBe(105);
+  });
+
+  it('boosts implementation relations for the implementations word form', () => {
+    expect(scorer.scoreRelation('refactor', 'IMPLEMENTS', 'Which implementations change?', target)).toBe(155);
   });
 });
