@@ -1,0 +1,186 @@
+import { describe, expect, it } from 'vitest';
+import type {
+  GraphContextCandidate,
+  GraphContextConfidence,
+  GraphContextEdge,
+  GraphContextEvidence,
+  GraphContextMode,
+  GraphContextNode,
+  GraphContextNodeKind,
+  GraphContextPath,
+  GraphContextRelation,
+  GraphContextRequest,
+  GraphContextResolution,
+  GraphContextResponse,
+  GraphContextSeed,
+  GraphContextSnapshot,
+} from '../../src/shared/graph-context-types.js';
+
+const modes: GraphContextMode[] = [
+  'search',
+  'neighbors',
+  'path',
+  'impact',
+  'refactor',
+  'overview',
+];
+
+const nodeKinds: GraphContextNodeKind[] = [
+  'file',
+  'symbol',
+  'test',
+  'community',
+  'document',
+  'rationale',
+  'external',
+];
+
+const relations: GraphContextRelation[] = [
+  'CONTAINS',
+  'IMPORTS',
+  'CALLS',
+  'INHERITS',
+  'IMPLEMENTS',
+  'USES',
+  'TESTED_BY',
+  'IMPACTED_BY',
+  'BELONGS_TO',
+  'REFERENCES',
+  'EXPLAINS',
+  'DOCUMENTS',
+];
+
+const confidences: GraphContextConfidence[] = [
+  'EXTRACTED',
+  'RESOLVED',
+  'INFERRED',
+  'AMBIGUOUS',
+  'STALE',
+];
+
+const seed: GraphContextSeed = {
+  id: 'src/index.ts',
+  filePath: 'src/index.ts',
+  symbolName: 'main',
+  label: 'entry point',
+};
+
+const node: GraphContextNode = {
+  id: 'src/index.ts',
+  kind: 'file',
+  name: 'index.ts',
+  path: 'src/index.ts',
+  startLine: 1,
+  endLine: 10,
+  language: 'typescript',
+  score: 1,
+  isSeed: true,
+};
+
+const evidence: GraphContextEvidence = {
+  sourcePath: 'src/index.ts',
+  sourceLine: 3,
+  sourceEndLine: 3,
+  reason: 'Imported by the entry point',
+};
+
+const edge: GraphContextEdge = {
+  source: 'src/index.ts',
+  target: 'src/app.ts',
+  relation: 'IMPORTS',
+  confidence: 'RESOLVED',
+  sourcePath: 'src/index.ts',
+  sourceLine: 3,
+  sourceEndLine: 3,
+  evidence,
+};
+
+const path: GraphContextPath = {
+  nodeIds: ['src/index.ts', 'src/app.ts'],
+  edgeIndexes: [0],
+  hops: 1,
+};
+
+const candidate: GraphContextCandidate = {
+  node,
+  score: 0.9,
+  reason: 'Exact symbol match',
+};
+
+const resolution: GraphContextResolution = {
+  selected: node,
+  candidates: [candidate],
+  ambiguous: false,
+  notFound: false,
+};
+
+const request: GraphContextRequest = {
+  question: 'Where is the application entry point?',
+  seeds: [seed],
+  mode: 'search',
+  from: seed,
+  to: { filePath: 'src/app.ts' },
+  relations: ['CONTAINS', 'IMPORTS'],
+  scope: 'src/**',
+  depth: 2,
+  maxNodes: 20,
+  tokenBudget: 500,
+  directed: true,
+  cursor: 'cursor-1',
+  format: 'json',
+};
+
+const snapshot: GraphContextSnapshot = {
+  revision: 'revision-1',
+  fresh: true,
+  nodes: [node],
+  edges: [edge],
+};
+
+const response: GraphContextResponse = {
+  indexRevision: snapshot.revision,
+  fresh: snapshot.fresh,
+  mode: request.mode ?? 'search',
+  seeds: [node],
+  nodes: [node],
+  edges: [edge],
+  paths: [path],
+  ambiguous: [candidate],
+  omitted: { nodes: 0, edges: 0 },
+  nextQueries: ['src/app.ts'],
+  nextCursor: 'cursor-2',
+  tokenEstimate: 120,
+  truncated: false,
+};
+
+describe('GraphContext shared contract', () => {
+  it('accepts every documented discriminant literal', () => {
+    expect(modes).toHaveLength(6);
+    expect(nodeKinds).toHaveLength(7);
+    expect(relations).toHaveLength(12);
+    expect(confidences).toHaveLength(5);
+  });
+
+  it('serializes every contract shape as JSON', () => {
+    const serialized = JSON.stringify({ request, resolution, snapshot, response });
+
+    expect(serialized).not.toBeUndefined();
+    expect(JSON.parse(serialized)).toEqual({ request, resolution, snapshot, response });
+  });
+
+  it('keeps path node IDs and edge indexes ordered', () => {
+    expect(path.nodeIds).toEqual(['src/index.ts', 'src/app.ts']);
+    expect(path.edgeIndexes).toEqual([0]);
+    expect(path.hops).toBe(path.edgeIndexes.length);
+  });
+
+  it('rejects unsupported relation and confidence literals at compile time', () => {
+    // @ts-expect-error Unsupported relations must not enter the public contract.
+    const unsupportedRelation: GraphContextRelation = 'EXTENDS';
+    // @ts-expect-error Unsupported confidence values must not enter the public contract.
+    const unsupportedConfidence: GraphContextConfidence = 'PREDICTED';
+
+    expect(unsupportedRelation).toBe('EXTENDS');
+    expect(unsupportedConfidence).toBe('PREDICTED');
+  });
+});
