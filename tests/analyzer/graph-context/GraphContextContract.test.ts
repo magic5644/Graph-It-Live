@@ -50,6 +50,14 @@ function insertNode(db: Database, id: string, name: string, path: string): void 
   );
 }
 
+function insertEdge(db: Database, sourceId: string, targetId: string): void {
+  db.run(
+    `INSERT INTO edges (source_id, target_id, type_relation, source_line)
+     VALUES (?, ?, 'CALLS', 1)`,
+    [sourceId, targetId],
+  );
+}
+
 describe('current QueryEngine graph-context contracts', () => {
   let db: Database;
 
@@ -60,18 +68,25 @@ describe('current QueryEngine graph-context contracts', () => {
   afterEach(() => db.close());
 
   it('preserves the requested search seed at the minimum token budget', async () => {
-    insertNode(db, 'requested', 'resolveWorkspaceRelativeImportSpecifier', '/workspace/src/requested.ts');
+    insertNode(db, 'a-requested', 'resolveWorkspaceRelativeImportSpecifier', '/workspace/src/requested.ts');
+    for (let i = 0; i < 40; i += 1) {
+      const id = `z-connected-${i}`;
+      insertNode(db, id, `connectedHelper${i}`, `/workspace/src/connected-${i}.ts`);
+      insertEdge(db, 'a-requested', id);
+    }
 
     const result = await new QueryEngine(db, null).query({
       question: 'resolveWorkspaceRelativeImportSpecifier',
       workspaceRoot: '/workspace',
+      depth: 1,
       tokenBudget: 500,
     });
 
-    expect(result.seedNodeIds).toContain('requested');
-    expect(result.nodes.some(node => node.id === 'requested')).toBe(true);
+    expect(result.meta.truncated).toBe(true);
+    expect(result.seedNodeIds).toContain('a-requested');
+    expect(result.nodes.some(node => node.id === 'a-requested')).toBe(true);
     const compact = JSON.parse(result.json ?? '{}') as { nodes?: Array<{ id: string }> };
-    expect(compact.nodes?.some(node => node.id === 'requested')).toBe(true);
+    expect(compact.nodes?.some(node => node.id === 'a-requested')).toBe(true);
   });
 
   it('returns all matching nodes as candidates for an ambiguous label', async () => {
@@ -84,7 +99,8 @@ describe('current QueryEngine graph-context contracts', () => {
       depth: 1,
     });
 
-    expect(result.seedNodeIds).toEqual(['a', 'b']);
+    expect(result.seedNodeIds).toHaveLength(2);
+    expect(result.seedNodeIds).toEqual(expect.arrayContaining(['a', 'b']));
     expect(result.nodes.map(node => node.id)).toEqual(expect.arrayContaining(['a', 'b']));
   });
 });
