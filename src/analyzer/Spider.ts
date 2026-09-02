@@ -16,6 +16,7 @@ import { SpiderSymbolService } from './spider/SpiderSymbolService';
 import { SpiderWorkerManager } from './spider/SpiderWorkerManager';
 import { SymbolDependencyHelper } from './SymbolDependencyHelper';
 import type { Dependency, IndexingProgressCallback, SpiderConfig } from './types';
+import { normalizePath } from '@/shared/path';
 import { YIELD_INTERVAL_MS, yieldToEventLoop } from './utils/EventLoopYield';
 import { PathResolver } from './utils/PathResolver';
 
@@ -525,6 +526,48 @@ export class Spider {
     options?: { maxDepth?: number; signal?: AbortSignal },
   ): Promise<{ nodes: string[]; edges: { source: string; target: string }[]; nodeLabels?: Record<string, string> }> {
     return this.graphCrawler.crawl(startPath, options);
+  }
+
+  /**
+   * Read one file's direct dependency graph without writing Spider cache or
+   * reverse-index state. This deliberately bypasses SpiderDependencyAnalyzer.
+   */
+  async getReadOnlyDependencyGraph(
+    filePath: string,
+  ): Promise<{ nodes: string[]; edges: { source: string; target: string }[]; nodeLabels?: Record<string, string> }> {
+    const normalizedFilePath = normalizePath(filePath);
+    const nodes = new Set<string>([normalizedFilePath]);
+    const edges: Array<{ source: string; target: string }> = [];
+    const nodeLabels: Record<string, string> = {};
+
+    try {
+      const analyzer = this.languageService.getAnalyzer(filePath);
+      const parsedImports = await analyzer.parseImports(filePath);
+      const seenResolvedPaths = new Set<string>();
+
+      for (const imported of parsedImports) {
+        const resolvedPath = await analyzer.resolvePath(filePath, imported.module);
+        if (!resolvedPath || !this.resolver.isWithinWorkspace(resolvedPath)) continue;
+
+        const dependencyPath = normalizePath(resolvedPath);
+        if (seenResolvedPaths.has(dependencyPath)) continue;
+        seenResolvedPaths.add(dependencyPath);
+        nodes.add(dependencyPath);
+        edges.push({ source: normalizedFilePath, target: dependencyPath });
+
+        if (imported.module.startsWith('@') && imported.module.includes('/') && !imported.module.startsWith('@/')) {
+          nodeLabels[dependencyPath] = imported.module;
+        }
+      }
+    } catch {
+      // Preserve crawl semantics: unreadable sources remain graph nodes without edges.
+    }
+
+    return {
+      nodes: [...nodes],
+      edges,
+      nodeLabels: Object.keys(nodeLabels).length > 0 ? nodeLabels : undefined,
+    };
   }
 
   async crawlFrom(

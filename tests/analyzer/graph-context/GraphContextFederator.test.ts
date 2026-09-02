@@ -28,6 +28,7 @@ describe('GraphContextFederator', () => {
     spider = new SpiderBuilder()
       .withRootDir(workspaceRoot)
       .withMaxDepth(1)
+      .withReverseIndex(true)
       .build();
     indexer = new CallGraphIndexer(SQL_WASM_PATH);
     await indexer.init();
@@ -40,15 +41,19 @@ describe('GraphContextFederator', () => {
     await fs.rm(workspaceRoot, { recursive: true, force: true });
   });
 
-  it('federates stable file and symbol IDs without mutating either index', async () => {
+  it('federates stable file and symbol IDs without mutating Spider or SQLite indexes', async () => {
     const federator = new GraphContextFederator(spider, indexer);
     const indexedBefore = Array.from(indexer.exportDb());
+    const spiderStateBefore = getSpiderIndexState(spider);
+
+    expect(spider.isReverseIndexEnabled()).toBe(true);
 
     const first = await federator.buildSnapshot({ question: 'trace user service' });
     const second = await federator.buildSnapshot({ question: 'trace user service' });
 
     expect(first).toEqual(second);
     expect(Array.from(indexer.exportDb())).toEqual(indexedBefore);
+    expect(getSpiderIndexState(spider)).toEqual(spiderStateBefore);
     expect(first.nodes).toEqual(expect.arrayContaining([
       expect.objectContaining({ id: 'file:src/services/UserService.ts', kind: 'file' }),
       expect.objectContaining({ id: 'symbol:src/services/UserService.ts:UserService:12', kind: 'symbol' }),
@@ -205,4 +210,43 @@ function makeNode(filePath: string, name: string, startLine: number): CallGraphN
 
 function makeEdge(sourceId: string, targetId: string, sourceLine: number): CallGraphEdge {
   return { sourceId, targetId, typeRelation: 'CALLS', sourceLine };
+}
+
+function getSpiderIndexState(spider: Spider): {
+  cacheStats: ReturnType<Spider['getCacheStats']>;
+  reverseIndex: {
+    version: number;
+    rootDir: string;
+    reverseMap: Record<string, unknown>;
+    fileHashes: Record<string, unknown>;
+  } | null;
+} {
+  const serializedReverseIndex = spider.getSerializedReverseIndex();
+
+  return {
+    cacheStats: spider.getCacheStats(),
+    reverseIndex: serializedReverseIndex === null
+      ? null
+      : readStableReverseIndexState(serializedReverseIndex),
+  };
+}
+
+function readStableReverseIndexState(serializedReverseIndex: string): {
+  version: number;
+  rootDir: string;
+  reverseMap: Record<string, unknown>;
+  fileHashes: Record<string, unknown>;
+} {
+  const parsed = JSON.parse(serializedReverseIndex) as {
+    version: number;
+    rootDir: string;
+    reverseMap: Record<string, unknown>;
+    fileHashes: Record<string, unknown>;
+  };
+  return {
+    version: parsed.version,
+    rootDir: parsed.rootDir,
+    reverseMap: parsed.reverseMap,
+    fileHashes: parsed.fileHashes,
+  };
 }
