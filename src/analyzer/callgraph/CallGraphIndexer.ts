@@ -45,6 +45,21 @@ export interface CallGraphEdge {
   sourceLine: number;
 }
 
+/** Immutable-shaped row returned by the read-only graph snapshot accessor. */
+export interface IndexedCallGraphFile {
+  path: string;
+  lang: SupportedLang;
+  lastModified: number;
+  indexedAt: number;
+}
+
+/** Complete read-only view of the call graph index. */
+export interface CallGraphIndexSnapshot {
+  files: readonly IndexedCallGraphFile[];
+  nodes: readonly (CallGraphNode & { indexedAt: number })[];
+  edges: readonly (CallGraphEdge & { isCyclic: boolean; indexedAt: number })[];
+}
+
 // ---------------------------------------------------------------------------
 // SQLite schema (inlined — matches contracts/db-schema.sql)
 // ---------------------------------------------------------------------------
@@ -513,6 +528,58 @@ export class CallGraphIndexer {
     }
     stmt.free();
     return result;
+  }
+
+  /**
+   * Return a deterministic, read-only view of every indexed file, symbol, and relation.
+   * Callers receive newly allocated values, so inspecting this snapshot cannot alter the
+   * SQLite index or its query state.
+   */
+  getIndexSnapshot(): CallGraphIndexSnapshot {
+    const db = this.getDb();
+    const fileRows = db.exec(
+      'SELECT path, lang, last_modified, indexed_at FROM file_index ORDER BY path ASC',
+    );
+    const nodeRows = db.exec(
+      `SELECT id, name, type, lang, path, folder, start_line, end_line, start_col, is_exported, indexed_at
+       FROM nodes
+       ORDER BY path ASC, start_line ASC, id ASC`,
+    );
+    const edgeRows = db.exec(
+      `SELECT source_id, target_id, type_relation, source_line, is_cyclic, indexed_at
+       FROM edges
+       ORDER BY source_id ASC, target_id ASC, type_relation ASC, source_line ASC`,
+    );
+
+    return {
+      files: (fileRows[0]?.values ?? []).map((row) => ({
+        path: row[0] as string,
+        lang: row[1] as SupportedLang,
+        lastModified: row[2] as number,
+        indexedAt: row[3] as number,
+      })),
+      nodes: (nodeRows[0]?.values ?? []).map((row) => ({
+        id: row[0] as string,
+        name: row[1] as string,
+        type: row[2] as SymbolType,
+        lang: row[3] as SupportedLang,
+        path: row[4] as string,
+        folder: row[5] as string,
+        startLine: row[6] as number,
+        endLine: row[7] as number,
+        startCol: row[8] as number,
+        isExported: row[9] === 1,
+        indexedAt: row[10] as number,
+      })),
+      edges: (edgeRows[0]?.values ?? []).map((row) => ({
+        sourceId: row[0] as string,
+        targetId: row[1] as string,
+        typeRelation: row[2] as RelationType,
+        sourceLine: row[3] as number,
+        isCyclic: row[4] === 1,
+        indexedAt: row[5] as number,
+      })),
+    };
   }
 
   // ---------------------------------------------------------------------------
