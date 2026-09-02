@@ -153,22 +153,56 @@ const response: GraphContextResponse = {
   truncated: false,
 };
 
+type Equal<Left, Right> =
+  (<Value>() => Value extends Left ? 1 : 2) extends
+  (<Value>() => Value extends Right ? 1 : 2) ? true : false;
+type Expect<T extends true> = T;
+
+const exactUnionChecks: [
+  Expect<Equal<GraphContextMode, 'search' | 'neighbors' | 'path' | 'impact' | 'refactor' | 'overview'>>,
+  Expect<Equal<GraphContextNodeKind, 'file' | 'symbol' | 'test' | 'community' | 'document' | 'rationale' | 'external'>>,
+  Expect<Equal<GraphContextRelation, 'CONTAINS' | 'IMPORTS' | 'CALLS' | 'INHERITS' | 'IMPLEMENTS' | 'USES' | 'TESTED_BY' | 'IMPACTED_BY' | 'BELONGS_TO' | 'REFERENCES' | 'EXPLAINS' | 'DOCUMENTS'>>,
+  Expect<Equal<GraphContextConfidence, 'EXTRACTED' | 'RESOLVED' | 'INFERRED' | 'AMBIGUOUS' | 'STALE'>>,
+] = [true, true, true, true];
+
+const validQuestionRequest: GraphContextRequest = { question: 'find the entry point' };
+const validSeedRequest: GraphContextRequest = { seeds: [seed] };
+const validPathRequest: GraphContextRequest = { from: seed, to: { filePath: 'src/app.ts' } };
+
+// @ts-expect-error A request must provide a question, a non-empty seed list, or both endpoints.
+const emptyRequest: GraphContextRequest = {};
+// @ts-expect-error A path request must provide both endpoints.
+const fromOnlyRequest: GraphContextRequest = { from: seed };
+// @ts-expect-error A path request must provide both endpoints.
+const toOnlyRequest: GraphContextRequest = { to: seed };
+// @ts-expect-error Seed-based requests must contain at least one seed.
+const emptySeedsRequest: GraphContextRequest = { seeds: [] };
+
 describe('GraphContext shared contract', () => {
   it('accepts every documented discriminant literal', () => {
-    expect(modes).toHaveLength(6);
-    expect(nodeKinds).toHaveLength(7);
-    expect(relations).toHaveLength(12);
-    expect(confidences).toHaveLength(5);
+    expect(exactUnionChecks).toEqual([true, true, true, true]);
+    expect(modes).toEqual(['search', 'neighbors', 'path', 'impact', 'refactor', 'overview']);
+    expect(nodeKinds).toEqual(['file', 'symbol', 'test', 'community', 'document', 'rationale', 'external']);
+    expect(relations).toEqual(['CONTAINS', 'IMPORTS', 'CALLS', 'INHERITS', 'IMPLEMENTS', 'USES', 'TESTED_BY', 'IMPACTED_BY', 'BELONGS_TO', 'REFERENCES', 'EXPLAINS', 'DOCUMENTS']);
+    expect(confidences).toEqual(['EXTRACTED', 'RESOLVED', 'INFERRED', 'AMBIGUOUS', 'STALE']);
   });
 
   it('serializes every contract shape as JSON', () => {
-    const serialized = JSON.stringify({ request, resolution, snapshot, response });
+    const contract = {
+      discriminants: { modes, nodeKinds, relations, confidences },
+      requests: [request, validQuestionRequest, validSeedRequest, validPathRequest],
+      resolution,
+      snapshot,
+      response,
+    };
+    const serialized = JSON.stringify(contract);
 
     expect(serialized).not.toBeUndefined();
-    expect(JSON.parse(serialized)).toEqual({ request, resolution, snapshot, response });
+    expect(JSON.parse(serialized)).toEqual(contract);
   });
 
-  it('keeps path node IDs and edge indexes ordered', () => {
+  it('uses canonical ordered positional edgeIndexes in paths', () => {
+    // The formal specification is canonical: path edges are positional indexes, not edge IDs.
     expect(path.nodeIds).toEqual(['src/index.ts', 'src/app.ts']);
     expect(path.edgeIndexes).toEqual([0]);
     expect(path.hops).toBe(path.edgeIndexes.length);
