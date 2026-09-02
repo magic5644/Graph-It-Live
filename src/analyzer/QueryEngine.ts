@@ -16,6 +16,10 @@ import type { QueryRequest, QueryResult, QueryResultEdge, QueryResultNode } from
 import { estimateTokens } from '@/shared/toon';
 import type { Database } from 'sql.js';
 import { bfsFromSeeds, splitIdentifier } from './callgraph/CallGraphQuery';
+import {
+  compileFileScope,
+  type CompiledFileScope,
+} from './graph-context/FileScopeMatcher';
 import type { LlmClient } from './llm/LlmClient';
 
 // ---------------------------------------------------------------------------
@@ -28,6 +32,11 @@ const STOPWORDS = new Set([
   'src','dist','index','utils','types','test','spec','impl',
   'function','class','method','interface','export','import','default','const','return','async','await',
 ]);
+
+const UNSCOPED_FILE_MATCHER: CompiledFileScope = {
+  sqlGlob: '*',
+  matches: () => true,
+};
 
 // ---------------------------------------------------------------------------
 // Config
@@ -88,7 +97,8 @@ export class QueryEngine {
 
     // 2. Score seed nodes via FTS5
     const t2 = Date.now();
-    const seedNodes = this.scoreSeedNodes(keywords);
+    const fileScope = compileFileScope(request.workspaceRoot, request.fileFilter ?? '');
+    const seedNodes = this.scoreSeedNodes(keywords, fileScope);
     const seeds = seedNodes
       .slice(0, this.config.maxSeedNodes)
       .map(n => ({ id: n.id, score: n.relevanceScore }));
@@ -98,10 +108,11 @@ export class QueryEngine {
     const bfsMs = Date.now() - t2;
 
     // 4. Fetch full node data for visited IDs
-    const nodes = this.fetchNodes(visitedIds, seedNodes);
+    const nodes = this.fetchNodes(visitedIds, seedNodes, fileScope);
 
     // 5. Fetch edges between visited nodes
-    const edges = this.fetchEdges(visitedIds);
+    const scopedNodeIds = new Set(nodes.map(node => node.id));
+    const edges = this.fetchEdges(scopedNodeIds);
 
     // 6. Serialize to a compact JSON string if requested
     const { json, truncated, tokenEstimate } = this.toCompactJson(nodes, edges, tokenBudget);
@@ -189,7 +200,10 @@ export class QueryEngine {
   // FTS5 seed scoring (with LIKE fallback)
   // -------------------------------------------------------------------------
 
-  scoreSeedNodes(keywords: string[]): QueryResultNode[] {
+  scoreSeedNodes(
+    keywords: string[],
+    fileScope: CompiledFileScope = UNSCOPED_FILE_MATCHER,
+  ): QueryResultNode[] {
     if (keywords.length === 0) return [];
 
     const results = new Map<string, QueryResultNode>();
@@ -207,26 +221,31 @@ export class QueryEngine {
              FROM nodes n
              JOIN nodes_fts f ON n.rowid = f.rowid
              WHERE nodes_fts MATCH ?
+               AND n.path GLOB ?
              LIMIT 50`,
-            [ftsQuery],
+            [ftsQuery, fileScope.sqlGlob],
           );
           for (const row of rows[0]?.values ?? []) {
-            this._accumulateNode(results, row);
+            this._accumulateNode(results, row, fileScope);
           }
         } catch {
           // Unexpected error — fall back to LIKE for this keyword
-          this._scoreBySingleLike(results, keyword);
+          this._scoreBySingleLike(results, keyword, fileScope);
         }
       } else {
         // LIKE fallback — case-insensitive prefix match on each token
-        this._scoreBySingleLike(results, keyword);
+        this._scoreBySingleLike(results, keyword, fileScope);
       }
     }
 
     return [...results.values()].sort((a, b) => b.relevanceScore - a.relevanceScore);
   }
 
-  private _scoreBySingleLike(results: Map<string, QueryResultNode>, keyword: string): void {
+  private _scoreBySingleLike(
+    results: Map<string, QueryResultNode>,
+    keyword: string,
+    fileScope: CompiledFileScope,
+  ): void {
     const tokens = splitIdentifier(keyword);
     if (tokens.length === 0) return;
     // Use the first token (most specific) for LIKE match to keep result set small
@@ -236,11 +255,12 @@ export class QueryEngine {
         `SELECT id, name, type, path, start_line
          FROM nodes
          WHERE name LIKE ? COLLATE NOCASE
+           AND path GLOB ?
          LIMIT 50`,
-        [pattern],
+        [pattern, fileScope.sqlGlob],
       );
       for (const row of rows[0]?.values ?? []) {
-        this._accumulateNode(results, row);
+        this._accumulateNode(results, row, fileScope);
       }
     } catch {
       // DB error — skip
@@ -252,7 +272,11 @@ export class QueryEngine {
     // sql.js SqlValue = string | number | null | Uint8Array — we only use string/number cols
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     row: any[],
+    fileScope: CompiledFileScope,
   ): void {
+    const nodePath = normalizePath(row[3] as string);
+    if (!fileScope.matches(nodePath)) return;
+
     const id = row[0] as string;
     const existing = results.get(id);
     const score = (existing?.relevanceScore ?? 0) + 1;
@@ -260,7 +284,7 @@ export class QueryEngine {
       id,
       name: row[1] as string,
       type: row[2] as string,
-      path: normalizePath(row[3] as string),
+      path: nodePath,
       startLine: (row[4] as number | null) ?? undefined,
       relevanceScore: score,
     });
@@ -273,6 +297,7 @@ export class QueryEngine {
   private fetchNodes(
     visitedIds: Set<string>,
     seedNodes: QueryResultNode[],
+    fileScope: CompiledFileScope,
   ): QueryResultNode[] {
     if (visitedIds.size === 0) return [];
 
@@ -293,16 +318,19 @@ export class QueryEngine {
 
     if (!rows[0]) return [];
 
-    return rows[0].values.map((row): QueryResultNode => {
+    return rows[0].values.flatMap((row): QueryResultNode[] => {
+      const nodePath = normalizePath(row[3] as string);
+      if (!fileScope.matches(nodePath)) return [];
+
       const id = row[0] as string;
-      return {
+      return [{
         id,
         name: row[1] as string,
         type: row[2] as string,
-        path: normalizePath(row[3] as string),
+        path: nodePath,
         startLine: (row[4] as number | null) ?? undefined,
         relevanceScore: scoreMap.get(id) ?? 0,
-      };
+      }];
     });
   }
 

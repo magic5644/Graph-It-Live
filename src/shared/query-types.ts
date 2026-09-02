@@ -12,6 +12,7 @@ export interface QueryRequest {
   workspaceRoot: string;
   depth?: number;          // default: 2
   tokenBudget?: number;    // default: 4000
+  /** Workspace-relative glob using `*`, `**`, and `?`. */
   fileFilter?: string;
   outputFormat?: 'toon' | 'json' | 'text';
 }

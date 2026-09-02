@@ -21,6 +21,7 @@ const SQL_WASM_PATH: string = _require.resolve('sql.js/dist/sql-wasm.wasm');
 import initSqlJs from 'sql.js';
 import type { Database } from 'sql.js';
 import { bfsFromSeeds, splitIdentifier } from '../../src/analyzer/callgraph/CallGraphQuery';
+import { compileFileScope } from '../../src/analyzer/graph-context/FileScopeMatcher';
 import { QueryEngine } from '../../src/analyzer/QueryEngine';
 import type { LlmClient } from '../../src/analyzer/llm/LlmClient';
 import type { LlmCompletionOptions, LlmCompletionResult, LlmMessage } from '../../src/analyzer/llm/LlmClient';
@@ -318,6 +319,48 @@ describe('QueryEngine.scoreSeedNodes', () => {
     const results = engine.scoreSeedNodes([]);
     expect(results).toHaveLength(0);
   });
+
+  it('passes FTS5 search and scope patterns as separate SQL parameters', () => {
+    const calls: Array<{ sql: string; params?: unknown[] }> = [];
+    const fakeDb = {
+      exec(sql: string, params?: unknown[]) {
+        calls.push({ sql, params });
+        if (sql.includes('SELECT name FROM nodes_fts')) {
+          return [{ columns: ['name'], values: [['resolve']] }];
+        }
+        return [{
+          columns: ['id', 'name', 'type', 'path', 'start_line'],
+          values: [['a', 'resolvePath', 'function', '/workspace/src/analyzer/path.ts', 10]],
+        }];
+      },
+    } as unknown as Database;
+    const scope = compileFileScope('/workspace', 'src/analyzer/**');
+
+    const results = new QueryEngine(fakeDb, null).scoreSeedNodes(['resolve'], scope);
+
+    expect(results.map(node => node.id)).toEqual(['a']);
+    expect(calls[1].params).toEqual(['resolve*', '/workspace/src/analyzer/*']);
+  });
+
+  it('passes LIKE search and scope patterns as separate SQL parameters', () => {
+    const calls: Array<{ sql: string; params?: unknown[] }> = [];
+    const fakeDb = {
+      exec(sql: string, params?: unknown[]) {
+        calls.push({ sql, params });
+        if (sql.includes('SELECT name FROM nodes_fts')) throw new Error('FTS5 unavailable');
+        return [{
+          columns: ['id', 'name', 'type', 'path', 'start_line'],
+          values: [['a', 'resolvePath', 'function', '/workspace/src/analyzer/path.ts', 10]],
+        }];
+      },
+    } as unknown as Database;
+    const scope = compileFileScope('/workspace', 'src/analyzer/**');
+
+    const results = new QueryEngine(fakeDb, null).scoreSeedNodes(['resolve'], scope);
+
+    expect(results.map(node => node.id)).toEqual(['a']);
+    expect(calls[1].params).toEqual(['%resolve%', '/workspace/src/analyzer/*']);
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -550,6 +593,8 @@ describe('QueryEngine.query (end-to-end)', () => {
   it('restricts seed scoring and traversal to fileFilter', async () => {
     insertNode(db, 'a', 'resolvePath', 'function', '/workspace/src/analyzer/path.ts');
     insertNode(db, 'b', 'resolvePath', 'function', '/workspace/src/webview/path.ts');
+    insertNode(db, 'c', 'webviewHelper', 'function', '/workspace/src/webview/helper.ts');
+    insertEdge(db, 'a', 'c');
 
     const engine = new QueryEngine(db, null);
     const result = await engine.query({
@@ -559,6 +604,21 @@ describe('QueryEngine.query (end-to-end)', () => {
     });
 
     expect(result.seedNodeIds).toEqual(['a']);
-    expect(result.nodes.every(node => node.path.startsWith('/workspace/src/analyzer/'))).toBe(true);
+    expect(result.nodes.map(node => node.id)).toEqual(['a']);
+    expect(result.edges).toEqual([]);
+  });
+
+  it('enforces single-segment scope semantics after SQL seed scoring', async () => {
+    insertNode(db, 'direct', 'resolvePath', 'function', '/workspace/src/path.ts');
+    insertNode(db, 'nested', 'resolvePath', 'function', '/workspace/src/nested/path.ts');
+
+    const result = await new QueryEngine(db, null).query({
+      question: 'resolvePath',
+      workspaceRoot: '/workspace',
+      fileFilter: 'src/*.ts',
+    });
+
+    expect(result.seedNodeIds).toEqual(['direct']);
+    expect(result.nodes.map(node => node.id)).toEqual(['direct']);
   });
 });
