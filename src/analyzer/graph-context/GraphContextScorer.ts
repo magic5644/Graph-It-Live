@@ -71,13 +71,13 @@ export class GraphContextScorer {
     const questionTokens = new Set(splitIdentifier(question));
     let score = relationPriority(mode, relation);
 
-    if (questionTokens.has('call') || questionTokens.has('caller') || questionTokens.has('flow')) {
+    if (hasIntentStem(questionTokens, ['call', 'flow'])) {
       if (relation === 'CALLS') score += 30;
     }
-    if (questionTokens.has('depend') || questionTokens.has('impact')) {
+    if (hasIntentStem(questionTokens, ['depend', 'impact'])) {
       if (relation === 'IMPORTS' || relation === 'USES') score += 25;
     }
-    if (questionTokens.has('implement') || questionTokens.has('refactor')) {
+    if (hasIntentStem(questionTokens, ['implement', 'refactor'])) {
       if (relation === 'IMPLEMENTS' || relation === 'INHERITS') score += 35;
     }
     if (node.kind === 'test') score += mode === 'refactor' ? -60 : 10;
@@ -135,6 +135,10 @@ export class GraphContextScorer {
 
     return score;
   }
+}
+
+function hasIntentStem(tokens: Set<string>, stems: string[]): boolean {
+  return [...tokens].some(token => stems.some(stem => token.startsWith(stem)));
 }
 
 function qualifyPath(workspaceRoot: string, filePath: string | undefined): string | undefined {
