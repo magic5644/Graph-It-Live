@@ -620,26 +620,31 @@ const GraphContextSeedSchema = z.object({
   "A seed must contain an id, filePath, symbolName, or label",
 );
 
+const GraphContextRelationSchema = z.enum([
+  "CONTAINS",
+  "IMPORTS",
+  "CALLS",
+  "INHERITS",
+  "IMPLEMENTS",
+  "USES",
+  "TESTED_BY",
+  "IMPACTED_BY",
+  "BELONGS_TO",
+  "REFERENCES",
+  "EXPLAINS",
+  "DOCUMENTS",
+]);
+
 export const GraphContextParamsSchema = z.object({
   question: z.string().max(1024).optional(),
-  seeds: z.array(GraphContextSeedSchema).optional(),
+  seeds: z.array(GraphContextSeedSchema).max(500).optional(),
   mode: z.enum(["search", "neighbors", "path", "impact", "refactor", "overview"]).optional(),
   from: GraphContextSeedSchema.optional(),
   to: GraphContextSeedSchema.optional(),
-  relations: z.array(z.enum([
-    "CONTAINS",
-    "IMPORTS",
-    "CALLS",
-    "INHERITS",
-    "IMPLEMENTS",
-    "USES",
-    "TESTED_BY",
-    "IMPACTED_BY",
-    "BELONGS_TO",
-    "REFERENCES",
-    "EXPLAINS",
-    "DOCUMENTS",
-  ])).optional(),
+  relations: z.array(GraphContextRelationSchema)
+    .max(12)
+    .refine(relations => new Set(relations).size === relations.length, "Relations must be unique")
+    .optional(),
   scope: z.string().max(256).optional(),
   depth: z.number().int().min(1).max(5).optional(),
   maxNodes: z.number().int().min(1).max(500).optional(),
@@ -660,12 +665,38 @@ export const GraphContextParamsSchema = z.object({
       message: "Both from and to are required for a path request",
     });
   }
+  if (params.mode === "path" && !(hasFrom && hasTo)) {
+    context.addIssue({
+      code: "custom",
+      message: "Path mode requires both from and to",
+    });
+  }
+  if (params.mode !== undefined && params.mode !== "path" && (hasFrom || hasTo)) {
+    context.addIssue({
+      code: "custom",
+      message: "from and to are only valid in path mode",
+    });
+  }
+  if (params.mode === undefined && hasFrom && hasTo && (hasQuestion || hasSeeds)) {
+    context.addIssue({
+      code: "custom",
+      message: "Set mode to path when combining endpoints with a question or seeds",
+    });
+  }
   if (!hasQuestion && !hasSeeds && !(hasFrom && hasTo)) {
     context.addIssue({
       code: "custom",
       message: "Provide a question, at least one seed, or both from and to",
     });
   }
+}).transform(params => {
+  const hasQuestion = params.question !== undefined && params.question.trim().length > 0;
+  const hasSeeds = (params.seeds?.length ?? 0) > 0;
+  const hasEndpoints = params.from !== undefined && params.to !== undefined;
+  if (params.mode === undefined && !hasQuestion && !hasSeeds && hasEndpoints) {
+    return { ...params, mode: "path" as const };
+  }
+  return params;
 });
 export type GraphContextParams = z.infer<typeof GraphContextParamsSchema>;
 

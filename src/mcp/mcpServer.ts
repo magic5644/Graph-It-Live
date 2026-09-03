@@ -1887,7 +1887,7 @@ RETURNS:
   },
 );
 
-// Tool: graphitlive_query_natural_language
+// Tool: graphitlive_graph_context
 server.registerTool(
   "graphitlive_graph_context",
   {

@@ -20,6 +20,7 @@ import { formatToolResponse } from '../../../src/mcp/responseFormatter';
 import { workerState } from '../../../src/mcp/shared/state';
 import { executeGraphContext } from '../../../src/mcp/tools/graphContext';
 import {
+  createErrorResponse,
   createSuccessResponse,
   GraphContextParamsSchema,
   validateToolParams,
@@ -88,6 +89,78 @@ describe('graph_context MCP contract', () => {
     }
   });
 
+  it('infers path mode for endpoint-only requests', async () => {
+    const request = {
+      from: { filePath: 'src/controllers/UserController.ts', symbolName: 'UserController' },
+      to: { filePath: 'src/data/UserRepository.ts', symbolName: 'UserRepository' },
+      relations: ['CALLS'] as const,
+      depth: 3,
+      directed: true,
+      tokenBudget: 1_000,
+    };
+    const parsed = GraphContextParamsSchema.parse(request);
+
+    expect(parsed.mode).toBe('path');
+    await expect(executeGraphContext(parsed)).resolves.toMatchObject({
+      mode: 'path',
+      paths: [expect.objectContaining({ hops: 2 })],
+    });
+  });
+
+  it('rejects path mode without both endpoints and endpoints in non-path modes', () => {
+    expect(GraphContextParamsSchema.safeParse({
+      question: 'Find a path',
+      mode: 'path',
+    }).success).toBe(false);
+    expect(GraphContextParamsSchema.safeParse({
+      mode: 'path',
+      from: { label: 'start' },
+    }).success).toBe(false);
+    expect(GraphContextParamsSchema.safeParse({
+      mode: 'search',
+      from: { label: 'start' },
+      to: { label: 'end' },
+    }).success).toBe(false);
+    expect(GraphContextParamsSchema.safeParse({
+      question: 'Find related code',
+      from: { label: 'start' },
+      to: { label: 'end' },
+    }).success).toBe(false);
+  });
+
+  it('bounds seeds and accepts at most twelve unique relations', () => {
+    const allRelations = [
+      'CONTAINS',
+      'IMPORTS',
+      'CALLS',
+      'INHERITS',
+      'IMPLEMENTS',
+      'USES',
+      'TESTED_BY',
+      'IMPACTED_BY',
+      'BELONGS_TO',
+      'REFERENCES',
+      'EXPLAINS',
+      'DOCUMENTS',
+    ];
+
+    expect(GraphContextParamsSchema.safeParse({
+      seeds: Array.from({ length: 501 }, (_, index) => ({ label: `seed-${index}` })),
+    }).success).toBe(false);
+    expect(GraphContextParamsSchema.safeParse({
+      question: 'relationships',
+      relations: allRelations,
+    }).success).toBe(true);
+    expect(GraphContextParamsSchema.safeParse({
+      question: 'relationships',
+      relations: [...allRelations, 'CALLS'],
+    }).success).toBe(false);
+    expect(GraphContextParamsSchema.safeParse({
+      question: 'relationships',
+      relations: ['CALLS', 'CALLS'],
+    }).success).toBe(false);
+  });
+
   it('rejects empty and one-sided path requests through the shared tool schema', () => {
     expect(validateToolParams('graph_context', {}).success).toBe(false);
     expect(validateToolParams('graph_context', { from: { label: 'start' } }).success).toBe(false);
@@ -142,6 +215,39 @@ describe('graph_context MCP contract', () => {
     ]));
   });
 
+  it('continues maxNodes-truncated traversal without duplicates or lost candidates', async () => {
+    const request = {
+      mode: 'neighbors' as const,
+      seeds: [{ filePath: 'src/services/UserService.ts', symbolName: 'UserService' }],
+      relations: ['CALLS'] as const,
+      maxNodes: 1,
+      tokenBudget: 4_000,
+    };
+    const seenIds = new Set<string>();
+    const seenNames = new Set<string>();
+    let cursor: string | undefined;
+
+    for (let pageNumber = 0; pageNumber < 5; pageNumber += 1) {
+      const page = await executeGraphContext({ ...request, cursor });
+      expect(page.nodes).toHaveLength(1);
+      for (const node of page.nodes) {
+        expect(seenIds.has(node.id)).toBe(false);
+        seenIds.add(node.id);
+        seenNames.add(node.name);
+      }
+      cursor = page.nextCursor;
+      if (cursor === undefined) break;
+    }
+
+    expect(cursor).toBeUndefined();
+    expect(seenNames).toEqual(new Set([
+      'UserController',
+      'UserRepository',
+      'UserService',
+      'UserServiceTest',
+    ]));
+  });
+
   it('rejects seed path traversal before executing the tool', async () => {
     const responses: import('../../../src/mcp/types').McpWorkerResponse[] = [];
 
@@ -191,16 +297,35 @@ describe('graph_context MCP contract', () => {
     const result = await executeGraphContext({
       question: 'UserService',
       scope: 'src/**',
+      maxNodes: 1,
       tokenBudget: 4_000,
     });
     const response = createSuccessResponse(result, 1, workspaceRoot);
     const formatted = formatToolResponse(response, 'toon', 'graphitlive_graph_context');
 
-    expect(formatted.content[0].text).toMatch(/^data\(/);
+    expect(formatted.content[0].text).toMatch(/^graph_context\(/);
+    expect(formatted.content[0].text).toContain('\nnodes(');
+    expect(formatted.content[0].text).toContain('\nedges(');
+    expect(formatted.content[0].text).toContain('\npaths(');
+    expect(formatted.content[0].text).toContain('\nambiguous(');
+    expect(formatted.content[0].text).toContain('\nomitted(nodes,edges)');
+    expect(result.nextCursor).toBeDefined();
+    expect(formatted.content[0].text).toContain(result.nextCursor as string);
     expect(formatted.content[0].text).not.toContain(workspaceRoot);
     expect(formatted.structuredContent.data).toEqual(result);
     expect(formatted.structuredContent.metadata.workspaceRoot).toBe('.');
     expectPublicPathsToBeRelative(formatted.structuredContent.data);
+  });
+
+  it('preserves graph-context errors in TOON text', () => {
+    const formatted = formatToolResponse(
+      createErrorResponse<GraphContextResponse>('Invalid graph request', 1, workspaceRoot),
+      'toon',
+      'graphitlive_graph_context',
+    );
+
+    expect(formatted.content[0].text).toContain('errors(message)');
+    expect(formatted.content[0].text).toContain('Invalid graph request');
   });
 
   it('formats public text as JSON when requested', async () => {
