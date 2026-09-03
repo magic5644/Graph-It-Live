@@ -14,6 +14,8 @@ import type {
   GraphContextSnapshot,
 } from '@/shared/graph-context-types';
 import { compileFileScope } from './FileScopeMatcher';
+import { toEvidence } from './GraphContextEvidence';
+import { resolveSeeds } from './GraphContextResolver';
 
 const EXTERNAL_PREFIX = '@@external:';
 
@@ -32,6 +34,8 @@ export class GraphContextFederator {
     const scope = compileFileScope(workspaceRoot, request.scope ?? '**');
     const indexSnapshot = this.callGraphIndexer.getIndexSnapshot();
     const fileState = await getFileState(indexSnapshot);
+    const fileStateByPath = new Map(fileState.map(entry => [entry.path, entry]));
+    const fresh = fileState.every(entry => !isStale(entry));
     const fileGraphs = await Promise.all(
       indexSnapshot.files.map(async (file) => this.spider.getReadOnlyDependencyGraph(file.path)),
     );
@@ -64,13 +68,16 @@ export class GraphContextFederator {
         const sourceId = fileNodeIdsByPath.get(sourcePath);
         const targetId = fileNodeIdsByPath.get(targetPath);
         if (!sourceId || !targetId) continue;
-        addEdge(edgesByKey, {
+        addEdge(edgesByKey, toEvidence({
           source: sourceId,
           target: targetId,
           relation: 'IMPORTS',
-          confidence: 'EXTRACTED',
-          sourcePath: toWorkspaceRelativePath(sourcePath, workspaceRoot) ?? undefined,
-        });
+          origin: 'MODULE_RESOLUTION',
+          workspaceRoot,
+          sourcePath,
+          sourceLine: edge.sourceLine,
+          stale: isStale(fileStateByPath.get(sourcePath)),
+        }));
       }
     }
 
@@ -94,13 +101,25 @@ export class GraphContextFederator {
         endLine: node.endLine,
         language: node.lang,
       });
-      addEdge(edgesByKey, {
+      addEdge(edgesByKey, toEvidence({
         source: fileId,
         target: id,
         relation: 'CONTAINS',
-        confidence: 'EXTRACTED',
-      });
+        origin: 'AST',
+        workspaceRoot,
+        sourcePath: filePath,
+        sourceLine: node.startLine,
+        sourceEndLine: node.endLine,
+        stale: isStale(fileStateByPath.get(filePath)),
+      }));
     }
+
+    const resolutionSnapshot: GraphContextSnapshot = {
+      revision: '',
+      fresh,
+      nodes: [...nodesById.values()],
+      edges: [],
+    };
 
     for (const edge of indexSnapshot.edges) {
       const sourceId = symbolIds.get(edge.sourceId);
@@ -112,23 +131,37 @@ export class GraphContextFederator {
       if (!targetId) continue;
 
       const sourceNode = nodesById.get(sourceId);
-      addEdge(edgesByKey, {
+      const sourcePath = normalizePath(indexSnapshot.nodes.find(node => node.id === edge.sourceId)?.path ?? '');
+      const externalName = readExternalName(edge.targetId);
+      const ambiguous = externalName === undefined
+        ? false
+        : resolveSeeds({ symbolName: externalName }, resolutionSnapshot).ambiguous;
+      addEdge(edgesByKey, toEvidence({
         source: sourceId,
         target: targetId,
         relation: edge.typeRelation,
-        confidence: 'EXTRACTED',
+        origin: 'AST',
+        workspaceRoot,
         sourcePath: sourceNode?.path,
         sourceLine: edge.sourceLine,
-      });
+        ambiguous,
+        stale: isStale(fileStateByPath.get(sourcePath)),
+      }));
     }
 
     return {
       revision: createRevision(workspaceRoot, indexSnapshot, fileState),
-      fresh: fileState.every((entry) => entry.mtimeMs !== null && entry.mtimeMs <= entry.indexedLastModified),
+      fresh,
       nodes: [...nodesById.values()].sort(compareNodes),
       edges: [...edgesByKey.values()].sort(compareEdges),
     };
   }
+}
+
+function isStale(fileState: FileState | undefined): boolean {
+  return fileState === undefined
+    || fileState.mtimeMs === null
+    || fileState.mtimeMs > fileState.indexedLastModified;
 }
 
 interface FileState {
@@ -171,14 +204,19 @@ function isTestPath(relativePath: string): boolean {
 }
 
 function addExternalTarget(rawTargetId: string, nodesById: Map<string, GraphContextNode>): string | null {
-  if (!rawTargetId.startsWith(EXTERNAL_PREFIX)) return null;
-  const name = rawTargetId.slice(EXTERNAL_PREFIX.length);
+  const name = readExternalName(rawTargetId);
+  if (name === undefined) return null;
   if (!name) return null;
   const id = `external:${name}`;
   if (!nodesById.has(id)) {
     nodesById.set(id, { id, kind: 'external', name });
   }
   return id;
+}
+
+function readExternalName(rawTargetId: string): string | undefined {
+  if (!rawTargetId.startsWith(EXTERNAL_PREFIX)) return undefined;
+  return rawTargetId.slice(EXTERNAL_PREFIX.length) || undefined;
 }
 
 function addEdge(edgesByKey: Map<string, GraphContextEdge>, edge: GraphContextEdge): void {
