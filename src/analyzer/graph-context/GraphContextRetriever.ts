@@ -216,6 +216,7 @@ export class GraphContextRetriever {
         fromResolution.selected?.id,
         normalizeDepth(request.depth),
         request.directed ?? true,
+        request.relations,
       );
       const contextNodeIds = new Set([
         ...endpointIds,
@@ -584,6 +585,7 @@ function collectPathContextNodes(
   fromId: string | undefined,
   maxHops: number,
   directed: boolean,
+  relations: GraphContextRelation[] | undefined,
 ): GraphContextNode[] {
   if (!fromId || maxHops === 0) return [];
   const visited = new Set([fromId]);
@@ -594,6 +596,7 @@ function collectPathContextNodes(
     const next = new Set<string>();
     for (const edge of snapshot.edges) {
       if (edge.confidence === 'AMBIGUOUS') continue;
+      if (!relationAllowed(edge.relation, relations)) continue;
       if (frontierIds.has(edge.source)) next.add(edge.target);
       if (!directed && frontierIds.has(edge.target)) next.add(edge.source);
     }

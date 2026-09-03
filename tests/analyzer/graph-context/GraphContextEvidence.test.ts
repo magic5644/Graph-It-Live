@@ -204,6 +204,52 @@ describe('ambiguity diagnostics', () => {
       candidateB.id,
     ]);
   });
+
+  it('does not retain blocked-path context reached through excluded relations', async () => {
+    const a = node('symbol:src/a.ts:a:1', 'a', 'src/a.ts');
+    const b = node('symbol:src/b.ts:b:1', 'b', 'src/b.ts');
+    const unresolved = node('external:Worker', 'Worker', undefined, 'external');
+    const c = node('symbol:src/c.ts:c:1', 'c', 'src/c.ts');
+    const candidateA = node('symbol:src/worker-a.ts:Worker:1', 'Worker', 'src/worker-a.ts');
+    const candidateB = node('symbol:src/worker-b.ts:Worker:1', 'Worker', 'src/worker-b.ts');
+    const blockedSnapshot: GraphContextSnapshot = {
+      revision: 'blocked-relation-fixture',
+      fresh: true,
+      nodes: [a, b, unresolved, c, candidateA, candidateB],
+      edges: [
+        extractedEdge(a.id, b.id, 'IMPORTS'),
+        toEvidence({
+          source: b.id,
+          target: unresolved.id,
+          relation: 'CALLS',
+          origin: 'AST',
+          workspaceRoot: WORKSPACE_ROOT,
+          sourceLine: 2,
+          ambiguous: true,
+        }),
+        extractedEdge(unresolved.id, c.id, 'CALLS'),
+      ],
+    };
+    const retriever = new GraphContextRetriever({
+      snapshotProvider: { buildSnapshot: async () => blockedSnapshot },
+      workspaceRoot: WORKSPACE_ROOT,
+    });
+
+    const response = await retriever.retrieve({
+      question: 'How does a reach c?',
+      mode: 'path',
+      from: { id: a.id },
+      to: { id: c.id },
+      relations: ['CALLS'],
+      depth: 4,
+    });
+
+    expect(response.nodes.map(result => result.id)).toEqual([a.id, c.id]);
+    expect(response.ambiguous).toEqual([]);
+    expect(response.nodes).not.toContainEqual(b);
+    expect(response.nodes).not.toContainEqual(candidateA);
+    expect(response.nodes).not.toContainEqual(candidateB);
+  });
 });
 
 function node(
@@ -215,6 +261,10 @@ function node(
   return { id, kind, name, path: filePath };
 }
 
-function extractedEdge(source: string, target: string): GraphContextEdge {
-  return { source, target, relation: 'CALLS', confidence: 'EXTRACTED' };
+function extractedEdge(
+  source: string,
+  target: string,
+  relation: GraphContextEdge['relation'] = 'CALLS',
+): GraphContextEdge {
+  return { source, target, relation, confidence: 'EXTRACTED' };
 }
