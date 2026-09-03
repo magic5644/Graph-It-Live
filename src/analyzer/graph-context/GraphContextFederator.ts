@@ -15,7 +15,6 @@ import type {
 } from '@/shared/graph-context-types';
 import { compileFileScope } from './FileScopeMatcher';
 import { toEvidence } from './GraphContextEvidence';
-import { resolveSeeds } from './GraphContextResolver';
 
 const EXTERNAL_PREFIX = '@@external:';
 
@@ -42,6 +41,8 @@ export class GraphContextFederator {
     const nodesById = new Map<string, GraphContextNode>();
     const edgesByKey = new Map<string, GraphContextEdge>();
     const fileNodeIdsByPath = new Map<string, string>();
+    const rawNodesById = new Map(indexSnapshot.nodes.map(node => [node.id, node]));
+    const symbolNodesByName = new Map<string, GraphContextNode[]>();
 
     for (const graph of fileGraphs) {
       for (const rawPath of graph.nodes) {
@@ -101,6 +102,9 @@ export class GraphContextFederator {
         endLine: node.endLine,
         language: node.lang,
       });
+      const namedNodes = symbolNodesByName.get(node.name);
+      if (namedNodes) namedNodes.push(nodesById.get(id) as GraphContextNode);
+      else symbolNodesByName.set(node.name, [nodesById.get(id) as GraphContextNode]);
       addEdge(edgesByKey, toEvidence({
         source: fileId,
         target: id,
@@ -114,13 +118,6 @@ export class GraphContextFederator {
       }));
     }
 
-    const resolutionSnapshot: GraphContextSnapshot = {
-      revision: '',
-      fresh,
-      nodes: [...nodesById.values()],
-      edges: [],
-    };
-
     for (const edge of indexSnapshot.edges) {
       const sourceId = symbolIds.get(edge.sourceId);
       if (!sourceId) continue;
@@ -131,11 +128,11 @@ export class GraphContextFederator {
       if (!targetId) continue;
 
       const sourceNode = nodesById.get(sourceId);
-      const sourcePath = normalizePath(indexSnapshot.nodes.find(node => node.id === edge.sourceId)?.path ?? '');
+      const sourcePath = normalizePath(rawNodesById.get(edge.sourceId)?.path ?? '');
       const externalName = readExternalName(edge.targetId);
       const ambiguous = externalName === undefined
         ? false
-        : resolveSeeds({ symbolName: externalName }, resolutionSnapshot).ambiguous;
+        : (symbolNodesByName.get(externalName)?.length ?? 0) > 1;
       addEdge(edgesByKey, toEvidence({
         source: sourceId,
         target: targetId,

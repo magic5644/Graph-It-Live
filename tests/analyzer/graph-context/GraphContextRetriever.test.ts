@@ -558,6 +558,47 @@ describe('GraphContextRetriever golden modes', () => {
       'Explore IMPACTED_BY around OrderService.ts in src/orders/OrderService.ts',
     );
   });
+
+  it('exposes provenance for inferred dependent edges', async () => {
+    const serviceId = 'file:src/orders/OrderService.ts';
+    const apiId = 'file:src/api/OrderApi.ts';
+    const inferredSnapshot: GraphContextSnapshot = {
+      revision: 'inferred-edge',
+      fresh: true,
+      nodes: [
+        node(serviceId, 'file', 'OrderService.ts', 'src/orders/OrderService.ts'),
+        node(apiId, 'file', 'OrderApi.ts', 'src/api/OrderApi.ts'),
+      ],
+      edges: [],
+    };
+    const inferredRetriever = new GraphContextRetriever({
+      snapshotProvider: { buildSnapshot: async () => inferredSnapshot },
+      dependentsProvider: {
+        findReferencingFiles: async () => [{ path: `${WORKSPACE_ROOT}/src/api/OrderApi.ts` }],
+        getSymbolDependents: async () => [],
+      },
+      workspaceRoot: WORKSPACE_ROOT,
+    });
+
+    const response = await inferredRetriever.retrieve({
+      question: 'Which files depend on OrderService?',
+      mode: 'impact',
+      seeds: [{ id: serviceId }],
+      depth: 1,
+      maxNodes: 2,
+    });
+
+    expect(response.edges).toContainEqual(expect.objectContaining({
+      source: apiId,
+      target: serviceId,
+      relation: 'IMPACTED_BY',
+      confidence: 'INFERRED',
+      evidence: {
+        sourcePath: 'src/api/OrderApi.ts',
+        reason: 'IMPACTED_BY relation inferred from graph analysis.',
+      },
+    }));
+  });
 });
 
 describe('GraphContextScorer relation intent', () => {

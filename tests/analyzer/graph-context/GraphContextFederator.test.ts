@@ -71,11 +71,20 @@ describe('GraphContextFederator', () => {
         source: 'file:src/services/UserService.ts',
         target: 'file:src/types/User.ts',
         relation: 'IMPORTS',
+        confidence: 'RESOLVED',
+        sourceLine: 1,
+        evidence: {
+          sourcePath: 'src/services/UserService.ts',
+          sourceLine: 1,
+          reason: 'Import target resolved to a workspace file.',
+        },
       }),
       expect.objectContaining({
         source: 'symbol:src/controllers/UserController.ts:UserService:8',
         target: 'symbol:src/services/UserService.ts:UserService:12',
         relation: 'CALLS',
+        confidence: 'EXTRACTED',
+        sourceLine: 9,
       }),
       expect.objectContaining({
         source: 'symbol:src/controllers/UserController.ts:UserService:8',
@@ -86,6 +95,16 @@ describe('GraphContextFederator', () => {
     expect(first.nodes).toContainEqual(expect.objectContaining({
       id: 'external:unresolvedExternal',
       kind: 'external',
+    }));
+    expect(first.edges).toContainEqual(expect.objectContaining({
+      source: 'symbol:src/controllers/UserController.ts:UserService:8',
+      target: 'external:UserService',
+      relation: 'CALLS',
+      confidence: 'AMBIGUOUS',
+      evidence: expect.objectContaining({
+        sourcePath: 'src/controllers/UserController.ts',
+        sourceLine: 11,
+      }),
     }));
   });
 
@@ -124,6 +143,11 @@ describe('GraphContextFederator', () => {
     expect(beforeChange.fresh).toBe(true);
     expect(afterChange.fresh).toBe(false);
     expect(afterChange.revision).not.toBe(beforeChange.revision);
+    expect(afterChange.edges).toContainEqual(expect.objectContaining({
+      source: 'file:src/services/UserService.ts',
+      target: 'file:src/types/User.ts',
+      confidence: 'STALE',
+    }));
   });
 });
 
@@ -177,6 +201,7 @@ async function indexFixture(indexer: CallGraphIndexer, workspaceRoot: string): P
     indexFile(indexer, controllerPath, [controllerNode], [
       makeEdge(controllerNode.id, serviceNode.id, 9),
       makeEdge(controllerNode.id, '@@external:unresolvedExternal', 10),
+      makeEdge(controllerNode.id, '@@external:UserService', 11),
     ]),
     indexFile(indexer, testPath, [testNode], [makeEdge(testNode.id, controllerNode.id, 8)]),
   ]);
