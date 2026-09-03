@@ -14,6 +14,7 @@ import type {
   GraphContextSnapshot,
 } from '@/shared/graph-context-types';
 import { compileFileScope } from './FileScopeMatcher';
+import { toEvidence } from './GraphContextEvidence';
 import { findShortestPath } from './GraphContextPathFinder';
 import { resolveSeeds } from './GraphContextResolver';
 import { GraphContextScorer } from './GraphContextScorer';
@@ -71,8 +72,9 @@ export class GraphContextRetriever {
 
   async retrieve(request: GraphContextRequest): Promise<GraphContextResponse> {
     const mode = request.mode ?? 'search';
+    const federatedSnapshot = await this.options.snapshotProvider.buildSnapshot(request);
     const snapshot = scopeSnapshot(
-      await this.options.snapshotProvider.buildSnapshot(request),
+      federatedSnapshot,
       request.scope,
     );
     const selection = mode === 'path'
@@ -85,6 +87,15 @@ export class GraphContextRetriever {
       edges: Math.max(0, selection.eligibleEdgeCount - selection.edges.length),
     };
 
+    const ambiguityCandidates = collectAmbiguousEdgeCandidates(
+      federatedSnapshot,
+      selection,
+      request.scope,
+    );
+    const selectionWithAmbiguity = {
+      ...selection,
+      ambiguous: dedupeCandidates([...selection.ambiguous, ...ambiguityCandidates]),
+    };
     const response: GraphContextResponse = {
       indexRevision: snapshot.revision,
       fresh: snapshot.fresh,
@@ -93,9 +104,13 @@ export class GraphContextRetriever {
       nodes: selection.nodes,
       edges: selection.edges,
       paths: selection.paths,
-      ambiguous: selection.ambiguous,
+      ambiguous: selectionWithAmbiguity.ambiguous,
       omitted,
-      nextQueries: buildNextQueries(selection.suggestionSnapshot ?? snapshot, selection, request),
+      nextQueries: buildNextQueries(
+        selection.suggestionSnapshot ?? snapshot,
+        selectionWithAmbiguity,
+        request,
+      ),
       tokenEstimate: 0,
       truncated: omitted.nodes > 0 || omitted.edges > 0,
     };
@@ -188,7 +203,8 @@ export class GraphContextRetriever {
     ]);
     const endpoints = [fromResolution.selected, toResolution.selected]
       .filter((node): node is GraphContextNode => node !== undefined);
-    const path = findShortestPath(snapshot, request.from, request.to, {
+    const pathSnapshot = withoutAmbiguousEdges(snapshot);
+    const path = findShortestPath(pathSnapshot, request.from, request.to, {
       directed: request.directed,
       maxHops: normalizeDepth(request.depth),
       relations: request.relations,
@@ -213,7 +229,7 @@ export class GraphContextRetriever {
         isSeed: endpointIds.has(id) || undefined,
       }] : [];
     });
-    const edges = path.edgeIndexes.map(index => snapshot.edges[index]);
+    const edges = path.edgeIndexes.map(index => pathSnapshot.edges[index]);
     const responsePath: GraphContextPath = {
       nodeIds: [...path.nodeIds],
       edgeIndexes: edges.map((_edge, index) => index),
@@ -286,12 +302,14 @@ async function augmentWithDependents(
       for (const dependent of dependents) {
         const key = `${dependent.id}\u0000${targetNode.id}`;
         if (!derivedEdges.has(key)) {
-          derivedEdges.set(key, {
+          derivedEdges.set(key, toEvidence({
             source: dependent.id,
             target: targetNode.id,
             relation: 'IMPACTED_BY',
-            confidence: 'INFERRED',
-          });
+            origin: 'INFERENCE',
+            workspaceRoot,
+            sourcePath: dependent.path,
+          }));
         }
         if (!visited.has(dependent.id)) {
           visited.add(dependent.id);
@@ -444,6 +462,7 @@ function traverseSnapshot(
     const frontierIds = new Set(frontier);
 
     snapshot.edges.forEach((edge, edgeIndex) => {
+      if (edge.confidence === 'AMBIGUOUS') return;
       if (!relationAllowed(edge.relation, relations)) return;
       const nextIds: string[] = [];
       if (frontierIds.has(edge.target)) nextIds.push(edge.source);
@@ -511,6 +530,38 @@ function traverseSnapshot(
     eligibleNodeCount: eligibleNodeIds.size,
     eligibleEdgeCount: eligibleEdgeIndexes.size,
   };
+}
+
+function withoutAmbiguousEdges(snapshot: GraphContextSnapshot): GraphContextSnapshot {
+  // The formal request contract has no explicit ambiguous-edge opt-in field.
+  // Keep ambiguous edges out of paths until that contract defines one.
+  return {
+    ...snapshot,
+    edges: snapshot.edges.filter(edge => edge.confidence !== 'AMBIGUOUS'),
+  };
+}
+
+function collectAmbiguousEdgeCandidates(
+  snapshot: GraphContextSnapshot,
+  selection: RetrievalSelection,
+  scope: string | undefined,
+): GraphContextCandidate[] {
+  const contextualNodeIds = new Set([
+    ...selection.seeds.map(node => node.id),
+    ...selection.nodes.map(node => node.id),
+  ]);
+  const nodeById = new Map(snapshot.nodes.map(node => [node.id, node]));
+  const candidates: GraphContextCandidate[] = [];
+
+  for (const edge of snapshot.edges) {
+    if (edge.confidence !== 'AMBIGUOUS' || !contextualNodeIds.has(edge.source)) continue;
+    const targetNode = nodeById.get(edge.target);
+    if (targetNode?.kind !== 'external') continue;
+    const resolution = resolveSeeds({ symbolName: targetNode.name }, snapshot, scope);
+    if (resolution.ambiguous) candidates.push(...resolution.candidates);
+  }
+
+  return dedupeCandidates(candidates);
 }
 
 function buildNextQueries(
