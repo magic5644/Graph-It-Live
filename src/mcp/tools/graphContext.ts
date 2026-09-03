@@ -18,9 +18,10 @@ import type {
 import { normalizePath } from '../../shared/path';
 import { workerState } from '../shared/state';
 import { validateFilePath, type GraphContextParams } from '../types';
-import { executeQueryCallGraph } from './callgraph';
+import { ensureCallGraphReady } from './callgraph';
 
 const DEFAULT_TOKEN_BUDGET = 4_000;
+const DEFAULT_MAX_NODES = 200;
 const MAX_CURSOR_STABILIZATION_ATTEMPTS = 16;
 
 /** Executes the unified graph-context service against the worker's existing indexes. */
@@ -41,6 +42,7 @@ export async function executeGraphContext(
     queryEngine,
     dependentsProvider: workerState.getSpider(),
     workspaceRoot: normalizePath(config.rootDir),
+    collectAllCandidates: true,
   });
   const unbudgetedResponse = await retriever.retrieve(request);
   const binding = createCursorBinding(request, config.rootDir, unbudgetedResponse.indexRevision);
@@ -53,6 +55,7 @@ export async function executeGraphContext(
     request.tokenBudget ?? DEFAULT_TOKEN_BUDGET,
     offset,
     binding,
+    request.maxNodes ?? DEFAULT_MAX_NODES,
   );
 }
 
@@ -66,12 +69,7 @@ async function getCallGraphIndexer(): Promise<CallGraphIndexer> {
     return workerState.callGraphIndexer;
   }
 
-  await executeQueryCallGraph({
-    filePath: workspaceRoot,
-    symbolName: '__graph_context_initialize__',
-    direction: 'both',
-    depth: 1,
-  });
+  await ensureCallGraphReady();
 
   const indexer = workerState.callGraphIndexer;
   if (!indexer || normalizePath(workerState.callGraphIndexedRoot ?? '') !== workspaceRoot) {
@@ -99,7 +97,7 @@ function normalizeRequest(
   const from = params.from === undefined ? undefined : normalizeSeed(params.from, workspaceRoot);
   const to = params.to === undefined ? undefined : normalizeSeed(params.to, workspaceRoot);
   const options = {
-    mode: params.mode,
+    mode: params.mode ?? inferEndpointOnlyMode(params),
     relations: params.relations,
     scope: normalizeScope(params.scope, workspaceRoot),
     depth: params.depth,
@@ -120,6 +118,14 @@ function normalizeRequest(
     throw new Error('Graph context request must include a question, seeds, or both endpoints.');
   }
   return { ...options, from, to };
+}
+
+function inferEndpointOnlyMode(params: GraphContextParams): 'path' | undefined {
+  const hasQuestion = params.question !== undefined && params.question.trim().length > 0;
+  const hasSeeds = (params.seeds?.length ?? 0) > 0;
+  return !hasQuestion && !hasSeeds && params.from !== undefined && params.to !== undefined
+    ? 'path'
+    : undefined;
 }
 
 function normalizeSeed(seed: GraphContextSeed, workspaceRoot: string): GraphContextSeed {
@@ -161,16 +167,17 @@ function applyBudgetWithCursor(
   tokenBudget: number,
   offset: number,
   binding: GraphContextCursorBinding,
+  maxNodes: number,
 ): GraphContextResponse {
   let nextCursor: string | undefined;
 
   for (let attempt = 0; attempt < MAX_CURSOR_STABILIZATION_ATTEMPTS; attempt += 1) {
     const source = nextCursor === undefined ? response : { ...response, nextCursor };
-    const page = applyGraphContextBudgetPage(source, tokenBudget, offset);
+    const page = applyGraphContextBudgetPage(source, tokenBudget, offset, maxNodes);
     if (page.nextOffset === undefined) {
       return nextCursor === undefined
         ? page.response
-        : applyGraphContextBudgetPage(response, tokenBudget, offset).response;
+        : applyGraphContextBudgetPage(response, tokenBudget, offset, maxNodes).response;
     }
 
     const cursor = createGraphContextCursor({ ...binding, offset: page.nextOffset });

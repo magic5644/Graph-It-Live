@@ -69,7 +69,7 @@ export interface QueryCallGraphResult {
 
 let indexPromise: Promise<void> | null = null;
 
-async function ensureCallGraphReady(): Promise<void> {
+export async function ensureCallGraphReady(): Promise<void> {
   const config = workerState.getConfig();
   const workspaceRoot = config.rootDir;
 

@@ -40,8 +40,10 @@ export function applyGraphContextBudgetPage(
   response: GraphContextResponse,
   tokenBudget: number,
   offset = 0,
+  maxNodes?: number,
 ): GraphContextBudgetPage {
   validateTokenBudget(tokenBudget);
+  validateMaxNodes(maxNodes);
 
   const rankedNodes = rankNodes(response);
   validateOffset(offset, rankedNodes.length);
@@ -51,14 +53,22 @@ export function applyGraphContextBudgetPage(
   const mandatoryIds = isFirstPage
     ? collectMandatoryNodeIds(response, nodeById)
     : new Set<string>();
-  const allIds = new Set(nodeById.keys());
-  const fullResponse = buildBudgetedResponse(response, allIds, response.nodes, true);
+  const canReturnAllNodes = maxNodes === undefined || response.nodes.length <= maxNodes;
 
-  if (isFirstPage && fullResponse.tokenEstimate <= tokenBudget) {
-    return { response: fullResponse };
+  if (isFirstPage && canReturnAllNodes) {
+    const fullResponse = buildBudgetedResponse(
+      response,
+      new Set(nodeById.keys()),
+      response.nodes,
+      true,
+    );
+    if (fullResponse.tokenEstimate <= tokenBudget) return { response: fullResponse };
   }
 
   const selectedIds = new Set(mandatoryIds);
+  const pageNodeLimit = maxNodes === undefined
+    ? Number.POSITIVE_INFINITY
+    : Math.max(maxNodes, mandatoryIds.size);
   let selectedResponse = buildBudgetedResponse(
     response,
     selectedIds,
@@ -79,6 +89,7 @@ export function applyGraphContextBudgetPage(
       consumedOffset = candidateIndex + 1;
       continue;
     }
+    if (selectedIds.size >= pageNodeLimit) break;
 
     selectedIds.add(candidate.id);
     const candidateResponse = buildBudgetedResponse(
@@ -104,6 +115,12 @@ export function applyGraphContextBudgetPage(
   return consumedOffset < rankedNodes.length
     ? { response: selectedResponse, nextOffset: consumedOffset }
     : { response: selectedResponse };
+}
+
+function validateMaxNodes(maxNodes: number | undefined): void {
+  if (maxNodes !== undefined && (!Number.isSafeInteger(maxNodes) || maxNodes < 1)) {
+    throw new RangeError('Maximum nodes per page must be a positive safe integer.');
+  }
 }
 
 function validateTokenBudget(tokenBudget: number): void {

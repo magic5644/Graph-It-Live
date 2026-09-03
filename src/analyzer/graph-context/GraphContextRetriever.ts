@@ -40,6 +40,8 @@ export interface GraphContextRetrieverOptions {
   queryEngine?: Pick<QueryEngine, 'scoreSeedNodes'>;
   dependentsProvider?: GraphContextDependentsProvider;
   workspaceRoot: string;
+  /** Build the complete ranked candidate pool when an outer adapter owns pagination. */
+  collectAllCandidates?: boolean;
 }
 
 interface TraversalEntry {
@@ -148,7 +150,9 @@ export class GraphContextRetriever {
       )
       : snapshot;
     const direction = mode === 'impact' || mode === 'refactor' ? 'incoming' : 'both';
-    const maxNodes = Math.max(requestedMaxNodes, resolvedSeeds.length);
+    const maxNodes = this.options.collectAllCandidates
+      ? retrievalSnapshot.nodes.length
+      : Math.max(requestedMaxNodes, resolvedSeeds.length);
     const traversal = traverseSnapshot(
       retrievalSnapshot,
       seeds,
@@ -270,7 +274,9 @@ export class GraphContextRetriever {
       (degrees.get(right.id) ?? 0) - (degrees.get(left.id) ?? 0)
       || left.id.localeCompare(right.id)
     ));
-    const maxNodes = request.maxNodes ?? Math.min(DEFAULT_MAX_NODES, 20);
+    const maxNodes = this.options.collectAllCandidates
+      ? snapshot.nodes.length
+      : request.maxNodes ?? Math.min(DEFAULT_MAX_NODES, 20);
     const nodes = rankedNodes.slice(0, maxNodes).map(node => ({
       ...node,
       score: degrees.get(node.id) ?? 0,

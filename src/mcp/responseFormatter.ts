@@ -13,6 +13,7 @@ import { getLogger } from '../shared/logger';
 import { normalizePath } from '../shared/path';
 import path from 'node:path';
 import type { McpToolResponse, OutputFormat } from './types';
+import type { GraphContextResponse } from '../shared/graph-context-types';
 
 const log = getLogger('responseFormatter');
 
@@ -35,8 +36,9 @@ export function formatToolResponse<T>(
   let text: string;
 
   if (responseFormat === 'toon') {
-    // Try to format the data as TOON
-    const formatted = formatDataAsToon(publicResponse.data, inferObjectNameFromResponse(publicResponse), toolName);
+    const formatted = toolName === 'graphitlive_graph_context'
+      ? formatGraphContextAsToon(publicResponse, toolName)
+      : formatDataAsToon(publicResponse.data, inferObjectNameFromResponse(publicResponse), toolName);
     text = formatted.content;
 
     // Add metadata if available
@@ -56,6 +58,74 @@ export function formatToolResponse<T>(
     content: [{ type: 'text', text }],
     structuredContent: publicResponse,
   };
+}
+
+function formatGraphContextAsToon<T>(
+  response: McpToolResponse<T>,
+  toolName: string,
+): ReturnType<typeof formatDataAsToon> {
+  const data = response.data;
+  const sections: string[] = [];
+
+  if (response.success && isGraphContextResponse(data)) {
+    sections.push(jsonToToon([{
+      indexRevision: data.indexRevision,
+      fresh: data.fresh,
+      mode: data.mode,
+      tokenEstimate: data.tokenEstimate,
+      truncated: data.truncated,
+      nextCursor: data.nextCursor ?? '',
+    }], { objectName: 'graph_context' }));
+    sections.push(jsonToToon(data.seeds, { objectName: 'seeds' }));
+    sections.push(jsonToToon(data.nodes, { objectName: 'nodes' }));
+    sections.push(jsonToToon(data.edges, { objectName: 'edges' }));
+    sections.push(jsonToToon(data.paths, { objectName: 'paths' }));
+    sections.push(jsonToToon(data.ambiguous, { objectName: 'ambiguous' }));
+    sections.push(jsonToToon([data.omitted], { objectName: 'omitted' }));
+    sections.push(jsonToToon(
+      data.nextQueries.map(query => ({ query })),
+      { objectName: 'nextQueries' },
+    ));
+    sections.push(jsonToToon([], { objectName: 'errors' }));
+  } else {
+    sections.push(jsonToToon(
+      [{ message: response.error ?? 'Unknown graph-context error' }],
+      { objectName: 'errors' },
+    ));
+  }
+
+  const content = sections.map(section => section.trimEnd()).join('\n');
+  const jsonContent = JSON.stringify(response.success ? data : response, null, 2);
+  const savings = estimateTokenSavings(jsonContent, content);
+  sessionStats.record({
+    toolName,
+    jsonTokens: savings.jsonTokens,
+    toonTokens: savings.toonTokens,
+    savings: savings.savings,
+    truncated: isGraphContextResponse(data) && data.truncated,
+    timestamp: Date.now(),
+  });
+
+  return {
+    content,
+    format: 'toon',
+    tokenSavings: savings,
+  };
+}
+
+function isGraphContextResponse(value: unknown): value is GraphContextResponse {
+  if (typeof value !== 'object' || value === null) return false;
+  const candidate = value as Partial<GraphContextResponse>;
+  return typeof candidate.indexRevision === 'string'
+    && typeof candidate.mode === 'string'
+    && Array.isArray(candidate.seeds)
+    && Array.isArray(candidate.nodes)
+    && Array.isArray(candidate.edges)
+    && Array.isArray(candidate.paths)
+    && Array.isArray(candidate.ambiguous)
+    && typeof candidate.omitted === 'object'
+    && candidate.omitted !== null
+    && Array.isArray(candidate.nextQueries);
 }
 
 function redactAbsolutePaths<T>(
