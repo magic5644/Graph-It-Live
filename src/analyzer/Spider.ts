@@ -534,10 +534,14 @@ export class Spider {
    */
   async getReadOnlyDependencyGraph(
     filePath: string,
-  ): Promise<{ nodes: string[]; edges: { source: string; target: string }[]; nodeLabels?: Record<string, string> }> {
+  ): Promise<{
+    nodes: string[];
+    edges: { source: string; target: string; sourceLine?: number }[];
+    nodeLabels?: Record<string, string>;
+  }> {
     const normalizedFilePath = normalizePath(filePath);
     const nodes = new Set<string>([normalizedFilePath]);
-    const edges: Array<{ source: string; target: string }> = [];
+    const edges: Array<{ source: string; target: string; sourceLine?: number }> = [];
     const nodeLabels: Record<string, string> = {};
 
     try {
@@ -553,7 +557,11 @@ export class Spider {
         if (seenResolvedPaths.has(dependencyPath)) continue;
         seenResolvedPaths.add(dependencyPath);
         nodes.add(dependencyPath);
-        edges.push({ source: normalizedFilePath, target: dependencyPath });
+        edges.push({
+          source: normalizedFilePath,
+          target: dependencyPath,
+          ...(imported.line > 0 ? { sourceLine: imported.line } : {}),
+        });
 
         if (imported.module.startsWith('@') && imported.module.includes('/') && !imported.module.startsWith('@/')) {
           nodeLabels[dependencyPath] = imported.module;

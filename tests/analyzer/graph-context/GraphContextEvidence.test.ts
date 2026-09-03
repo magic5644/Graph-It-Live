@@ -158,6 +158,52 @@ describe('ambiguity diagnostics', () => {
       { id: workerB.id, reason: 'Exact symbol name' },
     ]);
   });
+
+  it('reports ambiguity beyond the last concrete node when a path is blocked', async () => {
+    const a = node('symbol:src/a.ts:a:1', 'a', 'src/a.ts');
+    const b = node('symbol:src/b.ts:b:1', 'b', 'src/b.ts');
+    const unresolved = node('external:Worker', 'Worker', undefined, 'external');
+    const c = node('symbol:src/c.ts:c:1', 'c', 'src/c.ts');
+    const candidateA = node('symbol:src/worker-a.ts:Worker:1', 'Worker', 'src/worker-a.ts');
+    const candidateB = node('symbol:src/worker-b.ts:Worker:1', 'Worker', 'src/worker-b.ts');
+    const blockedSnapshot: GraphContextSnapshot = {
+      revision: 'blocked-ambiguity-fixture',
+      fresh: true,
+      nodes: [a, b, unresolved, c, candidateA, candidateB],
+      edges: [
+        extractedEdge(a.id, b.id),
+        toEvidence({
+          source: b.id,
+          target: unresolved.id,
+          relation: 'CALLS',
+          origin: 'AST',
+          workspaceRoot: WORKSPACE_ROOT,
+          sourceLine: 2,
+          ambiguous: true,
+        }),
+        extractedEdge(unresolved.id, c.id),
+      ],
+    };
+    const retriever = new GraphContextRetriever({
+      snapshotProvider: { buildSnapshot: async () => blockedSnapshot },
+      workspaceRoot: WORKSPACE_ROOT,
+    });
+
+    const response = await retriever.retrieve({
+      question: 'How does a reach c?',
+      mode: 'path',
+      from: { id: a.id },
+      to: { id: c.id },
+      depth: 4,
+    });
+
+    expect(response.paths).toEqual([]);
+    expect(response.nodes.map(result => result.id)).toEqual([a.id, b.id, c.id]);
+    expect(response.ambiguous.map(candidate => candidate.node.id)).toEqual([
+      candidateA.id,
+      candidateB.id,
+    ]);
+  });
 });
 
 function node(

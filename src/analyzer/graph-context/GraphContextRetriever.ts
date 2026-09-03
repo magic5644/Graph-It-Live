@@ -203,6 +203,7 @@ export class GraphContextRetriever {
     ]);
     const endpoints = [fromResolution.selected, toResolution.selected]
       .filter((node): node is GraphContextNode => node !== undefined);
+    const endpointIds = new Set(endpoints.map(endpoint => endpoint.id));
     const pathSnapshot = withoutAmbiguousEdges(snapshot);
     const path = findShortestPath(pathSnapshot, request.from, request.to, {
       directed: request.directed,
@@ -210,17 +211,29 @@ export class GraphContextRetriever {
       relations: request.relations,
     });
     if (!path) {
+      const contextNodes = collectPathContextNodes(
+        pathSnapshot,
+        fromResolution.selected?.id,
+        normalizeDepth(request.depth),
+        request.directed ?? true,
+      );
+      const contextNodeIds = new Set([
+        ...endpointIds,
+        ...contextNodes.map(contextNode => contextNode.id),
+      ]);
+      const nodes = snapshot.nodes
+        .filter(node => contextNodeIds.has(node.id))
+        .map(node => ({ ...node, score: 1, isSeed: endpointIds.has(node.id) || undefined }));
       return {
         ...emptySelection(),
         seeds: endpoints.map(node => ({ ...node, isSeed: true })),
-        nodes: endpoints.map(node => ({ ...node, score: 1, isSeed: true })),
+        nodes,
         ambiguous,
-        eligibleNodeCount: endpoints.length,
+        eligibleNodeCount: nodes.length,
       };
     }
 
     const nodeById = new Map(snapshot.nodes.map(node => [node.id, node]));
-    const endpointIds = new Set(endpoints.map(node => node.id));
     const nodes = path.nodeIds.flatMap((id, index): GraphContextNode[] => {
       const graphNode = nodeById.get(id);
       return graphNode ? [{
@@ -551,17 +564,64 @@ function collectAmbiguousEdgeCandidates(
     ...selection.nodes.map(node => node.id),
   ]);
   const nodeById = new Map(snapshot.nodes.map(node => [node.id, node]));
+  const candidatesByName = buildSymbolCandidatesByName(snapshot);
   const candidates: GraphContextCandidate[] = [];
 
   for (const edge of snapshot.edges) {
     if (edge.confidence !== 'AMBIGUOUS' || !contextualNodeIds.has(edge.source)) continue;
     const targetNode = nodeById.get(edge.target);
     if (targetNode?.kind !== 'external') continue;
-    const resolution = resolveSeeds({ symbolName: targetNode.name }, snapshot, scope);
-    if (resolution.ambiguous) candidates.push(...resolution.candidates);
+    const scopedCandidates = candidatesByName.get(targetNode.name)
+      ?.filter(candidate => candidate.node.path !== undefined && matchesScope(candidate.node.path, scope));
+    if (scopedCandidates && scopedCandidates.length > 1) candidates.push(...scopedCandidates);
   }
 
   return dedupeCandidates(candidates);
+}
+
+function collectPathContextNodes(
+  snapshot: GraphContextSnapshot,
+  fromId: string | undefined,
+  maxHops: number,
+  directed: boolean,
+): GraphContextNode[] {
+  if (!fromId || maxHops === 0) return [];
+  const visited = new Set([fromId]);
+  let frontier = [fromId];
+
+  for (let depth = 0; depth < maxHops && frontier.length > 0; depth += 1) {
+    const frontierIds = new Set(frontier);
+    const next = new Set<string>();
+    for (const edge of snapshot.edges) {
+      if (edge.confidence === 'AMBIGUOUS') continue;
+      if (frontierIds.has(edge.source)) next.add(edge.target);
+      if (!directed && frontierIds.has(edge.target)) next.add(edge.source);
+    }
+    frontier = [...next].filter(id => !visited.has(id));
+    frontier.forEach(id => visited.add(id));
+  }
+
+  return snapshot.nodes.filter(node => visited.has(node.id) && node.id !== fromId);
+}
+
+function buildSymbolCandidatesByName(
+  snapshot: GraphContextSnapshot,
+): Map<string, GraphContextCandidate[]> {
+  const candidatesByName = new Map<string, GraphContextCandidate[]>();
+  for (const node of snapshot.nodes) {
+    if (node.kind !== 'symbol' && node.kind !== 'test') continue;
+    const candidate = { node, score: 0.85, reason: 'Exact symbol name' };
+    const candidates = candidatesByName.get(node.name);
+    if (candidates) candidates.push(candidate);
+    else candidatesByName.set(node.name, [candidate]);
+  }
+  return candidatesByName;
+}
+
+function matchesScope(filePath: string, scope: string | undefined): boolean {
+  if (scope === undefined) return true;
+  const matcher = compileFileScope('/', scope);
+  return matcher.matches(`/${normalizePath(filePath).replace(/^\//, '')}`);
 }
 
 function buildNextQueries(
