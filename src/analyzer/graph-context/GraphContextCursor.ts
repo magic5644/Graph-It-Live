@@ -32,7 +32,11 @@ export type GraphContextCursorBinding = Omit<GraphContextCursorPayload, 'offset'
 /** Creates an opaque cursor containing only continuation binding metadata. */
 export function createGraphContextCursor(payload: GraphContextCursorPayload): string {
   const validated = validateCursorPayload(payload);
-  return Buffer.from(JSON.stringify(validated), 'utf8').toString('base64url');
+  const cursor = Buffer.from(JSON.stringify(validated), 'utf8').toString('base64url');
+  if (cursor.length > MAX_CURSOR_LENGTH) {
+    throw new TypeError(`Graph context cursor cannot exceed ${MAX_CURSOR_LENGTH} characters.`);
+  }
+  return cursor;
 }
 
 /** Parses a cursor and optionally verifies that it belongs to the current request. */

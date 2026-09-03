@@ -95,6 +95,23 @@ function responseFixture(): GraphContextResponse {
 }
 
 describe('applyGraphContextBudget', () => {
+  it.each([
+    499,
+    16_001,
+    500.5,
+    Number.NaN,
+    Number.POSITIVE_INFINITY,
+    Number.NEGATIVE_INFINITY,
+  ])('rejects an invalid token budget of %s', invalidBudget => {
+    expect(() => applyGraphContextBudget(responseFixture(), invalidBudget)).toThrow(
+      /between 500 and 16000/i,
+    );
+  });
+
+  it.each([500, 16_000])('accepts the inclusive token budget boundary %s', tokenBudget => {
+    expect(() => applyGraphContextBudget(responseFixture(), tokenBudget)).not.toThrow();
+  });
+
   it('preserves seeds and path endpoints while reporting exact graph omissions', () => {
     const response = responseFixture();
     expect(estimateTokens(JSON.stringify(response))).toBeGreaterThan(TOKEN_BUDGET);
@@ -195,7 +212,14 @@ describe('applyGraphContextBudget', () => {
   });
 
   it('rejects a budget that cannot contain mandatory graph identities', () => {
-    expect(() => applyGraphContextBudget(responseFixture(), 50)).toThrow(
+    const response = responseFixture();
+    response.nodes[0] = {
+      ...response.nodes[0],
+      name: 'mandatory seed content '.repeat(200),
+    };
+    response.seeds[0] = { ...response.nodes[0], isSeed: true };
+
+    expect(() => applyGraphContextBudget(response, TOKEN_BUDGET)).toThrow(
       /mandatory seeds and path endpoints/i,
     );
   });

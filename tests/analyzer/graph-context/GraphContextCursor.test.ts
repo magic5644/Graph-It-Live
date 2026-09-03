@@ -1,5 +1,7 @@
 import { describe, expect, it } from 'vitest';
-import { applyGraphContextBudget } from '../../../src/analyzer/graph-context/GraphContextBudget';
+import {
+  applyGraphContextBudgetPage,
+} from '../../../src/analyzer/graph-context/GraphContextBudget';
 import {
   createGraphContextCursor,
   createGraphContextRequestHash,
@@ -34,26 +36,42 @@ function encodeRawCursor(value: unknown): string {
   return Buffer.from(JSON.stringify(value), 'utf8').toString('base64url');
 }
 
-function pageNode(index: number): GraphContextNode {
+function pageNode(
+  id: string,
+  kind: GraphContextNode['kind'] = 'symbol',
+  score = 0,
+): GraphContextNode {
   return {
-    id: `node-${index}`,
-    kind: index === 0 ? 'file' : 'symbol',
-    name: `GraphContextPaginationNode${index}`,
-    path: `src/pagination/GraphContextPaginationNode${index}.ts`,
-    score: 100 - index,
-    isSeed: index === 0 || undefined,
+    id,
+    kind,
+    name: `GraphContextPaginationNode${id}`,
+    path: `src/pagination/${id}.ts`,
+    score,
   };
 }
 
 function pagedResponse(): GraphContextResponse {
-  const nodes = Array.from({ length: 30 }, (_, index) => pageNode(index));
+  const seedNode = { ...pageNode('seed', 'file', 100), isSeed: true };
+  const largeNode = {
+    ...pageNode('large', 'symbol', 1_000),
+    name: 'oversized pagination candidate '.repeat(150),
+  };
+  const directNode = pageNode('direct', 'file', 1);
+  const testNode = pageNode('test', 'test', 0);
+  const tailNode = pageNode('tail', 'symbol', -1);
+  const nodes = [seedNode, largeNode, directNode, testNode, tailNode];
   return {
     indexRevision: binding.revision,
     fresh: true,
     mode: 'search',
     seeds: [nodes[0]],
     nodes,
-    edges: [],
+    edges: [{
+      source: 'seed',
+      target: 'direct',
+      relation: 'IMPORTS',
+      confidence: 'EXTRACTED',
+    }],
     paths: [],
     ambiguous: [],
     omitted: { nodes: 0, edges: 0 },
@@ -126,23 +144,47 @@ describe('GraphContextCursor', () => {
 
   it('uses the cursor offset to build a page without duplicate node IDs', () => {
     const response = pagedResponse();
-    const firstPage = applyGraphContextBudget(response, 500);
+    const firstPage = applyGraphContextBudgetPage(response, 500);
+    expect(firstPage.nextOffset).toBeDefined();
+
     const cursor = createGraphContextCursor({
       ...binding,
-      offset: firstPage.nodes.length,
+      offset: firstPage.nextOffset as number,
     });
     const { offset } = parseGraphContextCursor(cursor, binding);
-    const nextInput: GraphContextResponse = {
-      ...response,
-      seeds: [],
-      nodes: response.nodes.slice(offset),
-    };
-    const nextPage = applyGraphContextBudget(nextInput, 500);
-    const firstIds = new Set(firstPage.nodes.map(result => result.id));
+    const nextPage = applyGraphContextBudgetPage(response, 500, offset);
+    const firstIds = new Set(firstPage.response.nodes.map(result => result.id));
 
-    expect(firstPage.truncated).toBe(true);
-    expect(nextPage.nodes.length).toBeGreaterThan(0);
-    expect(nextPage.nodes.every(result => !firstIds.has(result.id))).toBe(true);
+    expect(response.nodes.map(result => result.id)).toEqual([
+      'seed',
+      'large',
+      'direct',
+      'test',
+      'tail',
+    ]);
+    expect(firstPage.response.nodes.map(result => result.id)).toEqual([
+      'seed',
+      'direct',
+      'test',
+    ]);
+    expect(nextPage.response.nodes.map(result => result.id)).toEqual(['tail']);
+    expect(nextPage.response.nodes.every(result => !firstIds.has(result.id))).toBe(true);
+    expect(firstPage.response.truncated).toBe(true);
+    expect(firstPage.response.omitted).toEqual({ nodes: 2, edges: 0 });
+    expect(nextPage.response.omitted).toEqual({ nodes: 4, edges: 1 });
+    expect(nextPage.response.seeds).toEqual([]);
+    expect(nextPage.response.edges).toEqual([]);
+    expect(nextPage.response.tokenEstimate).toBeLessThanOrEqual(500);
+    expect(nextPage.nextOffset).toBeUndefined();
+  });
+
+  it('rejects offsets outside the canonical candidate sequence', () => {
+    const response = pagedResponse();
+
+    expect(() => applyGraphContextBudgetPage(response, 500, -1)).toThrow(/offset/i);
+    expect(() => applyGraphContextBudgetPage(response, 500, response.nodes.length + 1)).toThrow(
+      /offset/i,
+    );
   });
 
   it('rejects malformed cursors and invalid creation payloads', () => {
@@ -151,5 +193,13 @@ describe('GraphContextCursor', () => {
       ...binding,
       offset: Number.NaN,
     })).toThrow(/offset/i);
+  });
+
+  it('rejects creation when the encoded cursor would exceed 4096 characters', () => {
+    expect(() => createGraphContextCursor({
+      ...binding,
+      revision: 'r'.repeat(4_096),
+      offset: 0,
+    })).toThrow(/4096/i);
   });
 });
