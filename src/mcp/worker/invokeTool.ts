@@ -9,6 +9,7 @@ import {
   executeFindReferencingFiles,
   executeFindUnusedSymbols,
   executeGenerateCodemap,
+  executeGraphContext,
   executeGetImpactAnalysis,
   executeGetIndexStatus,
   executeGetSymbolCallers,
@@ -35,6 +36,7 @@ import type {
   FindReferencingFilesParams,
   FindUnusedSymbolsParams,
   GenerateCodemapParams,
+  GraphContextParams,
   GetImpactAnalysisParams,
   GetSymbolCallersParams,
   GetSymbolDependentsParams,
@@ -85,6 +87,7 @@ function validateGenerateWikiParams(
 }
 
 const toolHandlers: Partial<Record<McpToolName, ToolHandler>> = {
+  graph_context: (params) => executeGraphContext(params as GraphContextParams),
   analyze_dependencies: async (params, config) => {
     const p = params as AnalyzeDependenciesParams;
     validateRootPath(p.filePath, config);

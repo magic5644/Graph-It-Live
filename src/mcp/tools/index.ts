@@ -22,6 +22,9 @@ export {
     executeFindReferencingFiles
 } from "./graph";
 export {
+    executeGraphContext
+} from "./graphContext";
+export {
     executeAnalyzeBreakingChanges,
     executeGetImpactAnalysis,
     executeReviewPr

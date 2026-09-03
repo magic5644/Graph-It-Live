@@ -93,6 +93,7 @@ export type McpWorkerResponse =
 
 export type McpToolName =
   | "set_workspace" // NEW: Set workspace directory dynamically
+  | "graph_context"
   | "analyze_dependencies"
   | "crawl_dependency_graph"
   | "find_referencing_files"
@@ -606,6 +607,68 @@ export const QueryNaturalLanguageParamsSchema = z.object({
 });
 export type QueryNaturalLanguageParams = z.infer<typeof QueryNaturalLanguageParamsSchema>;
 
+const GraphContextSeedSchema = z.object({
+  id: GenericStringSchema.refine(value => value.trim().length > 0, "Seed ID must not be empty").optional(),
+  filePath: FilePathSchema.refine(value => value.trim().length > 0, "Seed file path must not be empty").optional(),
+  symbolName: SymbolNameSchema.refine(value => value.trim().length > 0, "Seed symbol name must not be empty").optional(),
+  label: GenericStringSchema.refine(value => value.trim().length > 0, "Seed label must not be empty").optional(),
+}).refine(
+  seed => seed.id !== undefined
+    || seed.filePath !== undefined
+    || seed.symbolName !== undefined
+    || seed.label !== undefined,
+  "A seed must contain an id, filePath, symbolName, or label",
+);
+
+export const GraphContextParamsSchema = z.object({
+  question: z.string().max(1024).optional(),
+  seeds: z.array(GraphContextSeedSchema).optional(),
+  mode: z.enum(["search", "neighbors", "path", "impact", "refactor", "overview"]).optional(),
+  from: GraphContextSeedSchema.optional(),
+  to: GraphContextSeedSchema.optional(),
+  relations: z.array(z.enum([
+    "CONTAINS",
+    "IMPORTS",
+    "CALLS",
+    "INHERITS",
+    "IMPLEMENTS",
+    "USES",
+    "TESTED_BY",
+    "IMPACTED_BY",
+    "BELONGS_TO",
+    "REFERENCES",
+    "EXPLAINS",
+    "DOCUMENTS",
+  ])).optional(),
+  scope: z.string().max(256).optional(),
+  depth: z.number().int().min(1).max(5).optional(),
+  maxNodes: z.number().int().min(1).max(500).optional(),
+  tokenBudget: z.number().int().min(500).max(16000).optional(),
+  directed: z.boolean().optional(),
+  cursor: z.string().min(1).max(4096).optional(),
+  format: z.enum(["toon", "json"]).optional(),
+  response_format: z.enum(["json", "markdown", "toon"]).optional(),
+}).superRefine((params, context) => {
+  const hasQuestion = params.question !== undefined && params.question.trim().length > 0;
+  const hasSeeds = (params.seeds?.length ?? 0) > 0;
+  const hasFrom = params.from !== undefined;
+  const hasTo = params.to !== undefined;
+
+  if (hasFrom !== hasTo) {
+    context.addIssue({
+      code: "custom",
+      message: "Both from and to are required for a path request",
+    });
+  }
+  if (!hasQuestion && !hasSeeds && !(hasFrom && hasTo)) {
+    context.addIssue({
+      code: "custom",
+      message: "Provide a question, at least one seed, or both from and to",
+    });
+  }
+});
+export type GraphContextParams = z.infer<typeof GraphContextParamsSchema>;
+
 // Schema for generate_wiki
 export const GenerateWikiParamsSchema = z.object({
   outputDir: FilePathSchema.optional()
@@ -653,6 +716,7 @@ export type ScanDeadCodeParams = z.infer<typeof ScanDeadCodeParamsSchema>;
  */
 export const toolSchemas: Record<McpToolName, z.ZodType<unknown>> = {
   set_workspace: SetWorkspaceParamsSchema,
+  graph_context: GraphContextParamsSchema,
   analyze_dependencies: AnalyzeDependenciesParamsSchema,
   crawl_dependency_graph: CrawlDependencyGraphParamsSchema,
   find_referencing_files: FindReferencingFilesParamsSchema,
