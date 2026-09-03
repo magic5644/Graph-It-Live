@@ -124,6 +124,7 @@ import {
   type FindUnusedSymbolsResult,
   GetImpactAnalysisParamsSchema,
   type GetImpactAnalysisResult,
+  GraphContextParamsSchema,
   type GetIndexStatusResult,
   GetSymbolCallersParamsSchema,
   type GetSymbolCallersResult,
@@ -152,6 +153,7 @@ import {
   validateFilePath,
   VerifyDependencyUsageParamsSchema,
 } from "./types";
+import type { GraphContextResponse } from "../shared/graph-context-types";
 import { GenerateWikiSchema } from "./tools/wiki.js";
 import { executeGetSessionStats, GetSessionStatsSchema, type GetSessionStatsResult } from "./tools/stats.js";
 import { flushSession } from "../analyzer/stats/statsPersistence";
@@ -1882,6 +1884,42 @@ RETURNS:
     );
 
     return formatToolResponse(response, responseFormat, "graphitlive_scan_dead_code");
+  },
+);
+
+// Tool: graphitlive_query_natural_language
+server.registerTool(
+  "graphitlive_graph_context",
+  {
+    title: "Retrieve Unified Graph Context",
+    description: `Retrieve a deterministic, token-bounded subgraph for codebase search, neighbors, paths, impact, refactoring, or overview questions.
+
+Use this tool when a question spans file dependencies, symbol calls, implementation relationships, tests, or impact evidence. Paths and evidence in the public response are workspace-relative. The text response defaults to compact TOON, while structuredContent always preserves the complete structured JSON response.`,
+    inputSchema: GraphContextParamsSchema,
+    outputSchema: McpToolResponseSchema,
+    annotations: {
+      readOnlyHint: true,
+      destructiveHint: false,
+      idempotentHint: true,
+      openWorldHint: false,
+    },
+  },
+  async ({ response_format, ...params }) => {
+    const responseFormat = response_format ?? params.format ?? "toon";
+    const workerCheck = await ensureWorkerReady();
+    if (workerCheck.error) {
+      return formatToolResponse(
+        workerCheck.response,
+        responseFormat,
+        "graphitlive_graph_context",
+      );
+    }
+
+    const response = await invokeToolWithResponse<GraphContextResponse>(
+      "graph_context",
+      params,
+    );
+    return formatToolResponse(response, responseFormat, "graphitlive_graph_context");
   },
 );
 
