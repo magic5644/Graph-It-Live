@@ -14,10 +14,17 @@ const RUNTIME_IMPACT_RELATIONS = new Set<GraphContextRelation>([
   'USES',
   'IMPACTED_BY',
 ]);
+const MIN_TOKEN_BUDGET = 500;
+const MAX_TOKEN_BUDGET = 16_000;
 
 interface IndexedEdge {
   edge: GraphContextEdge;
   originalIndex: number;
+}
+
+export interface GraphContextBudgetPage {
+  response: GraphContextResponse;
+  nextOffset?: number;
 }
 
 /** Applies a hard tokenizer-measured budget while preserving required graph identities. */
@@ -25,18 +32,39 @@ export function applyGraphContextBudget(
   response: GraphContextResponse,
   tokenBudget: number,
 ): GraphContextResponse {
+  return applyGraphContextBudgetPage(response, tokenBudget).response;
+}
+
+/** Budgets one canonical candidate page and reports the next unconsumed candidate offset. */
+export function applyGraphContextBudgetPage(
+  response: GraphContextResponse,
+  tokenBudget: number,
+  offset = 0,
+): GraphContextBudgetPage {
   validateTokenBudget(tokenBudget);
 
   const rankedNodes = rankNodes(response);
-  const nodeById = new Map(response.nodes.map(node => [node.id, node]));
-  const mandatoryIds = collectMandatoryNodeIds(response, nodeById);
-  const allIds = new Set(nodeById.keys());
-  const fullResponse = buildBudgetedResponse(response, allIds, response.nodes);
+  validateOffset(offset, rankedNodes.length);
 
-  if (fullResponse.tokenEstimate <= tokenBudget) return fullResponse;
+  const nodeById = new Map(response.nodes.map(node => [node.id, node]));
+  const isFirstPage = offset === 0;
+  const mandatoryIds = isFirstPage
+    ? collectMandatoryNodeIds(response, nodeById)
+    : new Set<string>();
+  const allIds = new Set(nodeById.keys());
+  const fullResponse = buildBudgetedResponse(response, allIds, response.nodes, true);
+
+  if (isFirstPage && fullResponse.tokenEstimate <= tokenBudget) {
+    return { response: fullResponse };
+  }
 
   const selectedIds = new Set(mandatoryIds);
-  let selectedResponse = buildBudgetedResponse(response, selectedIds, rankedNodes);
+  let selectedResponse = buildBudgetedResponse(
+    response,
+    selectedIds,
+    rankedNodes,
+    isFirstPage,
+  );
   if (selectedResponse.tokenEstimate > tokenBudget) {
     throw new RangeError(
       `Token budget ${tokenBudget} cannot contain mandatory seeds and path endpoints `
@@ -44,24 +72,55 @@ export function applyGraphContextBudget(
     );
   }
 
-  for (const candidate of rankedNodes) {
-    if (selectedIds.has(candidate.id)) continue;
+  let consumedOffset = offset;
+  for (let candidateIndex = offset; candidateIndex < rankedNodes.length; candidateIndex += 1) {
+    const candidate = rankedNodes[candidateIndex];
+    if (selectedIds.has(candidate.id)) {
+      consumedOffset = candidateIndex + 1;
+      continue;
+    }
 
     selectedIds.add(candidate.id);
-    const candidateResponse = buildBudgetedResponse(response, selectedIds, rankedNodes);
+    const candidateResponse = buildBudgetedResponse(
+      response,
+      selectedIds,
+      rankedNodes,
+      isFirstPage,
+    );
     if (candidateResponse.tokenEstimate <= tokenBudget) {
       selectedResponse = candidateResponse;
-    } else {
-      selectedIds.delete(candidate.id);
+      consumedOffset = candidateIndex + 1;
+      continue;
     }
+
+    selectedIds.delete(candidate.id);
+    if (!isFirstPage && selectedIds.size === 0) {
+      consumedOffset = candidateIndex + 1;
+      continue;
+    }
+    break;
   }
 
-  return selectedResponse;
+  return consumedOffset < rankedNodes.length
+    ? { response: selectedResponse, nextOffset: consumedOffset }
+    : { response: selectedResponse };
 }
 
 function validateTokenBudget(tokenBudget: number): void {
-  if (!Number.isSafeInteger(tokenBudget) || tokenBudget <= 0) {
-    throw new RangeError('Token budget must be a positive safe integer.');
+  if (
+    !Number.isSafeInteger(tokenBudget)
+    || tokenBudget < MIN_TOKEN_BUDGET
+    || tokenBudget > MAX_TOKEN_BUDGET
+  ) {
+    throw new RangeError(
+      `Token budget must be a safe integer between ${MIN_TOKEN_BUDGET} and ${MAX_TOKEN_BUDGET}.`,
+    );
+  }
+}
+
+function validateOffset(offset: number, candidateCount: number): void {
+  if (!Number.isSafeInteger(offset) || offset < 0 || offset > candidateCount) {
+    throw new RangeError(`Budget offset must be between 0 and ${candidateCount}.`);
   }
 }
 
@@ -166,6 +225,7 @@ function buildBudgetedResponse(
   source: GraphContextResponse,
   selectedIds: Set<string>,
   nodeOrder: GraphContextNode[],
+  includeMandatoryMetadata: boolean,
 ): GraphContextResponse {
   const nodes = nodeOrder.filter(node => selectedIds.has(node.id));
   const retainedNodeIds = new Set(nodes.map(node => node.id));
@@ -178,14 +238,16 @@ function buildBudgetedResponse(
   const edgeIndexMap = new Map(indexedEdges.map((indexedEdge, selectedIndex) => (
     [indexedEdge.originalIndex, selectedIndex]
   )));
-  const paths = remapCompletePaths(source.paths, retainedNodeIds, edgeIndexMap);
+  const paths = includeMandatoryMetadata
+    ? remapCompletePaths(source.paths, retainedNodeIds, edgeIndexMap)
+    : [];
   const omitted = {
     nodes: source.omitted.nodes + source.nodes.length - nodes.length,
     edges: source.omitted.edges + source.edges.length - edges.length,
   };
   const response: GraphContextResponse = {
     ...source,
-    seeds: source.seeds.map(seed => ({ ...seed })),
+    seeds: includeMandatoryMetadata ? source.seeds.map(seed => ({ ...seed })) : [],
     nodes,
     edges,
     paths,
