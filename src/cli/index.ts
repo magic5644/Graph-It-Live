@@ -191,6 +191,7 @@ Examples:
   graph-it export --format html --output graph.html
   graph-it update
 `.trimStart();
+const HELP_WITH_CONTEXT = `${HELP}\n context <question>|--from <endpoint> --to <endpoint> Retrieve unified graph context`;
 
 // ============================================================================
 // Helpers
@@ -240,7 +241,7 @@ async function handleNoCommand(values: Record<string, unknown>): Promise<void> {
     await run(new CliRuntime(workspaceRoot));
     process.exit(ExitCode.SUCCESS);
   }
-  process.stdout.write(HELP);
+  process.stdout.write(HELP_WITH_CONTEXT);
   process.exit(ExitCode.SUCCESS);
 }
 
@@ -279,7 +280,7 @@ async function main(): Promise<void> {
   // generic top-level HELP text. Only fall back to the generic HELP when
   // no command was given at all.
   if (values.help && !command) {
-    process.stdout.write(HELP);
+    process.stdout.write(HELP_WITH_CONTEXT);
     process.exit(ExitCode.SUCCESS);
   }
 
@@ -364,6 +365,11 @@ async function dispatch(
   runtime: CliRuntime,
   format: CliOutputFormat,
 ): Promise<string> {
+  if (command === "context") {
+    const { run } = await import("./commands/context.js");
+    return run(args, runtime, format);
+  }
+
   switch (command) {
     case "scan": {
       const { run } = await import("./commands/scan.js");

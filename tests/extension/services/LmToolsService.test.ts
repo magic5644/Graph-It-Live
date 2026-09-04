@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import type { GraphProvider } from '../../../src/extension/GraphProvider';
 import type { VsCodeLogger } from '../../../src/extension/extensionLogger';
@@ -16,6 +17,8 @@ const { registeredTools, registerToolFn } = vi.hoisted(() => {
   );
   return { registeredTools, registerToolFn };
 });
+
+const executeGraphContextWithIndexes = vi.hoisted(() => vi.fn());
 
 // ─── vscode mock ──────────────────────────────────────────────────────────────
 
@@ -66,6 +69,8 @@ vi.mock('@/shared/path', () => ({
   normalizePath: (p: string) => p.replaceAll('\\', '/'),
   normalizePathForComparison: (p: string) => p.replaceAll('\\', '/').replace(/\/$/u, ''),
 }));
+
+vi.mock('../../../src/mcp/tools/graphContext.js', () => ({ executeGraphContextWithIndexes }));
 
 vi.mock('node:fs/promises', () => ({
   readFile: vi.fn().mockRejectedValue(Object.assign(new Error('ENOENT'), { code: 'ENOENT' })),
@@ -156,13 +161,13 @@ describe('LmToolsService', () => {
   // ─── registerAll ──────────────────────────────────────────────────────────
 
   describe('registerAll', () => {
-    it('registers 21 tools and returns 21 disposables', () => {
+    it('registers 22 tools and returns 22 disposables', () => {
       const provider = createProvider();
       const service = new LmToolsService({ provider, logger });
       const disposables = service.registerAll();
 
-      expect(disposables).toHaveLength(21);
-      expect(registerToolFn).toHaveBeenCalledTimes(21);
+      expect(disposables).toHaveLength(22);
+      expect(registerToolFn).toHaveBeenCalledTimes(22);
     });
 
     it('returns empty array when vscode.lm.registerTool is unavailable', () => {
@@ -186,6 +191,7 @@ describe('LmToolsService', () => {
       'graph-it-live_analyze_breaking_changes',
       'graph-it-live_query_call_graph',
       'graph-it-live_scan_dead_code',
+      'graph-it-live_graph_context',
     ])('registers %s', (toolName) => {
       const provider = createProvider();
       const service = new LmToolsService({ provider, logger });
@@ -206,6 +212,70 @@ describe('LmToolsService', () => {
         vscode.CancellationError,
       );
     });
+  });
+
+  it('registers graph context against the live graph index', async () => {
+    executeGraphContextWithIndexes.mockResolvedValueOnce({ mode: 'search', nodes: [], edges: [] });
+    const spider = createProvider().getSpiderForLmTools();
+    const callGraphService = { getCallGraphIndexerForLmTools: vi.fn().mockReturnValue({ getDb: vi.fn() }) };
+    const provider = createProvider({ spider, callGraphService });
+    new LmToolsService({ provider, logger }).registerAll();
+    const result = await invokeTool('graph-it-live_graph_context', { question: 'where is auth?' });
+    expect(result).toEqual({ mode: 'search', nodes: [], edges: [] });
+    expect(executeGraphContextWithIndexes).toHaveBeenCalledWith(
+      { question: 'where is auth?' },
+      expect.objectContaining({ rootDir: '/workspace', spider }),
+    );
+  });
+
+  it('advertises the full graph context request schema', () => {
+    const manifest = JSON.parse(
+      readFileSync(new URL('../../../package.json', import.meta.url), 'utf8'),
+    ) as {
+      contributes: {
+        languageModelTools: Array<{
+          name: string;
+          inputSchema: {
+            properties: Record<string, {
+              type: string;
+              items?: { properties?: Record<string, unknown> };
+              properties?: Record<string, unknown>;
+            }>;
+          };
+        }>;
+      };
+    };
+    const tool = manifest.contributes.languageModelTools.find(
+      ({ name }) => name === 'graph-it-live_graph_context',
+    );
+
+    expect(Object.keys(tool?.inputSchema.properties ?? {})).toEqual(expect.arrayContaining([
+      'question',
+      'seeds',
+      'mode',
+      'from',
+      'to',
+      'relations',
+      'scope',
+      'depth',
+      'maxNodes',
+      'tokenBudget',
+      'directed',
+      'cursor',
+      'format',
+    ]));
+    expect(tool?.inputSchema.properties.seeds.items?.properties).toMatchObject({
+      id: { type: 'string' },
+      filePath: { type: 'string' },
+      symbolName: { type: 'string' },
+      label: { type: 'string' },
+    });
+    expect(tool?.inputSchema.properties.from.properties).toEqual(
+      tool?.inputSchema.properties.seeds.items?.properties,
+    );
+    expect(tool?.inputSchema.properties.to.properties).toEqual(
+      tool?.inputSchema.properties.seeds.items?.properties,
+    );
   });
 
   // ─── resolve_module_path ──────────────────────────────────────────────────

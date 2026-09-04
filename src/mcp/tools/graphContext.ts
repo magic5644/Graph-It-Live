@@ -1,6 +1,7 @@
 import path from 'node:path';
 import { QueryEngine } from '../../analyzer/QueryEngine';
 import type { CallGraphIndexer } from '../../analyzer/callgraph/CallGraphIndexer';
+import type { Spider } from '../../analyzer/Spider';
 import { GraphContextFederator } from '../../analyzer/graph-context/GraphContextFederator';
 import { applyGraphContextBudgetPage } from '../../analyzer/graph-context/GraphContextBudget';
 import {
@@ -31,21 +32,41 @@ export async function executeGraphContext(
   const config = workerState.getConfig();
   validateRequestPaths(params, config.rootDir);
 
-  const request = normalizeRequest(params, config.rootDir);
+  const callGraphIndexer = await getCallGraphIndexer();
+  return executeGraphContextWithIndexes(params, {
+    rootDir: config.rootDir,
+    spider: workerState.getSpider(),
+    callGraphIndexer,
+  });
+}
+
+export interface GraphContextIndexes {
+  rootDir: string;
+  spider: Spider;
+  callGraphIndexer: CallGraphIndexer;
+}
+
+/** Runs the shared retrieval against an already-initialized extension index. */
+export async function executeGraphContextWithIndexes(
+  params: GraphContextParams,
+  indexes: GraphContextIndexes,
+): Promise<GraphContextResponse> {
+  validateRequestPaths(params, indexes.rootDir);
+
+  const request = normalizeRequest(params, indexes.rootDir);
   const incomingCursor = request.cursor === undefined
     ? undefined
     : parseGraphContextCursor(request.cursor);
-  const callGraphIndexer = await getCallGraphIndexer();
-  const queryEngine = new QueryEngine(callGraphIndexer.getDb(), null);
+  const queryEngine = new QueryEngine(indexes.callGraphIndexer.getDb(), null);
   const retriever = new GraphContextRetriever({
-    snapshotProvider: new GraphContextFederator(workerState.getSpider(), callGraphIndexer),
+    snapshotProvider: new GraphContextFederator(indexes.spider, indexes.callGraphIndexer),
     queryEngine,
-    dependentsProvider: workerState.getSpider(),
-    workspaceRoot: normalizePath(config.rootDir),
+    dependentsProvider: indexes.spider,
+    workspaceRoot: normalizePath(indexes.rootDir),
     collectAllCandidates: true,
   });
   const unbudgetedResponse = await retriever.retrieve(request);
-  const binding = createCursorBinding(request, config.rootDir, unbudgetedResponse.indexRevision);
+  const binding = createCursorBinding(request, indexes.rootDir, unbudgetedResponse.indexRevision);
   const offset = incomingCursor === undefined
     ? 0
     : parseGraphContextCursor(request.cursor as string, binding).offset;
