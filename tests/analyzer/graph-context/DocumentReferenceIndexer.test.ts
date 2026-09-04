@@ -126,11 +126,13 @@ describe('DocumentReferenceIndexer', () => {
       'const note = "# NOTE: data only";',
       '```',
       '# WHY: actual decision',
+      '// NOTE: preserve "quoted" rationale',
     ].join('\n'));
 
     const result = await new DocumentReferenceIndexer(root).index('**');
     expect(result.nodes.filter(node => node.kind === 'rationale')).toEqual([
       expect.objectContaining({ id: 'rationale:docs/examples.md:5', name: 'actual decision' }),
+      expect.objectContaining({ id: 'rationale:docs/examples.md:6', name: 'preserve "quoted" rationale' }),
     ]);
   });
 

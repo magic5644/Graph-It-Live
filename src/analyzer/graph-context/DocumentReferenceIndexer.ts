@@ -7,7 +7,6 @@ import { toEvidence } from './GraphContextEvidence';
 
 const DOCUMENT_EXTENSIONS = new Set(['.md', '.mdx', '.rst', '.yaml', '.yml']);
 const CODE_EXTENSIONS = new Set(['.ts', '.tsx', '.js', '.jsx', '.py', '.rs', '.go', '.java', '.cs', '.c', '.cpp', '.h', '.hpp']);
-const RATIONALE_MARKER = /(?:^|\/\/|#|\/\*)\s*(WHY|NOTE|HACK)\s*:\s*(.+?)(?:\*\/\s*)?$/i;
 const MARKDOWN_LINK = /!?\[[^\]]*\]\(([^)\s]+)(?:\s+"[^"]*")?\)/g;
 const RST_LINK = /`[^`]+\s+<([^>]+)>`_/g;
 const JSX_LINK = /<[A-Za-z][^>]*\s(?:href|to)\s*=\s*(["'])([^"']+)\1[^>]*>/g;
@@ -257,12 +256,31 @@ function rationaleIn(line: string, extension: string): { text: string } | null {
     const marker = comment?.match(/^\s*(WHY|NOTE|HACK)\s*:\s*(.+?)\s*$/i);
     return marker ? { text: marker[2].trim() } : null;
   }
-  const marker = stripQuotedStrings(line).match(RATIONALE_MARKER);
+  const commentStart = findCommentStart(line);
+  const marker = commentStart >= 0
+    ? line.slice(commentStart).match(/^(?:\/\/|#|\/\*)\s*(WHY|NOTE|HACK)\s*:\s*(.+?)(?:\*\/\s*)?$/i)
+    : null;
   return marker ? { text: marker[2].trim() } : null;
 }
 
-function stripQuotedStrings(line: string): string {
-  return line.replace(/(['"`])(?:\\.|(?!\1)[^\\])*\1/g, '');
+function findCommentStart(line: string): number {
+  let quote: '"' | "'" | '`' | undefined;
+  let escaped = false;
+  for (let index = 0; index < line.length; index += 1) {
+    const character = line[index];
+    if (quote) {
+      if (escaped) escaped = false;
+      else if (character === '\\') escaped = true;
+      else if (character === quote) quote = undefined;
+      continue;
+    }
+    if (character === '"' || character === "'" || character === '`') {
+      quote = character;
+      continue;
+    }
+    if (line.startsWith('//', index) || line.startsWith('/*', index) || character === '#') return index;
+  }
+  return line.trimStart().startsWith('#') ? line.indexOf('#') : -1;
 }
 
 function splitYamlLine(line: string): { content: string; comment?: string } {
