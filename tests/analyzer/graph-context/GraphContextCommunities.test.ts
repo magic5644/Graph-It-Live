@@ -101,4 +101,70 @@ describe('GraphContextCommunities', () => {
     expect(topology.topHubs(1)[0]?.node.id).toBe('symbol:c');
     expect(topology.topHubs(1, true)[0]?.node.id).toBe(external.id);
   });
+
+  it('keeps a loop-only node out of the isolated community', () => {
+    const isolated: GraphContextNode = { id: 'file:isolated', kind: 'file', name: 'isolated' };
+    const looped: GraphContextNode = { id: 'symbol:looped', kind: 'symbol', name: 'looped' };
+    const loop: GraphContextEdge = {
+      source: looped.id,
+      target: looped.id,
+      relation: 'CALLS',
+      confidence: 'EXTRACTED',
+    };
+    const topology = new GraphContextCommunities({
+      revision: 'self-loop-v1',
+      fresh: true,
+      nodes: [looped, isolated],
+      edges: [loop],
+    });
+
+    expect(topology.getCommunity(0)?.nodes).toEqual([isolated]);
+    expect(topology.getCommunity(1)).toEqual({ id: 1, nodes: [looped], edges: [loop] });
+    expect(topology.topHubs(1)).toEqual([{
+      node: looped,
+      communityId: 1,
+      inDegree: 1,
+      outDegree: 1,
+      totalDegree: 2,
+    }]);
+    expect(topology.graphStats).toEqual({
+      nodeCount: 2,
+      edgeCount: 1,
+      communityCount: 1,
+      relationCounts: { CALLS: 1 },
+      nodeKindCounts: { file: 1, symbol: 1 },
+      confidenceCounts: { EXTRACTED: 1 },
+    });
+  });
+
+  it('keeps loop edges deterministic inside a connected community', () => {
+    const connectedNodes: GraphContextNode[] = [
+      { id: 'symbol:a', kind: 'symbol', name: 'a' },
+      { id: 'symbol:b', kind: 'symbol', name: 'b' },
+    ];
+    const connectedEdges: GraphContextEdge[] = [
+      { source: 'symbol:a', target: 'symbol:a', relation: 'CALLS', confidence: 'EXTRACTED' },
+      { source: 'symbol:a', target: 'symbol:b', relation: 'USES', confidence: 'RESOLVED' },
+    ];
+    const topology = new GraphContextCommunities({
+      revision: 'self-loop-connected-v1',
+      fresh: true,
+      nodes: connectedNodes,
+      edges: connectedEdges,
+    });
+    const reversed = new GraphContextCommunities({
+      revision: 'self-loop-connected-v1',
+      fresh: true,
+      nodes: [...connectedNodes].reverse(),
+      edges: [...connectedEdges].reverse(),
+    });
+
+    expect(topology.getCommunity(1)).toEqual({
+      id: 1,
+      nodes: connectedNodes,
+      edges: connectedEdges,
+    });
+    expect(reversed.getCommunity(1)).toEqual(topology.getCommunity(1));
+    expect(reversed.graphStats).toEqual(topology.graphStats);
+  });
 });
