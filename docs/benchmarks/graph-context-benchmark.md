@@ -8,28 +8,41 @@ changed between retrievals.
 
 The six workflows are locate-concept, explain-file, callers-callees,
 controller-database, refactor-interface, and document-symbol. Each Graph-It-
-Live run uses the existing `graph-it context` gateway with the same scope,
-depth, node limit, and token budget. JSON and TOON outputs are retained under
-`.reports/context-economy/latest/` for audit.
+Live run uses `scope=**`, `depth=2`, `maxNodes=10`, and `tokenBudget=2000`.
+JSON and TOON outputs are retained under `.reports/context-economy/latest/`
+for audit after workspace paths, mtimes, revisions, and cursors are normalized.
 
-Metrics include precision@10, recall@10, exact path success, ambiguity rate,
-stale-edge rate, MCP initialization tokens, request/response/continuation
-tokens, tool calls, cold/warm/incremental latency, and JSON-vs-TOON encoding
-size.
+Measured metrics include precision@10, recall@10, exact path success,
+ambiguity rate, stale-edge rate, request/response tokens, cold/warm/incremental
+latency, pre/post-update freshness and revision change, and JSON-vs-TOON
+encoding size. MCP initialization tokens, MCP tool calls, provider billing
+tokens, and continuation tokens are `null`: this runner invokes independent
+CLI processes and does not observe those values. TOON output is only an
+alternate encoding measurement, never a continuation response.
 
 Representation tokens are measured with the shared `cl100k_base` tokenizer.
-They describe serialized payload size and are not provider billing tokens;
-provider billing tokens are reported separately and are `null` for this local,
-zero-LLM run. The runner removes LLM credentials and fails if persisted stats
-record provider usage.
+They describe serialized payload size and are not provider billing tokens.
+The runner removes known LLM credentials and disables stats persistence, so it
+does not claim measured provider usage.
 
-Graphify is an optional adapter selected with `GRAPHIFY_CLI`. Missing
-capabilities are recorded as `not-supported`, never as zero. This benchmark
-does not compare published Graphify ERPNext numbers with the local corpus.
+Graphify is an optional adapter selected with `GRAPHIFY_CLI`. The adapter uses
+only documented Graphify 0.8.36 forms: `query`, `explain`, `affected`, and
+`path`; seeded natural-language queries include the seed in the question, and
+the path plan passes the controller and repository symbol endpoints. The
+isolated graph file represents `scope=**`.
+
+Every Graphify workflow is currently `not-supported` under strict parity.
+`query` has no `maxNodes` control; `explain`, `affected`, and `path` also lack
+one or more requested question/depth/token bounds; code-only Graphify updates
+do not provide the documentation workflow. The report records each proposed
+argument vector, enforced bound, and unsupported semantic instead of executing
+an incomparable workflow or reporting an error/zero. Published Graphify
+ERPNext numbers are not compared with this local corpus.
 
 Run it with:
 
 ```bash
 rtk npm run test:context-economy
+rtk env GRAPHIFY_CLI=/path/to/graphify npm run test:context-economy
 rtk npx vitest run tests/benchmarks/graphContextBenchmark.test.ts
 ```
