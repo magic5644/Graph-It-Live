@@ -153,6 +153,7 @@ describe('LmToolsService', () => {
     logger = createLogger();
     registeredTools.clear();
     registerToolFn.mockClear();
+    executeGraphContextWithIndexes.mockReset();
     vi.mocked(fsPromises.readFile).mockRejectedValue(
       Object.assign(new Error('ENOENT'), { code: 'ENOENT' }),
     );
@@ -225,7 +226,42 @@ describe('LmToolsService', () => {
     expect(executeGraphContextWithIndexes).toHaveBeenCalledWith(
       { question: 'where is auth?' },
       expect.objectContaining({ rootDir: '/workspace', spider }),
+      expect.any(AbortSignal),
     );
+  });
+
+  it('cancels graph context while retrieval is running', async () => {
+    let cancel: (() => void) | undefined;
+    const dispose = vi.fn();
+    const token = {
+      isCancellationRequested: false,
+      onCancellationRequested: vi.fn((listener: () => void) => {
+        cancel = listener;
+        return { dispose };
+      }),
+    } as unknown as vscode.CancellationToken;
+    executeGraphContextWithIndexes.mockImplementationOnce(
+      (_input, _indexes, signal?: AbortSignal) => new Promise((_resolve, reject) => {
+        signal?.addEventListener('abort', () => {
+          reject(Object.assign(new Error('cancelled'), { name: 'AbortError' }));
+        }, { once: true });
+      }),
+    );
+    const callGraphService = {
+      getCallGraphIndexerForLmTools: vi.fn().mockReturnValue({ getDb: vi.fn() }),
+    };
+    new LmToolsService({
+      provider: createProvider({ callGraphService }),
+      logger,
+    }).registerAll();
+    const handler = registeredTools.get('graph-it-live_graph_context');
+
+    const invocation = handler?.invoke(makeOptions({ question: 'where is auth?' }), token);
+    await vi.waitFor(() => expect(executeGraphContextWithIndexes).toHaveBeenCalled());
+    cancel?.();
+
+    await expect(invocation).rejects.toBeInstanceOf(vscode.CancellationError);
+    expect(dispose).toHaveBeenCalledOnce();
   });
 
   it('advertises the full graph context request schema', () => {

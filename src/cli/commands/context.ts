@@ -7,7 +7,11 @@ import type { CliOutputFormat } from '../formatter.js';
 import { formatOutput } from '../formatter.js';
 import type { CliRuntime } from '../runtime.js';
 
-const VALUE_FLAGS = new Set(['--mode', '--scope', '--depth', '--max-nodes', '--token-budget', '--from', '--to', '--format']);
+const VALUE_FLAGS = new Set([
+  '--mode', '--scope', '--depth', '--max-nodes', '--token-budget', '--from', '--to',
+  '--seeds', '--relations', '--cursor', '--format', '--workspace', '-w',
+]);
+const BOOLEAN_FLAGS = new Set(['--directed']);
 
 function value(args: string[], flag: string): string | undefined {
   const index = args.indexOf(flag);
@@ -22,8 +26,11 @@ function numberValue(args: string[], flag: string): number | undefined {
   return parsed;
 }
 
-function seed(raw: string | undefined): GraphContextParams['from'] {
-  if (raw === undefined) return undefined;
+function values(args: string[], flag: string): string[] {
+  return args.flatMap((arg, index) => arg === flag ? [args[index + 1]] : []);
+}
+
+function seed(raw: string): NonNullable<GraphContextParams['from']> {
   const separator = raw.indexOf('#');
   if (separator < 0) return { symbolName: raw };
   const filePath = raw.slice(0, separator);
@@ -40,6 +47,7 @@ function parse(args: string[], format: CliOutputFormat): GraphContextParams {
       positionals.push(arg);
       continue;
     }
+    if (BOOLEAN_FLAGS.has(arg)) continue;
     if (!VALUE_FLAGS.has(arg) || args[index + 1] === undefined || args[index + 1].startsWith('-')) {
       throw new CliError(`Invalid context option: ${arg}`, ExitCode.GENERAL_ERROR);
     }
@@ -47,15 +55,25 @@ function parse(args: string[], format: CliOutputFormat): GraphContextParams {
   }
 
   const requestedFormat = value(args, '--format') ?? (format === 'json' ? 'json' : 'toon');
+  const seedValues = values(args, '--seeds');
+  const relationValues = values(args, '--relations');
+  const from = value(args, '--from');
+  const to = value(args, '--to');
   const params: GraphContextParams = {
     question: positionals.length > 0 ? positionals.join(' ') : undefined,
+    seeds: seedValues.length > 0 ? seedValues.map(seed) : undefined,
     mode: value(args, '--mode') as GraphContextParams['mode'],
+    relations: relationValues.length > 0
+      ? relationValues as NonNullable<GraphContextParams['relations']>
+      : undefined,
     scope: value(args, '--scope'),
     depth: numberValue(args, '--depth'),
     maxNodes: numberValue(args, '--max-nodes'),
     tokenBudget: numberValue(args, '--token-budget'),
-    from: seed(value(args, '--from')),
-    to: seed(value(args, '--to')),
+    from: from === undefined ? undefined : seed(from),
+    to: to === undefined ? undefined : seed(to),
+    directed: args.includes('--directed') || undefined,
+    cursor: value(args, '--cursor'),
     format: requestedFormat as GraphContextParams['format'],
   };
   const result = GraphContextParamsSchema.safeParse(params);

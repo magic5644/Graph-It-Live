@@ -1272,7 +1272,7 @@ export class LmToolsService {
       {
         invoke: async (
           options: vscode.LanguageModelToolInvocationOptions<GraphContextInput>,
-          _token: vscode.CancellationToken,
+          token: vscode.CancellationToken,
         ): Promise<vscode.LanguageModelToolResult> => {
           const spider = this.provider.getSpiderForLmTools();
           const callGraphService = this.provider.getCallGraphViewServiceForLmTools();
@@ -1281,18 +1281,25 @@ export class LmToolsService {
           if (!spider || !indexer || !rootDir) {
             return this.errorResult('No workspace or graph index is available.');
           }
+          const controller = new AbortController();
+          const cancellation = token.onCancellationRequested(() => controller.abort());
           try {
             const { executeGraphContextWithIndexes } = await import('../../mcp/tools/graphContext.js');
             const response = await executeGraphContextWithIndexes(options.input, {
               rootDir,
               spider,
               callGraphIndexer: indexer,
-            });
+            }, controller.signal);
             return new vscode.LanguageModelToolResult([
               new vscode.LanguageModelTextPart(JSON.stringify(response)),
             ]);
           } catch (error) {
+            if (controller.signal.aborted || (error instanceof Error && error.name === 'AbortError')) {
+              throw new vscode.CancellationError();
+            }
             return this.errorResult(error instanceof Error ? error.message : String(error));
+          } finally {
+            cancellation.dispose();
           }
         },
       },
