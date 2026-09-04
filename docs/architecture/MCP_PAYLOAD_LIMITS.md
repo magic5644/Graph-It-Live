@@ -13,12 +13,15 @@ Without size limits, malicious or accidental payloads could cause:
 
 ## Implemented Limits
 
+Zod's string limits use JavaScript string length (UTF-16 code units), even
+where legacy validation messages say "bytes."
+
 | Payload Type | Limit | Use Case Coverage |
 |--------------|-------|-------------------|
-| **File Paths** | 1 KB (~200 chars) | Covers deeply nested directory structures on all platforms |
-| **Symbol Names** | 500 bytes | Covers reasonable function/class/method names |
-| **File Content** | 1 MB (~40K lines) | Covers 99.9% of source files, rejects minified/binary files |
-| **Generic Strings** | 10 KB | General purpose limit for module specifiers, etc. |
+| **File paths** | 1,024 code units | Deep workspace paths |
+| **Symbol names** | 500 code units | Function, class, and method names |
+| **File content** | 1,048,576 code units | Large source files; minified or binary input may still be rejected elsewhere |
+| **Generic strings** | 10,240 code units | Module specifiers, labels, and stable IDs |
 
 ### Graph context request limits
 
@@ -28,19 +31,34 @@ The `graphitlive_graph_context` request has additional bounded fields:
 |-------|-------|---------|
 | `question` | 1,024 characters | — |
 | `seeds` | 500 entries | — |
+| each seed or endpoint `id` / `label` | 10,240 code units | — |
+| each seed or endpoint `filePath` | 1,024 code units | — |
+| each seed or endpoint `symbolName` | 500 code units | — |
 | `relations` | 12 unique entries | all |
 | `scope` | 256 characters | workspace (`**`) |
 | `depth` | integer 1–5 | 2 |
 | `maxNodes` | integer 1–500 | 200 |
 | `tokenBudget` | integer 500–16,000 | 4,000 |
-| `cursor` | 4,096 characters | — |
+| `cursor` | 4,096 URL-safe base64 characters | — |
+| `format` | `toon` or `json` | `toon` on MCP, global CLI format for `graph-it context` |
+| `response_format` (MCP envelope) | `json`, `markdown`, or `toon` | follows `format`, then `toon` |
 
 Seeds, endpoints, and scope paths are validated against the configured
 workspace. Paths outside it are rejected. An ambiguous entity is returned as
 candidates rather than silently selected; an unresolved external call is
-reported as evidence-limited. A stale or request-mismatched cursor is rejected
-and must not be reused after the index revision changes. Unsupported language
-constructs remain absent from the local graph rather than being synthesized.
+retained as an `external:` node, with `AMBIGUOUS` confidence when multiple
+internal targets match. A stale or request-mismatched cursor is rejected and
+must not be reused after the index revision changes. Unsupported language
+constructs and unsupported languages remain absent from the local graph rather
+than being synthesized. Graph context currently covers TypeScript, JavaScript,
+Python, Rust, C#, Go, Java, Vue, Svelte, and GraphQL through the project's
+language analyzers.
+If mandatory seeds or path endpoints alone exceed the token budget, the request
+fails rather than dropping them. Responses return graph evidence and line spans,
+not source contents.
+
+`from` and `to` must appear together and are valid only in `path` mode. A
+request must contain a non-empty question, at least one seed, or both endpoints.
 
 ## Schema Architecture
 
@@ -79,6 +97,8 @@ The following tools have payload protection:
 - `trace_function_execution` - file paths and symbol names
 - `get_symbol_callers` - file paths and symbol names
 - `get_impact_analysis` - file paths and symbol names
+- `graph_context` - questions, seeds, endpoints, relations, scope, traversal,
+  pagination, and representation bounds
 
 #### Breaking Changes Analysis
 - `analyze_breaking_changes` - file paths, symbol names, **and file content** (oldContent/newContent)
@@ -114,7 +134,8 @@ const result = await analyzeBreakingChanges({
 
 ### Null Byte Protection
 
-All string schemas reject null bytes (`\0`) to prevent:
+Validated path, symbol, content, and generic-string schemas reject null bytes
+(`\0`) to prevent:
 - Path traversal attacks
 - SQL injection (if paths are logged to databases)
 - String termination exploits
@@ -127,7 +148,8 @@ FilePathSchema.parse('/path/to/file\0.ts');
 
 ### Unicode Support
 
-The limits are **byte-based** (not character-based) and correctly handle multi-byte Unicode characters:
+Unicode values are accepted, but limits count JavaScript UTF-16 code units,
+not UTF-8 bytes or user-perceived characters:
 
 ```typescript
 // ✅ Accepted - Unicode is properly handled
@@ -155,22 +177,21 @@ Tests cover:
 
 ### Why These Specific Limits?
 
-1. **File Paths (1 KB)**: 
-   - Typical max path: 260 chars (Windows), 4096 bytes (Linux)
-   - 1 KB accommodates deeply nested structures without accepting malicious payloads
+1. **File paths (1,024 code units)**:
+   - Accommodates deeply nested workspace paths without accepting unbounded input
 
-2. **Symbol Names (500 bytes)**:
+2. **Symbol names (500 code units)**:
    - Longest reasonable identifier in real codebases: ~100 chars
-   - 500 bytes provides generous headroom for edge cases
+   - 500 code units provide generous headroom for edge cases
 
-3. **File Content (1 MB)**:
+3. **File content (1,048,576 code units)**:
    - Average source file: 5-50 KB
    - 95th percentile: ~200 KB
-   - 1 MB catches legitimate large files while rejecting minified bundles (often 5-50 MB)
+   - The limit admits large source files while rejecting unbounded content
 
-4. **Generic Strings (10 KB)**:
+4. **Generic strings (10,240 code units)**:
    - Module specifiers: typically <100 chars
-   - 10 KB provides room for complex specifiers without accepting abuse
+   - 10,240 code units provide room for complex specifiers without accepting unbounded input
 
 ### Why Progressive Limits?
 
