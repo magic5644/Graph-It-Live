@@ -2,7 +2,8 @@
 
 ## Status
 
-Implemented Task 12 on `feat/graph-context-gateway`.
+Implemented Task 12 and addressed its review findings on
+`feat/graph-context-gateway`.
 
 ## Delivered
 
@@ -23,19 +24,31 @@ Implemented Task 12 on `feat/graph-context-gateway`.
 - Kept document indexing opt-in by explicit scope or document seed.
 - Added focused indexer and retriever tests.
 
+## Review fixes
+
+- Exact `document:<workspace-relative-path>` seeds now load documentation
+  without requiring `scope`.
+- Rationale markers explain only the nearest code link in their Markdown or
+  RST section instead of every code link in the document.
+- RST underline headings and inline links preserve document titles and source
+  lines.
+- MDX indexing accepts Markdown links and quoted JSX `href`/`to` values while
+  ignoring expression-valued and remote links.
+- YAML indexing accepts local path scalars and quote-aware comments; quoted
+  `# WHY:`, `# NOTE:`, and `# HACK:` strings remain data.
+- Document links remain workspace-relative, local-only, and opt-in.
+
 Tool-count documentation now matches MCP 27, native LM 22, and CLI
 `tool --list` 22; `src/**` examples are shell-quoted.
 
 ## Validation
 
-- `npx vitest run tests/analyzer/graph-context/DocumentReferenceIndexer.test.ts tests/analyzer/graph-context/GraphContextRetriever.test.ts` — passed (21 tests).
+- Focused analyzer, resolver, retriever, federator, and MCP graph-context tests
+  — passed (52 tests).
 - `npm run check:types` — passed.
-- `npm run lint -- --quiet` — passed.
+- `npm run lint` — passed.
 
-## Commit
+## Commits
 
-Committed as:
-
-```text
-feat(graph): index local documentation and rationale
-```
+- Task 12: `feat(graph): index local documentation and rationale`
+- Review fixes: `fix(graph): harden documentation indexing`

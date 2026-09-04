@@ -41,6 +41,113 @@ describe('DocumentReferenceIndexer', () => {
     expect(result.edges.some(edge => edge.target.includes('secret'))).toBe(false);
   });
 
+  it('associates rationale markers only with the nearest code link in their section', async () => {
+    const root = await fixture(workspaces);
+    await mkdir(path.join(root, 'docs'), { recursive: true });
+    await writeFile(path.join(root, 'docs', 'ADR.md'), [
+      '# Decisions',
+      '## Authentication',
+      '[auth](../src/auth.ts)',
+      '# WHY: keep authentication isolated',
+      '## Billing',
+      '[billing](../src/billing.ts)',
+      '# NOTE: billing has separate retry rules',
+    ].join('\n'));
+
+    const result = await new DocumentReferenceIndexer(root).index('**');
+    const explainsCode = result.edges.filter(edge => (
+      edge.relation === 'EXPLAINS' && edge.target.startsWith('file:')
+    ));
+
+    expect(explainsCode).toEqual([
+      expect.objectContaining({
+        source: 'rationale:docs/ADR.md:4',
+        target: 'file:src/auth.ts',
+        sourceLine: 3,
+      }),
+      expect.objectContaining({
+        source: 'rationale:docs/ADR.md:7',
+        target: 'file:src/billing.ts',
+        sourceLine: 6,
+      }),
+    ]);
+  });
+
+  it('uses RST headings and inline links', async () => {
+    const root = await fixture(workspaces);
+    await mkdir(path.join(root, 'docs'), { recursive: true });
+    await writeFile(path.join(root, 'docs', 'decision.rst'), [
+      'Gateway Decision',
+      '================',
+      '',
+      'See `the implementation <../src/gateway.ts>`_.',
+    ].join('\n'));
+
+    const result = await new DocumentReferenceIndexer(root).index('**');
+
+    expect(result.nodes).toContainEqual(expect.objectContaining({
+      id: 'document:docs/decision.rst',
+      name: 'Gateway Decision',
+    }));
+    expect(result.edges).toContainEqual(expect.objectContaining({
+      source: 'document:docs/decision.rst',
+      target: 'file:src/gateway.ts',
+      relation: 'REFERENCES',
+      sourceLine: 4,
+    }));
+  });
+
+  it('indexes Markdown and literal JSX links in MDX without evaluating expressions', async () => {
+    const root = await fixture(workspaces);
+    await mkdir(path.join(root, 'docs'), { recursive: true });
+    await writeFile(path.join(root, 'docs', 'guide.mdx'), [
+      '# Gateway Guide',
+      '[API](../src/api.ts)',
+      '<Link href="../src/gateway.ts">Gateway</Link>',
+      '<Link href={dynamicTarget}>Dynamic</Link>',
+      '<Link href="https://example.com/remote.ts">Remote</Link>',
+    ].join('\n'));
+
+    const result = await new DocumentReferenceIndexer(root).index('**');
+    const references = result.edges.filter(edge => edge.relation === 'REFERENCES');
+
+    expect(references).toEqual([
+      expect.objectContaining({ target: 'file:src/api.ts', sourceLine: 2 }),
+      expect.objectContaining({ target: 'file:src/gateway.ts', sourceLine: 3 }),
+    ]);
+  });
+
+  it('indexes YAML path values and real comments without treating quoted strings as rationale', async () => {
+    const root = await fixture(workspaces);
+    await mkdir(path.join(root, 'docs'), { recursive: true });
+    await writeFile(path.join(root, 'docs', 'gateway.yaml'), [
+      'implementation: ../src/gateway.ts # NOTE: keep the adapter local',
+      'description: "# HACK: this is data, not a comment"',
+      'remote: https://example.com/remote.ts',
+    ].join('\n'));
+
+    const result = await new DocumentReferenceIndexer(root).index('**');
+
+    expect(result.nodes.filter(node => node.kind === 'rationale')).toEqual([
+      expect.objectContaining({
+        id: 'rationale:docs/gateway.yaml:1',
+        name: 'keep the adapter local',
+      }),
+    ]);
+    expect(result.edges).toContainEqual(expect.objectContaining({
+      source: 'document:docs/gateway.yaml',
+      target: 'file:src/gateway.ts',
+      relation: 'REFERENCES',
+      sourceLine: 1,
+    }));
+    expect(result.edges).toContainEqual(expect.objectContaining({
+      source: 'rationale:docs/gateway.yaml:1',
+      target: 'file:src/gateway.ts',
+      relation: 'EXPLAINS',
+      sourceLine: 1,
+    }));
+  });
+
   it('keeps documentation opt-in and lets an ADR explain a code seed', async () => {
     const snapshot = {
       revision: 'docs',
