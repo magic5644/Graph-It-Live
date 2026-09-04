@@ -11,6 +11,8 @@ controller-database, refactor-interface, and document-symbol. Each Graph-It-
 Live run uses `scope=**`, `depth=2`, `maxNodes=10`, and `tokenBudget=2000`.
 JSON and TOON outputs are retained under `.reports/context-economy/latest/`
 for audit after workspace paths, mtimes, revisions, and cursors are normalized.
+The normalizer handles JSON key/value fields and the production
+`graph_context(...)` header plus positional row fields.
 
 Measured metrics include precision@10, recall@10, exact path success,
 ambiguity rate, stale-edge rate, request/response tokens, cold/warm/incremental

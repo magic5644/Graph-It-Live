@@ -2,15 +2,32 @@ import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
+import { jsonToToon } from '../../src/shared/toon';
 import {
   REFERENCE_WORKFLOWS,
   buildSharedCorpus,
   measureComparableMetrics,
   notSupportedGraphifyResult,
+  normalizeOutput,
   runBenchmark,
 } from '../../scripts/context-economy-corpus.mjs';
 
 describe('graph context benchmark contract', () => {
+  it('normalizes volatile values in the production graph_context TOON row', () => {
+    const output = jsonToToon([{
+      indexRevision: 'revision-123',
+      fresh: true,
+      mode: 'search',
+      tokenEstimate: 42,
+      truncated: false,
+      nextCursor: 'cursor-456',
+    }], { objectName: 'graph_context' });
+
+    expect(normalizeOutput(output, '/tmp/workspace')).toBe(
+      'graph_context(indexRevision,fresh,mode,tokenEstimate,truncated,nextCursor)\n[<revision>,true,search,42,false,<cursor>]',
+    );
+  });
+
   it('defines one small deterministic corpus for six reference workflows', () => {
     const corpus = buildSharedCorpus();
 
