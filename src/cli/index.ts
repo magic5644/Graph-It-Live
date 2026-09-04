@@ -169,7 +169,7 @@ MCP Client Integration:
       }
     }
 
-  Run "graph-it tool --list" to see all 21 available MCP tools.
+  Run "graph-it tool --list" to see all 22 available MCP tools.
 
 Examples:
   graph-it scan

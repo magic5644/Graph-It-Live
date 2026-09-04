@@ -15,6 +15,8 @@ import type {
 } from '@/shared/graph-context-types';
 import { compileFileScope } from './FileScopeMatcher';
 import { toEvidence } from './GraphContextEvidence';
+import type { DocumentReferenceIndexer } from './DocumentReferenceIndexer';
+import { DocumentReferenceIndexer as LocalDocumentReferenceIndexer } from './DocumentReferenceIndexer';
 
 const EXTERNAL_PREFIX = '@@external:';
 
@@ -26,7 +28,12 @@ export class GraphContextFederator {
   constructor(
     private readonly spider: Spider,
     private readonly callGraphIndexer: CallGraphIndexer,
-  ) {}
+    documentReferenceIndexer?: DocumentReferenceIndexer,
+  ) {
+    this.documentReferenceIndexer = documentReferenceIndexer
+      ?? new LocalDocumentReferenceIndexer(spider.workspaceRoot);
+  }
+  private readonly documentReferenceIndexer: DocumentReferenceIndexer;
 
   async buildSnapshot(request: GraphContextRequest): Promise<GraphContextSnapshot> {
     const workspaceRoot = normalizePath(this.spider.workspaceRoot);
@@ -146,11 +153,20 @@ export class GraphContextFederator {
       }));
     }
 
+    const includeDocuments = this.documentReferenceIndexer !== undefined
+      && (request.scope !== undefined || hasDocumentSeed(request));
+    const documents = includeDocuments
+      ? await this.documentReferenceIndexer?.index(request.scope ?? '**')
+      : undefined;
+    for (const node of documents?.nodes ?? []) nodesById.set(node.id, node);
+    for (const edge of documents?.edges ?? []) addEdge(edgesByKey, edge);
+    const nodes = [...nodesById.values()].sort(compareNodes);
+    const edges = [...edgesByKey.values()].sort(compareEdges);
     return {
-      revision: createRevision(workspaceRoot, indexSnapshot, fileState),
+      revision: createRevision(workspaceRoot, indexSnapshot, fileState, nodes, edges),
       fresh,
-      nodes: [...nodesById.values()].sort(compareNodes),
-      edges: [...edgesByKey.values()].sort(compareEdges),
+      nodes,
+      edges,
     };
   }
 }
@@ -225,13 +241,22 @@ function createRevision(
   workspaceRoot: string,
   indexSnapshot: CallGraphIndexSnapshot,
   fileState: FileState[],
+  documentNodes: GraphContextNode[],
+  documentEdges: GraphContextEdge[],
 ): string {
   const state = {
     workspaceRoot,
     files: [...fileState].sort((left, right) => left.path.localeCompare(right.path)),
     indexer: indexSnapshot,
+    documentNodes,
+    documentEdges,
   };
   return createHash('sha256').update(JSON.stringify(state)).digest('hex');
+}
+
+function hasDocumentSeed(request: GraphContextRequest): boolean {
+  return [...(request.seeds ?? []), ...(request.from ? [request.from] : []), ...(request.to ? [request.to] : [])]
+    .some(seed => seed.filePath !== undefined && /\.(?:md|mdx|rst|ya?ml)$/i.test(seed.filePath));
 }
 
 function compareNodes(left: GraphContextNode, right: GraphContextNode): number {

@@ -40,7 +40,7 @@ Built for **architects** who need the big picture and **developers** who need to
 | **Symbol View** | Function/class call hierarchy inside a file | AST (ts-morph) |
 | **Live Call Graph** | Cross-file symbol call relationships | Tree-sitter + SQLite |
 
-All three layers are also exposed to AI via a **22-tool MCP server**, so your assistant can answer architecture questions with zero hallucination.
+All three layers are also exposed to AI via a **27-tool MCP server**, so your assistant can answer architecture questions with zero hallucination.
 
 <div align="center">
   <img src="media/demo-plugin-graph-it-live.gif" alt="Graph-It-Live Demo" width="800"/>
@@ -100,6 +100,7 @@ Use `pull_request`, not `pull_request_target`, for untrusted PR code. Fork workf
     - [Performance Profiles](#performance-profiles)
     - [All Settings](#all-settings)
   - [Standalone CLI](#standalone-cli)
+  - [Unified Graph Context](#unified-graph-context)
   - [Agent Skill](#agent-skill)
   - [MCP Server (AI/LLM Integration)](#mcp-server-aillm-integration)
     - [Setup](#setup)
@@ -129,7 +130,7 @@ Use `pull_request`, not `pull_request_target`, for untrusted PR code. Fork workf
 
 ## 🤖 Supercharge Your AI Assistant
 
-Stop pasting file paths and explaining your project structure. Graph-It-Live exposes **23 powerful dependency analysis tools** directly to your AI assistant via the [Model Context Protocol (MCP)](https://modelcontextprotocol.io), and **22 native LM Tools** directly in Copilot Agent mode (no MCP setup required).
+Stop pasting file paths and explaining your project structure. Graph-It-Live exposes **27 powerful dependency analysis tools** directly to your AI assistant via the [Model Context Protocol](https://modelcontextprotocol.io), and **22 native LM Tools** directly in Copilot Agent mode (no MCP setup required).
 
 **Works with:** GitHub Copilot, Claude (Desktop & Code), Cursor, Windsurf, Antigravity, and any MCP-compatible client.
 
@@ -433,7 +434,7 @@ graph-it check <file>           # Detect unused exported symbols in a single fil
 graph-it query "<question>"     # Natural language query over the call graph (LLM or heuristic fallback)
 graph-it wiki                   # Generate a navigable markdown wiki from the call graph
 graph-it serve                  # Launch MCP stdio server (for AI clients)
-graph-it tool --list            # List all 21 CLI analysis tools
+graph-it tool --list            # List all 22 CLI analysis tools
 graph-it tool <mcp-tool> [args] # Run any MCP tool directly from the terminal
 graph-it export [path] [--format html]  # Export graph as standalone HTML (vis.js)
 graph-it update                 # Update graph-it to the latest version
@@ -495,6 +496,28 @@ The optional `query` command is deliberately narrower: a configured LLM can extr
 
 **Full CLI reference:** See **[docs/CLI.md](docs/CLI.md)** for complete documentation on every command, all options, output format examples, advanced workflows, and the full MCP tools reference.
 
+### Unified Graph Context
+
+The `graph-it context` command, `graphitlive_graph_context` MCP tool, and
+`graph-it-live_graph_context` native LM tool expose the same read-only gateway.
+It combines file imports, cross-file calls, symbols, tests, impact, paths, hubs,
+and communities in one bounded response. Use `search`, `neighbors`, `path`,
+`impact`, `refactor`, or `overview` modes with workspace-relative scopes and
+optional `toon` or `json` output.
+
+```bash
+graph-it context "what calls the request handler" --scope 'src/**' --format toon
+graph-it context --mode path --from src/api.ts#handle --to src/db.ts#query
+```
+
+The gateway accepts depth 1–5, 1–500 nodes per page, and a 500–16,000 token
+budget (default 4000). Truncated responses include omitted counts and an opaque
+cursor. Results carry provenance and evidence line spans, but do not include
+source contents; read the identified files separately. This is a local,
+code-centric Graphify comparison boundary, not a claim of global Graphify
+replacement: PR triage, multi-project HTTP serving, broad language coverage,
+and multimedia knowledge graphs remain outside this release.
+
 ---
 
 ## Agent Skill
@@ -535,7 +558,9 @@ Graph-It-Live includes an optional **MCP server** that exposes its full analysis
 
 ### Available Tools
 
-The MCP server exposes **26 tools** for AI/LLM consumption. The 21 general-purpose analysis tools, excluding the server-management-only `set_workspace` and the 4 tools with dedicated CLI commands (`review-pr`, `query`, `wiki`, `stats`), are also available as **native LM Tools** (`#graphResolve`, `#graphBreaking`, `#graphCallGraph`, etc.) directly in Copilot Agent mode — no MCP server required for those.
+The MCP server exposes **27 tools** for AI/LLM consumption. The graph-context
+gateway is also available as the native `#graphContext` LM Tool directly in
+Copilot Agent mode — no MCP server required.
 
 | Tool | Description |
 | :--- | :---------- |
@@ -559,6 +584,7 @@ The MCP server exposes **26 tools** for AI/LLM consumption. The 21 general-purpo
 | `graphitlive_rebuild_index` | Rebuild the entire dependency index from scratch |
 | `graphitlive_analyze_file_logic` | Analyze symbol-level call hierarchy and code flow within a file |
 | `graphitlive_generate_codemap` | Generate a comprehensive structured overview of any source file |
+| `graphitlive_graph_context` | Retrieve unified, evidence-backed, token-bounded graph context |
 | `graphitlive_query_call_graph` | Query cross-file callers/callees via BFS on the call graph SQLite database |
 | `graphitlive_scan_dead_code` | Scan the entire workspace (or a directory) for unused exported symbols in one call |
 | `query_natural_language` | Answer a natural language question about the codebase using the call graph (LLM or heuristic fallback) |
@@ -588,7 +614,7 @@ See [TOON Format Documentation](./docs/architecture/TOON_FORMAT.md) for full spe
 
 ### Native LM Tools (Copilot Agent Mode)
 
-All 21 analysis tools are also available **natively in GitHub Copilot** — no MCP server required. Reference them with `#` in Agent mode:
+Graph-It-Live analysis tools are also available **natively in GitHub Copilot** — no MCP server required. Reference them with `#` in Agent mode:
 
 | Reference | Tool | Description |
 |---|---|---|
@@ -612,6 +638,7 @@ All 21 analysis tools are also available **natively in GitHub Copilot** — no M
 | `#graphResolve` | `resolve_module_path` | Resolve a module specifier to its absolute path |
 | `#graphBreaking` | `analyze_breaking_changes` | Detect breaking changes between two file versions |
 | `#graphCallGraph` | `query_call_graph` | BFS callers/callees via the SQLite call graph index |
+| `#graphContext` | `graph_context` | Unified, evidence-backed, token-bounded graph context |
 | `#graphDeadCode` | `scan_dead_code` | Workspace-wide dead code scan — all unused exported symbols |
 | `#graphQuery` | `query_natural_language` | Natural language question over the call graph (LLM or heuristic fallback) |
 

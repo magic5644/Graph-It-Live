@@ -20,6 +20,28 @@ Without size limits, malicious or accidental payloads could cause:
 | **File Content** | 1 MB (~40K lines) | Covers 99.9% of source files, rejects minified/binary files |
 | **Generic Strings** | 10 KB | General purpose limit for module specifiers, etc. |
 
+### Graph context request limits
+
+The `graphitlive_graph_context` request has additional bounded fields:
+
+| Field | Limit | Default |
+|-------|-------|---------|
+| `question` | 1,024 characters | — |
+| `seeds` | 500 entries | — |
+| `relations` | 12 unique entries | all |
+| `scope` | 256 characters | workspace (`**`) |
+| `depth` | integer 1–5 | 2 |
+| `maxNodes` | integer 1–500 | 200 |
+| `tokenBudget` | integer 500–16,000 | 4,000 |
+| `cursor` | 4,096 characters | — |
+
+Seeds, endpoints, and scope paths are validated against the configured
+workspace. Paths outside it are rejected. An ambiguous entity is returned as
+candidates rather than silently selected; an unresolved external call is
+reported as evidence-limited. A stale or request-mismatched cursor is rejected
+and must not be reused after the index revision changes. Unsupported language
+constructs remain absent from the local graph rather than being synthesized.
+
 ## Schema Architecture
 
 ### Reusable Schemas
