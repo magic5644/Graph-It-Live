@@ -2,7 +2,7 @@ import { createRequire } from 'node:module';
 import * as fs from 'node:fs/promises';
 import * as os from 'node:os';
 import * as path from 'node:path';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { Parser } from '../../../src/analyzer/Parser';
 import { Spider } from '../../../src/analyzer/Spider';
 import { SpiderBuilder } from '../../../src/analyzer/SpiderBuilder';
@@ -223,6 +223,46 @@ describe('graph_context MCP contract', () => {
       expect.objectContaining({ name: 'UserController', path: 'src/controllers/UserController.ts' }),
       expect.objectContaining({ name: 'UserServiceTest', path: 'tests/UserService.test.ts' }),
     ]));
+  });
+
+  it('returns a compact overview with internal hubs and deterministic communities', async () => {
+    const snapshotRead = vi.spyOn(spider, 'getReadOnlyDependencyGraph');
+    const result = await executeGraphContext({
+      question: 'Give me a graph overview',
+      mode: 'overview',
+      maxNodes: 20,
+      tokenBudget: 4_000,
+    });
+    const formatted = formatToolResponse(
+      createSuccessResponse(result, 1, workspaceRoot),
+      'toon',
+      'graphitlive_graph_context',
+    );
+
+    expect(result.seeds[0]?.id).toBe('file:src/services/UserService.ts');
+    expect(result.nodes).toEqual(expect.arrayContaining([
+      expect.objectContaining({ id: 'file:src/services/UserService.ts', score: 4 }),
+      expect.objectContaining({ kind: 'community', name: expect.stringMatching(/^Community \d+ \(\d+ nodes\)$/) }),
+    ]));
+    expect(result.edges).toEqual(expect.arrayContaining([
+      expect.objectContaining({ relation: 'BELONGS_TO', confidence: 'INFERRED' }),
+    ]));
+    expect(result.nextQueries).toEqual(expect.arrayContaining([
+      expect.stringMatching(/^Inspect community \d+ \(\d+ nodes\)$/),
+    ]));
+    expect(snapshotRead).toHaveBeenCalledTimes(4);
+    expect([...formatted.content[0].text.matchAll(/^([a-zA-Z_]+)\(/gm)].map(match => match[1])).toEqual([
+      'graph_context',
+      'seeds',
+      'nodes',
+      'edges',
+      'paths',
+      'ambiguous',
+      'omitted',
+      'nextQueries',
+      'errors',
+    ]);
+    expect(formatted.content[0].text).not.toMatch(/assignments|graphStats|topHubs/);
   });
 
   it('continues maxNodes-truncated traversal without duplicates or lost candidates', async () => {
