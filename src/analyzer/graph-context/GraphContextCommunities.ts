@@ -7,6 +7,8 @@ import type {
   GraphContextSnapshot,
 } from '@/shared/graph-context-types';
 
+const MAX_COMMUNITY_PASSES = 100;
+
 export interface GraphContextGraphStats {
   nodeCount: number;
   edgeCount: number;
@@ -112,7 +114,7 @@ function detectFederatedCommunities(
 ): { assignments: Map<string, number>; count: number } {
   const adjacency = new Map(nodes.map(node => [node.id, new Map<string, number>()]));
   for (const edge of edges) {
-    if (edge.source === edge.target || !adjacency.has(edge.source) || !adjacency.has(edge.target)) continue;
+    if (!adjacency.has(edge.source) || !adjacency.has(edge.target)) continue;
     incrementWeight(adjacency.get(edge.source) as Map<string, number>, edge.target);
     incrementWeight(adjacency.get(edge.target) as Map<string, number>, edge.source);
   }
@@ -131,7 +133,8 @@ function detectFederatedCommunities(
   }
 
   const doubledEdgeWeight = [...degrees.values()].reduce((total, value) => total + value, 0);
-  for (let pass = 0; pass < nodes.length; pass += 1) {
+  // ponytail: 100 passes bounds worst-case work; raise only if measured large-graph convergence needs it.
+  for (let pass = 0; pass < MAX_COMMUNITY_PASSES; pass += 1) {
     let moved = false;
     for (const node of nodes) {
       const nodeDegree = degrees.get(node.id) ?? 0;
