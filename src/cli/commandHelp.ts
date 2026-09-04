@@ -28,6 +28,8 @@ Examples:
   graph-it context "how does authentication reach the database" --mode search --scope 'src/**' --depth 2 --token-budget 2000 --format toon
   graph-it context --from 'src/api/controller.ts#UserController' --to 'DatabasePool' --mode path --format json
   graph-it context --seeds 'src/api/controller.ts#UserController' --seeds 'DatabasePool' --relations CALLS --directed
+  graph-it context --mode impact --seeds 'src/api/controller.ts#UserController' --relations CALLS --scope 'src/**' --depth 3 --max-nodes 100 --token-budget 4000 --format json
+  graph-it context "how does authentication reach the database" --scope 'src/**' --token-budget 2000 --format toon --cursor '<nextCursor>'
 `,
   scan: `graph-it scan — Index/re-index the workspace
 
@@ -325,7 +327,9 @@ Examples:
   graph-it tool get_index_status
   graph-it tool analyze_dependencies --filePath=/abs/path/file.ts
   graph-it tool crawl_dependency_graph --entryFile=/abs/path/file.ts
-  graph-it tool --args '{"filePath":"/abs/path/file.ts"}' analyze_dependencies
+  graph-it tool analyze_dependencies --args '{"filePath":"/abs/path/file.ts"}'
+  graph-it tool graph_context --question="what calls the request handler" --scope='src/**' --format=toon
+  graph-it tool graph_context --args '{"mode":"path","from":{"filePath":"src/api.ts","symbolName":"handle"},"to":{"filePath":"src/db.ts","symbolName":"query"},"directed":true,"format":"toon"}' --format toon
 `,
   install: `graph-it install — Install CLI to system PATH
 

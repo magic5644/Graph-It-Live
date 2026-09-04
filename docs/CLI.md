@@ -159,7 +159,7 @@ All analysis commands support multiple output formats via `--format`:
 |--------|-------------|----------|
 | `text` *(default)* | Human-readable structured text | Terminal inspection |
 | `json` | Standard JSON | Scripting, piping to `jq` |
-| `toon` | Compact Token-Oriented Object Notation | AI consumption (30–60% token savings) |
+| `toon` | Compact Token-Oriented Object Notation | AI consumption; measure savings for the payload |
 | `markdown` | Data wrapped in a Markdown code block | Reports, documentation |
 | `mermaid` | Mermaid flowchart diagram syntax | Architecture docs, README, Notion |
 
@@ -779,6 +779,19 @@ The command supports `search`, `neighbors`, `path`, `impact`, `refactor`, and
 `overview` modes. A question, at least one seed, or both `--from` and `--to`
 must be supplied. Endpoints alone infer `path` mode.
 
+The shared executor has these public entry points:
+
+| Surface | Entry point |
+|---------|-------------|
+| CLI | `graph-it context` |
+| CLI analysis-tool bridge | `graph-it tool graph_context` |
+| MCP server | `graphitlive_graph_context` |
+| VS Code Language Model tool | `graph-it-live_graph_context`, referenced as `#graphContext` in Copilot Agent mode |
+
+Relation filters accept `CONTAINS`, `IMPORTS`, `CALLS`, `INHERITS`,
+`IMPLEMENTS`, `USES`, `TESTED_BY`, `IMPACTED_BY`, `BELONGS_TO`, `REFERENCES`,
+`EXPLAINS`, and `DOCUMENTS` (up to 12 unique values).
+
 | Option | Default | Description |
 |--------|---------|-------------|
 | `--mode <mode>` | inferred | `search`, `neighbors`, `path`, `impact`, `refactor`, or `overview` |
@@ -797,15 +810,55 @@ must be supplied. Endpoints alone infer `path` mode.
 ```bash
 graph-it context "what calls the request handler" --scope 'src/**' --format toon
 graph-it context --mode path --from src/api.ts#handle --to src/db.ts#query --depth 4
+graph-it context --mode impact --seeds src/api.ts#handle --relations CALLS --depth 3 --format json
 graph-it context "how is authentication wired" --token-budget 8000 --format json
+
+# A continuation repeats the original request and options with nextCursor.
+graph-it context "what calls the request handler" --scope 'src/**' --format toon --cursor '<nextCursor>'
 ```
 
 Responses contain workspace-relative nodes, typed relations, provenance,
 evidence line spans, paths, ambiguity candidates, omission counts, and a
 continuation cursor when truncated. Source contents are not included; read the
-identified files separately. Invalid or out-of-workspace paths, stale cursors,
-ambiguous endpoints, unsupported language constructs, and unresolved external
-calls are reported as bounded evidence limitations rather than invented edges.
+identified files separately. JSON returns the structured response; TOON emits
+compact `graph_context`, `seeds`, `nodes`, `edges`, `paths`, `ambiguous`,
+`omitted`, and `nextQueries` blocks.
+
+MCP clients call the prefixed server tool name:
+
+```json
+{
+  "tool": "graphitlive_graph_context",
+  "arguments": {
+    "mode": "path",
+    "from": { "filePath": "src/api.ts", "symbolName": "handle" },
+    "to": { "filePath": "src/db.ts", "symbolName": "query" },
+    "scope": "src/**",
+    "depth": 4,
+    "maxNodes": 100,
+    "tokenBudget": 4000,
+    "directed": true,
+    "format": "toon"
+  }
+}
+```
+
+In Copilot Agent mode, reference the native tool directly, for example:
+
+```text
+#graphContext Find the impact of src/api.ts#handle within src/** at depth 3.
+```
+
+The manifest name for that native tool is `graph-it-live_graph_context`.
+Invalid or out-of-workspace paths are rejected. Ambiguous entities are returned
+as scored candidates without a silent selection. A cursor is rejected if the
+request, scope, budget, filters, or index revision changed. Unsupported language
+constructs remain absent, and unresolved calls remain `external:` nodes with
+evidence marked `AMBIGUOUS` when several internal targets match.
+
+Because the cursor is bound to the index revision, a later standalone CLI
+invocation can reject it after re-indexing. Start again without `--cursor` when
+that happens.
 
 ---
 
@@ -860,7 +913,8 @@ graph-it query "what is the entry point for the CLI" --format json
 ### stats
 
 Report session-level token metrics with strict separation between:
-- **estimated JSON vs TOON encoding sizes** (chars/4 heuristic), and
+- **JSON vs TOON representation counts** from `gpt-tokenizer`'s
+  `cl100k_base` encoding, and
 - **real provider-reported LLM usage** (`llmUsage`).
 
 ```
@@ -883,24 +937,26 @@ graph-it stats [options]
 **Local zero-LLM proof workflow:**
 
 ```bash
-# Runs architecture, codemap, impact, and call-graph analyses twice (JSON + TOON).
-# ANTHROPIC_API_KEY and OPENAI_API_KEY are removed from child processes.
+# Runs six graph-context workflows in JSON and TOON on a fixed local corpus.
+# Known LLM credentials are removed from child processes.
 # Raw outputs and report.json are written under .reports/context-economy/.
 npm run test:context-economy
 ```
 
 The generated `report.json` stores, for every corpus operation:
 
-- `llmUsage.calls = 0` and `llmUsage.tokensUsed = 0`;
-- raw JSON and TOON output paths;
-- UTF-8 bytes, characters, and `estimateTokenSavings()` values;
-- persisted CLI session snapshots, which also must show zero provider usage.
+- raw JSON and TOON output;
+- request and response representation counts from `cl100k_base`;
+- quality, bound, freshness, and cold/warm/incremental latency metrics;
+- `null` for unobserved MCP initialization, MCP tool-call, continuation, and
+  provider billing-token metrics.
 
-The `chars / 4` values are **encoding estimates**, not provider billing tokens or a
-claim that an LLM was called. Local graph traversal performs no LLM request. The
-optional `query` command may use an LLM only to extract keywords; without a
-provider key it uses the deterministic heuristic fallback. MCP response synthesis
-belongs to the calling AI client, not to Graph-It-Live's local analyzers.
+These tokenizer counts describe serialized representation size. They are not
+provider billing tokens or proof that an LLM was called. Local graph traversal
+performs no LLM request. The optional `query` command may use an LLM only to
+extract keywords; without a provider key it uses the deterministic heuristic
+fallback. MCP response synthesis belongs to the calling AI client, not to
+Graph-It-Live's local analyzers.
 
 **TOON secondary benchmark workflow:**
 
@@ -1470,11 +1526,12 @@ graph-it tool generate_codemap --filePath=/abs/path/to/Spider.ts --format toon
 
 **Output fields:** `exports[]`, `internals[]`, `dependencies[]`, `dependents[]`, `callFlow`, `cycles[]`
 
-> **Tip:** Use `--format toon` to reduce token consumption by 30–60% when feeding this to an LLM.
+> **Tip:** Use `--format toon` for repeated node and edge rows, then measure the
+> result for your payload; the reduction is data-dependent.
 
 ---
 
-#### `graph_context`
+#### `graph_context` (CLI bridge) / `graphitlive_graph_context` (MCP)
 
 **What it returns:** A unified, read-only graph context combining files,
 symbols, tests, calls, imports, impact, hubs, communities, paths, provenance,
@@ -1487,13 +1544,15 @@ non-empty seed list, or both endpoints. Endpoint-only requests infer `path`.
 
 ```bash
 graph-it tool graph_context --question="what calls the request handler" --scope='src/**' --format=toon
-graph-it tool graph_context --mode=path --from=src/api.ts#handle --to=src/db.ts#query
+graph-it tool graph_context --args '{"mode":"path","from":{"filePath":"src/api.ts","symbolName":"handle"},"to":{"filePath":"src/db.ts","symbolName":"query"},"directed":true,"format":"toon"}' --format toon
+graph-it tool graph_context --args '{"mode":"impact","seeds":[{"filePath":"src/api.ts","symbolName":"handle"}],"relations":["CALLS"],"scope":"src/**","depth":3,"tokenBudget":4000,"format":"json"}' --format json
 ```
 
 The default token budget is 4000. The response preserves requested seeds and
 path endpoints, reports `truncated`, `omitted`, `tokenEstimate`, and an opaque
 `nextCursor`. Public paths are workspace-relative and source contents are not
-returned by default.
+returned by default. MCP clients use `graphitlive_graph_context`; `graph_context`
+is the internal worker name exposed by the CLI analysis-tool bridge.
 
 #### `query_call_graph`
 

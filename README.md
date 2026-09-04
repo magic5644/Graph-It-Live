@@ -179,7 +179,9 @@ The `graphitlive_generate_codemap` tool gives your AI a **complete structural ov
 - **Documentation:** *"Create architecture docs from codemaps"* — structured data → Markdown in seconds
 - **Code review:** *"What does this new file export and who depends on it?"* — instant context
 
-> **Token-efficient:** Output uses a compact format optimised for LLM consumption. Combine with `format: "toon"` for up to 60% token savings.
+> **Token-efficient:** Output can use compact TOON rows. Savings depend on the
+> payload; compare TOON and JSON with the repository benchmark before quoting a
+> percentage.
 
 <!-- TODO: Add screenshot or video of AI generating a codemap -->
 
@@ -454,7 +456,7 @@ npx @magic5644/graph-it-live scan
 npx @magic5644/graph-it-live serve
 ```
 
-**Output formats:** All analysis commands support `--format json|toon|markdown`. Use `toon` for AI consumption (30–60% token savings). The `trace` and `path` commands additionally support `--format mermaid` to generate a Mermaid diagram of the call or dependency flow:
+**Output formats:** All analysis commands support `--format json|toon|markdown`. Use `toon` for repeated structured rows and measure the result for your payload. The `trace` and `path` commands additionally support `--format mermaid` to generate a Mermaid diagram of the call or dependency flow:
 
 ```bash
 graph-it summary <file> --format toon
@@ -484,7 +486,11 @@ For AI-facing workflows, request `toon` output when the result contains structur
 
 The practical alternative is often much larger: pass a tool result to the model rather than the source files, imports, and unrelated modules it would otherwise need to reconstruct the same relationship. The exact reduction depends on the repository and the question. Measure it for your workflow by comparing the bytes or characters of the Graph-It-Live output with the raw source/context you would otherwise provide.
 
-Run `npm run test:context-economy` to produce a reproducible JSON-versus-TOON corpus for architecture, codemap, impact, and call-graph analysis. Its report records bytes, characters, and `chars/4` token estimates separately from actual `llmUsage`. These are representation estimates, not provider billing tokens or a universal cost-saving guarantee.
+Run `npm run test:context-economy` to execute six graph-context workflows on a
+fixed twelve-file corpus. The report counts serialized request and response
+representations with `gpt-tokenizer`'s `cl100k_base` encoding. Those counts are
+not provider billing tokens or a universal cost-saving guarantee; metrics the
+CLI runner cannot observe remain `null`.
 
 The optional `query` command is deliberately narrower: a configured LLM can extract search keywords, but graph scoring and traversal stay local. Without provider credentials, it uses the heuristic keyword fallback.
 
@@ -498,8 +504,10 @@ The optional `query` command is deliberately narrower: a configured LLM can extr
 
 ### Unified Graph Context
 
-The `graph-it context` command, `graphitlive_graph_context` MCP tool, and
-`graph-it-live_graph_context` native LM tool expose the same read-only gateway.
+The `graph-it context` command (also available through
+`graph-it tool graph_context`), `graphitlive_graph_context` MCP tool, and
+`graph-it-live_graph_context` native LM tool (`#graphContext`) expose the same
+read-only gateway.
 It combines file imports, cross-file calls, symbols, tests, impact, paths, hubs,
 and communities in one bounded response. Use `search`, `neighbors`, `path`,
 `impact`, `refactor`, or `overview` modes with workspace-relative scopes and
@@ -508,15 +516,28 @@ optional `toon` or `json` output.
 ```bash
 graph-it context "what calls the request handler" --scope 'src/**' --format toon
 graph-it context --mode path --from src/api.ts#handle --to src/db.ts#query
+graph-it context --mode impact --seeds src/api.ts#handle --depth 3 --format json
 ```
 
 The gateway accepts depth 1–5, 1–500 nodes per page, and a 500–16,000 token
 budget (default 4000). Truncated responses include omitted counts and an opaque
 cursor. Results carry provenance and evidence line spans, but do not include
-source contents; read the identified files separately. This is a local,
-code-centric Graphify comparison boundary, not a claim of global Graphify
-replacement: PR triage, multi-project HTTP serving, broad language coverage,
-and multimedia knowledge graphs remain outside this release.
+source contents; read the identified files separately.
+
+One local corpus run on 2026-09-04 measured 8,780 `cl100k_base` tokens for the
+six JSON responses and 1,072 for their TOON encodings, a representation-size
+reduction of 87.8%. Mean precision@10 was 0.363 and mean recall@10 was 0.917;
+the one path case passed, and all six requests respected their node and token
+bounds. These are corpus results, not general guarantees. MCP initialization,
+MCP tool-call, continuation, and provider billing-token metrics were
+unobserved, and all six Graphify 0.8.36 workflows were `not-supported` under
+the same strict bounds, so the run establishes no Graphify quality parity.
+
+The release claim is therefore narrow: Graph-It-Live provides a unified,
+evidence-backed, token-bounded graph context for local code navigation and
+refactoring across its supported languages. PR triage, multi-project HTTP
+serving, broad language coverage, and multimedia knowledge graphs remain
+separate roadmap work.
 
 ---
 
@@ -607,7 +628,7 @@ All tools support an optional `format` parameter to reduce token consumption:
 | Format | Description | Token Savings |
 |--------|-------------|---------------|
 | `json` *(default)* | Standard JSON output | — |
-| `toon` | Compact Token-Oriented Object Notation | 30-60% |
+| `toon` | Compact Token-Oriented Object Notation | Data-dependent; measure against JSON |
 | `markdown` | JSON wrapped in markdown code blocks | — |
 
 See [TOON Format Documentation](./docs/architecture/TOON_FORMAT.md) for full specifications, including the reproducible local-analysis and encoding-measurement protocol.

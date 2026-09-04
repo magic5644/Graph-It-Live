@@ -4,7 +4,9 @@
 
 ### Overview
 
-TOON (Token-Oriented Object Notation) is a compact serialization format designed to drastically reduce token consumption when analyzing code with LLMs. It's particularly effective for large structured datasets like dependency graphs, symbol lists, and file analysis results.
+TOON (Token-Oriented Object Notation) is a compact serialization format for
+structured data such as dependency graphs, symbol lists, and file analysis
+results. Its size relative to JSON depends on the payload.
 
 ### Format Specification
 
@@ -67,20 +69,23 @@ TOON automatically handles:
 
 ### Token Savings
 
-TOON can save **30-60%** tokens compared to JSON for structured data:
+`estimateTokens()` uses `gpt-tokenizer/encoding/cl100k_base`. The resulting
+counts measure serialized representation size; they are not provider billing
+tokens.
 
-| Format | Tokens | Size |
-|--------|--------|------|
-| JSON (formatted) | ~100 | ~500 bytes |
-| JSON (minified) | ~80 | ~300 bytes |
-| TOON | ~40 | ~200 bytes |
+In the fixed graph-context corpus run on 2026-09-04, six JSON responses totaled
+8,780 `cl100k_base` tokens and the corresponding TOON encodings totaled 1,072,
+a measured reduction of 87.8%. That example applies only to that corpus and
+run. Different schemas and values can produce smaller savings or make TOON
+larger than JSON.
 
 ### Measurement Protocol and Limits
 
 TOON changes the representation returned by a local analysis. It does **not**
 make architecture, codemap, impact, or call-graph analysis depend on an LLM.
-`estimateTokenSavings()` estimates representation size with `ceil(chars / 4)`;
-it must be kept separate from actual provider usage recorded as `llmUsage`.
+`estimateTokenSavings()` compares JSON and TOON with the shared `cl100k_base`
+tokenizer. Keep these representation counts separate from provider-reported
+usage.
 
 Run the reproducible local corpus with:
 
@@ -88,12 +93,12 @@ Run the reproducible local corpus with:
 npm run test:context-economy
 ```
 
-It removes `ANTHROPIC_API_KEY` and `OPENAI_API_KEY` from child processes, runs
-the same four local analyses in JSON and TOON, and writes raw outputs plus a
-`report.json` under `.reports/context-economy/`. Every report run asserts
-`llmUsage.calls = 0` and `llmUsage.tokensUsed = 0`. Byte, character, and
-`chars / 4` values in the report are encoding estimates only; they are not
-provider billing-token measurements and cannot prove a universal cost reduction.
+It removes known LLM credentials from child processes, runs six graph-context
+workflows in JSON and TOON on a fixed twelve-file corpus, and writes raw output
+plus `report.json` under `.reports/context-economy/`. The report records
+quality, bounds, freshness, latency, and `cl100k_base` representation counts.
+MCP initialization, MCP tool-call, continuation, and provider billing-token
+metrics stay `null` because the independent CLI runner cannot observe them.
 
 The optional natural-language `query` command is the narrow exception: an
 available provider can help extract search keywords. Its graph scoring and BFS
@@ -116,12 +121,12 @@ nextQueries(query)
 errors(message)
 ```
 
-The gateway's `tokenEstimate` is calculated with the real tokenizer used by
-the budgeter. The `# Token Savings` footer is a separate representation-size
-estimate (`ceil(chars / 4)`) and must not be described as provider billing or as
-a universal percentage. The gateway preserves requested seeds and path
-endpoints; when the budget is exceeded it reports omissions and exposes an
-opaque cursor for continuation.
+The gateway budgeter and `tokenEstimate` use
+`gpt-tokenizer/encoding/cl100k_base`. The `# Token Savings` footer compares
+serialized JSON and TOON with the same encoding. Neither value is provider
+billing usage or a universal percentage. The gateway preserves requested seeds
+and path endpoints; when the budget is exceeded it reports omissions and
+exposes an opaque cursor for continuation.
 
 ### Usage in MCP Server
 
@@ -183,7 +188,8 @@ negotiation.
 
 #### Token Savings Metadata
 
-When using TOON format, responses include token savings information:
+When using TOON format, responses can include representation counts. This is
+an illustrative shape, not a benchmark result:
 
 ```
 files(file,deps,line)
@@ -244,15 +250,16 @@ const data = toonToJson(toon);
 
 #### estimateTokenSavings(jsonStr, toonStr)
 
-Estimates token savings between JSON and TOON formats.
+Counts JSON and TOON representations with `cl100k_base` and reports their
+difference.
 
 **Parameters**:
 - `jsonStr: string` - JSON formatted string
 - `toonStr: string` - TOON formatted string
 
 **Returns**: Object with:
-- `jsonTokens: number` - Estimated tokens for JSON
-- `toonTokens: number` - Estimated tokens for TOON
+- `jsonTokens: number` - `cl100k_base` tokens for JSON
+- `toonTokens: number` - `cl100k_base` tokens for TOON
 - `savings: number` - Token difference
 - `savingsPercent: number` - Percentage saved
 
