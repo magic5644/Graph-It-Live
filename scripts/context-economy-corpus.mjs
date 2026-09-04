@@ -132,8 +132,23 @@ function expectedPath(workflow) {
   return workflow.from && workflow.to ? workflow.expected : undefined;
 }
 
-function normalizeOutput(output, workspaceRoot) {
-  return output
+export function normalizeOutput(output, workspaceRoot) {
+  const normalizedToon = output.replace(
+    /^graph_context\(([^)\r\n]*)\)\r?\n\[([^\r\n]*)\]/m,
+    (match, header, row) => {
+      const fields = header.split(',');
+      const values = row.split(',');
+      for (const field of ['indexRevision', 'revision']) {
+        const index = fields.indexOf(field);
+        if (index >= 0 && index < values.length) values[index] = '<revision>';
+      }
+      const cursorIndex = fields.indexOf('nextCursor');
+      if (cursorIndex >= 0 && cursorIndex < values.length) values[cursorIndex] = '<cursor>';
+      return `${match.slice(0, match.indexOf('['))}[${values.join(',')}]`;
+    },
+  );
+
+  return normalizedToon
     .split(workspaceRoot).join('<workspace>')
     .replace(/("(?:indexRevision|revision)"\s*:\s*)"[^"]*"/g, '$1"<revision>"')
     .replace(/((?:indexRevision|revision)\s*:\s*)\S+/g, '$1<revision>')
