@@ -99,6 +99,30 @@ The optional natural-language `query` command is the narrow exception: an
 available provider can help extract search keywords. Its graph scoring and BFS
 remain local, and missing credentials activate the heuristic keyword fallback.
 
+### Graph context encoding
+
+`graphitlive_graph_context` uses separate TOON blocks so an agent can consume
+the response without repeating field names:
+
+```
+graph_context(indexRevision,fresh,mode,tokenEstimate,truncated,nextCursor)
+seeds(id,kind,name,path,startLine,endLine,language,score,isSeed)
+nodes(id,kind,name,path,startLine,endLine,language,score,isSeed)
+edges(source,target,relation,confidence,sourcePath,sourceLine,sourceEndLine,evidence)
+paths(nodeIds,edgeIndexes,hops)
+ambiguous(node,score,reason)
+omitted(nodes,edges)
+nextQueries(query)
+errors(message)
+```
+
+The gateway's `tokenEstimate` is calculated with the real tokenizer used by
+the budgeter. The `# Token Savings` footer is a separate representation-size
+estimate (`ceil(chars / 4)`) and must not be described as provider billing or as
+a universal percentage. The gateway preserves requested seeds and path
+endpoints; when the budget is exceeded it reports omissions and exposes an
+opaque cursor for continuation.
+
 ### Usage in MCP Server
 
 #### Request Format Parameter

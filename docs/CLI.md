@@ -22,6 +22,7 @@ The `graph-it` CLI gives you full access to the dependency analysis engine of Gr
   - [architecture](#architecture)
   - [check](#check)
   - [trace](#trace)
+  - [context](#context)
   - [review-pr](#review-pr)
   - [query](#query)
   - [stats](#stats)
@@ -765,6 +766,49 @@ graph-it trace src/mcp/mcpServer.ts#initializeServer --format json
 
 ---
 
+### context
+
+Retrieve one bounded, evidence-backed graph context from the file dependency
+graph and cross-file call graph.
+
+```
+graph-it context [question] [options]
+```
+
+The command supports `search`, `neighbors`, `path`, `impact`, `refactor`, and
+`overview` modes. A question, at least one seed, or both `--from` and `--to`
+must be supplied. Endpoints alone infer `path` mode.
+
+| Option | Default | Description |
+|--------|---------|-------------|
+| `--mode <mode>` | inferred | `search`, `neighbors`, `path`, `impact`, `refactor`, or `overview` |
+| `--seeds <file#symbol>` | — | Repeatable seed; a symbol-only value is also accepted |
+| `--from <file#symbol>` / `--to <file#symbol>` | — | Path endpoints |
+| `--scope <glob>` | workspace | Workspace-relative `*`, `**`, `?` scope |
+| `--depth <N>` | `2` | Traversal depth, 1–5 |
+| `--max-nodes <N>` | `200` | Nodes per page, 1–500 |
+| `--token-budget <N>` | `4000` | Output budget, 500–16,000 |
+| `--relations <relation>` | all | Repeatable relation filter, maximum 12 unique values |
+| `--directed` | false | Keep path traversal directed |
+| `--cursor <cursor>` | — | Continue a truncated result |
+| `--format <format>` | global format | `json` or `toon` |
+| `--workspace, -w <path>` | auto-detected | Workspace root |
+
+```bash
+graph-it context "what calls the request handler" --scope 'src/**' --format toon
+graph-it context --mode path --from src/api.ts#handle --to src/db.ts#query --depth 4
+graph-it context "how is authentication wired" --token-budget 8000 --format json
+```
+
+Responses contain workspace-relative nodes, typed relations, provenance,
+evidence line spans, paths, ambiguity candidates, omission counts, and a
+continuation cursor when truncated. Source contents are not included; read the
+identified files separately. Invalid or out-of-workspace paths, stale cursors,
+ambiguous endpoints, unsupported language constructs, and unresolved external
+calls are reported as bounded evidence limitations rather than invented edges.
+
+---
+
 ### query
 
 Answer a natural language question about the codebase using the call graph. When an LLM API key is configured the answer is synthesised by the model; otherwise a heuristic fallback is used and a warning is printed to stderr.
@@ -1194,7 +1238,7 @@ Requires an active internet connection and `npm` in `PATH`.
 
 ## MCP Tools Reference (via `graph-it tool`)
 
-The `graph-it tool` command provides direct access to 21 general-purpose analysis tools. The MCP server exposes 26 tools in total — the same 21 plus `review_pr`, `query_natural_language`, `generate_wiki`, and `get_session_stats` (which have first-class CLI commands: `review-pr`, `query`, `wiki`, `stats`), plus `set_workspace` (server-management only, not needed in CLI context — see [Tool Count: CLI vs MCP](#tool-count-cli-vs-mcp)).
+The `graph-it tool` command provides direct access to 22 general-purpose analysis tools. The MCP server exposes 27 tools in total — the same 22 plus `review_pr`, `query_natural_language`, `generate_wiki`, and `get_session_stats` (which have first-class CLI commands: `review-pr`, `query`, `wiki`, `stats`), plus `set_workspace` (server-management only, not needed in CLI context — see [Tool Count: CLI vs MCP](#tool-count-cli-vs-mcp)).
 
 ### Tool Details
 
@@ -1430,6 +1474,27 @@ graph-it tool generate_codemap --filePath=/abs/path/to/Spider.ts --format toon
 
 ---
 
+#### `graph_context`
+
+**What it returns:** A unified, read-only graph context combining files,
+symbols, tests, calls, imports, impact, hubs, communities, paths, provenance,
+and bounded follow-up retrieval.
+
+**Parameters:** `question`, `seeds`, `mode`, `from`, `to`, `relations`, `scope`,
+`depth` (1–5), `maxNodes` (1–500), `tokenBudget` (500–16000), `directed`,
+`cursor`, and `format` (`toon` or `json`). A request needs a question, a
+non-empty seed list, or both endpoints. Endpoint-only requests infer `path`.
+
+```bash
+graph-it tool graph_context --question="what calls the request handler" --scope='src/**' --format=toon
+graph-it tool graph_context --mode=path --from=src/api.ts#handle --to=src/db.ts#query
+```
+
+The default token budget is 4000. The response preserves requested seeds and
+path endpoints, reports `truncated`, `omitted`, `tokenEstimate`, and an opaque
+`nextCursor`. Public paths are workspace-relative and source contents are not
+returned by default.
+
 #### `query_call_graph`
 
 **What it returns:** BFS neighbourhood of callers and callees from a symbol, using the SQLite call graph index built by the Live Call Graph engine.
@@ -1638,12 +1703,12 @@ graph-it tool verify_dependency_usage \
 
 ## Tool Count: CLI vs MCP
 
-The CLI exposes **21 tools** via `graph-it tool --list`, while the MCP server provides **26 tools** in total. This is by design:
+The CLI exposes **22 tools** via `graph-it tool --list`, while the MCP server provides **27 tools** in total. This is by design:
 
 | Context | Tool count | Notes |
 |---------|-----------|-------|
-| `graph-it tool --list` | 21 | General-purpose analysis tools |
-| MCP server (`graph-it serve`) | 26 | Same 21 + 5 excluded (see below) |
+| `graph-it tool --list` | 22 | General-purpose analysis tools |
+| MCP server (`graph-it serve`) | 27 | Same 22 + 5 excluded (see below) |
 
 The 5 tools excluded from `tool --list` fall into two groups:
 
