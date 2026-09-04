@@ -117,6 +117,23 @@ describe('DocumentReferenceIndexer', () => {
     ]);
   });
 
+  it('ignores rationale markers inside fenced examples and source strings', async () => {
+    const root = await fixture(workspaces);
+    await mkdir(path.join(root, 'docs'), { recursive: true });
+    await writeFile(path.join(root, 'docs', 'examples.md'), [
+      '```ts',
+      '// WHY: example only',
+      'const note = "# NOTE: data only";',
+      '```',
+      '# WHY: actual decision',
+    ].join('\n'));
+
+    const result = await new DocumentReferenceIndexer(root).index('**');
+    expect(result.nodes.filter(node => node.kind === 'rationale')).toEqual([
+      expect.objectContaining({ id: 'rationale:docs/examples.md:5', name: 'actual decision' }),
+    ]);
+  });
+
   it('indexes YAML path values and real comments without treating quoted strings as rationale', async () => {
     const root = await fixture(workspaces);
     await mkdir(path.join(root, 'docs'), { recursive: true });

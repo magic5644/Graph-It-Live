@@ -59,9 +59,14 @@ export class DocumentReferenceIndexer {
       const lines = content.split(/\r?\n/);
       const rationaleMarkers: RationaleMarker[] = [];
       const markerLines = new Set<number>();
+      let fence: string | undefined;
       lines.forEach((line, index) => {
         const lineNumber = index + 1;
-        const marker = rationaleIn(line, extension);
+        const fenceMatch = line.match(/^\s*(```|~~~)/);
+        if (fenceMatch && (extension === '.md' || extension === '.mdx')) {
+          fence = fence === fenceMatch[1] ? undefined : fence ?? fenceMatch[1];
+        }
+        const marker = fence ? null : rationaleIn(line, extension);
         if (marker) {
           const rationaleId = `rationale:${relativePath}:${lineNumber}`;
           nodes.set(rationaleId, {
@@ -252,8 +257,12 @@ function rationaleIn(line: string, extension: string): { text: string } | null {
     const marker = comment?.match(/^\s*(WHY|NOTE|HACK)\s*:\s*(.+?)\s*$/i);
     return marker ? { text: marker[2].trim() } : null;
   }
-  const marker = line.match(RATIONALE_MARKER);
+  const marker = stripQuotedStrings(line).match(RATIONALE_MARKER);
   return marker ? { text: marker[2].trim() } : null;
+}
+
+function stripQuotedStrings(line: string): string {
+  return line.replace(/(['"`])(?:\\.|(?!\1)[^\\])*\1/g, '');
 }
 
 function splitYamlLine(line: string): { content: string; comment?: string } {
