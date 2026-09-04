@@ -5,6 +5,25 @@
  */
 
 const COMMAND_HELP: Record<string, string> = {
+  context: `graph-it context — Retrieve unified graph context
+
+Usage: graph-it context "<question>" [options]
+       graph-it context --from <file#symbol|symbol> --to <file#symbol|symbol> [options]
+
+Options:
+  --mode <mode>          search|neighbors|path|impact|refactor|overview
+  --scope <glob>         Restrict results to a workspace-relative scope
+  --depth <n>            Traversal depth (1-5)
+  --max-nodes <n>        Maximum nodes (1-500)
+  --token-budget <n>     Token budget (500-16000)
+  --format <format>      toon|json
+  --workspace, -w        Workspace root directory (default: auto-detected)
+  --help, -h             Show help
+
+Examples:
+  graph-it context "how does authentication reach the database" --mode search --scope 'src/**' --depth 2 --token-budget 2000 --format toon
+  graph-it context --from 'src/api/controller.ts#UserController' --to 'DatabasePool' --mode path --format json
+`,
   scan: `graph-it scan — Index/re-index the workspace
 
 Usage: graph-it scan [options]

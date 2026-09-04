@@ -40,7 +40,8 @@ const EXPECTED_TOOLS = [
   'graph-it-live_resolve_module_path',
   'graph-it-live_analyze_breaking_changes',
   'graph-it-live_query_call_graph',
-  'graph-it-live_scan_dead_code',
+ 'graph-it-live_scan_dead_code',
+ 'graph-it-live_graph_context',
 ];
 
 /** Returns true when vscode.lm.tools is supported by the current host. */
@@ -129,8 +130,8 @@ suite('LM Tools Registration Test Suite', () => {
     const graphItLiveTools = tools.filter((t) => t.name.startsWith('graph-it-live_'));
     assert.strictEqual(
       graphItLiveTools.length,
-      21,
-      `Expected 21 graph-it-live tools, found ${graphItLiveTools.length}: ${graphItLiveTools.map((t) => t.name).join(', ')}`,
+ 22,
+ `Expected 22 graph-it-live tools, found ${graphItLiveTools.length}: ${graphItLiveTools.map((t) => t.name).join(', ')}`,
     );
   });
 });

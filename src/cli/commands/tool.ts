@@ -16,6 +16,7 @@ import {
   executeFindReferencingFiles,
   executeFindUnusedSymbols,
   executeGenerateCodemap,
+  executeGraphContext,
   executeGetImpactAnalysis,
   executeGetIndexStatus,
   executeGetSymbolCallers,
@@ -39,6 +40,7 @@ import type {
   FindReferencingFilesParams,
   FindUnusedSymbolsParams,
   GenerateCodemapParams,
+  GraphContextParams,
   GetImpactAnalysisParams,
   GetSymbolCallersParams,
   GetSymbolDependentsParams,
@@ -60,6 +62,7 @@ import type { CliRuntime } from "../runtime";
 
 /** All tool names that the CLI supports (excludes set_workspace which is MCP-server only) */
 const TOOL_NAMES: McpToolName[] = [
+  "graph_context",
   "analyze_dependencies",
   "crawl_dependency_graph",
   "find_referencing_files",
@@ -85,6 +88,7 @@ const TOOL_NAMES: McpToolName[] = [
 
 /** One-line descriptions for `graph-it tool --list` */
 const TOOL_DESCRIPTIONS: Record<string, string> = {
+  graph_context: "Retrieve unified token-bounded graph context",
   analyze_dependencies: "Show direct imports and exports of a file",
   crawl_dependency_graph: "Full dependency tree from an entry file (BFS)",
   find_referencing_files: "All files that import a given file",
@@ -184,6 +188,7 @@ function validateCliPath(filePath: string, rootDir: string): void {
 }
 
 const cliToolHandlers: Partial<Record<McpToolName, CliToolHandler>> = {
+  graph_context: (params) => executeGraphContext(params as GraphContextParams),
   analyze_dependencies: (params, rootDir) => {
     const p = params as AnalyzeDependenciesParams;
     validateCliPath(p.filePath, rootDir);

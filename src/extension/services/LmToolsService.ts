@@ -11,6 +11,7 @@
 
 import { LspCallHierarchyAnalyzer } from '@/analyzer/LspCallHierarchyAnalyzer';
 import { scanDeadCode } from '@/analyzer/deadcode/DeadCodeScanner';
+import type { GraphContextParams } from '@/mcp/types';
 import type { Dependency } from '@/analyzer/types';
 import { convertSpiderToLspFormat } from '@/shared/converters';
 import {
@@ -46,6 +47,8 @@ interface GetSymbolGraphInput {
 interface FindUnusedSymbolsInput {
   filePath: string;
 }
+
+type GraphContextInput = GraphContextParams;
 
 interface GetSymbolCallersInput {
   filePath: string;
@@ -186,8 +189,9 @@ export class LmToolsService {
       this.registerResolveModulePath(),
       this.registerAnalyzeBreakingChanges(),
       this.registerQueryCallGraph(),
-      this.registerScanDeadCode(),
-    ];
+    this.registerScanDeadCode(),
+    this.registerGraphContext(),
+  ];
   }
 
   // ─── Shared helpers ───────────────────────────────────────────────────────
@@ -1253,6 +1257,39 @@ export class LmToolsService {
                   nonBreakingChanges,
                 }),
               ),
+            ]);
+          } catch (error) {
+            return this.errorResult(error instanceof Error ? error.message : String(error));
+          }
+        },
+      },
+    );
+  }
+
+  private registerGraphContext(): vscode.Disposable {
+    return this.registerTool<GraphContextInput>(
+      'graph-it-live_graph_context',
+      {
+        invoke: async (
+          options: vscode.LanguageModelToolInvocationOptions<GraphContextInput>,
+          _token: vscode.CancellationToken,
+        ): Promise<vscode.LanguageModelToolResult> => {
+          const spider = this.provider.getSpiderForLmTools();
+          const callGraphService = this.provider.getCallGraphViewServiceForLmTools();
+          const indexer = callGraphService?.getCallGraphIndexerForLmTools();
+          const rootDir = this.getWorkspaceRoot();
+          if (!spider || !indexer || !rootDir) {
+            return this.errorResult('No workspace or graph index is available.');
+          }
+          try {
+            const { executeGraphContextWithIndexes } = await import('../../mcp/tools/graphContext.js');
+            const response = await executeGraphContextWithIndexes(options.input, {
+              rootDir,
+              spider,
+              callGraphIndexer: indexer,
+            });
+            return new vscode.LanguageModelToolResult([
+              new vscode.LanguageModelTextPart(JSON.stringify(response)),
             ]);
           } catch (error) {
             return this.errorResult(error instanceof Error ? error.message : String(error));
