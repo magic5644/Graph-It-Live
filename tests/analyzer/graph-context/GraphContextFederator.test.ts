@@ -129,6 +129,22 @@ describe('GraphContextFederator', () => {
     ]);
   });
 
+  it('loads an exact document ID seed without requiring scope', async () => {
+    const federator = new GraphContextFederator(spider, indexer);
+
+    const defaultSnapshot = await federator.buildSnapshot({ question: 'code only' });
+    const seededSnapshot = await federator.buildSnapshot({
+      seeds: [{ id: 'document:docs/ADR.md' }],
+    });
+
+    expect(defaultSnapshot.nodes.some(node => node.kind === 'document')).toBe(false);
+    expect(seededSnapshot.nodes).toContainEqual(expect.objectContaining({
+      id: 'document:docs/ADR.md',
+      kind: 'document',
+      path: 'docs/ADR.md',
+    }));
+  });
+
   it('marks the snapshot stale when a source file changes after indexing', async () => {
     const federator = new GraphContextFederator(spider, indexer);
     const beforeChange = await federator.buildSnapshot({ question: 'check freshness' });
@@ -156,6 +172,7 @@ async function writeFixture(workspaceRoot: string): Promise<void> {
   await fs.mkdir(path.join(workspaceRoot, 'src/controllers'), { recursive: true });
   await fs.mkdir(path.join(workspaceRoot, 'src/types'), { recursive: true });
   await fs.mkdir(path.join(workspaceRoot, 'tests/services'), { recursive: true });
+  await fs.mkdir(path.join(workspaceRoot, 'docs'), { recursive: true });
   await Promise.all([
     fs.writeFile(path.join(workspaceRoot, 'src/types/User.ts'), 'export interface User { id: string; }\n'),
     fs.writeFile(path.join(workspaceRoot, 'src/services/UserService.ts'), [
@@ -183,6 +200,7 @@ async function writeFixture(workspaceRoot: string): Promise<void> {
       '}',
       '',
     ].join('\n')),
+    fs.writeFile(path.join(workspaceRoot, 'docs/ADR.md'), '# Stable gateway\n'),
   ]);
 }
 

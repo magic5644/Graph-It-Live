@@ -256,7 +256,8 @@ function createRevision(
 
 function hasDocumentSeed(request: GraphContextRequest): boolean {
   return [...(request.seeds ?? []), ...(request.from ? [request.from] : []), ...(request.to ? [request.to] : [])]
-    .some(seed => seed.filePath !== undefined && /\.(?:md|mdx|rst|ya?ml)$/i.test(seed.filePath));
+    .some(seed => seed.id?.startsWith('document:')
+      || (seed.filePath !== undefined && /\.(?:md|mdx|rst|ya?ml)$/i.test(seed.filePath)));
 }
 
 function compareNodes(left: GraphContextNode, right: GraphContextNode): number {

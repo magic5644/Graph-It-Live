@@ -10,6 +10,22 @@ const CODE_EXTENSIONS = new Set(['.ts', '.tsx', '.js', '.jsx', '.py', '.rs', '.g
 const RATIONALE_MARKER = /(?:^|\/\/|#|\/\*)\s*(WHY|NOTE|HACK)\s*:\s*(.+?)(?:\*\/\s*)?$/i;
 const MARKDOWN_LINK = /!?\[[^\]]*\]\(([^)\s]+)(?:\s+"[^"]*")?\)/g;
 const RST_LINK = /`[^`]+\s+<([^>]+)>`_/g;
+const JSX_LINK = /<[A-Za-z][^>]*\s(?:href|to)\s*=\s*(["'])([^"']+)\1[^>]*>/g;
+
+interface DocumentHeading {
+  line: number;
+  title: string;
+}
+
+interface DocumentLink {
+  target: string;
+  line: number;
+}
+
+interface RationaleMarker {
+  id: string;
+  line: number;
+}
 
 export interface DocumentReferenceIndex {
   nodes: GraphContextNode[];
@@ -33,6 +49,7 @@ export class DocumentReferenceIndexer {
       const content = await readText(filePath);
       if (content === null) continue;
       const isDocument = DOCUMENT_EXTENSIONS.has(path.extname(relativePath).toLowerCase());
+      const extension = path.extname(relativePath).toLowerCase();
       const documentId = isDocument ? `document:${relativePath}` : undefined;
       if (documentId) nodes.set(documentId, {
         id: documentId, kind: 'document', name: path.posix.basename(relativePath), path: relativePath,
@@ -40,26 +57,23 @@ export class DocumentReferenceIndexer {
       });
 
       const lines = content.split(/\r?\n/);
-      const rationaleIds: string[] = [];
-      const heading = lines.find(line => /^#{1,6}\s+/.test(line))?.replace(/^#{1,6}\s+/, '').trim();
-      if (documentId && heading) {
-        const document = nodes.get(documentId);
-        if (document) nodes.set(documentId, { ...document, name: heading });
-      }
+      const rationaleMarkers: RationaleMarker[] = [];
+      const markerLines = new Set<number>();
       lines.forEach((line, index) => {
         const lineNumber = index + 1;
-        const marker = line.match(RATIONALE_MARKER);
+        const marker = rationaleIn(line, extension);
         if (marker) {
           const rationaleId = `rationale:${relativePath}:${lineNumber}`;
           nodes.set(rationaleId, {
             id: rationaleId,
             kind: 'rationale',
-            name: marker[2].trim(),
+            name: marker.text,
             path: relativePath,
             startLine: lineNumber,
             endLine: lineNumber,
           });
-          rationaleIds.push(rationaleId);
+          rationaleMarkers.push({ id: rationaleId, line: lineNumber });
+          markerLines.add(lineNumber);
           if (documentId) edges.push(toEvidence({
             source: rationaleId,
             target: documentId,
@@ -81,13 +95,23 @@ export class DocumentReferenceIndexer {
         }
       });
 
-      for (const link of linksIn(content)) {
+      const documentHeadings = headingsIn(lines, extension, markerLines);
+      if (documentId && documentHeadings[0]) {
+        const document = nodes.get(documentId);
+        if (document) nodes.set(documentId, { ...document, name: documentHeadings[0].title });
+      }
+      const codeLinks: Array<DocumentLink & { targetPath: string }> = [];
+
+      for (const link of linksIn(lines, extension)) {
         const target = resolveLocalTarget(filePath, link.target, root);
         if (!target) continue;
-        const targetId = DOCUMENT_EXTENSIONS.has(path.extname(target).toLowerCase())
+        const targetIsDocument = DOCUMENT_EXTENSIONS.has(path.extname(target).toLowerCase());
+        const targetIsCode = isCodePath(target);
+        if (!targetIsDocument && !targetIsCode) continue;
+        const targetId = targetIsDocument
           ? `document:${target}`
           : `file:${target}`;
-        if (!documentId && !isCodePath(target)) continue;
+        if (!documentId && !targetIsCode) continue;
         const sourceId = documentId ?? `file:${relativePath}`;
         edges.push(toEvidence({
           source: sourceId,
@@ -96,9 +120,10 @@ export class DocumentReferenceIndexer {
           origin: 'AST',
           workspaceRoot: root,
           sourcePath: filePath,
-          sourceLine: lineNumberAt(content, link.offset),
+          sourceLine: link.line,
         }));
-        if (documentId && isCodePath(target)) {
+        if (documentId && targetIsCode) {
+          codeLinks.push({ ...link, targetPath: target });
           edges.push(toEvidence({
             source: documentId,
             target: targetId,
@@ -106,18 +131,21 @@ export class DocumentReferenceIndexer {
             origin: 'AST',
             workspaceRoot: root,
             sourcePath: filePath,
-            sourceLine: lineNumberAt(content, link.offset),
+            sourceLine: link.line,
           }));
         }
-        for (const rationaleId of rationaleIds) {
-          if (isCodePath(target)) edges.push(toEvidence({
-            source: rationaleId,
-            target: `file:${target}`,
+      }
+
+      for (const marker of rationaleMarkers) {
+        for (const link of nearestSectionLinks(marker.line, codeLinks, documentHeadings)) {
+          edges.push(toEvidence({
+            source: marker.id,
+            target: `file:${link.targetPath}`,
             relation: 'EXPLAINS',
             origin: 'AST',
             workspaceRoot: root,
             sourcePath: filePath,
-            sourceLine: lineNumberAt(content, link.offset),
+            sourceLine: link.line,
           }));
         }
       }
@@ -155,9 +183,129 @@ async function readText(filePath: string): Promise<string | null> {
   } catch { return null; }
 }
 
-function linksIn(content: string): Array<{ target: string; offset: number }> {
-  return [...content.matchAll(MARKDOWN_LINK), ...content.matchAll(RST_LINK)]
-    .map(match => ({ target: match[1], offset: match.index ?? 0 }));
+function linksIn(lines: string[], extension: string): DocumentLink[] {
+  if (extension === '.yaml' || extension === '.yml') return yamlLinksIn(lines);
+
+  const links: DocumentLink[] = [];
+  let fence: string | undefined;
+  lines.forEach((line, index) => {
+    const fenceMatch = line.match(/^\s*(```|~~~)/);
+    if (fenceMatch) {
+      fence = fence === fenceMatch[1] ? undefined : fence ?? fenceMatch[1];
+      return;
+    }
+    if (fence) return;
+
+    const patterns = extension === '.rst'
+      ? [{ regex: RST_LINK, targetIndex: 1 }]
+      : [
+          { regex: MARKDOWN_LINK, targetIndex: 1 },
+          ...(extension === '.mdx' ? [{ regex: JSX_LINK, targetIndex: 2 }] : []),
+        ];
+    for (const { regex, targetIndex } of patterns) {
+      for (const match of line.matchAll(regex)) {
+        const target = match[targetIndex];
+        if (target) links.push({ target, line: index + 1 });
+      }
+    }
+  });
+  return links;
+}
+
+function yamlLinksIn(lines: string[]): DocumentLink[] {
+  return lines.flatMap((line, index): DocumentLink[] => {
+    const { content } = splitYamlLine(line);
+    const separator = content.indexOf(':');
+    const rawValue = separator >= 0
+      ? content.slice(separator + 1).trim()
+      : content.trim().replace(/^-\s*/, '');
+    const target = unquoteYamlScalar(rawValue);
+    return target && isSupportedTarget(target) ? [{ target, line: index + 1 }] : [];
+  });
+}
+
+function headingsIn(
+  lines: string[],
+  extension: string,
+  markerLines: ReadonlySet<number>,
+): DocumentHeading[] {
+  if (extension === '.rst') {
+    return lines.flatMap((line, index): DocumentHeading[] => (
+      index > 0
+      && /^\s*([=\-~^"'#:<>_+*])\1{2,}\s*$/.test(line)
+      && lines[index - 1].trim()
+        ? [{ line: index, title: lines[index - 1].trim() }]
+        : []
+    ));
+  }
+  if (extension !== '.md' && extension !== '.mdx') return [];
+  return lines.flatMap((line, index): DocumentHeading[] => {
+    if (markerLines.has(index + 1)) return [];
+    const match = line.match(/^\s{0,3}#{1,6}\s+(.+?)\s*#*\s*$/);
+    return match ? [{ line: index + 1, title: match[1].trim() }] : [];
+  });
+}
+
+function rationaleIn(line: string, extension: string): { text: string } | null {
+  if (extension === '.yaml' || extension === '.yml') {
+    const { comment } = splitYamlLine(line);
+    const marker = comment?.match(/^\s*(WHY|NOTE|HACK)\s*:\s*(.+?)\s*$/i);
+    return marker ? { text: marker[2].trim() } : null;
+  }
+  const marker = line.match(RATIONALE_MARKER);
+  return marker ? { text: marker[2].trim() } : null;
+}
+
+function splitYamlLine(line: string): { content: string; comment?: string } {
+  let quote: '"' | "'" | undefined;
+  let escaped = false;
+  for (let index = 0; index < line.length; index += 1) {
+    const character = line[index];
+    if (quote === '"' && character === '\\' && !escaped) {
+      escaped = true;
+      continue;
+    }
+    if ((character === '"' || character === "'") && !escaped) {
+      quote = quote === character ? undefined : quote ?? character;
+    } else if (character === '#' && quote === undefined) {
+      return { content: line.slice(0, index), comment: line.slice(index + 1) };
+    }
+    escaped = false;
+  }
+  return { content: line };
+}
+
+function unquoteYamlScalar(value: string): string | null {
+  if (!value) return null;
+  const quote = value[0];
+  if (quote !== '"' && quote !== "'") return value;
+  return value.endsWith(quote) ? value.slice(1, -1) : null;
+}
+
+function isSupportedTarget(target: string): boolean {
+  const withoutFragment = target.split('#', 1)[0].trim();
+  const extension = path.extname(withoutFragment).toLowerCase();
+  return DOCUMENT_EXTENSIONS.has(extension) || CODE_EXTENSIONS.has(extension);
+}
+
+function nearestSectionLinks<T extends DocumentLink>(
+  markerLine: number,
+  links: T[],
+  headings: DocumentHeading[],
+): T[] {
+  const section = sectionAt(markerLine, headings);
+  const candidates = links.filter(link => sectionAt(link.line, headings) === section);
+  const nearestDistance = Math.min(...candidates.map(link => Math.abs(link.line - markerLine)));
+  return candidates.filter(link => Math.abs(link.line - markerLine) === nearestDistance);
+}
+
+function sectionAt(line: number, headings: DocumentHeading[]): number {
+  let section = 0;
+  for (const heading of headings) {
+    if (heading.line > line) break;
+    section = heading.line;
+  }
+  return section;
 }
 
 function resolveLocalTarget(sourcePath: string, rawTarget: string, root: string): string | null {
@@ -174,11 +322,7 @@ function relativePathOf(filePath: string, root: string): string | null {
 }
 
 function isCodePath(filePath: string): boolean {
-  return !DOCUMENT_EXTENSIONS.has(path.extname(filePath).toLowerCase());
-}
-
-function lineNumberAt(content: string, offset: number): number {
-  return content.slice(0, offset).split(/\r?\n/).length;
+  return CODE_EXTENSIONS.has(path.extname(filePath).toLowerCase());
 }
 
 function dedupeEdges(edges: GraphContextEdge[]): GraphContextEdge[] {
