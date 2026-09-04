@@ -14,6 +14,7 @@ import type {
   GraphContextSnapshot,
 } from '@/shared/graph-context-types';
 import { compileFileScope } from './FileScopeMatcher';
+import { GraphContextCommunities } from './GraphContextCommunities';
 import { toEvidence } from './GraphContextEvidence';
 import { findShortestPath } from './GraphContextPathFinder';
 import { resolveSeeds } from './GraphContextResolver';
@@ -22,6 +23,8 @@ import { GraphContextScorer } from './GraphContextScorer';
 const DEFAULT_DEPTH = 2;
 const DEFAULT_MAX_NODES = 200;
 const MAX_SEARCH_SEEDS = 20;
+const MAX_OVERVIEW_HUBS = 10;
+const MAX_OVERVIEW_COMMUNITIES = 10;
 
 export interface GraphContextSnapshotProvider {
   buildSnapshot(request: GraphContextRequest): Promise<GraphContextSnapshot>;
@@ -59,6 +62,7 @@ interface RetrievalSelection {
   eligibleNodeCount: number;
   eligibleEdgeCount: number;
   suggestionSnapshot?: GraphContextSnapshot;
+  nextQueries?: string[];
 }
 
 /** Retrieves a ranked graph response before token-budget selection is applied. */
@@ -98,6 +102,11 @@ export class GraphContextRetriever {
       ...selection,
       ambiguous: dedupeCandidates([...selection.ambiguous, ...ambiguityCandidates]),
     };
+    const generatedNextQueries = buildNextQueries(
+      selection.suggestionSnapshot ?? snapshot,
+      selectionWithAmbiguity,
+      request,
+    );
     const response: GraphContextResponse = {
       indexRevision: snapshot.revision,
       fresh: snapshot.fresh,
@@ -108,11 +117,10 @@ export class GraphContextRetriever {
       paths: selection.paths,
       ambiguous: selectionWithAmbiguity.ambiguous,
       omitted,
-      nextQueries: buildNextQueries(
-        selection.suggestionSnapshot ?? snapshot,
-        selectionWithAmbiguity,
-        request,
-      ),
+      nextQueries: [...new Set([
+        ...generatedNextQueries.slice(0, selection.nextQueries?.length ? 4 : 5),
+        ...(selection.nextQueries ?? []),
+      ])].slice(0, 5),
       tokenEstimate: 0,
       truncated: omitted.nodes > 0 || omitted.edges > 0,
     };
@@ -269,24 +277,50 @@ export class GraphContextRetriever {
     request: GraphContextRequest,
     snapshot: GraphContextSnapshot,
   ): RetrievalSelection {
-    const degrees = countDegrees(snapshot.edges);
-    const rankedNodes = [...snapshot.nodes].sort((left, right) => (
-      (degrees.get(right.id) ?? 0) - (degrees.get(left.id) ?? 0)
-      || left.id.localeCompare(right.id)
-    ));
-    const maxNodes = this.options.collectAllCandidates
-      ? snapshot.nodes.length
-      : request.maxNodes ?? Math.min(DEFAULT_MAX_NODES, 20);
-    const nodes = rankedNodes.slice(0, maxNodes).map(node => ({
-      ...node,
-      score: degrees.get(node.id) ?? 0,
-    }));
-    const selectedIds = new Set(nodes.map(node => node.id));
+    const topology = new GraphContextCommunities(snapshot);
+    const graphStats = topology.graphStats;
+    const hubLimit = Math.min(
+      MAX_OVERVIEW_HUBS,
+      this.options.collectAllCandidates
+        ? MAX_OVERVIEW_HUBS
+        : request.maxNodes ?? Math.min(DEFAULT_MAX_NODES, 20),
+    );
+    const hubs = topology.topHubs(hubLimit);
+    const communityNodes = Array.from(
+      { length: Math.min(graphStats.communityCount, MAX_OVERVIEW_COMMUNITIES) },
+      (_unused, index): GraphContextNode => {
+        const communityId = index + 1;
+        const memberCount = topology.getCommunity(communityId)?.nodes.length ?? 0;
+        return {
+          id: `community:${communityId}`,
+          kind: 'community',
+          name: `Community ${communityId} (${memberCount} nodes)`,
+          score: memberCount,
+        };
+      },
+    );
+    const hubNodes = hubs.map(hub => ({ ...hub.node, score: hub.totalDegree }));
+    const nodes = [...hubNodes, ...communityNodes];
+    const hubIds = new Set(hubNodes.map(node => node.id));
+    const communityIds = new Set(communityNodes.map(node => node.id));
     const edges = snapshot.edges.filter(edge => (
       relationAllowed(edge.relation, request.relations)
-      && selectedIds.has(edge.source)
-      && selectedIds.has(edge.target)
+      && hubIds.has(edge.source)
+      && hubIds.has(edge.target)
     ));
+    if (relationAllowed('BELONGS_TO', request.relations)) {
+      for (const hub of hubs) {
+        const communityId = `community:${hub.communityId}`;
+        if (hub.communityId === 0 || !communityIds.has(communityId)) continue;
+        edges.push({
+          source: hub.node.id,
+          target: communityId,
+          relation: 'BELONGS_TO',
+          confidence: 'INFERRED',
+          evidence: { reason: 'Deterministic federated graph community assignment' },
+        });
+      }
+    }
     const seeds = nodes.length === 0 ? [] : [{ ...nodes[0], isSeed: true }];
     if (nodes[0]) nodes[0] = { ...nodes[0], isSeed: true };
 
@@ -296,8 +330,14 @@ export class GraphContextRetriever {
       edges,
       paths: [],
       ambiguous: [],
-      eligibleNodeCount: snapshot.nodes.length,
-      eligibleEdgeCount: snapshot.edges.filter(edge => relationAllowed(edge.relation, request.relations)).length,
+      eligibleNodeCount: graphStats.nodeCount + graphStats.communityCount,
+      eligibleEdgeCount: (request.relations === undefined
+        ? graphStats.edgeCount
+        : request.relations.reduce((total, relation) => total + (graphStats.relationCounts[relation] ?? 0), 0))
+        + (relationAllowed('BELONGS_TO', request.relations)
+          ? graphStats.nodeCount - (topology.getCommunity(0)?.nodes.length ?? 0)
+          : 0),
+      nextQueries: communityNodes.map(node => `Inspect ${node.name.toLowerCase()}`),
     };
   }
 }
@@ -688,15 +728,6 @@ function highestDegreeNode(
 
 function concreteLabel(node: GraphContextNode): string {
   return node.path ? `${node.name} in ${node.path}` : node.name;
-}
-
-function countDegrees(edges: GraphContextEdge[]): Map<string, number> {
-  const degrees = new Map<string, number>();
-  for (const graphEdge of edges) {
-    degrees.set(graphEdge.source, (degrees.get(graphEdge.source) ?? 0) + 1);
-    degrees.set(graphEdge.target, (degrees.get(graphEdge.target) ?? 0) + 1);
-  }
-  return degrees;
 }
 
 function degree(edges: GraphContextEdge[], nodeId: string): number {
