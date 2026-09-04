@@ -107,6 +107,16 @@ describe('graph_context MCP contract', () => {
     });
   });
 
+  it('rejects a pre-aborted shared request', async () => {
+    const controller = new AbortController();
+    controller.abort();
+
+    await expect(executeGraphContext(
+      { question: 'UserService' },
+      controller.signal,
+    )).rejects.toMatchObject({ name: 'AbortError' });
+  });
+
   it('rejects path mode without both endpoints and endpoints in non-path modes', () => {
     expect(GraphContextParamsSchema.safeParse({
       question: 'Find a path',

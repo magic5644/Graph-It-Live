@@ -12,10 +12,14 @@ Usage: graph-it context "<question>" [options]
 
 Options:
   --mode <mode>          search|neighbors|path|impact|refactor|overview
+  --seeds <endpoint>     Seed as file#symbol or symbol (repeatable)
+  --relations <relation> Relation filter such as CALLS or IMPORTS (repeatable)
   --scope <glob>         Restrict results to a workspace-relative scope
   --depth <n>            Traversal depth (1-5)
   --max-nodes <n>        Maximum nodes (1-500)
   --token-budget <n>     Token budget (500-16000)
+  --directed             Use directed traversal
+  --cursor <cursor>      Continue a previous response
   --format <format>      toon|json
   --workspace, -w        Workspace root directory (default: auto-detected)
   --help, -h             Show help
@@ -23,6 +27,7 @@ Options:
 Examples:
   graph-it context "how does authentication reach the database" --mode search --scope 'src/**' --depth 2 --token-budget 2000 --format toon
   graph-it context --from 'src/api/controller.ts#UserController' --to 'DatabasePool' --mode path --format json
+  graph-it context --seeds 'src/api/controller.ts#UserController' --seeds 'DatabasePool' --relations CALLS --directed
 `,
   scan: `graph-it scan — Index/re-index the workspace
 

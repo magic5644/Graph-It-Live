@@ -28,16 +28,18 @@ const MAX_CURSOR_STABILIZATION_ATTEMPTS = 16;
 /** Executes the unified graph-context service against the worker's existing indexes. */
 export async function executeGraphContext(
   params: GraphContextParams,
+  signal?: AbortSignal,
 ): Promise<GraphContextResponse> {
+  signal?.throwIfAborted();
   const config = workerState.getConfig();
   validateRequestPaths(params, config.rootDir);
 
-  const callGraphIndexer = await getCallGraphIndexer();
+  const callGraphIndexer = await getCallGraphIndexer(signal);
   return executeGraphContextWithIndexes(params, {
     rootDir: config.rootDir,
     spider: workerState.getSpider(),
     callGraphIndexer,
-  });
+  }, signal);
 }
 
 export interface GraphContextIndexes {
@@ -50,7 +52,9 @@ export interface GraphContextIndexes {
 export async function executeGraphContextWithIndexes(
   params: GraphContextParams,
   indexes: GraphContextIndexes,
+  signal?: AbortSignal,
 ): Promise<GraphContextResponse> {
+  signal?.throwIfAborted();
   validateRequestPaths(params, indexes.rootDir);
 
   const request = normalizeRequest(params, indexes.rootDir);
@@ -66,6 +70,7 @@ export async function executeGraphContextWithIndexes(
     collectAllCandidates: true,
   });
   const unbudgetedResponse = await retriever.retrieve(request);
+  signal?.throwIfAborted();
   const binding = createCursorBinding(request, indexes.rootDir, unbudgetedResponse.indexRevision);
   const offset = incomingCursor === undefined
     ? 0
@@ -80,7 +85,7 @@ export async function executeGraphContextWithIndexes(
   );
 }
 
-async function getCallGraphIndexer(): Promise<CallGraphIndexer> {
+async function getCallGraphIndexer(signal?: AbortSignal): Promise<CallGraphIndexer> {
   const config = workerState.getConfig();
   const workspaceRoot = normalizePath(config.rootDir);
   if (
@@ -91,6 +96,7 @@ async function getCallGraphIndexer(): Promise<CallGraphIndexer> {
   }
 
   await ensureCallGraphReady();
+  signal?.throwIfAborted();
 
   const indexer = workerState.callGraphIndexer;
   if (!indexer || normalizePath(workerState.callGraphIndexedRoot ?? '') !== workspaceRoot) {

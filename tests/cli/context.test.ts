@@ -49,6 +49,35 @@ describe('context command', () => {
     });
   });
 
+  it('forwards repeatable seeds, relations, directed traversal, cursor, and accepts workspace', async () => {
+    executeGraphContext.mockResolvedValueOnce({ mode: 'neighbors', nodes: [], edges: [] });
+
+    await run(
+      [
+        '--seeds', 'src/api/controller.ts#UserController',
+        '--seeds', 'DatabasePool',
+        '--relations', 'CALLS',
+        '--relations', 'IMPORTS',
+        '--directed',
+        '--cursor', 'next-page',
+        '--workspace', '/workspace',
+      ],
+      runtime,
+      'text',
+    );
+
+    expect(executeGraphContext).toHaveBeenCalledWith({
+      seeds: [
+        { filePath: 'src/api/controller.ts', symbolName: 'UserController' },
+        { symbolName: 'DatabasePool' },
+      ],
+      relations: ['CALLS', 'IMPORTS'],
+      directed: true,
+      cursor: 'next-page',
+      format: 'toon',
+    });
+  });
+
   it.each([
     ['missing question and endpoints', []],
     ['only one endpoint', ['--from', 'src/a.ts#A']],

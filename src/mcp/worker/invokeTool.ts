@@ -87,7 +87,8 @@ function validateGenerateWikiParams(
 }
 
 const toolHandlers: Partial<Record<McpToolName, ToolHandler>> = {
-  graph_context: (params) => executeGraphContext(params as GraphContextParams),
+  graph_context: (params, _config, _postMessage, signal) =>
+    executeGraphContext(params as GraphContextParams, signal),
   analyze_dependencies: async (params, config) => {
     const p = params as AnalyzeDependenciesParams;
     validateRootPath(p.filePath, config);
