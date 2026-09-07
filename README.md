@@ -526,14 +526,14 @@ value. Truncated responses include omitted counts and an opaque cursor. Results
 carry provenance and evidence line spans, but do not include source contents;
 read the identified files separately.
 
-One local corpus run on 2026-09-04 measured 8,780 `cl100k_base` tokens for the
-six JSON responses and 1,072 for their TOON encodings, a representation-size
-reduction of 87.8%. Mean precision@10 was 0.363 and mean recall@10 was 0.917;
-the one path case passed, and all six requests respected their node and token
-bounds. These are corpus results, not general guarantees. MCP initialization,
-MCP tool-call, continuation, and provider billing-token metrics were
-unobserved, and all six Graphify 0.8.36 workflows were `not-supported` under
-the same strict bounds, so the run establishes no Graphify quality parity.
+One local corpus run measured 8,780 `cl100k_base` tokens for the six JSON
+responses and 1,072 for their TOON encodings, a representation-size reduction
+of 87.8%. Mean precision@10 was 0.363 and mean recall@10 was 0.917. These are
+corpus results, not general guarantees. MCP initialization, MCP tool-call,
+continuation, and provider billing-token metrics were unobserved. The
+Graphify adapter now executes native commands for semantically comparable
+workflows; the generated `report.md` separates measured quality from native
+bound enforcement and marks documentation as a genuine unsupported capability.
 
 The release claim is therefore narrow: Graph-It-Live provides a unified,
 evidence-backed, token-bounded graph context for local code navigation and
