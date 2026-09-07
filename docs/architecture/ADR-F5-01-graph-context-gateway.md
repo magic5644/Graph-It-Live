@@ -51,8 +51,11 @@ participate when their paths match the public request scope or a document seed
 selects them.
 
 The gateway accepts depth 1–5, 1–500 nodes per page, and a token budget of
-500–16,000 (default 4,000). The budgeter counts the serialized response with
-`gpt-tokenizer`'s `cl100k_base` encoding. It preserves requested seeds and path
+500–16,000 (default 4,000). `maxNodes` is a requested page bound, not a hard
+response-size ceiling: the budgeter preserves mandatory requested seeds and
+path endpoints even when they make the page exceed that value. It counts the
+serialized response with `gpt-tokenizer`'s `cl100k_base` encoding. It preserves
+requested seeds and path
 endpoints, then selects additional nodes by deterministic relevance. If the
 mandatory nodes alone exceed the budget, the request fails instead of dropping
 them. Truncation reports omitted nodes and edges and returns an opaque cursor

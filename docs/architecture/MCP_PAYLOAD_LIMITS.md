@@ -37,7 +37,7 @@ The `graphitlive_graph_context` request has additional bounded fields:
 | `relations` | 12 unique entries | all |
 | `scope` | 256 characters | workspace (`**`) |
 | `depth` | integer 1–5 | 2 |
-| `maxNodes` | integer 1–500 | 200 |
+| `maxNodes` | integer 1–500, requested page bound | 200 |
 | `tokenBudget` | integer 500–16,000 | 4,000 |
 | `cursor` | 4,096 URL-safe base64 characters | — |
 | `format` | `toon` or `json` | `toon` on MCP, global CLI format for `graph-it context` |
@@ -53,9 +53,11 @@ constructs and unsupported languages remain absent from the local graph rather
 than being synthesized. Graph context currently covers TypeScript, JavaScript,
 Python, Rust, C#, Go, Java, Vue, Svelte, and GraphQL through the project's
 language analyzers.
-If mandatory seeds or path endpoints alone exceed the token budget, the request
-fails rather than dropping them. Responses return graph evidence and line spans,
-not source contents.
+`maxNodes` is a requested page bound. Mandatory seeds and path endpoints are
+preserved even when they make the response exceed that value. If those
+mandatory nodes alone exceed the token budget, the request fails rather than
+dropping them. Responses return graph evidence and line spans, not source
+contents.
 
 `from` and `to` must appear together and are valid only in `path` mode. A
 request must contain a non-empty question, at least one seed, or both endpoints.
