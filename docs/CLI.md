@@ -799,7 +799,7 @@ Relation filters accept `CONTAINS`, `IMPORTS`, `CALLS`, `INHERITS`,
 | `--from <file#symbol>` / `--to <file#symbol>` | — | Path endpoints |
 | `--scope <glob>` | workspace | Workspace-relative `*`, `**`, `?` scope |
 | `--depth <N>` | `2` | Traversal depth, 1–5 |
-| `--max-nodes <N>` | `200` | Nodes per page, 1–500 |
+| `--max-nodes <N>` | `200` | Requested nodes per page, 1–500; mandatory seeds and path endpoints are preserved, so the actual count can exceed this value |
 | `--token-budget <N>` | `4000` | Output budget, 500–16,000 |
 | `--relations <relation>` | all | Repeatable relation filter, maximum 12 unique values |
 | `--directed` | false | Keep path traversal directed |
@@ -1538,7 +1538,8 @@ symbols, tests, calls, imports, impact, hubs, communities, paths, provenance,
 and bounded follow-up retrieval.
 
 **Parameters:** `question`, `seeds`, `mode`, `from`, `to`, `relations`, `scope`,
-`depth` (1–5), `maxNodes` (1–500), `tokenBudget` (500–16000), `directed`,
+`depth` (1–5), `maxNodes` (1–500 requested nodes per page; mandatory seeds and
+path endpoints can make the actual count larger), `tokenBudget` (500–16000), `directed`,
 `cursor`, and `format` (`toon` or `json`). A request needs a question, a
 non-empty seed list, or both endpoints. Endpoint-only requests infer `path`.
 
@@ -1548,8 +1549,10 @@ graph-it tool graph_context --args '{"mode":"path","from":{"filePath":"src/api.t
 graph-it tool graph_context --args '{"mode":"impact","seeds":[{"filePath":"src/api.ts","symbolName":"handle"}],"relations":["CALLS"],"scope":"src/**","depth":3,"tokenBudget":4000,"format":"json"}' --format json
 ```
 
-The default token budget is 4000. The response preserves requested seeds and
-path endpoints, reports `truncated`, `omitted`, `tokenEstimate`, and an opaque
+The default token budget is 4000. `maxNodes` is a requested page bound, not a
+hard absolute cap: requested seeds and path endpoints are always preserved, so
+the actual node count can exceed the requested value. The response reports
+`truncated`, `omitted`, `tokenEstimate`, and an opaque
 `nextCursor`. Public paths are workspace-relative and source contents are not
 returned by default. MCP clients use `graphitlive_graph_context`; `graph_context`
 is the internal worker name exposed by the CLI analysis-tool bridge.
