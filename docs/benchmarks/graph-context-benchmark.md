@@ -53,6 +53,13 @@ local corpus.
 The generated `report.md` is a compact publication table; `report.json` and
 the per-workflow raw outputs remain the audit source.
 
+The report also contains a `Warm session` measurement for Graph-It-Live. It
+starts one persistent MCP server, configures the workspace once, and sends all
+six graph-context requests through that same worker. This is the fair query
+latency comparison against Graphify's already-built `graph.json`. The per-row
+`CLI warm GIL` column remains the one-shot CLI measurement and includes runtime
+startup; it must not be compared with the persistent-session mean.
+
 Run it with:
 
 ```bash

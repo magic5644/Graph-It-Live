@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 /** Deterministic, local-only corpus for comparing bounded graph context retrieval. */
 
-import { execFileSync } from 'node:child_process';
+import { execFileSync, spawn } from 'node:child_process';
 import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
@@ -304,7 +304,9 @@ export function renderPublishedReport(report) {
     '# Graph context benchmark report',
     '',
     `Benchmark schema: ${report.schemaVersion}`, '',
-    '| Workflow | Comparison | Graph-It-Live | Graphify | Precision / recall GIL | Precision / recall Graphify | Response tokens GIL | Native tokens Graphify | Warm latency GIL (ms) | Graphify latency (ms) | Limitations |',
+    `Warm session: ${report.graphItLiveWarmSession?.status ?? '—'}${report.graphItLiveWarmSession?.status === 'measured' ? `; ${report.graphItLiveWarmSession.queryCount} queries reused one index; mean query ${publishedMetric(report.graphItLiveWarmSession.meanQueryLatencyMs)} ms` : ''}`,
+    '',
+    '| Workflow | Comparison | Graph-It-Live | Graphify | Precision / recall GIL | Precision / recall Graphify | Response tokens GIL | Native tokens Graphify | CLI warm GIL (ms) | Graphify query (ms) | Limitations |',
     '|---|---|---|---|---:|---:|---:|---:|---:|---:|---|',
     ...rows,
     '',
@@ -313,7 +315,93 @@ export function renderPublishedReport(report) {
   ].join('\n');
 }
 
-export function runBenchmark({ cliPath, graphifyCli = process.env.GRAPHIFY_CLI, outputRoot, execFile = execFileSync } = {}) {
+export function summarizeWarmSession({ indexingMs, queries }) {
+  const totalQueryLatencyMs = queries.reduce((total, query) => total + query.elapsedMs, 0);
+  return {
+    indexReused: true,
+    queryCount: queries.length,
+    indexingLatencyMs: indexingMs,
+    totalQueryLatencyMs,
+    meanQueryLatencyMs: queries.length === 0 ? 0 : totalQueryLatencyMs / queries.length,
+    totalSessionLatencyMs: indexingMs + totalQueryLatencyMs,
+  };
+}
+
+function graphContextMcpParams(workflow) {
+  const { expected: _expected, ...request } = benchmarkRequest(workflow);
+  const parseSeed = raw => {
+    const separator = raw.indexOf('#');
+    return separator < 0
+      ? { symbolName: raw }
+      : { filePath: raw.slice(0, separator), symbolName: raw.slice(separator + 1) };
+  };
+  return {
+    ...request,
+    from: workflow.from ? parseSeed(workflow.from) : undefined,
+    to: workflow.to ? parseSeed(workflow.to) : undefined,
+    seeds: workflow.seeds?.map(parseSeed),
+    response_format: 'json',
+  };
+}
+
+function sendMcpRequest(child, id, method, params) {
+  return new Promise((resolve, reject) => {
+    let buffer = '';
+    const onData = chunk => {
+      buffer += chunk.toString();
+      const lines = buffer.split('\n');
+      buffer = lines.pop() ?? '';
+      for (const line of lines) {
+        if (!line.trim()) continue;
+        let message;
+        try { message = JSON.parse(line); } catch { continue; }
+        if (message.id !== id) continue;
+        child.stdout.off('data', onData);
+        resolve(message);
+      }
+    };
+    child.stdout.on('data', onData);
+    child.once('error', reject);
+    child.stdin.write(`${JSON.stringify({ jsonrpc: '2.0', id, method, params })}\n`);
+  });
+}
+
+async function runWarmGraphItLiveSession({ cliPath, workspaceRoot, workflows, env, spawnProcess = spawn }) {
+  const serverPath = join(dirname(cliPath), 'mcpServer.mjs');
+  if (!existsSync(serverPath)) return { status: 'not-supported', reason: 'mcp-server-bundle-missing' };
+  const child = spawnProcess(process.execPath, [serverPath], { cwd: workspaceRoot, env, stdio: ['pipe', 'pipe', 'pipe'] });
+  try {
+    await sendMcpRequest(child, 1, 'initialize', {
+      protocolVersion: '2024-11-05',
+      capabilities: {},
+      clientInfo: { name: 'graph-context-benchmark', version: '1' },
+    });
+    child.stdin.write(`${JSON.stringify({ jsonrpc: '2.0', method: 'notifications/initialized', params: {} })}\n`);
+    const indexingStarted = performance.now();
+    const workspaceResponse = await sendMcpRequest(child, 2, 'tools/call', {
+      name: 'graphitlive_set_workspace',
+      arguments: { workspacePath: workspaceRoot, response_format: 'json' },
+    });
+    if (workspaceResponse.error) return { status: 'error', error: workspaceResponse.error.message };
+    const indexingMs = Math.round(performance.now() - indexingStarted);
+    const queries = [];
+    for (const [index, workflow] of workflows.entries()) {
+      const started = performance.now();
+      const response = await sendMcpRequest(child, index + 3, 'tools/call', {
+        name: 'graphitlive_graph_context',
+        arguments: graphContextMcpParams(workflow),
+      });
+      queries.push({ id: workflow.id, elapsedMs: Math.round(performance.now() - started), ok: !response.error });
+    }
+    return { status: 'measured', ...summarizeWarmSession({ indexingMs, queries }), queries };
+  } catch (error) {
+    return { status: 'error', error: error instanceof Error ? error.message : String(error) };
+  } finally {
+    child.kill();
+  }
+}
+
+export async function runBenchmark({ cliPath, graphifyCli = process.env.GRAPHIFY_CLI, outputRoot, execFile = execFileSync } = {}) {
   const repoRoot = resolve(fileURLToPath(new URL('..', import.meta.url)));
   const resolvedCliPath = cliPath ?? join(repoRoot, 'dist', 'graph-it.js');
   if (!existsSync(resolvedCliPath)) throw new Error('Missing dist/graph-it.js. Run npm run build:cli before this corpus.');
@@ -326,6 +414,7 @@ export function runBenchmark({ cliPath, graphifyCli = process.env.GRAPHIFY_CLI, 
   rmSync(runDir, { recursive: true, force: true });
   mkdirSync(runDir, { recursive: true });
   try {
+    const warmSession = await runWarmGraphItLiveSession({ cliPath: resolvedCliPath, workspaceRoot, workflows: REFERENCE_WORKFLOWS, env });
     const workflows = REFERENCE_WORKFLOWS.map(workflow => {
       writeFileSync(join(workspaceRoot, corpus.changedFile), corpus.files[corpus.changedFile], 'utf8');
       const cold = runCli(execFile, resolvedCliPath, workflow, workspaceRoot, 'json', env);
@@ -358,6 +447,7 @@ export function runBenchmark({ cliPath, graphifyCli = process.env.GRAPHIFY_CLI, 
       schemaVersion: BENCHMARK_VERSION,
       corpus: { files: Object.keys(corpus.files), expectedNodeIds: corpus.expectedNodeIds, changedFile: corpus.changedFile },
       workflows,
+      graphItLiveWarmSession: warmSession,
       providerUsage: notSupportedGraphifyResult('per-run-cli-billing-metrics'),
       notes: [
         'Representation tokens use the shared cl100k_base tokenizer on serialized request/response payloads.',
@@ -375,7 +465,7 @@ export function runBenchmark({ cliPath, graphifyCli = process.env.GRAPHIFY_CLI, 
 }
 
 if (process.argv[1] && pathToFileURL(resolve(process.argv[1])).href === import.meta.url) {
-  const report = runBenchmark({ outputRoot: process.argv[3] });
+  const report = await runBenchmark({ outputRoot: process.argv[3] });
   console.log(`Context-economy corpus written to ${resolve(process.argv[3] ?? join(resolve(fileURLToPath(new URL('..', import.meta.url))), '.reports', 'context-economy'), 'latest')}`);
   console.log(`Measured ${report.workflows.length} workflows; unobserved provider and MCP metrics remain null/not-supported.`);
 }

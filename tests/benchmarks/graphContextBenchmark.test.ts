@@ -10,6 +10,7 @@ import {
   graphifyPlan,
   normalizeGraphifyResult,
   renderPublishedReport,
+  summarizeWarmSession,
   notSupportedGraphifyResult,
   normalizeOutput,
   runBenchmark,
@@ -140,6 +141,20 @@ describe('graph context benchmark contract', () => {
     });
   });
 
+  it('summarizes a single indexed warm session separately from cold calls', () => {
+    expect(summarizeWarmSession({
+      indexingMs: 120,
+      queries: [{ elapsedMs: 10 }, { elapsedMs: 20 }],
+    })).toEqual({
+      indexReused: true,
+      queryCount: 2,
+      indexingLatencyMs: 120,
+      totalQueryLatencyMs: 30,
+      meanQueryLatencyMs: 15,
+      totalSessionLatencyMs: 150,
+    });
+  });
+
   it('detects breached node and token bounds', () => {
     const metrics = measureComparableMetrics({
       response: { nodes: Array.from({ length: 11 }, (_, index) => ({ id: String(index) })), tokenEstimate: 2001 },
@@ -153,7 +168,7 @@ describe('graph context benchmark contract', () => {
     expect(metrics).toMatchObject({ nodeBoundRespected: false, tokenBudgetRespected: false });
   });
 
-  it('executes all workflows with bounded deterministic arguments and measured freshness', () => {
+  it('executes all workflows with bounded deterministic arguments and measured freshness', async () => {
     const outputRoot = mkdtempSync(join(tmpdir(), 'graph-context-benchmark-test-'));
     const calls: Array<{ executable: string; args: string[]; cwd: string }> = [];
     const execFile = (executable: string, args: string[], options: { cwd: string }) => {
@@ -178,7 +193,7 @@ describe('graph context benchmark contract', () => {
     };
 
     try {
-      const report = runBenchmark({
+      const report = await runBenchmark({
         cliPath: process.execPath,
         graphifyCli: '/mock/graphify',
         outputRoot,
@@ -239,6 +254,7 @@ describe('graph context benchmark contract', () => {
       expect(readFileSync(join(outputRoot, 'latest', 'locate-concept', 'json.txt'), 'utf8')).toContain('"indexRevision":"<revision>"');
       expect(readFileSync(join(outputRoot, 'latest', 'locate-concept', 'toon.txt'), 'utf8')).toContain('mtime: <mtime>');
       const published = readFileSync(join(outputRoot, 'latest', 'report.md'), 'utf8');
+      expect(published).toContain('Warm session:');
       expect(published).toContain('| Workflow | Comparison | Graph-It-Live | Graphify |');
       expect(published).toContain('| controller-database | equivalent | measured | measured |');
       expect(renderPublishedReport(report)).toBe(published);
