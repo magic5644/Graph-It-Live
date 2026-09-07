@@ -520,9 +520,11 @@ graph-it context --mode impact --seeds src/api.ts#handle --depth 3 --format json
 ```
 
 The gateway accepts depth 1–5, 1–500 nodes per page, and a 500–16,000 token
-budget (default 4000). Truncated responses include omitted counts and an opaque
-cursor. Results carry provenance and evidence line spans, but do not include
-source contents; read the identified files separately.
+budget (default 4000). `maxNodes` is a requested page bound: mandatory seeds
+and path endpoints are preserved even when they make the response exceed that
+value. Truncated responses include omitted counts and an opaque cursor. Results
+carry provenance and evidence line spans, but do not include source contents;
+read the identified files separately.
 
 One local corpus run on 2026-09-04 measured 8,780 `cl100k_base` tokens for the
 six JSON responses and 1,072 for their TOON encodings, a representation-size

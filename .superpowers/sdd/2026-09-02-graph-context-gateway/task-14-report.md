@@ -52,7 +52,8 @@ Validation:
 
 - `rtk npm run lint` — passed.
 - `rtk npm run check:types` — passed.
-- `npm test -- --run` — failed before tests for the command-line reason only:
+- `rtk npm test -- --run` — failed before tests for the command-line reason
+  only:
   the package script already invokes `vitest run`, so the appended `--run`
   duplicated that option and Vitest 4.1.11 raised
   `Expected a single value for option "--run", received [true, true]`.
@@ -62,8 +63,10 @@ Validation:
   macOS because this long worktree's IPC socket path exceeded 103 characters
   (`listen EINVAL`); no VS Code test executed in that invocation. This is a
   path-length limitation of the default invocation, not weakened validation.
-- The same compiled VS Code suite with a short temporary test-cache path
-  passed: 147 tests passed in approximately five minutes.
+- `TMPDIR=/tmp rtk npm run test:vscode` — the short-cache workaround used for
+  the same compiled VS Code suite; setting the temporary cache/socket root to
+  `/tmp` avoided the long worktree path and passed 147 tests in approximately
+  five minutes.
 - `rtk npm run build` — passed.
 - `rtk npm run package` — passed; produced `graph-it-live-0.0.1.vsix`.
 - `rtk npm run package:verify` — passed; zero `.map` files were found.
