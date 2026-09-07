@@ -87,6 +87,8 @@ describe('graph_context MCP contract', () => {
     for (const request of requests) {
       expect(GraphContextParamsSchema.safeParse(request).success).toBe(true);
     }
+    expect(GraphContextParamsSchema.safeParse({ question: 'UserService', detail: 'compact' }).success).toBe(true);
+    expect(GraphContextParamsSchema.safeParse({ question: 'UserService', detail: 'verbose' }).success).toBe(false);
   });
 
   it('infers path mode for endpoint-only requests', async () => {
@@ -376,6 +378,26 @@ describe('graph_context MCP contract', () => {
 
     expect(formatted.content[0].text).toContain('errors(message)');
     expect(formatted.content[0].text).toContain('Invalid graph request');
+  });
+
+  it('projects compact graph-context output for LLM consumers', async () => {
+    const result = await executeGraphContext({
+      question: 'UserService',
+      scope: 'src/**',
+      tokenBudget: 4_000,
+    });
+    const formatted = formatToolResponse(
+      createSuccessResponse(result, 1, workspaceRoot),
+      'json',
+      'graphitlive_graph_context',
+      'compact',
+    );
+    const compact = formatted.structuredContent.data as GraphContextResponse;
+
+    expect(compact.nodes.length).toBeLessThanOrEqual(8);
+    expect(compact.nextCursor).toBeUndefined();
+    expect(compact.nodes[0]).not.toHaveProperty('language');
+    expect(compact.nodes[0]).not.toHaveProperty('score');
   });
 
   it('formats public text as JSON when requested', async () => {

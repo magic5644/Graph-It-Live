@@ -110,6 +110,7 @@ Commands:
   install           Install CLI to system PATH (VS Code opt-in)
   update            Update graph-it to the latest version on npm
   query <question>  Query the codebase with natural language
+  context <question> Retrieve bounded unified graph context (--detail compact for agents)
   wiki              Generate a navigable markdown wiki: --output <dir>
   stats             Session token stats (TOON encoding size vs JSON equivalent + LLM usage)
   export [scope]    Export dependency graph as standalone HTML: --format html --output <file>
@@ -186,6 +187,7 @@ Examples:
   graph-it review-pr --base origin/main --format markdown
   graph-it tool analyze_dependencies --filePath=/abs/path/file.ts
   graph-it query "how does Spider crawl files"
+  graph-it context "what calls the request handler" --format toon --detail compact
   graph-it wiki --output wiki --top 15
   graph-it stats
   graph-it export --format html --output graph.html

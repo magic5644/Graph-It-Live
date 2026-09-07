@@ -14,7 +14,11 @@ const runtime = {
 
 describe('context command', () => {
   it('parses a question request and forwards context options', async () => {
-    executeGraphContext.mockResolvedValueOnce({ mode: 'search', nodes: [], edges: [] });
+    executeGraphContext.mockResolvedValueOnce({
+      indexRevision: 'rev', fresh: true, mode: 'search', seeds: [], nodes: [], edges: [],
+      paths: [], ambiguous: [], omitted: { nodes: 0, edges: 0 }, nextQueries: [],
+      tokenEstimate: 0, truncated: false,
+    });
 
     await run(
       ['how does authentication reach the database', '--mode', 'search', '--scope', 'src/**', '--depth', '2', '--token-budget', '2000', '--format', 'toon'],
@@ -74,6 +78,22 @@ describe('context command', () => {
       relations: ['CALLS', 'IMPORTS'],
       directed: true,
       cursor: 'next-page',
+      format: 'toon',
+    });
+  });
+
+  it('forwards compact output detail', async () => {
+    executeGraphContext.mockResolvedValueOnce({
+      indexRevision: 'rev', fresh: true, mode: 'search', seeds: [], nodes: [], edges: [],
+      paths: [], ambiguous: [], omitted: { nodes: 0, edges: 0 }, nextQueries: [],
+      tokenEstimate: 0, truncated: false,
+    });
+
+    await run(['question', '--detail', 'compact'], runtime, 'text');
+
+    expect(executeGraphContext).toHaveBeenCalledWith({
+      question: 'question',
+      detail: 'compact',
       format: 'toon',
     });
   });

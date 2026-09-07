@@ -517,6 +517,7 @@ optional `toon` or `json` output.
 graph-it context "what calls the request handler" --scope 'src/**' --format toon
 graph-it context --mode path --from src/api.ts#handle --to src/db.ts#query
 graph-it context --mode impact --seeds src/api.ts#handle --depth 3 --format json
+graph-it context "what calls the request handler" --format toon --detail compact --token-budget 800
 ```
 
 The gateway accepts depth 1–5, 1–500 nodes per page, and a 500–16,000 token
@@ -525,6 +526,11 @@ and path endpoints are preserved even when they make the response exceed that
 value. Truncated responses include omitted counts and an opaque cursor. Results
 carry provenance and evidence line spans, but do not include source contents;
 read the identified files separately.
+
+Use `--detail compact` for agent-oriented output. It retains ranked nodes,
+locations, relations, and evidence while dropping verbose metadata and limiting
+the visible node set to the most relevant eight nodes. `standard` remains the
+compatible default.
 
 One local corpus run measured 8,780 `cl100k_base` tokens for the six JSON
 responses and 1,072 for their TOON encodings, a representation-size reduction

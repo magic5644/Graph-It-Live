@@ -422,6 +422,15 @@
                 "toon",
                 "json"
               ]
+            },
+            "detail": {
+              "type": "string",
+              "enum": [
+                "compact",
+                "standard",
+                "full"
+              ],
+              "description": "Output detail; use compact for token-efficient agent context"
             }
           }
         }
