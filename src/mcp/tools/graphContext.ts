@@ -16,6 +16,7 @@ import type {
   GraphContextResponse,
   GraphContextSeed,
 } from '../../shared/graph-context-types';
+import { projectGraphContextOutput } from '../../shared/graph-context-output';
 import { normalizePath } from '../../shared/path';
 import { workerState } from '../shared/state';
 import { validateFilePath, type GraphContextParams } from '../types';
@@ -71,13 +72,14 @@ export async function executeGraphContextWithIndexes(
   });
   const unbudgetedResponse = await retriever.retrieve(request);
   signal?.throwIfAborted();
-  const binding = createCursorBinding(request, indexes.rootDir, unbudgetedResponse.indexRevision);
+  const responseForBudget = projectGraphContextOutput(unbudgetedResponse, request.detail);
+  const binding = createCursorBinding(request, indexes.rootDir, responseForBudget.indexRevision);
   const offset = incomingCursor === undefined
     ? 0
     : parseGraphContextCursor(request.cursor as string, binding).offset;
 
   return applyBudgetWithCursor(
-    unbudgetedResponse,
+    responseForBudget,
     request.tokenBudget ?? DEFAULT_TOKEN_BUDGET,
     offset,
     binding,
@@ -133,6 +135,7 @@ function normalizeRequest(
     directed: params.directed,
     cursor: params.cursor,
     format: params.format,
+    detail: params.detail,
   };
 
   if (params.question !== undefined && params.question.trim().length > 0) {

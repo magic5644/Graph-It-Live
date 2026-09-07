@@ -10,6 +10,8 @@ export type GraphContextMode =
   | 'refactor'
   | 'overview';
 
+export type GraphContextDetail = 'compact' | 'standard' | 'full';
+
 export type GraphContextNodeKind =
   | 'file'
   | 'symbol'
@@ -54,6 +56,7 @@ interface GraphContextRequestOptions {
   directed?: boolean;
   cursor?: string;
   format?: 'toon' | 'json';
+  detail?: GraphContextDetail;
 }
 
 /** A request must contain a question, a non-empty seed list, or both path endpoints. */

@@ -6,10 +6,12 @@ import { CliError, ExitCode } from '../errors.js';
 import type { CliOutputFormat } from '../formatter.js';
 import { formatOutput } from '../formatter.js';
 import type { CliRuntime } from '../runtime.js';
+import { projectGraphContextOutput } from '../../shared/graph-context-output.js';
 
 const VALUE_FLAGS = new Set([
   '--mode', '--scope', '--depth', '--max-nodes', '--token-budget', '--from', '--to',
   '--seeds', '--relations', '--cursor', '--format', '--workspace', '-w',
+  '--detail',
 ]);
 const BOOLEAN_FLAGS = new Set(['--directed']);
 
@@ -75,6 +77,7 @@ function parse(args: string[], format: CliOutputFormat): GraphContextParams {
     directed: args.includes('--directed') || undefined,
     cursor: value(args, '--cursor'),
     format: requestedFormat as GraphContextParams['format'],
+    detail: value(args, '--detail') as GraphContextParams['detail'],
   };
   const result = GraphContextParamsSchema.safeParse(params);
   if (!result.success) throw new CliError(result.error.message, ExitCode.GENERAL_ERROR);
@@ -84,5 +87,6 @@ function parse(args: string[], format: CliOutputFormat): GraphContextParams {
 export async function run(args: string[], runtime: CliRuntime, format: CliOutputFormat): Promise<string> {
   const params = parse(args, format);
   await runtime.ensureIndexed();
-  return formatOutput(await executeGraphContext(params), format === 'markdown' || format === 'mermaid' ? 'json' : format, 'context');
+  const response = await executeGraphContext(params);
+  return formatOutput(projectGraphContextOutput(response, params.detail), format === 'markdown' || format === 'mermaid' ? 'json' : format, 'context');
 }

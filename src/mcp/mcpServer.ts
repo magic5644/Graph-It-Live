@@ -1919,7 +1919,7 @@ Use this tool when a question spans file dependencies, symbol calls, implementat
       "graph_context",
       params,
     );
-    return formatToolResponse(response, responseFormat, "graphitlive_graph_context");
+    return formatToolResponse(response, responseFormat, "graphitlive_graph_context", params.detail);
   },
 );
 

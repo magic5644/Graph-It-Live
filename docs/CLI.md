@@ -805,6 +805,7 @@ Relation filters accept `CONTAINS`, `IMPORTS`, `CALLS`, `INHERITS`,
 | `--directed` | false | Keep path traversal directed |
 | `--cursor <cursor>` | — | Continue a truncated result |
 | `--format <format>` | global format | `json` or `toon` |
+| `--detail <level>` | `standard` | `compact`, `standard`, or `full`; compact keeps ranked nodes, locations, relations, and evidence for LLM use |
 | `--workspace, -w <path>` | auto-detected | Workspace root |
 
 ```bash
@@ -812,6 +813,7 @@ graph-it context "what calls the request handler" --scope 'src/**' --format toon
 graph-it context --mode path --from src/api.ts#handle --to src/db.ts#query --depth 4
 graph-it context --mode impact --seeds src/api.ts#handle --relations CALLS --depth 3 --format json
 graph-it context "how is authentication wired" --token-budget 8000 --format json
+graph-it context "what calls the request handler" --format toon --detail compact --token-budget 800
 
 # A continuation repeats the original request and options with nextCursor.
 graph-it context "what calls the request handler" --scope 'src/**' --format toon --cursor '<nextCursor>'
@@ -823,6 +825,13 @@ continuation cursor when truncated. Source contents are not included; read the
 identified files separately. JSON returns the structured response; TOON emits
 compact `graph_context`, `seeds`, `nodes`, `edges`, `paths`, `ambiguous`,
 `omitted`, and `nextQueries` blocks.
+
+Use `--detail compact` for agent-oriented output. It keeps seed and path
+identities, ranked related nodes, file/line locations, relations, and evidence
+while dropping language and score metadata, limiting the visible node set to
+the most relevant eight nodes, and omitting continuation cursors because the
+projection is not a complete page. `standard` and `full` preserve the complete
+response for compatibility.
 
 MCP clients call the prefixed server tool name:
 

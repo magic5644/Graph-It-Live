@@ -652,6 +652,7 @@ export const GraphContextParamsSchema = z.object({
   directed: z.boolean().optional(),
   cursor: z.string().min(1).max(4096).optional(),
   format: z.enum(["toon", "json"]).optional(),
+  detail: z.enum(["compact", "standard", "full"]).optional(),
   response_format: z.enum(["json", "markdown", "toon"]).optional(),
 }).superRefine((params, context) => {
   const hasQuestion = params.question !== undefined && params.question.trim().length > 0;

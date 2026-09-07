@@ -1285,13 +1285,14 @@ export class LmToolsService {
           const cancellation = token.onCancellationRequested(() => controller.abort());
           try {
             const { executeGraphContextWithIndexes } = await import('../../mcp/tools/graphContext.js');
+            const { projectGraphContextOutput } = await import('../../shared/graph-context-output.js');
             const response = await executeGraphContextWithIndexes(options.input, {
               rootDir,
               spider,
               callGraphIndexer: indexer,
             }, controller.signal);
             return new vscode.LanguageModelToolResult([
-              new vscode.LanguageModelTextPart(JSON.stringify(response)),
+              new vscode.LanguageModelTextPart(JSON.stringify(projectGraphContextOutput(response, options.input.detail))),
             ]);
           } catch (error) {
             if (controller.signal.aborted || (error instanceof Error && error.name === 'AbortError')) {

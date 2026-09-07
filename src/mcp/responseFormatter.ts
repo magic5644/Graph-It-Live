@@ -14,6 +14,8 @@ import { normalizePath } from '../shared/path';
 import path from 'node:path';
 import type { McpToolResponse, OutputFormat } from './types';
 import type { GraphContextResponse } from '../shared/graph-context-types';
+import { projectGraphContextOutput } from '../shared/graph-context-output';
+import type { GraphContextDetail } from '../shared/graph-context-types';
 
 const log = getLogger('responseFormatter');
 
@@ -30,9 +32,17 @@ export type ResponseFormat = 'json' | 'markdown' | 'toon';
 export function formatToolResponse<T>(
   response: McpToolResponse<T>,
   responseFormat: ResponseFormat,
-  toolName?: string
+  toolName?: string,
+  detail?: GraphContextDetail,
 ): { content: { type: 'text'; text: string }[]; structuredContent: McpToolResponse<T> } {
-  const publicResponse = redactAbsolutePaths(response, response.metadata.workspaceRoot);
+  const redactedResponse = redactAbsolutePaths(response, response.metadata.workspaceRoot);
+  let publicResponse: McpToolResponse<T> = redactedResponse;
+  if (toolName === 'graphitlive_graph_context' && isGraphContextResponse(redactedResponse.data)) {
+    publicResponse = {
+      ...redactedResponse,
+      data: projectGraphContextOutput(redactedResponse.data, detail),
+    } as McpToolResponse<T>;
+  }
   let text: string;
 
   if (responseFormat === 'toon') {
