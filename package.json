@@ -301,7 +301,131 @@
       ]
     },
     "languageModelTools": [
-      { "name": "graph-it-live_graph_context", "canBeReferencedInPrompt": true, "toolReferenceName": "graphContext", "tags": [ "graph-it-live", "context", "dependencies", "calls" ], "displayName": "Graph-It-Live: Graph Context", "icon": "$(symbol-misc)", "userDescription": "Retrieve bounded unified graph context for codebase questions and paths", "modelDescription": "Retrieve deterministic, token-bounded workspace-relative graph context across dependencies, symbols, calls, tests, and impact evidence.", "inputSchema": { "type": "object", "properties": { "question": { "type": "string" }, "seeds": { "type": "array", "items": { "type": "object", "properties": { "id": { "type": "string" }, "label": { "type": "string" }, "filePath": { "type": "string" }, "symbolName": { "type": "string" } } } }, "mode": { "type": "string", "enum": [ "search", "neighbors", "path", "impact", "refactor", "overview" ] }, "from": { "type": "object", "properties": { "id": { "type": "string" }, "label": { "type": "string" }, "filePath": { "type": "string" }, "symbolName": { "type": "string" } } }, "to": { "type": "object", "properties": { "id": { "type": "string" }, "label": { "type": "string" }, "filePath": { "type": "string" }, "symbolName": { "type": "string" } } }, "relations": { "type": "array", "items": { "type": "string" } }, "scope": { "type": "string" }, "depth": { "type": "integer", "minimum": 1, "maximum": 5 }, "maxNodes": { "type": "integer", "minimum": 1, "maximum": 500 }, "tokenBudget": { "type": "integer", "minimum": 500, "maximum": 16000 }, "directed": { "type": "boolean" }, "cursor": { "type": "string" }, "format": { "type": "string", "enum": [ "toon", "json" ] } } } },
+      {
+        "name": "graph-it-live_graph_context",
+        "canBeReferencedInPrompt": true,
+        "toolReferenceName": "graphContext",
+        "tags": [
+          "graph-it-live",
+          "context",
+          "dependencies",
+          "calls"
+        ],
+        "displayName": "Graph-It-Live: Graph Context",
+        "icon": "$(symbol-misc)",
+        "userDescription": "Retrieve bounded unified graph context for codebase questions and paths",
+        "modelDescription": "Retrieve deterministic, token-bounded workspace-relative graph context across dependencies, symbols, calls, tests, and impact evidence.",
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "question": {
+              "type": "string"
+            },
+            "seeds": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "id": {
+                    "type": "string"
+                  },
+                  "label": {
+                    "type": "string"
+                  },
+                  "filePath": {
+                    "type": "string"
+                  },
+                  "symbolName": {
+                    "type": "string"
+                  }
+                }
+              }
+            },
+            "mode": {
+              "type": "string",
+              "enum": [
+                "search",
+                "neighbors",
+                "path",
+                "impact",
+                "refactor",
+                "overview"
+              ]
+            },
+            "from": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string"
+                },
+                "label": {
+                  "type": "string"
+                },
+                "filePath": {
+                  "type": "string"
+                },
+                "symbolName": {
+                  "type": "string"
+                }
+              }
+            },
+            "to": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string"
+                },
+                "label": {
+                  "type": "string"
+                },
+                "filePath": {
+                  "type": "string"
+                },
+                "symbolName": {
+                  "type": "string"
+                }
+              }
+            },
+            "relations": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "scope": {
+              "type": "string"
+            },
+            "depth": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 5
+            },
+            "maxNodes": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 500
+            },
+            "tokenBudget": {
+              "type": "integer",
+              "minimum": 500,
+              "maximum": 16000
+            },
+            "directed": {
+              "type": "boolean"
+            },
+            "cursor": {
+              "type": "string"
+            },
+            "format": {
+              "type": "string",
+              "enum": [
+                "toon",
+                "json"
+              ]
+            }
+          }
+        }
+      },
       {
         "name": "graph-it-live_find_referencing_files",
         "canBeReferencedInPrompt": true,
@@ -1140,7 +1264,7 @@
   "dependencies": {
     "@dagrejs/dagre": "^2.0.4",
     "@inquirer/core": "^11.2.1",
-    "@inquirer/prompts": "^8.7.0",
+    "@inquirer/prompts": "^8.7.1",
     "@modelcontextprotocol/server": "^2.0.0",
     "chokidar": "^5.0.0",
     "cytoscape": "^3.34.2",
@@ -1156,7 +1280,7 @@
     "ts-morph": "^27.0.2",
     "vis-network": "10.1.0",
     "web-tree-sitter": "^0.26.13",
-    "zod": "^4.4.3"
+    "zod": "^4.5.4"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",
@@ -1164,7 +1288,7 @@
     "@types/mocha": "^10.0.10",
     "@types/node": "^25.9.5",
     "@types/react": "^19.2.18",
-    "@types/react-dom": "^19.2.5",
+    "@types/react-dom": "^19.2.7",
     "@types/sql.js": "^1.4.11",
     "@types/vscode": "^1.96.0",
     "@vitest/coverage-v8": "^4.1.11",
@@ -1173,14 +1297,14 @@
     "@vscode/vsce": "^3.9.2",
     "esbuild": "^0.28.2",
     "esbuild-css-modules-plugin": "^3.1.5",
-    "eslint": "^10.9.1",
+    "eslint": "^10.10.0",
     "fast-check": "^4.9.0",
     "glob": "^13.0.6",
-    "globals": "^17.11.0",
-    "happy-dom": "^20.11.12",
+    "globals": "^17.12.0",
+    "happy-dom": "^20.14.0",
     "mocha": "^11.8.0",
     "typescript": "^6.0.3",
-    "typescript-eslint": "^8.68.0",
+    "typescript-eslint": "^8.69.0",
     "vitest": "^4.1.11"
   },
   "overrides": {
