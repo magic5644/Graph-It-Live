@@ -8,7 +8,7 @@ import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { estimateTokens, estimateTokenSavings } from '../src/shared/toon.ts';
 
-export const BENCHMARK_VERSION = 2;
+export const BENCHMARK_VERSION = 3;
 export const BENCHMARK_BOUNDS = Object.freeze({ scope: '**', depth: 2, maxNodes: 10, tokenBudget: 2000 });
 export const REFERENCE_WORKFLOWS = Object.freeze([
   { id: 'locate-concept', question: 'where is idempotency policy defined?', mode: 'search', expected: ['file:src/ts/controller.ts', 'document:docs/ADR-001.md'] },
@@ -162,28 +162,39 @@ function benchmarkRequest(workflow) {
   return { ...request, ...BENCHMARK_BOUNDS };
 }
 
-function graphifyPlan(workflow, graphPath) {
+export function graphifyPlan(workflow, graphPath) {
   const requested = { ...BENCHMARK_BOUNDS };
   const common = { requested, enforced: { scope: 'isolated-graph', depth: null, maxNodes: null, tokenBudget: null } };
   if (workflow.mode === 'path') {
     return {
       args: ['path', workflow.from, workflow.to, '--graph', graphPath],
+      comparison: 'equivalent',
       bounds: common,
-      unsupported: ['depth', 'maxNodes', 'tokenBudget'],
+      unsupported: [],
     };
   }
   if (workflow.mode === 'overview' || workflow.mode === 'neighbors') {
     return {
-      args: ['explain', workflow.seeds[0], '--graph', graphPath],
+      args: ['explain', 'handleUser', '--graph', graphPath],
+      comparison: workflow.mode === 'neighbors' ? 'partial' : 'adapted',
       bounds: common,
-      unsupported: ['question', 'depth', 'maxNodes', 'tokenBudget'],
+      unsupported: workflow.mode === 'neighbors' ? ['directional-callers-callees'] : [],
     };
   }
   if (workflow.mode === 'refactor') {
     return {
-      args: ['affected', workflow.seeds[0], '--depth', String(BENCHMARK_BOUNDS.depth), '--graph', graphPath],
+      args: ['affected', 'UserService', '--depth', String(BENCHMARK_BOUNDS.depth), '--graph', graphPath],
+      comparison: 'equivalent',
       bounds: { ...common, enforced: { ...common.enforced, depth: BENCHMARK_BOUNDS.depth } },
-      unsupported: ['question', 'maxNodes', 'tokenBudget'],
+      unsupported: [],
+    };
+  }
+  if (workflow.id === 'document-symbol') {
+    return {
+      args: [],
+      comparison: 'not-supported',
+      bounds: common,
+      unsupported: ['documentation-indexing'],
     };
   }
   const question = workflow.seeds?.length
@@ -191,28 +202,115 @@ function graphifyPlan(workflow, graphPath) {
     : workflow.question;
   return {
     args: ['query', question, '--budget', String(BENCHMARK_BOUNDS.tokenBudget), '--graph', graphPath],
+    comparison: workflow.id === 'locate-concept' ? 'partial' : 'adapted',
     bounds: { ...common, enforced: { ...common.enforced, depth: 2, tokenBudget: BENCHMARK_BOUNDS.tokenBudget } },
-    unsupported: workflow.id === 'document-symbol' ? ['maxNodes', 'documentation-indexing'] : ['maxNodes'],
+    unsupported: workflow.id === 'locate-concept' ? ['documentation-indexing'] : [],
   };
 }
 
-function graphifyResults(workflows, graphifyCli, workspaceRoot, env, execFile) {
+function expectedNodeNeedle(nodeId) {
+  const value = nodeId.replace(/^(file|symbol|document|rationale):/, '');
+  const parts = value.split(':');
+  if (nodeId.startsWith('symbol:')) return `${parts[0]}#${parts[1]}`;
+  return parts[0];
+}
+
+function expectedNodeNeedles(nodeId) {
+  const needles = [expectedNodeNeedle(nodeId)];
+  if (nodeId.startsWith('symbol:')) needles.push(nodeId.split(':')[2]);
+  return needles;
+}
+
+function extractGraphifyCandidates(output) {
+  return [
+    ...[...output.matchAll(/[\w./-]+\.(?:ts|tsx|js|jsx|py|rs|md)(?:#[\w$.-]+)?/g)].map(match => match[0]),
+    ...[...output.matchAll(/\b[\w$]+\(\)/g)].map(match => match[0].slice(0, -2)),
+  ];
+}
+
+export function normalizeGraphifyResult({ output, elapsedMs, version, expectedNodeIds, expectedPath, workspaceRoot, plan = { comparison: 'adapted', args: [], bounds: {}, unsupported: [] } }) {
+  const normalizedOutput = output.split(workspaceRoot).join('<workspace>');
+  const candidates = extractGraphifyCandidates(normalizedOutput);
+  const returnedIds = expectedNodeIds.filter(nodeId => candidates.some(candidate => expectedNodeNeedles(nodeId).some(needle => candidate.includes(needle))));
+  const expectedPathFound = expectedPath?.every(nodeId => expectedNodeNeedles(nodeId).some(needle => normalizedOutput.includes(needle))) ?? null;
+  const matchedCandidates = candidates.filter(candidate => expectedNodeIds.some(nodeId => expectedNodeNeedles(nodeId).some(needle => candidate.includes(needle))));
+  const candidateCount = candidates.length;
+  return {
+    status: 'measured',
+    comparison: plan.comparison,
+    version,
+    args: plan.args,
+    bounds: plan.bounds,
+    unsupported: plan.unsupported,
+    output: normalizedOutput,
+    metrics: {
+      precisionAt10: candidateCount === 0 ? 0 : matchedCandidates.length / Math.min(10, candidateCount),
+      recallAt10: expectedNodeIds.length === 0 ? 0 : returnedIds.length / expectedNodeIds.length,
+      exactPathSuccess: expectedPathFound,
+      nativeTokenBudgetEnforced: plan.args.includes('--budget'),
+      observedTokens: estimateTokens(normalizedOutput),
+      latencyMs: elapsedMs,
+    },
+  };
+}
+
+function graphifyResults(workflows, graphifyCli, workspaceRoot, corpus, env, execFile) {
+  const graphifyWorkspaceRoot = mkdtempSync(join(tmpdir(), 'graphify-context-corpus-'));
   const graphPath = '<workspace>/graphify-out/graph.json';
   if (!graphifyCli) {
+    rmSync(graphifyWorkspaceRoot, { recursive: true, force: true });
     return workflows.map(workflow => notSupportedGraphifyResult('cli', {
       ...graphifyPlan(workflow, graphPath),
       unsupported: ['cli'],
     }));
   }
   try {
-    const version = execFile(graphifyCli, ['--version'], { cwd: workspaceRoot, env, encoding: 'utf8' }).trim();
+    writeCorpus(graphifyWorkspaceRoot, {
+      files: Object.fromEntries(Object.entries(corpus.files).filter(([filePath]) => !/\.md$/.test(filePath))),
+    });
+    const version = execFile(graphifyCli, ['--version'], { cwd: graphifyWorkspaceRoot, env, encoding: 'utf8' }).trim();
+    execFile(graphifyCli, ['extract', graphifyWorkspaceRoot, '--no-cluster', '--out', graphifyWorkspaceRoot], { cwd: graphifyWorkspaceRoot, env, encoding: 'utf8', maxBuffer: 20 * 1024 * 1024 });
+    execFile(graphifyCli, ['cluster-only', graphifyWorkspaceRoot, '--no-viz', '--no-label'], { cwd: graphifyWorkspaceRoot, env, encoding: 'utf8', maxBuffer: 20 * 1024 * 1024 });
     return workflows.map(workflow => {
       const plan = graphifyPlan(workflow, graphPath);
-      return notSupportedGraphifyResult(plan.unsupported[0], { version, ...plan });
+      if (plan.comparison === 'not-supported') return { status: 'not-supported', version, ...plan };
+      const started = performance.now();
+      try {
+        const output = execFile(graphifyCli, plan.args.map(arg => arg.replace('<workspace>', graphifyWorkspaceRoot)), { cwd: graphifyWorkspaceRoot, env, encoding: 'utf8', maxBuffer: 20 * 1024 * 1024 });
+        return normalizeGraphifyResult({ output, elapsedMs: Math.round(performance.now() - started), version, expectedNodeIds: workflow.expected, expectedPath: expectedPath(workflow), workspaceRoot: graphifyWorkspaceRoot, plan });
+      } catch (error) {
+        return { status: 'error', version, ...plan, error: error instanceof Error ? error.message : String(error) };
+      }
     });
   } catch (error) {
     return workflows.map(() => ({ status: 'error', error: error instanceof Error ? error.message : String(error) }));
+  } finally {
+    rmSync(graphifyWorkspaceRoot, { recursive: true, force: true });
   }
+}
+
+function publishedMetric(value) {
+  return typeof value === 'number' ? String(Math.round(value * 1000) / 1000) : '—';
+}
+
+export function renderPublishedReport(report) {
+  const rows = report.workflows.map(workflow => {
+    const graphIt = workflow.graphItLive?.metrics ?? {};
+    const graphify = workflow.graphify ?? {};
+    const graphifyMetrics = graphify.metrics ?? {};
+    return `| ${workflow.id} | ${graphify.comparison ?? '—'} | ${workflow.graphItLive ? 'measured' : '—'} | ${graphify.status ?? '—'} | ${publishedMetric(graphIt.precisionAt10)} / ${publishedMetric(graphIt.recallAt10)} | ${publishedMetric(graphifyMetrics.precisionAt10)} / ${publishedMetric(graphifyMetrics.recallAt10)} | ${publishedMetric(graphIt.responseTokens)} | ${publishedMetric(graphifyMetrics.observedTokens)} | ${publishedMetric(graphIt.warmLatencyMs)} | ${publishedMetric(graphifyMetrics.latencyMs)} | ${(graphify.unsupported ?? []).join(', ') || '—'} |`;
+  });
+  return [
+    '# Graph context benchmark report',
+    '',
+    `Benchmark schema: ${report.schemaVersion}`, '',
+    '| Workflow | Comparison | Graph-It-Live | Graphify | Precision / recall GIL | Precision / recall Graphify | Response tokens GIL | Native tokens Graphify | Warm latency GIL (ms) | Graphify latency (ms) | Limitations |',
+    '|---|---|---|---|---:|---:|---:|---:|---:|---:|---|',
+    ...rows,
+    '',
+    'Statuses describe execution, while Comparison describes semantic comparability. Missing native limits are not treated as failed functionality; they are listed as limitations.',
+    '',
+  ].join('\n');
 }
 
 export function runBenchmark({ cliPath, graphifyCli = process.env.GRAPHIFY_CLI, outputRoot, execFile = execFileSync } = {}) {
@@ -254,7 +352,7 @@ export function runBenchmark({ cliPath, graphifyCli = process.env.GRAPHIFY_CLI, 
         },
       };
     });
-    const graphify = graphifyResults(REFERENCE_WORKFLOWS, graphifyCli, workspaceRoot, env, execFile);
+    const graphify = graphifyResults(REFERENCE_WORKFLOWS, graphifyCli, workspaceRoot, corpus, env, execFile);
     workflows.forEach((workflow, index) => { workflow.graphify = graphify[index]; });
     const report = {
       schemaVersion: BENCHMARK_VERSION,
@@ -264,11 +362,12 @@ export function runBenchmark({ cliPath, graphifyCli = process.env.GRAPHIFY_CLI, 
       notes: [
         'Representation tokens use the shared cl100k_base tokenizer on serialized request/response payloads.',
         'MCP initialization, MCP tool-call, provider billing, and absent continuation metrics are null because this runner invokes CLIs and does not observe those values.',
-        'Graphify workflows are not executed when its documented CLI cannot preserve every requested bound; unsupported semantics are listed per workflow.',
+        'Graphify workflows use their documented native commands after a code-only extract and cluster-only preparation; semantic comparability and missing native bounds are reported separately.',
         'Published Graphify ERPNext numbers are intentionally not compared with this local corpus.',
       ],
     };
     writeFileSync(join(runDir, 'report.json'), `${JSON.stringify(report, null, 2)}\n`, 'utf8');
+    writeFileSync(join(runDir, 'report.md'), renderPublishedReport(report), 'utf8');
     return report;
   } finally {
     rmSync(workspaceRoot, { recursive: true, force: true });

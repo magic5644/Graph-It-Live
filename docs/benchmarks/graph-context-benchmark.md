@@ -27,19 +27,31 @@ They describe serialized payload size and are not provider billing tokens.
 The runner removes known LLM credentials and disables stats persistence, so it
 does not claim measured provider usage.
 
-Graphify is an optional adapter selected with `GRAPHIFY_CLI`. The adapter uses
-only documented Graphify 0.8.36 forms: `query`, `explain`, `affected`, and
-`path`; seeded natural-language queries include the seed in the question, and
-the path plan passes the controller and repository symbol endpoints. The
-isolated graph file represents `scope=**`.
+Graphify is an optional adapter selected with `GRAPHIFY_CLI`. It executes the
+documented Graphify 0.8.36 forms: `query`, `explain`, `affected`, and `path`.
+The adapter first creates a code-only Graphify graph with `extract --no-cluster`
+and `cluster-only --no-label --no-viz`, then invokes the native command for
+each workflow. This avoids requiring an LLM key for the Markdown fixture while
+recording the documentation limitation explicitly.
 
-Every Graphify workflow is currently `not-supported` under strict parity.
-`query` has no `maxNodes` control; `explain`, `affected`, and `path` also lack
-one or more requested question/depth/token bounds; code-only Graphify updates
-do not provide the documentation workflow. The report records each proposed
-argument vector, enforced bound, and unsupported semantic instead of executing
-an incomparable workflow or reporting an error/zero. Published Graphify
-ERPNext numbers are not compared with this local corpus.
+Each workflow has two independent classifications:
+
+- `status`: whether the native command was measured (`measured`), unavailable
+  (`not-supported`), or failed (`error`);
+- `comparison`: whether the user intent is directly comparable
+  (`equivalent`), comparable after an explicit argument/identifier adaptation
+  (`adapted`), only partly comparable (`partial`), or unavailable
+  (`not-supported`).
+
+Missing native bounds such as `maxNodes` are not treated as missing
+functionality. Native output size is measured separately, and the report marks
+which bounds Graphify actually enforced. Graphify symbol identifiers are also
+normalized from its name-based form (`handleUser()`) to the shared expected
+symbol records. Published Graphify ERPNext numbers are not compared with this
+local corpus.
+
+The generated `report.md` is a compact publication table; `report.json` and
+the per-workflow raw outputs remain the audit source.
 
 Run it with:
 

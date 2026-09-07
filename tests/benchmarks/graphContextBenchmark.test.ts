@@ -7,6 +7,9 @@ import {
   REFERENCE_WORKFLOWS,
   buildSharedCorpus,
   measureComparableMetrics,
+  graphifyPlan,
+  normalizeGraphifyResult,
+  renderPublishedReport,
   notSupportedGraphifyResult,
   normalizeOutput,
   runBenchmark,
@@ -93,6 +96,50 @@ describe('graph context benchmark contract', () => {
     });
   });
 
+  it('classifies close Graphify workflows by semantic comparability', () => {
+    const graphPath = '<workspace>/graphify-out/graph.json';
+
+    expect(graphifyPlan(REFERENCE_WORKFLOWS[0], graphPath)).toMatchObject({
+      comparison: 'partial',
+      unsupported: ['documentation-indexing'],
+      args: ['query', 'where is idempotency policy defined?', '--budget', '2000', '--graph', graphPath],
+    });
+    expect(graphifyPlan(REFERENCE_WORKFLOWS[3], graphPath)).toMatchObject({
+      comparison: 'equivalent',
+      unsupported: [],
+    });
+    expect(graphifyPlan(REFERENCE_WORKFLOWS[5], graphPath)).toMatchObject({
+      comparison: 'not-supported',
+      unsupported: ['documentation-indexing'],
+    });
+  });
+
+  it('normalizes an executed Graphify response into common retrieval metrics', () => {
+    const result = normalizeGraphifyResult({
+      output: 'src/ts/controller.ts#handleUser -> src/ts/repository.ts#saveUser\n',
+      elapsedMs: 12,
+      version: 'graphify 0.8.36',
+      expectedNodeIds: [
+        'symbol:src/ts/controller.ts:handleUser:3',
+        'symbol:src/ts/repository.ts:saveUser:1',
+      ],
+      expectedPath: [
+        'symbol:src/ts/controller.ts:handleUser:3',
+        'symbol:src/ts/repository.ts:saveUser:1',
+      ],
+      workspaceRoot: '/tmp/workspace',
+    });
+
+    expect(result.status).toBe('measured');
+    expect(result.metrics).toMatchObject({
+      precisionAt10: 1,
+      recallAt10: 1,
+      exactPathSuccess: true,
+      nativeTokenBudgetEnforced: false,
+      latencyMs: 12,
+    });
+  });
+
   it('detects breached node and token bounds', () => {
     const metrics = measureComparableMetrics({
       response: { nodes: Array.from({ length: 11 }, (_, index) => ({ id: String(index) })), tokenEstimate: 2001 },
@@ -162,24 +209,39 @@ describe('graph context benchmark contract', () => {
         for (const seed of workflow.seeds ?? []) expect(args).toEqual(expect.arrayContaining(['--seeds', seed]));
       }
 
-      expect(report.workflows.map(workflow => workflow.graphify.status)).toEqual(Array(6).fill('not-supported'));
+      expect(report.workflows.map(workflow => workflow.graphify.status)).toEqual([
+        'measured', 'measured', 'measured', 'measured', 'measured', 'not-supported',
+      ]);
       expect(Object.fromEntries(report.workflows.map(workflow => [workflow.id, workflow.graphify.args]))).toEqual({
         'locate-concept': ['query', 'where is idempotency policy defined?', '--budget', '2000', '--graph', '<workspace>/graphify-out/graph.json'],
-        'explain-file': ['explain', 'src/ts/controller.ts', '--graph', '<workspace>/graphify-out/graph.json'],
-        'callers-callees': ['explain', 'src/ts/controller.ts#handleUser', '--graph', '<workspace>/graphify-out/graph.json'],
+        'explain-file': ['explain', 'handleUser', '--graph', '<workspace>/graphify-out/graph.json'],
+        'callers-callees': ['explain', 'handleUser', '--graph', '<workspace>/graphify-out/graph.json'],
         'controller-database': ['path', 'src/ts/controller.ts#handleUser', 'src/ts/repository.ts#saveUser', '--graph', '<workspace>/graphify-out/graph.json'],
-        'refactor-interface': ['affected', 'src/ts/controller.ts#UserService', '--depth', '2', '--graph', '<workspace>/graphify-out/graph.json'],
-        'document-symbol': ['query', 'what documentation explains handleUser? seed: src/ts/controller.ts#handleUser', '--budget', '2000', '--graph', '<workspace>/graphify-out/graph.json'],
+        'refactor-interface': ['affected', 'UserService', '--depth', '2', '--graph', '<workspace>/graphify-out/graph.json'],
+        'document-symbol': [],
       });
       expect(report.workflows.every(workflow => workflow.graphify.bounds.requested.maxNodes === 10)).toBe(true);
-      expect(report.workflows.every(workflow => workflow.graphify.unsupported.length > 0)).toBe(true);
-      expect(calls.filter(call => call.executable === '/mock/graphify').map(call => call.args)).toEqual([['--version']]);
+      expect(report.workflows.filter(workflow => workflow.id !== 'document-symbol').every(workflow => workflow.graphify.comparison !== 'not-supported')).toBe(true);
+      expect(calls.filter(call => call.executable === '/mock/graphify').map(call => call.args)).toEqual([
+        ['--version'],
+        ['extract', expect.any(String), '--no-cluster', '--out', expect.any(String)],
+        ['cluster-only', expect.any(String), '--no-viz', '--no-label'],
+        ['query', 'where is idempotency policy defined?', '--budget', '2000', '--graph', expect.any(String)],
+        ['explain', 'handleUser', '--graph', expect.any(String)],
+        ['explain', 'handleUser', '--graph', expect.any(String)],
+        ['path', 'src/ts/controller.ts#handleUser', 'src/ts/repository.ts#saveUser', '--graph', expect.any(String)],
+        ['affected', 'UserService', '--depth', '2', '--graph', expect.any(String)],
+      ]);
 
       const serialized = readFileSync(join(outputRoot, 'latest', 'report.json'), 'utf8');
       expect(serialized).not.toContain(outputRoot);
       expect(serialized).not.toContain('graph-it-context-corpus-');
       expect(readFileSync(join(outputRoot, 'latest', 'locate-concept', 'json.txt'), 'utf8')).toContain('"indexRevision":"<revision>"');
       expect(readFileSync(join(outputRoot, 'latest', 'locate-concept', 'toon.txt'), 'utf8')).toContain('mtime: <mtime>');
+      const published = readFileSync(join(outputRoot, 'latest', 'report.md'), 'utf8');
+      expect(published).toContain('| Workflow | Comparison | Graph-It-Live | Graphify |');
+      expect(published).toContain('| controller-database | equivalent | measured | measured |');
+      expect(renderPublishedReport(report)).toBe(published);
     } finally {
       rmSync(outputRoot, { recursive: true, force: true });
     }
