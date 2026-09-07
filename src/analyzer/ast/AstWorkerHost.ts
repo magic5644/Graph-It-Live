@@ -132,7 +132,7 @@ export class AstWorkerHost {
       return;
     }
 
-    log.info('Stopping AstWorker');
+    log.debug('Stopping AstWorker');
 
     // Reject all pending requests
     for (const [id, pending] of this.pendingRequests) {
@@ -144,7 +144,7 @@ export class AstWorkerHost {
     await this.worker.terminate();
     this.worker = null;
 
-    log.info('AstWorker stopped');
+    log.debug('AstWorker stopped');
   }
 
   /**
