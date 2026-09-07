@@ -85,6 +85,9 @@ describe('graph context benchmark contract', () => {
       incrementalUpdateLatencyMs: 5,
       providerBillingTokens: null,
       indexFresh: true,
+      returnedNodeCount: 2,
+      edgeCount: 1,
+      pathLength: 1,
     });
     expect(metrics.requestTokens).toBeGreaterThan(0);
     expect(metrics.responseTokens).toBeGreaterThan(0);
@@ -132,12 +135,18 @@ describe('graph context benchmark contract', () => {
     });
 
     expect(result.status).toBe('measured');
+    expect(result.matchedNodeIds).toEqual([
+      'symbol:src/ts/controller.ts:handleUser:3',
+      'symbol:src/ts/repository.ts:saveUser:1',
+    ]);
     expect(result.metrics).toMatchObject({
       precisionAt10: 1,
       recallAt10: 1,
       exactPathSuccess: true,
       nativeTokenBudgetEnforced: false,
       latencyMs: 12,
+      candidateCount: 2,
+      matchedNodeCount: 2,
     });
   });
 
@@ -255,6 +264,17 @@ describe('graph context benchmark contract', () => {
       expect(readFileSync(join(outputRoot, 'latest', 'locate-concept', 'toon.txt'), 'utf8')).toContain('mtime: <mtime>');
       const published = readFileSync(join(outputRoot, 'latest', 'report.md'), 'utf8');
       expect(published).toContain('Warm session:');
+      expect(published).toContain('## Executive summary');
+      expect(published).toContain('## Methodology');
+      expect(published).toContain('## Corpus and oracle');
+      expect(published).toContain('## Per-workflow results');
+      expect(published).toContain('## Native command mappings');
+      expect(published).toContain('## Observed output excerpts');
+      expect(published).toContain('## Interpretation and limitations');
+      expect(published).toContain('graphify 0.8.36');
+      expect(published).toContain('where is idempotency policy defined?');
+      expect(published).toContain('--mode search');
+      expect(published).toContain('| controller-database | path query | equivalent | measured |');
       expect(published).toContain('| Workflow | Comparison | Graph-It-Live | Graphify |');
       expect(published).toContain('| controller-database | equivalent | measured | measured |');
       expect(renderPublishedReport(report)).toBe(published);

@@ -62,6 +62,9 @@ export function measureComparableMetrics({ response, incrementalResponse, expect
     precisionAt10: returnedIds.length === 0 ? 0 : hits / returnedIds.length,
     recallAt10: expected.size === 0 ? 0 : hits / expected.size,
     exactPathSuccess: expectedPath === undefined ? null : JSON.stringify(path) === JSON.stringify(expectedPath),
+    returnedNodeCount: returnedIds.length,
+    edgeCount,
+    pathLength: path.length,
     ambiguityRate: (response.ambiguous?.length ?? 0) / Math.max(1, returnedIds.length),
     staleEdgeRate: staleEdges / Math.max(1, edgeCount),
     indexFresh: response.fresh ?? null,
@@ -243,6 +246,7 @@ export function normalizeGraphifyResult({ output, elapsedMs, version, expectedNo
     bounds: plan.bounds,
     unsupported: plan.unsupported,
     output: normalizedOutput,
+    matchedNodeIds: returnedIds,
     metrics: {
       precisionAt10: candidateCount === 0 ? 0 : matchedCandidates.length / Math.min(10, candidateCount),
       recallAt10: expectedNodeIds.length === 0 ? 0 : returnedIds.length / expectedNodeIds.length,
@@ -250,6 +254,8 @@ export function normalizeGraphifyResult({ output, elapsedMs, version, expectedNo
       nativeTokenBudgetEnforced: plan.args.includes('--budget'),
       observedTokens: estimateTokens(normalizedOutput),
       latencyMs: elapsedMs,
+      candidateCount,
+      matchedNodeCount: returnedIds.length,
     },
   };
 }
@@ -293,24 +299,131 @@ function publishedMetric(value) {
   return typeof value === 'number' ? String(Math.round(value * 1000) / 1000) : '—';
 }
 
+function publishedValue(value) {
+  return typeof value === 'boolean' ? String(value) : publishedMetric(value);
+}
+
+function markdownCell(value) {
+  return String(value ?? '—').replaceAll('|', '\\|').replaceAll('\n', ' ');
+}
+
+function graphifyVersion(report) {
+  return report.workflows.find(workflow => workflow.graphify?.version)?.graphify.version ?? 'not-run';
+}
+
 export function renderPublishedReport(report) {
+  const measured = report.workflows.filter(workflow => workflow.graphify?.status === 'measured');
+  const comparisonCounts = Object.groupBy(report.workflows, workflow => workflow.graphify?.comparison ?? 'unknown');
   const rows = report.workflows.map(workflow => {
     const graphIt = workflow.graphItLive?.metrics ?? {};
     const graphify = workflow.graphify ?? {};
     const graphifyMetrics = graphify.metrics ?? {};
     return `| ${workflow.id} | ${graphify.comparison ?? '—'} | ${workflow.graphItLive ? 'measured' : '—'} | ${graphify.status ?? '—'} | ${publishedMetric(graphIt.precisionAt10)} / ${publishedMetric(graphIt.recallAt10)} | ${publishedMetric(graphifyMetrics.precisionAt10)} / ${publishedMetric(graphifyMetrics.recallAt10)} | ${publishedMetric(graphIt.responseTokens)} | ${publishedMetric(graphifyMetrics.observedTokens)} | ${publishedMetric(graphIt.warmLatencyMs)} | ${publishedMetric(graphifyMetrics.latencyMs)} | ${(graphify.unsupported ?? []).join(', ') || '—'} |`;
   });
+  const detailRows = report.workflows.map(workflow => {
+    const graphify = workflow.graphify ?? {};
+    const metrics = graphify.metrics ?? {};
+    return `| ${workflow.id} | ${markdownCell(workflow.request?.question || 'path query')} | ${graphify.comparison ?? '—'} | ${graphify.status ?? '—'} | ${publishedValue(workflow.graphItLive?.metrics?.exactPathSuccess)} | ${publishedValue(metrics.exactPathSuccess)} | ${publishedValue(workflow.graphItLive?.metrics?.nodeBoundRespected)} | ${publishedValue(workflow.graphItLive?.metrics?.tokenBudgetRespected)} | ${publishedValue(metrics.nativeTokenBudgetEnforced)} | ${workflow.graphItLive?.metrics?.returnedNodeCount ?? '—'} | ${metrics.matchedNodeCount ?? '—'} | ${markdownCell((graphify.unsupported ?? []).join(', ') || '—')} |`;
+  });
+  const commandRows = report.workflows.map(workflow => {
+    const graphify = workflow.graphify ?? {};
+    const graphifyCommand = graphify.args?.length ? ['graphify', ...graphify.args].join(' ') : '—';
+    return `| ${workflow.id} | \`${markdownCell(['graph-it', 'context', ...(workflow.graphItLive?.requestArgs ?? [])].join(' '))}\` | ${graphifyCommand === '—' ? '—' : `\`${markdownCell(graphifyCommand)}\``} | ${graphify.comparison ?? '—'} |`;
+  });
+  const corpusRows = report.corpus.files.map(filePath => `| \`${filePath}\` | ${filePath.startsWith('docs/') ? 'documentation' : filePath.startsWith('tests/') ? 'test' : 'source'} |`);
+  const warm = report.graphItLiveWarmSession;
+  const outputExcerpts = report.workflows.flatMap(workflow => {
+    const gil = workflow.graphItLive?.outputPreview ?? 'not retained';
+    const graphify = workflow.graphify?.output ?? workflow.graphify?.error ?? 'not executed';
+    const safe = output => String(output).slice(0, 1200).replaceAll('```', "''' ");
+    return [
+      `### ${workflow.id}`,
+      '',
+      '**Graph-It-Live output (first 1,200 characters):**',
+      '',
+      '```text',
+      safe(gil),
+      '```',
+      '',
+      '**Graphify output or error (first 1,200 characters):**',
+      '',
+      '```text',
+      safe(graphify),
+      '```',
+      '',
+    ];
+  });
   return [
     '# Graph context benchmark report',
     '',
     `Benchmark schema: ${report.schemaVersion}`, '',
-    `Warm session: ${report.graphItLiveWarmSession?.status ?? '—'}${report.graphItLiveWarmSession?.status === 'measured' ? `; ${report.graphItLiveWarmSession.queryCount} queries reused one index; mean query ${publishedMetric(report.graphItLiveWarmSession.meanQueryLatencyMs)} ms` : ''}`,
+    '## Executive summary', '',
+    `- Graph-It-Live CLI: \`${report.graphItLiveCli ?? 'local bundle'}\``,
+    `- Graphify: \`${graphifyVersion(report)}\``,
+    `- Workflows: ${report.workflows.length}; Graphify measured: ${measured.length}; Graphify not supported: ${report.workflows.length - measured.length}`,
+    `- Comparability: equivalent=${comparisonCounts.equivalent?.length ?? 0}, adapted=${comparisonCounts.adapted?.length ?? 0}, partial=${comparisonCounts.partial?.length ?? 0}, not-supported=${comparisonCounts['not-supported']?.length ?? 0}`,
+    `- Warm session: ${warm?.status ?? '—'}${warm?.status === 'measured' ? `; ${warm.queryCount} queries reused one index; mean query ${publishedMetric(warm.meanQueryLatencyMs)} ms` : ''}`,
+    '',
+    'This report does not produce a single global winner. A shorter response that returns no matching node is not scored as better than a larger response containing the expected evidence.',
+    '',
+    '## Methodology', '',
+    '- Both tools analyze the same deterministic temporary corpus. The corpus is recreated for every run.',
+    '- Graph-It-Live is measured through the bounded `context` gateway with the shared scope, depth, node and token bounds.',
+    '- Graphify is prepared once with `extract --no-cluster` and `cluster-only --no-label --no-viz`, then queried with its native command.',
+    '- `equivalent` means the user intent and relevant controls are directly comparable; `adapted` means identifiers or command shape were translated; `partial` means a capability gap remains; `not-supported` means no functional equivalent was executed.',
+    '- Precision and recall use the workflow oracle, not an LLM judgment. Token counts are serialized representation estimates, not provider billing tokens.',
+    '- Latency columns are not interchangeable: CLI warm includes one-shot process startup, while the warm session measures six requests after one persistent index build.',
+    '',
+    '## Corpus and oracle', '',
+    `The corpus contains ${report.corpus.files.length} files and ${report.corpus.expectedNodeIds.length} expected node records. The expected records are the minimum facts required for each workflow; extra valid graph context can affect precision when it is outside that oracle.`,
+    '',
+    '| File | Role |',
+    '|---|---|',
+    ...corpusRows,
+    '',
+    '**Expected node IDs:**', '',
+    ...report.corpus.expectedNodeIds.map(nodeId => `- \`${nodeId}\``),
+    '',
+    '## Bounds and measured fields', '',
+    '| Field | Graph-It-Live | Graphify | Interpretation |',
+    '|---|---|---|---|',
+    `| Scope | \`${report.workflows[0]?.request.scope ?? '—'}\` | isolated code graph | Same fixture scope; Graphify excludes Markdown for code-only extraction |`,
+    `| Depth | ${report.workflows[0]?.request.depth ?? '—'} | per-command or unavailable | Graphify ` + '`affected`' + ` supports depth; other commands do not expose the same bound |`,
+    `| Max nodes | ${report.workflows[0]?.request.maxNodes ?? '—'} | not native | Graphify output is measured without claiming native truncation |`,
+    `| Token budget | ${report.workflows[0]?.request.tokenBudget ?? '—'} | ` + '`query --budget`' + ` only | Native enforcement is reported per workflow |`,
+    '| Evidence | structured nodes/edges/path metadata | native text normalized by the adapter | Normalization can only match evidence present in output |',
+    '',
+    '## Per-workflow results', '',
+    '| Workflow | Question | Comparison | Graphify status | Exact path GIL | Exact path Graphify | GIL node bound | GIL token bound | Graphify native budget | GIL nodes returned | Graphify nodes matched | Limitations |',
+    '|---|---|---|---|---:|---:|---:|---:|---:|---:|---:|---|',
+    ...detailRows,
     '',
     '| Workflow | Comparison | Graph-It-Live | Graphify | Precision / recall GIL | Precision / recall Graphify | Response tokens GIL | Native tokens Graphify | CLI warm GIL (ms) | Graphify query (ms) | Limitations |',
     '|---|---|---|---|---:|---:|---:|---:|---:|---:|---|',
     ...rows,
     '',
-    'Statuses describe execution, while Comparison describes semantic comparability. Missing native limits are not treated as failed functionality; they are listed as limitations.',
+    '## Native command mappings', '',
+    '| Workflow | Graph-It-Live invocation | Graphify invocation | Comparison |',
+    '|---|---|---|---|',
+    ...commandRows,
+    '',
+    '## Observed output excerpts', '',
+    'These excerpts make the reported result inspectable without opening the raw artifacts. They are intentionally truncated; complete normalized outputs are stored in the per-workflow directories.',
+    '',
+    ...outputExcerpts,
+    '## Warm-session profile', '',
+    warm?.status === 'measured'
+      ? `Graph-It-Live reused one persistent MCP worker for ${warm.queryCount} queries. Indexing: ${publishedMetric(warm.indexingLatencyMs)} ms; query total: ${publishedMetric(warm.totalQueryLatencyMs)} ms; mean query: ${publishedMetric(warm.meanQueryLatencyMs)} ms; session total: ${publishedMetric(warm.totalSessionLatencyMs)} ms.`
+      : `Warm session was not measured: ${warm?.reason ?? warm?.error ?? 'unknown reason'}.`,
+    '',
+    '## Interpretation and limitations', '',
+    '- Do not rank tools by response tokens alone: empty or error responses can be very small.',
+    '- Do not compare Graphify query latency with Graph-It-Live one-shot CLI latency as if they used the same lifecycle.',
+    '- The corpus is intentionally small and deterministic; it is evidence for these workflows, not a universal language or repository benchmark.',
+    '- Graphify uses name-based symbol identifiers and code-only extraction here; documentation retrieval is therefore a genuine unsupported capability in this run.',
+    '- Precision is oracle-relative. The report should be supplemented with larger fixtures and manually reviewed task success before making a product-wide replacement claim.',
+    '',
+    'Raw JSON, normalized JSON/TOON outputs and this Markdown report are retained under `.reports/context-economy/latest/`.',
     '',
   ].join('\n');
 }
@@ -436,6 +549,8 @@ export async function runBenchmark({ cliPath, graphifyCli = process.env.GRAPHIFY
         id: workflow.id,
         request,
         graphItLive: {
+          requestArgs: cliArgs(workflow, '<workspace>', 'json'),
+          outputPreview: normalizedJson.slice(0, 1200),
           metrics: measureComparableMetrics({ response, incrementalResponse, expectedNodeIds: workflow.expected, expectedPath: expectedPath(workflow), request: requestText, responseText: normalizedJson, latenciesMs: { cold: cold.elapsedMs, warm: warm.elapsedMs, incrementalUpdate: incremental.elapsedMs } }),
           encoding: { ...estimateTokenSavings(normalizedJson, normalizedToon), providerBillingTokens: null },
         },
@@ -445,6 +560,7 @@ export async function runBenchmark({ cliPath, graphifyCli = process.env.GRAPHIFY
     workflows.forEach((workflow, index) => { workflow.graphify = graphify[index]; });
     const report = {
       schemaVersion: BENCHMARK_VERSION,
+      graphItLiveCli: resolvedCliPath,
       corpus: { files: Object.keys(corpus.files), expectedNodeIds: corpus.expectedNodeIds, changedFile: corpus.changedFile },
       workflows,
       graphItLiveWarmSession: warmSession,
