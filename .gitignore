@@ -159,32 +159,23 @@ vite.config.ts.timestamp-*
 # MacOS files
 .DS_Store
 
-# Copilot files
+# Agent files
 .copilot/
-.claude/
-docs/agent-instructions/*
+.claude/*
+!.claude/rules/
+!.claude/rules/**
 docs/AGENT_*
-.github/copilot-instructions.md
 .github/agents
 .github/prompts
 .github/context-mode
-.clavix
 .specify
 .reports
 .agent
 .codex
-.continue
-.cursor
-.gemini
-.roo
-.goose
 .scannerwork
-.kiro
 .obsidian
-.antigravitycli
 .prompts
 .agents/*
-.qoder
 
 
 codemaps/
@@ -196,24 +187,16 @@ playwright-report/
 test-results/
 
 
-# Snyk Security Extension - AI Rules (auto-generated)
+# Extension-generated AI rules remain local. Canonical rules live in .claude/rules/.
 .github/instructions
 .github/skills
 .github/hooks
-AGENTS.md
 
 # .graph-it/ — ephemeral CLI state/cache directory (graph-it-live CLI)
 .graph-it/
 
 # Benchmark temporary files
 tests/fixtures/bench-permanent/src/temp_*.ts
-
-# Snyk Security Extension - AI Rules (auto-generated)
-.github/instructions/snyk_rules.instructions.md
-
-# _bmad temporary files
-_bmad
-_bmad-output
 
 # VS Code settings (may contain user-specific or machine-specific settings)
 .vscode/settings.json
