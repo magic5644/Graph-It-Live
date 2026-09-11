@@ -435,8 +435,6 @@ function finalizeMermaid(lines: string[]): string {
 }
 
 function buildMermaidFromGraph(graph: GraphLike): string | null {
-  // TODO F4b: community subgraphs in Mermaid — GraphLike nodes carry no communityId today;
-  // requires either extending GraphLike or a dedicated community-aware formatter.
   const nodes = graph.nodes ?? [];
   const edges = graph.edges ?? [];
   if (nodes.length === 0 && edges.length === 0) return null;
@@ -767,33 +765,43 @@ function extractNestedArrayForToon(data: unknown): unknown[] | null {
  */
 function extractDependencyCheckArrayForToon(data: unknown): unknown[] | null {
   if (typeof data !== "object" || data === null) return null;
+
   const obj = data as Record<string, unknown>;
+  const dependencies = readDependencyArray(obj["outgoing"], "dependencies");
+  const referencingFiles = readDependencyArray(obj["incoming"], "referencingFiles");
 
-  const outgoing = obj["outgoing"];
-  const incoming = obj["incoming"];
-  const dependencies = typeof outgoing === "object" && outgoing !== null
-    ? (outgoing as Record<string, unknown>)["dependencies"]
-    : undefined;
-  const referencingFiles = typeof incoming === "object" && incoming !== null
-    ? (incoming as Record<string, unknown>)["referencingFiles"]
-    : undefined;
-
-  if (!Array.isArray(dependencies) && !Array.isArray(referencingFiles)) {
+  if (!dependencies && !referencingFiles) {
     return null;
   }
 
   const tagged: unknown[] = [];
-  if (Array.isArray(dependencies)) {
-    for (const dep of dependencies) {
-      tagged.push(typeof dep === "object" && dep !== null ? { direction: "outgoing", ...dep } : dep);
-    }
-  }
-  if (Array.isArray(referencingFiles)) {
-    for (const ref of referencingFiles) {
-      tagged.push(typeof ref === "object" && ref !== null ? { direction: "incoming", ...ref } : ref);
-    }
-  }
+  appendTaggedItems(tagged, dependencies, "outgoing");
+  appendTaggedItems(tagged, referencingFiles, "incoming");
   return tagged;
+}
+
+function readDependencyArray(container: unknown, key: "dependencies" | "referencingFiles"): unknown[] | undefined {
+  if (typeof container !== "object" || container === null) {
+    return undefined;
+  }
+
+  const record = container as Record<string, unknown>;
+  const value = record[key];
+  return Array.isArray(value) ? value : undefined;
+}
+
+function appendTaggedItems(target: unknown[], items: unknown[] | undefined, direction: "outgoing" | "incoming"): void {
+  if (!Array.isArray(items)) {
+    return;
+  }
+
+  for (const item of items) {
+    target.push(isRecord(item) ? { direction, ...item } : item);
+  }
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null;
 }
 
 function inferObjectName(data: unknown[]): string {

@@ -538,24 +538,33 @@ function toErrorMessage(error: unknown): string {
 
 function copyToClipboard(rawText: string): boolean {
   const text = rawText.endsWith('\n') ? rawText : `${rawText}\n`;
+  const windowsRoot = process.env.SystemRoot ?? String.raw`C:\Windows`;
+  const fixedPathEnv = {
+    ...process.env,
+    PATH:
+      process.platform === 'win32'
+        ? windowsRoot + String.raw`\System32`
+        : '/usr/bin:/bin',
+  };
 
   if (process.platform === 'darwin') {
-    const result = spawnSync('pbcopy', [], { input: text });
+    const result = spawnSync('/usr/bin/pbcopy', [], { input: text, env: fixedPathEnv });
     return result.status === 0;
   }
 
   if (process.platform === 'win32') {
-    const result = spawnSync('clip', [], { input: text, shell: true });
+    const clipPath = String.raw`${windowsRoot}\System32\clip.exe`;
+    const result = spawnSync(clipPath, [], { input: text, env: fixedPathEnv });
     return result.status === 0;
   }
 
-  const wl = spawnSync('wl-copy', [], { input: text });
+  const wl = spawnSync('/usr/bin/wl-copy', [], { input: text, env: fixedPathEnv });
   if (wl.status === 0) return true;
 
-  const xclip = spawnSync('xclip', ['-selection', 'clipboard'], { input: text });
+  const xclip = spawnSync('/usr/bin/xclip', ['-selection', 'clipboard'], { input: text, env: fixedPathEnv });
   if (xclip.status === 0) return true;
 
-  const xsel = spawnSync('xsel', ['--clipboard', '--input'], { input: text });
+  const xsel = spawnSync('/usr/bin/xsel', ['--clipboard', '--input'], { input: text, env: fixedPathEnv });
   return xsel.status === 0;
 }
 
@@ -903,6 +912,30 @@ function tryExecuteSelectedArgumentSuggestion(
   return false;
 }
 
+function handleCommandSelectionBranch(
+  selectedCommand: string,
+  needsArgs: boolean,
+  displayLastFile: string,
+  runCommand: (trimmed: string) => void,
+  setCommandLine: React.Dispatch<React.SetStateAction<string>>,
+  setNotice: React.Dispatch<React.SetStateAction<string>>,
+  onActivatePicker: (mode: 'path' | 'file', target?: PickerTarget) => void,
+): void {
+  if (!needsArgs) {
+    runCommand(selectedCommand);
+    return;
+  }
+
+  if (selectedCommand === '/path') {
+    onActivatePicker('path', { command: selectedCommand });
+  } else if (FILE_ARGUMENT_COMMANDS.has(selectedCommand) && !hasUsableFileContext(displayLastFile)) {
+    onActivatePicker('file', { command: selectedCommand });
+  } else {
+    setCommandLine(buildPrefilledCommandLine(selectedCommand, displayLastFile));
+    setNotice(`Command selected: ${selectedCommand}`);
+  }
+}
+
 function tryHandleSelectedCommandEnter(
   trimmed: string,
   selectedSlashSuggestion: SlashCommandEntry | undefined,
@@ -921,31 +954,16 @@ function tryHandleSelectedCommandEnter(
   const hasArguments = trimmed.length > firstToken.length;
   const needsArgs = COMMANDS_REQUIRING_ARGS.has(selectedCommand);
 
-  if (firstToken !== selectedCommand) {
-    if (needsArgs) {
-      if (selectedCommand === '/path') {
-        onActivatePicker('path', { command: selectedCommand });
-      } else if (FILE_ARGUMENT_COMMANDS.has(selectedCommand) && !hasUsableFileContext(displayLastFile)) {
-        onActivatePicker('file', { command: selectedCommand });
-      } else {
-        setCommandLine(buildPrefilledCommandLine(selectedCommand, displayLastFile));
-        setNotice(`Command selected: ${selectedCommand}`);
-      }
-    } else {
-      runCommand(selectedCommand);
-    }
-    return true;
-  }
-
-  if (!hasArguments && needsArgs) {
-    if (selectedCommand === '/path') {
-      onActivatePicker('path', { command: selectedCommand });
-    } else if (FILE_ARGUMENT_COMMANDS.has(selectedCommand) && !hasUsableFileContext(displayLastFile)) {
-      onActivatePicker('file', { command: selectedCommand });
-    } else {
-      setCommandLine(buildPrefilledCommandLine(selectedCommand, displayLastFile));
-      setNotice(`Command selected: ${selectedCommand}`);
-    }
+  if (firstToken !== selectedCommand || (!hasArguments && needsArgs)) {
+    handleCommandSelectionBranch(
+      selectedCommand,
+      needsArgs,
+      displayLastFile,
+      runCommand,
+      setCommandLine,
+      setNotice,
+      onActivatePicker,
+    );
     return true;
   }
 
@@ -1099,16 +1117,29 @@ export async function runInkReplSession(options: RunInkReplSessionOptions): Prom
   const useInput = ink.useInput;
   const useWindowSize = ink.useWindowSize;
 
-  function buildPickerPanelNodes(
-    pickerMode: PickerMode,
-    pickerDir: string,
-    pickerIndex: number,
-    pickerEntries: PickerEntry[],
-    visiblePickerEntries: PickerEntry[],
-    pickerScrollStart: number,
-    panelHeight: number,
-    pickerTarget: PickerTarget | null,
-  ): React.ReactElement {
+  interface PickerPanelProps {
+    pickerMode: PickerMode;
+    pickerDir: string;
+    pickerIndex: number;
+    pickerEntries: PickerEntry[];
+    visiblePickerEntries: PickerEntry[];
+    pickerScrollStart: number;
+    panelHeight: number;
+    pickerTarget: PickerTarget | null;
+  }
+
+  function buildPickerPanelNodes(props: PickerPanelProps): React.ReactElement {
+    const {
+      pickerMode: pickerModeParam,
+      pickerDir,
+      pickerIndex,
+      pickerEntries,
+      visiblePickerEntries,
+      pickerScrollStart,
+      panelHeight,
+      pickerTarget,
+    } = props;
+    const pickerMode = pickerModeParam;
     const borderColor = pickerMode === 'path' ? 'yellow' : 'green';
     const targetLabel = pickerTarget?.command ? ` for ${pickerTarget.command}` : '';
     const title = pickerMode === 'path'
@@ -1378,11 +1409,58 @@ export async function runInkReplSession(options: RunInkReplSessionOptions): Prom
       }
     });
 
-    const resultNodes = visibleLines.length > 0
-      ? visibleLines.map((line, index) => h(Text, { key: `${clampedScrollTop + index}-${line}` }, line))
-      : [h(Text, { dimColor: true, key: 'empty' }, 'No results yet')];
-    const suggestionNodes = hasSlashSuggestions
-      ? visibleSlashSuggestions.map((entry, index) => {
+    function buildMainPanel(): React.ReactElement {
+      if (pickerMode !== 'none') {
+        return buildPickerPanelNodes({
+          pickerMode,
+          pickerDir,
+          pickerIndex,
+          pickerEntries,
+          visiblePickerEntries,
+          pickerScrollStart,
+          panelHeight,
+          pickerTarget,
+        });
+      }
+
+      const resultNodes = visibleLines.length > 0
+        ? visibleLines.map((line, index) => h(Text, { key: `${clampedScrollTop + index}-${line}` }, line))
+        : [h(Text, { dimColor: true, key: 'empty' }, 'No results yet')];
+      const filterSuffix = searchQuery ? ` ${SPARK}filter:${RESET} ${searchQuery}` : '';
+      const resultsSummary = `${BOLD}Results${RESET} ${DIM}(lines ${clampedScrollTop + 1}-${Math.min(filteredLines.length, clampedScrollTop + panelContentHeight)} / ${Math.max(1, filteredLines.length)})${RESET}${filterSuffix}`;
+
+      return h(
+        Box,
+        { height: panelHeight, flexDirection: 'column', paddingLeft: 1 },
+        h(Text, { color: 'cyan' }, resultsSummary),
+        h(Box, { flexDirection: 'column', marginTop: 1 }, ...resultNodes),
+      );
+    }
+
+    function buildFooterItems(): React.ReactElement[] {
+      const footerItems: React.ReactElement[] = [
+        h(Text, {}, `${DIM}${notice}${RESET}`),
+        h(Text, {}, `${getPromptGlyph(isSearchMode, isRunning)} ${isSearchMode ? searchQuery : commandLine}${isRunning ? ' …' : ''}`),
+      ];
+
+      if (hasSlashSuggestions) {
+        footerItems.push(
+          h(Text, { key: 'slash-help' }, `${DIM}Suggestions ${boundedSelectedCommandIndex + 1}/${slashSuggestions.length}: ↑/↓ select · Tab complete · Enter apply/run · type space for files/options${RESET}`),
+        );
+        if (completionPreview.length > 0) {
+          footerItems.push(
+            h(Text, { key: 'slash-completion' }, `${DIM}Completion: ${isSearchMode ? searchQuery : commandLine}${completionPreview}${RESET}`),
+          );
+        }
+        if (argsHintLine) {
+          footerItems.push(h(Text, { key: 'slash-args' }, argsHintLine));
+        }
+        if (slashWindowIndicator) {
+          footerItems.push(
+            h(Text, { key: 'slash-window' }, `${DIM}Showing ${visibleSlashStart + 1}-${visibleSlashStart + visibleSlashSuggestions.length}${RESET}`),
+          );
+        }
+        const suggestionNodes = visibleSlashSuggestions.map((entry, index) => {
           const absoluteIndex = visibleSlashStart + index;
           const isSelected = absoluteIndex === boundedSelectedCommandIndex;
           const prefix = isSelected ? '›' : ' ';
@@ -1392,15 +1470,12 @@ export async function runInkReplSession(options: RunInkReplSessionOptions): Prom
             { key: `slash-${absoluteIndex}-${entry.command}` },
             `${color}${prefix} ${entry.command.padEnd(20)}${RESET} ${entry.description}`,
           );
-        })
-      : [];
-    const filterSuffix = searchQuery
-      ? ` ${SPARK}filter:${RESET} ${searchQuery}`
-      : '';
-    const resultsSummary = `${BOLD}Results${RESET} ${DIM}(lines ${clampedScrollTop + 1}-${Math.min(filteredLines.length, clampedScrollTop + panelContentHeight)} / ${Math.max(1, filteredLines.length)})${RESET}${filterSuffix}`;
-    const promptGlyph = getPromptGlyph(isSearchMode, isRunning);
-    const activeInput = isSearchMode ? searchQuery : commandLine;
-    const runningSuffix = isRunning ? ' …' : '';
+        });
+        footerItems.push(...suggestionNodes);
+      }
+
+      return footerItems;
+    }
 
     return h(
       Box,
@@ -1417,42 +1492,11 @@ export async function runInkReplSession(options: RunInkReplSessionOptions): Prom
         { marginBottom: 1 },
         h(Text, { wrap: 'truncate' }, `${DIM}workspace:${RESET} ${displayWorkspace}  ${DIM}format:${RESET} ${options.preferredFormat}  ${DIM}last file:${RESET} ${displayLastFile}  ${DIM}last symbol:${RESET} ${displayLastSymbol}`),
       ),
-      pickerMode === 'none'
-        ? h(
-            Box,
-            {
-              height: panelHeight,
-              flexDirection: 'column',
-              paddingLeft: 1,
-            },
-            h(Text, { color: 'cyan' }, resultsSummary),
-            h(Box, { flexDirection: 'column', marginTop: 1 }, ...resultNodes),
-          )
-        : buildPickerPanelNodes(pickerMode, pickerDir, pickerIndex, pickerEntries, visiblePickerEntries, pickerScrollStart, panelHeight, pickerTarget),
+      buildMainPanel(),
       h(
         Box,
         { marginTop: 1, flexDirection: 'column' },
-        h(Text, {}, `${DIM}${notice}${RESET}`),
-        h(Text, {}, `${promptGlyph} ${activeInput}${runningSuffix}`),
-        ...(hasSlashSuggestions
-          ? [
-              h(Text, { key: 'slash-help' }, `${DIM}Suggestions ${boundedSelectedCommandIndex + 1}/${slashSuggestions.length}: ↑/↓ select · Tab complete · Enter apply/run · type space for files/options${RESET}`),
-              ...(completionPreview.length > 0
-                ? [h(Text, { key: 'slash-completion' }, `${DIM}Completion: ${activeInput}${completionPreview}${RESET}`)]
-                : []),
-              ...(argsHintLine ? [h(Text, { key: 'slash-args' }, argsHintLine)] : []),
-              ...(slashWindowIndicator
-                ? [
-                    h(
-                      Text,
-                      { key: 'slash-window' },
-                      `${DIM}Showing ${visibleSlashStart + 1}-${visibleSlashStart + visibleSlashSuggestions.length}${RESET}`,
-                    ),
-                  ]
-                : []),
-              ...suggestionNodes,
-            ]
-          : []),
+        ...buildFooterItems(),
       ),
     );
   }

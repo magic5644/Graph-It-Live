@@ -1,86 +1,111 @@
 import { normalizePath } from '../../shared/path.js';
 import type { CommunityGraph, CommunityResult } from './types.js';
 
-export function detectCommunities(graph: CommunityGraph): CommunityResult {
-  const nodes = graph.nodes.map(n => normalizePath(n));
-  const edges = graph.edges.map(e => ({
-    source: normalizePath(e.source),
-    target: normalizePath(e.target),
-  }));
-
-  // Build adjacency: undirected (import graph treated as undirected for modularity)
+function buildAdjacency(nodes: string[], edges: Array<{ source: string; target: string }>): Map<string, Set<string>> {
   const adj = new Map<string, Set<string>>();
   for (const n of nodes) adj.set(n, new Set());
+
   for (const e of edges) {
     adj.get(e.source)?.add(e.target);
     adj.get(e.target)?.add(e.source);
   }
 
-  // Init: each node in its own community (1-indexed, 0 reserved for isolated)
+  return adj;
+}
+
+function initializeAssignments(nodes: string[], adj: Map<string, Set<string>>): Map<string, number> {
   const assignments = new Map<string, number>();
   let nextId = 1;
+
   for (const n of nodes) {
     if ((adj.get(n)?.size ?? 0) === 0) {
-      assignments.set(n, 0); // isolated
-    } else {
-      assignments.set(n, nextId++);
+      assignments.set(n, 0);
+      continue;
     }
+
+    assignments.set(n, nextId++);
   }
 
-  const totalEdges = edges.length;
-  if (totalEdges === 0) {
-    return { assignments, count: 0 };
-  }
+  return assignments;
+}
 
-  // Degree map
-  const degree = new Map<string, number>();
-  for (const n of nodes) degree.set(n, adj.get(n)?.size ?? 0);
-
-  // Phase 1: local modularity optimization
-  // Iterate until no improvement (max 100 passes)
+function optimizeAssignments(nodes: string[], adj: Map<string, Set<string>>, assignments: Map<string, number>): void {
   for (let pass = 0; pass < 100; pass++) {
     let improved = false;
-    // Deterministic order (sorted for reproducibility)
-    const ordered = [...nodes].filter(n => assignments.get(n) !== 0).sort();
+    const ordered = [...nodes]
+      .filter(node => assignments.get(node) !== 0)
+      .sort((a, b) => a.localeCompare(b));
 
     for (const node of ordered) {
       const currentComm = assignments.get(node)!;
       const neighbors = adj.get(node) ?? new Set<string>();
-
-      // Count edges to each neighboring community
       const commEdges = new Map<number, number>();
-      for (const nb of neighbors) {
-        const c = assignments.get(nb)!;
-        if (c !== 0) commEdges.set(c, (commEdges.get(c) ?? 0) + 1);
+
+      for (const neighbor of neighbors) {
+        const communityId = assignments.get(neighbor)!;
+        if (communityId !== 0) {
+          commEdges.set(communityId, (commEdges.get(communityId) ?? 0) + 1);
+        }
       }
 
-      // Find best community (max edges = greedy modularity proxy)
-      let bestComm = currentComm;
-      let bestScore = commEdges.get(currentComm) ?? 0;
-      for (const [c, count] of commEdges) {
-        if (count > bestScore) { bestComm = c; bestScore = count; }
-      }
-
-      if (bestComm !== currentComm) {
-        assignments.set(node, bestComm);
+      const bestCommunity = getBestCommunity(currentComm, commEdges);
+      if (bestCommunity !== currentComm) {
+        assignments.set(node, bestCommunity);
         improved = true;
       }
     }
 
     if (!improved) break;
   }
+}
 
-  // Remap community ids to contiguous 1-indexed
-  const remapOld = new Set<number>();
-  for (const v of assignments.values()) if (v !== 0) remapOld.add(v);
-  const remap = new Map<number, number>();
-  let idx = 1;
-  for (const old of [...remapOld].sort((a, b) => a - b)) remap.set(old, idx++);
+function getBestCommunity(currentCommunity: number, commEdges: Map<number, number>): number {
+  let bestComm = currentCommunity;
+  let bestScore = commEdges.get(currentCommunity) ?? 0;
 
-  for (const [k, v] of assignments) {
-    if (v !== 0) assignments.set(k, remap.get(v)!);
+  for (const [communityId, count] of commEdges) {
+    if (count > bestScore) {
+      bestComm = communityId;
+      bestScore = count;
+    }
   }
 
-  const count = remap.size;
-  return { assignments, count };
+  return bestComm;
+}
+
+function remapCommunityIds(assignments: Map<string, number>): { assignments: Map<string, number>; count: number } {
+  const remapOld = new Set<number>();
+  for (const value of assignments.values()) {
+    if (value !== 0) remapOld.add(value);
+  }
+
+  const remap = new Map<number, number>();
+  let idx = 1;
+  for (const oldId of [...remapOld].sort((a, b) => a - b)) {
+    remap.set(oldId, idx++);
+  }
+
+  for (const [key, value] of assignments) {
+    if (value !== 0) assignments.set(key, remap.get(value)!);
+  }
+
+  return { assignments, count: remap.size };
+}
+
+export function detectCommunities(graph: CommunityGraph): CommunityResult {
+  const nodes = graph.nodes.map(name => normalizePath(name));
+  const edges = graph.edges.map(edge => ({
+    source: normalizePath(edge.source),
+    target: normalizePath(edge.target),
+  }));
+
+  const adjacency = buildAdjacency(nodes, edges);
+  const assignments = initializeAssignments(nodes, adjacency);
+
+  if (edges.length === 0) {
+    return { assignments, count: 0 };
+  }
+
+  optimizeAssignments(nodes, adjacency, assignments);
+  return remapCommunityIds(assignments);
 }
