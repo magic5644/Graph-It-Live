@@ -1180,77 +1180,92 @@ async function runAction(
     };
   }
 
-  if (action === 'command') {
-    return runTypedCommandFromPrompt(runtime, state, preferredFormat, allFiles);
-  }
-
-  if (action === 'setPath') {
-    const scopedFiles = getScopedFiles(allFiles, state.workspaceRoot);
-    const selectedRelativeDirectory = await searchDirectory(scopedFiles, state.workspaceRoot);
-    const nextWorkspace = path.resolve(state.workspaceRoot, selectedRelativeDirectory || '.');
-
-    if (!isWithinRoot(nextWorkspace, runtime.workspaceRoot)) {
+  switch (action) {
+    case 'command':
+      return runTypedCommandFromPrompt(runtime, state, preferredFormat, allFiles);
+    case 'setPath':
+      return runSetPathAction(runtime, state, allFiles);
+    case 'format':
+      return runFormatAction(state);
+    case 'help':
       return {
-        command: 'path',
-        output: 'Refusing to set workspace scope outside project root.',
+        command: 'help',
+        output: buildReplHelpText(state),
         skipPostAction: true,
       };
-    }
+    case 'query':
+      return runQueryAction(runtime, preferredFormat);
+    case 'wiki':
+      return runWikiAction(runtime, preferredFormat);
+    case 'architecture':
+    case 'summary':
+    case 'check':
+      return runStickyContextAction(action, runtime, state, preferredFormat);
+    case 'quit':
+      return { command: 'quit', shouldQuit: true, skipPostAction: true };
+    default:
+      return runFileDrivenAction(action as ReplFileAction, runtime, state, allFiles, preferredFormat);
+  }
+}
 
-    state.workspaceRoot = nextWorkspace;
-    state.lastFile = undefined;
-    state.lastSymbol = undefined;
+async function runSetPathAction(
+  runtime: CliRuntime,
+  state: ReturnType<typeof createSessionState>,
+  allFiles: string[],
+): Promise<ReplActionResult> {
+  const scopedFiles = getScopedFiles(allFiles, state.workspaceRoot);
+  const selectedRelativeDirectory = await searchDirectory(scopedFiles, state.workspaceRoot);
+  const nextWorkspace = path.resolve(state.workspaceRoot, selectedRelativeDirectory || '.');
 
+  if (!isWithinRoot(nextWorkspace, runtime.workspaceRoot)) {
     return {
       command: 'path',
-      output: `Session workspace set to ${path.relative(runtime.workspaceRoot, state.workspaceRoot) || '.'}.`,
+      output: 'Refusing to set workspace scope outside project root.',
       skipPostAction: true,
     };
   }
 
-  if (action === 'format') {
-    state.preferredFormat = await selectPreferredFormat(state.preferredFormat);
+  state.workspaceRoot = nextWorkspace;
+  state.lastFile = undefined;
+  state.lastSymbol = undefined;
+
+  return {
+    command: 'path',
+    output: `Session workspace set to ${path.relative(runtime.workspaceRoot, state.workspaceRoot) || '.'}.`,
+    skipPostAction: true,
+  };
+}
+
+async function runFormatAction(state: ReturnType<typeof createSessionState>): Promise<ReplActionResult> {
+  state.preferredFormat = await selectPreferredFormat(state.preferredFormat);
+  return {
+    command: 'format',
+    output: `Default format set to ${state.preferredFormat}.`,
+    skipPostAction: true,
+  };
+}
+
+async function runQueryAction(
+  runtime: CliRuntime,
+  preferredFormat: CliOutputFormat,
+): Promise<ReplActionResult> {
+  const question = await inputQueryQuestion();
+  if (!question.trim()) {
     return {
-      command: 'format',
-      output: `Default format set to ${state.preferredFormat}.`,
+      command: 'query',
+      output: 'No question provided. Try: /query "how does Spider crawl files"',
       skipPostAction: true,
     };
   }
+  return executeCommandForRepl('query', [question], runtime, preferredFormat, (await import('./query.js')).run);
+}
 
-  if (action === 'help') {
-    return {
-      command: 'help',
-      output: buildReplHelpText(state),
-      skipPostAction: true,
-    };
-  }
-
-  if (action === 'query') {
-    const question = await inputQueryQuestion();
-    if (!question.trim()) {
-      return {
-        command: 'query',
-        output: 'No question provided. Try: /query "how does Spider crawl files"',
-        skipPostAction: true,
-      };
-    }
-    return executeCommandForRepl('query', [question], runtime, preferredFormat, (await import('./query.js')).run);
-  }
-
-  if (action === 'wiki') {
-    const outputDir = await inputWikiOutputDir();
-    return executeCommandForRepl('wiki', outputDir ? ['--output', outputDir] : [], runtime, preferredFormat, (await import('./wiki.js')).run);
-  }
-
-  if (action === 'architecture' || action === 'summary' || action === 'check') {
-    return runStickyContextAction(action, runtime, state, preferredFormat);
-  }
-
-  if (action === 'quit') {
-    return { command: 'quit', shouldQuit: true, skipPostAction: true };
-  }
-
-  return runFileDrivenAction(action, runtime, state, allFiles, preferredFormat);
+async function runWikiAction(
+  runtime: CliRuntime,
+  preferredFormat: CliOutputFormat,
+): Promise<ReplActionResult> {
+  const outputDir = await inputWikiOutputDir();
+  return executeCommandForRepl('wiki', outputDir ? ['--output', outputDir] : [], runtime, preferredFormat, (await import('./wiki.js')).run);
 }
 
 async function runStickyContextAction(

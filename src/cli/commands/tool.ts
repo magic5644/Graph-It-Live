@@ -181,7 +181,7 @@ function parseToolArgs(args: string[]): Record<string, unknown> {
   return result;
 }
 
-type CliToolHandler = (params: unknown, rootDir: string) => Promise<unknown> | unknown;
+type CliToolHandler = (params: unknown, rootDir: string) => Promise<unknown> | void;
 
 function validateCliPath(filePath: string, rootDir: string): void {
   validateFilePath(filePath, rootDir);
@@ -229,7 +229,7 @@ const cliToolHandlers: Partial<Record<McpToolName, CliToolHandler>> = {
   invalidate_files: (params, rootDir) => {
     const p = params as InvalidateFilesParams;
     for (const filePath of p.filePaths) validateCliPath(filePath, rootDir);
-    return executeInvalidateFiles(p);
+    return Promise.resolve(executeInvalidateFiles(p));
   },
   rebuild_index: () => executeRebuildIndex(() => {/* no-op progress for CLI */}),
   get_symbol_graph: (params, rootDir) => {

@@ -429,44 +429,62 @@ export function bfsFromSeeds(
   maxNodes = 200,
 ): Set<string> {
   const visited = new Set<string>();
+  const validSeeds = seeds.filter((seed) => isValidNodeId(seed.id));
 
-  // Add all valid seeds first
-  for (const seed of seeds) {
-    if (seed.id && !seed.id.startsWith('@@external:')) {
-      visited.add(seed.id);
-    }
+  for (const seed of validSeeds) {
+    visited.add(seed.id);
   }
 
   if (depth === 0 || visited.size === 0) {
     return visited;
   }
 
-  // Frontier: sorted by score DESC for priority expansion
-  let frontier = [...seeds]
-    .filter(s => s.id && !s.id.startsWith('@@external:'))
-    .sort((a, b) => b.score - a.score)
-    .map(s => s.id);
+  let frontier = getPriorityFrontier(validSeeds);
 
-  for (let hop = 0; hop < depth; hop++) {
-    if (frontier.length === 0) break;
-
-    const nextFrontier: string[] = [];
-
-    for (const nodeId of frontier) {
-      if (visited.size >= maxNodes) break;
-
-      const neighbours = collectNeighbourIds(db, nodeId);
-      for (const neighbourId of neighbours) {
-        if (!visited.has(neighbourId)) {
-          visited.add(neighbourId);
-          nextFrontier.push(neighbourId);
-          if (visited.size >= maxNodes) break;
-        }
-      }
-    }
-
-    frontier = nextFrontier;
+  for (let hop = 0; hop < depth && frontier.length > 0; hop++) {
+    frontier = expandFrontier(db, frontier, visited, maxNodes);
   }
 
   return visited;
+}
+
+function isValidNodeId(id: string): boolean {
+  return Boolean(id) && !id.startsWith('@@external:');
+}
+
+function getPriorityFrontier(
+  seeds: Array<{ id: string; score: number }>,
+): string[] {
+  return [...seeds]
+    .sort((a, b) => b.score - a.score)
+    .map((seed) => seed.id);
+}
+
+function expandFrontier(
+  db: Database,
+  frontier: string[],
+  visited: Set<string>,
+  maxNodes: number,
+): string[] {
+  const nextFrontier: string[] = [];
+
+  for (const nodeId of frontier) {
+    if (visited.size >= maxNodes) break;
+
+    const neighbours = collectNeighbourIds(db, nodeId);
+    for (const neighbourId of neighbours) {
+      if (visited.has(neighbourId) || !isValidNodeId(neighbourId)) {
+        continue;
+      }
+
+      visited.add(neighbourId);
+      nextFrontier.push(neighbourId);
+
+      if (visited.size >= maxNodes) {
+        break;
+      }
+    }
+  }
+
+  return nextFrontier;
 }

@@ -37,7 +37,7 @@ const LLM_NOTE =
 
 /** Règle 10 — escape pipes in any name rendered inside a markdown table cell. */
 function escapeCell(s: string): string {
-  return s.replaceAll("|", "\\|");
+  return s.replaceAll("|", String.raw`\|`);
 }
 
 function parseStatsDir(args: string[]): string | undefined {
@@ -153,7 +153,7 @@ function renderText(
   current: SessionStatsSnapshot,
   history: SessionStatsSnapshot[],
 ): string {
-  const lines: string[] = [
+  const currentLines: string[] = [
     `# ${HEADER}`,
     "",
     `All JSON/TOON token counts are ${ESTIMATION_NOTE}.`,
@@ -162,35 +162,50 @@ function renderText(
     "",
   ];
 
-  if (current.totals.calls === 0) {
-    lines.push("(no TOON-encoded responses recorded in this session)");
-  } else {
-    lines.push(...renderToolTable(current.byTool));
-    lines.push(
+  const currentDetails =
+    current.totals.calls === 0
+      ? ["(no TOON-encoded responses recorded in this session)"]
+      : [
+          ...renderToolTable(current.byTool),
+          "",
+          `Totals: ${current.totals.calls} calls, JSON ${current.totals.jsonTokens} tokens vs TOON ${current.totals.toonTokens} tokens (delta ${current.totals.savings}, ${ESTIMATION_NOTE}).`,
+        ];
+
+  const llmDetails =
+    current.llmUsage.calls === 0
+      ? ["(no LLM calls recorded in this session)"]
+      : [
+          `LLM calls: ${current.llmUsage.calls}, tokens used: ${current.llmUsage.tokensUsed} (real, provider-reported).`,
+        ];
+
+  const historyDetails =
+    history.length === 0
+      ? ["(no persisted sessions found)"]
+      : [
+          "### By source",
+          "",
+          ...renderSourceTable(aggregateBySource(history)),
+          "",
+          "### By tool",
+          "",
+          ...renderToolTable(aggregateByTool(history)),
+        ];
+
+  return currentLines
+    .concat(
+      currentDetails,
       "",
-      `Totals: ${current.totals.calls} calls, JSON ${current.totals.jsonTokens} tokens vs TOON ${current.totals.toonTokens} tokens (delta ${current.totals.savings}, ${ESTIMATION_NOTE}).`,
-    );
-  }
-
-  lines.push("", "## llmUsage (current session)", "");
-  if (current.llmUsage.calls === 0) {
-    lines.push("(no LLM calls recorded in this session)");
-  } else {
-    lines.push(
-      `LLM calls: ${current.llmUsage.calls}, tokens used: ${current.llmUsage.tokensUsed} (real, provider-reported).`,
-    );
-  }
-  lines.push("", LLM_NOTE);
-
-  lines.push("", "## History (persisted sessions)", "");
-  if (history.length === 0) {
-    lines.push("(no persisted sessions found)");
-  } else {
-    lines.push("### By source", "", ...renderSourceTable(aggregateBySource(history)));
-    lines.push("", "### By tool", "", ...renderToolTable(aggregateByTool(history)));
-  }
-
-  return lines.join("\n");
+      "## llmUsage (current session)",
+      "",
+      llmDetails,
+      "",
+      LLM_NOTE,
+      "",
+      "## History (persisted sessions)",
+      "",
+      historyDetails,
+    )
+    .join("\n");
 }
 
 // ---------------------------------------------------------------------------

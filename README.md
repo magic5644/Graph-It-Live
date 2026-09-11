@@ -1,688 +1,197 @@
 # Graph-It-Live
 
 <div align="center">
-  <img src="media/Graph-It-Live-Logo-256.png" alt="Graph-It-Live Logo" width="400"/>
+  <img src="media/Graph-It-Live-Logo-256.png" alt="Graph-It-Live logo" width="400"/>
 
-  **The AI-first dependency intelligence platform for VS Code.**
-
-  See your codebase the way your AI does — as a graph.
+  **See your codebase as a graph — in VS Code, your CLI, and your AI assistant.**
 
 </div>
 
 [![Version](https://vsmarketplacebadges.dev/version/magic5644.graph-it-live.svg)](https://marketplace.visualstudio.com/items?itemName=magic5644.graph-it-live)
-[![vscode installs](https://vsmarketplacebadges.dev/installs-short/magic5644.graph-it-live.svg?label=vscode+installs)](https://marketplace.visualstudio.com/items?itemName=magic5644.graph-it-live)
-[![Open VSX Version](https://img.shields.io/open-vsx/v/magic5644/graph-it-live?label=Open%20VSX&logo=eclipse&logoColor=white)](https://open-vsx.org/extension/magic5644/graph-it-live)
-[![Open VSX Downloads](https://img.shields.io/open-vsx/dt/magic5644/graph-it-live?label=Open%20VSX%20Downloads)](https://open-vsx.org/extension/magic5644/graph-it-live)
+[![VS Code installs](https://vsmarketplacebadges.dev/installs-short/magic5644.graph-it-live.svg?label=vscode+installs)](https://marketplace.visualstudio.com/items?itemName=magic5644.graph-it-live)
+[![Open VSX](https://img.shields.io/open-vsx/v/magic5644/graph-it-live?label=Open%20VSX&logo=eclipse&logoColor=white)](https://open-vsx.org/extension/magic5644/graph-it-live)
 [![npm](https://img.shields.io/npm/v/%40magic5644%2Fgraph-it-live?label=npm%20CLI&logo=npm&logoColor=white)](https://www.npmjs.com/package/@magic5644/graph-it-live)
-[![AI Ready](https://img.shields.io/badge/AI%20Ready-MCP%20Server-blue?logo=modelcontextprotocol&logoColor=white)](https://modelcontextprotocol.io)
-[![License](https://img.shields.io/github/license/magic5644/Graph-It-Live)](https://github.com/magic5644/Graph-It-Live/blob/main/LICENSE)
-[![Github stars](https://img.shields.io/github/stars/magic5644/graph-it-live?style=flat&color=gold&logo=github)](https://github.com/magic5644/Graph-It-Live)
+[![License](https://img.shields.io/github/license/magic5644/Graph-It-Live)](LICENSE)
 
-## Star History
-
-## Star History
-
-<a href="https://www.star-history.com/?repos=magic5644%2FGraph-It-Live&type=date&legend=top-left">
- <picture>
-   <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/chart?repos=magic5644/Graph-It-Live&type=date&theme=dark&legend=top-left&sealed_token=tKWEQ11VLzMx4dC3ZHvyM8J379zHlmU2lUlVABHWQ0yWeTNDwbvy9zxbYFSFiAod0MZ9RHDFy-KYuzkXEI37LhEfGiMP0nsPPtRiLlYlkl53OsTFff_MFSn2SNJXeoPlb3AzuInU8ln9JYhKJIZs4-LgsJ2R8z5pGIFFQBJmfiWvlywCcW-8XbztB03E" />
-   <source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/chart?repos=magic5644/Graph-It-Live&type=date&legend=top-left&sealed_token=tKWEQ11VLzMx4dC3ZHvyM8J379zHlmU2lUlVABHWQ0yWeTNDwbvy9zxbYFSFiAod0MZ9RHDFy-KYuzkXEI37LhEfGiMP0nsPPtRiLlYlkl53OsTFff_MFSn2SNJXeoPlb3AzuInU8ln9JYhKJIZs4-LgsJ2R8z5pGIFFQBJmfiWvlywCcW-8XbztB03E" />
-   <img alt="Star History Chart" src="https://api.star-history.com/chart?repos=magic5644/Graph-It-Live&type=date&legend=top-left&sealed_token=tKWEQ11VLzMx4dC3ZHvyM8J379zHlmU2lUlVABHWQ0yWeTNDwbvy9zxbYFSFiAod0MZ9RHDFy-KYuzkXEI37LhEfGiMP0nsPPtRiLlYlkl53OsTFff_MFSn2SNJXeoPlb3AzuInU8ln9JYhKJIZs4-LgsJ2R8z5pGIFFQBJmfiWvlywCcW-8XbztB03E" />
- </picture>
-</a>
-
-Graph-It-Live turns your codebase into a live, interactive dependency graph — one that both **you** and your **AI assistant** can query in real time.
-
-Built for **architects** who need the big picture and **developers** who need to ship safely, it combines three analysis layers in one tool:
-
-| Layer | What you see | Powered by |
-|-------|-------------|------------|
-| **File Graph** | File-to-file import relationships | Regex + AST parsing |
-| **Symbol View** | Function/class call hierarchy inside a file | AST (ts-morph) |
-| **Live Call Graph** | Cross-file symbol call relationships | Tree-sitter + SQLite |
-
-All three layers are also exposed to AI via a **27-tool MCP server**, so your assistant can answer architecture questions with zero hallucination.
-
-<div align="center">
-  <img src="media/demo-plugin-graph-it-live.gif" alt="Graph-It-Live Demo" width="800"/>
-</div>
-
----
-
-## Why Graph-It-Live?
-
-## Graph-It Review Gate
-
-`graph-it review-pr --base origin/main --format markdown` performs a deterministic, local Git-diff review before CI. It compares exported TypeScript signatures and, when the warmed local index supports them, reports cycle and unused-export evidence, known dependents, and conventional test-file candidates. Every score factor and unavailable analysis capability is explicit; bounded work is marked partial rather than complete. The composite Action is informational by default; set `fail-on-risk: high` or `critical` to gate a PR. It sends only a sanitized report to GitHub, verifies GitHub API responses, and emits an encoded VS Code link only when a workspace-relative risky symbol exists.
-
-The Action does not trigger itself: add a consumer workflow such as [`docs/examples/graph-it-review-gate.yml`](docs/examples/graph-it-review-gate.yml). It installs `@magic5644/graph-it-live@latest` into an isolated temporary directory and analyzes the consumer checkout; it never runs `npm ci` or builds that checkout. Set `cli-version` to an npm version, tag, or range to override `latest`. The Action logs and exposes the resolved `cli-version`, and rejects an installed version below `1.13.0`.
-
-```yaml
-- uses: magic5644/Graph-It-Live/.github/actions/graph-it-review-gate@v1.13.0
-  with:
-    token: ${{ secrets.GITHUB_TOKEN }}
-    cli-version: 1.13.2 # optional; omitted means npm latest
-    comment: true
-    fail-on-risk: high
-```
-
-Use `pull_request`, not `pull_request_target`, for untrusted PR code. Fork workflows should set `comment: false`; remove `pull-requests: write` when comments are disabled. The npm publication of `1.13.0`, the public `npx` verification, and the immutable Git tag `v1.13.0` are manual post-merge release steps, not part of this PR.
-
-| Pain point | Without Graph-It-Live | With Graph-It-Live |
-|---|---|---|
-| "What breaks if I touch this file?" | Grep + hope | One-click reverse dependency lookup |
-| "Explain this module's architecture" | Read 30 files | AI generates a codemap in seconds |
-| "Are there circular deps?" | Manual tracing | Auto-detected, red-highlighted cycles |
-| "What calls this function across the project?" | Global search + noise | Live Call Graph with depth control |
-| "Onboard a new developer" | Hours of walkthroughs | Interactive graph + AI-generated overviews |
-
----
+Graph-It-Live analyzes imports, symbols, calls, cycles, unused exports, and change impact. Use it as a VS Code extension, a standalone CLI, or an MCP/native tool provider for GitHub Copilot and other AI clients. Analysis runs locally and returns evidence from your codebase.
 
 ## Table of Contents
 
-- [Graph-It-Live](#graph-it-live)
-  - [Why Graph-It-Live?](#why-graph-it-live)
-  - [Table of Contents](#table-of-contents)
-  - [🤖 Supercharge Your AI Assistant](#-supercharge-your-ai-assistant)
-    - [What your AI can do with Graph-It-Live](#what-your-ai-can-do-with-graph-it-live)
-    - [🗺️ Codemap Generation *(New)*](#️-codemap-generation-new)
-    - [📊 File Logic Analysis *(New)*](#-file-logic-analysis-new)
-  - [👁️ Features for Humans](#️-features-for-humans)
-    - [File Dependency Graph](#file-dependency-graph)
-    - [Symbol-Level Drill-Down](#symbol-level-drill-down)
-    - [🔷 Live Call Graph *(New)*](#-live-call-graph-new)
-    - [Unused Dependency Filter](#unused-dependency-filter)
-  - [Prerequisites](#prerequisites)
-  - [Installation](#installation)
-    - [From Marketplace](#from-marketplace)
-    - [From Open VSX Registry](#from-open-vsx-registry)
-  - [Usage](#usage)
-  - [Configuration](#configuration)
-    - [Performance Profiles](#performance-profiles)
-    - [All Settings](#all-settings)
-  - [Standalone CLI](#standalone-cli)
-  - [Unified Graph Context](#unified-graph-context)
-  - [Agent Skill](#agent-skill)
-  - [MCP Server (AI/LLM Integration)](#mcp-server-aillm-integration)
-    - [Setup](#setup)
-    - [Available Tools](#available-tools)
-    - [TOON Format (Token-Optimized Output)](#toon-format-token-optimized-output)
-    - [Native LM Tools (Copilot Agent Mode)](#native-lm-tools-copilot-agent-mode)
-    - [Manual MCP Server Configuration](#manual-mcp-server-configuration)
-      - [VS Code / VS Code Insiders](#vs-code--vs-code-insiders)
-      - [Cursor](#cursor)
-      - [Claude Desktop](#claude-desktop)
-      - [Development / Local Testing](#development--local-testing)
-      - [Windsurf](#windsurf)
-      - [Antigravity](#antigravity)
-  - [Development](#development)
-    - [Quick Start](#quick-start)
-    - [Project Structure](#project-structure)
-    - [Build \& Test Commands](#build--test-commands)
-  - [WASM Architecture](#wasm-architecture)
-    - [Architecture](#architecture)
-    - [Testing](#testing)
-    - [Troubleshooting](#troubleshooting)
-  - [License](#license)
-  - [Acknowledgements](#acknowledgements)
-  - [Author](#author)
+- [What it does](#what-it-does)
+- [Quick start](#quick-start)
+- [Features](#features)
+- [Standalone CLI](#standalone-cli)
+- [AI integrations](#ai-integrations)
+- [Configuration](#configuration)
+- [CI review gate](#ci-review-gate)
+- [Supported languages](#supported-languages)
+- [Documentation](#documentation)
+- [Development](#development)
+- [License](#license)
 
----
+## What it does
 
-## 🤖 Supercharge Your AI Assistant
+Graph-It-Live provides three views of a codebase:
 
-Stop pasting file paths and explaining your project structure. Graph-It-Live exposes **27 powerful dependency analysis tools** directly to your AI assistant via the [Model Context Protocol](https://modelcontextprotocol.io), and **22 native LM Tools** directly in Copilot Agent mode (no MCP setup required).
+| View | Answers | Analysis layer |
+| --- | --- | --- |
+| **File graph** | Which files import this file? What depends on this module? | Regex and AST parsing |
+| **Symbol view** | Which functions and classes call each other in this file? | AST analysis |
+| **Live call graph** | Which symbols call each other across files? | Tree-sitter and SQLite |
 
-**Works with:** GitHub Copilot, Claude (Desktop & Code), Cursor, Windsurf, Antigravity, and any MCP-compatible client.
-
-### What your AI can do with Graph-It-Live
-
-| You ask | AI uses | Result |
-|---------|---------|--------|
-| *"Map out the architecture of the auth module"* | `crawl_dependency_graph` | Full dependency tree as structured data |
-| *"What breaks if I change User.ts?"* | `find_referencing_files` | All dependent files with O(1) lookup |
-| *"Give me an overview of Spider.ts"* | `generate_codemap` | Exports, internals, deps, dependents, call flow — in one call |
-| *"What calls formatDate() across the project?"* | `get_symbol_callers` | All callers with instant lookup |
-| *"Show function-level flow in this file"* | `analyze_file_logic` | Intra-file call hierarchy |
-| *"Analyze the impact of changing calculateTotal's signature"* | `get_impact_analysis` | Breaking change detection + all affected callers |
-| *"Find unused exports in the codebase"* | `find_unused_symbols` | Dead code detection |
-| *"Are there circular dependencies?"* | `crawl_dependency_graph` | Cycle detection built in |
-| *"How does Spider crawl files?"* | `query_natural_language` | Natural language answer synthesised from the call graph |
+Use the same graph data to navigate code, review refactors, generate codemaps, and give AI assistants focused context instead of entire source files.
 
 <div align="center">
-  <img src="media/graph-it-live-tools-in-copilot.gif" alt="Using Graph-It-Live tools with GitHub Copilot" width="800"/>
-  <p><em>GitHub Copilot querying Graph-It-Live to analyze a project's dependency structure</em></p>
+  <img src="media/demo-plugin-graph-it-live.gif" alt="Graph-It-Live dependency graph" width="800"/>
 </div>
 
-### 🗺️ Codemap Generation *(New)*
+## Quick start
 
-The `graphitlive_generate_codemap` tool gives your AI a **complete structural overview of any file** in a single call — no more chaining 5 different tools.
+### VS Code extension
 
-**What it returns:**
+**Requirements:** VS Code 1.96 or later. Install from the [VS Code Marketplace](https://marketplace.visualstudio.com/items?itemName=magic5644.graph-it-live) or [Open VSX](https://open-vsx.org/extension/magic5644/graph-it-live).
 
-```
-┌─────────────────────────────────────────────────┐
-│  Spider.ts  (247 lines, TypeScript)             │
-├─────────────────────────────────────────────────┤
-│  EXPORTS: Spider, SpiderOptions                 │
-│  INTERNALS: crawlFile, resolveImport, visitNode │
-│  DEPENDENCIES: Parser.ts, PathResolver.ts, ...  │
-│  DEPENDENTS: SpiderBuilder.ts, extension.ts     │
-│  CALL FLOW: crawl → crawlFile → resolveImport  │
-│  CYCLES: none                                   │
-└─────────────────────────────────────────────────┘
-```
+1. Open a project.
+2. Open the Graph-It-Live view from the Activity Bar.
+3. Run **Graph-It-Live: Show Dependency Graph** from the Command Palette.
+4. Click a file to open it, double-click it for the Symbol View, or use **Show Call Graph** for cross-file calls.
 
-**Use cases:**
+Supported projects include TypeScript, JavaScript, Python, Rust, C#, Go, Java, Vue, Svelte, and GraphQL.
 
-- **Onboarding:** *"Give me an overview of every file in src/analyzer/"* — AI maps the full module
-- **Pre-refactor audit:** *"Generate codemaps for all files that import UserService"* — understand coupling before changing
-- **Documentation:** *"Create architecture docs from codemaps"* — structured data → Markdown in seconds
-- **Code review:** *"What does this new file export and who depends on it?"* — instant context
+### First useful actions
 
-> **Token-efficient:** Output can use compact TOON rows. Savings depend on the
-> payload; compare TOON and JSON with the repository benchmark before quoting a
-> percentage.
+| Goal | Action |
+| --- | --- |
+| Explore imports | Open the dependency graph and expand a file node |
+| Inspect functions | Switch to **Symbol View** or double-click a file |
+| Find callers | Open **Show Call Graph** with a symbol selected |
+| Find reverse dependencies | Use **Show Reverse Dependencies** |
+| Hide unused imports | Enable **Filter Unused Dependencies** |
+| Refresh analysis | Run **Refresh Graph** or **Force Graph-It-Live re-index** |
 
-<!-- TODO: Add screenshot or video of AI generating a codemap -->
+## Features
 
-### 📊 File Logic Analysis *(New)*
+### File dependency graph
 
-The `graphitlive_analyze_file_logic` tool reveals the **call hierarchy inside a single file** — which functions call which, in what order.
+- Visualize file-to-file imports across a workspace.
+- Detect circular dependencies and highlight cycles.
+- Expand and collapse nodes as you explore.
+- Open files directly from graph nodes.
+- Find reverse dependencies with an indexed lookup.
 
-**Example prompt:** *"Show me how data flows through src/mcp/mcpServer.ts"*
+### Symbol View
 
-**AI response (powered by the tool):**
-```
-Entry points: initializeServer(), main()
-  └── initializeServer()
-      ├── registerAllTools()      [call #1]
-      ├── setupFileWatcher()      [call #2]
-      └── startListening()        [call #3]
-          └── handleToolCall()
-              ├── validateWorkspace()
-              └── invokeWorker()
-```
-
-**Use cases:**
-
-- **Understand complex files** without reading every line
-- **Find entry points** and trace execution paths
-- **Detect internal cycles** (recursive calls between functions)
-- **Refactoring confidence** — see what internal logic is affected
-
-<!-- TODO: Add screenshot of AI analyzing file logic -->
-
----
-
-## 👁️ Features for Humans
-
-### File Dependency Graph
-
-The core of Graph-It-Live: a **real-time interactive graph** showing file-to-file import relationships across your project.
-
-- **Multi-language:** TypeScript, JavaScript, Python, Rust, C#, Go, Java, Vue, Svelte, GraphQL
-- **Cycle detection:** Circular dependencies highlighted with red dashed lines and badges
-- **Smart navigation:** Click any node to open the file; expand/collapse dependencies dynamically
-- **Reverse lookup:** Right-click → "Find Referencing Files" for instant reverse dependency discovery
-- **Background indexing:** Workspace indexed in a background thread for O(1) queries
+Drill into TypeScript, JavaScript, Python, or Rust files to see functions, classes, variables, outgoing calls, incoming callers, and recursive calls. Click a symbol to navigate to its definition.
 
 <div align="center">
-  <img src="media/demo-plugin-graph-it-live.gif" alt="File dependency graph" width="800"/>
-  <p><em>Interactive file dependency graph with expand/collapse and cycle detection</em></p>
+  <img src="media/drill-down-symbol-view.png" alt="Graph-It-Live Symbol View" width="600"/>
 </div>
 
-### Symbol-Level Drill-Down
+### Live Call Graph
 
-Go beyond file dependencies — **drill into any file to visualize function-to-function and class-to-class call relationships** powered by AST analysis (ts-morph for TypeScript/JavaScript, tree-sitter for Python/Rust).
+The Live Call Graph shows cross-file symbol relationships in a Cytoscape.js panel.
 
-**How it works:**
-
-1. **From the File Graph:** Double-click any file node (or right-click → "Drill Down")
-2. **Instant symbol graph:** See an interactive tree showing:
-   - **Functions** in vibrant blue
-   - **Classes** in deep purple
-   - **Variables/Constants** in amber
-   - **→ calls** — outgoing calls from each symbol
-   - **← called by** — incoming callers (including from other files)
-   - **Recursive calls** with cycle badges
-3. **Click-to-navigate:** Click any symbol to jump to its definition
-4. **Breadcrumb nav:** `Project > folder > file.ts` — one click to return to file view
-
-**Multi-language support (symbol drill-down):**
-- TypeScript / JavaScript (ts-morph AST)
-- Python (tree-sitter WASM)
-- Rust (tree-sitter WASM)
-
-> **Note:** C#, Go, and Java are supported at the **file dependency graph level** (L1) and the **Live Call Graph** level (L3). Symbol drill-down (intra-file view, L2) is not yet available for these languages.
-
-**Benefits:**
-- **Understand code flow** without reading every line
-- **See who calls your exports** — incoming dependencies from other files
-- **Detect recursive calls** — cycle detection with visual indicators
-- **Refactoring confidence** — visualize all internal dependencies
+- Expand callers and callees with a depth from 1 to 5.
+- Group symbols by folder.
+- Number calls in invocation order.
+- Highlight self-recursion and mutual recursion.
+- Filter by symbol type or folder.
+- Refresh automatically after file saves.
 
 <div align="center">
-  <img src="media/drill-down-symbol-view.png" alt="Symbol-level drill-down view" width="600"/>
-  <p><em>Symbol drill-down: purple classes, blue functions, amber variables with call relationships</em></p>
+  <img src="media/call-graph-view-example.png" alt="Graph-It-Live live call graph" width="800"/>
 </div>
 
-### 🔷 Live Call Graph *(New)*
+The Live Call Graph supports TypeScript, JavaScript, Vue, Svelte, Python, Rust, C#, Go, and Java. C#, Go, and Java are supported in the file graph and Live Call Graph; Symbol View support is currently limited to TypeScript, JavaScript, Python, and Rust.
 
-The **Live Call Graph** visualises **cross-file symbol call relationships** across your entire project in a Cytoscape.js panel backed by an in-memory SQLite database.
+### Unused dependencies and impact analysis
 
-Unlike the Symbol View (which shows relationships *within* a single file via AST), the Call Graph shows how symbols call each other *across files* using Tree-sitter AST extraction.
-
-**Key capabilities:**
-
-| Feature | Description |
-|---------|-------------|
-| **Cross-file analysis** | See function calls that span multiple files |
-| **Neighbourhood queries** | BFS expansion from any symbol, configurable depth (1–5) |
-| **Cycle detection** | Mutual-recursion and self-recursion highlighted in red |
-| **Compound node layout** | Symbols grouped by folder for visual clarity |
-| **Call order numbering** | CALLS edges numbered to show invocation order |
-| **Theme-aware** | Adapts to dark, light, and high-contrast VS Code themes |
-| **Live refresh** | On file save, the graph updates automatically (500ms debounce) |
-| **Filter legend** | Toggle visibility by symbol type (function, class, variable) and by folder |
-
-**How to use:**
-
-1. Open a source file and place the cursor on a symbol (function, class, method…). Then open the command palette → `Graph-It-Live: Show Call Graph` or click the "Call Graph" button in the sidebar toolbar
-2. The extension indexes your workspace (Tree-sitter AST extraction)
-3. Click any symbol to re-center the neighbourhood
-4. **Drag any node** (symbol or entire file/folder group) to rearrange the layout freely
-5. Use the depth slider to expand or narrow the view
-6. Filter by symbol type or folder using the legend overlay
+- Hide or dim unused dependencies.
+- Detect unused exported symbols.
+- Trace execution from a function or symbol.
+- Identify callers affected by a signature change.
+- Generate a codemap with exports, internals, dependencies, dependents, and call flow.
 
 <div align="center">
-  <img src="media/call-graph-view-example.png" alt="Live call graph with cycle detection" width="800"/>
-  <p><em>Live Call Graph — cross-file symbol relationships with cycle detection and folder grouping</em></p>
+  <img src="media/demo-filter-hide-mode.gif" alt="Unused dependencies hidden from the graph" width="600"/>
+  <img src="media/demo-filter-dim-mode.gif" alt="Unused dependencies dimmed in the graph" width="600"/>
 </div>
-
-**Language support (Live Call Graph):**
-- TypeScript / JavaScript (including Vue, Svelte)
-- Python
-- Rust
-- C# *(New)*
-- Go *(New)*
-- Java *(New)*
-
-<!-- TODO: Add a short video/gif showing the call graph in action (indexing → symbol click → depth change → live refresh on save) -->
-
-### Unused Dependency Filter
-
-Smart filter to show only dependencies that are actually used in your code. Toggle between showing all imports or filtering unused ones with a single click.
-
-- **Hide mode:** Unused dependencies completely removed from the graph
-- **Dim mode:** Unused dependencies shown with reduced opacity and dashed lines
-
-<div align="center">
-  <img src="media/demo-filter-hide-mode.gif" alt="Hide mode - removes unused dependencies" width="600"/>
-  <p><em>Hide mode: Unused dependencies completely removed</em></p>
-</div>
-
-<div align="center">
-  <img src="media/demo-filter-dim-mode.gif" alt="Dim mode - shows unused dependencies with reduced opacity" width="600"/>
-  <p><em>Dim mode: Unused dependencies shown with reduced opacity</em></p>
-</div>
-
----
-
-## Prerequisites
-
-- **Node.js**: v22 or higher
-- **VS Code**: v1.96.0 or higher
-
-**No build tools required** — the extension uses WebAssembly (WASM) parsers. No Python, C++ compiler, or native compilation needed.
-
-## Installation
-
-### From Marketplace
-
-Search for **"Graph-It-Live"** in the Extensions view (`Ctrl+Shift+X` / `Cmd+Shift+X`), or install from the [VS Code Marketplace](https://marketplace.visualstudio.com/items?itemName=magic5644.graph-it-live).
-
-### From Open VSX Registry
-
-Also available on the [Open VSX Registry](https://open-vsx.org/extension/magic5644/graph-it-live) for VSCodium and other compatible editors.
-
-## Usage
-
-1. **Open a Project** — TypeScript, JavaScript, Python, Rust, C#, Go, Java, Vue, Svelte, or GraphQL
-2. **Open the Graph** — Click the Graph-It-Live icon in the Activity Bar, or run `Graph-It-Live: Show Dependency Graph`
-3. **Interact:**
-   - **Click** a node → open the file
-   - **Double-click** a node → drill down to symbol view
-   - **Right-click** a node → expand, collapse, find referencing files
-   - **Command palette** → `Show Call Graph` for cross-file symbol analysis
-
----
-
-## Configuration
-
-### Performance Profiles
-
-Choose a performance profile based on your machine:
-
-| Profile | RAM | Concurrency | Max Edges | Cache |
-|---------|-----|-------------|-----------|-------|
-| **`default`** *(recommended)* | 4-8 GB | 4 | 2000 | 500/200 |
-| **`low-memory`** | < 4 GB | 2 | 1000 | 200/100 |
-| **`high-performance`** | 16 GB+ | 12 | 5000 | 1500/800 |
-| **`custom`** | Any | Manual | Manual | Manual |
-
-Set via `graph-it-live.performanceProfile` in VS Code settings.
-
-With **`custom`** profile, you can fine-tune:
-- `unusedAnalysisConcurrency` (1-16)
-- `unusedAnalysisMaxEdges` (0 = unlimited)
-- `maxCacheSize` (50-2000)
-- `maxSymbolCacheSize` (50-1000)
-- `indexingConcurrency` (1-16)
-
-### All Settings
-
-<div align="center">
-  <img src="media/unused-dependency-mode-option.png" alt="Unused Dependency Mode configuration" width="700"/>
-  <p><em>Configure how unused dependencies are displayed: hide (remove completely) or dim (show with reduced opacity)</em></p>
-</div>
-
-| Setting                                    | Default   | Description                                                                                                                                                                    |
-| :----------------------------------------- | :-------- | :----------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `graph-it-live.performanceProfile`         | `default` | Performance preset: `default`, `low-memory`, `high-performance`, or `custom` for manual control.                                                                               |
-| `graph-it-live.enableMcpServer`            | `false`   | Enable the MCP server for AI/LLM integration.                                                                                                                                  |
-| `graph-it-live.enableMcpDebugLogging`      | `false`   | Privacy-sensitive debug logging for MCP (creates `~/mcp-debug.log`). Enable only for troubleshooting.                                                                          |
-| `graph-it-live.maxDepth`                   | `50`      | Maximum dependency depth to analyze.                                                                                                                                           |
-| `graph-it-live.excludeNodeModules`         | `true`    | Exclude `node_modules` imports from the graph.                                                                                                                                 |
-| `graph-it-live.ignoreTypeImports`          | `false`   | Ignore TypeScript type-only imports/exports in the dependency graph. A VS Code restart may be required after changing this setting.                                         |
-| `graph-it-live.enableBackgroundIndexing`   | `true`    | Enable background indexing for O(1) reverse dependency lookups.                                                                                                                |
-| `graph-it-live.persistIndex`               | `false`   | Persist reverse index to disk for faster startup.                                                                                                                              |
-| `graph-it-live.indexingConcurrency`        | `4`       | Parallel file processing during indexing (1-16).                                                                                                                               |
-| `graph-it-live.indexingStartDelay`         | `1000`    | Delay (ms) before starting background indexing after activation.                                                                                                               |
-| `graph-it-live.logLevel`                   | `info`    | Logging verbosity: `debug`, `info`, `warn`, `error`, or `none`.                                                                                                               |
-| `graph-it-live.unusedDependencyMode`       | `hide`    | How to display unused dependencies: `hide` or `dim`.                                                                                                                           |
-| `graph-it-live.unusedAnalysisConcurrency`  | `4`       | Parallel file analysis for unused detection (1-16).                                                                                                                            |
-| `graph-it-live.unusedAnalysisMaxEdges`     | `2000`    | Skip auto unused analysis above this edge count (0 = no limit).                                                                                                               |
-| `graph-it-live.persistUnusedAnalysisCache` | `false`   | Cache unused analysis results to disk.                                                                                                                                         |
-| `graph-it-live.maxUnusedAnalysisCacheSize` | `200`     | Max cached unused analysis results (LRU eviction).                                                                                                                             |
-| `graph-it-live.maxCacheSize`               | `500`     | Max cached file dependency analyses.                                                                                                                                           |
-| `graph-it-live.maxSymbolCacheSize`         | `200`     | Max cached symbol analysis results.                                                                                                                                            |
-| `graph-it-live.preIndexCallGraph`          | `true`    | Pre-index the call graph database at startup for near-instant first query.                                                                                                     |
-| `graph-it-live.symbolViewLayout`           | `hierarchical` | Layout for symbol drill-down: `hierarchical`, `force-directed`, or `radial`.                                                                                              |
-
----
 
 ## Standalone CLI
 
-Graph-It-Live is also available as a standalone npm package — no VS Code required.
+Use the same analysis engine without VS Code. Install it globally:
 
 ```bash
 npm install -g @magic5644/graph-it-live
 ```
 
-After install, `graph-it` is available on your PATH:
-
-```bash
-graph-it --version              # Show installed version
-graph-it --help                 # Full help with MCP config snippets
-graph-it scan                   # Index/re-index the workspace
-graph-it summary                # Workspace overview
-graph-it summary <file>         # Per-file codemap (exports, internals, deps, call flow)
-graph-it trace <file#Symbol>    # Trace execution flow from an entry symbol
-graph-it explain <file>         # File logic analysis — intra-file call hierarchy
-graph-it path <file>            # Full dependency graph from a file
-graph-it check                  # Scan whole workspace for dead code (unused exports)
-graph-it check <dir>            # Scan a subdirectory for dead code
-graph-it check <file>           # Detect unused exported symbols in a single file
-graph-it query "<question>"     # Natural language query over the call graph (LLM or heuristic fallback)
-graph-it wiki                   # Generate a navigable markdown wiki from the call graph
-graph-it serve                  # Launch MCP stdio server (for AI clients)
-graph-it tool --list            # List all 22 CLI analysis tools
-graph-it tool <mcp-tool> [args] # Run any MCP tool directly from the terminal
-graph-it export [path] [--format html]  # Export graph as standalone HTML (vis.js)
-graph-it update                 # Update graph-it to the latest version
-graph-it install                # Symlink the binary into your system PATH (opt-in)
-```
-
-> **Troubleshooting:** if `graph-it` runs but prints nothing at all (versions
-> ≤ v1.13.6 shipped a broken npm `bin` wrapper), `graph-it update` can't help
-> — the CLI is silently dead on arrival. Reinstall directly instead:
-> `npm install -g @magic5644/graph-it-live@latest`. Fixed in v1.14.0; see
-> [`docs/CLI.md`](docs/CLI.md#installation) for details.
-
-**Without installing globally:**
+Or run it with `npx`:
 
 ```bash
 npx @magic5644/graph-it-live scan
-npx @magic5644/graph-it-live serve
 ```
 
-**Output formats:** All analysis commands support `--format json|toon|markdown`. Use `toon` for repeated structured rows and measure the result for your payload. The `trace` and `path` commands additionally support `--format mermaid` to generate a Mermaid diagram of the call or dependency flow:
+Common commands:
 
-```bash
-graph-it summary <file> --format toon
-graph-it path <file> --format markdown
-graph-it path <file> --format mermaid          # → Mermaid flowchart of dependency graph
-graph-it trace <file#Symbol> --format mermaid  # → Mermaid sequence/flowchart of execution trace
+```text
+graph-it scan                         Index the workspace
+graph-it summary                      Show a workspace overview
+graph-it summary <file>               Generate a file codemap
+graph-it trace <file#Symbol>          Trace execution from a symbol
+graph-it explain <file>               Explain intra-file call flow
+graph-it path <file>                  Show a dependency path
+graph-it check [path]                 Find unused exported symbols
+graph-it query "<question>"           Ask a natural-language graph question
+graph-it context "<question>"         Retrieve bounded graph context
+graph-it wiki                         Generate a navigable Markdown wiki
+graph-it serve                        Start the MCP stdio server
+graph-it export [path]                Export the graph as HTML
+graph-it --help                       Show all commands and options
 ```
 
-Example `--format mermaid` output for `graph-it path src/index.ts`:
+Analysis commands support `--format json|toon|markdown`. `trace` and `path` also support `--format mermaid`. Use `--workspace <path>` or `-w` to analyze a project other than the current directory.
 
-```mermaid
-graph LR
-  src/index.ts --> src/app.ts
-  src/app.ts --> src/router.ts
-  src/app.ts --> src/db.ts
-```
+See the [complete CLI reference](docs/CLI.md), including installation troubleshooting, REPL commands, output formats, and tool details.
 
-This output can be pasted directly into any Markdown renderer (GitHub, Notion, VS Code Preview, etc.) or piped to a diagramming tool.
+### Unified graph context
 
-### Analyze Locally. Send Less Context.
-
-Graph-It-Live reduces the context an AI assistant needs to inspect. Instead of sending source files or a broad repository dump to a model, use the CLI or MCP tools to ask for the specific dependency, symbol, caller, impact, or call-graph result you need.
-
-The analysis happens locally. Graph-It-Live builds its index and extracts code structure with AST analysis and Tree-sitter, then computes graph traversal, reverse dependencies, and impact analysis in the local process. Architecture, codemap, impact, and call-graph tools do not need an LLM to calculate their results.
-
-For AI-facing workflows, request `toon` output when the result contains structured lists or graphs. TOON (Token-Oriented Object Notation) removes repeated JSON field names while retaining the data an agent needs. This compounds the main saving: targeted local analysis first, compact structured output second.
-
-The practical alternative is often much larger: pass a tool result to the model rather than the source files, imports, and unrelated modules it would otherwise need to reconstruct the same relationship. The exact reduction depends on the repository and the question. Measure it for your workflow by comparing the bytes or characters of the Graph-It-Live output with the raw source/context you would otherwise provide.
-
-Run `npm run test:context-economy` to execute six graph-context workflows on a
-fixed twelve-file corpus. The report counts serialized request and response
-representations with `gpt-tokenizer`'s `cl100k_base` encoding. Those counts are
-not provider billing tokens or a universal cost-saving guarantee; metrics the
-CLI runner cannot observe remain `null`.
-
-The optional `query` command is deliberately narrower: a configured LLM can extract search keywords, but graph scoring and traversal stay local. Without provider credentials, it uses the heuristic keyword fallback.
-
-**Workspace flag:** Use `--workspace <path>` (or `-w`) to specify the project root explicitly; defaults to the current working directory.
-
-**Use as MCP server (no VS Code):** Run `graph-it serve` and point your AI client at it — see [Manual MCP Server Configuration](#manual-mcp-server-configuration).
-
-**Interactive REPL:** Run `graph-it` with no arguments to enter interactive mode. Type `/query how does X work` to ask natural language questions about your codebase (no quotes needed). Use `/wiki` to generate a navigable markdown wiki from the call graph. Other slash commands: `/trace`, `/summary`, `/architecture`, `/check`, `/cycles`, `/export` (export dependency graph as standalone HTML), `/format`, `/help`.
-
-**Full CLI reference:** See **[docs/CLI.md](docs/CLI.md)** for complete documentation on every command, all options, output format examples, advanced workflows, and the full MCP tools reference.
-
-### Unified Graph Context
-
-The `graph-it context` command (also available through
-`graph-it tool graph_context`), `graphitlive_graph_context` MCP tool, and
-`graph-it-live_graph_context` native LM tool (`#graphContext`) expose the same
-read-only gateway.
-It combines file imports, cross-file calls, symbols, tests, impact, paths, hubs,
-and communities in one bounded response. Use `search`, `neighbors`, `path`,
-`impact`, `refactor`, or `overview` modes with workspace-relative scopes and
-optional `toon` or `json` output.
+`graph-it context` combines imports, symbols, calls, tests, impact, paths, hubs, and communities in one bounded response. It supports `search`, `neighbors`, `path`, `impact`, `refactor`, and `overview` modes.
 
 ```bash
 graph-it context "what calls the request handler" --scope 'src/**' --format toon
 graph-it context --mode path --from src/api.ts#handle --to src/db.ts#query
 graph-it context --mode impact --seeds src/api.ts#handle --depth 3 --format json
-graph-it context "what calls the request handler" --format toon --detail compact --token-budget 800
 ```
 
-The gateway accepts depth 1–5, 1–500 nodes per page, and a 500–16,000 token
-budget (default 4000). `maxNodes` is a requested page bound: mandatory seeds
-and path endpoints are preserved even when they make the response exceed that
-value. Truncated responses include omitted counts and an opaque cursor. Results
-carry provenance and evidence line spans, but do not include source contents;
-read the identified files separately.
+Use `--detail compact` and `--token-budget` for agent-oriented responses. See the [TOON format specification](docs/architecture/TOON_FORMAT.md) for the output format and measurement protocol.
 
-Use `--detail compact` for agent-oriented output. It retains ranked nodes,
-locations, relations, and evidence while dropping verbose metadata and limiting
-the visible node set to the most relevant eight nodes. `standard` remains the
-compatible default.
+## AI integrations
 
-One local corpus run measured 8,780 `cl100k_base` tokens for the six JSON
-responses and 1,072 for their TOON encodings, a representation-size reduction
-of 87.8%. Mean precision@10 was 0.363 and mean recall@10 was 0.917. These are
-corpus results, not general guarantees. MCP initialization, MCP tool-call,
-continuation, and provider billing-token metrics were unobserved. The
-Graphify adapter now executes native commands for semantically comparable
-workflows; the generated `report.md` separates measured quality from native
-bound enforcement and marks documentation as a genuine unsupported capability.
+Graph-It-Live exposes local graph analysis to GitHub Copilot, Claude, Cursor, Windsurf, Antigravity, and other MCP-compatible clients.
 
-The release claim is therefore narrow: Graph-It-Live provides a unified,
-evidence-backed, token-bounded graph context for local code navigation and
-refactoring across its supported languages. PR triage, multi-project HTTP
-serving, broad language coverage, and multimedia knowledge graphs remain
-separate roadmap work.
+### Native Copilot tools
 
----
+When the extension is installed, use these tools in Copilot Agent mode without configuring MCP:
 
-## Agent Skill
+| Tool group | Capabilities |
+| --- | --- |
+| Navigation | Dependencies, reverse dependencies, imports, module resolution, workspace index status |
+| Symbols | Symbol graphs, callers, dependents, execution traces |
+| Refactoring | Breaking changes, impact analysis, unused symbols, dead-code scans |
+| Context | File logic, codemaps, unified graph context, natural-language graph queries |
+| Call graph | Cross-file caller/callee queries and neighbourhood expansion |
 
-A **Graph-It-Live skill** is available for AI agents (GitHub Copilot, Claude Code, Cursor, and others). It gives your agent pre-built knowledge of all Graph-It-Live tools, workflows, and best practices — so it can use the extension and CLI without any manual guidance.
+The graph-context tool is available as `#graphContext`. Other native references include `#graphDeps`, `#graphFindRefs`, `#graphCallers`, `#graphImpact`, `#graphCodemap`, `#graphTrace`, `#graphDeadCode`, and `#graphQuery`.
 
-Install it with:
+### MCP server
+
+The MCP server exposes 27 graph-analysis tools. Enable it in VS Code with `graph-it-live.enableMcpServer`, or start it from the CLI:
 
 ```bash
-npx skills add magic5644/skills/graph-it-live
+graph-it serve
 ```
 
-Once installed, your agent automatically knows how to query the dependency graph, use MCP tools, generate codemaps, detect breaking changes, and more.
-
----
-
-## MCP Server (AI/LLM Integration)
-
-Graph-It-Live includes an optional **MCP server** that exposes its full analysis engine to AI assistants and LLMs.
-
-### Setup
-
-**Option A — VS Code extension:**
-
-1. Set `graph-it-live.enableMcpServer` to `true` in VS Code settings
-2. The server starts automatically when the extension activates
-3. Your AI assistant detects the tools via MCP auto-discovery
-
-**Option B — Standalone CLI (no VS Code required):**
-
-1. Install: `npm install -g @magic5644/graph-it-live`
-2. Run `graph-it serve` — starts an MCP stdio server pointing at your current directory
-3. Configure your AI client to invoke `graph-it serve` as the MCP server command (see [Manual MCP Server Configuration](#manual-mcp-server-configuration))
-
-<div align="center">
-  <img src="media/enable-mcp-server-tools.gif" alt="Enable MCP Server in VS Code Settings" width="800"/>
-</div>
-
-### Available Tools
-
-The MCP server exposes **27 tools** for AI/LLM consumption. The graph-context
-gateway is also available as the native `#graphContext` LM Tool directly in
-Copilot Agent mode — no MCP server required.
-
-| Tool | Description |
-| :--- | :---------- |
-| `graphitlive_set_workspace` | Set the project directory to analyze |
-| `graphitlive_analyze_dependencies` | Analyze a single file's direct imports and exports |
-| `graphitlive_crawl_dependency_graph` | Crawl the full dependency tree from an entry file |
-| `graphitlive_find_referencing_files` | Find all files that import a given file (reverse lookup) |
-| `graphitlive_expand_node` | Expand a node to discover dependencies beyond known paths |
-| `graphitlive_parse_imports` | Parse raw import statements without path resolution |
-| `graphitlive_verify_dependency_usage` | Verify whether a specific dependency is actually used in a file |
-| `graphitlive_resolve_module_path` | Resolve a module specifier to an absolute file path |
-| `graphitlive_get_symbol_graph` | Get symbol-level dependencies (functions, classes) within a file |
-| `graphitlive_find_unused_symbols` | Find potentially unused exported symbols (dead code detection) |
-| `graphitlive_get_symbol_dependents` | Find all symbols that depend on a specific symbol |
-| `graphitlive_trace_function_execution` | Trace the complete execution path through function calls |
-| `graphitlive_get_symbol_callers` | Find all callers of a symbol with O(1) instant lookup |
-| `graphitlive_analyze_breaking_changes` | Detect breaking changes when modifying function signatures |
-| `graphitlive_get_impact_analysis` | Full impact analysis combining callers and breaking changes |
-| `graphitlive_get_index_status` | Get the current state of the dependency index |
-| `graphitlive_invalidate_files` | Invalidate specific files from the cache after modifications |
-| `graphitlive_rebuild_index` | Rebuild the entire dependency index from scratch |
-| `graphitlive_analyze_file_logic` | Analyze symbol-level call hierarchy and code flow within a file |
-| `graphitlive_generate_codemap` | Generate a comprehensive structured overview of any source file |
-| `graphitlive_graph_context` | Retrieve unified, evidence-backed, token-bounded graph context |
-| `graphitlive_query_call_graph` | Query cross-file callers/callees via BFS on the call graph SQLite database |
-| `graphitlive_scan_dead_code` | Scan the entire workspace (or a directory) for unused exported symbols in one call |
-| `query_natural_language` | Answer a natural language question about the codebase using the call graph (LLM or heuristic fallback) |
-| `graphitlive_generate_wiki` | Generate a navigable markdown wiki from the call graph (one article per file, hub scores, cross-links) |
-
-### TOON Format (Token-Optimized Output)
-
-All tools support an optional `format` parameter to reduce token consumption:
-
-```json
-{
-  "tool": "graphitlive_crawl_dependency_graph",
-  "params": {
-    "entryFile": "/path/to/main.ts",
-    "format": "toon"
-  }
-}
-```
-
-| Format | Description | Token Savings |
-|--------|-------------|---------------|
-| `json` *(default)* | Standard JSON output | — |
-| `toon` | Compact Token-Oriented Object Notation | Data-dependent; measure against JSON |
-| `markdown` | JSON wrapped in markdown code blocks | — |
-
-See [TOON Format Documentation](./docs/architecture/TOON_FORMAT.md) for full specifications, including the reproducible local-analysis and encoding-measurement protocol.
-
-### Native LM Tools (Copilot Agent Mode)
-
-Graph-It-Live analysis tools are also available **natively in GitHub Copilot** — no MCP server required. Reference them with `#` in Agent mode:
-
-| Reference | Tool | Description |
-|---|---|---|
-| `#graphFindRefs` | `find_referencing_files` | All files that import a given file |
-| `#graphDeps` | `analyze_dependencies` | Direct imports and exports of a file |
-| `#graphCrawl` | `crawl_dependency_graph` | Full dependency tree from an entry file |
-| `#graphSymbols` | `get_symbol_graph` | Symbol-level dependencies within a file |
-| `#graphUnused` | `find_unused_symbols` | Dead code detection |
-| `#graphCallers` | `get_symbol_callers` | All callers of a symbol |
-| `#graphImpact` | `get_impact_analysis` | Full impact analysis |
-| `#graphIndexStatus` | `get_index_status` | Current state of the dependency index |
-| `#graphImports` | `parse_imports` | Raw import statements |
-| `#graphCodemap` | `generate_codemap` | Comprehensive file structural overview |
-| `#graphExpand` | `expand_node` | Incremental dependency exploration |
-| `#graphVerifyUsage` | `verify_dependency_usage` | Is an import actually used? |
-| `#graphInvalidate` | `invalidate_files` | Flush cache for specific files |
-| `#graphRebuildIndex` | `rebuild_index` | Full index rebuild |
-| `#graphDependents` | `get_symbol_dependents` | All symbols depending on a given symbol |
-| `#graphTrace` | `trace_function_execution` | Full recursive call chain |
-| `#graphFileLogic` | `analyze_file_logic` | Intra-file call hierarchy |
-| `#graphResolve` | `resolve_module_path` | Resolve a module specifier to its absolute path |
-| `#graphBreaking` | `analyze_breaking_changes` | Detect breaking changes between two file versions |
-| `#graphCallGraph` | `query_call_graph` | BFS callers/callees via the SQLite call graph index |
-| `#graphContext` | `graph_context` | Unified, evidence-backed, token-bounded graph context |
-| `#graphDeadCode` | `scan_dead_code` | Workspace-wide dead code scan — all unused exported symbols |
-| `#graphQuery` | `query_natural_language` | Natural language question over the call graph (LLM or heuristic fallback) |
-
-> **Note:** `#graphCallGraph` requires the Call Graph panel (`graph-it-live.showCallGraph`) to be opened at least once to build the index.
-
-### Manual MCP Server Configuration
-
-If automatic MCP registration doesn't work in your editor, you can configure the server manually.
-
-<details>
-<summary><strong>Click to expand configuration instructions for VS Code, Cursor, Claude Desktop, Windsurf, etc.</strong></summary>
-
-#### VS Code / VS Code Insiders
-
-Create or edit `.vscode/mcp.json` in your workspace:
+For VS Code, add `.vscode/mcp.json`:
 
 ```json
 {
@@ -692,241 +201,102 @@ Create or edit `.vscode/mcp.json` in your workspace:
       "command": "graph-it",
       "args": ["serve"],
       "env": {
-        "WORKSPACE_ROOT": "${workspaceFolder}",
-        "EXCLUDE_NODE_MODULES": "true",
-        "MAX_DEPTH": "50"
+        "WORKSPACE_ROOT": "${workspaceFolder}"
       }
     }
   }
 }
 ```
 
-> **Fallback (if CLI not installed):** replace `"command": "graph-it"` with `"command": "node"` and add `"args": ["${extensionPath:magic5644.graph-it-live}/dist/mcpServer.mjs"]`.
+The same `graph-it serve` command works with Cursor, Claude Desktop, Windsurf, and Antigravity. See the [CLI/MCP documentation](docs/CLI.md) for client-specific configuration and environment variables.
 
-#### Cursor
+### Agent skill
 
-Create or edit `.cursor/mcp.json` in your workspace or `~/.cursor/mcp.json` for global configuration:
+Install the Graph-It-Live skill for an AI agent:
 
-```json
-{
-  "mcpServers": {
-    "graph-it-live": {
-      "command": "graph-it",
-      "args": ["serve"],
-      "env": {
-        "WORKSPACE_ROOT": "${workspaceFolder}",
-        "EXCLUDE_NODE_MODULES": "true",
-        "MAX_DEPTH": "50"
-      }
-    }
-  }
-}
+```bash
+npx skills add magic5644/skills/graph-it-live
 ```
 
-> **Fallback (if CLI not installed):** `"command": "bash", "args": ["-c", "node ~/.cursor/extensions/magic5644.graph-it-live-*/dist/mcpServer.mjs"]`
+The skill documents graph queries, codemaps, impact analysis, dead-code detection, and safe refactoring workflows.
 
-#### Claude Desktop
+## Configuration
 
-Add to `~/Library/Application Support/Claude/claude_desktop_config.json` (macOS):
+Set these options in VS Code settings:
 
-```json
-{
-  "mcpServers": {
-    "graph-it-live": {
-      "command": "graph-it",
-      "args": ["serve"],
-      "env": {
-        "WORKSPACE_ROOT": "/path/to/your/project",
-        "EXCLUDE_NODE_MODULES": "true",
-        "MAX_DEPTH": "50"
-      }
-    }
-  }
-}
-```
+| Setting | Default | Purpose |
+| --- | --- | --- |
+| `graph-it-live.performanceProfile` | `default` | Select `default`, `low-memory`, `high-performance`, or `custom` |
+| `graph-it-live.enableMcpServer` | `false` | Enable the built-in MCP server |
+| `graph-it-live.maxDepth` | `50` | Limit dependency traversal depth |
+| `graph-it-live.excludeNodeModules` | `true` | Exclude dependencies from `node_modules` |
+| `graph-it-live.enableBackgroundIndexing` | `true` | Build reverse-dependency indexes in the background |
+| `graph-it-live.unusedDependencyMode` | `hide` | Hide or dim unused dependencies |
+| `graph-it-live.preIndexCallGraph` | `true` | Pre-index the Live Call Graph |
+| `graph-it-live.symbolViewLayout` | `hierarchical` | Select `hierarchical`, `force-directed`, or `radial` |
 
-> **Fallback (if CLI not installed):** `"command": "bash", "args": ["-c", "node ~/.vscode/extensions/magic5644.graph-it-live-*/dist/mcpServer.mjs"]`
+For concurrency, cache, persistence, logging, and unused-analysis settings, see the [development guide](DEVELOPMENT.md).
 
-#### Development / Local Testing
+## CI review gate
 
-```json
-{
-  "mcpServers": {
-    "graph-it-live": {
-      "command": "node",
-      "args": ["/path/to/Graph-It-Live/dist/mcpServer.mjs"],
-      "env": {
-        "WORKSPACE_ROOT": "/absolute/path/to/your/project",
-        "TSCONFIG_PATH": "/absolute/path/to/your/project/tsconfig.json",
-        "EXCLUDE_NODE_MODULES": "true",
-        "MAX_DEPTH": "50"
-      }
-    }
-  }
-}
-```
+The `graph-it review-pr` command performs a deterministic local Git diff review before CI. It reports exported TypeScript signature changes and, when the local index supports them, cycle evidence, unused exports, dependents, and likely test files.
 
-#### Windsurf
+The reusable GitHub Action is informational by default. Set `fail-on-risk: high` or `critical` to gate a pull request. Add it to a consumer workflow with [`docs/examples/graph-it-review-gate.yml`](docs/examples/graph-it-review-gate.yml).
 
-Create or edit `~/.codeium/windsurf/mcp_config.json`:
+Use `pull_request`, not `pull_request_target`, for untrusted pull requests. The action analyzes the consumer checkout in an isolated temporary directory and sends only a sanitized report to GitHub.
 
-```json
-{
-  "mcpServers": {
-    "graph-it-live": {
-      "command": "graph-it",
-      "args": ["serve"],
-      "env": {
-        "WORKSPACE_ROOT": "${workspaceFolder}",
-        "EXCLUDE_NODE_MODULES": "true",
-        "MAX_DEPTH": "50"
-      }
-    }
-  }
-}
-```
+## Supported languages
 
-> **Fallback (if CLI not installed):** `"command": "bash", "args": ["-c", "node ~/.windsurf/extensions/magic5644.graph-it-live-*/dist/mcpServer.mjs"]`
+| Language | File graph | Symbol View | Live Call Graph |
+| --- | :---: | :---: | :---: |
+| TypeScript / JavaScript | Yes | Yes | Yes |
+| Vue / Svelte | Yes | Yes | Yes |
+| Python | Yes | Yes | Yes |
+| Rust | Yes | Yes | Yes |
+| C# / Go / Java | Yes | No | Yes |
+| GraphQL | Yes | No | No |
 
-#### Antigravity
+## Documentation
 
-Create or edit `.antigravity/mcp.json` in your workspace or configure globally:
-
-```json
-{
-  "mcpServers": {
-    "graph-it-live": {
-      "command": "graph-it",
-      "args": ["serve"],
-      "env": {
-        "WORKSPACE_ROOT": "${workspaceFolder}",
-        "EXCLUDE_NODE_MODULES": "true",
-        "MAX_DEPTH": "50"
-      }
-    }
-  }
-}
-```
-
-> **Fallback (if CLI not installed):** `"command": "bash", "args": ["-c", "node ~/.vscode/extensions/magic5644.graph-it-live-*/dist/mcpServer.mjs"]`
-
-</details>
-
----
+- [CLI reference](docs/CLI.md) — commands, REPL, output formats, and MCP tools
+- [Development guide](DEVELOPMENT.md) — setup, builds, tests, and WASM architecture
+- [Contributing guide](CONTRIBUTING.md) — contribution workflow and conventions
+- [System architecture](docs/architecture/codemaps/architecture.md)
+- [Class hierarchy](docs/architecture/codemaps/class-hierarchy.md)
+- [TOON format](docs/architecture/TOON_FORMAT.md)
+- [Coding standards](docs/development/CODING_STANDARDS.md)
+- [Cross-platform testing](docs/development/CROSS_PLATFORM_TESTING.md)
+- [Performance optimizations](docs/architecture/PERFORMANCE_OPTIMIZATIONS.md)
+- [Documentation index](docs/README.md)
 
 ## Development
 
-For comprehensive development instructions, see:
-
-- **[DEVELOPMENT.md](DEVELOPMENT.md)** — Setup, build, testing, WASM architecture
-- **[CONTRIBUTING.md](CONTRIBUTING.md)** — Contribution guidelines, branch naming, commit conventions
-- **[docs/architecture/codemaps/architecture.md](docs/architecture/codemaps/architecture.md)** — **System architecture overview** with 5-layer diagram and 50+ component descriptions
-- **[docs/architecture/codemaps/class-hierarchy.md](docs/architecture/codemaps/class-hierarchy.md)** — **Class hierarchy diagram** with 45+ core classes, interfaces, and design patterns
-- **[docs/development/CODING_STANDARDS.md](docs/development/CODING_STANDARDS.md)** — TypeScript conventions and code style rules
-- **[docs/development/CROSS_PLATFORM_TESTING.md](docs/development/CROSS_PLATFORM_TESTING.md)** — Cross-platform compatibility requirements (Windows/Linux/macOS)
-- **[docs/architecture/TOON_FORMAT.md](docs/architecture/TOON_FORMAT.md)** — Token-Optimized Output format specification for AI tools
-- **[docs/architecture/PERFORMANCE_OPTIMIZATIONS.md](docs/architecture/PERFORMANCE_OPTIMIZATIONS.md)** — Performance tuning and caching strategies
-
-### Quick Start
+Requirements: Node.js 22 or later and npm.
 
 ```bash
 git clone https://github.com/magic5644/Graph-It-Live.git
 cd Graph-It-Live
-nvm use # optional, uses Node.js 22 when nvm is installed
 npm install
 npm run build
-# Press F5 in VS Code to launch the Extension Development Host
 ```
 
-### Project Structure
+Press F5 in VS Code to launch the Extension Development Host.
 
-```
-Graph-It-Live/
-├── src/
-│   ├── analyzer/              # Dependency analysis (AST, Tree-sitter, SQLite)
-│   │   └── callgraph/         # Live Call Graph engine
-│   ├── extension/             # VS Code extension host
-│   │   └── services/          # Service layer (graph, symbol, call graph, indexing)
-│   ├── mcp/                   # MCP server (22 AI tools)
-│   ├── shared/                # Types, protocols, utilities
-│   └── webview/               # React UI (ReactFlow + Cytoscape.js)
-│       ├── callgraph/         # Call graph panel entry point
-│       └── components/
-│           ├── reactflow/     # File graph + symbol view
-│           └── cytoscape/     # Live call graph rendering
-├── tests/                     # 1494+ tests (Vitest + VS Code E2E)
-├── resources/queries/         # Tree-sitter .scm queries (TS, Python, Rust)
-└── docs/                      # Technical documentation
-```
+| Command | Purpose |
+| --- | --- |
+| `npm run build` | Build the extension and copy WASM assets |
+| `npm test` | Run unit tests |
+| `npm run test:cli` | Run CLI tests |
+| `npm run test:vscode` | Run VS Code E2E tests |
+| `npm run lint` | Run ESLint |
+| `npm run check:types` | Run strict TypeScript checks |
+| `npm run package` | Build the VSIX package |
+| `npm run package:verify` | Verify package contents |
 
-### Build & Test Commands
-
-| Command | Description |
-|---------|-------------|
-| `npm run build` | Bundle via esbuild + copy WASM files |
-| `npm run build:cli` | Build standalone CLI only (`dist/graph-it.js`) |
-| `npm run watch` | Rebuild on change |
-| `npm test` | Run unit tests (Vitest, mocked parsers) |
-| `npm run test:cli` | Run CLI unit tests |
-| `npm run test:vscode` | E2E tests from source with real WASM |
-| `npm run test:vscode:vsix` | E2E tests from .vsix (pre-release) |
-| `npm run lint` | Lint TypeScript (ESLint) |
-| `npm run check:types` | Strict type checking |
-| `npm run package` | Build .vsix package |
-| `npm run package:verify` | Verify no .map files in package |
-
----
-
-## WASM Architecture
-
-Graph-It-Live uses **WebAssembly** tree-sitter parsers for cross-platform compatibility and security:
-
-- No native compilation needed — no Python, C++ compiler, or build tools
-- Pure JavaScript + WASM (~2-3 MB total)
-- Works identically on Windows, Linux, and macOS
-- Parsers: `tree-sitter.wasm`, `tree-sitter-python.wasm`, `tree-sitter-rust.wasm`
-
-<details>
-<summary><strong>Click to expand WASM technical details</strong></summary>
-
-### Architecture
-
-```
-VS Code Extension Host (Electron)
-├── WasmParserFactory (Singleton)
-│   ├── tree-sitter.wasm (Core runtime)
-│   ├── tree-sitter-python.wasm (Python grammar)
-│   └── tree-sitter-rust.wasm (Rust grammar)
-├── PythonParser, RustParser (use WASM)
-└── GraphExtractor (tree-sitter queries for call graph)
-```
-
-### Testing
-
-- **Unit tests:** Mocked parsers (WASM doesn't run in Node.js)
-- **E2E tests:** Real WASM parsers in VS Code's Electron environment
-- **90+ E2E tests** validate all functionality with real parsers
-
-### Troubleshooting
-
-| Error | Cause | Solution |
-|-------|-------|---------|
-| "Extension path required" | Internal error | Report as bug |
-| "LinkError: WebAssembly.instantiate()" | Node.js limitation | Expected in unit tests; works in VS Code |
-| "WASM file not found" | Missing from dist/wasm/ | Run `npm run build` or reinstall |
-
-</details>
-
----
+See [DEVELOPMENT.md](DEVELOPMENT.md) for the full project structure, test strategy, WASM details, and troubleshooting.
 
 ## License
 
-MIT License — see [LICENSE](LICENSE) file for details.
+MIT. See [LICENSE](LICENSE).
 
-## Acknowledgements
-
-Language icons provided by [SuperTinyIcons](https://github.com/edent/SuperTinyIcons) — CC0-1.0 license.
-
-## Author
-
-**magic56** (magic5644)
+Language icons are provided by [SuperTinyIcons](https://github.com/edent/SuperTinyIcons) under the CC0-1.0 license.
