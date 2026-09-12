@@ -1,5 +1,23 @@
 # Changelog
 
+## v1.14.3
+
+### Added
+
+- **Review Gate consumer analysis**: Review symbols now report whether consumers are updated, tested, or unverified. Unverified consumers increase the risk score, and emitted JavaScript imports resolve back to their TypeScript sources.
+- **Persistent analysis caches**: Added CLI cache controls and persistence for reverse-index and call-graph data, validated against workspace paths and indexed files.
+- **Graph-It-Live agent plugin**: Added portable manifests and skills for dependency analysis, dead-code detection, onboarding, and pull-request review across supported agent clients.
+
+### Fixed
+
+- **CLI workspace path handling**: Normalized workspace roots during cache and index validation, preventing equivalent paths from producing stale or invalid results.
+- **CLI cursor persistence**: Preserved continuation cursors and cache state across commands and unchanged index rebuilds.
+
+### Documentation
+
+- Expanded installation guidance for the portable agent plugin and documented marketplace distribution for Claude and Codex.
+- Added an Open VSX download badge to the README.
+
 ## v1.14.2
 
 ### Added

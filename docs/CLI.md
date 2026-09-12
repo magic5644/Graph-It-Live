@@ -96,7 +96,27 @@ releases.
 
 ## `review-pr`
 
-Run deterministic local PR review: `graph-it review-pr --base origin/main [--head <ref>] [--depth 3] [--max-files 200] --format json|toon|markdown`. The command exits non-zero for invalid refs or invalid limits; risk is data, not a gate by default. MCP clients can call `graphitlive_review_pr` with the same bounded parameters and `response_format`. Results expose signature/dependent/cycle/unused-export/test-candidate score factors; unavailable local capabilities and bounded work are limitations, not negative findings. Markdown output escapes table and HTML control characters. The Action emits `vscode://magic5644.graph-it-live/graph-it-live.reviewCallGraph?file=<workspace-relative>&symbol=<encoded>&depth=3` only when a risky symbol has a workspace-relative file; the extension accepts depth 1–5 and validates the path again.
+Run a deterministic local review of a Git diff:
+
+```bash
+graph-it review-pr --base origin/main [--head <ref>] [--depth 3] [--max-files 200] --format text|json|toon|markdown|mermaid
+```
+
+The command first ensures that the workspace index is available. It then lists changed files with `git diff` and compares exported TypeScript and JavaScript signatures between the base and head. Without `--head`, the head is the current working tree (`HEAD` plus staged and unstaged file contents). With `--head <ref>`, both sides come from Git refs and the changed-file list uses the three-dot comparison.
+
+For each changed symbol, the bounded analysis can report:
+
+- breaking signature changes;
+- known dependent symbols and transitive impact up to `--depth` (default `3`, maximum `10`);
+- cycle and unused-export evidence when the local index provides it;
+- conventional test-file candidates;
+- consumer standing: files **updated** in the diff, **covered** by a test path, or **unverified**.
+
+The score is capped at `100` per symbol, and the result score is the highest symbol score. Risk thresholds are `low` (<20), `medium` (20–49), `high` (50–79), and `critical` (80–100). Unverified consumers add risk only when the change requires call-site updates. Missing optional evidence, unsupported file types, and file limits are reported as limitations rather than invented findings. The command does not fail solely because the risk is high; use the Action's `fail-on-risk` input to gate CI.
+
+`--max-files` defaults to `200` and accepts values from `1` to `1000`. The default output is text. Markdown output includes a consumer table and a list of unverified consumers; JSON and TOON expose the complete structured result. Invalid refs and invalid limits exit non-zero.
+
+The MCP tool `graphitlive_review_pr` exposes the same bounded analysis through `baseRef`, optional `headRef`, `maxDepth`, and `maxFiles`. The Action emits `vscode://magic5644.graph-it-live/graph-it-live.reviewCallGraph?file=<workspace-relative>&symbol=<encoded>&depth=3` only when a risky symbol has a workspace-relative file; the extension accepts depth 1–5 and validates the path again.
 
 ### GitHub Actions consumer workflow
 
@@ -104,7 +124,7 @@ The composite Action has no trigger of its own. Consumer repositories must add a
 
 `cli-version` is optional: omit it to use npm `latest`, or supply an npm version, tag, or range. The Action validates the CLI's actual `graph-it-live vX.Y.Z` output, logs it, exposes it as `outputs.cli-version`, and rejects versions below `1.13.0`. It also exposes `risk` and `score` outputs.
 
-Use `magic5644/Graph-It-Live/.github/actions/graph-it-review-gate@v1.13.0` only after the manual npm publication and immutable Git tag release are complete. Never use `pull_request_target` to inspect untrusted PR code. Set `comment: false` for fork PRs; then grant only `contents: read` rather than `pull-requests: write`.
+Use `magic5644/Graph-It-Live/.github/actions/graph-it-review-gate@v1.14.2` only after the manual npm publication and immutable Git tag release are complete. Never use `pull_request_target` to inspect untrusted PR code. Set `comment: false` for fork PRs; then grant only `contents: read` rather than `pull-requests: write`.
 
 ```bash
 # 1. Go to your project root
@@ -863,7 +883,6 @@ MCP clients call the prefixed server tool name:
 
 ```json
 {
-  "tool": "graphitlive_graph_context",
   "arguments": {
     "mode": "path",
     "from": { "filePath": "src/api.ts", "symbolName": "handle" },
