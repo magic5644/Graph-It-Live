@@ -1,0 +1,20 @@
+{
+  "name": "graph-it-live",
+  "interface": {
+    "displayName": "Graph-It-Live"
+  },
+  "plugins": [
+    {
+      "name": "graph-it-live",
+      "source": {
+        "source": "local",
+        "path": "./plugins/graph-it-live"
+      },
+      "policy": {
+        "installation": "AVAILABLE",
+        "authentication": "ON_INSTALL"
+      },
+      "category": "Developer Tools"
+    }
+  ]
+}

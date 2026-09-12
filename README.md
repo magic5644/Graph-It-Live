@@ -223,8 +223,10 @@ The [`plugins/graph-it-live/`](plugins/graph-it-live/) directory is an Agent Plu
 Claude Code, GitHub Copilot, Cursor, VS Code, and Codex. It contains the portable `plugin.json`,
 `mcp.json`, and the four Graph-It-Live skills from [magic5644/skills](https://github.com/magic5644/skills),
 plus native manifests for Claude Code and Codex. Install that directory with the client’s plugin
-installer. The MCP entry resolves `@magic5644/graph-it-live@latest`, keeping the CLI and MCP server
-in the same npm release; a workflow synchronizes the plugin manifest version after each npm publish.
+installer. The repository also includes marketplace catalogs at [`.claude-plugin/marketplace.json`](.claude-plugin/marketplace.json)
+and [`.agents/plugins/marketplace.json`](.agents/plugins/marketplace.json) for discovery. The MCP entry
+resolves `@magic5644/graph-it-live@latest`, keeping the CLI and MCP server in the same npm release;
+a workflow synchronizes the plugin and marketplace versions after each npm publish.
 
 ### Agent skill
 

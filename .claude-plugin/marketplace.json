@@ -1,0 +1,18 @@
+{
+  "name": "graph-it-live",
+  "owner": {
+    "name": "Graph-It-Live Team"
+  },
+  "metadata": {
+    "description": "Graph-It-Live plugins for code dependency and call-graph analysis.",
+    "version": "1.0.0"
+  },
+  "plugins": [
+    {
+      "name": "graph-it-live",
+      "description": "Dependency, call-graph, impact, and architecture analysis for codebases.",
+      "version": "1.14.2",
+      "source": "./plugins/graph-it-live"
+    }
+  ]
+}

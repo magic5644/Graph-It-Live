@@ -7,6 +7,7 @@ const manifestPaths = [
   'plugins/graph-it-live/.codex-plugin/plugin.json',
   'plugins/graph-it-live/.claude-plugin/plugin.json',
 ];
+const claudeMarketplacePath = '.claude-plugin/marketplace.json';
 
 function isSemver(version) {
   return /^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$/.test(version);
@@ -51,6 +52,17 @@ for (const path of manifestPaths) {
   if (!checkOnly && manifest.version !== version) {
     manifest.version = version;
     await writeFile(path, `${JSON.stringify(manifest, null, 2)}\n`);
+  }
+}
+
+const claudeMarketplace = JSON.parse(await readFile(claudeMarketplacePath, 'utf8'));
+const marketplaceEntry = claudeMarketplace.plugins.find(({ name }) => name === 'graph-it-live');
+if (!marketplaceEntry) throw new Error(`Missing graph-it-live entry in ${claudeMarketplacePath}`);
+if (marketplaceEntry.version !== version) {
+  mismatches.push(`${claudeMarketplacePath}: ${marketplaceEntry.version} -> ${version}`);
+  if (!checkOnly) {
+    marketplaceEntry.version = version;
+    await writeFile(claudeMarketplacePath, `${JSON.stringify(claudeMarketplace, null, 2)}\n`);
   }
 }
 

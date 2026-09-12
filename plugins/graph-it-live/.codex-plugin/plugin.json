@@ -1,6 +1,6 @@
 {
   "name": "graph-it-live",
-  "version": "1.14.1",
+  "version": "1.14.2",
   "description": "Dependency, call-graph, impact, and architecture analysis for codebases.",
   "author": {
     "name": "Graph-It-Live Team",
@@ -9,7 +9,12 @@
   "homepage": "https://github.com/magic5644/Graph-It-Live",
   "repository": "https://github.com/magic5644/Graph-It-Live",
   "license": "MIT",
-  "keywords": ["dependencies", "call-graph", "architecture", "mcp"],
+  "keywords": [
+    "dependencies",
+    "call-graph",
+    "architecture",
+    "mcp"
+  ],
   "skills": "./skills/",
   "mcpServers": "./.mcp.json",
   "interface": {
@@ -18,7 +23,9 @@
     "longDescription": "Analyze dependencies, symbols, call paths, impact, and architecture from your coding agent.",
     "developerName": "Graph-It-Live Team",
     "category": "Developer Tools",
-    "capabilities": ["Read"],
+    "capabilities": [
+      "Read"
+    ],
     "websiteURL": "https://github.com/magic5644/Graph-It-Live",
     "defaultPrompt": [
       "Show the dependency path to this file.",

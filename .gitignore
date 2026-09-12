@@ -176,6 +176,9 @@ docs/AGENT_*
 .obsidian
 .prompts
 .agents/*
+!.agents/
+!.agents/plugins/
+!.agents/plugins/marketplace.json
 
 
 codemaps/
