@@ -336,10 +336,8 @@ async function indexCallGraphJob(
   try {
     const stat = await fs.stat(job.filePath);
     const result = await extractor.extractFile(job.filePath, job.lang, stat.mtimeMs);
-    if (result.nodes.length > 0) {
-      indexer.indexFile(result.nodes, result.edges, job.filePath, job.lang, stat.mtimeMs);
-      allEdges.push(...result.edges);
-    }
+    indexer.indexFile(result.nodes, result.edges, job.filePath, job.lang, stat.mtimeMs);
+    allEdges.push(...result.edges);
   } catch {
     // Skip files that fail to parse (binary files, encoding issues, etc.)
   }

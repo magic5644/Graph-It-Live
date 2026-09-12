@@ -89,6 +89,15 @@ describe("CallGraphIndexer", () => {
     expect(indexer.getCounts()).toEqual({ files: 0, symbols: 0, relations: 0 });
   });
 
+  it("removes previous symbols when re-indexing after a database export", () => {
+    indexer.indexFile([makeNode()], [], FILE_A, "typescript", 1000);
+    indexer.exportDb();
+
+    indexer.indexFile([], [], FILE_A, "typescript", 2000);
+
+    expect(indexer.getCounts()).toEqual({ files: 1, symbols: 0, relations: 0 });
+  });
+
   it("getCounts() counts files, symbols and relations", () => {
     indexer.indexFile(
       [makeNode(), makeNode({ id: `${FILE_A}:helper:12`, name: "helper", startLine: 12 })],

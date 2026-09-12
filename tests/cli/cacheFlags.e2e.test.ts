@@ -13,6 +13,7 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import type { GraphContextResponse } from "@/shared/graph-context-types";
 
 const REPO_ROOT = path.resolve(__dirname, "../..");
 const DIST_ENTRY = path.join(REPO_ROOT, "dist/graph-it.js");
@@ -100,6 +101,46 @@ describe.skipIf(!distExists)("CLI index cache flags (E2E)", { timeout: SUBPROCES
     cli("--no-cache", "summary");
 
     expect(fs.existsSync(cacheDir)).toBe(false);
+  });
+
+  it("drops deleted references when a warm workspace requires a full rebuild", () => {
+    cli("summary");
+    for (let i = 0; i < 6; i++) fs.rmSync(path.join(tmpDir, `src/f${i}.ts`));
+
+    const result = JSON.parse(cli("path-in", "src/b.ts", "--format", "json")) as { referencingFiles: unknown[] };
+    expect(result.referencingFiles).toHaveLength(6);
+  });
+
+  it("does not return symbols removed from a cached file", () => {
+    const args = ["context", "--seeds", "src/f0.ts#f0", "--format", "json"];
+    cli(...args);
+    fs.writeFileSync(path.join(tmpDir, "src/f0.ts"), "// no symbols remain\n");
+
+    const result = JSON.parse(cli(...args)) as GraphContextResponse;
+    expect(result.nodes).toEqual([]);
+  });
+
+  it("re-resolves imports after an alias changes between processes", () => {
+    const config = (target: string) => JSON.stringify({ compilerOptions: { paths: { "@dep": [target] } } });
+    fs.writeFileSync(path.join(tmpDir, "src/other.ts"), "export const b = () => 2;\n");
+    fs.writeFileSync(path.join(tmpDir, "src/f0.ts"), "import { b } from '@dep';\nexport const f0 = () => b();\n");
+    fs.writeFileSync(path.join(tmpDir, "tsconfig.json"), config("src/b.ts"));
+    cli("summary");
+    fs.writeFileSync(path.join(tmpDir, "tsconfig.json"), config("src/other.ts"));
+
+    const result = JSON.parse(cli("path-in", "src/other.ts", "--format", "json")) as { referencingFiles: unknown[] };
+    expect(result.referencingFiles).toHaveLength(1);
+  });
+
+  it("continues a cursor in a new process using the cached graph", () => {
+    const args = ["context", "--seeds", "src/b.ts#b", "--mode", "neighbors", "--max-nodes", "2", "--format", "json"];
+    const first = JSON.parse(cli(...args)) as GraphContextResponse;
+    expect(first.nextCursor).toBeTypeOf("string");
+
+    const second = JSON.parse(cli(...args, "--cursor", first.nextCursor!)) as GraphContextResponse;
+    expect(second.indexRevision).toBe(first.indexRevision);
+    expect(second.nodes.length).toBeGreaterThan(0);
+    expect(second.nodes.some(node => first.nodes.some(previous => previous.id === node.id))).toBe(false);
   });
 
   it("GRAPH_IT_NO_CACHE=1 writes no cache at all", () => {

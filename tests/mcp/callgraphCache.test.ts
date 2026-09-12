@@ -129,6 +129,20 @@ describe.runIf(HAS_WASM)("call graph cache", () => {
     expect(files.some((f) => f.path.endsWith("f0.ts"))).toBe(false);
   });
 
+  it("removes old symbols when a changed file becomes empty", async () => {
+    await indexOnce();
+    write("src/f0.ts", "// no symbols remain\n");
+    const changedAt = new Date(Date.now() + 1_000);
+    fs.utimesSync(path.join(tmpDir, "src/f0.ts"), changedAt, changedAt);
+
+    await indexOnce();
+
+    const snapshot = workerState.callGraphIndexer!.getIndexSnapshot();
+    expect(snapshot.nodes.some(node => node.name === "f0")).toBe(false);
+    expect(snapshot.edges.some(edge => edge.sourceId.includes("f0.ts"))).toBe(false);
+    expect(workerState.callGraphIndexer!.getFileRecord(normalizePath(path.join(tmpDir, "src/f0.ts")))).not.toBeNull();
+  });
+
   it("rebuilds everything when churn passes the threshold", async () => {
     await indexOnce();
     for (let i = 0; i < 6; i++) {

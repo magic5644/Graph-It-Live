@@ -610,7 +610,11 @@ export class CallGraphIndexer {
    * Returns a Uint8Array that can be written to disk and later loaded with `loadFromBytes()`.
    */
   exportDb(): Uint8Array {
-    return this.getDb().export();
+    const db = this.getDb();
+    const data = db.export();
+    // sql.js reopens the connection on export, resetting connection-local pragmas.
+    db.run("PRAGMA foreign_keys = ON");
+    return data;
   }
 
   /**
@@ -654,6 +658,7 @@ export class CallGraphIndexer {
         return false; // stale schema → caller should rebuild
       }
       // Replace current DB
+      loadedDb.run("PRAGMA foreign_keys = ON");
       this.db?.close();
       this.db = loadedDb;
       return true;
