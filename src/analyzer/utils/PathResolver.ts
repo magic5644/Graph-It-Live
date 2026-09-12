@@ -545,6 +545,15 @@ export class PathResolver {
       return normalizePath(basePath);
     }
 
+    // TypeScript's NodeNext/ESM resolution requires import specifiers to carry the
+    // *emitted* extension: `./commands/scan.js` is how you import `scan.ts`. Without
+    // this remap the source file is never found, and every such edge — including all
+    // dynamic imports in an ESM codebase — is silently missing from the graph.
+    const emittedToSource = await this.resolveEmittedExtension(basePath);
+    if (emittedToSource) {
+      return emittedToSource;
+    }
+
     // Try with extensions
     for (const ext of extensions) {
       const pathWithExt = basePath + ext;
@@ -561,6 +570,34 @@ export class PathResolver {
       }
     }
 
+    return null;
+  }
+
+  /**
+   * Map an emitted-JavaScript specifier back to the TypeScript source it compiles
+   * from: `.js` → `.ts`/`.tsx`, `.mjs` → `.mts`, `.cjs` → `.cts`.
+   * Returns null when the specifier carries no such extension.
+   */
+  private async resolveEmittedExtension(basePath: string): Promise<string | null> {
+    const sourceExtensions: Record<string, string[]> = {
+      ".js": [".ts", ".tsx"],
+      ".jsx": [".tsx"],
+      ".mjs": [".mts"],
+      ".cjs": [".cts"],
+    };
+    const emitted = path.extname(basePath).toLowerCase();
+    const candidates = sourceExtensions[emitted];
+    if (!candidates) {
+      return null;
+    }
+
+    const withoutExtension = basePath.slice(0, -emitted.length);
+    for (const extension of candidates) {
+      const candidate = withoutExtension + extension;
+      if (await this.fileExists(candidate)) {
+        return normalizePath(candidate);
+      }
+    }
     return null;
   }
 
