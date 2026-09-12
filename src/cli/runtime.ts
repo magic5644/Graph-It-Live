@@ -27,6 +27,7 @@ import {
 } from "../shared/logger";
 import { CliError, ExitCode } from "./errors";
 import { ErrorCollectorBackend, type CollectedLogEntry } from "./errorCollector";
+import { configFingerprint } from "./configFingerprint";
 
 // Send all logs to stderr so stdout stays clean for data output
 setLoggerBackend({
@@ -83,6 +84,7 @@ interface CliCacheMeta {
   cliVersion: string;
   savedAt: string;
   workspaceRoot: string;
+  configFingerprint: string;
 }
 
 /**
@@ -139,6 +141,7 @@ export class CliRuntime {
   private _indexReady = false;
   private _reverseIndexRestored = false;
   private _sourceFiles: string[] | null = null;
+  private _configFingerprint: string | undefined;
   private errorCollectorBackend: ErrorCollectorBackend | null = null;
 
   constructor(workspaceRoot: string, options?: { cache?: boolean }) {
@@ -251,6 +254,9 @@ export class CliRuntime {
     }
 
     workerState.spider = builder.build();
+    if (this.cacheEnabled) {
+      this._configFingerprint = configFingerprint(this.workspaceRoot, await this.collectSourceFiles());
+    }
     workerState.config = {
       rootDir: this.workspaceRoot,
       tsConfigPath,
@@ -258,7 +264,7 @@ export class CliRuntime {
       maxDepth: 50,
       extensionPath: cliExtensionPath,
       // Undefined disables call-graph persistence — the MCP worker never sets it.
-      cacheDir: this.cacheEnabled ? this.cacheDir : undefined,
+      cacheDir: this.cacheEnabled && this.isCacheMetaValid() ? this.cacheDir : undefined,
     };
     workerState.isReady = true;
     this._initialized = true;
@@ -306,6 +312,8 @@ export class CliRuntime {
       return (
         meta.schema === CACHE_SCHEMA &&
         meta.cliVersion === CLI_VERSION &&
+        this._configFingerprint !== undefined &&
+        meta.configFingerprint === this._configFingerprint &&
         normalizePath(meta.workspaceRoot) === normalizePath(this.workspaceRoot)
       );
     } catch {
@@ -401,6 +409,8 @@ export class CliRuntime {
     spider: Spider,
     silent: boolean,
   ): Promise<Omit<IndexOutcome, "durationMs">> {
+    // A restored index may still contain deleted files when churn forces a full rebuild.
+    spider.clearCache();
     if (!silent) {
       process.stderr.write("\r  Indexing workspace...");
     }
@@ -470,7 +480,7 @@ export class CliRuntime {
    * Best-effort: a cache that fails to write only costs the next run some time.
    */
   private saveCache(): void {
-    if (!this.cacheEnabled || !this._indexReady) return;
+    if (!this.cacheEnabled || !this._indexReady || this._configFingerprint === undefined) return;
 
     try {
       fs.mkdirSync(this.cacheDir, { recursive: true });
@@ -485,6 +495,9 @@ export class CliRuntime {
           path.join(this.cacheDir, CACHE_CALLGRAPH_FILE),
           workerState.callGraphIndexer.exportDb(),
         );
+      } else if (!this.isCacheMetaValid()) {
+        // Do not bless an older DB with the new configuration guard after a file-only command.
+        fs.rmSync(path.join(this.cacheDir, CACHE_CALLGRAPH_FILE), { force: true });
       }
 
       const meta: CliCacheMeta = {
@@ -492,6 +505,7 @@ export class CliRuntime {
         cliVersion: CLI_VERSION,
         savedAt: new Date().toISOString(),
         workspaceRoot: this.workspaceRoot,
+        configFingerprint: this._configFingerprint,
       };
       // Written last: the guard is only valid once the payloads are on disk.
       writeFileAtomic(path.join(this.cacheDir, CACHE_META_FILE), JSON.stringify(meta, null, 2));

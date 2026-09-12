@@ -3,6 +3,7 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { Spider } from "@/analyzer/Spider";
+import { LanguageService } from "@/analyzer/LanguageService";
 import { CliRuntime, type IndexOutcome } from "@/cli/runtime";
 import { workerState } from "@/mcp/shared/state";
 import { normalizePath } from "@/shared/path";
@@ -26,6 +27,8 @@ describe("CliRuntime index cache", () => {
 
   /** Full init → index → dispose cycle, like one `graph-it <command>` run. */
   const run = async (options?: { cache?: boolean }): Promise<{ callers: number }> => {
+    // Each real CLI process starts with fresh parser/configuration singletons.
+    LanguageService.reset();
     const runtime = new CliRuntime(tmpDir, options);
     runtimes.push(runtime);
     await runtime.init();
@@ -124,6 +127,34 @@ describe("CliRuntime index cache", () => {
 
     expect((await run()).callers).toBe(13);
   });
+
+  it("removes deleted references even when deletions trigger a full rebuild", async () => {
+    await run();
+    for (let i = 0; i < 6; i++) fs.rmSync(path.join(tmpDir, `src/f${i}.ts`));
+
+    expect((await run()).callers).toBe(6);
+    expect((await run()).callers).toBe(6);
+  });
+
+  it.each(["tsconfig.json", "src/tsconfig.json", "src/package.json"])(
+    "invalidates cached dependencies when %s changes",
+    async (configPath) => {
+      const alias = configPath.endsWith("package.json") ? "#dep" : "@dep";
+      const target = configPath.startsWith("src/") ? "./b.ts" : "./src/b.ts";
+      const config = (value: string) => configPath.endsWith("package.json")
+        ? { imports: { [alias]: value } }
+        : { compilerOptions: { baseUrl: ".", paths: { [alias]: [value] } } };
+      write(configPath, JSON.stringify(config(target)));
+      write("src/f0.ts", `import { b } from '${alias}';\nexport const f0 = () => b();\n`);
+      write("src/other.ts", "export const b = () => 2;\n");
+      expect((await run()).callers).toBe(12);
+
+      write(configPath, JSON.stringify(config(target.replace("b.ts", "other.ts"))));
+
+      expect((await run()).callers).toBe(11);
+      expect((await run()).callers).toBe(11);
+    },
+  );
 
   it("drops a file deleted between two runs", async () => {
     await run();
@@ -260,6 +291,16 @@ describe("CliRuntime index cache", () => {
     expect(fs.readFileSync(path.join(cacheDir, "callgraph.db"))).toEqual(
       Buffer.from([1, 2, 3]),
     );
+  });
+
+  it("discards an old call graph when a config change only rebuilds the reverse index", async () => {
+    await run();
+    fs.writeFileSync(path.join(cacheDir, "callgraph.db"), "previous graph");
+    write("tsconfig.json", '{"compilerOptions":{"baseUrl":"src"}}');
+
+    await run();
+
+    expect(fs.existsSync(path.join(cacheDir, "callgraph.db"))).toBe(false);
   });
 
   // chmod does not remove write access to a directory on Windows, so the
