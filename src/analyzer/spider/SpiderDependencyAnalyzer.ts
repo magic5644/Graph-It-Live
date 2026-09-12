@@ -99,9 +99,15 @@ export class SpiderDependencyAnalyzer {
     normalizedFilePath: string,
     dependencies: Dependency[]
   ): Promise<void> {
-    if (!this.reverseIndexManager.isEnabled() || dependencies.length === 0) {
+    if (!this.reverseIndexManager.isEnabled()) {
       return;
     }
+
+    // A file with no dependencies still gets a hash recorded. fileHashes is the
+    // "which files have been analyzed" set, so skipping dependency-less files
+    // would make them permanently indistinguishable from never-indexed ones —
+    // they would never be detected as stale, and a restored index would look
+    // massively incomplete to validateIndex().
 
     const fileHash = await ReverseIndex.getFileHashFromDisk(diskFilePath);
     if (fileHash) {

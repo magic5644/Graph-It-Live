@@ -35,6 +35,18 @@ export async function executeGetIndexStatus(): Promise<GetIndexStatusResult> {
           }
         : undefined,
     warmup: workerState.warmupInfo,
+    // Distinct from reverseIndexStats: the call graph only covers languages that
+    // have a Tree-sitter query, so its file count is legitimately lower.
+    callGraph: workerState.callGraphIndexer
+      ? (() => {
+          const counts = workerState.callGraphIndexer.getCounts();
+          return {
+            indexedFiles: counts.files,
+            symbols: counts.symbols,
+            relations: counts.relations,
+          };
+        })()
+      : undefined,
   };
 }
 

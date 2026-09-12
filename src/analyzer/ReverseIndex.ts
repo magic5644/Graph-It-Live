@@ -339,9 +339,16 @@ export class ReverseIndex {
   /**
    * Validate the index by checking if files are stale
    * @param staleThreshold Percentage of stale files (0-1) above which to reject
+   * @param filesOnDisk Current source files on disk. Without it, only already-indexed
+   *   files are checked, so a file created since the index was built stays invisible.
+   *   The extension papers over that with a file watcher; the CLI has no watcher
+   *   because its process dies between commands, so it must pass this list.
    * @returns Object with validation results
    */
-  async validateIndex(staleThreshold: number = 0.2): Promise<{
+  async validateIndex(
+    staleThreshold: number = 0.2,
+    filesOnDisk?: readonly string[]
+  ): Promise<{
     isValid: boolean;
     staleFiles: string[];
     stalePercentage: number;
@@ -352,7 +359,7 @@ export class ReverseIndex {
 
     for (const filePath of this.fileHashes.keys()) {
       const currentHash = await ReverseIndex.getFileHashFromDisk(filePath);
-      
+
       if (!currentHash) {
         missingFiles.push(filePath);
         continue;
@@ -363,7 +370,19 @@ export class ReverseIndex {
       }
     }
 
-    const totalFiles = this.fileHashes.size;
+    let newFiles = 0;
+    if (filesOnDisk) {
+      for (const filePath of filesOnDisk) {
+        const normalized = normalizePath(filePath);
+        if (!this.fileHashes.has(normalized)) {
+          staleFiles.push(normalized);
+          newFiles++;
+        }
+      }
+    }
+
+    // Denominator covers every distinct file considered: indexed ∪ on-disk.
+    const totalFiles = this.fileHashes.size + newFiles;
     const staleCount = staleFiles.length + missingFiles.length;
     const stalePercentage = totalFiles > 0 ? staleCount / totalFiles : 0;
 

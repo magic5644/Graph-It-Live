@@ -167,6 +167,13 @@ export class SpiderIndexingService {
 
     log.info(`Re-indexing ${staleFiles.length} stale files`);
 
+    // Drive the same status lifecycle as buildFullIndex: callers that restored a
+    // persisted index reach a ready state through here, and would otherwise keep
+    // reporting "idle" forever.
+    this.indexerStatus.startCounting();
+    this.indexerStatus.setTotal(staleFiles.length);
+    this.indexerStatus.startIndexing();
+
     const concurrency = this.getConfig().indexingConcurrency ?? 8;
     let processed = 0;
 
@@ -191,10 +198,12 @@ export class SpiderIndexingService {
       );
 
       processed += batch.length;
+      this.indexerStatus.updateProgress(processed, batch.at(-1));
       progressCallback?.(processed, staleFiles.length, batch.at(-1));
       await this.yieldToEventLoop();
     }
 
+    this.indexerStatus.complete();
     log.info(`Completed re-indexing ${processed} files`);
     return processed;
   }

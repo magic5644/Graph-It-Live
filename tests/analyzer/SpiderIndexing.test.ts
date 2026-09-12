@@ -320,3 +320,25 @@ describe('Spider - Index Performance', () => {
         expect(result.cancelled).toBe(false);
     }, 30_000);
 });
+
+describe('Spider - worker-backed indexing lifecycle', () => {
+    let spider: Spider;
+
+    beforeEach(() => {
+        spider = new SpiderBuilder()
+            .withRootDir(fixturesPath)
+            .withTsConfigPath(path.join(fixturesPath, 'tsconfig.json'))
+            .withReverseIndex(true)
+            .build();
+    });
+
+    it('disposeWorker() is safe when no worker was ever started', () => {
+        expect(() => spider.disposeWorker()).not.toThrow();
+    });
+
+    it('buildFullIndexInWorker() surfaces a missing worker script instead of hanging', async () => {
+        const missingWorker = path.join(fixturesPath, 'no-such-indexer-worker.js');
+
+        await expect(spider.buildFullIndexInWorker(missingWorker)).rejects.toThrow();
+    });
+});

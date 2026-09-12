@@ -138,6 +138,8 @@ These options are available for every command:
 | `--format <format>` | `-f` | `text` | Output format: `text`, `json`, `toon`, `markdown`, `mermaid` |
 | `--help` | `-h` | — | Show help for the current command |
 | `--version` | `-v` | — | Print the installed version |
+| `--reindex` | — | — | Discard the cached index and rebuild it from scratch |
+| `--no-cache` | — | — | Neither read nor write the index cache for this run |
 
 **Workspace auto-detection:** If `--workspace` is omitted, `graph-it` looks for a `package.json`, `tsconfig.json`, `pyproject.toml`, or `Cargo.toml` in the current directory and its ancestors.
 
@@ -148,6 +150,30 @@ graph-it scan --workspace /abs/path/to/project
 # Let it auto-detect from cwd
 cd /path/to/project && graph-it scan
 ```
+
+### Index cache
+
+Each command runs in its own process, so without a cache every invocation would
+re-parse the whole workspace. `graph-it` persists its indexes under
+`.graph-it/cache/` in the workspace and reuses them on the next run, re-analyzing
+only the files that changed:
+
+| File | Contents |
+|------|----------|
+| `meta.json` | Guard: cache layout version, CLI version, workspace root |
+| `reverse-index.json` | File-level dependency / reverse-dependency index |
+| `callgraph.db` | SQLite call graph (written by `context`, `query`, `wiki`) |
+
+The cache is invalidated automatically when the CLI version changes, when a
+language query file is updated, per file by modification time and size, and
+whenever more than 20% of the workspace changed — that last case triggers a full
+rebuild. Added, deleted and renamed files are all detected.
+
+Turn it off with `--no-cache` (or `GRAPH_IT_NO_CACHE=1`), and force a clean
+rebuild with `--reindex`. `.graph-it/` is disposable; delete it at any time.
+
+> Global options must appear **before** the command name:
+> `graph-it --reindex summary`, not `graph-it summary --reindex`.
 
 ---
 

@@ -534,6 +534,121 @@ export function fileExtToLang(filePath: string): SupportedLang | null {
 }
 
 // ---------------------------------------------------------------------------
+// Incremental indexing helpers (shared by the extension and the CLI)
+// ---------------------------------------------------------------------------
+
+/** Minimal view of a `file_index` row — avoids a CallGraphIndexer import cycle. */
+export interface IndexedFileRecord {
+  lastModified: number;
+  indexedAt: number;
+}
+
+/** Lookup of the persisted index record for a file, or null when never indexed. */
+export type IndexedFileLookup = (filePath: string) => IndexedFileRecord | null;
+
+/** One file that needs (re-)extraction. */
+export interface ExtractionJob {
+  filePath: string;
+  lang: SupportedLang;
+  mtime: number;
+}
+
+/** Batch size for `fs.stat` fan-out when checking freshness. */
+const STAT_BATCH = 32;
+
+/**
+ * Returns per-language freshness cutoffs derived from query-file mtimes.
+ * A file indexed before its language query was updated must be re-extracted
+ * even when the source file itself is unchanged.
+ *
+ * @param extensionPath Package root containing `dist/queries/*.scm`.
+ */
+export async function getQueryFreshnessCutoffs(
+  extensionPath: string,
+): Promise<Record<SupportedLang, number>> {
+  const queryDir = path.join(extensionPath, "dist", "queries");
+  const queryFiles: Record<SupportedLang, string> = {
+    typescript: path.join(queryDir, "typescript.scm"),
+    javascript: path.join(queryDir, "typescript.scm"),
+    python: path.join(queryDir, "python.scm"),
+    rust: path.join(queryDir, "rust.scm"),
+    csharp: path.join(queryDir, "csharp.scm"),
+    go: path.join(queryDir, "go.scm"),
+    java: path.join(queryDir, "java.scm"),
+  };
+
+  const entries = await Promise.all(
+    (Object.entries(queryFiles) as Array<[SupportedLang, string]>).map(
+      async ([lang, queryPath]) => {
+        try {
+          const stat = await fs.stat(queryPath);
+          return [lang, Math.floor(stat.mtimeMs)] as const;
+        } catch {
+          // A missing query file must not block indexing.
+          return [lang, 0] as const;
+        }
+      },
+    ),
+  );
+
+  return Object.fromEntries(entries) as Record<SupportedLang, number>;
+}
+
+/**
+ * Batch-`fs.stat` the given files and drop the ones already fresh in the index.
+ *
+ * A file is skipped only when both the source file AND the extractor rules that
+ * produced its rows are still fresh.
+ *
+ * @param files    Candidate source files (normalized absolute paths).
+ * @param lookup   Reads the persisted index record for a file.
+ * @param cutoffs  Per-language query freshness cutoffs.
+ * @param langOf   Maps a path to its language; files mapping to null are skipped.
+ */
+export async function collectChangedFiles(
+  files: readonly string[],
+  lookup: IndexedFileLookup,
+  cutoffs: Record<SupportedLang, number>,
+  langOf: (filePath: string) => SupportedLang | null = fileExtToLang,
+): Promise<{ jobs: ExtractionJob[]; skipped: number }> {
+  const jobs: ExtractionJob[] = [];
+  let skipped = 0;
+
+  for (let i = 0; i < files.length; i += STAT_BATCH) {
+    const batch = files.slice(i, i + STAT_BATCH);
+    const stats = await Promise.all(
+      batch.map(async (filePath) => {
+        try {
+          const s = await fs.stat(filePath);
+          return { filePath, mtime: Math.floor(s.mtimeMs), ok: true as const };
+        } catch {
+          return { filePath, mtime: 0, ok: false as const };
+        }
+      }),
+    );
+
+    for (const s of stats) {
+      const lang = s.ok ? langOf(s.filePath) : null;
+      if (!lang) {
+        skipped++;
+        continue;
+      }
+
+      const record = lookup(s.filePath);
+      const queryCutoff = cutoffs[lang] ?? 0;
+      if (record && record.lastModified >= s.mtime && record.indexedAt >= queryCutoff) {
+        skipped++;
+        continue;
+      }
+
+      jobs.push({ filePath: s.filePath, lang, mtime: s.mtime });
+    }
+  }
+
+  return { jobs, skipped };
+}
+
+// ---------------------------------------------------------------------------
 // SFC script extraction (Vue / Svelte)
 // ---------------------------------------------------------------------------
 

@@ -232,6 +232,9 @@ function formatScalar(value: unknown): string {
 function formatTextObject(obj: Record<string, unknown>, indent: number): string {
   const prefix = "  ".repeat(indent);
   return Object.entries(obj)
+    // An absent optional field reads as missing information, not as the literal
+    // text "undefined".
+    .filter(([, v]) => v !== undefined)
     .map(([k, v]) => {
       if (typeof v === "object" && v !== null && !Array.isArray(v)) {
         return `${prefix}${k}:\n${formatTextObject(v as Record<string, unknown>, indent + 1)}`;

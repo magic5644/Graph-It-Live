@@ -24,6 +24,60 @@ describe("workspace tools", () => {
   });
 
   describe("executeGetIndexStatus", () => {
+    const idleSpider = {
+      getIndexStatus: () => ({ state: "complete", processed: 0, total: 0, percentage: 0 }),
+      getCacheStatsAsync: async () => ({
+        dependencyCache: { size: 0 },
+        reverseIndexStats: { indexedFiles: 708, targetFiles: 243, totalReferences: 1415 },
+      }),
+      hasReverseIndex: () => true,
+      isReverseIndexEnabled: () => true,
+    };
+
+    it("omits callGraph when no call graph has been built", async () => {
+      setupWorkerState(idleSpider);
+
+      const result = await executeGetIndexStatus();
+
+      expect(result.callGraph).toBeUndefined();
+    });
+
+    it("reports call graph coverage separately from the dependency index", async () => {
+      setupWorkerState(idleSpider);
+      // The call graph only covers languages shipping a Tree-sitter query, so its
+      // file count is legitimately lower than the dependency index's.
+      workerState.callGraphIndexer = {
+        getCounts: () => ({ files: 478, symbols: 3446, relations: 5697 }),
+        dispose: vi.fn(),
+      } as any;
+
+      const result = await executeGetIndexStatus();
+
+      expect(result.reverseIndexStats?.indexedFiles).toBe(708);
+      expect(result.callGraph).toEqual({
+        indexedFiles: 478,
+        symbols: 3446,
+        relations: 5697,
+      });
+    });
+
+    it("passes the cache provenance fields of warmup through", async () => {
+      setupWorkerState(idleSpider);
+      workerState.warmupInfo = {
+        completed: true,
+        durationMs: 24,
+        filesIndexed: 708,
+        filesFound: 708,
+        filesAnalyzed: 0,
+        fromCache: true,
+      };
+
+      const result = await executeGetIndexStatus();
+
+      expect(result.warmup).toMatchObject({ fromCache: true, filesAnalyzed: 0, filesFound: 708 });
+    });
+
+
     it("should map validating to indexing and include warmup info", async () => {
       const spiderMock = {
         getIndexStatus: () => ({

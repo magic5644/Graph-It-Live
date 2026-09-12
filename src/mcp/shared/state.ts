@@ -23,7 +23,14 @@ import type { McpWorkerConfig } from "../types";
 export interface WarmupInfo {
   completed: boolean;
   durationMs?: number;
+  /** Source files held in the index. */
   filesIndexed?: number;
+  /** Source files discovered on disk. */
+  filesFound?: number;
+  /** Files parsed during this run — 0 when a warm cache answered everything. */
+  filesAnalyzed?: number;
+  /** Whether the index was restored from disk rather than rebuilt. */
+  fromCache?: boolean;
 }
 
 /**

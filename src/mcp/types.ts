@@ -61,6 +61,12 @@ export interface McpWorkerConfig {
   extensionPath?: string;
   excludeNodeModules: boolean;
   maxDepth: number;
+  /**
+   * Directory where analysis indexes may be persisted between processes.
+   * Only the CLI sets this; the MCP worker leaves it undefined and keeps
+   * building a fresh in-memory index on every start.
+   */
+  cacheDir?: string;
 }
 
 /**
@@ -1181,8 +1187,24 @@ export interface GetIndexStatusResult {
     completed: boolean;
     /** Time taken for warmup in ms (if completed) */
     durationMs?: number;
-    /** Number of files indexed during warmup */
+    /** Number of source files held in the index */
     filesIndexed?: number;
+    /** Number of source files discovered on disk */
+    filesFound?: number;
+    /** Files parsed during this run — 0 when a warm cache answered everything */
+    filesAnalyzed?: number;
+    /** Whether the index was restored from disk rather than rebuilt */
+    fromCache?: boolean;
+  };
+  /**
+   * Call graph coverage, when a call graph has been built. Its file count is
+   * lower than reverseIndexStats.indexedFiles because the call graph only covers
+   * languages that ship a Tree-sitter query.
+   */
+  callGraph?: {
+    indexedFiles: number;
+    symbols: number;
+    relations: number;
   };
 }
 
