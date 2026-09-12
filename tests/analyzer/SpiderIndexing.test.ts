@@ -295,16 +295,20 @@ describe('Spider - Index Performance', () => {
         const refsFallback = await spiderNoIndex.findReferencingFiles(sharedFile);
         const durationFallback = performance.now() - startFallback;
 
-        // Both should find the same files
+        // Both lookup paths must agree — this is the property worth pinning.
         expect(refsIndexed.length).toBe(NUM_FILES);
         expect(refsFallback.length).toBe(NUM_FILES);
+        expect(refsIndexed.map((r) => r.path).sort()).toEqual(
+            refsFallback.map((r) => r.path).sort()
+        );
 
-        // Indexed should be faster
+        // NOT asserted: durationIndexed < durationFallback * N. Both lookups take
+        // well under a millisecond on this fixture, so the ratio measures scheduler
+        // noise rather than the index — it failed intermittently under parallel
+        // suite load. The indexed path's advantage only shows on a cold cache or a
+        // large project, which this fixture is not; a real measurement belongs in a
+        // benchmark, not in a unit test.
         console.log(`Indexed lookup: ${durationIndexed.toFixed(2)}ms, Fallback: ${durationFallback.toFixed(2)}ms`);
-        
-        // With warm caches, indexed should be at least as fast
-        // The real difference shows on cold cache / large projects
-        expect(durationIndexed).toBeLessThan(durationFallback * 2); // Allow some margin
     }, 30_000);
 
     it('should handle many files during indexing', async () => {

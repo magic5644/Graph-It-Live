@@ -5,6 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { Spider } from "@/analyzer/Spider";
 import { CliRuntime, type IndexOutcome } from "@/cli/runtime";
 import { workerState } from "@/mcp/shared/state";
+import { normalizePath } from "@/shared/path";
 
 /**
  * The CLI process dies between commands, so both the reverse index and the call
@@ -79,7 +80,7 @@ describe("CliRuntime index cache", () => {
     expect(callers).toBe(12);
     expect(fs.existsSync(path.join(cacheDir, "reverse-index.json"))).toBe(true);
     const meta = JSON.parse(fs.readFileSync(path.join(cacheDir, "meta.json"), "utf-8"));
-    expect(meta.workspaceRoot).toBe(tmpDir);
+    expect(normalizePath(meta.workspaceRoot)).toBe(normalizePath(tmpDir));
     expect(meta.schema).toBe(1);
   });
 
@@ -261,19 +262,61 @@ describe("CliRuntime index cache", () => {
     );
   });
 
-  it("does not fail the command when the cache cannot be written", async () => {
+  // chmod does not remove write access to a directory on Windows, so the
+  // read-only case can only be exercised on POSIX. The failure path itself is
+  // covered on every OS by the next test, which makes the write throw outright.
+  it.skipIf(process.platform === "win32")(
+    "does not fail the command when the cache directory is read-only",
+    async () => {
+      const runtime = new CliRuntime(tmpDir);
+      runtimes.push(runtime);
+      await runtime.init();
+      await runtime.ensureIndexed({ silent: true });
+      fs.mkdirSync(cacheDir, { recursive: true });
+      fs.chmodSync(cacheDir, 0o500);
+
+      try {
+        await expect(runtime.dispose()).resolves.not.toThrow();
+      } finally {
+        fs.chmodSync(cacheDir, 0o700);
+      }
+    },
+  );
+
+  it("does not fail the command when the cache cannot be created", async () => {
     const runtime = new CliRuntime(tmpDir);
     runtimes.push(runtime);
     await runtime.init();
     await runtime.ensureIndexed({ silent: true });
-    // A read-only cache directory must degrade to "no cache", never to a crash.
-    fs.mkdirSync(cacheDir, { recursive: true });
-    fs.chmodSync(cacheDir, 0o500);
+    // A plain file where the cache directory belongs makes the mkdir fail on
+    // every OS. A cache that cannot be written costs the next run some time; it
+    // must never turn into a failed command.
+    fs.mkdirSync(path.dirname(cacheDir), { recursive: true });
+    fs.writeFileSync(cacheDir, "not a directory");
 
+    await expect(runtime.dispose()).resolves.not.toThrow();
+    expect(fs.statSync(cacheDir).isFile()).toBe(true);
+  });
+
+  it("accepts a guard whose workspace root differs only in separator style", async () => {
+    await run();
+    const metaPath = path.join(cacheDir, "meta.json");
+    const meta = JSON.parse(fs.readFileSync(metaPath, "utf-8"));
+    // What a Windows run writes vs. what path.resolve() returns can differ in
+    // separator style and drive-letter case; that must not force a rebuild.
+    // Swap to the other platform's separator so the case is exercised on both.
+    const swapped: string = meta.workspaceRoot.includes("/")
+      ? meta.workspaceRoot.replaceAll("/", "\\")
+      : meta.workspaceRoot.replaceAll("\\", "/");
+    fs.writeFileSync(metaPath, JSON.stringify({ ...meta, workspaceRoot: swapped }));
+    expect(swapped).not.toBe(meta.workspaceRoot);
+
+    const buildFullIndex = vi.spyOn(Spider.prototype, "buildFullIndex");
     try {
-      await expect(runtime.dispose()).resolves.not.toThrow();
+      expect((await run()).callers).toBe(12);
+      expect(buildFullIndex).not.toHaveBeenCalled();
     } finally {
-      fs.chmodSync(cacheDir, 0o700);
+      buildFullIndex.mockRestore();
     }
   });
 

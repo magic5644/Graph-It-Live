@@ -4,6 +4,7 @@ import * as path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { ReverseIndex } from "../../src/analyzer/ReverseIndex";
 import type { Dependency } from "../../src/analyzer/types";
+import { normalizePath } from "../../src/shared/path";
 
 /**
  * validateIndex() historically only checked files it had already indexed, so a
@@ -47,7 +48,9 @@ describe("ReverseIndex.validateIndex with filesOnDisk", () => {
 
     const result = await index.validateIndex(0.6, [indexed, created]);
 
-    expect(result.staleFiles).toContain(created);
+    // The index stores normalized paths: forward slashes and a lowercased
+    // Windows drive letter. Compare in that form, not in the raw OS form.
+    expect(result.staleFiles).toContain(normalizePath(created));
     expect(result.missingFiles).toHaveLength(0);
   });
 
@@ -99,7 +102,53 @@ describe("ReverseIndex.validateIndex with filesOnDisk", () => {
 
     const result = await index.validateIndex(0.2, []);
 
-    expect(result.missingFiles).toEqual([gone]);
+    expect(result.missingFiles).toEqual([normalizePath(gone)]);
+  });
+
+  // Windows path handling, runnable on every OS: filesOnDisk comes straight from
+  // the caller, so the drive-letter case and the separator style must not decide
+  // whether a file counts as already indexed. These cases need no filesystem —
+  // the "already indexed?" check is a pure lookup against the normalized keys.
+  describe("Windows-shaped input paths", () => {
+    const WIN_ROOT = "C:\\proj";
+    let winIndex: ReverseIndex;
+
+    beforeEach(() => {
+      winIndex = new ReverseIndex(WIN_ROOT);
+      winIndex.addDependencies(
+        "C:\\proj\\src\\a.ts",
+        [{ path: "C:\\proj\\src\\target.ts", type: "import", line: 1, module: "./target" }],
+        { mtime: 1, size: 1 },
+      );
+    });
+
+    it("treats a backslash path as the file already indexed under its normalized key", async () => {
+      const result = await winIndex.validateIndex(1, ["C:\\proj\\src\\a.ts"]);
+
+      expect(result.staleFiles).not.toContain("c:/proj/src/a.ts");
+      expect(result.staleFiles).toHaveLength(0);
+    });
+
+    it("matches whatever the case of the drive letter is", async () => {
+      // The index was populated through an uppercase "C:"; a lowercase "c:" must
+      // resolve to the same entry. Only the drive letter is case-folded — the rest
+      // of the path is left alone, which is what normalizePath() guarantees.
+      const result = await winIndex.validateIndex(1, ["c:\\proj\\src\\a.ts"]);
+
+      expect(result.staleFiles).toHaveLength(0);
+    });
+
+    it("reports an unknown Windows path as stale in normalized form", async () => {
+      const result = await winIndex.validateIndex(1, ["C:\\proj\\src\\b.ts"]);
+
+      expect(result.staleFiles).toEqual(["c:/proj/src/b.ts"]);
+    });
+
+    it("accepts forward-slash input for the same file", async () => {
+      const result = await winIndex.validateIndex(1, ["c:/proj/src/a.ts"]);
+
+      expect(result.staleFiles).toHaveLength(0);
+    });
   });
 
   it("behaves exactly as before when filesOnDisk is omitted", async () => {
