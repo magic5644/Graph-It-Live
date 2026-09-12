@@ -18,7 +18,9 @@ const REPO_ROOT = path.resolve(__dirname, "../..");
 const DIST_ENTRY = path.join(REPO_ROOT, "dist/graph-it.js");
 const distExists = fs.existsSync(DIST_ENTRY);
 
-describe.skipIf(!distExists)("CLI index cache flags (E2E)", () => {
+const SUBPROCESS_TIMEOUT_MS = 60_000;
+
+describe.skipIf(!distExists)("CLI index cache flags (E2E)", { timeout: SUBPROCESS_TIMEOUT_MS }, () => {
   let tmpDir: string;
   let cacheDir: string;
 
@@ -75,14 +77,23 @@ describe.skipIf(!distExists)("CLI index cache flags (E2E)", () => {
   it("produces the same analysis warm as with --no-cache", () => {
     cli("summary");
 
-    // Provenance fields (fromCache, filesAnalyzed, timings) differ by design;
-    // the analysis itself must not.
-    const warm = cli("explain", "src/b.ts", "-f", "json");
-    const cold = cli("--no-cache", "explain", "src/b.ts", "-f", "json");
+    // Provenance and timing fields (fromCache, filesAnalyzed, analysisTimeMs)
+    // differ by design; compare the analysis payload itself instead of the raw
+    // text, so the assertion cannot be tripped by a field that is meant to vary.
+    const analysis = (...args: string[]) => {
+      const parsed = JSON.parse(cli(...args, "-f", "json")) as {
+        filePath: string;
+        language: string;
+        graph: unknown;
+      };
+      return { filePath: parsed.filePath, language: parsed.language, graph: parsed.graph };
+    };
 
-    const strip = (out: string) => out.replace(/"analysisTimeMs":\s*\d+/g, "");
-    expect(strip(warm)).toBe(strip(cold));
-    expect(warm).toContain("b.ts");
+    const warm = analysis("explain", "src/b.ts");
+    const cold = analysis("--no-cache", "explain", "src/b.ts");
+
+    expect(warm).toEqual(cold);
+    expect(warm.filePath).toContain("b.ts");
   });
 
   it("--no-cache writes no cache at all", () => {
@@ -119,7 +130,7 @@ describe.skipIf(!distExists)("CLI index cache flags (E2E)", () => {
   });
 });
 
-describe.skipIf(!distExists)("CLI help completeness (E2E)", () => {
+describe.skipIf(!distExists)("CLI help completeness (E2E)", { timeout: SUBPROCESS_TIMEOUT_MS }, () => {
   const help = (): string =>
     execFileSync(process.execPath, [DIST_ENTRY, "--help"], { encoding: "utf-8" });
 

@@ -463,7 +463,7 @@ export class CallGraphIndexer {
     // return rows in any order, and pickBestCandidate's first-wins tie handling
     // would resolve the same workspace differently from one run to the next.
     const candidateRows = db.exec(`
-      SELECT name, id, path, is_exported, indexed_at, lang
+      SELECT name, id, path, is_exported, lang
       FROM nodes
       WHERE name IN (
         SELECT DISTINCT SUBSTR(target_id, 12) FROM edges WHERE target_id LIKE '@@external:%'
@@ -472,16 +472,16 @@ export class CallGraphIndexer {
     `);
 
     // Build (lang + "\0" + name) → candidates map so lookups are language-scoped.
-    const candidateMap = new Map<string, Array<{ id: string; path: string; isExported: number; indexedAt: number }>>();
+    const candidateMap = new Map<string, NodeCandidate[]>();
     if (candidateRows[0]) {
-      for (const row of candidateRows[0].values as [string, string, string, number, number, string][]) {
-        const [name, id, nodePath, isExported, indexedAt, lang] = row;
+      for (const row of candidateRows[0].values as [string, string, string, number, string][]) {
+        const [name, id, nodePath, isExported, lang] = row;
         const key = `${lang}\0${name}`;
         const existing = candidateMap.get(key);
         if (existing) {
-          existing.push({ id, path: nodePath, isExported, indexedAt });
+          existing.push({ id, path: nodePath, isExported });
         } else {
-          candidateMap.set(key, [{ id, path: nodePath, isExported, indexedAt }]);
+          candidateMap.set(key, [{ id, path: nodePath, isExported }]);
         }
       }
     }
@@ -740,7 +740,7 @@ export function getSqlJsWasmPath(extensionPath: string): string {
 // Module-level helpers for resolveExternalEdges
 // ---------------------------------------------------------------------------
 
-type NodeCandidate = { id: string; path: string; isExported: number; indexedAt: number };
+type NodeCandidate = { id: string; path: string; isExported: number };
 
 /**
  * Count the number of leading directory segments two file paths share.
@@ -760,7 +760,16 @@ function sharedPathSegments(pathA: string, pathB: string): number {
 
 /**
  * From a list of candidate nodes, return the one whose path best matches
- * the caller's source path.  Tie-breaking: exported > recently indexed.
+ * the caller's source path. Tie-breaking: exported > lowest node id.
+ *
+ * The final tie-break used to be `indexed_at`, which is a wall-clock stamp taken
+ * once per indexed file. Which files land in the same millisecond varies between
+ * runs, so the same unchanged workspace resolved homonymous symbols differently
+ * from one indexing run to the next — enough to change the graph-context index
+ * revision and invalidate pagination cursors across CLI processes.
+ *
+ * Recency carried no signal about which homonym is the real target anyway: it is
+ * an arbitrary choice either way, so the id is used instead because it is stable.
  */
 function pickBestCandidate(sourcePath: string, candidates: NodeCandidate[]): NodeCandidate {
   let best = candidates[0];
@@ -771,14 +780,8 @@ function pickBestCandidate(sourcePath: string, candidates: NodeCandidate[]): Nod
     const betterSim = sim > bestSim;
     const sameSim = sim === bestSim;
     const betterExport = sameSim && c.isExported > best.isExported;
-    const sameExport = sameSim && c.isExported === best.isExported;
-    const betterRecent = sameExport && c.indexedAt > best.indexedAt;
-    // indexed_at is a wall-clock stamp taken once per indexed file, so candidates
-    // indexed within the same millisecond tie here — and which files share a
-    // millisecond varies between runs. Falling back to the id keeps resolution
-    // reproducible instead of letting the clock decide.
-    const lowerId = sameExport && c.indexedAt === best.indexedAt && c.id < best.id;
-    if (betterSim || betterExport || betterRecent || lowerId) {
+    const lowerId = sameSim && c.isExported === best.isExported && c.id < best.id;
+    if (betterSim || betterExport || lowerId) {
       best = c;
       bestSim = sim;
     }
