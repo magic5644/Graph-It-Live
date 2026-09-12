@@ -219,14 +219,68 @@ codex mcp add graph-it-live --env WORKSPACE_ROOT=/path/to/project -- graph-it se
 
 ### Portable agent plugin
 
-The [`plugins/graph-it-live/`](plugins/graph-it-live/) directory is an Agent Plugin package for
-Claude Code, GitHub Copilot, Cursor, VS Code, and Codex. It contains the portable `plugin.json`,
-`mcp.json`, and the four Graph-It-Live skills from [magic5644/skills](https://github.com/magic5644/skills),
-plus native manifests for Claude Code and Codex. Install that directory with the client’s plugin
-installer. The repository also includes marketplace catalogs at [`.claude-plugin/marketplace.json`](.claude-plugin/marketplace.json)
-and [`.agents/plugins/marketplace.json`](.agents/plugins/marketplace.json) for discovery. The MCP entry
-resolves `@magic5644/graph-it-live@latest`, keeping the CLI and MCP server in the same npm release;
-a workflow synchronizes the plugin and marketplace versions after each npm publish.
+The [`plugins/graph-it-live/`](plugins/graph-it-live/) directory is the portable Agent Plugin package.
+It bundles the MCP server and four skills: `graph-it-live`, `onboarding-express`, `dead-code-hunter`,
+and `pr-review`. Install it with the client you use:
+
+#### Claude Code
+
+From Claude Code, add the repository marketplace and install the plugin:
+
+```text
+claude plugin marketplace add magic5644/Graph-It-Live
+/plugin install graph-it-live@graph-it-live
+```
+
+For a local checkout, start a session with `claude --plugin-dir ./plugins/graph-it-live`.
+
+#### GitHub Copilot CLI
+
+```text
+copilot plugin marketplace add magic5644/Graph-It-Live
+copilot plugin install graph-it-live@graph-it-live
+```
+
+#### VS Code
+
+1. Open the Command Palette.
+2. Run **Chat: Install Plugin From Source**.
+3. Select `plugins/graph-it-live/`.
+
+The VS Code extension itself remains available from the [VS Code Marketplace](https://marketplace.visualstudio.com/items?itemName=magic5644.graph-it-live)
+and [Open VSX](https://open-vsx.org/extension/magic5644/graph-it-live).
+
+#### Cursor
+
+Open the **Plugins** panel, choose **Install from local source**, and select
+`plugins/graph-it-live/`.
+
+#### Codex
+
+Add the repository's [Codex marketplace catalog](.agents/plugins/marketplace.json) to a configured
+plugin marketplace, then open `/plugins` in Codex and install **Graph-It-Live**.
+
+#### Windsurf, Antigravity, and other MCP clients
+
+These clients can use the MCP server directly. Add this server entry to the client's MCP configuration:
+
+```json
+{
+  "graph-it-live": {
+    "type": "stdio",
+    "command": "npx",
+    "args": ["-y", "@magic5644/graph-it-live@latest", "serve"]
+  }
+}
+```
+
+Use the client's MCP configuration file and its expected top-level key (`servers` or `mcpServers`).
+See the [MCP server instructions](#mcp-server) for ready-to-copy VS Code, Cursor, and Codex examples.
+
+The repository also includes marketplace catalogs for [Claude Code](.claude-plugin/marketplace.json)
+and [Codex](.agents/plugins/marketplace.json). The MCP entry resolves
+`@magic5644/graph-it-live@latest`, keeping the CLI and MCP server in the same npm release; a workflow
+synchronizes plugin and marketplace versions after each npm publish.
 
 ### Agent skill
 
