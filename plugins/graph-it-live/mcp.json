@@ -1,0 +1,10 @@
+{
+  "$schema": "https://agent-plugins.org/schemas/1.0.0/mcp.schema.json",
+  "mcpServers": {
+    "graph-it-live": {
+      "type": "stdio",
+      "command": "npx",
+      "args": ["-y", "@magic5644/graph-it-live@latest", "serve"]
+    }
+  }
+}

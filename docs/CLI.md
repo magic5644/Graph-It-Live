@@ -1243,7 +1243,7 @@ Launches the full 22-tool MCP server process on `stdio`. The server:
 # Claude Code CLI (adds to your Claude config)
 claude mcp add graph-it -- graph-it serve
 
-# VS Code / Cursor (.vscode/mcp.json or .cursor/mcp.json)
+# VS Code (.vscode/mcp.json)
 {
   "servers": {
     "graph-it-live": {
@@ -1254,6 +1254,29 @@ claude mcp add graph-it -- graph-it serve
     }
   }
 }
+
+# Cursor (.cursor/mcp.json)
+{
+  "mcpServers": {
+    "graph-it-live": {
+      "type": "stdio",
+      "command": "graph-it",
+      "args": ["serve"],
+      "env": { "WORKSPACE_ROOT": "${workspaceFolder}" }
+    }
+  }
+}
+
+# Codex CLI
+codex mcp add graph-it-live --env WORKSPACE_ROOT=/path/to/your/project -- graph-it serve
+
+# Codex config (~/.codex/config.toml or .codex/config.toml)
+[mcp_servers.graph-it-live]
+command = "graph-it"
+args = ["serve"]
+
+[mcp_servers.graph-it-live.env]
+WORKSPACE_ROOT = "/path/to/your/project"
 
 # Claude Desktop (~/Library/Application Support/Claude/claude_desktop_config.json)
 {
@@ -1266,6 +1289,11 @@ claude mcp add graph-it -- graph-it serve
   }
 }
 ```
+
+For a single installation that bundles the MCP server and Graph-It-Live
+skills across compatible clients, use the [portable Agent Plugin](../plugins/graph-it-live/).
+Its MCP entry resolves `@magic5644/graph-it-live@latest`; the repository workflow
+keeps its manifest version aligned with the latest npm CLI release.
 
 **Environment variables:**
 

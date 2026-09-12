@@ -144,7 +144,7 @@ MCP Client Integration:
       }
     }
 
-  VS Code / Cursor (.vscode/mcp.json or .cursor/mcp.json):
+  VS Code (.vscode/mcp.json):
     {
       "servers": {
         "graph-it-live": {
@@ -155,6 +155,29 @@ MCP Client Integration:
         }
       }
     }
+
+  Cursor (.cursor/mcp.json):
+    {
+      "mcpServers": {
+        "graph-it-live": {
+          "type": "stdio",
+          "command": "graph-it",
+          "args": ["serve"],
+          "env": { "WORKSPACE_ROOT": "\${workspaceFolder}" }
+        }
+      }
+    }
+
+  Codex CLI:
+    codex mcp add graph-it-live --env WORKSPACE_ROOT=/path/to/project -- graph-it serve
+
+  Codex config (~/.codex/config.toml or .codex/config.toml):
+    [mcp_servers.graph-it-live]
+    command = "graph-it"
+    args = ["serve"]
+
+    [mcp_servers.graph-it-live.env]
+    WORKSPACE_ROOT = "/path/to/project"
 
   Claude Code CLI:
     claude mcp add graph-it -- graph-it serve

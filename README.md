@@ -209,7 +209,22 @@ For VS Code, add `.vscode/mcp.json`:
 }
 ```
 
-The same `graph-it serve` command works with Cursor, Claude Desktop, Windsurf, and Antigravity. See the [CLI/MCP documentation](docs/CLI.md) for client-specific configuration and environment variables.
+For Cursor, use `.cursor/mcp.json` with the same server definition under `mcpServers` instead of `servers`. The same `graph-it serve` command works with Claude Desktop, Claude Code, Windsurf, and Antigravity. See the [CLI/MCP documentation](docs/CLI.md) for client-specific configuration and environment variables.
+
+For Codex CLI:
+
+```bash
+codex mcp add graph-it-live --env WORKSPACE_ROOT=/path/to/project -- graph-it serve
+```
+
+### Portable agent plugin
+
+The [`plugins/graph-it-live/`](plugins/graph-it-live/) directory is an Agent Plugin package for
+Claude Code, GitHub Copilot, Cursor, VS Code, and Codex. It contains the portable `plugin.json`,
+`mcp.json`, and the four Graph-It-Live skills from [magic5644/skills](https://github.com/magic5644/skills),
+plus native manifests for Claude Code and Codex. Install that directory with the client’s plugin
+installer. The MCP entry resolves `@magic5644/graph-it-live@latest`, keeping the CLI and MCP server
+in the same npm release; a workflow synchronizes the plugin manifest version after each npm publish.
 
 ### Agent skill
 

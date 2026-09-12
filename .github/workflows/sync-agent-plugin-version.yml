@@ -1,0 +1,40 @@
+name: Sync Agent Plugin Version
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: '17 3 * * *'
+  workflow_run:
+    workflows: ['Publish (Selective)']
+    types: [completed]
+
+permissions:
+  contents: write
+
+jobs:
+  sync:
+    if: github.event_name != 'workflow_run' || github.event.workflow_run.conclusion == 'success'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: main
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: '22.x'
+
+      - name: Sync manifests with npm latest
+        run: node scripts/sync-agent-plugin-version.mjs
+
+      - name: Commit and push changes
+        run: |
+          if git diff --quiet -- plugins/graph-it-live; then
+            echo 'Plugin manifests are already current.'
+            exit 0
+          fi
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add plugins/graph-it-live
+          git commit -m 'chore(plugin): sync version with published CLI'
+          git push origin HEAD:main
