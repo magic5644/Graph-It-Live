@@ -2,7 +2,7 @@ import { createRequire } from 'node:module';
 import * as fs from 'node:fs/promises';
 import * as os from 'node:os';
 import * as path from 'node:path';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { Spider } from '../../../src/analyzer/Spider';
 import { SpiderBuilder } from '../../../src/analyzer/SpiderBuilder';
 import {
@@ -106,6 +106,28 @@ describe('GraphContextFederator', () => {
         sourceLine: 11,
       }),
     }));
+  });
+
+  it('keeps the revision stable when an unchanged workspace is indexed in a new session', async () => {
+    const before = await new GraphContextFederator(spider, indexer).buildSnapshot({ question: 'user service' });
+    const originalIndex = indexer.getIndexSnapshot();
+    const clock = vi.spyOn(Date, 'now').mockReturnValue(Date.now() + 1_000);
+
+    try {
+      indexer.dispose();
+      indexer = new CallGraphIndexer(SQL_WASM_PATH);
+      await indexer.init();
+      await indexFixture(indexer, workspaceRoot);
+
+      const after = await new GraphContextFederator(spider, indexer).buildSnapshot({ question: 'user service' });
+
+      expect(indexer.getIndexSnapshot().files[0].indexedAt).not.toBe(originalIndex.files[0].indexedAt);
+      expect(after.nodes).toEqual(before.nodes);
+      expect(after.edges).toEqual(before.edges);
+      expect(after.revision).toBe(before.revision);
+    } finally {
+      clock.mockRestore();
+    }
   });
 
   it('applies scope before adding files, symbols, and edges', async () => {
