@@ -5,6 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { GraphExtractor } from "@/analyzer/callgraph/GraphExtractor";
 import { ensureCallGraphReady } from "@/mcp/tools/callgraph";
 import { workerState } from "@/mcp/shared/state";
+import { normalizePath } from "@/shared/path";
 
 /** Package root holding dist/wasm and dist/queries. */
 const EXTENSION_PATH = path.resolve(__dirname, "..", "..");
@@ -110,7 +111,8 @@ describe.runIf(HAS_WASM)("call graph cache", () => {
 
       const extracted = extractFile.mock.calls.map(([filePath]) => filePath);
       expect(extracted).toHaveLength(2);
-      expect(extracted).toContain(importer);
+      // selectStaleJobs normalizes every path it takes from the reverse index.
+      expect(extracted).toContain(normalizePath(importer));
     } finally {
       extractFile.mockRestore();
     }

@@ -17,6 +17,7 @@ import type { Spider } from "../analyzer/Spider";
 import { SpiderBuilder } from "../analyzer/SpiderBuilder";
 import { PathResolver } from "../analyzer/utils/PathResolver";
 import { workerState } from "../mcp/shared/state";
+import { normalizePath } from "../shared/path";
 import {
   getLogger,
   getLogLevelFromEnv,
@@ -305,7 +306,7 @@ export class CliRuntime {
       return (
         meta.schema === CACHE_SCHEMA &&
         meta.cliVersion === CLI_VERSION &&
-        meta.workspaceRoot === this.workspaceRoot
+        normalizePath(meta.workspaceRoot) === normalizePath(this.workspaceRoot)
       );
     } catch {
       return false;
