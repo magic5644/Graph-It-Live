@@ -251,7 +251,9 @@ function createRevision(
     documentNodes,
     documentEdges,
   };
-  return createHash('sha256').update(JSON.stringify(state)).digest('hex');
+  // Rebuilding unchanged indexes in a new CLI process must preserve continuation cursors.
+  const serialized = JSON.stringify(state, (key, value: unknown) => key === 'indexedAt' ? undefined : value);
+  return createHash('sha256').update(serialized).digest('hex');
 }
 
 function hasDocumentSeed(request: GraphContextRequest): boolean {
