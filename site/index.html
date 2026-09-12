@@ -1,0 +1,758 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Graph-It-Live — See your codebase as a graph</title>
+<meta name="description" content="AI-first dependency graph and code intelligence. File imports, symbol call hierarchies, cross-file call graphs, cycles, dead code and change impact — in VS Code, your CLI, and your AI assistant.">
+<link rel="icon" href="media/Graph-It-Live-Logo-256.png">
+
+<meta property="og:type" content="website">
+<meta property="og:title" content="Graph-It-Live — See your codebase as a graph">
+<meta property="og:description" content="Dependency graphs, call graphs, impact analysis and dead-code detection for VS Code, the CLI, and MCP-compatible AI assistants.">
+<meta property="og:url" content="https://magic5644.github.io/Graph-It-Live/">
+<meta property="og:image" content="https://magic5644.github.io/Graph-It-Live/media/call-graph-view-example.png">
+<meta name="twitter:card" content="summary_large_image">
+
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+
+<style>
+:root{
+  --bg:#070a12;
+  --bg-soft:#0c111d;
+  --panel:rgba(255,255,255,.035);
+  --line:rgba(255,255,255,.09);
+  --line-strong:rgba(255,255,255,.16);
+  --fg:#e8edf7;
+  --muted:#9aa6bf;
+  --blue:#3b82f6;
+  --blue-deep:#1e40af;
+  --orange:#f97316;
+  --orange-deep:#ea580c;
+  --radius:16px;
+  --max:1140px;
+  --font:'Inter',-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;
+  --mono:'JetBrains Mono',ui-monospace,SFMono-Regular,Menlo,monospace;
+}
+*{box-sizing:border-box}
+html{scroll-behavior:smooth;scroll-padding-top:90px}
+body{
+  margin:0;background:var(--bg);color:var(--fg);font-family:var(--font);
+  font-size:16px;line-height:1.65;-webkit-font-smoothing:antialiased;overflow-x:hidden;
+}
+a{color:inherit;text-decoration:none}
+img{max-width:100%;display:block}
+.wrap{max-width:var(--max);margin:0 auto;padding:0 24px}
+
+/* ---------- nav ---------- */
+header{
+  position:fixed;inset:0 0 auto 0;z-index:50;
+  backdrop-filter:blur(14px);-webkit-backdrop-filter:blur(14px);
+  background:rgba(7,10,18,.72);border-bottom:1px solid transparent;transition:border-color .25s,background .25s;
+}
+header.scrolled{border-bottom-color:var(--line);background:rgba(7,10,18,.9)}
+.nav{display:flex;align-items:center;gap:28px;height:68px}
+.brand{display:flex;align-items:center;gap:10px;font-weight:700;letter-spacing:-.02em;font-size:17px}
+.brand img{width:30px;height:30px}
+.nav-links{display:flex;gap:26px;margin-left:auto;font-size:14.5px;color:var(--muted);font-weight:500}
+.nav-links a{transition:color .18s}
+.nav-links a:hover{color:var(--fg)}
+.nav-cta{display:flex;gap:10px;align-items:center}
+@media(max-width:900px){.nav-links{display:none}}
+
+/* ---------- buttons ---------- */
+.btn{
+  display:inline-flex;align-items:center;gap:9px;padding:11px 20px;border-radius:11px;
+  font-weight:600;font-size:14.5px;border:1px solid var(--line-strong);
+  background:var(--panel);color:var(--fg);transition:transform .16s,border-color .18s,background .18s,box-shadow .18s;
+  cursor:pointer;white-space:nowrap;
+}
+.btn:hover{transform:translateY(-1px);border-color:rgba(255,255,255,.3);background:rgba(255,255,255,.07)}
+.btn-primary{
+  border-color:transparent;color:#fff;
+  background:linear-gradient(135deg,var(--blue) 0%,var(--blue-deep) 55%,var(--orange-deep) 160%);
+  box-shadow:0 6px 26px -8px rgba(59,130,246,.65);
+}
+.btn-primary:hover{box-shadow:0 10px 34px -8px rgba(59,130,246,.8);background:linear-gradient(135deg,#4f8ff7 0%,#2550c7 55%,var(--orange) 170%)}
+.btn svg{width:17px;height:17px;flex:none}
+.btn-sm{padding:8px 14px;font-size:13.5px}
+
+/* ---------- hero ---------- */
+.hero{position:relative;padding:150px 0 90px;overflow:hidden}
+#graph-bg{position:absolute;inset:0;width:100%;height:100%;opacity:.5;pointer-events:none}
+.hero::after{
+  content:"";position:absolute;inset:0;pointer-events:none;
+  background:radial-gradient(900px 460px at 50% 8%,rgba(59,130,246,.20),transparent 62%),
+             radial-gradient(760px 400px at 78% 42%,rgba(249,115,22,.13),transparent 60%),
+             linear-gradient(180deg,transparent 55%,var(--bg) 100%);
+}
+.hero .wrap{position:relative;z-index:2;text-align:center}
+.pill{
+  display:inline-flex;align-items:center;gap:9px;padding:6px 15px 6px 7px;border-radius:100px;
+  border:1px solid var(--line);background:var(--panel);font-size:13px;color:var(--muted);margin-bottom:26px;font-weight:500;
+}
+.pill b{
+  background:linear-gradient(135deg,var(--blue),var(--orange));
+  padding:3px 9px;border-radius:100px;color:#fff;font-size:11.5px;font-weight:700;letter-spacing:.03em;
+}
+h1{
+  font-size:clamp(38px,6.2vw,66px);line-height:1.06;letter-spacing:-.035em;font-weight:800;margin:0 0 22px;
+}
+h1 .grad{
+  background:linear-gradient(110deg,#60a5fa 0%,#3b82f6 35%,#fb923c 88%);
+  -webkit-background-clip:text;background-clip:text;color:transparent;
+}
+.lede{font-size:clamp(16.5px,2vw,20px);color:var(--muted);max-width:660px;margin:0 auto 34px}
+.hero-cta{display:flex;gap:12px;justify-content:center;flex-wrap:wrap;margin-bottom:22px}
+.badges{display:flex;gap:8px;justify-content:center;flex-wrap:wrap;margin-top:28px;opacity:.92}
+.badges img{height:20px}
+
+/* ---------- shared section ---------- */
+section{padding:92px 0;position:relative}
+.sec-head{text-align:center;max-width:680px;margin:0 auto 54px}
+.eyebrow{
+  font-size:12.5px;font-weight:700;letter-spacing:.13em;text-transform:uppercase;
+  color:var(--blue);margin-bottom:14px;
+}
+h2{font-size:clamp(28px,4vw,42px);line-height:1.14;letter-spacing:-.03em;font-weight:800;margin:0 0 16px}
+.sec-head p{color:var(--muted);font-size:17px;margin:0}
+h3{font-size:19px;font-weight:700;letter-spacing:-.015em;margin:0 0 9px}
+
+/* ---------- cards ---------- */
+.grid{display:grid;gap:20px}
+.g3{grid-template-columns:repeat(3,1fr)}
+.g2{grid-template-columns:repeat(2,1fr)}
+@media(max-width:860px){.g3,.g2{grid-template-columns:1fr}}
+.card{
+  border:1px solid var(--line);border-radius:var(--radius);padding:26px;
+  background:linear-gradient(180deg,rgba(255,255,255,.045),rgba(255,255,255,.012));
+  transition:border-color .2s,transform .2s,box-shadow .2s;position:relative;overflow:hidden;
+}
+.card:hover{border-color:var(--line-strong);transform:translateY(-3px);box-shadow:0 18px 40px -22px rgba(0,0,0,.9)}
+.card p{color:var(--muted);font-size:14.8px;margin:0}
+.ico{
+  width:42px;height:42px;border-radius:11px;display:grid;place-items:center;margin-bottom:18px;
+  background:linear-gradient(135deg,rgba(59,130,246,.22),rgba(249,115,22,.16));
+  border:1px solid rgba(255,255,255,.1);
+}
+.ico svg{width:21px;height:21px;stroke:#93c5fd;fill:none;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round}
+.card ul{margin:14px 0 0;padding-left:18px;color:var(--muted);font-size:14.5px}
+.card li{margin-bottom:5px}
+.card li::marker{color:var(--orange)}
+
+/* ---------- media frame ---------- */
+.frame{
+  border:1px solid var(--line);border-radius:18px;overflow:hidden;background:var(--bg-soft);
+  box-shadow:0 40px 90px -50px rgba(0,0,0,1),0 0 0 1px rgba(255,255,255,.03) inset;
+}
+.frame-bar{
+  display:flex;align-items:center;gap:7px;padding:11px 15px;border-bottom:1px solid var(--line);
+  background:rgba(255,255,255,.025);
+}
+.dot{width:11px;height:11px;border-radius:50%;background:#2b3446}
+.frame-bar span{margin-left:10px;font-family:var(--mono);font-size:12px;color:var(--muted)}
+.shot{display:grid;gap:22px;grid-template-columns:1fr 1fr;align-items:center}
+.shot.rev{direction:rtl}
+.shot.rev>*{direction:ltr}
+@media(max-width:860px){.shot,.shot.rev{grid-template-columns:1fr;direction:ltr}}
+.shot-txt p{color:var(--muted);margin:0 0 14px}
+.shot-txt ul{margin:0;padding-left:18px;color:var(--muted);font-size:15px}
+.shot-txt li{margin-bottom:6px}
+.shot-txt li::marker{color:var(--blue)}
+
+/* ---------- code ---------- */
+.code{
+  border:1px solid var(--line);border-radius:14px;background:#080c15;overflow:hidden;position:relative;
+}
+.code-head{
+  display:flex;align-items:center;justify-content:space-between;gap:12px;
+  padding:9px 12px 9px 16px;border-bottom:1px solid var(--line);background:rgba(255,255,255,.02);
+}
+.code-head .file{font-family:var(--mono);font-size:12.5px;color:var(--muted)}
+.copy{
+  border:1px solid var(--line);background:transparent;color:var(--muted);border-radius:8px;
+  padding:5px 11px;font-size:12px;font-family:var(--font);font-weight:600;cursor:pointer;transition:.18s;
+}
+.copy:hover{color:var(--fg);border-color:var(--line-strong);background:rgba(255,255,255,.05)}
+.copy.done{color:#4ade80;border-color:rgba(74,222,128,.45)}
+pre{margin:0;padding:18px;overflow-x:auto;font-family:var(--mono);font-size:13.2px;line-height:1.75}
+code{font-family:var(--mono)}
+.c-cmd{color:#93c5fd}.c-str{color:#fdba74}.c-dim{color:#6b7893}.c-key{color:#c4b5fd}
+
+/* ---------- tabs ---------- */
+.tabs{display:flex;gap:7px;flex-wrap:wrap;margin-bottom:18px;justify-content:center}
+.tab{
+  padding:8px 16px;border-radius:10px;border:1px solid var(--line);background:var(--panel);
+  font-size:13.5px;font-weight:600;color:var(--muted);cursor:pointer;transition:.18s;font-family:var(--font);
+}
+.tab:hover{color:var(--fg)}
+.tab[aria-selected="true"]{color:#fff;border-color:rgba(59,130,246,.5);background:rgba(59,130,246,.15)}
+.panel-hidden{display:none}
+
+/* ---------- table ---------- */
+.tbl{width:100%;border-collapse:collapse;border:1px solid var(--line);border-radius:14px;overflow:hidden}
+.tbl th,.tbl td{padding:13px 18px;text-align:left;border-bottom:1px solid var(--line);font-size:14.6px}
+.tbl thead th{background:rgba(255,255,255,.035);font-weight:700;font-size:13px;letter-spacing:.03em;text-transform:uppercase;color:var(--muted)}
+.tbl tbody tr:last-child td{border-bottom:none}
+.tbl tbody tr:hover{background:rgba(255,255,255,.02)}
+.tbl td.c,.tbl th.c{text-align:center}
+.yes{color:#4ade80;font-weight:700}
+.no{color:#5b6579}
+.tbl-scroll{overflow-x:auto;border-radius:14px}
+
+/* ---------- stats ---------- */
+.stats{display:grid;grid-template-columns:repeat(4,1fr);gap:16px}
+@media(max-width:800px){.stats{grid-template-columns:repeat(2,1fr)}}
+.stat{
+  text-align:center;padding:26px 14px;border:1px solid var(--line);border-radius:var(--radius);
+  background:linear-gradient(180deg,rgba(255,255,255,.045),rgba(255,255,255,.01));
+}
+.stat b{
+  display:block;font-size:34px;font-weight:800;letter-spacing:-.03em;
+  background:linear-gradient(135deg,#60a5fa,#fb923c);-webkit-background-clip:text;background-clip:text;color:transparent;
+}
+.stat span{font-size:13.5px;color:var(--muted);font-weight:500}
+
+/* ---------- cta ---------- */
+.cta-box{
+  border:1px solid var(--line);border-radius:22px;padding:58px 34px;text-align:center;position:relative;overflow:hidden;
+  background:
+    radial-gradient(700px 320px at 50% 0%,rgba(59,130,246,.20),transparent 65%),
+    radial-gradient(520px 280px at 82% 100%,rgba(249,115,22,.14),transparent 65%),
+    linear-gradient(180deg,rgba(255,255,255,.04),rgba(255,255,255,.012));
+}
+.cta-box h2{margin-bottom:12px}
+.cta-box p{color:var(--muted);max-width:520px;margin:0 auto 28px}
+
+/* ---------- footer ---------- */
+footer{border-top:1px solid var(--line);padding:46px 0 40px;color:var(--muted);font-size:14px}
+.foot{display:flex;gap:30px;flex-wrap:wrap;align-items:flex-start;justify-content:space-between}
+.foot-links{display:flex;gap:44px;flex-wrap:wrap}
+.foot-col h4{font-size:12.5px;text-transform:uppercase;letter-spacing:.1em;color:var(--fg);margin:0 0 12px;font-weight:700}
+.foot-col a{display:block;margin-bottom:8px;transition:color .18s}
+.foot-col a:hover{color:var(--fg)}
+.foot-bottom{margin-top:36px;padding-top:22px;border-top:1px solid var(--line);font-size:13.5px;display:flex;gap:14px;justify-content:space-between;flex-wrap:wrap}
+
+/* ---------- reveal ---------- */
+.rv{opacity:0;transform:translateY(18px);transition:opacity .7s cubic-bezier(.2,.7,.3,1),transform .7s cubic-bezier(.2,.7,.3,1)}
+.rv.in{opacity:1;transform:none}
+@media(prefers-reduced-motion:reduce){
+  .rv{opacity:1;transform:none;transition:none}
+  html{scroll-behavior:auto}
+  #graph-bg{display:none}
+}
+</style>
+</head>
+<body>
+
+<header id="hdr">
+  <div class="wrap nav">
+    <a class="brand" href="#top">
+      <img src="media/Graph-It-Live-Logo-256.png" alt="">
+      Graph-It-Live
+    </a>
+    <nav class="nav-links">
+      <a href="#views">Views</a>
+      <a href="#features">Features</a>
+      <a href="#ai">AI &amp; MCP</a>
+      <a href="#cli">CLI</a>
+      <a href="#languages">Languages</a>
+    </nav>
+    <div class="nav-cta">
+      <a class="btn btn-sm" href="https://github.com/magic5644/Graph-It-Live" target="_blank" rel="noopener">
+        <svg viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27s1.36.09 2 .27c1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.01 8.01 0 0 0 16 8c0-4.42-3.58-8-8-8Z"/></svg>
+        Star
+      </a>
+      <a class="btn btn-sm btn-primary" href="https://marketplace.visualstudio.com/items?itemName=magic5644.graph-it-live" target="_blank" rel="noopener">Install</a>
+    </div>
+  </div>
+</header>
+
+<main id="top">
+
+<!-- ============ HERO ============ -->
+<div class="hero">
+  <canvas id="graph-bg" aria-hidden="true"></canvas>
+  <div class="wrap">
+    <div class="pill"><b>MCP</b> 27 graph tools for your AI assistant</div>
+    <h1>See your codebase<br><span class="grad">as a graph</span></h1>
+    <p class="lede">
+      Imports, symbols, cross-file calls, cycles, dead code and change impact —
+      analyzed locally and returned as evidence. In VS Code, in your terminal, and inside your AI assistant.
+    </p>
+    <div class="hero-cta">
+      <a class="btn btn-primary" href="https://marketplace.visualstudio.com/items?itemName=magic5644.graph-it-live" target="_blank" rel="noopener">
+        <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M17.6 2.4 9.9 9.6 5.4 6.2 3.5 7.1 7.3 12l-3.8 4.9 1.9.9 4.5-3.4 7.7 7.2 2.9-1.4V3.8l-2.9-1.4Zm.3 5.1v9L12 12l5.9-4.5Z"/></svg>
+        VS Code Marketplace
+      </a>
+      <a class="btn" href="#cli">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="4 17 10 11 4 5"/><line x1="12" y1="19" x2="20" y2="19"/></svg>
+        Use the CLI
+      </a>
+      <a class="btn" href="#ai">Connect your AI</a>
+    </div>
+    <div class="badges">
+      <a href="https://marketplace.visualstudio.com/items?itemName=magic5644.graph-it-live" target="_blank" rel="noopener"><img src="https://vsmarketplacebadges.dev/version/magic5644.graph-it-live.svg" alt="VS Code version" loading="lazy"></a>
+      <a href="https://marketplace.visualstudio.com/items?itemName=magic5644.graph-it-live" target="_blank" rel="noopener"><img src="https://vsmarketplacebadges.dev/installs-short/magic5644.graph-it-live.svg?label=vscode+installs" alt="VS Code installs" loading="lazy"></a>
+      <a href="https://open-vsx.org/extension/magic5644/graph-it-live" target="_blank" rel="noopener"><img src="https://img.shields.io/open-vsx/v/magic5644/graph-it-live?label=Open%20VSX&logo=eclipse&logoColor=white" alt="Open VSX" loading="lazy"></a>
+      <a href="https://www.npmjs.com/package/@magic5644/graph-it-live" target="_blank" rel="noopener"><img src="https://img.shields.io/npm/v/%40magic5644%2Fgraph-it-live?label=npm%20CLI&logo=npm&logoColor=white" alt="npm CLI" loading="lazy"></a>
+      <a href="https://github.com/magic5644/Graph-It-Live/blob/main/LICENSE" target="_blank" rel="noopener"><img src="https://img.shields.io/github/license/magic5644/Graph-It-Live" alt="License MIT" loading="lazy"></a>
+    </div>
+  </div>
+</div>
+
+<!-- ============ DEMO ============ -->
+<section style="padding-top:20px" class="rv">
+  <div class="wrap">
+    <div class="frame">
+      <div class="frame-bar"><i class="dot"></i><i class="dot"></i><i class="dot"></i><span>Graph-It-Live — dependency graph</span></div>
+      <img src="media/demo-plugin-graph-it-live.gif" alt="Graph-It-Live dependency graph in VS Code" loading="lazy">
+    </div>
+    <div class="stats rv" style="margin-top:44px">
+      <div class="stat"><b>27</b><span>MCP graph tools</span></div>
+      <div class="stat"><b>10+</b><span>Languages parsed</span></div>
+      <div class="stat"><b>3</b><span>Graph views</span></div>
+      <div class="stat"><b>100%</b><span>Local analysis</span></div>
+    </div>
+  </div>
+</section>
+
+<!-- ============ VIEWS ============ -->
+<section id="views">
+  <div class="wrap">
+    <div class="sec-head rv">
+      <div class="eyebrow">Three views, one graph</div>
+      <h2>From file imports down to a single call</h2>
+      <p>The same indexed graph powers navigation, review, codemaps, and the context you hand to an AI assistant.</p>
+    </div>
+    <div class="grid g3">
+      <div class="card rv">
+        <div class="ico"><svg viewBox="0 0 24 24"><rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="14" width="7" height="7" rx="1.5"/><path d="M10 6.5h4a3 3 0 0 1 3 3V14"/></svg></div>
+        <h3>File graph</h3>
+        <p>Which files import this file? What depends on this module? Regex and AST parsing across the whole workspace, with cycle detection.</p>
+      </div>
+      <div class="card rv">
+        <div class="ico"><svg viewBox="0 0 24 24"><circle cx="6" cy="6" r="2.5"/><circle cx="18" cy="12" r="2.5"/><circle cx="6" cy="18" r="2.5"/><path d="M8.3 7.2 15.7 11M15.7 13 8.3 16.8"/></svg></div>
+        <h3>Symbol view</h3>
+        <p>Drill into a file to see functions, classes, outgoing calls, incoming callers and recursion. Click a symbol to jump to its definition.</p>
+      </div>
+      <div class="card rv">
+        <div class="ico"><svg viewBox="0 0 24 24"><circle cx="12" cy="5" r="2.2"/><circle cx="5" cy="17" r="2.2"/><circle cx="19" cy="17" r="2.2"/><path d="M10.6 6.8 6.4 15.2M13.4 6.8l4.2 8.4M7.2 17h9.6"/></svg></div>
+        <h3>Live call graph</h3>
+        <p>Cross-file symbol relationships in a Cytoscape.js panel. Expand callers and callees up to depth 5, group by folder, highlight recursion.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ============ FEATURES ============ -->
+<section id="features" style="background:linear-gradient(180deg,transparent,rgba(59,130,246,.05),transparent)">
+  <div class="wrap">
+    <div class="sec-head rv">
+      <div class="eyebrow">Features</div>
+      <h2>Answers, not file dumps</h2>
+      <p>Every result points back to real code: a file, a symbol, a line.</p>
+    </div>
+
+    <div class="shot rv" style="margin-bottom:64px">
+      <div class="shot-txt">
+        <h3>Drill down into any file</h3>
+        <p>Symbol View turns a file into its own little graph — exports, internals, and who calls what.</p>
+        <ul>
+          <li>Functions, classes and variables with export status</li>
+          <li>Outgoing calls and incoming callers side by side</li>
+          <li>Self-recursion and mutual recursion highlighted</li>
+          <li>Hierarchical, force-directed or radial layout</li>
+        </ul>
+      </div>
+      <div class="frame">
+        <div class="frame-bar"><i class="dot"></i><i class="dot"></i><i class="dot"></i><span>Symbol View</span></div>
+        <img src="media/drill-down-symbol-view.png" alt="Graph-It-Live Symbol View" loading="lazy">
+      </div>
+    </div>
+
+    <div class="shot rev rv" style="margin-bottom:64px">
+      <div class="shot-txt">
+        <h3>Follow calls across files</h3>
+        <p>The Live Call Graph is built with Tree-sitter and SQLite, and refreshes after you save.</p>
+        <ul>
+          <li>Expand callers and callees with depth 1 to 5</li>
+          <li>Calls numbered in invocation order</li>
+          <li>Filter by symbol type or folder</li>
+          <li>TypeScript, JavaScript, Vue, Svelte, Python, Rust, C#, Go, Java</li>
+        </ul>
+      </div>
+      <div class="frame">
+        <div class="frame-bar"><i class="dot"></i><i class="dot"></i><i class="dot"></i><span>Live Call Graph</span></div>
+        <img src="media/call-graph-view-example.png" alt="Graph-It-Live live call graph" loading="lazy">
+      </div>
+    </div>
+
+    <div class="shot rv">
+      <div class="shot-txt">
+        <h3>Find what nobody uses</h3>
+        <p>Hide or dim unused dependencies, then hunt unused exported symbols and dead files before a refactor.</p>
+        <ul>
+          <li>Unused dependency filter: hide or dim mode</li>
+          <li>Unused exported symbol detection</li>
+          <li>Execution trace from any function</li>
+          <li>Callers affected by a signature change</li>
+        </ul>
+      </div>
+      <div class="frame">
+        <div class="frame-bar"><i class="dot"></i><i class="dot"></i><i class="dot"></i><span>Filter unused dependencies</span></div>
+        <img src="media/demo-filter-hide-mode.gif" alt="Unused dependencies hidden from the graph" loading="lazy">
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ============ AI ============ -->
+<section id="ai">
+  <div class="wrap">
+    <div class="sec-head rv">
+      <div class="eyebrow">AI integrations</div>
+      <h2>Give your assistant a map, not a haystack</h2>
+      <p>27 MCP tools expose the same local graph to GitHub Copilot, Claude, Cursor, Windsurf, Antigravity and any MCP client.</p>
+    </div>
+
+    <div class="grid g2 rv" style="margin-bottom:34px">
+      <div class="card">
+        <div class="ico"><svg viewBox="0 0 24 24"><path d="M12 3v3M12 18v3M3 12h3M18 12h3M5.6 5.6l2.1 2.1M16.3 16.3l2.1 2.1M18.4 5.6l-2.1 2.1M7.7 16.3l-2.1 2.1"/><circle cx="12" cy="12" r="3.4"/></svg></div>
+        <h3>Native Copilot tools</h3>
+        <p>Install the extension and use them in Agent mode with no MCP setup:</p>
+        <ul>
+          <li><code>#graphContext</code> — bounded unified graph context</li>
+          <li><code>#graphDeps</code>, <code>#graphFindRefs</code>, <code>#graphCallers</code></li>
+          <li><code>#graphImpact</code>, <code>#graphCodemap</code>, <code>#graphTrace</code></li>
+          <li><code>#graphDeadCode</code>, <code>#graphQuery</code></li>
+        </ul>
+      </div>
+      <div class="card">
+        <div class="ico"><svg viewBox="0 0 24 24"><path d="M4 7h16M4 12h16M4 17h9"/><circle cx="19" cy="17" r="2"/></svg></div>
+        <h3>Portable agent plugin</h3>
+        <p>One package bundling the MCP server plus four skills: <code>graph-it-live</code>, <code>onboarding-express</code>, <code>dead-code-hunter</code> and <code>pr-review</code>.</p>
+        <ul>
+          <li>Claude Code &amp; GitHub Copilot CLI marketplaces</li>
+          <li>VS Code: <em>Chat: Install Plugin From Source</em></li>
+          <li>Cursor and Codex plugin panels</li>
+        </ul>
+      </div>
+    </div>
+
+    <div class="rv">
+      <div class="tabs" role="tablist">
+        <button class="tab" role="tab" aria-selected="true" data-tab="t-vscode">VS Code</button>
+        <button class="tab" role="tab" aria-selected="false" data-tab="t-cursor">Cursor</button>
+        <button class="tab" role="tab" aria-selected="false" data-tab="t-claude">Claude Code</button>
+        <button class="tab" role="tab" aria-selected="false" data-tab="t-codex">Codex</button>
+        <button class="tab" role="tab" aria-selected="false" data-tab="t-other">Other MCP clients</button>
+      </div>
+
+      <div id="t-vscode" class="tab-panel">
+        <div class="code">
+          <div class="code-head"><span class="file">.vscode/mcp.json</span><button class="copy">Copy</button></div>
+<pre><code>{
+  <span class="c-str">"servers"</span>: {
+    <span class="c-str">"graph-it-live"</span>: {
+      <span class="c-str">"type"</span>: <span class="c-cmd">"stdio"</span>,
+      <span class="c-str">"command"</span>: <span class="c-cmd">"graph-it"</span>,
+      <span class="c-str">"args"</span>: [<span class="c-cmd">"serve"</span>],
+      <span class="c-str">"env"</span>: { <span class="c-str">"WORKSPACE_ROOT"</span>: <span class="c-cmd">"${workspaceFolder}"</span> }
+    }
+  }
+}</code></pre>
+        </div>
+      </div>
+
+      <div id="t-cursor" class="tab-panel panel-hidden">
+        <div class="code">
+          <div class="code-head"><span class="file">.cursor/mcp.json</span><button class="copy">Copy</button></div>
+<pre><code>{
+  <span class="c-str">"mcpServers"</span>: {
+    <span class="c-str">"graph-it-live"</span>: {
+      <span class="c-str">"type"</span>: <span class="c-cmd">"stdio"</span>,
+      <span class="c-str">"command"</span>: <span class="c-cmd">"graph-it"</span>,
+      <span class="c-str">"args"</span>: [<span class="c-cmd">"serve"</span>],
+      <span class="c-str">"env"</span>: { <span class="c-str">"WORKSPACE_ROOT"</span>: <span class="c-cmd">"${workspaceFolder}"</span> }
+    }
+  }
+}</code></pre>
+        </div>
+      </div>
+
+      <div id="t-claude" class="tab-panel panel-hidden">
+        <div class="code">
+          <div class="code-head"><span class="file">Claude Code</span><button class="copy">Copy</button></div>
+<pre><code><span class="c-dim"># add the repository marketplace, then install the plugin</span>
+<span class="c-cmd">claude</span> plugin marketplace add magic5644/Graph-It-Live
+/plugin install graph-it-live@graph-it-live
+
+<span class="c-dim"># or run from a local checkout</span>
+<span class="c-cmd">claude</span> --plugin-dir ./plugins/graph-it-live</code></pre>
+        </div>
+      </div>
+
+      <div id="t-codex" class="tab-panel panel-hidden">
+        <div class="code">
+          <div class="code-head"><span class="file">Codex CLI</span><button class="copy">Copy</button></div>
+<pre><code><span class="c-cmd">codex</span> mcp add graph-it-live \
+  --env WORKSPACE_ROOT=/path/to/project \
+  -- graph-it serve</code></pre>
+        </div>
+      </div>
+
+      <div id="t-other" class="tab-panel panel-hidden">
+        <div class="code">
+          <div class="code-head"><span class="file">Windsurf, Antigravity, any MCP client</span><button class="copy">Copy</button></div>
+<pre><code>{
+  <span class="c-str">"graph-it-live"</span>: {
+    <span class="c-str">"type"</span>: <span class="c-cmd">"stdio"</span>,
+    <span class="c-str">"command"</span>: <span class="c-cmd">"npx"</span>,
+    <span class="c-str">"args"</span>: [<span class="c-cmd">"-y"</span>, <span class="c-cmd">"@magic5644/graph-it-live@latest"</span>, <span class="c-cmd">"serve"</span>]
+  }
+}</code></pre>
+        </div>
+      </div>
+    </div>
+
+    <div class="frame rv" style="margin-top:40px">
+      <div class="frame-bar"><i class="dot"></i><i class="dot"></i><i class="dot"></i><span>Graph-It-Live tools in GitHub Copilot</span></div>
+      <img src="media/graph-it-live-tools-in-copilot.gif" alt="Graph-It-Live tools used inside GitHub Copilot" loading="lazy">
+    </div>
+  </div>
+</section>
+
+<!-- ============ CLI ============ -->
+<section id="cli" style="background:linear-gradient(180deg,transparent,rgba(249,115,22,.05),transparent)">
+  <div class="wrap">
+    <div class="sec-head rv">
+      <div class="eyebrow">Standalone CLI</div>
+      <h2>The same engine, without VS Code</h2>
+      <p>Index a workspace, trace a symbol, export a graph, or start the MCP server — straight from your terminal.</p>
+    </div>
+
+    <div class="grid g2">
+      <div class="rv">
+        <div class="code">
+          <div class="code-head"><span class="file">install</span><button class="copy">Copy</button></div>
+<pre><code><span class="c-dim"># global install</span>
+<span class="c-cmd">npm</span> install -g @magic5644/graph-it-live
+
+<span class="c-dim"># or one-shot</span>
+<span class="c-cmd">npx</span> @magic5644/graph-it-live scan</code></pre>
+        </div>
+        <div class="code" style="margin-top:20px">
+          <div class="code-head"><span class="file">unified graph context</span><button class="copy">Copy</button></div>
+<pre><code><span class="c-cmd">graph-it</span> context <span class="c-str">"what calls the request handler"</span> \
+  --scope <span class="c-str">'src/**'</span> --format toon
+
+<span class="c-cmd">graph-it</span> context --mode impact \
+  --seeds src/api.ts#handle --depth 3</code></pre>
+        </div>
+      </div>
+
+      <div class="rv">
+        <div class="code">
+          <div class="code-head"><span class="file">common commands</span><button class="copy">Copy</button></div>
+<pre><code><span class="c-cmd">graph-it</span> scan                    <span class="c-dim">Index the workspace</span>
+<span class="c-cmd">graph-it</span> summary                 <span class="c-dim">Workspace overview</span>
+<span class="c-cmd">graph-it</span> summary &lt;file&gt;          <span class="c-dim">File codemap</span>
+<span class="c-cmd">graph-it</span> trace &lt;file#Symbol&gt;     <span class="c-dim">Trace execution</span>
+<span class="c-cmd">graph-it</span> explain &lt;file&gt;          <span class="c-dim">Intra-file call flow</span>
+<span class="c-cmd">graph-it</span> path &lt;file&gt;             <span class="c-dim">Dependency path</span>
+<span class="c-cmd">graph-it</span> check [path]            <span class="c-dim">Unused exports</span>
+<span class="c-cmd">graph-it</span> query <span class="c-str">"&lt;question&gt;"</span>      <span class="c-dim">Ask the graph</span>
+<span class="c-cmd">graph-it</span> review-pr --base main   <span class="c-dim">Local PR review</span>
+<span class="c-cmd">graph-it</span> wiki                    <span class="c-dim">Markdown wiki</span>
+<span class="c-cmd">graph-it</span> export [path]           <span class="c-dim">Export as HTML</span>
+<span class="c-cmd">graph-it</span> serve                   <span class="c-dim">MCP stdio server</span></code></pre>
+        </div>
+        <p style="color:var(--muted);font-size:14.5px;margin-top:16px">
+          Analysis commands support <code>--format json|toon|markdown</code>; <code>trace</code> and <code>path</code> also emit Mermaid.
+          <a href="https://github.com/magic5644/Graph-It-Live/blob/main/docs/CLI.md" style="color:#93c5fd;font-weight:600" target="_blank" rel="noopener">Full CLI reference →</a>
+        </p>
+      </div>
+    </div>
+
+    <div class="card rv" style="margin-top:34px">
+      <h3>CI review gate</h3>
+      <p>
+        <code>graph-it review-pr</code> runs a deterministic local diff review before CI: exported signature changes,
+        bounded dependent-symbol impact, cycle evidence, unused exports, test candidates and consumer standing.
+        The reusable GitHub Action is informational by default — set <code>fail-on-risk: high</code> to gate a pull request.
+      </p>
+    </div>
+  </div>
+</section>
+
+<!-- ============ LANGUAGES ============ -->
+<section id="languages">
+  <div class="wrap">
+    <div class="sec-head rv">
+      <div class="eyebrow">Supported languages</div>
+      <h2>Ten languages, one indexer</h2>
+      <p>Tree-sitter grammars ship with the extension and the CLI. No language server required.</p>
+    </div>
+    <div class="tbl-scroll rv">
+      <table class="tbl">
+        <thead>
+          <tr><th>Language</th><th class="c">File graph</th><th class="c">Symbol View</th><th class="c">Live Call Graph</th></tr>
+        </thead>
+        <tbody>
+          <tr><td>TypeScript / JavaScript</td><td class="c yes">●</td><td class="c yes">●</td><td class="c yes">●</td></tr>
+          <tr><td>Vue / Svelte</td><td class="c yes">●</td><td class="c yes">●</td><td class="c yes">●</td></tr>
+          <tr><td>Python</td><td class="c yes">●</td><td class="c yes">●</td><td class="c yes">●</td></tr>
+          <tr><td>Rust</td><td class="c yes">●</td><td class="c yes">●</td><td class="c yes">●</td></tr>
+          <tr><td>C# / Go / Java</td><td class="c yes">●</td><td class="c no">—</td><td class="c yes">●</td></tr>
+          <tr><td>GraphQL</td><td class="c yes">●</td><td class="c no">—</td><td class="c no">—</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+</section>
+
+<!-- ============ CTA ============ -->
+<section>
+  <div class="wrap">
+    <div class="cta-box rv">
+      <h2>Start with one command</h2>
+      <p>Install the extension, or index any repository from your terminal in a few seconds.</p>
+      <div class="hero-cta" style="margin-bottom:0">
+        <a class="btn btn-primary" href="https://marketplace.visualstudio.com/items?itemName=magic5644.graph-it-live" target="_blank" rel="noopener">Get the VS Code extension</a>
+        <a class="btn" href="https://www.npmjs.com/package/@magic5644/graph-it-live" target="_blank" rel="noopener">npm i -g @magic5644/graph-it-live</a>
+      </div>
+    </div>
+  </div>
+</section>
+
+</main>
+
+<footer>
+  <div class="wrap">
+    <div class="foot">
+      <div style="max-width:300px">
+        <a class="brand" href="#top" style="margin-bottom:12px"><img src="media/Graph-It-Live-Logo-256.png" alt="">Graph-It-Live</a>
+        <p style="margin:0;font-size:13.8px">AI-first dependency graph and code intelligence. Analysis runs locally; nothing leaves your machine.</p>
+      </div>
+      <div class="foot-links">
+        <div class="foot-col">
+          <h4>Install</h4>
+          <a href="https://marketplace.visualstudio.com/items?itemName=magic5644.graph-it-live" target="_blank" rel="noopener">VS Code Marketplace</a>
+          <a href="https://open-vsx.org/extension/magic5644/graph-it-live" target="_blank" rel="noopener">Open VSX</a>
+          <a href="https://www.npmjs.com/package/@magic5644/graph-it-live" target="_blank" rel="noopener">npm CLI</a>
+        </div>
+        <div class="foot-col">
+          <h4>Docs</h4>
+          <a href="https://github.com/magic5644/Graph-It-Live/blob/main/docs/CLI.md" target="_blank" rel="noopener">CLI reference</a>
+          <a href="https://github.com/magic5644/Graph-It-Live/blob/main/docs/architecture/TOON_FORMAT.md" target="_blank" rel="noopener">TOON format</a>
+          <a href="https://github.com/magic5644/Graph-It-Live/blob/main/DEVELOPMENT.md" target="_blank" rel="noopener">Development guide</a>
+          <a href="https://github.com/magic5644/Graph-It-Live/blob/main/docs/README.md" target="_blank" rel="noopener">Documentation index</a>
+        </div>
+        <div class="foot-col">
+          <h4>Project</h4>
+          <a href="https://github.com/magic5644/Graph-It-Live" target="_blank" rel="noopener">GitHub</a>
+          <a href="https://github.com/magic5644/Graph-It-Live/issues" target="_blank" rel="noopener">Issues</a>
+          <a href="https://github.com/magic5644/Graph-It-Live/discussions" target="_blank" rel="noopener">Discussions</a>
+          <a href="https://github.com/magic5644/Graph-It-Live/blob/main/CONTRIBUTING.md" target="_blank" rel="noopener">Contributing</a>
+        </div>
+      </div>
+    </div>
+    <div class="foot-bottom">
+      <span>MIT licensed · © <span id="yr">2026</span> magic5644</span>
+      <span>Language icons by <a href="https://github.com/edent/SuperTinyIcons" target="_blank" rel="noopener" style="color:#93c5fd">SuperTinyIcons</a> (CC0-1.0)</span>
+    </div>
+  </div>
+</footer>
+
+<script>
+(function(){
+  document.getElementById('yr').textContent = new Date().getFullYear();
+
+  // sticky header border
+  var hdr = document.getElementById('hdr');
+  addEventListener('scroll', function(){ hdr.classList.toggle('scrolled', scrollY > 12); }, {passive:true});
+
+  // reveal on scroll
+  var io = new IntersectionObserver(function(es){
+    es.forEach(function(e){ if(e.isIntersecting){ e.target.classList.add('in'); io.unobserve(e.target); } });
+  }, {rootMargin:'0px 0px -8% 0px', threshold:.08});
+  document.querySelectorAll('.rv').forEach(function(el){ io.observe(el); });
+
+  // copy buttons
+  document.querySelectorAll('.copy').forEach(function(btn){
+    btn.addEventListener('click', function(){
+      var text = btn.closest('.code').querySelector('pre').innerText;
+      navigator.clipboard.writeText(text).then(function(){
+        btn.textContent = 'Copied'; btn.classList.add('done');
+        setTimeout(function(){ btn.textContent = 'Copy'; btn.classList.remove('done'); }, 1600);
+      });
+    });
+  });
+
+  // tabs
+  var tabs = document.querySelectorAll('.tab');
+  tabs.forEach(function(tab){
+    tab.addEventListener('click', function(){
+      tabs.forEach(function(t){
+        t.setAttribute('aria-selected', String(t === tab));
+        document.getElementById(t.dataset.tab).classList.toggle('panel-hidden', t !== tab);
+      });
+    });
+  });
+
+  // hero graph animation
+  var cv = document.getElementById('graph-bg');
+  if(!cv || matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+  var ctx = cv.getContext('2d'), nodes = [], dpr = Math.min(devicePixelRatio || 1, 2), w = 0, h = 0;
+
+  function resize(){
+    var r = cv.getBoundingClientRect();
+    w = r.width; h = r.height;
+    cv.width = w * dpr; cv.height = h * dpr;
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    var count = Math.round(Math.min(64, Math.max(22, w / 22)));
+    nodes = Array.from({length: count}, function(){
+      return {
+        x: Math.random() * w, y: Math.random() * h,
+        vx: (Math.random() - .5) * .22, vy: (Math.random() - .5) * .22,
+        r: Math.random() * 2 + 1.4,
+        sq: Math.random() < .28,
+        hot: Math.random() < .18
+      };
+    });
+  }
+
+  function frame(){
+    ctx.clearRect(0, 0, w, h);
+    var link = Math.min(190, w / 7);
+    for(var i = 0; i < nodes.length; i++){
+      var a = nodes[i];
+      a.x += a.vx; a.y += a.vy;
+      if(a.x < 0 || a.x > w) a.vx *= -1;
+      if(a.y < 0 || a.y > h) a.vy *= -1;
+      for(var j = i + 1; j < nodes.length; j++){
+        var b = nodes[j], dx = a.x - b.x, dy = a.y - b.y, d = Math.hypot(dx, dy);
+        if(d < link){
+          var o = (1 - d / link) * .32;
+          ctx.strokeStyle = (a.hot && b.hot) ? 'rgba(249,115,22,' + o + ')' : 'rgba(96,165,250,' + o + ')';
+          ctx.lineWidth = 1;
+          ctx.beginPath(); ctx.moveTo(a.x, a.y); ctx.lineTo(b.x, b.y); ctx.stroke();
+        }
+      }
+      ctx.fillStyle = a.hot ? 'rgba(249,115,22,.75)' : 'rgba(96,165,250,.7)';
+      if(a.sq){ ctx.fillRect(a.x - a.r, a.y - a.r, a.r * 2, a.r * 2); }
+      else { ctx.beginPath(); ctx.arc(a.x, a.y, a.r, 0, Math.PI * 2); ctx.fill(); }
+    }
+    requestAnimationFrame(frame);
+  }
+
+  resize();
+  addEventListener('resize', resize);
+  requestAnimationFrame(frame);
+})();
+</script>
+</body>
+</html>
