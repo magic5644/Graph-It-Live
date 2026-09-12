@@ -149,12 +149,13 @@ export async function run(
   // Normalize workspaceRoot for cross-platform path usage
   const normalizedRoot = normalizePath(runtime.workspaceRoot);
 
-  // Check LLM availability and hint if unavailable
+  // Resolve an LLM for keyword extraction, and hint when none is available.
   const llmClient = await resolveLlmClient();
   if (llmClient === null) {
     process.stderr.write(
       "No LLM configured. Using keyword heuristic. " +
-        "Set ANTHROPIC_API_KEY or OPENAI_API_KEY for better results.\n",
+        "Set ANTHROPIC_API_KEY or OPENAI_API_KEY, or GRAPH_IT_LLM_PROVIDER=copilot-cli " +
+        "to use the GitHub Copilot CLI, for better results.\n",
     );
   }
 
@@ -165,7 +166,7 @@ export async function run(
     outputFormat: queryFormat === "text" ? "json" : queryFormat,
   };
 
-  const result = await executeQueryNaturalLanguage(params);
+  const result = await executeQueryNaturalLanguage(params, llmClient);
 
   switch (queryFormat) {
     case "json":

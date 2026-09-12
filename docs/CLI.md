@@ -943,12 +943,36 @@ graph-it query "<question>" [options]
 
 | Variable | Description |
 |----------|-------------|
+| `GRAPH_IT_LLM_PROVIDER` | Pin a provider: `anthropic`, `openai-compatible` (alias `openai`), or `copilot-cli`. When set, no other provider is tried. |
 | `ANTHROPIC_API_KEY` | Use Anthropic (`claude-haiku-4-5`) |
 | `OPENAI_API_KEY` | Use OpenAI-compatible provider |
 | `OPENAI_BASE_URL` | Base URL for OpenAI-compatible endpoint |
 | `OPENAI_MODEL` | Model name for OpenAI-compatible provider |
+| `GRAPH_IT_COPILOT_BIN` | Path to the `copilot` binary (default: `copilot` on `PATH`) |
 
-When neither key is set, the command falls back to a heuristic analysis and prints a notice to stderr.
+Without `GRAPH_IT_LLM_PROVIDER`, providers are tried in order: Anthropic, then
+OpenAI-compatible. When none is usable, the command falls back to a heuristic
+analysis and prints a notice to stderr.
+
+**Using GitHub Copilot**
+
+`copilot-cli` reuses your existing GitHub Copilot subscription through the local
+[GitHub Copilot CLI](https://github.com/github/copilot-cli) — no API key needed:
+
+```bash
+copilot            # then /login, once
+export GRAPH_IT_LLM_PROVIDER=copilot-cli
+graph-it query "how does the indexer resolve imports"
+```
+
+It is never auto-detected, because every query spends Copilot premium request
+credits (roughly 2–3 per query) and takes a few seconds. Set the variable only
+when you want it.
+
+> A plain `GITHUB_TOKEN` is **not** an inference credential: GitHub Models
+> (`models.github.ai`) was retired on 2026-07-30. For a hosted endpoint, point
+> `OPENAI_BASE_URL` at any OpenAI-compatible service (Azure AI Foundry, OpenAI,
+> Ollama, LM Studio…).
 
 **Examples:**
 
@@ -1690,9 +1714,11 @@ graph-it tool query_natural_language --question="explain the MCP server" --token
 ```
 
 **LLM configuration:**
+- `GRAPH_IT_LLM_PROVIDER` → pins the provider (`anthropic`, `openai-compatible`, `copilot-cli`)
 - `ANTHROPIC_API_KEY` → uses `claude-haiku-4-5`
 - `OPENAI_API_KEY` + `OPENAI_BASE_URL` + `OPENAI_MODEL` → uses OpenAI-compatible provider
-- No key set → heuristic fallback (warning printed to stderr)
+- `GRAPH_IT_LLM_PROVIDER=copilot-cli` → uses the local GitHub Copilot CLI (no API key)
+- Nothing configured → heuristic fallback (warning printed to stderr)
 
 > **Note:** The LLM calling this tool performs the synthesis — the tool returns a structured subgraph that the model interprets.
 

@@ -49,7 +49,7 @@ export interface QueryResult {
    */
   json?: string;
   meta: {
-    llmProvider: 'anthropic' | 'openai-compatible' | 'vscode-lm' | 'none';
+    llmProvider: 'anthropic' | 'openai-compatible' | 'copilot-cli' | 'vscode-lm' | 'none';
     keywordExtractionMs: number;
     bfsMs: number;
     totalMs: number;
@@ -58,4 +58,4 @@ export interface QueryResult {
   };
 }
 
-export type LlmProviderName = 'anthropic' | 'openai-compatible' | 'vscode-lm';
+export type LlmProviderName = 'anthropic' | 'openai-compatible' | 'copilot-cli' | 'vscode-lm';

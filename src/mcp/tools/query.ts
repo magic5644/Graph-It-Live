@@ -9,6 +9,7 @@
  * NO vscode imports — this module is VS Code agnostic.
  */
 
+import type { LlmClient } from "../../analyzer/llm/LlmClient";
 import { QueryEngine } from "../../analyzer/QueryEngine";
 import type { QueryRequest, QueryResultEdge, QueryResultNode } from "../../shared/query-types";
 import { estimateTokens, jsonToToon } from "../../shared/toon";
@@ -157,6 +158,7 @@ async function ensureCallGraphReadyForQuery(): Promise<void> {
 
 export async function executeQueryNaturalLanguage(
   params: QueryNaturalLanguageParams,
+  llmClient: LlmClient | null = null,
 ): Promise<QueryNaturalLanguageResult> {
   const config = workerState.getConfig();
   const workspaceRoot = config.rootDir;
@@ -173,7 +175,9 @@ export async function executeQueryNaturalLanguage(
 
   const db = indexer.getDb();
 
-  // Build QueryRequest — llmClient is null: the LLM caller synthesizes the answer
+  // Build QueryRequest. llmClient defaults to null: over MCP the calling LLM
+  // synthesizes the answer itself, so no second LLM round-trip is wanted.
+  // The CLI has no such caller and passes a resolved client for keyword extraction.
   const request: QueryRequest = {
     question: params.question,
     workspaceRoot,
@@ -183,7 +187,7 @@ export async function executeQueryNaturalLanguage(
     outputFormat: params.outputFormat === "json" ? "json" : "toon",
   };
 
-  const engine = new QueryEngine(db, null);
+  const engine = new QueryEngine(db, llmClient);
   const result = await engine.query(request);
 
   if (params.outputFormat === "json") {

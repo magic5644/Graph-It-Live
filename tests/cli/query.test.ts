@@ -135,6 +135,7 @@ describe('query command', () => {
     expect(output).toBe(toonResult.toon);
     expect(mocks.executeQueryNaturalLanguage).toHaveBeenCalledWith(
       expect.objectContaining({ outputFormat: 'toon' }),
+      expect.anything(),
     );
   });
 
@@ -169,6 +170,7 @@ describe('query command', () => {
 
     expect(mocks.executeQueryNaturalLanguage).toHaveBeenCalledWith(
       expect.objectContaining({ outputFormat: 'json' }),
+      expect.anything(),
     );
   });
 
@@ -186,6 +188,7 @@ describe('query command', () => {
 
     expect(mocks.executeQueryNaturalLanguage).toHaveBeenCalledWith(
       expect.objectContaining({ depth: 3 }),
+      expect.anything(),
     );
   });
 
@@ -196,6 +199,7 @@ describe('query command', () => {
 
     expect(mocks.executeQueryNaturalLanguage).toHaveBeenCalledWith(
       expect.objectContaining({ depth: 2 }),
+      expect.anything(),
     );
   });
 
@@ -210,6 +214,20 @@ describe('query command', () => {
 
     expect(mocks.executeQueryNaturalLanguage).toHaveBeenCalledWith(
       expect.objectContaining({ tokenBudget: 8000 }),
+      expect.anything(),
+    );
+  });
+
+  it('forwards the resolved LLM client to the query tool for keyword extraction', async () => {
+    const fakeClient = { providerName: 'copilot-cli' };
+    mocks.resolveLlmClient.mockResolvedValueOnce(fakeClient);
+    mocks.executeQueryNaturalLanguage.mockResolvedValueOnce(makeToonResult());
+
+    await run(['how does the indexer work'], makeRuntime(), 'text');
+
+    expect(mocks.executeQueryNaturalLanguage).toHaveBeenCalledWith(
+      expect.any(Object),
+      fakeClient,
     );
   });
 

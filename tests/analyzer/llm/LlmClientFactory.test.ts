@@ -37,13 +37,19 @@ describe('resolveLlmClient', () => {
   // Save original env values
   let originalAnthropicKey: string | undefined;
   let originalOpenAiKey: string | undefined;
+  let originalProvider: string | undefined;
+  let originalCopilotBin: string | undefined;
 
   beforeEach(() => {
     originalAnthropicKey = process.env.ANTHROPIC_API_KEY;
     originalOpenAiKey = process.env.OPENAI_API_KEY;
-    // Clear keys before each test
+    originalProvider = process.env.GRAPH_IT_LLM_PROVIDER;
+    originalCopilotBin = process.env.GRAPH_IT_COPILOT_BIN;
+    // Clear keys and provider pinning before each test
     delete process.env.ANTHROPIC_API_KEY;
     delete process.env.OPENAI_API_KEY;
+    delete process.env.GRAPH_IT_LLM_PROVIDER;
+    delete process.env.GRAPH_IT_COPILOT_BIN;
     // Reset the module-level flag so warnings can fire again
     _resetFallbackWarned();
   });
@@ -59,6 +65,16 @@ describe('resolveLlmClient', () => {
       process.env.OPENAI_API_KEY = originalOpenAiKey;
     } else {
       delete process.env.OPENAI_API_KEY;
+    }
+    if (originalProvider !== undefined) {
+      process.env.GRAPH_IT_LLM_PROVIDER = originalProvider;
+    } else {
+      delete process.env.GRAPH_IT_LLM_PROVIDER;
+    }
+    if (originalCopilotBin !== undefined) {
+      process.env.GRAPH_IT_COPILOT_BIN = originalCopilotBin;
+    } else {
+      delete process.env.GRAPH_IT_COPILOT_BIN;
     }
   });
 
@@ -95,5 +111,54 @@ describe('resolveLlmClient', () => {
     process.env.OPENAI_API_KEY = 'sk-openai-test-key';
     const client = await resolveLlmClient();
     expect(client?.providerName).toBe('anthropic');
+  });
+
+  // -------------------------------------------------------------------------
+  // GRAPH_IT_LLM_PROVIDER pinning
+  // -------------------------------------------------------------------------
+
+  it('pins the provider named by GRAPH_IT_LLM_PROVIDER, ignoring preference order', async () => {
+    process.env.ANTHROPIC_API_KEY = 'sk-ant-test-key';
+    process.env.OPENAI_API_KEY = 'sk-openai-test-key';
+    process.env.GRAPH_IT_LLM_PROVIDER = 'openai-compatible';
+    const client = await resolveLlmClient();
+    expect(client?.providerName).toBe('openai-compatible');
+  });
+
+  it('accepts "openai" as an alias for openai-compatible', async () => {
+    process.env.OPENAI_API_KEY = 'sk-openai-test-key';
+    process.env.GRAPH_IT_LLM_PROVIDER = 'OpenAI';
+    const client = await resolveLlmClient();
+    expect(client?.providerName).toBe('openai-compatible');
+  });
+
+  it('returns the Copilot CLI client when pinned and the binary responds', async () => {
+    // `echo --version` exits 0, which is all isAvailable() checks.
+    process.env.GRAPH_IT_COPILOT_BIN = '/bin/echo';
+    process.env.GRAPH_IT_LLM_PROVIDER = 'copilot-cli';
+    const client = await resolveLlmClient();
+    expect(client?.providerName).toBe('copilot-cli');
+  });
+
+  it('returns null when the pinned provider is unusable, without falling back', async () => {
+    // A usable Anthropic key must NOT rescue an explicitly pinned provider.
+    process.env.ANTHROPIC_API_KEY = 'sk-ant-test-key';
+    process.env.GRAPH_IT_COPILOT_BIN = '/nonexistent/graph-it-copilot';
+    process.env.GRAPH_IT_LLM_PROVIDER = 'copilot-cli';
+    const client = await resolveLlmClient();
+    expect(client).toBeNull();
+  });
+
+  it('ignores an unknown GRAPH_IT_LLM_PROVIDER and uses the normal order', async () => {
+    process.env.ANTHROPIC_API_KEY = 'sk-ant-test-key';
+    process.env.GRAPH_IT_LLM_PROVIDER = 'not-a-provider';
+    const client = await resolveLlmClient();
+    expect(client?.providerName).toBe('anthropic');
+  });
+
+  it('still honours an explicit override over GRAPH_IT_LLM_PROVIDER', async () => {
+    process.env.GRAPH_IT_LLM_PROVIDER = 'copilot-cli';
+    const override = new MockOverrideLlmClient();
+    expect(await resolveLlmClient({ override })).toBe(override);
   });
 });
