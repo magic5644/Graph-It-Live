@@ -464,13 +464,13 @@ export class Spider {
     return this.reverseIndexManager.getSerialized();
   }
 
-  async validateReverseIndex(staleThreshold = 0.2): Promise<{
+  async validateReverseIndex(staleThreshold = 0.2, filesOnDisk?: readonly string[]): Promise<{
     isValid: boolean;
     staleFiles: string[];
     stalePercentage: number;
     missingFiles: string[];
   } | null> {
-    return this.reverseIndexManager.validate(staleThreshold);
+    return this.reverseIndexManager.validate(staleThreshold, filesOnDisk);
   }
 
   getIndexStatus(): IndexerStatusSnapshot {

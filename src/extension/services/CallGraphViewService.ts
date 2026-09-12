@@ -16,7 +16,7 @@
 import { CallGraphIndexer, getSqlJsWasmPath } from "@/analyzer/callgraph/CallGraphIndexer";
 import { queryNeighbourhood } from "@/analyzer/callgraph/CallGraphQuery";
 import { detectCycleEdges } from "@/analyzer/callgraph/cycleUtils";
-import { GraphExtractor } from "@/analyzer/callgraph/GraphExtractor";
+import { collectChangedFiles, getQueryFreshnessCutoffs, GraphExtractor } from "@/analyzer/callgraph/GraphExtractor";
 import { SourceFileCollector } from "@/analyzer/SourceFileCollector";
 import type {
   CallGraphExtensionMessage,
@@ -28,7 +28,6 @@ import type {
 import { normalizePath } from "@/shared/path";
 import { resolveReviewCallGraphPath, REVIEW_CALL_GRAPH_MAX_DEPTH, validateReviewCallGraphTarget } from "@/shared/reviewTarget";
 import crypto from "node:crypto";
-import fs from "node:fs/promises";
 import path from "node:path";
 import * as vscode from "vscode";
 import type { ExternalCallerResult, ICallGraphQueryService } from "./ICallGraphQueryService";
@@ -96,37 +95,6 @@ function langFromPath(filePath: string): SupportedLang | null {
   if (ext === ".java") return "java";
   // .csproj is XML — not suitable for call graph extraction
   return null;
-}
-
-/**
- * Returns per-language freshness cutoffs derived from query-file mtimes.
- * If a file was indexed before its language query was updated, it must be
- * re-extracted even if the source file mtime itself is unchanged.
- */
-async function getQueryFreshnessCutoffs(extensionPath: string): Promise<Record<SupportedLang, number>> {
-  const queryFiles: Record<SupportedLang, string> = {
-    typescript: path.join(extensionPath, "dist", "queries", "typescript.scm"),
-    javascript: path.join(extensionPath, "dist", "queries", "typescript.scm"),
-    python: path.join(extensionPath, "dist", "queries", "python.scm"),
-    rust: path.join(extensionPath, "dist", "queries", "rust.scm"),
-    csharp: path.join(extensionPath, "dist", "queries", "csharp.scm"),
-    go: path.join(extensionPath, "dist", "queries", "go.scm"),
-    java: path.join(extensionPath, "dist", "queries", "java.scm"),
-  };
-
-  const entries = await Promise.all(
-    (Object.entries(queryFiles) as Array<[SupportedLang, string]>).map(async ([lang, queryPath]) => {
-      try {
-        const stat = await fs.stat(queryPath);
-        return [lang, Math.floor(stat.mtimeMs)] as const;
-      } catch {
-        // Missing query file should not block indexing.
-        return [lang, 0] as const;
-      }
-    }),
-  );
-
-  return Object.fromEntries(entries) as Record<SupportedLang, number>;
 }
 
 // ---------------------------------------------------------------------------
@@ -577,51 +545,6 @@ export class CallGraphViewService implements vscode.Disposable, ICallGraphQueryS
   }
 
   /**
-   * Batch `fs.stat` all files and filter out those already fresh in the DB.
-   * Returns an array of jobs that need (re-)extraction plus the count of skipped files.
-   */
-  private async collectChangedFiles(
-    callgraphFiles: string[],
-    indexer: CallGraphIndexer,
-    queryFreshnessCutoffs: Record<SupportedLang, number>,
-  ): Promise<{ jobs: Array<{ filePath: string; lang: SupportedLang; mtime: number }>; skipped: number }> {
-    const jobs: Array<{ filePath: string; lang: SupportedLang; mtime: number }> = [];
-    let skipped = 0;
-    const STAT_BATCH = 32;
-
-    for (let i = 0; i < callgraphFiles.length; i += STAT_BATCH) {
-      const batch = callgraphFiles.slice(i, i + STAT_BATCH);
-      const stats = await Promise.all(
-        batch.map(async (fp) => {
-          try {
-            const s = await fs.stat(fp);
-            return { fp, mtime: Math.floor(s.mtimeMs), ok: true as const };
-          } catch {
-            return { fp, mtime: 0, ok: false as const };
-          }
-        }),
-      );
-      for (const s of stats) {
-        if (!s.ok) { skipped++; continue; }
-        const lang = langFromPath(s.fp);
-        if (!lang) { skipped++; continue; }
-
-        const record = indexer.getFileRecord(s.fp);
-        const queryCutoff = queryFreshnessCutoffs[lang] ?? 0;
-
-        // Skip only if both the source file AND extractor rules are still fresh.
-        if (record && record.lastModified >= s.mtime && record.indexedAt >= queryCutoff) {
-          skipped++;
-          continue;
-        }
-
-        jobs.push({ filePath: s.fp, lang, mtime: s.mtime });
-      }
-    }
-    return { jobs, skipped };
-  }
-
-  /**
    * Extract files in parallel batches, insert into the DB serially,
    * and accumulate edges for a final cycle-detection pass.
    */
@@ -733,7 +656,12 @@ export class CallGraphViewService implements vscode.Disposable, ICallGraphQueryS
 
     // Phase 1 — batch stat to find changed files
     const queryFreshnessCutoffs = await getQueryFreshnessCutoffs(this.context.extensionPath);
-    const { jobs, skipped } = await this.collectChangedFiles(callgraphFiles, indexer, queryFreshnessCutoffs);
+    const { jobs, skipped } = await collectChangedFiles(
+      callgraphFiles,
+      (f) => indexer.getFileRecord(f),
+      queryFreshnessCutoffs,
+      langFromPath,
+    );
     this.outputChannel.appendLine(`[CallGraph] ${jobs.length} files need (re-)extraction`);
 
     // Phase 2 — parallel extraction + serial DB insertion

@@ -12,8 +12,11 @@
  *     flag before dispatching to a command, so `graph-it <cmd> --help` always
  *     printed the generic top-level help instead of the per-command help.
  */
-import { describe, expect, it } from "vitest";
-import { commandWantsHelp, findCommandStart } from "../../src/cli/index";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import * as fsSync from "node:fs";
+import * as osMod from "node:os";
+import * as pathMod from "node:path";
+import { commandWantsHelp, createRuntime, findCommandStart } from "../../src/cli/index";
 
 describe("findCommandStart", () => {
   it("finds the command when it is the first token", () => {
@@ -65,5 +68,45 @@ describe("commandWantsHelp", () => {
 
   it("returns false when --help appears before the command (belongs to a different context)", () => {
     expect(commandWantsHelp("wiki", [], ["--help", "wiki"])).toBe(false);
+  });
+});
+
+describe("createRuntime — index cache flags", () => {
+  let tmpDir: string;
+  let cacheDir: string;
+
+  beforeEach(() => {
+    tmpDir = fsSync.mkdtempSync(pathMod.join(osMod.tmpdir(), "graph-it-flags-unit-"));
+    fsSync.writeFileSync(pathMod.join(tmpDir, "package.json"), "{}");
+    cacheDir = pathMod.join(tmpDir, ".graph-it", "cache");
+    fsSync.mkdirSync(cacheDir, { recursive: true });
+    fsSync.writeFileSync(pathMod.join(cacheDir, "meta.json"), "{}");
+  });
+
+  afterEach(() => {
+    fsSync.rmSync(tmpDir, { recursive: true, force: true });
+  });
+
+  it("keeps the cache by default", () => {
+    const runtime = createRuntime(tmpDir, {});
+
+    expect(runtime.workspaceRoot).toBe(pathMod.resolve(tmpDir));
+    expect(fsSync.existsSync(cacheDir)).toBe(true);
+  });
+
+  it("--reindex deletes the existing cache up front", () => {
+    createRuntime(tmpDir, { reindex: true });
+
+    expect(fsSync.existsSync(cacheDir)).toBe(false);
+  });
+
+  it("--no-cache leaves an existing cache on disk but writes none", async () => {
+    const runtime = createRuntime(tmpDir, { "no-cache": true });
+    await runtime.init();
+    await runtime.ensureIndexed({ silent: true });
+    fsSync.rmSync(cacheDir, { recursive: true, force: true });
+    await runtime.dispose();
+
+    expect(fsSync.existsSync(cacheDir)).toBe(false);
   });
 });

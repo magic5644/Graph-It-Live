@@ -12,9 +12,14 @@ import type { CallGraphEdge } from "@/analyzer/callgraph/CallGraphIndexer";
 import { CallGraphIndexer } from "@/analyzer/callgraph/CallGraphIndexer";
 import { detectCycleEdges } from "@/analyzer/callgraph/cycleUtils";
 import type { ExtractorConfig } from "@/analyzer/callgraph/GraphExtractor";
-import { fileExtToLang, GraphExtractor } from "@/analyzer/callgraph/GraphExtractor";
+import {
+  collectChangedFiles,
+  fileExtToLang,
+  getQueryFreshnessCutoffs,
+  GraphExtractor,
+} from "@/analyzer/callgraph/GraphExtractor";
 import { SourceFileCollector } from "@/analyzer/SourceFileCollector";
-import type { RelationType } from "@/shared/callgraph-types";
+import type { RelationType, SupportedLang } from "@/shared/callgraph-types";
 import { getLogger } from "@/shared/logger";
 import { normalizePath } from "@/shared/path";
 import fs from "node:fs/promises";
@@ -84,7 +89,7 @@ export async function ensureCallGraphReady(): Promise<void> {
   // Avoid duplicate indexing
   if (indexPromise !== null) return indexPromise;
 
-  indexPromise = doInitAndIndex(config.extensionPath, workspaceRoot);
+  indexPromise = doInitAndIndex(config.extensionPath, workspaceRoot, config.cacheDir);
   try {
     await indexPromise;
   } finally {
@@ -92,21 +97,133 @@ export async function ensureCallGraphReady(): Promise<void> {
   }
 }
 
+/**
+ * Above this share of files needing re-extraction, a clean rebuild beats an
+ * incremental pass — and it periodically heals the drift documented below.
+ */
+const REBUILD_THRESHOLD = 0.2;
+
+/** One file to extract, with its resolved language. */
+interface CallGraphJob {
+  filePath: string;
+  lang: SupportedLang;
+}
+
+/**
+ * Decide what to re-extract on top of a restored DB.
+ *
+ * Returns every file when the workspace churned past REBUILD_THRESHOLD, after
+ * wiping the DB clean — the caller then indexes from scratch.
+ *
+ * ponytail: two known drifts that only a rebuild heals.
+ *  1. resolveExternalEdges() permanently deletes unresolved `@@external:` stubs,
+ *     so an edge whose TARGET gained a symbol is not restored by re-extracting
+ *     the target alone. Importers of changed files are re-extracted to cover the
+ *     import-based cases; non-import resolution (dynamic dispatch, Go/Java
+ *     package-level) stays uncovered until the next full rebuild.
+ *  2. `is_cyclic` flags on edges of unchanged files are not recomputed, so a
+ *     cycle broken elsewhere can stay flagged until the next full rebuild.
+ */
+async function selectStaleJobs(
+  indexer: CallGraphIndexer,
+  callgraphFiles: string[],
+  extensionPath: string,
+): Promise<CallGraphJob[]> {
+  const onDisk = new Set(callgraphFiles);
+  invalidateMissingFiles(indexer, onDisk);
+
+  const cutoffs = await getQueryFreshnessCutoffs(extensionPath);
+  const { jobs } = await collectChangedFiles(
+    callgraphFiles,
+    (f) => indexer.getFileRecord(f),
+    cutoffs,
+  );
+
+  // Re-extract importers of changed files so cross-file edges get re-resolved.
+  // The Spider reverse index is already warm in this process, so this is free.
+  const selected = selectChangedJobs(jobs);
+  await addReferencingJobs(selected, jobs, onDisk);
+
+  if (shouldRebuild(callgraphFiles.length, selected.size)) {
+    return rebuildCallGraph(indexer, callgraphFiles);
+  }
+
+  return [...selected.values()];
+}
+
+function invalidateMissingFiles(
+  indexer: CallGraphIndexer,
+  onDisk: Set<string>,
+): void {
+  for (const indexed of indexer.getIndexSnapshot().files) {
+    if (!onDisk.has(indexed.path)) {
+      indexer.invalidateFile(indexed.path);
+    }
+  }
+}
+
+function selectChangedJobs(jobs: CallGraphJob[]): Map<string, CallGraphJob> {
+  return new Map(jobs.map((job) => [job.filePath, job]));
+}
+
+async function addReferencingJobs(
+  selected: Map<string, CallGraphJob>,
+  jobs: CallGraphJob[],
+  onDisk: Set<string>,
+): Promise<void> {
+  const spider = workerState.spider;
+  if (!spider) return;
+
+  for (const job of jobs) {
+    const referencingFiles = await spider.findReferencingFiles(job.filePath);
+    for (const referencing of referencingFiles) {
+      addImporterJob(selected, normalizePath(referencing.path), onDisk);
+    }
+  }
+}
+
+function addImporterJob(
+  selected: Map<string, CallGraphJob>,
+  importer: string,
+  onDisk: Set<string>,
+): void {
+  const lang = fileExtToLang(importer);
+  if (lang && onDisk.has(importer) && !selected.has(importer)) {
+    selected.set(importer, { filePath: importer, lang });
+  }
+}
+
+function shouldRebuild(fileCount: number, selectedCount: number): boolean {
+  return fileCount > 0 && selectedCount / fileCount > REBUILD_THRESHOLD;
+}
+
+async function rebuildCallGraph(
+  indexer: CallGraphIndexer,
+  callgraphFiles: string[],
+): Promise<CallGraphJob[]> {
+  log.info("Call graph cache too stale, rebuilding from scratch");
+  indexer.dispose();
+  await indexer.init();
+  return callgraphFiles.map((filePath) => ({
+    filePath,
+    lang: fileExtToLang(filePath) as SupportedLang,
+  }));
+}
+
 async function doInitAndIndex(
   extensionPath: string | undefined,
   workspaceRoot: string,
+  cacheDir?: string,
 ): Promise<void> {
   if (!extensionPath) {
     throw new Error("extensionPath required for call graph WASM parsers");
   }
 
   const startTime = Date.now();
-
-  // Initialize CallGraphIndexer (sql.js WASM)
-  const wasmPath = path.join(extensionPath, "dist", "wasm", "sqljs.wasm");
-  await fs.access(wasmPath); // fail fast if missing
-  const indexer = new CallGraphIndexer(wasmPath);
-  await indexer.init();
+  const { indexer, restored } = await initializeCallGraphIndexer(
+    extensionPath,
+    cacheDir,
+  );
 
   // Initialize GraphExtractor (tree-sitter WASM)
   const extractorConfig: ExtractorConfig = {
@@ -126,47 +243,23 @@ async function doInitAndIndex(
     .map(normalizePath)
     .filter((f) => fileExtToLang(f) !== null);
 
-  log.info(`Indexing ${callgraphFiles.length} files for call graph…`);
+  const jobs = await selectCallGraphJobs(
+    restored,
+    indexer,
+    callgraphFiles,
+    extensionPath,
+  );
 
-  // Extract + index all files in batches
-  const allEdges: CallGraphEdge[] = [];
-  indexer.beginBatch();
-  try {
-    for (const filePath of callgraphFiles) {
-      const lang = fileExtToLang(filePath);
-      if (!lang) continue;
-      try {
-        const stat = await fs.stat(filePath);
-        const result = await extractor.extractFile(filePath, lang, stat.mtimeMs);
-        if (result.nodes.length > 0) {
-          indexer.indexFile(result.nodes, result.edges, filePath, lang, stat.mtimeMs);
-          allEdges.push(...result.edges);
-        }
-      } catch {
-        // Skip files that fail to parse (binary files, encoding issues, etc.)
-      }
-    }
-    indexer.commitBatch();
-  } catch (err) {
-    indexer.rollbackBatch();
-    throw err;
-  }
+  log.info(
+    `Indexing ${jobs.length}/${callgraphFiles.length} files for call graph` +
+      (restored ? " (incremental)" : ""),
+  );
+
+  // Extract + index the selected files in batches
+  const allEdges = await indexCallGraphJobs(indexer, extractor, jobs);
 
   // Cycle detection
-  const nonUsesEdges = allEdges
-    .filter((e) => e.typeRelation !== "USES")
-    .map((e) => ({ source: e.sourceId, target: e.targetId }));
-  if (nonUsesEdges.length > 0) {
-    const cycleEdgeKeys = detectCycleEdges(nonUsesEdges);
-    const cyclicPairs = allEdges.filter((e) =>
-      cycleEdgeKeys.has(`${e.sourceId}->${e.targetId}`),
-    );
-    if (cyclicPairs.length > 0) {
-      indexer.markCycles(
-        cyclicPairs.map((e) => ({ sourceId: e.sourceId, targetId: e.targetId })),
-      );
-    }
-  }
+  markCycleEdges(indexer, allEdges);
 
   // Resolve cross-file edges
   const resolveStats = indexer.resolveExternalEdges();
@@ -185,6 +278,88 @@ async function doInitAndIndex(
 
   const duration = Date.now() - startTime;
   log.info(`Call graph indexed ${callgraphFiles.length} files in ${duration}ms`);
+}
+
+async function initializeCallGraphIndexer(
+  extensionPath: string,
+  cacheDir?: string,
+): Promise<{ indexer: CallGraphIndexer; restored: boolean }> {
+  const wasmPath = path.join(extensionPath, "dist", "wasm", "sqljs.wasm");
+  await fs.access(wasmPath);
+  const indexer = new CallGraphIndexer(wasmPath);
+  const dbPath = cacheDir ? path.join(cacheDir, "callgraph.db") : null;
+  const restored = dbPath ? await indexer.loadFromFile(dbPath) : false;
+  if (!restored) await indexer.init();
+  return { indexer, restored };
+}
+
+async function selectCallGraphJobs(
+  restored: boolean,
+  indexer: CallGraphIndexer,
+  callgraphFiles: string[],
+  extensionPath: string,
+): Promise<CallGraphJob[]> {
+  if (restored) {
+    return selectStaleJobs(indexer, callgraphFiles, extensionPath);
+  }
+  return callgraphFiles.map((filePath) => ({
+    filePath,
+    lang: fileExtToLang(filePath)!,
+  }));
+}
+
+async function indexCallGraphJobs(
+  indexer: CallGraphIndexer,
+  extractor: GraphExtractor,
+  jobs: CallGraphJob[],
+): Promise<CallGraphEdge[]> {
+  const allEdges: CallGraphEdge[] = [];
+  indexer.beginBatch();
+  try {
+    for (const job of jobs) {
+      await indexCallGraphJob(indexer, extractor, job, allEdges);
+    }
+    indexer.commitBatch();
+  } catch (err) {
+    indexer.rollbackBatch();
+    throw err;
+  }
+  return allEdges;
+}
+
+async function indexCallGraphJob(
+  indexer: CallGraphIndexer,
+  extractor: GraphExtractor,
+  job: CallGraphJob,
+  allEdges: CallGraphEdge[],
+): Promise<void> {
+  try {
+    const stat = await fs.stat(job.filePath);
+    const result = await extractor.extractFile(job.filePath, job.lang, stat.mtimeMs);
+    if (result.nodes.length > 0) {
+      indexer.indexFile(result.nodes, result.edges, job.filePath, job.lang, stat.mtimeMs);
+      allEdges.push(...result.edges);
+    }
+  } catch {
+    // Skip files that fail to parse (binary files, encoding issues, etc.)
+  }
+}
+
+function markCycleEdges(indexer: CallGraphIndexer, allEdges: CallGraphEdge[]): void {
+  const nonUsesEdges = allEdges
+    .filter((e) => e.typeRelation !== "USES")
+    .map((e) => ({ source: e.sourceId, target: e.targetId }));
+  if (nonUsesEdges.length === 0) return;
+
+  const cycleEdgeKeys = detectCycleEdges(nonUsesEdges);
+  const cyclicPairs = allEdges.filter((e) =>
+    cycleEdgeKeys.has(`${e.sourceId}->${e.targetId}`),
+  );
+  if (cyclicPairs.length > 0) {
+    indexer.markCycles(
+      cyclicPairs.map((e) => ({ sourceId: e.sourceId, targetId: e.targetId })),
+    );
+  }
 }
 
 // ---------------------------------------------------------------------------

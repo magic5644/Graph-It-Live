@@ -459,12 +459,16 @@ export class CallGraphIndexer {
 
     // Fetch all candidate target nodes that could satisfy any stub.
     // Include lang so we can restrict resolution to same-language candidates only.
+    // ORDER BY id keeps the candidate order stable: without it SQLite is free to
+    // return rows in any order, and pickBestCandidate's first-wins tie handling
+    // would resolve the same workspace differently from one run to the next.
     const candidateRows = db.exec(`
       SELECT name, id, path, is_exported, indexed_at, lang
       FROM nodes
       WHERE name IN (
         SELECT DISTINCT SUBSTR(target_id, 12) FROM edges WHERE target_id LIKE '@@external:%'
       )
+      ORDER BY id ASC
     `);
 
     // Build (lang + "\0" + name) → candidates map so lookups are language-scoped.
@@ -528,6 +532,21 @@ export class CallGraphIndexer {
     }
     stmt.free();
     return result;
+  }
+
+  /**
+   * Row counts for the three tables, via COUNT(*) rather than materializing rows.
+   * Cheap enough to call on every status query, unlike getIndexSnapshot().
+   */
+  getCounts(): { files: number; symbols: number; relations: number } {
+    const db = this.getDb();
+    const count = (table: string): number =>
+      (db.exec(`SELECT COUNT(*) FROM ${table}`)[0]?.values[0]?.[0] as number) ?? 0;
+    return {
+      files: count("file_index"),
+      symbols: count("nodes"),
+      relations: count("edges"),
+    };
   }
 
   /**
@@ -752,8 +771,14 @@ function pickBestCandidate(sourcePath: string, candidates: NodeCandidate[]): Nod
     const betterSim = sim > bestSim;
     const sameSim = sim === bestSim;
     const betterExport = sameSim && c.isExported > best.isExported;
-    const betterRecent = sameSim && c.isExported === best.isExported && c.indexedAt > best.indexedAt;
-    if (betterSim || betterExport || betterRecent) {
+    const sameExport = sameSim && c.isExported === best.isExported;
+    const betterRecent = sameExport && c.indexedAt > best.indexedAt;
+    // indexed_at is a wall-clock stamp taken once per indexed file, so candidates
+    // indexed within the same millisecond tie here — and which files share a
+    // millisecond varies between runs. Falling back to the id keeps resolution
+    // reproducible instead of letting the clock decide.
+    const lowerId = sameExport && c.indexedAt === best.indexedAt && c.id < best.id;
+    if (betterSim || betterExport || betterRecent || lowerId) {
       best = c;
       bestSim = sim;
     }

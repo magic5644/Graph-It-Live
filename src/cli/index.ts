@@ -25,6 +25,8 @@
  *   --format, -f      Output format: text|json|toon|markdown|mermaid (default: text)
  *   --help, -h        Show this help message
  *   --version, -v     Show version
+ *   --reindex         Discard the cached index and rebuild it from scratch
+ *   --no-cache        Neither read nor write the index cache (also GRAPH_IT_NO_CACHE=1)
  *
  * CRITICAL ARCHITECTURE RULE: This module is completely VS Code agnostic!
  * NO import * as vscode from 'vscode' allowed!
@@ -53,6 +55,8 @@ const GLOBAL_OPTIONS: Record<string, { type: "string" | "boolean"; short?: strin
   format: { type: "string", short: "f" },
   help: { type: "boolean", short: "h" },
   version: { type: "boolean", short: "v" },
+  reindex: { type: "boolean" },
+  "no-cache": { type: "boolean" },
 };
 
 // Session stats: this process is the CLI entry point.
@@ -91,6 +95,8 @@ const HELP = `
 graph-it — Graph-It-Live standalone CLI
 
 Usage: graph-it <command> [options]
+       graph-it                      Start the interactive REPL (TTY only)
+       graph-it <command> --help     Per-command help and options
 
 Commands:
   scan              Index/re-index the workspace
@@ -120,6 +126,8 @@ Options:
   --format, -f      Output format: text|json|toon|markdown|mermaid (default: text)
   --help, -h        Show this help
   --version, -v     Show version
+  --reindex         Discard the cached index and rebuild it from scratch
+  --no-cache        Neither read nor write the index cache (also GRAPH_IT_NO_CACHE=1)
 
 Output Format Availability:
   Format    | scan | summary | trace | explain | path | architecture | check | tool
@@ -216,7 +224,6 @@ Examples:
   graph-it export --format html --output graph.html
   graph-it update
 `.trimStart();
-const HELP_WITH_CONTEXT = `${HELP}\n context <question>|--from <endpoint> --to <endpoint> Retrieve unified graph context`;
 
 // ============================================================================
 // Helpers
@@ -246,6 +253,23 @@ export function findCommandStart(argv: string[], command: string): number {
   return -1;
 }
 
+/**
+ * Build the runtime for this invocation, applying the index-cache flags.
+ *
+ * Exported so the flag semantics are unit-testable: `main()` itself only runs
+ * when the built bundle is the process entry point.
+ */
+export function createRuntime(
+  workspaceRoot: string,
+  values: { reindex?: unknown; "no-cache"?: unknown },
+): CliRuntime {
+  const runtime = new CliRuntime(workspaceRoot, { cache: !values["no-cache"] });
+  if (values.reindex) {
+    runtime.clearCache();
+  }
+  return runtime;
+}
+
 export function commandWantsHelp(command: string, commandArgs: string[], rawArgvSlice: string[]): boolean {
   return commandArgs.includes("--help") || commandArgs.includes("-h") ||
     (rawArgvSlice.includes("--help") && rawArgvSlice.indexOf(command) < rawArgvSlice.indexOf("--help")) ||
@@ -263,10 +287,10 @@ async function handleNoCommand(values: Record<string, unknown>): Promise<void> {
     const workspaceRoot = findWorkspaceRoot(path.resolve(workspaceRaw));
     await maybeNotifyCliUpdate({ workspaceRoot, currentVersion: VERSION });
     const { run } = await import("./commands/repl.js");
-    await run(new CliRuntime(workspaceRoot));
+    await run(createRuntime(workspaceRoot, values));
     process.exit(ExitCode.SUCCESS);
   }
-  process.stdout.write(HELP_WITH_CONTEXT);
+  process.stdout.write(HELP);
   process.exit(ExitCode.SUCCESS);
 }
 
@@ -305,7 +329,7 @@ async function main(): Promise<void> {
   // generic top-level HELP text. Only fall back to the generic HELP when
   // no command was given at all.
   if (values.help && !command) {
-    process.stdout.write(HELP_WITH_CONTEXT);
+    process.stdout.write(HELP);
     process.exit(ExitCode.SUCCESS);
   }
 
@@ -350,7 +374,7 @@ async function main(): Promise<void> {
   // Resolve workspace
   const workspaceRaw = (values.workspace as string | undefined) ?? process.cwd();
   const workspaceRoot = findWorkspaceRoot(path.resolve(workspaceRaw));
-  const runtime = new CliRuntime(workspaceRoot);
+  const runtime = createRuntime(workspaceRoot, values);
 
   // Commands that don't need a workspace (skip runtime init to avoid side-effects)
   const WORKSPACE_FREE = new Set(["install", "update", "stats"]);

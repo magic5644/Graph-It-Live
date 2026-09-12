@@ -85,6 +85,29 @@ describe("CallGraphIndexer", () => {
   // Lifecycle
   // -------------------------------------------------------------------------
 
+  it("getCounts() reports zero on an empty database", () => {
+    expect(indexer.getCounts()).toEqual({ files: 0, symbols: 0, relations: 0 });
+  });
+
+  it("getCounts() counts files, symbols and relations", () => {
+    indexer.indexFile(
+      [makeNode(), makeNode({ id: `${FILE_A}:helper:12`, name: "helper", startLine: 12 })],
+      [makeEdge()],
+      FILE_A,
+      "typescript",
+      1000,
+    );
+
+    expect(indexer.getCounts()).toEqual({ files: 1, symbols: 2, relations: 1 });
+  });
+
+  it("getCounts() follows invalidateFile()", () => {
+    indexer.indexFile([makeNode()], [], FILE_A, "typescript", 1000);
+    indexer.invalidateFile(FILE_A);
+
+    expect(indexer.getCounts()).toEqual({ files: 0, symbols: 0, relations: 0 });
+  });
+
   it("init() resolves without throwing", async () => {
     const fresh = new CallGraphIndexer(SQL_WASM_PATH);
     await expect(fresh.init()).resolves.not.toThrow();
