@@ -1,0 +1,8 @@
+{
+  "mcpServers": {
+    "graph-it-live": {
+      "command": "npx",
+      "args": ["-y", "@magic5644/graph-it-live@latest", "serve"]
+    }
+  }
+}

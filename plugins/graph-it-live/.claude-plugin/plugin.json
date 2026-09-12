@@ -1,0 +1,14 @@
+{
+  "name": "graph-it-live",
+  "displayName": "Graph-It-Live",
+  "version": "1.14.1",
+  "description": "Dependency, call-graph, impact, and architecture analysis for codebases.",
+  "author": {
+    "name": "Graph-It-Live Team",
+    "url": "https://github.com/magic5644"
+  },
+  "repository": "https://github.com/magic5644/Graph-It-Live",
+  "license": "MIT",
+  "skills": "./skills/",
+  "mcpServers": "./.mcp.json"
+}

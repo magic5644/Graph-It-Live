@@ -181,6 +181,9 @@ docs/AGENT_*
 codemaps/
 
 mcp.json
+!plugins/
+!plugins/graph-it-live/
+!plugins/graph-it-live/mcp.json
 
 # Playwright files
 playwright-report/
