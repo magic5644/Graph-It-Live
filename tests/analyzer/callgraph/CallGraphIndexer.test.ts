@@ -603,26 +603,28 @@ describe("CallGraphIndexer", () => {
     expect(edgeToUnexported.length).toBe(0);
   });
 
-  it("resolveExternalEdges() picks most-recently-indexed candidate when exported/similarity tie (pickBestCandidate)", () => {
-    // Two exported candidates in the same directory — tie in both similarity and export.
-    // The more recently indexed one must win.
-    // We force distinct indexed_at values by updating the DB directly after indexFile().
+  it("resolveExternalEdges() breaks an exported/similarity tie on the node id, not the clock", () => {
+    // Two exported candidates in the same directory — tie in both similarity and
+    // export. The tie-break used to be indexed_at, a wall-clock stamp: which of two
+    // files landed in the same millisecond varied between indexing runs, so the same
+    // unchanged workspace resolved this edge differently from one run to the next.
+    // Resolution is now pinned to the lowest node id, which is stable.
     const CALLER_FILE = "/workspace/src/caller.ts";
-    const OLDER_FILE  = "/workspace/src/older.ts";
-    const NEWER_FILE  = "/workspace/src/newer.ts";
+    const A_FILE = "/workspace/src/aaa.ts";
+    const Z_FILE = "/workspace/src/zzz.ts";
 
     const callerNode = makeNode({
       id: `${CALLER_FILE}:caller:1`, name: "caller", startLine: 1,
       path: CALLER_FILE, folder: "/workspace/src",
     });
-    const olderNode = makeNode({
-      id: `${OLDER_FILE}:doWork:1`, name: "doWork", startLine: 1,
-      path: OLDER_FILE, folder: "/workspace/src",
+    const lowerIdNode = makeNode({
+      id: `${A_FILE}:doWork:1`, name: "doWork", startLine: 1,
+      path: A_FILE, folder: "/workspace/src",
       lang: "typescript", isExported: true,
     });
-    const newerNode = makeNode({
-      id: `${NEWER_FILE}:doWork:1`, name: "doWork", startLine: 1,
-      path: NEWER_FILE, folder: "/workspace/src",
+    const higherIdNode = makeNode({
+      id: `${Z_FILE}:doWork:1`, name: "doWork", startLine: 1,
+      path: Z_FILE, folder: "/workspace/src",
       lang: "typescript", isExported: true,
     });
 
@@ -634,36 +636,74 @@ describe("CallGraphIndexer", () => {
     });
 
     indexer.indexFile([callerNode], [stubEdge], CALLER_FILE, "typescript", 1000);
-    indexer.indexFile([olderNode], [], OLDER_FILE, "typescript", 1000);
-    indexer.indexFile([newerNode], [], NEWER_FILE, "typescript", 9999);
+    indexer.indexFile([lowerIdNode], [], A_FILE, "typescript", 1000);
+    indexer.indexFile([higherIdNode], [], Z_FILE, "typescript", 1000);
 
-    // Force distinct indexed_at values so the tie-breaker is deterministic.
     const db = indexer.getDb();
-    db.run("UPDATE nodes SET indexed_at = 1000 WHERE id = ?", [olderNode.id]);
-    db.run("UPDATE nodes SET indexed_at = 9999 WHERE id = ?", [newerNode.id]);
+    // The candidate indexed LAST carries the higher indexed_at. Under the old rule
+    // it would win; the id must decide instead.
+    db.run("UPDATE nodes SET indexed_at = 1000 WHERE id = ?", [lowerIdNode.id]);
+    db.run("UPDATE nodes SET indexed_at = 9999 WHERE id = ?", [higherIdNode.id]);
 
-    const result = indexer.resolveExternalEdges();
-    expect(result.resolved).toBeGreaterThanOrEqual(1);
+    expect(indexer.resolveExternalEdges().resolved).toBeGreaterThanOrEqual(1);
 
-    // Must resolve to newer (higher indexed_at) node
-    const edgeToNewer = db.exec(
+    const edgeToLowerId = db.exec(
       "SELECT source_id, target_id FROM edges WHERE source_id = ? AND target_id = ?",
-      [callerNode.id, newerNode.id],
+      [callerNode.id, lowerIdNode.id],
     );
-    expect(edgeToNewer[0]?.values.length).toBe(1);
+    expect(edgeToLowerId[0]?.values.length).toBe(1);
 
-    // Must NOT resolve to older node
-    const edgeToOlder = db.exec(
+    const edgeToHigherId = db.exec(
       "SELECT source_id, target_id FROM edges WHERE source_id = ? AND target_id = ?",
-      [callerNode.id, olderNode.id],
+      [callerNode.id, higherIdNode.id],
     );
-    expect(edgeToOlder.length).toBe(0);
+    expect(edgeToHigherId.length).toBe(0);
   });
 
-  // -------------------------------------------------------------------------
-  // resolveExternalEdges — cross-language isolation
-  // -------------------------------------------------------------------------
+  it("resolveExternalEdges() resolves identically whatever the indexing timestamps are", () => {
+    // Regression guard for the non-determinism itself: the same graph indexed with
+    // different wall-clock stamps must produce the same edges.
+    const CALLER_FILE = "/workspace/src/caller.ts";
+    const A_FILE = "/workspace/src/aaa.ts";
+    const Z_FILE = "/workspace/src/zzz.ts";
 
+    const run = async (stamps: [number, number]): Promise<string[]> => {
+      const local = new CallGraphIndexer(SQL_WASM_PATH);
+      await local.init();
+      const caller = makeNode({
+        id: `${CALLER_FILE}:caller:1`, name: "caller", startLine: 1,
+        path: CALLER_FILE, folder: "/workspace/src",
+      });
+      const a = makeNode({
+        id: `${A_FILE}:doWork:1`, name: "doWork", startLine: 1,
+        path: A_FILE, folder: "/workspace/src", isExported: true,
+      });
+      const z = makeNode({
+        id: `${Z_FILE}:doWork:1`, name: "doWork", startLine: 1,
+        path: Z_FILE, folder: "/workspace/src", isExported: true,
+      });
+      local.indexFile(
+        [caller],
+        [makeEdge({ sourceId: caller.id, targetId: "@@external:doWork", sourceLine: 7 })],
+        CALLER_FILE, "typescript", 1000,
+      );
+      local.indexFile([a], [], A_FILE, "typescript", 1000);
+      local.indexFile([z], [], Z_FILE, "typescript", 1000);
+      const db = local.getDb();
+      db.run("UPDATE nodes SET indexed_at = ? WHERE id = ?", [stamps[0], a.id]);
+      db.run("UPDATE nodes SET indexed_at = ? WHERE id = ?", [stamps[1], z.id]);
+      local.resolveExternalEdges();
+      const rows = db.exec("SELECT source_id, target_id FROM edges ORDER BY source_id, target_id");
+      local.dispose();
+      return (rows[0]?.values ?? []).map((r) => r.join("|"));
+    };
+
+    return Promise.all([run([1, 9999]), run([9999, 1]), run([5, 5])]).then(([x, y, z]) => {
+      expect(y).toEqual(x);
+      expect(z).toEqual(x);
+      expect(x.length).toBeGreaterThan(0);
+    });
+  });
   it("resolveExternalEdges() does not resolve @@external stub to a same-named node in a different language", () => {
     // Java file defines a `User` class; Go file also exports a `User` symbol.
     // A Java caller that references @@external:User must NOT be linked to the Go node.
