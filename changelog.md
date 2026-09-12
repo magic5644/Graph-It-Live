@@ -1,5 +1,25 @@
 # Changelog
 
+## v1.14.2
+
+### Added
+
+- **Unified graph context gateway**: Added `graph-it context`, the MCP tool `graphitlive_graph_context`, and the native VS Code tool `#graphContext`. One bounded, read-only response combines file dependencies, symbols, calls, tests, impact, paths, hubs, communities, local documentation, and rationale nodes.
+- **Context retrieval modes**: Added `search`, `neighbors`, `path`, `impact`, `refactor`, and `overview` modes with scope and relation filters, entity resolution, shortest-path lookup, provenance, freshness, ambiguity reporting, and follow-up queries.
+- **Token-bounded pagination**: Added JSON and TOON output, configurable depth and node limits, token budgets, and opaque continuation cursors bound to the request and index revision.
+- **Native documentation indexing**: Local Markdown references and rationale comments can now participate in graph-context retrieval when they match the requested scope.
+
+### Fixed
+
+- **Workspace boundary enforcement**: Graph-context scopes, seeds, and path endpoints now use workspace-relative paths and reject requests that escape the configured workspace.
+- **Retrieval consistency**: Scope filtering now runs before seed scoring and traversal, while federated reads remain read-only and preserve connected context, evidence, and index freshness.
+- **CLI and MCP cancellation**: Context requests now align cancellation handling across the CLI, MCP server, and VS Code integration.
+- **Call-graph traversal and communities**: Improved breadth-first call-graph queries and hardened community detection for larger and less-connected graphs.
+
+### Documentation
+
+- Added the unified graph-context architecture decision record, CLI reference coverage, and a reproducible local benchmark for retrieval quality, latency, freshness, and JSON/TOON size.
+
 ## v1.14.1
 
 ### Fixed
