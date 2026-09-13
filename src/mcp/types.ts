@@ -277,13 +277,11 @@ export const SetWorkspaceParamsSchema = z.object({
     .max(100)
     .optional()
     .describe("Maximum crawl depth (default: 50, min: 1, max: 100)"),
-  format: OutputFormatSchema.optional(),
 });
 export type SetWorkspaceParams = z.infer<typeof SetWorkspaceParamsSchema>;
 
 export const AnalyzeDependenciesParamsSchema = z.object({
   filePath: FilePathSchema.describe("Absolute path to the file to analyze"),
-  format: OutputFormatSchema.optional(),
 });
 export type AnalyzeDependenciesParams = z.infer<
   typeof AnalyzeDependenciesParamsSchema
@@ -321,7 +319,6 @@ export const CrawlDependencyGraphParamsSchema = z.object({
     .describe(
       "If true, only returns edges where symbols are actually used (requires AST analysis, slower)",
     ),
-  format: OutputFormatSchema.optional(),
 });
 export type CrawlDependencyGraphParams = z.infer<
   typeof CrawlDependencyGraphParamsSchema
@@ -331,7 +328,6 @@ export const FindReferencingFilesParamsSchema = z.object({
   targetPath: FilePathSchema.describe(
     "Absolute path to the file to find references for",
   ),
-  format: OutputFormatSchema.optional(),
 });
 export type FindReferencingFilesParams = z.infer<
   typeof FindReferencingFilesParamsSchema
@@ -351,13 +347,11 @@ export const ExpandNodeParamsSchema = z.object({
     .describe(
       "Additional depth to scan from this node (default: 10, min: 1, max: 100)",
     ),
-  format: OutputFormatSchema.optional(),
 });
 export type ExpandNodeParams = z.infer<typeof ExpandNodeParamsSchema>;
 
 export const ParseImportsParamsSchema = z.object({
   filePath: FilePathSchema.describe("Absolute path to the file to parse"),
-  format: OutputFormatSchema.optional(),
 });
 export type ParseImportsParams = z.infer<typeof ParseImportsParamsSchema>;
 
@@ -368,7 +362,6 @@ export const VerifyDependencyUsageParamsSchema = z.object({
   targetFile: FilePathSchema.describe(
     "Absolute path to the target file (the one providing symbols)",
   ),
-  format: OutputFormatSchema.optional(),
 });
 export type VerifyDependencyUsageParams = z.infer<
   typeof VerifyDependencyUsageParamsSchema
@@ -381,7 +374,6 @@ export const ResolveModulePathParamsSchema = z.object({
   moduleSpecifier: GenericStringSchema.describe(
     'The module specifier to resolve (e.g., "./utils", "@/components/Button")',
   ),
-  format: OutputFormatSchema.optional(),
 });
 export type ResolveModulePathParams = z.infer<
   typeof ResolveModulePathParamsSchema
@@ -407,7 +399,6 @@ export const GetSymbolGraphParamsSchema = z.object({
   filePath: FilePathSchema.describe(
     "Absolute path to the file to analyze for symbols",
   ),
-  format: OutputFormatSchema.optional(),
 });
 export type GetSymbolGraphParams = z.infer<typeof GetSymbolGraphParamsSchema>;
 
@@ -415,7 +406,6 @@ export const FindUnusedSymbolsParamsSchema = z.object({
   filePath: FilePathSchema.describe(
     "Absolute path to the file to check for unused exported symbols",
   ),
-  format: OutputFormatSchema.optional(),
 });
 export type FindUnusedSymbolsParams = z.infer<
   typeof FindUnusedSymbolsParamsSchema
@@ -428,7 +418,6 @@ export const GetSymbolDependentsParamsSchema = z.object({
   symbolName: SymbolNameSchema.describe(
     "Name of the symbol to find dependents for",
   ),
-  format: OutputFormatSchema.optional(),
 });
 export type GetSymbolDependentsParams = z.infer<
   typeof GetSymbolDependentsParamsSchema
@@ -449,7 +438,6 @@ export const TraceFunctionExecutionParamsSchema = z.object({
     .describe(
       "Maximum depth to trace the call chain (default: 10, min: 1, max: 100)",
     ),
-  format: OutputFormatSchema.optional(),
 });
 export type TraceFunctionExecutionParams = z.infer<
   typeof TraceFunctionExecutionParamsSchema
@@ -469,7 +457,6 @@ export const GetSymbolCallersParamsSchema = z.object({
     .describe(
       "Include type-only usages (interfaces, type aliases). Default is true.",
     ),
-  format: OutputFormatSchema.optional(),
 });
 export type GetSymbolCallersParams = z.infer<
   typeof GetSymbolCallersParamsSchema
@@ -485,7 +472,6 @@ export const AnalyzeBreakingChangesParamsSchema = z.object({
   newContent: FileContentSchema.optional().describe(
     "The new version of the file content (if not provided, reads current file)",
   ),
-  format: OutputFormatSchema.optional(),
 });
 export type AnalyzeBreakingChangesParams = z.infer<
   typeof AnalyzeBreakingChangesParamsSchema
@@ -496,7 +482,6 @@ export const ReviewPrParamsSchema = z.object({
   headRef: GenericStringSchema.optional().describe("Optional Git head ref; defaults to the checked-out worktree"),
   maxFiles: z.number().int().min(1).max(1000).optional(),
   maxDepth: z.number().int().min(1).max(10).optional(),
-  format: OutputFormatSchema.optional(),
 });
 export type ReviewPrParams = z.infer<typeof ReviewPrParamsSchema>;
 
@@ -516,7 +501,6 @@ export const GetImpactAnalysisParamsSchema = z.object({
     .describe(
       "Maximum depth for transitive analysis (default: 3, min: 1, max: 20)",
     ),
-  format: OutputFormatSchema.optional(),
 });
 export type GetImpactAnalysisParams = z.infer<
   typeof GetImpactAnalysisParamsSchema
@@ -529,7 +513,6 @@ export const AnalyzeFileLogicParamsSchema = z.object({
     .boolean()
     .optional()
     .describe("Include calls to external modules (default: false)"),
-  format: OutputFormatSchema.optional(),
 });
 export type AnalyzeFileLogicParams = z.infer<
   typeof AnalyzeFileLogicParamsSchema
@@ -538,7 +521,6 @@ export type AnalyzeFileLogicParams = z.infer<
 // NEW: Schema for generate_codemap (comprehensive file codemap)
 export const GenerateCodemapParamsSchema = z.object({
   filePath: FilePathSchema.describe("Absolute path to the file to generate a codemap for"),
-  format: OutputFormatSchema.optional(),
 });
 export type GenerateCodemapParams = z.infer<
   typeof GenerateCodemapParamsSchema
@@ -566,7 +548,6 @@ export const QueryCallGraphParamsSchema = z.object({
     .array(z.enum(["CALLS", "INHERITS", "IMPLEMENTS", "USES"]))
     .optional()
     .describe("Filter by relation types (default: all)"),
-  format: OutputFormatSchema.optional(),
 });
 export type QueryCallGraphParams = z.infer<
   typeof QueryCallGraphParamsSchema
@@ -657,7 +638,6 @@ export const GraphContextParamsSchema = z.object({
   tokenBudget: z.number().int().min(500).max(16000).optional(),
   directed: z.boolean().optional(),
   cursor: z.string().min(1).max(4096).optional(),
-  format: z.enum(["toon", "json"]).optional(),
   detail: z.enum(["compact", "standard", "full"]).optional(),
   response_format: z.enum(["json", "markdown", "toon"]).optional(),
 }).superRefine((params, context) => {
@@ -741,7 +721,6 @@ export const ScanDeadCodeParamsSchema = z.object({
     .describe(
       "Maximum number of files to analyse (default: 500). Prevents OOM on very large monorepos.",
     ),
-  format: OutputFormatSchema.optional(),
 });
 export type ScanDeadCodeParams = z.infer<typeof ScanDeadCodeParamsSchema>;
 
@@ -909,6 +888,14 @@ export interface McpResponseMetadata {
   timestamp: string;
   /** Workspace root directory */
   workspaceRoot: string;
+  /** ISO timestamp of the last completed full index pass, when known */
+  indexedAt?: string | null;
+  /**
+   * True when a file changed after the last full index pass. The watcher
+   * invalidates the affected file immediately, so results stay usable; the flag
+   * only says they may not reflect every edit yet.
+   */
+  stale?: boolean;
 }
 
 /**
@@ -1586,6 +1573,7 @@ export function createSuccessResponse<T>(
   executionTimeMs: number,
   workspaceRoot: string,
   pagination?: PaginationInfo,
+  freshness?: { indexedAt: string | null; stale: boolean },
 ): McpToolResponse<T> {
   return {
     success: true,
@@ -1595,6 +1583,7 @@ export function createSuccessResponse<T>(
       toolVersion: MCP_TOOL_VERSION,
       timestamp: new Date().toISOString(),
       workspaceRoot,
+      ...(freshness && { indexedAt: freshness.indexedAt, stale: freshness.stale }),
     },
     ...(pagination && { pagination }),
   };

@@ -1,5 +1,25 @@
 # Changelog
 
+## v1.14.4
+
+### Added
+
+- **Configurable query LLM providers**: `graph-it query` can now pin Anthropic, OpenAI-compatible, or the opt-in local GitHub Copilot CLI provider through `GRAPH_IT_LLM_PROVIDER`. The Copilot CLI provider reuses an existing Copilot subscription without an API key.
+
+### Fixed
+
+- **Graph-context TOON output**: Preserved graph edges, removed the redundant seed section, and added bounded `standard` detail output with pagination support.
+- **CLI output paths**: TOON and query output now use workspace-relative paths, reducing repeated machine-specific prefixes while keeping JSON paths absolute for scripts. Text query results now include `file:line` locations.
+- **Review Gate consumer coverage**: A consumer's own test is now recognized as coverage, avoiding an incorrect unverified-consumer risk increase.
+- **MCP tool contracts**: Removed the `format` parameter, which was advertised on 20 tool schemas but never read by any handler, and on `graph_context` only affected the pagination cursor hash. `response_format` (`json`, `markdown`, `toon`, default `toon`) is now the single output knob. Dead `?? "json"` fallbacks that contradicted the advertised default were removed from 25 handlers.
+- **`find_unused_symbols` description**: Dropped a stale note claiming every export was reported as unused. Cross-file symbol resolution has been implemented for some time; the tool discriminates correctly.
+- **MCP tool descriptions**: Rewritten in compact WHEN/WHY/RETURNS/LIMITS form, halving the context they occupy (29,202 to 13,099 characters) and stating each tool's real limits. Overlapping graph tools now point to `graph_context` as the default entry point.
+- **Tool count**: Corrected to 27 in the package description, the bundled skill, and the architecture diagram.
+
+### Added
+
+- **Index freshness in MCP responses**: Every tool response now carries `metadata.indexedAt` and `metadata.stale`, so a caller can tell an empty result from one computed against an index that has not caught up with recent edits.
+
 ## v1.14.3
 
 ### Added

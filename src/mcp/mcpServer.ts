@@ -258,6 +258,8 @@ const McpResponseMetadataSchema = z.object({
   toolVersion: z.string(),
   timestamp: z.string(),
   workspaceRoot: z.string(),
+  indexedAt: z.string().nullable().optional(),
+  stale: z.boolean().optional(),
 });
 const McpToolResponseSchema = z.object({
   success: z.boolean(),
@@ -415,7 +417,13 @@ async function invokeToolWithResponse<T>(
       params,
     );
     const executionTimeMs = Date.now() - startTime;
-    return createSuccessResponse(result, executionTimeMs, getWorkspaceRoot());
+    return createSuccessResponse(
+      result,
+      executionTimeMs,
+      getWorkspaceRoot(),
+      undefined,
+      workerHost.freshness(),
+    );
   } catch (error) {
     const executionTimeMs = Date.now() - startTime;
     const errorMessage =
@@ -554,13 +562,11 @@ server.registerTool(
   "graphitlive_set_workspace",
   {
     title: "Set Workspace Directory",
-    description: `USE THIS TOOL FIRST when working with a new project or when the workspace hasn't been configured yet. This tool MUST be called before any other graphitlive tools if no workspace is set.
+    description: `Sets the project root every other graphitlive tool analyses, and builds its dependency index.
 
-WHY: Graph-It-Live needs to know which project directory to analyze. Without a workspace configured, all other tools will fail. This tool sets the project root and initializes the dependency index for fast queries.
-
-RETURNS: Confirmation of the new workspace path and the number of files indexed. After calling this, all other graphItLive tools will work on the specified project.
-
-EXAMPLE: If analyzing a project at "/Users/me/my-app", call this tool with workspacePath="/Users/me/my-app"`,
+WHEN: before any other graphitlive call when no workspace is configured, or to switch projects.
+WHY: tools resolve paths and reverse dependencies against this root; without it they fail.
+RETURNS: resolved workspace path, number of files indexed, indexing duration.`,
     inputSchema: SetWorkspaceParamsSchema.extend({
       response_format: ResponseFormatSchema.describe(
         "Output format: 'json', 'markdown', or 'toon' (Token-Oriented Object Notation for reduced token usage) (default: toon - RECOMMENDED for 30-60% token savings)",
@@ -583,7 +589,7 @@ EXAMPLE: If analyzing a project at "/Users/me/my-app", call this tool with works
   }) => {
     const startTime = Date.now();
     const previousWorkspace = getWorkspaceRoot();
-    const responseFormat = response_format ?? "json";
+    const responseFormat = response_format;
 
     debugLog(`[McpServer] setWorkspace called with: ${workspacePath}`);
 
@@ -707,11 +713,12 @@ server.registerTool(
   "graphitlive_analyze_dependencies",
   {
     title: "Analyze File Dependencies",
-    description: `USE THIS TOOL WHEN the user asks about a file's imports, dependencies, or what modules a specific file uses. Examples: "What does this file import?", "Show me the dependencies of src/utils.ts", "What modules does this component rely on?"
+    description: `Lists the import/export statements of one file, with each specifier resolved to a path on disk.
 
-WHY: As an AI, you cannot see import statements or module relationships without parsing the actual source code. This tool provides the ground truth by analyzing real import/export statements on disk. Without it, you would have to guess dependencies and risk hallucinating non-existent relationships.
-
-RETURNS: A structured JSON with all import/export statements including: resolved absolute paths, relative paths from workspace root, import types (static import, dynamic import, require, re-export), line numbers, and file extensions. Supports TypeScript, JavaScript, Vue, Svelte, and GraphQL files.`,
+WHEN: "what does this file import", "what are this file's dependencies".
+WHY: read from the parsed source, so tsconfig path aliases, implicit extensions and index files are already resolved.
+RETURNS: per statement - module specifier, resolved absolute path, workspace-relative path, import type (static, dynamic, require, re-export), line number.
+SUPPORTS: TypeScript, JavaScript, Vue, Svelte, GraphQL.`,
     inputSchema: AnalyzeDependenciesParamsSchema.extend({
       response_format: ResponseFormatSchema.describe(
         "Output format: 'json', 'markdown', or 'toon' (Token-Oriented Object Notation for reduced token usage) (default: toon - RECOMMENDED for 30-60% token savings)",
@@ -730,7 +737,7 @@ RETURNS: A structured JSON with all import/export statements including: resolved
     if (workerCheck.error)
       return formatToolResponse(
         workerCheck.response,
-        response_format ?? "json",
+        response_format,
       "graphitlive_analyze_dependencies",
       );
 
@@ -739,7 +746,7 @@ RETURNS: A structured JSON with all import/export statements including: resolved
       { filePath },
     );
 
-    return formatToolResponse(response, response_format ?? "json", "graphitlive_analyze_dependencies");
+    return formatToolResponse(response, response_format, "graphitlive_analyze_dependencies");
   },
 );
 
@@ -748,11 +755,12 @@ server.registerTool(
   "graphitlive_crawl_dependency_graph",
   {
     title: "Crawl Full Dependency Graph",
-    description: `CRITICAL: USE THIS TOOL WHENEVER the user asks about project architecture, module relationships, the full dependency tree, or needs to understand how files are connected. Examples: "Show me the architecture of this module", "What's the dependency tree from main.ts?", "Map out all the files connected to this entry point", "How is this project structured?"
+    description: `Builds the transitive file dependency graph reachable from one entry file.
 
-WHY: You cannot "see" or infer the complete project structure or transitive dependencies. This tool crawls the actual codebase starting from an entry point and builds the real dependency graph. It detects circular dependencies and counts how many files depend on each node. Without this tool, any attempt to describe project architecture would be pure speculation.
-
-RETURNS: A complete graph with nodes (files with metadata: path, extension, dependency count, dependent count, circular dependency flag) and edges (import relationships between files). Supports pagination for large codebases. Works with TypeScript, JavaScript, Vue, Svelte, and GraphQL.`,
+WHEN: project architecture, full dependency tree from an entry point, circular-import detection.
+WHY: crawls real import edges across the workspace rather than inferring structure from file names.
+RETURNS: nodes (path, extension, dependency count, dependent count, circular flag) and edges (import relations); paginated via offset/limit.
+For an open-ended question, start with graphitlive_graph_context and come here when you need this specific cut.`,
     inputSchema: CrawlDependencyGraphParamsSchema.extend({
       response_format: ResponseFormatSchema.describe(
         "Output format: 'json', 'markdown', or 'toon' (Token-Oriented Object Notation for reduced token usage) (default: toon - RECOMMENDED for 30-60% token savings)",
@@ -768,7 +776,7 @@ RETURNS: A complete graph with nodes (files with metadata: path, extension, depe
   },
   async ({ entryFile, maxDepth, limit, offset, onlyUsed, response_format }) => {
     const workerCheck = await ensureWorkerReady();
-    const responseFormat = response_format ?? "json";
+    const responseFormat = response_format;
     if (workerCheck.error)
       return formatToolResponse(workerCheck.response, responseFormat, "graphitlive_crawl_dependency_graph");
 
@@ -814,11 +822,12 @@ server.registerTool(
   "graphitlive_find_referencing_files",
   {
     title: "Find Files That Import This File",
-    description: `CRITICAL: USE THIS TOOL WHENEVER the user asks about impact analysis, refactoring safety, "who uses this file?", "what will break if I change this?", or reverse dependencies. Examples: "What files import utils.ts?", "What's the impact of modifying this component?", "Who depends on this service?", "Is it safe to refactor this file?", "Show me all usages of this module"
+    description: `Lists every file that imports or references a given file (reverse dependency lookup).
 
-WHY: This is the MOST IMPORTANT tool for impact analysis. You cannot know which files import a given file without this reverse lookup. If a user asks about the consequences of changing a file and you don't use this tool, you will miss critical dependencies and give dangerous advice. The tool uses a pre-built index for instant O(1) lookups across the entire codebase.
-
-RETURNS: A list of all files that directly import/require/reference the target file, with their absolute paths and relative paths from workspace root. This tells you exactly what will be affected by changes to the target file.`,
+WHEN: impact analysis, "who uses this file", refactoring-safety checks before changing or deleting a file.
+WHY: served from a prebuilt reverse index, so it covers the whole workspace rather than the files already in context.
+RETURNS: absolute and workspace-relative path of each referencing file.
+For an open-ended question, start with graphitlive_graph_context and come here when you need this specific cut.`,
     inputSchema: FindReferencingFilesParamsSchema.extend({
       response_format: ResponseFormatSchema.describe(
         "Output format: 'json', 'markdown', or 'toon' (Token-Oriented Object Notation for reduced token usage) (default: toon - RECOMMENDED for 30-60% token savings)",
@@ -834,7 +843,7 @@ RETURNS: A list of all files that directly import/require/reference the target f
   },
   async ({ targetPath, response_format }) => {
     const workerCheck = await ensureWorkerReady();
-    const responseFormat = response_format ?? "json";
+    const responseFormat = response_format;
     if (workerCheck.error)
       return formatToolResponse(workerCheck.response, responseFormat, "graphitlive_find_referencing_files");
 
@@ -852,11 +861,11 @@ server.registerTool(
   "graphitlive_expand_node",
   {
     title: "Expand Node Dependencies",
-    description: `USE THIS TOOL WHEN you need to incrementally explore the dependency graph from a specific node, discovering new files not already in your known set. Examples: "Show me more dependencies from this file", "Expand the graph from this node", "What other files does this connect to that I haven't seen yet?"
+    description: `Returns the dependencies of one file that are not already in a set of paths you provide.
 
-WHY: When building a dependency graph incrementally or exploring a large codebase, you may already know about some files and want to discover NEW dependencies without re-analyzing everything. This tool efficiently finds only the files you don't already know about, making it perfect for lazy loading or step-by-step exploration.
-
-RETURNS: A list of newly discovered nodes (files) and edges (import relationships) that were not in the known set. Includes the same metadata as the crawl tool: paths, extensions, dependency counts.`,
+WHEN: exploring a large graph incrementally, or lazily loading one node at a time.
+WHY: skips re-analysing what you already hold, so only newly discovered files come back.
+RETURNS: the new nodes and edges only, with the same fields as crawl_dependency_graph.`,
     inputSchema: ExpandNodeParamsSchema.extend({
       response_format: ResponseFormatSchema.describe(
         "Output format: 'json', 'markdown', or 'toon' (Token-Oriented Object Notation for reduced token usage) (default: toon - RECOMMENDED for 30-60% token savings)",
@@ -872,7 +881,7 @@ RETURNS: A list of newly discovered nodes (files) and edges (import relationship
   },
   async ({ filePath, knownPaths, extraDepth, response_format }) => {
     const workerCheck = await ensureWorkerReady();
-    const responseFormat = response_format ?? "json";
+    const responseFormat = response_format;
     if (workerCheck.error)
       return formatToolResponse(workerCheck.response, responseFormat, "graphitlive_expand_node");
 
@@ -894,11 +903,12 @@ server.registerTool(
   "graphitlive_parse_imports",
   {
     title: "Parse Raw Import Statements",
-    description: `USE THIS TOOL WHEN you need to see the exact import statements as written in the source code, without path resolution. Examples: "What import syntax does this file use?", "Show me the raw import statements", "What module specifiers are in this file?"
+    description: `Returns the import statements of one file exactly as written, without resolving them to paths.
 
-WHY: Sometimes you need to see exactly how imports are written (relative paths, aliases, bare specifiers) before resolution. This is useful for understanding coding patterns, checking import styles, or debugging path resolution issues. The tool uses fast regex-based parsing and handles Vue/Svelte script extraction automatically.
-
-RETURNS: An array of raw import/require/export statements as they appear in the source code, with the module specifier (e.g., "./utils", "@/components/Button", "lodash"), import type, and line number. Does NOT resolve paths - use graphitlive_analyze_dependencies for resolved paths.`,
+WHEN: inspecting import style or alias usage, or debugging why a specifier fails to resolve.
+WHY: regex-based, and extracts the script block from Vue/Svelte files first.
+RETURNS: module specifier as written, import type, line number.
+LIMITS: does not resolve paths - use graphitlive_analyze_dependencies for resolved targets.`,
     inputSchema: ParseImportsParamsSchema.extend({
       response_format: ResponseFormatSchema.describe(
         "Output format: 'json', 'markdown', or 'toon' (Token-Oriented Object Notation for reduced token usage) (default: toon - RECOMMENDED for 30-60% token savings)",
@@ -914,7 +924,7 @@ RETURNS: An array of raw import/require/export statements as they appear in the 
   },
   async ({ filePath, response_format }) => {
     const workerCheck = await ensureWorkerReady();
-    const responseFormat = response_format ?? "json";
+    const responseFormat = response_format;
     if (workerCheck.error)
       return formatToolResponse(workerCheck.response, responseFormat, "graphitlive_parse_imports");
 
@@ -932,11 +942,11 @@ server.registerTool(
   "graphitlive_verify_dependency_usage",
   {
     title: "Verify Dependency Usage",
-    description: `USE THIS TOOL WHEN you want to check if a dependency between two files is real/used, or if it's dead code (unused import). Examples: "Is main.ts actually using utils.ts?", "Check if this import is unused", "Verify dependency usage between these files"
+    description: `Reports whether a source file actually uses any symbol from a target file it imports.
 
-WHY: Raw imports don't tell the whole story. A file might import something but never use it. This tool performs deep AST analysis to verify if symbols from the target file are actually referenced in the source file. This is crucial for identifying dead code or unnecessary dependencies.
-
-RETURNS: Boolean indicating if the dependency is used.`,
+WHEN: identifying unused imports, or confirming a dependency edge is real before acting on it.
+WHY: AST analysis of actual references, so an import that is never used is distinguished from one that is.
+RETURNS: boolean.`,
     inputSchema: VerifyDependencyUsageParamsSchema.extend({
       response_format: ResponseFormatSchema.describe(
         "Output format: 'json', 'markdown', or 'toon' (Token-Oriented Object Notation for reduced token usage) (default: toon - RECOMMENDED for 30-60% token savings)",
@@ -952,7 +962,7 @@ RETURNS: Boolean indicating if the dependency is used.`,
   },
   async ({ sourceFile, targetFile, response_format }) => {
     const workerCheck = await ensureWorkerReady();
-    const responseFormat = response_format ?? "json";
+    const responseFormat = response_format;
     if (workerCheck.error)
       return formatToolResponse(workerCheck.response, responseFormat, "graphitlive_verify_dependency_usage");
 
@@ -973,11 +983,11 @@ server.registerTool(
   "graphitlive_resolve_module_path",
   {
     title: "Resolve Module Specifier to File Path",
-    description: `USE THIS TOOL WHEN you need to convert a module specifier (import path) to an actual file path on disk. Examples: "Where does '@/components/Button' point to?", "Resolve this import path", "What file does './utils' refer to from main.ts?"
+    description: `Resolves one module specifier, as seen from a given file, to a path on disk.
 
-WHY: Module specifiers in code (like "./utils", "@/components/Button", "../shared/types") don't directly tell you the actual file path. This tool handles all the complexity: tsconfig.json path aliases, implicit file extensions (.ts, .tsx, .js, .jsx, .vue, .svelte, .gql), index file resolution, and relative path calculation. Without it, you would guess incorrectly about where imports actually point.
-
-RETURNS: The resolved absolute file path if the module exists, or null if it cannot be resolved (e.g., external npm package or non-existent file). Also indicates whether the path is inside or outside the workspace.`,
+WHEN: "where does this import point", or debugging alias and extension resolution.
+WHY: applies tsconfig path aliases, implicit extensions (.ts, .tsx, .js, .jsx, .vue, .svelte, .gql) and index-file resolution.
+RETURNS: resolved absolute path and whether it lies inside the workspace, or null for an unresolvable or external module.`,
     inputSchema: ResolveModulePathParamsSchema.extend({
       response_format: ResponseFormatSchema.describe(
         "Output format: 'json', 'markdown', or 'toon' (Token-Oriented Object Notation for reduced token usage) (default: toon - RECOMMENDED for 30-60% token savings)",
@@ -993,7 +1003,7 @@ RETURNS: The resolved absolute file path if the module exists, or null if it can
   },
   async ({ fromFile, moduleSpecifier, response_format }) => {
     const workerCheck = await ensureWorkerReady();
-    const responseFormat = response_format ?? "json";
+    const responseFormat = response_format;
     if (workerCheck.error)
       return formatToolResponse(workerCheck.response, responseFormat, "graphitlive_resolve_module_path");
 
@@ -1011,11 +1021,11 @@ server.registerTool(
   "graphitlive_get_index_status",
   {
     title: "Get Dependency Index Status",
-    description: `USE THIS TOOL WHEN you need to verify the dependency analyzer is ready, check how many files are indexed, or diagnose performance issues. Examples: "Is the dependency index ready?", "How many files are indexed?", "What's the cache hit rate?", "Is the analyzer warmed up?"
+    description: `Reports the state of the dependency index backing the other tools.
 
-WHY: Before running expensive dependency analysis, you may want to verify the system is ready and understand its current state. This tool gives you insight into the indexing status, cache efficiency, and overall health of the dependency analyzer.
-
-RETURNS: Index state (ready/initializing), number of files indexed, reverse index statistics (for finding references), cache size and hit rates, warmup completion status and duration. Useful for debugging and understanding analyzer performance.`,
+WHEN: checking readiness before a large analysis, or explaining unexpectedly empty results.
+WHY: distinguishes "no results" from "index not built yet".
+RETURNS: index state, files indexed, reverse-index statistics, cache size and hit rate, warmup completion and duration.`,
     inputSchema: z.object({
       response_format: ResponseFormatSchema.describe(
         "Output format: 'json', 'markdown', or 'toon' (Token-Oriented Object Notation for reduced token usage) (default: toon - RECOMMENDED for 30-60% token savings)",
@@ -1031,7 +1041,7 @@ RETURNS: Index state (ready/initializing), number of files indexed, reverse inde
   },
   async ({ response_format }) => {
     const workerCheck = await ensureWorkerReady();
-    const responseFormat = response_format ?? "json";
+    const responseFormat = response_format;
     if (workerCheck.error)
       return formatToolResponse(workerCheck.response, responseFormat, "graphitlive_get_index_status");
 
@@ -1049,11 +1059,11 @@ server.registerTool(
   "graphitlive_invalidate_files",
   {
     title: "Invalidate File Cache",
-    description: `USE THIS TOOL WHEN you have modified files and need to refresh the dependency analysis. Examples: "I just changed utils.ts, refresh the cache", "Invalidate these files I modified", "Clear cache for files I edited", "Refresh dependency data after my changes"
+    description: `Drops the cached analysis for specific files so the next query re-reads them.
 
-WHY: The dependency analyzer caches file analysis for performance. When you modify a file's imports or exports, the cache becomes stale. This tool clears the cache for specific files, forcing re-analysis on the next query. Use this after file modifications to ensure accurate dependency data.
-
-RETURNS: The number of files invalidated, which files were cleared from cache, and which files were not found in cache (already invalidated or never analyzed). The reverse index is also updated to remove stale references.`,
+WHEN: after editing files outside the watched workspace, when results look stale.
+WHY: analysis is cached per file; the cache is otherwise refreshed by the file watcher.
+RETURNS: how many files were invalidated, which were cleared, and which held no cache entry.`,
     inputSchema: InvalidateFilesParamsSchema.extend({
       response_format: ResponseFormatSchema.describe(
         "Output format: 'json', 'markdown', or 'toon' (Token-Oriented Object Notation for reduced token usage) (default: toon - RECOMMENDED for 30-60% token savings)",
@@ -1069,7 +1079,7 @@ RETURNS: The number of files invalidated, which files were cleared from cache, a
   },
   async ({ filePaths, response_format }) => {
     const workerCheck = await ensureWorkerReady();
-    const responseFormat = response_format ?? "json";
+    const responseFormat = response_format;
     if (workerCheck.error)
       return formatToolResponse(workerCheck.response, responseFormat, "graphitlive_invalidate_files");
 
@@ -1089,11 +1099,12 @@ server.registerTool(
   "graphitlive_rebuild_index",
   {
     title: "Rebuild Full Dependency Index",
-    description: `USE THIS TOOL WHEN you need to completely rebuild the dependency index from scratch. Examples: "Rebuild the entire index", "Start fresh with dependency analysis", "Clear all cached data and re-index", "The index seems corrupted, rebuild it"
+    description: `Clears all cached analysis and re-indexes the whole workspace.
 
-WHY: In rare cases, the dependency index may become out of sync with the actual codebase (e.g., after major refactoring, branch switches, or git operations that changed many files). This tool clears ALL cached data and re-indexes the entire workspace, ensuring the dependency graph is accurate.
-
-RETURNS: The number of files re-indexed, time taken to rebuild, new cache size, and updated reverse index statistics. Note: This operation can take several seconds for large workspaces.`,
+WHEN: after a branch switch or large refactor when the index no longer matches the tree; invalidate_files is enough for a few files.
+WHY: restores a graph that is consistent with what is on disk.
+RETURNS: files re-indexed, duration, new cache size and reverse-index statistics.
+LIMITS: takes seconds on a large workspace.`,
     inputSchema: z.object({
       response_format: ResponseFormatSchema.describe(
         "Output format: 'json', 'markdown', or 'toon' (Token-Oriented Object Notation for reduced token usage) (default: toon - RECOMMENDED for 30-60% token savings)",
@@ -1109,7 +1120,7 @@ RETURNS: The number of files re-indexed, time taken to rebuild, new cache size, 
   },
   async ({ response_format }) => {
     const workerCheck = await ensureWorkerReady();
-    const responseFormat = response_format ?? "json";
+    const responseFormat = response_format;
     if (workerCheck.error)
       return formatToolResponse(workerCheck.response, responseFormat, "graphitlive_rebuild_index");
 
@@ -1127,32 +1138,12 @@ server.registerTool(
   "graphitlive_get_symbol_graph",
   {
     title: "Get Symbol-Level Dependency Graph",
-    description: `CRITICAL: USE THIS TOOL WHEN the user wants to drill down from file-level dependencies to symbol-level (functions, classes, methods) dependencies. This enables **surgical refactoring** by showing exactly which symbols within a file depend on which external symbols.
+    description: `Lists the symbols a file exports and the external symbols each of them depends on.
 
-WHEN TO USE:
-- User asks "Which functions in this file use X?"
-- User wants to understand the internal structure of a file's dependencies
-- User needs to refactor a specific class/function without breaking others in the same file
-- User asks about symbol-level architecture or method-level coupling
-
-EXAMPLES:
-- "Show me which functions in UserService.ts call the database"
-- "I want to refactor the calculatePrice function - what does it depend on?"
-- "Give me the symbol-level graph for src/components/Button.vue"
-
-WHY YOU NEED THIS:
-Without this tool, you only see file-to-file relationships. This tool uses AST parsing (ts-morph) to extract:
-1. All exported symbols (functions, classes, variables) with their types and line numbers
-2. Precise symbol-to-symbol dependencies (e.g., "function A calls function B from module X")
-3. Import alias resolution (tracks original names even when aliased)
-4. Filters out type-only imports (interfaces/types vs runtime code)
-
-RETURNS:
-- List of exported symbols with: name, kind (FunctionDeclaration, ClassDeclaration, etc.), line number, category (function/class/variable/interface/type)
-- Symbol dependency edges with source/target symbol IDs and file paths
-- Categorized by runtime vs type-only for filtering
-
-This enables the **"Drill Down" UX pattern** where users double-click a file node to see its internal symbol graph.`,
+WHEN: "which function in this file uses X", scoping a refactor to one symbol rather than the whole file.
+WHY: ts-morph AST parsing, so import aliases are tracked back to their original names and type-only imports are separated from runtime ones.
+RETURNS: exported symbols (name, kind, line, category) and symbol-to-symbol edges tagged runtime or type-only.
+For an open-ended question, start with graphitlive_graph_context and come here when you need this specific cut.`,
     inputSchema: GetSymbolGraphParamsSchema.extend({
       response_format: ResponseFormatSchema.describe(
         "Output format: 'json', 'markdown', or 'toon' (Token-Oriented Object Notation for reduced token usage) (default: toon - RECOMMENDED for 30-60% token savings)",
@@ -1168,7 +1159,7 @@ This enables the **"Drill Down" UX pattern** where users double-click a file nod
   },
   async ({ filePath, response_format }) => {
     const workerCheck = await ensureWorkerReady();
-    const responseFormat = response_format ?? "json";
+    const responseFormat = response_format;
     if (workerCheck.error)
       return formatToolResponse(workerCheck.response, responseFormat, "graphitlive_get_symbol_graph");
 
@@ -1186,33 +1177,12 @@ server.registerTool(
   "graphitlive_find_unused_symbols",
   {
     title: "Find Dead Code (Unused Exports)",
-    description: `CRITICAL: USE THIS TOOL WHEN the user wants to identify potential dead code or refactor opportunities by finding exported symbols that are never imported/used anywhere in the project.
+    description: `Lists the symbols a file exports that nothing else in the workspace imports.
 
-WHEN TO USE:
-- User asks "What exports are unused in this file?"
-- User wants to clean up dead code or remove unnecessary exports
-- User needs to understand which parts of an API are actually consumed
-- Code review to identify bloat or over-exported symbols
-
-EXAMPLES:
-- "Find dead code in src/utils/helpers.ts"
-- "Which exports in my API file are never imported?"
-- "Show me unused functions I can safely delete from UserService.ts"
-
-WHY YOU NEED THIS:
-You cannot determine if an export is used without scanning the entire codebase. This tool:
-1. Extracts all exported symbols from the target file
-2. Cross-references them with the reverse dependency index
-3. Identifies symbols that are exported but never imported elsewhere
-4. Calculates the "unused percentage" to prioritize cleanup
-
-RETURNS:
-- List of unused exported symbols with their metadata (name, kind, line number, category)
-- Total count of unused vs total exported symbols
-- Percentage of exports that are dead code
-- Each unused symbol includes its line number for quick navigation
-
-NOTE: Currently returns all exports as potentially unused until full cross-file symbol resolution is implemented. This will be enhanced to accurately track symbol-level imports across the project.`,
+WHEN: dead-code cleanup in one file, or checking which parts of an API are consumed.
+WHY: cross-references the file's exports against the reverse index, then widens the used set through the file's internal call graph so a symbol reached only indirectly is not reported.
+RETURNS: unused exported symbols (name, kind, line, category), unused and total counts, unused percentage.
+LIMITS: an export reached only through a dynamic or string-keyed lookup can still be reported as unused; confirm before deleting.`,
     inputSchema: FindUnusedSymbolsParamsSchema.extend({
       response_format: ResponseFormatSchema.describe(
         "Output format: 'json', 'markdown', or 'toon' (Token-Oriented Object Notation for reduced token usage) (default: toon - RECOMMENDED for 30-60% token savings)",
@@ -1228,7 +1198,7 @@ NOTE: Currently returns all exports as potentially unused until full cross-file 
   },
   async ({ filePath, response_format }) => {
     const workerCheck = await ensureWorkerReady();
-    const responseFormat = response_format ?? "json";
+    const responseFormat = response_format;
     if (workerCheck.error)
       return formatToolResponse(workerCheck.response, responseFormat, "graphitlive_find_unused_symbols");
 
@@ -1246,35 +1216,12 @@ server.registerTool(
   "graphitlive_get_symbol_dependents",
   {
     title: "Find All Callers of a Symbol (Impact Analysis)",
-    description: `CRITICAL: USE THIS TOOL WHEN the user wants to know every file and specific method/function that calls or uses a given symbol. This is essential for surgical refactoring and precise impact analysis.
+    description: `Lists the symbols across the workspace that use one given symbol.
 
-WHEN TO USE:
-- User asks "What uses this function?" or "Who calls this method?"
-- User wants to refactor a function and needs to know all callers
-- User needs to change a function signature and must update all call sites
-- Impact analysis before modifying an API, class method, or utility function
-- User asks about the "blast radius" of a change to a specific symbol
-
-EXAMPLES:
-- "What calls the formatDate function in utils.ts?"
-- "I'm changing UserService.login() signature - who depends on it?"
-- "Find all code that uses the calculateTotal method"
-
-WHY YOU NEED THIS:
-Unlike file-level dependencies, this tool provides SYMBOL-LEVEL precision:
-- Knows exactly which FUNCTIONS/METHODS call the target symbol
-- Works across the entire codebase, not just one file
-- Essential for safe refactoring without breaking dependent code
-- Answers the question: "If I change this signature, what breaks?"
-
-RETURNS:
-- List of all symbol dependencies that use the target symbol
-- Each entry includes: caller symbol ID, file path, and relative path
-- Total count of dependents for quick impact assessment
-
-EXAMPLE USE CASE:
-User: "I want to add a parameter to formatDate(). What will break?"
-→ Use this tool with symbolName="formatDate" to get all callers, then the user knows exactly which functions need updating.`,
+WHEN: changing a signature and needing every call site, or assessing the blast radius of a symbol-level change.
+WHY: symbol granularity rather than file granularity - it names the calling function, not just the importing file.
+RETURNS: caller symbol id, file path and workspace-relative path per dependent, plus a total count.
+For an open-ended question, start with graphitlive_graph_context and come here when you need this specific cut.`,
     inputSchema: GetSymbolDependentsParamsSchema.extend({
       response_format: ResponseFormatSchema.describe(
         "Output format: 'json', 'markdown', or 'toon' (Token-Oriented Object Notation for reduced token usage) (default: toon - RECOMMENDED for 30-60% token savings)",
@@ -1290,7 +1237,7 @@ User: "I want to add a parameter to formatDate(). What will break?"
   },
   async ({ filePath, symbolName, response_format }) => {
     const workerCheck = await ensureWorkerReady();
-    const responseFormat = response_format ?? "json";
+    const responseFormat = response_format;
     if (workerCheck.error)
       return formatToolResponse(workerCheck.response, responseFormat, "graphitlive_get_symbol_dependents");
 
@@ -1311,39 +1258,12 @@ server.registerTool(
   "graphitlive_trace_function_execution",
   {
     title: "Trace Function Execution Chain",
-    description: `CRITICAL: USE THIS TOOL WHEN the user wants to trace the full, deep call chain from a root symbol (function, method, or class). This is essential for understanding the execution flow through services, repositories, and utilities.
+    description: `Follows the call chain outward from one symbol, recursively, across files.
 
-WHEN TO USE:
-- User asks "What does this function call?"
-- User wants to trace an API call through the entire stack
-- User needs to understand the full execution path of a feature
-- User asks about the call hierarchy or call graph
-- Impact analysis for deep refactoring
-
-EXAMPLES:
-- "Trace the execution of handleUserLogin from the controller"
-- "What's the full call chain from processOrder in OrderService?"
-- "Map out everything that happens when fetchData() is called"
-
-WHY YOU NEED THIS:
-This tool provides a complete picture of what a function calls, recursively following the call chain until:
-1. It reaches external modules (node_modules)
-2. It hits the max depth limit
-3. It encounters a cycle (already visited symbol)
-
-Unlike graphitlive_get_symbol_graph which shows only direct dependencies, this tool follows the entire execution chain through multiple files.
-
-RETURNS:
-- Root symbol information (ID, file path, symbol name)
-- Complete call chain with depth, caller, and called symbols
-- Resolved file paths for each called symbol
-- List of all visited symbols (for detecting coverage)
-- Whether the max depth was reached (may need deeper trace)
-
-Use cases:
-- Trace \`handleRequest\` from controller → service → repository → database
-- Understand which utilities a feature depends on
-- Map out the blast radius of a function change`,
+WHEN: tracing a request through controller, service and repository, or mapping what a feature actually reaches.
+WHY: follows calls through multiple files instead of stopping at direct dependencies; stops at external modules, at maxDepth, or on a cycle.
+RETURNS: root symbol, call chain entries (depth, caller, callee, resolved path), visited symbols, and whether maxDepth was hit.
+For an open-ended question, start with graphitlive_graph_context and come here when you need this specific cut.`,
     inputSchema: TraceFunctionExecutionParamsSchema.extend({
       response_format: ResponseFormatSchema.describe(
         "Output format: 'json', 'markdown', or 'toon' (Token-Oriented Object Notation for reduced token usage) (default: toon - RECOMMENDED for 30-60% token savings)",
@@ -1359,7 +1279,7 @@ Use cases:
   },
   async ({ filePath, symbolName, maxDepth, response_format }) => {
     const workerCheck = await ensureWorkerReady();
-    const responseFormat = response_format ?? "json";
+    const responseFormat = response_format;
     if (workerCheck.error)
       return formatToolResponse(workerCheck.response, responseFormat, "graphitlive_trace_function_execution");
 
@@ -1381,33 +1301,12 @@ server.registerTool(
   "graphitlive_get_symbol_callers",
   {
     title: "Get Symbol Callers (Reverse Dependencies)",
-    description: `CRITICAL: USE THIS TOOL WHEN the user wants to find all callers of a specific symbol (function, method, class, or variable).
+    description: `Lists the symbols that call one given symbol, from the import-level reverse index.
 
-WHEN TO USE:
-- User asks "Who calls this function?"
-- User asks "Where is this method used?"
-- User wants to understand symbol usage across the codebase
-- User needs reverse symbol-level dependencies
-- Pre-refactoring analysis to understand blast radius
-
-EXAMPLES:
-- "Who calls the validateEmail function?"
-- "Show me all usages of UserRepository.findById"
-- "Find callers of the deprecated parseData method"
-
-WHY YOU NEED THIS:
-Unlike file-level reverse dependencies (graphitlive_find_referencing_files), this tool provides **symbol-level granularity**.
-It answers "Which specific functions call my function?" rather than "Which files import my file?".
-
-RETURNS:
-- List of callers with their file path, symbol name, line number
-- Usage type: 'runtime' (actual code execution) vs 'type-only' (interface/type usage)
-- Sorted by depth (direct callers first)
-
-Use cases:
-- Find all call sites before renaming a function
-- Identify dead code (symbols with no callers)
-- Understand symbol coupling across modules`,
+WHEN: finding call sites before a rename, or spotting a symbol with no callers.
+WHY: symbol-level rather than file-level, and separates runtime calls from type-only references.
+RETURNS: caller file path, symbol name, line, and usage type (runtime or type-only), nearest first.
+For an open-ended question, start with graphitlive_graph_context and come here when you need this specific cut.`,
     inputSchema: GetSymbolCallersParamsSchema.extend({
       response_format: ResponseFormatSchema.describe(
         "Output format: 'json', 'markdown', or 'toon' (Token-Oriented Object Notation for reduced token usage) (default: toon - RECOMMENDED for 30-60% token savings)",
@@ -1423,7 +1322,7 @@ Use cases:
   },
   async ({ filePath, symbolName, includeTypeOnly, response_format }) => {
     const workerCheck = await ensureWorkerReady();
-    const responseFormat = response_format ?? "json";
+    const responseFormat = response_format;
     if (workerCheck.error)
       return formatToolResponse(workerCheck.response, responseFormat, "graphitlive_get_symbol_callers");
 
@@ -1445,39 +1344,12 @@ server.registerTool(
   "graphitlive_analyze_breaking_changes",
   {
     title: "Analyze Breaking Changes in Signature",
-    description: `CRITICAL: USE THIS TOOL WHEN the user wants to detect breaking changes after modifying a function, method, or class signature.
+    description: `Compares two versions of a file and reports which signature changes break callers.
 
-WHEN TO USE:
-- User asks "Will this change break anything?"
-- User is about to modify function parameters
-- User changed return type and wants to validate
-- User renamed or removed parameters
-- Pre-PR validation for API changes
-
-EXAMPLES:
-- "I added a required parameter to login() - what breaks?"
-- "Compare old vs new signature of calculatePrice and show breaking changes"
-- "Validate my API changes before committing"
-
-WHY YOU NEED THIS:
-This tool compares the BEFORE and AFTER versions of a function/method signature and detects:
-- Added required parameters (BREAKING)
-- Removed parameters (BREAKING)
-- Changed parameter types (BREAKING)
-- Changed return type (BREAKING)
-- Added optional parameters (usually safe)
-- Parameter order changes
-
-RETURNS:
-- List of breaking changes with type and description
-- Severity level (high/medium/low)
-- Suggested migration steps
-- List of affected callers that need to be updated
-
-Use cases:
-- Validate refactoring before committing
-- Generate migration notes for API changes
-- Identify which call sites need updates`,
+WHEN: validating an edit before committing, or writing migration notes for an API change.
+WHY: diffs the parsed signatures rather than the text, so added optional parameters are separated from breaking ones.
+RETURNS: breaking changes with kind and description, severity, suggested migration steps, and the callers that need updating.
+DETECTS: added required parameter, removed parameter, changed parameter type, changed return type, parameter reordering.`,
     inputSchema: AnalyzeBreakingChangesParamsSchema.extend({
       response_format: ResponseFormatSchema.describe(
         "Output format: 'json', 'markdown', or 'toon' (Token-Oriented Object Notation for reduced token usage) (default: toon - RECOMMENDED for 30-60% token savings)",
@@ -1493,7 +1365,7 @@ Use cases:
   },
   async ({ filePath, symbolName, oldContent, newContent, response_format }) => {
     const workerCheck = await ensureWorkerReady();
-    const responseFormat = response_format ?? "json";
+    const responseFormat = response_format;
     if (workerCheck.error)
       return formatToolResponse(workerCheck.response, responseFormat, "graphitlive_analyze_breaking_changes");
 
@@ -1516,7 +1388,11 @@ server.registerTool(
   "graphitlive_review_pr",
   {
     title: "Review Pull Request Diff",
-    description: `WHEN reviewing a local Git diff before a pull request or CI gate. WHY signature changes and symbol impact require parsing both revisions and the workspace index. WHAT returns deterministic risk, per-symbol evidence, impact counts, and explicit partial-analysis limitations.`,
+    description: `Reviews a local Git diff and reports the risk it carries, with per-symbol evidence.
+
+WHEN: before opening a pull request, or as a CI gate.
+WHY: combines the parsed signatures of both revisions with the workspace index, so signature changes are scored against their real callers.
+RETURNS: deterministic risk level, per-symbol evidence, impact counts, and an explicit list of what could not be analysed.`,
     inputSchema: ReviewPrParamsSchema.extend({
       response_format: ResponseFormatSchema.describe("Output format: 'json', 'markdown', or 'toon'"),
     }),
@@ -1525,7 +1401,7 @@ server.registerTool(
   },
   async ({ baseRef, headRef, maxFiles, maxDepth, response_format }) => {
     const workerCheck = await ensureWorkerReady();
-    const responseFormat = response_format ?? "json";
+    const responseFormat = response_format;
     if (workerCheck.error) {
       return formatToolResponse(workerCheck.response, responseFormat, "graphitlive_review_pr");
     }
@@ -1539,44 +1415,12 @@ server.registerTool(
   "graphitlive_get_impact_analysis",
   {
     title: "Get Comprehensive Impact Analysis",
-    description: `CRITICAL: USE THIS TOOL WHEN the user needs a full impact assessment before modifying a symbol.
+    description: `Reports everything affected by changing one symbol, direct and transitive.
 
-WHEN TO USE:
-- User asks "What's the blast radius of this change?"
-- User wants to understand full impact of modifying a function/class
-- User needs to identify all affected code paths
-- Pre-refactoring risk assessment
-- Understanding module coupling
-
-EXAMPLES:
-- "Full impact analysis for modifying UserService.authenticate"
-- "What's the blast radius if I change the formatCurrency function?"
-- "Show me all code affected by refactoring the Database class"
-
-WHY YOU NEED THIS:
-This is the MOST COMPREHENSIVE impact analysis tool. It combines:
-1. Symbol-level reverse dependencies (who calls this symbol?)
-2. Transitive impact (who calls the callers? And so on...)
-3. Type vs runtime usage distinction
-4. File-level aggregation
-5. Human-readable risk assessment
-
-RETURNS:
-- Impact level: 'high', 'medium', or 'low'
-- Total impact count (direct + transitive)
-- Breakdown: runtime vs type-only impacts
-- List of impacted symbols with:
-  - Symbol ID and file path
-  - Depth (1 = direct, 2+ = transitive)
-  - Usage type (runtime/type-only)
-- Affected files list
-- Human-readable summary with recommendations
-
-Use cases:
-- Full risk assessment before major refactoring
-- Identify critical vs low-impact changes
-- Generate change impact reports
-- Prioritize which call sites to update first`,
+WHEN: assessing a refactor before starting it, or prioritising which call sites to update first.
+WHY: walks the symbol reverse index outward, keeping runtime and type-only impact separate and aggregating per file.
+RETURNS: impact level (high, medium, low), total impact count, runtime versus type-only breakdown, impacted symbols with depth (1 = direct), affected files, and a written summary.
+For an open-ended question, start with graphitlive_graph_context and come here when you need this specific cut.`,
     inputSchema: GetImpactAnalysisParamsSchema.extend({
       response_format: ResponseFormatSchema.describe(
         "Output format: 'json', 'markdown', or 'toon' (Token-Oriented Object Notation for reduced token usage) (default: toon - RECOMMENDED for 30-60% token savings)",
@@ -1598,7 +1442,7 @@ Use cases:
     response_format,
   }) => {
     const workerCheck = await ensureWorkerReady();
-    const responseFormat = response_format ?? "json";
+    const responseFormat = response_format;
     if (workerCheck.error)
       return formatToolResponse(workerCheck.response, responseFormat, "graphitlive_get_impact_analysis");
 
@@ -1621,56 +1465,13 @@ server.registerTool(
   "graphitlive_analyze_file_logic",
   {
     title: "Analyze File Logic & Call Hierarchy",
-    description: `CRITICAL: USE THIS TOOL WHEN analyzing symbol-level call hierarchies and code flow within a single file.
+    description: `Returns the call hierarchy between the symbols defined inside one file.
 
-WHEN TO USE:
-- User asks "How does this file work?" or "Explain the logic in this file"
-- User wants to understand function call relationships within a file
-- User needs to see which functions call which (intra-file analysis)
-- Identifying code flow and control structures
-- Understanding symbol-level dependencies before refactoring
-
-EXAMPLES:
-- "Show me the call hierarchy in src/utils/parser.ts"
-- "What functions does processData call?"
-- "Explain the code flow in this file"
-- "Which symbols are called by the main function?"
-
-WHY YOU NEED THIS:
-Without this tool, you cannot see the actual call relationships between functions/methods within a file. This tool uses LSP (Language Server Protocol) to get precise call hierarchy data from the TypeScript compiler (or Pylance/rust-analyzer for Python/Rust), giving you ground truth about:
-- Which functions/methods call which
-- Symbol types (function, class, variable)
-- Export status of each symbol
-- Circular/recursive call detection
-- Line numbers for navigation
-
-RETURNS:
-IntraFileGraph with:
-- nodes: All symbols (functions, classes, variables) with:
-  - Symbol ID format: "filePath:symbolName"
-  - Type: 'function' | 'class' | 'variable'
-  - isExported: Whether symbol is exported
-  - Line number range
-- edges: Call relationships with:
-  - source/target symbol IDs
-  - relation type: 'calls' (for function calls)
-  - Line number of the call
-- hasCycle: Boolean indicating recursive/circular calls
-- cycleNodes: Array of symbol IDs in cycles (if detected)
-
-Format options:
-- 'toon': Token-efficient format (30-60% savings) - RECOMMENDED
-- 'json': Full structured data
-- 'markdown': Human-readable narrative
-
-Supported languages: TypeScript, JavaScript, Python, Rust (requires LSP extension)
-
-Use cases:
-- Code comprehension for new codebases
-- Pre-refactoring impact analysis (intra-file scope)
-- Detecting recursive functions
-- Understanding call chains
-- AI-powered code explanation`,
+WHEN: understanding how a file works internally, or spotting recursion before a refactor.
+WHY: call hierarchy from the language server, so calls are resolved by the compiler rather than matched by name.
+RETURNS: nodes (symbol id, type, export status, line range), call edges with line numbers, and cycle detection with the symbols involved.
+SUPPORTS: TypeScript, JavaScript, Python, Rust (needs the language server extension).
+For an open-ended question, start with graphitlive_graph_context and come here when you need this specific cut.`,
     inputSchema: z.object({
       filePath: z.string().describe("Absolute path to the file to analyze"),
       includeExternal: z
@@ -1691,7 +1492,7 @@ Use cases:
   },
   async ({ filePath, includeExternal, response_format }) => {
     const workerCheck = await ensureWorkerReady();
-    const responseFormat = response_format ?? "toon";
+    const responseFormat = response_format;
     if (workerCheck.error)
       return formatToolResponse(workerCheck.response, responseFormat, "graphitlive_analyze_file_logic");
 
@@ -1709,35 +1510,12 @@ server.registerTool(
   "graphitlive_generate_codemap",
   {
     title: "Generate File Codemap",
-    description: `CRITICAL: USE THIS TOOL WHEN you need a comprehensive overview of a single source file — its exports, internals, dependencies, dependents, and intra-file call flow.
+    description: `Returns one file's exports, internals, dependencies, dependents and internal call flow in a single call.
 
-WHEN TO USE:
-- User asks "Give me an overview of this file" or "What does this file do?"
-- Before refactoring: understand the full context of a file (what it exports, who depends on it, internal call flow)
-- Onboarding to a new codebase: get a structured summary of any file
-- Documentation generation: extract a per-file codemap for architecture docs
-- Understanding coupling: see both who this file imports and who imports it
-
-EXAMPLES:
-- "Generate a codemap for src/analyzer/Spider.ts"
-- "What are the exports and dependencies of this file?"
-- "Give me a full structural overview of this module"
-- "Who depends on this file and what does it export?"
-
-WHY YOU NEED THIS:
-This is the SINGLE tool that gathers ALL available information about a file in one call. Without it you would need to call 4-5 separate tools (analyze_dependencies + get_symbol_graph + find_referencing_files + analyze_file_logic). This tool orchestrates them for you and returns a unified, compact result.
-
-RETURNS:
-- filePath, relativePath, language, lineCount
-- exports: all exported symbols (name, kind, line)
-- internals: all non-exported symbols
-- dependencies: files this file imports (module, resolvedPath, importType, line)
-- dependents: files that import this file (reverse dependencies)
-- callFlow: intra-file caller→callee edges
-- hasCycle, cycleSymbols: circular call detection
-- analysisTimeMs
-
-Supported languages: TypeScript, JavaScript, Python, Rust, Vue, Svelte`,
+WHEN: getting oriented in an unfamiliar file, or gathering the full context of a file before refactoring it.
+WHY: one call in place of analyze_dependencies, get_symbol_graph, find_referencing_files and analyze_file_logic together.
+RETURNS: path, language, line count, exported and internal symbols, dependencies, dependents, intra-file call flow, cycle detection.
+SUPPORTS: TypeScript, JavaScript, Python, Rust, Vue, Svelte.`,
     inputSchema: z.object({
       filePath: z.string().describe("Absolute path to the file to generate a codemap for"),
       response_format: ResponseFormatSchema.describe(
@@ -1754,7 +1532,7 @@ Supported languages: TypeScript, JavaScript, Python, Rust, Vue, Svelte`,
   },
   async ({ filePath, response_format }) => {
     const workerCheck = await ensureWorkerReady();
-    const responseFormat = response_format ?? "toon";
+    const responseFormat = response_format;
     if (workerCheck.error)
       return formatToolResponse(workerCheck.response, responseFormat, "graphitlive_generate_codemap");
 
@@ -1771,35 +1549,13 @@ server.registerTool(
   "graphitlive_query_call_graph",
   {
     title: "Query Cross-File Call Graph",
-    description: `CRITICAL: USE THIS TOOL WHEN the user wants to trace function calls across multiple files — "who calls X?" or "what does X call?" at the call-graph level.
+    description: `Traces function calls across files from a SQLite-backed call graph.
 
-WHEN TO USE:
-- User asks "Who calls this function from other files?"
-- User asks "What functions does this method call?"
-- User needs cross-file call chain analysis (not just imports)
-- User wants to trace execution flow across the entire codebase
-- Pre-refactoring impact analysis at function-call level
-- Detecting circular call chains across modules
-
-EXAMPLES:
-- "Trace all callers of handleRequest across the codebase"
-- "What functions does processOrder call, recursively?"
-- "Show me the full call chain for authenticate — 3 levels deep"
-- "Find circular call dependencies involving parseConfig"
-
-WHY YOU NEED THIS:
-Unlike graphitlive_get_symbol_callers (which uses import-level reverse dependencies), this tool uses a **SQLite-backed call graph** built from tree-sitter AST analysis.
-It provides actual function-call relationships (CALLS, INHERITS, IMPLEMENTS, USES), not just import statements.
-This answers "which specific function calls my function at runtime?" with cross-file resolution.
-
-First invocation indexes the entire workspace (3-8s). Subsequent queries are instant.
-
-RETURNS:
-- symbol: The matched symbol (name, type, file, line)
-- callers: Functions that call this symbol (with file, line, relation type)
-- callees: Functions called by this symbol (with file, line, relation type)
-- Cycle detection (isCyclic flag on edges)
-- indexedFiles: Number of files in the call graph index`,
+WHEN: "who calls this from another file", "what does this call", or tracing an execution path across modules.
+WHY: built from tree-sitter AST analysis, so it holds real call edges (CALLS, INHERITS, IMPLEMENTS, USES) rather than import edges.
+RETURNS: the matched symbol, its callers and callees with file and line, relation type, and a cyclic flag per edge.
+LIMITS: the first call indexes the workspace (3-8s); later queries are fast.
+For an open-ended question, start with graphitlive_graph_context and come here when you need this specific cut.`,
     inputSchema: QueryCallGraphParamsSchema.extend({
       response_format: ResponseFormatSchema.describe(
         "Output format: 'json', 'markdown', or 'toon' (default: toon - RECOMMENDED for 30-60% token savings)",
@@ -1815,7 +1571,7 @@ RETURNS:
   },
   async ({ filePath, symbolName, direction, depth, relationTypes, response_format }) => {
     const workerCheck = await ensureWorkerReady();
-    const responseFormat = response_format ?? "toon";
+    const responseFormat = response_format;
     if (workerCheck.error)
       return formatToolResponse(workerCheck.response, responseFormat, "graphitlive_query_call_graph");
 
@@ -1833,32 +1589,12 @@ server.registerTool(
   "graphitlive_scan_dead_code",
   {
     title: "Scan Workspace for Dead Code",
-    description: `CRITICAL: USE THIS TOOL WHEN the user wants to find unused exported symbols across a workspace or directory.
+    description: `Lists the unused exported symbols across a whole workspace or directory.
 
-WHEN TO USE:
-- User asks "Find dead code in this project"
-- User asks "What symbols are exported but never used?"
-- User wants to clean up unused exports before a refactor
-- User wants to identify code that can be safely deleted
-- User is performing a code quality audit
-
-EXAMPLES:
-- "Scan the whole project for dead code"
-- "Find unused exports in src/utils"
-- "Which functions are never called anywhere?"
-
-WHY YOU NEED THIS:
-This tool combines the reverse dependency index with per-file symbol analysis to efficiently find exported symbols that are not referenced elsewhere in the codebase.
-Without the index this would require O(n²) file scanning — this tool requires background indexing to be complete first.
-
-RETURNS:
-- rootDir: Workspace root
-- scopePath: Directory that was scanned
-- scannedFiles: Total files analysed
-- filesWithDeadCode: Number of files containing unused exports
-- totalUnusedSymbols: Sum of all unused exported symbols found
-- entries[]: Per-file list with filePath, relativePath, unusedCount, unusedSymbols[]
-- analysisTimeMs: Wall-clock time for the scan`,
+WHEN: auditing code quality, or cleaning up before a refactor; use find_unused_symbols for a single file.
+WHY: combines the reverse index with per-file symbol analysis, so the scan stays linear instead of comparing every file against every other.
+RETURNS: files scanned, files holding dead code, total unused symbols, per-file unused symbol lists, scan duration.
+LIMITS: needs background indexing to have finished; an export reached only through a dynamic lookup can still be listed.`,
     inputSchema: ScanDeadCodeParamsSchema.extend({
       response_format: ResponseFormatSchema.describe(
         "Output format: 'json', 'markdown', or 'toon' (default: toon)",
@@ -1874,7 +1610,7 @@ RETURNS:
   },
   async ({ scopePath, maxFiles, response_format }) => {
     const workerCheck = await ensureWorkerReady();
-    const responseFormat = response_format ?? "toon";
+    const responseFormat = response_format;
     if (workerCheck.error)
       return formatToolResponse(workerCheck.response, responseFormat, "graphitlive_scan_dead_code");
 
@@ -1892,9 +1628,12 @@ server.registerTool(
   "graphitlive_graph_context",
   {
     title: "Retrieve Unified Graph Context",
-    description: `Retrieve a deterministic, token-bounded subgraph for codebase search, neighbors, paths, impact, refactoring, or overview questions.
+    description: `Returns a token-bounded subgraph answering a question about the codebase - the default entry point for graph questions.
 
-Use this tool when a question spans file dependencies, symbol calls, implementation relationships, tests, or impact evidence. Paths and evidence in the public response are workspace-relative. The text response defaults to compact TOON, while structuredContent always preserves the complete structured JSON response.`,
+WHEN: any question spanning file dependencies, symbol calls, implementations, tests or impact; reach for a specialised tool only when this cannot express the cut you need.
+WHY: one deterministic gateway over the same index the specialised tools use, with an explicit token budget so large graphs come back bounded instead of truncated arbitrarily.
+MODES: search, neighbors, path, impact, refactor, overview.
+RETURNS: nodes and edges with workspace-relative paths, an index revision and a freshness flag, and a cursor when results are paginated.`,
     inputSchema: GraphContextParamsSchema,
     outputSchema: McpToolResponseSchema,
     annotations: {
@@ -1905,7 +1644,7 @@ Use this tool when a question spans file dependencies, symbol calls, implementat
     },
   },
   async ({ response_format, ...params }) => {
-    const responseFormat = response_format ?? params.format ?? "toon";
+    const responseFormat = response_format ?? "toon";
     const workerCheck = await ensureWorkerReady();
     if (workerCheck.error) {
       return formatToolResponse(
@@ -1928,34 +1667,12 @@ server.registerTool(
   "graphitlive_query_natural_language",
   {
     title: "Query Codebase with Natural Language",
-    description: `Query the codebase graph with a natural language question. Returns a TOON-format subgraph (token-optimized) representing the relevant nodes and edges. The LLM caller should synthesize the subgraph into a human-readable answer.
+    description: `Returns the subgraph relevant to a plain-language question, for you to turn into an answer.
 
-WHEN TO USE:
-- User asks an open-ended question about the codebase ("How does authentication work?")
-- User wants to explore relationships around a concept without knowing exact file/symbol names
-- User asks "What calls X?" or "Where is Y defined?" when they only know the concept, not the path
-- Codebase exploration before targeted analysis (precedes more specific tools)
-
-EXAMPLES:
-- "How does the MCP server handle tool invocations?"
-- "What are the entry points for call graph indexing?"
-- "Where is workspace configuration stored?"
-- "How does the TOON format get generated?"
-
-WHY YOU NEED THIS:
-This tool performs keyword extraction from the question, scores seed nodes in the call graph index using FTS5 full-text search, then runs BFS traversal to return a relevant subgraph.
-Unlike graphitlive_query_call_graph (which requires exact file+symbol), this tool works from natural language alone.
-The returned subgraph lets the calling LLM synthesize a precise answer grounded in the actual code graph.
-
-IMPORTANT: This tool returns the subgraph data only. YOU (the calling LLM) must synthesize the answer from that data.
-
-First invocation indexes the entire workspace (3-8s). Subsequent queries are instant.
-
-RETURNS:
-- question: The original question
-- extractedKeywords: Keywords used to seed the graph search
-- toon/nodes+edges: The relevant subgraph in requested format
-- meta: Performance metadata (timing, token estimate, truncation flag)`,
+WHEN: exploring a codebase from a concept rather than a known file or symbol name.
+WHY: extracts keywords, scores seed nodes with full-text search over the call graph index, then traverses outward from them.
+RETURNS: the question, the extracted keywords, the subgraph, and timing and truncation metadata.
+LIMITS: returns graph data, not prose - you write the answer from it. The first call indexes the workspace (3-8s).`,
     inputSchema: QueryNaturalLanguageParamsSchema.extend({
       response_format: ResponseFormatSchema.describe(
         "Output format: 'json', 'markdown', or 'toon' (default: toon - RECOMMENDED for 30-60% token savings)",
@@ -1971,7 +1688,7 @@ RETURNS:
   },
   async ({ question, depth, tokenBudget, fileFilter, outputFormat, response_format }) => {
     const workerCheck = await ensureWorkerReady();
-    const responseFormat = response_format ?? "toon";
+    const responseFormat = response_format;
     if (workerCheck.error)
       return formatToolResponse(workerCheck.response, responseFormat, "graphitlive_query_natural_language");
 
@@ -1989,20 +1706,12 @@ server.registerTool(
   "graphitlive_generate_wiki",
   {
     title: "Generate Markdown Wiki from Call Graph",
-    description: `Generate a navigable markdown wiki from the call graph index. Creates one article per source file with hub scores, symbol lists, caller/callee cross-links, and a grouped index.
+    description: `Writes a navigable markdown wiki of the workspace from the call graph index.
 
-WHEN TO USE:
-- User wants to produce documentation from the codebase
-- User wants a navigable overview of the project files and their relationships
-- Useful after indexing to create a persistent, browsable artifact
-
-RETURNS:
-- articlesCount: Number of markdown files written
-- indexPath: Relative path to the generated index.md (relative to workspaceRoot)
-- articlesDir: Relative path to the articles directory (relative to workspaceRoot)
-- topHubs: Top files by hub score (most depended-upon)
-
-First invocation indexes the entire workspace (3-8s). Subsequent calls are fast.`,
+WHEN: producing browsable documentation, or a persistent overview of files and their relationships.
+WHY: one article per source file, cross-linked through real caller and callee edges.
+RETURNS: number of articles written, index path, articles directory, and the top files by hub score.
+LIMITS: writes files to disk. The first call indexes the workspace (3-8s).`,
     inputSchema: GenerateWikiSchema.extend({
       response_format: ResponseFormatSchema.describe(
         "Output format: 'json', 'markdown', or 'toon' (default: json). scope and exclude filtering is applied before generation — limitations are documented in the generated wiki itself.",
@@ -2018,7 +1727,7 @@ First invocation indexes the entire workspace (3-8s). Subsequent calls are fast.
   },
   async ({ workspaceRoot, outputDir, topHubsLimit, scope, exclude, response_format }) => {
     const workerCheck = await ensureWorkerReady();
-    const responseFormat = response_format ?? "json";
+    const responseFormat = response_format;
     if (workerCheck.error)
       return formatToolResponse(workerCheck.response, responseFormat, "graphitlive_generate_wiki");
 
@@ -2038,19 +1747,12 @@ server.registerTool(
   "graphitlive_get_session_stats",
   {
     title: "Get Session Token Stats",
-    description: `Report session statistics: TOON encoding size vs JSON equivalent (estimated, chars/4 heuristic) per tool and in total, plus real LLM token usage as a separate section.
+    description: `Reports how large this session's TOON responses were against their JSON equivalent, plus real token usage.
 
-WHEN TO USE:
-- User asks how many tokens the TOON responses represent compared to their JSON equivalent
-- User wants a summary of tool usage in the current session or across persisted sessions
-
-RETURNS:
-- description: "TOON encoding size vs JSON equivalent"
-- estimationNote: "estimated (chars/4 heuristic)" — encoding numbers are estimates, not measured billing tokens
-- currentSession: per-tool and total aggregates for this session; llmUsage is a separate section (real provider-reported tokens, never summed into the estimated totals)
-- history: persisted sessions aggregated by source (mcp/cli)
-
-IMPORTANT: These numbers compare two encodings of the same data. They are NOT a savings claim attributable to the tool.`,
+WHEN: asked how much the TOON encoding is saving, or for a summary of tool usage.
+WHY: encoding sizes are estimated (characters / 4); provider-reported LLM usage is reported separately and never mixed into that estimate.
+RETURNS: per-tool and total encoding sizes for this session, llmUsage as its own section, and per-source history.
+LIMITS: compares two encodings of the same data - not a saving attributable to the tools themselves.`,
     inputSchema: GetSessionStatsSchema,
     outputSchema: McpToolResponseSchema,
     annotations: {

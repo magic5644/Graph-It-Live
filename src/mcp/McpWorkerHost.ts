@@ -42,6 +42,23 @@ export interface WarmupResult {
 
 export type WarmupProgressCallback = (processed: number, total: number, currentFile?: string) => void;
 
+/**
+ * Freshness of the index backing tool results.
+ *
+ * `stale` is true once the file watcher has reported a change after the last
+ * full index pass. The watcher invalidates the affected file immediately, so a
+ * stale index is still usable - the flag tells the caller that results may not
+ * reflect every edit yet.
+ */
+export interface IndexFreshness {
+  /** ISO timestamp of the last completed full index pass, or null before warmup */
+  indexedAt: string | null;
+  /** ISO timestamp of the last file invalidation, or null if none since indexing */
+  lastInvalidatedAt: string | null;
+  /** True when a file changed after the last full index pass */
+  stale: boolean;
+}
+
 interface PendingRequest {
   resolve: (data: unknown) => void;
   reject: (error: Error) => void;
@@ -66,6 +83,8 @@ export class McpWorkerHost {
   private readonly pendingRequests = new Map<string, PendingRequest>();
   private requestCounter = 0;
   private warmupProgressCallback: WarmupProgressCallback | null = null;
+  private indexedAt: string | null = null;
+  private lastInvalidatedAt: string | null = null;
 
   constructor(options: McpWorkerHostOptions) {
     this.workerPath = options.workerPath;
@@ -152,6 +171,8 @@ export class McpWorkerHost {
         this.isReady = true;
         this.isStarting = false;
         this.warmupProgressCallback = null;
+        this.indexedAt = new Date().toISOString();
+        this.lastInvalidatedAt = null;
         startResolve?.({
           durationMs: msg.warmupDuration,
           filesIndexed: msg.indexedFiles,
@@ -174,8 +195,10 @@ export class McpWorkerHost {
         break;
         
       case 'file-invalidated':
-        // File change detected by the worker's file watcher
-        // Log for debugging, no action needed - cache is already invalidated
+        // File change detected by the worker's file watcher. The worker has
+        // already invalidated its cache; record it so tool responses can report
+        // that the index no longer matches the last full pass.
+        this.lastInvalidatedAt = new Date().toISOString();
         log.debug('Cache invalidated:', msg.event, msg.filePath);
         break;
     }
@@ -221,6 +244,20 @@ export class McpWorkerHost {
    */
   ready(): boolean {
     return this.isReady;
+  }
+
+  /**
+   * Freshness of the index backing tool results.
+   *
+   * Reported on every tool response so a caller can tell a genuinely empty
+   * result from one produced against an index that has not caught up yet.
+   */
+  freshness(): IndexFreshness {
+    return {
+      indexedAt: this.indexedAt,
+      lastInvalidatedAt: this.lastInvalidatedAt,
+      stale: this.lastInvalidatedAt !== null,
+    };
   }
 
   /**

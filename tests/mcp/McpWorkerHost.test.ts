@@ -529,4 +529,80 @@ describe('McpWorkerHost', () => {
       }).not.toThrow();
     });
   });
+  describe('freshness()', () => {
+    async function startReadyHost(): Promise<void> {
+      host = new McpWorkerHost(defaultOptions);
+      const startPromise = host.start({
+        rootDir: '/workspace',
+        tsConfigPath: '/workspace/tsconfig.json',
+        excludeNodeModules: true,
+        maxDepth: 50,
+      });
+      await Promise.resolve();
+      const readyResponse: McpWorkerResponse = {
+        type: 'ready',
+        warmupDuration: 100,
+        indexedFiles: 50,
+      };
+      getMockWorker().emit('message', readyResponse);
+      await startPromise;
+    }
+
+    it('reports no index and no staleness before warmup', () => {
+      host = new McpWorkerHost(defaultOptions);
+
+      expect(host.freshness()).toEqual({
+        indexedAt: null,
+        lastInvalidatedAt: null,
+        stale: false,
+      });
+    });
+
+    it('stamps indexedAt and stays fresh once warmup completes', async () => {
+      await startReadyHost();
+
+      const freshness = host.freshness();
+      expect(freshness.indexedAt).not.toBeNull();
+      expect(() => new Date(freshness.indexedAt as string).toISOString()).not.toThrow();
+      expect(freshness.lastInvalidatedAt).toBeNull();
+      expect(freshness.stale).toBe(false);
+    });
+
+    it('becomes stale once the watcher reports a change', async () => {
+      await startReadyHost();
+
+      const invalidation: McpWorkerResponse = {
+        type: 'file-invalidated',
+        filePath: '/workspace/src/changed.ts',
+        event: 'change',
+      };
+      getMockWorker().emit('message', invalidation);
+
+      const freshness = host.freshness();
+      expect(freshness.stale).toBe(true);
+      expect(freshness.lastInvalidatedAt).not.toBeNull();
+      expect(freshness.indexedAt).not.toBeNull();
+    });
+
+    it('clears staleness after a new full index pass', async () => {
+      await startReadyHost();
+      getMockWorker().emit('message', {
+        type: 'file-invalidated',
+        filePath: '/workspace/src/changed.ts',
+        event: 'change',
+      } satisfies McpWorkerResponse);
+      expect(host.freshness().stale).toBe(true);
+
+      getMockWorker().emit('message', {
+        type: 'ready',
+        warmupDuration: 120,
+        indexedFiles: 51,
+      } satisfies McpWorkerResponse);
+
+      expect(host.freshness()).toMatchObject({
+        lastInvalidatedAt: null,
+        stale: false,
+      });
+    });
+  });
 });

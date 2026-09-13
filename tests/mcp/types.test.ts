@@ -728,6 +728,46 @@ describe('AnalyzeFileLogicParamsSchema', () => {
   });
 });
 
+describe('createSuccessResponse freshness metadata', () => {
+  it('omits freshness fields when no index state is supplied', () => {
+    const response = createSuccessResponse({ ok: true }, 5, '/workspace');
+
+    expect('indexedAt' in response.metadata).toBe(false);
+    expect('stale' in response.metadata).toBe(false);
+  });
+
+  it('reports a fresh index', () => {
+    const indexedAt = '2026-09-13T10:00:00.000Z';
+    const response = createSuccessResponse({ ok: true }, 5, '/workspace', undefined, {
+      indexedAt,
+      stale: false,
+    });
+
+    expect(response.metadata.indexedAt).toBe(indexedAt);
+    expect(response.metadata.stale).toBe(false);
+  });
+
+  it('reports a stale index without hiding the result', () => {
+    const response = createSuccessResponse({ ok: true }, 5, '/workspace', undefined, {
+      indexedAt: '2026-09-13T10:00:00.000Z',
+      stale: true,
+    });
+
+    expect(response.success).toBe(true);
+    expect(response.metadata.stale).toBe(true);
+  });
+
+  it('reports a missing index as null rather than dropping the field', () => {
+    const response = createSuccessResponse({ ok: true }, 5, '/workspace', undefined, {
+      indexedAt: null,
+      stale: false,
+    });
+
+    expect(response.metadata.indexedAt).toBeNull();
+    expect('indexedAt' in response.metadata).toBe(true);
+  });
+});
+
 describe('GenerateCodemapParamsSchema', () => {
   it('validates minimal parameters', () => {
     const result = GenerateCodemapParamsSchema.safeParse({
@@ -737,11 +777,10 @@ describe('GenerateCodemapParamsSchema', () => {
     expect(result.success).toBe(true);
     if (result.success) {
       expect(result.data.filePath).toBe('/project/src/service.ts');
-      expect(result.data.format).toBe('json'); // default
     }
   });
 
-  it('validates with format option', () => {
+  it('no longer carries a legacy format field', () => {
     const result = GenerateCodemapParamsSchema.safeParse({
       filePath: '/project/src/service.ts',
       format: 'toon',
@@ -749,7 +788,7 @@ describe('GenerateCodemapParamsSchema', () => {
 
     expect(result.success).toBe(true);
     if (result.success) {
-      expect(result.data.format).toBe('toon');
+      expect('format' in result.data).toBe(false);
     }
   });
 
@@ -758,13 +797,6 @@ describe('GenerateCodemapParamsSchema', () => {
     expect(result.success).toBe(false);
   });
 
-  it('rejects invalid format', () => {
-    const result = GenerateCodemapParamsSchema.safeParse({
-      filePath: '/project/src/service.ts',
-      format: 'xml',
-    });
-    expect(result.success).toBe(false);
-  });
 
   it('rejects null bytes in path', () => {
     const result = GenerateCodemapParamsSchema.safeParse({

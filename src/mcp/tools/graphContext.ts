@@ -134,7 +134,6 @@ function normalizeRequest(
     tokenBudget: params.tokenBudget,
     directed: params.directed,
     cursor: params.cursor,
-    format: params.format,
     detail: params.detail,
   };
 
