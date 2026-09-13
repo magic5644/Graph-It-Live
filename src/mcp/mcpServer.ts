@@ -562,9 +562,10 @@ server.registerTool(
   "graphitlive_set_workspace",
   {
     title: "Set Workspace Directory",
-    description: `Sets the project root for this server session and builds its dependency index.
+    description: `Points this server session at the project root the other tools analyse.
 
-WHEN: only when no workspace is configured yet, or to switch to a different project. It is server setup, not analysis: it answers no question about code, so never pick it for a question about architecture, callers, dependencies, dead code or documentation - those tools fail with a clear error if the workspace is missing, and the fix is to call this once, then retry them.
+WHEN: once per session, as setup before the first analysis. The root resolved at startup comes from WORKSPACE_ROOT or the working directory the client happened to spawn the server in, so it is often absent or points at the wrong project. Call this again during a session only to switch projects, or to reach a path outside the current root (paths outside it are rejected).
+NOT THIS TOOL: it is setup, and answers no question about code. It is never the reply to a question about architecture, callers, dependencies, dead code or documentation - once the root is set, call the tool that answers the question. One call holds for the whole session; repeating it re-indexes for nothing.
 RETURNS: resolved workspace path, number of files indexed, indexing duration.`,
     inputSchema: SetWorkspaceParamsSchema.extend({
       response_format: ResponseFormatSchema.describe(
