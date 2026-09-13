@@ -149,6 +149,32 @@ function percent(part: number, total: number): string {
   return `${((part / total) * 100).toFixed(1)}%`;
 }
 
+/**
+ * With REPEAT > 1 the same case is asked N times against the same catalogue.
+ * Any case whose answer varies is measuring the model's instability, not the
+ * catalogue: it sets the floor below which a score difference means nothing.
+ */
+function reportStability(scores: VariantScore[]): void {
+  for (const score of scores) {
+    const byCase = new Map<string, string[]>();
+    for (const outcome of score.outcomes) {
+      const picks = byCase.get(outcome.id) ?? [];
+      picks.push(outcome.picked ?? 'none');
+      byCase.set(outcome.id, picks);
+    }
+
+    const unstable = [...byCase.entries()].filter(([, picks]) => new Set(picks).size > 1);
+    const caseCount = byCase.size;
+    console.log(
+      `\n${score.label}: ${unstable.length}/${caseCount} cases gave different answers across ${REPEAT} runs`,
+    );
+    for (const [id, picks] of unstable) {
+      console.log(`  ${id}: ${picks.map((p) => p.replace('graphitlive_', '')).join(' | ')}`);
+    }
+    if (unstable.length === 0) console.log('  (every case answered identically)');
+  }
+}
+
 function report(scores: VariantScore[]): void {
   console.log('\nTool-selection eval');
   console.log(`cases: ${DATASET.cases.length}  repeat: ${REPEAT}\n`);
@@ -161,6 +187,8 @@ function report(scores: VariantScore[]): void {
         `${lenient}/${score.total} (${percent(lenient, score.total)})`,
     );
   }
+
+  if (REPEAT > 1) reportStability(scores);
 
   if (scores.length !== 2) return;
   const [before, after] = scores;
