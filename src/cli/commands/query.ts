@@ -17,6 +17,7 @@ import type { QueryNaturalLanguageParams } from "../../mcp/tools/query.js";
 import { normalizePath } from "../../shared/path.js";
 import { CliError, ExitCode } from "../errors.js";
 import type { CliOutputFormat } from "../formatter.js";
+import { relativizeWorkspacePaths } from "../formatter.js";
 import type { CliRuntime } from "../runtime.js";
 
 // ---------------------------------------------------------------------------
@@ -109,7 +110,9 @@ function formatTextOutput(
     lines.push("Matching nodes:");
     for (const node of result.nodes) {
       const rel = normalizePath(path.relative(workspaceRoot, node.path));
-      lines.push(`  - ${node.name} (${rel})`);
+      // Emit file:line so the next step is a targeted read rather than a grep.
+      const location = node.startLine === undefined ? rel : `${rel}:${node.startLine}`;
+      lines.push(`  - ${node.name} (${location})`);
     }
   } else if (result.toon) {
     lines.push(result.toon);
@@ -169,12 +172,18 @@ export async function run(
   const result = await executeQueryNaturalLanguage(params, llmClient);
 
   switch (queryFormat) {
-    case "json":
-      return JSON.stringify(result, null, 2);
     case "text":
       return formatTextOutput(result, normalizedRoot);
+    case "json":
+      // Every query format is LLM-facing, so drop the repeated workspace root
+      // here too — unlike the other commands, whose --format json is a stable
+      // contract for scripts and keeps absolute paths.
+      return relativizeWorkspacePaths(JSON.stringify(result, null, 2), normalizedRoot);
     case "toon":
     default:
-      return result.toon ?? JSON.stringify(result, null, 2);
+      return relativizeWorkspacePaths(
+        result.toon ?? JSON.stringify(result, null, 2),
+        normalizedRoot,
+      );
   }
 }

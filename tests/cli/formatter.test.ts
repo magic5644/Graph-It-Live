@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   CLI_OUTPUT_FORMATS,
   formatOutput,
+  relativizeWorkspacePaths,
   validateFormatForCommand,
 } from "../../src/cli/formatter";
 import { sessionStats } from "../../src/shared/sessionStats";
@@ -371,5 +372,47 @@ describe("formatOutput - mermaid", () => {
     expect(out).toContain('graph LR');
     expect(out).not.toContain('output truncated');
     expect(out.split('\n').length).toBeLessThanOrEqual(700);
+  });
+});
+
+describe("relativizeWorkspacePaths", () => {
+  it("strips the workspace root from every occurrence", () => {
+    const output = [
+      "[/repo/src/a.ts:A:3,A,class,/repo/src/a.ts,3,0]",
+      "[/repo/src/b.ts:B:9,B,class,/repo/src/b.ts,9,0]",
+    ].join("\n");
+
+    expect(relativizeWorkspacePaths(output, "/repo")).toBe(
+      ["[src/a.ts:A:3,A,class,src/a.ts,3,0]", "[src/b.ts:B:9,B,class,src/b.ts,9,0]"].join("\n"),
+    );
+  });
+
+  it("tolerates a trailing slash on the workspace root", () => {
+    expect(relativizeWorkspacePaths("/repo/src/a.ts", "/repo/")).toBe("src/a.ts");
+  });
+
+  it("strips a Windows root in its normalized form", () => {
+    // normalizePath lowercases the drive letter and uses forward slashes, which
+    // is the form every indexed path is stored in.
+    const output = "c:/work/repo/src/a.ts and c:/work/repo/src/b.ts";
+
+    expect(relativizeWorkspacePaths(output, "C:\\work\\repo")).toBe(
+      "src/a.ts and src/b.ts",
+    );
+  });
+
+  it("leaves output without the workspace root untouched", () => {
+    expect(relativizeWorkspacePaths("nothing to strip", "/repo")).toBe("nothing to strip");
+  });
+
+  it("returns the output unchanged for an empty workspace root", () => {
+    expect(relativizeWorkspacePaths("/repo/src/a.ts", "")).toBe("/repo/src/a.ts");
+  });
+
+  it("does not strip a path that merely shares a prefix with the root", () => {
+    // "/repo-backup" must survive when the root is "/repo".
+    expect(relativizeWorkspacePaths("/repo-backup/src/a.ts", "/repo")).toBe(
+      "/repo-backup/src/a.ts",
+    );
   });
 });
