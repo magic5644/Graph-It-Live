@@ -232,6 +232,72 @@ describe('query command', () => {
   });
 
   // -------------------------------------------------------------------------
+  // Workspace-relative output
+  // -------------------------------------------------------------------------
+
+  it('lists nodes as file:line so the next read is targeted', async () => {
+    mocks.executeQueryNaturalLanguage.mockResolvedValueOnce(
+      makeJsonResult({
+        nodes: [
+          {
+            id: 'n1',
+            name: 'CallGraphIndexer',
+            type: 'class',
+            path: '/workspace/src/analyzer/CallGraphIndexer.ts',
+            startLine: 42,
+            relevanceScore: 0.9,
+          },
+        ],
+      }),
+    );
+
+    const output = await run(['how does the indexer work', '--format', 'text'], makeRuntime(), 'text');
+
+    expect(output).toContain('CallGraphIndexer (src/analyzer/CallGraphIndexer.ts:42)');
+  });
+
+  it('omits the line suffix when the node has no known start line', async () => {
+    mocks.executeQueryNaturalLanguage.mockResolvedValueOnce(
+      makeJsonResult({
+        nodes: [
+          {
+            id: 'n1',
+            name: 'CallGraphIndexer',
+            type: 'class',
+            path: '/workspace/src/analyzer/CallGraphIndexer.ts',
+            relevanceScore: 0.9,
+          },
+        ],
+      }),
+    );
+
+    const output = await run(['how does the indexer work', '--format', 'text'], makeRuntime(), 'text');
+
+    expect(output).toContain('CallGraphIndexer (src/analyzer/CallGraphIndexer.ts)');
+  });
+
+  it('strips the workspace root from TOON output', async () => {
+    mocks.executeQueryNaturalLanguage.mockResolvedValueOnce(
+      makeToonResult({
+        toon: '[/workspace/src/a.ts:A:3,A,class,/workspace/src/a.ts,3,0]',
+      }),
+    );
+
+    const output = await run(['how does the indexer work', '--format', 'toon'], makeRuntime(), 'text');
+
+    expect(output).toBe('[src/a.ts:A:3,A,class,src/a.ts,3,0]');
+  });
+
+  it('strips the workspace root from JSON output', async () => {
+    mocks.executeQueryNaturalLanguage.mockResolvedValueOnce(makeJsonResult());
+
+    const output = await run(['how does the indexer work', '--format', 'json'], makeRuntime(), 'text');
+
+    expect(output).not.toContain('/workspace/');
+    expect(JSON.parse(output).nodes[0].path).toBe('src/analyzer/CallGraphIndexer.ts');
+  });
+
+  // -------------------------------------------------------------------------
   // 5. No LLM → hint message written to stderr
   // -------------------------------------------------------------------------
   it('writes hint to stderr when no LLM is configured', async () => {
