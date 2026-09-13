@@ -17,6 +17,9 @@
  */
 
 import { execFile } from 'node:child_process';
+import * as fs from 'node:fs';
+import * as os from 'node:os';
+import * as path from 'node:path';
 import { promisify } from 'node:util';
 import type { LlmClient, LlmCompletionOptions, LlmCompletionResult, LlmMessage } from './LlmClient';
 
@@ -26,6 +29,23 @@ const DEFAULT_BINARY = 'copilot';
 /** Copilot CLI carries a large system prompt; keyword extraction still takes seconds. */
 const DEFAULT_TIMEOUT_MS = 60_000;
 const MAX_OUTPUT_BYTES = 1024 * 1024;
+
+/**
+ * The CLI injects the working directory's repository context — AGENTS.md,
+ * CLAUDE.md, .github/copilot-instructions.md, repo skills and agents — into its
+ * system prompt. Measured on this repo that is ~4k extra input tokens per call,
+ * and keyword extraction needs none of it, so every invocation runs from an
+ * empty scratch directory instead of the caller's cwd.
+ */
+let _neutralCwd: string | undefined;
+
+function neutralCwd(): string {
+  if (_neutralCwd === undefined) {
+    // Not under a git root, so no repository instructions are discovered.
+    _neutralCwd = fs.mkdtempSync(path.join(os.tmpdir(), 'graph-it-copilot-'));
+  }
+  return _neutralCwd;
+}
 
 /**
  * Trailing session report the CLI appends after the answer, e.g.
@@ -89,7 +109,7 @@ export class CopilotCliLlmClient implements LlmClient {
     const { stdout } = await execFileAsync(
       this.binary,
       ['-p', prompt, '--available-tools', '--no-color'],
-      { timeout: this.timeoutMs, maxBuffer: MAX_OUTPUT_BYTES },
+      { timeout: this.timeoutMs, maxBuffer: MAX_OUTPUT_BYTES, cwd: neutralCwd() },
     );
 
     // Token usage is only printed in the human-readable trailer, not machine-readable.
