@@ -64,7 +64,7 @@ function pagedResponse(): GraphContextResponse {
     indexRevision: binding.revision,
     fresh: true,
     mode: 'search',
-    seeds: [nodes[0]],
+    seeds: [nodes[0].id],
     nodes,
     edges: [{
       source: 'seed',

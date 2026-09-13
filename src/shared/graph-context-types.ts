@@ -142,7 +142,12 @@ export interface GraphContextResponse {
   indexRevision: string;
   fresh: boolean;
   mode: GraphContextMode;
-  seeds: GraphContextNode[];
+  /**
+   * Ids of the nodes the traversal started from. The nodes themselves are in
+   * `nodes`, flagged `isSeed`; carrying them twice doubled a fifth of the
+   * payload for no added information.
+   */
+  seeds: string[];
   nodes: GraphContextNode[];
   edges: GraphContextEdge[];
   paths: GraphContextPath[];
