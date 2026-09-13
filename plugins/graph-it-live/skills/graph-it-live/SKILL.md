@@ -311,11 +311,26 @@ Launch as an MCP server for AI client integration (no VS Code required):
 graph-it serve
 ```
 
-MCP server currently exposes **24 tools**:
-- 21 analysis tools from `graph-it tool --list`
+MCP server currently exposes **27 tools**:
+- 22 analysis tools from `graph-it tool --list`
 - `set_workspace` (server management)
+- `review_pr`
 - `query_natural_language`
 - `generate_wiki`
+- `get_session_stats`
+
+### Calling MCP tools
+
+- Start with `graph_context` for open-ended questions. It is the deterministic,
+  token-bounded gateway over the same index and covers `search`, `neighbors`,
+  `path`, `impact`, `refactor` and `overview`. Reach for a specialised tool when
+  you need a cut it cannot express.
+- `response_format` is the only output knob (`json`, `markdown`, `toon`); it
+  defaults to `toon`. The legacy `format` parameter has been removed — it was
+  advertised on most tools but never read.
+- Every tool response carries `metadata.indexedAt` and `metadata.stale`. A
+  `stale: true` result is still usable; it means a file changed after the last
+  full index pass, so the answer may not reflect every edit yet.
 
 ### MCP Client Configuration
 

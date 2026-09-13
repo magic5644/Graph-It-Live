@@ -40,8 +40,7 @@ The `graphitlive_graph_context` request has additional bounded fields:
 | `maxNodes` | integer 1–500, requested page bound | 200 |
 | `tokenBudget` | integer 500–16,000 | 4,000 |
 | `cursor` | 4,096 URL-safe base64 characters | — |
-| `format` | `toon` or `json` | `toon` on MCP, global CLI format for `graph-it context` |
-| `response_format` (MCP envelope) | `json`, `markdown`, or `toon` | follows `format`, then `toon` |
+| `response_format` (MCP envelope) | `json`, `markdown`, or `toon` | `toon` |
 
 Seeds, endpoints, and scope paths are validated against the configured
 workspace. Paths outside it are rejected. An ambiguous entity is returned as

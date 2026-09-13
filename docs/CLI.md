@@ -902,8 +902,7 @@ MCP clients call the prefixed server tool name:
     "depth": 4,
     "maxNodes": 100,
     "tokenBudget": 4000,
-    "directed": true,
-    "format": "toon"
+    "directed": true
   }
 }
 ```
@@ -1662,8 +1661,8 @@ non-empty seed list, or both endpoints. Endpoint-only requests infer `path`.
 
 ```bash
 graph-it tool graph_context --question="what calls the request handler" --scope='src/**' --format=toon
-graph-it tool graph_context --args '{"mode":"path","from":{"filePath":"src/api.ts","symbolName":"handle"},"to":{"filePath":"src/db.ts","symbolName":"query"},"directed":true,"format":"toon"}' --format toon
-graph-it tool graph_context --args '{"mode":"impact","seeds":[{"filePath":"src/api.ts","symbolName":"handle"}],"relations":["CALLS"],"scope":"src/**","depth":3,"tokenBudget":4000,"format":"json"}' --format json
+graph-it tool graph_context --args '{"mode":"path","from":{"filePath":"src/api.ts","symbolName":"handle"},"to":{"filePath":"src/db.ts","symbolName":"query"},"directed":true}' --format toon
+graph-it tool graph_context --args '{"mode":"impact","seeds":[{"filePath":"src/api.ts","symbolName":"handle"}],"relations":["CALLS"],"scope":"src/**","depth":3,"tokenBudget":4000}' --format json
 ```
 
 The default token budget is 4000. `maxNodes` is a requested page bound, not a
@@ -1746,7 +1745,7 @@ Generate a navigable markdown wiki from the call graph. One article per source f
 | `workspaceRoot` | string | configured workspace | Absolute path to workspace root |
 | `outputDir` | string | `wiki` | Output directory for wiki files |
 | `topHubsLimit` | number | `10` | Number of top hub files to list (1–50) |
-| `response_format` | string | `json` | Output summary format: `json`, `markdown`, or `toon` |
+| `response_format` | string | `toon` | Output summary format: `json`, `markdown`, or `toon` |
 
 ```bash
 graph-it tool generate_wiki

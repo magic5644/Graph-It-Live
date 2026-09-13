@@ -41,7 +41,7 @@ function seed(raw: string): NonNullable<GraphContextParams['from']> {
   return { filePath, symbolName };
 }
 
-function parse(args: string[], format: CliOutputFormat): GraphContextParams {
+function parse(args: string[]): GraphContextParams {
   const positionals: string[] = [];
   for (let index = 0; index < args.length; index += 1) {
     const arg = args[index];
@@ -56,7 +56,6 @@ function parse(args: string[], format: CliOutputFormat): GraphContextParams {
     index += 1;
   }
 
-  const requestedFormat = value(args, '--format') ?? (format === 'json' ? 'json' : 'toon');
   const seedValues = values(args, '--seeds');
   const relationValues = values(args, '--relations');
   const from = value(args, '--from');
@@ -76,7 +75,6 @@ function parse(args: string[], format: CliOutputFormat): GraphContextParams {
     to: to === undefined ? undefined : seed(to),
     directed: args.includes('--directed') || undefined,
     cursor: value(args, '--cursor'),
-    format: requestedFormat as GraphContextParams['format'],
     detail: value(args, '--detail') as GraphContextParams['detail'],
   };
   const result = GraphContextParamsSchema.safeParse(params);
@@ -85,7 +83,7 @@ function parse(args: string[], format: CliOutputFormat): GraphContextParams {
 }
 
 export async function run(args: string[], runtime: CliRuntime, format: CliOutputFormat): Promise<string> {
-  const params = parse(args, format);
+  const params = parse(args);
   await runtime.ensureIndexed();
   const response = await executeGraphContext(params);
   return formatOutput(projectGraphContextOutput(response, params.detail), format === 'markdown' || format === 'mermaid' ? 'json' : format, 'context');

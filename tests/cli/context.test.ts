@@ -21,7 +21,7 @@ describe('context command', () => {
     });
 
     await run(
-      ['how does authentication reach the database', '--mode', 'search', '--scope', 'src/**', '--depth', '2', '--token-budget', '2000', '--format', 'toon'],
+      ['how does authentication reach the database', '--mode', 'search', '--scope', 'src/**', '--depth', '2', '--token-budget', '2000'],
       runtime,
       'text',
     );
@@ -32,7 +32,6 @@ describe('context command', () => {
       scope: 'src/**',
       depth: 2,
       tokenBudget: 2000,
-      format: 'toon',
     });
   });
 
@@ -40,7 +39,7 @@ describe('context command', () => {
     executeGraphContext.mockResolvedValueOnce({ mode: 'path', nodes: [], edges: [] });
 
     await run(
-      ['--from', 'src/api/controller.ts#UserController', '--to', 'DatabasePool', '--mode', 'path', '--format', 'json'],
+      ['--from', 'src/api/controller.ts#UserController', '--to', 'DatabasePool', '--mode', 'path'],
       runtime,
       'text',
     );
@@ -49,7 +48,6 @@ describe('context command', () => {
       from: { filePath: 'src/api/controller.ts', symbolName: 'UserController' },
       to: { symbolName: 'DatabasePool' },
       mode: 'path',
-      format: 'json',
     });
   });
 
@@ -78,7 +76,6 @@ describe('context command', () => {
       relations: ['CALLS', 'IMPORTS'],
       directed: true,
       cursor: 'next-page',
-      format: 'toon',
     });
   });
 
@@ -94,7 +91,6 @@ describe('context command', () => {
     expect(executeGraphContext).toHaveBeenCalledWith({
       question: 'question',
       detail: 'compact',
-      format: 'toon',
     });
   });
 
