@@ -6,6 +6,8 @@
  * Tests env-based resolution without network calls.
  */
 
+import * as os from 'node:os';
+import * as path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { _resetFallbackWarned, resolveLlmClient } from '../../../src/analyzer/llm/LlmClientFactory';
 import type { LlmClient, LlmCompletionOptions, LlmCompletionResult, LlmMessage } from '../../../src/analyzer/llm/LlmClient';
@@ -133,8 +135,9 @@ describe('resolveLlmClient', () => {
   });
 
   it('returns the Copilot CLI client when pinned and the binary responds', async () => {
-    // `echo --version` exits 0, which is all isAvailable() checks.
-    process.env.GRAPH_IT_COPILOT_BIN = '/bin/echo';
+    // `node --version` exits 0, which is all isAvailable() checks — and unlike
+    // /bin/echo it exists on every platform CI runs on.
+    process.env.GRAPH_IT_COPILOT_BIN = process.execPath;
     process.env.GRAPH_IT_LLM_PROVIDER = 'copilot-cli';
     const client = await resolveLlmClient();
     expect(client?.providerName).toBe('copilot-cli');
@@ -143,7 +146,7 @@ describe('resolveLlmClient', () => {
   it('returns null when the pinned provider is unusable, without falling back', async () => {
     // A usable Anthropic key must NOT rescue an explicitly pinned provider.
     process.env.ANTHROPIC_API_KEY = 'sk-ant-test-key';
-    process.env.GRAPH_IT_COPILOT_BIN = '/nonexistent/graph-it-copilot';
+    process.env.GRAPH_IT_COPILOT_BIN = path.join(os.tmpdir(), 'graph-it-copilot-does-not-exist');
     process.env.GRAPH_IT_LLM_PROVIDER = 'copilot-cli';
     const client = await resolveLlmClient();
     expect(client).toBeNull();

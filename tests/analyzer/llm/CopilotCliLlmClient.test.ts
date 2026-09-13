@@ -3,31 +3,53 @@
 /**
  * Unit tests for CopilotCliLlmClient.
  *
- * The CLI itself is never invoked for real: availability is probed with
- * /bin/echo, and the parsing helpers are tested against captured output.
+ * `node:child_process` is mocked so no binary is ever spawned: the Copilot CLI
+ * is not installed on CI, and hard-coding a real one (`/bin/echo`) would not
+ * exist on Windows.
  */
 
-import { describe, expect, it } from 'vitest';
+import * as os from 'node:os';
+import * as path from 'node:path';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
+
+const mocks = vi.hoisted(() => ({
+  execFileAsync: vi.fn(),
+}));
+
+vi.mock('node:child_process', () => ({
+  // The client promisifies execFile, so expose the promisified form Node uses.
+  execFile: Object.assign(
+    () => {
+      throw new Error('callback form of execFile is not used by the client');
+    },
+    { [Symbol.for('nodejs.util.promisify.custom')]: mocks.execFileAsync },
+  ),
+}));
+
 import {
   buildCopilotPrompt,
   cleanCopilotOutput,
   CopilotCliLlmClient,
 } from '../../../src/analyzer/llm/CopilotCliLlmClient';
 
+const COPILOT_OUTPUT = [
+  '```json',
+  '["call graph", "indexer"]',
+  '```',
+  '',
+  'Changes    +0 -0',
+  'AI Credits 2.47 (5s)',
+  'Tokens     ↑ 20.7k • ↓ 310',
+  'Resume     copilot --resume=b0102fdc',
+].join('\n');
+
+beforeEach(() => {
+  mocks.execFileAsync.mockReset();
+});
+
 describe('cleanCopilotOutput', () => {
   it('strips the session trailer and code fences, keeping the answer', () => {
-    const raw = [
-      '```json',
-      '["call graph", "indexer"]',
-      '```',
-      '',
-      'Changes    +0 -0',
-      'AI Credits 2.47 (5s)',
-      'Tokens     ↑ 20.7k • ↓ 310',
-      'Resume     copilot --resume=b0102fdc',
-    ].join('\n');
-
-    expect(cleanCopilotOutput(raw)).toBe('["call graph", "indexer"]');
+    expect(cleanCopilotOutput(COPILOT_OUTPUT)).toBe('["call graph", "indexer"]');
   });
 
   it('leaves plain output untouched apart from trimming', () => {
@@ -58,33 +80,92 @@ describe('buildCopilotPrompt', () => {
 });
 
 describe('CopilotCliLlmClient.isAvailable', () => {
-  it('is true when the configured binary runs', async () => {
-    const client = new CopilotCliLlmClient('/bin/echo');
-    expect(await client.isAvailable()).toBe(true);
+  it('is true when the binary answers --version', async () => {
+    mocks.execFileAsync.mockResolvedValueOnce({ stdout: '1.0.80\n', stderr: '' });
+
+    expect(await new CopilotCliLlmClient('copilot').isAvailable()).toBe(true);
+    expect(mocks.execFileAsync).toHaveBeenCalledWith(
+      'copilot',
+      ['--version'],
+      expect.any(Object),
+    );
   });
 
-  it('is false when the binary is missing', async () => {
-    const client = new CopilotCliLlmClient('/nonexistent/graph-it-copilot');
-    expect(await client.isAvailable()).toBe(false);
+  it('is false when the binary cannot be spawned', async () => {
+    mocks.execFileAsync.mockRejectedValueOnce(new Error('ENOENT'));
+
+    expect(await new CopilotCliLlmClient('missing-binary').isAvailable()).toBe(false);
   });
 
   it('exposes the copilot-cli provider name', () => {
-    expect(new CopilotCliLlmClient('/bin/echo').providerName).toBe('copilot-cli');
+    expect(new CopilotCliLlmClient('copilot').providerName).toBe('copilot-cli');
+  });
+
+  it('defaults the binary to GRAPH_IT_COPILOT_BIN when set', async () => {
+    const previous = process.env.GRAPH_IT_COPILOT_BIN;
+    process.env.GRAPH_IT_COPILOT_BIN = 'custom-copilot';
+    try {
+      mocks.execFileAsync.mockResolvedValueOnce({ stdout: '', stderr: '' });
+      await new CopilotCliLlmClient().isAvailable();
+      expect(mocks.execFileAsync).toHaveBeenCalledWith(
+        'custom-copilot',
+        ['--version'],
+        expect.any(Object),
+      );
+    } finally {
+      if (previous === undefined) {
+        delete process.env.GRAPH_IT_COPILOT_BIN;
+      } else {
+        process.env.GRAPH_IT_COPILOT_BIN = previous;
+      }
+    }
   });
 });
 
 describe('CopilotCliLlmClient.complete', () => {
   it('returns the cleaned stdout of the binary', async () => {
-    // /bin/echo prints its arguments back, so stdout is the flattened prompt.
-    const client = new CopilotCliLlmClient('/bin/echo');
-    const result = await client.complete([{ role: 'user', content: '["a","b"]' }]);
+    mocks.execFileAsync.mockResolvedValueOnce({ stdout: COPILOT_OUTPUT, stderr: '' });
 
-    expect(result.text).toContain('["a","b"]');
+    const result = await new CopilotCliLlmClient('copilot').complete([
+      { role: 'user', content: 'extract keywords' },
+    ]);
+
+    expect(result.text).toBe('["call graph", "indexer"]');
     expect(result.tokensUsed).toBeUndefined();
   });
 
+  it('passes the flattened prompt with tools disabled', async () => {
+    mocks.execFileAsync.mockResolvedValueOnce({ stdout: 'ok', stderr: '' });
+
+    await new CopilotCliLlmClient('copilot').complete([
+      { role: 'system', content: 'Return JSON only.' },
+      { role: 'user', content: 'extract keywords' },
+    ]);
+
+    expect(mocks.execFileAsync).toHaveBeenCalledWith(
+      'copilot',
+      ['-p', '[system] Return JSON only.\n\nextract keywords', '--available-tools', '--no-color'],
+      expect.any(Object),
+    );
+  });
+
+  it('runs outside the caller cwd so repository instructions are not loaded', async () => {
+    mocks.execFileAsync.mockResolvedValueOnce({ stdout: 'ok', stderr: '' });
+
+    await new CopilotCliLlmClient('copilot').complete([{ role: 'user', content: 'hi' }]);
+
+    const options = mocks.execFileAsync.mock.calls[0][2] as { cwd?: string };
+    expect(options.cwd).toBeDefined();
+    expect(options.cwd).not.toBe(process.cwd());
+    // Must live in the OS temp area, i.e. outside any git repository.
+    expect(path.dirname(options.cwd as string)).toBe(path.resolve(os.tmpdir()));
+  });
+
   it('rejects when the binary cannot be spawned', async () => {
-    const client = new CopilotCliLlmClient('/nonexistent/graph-it-copilot');
-    await expect(client.complete([{ role: 'user', content: 'hi' }])).rejects.toThrow();
+    mocks.execFileAsync.mockRejectedValueOnce(new Error('ENOENT'));
+
+    await expect(
+      new CopilotCliLlmClient('missing-binary').complete([{ role: 'user', content: 'hi' }]),
+    ).rejects.toThrow('ENOENT');
   });
 });
