@@ -224,6 +224,34 @@ describe('bfsFromSeeds', () => {
 // QueryEngine.extractKeywords tests
 // ---------------------------------------------------------------------------
 
+/**
+ * Run `body` with the given environment variables applied, restoring whatever
+ * was there before. `undefined` unsets a variable.
+ *
+ * Provider resolution reads process.env directly, so any test that asserts on
+ * it has to pin every variable it depends on -- including
+ * GRAPH_IT_LLM_PROVIDER, which takes precedence over the API keys. Leave one
+ * out and the test starts reporting the developer's shell.
+ */
+async function withEnv(
+  vars: Record<string, string | undefined>,
+  body: () => Promise<void>,
+): Promise<void> {
+  const saved = new Map(Object.keys(vars).map((name) => [name, process.env[name]]));
+  for (const [name, value] of Object.entries(vars)) {
+    if (value === undefined) delete process.env[name];
+    else process.env[name] = value;
+  }
+  try {
+    await body();
+  } finally {
+    for (const [name, value] of saved) {
+      if (value === undefined) delete process.env[name];
+      else process.env[name] = value;
+    }
+  }
+}
+
 describe('QueryEngine.extractKeywords', () => {
   let db: Database;
 
@@ -251,47 +279,59 @@ describe('QueryEngine.extractKeywords', () => {
   });
 
   it('uses the heuristic fallback when no provider key is configured', async () => {
-    // GRAPH_IT_LLM_PROVIDER pins a provider ahead of any key check, so it has to
-    // be cleared too: leaving it set made this test depend on the developer's
-    // shell rather than on the condition it names.
-    const clearedVars = ['ANTHROPIC_API_KEY', 'OPENAI_API_KEY', 'GRAPH_IT_LLM_PROVIDER'] as const;
-    const saved = new Map(clearedVars.map((name) => [name, process.env[name]]));
-    for (const name of clearedVars) delete process.env[name];
+    // GRAPH_IT_LLM_PROVIDER pins a provider ahead of any key check, so it has
+    // to be cleared too: leaving it set made this test depend on the
+    // developer's shell rather than on the condition it names.
+    await withEnv(
+      {
+        ANTHROPIC_API_KEY: undefined,
+        OPENAI_API_KEY: undefined,
+        GRAPH_IT_LLM_PROVIDER: undefined,
+      },
+      async () => {
+        const client = await resolveLlmClient();
+        expect(client).toBeNull();
 
-    try {
-      const client = await resolveLlmClient();
-      expect(client).toBeNull();
-
-      const engine = new QueryEngine(db, client);
-      const keywords = await engine.extractKeywords('Spider crawl files');
-      expect(keywords).toContain('spider');
-      expect(keywords).toContain('crawl');
-    } finally {
-      for (const [name, value] of saved) {
-        if (value === undefined) delete process.env[name];
-        else process.env[name] = value;
-      }
-    }
+        const engine = new QueryEngine(db, client);
+        const keywords = await engine.extractKeywords('Spider crawl files');
+        expect(keywords).toContain('spider');
+        expect(keywords).toContain('crawl');
+      },
+    );
   });
 
-  it('honours a pinned provider even when no API key is configured', async () => {
-    const clearedVars = ['ANTHROPIC_API_KEY', 'OPENAI_API_KEY'] as const;
-    const saved = new Map(clearedVars.map((name) => [name, process.env[name]]));
-    const savedProvider = process.env.GRAPH_IT_LLM_PROVIDER;
-    for (const name of clearedVars) delete process.env[name];
-    process.env.GRAPH_IT_LLM_PROVIDER = 'copilot-cli';
+  it('lets a pinned provider win over the default resolution order', async () => {
+    // Both keys set: without pinning, anthropic wins as the earlier step.
+    // Pinning openai-compatible must override that order. Neither client
+    // touches the network to answer isAvailable() -- both only check that
+    // their key is non-empty -- so this stays hermetic.
+    await withEnv(
+      {
+        ANTHROPIC_API_KEY: 'test-anthropic-key',
+        OPENAI_API_KEY: 'test-openai-key',
+        GRAPH_IT_LLM_PROVIDER: 'openai-compatible',
+      },
+      async () => {
+        const client = await resolveLlmClient();
+        expect(client?.providerName).toBe('openai-compatible');
+      },
+    );
+  });
 
-    try {
-      const client = await resolveLlmClient();
-      expect(client?.providerName).toBe('copilot-cli');
-    } finally {
-      for (const [name, value] of saved) {
-        if (value === undefined) delete process.env[name];
-        else process.env[name] = value;
-      }
-      if (savedProvider === undefined) delete process.env.GRAPH_IT_LLM_PROVIDER;
-      else process.env.GRAPH_IT_LLM_PROVIDER = savedProvider;
-    }
+  it('does not fall back to another provider when the pinned one is unusable', async () => {
+    // anthropic is pinned but has no key, while openai-compatible has one.
+    // Falling back would hide the misconfiguration, so the factory returns
+    // null and the caller uses heuristic extraction.
+    await withEnv(
+      {
+        ANTHROPIC_API_KEY: undefined,
+        OPENAI_API_KEY: 'test-openai-key',
+        GRAPH_IT_LLM_PROVIDER: 'anthropic',
+      },
+      async () => {
+        expect(await resolveLlmClient()).toBeNull();
+      },
+    );
   });
 
   it('falls back to heuristic when LLM returns invalid JSON', async () => {
