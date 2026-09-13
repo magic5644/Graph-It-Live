@@ -12,6 +12,8 @@ const DEFAULT_MAX_FILES = 200;
 const DEFAULT_MAX_DEPTH = 3;
 const MAX_MAX_FILES = 1_000;
 const MAX_MAX_DEPTH = 10;
+/** Bound on the reverse-index walk used to decide whether a consumer is under test. */
+const MAX_COVERAGE_LOOKUP_FILES = 200;
 const SIGNATURE_ANALYSIS_EXTENSIONS = new Set([".ts", ".tsx", ".js", ".jsx", ".mjs", ".cjs"]);
 
 export type ReviewRiskLevel = "low" | "medium" | "high" | "critical";
@@ -80,6 +82,14 @@ export interface ReviewGateResult {
 
 export interface SymbolDependentsProvider {
   getSymbolDependents(filePath: string, symbolName: string): Promise<Array<{ sourceSymbolId: string }>>;
+  /**
+   * File-level reverse index: which files reference `filePath`.
+   *
+   * Used to answer "is this consumer under test", which the symbol traversal
+   * cannot answer on its own — it only records what its depth-limited walk from
+   * the changed symbol happened to visit.
+   */
+  findReferencingFiles?(filePath: string): Promise<Array<{ path: string }>>;
   getSymbolGraph?(filePath: string): Promise<{ symbols: SymbolInfo[]; dependencies: SymbolDependency[] }>;
   findUnusedSymbols?(filePath: string): Promise<SymbolInfo[]>;
 }
@@ -211,7 +221,7 @@ export class ReviewGateAnalyzer {
     // coverage, distinct from "no provider configured" (unknown) or "confirmed zero" (untested by definition).
     const hasTestCoverage = impact.testDependents.length > 0;
     const allTestCandidates = [...new Set([...fileEvidence.testCandidates, ...impact.testDependents])];
-    const consumers = this.getConsumerStanding(impact, changedFiles);
+    const consumers = await this.getConsumerStanding(impact, changedFiles);
     const consumersMustAct = this.requiresConsumerUpdate(errorBreakingChanges);
     const scoreFactors = this.getScoreFactors(errorBreakingChanges.length, impact, consumers, consumersMustAct, cycles, unusedExport, allTestCandidates.length, hasConfirmedZeroImpact, hasTestCoverage);
     const score = Math.min(100, Object.values(scoreFactors).reduce((total, value) => total + value, 0));
@@ -247,15 +257,54 @@ export class ReviewGateAnalyzer {
    * last group is a risk: a consumer the author touched has been considered, and
    * a consumer under test fails loudly if the contract no longer fits.
    */
-  private getConsumerStanding(impact: SymbolImpact, changedFiles: ReadonlySet<string>): ConsumerStanding {
+  private async getConsumerStanding(
+    impact: SymbolImpact,
+    changedFiles: ReadonlySet<string>,
+  ): Promise<ConsumerStanding> {
     const covered = new Set(impact.coveredFiles);
     const standing: ConsumerStanding = { updated: [], covered: [], unverified: [] };
     for (const file of [...impact.consumerFiles].sort((a, b) => a.localeCompare(b))) {
       if (changedFiles.has(file)) standing.updated.push(file);
-      else if (covered.has(file)) standing.covered.push(file);
+      else if (covered.has(file) || await this.hasTestDependent(file)) standing.covered.push(file);
       else standing.unverified.push(file);
     }
     return standing;
+  }
+
+  /**
+   * Whether a test file references `file`, directly or through intermediates.
+   *
+   * The symbol traversal records coverage only for consumers it reached before
+   * its depth limit, so a consumer with a test of its own — sitting one hop past
+   * that limit — was reported as unverified while the same report stated that a
+   * test depends on the changed symbol. This asks the reverse index instead, so
+   * the answer no longer depends on where the walk stopped.
+   */
+  private async hasTestDependent(file: string): Promise<boolean> {
+    if (!this.dependents?.findReferencingFiles) return false;
+
+    const visited = new Set([file]);
+    const queue = [file];
+    while (queue.length > 0 && visited.size <= MAX_COVERAGE_LOOKUP_FILES) {
+      let referencing: Array<{ path: string }>;
+      try {
+        referencing = await this.dependents.findReferencingFiles(this.toAbsolute(queue.pop()!));
+      } catch {
+        continue; // An unreadable entry must not decide the whole question.
+      }
+      for (const reference of referencing) {
+        const referencePath = this.toWorkspaceRelative(normalizePath(reference.path));
+        if (this.isTestFilePath(referencePath)) return true;
+        if (visited.has(referencePath)) continue;
+        visited.add(referencePath);
+        queue.push(referencePath);
+      }
+    }
+    return false;
+  }
+
+  private toAbsolute(relativePath: string): string {
+    return normalizePath(path.resolve(this.workspaceRoot, relativePath));
   }
 
   private getScoreFactors(breakingChangeCount: number, impact: SymbolImpact, consumers: ConsumerStanding, consumersMustAct: boolean, cycles: boolean, unusedExport: boolean, testCandidateCount: number, hasConfirmedZeroImpact: boolean, hasTestCoverage: boolean): ReviewScoreFactors {

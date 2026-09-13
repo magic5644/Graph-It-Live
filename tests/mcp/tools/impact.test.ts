@@ -6,6 +6,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { normalizePath } from "../../../src/shared/path";
 import { workerState } from "../../../src/mcp/shared/state";
 import {
+    createSpiderDependentsProvider,
     executeAnalyzeBreakingChanges,
     executeGetImpactAnalysis,
     executeReviewPr,
@@ -141,5 +142,52 @@ describe("impact tools", () => {
     expect(spiderMock.getSymbolDependents).toHaveBeenCalledWith(normalizedApiPath, "greet");
     expect(spiderMock.getSymbolGraph).toHaveBeenCalledWith(normalizedApiPath);
     expect(spiderMock.findUnusedSymbols).toHaveBeenCalledWith(normalizedApiPath);
+  });
+});
+
+describe("createSpiderDependentsProvider", () => {
+  /**
+   * Every capability the review gate can use has to be wired through. A missing
+   * one is silent: the optional methods simply go unused, and the gate degrades
+   * to a weaker answer — which is exactly how consumers under test came to be
+   * reported as unverified.
+   */
+  it("delegates every capability the review gate consumes", async () => {
+    const spider = {
+      getSymbolDependents: vi.fn().mockResolvedValue([{ sourceSymbolId: "src/a.ts:useIt" }]),
+      getSymbolGraph: vi.fn().mockResolvedValue({ symbols: [], dependencies: [] }),
+      findUnusedSymbols: vi.fn().mockResolvedValue([]),
+      findReferencingFiles: vi.fn().mockResolvedValue([{ path: "tests/a.test.ts" }]),
+    };
+
+    const provider = createSpiderDependentsProvider(spider as never);
+
+    await expect(provider.getSymbolDependents("src/a.ts", "useIt")).resolves.toEqual([
+      { sourceSymbolId: "src/a.ts:useIt" },
+    ]);
+    await expect(provider.getSymbolGraph?.("src/a.ts")).resolves.toEqual({
+      symbols: [],
+      dependencies: [],
+    });
+    await expect(provider.findUnusedSymbols?.("src/a.ts")).resolves.toEqual([]);
+    await expect(provider.findReferencingFiles?.("src/a.ts")).resolves.toEqual([
+      { path: "tests/a.test.ts" },
+    ]);
+  });
+
+  it("forwards its arguments unchanged", async () => {
+    const spider = {
+      getSymbolDependents: vi.fn().mockResolvedValue([]),
+      getSymbolGraph: vi.fn().mockResolvedValue({ symbols: [], dependencies: [] }),
+      findUnusedSymbols: vi.fn().mockResolvedValue([]),
+      findReferencingFiles: vi.fn().mockResolvedValue([]),
+    };
+
+    const provider = createSpiderDependentsProvider(spider as never);
+    await provider.getSymbolDependents("/abs/src/a.ts", "useIt");
+    await provider.findReferencingFiles?.("/abs/src/a.ts");
+
+    expect(spider.getSymbolDependents).toHaveBeenCalledWith("/abs/src/a.ts", "useIt");
+    expect(spider.findReferencingFiles).toHaveBeenCalledWith("/abs/src/a.ts");
   });
 });
