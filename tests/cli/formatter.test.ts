@@ -3,6 +3,7 @@ import {
   CLI_OUTPUT_FORMATS,
   formatOutput,
   relativizeWorkspacePaths,
+  renderCliOutput,
   validateFormatForCommand,
 } from "../../src/cli/formatter";
 import { sessionStats } from "../../src/shared/sessionStats";
@@ -467,5 +468,30 @@ describe("formatToon - multi-section payloads", () => {
     const out = formatOutput({ nodes: [{ id: "n1" }], edges: [] }, "toon", "context");
 
     expect(out).not.toContain("edges(");
+  });
+});
+
+describe("renderCliOutput", () => {
+  const row = "[/repo/src/a.ts:A:3,A,class,/repo/src/a.ts,3,0]";
+
+  it("strips the workspace root from toon output", () => {
+    expect(renderCliOutput(row, "toon", "/repo")).toBe("[src/a.ts:A:3,A,class,src/a.ts,3,0]\n");
+  });
+
+  it("leaves json output absolute, since scripts depend on it", () => {
+    const json = '{"filePath":"/repo/src/a.ts"}';
+
+    expect(renderCliOutput(json, "json", "/repo")).toBe(`${json}\n`);
+  });
+
+  it("leaves the other formats untouched", () => {
+    for (const format of ["text", "markdown", "mermaid"] as const) {
+      expect(renderCliOutput("/repo/src/a.ts", format, "/repo")).toBe("/repo/src/a.ts\n");
+    }
+  });
+
+  it("appends a trailing newline only when one is missing", () => {
+    expect(renderCliOutput("done\n", "text", "/repo")).toBe("done\n");
+    expect(renderCliOutput("done", "text", "/repo")).toBe("done\n");
   });
 });
