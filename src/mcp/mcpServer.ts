@@ -562,10 +562,9 @@ server.registerTool(
   "graphitlive_set_workspace",
   {
     title: "Set Workspace Directory",
-    description: `Sets the project root every other graphitlive tool analyses, and builds its dependency index.
+    description: `Sets the project root for this server session and builds its dependency index.
 
-WHEN: before any other graphitlive call when no workspace is configured, or to switch projects.
-WHY: tools resolve paths and reverse dependencies against this root; without it they fail.
+WHEN: only when no workspace is configured yet, or to switch to a different project. It is server setup, not analysis: it answers no question about code, so never pick it for a question about architecture, callers, dependencies, dead code or documentation - those tools fail with a clear error if the workspace is missing, and the fix is to call this once, then retry them.
 RETURNS: resolved workspace path, number of files indexed, indexing duration.`,
     inputSchema: SetWorkspaceParamsSchema.extend({
       response_format: ResponseFormatSchema.describe(
@@ -1138,11 +1137,12 @@ server.registerTool(
   "graphitlive_get_symbol_graph",
   {
     title: "Get Symbol-Level Dependency Graph",
-    description: `Lists the symbols a file exports and the external symbols each of them depends on.
+    description: `Lists the symbols a file exports and the symbols OUTSIDE the file that each of them depends on.
 
-WHEN: "which function in this file uses X", scoping a refactor to one symbol rather than the whole file.
+WHEN: "which function in this file calls the database / uses X", scoping a refactor to one symbol rather than the whole file.
 WHY: ts-morph AST parsing, so import aliases are tracked back to their original names and type-only imports are separated from runtime ones.
 RETURNS: exported symbols (name, kind, line, category) and symbol-to-symbol edges tagged runtime or type-only.
+NOT THIS TOOL: for calls between symbols defined in the same file, use graphitlive_analyze_file_logic. This tool crosses the file boundary outward; that one stays inside it.
 For an open-ended question, start with graphitlive_graph_context and come here when you need this specific cut.`,
     inputSchema: GetSymbolGraphParamsSchema.extend({
       response_format: ResponseFormatSchema.describe(
@@ -1216,12 +1216,12 @@ server.registerTool(
   "graphitlive_get_symbol_dependents",
   {
     title: "Find All Callers of a Symbol (Impact Analysis)",
-    description: `Lists the symbols across the workspace that use one given symbol.
+    description: `Lists the symbols that use one given symbol - one hop, computed from source at call time.
 
 WHEN: changing a signature and needing every call site, or assessing the blast radius of a symbol-level change.
-WHY: symbol granularity rather than file granularity - it names the calling function, not just the importing file.
+WHY: re-reads the referencing files instead of a cached index, so it reflects edits the index has not absorbed yet.
 RETURNS: caller symbol id, file path and workspace-relative path per dependent, plus a total count.
-For an open-ended question, start with graphitlive_graph_context and come here when you need this specific cut.`,
+PICKING BETWEEN THE THREE: this one for fresh single-hop edges; graphitlive_get_symbol_callers for the fast indexed lookup with a runtime versus type-only split; graphitlive_query_call_graph for multi-hop traversal, callees, or relation types.`,
     inputSchema: GetSymbolDependentsParamsSchema.extend({
       response_format: ResponseFormatSchema.describe(
         "Output format: 'json', 'markdown', or 'toon' (Token-Oriented Object Notation for reduced token usage) (default: toon - RECOMMENDED for 30-60% token savings)",
@@ -1301,12 +1301,12 @@ server.registerTool(
   "graphitlive_get_symbol_callers",
   {
     title: "Get Symbol Callers (Reverse Dependencies)",
-    description: `Lists the symbols that call one given symbol, from the import-level reverse index.
+    description: `Lists the symbols that call one given symbol - one hop, from a prebuilt reverse index.
 
-WHEN: finding call sites before a rename, or spotting a symbol with no callers.
-WHY: symbol-level rather than file-level, and separates runtime calls from type-only references.
+WHEN: the plain question "who calls X" or "where is X used"; finding call sites before a rename; spotting a symbol with no callers.
+WHY: O(1) lookup in the symbol reverse index, and the only tool of the three that separates runtime calls from type-only references.
 RETURNS: caller file path, symbol name, line, and usage type (runtime or type-only), nearest first.
-For an open-ended question, start with graphitlive_graph_context and come here when you need this specific cut.`,
+PICKING BETWEEN THE THREE: this one for a single hop with the runtime/type-only split; graphitlive_get_symbol_dependents for a single hop computed fresh from source as dependency edges; graphitlive_query_call_graph when you need more than one hop, callees as well as callers, or relation types such as INHERITS and IMPLEMENTS.`,
     inputSchema: GetSymbolCallersParamsSchema.extend({
       response_format: ResponseFormatSchema.describe(
         "Output format: 'json', 'markdown', or 'toon' (Token-Oriented Object Notation for reduced token usage) (default: toon - RECOMMENDED for 30-60% token savings)",
@@ -1465,11 +1465,12 @@ server.registerTool(
   "graphitlive_analyze_file_logic",
   {
     title: "Analyze File Logic & Call Hierarchy",
-    description: `Returns the call hierarchy between the symbols defined inside one file.
+    description: `Returns the call hierarchy among the symbols defined INSIDE one file, ignoring anything it imports.
 
 WHEN: understanding how a file works internally, or spotting recursion before a refactor.
 WHY: call hierarchy from the language server, so calls are resolved by the compiler rather than matched by name.
 RETURNS: nodes (symbol id, type, export status, line range), call edges with line numbers, and cycle detection with the symbols involved.
+NOT THIS TOOL: for what this file's symbols reach in OTHER files, use graphitlive_get_symbol_graph.
 SUPPORTS: TypeScript, JavaScript, Python, Rust (needs the language server extension).
 For an open-ended question, start with graphitlive_graph_context and come here when you need this specific cut.`,
     inputSchema: z.object({
@@ -1549,13 +1550,13 @@ server.registerTool(
   "graphitlive_query_call_graph",
   {
     title: "Query Cross-File Call Graph",
-    description: `Traces function calls across files from a SQLite-backed call graph.
+    description: `Traces calls across files for several hops, in either direction, from a SQLite-backed call graph.
 
-WHEN: "who calls this from another file", "what does this call", or tracing an execution path across modules.
+WHEN: multi-hop traversal ("three levels deep"), callees as well as callers, relation types beyond plain calls, or cycle detection across modules.
 WHY: built from tree-sitter AST analysis, so it holds real call edges (CALLS, INHERITS, IMPLEMENTS, USES) rather than import edges.
 RETURNS: the matched symbol, its callers and callees with file and line, relation type, and a cyclic flag per edge.
-LIMITS: the first call indexes the workspace (3-8s); later queries are fast.
-For an open-ended question, start with graphitlive_graph_context and come here when you need this specific cut.`,
+PICKING BETWEEN THE THREE: this one once you need depth, direction or relation types; graphitlive_get_symbol_callers for a fast single-hop "who calls X"; graphitlive_get_symbol_dependents for a single hop computed fresh from source.
+LIMITS: the first call indexes the workspace (3-8s); later queries are fast.`,
     inputSchema: QueryCallGraphParamsSchema.extend({
       response_format: ResponseFormatSchema.describe(
         "Output format: 'json', 'markdown', or 'toon' (default: toon - RECOMMENDED for 30-60% token savings)",

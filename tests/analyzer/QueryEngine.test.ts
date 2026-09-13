@@ -251,10 +251,12 @@ describe('QueryEngine.extractKeywords', () => {
   });
 
   it('uses the heuristic fallback when no provider key is configured', async () => {
-    const originalAnthropicKey = process.env.ANTHROPIC_API_KEY;
-    const originalOpenAiKey = process.env.OPENAI_API_KEY;
-    delete process.env.ANTHROPIC_API_KEY;
-    delete process.env.OPENAI_API_KEY;
+    // GRAPH_IT_LLM_PROVIDER pins a provider ahead of any key check, so it has to
+    // be cleared too: leaving it set made this test depend on the developer's
+    // shell rather than on the condition it names.
+    const clearedVars = ['ANTHROPIC_API_KEY', 'OPENAI_API_KEY', 'GRAPH_IT_LLM_PROVIDER'] as const;
+    const saved = new Map(clearedVars.map((name) => [name, process.env[name]]));
+    for (const name of clearedVars) delete process.env[name];
 
     try {
       const client = await resolveLlmClient();
@@ -265,10 +267,30 @@ describe('QueryEngine.extractKeywords', () => {
       expect(keywords).toContain('spider');
       expect(keywords).toContain('crawl');
     } finally {
-      if (originalAnthropicKey === undefined) delete process.env.ANTHROPIC_API_KEY;
-      else process.env.ANTHROPIC_API_KEY = originalAnthropicKey;
-      if (originalOpenAiKey === undefined) delete process.env.OPENAI_API_KEY;
-      else process.env.OPENAI_API_KEY = originalOpenAiKey;
+      for (const [name, value] of saved) {
+        if (value === undefined) delete process.env[name];
+        else process.env[name] = value;
+      }
+    }
+  });
+
+  it('honours a pinned provider even when no API key is configured', async () => {
+    const clearedVars = ['ANTHROPIC_API_KEY', 'OPENAI_API_KEY'] as const;
+    const saved = new Map(clearedVars.map((name) => [name, process.env[name]]));
+    const savedProvider = process.env.GRAPH_IT_LLM_PROVIDER;
+    for (const name of clearedVars) delete process.env[name];
+    process.env.GRAPH_IT_LLM_PROVIDER = 'copilot-cli';
+
+    try {
+      const client = await resolveLlmClient();
+      expect(client?.providerName).toBe('copilot-cli');
+    } finally {
+      for (const [name, value] of saved) {
+        if (value === undefined) delete process.env[name];
+        else process.env[name] = value;
+      }
+      if (savedProvider === undefined) delete process.env.GRAPH_IT_LLM_PROVIDER;
+      else process.env.GRAPH_IT_LLM_PROVIDER = savedProvider;
     }
   });
 
