@@ -20,19 +20,19 @@
 
 <style>
 :root{
-  --bg:#070a12;
-  --bg-soft:#0c111d;
+  --bg:#0a0c10;
+  --bg-soft:#11151c;
   --panel:rgba(255,255,255,.035);
   --line:rgba(255,255,255,.09);
   --line-strong:rgba(255,255,255,.16);
-  --fg:#e8edf7;
-  --muted:#9aa6bf;
+  --fg:#f0f2f5;
+  --muted:#a2aab8;
   --blue:#3b82f6;
   --blue-deep:#1e40af;
   --orange:#f97316;
   --orange-deep:#ea580c;
   --radius:16px;
-  --max:1140px;
+  --max:1200px;
   --font:'Inter',-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;
   --mono:'JetBrains Mono',ui-monospace,SFMono-Regular,Menlo,monospace;
 }
@@ -43,117 +43,130 @@ body{
   font-size:16px;line-height:1.65;-webkit-font-smoothing:antialiased;overflow-x:hidden;
 }
 a{color:inherit;text-decoration:none}
+a:focus-visible,button:focus-visible{outline:2px solid #93c5fd;outline-offset:5px}
+::selection{background:#254e7a;color:#fff}
 img{max-width:100%;display:block}
 .wrap{max-width:var(--max);margin:0 auto;padding:0 24px}
+.grid>*,.shot>*{min-width:0}
+h1,h2,h3{text-wrap:balance}
 
 /* ---------- nav ---------- */
 header{
   position:fixed;inset:0 0 auto 0;z-index:50;
   backdrop-filter:blur(14px);-webkit-backdrop-filter:blur(14px);
-  background:rgba(7,10,18,.72);border-bottom:1px solid transparent;transition:border-color .25s,background .25s;
+  background:rgba(10,12,16,.82);border-bottom:1px solid var(--line);transition:border-color .25s,background .25s;
 }
-header.scrolled{border-bottom-color:var(--line);background:rgba(7,10,18,.9)}
-.nav{display:flex;align-items:center;gap:28px;height:68px}
+header.scrolled{border-bottom-color:var(--line-strong);background:rgba(10,12,16,.95)}
+.nav{display:flex;align-items:center;gap:28px;height:76px}
 .brand{display:flex;align-items:center;gap:10px;font-weight:700;letter-spacing:-.02em;font-size:17px}
 .brand img{width:40px;height:40px;margin:-6px 0 -6px -5px}
 .nav-links{display:flex;gap:26px;margin-left:auto;font-size:14.5px;color:var(--muted);font-weight:500}
 .nav-links a{transition:color .18s}
 .nav-links a:hover{color:var(--fg)}
-.nav-cta{display:flex;gap:10px;align-items:center}
+.nav-cta{display:flex;gap:10px;align-items:center;margin-left:auto}
 @media(max-width:900px){.nav-links{display:none}}
 
 /* ---------- buttons ---------- */
 .btn{
-  display:inline-flex;align-items:center;gap:9px;padding:11px 20px;border-radius:11px;
+  display:inline-flex;align-items:center;justify-content:center;gap:9px;padding:13px 22px;border-radius:8px;
   font-weight:600;font-size:14.5px;border:1px solid var(--line-strong);
   background:var(--panel);color:var(--fg);transition:transform .16s,border-color .18s,background .18s,box-shadow .18s;
   cursor:pointer;white-space:nowrap;
 }
 .btn:hover{transform:translateY(-1px);border-color:rgba(255,255,255,.3);background:rgba(255,255,255,.07)}
 .btn-primary{
-  border-color:transparent;color:#fff;
-  background:linear-gradient(135deg,var(--blue) 0%,var(--blue-deep) 55%,var(--orange-deep) 160%);
-  box-shadow:0 6px 26px -8px rgba(59,130,246,.65);
+  border-color:#72a8ff;color:#fff;
+  background:linear-gradient(180deg,#337bea,#2460c6);
+  box-shadow:0 1px 0 rgba(255,255,255,.18) inset,0 4px 16px rgba(25,80,170,.2);
 }
-.btn-primary:hover{box-shadow:0 10px 34px -8px rgba(59,130,246,.8);background:linear-gradient(135deg,#4f8ff7 0%,#2550c7 55%,var(--orange) 170%)}
+.btn-primary:hover{border-color:#a5c8ff;box-shadow:0 6px 24px rgba(25,80,170,.3);background:#347cec}
 .btn svg{width:17px;height:17px;flex:none}
 .btn-sm{padding:8px 14px;font-size:13.5px}
 
 /* ---------- hero ---------- */
-.hero{position:relative;padding:150px 0 90px;overflow:hidden}
-#graph-bg{position:absolute;inset:0;width:100%;height:100%;opacity:.5;pointer-events:none}
+.hero{position:relative;padding:148px 0 54px;overflow:hidden}
+#graph-bg{position:absolute;inset:0;width:100%;height:100%;opacity:.28;pointer-events:none}
 .hero::after{
   content:"";position:absolute;inset:0;pointer-events:none;
-  background:radial-gradient(900px 460px at 50% 8%,rgba(59,130,246,.20),transparent 62%),
-             radial-gradient(760px 400px at 78% 42%,rgba(249,115,22,.13),transparent 60%),
+  background:radial-gradient(800px 460px at 50% 20%,rgba(59,130,246,.12),transparent 70%),
              linear-gradient(180deg,transparent 55%,var(--bg) 100%);
 }
 .hero .wrap{position:relative;z-index:2;text-align:center}
 .pill{
-  display:inline-flex;align-items:center;gap:9px;padding:6px 15px 6px 7px;border-radius:100px;
-  border:1px solid var(--line);background:var(--panel);font-size:13px;color:var(--muted);margin-bottom:26px;font-weight:500;
+  display:inline-flex;align-items:center;gap:10px;padding:6px 14px 6px 7px;border-radius:100px;
+  border:1px solid rgba(147,197,253,.2);background:rgba(59,130,246,.05);font-size:12px;color:#bccbe1;margin-bottom:28px;font-weight:500;
 }
 .pill b{
-  background:linear-gradient(135deg,var(--blue),var(--orange));
-  padding:3px 9px;border-radius:100px;color:#fff;font-size:11.5px;font-weight:700;letter-spacing:.03em;
+  background:rgba(96,165,250,.13);
+  padding:3px 9px;border-radius:100px;color:#a9ceff;font-size:10px;font-weight:700;letter-spacing:.06em;
 }
 h1{
-  font-size:clamp(38px,6.2vw,66px);line-height:1.06;letter-spacing:-.035em;font-weight:800;margin:0 0 22px;
+  font-size:clamp(42px,6.5vw,84px);line-height:1.04;letter-spacing:-.06em;font-weight:600;margin:0 0 26px;
 }
 h1 .grad{
-  background:linear-gradient(110deg,#60a5fa 0%,#3b82f6 35%,#fb923c 88%);
+  background:linear-gradient(110deg,#d2e4ff 0%,#7fb2fb 70%,#6295e5 100%);
   -webkit-background-clip:text;background-clip:text;color:transparent;
 }
-.lede{font-size:clamp(16.5px,2vw,20px);color:var(--muted);max-width:660px;margin:0 auto 34px}
+.lede{font-size:clamp(16px,2vw,18px);color:var(--muted);max-width:610px;margin:0 auto 30px;line-height:1.8;text-wrap:pretty}
 .hero-cta{display:flex;gap:12px;justify-content:center;flex-wrap:wrap;margin-bottom:22px}
 .badges{display:flex;gap:8px;justify-content:center;flex-wrap:wrap;margin-top:28px;opacity:.92}
 .badges img{height:20px}
+.hero-note{display:flex;justify-content:center;gap:22px;flex-wrap:wrap;color:var(--muted);font-size:12px;margin:24px 0 0}
+.hero-note span{display:flex;align-items:center;gap:8px}
+.hero-note span::before{content:"";width:5px;height:5px;border-radius:50%;background:#83b4ed}
+.demo{padding-top:16px}
+.demo>.wrap>.frame{border-color:rgba(147,197,253,.24);box-shadow:0 0 90px -35px rgba(59,130,246,.35),0 32px 70px -30px #000}
+.demo-caption{display:flex;justify-content:space-between;gap:16px;flex-wrap:wrap;margin:16px 0 0;font-family:var(--mono);font-size:11px;color:var(--muted)}
+.demo-caption a{color:#a9ceff}
 
 /* ---------- shared section ---------- */
-section{padding:92px 0;position:relative}
-.sec-head{text-align:center;max-width:680px;margin:0 auto 54px}
+section{padding:88px 0;position:relative}
+section[id]{border-top:1px solid var(--line)}
+.sec-head{text-align:left;max-width:720px;margin:0 0 46px}
 .eyebrow{
   font-size:12.5px;font-weight:700;letter-spacing:.13em;text-transform:uppercase;
-  color:var(--blue);margin-bottom:14px;
+  color:#93baf0;margin-bottom:18px;font-family:var(--mono);
 }
-h2{font-size:clamp(28px,4vw,42px);line-height:1.14;letter-spacing:-.03em;font-weight:800;margin:0 0 16px}
+h2{font-size:clamp(28px,4vw,44px);line-height:1.15;letter-spacing:-.045em;font-weight:600;margin:0 0 18px}
 .sec-head p{color:var(--muted);font-size:17px;margin:0}
 h3{font-size:19px;font-weight:700;letter-spacing:-.015em;margin:0 0 9px}
 
 /* ---------- cards ---------- */
-.grid{display:grid;gap:20px}
+.grid{display:grid;gap:16px}
 .g3{grid-template-columns:repeat(3,1fr)}
 .g2{grid-template-columns:repeat(2,1fr)}
 @media(max-width:860px){.g3,.g2{grid-template-columns:1fr}}
 .card{
-  border:1px solid var(--line);border-radius:var(--radius);padding:26px;
-  background:linear-gradient(180deg,rgba(255,255,255,.045),rgba(255,255,255,.012));
+  border:1px solid var(--line);border-radius:var(--radius);padding:32px;
+  background:linear-gradient(145deg,rgba(255,255,255,.035),rgba(255,255,255,.01));
   transition:border-color .2s,transform .2s,box-shadow .2s;position:relative;overflow:hidden;
 }
 .card:hover{border-color:var(--line-strong);transform:translateY(-3px);box-shadow:0 18px 40px -22px rgba(0,0,0,.9)}
 .card p{color:var(--muted);font-size:14.8px;margin:0}
 .ico{
   width:42px;height:42px;border-radius:11px;display:grid;place-items:center;margin-bottom:18px;
-  background:linear-gradient(135deg,rgba(59,130,246,.22),rgba(249,115,22,.16));
+  background:rgba(59,130,246,.08);
   border:1px solid rgba(255,255,255,.1);
 }
 .ico svg{width:21px;height:21px;stroke:#93c5fd;fill:none;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round}
 .card ul{margin:14px 0 0;padding-left:18px;color:var(--muted);font-size:14.5px}
 .card li{margin-bottom:5px}
-.card li::marker{color:var(--orange)}
+.card li::marker{color:#93baf0}
 
 /* ---------- media frame ---------- */
 .frame{
-  border:1px solid var(--line);border-radius:18px;overflow:hidden;background:var(--bg-soft);
+  border:1px solid var(--line-strong);border-radius:12px;overflow:hidden;background:var(--bg-soft);
   box-shadow:0 40px 90px -50px rgba(0,0,0,1),0 0 0 1px rgba(255,255,255,.03) inset;
 }
+.frame>img{width:100%}
 .frame-bar{
   display:flex;align-items:center;gap:7px;padding:11px 15px;border-bottom:1px solid var(--line);
   background:rgba(255,255,255,.025);
 }
-.dot{width:11px;height:11px;border-radius:50%;background:#2b3446}
+.dot{width:8px;height:8px;border-radius:50%;background:#48505d;flex:none}
 .frame-bar span{margin-left:10px;font-family:var(--mono);font-size:12px;color:var(--muted)}
-.shot{display:grid;gap:22px;grid-template-columns:1fr 1fr;align-items:center}
+.shot{display:grid;gap:56px;grid-template-columns:.8fr 1.2fr;align-items:center}
+.shot-txt h3{font-size:26px;letter-spacing:-.035em;line-height:1.25;margin-bottom:18px}
 .shot.rev{direction:rtl}
 .shot.rev>*{direction:ltr}
 @media(max-width:860px){.shot,.shot.rev{grid-template-columns:1fr;direction:ltr}}
@@ -179,10 +192,10 @@ h3{font-size:19px;font-weight:700;letter-spacing:-.015em;margin:0 0 9px}
 .copy.done{color:#4ade80;border-color:rgba(74,222,128,.45)}
 pre{margin:0;padding:18px;overflow-x:auto;font-family:var(--mono);font-size:13.2px;line-height:1.75}
 code{font-family:var(--mono)}
-.c-cmd{color:#93c5fd}.c-str{color:#fdba74}.c-dim{color:#6b7893}.c-key{color:#c4b5fd}
+.c-cmd{color:#93c5fd}.c-str{color:#fdba74}.c-dim{color:#919db2}.c-key{color:#c4b5fd}
 
 /* ---------- tabs ---------- */
-.tabs{display:flex;gap:7px;flex-wrap:wrap;margin-bottom:18px;justify-content:center}
+.tabs{display:flex;gap:7px;flex-wrap:wrap;margin-bottom:18px;justify-content:flex-start}
 .tab{
   padding:8px 16px;border-radius:10px;border:1px solid var(--line);background:var(--panel);
   font-size:13.5px;font-weight:600;color:var(--muted);cursor:pointer;transition:.18s;font-family:var(--font);
@@ -203,15 +216,14 @@ code{font-family:var(--mono)}
 .tbl-scroll{overflow-x:auto;border-radius:14px}
 
 /* ---------- stats ---------- */
-.stats{display:grid;grid-template-columns:repeat(4,1fr);gap:16px}
+.stats{display:grid;grid-template-columns:repeat(4,1fr);gap:0;border-block:1px solid var(--line);margin-top:48px}
 @media(max-width:800px){.stats{grid-template-columns:repeat(2,1fr)}}
 .stat{
-  text-align:center;padding:26px 14px;border:1px solid var(--line);border-radius:var(--radius);
-  background:linear-gradient(180deg,rgba(255,255,255,.045),rgba(255,255,255,.01));
+  text-align:center;padding:28px 14px;
 }
+.stat+.stat{border-left:1px solid var(--line)}
 .stat b{
-  display:block;font-size:34px;font-weight:800;letter-spacing:-.03em;
-  background:linear-gradient(135deg,#60a5fa,#fb923c);-webkit-background-clip:text;background-clip:text;color:transparent;
+  display:block;font-size:36px;font-weight:500;letter-spacing:-.05em;color:var(--fg);
 }
 .stat span{font-size:13.5px;color:var(--muted);font-weight:500}
 
@@ -219,8 +231,7 @@ code{font-family:var(--mono)}
 .cta-box{
   border:1px solid var(--line);border-radius:22px;padding:58px 34px;text-align:center;position:relative;overflow:hidden;
   background:
-    radial-gradient(700px 320px at 50% 0%,rgba(59,130,246,.20),transparent 65%),
-    radial-gradient(520px 280px at 82% 100%,rgba(249,115,22,.14),transparent 65%),
+    radial-gradient(700px 320px at 50% 0%,rgba(59,130,246,.14),transparent 65%),
     linear-gradient(180deg,rgba(255,255,255,.04),rgba(255,255,255,.012));
 }
 .cta-box h2{margin-bottom:12px}
@@ -242,6 +253,35 @@ footer{border-top:1px solid var(--line);padding:46px 0 40px;color:var(--muted);f
   .rv{opacity:1;transform:none;transition:none}
   html{scroll-behavior:auto}
   #graph-bg{display:none}
+  .btn,.card{transition:none}
+  .btn:hover,.card:hover{transform:none}
+}
+@media(max-width:600px){
+  .wrap{padding-inline:20px}
+  .nav{height:68px;gap:12px}
+  .brand{font-size:14px;gap:5px}
+  .brand img{width:32px;height:32px}
+  .nav-cta{gap:6px}
+  .btn-sm{padding:8px 10px;font-size:12px}
+  .hero{padding:116px 0 36px}
+  .hero-cta{gap:10px}
+  .hero-cta .btn{white-space:normal;max-width:100%}
+  .hero-note{gap:14px;font-size:11px}
+  section{padding-block:60px}
+  .demo{padding-top:8px}
+  .sec-head{margin-bottom:30px}
+  .sec-head p{font-size:16px}
+  .card{padding:24px}
+  .shot{gap:24px}
+  .frame-bar span{font-size:10px}
+  .stat:nth-child(3){border-left:0}
+  .stat:nth-child(n+3){border-top:1px solid var(--line)}
+  .cta-box{padding:40px 20px}
+  .foot-links{gap:28px}
+}
+@media(min-width:601px) and (max-width:800px){
+  .stat:nth-child(3){border-left:0}
+  .stat:nth-child(n+3){border-top:1px solid var(--line)}
 }
 </style>
 </head>
@@ -293,6 +333,24 @@ footer{border-top:1px solid var(--line);padding:46px 0 40px;color:var(--muted);f
       </a>
       <a class="btn" href="#ai">Connect your AI</a>
     </div>
+    <p class="hero-note"><span>Runs locally</span><span>Open source</span><span>VS Code · CLI · MCP</span></p>
+  </div>
+</div>
+
+<!-- ============ DEMO ============ -->
+<section class="demo">
+  <div class="wrap">
+    <div class="frame">
+      <div class="frame-bar"><i class="dot"></i><i class="dot"></i><i class="dot"></i><span>Graph-It-Live — dependency graph</span></div>
+      <img src="media/demo-plugin-graph-it-live.gif" alt="Graph-It-Live dependency graph in VS Code" fetchpriority="high">
+    </div>
+    <div class="demo-caption"><span>YOUR CODE. THE CONNECTIONS. THE WHOLE PICTURE.</span><a href="#views">Explore the three views ↗</a></div>
+    <div class="stats rv">
+      <div class="stat"><b>27</b><span>MCP graph tools</span></div>
+      <div class="stat"><b>10+</b><span>Languages parsed</span></div>
+      <div class="stat"><b>3</b><span>Graph views</span></div>
+      <div class="stat"><b>100%</b><span>Local analysis</span></div>
+    </div>
     <div class="badges">
       <a href="https://marketplace.visualstudio.com/items?itemName=magic5644.graph-it-live" target="_blank" rel="noopener"><img src="https://vsmarketplacebadges.dev/version/magic5644.graph-it-live.svg" alt="VS Code version" loading="lazy"></a>
       <a href="https://marketplace.visualstudio.com/items?itemName=magic5644.graph-it-live" target="_blank" rel="noopener"><img src="https://vsmarketplacebadges.dev/installs-short/magic5644.graph-it-live.svg?label=vscode+installs" alt="VS Code installs" loading="lazy"></a>
@@ -300,22 +358,6 @@ footer{border-top:1px solid var(--line);padding:46px 0 40px;color:var(--muted);f
       <a href="https://open-vsx.org/extension/magic5644/graph-it-live" target="_blank" rel="noopener"><img src="https://img.shields.io/open-vsx/dt/magic5644/graph-it-live?label=Open%20VSX%20Downloads" alt="Open VSX downloads" loading="lazy"></a>
       <a href="https://www.npmjs.com/package/@magic5644/graph-it-live" target="_blank" rel="noopener"><img src="https://img.shields.io/npm/v/%40magic5644%2Fgraph-it-live?label=npm%20CLI&logo=npm&logoColor=white" alt="npm CLI" loading="lazy"></a>
       <a href="https://github.com/magic5644/Graph-It-Live/blob/main/LICENSE" target="_blank" rel="noopener"><img src="https://img.shields.io/github/license/magic5644/Graph-It-Live" alt="License MIT" loading="lazy"></a>
-    </div>
-  </div>
-</div>
-
-<!-- ============ DEMO ============ -->
-<section style="padding-top:20px" class="rv">
-  <div class="wrap">
-    <div class="frame">
-      <div class="frame-bar"><i class="dot"></i><i class="dot"></i><i class="dot"></i><span>Graph-It-Live — dependency graph</span></div>
-      <img src="media/demo-plugin-graph-it-live.gif" alt="Graph-It-Live dependency graph in VS Code" loading="lazy">
-    </div>
-    <div class="stats rv" style="margin-top:44px">
-      <div class="stat"><b>27</b><span>MCP graph tools</span></div>
-      <div class="stat"><b>10+</b><span>Languages parsed</span></div>
-      <div class="stat"><b>3</b><span>Graph views</span></div>
-      <div class="stat"><b>100%</b><span>Local analysis</span></div>
     </div>
   </div>
 </section>
@@ -527,7 +569,7 @@ footer{border-top:1px solid var(--line);padding:46px 0 40px;color:var(--muted);f
 </section>
 
 <!-- ============ CLI ============ -->
-<section id="cli" style="background:linear-gradient(180deg,transparent,rgba(249,115,22,.05),transparent)">
+<section id="cli" style="background:linear-gradient(180deg,transparent,rgba(59,130,246,.04),transparent)">
   <div class="wrap">
     <div class="sec-head rv">
       <div class="eyebrow">Standalone CLI</div>
