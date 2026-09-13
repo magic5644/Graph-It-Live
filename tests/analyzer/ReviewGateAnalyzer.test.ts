@@ -467,6 +467,94 @@ describe("ReviewGateAnalyzer - consumer standing", () => {
     expect(symbol.scoreFactors.unverifiedConsumers).toBe(0);
   });
 
+  /**
+   * The symbol traversal only records coverage for consumers it reached before
+   * its depth limit. `findReferencingFiles` answers the same question from the
+   * reverse index, so a consumer with a test of its own is recognised wherever
+   * the walk happened to stop.
+   */
+  const analyzerWithReverseIndex = async (
+    consumerFiles: string[],
+    referencing: Record<string, string[]>,
+  ) => {
+    const workspace = await createGitWorkspaceWithDiff(OLD_API, NEW_API);
+    const relative = (filePath: string) =>
+      filePath.slice(workspace.length + 1).replaceAll("\\", "/");
+    const dependents = {
+      getSymbolDependents: (filePath: string) => Promise.resolve(
+        relative(filePath) === "src/api.ts"
+          ? consumerFiles.map(file => ({ sourceSymbolId: `${path.join(workspace, file)}:consumer` }))
+          : [],
+      ),
+      findReferencingFiles: (filePath: string) => Promise.resolve(
+        (referencing[relative(filePath)] ?? []).map(file => ({ path: path.join(workspace, file) })),
+      ),
+    };
+    return new ReviewGateAnalyzer(workspace, dependents as never);
+  };
+
+  it("recognises a consumer its own test references, beyond the traversal depth", async () => {
+    const analyzer = await analyzerWithReverseIndex(
+      ["src/consumer.ts"],
+      { "src/consumer.ts": ["tests/consumer.test.ts"] },
+    );
+
+    const [symbol] = (await analyzer.analyze({ baseRef: "main" })).symbols;
+
+    expect(symbol.consumers.covered).toEqual(["src/consumer.ts"]);
+    expect(symbol.scoreFactors.unverifiedConsumers).toBe(0);
+  });
+
+  it("follows the reverse index through an intermediate file to reach the test", async () => {
+    const analyzer = await analyzerWithReverseIndex(["src/consumer.ts"], {
+      "src/consumer.ts": ["src/middle.ts"],
+      "src/middle.ts": ["tests/middle.test.ts"],
+    });
+
+    const [symbol] = (await analyzer.analyze({ baseRef: "main" })).symbols;
+
+    expect(symbol.consumers.covered).toEqual(["src/consumer.ts"]);
+  });
+
+  it("still reports a consumer no test references at all", async () => {
+    const analyzer = await analyzerWithReverseIndex(
+      ["src/consumer.ts"],
+      { "src/consumer.ts": ["src/other.ts"] },
+    );
+
+    const [symbol] = (await analyzer.analyze({ baseRef: "main" })).symbols;
+
+    expect(symbol.consumers.unverified).toEqual(["src/consumer.ts"]);
+    expect(symbol.scoreFactors.unverifiedConsumers).toBe(5);
+  });
+
+  it("does not loop forever on a reference cycle", async () => {
+    const analyzer = await analyzerWithReverseIndex(["src/consumer.ts"], {
+      "src/consumer.ts": ["src/a.ts"],
+      "src/a.ts": ["src/consumer.ts"],
+    });
+
+    const [symbol] = (await analyzer.analyze({ baseRef: "main" })).symbols;
+
+    expect(symbol.consumers.unverified).toEqual(["src/consumer.ts"]);
+  });
+
+  it("treats a failing reverse-index lookup as no coverage rather than crashing", async () => {
+    const workspace = await createGitWorkspaceWithDiff(OLD_API, NEW_API);
+    const analyzer = new ReviewGateAnalyzer(workspace, {
+      getSymbolDependents: (filePath: string) => Promise.resolve(
+        filePath.endsWith("api.ts")
+          ? [{ sourceSymbolId: `${path.join(workspace, "src/consumer.ts")}:consumer` }]
+          : [],
+      ),
+      findReferencingFiles: () => Promise.reject(new Error("index unavailable")),
+    } as never);
+
+    const [symbol] = (await analyzer.analyze({ baseRef: "main" })).symbols;
+
+    expect(symbol.consumers.unverified).toEqual(["src/consumer.ts"]);
+  });
+
   it("does not score many consumers when every one of them is covered", async () => {
     const many = Array.from({ length: 12 }, (_, i) => `src/consumer${i}.ts`);
     const edges = Object.fromEntries(many.map((file, i) => [file, [`tests/consumer${i}.test.ts`]]));
