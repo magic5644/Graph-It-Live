@@ -86,7 +86,7 @@ function formatGraphContextAsToon<T>(
       truncated: data.truncated,
       nextCursor: data.nextCursor ?? '',
     }], { objectName: 'graph_context' }));
-    sections.push(jsonToToon(data.seeds, { objectName: 'seeds' }));
+    // No `seeds` section: every seed is in `nodes`, flagged isSeed.
     sections.push(jsonToToon(data.nodes, { objectName: 'nodes' }));
     sections.push(jsonToToon(data.edges, { objectName: 'edges' }));
     sections.push(jsonToToon(data.paths, { objectName: 'paths' }));

@@ -6,6 +6,7 @@ import initSqlJs from 'sql.js';
 import type { Database } from 'sql.js';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { QueryEngine } from '../../../src/analyzer/QueryEngine';
+import { describeEdge } from '../../../src/analyzer/graph-context/GraphContextEvidence';
 import { GraphContextRetriever } from '../../../src/analyzer/graph-context/GraphContextRetriever';
 import { GraphContextScorer } from '../../../src/analyzer/graph-context/GraphContextScorer';
 import type {
@@ -165,8 +166,8 @@ describe('GraphContextRetriever golden modes', () => {
       depth: 2,
     });
 
-    expect(response.seeds.map(seed => seed.id)).toContain(IDS.authenticate);
-    expect(response.seeds.map(seed => seed.id)).not.toContain(IDS.outOfScopeAuth);
+    expect(response.seeds).toContain(IDS.authenticate);
+    expect(response.seeds).not.toContain(IDS.outOfScopeAuth);
     expect(response.edges.map(result => result.relation)).toContain('CALLS');
     expect(response.nodes.map(result => result.id)).toEqual(expect.arrayContaining([
       IDS.authController,
@@ -186,7 +187,7 @@ describe('GraphContextRetriever golden modes', () => {
       relations: ['CALLS'],
     });
 
-    expect(response.seeds.map(seed => seed.id)).toEqual([IDS.authenticate]);
+    expect(response.seeds).toEqual([IDS.authenticate]);
     expect(response.edges).toEqual(expect.arrayContaining([
       expect.objectContaining({ source: IDS.authController, target: IDS.authenticate, relation: 'CALLS' }),
       expect.objectContaining({ source: IDS.authenticate, target: IDS.tokenVerifier, relation: 'CALLS' }),
@@ -204,7 +205,7 @@ describe('GraphContextRetriever golden modes', () => {
       depth: 2,
     });
 
-    expect(response.seeds.map(seed => seed.id)).toEqual([IDS.authServiceFile]);
+    expect(response.seeds).toEqual([IDS.authServiceFile]);
     expect(response.edges).toContainEqual(expect.objectContaining({
       source: IDS.authControllerFile,
       target: IDS.authServiceFile,
@@ -245,7 +246,7 @@ describe('GraphContextRetriever golden modes', () => {
       maxNodes: 2,
     });
 
-    expect(response.seeds.map(seed => seed.id)).toEqual([serviceId]);
+    expect(response.seeds).toEqual([serviceId]);
     expect(response.edges).toContainEqual(expect.objectContaining({
       source: apiId,
       target: serviceId,
@@ -282,7 +283,7 @@ describe('GraphContextRetriever golden modes', () => {
       maxNodes: 2,
     });
 
-    expect(response.seeds.map(seed => seed.id)).toEqual([gatewayId]);
+    expect(response.seeds).toEqual([gatewayId]);
     expect(response.edges).toContainEqual(expect.objectContaining({
       source: coordinatorId,
       target: gatewayId,
@@ -298,7 +299,7 @@ describe('GraphContextRetriever golden modes', () => {
       depth: 2,
     });
 
-    expect(response.seeds.map(seed => seed.id)).toEqual([IDS.authGateway]);
+    expect(response.seeds).toEqual([IDS.authGateway]);
     expect(response.edges.map(result => result.relation)).toEqual(expect.arrayContaining([
       'IMPLEMENTS',
       'CALLS',
@@ -344,7 +345,7 @@ describe('GraphContextRetriever golden modes', () => {
       maxNodes: 5,
     });
 
-    expect(response.seeds[0]?.id).toBe(IDS.authenticate);
+    expect(response.seeds[0]).toBe(IDS.authenticate);
     expect(response.nodes[0]?.id).toBe(IDS.authenticate);
     expect(response.edges.map(result => result.relation)).toEqual(expect.arrayContaining([
       'CALLS',
@@ -420,7 +421,7 @@ describe('GraphContextRetriever golden modes', () => {
     expect(constrainedResponse.seeds).toHaveLength(3);
     expect(constrainedResponse.nodes).toHaveLength(3);
     expect(mixedResponse.seeds).toHaveLength(3);
-    expect(mixedResponse.seeds[0]?.id).toBe(manyNodes[0].id);
+    expect(mixedResponse.seeds[0]).toBe(manyNodes[0].id);
     expect(cappedResponse.seeds).toHaveLength(20);
   });
 
@@ -450,7 +451,7 @@ describe('GraphContextRetriever golden modes', () => {
       maxNodes: 5,
     });
 
-    expect(response.seeds.map(seed => seed.id)).toEqual(requestedNodes.map(requestedNode => requestedNode.id));
+    expect(response.seeds).toEqual(requestedNodes.map(requestedNode => requestedNode.id));
     expect(response.nodes).toHaveLength(requestedNodes.length);
     expect(response.nodes.map(result => result.id)).toEqual(expect.arrayContaining(
       requestedNodes.map(requestedNode => requestedNode.id),
@@ -588,16 +589,19 @@ describe('GraphContextRetriever golden modes', () => {
       maxNodes: 2,
     });
 
-    expect(response.edges).toContainEqual(expect.objectContaining({
+    // Provenance lives on the edge itself; the reason is derived from the
+    // confidence level rather than stored on every edge.
+    const inferredEdge = response.edges.find(edge => edge.source === apiId);
+    expect(inferredEdge).toEqual(expect.objectContaining({
       source: apiId,
       target: serviceId,
       relation: 'IMPACTED_BY',
       confidence: 'INFERRED',
-      evidence: {
-        sourcePath: 'src/api/OrderApi.ts',
-        reason: 'IMPACTED_BY relation inferred from graph analysis.',
-      },
+      sourcePath: 'src/api/OrderApi.ts',
     }));
+    expect(describeEdge(inferredEdge!)).toBe(
+      'IMPACTED_BY relation inferred from graph analysis.',
+    );
   });
 });
 

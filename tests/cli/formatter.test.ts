@@ -416,3 +416,56 @@ describe("relativizeWorkspacePaths", () => {
     );
   });
 });
+
+describe("formatToon - multi-section payloads", () => {
+  const graphPayload = {
+    mode: "search",
+    truncated: true,
+    nextCursor: "abc123",
+    nodes: [{ id: "n1", name: "alpha" }, { id: "n2", name: "beta" }],
+    edges: [{ source: "n1", target: "n2", relation: "CALLS" }],
+  };
+
+  it("encodes every array, not just the first one found", () => {
+    const out = formatOutput(graphPayload, "toon", "context");
+
+    expect(out).toMatch(/^nodes\(id,name\)$/m);
+    expect(out).toMatch(/^edges\(source,target,relation\)$/m);
+    expect(out).toContain("[n1,n2,CALLS]");
+  });
+
+  it("starts each section on its own line", () => {
+    const out = formatOutput(graphPayload, "toon", "context");
+    const rowBeforeEdges = out.split("\n").find(line => line.startsWith("[n2,"));
+
+    expect(rowBeforeEdges).toBe("[n2,beta]");
+  });
+
+  it("keeps scalar fields in a header comment", () => {
+    const out = formatOutput(graphPayload, "toon", "context");
+
+    // nextCursor is the handle for the next page; dropping it strands the caller.
+    expect(out.split("\n")[0]).toBe("# mode=search truncated=true nextCursor=abc123");
+  });
+
+  it("measures savings against what it encoded, never against dropped content", () => {
+    const out = formatOutput(graphPayload, "toon", "context");
+    const percent = /Token Savings: -?\d+ tokens \((-?[\d.]+)%\)/.exec(out);
+
+    // Encoding both sections cannot claim the savings of having dropped one.
+    expect(percent).not.toBeNull();
+    expect(Number(percent?.[1])).toBeLessThan(80);
+  });
+
+  it("still falls back to JSON when there is no array to encode", () => {
+    const out = formatOutput({ count: 3, truncated: false }, "toon", "stats");
+
+    expect(() => JSON.parse(out)).not.toThrow();
+  });
+
+  it("ignores empty arrays instead of emitting a bare header", () => {
+    const out = formatOutput({ nodes: [{ id: "n1" }], edges: [] }, "toon", "context");
+
+    expect(out).not.toContain("edges(");
+  });
+});

@@ -25,13 +25,12 @@ export function toEvidence(input: GraphContextEvidenceInput): GraphContextEdge {
     ? undefined
     : normalizeEndLine(input.sourceEndLine, sourceLine);
   const confidence = confidenceFor(input);
-  const evidence = {
-    ...(sourcePath === undefined ? {} : { sourcePath }),
-    ...(sourceLine === undefined ? {} : { sourceLine }),
-    ...(sourceEndLine === undefined ? {} : { sourceEndLine }),
-    reason: reasonFor(input, confidence),
-  };
 
+  // No `evidence` object: it used to repeat the edge's own sourcePath/sourceLine
+  // verbatim plus a sentence fully derivable from (relation, confidence) — a
+  // sixth of the payload carrying nothing the edge did not already state.
+  // `describeEdge()` renders that sentence on demand. The field stays in the
+  // contract for evidence that is genuinely not derivable.
   return {
     source: input.source,
     target: input.target,
@@ -40,8 +39,29 @@ export function toEvidence(input: GraphContextEvidenceInput): GraphContextEdge {
     ...(sourcePath === undefined ? {} : { sourcePath }),
     ...(sourceLine === undefined ? {} : { sourceLine }),
     ...(sourceEndLine === undefined ? {} : { sourceEndLine }),
-    evidence,
   };
+}
+
+/**
+ * Human-readable justification for an edge, derived from the fields it carries.
+ *
+ * Previously stored on every edge as `evidence.reason`; it is computed here so
+ * a caller that wants the sentence can still get it without paying for it in
+ * every response.
+ */
+export function describeEdge(edge: Pick<GraphContextEdge, 'relation' | 'confidence'>): string {
+  switch (edge.confidence) {
+    case 'AMBIGUOUS':
+      return `Unresolved ${edge.relation} target has multiple resolver candidates.`;
+    case 'STALE':
+      return 'Source changed after this relation was indexed.';
+    case 'RESOLVED':
+      return 'Import target resolved to a workspace file.';
+    case 'INFERRED':
+      return `${edge.relation} relation inferred from graph analysis.`;
+    default:
+      return `${edge.relation} relation extracted from the AST.`;
+  }
 }
 
 function confidenceFor(input: GraphContextEvidenceInput): GraphContextConfidence {
@@ -50,23 +70,6 @@ function confidenceFor(input: GraphContextEvidenceInput): GraphContextConfidence
   if (input.origin === 'MODULE_RESOLUTION') return 'RESOLVED';
   if (input.origin === 'INFERENCE') return 'INFERRED';
   return 'EXTRACTED';
-}
-
-function reasonFor(
-  input: GraphContextEvidenceInput,
-  confidence: GraphContextConfidence,
-): string {
-  if (confidence === 'AMBIGUOUS') {
-    return `Unresolved ${input.relation} target has multiple resolver candidates.`;
-  }
-  if (confidence === 'STALE') return 'Source changed after this relation was indexed.';
-  if (input.origin === 'MODULE_RESOLUTION') {
-    return 'Import target resolved to a workspace file.';
-  }
-  if (input.origin === 'INFERENCE') {
-    return `${input.relation} relation inferred from graph analysis.`;
-  }
-  return `${input.relation} relation extracted from the AST.`;
 }
 
 function toWorkspaceRelativePath(

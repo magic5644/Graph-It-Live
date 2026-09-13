@@ -71,21 +71,31 @@ function formatJson(data: unknown): string {
 }
 
 function formatToon(data: unknown, command: string): string {
-  // Extract array data for TOON
-  const arrayData =
-    extractArrayForToon(data) ??
-    extractDependencyCheckArrayForToon(data) ??
-    extractNestedArrayForToon(data);
-  if (!arrayData || arrayData.length === 0) {
+  const sections = collectToonSections(data);
+  if (sections.length === 0) {
     // Fallback to JSON for non-array / empty data
     return JSON.stringify(data, null, 2);
   }
 
   try {
-    const objectName = inferObjectName(arrayData);
-    const toonContent = jsonToToon(arrayData, { objectName });
-    const jsonStr = JSON.stringify(data, null, 2);
-    const savings = estimateTokenSavings(jsonStr, toonContent);
+    // jsonToToon returns no trailing newline, so sections must be joined with one
+    // or the next section's header lands at the end of the previous row.
+    const body = sections
+      .map(section => jsonToToon(section.items, { objectName: section.name }))
+      .join("\n");
+    const header = formatToonScalarHeader(data, sections);
+    const toonContent = header + body;
+
+    // Savings are measured against the JSON of what was actually encoded, so
+    // dropping content can never be reported as a saving.
+    const encodedJson = JSON.stringify(
+      sections.length === 1 && sections[0].name === TOON_ROOT_ARRAY_NAME
+        ? sections[0].items
+        : Object.fromEntries(sections.map(section => [section.name, section.items])),
+      null,
+      2,
+    );
+    const savings = estimateTokenSavings(encodedJson, toonContent);
 
     // Session stats: TOON encoding size vs JSON equivalent (estimated, chars/4
     // heuristic). Recorded only on successful TOON conversion, like the MCP side.
@@ -100,12 +110,41 @@ function formatToon(data: unknown, command: string): string {
 
     return (
       toonContent +
-      `\n\n# Token Savings: ${savings.savings} tokens (${savings.savingsPercent.toFixed(1)}%)`
+      `\n# Token Savings: ${savings.savings} tokens (${savings.savingsPercent.toFixed(1)}%)`
     );
   } catch {
     // Fallback to JSON if TOON fails
     return JSON.stringify(data, null, 2);
   }
+}
+
+/**
+ * Render the payload's scalar fields as a leading comment.
+ *
+ * TOON encodes arrays only, so without this line facts like `truncated` or
+ * `nextCursor` — the handle needed to fetch the next page — would be dropped
+ * from the output entirely.
+ */
+function formatToonScalarHeader(data: unknown, sections: ToonSection[]): string {
+  if (typeof data !== "object" || data === null || Array.isArray(data)) {
+    return "";
+  }
+
+  const encoded = new Set(sections.map(section => section.name));
+  const parts = Object.entries(data as Record<string, unknown>).flatMap(([key, value]) => {
+    if (encoded.has(key) || Array.isArray(value) || value === undefined || value === null) {
+      return [];
+    }
+    if (typeof value === "object") {
+      // Small scalar records such as `omitted: { nodes, edges }`.
+      return Object.entries(value as Record<string, unknown>)
+        .filter(([, nested]) => typeof nested !== "object")
+        .map(([nestedKey, nested]) => `${key}.${nestedKey}=${String(nested)}`);
+    }
+    return [`${key}=${String(value)}`];
+  });
+
+  return parts.length === 0 ? "" : `# ${parts.join(" ")}\n`;
 }
 
 function formatText(data: unknown, command: string): string {
@@ -730,36 +769,60 @@ const TOON_ARRAY_KEYS = [
   "dependencies", "symbols", "unusedSymbols", "confirmedCycles", "callers", "files", "callChain",
 ];
 
-function extractArrayForToon(data: unknown): unknown[] | null {
-  if (Array.isArray(data)) return data;
-
-  if (typeof data === "object" && data !== null) {
-    const obj = data as Record<string, unknown>;
-    for (const key of TOON_ARRAY_KEYS) {
-      if (Array.isArray(obj[key])) return obj[key] as unknown[];
-    }
-  }
-
-  return null;
+interface ToonSection {
+  name: string;
+  items: unknown[];
 }
 
-/**
- * Fallback for shapes like explain's { graph: { nodes, edges } }, where the
- * array lives one level deeper than extractArrayForToon's top-level key scan.
- */
-function extractNestedArrayForToon(data: unknown): unknown[] | null {
-  if (typeof data !== "object" || data === null) return null;
-  const obj = data as Record<string, unknown>;
+/** Section name used when the payload is itself an array, with no key to borrow. */
+const TOON_ROOT_ARRAY_NAME = "__root__";
 
+/**
+ * Collect every array worth encoding, not just the first one found.
+ *
+ * A payload like graph context carries `nodes` and `edges` side by side, and
+ * returning only `nodes` silently dropped every relation — the substance of the
+ * result — while the savings figure counted the loss as a win.
+ */
+function collectToonSections(data: unknown): ToonSection[] {
+  if (Array.isArray(data)) {
+    return data.length === 0 ? [] : [{ name: inferObjectName(data), items: data }];
+  }
+
+  if (typeof data !== "object" || data === null) {
+    return [];
+  }
+
+  const obj = data as Record<string, unknown>;
+  const topLevel = collectSectionsFrom(obj);
+  if (topLevel.length > 0) {
+    return topLevel;
+  }
+
+  // check-dependencies splits its two arrays across outgoing/incoming and only
+  // one of them has a name the generic scan knows, so merge them first.
+  const dependencyCheck = extractDependencyCheckArrayForToon(data);
+  if (dependencyCheck && dependencyCheck.length > 0) {
+    return [{ name: "dependencies", items: dependencyCheck }];
+  }
+
+  // Shapes like explain's { graph: { nodes, edges } }, one level deeper.
   for (const value of Object.values(obj)) {
     if (typeof value !== "object" || value === null || Array.isArray(value)) continue;
-    const nested = value as Record<string, unknown>;
-    for (const key of TOON_ARRAY_KEYS) {
-      if (Array.isArray(nested[key])) return nested[key] as unknown[];
+    const nested = collectSectionsFrom(value as Record<string, unknown>);
+    if (nested.length > 0) {
+      return nested;
     }
   }
 
-  return null;
+  return [];
+}
+
+function collectSectionsFrom(obj: Record<string, unknown>): ToonSection[] {
+  return TOON_ARRAY_KEYS.flatMap(key => {
+    const value = obj[key];
+    return Array.isArray(value) && value.length > 0 ? [{ name: key, items: value }] : [];
+  });
 }
 
 /**

@@ -53,6 +53,9 @@ export function applyGraphContextBudgetPage(
   const mandatoryIds = isFirstPage
     ? collectMandatoryNodeIds(response, nodeById)
     : new Set<string>();
+  const requiredIds = isFirstPage
+    ? collectPathEndpointIds(response, nodeById)
+    : new Set<string>();
   const canReturnAllNodes = maxNodes === undefined || response.nodes.length <= maxNodes;
 
   if (isFirstPage && canReturnAllNodes) {
@@ -75,9 +78,28 @@ export function applyGraphContextBudgetPage(
     rankedNodes,
     isFirstPage,
   );
+  // A broad question can match dozens of seeds, which used to make the whole
+  // request fail rather than return a smaller answer. Seeds are breadth, not
+  // intent: drop the lowest-ranked ones until the page fits. Path endpoints stay
+  // required — a path missing an end is not a smaller answer, it is a wrong one.
+  if (selectedResponse.tokenEstimate > tokenBudget) {
+    const droppableIds = rankedNodes
+      .filter(node => selectedIds.has(node.id) && !requiredIds.has(node.id))
+      .map(node => node.id)
+      .reverse();
+
+    // Bounded by the seed count (tens at most), so one rebuild per drop is fine.
+    for (const droppableId of droppableIds) {
+      if (selectedResponse.tokenEstimate <= tokenBudget) break;
+      selectedIds.delete(droppableId);
+      mandatoryIds.delete(droppableId);
+      selectedResponse = buildBudgetedResponse(response, selectedIds, rankedNodes, isFirstPage);
+    }
+  }
+
   if (selectedResponse.tokenEstimate > tokenBudget) {
     throw new RangeError(
-      `Token budget ${tokenBudget} cannot contain mandatory seeds and path endpoints `
+      `Token budget ${tokenBudget} cannot contain the path endpoints this request requires `
       + `(${selectedResponse.tokenEstimate} tokens required).`,
     );
   }
@@ -153,7 +175,7 @@ function rankNodes(response: GraphContextResponse): GraphContextNode[] {
     }
   };
 
-  for (const seed of response.seeds) addId(seed.id);
+  for (const seedId of response.seeds) addId(seedId);
 
   const pathEndpointIds = new Set<string>();
   for (const path of response.paths) {
@@ -180,7 +202,7 @@ function rankNodes(response: GraphContextResponse): GraphContextNode[] {
   }
 
   const directAnchorIds = new Set([
-    ...response.seeds.map(seed => seed.id),
+    ...response.seeds,
     ...pathEndpointIds,
   ]);
   for (const graphEdge of response.edges) {
@@ -221,13 +243,28 @@ function rankNodes(response: GraphContextResponse): GraphContextNode[] {
   });
 }
 
+/** Path endpoints only: the subset of mandatory ids that must never be dropped. */
+function collectPathEndpointIds(
+  response: GraphContextResponse,
+  nodeById: Map<string, GraphContextNode>,
+): Set<string> {
+  const endpointIds = new Set<string>();
+  for (const path of response.paths) {
+    const firstId = path.nodeIds[0];
+    const lastId = path.nodeIds.at(-1);
+    if (firstId !== undefined && nodeById.has(firstId)) endpointIds.add(firstId);
+    if (lastId !== undefined && nodeById.has(lastId)) endpointIds.add(lastId);
+  }
+  return endpointIds;
+}
+
 function collectMandatoryNodeIds(
   response: GraphContextResponse,
   nodeById: Map<string, GraphContextNode>,
 ): Set<string> {
   const mandatoryIds = new Set<string>();
-  for (const seed of response.seeds) {
-    if (nodeById.has(seed.id)) mandatoryIds.add(seed.id);
+  for (const seedId of response.seeds) {
+    if (nodeById.has(seedId)) mandatoryIds.add(seedId);
   }
   for (const path of response.paths) {
     const firstId = path.nodeIds[0];
@@ -264,7 +301,7 @@ function buildBudgetedResponse(
   };
   const response: GraphContextResponse = {
     ...source,
-    seeds: includeMandatoryMetadata ? source.seeds.map(seed => ({ ...seed })) : [],
+    seeds: includeMandatoryMetadata ? [...source.seeds] : [],
     nodes,
     edges,
     paths,

@@ -241,7 +241,7 @@ describe('graph_context MCP contract', () => {
       'graphitlive_graph_context',
     );
 
-    expect(result.seeds[0]?.id).toBe('file:src/services/UserService.ts');
+    expect(result.seeds[0]).toBe('file:src/services/UserService.ts');
     expect(result.nodes).toEqual(expect.arrayContaining([
       expect.objectContaining({ id: 'file:src/services/UserService.ts', score: 4 }),
       expect.objectContaining({ kind: 'community', name: expect.stringMatching(/^Community \d+ \(\d+ nodes\)$/) }),
@@ -255,7 +255,6 @@ describe('graph_context MCP contract', () => {
     expect(snapshotRead).toHaveBeenCalledTimes(4);
     expect([...formatted.content[0].text.matchAll(/^([a-zA-Z_]+)\(/gm)].map(match => match[1])).toEqual([
       'graph_context',
-      'seeds',
       'nodes',
       'edges',
       'paths',

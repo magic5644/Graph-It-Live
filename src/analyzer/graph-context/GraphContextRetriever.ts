@@ -54,7 +54,8 @@ interface TraversalEntry {
 }
 
 interface RetrievalSelection {
-  seeds: GraphContextNode[];
+  /** Seed node ids; the nodes themselves are in `nodes`, flagged isSeed. */
+  seeds: string[];
   nodes: GraphContextNode[];
   edges: GraphContextEdge[];
   paths: GraphContextPath[];
@@ -190,7 +191,7 @@ export class GraphContextRetriever {
       .filter(edge => selectedIds.has(edge.source) && selectedIds.has(edge.target));
 
     return {
-      seeds: seeds.map(seed => ({ ...seed, isSeed: true })),
+      seeds: seeds.map(seed => seed.id),
       nodes,
       edges,
       paths: [],
@@ -239,7 +240,7 @@ export class GraphContextRetriever {
         .map(node => ({ ...node, score: 1, isSeed: endpointIds.has(node.id) || undefined }));
       return {
         ...emptySelection(),
-        seeds: endpoints.map(node => ({ ...node, isSeed: true })),
+        seeds: endpoints.map(node => node.id),
         nodes,
         ambiguous,
         eligibleNodeCount: nodes.length,
@@ -263,7 +264,7 @@ export class GraphContextRetriever {
     };
 
     return {
-      seeds: endpoints.map(node => ({ ...node, isSeed: true })),
+      seeds: endpoints.map(node => node.id),
       nodes,
       edges,
       paths: [responsePath],
@@ -321,8 +322,8 @@ export class GraphContextRetriever {
         });
       }
     }
-    const seeds = nodes.length === 0 ? [] : [{ ...nodes[0], isSeed: true }];
     if (nodes[0]) nodes[0] = { ...nodes[0], isSeed: true };
+    const seeds = nodes[0] === undefined ? [] : [nodes[0].id];
 
     return {
       seeds,
@@ -607,7 +608,7 @@ function collectAmbiguousEdgeCandidates(
   scope: string | undefined,
 ): GraphContextCandidate[] {
   const contextualNodeIds = new Set([
-    ...selection.seeds.map(node => node.id),
+    ...selection.seeds,
     ...selection.nodes.map(node => node.id),
   ]);
   const nodeById = new Map(snapshot.nodes.map(node => [node.id, node]));
@@ -690,7 +691,8 @@ function buildNextQueries(
     .map(edge => edge.relation)
     .filter(relation => !returnedRelations.has(relation)))]
     .sort();
-  const anchor = highestDegreeNode(snapshot, selection.nodes) ?? selection.seeds[0];
+  const seedNode = selection.nodes.find(node => node.id === selection.seeds[0]);
+  const anchor = highestDegreeNode(snapshot, selection.nodes) ?? seedNode;
   for (const relation of omittedRelations) {
     if (!anchor) break;
     suggestions.push(`Explore ${relation} around ${concreteLabel(anchor)}`);

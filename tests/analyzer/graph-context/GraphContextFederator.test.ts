@@ -72,12 +72,8 @@ describe('GraphContextFederator', () => {
         target: 'file:src/types/User.ts',
         relation: 'IMPORTS',
         confidence: 'RESOLVED',
+        sourcePath: 'src/services/UserService.ts',
         sourceLine: 1,
-        evidence: {
-          sourcePath: 'src/services/UserService.ts',
-          sourceLine: 1,
-          reason: 'Import target resolved to a workspace file.',
-        },
       }),
       expect.objectContaining({
         source: 'symbol:src/controllers/UserController.ts:UserService:8',
@@ -101,10 +97,8 @@ describe('GraphContextFederator', () => {
       target: 'external:UserService',
       relation: 'CALLS',
       confidence: 'AMBIGUOUS',
-      evidence: expect.objectContaining({
-        sourcePath: 'src/controllers/UserController.ts',
-        sourceLine: 11,
-      }),
+      sourcePath: 'src/controllers/UserController.ts',
+      sourceLine: 11,
     }));
   });
 

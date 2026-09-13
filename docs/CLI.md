@@ -846,12 +846,12 @@ Relation filters accept `CONTAINS`, `IMPORTS`, `CALLS`, `INHERITS`,
 | `--scope <glob>` | workspace | Workspace-relative `*`, `**`, `?` scope |
 | `--depth <N>` | `2` | Traversal depth, 1–5 |
 | `--max-nodes <N>` | `200` | Requested nodes per page, 1–500; mandatory seeds and path endpoints are preserved, so the actual count can exceed this value |
-| `--token-budget <N>` | `4000` | Output budget, 500–16,000 |
+| `--token-budget <N>` | `4000` | Output budget, 500–16,000. A budget too small for every seed drops the lowest-ranked seeds and sets `truncated`; only path endpoints are non-negotiable. |
 | `--relations <relation>` | all | Repeatable relation filter, maximum 12 unique values |
 | `--directed` | false | Keep path traversal directed |
 | `--cursor <cursor>` | — | Continue a truncated result |
 | `--format <format>` | global format | `json` or `toon` |
-| `--detail <level>` | `standard` | `compact`, `standard`, or `full`; compact keeps ranked nodes, locations, relations, and evidence for LLM use |
+| `--detail <level>` | `standard` | `compact` (8 nodes, metadata stripped), `standard` (40 nodes, all fields), `full` (no cap) |
 | `--workspace, -w <path>` | auto-detected | Workspace root |
 
 ```bash
@@ -866,18 +866,29 @@ graph-it context "what calls the request handler" --scope 'src/**' --format toon
 ```
 
 Responses contain workspace-relative nodes, typed relations, provenance,
-evidence line spans, paths, ambiguity candidates, omission counts, and a
+source line spans, paths, ambiguity candidates, omission counts, and a
 continuation cursor when truncated. Source contents are not included; read the
 identified files separately. JSON returns the structured response; TOON emits
-compact `graph_context`, `seeds`, `nodes`, `edges`, `paths`, `ambiguous`,
-`omitted`, and `nextQueries` blocks.
+`graph_context`, `nodes`, `edges`, `paths`, `ambiguous`, `omitted`, and
+`nextQueries` blocks.
 
-Use `--detail compact` for agent-oriented output. It keeps seed and path
-identities, ranked related nodes, file/line locations, relations, and evidence
-while dropping language and score metadata, limiting the visible node set to
-the most relevant eight nodes, and omitting continuation cursors because the
-projection is not a complete page. `standard` and `full` preserve the complete
-response for compatibility.
+`seeds` is a list of node ids. The seed nodes themselves are in `nodes`, flagged
+`isSeed` — they are not repeated.
+
+Edges carry `relation`, `confidence`, `sourcePath` and `sourceLine` directly. An
+`evidence` object is present only when it states something those fields do not:
+the justification sentence for an ordinary edge is derived from its relation and
+confidence, not stored on every edge.
+
+Pick `--detail` by how much you intend to read:
+
+| Level | Nodes | Fields | Pagination |
+|-------|-------|--------|------------|
+| `compact` | 8 | language and score dropped | no cursor — the projection is not a complete page |
+| `standard` (default) | 40 | complete | cursor preserved |
+| `full` | uncapped | complete | cursor preserved |
+
+Only the token budget limits `full`.
 
 MCP clients call the prefixed server tool name:
 
@@ -1656,10 +1667,12 @@ graph-it tool graph_context --args '{"mode":"impact","seeds":[{"filePath":"src/a
 ```
 
 The default token budget is 4000. `maxNodes` is a requested page bound, not a
-hard absolute cap: requested seeds and path endpoints are always preserved, so
-the actual node count can exceed the requested value. The response reports
-`truncated`, `omitted`, `tokenEstimate`, and an opaque
-`nextCursor`. Public paths are workspace-relative and source contents are not
+hard absolute cap: path endpoints are always preserved, so the actual node count
+can exceed the requested value. Seeds are preserved too when they fit; a budget
+too small for all of them drops the lowest-ranked ones rather than failing the
+request. The response reports `truncated`, `omitted`, `tokenEstimate`, and an
+opaque `nextCursor`, and `seeds` lists node ids whose nodes appear in `nodes`
+flagged `isSeed`. Public paths are workspace-relative and source contents are not
 returned by default. MCP clients use `graphitlive_graph_context`; `graph_context`
 is the internal worker name exposed by the CLI analysis-tool bridge.
 

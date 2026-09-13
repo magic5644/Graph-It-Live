@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { toEvidence } from '../../../src/analyzer/graph-context/GraphContextEvidence';
+import { describeEdge, toEvidence } from '../../../src/analyzer/graph-context/GraphContextEvidence';
 import { GraphContextRetriever } from '../../../src/analyzer/graph-context/GraphContextRetriever';
 import type {
   GraphContextEdge,
@@ -21,6 +21,8 @@ describe('toEvidence', () => {
       sourceLine: 6,
     });
 
+    // No `evidence`: it only ever repeated the edge's own fields plus a
+    // sentence derivable from (relation, confidence).
     expect(edge).toEqual({
       source: 'symbol:src/api.ts:handle:4',
       target: 'symbol:src/service.ts:run:8',
@@ -28,12 +30,8 @@ describe('toEvidence', () => {
       confidence: 'EXTRACTED',
       sourcePath: 'src/api.ts',
       sourceLine: 6,
-      evidence: {
-        sourcePath: 'src/api.ts',
-        sourceLine: 6,
-        reason: 'CALLS relation extracted from the AST.',
-      },
     });
+    expect(describeEdge(edge)).toBe('CALLS relation extracted from the AST.');
   });
 
   it('maps a module-resolved import and its existing line metadata to resolved evidence', () => {
@@ -48,11 +46,10 @@ describe('toEvidence', () => {
     });
 
     expect(edge.confidence).toBe('RESOLVED');
-    expect(edge.evidence).toEqual({
-      sourcePath: 'src/api.ts',
-      sourceLine: 1,
-      reason: 'Import target resolved to a workspace file.',
-    });
+    expect(edge.sourcePath).toBe('src/api.ts');
+    expect(edge.sourceLine).toBe(1);
+    expect(edge.evidence).toBeUndefined();
+    expect(describeEdge(edge)).toBe('Import target resolved to a workspace file.');
   });
 
   it('marks an unresolved multi-target edge ambiguous', () => {
@@ -68,7 +65,7 @@ describe('toEvidence', () => {
     });
 
     expect(edge.confidence).toBe('AMBIGUOUS');
-    expect(edge.evidence?.reason).toBe('Unresolved CALLS target has multiple resolver candidates.');
+    expect(describeEdge(edge)).toBe('Unresolved CALLS target has multiple resolver candidates.');
   });
 
   it('marks evidence stale when its source changed after indexing', () => {
@@ -84,7 +81,7 @@ describe('toEvidence', () => {
     });
 
     expect(edge.confidence).toBe('STALE');
-    expect(edge.evidence?.reason).toBe('Source changed after this relation was indexed.');
+    expect(describeEdge(edge)).toBe('Source changed after this relation was indexed.');
   });
 
   it('does not invent line precision or expose paths outside the workspace', () => {
@@ -102,9 +99,19 @@ describe('toEvidence', () => {
     expect(edge).not.toHaveProperty('sourcePath');
     expect(edge).not.toHaveProperty('sourceLine');
     expect(edge).not.toHaveProperty('sourceEndLine');
-    expect(edge.evidence).not.toHaveProperty('sourcePath');
-    expect(edge.evidence).not.toHaveProperty('sourceLine');
-    expect(edge.evidence).not.toHaveProperty('sourceEndLine');
+  });
+
+  it('derives the inferred reason from the confidence level', () => {
+    const edge = toEvidence({
+      source: 'file:src/api.ts',
+      target: 'file:src/service.ts',
+      relation: 'IMPACTED_BY',
+      origin: 'INFERENCE',
+      workspaceRoot: WORKSPACE_ROOT,
+    });
+
+    expect(edge.confidence).toBe('INFERRED');
+    expect(describeEdge(edge)).toBe('IMPACTED_BY relation inferred from graph analysis.');
   });
 });
 

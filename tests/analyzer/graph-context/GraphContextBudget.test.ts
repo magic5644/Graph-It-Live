@@ -76,7 +76,7 @@ function responseFixture(): GraphContextResponse {
     indexRevision: 'budget-revision-1',
     fresh: true,
     mode: 'path',
-    seeds: [{ ...nodes[0], isSeed: true }],
+    seeds: [nodes[0].id],
     nodes: nodes.map(graphNode => graphNode.id === 'seed'
       ? { ...graphNode, isSeed: true }
       : graphNode),
@@ -121,7 +121,7 @@ describe('applyGraphContextBudget', () => {
 
     expect(retainedIds.has('seed')).toBe(true);
     expect(retainedIds.has('path-target')).toBe(true);
-    expect(budgeted.seeds.map(seedNode => seedNode.id)).toEqual(['seed']);
+    expect(budgeted.seeds).toEqual(['seed']);
     expect(budgeted.edges.every(result => (
       retainedIds.has(result.source) && retainedIds.has(result.target)
     ))).toBe(true);
@@ -156,7 +156,7 @@ describe('applyGraphContextBudget', () => {
       indexRevision: 'tokenizer-revision',
       fresh: true,
       mode: 'search',
-      seeds: [{ ...seedNode, isSeed: true }],
+      seeds: [seedNode.id],
       nodes: [{ ...seedNode, isSeed: true }, noisyNode],
       edges: [],
       paths: [],
@@ -189,7 +189,7 @@ describe('applyGraphContextBudget', () => {
       indexRevision: 'priority-revision',
       fresh: true,
       mode: 'refactor',
-      seeds: [{ ...seedNode, isSeed: true }],
+      seeds: [seedNode.id],
       nodes: [{ ...seedNode, isSeed: true }, transitiveNode, directNode, testNode],
       edges: [
         edge('priority-seed', 'small-direct', 'IMPORTS'),
@@ -217,10 +217,63 @@ describe('applyGraphContextBudget', () => {
       ...response.nodes[0],
       name: 'mandatory seed content '.repeat(200),
     };
-    response.seeds[0] = { ...response.nodes[0], isSeed: true };
+    // Seeds alone are droppable now, so an oversized seed must not fail the
+    // request — only an oversized path endpoint can.
+    response.seeds[0] = response.nodes[0].id;
+    response.paths = [{ nodeIds: [response.nodes[0].id], edgeIndexes: [], hops: 0 }];
 
     expect(() => applyGraphContextBudget(response, TOKEN_BUDGET)).toThrow(
-      /mandatory seeds and path endpoints/i,
+      /path endpoints this request requires/i,
     );
+  });
+});
+
+describe('applyGraphContextBudget seed degradation', () => {
+  function seedHeavyResponse(seedCount: number): GraphContextResponse {
+    const nodes = Array.from({ length: seedCount }, (_, index) => ({
+      id: `seed-${index}`,
+      kind: 'symbol' as const,
+      name: `verboseSymbolName${index} `.repeat(20),
+      path: `src/file${index}.ts`,
+      score: seedCount - index,
+      isSeed: true,
+    }));
+    return {
+      indexRevision: 'rev',
+      fresh: true,
+      mode: 'search',
+      seeds: nodes.map(node => node.id),
+      nodes,
+      edges: [],
+      paths: [],
+      ambiguous: [],
+      omitted: { nodes: 0, edges: 0 },
+      nextQueries: [],
+      tokenEstimate: 0,
+      truncated: false,
+    };
+  }
+
+  it('drops the lowest-ranked seeds instead of failing the request', () => {
+    const response = seedHeavyResponse(20);
+
+    const budgeted = applyGraphContextBudget(response, 500);
+
+    expect(budgeted.nodes.length).toBeGreaterThan(0);
+    expect(budgeted.nodes.length).toBeLessThan(20);
+    expect(budgeted.tokenEstimate).toBeLessThanOrEqual(500);
+    expect(budgeted.truncated).toBe(true);
+  });
+
+  it('keeps the highest-ranked seed when it has to shrink', () => {
+    const budgeted = applyGraphContextBudget(seedHeavyResponse(20), 500);
+
+    expect(budgeted.nodes[0].id).toBe('seed-0');
+  });
+
+  it('reports the dropped seeds as omitted nodes', () => {
+    const budgeted = applyGraphContextBudget(seedHeavyResponse(20), 500);
+
+    expect(budgeted.omitted.nodes).toBe(20 - budgeted.nodes.length);
   });
 });
