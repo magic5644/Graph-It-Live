@@ -5,20 +5,21 @@
 ### Added
 
 - **Configurable query LLM providers**: `graph-it query` can now pin Anthropic, OpenAI-compatible, or the opt-in local GitHub Copilot CLI provider through `GRAPH_IT_LLM_PROVIDER`. The Copilot CLI provider reuses an existing Copilot subscription without an API key.
+- **Index freshness in MCP responses**: Every tool response now carries `metadata.indexedAt` and `metadata.stale`, so a caller can tell an empty result from one computed against an index that has not caught up with recent edits. A stale result stays usable: the file watcher has already invalidated the affected file.
+- **Tool-selection eval harness**: `scripts/eval/dump-tools.mjs` snapshots a built server's `tools/list`, and `tests/evals/toolSelection.eval.test.ts` scores how often an LLM picks the right tool from a snapshot. Skipped unless `RUN_TOOL_EVAL=1`, and it asserts nothing about model output. `TOOL_EVAL_REPEAT=3` reports which cases answer differently between runs, which sets the floor below which a score difference carries no information; that floor is currently 3 of 26 cases.
 
 ### Fixed
 
 - **Graph-context TOON output**: Preserved graph edges, removed the redundant seed section, and added bounded `standard` detail output with pagination support.
 - **CLI output paths**: TOON and query output now use workspace-relative paths, reducing repeated machine-specific prefixes while keeping JSON paths absolute for scripts. Text query results now include `file:line` locations.
 - **Review Gate consumer coverage**: A consumer's own test is now recognized as coverage, avoiding an incorrect unverified-consumer risk increase.
-- **MCP tool contracts**: Removed the `format` parameter, which was advertised on 20 tool schemas but never read by any handler, and on `graph_context` only affected the pagination cursor hash. `response_format` (`json`, `markdown`, `toon`, default `toon`) is now the single output knob. Dead `?? "json"` fallbacks that contradicted the advertised default were removed from 25 handlers.
+- **MCP tool contracts**: Removed the `format` parameter, which was advertised on 20 tool schemas but never read by any handler, and on `graph_context` only affected the pagination cursor hash. `response_format` (`json`, `markdown`, `toon`, default `toon`) is now the single output knob. Dead `?? "json"` fallbacks that contradicted the advertised default were removed from 25 handlers. A client that still sends `format` has it ignored rather than rejected, so behaviour is unchanged.
 - **`find_unused_symbols` description**: Dropped a stale note claiming every export was reported as unused. Cross-file symbol resolution has been implemented for some time; the tool discriminates correctly.
-- **MCP tool descriptions**: Rewritten in compact WHEN/WHY/RETURNS/LIMITS form, halving the context they occupy (29,202 to 13,099 characters) and stating each tool's real limits. Overlapping graph tools now point to `graph_context` as the default entry point.
+- **MCP tool descriptions**: Rewritten in compact WHEN/WHY/RETURNS/LIMITS form, halving the context they occupy (29,200 to 14,561 characters) and stating each tool's real limits.
+- **`set_workspace` no longer captures unrelated questions**: Its description opened with `USE THIS TOOL FIRST ... MUST be called before any other`, which led an LLM to answer questions about architecture, reverse dependencies, dead code and documentation by setting the workspace instead. It now states both facts that have to hold at once: it is the setup call that comes once at the start of a session, and it is never the reply to a question about code.
+- **Overlapping graph tools name what separates them**: `get_symbol_graph` and `analyze_file_logic` now state the axis that divides them (outward across the file boundary versus inside the file), and `get_symbol_callers`, `get_symbol_dependents` and `query_call_graph` each lead with what distinguishes them for a "who calls X" question. These three remain ambiguous enough to flip between runs; the wording is an improvement, not a fix.
+- **`QueryEngine` provider test hermeticity**: The test asserting a heuristic fallback with no provider configured cleared only the API-key variables, not `GRAPH_IT_LLM_PROVIDER`, which pins a provider ahead of any key check. It therefore failed whenever a developer had that variable exported.
 - **Tool count**: Corrected to 27 in the package description, the bundled skill, and the architecture diagram.
-
-### Added
-
-- **Index freshness in MCP responses**: Every tool response now carries `metadata.indexedAt` and `metadata.stale`, so a caller can tell an empty result from one computed against an index that has not caught up with recent edits.
 
 ## v1.14.3
 
