@@ -38,7 +38,7 @@ import { flushSession } from "../analyzer/stats/statsPersistence";
 import { sessionStats } from "../shared/sessionStats";
 import { classifyError, CliError, ExitCode } from "./errors";
 import type { CliOutputFormat } from "./formatter";
-import { CLI_OUTPUT_FORMATS, relativizeWorkspacePaths } from "./formatter";
+import { CLI_OUTPUT_FORMATS, renderCliOutput } from "./formatter";
 import { CliRuntime, findWorkspaceRoot } from "./runtime";
 import { maybeNotifyCliUpdate } from "./versionCheck";
 
@@ -392,11 +392,7 @@ async function main(): Promise<void> {
     const output = await dispatch(command, rawCommandArgs, runtime, format);
     runtime.disableErrorCollection(); // Discard command parse errors
     if (output) {
-      // TOON is the token-optimized format: drop the repeated workspace root,
-      // which is machine-specific noise an LLM cannot use.
-      const rendered =
-        format === "toon" ? relativizeWorkspacePaths(output, workspaceRoot) : output;
-      process.stdout.write(rendered.endsWith("\n") ? rendered : rendered + "\n");
+      process.stdout.write(renderCliOutput(output, format, workspaceRoot));
     }
     process.exitCode = ExitCode.SUCCESS;
   } catch (err) {

@@ -916,3 +916,21 @@ export function relativizeWorkspacePaths(output: string, workspaceRoot: string):
   // The trailing slash keeps a sibling like "/repo-backup" from matching "/repo".
   return output.replaceAll(`${normalizedRoot}/`, "");
 }
+
+/**
+ * Final rendering step before the CLI writes to stdout.
+ *
+ * Lives here rather than inline in the entry point so the rule it applies is
+ * testable without driving `main()`.
+ */
+export function renderCliOutput(
+  output: string,
+  format: CliOutputFormat,
+  workspaceRoot: string,
+): string {
+  // TOON is the token-optimized format, so the repeated workspace root — noise
+  // no model can use — is dropped there. `json` is a stable contract for
+  // scripts and keeps absolute paths.
+  const rendered = format === "toon" ? relativizeWorkspacePaths(output, workspaceRoot) : output;
+  return rendered.endsWith("\n") ? rendered : `${rendered}\n`;
+}
