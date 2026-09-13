@@ -1,0 +1,143 @@
+{
+  "$comment": "Tool-selection eval cases. Questions are taken verbatim, or lightly adapted, from the EXAMPLES/WHEN sections of the tool descriptions as they existed on main BEFORE the description rewrite (commit be1584c). Sourcing them from the pre-change text keeps the dataset from being written to fit the new wording; if anything it favours the old descriptions. 'acceptable' lists alternates a competent engineer would also accept; keep it strict or the eval measures nothing.",
+  "cases": [
+    {
+      "id": "imports-of-a-file",
+      "question": "What does src/utils.ts import?",
+      "expected": "graphitlive_analyze_dependencies",
+      "acceptable": ["graphitlive_parse_imports"]
+    },
+    {
+      "id": "raw-import-syntax",
+      "question": "Show me the raw import statements in src/utils.ts exactly as they are written, without resolving them.",
+      "expected": "graphitlive_parse_imports"
+    },
+    {
+      "id": "project-architecture",
+      "question": "Show me the architecture of this module starting from src/index.ts — the full dependency tree.",
+      "expected": "graphitlive_crawl_dependency_graph",
+      "acceptable": ["graphitlive_graph_context"]
+    },
+    {
+      "id": "who-imports-this-file",
+      "question": "What files import src/utils.ts?",
+      "expected": "graphitlive_find_referencing_files",
+      "acceptable": ["graphitlive_graph_context"]
+    },
+    {
+      "id": "expand-known-graph",
+      "question": "I already know about 40 files in this graph. Show me only the dependencies of src/api.ts that I have not seen yet.",
+      "expected": "graphitlive_expand_node"
+    },
+    {
+      "id": "unused-import-check",
+      "question": "Is main.ts actually using anything from utils.ts, or is that import dead?",
+      "expected": "graphitlive_verify_dependency_usage"
+    },
+    {
+      "id": "resolve-alias",
+      "question": "Where does '@/components/Button' actually point to on disk, seen from src/app.ts?",
+      "expected": "graphitlive_resolve_module_path"
+    },
+    {
+      "id": "index-ready",
+      "question": "Is the dependency index ready, and how many files are indexed?",
+      "expected": "graphitlive_get_index_status"
+    },
+    {
+      "id": "refresh-edited-files",
+      "question": "I just changed src/utils.ts outside the editor. Refresh the cached analysis for that file.",
+      "expected": "graphitlive_invalidate_files"
+    },
+    {
+      "id": "rebuild-after-branch-switch",
+      "question": "I switched branches and the index no longer matches the tree. Rebuild the whole thing from scratch.",
+      "expected": "graphitlive_rebuild_index"
+    },
+    {
+      "id": "symbol-level-graph",
+      "question": "Show me which functions in UserService.ts call the database.",
+      "expected": "graphitlive_get_symbol_graph"
+    },
+    {
+      "id": "dead-code-one-file",
+      "question": "Find dead code in src/utils/helpers.ts — which exports are never imported?",
+      "expected": "graphitlive_find_unused_symbols"
+    },
+    {
+      "id": "dead-code-workspace",
+      "question": "Scan the whole project for dead code. Which exported functions are never used anywhere?",
+      "expected": "graphitlive_scan_dead_code"
+    },
+    {
+      "id": "signature-change-callers",
+      "question": "I'm changing UserService.login() signature — who depends on it?",
+      "expected": "graphitlive_get_symbol_dependents",
+      "acceptable": ["graphitlive_get_symbol_callers", "graphitlive_get_impact_analysis"]
+    },
+    {
+      "id": "who-calls-symbol",
+      "question": "Who calls the validateEmail function?",
+      "expected": "graphitlive_get_symbol_callers",
+      "acceptable": ["graphitlive_get_symbol_dependents", "graphitlive_query_call_graph"]
+    },
+    {
+      "id": "full-call-chain",
+      "question": "Trace the execution of handleUserLogin from the controller — the full recursive call chain.",
+      "expected": "graphitlive_trace_function_execution",
+      "acceptable": ["graphitlive_query_call_graph"]
+    },
+    {
+      "id": "cross-file-call-graph",
+      "question": "Find circular call dependencies involving parseConfig across the codebase.",
+      "expected": "graphitlive_query_call_graph"
+    },
+    {
+      "id": "breaking-changes",
+      "question": "I added a required parameter to login(). Compare the old and new version of the file and tell me what breaks.",
+      "expected": "graphitlive_analyze_breaking_changes"
+    },
+    {
+      "id": "blast-radius",
+      "question": "What's the blast radius if I change the formatCurrency function? I want direct and transitive impact.",
+      "expected": "graphitlive_get_impact_analysis"
+    },
+    {
+      "id": "intra-file-flow",
+      "question": "Explain the code flow inside src/utils/parser.ts — which function calls which.",
+      "expected": "graphitlive_analyze_file_logic",
+      "acceptable": ["graphitlive_generate_codemap"]
+    },
+    {
+      "id": "file-overview",
+      "question": "Give me a full structural overview of src/analyzer/Spider.ts: what it exports, what it depends on, and who depends on it.",
+      "expected": "graphitlive_generate_codemap"
+    },
+    {
+      "id": "concept-question",
+      "question": "How does the MCP server handle tool invocations?",
+      "expected": "graphitlive_query_natural_language",
+      "acceptable": ["graphitlive_graph_context"]
+    },
+    {
+      "id": "pr-review",
+      "question": "Review my branch against origin/main before I open the pull request. Is it risky?",
+      "expected": "graphitlive_review_pr"
+    },
+    {
+      "id": "generate-docs",
+      "question": "Produce a browsable markdown wiki of this codebase with one article per file.",
+      "expected": "graphitlive_generate_wiki"
+    },
+    {
+      "id": "token-stats",
+      "question": "How many tokens have the TOON responses saved compared to JSON in this session?",
+      "expected": "graphitlive_get_session_stats"
+    },
+    {
+      "id": "set-workspace",
+      "question": "Analyse the project at /Users/me/my-app. Nothing is configured yet.",
+      "expected": "graphitlive_set_workspace"
+    }
+  ]
+}
