@@ -1291,6 +1291,13 @@ describe('GraphNodeMetadataSchema', () => {
     expect(GraphNodeMetadataSchema.safeParse({ hubScore: 1 }).success).toBe(true);
   });
 
+  it('preserves community domain keys, including the ungrouped sentinel, and rejects non-strings', () => {
+    for (const communityKey of ['service', '']) {
+      expect(GraphNodeMetadataSchema.parse({ hubScore: 0, communityKey }).communityKey).toBe(communityKey);
+    }
+    expect(GraphNodeMetadataSchema.safeParse({ hubScore: 0, communityKey: 1 }).success).toBe(false);
+  });
+
   it('rejects hubScore below 0', () => {
     const result = GraphNodeMetadataSchema.safeParse({ hubScore: -0.1 });
     expect(result.success).toBe(false);

@@ -82,13 +82,13 @@ describe('CommunityLegend', () => {
     expect(screen.getByText('Import clusters')).toBeTruthy();
   });
 
-  it('renders subtitle "Groups of closely connected files"', () => {
+  it('renders subtitle "Groups based on folders"', () => {
     render(
       React.createElement(CommunityLegend, {
         communities: [{ id: 1, label: 'Hub.ts', color: '#4E79A7' }],
       })
     );
-    expect(screen.getByText('Groups of closely connected files')).toBeTruthy();
+    expect(screen.getByText('Groups based on folders')).toBeTruthy();
   });
 
   it('does not self-position — positioning is owned by the wrapper in ReactFlowGraph (GH #122)', () => {

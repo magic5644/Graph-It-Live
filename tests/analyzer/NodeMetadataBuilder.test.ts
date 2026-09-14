@@ -11,6 +11,18 @@ import { normalizePath } from '../../src/shared/path.js';
 import type { GraphData } from '../../src/shared/graph-types.js';
 
 describe('computeNodeMetadata', () => {
+  it('keeps domain keys when numeric community ids change', () => {
+    const a = '/project/src/service/a.ts';
+    const b = '/project/src/utils/b.ts';
+    const first: GraphData = { nodes: [a, b, '/project/index.ts'], edges: [] };
+    const reordered: GraphData = { nodes: [b, a, '/project/index.ts'], edges: [] };
+    computeNodeMetadata(first, '/project');
+    computeNodeMetadata(reordered, '/project');
+    expect(first.nodeMetadata?.[a].communityId).not.toBe(reordered.nodeMetadata?.[a].communityId);
+    expect(first.nodeMetadata?.[a]).toHaveProperty('communityKey', 'service');
+    expect(reordered.nodeMetadata?.[a]).toHaveProperty('communityKey', 'service');
+    expect(first.nodeMetadata?.['/project/index.ts']).toHaveProperty('communityKey', '');
+  });
   it('AC3 — computes hubScore from parentCounts', () => {
     const nodeA = normalizePath('/project/src/a.ts');
     const nodeB = normalizePath('/project/src/b.ts');
@@ -214,7 +226,7 @@ describe('computeNodeMetadata', () => {
   it('F4 — graceful degrade: nodeMetadata still set when detectPathCommunities throws', async () => {
     // Mock PathCommunityDetector to throw
     vi.doMock('../../src/analyzer/community/PathCommunityDetector.js', () => ({
-      detectPathCommunities: () => { throw new Error('unexpected error'); },
+      detectPathCommunityAssignments: () => { throw new Error('unexpected error'); },
     }));
 
     // Re-import after mock

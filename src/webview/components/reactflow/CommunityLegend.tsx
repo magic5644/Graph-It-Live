@@ -2,15 +2,20 @@ import React from 'react';
 
 export interface CommunityEntry {
   id: number;
-  label: string; // basename of the node with the highest hubScore
+  label: string; // Functional directory domain, or a fallback for legacy data.
   color: string; // communityColor(id)
+  key?: string;
+  count?: number;
 }
 
 interface CommunityLegendProps {
   communities: CommunityEntry[];
+  excluded?: ReadonlySet<string>;
+  onToggle?: (key: string) => void;
+  onShowAll?: () => void;
 }
 
-export function CommunityLegend({ communities }: CommunityLegendProps) {
+export function CommunityLegend({ communities, excluded, onToggle, onShowAll }: Readonly<CommunityLegendProps>): React.JSX.Element | null {
   if (communities.length === 0) return null;
 
   return (
@@ -27,10 +32,17 @@ export function CommunityLegend({ communities }: CommunityLegendProps) {
     }}>
       <div style={{ marginBottom: 6 }}>
         <div style={{ fontWeight: 'bold', opacity: 0.9, lineHeight: 1.2 }}>Import clusters</div>
-        <div style={{ opacity: 0.55, fontSize: 10, marginTop: 2 }}>Groups of closely connected files</div>
+        <div style={{ opacity: 0.75, fontSize: 10, marginTop: 2 }}>Groups based on folders</div>
+        {onShowAll && <button type="button" onClick={onShowAll}>Show all</button>}
       </div>
-      {communities.map(({ id, label, color }) => (
-        <div key={id} style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 2 }}>
+      {communities.map(({ id, label, color, key, count }) => (
+        <label key={key ?? id} style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 2 }}>
+          {onToggle && key !== undefined && <input
+            type="checkbox"
+            checked={!excluded?.has(key)}
+            aria-label={`${label} (${count ?? 0})`}
+            onChange={() => onToggle(key)}
+          />}
           <div
             data-testid={`community-swatch-${id}`}
             style={{
@@ -42,7 +54,8 @@ export function CommunityLegend({ communities }: CommunityLegendProps) {
             }}
           />
           <span title={`Cluster ${id} — ${communities.length} clusters total`}>{label}</span>
-        </div>
+          {count !== undefined && <span style={{ opacity: 0.75 }}>({count})</span>}
+        </label>
       ))}
     </div>
   );

@@ -67,7 +67,7 @@ export function domainFromDirParts(dirParts: string[], commonPrefixLen: number):
  *
  * CRITICAL ARCHITECTURE RULE: NO import from 'vscode' — pure Node.js only.
  */
-export function detectPathCommunities(nodes: string[], workspaceRoot?: string): Map<string, number> {
+export function detectPathCommunityAssignments(nodes: string[], workspaceRoot?: string): Map<string, { communityId: number; communityKey: string }> {
   if (nodes.length === 0) return new Map();
 
   const normalized = nodes.map(normalizePath);
@@ -94,7 +94,7 @@ export function detectPathCommunities(nodes: string[], workspaceRoot?: string): 
   const commonPrefixLen = inferCommonDirPrefixLen(rels);
 
   const groupToId = new Map<string, number>();
-  const result = new Map<string, number>();
+  const result = new Map<string, { communityId: number; communityKey: string }>();
   let nextId = 1;
 
   for (let i = 0; i < normalized.length; i++) {
@@ -102,11 +102,17 @@ export function detectPathCommunities(nodes: string[], workspaceRoot?: string): 
     const dirParts = rels[i].split('/').slice(0, -1); // strip filename
 
     const domain = domainFromDirParts(dirParts, commonPrefixLen);
-    if (!domain) { result.set(fp, 0); continue; }
+    if (!domain) { result.set(fp, { communityId: 0, communityKey: '' }); continue; }
 
     if (!groupToId.has(domain)) groupToId.set(domain, nextId++);
-    result.set(fp, groupToId.get(domain)!);
+    result.set(fp, { communityId: groupToId.get(domain)!, communityKey: domain });
   }
 
   return result;
+}
+
+/** Backward-compatible numeric assignments for existing consumers. */
+export function detectPathCommunities(nodes: string[], workspaceRoot?: string): Map<string, number> {
+  return new Map([...detectPathCommunityAssignments(nodes, workspaceRoot)]
+    .map(([filePath, assignment]) => [filePath, assignment.communityId]));
 }

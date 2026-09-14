@@ -22,10 +22,12 @@ export interface GraphNodeMetadata {
   /** File extension without leading dot, lowercase (e.g. "ts", "tsx", "py"). Absent if unknown or empty. */
   fileExtension?: string;
   /**
-   * Community assignment from Louvain detection.
-   * 0 = isolated node (no edges). 1+ = cluster id. absent = not yet computed.
+   * Path-based community assignment.
+   * 0 = no domain. 1+ = cluster id. absent = not yet computed.
    */
   communityId?: number;
+  /** Domain identity, independent of numeric assignment order; empty = no domain. */
+  communityKey?: string;
 }
 
 export interface GraphData {
