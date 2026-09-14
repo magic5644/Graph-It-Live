@@ -22,12 +22,12 @@ import { computeRelatedNodes } from "../utils/graphTraversal";
 import { normalizePath } from "../utils/path";
 import { buildReactFlowGraph, GRAPH_LIMITS } from "./reactflow/buildGraph";
 import { CommunityLegend } from "./reactflow/CommunityLegend";
-import { communityColor } from "../utils/communityColor";
+import { collectFileCommunities, presentFileGraph } from "../utils/fileGraphPresentation";
 import {
   ExpansionOverlay,
   type ExpansionState,
 } from "./reactflow/ExpansionOverlay";
-import { FileNode, type FileNodeData } from "./reactflow/FileNode";
+import { FileNode } from "./reactflow/FileNode";
 import { SymbolNode } from "./reactflow/SymbolNode";
 
 /** Logger instance for ReactFlowGraph */
@@ -719,62 +719,10 @@ const ReactFlowGraphContent: React.FC<ReactFlowGraphProps> = ({
     return graph.nodes;
   }, [graph.nodes, highlightState]);
 
-  // Derive communities with directory-path label for the legend
-  const communities = useMemo(() => {
-    const UMBRELLA = new Set(['src', 'tests', 'test', 'lib', 'app', 'packages', 'dist', 'out']);
-    const allIds = graph.nodes.map(n => n.id ?? '');
-
-    // Strip common absolute prefix (/Users/x/github/project/…)
-    function absolutePrefixLen(paths: string[]): number {
-      if (!paths.length) return 0;
-      const split = paths.map(p => p.split('/'));
-      const minLen = Math.min(...split.map(p => p.length));
-      const cap = Math.max(0, minLen - 3);
-      let i = 0;
-      while (i < cap && split.every(p => p[i] === split[0][i])) i++;
-      return i;
-    }
-
-    // Strip common dir prefix inside relative paths (e.g. 'vue/src' in monorepos)
-    function commonRelDirPrefixLen(relPaths: string[]): number {
-      if (!relPaths.length) return 0;
-      const dirParts = relPaths.map(p => p.split('/').slice(0, -1));
-      const minLen = Math.min(...dirParts.map(p => p.length));
-      let i = 0;
-      while (i < minLen && dirParts.every(p => p[i] === dirParts[0][i])) i++;
-      return i;
-    }
-
-    const absPrefixLen = absolutePrefixLen(allIds);
-    const relIds = allIds.map(id => id.split('/').slice(absPrefixLen).join('/'));
-    const relDirPrefixLen = commonRelDirPrefixLen(relIds);
-
-    function communityLabel(anyNodeId: string): string {
-      const parts = anyNodeId.split('/');
-      const relParts = parts.slice(absPrefixLen);
-      const dirParts = relParts.slice(0, -1); // strip filename
-      // Skip up to and INCLUDING the last umbrella dir → handles nested roots (vue/src/)
-      let startIdx = relDirPrefixLen;
-      for (let i = relDirPrefixLen; i < dirParts.length; i++) {
-        if (UMBRELLA.has(dirParts[i])) startIdx = i + 1;
-      }
-      const domain = dirParts[startIdx];
-      return domain || (parts[parts.length - 1] ?? anyNodeId); // fallback to filename
-    }
-
-    // Collect one representative node ID per community
-    const repByComm = new Map<number, string>();
-    for (const n of graph.nodes) {
-      const d = n.data as FileNodeData;
-      if (!d.communityId || d.communityId === 0) continue;
-      if (!repByComm.has(d.communityId)) {
-        repByComm.set(d.communityId, n.id ?? '');
-      }
-    }
-    return [...repByComm.entries()]
-      .sort(([a], [b]) => a - b)
-      .map(([id, nodeId]) => ({ id, label: communityLabel(nodeId), color: communityColor(id) }));
-  }, [graph.nodes]);
+  const communities = useMemo(
+    () => mode === 'file' ? collectFileCommunities(graph.nodes, data.nodeMetadata) : [],
+    [graph.nodes, data.nodeMetadata, mode],
+  );
 
   // Use useLayoutEffect for highlight - runs synchronously AFTER useMemo recalculates
   // This ensures we see the updated visibleNodes/styledEdges values
@@ -926,13 +874,79 @@ const ReactFlowGraphContent: React.FC<ReactFlowGraphProps> = ({
     // No highlights - just set directly (only if no previous graph or no changes detected)
     setNodes(visibleNodes);
     setEdges(styledEdges);
+    return undefined;
   }, [visibleNodes, styledEdges, setNodes, setEdges, mode]);
+
+  const [excludedCommunities, setExcludedCommunities] = useState<Set<string>>(new Set());
+  const [selectedFileEdge, setSelectedFileEdge] = useState<string | null>(null);
+  const suppressAutoFit = React.useRef(false);
+
+  // The app also remounts on navigation; keep standalone consumers consistent.
+  useEffect(() => {
+    setExcludedCommunities(new Set());
+    setSelectedFileEdge(null);
+  }, [currentFilePath, resetToken]);
+
+  useEffect(() => {
+    setExcludedCommunities(previous => {
+      if (![...previous].some(key => key.startsWith('legacy:'))) return previous;
+      return new Set([...previous].filter(key => !key.startsWith('legacy:')));
+    });
+  }, [data.nodeMetadata]);
+
+  const presentation = useMemo(
+    () => mode === 'file'
+      ? presentFileGraph(nodes, edges, data.nodeMetadata, excludedCommunities, showCommunities, selectedFileEdge)
+      : { nodes, edges, visibleCount: nodes.length, selectedEdgeId: null },
+    [mode, nodes, edges, data.nodeMetadata, excludedCommunities, showCommunities, selectedFileEdge],
+  );
+
+  useEffect(() => {
+    if (selectedFileEdge && !presentation.selectedEdgeId) setSelectedFileEdge(null);
+  }, [selectedFileEdge, presentation.selectedEdgeId]);
+
+  // Hide/show can change React Flow's measurement readiness. It must not move the viewport.
+  useEffect(() => { suppressAutoFit.current = false; }, [graph]);
+  const fitViewForGraph = useCallback((options?: { padding?: number; duration?: number }) => {
+    if (!suppressAutoFit.current) fitView(options);
+  }, [fitView]);
+
+  const toggleCommunity = useCallback((key: string) => {
+    suppressAutoFit.current = true;
+    setExcludedCommunities(previous => {
+      const next = new Set(previous);
+      if (next.has(key)) next.delete(key); else next.add(key);
+      return next;
+    });
+  }, []);
+  const showAllCommunities = useCallback(() => {
+    suppressAutoFit.current = true;
+    setExcludedCommunities(new Set());
+  }, []);
+  const clearFileFocus = useCallback(() => setSelectedFileEdge(null), []);
+  const handleFileEdgeClick = useCallback((_: React.MouseEvent, edge: Edge) => {
+    suppressAutoFit.current = true;
+    setSelectedFileEdge(previous => previous === edge.id ? null : edge.id);
+  }, []);
+  const handleFileKeyDown = useCallback((event: React.KeyboardEvent) => {
+    if (event.key === 'Escape') {
+      clearFileFocus();
+    } else if (event.key === 'Enter' || event.key === ' ') {
+      const edge = event.target instanceof Element ? event.target.closest('.react-flow__edge') : null;
+      if (edge) {
+        // React Flow 11 selects on keyboard activation but does not call onEdgeClick.
+        event.preventDefault();
+        event.stopPropagation();
+        edge.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+      }
+    }
+  }, [clearFileFocus]);
 
   useAutoFitView({
     containerRef,
     nodesInitialized,
     nodeCount: nodes.length,
-    fitView,
+    fitView: fitViewForGraph,
   });
 
   // T081: Listen for refreshing and updateGraph messages
@@ -970,11 +984,14 @@ const ReactFlowGraphContent: React.FC<ReactFlowGraphProps> = ({
   return (
     <div
       ref={containerRef}
+      onKeyDownCapture={mode === 'file' ? handleFileKeyDown : undefined}
       style={{ width: "100%", height: "100vh", position: "relative" }}
     >
       <ReactFlow
-        nodes={nodes}
-        edges={edges}
+        nodes={mode === 'file' ? presentation.nodes : nodes}
+        edges={mode === 'file' ? presentation.edges : edges}
+        onEdgeClick={mode === 'file' ? handleFileEdgeClick : undefined}
+        onPaneClick={mode === 'file' ? clearFileFocus : undefined}
         onNodesChange={onNodesChange}
         onEdgesChange={onEdgesChange}
         onNodeClick={handleNodeClick}
@@ -989,6 +1006,12 @@ const ReactFlowGraphContent: React.FC<ReactFlowGraphProps> = ({
         <Background />
         <Controls />
       </ReactFlow>
+      {mode === 'file' && nodes.length > 0 && presentation.visibleCount === 0 && (
+        <output style={{ position: 'absolute', top: 60, left: 16, background: 'var(--vscode-editor-background)', padding: 12 }}>
+          <span>No files visible. Select a group or show all.</span>
+          <button type="button" onClick={showAllCommunities}>Show all</button>
+        </output>
+      )}
       {/* T081: Loading indicator during re-analysis */}
       {isReanalyzing && (
         <div
@@ -1313,7 +1336,12 @@ const ReactFlowGraphContent: React.FC<ReactFlowGraphProps> = ({
             <span>Circular dependency ({graph.cycles.size} files)</span>
           </div>
         )}
-        {showCommunities && <CommunityLegend communities={communities} />}
+        {mode === 'file' && showCommunities && <CommunityLegend
+          communities={communities}
+          excluded={excludedCommunities}
+          onToggle={toggleCommunity}
+          onShowAll={showAllCommunities}
+        />}
       </div>
     </div>
   );
@@ -1323,7 +1351,7 @@ const ReactFlowGraphContent: React.FC<ReactFlowGraphProps> = ({
 const ReactFlowGraph: React.FC<ReactFlowGraphProps> = (props) => {
   return (
     <ReactFlowProvider>
-      <ReactFlowGraphContent {...props} />
+      <ReactFlowGraphContent key={props.mode ?? 'file'} {...props} />
     </ReactFlowProvider>
   );
 };

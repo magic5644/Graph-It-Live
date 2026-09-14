@@ -233,7 +233,8 @@ export const GraphNodeMetadataSchema = z.object({
     .max(1, "hubScore must be <= 1"),
   loc: z.number().int().positive().optional(),
   fileExtension: z.string().optional(),
-  communityId: z.number().int().min(0).optional(), // 0 = isolé, 1+ = cluster
+  communityId: z.number().int().min(0).optional(), // 0 = no domain, 1+ = cluster
+  communityKey: z.string().optional(),
 });
 export type GraphNodeMetadataSchemaType = z.infer<typeof GraphNodeMetadataSchema>;
 

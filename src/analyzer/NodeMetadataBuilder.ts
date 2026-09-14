@@ -1,7 +1,7 @@
 import * as path from 'node:path';
 import type { GraphData, GraphNodeMetadata } from '../shared/graph-types.js';
 import { normalizePath } from '../shared/path.js';
-import { detectPathCommunities } from './community/PathCommunityDetector.js';
+import { detectPathCommunityAssignments } from './community/PathCommunityDetector.js';
 
 /**
  * Computes and attaches `nodeMetadata` to a `GraphData` object.
@@ -44,10 +44,10 @@ export function computeNodeMetadata(graphData: GraphData, workspaceRoot?: string
   graphData.nodeMetadata = nodeMetadata;
 
   try {
-    const communityMap = detectPathCommunities(graphData.nodes, workspaceRoot);
-    for (const [filePath, communityId] of communityMap) {
+    const communityMap = detectPathCommunityAssignments(graphData.nodes, workspaceRoot);
+    for (const [filePath, assignment] of communityMap) {
       const meta = graphData.nodeMetadata?.[normalizePath(filePath)];
-      if (meta) meta.communityId = communityId;
+      if (meta) Object.assign(meta, assignment);
     }
   } catch (err) {
     console.warn('[NodeMetadataBuilder] Community detection failed, skipping:', err);
