@@ -226,6 +226,29 @@ describe("ReviewGateAnalyzer", () => {
     ]));
   });
 
+  it("drops the breaking change to residual weight when every consumer is updated in the diff", async () => {
+    const workspace = await createGitWorkspaceWithDiff(
+      "export function greet(name: string): string { return name; }\n",
+      "export function greet(name: string, formal: boolean): string { return name; }\n",
+    );
+    const consumer = path.join(workspace, "src", "consumer.ts");
+    await fs.writeFile(consumer, "export const useGreeting = 1;\n");
+    execFileSync("git", ["add", "src/consumer.ts"], { cwd: workspace });
+    const analyzer = new ReviewGateAnalyzer(workspace, {
+      getSymbolDependents: async () => [{ sourceSymbolId: `${consumer}:useGreeting` }],
+    });
+
+    const result = await analyzer.analyze({ baseRef: "main", maxDepth: 1 });
+    const greet = result.symbols.find((symbol) => symbol.name === "greet");
+
+    // The only consumer is carried through in the same diff: nothing is left unchecked.
+    expect(greet).toMatchObject({
+      risk: "medium",
+      consumers: { updated: ["src/consumer.ts"], covered: [], unverified: [] },
+      scoreFactors: { breakingChanges: 5, unverifiedConsumers: 0 },
+    });
+  });
+
   it("does not score dependents for a warning-only type alias change", async () => {
     const workspace = await createGitWorkspaceWithDiff(
       'export type Message = { type: "init" };\n',
@@ -288,14 +311,33 @@ describe("ReviewGateAnalyzer", () => {
     ]));
   });
 
-  it("marks unreadable added files as a partial review", async () => {
+  it("credits an added file instead of reporting it as an analysis gap", async () => {
     const workspace = await createGitWorkspace();
     await fs.writeFile(path.join(workspace, "src", "new.ts"), "export const value = 1;\n");
-    execFileSync("git", ["add", "src/new.ts"], { cwd: workspace });
+    await fs.mkdir(path.join(workspace, "tests"), { recursive: true });
+    await fs.writeFile(path.join(workspace, "tests", "new.test.ts"), "export const checksValue = 1;\n");
+    execFileSync("git", ["add", "src/new.ts", "tests/new.test.ts"], { cwd: workspace });
     const result = await new ReviewGateAnalyzer(workspace).analyze({ baseRef: "main" });
 
+    // A file that did not exist before has no prior contract to break.
+    expect(result.limitations.some((item) => item.includes("new.ts"))).toBe(false);
+    expect(result.symbols.some((symbol) => symbol.filePath === "src/new.ts")).toBe(false);
+  });
+
+  it("marks an unreadable changed file as a partial review", async () => {
+    const workspace = await createGitWorkspaceWithDiff(
+      "export function greet(name: string): string { return name; }\n",
+      "export function greet(name: string, formal: boolean): string { return name; }\n",
+    );
+    const analyzer = new ReviewGateAnalyzer(workspace);
+    (analyzer as unknown as { readHeadContent: () => Promise<null> }).readHeadContent = async () => null;
+
+    const result = await analyzer.analyze({ baseRef: "main" });
+
     expect(result.isPartial).toBe(true);
-    expect(result.limitations.some((item) => item.includes("new.ts"))).toBe(true);
+    expect(result.limitations).toEqual(expect.arrayContaining([
+      "Could not compare src/api.ts; file was deleted or unreadable.",
+    ]));
   });
 
   it("marks changed non-source files as unsupported instead of passing them to signature analysis", async () => {
