@@ -1,5 +1,34 @@
 # Changelog
 
+## v1.15.0
+
+### Added
+
+- **Community filters in the file graph**: The import-cluster legend is now interactive. Each cluster carries a checkbox and its file count, unticking one hides that cluster's files and every edge touching them, and a "Show all" button restores the full graph. Filtering is presentation only: it never feeds back into layout or graph diffing, so toggling a cluster off and on returns the same picture.
+
+  <div align="center">
+    <img src="media/clusters-folders-view.png" alt="Import clusters legend with per-cluster checkboxes, file counts and a Show all button" width="600"/>
+    <p><em>Import clusters — folder-derived groups, each with its file count and a checkbox that filters the graph</em></p>
+  </div>
+
+- **Edge highlighting**: Clicking an edge focuses it — the edge and its immediate neighbourhood keep full opacity and gain stroke weight, everything else dims to a background. Edges also got a wider interaction target (24px) and keyboard focus, which makes a thin edge in a dense graph selectable at all.
+
+  <div align="center">
+    <img src="media/cluster-folder-selected-view.png" alt="File graph with one edge selected: its neighbourhood is emphasized while unrelated edges are dimmed" width="600"/>
+    <p><em>Edge highlighting — the selected edge and the files it connects stay in front, the rest of the graph recedes</em></p>
+  </div>
+
+- **`communityKey` on node metadata**: `GraphNodeMetadata` now carries the domain a file belongs to as a string alongside the numeric `communityId`, and the MCP `GraphNodeMetadataSchema` accepts it. The numeric id depends on traversal order and changes between runs; the key does not, so a filter selection survives a re-index.
+
+### Changed
+
+- **`detectPathCommunities` returns identities, not just numbers**: The detector is now `detectPathCommunityAssignments`, returning `{ communityId, communityKey }` per file. `detectPathCommunities` remains as a thin wrapper returning the numeric map, so existing callers are unaffected.
+
+### Fixed
+
+- **Review Gate no longer penalises added files**: `review-pr` treated a file with no previous revision as unreadable, so every added file — a new test above all — was reported as a limitation, marked the whole review partial, and earned no credit for the coverage it brought. An added file has no prior contract to break and is now analysed as such; the limitation is reserved for a file that is genuinely deleted or unreadable.
+- **Review Gate scores handled breaking changes as residual**: The breaking-change weight scaled with the number of changes regardless of what the diff did about them, so a refactor whose only consumer was updated in the same commit and covered by tests still scored HIGH. When every consumer found is updated in the diff or exercised by a test, the change now carries residual weight. On this repository's own community-filter branch that moved the gate from HIGH (75/100) to MEDIUM (20/100).
+
 ## v1.14.4
 
 ### Added
