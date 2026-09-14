@@ -10,8 +10,13 @@ VS Code extension, standalone CLI, and MCP server for dependency and call-graph 
 
 Prefix shell commands with `rtk`; use `rtk proxy <command>` when no optimized wrapper exists.
 
-## Universal Rules
+## Core Principles
 
+- **Simplicity First:** make every change as simple as possible with minimal code impact.
+- **No Laziness:** find root causes; do not use temporary workarounds.
+- **Minimal Impact:** change only what is necessary and avoid introducing unrelated risk.
+
+## Universal Rules
 - Keep `src/analyzer/**` and `src/mcp/**` Node.js-only: never import `vscode`.
 - Define extension↔webview messages in `src/shared/types.ts`; update sender and receiver together.
 - Build paths with `node:path`; call `normalizePath()` before path keys enter Sets or Maps.
@@ -24,9 +29,9 @@ Prefix shell commands with `rtk`; use `rtk proxy <command>` when no optimized wr
 ## Working Method
 
 - Understand full flow and callers before editing. Fix root cause once.
+- For architecture, impact, or relationship questions, use the available Graph-It-Live MCP tools first; otherwise use the `graph-it` CLI. Run `graph-it scan` before analysis and after source changes.
 - Prefer deletion, existing helpers, standard library, platform features, and installed dependencies—in that order. Add no abstraction or dependency without need.
 - Make smallest complete diff; preserve unrelated code and APIs.
-- For architecture, impact, or relationship questions, query `graphify-out/graph.json` with `graphify query`, `graphify explain`, or `graphify path` before broad file scans. Run `graphify update .` after source changes.
 
 ## Detailed / Conditional Instructions
 

@@ -17,12 +17,13 @@ Apply this file by explicit routing for shell-heavy work, repository exploration
 - Use `rtk proxy <command>` when no optimized wrapper exists.
 - Use `rtk gain`, `rtk gain --history`, and `rtk discover` to inspect savings and missed opportunities.
 
-## Graphify
+## Graph-It-Live
 
-- For architecture, structure, impact, callers, or component-location questions, first use `graphify query "<question>"` when `graphify-out/graph.json` exists.
-- Use `graphify path "<A>" "<B>"` for relationships and `graphify explain "<concept>"` for focused concepts.
-- Use `graphify-out/wiki/index.md` for broad navigation. Read full report or raw source only when scoped graph lacks needed detail or when editing/debugging exact code.
-- Run `graphify update .` after source changes.
+- Prefer the available Graph-It-Live MCP tools for architecture, structure, impact, callers, and component-location questions.
+- When MCP tools are unavailable, run `graph-it scan` first, then use `graph-it query`, `graph-it summary`, `graph-it trace`, `graph-it explain`, `graph-it path`, or `graph-it tool <name>` as appropriate.
+- Use `graph-it architecture --format toon` for a broad workspace snapshot and reuse it before targeted analysis.
+- Run `graph-it scan` after source changes to refresh the index.
+- Run `graph-it review-pr --base<base branch>` to review architecture changes for a specific branch before merging, using `--format toon` for a broad snapshot.
 - For broad feature/refactor/audit work, generate one workspace snapshot with `graph-it architecture --format toon`, reuse its nodes/edges/counts, then run targeted codemap/call-graph/file-logic queries. For oversized output, rerun with `--maxFiles <N>`.
 
 ## Ponytail: lazy senior developer
