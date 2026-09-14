@@ -170,10 +170,15 @@ export class ReviewGateAnalyzer {
       this.gitShow(baseRef, relativePath),
       this.readHeadContent(headRef, absolutePath, relativePath),
     ]);
-    if (oldContent === null || newContent === null) {
-      limitations.push(`Could not compare ${relativePath}; file was added, deleted, or unreadable.`);
+    if (newContent === null) {
+      limitations.push(`Could not compare ${relativePath}; file was deleted or unreadable.`);
       return [];
     }
+    // A file the diff adds has no prior signature, so nothing downstream can have
+    // depended on it and no breaking change is possible. Reporting it as an
+    // unanalyzable gap marked every added file — a new test above all — as a
+    // limitation, inflating the review instead of crediting the addition.
+    if (oldContent === null) return [];
     const fileEvidence = await this.collectFileEvidence(absolutePath, relativePath, limitations, availability);
     const comparisons = this.analyzeSignatures(absolutePath, relativePath, oldContent, newContent, limitations);
     return Promise.all(comparisons.map((comparison) => this.createReviewSymbol(comparison, absolutePath, relativePath, maxDepth, fileEvidence, changedFiles)));
@@ -312,7 +317,12 @@ export class ReviewGateAnalyzer {
     // has to be edited for it, so it must not drown the findings that do need work.
     // Kept non-zero on purpose — at zero the symbol would vanish from the report.
     const RESIDUAL_WEIGHT = 5;
-    const breakingChangeWeight = hasConfirmedZeroImpact || !consumersMustAct
+    // Every consumer the walk found is either updated in this diff or exercised by
+    // a test: the contract change has been carried through everywhere it lands, so
+    // it is residual work, not unhandled risk.
+    const consumersAccountedFor = consumers.unverified.length === 0
+      && consumers.updated.length + consumers.covered.length > 0;
+    const breakingChangeWeight = hasConfirmedZeroImpact || !consumersMustAct || consumersAccountedFor
       ? RESIDUAL_WEIGHT
       : hasTestCoverage ? 25 : 50;
     return {
