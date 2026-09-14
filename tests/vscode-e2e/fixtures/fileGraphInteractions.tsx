@@ -68,7 +68,9 @@ async function run() {
     if (box.checked) box.click();
   }
   await until(() => document.querySelectorAll('.react-flow__node').length === 0, 'Empty selection kept files visible');
-  check(!!document.querySelector('[role="status"]'), 'Empty selection has no explanation');
+  // <output> carries role=status implicitly, so the DOM has no role attribute to match on.
+  const explanation = document.querySelector('output');
+  check(explanation?.textContent?.includes('No files visible'), 'Empty selection has no explanation');
   const restore = [...document.querySelectorAll('button')].find(button => button.textContent === 'Show all');
   check(restore, 'Missing restore action');
   restore.click();
