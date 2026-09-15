@@ -28,6 +28,7 @@ Prefix shell commands with `rtk`; use `rtk proxy <command>` when no optimized wr
 
 ## Working Method
 
+- For exploration of `.js`, `.jsx`, `.cjs`, `.mjs`, `.ts`, `.tsx`, `.cts`, or `.mts` code, use Graph-It-Live MCP tools first (or `graph-it scan` and CLI fallback) before `read_file`, `rg`, or other direct source inspection. Use direct inspection afterward to verify details and edit safely.
 - Understand full flow and callers before editing. Fix root cause once.
 - For architecture, impact, or relationship questions, use the available Graph-It-Live MCP tools first; otherwise use the `graph-it` CLI. Run `graph-it scan` before analysis and after source changes.
 - Prefer deletion, existing helpers, standard library, platform features, and installed dependencies—in that order. Add no abstraction or dependency without need.

@@ -36,7 +36,8 @@ describe('formatToolResponse', () => {
     expect(result.content[0].text).toContain('[utils.ts,20]');
   });
 
-  it('includes token savings metadata for TOON format', () => {
+  it('omits token savings from TOON output while recording session stats', () => {
+    sessionStats.reset();
     const data = Array.from({ length: 20 }, (_, i) => ({
       file: `file${i}.ts`,
       deps: ['dep1', 'dep2'],
@@ -44,10 +45,11 @@ describe('formatToolResponse', () => {
     const response = createSuccessResponse(data, 5, '/workspace');
     const result = formatToolResponse(response, 'toon');
 
-    expect(result.content[0].text).toContain('Token Savings');
-    expect(result.content[0].text).toContain('JSON:');
-    expect(result.content[0].text).toContain('TOON:');
-    expect(result.content[0].text).toContain('Savings:');
+    expect(result.content[0].text).not.toContain('Token Savings');
+    expect(result.content[0].text).not.toContain('JSON:');
+    expect(result.content[0].text).not.toContain('TOON:');
+    expect(result.content[0].text).not.toContain('Savings:');
+    expect(sessionStats.snapshot().totals.calls).toBe(1);
   });
 
   it('redacts internal and external absolute paths in public output', () => {

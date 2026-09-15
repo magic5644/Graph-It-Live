@@ -50,14 +50,6 @@ export function formatToolResponse<T>(
       ? formatGraphContextAsToon(publicResponse, toolName)
       : formatDataAsToon(publicResponse.data, inferObjectNameFromResponse(publicResponse), toolName);
     text = formatted.content;
-
-    // Add metadata if available
-    if (formatted.tokenSavings) {
-      text += `\n\n# Token Savings\n`;
-      text += `JSON: ${formatted.tokenSavings.jsonTokens} tokens\n`;
-      text += `TOON: ${formatted.tokenSavings.toonTokens} tokens\n`;
-      text += `Savings: ${formatted.tokenSavings.savings} tokens (${formatted.tokenSavings.savingsPercent.toFixed(1)}%)\n`;
-    }
   } else if (responseFormat === 'markdown') {
     text = `\`\`\`json\n${JSON.stringify(publicResponse, null, 2)}\n\`\`\``;
   } else {

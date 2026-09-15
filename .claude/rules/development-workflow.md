@@ -19,8 +19,9 @@ Apply this file by explicit routing for shell-heavy work, repository exploration
 
 ## Graph-It-Live
 
-- Prefer the available Graph-It-Live MCP tools for architecture, structure, impact, callers, and component-location questions.
-- When MCP tools are unavailable, run `graph-it scan` first, then use `graph-it query`, `graph-it summary`, `graph-it trace`, `graph-it explain`, `graph-it path`, or `graph-it tool <name>` as appropriate.
+- **Mandatory first step for JavaScript-family code exploration:** for `.js`, `.jsx`, `.cjs`, `.mjs`, `.ts`, `.tsx`, `.cts`, and `.mts` files, use the available Graph-It-Live MCP tools before directly reading or searching source files. Start with index status or workspace architecture, then use targeted dependency, caller, file-logic, symbol, or trace queries.
+- If Graph-It-Live MCP tools are unavailable or cannot answer the question, run `graph-it scan` first, then use `graph-it query`, `graph-it summary`, `graph-it trace`, `graph-it explain`, `graph-it path`, or `graph-it tool <name>` as appropriate.
+- Direct source inspection with `read_file`, `rg`, or equivalent is a follow-up step: use it to verify implementation details, resolve gaps, and prepare edits after the Graph-It-Live pass. Do not replace the initial Graph-It-Live analysis with direct reading.
 - Use `graph-it architecture --format toon` for a broad workspace snapshot and reuse it before targeted analysis.
 - Run `graph-it scan` after source changes to refresh the index.
 - Run `graph-it review-pr --base<base branch>` to review architecture changes for a specific branch before merging, using `--format toon` for a broad snapshot.
