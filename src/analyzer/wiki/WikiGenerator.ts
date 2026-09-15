@@ -267,11 +267,22 @@ export class WikiGenerator {
   renderArticle(article: WikiArticle): string {
     const lines: string[] = [];
     const relSrc = displayPath(article.filePath, this.workspaceRoot);
-    const escapedBackslash = String.raw`\\`;
-    const escapedPipe = String.raw`\|`;
-    const safe = (s: string) => s.replaceAll("\\", escapedBackslash).replaceAll("|", escapedPipe);
+    // Escape characters that break Markdown table/link syntax or enable HTML/autolink
+    // injection when interpolated from source-derived names (file/symbol names are attacker-controlled).
+    const safe = (s: string) =>
+      s
+        .replaceAll("\\", String.raw`\\`)
+        .replaceAll("|", String.raw`\|`)
+        .replaceAll("[", String.raw`\[`)
+        .replaceAll("]", String.raw`\]`)
+        .replaceAll("(", String.raw`\(`)
+        .replaceAll(")", String.raw`\)`)
+        .replaceAll("`", String.raw`\``)
+        .replaceAll("<", "&lt;")
+        .replaceAll(">", "&gt;")
+        .replaceAll(/\r?\n/g, " ");
 
-    const headerLines = [`# ${article.title}`, `> ${relSrc} | Hub Score: ${article.hubScore}/100`, ""];
+    const headerLines = [`# ${safe(article.title)}`, `> ${safe(relSrc)} | Hub Score: ${article.hubScore}/100`, ""];
     lines.push(...headerLines);
 
     if (article.symbols.length > 0) {

@@ -156,6 +156,26 @@ describe("WikiGenerator", () => {
     expect(rendered).toContain(String.raw`foo\\bar\|baz`);
   });
 
+  it("escapes markdown link/HTML delimiters in symbol names and titles", () => {
+    const workspaceRoot = "/workspace";
+    const maliciousFilePath = "/workspace/src/evil](https://attacker.example/x)[<script>.ts";
+    const maliciousName = "evil](https://attacker.example/x)[<script>";
+    const db = makeDb({
+      fileIndex: [maliciousFilePath],
+      nodes: [{ path: maliciousFilePath, name: maliciousName, type: "function", start_line: 1 }],
+    });
+    const gen = new WikiGenerator({ db, outputDir: tmpDir, workspaceRoot });
+
+    const article = gen.buildArticle(maliciousFilePath, 10);
+    const rendered = gen.renderArticle(article);
+
+    // Neither the malicious title nor the malicious symbol name can break out
+    // of Markdown link/table syntax or inject raw HTML.
+    expect(rendered).not.toContain("](https://attacker.example/x)[");
+    expect(rendered).not.toContain("<script>");
+    expect(rendered).toContain(String.raw`evil\]\(https://attacker.example/x\)\[&lt;script&gt;`);
+  });
+
   it("relLink produces relative paths only", async () => {
     const workspaceRoot = "/workspace";
     const db = makeDb({
