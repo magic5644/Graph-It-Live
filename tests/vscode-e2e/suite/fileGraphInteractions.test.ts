@@ -19,7 +19,7 @@ suite('File graph interactions in a real webview', () => {
         await config.update('colorTheme', theme, vscode.ConfigurationTarget.Global);
         const bundle = path.join(directory, 'test.js');
         await build({
-          entryPoints: [path.resolve(__dirname, '../fixtures/fileGraphInteractions.tsx')], outfile: bundle,
+          entryPoints: [path.resolve(__dirname, '../fixtures/fileGraphInteractions.fixture.tsx')], outfile: bundle,
           bundle: true, platform: 'browser', format: 'iife', loader: { '.css': 'text' },
           define: { 'process.env.NODE_ENV': '"production"' },
         });
