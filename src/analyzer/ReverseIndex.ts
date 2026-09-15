@@ -270,6 +270,7 @@ export class ReverseIndex {
   serialize(): SerializedReverseIndex {
     const reverseMapObj: Record<string, ReverseIndexEntry[]> = {};
     for (const [targetPath, sourceMap] of this.reverseMap) {
+      if (sourceMap.size === 0) continue;
       reverseMapObj[targetPath] = Array.from(sourceMap.values());
     }
 

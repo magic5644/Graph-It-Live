@@ -1,5 +1,18 @@
 # Changelog
 
+## v1.15.1
+
+### Fixed
+
+- **TOON output overhead**: Removed the token-savings message appended to MCP and CLI TOON responses. Session statistics remain available without adding diagnostic text to every result.
+- **MCP file watching**: Replaced unsupported Chokidar glob patterns with recursive directory watching and explicit filters, restoring cache invalidation when source files are created, changed, deleted, or renamed.
+- **MCP call-graph freshness**: File changes now invalidate the workspace indexing marker so the next call-graph query refreshes the database. Deleted files are also removed from the active call-graph index.
+- **Stale paths in persisted indexes**: Empty reverse-index entries are no longer serialized, preventing old target paths from remaining in the cache after imports are updated for a rename. In-memory cleanup remains deferred to preserve re-indexing safety.
+
+### Tests
+
+- Added regression coverage for real filesystem renames, call-graph refresh, persisted-index cleanup, and watcher filtering. Watcher tests use normalized paths, allow asynchronous event ordering, and include longer CI timeouts and Windows cleanup retries.
+
 ## v1.15.0
 
 ### Added

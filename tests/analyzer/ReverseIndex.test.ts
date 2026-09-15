@@ -229,6 +229,23 @@ describe('ReverseIndex', () => {
     });
 
     describe('serialize / deserialize', () => {
+        it('omits orphaned target paths from persisted data after a rename', () => {
+            const source = '/test/project/src/app.ts';
+            const oldPath = '/test/project/src/old.ts';
+            const newPath = '/test/project/src/new.ts';
+            index.addDependencies(source, [{ path: oldPath, type: 'import', line: 1, module: './old' }]);
+            index.addDependencies(source, [{ path: newPath, type: 'import', line: 1, module: './new' }]);
+
+            const serialized = index.serialize();
+            expect(serialized.reverseMap).not.toHaveProperty(oldPath);
+            expect(serialized.reverseMap[newPath]).toHaveLength(1);
+            const restored = ReverseIndex.deserialize(serialized, rootDir)!;
+            expect(restored.getReferencingFiles(newPath)).toHaveLength(1);
+            expect(restored.getReferencingFiles(oldPath)).toEqual([]);
+            // Serialization must not eagerly delete maps used by in-flight indexing.
+            expect(index.cleanup()).toBe(1);
+        });
+
         it('should serialize and deserialize correctly', () => {
             // Setup some data
             index.addDependencies('/test/project/src/a.ts', [

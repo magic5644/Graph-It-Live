@@ -6,6 +6,7 @@ import {
     SUPPORTED_FILE_EXTENSIONS,
 } from "../../shared/constants";
 import { getLogger } from "../../shared/logger";
+import { normalizePath } from "../../shared/path";
 import { workerState } from "../shared/state";
 import type { McpWorkerResponse } from "../types";
 
@@ -57,17 +58,18 @@ export function setupFileWatcher(
   // that causes libuv to abort() when ReadDirectoryChangesW fires events.
   const watchRoot = resolveRealPath(workerState.config.rootDir);
 
-  // Build glob pattern for watched extensions
-  const globPattern = `${watchRoot}/**/*{${WATCHED_EXTENSIONS.join(",")}}`;
-
-  log.debug("Setting up file watcher for:", globPattern);
+  log.debug("Setting up file watcher for:", watchRoot);
   if (watchRoot !== workerState.config.rootDir) {
     log.debug("Resolved rootDir short path:", workerState.config.rootDir, "→", watchRoot);
   }
 
   try {
-    workerState.fileWatcher = watch(globPattern, {
-      ignored: IGNORED_DIRECTORIES.map((dir) => `**/${dir}/**`),
+    // Chokidar 4+ treats globs as literal paths. Watch the directory and filter
+    // files without excluding directories needed for recursive traversal.
+    workerState.fileWatcher = watch(watchRoot, {
+      ignored: (filePath, stats) =>
+        path.relative(watchRoot, filePath).split(path.sep).some(part => IGNORED_DIRECTORIES.includes(part)) ||
+        (stats?.isFile() === true && !WATCHED_EXTENSIONS.some(ext => filePath.endsWith(ext))),
       persistent: true,
       ignoreInitial: true, // Don't fire events for existing files
       awaitWriteFinish: {
@@ -130,6 +132,7 @@ function handleFileChange(
   event: "change" | "add" | "unlink",
   filePath: string,
 ): void {
+  filePath = normalizePath(filePath);
   // Clear any pending invalidation for this file
   const existingTimeout = workerState.pendingInvalidations.get(filePath);
   if (existingTimeout) {
@@ -158,6 +161,13 @@ function performFileInvalidation(
   }
 
   log.debug("File", event + ":", path.basename(filePath));
+
+  // The call graph has its own database; Spider invalidation does not refresh it.
+  // Reuse lazy workspace indexing on the next graph query after a change.
+  workerState.callGraphIndexedRoot = null;
+  if (event === "unlink") {
+    workerState.callGraphIndexer?.invalidateFile(filePath);
+  }
 
   switch (event) {
     case "change":
