@@ -194,7 +194,7 @@ describe("formatOutput - toon", () => {
     expect(out).toMatch(/dependencies\(direction,path/);
     expect(out).toContain("outgoing");
     expect(out).toContain("incoming");
-    expect(out).toContain("Token Savings");
+    expect(out).not.toContain("Token Savings");
     // A JSON fallback would pretty-print with 2-space indented braces; TOON rows should not.
     expect(() => JSON.parse(out)).toThrow();
   });
@@ -213,7 +213,7 @@ describe("formatOutput - toon", () => {
     };
 
     const out = formatOutput(explainData, "toon", "explain");
-    expect(out).toContain("Token Savings");
+    expect(out).not.toContain("Token Savings");
     expect(() => JSON.parse(out)).toThrow();
   });
 
@@ -228,7 +228,7 @@ describe("formatOutput - toon", () => {
     };
 
     const out = formatOutput(checkData, "toon", "check");
-    expect(out).toContain("Token Savings");
+    expect(out).not.toContain("Token Savings");
     expect(() => JSON.parse(out)).toThrow();
   });
 
@@ -450,12 +450,14 @@ describe("formatToon - multi-section payloads", () => {
   });
 
   it("measures savings against what it encoded, never against dropped content", () => {
+    sessionStats.reset();
     const out = formatOutput(graphPayload, "toon", "context");
-    const percent = /Token Savings: -?\d+ tokens \((-?[\d.]+)%\)/.exec(out);
+    const stats = sessionStats.snapshot().byTool["context"];
 
     // Encoding both sections cannot claim the savings of having dropped one.
-    expect(percent).not.toBeNull();
-    expect(Number(percent?.[1])).toBeLessThan(80);
+    expect(out).not.toContain("Token Savings");
+    expect(stats.jsonTokens).toBeGreaterThan(0);
+    expect((stats.savings / stats.jsonTokens) * 100).toBeLessThan(80);
   });
 
   it("still falls back to JSON when there is no array to encode", () => {

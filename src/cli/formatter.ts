@@ -108,10 +108,7 @@ function formatToon(data: unknown, command: string): string {
       timestamp: Date.now(),
     });
 
-    return (
-      toonContent +
-      `\n# Token Savings: ${savings.savings} tokens (${savings.savingsPercent.toFixed(1)}%)`
-    );
+    return toonContent;
   } catch {
     // Fallback to JSON if TOON fails
     return JSON.stringify(data, null, 2);
