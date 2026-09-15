@@ -10,6 +10,11 @@ on:
 
 permissions:
   contents: write
+  pull-requests: write
+
+concurrency:
+  group: sync-agent-plugin-version
+  cancel-in-progress: true
 
 jobs:
   sync:
@@ -27,14 +32,34 @@ jobs:
       - name: Sync manifests with npm latest
         run: node scripts/sync-agent-plugin-version.mjs
 
-      - name: Commit and push changes
+      - name: Commit changes and open pull request
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
           if git diff --quiet -- plugins/graph-it-live .claude-plugin/marketplace.json; then
             echo 'Plugin manifests are already current.'
             exit 0
           fi
+
+          branch='automation/sync-agent-plugin-version'
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git switch -c "$branch"
           git add plugins/graph-it-live .claude-plugin/marketplace.json
           git commit -m 'chore(plugin): sync version with published CLI'
-          git push origin HEAD:main
+
+          if git ls-remote --exit-code --heads origin "$branch" >/dev/null; then
+            git fetch origin "$branch:refs/remotes/origin/$branch"
+          fi
+          git push --force-with-lease origin "HEAD:$branch"
+
+          pr_url="$(gh pr list --head "$branch" --state open --json url --jq '.[0].url')"
+          if [ -n "$pr_url" ]; then
+            echo "Updated existing pull request: $pr_url"
+          else
+            gh pr create \
+              --base main \
+              --head "$branch" \
+              --title 'chore(plugin): sync version with published CLI' \
+              --body 'Automated synchronization of agent plugin manifests with the latest published npm version.'
+          fi
