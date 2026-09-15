@@ -233,13 +233,40 @@ export const MyToolParamsSchema = z.object({
 - **Memory savings**: Prevents gigabyte-scale allocations
 - **CPU savings**: Avoids processing malicious/accidental large payloads
 
+## Rate Limiting
+
+`set_workspace`, `rebuild_index`, and `invalidate_files` trigger a full re-index or
+bulk cache invalidation, and have no per-call payload cost cap. An in-memory
+sliding-window limiter in `mcpServer.ts` (`checkRateLimit`) rejects excess calls
+per tool within a 10s window (`set_workspace`/`rebuild_index`: 5 calls,
+`invalidate_files`: 20 calls) to prevent a flood of distinct calls from
+saturating CPU/IO even though each individual call is otherwise valid.
+
+## Accepted Risk: `set_workspace` Has No Root Allowlist
+
+`set_workspace` accepts any directory readable by the server process — there is
+no allowlist restricting it to the original project root or a set of trusted
+paths. This is intentional: the tool exists to let a client switch between
+projects in the same session without friction.
+
+**Residual risk**: a compromised or prompt-injected LLM client could call
+`set_workspace` against a sensitive directory (e.g. `~/.ssh`, `~/.aws`) and then
+use an analysis tool (`analyze_file_logic`, `generate_wiki`, `parse_imports`) to
+read and surface file contents from that directory back to the model. The MCP
+server has no sandbox beyond the OS-level permissions of the user running it.
+
+**Decision**: accepted risk, documented rather than mitigated with an allowlist,
+per product requirement to keep multi-project usage frictionless. Mitigation
+lives at the client/agent trust boundary (do not point a client with untrusted
+input at this server without reviewing what `set_workspace` calls it issues),
+not in the MCP server itself. Revisit if a concrete exfiltration incident occurs.
+
 ## Future Enhancements
 
 Potential improvements:
-1. **Rate limiting**: Per-tool call limits to prevent rapid-fire abuse
-2. **Dynamic limits**: Adjust based on available system memory
-3. **Streaming validation**: For very large files, validate in chunks
-4. **Metrics**: Track payload size distributions for tuning limits
+1. **Dynamic limits**: Adjust based on available system memory
+2. **Streaming validation**: For very large files, validate in chunks
+3. **Metrics**: Track payload size distributions for tuning limits
 
 ## References
 

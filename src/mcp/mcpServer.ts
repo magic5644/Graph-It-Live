@@ -553,6 +553,37 @@ function validateTsConfigPath(
 }
 
 // ============================================================================
+// Rate limiting for expensive/destructive tools (in-memory sliding window)
+// Bounds repeated full re-index / cache-invalidation calls that would
+// otherwise saturate CPU/IO in this single stdio process (M2/M5 security audit).
+// ============================================================================
+const RATE_LIMIT_WINDOW_MS = 10_000;
+const RATE_LIMIT_MAX_CALLS: Record<string, number> = {
+  set_workspace: 5,
+  rebuild_index: 5,
+  invalidate_files: 20,
+};
+const rateLimitCallTimestamps = new Map<string, number[]>();
+
+function checkRateLimit(tool: string): string | null {
+  const max = RATE_LIMIT_MAX_CALLS[tool];
+  if (max === undefined) return null;
+
+  const now = Date.now();
+  const recentCalls = (rateLimitCallTimestamps.get(tool) ?? []).filter(
+    (timestamp) => now - timestamp < RATE_LIMIT_WINDOW_MS,
+  );
+
+  if (recentCalls.length >= max) {
+    return `Rate limit exceeded: max ${max} calls per ${RATE_LIMIT_WINDOW_MS / 1000}s for ${tool}. Wait before retrying.`;
+  }
+
+  recentCalls.push(now);
+  rateLimitCallTimestamps.set(tool, recentCalls);
+  return null;
+}
+
+// ============================================================================
 // Tool Definitions - Using registerTool (recommended over deprecated tool())
 // ============================================================================
 
@@ -590,6 +621,20 @@ RETURNS: resolved workspace path, number of files indexed, indexing duration.`,
     const startTime = Date.now();
     const previousWorkspace = getWorkspaceRoot();
     const responseFormat = response_format;
+
+    const rateLimitError = checkRateLimit("set_workspace");
+    if (rateLimitError) {
+      return formatToolResponse(
+        createSetWorkspaceErrorResponse(
+          workspacePath,
+          previousWorkspace,
+          rateLimitError,
+          startTime,
+        ),
+        responseFormat,
+        "graphitlive_set_workspace",
+      );
+    }
 
     debugLog(`[McpServer] setWorkspace called with: ${workspacePath}`);
 
@@ -1078,8 +1123,17 @@ RETURNS: how many files were invalidated, which were cleared, and which held no 
     },
   },
   async ({ filePaths, response_format }) => {
-    const workerCheck = await ensureWorkerReady();
     const responseFormat = response_format;
+    const rateLimitError = checkRateLimit("invalidate_files");
+    if (rateLimitError) {
+      return formatToolResponse(
+        createErrorResponse<InvalidateFilesResult>(rateLimitError, 0, getWorkspaceRoot()),
+        responseFormat,
+        "graphitlive_invalidate_files",
+      );
+    }
+
+    const workerCheck = await ensureWorkerReady();
     if (workerCheck.error)
       return formatToolResponse(workerCheck.response, responseFormat, "graphitlive_invalidate_files");
 
@@ -1119,8 +1173,17 @@ LIMITS: takes seconds on a large workspace.`,
     },
   },
   async ({ response_format }) => {
-    const workerCheck = await ensureWorkerReady();
     const responseFormat = response_format;
+    const rateLimitError = checkRateLimit("rebuild_index");
+    if (rateLimitError) {
+      return formatToolResponse(
+        createErrorResponse<RebuildIndexResult>(rateLimitError, 0, getWorkspaceRoot()),
+        responseFormat,
+        "graphitlive_rebuild_index",
+      );
+    }
+
+    const workerCheck = await ensureWorkerReady();
     if (workerCheck.error)
       return formatToolResponse(workerCheck.response, responseFormat, "graphitlive_rebuild_index");
 
