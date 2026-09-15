@@ -1,7 +1,7 @@
 {
   "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
   "name": "graph-it-live",
-  "version": "1.15.0",
+  "version": "1.15.1",
   "description": "Dependency, call-graph, impact, and architecture analysis for codebases.",
   "author": {
     "name": "Graph-It-Live Team",

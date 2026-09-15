@@ -11,7 +11,7 @@
     {
       "name": "graph-it-live",
       "description": "Dependency, call-graph, impact, and architecture analysis for codebases.",
-      "version": "1.15.0",
+      "version": "1.15.1",
       "source": "./plugins/graph-it-live"
     }
   ]
