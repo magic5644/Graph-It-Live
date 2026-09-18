@@ -38,12 +38,12 @@ Apply this file by explicit routing for AIDD orchestration tasks, even when no m
 
 - Devil verdict is explicit `PASS` or `BLOCK`, with evidence and required correction.
 - Route `BLOCK` back to challenged agent.
-- Maximum two devil↔agent correction rounds; persistent disagreement goes to Marc or human.
+- Maximum two devil↔agent correction rounds; persistent disagreement goes to marc-orchestrator (Marc) or human.
 - Never arbitrate away layer isolation violation, demonstrated security bypass, or touched-file coverage below 80%.
 
 ## Agent Memory Scope
 
 - Each agent reads only `.claude/agent-memory/<agent>/KNOWLEDGE.md` at task start, not every sprint/history file.
 - At task end, append 3–6 factual bullets: durable decision, verified pattern, or recurring trap. Never append activity logs.
-- Marc stores gate decisions and arbitration only, not every micro-decision.
+- marc-orchestrator (Marc) stores gate decisions and arbitration only, not every micro-decision.
 - Handoff references relevant memory file rather than copying its contents.
