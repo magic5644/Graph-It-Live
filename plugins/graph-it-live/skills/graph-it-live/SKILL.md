@@ -179,7 +179,9 @@ graph-it wiki
 ### Review a Pull Request or Diff
 
 Use the dedicated command for deterministic local diff analysis. It requires a Git base ref and
-indexes automatically:
+indexes automatically. Without `--head`, it compares the base with the current working tree,
+including staged and unstaged contents. Pass `--head <ref>` to compare two committed local or
+remote refs:
 
 ```bash
 graph-it review-pr --base origin/main --format markdown
@@ -191,6 +193,10 @@ Read `risk`, `score`, `limitations`, and `isPartial` before making a merge recom
 - `low`, `medium`, `high`, `critical` classify the highest-risk changed symbol.
 - `isPartial: true` means file, parser, or impact-depth limits prevented a complete result.
 - No breaking signature does **not** prove that a behavioral change is safe; inspect tests and affected flows.
+
+The same bounded review is available through the MCP `review_pr` tool with `baseRef`, optional
+`headRef`, `maxDepth`, and `maxFiles`. MCP exposes structured limitations and `isPartial`; the
+VS Code Branch Watch confidence label is UI context and is not part of the CLI/MCP contract.
 
 Use the **pr-review** skill for the full review workflow and GitHub Actions gate.
 

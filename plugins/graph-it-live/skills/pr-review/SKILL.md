@@ -35,11 +35,12 @@ graph-it review-pr --base origin/main --format markdown
 Use explicit limits when needed:
 
 ```bash
-graph-it review-pr --base origin/main --head HEAD --depth 3 --max-files 200 --format toon
+graph-it review-pr --base origin/main --head feature/my-change --depth 3 --max-files 200 --format toon
 ```
 
 - `--base` is required.
-- `--head` defaults to `HEAD`.
+- Without `--head`, the command reviews the current working tree, including staged and unstaged contents.
+- With `--head <ref>`, both sides are committed Git refs; untracked working-tree files are excluded.
 - `--depth` limits transitive dependent traversal; use an integer from 1 to 10.
 - `--max-files` limits changed files; use an integer from 1 to 1000.
 - Use `--format markdown` for a human report; use `toon` or `json` for structured agent analysis.
@@ -117,7 +118,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
-      - uses: magic5644/Graph-It-Live/.github/actions/graph-it-review-gate@v1.13.0
+      - uses: magic5644/Graph-It-Live/.github/actions/graph-it-review-gate@v1.14.2
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
           comment: ${{ github.event.pull_request.head.repo.fork && 'false' || 'true' }}

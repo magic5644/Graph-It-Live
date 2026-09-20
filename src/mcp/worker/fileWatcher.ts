@@ -79,15 +79,15 @@ export function setupFileWatcher(
     });
 
     workerState.fileWatcher.on("change", (filePath: string) => {
-      handleFileChange(postMessage, "change", filePath);
+      handleFileChange(postMessage, "change", filePath, watchRoot);
     });
 
     workerState.fileWatcher.on("add", (filePath: string) => {
-      handleFileChange(postMessage, "add", filePath);
+      handleFileChange(postMessage, "add", filePath, watchRoot);
     });
 
     workerState.fileWatcher.on("unlink", (filePath: string) => {
-      handleFileChange(postMessage, "unlink", filePath);
+      handleFileChange(postMessage, "unlink", filePath, watchRoot);
     });
 
     workerState.fileWatcher.on("error", (error: unknown) => {
@@ -131,7 +131,9 @@ function handleFileChange(
   postMessage: (msg: McpWorkerResponse) => void,
   event: "change" | "add" | "unlink",
   filePath: string,
+  watchRoot: string,
 ): void {
+  filePath = restoreConfiguredPath(filePath, watchRoot);
   filePath = normalizePath(filePath);
   // Clear any pending invalidation for this file
   const existingTimeout = workerState.pendingInvalidations.get(filePath);
@@ -146,6 +148,20 @@ function handleFileChange(
   }, FILE_CHANGE_DEBOUNCE_MS);
 
   workerState.pendingInvalidations.set(filePath, timeout);
+}
+
+/**
+ * Chokidar reports paths using the real path passed to it. On Windows that can
+ * differ from the configured 8.3 workspace path, so map events back to the
+ * same path namespace used by the index and MCP responses.
+ */
+function restoreConfiguredPath(filePath: string, watchRoot: string): string {
+  const configuredRoot = workerState.config?.rootDir;
+  if (!configuredRoot || configuredRoot === watchRoot) return filePath;
+
+  const relativePath = path.relative(watchRoot, filePath);
+  if (relativePath.startsWith("..") || path.isAbsolute(relativePath)) return filePath;
+  return path.join(configuredRoot, relativePath);
 }
 
 /**
