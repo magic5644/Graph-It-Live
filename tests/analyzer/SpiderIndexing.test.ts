@@ -144,6 +144,7 @@ describe('Spider - Reverse Index Integration', () => {
                 await fs.writeFile(target, '<script>export default {};</script>');
                 await fs.writeFile(importer, '<script>export default {};</script>');
                 await localSpider.buildFullIndex();
+                expect(await localSpider.findReferencingFilesWithFallback(target)).toEqual([]);
                 await fs.writeFile(importer, '<script>import CreateDeposit from "./CreateDeposit.vue";</script>');
 
                 const recovered = await localSpider.findReferencingFilesWithFallback(target);

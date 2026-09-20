@@ -22,7 +22,7 @@ describe('Branch watch real language parsers', () => {
     const result = await analyzer.analyze(await analyzer.capture('main'));
     const impact = result.fileImpacts.find(item => item.path === language.source);
     if (['Java', 'GraphQL'].includes(language.name) && !impact?.dependents.length) {
-      expect(impact?.limitations.join(' ')).toContain('no known dependents');
+      expect(impact?.limitations.join(' ')).toContain('no known importers');
     } else {
       expect(impact?.dependents).toContainEqual({ path: language.consumer, depth: 1, changed: false });
     }

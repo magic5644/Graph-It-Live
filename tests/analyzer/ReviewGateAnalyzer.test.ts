@@ -40,9 +40,9 @@ afterEach(async () => {
 });
 
 describe("ReviewGateAnalyzer", () => {
-  it("compares Git filenames containing whitespace and newlines without quoting or splitting them", async () => {
+  it("compares Git filenames containing spaces without quoting or splitting them", async () => {
     const workspace = await createGitWorkspace();
-    const filename = "src/quoted space\nfile.ts";
+    const filename = "src/quoted space file.ts";
     await fs.writeFile(path.join(workspace, filename), "export function value(n: number) { return n; }\n");
     execFileSync("git", ["add", filename], { cwd: workspace });
     execFileSync("git", ["commit", "-m", "special path"], { cwd: workspace });

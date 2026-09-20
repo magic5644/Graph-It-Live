@@ -87,6 +87,9 @@ export class SpiderReferenceLookup {
    * index can be structurally complete while still predating a source change.
    */
   async findReferencingFilesWithFallback(targetPath: string): Promise<Dependency[]> {
+    // This path explicitly repairs potentially stale index data. Never reuse a
+    // previous empty fallback result after a source file may have changed.
+    this.clearFallbackCache();
     const normalizedTargetPath = normalizePath(targetPath);
     const indexedResults = this.reverseIndexManager.hasEntries()
       ? this.reverseIndexManager.getReferencingFiles(normalizedTargetPath)

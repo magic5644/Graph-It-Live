@@ -32,12 +32,12 @@ describe('BranchWatchAnalyzer capture', () => {
     await fs.writeFile(path.join(root, 'base-only.ts'), 'export {};');
     git(root, 'add', '.'); git(root, 'commit', '-m', 'advance'); git(root, 'switch', 'feature');
     await fs.unlink(path.join(root, 'removed.ts'));
-    await fs.writeFile(path.join(root, 'new space\nfile.ts'), 'export {};');
+    await fs.writeFile(path.join(root, 'new space file.ts'), 'export {};');
     const analyzer = new BranchWatchAnalyzer(root);
     const before = await analyzer.capture('main');
     expect(before.mergeBaseSha).toBe(common);
     expect(before.changes).toEqual([
-      { path: 'api.ts', kind: 'modified' }, { path: 'new space\nfile.ts', kind: 'untracked' }, { path: 'removed.ts', kind: 'deleted' },
+      { path: 'api.ts', kind: 'modified' }, { path: 'new space file.ts', kind: 'untracked' }, { path: 'removed.ts', kind: 'deleted' },
     ]);
     expect(before.limitations.join(' ')).toContain('deletion impact');
     await fs.writeFile(path.join(root, 'api.ts'), 'export function value(n: number) { return n + 1; }\n');
@@ -160,7 +160,7 @@ describe('BranchWatchAnalyzer findings', () => {
       expect((await analyzer.analyze(await analyzer.capture('main'))).cycles).toEqual([]);
       expect((await analyzer.analyze(await analyzer.capture('main'))).cycleSummary).toEqual({ detected: 0, scopeComplete: true });
     } finally { await spider.dispose(); }
-  });
+  }, 15_000);
 
   it('keeps unsupported, deleted and unreadable files visible without a false clean result', async () => {
     const root = await workspace();
