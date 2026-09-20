@@ -40,6 +40,18 @@ afterEach(async () => {
 });
 
 describe("ReviewGateAnalyzer", () => {
+  it("compares Git filenames containing whitespace and newlines without quoting or splitting them", async () => {
+    const workspace = await createGitWorkspace();
+    const filename = "src/quoted space\nfile.ts";
+    await fs.writeFile(path.join(workspace, filename), "export function value(n: number) { return n; }\n");
+    execFileSync("git", ["add", filename], { cwd: workspace });
+    execFileSync("git", ["commit", "-m", "special path"], { cwd: workspace });
+    await fs.writeFile(path.join(workspace, filename), "export function value(n: number, required: boolean) { return n; }\n");
+    const result = await new ReviewGateAnalyzer(workspace).analyze({ baseRef: "main" });
+    expect(result.changedFiles).toContain(filename);
+    expect(result.symbols.find(s => s.filePath === filename)?.name).toBe("value");
+  });
+
   it("reports deterministic breaking-change risk for a Git diff", async () => {
     const workspace = await createGitWorkspace();
     const result = await new ReviewGateAnalyzer(workspace).analyze({ baseRef: "main" });

@@ -25,17 +25,23 @@ export class SourceFileWatcher {
 
     this.watcher = vscode.workspace.createFileSystemWatcher(WATCH_GLOB);
 
+    const ignoredDirectories = new Set(['.git', 'node_modules', 'dist', 'build', 'out', 'coverage', '.vscode-test']);
+    const isIgnored = (uri: vscode.Uri) => uri.fsPath.split(/[\\/]/).some(segment => ignoredDirectories.has(segment));
+
     this.watcher.onDidCreate((uri) => {
+      if (isIgnored(uri)) return;
       this.logger.debug('File created (external):', uri.fsPath);
       this.fileChangeScheduler.enqueue(uri.fsPath, 'create');
     });
 
     this.watcher.onDidChange((uri) => {
+      if (isIgnored(uri)) return;
       this.logger.debug('File changed (external):', uri.fsPath);
       this.fileChangeScheduler.enqueue(uri.fsPath, 'change');
     });
 
     this.watcher.onDidDelete((uri) => {
+      if (isIgnored(uri)) return;
       this.logger.debug('File deleted (external):', uri.fsPath);
       this.fileChangeScheduler.enqueue(uri.fsPath, 'delete');
     });

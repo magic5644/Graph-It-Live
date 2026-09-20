@@ -1,6 +1,7 @@
 /// <reference types="node" />
 import * as fs from 'node:fs/promises';
 import path from 'node:path';
+import os from 'node:os';
 import { performance } from 'node:perf_hooks';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { Spider } from '../../src/analyzer/Spider';
@@ -127,6 +128,30 @@ describe('Spider - Reverse Index Integration', () => {
             const pathsWithIndex = refsWithIndex.map(r => r.path).sort((a, b) => a.localeCompare(b));
             const pathsWithoutIndex = refsWithoutIndex.map(r => r.path).sort((a, b) => a.localeCompare(b));
             expect(pathsWithIndex).toEqual(pathsWithoutIndex);
+        });
+
+        it('refreshes stale source dependencies when Branch Watch forces a fallback lookup', async () => {
+            const root = await fs.mkdtemp(path.join(os.tmpdir(), 'spider-fallback-'));
+            const localSpider = new SpiderBuilder()
+                .withRootDir(root)
+                .withTsConfigPath(path.join(root, 'tsconfig.json'))
+                .withReverseIndex(true)
+                .build();
+            try {
+                await fs.writeFile(path.join(root, 'tsconfig.json'), '{}');
+                const target = path.join(root, 'CreateDeposit.vue');
+                const importer = path.join(root, 'InvoiceEdition.vue');
+                await fs.writeFile(target, '<script>export default {};</script>');
+                await fs.writeFile(importer, '<script>export default {};</script>');
+                await localSpider.buildFullIndex();
+                await fs.writeFile(importer, '<script>import CreateDeposit from "./CreateDeposit.vue";</script>');
+
+                const recovered = await localSpider.findReferencingFilesWithFallback(target);
+                expect(recovered.some(reference => reference.path === importer)).toBe(true);
+            } finally {
+                await localSpider.dispose();
+                await fs.rm(root, { recursive: true, force: true });
+            }
         });
 
         it('should use indexed references only when indexing is idle', async () => {

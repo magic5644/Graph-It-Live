@@ -35,7 +35,7 @@ export const SUPPORTED_SYMBOL_ANALYSIS_EXTENSIONS = [
 ];
 
 // Unified regex for source files we analyze across extension/webview/mcp
-export const SUPPORTED_SOURCE_FILE_REGEX = /\.(ts|tsx|js|jsx|vue|svelte|gql|graphql|py|pyi|rs|cs|csproj|go|java)$/;
+export const SUPPORTED_SOURCE_FILE_REGEX = /\.(ts|tsx|js|jsx|mjs|cjs|vue|svelte|gql|graphql|py|pyi|rs|cs|csproj|go|java)$/;
 
 export const IGNORED_DIRECTORIES = [
     'node_modules',
@@ -53,7 +53,7 @@ export const IGNORED_DIRECTORIES = [
 ];
 
 
-export const WATCH_GLOB = "**/*.{ts,tsx,js,jsx,vue,svelte,gql,graphql,py,pyi,rs,toml,cs,csproj,go,java}";
+export const WATCH_GLOB = "**/*.{ts,tsx,js,jsx,mjs,cjs,vue,svelte,gql,graphql,py,pyi,rs,toml,cs,csproj,go,java}";
 
 // Language-specific colors for UI visualization
 // Used in webview for syntax highlighting, borders, and icons

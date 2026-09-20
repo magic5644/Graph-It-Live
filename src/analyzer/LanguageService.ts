@@ -261,6 +261,16 @@ export class LanguageService {
     this.javaParsers.clear();
   }
 
+  /** Release parsers owned by an ephemeral workspace without disturbing active projects. */
+  static releaseWorkspace(rootDir: string): void {
+    const prefix = `${rootDir}\u0000`;
+    for (const cache of [this.typeScriptParsers, this.typeScriptSymbolAnalyzers, this.pythonParsers,
+      this.pythonSymbolAnalyzers, this.rustParsers, this.rustSymbolAnalyzers, this.csharpParsers,
+      this.goParsers, this.javaParsers]) {
+      for (const key of cache.keys()) if (key.startsWith(prefix)) cache.delete(key);
+    }
+  }
+
   private static buildCacheKey(...parts: Array<string | undefined>): string {
     return parts.map((part) => part ?? "").join("\u0000");
   }

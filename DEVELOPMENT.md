@@ -391,6 +391,10 @@ For review consistency, keep `CONTRIBUTING.md` and the PR template aligned.
 
 ## Development Workflow
 
+### Branch Watch development
+
+Branch Watch lives in the Node-only `src/analyzer/BranchWatchAnalyzer.ts` and the VS Code-only `src/extension/services/BranchWatchService.ts` and `BranchWatchTreeProvider.ts`. Keep Git capture read-only and bounded, preserve the existing `review-pr` contract, and keep the test reminder informational. Branch selections are persisted in the ignored `.graph-it/branch-watch.json`; workspace settings are only a migration fallback. Root changed-file importer lookups must be reserved before bounded impact traversal, and stale reverse-index entries must fall back to a fresh dependency scan. Use the temporary Git fixtures in `tests/analyzer/BranchWatchAnalyzer.test.ts` and the Electron suite in `tests/vscode-e2e/suite/branchWatch.test.ts` when changing lifecycle or manifest contributions.
+
 ### Daily Development
 
 1. **Start development**:

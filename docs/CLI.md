@@ -116,7 +116,7 @@ The score is capped at `100` per symbol, and the result score is the highest sym
 
 `--max-files` defaults to `200` and accepts values from `1` to `1000`. The default output is text. Markdown output includes a consumer table and a list of unverified consumers; JSON and TOON expose the complete structured result. Invalid refs and invalid limits exit non-zero.
 
-The MCP tool `graphitlive_review_pr` exposes the same bounded analysis through `baseRef`, optional `headRef`, `maxDepth`, and `maxFiles`. The Action emits `vscode://magic5644.graph-it-live/graph-it-live.reviewCallGraph?file=<workspace-relative>&symbol=<encoded>&depth=3` only when a risky symbol has a workspace-relative file; the extension accepts depth 1–5 and validates the path again.
+The MCP tool `graphitlive_review_pr` exposes the same bounded analysis through `baseRef`, optional `headRef`, `maxDepth`, and `maxFiles`. Omit `headRef` to review the checked-out worktree; provide a local or remote branch ref to compare two committed branch refs. The Action emits `vscode://magic5644.graph-it-live/graph-it-live.reviewCallGraph?file=<workspace-relative>&symbol=<encoded>&depth=3` only when a risky symbol has a workspace-relative file; the extension accepts depth 1–5 and validates the path again. Branch Watch's VS Code confidence label is UI context for incomplete local evidence; the CLI and MCP continue to expose the structured limitations and `isPartial` fields instead of that label.
 
 ### GitHub Actions consumer workflow
 
@@ -190,7 +190,9 @@ whenever more than 20% of the workspace changed — that last case triggers a fu
 rebuild. Added, deleted and renamed files are all detected.
 
 Turn it off with `--no-cache` (or `GRAPH_IT_NO_CACHE=1`), and force a clean
-rebuild with `--reindex`. `.graph-it/` is disposable; delete it at any time.
+rebuild with `--reindex`. The VS Code extension also stores its local Branch
+Watch base/head selection in `.graph-it/branch-watch.json`; it is ignored by
+Git alongside the cache. `.graph-it/` is disposable; delete it at any time.
 
 > Global options must appear **before** the command name:
 > `graph-it --reindex summary`, not `graph-it summary --reindex`.

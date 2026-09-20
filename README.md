@@ -294,10 +294,17 @@ The skill documents graph queries, codemaps, impact analysis, dead-code detectio
 
 ## Configuration
 
+### Branch Watch
+
+Branch Watch is disabled by default. Enable `graph-it-live.branchWatch.enabled` for a workspace folder, select a local Git base branch and optionally a local or remote head branch, and use the native Branch status view to inspect changes automatically. Branch selections are stored per workspace in the ignored `.graph-it/branch-watch.json`; the `baseRef` and `headRef` settings are retained only as a legacy fallback. An empty head uses the current branch plus the final on-disk state; an explicit head compares committed branch refs and does not include untracked workspace files. It never fetches, runs tests, or reports test success. The view shows file impact for supported languages, TS/JS signature evidence, cycle history when the graphs are complete, and explicit limitations. Impact traversal is intentionally bounded (depth 3 and at most 200 affected files), so a partial result is reported with its risk and confidence instead of being presented as complete. Right-click any message row and choose `Copy Message` to pass the exact text to an LLM or issue. The reminder `Tests must pass before delivery.` is informational.
+
+Branch Watch requires the Graph-It-Live workspace root to be a supported Git repository. A folder without Git, an unborn or detached repository, conflicts, an inaccessible index, or an unsupported VCS is shown as `Branch watch unavailable`; the normal graph and CLI/MCP tools remain available.
+
 Set these options in VS Code settings:
 
 | Setting | Default | Purpose |
 | --- | --- | --- |
+| `graph-it-live.branchWatch.enabled` | `false` | Enable Branch Watch for the workspace folder |
 | `graph-it-live.performanceProfile` | `default` | Select `default`, `low-memory`, `high-performance`, or `custom` |
 | `graph-it-live.enableMcpServer` | `false` | Enable the built-in MCP server |
 | `graph-it-live.maxDepth` | `50` | Limit dependency traversal depth |

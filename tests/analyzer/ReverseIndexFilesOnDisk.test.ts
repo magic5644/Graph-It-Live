@@ -66,6 +66,21 @@ describe("ReverseIndex.validateIndex with filesOnDisk", () => {
     expect(result.stalePercentage).toBe(0);
   });
 
+  it("can validate only files touched by an incremental scan", async () => {
+    const target = write("target.ts");
+    const touched = write("touched.ts");
+    const unrelated = write("unrelated.ts");
+    await indexFile(touched, target);
+    await indexFile(unrelated, target);
+    fs.appendFileSync(touched, "// changed\n");
+    fs.appendFileSync(unrelated, "// changed\n");
+
+    const result = await index.validateIndex(0, [touched], [touched]);
+
+    expect(result.staleFiles).toEqual([normalizePath(touched)]);
+    expect(result.staleFiles).not.toContain(normalizePath(unrelated));
+  });
+
   it("counts new files in the denominator instead of inflating the ratio", async () => {
     const target = write("target.ts");
     const onDisk: string[] = [];

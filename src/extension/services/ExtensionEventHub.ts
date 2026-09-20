@@ -171,7 +171,9 @@ export class ExtensionEventHub {
     switch (eventType) {
       case "create":
       case "change":
-        await this.spider.reanalyzeFile(filePath);
+        if (await this.spider.reanalyzeFile(filePath) === null) {
+          throw new Error('Dependency index could not analyze the changed file.');
+        }
         await this.indexingManager?.persistIndexIfEnabled();
         await this.refreshByCurrentView();
         break;

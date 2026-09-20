@@ -17,13 +17,14 @@ import type {
 
 /** Exposes every available warmed Spider symbol-analysis capability to review analysis. */
 export function createSpiderDependentsProvider(
-  spider: Pick<Spider, "getSymbolDependents" | "getSymbolGraph" | "findUnusedSymbols" | "findReferencingFiles">,
+  spider: Pick<Spider, "getSymbolDependents" | "getSymbolGraph" | "findUnusedSymbols" | "findReferencingFiles" | "findReferencingFilesWithFallback">,
 ): SymbolDependentsProvider {
   return {
     getSymbolDependents: (filePath, symbolName) => spider.getSymbolDependents(filePath, symbolName),
     getSymbolGraph: (filePath) => spider.getSymbolGraph(filePath),
     findUnusedSymbols: (filePath) => spider.findUnusedSymbols(filePath),
     findReferencingFiles: (filePath) => spider.findReferencingFiles(filePath),
+    findReferencingFilesWithFallback: (filePath) => spider.findReferencingFilesWithFallback(filePath),
   };
 }
 
