@@ -81,6 +81,20 @@ export class SpiderReferenceLookup {
     return this.mergeDependencies(indexedResults, fallbackResults);
   }
 
+  /**
+   * Reconcile an indexed lookup with the filesystem fallback. This is used by
+   * Branch Watch when an apparently complete index reports no importer: an
+   * index can be structurally complete while still predating a source change.
+   */
+  async findReferencingFilesWithFallback(targetPath: string): Promise<Dependency[]> {
+    const normalizedTargetPath = normalizePath(targetPath);
+    const indexedResults = this.reverseIndexManager.hasEntries()
+      ? this.reverseIndexManager.getReferencingFiles(normalizedTargetPath)
+      : [];
+    const fallbackResults = await this.getFallbackReferencingFiles(normalizedTargetPath);
+    return this.mergeDependencies(indexedResults, fallbackResults);
+  }
+
   private async getFallbackReferencingFiles(normalizedTargetPath: string): Promise<Dependency[]> {
     if (!this.fallbackFinder) {
       return [];
@@ -126,6 +140,10 @@ export class SpiderReferenceLookup {
         return null;
       }
 
+      // The fallback is specifically used to repair an index that may be
+      // stale. Do not let the per-file dependency cache reproduce that stale
+      // answer; analyzing also refreshes the reverse-index entry.
+      this.dependencyAnalyzer.invalidateDependencyCache(filePath);
       const dependencies = await this.dependencyAnalyzer.analyze(filePath);
       const matchingDep = dependencies.find((dep) => normalizePath(dep.path) === targetPath);
 

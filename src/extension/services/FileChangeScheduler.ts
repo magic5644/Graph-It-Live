@@ -32,6 +32,8 @@ interface FileChangeSchedulerOptions {
  */
 export class FileChangeScheduler {
   private readonly jobs = new Map<string, ScheduledJob>();
+  private readonly failures = new Map<string, unknown>();
+  private readonly idleWaiters = new Set<{ resolve: () => void; reject: (error: unknown) => void }>();
   private readonly debounceDelay: number;
   private readonly processHandler: (filePath: string, eventType: EventType) => Promise<void>;
 
@@ -93,6 +95,15 @@ export class FileChangeScheduler {
       }
     }
     this.jobs.clear();
+    for (const waiter of this.idleWaiters) waiter.reject(new Error('File updates were disposed.'));
+    this.idleWaiters.clear();
+    this.failures.clear();
+  }
+
+  /** Observe completion without changing per-file debounce or coalescing semantics. */
+  async whenIdle(): Promise<void> {
+    if (this.jobs.size) await new Promise<void>((resolve, reject) => this.idleWaiters.add({ resolve, reject }));
+    if (this.failures.size) throw this.failures.values().next().value;
   }
 
   /**
@@ -131,7 +142,9 @@ export class FileChangeScheduler {
 
     try {
       await this.processHandler(normalizedPath, eventType);
+      this.failures.delete(normalizedPath);
     } catch (error) {
+      this.failures.set(normalizedPath, error);
       log.debug(`Error processing ${eventType} for ${normalizedPath}:`, error);
       // Don't throw - we want to continue processing other files
     }
@@ -144,6 +157,10 @@ export class FileChangeScheduler {
       this.scheduleJob(normalizedPath, currentJob.eventType);
     } else {
       this.jobs.delete(normalizedPath);
+    }
+    if (this.jobs.size === 0) {
+      for (const waiter of this.idleWaiters) waiter.resolve();
+      this.idleWaiters.clear();
     }
   }
 

@@ -76,8 +76,8 @@ export class ReverseIndexManager {
     return this.reverseIndex ? JSON.stringify(this.reverseIndex.serialize()) : null;
   }
 
-  validate(staleThreshold = 0.2, filesOnDisk?: readonly string[]) {
-    return this.reverseIndex?.validateIndex(staleThreshold, filesOnDisk) ?? null;
+  validate(staleThreshold = 0.2, filesOnDisk?: readonly string[], filesToCheck?: readonly string[]) {
+    return this.reverseIndex?.validateIndex(staleThreshold, filesOnDisk, filesToCheck) ?? null;
   }
 
   getStats() {

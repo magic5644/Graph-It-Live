@@ -464,13 +464,13 @@ export class Spider {
     return this.reverseIndexManager.getSerialized();
   }
 
-  async validateReverseIndex(staleThreshold = 0.2, filesOnDisk?: readonly string[]): Promise<{
+  async validateReverseIndex(staleThreshold = 0.2, filesOnDisk?: readonly string[], filesToCheck?: readonly string[]): Promise<{
     isValid: boolean;
     staleFiles: string[];
     stalePercentage: number;
     missingFiles: string[];
   } | null> {
-    return this.reverseIndexManager.validate(staleThreshold, filesOnDisk);
+    return this.reverseIndexManager.validate(staleThreshold, filesOnDisk, filesToCheck);
   }
 
   getIndexStatus(): IndexerStatusSnapshot {
@@ -594,6 +594,10 @@ export class Spider {
 
   async findReferencingFiles(targetPath: string): Promise<Dependency[]> {
     return this.referenceLookup.findReferencingFiles(targetPath);
+  }
+
+  async findReferencingFilesWithFallback(targetPath: string): Promise<Dependency[]> {
+    return this.referenceLookup.findReferencingFilesWithFallback(targetPath);
   }
 
   /**

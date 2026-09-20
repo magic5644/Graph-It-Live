@@ -338,6 +338,13 @@ describe('McpWorkerHost', () => {
         notReadyHost.invoke('get_index_status', {})
       ).rejects.toThrow('Worker not ready. Call start() first.');
     });
+
+    it('rejects pending requests and terminates cleanly during disposal', async () => {
+      const pending = host.invoke('crawl_dependency_graph', { entryFile: '/src/index.ts' });
+      await expect(host.dispose()).resolves.toBeUndefined();
+      await expect(pending).rejects.toThrow('Worker terminated');
+      expect(host.ready()).toBe(false);
+    });
   });
 
   describe('ready()', () => {

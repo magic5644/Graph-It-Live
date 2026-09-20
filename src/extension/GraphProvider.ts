@@ -1,4 +1,8 @@
 import * as vscode from "vscode";
+import * as path from "node:path";
+import type { BranchWatchSnapshot } from "../analyzer/BranchWatchAnalyzer";
+import { LanguageService } from "../analyzer/LanguageService";
+import { resolveReviewCallGraphPath } from "../shared/reviewTarget";
 import type { IndexerStatusSnapshot } from "../analyzer/IndexerStatus";
 import { Spider } from "../analyzer/Spider";
 import { SUPPORTED_SOURCE_FILE_REGEX } from "../shared/constants";
@@ -86,6 +90,7 @@ export class GraphProvider implements vscode.WebviewViewProvider {
    */
   private _callGraphViewService: CallGraphViewService | null = null;
   private _disposePromise: Promise<void> | null = null;
+  private branchWatchIndexPrepared = false;
 
   /**
    * Wire the CallGraphViewService into this provider.
@@ -109,6 +114,52 @@ export class GraphProvider implements vscode.WebviewViewProvider {
    */
   public getSpiderForLmTools(): Spider | undefined {
     return this.spider;
+  }
+
+  /** Barrier for the native branch view; never opens a webview or duplicates completed file updates. */
+  public async prepareBranchWatchIndex(snapshot: Pick<BranchWatchSnapshot, 'headSha' | 'readablePaths'> & Partial<Pick<BranchWatchSnapshot, 'changes'>>): Promise<void> {
+    const spider = this.spider;
+    if (!spider) throw new Error('Dependency index unavailable: no active graph workspace.');
+    this.indexingManager?.cancelScheduledIndexing();
+    await this.fileChangeScheduler?.whenIdle();
+    if (['counting', 'indexing', 'validating'].includes(spider.getIndexStatus().state)) {
+      await new Promise<void>((resolve, reject) => {
+        let unsubscribe = () => {};
+        const timer = setTimeout(() => { unsubscribe(); reject(new Error('Dependency index preparation timed out.')); }, 30_000);
+        unsubscribe = spider.subscribeToIndexStatus(status => {
+          if (['complete', 'error', 'idle'].includes(status.state)) {
+            clearTimeout(timer); queueMicrotask(() => unsubscribe());
+            if (status.state === 'complete') resolve();
+            else reject(new Error('Dependency index is unavailable.'));
+          }
+        });
+      });
+    }
+    // The reverse index describes the current workspace, not the selected Git
+    // head. Rebuilding it on every branch comparison needlessly duplicates the
+    // background index pass and makes Branch Watch appear to stop/restart.
+    if (!this.branchWatchIndexPrepared || !spider.isReverseIndexEnabled() || spider.getIndexStatus().state !== 'complete') {
+      spider.clearCache();
+      spider.disableReverseIndex();
+      spider.enableReverseIndex();
+      const indexed = await spider.buildFullIndexInWorker(path.join(this.extensionUri.fsPath, 'dist', 'indexerWorker.js'));
+      if (indexed.cancelled) throw new Error('Dependency index preparation was cancelled.');
+    }
+    const paths = snapshot.readablePaths.filter(file => LanguageService.isSupported(file))
+      .map(file => resolveReviewCallGraphPath(spider.workspaceRoot, file));
+    const changedPaths = (snapshot.changes ?? [])
+      .filter(change => change.kind === 'deleted' || LanguageService.isSupported(change.path))
+      .map(change => resolveReviewCallGraphPath(spider.workspaceRoot, change.path));
+    const pathsToCheck = [...new Set([...paths, ...changedPaths])];
+    const validation = await spider.validateReverseIndex(0, paths, pathsToCheck);
+    for (const file of validation?.staleFiles ?? []) this.fileChangeScheduler?.enqueue(file, 'change');
+    for (const file of validation?.missingFiles ?? []) this.fileChangeScheduler?.enqueue(file, 'delete');
+    await this.fileChangeScheduler?.whenIdle();
+    const verified = await spider.validateReverseIndex(0, paths, pathsToCheck);
+    if (!verified?.isValid) {
+      throw new Error('Dependency index is incomplete. Refresh the index before retrying branch watch.');
+    }
+    this.branchWatchIndexPrepared = true;
   }
 
   public getCallGraphViewServiceForLmTools(): import('./services/CallGraphViewService').CallGraphViewService | null {
@@ -226,7 +277,7 @@ export class GraphProvider implements vscode.WebviewViewProvider {
     log.debug(`Updated viewMode context to: ${mode}`);
   }
 
-  constructor(extensionUri: vscode.Uri, context: vscode.ExtensionContext) {
+  constructor(private readonly extensionUri: vscode.Uri, context: vscode.ExtensionContext) {
     const { container, configSnapshot } = createGraphProviderServiceContainer({
       extensionUri,
       context,

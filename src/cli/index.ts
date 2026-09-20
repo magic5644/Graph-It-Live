@@ -62,6 +62,9 @@ const GLOBAL_OPTIONS: Record<string, { type: "string" | "boolean"; short?: strin
 // Session stats: this process is the CLI entry point.
 sessionStats.setSource("cli");
 
+let activeRuntime: CliRuntime | undefined;
+let requestedSignalExitCode: number | undefined;
+
 // Idempotent stats flush — end-of-run and exit paths may both fire.
 let statsFlushed = false;
 function flushStatsOnce(): void {
@@ -87,7 +90,11 @@ process.on("exit", () => {
 for (const signal of ["SIGINT", "SIGTERM"] as const) {
   process.on(signal, () => {
     flushStatsOnce();
-    process.exit(signal === "SIGINT" ? 130 : 143);
+    requestedSignalExitCode ??= signal === "SIGINT" ? 130 : 143;
+    process.exitCode = requestedSignalExitCode;
+    if (activeRuntime) {
+      void activeRuntime.dispose().catch(() => {/* best-effort; main finally retries */});
+    }
   });
 }
 
@@ -375,6 +382,7 @@ async function main(): Promise<void> {
   const workspaceRaw = (values.workspace as string | undefined) ?? process.cwd();
   const workspaceRoot = findWorkspaceRoot(path.resolve(workspaceRaw));
   const runtime = createRuntime(workspaceRoot, values);
+  activeRuntime = runtime;
 
   // Commands that don't need a workspace (skip runtime init to avoid side-effects)
   const WORKSPACE_FREE = new Set(["install", "update", "stats"]);
@@ -401,6 +409,8 @@ async function main(): Promise<void> {
     process.exitCode = exitCode;
   } finally {
     await runtime.dispose().catch(() => {/* best-effort */});
+    activeRuntime = undefined;
+    if (requestedSignalExitCode !== undefined) process.exitCode = requestedSignalExitCode;
   }
 }
 
