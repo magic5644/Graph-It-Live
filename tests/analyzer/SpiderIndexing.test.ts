@@ -148,7 +148,7 @@ describe('Spider - Reverse Index Integration', () => {
                 await fs.writeFile(importer, '<script>import CreateDeposit from "./CreateDeposit.vue";</script>');
 
                 const recovered = await localSpider.findReferencingFilesWithFallback(target);
-                expect(recovered.some(reference => reference.path === importer)).toBe(true);
+                expect(recovered.some(reference => normalizePath(reference.path) === normalizePath(importer))).toBe(true);
             } finally {
                 await localSpider.dispose();
                 await fs.rm(root, { recursive: true, force: true });
