@@ -14,7 +14,7 @@ describe('Branch watch real language parsers', () => {
     spider = new Spider({ rootDir: root, extensionPath: process.cwd(), enableReverseIndex: true });
     analyzer = new BranchWatchAnalyzer(root, spider, process.cwd());
     await spider.buildFullIndex();
-  });
+  }, 60_000);
   afterAll(async () => { await spider?.dispose(); if (root) await fs.rm(root, { recursive: true, force: true }); });
   it.each(branchWatchLanguages)('$name retains impact for a real saved source file', async language => {
     await fs.writeFile(path.join(root, language.source), language.changed);

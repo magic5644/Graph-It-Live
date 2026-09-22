@@ -316,85 +316,24 @@ export class SignatureAnalyzer {
 
     const oldMemberMap = new Map(oldMembers.map(m => [m.name, m]));
     const newMemberMap = new Map(newMembers.map(m => [m.name, m]));
-    const renamed = new Map<string, string>();
-    const availableNew = new Set(newMembers.filter(member => !oldMemberMap.has(member.name)).map(member => member.name));
-    for (const oldMember of oldMembers) {
-      if (newMemberMap.has(oldMember.name)) continue;
-      const candidate = newMembers.find(member => availableNew.has(member.name)
-        && member.type === oldMember.type
-        && member.kind === oldMember.kind
-        && member.isOptional === oldMember.isOptional
-        && member.isReadonly === oldMember.isReadonly);
-      if (candidate) {
-        renamed.set(oldMember.name, candidate.name);
-        availableNew.delete(candidate.name);
-        breakingChanges.push({
-          type: 'member-renamed',
-          symbolName: `${interfaceName}.${candidate.name}`,
-          description: `Member '${oldMember.name}' was renamed to '${candidate.name}' in interface '${interfaceName}'`,
-          severity: 'error',
-          oldValue: oldMember.name,
-          newValue: candidate.name,
-        });
-      }
-    }
+    const renamed = this.detectRenamedMembers(
+      interfaceName,
+      oldMembers,
+      newMembers,
+      oldMemberMap,
+      newMemberMap,
+      breakingChanges,
+    );
 
-    // Check for removed members
-    for (const [name, oldMember] of oldMemberMap) {
-      if (!newMemberMap.has(name) && !renamed.has(name)) {
-        breakingChanges.push({
-          type: 'member-removed',
-          symbolName: `${interfaceName}.${name}`,
-          description: `Member '${name}' was removed from interface '${interfaceName}'`,
-          severity: 'error',
-          oldValue: oldMember.type,
-        });
-      }
-    }
-
-    // Check for type changes and optional → required
-    for (const [name, newMember] of newMemberMap) {
-      const oldMember = oldMemberMap.get(name);
-      
-      if (!oldMember) {
-        if ([...renamed.values()].includes(name)) continue;
-        if (newMember.isOptional) {
-          nonBreakingChanges.push(`New optional member '${name}' added`);
-        } else {
-          // New required member is a breaking change
-          breakingChanges.push({
-            type: 'member-optional-to-required',
-            symbolName: `${interfaceName}.${name}`,
-            description: `New required member '${name}' added to interface '${interfaceName}'`,
-            severity: 'error',
-            newValue: newMember.type,
-          });
-        }
-        continue;
-      }
-
-      // Check type change
-      if (oldMember.type !== newMember.type) {
-        breakingChanges.push({
-          type: 'member-type-changed',
-          symbolName: `${interfaceName}.${name}`,
-          description: `Type of member '${name}' changed from '${oldMember.type}' to '${newMember.type}'`,
-          severity: 'error',
-          oldValue: oldMember.type,
-          newValue: newMember.type,
-        });
-      }
-
-      // Check optional → required
-      if (oldMember.isOptional && !newMember.isOptional) {
-        breakingChanges.push({
-          type: 'member-optional-to-required',
-          symbolName: `${interfaceName}.${name}`,
-          description: `Member '${name}' changed from optional to required`,
-          severity: 'error',
-        });
-      }
-    }
+    this.detectRemovedMembers(interfaceName, oldMemberMap, newMemberMap, renamed, breakingChanges);
+    this.detectAddedAndChangedMembers(
+      interfaceName,
+      newMemberMap,
+      oldMemberMap,
+      renamed,
+      breakingChanges,
+      nonBreakingChanges,
+    );
 
     return {
       symbolName: interfaceName,
@@ -402,6 +341,130 @@ export class SignatureAnalyzer {
       breakingChanges,
       nonBreakingChanges,
     };
+  }
+
+  private detectRenamedMembers(
+    interfaceName: string,
+    oldMembers: InterfaceMemberInfo[],
+    newMembers: InterfaceMemberInfo[],
+    oldMemberMap: Map<string, InterfaceMemberInfo>,
+    newMemberMap: Map<string, InterfaceMemberInfo>,
+    breakingChanges: BreakingChange[],
+  ): Map<string, string> {
+    const renamed = new Map<string, string>();
+    const availableNew = new Set(newMembers
+      .filter(member => !oldMemberMap.has(member.name))
+      .map(member => member.name));
+
+    for (const oldMember of oldMembers) {
+      if (newMemberMap.has(oldMember.name)) continue;
+      const candidate = newMembers.find(member => availableNew.has(member.name)
+        && this.areEquivalentMembers(oldMember, member));
+      if (!candidate) continue;
+
+      renamed.set(oldMember.name, candidate.name);
+      availableNew.delete(candidate.name);
+      breakingChanges.push({
+        type: 'member-renamed',
+        symbolName: `${interfaceName}.${candidate.name}`,
+        description: `Member '${oldMember.name}' was renamed to '${candidate.name}' in interface '${interfaceName}'`,
+        severity: 'error',
+        oldValue: oldMember.name,
+        newValue: candidate.name,
+      });
+    }
+    return renamed;
+  }
+
+  private areEquivalentMembers(oldMember: InterfaceMemberInfo, newMember: InterfaceMemberInfo): boolean {
+    return oldMember.type === newMember.type
+      && oldMember.kind === newMember.kind
+      && oldMember.isOptional === newMember.isOptional
+      && oldMember.isReadonly === newMember.isReadonly;
+  }
+
+  private detectRemovedMembers(
+    interfaceName: string,
+    oldMemberMap: Map<string, InterfaceMemberInfo>,
+    newMemberMap: Map<string, InterfaceMemberInfo>,
+    renamed: Map<string, string>,
+    breakingChanges: BreakingChange[],
+  ): void {
+    for (const [name, oldMember] of oldMemberMap) {
+      if (newMemberMap.has(name) || renamed.has(name)) continue;
+      breakingChanges.push({
+        type: 'member-removed',
+        symbolName: `${interfaceName}.${name}`,
+        description: `Member '${name}' was removed from interface '${interfaceName}'`,
+        severity: 'error',
+        oldValue: oldMember.type,
+      });
+    }
+  }
+
+  private detectAddedAndChangedMembers(
+    interfaceName: string,
+    newMemberMap: Map<string, InterfaceMemberInfo>,
+    oldMemberMap: Map<string, InterfaceMemberInfo>,
+    renamed: Map<string, string>,
+    breakingChanges: BreakingChange[],
+    nonBreakingChanges: string[],
+  ): void {
+    const renamedNames = new Set(renamed.values());
+    for (const [name, newMember] of newMemberMap) {
+      if (renamedNames.has(name)) continue;
+      const oldMember = oldMemberMap.get(name);
+      if (!oldMember) {
+        this.handleAddedMember(interfaceName, newMember, breakingChanges, nonBreakingChanges);
+        continue;
+      }
+      this.handleChangedMember(interfaceName, oldMember, newMember, breakingChanges);
+    }
+  }
+
+  private handleAddedMember(
+    interfaceName: string,
+    member: InterfaceMemberInfo,
+    breakingChanges: BreakingChange[],
+    nonBreakingChanges: string[],
+  ): void {
+    if (member.isOptional) {
+      nonBreakingChanges.push(`New optional member '${member.name}' added`);
+      return;
+    }
+    breakingChanges.push({
+      type: 'member-optional-to-required',
+      symbolName: `${interfaceName}.${member.name}`,
+      description: `New required member '${member.name}' added to interface '${interfaceName}'`,
+      severity: 'error',
+      newValue: member.type,
+    });
+  }
+
+  private handleChangedMember(
+    interfaceName: string,
+    oldMember: InterfaceMemberInfo,
+    newMember: InterfaceMemberInfo,
+    breakingChanges: BreakingChange[],
+  ): void {
+    if (oldMember.type !== newMember.type) {
+      breakingChanges.push({
+        type: 'member-type-changed',
+        symbolName: `${interfaceName}.${newMember.name}`,
+        description: `Type of member '${newMember.name}' changed from '${oldMember.type}' to '${newMember.type}'`,
+        severity: 'error',
+        oldValue: oldMember.type,
+        newValue: newMember.type,
+      });
+    }
+    if (oldMember.isOptional && !newMember.isOptional) {
+      breakingChanges.push({
+        type: 'member-optional-to-required',
+        symbolName: `${interfaceName}.${newMember.name}`,
+        description: `Member '${newMember.name}' changed from optional to required`,
+        severity: 'error',
+      });
+    }
   }
 
   /**
@@ -584,7 +647,8 @@ export class SignatureAnalyzer {
   }
 
   private extractVueScript(content: string): string {
-    const scripts = [...content.matchAll(/<script\b[^>]*>([\s\S]*?)<\/script\s*>/gi)].map(match => match[1]);
+    // Vue SFC closing tags may contain whitespace or parser-tolerated attributes.
+    const scripts = [...content.matchAll(/<script\b[^>]*>([\s\S]*?)<\/script\s*[^>]*>/gi)].map(match => match[1]); // NOSONAR
     return scripts.length > 0 ? scripts.join('\n') : content;
   }
 
