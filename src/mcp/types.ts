@@ -1405,6 +1405,7 @@ export type BreakingChangeType =
   | "return-type-changed" // Return type changed
   | "visibility-reduced" // public → private/protected
   | "member-removed" // Interface/class member removed
+  | "member-renamed" // Interface/class member renamed
   | "member-type-changed" // Interface/class member type changed
   | "member-optional-to-required" // Optional member became required
   | "type-alias-changed"; // Type alias definition changed

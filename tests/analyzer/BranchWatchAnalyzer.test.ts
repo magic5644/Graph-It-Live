@@ -116,6 +116,33 @@ describe('BranchWatchAnalyzer capture', () => {
 });
 
 describe('BranchWatchAnalyzer findings', () => {
+  it('reports Vue prop contract changes through Branch Watch', async () => {
+    const root = await workspace();
+    await fs.writeFile(path.join(root, 'Child.vue'), '<script setup lang="ts">defineProps<{ oldName: string }>();</script><template />\n');
+    await fs.writeFile(path.join(root, 'Parent.vue'), '<script setup>import Child from "./Child.vue";</script><template><Child oldName="value" /></template>\n');
+    git(root, 'add', '.'); git(root, 'commit', '-m', 'vue component');
+    await fs.writeFile(path.join(root, 'Child.vue'), '<script setup lang="ts">defineProps<{ newName: string }>();</script><template />\n');
+
+    const result = await new BranchWatchAnalyzer(root).analyze(await new BranchWatchAnalyzer(root).capture('main'));
+
+    expect(result.review.symbols.find(symbol => symbol.name === 'Child.props')?.breakingChanges)
+      .toEqual(expect.arrayContaining([expect.objectContaining({ type: 'member-renamed', symbolName: 'Child.props.newName' })]));
+  });
+
+  it('reports class-based Vue prop contract changes through Branch Watch', async () => {
+    const root = await workspace();
+    await fs.writeFile(path.join(root, 'Child.vue'), '<script lang="ts">export class Child extends Vue { @Prop() oldName: string; }</script><template />\n');
+    await fs.writeFile(path.join(root, 'Parent.vue'), '<script setup>import Child from "./Child.vue";</script><template><Child oldName="value" /></template>\n');
+    git(root, 'add', '.'); git(root, 'commit', '-m', 'class-based vue component');
+    await fs.writeFile(path.join(root, 'Child.vue'), '<script lang="ts">export class Child extends Vue { @Prop() newName: string; }</script><template />\n');
+
+    const analyzer = new BranchWatchAnalyzer(root);
+    const result = await analyzer.analyze(await analyzer.capture('main'));
+
+    expect(result.review.symbols.find(symbol => symbol.name === 'Child.props')?.breakingChanges)
+      .toEqual(expect.arrayContaining([expect.objectContaining({ type: 'member-renamed', symbolName: 'Child.props.newName' })]));
+  });
+
   it('does not report external packages as incomplete local cycle dependencies', async () => {
     const root = await workspace();
     await fs.writeFile(path.join(root, 'api.ts'), "import { DynamoDBClient } from '@aws-sdk/client-dynamodb'; export const client = new DynamoDBClient({});\n");

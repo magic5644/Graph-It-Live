@@ -27,6 +27,7 @@ describe('Branch watch real language parsers', () => {
       expect(impact?.dependents).toContainEqual({ path: language.consumer, depth: 1, changed: false });
     }
     if (['TypeScript', 'JavaScript'].includes(language.name)) expect(result.review.symbols.some(s => s.filePath === language.source)).toBe(true);
+    else if (language.name === 'Vue') expect(result.limitations.join(' ')).toContain(`${language.source}: behavior unverified.`);
     else expect(result.limitations.join(' ')).toContain(`${language.source}: behavior unverified; signature comparison unavailable`);
     await fs.writeFile(path.join(root, language.source), language.content);
   });

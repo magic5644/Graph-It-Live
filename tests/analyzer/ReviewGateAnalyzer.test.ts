@@ -21,17 +21,17 @@ async function createGitWorkspace(): Promise<string> {
   return directory;
 }
 
-async function createGitWorkspaceWithDiff(oldContent: string, newContent: string): Promise<string> {
+async function createGitWorkspaceWithDiff(oldContent: string, newContent: string, filename = "src/api.ts"): Promise<string> {
   const directory = await fs.mkdtemp(path.join(os.tmpdir(), "review-gate-"));
   temporaryDirectories.push(directory);
   execFileSync("git", ["init", "--initial-branch=main"], { cwd: directory });
   execFileSync("git", ["config", "user.email", "test@example.com"], { cwd: directory });
   execFileSync("git", ["config", "user.name", "Test"], { cwd: directory });
-  await fs.mkdir(path.join(directory, "src"));
-  await fs.writeFile(path.join(directory, "src", "api.ts"), oldContent);
+  await fs.mkdir(path.dirname(path.join(directory, filename)), { recursive: true });
+  await fs.writeFile(path.join(directory, filename), oldContent);
   execFileSync("git", ["add", "."], { cwd: directory });
   execFileSync("git", ["commit", "-m", "base"], { cwd: directory });
-  await fs.writeFile(path.join(directory, "src", "api.ts"), newContent);
+  await fs.writeFile(path.join(directory, filename), newContent);
   return directory;
 }
 
@@ -60,6 +60,29 @@ describe("ReviewGateAnalyzer", () => {
     expect(result.risk).toBe("high");
     expect(result.symbols[0]).toMatchObject({ name: "greet", risk: "high" });
     expect(result.symbols[0].evidence[0].kind).toBe("breaking-change");
+  });
+
+  it("reports Vue component files that may still pass a renamed prop", async () => {
+    const workspace = await createGitWorkspaceWithDiff(
+      '<script setup lang="ts">defineProps<{ oldName: string }>();</script><template />\n',
+      '<script setup lang="ts">defineProps<{ newName: string }>();</script><template />\n',
+      "src/Child.vue",
+    );
+    const parent = path.join(workspace, "src", "Parent.vue");
+    const provider = {
+      parent,
+      getSymbolDependents: async () => [],
+      findReferencingFilesWithFallback() { return Promise.resolve([{ path: this.parent }]); },
+    };
+    const analyzer = new ReviewGateAnalyzer(workspace, provider);
+
+    const result = await analyzer.analyze({ baseRef: "main" });
+    const symbol = result.symbols.find(item => item.name === "Child.props");
+
+    expect(symbol?.breakingChanges).toEqual(expect.arrayContaining([
+      expect.objectContaining({ type: "member-renamed", symbolName: "Child.props.newName" }),
+    ]));
+    expect(symbol?.consumers.unverified).toEqual(["src/Parent.vue"]);
   });
 
   it("rejects invalid limits and renders hostile values as safe Markdown", async () => {
