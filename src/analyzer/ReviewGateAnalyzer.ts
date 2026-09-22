@@ -14,7 +14,7 @@ const MAX_MAX_FILES = 1_000;
 const MAX_MAX_DEPTH = 10;
 /** Bound on the reverse-index walk used to decide whether a consumer is under test. */
 const MAX_COVERAGE_LOOKUP_FILES = 200;
-const SIGNATURE_ANALYSIS_EXTENSIONS = new Set([".ts", ".tsx", ".js", ".jsx", ".mjs", ".cjs"]);
+const SIGNATURE_ANALYSIS_EXTENSIONS = new Set([".ts", ".tsx", ".js", ".jsx", ".mjs", ".cjs", ".vue"]);
 
 export type ReviewRiskLevel = "low" | "medium" | "high" | "critical";
 
@@ -219,10 +219,12 @@ export class ReviewGateAnalyzer {
     // consumers (e.g. everyone who calls a class that merely returns the type) — noise
     // unrelated to the specific member being changed.
     const isMemberLevelChange = errorBreakingChanges.length > 0
-      && errorBreakingChanges.every((change) => change.type === "member-removed" || change.type === "member-type-changed" || change.type === "member-optional-to-required");
+      && errorBreakingChanges.every((change) => change.type === "member-removed" || change.type === "member-renamed" || change.type === "member-type-changed" || change.type === "member-optional-to-required");
     const effectiveMaxDepth = isMemberLevelChange ? 1 : maxDepth;
     const impact: SymbolImpact = errorBreakingChanges.length > 0
-      ? await this.getImpact(absolutePath, comparison.symbolName, effectiveMaxDepth)
+      ? this.isVuePropsSymbol(comparison.symbolName)
+        ? await this.getVuePropsImpact(absolutePath)
+        : await this.getImpact(absolutePath, comparison.symbolName, effectiveMaxDepth)
       : EMPTY_IMPACT;
     const cycles = fileEvidence.cycleSymbols.has(this.toSymbolId(absolutePath, comparison.symbolName));
     const unusedExport = fileEvidence.unusedSymbols.has(comparison.symbolName);
@@ -302,13 +304,14 @@ export class ReviewGateAnalyzer {
    */
   private async hasTestDependent(file: string): Promise<boolean> {
     if (!this.dependents?.findReferencingFiles) return false;
+    const findReferencingFiles = this.dependents.findReferencingFiles.bind(this.dependents);
 
     const visited = new Set([file]);
     const queue = [file];
     while (queue.length > 0 && visited.size <= MAX_COVERAGE_LOOKUP_FILES) {
       let referencing: Array<{ path: string }>;
       try {
-        referencing = await this.dependents.findReferencingFiles(this.toAbsolute(queue.pop()!));
+        referencing = await findReferencingFiles(this.toAbsolute(queue.pop()!));
       } catch {
         continue; // An unreadable entry must not decide the whole question.
       }
@@ -399,7 +402,12 @@ export class ReviewGateAnalyzer {
       evidence.push({ kind: "test-candidate", detail: "No conventional test candidate found; manual test selection is required." });
     }
     if (input.hasTestCoverage) evidence.push({ kind: "test-candidate", detail: "Symbol is directly depended on by an existing test — a real incompatibility would fail that test." });
-    if (input.impact.containerScoped) {
+    if (input.impact.fileScoped) {
+      evidence.push({
+        kind: "partial",
+        detail: "Vue prop consumers are tracked at the component file boundary; template-level prop usage still requires review.",
+      });
+    } else if (input.impact.containerScoped) {
       evidence.push({
         kind: "partial",
         detail: "Dependents are tracked per exported symbol, not per member: the count covers consumers of the containing symbol, only some of which touch this member.",
@@ -481,6 +489,37 @@ export class ReviewGateAnalyzer {
     return viaContainer.count > 0
       ? { ...viaContainer, partial: true, containerScoped: true }
       : direct;
+  }
+
+  private isVuePropsSymbol(symbolName: string): boolean {
+    return symbolName.endsWith('.props');
+  }
+
+  private async getVuePropsImpact(filePath: string): Promise<SymbolImpact> {
+    const findReferences = this.dependents?.findReferencingFilesWithFallback ?? this.dependents?.findReferencingFiles;
+    if (!findReferences) return EMPTY_IMPACT;
+    const lookupReferences = findReferences.bind(this.dependents);
+
+    try {
+      const consumerFiles = new Set<string>();
+      const testDependents = new Set<string>();
+      for (const reference of await lookupReferences(filePath)) {
+        const relative = this.toWorkspaceRelative(normalizePath(reference.path));
+        if (relative === this.toWorkspaceRelative(filePath)) continue;
+        consumerFiles.add(relative);
+        if (this.isTestFilePath(relative)) testDependents.add(relative);
+      }
+      return {
+        count: consumerFiles.size,
+        partial: false,
+        fileScoped: true,
+        testDependents: [...testDependents],
+        consumerFiles: [...consumerFiles],
+        coveredFiles: [],
+      };
+    } catch {
+      return { ...EMPTY_IMPACT, partial: true, fileScoped: true };
+    }
   }
 
   private async walkDependents(filePath: string, symbolName: string, maxDepth: number): Promise<SymbolImpact> {
@@ -654,6 +693,8 @@ interface SymbolImpact {
   partial: boolean;
   /** Counted against the containing symbol because members are not tracked. */
   containerScoped?: boolean;
+  /** Consumer files were found through a Vue component's file-level imports. */
+  fileScoped?: boolean;
   testDependents: string[];
   /** Production consumer files found in the walk, workspace-relative. */
   consumerFiles: string[];

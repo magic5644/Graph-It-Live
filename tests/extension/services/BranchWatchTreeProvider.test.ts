@@ -61,7 +61,7 @@ describe('BranchWatchTreeProvider', () => {
     expect(changedFile?.description).toContain('1 signature change');
     const children = changedFile?.children ?? [];
     expect(children.map(item => item.description)).toEqual([
-      'depth 1 · covered by tests · no manual check indicated',
+      'depth 1 · test file detected · tests not run',
       'depth 1 · changed; compatibility unproven',
       'depth 1 · manual check required',
     ]);

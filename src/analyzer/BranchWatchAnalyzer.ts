@@ -13,7 +13,7 @@ import { detectCycleEdges } from './callgraph/cycleUtils';
 const execFileAsync = promisify(execFile);
 export const BRANCH_WATCH_MAX_FILES = 200;
 const MAX_FILE_BYTES = 2 * 1024 * 1024;
-const SIGNATURE_FILES = /\.(ts|tsx|js|jsx|cjs|mjs)$/i;
+const SIGNATURE_FILES = /\.(ts|tsx|js|jsx|cjs|mjs|vue)$/i;
 const CONFIG_FILES = /(?:^|\/)(?:tsconfig[^/]*\.json|package\.json|go\.mod|Cargo\.toml)$/;
 
 export type BranchWatchErrorCode = 'not-a-repository' | 'git-unavailable' | 'unborn-head' | 'ambiguous-root'

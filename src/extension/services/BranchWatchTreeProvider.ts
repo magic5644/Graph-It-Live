@@ -51,8 +51,8 @@ function consumerCheck(result: BranchWatchResult, filePath: string): ConsumerChe
       || consumers.covered.includes(filePath));
   if (standing?.unverified.includes(filePath)) return { text: 'manual check required', icon: 'warning' };
   if (standing?.updated.includes(filePath)) return { text: 'changed in diff · verify compatibility', icon: 'edit' };
-  if (standing?.covered.includes(filePath)) return { text: 'covered by tests · no manual check indicated', icon: 'check' };
-  return { text: 'no breaking contract detected · no manual check indicated', icon: 'check' };
+  if (standing?.covered.includes(filePath)) return { text: 'test file detected · tests not run', icon: 'beaker' };
+  return { text: 'no breaking contract detected · static analysis only', icon: 'info' };
 }
 
 /** Pure projection of the service model; never runs Git or analysis. */
