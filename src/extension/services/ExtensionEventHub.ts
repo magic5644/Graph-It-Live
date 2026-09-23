@@ -49,6 +49,8 @@ export class ExtensionEventHub {
   ) => Promise<void>;
   private readonly log: VsCodeLogger;
   private fileSaveDebounceTimer?: NodeJS.Timeout;
+  private disposed = false;
+  private readonly activeOperations = new Set<Promise<void>>();
 
   constructor(options: EventHubOptions) {
     this.spider = options.spider;
@@ -62,7 +64,12 @@ export class ExtensionEventHub {
     this.log = options.logger;
   }
 
-  async handleFileSaved(filePath: string): Promise<void> {
+  handleFileSaved(filePath: string): Promise<void> {
+    if (this.disposed) return Promise.resolve();
+    return this.trackOperation(this.processFileSaved(filePath));
+  }
+
+  private async processFileSaved(filePath: string): Promise<void> {
     if (!this.spider) {
       return;
     }
@@ -90,6 +97,7 @@ export class ExtensionEventHub {
     document: vscode.TextDocument,
     onFileSaved?: (filePath: string) => Promise<void>,
   ): void {
+    if (this.disposed) return;
     if (document.uri.scheme !== "file") {
       return;
     }
@@ -136,7 +144,12 @@ export class ExtensionEventHub {
     }, 500);
   }
 
-  async handleActiveFileChanged(): Promise<void> {
+  handleActiveFileChanged(): Promise<void> {
+    if (this.disposed) return Promise.resolve();
+    return this.trackOperation(this.processActiveFileChanged());
+  }
+
+  private async processActiveFileChanged(): Promise<void> {
     const editor = vscode.window.activeTextEditor;
     if (editor?.document.uri.scheme !== "file") {
       return;
@@ -157,7 +170,12 @@ export class ExtensionEventHub {
     }
   }
 
-  async handleFileChange(filePath: string, eventType: EventType): Promise<void> {
+  handleFileChange(filePath: string, eventType: EventType): Promise<void> {
+    if (this.disposed) return Promise.resolve();
+    return this.trackOperation(this.processFileChange(filePath, eventType));
+  }
+
+  private async processFileChange(filePath: string, eventType: EventType): Promise<void> {
     if (!this.spider) {
       return;
     }
@@ -186,11 +204,21 @@ export class ExtensionEventHub {
     }
   }
 
-  dispose(): void {
+  async dispose(): Promise<void> {
+    this.disposed = true;
     if (this.fileSaveDebounceTimer) {
       clearTimeout(this.fileSaveDebounceTimer);
       this.fileSaveDebounceTimer = undefined;
     }
+    while (this.activeOperations.size > 0) {
+      await Promise.allSettled([...this.activeOperations]);
+    }
+  }
+
+  private trackOperation(operation: Promise<void>): Promise<void> {
+    this.activeOperations.add(operation);
+    void operation.finally(() => this.activeOperations.delete(operation)).catch(() => {});
+    return operation;
   }
 
   private async refreshByCurrentView(): Promise<void> {

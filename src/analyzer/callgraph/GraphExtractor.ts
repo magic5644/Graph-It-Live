@@ -610,11 +610,13 @@ export async function collectChangedFiles(
   lookup: IndexedFileLookup,
   cutoffs: Record<SupportedLang, number>,
   langOf: (filePath: string) => SupportedLang | null = fileExtToLang,
+  isCancelled: () => boolean = () => false,
 ): Promise<{ jobs: ExtractionJob[]; skipped: number }> {
   const jobs: ExtractionJob[] = [];
   let skipped = 0;
 
   for (let i = 0; i < files.length; i += STAT_BATCH) {
+    if (isCancelled()) break;
     const batch = files.slice(i, i + STAT_BATCH);
     const stats = await Promise.all(
       batch.map(async (filePath) => {

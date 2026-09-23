@@ -100,7 +100,9 @@ export function activate(context: vscode.ExtensionContext) {
     // Call Graph panel — T019: register showCallGraph command
     const callGraphViewService = new CallGraphViewService(context);
     provider.setCallGraphViewService(callGraphViewService);
-    context.subscriptions.push(registerBranchWatch(context, provider));
+    const branchWatchRegistration = registerBranchWatch(context, provider);
+    provider.setBranchWatchRegistration(branchWatchRegistration);
+    context.subscriptions.push(branchWatchRegistration);
 
     const disposables: vscode.Disposable[] = [
       // Output channel disposal

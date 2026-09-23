@@ -82,9 +82,14 @@ interface CycleAnalysis {
 
 /** Local, read-only Git capture; independent of VS Code settings and runtime. */
 export class BranchWatchAnalyzer {
-  private baseline?: { sha: string; seedKey: string; graph: FileGraph };
+  private baseline?: { sha: string; seedKey: string; scopeKey: string; graph: FileGraph };
+  private readonly abortController = new AbortController();
   constructor(readonly root: string, private readonly dependents?: SymbolDependentsProvider,
     private readonly extensionPath?: string, private readonly gitPath = 'git') {}
+
+  dispose(): void {
+    this.abortController.abort();
+  }
 
   async analyze(snapshot: BranchWatchSnapshot): Promise<BranchWatchResult> {
     const limitations = [...snapshot.limitations];
@@ -136,9 +141,23 @@ export class BranchWatchAnalyzer {
     const seeds = snapshot.changes.filter(change => change.kind !== 'deleted' && LanguageService.isSupported(change.path)).map(change => change.path);
     if (!seeds.length) return empty;
     const current = await this.readGraphFromSeeds(this.root, seeds);
-    const baseline = await this.baselineGraph(snapshot.mergeBaseSha, seeds);
-    limitations.push(...current.limitations, ...baseline.limitations);
-    if (current.limitations.length || baseline.limitations.length) {
+    // A baseline is only needed to classify an existing cycle. When the current
+    // affected graph has no cycle, loading every historical blob cannot change
+    // the result and needlessly turns a bounded analysis into a repository scan.
+    const currentCycleEdges = detectCycleEdges(current.edges.map(e => ({
+      source: encodeURIComponent(e.source), target: encodeURIComponent(e.target),
+    })));
+    limitations.push(...current.limitations);
+    if (current.limitations.length || !currentCycleEdges.size) {
+      return {
+        findings: [],
+        summary: { detected: 0, scopeComplete: current.limitations.length === 0 },
+      };
+    }
+    const cycleNodes = [...currentCycleEdges].flatMap(edge => edge.split('->').map(decodeURIComponent));
+    const baseline = await this.baselineGraph(snapshot.mergeBaseSha, seeds, cycleNodes);
+    limitations.push(...baseline.limitations);
+    if (baseline.limitations.length) {
       limitations.push('Cycle cannot be determined completely: the current or baseline dependency graph is incomplete.');
       return { findings: [], summary: { detected: 0, scopeComplete: false } };
     }
@@ -151,7 +170,7 @@ export class BranchWatchAnalyzer {
     const queue = [...new Set(seeds.map(normalizePath))];
     const seen = new Set<string>();
     const language = new LanguageService(root, undefined, this.extensionPath);
-    const reader = root === this.root ? this : new BranchWatchAnalyzer(root);
+    const reader = root === this.root ? this : new BranchWatchAnalyzer(root, undefined, this.extensionPath);
     while (queue.length && seen.size < BRANCH_WATCH_MAX_FILES) {
       const file = queue.shift()!;
       if (seen.has(file) || !LanguageService.isSupported(file)) continue;
@@ -291,13 +310,20 @@ export class BranchWatchAnalyzer {
     result.dependents.push({ ...next, changed: snapshot.changes.some(c => c.path === relative) });
   }
 
-  private async baselineGraph(sha: string, seeds: string[]): Promise<FileGraph> {
+  private async baselineGraph(sha: string, seeds: string[], scope?: readonly string[]): Promise<FileGraph> {
     const seedKey = [...new Set(seeds)].sort().join('\0');
-    if (this.baseline?.sha === sha && this.baseline.seedKey === seedKey) return this.baseline.graph;
+    const scopeKey = scope ? [...new Set(scope)].sort().join('\0') : '';
+    if (this.baseline?.sha === sha && this.baseline.seedKey === seedKey && this.baseline.scopeKey === scopeKey) {
+      return this.baseline.graph;
+    }
     const entries = (await this.git(['ls-tree', '-r', '-z', sha])).split('\0').filter(Boolean).map(entry => {
       const tab = entry.indexOf('\t');
       return { meta: entry.slice(0, tab).split(' '), file: this.relativePath(entry.slice(tab + 1)) };
     }).filter(entry => LanguageService.isSupported(entry.file) || CONFIG_FILES.test(entry.file));
+    const scopedFiles = scope ? new Set([...scope, ...seeds].map(normalizePath)) : undefined;
+    const selectedEntries = scopedFiles
+      ? entries.filter(entry => scopedFiles.has(entry.file) || CONFIG_FILES.test(entry.file))
+      : entries;
     let graph: FileGraph = { edges: [], limitations: [] };
     // A bounded private copy of Git blobs allows existing resolvers to see historical config and paths.
     // No checkout, hooks, index changes or commands from the inspected project are executed.
@@ -306,8 +332,8 @@ export class BranchWatchAnalyzer {
         // Git blob reads are independent; a small bounded batch avoids spawning
         // thousands of sequential processes on large repositories.
         const batchSize = 8;
-        for (let start = 0; start < entries.length; start += batchSize) {
-          const batch = entries.slice(start, start + batchSize);
+        for (let start = 0; start < selectedEntries.length; start += batchSize) {
+          const batch = selectedEntries.slice(start, start + batchSize);
           const batchLimitations = await Promise.all(batch.map(async ({ meta, file }) => {
             if (!['100644', '100755'].includes(meta[0])) return `${file}: unsupported baseline file mode.`;
             const size = Number.parseInt((await this.git(['cat-file', '-s', meta[2]])).trim(), 10);
@@ -321,14 +347,18 @@ export class BranchWatchAnalyzer {
           }));
           graph.limitations.push(...batchLimitations.filter((limitation): limitation is string => Boolean(limitation)));
         }
-        const baselineSeeds = seeds.filter(seed => entries.some(entry => entry.file === seed));
+        const baselineSeeds = seeds.filter(seed => selectedEntries.some(entry => entry.file === seed));
         const parsed = await new BranchWatchAnalyzer(directory, undefined, this.extensionPath).readGraphFromSeeds(directory, baselineSeeds);
         graph = { edges: parsed.edges, limitations: [...graph.limitations, ...parsed.limitations] };
     } finally {
       LanguageService.releaseWorkspace(directory);
       await fs.rm(directory, { recursive: true, force: true });
     }
-    this.baseline = { sha, seedKey, graph };
+    // A scoped graph is an optimization only. If a historical import points
+    // outside the current cycle scope, retry once with the complete baseline
+    // so the result remains conservative instead of silently under-reporting.
+    if (scope && graph.limitations.length) return this.baselineGraph(sha, seeds);
+    this.baseline = { sha, seedKey, scopeKey, graph };
     return graph;
   }
 
@@ -370,6 +400,7 @@ export class BranchWatchAnalyzer {
     try {
       const { stdout } = await execFileAsync(this.gitPath, ['-c', 'core.fsmonitor=false', ...args], {
         cwd: this.root, encoding: 'utf8', maxBuffer: 4 * 1024 * 1024, timeout: 10_000,
+        signal: this.abortController.signal,
         env: { ...process.env, GIT_OPTIONAL_LOCKS: '0' },
       });
       return stdout;

@@ -132,6 +132,11 @@ export class CallGraphViewService implements vscode.Disposable, ICallGraphQueryS
   private callGraphNodeCount = 0;
   private callGraphEdgeCount = 0;
   private callGraphCycleCount = 0;
+  private disposed = false;
+  private disposePromise: Promise<void> | null = null;
+  private readonly activeOperations = new Set<Promise<unknown>>();
+  private reindexing = false;
+  private reindexPromise: Promise<void> | null = null;
 
   constructor(private readonly context: vscode.ExtensionContext) {
     this.outputChannel = vscode.window.createOutputChannel("Call Graph");
@@ -143,7 +148,7 @@ export class CallGraphViewService implements vscode.Disposable, ICallGraphQueryS
   // ---------------------------------------------------------------------------
 
   isIndexed(): boolean {
-    return this.workspaceIndexedRoot !== null;
+    return !this.disposed && this.workspaceIndexedRoot !== null;
   }
 
   findExternalCallers(
@@ -224,24 +229,36 @@ export class CallGraphViewService implements vscode.Disposable, ICallGraphQueryS
    * The method is safe to call from any context — it initialises the indexer and
    * extractor internally.
    */
-  async indexWorkspaceIfNeeded(workspaceRoot: string): Promise<void> {
+  indexWorkspaceIfNeeded(workspaceRoot: string): Promise<void> {
+    if (this.disposed || this.reindexing) return Promise.resolve();
+    return this.trackOperation(this.doIndexWorkspaceIfNeeded(workspaceRoot));
+  }
+
+  private async doIndexWorkspaceIfNeeded(workspaceRoot: string): Promise<void> {
     const normRoot = normalizePath(workspaceRoot);
     if (this.workspaceIndexedRoot === normRoot) {
       return; // already indexed this session
     }
 
     const indexer = await this.ensureIndexer();
+    if (this.disposed) return;
     const extractor = this.ensureExtractor(normRoot);
 
     // silent=true: no postMessage calls — this runs in background before the user opens the call graph
     await this.indexWorkspace(normRoot, indexer, extractor, undefined, true);
-    this.outputChannel.appendLine("[CallGraph] Pre-indexation complete");
+    this.log("[CallGraph] Pre-indexation complete");
   }
 
   /**
    * Resolve the symbol under the cursor and render its call-graph neighbourhood.
    */
-  async show(): Promise<void> {
+  show(): Promise<void> {
+    if (this.disposed || this.reindexing) return Promise.resolve();
+    return this.trackOperation(this.showInternal());
+  }
+
+  private async showInternal(): Promise<void> {
+    if (this.disposed) return;
     const editor = vscode.window.activeTextEditor;
     if (!editor) {
       await vscode.window.showInformationMessage(
@@ -268,12 +285,14 @@ export class CallGraphViewService implements vscode.Disposable, ICallGraphQueryS
         vscode.workspace.workspaceFolders?.[0]?.uri.fsPath ?? path.dirname(filePath),
       );
       const indexer = await this.ensureIndexer();
+      if (this.disposed) return;
       const extractor = this.ensureExtractor(workspaceRoot);
 
       // Step 1: Extract + index the active file immediately (fast; needed for root resolution).
       this.postMessage({ type: "callGraphIndexing", status: "progress", percent: 5, message: "Parsing current file…" });
       const fileMtime = Date.now();
       const { nodes, edges } = await extractor.extractFile(filePath, lang, fileMtime);
+      if (this.disposed) return;
       indexer.indexFile(nodes, edges, filePath, lang, fileMtime);
 
       const fileCycleEdgeKeys = detectCycleEdges(
@@ -299,6 +318,7 @@ export class CallGraphViewService implements vscode.Disposable, ICallGraphQueryS
       // Subsequent show() calls in the same session are near-instant because all fresh files
       // are already cached in the DB.
       await this.indexWorkspace(workspaceRoot, indexer, extractor, filePath);
+      if (this.disposed) return;
 
       // Guard: the workspace walk can take seconds on first run. If the user
       // switched to a different file during indexing, abandon this result to
@@ -307,7 +327,7 @@ export class CallGraphViewService implements vscode.Disposable, ICallGraphQueryS
         const afterEditor = vscode.window.activeTextEditor;
         const afterFilePath = afterEditor ? normalizePath(afterEditor.document.uri.fsPath) : null;
         if (afterFilePath !== filePath) {
-          this.outputChannel.appendLine(
+          this.log(
             `[CallGraph] Active file changed during indexing (${filePath} → ${afterFilePath ?? "none"}); aborting stale result`,
           );
           this.postMessage({ type: "callGraphIndexing", status: "complete" });
@@ -322,7 +342,7 @@ export class CallGraphViewService implements vscode.Disposable, ICallGraphQueryS
       this.postMessage({ type: "callGraphIndexing", status: "progress", percent: 92, message: "Resolving cross-file edges…" });
       const resolveStats = indexer.resolveExternalEdges();
       if (resolveStats.resolved > 0) {
-        this.outputChannel.appendLine(
+        this.log(
           `[CallGraph] Post-file resolve: ${resolveStats.resolved} cross-file edges resolved`,
         );
       }
@@ -332,7 +352,7 @@ export class CallGraphViewService implements vscode.Disposable, ICallGraphQueryS
 
       const result = queryNeighbourhood(indexer.getDb(), rootNode.id, this.currentDepth);
       this.currentRootSymbolId = rootNode.id;
-      this.outputChannel.appendLine(`[CallGraph] Rendered ${result.nodes.length} nodes, ${result.edges.length} edges`);
+      this.log(`[CallGraph] Rendered ${result.nodes.length} nodes, ${result.edges.length} edges`);
       this.postMessage({ type: "callGraphIndexing", status: "complete" });
       this.sendGraphToWebview(result);
 
@@ -340,19 +360,26 @@ export class CallGraphViewService implements vscode.Disposable, ICallGraphQueryS
       this.currentNeighbourhoodPaths = new Set(result.nodes.map((n) => n.path));
       this.registerSaveListener(workspaceRoot);
     } catch (err: unknown) {
+      if (this.disposed) return;
       const message = errorMessage(err);
-      this.outputChannel.appendLine(`[CallGraph] Error: ${message}`);
+      this.log(`[CallGraph] Error: ${message}`);
       this.postMessage({ type: "callGraphIndexing", status: "error", message });
     }
   }
 
   /** Open a validated workspace-relative review target in the existing call graph. */
-  async showReviewTarget(relativePath: string, symbolName: string | undefined, depth: number): Promise<void> {
+  showReviewTarget(relativePath: string, symbolName: string | undefined, depth: number): Promise<void> {
+    if (this.disposed || this.reindexing) return Promise.resolve();
+    return this.trackOperation(this.doShowReviewTarget(relativePath, symbolName, depth));
+  }
+
+  private async doShowReviewTarget(relativePath: string, symbolName: string | undefined, depth: number): Promise<void> {
     const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
     if (!workspaceRoot) throw new Error("Review target requires an open workspace");
     const target = validateReviewCallGraphTarget({ file: relativePath, symbol: symbolName, depth });
     const filePath = resolveReviewCallGraphPath(workspaceRoot, target.file);
     const document = await vscode.workspace.openTextDocument(vscode.Uri.file(filePath));
+    if (this.disposed) return;
     const content = document.getText();
     const symbolOffset = target.symbol ? content.indexOf(target.symbol) : -1;
     const line = symbolOffset >= 0 ? content.slice(0, symbolOffset).split("\n").length - 1 : 0;
@@ -365,7 +392,23 @@ export class CallGraphViewService implements vscode.Disposable, ICallGraphQueryS
    * Force a full call graph reindex: drop the in-memory DB, delete the
    * persisted file, and re-run `show()` so the user sees fresh results.
    */
-  async forceReindex(): Promise<void> {
+  forceReindex(): Promise<void> {
+    if (this.disposed) return Promise.resolve();
+    if (this.reindexPromise) return this.reindexPromise;
+    this.reindexing = true;
+    const operation = Promise.allSettled([...this.activeOperations]).then(async () => {
+      if (!this.disposed) await this.doForceReindex();
+    });
+    const tracked = this.trackOperation(operation).finally(() => {
+      this.reindexing = false;
+      this.reindexPromise = null;
+    });
+    this.reindexPromise = tracked;
+    return tracked;
+  }
+
+  private async doForceReindex(): Promise<void> {
+    if (this.disposed) return;
     // 1. Drop the current DB and persisted file
     this.workspaceIndexedRoot = null;
     this.indexWorkspacePromise = null;
@@ -381,30 +424,59 @@ export class CallGraphViewService implements vscode.Disposable, ICallGraphQueryS
     }
 
     // 2. Re-show the call graph (triggers full workspace re-index)
-    await this.show();
+    await this.showInternal();
   }
 
   dispose(): void {
+    void this.disposeAsync().catch((err: unknown) => this.log(`[CallGraph] Shutdown failed: ${errorMessage(err)}`));
+  }
+
+  disposeAsync(): Promise<void> {
+    this.disposePromise ??= this.disposeResources();
+    return this.disposePromise;
+  }
+
+  private async disposeResources(): Promise<void> {
+    this.disposed = true;
     this.clearSaveDebounce();
     this.saveListener?.dispose();
     this.saveListener = null;
     this.sidebarWebview = null;
-    // Persist DB to disk before closing (best-effort, fire-and-forget)
+    await this.waitForActiveOperations();
+    // Persist the final DB state before closing the connection.
     if (this.indexer && this.workspaceIndexedRoot) {
       const dbPath = this.getDbFilePath();
       if (dbPath) {
-        this.indexer.saveToFile(dbPath).catch((err: unknown) => {
-          this.outputChannel.appendLine(`[CallGraph] Failed to persist DB: ${errorMessage(err)}`);
-        });
+        try { await this.indexer.saveToFile(dbPath); }
+        catch (err: unknown) { this.log(`[CallGraph] Failed to persist DB: ${errorMessage(err)}`); }
       }
     }
-    this.extractor?.dispose();
+    try { this.extractor?.dispose(); }
+    catch (err: unknown) { this.log(`[CallGraph] Failed to dispose extractor: ${errorMessage(err)}`); }
     this.extractor = null;
-    this.indexer?.dispose();
+    try { this.indexer?.dispose(); }
+    catch (err: unknown) { this.log(`[CallGraph] Failed to dispose indexer: ${errorMessage(err)}`); }
     this.indexer = null;
     // Reset workspace index state so the next activation starts fresh with an empty DB.
     this.workspaceIndexedRoot = null;
     this.indexWorkspacePromise = null;
+  }
+
+  private trackOperation<T>(operation: Promise<T>): Promise<T> {
+    this.activeOperations.add(operation);
+    void operation.finally(() => this.activeOperations.delete(operation)).catch(() => {});
+    return operation;
+  }
+
+  private async waitForActiveOperations(): Promise<void> {
+    while (this.activeOperations.size > 0) {
+      await Promise.allSettled([...this.activeOperations]);
+    }
+  }
+
+  private log(message: string): void {
+    try { this.outputChannel.appendLine(message); }
+    catch { /* The VS Code output channel may close before async work finishes. */ }
   }
 
   // ---------------------------------------------------------------------------
@@ -421,7 +493,7 @@ export class CallGraphViewService implements vscode.Disposable, ICallGraphQueryS
       if (dbPath) {
         const loaded = await this.indexer.loadFromFile(dbPath);
         if (loaded) {
-          this.outputChannel.appendLine("[CallGraph] Restored DB from disk");
+          this.log("[CallGraph] Restored DB from disk");
           return this.indexer;
         }
       }
@@ -455,9 +527,14 @@ export class CallGraphViewService implements vscode.Disposable, ICallGraphQueryS
   }
 
   private postMessage(message: CallGraphExtensionMessage): void {
-    this.sidebarWebview?.webview.postMessage(message).then(undefined, (err: unknown) => {
-      this.outputChannel.appendLine(`[CallGraph] postMessage failed: ${errorMessage(err)}`);
-    });
+    if (this.disposed) return;
+    try {
+      this.sidebarWebview?.webview.postMessage(message).then(undefined, (err: unknown) => {
+        this.log(`[CallGraph] postMessage failed: ${errorMessage(err)}`);
+      });
+    } catch (err: unknown) {
+      this.log(`[CallGraph] postMessage failed: ${errorMessage(err)}`);
+    }
   }
 
   private sendGraphToWebview(result: ReturnType<typeof queryNeighbourhood>): void {
@@ -473,6 +550,7 @@ export class CallGraphViewService implements vscode.Disposable, ICallGraphQueryS
    *   sendGraphToWebview → pendingGraph set → callGraphReady → sendGraphToWebview → …
    */
   private postGraphData(result: ReturnType<typeof queryNeighbourhood>): void {
+    if (this.disposed) return;
     // E2E observability: store cycle count as a field (readable via getContext command)
     // and also set VS Code context key for `when` clause use.
     const cycleCount = result.edges.filter((e) => e.isCyclic).length;
@@ -557,17 +635,19 @@ export class CallGraphViewService implements vscode.Disposable, ICallGraphQueryS
     const allEdges: Array<{ sourceId: string; targetId: string; typeRelation: string }> = [];
 
     for (let i = 0; i < jobs.length; i += EXTRACT_BATCH) {
+      if (this.disposed) break;
       const batch = jobs.slice(i, i + EXTRACT_BATCH);
       const results = await Promise.all(
         batch.map(async (job) => {
           try {
             return { job, extracted: await extractor.extractFile(job.filePath, job.lang, job.mtime), ok: true as const };
           } catch (err: unknown) {
-            this.outputChannel.appendLine(`[CallGraph] Skipping ${job.filePath}: ${errorMessage(err)}`);
+            this.log(`[CallGraph] Skipping ${job.filePath}: ${errorMessage(err)}`);
             return { job, extracted: null, ok: false as const };
           }
         }),
       );
+      if (this.disposed) break;
 
       // Batch transaction: wrap all DB insertions for this EXTRACT_BATCH in a single transaction
       indexer.beginBatch();
@@ -584,7 +664,7 @@ export class CallGraphViewService implements vscode.Disposable, ICallGraphQueryS
         indexer.commitBatch();
       } catch (batchErr: unknown) {
         indexer.rollbackBatch();
-        this.outputChannel.appendLine(`[CallGraph] Batch commit failed, falling back to per-file: ${errorMessage(batchErr)}`);
+        this.log(`[CallGraph] Batch commit failed, falling back to per-file: ${errorMessage(batchErr)}`);
         // Undo the progress counted in the try block — indexResultsOneByOne will re-count.
         progressState.done -= results.length;
         // Also undo any edges pushed before the failure — the fallback re-pushes them.
@@ -627,7 +707,7 @@ export class CallGraphViewService implements vscode.Disposable, ICallGraphQueryS
             allEdges.push({ sourceId: e.sourceId, targetId: e.targetId, typeRelation: e.typeRelation });
           }
         } catch (fileErr: unknown) {
-          this.outputChannel.appendLine(`[CallGraph] Index failed for ${r.job.filePath}: ${errorMessage(fileErr)}`);
+          this.log(`[CallGraph] Index failed for ${r.job.filePath}: ${errorMessage(fileErr)}`);
         }
       }
       progressState.done++;
@@ -643,16 +723,17 @@ export class CallGraphViewService implements vscode.Disposable, ICallGraphQueryS
     const collector = new SourceFileCollector({
       excludeNodeModules: true,
       yieldIntervalMs: 30,
-      isCancelled: () => false,
+      isCancelled: () => this.disposed,
     });
 
     const allFiles = await collector.collectAllSourceFiles(workspaceRoot);
+    if (this.disposed) return;
     const callgraphFiles = allFiles
       .map(normalizePath)
       .filter((f) => langFromPath(f) !== null && f !== skipPath);
 
     const total = callgraphFiles.length;
-    this.outputChannel.appendLine(`[CallGraph] Workspace indexing: ${total} files to process`);
+    this.log(`[CallGraph] Workspace indexing: ${total} files to process`);
 
     // Phase 1 — batch stat to find changed files
     const queryFreshnessCutoffs = await getQueryFreshnessCutoffs(this.context.extensionPath);
@@ -661,12 +742,15 @@ export class CallGraphViewService implements vscode.Disposable, ICallGraphQueryS
       (f) => indexer.getFileRecord(f),
       queryFreshnessCutoffs,
       langFromPath,
+      () => this.disposed,
     );
-    this.outputChannel.appendLine(`[CallGraph] ${jobs.length} files need (re-)extraction`);
+    if (this.disposed) return;
+    this.log(`[CallGraph] ${jobs.length} files need (re-)extraction`);
 
     // Phase 2 — parallel extraction + serial DB insertion
     const progressState = { done: skipped, total };
     const allEdges = await this.extractAndIndexBatches(jobs, indexer, extractor, progressState);
+    if (this.disposed) return;
 
     // Phase 3 — single cycle-detection pass
     const nonUsesEdges = allEdges
@@ -682,21 +766,21 @@ export class CallGraphViewService implements vscode.Disposable, ICallGraphQueryS
       }
     }
 
+    if (this.disposed) return;
     this.workspaceIndexedRoot = workspaceRoot;
-    this.outputChannel.appendLine(`[CallGraph] Workspace indexing complete: ${progressState.done}/${total} files processed`);
+    this.log(`[CallGraph] Workspace indexing complete: ${progressState.done}/${total} files processed`);
 
-    this.outputChannel.appendLine("[CallGraph] Resolving cross-file edges…");
+    this.log("[CallGraph] Resolving cross-file edges…");
     const resolveStats = indexer.resolveExternalEdges();
-    this.outputChannel.appendLine(
+    this.log(
       `[CallGraph] Cross-file edge resolution: resolved=${resolveStats.resolved} unresolved=${resolveStats.deleted}`,
     );
 
-    // Persist updated DB to disk (best-effort, non-blocking)
+    // Persist before the active indexing operation releases the database.
     const dbPath = this.getDbFilePath();
     if (dbPath) {
-      indexer.saveToFile(dbPath).catch((err: unknown) => {
-        this.outputChannel.appendLine(`[CallGraph] Failed to persist DB after indexing: ${errorMessage(err)}`);
-      });
+      try { await indexer.saveToFile(dbPath); }
+      catch (err: unknown) { this.log(`[CallGraph] Failed to persist DB after indexing: ${errorMessage(err)}`); }
     }
   }
 
@@ -727,13 +811,14 @@ export class CallGraphViewService implements vscode.Disposable, ICallGraphQueryS
   // ---------------------------------------------------------------------------
 
   public handleWebviewMessage(msg: CallGraphWebviewCommand): void {
+    if (this.disposed) return;
     if (msg.command === "callGraphOpenFile") {
-      this.handleOpenFile(msg).catch((err: unknown) => {
-        this.outputChannel.appendLine(`[CallGraph] openFile error: ${errorMessage(err)}`);
+      this.trackOperation(this.handleOpenFile(msg)).catch((err: unknown) => {
+        this.log(`[CallGraph] openFile error: ${errorMessage(err)}`);
       });
     } else if (msg.command === "callGraphSymbolFocus") {
-      this.handleSymbolFocus(msg).catch((err: unknown) => {
-        this.outputChannel.appendLine(`[CallGraph] symbolFocus error: ${errorMessage(err)}`);
+      this.trackOperation(this.handleSymbolFocus(msg)).catch((err: unknown) => {
+        this.log(`[CallGraph] symbolFocus error: ${errorMessage(err)}`);
       });
     } else if (msg.command === "callGraphMounted") {
       // Webview message listener is now active — replay any buffered graph data
@@ -748,7 +833,7 @@ export class CallGraphViewService implements vscode.Disposable, ICallGraphQueryS
     } else if (msg.command === "callGraphReady") {
       // Graph rendered successfully — telemetry / E2E test instrumentation only.
       // Do NOT replay here; that caused an infinite postMessage loop.
-      this.outputChannel.appendLine(
+      this.log(
         `[CallGraph] Rendered ${msg.nodeCount} nodes, ${msg.edgeCount} edges`,
       );
       // Clear stale pending buffer now that we know the webview rendered.
@@ -765,7 +850,7 @@ export class CallGraphViewService implements vscode.Disposable, ICallGraphQueryS
       this.handleDepthChanged(msg.depth);
     } else if (msg.command === "callGraphFilterChanged") {
       // T028: log for now; persistence is a future enhancement
-      this.outputChannel.appendLine(
+      this.log(
         `[CallGraph] Filter changed: ${msg.filterType}=${msg.value} visible=${String(msg.visible)}`,
       );
     }
@@ -774,7 +859,7 @@ export class CallGraphViewService implements vscode.Disposable, ICallGraphQueryS
   private async handleOpenFile(msg: CallGraphOpenFileCommand): Promise<void> {
     // Validate the URI is an absolute path (defence-in-depth against webview injection)
     if (!msg.uri || !path.isAbsolute(msg.uri)) {
-      this.outputChannel.appendLine(`[CallGraph] openFile: invalid URI "${msg.uri ?? ""}"`);
+      this.log(`[CallGraph] openFile: invalid URI "${msg.uri ?? ""}"`);
       return;
     }
 
@@ -787,6 +872,7 @@ export class CallGraphViewService implements vscode.Disposable, ICallGraphQueryS
       );
       return;
     }
+    if (this.disposed) return;
 
     const position = new vscode.Position(msg.line, msg.character);
     await vscode.window.showTextDocument(doc, {
@@ -804,7 +890,7 @@ export class CallGraphViewService implements vscode.Disposable, ICallGraphQueryS
   private handleDepthChanged(depth: number): void {
     const clamped = Math.max(1, Math.min(MAX_DEPTH, Math.round(depth)));
     this.currentDepth = clamped;
-    this.outputChannel.appendLine(`[CallGraph] Depth changed to ${clamped}`);
+    this.log(`[CallGraph] Depth changed to ${clamped}`);
 
     const indexer = this.indexer;
     const rootId = this.currentRootSymbolId;
@@ -828,6 +914,7 @@ export class CallGraphViewService implements vscode.Disposable, ICallGraphQueryS
       line: msg.startLine,
       character: msg.startCol,
     });
+    if (this.disposed) return;
 
     // Re-query the neighbourhood with the clicked node as new root
     const indexer = this.indexer;
@@ -836,7 +923,7 @@ export class CallGraphViewService implements vscode.Disposable, ICallGraphQueryS
     const result = queryNeighbourhood(indexer.getDb(), msg.nodeId, this.currentDepth);
     this.currentRootSymbolId = msg.nodeId;
     const label = msg.nodeId.split(":").at(-2) ?? msg.nodeId;
-    this.outputChannel.appendLine(`[CallGraph] Recentered on "${label}" — ${result.nodes.length} nodes, ${result.edges.length} edges`);
+    this.log(`[CallGraph] Recentered on "${label}" — ${result.nodes.length} nodes, ${result.edges.length} edges`);
     this.currentNeighbourhoodPaths = new Set(result.nodes.map((n) => n.path));
     this.sendGraphToWebview(result);
   }
@@ -850,6 +937,7 @@ export class CallGraphViewService implements vscode.Disposable, ICallGraphQueryS
     // do NOT push to context.subscriptions here or it accumulates a dead entry per show() call.
     this.saveListener?.dispose();
     this.saveListener = vscode.workspace.onDidSaveTextDocument((doc) => {
+      if (this.disposed) return;
       const savedPath = normalizePath(doc.uri.fsPath);
       if (this.currentNeighbourhoodPaths.has(savedPath)) {
         this.scheduleRefresh(savedPath, doc.languageId, workspaceRoot);
@@ -858,10 +946,11 @@ export class CallGraphViewService implements vscode.Disposable, ICallGraphQueryS
   }
 
   private scheduleRefresh(filePath: string, languageId: string, workspaceRoot: string): void {
+    if (this.disposed) return;
     this.clearSaveDebounce();
     this.saveDebounceTimer = setTimeout(() => {
-      this.refreshFile(filePath, languageId, workspaceRoot).catch((err: unknown) => {
-        this.outputChannel.appendLine(`[CallGraph] refresh error: ${errorMessage(err)}`);
+      this.trackOperation(this.refreshFile(filePath, languageId, workspaceRoot)).catch((err: unknown) => {
+        this.log(`[CallGraph] refresh error: ${errorMessage(err)}`);
       });
     }, SAVE_DEBOUNCE_MS);
   }
@@ -878,12 +967,14 @@ export class CallGraphViewService implements vscode.Disposable, ICallGraphQueryS
     if (!lang || !this.currentFilePath) { return; }
 
     const indexer = await this.ensureIndexer();
+    if (this.disposed) return;
     // No invalidateFile() here — indexFile() handles atomic replacement of
     // outgoing edges while preserving incoming edges from other files.
 
     const extractor = this.ensureExtractor(workspaceRoot);
     const mtime = Date.now();
     const { nodes, edges } = await extractor.extractFile(filePath, lang, mtime);
+    if (this.disposed) return;
     indexer.indexFile(nodes, edges, filePath, lang, mtime);
 
     const cycleEdgeKeys = detectCycleEdges(edges.map((e) => ({ source: e.sourceId, target: e.targetId })));

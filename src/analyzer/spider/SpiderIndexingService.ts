@@ -35,8 +35,8 @@ export class SpiderIndexingService {
     this.workerManager.cancel();
   }
 
-  disposeWorker(): void {
-    this.workerManager.dispose();
+  async disposeWorker(): Promise<void> {
+    await this.workerManager.dispose();
   }
 
   /**
@@ -145,6 +145,7 @@ export class SpiderIndexingService {
     workerPath: string,
     progressCallback?: IndexingProgressCallback
   ): Promise<{ indexedFiles: number; duration: number; cancelled: boolean }> {
+    this.cancellation.reset();
     const config = this.getConfig();
     return this.workerManager.buildFullIndexInWorker({
       workerPath,
@@ -165,6 +166,7 @@ export class SpiderIndexingService {
       return 0;
     }
 
+    this.cancellation.reset();
     log.info(`Re-indexing ${staleFiles.length} stale files`);
 
     // Drive the same status lifecycle as buildFullIndex: callers that restored a
@@ -178,6 +180,10 @@ export class SpiderIndexingService {
     let processed = 0;
 
     for (let i = 0; i < staleFiles.length; i += concurrency) {
+      if (this.cancellation.isCancelled()) {
+        this.indexerStatus.setCancelled();
+        return processed;
+      }
       const batch = staleFiles.slice(i, i + concurrency);
 
       await Promise.all(
@@ -203,6 +209,10 @@ export class SpiderIndexingService {
       await this.yieldToEventLoop();
     }
 
+    if (this.cancellation.isCancelled()) {
+      this.indexerStatus.setCancelled();
+      return processed;
+    }
     this.indexerStatus.complete();
     log.info(`Completed re-indexing ${processed} files`);
     return processed;
