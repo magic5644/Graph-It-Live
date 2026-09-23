@@ -15,10 +15,12 @@
 
 import * as path from 'node:path';
 import * as fs from 'node:fs';
-import { runTests } from '@vscode/test-electron';
+import * as os from 'node:os';
+import { runTests, runVSCodeCommand } from '@vscode/test-electron';
 
 async function main() {
   const useVsix = process.argv.includes('--vsix');
+  let temporaryProfileDirectory: string | undefined;
 
   try {
     // The folder containing the Extension Manifest package.json
@@ -30,6 +32,8 @@ async function main() {
     // Use fixtures as workspace root to allow tests to access all test projects
     // Use absolute path from extension root to avoid path resolution issues
     const workspaceRoot = path.resolve(extensionDevelopmentPath, 'tests/fixtures');
+    const vscodeVersion = process.env.VSCODE_TEST_VERSION ?? 'stable';
+    const vscodeCachePath = path.resolve(extensionDevelopmentPath, '.vscode-test');
     const reportFileFromEnv = process.env.E2E_MOCHA_REPORT_FILE;
     let resolvedReportFile: string | undefined;
 
@@ -50,10 +54,7 @@ async function main() {
       ...(resolvedReportFile ? { E2E_MOCHA_REPORT_FILE: resolvedReportFile } : {}),
     };
 
-    const launchArgs = [
-      workspaceRoot,
-      '--disable-extensions', // Disable other extensions for clean testing
-    ];
+    const launchArgs = [workspaceRoot, '--disable-extensions'];
 
     if (useVsix) {
       // Test from packaged .vsix file (production mode)
@@ -69,15 +70,35 @@ async function main() {
       const vsixPath = path.resolve(extensionDevelopmentPath, vsixFiles[0]);
       console.log(`📦 Testing packaged extension: ${vsixFiles[0]}`);
 
-      // When testing .vsix, we still need extensionDevelopmentPath for the test runner
-      // but the extension is loaded from the installed .vsix
+      temporaryProfileDirectory = fs.mkdtempSync(path.join(os.tmpdir(), 'g-vsix-'));
+      const extensionsDirectory = path.join(temporaryProfileDirectory, 'extensions');
+      const userDataDirectory = path.join(temporaryProfileDirectory, 'user-data');
+      fs.mkdirSync(extensionsDirectory, { recursive: true });
+      fs.mkdirSync(userDataDirectory, { recursive: true });
+
+      const isolatedProfileArgs = [
+        `--extensions-dir=${extensionsDirectory}`,
+        `--user-data-dir=${userDataDirectory}`,
+      ];
+
+      await runVSCodeCommand([
+        ...isolatedProfileArgs,
+        `--install-extension=${vsixPath}`,
+        '--force',
+      ], { version: vscodeVersion, cachePath: vscodeCachePath });
+
       await runTests({
-        extensionDevelopmentPath,
+        version: vscodeVersion,
+        cachePath: vscodeCachePath,
+        extensionDevelopmentPath: path.resolve(__dirname, 'test-host'),
         extensionTestsPath,
-        extensionTestsEnv,
+        extensionTestsEnv: {
+          ...extensionTestsEnv,
+          E2E_EXPECTED_VSIX_EXTENSION_DIR: extensionsDirectory,
+        },
         launchArgs: [
-          ...launchArgs,
-          `--install-extension=${vsixPath}`,
+          workspaceRoot,
+          ...isolatedProfileArgs,
         ],
       });
     } else {
@@ -85,6 +106,8 @@ async function main() {
       console.log('🔧 Testing extension from source (development mode)');
       
       await runTests({
+        version: vscodeVersion,
+        cachePath: vscodeCachePath,
         extensionDevelopmentPath,
         extensionTestsPath,
         extensionTestsEnv,
@@ -95,7 +118,11 @@ async function main() {
     console.log('✅ All tests passed!');
   } catch (err) {
     console.error('❌ Failed to run tests:', err);
-    process.exit(1);
+    process.exitCode = 1;
+  } finally {
+    if (temporaryProfileDirectory) {
+      fs.rmSync(temporaryProfileDirectory, { recursive: true, force: true });
+    }
   }
 }
 

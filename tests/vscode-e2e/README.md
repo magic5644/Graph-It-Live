@@ -19,8 +19,11 @@ npm run test:vscode:vsix
 This will:
 1. Build and package the extension (`npm run package`)
 2. Compile the test files
-3. Launch VS Code with the packaged .vsix installed
-4. Run the test suite
+3. Install the .vsix into a temporary, isolated VS Code profile
+4. Launch the test suite from a separate test host and isolated profile containing the packaged extension
+5. Assert that VS Code loaded Graph-It-Live from that temporary extension directory
+
+The VS Code version defaults to the latest stable release. Set `VSCODE_TEST_VERSION` to a specific VS Code version to pin a local or CI run.
 
 **Use this before releasing** to verify the package works as expected.
 

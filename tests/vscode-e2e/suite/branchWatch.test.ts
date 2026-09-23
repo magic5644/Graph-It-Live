@@ -19,6 +19,10 @@ suite('Branch Watch', () => {
       'graph-it-live.branchWatch.reveal', 'graph-it-live.branchWatch.openFile',
       'graph-it-live.branchWatch.copyMessage', 'graph-it-live.branchWatch.copyStatus',
     ]) assert.ok(commands.includes(command), `Missing ${command}`);
+    if (process.env.E2E_EXPECTED_VSIX_EXTENSION_DIR) {
+      assert.ok(!commands.includes('graph-it-live.branchWatch.testSnapshot'), 'Test-only command must not ship in the VSIX');
+      return;
+    }
     const snapshot = await vscode.commands.executeCommand<BranchWatchSnapshot>('graph-it-live.branchWatch.testSnapshot');
     assert.ok(snapshot, 'Extension test snapshot must be available');
     assert.strictEqual(snapshot?.enabled, false, 'Branch watch is disabled by default');
@@ -29,7 +33,9 @@ suite('Branch Watch', () => {
   test('keeps the normal graph command available when branch watch is unavailable', async () => {
     const commands = await vscode.commands.getCommands(true);
     assert.ok(commands.includes('graph-it-live.showGraph'));
-    const snapshot = await vscode.commands.executeCommand<BranchWatchSnapshot>('graph-it-live.branchWatch.testSnapshot');
-    assert.ok(snapshot?.items.every(item => !/Tests passed|ready to ship/i.test(item.label)));
+    if (!process.env.E2E_EXPECTED_VSIX_EXTENSION_DIR) {
+      const snapshot = await vscode.commands.executeCommand<BranchWatchSnapshot>('graph-it-live.branchWatch.testSnapshot');
+      assert.ok(snapshot?.items.every(item => !/Tests passed|ready to ship/i.test(item.label)));
+    }
   });
 });
