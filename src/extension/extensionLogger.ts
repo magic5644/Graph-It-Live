@@ -59,35 +59,35 @@ export class VsCodeLogger implements ILogger {
     }).join(' ');
   }
 
+  private appendLine(level: LogLevel, message: string, args: unknown[]): void {
+    try {
+      this.outputChannel.appendLine(this.formatMessage(level, message + this.formatArgs(args)));
+    } catch {
+      // Extension-host shutdown can dispose the channel before workers finish logging.
+    }
+  }
+
   debug(message: string, ...args: unknown[]): void {
     if (this.shouldLog('debug')) {
-      this.outputChannel.appendLine(
-        this.formatMessage('debug', message + this.formatArgs(args))
-      );
+      this.appendLine('debug', message, args);
     }
   }
 
   info(message: string, ...args: unknown[]): void {
     if (this.shouldLog('info')) {
-      this.outputChannel.appendLine(
-        this.formatMessage('info', message + this.formatArgs(args))
-      );
+      this.appendLine('info', message, args);
     }
   }
 
   warn(message: string, ...args: unknown[]): void {
     if (this.shouldLog('warn')) {
-      this.outputChannel.appendLine(
-        this.formatMessage('warn', message + this.formatArgs(args))
-      );
+      this.appendLine('warn', message, args);
     }
   }
 
   error(message: string, ...args: unknown[]): void {
     if (this.shouldLog('error')) {
-      this.outputChannel.appendLine(
-        this.formatMessage('error', message + this.formatArgs(args))
-      );
+      this.appendLine('error', message, args);
     }
   }
 
@@ -95,7 +95,11 @@ export class VsCodeLogger implements ILogger {
    * Show the output channel in the UI
    */
   show(): void {
-    this.outputChannel.show();
+    try {
+      this.outputChannel.show();
+    } catch {
+      // The output channel may already be disposed during shutdown.
+    }
   }
 }
 
@@ -158,7 +162,8 @@ class ExtensionLoggerManager {
    * Show the output channel
    */
   show(): void {
-    this.outputChannel?.show();
+    try { this.outputChannel?.show(); }
+    catch { /* The extension output channel may already be disposed. */ }
   }
 
   /**

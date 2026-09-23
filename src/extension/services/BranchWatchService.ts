@@ -17,6 +17,7 @@ export interface BranchWatchViewState {
 interface BranchWatchOptions {
   analyzer: Pick<BranchWatchAnalyzer, 'capture' | 'analyze'>;
   prepareIndex: (snapshot: BranchWatchSnapshot) => Promise<void>;
+  cancelActiveAnalysis?: () => void | Promise<void>;
   isDirty: () => boolean;
   onActiveChange?: (active: boolean) => void;
 }
@@ -36,6 +37,8 @@ export class BranchWatchService implements vscode.Disposable {
   private pendingSince?: number;
   private force = false;
   private timer?: ReturnType<typeof setTimeout>;
+  private activeAnalysis: Promise<void> | null = null;
+  private cancellationPromise: Promise<void> | null = null;
 
   constructor(private readonly options: BranchWatchOptions) {}
 
@@ -105,6 +108,14 @@ export class BranchWatchService implements vscode.Disposable {
     this.options.onActiveChange?.(false);
     this.state = { phase: 'disabled' };
     this.listeners.clear();
+    this.cancellationPromise ??= Promise.resolve().then(() => this.options.cancelActiveAnalysis?.());
+  }
+
+  async disposeAsync(): Promise<void> {
+    this.dispose();
+    const results = await Promise.allSettled([this.cancellationPromise, this.activeAnalysis]);
+    const failed = results.find((result): result is PromiseRejectedResult => result.status === 'rejected');
+    if (failed) throw failed.reason;
   }
 
   private active(): boolean { return this.enabled && !this.paused && !this.disposed && Boolean(this.reference); }
@@ -130,13 +141,16 @@ export class BranchWatchService implements vscode.Disposable {
     const forced = this.force;
     this.force = false;
     this.publish({ ...this.state, phase: 'running', reason: 'Analyzing saved changes; previous results are stale.' });
+    const analysis = this.analyzeGeneration(generation, forced);
+    this.activeAnalysis = analysis;
     try {
-      await this.analyzeGeneration(generation, forced);
+      await analysis;
     } catch (error) {
       if (this.isCurrent(generation)) {
         this.publish({ ...this.state, phase: 'unavailable', reason: error instanceof Error ? error.message : 'Branch watch unavailable.' });
       }
     } finally {
+      if (this.activeAnalysis === analysis) this.activeAnalysis = null;
       this.inFlight = false;
       if (this.pending && this.active() && !this.timer) this.refresh();
     }
@@ -220,7 +234,11 @@ async function gitRepository(root: string): Promise<{ api: GitApi; repository: G
 }
 
 /** Native UI wiring is kept here; CLI and MCP never import this service. */
-export function registerBranchWatch(context: vscode.ExtensionContext, provider: GraphProvider): vscode.Disposable {
+export interface BranchWatchRegistration extends vscode.Disposable {
+  disposeAsync(): Promise<void>;
+}
+
+export function registerBranchWatch(context: vscode.ExtensionContext, provider: GraphProvider): BranchWatchRegistration {
   const spider = provider.getSpiderForLmTools();
   const root = spider?.workspaceRoot;
   const analyzer = root ? new BranchWatchAnalyzer(root, spider, context.extensionPath) : undefined;
@@ -244,6 +262,11 @@ export function registerBranchWatch(context: vscode.ExtensionContext, provider: 
   const service = new BranchWatchService({
     analyzer: analyzer ?? { capture: async () => { throw new Error('No graph workspace is open.'); }, analyze: async () => { throw new Error('No graph workspace is open.'); } },
     prepareIndex: snapshot => provider.prepareBranchWatchIndex(snapshot),
+    cancelActiveAnalysis: async () => {
+      analyzer?.dispose();
+      spider?.cancelIndexing();
+      await spider?.disposeWorker();
+    },
     isDirty: () => vscode.workspace.textDocuments.some(document => document.isDirty && relevant(document.uri)),
     onActiveChange: active => {
       stopWorking();
@@ -399,7 +422,17 @@ export function registerBranchWatch(context: vscode.ExtensionContext, provider: 
     })));
   }
   void configure();
-  return { dispose: () => { disposed = true; setupGeneration++; service.dispose(); stopWorking(); registrations.forEach(item => item.dispose()); status.dispose(); tree.dispose(); } };
+  const dispose = () => {
+    if (disposed) return;
+    disposed = true;
+    setupGeneration++;
+    service.dispose();
+    stopWorking();
+    registrations.forEach(item => item.dispose());
+    status.dispose();
+    tree.dispose();
+  };
+  return { dispose, disposeAsync: async () => { dispose(); await service.disposeAsync(); } };
 }
 
 function visibleRef(reference: string): string {

@@ -145,9 +145,9 @@ describe("GraphProvider", () => {
       validateReverseIndex: vi.fn().mockResolvedValue({ isValid: true, staleFiles: [], missingFiles: [] }),
     });
     await provider.prepareBranchWatchIndex({ headSha: 'first', readablePaths: [] });
-    expect(spider.buildFullIndexInWorker).toHaveBeenCalledTimes(1);
+    expect(spider.buildFullIndexInWorker).not.toHaveBeenCalled();
     await provider.prepareBranchWatchIndex({ headSha: 'first', readablePaths: [] });
-    expect(spider.buildFullIndexInWorker).toHaveBeenCalledTimes(1);
+    expect(spider.buildFullIndexInWorker).not.toHaveBeenCalled();
     Object.assign(spider, { validateReverseIndex: vi.fn().mockResolvedValue({ isValid: false, staleFiles: [], missingFiles: [] }) });
     await expect(provider.prepareBranchWatchIndex({ headSha: 'second', readablePaths: [] })).rejects.toThrow('incomplete');
   });

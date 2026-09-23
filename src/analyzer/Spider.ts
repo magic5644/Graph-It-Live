@@ -188,6 +188,10 @@ export interface SpiderServices {
  * @see {@link SpiderBuilder} for the recommended way to construct Spider instances
  */
 export class Spider {
+  private readonly activeIndexingOperations = new Set<Promise<unknown>>();
+  private disposed = false;
+  private disposePromise: Promise<void> | null = null;
+  private workerShutdownPromise: Promise<void> | null = null;
   private readonly config: SpiderConfig;
 
   private readonly languageService: LanguageService;
@@ -387,8 +391,33 @@ export class Spider {
   /**
    * Stop the Spider and clean up resources
    */
-  async dispose(): Promise<void> {
-    await this.astWorkerHost.stop();
+  dispose(): Promise<void> {
+    this.disposed = true;
+    this.disposePromise ??= this.disposeResources();
+    return this.disposePromise;
+  }
+
+  private async disposeResources(): Promise<void> {
+    let shutdownError: unknown;
+    try { await this.beginShutdown(); }
+    catch (error) { shutdownError = error; }
+    while (this.activeIndexingOperations.size > 0) {
+      await Promise.allSettled([...this.activeIndexingOperations]);
+    }
+    if (shutdownError !== undefined) throw shutdownError;
+  }
+
+  beginShutdown(): Promise<void> {
+    this.disposed = true;
+    this.cancelIndexing();
+    this.workerShutdownPromise ??= this.stopWorkers();
+    return this.workerShutdownPromise;
+  }
+
+  private async stopWorkers(): Promise<void> {
+    const results = await Promise.allSettled([this.disposeWorker(), this.astWorkerHost.stop()]);
+    const failed = results.find((result): result is PromiseRejectedResult => result.status === 'rejected');
+    if (failed) throw failed.reason;
   }
 
   updateConfig(config: Partial<SpiderConfig>) {
@@ -503,22 +532,31 @@ export class Spider {
   async buildFullIndex(
     progressCallback?: IndexingProgressCallback
   ): Promise<{ indexedFiles: number; duration: number; cancelled: boolean }> {
-    return this.indexingService.buildFullIndex(progressCallback);
+    if (this.disposed) return { indexedFiles: 0, duration: 0, cancelled: true };
+    return this.trackIndexingOperation(this.indexingService.buildFullIndex(progressCallback));
   }
 
   async buildFullIndexInWorker(
     workerPath: string,
     progressCallback?: IndexingProgressCallback
   ): Promise<{ indexedFiles: number; duration: number; cancelled: boolean }> {
-    return this.indexingService.buildFullIndexInWorker(workerPath, progressCallback);
+    if (this.disposed) return { indexedFiles: 0, duration: 0, cancelled: true };
+    return this.trackIndexingOperation(this.indexingService.buildFullIndexInWorker(workerPath, progressCallback));
   }
 
-  disposeWorker(): void {
-    this.indexingService.disposeWorker();
+  async disposeWorker(): Promise<void> {
+    await this.indexingService.disposeWorker();
   }
 
   async reindexStaleFiles(staleFiles: string[], progressCallback?: IndexingProgressCallback): Promise<number> {
-    return this.indexingService.reindexStaleFiles(staleFiles, progressCallback);
+    if (this.disposed) return 0;
+    return this.trackIndexingOperation(this.indexingService.reindexStaleFiles(staleFiles, progressCallback));
+  }
+
+  private trackIndexingOperation<T>(operation: Promise<T>): Promise<T> {
+    this.activeIndexingOperations.add(operation);
+    void operation.finally(() => this.activeIndexingOperations.delete(operation)).catch(() => {});
+    return operation;
   }
 
   async crawl(

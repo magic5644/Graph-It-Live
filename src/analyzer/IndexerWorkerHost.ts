@@ -62,6 +62,8 @@ export class IndexerWorkerHost {
   private currentFile = '';
   private startTime: number | undefined = undefined;
   private cancelled = false;
+  private stopActiveRequest: (() => void) | null = null;
+  private workerTermination: Promise<void> | null = null;
 
   // Path to the worker script (set by esbuild output)
   private readonly workerPath: string;
@@ -131,14 +133,14 @@ export class IndexerWorkerHost {
    * Currently at most 1 — used for monitoring and testing.
    */
   getPendingCount(): number {
-    return this.worker ? 1 : 0;
+    return this.worker || this.workerTermination ? 1 : 0;
   }
 
   /**
    * Start background indexing in a worker thread
    */
   async startIndexing(config: WorkerConfig): Promise<IndexingResult> {
-    if (this.worker) {
+    if (this.worker || this.workerTermination) {
       throw new Error('Indexing already in progress');
     }
 
@@ -149,13 +151,20 @@ export class IndexerWorkerHost {
     const timeoutMs = config.timeoutMs ?? 10 * 60 * 1000; // 10 minutes default
 
     return new Promise((resolve, reject) => {
+      let settled = false;
       const safeResolve = (result: IndexingResult): void => {
+        if (settled) return;
+        settled = true;
         clearTimeout(timeoutId);
+        this.stopActiveRequest = null;
         resolve(result);
       };
 
       const safeReject = (reason: unknown): void => {
+        if (settled) return;
+        settled = true;
         clearTimeout(timeoutId);
+        this.stopActiveRequest = null;
         reject(reason);
       };
 
@@ -163,9 +172,20 @@ export class IndexerWorkerHost {
       const timeoutId = setTimeout(() => {
         this.cancel();
         this.updateState('error');
-        this.cleanupWorker();
-        reject(new Error(`Indexing timed out after ${Math.round(timeoutMs / 60_000)} minute(s)`));
+        void this.cleanupWorker().then(() => {
+          safeReject(new Error(`Indexing timed out after ${Math.round(timeoutMs / 60_000)} minute(s)`));
+        });
       }, timeoutMs);
+      this.stopActiveRequest = () => {
+        this.cancelled = true;
+        this.updateState('complete', this.currentProgress, this.currentTotal);
+        safeResolve({
+          indexedFiles: this.currentProgress,
+          duration: Date.now() - (this.startTime ?? Date.now()),
+          cancelled: true,
+          data: [],
+        });
+      };
       try {
         // Create the worker with the config as workerData
         this.worker = new Worker(this.workerPath, {
@@ -206,29 +226,25 @@ export class IndexerWorkerHost {
                 };
               }
               this.updateState('complete');
-              this.cleanupWorker();
-              safeResolve(result);
+              void this.cleanupWorker().then(() => safeResolve(result));
               break;
 
             case 'error':
               this.updateState('error');
-              this.cleanupWorker();
-              safeReject(new Error(msg.error ?? 'Unknown worker error'));
+              void this.cleanupWorker().then(() => safeReject(new Error(msg.error ?? 'Unknown worker error')));
               break;
           }
         });
 
         this.worker.on('error', (error) => {
           this.updateState('error');
-          this.cleanupWorker();
-          safeReject(error);
+          void this.cleanupWorker().then(() => safeReject(error));
         });
 
         this.worker.on('exit', (code) => {
           if (code !== 0 && this.currentState !== 'complete' && this.currentState !== 'error') {
             this.updateState('error');
-            this.cleanupWorker();
-            safeReject(new Error(`Worker stopped with exit code ${code}`));
+            void this.cleanupWorker().then(() => safeReject(new Error(`Worker stopped with exit code ${code}`)));
           }
         });
 
@@ -236,8 +252,7 @@ export class IndexerWorkerHost {
         this.worker.postMessage({ type: 'start' });
       } catch (error) {
         this.updateState('error');
-        this.cleanupWorker();
-        safeReject(error);
+        void this.cleanupWorker().then(() => safeReject(error));
       }
     });
   }
@@ -248,7 +263,11 @@ export class IndexerWorkerHost {
   cancel(): void {
     this.cancelled = true;
     if (this.worker) {
-      this.worker.postMessage({ type: 'cancel' });
+      try {
+        this.worker.postMessage({ type: 'cancel' });
+      } catch {
+        // The worker may already be closing.
+      }
     }
   }
 
@@ -262,7 +281,7 @@ export class IndexerWorkerHost {
   /**
    * Clean up the worker
    */
-  private cleanupWorker(): void {
+  private cleanupWorker(): Promise<void> {
     if (this.worker) {
       const w = this.worker;
       this.worker = null;
@@ -270,18 +289,22 @@ export class IndexerWorkerHost {
       // Add a no-op error handler to prevent unhandled-error events
       // during the async termination window after removeAllListeners().
       w.on('error', () => {});
-      w.terminate().catch(() => {
-        // Ignore termination errors
+      const termination = w.terminate().then(() => undefined, () => undefined).then(() => {
+        if (this.workerTermination === termination) this.workerTermination = null;
       });
+      this.workerTermination = termination;
+      return termination;
     }
+    return this.workerTermination ?? Promise.resolve();
   }
 
   /**
    * Dispose of the host and terminate any running worker
    */
-  dispose(): void {
+  async dispose(): Promise<void> {
     this.cancel();
-    this.cleanupWorker();
+    this.stopActiveRequest?.();
+    await this.cleanupWorker();
     this.statusCallbacks.clear();
   }
 }

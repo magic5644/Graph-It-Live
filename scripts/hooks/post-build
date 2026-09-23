@@ -15,51 +15,28 @@ fi
 
 # Check WASM files
 echo "Checking WASM files..."
-WASM_COUNT=$(ls dist/wasm/*.wasm 2>/dev/null | wc -l | tr -d ' ')
-if [ "$WASM_COUNT" -ne 8 ]; then
-  echo ""
-  echo "❌ FAIL: Expected 8 WASM files, found $WASM_COUNT"
-  echo ""
-  echo "Missing WASM files:"
-  echo "Expected:"
-  echo "  - tree-sitter.wasm"
-  echo "  - tree-sitter-typescript.wasm"
-  echo "  - tree-sitter-tsx.wasm"
-  echo "  - tree-sitter-python.wasm"
-  echo "  - tree-sitter-rust.wasm"
-  echo "  - tree-sitter-c-sharp.wasm"
-  echo "  - tree-sitter-java.wasm"
-  echo "  - sqljs.wasm"
-  echo ""
-  echo "Actual:"
-  ls dist/wasm/*.wasm 2>/dev/null || echo "  (none)"
-  echo ""
-  echo "Fix: Check esbuild.js copyWasmFiles() function"
-  echo ""
-  exit 1
-fi
-echo "✅ All 8 WASM files present"
+WASM_FILES=(tree-sitter.wasm tree-sitter-typescript.wasm tree-sitter-python.wasm
+  tree-sitter-rust.wasm tree-sitter-c_sharp.wasm tree-sitter-go.wasm tree-sitter-java.wasm sqljs.wasm)
+for file in "${WASM_FILES[@]}"; do
+  if [ ! -s "dist/wasm/$file" ]; then
+    echo "❌ FAIL: Missing or empty dist/wasm/$file"
+    exit 1
+  fi
+done
+echo "✅ All ${#WASM_FILES[@]} WASM files present"
 
 # Check query files
 echo "Checking query files..."
-QUERY_COUNT=$(ls dist/queries/*.scm 2>/dev/null | wc -l | tr -d ' ')
-if [ "$QUERY_COUNT" -ne 3 ]; then
-  echo ""
-  echo "❌ FAIL: Expected 3 query files, found $QUERY_COUNT"
-  echo ""
-  echo "Expected:"
-  echo "  - typescript.scm"
-  echo "  - python.scm"
-  echo "  - rust.scm"
-  echo ""
-  echo "Actual:"
-  ls dist/queries/*.scm 2>/dev/null || echo "  (none)"
-  echo ""
-  echo "Fix: Check esbuild.js copyQueryFiles() function"
-  echo ""
-  exit 1
-fi
-echo "✅ All 3 query files present"
+QUERY_COUNT=0
+for source in resources/queries/*.scm; do
+  destination="dist/queries/${source##*/}"
+  if ! cmp -s "$source" "$destination"; then
+    echo "❌ FAIL: Missing or outdated $destination (source: $source)"
+    exit 1
+  fi
+  QUERY_COUNT=$((QUERY_COUNT + 1))
+done
+echo "✅ All $QUERY_COUNT query files match their sources"
 
 # List built bundles
 echo ""

@@ -2,7 +2,7 @@ import { execFileSync } from 'node:child_process';
 import * as fs from 'node:fs/promises';
 import * as os from 'node:os';
 import * as path from 'node:path';
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { BranchWatchAnalyzer, BranchWatchError } from '@/analyzer/BranchWatchAnalyzer';
 import { Spider } from '@/analyzer/Spider';
 
@@ -151,13 +151,15 @@ describe('BranchWatchAnalyzer findings', () => {
     expect(result.limitations.join(' ')).not.toContain('not resolved locally');
   });
 
-  it('skips oversized baseline blobs before reading their contents', async () => {
+  it('does not scan historical blobs when the affected graph is acyclic', async () => {
     const root = await workspace();
     await fs.writeFile(path.join(root, 'large.ts'), Buffer.alloc(3 * 1024 * 1024, 65));
     git(root, 'add', 'large.ts'); git(root, 'commit', '-m', 'large baseline');
     await fs.appendFile(path.join(root, 'api.ts'), '// changed\n');
-    const result = await new BranchWatchAnalyzer(root).analyze(await new BranchWatchAnalyzer(root).capture('main'));
-    expect(result.limitations.join(' ')).toContain('large.ts: baseline file exceeds text analysis limits.');
+    const analyzer = new BranchWatchAnalyzer(root);
+    const baselineGraph = vi.spyOn(analyzer as any, 'baselineGraph');
+    const result = await analyzer.analyze(await analyzer.capture('main'));
+    expect(baselineGraph).not.toHaveBeenCalled();
     expect(result.limitations.join(' ')).not.toContain('Git could not read this repository');
   });
 
