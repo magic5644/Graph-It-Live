@@ -1476,7 +1476,7 @@
     "@dagrejs/dagre": "^2.0.4",
     "@inquirer/core": "^11.2.1",
     "@inquirer/prompts": "^8.7.2",
-    "@modelcontextprotocol/server": "^2.0.0",
+    "@modelcontextprotocol/server": "^2.1.0",
     "chokidar": "^5.0.0",
     "cytoscape": "^3.34.3",
     "cytoscape-fcose": "^2.2.0",
@@ -1515,7 +1515,7 @@
     "happy-dom": "^20.14.5",
     "mocha": "^11.8.0",
     "typescript": "^6.0.3",
-    "typescript-eslint": "^8.70.0",
+    "typescript-eslint": "^8.70.1",
     "vitest": "^4.1.11"
   },
   "overrides": {
