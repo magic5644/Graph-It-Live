@@ -35,9 +35,12 @@ export class BackgroundIndexingManager {
   private readonly onIndexingComplete: () => Promise<void>;
   private _statusBarItem: vscode.StatusBarItem | null = null;
   private config: BackgroundIndexingConfig;
-  private isIndexing = false;
   private indexingStartTimer?: ReturnType<typeof setTimeout>;
   private hideStatusTimer?: ReturnType<typeof setTimeout>;
+  private restoreTask: Promise<void> | null = null;
+  private indexingTask: Promise<void> | null = null;
+  private disposed = false;
+  private disposeTask: Promise<void> | null = null;
 
   constructor(options: BackgroundIndexingManagerOptions) {
     this.context = options.context;
@@ -66,13 +69,18 @@ export class BackgroundIndexingManager {
   }
 
   scheduleDeferredIndexing(): void {
-    if (!this.config.enableBackgroundIndexing) {
+    if (this.disposed || !this.config.enableBackgroundIndexing) {
       return;
     }
     this.clearScheduledIndexing();
     this.log.info('Scheduling indexing in', this.config.indexingStartDelay, 'ms');
     this.indexingStartTimer = setTimeout(() => {
-      void this.tryRestoreIndex();
+      this.indexingStartTimer = undefined;
+      const task = this.tryRestoreIndex();
+      this.restoreTask = task;
+      void task.finally(() => {
+        if (this.restoreTask === task) this.restoreTask = null;
+      }).catch(() => {});
     }, this.config.indexingStartDelay);
   }
 
@@ -81,6 +89,7 @@ export class BackgroundIndexingManager {
   }
 
   async handleConfigUpdate(hasReverseIndex: boolean): Promise<void> {
+    if (this.disposed) return;
     if (!this.config.enableBackgroundIndexing) {
       await this.disableBackgroundIndexing();
       return;
@@ -92,7 +101,7 @@ export class BackgroundIndexingManager {
   }
 
   async persistIndexIfEnabled(): Promise<void> {
-    if (!this.config.persistIndex) {
+    if (this.disposed || !this.config.persistIndex) {
       return;
     }
     const serialized = this.spider.getSerializedReverseIndex();
@@ -114,14 +123,22 @@ export class BackgroundIndexingManager {
     await this.startBackgroundIndexingWithProgress();
   }
 
-  dispose(): void {
+  dispose(): Promise<void> {
+    this.disposeTask ??= this.disposeResources();
+    return this.disposeTask;
+  }
+
+  private async disposeResources(): Promise<void> {
+    this.disposed = true;
     this.cancelScheduledIndexing();
+    this.spider.cancelIndexing();
     if (this.hideStatusTimer) {
       clearTimeout(this.hideStatusTimer);
       this.hideStatusTimer = undefined;
     }
     // Only dispose if the status bar item was actually created (lazy initialization)
     this._statusBarItem?.dispose();
+    await Promise.allSettled([this.restoreTask, this.indexingTask].filter((task): task is Promise<void> => task !== null));
   }
 
   private clearScheduledIndexing(): void {
@@ -132,7 +149,7 @@ export class BackgroundIndexingManager {
   }
 
   private async tryRestoreIndex(): Promise<void> {
-    if (!this.config.enableBackgroundIndexing) {
+    if (this.disposed || !this.config.enableBackgroundIndexing) {
       return;
     }
 
@@ -165,6 +182,8 @@ export class BackgroundIndexingManager {
         progress.report({ message: 'Validating index...' });
         const validation = await this.spider.validateReverseIndex();
 
+        if (this.disposed) return;
+
         if (validation?.isValid) {
           this.log.info('Successfully restored and validated persisted index');
           return;
@@ -176,6 +195,7 @@ export class BackgroundIndexingManager {
         if (validation && validation.staleFiles.length > 0 && validation.missingFiles.length === 0) {
           progress.report({ message: `Re-indexing ${validation.staleFiles.length} changed files...` });
           await this.spider.reindexStaleFiles(validation.staleFiles);
+          if (this.disposed) return;
           await this.persistIndexIfEnabled();
           this.log.info('Incremental re-index complete');
         } else {
@@ -185,11 +205,19 @@ export class BackgroundIndexingManager {
     );
   }
 
-  private async startBackgroundIndexingWithProgress(): Promise<void> {
-    if (this.isIndexing) {
-      return;
-    }
-    this.isIndexing = true;
+  private startBackgroundIndexingWithProgress(): Promise<void> {
+    if (this.disposed) return Promise.resolve();
+    if (this.indexingTask) return this.indexingTask;
+    const task = this.runBackgroundIndexingWithProgress();
+    const wrappedTask = task.finally(() => {
+      this.indexingTask = null;
+    });
+    this.indexingTask = wrappedTask;
+    return wrappedTask;
+  }
+
+  private async runBackgroundIndexingWithProgress(): Promise<void> {
+    if (this.disposed) return;
 
     const workerPath = path.join(this.extensionUri.fsPath, WORKER_SCRIPT_PATH);
 
@@ -198,6 +226,7 @@ export class BackgroundIndexingManager {
     this.statusBarItem.show();
 
     const unsubscribe = this.spider.subscribeToIndexStatus((snapshot) => {
+      if (this.disposed || !this._statusBarItem) return;
       if (snapshot.state === 'counting') {
         this.statusBarItem.text = '$(sync~spin) Graph-It-Live: Counting files...';
       } else if (snapshot.state === 'indexing') {
@@ -210,6 +239,8 @@ export class BackgroundIndexingManager {
     try {
       const result = await this.spider.buildFullIndexInWorker(workerPath);
 
+      if (this.disposed) return;
+
       if (result.cancelled) {
         this.log.info('Indexing cancelled after', result.indexedFiles, 'files');
         this.statusBarItem.text = '$(x) Graph-It-Live: Indexing cancelled';
@@ -217,7 +248,9 @@ export class BackgroundIndexingManager {
         this.log.info('Indexed', result.indexedFiles, 'files in', result.duration, 'ms');
         this.statusBarItem.text = `$(check) Graph-It-Live: ${result.indexedFiles} files indexed`;
         await this.persistIndexIfEnabled();
+        if (this.disposed) return;
         await this.onIndexingComplete();
+        if (this.disposed) return;
       }
 
       if (this.hideStatusTimer) {
@@ -225,9 +258,10 @@ export class BackgroundIndexingManager {
       }
       this.hideStatusTimer = setTimeout(() => {
         this.hideStatusTimer = undefined;
-        this.statusBarItem.hide();
+        if (!this.disposed) this.statusBarItem.hide();
       }, 3000);
     } catch (error) {
+      if (this.disposed) return;
       this.log.error('Background indexing failed:', error);
       this.statusBarItem.text = '$(error) Graph-It-Live: Indexing failed';
       this.statusBarItem.tooltip = error instanceof Error ? error.message : 'Unknown error';
@@ -236,14 +270,13 @@ export class BackgroundIndexingManager {
       }
       this.hideStatusTimer = setTimeout(() => {
         this.hideStatusTimer = undefined;
-        this.statusBarItem.hide();
+        if (!this.disposed) this.statusBarItem.hide();
       }, 5000);
       vscode.window.showErrorMessage(
         `Graph-It-Live: Indexing failed - ${error instanceof Error ? error.message : 'Unknown error'}`
       );
     } finally {
       unsubscribe();
-      this.isIndexing = false;
     }
   }
 }

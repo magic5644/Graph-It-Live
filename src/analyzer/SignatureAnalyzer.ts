@@ -12,7 +12,8 @@
  * - Optional → required parameter changes
  */
 
-import { Project, SourceFile, SyntaxKind, type ParameterDeclaration } from 'ts-morph';
+import { Project, SourceFile, SyntaxKind, type ParameterDeclaration, type TypeLiteralNode } from 'ts-morph';
+import * as path from 'node:path';
 
 /**
  * Represents a function/method parameter
@@ -73,6 +74,7 @@ export type BreakingChangeType =
   | 'return-type-changed'          // Return type changed
   | 'visibility-reduced'           // public → private/protected
   | 'member-removed'               // Interface/class member removed
+  | 'member-renamed'               // Interface/class member renamed
   | 'member-type-changed'          // Interface/class member type changed
   | 'member-optional-to-required'  // Optional member became required
   | 'type-alias-changed';          // Type alias definition changed
@@ -314,62 +316,24 @@ export class SignatureAnalyzer {
 
     const oldMemberMap = new Map(oldMembers.map(m => [m.name, m]));
     const newMemberMap = new Map(newMembers.map(m => [m.name, m]));
+    const renamed = this.detectRenamedMembers(
+      interfaceName,
+      oldMembers,
+      newMembers,
+      oldMemberMap,
+      newMemberMap,
+      breakingChanges,
+    );
 
-    // Check for removed members
-    for (const [name, oldMember] of oldMemberMap) {
-      if (!newMemberMap.has(name)) {
-        breakingChanges.push({
-          type: 'member-removed',
-          symbolName: `${interfaceName}.${name}`,
-          description: `Member '${name}' was removed from interface '${interfaceName}'`,
-          severity: 'error',
-          oldValue: oldMember.type,
-        });
-      }
-    }
-
-    // Check for type changes and optional → required
-    for (const [name, newMember] of newMemberMap) {
-      const oldMember = oldMemberMap.get(name);
-      
-      if (!oldMember) {
-        if (newMember.isOptional) {
-          nonBreakingChanges.push(`New optional member '${name}' added`);
-        } else {
-          // New required member is a breaking change
-          breakingChanges.push({
-            type: 'member-optional-to-required',
-            symbolName: `${interfaceName}.${name}`,
-            description: `New required member '${name}' added to interface '${interfaceName}'`,
-            severity: 'error',
-            newValue: newMember.type,
-          });
-        }
-        continue;
-      }
-
-      // Check type change
-      if (oldMember.type !== newMember.type) {
-        breakingChanges.push({
-          type: 'member-type-changed',
-          symbolName: `${interfaceName}.${name}`,
-          description: `Type of member '${name}' changed from '${oldMember.type}' to '${newMember.type}'`,
-          severity: 'error',
-          oldValue: oldMember.type,
-          newValue: newMember.type,
-        });
-      }
-
-      // Check optional → required
-      if (oldMember.isOptional && !newMember.isOptional) {
-        breakingChanges.push({
-          type: 'member-optional-to-required',
-          symbolName: `${interfaceName}.${name}`,
-          description: `Member '${name}' changed from optional to required`,
-          severity: 'error',
-        });
-      }
-    }
+    this.detectRemovedMembers(interfaceName, oldMemberMap, newMemberMap, renamed, breakingChanges);
+    this.detectAddedAndChangedMembers(
+      interfaceName,
+      newMemberMap,
+      oldMemberMap,
+      renamed,
+      breakingChanges,
+      nonBreakingChanges,
+    );
 
     return {
       symbolName: interfaceName,
@@ -377,6 +341,130 @@ export class SignatureAnalyzer {
       breakingChanges,
       nonBreakingChanges,
     };
+  }
+
+  private detectRenamedMembers(
+    interfaceName: string,
+    oldMembers: InterfaceMemberInfo[],
+    newMembers: InterfaceMemberInfo[],
+    oldMemberMap: Map<string, InterfaceMemberInfo>,
+    newMemberMap: Map<string, InterfaceMemberInfo>,
+    breakingChanges: BreakingChange[],
+  ): Map<string, string> {
+    const renamed = new Map<string, string>();
+    const availableNew = new Set(newMembers
+      .filter(member => !oldMemberMap.has(member.name))
+      .map(member => member.name));
+
+    for (const oldMember of oldMembers) {
+      if (newMemberMap.has(oldMember.name)) continue;
+      const candidate = newMembers.find(member => availableNew.has(member.name)
+        && this.areEquivalentMembers(oldMember, member));
+      if (!candidate) continue;
+
+      renamed.set(oldMember.name, candidate.name);
+      availableNew.delete(candidate.name);
+      breakingChanges.push({
+        type: 'member-renamed',
+        symbolName: `${interfaceName}.${candidate.name}`,
+        description: `Member '${oldMember.name}' was renamed to '${candidate.name}' in interface '${interfaceName}'`,
+        severity: 'error',
+        oldValue: oldMember.name,
+        newValue: candidate.name,
+      });
+    }
+    return renamed;
+  }
+
+  private areEquivalentMembers(oldMember: InterfaceMemberInfo, newMember: InterfaceMemberInfo): boolean {
+    return oldMember.type === newMember.type
+      && oldMember.kind === newMember.kind
+      && oldMember.isOptional === newMember.isOptional
+      && oldMember.isReadonly === newMember.isReadonly;
+  }
+
+  private detectRemovedMembers(
+    interfaceName: string,
+    oldMemberMap: Map<string, InterfaceMemberInfo>,
+    newMemberMap: Map<string, InterfaceMemberInfo>,
+    renamed: Map<string, string>,
+    breakingChanges: BreakingChange[],
+  ): void {
+    for (const [name, oldMember] of oldMemberMap) {
+      if (newMemberMap.has(name) || renamed.has(name)) continue;
+      breakingChanges.push({
+        type: 'member-removed',
+        symbolName: `${interfaceName}.${name}`,
+        description: `Member '${name}' was removed from interface '${interfaceName}'`,
+        severity: 'error',
+        oldValue: oldMember.type,
+      });
+    }
+  }
+
+  private detectAddedAndChangedMembers(
+    interfaceName: string,
+    newMemberMap: Map<string, InterfaceMemberInfo>,
+    oldMemberMap: Map<string, InterfaceMemberInfo>,
+    renamed: Map<string, string>,
+    breakingChanges: BreakingChange[],
+    nonBreakingChanges: string[],
+  ): void {
+    const renamedNames = new Set(renamed.values());
+    for (const [name, newMember] of newMemberMap) {
+      if (renamedNames.has(name)) continue;
+      const oldMember = oldMemberMap.get(name);
+      if (!oldMember) {
+        this.handleAddedMember(interfaceName, newMember, breakingChanges, nonBreakingChanges);
+        continue;
+      }
+      this.handleChangedMember(interfaceName, oldMember, newMember, breakingChanges);
+    }
+  }
+
+  private handleAddedMember(
+    interfaceName: string,
+    member: InterfaceMemberInfo,
+    breakingChanges: BreakingChange[],
+    nonBreakingChanges: string[],
+  ): void {
+    if (member.isOptional) {
+      nonBreakingChanges.push(`New optional member '${member.name}' added`);
+      return;
+    }
+    breakingChanges.push({
+      type: 'member-optional-to-required',
+      symbolName: `${interfaceName}.${member.name}`,
+      description: `New required member '${member.name}' added to interface '${interfaceName}'`,
+      severity: 'error',
+      newValue: member.type,
+    });
+  }
+
+  private handleChangedMember(
+    interfaceName: string,
+    oldMember: InterfaceMemberInfo,
+    newMember: InterfaceMemberInfo,
+    breakingChanges: BreakingChange[],
+  ): void {
+    if (oldMember.type !== newMember.type) {
+      breakingChanges.push({
+        type: 'member-type-changed',
+        symbolName: `${interfaceName}.${newMember.name}`,
+        description: `Type of member '${newMember.name}' changed from '${oldMember.type}' to '${newMember.type}'`,
+        severity: 'error',
+        oldValue: oldMember.type,
+        newValue: newMember.type,
+      });
+    }
+    if (oldMember.isOptional && !newMember.isOptional) {
+      breakingChanges.push({
+        type: 'member-optional-to-required',
+        symbolName: `${interfaceName}.${newMember.name}`,
+        description: `Member '${newMember.name}' changed from optional to required`,
+        severity: 'error',
+      });
+    }
   }
 
   /**
@@ -426,6 +514,12 @@ export class SignatureAnalyzer {
 
     // Compare type aliases
     this.compareTypeAliasDefinitions(filePath, oldContent, newContent, results);
+
+    // Vue component props are the public contract between a child component and
+    // its parents, even though they are declared inside an SFC script block.
+    if (this.isVueFile(filePath)) {
+      this.compareVueProps(filePath, oldContent, newContent, results);
+    }
 
     return results;
   }
@@ -545,7 +639,125 @@ export class SignatureAnalyzer {
     if (existing) {
       this.project.removeSourceFile(existing);
     }
-    return this.project.createSourceFile(filePath, content);
+    return this.project.createSourceFile(filePath, this.isVueFile(filePath) ? this.extractVueScript(content) : content);
+  }
+
+  private isVueFile(filePath: string): boolean {
+    return /\.vue(?:\.(?:old|new))?$/i.test(filePath);
+  }
+
+  private extractVueScript(content: string): string {
+    // Vue SFC closing tags may contain whitespace or parser-tolerated attributes.
+    const scripts = [...content.matchAll(/<script\b[^>]*>([\s\S]*?)<\/script\s*[^>]*>/gi)].map(match => match[1]); // NOSONAR
+    return scripts.length > 0 ? scripts.join('\n') : content;
+  }
+
+  private compareVueProps(
+    filePath: string,
+    oldContent: string,
+    newContent: string,
+    results: SignatureComparisonResult[],
+  ): void {
+    const oldProps = this.extractVueProps(`${filePath}.old`, oldContent);
+    const newProps = this.extractVueProps(`${filePath}.new`, newContent);
+    const componentName = `${path.basename(filePath, path.extname(filePath))}.props`;
+    const oldMembers = oldProps;
+    const newMembers = newProps;
+    if (oldMembers.length === 0 && newMembers.length === 0) return;
+
+    const comparison = this.compareInterfaces(componentName, oldMembers, newMembers);
+    if (comparison.hasBreakingChanges || comparison.nonBreakingChanges.length > 0) {
+      results.push(comparison);
+    }
+  }
+
+  private extractVueProps(filePath: string, content: string): InterfaceMemberInfo[] {
+    const sourceFile = this.getOrCreateSourceFile(filePath, content);
+    const defineProps = sourceFile.getDescendantsOfKind(SyntaxKind.CallExpression)
+      .find(call => call.getExpression().getText() === 'defineProps');
+    if (!defineProps) return this.extractDecoratedVueProps(sourceFile);
+
+    const typeArgument = defineProps.getTypeArguments()[0];
+    if (typeArgument?.getKind() === SyntaxKind.TypeLiteral) {
+      return this.extractVueTypeMembers(typeArgument.asKindOrThrow(SyntaxKind.TypeLiteral));
+    }
+    if (typeArgument?.getKind() === SyntaxKind.TypeReference) {
+      const typeName = typeArgument.getText().split('<', 1)[0];
+      const interfaceDeclaration = sourceFile.getInterface(typeName)?.getMembers();
+      const typeAliasNode = sourceFile.getTypeAlias(typeName)?.getTypeNode();
+      const declaration = interfaceDeclaration
+        ?? typeAliasNode?.asKind(SyntaxKind.TypeLiteral)?.getMembers();
+      if (declaration) {
+        return declaration
+        .filter(member => member.getKind() === SyntaxKind.PropertySignature)
+        .map(member => {
+          const property = member.asKindOrThrow(SyntaxKind.PropertySignature);
+          return {
+            name: property.getName(),
+            kind: 'property' as const,
+            type: this.safeGetTypeNodeText(property.getTypeNode(), 'unknown'),
+            isOptional: property.hasQuestionToken(),
+            isReadonly: property.isReadonly(),
+          };
+        });
+      }
+    }
+
+    const runtimeObject = defineProps.getArguments()[0]?.asKind(SyntaxKind.ObjectLiteralExpression);
+    if (!runtimeObject) return [];
+    return runtimeObject.getProperties()
+      .filter(property => property.getKind() === SyntaxKind.PropertyAssignment)
+      .map(property => {
+        const assignment = property.asKindOrThrow(SyntaxKind.PropertyAssignment);
+        const initializer = assignment?.getInitializer()?.asKind(SyntaxKind.ObjectLiteralExpression);
+        const required = initializer?.getProperty('required')?.getText().includes('true') ?? false;
+        const type = initializer?.getProperty('type')?.getText() ?? 'unknown';
+        return {
+          name: assignment.getName(),
+          kind: 'property' as const,
+          type,
+          isOptional: !required,
+          isReadonly: false,
+        };
+      });
+  }
+
+  private extractDecoratedVueProps(sourceFile: SourceFile): InterfaceMemberInfo[] {
+    const props: InterfaceMemberInfo[] = [];
+    for (const classDeclaration of sourceFile.getClasses()) {
+      for (const property of classDeclaration.getProperties()) {
+        const decorator = property.getDecorators().find(candidate => {
+          const name = candidate.getName();
+          return name === 'Prop' || name === 'Model';
+        });
+        if (!decorator) continue;
+        const argument = decorator.getArguments()[0]?.asKind(SyntaxKind.ObjectLiteralExpression);
+        const required = argument?.getProperty('required')?.getText().includes('true') ?? false;
+        props.push({
+          name: property.getName(),
+          kind: 'property',
+          type: this.safeGetTypeNodeText(property.getTypeNode(), 'unknown'),
+          isOptional: !required,
+          isReadonly: property.isReadonly(),
+        });
+      }
+    }
+    return props;
+  }
+
+  private extractVueTypeMembers(typeLiteral: TypeLiteralNode): InterfaceMemberInfo[] {
+    return typeLiteral.getMembers()
+      .filter(member => member.getKind() === SyntaxKind.PropertySignature)
+      .map(member => {
+        const property = member.asKindOrThrow(SyntaxKind.PropertySignature);
+        return {
+          name: property.getName(),
+          kind: 'property' as const,
+          type: this.safeGetTypeNodeText(property.getTypeNode(), 'unknown'),
+          isOptional: property.hasQuestionToken(),
+          isReadonly: property.isReadonly(),
+        };
+      });
   }
 
   private extractFunctionSignature(func: import('ts-morph').FunctionDeclaration): SignatureInfo | null {

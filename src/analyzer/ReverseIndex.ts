@@ -348,7 +348,8 @@ export class ReverseIndex {
    */
   async validateIndex(
     staleThreshold: number = 0.2,
-    filesOnDisk?: readonly string[]
+    filesOnDisk?: readonly string[],
+    filesToCheck?: readonly string[],
   ): Promise<{
     isValid: boolean;
     staleFiles: string[];
@@ -358,7 +359,10 @@ export class ReverseIndex {
     const staleFiles: string[] = [];
     const missingFiles: string[] = [];
 
-    for (const filePath of this.fileHashes.keys()) {
+    const candidates = filesToCheck
+      ? [...new Set(filesToCheck.map(normalizePath))]
+      : [...this.fileHashes.keys()];
+    for (const filePath of candidates) {
       const currentHash = await ReverseIndex.getFileHashFromDisk(filePath);
 
       if (!currentHash) {
@@ -366,7 +370,7 @@ export class ReverseIndex {
         continue;
       }
 
-      if (this.isFileStale(filePath, currentHash)) {
+      if (!this.fileHashes.has(filePath) || this.isFileStale(filePath, currentHash)) {
         staleFiles.push(filePath);
       }
     }
@@ -375,7 +379,7 @@ export class ReverseIndex {
     if (filesOnDisk) {
       for (const filePath of filesOnDisk) {
         const normalized = normalizePath(filePath);
-        if (!this.fileHashes.has(normalized)) {
+        if (!this.fileHashes.has(normalized) && !staleFiles.includes(normalized)) {
           staleFiles.push(normalized);
           newFiles++;
         }
@@ -383,7 +387,7 @@ export class ReverseIndex {
     }
 
     // Denominator covers every distinct file considered: indexed ∪ on-disk.
-    const totalFiles = this.fileHashes.size + newFiles;
+    const totalFiles = (filesToCheck ? candidates.length : this.fileHashes.size) + newFiles;
     const staleCount = staleFiles.length + missingFiles.length;
     const stalePercentage = totalFiles > 0 ? staleCount / totalFiles : 0;
 

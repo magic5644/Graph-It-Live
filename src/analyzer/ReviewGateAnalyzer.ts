@@ -14,7 +14,7 @@ const MAX_MAX_FILES = 1_000;
 const MAX_MAX_DEPTH = 10;
 /** Bound on the reverse-index walk used to decide whether a consumer is under test. */
 const MAX_COVERAGE_LOOKUP_FILES = 200;
-const SIGNATURE_ANALYSIS_EXTENSIONS = new Set([".ts", ".tsx", ".js", ".jsx", ".mjs", ".cjs"]);
+const SIGNATURE_ANALYSIS_EXTENSIONS = new Set([".ts", ".tsx", ".js", ".jsx", ".mjs", ".cjs", ".vue"]);
 
 export type ReviewRiskLevel = "low" | "medium" | "high" | "critical";
 
@@ -90,6 +90,7 @@ export interface SymbolDependentsProvider {
    * the changed symbol happened to visit.
    */
   findReferencingFiles?(filePath: string): Promise<Array<{ path: string }>>;
+  findReferencingFilesWithFallback?(filePath: string): Promise<Array<{ path: string }>>;
   getSymbolGraph?(filePath: string): Promise<{ symbols: SymbolInfo[]; dependencies: SymbolDependency[] }>;
   findUnusedSymbols?(filePath: string): Promise<SymbolInfo[]>;
 }
@@ -98,6 +99,14 @@ interface FileEvidence {
   cycleSymbols: Set<string>;
   unusedSymbols: Set<string>;
   testCandidates: string[];
+}
+
+interface DependentWalkState {
+  seen: Set<string>;
+  testDependents: Set<string>;
+  consumerFiles: Set<string>;
+  edges: Map<string, Set<string>>;
+  next: Array<{ filePath: string; symbolName: string }>;
 }
 
 /** Deterministic, local Git-diff review analysis. */
@@ -210,10 +219,12 @@ export class ReviewGateAnalyzer {
     // consumers (e.g. everyone who calls a class that merely returns the type) — noise
     // unrelated to the specific member being changed.
     const isMemberLevelChange = errorBreakingChanges.length > 0
-      && errorBreakingChanges.every((change) => change.type === "member-removed" || change.type === "member-type-changed" || change.type === "member-optional-to-required");
+      && errorBreakingChanges.every((change) => change.type === "member-removed" || change.type === "member-renamed" || change.type === "member-type-changed" || change.type === "member-optional-to-required");
     const effectiveMaxDepth = isMemberLevelChange ? 1 : maxDepth;
     const impact: SymbolImpact = errorBreakingChanges.length > 0
-      ? await this.getImpact(absolutePath, comparison.symbolName, effectiveMaxDepth)
+      ? this.isVuePropsSymbol(comparison.symbolName)
+        ? await this.getVuePropsImpact(absolutePath)
+        : await this.getImpact(absolutePath, comparison.symbolName, effectiveMaxDepth)
       : EMPTY_IMPACT;
     const cycles = fileEvidence.cycleSymbols.has(this.toSymbolId(absolutePath, comparison.symbolName));
     const unusedExport = fileEvidence.unusedSymbols.has(comparison.symbolName);
@@ -228,14 +239,20 @@ export class ReviewGateAnalyzer {
     const allTestCandidates = [...new Set([...fileEvidence.testCandidates, ...impact.testDependents])];
     const consumers = await this.getConsumerStanding(impact, changedFiles);
     const consumersMustAct = this.requiresConsumerUpdate(errorBreakingChanges);
-    const scoreFactors = this.getScoreFactors(errorBreakingChanges.length, impact, consumers, consumersMustAct, cycles, unusedExport, allTestCandidates.length, hasConfirmedZeroImpact, hasTestCoverage);
+    const scoreFactors = this.getScoreFactors({
+      breakingChangeCount: errorBreakingChanges.length, impact, consumers, consumersMustAct, cycles, unusedExport,
+      testCandidateCount: allTestCandidates.length, hasConfirmedZeroImpact, hasTestCoverage,
+    });
     const score = Math.min(100, Object.values(scoreFactors).reduce((total, value) => total + value, 0));
     return {
       name: comparison.symbolName, filePath: relativePath, score, risk: riskForScore(score),
       breakingChanges: comparison.breakingChanges, impactedSymbolCount: impact.count, consumers,
       cycleEvidence: cycles ? [comparison.symbolName] : [], unusedExportEvidence: unusedExport,
       testCandidates: allTestCandidates, scoreFactors,
-      evidence: this.getEvidence(comparison.breakingChanges, impact, consumers, consumersMustAct, cycles, unusedExport, allTestCandidates, hasTestCoverage),
+      evidence: this.getEvidence({
+        breakingChanges: comparison.breakingChanges, impact, consumers, consumersMustAct, cycles, unusedExport,
+        testCandidates: allTestCandidates, hasTestCoverage,
+      }),
     };
   }
 
@@ -287,13 +304,14 @@ export class ReviewGateAnalyzer {
    */
   private async hasTestDependent(file: string): Promise<boolean> {
     if (!this.dependents?.findReferencingFiles) return false;
+    const findReferencingFiles = this.dependents.findReferencingFiles.bind(this.dependents);
 
     const visited = new Set([file]);
     const queue = [file];
     while (queue.length > 0 && visited.size <= MAX_COVERAGE_LOOKUP_FILES) {
       let referencing: Array<{ path: string }>;
       try {
-        referencing = await this.dependents.findReferencingFiles(this.toAbsolute(queue.pop()!));
+        referencing = await findReferencingFiles(this.toAbsolute(queue.pop()!));
       } catch {
         continue; // An unreadable entry must not decide the whole question.
       }
@@ -312,7 +330,17 @@ export class ReviewGateAnalyzer {
     return normalizePath(path.resolve(this.workspaceRoot, relativePath));
   }
 
-  private getScoreFactors(breakingChangeCount: number, impact: SymbolImpact, consumers: ConsumerStanding, consumersMustAct: boolean, cycles: boolean, unusedExport: boolean, testCandidateCount: number, hasConfirmedZeroImpact: boolean, hasTestCoverage: boolean): ReviewScoreFactors {
+  private getScoreFactors(input: {
+    breakingChangeCount: number;
+    impact: SymbolImpact;
+    consumers: ConsumerStanding;
+    consumersMustAct: boolean;
+    cycles: boolean;
+    unusedExport: boolean;
+    testCandidateCount: number;
+    hasConfirmedZeroImpact: boolean;
+    hasTestCoverage: boolean;
+  }): ReviewScoreFactors {
     // Residual weight: the change is real and worth a look, but nothing downstream
     // has to be edited for it, so it must not drown the findings that do need work.
     // Kept non-zero on purpose — at zero the symbol would vanish from the report.
@@ -320,52 +348,71 @@ export class ReviewGateAnalyzer {
     // Every consumer the walk found is either updated in this diff or exercised by
     // a test: the contract change has been carried through everywhere it lands, so
     // it is residual work, not unhandled risk.
-    const consumersAccountedFor = consumers.unverified.length === 0
-      && consumers.updated.length + consumers.covered.length > 0;
-    const breakingChangeWeight = hasConfirmedZeroImpact || !consumersMustAct || consumersAccountedFor
-      ? RESIDUAL_WEIGHT
-      : hasTestCoverage ? 25 : 50;
+    const consumersAccountedFor = input.consumers.unverified.length === 0
+      && input.consumers.updated.length + input.consumers.covered.length > 0;
+    let breakingChangeWeight = 50;
+    if (input.hasConfirmedZeroImpact || !input.consumersMustAct || consumersAccountedFor) {
+      breakingChangeWeight = RESIDUAL_WEIGHT;
+    } else if (input.hasTestCoverage) {
+      breakingChangeWeight = 25;
+    }
     return {
-      breakingChanges: breakingChangeCount * breakingChangeWeight,
+      breakingChanges: input.breakingChangeCount * breakingChangeWeight,
       // Scored on what nobody checked, not on how widely the contract is used: a
       // heavily used contract whose consumers are all updated or under test is
       // exactly the well-handled change this gate should wave through.
-      unverifiedConsumers: consumersMustAct ? consumers.unverified.length * 5 : 0, cycles: cycles ? 20 : 0,
-      unusedExport: unusedExport ? 10 : 0, missingTestCandidate: testCandidateCount === 0 ? 10 : 0,
+      unverifiedConsumers: input.consumersMustAct ? input.consumers.unverified.length * 5 : 0, cycles: input.cycles ? 20 : 0,
+      unusedExport: input.unusedExport ? 10 : 0, missingTestCandidate: input.testCandidateCount === 0 ? 10 : 0,
       // An incomplete impact walk means "there may be consumers I did not see" —
       // a risk only when consumers actually have to be updated. Charging it
       // otherwise bills the author for the analyzer's own precision limits.
-      partialImpact: impact.partial && consumersMustAct ? 10 : 0,
+      partialImpact: input.impact.partial && input.consumersMustAct ? 10 : 0,
     };
   }
 
-  private getEvidence(breakingChanges: BreakingChange[], impact: SymbolImpact, consumers: ConsumerStanding, consumersMustAct: boolean, cycles: boolean, unusedExport: boolean, testCandidates: string[], hasTestCoverage: boolean): ReviewEvidence[] {
-    const evidence: ReviewEvidence[] = breakingChanges.map((change) => ({ kind: "breaking-change", detail: change.description }));
-    if (impact.count > 0) evidence.push({ kind: "impact", detail: `${impact.count} known dependent symbol(s).` });
-    const consumerTotal = consumers.updated.length + consumers.covered.length + consumers.unverified.length;
+  private getEvidence(input: {
+    breakingChanges: BreakingChange[];
+    impact: SymbolImpact;
+    consumers: ConsumerStanding;
+    consumersMustAct: boolean;
+    cycles: boolean;
+    unusedExport: boolean;
+    testCandidates: string[];
+    hasTestCoverage: boolean;
+  }): ReviewEvidence[] {
+    const evidence: ReviewEvidence[] = input.breakingChanges.map((change) => ({ kind: "breaking-change", detail: change.description }));
+    if (input.impact.count > 0) evidence.push({ kind: "impact", detail: `${input.impact.count} known dependent symbol(s).` });
+    const consumerTotal = input.consumers.updated.length + input.consumers.covered.length + input.consumers.unverified.length;
     if (consumerTotal > 0) {
-      const unhandled = consumersMustAct
-        ? `${consumers.unverified.length} unverified${consumers.unverified.length > 0 ? `: ${consumers.unverified.join(", ")}` : ""}`
-        : `${consumers.unverified.length} neither, but this change requires no call-site update`;
+      const unverifiedDetail = input.consumers.unverified.length > 0
+        ? `: ${input.consumers.unverified.join(", ")}` : "";
+      const unhandled = input.consumersMustAct
+        ? `${input.consumers.unverified.length} unverified${unverifiedDetail}`
+        : `${input.consumers.unverified.length} neither, but this change requires no call-site update`;
       evidence.push({
         kind: "consumers",
-        detail: `${consumerTotal} consumer file(s): ${consumers.updated.length} updated in this diff, ${consumers.covered.length} covered by tests, ${unhandled}.`,
+        detail: `${consumerTotal} consumer file(s): ${input.consumers.updated.length} updated in this diff, ${input.consumers.covered.length} covered by tests, ${unhandled}.`,
       });
     }
-    if (cycles) evidence.push({ kind: "cycle", detail: "Changed symbol participates in a detected symbol dependency cycle." });
-    if (unusedExport) evidence.push({ kind: "unused-export", detail: "Changed exported symbol is currently reported as unused." });
-    if (testCandidates.length > 0) {
-      evidence.push({ kind: "test-candidate", detail: `Conventional test candidate(s): ${testCandidates.join(", ")}.` });
+    if (input.cycles) evidence.push({ kind: "cycle", detail: "Changed symbol participates in a detected symbol dependency cycle." });
+    if (input.unusedExport) evidence.push({ kind: "unused-export", detail: "Changed exported symbol is currently reported as unused." });
+    if (input.testCandidates.length > 0) {
+      evidence.push({ kind: "test-candidate", detail: `Conventional test candidate(s): ${input.testCandidates.join(", ")}.` });
     } else {
       evidence.push({ kind: "test-candidate", detail: "No conventional test candidate found; manual test selection is required." });
     }
-    if (hasTestCoverage) evidence.push({ kind: "test-candidate", detail: "Symbol is directly depended on by an existing test — a real incompatibility would fail that test." });
-    if (impact.containerScoped) {
+    if (input.hasTestCoverage) evidence.push({ kind: "test-candidate", detail: "Symbol is directly depended on by an existing test — a real incompatibility would fail that test." });
+    if (input.impact.fileScoped) {
+      evidence.push({
+        kind: "partial",
+        detail: "Vue prop consumers are tracked at the component file boundary; template-level prop usage still requires review.",
+      });
+    } else if (input.impact.containerScoped) {
       evidence.push({
         kind: "partial",
         detail: "Dependents are tracked per exported symbol, not per member: the count covers consumers of the containing symbol, only some of which touch this member.",
       });
-    } else if (impact.partial) {
+    } else if (input.impact.partial) {
       evidence.push({ kind: "partial", detail: "Impact traversal reached its configured depth limit." });
     }
     return evidence;
@@ -373,11 +420,11 @@ export class ReviewGateAnalyzer {
 
   private async getChangedFiles(baseRef: string, headRef: string, maxFiles: number): Promise<string[]> {
     const comparison = headRef === "HEAD" ? baseRef : `${baseRef}...${headRef}`;
-    const { stdout } = await execFileAsync("git", ["diff", "--name-only", "--diff-filter=ACMR", comparison], {
+    const { stdout } = await execFileAsync("git", ["diff", "--no-ext-diff", "--no-textconv", "--name-only", "-z", "--diff-filter=ACMR", comparison, "--"], {
       cwd: this.workspaceRoot,
       maxBuffer: 1024 * 1024,
     });
-    return stdout.split("\n")
+    return stdout.split("\0")
       .filter(Boolean)
       .slice(0, maxFiles)
       .map((filePath) => normalizePath(filePath))
@@ -444,46 +491,82 @@ export class ReviewGateAnalyzer {
       : direct;
   }
 
+  private isVuePropsSymbol(symbolName: string): boolean {
+    return symbolName.endsWith('.props');
+  }
+
+  private async getVuePropsImpact(filePath: string): Promise<SymbolImpact> {
+    const findReferences = this.dependents?.findReferencingFilesWithFallback ?? this.dependents?.findReferencingFiles;
+    if (!findReferences) return EMPTY_IMPACT;
+    const lookupReferences = findReferences.bind(this.dependents);
+
+    try {
+      const consumerFiles = new Set<string>();
+      const testDependents = new Set<string>();
+      for (const reference of await lookupReferences(filePath)) {
+        const relative = this.toWorkspaceRelative(normalizePath(reference.path));
+        if (relative === this.toWorkspaceRelative(filePath)) continue;
+        consumerFiles.add(relative);
+        if (this.isTestFilePath(relative)) testDependents.add(relative);
+      }
+      return {
+        count: consumerFiles.size,
+        partial: false,
+        fileScoped: true,
+        testDependents: [...testDependents],
+        consumerFiles: [...consumerFiles],
+        coveredFiles: [],
+      };
+    } catch {
+      return { ...EMPTY_IMPACT, partial: true, fileScoped: true };
+    }
+  }
+
   private async walkDependents(filePath: string, symbolName: string, maxDepth: number): Promise<SymbolImpact> {
-    const seen = new Set<string>();
-    const testDependents = new Set<string>();
-    const consumerFiles = new Set<string>();
-    // File-level "who depends on whom", recorded even for symbols already visited,
-    // so test coverage can be traced back to the consumer it protects.
-    const edges = new Map<string, Set<string>>();
+    const state: DependentWalkState = {
+      seen: new Set<string>(), testDependents: new Set<string>(), consumerFiles: new Set<string>(),
+      edges: new Map<string, Set<string>>(), next: [],
+    };
     let frontier = [{ filePath, symbolName }];
 
     for (let depth = 0; depth < maxDepth && frontier.length > 0; depth += 1) {
-      const next: Array<{ filePath: string; symbolName: string }> = [];
+      state.next = [];
       for (const current of frontier) {
         const parent = this.toWorkspaceRelative(current.filePath);
         for (const dependent of await this.dependents!.getSymbolDependents(current.filePath, current.symbolName)) {
-          const separator = dependent.sourceSymbolId.lastIndexOf(":");
-          if (separator <= 0) continue;
-          const dependentPath = normalizePath(dependent.sourceSymbolId.slice(0, separator));
-          const child = this.toWorkspaceRelative(dependentPath);
-          if (child !== parent) {
-            let children = edges.get(parent);
-            if (!children) { children = new Set(); edges.set(parent, children); }
-            children.add(child);
-          }
-          if (this.isTestFilePath(dependentPath)) testDependents.add(child);
-          else consumerFiles.add(child);
-
-          const target = this.parseDependent(dependent.sourceSymbolId, seen);
-          if (target) next.push(target);
+          this.collectDependent(parent, dependent, state);
         }
       }
-      frontier = next;
+      frontier = state.next;
     }
 
     return {
-      count: seen.size,
+      count: state.seen.size,
       partial: frontier.length > 0,
-      testDependents: [...testDependents],
-      consumerFiles: [...consumerFiles],
-      coveredFiles: [...consumerFiles].filter((file) => this.reachesTestFile(file, edges)),
+      testDependents: [...state.testDependents],
+      consumerFiles: [...state.consumerFiles],
+      coveredFiles: [...state.consumerFiles].filter((file) => this.reachesTestFile(file, state.edges)),
     };
+  }
+
+  private collectDependent(
+    parent: string,
+    dependent: { sourceSymbolId: string },
+    state: DependentWalkState,
+  ): void {
+    const separator = dependent.sourceSymbolId.lastIndexOf(":");
+    if (separator <= 0) return;
+    const dependentPath = normalizePath(dependent.sourceSymbolId.slice(0, separator));
+    const child = this.toWorkspaceRelative(dependentPath);
+    if (child !== parent) {
+      const children = state.edges.get(parent) ?? new Set<string>();
+      children.add(child);
+      state.edges.set(parent, children);
+    }
+    if (this.isTestFilePath(dependentPath)) state.testDependents.add(child);
+    else state.consumerFiles.add(child);
+    const target = this.parseDependent(dependent.sourceSymbolId, state.seen);
+    if (target) state.next.push(target);
   }
 
   /** Whether any test file is reachable from `file` through the recorded dependent edges. */
@@ -610,6 +693,8 @@ interface SymbolImpact {
   partial: boolean;
   /** Counted against the containing symbol because members are not tracked. */
   containerScoped?: boolean;
+  /** Consumer files were found through a Vue component's file-level imports. */
+  fileScoped?: boolean;
   testDependents: string[];
   /** Production consumer files found in the walk, workspace-relative. */
   consumerFiles: string[];

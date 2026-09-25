@@ -30,6 +30,20 @@ suite('Graph-It-Live Extension Test Suite', () => {
     assert.ok(vscode.extensions.getExtension('magic5644.graph-it-live'));
   });
 
+  test('Extension should load from the isolated VSIX profile when requested', () => {
+    const expectedExtensionDirectory = process.env.E2E_EXPECTED_VSIX_EXTENSION_DIR;
+    if (!expectedExtensionDirectory) return;
+
+    const extension = vscode.extensions.getExtension('magic5644.graph-it-live');
+    assert.ok(extension, 'Packaged extension should be installed');
+
+    const relativePath = path.relative(expectedExtensionDirectory, extension!.extensionPath);
+    assert.ok(
+      relativePath && relativePath !== '..' && !relativePath.startsWith(`..${path.sep}`) && !path.isAbsolute(relativePath),
+      `Expected VSIX from ${expectedExtensionDirectory}, but loaded ${extension!.extensionPath}`
+    );
+  });
+
   test('Extension should activate', async function() {
     this.timeout(30000); // Give extension time to activate and index
     

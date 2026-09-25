@@ -21,6 +21,26 @@ function sleep(ms: number): Promise<void> {
 }
 
 describe('FileChangeScheduler', () => {
+  it('waits through queued and in-flight updates and rejects failed updates', async () => {
+    vi.useFakeTimers();
+    let finish!: () => void;
+    const scheduler = new FileChangeScheduler({ processHandler: () => new Promise<void>(resolve => { finish = resolve; }) });
+    scheduler.enqueue('/project/a.ts', 'change');
+    let done = false;
+    const idle = scheduler.whenIdle().then(() => { done = true; });
+    await vi.advanceTimersByTimeAsync(300);
+    expect(done).toBe(false);
+    finish(); await idle;
+    expect(done).toBe(true);
+    scheduler.dispose();
+    const failed = new FileChangeScheduler({ processHandler: async () => { throw new Error('Index failed'); } });
+    failed.enqueue('/project/a.ts', 'change');
+    const failure = expect(failed.whenIdle()).rejects.toThrow('Index failed');
+    await vi.advanceTimersByTimeAsync(300);
+    await failure;
+    failed.dispose();
+  });
+
   beforeEach(() => {
     vi.useFakeTimers();
   });

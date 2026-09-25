@@ -58,9 +58,18 @@ export class ServiceContainer {
       );
     this.services.clear();
 
-    await Promise.all(instances.map(async (instance) => {
-      await instance.dispose?.();
-    }));
+    let failed = false;
+    let firstError: unknown;
+    // Consumers are registered after their dependencies, so stop them first.
+    for (const instance of instances.reverse()) {
+      try {
+        await instance.dispose?.();
+      } catch (error) {
+        if (!failed) firstError = error;
+        failed = true;
+      }
+    }
+    if (failed) throw firstError;
   }
 }
 

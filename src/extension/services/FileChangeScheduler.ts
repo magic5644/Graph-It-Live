@@ -32,8 +32,13 @@ interface FileChangeSchedulerOptions {
  */
 export class FileChangeScheduler {
   private readonly jobs = new Map<string, ScheduledJob>();
+  private readonly failures = new Map<string, unknown>();
+  private readonly idleWaiters = new Set<{ resolve: () => void; reject: (error: unknown) => void }>();
+  private readonly activeTasks = new Set<Promise<void>>();
   private readonly debounceDelay: number;
   private readonly processHandler: (filePath: string, eventType: EventType) => Promise<void>;
+  private disposed = false;
+  private disposePromise: Promise<void> | null = null;
 
   constructor(options: FileChangeSchedulerOptions) {
     this.processHandler = options.processHandler;
@@ -46,6 +51,7 @@ export class FileChangeScheduler {
    * If processing is in-flight, marks for re-schedule after completion.
    */
   enqueue(filePath: string, eventType: EventType): void {
+    if (this.disposed) return;
     const normalizedPath = normalizePath(filePath);
     const existing = this.jobs.get(normalizedPath);
 
@@ -84,15 +90,33 @@ export class FileChangeScheduler {
   /**
    * Dispose all pending timers
    */
-  dispose(): void {
+  dispose(): Promise<void> {
+    this.disposePromise ??= this.disposeAndWait();
+    return this.disposePromise;
+  }
+
+  private async disposeAndWait(): Promise<void> {
+    this.disposed = true;
     log.debug(`Disposing FileChangeScheduler with ${this.jobs.size} pending jobs`);
     
     for (const job of this.jobs.values()) {
       if (job.timerId) {
         clearTimeout(job.timerId);
       }
+      if (!job.inFlight) this.jobs.delete(job.filePath);
     }
+    for (const waiter of this.idleWaiters) waiter.reject(new Error('File updates were disposed.'));
+    this.idleWaiters.clear();
+    this.failures.clear();
+    await Promise.allSettled([...this.activeTasks]);
     this.jobs.clear();
+    this.failures.clear();
+  }
+
+  /** Observe completion without changing per-file debounce or coalescing semantics. */
+  async whenIdle(): Promise<void> {
+    if (this.jobs.size) await new Promise<void>((resolve, reject) => this.idleWaiters.add({ resolve, reject }));
+    if (this.failures.size) throw this.failures.values().next().value;
   }
 
   /**
@@ -104,7 +128,9 @@ export class FileChangeScheduler {
 
   private scheduleJob(normalizedPath: string, eventType: EventType): void {
     const timerId = setTimeout(() => {
-      void this.executeJob(normalizedPath);
+      const task = this.executeJob(normalizedPath);
+      this.activeTasks.add(task);
+      void task.finally(() => this.activeTasks.delete(task)).catch(() => {});
     }, this.debounceDelay);
 
     this.jobs.set(normalizedPath, {
@@ -117,6 +143,10 @@ export class FileChangeScheduler {
   }
 
   private async executeJob(normalizedPath: string): Promise<void> {
+    if (this.disposed) {
+      this.jobs.delete(normalizedPath);
+      return;
+    }
     const job = this.jobs.get(normalizedPath);
     if (!job) {
       return; // Job was cancelled
@@ -131,19 +161,25 @@ export class FileChangeScheduler {
 
     try {
       await this.processHandler(normalizedPath, eventType);
+      this.failures.delete(normalizedPath);
     } catch (error) {
+      this.failures.set(normalizedPath, error);
       log.debug(`Error processing ${eventType} for ${normalizedPath}:`, error);
       // Don't throw - we want to continue processing other files
     }
 
     // Check if re-schedule is needed
     const currentJob = this.jobs.get(normalizedPath);
-    if (currentJob?.needsReschedule) {
+    if (currentJob?.needsReschedule && !this.disposed) {
       log.debug(`Re-scheduling ${currentJob.eventType} for ${normalizedPath}`);
       this.jobs.delete(normalizedPath);
       this.scheduleJob(normalizedPath, currentJob.eventType);
     } else {
       this.jobs.delete(normalizedPath);
+    }
+    if (this.jobs.size === 0) {
+      for (const waiter of this.idleWaiters) waiter.resolve();
+      this.idleWaiters.clear();
     }
   }
 

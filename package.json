@@ -104,6 +104,11 @@
           "id": "graph-it-live.graphView",
           "name": "Dependency Graph",
           "icon": "$(type-hierarchy-sub)"
+        },
+        {
+          "id": "graph-it-live.branchWatchView",
+          "name": "Branch status",
+          "icon": "$(git-branch)"
         }
       ]
     },
@@ -122,7 +127,8 @@
       {
         "command": "graph-it-live.setWorkspace",
         "title": "Set Workspace Folder",
-        "category": "Graph-It-Live"
+        "category": "Graph-It-Live",
+        "icon": "$(folder-opened)"
       },
       {
         "command": "graph-it-live.showIndexStatus",
@@ -199,6 +205,97 @@
         "command": "graph-it-live.reviewCallGraph",
         "title": "Open Review Call Graph",
         "category": "Graph-It-Live"
+      },
+      {
+        "command": "graph-it-live.branchWatch.enable",
+        "title": "Enable Branch Watch",
+        "category": "Graph-It-Live",
+        "icon": "$(play)",
+        "enablement": "graph-it-live.branchWatch.available"
+      },
+      {
+        "command": "graph-it-live.branchWatch.disable",
+        "title": "Disable Branch Watch",
+        "category": "Graph-It-Live",
+        "icon": "$(circle-slash)"
+      },
+      {
+        "command": "graph-it-live.branchWatch.pause",
+        "title": "Pause Branch Watch",
+        "category": "Graph-It-Live",
+        "icon": "$(debug-pause)"
+      },
+      {
+        "command": "graph-it-live.branchWatch.resume",
+        "title": "Resume Branch Watch",
+        "category": "Graph-It-Live",
+        "icon": "$(play)"
+      },
+      {
+        "command": "graph-it-live.branchWatch.refresh",
+        "title": "Refresh Branch Watch",
+        "category": "Graph-It-Live",
+        "icon": "$(refresh)"
+      },
+      {
+        "command": "graph-it-live.branchWatch.selectBase",
+        "title": "Select Base Branch",
+        "category": "Graph-It-Live",
+        "icon": "$(git-branch)"
+      },
+      {
+        "command": "graph-it-live.branchWatch.selectHead",
+        "title": "Select Head Branch",
+        "category": "Graph-It-Live",
+        "icon": "$(git-compare)"
+      },
+      {
+        "command": "graph-it-live.branchWatch.reveal",
+        "title": "Show Branch Status",
+        "category": "Graph-It-Live",
+        "icon": "$(git-branch)"
+      },
+      {
+        "command": "graph-it-live.branchWatch.openFile",
+        "title": "Open File",
+        "category": "Graph-It-Live",
+        "icon": "$(go-to-file)"
+      },
+      {
+        "command": "graph-it-live.branchWatch.copyMessage",
+        "title": "Copy Message",
+        "category": "Graph-It-Live",
+        "icon": "$(clippy)"
+      },
+      {
+        "command": "graph-it-live.branchWatch.copyStatus",
+        "title": "Copy Branch Status",
+        "category": "Graph-It-Live",
+        "icon": "$(copy)"
+      },
+      {
+        "command": "graph-it-live.branchWatch.openCallGraph",
+        "title": "Open Call Graph",
+        "category": "Graph-It-Live",
+        "icon": "$(call-incoming)"
+      },
+      {
+        "command": "graph-it-live.branchWatch.openCycle",
+        "title": "Open Cycle in Graph",
+        "category": "Graph-It-Live",
+        "icon": "$(type-hierarchy-sub)"
+      },
+      {
+        "command": "graph-it-live.branchWatch.retryDetection",
+        "title": "Retry Branch Detection",
+        "category": "Graph-It-Live",
+        "icon": "$(refresh)"
+      },
+      {
+        "command": "graph-it-live.branchWatch.openSettings",
+        "title": "Branch Watch Settings",
+        "category": "Graph-It-Live",
+        "icon": "$(settings-gear)"
       }
     ],
     "menus": {
@@ -210,6 +307,18 @@
         }
       ],
       "view/title": [
+        {
+          "command": "graph-it-live.branchWatch.copyStatus",
+          "when": "view == graph-it-live.branchWatchView",
+          "group": "navigation@1",
+          "icon": "$(copy)"
+        },
+        {
+          "command": "graph-it-live.setWorkspace",
+          "when": "view == graph-it-live.graphView || view == graph-it-live.branchWatchView",
+          "group": "navigation@0",
+          "icon": "$(folder-opened)"
+        },
         {
           "command": "workbench.action.navigateBack",
           "when": "view == graph-it-live.graphView",
@@ -290,6 +399,51 @@
           "command": "graph-it-live.expandAllNodes",
           "when": "view == graph-it-live.graphView && graph-it-live.viewMode == 'file'",
           "group": "navigation@10"
+        },
+        {
+          "command": "graph-it-live.branchWatch.enable",
+          "when": "view == graph-it-live.branchWatchView && !graph-it-live.branchWatch.enabled",
+          "group": "navigation@1"
+        },
+        {
+          "command": "graph-it-live.branchWatch.pause",
+          "when": "view == graph-it-live.branchWatchView && graph-it-live.branchWatch.enabled && !graph-it-live.branchWatch.paused",
+          "group": "navigation@2"
+        },
+        {
+          "command": "graph-it-live.branchWatch.resume",
+          "when": "view == graph-it-live.branchWatchView && graph-it-live.branchWatch.enabled && graph-it-live.branchWatch.paused",
+          "group": "navigation@3"
+        },
+        {
+          "command": "graph-it-live.branchWatch.refresh",
+          "when": "view == graph-it-live.branchWatchView && graph-it-live.branchWatch.enabled",
+          "group": "navigation@4"
+        },
+        {
+          "command": "graph-it-live.branchWatch.selectBase",
+          "when": "view == graph-it-live.branchWatchView && graph-it-live.branchWatch.enabled",
+          "group": "navigation@5"
+        },
+        {
+          "command": "graph-it-live.branchWatch.selectHead",
+          "when": "view == graph-it-live.branchWatchView && graph-it-live.branchWatch.enabled",
+          "group": "navigation@6"
+        },
+        {
+          "command": "graph-it-live.branchWatch.retryDetection",
+          "when": "view == graph-it-live.branchWatchView && !graph-it-live.branchWatch.available",
+          "group": "navigation@7"
+        },
+        {
+          "command": "graph-it-live.branchWatch.openSettings",
+          "when": "view == graph-it-live.branchWatchView",
+          "group": "settings"
+        },
+        {
+          "command": "graph-it-live.branchWatch.reveal",
+          "when": "view == graph-it-live.graphView",
+          "group": "navigation@10"
         }
       ],
       "editor/context": [
@@ -297,6 +451,23 @@
           "command": "graph-it-live.showCallGraph",
           "when": "editorTextFocus",
           "group": "navigation@99"
+        }
+      ],
+      "view/item/context": [
+        {
+          "command": "graph-it-live.branchWatch.copyMessage",
+          "when": "view == graph-it-live.branchWatchView && viewItem == branchWatchMessage",
+          "group": "inline"
+        },
+        {
+          "command": "graph-it-live.branchWatch.openCallGraph",
+          "when": "view == graph-it-live.branchWatchView && viewItem == branchWatchFile",
+          "group": "inline"
+        },
+        {
+          "command": "graph-it-live.branchWatch.openCycle",
+          "when": "view == graph-it-live.branchWatchView && viewItem == branchWatchCycle",
+          "group": "inline"
         }
       ]
     },
@@ -1231,9 +1402,40 @@
           "default": "hierarchical",
           "description": "Layout algorithm for symbol-level drill-down view.",
           "markdownDescription": "Layout algorithm for symbol-level drill-down view:\n\n- **hierarchical**: Top-to-bottom layout (Sugiyama/Dagre). Best for call flows\n- **force-directed**: Interactive physics-based layout. Best for exploring relationships\n- **radial**: Concentric circles with the current file at center. Experimental"
+        },
+        "graph-it-live.branchWatch.enabled": {
+          "type": "boolean",
+          "default": false,
+          "scope": "resource",
+          "description": "Automatically review saved branch changes against a Git base branch. Structural analysis only; tests must pass before delivery."
+        },
+        "graph-it-live.branchWatch.baseRef": {
+          "type": "string",
+          "default": "",
+          "scope": "resource",
+          "description": "Git branch reference used as the base. Local and remote-tracking branches are supported; no fetch is performed."
+        },
+        "graph-it-live.branchWatch.headRef": {
+          "type": "string",
+          "default": "",
+          "scope": "resource",
+          "description": "Git branch reference used as the head. Empty uses the current branch and saved workspace changes."
+        },
+        "graph-it-live.workspaceFolder": {
+          "type": "string",
+          "default": "",
+          "scope": "window",
+          "description": "Workspace folder analyzed by Graph-It-Live in a multi-root workspace. Empty uses the active editor folder, then the first folder."
         }
       }
-    }
+    },
+    "viewsWelcome": [
+      {
+        "view": "graph-it-live.branchWatchView",
+        "contents": "Review the structural impact between Git branches.\n[Enable branch watch](command:graph-it-live.branchWatch.enable)",
+        "when": "!graph-it-live.branchWatch.enabled && graph-it-live.branchWatch.available"
+      }
+    ]
   },
   "bin": {
     "graph-it": "./dist/graph-it.js"
@@ -1274,7 +1476,7 @@
     "@dagrejs/dagre": "^2.0.4",
     "@inquirer/core": "^11.2.1",
     "@inquirer/prompts": "^8.7.2",
-    "@modelcontextprotocol/server": "^2.0.0",
+    "@modelcontextprotocol/server": "^2.1.0",
     "chokidar": "^5.0.0",
     "cytoscape": "^3.34.3",
     "cytoscape-fcose": "^2.2.0",
@@ -1295,7 +1497,7 @@
     "@eslint/js": "^10.0.1",
     "@testing-library/react": "^16.3.3",
     "@types/mocha": "^10.0.10",
-    "@types/node": "^25.9.6",
+    "@types/node": "^25.9.8",
     "@types/react": "^19.3.0",
     "@types/react-dom": "^19.3.0",
     "@types/sql.js": "^1.4.11",
@@ -1306,14 +1508,14 @@
     "@vscode/vsce": "^3.9.2",
     "esbuild": "^0.28.2",
     "esbuild-css-modules-plugin": "^3.1.5",
-    "eslint": "^10.10.0",
-    "fast-check": "^4.10.0",
+    "eslint": "^10.11.0",
+    "fast-check": "^4.10.2",
     "glob": "^13.0.6",
     "globals": "^17.12.0",
     "happy-dom": "^20.14.5",
     "mocha": "^11.8.0",
     "typescript": "^6.0.3",
-    "typescript-eslint": "^8.70.0",
+    "typescript-eslint": "^8.70.1",
     "vitest": "^4.1.11"
   },
   "overrides": {

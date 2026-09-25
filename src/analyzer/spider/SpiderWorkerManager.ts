@@ -100,9 +100,10 @@ export class SpiderWorkerManager {
   /**
    * Dispose and release the worker resources.
    */
-  dispose(): void {
-    this.workerHost?.dispose();
+  async dispose(): Promise<void> {
+    const workerHost = this.workerHost;
     this.workerHost = null;
+    await workerHost?.dispose();
   }
 
   private importWorkerResult(result: IndexingResult): void {
@@ -117,4 +118,3 @@ export class SpiderWorkerManager {
     }
   }
 }
-

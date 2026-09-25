@@ -575,5 +575,62 @@ describe('SignatureAnalyzer', () => {
       // New required member is breaking
       expect(configResult!.hasBreakingChanges).toBe(true);
     });
+
+    it('detects a new required Vue defineProps member', () => {
+      const oldContent = '<script setup lang="ts">const props = defineProps<{ label: string }>();</script><template />';
+      const newContent = '<script setup lang="ts">const props = defineProps<{ label: string; count: number }>();</script><template />';
+
+      const result = analyzer.analyzeBreakingChanges('/components/Counter.vue', oldContent, newContent)
+        .find(item => item.symbolName === 'Counter.props');
+
+      expect(result?.breakingChanges).toEqual(expect.arrayContaining([
+        expect.objectContaining({
+          type: 'member-optional-to-required',
+          symbolName: 'Counter.props.count',
+        }),
+      ]));
+    });
+
+    it('extracts Vue scripts when the closing tag contains tolerated trailing text', () => {
+      const oldContent = '<script lang="ts">defineProps<{ label: string }>();</script\t\n data="ignored">\n<template />';
+      const newContent = '<script lang="ts">defineProps<{ label: string; count: number }>();</script\t\n data="ignored">\n<template />';
+
+      const result = analyzer.analyzeBreakingChanges('/components/Counter.vue', oldContent, newContent)
+        .find(item => item.symbolName === 'Counter.props');
+
+      expect(result?.breakingChanges).toEqual(expect.arrayContaining([
+        expect.objectContaining({ symbolName: 'Counter.props.count' }),
+      ]));
+    });
+
+    it('detects required changes in runtime Vue props', () => {
+      const oldContent = '<script setup>defineProps({ label: { type: String, required: true } });</script><template />';
+      const newContent = '<script setup>defineProps({ label: { type: String, required: true }, count: { type: Number, required: true } });</script><template />';
+
+      const result = analyzer.analyzeBreakingChanges('/components/Counter.vue', oldContent, newContent)
+        .find(item => item.symbolName === 'Counter.props');
+
+      expect(result?.breakingChanges).toEqual(expect.arrayContaining([
+        expect.objectContaining({
+          type: 'member-optional-to-required',
+          symbolName: 'Counter.props.count',
+        }),
+      ]));
+    });
+
+    it('detects breaking changes in class-based Vue decorators', () => {
+      const oldContent = '<script lang="ts">import { Prop, Model } from "vue-facing-decorator"; export class CreateDeposit extends Vue { @Prop() invoice: InvoiceDTO; @Model({ required: true }) depositIsValid: boolean; }</script><template />';
+      const newContent = '<script lang="ts">import { Prop, Model } from "vue-facing-decorator"; export class CreateDeposit extends Vue { @Prop() invoiceData: InvoiceDTO; @Model({ required: true }) depositIsValid: boolean; }</script><template />';
+
+      const result = analyzer.analyzeBreakingChanges('/components/CreateDeposit.vue', oldContent, newContent)
+        .find(item => item.symbolName === 'CreateDeposit.props');
+
+      expect(result?.breakingChanges).toEqual(expect.arrayContaining([
+        expect.objectContaining({
+          type: 'member-renamed',
+          symbolName: 'CreateDeposit.props.invoiceData',
+        }),
+      ]));
+    });
   });
 });

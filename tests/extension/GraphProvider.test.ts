@@ -9,6 +9,7 @@ import { graphProviderServiceTokens } from "../../src/extension/services/graphPr
 const testRootDir = path.resolve(process.cwd(), "temp-test-root");
 const np = (p: string) => normalizePath(p);
 
+
 // Mock vscode
 vi.mock("vscode", () => {
   const mockStatusBarItem = {
@@ -133,6 +134,24 @@ vi.mock("../../src/analyzer/Spider", () => {
 });
 
 describe("GraphProvider", () => {
+  it("prepares branch watch without opening a webview and rejects an incomplete index", async () => {
+    const spider = provider.getSpiderForLmTools()!;
+    Object.assign(spider, {
+      workspaceRoot: testRootDir,
+      getIndexStatus: () => ({ state: 'complete', total: 1 }),
+      isReverseIndexEnabled: () => true,
+      enableReverseIndex: vi.fn(), disableReverseIndex: vi.fn(), clearCache: vi.fn(),
+      getSerializedReverseIndex: () => JSON.stringify({ fileHashes: { [path.join(testRootDir, 'src/main.ts')]: {} } }),
+      validateReverseIndex: vi.fn().mockResolvedValue({ isValid: true, staleFiles: [], missingFiles: [] }),
+    });
+    await provider.prepareBranchWatchIndex({ headSha: 'first', readablePaths: [] });
+    expect(spider.buildFullIndexInWorker).not.toHaveBeenCalled();
+    await provider.prepareBranchWatchIndex({ headSha: 'first', readablePaths: [] });
+    expect(spider.buildFullIndexInWorker).not.toHaveBeenCalled();
+    Object.assign(spider, { validateReverseIndex: vi.fn().mockResolvedValue({ isValid: false, staleFiles: [], missingFiles: [] }) });
+    await expect(provider.prepareBranchWatchIndex({ headSha: 'second', readablePaths: [] })).rejects.toThrow('incomplete');
+  });
+
   let provider: GraphProvider;
   let extensionUri: vscode.Uri;
   let mockContext: vscode.ExtensionContext;

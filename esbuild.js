@@ -262,9 +262,6 @@ async function rebuildAndDispose(ctxs) {
     if (process.platform !== 'win32') stderr(`⚠ Could not chmod dist/graph-it.js: ${chmodErr.message}`);
   }
 
-  copyWasmFiles();
-  copyQueryFiles();
-
   if (metafilePath && !cliOnly && resultExtension && resultWebview) {
     saveMetafiles(metafilePath, { resultExtension, resultWorker, resultAstWorker, resultMcpServer, resultMcpWorker, resultWebview });
   }
@@ -280,6 +277,8 @@ async function rebuildAndDispose(ctxs) {
 }
 
 async function main() {
+  copyWasmFiles();
+  copyQueryFiles();
   const ctxs = await createAllContexts();
   if (watch) {
     await watchContexts(ctxs);

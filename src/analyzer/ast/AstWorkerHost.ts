@@ -38,6 +38,8 @@ export class AstWorkerHost {
   private readonly workerPath: string;
   private readonly extensionPath?: string;
   private isStopping = false;
+  private isDisposed = false;
+  private stopPromise: Promise<void> | null = null;
 
   /**
    * @param workerPath - Absolute path to the compiled astWorker.js bundle
@@ -82,7 +84,8 @@ export class AstWorkerHost {
    * Initialize the worker thread
    */
   public async start(): Promise<void> {
-    if (this.worker) {
+    if (this.isDisposed) throw new Error('AstWorker has been stopped');
+    if (this.worker || this.isStopping) {
       log.warn('AstWorker already started');
       return;
     }
@@ -113,7 +116,7 @@ export class AstWorkerHost {
           log.error(`AstWorker exited with code ${code}`);
         }
         this.worker = null;
-        this.isStopping = false;
+        if (!this.stopPromise) this.isStopping = false;
       });
 
       log.info('AstWorker started successfully');
@@ -127,10 +130,11 @@ export class AstWorkerHost {
   /**
    * Stop the worker thread
    */
-  public async stop(): Promise<void> {
-    if (!this.worker) {
-      return;
-    }
+  public stop(): Promise<void> {
+    this.isDisposed = true;
+    if (this.stopPromise) return this.stopPromise;
+    const worker = this.worker;
+    if (!worker) return Promise.resolve();
 
     log.debug('Stopping AstWorker');
 
@@ -141,10 +145,13 @@ export class AstWorkerHost {
     }
 
     this.isStopping = true;
-    await this.worker.terminate();
-    this.worker = null;
-
-    log.debug('AstWorker stopped');
+    this.stopPromise = worker.terminate().then(() => undefined).finally(() => {
+      if (this.worker === worker) this.worker = null;
+      this.isStopping = false;
+      this.stopPromise = null;
+      log.debug('AstWorker stopped');
+    });
+    return this.stopPromise;
   }
 
   /**
@@ -284,10 +291,12 @@ export class AstWorkerHost {
    * Send a request to the worker and wait for response
    */
   private async sendRequest(request: Partial<WorkerRequest> & { type: string }): Promise<unknown> {
+    if (this.isDisposed) throw new Error('AstWorker has been stopped');
     // Auto-start worker on first request
     if (!this.worker) {
       await this.start();
     }
+    if (this.isDisposed) throw new Error('AstWorker has been stopped');
 
     const id = this.nextId++;
     const fullRequest = { ...request, id } as WorkerRequest;

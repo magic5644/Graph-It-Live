@@ -64,14 +64,23 @@ export function setupFileWatcher(
   }
 
   try {
+    let initialScanComplete = false;
     // Chokidar 4+ treats globs as literal paths. Watch the directory and filter
     // files without excluding directories needed for recursive traversal.
     workerState.fileWatcher = watch(watchRoot, {
       ignored: (filePath, stats) =>
         path.relative(watchRoot, filePath).split(path.sep).some(part => IGNORED_DIRECTORIES.includes(part)) ||
-        (stats?.isFile() === true && !WATCHED_EXTENSIONS.some(ext => filePath.endsWith(ext))),
+      (stats?.isFile() === true && !WATCHED_EXTENSIONS.some(ext => filePath.endsWith(ext))),
       persistent: true,
-      ignoreInitial: true, // Don't fire events for existing files
+      // Keep initial events so files created together with a new directory are
+      // not mistaken for the directory's initial scan. They are filtered until
+      // the ready event below.
+      ignoreInitial: false,
+      // ReadDirectoryChangesW can miss a file created immediately after a new
+      // directory on Windows. Poll there for correctness; native events remain
+      // the lower-overhead default on macOS and Linux.
+      usePolling: process.platform === "win32" || process.env.CI === "true",
+      interval: 300,
       awaitWriteFinish: {
         stabilityThreshold: 100, // Wait 100ms after last write
         pollInterval: 50,
@@ -79,15 +88,23 @@ export function setupFileWatcher(
     });
 
     workerState.fileWatcher.on("change", (filePath: string) => {
-      handleFileChange(postMessage, "change", filePath);
+      if (!initialScanComplete) return;
+      handleFileChange(postMessage, "change", filePath, watchRoot);
     });
 
     workerState.fileWatcher.on("add", (filePath: string) => {
-      handleFileChange(postMessage, "add", filePath);
+      if (!initialScanComplete) return;
+      handleFileChange(postMessage, "add", filePath, watchRoot);
     });
 
     workerState.fileWatcher.on("unlink", (filePath: string) => {
-      handleFileChange(postMessage, "unlink", filePath);
+      if (!initialScanComplete) return;
+      handleFileChange(postMessage, "unlink", filePath, watchRoot);
+    });
+
+    workerState.fileWatcher.on("addDir", (directory: string) => {
+      if (!initialScanComplete) return;
+      void reportNewDirectoryFiles(postMessage, directory, watchRoot);
     });
 
     workerState.fileWatcher.on("error", (error: unknown) => {
@@ -96,11 +113,39 @@ export function setupFileWatcher(
     });
 
     workerState.fileWatcher.on("ready", () => {
+      initialScanComplete = true;
       log.debug("File watcher ready");
     });
   } catch (error) {
     const errorMessage = error instanceof Error ? error.message : "Unknown error";
     log.error("Failed to setup file watcher:", errorMessage);
+  }
+}
+
+/**
+ * Chokidar can classify files created with a new directory as that directory's
+ * initial scan. Reconcile only that directory so nested source files are not
+ * lost without turning the watcher into a workspace-wide polling scan.
+ */
+async function reportNewDirectoryFiles(
+  postMessage: (msg: McpWorkerResponse) => void,
+  directory: string,
+  watchRoot: string,
+): Promise<void> {
+  try {
+    const entries = await fs.promises.readdir(directory, { withFileTypes: true });
+    for (const entry of entries) {
+      const filePath = path.join(directory, entry.name);
+      const relative = path.relative(watchRoot, filePath);
+      if (relative.split(path.sep).some(part => IGNORED_DIRECTORIES.includes(part))) continue;
+      if (entry.isDirectory()) {
+        await reportNewDirectoryFiles(postMessage, filePath, watchRoot);
+      } else if (entry.isFile() && WATCHED_EXTENSIONS.some(ext => entry.name.endsWith(ext))) {
+        handleFileChange(postMessage, "add", filePath, watchRoot);
+      }
+    }
+  } catch (error) {
+    log.debug("Could not reconcile new directory:", error instanceof Error ? error.message : String(error));
   }
 }
 
@@ -131,7 +176,9 @@ function handleFileChange(
   postMessage: (msg: McpWorkerResponse) => void,
   event: "change" | "add" | "unlink",
   filePath: string,
+  watchRoot: string,
 ): void {
+  filePath = restoreConfiguredPath(filePath, watchRoot);
   filePath = normalizePath(filePath);
   // Clear any pending invalidation for this file
   const existingTimeout = workerState.pendingInvalidations.get(filePath);
@@ -146,6 +193,20 @@ function handleFileChange(
   }, FILE_CHANGE_DEBOUNCE_MS);
 
   workerState.pendingInvalidations.set(filePath, timeout);
+}
+
+/**
+ * Chokidar reports paths using the real path passed to it. On Windows that can
+ * differ from the configured 8.3 workspace path, so map events back to the
+ * same path namespace used by the index and MCP responses.
+ */
+function restoreConfiguredPath(filePath: string, watchRoot: string): string {
+  const configuredRoot = workerState.config?.rootDir;
+  if (!configuredRoot || configuredRoot === watchRoot) return filePath;
+
+  const relativePath = path.relative(watchRoot, filePath);
+  if (relativePath.startsWith("..") || path.isAbsolute(relativePath)) return filePath;
+  return path.join(configuredRoot, relativePath);
 }
 
 /**

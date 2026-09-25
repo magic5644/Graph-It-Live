@@ -14,12 +14,17 @@ import { CommandCoordinator } from './services/CommandCoordinator';
 import { CommandRegistrationService } from './services/CommandRegistrationService';
 import { EditorEventsService } from './services/EditorEventsService';
 import { LmToolsService } from './services/LmToolsService';
+import { registerBranchWatch } from './services/BranchWatchService';
 
 // Keep track of MCP server provider for cleanup
 let mcpServerProvider: McpServerProvider | null = null;
 let graphProvider: GraphProvider | null = null;
 
 function resolvePreferredWorkspaceFolder(): vscode.WorkspaceFolder | undefined {
+    const configuredPath = vscode.workspace.getConfiguration('graph-it-live').get<string>('workspaceFolder', '');
+    const configuredFolder = vscode.workspace.workspaceFolders?.find(folder => folder.uri.fsPath === configuredPath);
+    if (configuredFolder) return configuredFolder;
+
     const activeEditor = vscode.window.activeTextEditor;
     const getWorkspaceFolder = (vscode.workspace as typeof vscode.workspace & {
         getWorkspaceFolder?: (uri: vscode.Uri) => vscode.WorkspaceFolder | undefined;
@@ -84,19 +89,20 @@ export function activate(context: vscode.ExtensionContext) {
     // Get the fileChangeScheduler from provider (it's created during provider construction)
     const fileChangeScheduler = provider.fileChangeScheduler;
     if (!fileChangeScheduler) {
-        log.error('FileChangeScheduler not initialized in GraphProvider');
-        throw new Error('FileChangeScheduler not available');
+        log.warn('FileChangeScheduler unavailable: activating without an open workspace');
     }
-    
-    const editorEventsService = new EditorEventsService({ 
-        target: provider, 
+    const editorEventsService = fileChangeScheduler ? new EditorEventsService({
+        target: provider,
         logger: log,
-        fileChangeScheduler 
-    });
+        fileChangeScheduler,
+    }) : undefined;
 
     // Call Graph panel — T019: register showCallGraph command
     const callGraphViewService = new CallGraphViewService(context);
     provider.setCallGraphViewService(callGraphViewService);
+    const branchWatchRegistration = registerBranchWatch(context, provider);
+    provider.setBranchWatchRegistration(branchWatchRegistration);
+    context.subscriptions.push(branchWatchRegistration);
 
     const disposables: vscode.Disposable[] = [
       // Output channel disposal
@@ -146,7 +152,7 @@ export function activate(context: vscode.ExtensionContext) {
         // Native VS Code Language Model Tools (always active, targets Copilot Chat)
         ...lmToolsService.registerAll(),
       // Editor/workspace event listeners
-      ...editorEventsService.register(),
+      ...(editorEventsService?.register() ?? []),
     ];
 
     // Register MCP server provider if a workspace folder is open
@@ -191,6 +197,9 @@ export function activate(context: vscode.ExtensionContext) {
             if (mcpServerProvider) {
                 mcpServerProvider.updateWorkspaceFolder(pick.folder);
             }
+            await vscode.workspace.getConfiguration('graph-it-live').update(
+                'workspaceFolder', pick.folder.uri.fsPath, vscode.ConfigurationTarget.Workspace
+            );
             log.info('Workspace switched to:', pick.folder.uri.fsPath);
             // MCP server restarts immediately with new workspace root.
             // The graph view Spider is initialized at extension startup, so a

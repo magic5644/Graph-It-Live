@@ -1,4 +1,9 @@
 import * as vscode from "vscode";
+import * as path from "node:path";
+import type { BranchWatchSnapshot } from "../analyzer/BranchWatchAnalyzer";
+import type { BranchWatchRegistration } from "./services/BranchWatchService";
+import { LanguageService } from "../analyzer/LanguageService";
+import { resolveReviewCallGraphPath } from "../shared/reviewTarget";
 import type { IndexerStatusSnapshot } from "../analyzer/IndexerStatus";
 import { Spider } from "../analyzer/Spider";
 import { SUPPORTED_SOURCE_FILE_REGEX } from "../shared/constants";
@@ -85,7 +90,12 @@ export class GraphProvider implements vscode.WebviewViewProvider {
    * Used to route call-graph webview messages and provide sidebar webview.
    */
   private _callGraphViewService: CallGraphViewService | null = null;
+  private _branchWatchRegistration: BranchWatchRegistration | null = null;
   private _disposePromise: Promise<void> | null = null;
+  private _isDisposing = false;
+  private readonly _activeDrillDowns = new Set<Promise<void>>();
+  private readonly _activeGraphUpdates = new Set<Promise<void>>();
+  private readonly _activeMessages = new Set<Promise<unknown>>();
 
   /**
    * Wire the CallGraphViewService into this provider.
@@ -95,6 +105,10 @@ export class GraphProvider implements vscode.WebviewViewProvider {
     this._callGraphViewService = service;
     // Also inject into SymbolViewService for cross-file caller enrichment
     this.symbolViewService?.setCallGraphQueryService(service);
+  }
+
+  public setBranchWatchRegistration(registration: BranchWatchRegistration): void {
+    this._branchWatchRegistration = registration;
   }
 
   private get spider(): Spider | undefined {
@@ -109,6 +123,51 @@ export class GraphProvider implements vscode.WebviewViewProvider {
    */
   public getSpiderForLmTools(): Spider | undefined {
     return this.spider;
+  }
+
+  /** Barrier for the native branch view; never opens a webview or duplicates completed file updates. */
+  public async prepareBranchWatchIndex(snapshot: Pick<BranchWatchSnapshot, 'headSha' | 'readablePaths'> & Partial<Pick<BranchWatchSnapshot, 'changes'>>): Promise<void> {
+    const spider = this.spider;
+    if (!spider) throw new Error('Dependency index unavailable: no active graph workspace.');
+    this.indexingManager?.cancelScheduledIndexing();
+    await this.fileChangeScheduler?.whenIdle();
+    if (['counting', 'indexing', 'validating'].includes(spider.getIndexStatus().state)) {
+      await new Promise<void>((resolve, reject) => {
+        let unsubscribe = () => {};
+        const timer = setTimeout(() => { unsubscribe(); reject(new Error('Dependency index preparation timed out.')); }, 30_000);
+        unsubscribe = spider.subscribeToIndexStatus(status => {
+          if (['complete', 'error', 'idle'].includes(status.state)) {
+            clearTimeout(timer); queueMicrotask(() => unsubscribe());
+            if (status.state === 'complete') resolve();
+            else reject(new Error('Dependency index is unavailable.'));
+          }
+        });
+      });
+    }
+    // The reverse index describes the current workspace, not the selected Git
+    // head. Rebuilding it on every branch comparison needlessly duplicates the
+    // background index pass and makes Branch Watch appear to stop/restart.
+    if (!spider.isReverseIndexEnabled() || spider.getIndexStatus().state !== 'complete') {
+      spider.clearCache();
+      spider.disableReverseIndex();
+      spider.enableReverseIndex();
+      const indexed = await spider.buildFullIndexInWorker(path.join(this.extensionUri.fsPath, 'dist', 'indexerWorker.js'));
+      if (indexed.cancelled) throw new Error('Dependency index preparation was cancelled.');
+    }
+    const paths = snapshot.readablePaths.filter(file => LanguageService.isSupported(file))
+      .map(file => resolveReviewCallGraphPath(spider.workspaceRoot, file));
+    const changedPaths = (snapshot.changes ?? [])
+      .filter(change => change.kind === 'deleted' || LanguageService.isSupported(change.path))
+      .map(change => resolveReviewCallGraphPath(spider.workspaceRoot, change.path));
+    const pathsToCheck = [...new Set([...paths, ...changedPaths])];
+    const validation = await spider.validateReverseIndex(0, paths, pathsToCheck);
+    for (const file of validation?.staleFiles ?? []) this.fileChangeScheduler?.enqueue(file, 'change');
+    for (const file of validation?.missingFiles ?? []) this.fileChangeScheduler?.enqueue(file, 'delete');
+    await this.fileChangeScheduler?.whenIdle();
+    const verified = await spider.validateReverseIndex(0, paths, pathsToCheck);
+    if (!verified?.isValid) {
+      throw new Error('Dependency index is incomplete. Refresh the index before retrying branch watch.');
+    }
   }
 
   public getCallGraphViewServiceForLmTools(): import('./services/CallGraphViewService').CallGraphViewService | null {
@@ -188,9 +247,29 @@ export class GraphProvider implements vscode.WebviewViewProvider {
   }
 
   private async disposeServices(): Promise<void> {
+    this._isDisposing = true;
+    this._drillDownSeq++;
     this._graphState.abortAndClearExpansionControllers();
-    await this.unusedAnalysisCache?.flush();
-    await this._container.dispose();
+    const unusedCache = this.unusedAnalysisCache;
+    const shutdownTasks = [
+      this.spider?.beginShutdown(),
+      this.indexingManager?.dispose(),
+      this._branchWatchRegistration?.disposeAsync(),
+      this._callGraphViewService?.disposeAsync(),
+    ];
+    while (this._activeDrillDowns.size > 0 || this._activeGraphUpdates.size > 0 || this._activeMessages.size > 0) {
+      await Promise.allSettled([
+        ...this._activeDrillDowns,
+        ...this._activeGraphUpdates,
+        ...this._activeMessages,
+      ]);
+    }
+    const shutdownResults = await Promise.allSettled(shutdownTasks);
+    const containerResult = await Promise.allSettled([this._container.dispose()]);
+    const cacheResult = await Promise.allSettled([unusedCache?.flush()]);
+    const failed = [...shutdownResults, ...cacheResult, ...containerResult]
+      .find((result): result is PromiseRejectedResult => result.status === "rejected");
+    if (failed) throw failed.reason;
   }
 
   private _initializeFilterContext(): void {
@@ -226,7 +305,7 @@ export class GraphProvider implements vscode.WebviewViewProvider {
     log.debug(`Updated viewMode context to: ${mode}`);
   }
 
-  constructor(extensionUri: vscode.Uri, context: vscode.ExtensionContext) {
+  constructor(private readonly extensionUri: vscode.Uri, context: vscode.ExtensionContext) {
     const { container, configSnapshot } = createGraphProviderServiceContainer({
       extensionUri,
       context,
@@ -352,6 +431,7 @@ export class GraphProvider implements vscode.WebviewViewProvider {
     filePath: string,
     eventType: EventType,
   ): Promise<void> {
+    if (this._isDisposing) return;
     // Invalidate symbol graph cache when the analysed file changes on disk.
     if (this._symbolGraphCache?.filePath === filePath) {
       this._symbolGraphCache = null;
@@ -523,6 +603,18 @@ export class GraphProvider implements vscode.WebviewViewProvider {
     isRefresh: boolean = false,
     targetViewMode?: "symbol" | "list",
   ): Promise<void> {
+    if (this._isDisposing) return;
+    const operation = this.performDrillDown(filePath, isRefresh, targetViewMode);
+    this._activeDrillDowns.add(operation);
+    void operation.finally(() => this._activeDrillDowns.delete(operation)).catch(() => {});
+    return operation;
+  }
+
+  private async performDrillDown(
+    filePath: string,
+    isRefresh: boolean = false,
+    targetViewMode?: "symbol" | "list",
+  ): Promise<void> {
     log.info(
       `[GraphProvider] handleDrillDown ENTRY: filePath=${filePath}, isRefresh=${isRefresh}`,
     );
@@ -547,7 +639,7 @@ export class GraphProvider implements vscode.WebviewViewProvider {
       );
 
       const resolved = await this._resolveDrillDownTarget(filePath, targetViewMode);
-      if (!resolved) return;
+      if (!resolved || this._isDisposing) return;
       const { resolvedFilePath, rootNodeId } = resolved;
 
       // Skip the expensive LSP analysis when a fresh cached result exists
@@ -564,6 +656,7 @@ export class GraphProvider implements vscode.WebviewViewProvider {
         resolvedFilePath,
         rootNodeId,
       );
+      if (this._isDisposing) return;
 
       // Always cache valid analysis results — even stale ones. The data is
       // correct for this file; it just arrived after a newer request was fired.
@@ -589,6 +682,7 @@ export class GraphProvider implements vscode.WebviewViewProvider {
 
       this._sendSymbolGraphToWebview(symbolGraph, rootNodeId, isRefresh, targetViewMode);
     } catch (error) {
+      if (this._isDisposing) return;
       log.error("Error drilling down into symbols:", error);
       vscode.window.showErrorMessage(
         `Failed to analyze symbols: ${error instanceof Error ? error.message : "Unknown error"}`,
@@ -805,7 +899,11 @@ export class GraphProvider implements vscode.WebviewViewProvider {
 
     const messageListener = webviewView.webview.onDidReceiveMessage(
       async (message: WebviewToExtensionMessage) => {
-        await this._messageDispatcher.handle(message);
+        if (this._isDisposing) return;
+        const operation = this._messageDispatcher.handle(message);
+        this._activeMessages.add(operation);
+        try { await operation; }
+        finally { this._activeMessages.delete(operation); }
       },
     );
 
@@ -1221,7 +1319,7 @@ export class GraphProvider implements vscode.WebviewViewProvider {
    * Update the file graph for the current active document
    * @param isRefresh If true, this is a refresh not navigation - preserve view mode
    */
-  public async updateGraph(
+  public updateGraph(
     isRefresh: boolean = false,
     refreshReason:
       | "manual"
@@ -1231,7 +1329,18 @@ export class GraphProvider implements vscode.WebviewViewProvider {
       | "fileChange"
       | "usage-analysis"
       | "unknown" = "unknown",
-  ) {
+  ): Promise<void> {
+    if (this._isDisposing) return Promise.resolve();
+    const operation = this.performUpdateGraph(isRefresh, refreshReason);
+    this._activeGraphUpdates.add(operation);
+    void operation.finally(() => this._activeGraphUpdates.delete(operation)).catch(() => {});
+    return operation;
+  }
+
+  private async performUpdateGraph(
+    isRefresh: boolean,
+    refreshReason: "manual" | "indexing" | "fileSaved" | "navigation" | "fileChange" | "usage-analysis" | "unknown",
+  ): Promise<void> {
     if (!this._view || !this.spider || !this.graphViewService) {
       log.debug("View or Spider not initialized");
       return;
