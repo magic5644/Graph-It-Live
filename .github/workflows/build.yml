@@ -10,6 +10,7 @@ on:
       - main
     tags-ignore:
       - 'v*'
+      - 'compat/vscode/**'
     paths:
       - 'src/**'
       - 'tests/**'

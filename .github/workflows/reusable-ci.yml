@@ -16,6 +16,11 @@ on:
         required: false
         default: ''
         type: string
+      vscode-version:
+        description: VS Code version to use for the VSIX end-to-end tests
+        required: false
+        default: ''
+        type: string
       run-e2e:
         description: Run VS Code E2E tests on Linux and VSIX smoke validation on Windows/macOS
         required: false
@@ -73,6 +78,7 @@ jobs:
       - name: Run E2E Tests (Linux)
         if: inputs.run-e2e && runner.os == 'Linux'
         env:
+          VSCODE_TEST_VERSION: ${{ inputs.vscode-version || 'stable' }}
           E2E_MOCHA_REPORTER: xunit
           E2E_MOCHA_REPORT_FILE: ${{ github.workspace }}/test-results/e2e-vscode-linux.xml
         run: |

@@ -1,0 +1,126 @@
+name: VS Code Stable Compatibility
+
+on:
+  schedule:
+    - cron: '0 8 * * *'
+      timezone: 'Europe/Paris'
+  workflow_dispatch:
+    inputs:
+      vscode_version:
+        description: Stable VS Code version to test (defaults to latest)
+        required: false
+        type: string
+      force:
+        description: Test this version again even if a result is already recorded
+        required: false
+        default: false
+        type: boolean
+
+permissions:
+  contents: read
+
+concurrency:
+  group: vscode-stable-compatibility
+  cancel-in-progress: false
+
+jobs:
+  detect:
+    name: Find latest stable version and check history
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.resolve.outputs.version }}
+      main-sha: ${{ steps.main.outputs.sha }}
+      should-run: ${{ steps.dedupe.outputs.should-run }}
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: main
+
+      - name: Resolve stable version
+        id: resolve
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION_INPUT: ${{ inputs.vscode_version }}
+        shell: bash
+        run: |
+          if [[ -n "$VERSION_INPUT" ]]; then
+            release_tag="$VERSION_INPUT"
+          else
+            release_tag="$(gh api repos/microsoft/vscode/releases/latest --jq .tag_name)"
+          fi
+
+          version="${release_tag#v}"
+          if [[ ! "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "Unsupported VS Code stable release tag: $release_tag" >&2
+            exit 1
+          fi
+
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "Selected stable VS Code version: $version"
+
+      - name: Capture main commit
+        id: main
+        shell: bash
+        run: echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+
+      - name: Skip versions with a recorded result
+        id: dedupe
+        env:
+          FORCE: ${{ inputs.force }}
+          VERSION: ${{ steps.resolve.outputs.version }}
+        shell: bash
+        run: |
+          existing="$(git ls-remote --refs origin "refs/tags/compat/vscode/$VERSION/*")"
+          if [[ -n "$existing" && "$FORCE" != "true" ]]; then
+            echo "should-run=false" >> "$GITHUB_OUTPUT"
+            echo "VS Code $VERSION already has a compatibility result; skipping."
+          else
+            echo "should-run=true" >> "$GITHUB_OUTPUT"
+          fi
+
+  validate:
+    name: Run CI against VS Code ${{ needs.detect.outputs.version }}
+    needs: detect
+    if: needs.detect.outputs.should-run == 'true'
+    permissions:
+      contents: read
+    uses: ./.github/workflows/reusable-ci.yml
+    with:
+      node-version: '24.x'
+      ref: ${{ needs.detect.outputs.main-sha }}
+      vscode-version: ${{ needs.detect.outputs.version }}
+      run-e2e: true
+      package-extension: true
+
+  record:
+    name: Record compatibility result
+    needs: [detect, validate]
+    if: >-
+      always() &&
+      needs.detect.outputs.should-run == 'true' &&
+      (needs.validate.result == 'success' || needs.validate.result == 'failure')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: ${{ needs.detect.outputs.main-sha }}
+
+      - name: Create durable result tag
+        env:
+          VERSION: ${{ needs.detect.outputs.version }}
+          MAIN_SHA: ${{ needs.detect.outputs.main-sha }}
+          RESULT: ${{ needs.validate.result }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        shell: bash
+        run: |
+          tag="compat/vscode/$VERSION/run-$GITHUB_RUN_ID-attempt-$GITHUB_RUN_ATTEMPT"
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git tag -a "$tag" \
+            -m "VS Code version: $VERSION" \
+            -m "CI result: $RESULT" \
+            -m "Graph-It-Live main commit: $MAIN_SHA" \
+            -m "GitHub Actions run: $RUN_URL"
+          git push origin "refs/tags/$tag"
