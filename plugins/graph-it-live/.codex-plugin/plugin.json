@@ -1,6 +1,6 @@
 {
   "name": "graph-it-live",
-  "version": "1.15.1",
+  "version": "1.16.0",
   "description": "Dependency, call-graph, impact, and architecture analysis for codebases.",
   "author": {
     "name": "Graph-It-Live Team",
