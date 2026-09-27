@@ -1,5 +1,23 @@
 # Changelog
 
+## v1.16.0
+
+### Added
+
+- **Branch Watch for VS Code**: Added an optional native Branch status view that compares selected Git base/head references and reports changed files, affected consumers, contract changes, cycle status, risk, confidence, and analysis limitations. Toolbar actions select the workspace and branches, refresh or pause analysis, and copy an individual message or the full status.
+- **Per-workspace Branch Watch settings**: Base/head selections are stored in the Git-ignored `.graph-it/branch-watch.json`. An empty head analyzes the current branch with saved working-tree changes. `graph-it-live.branchWatch.maxFiles` sets the analysis limit (default 200, range 1–1000).
+
+### Improved
+
+- **Signature and Vue prop analysis**: Review analysis now identifies likely renamed TypeScript/JavaScript members and reports breaking Vue prop changes, including renames, removals, and newly required props, with their consumers.
+- **Analysis and watcher reliability**: Improved initial and incremental file discovery, stale reverse-dependency recovery, path normalization, and cleanup of active workers and services when workspaces or views change.
+- **MCP resource protection**: Added request rate limiting to prevent bursts of MCP tool calls from overloading analysis resources.
+
+### Tests
+
+- **VSIX end-to-end tests** now install the packaged extension into an isolated VS Code profile, verify that the test host loaded that package, and support pinning a VS Code version.
+- Added Branch Watch language, lifecycle, and regression coverage plus performance and memory benchmarks. A scheduled CI workflow checks new VS Code stable releases and records each result with its tested commit and run link.
+
 ## v1.15.1
 
 ### Fixed

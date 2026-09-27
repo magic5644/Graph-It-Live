@@ -1425,9 +1425,9 @@
           "type": "integer",
           "default": 200,
           "minimum": 1,
-          "maximum": 2000,
+          "maximum": 1000,
           "scope": "resource",
-          "description": "Maximum number of files analyzed by Branch Watch. Higher values improve coverage but increase analysis time and memory usage."
+          "description": "Maximum number of files analyzed by Branch Watch. Higher values improve coverage but increase analysis time and memory usage. Range: 1–1000."
         },
         "graph-it-live.workspaceFolder": {
           "type": "string",
