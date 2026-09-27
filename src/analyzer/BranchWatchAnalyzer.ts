@@ -12,6 +12,7 @@ import { detectCycleEdges } from './callgraph/cycleUtils';
 
 const execFileAsync = promisify(execFile);
 export const BRANCH_WATCH_MAX_FILES = 200;
+export const BRANCH_WATCH_MAX_FILES_LIMIT = 2000;
 const MAX_FILE_BYTES = 2 * 1024 * 1024;
 const SIGNATURE_FILES = /\.(ts|tsx|js|jsx|cjs|mjs|vue)$/i;
 const CONFIG_FILES = /(?:^|\/)(?:tsconfig[^/]*\.json|package\.json|go\.mod|Cargo\.toml)$/;
@@ -80,12 +81,27 @@ interface CycleAnalysis {
   summary: { detected: number; scopeComplete: boolean };
 }
 
+export function normalizeBranchWatchMaxFiles(value: number): number {
+  if (!Number.isFinite(value)) return BRANCH_WATCH_MAX_FILES;
+  return Math.min(BRANCH_WATCH_MAX_FILES_LIMIT, Math.max(1, Math.trunc(value)));
+}
+
 /** Local, read-only Git capture; independent of VS Code settings and runtime. */
 export class BranchWatchAnalyzer {
   private baseline?: { sha: string; seedKey: string; scopeKey: string; graph: FileGraph };
   private readonly abortController = new AbortController();
+  private maxFiles: number;
   constructor(readonly root: string, private readonly dependents?: SymbolDependentsProvider,
-    private readonly extensionPath?: string, private readonly gitPath = 'git') {}
+    private readonly extensionPath?: string, private readonly gitPath = 'git', maxFiles = BRANCH_WATCH_MAX_FILES) {
+    this.maxFiles = normalizeBranchWatchMaxFiles(maxFiles);
+  }
+
+  setMaxFiles(maxFiles: number): void {
+    const normalized = normalizeBranchWatchMaxFiles(maxFiles);
+    if (normalized === this.maxFiles) return;
+    this.maxFiles = normalized;
+    this.baseline = undefined;
+  }
 
   dispose(): void {
     this.abortController.abort();
@@ -105,7 +121,7 @@ export class BranchWatchAnalyzer {
   private async collectFileImpacts(snapshot: BranchWatchSnapshot): Promise<BranchWatchFileImpact[]> {
     const fileImpacts: BranchWatchFileImpact[] = [];
     const references = new Map<string, Array<{ path: string }>>();
-    for (const change of snapshot.changes.slice(0, BRANCH_WATCH_MAX_FILES)) {
+    for (const change of snapshot.changes.slice(0, this.maxFiles)) {
       fileImpacts.push(await this.fileImpact(change, snapshot, references));
     }
     return fileImpacts;
@@ -121,7 +137,7 @@ export class BranchWatchAnalyzer {
       return emptyReview;
     }
     const review = await new ReviewGateAnalyzer(this.root, this.dependents).analyze({
-      baseRef: snapshot.mergeBaseSha, maxFiles: BRANCH_WATCH_MAX_FILES, maxDepth: 3,
+      baseRef: snapshot.mergeBaseSha, maxFiles: this.maxFiles, maxDepth: 3,
       headRef: snapshot.headReference,
     });
     limitations.push(...review.limitations);
@@ -170,32 +186,37 @@ export class BranchWatchAnalyzer {
     const queue = [...new Set(seeds.map(normalizePath))];
     const seen = new Set<string>();
     const language = new LanguageService(root, undefined, this.extensionPath);
-    const reader = root === this.root ? this : new BranchWatchAnalyzer(root, undefined, this.extensionPath);
-    while (queue.length && seen.size < BRANCH_WATCH_MAX_FILES) {
+    const reader = root === this.root ? this : new BranchWatchAnalyzer(root, undefined, this.extensionPath, this.gitPath, this.maxFiles);
+    while (queue.length && seen.size < this.maxFiles) {
       const file = queue.shift()!;
       if (seen.has(file) || !LanguageService.isSupported(file)) continue;
       seen.add(file);
-      try {
-        const absolute = await reader.resolveFile(file);
-        const parser = language.getAnalyzer(absolute);
-        for (const dependency of await parser.parseImports(absolute)) {
-          const resolved = await parser.resolvePath(absolute, dependency.module);
-          if (!resolved) {
-            if (this.isLocalModuleSpecifier(dependency.module)) {
-              graph.limitations.push(`${file}: dependency '${dependency.module}' is not resolved locally; cycles may be incomplete.`);
-            }
-            continue;
-          }
-          const relative = normalizePath(path.relative(root, resolved));
-          graph.edges.push({ source: file, target: relative });
-          if (!seen.has(relative)) queue.push(relative);
-        }
-      } catch {
-        graph.limitations.push(`${file}: dependency graph could not be analyzed.`);
-      }
+      await this.readFileDependencies(root, file, language, reader, graph, queue, seen);
     }
-    if (queue.length) graph.limitations.push(`Cycle analysis reached the ${BRANCH_WATCH_MAX_FILES}-file affected-scope limit.`);
+    if (queue.length) graph.limitations.push(`Cycle analysis reached the ${this.maxFiles}-file affected-scope limit.`);
     return graph;
+  }
+
+  private async readFileDependencies(root: string, file: string, language: LanguageService,
+    reader: BranchWatchAnalyzer, graph: FileGraph, queue: string[], seen: Set<string>): Promise<void> {
+    try {
+      const absolute = await reader.resolveFile(file);
+      const parser = language.getAnalyzer(absolute);
+      for (const dependency of await parser.parseImports(absolute)) {
+        const resolved = await parser.resolvePath(absolute, dependency.module);
+        if (!resolved) {
+          if (this.isLocalModuleSpecifier(dependency.module)) {
+            graph.limitations.push(`${file}: dependency '${dependency.module}' is not resolved locally; cycles may be incomplete.`);
+          }
+          continue;
+        }
+        const relative = normalizePath(path.relative(root, resolved));
+        graph.edges.push({ source: file, target: relative });
+        if (!seen.has(relative)) queue.push(relative);
+      }
+    } catch {
+      graph.limitations.push(`${file}: dependency graph could not be analyzed.`);
+    }
   }
 
   private isLocalModuleSpecifier(module: string): boolean {
@@ -283,8 +304,8 @@ export class BranchWatchAnalyzer {
     references: Map<string, Array<{ path: string }>>, result: BranchWatchFileImpact,
     findReferencingFiles: (file: string) => Promise<Array<{ path: string }>>): Promise<void> {
     if (references.has(key)) return;
-    if (references.size >= BRANCH_WATCH_MAX_FILES) {
-      result.limitations.push('Impact traversal reached the 200-file limit.');
+    if (references.size >= this.maxFiles) {
+      result.limitations.push(`Impact traversal reached the ${this.maxFiles}-file limit.`);
       return;
     }
     const refs = await findReferencingFiles(resolveReviewCallGraphPath(this.root, currentPath));
@@ -300,8 +321,8 @@ export class BranchWatchAnalyzer {
       result.limitations.push('Impact traversal reached the depth limit of 3.');
       return;
     }
-    if (seen.size >= BRANCH_WATCH_MAX_FILES) {
-      result.limitations.push('Impact traversal reached the 200-file limit.');
+    if (seen.size >= this.maxFiles) {
+      result.limitations.push(`Impact traversal reached the ${this.maxFiles}-file limit.`);
       return;
     }
     seen.add(relative);
@@ -311,8 +332,8 @@ export class BranchWatchAnalyzer {
   }
 
   private async baselineGraph(sha: string, seeds: string[], scope?: readonly string[]): Promise<FileGraph> {
-    const seedKey = [...new Set(seeds)].sort().join('\0');
-    const scopeKey = scope ? [...new Set(scope)].sort().join('\0') : '';
+    const seedKey = [...new Set(seeds)].sort((left, right) => left.localeCompare(right)).join('\0');
+    const scopeKey = scope ? [...new Set(scope)].sort((left, right) => left.localeCompare(right)).join('\0') : '';
     if (this.baseline?.sha === sha && this.baseline.seedKey === seedKey && this.baseline.scopeKey === scopeKey) {
       return this.baseline.graph;
     }
@@ -321,10 +342,18 @@ export class BranchWatchAnalyzer {
       return { meta: entry.slice(0, tab).split(' '), file: this.relativePath(entry.slice(tab + 1)) };
     }).filter(entry => LanguageService.isSupported(entry.file) || CONFIG_FILES.test(entry.file));
     const scopedFiles = scope ? new Set([...scope, ...seeds].map(normalizePath)) : undefined;
-    const selectedEntries = scopedFiles
+    const candidates = scopedFiles
       ? entries.filter(entry => scopedFiles.has(entry.file) || CONFIG_FILES.test(entry.file))
       : entries;
+    const selectedEntries = candidates.toSorted((left, right) => {
+      const leftPriority = scopedFiles?.has(left.file) ? 0 : 1;
+      const rightPriority = scopedFiles?.has(right.file) ? 0 : 1;
+      return leftPriority - rightPriority || left.file.localeCompare(right.file);
+    }).slice(0, this.maxFiles);
     let graph: FileGraph = { edges: [], limitations: [] };
+    if (selectedEntries.length < candidates.length) {
+      graph.limitations.push(`Cycle analysis reached the ${this.maxFiles}-file baseline limit.`);
+    }
     // A bounded private copy of Git blobs allows existing resolvers to see historical config and paths.
     // No checkout, hooks, index changes or commands from the inspected project are executed.
     const directory = await fs.mkdtemp(path.join(os.tmpdir(), 'graph-it-baseline-'));
@@ -348,16 +377,13 @@ export class BranchWatchAnalyzer {
           graph.limitations.push(...batchLimitations.filter((limitation): limitation is string => Boolean(limitation)));
         }
         const baselineSeeds = seeds.filter(seed => selectedEntries.some(entry => entry.file === seed));
-        const parsed = await new BranchWatchAnalyzer(directory, undefined, this.extensionPath).readGraphFromSeeds(directory, baselineSeeds);
+        const parsed = await new BranchWatchAnalyzer(directory, undefined, this.extensionPath, this.gitPath, this.maxFiles)
+          .readGraphFromSeeds(directory, baselineSeeds);
         graph = { edges: parsed.edges, limitations: [...graph.limitations, ...parsed.limitations] };
     } finally {
       LanguageService.releaseWorkspace(directory);
       await fs.rm(directory, { recursive: true, force: true });
     }
-    // A scoped graph is an optimization only. If a historical import points
-    // outside the current cycle scope, retry once with the complete baseline
-    // so the result remains conservative instead of silently under-reporting.
-    if (scope && graph.limitations.length) return this.baselineGraph(sha, seeds);
     this.baseline = { sha, seedKey, scopeKey, graph };
     return graph;
   }
@@ -409,9 +435,11 @@ export class BranchWatchAnalyzer {
       const code = typed.code;
       const detail = (typed.stderr ?? typed.message ?? '').replace(/[\r\n\t]+/g, ' ').trim().slice(0, 240);
       const operation = `git ${args.join(' ')}`;
-      throw new BranchWatchError(code === 'ENOENT' ? 'git-unavailable' : 'git-error',
-        code === 'ENOENT' ? 'Git is unavailable or the workspace is inaccessible.'
-          : `Git could not read this repository while running ${operation}.${detail ? ` ${detail}` : ' Check permissions, references and repository state.'}`, { cause: error });
+      if (code === 'ENOENT') {
+        throw new BranchWatchError('git-unavailable', 'Git is unavailable or the workspace is inaccessible.', { cause: error });
+      }
+      const suffix = detail ? ` ${detail}` : ' Check permissions, references and repository state.';
+      throw new BranchWatchError('git-error', `Git could not read this repository while running ${operation}.${suffix}`, { cause: error });
     }
   }
 
@@ -455,23 +483,35 @@ export class BranchWatchAnalyzer {
   }
 
   async capture(reference: string, headReference?: string): Promise<BranchWatchSnapshot> {
-    if (!reference.trim() || reference.startsWith('-') || reference.includes('\0')) {
-      throw new BranchWatchError('invalid-reference', 'Select a valid Git branch reference.');
-    }
+    this.validateReference(reference);
     const { branch, headSha: currentHeadSha } = await this.detectRepository();
     const explicitHead = Boolean(headReference?.trim());
     const selectedHead = headReference?.trim() || branch;
-    const headSha = explicitHead
-      ? (await this.git(['rev-parse', '--verify', '--end-of-options', `${selectedHead}^{commit}`]).catch(error => {
-        throw new BranchWatchError('invalid-reference', 'The selected head branch is unavailable.', { cause: error });
-      })).trim()
-      : currentHeadSha;
-    const referenceSha = (await this.git(['rev-parse', '--verify', '--end-of-options', `${reference}^{commit}`]).catch(error => {
-      throw new BranchWatchError('invalid-reference', 'The selected base branch reference is unavailable.', { cause: error });
-    })).trim();
+    const headSha = explicitHead ? await this.resolveCommit(selectedHead, 'The selected head branch is unavailable.') : currentHeadSha;
+    const referenceSha = await this.resolveCommit(reference, 'The selected base branch reference is unavailable.');
     const bases = (await this.git(['merge-base', '--all', referenceSha, headSha]).catch(() => '')).trim().split('\n').filter(Boolean);
     if (bases.length !== 1) throw new BranchWatchError('ambiguous-base', 'A unique merge-base is unavailable. Check local history; branch watch does not fetch.');
     const mergeBaseSha = bases[0];
+    const changes = await this.collectChanges(mergeBaseSha, headSha, explicitHead);
+    const { fingerprint, limitations, readablePaths } = await this.captureContents(
+      changes, { referenceSha, headSha, mergeBaseSha, branch }, explicitHead ? headSha : undefined);
+    if (explicitHead) limitations.push(`Head ${selectedHead} is a committed reference; the active workspace index is used only for dependency context.`);
+    return { reference, referenceSha, headReference: explicitHead ? selectedHead : undefined, branch: explicitHead ? selectedHead : branch, headSha, mergeBaseSha, fingerprint, changes, limitations, readablePaths };
+  }
+
+  private validateReference(reference: string): void {
+    if (!reference.trim() || reference.startsWith('-') || reference.includes('\0')) {
+      throw new BranchWatchError('invalid-reference', 'Select a valid Git branch reference.');
+    }
+  }
+
+  private async resolveCommit(reference: string, message: string): Promise<string> {
+    return (await this.git(['rev-parse', '--verify', '--end-of-options', `${reference}^{commit}`]).catch(error => {
+      throw new BranchWatchError('invalid-reference', message, { cause: error });
+    })).trim();
+  }
+
+  private async collectChanges(mergeBaseSha: string, headSha: string, explicitHead: boolean): Promise<BranchWatchChange[]> {
     const diffArgs = ['diff', '--no-ext-diff', '--no-textconv', '--no-renames', '--name-status', '-z', mergeBaseSha];
     if (explicitHead) diffArgs.push(headSha);
     diffArgs.push('--');
@@ -488,24 +528,29 @@ export class BranchWatchAnalyzer {
       }
     }
     changes.sort((a, b) => a.path.localeCompare(b.path));
+    return changes;
+  }
+
+  private async captureContents(changes: BranchWatchChange[], identity: object, headSha?: string): Promise<{
+    fingerprint: string; limitations: string[]; readablePaths: string[];
+  }> {
     const limitations: string[] = [];
     const readablePaths: string[] = [];
-    const hash = createHash('sha256').update(JSON.stringify({ referenceSha, headSha, mergeBaseSha, branch, changes }));
-    if (changes.length > BRANCH_WATCH_MAX_FILES) limitations.push(`Analysis limited to ${BRANCH_WATCH_MAX_FILES} changed files; remaining files are inventoried only.`);
+    const hash = createHash('sha256').update(JSON.stringify({ ...identity, changes }));
+    if (changes.length > this.maxFiles) limitations.push(`Analysis limited to ${this.maxFiles} changed files; remaining files are inventoried only.`);
     for (const [index, change] of changes.entries()) {
       if (change.kind === 'deleted') {
         limitations.push(`${change.path}: deletion impact not analyzed; renames are represented as deletion and addition.`);
         hash.update(JSON.stringify([change.path, 'deleted']));
-      } else if (index < BRANCH_WATCH_MAX_FILES) {
-        const content = await this.readText(change.path, limitations, explicitHead ? headSha : undefined);
+      } else if (index < this.maxFiles) {
+        const content = await this.readText(change.path, limitations, headSha);
         hash.update(JSON.stringify([change.path, content ?? 'unreadable']));
         if (content !== undefined) readablePaths.push(change.path);
       } else {
         hash.update(JSON.stringify([change.path, 'outside-analysis-limit']));
       }
     }
-    if (explicitHead) limitations.push(`Head ${selectedHead} is a committed reference; the active workspace index is used only for dependency context.`);
-    return { reference, referenceSha, headReference: explicitHead ? selectedHead : undefined, branch: explicitHead ? selectedHead : branch, headSha, mergeBaseSha, fingerprint: hash.digest('hex'), changes, limitations, readablePaths };
+    return { fingerprint: hash.digest('hex'), limitations, readablePaths };
   }
 
   private relativePath(file: string): string {

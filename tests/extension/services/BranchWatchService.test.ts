@@ -11,7 +11,7 @@ describe('BranchWatchService lifecycle', () => {
   beforeEach(() => vi.useFakeTimers());
   afterEach(() => vi.useRealTimers());
   const create = () => {
-    const analyzer = { capture: vi.fn().mockResolvedValue(snapshot), analyze: vi.fn().mockResolvedValue(result) };
+    const analyzer = { capture: vi.fn().mockResolvedValue(snapshot), analyze: vi.fn().mockResolvedValue(result), setMaxFiles: vi.fn() };
     const service = new BranchWatchService({ analyzer, prepareIndex: vi.fn().mockResolvedValue(undefined), isDirty: () => false });
     return { service, analyzer };
   };
@@ -41,11 +41,24 @@ describe('BranchWatchService lifecycle', () => {
   });
   it('does not restart startup analysis when configuration is reported repeatedly', async () => {
     const { service, analyzer } = create();
-    service.configure(true, 'main');
+    service.configure(true, 'main', '', 200);
     await vi.advanceTimersByTimeAsync(900);
-    service.configure(true, 'main');
+    service.configure(true, 'main', '', 200);
     await vi.advanceTimersByTimeAsync(100);
     expect(analyzer.analyze).toHaveBeenCalledTimes(1);
+    service.dispose();
+  });
+  it('restarts analysis when the configured file limit changes', async () => {
+    const { service, analyzer } = create();
+    service.configure(true, 'main', '', 200);
+    await vi.advanceTimersByTimeAsync(1000);
+
+    service.configure(true, 'main', '', 25);
+    await vi.advanceTimersByTimeAsync(1000);
+
+    expect(analyzer.setMaxFiles).toHaveBeenNthCalledWith(1, 200);
+    expect(analyzer.setMaxFiles).toHaveBeenNthCalledWith(2, 25);
+    expect(analyzer.analyze).toHaveBeenCalledTimes(2);
     service.dispose();
   });
   it('publishes an empty result without preparing the dependency index after a complete revert', async () => {

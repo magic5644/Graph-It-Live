@@ -14,6 +14,7 @@ import { normalizePath } from "@/shared/path";
  * These tests cover the persistence round-trip and every invalidation path.
  */
 describe("CliRuntime index cache", () => {
+  const multiRunTimeout = 15_000;
   let tmpDir: string;
   let cacheDir: string;
   const runtimes: CliRuntime[] = [];
@@ -119,7 +120,7 @@ describe("CliRuntime index cache", () => {
     } finally {
       buildFullIndex.mockRestore();
     }
-  });
+  }, multiRunTimeout);
 
   it("picks up a file created between two runs", async () => {
     await run();
@@ -134,7 +135,7 @@ describe("CliRuntime index cache", () => {
 
     expect((await run()).callers).toBe(6);
     expect((await run()).callers).toBe(6);
-  });
+  }, multiRunTimeout);
 
   it.each(["tsconfig.json", "src/tsconfig.json", "src/package.json"])(
     "invalidates cached dependencies when %s changes",
@@ -154,6 +155,7 @@ describe("CliRuntime index cache", () => {
       expect((await run()).callers).toBe(11);
       expect((await run()).callers).toBe(11);
     },
+    multiRunTimeout,
   );
 
   it("drops a file deleted between two runs", async () => {

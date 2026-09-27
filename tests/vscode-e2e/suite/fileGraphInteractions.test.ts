@@ -9,6 +9,7 @@ suite('File graph interactions in a real webview', () => {
   for (const theme of ['Default Light Modern', 'Default Dark Modern']) {
     test(`filters, clears focus, supports keyboard and preserves viewport (${theme})`, async function () {
       this.timeout(60000);
+      await vscode.commands.executeCommand('workbench.action.closeAllEditors');
       const directory = await fs.mkdtemp(path.join(os.tmpdir(), 'graph-it-webview-'));
       const config = vscode.workspace.getConfiguration('workbench');
       const previousTheme = config.inspect<string>('colorTheme')?.globalValue;

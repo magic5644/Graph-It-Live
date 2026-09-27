@@ -1,7 +1,8 @@
 import * as vscode from 'vscode';
 import * as path from 'node:path';
 import * as fs from 'node:fs/promises';
-import { BranchWatchAnalyzer, type BranchWatchResult, type BranchWatchSnapshot } from '@/analyzer/BranchWatchAnalyzer';
+import { BRANCH_WATCH_MAX_FILES, BranchWatchAnalyzer, normalizeBranchWatchMaxFiles,
+  type BranchWatchResult, type BranchWatchSnapshot } from '@/analyzer/BranchWatchAnalyzer';
 import { isPathWithinRoot } from '@/shared/pathSecurity';
 import { normalizePathForComparison } from '@/shared/path';
 import { validateReviewCallGraphTarget } from '@/shared/reviewTarget';
@@ -15,7 +16,7 @@ export interface BranchWatchViewState {
   reason?: string;
 }
 interface BranchWatchOptions {
-  analyzer: Pick<BranchWatchAnalyzer, 'capture' | 'analyze'>;
+  analyzer: Pick<BranchWatchAnalyzer, 'capture' | 'analyze'> & Partial<Pick<BranchWatchAnalyzer, 'setMaxFiles'>>;
   prepareIndex: (snapshot: BranchWatchSnapshot) => Promise<void>;
   cancelActiveAnalysis?: () => void | Promise<void>;
   isDirty: () => boolean;
@@ -31,6 +32,7 @@ export class BranchWatchService implements vscode.Disposable {
   private disposed = false;
   private reference = '';
   private headReference = '';
+  private maxFiles = BRANCH_WATCH_MAX_FILES;
   private generation = 0;
   private inFlight = false;
   private pending = false;
@@ -47,13 +49,17 @@ export class BranchWatchService implements vscode.Disposable {
     return { dispose: () => { this.listeners.delete(listener); } };
   };
 
-  configure(enabled: boolean, reference: string, headReference = ''): void {
+  configure(enabled: boolean, reference: string, headReference = '', maxFiles = BRANCH_WATCH_MAX_FILES): void {
+    const normalizedMaxFiles = normalizeBranchWatchMaxFiles(maxFiles);
     if (this.enabled === enabled && this.reference === reference && this.headReference === headReference
+      && this.maxFiles === normalizedMaxFiles
       && this.state.phase !== 'disabled' && this.state.phase !== 'unavailable') return;
     this.invalidate();
     this.enabled = enabled;
     this.reference = reference;
     this.headReference = headReference;
+    this.maxFiles = normalizedMaxFiles;
+    this.options.analyzer.setMaxFiles?.(normalizedMaxFiles);
     this.paused = false;
     this.options.onActiveChange?.(enabled && Boolean(reference));
     if (!enabled) this.publish({ phase: 'disabled' });
@@ -99,7 +105,7 @@ export class BranchWatchService implements vscode.Disposable {
     if (!this.inFlight) this.publish({ ...this.state, phase: 'pending', reason: 'Waiting for file events to settle (max 1s); previous results are stale.' });
     // Keep the first deadline; recreating the timer for every filesystem event
     // can starve analysis indefinitely on a busy workspace.
-    if (!this.timer) this.timer = setTimeout(() => { this.timer = undefined; void this.run(); }, delay);
+    this.timer ??= setTimeout(() => { this.timer = undefined; void this.run(); }, delay);
   }
 
   dispose(): void {
@@ -316,32 +322,33 @@ export function registerBranchWatch(context: vscode.ExtensionContext, provider: 
     void vscode.commands.executeCommand('setContext', 'graph-it-live.branchWatch.enabled', enabled);
     void vscode.commands.executeCommand('setContext', 'graph-it-live.branchWatch.paused', service.state.phase === 'paused');
   };
+  const setupAvailableRepository = async (generation: number): Promise<boolean> => {
+    if (!root || !analyzer || !vscode.workspace.workspaceFolders?.some(folder => isPathWithinRoot(root, folder.uri.fsPath))) {
+      throw new Error('No matching graph workspace is open. Reload the window after selecting a repository root.');
+    }
+    if (!vscode.workspace.isTrusted) throw new Error('Workspace Trust is required for branch watch.');
+    await analyzer.detectRepository();
+    if (generation !== setupGeneration || disposed) return false;
+    git = await gitRepository(root);
+    if (generation !== setupGeneration || disposed) return false;
+    available = true;
+    return true;
+  };
   const configure = async () => {
     const generation = ++setupGeneration;
     enabled = config().get<boolean>('branchWatch.enabled', false);
+    const maxFiles = config().get<number>('branchWatch.maxFiles', BRANCH_WATCH_MAX_FILES);
     available = false;
     git = undefined;
-    if (!enabled) {
-      service.configure(false, '');
-      sync();
-      return;
-    }
     try {
-      if (!root || !analyzer || !vscode.workspace.workspaceFolders?.some(folder => isPathWithinRoot(root, folder.uri.fsPath))) {
-        throw new Error('No matching graph workspace is open. Reload the window after selecting a repository root.');
-      }
-      if (!vscode.workspace.isTrusted) throw new Error('Workspace Trust is required for branch watch.');
-      await analyzer.detectRepository();
-      if (generation !== setupGeneration || disposed) return;
-      available = true;
-      if (enabled) {
-        git = await gitRepository(root);
-        if (generation !== setupGeneration || disposed) return;
-      }
+      if (!await setupAvailableRepository(generation)) return;
       await loadPreferences();
-      service.configure(enabled, preferences.baseRef, preferences.headRef);
+      service.configure(enabled, preferences.baseRef, preferences.headRef, maxFiles);
     } catch (error) {
-      if (generation === setupGeneration && !disposed) service.unavailable(error instanceof Error ? error.message : 'Branch watch unavailable.');
+      if (generation === setupGeneration && !disposed) {
+        if (enabled) service.unavailable(error instanceof Error ? error.message : 'Branch watch unavailable.');
+        else service.configure(false, '', '', maxFiles);
+      }
     }
     if (generation === setupGeneration && !disposed) sync();
   };
@@ -379,7 +386,8 @@ export function registerBranchWatch(context: vscode.ExtensionContext, provider: 
     const candidate = item as BranchWatchItem;
     const label = typeof candidate.label === 'string' ? candidate.label : candidate.label?.label;
     if (!label) return;
-    await vscode.env.clipboard.writeText(`${label}${candidate.description ? ` · ${candidate.description}` : ''}`);
+    const description = candidate.description ? ` · ${candidate.description}` : '';
+    await vscode.env.clipboard.writeText(`${label}${description}`);
   };
   const copyStatus = async () => vscode.env.clipboard.writeText(tree.getCopyText());
   const command = (name: string, action: (...args: unknown[]) => unknown) => vscode.commands.registerCommand(`graph-it-live.branchWatch.${name}`, async (...args: unknown[]) => {
@@ -404,7 +412,7 @@ export function registerBranchWatch(context: vscode.ExtensionContext, provider: 
     command('refresh', async () => { if (service.state.phase === 'unavailable') await configure(); else service.refresh(true); }),
     command('retryDetection', configure), command('selectBase', selectBase), command('selectHead', selectHead),
     command('reveal', () => vscode.commands.executeCommand('graph-it-live.branchWatchView.focus')),
-    command('openSettings', () => vscode.commands.executeCommand('workbench.action.openSettings', '@id:graph-it-live.branchWatch.enabled')),
+    command('openSettings', () => vscode.commands.executeCommand('workbench.action.openSettings', 'graph-it-live.branchWatch')),
     command('openFile', openFile),
     command('copyMessage', copyMessage),
     command('copyStatus', copyStatus),

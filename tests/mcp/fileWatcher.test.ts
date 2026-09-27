@@ -77,6 +77,21 @@ describe('MCP file watcher', () => {
     expect(postMessage.mock.calls.every(([message]) => message.filePath === newPath)).toBe(true);
   }, testTimeout);
 
+  it('cancels a pending new-directory reconciliation when stopped', async () => {
+    const nested = path.join(root, 'src/pending');
+    await fs.mkdir(nested);
+    await vi.waitFor(() => {
+      expect(workerState.pendingInvalidations.has(normalizePath(nested))).toBe(true);
+    }, { timeout: eventTimeout });
+
+    await stopFileWatcher();
+    await fs.writeFile(path.join(nested, 'late.ts'), 'export const late = 1;');
+    await new Promise(resolve => setTimeout(resolve, 500));
+
+    expect(workerState.pendingInvalidations.size).toBe(0);
+    expect(postMessage).not.toHaveBeenCalled();
+  }, testTimeout);
+
   it('does not start watching without a workspace', async () => {
     await stopFileWatcher();
     workerState.config = null;
