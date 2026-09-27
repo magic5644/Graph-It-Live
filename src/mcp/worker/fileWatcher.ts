@@ -104,7 +104,7 @@ export function setupFileWatcher(
 
     workerState.fileWatcher.on("addDir", (directory: string) => {
       if (!initialScanComplete) return;
-      void reportNewDirectoryFiles(postMessage, directory, watchRoot);
+      scheduleDirectoryReconciliation(postMessage, directory, watchRoot);
     });
 
     workerState.fileWatcher.on("error", (error: unknown) => {
@@ -120,6 +120,21 @@ export function setupFileWatcher(
     const errorMessage = error instanceof Error ? error.message : "Unknown error";
     log.error("Failed to setup file watcher:", errorMessage);
   }
+}
+
+function scheduleDirectoryReconciliation(
+  postMessage: (msg: McpWorkerResponse) => void,
+  directory: string,
+  watchRoot: string,
+): void {
+  const key = normalizePath(restoreConfiguredPath(directory, watchRoot));
+  const existingTimeout = workerState.pendingInvalidations.get(key);
+  if (existingTimeout) clearTimeout(existingTimeout);
+  const timeout = setTimeout(() => {
+    workerState.pendingInvalidations.delete(key);
+    void reportNewDirectoryFiles(postMessage, directory, watchRoot);
+  }, FILE_CHANGE_DEBOUNCE_MS);
+  workerState.pendingInvalidations.set(key, timeout);
 }
 
 /**

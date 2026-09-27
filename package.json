@@ -1421,6 +1421,14 @@
           "scope": "resource",
           "description": "Git branch reference used as the head. Empty uses the current branch and saved workspace changes."
         },
+        "graph-it-live.branchWatch.maxFiles": {
+          "type": "integer",
+          "default": 200,
+          "minimum": 1,
+          "maximum": 2000,
+          "scope": "resource",
+          "description": "Maximum number of files analyzed by Branch Watch. Higher values improve coverage but increase analysis time and memory usage."
+        },
         "graph-it-live.workspaceFolder": {
           "type": "string",
           "default": "",

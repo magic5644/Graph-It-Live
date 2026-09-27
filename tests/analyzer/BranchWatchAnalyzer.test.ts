@@ -3,7 +3,8 @@ import * as fs from 'node:fs/promises';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { BranchWatchAnalyzer, BranchWatchError } from '@/analyzer/BranchWatchAnalyzer';
+import { BRANCH_WATCH_MAX_FILES, BRANCH_WATCH_MAX_FILES_LIMIT, BranchWatchAnalyzer, BranchWatchError,
+  normalizeBranchWatchMaxFiles } from '@/analyzer/BranchWatchAnalyzer';
 import { Spider } from '@/analyzer/Spider';
 
 const roots: string[] = [];
@@ -20,6 +21,15 @@ async function workspace(commit = true) {
   return root;
 }
 afterEach(async () => { await Promise.all(roots.splice(0).map(root => fs.rm(root, { recursive: true, force: true }))); });
+
+describe('BranchWatchAnalyzer limits', () => {
+  it('normalizes invalid and out-of-range file limits', () => {
+    expect(normalizeBranchWatchMaxFiles(Number.NaN)).toBe(BRANCH_WATCH_MAX_FILES);
+    expect(normalizeBranchWatchMaxFiles(0)).toBe(1);
+    expect(normalizeBranchWatchMaxFiles(25.9)).toBe(25);
+    expect(normalizeBranchWatchMaxFiles(BRANCH_WATCH_MAX_FILES_LIMIT + 1)).toBe(BRANCH_WATCH_MAX_FILES_LIMIT);
+  });
+});
 
 describe('BranchWatchAnalyzer capture', () => {
   it('compares branch commits and final disk contents with the merge-base, not the advanced base tip', async () => {
@@ -113,6 +123,17 @@ describe('BranchWatchAnalyzer capture', () => {
     await expect(new BranchWatchAnalyzer(root).resolveFile('../escape.ts')).rejects.toThrow();
     if (symlinkCreated) await expect(new BranchWatchAnalyzer(root).resolveFile('link.ts')).rejects.toThrow();
   });
+
+  it('limits readable changed files using the configured budget', async () => {
+    const root = await workspace();
+    await fs.appendFile(path.join(root, 'api.ts'), '// changed\n');
+    await fs.appendFile(path.join(root, 'removed.ts'), '// changed\n');
+
+    const snapshot = await new BranchWatchAnalyzer(root, undefined, undefined, 'git', 1).capture('main');
+
+    expect(snapshot.readablePaths).toHaveLength(1);
+    expect(snapshot.limitations.join(' ')).toContain('limited to 1 changed files');
+  });
 });
 
 describe('BranchWatchAnalyzer findings', () => {
@@ -161,6 +182,25 @@ describe('BranchWatchAnalyzer findings', () => {
     const result = await analyzer.analyze(await analyzer.capture('main'));
     expect(baselineGraph).not.toHaveBeenCalled();
     expect(result.limitations.join(' ')).not.toContain('Git could not read this repository');
+  });
+
+  it('never expands an incomplete historical cycle baseline beyond the configured budget', async () => {
+    const root = await workspace();
+    await fs.writeFile(path.join(root, 'api.ts'), "import { b } from './b'; export const value = b;\n");
+    await fs.writeFile(path.join(root, 'b.ts'), "import { c } from './c'; export const b = c;\n");
+    await fs.writeFile(path.join(root, 'c.ts'), "import { value } from './api'; export const c = value;\n");
+    await fs.writeFile(path.join(root, 'tsconfig.json'), '{}\n');
+    git(root, 'add', '.'); git(root, 'commit', '-m', 'cycle baseline');
+    await fs.appendFile(path.join(root, 'api.ts'), '// changed\n');
+    const analyzer = new BranchWatchAnalyzer(root, undefined, process.cwd(), 'git', 3);
+    const gitCall = vi.spyOn(analyzer as any, 'git');
+
+    const result = await analyzer.analyze(await analyzer.capture('main'));
+
+    const blobReads = gitCall.mock.calls.filter(([args]) => args[0] === 'cat-file' && args[1] === 'blob');
+    expect(blobReads.length).toBeLessThanOrEqual(3);
+    expect(result.cycleSummary).toEqual({ detected: 0, scopeComplete: false });
+    expect(result.limitations.join(' ')).toContain('3-file baseline limit');
   });
 
   it('keeps file impact for a body-only change and reports introduced versus historical file cycles', async () => {

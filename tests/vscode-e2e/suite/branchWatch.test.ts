@@ -38,4 +38,18 @@ suite('Branch Watch', () => {
       assert.ok(snapshot?.items.every(item => !/Tests passed|ready to ship/i.test(item.label)));
     }
   });
+
+  test('exposes a workspace-scoped configurable file limit', async () => {
+    const folder = vscode.workspace.workspaceFolders?.[0];
+    assert.ok(folder, 'A workspace folder is required');
+    const configuration = vscode.workspace.getConfiguration('graph-it-live', folder.uri);
+    const inspected = configuration.inspect<number>('branchWatch.maxFiles');
+    assert.strictEqual(inspected?.defaultValue, 200);
+    try {
+      await configuration.update('branchWatch.maxFiles', 25, vscode.ConfigurationTarget.WorkspaceFolder);
+      assert.strictEqual(vscode.workspace.getConfiguration('graph-it-live', folder.uri).get<number>('branchWatch.maxFiles'), 25);
+    } finally {
+      await configuration.update('branchWatch.maxFiles', undefined, vscode.ConfigurationTarget.WorkspaceFolder);
+    }
+  });
 });
