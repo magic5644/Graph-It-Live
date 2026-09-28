@@ -1,5 +1,19 @@
 # Changelog
 
+## v1.16.1
+
+### Added
+
+- **Branch Watch settings shortcut**: Added a settings action to the Branch Watch view toolbar for direct access to its configuration.
+
+### Fixed
+
+- **Branch Watch availability**: Repository detection no longer requires opening a Git handle while Branch Watch is disabled. Enabling Branch Watch now validates the workspace root before initializing Git access, keeping the view available in more workspace states.
+
+### Tests
+
+- **Windows CLI cache tests**: Extended the timeout for multi-run cache invalidation tests so slower Windows runners do not fail them at Vitest's default five-second limit.
+
 ## v1.16.0
 
 ### Added
