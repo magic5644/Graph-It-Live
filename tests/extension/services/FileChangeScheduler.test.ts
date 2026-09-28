@@ -38,6 +38,7 @@ describe('FileChangeScheduler', () => {
     const failure = expect(failed.whenIdle()).rejects.toThrow('Index failed');
     await vi.advanceTimersByTimeAsync(300);
     await failure;
+    await expect(failed.whenIdle()).resolves.toBeUndefined();
     failed.dispose();
   });
 

@@ -199,6 +199,7 @@ describe("GraphProvider", () => {
     const spider = getService(graphProviderServiceTokens.spider);
     expect(spider).toBeDefined();
     expect(Spider).toHaveBeenCalled();
+    expect(vscode.workspace.createFileSystemWatcher).toHaveBeenCalledTimes(1);
   });
 
   it("should update graph when updateGraph is called", async () => {

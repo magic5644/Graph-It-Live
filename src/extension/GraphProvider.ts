@@ -1,7 +1,7 @@
 import * as vscode from "vscode";
 import * as path from "node:path";
 import type { BranchWatchSnapshot } from "../analyzer/BranchWatchAnalyzer";
-import type { BranchWatchRegistration } from "./services/BranchWatchService";
+import type { BranchWatchRegistration } from "./services/BranchWatchTypes";
 import { LanguageService } from "../analyzer/LanguageService";
 import { resolveReviewCallGraphPath } from "../shared/reviewTarget";
 import type { IndexerStatusSnapshot } from "../analyzer/IndexerStatus";
@@ -357,6 +357,9 @@ export class GraphProvider implements vscode.WebviewViewProvider {
     )
       ? container.get(graphProviderServiceTokens.fileChangeScheduler)
       : undefined;
+    if (container.has(graphProviderServiceTokens.sourceFileWatcher)) {
+      container.get(graphProviderServiceTokens.sourceFileWatcher);
+    }
     this._messageDispatcher = container.get(
       graphProviderServiceTokens.messageDispatcher,
     );
