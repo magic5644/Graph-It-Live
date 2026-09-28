@@ -1,6 +1,6 @@
 import * as vscode from 'vscode';
 import type { BranchWatchResult } from '@/analyzer/BranchWatchAnalyzer';
-import type { BranchWatchViewState } from './BranchWatchService';
+import type { BranchWatchViewState } from './BranchWatchTypes';
 
 export interface BranchWatchItem extends vscode.TreeItem {
   children?: BranchWatchItem[];

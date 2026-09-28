@@ -116,7 +116,11 @@ export class FileChangeScheduler {
   /** Observe completion without changing per-file debounce or coalescing semantics. */
   async whenIdle(): Promise<void> {
     if (this.jobs.size) await new Promise<void>((resolve, reject) => this.idleWaiters.add({ resolve, reject }));
-    if (this.failures.size) throw this.failures.values().next().value;
+    if (this.failures.size) {
+      const failure = this.failures.values().next().value;
+      this.failures.clear();
+      throw failure;
+    }
   }
 
   /**
@@ -178,8 +182,14 @@ export class FileChangeScheduler {
       this.jobs.delete(normalizedPath);
     }
     if (this.jobs.size === 0) {
-      for (const waiter of this.idleWaiters) waiter.resolve();
+      const hasFailure = this.failures.size > 0;
+      const failure = this.failures.values().next().value;
+      for (const waiter of this.idleWaiters) {
+        if (hasFailure) waiter.reject(failure);
+        else waiter.resolve();
+      }
       this.idleWaiters.clear();
+      this.failures.clear();
     }
   }
 

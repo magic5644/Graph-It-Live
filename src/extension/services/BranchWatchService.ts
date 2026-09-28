@@ -2,19 +2,15 @@ import * as vscode from 'vscode';
 import * as path from 'node:path';
 import * as fs from 'node:fs/promises';
 import { BRANCH_WATCH_MAX_FILES, BranchWatchAnalyzer, normalizeBranchWatchMaxFiles,
-  type BranchWatchResult, type BranchWatchSnapshot } from '@/analyzer/BranchWatchAnalyzer';
+  type BranchWatchSnapshot } from '@/analyzer/BranchWatchAnalyzer';
 import { isPathWithinRoot } from '@/shared/pathSecurity';
 import { normalizePathForComparison } from '@/shared/path';
 import { validateReviewCallGraphTarget } from '@/shared/reviewTarget';
 import type { GraphProvider } from '../GraphProvider';
 import { BranchWatchTreeProvider, branchWatchStatus, type BranchWatchItem } from './BranchWatchTreeProvider';
+import type { BranchWatchRegistration, BranchWatchViewState } from './BranchWatchTypes';
 
-export type BranchWatchPhase = 'disabled' | 'paused' | 'dirty' | 'pending' | 'running' | 'ready' | 'unavailable';
-export interface BranchWatchViewState {
-  phase: BranchWatchPhase;
-  result?: BranchWatchResult;
-  reason?: string;
-}
+export type { BranchWatchPhase, BranchWatchRegistration, BranchWatchViewState } from './BranchWatchTypes';
 interface BranchWatchOptions {
   analyzer: Pick<BranchWatchAnalyzer, 'capture' | 'analyze'> & Partial<Pick<BranchWatchAnalyzer, 'setMaxFiles'>>;
   prepareIndex: (snapshot: BranchWatchSnapshot) => Promise<void>;
@@ -240,10 +236,6 @@ async function gitRepository(root: string): Promise<{ api: GitApi; repository: G
 }
 
 /** Native UI wiring is kept here; CLI and MCP never import this service. */
-export interface BranchWatchRegistration extends vscode.Disposable {
-  disposeAsync(): Promise<void>;
-}
-
 export function registerBranchWatch(context: vscode.ExtensionContext, provider: GraphProvider): BranchWatchRegistration {
   const spider = provider.getSpiderForLmTools();
   const root = spider?.workspaceRoot;
