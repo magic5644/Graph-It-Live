@@ -329,9 +329,11 @@ export function registerBranchWatch(context: vscode.ExtensionContext, provider: 
     if (!vscode.workspace.isTrusted) throw new Error('Workspace Trust is required for branch watch.');
     await analyzer.detectRepository();
     if (generation !== setupGeneration || disposed) return false;
-    git = await gitRepository(root);
-    if (generation !== setupGeneration || disposed) return false;
     available = true;
+    if (enabled) {
+      git = await gitRepository(root);
+      if (generation !== setupGeneration || disposed) return false;
+    }
     return true;
   };
   const configure = async () => {
@@ -401,7 +403,8 @@ export function registerBranchWatch(context: vscode.ExtensionContext, provider: 
     vscode.workspace.onDidChangeWorkspaceFolders(() => { void configure(); }),
     vscode.workspace.onDidGrantWorkspaceTrust(() => { void configure(); }),
     command('enable', async () => {
-      if (!available) return;
+      if (!available || !root) return;
+      await gitRepository(root);
       await loadPreferences();
       if (!preferences.baseRef) await selectBase();
       if (!preferences.baseRef) return;

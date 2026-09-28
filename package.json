@@ -314,6 +314,12 @@
           "icon": "$(copy)"
         },
         {
+          "command": "graph-it-live.branchWatch.openSettings",
+          "when": "view == graph-it-live.branchWatchView",
+          "group": "navigation@2",
+          "icon": "$(settings-gear)"
+        },
+        {
           "command": "graph-it-live.setWorkspace",
           "when": "view == graph-it-live.graphView || view == graph-it-live.branchWatchView",
           "group": "navigation@0",
