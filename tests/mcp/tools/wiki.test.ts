@@ -33,7 +33,7 @@ vi.mock("../../../src/mcp/tools/callgraph.js", () => ({
 // ---------------------------------------------------------------------------
 
 import { workerState } from "../../../src/mcp/shared/state.js";
-import { executeGenerateWiki } from "../../../src/mcp/tools/wiki.js";
+import { executeGenerateWiki, GenerateWikiSchema } from "../../../src/mcp/tools/wiki.js";
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -116,7 +116,6 @@ describe("executeGenerateWiki", () => {
 
   it("returns articlesCount from WikiGenerator result", async () => {
     const result = await executeGenerateWiki({
-      workspaceRoot: WORKSPACE,
       outputDir: tmpDir,
       topHubsLimit: 5,
     });
@@ -126,7 +125,6 @@ describe("executeGenerateWiki", () => {
 
   it("returns topHubs array", async () => {
     const result = await executeGenerateWiki({
-      workspaceRoot: WORKSPACE,
       outputDir: tmpDir,
     });
 
@@ -140,7 +138,6 @@ describe("executeGenerateWiki", () => {
 
   it("indexPath is relative to workspaceRoot", async () => {
     const result = await executeGenerateWiki({
-      workspaceRoot: WORKSPACE,
       outputDir: tmpDir,
     });
 
@@ -150,7 +147,6 @@ describe("executeGenerateWiki", () => {
 
   it("articlesDir is relative to workspaceRoot", async () => {
     const result = await executeGenerateWiki({
-      workspaceRoot: WORKSPACE,
       outputDir: tmpDir,
     });
 
@@ -170,7 +166,6 @@ describe("executeGenerateWiki", () => {
     }));
 
     const result = await executeGenerateWiki({
-      workspaceRoot: WORKSPACE,
       outputDir: tmpDir,
       scope: "src/",
     });
@@ -180,7 +175,6 @@ describe("executeGenerateWiki", () => {
 
   it("scopeNote is undefined when not returned", async () => {
     const result = await executeGenerateWiki({
-      workspaceRoot: WORKSPACE,
       outputDir: tmpDir,
     });
 
@@ -197,7 +191,6 @@ describe("executeGenerateWiki", () => {
     WikiGeneratorMock.mockClear();
 
     await executeGenerateWiki({
-      workspaceRoot: WORKSPACE,
       outputDir: tmpDir,
       topHubsLimit: 7,
     });
@@ -213,7 +206,6 @@ describe("executeGenerateWiki", () => {
     WikiGeneratorMock.mockClear();
 
     await executeGenerateWiki({
-      workspaceRoot: WORKSPACE,
       outputDir: tmpDir,
       scope: "src/analyzer",
     });
@@ -229,7 +221,6 @@ describe("executeGenerateWiki", () => {
     WikiGeneratorMock.mockClear();
 
     await executeGenerateWiki({
-      workspaceRoot: WORKSPACE,
       outputDir: tmpDir,
       exclude: ["tests/", "dist/"],
     });
@@ -249,15 +240,15 @@ describe("executeGenerateWiki", () => {
     workerState.callGraphIndexedRoot = undefined as unknown as string;
 
     await expect(
-      executeGenerateWiki({ workspaceRoot: WORKSPACE, outputDir: tmpDir }),
+      executeGenerateWiki({ outputDir: tmpDir }),
     ).rejects.toThrow(/not initialized/i);
   });
 
   // -------------------------------------------------------------------------
-  // workspaceRoot fallback from config
+  // The workspace is supplied by the MCP session configuration.
   // -------------------------------------------------------------------------
 
-  it("uses config.rootDir when workspaceRoot is not provided", async () => {
+  it("uses config.rootDir as the workspace", async () => {
     const { WikiGenerator } = await import("../../../src/analyzer/wiki/WikiGenerator.js");
     const WikiGeneratorMock = vi.mocked(WikiGenerator);
     WikiGeneratorMock.mockClear();
@@ -267,5 +258,16 @@ describe("executeGenerateWiki", () => {
     expect(WikiGeneratorMock).toHaveBeenCalledWith(
       expect.objectContaining({ workspaceRoot: expect.stringContaining("wiki-mcp-workspace") }),
     );
+  });
+});
+
+describe("GenerateWikiSchema", () => {
+  it("accepts only workspace-relative output directories", () => {
+    expect(GenerateWikiSchema.safeParse({ outputDir: "docs/wiki" }).success).toBe(true);
+    expect(GenerateWikiSchema.safeParse({ outputDir: "/tmp/wiki" }).success).toBe(false);
+  });
+
+  it("does not allow overriding the configured MCP workspace", () => {
+    expect(GenerateWikiSchema.safeParse({ workspaceRoot: "/tmp" }).success).toBe(false);
   });
 });

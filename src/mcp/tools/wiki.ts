@@ -7,17 +7,12 @@ import { normalizePath } from "../../shared/path.js";
 // NO vscode imports — VS Code agnostic
 
 export const GenerateWikiSchema = z.object({
-  workspaceRoot: z
-    .string()
-    .optional()
-    .describe(
-      "Absolute path to workspace root. Defaults to the configured workspace.",
-    ),
   outputDir: z
     .string()
     .optional()
+    .refine((value) => value === undefined || !path.isAbsolute(value), "Output directory must be relative to the workspace")
     .describe(
-      "Absolute path to wiki output directory. Defaults to <workspaceRoot>/wiki.",
+      "Workspace-relative output directory. Defaults to wiki.",
     ),
   topHubsLimit: z
     .number()
@@ -38,7 +33,7 @@ export const GenerateWikiSchema = z.object({
     .describe(
       "Relative glob-like patterns to exclude (e.g. ['tests/**', '**/*.test.ts']). When omitted, default exclusions apply: tests/, dist/, *.test.ts, etc.",
     ),
-});
+}).strict();
 
 export type GenerateWikiParams = z.infer<typeof GenerateWikiSchema>;
 

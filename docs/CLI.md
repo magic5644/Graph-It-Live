@@ -140,7 +140,7 @@ graph-it summary
 graph-it summary src/main.ts
 
 # 5. Find what depends on a file
-graph-it tool find_referencing_files --filePath=$(pwd)/src/utils.ts
+graph-it tool find_referencing_files --targetPath=$(pwd)/src/utils.ts
 
 # 6. Scan for dead code
 graph-it check
@@ -256,12 +256,19 @@ graph-it [options]
 | `/wiki` | Generate a navigable markdown wiki from the call graph |
 | `/trace` | Run trace flow for a selected file and optional symbol |
 | `/path` | Set session workspace scope (directory) |
+| `/path-in` | Show files that depend on a file |
+| `/path-out` | Show files imported by a file |
 | `/file` | Set active file context for context-aware commands |
 | `/check-dependencies` | Check incoming and outgoing dependencies |
+| `/deps`, `/dependencies` | Aliases of `/check-dependencies` |
+| `/deps-in` | Incoming dependencies alias |
+| `/deps-out` | Outgoing dependencies alias |
 | `/cycles` | List confirmed dependency cycles for a file |
+| `/cycle` | Alias of `/cycles` |
 | `/summary` | Summarize current file context or workspace |
 | `/architecture` | Build workspace architecture graph |
 | `/check` | Find unused exports |
+| `/scan` | Force a workspace indexing scan |
 | `/format` | Set preferred output format for the session |
 | `/command` | Run a raw CLI command line inside REPL |
 | `/export` | Export dependency graph as standalone HTML (vis.js). Optional `--output <path>` / `-o <path>`. Scope: active file context → workspace scope (set via `/path`) → full workspace |
@@ -1152,12 +1159,12 @@ graph-it export src/analyzer --format html --output analyzer.html
 
 ### tool
 
-Invoke any of the 22 MCP analysis tools directly from the terminal — full MCP parity without a running server.
+Invoke any of the 22 MCP analysis tools supported by the generic CLI command. The other five MCP tools have dedicated CLI equivalents or are covered by `--workspace`.
 
 ```
 graph-it tool <name> [--<param>=<value>...] [options]
 graph-it tool --list
-graph-it tool --args '<json>' <name>
+graph-it tool <name> --args '<json>'
 ```
 
 **Arguments:**
@@ -1186,6 +1193,7 @@ Output:
 ```
 Available MCP tools:
 
+  graph_context                Retrieve unified token-bounded graph context
   analyze_dependencies           Show direct imports and exports of a file
   crawl_dependency_graph         Full dependency tree from an entry file (BFS)
   find_referencing_files         All files that import a given file
@@ -1207,8 +1215,6 @@ Available MCP tools:
   generate_codemap               AI-friendly structural overview of a file (TOON)
   query_call_graph               BFS callers/callees via the SQLite call graph index
   scan_dead_code                 Workspace-wide scan for unused exported symbols
-  query_natural_language         Answer a natural language question about the codebase (LLM or heuristic)
-  generate_wiki                  Generate a navigable markdown wiki from the call graph
 ```
 
 **Calling a tool with parameters:**
@@ -1218,7 +1224,7 @@ Available MCP tools:
 graph-it tool analyze_dependencies --filePath=/abs/path/to/file.ts
 
 # Using --args JSON syntax (useful for complex/nested params)
-graph-it tool --args '{"filePath":"/abs/path/to/file.ts"}' analyze_dependencies
+graph-it tool analyze_dependencies --args '{"filePath":"/abs/path/to/file.ts"}'
 
 # With format
 graph-it tool get_symbol_callers --filePath=/abs/path/to/Spider.ts --symbolName=crawl --format json
@@ -1237,13 +1243,13 @@ graph-it tool analyze_dependencies --filePath=$(pwd)/src/app.ts
 graph-it tool crawl_dependency_graph --entryFile=$(pwd)/src/index.ts
 
 # All files that import a given file
-graph-it tool find_referencing_files --filePath=$(pwd)/src/utils.ts
+graph-it tool find_referencing_files --targetPath=$(pwd)/src/utils.ts
 
 # Check if an import is actually used in source code
-graph-it tool verify_dependency_usage --filePath=$(pwd)/src/app.ts --dependency=lodash
+graph-it tool verify_dependency_usage --sourceFile=$(pwd)/src/app.ts --targetFile=$(pwd)/src/utils.ts
 
 # Resolve a module specifier to its absolute path
-graph-it tool resolve_module_path --filePath=$(pwd)/src/app.ts --modulePath=./utils
+graph-it tool resolve_module_path --fromFile=$(pwd)/src/app.ts --moduleSpecifier=./utils
 
 # Symbol-level call graph within a file
 graph-it tool get_symbol_graph --filePath=$(pwd)/src/Spider.ts
@@ -1258,10 +1264,10 @@ graph-it tool get_symbol_dependents --filePath=$(pwd)/src/Spider.ts --symbolName
 graph-it tool trace_function_execution --filePath=$(pwd)/src/Spider.ts --symbolName=crawl
 
 # Detect breaking API changes between two versions of a file
-graph-it tool analyze_breaking_changes --filePath=$(pwd)/src/api.ts --newFilePath=$(pwd)/src/api.new.ts
+graph-it tool analyze_breaking_changes --filePath=$(pwd)/src/api.ts --oldContent='export function getUser(id: string): User;' --newContent='export function getUser(id: number): User;'
 
 # Full impact analysis of changing a file
-graph-it tool get_impact_analysis --filePath=$(pwd)/src/utils.ts
+graph-it tool get_impact_analysis --filePath=$(pwd)/src/utils.ts --symbolName=formatUser
 
 # Generate AI-friendly codemap of a file
 graph-it tool generate_codemap --filePath=$(pwd)/src/Spider.ts
@@ -1288,7 +1294,7 @@ graph-it tool invalidate_files --filePaths='["$(pwd)/src/api.ts"]'
 graph-it tool rebuild_index
 
 # Expand a node incrementally
-graph-it tool expand_node --filePath=$(pwd)/src/app.ts --depth=2
+graph-it tool expand_node --filePath=$(pwd)/src/app.ts --knownPaths='[]' --extraDepth=2
 
 # Parse raw import statements (no path resolution)
 graph-it tool parse_imports --filePath=$(pwd)/src/app.ts
@@ -1412,19 +1418,19 @@ Requires an active internet connection and `npm` in `PATH`.
 
 ## MCP Tools Reference (via `graph-it tool`)
 
-The `graph-it tool` command provides direct access to 22 general-purpose analysis tools. The MCP server exposes 27 tools in total — the same 22 plus `review_pr`, `query_natural_language`, `generate_wiki`, and `get_session_stats` (which have first-class CLI commands: `review-pr`, `query`, `wiki`, `stats`), plus `set_workspace` (server-management only, not needed in CLI context — see [Tool Count: CLI vs MCP](#tool-count-cli-vs-mcp)).
+The `graph-it tool` command invokes 22 MCP analysis tools by name. The MCP server exposes 27 tools in total; the other five have dedicated CLI equivalents: `review_pr` → `review-pr`, `query_natural_language` → `query`, `generate_wiki` → `wiki`, `get_session_stats` → `stats`, and `set_workspace` → `--workspace` (see [Tool Count: CLI vs MCP](#tool-count-cli-vs-mcp)).
 
 ### Tool Details
 
 #### `analyze_dependencies`
 
-**What it returns:** All direct `import` / `require` statements in a file, resolved to absolute paths, plus all exported symbols with their types.
+**What it returns:** Direct `import` / `require` statements in a file, resolved to absolute paths.
 
 ```bash
 graph-it tool analyze_dependencies --filePath=/abs/path/to/file.ts
 ```
 
-**Output fields:** `imports[]`, `exports[]`, `filePath`, `language`
+**Output fields:** `filePath`, `dependencyCount`, `dependencies[]` (each dependency includes its resolved path, relative path, import type, line, module specifier, and extension)
 
 ---
 
@@ -1450,10 +1456,10 @@ Each node in `nodes[]` includes:
 **What it returns:** All files in the project that import the given file — an O(1) reverse lookup from the pre-built reverse index.
 
 ```bash
-graph-it tool find_referencing_files --filePath=/abs/path/to/utils.ts
+graph-it tool find_referencing_files --targetPath=/abs/path/to/utils.ts
 ```
 
-**Output fields:** `referencingFiles[]`, `count`
+**Output fields:** `targetPath`, `referencingFileCount`, `referencingFiles[]`
 
 ---
 
@@ -1462,10 +1468,10 @@ graph-it tool find_referencing_files --filePath=/abs/path/to/utils.ts
 **What it returns:** The immediate dependencies (one level) of a node, useful for incremental graph exploration without re-crawling the full tree.
 
 ```bash
-graph-it tool expand_node --filePath=/abs/path/to/app.ts --depth=1
+graph-it tool expand_node --filePath=/abs/path/to/app.ts --knownPaths='[]' --extraDepth=1
 ```
 
-**Output fields:** `dependencies[]`, `filePath`
+**Output fields:** `expandedNode`, `newNodeCount`, `newEdgeCount`, `newNodes[]`, `newEdges[]`
 
 ---
 
@@ -1477,7 +1483,7 @@ graph-it tool expand_node --filePath=/abs/path/to/app.ts --depth=1
 graph-it tool parse_imports --filePath=/abs/path/to/app.ts
 ```
 
-**Output fields:** `imports[]` (with `source`, `specifiers[]`, `type`)
+**Output fields:** `filePath`, `importCount`, `imports[]` (each entry includes `module`, `type`, and `line`)
 
 ---
 
@@ -1486,10 +1492,10 @@ graph-it tool parse_imports --filePath=/abs/path/to/app.ts
 **What it returns:** Whether a specific imported module is actually referenced in the source code (i.e., is it a live import or an unused one).
 
 ```bash
-graph-it tool verify_dependency_usage --filePath=/abs/path/to/app.ts --dependency=lodash
+graph-it tool verify_dependency_usage --sourceFile=/abs/path/to/app.ts --targetFile=/abs/path/to/node_modules/lodash/index.d.ts
 ```
 
-**Output fields:** `isUsed` (boolean), `usageLocations[]`
+**Output fields:** `sourceFile`, `targetFile`, `isUsed` (boolean), and optional `usedSymbolCount`
 
 ---
 
@@ -1498,10 +1504,10 @@ graph-it tool verify_dependency_usage --filePath=/abs/path/to/app.ts --dependenc
 **What it returns:** The absolute filesystem path that a module specifier resolves to, applying TypeScript path aliases, Node.js resolution rules, and workspace configuration.
 
 ```bash
-graph-it tool resolve_module_path --filePath=/abs/path/to/app.ts --modulePath=@/utils/helpers
+graph-it tool resolve_module_path --fromFile=/abs/path/to/app.ts --moduleSpecifier=@/utils/helpers
 ```
 
-**Output fields:** `resolvedPath`, `exists` (boolean)
+**Output fields:** `fromFile`, `moduleSpecifier`, `resolved`, `resolvedPath`, `resolvedRelativePath`, and optional `failureReason`
 
 ---
 
@@ -1513,7 +1519,7 @@ graph-it tool resolve_module_path --filePath=/abs/path/to/app.ts --modulePath=@/
 graph-it tool get_index_status
 ```
 
-**Output fields:** `files`, `edges`, `indexedAt`, `isStale`
+**Output fields:** `state`, `isReady`, `reverseIndexEnabled`, `cacheSize`, `reverseIndexStats`, `warmup`, and optional `callGraph`
 
 ---
 
@@ -1545,7 +1551,7 @@ graph-it tool rebuild_index
 graph-it tool get_symbol_graph --filePath=/abs/path/to/Spider.ts
 ```
 
-**Output fields:** `symbols[]`, `dependencies[]`, `file`
+**Output fields:** `filePath`, `relativePath`, `symbolCount`, `dependencyCount`, `symbols[]`, `dependencies[]`, `isSymbolView`
 
 ---
 
@@ -1557,7 +1563,7 @@ graph-it tool get_symbol_graph --filePath=/abs/path/to/Spider.ts
 graph-it tool find_unused_symbols --filePath=/abs/path/to/api.ts
 ```
 
-**Output fields:** `unusedSymbols[]`, `totalExports`, `unusedCount`
+**Output fields:** `filePath`, `relativePath`, `unusedCount`, `unusedSymbols[]`, `totalExportedSymbols`, `unusedPercentage`
 
 ---
 
@@ -1569,7 +1575,7 @@ graph-it tool find_unused_symbols --filePath=/abs/path/to/api.ts
 graph-it tool get_symbol_dependents --filePath=/abs/path/to/Spider.ts --symbolName=Spider
 ```
 
-**Output fields:** `dependents[]` (with `file`, `symbolName`, `type`)
+**Output fields:** `filePath`, `symbolName`, `dependentCount`, `dependents[]`
 
 ---
 
@@ -1582,7 +1588,7 @@ graph-it tool trace_function_execution --filePath=/abs/path/to/Spider.ts --symbo
 graph-it tool trace_function_execution --filePath=/abs/path/to/Spider.ts --symbolName=crawl --maxDepth=5
 ```
 
-**Output fields:** `callTree` (nested), `cycles[]`, `maxDepth`
+**Output fields:** `rootSymbol`, `maxDepth`, `callCount`, `uniqueSymbolCount`, `maxDepthReached`, `callChain[]`, `visitedSymbols[]`
 
 ---
 
@@ -1594,31 +1600,31 @@ graph-it tool trace_function_execution --filePath=/abs/path/to/Spider.ts --symbo
 graph-it tool get_symbol_callers --filePath=/abs/path/to/Spider.ts --symbolName=crawl
 ```
 
-**Output fields:** `callers[]` (with `file`, `symbolName`, `line`)
+**Output fields:** `symbolId`, caller counts, `callers[]`, and `callerFiles[]`
 
 ---
 
 #### `analyze_breaking_changes`
 
-**What it returns:** Whether changes to a file introduce breaking changes — altered function signatures, removed exports, changed parameter types — and which callers are affected.
+**What it returns:** Signature and export changes detected by comparing the supplied old content with the new content (or the current file if `newContent` is omitted).
 
 ```bash
-graph-it tool analyze_breaking_changes --filePath=/abs/path/to/api.ts --newFilePath=/abs/path/to/api.new.ts
+graph-it tool analyze_breaking_changes --filePath=/abs/path/to/api.ts --oldContent='export function getUser(id: string): User;' --newContent='export function getUser(id: number): User;'
 ```
 
-**Output fields:** `breakingChanges[]`, `affectedCallers[]`, `severity`
+**Output fields:** `filePath`, `breakingChangeCount`, `errorCount`, `warningCount`, `breakingChanges[]`, `nonBreakingChanges[]`, `removedSymbols[]`, `addedSymbols[]`
 
 ---
 
 #### `get_impact_analysis`
 
-**What it returns:** A full impact report for changing a file — combines `find_referencing_files`, `get_symbol_callers`, and `analyze_breaking_changes` into a single structured result.
+**What it returns:** Direct and transitive symbols affected by changing one symbol.
 
 ```bash
-graph-it tool get_impact_analysis --filePath=/abs/path/to/utils.ts
+graph-it tool get_impact_analysis --filePath=/abs/path/to/utils.ts --symbolName=formatUser
 ```
 
-**Output fields:** `referencingFiles[]`, `symbolCallers[]`, `breakingChanges[]`, `totalImpact`
+**Output fields:** `targetSymbol`, `impactLevel`, impact counts, `impactedItems[]`, `affectedFiles[]`, and `summary`
 
 ---
 
@@ -1630,7 +1636,7 @@ graph-it tool get_impact_analysis --filePath=/abs/path/to/utils.ts
 graph-it tool analyze_file_logic --filePath=/abs/path/to/mcpServer.ts
 ```
 
-**Output fields:** `symbols[]`, `callEdges[]`, `entryPoints[]`, `cycles[]`
+**Output fields:** `filePath`, `relativePath`, `language`, `graph`, `metadata`, `summary`, and optional partial-result warnings
 
 ---
 
@@ -1642,7 +1648,7 @@ graph-it tool analyze_file_logic --filePath=/abs/path/to/mcpServer.ts
 graph-it tool generate_codemap --filePath=/abs/path/to/Spider.ts --format toon
 ```
 
-**Output fields:** `exports[]`, `internals[]`, `dependencies[]`, `dependents[]`, `callFlow`, `cycles[]`
+**Output fields:** `filePath`, `relativePath`, `language`, `lineCount`, `exports[]`, `internals[]`, `dependencies[]`, `dependents[]`, `callFlow`, cycle data, and `analysisTimeMs`
 
 > **Tip:** Use `--format toon` for repeated node and edge rows, then measure the
 > result for your payload; the reduction is data-dependent.
@@ -1685,7 +1691,7 @@ is the internal worker name exposed by the CLI analysis-tool bridge.
 graph-it tool query_call_graph --filePath=/abs/path/to/Spider.ts --symbolName=crawl --depth=3
 ```
 
-**Output fields:** `nodes[]`, `edges[]`, `cycles[]`
+**Output fields:** `symbol`, `callers[]`, `callees[]`, `totalCallers`, `totalCallees`, `depth`, `direction`, `indexedFiles`, and optional `indexTimeMs`
 
 > **Note:** Requires the call graph index to have been built (auto-triggered on first use or when the VS Code panel is opened).
 
@@ -1703,13 +1709,13 @@ graph-it tool scan_dead_code
 graph-it tool scan_dead_code --scopePath=/abs/path/to/src/utils/
 ```
 
-**Output fields:** `unusedSymbols[]` (with `file`, `symbol`, `type`), `totalScanned`, `unusedCount`
+**Output fields:** `rootDir`, `scopePath`, `scannedFiles`, `filesWithDeadCode`, `totalUnusedSymbols`, `entries[]`, `skippedFiles`, `analysisTimeMs`
 
 ---
 
-#### `query_natural_language`
+#### `query_natural_language` (MCP)
 
-**What it returns:** A natural language answer to a question about the codebase, grounded in a call graph subgraph. When an LLM key is configured the model synthesises the answer; otherwise a heuristic summary is returned.
+**What it returns:** A structured, relevant graph subgraph for the calling model to interpret. The MCP tool does not synthesize prose. The dedicated CLI equivalent, `graph-it query`, returns an answer using the configured provider or its heuristic fallback.
 
 **Parameters:**
 
@@ -1722,9 +1728,8 @@ graph-it tool scan_dead_code --scopePath=/abs/path/to/src/utils/
 | `outputFormat` | string | `toon` | Subgraph format passed to the LLM: `toon` or `json` |
 
 ```bash
-graph-it tool query_natural_language --question="how does Spider crawl files"
-graph-it tool query_natural_language --question="what calls CallGraphIndexer" --depth=3
-graph-it tool query_natural_language --question="explain the MCP server" --tokenBudget=8000
+graph-it query "how does Spider crawl files"
+graph-it query "what calls CallGraphIndexer" --depth 3
 ```
 
 **LLM configuration:**
@@ -1738,21 +1743,22 @@ graph-it tool query_natural_language --question="explain the MCP server" --token
 
 ---
 
-#### `generate_wiki`
+#### `generate_wiki` (MCP)
 
 Generate a navigable markdown wiki from the call graph. One article per source file, hub scores, symbol lists, caller/callee cross-links, and a grouped index — all with relative links only.
 
 | Parameter | Type | Default | Description |
 |-----------|------|---------|-------------|
-| `workspaceRoot` | string | configured workspace | Absolute path to workspace root |
-| `outputDir` | string | `wiki` | Output directory for wiki files |
+| `outputDir` | string | `wiki` | Workspace-relative output directory for wiki files |
 | `topHubsLimit` | number | `10` | Number of top hub files to list (1–50) |
-| `response_format` | string | `toon` | Output summary format: `json`, `markdown`, or `toon` |
+| `scope` | string | whole workspace | Relative path to restrict the generated wiki |
+| `exclude` | string[] | default exclusions | Relative glob patterns to exclude |
+| `response_format` | string | `json` | MCP output format: `json`, `markdown`, or `toon` |
 
 ```bash
-graph-it tool generate_wiki
-graph-it tool generate_wiki --outputDir=docs/wiki
-graph-it tool generate_wiki --topHubsLimit=20 --response_format=toon
+graph-it wiki
+graph-it wiki --output docs/wiki
+graph-it wiki --top 20 --format toon
 ```
 
 ---
@@ -1765,7 +1771,7 @@ Before modifying a module, understand its full impact surface:
 
 ```bash
 # 1. Find all files that import the module
-graph-it tool find_referencing_files --filePath=$(pwd)/src/UserService.ts
+graph-it tool find_referencing_files --targetPath=$(pwd)/src/UserService.ts
 
 # 2. Find all callers of the function you're changing
 graph-it tool get_symbol_callers --filePath=$(pwd)/src/UserService.ts --symbolName=getUser
@@ -1773,10 +1779,11 @@ graph-it tool get_symbol_callers --filePath=$(pwd)/src/UserService.ts --symbolNa
 # 3. Detect if your new signature breaks anything
 graph-it tool analyze_breaking_changes \
   --filePath=$(pwd)/src/UserService.ts \
-  --newFilePath=$(pwd)/src/UserService.proposed.ts
+  --oldContent='export function getUser(id: string): User;' \
+  --newContent='export function getUser(id: number): User;'
 
 # 4. Full combined impact report
-graph-it tool get_impact_analysis --filePath=$(pwd)/src/UserService.ts
+graph-it tool get_impact_analysis --filePath=$(pwd)/src/UserService.ts --symbolName=getUser
 
 # 5. Trace the full execution tree from your entry point
 graph-it trace src/UserService.ts#getUser --format mermaid
@@ -1873,13 +1880,13 @@ graph-it tool crawl_dependency_graph --entryFile=$(pwd)/src/index.ts --format js
 
 # Generate a report of all files that depend on a utility module
 graph-it tool find_referencing_files \
-  --filePath=$(pwd)/src/utils/format.ts \
+  --targetPath=$(pwd)/src/utils/format.ts \
   --format json | jq -r '.referencingFiles[]'
 
 # Check if a specific import is unused in a file
 graph-it tool verify_dependency_usage \
-  --filePath=$(pwd)/src/app.ts \
-  --dependency=lodash \
+  --sourceFile=$(pwd)/src/app.ts \
+  --targetFile=$(pwd)/src/utils.ts \
   --format json | jq '.isUsed'
 ```
 

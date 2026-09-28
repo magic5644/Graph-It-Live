@@ -11,10 +11,6 @@ import { normalizePath } from "@/shared/path";
 const EXTENSION_PATH = path.resolve(__dirname, "..", "..");
 const HAS_WASM = fs.existsSync(path.join(EXTENSION_PATH, "dist", "wasm", "sqljs.wasm"));
 
-/**
- * The MCP worker leaves cacheDir undefined and rebuilds every start; the CLI
- * passes one so the SQLite call graph survives between processes.
- */
 describe.runIf(HAS_WASM)("call graph cache", () => {
   let tmpDir: string;
   let cacheDir: string;
@@ -37,14 +33,10 @@ describe.runIf(HAS_WASM)("call graph cache", () => {
     };
   };
 
-  /** One "process": index, persist the DB the way CliRuntime.dispose() does. */
+  /** One process: index and let the call-graph service persist its database. */
   const indexOnce = async (withCache = true): Promise<void> => {
     configure(withCache);
     await ensureCallGraphReady();
-    if (withCache) {
-      fs.mkdirSync(cacheDir, { recursive: true });
-      await workerState.callGraphIndexer?.saveToFile(path.join(cacheDir, "callgraph.db"));
-    }
   };
 
   beforeEach(() => {
@@ -71,6 +63,17 @@ describe.runIf(HAS_WASM)("call graph cache", () => {
 
     await indexOnce();
     expect(workerState.callGraphIndexer?.getIndexSnapshot().files).toHaveLength(13);
+  });
+
+  it("keeps the in-memory index usable when cache persistence fails", async () => {
+    const blockerPath = path.join(tmpDir, "not-a-directory");
+    fs.writeFileSync(blockerPath, "file");
+    cacheDir = path.join(blockerPath, "cache");
+
+    await expect(indexOnce()).resolves.toBeUndefined();
+
+    expect(workerState.callGraphIndexer?.getIndexSnapshot().files).toHaveLength(13);
+    expect(fs.existsSync(path.join(cacheDir, "callgraph.db"))).toBe(false);
   });
 
   it("re-extracts only what changed on a warm run", async () => {

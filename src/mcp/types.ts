@@ -49,10 +49,7 @@ export interface McpWorkerConfig {
   /**
    * Path to the VS Code extension directory.
    * Required for WASM parser initialization (locating .wasm files in dist/).
-   *
-   * **IMPORTANT:** This must be provided by the extension host when creating the worker.
-   * Without it, WASM parsers (PythonParser, RustParser) cannot initialize and parsing
-   * for Python/Rust files will fail.
+   * The MCP server defaults to the installed package root when running standalone.
    *
    * Example: context.extensionPath from VS Code extension activation
    *
@@ -63,8 +60,8 @@ export interface McpWorkerConfig {
   maxDepth: number;
   /**
    * Directory where analysis indexes may be persisted between processes.
-   * Only the CLI sets this; the MCP worker leaves it undefined and keeps
-   * building a fresh in-memory index on every start.
+   * The CLI and MCP server share this cache so the call graph can be reused
+   * across commands and server sessions.
    */
   cacheDir?: string;
 }
