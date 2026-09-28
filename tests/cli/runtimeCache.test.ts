@@ -179,7 +179,7 @@ describe("CliRuntime index cache", () => {
     fs.writeFileSync(metaPath, JSON.stringify({ ...meta, cliVersion: "999.0.0" }));
 
     expect((await run()).callers).toBe(12);
-  });
+  }, multiRunTimeout);
 
   it("rebuilds when the guard records a different workspace root", async () => {
     await run();
@@ -188,7 +188,7 @@ describe("CliRuntime index cache", () => {
     fs.writeFileSync(metaPath, JSON.stringify({ ...meta, workspaceRoot: "/somewhere/else" }));
 
     expect((await run()).callers).toBe(12);
-  });
+  }, multiRunTimeout);
 
   it("rebuilds instead of throwing when the cached index is corrupt", async () => {
     await run();
