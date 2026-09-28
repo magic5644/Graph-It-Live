@@ -83,7 +83,6 @@ export async function run(
   const normalizedOutputDir = normalizePath(absoluteOutputDir);
 
   const result = await executeGenerateWiki({
-    workspaceRoot,
     outputDir: normalizedOutputDir,
     topHubsLimit,
     scope,

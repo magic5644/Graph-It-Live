@@ -63,59 +63,77 @@ export function setupFileWatcher(
     log.debug("Resolved rootDir short path:", workerState.config.rootDir, "→", watchRoot);
   }
 
-  try {
+  let pollingFallbackStarted = false;
+  const startWatching = (usePolling: boolean): void => {
     let initialScanComplete = false;
-    // Chokidar 4+ treats globs as literal paths. Watch the directory and filter
-    // files without excluding directories needed for recursive traversal.
-    workerState.fileWatcher = watch(watchRoot, {
+    let watcherActive = true;
+    const watcher = watch(watchRoot, {
       ignored: (filePath, stats) =>
         path.relative(watchRoot, filePath).split(path.sep).some(part => IGNORED_DIRECTORIES.includes(part)) ||
       (stats?.isFile() === true && !WATCHED_EXTENSIONS.some(ext => filePath.endsWith(ext))),
       persistent: true,
-      // Keep initial events so files created together with a new directory are
-      // not mistaken for the directory's initial scan. They are filtered until
-      // the ready event below.
       ignoreInitial: false,
-      // ReadDirectoryChangesW can miss a file created immediately after a new
-      // directory on Windows. Poll there for correctness; native events remain
-      // the lower-overhead default on macOS and Linux.
-      usePolling: process.platform === "win32" || process.env.CI === "true",
+      usePolling,
       interval: 300,
       awaitWriteFinish: {
-        stabilityThreshold: 100, // Wait 100ms after last write
+        stabilityThreshold: 100,
         pollInterval: 50,
       },
     });
+    workerState.fileWatcher = watcher;
 
-    workerState.fileWatcher.on("change", (filePath: string) => {
-      if (!initialScanComplete) return;
+    watcher.on("change", (filePath: string) => {
+      if (!watcherActive || !initialScanComplete) return;
       handleFileChange(postMessage, "change", filePath, watchRoot);
     });
 
-    workerState.fileWatcher.on("add", (filePath: string) => {
-      if (!initialScanComplete) return;
+    watcher.on("add", (filePath: string) => {
+      if (!watcherActive || !initialScanComplete) return;
       handleFileChange(postMessage, "add", filePath, watchRoot);
     });
 
-    workerState.fileWatcher.on("unlink", (filePath: string) => {
-      if (!initialScanComplete) return;
+    watcher.on("unlink", (filePath: string) => {
+      if (!watcherActive || !initialScanComplete) return;
       handleFileChange(postMessage, "unlink", filePath, watchRoot);
     });
 
-    workerState.fileWatcher.on("addDir", (directory: string) => {
-      if (!initialScanComplete) return;
+    watcher.on("addDir", (directory: string) => {
+      if (!watcherActive || !initialScanComplete) return;
       scheduleDirectoryReconciliation(postMessage, directory, watchRoot);
     });
 
-    workerState.fileWatcher.on("error", (error: unknown) => {
+    watcher.on("error", (error: unknown) => {
+      const code = (error as NodeJS.ErrnoException)?.code;
+      if (code === "EMFILE" && !usePolling && !pollingFallbackStarted) {
+        pollingFallbackStarted = true;
+        watcherActive = false;
+        log.warn("Native file watcher exhausted file handles; retrying with polling");
+        void watcher.close().catch((closeError: Error) => {
+          log.error("Could not restart file watcher with polling:", closeError.message);
+        });
+        if (workerState.fileWatcher === watcher) startWatching(true);
+        return;
+      }
+      if (code === "EMFILE" && !usePolling && pollingFallbackStarted) return;
       const message = error instanceof Error ? error.message : String(error);
       log.error("File watcher error:", message);
     });
 
-    workerState.fileWatcher.on("ready", () => {
+    watcher.on("ready", () => {
       initialScanComplete = true;
       log.debug("File watcher ready");
     });
+  };
+
+  try {
+    // Chokidar 4+ treats globs as literal paths. Watch the directory and filter
+    // files without excluding directories needed for recursive traversal.
+    // macOS and Windows can hit native watcher limits in larger workspaces.
+    startWatching(
+      process.platform === "win32" ||
+      process.platform === "darwin" ||
+      process.env.CI === "true",
+    );
   } catch (error) {
     const errorMessage = error instanceof Error ? error.message : "Unknown error";
     log.error("Failed to setup file watcher:", errorMessage);
@@ -169,11 +187,12 @@ async function reportNewDirectoryFiles(
  */
 export async function stopFileWatcher(): Promise<void> {
   if (workerState.fileWatcher) {
+    const watcher = workerState.fileWatcher;
+    workerState.fileWatcher = null;
     log.debug("Stopping file watcher...");
-    await workerState.fileWatcher.close().catch((error: Error) => {
+    await watcher.close().catch((error: Error) => {
       log.error("Error closing file watcher:", error.message);
     });
-    workerState.fileWatcher = null;
   }
 
   // Clear any pending debounced invalidations

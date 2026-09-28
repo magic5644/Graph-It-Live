@@ -3,6 +3,8 @@
  * executeGenerateWiki is mocked — no DB or WikiGenerator runs.
  */
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import path from "node:path";
+import { normalizePath } from "../../../src/shared/path";
 
 // ---------------------------------------------------------------------------
 // Hoist mocks
@@ -256,16 +258,19 @@ describe("wiki command", () => {
   });
 
   // -------------------------------------------------------------------------
-  // 6. workspaceRoot is passed correctly
+  // 6. output path is resolved against the workspace
   // -------------------------------------------------------------------------
 
-  it("passes normalized workspaceRoot to executeGenerateWiki", async () => {
+  it("passes a workspace-resolved outputDir to executeGenerateWiki", async () => {
     await run([], makeRuntime("/my/project"), "text");
 
     expect(mocks.executeGenerateWiki).toHaveBeenCalledWith(
-      expect.objectContaining({
-        workspaceRoot: expect.stringContaining("my"),
-      }),
+      {
+        outputDir: normalizePath(path.resolve("/my/project", "wiki")),
+        topHubsLimit: 10,
+        scope: undefined,
+        exclude: undefined,
+      },
     );
   });
 });

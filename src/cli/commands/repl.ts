@@ -40,7 +40,11 @@ import { createSessionState } from '../repl/sessionState.js';
 import { sanitizeTerminalText } from '../repl/terminal.js';
 import { tokenizeCommandLine } from '../repl/tokenize.js';
 import { getTip, getPersonaTip } from '../repl/tips.js';
-import { runInkReplSession, type InkReplCommandResponse } from '../repl/ink/ReplInkApp.js';
+import {
+  getSlashCommandHelpLines,
+  runInkReplSession,
+  type InkReplCommandResponse,
+} from '../repl/ink/ReplInkApp.js';
 
 const VERSION = process.env.CLI_VERSION ?? '0.0.0-dev';
 
@@ -132,21 +136,7 @@ function buildReplHelpText(state: ReturnType<typeof createSessionState>): string
   const lastFile = state.lastFile ? path.relative(state.workspaceRoot, state.lastFile) : 'none';
   return [
     `${BOLD}Slash commands${RESET}`,
-    '  /trace          Select a file, then optionally a symbol to trace',
-    '  /path           Set workspace directory scope (browse or explicit)',
-    '  /file           Set active file context (browse or explicit)',
-    '  /check-dependencies  Check incoming and outgoing dependencies',
-    '  /cycles         List confirmed dependency cycles for a file',
-    '  /summary        Summarize the current file or whole workspace',
-    '  /architecture   Build the workspace graph',
-    '  /check          Find unused exports',
-    '  /query          Query the codebase with natural language',
-    '  /wiki           Generate a markdown wiki from the call graph',
-    '  /export                 Export graph as standalone HTML (vis.js)',
-    '  /format         Change the default display format',
-    '  /command        Run a raw CLI command line',
-    '  /help           Show this help',
-    '  /quit           Exit the REPL',
+    ...getSlashCommandHelpLines(),
     '',
     `${DIM}Examples:${RESET}`,
     '  /path src/cli',

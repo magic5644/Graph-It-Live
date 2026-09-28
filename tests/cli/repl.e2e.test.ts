@@ -571,6 +571,9 @@ describe('REPL command chaining e2e', () => {
 
     expect(stdoutSpy).toHaveBeenCalledWith(expect.stringContaining('Slash commands'));
     expect(stdoutSpy).toHaveBeenCalledWith(expect.stringContaining('/trace'));
+    expect(stdoutSpy).toHaveBeenCalledWith(expect.stringContaining('/path-in'));
+    expect(stdoutSpy).toHaveBeenCalledWith(expect.stringContaining('/deps-in'));
+    expect(stdoutSpy).toHaveBeenCalledWith(expect.stringContaining('/scan'));
     expect(mocks.selectPostResultAction).not.toHaveBeenCalled();
   });
 

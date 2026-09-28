@@ -276,6 +276,22 @@ async function doInitAndIndex(
   workerState.graphExtractor = extractor;
   workerState.callGraphIndexedRoot = workspaceRoot;
 
+  if (cacheDir) {
+    const cachePath = path.join(cacheDir, "callgraph.db");
+    const temporaryPath = `${cachePath}.${process.pid}.tmp`;
+    try {
+      await fs.mkdir(cacheDir, { recursive: true });
+      await fs.writeFile(temporaryPath, indexer.exportDb());
+      await fs.rename(temporaryPath, cachePath);
+    } catch (error) {
+      await fs.rm(temporaryPath, { force: true }).catch(() => undefined);
+      log.warn(
+        "Could not persist call graph cache:",
+        error instanceof Error ? error.message : String(error),
+      );
+    }
+  }
+
   const duration = Date.now() - startTime;
   log.info(`Call graph indexed ${callgraphFiles.length} files in ${duration}ms`);
 }

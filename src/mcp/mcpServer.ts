@@ -184,7 +184,7 @@ function flushStatsOnce(): void {
 // Mutable configuration - can be changed via setWorkspace tool
 const currentConfig = {
   workspaceRoot: process.env.WORKSPACE_ROOT ?? "",
-  extensionPath: process.env.EXTENSION_PATH,
+  extensionPath: process.env.EXTENSION_PATH ?? path.resolve(__dirname, ".."),
   tsConfigPath: process.env.TSCONFIG_PATH,
   excludeNodeModules: process.env.EXCLUDE_NODE_MODULES !== "false",
   maxDepth: Number.parseInt(process.env.MAX_DEPTH ?? "50", 10),
@@ -380,6 +380,7 @@ async function doInitializeWorker(): Promise<void> {
         extensionPath: currentConfig.extensionPath,
         excludeNodeModules: currentConfig.excludeNodeModules,
         maxDepth: currentConfig.maxDepth,
+        cacheDir: path.join(getWorkspaceRoot(), ".graph-it", "cache"),
       },
       (processed, total, currentFile) => {
         debugLog(
@@ -1790,7 +1791,7 @@ LIMITS: writes files to disk. The first call indexes the workspace (3-8s).`,
       openWorldHint: false,
     },
   },
-  async ({ workspaceRoot, outputDir, topHubsLimit, scope, exclude, response_format }) => {
+  async ({ outputDir, topHubsLimit, scope, exclude, response_format }) => {
     const workerCheck = await ensureWorkerReady();
     const responseFormat = response_format;
     if (workerCheck.error)
@@ -1798,7 +1799,7 @@ LIMITS: writes files to disk. The first call indexes the workspace (3-8s).`,
 
     const response = await invokeToolWithResponse(
       "generate_wiki",
-      { workspaceRoot, outputDir, topHubsLimit, scope, exclude },
+      { outputDir, topHubsLimit, scope, exclude },
     );
 
     return formatToolResponse(response, responseFormat, "graphitlive_generate_wiki");

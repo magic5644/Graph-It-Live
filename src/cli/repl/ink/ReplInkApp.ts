@@ -93,6 +93,13 @@ const SLASH_COMMANDS: SlashCommandEntry[] = [
   { command: '/quit', description: 'Exit REPL' },
 ];
 
+export function getSlashCommandHelpLines(): string[] {
+  return SLASH_COMMANDS.map(({ command, description, argsHint }) => {
+    const usage = argsHint ?? command;
+    return `  ${usage.padEnd(56)} ${description}`;
+  });
+}
+
 const COMMANDS_REQUIRING_ARGS = new Set([
   '/trace',
   '/path',
