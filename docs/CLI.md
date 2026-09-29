@@ -1208,7 +1208,7 @@ Available MCP tools:
   find_unused_symbols            Detect dead/unused exported symbols
   get_symbol_dependents          All symbols that depend on a given symbol
   trace_function_execution       Full recursive call chain from a symbol
-  get_symbol_callers             All callers of a symbol across the project
+  get_symbol_callers             Call sites of a symbol across the project
   analyze_breaking_changes       Detect breaking API changes between two versions
   get_impact_analysis            Full impact analysis of changing a file/symbol
   analyze_file_logic             Intra-file call hierarchy (AST-based)
