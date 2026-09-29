@@ -111,7 +111,7 @@ export type McpToolName =
   | "find_unused_symbols"
   | "get_symbol_dependents"
   | "trace_function_execution"
-  | "get_symbol_callers" // NEW: O(1) lookup of symbol callers
+  | "get_symbol_callers" // call sites of a symbol from the call graph
   | "analyze_breaking_changes" // NEW: Detect breaking changes
   | "review_pr" // Deterministic local Git diff review
   | "get_impact_analysis" // NEW: Full impact analysis
@@ -441,7 +441,7 @@ export type TraceFunctionExecutionParams = z.infer<
   typeof TraceFunctionExecutionParamsSchema
 >;
 
-// NEW: Schema for get_symbol_callers (O(1) lookup)
+// Schema for get_symbol_callers
 export const GetSymbolCallersParamsSchema = z.object({
   filePath: FilePathSchema.describe(
     "The absolute path to the file containing the target symbol.",
@@ -453,7 +453,7 @@ export const GetSymbolCallersParamsSchema = z.object({
     .boolean()
     .optional()
     .describe(
-      "Include type-only usages (interfaces, type aliases). Default is true.",
+      "Also include type-only references (interfaces, type aliases). Default is false: only call sites are returned.",
     ),
 });
 export type GetSymbolCallersParams = z.infer<
@@ -1352,11 +1352,11 @@ export interface TraceFunctionExecutionResult {
 }
 
 // ============================================================================
-// NEW: Symbol Callers Result (O(1) lookup)
+// Symbol Callers Result
 // ============================================================================
 
 /**
- * Caller entry from the symbol reverse index
+ * Caller entry from the call graph
  */
 export interface SymbolCallerInfo {
   /** The symbol that calls the target */
@@ -1365,6 +1365,8 @@ export interface SymbolCallerInfo {
   callerFilePath: string;
   /** Relative path from workspace root */
   callerRelativePath: string;
+  /** Line of the first call site in the caller */
+  line: number;
   /** Whether this is a type-only import */
   isTypeOnly: boolean;
 }

@@ -1594,7 +1594,7 @@ graph-it tool trace_function_execution --filePath=/abs/path/to/Spider.ts --symbo
 
 #### `get_symbol_callers`
 
-**What it returns:** All callers of a specific symbol across the entire project — an O(1) lookup from the pre-built reverse symbol index.
+**What it returns:** The call sites of a specific symbol across the project, one entry per caller symbol with the line of its first call, read from the call graph index. File-level imports are not callers; use `get_symbol_dependents` for every reference. Type-only references are included only with `--includeTypeOnly=true`.
 
 ```bash
 graph-it tool get_symbol_callers --filePath=/abs/path/to/Spider.ts --symbolName=crawl
