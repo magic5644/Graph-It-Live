@@ -40,6 +40,14 @@ const log = getExtensionLogger("GraphProvider");
 
 /** Default delay before starting background indexing (ms) */
 const DEFAULT_INDEXING_START_DELAY = 1000;
+type GraphRefreshReason =
+  | "manual"
+  | "indexing"
+  | "fileSaved"
+  | "navigation"
+  | "fileChange"
+  | "usage-analysis"
+  | "unknown";
 
 export class GraphProvider implements vscode.WebviewViewProvider {
   public static readonly viewType = "graph-it-live.graphView";
@@ -256,7 +264,7 @@ export class GraphProvider implements vscode.WebviewViewProvider {
       this.indexingManager?.dispose(),
       this._branchWatchRegistration?.disposeAsync(),
       this._callGraphViewService?.disposeAsync(),
-    ];
+    ].filter((task): task is Promise<void> => task !== undefined);
     while (this._activeDrillDowns.size > 0 || this._activeGraphUpdates.size > 0 || this._activeMessages.size > 0) {
       await Promise.allSettled([
         ...this._activeDrillDowns,
@@ -1324,14 +1332,7 @@ export class GraphProvider implements vscode.WebviewViewProvider {
    */
   public updateGraph(
     isRefresh: boolean = false,
-    refreshReason:
-      | "manual"
-      | "indexing"
-      | "fileSaved"
-      | "navigation"
-      | "fileChange"
-      | "usage-analysis"
-      | "unknown" = "unknown",
+    refreshReason: GraphRefreshReason = "unknown",
   ): Promise<void> {
     if (this._isDisposing) return Promise.resolve();
     const operation = this.performUpdateGraph(isRefresh, refreshReason);
@@ -1342,7 +1343,7 @@ export class GraphProvider implements vscode.WebviewViewProvider {
 
   private async performUpdateGraph(
     isRefresh: boolean,
-    refreshReason: "manual" | "indexing" | "fileSaved" | "navigation" | "fileChange" | "usage-analysis" | "unknown",
+    refreshReason: GraphRefreshReason,
   ): Promise<void> {
     if (!this._view || !this.spider || !this.graphViewService) {
       log.debug("View or Spider not initialized");
