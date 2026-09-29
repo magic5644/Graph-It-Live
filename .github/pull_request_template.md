@@ -21,10 +21,10 @@
 ### VSIX / Packaging (required when build config or deps changed)
 - [ ] `npm run package:verify` → `✅ No .map files in package`
 - [ ] `npx vsce ls graph-it-live-*.vsix | grep "\.wasm$"` shows required WASM files
-- [ ] `ls -lh graph-it-live-*.vsix` size checked (target ≤ 16 MB, warn above)
+- [ ] `ls -lh graph-it-live-*.vsix` size checked (target ≤ 20 MB, warn above)
 
 ### E2E
-- [ ] `npm run test:vscode:vsix` (required for user-facing changes)
+- [ ] `npm run test:vscode:vsix` (required only when VS Code webviews `src/webview/**` or E2E tests change)
 
 ## Checklist
 - [ ] Tests added/updated for changed behavior

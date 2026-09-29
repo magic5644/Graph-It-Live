@@ -333,7 +333,7 @@ node_modules/**
 
 ### Package Size
 
-- ✅ Target: ~16 MB
+- ✅ Target: ≤ 20 MB
 - ❌ Limit dependencies, exclude tests/docs
 
 ---
@@ -363,7 +363,7 @@ chore: Update dependencies
 1. ✅ All tests pass: `npm test`
 2. ✅ No TS errors: `npm run check:types`
 3. ✅ No lint errors: `npm run lint`
-4. ✅ E2E tests for user features: `npm run test:vscode:vsix`
+4. ✅ E2E run when webviews or E2E tests change: `npm run test:vscode:vsix`
 5. ✅ For build config changes: Package verification ✓
 
 ---
@@ -537,7 +537,7 @@ npm test                # Run Vitest tests
 - [ ] `npm test` - all tests pass
 - [ ] `npm run check:types` - 0 TS errors
 - [ ] `npm run lint` - 0 ESLint errors
-- [ ] `npm run test:vscode:vsix` - E2E tests OK
+- [ ] `npm run test:vscode:vsix` - E2E tests OK (webview or E2E test changes)
 - [ ] SonarQube scan on modified files
 - [ ] Documentation/comments updated
 - [ ] Commits properly formatted
@@ -568,7 +568,7 @@ npm test                # Run Vitest tests
 - **TypeScript**: 0 errors, strict mode
 - **ESLint**: 0 errors, configurations applied
 - **SonarQube**: Compliance with project rules
-- **Package Size**: ~16 MB for .vsix
+- **Package Size**: ≤ 20 MB for .vsix
 
 ---
 

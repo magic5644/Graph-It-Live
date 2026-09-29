@@ -43,7 +43,7 @@ git commit --no-verify
 **Checks**:
 - ✅ Zero `.map` files in package (CRITICAL)
 - ✅ All 8 WASM files present
-- ✅ Package size reasonable (~16 MB, warn if > 20 MB)
+- ✅ Package size reasonable (target ≤ 20 MB, warn if above)
 
 **Example Output**:
 ```bash

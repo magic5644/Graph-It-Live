@@ -196,7 +196,7 @@ npm run check:types
 ```bash
 npm test
 npm run test:vscode
-npm run test:vscode:vsix # required for user-facing changes
+npm run test:vscode:vsix # required when webviews or E2E tests change
 ```
 
 3. **Verify package** (if build config changed):
@@ -252,7 +252,7 @@ For all PRs, include command output (or CI links) for:
 - `npm run check:types`
 - `npm test`
 
-For user-facing changes, include:
+For changes to the VS Code webviews (`src/webview/**`) or to E2E tests, include:
 
 - `npm run test:vscode:vsix`
 
@@ -260,7 +260,7 @@ For build config or dependency changes (`esbuild.js`, `.vscodeignore`, `package.
 
 - `npm run package:verify` (must print `✅ No .map files in package`)
 - `npx vsce ls graph-it-live-*.vsix | grep "\.wasm$"`
-- `ls -lh graph-it-live-*.vsix` (target ≤ 16 MB; warn if above)
+- `ls -lh graph-it-live-*.vsix` (target ≤ 20 MB; warn if above)
 
 Use `.github/pull_request_template.md` and complete all checkboxes before requesting review.
 

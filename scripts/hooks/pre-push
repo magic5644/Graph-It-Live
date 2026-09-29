@@ -60,7 +60,7 @@ if [[ "$CURRENT_BRANCH" =~ ^(main|develop|release/.*)$ ]]; then
     SIZE_MB=$(du -m "$PACKAGE_FILE" | cut -f1)
     if [ "$SIZE_MB" -gt 20 ]; then
       echo ""
-      echo "⚠️  WARNING: Package size is ${SIZE_MB} MB (target: ~16 MB)"
+      echo "⚠️  WARNING: Package size is ${SIZE_MB} MB (target: ≤ 20 MB)"
       echo ""
       echo "Package may be bloated. Consider investigating."
       echo ""
