@@ -246,9 +246,9 @@ graph-it tool <tool_name> [--params]    # Invoke a specific tool
 | `resolve_module_path` | Resolve a module specifier to an absolute file path |
 | `get_symbol_graph` | Symbol-level dependencies within a file |
 | `find_unused_symbols` | Dead code detection — unused exported symbols |
-| `get_symbol_dependents` | All symbols that depend on a specific symbol |
+| `get_symbol_dependents` | Every reference to a symbol, including file-level imports |
 | `trace_function_execution` | Full recursive call chain from a function |
-| `get_symbol_callers` | All callers of a symbol (O(1) instant lookup) |
+| `get_symbol_callers` | Call sites of a symbol (callers only, from the call graph) |
 | `analyze_breaking_changes` | Detect breaking changes when modifying function signatures |
 | `get_impact_analysis` | Full impact: callers + breaking changes combined |
 | `get_index_status` | Current state of the dependency index |
@@ -271,7 +271,7 @@ graph-it tool analyze_dependencies --filePath=/abs/path/to/file.ts
 # Find all files importing a specific file
 graph-it tool find_referencing_files --targetPath=/abs/path/to/file.ts
 
-# Get all callers of a symbol
+# Get the call sites of a symbol (use get_symbol_dependents for every reference)
 graph-it tool get_symbol_callers --filePath=/abs/path/to/file.ts --symbolName=myFunction
 
 # Full impact analysis

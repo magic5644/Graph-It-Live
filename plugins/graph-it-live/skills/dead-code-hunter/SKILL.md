@@ -85,16 +85,18 @@ This returns a ranked list of dead symbols and ghost files in a single pass. **N
 `scan_dead_code` uses static analysis. A symbol may be called **dynamically** or **from outside the indexed workspace** (e.g. a published library). For high-confidence verification on specific candidates:
 
 ```bash
-# Who calls this symbol? (0 callers = confirmed dead)
-graph-it tool get_symbol_callers --filePath=<absolutePath> --symbolName=<symbol>
+# Who references this symbol? (0 dependents = confirmed dead)
+graph-it tool get_symbol_dependents --filePath=<absolutePath> --symbolName=<symbol>
 
 # Is this file imported by anything? (0 refs + not an entry point = ghost file)
 graph-it tool find_referencing_files --targetPath=<absolutePath>
 ```
 
-- **0 callers** → confirmed dead code candidate
-- **1+ callers** → false positive, discard
-- **Only test-file callers** → flag as "test-only symbol", handle separately
+- **0 dependents** → confirmed dead code candidate
+- **1+ dependents** → false positive, discard
+- **Only test-file dependents** → flag as "test-only symbol", handle separately
+
+Do not use `get_symbol_callers` for this check: it returns call sites only, so a symbol passed as a callback, re-exported, or used as a type reports 0 callers while still in use.
 
 A ghost file may contain multiple symbols — mark the entire file for deletion rather than symbol-by-symbol.
 
