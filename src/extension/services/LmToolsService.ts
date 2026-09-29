@@ -53,6 +53,7 @@ type GraphContextInput = GraphContextParams;
 interface GetSymbolCallersInput {
   filePath: string;
   symbolName: string;
+  includeTypeOnly?: boolean;
 }
 
 interface GetImpactAnalysisInput {
@@ -145,6 +146,19 @@ function toRelativePath(absolutePath: string, workspaceRoot: string): string {
 function stripFilePrefix(symbolId: string): string {
   const idx = symbolId.lastIndexOf(':');
   return idx >= 0 ? symbolId.slice(idx + 1) : symbolId;
+}
+
+function symbolFilePath(symbolId: string): string {
+  const idx = symbolId.lastIndexOf(':');
+  return idx > 0 ? symbolId.slice(0, idx) : symbolId;
+}
+
+interface LmCallerInfo {
+  callerSymbolId: string;
+  callerFilePath: string;
+  callerRelativePath: string;
+  line: number | null;
+  isTypeOnly: boolean;
 }
 
 // ─── Service ─────────────────────────────────────────────────────────────────
@@ -513,25 +527,25 @@ export class LmToolsService {
           if (!spider) {
             return this.errorResult('No workspace open or dependency index not initialized.');
           }
-          const { symbolName } = options.input;
+          const { symbolName, includeTypeOnly = false } = options.input;
           const filePath = this.resolveWorkspacePath(options.input.filePath);
           const rootDir = this.getWorkspaceRoot();
           try {
-            const dependents = await spider.getSymbolDependents(filePath, symbolName);
+            const fromCallGraph = await this.collectCallersFromCallGraph(filePath, symbolName, includeTypeOnly, rootDir);
+            const callers = fromCallGraph
+              ?? this.collectCallersFromDependents(await spider.getSymbolDependents(filePath, symbolName), includeTypeOnly, rootDir);
+            const typeOnlyCallerCount = callers.filter((c) => c.isTypeOnly).length;
             return new vscode.LanguageModelToolResult([
               new vscode.LanguageModelTextPart(
                 JSON.stringify({
                   filePath,
                   symbolName,
-                  callerCount: dependents.length,
-                  callers: dependents.map((dep) => ({
-                    sourceSymbolId: dep.sourceSymbolId,
-                    targetSymbolId: dep.targetSymbolId,
-                    targetFilePath: dep.targetFilePath,
-                    targetRelativePath: rootDir
-                      ? toRelativePath(dep.targetFilePath, rootDir)
-                      : dep.targetFilePath,
-                  })),
+                  source: fromCallGraph ? 'call-graph' : 'symbol-dependents',
+                  callerCount: callers.length,
+                  runtimeCallerCount: callers.length - typeOnlyCallerCount,
+                  typeOnlyCallerCount,
+                  callers,
+                  callerFiles: [...new Set(callers.map((c) => c.callerFilePath))],
                 }),
               ),
             ]);
@@ -543,17 +557,91 @@ export class LmToolsService {
     );
   }
 
+  /**
+   * Call sites from the call graph (CALLS edges; USES only when requested).
+   * Returns null when the call graph index is not built — it only exists once the Call Graph panel was opened.
+   */
+  private async collectCallersFromCallGraph(
+    filePath: string,
+    symbolName: string,
+    includeTypeOnly: boolean,
+    rootDir: string | undefined,
+  ): Promise<LmCallerInfo[] | null> {
+    const indexer = this.provider.getCallGraphViewServiceForLmTools()?.getCallGraphIndexerForLmTools();
+    if (!indexer) return null;
+
+    const { normalizePath } = await import('../../shared/path.js');
+    const db = indexer.getDb();
+    const symbolRows = db.exec('SELECT id FROM nodes WHERE path = ? AND name = ?', [normalizePath(filePath), symbolName]);
+    const symbolId = symbolRows[0]?.values[0]?.[0] as string | undefined;
+    if (!symbolId) return [];
+
+    const edges = this.callGraphBfs(db, symbolId, 'callers', 1, includeTypeOnly ? ['CALLS', 'USES'] : ['CALLS']) as Array<{
+      relation: string; sourceLine: number; sourceName: string; sourceFile: string;
+    }>;
+
+    // One entry per caller symbol: its first call site, runtime if any edge is a CALLS.
+    const byCaller = new Map<string, LmCallerInfo>();
+    for (const edge of edges) {
+      const callerSymbolId = `${edge.sourceFile}:${edge.sourceName}`;
+      const isTypeOnly = edge.relation === 'USES';
+      const existing = byCaller.get(callerSymbolId);
+      if (!existing) {
+        byCaller.set(callerSymbolId, {
+          callerSymbolId,
+          callerFilePath: edge.sourceFile,
+          callerRelativePath: rootDir ? toRelativePath(edge.sourceFile, rootDir) : edge.sourceFile,
+          line: edge.sourceLine,
+          isTypeOnly,
+        });
+      } else if (existing.isTypeOnly && !isTypeOnly) {
+        byCaller.set(callerSymbolId, { ...existing, line: edge.sourceLine, isTypeOnly: false });
+      }
+    }
+    return [...byCaller.values()];
+  }
+
+  /**
+   * Fallback when the call graph is not indexed: symbol-level dependents,
+   * without file-level imports and, unless requested, without type-only references.
+   * ponytail: references (e.g. a function passed as a callback) count as callers here; exact parity needs the shared index (#173).
+   */
+  private collectCallersFromDependents(
+    dependents: Array<{ sourceSymbolId: string; isTypeOnly?: boolean }>,
+    includeTypeOnly: boolean,
+    rootDir: string | undefined,
+  ): LmCallerInfo[] {
+    const byCaller = new Map<string, LmCallerInfo>();
+    for (const dep of dependents) {
+      const isTypeOnly = dep.isTypeOnly === true;
+      if (dep.sourceSymbolId.endsWith(':(file)') || (isTypeOnly && !includeTypeOnly)) continue;
+      const existing = byCaller.get(dep.sourceSymbolId);
+      if (existing && (existing.isTypeOnly === false || isTypeOnly)) continue;
+      const callerFilePath = symbolFilePath(dep.sourceSymbolId);
+      byCaller.set(dep.sourceSymbolId, {
+        callerSymbolId: dep.sourceSymbolId,
+        callerFilePath,
+        callerRelativePath: rootDir ? toRelativePath(callerFilePath, rootDir) : callerFilePath,
+        line: null,
+        isTypeOnly,
+      });
+    }
+    return [...byCaller.values()];
+  }
+
   // ─── Tool: get_impact_analysis ────────────────────────────────────────────
 
   private buildImpactItem(
     dep: { sourceSymbolId: string; targetFilePath: string; isTypeOnly?: boolean },
     depth: number,
     rootDir: string | undefined,
-  ): { symbolId: string; targetFilePath: string; relativePath: string; usageType: 'runtime' | 'type-only'; depth: number } {
+  ): { symbolId: string; filePath: string; relativePath: string; usageType: 'runtime' | 'type-only'; depth: number } {
+    // The impacted item is the caller: dep.targetFilePath is the file being changed.
+    const callerFilePath = symbolFilePath(dep.sourceSymbolId);
     return {
       symbolId: dep.sourceSymbolId,
-      targetFilePath: dep.targetFilePath,
-      relativePath: rootDir ? toRelativePath(dep.targetFilePath, rootDir) : dep.targetFilePath,
+      filePath: callerFilePath,
+      relativePath: rootDir ? toRelativePath(callerFilePath, rootDir) : callerFilePath,
       usageType: dep.isTypeOnly ? 'type-only' : 'runtime',
       depth,
     };
@@ -640,7 +728,7 @@ export class LmToolsService {
             }
 
             const runtimeCount = impactedItems.filter((i) => i.usageType === 'runtime').length;
-            const affectedFiles = new Set(impactedItems.map((i) => i.targetFilePath));
+            const affectedFiles = new Set(impactedItems.map((i) => i.filePath));
 
             return new vscode.LanguageModelToolResult([
               new vscode.LanguageModelTextPart(
@@ -652,6 +740,7 @@ export class LmToolsService {
                   totalImpactCount: impactedItems.length,
                   directCount: impactedItems.filter((i) => i.depth === 1).length,
                   affectedFileCount: affectedFiles.size,
+                  affectedFiles: [...affectedFiles],
                   runtimeCount,
                   typeOnlyCount: impactedItems.filter((i) => i.usageType === 'type-only').length,
                   impactedItems,

@@ -758,7 +758,7 @@
         "displayName": "Graph-It-Live: Get Symbol Callers",
         "icon": "$(call-incoming)",
         "userDescription": "Find all symbols across the project that call or use a given exported symbol",
-        "modelDescription": "WHEN: you need to know which symbols (functions, classes) use or call a specific exported symbol. WHY: finding all callers of a symbol across the project requires a reverse symbol index that cannot be built by reading individual files. WHAT: returns all symbols across the project that reference the given symbol, with file paths and symbol IDs.",
+        "modelDescription": "WHEN: you need the call sites of a specific symbol (\"who calls X\"). WHY: finding callers across the project requires the call graph index, which cannot be built by reading individual files. WHAT: returns one entry per caller symbol with the caller file, workspace-relative path and line of the first call. Type-only references are included only with includeTypeOnly. File-level imports are not callers: use graph-it-live_get_symbol_dependents for every reference. The source field says whether the call graph or the symbol dependents fallback was used (the call graph is available once the Call Graph panel has been opened; line is null in the fallback).",
         "inputSchema": {
           "type": "object",
           "properties": {
@@ -769,6 +769,10 @@
             "symbolName": {
               "type": "string",
               "description": "The name of the symbol to find callers for (e.g. 'MyClass', 'handleRequest')"
+            },
+            "includeTypeOnly": {
+              "type": "boolean",
+              "description": "Also include type-only references (interfaces, type aliases). Default is false: only call sites are returned."
             }
           },
           "required": [
