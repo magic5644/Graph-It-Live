@@ -1286,7 +1286,7 @@ server.registerTool(
 WHEN: changing a signature and needing every call site, or assessing the blast radius of a symbol-level change.
 WHY: re-reads the referencing files instead of a cached index, so it reflects edits the index has not absorbed yet.
 RETURNS: caller symbol id, file path and workspace-relative path per dependent, plus a total count.
-PICKING BETWEEN THE THREE: this one for fresh single-hop edges; graphitlive_get_symbol_callers for the fast indexed lookup with a runtime versus type-only split; graphitlive_query_call_graph for multi-hop traversal, callees, or relation types.`,
+PICKING BETWEEN THE THREE: this one for every reference, including file-level imports, computed fresh; graphitlive_get_symbol_callers for call sites only; graphitlive_query_call_graph for multi-hop traversal, callees, or relation types.`,
     inputSchema: GetSymbolDependentsParamsSchema.extend({
       response_format: ResponseFormatSchema.describe(
         "Output format: 'json', 'markdown', or 'toon' (Token-Oriented Object Notation for reduced token usage) (default: toon - RECOMMENDED for 30-60% token savings)",
@@ -1366,12 +1366,12 @@ server.registerTool(
   "graphitlive_get_symbol_callers",
   {
     title: "Get Symbol Callers (Reverse Dependencies)",
-    description: `Lists the symbols that call one given symbol - one hop, from a prebuilt reverse index.
+    description: `Lists the call sites of one given symbol - one hop, from the call graph index.
 
-WHEN: the plain question "who calls X" or "where is X used"; finding call sites before a rename; spotting a symbol with no callers.
-WHY: O(1) lookup in the symbol reverse index, and the only tool of the three that separates runtime calls from type-only references.
-RETURNS: caller file path, symbol name, line, and usage type (runtime or type-only), nearest first.
-PICKING BETWEEN THE THREE: this one for a single hop with the runtime/type-only split; graphitlive_get_symbol_dependents for a single hop computed fresh from source as dependency edges; graphitlive_query_call_graph when you need more than one hop, callees as well as callers, or relation types such as INHERITS and IMPLEMENTS.`,
+WHEN: the plain question "who calls X"; finding call sites before a rename; spotting a symbol with no callers.
+WHY: reads CALLS edges from the indexed call graph, so it returns only symbols that call X. File-level imports and other references are not callers; use graphitlive_get_symbol_dependents for those.
+RETURNS: one entry per caller symbol with file path, workspace-relative path, line of the first call and usage type. Type-only references are added only with includeTypeOnly.
+PICKING BETWEEN THE THREE: this one for call sites; graphitlive_get_symbol_dependents for every reference (imports included) computed fresh from source; graphitlive_query_call_graph when you need more than one hop, callees as well as callers, or relation types such as INHERITS and IMPLEMENTS.`,
     inputSchema: GetSymbolCallersParamsSchema.extend({
       response_format: ResponseFormatSchema.describe(
         "Output format: 'json', 'markdown', or 'toon' (Token-Oriented Object Notation for reduced token usage) (default: toon - RECOMMENDED for 30-60% token savings)",
