@@ -2,6 +2,7 @@ import { describe, it, expect, beforeAll } from 'vitest';
 import * as path from 'node:path';
 import { Spider } from '../../src/analyzer/Spider';
 import { SpiderBuilder } from '../../src/analyzer/SpiderBuilder';
+import { normalizePath } from '../../src/shared/path';
 
 describe('Spider - Trace Function Execution', () => {
   const fixturesDir = path.join(__dirname, '../fixtures/trace');
@@ -84,6 +85,58 @@ describe('Spider - Trace Function Execution', () => {
     // Each visited symbol should appear only once in visitedSymbols
     const uniqueVisited = new Set(trace.visitedSymbols);
     expect(uniqueVisited.size).toBe(trace.visitedSymbols.length);
+  });
+
+  describe('resolved target symbol ids', () => {
+    const resolvedDir = path.join(__dirname, '../fixtures/trace-resolved');
+    const entryPath = path.join(resolvedDir, 'entry.ts');
+    const helperId = `${normalizePath(path.join(resolvedDir, 'helper.ts'))}:helper`;
+    const leafId = `${normalizePath(path.join(resolvedDir, 'leaf.ts'))}:leaf`;
+    let resolvedSpider: Spider;
+
+    beforeAll(async () => {
+      resolvedSpider = new SpiderBuilder().withRootDir(resolvedDir).withReverseIndex(true).build();
+      await resolvedSpider.buildFullIndex();
+    });
+
+    it('uses the resolved file path in target symbol ids, not the import specifier', async () => {
+      const { dependencies } = await resolvedSpider.getSymbolGraph(entryPath);
+      const targetIds = dependencies.map((d) => d.targetSymbolId);
+
+      expect(targetIds).toContain(helperId);
+      expect(targetIds.some((id) => id.startsWith('./'))).toBe(false);
+    });
+
+    it('keeps the original id when the specifier cannot be resolved', async () => {
+      const { dependencies } = await resolvedSpider.getSymbolGraph(entryPath);
+
+      expect(dependencies.map((d) => d.targetSymbolId)).toContain('external-pkg:external');
+    });
+
+    it('recurses into resolved files beyond depth 1', async () => {
+      const trace = await resolvedSpider.traceFunctionExecution(entryPath, 'main', 5);
+      const helperCall = trace.callChain.find((c) => c.calledSymbolId === helperId);
+      const leafCall = trace.callChain.find((c) => c.calledSymbolId === leafId);
+
+      expect(helperCall).toMatchObject({ depth: 1, resolvedFilePath: normalizePath(path.join(resolvedDir, 'helper.ts')) });
+      expect(leafCall).toMatchObject({ depth: 2, callerSymbolId: `${normalizePath(path.join(resolvedDir, 'helper.ts'))}:helper` });
+      expect(trace.visitedSymbols).toContain(leafId);
+    });
+
+    it('collapses repeated calls and skips type-only references', async () => {
+      const trace = await resolvedSpider.traceFunctionExecution(entryPath, 'main', 5);
+
+      expect(trace.callChain.filter((c) => c.calledSymbolId === helperId)).toHaveLength(1);
+      expect(trace.callChain.some((c) => c.calledSymbolId.endsWith(':Options'))).toBe(false);
+    });
+
+    it('does not recurse into unresolved external packages', async () => {
+      const trace = await resolvedSpider.traceFunctionExecution(entryPath, 'main', 5);
+      const externalCall = trace.callChain.find((c) => c.calledSymbolId === 'external-pkg:external');
+
+      expect(externalCall?.resolvedFilePath).toBeNull();
+      expect(trace.visitedSymbols.some((id) => id.startsWith('external-pkg'))).toBe(false);
+    });
   });
 
   it('should trace formatter function which uses no external imports', async () => {

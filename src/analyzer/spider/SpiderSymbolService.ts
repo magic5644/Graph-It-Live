@@ -66,9 +66,12 @@ export class SpiderSymbolService {
             const analyzer = this.languageService.getAnalyzer(key);
             const resolved = await analyzer.resolvePath(key, dep.targetFilePath);
             if (resolved) {
+              const targetFilePath = normalizePath(resolved);
+              const symbolName = this.symbolDependencyHelper.extractSymbolName(dep.targetSymbolId);
               return {
                 ...dep,
-                targetFilePath: normalizePath(resolved),
+                targetFilePath,
+                targetSymbolId: this.symbolDependencyHelper.buildUsedSymbolId(targetFilePath, symbolName),
               };
             }
           } catch {
@@ -168,17 +171,30 @@ export class SpiderSymbolService {
         const currentSymbol = symbols.find((s) => s.name === currentSymbolName);
         if (!currentSymbol) return;
 
-        const symbolDeps = dependencies.filter((d) => d.sourceSymbolId === currentSymbol.id);
+        // Type-only references do not execute; repeated call sites add no new edge.
+        const seenTargets = new Set<string>();
+        const symbolDeps = dependencies.filter((d) => {
+          if (d.sourceSymbolId !== currentSymbol.id || d.isTypeOnly || seenTargets.has(d.targetSymbolId)) {
+            return false;
+          }
+          seenTargets.add(d.targetSymbolId);
+          return true;
+        });
 
         for (const dep of symbolDeps) {
           let resolvedFilePath: string | null = null;
-          try {
-            resolvedFilePath = await this.resolver.resolve(currentFilePath, dep.targetFilePath);
-          } catch {
-            // keep null
+          if (path.isAbsolute(dep.targetFilePath)) {
+            // getSymbolGraph already resolved it; re-resolving treats absolute paths as node_modules.
+            resolvedFilePath = dep.targetFilePath;
+          } else {
+            try {
+              resolvedFilePath = await this.resolver.resolve(currentFilePath, dep.targetFilePath);
+            } catch {
+              // keep null
+            }
           }
 
-          const targetSymbolName = dep.targetSymbolId.split(':').pop() || '';
+          const targetSymbolName = this.symbolDependencyHelper.extractSymbolName(dep.targetSymbolId);
 
           callChain.push({
             depth,
