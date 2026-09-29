@@ -108,7 +108,7 @@ export class FileChangeScheduler {
     for (const waiter of this.idleWaiters) waiter.reject(new Error('File updates were disposed.'));
     this.idleWaiters.clear();
     this.failures.clear();
-    await Promise.allSettled([...this.activeTasks]);
+    await Promise.allSettled(this.activeTasks);
     this.jobs.clear();
     this.failures.clear();
   }

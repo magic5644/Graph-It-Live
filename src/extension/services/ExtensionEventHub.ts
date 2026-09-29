@@ -211,7 +211,7 @@ export class ExtensionEventHub {
       this.fileSaveDebounceTimer = undefined;
     }
     while (this.activeOperations.size > 0) {
-      await Promise.allSettled([...this.activeOperations]);
+      await Promise.allSettled(this.activeOperations);
     }
   }
 

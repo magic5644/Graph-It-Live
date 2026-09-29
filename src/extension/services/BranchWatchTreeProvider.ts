@@ -68,7 +68,7 @@ export class BranchWatchTreeProvider implements vscode.TreeDataProvider<BranchWa
   getCopyText(): string {
     const label = (item: BranchWatchItem): string => {
       const value = typeof item.label === 'string' ? item.label : item.label?.label ?? '';
-      return `${value}${item.description ? ` · ${item.description}` : ''}`;
+      return item.description ? `${value} · ${item.description}` : value;
     };
     const visit = (items: BranchWatchItem[], level: number): string[] => items.flatMap(item => [
       `${'  '.repeat(level)}${label(item)}`,
@@ -91,7 +91,12 @@ export class BranchWatchTreeProvider implements vscode.TreeDataProvider<BranchWa
         const file = this.file(impact.path);
         const kind = snapshot.changes.find(change => change.path === impact.path)?.kind;
         const signatureCount = result.review.symbols.filter(symbol => symbol.filePath === impact.path).length;
-        file.description = `${kind ?? 'modified'} · ${impact.availability}${signatureCount ? ` · ${signatureCount} signature change${signatureCount === 1 ? '' : 's'}` : ''}`;
+        let signatureDescription = '';
+        if (signatureCount > 0) {
+          const pluralSuffix = signatureCount === 1 ? '' : 's';
+          signatureDescription = ` · ${signatureCount} signature change${pluralSuffix}`;
+        }
+        file.description = `${kind ?? 'modified'} · ${impact.availability}${signatureDescription}`;
         file.children = [
           ...impact.dependents.map(dependent => {
             const check = consumerCheck(result, dependent.path);
