@@ -586,11 +586,12 @@ describe('LmToolsService', () => {
       const dep = (source: string, targetFilePath: string, isTypeOnly = false) => ({
         sourceSymbolId: source, targetSymbolId: `${targetFilePath}:x`, targetFilePath, isTypeOnly,
       });
-      const getSymbolDependents = vi.fn(async (file: string, symbol: string) => {
-        if (file === '/workspace/src/a.ts' && symbol === 'helper') {
+      // Keyed on the symbol only: the root path goes through path.resolve, which is OS-specific.
+      const getSymbolDependents = vi.fn(async (_file: string, symbol: string) => {
+        if (symbol === 'helper') {
           return [dep('/workspace/src/b.ts:runB', '/workspace/src/a.ts'), dep('/workspace/src/t.ts:TypeT', '/workspace/src/a.ts', true)];
         }
-        if (file === '/workspace/src/b.ts' && symbol === 'runB') {
+        if (symbol === 'runB') {
           return [dep('/workspace/src/c.ts:runC', '/workspace/src/b.ts')];
         }
         return [];
@@ -608,6 +609,7 @@ describe('LmToolsService', () => {
       ]);
       expect(result.affectedFileCount).toBe(3);
       expect(result.affectedFiles).toEqual(['src/b.ts', 'src/t.ts', 'src/c.ts']);
+      expect(getSymbolDependents).toHaveBeenCalledWith('/workspace/src/b.ts', 'runB');
     });
 
     it('keeps drive-letter paths intact when deriving the caller file', async () => {
@@ -618,8 +620,11 @@ describe('LmToolsService', () => {
 
       const result = await invokeTool(TOOL, { filePath: '/workspace/src/a.ts', symbolName: 'helper' }) as Record<string, unknown>;
 
-      expect((result.impactedItems as Array<Record<string, unknown>>)[0].filePath).toBe('C:/repo/src/caller.ts');
-      expect(result.affectedFiles).toEqual(['C:/repo/src/caller.ts']);
+      // Outside the workspace the redaction is OS-specific (absolute on Windows only), so assert
+      // the invariant instead: the drive-letter colon must not be taken as the symbol separator.
+      const callerFile = (result.impactedItems as Array<Record<string, unknown>>)[0].filePath;
+      expect(callerFile).toMatch(/caller\.ts/);
+      expect(result.affectedFiles).toEqual([callerFile]);
     });
   });
 
