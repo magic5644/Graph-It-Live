@@ -475,6 +475,154 @@ describe('LmToolsService', () => {
 
   // ─── query_call_graph ─────────────────────────────────────────────────────
 
+  // LM tool results are redacted to workspace-relative paths before reaching the model.
+  describe('get_symbol_callers', () => {
+    const TOOL = 'graph-it-live_get_symbol_callers';
+    const edgeRow = (relation: string, line: number, name: string, file: string) =>
+      ['src', 'sym1', relation, 0, line, name, file, 'helper', '/workspace/src/a.ts'];
+
+    function callGraphService(callerRows: unknown[][]) {
+      const exec = vi.fn()
+        .mockReturnValueOnce([{ values: [['sym1']] }])
+        .mockReturnValueOnce([{ values: callerRows }]);
+      return {
+        exec,
+        service: { getCallGraphIndexerForLmTools: vi.fn().mockReturnValue({ getDb: () => ({ exec }) }) },
+      };
+    }
+
+    it('returns one runtime entry per caller symbol from CALLS edges when the call graph is indexed', async () => {
+      const { exec, service } = callGraphService([
+        edgeRow('CALLS', 12, 'runB', '/workspace/src/b.ts'),
+        edgeRow('CALLS', 30, 'runB', '/workspace/src/b.ts'),
+        edgeRow('CALLS', 4, 'runC', '/workspace/src/c.ts'),
+      ]);
+      const spider = { getSymbolDependents: vi.fn() };
+      new LmToolsService({ provider: createProvider({ spider, callGraphService: service }), logger }).registerAll();
+
+      const result = await invokeTool(TOOL, { filePath: '/workspace/src/a.ts', symbolName: 'helper' }) as Record<string, unknown>;
+
+      expect(exec.mock.calls[1][1]).toEqual(['sym1', 'CALLS']);
+      expect(spider.getSymbolDependents).not.toHaveBeenCalled();
+      expect(result).toMatchObject({ source: 'call-graph', callerCount: 2, runtimeCallerCount: 2, typeOnlyCallerCount: 0 });
+      expect(result.callers).toEqual([
+        { callerSymbolId: 'src/b.ts:runB', callerFilePath: 'src/b.ts', callerRelativePath: 'src/b.ts', line: 12, isTypeOnly: false },
+        { callerSymbolId: 'src/c.ts:runC', callerFilePath: 'src/c.ts', callerRelativePath: 'src/c.ts', line: 4, isTypeOnly: false },
+      ]);
+      expect(result.callerFiles).toEqual(['src/b.ts', 'src/c.ts']);
+    });
+
+    it('adds USES edges as type-only only when includeTypeOnly is set', async () => {
+      const { exec, service } = callGraphService([
+        edgeRow('USES', 2, 'runB', '/workspace/src/b.ts'),
+        edgeRow('CALLS', 9, 'runB', '/workspace/src/b.ts'),
+        edgeRow('USES', 3, 'Shape', '/workspace/src/types.ts'),
+      ]);
+      new LmToolsService({ provider: createProvider({ callGraphService: service }), logger }).registerAll();
+
+      const result = await invokeTool(TOOL, { filePath: '/workspace/src/a.ts', symbolName: 'helper', includeTypeOnly: true }) as Record<string, unknown>;
+
+      expect(exec.mock.calls[1][1]).toEqual(['sym1', 'CALLS', 'USES']);
+      expect((result.callers as Array<Record<string, unknown>>).map((c) => [c.callerSymbolId, c.line, c.isTypeOnly])).toEqual([
+        ['src/b.ts:runB', 9, false],
+        ['src/types.ts:Shape', 3, true],
+      ]);
+      expect(result).toMatchObject({ runtimeCallerCount: 1, typeOnlyCallerCount: 1 });
+    });
+
+    it('returns no callers when the symbol is not in the call graph', async () => {
+      const exec = vi.fn().mockReturnValue([]);
+      const service = { getCallGraphIndexerForLmTools: vi.fn().mockReturnValue({ getDb: () => ({ exec }) }) };
+      new LmToolsService({ provider: createProvider({ callGraphService: service }), logger }).registerAll();
+
+      const result = await invokeTool(TOOL, { filePath: '/workspace/src/a.ts', symbolName: 'helper' }) as Record<string, unknown>;
+
+      expect(result).toMatchObject({ source: 'call-graph', callerCount: 0, callers: [], callerFiles: [] });
+    });
+
+    it('falls back to symbol dependents without file-level or type-only entries', async () => {
+      const spider = {
+        getSymbolDependents: vi.fn().mockResolvedValue([
+          { sourceSymbolId: '/workspace/src/b.ts:runB', targetSymbolId: '/workspace/src/a.ts:helper', targetFilePath: '/workspace/src/a.ts' },
+          { sourceSymbolId: '/workspace/src/b.ts:runB', targetSymbolId: '/workspace/src/a.ts:helper', targetFilePath: '/workspace/src/a.ts' },
+          { sourceSymbolId: '/workspace/tests/a.test.ts:(file)', targetSymbolId: '/workspace/src/a.ts:helper', targetFilePath: '/workspace/src/a.ts' },
+          { sourceSymbolId: '/workspace/src/types.ts:Shape', targetSymbolId: '/workspace/src/a.ts:helper', targetFilePath: '/workspace/src/a.ts', isTypeOnly: true },
+        ]),
+      };
+      new LmToolsService({ provider: createProvider({ spider, callGraphService: null }), logger }).registerAll();
+
+      const result = await invokeTool(TOOL, { filePath: '/workspace/src/a.ts', symbolName: 'helper' }) as Record<string, unknown>;
+
+      expect(result).toMatchObject({ source: 'symbol-dependents', callerCount: 1 });
+      expect(result.callers).toEqual([
+        { callerSymbolId: 'src/b.ts:runB', callerFilePath: 'src/b.ts', callerRelativePath: 'src/b.ts', line: null, isTypeOnly: false },
+      ]);
+    });
+
+    it('keeps type-only dependents in the fallback when includeTypeOnly is set', async () => {
+      const spider = {
+        getSymbolDependents: vi.fn().mockResolvedValue([
+          { sourceSymbolId: '/workspace/src/types.ts:Shape', targetSymbolId: '/workspace/src/a.ts:helper', targetFilePath: '/workspace/src/a.ts', isTypeOnly: true },
+          { sourceSymbolId: '/workspace/src/b.ts:runB', targetSymbolId: '/workspace/src/a.ts:helper', targetFilePath: '/workspace/src/a.ts', isTypeOnly: true },
+          { sourceSymbolId: '/workspace/src/b.ts:runB', targetSymbolId: '/workspace/src/a.ts:helper', targetFilePath: '/workspace/src/a.ts' },
+        ]),
+      };
+      new LmToolsService({ provider: createProvider({ spider, callGraphService: null }), logger }).registerAll();
+
+      const result = await invokeTool(TOOL, { filePath: '/workspace/src/a.ts', symbolName: 'helper', includeTypeOnly: true }) as Record<string, unknown>;
+
+      expect((result.callers as Array<Record<string, unknown>>).map((c) => [c.callerSymbolId, c.isTypeOnly])).toEqual([
+        ['src/types.ts:Shape', true],
+        ['src/b.ts:runB', false],
+      ]);
+      expect(result).toMatchObject({ runtimeCallerCount: 1, typeOnlyCallerCount: 1 });
+    });
+  });
+
+  describe('get_impact_analysis', () => {
+    const TOOL = 'graph-it-live_get_impact_analysis';
+
+    it('reports caller files, not the changed file, for direct and transitive dependents', async () => {
+      const dep = (source: string, targetFilePath: string, isTypeOnly = false) => ({
+        sourceSymbolId: source, targetSymbolId: `${targetFilePath}:x`, targetFilePath, isTypeOnly,
+      });
+      const getSymbolDependents = vi.fn(async (file: string, symbol: string) => {
+        if (file === '/workspace/src/a.ts' && symbol === 'helper') {
+          return [dep('/workspace/src/b.ts:runB', '/workspace/src/a.ts'), dep('/workspace/src/t.ts:TypeT', '/workspace/src/a.ts', true)];
+        }
+        if (file === '/workspace/src/b.ts' && symbol === 'runB') {
+          return [dep('/workspace/src/c.ts:runC', '/workspace/src/b.ts')];
+        }
+        return [];
+      });
+      new LmToolsService({ provider: createProvider({ spider: { getSymbolDependents } }), logger }).registerAll();
+
+      const result = await invokeTool(TOOL, {
+        filePath: '/workspace/src/a.ts', symbolName: 'helper', includeTransitive: true, maxDepth: 3,
+      }) as Record<string, unknown>;
+
+      expect((result.impactedItems as Array<Record<string, unknown>>).map((i) => [i.symbolId, i.filePath, i.relativePath, i.depth, i.usageType])).toEqual([
+        ['src/b.ts:runB', 'src/b.ts', 'src/b.ts', 1, 'runtime'],
+        ['src/t.ts:TypeT', 'src/t.ts', 'src/t.ts', 1, 'type-only'],
+        ['src/c.ts:runC', 'src/c.ts', 'src/c.ts', 2, 'runtime'],
+      ]);
+      expect(result.affectedFileCount).toBe(3);
+      expect(result.affectedFiles).toEqual(['src/b.ts', 'src/t.ts', 'src/c.ts']);
+    });
+
+    it('keeps drive-letter paths intact when deriving the caller file', async () => {
+      const getSymbolDependents = vi.fn().mockResolvedValue([
+        { sourceSymbolId: 'C:/repo/src/caller.ts:run', targetSymbolId: '/workspace/src/a.ts:helper', targetFilePath: '/workspace/src/a.ts' },
+      ]);
+      new LmToolsService({ provider: createProvider({ spider: { getSymbolDependents } }), logger }).registerAll();
+
+      const result = await invokeTool(TOOL, { filePath: '/workspace/src/a.ts', symbolName: 'helper' }) as Record<string, unknown>;
+
+      expect((result.impactedItems as Array<Record<string, unknown>>)[0].filePath).toBe('C:/repo/src/caller.ts');
+      expect(result.affectedFiles).toEqual(['C:/repo/src/caller.ts']);
+    });
+  });
+
   describe('query_call_graph', () => {
     const TOOL = 'graph-it-live_query_call_graph';
 
