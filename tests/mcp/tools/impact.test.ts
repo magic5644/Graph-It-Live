@@ -81,14 +81,15 @@ describe("impact tools", () => {
   describe("executeGetImpactAnalysis", () => {
     it("should return impact summary for direct dependents", async () => {
       const filePath = await createTempFile(tempDir, "utils.ts", "");
-      const targetFile = path.join(tempDir, "consumer.ts");
+      const consumerFile = path.join(tempDir, "consumer.ts");
 
+      // Shape returned by Spider.getSymbolDependents: source = caller, target = changed symbol.
       const spiderMock = {
         getSymbolDependents: vi.fn(async () => [
           {
-            sourceSymbolId: `${filePath}:greet`,
-            targetSymbolId: `${targetFile}:useGreet`,
-            targetFilePath: targetFile,
+            sourceSymbolId: `${consumerFile}:useGreet`,
+            targetSymbolId: `${filePath}:greet`,
+            targetFilePath: filePath,
             isTypeOnly: false,
           },
         ]),
@@ -105,6 +106,66 @@ describe("impact tools", () => {
       expect(result.impactLevel).toBe("low");
       expect(result.targetSymbol.relativePath).toBe("utils.ts");
       expect(result.impactedItems[0].relativePath).toBe("consumer.ts");
+      expect(result.impactedItems[0].filePath).toBe(consumerFile);
+      expect(result.affectedFiles).toEqual([consumerFile]);
+    });
+
+    it("reports caller files, not the changed file, for direct and transitive dependents", async () => {
+      const filePath = await createTempFile(tempDir, "utils.ts", "");
+      const fileA = path.join(tempDir, "a.ts");
+      const fileB = path.join(tempDir, "b.ts");
+      const fileC = path.join(tempDir, "c.ts");
+      const dependency = (source: string, target: string, targetFilePath: string, isTypeOnly = false) => ({
+        sourceSymbolId: source,
+        targetSymbolId: target,
+        targetFilePath,
+        isTypeOnly,
+      });
+
+      const getSymbolDependents = vi.fn(async (file: string, symbol: string) => {
+        if (file === filePath && symbol === "greet") {
+          return [
+            dependency(`${fileA}:runA`, `${filePath}:greet`, filePath),
+            dependency(`${fileB}:TypeB`, `${filePath}:greet`, filePath, true),
+          ];
+        }
+        if (file === fileA && symbol === "runA") {
+          return [dependency(`${fileC}:runC`, `${fileA}:runA`, fileA)];
+        }
+        return [];
+      });
+      setupWorkerState({ getSymbolDependents });
+
+      const result = await executeGetImpactAnalysis({
+        filePath,
+        symbolName: "greet",
+        includeTransitive: true,
+        maxDepth: 3,
+      });
+
+      expect(result.impactedItems.map((item) => [item.symbolId, item.relativePath, item.depth, item.usageType])).toEqual([
+        [`${fileA}:runA`, "a.ts", 1, "runtime"],
+        [`${fileB}:TypeB`, "b.ts", 1, "type-only"],
+        [`${fileC}:runC`, "c.ts", 2, "runtime"],
+      ]);
+      expect(result.affectedFiles.toSorted()).toEqual([fileA, fileB, fileC].toSorted());
+      expect(result.affectedFiles).not.toContain(filePath);
+      expect(getSymbolDependents).toHaveBeenCalledWith(fileA, "runA");
+    });
+
+    it("keeps drive-letter paths intact when deriving the caller file", async () => {
+      const filePath = await createTempFile(tempDir, "utils.ts", "");
+      const windowsCaller = "C:/repo/src/caller.ts";
+      setupWorkerState({
+        getSymbolDependents: vi.fn(async () => [
+          { sourceSymbolId: `${windowsCaller}:run`, targetSymbolId: `${filePath}:greet`, targetFilePath: filePath },
+        ]),
+      });
+
+      const result = await executeGetImpactAnalysis({ filePath, symbolName: "greet" });
+
+      expect(result.impactedItems[0].filePath).toBe(windowsCaller);
+      expect(result.affectedFiles).toEqual([windowsCaller]);
     });
   });
 

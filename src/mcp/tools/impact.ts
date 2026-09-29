@@ -125,10 +125,12 @@ function createImpactedItem(
   depth: number,
   rootDir: string,
 ): ImpactedItem {
+  // The impacted item is the caller: dep.targetFilePath is the file being changed.
+  const callerFilePath = parseSymbolId(dep.sourceSymbolId)?.filePath ?? dep.sourceSymbolId;
   return {
     symbolId: dep.sourceSymbolId,
-    filePath: dep.targetFilePath,
-    relativePath: getRelativePath(dep.targetFilePath, rootDir),
+    filePath: callerFilePath,
+    relativePath: getRelativePath(callerFilePath, rootDir),
     usageType: dep.isTypeOnly ? "type-only" : "runtime",
     depth,
   };
@@ -203,9 +205,10 @@ function processTransitiveDependent(
 ): void {
   if (ctx.visitedSymbols.has(dep.sourceSymbolId)) return;
 
-  ctx.impactedItems.push(createImpactedItem(dep, depth, ctx.rootDir));
+  const item = createImpactedItem(dep, depth, ctx.rootDir);
+  ctx.impactedItems.push(item);
   ctx.visitedSymbols.add(dep.sourceSymbolId);
-  ctx.affectedFilesSet.add(dep.targetFilePath);
+  ctx.affectedFilesSet.add(item.filePath);
 
   if (depth < ctx.maxDepth) {
     ctx.queue.push({ symbolId: dep.sourceSymbolId, depth: depth + 1 });
@@ -328,9 +331,10 @@ export async function executeGetImpactAnalysis(
   );
 
   for (const dep of directDependents) {
-    impactedItems.push(createImpactedItem(dep, 1, config.rootDir));
+    const item = createImpactedItem(dep, 1, config.rootDir);
+    impactedItems.push(item);
     visitedSymbols.add(dep.sourceSymbolId);
-    affectedFilesSet.add(dep.targetFilePath);
+    affectedFilesSet.add(item.filePath);
   }
 
   // Get transitive dependents if requested
