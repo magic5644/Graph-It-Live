@@ -134,6 +134,15 @@ export class Calculator {
       expect(symbolNames).toContain("calculate");
       expect(symbolNames).toContain("helper");
       expect(symbolNames).toContain("Calculator");
+
+      // Kinds, ranges and call-site lines come from the AST (issue #154)
+      const byName = new Map(result.graph.nodes.map(n => [n.name, n]));
+      expect(byName.get("calculate")).toMatchObject({ kind: 12, type: "function", range: { start: 1, end: 3 } });
+      expect(byName.get("helper")).toMatchObject({ kind: 12, type: "function", range: { start: 5, end: 7 } });
+      expect(byName.get("Calculator")).toMatchObject({ kind: 5, type: "class", range: { start: 9, end: 13 } });
+      expect(byName.get("Calculator.multiply")).toMatchObject({ kind: 6, type: "function", range: { start: 10, end: 12 } });
+      const call = result.graph.edges.find(e => e.source.endsWith(":calculate") && e.target.endsWith(":helper"));
+      expect(call?.line).toBe(2);
     });
 
     it("should return TOON format by default", async () => {
@@ -191,6 +200,42 @@ class Calculator:
       // Python analysis should detect functions and classes
       const symbolNames = result.graph.nodes.map(n => n.name);
       expect(symbolNames.length).toBeGreaterThan(0);
+
+      const byName = new Map(result.graph.nodes.map(n => [n.name, n]));
+      expect(byName.get("calculate")).toMatchObject({ kind: 12, type: "function", range: { start: 1, end: 2 } });
+      expect(byName.get("Calculator")).toMatchObject({ kind: 5, type: "class", range: { start: 7, end: 9 } });
+      const call = result.graph.edges.find(e => e.source.endsWith(":calculate") && e.target.endsWith(":helper"));
+      expect(call?.line).toBe(2);
+    });
+  });
+
+  describe("Rust file analysis", () => {
+    it("should report Rust kinds, ranges and call-site lines", async () => {
+      const rsFile = path.join(tempDir, "example.rs");
+      await fs.writeFile(
+        rsFile,
+        `fn calculate(x: i32) -> i32 {
+    helper(x) * 2
+}
+
+fn helper(n: i32) -> i32 {
+    n + 1
+}
+
+struct Point {
+    x: i32,
+}
+`,
+      );
+
+      const result = await invokeAnalyze(mcpWorker, { filePath: rsFile, format: "json" });
+
+      expect(result.language).toBe("rust");
+      const byName = new Map(result.graph.nodes.map(n => [n.name, n]));
+      expect(byName.get("calculate")).toMatchObject({ kind: 12, type: "function", range: { start: 1, end: 3 } });
+      expect(byName.get("Point")).toMatchObject({ kind: 5, type: "class", range: { start: 9, end: 11 } });
+      const call = result.graph.edges.find(e => e.source.endsWith(":calculate") && e.target.endsWith(":helper"));
+      expect(call?.line).toBe(2);
     });
   });
 

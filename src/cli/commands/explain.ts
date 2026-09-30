@@ -1,7 +1,7 @@
 /**
  * CLI Command: explain
  *
- * Explains the logic of a file using LSP-based intra-file call hierarchy.
+ * Explains the logic of a file using its AST-based intra-file call hierarchy.
  *
  * CRITICAL ARCHITECTURE RULE: This module is completely VS Code agnostic!
  */

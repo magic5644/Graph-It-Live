@@ -9,6 +9,14 @@ import {
 import { FileReader } from "./FileReader";
 import { ISymbolAnalyzer, SymbolDependency, SymbolInfo } from "./types";
 
+/** A symbol referenced from a declaration, with the line where it is used */
+type UsedSymbol = {
+  symbolId: string;
+  filePath: string;
+  isTypeOnly: boolean;
+  line?: number;
+};
+
 /** Map ts-morph kind names to category */
 function getCategory(
   kind: string,
@@ -176,6 +184,7 @@ export class SymbolAnalyzer implements ISymbolAnalyzer {
         name,
         decl.getKindName(),
         decl.getStartLineNumber(),
+        decl.getEndLineNumber(),
         filePath,
         true,
       );
@@ -239,6 +248,7 @@ export class SymbolAnalyzer implements ISymbolAnalyzer {
           varName,
           "VariableDeclaration",
           varDecl.getStartLineNumber(),
+          varDecl.getEndLineNumber(),
           filePath,
           false,
         );
@@ -265,6 +275,7 @@ export class SymbolAnalyzer implements ISymbolAnalyzer {
       declarationInfo.name,
       declarationInfo.kind,
       statement.getStartLineNumber(),
+      statement.getEndLineNumber(),
       filePath,
       false,
     );
@@ -318,6 +329,7 @@ export class SymbolAnalyzer implements ISymbolAnalyzer {
     name: string,
     kind: string,
     line: number,
+    endLine: number,
     filePath: string,
     isExported: boolean,
   ): void {
@@ -325,6 +337,7 @@ export class SymbolAnalyzer implements ISymbolAnalyzer {
       name,
       kind,
       line,
+      endLine,
       isExported,
       id: `${filePath}:${name}`,
       category: getCategory(kind),
@@ -347,6 +360,7 @@ export class SymbolAnalyzer implements ISymbolAnalyzer {
           sourceSymbolId: symbolId,
           targetSymbolId: usedSymbol.symbolId,
           targetFilePath: usedSymbol.filePath,
+          line: usedSymbol.line,
           isTypeOnly: usedSymbol.isTypeOnly,
         });
       }
@@ -522,8 +536,8 @@ export class SymbolAnalyzer implements ISymbolAnalyzer {
   private extractIntraFileCalls(
     node: Node,
     sourceFile: SourceFile
-  ): Array<{ symbolId: string; filePath: string; isTypeOnly: boolean }> {
-    const calls: Array<{ symbolId: string; filePath: string; isTypeOnly: boolean }> = [];
+  ): Array<UsedSymbol> {
+    const calls: Array<UsedSymbol> = [];
     const filePath = sourceFile.getFilePath();
 
     // Get all top-level function names in this file
@@ -569,7 +583,7 @@ export class SymbolAnalyzer implements ISymbolAnalyzer {
     callExpr: Node,
     functionNames: Set<string>,
     filePath: string,
-    calls: Array<{ symbolId: string; filePath: string; isTypeOnly: boolean }>
+    calls: Array<UsedSymbol>
   ): void {
     if (!Node.isCallExpression(callExpr)) return;
 
@@ -594,14 +608,15 @@ export class SymbolAnalyzer implements ISymbolAnalyzer {
     expression: Node,
     functionNames: Set<string>,
     filePath: string,
-    calls: Array<{ symbolId: string; filePath: string; isTypeOnly: boolean }>
+    calls: Array<UsedSymbol>
   ): void {
     const calledName = expression.getText();
     if (functionNames.has(calledName)) {
       calls.push({
         symbolId: `${filePath}:${calledName}`,
         filePath,
-        isTypeOnly: false
+        isTypeOnly: false,
+        line: expression.getStartLineNumber(),
       });
     }
   }
@@ -613,7 +628,7 @@ export class SymbolAnalyzer implements ISymbolAnalyzer {
     expression: Node,
     functionNames: Set<string>,
     filePath: string,
-    calls: Array<{ symbolId: string; filePath: string; isTypeOnly: boolean }>
+    calls: Array<UsedSymbol>
   ): void {
     if (Node.isPropertyAccessExpression(expression)) {
       const methodName = expression.getName();
@@ -621,7 +636,8 @@ export class SymbolAnalyzer implements ISymbolAnalyzer {
         calls.push({
           symbolId: `${filePath}:${methodName}`,
           filePath,
-          isTypeOnly: false
+          isTypeOnly: false,
+          line: expression.getStartLineNumber(),
         });
       }
     }
@@ -639,11 +655,11 @@ export class SymbolAnalyzer implements ISymbolAnalyzer {
     >,
   ): Record<
     string,
-    Array<{ symbolId: string; filePath: string; isTypeOnly: boolean }>
+    Array<UsedSymbol>
   > {
     const usage: Record<
       string,
-      Array<{ symbolId: string; filePath: string; isTypeOnly: boolean }>
+      Array<UsedSymbol>
     > = {};
     const filePath = sourceFile.getFilePath();
 
@@ -671,11 +687,7 @@ export class SymbolAnalyzer implements ISymbolAnalyzer {
 
     // New: Scan top-level statements for usage (expressions, export assignments, etc.)
     const statements = sourceFile.getStatements();
-    const fileScopeUsages: Array<{
-      symbolId: string;
-      filePath: string;
-      isTypeOnly: boolean;
-    }> = [];
+    const fileScopeUsages: Array<UsedSymbol> = [];
 
     for (const stmt of statements) {
       // Skip declarations we already processed
@@ -721,12 +733,8 @@ export class SymbolAnalyzer implements ISymbolAnalyzer {
       string,
       { originalName: string; modulePath: string; isType: boolean }
     >,
-  ): Array<{ symbolId: string; filePath: string; isTypeOnly: boolean }> {
-    const dependencies: Array<{
-      symbolId: string;
-      filePath: string;
-      isTypeOnly: boolean;
-    }> = [];
+  ): Array<UsedSymbol> {
+    const dependencies: Array<UsedSymbol> = [];
 
     // Extract dependencies from static imports
     this.extractStaticImportDependencies(node, importMap, dependencies);
@@ -746,11 +754,7 @@ export class SymbolAnalyzer implements ISymbolAnalyzer {
       string,
       { originalName: string; modulePath: string; isType: boolean }
     >,
-    dependencies: Array<{
-      symbolId: string;
-      filePath: string;
-      isTypeOnly: boolean;
-    }>,
+    dependencies: Array<UsedSymbol>,
   ): void {
     const identifiers = node.getDescendantsOfKind(SyntaxKind.Identifier);
 
@@ -765,6 +769,7 @@ export class SymbolAnalyzer implements ISymbolAnalyzer {
           symbolId: targetSymbolId,
           filePath: importInfo.modulePath,
           isTypeOnly: importInfo.isType,
+          line: identifier.getStartLineNumber(),
         });
       }
     }
@@ -775,11 +780,7 @@ export class SymbolAnalyzer implements ISymbolAnalyzer {
    */
   private extractDynamicImportDependencies(
     node: Node,
-    dependencies: Array<{
-      symbolId: string;
-      filePath: string;
-      isTypeOnly: boolean;
-    }>,
+    dependencies: Array<UsedSymbol>,
   ): void {
     const callExpressions = node.getDescendantsOfKind(
       SyntaxKind.CallExpression,
@@ -796,6 +797,7 @@ export class SymbolAnalyzer implements ISymbolAnalyzer {
           symbolId: targetSymbolId,
           filePath: modulePath,
           isTypeOnly: false,
+          line: callExpr.getStartLineNumber(),
         });
       }
     }
@@ -872,6 +874,7 @@ export class SymbolAnalyzer implements ISymbolAnalyzer {
         name: fullName,
         kind: memberKindForCategory,
         line: member.getStartLineNumber(),
+        endLine: member.getEndLineNumber(),
         isExported: false, // Methods are not directly exported
         id: `${filePath}:${fullName}`,
         parentSymbolId,
@@ -904,6 +907,7 @@ export class SymbolAnalyzer implements ISymbolAnalyzer {
         name,
         kind,
         line: decl.getStartLineNumber(),
+        endLine: decl.getEndLineNumber(),
         isExported: true,
         id: `${filePath}:${name}`,
         category: getCategory(kind),

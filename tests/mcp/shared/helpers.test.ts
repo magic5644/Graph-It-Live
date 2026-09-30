@@ -462,10 +462,29 @@ describe("MCP Worker Helpers", () => {
   });
 
   describe("mapKindToLspNumber", () => {
-    it("should map function/method to 12", () => {
+    it("should map functions to 12 and methods to 6", () => {
       expect(mapKindToLspNumber("function")).toBe(12);
-      expect(mapKindToLspNumber("method")).toBe(12);
       expect(mapKindToLspNumber("FUNCTION")).toBe(12); // Case insensitive
+      expect(mapKindToLspNumber("method")).toBe(6);
+    });
+
+    it("should map the AST kind names emitted by Spider", () => {
+      expect(mapKindToLspNumber("FunctionDeclaration")).toBe(12);
+      expect(mapKindToLspNumber("AsyncFunction")).toBe(12);
+      expect(mapKindToLspNumber("ArrowFunction")).toBe(12);
+      expect(mapKindToLspNumber("MethodDeclaration")).toBe(6);
+      expect(mapKindToLspNumber("StaticMethodDeclaration")).toBe(6);
+      expect(mapKindToLspNumber("GetAccessor")).toBe(6);
+      expect(mapKindToLspNumber("SetAccessor")).toBe(6);
+      expect(mapKindToLspNumber("Constructor")).toBe(9);
+      expect(mapKindToLspNumber("ClassDeclaration")).toBe(5);
+      expect(mapKindToLspNumber("StructDeclaration")).toBe(5);
+      expect(mapKindToLspNumber("InterfaceDeclaration")).toBe(11);
+      expect(mapKindToLspNumber("TypeAliasDeclaration")).toBe(11);
+      expect(mapKindToLspNumber("EnumDeclaration")).toBe(10);
+      expect(mapKindToLspNumber("PropertyDeclaration")).toBe(7);
+      expect(mapKindToLspNumber("StaticPropertyDeclaration")).toBe(7);
+      expect(mapKindToLspNumber("VariableDeclaration")).toBe(13);
     });
 
     it("should map class to 5", () => {
@@ -473,9 +492,9 @@ describe("MCP Worker Helpers", () => {
       expect(mapKindToLspNumber("CLASS")).toBe(5);
     });
 
-    it("should map variable/property to 13", () => {
+    it("should map variables to 13 and properties to 7", () => {
       expect(mapKindToLspNumber("variable")).toBe(13);
-      expect(mapKindToLspNumber("property")).toBe(13);
+      expect(mapKindToLspNumber("property")).toBe(7);
     });
 
     it("should map interface to 11", () => {
@@ -514,6 +533,45 @@ describe("MCP Worker Helpers", () => {
 
       expect(result.callHierarchyItems.size).toBe(2);
       expect(result.outgoingCalls.get(`${normalizedFilePath}:myFunction`)).toHaveLength(1);
+    });
+
+    it("should use end lines, call-site lines and the target symbol range", () => {
+      const symbolGraphData = {
+        symbols: [
+          { name: "caller", kind: "FunctionDeclaration", line: 3, endLine: 9 },
+          { name: "callee", kind: "FunctionDeclaration", line: 11, endLine: 14 },
+        ],
+        dependencies: [
+          { sourceSymbolId: "/test/file.ts:caller", targetSymbolId: "/test/file.ts:callee", line: 7 },
+        ],
+      };
+
+      const result = convertSpiderToLspFormat(symbolGraphData, "/test/file.ts");
+      const normalizedFilePath = normalizePath("/test/file.ts");
+
+      expect(result.symbols[0].range).toEqual({ start: 3, end: 9 });
+      const calls = result.outgoingCalls.get(`${normalizedFilePath}:caller`);
+      expect(calls?.[0].fromRanges).toEqual([{ start: 7, end: 7 }]);
+      expect(calls?.[0].to.kind).toBe(12);
+      expect(calls?.[0].to.range).toEqual({ start: 11, end: 14 });
+    });
+
+    it("should fall back to line 0 and the Function kind when call data is missing", () => {
+      const symbolGraphData = {
+        symbols: [{ name: "caller", kind: "FunctionDeclaration", line: 3 }],
+        dependencies: [
+          { sourceSymbolId: "/test/file.ts:caller", targetSymbolId: "/other.ts:external" },
+        ],
+      };
+
+      const result = convertSpiderToLspFormat(symbolGraphData, "/test/file.ts");
+      const normalizedFilePath = normalizePath("/test/file.ts");
+
+      expect(result.symbols[0].range).toEqual({ start: 3, end: 3 });
+      const calls = result.outgoingCalls.get(`${normalizedFilePath}:caller`);
+      expect(calls?.[0].fromRanges).toEqual([{ start: 0, end: 0 }]);
+      expect(calls?.[0].to.kind).toBe(12);
+      expect(calls?.[0].to.range).toEqual({ start: 0, end: 0 });
     });
 
     it("should handle symbol IDs with colon separator", () => {

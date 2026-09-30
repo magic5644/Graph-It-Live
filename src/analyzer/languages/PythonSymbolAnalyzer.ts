@@ -250,6 +250,7 @@ export class PythonSymbolAnalyzer implements ISymbolAnalyzer {
       name,
       kind: isAsync ? 'AsyncFunction' : 'FunctionDeclaration',
       line: nameNode.startPosition.row + 1,
+      endLine: node.endPosition.row + 1,
       isExported: this.isExported(node, content),
       id: symbolId,
       parentSymbolId,
@@ -278,6 +279,7 @@ export class PythonSymbolAnalyzer implements ISymbolAnalyzer {
       name,
       kind: 'ClassDeclaration',
       line: nameNode.startPosition.row + 1,
+      endLine: node.endPosition.row + 1,
       isExported: this.isExported(node, content),
       id: symbolId,
       parentSymbolId,
@@ -484,6 +486,7 @@ export class PythonSymbolAnalyzer implements ISymbolAnalyzer {
         sourceSymbolId: scope,
         targetSymbolId: localTargetSymbolId,
         targetFilePath: filePath,
+        line: node.startPosition.row + 1,
         isTypeOnly: false,
       });
       return;
@@ -499,6 +502,7 @@ export class PythonSymbolAnalyzer implements ISymbolAnalyzer {
         sourceSymbolId: scope,
         targetSymbolId: `${moduleSpecifier}:${calledName}`, // Module specifier + symbol name
         targetFilePath: moduleSpecifier, // Will be resolved by PathResolver
+        line: node.startPosition.row + 1,
         isTypeOnly: false,
       });
     }

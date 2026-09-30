@@ -237,6 +237,8 @@ export interface SymbolInfo {
   name: string;
   kind: string; // 'Function', 'Class', 'Interface', 'Variable', etc.
   line: number;
+  /** Last line of the declaration (1-based); absent when the analyzer cannot tell */
+  endLine?: number;
   isExported: boolean;
   id: string; // Unique ID: filePath:name
   parentSymbolId?: string; // Parent class/namespace ID (for methods/properties)
@@ -247,6 +249,8 @@ export interface SymbolDependency {
   sourceSymbolId: string; // The symbol using the dependency (or 'file' if top-level)
   targetSymbolId: string; // The symbol being used
   targetFilePath: string;
+  /** Line of the reference or call site (1-based); absent when unknown */
+  line?: number;
   /** Whether this is a type-only import (interface, type alias) vs runtime code */
   isTypeOnly?: boolean;
 }

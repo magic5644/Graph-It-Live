@@ -1533,10 +1533,10 @@ server.registerTool(
     description: `Returns the call hierarchy among the symbols defined INSIDE one file, ignoring anything it imports.
 
 WHEN: understanding how a file works internally, or spotting recursion before a refactor.
-WHY: call hierarchy from the language server, so calls are resolved by the compiler rather than matched by name.
-RETURNS: nodes (symbol id, type, export status, line range), call edges with line numbers, and cycle detection with the symbols involved.
+WHY: built from the file's AST (no language server needed), so it works the same in the CLI, MCP and VS Code. Calls are matched by name within the file.
+RETURNS: nodes (symbol id, LSP SymbolKind number, type, export status, start/end line range), call edges with call-site line numbers, and cycle detection with the symbols involved.
 NOT THIS TOOL: for what this file's symbols reach in OTHER files, use graphitlive_get_symbol_graph.
-SUPPORTS: TypeScript, JavaScript, Python, Rust (needs the language server extension).
+SUPPORTS: TypeScript, JavaScript, Python, Rust.
 For an open-ended question, start with graphitlive_graph_context and come here when you need this specific cut.`,
     inputSchema: z.object({
       filePath: z.string().describe("Absolute path to the file to analyze"),
