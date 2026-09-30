@@ -248,4 +248,44 @@ export function parse(input: string, radix?: number): number {
     const parseSymbols = result.symbols.filter(s => s.name === 'parse');
     expect(parseSymbols).toHaveLength(1);
   });
+
+  it('should record end lines for symbols and lines for call sites', () => {
+    const analyzer = new SymbolAnalyzer();
+    const content = `import { format } from './format';
+
+export class Greeter {
+  greet(name: string) {
+    return this.wrap(format(name));
+  }
+
+  wrap(text: string) {
+    return text;
+  }
+}
+
+function helper() {
+  return 1;
+}
+
+export function main() {
+  const value = helper();
+  return import('./lazy').then(() => value);
+}
+`;
+
+    const result = analyzer.analyzeFileContent('/greeter.ts', content);
+    const byName = new Map(result.symbols.map(s => [s.name, s]));
+
+    expect(byName.get('Greeter')).toMatchObject({ line: 3, endLine: 11 });
+    expect(byName.get('Greeter.greet')).toMatchObject({ line: 4, endLine: 6 });
+    expect(byName.get('helper')).toMatchObject({ line: 13, endLine: 15 });
+    expect(byName.get('main')).toMatchObject({ line: 17, endLine: 20 });
+
+    const lineOf = (source: string, target: string) =>
+      result.dependencies.find(d => d.sourceSymbolId === `/greeter.ts:${source}` && d.targetSymbolId.endsWith(target))?.line;
+    expect(lineOf('Greeter', ':format')).toBe(5);
+    expect(lineOf('Greeter', ':wrap')).toBe(5);
+    expect(lineOf('main', ':helper')).toBe(18);
+    expect(lineOf('main', './lazy:default')).toBe(19);
+  });
 });

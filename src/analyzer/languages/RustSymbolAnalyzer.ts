@@ -261,6 +261,7 @@ export class RustSymbolAnalyzer implements ISymbolAnalyzer {
       name,
       kind: isAsync ? 'AsyncFunction' : 'FunctionDeclaration',
       line: nameNode.startPosition.row + 1,
+      endLine: node.endPosition.row + 1,
       isExported: isPublic,
       id: symbolId,
       parentSymbolId,
@@ -290,6 +291,7 @@ export class RustSymbolAnalyzer implements ISymbolAnalyzer {
       name,
       kind: 'StructDeclaration',
       line: nameNode.startPosition.row + 1,
+      endLine: node.endPosition.row + 1,
       isExported: isPublic,
       id: symbolId,
       parentSymbolId,
@@ -319,6 +321,7 @@ export class RustSymbolAnalyzer implements ISymbolAnalyzer {
       name,
       kind: 'EnumDeclaration',
       line: nameNode.startPosition.row + 1,
+      endLine: node.endPosition.row + 1,
       isExported: isPublic,
       id: symbolId,
       parentSymbolId,
@@ -348,6 +351,7 @@ export class RustSymbolAnalyzer implements ISymbolAnalyzer {
       name,
       kind: 'InterfaceDeclaration',
       line: nameNode.startPosition.row + 1,
+      endLine: node.endPosition.row + 1,
       isExported: isPublic,
       id: symbolId,
       parentSymbolId,
@@ -611,6 +615,7 @@ export class RustSymbolAnalyzer implements ISymbolAnalyzer {
         sourceSymbolId: scope,
         targetSymbolId: localTargetSymbolId,
         targetFilePath: filePath,
+        line: node.startPosition.row + 1,
         isTypeOnly: false,
       });
       return;
@@ -627,6 +632,7 @@ export class RustSymbolAnalyzer implements ISymbolAnalyzer {
         sourceSymbolId: scope,
         targetSymbolId: `${moduleSpecifier}:${symbolName}`, // Module specifier + symbol name
         targetFilePath: moduleSpecifier, // Will be resolved by PathResolver
+        line: node.startPosition.row + 1,
         isTypeOnly: false,
       });
       return;
@@ -640,6 +646,7 @@ export class RustSymbolAnalyzer implements ISymbolAnalyzer {
         sourceSymbolId: scope,
         targetSymbolId: `${moduleSpecifier}:${symbolName}`,
         targetFilePath: moduleSpecifier,
+        line: node.startPosition.row + 1,
         isTypeOnly: false,
       });
     }

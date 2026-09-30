@@ -7,22 +7,34 @@
 import { normalizePath } from "./path";
 
 /**
- * Map string kind to LSP SymbolKind number (vscode.SymbolKind enum)
+ * Map a Spider kind (AST names such as "FunctionDeclaration", "StaticMethodDeclaration")
+ * to an LSP SymbolKind number (1-based, as in the LSP specification).
  */
 export function mapKindToLspNumber(kind: string): number {
-  switch (kind.toLowerCase()) {
+  const baseKind = kind.toLowerCase().replace(/^static/, "").replace(/declaration$/, "");
+  switch (baseKind) {
     case "function":
-    case "method":
+    case "asyncfunction":
+    case "arrowfunction":
       return 12; // Function
+    case "method":
+    case "getaccessor":
+    case "setaccessor":
+      return 6; // Method
+    case "constructor":
+      return 9; // Constructor
     case "class":
+    case "struct":
       return 5; // Class
-    case "variable":
-    case "property":
-      return 13; // Variable
     case "interface":
-      return 11; // Interface
+    case "typealias":
+      return 11; // Interface (LSP has no type alias kind)
+    case "enum":
+      return 10; // Enum
+    case "property":
+      return 7; // Property
     default:
-      return 13; // Variable (default)
+      return 13; // Variable
   }
 }
 
@@ -31,8 +43,8 @@ export function mapKindToLspNumber(kind: string): number {
  */
 export function convertSpiderToLspFormat(
   symbolGraphData: {
-    symbols: Array<{ name: string; kind: string; line: number; parentSymbolId?: string }>;
-    dependencies: Array<{ sourceSymbolId: string; targetSymbolId: string }>;
+    symbols: Array<{ name: string; kind: string; line: number; endLine?: number; parentSymbolId?: string }>;
+    dependencies: Array<{ sourceSymbolId: string; targetSymbolId: string; line?: number }>;
   },
   filePath: string,
 ): {
@@ -57,7 +69,7 @@ export function convertSpiderToLspFormat(
   const lspSymbols = symbolGraphData.symbols.map((sym) => ({
     name: sym.name,
     kind: mapKindToLspNumber(sym.kind),
-    range: { start: sym.line, end: sym.line },
+    range: { start: sym.line, end: sym.endLine ?? sym.line },
     containerName: undefined,
     uri: normalizedFilePath,
   }));
@@ -85,15 +97,17 @@ export function convertSpiderToLspFormat(
     // Extract symbol name from targetSymbolId (format: "filePath:symbolName")
     // This prevents LspCallHierarchyAnalyzer from double-concatenating the ID
     const symbolName = extractSymbolName(dep.targetSymbolId);
+    const target = callHierarchyItems.get(symbolName);
+    const callLine = dep.line ?? 0;
 
     outgoingCalls.get(sourceSymbolId)?.push({
       to: {
         name: symbolName,
-        kind: 12,
+        kind: target?.kind ?? 12,
         uri: normalizedFilePath,
-        range: { start: 0, end: 0 },
+        range: target?.range ?? { start: 0, end: 0 },
       },
-      fromRanges: [{ start: 0, end: 0 }],
+      fromRanges: [{ start: callLine, end: callLine }],
     });
   }
 
