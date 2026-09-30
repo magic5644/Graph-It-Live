@@ -15,6 +15,7 @@ import path from 'node:path';
 import type { McpToolResponse, OutputFormat } from './types';
 import type { GraphContextResponse } from '../shared/graph-context-types';
 import { projectGraphContextOutput } from '../shared/graph-context-output';
+import { compactOutput } from '../shared/compactOutput';
 import type { GraphContextDetail } from '../shared/graph-context-types';
 
 const log = getLogger('responseFormatter');
@@ -35,7 +36,8 @@ export function formatToolResponse<T>(
   toolName?: string,
   detail?: GraphContextDetail,
 ): { content: { type: 'text'; text: string }[]; structuredContent: McpToolResponse<T> } {
-  const redactedResponse = redactAbsolutePaths(response, response.metadata.workspaceRoot);
+  // Paths become workspace-relative first, so duplicated path keys compare equal.
+  const redactedResponse = compactOutput(redactAbsolutePaths(response, response.metadata.workspaceRoot));
   let publicResponse: McpToolResponse<T> = redactedResponse;
   if (toolName === 'graphitlive_graph_context' && isGraphContextResponse(redactedResponse.data)) {
     publicResponse = {

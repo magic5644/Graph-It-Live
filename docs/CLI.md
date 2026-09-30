@@ -211,6 +211,8 @@ All analysis commands support multiple output formats via `--format`:
 | `markdown` | Data wrapped in a Markdown code block | Reports, documentation |
 | `mermaid` | Mermaid flowchart diagram syntax | Architecture docs, README, Notion |
 
+`toon` output is compacted: paths are workspace-relative, and keys that repeat a sibling are dropped (`relativePath` and `id` when equal to `path`, `sourceRelative`/`targetRelative`, and `sourceFile`/`targetFile` already carried by `sourceId`/`targetId`). MCP responses apply the same rule in every format. `json` keeps the full, uncompacted fields listed below.
+
 **Format availability per command:**
 
 | Format | scan | summary | explain | path | check | trace | query | tool |

@@ -218,14 +218,17 @@ export function jsonToToon(data: unknown[], options: ToonOptions = {}): string {
     return `${opts.objectName}()\n`;
   }
 
-  // Extract keys from the first object
   const firstItem = data[0];
   if (typeof firstItem !== 'object' || firstItem === null || Array.isArray(firstItem)) {
     throw new Error('TOON format requires an array of objects');
   }
 
-  const keys = Object.keys(firstItem);
-  
+  // Union of keys across rows: optional fields absent from the first row
+  // (e.g. parentSymbolId on a later method) must not be dropped.
+  const keys = [...new Set(data.flatMap(item =>
+    typeof item === 'object' && item !== null ? Object.keys(item) : [],
+  ))];
+
   // Build header
   const header = `${opts.objectName}(${keys.join(',')})`;
   

@@ -52,6 +52,21 @@ describe('formatToolResponse', () => {
     expect(sessionStats.snapshot().totals.calls).toBe(1);
   });
 
+  it('drops path keys that duplicate a sibling once paths are relative', () => {
+    const response = createSuccessResponse({
+      nodes: [{ id: '/workspace/src/a.ts', path: '/workspace/src/a.ts', relativePath: 'src/a.ts' }],
+      edges: [{ source: '/workspace/src/a.ts', target: '/workspace/src/b.ts', sourceRelative: 'src/a.ts', targetRelative: 'src/b.ts' }],
+    }, 5, '/workspace');
+
+    const result = formatToolResponse(response, 'toon');
+
+    expect(result.structuredContent.data).toEqual({
+      nodes: [{ path: 'src/a.ts' }],
+      edges: [{ source: 'src/a.ts', target: 'src/b.ts' }],
+    });
+    expect(result.content[0].text).not.toContain('relativePath');
+  });
+
   it('redacts internal and external absolute paths in public output', () => {
     const response = createSuccessResponse({
       filePath: '/workspace/src/main.ts',

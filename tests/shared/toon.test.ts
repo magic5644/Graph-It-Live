@@ -18,6 +18,17 @@ describe('TOON Format', () => {
       expect(toon).toBe('files(file,line)\n[main.ts,10]\n[utils.ts,20]');
     });
 
+    it('keeps fields that only later rows carry', () => {
+      const data = [
+        { id: 'a', name: 'run' },
+        { id: 'b', name: 'stop', parentSymbolId: 'a' },
+      ];
+
+      const toon = jsonToToon(data, { objectName: 'nodes' });
+
+      expect(toon).toBe('nodes(id,name,parentSymbolId)\n[a,run,]\n[b,stop,a]');
+    });
+
     it('should handle arrays in values', () => {
       const data = [
         { file: 'main.ts', deps: ['fs', 'path'] },

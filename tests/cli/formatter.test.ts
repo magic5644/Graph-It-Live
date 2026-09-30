@@ -226,6 +226,15 @@ describe("formatOutput - toon", () => {
     expect(() => JSON.parse(out)).toThrow();
   });
 
+  it("never prints undefined nested fields in the scalar header", () => {
+    const out = formatOutput(
+      { graph: { filePath: "src/a.ts", incomingEdges: undefined, nodes: [{ name: "run" }] } },
+      "toon",
+      "explain",
+    );
+    expect(out).not.toContain("undefined");
+  });
+
   it("emits the scalar header for cycles with no confirmed cycles, not a JSON fallback", () => {
     const cyclesData = {
       filePath: "/workspace/src/index.ts",
@@ -235,7 +244,7 @@ describe("formatOutput - toon", () => {
     };
 
     const out = formatOutput(cyclesData, "toon", "cycles");
-    expect(out).toBe("# filePath=/workspace/src/index.ts relativePath=src/index.ts cycleCount=0");
+    expect(out).toBe("# filePath=/workspace/src/index.ts cycleCount=0");
   });
 
   it("emits the scalar header for check with no unused symbols, not a JSON fallback", () => {

@@ -179,6 +179,36 @@ describe("GraphExtractor", () => {
       expect(mockTreeDelete).toHaveBeenCalledOnce();
     });
 
+    it("takes endLine from the declaration, not the name identifier", async () => {
+      const declaration = {
+        startPosition: { row: 2, column: 0 },
+        endPosition: { row: 8, column: 1 },
+        parent: null,
+        type: "function_declaration",
+      };
+      mockCapturesResult = [
+        {
+          name: "def.function",
+          node: {
+            text: "myFunction",
+            startPosition: { row: 2, column: 9 },
+            endPosition: { row: 2, column: 19 },
+            parent: declaration,
+            type: "identifier",
+          },
+        },
+      ];
+
+      const result = await extractor.extractSource(
+        "/mock/workspace/src/utils.ts",
+        "typescript",
+        "function myFunction() {}",
+      );
+
+      expect(result.nodes[0].startLine).toBe(2);
+      expect(result.nodes[0].endLine).toBe(8);
+    });
+
     it("returns 1 node and 1 CALLS edge when captures include @def.class and @call", async () => {
       // The class node is reused as the `parent` of the call node so that
       // findEnclosingDefinitionId can walk up and find the enclosing definition.
