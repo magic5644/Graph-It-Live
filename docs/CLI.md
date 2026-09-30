@@ -1179,7 +1179,7 @@ graph-it tool <name> --args '<json>'
 | Option | Default | Description |
 |--------|---------|-------------|
 | `--<param>=<value>` | — | Pass individual parameters directly |
-| `--args '<json>'` | — | Pass all parameters as a JSON string |
+| `--args '<json>'` | — | Pass parameters as a JSON object. Named `--<param>=<value>` flags are merged in and override matching keys |
 | `--workspace, -w` | auto-detected | Project root |
 | `--format, -f` | `text` | Output format |
 
@@ -1225,6 +1225,9 @@ graph-it tool analyze_dependencies --filePath=/abs/path/to/file.ts
 
 # Using --args JSON syntax (useful for complex/nested params)
 graph-it tool analyze_dependencies --args '{"filePath":"/abs/path/to/file.ts"}'
+
+# Combine both: named flags override matching JSON keys
+graph-it tool expand_node --filePath=/abs/path/to/file.ts --args '{"knownPaths":[]}'
 
 # With format
 graph-it tool get_symbol_callers --filePath=/abs/path/to/Spider.ts --symbolName=crawl --format json

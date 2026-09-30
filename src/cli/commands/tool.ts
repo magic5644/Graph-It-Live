@@ -149,23 +149,29 @@ export async function run(
   return formatOutput(result, format, "tool");
 }
 
-function parseToolArgs(args: string[]): Record<string, unknown> {
-  // Check for --args '{"key": "value"}'
+export function parseToolArgs(args: string[]): Record<string, unknown> {
+  // --args '<json>' provides the base object; named --key=value flags override its keys
+  const result: Record<string, unknown> = {};
   const argsIdx = args.indexOf("--args");
   if (argsIdx >= 0 && args[argsIdx + 1]) {
+    let parsed: unknown;
     try {
-      return JSON.parse(args[argsIdx + 1]) as Record<string, unknown>;
+      parsed = JSON.parse(args[argsIdx + 1]);
     } catch {
       throw new CliError(
         "Invalid JSON after --args",
         ExitCode.GENERAL_ERROR,
       );
     }
+    if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) {
+      throw new CliError("--args must be a JSON object", ExitCode.GENERAL_ERROR);
+    }
+    Object.assign(result, parsed);
   }
 
   // Parse key=value pairs
-  const result: Record<string, unknown> = {};
-  for (const arg of args) {
+  for (const [i, arg] of args.entries()) {
+    if (argsIdx >= 0 && i === argsIdx + 1) continue; // the --args JSON value
     if (arg.startsWith("--") && arg.includes("=")) {
       const eqIdx = arg.indexOf("=");
       const key = arg.slice(2, eqIdx);

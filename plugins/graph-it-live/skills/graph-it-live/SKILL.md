@@ -278,7 +278,7 @@ graph-it tool get_symbol_callers --filePath=/abs/path/to/file.ts --symbolName=my
 graph-it tool get_impact_analysis --filePath=/abs/path/to/file.ts --symbolName=myFunction
 
 # Detect breaking changes (use --args JSON for large content payloads)
-graph-it tool --args '{"filePath":"/abs/path/to/file.ts","symbolName":"myFunction","oldContent":"...old source...","newContent":"...new source..."}' analyze_breaking_changes
+graph-it tool analyze_breaking_changes --args '{"filePath":"/abs/path/to/file.ts","symbolName":"myFunction","oldContent":"...old source...","newContent":"...new source..."}'
 
 # Generate codemap
 graph-it tool generate_codemap --filePath=/abs/path/to/file.ts
