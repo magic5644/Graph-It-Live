@@ -38,20 +38,22 @@ export function compactOutput<T>(value: T): T {
   if (Array.isArray(value)) return value.map(compactOutput) as T;
   if (!isPlainObject(value)) return value;
 
-  const drop = new Set(
-    REDUNDANT_KEYS
-      .filter(([redundant, canonical, match]) => {
-        const a = value[redundant];
-        const b = value[canonical];
-        return typeof a === "string" && typeof b === "string" && match(a, b);
-      })
-      .map(([redundant]) => redundant),
-  );
+  const drop = new Set<string>();
+  const keep = new Map<string, string>();
+  for (const [redundant, canonical, match] of REDUNDANT_KEYS) {
+    const a = value[redundant];
+    const b = keep.get(canonical) ?? value[canonical];
+    if (typeof a !== "string" || typeof b !== "string" || !match(a, b)) continue;
+    drop.add(redundant);
+    // Keep the workspace-relative form: an absolute path the caller could not
+    // relativize (e.g. a Windows 8.3 short-name root) must not win over it.
+    if (match === sameFile && a.length < b.length) keep.set(canonical, a);
+  }
 
   return Object.fromEntries(
     Object.entries(value)
       .filter(([key, child]) => child !== undefined && !drop.has(key))
-      .map(([key, child]) => [key, compactOutput(child)]),
+      .map(([key, child]) => [key, compactOutput(keep.get(key) ?? child)]),
   ) as T;
 }
 

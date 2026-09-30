@@ -8,12 +8,13 @@ describe("compactOutput", () => {
       path: "/repo/src/a.ts",
       relativePath: "src/a.ts",
       dependentCount: 2,
-    })).toEqual({ path: "/repo/src/a.ts", dependentCount: 2 });
+    })).toEqual({ path: "src/a.ts", dependentCount: 2 });
   });
 
-  it("drops relativePath next to an equivalent filePath, including Windows separators", () => {
-    expect(compactOutput({ filePath: String.raw`C:\repo\src\a.ts`, relativePath: "src/a.ts" }))
-      .toEqual({ filePath: String.raw`C:\repo\src\a.ts` });
+  it("keeps the relative path under the canonical key when the absolute one was not relativized", () => {
+    // Windows CI: the root is a 8.3 short name, so the workspace prefix never matches.
+    expect(compactOutput({ filePath: String.raw`C:\Users\RUNNER~1\Temp\ws\src\a.ts`, relativePath: "src/a.ts" }))
+      .toEqual({ filePath: "src/a.ts" });
   });
 
   it("drops edge file fields already carried by the endpoints", () => {

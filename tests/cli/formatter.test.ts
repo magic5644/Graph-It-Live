@@ -244,7 +244,7 @@ describe("formatOutput - toon", () => {
     };
 
     const out = formatOutput(cyclesData, "toon", "cycles");
-    expect(out).toBe("# filePath=/workspace/src/index.ts cycleCount=0");
+    expect(out).toBe("# filePath=src/index.ts cycleCount=0");
   });
 
   it("emits the scalar header for check with no unused symbols, not a JSON fallback", () => {
