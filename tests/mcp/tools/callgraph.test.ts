@@ -16,6 +16,7 @@ import { queryNeighbourhood } from "../../../src/analyzer/callgraph/CallGraphQue
 import { workerState } from "../../../src/mcp/shared/state";
 import { executeQueryCallGraph } from "../../../src/mcp/tools/callgraph";
 import type { RelationType } from "../../../src/shared/callgraph-types";
+import { estimateTokens } from "../../../src/shared/toon";
 
 // ---------------------------------------------------------------------------
 // sql.js WASM path (real WASM from node_modules)
@@ -303,5 +304,65 @@ describe("executeQueryCallGraph", () => {
 
     // The neighbourhood contains the same subgraph; MCP callee traversal should match outgoing/lateral edges.
     expect(mcpEdges).toEqual(neighbourhoodOutgoing);
+  });
+
+  it("cuts callers and callees to the tokenBudget and keeps full totals", async () => {
+    const callees = Array.from({ length: 150 }, (_, i) => node(FILE_B, `callee${i}`, 100 + i));
+    const callers = Array.from({ length: 150 }, (_, i) => node(FILE_B, `caller${i}`, 400 + i));
+    indexer.indexFile(
+      [...callees, ...callers],
+      [
+        ...callees.map((callee) => edge(fnHelper, callee)),
+        ...callers.map((caller) => edge(caller, fnHelper)),
+      ],
+      FILE_B,
+      "typescript",
+      Date.now(),
+    );
+
+    const result = await executeQueryCallGraph({
+      filePath: FILE_A,
+      symbolName: "helper",
+      depth: 1,
+      tokenBudget: 1_500,
+    });
+
+    expect(result.truncated).toBe(true);
+    expect(result.totalCallers).toBe(151);
+    expect(result.totalCallees).toBe(150);
+    expect(result.callers.length).toBeGreaterThan(0);
+    expect(Math.abs(result.callers.length - result.callees.length)).toBeLessThanOrEqual(1);
+    expect(result.omitted).toEqual({
+      callers: 151 - result.callers.length,
+      callees: 150 - result.callees.length,
+    });
+    expect(estimateTokens(JSON.stringify(result))).toBeLessThanOrEqual(1_500);
+  });
+
+  it("gives the unused share of a short direction to the other one", async () => {
+    const callees = Array.from({ length: 150 }, (_, i) => node(FILE_B, `callee${i}`, 100 + i));
+    indexer.indexFile(callees, callees.map((callee) => edge(fnHelper, callee)), FILE_B, "typescript", Date.now());
+
+    const result = await executeQueryCallGraph({
+      filePath: FILE_A,
+      symbolName: "helper",
+      depth: 1,
+      tokenBudget: 1_500,
+    });
+
+    expect(result.callers).toHaveLength(1);
+    expect(result.callees.length).toBeGreaterThan(1);
+    expect(result.omitted).toEqual({ callers: 0, callees: 150 - result.callees.length });
+  });
+
+  it("reports truncated=false when the result fits the tokenBudget", async () => {
+    const result = await executeQueryCallGraph({
+      filePath: FILE_A,
+      symbolName: "main",
+      tokenBudget: 4_000,
+    });
+
+    expect(result.truncated).toBe(false);
+    expect(result.omitted).toEqual({ callers: 0, callees: 0 });
   });
 });

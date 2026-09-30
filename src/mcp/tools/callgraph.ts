@@ -24,6 +24,7 @@ import { getLogger } from "@/shared/logger";
 import { normalizePath } from "@/shared/path";
 import fs from "node:fs/promises";
 import path from "node:path";
+import { fitToTokenBudget } from "../shared/helpers";
 import { workerState } from "../shared/state";
 import type { QueryCallGraphParams } from "../types";
 
@@ -66,6 +67,10 @@ export interface QueryCallGraphResult {
   direction: string;
   indexedFiles: number;
   indexTimeMs?: number;
+  /** Set when a tokenBudget was applied: true if callers or callees were cut */
+  truncated?: boolean;
+  /** Callers and callees cut by the tokenBudget; totals keep the full counts */
+  omitted?: { callers: number; callees: number };
 }
 
 // ---------------------------------------------------------------------------
@@ -444,7 +449,7 @@ export async function executeQueryCallGraph(
     callees = bfsRelations(db, symbolId, "callees", depth, relationFilter);
   }
 
-  return {
+  const result: QueryCallGraphResult = {
     symbol,
     callers,
     callees,
@@ -455,6 +460,28 @@ export async function executeQueryCallGraph(
     indexedFiles: countIndexedFiles(db),
     indexTimeMs,
   };
+  if (params.tokenBudget === undefined) return result;
+
+  // BFS order puts the nearest hops first; both lists shrink together so one
+  // direction never crowds the other out.
+  const relationCount = callers.length + callees.length;
+  return fitToTokenBudget(relationCount, params.tokenBudget, (keptCount) => {
+    const keptCallers = Math.min(
+      callers.length,
+      Math.max(Math.ceil(keptCount / 2), keptCount - callees.length),
+    );
+    const keptCallees = keptCount - keptCallers;
+    return {
+      ...result,
+      callers: callers.slice(0, keptCallers),
+      callees: callees.slice(0, keptCallees),
+      truncated: keptCount < relationCount,
+      omitted: {
+        callers: callers.length - keptCallers,
+        callees: callees.length - keptCallees,
+      },
+    };
+  }).result;
 }
 
 // ---------------------------------------------------------------------------

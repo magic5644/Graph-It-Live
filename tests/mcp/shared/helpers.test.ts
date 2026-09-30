@@ -6,6 +6,7 @@ import * as fs from "node:fs/promises";
 import * as os from "node:os";
 import * as path from "node:path";
 import { beforeEach, describe, expect, it } from "vitest";
+import { estimateTokens } from "../../../src/shared/toon";
 import {
   applyPagination,
   buildEdgeCounts,
@@ -13,6 +14,7 @@ import {
   buildNodeInfo,
   convertSpiderToLspFormat,
   detectCircularDependencies,
+  fitToTokenBudget,
   getRelativePath,
   mapKindToLspNumber,
   updateNodeCounts,
@@ -316,6 +318,20 @@ describe("MCP Worker Helpers", () => {
 
       expect(paginatedNodes).toHaveLength(3);
       expect(paginatedEdges).toHaveLength(2);
+    });
+
+    it("should keep edges whose Windows-style paths match normalized node paths", () => {
+      const windowsNodes = [
+        { ...nodes[0], path: "c:/repo/a.ts" },
+        { ...nodes[1], path: "c:/repo/b.ts" },
+      ];
+      const windowsEdges = [
+        { source: String.raw`C:\repo\a.ts`, target: String.raw`C:\repo\b.ts`, sourceRelative: "a.ts", targetRelative: "b.ts" },
+      ];
+
+      const { edges: paginatedEdges } = applyPagination(windowsNodes, windowsEdges, 2, 0);
+
+      expect(paginatedEdges).toEqual(windowsEdges);
     });
   });
 
@@ -672,6 +688,32 @@ describe("MCP Worker Helpers", () => {
       expect(() => validateScopePath(`${root}-evil`, root)).toThrow(
         "INVALID_SCOPE_PATH:",
       );
+    });
+  });
+
+  describe("fitToTokenBudget", () => {
+    const build = (keptCount: number) => ({ items: Array.from({ length: keptCount }, (_, i) => `item-${i}`) });
+
+    it("keeps every item when the full result fits", () => {
+      const { result, keptCount } = fitToTokenBudget(5, 500, build);
+
+      expect(keptCount).toBe(5);
+      expect(result.items).toHaveLength(5);
+    });
+
+    it("keeps the largest prefix that fits the budget", () => {
+      const { result, keptCount } = fitToTokenBudget(1_000, 500, build);
+
+      expect(keptCount).toBeGreaterThan(0);
+      expect(keptCount).toBeLessThan(1_000);
+      expect(estimateTokens(JSON.stringify(result))).toBeLessThanOrEqual(500);
+      expect(estimateTokens(JSON.stringify(build(keptCount + 1)))).toBeGreaterThan(500);
+    });
+
+    it("returns zero items when even an empty result is over budget", () => {
+      const { keptCount } = fitToTokenBudget(3, 1, () => ({ padding: "x ".repeat(100) }));
+
+      expect(keptCount).toBe(0);
     });
   });
 });

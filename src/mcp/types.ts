@@ -285,6 +285,20 @@ export type AnalyzeDependenciesParams = z.infer<
   typeof AnalyzeDependenciesParamsSchema
 >;
 
+// Same bounds and default as graph_context. Truncated output reports
+// `truncated` and `omitted` counts.
+const GraphToolTokenBudgetSchema = z
+  .number()
+  .int()
+  .min(500)
+  .max(16000)
+  .default(4000)
+  .optional()
+  .describe(
+    "Maximum output size in tokens (default: 4000, min: 500, max: 16000). " +
+      "Larger results are cut to fit and report truncated=true with omitted counts.",
+  );
+
 export const CrawlDependencyGraphParamsSchema = z.object({
   entryFile: FilePathSchema.describe("Absolute path to the entry file"),
   maxDepth: z
@@ -317,6 +331,7 @@ export const CrawlDependencyGraphParamsSchema = z.object({
     .describe(
       "If true, only returns edges where symbols are actually used (requires AST analysis, slower)",
     ),
+  tokenBudget: GraphToolTokenBudgetSchema,
 });
 export type CrawlDependencyGraphParams = z.infer<
   typeof CrawlDependencyGraphParamsSchema
@@ -345,6 +360,7 @@ export const ExpandNodeParamsSchema = z.object({
     .describe(
       "Additional depth to scan from this node (default: 10, min: 1, max: 100)",
     ),
+  tokenBudget: GraphToolTokenBudgetSchema,
 });
 export type ExpandNodeParams = z.infer<typeof ExpandNodeParamsSchema>;
 
@@ -546,6 +562,7 @@ export const QueryCallGraphParamsSchema = z.object({
     .array(z.enum(["CALLS", "INHERITS", "IMPLEMENTS", "USES"]))
     .optional()
     .describe("Filter by relation types (default: all)"),
+  tokenBudget: GraphToolTokenBudgetSchema,
 });
 export type QueryCallGraphParams = z.infer<
   typeof QueryCallGraphParamsSchema
@@ -985,6 +1002,10 @@ export interface CrawlDependencyGraphResult {
   edges: EdgeInfo[];
   /** Circular dependencies detected (if any) */
   circularDependencies: string[][];
+  /** Set when a tokenBudget was applied: true if nodes or edges were cut */
+  truncated?: boolean;
+  /** Nodes and edges of the page cut by the tokenBudget */
+  omitted?: { nodes: number; edges: number };
 }
 
 /**
@@ -1062,6 +1083,10 @@ export interface ExpandNodeResult {
   newNodes: string[];
   /** Newly discovered edges */
   newEdges: EdgeInfo[];
+  /** Set when a tokenBudget was applied: true if nodes or edges were cut */
+  truncated?: boolean;
+  /** New nodes and edges cut by the tokenBudget */
+  omitted?: { nodes: number; edges: number };
 }
 
 /**
