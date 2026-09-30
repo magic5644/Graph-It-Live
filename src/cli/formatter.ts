@@ -73,8 +73,10 @@ function formatJson(data: unknown): string {
 function formatToon(data: unknown, command: string): string {
   const sections = collectToonSections(data);
   if (sections.length === 0) {
-    // Fallback to JSON for non-array / empty data
-    return JSON.stringify(data, null, 2);
+    // No rows (e.g. check with no unused symbols): the scalar header still
+    // carries the result. Fall back to JSON only when there is nothing to show.
+    const header = formatToonScalarHeader(data, sections);
+    return header ? header.trimEnd() : JSON.stringify(data, null, 2);
   }
 
   try {
