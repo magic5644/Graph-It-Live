@@ -208,6 +208,24 @@ describe("executeQueryNaturalLanguage", () => {
     expect(result.meta.tokenEstimate).toBeGreaterThan(0);
   });
 
+  it("emits workspace-relative paths in the toon output", async () => {
+    setupWorkerState();
+    const json = JSON.stringify({
+      nodes: [{ id: `${FILE_A}:main:1`, n: "main", t: "Function", p: FILE_A, l: 1, r: 1 }],
+      edges: [{ src: `${FILE_A}:main:1`, tgt: `${WORKSPACE}/src/b.ts:helper:2`, rel: "CALLS" }],
+      nodeCount: 1,
+      edgeCount: 1,
+      truncated: false,
+    });
+    vi.spyOn(QueryEngine.prototype, "query").mockResolvedValue(makeMockQueryResult({ json }));
+
+    const result = await executeQueryNaturalLanguage({ question: "test", outputFormat: "toon" });
+
+    expect(result.toon).not.toContain(`${WORKSPACE}/`);
+    expect(result.toon).toContain("[src/a.ts:main:1,main,Function,src/a.ts,1,1]");
+    expect(result.toon).toContain("[src/a.ts:main:1,src/b.ts:helper:2,CALLS]");
+  });
+
   it("handles empty edges in toon output (edges() header only)", async () => {
     setupWorkerState();
     const mockResult = makeMockQueryResult({

@@ -48,9 +48,14 @@ export function formatToolResponse<T>(
   let text: string;
 
   if (responseFormat === 'toon') {
-    const formatted = toolName === 'graphitlive_graph_context'
-      ? formatGraphContextAsToon(publicResponse, toolName)
-      : formatDataAsToon(publicResponse.data, inferObjectNameFromResponse(publicResponse), toolName);
+    let formatted: { content: string };
+    if (toolName === 'graphitlive_graph_context') {
+      formatted = formatGraphContextAsToon(publicResponse, toolName);
+    } else if (toolName === 'graphitlive_query_natural_language' && isQueryToonResult(publicResponse.data)) {
+      formatted = { content: formatQueryAsToon(publicResponse.data) };
+    } else {
+      formatted = formatDataAsToon(publicResponse.data, inferObjectNameFromResponse(publicResponse), toolName);
+    }
     text = formatted.content;
   } else if (responseFormat === 'markdown') {
     text = `\`\`\`json\n${JSON.stringify(publicResponse, null, 2)}\n\`\`\``;
@@ -115,6 +120,43 @@ function formatGraphContextAsToon<T>(
     format: 'toon',
     tokenSavings: savings,
   };
+}
+
+interface QueryToonResult {
+  question: string;
+  extractedKeywords: string[];
+  toon: string;
+  meta: { llmProvider: string; totalMs: number; tokenEstimate: number; truncated: boolean };
+}
+
+function isQueryToonResult(value: unknown): value is QueryToonResult {
+  return typeof value === 'object' && value !== null
+    && typeof (value as Partial<QueryToonResult>).toon === 'string';
+}
+
+/**
+ * The query tool already encodes its subgraph as TOON. Emit that string as-is
+ * behind a one-row header, instead of escaping it into a cell of another TOON row.
+ */
+function formatQueryAsToon(data: QueryToonResult): string {
+  const header = jsonToToon([{
+    question: data.question,
+    keywords: data.extractedKeywords,
+    llmProvider: data.meta.llmProvider,
+    totalMs: data.meta.totalMs,
+    tokenEstimate: data.meta.tokenEstimate,
+  }], { objectName: 'query' });
+  const content = `${header}\n${data.toon}`;
+  const savings = estimateTokenSavings(JSON.stringify(data, null, 2), content);
+  sessionStats.record({
+    toolName: 'graphitlive_query_natural_language',
+    jsonTokens: savings.jsonTokens,
+    toonTokens: savings.toonTokens,
+    savings: savings.savings,
+    truncated: data.meta.truncated,
+    timestamp: Date.now(),
+  });
+  return content;
 }
 
 function isGraphContextResponse(value: unknown): value is GraphContextResponse {
