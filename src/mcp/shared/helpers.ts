@@ -108,26 +108,22 @@ export function updateNodeCounts(nodes: NodeInfo[], edges: EdgeInfo[]): void {
 }
 
 /**
- * Apply pagination to nodes and edges
+ * Index of the node that owns each edge in a paged node list: the later of its
+ * two listed ends, or its only listed end, or the first page. Every edge lands
+ * on exactly one page, once both of its listed ends have been sent, so reading
+ * every page returns every edge and a hub's edges spread over the pages of its
+ * neighbours. Node paths are normalized but edge paths are raw (backslashes
+ * and drive case on Windows), so both are compared normalized.
  */
-export function applyPagination(
-  nodes: NodeInfo[],
-  edges: EdgeInfo[],
-  limit?: number,
-  offset: number = 0,
-): { nodes: NodeInfo[]; edges: EdgeInfo[] } {
-  const end = limit === undefined ? undefined : offset + limit;
-  const paginatedNodes = nodes.slice(offset, end);
-
-  // Filter edges to only include those with both nodes in paginated set.
-  // Node paths are normalized, edge paths are raw (backslashes and drive case
-  // on Windows), so both sides are compared normalized.
-  const nodeSet = new Set(paginatedNodes.map((n) => normalizePath(n.path)));
-  const paginatedEdges = edges.filter(
-    (e) => nodeSet.has(normalizePath(e.source)) && nodeSet.has(normalizePath(e.target)),
-  );
-
-  return { nodes: paginatedNodes, edges: paginatedEdges };
+export function edgeOwners(
+  nodePaths: string[],
+  edges: { source: string; target: string }[],
+): number[] {
+  const indexByPath = new Map(nodePaths.map((nodePath, index) => [normalizePath(nodePath), index]));
+  return edges.map((edge) => Math.max(
+    indexByPath.get(normalizePath(edge.source)) ?? 0,
+    indexByPath.get(normalizePath(edge.target)) ?? 0,
+  ));
 }
 
 /**
@@ -142,10 +138,16 @@ export function fitToTokenBudget<T>(
 ): { result: T; keptCount: number } {
   const fits = (keptCount: number): boolean =>
     estimateTokens(JSON.stringify(build(keptCount))) <= tokenBudget;
-  if (fits(itemCount)) return { result: build(itemCount), keptCount: itemCount };
+  if (itemCount === 0 || fits(itemCount)) return { result: build(itemCount), keptCount: itemCount };
+  // An empty page would hand back the same offset and never progress.
+  if (!fits(1)) {
+    throw new RangeError(
+      `Token budget ${tokenBudget} cannot contain a single item; raise tokenBudget or pass 0 for no limit.`,
+    );
+  }
 
   // Binary search bounds tokenizer calls to log2(itemCount).
-  let low = 0;
+  let low = 1;
   let high = itemCount - 1;
   while (low < high) {
     const middle = Math.ceil((low + high) / 2);

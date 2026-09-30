@@ -365,4 +365,37 @@ describe("executeQueryCallGraph", () => {
     expect(result.truncated).toBe(false);
     expect(result.omitted).toEqual({ callers: 0, callees: 0 });
   });
+
+  it("returns every relation once across nextOffset pages, and all at once with tokenBudget 0", async () => {
+    const callees = Array.from({ length: 150 }, (_, i) => node(FILE_B, `callee${i}`, 100 + i));
+    const callers = Array.from({ length: 80 }, (_, i) => node(FILE_B, `caller${i}`, 400 + i));
+    indexer.indexFile(
+      [...callees, ...callers],
+      [
+        ...callees.map((callee) => edge(fnHelper, callee)),
+        ...callers.map((caller) => edge(caller, fnHelper)),
+      ],
+      FILE_B,
+      "typescript",
+      Date.now(),
+    );
+    const query = { filePath: FILE_A, symbolName: "helper", depth: 1 };
+
+    const seen: string[] = [];
+    let offset: number | undefined = 0;
+    while (offset !== undefined) {
+      const page = await executeQueryCallGraph({ ...query, offset, tokenBudget: 1_500 });
+      seen.push(...[...page.callers, ...page.callees].map((r) => `${r.sourceId}>${r.targetId}`));
+      offset = page.nextOffset;
+    }
+    const all = await executeQueryCallGraph({ ...query, tokenBudget: 0 });
+
+    expect(all.callers).toHaveLength(81);
+    expect(all.callees).toHaveLength(150);
+    expect(all.nextOffset).toBeUndefined();
+    expect(seen).toHaveLength(231);
+    expect(new Set(seen)).toEqual(
+      new Set([...all.callers, ...all.callees].map((r) => `${r.sourceId}>${r.targetId}`)),
+    );
+  });
 });

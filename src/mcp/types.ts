@@ -285,19 +285,25 @@ export type AnalyzeDependenciesParams = z.infer<
   typeof AnalyzeDependenciesParamsSchema
 >;
 
-// Same bounds and default as graph_context. Truncated output reports
-// `truncated` and `omitted` counts.
+// Same bounds and default as graph_context, plus 0 for no limit. A cut result
+// reports `truncated`, `omitted` counts and a `nextOffset` for the rest.
 const GraphToolTokenBudgetSchema = z
-  .number()
-  .int()
-  .min(500)
-  .max(16000)
+  .union([z.literal(0), z.number().int().min(500).max(16000)])
   .default(4000)
   .optional()
   .describe(
-    "Maximum output size in tokens (default: 4000, min: 500, max: 16000). " +
-      "Larger results are cut to fit and report truncated=true with omitted counts.",
+    "Maximum output size in tokens (default: 4000, 500-16000, or 0 for no limit). " +
+      "A larger result is cut and reports truncated=true, omitted counts and nextOffset; " +
+      "pass nextOffset as offset to read the rest.",
   );
+
+const GraphToolOffsetSchema = z
+  .number()
+  .int()
+  .min(0)
+  .max(PAGINATION_LIMITS.MAX_OFFSET)
+  .optional()
+  .describe("Items to skip, usually the nextOffset of the previous response (default: 0)");
 
 export const CrawlDependencyGraphParamsSchema = z.object({
   entryFile: FilePathSchema.describe("Absolute path to the entry file"),
@@ -360,6 +366,7 @@ export const ExpandNodeParamsSchema = z.object({
     .describe(
       "Additional depth to scan from this node (default: 10, min: 1, max: 100)",
     ),
+  offset: GraphToolOffsetSchema,
   tokenBudget: GraphToolTokenBudgetSchema,
 });
 export type ExpandNodeParams = z.infer<typeof ExpandNodeParamsSchema>;
@@ -562,6 +569,7 @@ export const QueryCallGraphParamsSchema = z.object({
     .array(z.enum(["CALLS", "INHERITS", "IMPLEMENTS", "USES"]))
     .optional()
     .describe("Filter by relation types (default: all)"),
+  offset: GraphToolOffsetSchema,
   tokenBudget: GraphToolTokenBudgetSchema,
 });
 export type QueryCallGraphParams = z.infer<
@@ -1002,6 +1010,8 @@ export interface CrawlDependencyGraphResult {
   edges: EdgeInfo[];
   /** Circular dependencies detected (if any) */
   circularDependencies: string[][];
+  /** Offset of the next page when nodes remain; pass it back as offset */
+  nextOffset?: number;
   /** Set when a tokenBudget was applied: true if nodes or edges were cut */
   truncated?: boolean;
   /** Nodes and edges of the page cut by the tokenBudget */
@@ -1083,6 +1093,8 @@ export interface ExpandNodeResult {
   newNodes: string[];
   /** Newly discovered edges */
   newEdges: EdgeInfo[];
+  /** Offset of the next page when nodes remain; pass it back as offset */
+  nextOffset?: number;
   /** Set when a tokenBudget was applied: true if nodes or edges were cut */
   truncated?: boolean;
   /** New nodes and edges cut by the tokenBudget */

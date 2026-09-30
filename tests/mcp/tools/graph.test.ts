@@ -231,6 +231,66 @@ describe("graph tools", () => {
       expect(result.edges).toHaveLength(3);
     });
 
+    it("returns every node and edge once across nextOffset pages", async () => {
+      const entryFile = await createTempFile(tempDir, "entry.ts", "");
+      const deps = manyFiles();
+      const graphEdges = [
+        ...deps.map((dep) => ({ source: entryFile, target: dep })),
+        ...deps.slice(1).map((dep, index) => ({ source: dep, target: deps[index] })),
+      ];
+      setupWorkerState({ crawl: vi.fn(async () => ({ nodes: [entryFile, ...deps], edges: graphEdges })) });
+
+      const seenNodes: string[] = [];
+      const seenEdges: string[] = [];
+      let offset: number | undefined = 0;
+      let pages = 0;
+      while (offset !== undefined) {
+        const page = await executeCrawlDependencyGraph({ entryFile, offset, tokenBudget: 1_000 });
+        expect(estimateTokens(JSON.stringify(page))).toBeLessThanOrEqual(1_000);
+        seenNodes.push(...page.nodes.map((node) => node.path));
+        seenEdges.push(...page.edges.map((edge) => `${edge.source}>${edge.target}`));
+        offset = page.nextOffset;
+        pages += 1;
+      }
+
+      expect(pages).toBeGreaterThan(1);
+      expect(new Set(seenNodes).size).toBe(301);
+      expect(seenNodes).toHaveLength(301);
+      expect(new Set(seenEdges).size).toBe(graphEdges.length);
+      expect(seenEdges).toHaveLength(graphEdges.length);
+    });
+
+    it("returns the whole crawl with tokenBudget 0", async () => {
+      const entryFile = await createTempFile(tempDir, "entry.ts", "");
+      const deps = manyFiles();
+      setupWorkerState({
+        crawl: vi.fn(async () => ({
+          nodes: [entryFile, ...deps],
+          edges: deps.map((dep) => ({ source: entryFile, target: dep })),
+        })),
+      });
+
+      const result = await executeCrawlDependencyGraph({ entryFile, tokenBudget: 0 });
+
+      expect(result.nodes).toHaveLength(301);
+      expect(result.edges).toHaveLength(300);
+      expect(result.nextOffset).toBeUndefined();
+      expect(result.truncated).toBeUndefined();
+    });
+
+    it("throws when the budget cannot hold a single node", async () => {
+      const entryFile = await createTempFile(tempDir, "entry.ts", "");
+      const cycle = Array.from({ length: 200 }, (_, i) => path.join(tempDir, `long-cycle-member-${i}.ts`));
+      setupWorkerState({
+        crawl: vi.fn(async () => ({
+          nodes: [entryFile, ...cycle],
+          edges: cycle.map((file, i) => ({ source: file, target: cycle[(i + 1) % cycle.length] })),
+        })),
+      });
+
+      await expect(executeCrawlDependencyGraph({ entryFile, tokenBudget: 500 })).rejects.toThrow(RangeError);
+    });
+
     it("reports truncated=false when the crawl fits the budget", async () => {
       const entryFile = await createTempFile(tempDir, "entry.ts", "");
       setupWorkerState({ crawl: vi.fn(async () => ({ nodes: [entryFile], edges: [] })) });
@@ -283,6 +343,30 @@ describe("graph tools", () => {
         edges: 300 - result.newEdges.length,
       });
       expect(estimateTokens(JSON.stringify(result))).toBeLessThanOrEqual(1_000);
+    });
+
+    it("pages expand_node new nodes with offset until nextOffset is gone", async () => {
+      const entryFile = await createTempFile(tempDir, "entry.ts", "");
+      const deps = manyFiles();
+      setupWorkerState({
+        crawlFrom: vi.fn(async () => ({
+          nodes: deps,
+          edges: deps.map((dep) => ({ source: entryFile, target: dep })),
+        })),
+      });
+
+      const seenNodes: string[] = [];
+      let edgeCount = 0;
+      let offset: number | undefined = 0;
+      while (offset !== undefined) {
+        const page = await executeExpandNode({ filePath: entryFile, knownPaths: [entryFile], offset, tokenBudget: 1_000 });
+        seenNodes.push(...page.newNodes);
+        edgeCount += page.newEdges.length;
+        offset = page.nextOffset;
+      }
+
+      expect(seenNodes).toEqual(deps);
+      expect(edgeCount).toBe(300);
     });
   });
 

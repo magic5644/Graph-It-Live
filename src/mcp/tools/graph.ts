@@ -3,11 +3,11 @@ import { normalizePath } from "../../shared/path";
 import { computeNodeMetadata } from "../../analyzer/NodeMetadataBuilder";
 import type { GraphData } from "../../shared/graph-types";
 import {
-    applyPagination,
     buildEdgeCounts,
     buildEdgeInfo,
     buildNodeInfo,
     detectCircularDependencies,
+    edgeOwners,
     fitToTokenBudget,
     getRelativePath,
     updateNodeCounts,
@@ -95,7 +95,7 @@ export async function executeCrawlDependencyGraph(
 
     // Build node and edge info — use graphData.nodes (already normalized) so
     // metadata lookup keys match nodeMetadata index (Règle 03).
-    let nodes = buildNodeInfo(
+    const nodes = buildNodeInfo(
       graphData.nodes,
       dependencyCount,
       dependentCount,
@@ -115,40 +115,35 @@ export async function executeCrawlDependencyGraph(
       updateNodeCounts(nodes, edges);
     }
 
-    // Store totals before pagination
-    const totalNodes = nodes.length;
-    const totalEdges = edges.length;
-
-    // Apply pagination if requested
-    if (limit !== undefined || offset !== undefined) {
-      const paginated = applyPagination(nodes, edges, limit, offset);
-      nodes = paginated.nodes;
-      edges = paginated.edges;
-    }
-
-  const result: CrawlDependencyGraphResult = {
-    entryFile,
-    maxDepth: maxDepth ?? configuredMaxDepth ?? 3,
-    nodeCount: totalNodes,
-    edgeCount: totalEdges,
-    nodes,
-    edges,
-    circularDependencies,
-  };
-  if (tokenBudget === undefined) return result;
-
-  // Nodes keep crawl order (nearest first); the edges follow the kept nodes,
-  // like pagination, so offset = offset + nodes.length resumes the page.
-  return fitToTokenBudget(nodes.length, tokenBudget, (keptCount) => {
-    const kept = applyPagination(nodes, edges, keptCount);
+  // Nodes keep crawl order (nearest first). The page is [offset, offset+limit),
+  // cut further by the tokenBudget; nextOffset resumes after the last node sent.
+  const start = offset ?? 0;
+  const pageSize = Math.max(0, Math.min(nodes.length, limit === undefined ? nodes.length : start + limit) - start);
+  const owners = edgeOwners(nodes.map((node) => node.path), edges);
+  const page = (count: number): CrawlDependencyGraphResult => {
+    const end = start + count;
     return {
-      ...result,
-      nodes: kept.nodes,
-      edges: kept.edges,
-      truncated: keptCount < nodes.length,
+      entryFile,
+      maxDepth: maxDepth ?? configuredMaxDepth ?? 3,
+      nodeCount: nodes.length,
+      edgeCount: edges.length,
+      nodes: nodes.slice(start, end),
+      edges: edges.filter((_, index) => owners[index] >= start && owners[index] < end),
+      circularDependencies,
+      ...(end < nodes.length ? { nextOffset: end } : {}),
+    };
+  };
+  if (!tokenBudget) return page(pageSize);
+
+  const fullPage = page(pageSize);
+  return fitToTokenBudget(pageSize, tokenBudget, (count) => {
+    const budgeted = page(count);
+    return {
+      ...budgeted,
+      truncated: count < pageSize,
       omitted: {
-        nodes: nodes.length - kept.nodes.length,
-        edges: edges.length - kept.edges.length,
+        nodes: pageSize - count,
+        edges: fullPage.edges.length - budgeted.edges.length,
       },
     };
   }).result;
@@ -166,7 +161,7 @@ function createAbortError(): Error {
 export async function executeExpandNode(
   params: ExpandNodeParams,
 ): Promise<ExpandNodeResult> {
-  const { filePath, knownPaths, extraDepth, tokenBudget } = params;
+  const { filePath, knownPaths, extraDepth, offset = 0, tokenBudget } = params;
   const spider = workerState.getSpider();
   const config = workerState.getConfig();
 
@@ -179,36 +174,37 @@ export async function executeExpandNode(
     extraDepth ?? 10,
   );
 
-  const expanded: ExpandNodeResult = {
-    expandedNode: filePath,
-    newNodeCount: result.nodes.length,
-    newEdgeCount: result.edges.length,
-    newNodes: result.nodes,
-    newEdges: result.edges.map((edge) => ({
-      source: edge.source,
-      target: edge.target,
-      sourceRelative: getRelativePath(edge.source, config.rootDir),
-      targetRelative: getRelativePath(edge.target, config.rootDir),
-    })),
-  };
-  if (tokenBudget === undefined) return expanded;
-
-  // An edge stays while its new end is kept; the other end is the expanded
-  // node or a path the caller already knows.
-  return fitToTokenBudget(expanded.newNodes.length, tokenBudget, (keptCount) => {
-    const droppedNodes = new Set(expanded.newNodes.slice(keptCount).map(normalizePath));
-    const newEdges = expanded.newEdges.filter(
-      (edge) => !droppedNodes.has(normalizePath(edge.source))
-        && !droppedNodes.has(normalizePath(edge.target)),
-    );
+  const newEdges = result.edges.map((edge) => ({
+    source: edge.source,
+    target: edge.target,
+    sourceRelative: getRelativePath(edge.source, config.rootDir),
+    targetRelative: getRelativePath(edge.target, config.rootDir),
+  }));
+  // Same paging as crawl_dependency_graph: an edge follows its later new end.
+  const owners = edgeOwners(result.nodes, result.edges);
+  const pageSize = Math.max(0, result.nodes.length - offset);
+  const page = (count: number): ExpandNodeResult => {
+    const end = offset + count;
     return {
-      ...expanded,
-      newNodes: expanded.newNodes.slice(0, keptCount),
-      newEdges,
-      truncated: keptCount < expanded.newNodes.length,
+      expandedNode: filePath,
+      newNodeCount: result.nodes.length,
+      newEdgeCount: result.edges.length,
+      newNodes: result.nodes.slice(offset, end),
+      newEdges: newEdges.filter((_, index) => owners[index] >= offset && owners[index] < end),
+      ...(end < result.nodes.length ? { nextOffset: end } : {}),
+    };
+  };
+  if (!tokenBudget) return page(pageSize);
+
+  const fullPage = page(pageSize);
+  return fitToTokenBudget(pageSize, tokenBudget, (count) => {
+    const budgeted = page(count);
+    return {
+      ...budgeted,
+      truncated: count < pageSize,
       omitted: {
-        nodes: expanded.newNodes.length - keptCount,
-        edges: expanded.newEdges.length - newEdges.length,
+        nodes: pageSize - count,
+        edges: fullPage.newEdges.length - budgeted.newEdges.length,
       },
     };
   }).result;

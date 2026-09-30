@@ -8,12 +8,12 @@ import * as path from "node:path";
 import { beforeEach, describe, expect, it } from "vitest";
 import { estimateTokens } from "../../../src/shared/toon";
 import {
-  applyPagination,
   buildEdgeCounts,
   buildEdgeInfo,
   buildNodeInfo,
   convertSpiderToLspFormat,
   detectCircularDependencies,
+  edgeOwners,
   fitToTokenBudget,
   getRelativePath,
   mapKindToLspNumber,
@@ -244,94 +244,31 @@ describe("MCP Worker Helpers", () => {
     });
   });
 
-  describe("applyPagination", () => {
-    let nodes: NodeInfo[];
-    let edges: EdgeInfo[];
-
-    beforeEach(() => {
-      nodes = [
-        {
-          path: "A",
-          relativePath: "A",
-          extension: "ts",
-          dependencyCount: 0,
-          dependentCount: 0,
-        },
-        {
-          path: "B",
-          relativePath: "B",
-          extension: "ts",
-          dependencyCount: 0,
-          dependentCount: 0,
-        },
-        {
-          path: "C",
-          relativePath: "C",
-          extension: "ts",
-          dependencyCount: 0,
-          dependentCount: 0,
-        },
-      ];
-
-      edges = [
-        { source: "A", target: "B", sourceRelative: "A", targetRelative: "B" },
-        { source: "B", target: "C", sourceRelative: "B", targetRelative: "C" },
-      ];
-    });
-
-    it("should paginate nodes and filter edges correctly", () => {
-      const { nodes: paginatedNodes, edges: paginatedEdges } = applyPagination(
-        nodes,
-        edges,
-        2,
-        0,
+  describe("edgeOwners", () => {
+    it("gives each edge the page of its later listed end", () => {
+      const owners = edgeOwners(
+        ["A", "B", "C"],
+        [
+          { source: "A", target: "B" },
+          { source: "C", target: "A" },
+          { source: "B", target: "external" },
+        ],
       );
 
-      expect(paginatedNodes).toHaveLength(2);
-      expect(paginatedNodes[0].path).toBe("A");
-      expect(paginatedNodes[1].path).toBe("B");
-      expect(paginatedEdges).toHaveLength(1); // Only A->B edge (both nodes present)
-      expect(paginatedEdges[0].source).toBe("A");
+      expect(owners).toEqual([1, 2, 1]);
     });
 
-    it("should handle offset pagination", () => {
-      const { nodes: paginatedNodes, edges: paginatedEdges } = applyPagination(
-        nodes,
-        edges,
-        2,
-        1,
+    it("puts an edge with no listed end on the first page", () => {
+      expect(edgeOwners(["A"], [{ source: "X", target: "Y" }])).toEqual([0]);
+    });
+
+    it("matches Windows-style raw edge paths to normalized node paths", () => {
+      const owners = edgeOwners(
+        ["c:/repo/a.ts", "c:/repo/b.ts"],
+        [{ source: String.raw`C:\repo\b.ts`, target: String.raw`C:\repo\a.ts` }],
       );
 
-      expect(paginatedNodes).toHaveLength(2);
-      expect(paginatedNodes[0].path).toBe("B");
-      expect(paginatedNodes[1].path).toBe("C");
-      expect(paginatedEdges).toHaveLength(1); // Only B->C edge
-    });
-
-    it("should return all nodes when no limit specified", () => {
-      const { nodes: paginatedNodes, edges: paginatedEdges } = applyPagination(
-        nodes,
-        edges,
-        undefined,
-        0,
-      );
-
-      expect(paginatedNodes).toHaveLength(3);
-      expect(paginatedEdges).toHaveLength(2);
-    });
-
-    it("should keep edges whose Windows-style paths match normalized node paths", () => {
-      const windowsNodes = [
-        { ...nodes[0], path: "c:/repo/a.ts" },
-        { ...nodes[1], path: "c:/repo/b.ts" },
-      ];
-      const windowsEdges = [
-        { source: String.raw`C:\repo\a.ts`, target: String.raw`C:\repo\b.ts`, sourceRelative: "a.ts", targetRelative: "b.ts" },
-      ];
-
-      const { edges: paginatedEdges } = applyPagination(windowsNodes, windowsEdges, 2, 0);
-
-      expect(paginatedEdges).toEqual(windowsEdges);
+      expect(owners).toEqual([1]);
     });
   });
 
@@ -710,10 +647,12 @@ describe("MCP Worker Helpers", () => {
       expect(estimateTokens(JSON.stringify(build(keptCount + 1)))).toBeGreaterThan(500);
     });
 
-    it("returns zero items when even an empty result is over budget", () => {
-      const { keptCount } = fitToTokenBudget(3, 1, () => ({ padding: "x ".repeat(100) }));
+    it("throws when not even one item fits, so a caller never loops on the same offset", () => {
+      expect(() => fitToTokenBudget(3, 1, build)).toThrow(RangeError);
+    });
 
-      expect(keptCount).toBe(0);
+    it("returns an empty result as is when there is nothing to cut", () => {
+      expect(fitToTokenBudget(0, 1, build).keptCount).toBe(0);
     });
   });
 });
