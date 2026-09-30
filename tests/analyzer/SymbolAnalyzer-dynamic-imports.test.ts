@@ -124,4 +124,46 @@ export async function loadComponent(name: string) {
         expect(homeDeps.length).toBeGreaterThan(0);
         expect(fallbackDeps.length).toBeGreaterThan(0);
     });
+
+    it('should record names destructured from await import()', () => {
+        const content = `
+export async function main() {
+    const { run, getHelp: help } = await import("./commands.js");
+    return help() + run();
+}
+`;
+        const result = analyzer.analyzeFileContent('/test/index.ts', content);
+
+        const targets = result.dependencies.map(d => d.targetSymbolId).sort();
+        expect(targets).toEqual(['./commands.js:getHelp', './commands.js:run']);
+    });
+
+    it('should record names destructured in import().then() callbacks', () => {
+        const content = `
+export function lazy() {
+    return import("./lazy").then(({ load }) => load());
+}
+export function lazyFn() {
+    return import("./other").then(function ({ other }) { return other(); });
+}
+`;
+        const result = analyzer.analyzeFileContent('/test/index.ts', content);
+
+        const targets = result.dependencies.map(d => d.targetSymbolId).sort();
+        expect(targets).toEqual(['./lazy:load', './other:other']);
+    });
+
+    it('should ignore rest elements and fall back to default without destructuring', () => {
+        const content = `
+export async function main() {
+    const { run, ...rest } = await import("./a");
+    const mod = await import("./b");
+    return [run, rest, mod];
+}
+`;
+        const result = analyzer.analyzeFileContent('/test/index.ts', content);
+
+        const targets = result.dependencies.map(d => d.targetSymbolId).sort();
+        expect(targets).toEqual(['./a:run', './b:default']);
+    });
 });

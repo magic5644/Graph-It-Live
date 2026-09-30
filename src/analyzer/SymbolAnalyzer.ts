@@ -790,9 +790,13 @@ export class SymbolAnalyzer implements ISymbolAnalyzer {
       const modulePath = this.extractDynamicImportPath(callExpr);
       if (!modulePath) continue;
 
-      const targetSymbolId = `${modulePath}:default`;
+      const importedNames = this.extractDynamicImportBindings(callExpr);
+      const symbolNames = importedNames.length > 0 ? importedNames : ["default"];
 
-      if (!dependencies.some((d) => d.symbolId === targetSymbolId)) {
+      for (const symbolName of symbolNames) {
+        const targetSymbolId = `${modulePath}:${symbolName}`;
+        if (dependencies.some((d) => d.symbolId === targetSymbolId)) continue;
+
         dependencies.push({
           symbolId: targetSymbolId,
           filePath: modulePath,
@@ -801,6 +805,35 @@ export class SymbolAnalyzer implements ISymbolAnalyzer {
         });
       }
     }
+  }
+
+  /**
+   * Extract export names destructured from a dynamic import:
+   * `const { a, b: c } = await import("./m")` or `import("./m").then(({ a }) => ...)`
+   */
+  private extractDynamicImportBindings(callExpr: Node): string[] {
+    const parent = callExpr.getParent();
+    let pattern: Node | undefined;
+
+    if (Node.isAwaitExpression(parent)) {
+      const declaration = parent.getParent();
+      if (Node.isVariableDeclaration(declaration)) {
+        pattern = declaration.getNameNode();
+      }
+    } else if (Node.isPropertyAccessExpression(parent) && parent.getName() === "then") {
+      const thenCall = parent.getParent();
+      const callback = Node.isCallExpression(thenCall) ? thenCall.getArguments()[0] : undefined;
+      if (Node.isArrowFunction(callback) || Node.isFunctionExpression(callback)) {
+        pattern = callback.getParameters()[0]?.getNameNode();
+      }
+    }
+
+    if (!Node.isObjectBindingPattern(pattern)) return [];
+
+    return pattern
+      .getElements()
+      .filter((element) => !element.getDotDotDotToken())
+      .map((element) => element.getPropertyNameNode()?.getText() ?? element.getName());
   }
 
   /**

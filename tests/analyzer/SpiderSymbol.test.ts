@@ -34,3 +34,25 @@ describe('Spider - Symbol Analysis', () => {
     expect(dependents[0].targetSymbolId).toContain('usedFunc');
   });
 });
+
+describe('Spider - Destructured dynamic imports', () => {
+  const fixturesDir = path.resolve(process.cwd(), 'tests/fixtures/dynamic-import-destructuring');
+  const commandsPath = path.join(fixturesDir, 'commands.ts');
+
+  let spider: Spider;
+
+  beforeAll(async () => {
+    spider = new SpiderBuilder()
+     .withRootDir(fixturesDir)
+     .withReverseIndex(true)
+     .build();
+
+    await spider.buildFullIndex();
+  });
+
+  it('should not report exports destructured from await import() or .then() as unused', async () => {
+    const unused = await spider.findUnusedSymbols(commandsPath);
+
+    expect(unused.map((s) => s.name)).toEqual(['unusedCommand']);
+  });
+});

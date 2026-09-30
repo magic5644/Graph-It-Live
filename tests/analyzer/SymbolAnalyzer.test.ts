@@ -288,4 +288,18 @@ export function main() {
     expect(lineOf('main', ':helper')).toBe(18);
     expect(lineOf('main', './lazy:default')).toBe(19);
   });
+
+  it('should map exported symbols to the other exports they reference', () => {
+    const analyzer = new SymbolAnalyzer();
+    const content = `
+export type Options = { depth: number };
+export function helper(): number { return 1; }
+export function run(options: Options): number { return helper() + options.depth; }
+`;
+
+    const graph = analyzer.getInternalExportDependencyGraph('/test.ts', content);
+
+    expect([...(graph.get('/test.ts:run') ?? [])].sort()).toEqual(['/test.ts:Options', '/test.ts:helper']);
+    expect([...(graph.get('/test.ts:helper') ?? [])]).toEqual([]);
+  });
 });
