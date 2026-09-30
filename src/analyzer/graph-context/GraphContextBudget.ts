@@ -16,6 +16,9 @@ const RUNTIME_IMPACT_RELATIONS = new Set<GraphContextRelation>([
 ]);
 const MIN_TOKEN_BUDGET = 500;
 const MAX_TOKEN_BUDGET = 16_000;
+// ponytail: fixed skip streak; each probe rebuilds the page, so a full page stops
+// after this many misses instead of probing every remaining candidate.
+const MAX_CONSECUTIVE_SKIPS = 16;
 
 interface IndexedEdge {
   edge: GraphContextEdge;
@@ -104,7 +107,13 @@ export function applyGraphContextBudgetPage(
     );
   }
 
+  // A candidate that does not fit (a document linked to every selected symbol can
+  // add dozens of edges at once) is skipped, not treated as the end of the page:
+  // stopping there left most of the budget unused. The cursor resumes after the
+  // last accepted candidate so pages never repeat a node; a skip followed by an
+  // accepted candidate stays omitted, trailing skips are retried on the next page.
   let consumedOffset = offset;
+  let consecutiveSkips = 0;
   for (let candidateIndex = offset; candidateIndex < rankedNodes.length; candidateIndex += 1) {
     const candidate = rankedNodes[candidateIndex];
     if (selectedIds.has(candidate.id)) {
@@ -123,6 +132,7 @@ export function applyGraphContextBudgetPage(
     if (candidateResponse.tokenEstimate <= tokenBudget) {
       selectedResponse = candidateResponse;
       consumedOffset = candidateIndex + 1;
+      consecutiveSkips = 0;
       continue;
     }
 
@@ -131,7 +141,8 @@ export function applyGraphContextBudgetPage(
       consumedOffset = candidateIndex + 1;
       continue;
     }
-    break;
+    consecutiveSkips += 1;
+    if (consecutiveSkips >= MAX_CONSECUTIVE_SKIPS) break;
   }
 
   return consumedOffset < rankedNodes.length

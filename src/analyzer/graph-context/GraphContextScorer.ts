@@ -132,6 +132,9 @@ export class GraphContextScorer {
     if (questionTokens.has('file') && node.kind === 'file') score += 8;
     if (questionTokens.has('caller') && node.kind === 'symbol') score += 4;
     if (score > 0 && node.kind === 'symbol') score += 1;
+    // A test named after the feature (`dispatchedCommands`) otherwise outranks the
+    // code the question is about; keep tests first only when the question asks for them.
+    if (node.kind === 'test' && !hasIntentStem(questionTokens, ['test', 'spec'])) score /= 4;
 
     return score;
   }

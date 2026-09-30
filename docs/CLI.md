@@ -862,7 +862,7 @@ Relation filters accept `CONTAINS`, `IMPORTS`, `CALLS`, `INHERITS`,
 | `--directed` | false | Keep path traversal directed |
 | `--cursor <cursor>` | — | Continue a truncated result |
 | `--format <format>` | global format | `json` or `toon` |
-| `--detail <level>` | `standard` | `compact` (8 nodes, metadata stripped), `standard` (40 nodes, all fields), `full` (no cap) |
+| `--detail <level>` | `standard` | `compact` (metadata stripped), `standard` and `full` (all fields). The token budget and `--max-nodes` set the node count at every level |
 | `--workspace, -w <path>` | auto-detected | Workspace root |
 
 ```bash
@@ -891,15 +891,22 @@ Edges carry `relation`, `confidence`, `sourcePath` and `sourceLine` directly. An
 the justification sentence for an ordinary edge is derived from its relation and
 confidence, not stored on every edge.
 
-Pick `--detail` by how much you intend to read:
+Pick `--detail` by the fields you need. Every level fills the token budget
+before truncating, and keeps the continuation cursor:
 
-| Level | Nodes | Fields | Pagination |
-|-------|-------|--------|------------|
-| `compact` | 8 | language and score dropped | no cursor — the projection is not a complete page |
-| `standard` (default) | 40 | complete | cursor preserved |
-| `full` | uncapped | complete | cursor preserved |
+| Level | Fields |
+|-------|--------|
+| `compact` | language, score and edge source locations dropped, at most 3 `nextQueries` |
+| `standard` (default) | complete |
+| `full` | complete |
 
-Only the token budget limits `full`.
+Because `compact` spends fewer tokens per node, the same budget returns more
+nodes. A candidate too large for the remaining budget, such as a document linked
+to many selected symbols, is skipped rather than ending the page.
+
+Search seeds favor code: a test that matches the question ranks below matching
+source symbols unless the question mentions tests. Documents excluded by
+`.gitignore` or `.graphitignore` (for example a generated `wiki/`) are not indexed.
 
 MCP clients call the prefixed server tool name:
 

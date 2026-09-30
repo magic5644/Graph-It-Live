@@ -621,3 +621,69 @@ describe('GraphContextScorer relation intent', () => {
     expect(scorer.scoreRelation('refactor', 'IMPLEMENTS', 'Which implementations change?', target)).toBe(155);
   });
 });
+
+describe('GraphContextRetriever search relevance', () => {
+  const dispatchTest = node(
+    'test:tests/cli/cacheFlags.e2e.test.ts:dispatchedCommands:183',
+    'test',
+    'dispatchedCommands',
+    'tests/cli/cacheFlags.e2e.test.ts',
+    183,
+  );
+  const dispatchSymbol = node(
+    'symbol:src/cli/commands/repl.ts:runTypedCommandLine:434',
+    'symbol',
+    'runTypedCommandLine',
+    'src/cli/commands/repl.ts',
+    434,
+  );
+
+  it('ranks code above a test named after the question unless tests are asked for', () => {
+    const scorer = new GraphContextScorer({ workspaceRoot: WORKSPACE_ROOT });
+    const nodes = [dispatchTest, dispatchSymbol];
+
+    const codeQuestion = scorer.scoreSearchNodes('how does the repl dispatch commands', nodes);
+    const testQuestion = scorer.scoreSearchNodes('which test covers repl dispatch commands', nodes);
+
+    expect(codeQuestion[0]?.node.id).toBe(dispatchSymbol.id);
+    expect(testQuestion[0]?.node.id).toBe(dispatchTest.id);
+  });
+
+  it('builds next queries around code seeds, not a document linked to every symbol', async () => {
+    const wiki = node('document:wiki/index.md', 'document', 'Wiki — Graph-It-Live', 'wiki/index.md');
+    const helpers = Array.from({ length: 4 }, (_, index) => node(
+      `symbol:src/cli/helper${index}.ts:helper${index}:1`,
+      'symbol',
+      `helper${index}`,
+      `src/cli/helper${index}.ts`,
+      1,
+    ));
+    const retriever = new GraphContextRetriever({
+      snapshotProvider: {
+        buildSnapshot: async () => ({
+          revision: 'next-queries',
+          fresh: true,
+          nodes: [dispatchSymbol, wiki, ...helpers],
+          edges: [
+            edge(dispatchSymbol.id, helpers[0].id, 'CALLS'),
+            edge(wiki.id, dispatchSymbol.id, 'DOCUMENTS'),
+            ...helpers.map(helper => edge(wiki.id, helper.id, 'DOCUMENTS')),
+            ...helpers.map(helper => edge(wiki.id, helper.id, 'REFERENCES')),
+          ],
+        }),
+      },
+      workspaceRoot: WORKSPACE_ROOT,
+      collectAllCandidates: true,
+    });
+
+    const response = await retriever.retrieve({
+      question: 'how does the repl run a typed command line',
+      mode: 'search',
+    });
+
+    expect(response.seeds).toContain(dispatchSymbol.id);
+    expect(response.nextQueries.length).toBeGreaterThan(0);
+    expect(response.nextQueries.some(suggestion => suggestion.includes('wiki/index.md'))).toBe(false);
+    expect(response.nextQueries.some(suggestion => suggestion.includes('runTypedCommandLine'))).toBe(true);
+  });
+});
