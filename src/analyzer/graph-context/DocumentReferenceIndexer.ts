@@ -2,6 +2,7 @@ import { readFile, readdir, stat } from 'node:fs/promises';
 import path from 'node:path';
 import { normalizePath } from '@/shared/path';
 import type { GraphContextEdge, GraphContextNode } from '@/shared/graph-context-types';
+import { createIgnoreMatcher } from '@/analyzer/SourceFileFilters';
 import { compileFileScope } from './FileScopeMatcher';
 import { toEvidence } from './GraphContextEvidence';
 
@@ -165,12 +166,16 @@ export class DocumentReferenceIndexer {
 
 async function collectFiles(root: string): Promise<string[]> {
   const result: string[] = [];
+  // Same .gitignore/.graphitignore rules as source indexing, so generated wikis and
+  // fixtures do not come back as documents.
+  const isIgnored = createIgnoreMatcher(root);
   const visit = async (directory: string): Promise<void> => {
     let entries;
     try { entries = await readdir(directory, { withFileTypes: true }); } catch { return; }
     for (const entry of entries) {
       if (entry.name === 'node_modules' || entry.name === '.git' || entry.name === 'out' || entry.name === 'dist') continue;
       const filePath = normalizePath(path.join(directory, entry.name));
+      if (isIgnored(path.relative(root, filePath), entry.isDirectory())) continue;
       if (entry.isDirectory()) await visit(filePath);
       else if (DOCUMENT_EXTENSIONS.has(path.extname(entry.name).toLowerCase()) || CODE_EXTENSIONS.has(path.extname(entry.name).toLowerCase())) result.push(filePath);
     }

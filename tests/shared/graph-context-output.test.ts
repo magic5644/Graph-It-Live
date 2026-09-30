@@ -22,7 +22,7 @@ const response: GraphContextResponse = {
 };
 
 describe('graph context output projection', () => {
-  it('keeps evidence and relations while removing verbose fields and limiting nodes', () => {
+  it('keeps evidence and relations while removing verbose fields', () => {
     const compact = projectGraphContextOutput(response, 'compact');
 
     expect(compact.nodes).toEqual([
@@ -77,46 +77,34 @@ describe('projectGraphContextOutput detail levels', () => {
     expect(projectGraphContextOutput(response, 'full')).toBe(response);
   });
 
-  it('caps nodes at standard detail, which used to be identical to full', () => {
-    const projected = projectGraphContextOutput(bigResponse(100), 'standard');
+  it('never drops nodes, whatever the detail: the token budget decides the count', () => {
+    for (const detail of ['compact', 'standard', undefined] as const) {
+      const projected = projectGraphContextOutput(bigResponse(100), detail);
 
-    expect(projected.nodes).toHaveLength(40);
-    expect(projected.truncated).toBe(true);
-    expect(projected.omitted.nodes).toBe(60);
+      expect(projected.nodes).toHaveLength(100);
+      expect(projected.omitted.nodes).toBe(0);
+      expect(projected.truncated).toBe(false);
+    }
   });
 
   it('keeps every node field at standard detail', () => {
-    const projected = projectGraphContextOutput(bigResponse(100), 'standard');
+    const response = bigResponse(100);
 
-    expect(projected.nodes[0]).toEqual(expect.objectContaining({
-      language: 'typescript',
-      score: 100,
-    }));
+    expect(projectGraphContextOutput(response, 'standard')).toBe(response);
+    expect(projectGraphContextOutput(response, undefined)).toBe(response);
   });
 
-  it('keeps paginating at standard detail but not at compact', () => {
+  it('keeps paginating at every detail', () => {
     expect(projectGraphContextOutput(bigResponse(100), 'standard').nextCursor).toBe('cursor-token');
-    expect(projectGraphContextOutput(bigResponse(100), 'compact').nextCursor).toBeUndefined();
+    expect(projectGraphContextOutput(bigResponse(100), 'compact').nextCursor).toBe('cursor-token');
   });
 
   it('strips low-signal node fields at compact detail only', () => {
     const projected = projectGraphContextOutput(bigResponse(100), 'compact');
 
-    expect(projected.nodes).toHaveLength(8);
     expect(projected.nodes[0]).not.toHaveProperty('language');
     expect(projected.nodes[0]).not.toHaveProperty('score');
-  });
-
-  it('defaults to standard when no detail is requested', () => {
-    const projected = projectGraphContextOutput(bigResponse(100), undefined);
-
-    expect(projected.nodes).toHaveLength(40);
-  });
-
-  it('returns a small response untouched at standard detail', () => {
-    const response = bigResponse(5);
-
-    expect(projectGraphContextOutput(response, 'standard')).toBe(response);
+    expect(projected.tokenEstimate).toBeGreaterThan(0);
   });
 });
 
@@ -147,15 +135,6 @@ describe('projectGraphContextOutput path remapping', () => {
     const projected = projectGraphContextOutput(base, 'compact');
 
     expect(projected.paths).toEqual([{ nodeIds: ['a', 'b', 'c'], edgeIndexes: [0, 1], hops: 2 }]);
-  });
-
-  it('narrows seeds to the nodes that survived the projection', () => {
-    const projected = projectGraphContextOutput(
-      { ...base, seeds: ['a', 'missing'] },
-      'compact',
-    );
-
-    expect(projected.seeds).toEqual(['a']);
   });
 
   it('compacts ambiguous candidates too', () => {

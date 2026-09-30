@@ -1,5 +1,8 @@
 import { describe, expect, it } from 'vitest';
-import { applyGraphContextBudget } from '../../../src/analyzer/graph-context/GraphContextBudget';
+import {
+  applyGraphContextBudget,
+  applyGraphContextBudgetPage,
+} from '../../../src/analyzer/graph-context/GraphContextBudget';
 import type {
   GraphContextEdge,
   GraphContextNode,
@@ -275,5 +278,56 @@ describe('applyGraphContextBudget seed degradation', () => {
     const budgeted = applyGraphContextBudget(seedHeavyResponse(20), 500);
 
     expect(budgeted.omitted.nodes).toBe(20 - budgeted.nodes.length);
+  });
+
+  describe('filling the budget past an oversized candidate', () => {
+    function oversized(id: string, score: number): GraphContextNode {
+      return { ...node(id, 'document', score), name: 'oversized document title '.repeat(120) };
+    }
+
+    function withCandidates(candidates: GraphContextNode[]): GraphContextResponse {
+      const seed = { ...node('seed', 'symbol', 100), isSeed: true };
+      return {
+        indexRevision: 'budget-fill',
+        fresh: true,
+        mode: 'search',
+        seeds: ['seed'],
+        nodes: [seed, ...candidates],
+        edges: [],
+        paths: [],
+        ambiguous: [],
+        omitted: { nodes: 0, edges: 0 },
+        nextQueries: [],
+        tokenEstimate: 0,
+        truncated: false,
+      };
+    }
+
+    it('skips a candidate that does not fit and keeps adding the ones that do', () => {
+      const response = withCandidates([
+        oversized('wiki', 90),
+        node('after-1', 'symbol', 80),
+        node('after-2', 'symbol', 70),
+      ]);
+
+      const page = applyGraphContextBudgetPage(response, TOKEN_BUDGET);
+
+      expect(page.response.nodes.map(graphNode => graphNode.id)).toEqual(['seed', 'after-1', 'after-2']);
+      expect(page.response.omitted.nodes).toBe(1);
+      expect(page.response.tokenEstimate).toBeLessThanOrEqual(TOKEN_BUDGET);
+      // The skip was followed by accepted candidates, so a next page would repeat them.
+      expect(page.nextOffset).toBeUndefined();
+    });
+
+    it('stops after a streak of misses and resumes the next page at the first of them', () => {
+      const response = withCandidates(Array.from({ length: 20 }, (_, index) => (
+        oversized(`wiki-${index}`, 50 - index)
+      )));
+
+      const page = applyGraphContextBudgetPage(response, TOKEN_BUDGET);
+
+      expect(page.response.nodes.map(graphNode => graphNode.id)).toEqual(['seed']);
+      expect(page.nextOffset).toBe(1);
+    });
   });
 });

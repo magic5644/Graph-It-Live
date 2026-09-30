@@ -144,7 +144,8 @@ describe('GraphContextCursor', () => {
 
   it('uses the cursor offset to build a page without duplicate node IDs', () => {
     const response = pagedResponse();
-    const firstPage = applyGraphContextBudgetPage(response, 500);
+    // Three nodes per page: the oversized candidate is skipped, not the end of a page.
+    const firstPage = applyGraphContextBudgetPage(response, 500, 0, 3);
     expect(firstPage.nextOffset).toBeDefined();
 
     const cursor = createGraphContextCursor({
@@ -152,7 +153,7 @@ describe('GraphContextCursor', () => {
       offset: firstPage.nextOffset as number,
     });
     const { offset } = parseGraphContextCursor(cursor, binding);
-    const nextPage = applyGraphContextBudgetPage(response, 500, offset);
+    const nextPage = applyGraphContextBudgetPage(response, 500, offset, 3);
     const firstIds = new Set(firstPage.response.nodes.map(result => result.id));
 
     expect(response.nodes.map(result => result.id)).toEqual([

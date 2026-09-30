@@ -692,13 +692,14 @@ function buildNextQueries(
     .filter(relation => !returnedRelations.has(relation)))]
     .sort();
   const seedNode = selection.nodes.find(node => node.id === selection.seeds[0]);
-  const anchor = highestDegreeNode(snapshot, selection.nodes) ?? seedNode;
+  const anchorCandidates = suggestionAnchors(selection);
+  const anchor = highestDegreeNode(snapshot, anchorCandidates) ?? seedNode;
   for (const relation of omittedRelations) {
     if (!anchor) break;
     suggestions.push(`Explore ${relation} around ${concreteLabel(anchor)}`);
   }
 
-  const hubs = [...selection.nodes]
+  const hubs = [...anchorCandidates]
     .sort((left, right) => (
       degree(snapshot.edges, right.id) - degree(snapshot.edges, left.id)
       || left.id.localeCompare(right.id)
@@ -716,6 +717,18 @@ function buildNextQueries(
   }
 
   return [...new Set(suggestions)].slice(0, 5);
+}
+
+/**
+ * Code nodes to build suggestions around, question-matched seeds first. The whole
+ * candidate pool used to compete on degree, so a wiki page linked to every symbol
+ * became the anchor of every suggestion.
+ */
+function suggestionAnchors(selection: RetrievalSelection): GraphContextNode[] {
+  const seedIds = new Set(selection.seeds);
+  const codeNodes = selection.nodes.filter(node => node.kind === 'symbol' || node.kind === 'file');
+  const codeSeeds = codeNodes.filter(node => seedIds.has(node.id));
+  return codeSeeds.length > 0 ? codeSeeds : codeNodes;
 }
 
 function highestDegreeNode(
