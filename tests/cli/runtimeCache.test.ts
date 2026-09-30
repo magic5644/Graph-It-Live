@@ -13,8 +13,10 @@ import { normalizePath } from "@/shared/path";
  * graph are rebuilt from scratch every invocation unless they are persisted.
  * These tests cover the persistence round-trip and every invalidation path.
  */
-describe("CliRuntime index cache", () => {
-  const multiRunTimeout = 15_000;
+// Every test indexes a workspace cold at least once. On the Windows runner a
+// single cold index already comes close to the default 5 s, so tests kept
+// timing out one by one; the whole file gets the multi-run timeout instead.
+describe("CliRuntime index cache", { timeout: 15_000 }, () => {
   let tmpDir: string;
   let cacheDir: string;
   const runtimes: CliRuntime[] = [];
@@ -120,7 +122,7 @@ describe("CliRuntime index cache", () => {
     } finally {
       buildFullIndex.mockRestore();
     }
-  }, multiRunTimeout);
+  });
 
   it("picks up a file created between two runs", async () => {
     await run();
@@ -135,7 +137,7 @@ describe("CliRuntime index cache", () => {
 
     expect((await run()).callers).toBe(6);
     expect((await run()).callers).toBe(6);
-  }, multiRunTimeout);
+  });
 
   it.each(["tsconfig.json", "src/tsconfig.json", "src/package.json"])(
     "invalidates cached dependencies when %s changes",
@@ -155,7 +157,6 @@ describe("CliRuntime index cache", () => {
       expect((await run()).callers).toBe(11);
       expect((await run()).callers).toBe(11);
     },
-    multiRunTimeout,
   );
 
   it("drops a file deleted between two runs", async () => {
@@ -179,7 +180,7 @@ describe("CliRuntime index cache", () => {
     fs.writeFileSync(metaPath, JSON.stringify({ ...meta, cliVersion: "999.0.0" }));
 
     expect((await run()).callers).toBe(12);
-  }, multiRunTimeout);
+  });
 
   it("rebuilds when the guard records a different workspace root", async () => {
     await run();
@@ -188,21 +189,21 @@ describe("CliRuntime index cache", () => {
     fs.writeFileSync(metaPath, JSON.stringify({ ...meta, workspaceRoot: "/somewhere/else" }));
 
     expect((await run()).callers).toBe(12);
-  }, multiRunTimeout);
+  });
 
   it("rebuilds instead of throwing when the cached index is corrupt", async () => {
     await run();
     fs.writeFileSync(path.join(cacheDir, "reverse-index.json"), "{ not json");
 
     expect((await run()).callers).toBe(12);
-  }, multiRunTimeout);
+  });
 
   it("rebuilds when the cached index is gone but the guard remains", async () => {
     await run();
     fs.rmSync(path.join(cacheDir, "reverse-index.json"));
 
     expect((await run()).callers).toBe(12);
-  }, multiRunTimeout);
+  });
 
   it("writes nothing when caching is turned off per run", async () => {
     await run({ cache: false });
