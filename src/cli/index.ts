@@ -261,6 +261,35 @@ export function findCommandStart(argv: string[], command: string): number {
 }
 
 /**
+ * Remove global flags (and the value of string-typed ones) from a command's raw
+ * args. Commands that take their file from `args[0]` would otherwise read a
+ * trailing global flag such as `summary --format toon` as the file path.
+ */
+export function stripGlobalOptions(args: string[]): string[] {
+  const result: string[] = [];
+  let i = 0;
+  while (i < args.length) {
+    const token = args[i];
+    const [name, inlineValue] = token.startsWith("--") ? token.slice(2).split("=", 2) : [token];
+    const optDef = Object.entries(GLOBAL_OPTIONS).find(([long, opt]) =>
+      token.startsWith("--") ? long === name : `-${opt.short}` === token,
+    )?.[1];
+    if (!optDef) {
+      result.push(token);
+      i += 1;
+      continue;
+    }
+    i += optDef.type === "string" && inlineValue === undefined ? 2 : 1;
+  }
+  return result;
+}
+
+// Commands that read their target file from `args[0]`.
+const FILE_ARG_COMMANDS = new Set([
+  "summary", "trace", "explain", "path", "path-in", "check-dependencies", "cycles", "check",
+]);
+
+/**
  * Build the runtime for this invocation, applying the index-cache flags.
  *
  * Exported so the flag semantics are unit-testable: `main()` itself only runs
@@ -365,9 +394,12 @@ async function main(): Promise<void> {
   // right after the command name preserves those flags untouched.
   const argvAfterBinary = process.argv.slice(2);
   const commandPosInArgv = findCommandStart(argvAfterBinary, command);
-  const rawCommandArgs = commandPosInArgv >= 0
+  const argsAfterCommand = commandPosInArgv >= 0
     ? argvAfterBinary.slice(commandPosInArgv + 1)
     : commandArgs;
+  const rawCommandArgs = FILE_ARG_COMMANDS.has(command)
+    ? stripGlobalOptions(argsAfterCommand)
+    : argsAfterCommand;
 
   // Validate output format
   const format = (values.format ?? "text") as CliOutputFormat;

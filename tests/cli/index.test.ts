@@ -16,7 +16,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import * as fsSync from "node:fs";
 import * as osMod from "node:os";
 import * as pathMod from "node:path";
-import { commandWantsHelp, createRuntime, findCommandStart } from "../../src/cli/index";
+import { commandWantsHelp, createRuntime, findCommandStart, stripGlobalOptions } from "../../src/cli/index";
 
 describe("findCommandStart", () => {
   it("finds the command when it is the first token", () => {
@@ -46,6 +46,31 @@ describe("findCommandStart", () => {
     // The workspace path happens to be named "wiki" here — must not match at index 1.
     const argv = ["--workspace", "wiki", "wiki", "--output", "my-wiki"];
     expect(findCommandStart(argv, "wiki")).toBe(2);
+  });
+});
+
+describe("stripGlobalOptions", () => {
+  it("leaves no file argument for `summary --format toon`", () => {
+    expect(stripGlobalOptions(["--format", "toon"])).toEqual([]);
+  });
+
+  it("keeps the file argument for `summary --format toon <file>`", () => {
+    expect(stripGlobalOptions(["--format", "toon", "src/a.ts"])).toEqual(["src/a.ts"]);
+    expect(stripGlobalOptions(["src/a.ts", "--format", "toon"])).toEqual(["src/a.ts"]);
+  });
+
+  it("strips short, inline and boolean global flags", () => {
+    const args = ["-f", "json", "--workspace=/tmp/project", "--no-cache", "--reindex", "src/a.ts#run"];
+    expect(stripGlobalOptions(args)).toEqual(["src/a.ts#run"]);
+  });
+
+  it("keeps command-specific flags and unknown tokens", () => {
+    const args = ["src/a.ts", "--maxDepth", "3", "--toString", "-x"];
+    expect(stripGlobalOptions(args)).toEqual(args);
+  });
+
+  it("drops a trailing string flag with no value", () => {
+    expect(stripGlobalOptions(["src/a.ts", "--format"])).toEqual(["src/a.ts"]);
   });
 });
 

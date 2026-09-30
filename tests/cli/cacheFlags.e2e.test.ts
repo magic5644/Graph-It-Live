@@ -163,6 +163,11 @@ describe.skipIf(!distExists)("CLI index cache flags (E2E)", { timeout: SUBPROCES
     expect(fs.readFileSync(path.join(cacheDir, "meta.json"), "utf-8")).not.toBe(before);
   });
 
+  it("does not read a global flag after the command as the summary file (#158)", () => {
+    expect(cli("summary", "--format", "toon")).toContain("state=complete");
+    expect(cli("summary", "--format", "toon", "src/b.ts")).toContain("codemap.relativePath=src/b.ts");
+  });
+
   it("lists the cache flags in --help", () => {
     const out = execFileSync(process.execPath, [DIST_ENTRY, "--help"], { encoding: "utf-8" });
 
