@@ -505,7 +505,9 @@ describe('PythonParser Property-Based Tests', { timeout: 30_000 }, () => {
       await fc.assert(
         fc.asyncProperty(
           fc.array(pythonModuleNameArbitrary(), { minLength: 1, maxLength: 5 }),
-          fc.array(fc.stringMatching(/^[a-z][a-z0-9_]*$/), { minLength: 1, maxLength: 5 }),
+          // Suffix keeps aliases distinct from modules (which end with their index digit):
+          // an unsuffixed alias such as `h0` for module `h` + `0` yields `import h0 as h0`.
+          fc.array(fc.stringMatching(/^[a-z][a-z0-9_]*$/).map(alias => `${alias}_alias`), { minLength: 1, maxLength: 5 }),
           async (modules, aliases) => {
             const lines: string[] = ['# Import aliases test'];
             const expectedModules: string[] = [];
