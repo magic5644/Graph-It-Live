@@ -22,6 +22,7 @@ describe('MCP file watcher', () => {
     await fs.mkdir(path.join(root, 'src'));
     await fs.writeFile(path.join(root, 'src/old.ts'), 'export function helper() { return 1; }');
     await fs.writeFile(path.join(root, 'src/app.ts'), "import { helper } from './old'; export function result() { return helper(); }");
+    await fs.writeFile(path.join(root, '.gitignore'), 'generated/\n');
     workerState.config = { rootDir: root, excludeNodeModules: true, maxDepth: 50, extensionPath: process.cwd() };
     workerState.spider = new SpiderBuilder().withRootDir(root).withReverseIndex(true).build();
     workerState.symbolReverseIndex = new SymbolReverseIndex(root);
@@ -64,10 +65,14 @@ describe('MCP file watcher', () => {
     expect(snapshot.edges).toHaveLength(1);
   }, testTimeout);
 
-  it('ignores unsupported files and excluded directories but watches new nested source files', async () => {
+  it('ignores unsupported files, excluded and gitignored directories but watches new nested source files', async () => {
     await fs.mkdir(path.join(root, 'node_modules'));
     await fs.writeFile(path.join(root, 'node_modules/ignored.ts'), 'export const ignored = 1;');
     await fs.writeFile(path.join(root, 'src/ignored.txt'), 'ignored');
+    await fs.mkdir(path.join(root, 'generated'));
+    await fs.writeFile(path.join(root, 'generated/ignored.ts'), 'export const ignored = 1;');
+    await fs.mkdir(path.join(root, 'out-webview'));
+    await fs.writeFile(path.join(root, 'out-webview/ignored.d.ts'), 'export declare const ignored: number;');
     await fs.mkdir(path.join(root, 'src/nested'));
     const newPath = normalizePath(path.join(root, 'src/nested/added.ts'));
     await fs.writeFile(newPath, 'export const added = 1;');
@@ -75,6 +80,22 @@ describe('MCP file watcher', () => {
       expect(postMessage).toHaveBeenCalledWith(expect.objectContaining({ event: 'add', filePath: newPath }));
     }, { timeout: eventTimeout });
     expect(postMessage.mock.calls.every(([message]) => message.filePath === newPath)).toBe(true);
+  }, testTimeout);
+
+  it('skips excluded and gitignored subdirectories when reconciling a new directory', async () => {
+    const batch = path.join(root, 'src/batch');
+    await fs.mkdir(path.join(batch, 'deep'), { recursive: true });
+    await fs.mkdir(path.join(batch, 'generated'));
+    await fs.mkdir(path.join(batch, 'node_modules'));
+    await fs.writeFile(path.join(batch, 'generated/skipped.ts'), 'export const skipped = 1;');
+    await fs.writeFile(path.join(batch, 'node_modules/skipped.ts'), 'export const skipped = 1;');
+    const keptPath = normalizePath(path.join(batch, 'deep/kept.ts'));
+    await fs.writeFile(keptPath, 'export const kept = 1;');
+    await vi.waitFor(() => {
+      expect(postMessage).toHaveBeenCalledWith(expect.objectContaining({ event: 'add', filePath: keptPath }));
+      expect(workerState.pendingInvalidations.size).toBe(0);
+    }, { timeout: eventTimeout });
+    expect(postMessage.mock.calls.every(([message]) => message.filePath === keptPath)).toBe(true);
   }, testTimeout);
 
   it('cancels a pending new-directory reconciliation when stopped', async () => {

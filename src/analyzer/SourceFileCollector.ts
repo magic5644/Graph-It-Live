@@ -1,6 +1,6 @@
 import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
-import { isSupportedSourceFile, shouldSkipDirectory } from './SourceFileFilters';
+import { createIgnoreMatcher, isSupportedSourceFile, shouldSkipDirectory } from './SourceFileFilters';
 import { getLogger } from '../shared/logger';
 
 const log = getLogger('SourceFileCollector');
@@ -14,6 +14,7 @@ export interface SourceFileCollectorOptions {
 
 /**
  * Walks the workspace tree and returns the list of supported source files.
+ * Honors the root `.gitignore`/`.graphitignore` and the default ignore patterns.
  * Extracted from Spider to keep traversal/cancellation logic isolated.
  */
 export class SourceFileCollector {
@@ -38,9 +39,16 @@ export class SourceFileCollector {
   async collectAllSourceFiles(rootDir: string): Promise<string[]> {
     const files: string[] = [];
     let lastYieldTime = Date.now();
+    const isIgnoredByRules = createIgnoreMatcher(rootDir);
 
     const processEntry = async (entry: import('node:fs').Dirent, currentDir: string): Promise<void> => {
       const fullPath = path.join(currentDir, entry.name);
+      const relativePath = path.relative(rootDir, fullPath);
+      // `.gitignore` usually lists node_modules; keep the excludeNodeModules opt-out effective
+      const insideIncludedNodeModules = !this.excludeNodeModules && relativePath.split(path.sep).includes('node_modules');
+      if (!insideIncludedNodeModules && isIgnoredByRules(relativePath, entry.isDirectory())) {
+        return;
+      }
 
       if (entry.isDirectory() && !shouldSkipDirectory(entry.name, this.excludeNodeModules)) {
         await walkDir(fullPath);

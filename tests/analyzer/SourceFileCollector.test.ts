@@ -75,4 +75,42 @@ describe('SourceFileCollector', () => {
       await fs.rm(root, { recursive: true, force: true });
     }
   });
+
+  it('skips paths listed in .gitignore and default ignore patterns', async () => {
+    const root = await createTempWorkspace({
+      '.gitignore': 'out-webview\n/wiki/\n',
+      'src/index.ts': '',
+      'src/wiki/page.ts': '',
+      'wiki/generated.ts': '',
+      'out-webview/types.d.ts': '',
+      'out-test/suite.js': '',
+      'tests/fixtures/sample.ts': '',
+      'tests/unit.test.ts': '',
+    });
+
+    try {
+      const collector = new SourceFileCollector({ excludeNodeModules: true, yieldCallback: noopYield });
+      const files = await collector.collectAllSourceFiles(root);
+      expect(toRelativePosix(files, root)).toEqual(['src/index.ts', 'src/wiki/page.ts', 'tests/unit.test.ts']);
+    } finally {
+      await fs.rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it('keeps node_modules included when gitignored and exclusion is disabled', async () => {
+    const root = await createTempWorkspace({
+      '.gitignore': 'node_modules/\n',
+      'node_modules/pkg/index.ts': '',
+      'main.ts': '',
+    });
+
+    try {
+      const collector = new SourceFileCollector({ excludeNodeModules: false, yieldCallback: noopYield });
+      const files = await collector.collectAllSourceFiles(root);
+      expect(toRelativePosix(files, root)).toEqual(['main.ts', 'node_modules/pkg/index.ts']);
+    } finally {
+      await fs.rm(root, { recursive: true, force: true });
+    }
+  });
 });
+

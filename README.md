@@ -314,6 +314,8 @@ Set these options in VS Code settings:
 | `graph-it-live.preIndexCallGraph` | `true` | Pre-index the Live Call Graph |
 | `graph-it-live.symbolViewLayout` | `hierarchical` | Select `hierarchical`, `force-directed`, or `radial` |
 
+Workspace indexing (extension, CLI, and MCP) skips paths listed in the root `.gitignore`, plus `tests/fixtures/` and `out-*/` by default. Add a root `.graphitignore` with gitignore syntax to exclude more paths, or negate a rule to include it again, for example `!tests/fixtures/`.
+
 For concurrency, cache, persistence, logging, and unused-analysis settings, see the [development guide](DEVELOPMENT.md).
 
 ## CI review gate
