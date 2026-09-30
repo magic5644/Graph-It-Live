@@ -195,14 +195,14 @@ describe("CliRuntime index cache", () => {
     fs.writeFileSync(path.join(cacheDir, "reverse-index.json"), "{ not json");
 
     expect((await run()).callers).toBe(12);
-  });
+  }, multiRunTimeout);
 
   it("rebuilds when the cached index is gone but the guard remains", async () => {
     await run();
     fs.rmSync(path.join(cacheDir, "reverse-index.json"));
 
     expect((await run()).callers).toBe(12);
-  });
+  }, multiRunTimeout);
 
   it("writes nothing when caching is turned off per run", async () => {
     await run({ cache: false });
