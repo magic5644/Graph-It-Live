@@ -11,6 +11,7 @@
 import { normalizePath } from "../shared/path";
 import { estimateTokenSavings, jsonToToon } from "../shared/toon";
 import { sessionStats } from "../shared/sessionStats";
+import { compactOutput } from "../shared/compactOutput";
 
 export type CliOutputFormat = "text" | "json" | "toon" | "markdown" | "mermaid" | "html";
 
@@ -50,7 +51,8 @@ export function formatOutput(data: unknown, format: CliOutputFormat, command: st
     case "json":
       return formatJson(data);
     case "toon":
-      return formatToon(data, command);
+      // TOON is the token-optimized format; `json` stays a stable, uncompacted contract.
+      return formatToon(compactOutput(data), command);
     case "text":
       return formatText(data, command);
     case "markdown":

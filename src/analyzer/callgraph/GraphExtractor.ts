@@ -293,7 +293,8 @@ export class GraphExtractor {
       const symbolName = node.text.trim();
       if (!symbolName) continue;
       const startLine = node.startPosition.row;
-      const endLine = node.endPosition.row;
+      // The capture is the name identifier; the declaration spans the body.
+      const endLine = (node.parent ?? node).endPosition.row;
       const startCol = node.startPosition.column;
       const nodeId = `${normalizedFilePath}:${symbolName}:${startLine}`;
       if (nodeMap.has(nodeId)) continue;
