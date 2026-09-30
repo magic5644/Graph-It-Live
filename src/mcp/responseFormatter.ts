@@ -8,6 +8,7 @@
  */
 
 import { jsonToToon, estimateTokenSavings } from '../shared/toon';
+import { encodeToonSections } from '../shared/toonSections';
 import { sessionStats } from '../shared/sessionStats';
 import { getLogger } from '../shared/logger';
 import { normalizePath } from '../shared/path';
@@ -201,34 +202,6 @@ function redactAbsolutePaths<T>(
 }
 
 /**
- * Helper function to extract array data from various response structures
- */
-function extractArrayFromData(data: unknown): unknown[] {
-  if (Array.isArray(data)) {
-    return data;
-  }
-
-  if (typeof data === 'object' && data !== null) {
-    const dataObj = data as Record<string, unknown>;
-    
-    // Try common patterns: items, results, data, nodes, edges, etc.
-    const arrayKeys = ['items', 'results', 'data', 'nodes', 'edges', 'dependencies', 'symbols', 'callers'];
-    
-    for (const key of arrayKeys) {
-      if (Array.isArray(dataObj[key])) {
-        return dataObj[key] as unknown[];
-      }
-    }
-    
-    // If no array found, wrap the object itself
-    return [data];
-  }
-
-  // Primitive value, wrap it
-  return [{ value: data }];
-}
-
-/**
  * Format data as TOON
  * 
  * @param data - The raw data to format
@@ -258,12 +231,11 @@ export function formatDataAsToon(
     };
   }
 
-  // Extract or wrap array data
-  const arrayData = extractArrayFromData(data);
-
-  // Generate TOON format
   try {
-    const toonContent = jsonToToon(arrayData, { objectName });
+    // One section per array plus a scalar header; a payload with no array stays
+    // a single row, and a primitive is wrapped as { value }.
+    const toonContent = encodeToonSections(data, objectName)?.content
+      ?? jsonToToon([typeof data === 'object' ? data : { value: data }], { objectName });
     const jsonContent = JSON.stringify(data, null, 2);
     const savings = estimateTokenSavings(jsonContent, toonContent);
 

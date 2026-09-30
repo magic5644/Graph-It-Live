@@ -142,7 +142,8 @@ describe('formatDataAsToon', () => {
     const result = formatDataAsToon(data, 'items');
 
     expect(result.format).toBe('toon');
-    expect(result.content).toContain('items(id,name)');
+    // A nested array is named after its key; objectName only names a root array.
+    expect(result.content).toBe('data(id,name)\n[1,test]\n[2,demo]');
   });
 
   it('handles null data', () => {
@@ -159,6 +160,29 @@ describe('formatDataAsToon', () => {
 
     expect(result.format).toBe('toon');
     expect(result.content).toContain('[main.ts,10]');
+  });
+
+  it('keeps every array and the scalar fields of a multi-array result', () => {
+    const data = {
+      nodeCount: 2,
+      nodes: [{ path: 'a.ts' }, { path: 'b.ts' }],
+      edges: [{ source: 'a.ts', target: 'b.ts' }],
+      circularDependencies: [],
+    };
+
+    const result = formatDataAsToon(data, 'nodes');
+
+    expect(result.format).toBe('toon');
+    expect(result.content).toBe(
+      '# nodeCount=2\nnodes(path)\n[a.ts]\n[b.ts]\nedges(source,target)\n[a.ts,b.ts]',
+    );
+  });
+
+  it('wraps a primitive value in a value row', () => {
+    const result = formatDataAsToon(42, 'items');
+
+    expect(result.format).toBe('toon');
+    expect(result.content).toBe('items(value)\n[42]');
   });
 
   it('includes token savings for large datasets', () => {

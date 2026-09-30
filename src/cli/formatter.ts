@@ -9,7 +9,8 @@
  */
 
 import { normalizePath } from "../shared/path";
-import { estimateTokenSavings, jsonToToon } from "../shared/toon";
+import { estimateTokenSavings } from "../shared/toon";
+import { encodeToonSections, formatToonScalarHeader } from "../shared/toonSections";
 import { sessionStats } from "../shared/sessionStats";
 import { compactOutput } from "../shared/compactOutput";
 
@@ -73,33 +74,15 @@ function formatJson(data: unknown): string {
 }
 
 function formatToon(data: unknown, command: string): string {
-  const sections = collectToonSections(data);
-  if (sections.length === 0) {
-    // No rows (e.g. check with no unused symbols): the scalar header still
-    // carries the result. Fall back to JSON only when there is nothing to show.
-    const header = formatToonScalarHeader(data, sections);
-    return header ? header.trimEnd() : JSON.stringify(data, null, 2);
-  }
-
   try {
-    // jsonToToon returns no trailing newline, so sections must be joined with one
-    // or the next section's header lands at the end of the previous row.
-    const body = sections
-      .map(section => jsonToToon(section.items, { objectName: section.name }))
-      .join("\n");
-    const header = formatToonScalarHeader(data, sections);
-    const toonContent = header + body;
-
-    // Savings are measured against the JSON of what was actually encoded, so
-    // dropping content can never be reported as a saving.
-    const encodedJson = JSON.stringify(
-      sections.length === 1 && sections[0].name === TOON_ROOT_ARRAY_NAME
-        ? sections[0].items
-        : Object.fromEntries(sections.map(section => [section.name, section.items])),
-      null,
-      2,
-    );
-    const savings = estimateTokenSavings(encodedJson, toonContent);
+    const encoded = encodeToonSections(data);
+    if (!encoded) {
+      // No rows (e.g. check with no unused symbols): the scalar header still
+      // carries the result. Fall back to JSON only when there is nothing to show.
+      const header = formatToonScalarHeader(data, []);
+      return header ? header.trimEnd() : JSON.stringify(data, null, 2);
+    }
+    const savings = estimateTokenSavings(encoded.encodedJson, encoded.content);
 
     // Session stats: TOON encoding size vs JSON equivalent (estimated, chars/4
     // heuristic). Recorded only on successful TOON conversion, like the MCP side.
@@ -111,41 +94,11 @@ function formatToon(data: unknown, command: string): string {
       truncated: false,
       timestamp: Date.now(),
     });
-
-    return toonContent;
+    return encoded.content;
   } catch {
     // Fallback to JSON if TOON fails
     return JSON.stringify(data, null, 2);
   }
-}
-
-/**
- * Render the payload's scalar fields as a leading comment.
- *
- * TOON encodes arrays only, so without this line facts like `truncated` or
- * `nextCursor` — the handle needed to fetch the next page — would be dropped
- * from the output entirely.
- */
-function formatToonScalarHeader(data: unknown, sections: ToonSection[]): string {
-  if (typeof data !== "object" || data === null || Array.isArray(data)) {
-    return "";
-  }
-
-  const encoded = new Set(sections.map(section => section.name));
-  const parts = Object.entries(data as Record<string, unknown>).flatMap(([key, value]) => {
-    if (encoded.has(key) || Array.isArray(value) || value === undefined || value === null) {
-      return [];
-    }
-    if (typeof value === "object") {
-      // Small scalar records such as `omitted: { nodes, edges }`.
-      return Object.entries(value as Record<string, unknown>)
-        .filter(([, nested]) => typeof nested !== "object")
-        .map(([nestedKey, nested]) => `${key}.${nestedKey}=${String(nested)}`);
-    }
-    return [`${key}=${String(value)}`];
-  });
-
-  return parts.length === 0 ? "" : `# ${parts.join(" ")}\n`;
 }
 
 function formatText(data: unknown, command: string): string {
@@ -759,135 +712,6 @@ function buildMermaidFromGenericJson(data: unknown, command: string): string {
 
   lines.push(...state.nodeLines, ...state.edges);
   return finalizeMermaid(lines);
-}
-
-// ============================================================================
-// TOON helpers
-// ============================================================================
-
-const TOON_ARRAY_KEYS = [
-  "items", "results", "data", "nodes", "edges",
-  "dependencies", "symbols", "unusedSymbols", "confirmedCycles", "callers", "files", "callChain",
-];
-
-interface ToonSection {
-  name: string;
-  items: unknown[];
-}
-
-/** Section name used when the payload is itself an array, with no key to borrow. */
-const TOON_ROOT_ARRAY_NAME = "__root__";
-
-/**
- * Collect every array worth encoding, not just the first one found.
- *
- * A payload like graph context carries `nodes` and `edges` side by side, and
- * returning only `nodes` silently dropped every relation — the substance of the
- * result — while the savings figure counted the loss as a win.
- */
-function collectToonSections(data: unknown): ToonSection[] {
-  if (Array.isArray(data)) {
-    return data.length === 0 ? [] : [{ name: inferObjectName(data), items: data }];
-  }
-
-  if (typeof data !== "object" || data === null) {
-    return [];
-  }
-
-  const obj = data as Record<string, unknown>;
-  const topLevel = collectSectionsFrom(obj);
-  if (topLevel.length > 0) {
-    return topLevel;
-  }
-
-  // check-dependencies splits its two arrays across outgoing/incoming and only
-  // one of them has a name the generic scan knows, so merge them first.
-  const dependencyCheck = extractDependencyCheckArrayForToon(data);
-  if (dependencyCheck && dependencyCheck.length > 0) {
-    return [{ name: "dependencies", items: dependencyCheck }];
-  }
-
-  // Shapes like explain's { graph: { nodes, edges } }, one level deeper.
-  for (const value of Object.values(obj)) {
-    if (typeof value !== "object" || value === null || Array.isArray(value)) continue;
-    const nested = collectSectionsFrom(value as Record<string, unknown>);
-    if (nested.length > 0) {
-      return nested;
-    }
-  }
-
-  return [];
-}
-
-function collectSectionsFrom(obj: Record<string, unknown>): ToonSection[] {
-  return TOON_ARRAY_KEYS.flatMap(key => {
-    const value = obj[key];
-    return Array.isArray(value) && value.length > 0 ? [{ name: key, items: value }] : [];
-  });
-}
-
-/**
- * check-dependencies returns { outgoing: { dependencies }, incoming: { referencingFiles } } —
- * both nested one level deeper than extractArrayForToon's top-level key scan can see.
- * Flatten them into one tagged array so TOON encoding doesn't silently fall back to JSON.
- */
-function extractDependencyCheckArrayForToon(data: unknown): unknown[] | null {
-  if (typeof data !== "object" || data === null) return null;
-
-  const obj = data as Record<string, unknown>;
-  const dependencies = readDependencyArray(obj["outgoing"], "dependencies");
-  const referencingFiles = readDependencyArray(obj["incoming"], "referencingFiles");
-
-  if (!dependencies && !referencingFiles) {
-    return null;
-  }
-
-  const tagged: unknown[] = [];
-  appendTaggedItems(tagged, dependencies, "outgoing");
-  appendTaggedItems(tagged, referencingFiles, "incoming");
-  return tagged;
-}
-
-function readDependencyArray(container: unknown, key: "dependencies" | "referencingFiles"): unknown[] | undefined {
-  if (typeof container !== "object" || container === null) {
-    return undefined;
-  }
-
-  const record = container as Record<string, unknown>;
-  const value = record[key];
-  return Array.isArray(value) ? value : undefined;
-}
-
-function appendTaggedItems(target: unknown[], items: unknown[] | undefined, direction: "outgoing" | "incoming"): void {
-  if (!Array.isArray(items)) {
-    return;
-  }
-
-  for (const item of items) {
-    target.push(isRecord(item) ? { direction, ...item } : item);
-  }
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null;
-}
-
-function inferObjectName(data: unknown[]): string {
-  if (data.length === 0) return "data";
-
-  const first = data[0];
-  if (typeof first !== "object" || first === null) return "data";
-
-  const keys = Object.keys(first);
-  if (keys.includes("direction") && keys.includes("path")) return "dependencies";
-  if (keys.includes("file") || keys.includes("filePath")) return "files";
-  if (keys.includes("symbolName") || keys.includes("symbol")) return "symbols";
-  if (keys.includes("source") && keys.includes("target")) return "edges";
-  if (keys.includes("node") || keys.includes("id")) return "nodes";
-  if (keys.includes("caller")) return "callers";
-  if (keys.includes("dependency")) return "dependencies";
-
-  return "data";
 }
 
 // ============================================================================

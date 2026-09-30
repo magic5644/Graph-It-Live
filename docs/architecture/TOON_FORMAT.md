@@ -128,6 +128,28 @@ billing usage or a universal percentage. The gateway preserves requested seeds
 and path endpoints; when the budget is exceeded it reports omissions and
 exposes an opaque cursor for continuation.
 
+### Tool result encoding
+
+Other MCP tools and the CLI share `encodeToonSections` (`src/shared/toonSections.ts`).
+Each non-empty top-level array becomes its own block, named after its key.
+Scalar fields go in a leading `#` line, and nested scalar records are flattened
+(`omitted.nodes=3`). A list of primitives, such as paths or cycles, becomes a
+single `value` column:
+
+```unknown
+# entryFile=src/a.ts maxDepth=2 nodeCount=2 edgeCount=2
+nodes(path,extension,dependencyCount,dependentCount,hubScore,communityId)
+[src/a.ts,ts,1,1,1,1]
+[src/b.ts,ts,1,1,1,1]
+edges(source,target)
+[src/a.ts,src/b.ts]
+[src/b.ts,src/a.ts]
+circularDependencies(value)
+[src/a.ts|src/b.ts]
+```
+
+A result without any array stays one row, named after the tool's object name.
+
 ### Usage in MCP Server
 
 #### Request Format Parameter
