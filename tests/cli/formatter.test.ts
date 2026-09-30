@@ -141,12 +141,6 @@ describe("formatOutput - toon", () => {
     expect(out).toMatch(/files\(file,deps\)/);
   });
 
-  it("falls back to JSON for non-array object", () => {
-    const out = formatOutput(objectData, "toon", "summary");
-    // Non-array: should fall through to JSON
-    expect(() => JSON.parse(out)).not.toThrow();
-  });
-
   it("records a session stats entry on successful TOON conversion", () => {
     sessionStats.reset();
     formatOutput(arrayData, "toon", "architecture");
@@ -232,7 +226,7 @@ describe("formatOutput - toon", () => {
     expect(() => JSON.parse(out)).toThrow();
   });
 
-  it("falls back to JSON for cycles with no confirmed cycles (empty array, nothing to encode)", () => {
+  it("emits the scalar header for cycles with no confirmed cycles, not a JSON fallback", () => {
     const cyclesData = {
       filePath: "/workspace/src/index.ts",
       relativePath: "src/index.ts",
@@ -241,7 +235,19 @@ describe("formatOutput - toon", () => {
     };
 
     const out = formatOutput(cyclesData, "toon", "cycles");
-    expect(() => JSON.parse(out)).not.toThrow();
+    expect(out).toBe("# filePath=/workspace/src/index.ts relativePath=src/index.ts cycleCount=0");
+  });
+
+  it("emits the scalar header for check with no unused symbols, not a JSON fallback", () => {
+    const checkData = {
+      filePath: "/workspace/src/index.ts",
+      unusedCount: 0,
+      unusedSymbols: [],
+      totalExportedSymbols: 2,
+    };
+
+    const out = formatOutput(checkData, "toon", "check");
+    expect(out).toBe("# filePath=/workspace/src/index.ts unusedCount=0 totalExportedSymbols=2");
   });
 });
 
@@ -460,10 +466,15 @@ describe("formatToon - multi-section payloads", () => {
     expect((stats.savings / stats.jsonTokens) * 100).toBeLessThan(80);
   });
 
-  it("still falls back to JSON when there is no array to encode", () => {
+  it("emits only the scalar header when there is no array to encode", () => {
     const out = formatOutput({ count: 3, truncated: false }, "toon", "stats");
 
-    expect(() => JSON.parse(out)).not.toThrow();
+    expect(out).toBe("# count=3 truncated=false");
+  });
+
+  it("still falls back to JSON when there is neither a row nor a scalar", () => {
+    expect(formatOutput({ items: [] }, "toon", "stats")).toBe('{\n  "items": []\n}');
+    expect(formatOutput([], "toon", "stats")).toBe("[]");
   });
 
   it("ignores empty arrays instead of emitting a bare header", () => {
