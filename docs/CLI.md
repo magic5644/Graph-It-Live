@@ -1453,9 +1453,17 @@ graph-it tool analyze_dependencies --filePath=/abs/path/to/file.ts
 ```bash
 graph-it tool crawl_dependency_graph --entryFile=/abs/path/to/index.ts
 graph-it tool crawl_dependency_graph --entryFile=/abs/path/to/index.ts --maxDepth=5
+graph-it tool crawl_dependency_graph --entryFile=/abs/path/to/index.ts --tokenBudget=8000
 ```
 
-**Output fields:** `nodes[]`, `edges[]`, `circularDependencies[]`, `nodeCount`, `edgeCount`
+**Output fields:** `nodes[]`, `edges[]`, `circularDependencies[]`, `nodeCount`, `edgeCount`, `truncated`, `omitted`
+
+`--tokenBudget` (500–16,000, default 4,000) caps the output size. Nodes keep
+crawl order (nearest first); edges follow the kept nodes. A cut sets
+`truncated: true`, and `omitted.nodes` / `omitted.edges` count what was left
+out. `nodeCount` and `edgeCount` keep the full totals, so pass
+`--offset=<nodes returned>` to read the next part. `expand_node` takes the same
+`tokenBudget` and reports the same `truncated` / `omitted` fields.
 
 Each node in `nodes[]` includes:
 - `hubScore` (0–1): proportion of workspace files that import this node
@@ -1703,7 +1711,12 @@ is the internal worker name exposed by the CLI analysis-tool bridge.
 graph-it tool query_call_graph --filePath=/abs/path/to/Spider.ts --symbolName=crawl --depth=3
 ```
 
-**Output fields:** `symbol`, `callers[]`, `callees[]`, `totalCallers`, `totalCallees`, `depth`, `direction`, `indexedFiles`, and optional `indexTimeMs`
+**Output fields:** `symbol`, `callers[]`, `callees[]`, `totalCallers`, `totalCallees`, `depth`, `direction`, `indexedFiles`, `truncated`, `omitted`, and optional `indexTimeMs`
+
+`--tokenBudget` (500–16,000, default 4,000) caps the output size. Callers and
+callees keep BFS order (nearest hops first) and shrink together. A cut sets
+`truncated: true`, and `omitted.callers` / `omitted.callees` count what was
+left out; `totalCallers` and `totalCallees` keep the full counts.
 
 > **Note:** Requires the call graph index to have been built (auto-triggered on first use or when the VS Code panel is opened).
 

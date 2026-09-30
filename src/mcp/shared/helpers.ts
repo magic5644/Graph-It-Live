@@ -12,6 +12,8 @@ import {
   toWorkspaceRelativePath,
   validateWorkspacePath,
 } from "../../shared/pathSecurity";
+import { normalizePath } from "../../shared/path";
+import { estimateTokens } from "../../shared/toon";
 import { detectLanguageFromExtension } from "../../shared/utils/languageDetection";
 import type { EdgeInfo, NodeInfo } from "../types";
 import type { GraphNodeMetadata } from "../../shared/graph-types";
@@ -117,13 +119,40 @@ export function applyPagination(
   const end = limit === undefined ? undefined : offset + limit;
   const paginatedNodes = nodes.slice(offset, end);
 
-  // Filter edges to only include those with both nodes in paginated set
-  const nodeSet = new Set(paginatedNodes.map((n) => n.path));
+  // Filter edges to only include those with both nodes in paginated set.
+  // Node paths are normalized, edge paths are raw (backslashes and drive case
+  // on Windows), so both sides are compared normalized.
+  const nodeSet = new Set(paginatedNodes.map((n) => normalizePath(n.path)));
   const paginatedEdges = edges.filter(
-    (e) => nodeSet.has(e.source) && nodeSet.has(e.target),
+    (e) => nodeSet.has(normalizePath(e.source)) && nodeSet.has(normalizePath(e.target)),
   );
 
   return { nodes: paginatedNodes, edges: paginatedEdges };
+}
+
+/**
+ * Keeps the largest item count whose built result fits the token budget.
+ * `build(count)` must grow monotonically with `count`; the JSON size of the
+ * result is measured with the same tokenizer as graph_context.
+ */
+export function fitToTokenBudget<T>(
+  itemCount: number,
+  tokenBudget: number,
+  build: (keptCount: number) => T,
+): { result: T; keptCount: number } {
+  const fits = (keptCount: number): boolean =>
+    estimateTokens(JSON.stringify(build(keptCount))) <= tokenBudget;
+  if (fits(itemCount)) return { result: build(itemCount), keptCount: itemCount };
+
+  // Binary search bounds tokenizer calls to log2(itemCount).
+  let low = 0;
+  let high = itemCount - 1;
+  while (low < high) {
+    const middle = Math.ceil((low + high) / 2);
+    if (fits(middle)) low = middle;
+    else high = middle - 1;
+  }
+  return { result: build(low), keptCount: low };
 }
 
 // ============================================================================

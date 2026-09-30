@@ -8,6 +8,7 @@ import {
     buildEdgeInfo,
     buildNodeInfo,
     detectCircularDependencies,
+    fitToTokenBudget,
     getRelativePath,
     updateNodeCounts,
     validateFileExists,
@@ -73,7 +74,7 @@ export async function executeCrawlDependencyGraph(
   params: CrawlDependencyGraphParams,
   signal?: AbortSignal,
 ): Promise<CrawlDependencyGraphResult> {
-  const { entryFile, maxDepth, limit, offset, onlyUsed } = params;
+  const { entryFile, maxDepth, limit, offset, onlyUsed, tokenBudget } = params;
   const spider = workerState.getSpider();
   const config = workerState.getConfig();
 
@@ -125,7 +126,7 @@ export async function executeCrawlDependencyGraph(
       edges = paginated.edges;
     }
 
-  return {
+  const result: CrawlDependencyGraphResult = {
     entryFile,
     maxDepth: maxDepth ?? configuredMaxDepth ?? 3,
     nodeCount: totalNodes,
@@ -134,6 +135,23 @@ export async function executeCrawlDependencyGraph(
     edges,
     circularDependencies,
   };
+  if (tokenBudget === undefined) return result;
+
+  // Nodes keep crawl order (nearest first); the edges follow the kept nodes,
+  // like pagination, so offset = offset + nodes.length resumes the page.
+  return fitToTokenBudget(nodes.length, tokenBudget, (keptCount) => {
+    const kept = applyPagination(nodes, edges, keptCount);
+    return {
+      ...result,
+      nodes: kept.nodes,
+      edges: kept.edges,
+      truncated: keptCount < nodes.length,
+      omitted: {
+        nodes: nodes.length - kept.nodes.length,
+        edges: edges.length - kept.edges.length,
+      },
+    };
+  }).result;
 }
 
 function createAbortError(): Error {
@@ -148,7 +166,7 @@ function createAbortError(): Error {
 export async function executeExpandNode(
   params: ExpandNodeParams,
 ): Promise<ExpandNodeResult> {
-  const { filePath, knownPaths, extraDepth } = params;
+  const { filePath, knownPaths, extraDepth, tokenBudget } = params;
   const spider = workerState.getSpider();
   const config = workerState.getConfig();
 
@@ -161,7 +179,7 @@ export async function executeExpandNode(
     extraDepth ?? 10,
   );
 
-  return {
+  const expanded: ExpandNodeResult = {
     expandedNode: filePath,
     newNodeCount: result.nodes.length,
     newEdgeCount: result.edges.length,
@@ -173,6 +191,27 @@ export async function executeExpandNode(
       targetRelative: getRelativePath(edge.target, config.rootDir),
     })),
   };
+  if (tokenBudget === undefined) return expanded;
+
+  // An edge stays while its new end is kept; the other end is the expanded
+  // node or a path the caller already knows.
+  return fitToTokenBudget(expanded.newNodes.length, tokenBudget, (keptCount) => {
+    const droppedNodes = new Set(expanded.newNodes.slice(keptCount).map(normalizePath));
+    const newEdges = expanded.newEdges.filter(
+      (edge) => !droppedNodes.has(normalizePath(edge.source))
+        && !droppedNodes.has(normalizePath(edge.target)),
+    );
+    return {
+      ...expanded,
+      newNodes: expanded.newNodes.slice(0, keptCount),
+      newEdges,
+      truncated: keptCount < expanded.newNodes.length,
+      omitted: {
+        nodes: expanded.newNodes.length - keptCount,
+        edges: expanded.newEdges.length - newEdges.length,
+      },
+    };
+  }).result;
 }
 
 /**

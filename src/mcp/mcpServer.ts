@@ -806,6 +806,7 @@ server.registerTool(
 WHEN: project architecture, full dependency tree from an entry point, circular-import detection.
 WHY: crawls real import edges across the workspace rather than inferring structure from file names.
 RETURNS: nodes (path, extension, dependency count, dependent count, circular flag) and edges (import relations); paginated via offset/limit.
+LIMITS: output capped by tokenBudget (default 4000); a cut sets truncated=true with omitted counts - continue with offset.
 For an open-ended question, start with graphitlive_graph_context and come here when you need this specific cut.`,
     inputSchema: CrawlDependencyGraphParamsSchema.extend({
       response_format: ResponseFormatSchema.describe(
@@ -820,13 +821,13 @@ For an open-ended question, start with graphitlive_graph_context and come here w
       openWorldHint: false,
     },
   },
-  async ({ entryFile, maxDepth, limit, offset, onlyUsed, response_format }) => {
+  async ({ entryFile, maxDepth, limit, offset, onlyUsed, tokenBudget, response_format }) => {
     const workerCheck = await ensureWorkerReady();
     const responseFormat = response_format;
     if (workerCheck.error)
       return formatToolResponse(workerCheck.response, responseFormat, "graphitlive_crawl_dependency_graph");
 
-    const params = { entryFile, maxDepth, limit, offset, onlyUsed };
+    const params = { entryFile, maxDepth, limit, offset, onlyUsed, tokenBudget };
     const result = await workerHost?.invoke<CrawlDependencyGraphResult>(
       "crawl_dependency_graph",
       params,
@@ -911,7 +912,8 @@ server.registerTool(
 
 WHEN: exploring a large graph incrementally, or lazily loading one node at a time.
 WHY: skips re-analysing what you already hold, so only newly discovered files come back.
-RETURNS: the new nodes and edges only, with the same fields as crawl_dependency_graph.`,
+RETURNS: the new nodes and edges only, with the same fields as crawl_dependency_graph.
+LIMITS: output capped by tokenBudget (default 4000); a cut sets truncated=true with omitted counts.`,
     inputSchema: ExpandNodeParamsSchema.extend({
       response_format: ResponseFormatSchema.describe(
         "Output format: 'json', 'markdown', or 'toon' (Token-Oriented Object Notation for reduced token usage) (default: toon - RECOMMENDED for 30-60% token savings)",
@@ -925,7 +927,7 @@ RETURNS: the new nodes and edges only, with the same fields as crawl_dependency_
       openWorldHint: false,
     },
   },
-  async ({ filePath, knownPaths, extraDepth, response_format }) => {
+  async ({ filePath, knownPaths, extraDepth, tokenBudget, response_format }) => {
     const workerCheck = await ensureWorkerReady();
     const responseFormat = response_format;
     if (workerCheck.error)
@@ -937,6 +939,7 @@ RETURNS: the new nodes and edges only, with the same fields as crawl_dependency_
         filePath,
         knownPaths,
         extraDepth,
+        tokenBudget,
       },
     );
 
@@ -1621,7 +1624,7 @@ WHEN: multi-hop traversal ("three levels deep"), callees as well as callers, rel
 WHY: built from tree-sitter AST analysis, so it holds real call edges (CALLS, INHERITS, IMPLEMENTS, USES) rather than import edges.
 RETURNS: the matched symbol, its callers and callees with file and line, relation type, and a cyclic flag per edge.
 PICKING BETWEEN THE THREE: this one once you need depth, direction or relation types; graphitlive_get_symbol_callers for a fast single-hop "who calls X"; graphitlive_get_symbol_dependents for a single hop computed fresh from source.
-LIMITS: the first call indexes the workspace (3-8s); later queries are fast.`,
+LIMITS: the first call indexes the workspace (3-8s); later queries are fast. Output capped by tokenBudget (default 4000); a cut sets truncated=true with omitted counts.`,
     inputSchema: QueryCallGraphParamsSchema.extend({
       response_format: ResponseFormatSchema.describe(
         "Output format: 'json', 'markdown', or 'toon' (default: toon - RECOMMENDED for 30-60% token savings)",
@@ -1635,7 +1638,7 @@ LIMITS: the first call indexes the workspace (3-8s); later queries are fast.`,
       openWorldHint: false,
     },
   },
-  async ({ filePath, symbolName, direction, depth, relationTypes, response_format }) => {
+  async ({ filePath, symbolName, direction, depth, relationTypes, tokenBudget, response_format }) => {
     const workerCheck = await ensureWorkerReady();
     const responseFormat = response_format;
     if (workerCheck.error)
@@ -1643,7 +1646,7 @@ LIMITS: the first call indexes the workspace (3-8s); later queries are fast.`,
 
     const response = await invokeToolWithResponse(
       "query_call_graph",
-      { filePath, symbolName, direction, depth, relationTypes },
+      { filePath, symbolName, direction, depth, relationTypes, tokenBudget },
     );
 
     return formatToolResponse(response, responseFormat, "graphitlive_query_call_graph");

@@ -240,6 +240,16 @@ describe('AnalyzeDependenciesParamsSchema', () => {
 });
 
 describe('CrawlDependencyGraphParamsSchema', () => {
+  it('defaults tokenBudget to 4000 and rejects values out of bounds', () => {
+    const parsed = CrawlDependencyGraphParamsSchema.parse({ entryFile: '/project/src/main.ts' });
+    expect(parsed.tokenBudget).toBe(4000);
+    for (const tokenBudget of [499, 16001, 1000.5]) {
+      expect(
+        CrawlDependencyGraphParamsSchema.safeParse({ entryFile: '/project/src/main.ts', tokenBudget }).success,
+      ).toBe(false);
+    }
+  });
+
   it('validates minimal parameters', () => {
     const result = CrawlDependencyGraphParamsSchema.safeParse({
       entryFile: '/project/src/main.ts',

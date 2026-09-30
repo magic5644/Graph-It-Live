@@ -3,6 +3,8 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { workerState } from "../../../src/mcp/shared/state";
+import { normalizePath } from "../../../src/shared/path";
+import { estimateTokens } from "../../../src/shared/toon";
 import {
     executeCrawlDependencyGraph,
     executeExpandNode,
@@ -177,6 +179,110 @@ describe("graph tools", () => {
         executeCrawlDependencyGraph({ entryFile, onlyUsed: true }),
       ).rejects.toThrow("onlyUsed supports at most 5000 edges");
       expect(spiderMock.verifyDependencyUsage).not.toHaveBeenCalled();
+    });
+  });
+
+  describe("tokenBudget", () => {
+    const manyFiles = () => Array.from({ length: 300 }, (_, i) => path.join(tempDir, `dep-${i}.ts`));
+
+    it("cuts crawl nodes to the budget and keeps only edges between kept nodes", async () => {
+      const entryFile = await createTempFile(tempDir, "entry.ts", "");
+      const deps = manyFiles();
+      setupWorkerState({
+        crawl: vi.fn(async () => ({
+          nodes: [entryFile, ...deps],
+          edges: deps.map((dep) => ({ source: entryFile, target: dep })),
+        })),
+      });
+
+      const result = await executeCrawlDependencyGraph({ entryFile, tokenBudget: 1_000 });
+
+      expect(result.truncated).toBe(true);
+      expect(result.nodeCount).toBe(301);
+      expect(result.nodes.length).toBeGreaterThan(0);
+      expect(result.nodes.length).toBeLessThan(301);
+      expect(result.nodes[0]?.path).toBe(normalizePath(entryFile));
+      expect(result.omitted).toEqual({
+        nodes: 301 - result.nodes.length,
+        edges: 300 - result.edges.length,
+      });
+      const kept = new Set(result.nodes.map((node) => node.path));
+      expect(result.edges.length).toBe(result.nodes.length - 1);
+      expect(result.edges.every((edge) => (
+        kept.has(normalizePath(edge.source)) && kept.has(normalizePath(edge.target))
+      ))).toBe(true);
+      expect(estimateTokens(JSON.stringify(result))).toBeLessThanOrEqual(1_000);
+    });
+
+    it("keeps edges whose raw paths differ from the normalized node paths", async () => {
+      const entryFile = await createTempFile(tempDir, "entry.ts", "");
+      const windowsStyle = (filePath: string) => filePath.replaceAll("/", "\\");
+      const deps = manyFiles().slice(0, 3);
+      setupWorkerState({
+        crawl: vi.fn(async () => ({
+          nodes: [entryFile, ...deps],
+          edges: deps.map((dep) => ({ source: windowsStyle(entryFile), target: windowsStyle(dep) })),
+        })),
+      });
+
+      const result = await executeCrawlDependencyGraph({ entryFile, tokenBudget: 4_000 });
+
+      expect(result.truncated).toBe(false);
+      expect(result.edges).toHaveLength(3);
+    });
+
+    it("reports truncated=false when the crawl fits the budget", async () => {
+      const entryFile = await createTempFile(tempDir, "entry.ts", "");
+      setupWorkerState({ crawl: vi.fn(async () => ({ nodes: [entryFile], edges: [] })) });
+
+      const result = await executeCrawlDependencyGraph({ entryFile, tokenBudget: 4_000 });
+
+      expect(result.truncated).toBe(false);
+      expect(result.omitted).toEqual({ nodes: 0, edges: 0 });
+    });
+
+    it("returns the full crawl without budget metadata when no tokenBudget is given", async () => {
+      const entryFile = await createTempFile(tempDir, "entry.ts", "");
+      const deps = manyFiles();
+      setupWorkerState({
+        crawl: vi.fn(async () => ({
+          nodes: [entryFile, ...deps],
+          edges: deps.map((dep) => ({ source: entryFile, target: dep })),
+        })),
+      });
+
+      const result = await executeCrawlDependencyGraph({ entryFile });
+
+      expect(result.nodes).toHaveLength(301);
+      expect(result.truncated).toBeUndefined();
+      expect(result.omitted).toBeUndefined();
+    });
+
+    it("cuts expand_node new nodes and drops their edges", async () => {
+      const entryFile = await createTempFile(tempDir, "entry.ts", "");
+      const deps = manyFiles();
+      setupWorkerState({
+        crawlFrom: vi.fn(async () => ({
+          nodes: deps,
+          edges: deps.map((dep) => ({ source: entryFile, target: dep })),
+        })),
+      });
+
+      const result = await executeExpandNode({
+        filePath: entryFile,
+        knownPaths: [entryFile],
+        tokenBudget: 1_000,
+      });
+
+      expect(result.truncated).toBe(true);
+      expect(result.newNodeCount).toBe(300);
+      expect(result.newNodes.length).toBeLessThan(300);
+      expect(result.newEdges).toHaveLength(result.newNodes.length);
+      expect(result.omitted).toEqual({
+        nodes: 300 - result.newNodes.length,
+        edges: 300 - result.newEdges.length,
+      });
+      expect(estimateTokens(JSON.stringify(result))).toBeLessThanOrEqual(1_000);
     });
   });
 

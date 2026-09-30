@@ -23,6 +23,14 @@ where legacy validation messages say "bytes."
 | **File content** | 1,048,576 code units | Large source files; minified or binary input may still be rejected elsewhere |
 | **Generic strings** | 10,240 code units | Module specifiers, labels, and stable IDs |
 
+### Graph tool output budget
+
+`graphitlive_crawl_dependency_graph`, `graphitlive_expand_node`, and
+`graphitlive_query_call_graph` accept `tokenBudget` (integer 500–16,000,
+default 4,000). A larger result is cut to fit and reports `truncated: true`
+with `omitted` counts. The budget is measured on the tool's JSON result, so the
+TOON response is smaller than the budget.
+
 ### Graph context request limits
 
 The `graphitlive_graph_context` request has additional bounded fields:
