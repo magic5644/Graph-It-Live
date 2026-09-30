@@ -340,7 +340,8 @@ Arguments:
 
 Options:
   --list            List all available MCP tools with descriptions
-  --args '<json>'   Pass parameters as a JSON object
+  --args '<json>'   Pass parameters as a JSON object; named --<param>=<value>
+                    flags are merged in and override matching keys
   --workspace, -w   Workspace root directory (default: auto-detected)
   --format, -f      Output format: text|json|toon|markdown|mermaid (default: text)
   --help, -h        Show this help
@@ -351,6 +352,7 @@ Examples:
   graph-it tool analyze_dependencies --filePath=/abs/path/file.ts
   graph-it tool crawl_dependency_graph --entryFile=/abs/path/file.ts
   graph-it tool analyze_dependencies --args '{"filePath":"/abs/path/file.ts"}'
+  graph-it tool expand_node --filePath=/abs/path/file.ts --args '{"knownPaths":[]}'
   graph-it tool graph_context --question="what calls the request handler" --scope='src/**' --format=toon
   graph-it tool graph_context --args '{"mode":"path","from":{"filePath":"src/api.ts","symbolName":"handle"},"to":{"filePath":"src/db.ts","symbolName":"query"},"directed":true,"format":"toon"}' --format toon
 `,

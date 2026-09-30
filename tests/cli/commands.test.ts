@@ -73,6 +73,37 @@ describe("tool command", () => {
     expect(output).toContain("analyze_dependencies");
   });
 
+  describe("parseToolArgs", () => {
+    it("merges --args JSON with named flags (issue #159)", async () => {
+      const { parseToolArgs } = await import("../../src/cli/commands/tool.js");
+      expect(parseToolArgs(["--filePath=/abs/a.ts", "--args", '{"knownPaths":[]}'])).toEqual({
+        filePath: "/abs/a.ts",
+        knownPaths: [],
+      });
+    });
+
+    it("lets named flags override --args keys regardless of position", async () => {
+      const { parseToolArgs } = await import("../../src/cli/commands/tool.js");
+      expect(parseToolArgs(["--depth=3", "--args", '{"depth":1,"scope":"src/**"}'])).toEqual({
+        depth: 3,
+        scope: "src/**",
+      });
+      expect(parseToolArgs(["--args", '{"depth":1}', "--depth=3"])).toEqual({ depth: 3 });
+    });
+
+    it("does not read the --args value as a named flag", async () => {
+      const { parseToolArgs } = await import("../../src/cli/commands/tool.js");
+      expect(() => parseToolArgs(["--args", "--x=1"])).toThrow("Invalid JSON after --args");
+    });
+
+    it("rejects invalid or non-object --args JSON", async () => {
+      const { parseToolArgs } = await import("../../src/cli/commands/tool.js");
+      expect(() => parseToolArgs(["--args", "{bad"])).toThrow("Invalid JSON after --args");
+      expect(() => parseToolArgs(["--args", "[1]"])).toThrow("--args must be a JSON object");
+      expect(() => parseToolArgs(["--args", "null"])).toThrow("--args must be a JSON object");
+    });
+  });
+
 });
 
 // ---------------------------------------------------------------------------
