@@ -27,9 +27,12 @@ where legacy validation messages say "bytes."
 
 `graphitlive_crawl_dependency_graph`, `graphitlive_expand_node`, and
 `graphitlive_query_call_graph` accept `tokenBudget` (integer 500–16,000,
-default 4,000). A larger result is cut to fit and reports `truncated: true`
-with `omitted` counts. The budget is measured on the tool's JSON result, so the
-TOON response is smaller than the budget.
+default 4,000, or `0` for no limit) and `offset`. A larger result is cut to fit
+and reports `truncated: true`, `omitted` counts and `nextOffset`; passing
+`nextOffset` back as `offset` until it is absent returns every item once. A
+budget too small for a single item fails rather than returning an empty page.
+The budget is measured on the tool's JSON result, so the TOON response is
+smaller than the budget.
 
 ### Graph context request limits
 

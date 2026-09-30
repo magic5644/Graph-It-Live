@@ -239,11 +239,22 @@ describe('AnalyzeDependenciesParamsSchema', () => {
   });
 });
 
+describe('graph tool offset', () => {
+  it('accepts a non-negative integer offset on expand_node and query_call_graph', () => {
+    expect(ExpandNodeParamsSchema.safeParse({ filePath: '/p/a.ts', knownPaths: [], offset: 10 }).success).toBe(true);
+    expect(ExpandNodeParamsSchema.safeParse({ filePath: '/p/a.ts', knownPaths: [], offset: -1 }).success).toBe(false);
+    expect(QueryCallGraphParamsSchema.safeParse({ filePath: '/p/a.ts', symbolName: 'a', offset: 2.5 }).success).toBe(false);
+  });
+});
+
 describe('CrawlDependencyGraphParamsSchema', () => {
   it('defaults tokenBudget to 4000 and rejects values out of bounds', () => {
     const parsed = CrawlDependencyGraphParamsSchema.parse({ entryFile: '/project/src/main.ts' });
     expect(parsed.tokenBudget).toBe(4000);
-    for (const tokenBudget of [499, 16001, 1000.5]) {
+    expect(
+      CrawlDependencyGraphParamsSchema.parse({ entryFile: '/project/src/main.ts', tokenBudget: 0 }).tokenBudget,
+    ).toBe(0);
+    for (const tokenBudget of [-1, 1, 499, 16001, 1000.5]) {
       expect(
         CrawlDependencyGraphParamsSchema.safeParse({ entryFile: '/project/src/main.ts', tokenBudget }).success,
       ).toBe(false);

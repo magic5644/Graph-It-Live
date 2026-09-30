@@ -1458,12 +1458,14 @@ graph-it tool crawl_dependency_graph --entryFile=/abs/path/to/index.ts --tokenBu
 
 **Output fields:** `nodes[]`, `edges[]`, `circularDependencies[]`, `nodeCount`, `edgeCount`, `truncated`, `omitted`
 
-`--tokenBudget` (500–16,000, default 4,000) caps the output size. Nodes keep
-crawl order (nearest first); edges follow the kept nodes. A cut sets
-`truncated: true`, and `omitted.nodes` / `omitted.edges` count what was left
-out. `nodeCount` and `edgeCount` keep the full totals, so pass
-`--offset=<nodes returned>` to read the next part. `expand_node` takes the same
-`tokenBudget` and reports the same `truncated` / `omitted` fields.
+`--tokenBudget` (500–16,000, default 4,000, or `0` for no limit) caps the
+output size. Nodes keep crawl order (nearest first). A cut sets
+`truncated: true`, `omitted.nodes` / `omitted.edges` count what was left out of
+this page, and `nextOffset` gives the next page: pass it as `--offset` until
+`nextOffset` is absent to read the whole graph. Each edge is sent once, with the
+page holding the later of its two ends, so every edge refers to nodes already
+sent. `nodeCount` and `edgeCount` keep the full totals. `expand_node` takes the
+same `tokenBudget` and `offset` and reports the same fields.
 
 Each node in `nodes[]` includes:
 - `hubScore` (0–1): proportion of workspace files that import this node
@@ -1713,10 +1715,12 @@ graph-it tool query_call_graph --filePath=/abs/path/to/Spider.ts --symbolName=cr
 
 **Output fields:** `symbol`, `callers[]`, `callees[]`, `totalCallers`, `totalCallees`, `depth`, `direction`, `indexedFiles`, `truncated`, `omitted`, and optional `indexTimeMs`
 
-`--tokenBudget` (500–16,000, default 4,000) caps the output size. Callers and
-callees keep BFS order (nearest hops first) and shrink together. A cut sets
-`truncated: true`, and `omitted.callers` / `omitted.callees` count what was
-left out; `totalCallers` and `totalCallees` keep the full counts.
+`--tokenBudget` (500–16,000, default 4,000, or `0` for no limit) caps the
+output size. Callers and callees keep BFS order (nearest hops first) and are
+interleaved, so both directions shrink together. A cut sets `truncated: true`,
+`omitted.callers` / `omitted.callees` count what was left out of this page,
+and `nextOffset` gives the next page: pass it as `--offset` until it is absent.
+`totalCallers` and `totalCallees` keep the full counts.
 
 > **Note:** Requires the call graph index to have been built (auto-triggered on first use or when the VS Code panel is opened).
 

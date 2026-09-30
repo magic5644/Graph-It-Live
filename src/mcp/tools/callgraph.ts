@@ -67,6 +67,8 @@ export interface QueryCallGraphResult {
   direction: string;
   indexedFiles: number;
   indexTimeMs?: number;
+  /** Offset of the next page when relations remain; pass it back as offset */
+  nextOffset?: number;
   /** Set when a tokenBudget was applied: true if callers or callees were cut */
   truncated?: boolean;
   /** Callers and callees cut by the tokenBudget; totals keep the full counts */
@@ -460,25 +462,37 @@ export async function executeQueryCallGraph(
     indexedFiles: countIndexedFiles(db),
     indexTimeMs,
   };
-  if (params.tokenBudget === undefined) return result;
-
-  // BFS order puts the nearest hops first; both lists shrink together so one
-  // direction never crowds the other out.
-  const relationCount = callers.length + callees.length;
-  return fitToTokenBudget(relationCount, params.tokenBudget, (keptCount) => {
-    const keptCallers = Math.min(
-      callers.length,
-      Math.max(Math.ceil(keptCount / 2), keptCount - callees.length),
-    );
-    const keptCallees = keptCount - keptCallers;
+  // BFS order puts the nearest hops first. Callers and callees are interleaved
+  // so one direction never crowds the other out of a page; offset and
+  // nextOffset index that interleaved sequence.
+  const sequence: Array<{ direction: "callers" | "callees"; relation: CallGraphRelation }> = [];
+  for (let index = 0; index < Math.max(callers.length, callees.length); index++) {
+    if (index < callers.length) sequence.push({ direction: "callers", relation: callers[index] });
+    if (index < callees.length) sequence.push({ direction: "callees", relation: callees[index] });
+  }
+  const offset = params.offset ?? 0;
+  const pageSize = Math.max(0, sequence.length - offset);
+  const page = (count: number): QueryCallGraphResult => {
+    const end = offset + count;
+    const slice = sequence.slice(offset, end);
     return {
       ...result,
-      callers: callers.slice(0, keptCallers),
-      callees: callees.slice(0, keptCallees),
-      truncated: keptCount < relationCount,
+      callers: slice.filter((item) => item.direction === "callers").map((item) => item.relation),
+      callees: slice.filter((item) => item.direction === "callees").map((item) => item.relation),
+      ...(end < sequence.length ? { nextOffset: end } : {}),
+    };
+  };
+  if (!params.tokenBudget) return page(pageSize);
+
+  const fullPage = page(pageSize);
+  return fitToTokenBudget(pageSize, params.tokenBudget, (count) => {
+    const budgeted = page(count);
+    return {
+      ...budgeted,
+      truncated: count < pageSize,
       omitted: {
-        callers: callers.length - keptCallers,
-        callees: callees.length - keptCallees,
+        callers: fullPage.callers.length - budgeted.callers.length,
+        callees: fullPage.callees.length - budgeted.callees.length,
       },
     };
   }).result;
@@ -561,6 +575,8 @@ function queryEdges(
 
   // Skip edges pointing at unresolved external stubs
   sql += ` AND ${otherCol} NOT LIKE '@@external:%'`;
+  // Stable order so offset pages line up between calls.
+  sql += " ORDER BY e.source_id, e.target_id, e.source_line";
 
   const rows = db.exec(sql, sqlParams);
   if (!rows[0]) return [];
