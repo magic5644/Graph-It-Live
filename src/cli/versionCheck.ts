@@ -167,6 +167,11 @@ export async function maybeNotifyCliUpdate(options: {
     return;
   }
 
+  // Agents and CI capture stderr: only notify an interactive terminal.
+  if (!options.write && !process.stderr.isTTY) {
+    return;
+  }
+
   try {
     const check = await checkForCliUpdate({
       workspaceRoot: options.workspaceRoot,
