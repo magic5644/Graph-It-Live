@@ -318,7 +318,15 @@ export class QueryEngine {
 
     if (!rows[0]) return [];
 
-    return rows[0].values.flatMap((row): QueryResultNode[] => {
+    // SQL returns rows in index order (alphabetical ids). Restore BFS order —
+    // seeds by descending score, then each hop — so token-budget truncation
+    // drops the least relevant nodes, not an arbitrary alphabetical tail.
+    const rank = new Map(ids.map((id, i) => [id, i]));
+    const ordered = [...rows[0].values].sort(
+      (a, b) => (rank.get(a[0] as string) ?? 0) - (rank.get(b[0] as string) ?? 0),
+    );
+
+    return ordered.flatMap((row): QueryResultNode[] => {
       const nodePath = normalizePath(row[3] as string);
       if (!fileScope.matches(nodePath)) return [];
 

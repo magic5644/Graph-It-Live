@@ -639,6 +639,25 @@ describe('QueryEngine.query (end-to-end)', () => {
     ]));
   });
 
+  it('orders nodes by seed score then BFS hop, not alphabetically', async () => {
+    insertNode(db, 'z-best', 'SpiderCrawler', 'class', '/workspace/src/SpiderCrawler.ts');
+    insertNode(db, 'a-neighbour', 'helper', 'function', '/workspace/src/helper.ts');
+    insertEdge(db, 'z-best', 'a-neighbour');
+    const engine = new QueryEngine(db, null);
+
+    const result = await engine.query({
+      question: 'spider crawler',
+      workspaceRoot: '/workspace',
+      depth: 1,
+    });
+
+    // z-best matches both keywords, spider-id one; a-neighbour is one hop away.
+    const ids = result.nodes.map(node => node.id);
+    expect(ids.indexOf('z-best')).toBe(0);
+    expect(ids.indexOf('spider-id')).toBeLessThan(ids.indexOf('a-neighbour'));
+    expect(ids.indexOf('crawl-id')).toBeGreaterThan(ids.indexOf('spider-id'));
+  });
+
   it('returns a QueryResult with llmProvider=none when no LLM', async () => {
     const engine = new QueryEngine(db, null);
 

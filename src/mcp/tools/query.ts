@@ -12,6 +12,7 @@
 import type { LlmClient } from "../../analyzer/llm/LlmClient";
 import { QueryEngine } from "../../analyzer/QueryEngine";
 import type { QueryRequest, QueryResultEdge, QueryResultNode } from "../../shared/query-types";
+import { normalizePath } from "../../shared/path";
 import { estimateTokens, jsonToToon } from "../../shared/toon";
 import { z } from "zod/v4";
 import { workerState } from "../shared/state";
@@ -33,8 +34,12 @@ interface CompactQueryPayload {
   truncated: boolean;
 }
 
-function encodeCompositeAsToon(compactJsonStr: string): string {
-  const payload = JSON.parse(compactJsonStr) as CompactQueryPayload;
+function encodeCompositeAsToon(compactJsonStr: string, workspaceRoot: string): string {
+  // The MCP formatter only relativizes whole string values, never paths inside
+  // this TOON string, so drop the workspace root here (index paths are normalized).
+  const root = normalizePath(workspaceRoot);
+  const relative = root ? compactJsonStr.replaceAll(`${root}/`, "") : compactJsonStr;
+  const payload = JSON.parse(relative) as CompactQueryPayload;
   const nodesToon = jsonToToon(payload.nodes, { objectName: "nodes" });
   const edgesToon = jsonToToon(payload.edges, { objectName: "edges" });
   const metaLine = `# nodeCount=${payload.nodeCount} edgeCount=${payload.edgeCount} truncated=${payload.truncated}`;
@@ -208,7 +213,7 @@ export async function executeQueryNaturalLanguage(
       "QueryEngine.query() did not return a compact JSON payload (result.json) for outputFormat='toon'.",
     );
   }
-  const toonOutput = encodeCompositeAsToon(result.json);
+  const toonOutput = encodeCompositeAsToon(result.json, workspaceRoot);
   return {
     question: result.question,
     extractedKeywords: result.extractedKeywords,

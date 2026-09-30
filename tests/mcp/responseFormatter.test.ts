@@ -81,6 +81,41 @@ describe('formatToolResponse', () => {
     });
     expect(result.content[0].text).not.toContain('/private/secret.ts');
   });
+
+  it('emits the query tool TOON subgraph directly instead of escaping it into a row', () => {
+    sessionStats.reset();
+    const toon = '# nodeCount=1 edgeCount=0 truncated=false\nnodes(id,n)\n[src/a.ts:main,main]\nedges()';
+    const response = createSuccessResponse({
+      question: 'How does main work?',
+      extractedKeywords: ['main', 'work'],
+      nodeCount: 1,
+      edgeCount: 0,
+      toon,
+      meta: { llmProvider: 'none', keywordExtractionMs: 1, bfsMs: 1, totalMs: 3, tokenEstimate: 20, truncated: false },
+    }, 5, '/workspace');
+
+    const text = formatToolResponse(response, 'toon', 'graphitlive_query_natural_language').content[0].text;
+
+    expect(text).toBe(
+      'query(question,keywords,llmProvider,totalMs,tokenEstimate)\n'
+        + '[How does main work?,main|work,none,3,20]\n'
+        + toon,
+    );
+    expect(sessionStats.snapshot().totals.calls).toBe(1);
+  });
+
+  it('falls back to generic TOON for a query result without a toon field', () => {
+    const response = createSuccessResponse({
+      question: 'q',
+      nodes: [{ id: 'src/a.ts:main', name: 'main' }],
+      edges: [],
+    }, 5, '/workspace');
+
+    const text = formatToolResponse(response, 'toon', 'graphitlive_query_natural_language').content[0].text;
+
+    expect(text).not.toContain('query(');
+    expect(text).toContain('[src/a.ts:main,main]');
+  });
 });
 
 describe('formatDataAsToon', () => {
