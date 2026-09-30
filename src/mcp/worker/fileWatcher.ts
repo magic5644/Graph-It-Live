@@ -5,6 +5,7 @@ import {
     IGNORED_DIRECTORIES,
     SUPPORTED_FILE_EXTENSIONS,
 } from "../../shared/constants";
+import { createIgnoreMatcher, type IgnoreMatcher } from "../../analyzer/SourceFileFilters";
 import { getLogger } from "../../shared/logger";
 import { normalizePath } from "../../shared/path";
 import { workerState } from "../shared/state";
@@ -63,6 +64,7 @@ export function setupFileWatcher(
     log.debug("Resolved rootDir short path:", workerState.config.rootDir, "→", watchRoot);
   }
 
+  const isIgnoredByRules = createIgnoreMatcher(watchRoot);
   let pollingFallbackStarted = false;
   const startWatching = (usePolling: boolean): void => {
     let initialScanComplete = false;
@@ -70,6 +72,7 @@ export function setupFileWatcher(
     const watcher = watch(watchRoot, {
       ignored: (filePath, stats) =>
         path.relative(watchRoot, filePath).split(path.sep).some(part => IGNORED_DIRECTORIES.includes(part)) ||
+      isIgnoredByRules(path.relative(watchRoot, filePath), stats?.isDirectory() === true) ||
       (stats?.isFile() === true && !WATCHED_EXTENSIONS.some(ext => filePath.endsWith(ext))),
       persistent: true,
       ignoreInitial: false,
@@ -99,7 +102,7 @@ export function setupFileWatcher(
 
     watcher.on("addDir", (directory: string) => {
       if (!watcherActive || !initialScanComplete) return;
-      scheduleDirectoryReconciliation(postMessage, directory, watchRoot);
+      scheduleDirectoryReconciliation(postMessage, directory, watchRoot, isIgnoredByRules);
     });
 
     watcher.on("error", (error: unknown) => {
@@ -144,13 +147,14 @@ function scheduleDirectoryReconciliation(
   postMessage: (msg: McpWorkerResponse) => void,
   directory: string,
   watchRoot: string,
+  isIgnoredByRules: IgnoreMatcher,
 ): void {
   const key = normalizePath(restoreConfiguredPath(directory, watchRoot));
   const existingTimeout = workerState.pendingInvalidations.get(key);
   if (existingTimeout) clearTimeout(existingTimeout);
   const timeout = setTimeout(() => {
     workerState.pendingInvalidations.delete(key);
-    void reportNewDirectoryFiles(postMessage, directory, watchRoot);
+    void reportNewDirectoryFiles(postMessage, directory, watchRoot, isIgnoredByRules);
   }, FILE_CHANGE_DEBOUNCE_MS);
   workerState.pendingInvalidations.set(key, timeout);
 }
@@ -164,6 +168,7 @@ async function reportNewDirectoryFiles(
   postMessage: (msg: McpWorkerResponse) => void,
   directory: string,
   watchRoot: string,
+  isIgnoredByRules: IgnoreMatcher,
 ): Promise<void> {
   try {
     const entries = await fs.promises.readdir(directory, { withFileTypes: true });
@@ -171,8 +176,9 @@ async function reportNewDirectoryFiles(
       const filePath = path.join(directory, entry.name);
       const relative = path.relative(watchRoot, filePath);
       if (relative.split(path.sep).some(part => IGNORED_DIRECTORIES.includes(part))) continue;
+      if (isIgnoredByRules(relative, entry.isDirectory())) continue;
       if (entry.isDirectory()) {
-        await reportNewDirectoryFiles(postMessage, filePath, watchRoot);
+        await reportNewDirectoryFiles(postMessage, filePath, watchRoot, isIgnoredByRules);
       } else if (entry.isFile() && WATCHED_EXTENSIONS.some(ext => entry.name.endsWith(ext))) {
         handleFileChange(postMessage, "add", filePath, watchRoot);
       }

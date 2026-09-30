@@ -1499,6 +1499,7 @@
     "cytoscape": "^3.34.3",
     "cytoscape-fcose": "^2.2.0",
     "gpt-tokenizer": "^4.0.0",
+    "ignore": "^7.0.10",
     "ink": "^7.1.1",
     "react": "^19.3.0",
     "react-devtools-core": "^6.1.5",
