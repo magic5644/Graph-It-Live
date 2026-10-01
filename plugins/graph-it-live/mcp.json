@@ -4,7 +4,12 @@
     "graph-it-live": {
       "type": "stdio",
       "command": "npx",
-      "args": ["-y", "@magic5644/graph-it-live@latest", "serve"]
+      "args": [
+        "-y",
+        "--prefer-offline",
+        "@magic5644/graph-it-live@1.16.1",
+        "serve"
+      ]
     }
   }
 }

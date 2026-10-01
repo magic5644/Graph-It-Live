@@ -17,10 +17,16 @@ Examples:
 - Cursor: install the directory from the Plugins panel.
 - Codex: add this repository’s `.agents/plugins/marketplace.json` to a configured marketplace, then use `/plugins`.
 
-The MCP command deliberately uses `@latest`, so the CLI and its bundled MCP
-server are always resolved from the same published npm package. The CLI also
-checks for updates and reports `graph-it update`; run `scripts/update-cli.sh`
-when an explicit update is needed.
+The MCP command runs `npx -y --prefer-offline @magic5644/graph-it-live@<version> serve`.
+The pinned version starts from the npx cache without a registry lookup; npx
+downloads the package only on the first start or after a version change. The
+CLI also checks for updates and reports `graph-it update`; run
+`scripts/update-cli.sh` when an explicit update is needed.
 
-The three plugin manifests carry the current published CLI version. The
-repository workflow updates them automatically after an npm publish.
+`plugin.json` is the single source for the shared plugin fields. After each
+npm publish, the repository workflow runs
+`node scripts/sync-agent-plugin-version.mjs`, which writes the published
+version into every manifest and derives `.claude-plugin/plugin.json`,
+`.codex-plugin/plugin.json`, `mcp.json`, `.mcp.json` and the Claude marketplace
+entry. Do not edit those derived fields by hand: the
+`tests/scripts/syncAgentPluginVersion.test.ts` drift test fails.
