@@ -7,6 +7,7 @@
  */
 
 import { workerState } from "../../mcp/shared/state";
+import { toolSummary } from "../../mcp/toolDescriptions";
 import {
   executeAnalyzeBreakingChanges,
   executeAnalyzeDependencies,
@@ -86,32 +87,6 @@ const TOOL_NAMES: McpToolName[] = [
   "scan_dead_code",
 ];
 
-/** One-line descriptions for `graph-it tool --list` */
-const TOOL_DESCRIPTIONS: Record<string, string> = {
-  graph_context: "Retrieve unified token-bounded graph context",
-  analyze_dependencies: "Show direct imports and exports of a file",
-  crawl_dependency_graph: "Full dependency tree from an entry file (BFS)",
-  find_referencing_files: "All files that import a given file",
-  expand_node: "Incrementally expand dependencies of a node",
-  parse_imports: "Raw import statements parsed from a file",
-  verify_dependency_usage: "Check if an import is actually used in source",
-  resolve_module_path: "Resolve a module specifier to its absolute path",
-  get_index_status: "Current state of the dependency index",
-  invalidate_files: "Flush cache entries for specific files",
-  rebuild_index: "Trigger a full index rebuild",
-  get_symbol_graph: "Symbol-level call graph within a file",
-  find_unused_symbols: "Detect dead/unused exported symbols",
-  get_symbol_dependents: "All symbols that depend on a given symbol",
-  trace_function_execution: "Full recursive call chain from a symbol",
-  get_symbol_callers: "Call sites of a symbol across the project",
-  analyze_breaking_changes: "Detect breaking API changes between two versions",
-  get_impact_analysis: "Full impact analysis of changing a file/symbol",
-  analyze_file_logic: "Intra-file call hierarchy (AST-based)",
-  generate_codemap: "AI-friendly structural overview of a file (TOON)",
-  query_call_graph: "BFS callers/callees via the SQLite call graph index",
-  scan_dead_code: "Workspace-wide scan for unused exported symbols (dead code)",
-};
-
 export async function run(
   args: string[],
   runtime: CliRuntime,
@@ -122,7 +97,7 @@ export async function run(
   }
 
   if (args[0] === "--list") {
-    const lines = TOOL_NAMES.map((t) => `  ${t.padEnd(28)} ${TOOL_DESCRIPTIONS[t] ?? ""}`);
+    const lines = TOOL_NAMES.map((t) => `  ${t.padEnd(28)} ${toolSummary(t)}`);
     return "Available MCP tools:\n\n" + lines.join("\n") + "\n";
   }
 

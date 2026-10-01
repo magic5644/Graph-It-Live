@@ -26,7 +26,7 @@ function createFixtureProject(): string {
 // ---------------------------------------------------------------------------
 
 describe("tool command", () => {
-  it("--list returns all 21 MCP tool names", async () => {
+  it("--list returns every CLI tool name with its summary", async () => {
     const { run } = await import("../../src/cli/commands/tool.js");
 
     // Provide a minimal runtime stub — --list doesn't touch spider
@@ -58,7 +58,7 @@ describe("tool command", () => {
     expect(output).toContain("query_call_graph");
     expect(output).toContain("scan_dead_code");
     // Verify descriptions are included
-    expect(output).toContain("Show direct imports and exports");
+    expect(output).toContain("Lists the import/export statements of one file");
   });
 
   it("no args returns brief list", async () => {

@@ -1202,28 +1202,28 @@ Output:
 ```
 Available MCP tools:
 
-  graph_context                Retrieve unified token-bounded graph context
-  analyze_dependencies           Show direct imports and exports of a file
-  crawl_dependency_graph         Full dependency tree from an entry file (BFS)
-  find_referencing_files         All files that import a given file
-  expand_node                    Incrementally expand dependencies of a node
-  parse_imports                  Raw import statements parsed from a file
-  verify_dependency_usage        Check if an import is actually used in source
-  resolve_module_path            Resolve a module specifier to its absolute path
-  get_index_status               Current state of the dependency index
-  invalidate_files               Flush cache entries for specific files
-  rebuild_index                  Trigger a full index rebuild
-  get_symbol_graph               Symbol-level call graph within a file
-  find_unused_symbols            Detect dead/unused exported symbols
-  get_symbol_dependents          All symbols that depend on a given symbol
-  trace_function_execution       Full recursive call chain from a symbol
-  get_symbol_callers             Call sites of a symbol across the project
-  analyze_breaking_changes       Detect breaking API changes between two versions
-  get_impact_analysis            Full impact analysis of changing a file/symbol
-  analyze_file_logic             Intra-file call hierarchy (AST-based)
-  generate_codemap               AI-friendly structural overview of a file (TOON)
-  query_call_graph               BFS callers/callees via the SQLite call graph index
-  scan_dead_code                 Workspace-wide scan for unused exported symbols
+  graph_context                Returns a token-bounded subgraph answering a question about the codebase - the default entry point for graph questions.
+  analyze_dependencies         Lists the import/export statements of one file, with each specifier resolved to a path on disk.
+  crawl_dependency_graph       Builds the transitive file dependency graph reachable from one entry file.
+  find_referencing_files       Lists every file that imports or references a given file (reverse dependency lookup).
+  expand_node                  Returns the dependencies of one file that are not already in a set of paths you provide.
+  parse_imports                Returns the import statements of one file: module specifier, import type and line.
+  verify_dependency_usage      Reports whether a source file actually uses any symbol from a target file it imports.
+  resolve_module_path          Resolves one module specifier, as seen from a given file, to a path on disk.
+  get_index_status             Reports the state of the dependency index backing the other tools.
+  invalidate_files             Drops the cached analysis for specific files so the next query re-reads them.
+  rebuild_index                Clears all cached analysis and re-indexes the whole workspace.
+  get_symbol_graph             Lists the symbols a file exports and the symbols OUTSIDE the file that each of them depends on.
+  find_unused_symbols          Lists the symbols a file exports that nothing else in the workspace imports.
+  get_symbol_dependents        Lists the symbols that use one given symbol - one hop, computed from source at call time.
+  trace_function_execution     Follows the call chain outward from one symbol, recursively, across files.
+  get_symbol_callers           Lists the call sites of one given symbol - one hop, from the call graph index.
+  analyze_breaking_changes     Compares two versions of a file and reports which signature changes break callers.
+  get_impact_analysis          Reports everything affected by changing one symbol, direct and transitive.
+  analyze_file_logic           Returns the call hierarchy among the symbols defined INSIDE one file, ignoring anything it imports.
+  generate_codemap             Returns one file's exports, internals, dependencies, dependents and internal call flow in a single call.
+  query_call_graph             Traces calls across files for several hops, in either direction, from a SQLite-backed call graph.
+  scan_dead_code               Lists the unused exported symbols across a whole workspace or directory.
 ```
 
 **Calling a tool with parameters:**
@@ -1263,7 +1263,7 @@ graph-it tool verify_dependency_usage --sourceFile=$(pwd)/src/app.ts --targetFil
 # Resolve a module specifier to its absolute path
 graph-it tool resolve_module_path --fromFile=$(pwd)/src/app.ts --moduleSpecifier=./utils
 
-# Symbol-level call graph within a file
+# Exported symbols of a file and what each one uses outside it
 graph-it tool get_symbol_graph --filePath=$(pwd)/src/Spider.ts
 
 # Find all callers of a specific symbol across the project

@@ -491,7 +491,7 @@
         "displayName": "Graph-It-Live: Graph Context",
         "icon": "$(symbol-misc)",
         "userDescription": "Retrieve bounded unified graph context for codebase questions and paths",
-        "modelDescription": "Retrieve deterministic, token-bounded workspace-relative graph context across dependencies, symbols, calls, tests, and impact evidence.",
+        "modelDescription": "Returns a token-bounded subgraph answering a question about the codebase - the default entry point for graph questions.\n\nWHEN: any question spanning file dependencies, symbol calls, implementations, tests or impact; reach for a specialised tool only when this cannot express the cut you need.\nWHY: one deterministic gateway over the same index the specialised tools use, with an explicit token budget so large graphs come back bounded instead of truncated arbitrarily.\nMODES: search, neighbors, path, impact, refactor, overview.\nRETURNS: nodes and edges with workspace-relative paths, an index revision and a freshness flag, and a cursor when results are paginated.\nLIMITS: needs the call graph index, built in the background when the Graph-It-Live view first loads (graph-it-live.preIndexCallGraph) or when the Call Graph panel opens; until then the tool returns an error.",
         "inputSchema": {
           "type": "object",
           "properties": {
@@ -624,7 +624,7 @@
         "displayName": "Graph-It-Live: Find Files Referencing",
         "icon": "$(references)",
         "userDescription": "Find all files that import or depend on a specific file",
-        "modelDescription": "WHEN: you need to know which files import or depend on a specific file. WHY: you cannot determine reverse dependencies without analyzing the full project dependency index. WHAT: returns a list of file paths that import or reference the target file, with line numbers and import module details.",
+        "modelDescription": "Lists every file that imports or references a given file (reverse dependency lookup).\n\nWHEN: impact analysis, \"who uses this file\", refactoring-safety checks before changing or deleting a file.\nWHY: served from a prebuilt reverse index, so it covers the whole workspace rather than the files already in context.\nRETURNS: workspace-relative path, import type, line and module specifier of each referencing file.\nFor an open-ended question, start with graph-it-live_graph_context and come here when you need this specific cut.",
         "inputSchema": {
           "type": "object",
           "properties": {
@@ -650,7 +650,7 @@
         "displayName": "Graph-It-Live: Analyze Dependencies",
         "icon": "$(package)",
         "userDescription": "List all dependencies and imports of a file, with resolved paths and metadata",
-        "modelDescription": "WHEN: you need to know what a file imports or depends on. WHY: you need resolved absolute paths and structured metadata for all imports in a file, which you cannot get from just reading the source. WHAT: returns all resolved dependencies of the given file with their module names, resolved paths, import types, and line numbers.",
+        "modelDescription": "Lists the import/export statements of one file, with each specifier resolved to a path on disk.\n\nWHEN: \"what does this file import\", \"what are this file's dependencies\".\nWHY: read from the parsed source, so tsconfig path aliases, implicit extensions and index files are already resolved.\nRETURNS: one entry per resolved workspace file - module specifier, workspace-relative path, import type (import, require, export, dynamic), line number. Unresolved and external imports are left out.\nSUPPORTS: TypeScript, JavaScript, Vue, Svelte, GraphQL.",
         "inputSchema": {
           "type": "object",
           "properties": {
@@ -676,7 +676,7 @@
         "displayName": "Graph-It-Live: Crawl Dependency Graph",
         "icon": "$(type-hierarchy)",
         "userDescription": "Traverse the full transitive dependency graph from an entry file",
-        "modelDescription": "WHEN: you need to explore the full transitive dependency graph starting from an entry file. WHY: you cannot determine multi-hop dependencies by reading files individually — this traverses the full graph. WHAT: returns all reachable nodes (files) and directed edges (import relationships) in the graph.",
+        "modelDescription": "Builds the transitive file dependency graph reachable from one entry file.\n\nWHEN: project architecture, full dependency tree from an entry point.\nWHY: crawls real import edges across the workspace rather than inferring structure from file names.\nRETURNS: nodes (workspace-relative path) and edges (import relations, source and target). maxDepth defaults to the configured graph-it-live.maxDepth, else 3.\nFor an open-ended question, start with graph-it-live_graph_context and come here when you need this specific cut.",
         "inputSchema": {
           "type": "object",
           "properties": {
@@ -706,7 +706,7 @@
         "displayName": "Graph-It-Live: Get Symbol Graph",
         "icon": "$(symbol-structure)",
         "userDescription": "Get all symbols (functions, classes, variables) defined in a file and their relationships",
-        "modelDescription": "WHEN: you need to understand the symbol-level structure of a file — which functions, classes, and variables it defines and how they relate. WHY: you cannot determine symbol-to-symbol dependency relationships from source text alone without AST analysis. WHAT: returns all symbols (functions, classes, variables) defined in the file with their kinds, export status, and cross-file dependency edges.",
+        "modelDescription": "Lists the symbols a file exports and the symbols OUTSIDE the file that each of them depends on.\n\nWHEN: \"which function in this file calls the database / uses X\", scoping a refactor to one symbol rather than the whole file.\nWHY: ts-morph AST parsing, so import aliases are tracked back to their original names and type-only imports are separated from runtime ones.\nRETURNS: every symbol of the file (name, kind, line, category, internal ones included) and symbol-to-symbol edges tagged runtime or type-only.\nNOT THIS TOOL: for calls between symbols defined in the same file, use graph-it-live_generate_codemap (its call flow section). This tool crosses the file boundary outward; that one stays inside it.\nFor an open-ended question, start with graph-it-live_graph_context and come here when you need this specific cut.",
         "inputSchema": {
           "type": "object",
           "properties": {
@@ -732,7 +732,7 @@
         "displayName": "Graph-It-Live: Find Unused Exported Symbols",
         "icon": "$(trash)",
         "userDescription": "Find exported symbols that are not used anywhere in the project (dead code)",
-        "modelDescription": "WHEN: you want to identify dead code or unused exports in a file. WHY: determining which exports are unused requires checking every file in the project that could import them — something impossible to do with simple text search. WHAT: returns a list of exported symbols that are not referenced anywhere in the project, with an unused percentage.",
+        "modelDescription": "Lists the symbols a file exports that nothing else in the workspace imports.\n\nWHEN: dead-code cleanup in one file, or checking which parts of an API are consumed.\nWHY: cross-references the file's exports against the reverse index, then widens the used set through the file's internal call graph so a symbol reached only indirectly is not reported.\nRETURNS: unused exported symbols (name, kind, line, category), unused and total counts, unused percentage.\nLIMITS: an export reached only through a dynamic or string-keyed lookup can still be reported as unused; confirm before deleting.",
         "inputSchema": {
           "type": "object",
           "properties": {
@@ -758,7 +758,7 @@
         "displayName": "Graph-It-Live: Get Symbol Callers",
         "icon": "$(call-incoming)",
         "userDescription": "Find all symbols across the project that call or use a given exported symbol",
-        "modelDescription": "WHEN: you need the call sites of a specific symbol (\"who calls X\"). WHY: finding callers across the project requires the call graph index, which cannot be built by reading individual files. WHAT: returns one entry per caller symbol with the caller file, workspace-relative path and line of the first call. Type-only references are included only with includeTypeOnly. File-level imports are not callers: use graph-it-live_get_symbol_dependents for every reference. The source field says whether the call graph or the symbol dependents fallback was used (the call graph is available once the Call Graph panel has been opened; line is null in the fallback).",
+        "modelDescription": "Lists the call sites of one given symbol - one hop, from the call graph index.\n\nWHEN: the plain question \"who calls X\"; finding call sites before a rename; spotting a symbol with no callers.\nWHY: reads CALLS edges from the indexed call graph, so it returns only symbols that call X. File-level imports and other references are not callers; use graph-it-live_get_symbol_dependents for those.\nRETURNS: one entry per caller symbol with workspace-relative path, line of the first call and a type-only flag, plus runtime and type-only counts. Type-only references are added only with includeTypeOnly. The source field says whether the call graph or the symbol dependents fallback answered (the call graph is used once indexed; line is null in the fallback).\nPICKING BETWEEN THE THREE: this one for call sites; graph-it-live_get_symbol_dependents for every reference (imports included) computed fresh from source; graph-it-live_query_call_graph when you need more than one hop, callees as well as callers, or relation types such as INHERITS and IMPLEMENTS.",
         "inputSchema": {
           "type": "object",
           "properties": {
@@ -793,7 +793,7 @@
         "displayName": "Graph-It-Live: Get Impact Analysis",
         "icon": "$(report)",
         "userDescription": "Analyze the scope and risk of changing a symbol — shows affected files and symbols",
-        "modelDescription": "WHEN: you are about to modify a symbol and want to understand the risk and scope of the change. WHY: determining transitive impact across the project requires traversing the full reverse dependency graph, which is impossible to do manually. WHAT: returns an impact level (high/medium/low), count of affected files and symbols, and the list of impacted items with their usage types (runtime vs type-only).",
+        "modelDescription": "Reports everything affected by changing one symbol, direct and transitive.\n\nWHEN: assessing a refactor before starting it, or prioritising which call sites to update first.\nWHY: walks the symbol reverse index outward, keeping runtime and type-only impact separate and aggregating per file.\nRETURNS: impact level (high, medium, low), total impact count, runtime versus type-only breakdown, impacted symbols with depth (1 = direct) and affected files. Transitive impact only with includeTransitive.\nFor an open-ended question, start with graph-it-live_graph_context and come here when you need this specific cut.",
         "inputSchema": {
           "type": "object",
           "properties": {
@@ -832,7 +832,7 @@
         "displayName": "Graph-It-Live: Get Index Status",
         "icon": "$(pulse)",
         "userDescription": "Check if the dependency index is ready and get cache statistics",
-        "modelDescription": "WHEN: you need to check whether the dependency index is ready before calling other analysis tools. WHY: other tools may return incomplete results if the index is still being built. WHAT: returns the current indexing state (idle/indexing/complete/error), cache statistics, and reverse index availability.",
+        "modelDescription": "Reports the state of the dependency index backing the other tools.\n\nWHEN: checking readiness before a large analysis, or explaining unexpectedly empty results.\nWHY: distinguishes \"no results\" from \"index not built yet\".\nRETURNS: index state, readiness flag, whether the reverse index exists, cache size and reverse-index statistics (files indexed included).",
         "inputSchema": {
           "type": "object",
           "properties": {}
@@ -850,7 +850,7 @@
         "displayName": "Graph-It-Live: Parse Imports",
         "icon": "$(list-tree)",
         "userDescription": "Parse and list all import statements in a file with resolved paths",
-        "modelDescription": "WHEN: you need a lightweight list of import statements from a file without full graph traversal. WHY: this uses the full language-aware parser pipeline to extract and resolve imports more accurately than regex-based text parsing. WHAT: returns each import with its module specifier, import type (import/require/export/dynamic), and source line number.",
+        "modelDescription": "Returns the import statements of one file: module specifier, import type and line.\n\nWHEN: inspecting import style or alias usage, without the resolved paths.\nWHY: uses the language-aware parser pipeline, so it is more accurate than a text search.\nRETURNS: module specifier as written, import type, line number.\nLIMITS: lists only imports that resolve to a workspace file, once per file - use graph-it-live_resolve_module_path to debug one that does not.",
         "inputSchema": {
           "type": "object",
           "properties": {
@@ -876,7 +876,7 @@
         "displayName": "Graph-It-Live: Generate Code Map",
         "icon": "$(file-code)",
         "userDescription": "Generate an AI-friendly code map summarizing a file's structure, symbols, and call flow",
-        "modelDescription": "WHEN: you need a rich, AI-friendly summary of a file's structure, relationships, and internal call flow. WHY: understanding a file requires combining symbol analysis, import resolution, reverse dependencies, and intra-file call hierarchy — none of which can be inferred from reading the source alone. WHAT: returns exported/internal symbols, file-level dependencies and dependents, intra-file call flow edges, cycle detection, and timing metadata.",
+        "modelDescription": "Returns one file's exports, internals, dependencies, dependents and internal call flow in a single call.\n\nWHEN: getting oriented in an unfamiliar file, or gathering the full context of a file before refactoring it.\nWHY: one call in place of analyze_dependencies, get_symbol_graph and find_referencing_files together, plus the calls between the file's own symbols.\nRETURNS: path, language, line count, exported and internal symbols, dependencies, dependents, intra-file call flow, cycle detection.\nSUPPORTS: TypeScript, JavaScript, Python, Rust, Vue, Svelte.",
         "inputSchema": {
           "type": "object",
           "properties": {
@@ -902,7 +902,7 @@
         "displayName": "Graph-It-Live: Expand Node Dependencies",
         "icon": "$(expand-all)",
         "userDescription": "Discover new dependencies from a file, excluding an already-known set (incremental graph exploration)",
-        "modelDescription": "WHEN: you need to incrementally explore the dependency graph from a specific node, discovering new files not already in your known set. WHY: this efficiently finds only the files you do not already know about, avoiding re-analysis of the entire graph. WHAT: returns newly discovered nodes (file paths) and edges (import relationships) that were not in the provided known set.",
+        "modelDescription": "Returns the dependencies of one file that are not already in a set of paths you provide.\n\nWHEN: exploring a large graph incrementally, or lazily loading one node at a time.\nWHY: crawls the file's transitive dependencies and drops what you already hold, so only newly discovered files come back.\nRETURNS: the new nodes and edges only, with the same fields as crawl_dependency_graph.",
         "inputSchema": {
           "type": "object",
           "properties": {
@@ -935,7 +935,7 @@
         "displayName": "Graph-It-Live: Verify Dependency Usage",
         "icon": "$(check)",
         "userDescription": "Check if an import between two files is actually used or is a dead import",
-        "modelDescription": "WHEN: you want to check if a dependency between two files is real or dead code (an unused import). WHY: raw imports do not tell the whole story — a file might import something but never use it; AST analysis is required to verify actual symbol usage. WHAT: returns a boolean indicating whether the sourceFile actually uses any symbol from targetFile.",
+        "modelDescription": "Reports whether a source file actually uses any symbol from a target file it imports.\n\nWHEN: identifying unused imports, or confirming a dependency edge is real before acting on it.\nWHY: AST analysis of actual references, so an import that is never used is distinguished from one that is.\nRETURNS: boolean.",
         "inputSchema": {
           "type": "object",
           "properties": {
@@ -966,7 +966,7 @@
         "displayName": "Graph-It-Live: Invalidate File Cache",
         "icon": "$(discard)",
         "userDescription": "Flush cached dependency data for specific files so the next analysis re-reads them",
-        "modelDescription": "WHEN: you have modified files and need to refresh the dependency analysis cache. WHY: the dependency analyzer caches file analysis; when imports/exports change the cache becomes stale. WHAT: clears the cache for the given file paths, returns how many were invalidated.",
+        "modelDescription": "Drops the cached analysis for specific files so the next query re-reads them.\n\nWHEN: results look stale after edits the file watcher missed. Paths must lie inside an open workspace folder.\nWHY: analysis is cached per file; the cache is otherwise refreshed by the file watcher.\nRETURNS: how many files were invalidated, which were cleared, and which held no cache entry.",
         "inputSchema": {
           "type": "object",
           "properties": {
@@ -995,7 +995,7 @@
         "displayName": "Graph-It-Live: Rebuild Full Index",
         "icon": "$(sync)",
         "userDescription": "Clear all cached dependency data and rebuild the full project index from scratch",
-        "modelDescription": "WHEN: the dependency index seems out of sync (after major refactoring, branch switches, or many file changes). WHY: clears ALL cached data and re-indexes the entire workspace, ensuring the dependency graph is accurate. WHAT: returns the rebuild time and new cache size. Note: can take several seconds for large workspaces.",
+        "modelDescription": "Clears all cached analysis and re-indexes the whole workspace.\n\nWHEN: after a branch switch or large refactor when the index no longer matches the tree; invalidate_files is enough for a few files.\nWHY: restores a graph that is consistent with what is on disk.\nRETURNS: rebuild duration and new cache size.\nLIMITS: takes seconds on a large workspace.",
         "inputSchema": {
           "type": "object",
           "properties": {}
@@ -1013,7 +1013,7 @@
         "displayName": "Graph-It-Live: Get Symbol Dependents",
         "icon": "$(call-outgoing)",
         "userDescription": "Find all symbols across the codebase that directly depend on (use) a specific symbol",
-        "modelDescription": "WHEN: you need to know every file and symbol that calls or uses a given exported symbol — essential for surgical refactoring. WHY: symbol-level impact requires a reverse symbol index that cannot be built by reading individual files. WHAT: returns a list of all symbol dependencies that use the target symbol, with file paths and symbol IDs.",
+        "modelDescription": "Lists the symbols that use one given symbol - one hop, computed from source at call time.\n\nWHEN: changing a signature and needing every call site, or assessing the blast radius of a symbol-level change.\nWHY: walks the symbol graphs of every file that references the target, so file-level imports count as well as calls.\nRETURNS: caller symbol id, file path and workspace-relative path per dependent, plus a total count.\nPICKING BETWEEN THE THREE: this one for every reference, including file-level imports, computed fresh; graph-it-live_get_symbol_callers for call sites only; graph-it-live_query_call_graph for multi-hop traversal, callees, or relation types.",
         "inputSchema": {
           "type": "object",
           "properties": {
@@ -1044,7 +1044,7 @@
         "displayName": "Graph-It-Live: Trace Function Execution",
         "icon": "$(type-hierarchy-sub)",
         "userDescription": "Trace the full recursive call chain starting from a function or method",
-        "modelDescription": "WHEN: you need to trace the full, deep call chain from a root symbol through multiple files. WHY: provides a complete picture of what a function calls, recursively following the call chain across files until it reaches external modules or the depth limit. WHAT: returns the root symbol, the full call chain with depth information, all visited symbols, and whether the max depth was reached.",
+        "modelDescription": "Follows the call chain outward from one symbol, recursively, across files.\n\nWHEN: tracing a request through controller, service and repository, or mapping what a feature actually reaches.\nWHY: follows calls through multiple files instead of stopping at direct dependencies; stops at external modules, at maxDepth, or on a cycle.\nRETURNS: root symbol, call chain entries (depth, caller, callee, resolved path), visited symbols, and whether maxDepth was hit.\nFor an open-ended question, start with graph-it-live_graph_context and come here when you need this specific cut.",
         "inputSchema": {
           "type": "object",
           "properties": {
@@ -1079,7 +1079,7 @@
         "displayName": "Graph-It-Live: Analyze File Logic",
         "icon": "$(code)",
         "userDescription": "Analyze the intra-file call hierarchy — which functions call which within a single file",
-        "modelDescription": "WHEN: you need to understand the internal call relationships between functions and methods within a single file. WHY: without AST analysis you cannot see actual call relationships between functions in a file. WHAT: returns an intra-file call graph with nodes (symbols with type, export status, line range), edges (caller→callee with line number), cycle detection, and timing.",
+        "modelDescription": "Returns the call hierarchy among the symbols defined INSIDE one file, ignoring anything it imports.\n\nWHEN: understanding how a file works internally, or spotting recursion before a refactor.\nWHY: built from the file's AST (no language server needed), so it works the same in the CLI, MCP and VS Code. Calls are matched by name within the file.\nRETURNS: nodes (symbol id, LSP SymbolKind number, type, export status, start/end line range), call edges with call-site line numbers, and cycle detection with the symbols involved.\nNOT THIS TOOL: for what this file's symbols reach in OTHER files, use graph-it-live_get_symbol_graph.\nSUPPORTS: TypeScript, JavaScript, Python, Rust.\nFor an open-ended question, start with graph-it-live_graph_context and come here when you need this specific cut.",
         "inputSchema": {
           "type": "object",
           "properties": {
@@ -1105,7 +1105,7 @@
         "displayName": "Graph-It-Live: Resolve Module Path",
         "icon": "$(link)",
         "userDescription": "Resolve a module specifier (e.g. './utils', '@/components/Button') to its absolute file path",
-        "modelDescription": "WHEN: you need to know which physical file a TypeScript/JavaScript import resolves to, especially for path aliases, barrel files, or relative imports. WHY: without the project's tsconfig path mappings you cannot reliably resolve aliases like '@/' or complex relative paths. WHAT: returns the resolved absolute path, a workspace-relative path, and a boolean indicating whether resolution succeeded.",
+        "modelDescription": "Resolves one module specifier, as seen from a given file, to a path on disk.\n\nWHEN: \"where does this import point\", or debugging alias and extension resolution.\nWHY: applies tsconfig path aliases, implicit extensions (.ts, .tsx, .js, .jsx, .vue, .svelte, .gql) and index-file resolution.\nRETURNS: whether resolution succeeded and the resolved workspace-relative path.",
         "inputSchema": {
           "type": "object",
           "properties": {
@@ -1136,7 +1136,7 @@
         "displayName": "Graph-It-Live: Analyze Breaking Changes",
         "icon": "$(warning)",
         "userDescription": "Detect breaking changes when modifying function signatures, interface members, or type aliases",
-        "modelDescription": "WHEN: you are about to modify a function signature, interface, or type alias and want to know if callers will break. WHY: static analysis requires parsing both the old and new AST to compare signatures — you cannot reliably do this from text diffs alone. WHAT: returns a list of breaking changes (parameter removed, type changed, visibility reduced, member removed, optional→required), non-breaking changes, and per-symbol severity (error/warning).",
+        "modelDescription": "Compares two versions of a file and reports which signature changes break callers.\n\nWHEN: validating an edit before committing, or writing migration notes for an API change.\nWHY: diffs the parsed signatures rather than the text, so added optional parameters are separated from breaking ones.\nRETURNS: breaking changes (type, symbol, description, severity, old and new value, line) and non-breaking changes. Without newContent the current file on disk is used.\nDETECTS: added required parameter, removed parameter, changed parameter or return type, optional made required, reduced visibility, removed or changed interface member, changed type alias.",
         "inputSchema": {
           "type": "object",
           "properties": {
@@ -1175,7 +1175,7 @@
         "displayName": "Graph-It-Live: Query Call Graph",
         "icon": "$(type-hierarchy)",
         "userDescription": "Query cross-file callers and callees of a symbol via BFS traversal on the indexed call graph database",
-        "modelDescription": "WHEN: you need to understand which functions call a given symbol across multiple files, or what a function calls transitively (beyond a single file). WHY: cross-file call relationships are not visible from reading a single file — they require a pre-built graph index. WHAT: returns the target symbol's metadata plus lists of callers/callees with file paths, relation types (CALLS/INHERITS/IMPLEMENTS/USES), and cycle flags. Requires the Call Graph panel to have been opened at least once to build the index.",
+        "modelDescription": "Traces calls across files for several hops, in either direction, from a SQLite-backed call graph.\n\nWHEN: \"who calls X\" (direction=callers, depth=1), \"what does X call\" (direction=callees), multi-hop traversal (\"three levels deep\"), or cycle detection across modules.\nWHY: built from tree-sitter AST analysis, so it holds real call edges (CALLS, INHERITS, IMPLEMENTS) and type-only references (USES) rather than import edges. Every relation type is returned unless relationTypes narrows it.\nRETURNS: the matched symbol, its callers and callees with file and call-site line, relation type, and a cyclic flag per edge. Defaults: direction=both, depth=2.\nNOT THIS TOOL: for every file that imports a file, use graph-it-live_find_referencing_files.\nLIMITS: needs the call graph index, built in the background when the Graph-It-Live view first loads (graph-it-live.preIndexCallGraph) or when the Call Graph panel opens; until then the tool returns an error.",
         "inputSchema": {
           "type": "object",
           "properties": {
@@ -1232,7 +1232,7 @@
         "displayName": "Graph-It-Live: Scan Dead Code",
         "icon": "$(trash)",
         "userDescription": "Workspace-wide scan for unused exported symbols (dead code) across the entire project or a scoped directory",
-        "modelDescription": "WHEN: you need a workspace-wide scan for all unused exported symbols (dead code), not just a single file. WHY: detecting dead code across an entire project requires building and querying a full reverse symbol index — impossible to do by reading files individually. WHAT: returns a list of unused exported symbols with their file paths, symbol names, and kinds. Supports optional scopePath to restrict the scan to a subdirectory and maxFiles to cap processing.",
+        "modelDescription": "Lists the unused exported symbols across a whole workspace or directory.\n\nWHEN: auditing code quality, or cleaning up before a refactor; use find_unused_symbols for a single file.\nWHY: combines the reverse index with per-file symbol analysis, so the scan stays linear instead of comparing every file against every other.\nRETURNS: files scanned, files holding dead code, total unused symbols, per-file unused symbol lists, scan duration.\nLIMITS: scopePath must be an absolute path inside the workspace; results are incomplete while background indexing runs; an export reached only through a dynamic lookup can still be listed.",
         "inputSchema": {
           "type": "object",
           "properties": {
@@ -1476,6 +1476,7 @@
     "test:bench": "node scripts/run-benchmarks.mjs",
     "test:bench:memory": "node scripts/run-memory-bench.mjs",
     "test:context-economy": "npm run build:cli && node scripts/context-economy-corpus.mjs",
+    "sync:tool-descriptions": "node scripts/sync-tool-descriptions.mjs",
     "test:mcp": "node scripts/test-mcp.js",
     "test:cli:e2e": "bash scripts/test-cli-e2e.sh",
     "lint": "eslint src",

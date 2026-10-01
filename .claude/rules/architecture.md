@@ -24,4 +24,4 @@ paths:
 ## Change Recipes
 
 - New webview message: add discriminated type in `src/shared/types.ts`, implement relevant extension service handler, register it in `WebviewMessageRouter`, then send/receive typed payload in React.
-- New MCP tool: add `McpToolName`, Zod parameter schema and result type, register WHEN/WHY/WHAT description in MCP server, handle worker dispatch, implement execution, and add tests.
+- New MCP tool: add `McpToolName`, Zod parameter schema and result type, add its WHEN/WHY/WHAT description to `src/mcp/toolDescriptions.ts` (run `npm run sync:tool-descriptions` when an LM tool changes), handle worker dispatch, implement execution, and add tests.
