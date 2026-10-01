@@ -186,7 +186,7 @@ The graph-context tool is available as `#graphContext`. Other native references 
 
 ### MCP server
 
-The MCP server exposes 27 graph-analysis tools. Enable it in VS Code with `graph-it-live.enableMcpServer`, or start it from the CLI:
+The MCP server exposes 22 graph-analysis tools. Enable it in VS Code with `graph-it-live.enableMcpServer`, or start it from the CLI:
 
 ```bash
 graph-it serve
