@@ -21,6 +21,48 @@ export interface ProviderConfigSnapshot extends BackgroundIndexingConfig {
   showCommunities: boolean;
 }
 
+type ProfileTuning = Pick<
+  ProviderConfigSnapshot,
+  | 'indexingConcurrency'
+  | 'unusedAnalysisConcurrency'
+  | 'unusedAnalysisMaxEdges'
+  | 'persistUnusedAnalysisCache'
+  | 'maxUnusedAnalysisCacheSize'
+  | 'maxCacheSize'
+  | 'maxSymbolCacheSize'
+>;
+
+// The custom profile starts from the default values
+const PROFILE_DEFAULTS: Record<Exclude<PerformanceProfile, 'custom'>, ProfileTuning> = {
+  'low-memory': {
+    indexingConcurrency: 2,
+    unusedAnalysisConcurrency: 2,
+    unusedAnalysisMaxEdges: 1000,
+    persistUnusedAnalysisCache: false,
+    maxUnusedAnalysisCacheSize: 100,
+    maxCacheSize: 200,
+    maxSymbolCacheSize: 100,
+  },
+  default: {
+    indexingConcurrency: 4,
+    unusedAnalysisConcurrency: 4,
+    unusedAnalysisMaxEdges: 2000,
+    persistUnusedAnalysisCache: false,
+    maxUnusedAnalysisCacheSize: 200,
+    maxCacheSize: 500,
+    maxSymbolCacheSize: 200,
+  },
+  'high-performance': {
+    indexingConcurrency: 8,
+    unusedAnalysisConcurrency: 12,
+    unusedAnalysisMaxEdges: 5000,
+    persistUnusedAnalysisCache: false,
+    maxUnusedAnalysisCacheSize: 500,
+    maxCacheSize: 1500,
+    maxSymbolCacheSize: 800,
+  },
+};
+
 export class ProviderStateManager {
   private _viewMode: ViewMode = 'file';
   private _currentFilePath?: string;
@@ -40,101 +82,31 @@ export class ProviderStateManager {
   loadConfiguration(): ProviderConfigSnapshot {
     const config = vscode.workspace.getConfiguration('graph-it-live');
     const profile = config.get<PerformanceProfile>('performanceProfile', 'default');
-    
-    // Apply performance profile defaults
-    const profileDefaults = this.getProfileDefaults(profile);
-    
-    // For non-custom profiles, use profile defaults regardless of config values
-    // For custom profile, use actual config values
-    const isCustomProfile = profile === 'custom';
-    
+    const profileValues = PROFILE_DEFAULTS[profile as keyof typeof PROFILE_DEFAULTS] ?? PROFILE_DEFAULTS.default;
+    // Only the custom profile reads the advanced override settings
+    const tuning: ProfileTuning = profile === 'custom'
+      ? {
+          indexingConcurrency: config.get('indexingConcurrency', profileValues.indexingConcurrency),
+          unusedAnalysisConcurrency: config.get('unusedAnalysisConcurrency', profileValues.unusedAnalysisConcurrency),
+          unusedAnalysisMaxEdges: config.get('unusedAnalysisMaxEdges', profileValues.unusedAnalysisMaxEdges),
+          persistUnusedAnalysisCache: config.get('persistUnusedAnalysisCache', profileValues.persistUnusedAnalysisCache),
+          maxUnusedAnalysisCacheSize: config.get('maxUnusedAnalysisCacheSize', profileValues.maxUnusedAnalysisCacheSize),
+          maxCacheSize: config.get('maxCacheSize', profileValues.maxCacheSize),
+          maxSymbolCacheSize: config.get('maxSymbolCacheSize', profileValues.maxSymbolCacheSize),
+        }
+      : profileValues;
+
     return {
       excludeNodeModules: config.get<boolean>('excludeNodeModules', true),
       maxDepth: config.get<number>('maxDepth', 50),
       enableBackgroundIndexing: config.get<boolean>('enableBackgroundIndexing', true),
-      indexingConcurrency: isCustomProfile 
-        ? config.get<number>('indexingConcurrency', profileDefaults.indexingConcurrency)
-        : profileDefaults.indexingConcurrency,
       indexingStartDelay: config.get<number>('indexingStartDelay', this.defaultIndexingDelay),
       ignoreTypeImports: config.get<boolean>('ignoreTypeImports', false),
       unusedDependencyMode: config.get<'none' | 'hide' | 'dim'>('unusedDependencyMode', 'none'),
-      unusedAnalysisConcurrency: isCustomProfile
-        ? config.get<number>('unusedAnalysisConcurrency', profileDefaults.unusedAnalysisConcurrency)
-        : profileDefaults.unusedAnalysisConcurrency,
-      unusedAnalysisMaxEdges: isCustomProfile
-        ? config.get<number>('unusedAnalysisMaxEdges', profileDefaults.unusedAnalysisMaxEdges)
-        : profileDefaults.unusedAnalysisMaxEdges,
-      persistUnusedAnalysisCache: config.get<boolean>('persistUnusedAnalysisCache', false),
-      maxUnusedAnalysisCacheSize: config.get<number>('maxUnusedAnalysisCacheSize', 200),
-      maxCacheSize: isCustomProfile
-        ? config.get<number>('maxCacheSize', profileDefaults.maxCacheSize)
-        : profileDefaults.maxCacheSize,
-      maxSymbolCacheSize: isCustomProfile
-        ? config.get<number>('maxSymbolCacheSize', profileDefaults.maxSymbolCacheSize)
-        : profileDefaults.maxSymbolCacheSize,
+      ...tuning,
       performanceProfile: profile,
       showCommunities: config.get<boolean>('showCommunities', true),
     };
-  }
-
-  private getProfileDefaults(profile: PerformanceProfile): {
-    indexingConcurrency: number;
-    unusedAnalysisConcurrency: number;
-    unusedAnalysisMaxEdges: number;
-    maxCacheSize: number;
-    maxSymbolCacheSize: number;
-  } {
-    switch (profile) {
-      case 'low-memory':
-        return {
-          indexingConcurrency: 2,
-          unusedAnalysisConcurrency: 2,
-          unusedAnalysisMaxEdges: 1000,
-          maxCacheSize: 200,
-          maxSymbolCacheSize: 100,
-        };
-      case 'high-performance':
-        return {
-          indexingConcurrency: 8,
-          unusedAnalysisConcurrency: 12,
-          unusedAnalysisMaxEdges: 5000,
-          maxCacheSize: 1500,
-          maxSymbolCacheSize: 800,
-        };
-      case 'custom':
-      case 'default':
-      default:
-        return {
-          indexingConcurrency: 4,
-          unusedAnalysisConcurrency: 4,
-          unusedAnalysisMaxEdges: 2000,
-          maxCacheSize: 500,
-          maxSymbolCacheSize: 200,
-        };
-    }
-  }
-
-  /**
-   * Apply performance profile settings to VS Code configuration
-   * This is called when a user selects a preset profile to update the settings UI
-   */
-  async applyProfileSettings(profile: PerformanceProfile): Promise<void> {
-    if (profile === 'custom') {
-      // Don't override settings for custom profile
-      return;
-    }
-
-    const defaults = this.getProfileDefaults(profile);
-    const config = vscode.workspace.getConfiguration('graph-it-live');
-    
-    // Update all performance-related settings
-    await Promise.all([
-      config.update('indexingConcurrency', defaults.indexingConcurrency, vscode.ConfigurationTarget.Global),
-      config.update('unusedAnalysisConcurrency', defaults.unusedAnalysisConcurrency, vscode.ConfigurationTarget.Global),
-      config.update('unusedAnalysisMaxEdges', defaults.unusedAnalysisMaxEdges, vscode.ConfigurationTarget.Global),
-      config.update('maxCacheSize', defaults.maxCacheSize, vscode.ConfigurationTarget.Global),
-      config.update('maxSymbolCacheSize', defaults.maxSymbolCacheSize, vscode.ConfigurationTarget.Global),
-    ]);
   }
 
   get currentSymbol(): string | undefined {
