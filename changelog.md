@@ -1,5 +1,52 @@
 # Changelog
 
+## v1.17.0
+
+### Added
+
+- **Shared index across extension, MCP server and CLI**: The reverse index and call graph now live in `.graph-it/cache/` (`reverse-index.json`, `callgraph.db`) and are reused by every entry point. A `meta.json` guard (schema, version, workspace root, resolver fingerprint, index options) invalidates stale caches, files are written with atomic renames, and an `index.lock` serializes indexing so a second process waits and restores the result instead of re-indexing. Stale locks (dead pid or older than 10 minutes) are taken over. `.graph-it/` writes its own `.gitignore`.
+- **New Language Model tools**: `review_pr` and `query_natural_language` are now available natively to Copilot agent mode, reusing the MCP schemas and shared analyzers against the extension's live indexes.
+- **Token budgets and pagination for graph tools**: `crawl_dependency_graph`, `expand_node` and `query_call_graph` accept `tokenBudget` (`0` = no limit) and return `nextOffset` while items remain. Every edge is returned exactly once across pages, and callers/callees are paged together with full totals preserved.
+- **REPL commands**: Added `/callers`, `/impact`, `/context`, `/explain` and `/review-pr`. Without a target they use the current file or symbol, like `/trace`.
+- **REPL completion and history**: `file#Symbol` completion after `#` for `/trace`, `/callers` and `/impact`; Up/Down browse command history; a one-line hint after each result lists follow-up commands, and Tab places them on the command line.
+
+### Changed
+
+- **MCP tool consolidation (27 → 22 tools)**: `get_symbol_callers`, `get_symbol_dependents`, `parse_imports`, `expand_node` and `analyze_file_logic` are no longer registered by the MCP server. Use `query_call_graph` (`direction=callers`, `depth=1`), `analyze_dependencies` (now returns the written specifier with the resolved path), `crawl_dependency_graph` and `generate_codemap` instead. The CLI keeps them as `graph-it tool` aliases during the transition. `query_call_graph` gains `includeTypeOnly`; type-only `USES` edges are excluded by default.
+- **Single source of truth for tool descriptions**: MCP, `graph-it --list` and the VS Code LM tool contributions now share `src/mcp/toolDescriptions.ts`.
+- **Compact output schema**: MCP responses and CLI TOON output drop keys that repeat a sibling value and undefined fields. TOON headers use the union of row keys so optional fields are no longer lost. CLI JSON output stays uncompacted.
+- **REPL palette by intent**: The slash palette lists canonical commands grouped by Navigate, Understand, Relations, Workspace, Output and Session. `/path` is renamed `/scope`; old aliases are still accepted when typed. `/help` lists groups and hidden aliases.
+- **Legacy REPL removed**: The inquirer-based REPL (`GRAPH_IT_REPL_LEGACY=1`) and its `@inquirer/*` dependencies are removed; the Ink UI covers all its features.
+- **Performance settings**: `performanceProfile` now drives all seven tuning values. Individual overrides moved to an "Advanced: Performance overrides" section and apply only with the `custom` profile. Changing the profile no longer writes values into user settings. The deprecated `graph-it-live.persistIndex` setting is removed (the index is always shared).
+- **Plugin MCP server pinned**: Codex and Claude plugin manifests now run `npx -y --prefer-offline` with the published version pinned, so a cached package starts without a registry request. Manifests are derived from one source by `scripts/sync-agent-plugin-version.mjs`.
+- **Workspace file collection honors `.gitignore`**: Source collection now applies `.gitignore`, `.graphitignore` and default patterns (`tests/fixtures/`, `out-*/`). A `.graphitignore` negation opts paths back in.
+
+### Fixed
+
+- **`get_symbol_callers` always returned 0 callers**: Callers are now read from the call graph index (call sites only; type-only references with `includeTypeOnly`). The LM tool falls back to symbol dependents when the call graph index is not built and reports the source used.
+- **Impact analysis reported the changed file instead of callers** (MCP and LM tools): items and `affectedFileCount` now use the caller file, and the response lists `affectedFiles`.
+- **LM `get_symbol_dependents`** listed the queried symbol for every entry instead of the dependents.
+- **Symbol target ids**: Trace and dependents now return ids resolved to workspace paths instead of raw import specifiers, and `traceFunctionExecution` no longer stops at depth 1 on absolute paths.
+- **`analyze_file_logic` / `generate_codemap`**: Report real LSP symbol kinds and start/end line ranges; call edges carry their call-site line.
+- **Dynamic import destructuring**: Names consumed via `const { run } = await import(...)` or `import(...).then(({ run }) => ...)` are no longer reported as unused.
+- **TOON output**: MCP TOON output keeps every top-level array and scalar field (edges, callees, matched symbol, counts were dropped). The CLI emits the scalar header when there are no rows instead of falling back to JSON.
+- **Natural-language queries**: Nodes are sorted by relevance before token-budget truncation, and the subgraph is emitted with workspace-relative paths.
+- **`graph_context`**: Fills the token budget instead of stopping at the first oversized candidate, never repeats nodes across pages, down-ranks test nodes unless the question mentions tests, and no longer indexes generated wikis or fixtures.
+- **Review Gate scoring**: Breaking changes are weighted once per symbol, and consumers typed through a factory's return type (`ReturnType<typeof createX>`) are now detected and credited when updated.
+- **Windows path handling**: Pagination no longer drops every edge on Windows; the REPL tokenizer keeps backslashes in drive and UNC paths; workspace boundary checks are case-insensitive; CLI output keeps the workspace-relative path when the root is an 8.3 short name.
+- **CLI argument parsing**: Global flags placed after a command are no longer read as its file argument; `tool --args` JSON is merged with named `--param` flags (named flags win).
+- **CLI update notice** is skipped for dev builds and when stderr is not a TTY.
+- **REPL header** now reflects the format chosen with `/format`.
+- **Plugin manifest drift check** ignores CRLF line endings on Windows checkouts.
+
+### Dependencies
+
+- Bumped `@modelcontextprotocol/server` to 2.2.0, `ignore` to 7.0.11, `globals` to 17.13.0 and `typescript-eslint` to 8.71.0. `npm audit` reports no vulnerabilities.
+
+### Tests
+
+- Stabilized flaky property tests (Python temp fixture isolation, generated alias collisions) and extended multi-run cache test timeouts for Windows runners. LM impact tests are now platform-independent.
+
 ## v1.16.1
 
 ### Added
