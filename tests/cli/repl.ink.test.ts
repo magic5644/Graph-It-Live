@@ -18,7 +18,10 @@ type SubmitCommand = (commandLine: string) => Promise<InkReplCommandResponse>;
 
 const mocks = vi.hoisted(() => ({
   runInkReplSession: vi.fn(),
+  explainRun: vi.fn(),
 }));
+
+vi.mock('../../src/cli/commands/explain.js', () => ({ run: mocks.explainRun }));
 
 vi.mock('../../src/cli/repl/ink/ReplInkApp.js', async (importOriginal) => ({
   ...(await importOriginal<typeof import('../../src/cli/repl/ink/ReplInkApp.js')>()),
@@ -33,8 +36,18 @@ vi.mock('../../src/analyzer/SourceFileCollector.js', () => ({
 
 import { run } from '../../src/cli/commands/repl';
 
-async function startInkSession(workspaceRoot = '/workspace'): Promise<{ preferredFormat: string; submit: SubmitCommand }> {
-  let captured: { preferredFormat: string; onSubmitCommand: SubmitCommand } | undefined;
+interface InkSession {
+  preferredFormat: string;
+  submit: SubmitCommand;
+  listFileSymbols?: (absoluteFile: string) => Promise<string[]>;
+}
+
+async function startInkSession(workspaceRoot = '/workspace'): Promise<InkSession> {
+  let captured: {
+    preferredFormat: string;
+    onSubmitCommand: SubmitCommand;
+    listFileSymbols?: (absoluteFile: string) => Promise<string[]>;
+  } | undefined;
   mocks.runInkReplSession.mockImplementation(async (options) => {
     captured = options;
   });
@@ -47,7 +60,11 @@ async function startInkSession(workspaceRoot = '/workspace'): Promise<{ preferre
   if (!captured) {
     throw new Error('runInkReplSession was not called');
   }
-  return { preferredFormat: captured.preferredFormat, submit: captured.onSubmitCommand };
+  return {
+    preferredFormat: captured.preferredFormat,
+    submit: captured.onSubmitCommand,
+    listFileSymbols: captured.listFileSymbols,
+  };
 }
 
 describe('Ink REPL session context', () => {
@@ -63,6 +80,7 @@ describe('Ink REPL session context', () => {
     vi.unstubAllEnvs();
     vi.restoreAllMocks();
     mocks.runInkReplSession.mockReset();
+    mocks.explainRun.mockReset();
   });
 
   it('reports the new preferred format after /format so the header can refresh', async () => {
@@ -121,5 +139,24 @@ describe('Ink REPL session context', () => {
     const response = await session.submit('/format text');
 
     expect(response.updatedContext).toBeUndefined();
+  });
+
+  it('lists file symbols for # completion, sorted and deduplicated', async () => {
+    mocks.explainRun.mockResolvedValue(JSON.stringify({
+      nodes: [{ symbolName: 'run' }, { symbolName: 'Helper.method' }],
+      symbols: [{ name: 'run' }],
+    }));
+    const session = await startInkSession();
+    const file = path.resolve('/workspace', 'src/index.ts');
+
+    await expect(session.listFileSymbols?.(file)).resolves.toEqual(['Helper.method', 'run']);
+    expect(mocks.explainRun).toHaveBeenCalledWith([file], expect.anything(), 'json');
+  });
+
+  it('lists no symbols when extraction fails', async () => {
+    mocks.explainRun.mockRejectedValue(new Error('parse failed'));
+    const session = await startInkSession();
+
+    await expect(session.listFileSymbols?.(path.resolve('/workspace', 'src/index.ts'))).resolves.toEqual([]);
   });
 });

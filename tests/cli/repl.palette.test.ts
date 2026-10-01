@@ -5,7 +5,12 @@
 
 import * as path from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { filterSlashCommands, getSlashCommandHelpLines } from '../../src/cli/repl/ink/ReplInkApp';
+import {
+  appendTypedInput,
+  filterSlashCommands,
+  findSymbolCompletionFile,
+  getSlashCommandHelpLines,
+} from '../../src/cli/repl/ink/ReplInkApp';
 import { buildMainActionChoices } from '../../src/cli/repl/prompts';
 
 const HIDDEN_ALIASES = ['/path', '/deps', '/dependencies', '/deps-in', '/deps-out', '/path-in', '/path-out', '/cycle'];
@@ -78,6 +83,63 @@ describe('Ink slash palette', () => {
     expect(text).toContain('/deps-in → /check-dependencies');
     expect(lines.some((line) => line.trimStart().startsWith('/command'))).toBe(false);
     expect(lines.some((line) => line.trimStart().startsWith('/deps '))).toBe(false);
+  });
+});
+
+describe('Ink symbol completion after #', () => {
+  const indexFile = allFiles[0];
+  const symbols = new Map([[indexFile, ['main', 'parseArgs', 'Runner.start']]]);
+  const getFileSymbols = (absoluteFile: string): string[] | undefined => symbols.get(absoluteFile);
+
+  it('suggests the symbols of the file before #, filtered by the typed prefix', () => {
+    const all = filterSlashCommands('/trace src/cli/index.ts#', allFiles, workspaceRoot, getFileSymbols);
+    const filtered = filterSlashCommands('/callers src/cli/index.ts#par', allFiles, workspaceRoot, getFileSymbols);
+
+    expect(all.map((entry) => entry.command)).toEqual([
+      'src/cli/index.ts#main',
+      'src/cli/index.ts#parseArgs',
+      'src/cli/index.ts#Runner.start',
+    ]);
+    expect(filtered).toEqual([expect.objectContaining({
+      command: 'src/cli/index.ts#parseArgs',
+      insertText: 'src/cli/index.ts#parseArgs',
+      targetCommand: '/callers',
+      isArgument: true,
+    })]);
+  });
+
+  it('suggests nothing while symbols are not loaded or the file is unknown', () => {
+    expect(filterSlashCommands('/impact src/cli/index.ts#', allFiles, workspaceRoot)).toEqual([]);
+    expect(filterSlashCommands('/trace src/missing.ts#', allFiles, workspaceRoot, getFileSymbols)).toEqual([]);
+  });
+
+  it('keeps # literal for commands without a symbol argument', () => {
+    expect(findSymbolCompletionFile('/explain src/cli/index.ts#', allFiles, workspaceRoot)).toBeUndefined();
+    expect(filterSlashCommands('/explain src/cli/index.ts#', allFiles, workspaceRoot, getFileSymbols)
+      .some((entry) => entry.command.includes('#'))).toBe(false);
+  });
+
+  it('finds the file to load only while a file#symbol token is being typed', () => {
+    expect(findSymbolCompletionFile('/trace src/cli/index.ts#ma', allFiles, workspaceRoot)).toBe(indexFile);
+    expect(findSymbolCompletionFile('/trace src/cli/index.ts#ma ', allFiles, workspaceRoot)).toBeUndefined();
+    expect(findSymbolCompletionFile('/trace #main', allFiles, workspaceRoot)).toBeUndefined();
+    expect(findSymbolCompletionFile('/trace src/cli/nope.ts#', allFiles, workspaceRoot)).toBeUndefined();
+  });
+
+  it('matches Windows-style relative and absolute paths before #', () => {
+    const windowsRoot = String.raw`C:\repo`;
+    const windowsFile = String.raw`C:\repo\src\cli\index.ts`;
+
+    expect(findSymbolCompletionFile(String.raw`/trace src\cli\index.ts#`, allFiles, workspaceRoot)).toBe(indexFile);
+    expect(findSymbolCompletionFile(String.raw`/trace c:\repo\src\cli\index.ts#`, [windowsFile], windowsRoot))
+      .toBe(windowsFile);
+  });
+
+  it('joins a # typed after a completed file argument', () => {
+    expect(appendTypedInput('/trace src/cli/index.ts ', '#')).toBe('/trace src/cli/index.ts#');
+    expect(appendTypedInput('/trace ', '#')).toBe('/trace #');
+    expect(appendTypedInput('/query what is ', '#')).toBe('/query what is #');
+    expect(appendTypedInput('/trace src', 'x')).toBe('/trace srcx');
   });
 });
 
