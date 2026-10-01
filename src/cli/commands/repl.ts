@@ -94,11 +94,17 @@ const REPL_TYPED_RUNNER_LOADERS = {
   checkDependencies: () => import('./checkDependencies.js'),
   cycles: () => import('./cycles.js'),
   trace: () => import('./trace.js'),
-  explain: () => import('./explain.js'),
   scan: () => import('./scan.js'),
   query: () => import('./query.js'),
   wiki: () => import('./wiki.js'),
+  'review-pr': () => import('./reviewPr.js'),
 } satisfies Record<string, () => Promise<{ run: ReplRunner }>>;
+
+/** Symbol commands backed by an MCP tool through the `tool` runner. */
+const REPL_SYMBOL_TOOLS = {
+  callers: { tool: 'query_call_graph', params: { direction: 'callers' } },
+  impact: { tool: 'get_impact_analysis', params: {} },
+} as const;
 
 function resolveTypedRunnerKey(command: string): keyof typeof REPL_TYPED_RUNNER_LOADERS | undefined {
   if (command === 'path-in' || command === 'path-out' || command === 'deps-in' || command === 'deps-out') {
@@ -144,6 +150,10 @@ function buildReplHelpText(state: ReturnType<typeof createSessionState>): string
     '  /check-dependencies',
     '  /cycles src/cli/index.ts',
     '  /trace src/index.ts#main',
+    '  /callers src/index.ts#main',
+    '  /impact --includeTransitive=true',
+    '  /context "how is the index built" --detail compact',
+    '  /review-pr --base origin/main',
     '  /architecture --format mermaid',
     '  /export --output my-graph.html',
     '',
@@ -506,6 +516,17 @@ async function runTypedCommandLine(
     return sessionCommand;
   }
 
+  const contextualResult = await runContextualAnalysisCommand(
+    normalizedCommand,
+    contextualArgs,
+    runtime,
+    state,
+    effectiveFormat,
+  );
+  if (contextualResult) {
+    return contextualResult;
+  }
+
   if (resolvedOptions.uiMode === 'ink') {
     const guidedResult = await runInkGuidedCommand(
       normalizedCommand,
@@ -537,7 +558,7 @@ async function runTypedCommandLine(
 
   return {
     command: normalizedCommand,
-    output: `Unknown REPL command "${sanitizeTerminalText(normalizedCommand)}". Try: /scope, /file, /check-dependencies, /cycles, /summary, /check, /trace, /query, /format, /help.`,
+    output: `Unknown REPL command "${sanitizeTerminalText(normalizedCommand)}". Try: /scope, /file, /trace, /explain, /callers, /impact, /context, /query, /review-pr, /help.`,
     skipPostAction: true,
   };
 }
@@ -949,6 +970,101 @@ async function runTraceOrExplainForTarget(
   const { run } = await import('./explain.js');
   const result = await executeCommandForRepl('explain', [parsed.filePath], runtime, preferredFormat, run);
   return { ...result, contextFile: parsed.filePath };
+}
+
+/** Commands that fall back to the session file/symbol context when typed without a target. */
+async function runContextualAnalysisCommand(
+  command: string,
+  args: string[],
+  runtime: CliRuntime,
+  state: ReturnType<typeof createSessionState>,
+  preferredFormat: CliOutputFormat,
+): Promise<ReplActionResult | undefined> {
+  if (command === 'callers' || command === 'impact') {
+    return runSymbolToolCommand(command, args, runtime, state, preferredFormat);
+  }
+  if (command === 'explain') {
+    return runExplainCommand(args, runtime, state, preferredFormat);
+  }
+  if (command === 'context') {
+    return runContextCommand(args, runtime, state, preferredFormat);
+  }
+  return undefined;
+}
+
+async function runSymbolToolCommand(
+  command: keyof typeof REPL_SYMBOL_TOOLS,
+  args: string[],
+  runtime: CliRuntime,
+  state: ReturnType<typeof createSessionState>,
+  preferredFormat: CliOutputFormat,
+): Promise<ReplActionResult> {
+  const hasTarget = args[0] !== undefined && !args[0].startsWith('-');
+  const target = hasTarget ? args[0] : buildDefaultTraceTarget(state);
+  const parsed = target ? parseSymbolRef(target, state.workspaceRoot) : undefined;
+  if (!parsed?.symbolName) {
+    return {
+      command,
+      output: `/${command} needs a symbol. Usage: /${command} <file#Symbol>, or pick one first with /trace <file#Symbol>.`,
+      skipPostAction: true,
+    };
+  }
+
+  const { tool, params } = REPL_SYMBOL_TOOLS[command];
+  const toolArgs = [
+    tool,
+    '--args',
+    JSON.stringify({ ...params, filePath: parsed.filePath, symbolName: parsed.symbolName }),
+    ...(hasTarget ? args.slice(1) : args),
+  ];
+  const { run } = await import('./tool.js');
+  const result = await executeCommandForRepl(command, toolArgs, runtime, preferredFormat, run);
+  return { ...result, contextFile: parsed.filePath, contextSymbol: parsed.symbolName };
+}
+
+async function runExplainCommand(
+  args: string[],
+  runtime: CliRuntime,
+  state: ReturnType<typeof createSessionState>,
+  preferredFormat: CliOutputFormat,
+): Promise<ReplActionResult> {
+  const filePath = args[0] ? parseSymbolRef(args[0], state.workspaceRoot).filePath : state.lastFile;
+  if (!filePath) {
+    return {
+      command: 'explain',
+      output: 'Explain needs a file. Usage: /explain <file>, or set a file with /file <path>.',
+      skipPostAction: true,
+    };
+  }
+
+  const { run } = await import('./explain.js');
+  const result = await executeCommandForRepl('explain', [filePath], runtime, preferredFormat, run);
+  const sameFile = state.lastFile !== undefined
+    && normalizePathForComparison(state.lastFile) === normalizePathForComparison(filePath);
+  return { ...result, contextFile: filePath, contextSymbol: sameFile ? state.lastSymbol : undefined };
+}
+
+async function runContextCommand(
+  args: string[],
+  runtime: CliRuntime,
+  state: ReturnType<typeof createSessionState>,
+  preferredFormat: CliOutputFormat,
+): Promise<ReplActionResult> {
+  let contextArgs = args;
+  if (args.length === 0) {
+    if (!state.lastFile || !state.lastSymbol) {
+      return {
+        command: 'context',
+        output: 'Context needs a question or a symbol. Usage: /context "<question>" [--detail compact], or pick a symbol first with /trace <file#Symbol>.',
+        skipPostAction: true,
+      };
+    }
+    contextArgs = ['--seeds', `${state.lastFile}#${state.lastSymbol}`];
+  }
+
+  const { run } = await import('./context.js');
+  const result = await executeCommandForRepl('context', contextArgs, runtime, preferredFormat, run);
+  return { ...result, contextFile: state.lastFile, contextSymbol: state.lastSymbol };
 }
 
 async function runInkGuidedCheckDependencies(

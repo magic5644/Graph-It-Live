@@ -259,12 +259,17 @@ The palette lists canonical commands only, grouped by intent. Aliases still work
 | Navigate | `/scope` | Set session workspace scope (directory) |
 | Navigate | `/file` | Set active file context for context-aware commands |
 | Understand | `/trace` | Run trace flow for a selected file and optional symbol |
+| Understand | `/explain` | Explain file logic (intra-file call hierarchy); defaults to the active file |
+| Understand | `/context` | Bounded graph context for a question; with no argument, seeds from the current symbol |
 | Understand | `/query` | Query the codebase with natural language (no quotes needed for multi-word questions) |
 | Relations | `/check-dependencies` | Check incoming and outgoing dependencies |
 | Relations | `/cycles` | List confirmed dependency cycles for a file |
+| Relations | `/callers` | Find callers of a symbol (`query_call_graph`); defaults to the current symbol. Options: `--depth=N`, `--includeTypeOnly=true` |
+| Relations | `/impact` | Impact analysis for a symbol change; defaults to the current symbol. Options: `--includeTransitive=true`, `--maxDepth=N` |
 | Workspace | `/summary` | Summarize current file context or workspace |
 | Workspace | `/architecture` | Build workspace architecture graph |
 | Workspace | `/check` | Find unused exports |
+| Workspace | `/review-pr` | Review the Git diff against `--base <ref>` (optional `--head <ref>`) |
 | Workspace | `/scan` | Force a workspace indexing scan |
 | Output | `/format` | Set preferred output format for the session |
 | Output | `/export` | Export dependency graph as standalone HTML (vis.js). Optional `--output <path>` / `-o <path>`. Scope: active file context → workspace scope (set via `/scope`) → full workspace |

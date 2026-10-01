@@ -36,6 +36,9 @@ const mocks = vi.hoisted(() => ({
   checkDependenciesRun: vi.fn(),
   cyclesRun: vi.fn(),
   checkRun: vi.fn(),
+  toolRun: vi.fn(),
+  contextRun: vi.fn(),
+  reviewPrRun: vi.fn(),
 }));
 
 vi.mock('../../src/cli/repl/prompts.js', () => ({
@@ -73,6 +76,9 @@ vi.mock('../../src/cli/commands/architecture.js', () => ({ run: mocks.architectu
 vi.mock('../../src/cli/commands/checkDependencies.js', () => ({ run: mocks.checkDependenciesRun }));
 vi.mock('../../src/cli/commands/cycles.js', () => ({ run: mocks.cyclesRun }));
 vi.mock('../../src/cli/commands/check.js', () => ({ run: mocks.checkRun }));
+vi.mock('../../src/cli/commands/tool.js', () => ({ run: mocks.toolRun }));
+vi.mock('../../src/cli/commands/context.js', () => ({ run: mocks.contextRun }));
+vi.mock('../../src/cli/commands/reviewPr.js', () => ({ run: mocks.reviewPrRun }));
 
 import { run } from '../../src/cli/commands/repl';
 
@@ -124,6 +130,123 @@ describe('REPL command chaining e2e', () => {
     mocks.checkDependenciesRun.mockResolvedValue('{"outgoing":{},"incoming":{}}');
     mocks.cyclesRun.mockResolvedValue('{"cycleCount":0,"confirmedCycles":[]}');
     mocks.checkRun.mockResolvedValue('{"check":"ok"}');
+    mocks.toolRun.mockResolvedValue('{"tool":"ok"}');
+    mocks.contextRun.mockResolvedValue('{"context":"ok"}');
+    mocks.reviewPrRun.mockResolvedValue('{"review":"ok"}');
+  });
+
+  function typedSession(...commandLines: string[]): void {
+    for (const commandLine of commandLines) {
+      mocks.selectMainAction.mockResolvedValueOnce({ kind: 'typed', commandLine });
+      mocks.selectPostResultAction.mockResolvedValueOnce('newAnalysis');
+    }
+    mocks.selectMainAction.mockResolvedValueOnce({ kind: 'quit' });
+  }
+
+  it('runs /callers through query_call_graph and reuses the symbol for /impact', async () => {
+    typedSession('/callers src/index.ts#main --depth=3', '/impact --includeTransitive=true');
+
+    const runtime = createRuntimeStub();
+    await runWithRuntimeStub(runtime);
+
+    const filePath = path.resolve('/workspace', 'src/index.ts');
+    expect(mocks.toolRun).toHaveBeenNthCalledWith(
+      1,
+      ['query_call_graph', '--args', JSON.stringify({ direction: 'callers', filePath, symbolName: 'main' }), '--depth=3'],
+      runtime,
+      'json',
+    );
+    expect(mocks.toolRun).toHaveBeenNthCalledWith(
+      2,
+      ['get_impact_analysis', '--args', JSON.stringify({ filePath, symbolName: 'main' }), '--includeTransitive=true'],
+      runtime,
+      'json',
+    );
+  });
+
+  it('keeps backslashes of a Windows-style symbol target intact in the tool arguments', async () => {
+    typedSession(String.raw`/callers src\utils.ts#parse`);
+
+    const runtime = createRuntimeStub();
+    await runWithRuntimeStub(runtime);
+
+    const [args] = mocks.toolRun.mock.calls[0] as [string[]];
+    expect(JSON.parse(args[2])).toEqual({
+      direction: 'callers',
+      filePath: path.resolve('/workspace', String.raw`src\utils.ts`),
+      symbolName: 'parse',
+    });
+  });
+
+  it('asks for a symbol when /callers or /impact has no symbol context', async () => {
+    typedSession('/file src/index.ts', '/callers', '/impact');
+
+    const runtime = createRuntimeStub();
+    await runWithRuntimeStub(runtime);
+
+    expect(mocks.toolRun).not.toHaveBeenCalled();
+    expect(stdoutSpy).toHaveBeenCalledWith(expect.stringContaining('/callers needs a symbol'));
+    expect(stdoutSpy).toHaveBeenCalledWith(expect.stringContaining('/impact needs a symbol'));
+  });
+
+  it('runs /explain on the current file and keeps that file as context', async () => {
+    typedSession('/file src/utils.ts', '/explain', '/summary');
+
+    const runtime = createRuntimeStub();
+    await runWithRuntimeStub(runtime);
+
+    const filePath = path.resolve('/workspace', 'src/utils.ts');
+    expect(mocks.explainRun).toHaveBeenCalledWith([filePath], runtime, 'json');
+    expect(mocks.summaryRun).toHaveBeenCalledWith([filePath], runtime, 'json');
+  });
+
+  it('asks for a file when /explain has no file context', async () => {
+    typedSession('/explain');
+
+    const runtime = createRuntimeStub();
+    await runWithRuntimeStub(runtime);
+
+    expect(mocks.explainRun).not.toHaveBeenCalled();
+    expect(stdoutSpy).toHaveBeenCalledWith(expect.stringContaining('Explain needs a file'));
+  });
+
+  it('passes a /context question through and seeds a bare /context with the current symbol', async () => {
+    typedSession('/context how is the index built --detail compact', '/callers src/index.ts#main', '/context');
+
+    const runtime = createRuntimeStub();
+    await runWithRuntimeStub(runtime);
+
+    expect(mocks.contextRun).toHaveBeenNthCalledWith(
+      1,
+      ['how', 'is', 'the', 'index', 'built', '--detail', 'compact'],
+      runtime,
+      'json',
+    );
+    expect(mocks.contextRun).toHaveBeenNthCalledWith(
+      2,
+      ['--seeds', `${path.resolve('/workspace', 'src/index.ts')}#main`],
+      runtime,
+      'json',
+    );
+  });
+
+  it('asks for a question when /context has no symbol context', async () => {
+    typedSession('/context');
+
+    const runtime = createRuntimeStub();
+    await runWithRuntimeStub(runtime);
+
+    expect(mocks.contextRun).not.toHaveBeenCalled();
+    expect(stdoutSpy).toHaveBeenCalledWith(expect.stringContaining('Context needs a question or a symbol'));
+  });
+
+  it('runs /review-pr with its flags', async () => {
+    typedSession('/review-pr --base origin/main');
+
+    const runtime = createRuntimeStub();
+    await runWithRuntimeStub(runtime);
+
+    expect(mocks.reviewPrRun).toHaveBeenCalledWith(['--base', 'origin/main'], runtime, 'json');
   });
 
   afterEach(() => {
