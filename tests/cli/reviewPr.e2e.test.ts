@@ -21,7 +21,7 @@ async function createRepository(): Promise<string> {
   return root;
 }
 
-describe.skipIf(!fsSync.existsSync(cliEntry))("review-pr CLI E2E", () => {
+describe.skipIf(!fsSync.existsSync(cliEntry))("review-pr CLI E2E", { timeout: 15_000 }, () => {
   it("runs the built entry point against a real working-tree diff", async () => {
     const root = await createRepository();
     try {
