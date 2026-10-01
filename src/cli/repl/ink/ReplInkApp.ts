@@ -242,10 +242,13 @@ function filterPathSuggestions(
     return entries;
   }
 
-  return entries.filter((entry) => {
+  const matches = entries.filter((entry) => {
     const lower = entry.toLowerCase();
     return lower.startsWith(normalizedQuery) || lower.includes(normalizedQuery);
   });
+  // Exact match first: Enter on a complete argument (history, next-step hint) runs that argument.
+  const exact = matches.find((entry) => entry === query.trim());
+  return exact === undefined ? matches : [exact, ...matches.filter((entry) => entry !== exact)];
 }
 
 function buildWorkspacePathSuggestions(
@@ -613,6 +616,45 @@ export function appendTypedInput(previous: string, input: string): string {
     return `${previous.trimEnd()}#`;
   }
   return previous + input;
+}
+
+/**
+ * Move through the command history (newest first). `older` from a fresh line recalls the
+ * newest command; `newer` past the newest one returns to an empty line (index `null`).
+ * Returns `undefined` when there is nowhere to go.
+ */
+export function stepHistory(
+  history: string[],
+  index: number | null,
+  direction: 'older' | 'newer',
+): { index: number | null; line: string } | undefined {
+  if (direction === 'older') {
+    if (history.length === 0) return undefined;
+    const nextIndex = index === null ? 0 : Math.min(index + 1, history.length - 1);
+    return { index: nextIndex, line: history[nextIndex] };
+  }
+  if (index === null) return undefined;
+  return index <= 0 ? { index: null, line: '' } : { index: index - 1, line: history[index - 1] };
+}
+
+/** Follow-up commands for the current context: the symbol first, then the file, else the workspace. */
+export function getNextStepHints(lastFile: string, lastSymbol: string): string[] {
+  if (!hasUsableFileContext(lastFile)) {
+    return ['/summary', '/architecture', '/check'];
+  }
+  const file = normalizePath(lastFile);
+  if (lastSymbol.length > 0 && lastSymbol !== 'none') {
+    return ['/callers', '/impact', '/trace'].map((command) => `${command} ${file}#${lastSymbol}`);
+  }
+  return ['/explain', '/check-dependencies', '/cycles'].map((command) => `${command} ${file}`);
+}
+
+/** Hint that Tab puts on the command line: the first one, then the next after a hint. */
+export function cycleNextStepHint(hints: string[], commandLine: string): string | undefined {
+  if (hints.length === 0 || (commandLine.length > 0 && !hints.includes(commandLine))) {
+    return undefined;
+  }
+  return hints[(hints.indexOf(commandLine) + 1) % hints.length];
 }
 
 function toLines(blocks: OutputBlock[]): string[] {
@@ -983,8 +1025,6 @@ interface CommandInputContext {
   commandLine: string;
   displayLastFile: string;
   selectedSlashSuggestion: SlashCommandEntry | undefined;
-  commandHistory: string[];
-  historyIndex: number | null;
   runCommand: (trimmed: string) => void;
   onActivatePicker: (mode: 'path' | 'file', target?: PickerTarget) => void;
   setNotice: React.Dispatch<React.SetStateAction<string>>;
@@ -1075,6 +1115,39 @@ function tryHandleSelectedCommandEnter(
   return false;
 }
 
+interface HistoryInputContext {
+  commandLine: string;
+  commandHistory: string[];
+  historyIndex: number | null;
+  setHistoryIndex: React.Dispatch<React.SetStateAction<number | null>>;
+  setCommandLine: React.Dispatch<React.SetStateAction<string>>;
+  setNotice: React.Dispatch<React.SetStateAction<string>>;
+}
+
+/**
+ * Ctrl+P/Ctrl+N always browse history; Up/Down only on an empty line or while browsing,
+ * so they still move through suggestions while typing.
+ */
+function handleHistoryInputEvent(
+  input: string,
+  key: { ctrl?: boolean; upArrow?: boolean; downArrow?: boolean },
+  ctx: HistoryInputContext,
+): boolean {
+  const browsing = ctx.commandLine.length === 0 || ctx.historyIndex !== null;
+  let direction: 'older' | 'newer' | undefined;
+  if ((key.ctrl && input === 'p') || (key.upArrow && browsing)) direction = 'older';
+  if ((key.ctrl && input === 'n') || (key.downArrow && browsing)) direction = 'newer';
+  if (!direction) return false;
+
+  const step = stepHistory(ctx.commandHistory, ctx.historyIndex, direction);
+  if (step) {
+    ctx.setHistoryIndex(step.index);
+    ctx.setCommandLine(step.line);
+    ctx.setNotice(step.index === null ? 'History cleared' : `History ${step.index + 1}/${ctx.commandHistory.length}`);
+  }
+  return true;
+}
+
 function handleCommandInputEvent(
   input: string,
   key: {
@@ -1091,8 +1164,6 @@ function handleCommandInputEvent(
     commandLine,
     displayLastFile,
     selectedSlashSuggestion,
-    commandHistory,
-    historyIndex,
     runCommand,
     onActivatePicker,
     setNotice,
@@ -1100,43 +1171,6 @@ function handleCommandInputEvent(
     setCommandLine,
     setSelectedCommandIndex,
   } = context;
-
-  const handleHistoryInput = (): boolean => {
-    if (!(key.ctrl && (input === 'p' || input === 'n'))) {
-      return false;
-    }
-
-    if (input === 'p') {
-      if (commandHistory.length === 0) {
-        return true;
-      }
-
-      const nextIndex = historyIndex === null
-        ? 0
-        : Math.min(historyIndex + 1, commandHistory.length - 1);
-      setHistoryIndex(nextIndex);
-      setCommandLine(commandHistory[nextIndex]);
-      setNotice(`History ${nextIndex + 1}/${commandHistory.length}`);
-      return true;
-    }
-
-    if (historyIndex === null) {
-      return true;
-    }
-
-    const nextIndex = historyIndex - 1;
-    if (nextIndex < 0) {
-      setHistoryIndex(null);
-      setCommandLine('');
-      setNotice('History cleared');
-      return true;
-    }
-
-    setHistoryIndex(nextIndex);
-    setCommandLine(commandHistory[nextIndex]);
-    setNotice(`History ${nextIndex + 1}/${commandHistory.length}`);
-    return true;
-  };
 
   const handleEnterInput = (): boolean => {
     if (!key.return) {
@@ -1187,10 +1221,6 @@ function handleCommandInputEvent(
     runCommand(trimmed);
     return true;
   };
-
-  if (handleHistoryInput()) {
-    return true;
-  }
 
   if (handleEnterInput()) {
     return true;
@@ -1387,11 +1417,18 @@ export async function runInkReplSession(options: RunInkReplSessionOptions): Prom
       const needle = searchQuery.toLowerCase();
       return lines.filter((line) => line.toLowerCase().includes(needle));
     }, [lines, searchQuery]);
+    const nextStepHints = useMemo(
+      () => (blocks.length > 0 ? getNextStepHints(displayLastFile, displayLastSymbol) : []),
+      [blocks.length, displayLastFile, displayLastSymbol],
+    );
+    const showNextStepHints = !isSearchMode && !isRunning && nextStepHints.length > 0
+      && (commandLine.length === 0 || nextStepHints.includes(commandLine));
     const argsHintLine = selectedSlashSuggestion?.argsHint
       ? `${DIM}Args: ${selectedSlashSuggestion.argsHint}${RESET}`
       : undefined;
     const slashWindowIndicator = hasSlashSuggestions && slashSuggestions.length > visibleSlashSuggestions.length;
     const computedFooterRows = BASE_FOOTER_ROWS
+      + (showNextStepHints ? 1 : 0)
       + (hasSlashSuggestions ? 1 : 0)
       + (hasSlashSuggestions && completionPreview.length > 0 ? 1 : 0)
       + (argsHintLine ? 1 : 0)
@@ -1512,6 +1549,22 @@ export async function runInkReplSession(options: RunInkReplSessionOptions): Prom
       }
       if (dispatchGlobalInputEvent(input, key, exit, setIsSearchMode, setNotice, [
         () => handleSearchModeInputEvent(isSearchMode, input, key, setIsSearchMode, setNotice, setSearchQuery, setScrollTop),
+        () => handleHistoryInputEvent(input, key, {
+          commandLine,
+          commandHistory,
+          historyIndex,
+          setHistoryIndex,
+          setCommandLine,
+          setNotice,
+        }),
+        () => {
+          const hint = key.tab && showNextStepHints ? cycleNextStepHint(nextStepHints, commandLine) : undefined;
+          if (hint === undefined) return false;
+          setCommandLine(hint);
+          setHistoryIndex(null);
+          setNotice('Next step selected: Enter to run, Tab for the next one');
+          return true;
+        },
         () => handleSlashSuggestionsInputEvent(
           key,
           hasSlashSuggestions,
@@ -1531,8 +1584,6 @@ export async function runInkReplSession(options: RunInkReplSessionOptions): Prom
             commandLine,
             displayLastFile,
             selectedSlashSuggestion,
-            commandHistory,
-            historyIndex,
             runCommand,
             onActivatePicker,
             setNotice,
@@ -1580,6 +1631,13 @@ export async function runInkReplSession(options: RunInkReplSessionOptions): Prom
         h(Text, {}, `${getPromptGlyph(isSearchMode, isRunning)} ${isSearchMode ? searchQuery : commandLine}${isRunning ? ' …' : ''}`),
       ];
 
+      if (showNextStepHints) {
+        const hintLabels = nextStepHints.map((hint) => (hint === commandLine ? `${SPARK}${hint}${RESET}${DIM}` : hint));
+        footerItems.push(
+          h(Text, { key: 'next-step', wrap: 'truncate' }, `${DIM}→ ${hintLabels.join(' · ')}  (Tab)${RESET}`),
+        );
+      }
+
       if (hasSlashSuggestions) {
         footerItems.push(
           h(Text, { key: 'slash-help' }, `${DIM}Suggestions ${boundedSelectedCommandIndex + 1}/${slashSuggestions.length}: ↑/↓ select · Tab complete · Enter apply/run · type space for files/options${RESET}`),
@@ -1622,7 +1680,7 @@ export async function runInkReplSession(options: RunInkReplSessionOptions): Prom
         { flexDirection: 'column', marginBottom: 1 },
         h(Text, {}, `${BLUE}●${RESET}${DIM}─${RESET}${BLUE}■${RESET}   ${BOLD}Graph-It-Live${RESET} ${DIM}v${options.version}${RESET} ${SPARK}✦${RESET}`),
         h(Text, {}, `${BLUE}│${RESET} ${DIM}╲${RESET}   ${DIM}Ctrl+C quit · PgUp/PgDn scroll · Ctrl+Y copy all · Ctrl+L copy line${RESET}`),
-        h(Text, {}, `${BLUE}●${RESET}${DIM}─${RESET}${ORANGE}■${RESET}   ${DIM}Ctrl+F search output · Esc clear search · Ctrl+P/Ctrl+N history${RESET}`),
+        h(Text, {}, `${BLUE}●${RESET}${DIM}─${RESET}${ORANGE}■${RESET}   ${DIM}Ctrl+F search output · Esc clear search · ↑/↓ history · Tab next step${RESET}`),
       ),
       h(
         Box,
