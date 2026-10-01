@@ -1,4 +1,4 @@
-import React, { useMemo, useState, useRef } from 'react';
+import React, { useEffect, useMemo, useState, useRef } from 'react';
 import * as path from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { normalizePath } from '../../../shared/path';
@@ -27,6 +27,8 @@ interface RunInkReplSessionOptions {
   lastFile?: string;
   lastSymbol?: string;
   onSubmitCommand: (commandLine: string) => Promise<InkReplCommandResponse>;
+  /** Symbol names of a workspace file, for `file#Symbol` completion. */
+  listFileSymbols?: (absoluteFile: string) => Promise<string[]>;
 }
 
 interface OutputBlock {
@@ -161,6 +163,9 @@ const FILE_ARGUMENT_COMMANDS = new Set([
   '/cycle',
 ]);
 
+/** Commands whose argument accepts `file#Symbol`. */
+const SYMBOL_ARGUMENT_COMMANDS = new Set(['/trace', '/callers', '/impact']);
+
 const OPTION_VALUE_FLAGS = new Set([
   '--maxDepth',
   '--maxFiles',
@@ -279,13 +284,63 @@ function buildWorkspacePathSuggestions(
   ];
 }
 
+function findWorkspaceFile(typedPath: string, allFiles: string[], workspaceRoot: string): string | undefined {
+  const typed = normalizePath(typedPath);
+  return allFiles.find((absoluteFile) =>
+    normalizePath(absoluteFile) === typed || toWorkspaceRelativePath(absoluteFile, workspaceRoot) === typed);
+}
+
+/**
+ * Workspace file named before `#` in the token being typed, when the command takes `file#Symbol`.
+ * Only files of the workspace list qualify, so half-typed paths never trigger symbol extraction.
+ */
+export function findSymbolCompletionFile(
+  input: string,
+  allFiles: string[],
+  workspaceRoot: string,
+): string | undefined {
+  if (/\s$/.test(input)) return undefined;
+  const tokens = input.trim().split(/\s+/);
+  const currentToken = tokens.length > 1 ? (tokens.at(-1) ?? '') : '';
+  const hashIndex = currentToken.indexOf('#');
+  if (hashIndex <= 0 || !SYMBOL_ARGUMENT_COMMANDS.has(resolveSlashAlias(tokens[0].toLowerCase()))) {
+    return undefined;
+  }
+  return findWorkspaceFile(currentToken.slice(0, hashIndex), allFiles, workspaceRoot);
+}
+
+function buildSymbolSuggestions(
+  activeCommand: string,
+  currentArgToken: string,
+  symbols: string[],
+): SlashCommandEntry[] {
+  const hashIndex = currentArgToken.indexOf('#');
+  const filePart = currentArgToken.slice(0, hashIndex);
+  return filterPathSuggestions(symbols, currentArgToken.slice(hashIndex + 1))
+    .map((symbolName) => ({
+      command: `${filePart}#${symbolName}`,
+      description: `Symbol ${symbolName}`,
+      insertText: `${filePart}#${symbolName}`,
+      targetCommand: activeCommand,
+      isArgument: true,
+      autoExecute: true,
+    }));
+}
+
 function buildArgumentSuggestions(
   activeCommand: string,
   currentArgToken: string,
   query: string,
   allFiles: string[],
   workspaceRoot: string,
+  getFileSymbols?: (absoluteFile: string) => string[] | undefined,
 ): SlashCommandEntry[] {
+  if (SYMBOL_ARGUMENT_COMMANDS.has(activeCommand) && currentArgToken.includes('#')) {
+    const symbolFile = findWorkspaceFile(currentArgToken.slice(0, currentArgToken.indexOf('#')), allFiles, workspaceRoot);
+    const symbols = symbolFile ? getFileSymbols?.(symbolFile) : undefined;
+    return symbols ? buildSymbolSuggestions(activeCommand, currentArgToken, symbols) : [];
+  }
+
   const optionMatches = (ARG_COMPLETIONS[activeCommand] ?? [])
     .filter((candidate) => candidate.value.toLowerCase().startsWith(currentArgToken.toLowerCase()))
     .map((candidate) => ({
@@ -356,6 +411,7 @@ export function filterSlashCommands(
   input: string,
   allFiles: string[],
   workspaceRoot: string,
+  getFileSymbols?: (absoluteFile: string) => string[] | undefined,
 ): SlashCommandEntry[] {
   if (!input.startsWith('/')) return [];
 
@@ -382,7 +438,7 @@ export function filterSlashCommands(
     const currentArgToken = hasTrailingSpace ? '' : (tokens.at(-1) ?? '');
     const argumentQuery = trimmed.slice(queryToken.length);
 
-    return buildArgumentSuggestions(activeCommand, currentArgToken, argumentQuery, allFiles, workspaceRoot);
+    return buildArgumentSuggestions(activeCommand, currentArgToken, argumentQuery, allFiles, workspaceRoot, getFileSymbols);
   }
 
   return commandEntries
@@ -545,6 +601,18 @@ function getPathSuggestionPreview(commandLine: string, selectedPath?: string): s
   }
 
   return selectedPath.slice(currentPathToken.length);
+}
+
+/**
+ * Append typed text to the command line. A `#` typed right after a completed file argument
+ * (`/trace src/a.ts ` + `#`) joins that file, so symbol completion starts without a backspace.
+ */
+export function appendTypedInput(previous: string, input: string): string {
+  if (input === '#' && /\S\s+$/.test(previous) && SYMBOL_ARGUMENT_COMMANDS.has(resolveSlashAlias(getFirstToken(previous)))
+    && previous.trim().split(/\s+/).length > 1) {
+    return `${previous.trimEnd()}#`;
+  }
+  return previous + input;
 }
 
 function toLines(blocks: OutputBlock[]): string[] {
@@ -941,7 +1009,7 @@ function tryExecuteSelectedArgumentSuggestion(
   }
 
   const firstToken = getFirstToken(completedLine);
-  if (firstToken === '/format' || FILE_ARGUMENT_COMMANDS.has(firstToken)) {
+  if (firstToken === '/format' || FILE_ARGUMENT_COMMANDS.has(firstToken) || SYMBOL_ARGUMENT_COMMANDS.has(firstToken)) {
     runCommand(completedLine);
     return true;
   }
@@ -1136,7 +1204,7 @@ function handleCommandInputEvent(
   }
 
   if (!key.ctrl && !key.meta && input.length > 0) {
-    setCommandLine(previous => previous + input);
+    setCommandLine(previous => appendTypedInput(previous, input));
     setSelectedCommandIndex(0);
     setHistoryIndex(null);
     return true;
@@ -1239,11 +1307,39 @@ export async function runInkReplSession(options: RunInkReplSessionOptions): Prom
     const [pickerTarget, setPickerTarget] = useState<PickerTarget | null>(null);
     const [pickerDir, setPickerDir] = useState('');
     const [pickerIndex, setPickerIndex] = useState(0);
+    // ponytail: symbols cached for the whole session, edits made meanwhile show up after a restart.
+    const [symbolCache, setSymbolCache] = useState<ReadonlyMap<string, string[]>>(new Map());
+    const pendingSymbolFilesRef = useRef(new Set<string>());
+
+    const symbolCompletionFile = useMemo(
+      () => findSymbolCompletionFile(commandLine, currentAllFiles, displayWorkspace),
+      [commandLine, currentAllFiles, displayWorkspace],
+    );
+    useEffect(() => {
+      const { listFileSymbols } = options;
+      if (!symbolCompletionFile || !listFileSymbols || isRunning) return;
+      const cacheKey = normalizePath(symbolCompletionFile);
+      if (symbolCache.has(cacheKey) || pendingSymbolFilesRef.current.has(cacheKey)) return;
+      pendingSymbolFilesRef.current.add(cacheKey);
+      void listFileSymbols(symbolCompletionFile)
+        .catch(() => [])
+        .then((symbols) => {
+          setSymbolCache((previous) => new Map(previous).set(cacheKey, symbols));
+        })
+        .finally(() => {
+          pendingSymbolFilesRef.current.delete(cacheKey);
+        });
+    }, [symbolCompletionFile, symbolCache, isRunning]);
 
     const lines = useMemo(() => toLines(blocks), [blocks]);
     const slashSuggestions = useMemo(
-      () => filterSlashCommands(commandLine, currentAllFiles, displayWorkspace),
-      [commandLine, currentAllFiles, displayWorkspace],
+      () => filterSlashCommands(
+        commandLine,
+        currentAllFiles,
+        displayWorkspace,
+        (absoluteFile) => symbolCache.get(normalizePath(absoluteFile)),
+      ),
+      [commandLine, currentAllFiles, displayWorkspace, symbolCache],
     );
     const boundedSelectedCommandIndex = slashSuggestions.length === 0
       ? 0

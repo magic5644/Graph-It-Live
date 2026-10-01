@@ -271,6 +271,7 @@ export async function run(runtime: CliRuntime): Promise<void> {
       preferredFormat: state.preferredFormat,
       lastFile: state.lastFile,
       lastSymbol: state.lastSymbol,
+      listFileSymbols: (absoluteFile: string) => extractFileSymbols(absoluteFile, runtime),
       onSubmitCommand: async (commandLine: string) => {
         const prevWorkspaceRoot = state.workspaceRoot;
         const prevPreferredFormat = state.preferredFormat;

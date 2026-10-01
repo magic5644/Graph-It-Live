@@ -289,6 +289,10 @@ Hidden aliases (accepted when typed, not listed in the palette):
 
 Wrap a path that contains spaces in quotes (`/file "src/my file.ts"`) or escape each space with a backslash (`/file src/my\ file.ts`). A backslash escapes only a space or a quote, so Windows paths such as `C:\repo\src` or `\\server\share` can be typed as they are. Single quotes keep their content literal.
 
+#### Symbol completion
+
+For `/trace`, `/callers` and `/impact`, type `#` after a workspace file (`/trace src/index.ts#`) and the palette lists that file's symbols, filtered by what follows the `#`. Typing `#` right after a completed file argument joins it to the file. The symbol list of each file is extracted once per session.
+
 #### Post-result actions
 
 After each result, the REPL supports contextual actions:
