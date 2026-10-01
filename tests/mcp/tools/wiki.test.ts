@@ -34,6 +34,7 @@ vi.mock("../../../src/mcp/tools/callgraph.js", () => ({
 
 import { workerState } from "../../../src/mcp/shared/state.js";
 import { executeGenerateWiki, GenerateWikiSchema } from "../../../src/mcp/tools/wiki.js";
+import { normalizePath } from "../../../src/shared/path.js";
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -257,6 +258,29 @@ describe("executeGenerateWiki", () => {
 
     expect(WikiGeneratorMock).toHaveBeenCalledWith(
       expect.objectContaining({ workspaceRoot: expect.stringContaining("wiki-mcp-workspace") }),
+    );
+  });
+
+  it("resolves a relative outputDir against the workspace, not the process cwd", async () => {
+    MockWikiGeneratorClass.mockClear();
+    vi.spyOn(process, "cwd").mockReturnValue(tmpDir);
+
+    await executeGenerateWiki({ outputDir: "audit-wiki" });
+
+    expect(MockWikiGeneratorClass).toHaveBeenCalledWith(
+      expect.objectContaining({
+        outputDir: normalizePath(path.join(WORKSPACE, "audit-wiki")),
+      }),
+    );
+  });
+
+  it("defaults outputDir to <workspace>/wiki", async () => {
+    MockWikiGeneratorClass.mockClear();
+
+    await executeGenerateWiki({});
+
+    expect(MockWikiGeneratorClass).toHaveBeenCalledWith(
+      expect.objectContaining({ outputDir: normalizePath(path.join(WORKSPACE, "wiki")) }),
     );
   });
 });

@@ -93,7 +93,7 @@ export async function executeGenerateWiki(
   }
 
   const resolvedOutputDir = normalizePath(
-    params.outputDir ?? path.join(workspaceRoot, "wiki"),
+    path.resolve(workspaceRoot, params.outputDir ?? "wiki"),
   );
 
   const { WikiGenerator } = await import(

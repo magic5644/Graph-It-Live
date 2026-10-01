@@ -9,7 +9,7 @@
  */
 
 import * as path from "node:path";
-import { isPathWithinRoot } from "../shared/pathSecurity";
+import { isPathWithinRootCanonical } from "../shared/pathSecurity";
 import { CliError, ExitCode } from "./errors";
 
 /**
@@ -68,9 +68,9 @@ export function parseSymbolRef(ref: string, workspaceRoot: string): SymbolRef {
     ? path.resolve(rawPath)
     : path.resolve(workspaceRoot, rawPath);
 
-  // Security check: ensure path is within workspace
+  // Security check: ensure path is within workspace, symlinks included
   const normalizedFile = path.resolve(filePath);
-  if (!isPathWithinRoot(normalizedFile, workspaceRoot)) {
+  if (!isPathWithinRootCanonical(normalizedFile, workspaceRoot)) {
     throw new CliError(
       `File path "${rawPath}" resolves outside workspace: ${normalizedFile}`,
       ExitCode.SECURITY_VIOLATION,

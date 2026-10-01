@@ -1,4 +1,6 @@
-import { describe, it, expect } from "vitest";
+import { afterEach, beforeEach, describe, it, expect } from "vitest";
+import * as fs from "node:fs";
+import * as os from "node:os";
 import * as path from "node:path";
 import { parseSymbolRef } from "@/cli/symbols";
 import { CliError, ExitCode } from "@/cli/errors";
@@ -68,6 +70,37 @@ describe("parseSymbolRef", () => {
     expect(() => parseSymbolRef(`${ROOT}-evil${path.sep}a.ts`, ROOT)).toThrow(
       expect.objectContaining({ exitCode: ExitCode.SECURITY_VIOLATION }),
     );
+  });
+
+  describe("with symbolic links", () => {
+    let tmp: string;
+    let workspace: string;
+
+    beforeEach(() => {
+      tmp = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "symbols-symlink-")));
+      workspace = path.join(tmp, "workspace");
+      fs.mkdirSync(path.join(workspace, "src"), { recursive: true });
+      fs.mkdirSync(path.join(tmp, "outside"));
+      fs.writeFileSync(path.join(tmp, "outside", "secret.ts"), "export const x = 1;");
+      fs.writeFileSync(path.join(workspace, "src", "a.ts"), "export const a = 1;");
+      // "junction" lets the directory link work on Windows without admin rights
+      fs.symlinkSync(path.join(tmp, "outside"), path.join(workspace, "link"), "junction");
+    });
+
+    afterEach(() => {
+      fs.rmSync(tmp, { recursive: true, force: true });
+    });
+
+    it("throws SECURITY_VIOLATION for a symlink pointing outside the workspace", () => {
+      expect(() => parseSymbolRef("link/secret.ts#x", workspace)).toThrow(
+        expect.objectContaining({ exitCode: ExitCode.SECURITY_VIOLATION }),
+      );
+    });
+
+    it("accepts a real file inside the workspace", () => {
+      const result = parseSymbolRef("src/a.ts#a", workspace);
+      expect(result.filePath).toBe(path.join(workspace, "src", "a.ts"));
+    });
   });
 
   it.runIf(process.platform === "win32")("accepts a drive letter typed in another case on Windows", () => {
