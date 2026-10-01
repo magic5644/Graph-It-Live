@@ -745,3 +745,62 @@ describe("ReviewGateAnalyzer - residual weight", () => {
     expect(symbol.risk).toBe("critical");
   });
 });
+
+describe("ReviewGateAnalyzer - interface consumed through its factory", () => {
+  const OLD_STATE = [
+    "export interface SessionState { root: string; lastResult?: unknown; lastCommandLine?: string; recentFiles: string[]; tipCounter: number; }",
+    "export function createSessionState(root: string): SessionState { return { root, recentFiles: [], tipCounter: 0 }; }",
+    "",
+  ].join("\n");
+  const NEW_STATE = [
+    "export interface SessionState { root: string; }",
+    "export function createSessionState(root: string): SessionState { return { root }; }",
+    "",
+  ].join("\n");
+
+  /**
+   * Shape of PR #212: the only production consumer types its state as
+   * `ReturnType<typeof createSessionState>`, so the dependent index links it to
+   * the factory, never to the interface. Only the test names the interface.
+   */
+  const analyzerFor = async (options: { updateConsumer: boolean }) => {
+    const workspace = await createGitWorkspaceWithDiff(OLD_STATE, NEW_STATE, "src/sessionState.ts");
+    await fs.writeFile(path.join(workspace, "src", "repl.ts"), "export const repl = 1;\n");
+    execFileSync("git", ["add", "src/repl.ts"], { cwd: workspace });
+    execFileSync("git", ["commit", "-m", "consumer"], { cwd: workspace });
+    if (options.updateConsumer) {
+      await fs.writeFile(path.join(workspace, "src", "repl.ts"), "export const repl = 2;\n");
+    }
+    const at = (file: string, symbol: string) => ({ sourceSymbolId: `${path.join(workspace, file)}:${symbol}` });
+    const dependents = {
+      getSymbolDependents: (_filePath: string, symbolName: string) => {
+        if (symbolName === "SessionState") return Promise.resolve([at("tests/repl.test.ts", "(file)")]);
+        if (symbolName === "createSessionState") return Promise.resolve([at("src/repl.ts", "run"), at("src/repl.ts", "help")]);
+        return Promise.resolve([]);
+      },
+    };
+    return new ReviewGateAnalyzer(workspace, dependents as never);
+  };
+
+  it("credits a consumer reached through the factory and updated in the diff", async () => {
+    const analyzer = await analyzerFor({ updateConsumer: true });
+
+    const symbol = (await analyzer.analyze({ baseRef: "main" })).symbols.find((s) => s.name === "SessionState")!;
+
+    expect(symbol.breakingChanges.filter((change) => change.severity === "error")).toHaveLength(4);
+    expect(symbol.consumers).toEqual({ updated: ["src/repl.ts"], covered: [], unverified: [] });
+    expect(symbol.scoreFactors.breakingChanges).toBe(5);
+    expect(symbol.risk).toBe("low");
+  });
+
+  it("reports a factory consumer the diff does not touch as unverified", async () => {
+    const analyzer = await analyzerFor({ updateConsumer: false });
+
+    const symbol = (await analyzer.analyze({ baseRef: "main" })).symbols.find((s) => s.name === "SessionState")!;
+
+    expect(symbol.consumers.unverified).toEqual(["src/repl.ts"]);
+    // Scored once for the symbol, not once per removed member.
+    expect(symbol.scoreFactors.breakingChanges).toBe(25);
+    expect(symbol.risk).not.toBe("critical");
+  });
+});
