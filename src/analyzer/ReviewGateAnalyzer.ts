@@ -4,7 +4,7 @@ import * as path from "node:path";
 import { promisify } from "node:util";
 import { normalizePath } from "../shared/path";
 import { detectCycles } from "./callgraph/cycleUtils";
-import { SignatureAnalyzer, type BreakingChange } from "./SignatureAnalyzer";
+import { SignatureAnalyzer, type BreakingChange, type SignatureInfo } from "./SignatureAnalyzer";
 import type { SymbolDependency, SymbolInfo } from "./types";
 
 const execFileAsync = promisify(execFile);
@@ -99,6 +99,8 @@ interface FileEvidence {
   cycleSymbols: Set<string>;
   unusedSymbols: Set<string>;
   testCandidates: string[];
+  /** Top-level functions of the changed file, read from its new content. */
+  functions: SignatureInfo[];
 }
 
 interface DependentWalkState {
@@ -188,7 +190,10 @@ export class ReviewGateAnalyzer {
     // unanalyzable gap marked every added file — a new test above all — as a
     // limitation, inflating the review instead of crediting the addition.
     if (oldContent === null) return [];
-    const fileEvidence = await this.collectFileEvidence(absolutePath, relativePath, limitations, availability);
+    const fileEvidence = {
+      ...await this.collectFileEvidence(absolutePath, relativePath, limitations, availability),
+      functions: this.extractTopLevelFunctions(absolutePath, newContent),
+    };
     const comparisons = this.analyzeSignatures(absolutePath, relativePath, oldContent, newContent, limitations);
     return Promise.all(comparisons.map((comparison) => this.createReviewSymbol(comparison, absolutePath, relativePath, maxDepth, fileEvidence, changedFiles)));
   }
@@ -224,7 +229,7 @@ export class ReviewGateAnalyzer {
     const impact: SymbolImpact = errorBreakingChanges.length > 0
       ? this.isVuePropsSymbol(comparison.symbolName)
         ? await this.getVuePropsImpact(absolutePath)
-        : await this.getImpact(absolutePath, comparison.symbolName, effectiveMaxDepth)
+        : await this.getTypeImpact(absolutePath, comparison.symbolName, effectiveMaxDepth, fileEvidence.functions)
       : EMPTY_IMPACT;
     const cycles = fileEvidence.cycleSymbols.has(this.toSymbolId(absolutePath, comparison.symbolName));
     const unusedExport = fileEvidence.unusedSymbols.has(comparison.symbolName);
@@ -357,7 +362,10 @@ export class ReviewGateAnalyzer {
       breakingChangeWeight = 25;
     }
     return {
-      breakingChanges: input.breakingChangeCount * breakingChangeWeight,
+      // Once per symbol, not per change: removing four members from one interface is
+      // one contract change for its consumers, and who must act on it is already
+      // scored by the consumer factors below.
+      breakingChanges: input.breakingChangeCount > 0 ? breakingChangeWeight : 0,
       // Scored on what nobody checked, not on how widely the contract is used: a
       // heavily used contract whose consumers are all updated or under test is
       // exactly the well-handled change this gate should wave through.
@@ -468,6 +476,40 @@ export class ReviewGateAnalyzer {
       }
     }
     return this.gitShow(headRef, relativePath);
+  }
+
+  /** Top-level functions only: a class method is not a factory consumers call by name. */
+  private extractTopLevelFunctions(absolutePath: string, content: string): SignatureInfo[] {
+    try {
+      return this.signatures.extractSignatures(absolutePath, content)
+        .filter((signature) => signature.kind === "function" || signature.kind === "arrow");
+    } catch {
+      return [];
+    }
+  }
+
+  /**
+   * Impact of a changed symbol, plus the consumers of same-file functions that return it.
+   *
+   * A consumer that types its value as `ReturnType<typeof createX>` (or just uses
+   * what `createX()` returns) depends on the factory, never on the type by name, so
+   * the dependent index links it to the factory only. Without this, such a consumer
+   * is invisible: the gate reported no consumer at all, even one updated in the diff.
+   */
+  private async getTypeImpact(
+    filePath: string,
+    symbolName: string,
+    maxDepth: number,
+    functions: SignatureInfo[],
+  ): Promise<SymbolImpact> {
+    // Identifier match, so `Promise<X>`, `X[]` and `X | undefined` all count as returning X.
+    const factories = functions.filter((signature) => signature.name !== symbolName
+      && signature.returnType.split(/[^\w$]+/).includes(symbolName));
+    let impact = await this.getImpact(filePath, symbolName, maxDepth);
+    for (const factory of factories) {
+      impact = mergeImpacts(impact, await this.walkDependents(filePath, factory.name, maxDepth));
+    }
+    return impact;
   }
 
   private async getImpact(filePath: string, symbolName: string, maxDepth: number): Promise<SymbolImpact> {
@@ -685,6 +727,19 @@ export class ReviewGateAnalyzer {
 const EMPTY_IMPACT: SymbolImpact = {
   count: 0, partial: false, testDependents: [], consumerFiles: [], coveredFiles: [],
 };
+
+/** Union of two walks; the count is a sum, so a dependent reached through both counts twice. */
+function mergeImpacts(left: SymbolImpact, right: SymbolImpact): SymbolImpact {
+  const union = (a: string[], b: string[]): string[] => [...new Set([...a, ...b])];
+  return {
+    ...left,
+    count: left.count + right.count,
+    partial: left.partial || right.partial,
+    testDependents: union(left.testDependents, right.testDependents),
+    consumerFiles: union(left.consumerFiles, right.consumerFiles),
+    coveredFiles: union(left.coveredFiles, right.coveredFiles),
+  };
+}
 
 /** Result of walking the dependent graph for one changed symbol. */
 interface SymbolImpact {
