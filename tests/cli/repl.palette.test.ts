@@ -7,9 +7,12 @@ import * as path from 'node:path';
 import { describe, expect, it } from 'vitest';
 import {
   appendTypedInput,
+  cycleNextStepHint,
   filterSlashCommands,
   findSymbolCompletionFile,
+  getNextStepHints,
   getSlashCommandHelpLines,
+  stepHistory,
 } from '../../src/cli/repl/ink/ReplInkApp';
 import { buildMainActionChoices } from '../../src/cli/repl/prompts';
 
@@ -140,6 +143,74 @@ describe('Ink symbol completion after #', () => {
     expect(appendTypedInput('/trace ', '#')).toBe('/trace #');
     expect(appendTypedInput('/query what is ', '#')).toBe('/query what is #');
     expect(appendTypedInput('/trace src', 'x')).toBe('/trace srcx');
+  });
+});
+
+describe('Ink exact argument match', () => {
+  it('ranks the exact symbol first so Enter on a complete argument runs it', () => {
+    const symbols = (): string[] => ['parseFoo', 'foo'];
+    const entries = filterSlashCommands('/callers src/cli/index.ts#foo', allFiles, workspaceRoot, symbols);
+
+    expect(entries.map((entry) => entry.command)).toEqual(['src/cli/index.ts#foo', 'src/cli/index.ts#parseFoo']);
+  });
+
+  it('ranks the exact file first among files containing it', () => {
+    const files = [path.join(workspaceRoot, 'src', 'a.tsx'), path.join(workspaceRoot, 'src', 'a.ts')];
+    const entries = filterSlashCommands('/explain src/a.ts', files, workspaceRoot);
+
+    expect(entries[0]?.command).toBe('src/a.ts');
+  });
+});
+
+describe('Ink command history', () => {
+  const history = ['/impact a.ts#x', '/summary'];
+
+  it('recalls older commands up to the oldest one', () => {
+    expect(stepHistory(history, null, 'older')).toEqual({ index: 0, line: '/impact a.ts#x' });
+    expect(stepHistory(history, 0, 'older')).toEqual({ index: 1, line: '/summary' });
+    expect(stepHistory(history, 1, 'older')).toEqual({ index: 1, line: '/summary' });
+  });
+
+  it('goes back to newer commands, then to an empty line', () => {
+    expect(stepHistory(history, 1, 'newer')).toEqual({ index: 0, line: '/impact a.ts#x' });
+    expect(stepHistory(history, 0, 'newer')).toEqual({ index: null, line: '' });
+  });
+
+  it('does nothing with an empty history or on a fresh line going newer', () => {
+    expect(stepHistory([], null, 'older')).toBeUndefined();
+    expect(stepHistory(history, null, 'newer')).toBeUndefined();
+  });
+});
+
+describe('Ink next-step hints', () => {
+  it('suggests symbol follow-ups when a symbol is known', () => {
+    expect(getNextStepHints('src/a.ts', 'run')).toEqual([
+      '/callers src/a.ts#run',
+      '/impact src/a.ts#run',
+      '/trace src/a.ts#run',
+    ]);
+  });
+
+  it('suggests file follow-ups with forward slashes for a Windows-style path', () => {
+    expect(getNextStepHints(String.raw`src\cli\index.ts`, 'none')).toEqual([
+      '/explain src/cli/index.ts',
+      '/check-dependencies src/cli/index.ts',
+      '/cycles src/cli/index.ts',
+    ]);
+  });
+
+  it('falls back to workspace commands without a file', () => {
+    expect(getNextStepHints('none', 'run')).toEqual(['/summary', '/architecture', '/check']);
+  });
+
+  it('cycles through hints with Tab, and only from an empty line or a hint', () => {
+    const hints = ['/summary', '/architecture', '/check'];
+
+    expect(cycleNextStepHint(hints, '')).toBe('/summary');
+    expect(cycleNextStepHint(hints, '/summary')).toBe('/architecture');
+    expect(cycleNextStepHint(hints, '/check')).toBe('/summary');
+    expect(cycleNextStepHint(hints, '/sum')).toBeUndefined();
+    expect(cycleNextStepHint([], '')).toBeUndefined();
   });
 });
 
