@@ -73,12 +73,17 @@ const SLASH_COMMANDS: SlashCommandEntry[] = [
   { group: 'Navigate', command: '/scope', description: 'Set workspace scope', argsHint: '/scope <directory>' },
   { group: 'Navigate', command: '/file', description: 'Set active file context', argsHint: '/file <path>' },
   { group: 'Understand', command: '/trace', description: 'Trace symbol or explain file', argsHint: '/trace <file#Symbol> [--maxDepth N]' },
+  { group: 'Understand', command: '/explain', description: 'Explain file logic', argsHint: '/explain <file>' },
+  { group: 'Understand', command: '/context', description: 'Bounded graph context for a question or the current symbol', argsHint: '/context ["<question>"] [--detail compact] [--token-budget N]' },
   { group: 'Understand', command: '/query', description: 'Query the codebase with natural language', argsHint: '/query "<question>" [--depth N] [--token-budget N]' },
   { group: 'Relations', command: '/check-dependencies', description: 'Analyze incoming/outgoing deps', argsHint: '/check-dependencies <file> [--incoming|--outgoing|--both]' },
   { group: 'Relations', command: '/cycles', description: 'Detect dependency cycles', argsHint: '/cycles <file>' },
+  { group: 'Relations', command: '/callers', description: 'Find callers of a symbol', argsHint: '/callers [file#Symbol] [--depth=N] [--includeTypeOnly=true]' },
+  { group: 'Relations', command: '/impact', description: 'Impact analysis for a symbol change', argsHint: '/impact [file#Symbol] [--includeTransitive=true] [--maxDepth=N]' },
   { group: 'Workspace', command: '/summary', description: 'Summarize workspace or file' },
   { group: 'Workspace', command: '/architecture', description: 'Build workspace graph', argsHint: '/architecture [--maxFiles N]' },
   { group: 'Workspace', command: '/check', description: 'Find dead code' },
+  { group: 'Workspace', command: '/review-pr', description: 'Review the Git diff against a base ref', argsHint: '/review-pr --base <ref> [--head <ref>]' },
   { group: 'Workspace', command: '/scan', description: 'Force indexing scan' },
   { group: 'Output', command: '/format', description: 'Set default output format', argsHint: '/format <text|json|toon|markdown|mermaid>' },
   { group: 'Output', command: '/export', description: 'Export graph as standalone HTML (vis.js)', argsHint: '/export [path] [--output <file>|-o <file>]' },
@@ -125,6 +130,7 @@ export function getSlashCommandHelpLines(): string[] {
 
 const COMMANDS_REQUIRING_ARGS = new Set([
   '/trace',
+  '/explain',
   '/scope',
   '/path',
   '/path-in',
@@ -142,6 +148,7 @@ const COMMANDS_REQUIRING_ARGS = new Set([
 
 const FILE_ARGUMENT_COMMANDS = new Set([
   '/trace',
+  '/explain',
   '/path-in',
   '/path-out',
   '/file',
@@ -169,6 +176,22 @@ const ARG_COMPLETIONS: Record<string, Array<{ value: string; description: string
     { value: '--incoming', description: 'Show incoming references' },
     { value: '--outgoing', description: 'Show outgoing dependencies' },
     { value: '--both', description: 'Show incoming and outgoing' },
+  ],
+  '/callers': [
+    { value: '--depth=', description: 'Limit caller depth' },
+    { value: '--includeTypeOnly=true', description: 'Include type-only references' },
+  ],
+  '/impact': [
+    { value: '--includeTransitive=true', description: 'Include transitive dependents' },
+    { value: '--maxDepth=', description: 'Limit transitive depth' },
+  ],
+  '/context': [
+    { value: '--detail', description: 'Output detail (compact for agents)' },
+    { value: '--token-budget', description: 'Cap output tokens' },
+  ],
+  '/review-pr': [
+    { value: '--base', description: 'Base Git ref' },
+    { value: '--head', description: 'Head Git ref' },
   ],
   '/architecture': [
     { value: '--maxFiles', description: 'Limit analyzed files' },
