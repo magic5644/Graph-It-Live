@@ -139,7 +139,7 @@ function buildReplHelpText(state: ReturnType<typeof createSessionState>): string
     ...getSlashCommandHelpLines(),
     '',
     `${DIM}Examples:${RESET}`,
-    '  /path src/cli',
+    '  /scope src/cli',
     '  /file src/cli/index.ts',
     '  /check-dependencies',
     '  /cycles src/cli/index.ts',
@@ -537,7 +537,7 @@ async function runTypedCommandLine(
 
   return {
     command: normalizedCommand,
-    output: `Unknown REPL command "${sanitizeTerminalText(normalizedCommand)}". Try: /path, /file, /check-dependencies, /cycles, /summary, /check, /trace, /query, /format, /help.`,
+    output: `Unknown REPL command "${sanitizeTerminalText(normalizedCommand)}". Try: /scope, /file, /check-dependencies, /cycles, /summary, /check, /trace, /query, /format, /help.`,
     skipPostAction: true,
   };
 }
@@ -562,14 +562,14 @@ async function handleTypedSessionCommand(
     return { command: 'quit', shouldQuit: true, skipPostAction: true };
   }
 
-  if (command === 'path') {
+  if (command === 'scope' || command === 'path') {
     return handlePathSessionCommand(args, state, runtime, allFiles, options);
   }
 
   if (command === 'export') {
     const workspaceName = path.basename(runtime.workspaceRoot);
     const { runExportHtml } = await import('./ExportHtmlCommand.js');
-    // Respect /path narrowing: if state.workspaceRoot was narrowed to a subdir,
+    // Respect /scope narrowing: if state.workspaceRoot was narrowed to a subdir,
     // use it as default scope so /export stays within the active workspace scope.
     const defaultScope = state.workspaceRoot !== runtime.workspaceRoot
       ? state.workspaceRoot
@@ -621,7 +621,7 @@ function applyWorkspaceScope(
   state.lastSymbol = undefined;
 
   return {
-    command: 'path',
+    command: 'scope',
     output: `Session workspace set to ${path.relative(runtime.workspaceRoot, state.workspaceRoot) || '.'}.`,
     skipPostAction: true,
   };
@@ -641,8 +641,8 @@ async function handlePathSessionCommand(
       : path.resolve(state.workspaceRoot, args[0]);
   } else if (options.uiMode === 'ink') {
     return {
-      command: 'path',
-      output: `Current workspace scope: ${path.relative(runtime.workspaceRoot, state.workspaceRoot) || '.'}. Usage: /path <directory>`,
+      command: 'scope',
+      output: `Current workspace scope: ${path.relative(runtime.workspaceRoot, state.workspaceRoot) || '.'}. Usage: /scope <directory>`,
       skipPostAction: true,
     };
   } else {
@@ -655,7 +655,7 @@ async function handlePathSessionCommand(
 
   if (!isWithinRoot(targetDirectory, runtime.workspaceRoot)) {
     return {
-      command: 'path',
+      command: 'scope',
       output: 'Refusing to set workspace scope outside project root.',
       skipPostAction: true,
     };
@@ -664,7 +664,7 @@ async function handlePathSessionCommand(
   const stats = await fs.stat(targetDirectory).catch(() => undefined);
   if (!stats?.isDirectory()) {
     return {
-      command: 'path',
+      command: 'scope',
       output: `Directory not found: ${sanitizeTerminalText(args[0] ?? '', 140)}`,
       skipPostAction: true,
     };
@@ -1214,7 +1214,7 @@ async function runSetPathAction(
 
   if (!isWithinRoot(nextWorkspace, runtime.workspaceRoot)) {
     return {
-      command: 'path',
+      command: 'scope',
       output: 'Refusing to set workspace scope outside project root.',
       skipPostAction: true,
     };
@@ -1225,7 +1225,7 @@ async function runSetPathAction(
   state.lastSymbol = undefined;
 
   return {
-    command: 'path',
+    command: 'scope',
     output: `Session workspace set to ${path.relative(runtime.workspaceRoot, state.workspaceRoot) || '.'}.`,
     skipPostAction: true,
   };

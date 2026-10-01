@@ -252,30 +252,33 @@ graph-it [options]
 
 #### REPL slash commands
 
-| Command | Description |
-|--------|-------------|
-| `/query` | Query the codebase with natural language (no quotes needed for multi-word questions) |
-| `/wiki` | Generate a navigable markdown wiki from the call graph |
-| `/trace` | Run trace flow for a selected file and optional symbol |
-| `/path` | Set session workspace scope (directory) |
-| `/path-in` | Show files that depend on a file |
-| `/path-out` | Show files imported by a file |
-| `/file` | Set active file context for context-aware commands |
-| `/check-dependencies` | Check incoming and outgoing dependencies |
-| `/deps`, `/dependencies` | Aliases of `/check-dependencies` |
-| `/deps-in` | Incoming dependencies alias |
-| `/deps-out` | Outgoing dependencies alias |
-| `/cycles` | List confirmed dependency cycles for a file |
-| `/cycle` | Alias of `/cycles` |
-| `/summary` | Summarize current file context or workspace |
-| `/architecture` | Build workspace architecture graph |
-| `/check` | Find unused exports |
-| `/scan` | Force a workspace indexing scan |
-| `/format` | Set preferred output format for the session |
-| `/command` | Run a raw CLI command line inside REPL |
-| `/export` | Export dependency graph as standalone HTML (vis.js). Optional `--output <path>` / `-o <path>`. Scope: active file context → workspace scope (set via `/path`) → full workspace |
-| `/help` | Show REPL command help |
-| `/quit` | Exit interactive mode |
+The palette lists canonical commands only, grouped by intent. Aliases still work when typed.
+
+| Group | Command | Description |
+|-------|---------|-------------|
+| Navigate | `/scope` | Set session workspace scope (directory) |
+| Navigate | `/file` | Set active file context for context-aware commands |
+| Understand | `/trace` | Run trace flow for a selected file and optional symbol |
+| Understand | `/query` | Query the codebase with natural language (no quotes needed for multi-word questions) |
+| Relations | `/check-dependencies` | Check incoming and outgoing dependencies |
+| Relations | `/cycles` | List confirmed dependency cycles for a file |
+| Workspace | `/summary` | Summarize current file context or workspace |
+| Workspace | `/architecture` | Build workspace architecture graph |
+| Workspace | `/check` | Find unused exports |
+| Workspace | `/scan` | Force a workspace indexing scan |
+| Output | `/format` | Set preferred output format for the session |
+| Output | `/export` | Export dependency graph as standalone HTML (vis.js). Optional `--output <path>` / `-o <path>`. Scope: active file context → workspace scope (set via `/scope`) → full workspace |
+| Output | `/wiki` | Generate a navigable markdown wiki from the call graph |
+| Session | `/help` | Show REPL command help |
+| Session | `/quit` | Exit interactive mode |
+
+Hidden aliases (accepted when typed, not listed in the palette):
+
+| Alias | Runs |
+|-------|------|
+| `/path` | `/scope` |
+| `/deps`, `/dependencies`, `/deps-in`, `/deps-out`, `/path-in`, `/path-out` | `/check-dependencies` |
+| `/cycle` | `/cycles` |
 
 #### Post-result actions
 
