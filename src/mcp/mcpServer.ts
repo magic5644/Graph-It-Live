@@ -105,6 +105,7 @@ import * as path from "node:path";
 import * as z from "zod/v4";
 import { McpWorkerHost } from "./McpWorkerHost";
 import { formatToolResponse } from "./responseFormatter";
+import { mcpToolDescription } from "./toolDescriptions";
 import {
   AnalyzeBreakingChangesParamsSchema,
   type AnalyzeBreakingChangesResult,
@@ -586,11 +587,7 @@ server.registerTool(
   "graphitlive_set_workspace",
   {
     title: "Set Workspace Directory",
-    description: `Points this server session at the project root the other tools analyse.
-
-WHEN: once per session, as setup before the first analysis. The root resolved at startup comes from WORKSPACE_ROOT or the working directory the client happened to spawn the server in, so it is often absent or points at the wrong project. Call this again during a session only to switch projects, or to reach a path outside the current root (paths outside it are rejected).
-NOT THIS TOOL: it is setup, and answers no question about code. It is never the reply to a question about architecture, callers, dependencies, dead code or documentation - once the root is set, call the tool that answers the question. One call holds for the whole session; repeating it re-indexes for nothing.
-RETURNS: resolved workspace path, number of files indexed, indexing duration.`,
+    description: mcpToolDescription("set_workspace"),
     inputSchema: SetWorkspaceParamsSchema.extend({
       response_format: ResponseFormatSchema.describe(
         "Output format: 'json', 'markdown', or 'toon' (Token-Oriented Object Notation for reduced token usage) (default: toon - RECOMMENDED for 30-60% token savings)",
@@ -751,12 +748,7 @@ server.registerTool(
   "graphitlive_analyze_dependencies",
   {
     title: "Analyze File Dependencies",
-    description: `Lists the import/export statements of one file, with each specifier resolved to a path on disk.
-
-WHEN: "what does this file import", "what are this file's dependencies".
-WHY: read from the parsed source, so tsconfig path aliases, implicit extensions and index files are already resolved.
-RETURNS: per statement - module specifier, resolved absolute path, workspace-relative path, import type (static, dynamic, require, re-export), line number.
-SUPPORTS: TypeScript, JavaScript, Vue, Svelte, GraphQL.`,
+    description: mcpToolDescription("analyze_dependencies"),
     inputSchema: AnalyzeDependenciesParamsSchema.extend({
       response_format: ResponseFormatSchema.describe(
         "Output format: 'json', 'markdown', or 'toon' (Token-Oriented Object Notation for reduced token usage) (default: toon - RECOMMENDED for 30-60% token savings)",
@@ -793,13 +785,7 @@ server.registerTool(
   "graphitlive_crawl_dependency_graph",
   {
     title: "Crawl Full Dependency Graph",
-    description: `Builds the transitive file dependency graph reachable from one entry file.
-
-WHEN: project architecture, full dependency tree from an entry point, circular-import detection.
-WHY: crawls real import edges across the workspace rather than inferring structure from file names.
-RETURNS: nodes (path, extension, dependency count, dependent count, circular flag) and edges (import relations); paginated via offset/limit.
-LIMITS: output capped by tokenBudget (default 4000, 0 = no limit); a cut sets truncated=true, omitted counts and nextOffset - pass it as offset to read the rest.
-For an open-ended question, start with graphitlive_graph_context and come here when you need this specific cut.`,
+    description: mcpToolDescription("crawl_dependency_graph"),
     inputSchema: CrawlDependencyGraphParamsSchema.extend({
       response_format: ResponseFormatSchema.describe(
         "Output format: 'json', 'markdown', or 'toon' (Token-Oriented Object Notation for reduced token usage) (default: toon - RECOMMENDED for 30-60% token savings)",
@@ -861,12 +847,7 @@ server.registerTool(
   "graphitlive_find_referencing_files",
   {
     title: "Find Files That Import This File",
-    description: `Lists every file that imports or references a given file (reverse dependency lookup).
-
-WHEN: impact analysis, "who uses this file", refactoring-safety checks before changing or deleting a file.
-WHY: served from a prebuilt reverse index, so it covers the whole workspace rather than the files already in context.
-RETURNS: absolute and workspace-relative path of each referencing file.
-For an open-ended question, start with graphitlive_graph_context and come here when you need this specific cut.`,
+    description: mcpToolDescription("find_referencing_files"),
     inputSchema: FindReferencingFilesParamsSchema.extend({
       response_format: ResponseFormatSchema.describe(
         "Output format: 'json', 'markdown', or 'toon' (Token-Oriented Object Notation for reduced token usage) (default: toon - RECOMMENDED for 30-60% token savings)",
@@ -900,11 +881,7 @@ server.registerTool(
   "graphitlive_verify_dependency_usage",
   {
     title: "Verify Dependency Usage",
-    description: `Reports whether a source file actually uses any symbol from a target file it imports.
-
-WHEN: identifying unused imports, or confirming a dependency edge is real before acting on it.
-WHY: AST analysis of actual references, so an import that is never used is distinguished from one that is.
-RETURNS: boolean.`,
+    description: mcpToolDescription("verify_dependency_usage"),
     inputSchema: VerifyDependencyUsageParamsSchema.extend({
       response_format: ResponseFormatSchema.describe(
         "Output format: 'json', 'markdown', or 'toon' (Token-Oriented Object Notation for reduced token usage) (default: toon - RECOMMENDED for 30-60% token savings)",
@@ -941,11 +918,7 @@ server.registerTool(
   "graphitlive_resolve_module_path",
   {
     title: "Resolve Module Specifier to File Path",
-    description: `Resolves one module specifier, as seen from a given file, to a path on disk.
-
-WHEN: "where does this import point", or debugging alias and extension resolution.
-WHY: applies tsconfig path aliases, implicit extensions (.ts, .tsx, .js, .jsx, .vue, .svelte, .gql) and index-file resolution.
-RETURNS: resolved absolute path and whether it lies inside the workspace, or null for an unresolvable or external module.`,
+    description: mcpToolDescription("resolve_module_path"),
     inputSchema: ResolveModulePathParamsSchema.extend({
       response_format: ResponseFormatSchema.describe(
         "Output format: 'json', 'markdown', or 'toon' (Token-Oriented Object Notation for reduced token usage) (default: toon - RECOMMENDED for 30-60% token savings)",
@@ -979,11 +952,7 @@ server.registerTool(
   "graphitlive_get_index_status",
   {
     title: "Get Dependency Index Status",
-    description: `Reports the state of the dependency index backing the other tools.
-
-WHEN: checking readiness before a large analysis, or explaining unexpectedly empty results.
-WHY: distinguishes "no results" from "index not built yet".
-RETURNS: index state, files indexed, reverse-index statistics, cache size and hit rate, warmup completion and duration.`,
+    description: mcpToolDescription("get_index_status"),
     inputSchema: z.object({
       response_format: ResponseFormatSchema.describe(
         "Output format: 'json', 'markdown', or 'toon' (Token-Oriented Object Notation for reduced token usage) (default: toon - RECOMMENDED for 30-60% token savings)",
@@ -1017,11 +986,7 @@ server.registerTool(
   "graphitlive_invalidate_files",
   {
     title: "Invalidate File Cache",
-    description: `Drops the cached analysis for specific files so the next query re-reads them.
-
-WHEN: after editing files outside the watched workspace, when results look stale.
-WHY: analysis is cached per file; the cache is otherwise refreshed by the file watcher.
-RETURNS: how many files were invalidated, which were cleared, and which held no cache entry.`,
+    description: mcpToolDescription("invalidate_files"),
     inputSchema: InvalidateFilesParamsSchema.extend({
       response_format: ResponseFormatSchema.describe(
         "Output format: 'json', 'markdown', or 'toon' (Token-Oriented Object Notation for reduced token usage) (default: toon - RECOMMENDED for 30-60% token savings)",
@@ -1066,12 +1031,7 @@ server.registerTool(
   "graphitlive_rebuild_index",
   {
     title: "Rebuild Full Dependency Index",
-    description: `Clears all cached analysis and re-indexes the whole workspace.
-
-WHEN: after a branch switch or large refactor when the index no longer matches the tree; invalidate_files is enough for a few files.
-WHY: restores a graph that is consistent with what is on disk.
-RETURNS: files re-indexed, duration, new cache size and reverse-index statistics.
-LIMITS: takes seconds on a large workspace.`,
+    description: mcpToolDescription("rebuild_index"),
     inputSchema: z.object({
       response_format: ResponseFormatSchema.describe(
         "Output format: 'json', 'markdown', or 'toon' (Token-Oriented Object Notation for reduced token usage) (default: toon - RECOMMENDED for 30-60% token savings)",
@@ -1114,13 +1074,7 @@ server.registerTool(
   "graphitlive_get_symbol_graph",
   {
     title: "Get Symbol-Level Dependency Graph",
-    description: `Lists the symbols a file exports and the symbols OUTSIDE the file that each of them depends on.
-
-WHEN: "which function in this file calls the database / uses X", scoping a refactor to one symbol rather than the whole file.
-WHY: ts-morph AST parsing, so import aliases are tracked back to their original names and type-only imports are separated from runtime ones.
-RETURNS: exported symbols (name, kind, line, category) and symbol-to-symbol edges tagged runtime or type-only.
-NOT THIS TOOL: for calls between symbols defined in the same file, use graphitlive_generate_codemap (its call flow section). This tool crosses the file boundary outward; that one stays inside it.
-For an open-ended question, start with graphitlive_graph_context and come here when you need this specific cut.`,
+    description: mcpToolDescription("get_symbol_graph"),
     inputSchema: GetSymbolGraphParamsSchema.extend({
       response_format: ResponseFormatSchema.describe(
         "Output format: 'json', 'markdown', or 'toon' (Token-Oriented Object Notation for reduced token usage) (default: toon - RECOMMENDED for 30-60% token savings)",
@@ -1154,12 +1108,7 @@ server.registerTool(
   "graphitlive_find_unused_symbols",
   {
     title: "Find Dead Code (Unused Exports)",
-    description: `Lists the symbols a file exports that nothing else in the workspace imports.
-
-WHEN: dead-code cleanup in one file, or checking which parts of an API are consumed.
-WHY: cross-references the file's exports against the reverse index, then widens the used set through the file's internal call graph so a symbol reached only indirectly is not reported.
-RETURNS: unused exported symbols (name, kind, line, category), unused and total counts, unused percentage.
-LIMITS: an export reached only through a dynamic or string-keyed lookup can still be reported as unused; confirm before deleting.`,
+    description: mcpToolDescription("find_unused_symbols"),
     inputSchema: FindUnusedSymbolsParamsSchema.extend({
       response_format: ResponseFormatSchema.describe(
         "Output format: 'json', 'markdown', or 'toon' (Token-Oriented Object Notation for reduced token usage) (default: toon - RECOMMENDED for 30-60% token savings)",
@@ -1193,12 +1142,7 @@ server.registerTool(
   "graphitlive_trace_function_execution",
   {
     title: "Trace Function Execution Chain",
-    description: `Follows the call chain outward from one symbol, recursively, across files.
-
-WHEN: tracing a request through controller, service and repository, or mapping what a feature actually reaches.
-WHY: follows calls through multiple files instead of stopping at direct dependencies; stops at external modules, at maxDepth, or on a cycle.
-RETURNS: root symbol, call chain entries (depth, caller, callee, resolved path), visited symbols, and whether maxDepth was hit.
-For an open-ended question, start with graphitlive_graph_context and come here when you need this specific cut.`,
+    description: mcpToolDescription("trace_function_execution"),
     inputSchema: TraceFunctionExecutionParamsSchema.extend({
       response_format: ResponseFormatSchema.describe(
         "Output format: 'json', 'markdown', or 'toon' (Token-Oriented Object Notation for reduced token usage) (default: toon - RECOMMENDED for 30-60% token savings)",
@@ -1236,12 +1180,7 @@ server.registerTool(
   "graphitlive_analyze_breaking_changes",
   {
     title: "Analyze Breaking Changes in Signature",
-    description: `Compares two versions of a file and reports which signature changes break callers.
-
-WHEN: validating an edit before committing, or writing migration notes for an API change.
-WHY: diffs the parsed signatures rather than the text, so added optional parameters are separated from breaking ones.
-RETURNS: breaking changes with kind and description, severity, suggested migration steps, and the callers that need updating.
-DETECTS: added required parameter, removed parameter, changed parameter type, changed return type, parameter reordering.`,
+    description: mcpToolDescription("analyze_breaking_changes"),
     inputSchema: AnalyzeBreakingChangesParamsSchema.extend({
       response_format: ResponseFormatSchema.describe(
         "Output format: 'json', 'markdown', or 'toon' (Token-Oriented Object Notation for reduced token usage) (default: toon - RECOMMENDED for 30-60% token savings)",
@@ -1280,11 +1219,7 @@ server.registerTool(
   "graphitlive_review_pr",
   {
     title: "Review Pull Request Diff",
-    description: `Reviews a local Git diff and reports the risk it carries, with per-symbol evidence.
-
-WHEN: before opening a pull request, or as a CI gate.
-WHY: combines the parsed signatures of both revisions with the workspace index, so signature changes are scored against their real callers.
-RETURNS: deterministic risk level, per-symbol evidence, impact counts, and an explicit list of what could not be analysed.`,
+    description: mcpToolDescription("review_pr"),
     inputSchema: ReviewPrParamsSchema.extend({
       response_format: ResponseFormatSchema.describe("Output format: 'json', 'markdown', or 'toon'"),
     }),
@@ -1307,12 +1242,7 @@ server.registerTool(
   "graphitlive_get_impact_analysis",
   {
     title: "Get Comprehensive Impact Analysis",
-    description: `Reports everything affected by changing one symbol, direct and transitive.
-
-WHEN: assessing a refactor before starting it, or prioritising which call sites to update first.
-WHY: walks the symbol reverse index outward, keeping runtime and type-only impact separate and aggregating per file.
-RETURNS: impact level (high, medium, low), total impact count, runtime versus type-only breakdown, impacted symbols with depth (1 = direct), affected files, and a written summary.
-For an open-ended question, start with graphitlive_graph_context and come here when you need this specific cut.`,
+    description: mcpToolDescription("get_impact_analysis"),
     inputSchema: GetImpactAnalysisParamsSchema.extend({
       response_format: ResponseFormatSchema.describe(
         "Output format: 'json', 'markdown', or 'toon' (Token-Oriented Object Notation for reduced token usage) (default: toon - RECOMMENDED for 30-60% token savings)",
@@ -1357,12 +1287,7 @@ server.registerTool(
   "graphitlive_generate_codemap",
   {
     title: "Generate File Codemap",
-    description: `Returns one file's exports, internals, dependencies, dependents and internal call flow in a single call.
-
-WHEN: getting oriented in an unfamiliar file, or gathering the full context of a file before refactoring it.
-WHY: one call in place of analyze_dependencies, get_symbol_graph and find_referencing_files together, plus the calls between the file's own symbols.
-RETURNS: path, language, line count, exported and internal symbols, dependencies, dependents, intra-file call flow, cycle detection.
-SUPPORTS: TypeScript, JavaScript, Python, Rust, Vue, Svelte.`,
+    description: mcpToolDescription("generate_codemap"),
     inputSchema: z.object({
       filePath: z.string().describe("Absolute path to the file to generate a codemap for"),
       response_format: ResponseFormatSchema.describe(
@@ -1396,13 +1321,7 @@ server.registerTool(
   "graphitlive_query_call_graph",
   {
     title: "Query Cross-File Call Graph",
-    description: `Traces calls across files for several hops, in either direction, from a SQLite-backed call graph.
-
-WHEN: "who calls X" (direction=callers, depth=1), "what does X call" (direction=callees), multi-hop traversal ("three levels deep"), or cycle detection across modules.
-WHY: built from tree-sitter AST analysis, so it holds real call edges (CALLS, INHERITS, IMPLEMENTS) rather than import edges. Type-only references (USES) are added with includeTypeOnly.
-RETURNS: the matched symbol, its callers and callees with file and line, relation type, and a cyclic flag per edge.
-NOT THIS TOOL: for every file that imports a file, use graphitlive_find_referencing_files.
-LIMITS: the first call indexes the workspace (3-8s); later queries are fast. Output capped by tokenBudget (default 4000, 0 = no limit); a cut sets truncated=true, omitted counts and nextOffset - pass it as offset to read the rest.`,
+    description: mcpToolDescription("query_call_graph"),
     inputSchema: QueryCallGraphParamsSchema.extend({
       response_format: ResponseFormatSchema.describe(
         "Output format: 'json', 'markdown', or 'toon' (default: toon - RECOMMENDED for 30-60% token savings)",
@@ -1436,12 +1355,7 @@ server.registerTool(
   "graphitlive_scan_dead_code",
   {
     title: "Scan Workspace for Dead Code",
-    description: `Lists the unused exported symbols across a whole workspace or directory.
-
-WHEN: auditing code quality, or cleaning up before a refactor; use find_unused_symbols for a single file.
-WHY: combines the reverse index with per-file symbol analysis, so the scan stays linear instead of comparing every file against every other.
-RETURNS: files scanned, files holding dead code, total unused symbols, per-file unused symbol lists, scan duration.
-LIMITS: needs background indexing to have finished; an export reached only through a dynamic lookup can still be listed.`,
+    description: mcpToolDescription("scan_dead_code"),
     inputSchema: ScanDeadCodeParamsSchema.extend({
       response_format: ResponseFormatSchema.describe(
         "Output format: 'json', 'markdown', or 'toon' (default: toon)",
@@ -1475,12 +1389,7 @@ server.registerTool(
   "graphitlive_graph_context",
   {
     title: "Retrieve Unified Graph Context",
-    description: `Returns a token-bounded subgraph answering a question about the codebase - the default entry point for graph questions.
-
-WHEN: any question spanning file dependencies, symbol calls, implementations, tests or impact; reach for a specialised tool only when this cannot express the cut you need.
-WHY: one deterministic gateway over the same index the specialised tools use, with an explicit token budget so large graphs come back bounded instead of truncated arbitrarily.
-MODES: search, neighbors, path, impact, refactor, overview.
-RETURNS: nodes and edges with workspace-relative paths, an index revision and a freshness flag, and a cursor when results are paginated.`,
+    description: mcpToolDescription("graph_context"),
     inputSchema: GraphContextParamsSchema,
     outputSchema: McpToolResponseSchema,
     annotations: {
@@ -1514,12 +1423,7 @@ server.registerTool(
   "graphitlive_query_natural_language",
   {
     title: "Query Codebase with Natural Language",
-    description: `Returns the subgraph relevant to a plain-language question, for you to turn into an answer.
-
-WHEN: exploring a codebase from a concept rather than a known file or symbol name.
-WHY: extracts keywords, scores seed nodes with full-text search over the call graph index, then traverses outward from them.
-RETURNS: the question, the extracted keywords, the subgraph, and timing and truncation metadata.
-LIMITS: returns graph data, not prose - you write the answer from it. The first call indexes the workspace (3-8s).`,
+    description: mcpToolDescription("query_natural_language"),
     inputSchema: QueryNaturalLanguageParamsSchema.extend({
       response_format: ResponseFormatSchema.describe(
         "Output format: 'json', 'markdown', or 'toon' (default: toon - RECOMMENDED for 30-60% token savings)",
@@ -1553,12 +1457,7 @@ server.registerTool(
   "graphitlive_generate_wiki",
   {
     title: "Generate Markdown Wiki from Call Graph",
-    description: `Writes a navigable markdown wiki of the workspace from the call graph index.
-
-WHEN: producing browsable documentation, or a persistent overview of files and their relationships.
-WHY: one article per source file, cross-linked through real caller and callee edges.
-RETURNS: number of articles written, index path, articles directory, and the top files by hub score.
-LIMITS: writes files to disk. The first call indexes the workspace (3-8s).`,
+    description: mcpToolDescription("generate_wiki"),
     inputSchema: GenerateWikiSchema.extend({
       response_format: ResponseFormatSchema.describe(
         "Output format: 'json', 'markdown', or 'toon' (default: json). scope and exclude filtering is applied before generation — limitations are documented in the generated wiki itself.",
@@ -1594,12 +1493,7 @@ server.registerTool(
   "graphitlive_get_session_stats",
   {
     title: "Get Session Token Stats",
-    description: `Reports how large this session's TOON responses were against their JSON equivalent, plus real token usage.
-
-WHEN: asked how much the TOON encoding is saving, or for a summary of tool usage.
-WHY: encoding sizes are estimated (characters / 4); provider-reported LLM usage is reported separately and never mixed into that estimate.
-RETURNS: per-tool and total encoding sizes for this session, llmUsage as its own section, and per-source history.
-LIMITS: compares two encodings of the same data - not a saving attributable to the tools themselves.`,
+    description: mcpToolDescription("get_session_stats"),
     inputSchema: GetSessionStatsSchema,
     outputSchema: McpToolResponseSchema,
     annotations: {
