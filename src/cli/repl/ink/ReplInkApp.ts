@@ -13,6 +13,7 @@ export interface InkReplCommandResponse {
   updatedContext?: {
     workspaceRoot?: string;
     allFiles?: string[];
+    preferredFormat?: string;
     lastFile?: string | null;
     lastSymbol?: string | null;
   };
@@ -1204,6 +1205,7 @@ export async function runInkReplSession(options: RunInkReplSessionOptions): Prom
       ? path.relative(options.workspaceRoot, options.lastFile)
       : 'none');
     const [displayLastSymbol, setDisplayLastSymbol] = useState(options.lastSymbol ?? 'none');
+    const [displayFormat, setDisplayFormat] = useState(options.preferredFormat);
     const [pickerMode, setPickerMode] = useState<PickerMode>('none');
     const [pickerTarget, setPickerTarget] = useState<PickerTarget | null>(null);
     const [pickerDir, setPickerDir] = useState('');
@@ -1336,6 +1338,9 @@ export async function runInkReplSession(options: RunInkReplSessionOptions): Prom
             }
             if (ctx.allFiles) {
               setCurrentAllFiles(ctx.allFiles);
+            }
+            if (ctx.preferredFormat) {
+              setDisplayFormat(ctx.preferredFormat);
             }
             if (ctx.lastFile !== undefined) {
               setDisplayLastFile(ctx.lastFile === null
@@ -1497,7 +1502,7 @@ export async function runInkReplSession(options: RunInkReplSessionOptions): Prom
       h(
         Box,
         { marginBottom: 1 },
-        h(Text, { wrap: 'truncate' }, `${DIM}workspace:${RESET} ${displayWorkspace}  ${DIM}format:${RESET} ${options.preferredFormat}  ${DIM}last file:${RESET} ${displayLastFile}  ${DIM}last symbol:${RESET} ${displayLastSymbol}`),
+        h(Text, { wrap: 'truncate' }, `${DIM}workspace:${RESET} ${displayWorkspace}  ${DIM}format:${RESET} ${displayFormat}  ${DIM}last file:${RESET} ${displayLastFile}  ${DIM}last symbol:${RESET} ${displayLastSymbol}`),
       ),
       buildMainPanel(),
       h(

@@ -263,6 +263,7 @@ export async function run(runtime: CliRuntime): Promise<void> {
       lastSymbol: state.lastSymbol,
       onSubmitCommand: async (commandLine: string) => {
         const prevWorkspaceRoot = state.workspaceRoot;
+        const prevPreferredFormat = state.preferredFormat;
         const prevLastFile = state.lastFile;
         const prevLastSymbol = state.lastSymbol;
 
@@ -287,15 +288,19 @@ export async function run(runtime: CliRuntime): Promise<void> {
 
         // Propagate state changes back to the REPL for display/autocomplete
         const workspaceChanged = state.workspaceRoot !== prevWorkspaceRoot;
+        const formatChanged = state.preferredFormat !== prevPreferredFormat;
         const lastFileChanged = state.lastFile !== prevLastFile;
         const lastSymbolChanged = state.lastSymbol !== prevLastSymbol;
-        if (workspaceChanged || lastFileChanged || lastSymbolChanged) {
+        if (workspaceChanged || formatChanged || lastFileChanged || lastSymbolChanged) {
           response.updatedContext = {};
           if (workspaceChanged) {
             const newAllFiles = await collector.collectAllSourceFiles(state.workspaceRoot);
             allFiles = newAllFiles;
             response.updatedContext.workspaceRoot = state.workspaceRoot;
             response.updatedContext.allFiles = newAllFiles;
+          }
+          if (formatChanged) {
+            response.updatedContext.preferredFormat = state.preferredFormat;
           }
           if (lastFileChanged) {
             response.updatedContext.lastFile = state.lastFile ?? null;
