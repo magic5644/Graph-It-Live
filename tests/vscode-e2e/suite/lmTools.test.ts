@@ -1,7 +1,7 @@
 /**
  * E2E Tests for native Language Model Tools registration.
  *
- * Verifies that after extension activation all 21 Graph-It-Live LM tools
+ * Verifies that after extension activation all 24 Graph-It-Live LM tools
  * are present in `vscode.lm.tools`.  Tests are skipped gracefully when the
  * VS Code host doesn't support `vscode.lm.tools` (pre-1.90 or non-Copilot
  * environments) so they never cause false failures on older CI agents.
@@ -17,7 +17,7 @@ import { before } from 'mocha';
 import * as assert from 'node:assert';
 import * as vscode from 'vscode';
 
-// Minimum set of expected tool names (all 21).
+// Minimum set of expected tool names (all 24).
 const EXPECTED_TOOLS = [
   'graph-it-live_find_referencing_files',
   'graph-it-live_analyze_dependencies',
@@ -40,8 +40,10 @@ const EXPECTED_TOOLS = [
   'graph-it-live_resolve_module_path',
   'graph-it-live_analyze_breaking_changes',
   'graph-it-live_query_call_graph',
- 'graph-it-live_scan_dead_code',
- 'graph-it-live_graph_context',
+  'graph-it-live_scan_dead_code',
+  'graph-it-live_graph_context',
+  'graph-it-live_review_pr',
+  'graph-it-live_query_natural_language',
 ];
 
 /** Returns true when vscode.lm.tools is supported by the current host. */
@@ -79,7 +81,7 @@ suite('LM Tools Registration Test Suite', () => {
     assert.ok(supported, 'vscode.lm.registerTool should be a function');
   });
 
-  test('All 20 Graph-It-Live LM tools are registered', function () {
+  test('All 24 Graph-It-Live LM tools are registered', function () {
     if (!lmToolsSupported()) {
       this.skip();
     }
@@ -121,7 +123,7 @@ suite('LM Tools Registration Test Suite', () => {
     assert.ok(tool, 'graph-it-live_query_call_graph should be registered');
   });
 
-  test('Total Graph-It-Live tool count is exactly 21', function () {
+  test('Total Graph-It-Live tool count is exactly 24', function () {
     if (!lmToolsSupported()) {
       this.skip();
     }
@@ -130,8 +132,8 @@ suite('LM Tools Registration Test Suite', () => {
     const graphItLiveTools = tools.filter((t) => t.name.startsWith('graph-it-live_'));
     assert.strictEqual(
       graphItLiveTools.length,
- 22,
- `Expected 22 graph-it-live tools, found ${graphItLiveTools.length}: ${graphItLiveTools.map((t) => t.name).join(', ')}`,
+      24,
+      `Expected 24 graph-it-live tools, found ${graphItLiveTools.length}: ${graphItLiveTools.map((t) => t.name).join(', ')}`,
     );
   });
 });

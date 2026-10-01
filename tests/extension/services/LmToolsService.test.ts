@@ -19,6 +19,12 @@ const { registeredTools, registerToolFn } = vi.hoisted(() => {
 });
 
 const executeGraphContextWithIndexes = vi.hoisted(() => vi.fn());
+const { reviewAnalyze, reviewGateCtor, queryEngineQuery, queryEngineCtor } = vi.hoisted(() => ({
+  reviewAnalyze: vi.fn(),
+  reviewGateCtor: vi.fn(),
+  queryEngineQuery: vi.fn(),
+  queryEngineCtor: vi.fn(),
+}));
 
 // ─── vscode mock ──────────────────────────────────────────────────────────────
 
@@ -65,7 +71,30 @@ vi.mock('@/analyzer/SignatureAnalyzer', () => ({
   },
 }));
 
-vi.mock('@/shared/path', () => ({
+vi.mock('@/analyzer/ReviewGateAnalyzer', () => ({
+  ReviewGateAnalyzer: class {
+    constructor(...args: unknown[]) {
+      reviewGateCtor(...args);
+    }
+    analyze(params: unknown) {
+      return reviewAnalyze(params);
+    }
+  },
+}));
+
+vi.mock('@/analyzer/QueryEngine', () => ({
+  QueryEngine: class {
+    constructor(...args: unknown[]) {
+      queryEngineCtor(...args);
+    }
+    query(request: unknown) {
+      return queryEngineQuery(request);
+    }
+  },
+}));
+
+vi.mock('@/shared/path', async (importOriginal) => ({
+  ...await importOriginal<typeof import('@/shared/path')>(),
   normalizePath: (p: string) => p.replaceAll('\\', '/'),
   normalizePathForComparison: (p: string) => p.replaceAll('\\', '/').replace(/\/$/u, ''),
 }));
@@ -162,13 +191,13 @@ describe('LmToolsService', () => {
   // ─── registerAll ──────────────────────────────────────────────────────────
 
   describe('registerAll', () => {
-    it('registers 22 tools and returns 22 disposables', () => {
+    it('registers 24 tools and returns 24 disposables', () => {
       const provider = createProvider();
       const service = new LmToolsService({ provider, logger });
       const disposables = service.registerAll();
 
-      expect(disposables).toHaveLength(22);
-      expect(registerToolFn).toHaveBeenCalledTimes(22);
+      expect(disposables).toHaveLength(24);
+      expect(registerToolFn).toHaveBeenCalledTimes(24);
     });
 
     it('returns empty array when vscode.lm.registerTool is unavailable', () => {
@@ -193,6 +222,8 @@ describe('LmToolsService', () => {
       'graph-it-live_query_call_graph',
       'graph-it-live_scan_dead_code',
       'graph-it-live_graph_context',
+      'graph-it-live_review_pr',
+      'graph-it-live_query_natural_language',
     ])('registers %s', (toolName) => {
       const provider = createProvider();
       const service = new LmToolsService({ provider, logger });
@@ -312,6 +343,118 @@ describe('LmToolsService', () => {
     expect(tool?.inputSchema.properties.to.properties).toEqual(
       tool?.inputSchema.properties.seeds.items?.properties,
     );
+  });
+
+  // ─── review_pr ────────────────────────────────────────────────────────────
+
+  describe('review_pr', () => {
+    const TOOL = 'graph-it-live_review_pr';
+
+    beforeEach(() => {
+      reviewAnalyze.mockReset();
+      reviewGateCtor.mockReset();
+    });
+
+    it('reviews the diff against the workspace root and the live spider', async () => {
+      reviewAnalyze.mockResolvedValueOnce({ baseRef: 'main', risk: 'low', score: 0, changedFiles: ['/workspace/src/a.ts'] });
+      const provider = createProvider();
+      new LmToolsService({ provider, logger }).registerAll();
+
+      const result = await invokeTool(TOOL, { baseRef: 'main', maxFiles: 10 });
+
+      expect(reviewGateCtor).toHaveBeenCalledWith('/workspace', provider.getSpiderForLmTools());
+      expect(reviewAnalyze).toHaveBeenCalledWith({ baseRef: 'main', maxFiles: 10 });
+      expect(result).toEqual({ baseRef: 'main', risk: 'low', score: 0, changedFiles: ['src/a.ts'] });
+    });
+
+    it('rejects input that fails the MCP schema without running git', async () => {
+      new LmToolsService({ provider: createProvider(), logger }).registerAll();
+
+      const result = await invokeTool(TOOL, { baseRef: 'main', maxDepth: 99 }) as { error: string };
+
+      expect(result.error).toContain('maxDepth');
+      expect(reviewAnalyze).not.toHaveBeenCalled();
+    });
+
+    it('returns an error when the dependency index is not ready', async () => {
+      const provider = createProvider();
+      vi.mocked(provider.getSpiderForLmTools).mockReturnValue(undefined);
+      new LmToolsService({ provider, logger }).registerAll();
+
+      const result = await invokeTool(TOOL, { baseRef: 'main' }) as { error: string };
+
+      expect(result.error).toContain('not initialized');
+    });
+
+    it('returns the analyzer error as a tool error', async () => {
+      reviewAnalyze.mockRejectedValueOnce(new Error('baseRef must be a Git ref that does not start with "-"'));
+      new LmToolsService({ provider: createProvider(), logger }).registerAll();
+
+      const result = await invokeTool(TOOL, { baseRef: '--output=x' }) as { error: string };
+
+      expect(result.error).toContain('baseRef');
+    });
+  });
+
+  // ─── query_natural_language ───────────────────────────────────────────────
+
+  describe('query_natural_language', () => {
+    const TOOL = 'graph-it-live_query_natural_language';
+    const db = { exec: vi.fn() };
+    const callGraphService = { getCallGraphIndexerForLmTools: vi.fn().mockReturnValue({ getDb: () => db }) };
+
+    beforeEach(() => {
+      queryEngineQuery.mockReset();
+      queryEngineCtor.mockReset();
+    });
+
+    it('queries the live call graph without an LLM client and returns JSON', async () => {
+      queryEngineQuery.mockResolvedValueOnce({
+        question: 'where is auth?', extractedKeywords: ['auth'], nodeCount: 1, edgeCount: 0,
+        nodes: [{ id: 'n1', name: 'login', type: 'function', path: '/workspace/src/auth.ts' }],
+        edges: [], meta: { truncated: false }, json: 'unused',
+      });
+      new LmToolsService({ provider: createProvider({ callGraphService }), logger }).registerAll();
+
+      const result = await invokeTool(TOOL, { question: 'where is auth?', fileFilter: 'src/**' });
+
+      expect(queryEngineCtor).toHaveBeenCalledWith(db, null);
+      expect(queryEngineQuery).toHaveBeenCalledWith({
+        question: 'where is auth?', workspaceRoot: '/workspace', depth: 2, tokenBudget: 4000,
+        fileFilter: 'src/**', outputFormat: 'json',
+      });
+      expect(result).toEqual({
+        question: 'where is auth?', extractedKeywords: ['auth'], nodeCount: 1, edgeCount: 0,
+        nodes: [{ id: 'n1', name: 'login', type: 'function', path: 'src/auth.ts' }],
+        edges: [], meta: { truncated: false },
+      });
+    });
+
+    it('rejects an out-of-range depth', async () => {
+      new LmToolsService({ provider: createProvider({ callGraphService }), logger }).registerAll();
+
+      const result = await invokeTool(TOOL, { question: 'auth', depth: 50 }) as { error: string };
+
+      expect(result.error).toContain('depth');
+      expect(queryEngineQuery).not.toHaveBeenCalled();
+    });
+
+    it('returns an error until the call graph index exists', async () => {
+      new LmToolsService({ provider: createProvider(), logger }).registerAll();
+
+      const result = await invokeTool(TOOL, { question: 'auth' }) as { error: string };
+
+      expect(result.error).toContain('Call graph index not available');
+    });
+
+    it('returns the query error as a tool error', async () => {
+      queryEngineQuery.mockRejectedValueOnce(new Error('no such table: nodes_fts'));
+      new LmToolsService({ provider: createProvider({ callGraphService }), logger }).registerAll();
+
+      const result = await invokeTool(TOOL, { question: 'auth' }) as { error: string };
+
+      expect(result.error).toBe('no such table: nodes_fts');
+    });
   });
 
   // ─── resolve_module_path ──────────────────────────────────────────────────

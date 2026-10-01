@@ -260,6 +260,7 @@ const TOOL_DESCRIPTIONS: Record<DescribedToolName, ToolDescription> = {
       "WHEN: before opening a pull request, or as a CI gate.",
       "WHY: combines the parsed signatures of both revisions with the workspace index, so signature changes are scored against their real callers.",
       "RETURNS: deterministic risk level, per-symbol evidence, impact counts, and an explicit list of what could not be analysed.",
+      { lm: "LIMITS: runs git in the first workspace folder; impact counts are incomplete while background indexing runs." },
     ],
   },
   get_impact_analysis: {
@@ -335,7 +336,10 @@ const TOOL_DESCRIPTIONS: Record<DescribedToolName, ToolDescription> = {
       "WHEN: exploring a codebase from a concept rather than a known file or symbol name.",
       "WHY: extracts keywords, scores seed nodes with full-text search over the call graph index, then traverses outward from them.",
       "RETURNS: the question, the extracted keywords, the subgraph, and timing and truncation metadata.",
-      "LIMITS: returns graph data, not prose - you write the answer from it. The first call indexes the workspace (3-8s).",
+      {
+        mcp: "LIMITS: returns graph data, not prose - you write the answer from it. The first call indexes the workspace (3-8s).",
+        lm: `LIMITS: returns graph data, not prose - you write the answer from it; ${LM_CALL_GRAPH_INDEX}`,
+      },
     ],
   },
   generate_wiki: {

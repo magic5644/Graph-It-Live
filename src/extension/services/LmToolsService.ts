@@ -10,8 +10,16 @@
  */
 
 import { LspCallHierarchyAnalyzer } from '@/analyzer/LspCallHierarchyAnalyzer';
+import { QueryEngine } from '@/analyzer/QueryEngine';
+import { ReviewGateAnalyzer } from '@/analyzer/ReviewGateAnalyzer';
 import { scanDeadCode } from '@/analyzer/deadcode/DeadCodeScanner';
-import type { GraphContextParams } from '@/mcp/types';
+import {
+  QueryNaturalLanguageParamsSchema,
+  ReviewPrParamsSchema,
+  type GraphContextParams,
+  type QueryNaturalLanguageParams,
+  type ReviewPrParams,
+} from '@/mcp/types';
 import type { Dependency } from '@/analyzer/types';
 import { convertSpiderToLspFormat } from '@/shared/converters';
 import {
@@ -203,9 +211,11 @@ export class LmToolsService {
       this.registerResolveModulePath(),
       this.registerAnalyzeBreakingChanges(),
       this.registerQueryCallGraph(),
-    this.registerScanDeadCode(),
-    this.registerGraphContext(),
-  ];
+      this.registerScanDeadCode(),
+      this.registerGraphContext(),
+      this.registerReviewPr(),
+      this.registerQueryNaturalLanguage(),
+    ];
   }
 
   // ─── Shared helpers ───────────────────────────────────────────────────────
@@ -1538,6 +1548,77 @@ export class LmToolsService {
             const result = await scanDeadCode(spider, rootDir, { scopePath, maxFiles });
             return new vscode.LanguageModelToolResult([
               new vscode.LanguageModelTextPart(JSON.stringify(result)),
+            ]);
+          } catch (error) {
+            return this.errorResult(error instanceof Error ? error.message : String(error));
+          }
+        },
+      },
+    );
+  }
+
+  // ─── Tool: review_pr ──────────────────────────────────────────────────────
+
+  private registerReviewPr(): vscode.Disposable {
+    return this.registerTool<ReviewPrParams>(
+      'graph-it-live_review_pr',
+      {
+        invoke: async (
+          options: vscode.LanguageModelToolInvocationOptions<ReviewPrParams>,
+          _token: vscode.CancellationToken,
+        ): Promise<vscode.LanguageModelToolResult> => {
+          const spider = this.provider.getSpiderForLmTools();
+          const rootDir = this.getWorkspaceRoot();
+          if (!spider || !rootDir) {
+            return this.errorResult('No workspace open or dependency index not initialized.');
+          }
+          try {
+            const params = ReviewPrParamsSchema.parse(options.input);
+            const result = await new ReviewGateAnalyzer(rootDir, spider).analyze(params);
+            return new vscode.LanguageModelToolResult([
+              new vscode.LanguageModelTextPart(JSON.stringify(result)),
+            ]);
+          } catch (error) {
+            return this.errorResult(error instanceof Error ? error.message : String(error));
+          }
+        },
+      },
+    );
+  }
+
+  // ─── Tool: query_natural_language ─────────────────────────────────────────
+
+  private registerQueryNaturalLanguage(): vscode.Disposable {
+    return this.registerTool<QueryNaturalLanguageParams>(
+      'graph-it-live_query_natural_language',
+      {
+        invoke: async (
+          options: vscode.LanguageModelToolInvocationOptions<QueryNaturalLanguageParams>,
+          _token: vscode.CancellationToken,
+        ): Promise<vscode.LanguageModelToolResult> => {
+          const indexer = this.provider.getCallGraphViewServiceForLmTools()?.getCallGraphIndexerForLmTools();
+          const rootDir = this.getWorkspaceRoot();
+          if (!indexer || !rootDir) {
+            return this.errorResult(
+              'Call graph index not available. Open the Call Graph panel (graph-it-live.showCallGraph) first to build the index.',
+            );
+          }
+          try {
+            const { question, depth, tokenBudget, fileFilter } = QueryNaturalLanguageParamsSchema.parse(options.input);
+            // No LLM client: the calling model writes the answer from the subgraph.
+            const result = await new QueryEngine(indexer.getDb(), null).query({
+              question, workspaceRoot: rootDir, depth, tokenBudget, fileFilter, outputFormat: 'json',
+            });
+            return new vscode.LanguageModelToolResult([
+              new vscode.LanguageModelTextPart(JSON.stringify({
+                question: result.question,
+                extractedKeywords: result.extractedKeywords,
+                nodeCount: result.nodeCount,
+                edgeCount: result.edgeCount,
+                nodes: result.nodes,
+                edges: result.edges,
+                meta: result.meta,
+              })),
             ]);
           } catch (error) {
             return this.errorResult(error instanceof Error ? error.message : String(error));

@@ -1246,6 +1246,82 @@
             }
           }
         }
+      },
+      {
+        "name": "graph-it-live_review_pr",
+        "canBeReferencedInPrompt": true,
+        "toolReferenceName": "graphReviewPr",
+        "tags": [
+          "graph-it-live",
+          "review",
+          "git"
+        ],
+        "displayName": "Graph-It-Live: Review PR",
+        "icon": "$(git-pull-request)",
+        "userDescription": "Review a local Git diff against a base ref and report its risk with per-symbol evidence",
+        "modelDescription": "Reviews a local Git diff and reports the risk it carries, with per-symbol evidence.\n\nWHEN: before opening a pull request, or as a CI gate.\nWHY: combines the parsed signatures of both revisions with the workspace index, so signature changes are scored against their real callers.\nRETURNS: deterministic risk level, per-symbol evidence, impact counts, and an explicit list of what could not be analysed.\nLIMITS: runs git in the first workspace folder; impact counts are incomplete while background indexing runs.",
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "baseRef": {
+              "type": "string",
+              "description": "Git base ref to compare against, for example origin/main"
+            },
+            "headRef": {
+              "type": "string",
+              "description": "Optional Git head ref; defaults to the checked-out worktree"
+            },
+            "maxFiles": {
+              "type": "number",
+              "description": "Optional maximum number of changed files to analyse (1-1000, default 200)"
+            },
+            "maxDepth": {
+              "type": "number",
+              "description": "Optional impact traversal depth (1-10, default 3)"
+            }
+          },
+          "required": [
+            "baseRef"
+          ]
+        }
+      },
+      {
+        "name": "graph-it-live_query_natural_language",
+        "canBeReferencedInPrompt": true,
+        "toolReferenceName": "graphQuery",
+        "tags": [
+          "graph-it-live",
+          "search",
+          "call-graph"
+        ],
+        "displayName": "Graph-It-Live: Natural Language Query",
+        "icon": "$(search)",
+        "userDescription": "Return the call-graph subgraph relevant to a plain-language question about the codebase",
+        "modelDescription": "Returns the subgraph relevant to a plain-language question, for you to turn into an answer.\n\nWHEN: exploring a codebase from a concept rather than a known file or symbol name.\nWHY: extracts keywords, scores seed nodes with full-text search over the call graph index, then traverses outward from them.\nRETURNS: the question, the extracted keywords, the subgraph, and timing and truncation metadata.\nLIMITS: returns graph data, not prose - you write the answer from it; needs the call graph index, built in the background when the Graph-It-Live view first loads (graph-it-live.preIndexCallGraph) or when the Call Graph panel opens; until then the tool returns an error.",
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "question": {
+              "type": "string",
+              "description": "Plain-language question about the codebase"
+            },
+            "depth": {
+              "type": "number",
+              "description": "Optional traversal depth from the matched symbols (1-5, default 2)"
+            },
+            "tokenBudget": {
+              "type": "number",
+              "description": "Optional token budget for the subgraph (500-16000, default 4000)"
+            },
+            "fileFilter": {
+              "type": "string",
+              "description": "Optional workspace-relative glob restricting the search, for example src/**"
+            }
+          },
+          "required": [
+            "question"
+          ]
+        }
       }
     ],
     "configuration": {
