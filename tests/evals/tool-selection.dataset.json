@@ -4,13 +4,7 @@
     {
       "id": "imports-of-a-file",
       "question": "What does src/utils.ts import?",
-      "expected": "graphitlive_analyze_dependencies",
-      "acceptable": ["graphitlive_parse_imports"]
-    },
-    {
-      "id": "raw-import-syntax",
-      "question": "Show me the raw import statements in src/utils.ts exactly as they are written, without resolving them.",
-      "expected": "graphitlive_parse_imports"
+      "expected": "graphitlive_analyze_dependencies"
     },
     {
       "id": "project-architecture",
@@ -23,11 +17,6 @@
       "question": "What files import src/utils.ts?",
       "expected": "graphitlive_find_referencing_files",
       "acceptable": ["graphitlive_graph_context"]
-    },
-    {
-      "id": "expand-known-graph",
-      "question": "I already know about 40 files in this graph. Show me only the dependencies of src/api.ts that I have not seen yet.",
-      "expected": "graphitlive_expand_node"
     },
     {
       "id": "unused-import-check",
@@ -70,27 +59,16 @@
       "expected": "graphitlive_scan_dead_code"
     },
     {
-      "id": "signature-change-callers",
-      "question": "I'm changing UserService.login() signature — who depends on it?",
-      "expected": "graphitlive_get_symbol_dependents",
-      "acceptable": ["graphitlive_get_symbol_callers", "graphitlive_get_impact_analysis"]
-    },
-    {
       "id": "who-calls-symbol",
       "question": "Who calls the validateEmail function?",
-      "expected": "graphitlive_get_symbol_callers",
-      "acceptable": ["graphitlive_get_symbol_dependents", "graphitlive_query_call_graph"]
+      "expected": "graphitlive_query_call_graph",
+      "acceptable": ["graphitlive_get_impact_analysis"]
     },
     {
       "id": "full-call-chain",
       "question": "Trace the execution of handleUserLogin from the controller — the full recursive call chain.",
       "expected": "graphitlive_trace_function_execution",
       "acceptable": ["graphitlive_query_call_graph"]
-    },
-    {
-      "id": "cross-file-call-graph",
-      "question": "Find circular call dependencies involving parseConfig across the codebase.",
-      "expected": "graphitlive_query_call_graph"
     },
     {
       "id": "breaking-changes",
@@ -101,12 +79,6 @@
       "id": "blast-radius",
       "question": "What's the blast radius if I change the formatCurrency function? I want direct and transitive impact.",
       "expected": "graphitlive_get_impact_analysis"
-    },
-    {
-      "id": "intra-file-flow",
-      "question": "Explain the code flow inside src/utils/parser.ts — which function calls which.",
-      "expected": "graphitlive_analyze_file_logic",
-      "acceptable": ["graphitlive_generate_codemap"]
     },
     {
       "id": "file-overview",

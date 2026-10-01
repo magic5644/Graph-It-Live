@@ -403,7 +403,9 @@ export async function executeQueryCallGraph(
   const normalizedPath = normalizePath(params.filePath);
   const direction = params.direction ?? "both";
   const depth = params.depth ?? 2;
-  const relationFilter = params.relationTypes ?? null;
+  // USES edges are type-only references, not calls: they come back only on request.
+  const relationFilter: RelationType[] | null =
+    params.relationTypes ?? (params.includeTypeOnly ? null : ["CALLS", "INHERITS", "IMPLEMENTS"]);
 
   // Find matching symbol nodes
   const symbolRows = db.exec(

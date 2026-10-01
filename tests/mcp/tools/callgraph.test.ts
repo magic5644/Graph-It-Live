@@ -253,6 +253,24 @@ describe("executeQueryCallGraph", () => {
     }
   });
 
+  it("leaves USES edges out unless includeTypeOnly is set", async () => {
+    const db = indexer.getDb();
+    db.run(
+      "INSERT INTO edges (source_id, target_id, type_relation, source_line, is_cyclic, indexed_at) VALUES (?, ?, ?, ?, 0, ?)",
+      [fnFormat.id, fnHelper.id, "USES", 21, Date.now()],
+    );
+    const query = { filePath: FILE_A, symbolName: "helper", direction: "callers" as const, depth: 1 };
+
+    const runtimeOnly = await executeQueryCallGraph(query);
+    const withTypes = await executeQueryCallGraph({ ...query, includeTypeOnly: true });
+
+    expect(runtimeOnly.callers.map((c) => [c.sourceName, c.relation])).toEqual([["main", "CALLS"]]);
+    expect(withTypes.callers.map((c) => [c.sourceName, c.relation])).toEqual(
+      expect.arrayContaining([["main", "CALLS"], ["format", "USES"]]),
+    );
+    expect(withTypes.totalCallers).toBe(2);
+  });
+
   // -------------------------------------------------------------------------
   // Metadata
   // -------------------------------------------------------------------------

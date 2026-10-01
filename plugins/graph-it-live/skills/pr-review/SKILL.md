@@ -72,7 +72,7 @@ Use absolute paths for all `graph-it tool` file parameters:
 graph-it tool get_impact_analysis --filePath=/absolute/path/src/api.ts --symbolName=updateUser --format=toon
 
 # Direct callers for a specific symbol
-graph-it tool get_symbol_callers --filePath=/absolute/path/src/api.ts --symbolName=updateUser --format=toon
+graph-it tool query_call_graph --filePath=/absolute/path/src/api.ts --symbolName=updateUser --direction=callers --depth=1 --format=toon
 
 # Broader caller/callee neighbourhood
 graph-it tool query_call_graph --filePath=/absolute/path/src/api.ts --symbolName=updateUser --depth=3 --format=toon

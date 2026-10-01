@@ -120,7 +120,7 @@ Pick the **1–3 files** with the highest combination of fan-in + exported symbo
 For a representative sample of files (top 20 by size, or all files for small projects under 50 files), run:
 
 ```bash
-graph-it tool analyze_file_logic --filePath=<absolutePath>
+graph-it explain <absolutePath> --format toon
 ```
 
 Score each file using this heuristic:

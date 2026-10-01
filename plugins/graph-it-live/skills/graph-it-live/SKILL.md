@@ -83,7 +83,7 @@ Only after that, run targeted analysis:
 ```bash
 graph-it tool generate_codemap --filePath=/abs/path/to/file.ts
 graph-it tool query_call_graph --filePath=/abs/path/to/file.ts --symbolName=mySymbol --depth=3
-graph-it tool analyze_file_logic --filePath=/abs/path/to/file.ts
+graph-it explain /abs/path/to/file.ts
 ```
 
 For open-ended architecture questions, use natural language query:
@@ -225,7 +225,7 @@ graph-it path src/index.ts --format mermaid        # dependency tree as flowchar
 
 ## Advanced: MCP Tool Invocation
 
-`graph-it tool` can invoke **21 analysis tools** directly from CLI.
+`graph-it tool` can invoke **22 analysis tools** directly from CLI. Five of them are CLI-only transition aliases that the MCP server no longer lists (see the note under the table).
 Server-management tool `set_workspace` is MCP-server only and intentionally excluded from `graph-it tool`.
 
 ```bash
@@ -240,25 +240,21 @@ graph-it tool <tool_name> [--params]    # Invoke a specific tool
 | `analyze_dependencies` | Direct imports and exports of a file |
 | `crawl_dependency_graph` | Full dependency tree from an entry file |
 | `find_referencing_files` | All files that import a given file (reverse lookup) |
-| `expand_node` | Expand a node to discover dependencies beyond known paths |
-| `parse_imports` | Parse raw import statements without path resolution |
 | `verify_dependency_usage` | Check whether a specific import is actually used |
 | `resolve_module_path` | Resolve a module specifier to an absolute file path |
 | `get_symbol_graph` | Symbol-level dependencies within a file |
 | `find_unused_symbols` | Dead code detection — unused exported symbols |
-| `get_symbol_dependents` | Every reference to a symbol, including file-level imports |
 | `trace_function_execution` | Full recursive call chain from a function |
-| `get_symbol_callers` | Call sites of a symbol (callers only, from the call graph) |
 | `analyze_breaking_changes` | Detect breaking changes when modifying function signatures |
 | `get_impact_analysis` | Full impact: callers + breaking changes combined |
 | `get_index_status` | Current state of the dependency index |
 | `invalidate_files` | Flush cache for specific files after modifications |
 | `rebuild_index` | Rebuild the entire dependency index from scratch |
-| `analyze_file_logic` | Intra-file call hierarchy and code flow |
 | `generate_codemap` | Comprehensive structural overview of any source file |
-| `query_call_graph` | BFS callers/callees via the SQLite call graph index |
+| `query_call_graph` | Callers and callees of a symbol ("who calls X": `--direction=callers --depth=1`); `--includeTypeOnly` adds type-only references |
 | `scan_dead_code` | Workspace-wide dead code scan across all files |
 
+> Transition aliases, CLI only: `get_symbol_callers` and `get_symbol_dependents` (use `query_call_graph`), `parse_imports` (use `analyze_dependencies`), `expand_node` (use `crawl_dependency_graph`), `analyze_file_logic` (use `generate_codemap` or `graph-it explain`).
 > `query_natural_language` and `generate_wiki` are available as dedicated CLI commands (`graph-it query`, `graph-it wiki`) and as MCP server tools, but **not** in `graph-it tool --list`.
 > Run `graph-it tool --list` for the installed CLI's authoritative tool inventory; releases can add tools over time.
 
@@ -271,8 +267,8 @@ graph-it tool analyze_dependencies --filePath=/abs/path/to/file.ts
 # Find all files importing a specific file
 graph-it tool find_referencing_files --targetPath=/abs/path/to/file.ts
 
-# Get the call sites of a symbol (use get_symbol_dependents for every reference)
-graph-it tool get_symbol_callers --filePath=/abs/path/to/file.ts --symbolName=myFunction
+# Get the call sites of a symbol ("who calls X")
+graph-it tool query_call_graph --filePath=/abs/path/to/file.ts --symbolName=myFunction --direction=callers --depth=1
 
 # Full impact analysis
 graph-it tool get_impact_analysis --filePath=/abs/path/to/file.ts --symbolName=myFunction
@@ -317,8 +313,8 @@ Launch as an MCP server for AI client integration (no VS Code required):
 graph-it serve
 ```
 
-MCP server currently exposes **27 tools**:
-- 22 analysis tools from `graph-it tool --list`
+MCP server currently exposes **22 tools**:
+- 17 analysis tools from `graph-it tool --list` (all except the five transition aliases)
 - `set_workspace` (server management)
 - `review_pr`
 - `query_natural_language`
