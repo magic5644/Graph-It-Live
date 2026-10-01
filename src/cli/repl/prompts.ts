@@ -89,94 +89,13 @@ const FILE_BROWSER_MAX_SUGGESTIONS = 5;
 
 const MAIN_ACTION_ENTRIES: PaletteEntry<MainAction>[] = [
   {
-    slash: '/trace',
-    title: 'Trace a symbol or file',
-    description: 'Select a file, then optionally drill into a symbol.',
-    aliases: ['trace'],
-    keywords: ['symbol', 'call', 'flow', 'execution', 'developer', 'qa'],
-    value: 'trace',
-    group: '🔍 Code Analysis',
-  },
-  {
-    slash: '/path',
-    title: 'Set workspace directory',
+    slash: '/scope',
+    title: 'Set workspace scope',
     description: 'Navigate directories and set the active workspace scope.',
-    aliases: ['path', 'workspace'],
+    aliases: ['scope', 'path', 'workspace'],
     keywords: ['directory', 'root', 'scope', 'folder', 'architect'],
     value: 'setPath',
-    group: '📐 Architecture',
-  },
-  {
-    slash: '/check-dependencies',
-    title: 'Check incoming & outgoing deps',
-    description: 'Analyze both importers (in) and imports (out) for a file.',
-    aliases: ['check-dependencies', 'deps', 'dependencies'],
-    keywords: ['incoming', 'outgoing', 'in', 'out', 'graph', 'developer', 'architect'],
-    value: 'checkDependencies',
-    group: '🔍 Code Analysis',
-  },
-  {
-    slash: '/cycles',
-    title: 'List confirmed dependency cycles',
-    description: 'Detect and list cycle chains that include the selected file.',
-    aliases: ['cycles', 'cycle'],
-    keywords: ['circular', 'dependencies', 'loop', 'security', 'qa'],
-    value: 'cycles',
-    group: '🔍 Code Analysis',
-  },
-  {
-    slash: '/summary',
-    title: 'Summarize workspace or file',
-    description: 'Show the current file summary when available, otherwise the workspace.',
-    aliases: ['summary', 'codemap'],
-    keywords: ['overview', 'map', 'workspace', 'architect', 'functional'],
-    value: 'summary',
-    group: '📐 Architecture',
-  },
-  {
-    slash: '/architecture',
-    title: 'Build workspace architecture',
-    description: 'Render the full project graph, including Mermaid when supported.',
-    aliases: ['architecture', 'arch'],
-    keywords: ['workspace', 'mermaid', 'graph', 'architect'],
-    value: 'architecture',
-    group: '📐 Architecture',
-  },
-  {
-    slash: '/check',
-    title: 'Find dead code',
-    description: 'Inspect the current file or workspace for unused exports.',
-    aliases: ['check', 'unused'],
-    keywords: ['dead', 'unused', 'analysis', 'security', 'qa'],
-    value: 'check',
-    group: '🔍 Code Analysis',
-  },
-  {
-    slash: '/query',
-    title: 'Query with natural language',
-    description: 'Ask a question about the codebase and get a subgraph answer.',
-    aliases: ['query', 'q', 'search'],
-    keywords: ['query', 'search', 'ask', 'natural language', 'question'],
-    value: 'query',
-    group: '🔍 Code Analysis',
-  },
-  {
-    slash: '/wiki',
-    title: 'Generate markdown wiki',
-    description: 'Generate a navigable markdown wiki from the call graph.',
-    aliases: ['wiki', 'docs', 'documentation'],
-    keywords: ['wiki', 'docs', 'generate', 'markdown', 'documentation'],
-    value: 'wiki',
-    group: '🔍 Code Analysis',
-  },
-  {
-    slash: '/command',
-    title: 'Run a raw command line',
-    description: 'Type a full CLI command such as /path-in file.ts or /trace file.ts#fn.',
-    aliases: ['command', 'raw'],
-    keywords: ['cli', 'manual', 'freeform'],
-    value: 'command',
-    group: '⚙ Session',
+    group: '🧭 Navigate',
   },
   {
     slash: '/file',
@@ -185,7 +104,70 @@ const MAIN_ACTION_ENTRIES: PaletteEntry<MainAction>[] = [
     aliases: ['file', 'context'],
     keywords: ['current', 'active', 'path'],
     value: 'command',
-    group: '⚙ Session',
+    group: '🧭 Navigate',
+  },
+  {
+    slash: '/trace',
+    title: 'Trace a symbol or file',
+    description: 'Select a file, then optionally drill into a symbol.',
+    aliases: ['trace'],
+    keywords: ['symbol', 'call', 'flow', 'execution', 'developer', 'qa'],
+    value: 'trace',
+    group: '🔍 Understand',
+  },
+  {
+    slash: '/query',
+    title: 'Query with natural language',
+    description: 'Ask a question about the codebase and get a subgraph answer.',
+    aliases: ['query', 'q', 'search'],
+    keywords: ['query', 'search', 'ask', 'natural language', 'question'],
+    value: 'query',
+    group: '🔍 Understand',
+  },
+  {
+    slash: '/check-dependencies',
+    title: 'Check incoming & outgoing deps',
+    description: 'Analyze both importers (in) and imports (out) for a file.',
+    aliases: ['check-dependencies', 'deps', 'dependencies'],
+    keywords: ['incoming', 'outgoing', 'in', 'out', 'graph', 'developer', 'architect'],
+    value: 'checkDependencies',
+    group: '🔗 Relations',
+  },
+  {
+    slash: '/cycles',
+    title: 'List confirmed dependency cycles',
+    description: 'Detect and list cycle chains that include the selected file.',
+    aliases: ['cycles', 'cycle'],
+    keywords: ['circular', 'dependencies', 'loop', 'security', 'qa'],
+    value: 'cycles',
+    group: '🔗 Relations',
+  },
+  {
+    slash: '/summary',
+    title: 'Summarize workspace or file',
+    description: 'Show the current file summary when available, otherwise the workspace.',
+    aliases: ['summary', 'codemap'],
+    keywords: ['overview', 'map', 'workspace', 'architect', 'functional'],
+    value: 'summary',
+    group: '📐 Workspace',
+  },
+  {
+    slash: '/architecture',
+    title: 'Build workspace architecture',
+    description: 'Render the full project graph, including Mermaid when supported.',
+    aliases: ['architecture', 'arch'],
+    keywords: ['workspace', 'mermaid', 'graph', 'architect'],
+    value: 'architecture',
+    group: '📐 Workspace',
+  },
+  {
+    slash: '/check',
+    title: 'Find dead code',
+    description: 'Inspect the current file or workspace for unused exports.',
+    aliases: ['check', 'unused'],
+    keywords: ['dead', 'unused', 'analysis', 'security', 'qa'],
+    value: 'check',
+    group: '📐 Workspace',
   },
   {
     slash: '/format',
@@ -194,7 +176,16 @@ const MAIN_ACTION_ENTRIES: PaletteEntry<MainAction>[] = [
     aliases: ['format'],
     keywords: ['text', 'json', 'markdown', 'toon', 'mermaid'],
     value: 'format',
-    group: '⚙ Session',
+    group: '💾 Output',
+  },
+  {
+    slash: '/wiki',
+    title: 'Generate markdown wiki',
+    description: 'Generate a navigable markdown wiki from the call graph.',
+    aliases: ['wiki', 'docs', 'documentation'],
+    keywords: ['wiki', 'docs', 'generate', 'markdown', 'documentation'],
+    value: 'wiki',
+    group: '💾 Output',
   },
   {
     slash: '/help',
@@ -360,6 +351,9 @@ function filterPaletteEntries<TValue>(
   }
 
   const query = normalizePaletteQuery(input);
+  if (query === '/') {
+    return entries;
+  }
   return entries
     .map((entry) => ({ entry, score: scorePaletteEntry(entry, query) }))
     .filter(({ score }) => score !== Number.POSITIVE_INFINITY)
@@ -394,7 +388,8 @@ export function buildMainActionChoices(input?: string): Array<{
 }> {
   const trimmed = (input ?? '').trim();
   const isShowAll = !trimmed || trimmed === '/';
-  const matchedEntries = filterPaletteEntries(MAIN_ACTION_ENTRIES, input).slice(0, 12);
+  const allMatches = filterPaletteEntries(MAIN_ACTION_ENTRIES, input);
+  const matchedEntries = isShowAll ? allMatches : allMatches.slice(0, 12);
 
   let choices: Array<{ name: string; value: MainActionSelection; disabled?: boolean }>;
 

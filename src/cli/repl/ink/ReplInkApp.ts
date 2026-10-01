@@ -36,6 +36,7 @@ interface OutputBlock {
 
 interface SlashCommandEntry {
   command: string;
+  group?: string;
   description: string;
   argsHint?: string;
   insertText?: string;
@@ -69,40 +70,62 @@ const HEADER_ROWS = 7;
 const BASE_FOOTER_ROWS = 3;
 
 const SLASH_COMMANDS: SlashCommandEntry[] = [
-  { command: '/trace', description: 'Trace symbol or explain file', argsHint: '/trace <file#Symbol> [--maxDepth N]' },
-  { command: '/path', description: 'Set workspace scope', argsHint: '/path <directory>' },
-  { command: '/path-in', description: 'Show incoming path', argsHint: '/path-in <file>' },
-  { command: '/path-out', description: 'Show outgoing path', argsHint: '/path-out <file>' },
-  { command: '/file', description: 'Set active file context', argsHint: '/file <path>' },
-  { command: '/check-dependencies', description: 'Analyze incoming/outgoing deps', argsHint: '/check-dependencies <file> [--incoming|--outgoing|--both]' },
-  { command: '/deps', description: 'Alias of check-dependencies', argsHint: '/deps <file>' },
-  { command: '/dependencies', description: 'Alias of check-dependencies', argsHint: '/dependencies <file>' },
-  { command: '/deps-in', description: 'Incoming dependencies alias', argsHint: '/deps-in <file>' },
-  { command: '/deps-out', description: 'Outgoing dependencies alias', argsHint: '/deps-out <file>' },
-  { command: '/cycles', description: 'Detect dependency cycles', argsHint: '/cycles <file>' },
-  { command: '/cycle', description: 'Alias of cycles', argsHint: '/cycle <file>' },
-  { command: '/summary', description: 'Summarize workspace or file' },
-  { command: '/architecture', description: 'Build workspace graph', argsHint: '/architecture [--maxFiles N]' },
-  { command: '/check', description: 'Find dead code' },
-  { command: '/scan', description: 'Force indexing scan' },
-  { command: '/query', description: 'Query the codebase with natural language', argsHint: '/query "<question>" [--depth N] [--token-budget N]' },
-  { command: '/wiki', description: 'Generate a markdown wiki from the call graph', argsHint: '/wiki [--output <dir>] [--top N] [--format markdown|json|toon]' },
-  { command: '/export', description: 'Export graph as standalone HTML (vis.js)', argsHint: '/export [path] [--output <file>|-o <file>]' },
-  { command: '/command', description: 'Run raw command line', argsHint: '/command <graph-it command...>' },
-  { command: '/format', description: 'Set default output format', argsHint: '/format <text|json|toon|markdown|mermaid>' },
-  { command: '/help', description: 'Show REPL help' },
-  { command: '/quit', description: 'Exit REPL' },
+  { group: 'Navigate', command: '/scope', description: 'Set workspace scope', argsHint: '/scope <directory>' },
+  { group: 'Navigate', command: '/file', description: 'Set active file context', argsHint: '/file <path>' },
+  { group: 'Understand', command: '/trace', description: 'Trace symbol or explain file', argsHint: '/trace <file#Symbol> [--maxDepth N]' },
+  { group: 'Understand', command: '/query', description: 'Query the codebase with natural language', argsHint: '/query "<question>" [--depth N] [--token-budget N]' },
+  { group: 'Relations', command: '/check-dependencies', description: 'Analyze incoming/outgoing deps', argsHint: '/check-dependencies <file> [--incoming|--outgoing|--both]' },
+  { group: 'Relations', command: '/cycles', description: 'Detect dependency cycles', argsHint: '/cycles <file>' },
+  { group: 'Workspace', command: '/summary', description: 'Summarize workspace or file' },
+  { group: 'Workspace', command: '/architecture', description: 'Build workspace graph', argsHint: '/architecture [--maxFiles N]' },
+  { group: 'Workspace', command: '/check', description: 'Find dead code' },
+  { group: 'Workspace', command: '/scan', description: 'Force indexing scan' },
+  { group: 'Output', command: '/format', description: 'Set default output format', argsHint: '/format <text|json|toon|markdown|mermaid>' },
+  { group: 'Output', command: '/export', description: 'Export graph as standalone HTML (vis.js)', argsHint: '/export [path] [--output <file>|-o <file>]' },
+  { group: 'Output', command: '/wiki', description: 'Generate a markdown wiki from the call graph', argsHint: '/wiki [--output <dir>] [--top N] [--format markdown|json|toon]' },
+  { group: 'Session', command: '/help', description: 'Show REPL help' },
+  { group: 'Session', command: '/quit', description: 'Exit REPL' },
 ];
 
+/** Hidden aliases: accepted when typed, never listed in the palette. */
+const SLASH_ALIASES: Record<string, string> = {
+  '/path': '/scope',
+  '/deps': '/check-dependencies',
+  '/dependencies': '/check-dependencies',
+  '/deps-in': '/check-dependencies',
+  '/deps-out': '/check-dependencies',
+  '/path-in': '/check-dependencies',
+  '/path-out': '/check-dependencies',
+  '/cycle': '/cycles',
+};
+
+function resolveSlashAlias(command: string): string {
+  return SLASH_ALIASES[command] ?? command;
+}
+
+function isScopeCommand(command: string): boolean {
+  return resolveSlashAlias(command) === '/scope';
+}
+
 export function getSlashCommandHelpLines(): string[] {
-  return SLASH_COMMANDS.map(({ command, description, argsHint }) => {
+  const lines: string[] = [];
+  let lastGroup = '';
+  for (const { group, command, description, argsHint } of SLASH_COMMANDS) {
+    if (group && group !== lastGroup) {
+      lines.push(`${DIM}${group}${RESET}`);
+      lastGroup = group;
+    }
     const usage = argsHint ?? command;
-    return `  ${usage.padEnd(56)} ${description}`;
-  });
+    lines.push(`  ${usage.padEnd(56)} ${description}`);
+  }
+  const aliases = Object.entries(SLASH_ALIASES).map(([alias, target]) => `${alias} → ${target}`);
+  lines.push(`${DIM}Aliases:${RESET} ${aliases.join(', ')}`);
+  return lines;
 }
 
 const COMMANDS_REQUIRING_ARGS = new Set([
   '/trace',
+  '/scope',
   '/path',
   '/path-in',
   '/path-out',
@@ -114,7 +137,6 @@ const COMMANDS_REQUIRING_ARGS = new Set([
   '/deps-out',
   '/cycles',
   '/cycle',
-  '/command',
   '/format',
 ]);
 
@@ -147,22 +169,6 @@ const ARG_COMPLETIONS: Record<string, Array<{ value: string; description: string
     { value: '--incoming', description: 'Show incoming references' },
     { value: '--outgoing', description: 'Show outgoing dependencies' },
     { value: '--both', description: 'Show incoming and outgoing' },
-  ],
-  '/deps': [
-    { value: '--incoming', description: 'Show incoming references' },
-    { value: '--outgoing', description: 'Show outgoing dependencies' },
-    { value: '--both', description: 'Show incoming and outgoing' },
-  ],
-  '/dependencies': [
-    { value: '--incoming', description: 'Show incoming references' },
-    { value: '--outgoing', description: 'Show outgoing dependencies' },
-    { value: '--both', description: 'Show incoming and outgoing' },
-  ],
-  '/deps-in': [
-    { value: '--incoming', description: 'Show incoming references' },
-  ],
-  '/deps-out': [
-    { value: '--outgoing', description: 'Show outgoing dependencies' },
   ],
   '/architecture': [
     { value: '--maxFiles', description: 'Limit analyzed files' },
@@ -224,7 +230,7 @@ function buildWorkspacePathSuggestions(
   const directories = collectWorkspaceDirectories(allFiles, workspaceRoot);
   const normalizedQuery = query.trim();
 
-  if (command === '/path') {
+  if (command === '/scope') {
     return filterPathSuggestions(directories, normalizedQuery)
       .map((dirPath) => ({
         command: dirPath,
@@ -268,7 +274,7 @@ function buildArgumentSuggestions(
       autoExecute: !candidate.value.startsWith('--'),
     }));
 
-  if (activeCommand === '/path') {
+  if (activeCommand === '/scope') {
     return buildWorkspacePathSuggestions(activeCommand, query, allFiles, workspaceRoot);
   }
 
@@ -323,7 +329,7 @@ function buildPickerEntries(allFiles: string[], workspaceRoot: string, currentDi
   return [...dirEntries, ...fileEntries];
 }
 
-function filterSlashCommands(
+export function filterSlashCommands(
   input: string,
   allFiles: string[],
   workspaceRoot: string,
@@ -344,7 +350,7 @@ function filterSlashCommands(
 
   const commandMatches = commandEntries.filter((entry) => entry.command.startsWith(queryToken));
   if (hasWhitespace) {
-    const activeCommand = commandEntries.find((entry) => entry.command === queryToken)?.command;
+    const activeCommand = commandEntries.find((entry) => entry.command === resolveSlashAlias(queryToken))?.command;
     if (!activeCommand) {
       return commandMatches;
     }
@@ -505,7 +511,7 @@ function getPathSuggestionPreview(commandLine: string, selectedPath?: string): s
 
   const trimmed = commandLine.trim();
   const firstToken = getFirstToken(trimmed);
-  if (firstToken !== '/path' && !FILE_ARGUMENT_COMMANDS.has(firstToken)) {
+  if (!isScopeCommand(firstToken) && !FILE_ARGUMENT_COMMANDS.has(firstToken)) {
     return '';
   }
 
@@ -826,7 +832,7 @@ function handlePickerBackspaceKey(key: PickerInputKey, ctx: PickerInputContext):
 
 function handlePickerEnterKey(ctx: PickerInputContext): void {
   const entry = ctx.pickerEntries[ctx.pickerIndex];
-  const targetCommand = ctx.pickerTarget?.command ?? (ctx.pickerMode === 'path' ? '/path' : '/file');
+  const targetCommand = ctx.pickerTarget?.command ?? (ctx.pickerMode === 'path' ? '/scope' : '/file');
   if (!entry) {
     if (ctx.pickerMode === 'path') {
       ctx.runCommand(`${targetCommand} ${ctx.pickerDir || '.'}`);
@@ -870,7 +876,7 @@ function handlePickerInputEvent(
   }
   if (handlePickerBackspaceKey(key, ctx)) return true;
   if (input === ' ' && ctx.pickerMode === 'path') {
-    const targetCommand = ctx.pickerTarget?.command ?? '/path';
+    const targetCommand = ctx.pickerTarget?.command ?? '/scope';
     ctx.runCommand(`${targetCommand} ${ctx.pickerDir || '.'}`);
     closePicker(ctx);
     ctx.setCommandLine('');
@@ -906,7 +912,7 @@ function tryExecuteSelectedArgumentSuggestion(
   }
 
   const completedLine = buildCommandLineFromSelection(commandLine, selectedSlashSuggestion).trim();
-  if (completedLine.startsWith('/path ') || completedLine.startsWith('/file ')) {
+  if (isScopeCommand(getFirstToken(completedLine)) || completedLine.startsWith('/file ')) {
     runCommand(completedLine);
     return true;
   }
@@ -934,7 +940,7 @@ function handleCommandSelectionBranch(
     return;
   }
 
-  if (selectedCommand === '/path') {
+  if (isScopeCommand(selectedCommand)) {
     onActivatePicker('path', { command: selectedCommand });
   } else if (FILE_ARGUMENT_COMMANDS.has(selectedCommand) && !hasUsableFileContext(displayLastFile)) {
     onActivatePicker('file', { command: selectedCommand });
@@ -1057,8 +1063,8 @@ function handleCommandInputEvent(
       return true;
     }
 
-    if (trimmed === '/path' || trimmed === '/file') {
-      onActivatePicker(trimmed === '/path' ? 'path' : 'file', { command: trimmed });
+    if (isScopeCommand(trimmed) || trimmed === '/file') {
+      onActivatePicker(isScopeCommand(trimmed) ? 'path' : 'file', { command: trimmed });
       setCommandLine('');
       return true;
     }
@@ -1245,7 +1251,7 @@ export async function runInkReplSession(options: RunInkReplSessionOptions): Prom
     const completionPreview = useMemo(
       () => {
         if (selectedSlashSuggestion?.isArgument) {
-          if (selectedSlashSuggestion.targetCommand === '/path' || selectedSlashSuggestion.targetCommand === '/file') {
+          if (selectedSlashSuggestion.targetCommand === '/scope' || selectedSlashSuggestion.targetCommand === '/file') {
             return getPathSuggestionPreview(commandLine, selectedSlashSuggestion.insertText ?? selectedSlashSuggestion.command);
           }
           return getArgumentCompletionPreview(commandLine, selectedSlashSuggestion.insertText ?? selectedSlashSuggestion.command);
@@ -1305,7 +1311,7 @@ export async function runInkReplSession(options: RunInkReplSessionOptions): Prom
 
     const onActivatePicker = (mode: 'path' | 'file', target?: PickerTarget): void => {
       setPickerMode(mode);
-      setPickerTarget(target ?? { command: mode === 'path' ? '/path' : '/file' });
+      setPickerTarget(target ?? { command: mode === 'path' ? '/scope' : '/file' });
       setPickerDir('');
       setPickerIndex(0);
       setNotice(mode === 'path'
@@ -1480,7 +1486,7 @@ export async function runInkReplSession(options: RunInkReplSessionOptions): Prom
           return h(
             Text,
             { key: `slash-${absoluteIndex}-${entry.command}` },
-            `${color}${prefix} ${entry.command.padEnd(20)}${RESET} ${entry.description}`,
+            `${color}${prefix} ${entry.command.padEnd(20)}${RESET} ${entry.description}${entry.group ? ` ${DIM}· ${entry.group}${RESET}` : ''}`,
           );
         });
         footerItems.push(...suggestionNodes);

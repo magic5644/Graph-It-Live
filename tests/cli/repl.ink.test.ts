@@ -7,6 +7,8 @@
 
 /// <reference types="node" />
 
+import * as fs from 'node:fs/promises';
+import * as os from 'node:os';
 import * as path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { CliRuntime } from '../../src/cli/runtime';
@@ -31,13 +33,13 @@ vi.mock('../../src/analyzer/SourceFileCollector.js', () => ({
 
 import { run } from '../../src/cli/commands/repl';
 
-async function startInkSession(): Promise<{ preferredFormat: string; submit: SubmitCommand }> {
+async function startInkSession(workspaceRoot = '/workspace'): Promise<{ preferredFormat: string; submit: SubmitCommand }> {
   let captured: { preferredFormat: string; onSubmitCommand: SubmitCommand } | undefined;
   mocks.runInkReplSession.mockImplementation(async (options) => {
     captured = options;
   });
   const runtime = {
-    workspaceRoot: '/workspace',
+    workspaceRoot,
     init: vi.fn().mockResolvedValue(undefined),
     ensureIndexed: vi.fn().mockResolvedValue({ filesIndexed: 1, durationMs: 1 }),
   };
@@ -80,6 +82,32 @@ describe('Ink REPL session context', () => {
 
     expect(response.output).toContain('Unknown format "bogus"');
     expect(response.updatedContext).toBeUndefined();
+  });
+
+  it('sets the workspace scope with /scope and with the hidden /path alias', async () => {
+    const workspaceRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'graph-it-scope-'));
+    try {
+      await fs.mkdir(path.join(workspaceRoot, 'src'));
+      const session = await startInkSession(workspaceRoot);
+
+      const scoped = await session.submit('/scope src');
+      const aliased = await session.submit(`/path ${path.join(workspaceRoot, 'src')}`);
+
+      expect(scoped.output).toBe('Session workspace set to src.');
+      expect(aliased.output).toBe('Session workspace set to src.');
+    } finally {
+      await fs.rm(workspaceRoot, { recursive: true, force: true });
+    }
+  });
+
+  it('shows /scope usage without an argument and refuses a directory outside the root', async () => {
+    const session = await startInkSession();
+
+    const usage = await session.submit('/scope');
+    const outside = await session.submit('/scope ..');
+
+    expect(usage.output).toContain('Usage: /scope <directory>');
+    expect(outside.output).toBe('Refusing to set workspace scope outside project root.');
   });
 
   it('sends no context update when /format sets the current format again', async () => {
