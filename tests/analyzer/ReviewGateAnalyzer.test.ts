@@ -88,6 +88,9 @@ describe("ReviewGateAnalyzer", () => {
   it("rejects invalid limits and renders hostile values as safe Markdown", async () => {
     const workspace = await createGitWorkspace();
     await expect(new ReviewGateAnalyzer(workspace).analyze({ baseRef: "main", maxFiles: 0 })).rejects.toThrow("maxFiles");
+    await expect(new ReviewGateAnalyzer(workspace).analyze({ baseRef: "--output=pwned.txt" })).rejects.toThrow("baseRef");
+    await expect(new ReviewGateAnalyzer(workspace).analyze({ baseRef: "main", headRef: "-p" })).rejects.toThrow("headRef");
+    await expect(new ReviewGateAnalyzer(workspace).analyze({ baseRef: "" })).rejects.toThrow("baseRef");
     const markdown = renderReviewMarkdown({
       baseRef: "main",
       headRef: "HEAD",

@@ -127,6 +127,8 @@ export class ReviewGateAnalyzer {
     const maxFiles = this.validateLimit(options.maxFiles, DEFAULT_MAX_FILES, MAX_MAX_FILES, "maxFiles");
     const maxDepth = this.validateLimit(options.maxDepth, DEFAULT_MAX_DEPTH, MAX_MAX_DEPTH, "maxDepth");
     const headRef = options.headRef ?? "HEAD";
+    this.validateRef(options.baseRef, "baseRef");
+    this.validateRef(headRef, "headRef");
     const changedFiles = await this.getChangedFiles(options.baseRef, headRef, maxFiles);
     const changedFileSet = new Set(changedFiles);
     const symbols: ReviewSymbol[] = [];
@@ -153,6 +155,13 @@ export class ReviewGateAnalyzer {
       isPartial: limitations.length > 0,
       limitations,
     };
+  }
+
+  /** A ref starting with "-" would reach git as an option (for example --output=<file>). */
+  private validateRef(ref: string, name: string): void {
+    if (ref.length === 0 || ref.startsWith("-")) {
+      throw new Error(`${name} must be a Git ref that does not start with "-"`);
+    }
   }
 
   private validateLimit(value: number | undefined, fallback: number, maximum: number, name: string): number {

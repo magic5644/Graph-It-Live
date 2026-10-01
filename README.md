@@ -178,11 +178,11 @@ When the extension is installed, use these tools in Copilot Agent mode without c
 | --- | --- |
 | Navigation | Dependencies, reverse dependencies, imports, module resolution, workspace index status |
 | Symbols | Symbol graphs, callers, dependents, execution traces |
-| Refactoring | Breaking changes, impact analysis, unused symbols, dead-code scans |
+| Refactoring | Breaking changes, impact analysis, unused symbols, dead-code scans, Git diff review |
 | Context | File logic, codemaps, unified graph context, natural-language graph queries |
 | Call graph | Cross-file caller/callee queries and neighbourhood expansion |
 
-The graph-context tool is available as `#graphContext`. Other native references include `#graphDeps`, `#graphFindRefs`, `#graphCallers`, `#graphImpact`, `#graphCodemap`, `#graphTrace`, `#graphDeadCode`, and `#graphQuery`.
+The graph-context tool is available as `#graphContext`. Other native references include `#graphDeps`, `#graphFindRefs`, `#graphCallers`, `#graphImpact`, `#graphCodemap`, `#graphTrace`, `#graphDeadCode`, `#graphReviewPr`, and `#graphQuery`.
 
 ### MCP server
 
