@@ -10,6 +10,7 @@
 
 import { spawnSync } from 'node:child_process';
 import * as fs from 'node:fs';
+import * as os from 'node:os';
 import * as path from 'node:path';
 import { describe, expect, it } from 'vitest';
 
@@ -19,12 +20,21 @@ const { version } = JSON.parse(fs.readFileSync(path.join(pluginDir, 'plugin.json
   version: string;
 };
 
-function check(checkedVersion: string) {
-  return spawnSync(
-    process.execPath,
-    ['scripts/sync-agent-plugin-version.mjs', '--check', checkedVersion],
-    { cwd: root, encoding: 'utf8' },
-  );
+const script = path.join(root, 'scripts', 'sync-agent-plugin-version.mjs');
+const syncedFiles = [
+  'plugins/graph-it-live/plugin.json',
+  'plugins/graph-it-live/.codex-plugin/plugin.json',
+  'plugins/graph-it-live/.claude-plugin/plugin.json',
+  'plugins/graph-it-live/mcp.json',
+  'plugins/graph-it-live/.mcp.json',
+  '.claude-plugin/marketplace.json',
+];
+
+function check(checkedVersion: string, cwd = root) {
+  return spawnSync(process.execPath, [script, '--check', checkedVersion], {
+    cwd,
+    encoding: 'utf8',
+  });
 }
 
 describe('agent plugin manifests', () => {
@@ -55,6 +65,23 @@ describe('agent plugin manifests', () => {
     expect(result.stderr).toContain('plugins/graph-it-live/.mcp.json');
     expect(result.stderr).toContain('.claude-plugin/marketplace.json');
     expect(fs.readFileSync(path.join(pluginDir, '.mcp.json'), 'utf8')).toBe(before);
+  });
+
+  it('ignore CRLF line endings from a Windows checkout', () => {
+    const copy = fs.mkdtempSync(path.join(os.tmpdir(), 'graph-it-plugin-sync-'));
+    try {
+      for (const file of syncedFiles) {
+        const target = path.join(copy, file);
+        fs.mkdirSync(path.dirname(target), { recursive: true });
+        const text = fs.readFileSync(path.join(root, file), 'utf8').replaceAll('\r\n', '\n');
+        fs.writeFileSync(target, text.replaceAll('\n', '\r\n'));
+      }
+      const result = check(version, copy);
+      expect(result.stderr).toBe('');
+      expect(result.status).toBe(0);
+    } finally {
+      fs.rmSync(copy, { recursive: true, force: true });
+    }
   });
 
   it('reject a version that is not semver', () => {

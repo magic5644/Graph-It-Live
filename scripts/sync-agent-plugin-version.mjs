@@ -61,7 +61,8 @@ const mismatches = [];
 
 async function sync(path, content) {
   const text = `${JSON.stringify(content, null, 2)}\n`;
-  if (await readFile(path, 'utf8') === text) return;
+  // Windows checkouts with core.autocrlf turn LF into CRLF; line endings are not drift.
+  if ((await readFile(path, 'utf8')).replaceAll('\r\n', '\n') === text) return;
   mismatches.push(path);
   if (!checkOnly) await writeFile(path, text);
 }
