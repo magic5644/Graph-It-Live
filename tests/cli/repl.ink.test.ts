@@ -90,11 +90,12 @@ describe('Ink REPL session context', () => {
       await fs.mkdir(path.join(workspaceRoot, 'src'));
       const session = await startInkSession(workspaceRoot);
 
-      const scoped = await session.submit('/scope src');
-      const aliased = await session.submit(`/path ${path.join(workspaceRoot, 'src')}`);
+      const aliased = await session.submit('/path src');
+      // Relative to the current scope, so '.' keeps src.
+      const scoped = await session.submit('/scope .');
 
-      expect(scoped.output).toBe('Session workspace set to src.');
       expect(aliased.output).toBe('Session workspace set to src.');
+      expect(scoped.output).toBe('Session workspace set to src.');
     } finally {
       await fs.rm(workspaceRoot, { recursive: true, force: true });
     }
