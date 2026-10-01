@@ -87,7 +87,7 @@ describe("CliRuntime index cache", { timeout: 15_000 }, () => {
     expect(fs.existsSync(path.join(cacheDir, "reverse-index.json"))).toBe(true);
     const meta = JSON.parse(fs.readFileSync(path.join(cacheDir, "meta.json"), "utf-8"));
     expect(normalizePath(meta.workspaceRoot)).toBe(normalizePath(tmpDir));
-    expect(meta.schema).toBe(1);
+    expect(meta.schema).toBe(2);
   });
 
   it("restores the cached index on the next run", async () => {
@@ -173,11 +173,11 @@ describe("CliRuntime index cache", { timeout: 15_000 }, () => {
     expect((await run()).callers).toBe(12);
   });
 
-  it("rebuilds when the guard records a different CLI version", async () => {
+  it("rebuilds when the guard records a different version", async () => {
     await run();
     const metaPath = path.join(cacheDir, "meta.json");
     const meta = JSON.parse(fs.readFileSync(metaPath, "utf-8"));
-    fs.writeFileSync(metaPath, JSON.stringify({ ...meta, cliVersion: "999.0.0" }));
+    fs.writeFileSync(metaPath, JSON.stringify({ ...meta, version: "999.0.0" }));
 
     expect((await run()).callers).toBe(12);
   });
@@ -278,22 +278,23 @@ describe("CliRuntime index cache", { timeout: 15_000 }, () => {
     expect(second.fromCache).toBe(first.fromCache);
   });
 
-  it("persists the call graph database alongside the reverse index", async () => {
-    const runtime = new CliRuntime(tmpDir);
-    runtimes.push(runtime);
-    await runtime.init();
-    await runtime.ensureIndexed({ silent: true });
-    // Stand in for a command that built a call graph (query / context / wiki).
-    workerState.callGraphIndexer = {
-      exportDb: () => new Uint8Array([1, 2, 3]),
-      dispose: vi.fn(),
-    } as unknown as typeof workerState.callGraphIndexer;
+  it("waits for another process indexing the workspace, then loads its result", async () => {
+    await run();
+    // Stand in for the extension or the MCP server indexing right now.
+    const lockPath = path.join(cacheDir, "index.lock");
+    fs.writeFileSync(lockPath, JSON.stringify({ pid: process.ppid, acquiredAt: Date.now() }));
+    setTimeout(() => fs.rmSync(lockPath), 300);
 
-    await runtime.dispose();
+    const buildFullIndex = vi.spyOn(Spider.prototype, "buildFullIndex");
+    try {
+      const { stderr, outcome } = await runVerbose();
 
-    expect(fs.readFileSync(path.join(cacheDir, "callgraph.db"))).toEqual(
-      Buffer.from([1, 2, 3]),
-    );
+      expect(stderr).toContain(`Waiting for the index being built by process ${process.ppid}`);
+      expect(outcome).toMatchObject({ fromCache: true, filesAnalyzed: 0 });
+      expect(buildFullIndex).not.toHaveBeenCalled();
+    } finally {
+      buildFullIndex.mockRestore();
+    }
   });
 
   it("discards an old call graph when a config change only rebuilds the reverse index", async () => {
@@ -315,11 +316,11 @@ describe("CliRuntime index cache", { timeout: 15_000 }, () => {
       const runtime = new CliRuntime(tmpDir);
       runtimes.push(runtime);
       await runtime.init();
-      await runtime.ensureIndexed({ silent: true });
       fs.mkdirSync(cacheDir, { recursive: true });
       fs.chmodSync(cacheDir, 0o500);
 
       try {
+        await expect(runtime.ensureIndexed({ silent: true })).resolves.toMatchObject({ fromCache: false });
         await expect(runtime.dispose()).resolves.not.toThrow();
       } finally {
         fs.chmodSync(cacheDir, 0o700);
@@ -331,13 +332,13 @@ describe("CliRuntime index cache", { timeout: 15_000 }, () => {
     const runtime = new CliRuntime(tmpDir);
     runtimes.push(runtime);
     await runtime.init();
-    await runtime.ensureIndexed({ silent: true });
     // A plain file where the cache directory belongs makes the mkdir fail on
     // every OS. A cache that cannot be written costs the next run some time; it
     // must never turn into a failed command.
     fs.mkdirSync(path.dirname(cacheDir), { recursive: true });
     fs.writeFileSync(cacheDir, "not a directory");
 
+    await expect(runtime.ensureIndexed({ silent: true })).resolves.toMatchObject({ fromCache: false });
     await expect(runtime.dispose()).resolves.not.toThrow();
     expect(fs.statSync(cacheDir).isFile()).toBe(true);
   });

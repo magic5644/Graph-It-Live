@@ -184,6 +184,8 @@ function nodeBundle(entryPoint, outfile, extra = {}) {
     target: 'node20',
     metafile: !!metafilePath,
     loader: { '.wasm': 'file' },
+    // Every Node bundle stamps the shared .graph-it/cache/ guard with the same version.
+    define: { 'process.env.CLI_VERSION': JSON.stringify(CLI_VERSION) },
     ...extra,
   };
 }
@@ -229,7 +231,6 @@ async function createAllContexts() {
   const mcpWorker = await esbuild.context(nodeBundle('src/mcp/McpWorker.ts', 'dist/mcpWorker.js', { external: ['web-tree-sitter'] }));
   const cli = await esbuild.context(nodeBundle('src/cli/index.ts', 'dist/graph-it.js', {
     external: ['vscode', 'web-tree-sitter', 'ink', 'react', 'react-dom', 'react-devtools-core'],
-    define: { 'process.env.CLI_VERSION': JSON.stringify(CLI_VERSION) },
   }));
   const webview = cliOnly ? null : await esbuild.context(browserBundle('src/webview/index.tsx', 'dist/webview.js'));
   const callgraphWebview = cliOnly ? null : await esbuild.context(browserBundle('src/webview/callgraph/index.tsx', 'dist/callgraph.js'));

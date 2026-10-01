@@ -1,5 +1,6 @@
 import * as vscode from 'vscode';
 import * as path from 'node:path';
+import { IndexCache, type ReverseIndexOptions } from '../../analyzer/cache/IndexCache';
 import { Spider } from '../../analyzer/Spider';
 
 type Logger = {
@@ -9,10 +10,9 @@ type Logger = {
   debug: (message: string, ...args: unknown[]) => void;
 };
 
-export interface BackgroundIndexingConfig {
+export interface BackgroundIndexingConfig extends ReverseIndexOptions {
   enableBackgroundIndexing: boolean;
   indexingStartDelay: number;
-  persistIndex: boolean;
 }
 
 interface BackgroundIndexingManagerOptions {
@@ -24,7 +24,8 @@ interface BackgroundIndexingManagerOptions {
   initialConfig: BackgroundIndexingConfig;
 }
 
-const REVERSE_INDEX_STORAGE_KEY = 'graph-it-live.reverseIndex';
+/** Where versions before the shared .graph-it/cache/ kept the index; cleared on start. */
+const LEGACY_REVERSE_INDEX_STORAGE_KEY = 'graph-it-live.reverseIndex';
 const WORKER_SCRIPT_PATH = 'dist/indexerWorker.js';
 
 export class BackgroundIndexingManager {
@@ -41,6 +42,7 @@ export class BackgroundIndexingManager {
   private indexingTask: Promise<void> | null = null;
   private disposed = false;
   private disposeTask: Promise<void> | null = null;
+  private cacheTask: Promise<IndexCache> | null = null;
 
   constructor(options: BackgroundIndexingManagerOptions) {
     this.context = options.context;
@@ -100,14 +102,23 @@ export class BackgroundIndexingManager {
     }
   }
 
-  async persistIndexIfEnabled(): Promise<void> {
-    if (this.disposed || !this.config.persistIndex) {
-      return;
-    }
+  /**
+   * Write the reverse index to the shared .graph-it/cache/. Skipped while another
+   * process holds the lock: it is indexing and writes a fresher index itself.
+   */
+  async persistIndex(): Promise<void> {
+    if (!this.cacheTask) return;
     const serialized = this.spider.getSerializedReverseIndex();
-    if (serialized) {
-      await this.context.workspaceState.update(REVERSE_INDEX_STORAGE_KEY, serialized);
-      this.log.debug('Persisted reverse index to workspace state');
+    if (!serialized) return;
+    const cache = await this.cacheTask;
+    const release = cache.tryLock();
+    if (!release) return;
+    try {
+      if (cache.save({ reverseIndex: { data: serialized, options: this.reverseIndexOptions() } })) {
+        this.log.debug('Persisted reverse index to', cache.dir);
+      }
+    } finally {
+      release();
     }
   }
 
@@ -115,7 +126,6 @@ export class BackgroundIndexingManager {
     this.cancelScheduledIndexing();
     this.spider.cancelIndexing();
     this.spider.disableReverseIndex();
-    await this.context.workspaceState.update(REVERSE_INDEX_STORAGE_KEY, undefined);
     this.statusBarItem.hide();
   }
 
@@ -139,6 +149,9 @@ export class BackgroundIndexingManager {
     // Only dispose if the status bar item was actually created (lazy initialization)
     this._statusBarItem?.dispose();
     await Promise.allSettled([this.restoreTask, this.indexingTask].filter((task): task is Promise<void> => task !== null));
+    // Saved once on shutdown rather than on every file save: the next reader
+    // re-validates file mtimes and re-indexes only what changed since.
+    await this.persistIndex().catch((error: unknown) => this.log.warn('Could not persist index:', error));
   }
 
   private clearScheduledIndexing(): void {
@@ -148,17 +161,49 @@ export class BackgroundIndexingManager {
     }
   }
 
+  private reverseIndexOptions(): ReverseIndexOptions {
+    return {
+      excludeNodeModules: this.config.excludeNodeModules,
+      ignoreTypeImports: this.config.ignoreTypeImports,
+    };
+  }
+
+  private getCache(): Promise<IndexCache> {
+    this.cacheTask ??= IndexCache.open(this.spider.workspaceRoot);
+    return this.cacheTask;
+  }
+
+  /**
+   * Restore the index the CLI, the MCP server or a previous session wrote.
+   * Holds the cache lock throughout, so a process indexing right now is waited
+   * for and its result restored instead of indexing the workspace a second time.
+   */
   private async tryRestoreIndex(): Promise<void> {
     if (this.disposed || !this.config.enableBackgroundIndexing) {
       return;
     }
+    await this.context.workspaceState.update(LEGACY_REVERSE_INDEX_STORAGE_KEY, undefined);
 
-    if (!this.config.persistIndex) {
-      await this.startBackgroundIndexingWithProgress();
-      return;
+    const cache = await this.getCache();
+    if (this.disposed) return;
+    let waited = false;
+    const release = await cache.lock((holderPid) => {
+      waited = true;
+      this.statusBarItem.text = '$(sync~spin) Graph-It-Live: Waiting for index...';
+      this.statusBarItem.tooltip = `Another process (${holderPid ?? 'unknown'}) is indexing this workspace`;
+      this.statusBarItem.show();
+    });
+    if (waited) this._statusBarItem?.hide();
+    try {
+      await this.restoreIndex(cache);
+    } finally {
+      release();
     }
+  }
 
-    const storedIndex = this.context.workspaceState.get<string>(REVERSE_INDEX_STORAGE_KEY);
+  private async restoreIndex(cache: IndexCache): Promise<void> {
+    if (this.disposed) return;
+    const storedIndex = cache.readReverseIndex(this.reverseIndexOptions());
     if (!storedIndex) {
       this.log.info('No persisted index found, starting fresh indexing');
       await this.startBackgroundIndexingWithProgress();
@@ -196,7 +241,7 @@ export class BackgroundIndexingManager {
           progress.report({ message: `Re-indexing ${validation.staleFiles.length} changed files...` });
           await this.spider.reindexStaleFiles(validation.staleFiles);
           if (this.disposed) return;
-          await this.persistIndexIfEnabled();
+          await this.persistIndex();
           this.log.info('Incremental re-index complete');
         } else {
           await this.startBackgroundIndexingWithProgress();
@@ -217,6 +262,16 @@ export class BackgroundIndexingManager {
   }
 
   private async runBackgroundIndexingWithProgress(): Promise<void> {
+    if (this.disposed) return;
+    const release = await (await this.getCache()).lock();
+    try {
+      await this.buildIndexWithProgress();
+    } finally {
+      release();
+    }
+  }
+
+  private async buildIndexWithProgress(): Promise<void> {
     if (this.disposed) return;
 
     const workerPath = path.join(this.extensionUri.fsPath, WORKER_SCRIPT_PATH);
@@ -247,7 +302,7 @@ export class BackgroundIndexingManager {
       } else {
         this.log.info('Indexed', result.indexedFiles, 'files in', result.duration, 'ms');
         this.statusBarItem.text = `$(check) Graph-It-Live: ${result.indexedFiles} files indexed`;
-        await this.persistIndexIfEnabled();
+        await this.persistIndex();
         if (this.disposed) return;
         await this.onIndexingComplete();
         if (this.disposed) return;

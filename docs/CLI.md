@@ -176,13 +176,20 @@ cd /path/to/project && graph-it scan
 Each command runs in its own process, so without a cache every invocation would
 re-parse the whole workspace. `graph-it` persists its indexes under
 `.graph-it/cache/` in the workspace and reuses them on the next run, re-analyzing
-only the files that changed:
+only the files that changed. The MCP server and the VS Code extension read and
+write the same cache, so whichever starts first indexes the workspace for all
+three:
 
 | File | Contents |
 |------|----------|
-| `meta.json` | Guard: cache layout version, CLI version, workspace root |
+| `meta.json` | Guard: cache layout version, Graph-It-Live version, workspace root, resolver config fingerprint |
 | `reverse-index.json` | File-level dependency / reverse-dependency index |
-| `callgraph.db` | SQLite call graph (written by `context`, `query`, `wiki`) |
+| `callgraph.db` | SQLite call graph (written by `context`, `query`, `wiki`, the MCP server and the extension) |
+| `index.lock` | Held while a process indexes; the others wait, then load its result |
+
+A process that finds `index.lock` held waits for it (the CLI prints
+`Waiting for the index being built by process N...`). A lock whose process is
+gone, or older than 10 minutes, is taken over.
 
 The cache is invalidated automatically when the CLI version changes, when a
 language query file is updated, per file by modification time and size, and
@@ -191,8 +198,9 @@ rebuild. Added, deleted and renamed files are all detected.
 
 Turn it off with `--no-cache` (or `GRAPH_IT_NO_CACHE=1`), and force a clean
 rebuild with `--reindex`. The VS Code extension also stores its local Branch
-Watch base/head selection in `.graph-it/branch-watch.json`; it is ignored by
-Git alongside the cache. `.graph-it/` is disposable; delete it at any time.
+Watch base/head selection in `.graph-it/branch-watch.json`. `.graph-it/` writes
+its own `.gitignore`, so none of it shows up in `git status`. It is disposable;
+delete it at any time.
 
 > Global options must appear **before** the command name:
 > `graph-it --reindex summary`, not `graph-it summary --reindex`.

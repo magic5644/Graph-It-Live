@@ -14,9 +14,6 @@ function createOptions(overrides: Partial<EventHubOptions> = {}): EventHubOption
     reanalyzeFile: vi.fn(),
     handleFileDeleted: vi.fn(),
   };
-  const indexingManager = {
-    persistIndexIfEnabled: vi.fn(),
-  };
   const stateManager = {
     currentSymbol: undefined,
     selectedSymbolId: undefined,
@@ -27,7 +24,6 @@ function createOptions(overrides: Partial<EventHubOptions> = {}): EventHubOption
 
   return {
     spider: spider as unknown as EventHubOptions["spider"],
-    indexingManager: indexingManager as unknown as EventHubOptions["indexingManager"],
     unusedAnalysisCache: { invalidate: vi.fn() } as unknown as EventHubOptions["unusedAnalysisCache"],
     stateManager,
     navigationService: undefined,
@@ -57,7 +53,6 @@ describe("ExtensionEventHub", () => {
     expect(options.unusedAnalysisCache?.invalidate).toHaveBeenCalled();
     expect(options.stateManager.invalidateSymbolCache).toHaveBeenCalled();
     expect(options.spider?.reanalyzeFile).toHaveBeenCalled();
-    expect(options.indexingManager?.persistIndexIfEnabled).toHaveBeenCalled();
     expect(options.updateGraph).toHaveBeenCalledWith(true, "fileSaved");
   });
 
@@ -68,6 +63,5 @@ describe("ExtensionEventHub", () => {
     await hub.handleFileChange("/workspace/src/index.ts", "change" as EventType);
 
     expect(options.spider?.reanalyzeFile).toHaveBeenCalled();
-    expect(options.indexingManager?.persistIndexIfEnabled).toHaveBeenCalled();
   });
 });

@@ -373,7 +373,7 @@ async function doInitializeWorker(): Promise<void> {
         extensionPath: currentConfig.extensionPath,
         excludeNodeModules: currentConfig.excludeNodeModules,
         maxDepth: currentConfig.maxDepth,
-        cacheDir: path.join(getWorkspaceRoot(), ".graph-it", "cache"),
+        shareIndexCache: true,
       },
       (processed, total, currentFile) => {
         debugLog(

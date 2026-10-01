@@ -39,6 +39,7 @@
 
 import { parentPort } from "node:worker_threads";
 import { AstWorkerHost } from "../analyzer/ast/AstWorkerHost";
+import { IndexCache, restoreOrBuildIndex, type ReverseIndexOptions } from "../analyzer/cache/IndexCache";
 import { Parser } from "../analyzer/Parser";
 import { SpiderBuilder } from "../analyzer/SpiderBuilder";
 import { PathResolver } from "../analyzer/utils/PathResolver";
@@ -177,26 +178,31 @@ async function handleInit(cfg: McpWorkerConfig): Promise<void> {
     }
   });
 
-  // Perform warmup: build full index of the workspace
+  // Perform warmup: restore the shared cache, or build the full index
   log.info("Starting warmup indexing...");
 
   try {
-    const result = await spider.buildFullIndex();
+    workerState.indexCache = cfg.shareIndexCache ? await IndexCache.open(cfg.rootDir) : null;
+    const { cancelled: _cancelled, ...result } = await restoreOrBuildIndex(spider, {
+      cache: workerState.indexCache,
+      reverseIndexOptions: reverseIndexOptions(cfg),
+      buildFullIndex: () => spider.buildFullIndex(),
+      onWait: (holderPid) => log.info("Waiting for the index being built by process", holderPid),
+    });
+    const durationMs = Date.now() - startTime;
 
-    workerState.warmupInfo = {
-      completed: true,
-      durationMs: result.duration,
-      filesIndexed: result.indexedFiles,
-    };
+    workerState.warmupInfo = { completed: true, durationMs, ...result };
 
     workerState.isReady = true;
     const totalDuration = Date.now() - startTime;
 
     log.info(
       "Warmup complete:",
-      result.indexedFiles,
-      "files indexed in",
-      result.duration,
+      result.filesIndexed,
+      result.fromCache ? "files restored from cache," : "files indexed,",
+      result.filesAnalyzed,
+      "analyzed in",
+      durationMs,
       "ms",
     );
 
@@ -206,7 +212,7 @@ async function handleInit(cfg: McpWorkerConfig): Promise<void> {
     postMessage({
       type: "ready",
       warmupDuration: totalDuration,
-      indexedFiles: result.indexedFiles,
+      indexedFiles: result.filesIndexed,
     });
   } catch (error) {
     const errorMessage =
@@ -225,6 +231,28 @@ async function handleInit(cfg: McpWorkerConfig): Promise<void> {
   }
 }
 
+function reverseIndexOptions(cfg: McpWorkerConfig): ReverseIndexOptions {
+  return { excludeNodeModules: cfg.excludeNodeModules, ignoreTypeImports: false };
+}
+
+/**
+ * Write back what the file watcher changed since warmup. Skipped while another
+ * process holds the lock: it is indexing and writes a fresher index itself.
+ */
+function persistReverseIndex(): void {
+  const cache = workerState.indexCache;
+  const config = workerState.config;
+  const data = workerState.spider?.getSerializedReverseIndex();
+  if (!cache || !config || !data || !workerState.warmupInfo.completed) return;
+  const release = cache.tryLock();
+  if (!release) return;
+  try {
+    cache.save({ reverseIndex: { data, options: reverseIndexOptions(config) } });
+  } finally {
+    release();
+  }
+}
+
 /**
  * Handle shutdown message
  */
@@ -239,6 +267,7 @@ async function handleShutdown(): Promise<void> {
 
   // Cancel any pending operations
   workerState.spider?.cancelIndexing();
+  persistReverseIndex();
 
   // Stop AstWorkerHost
   if (workerState.astWorkerHost) {

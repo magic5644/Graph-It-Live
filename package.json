@@ -1293,7 +1293,8 @@
         "graph-it-live.persistIndex": {
           "type": "boolean",
           "default": false,
-          "description": "Persist the reverse index to disk for faster startup. Files are validated using mtime and size to detect changes. Enable this option only if you have some performance issues on large projects."
+          "description": "Persist the reverse index to disk for faster startup. Files are validated using mtime and size to detect changes. Enable this option only if you have some performance issues on large projects.",
+          "deprecationMessage": "No longer used: the index is always shared with the CLI and MCP server in .graph-it/cache/."
         },
         "graph-it-live.indexingConcurrency": {
           "type": "number",

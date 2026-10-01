@@ -3,6 +3,7 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { GraphExtractor } from "@/analyzer/callgraph/GraphExtractor";
+import { IndexCache } from "@/analyzer/cache/IndexCache";
 import { ensureCallGraphReady } from "@/mcp/tools/callgraph";
 import { workerState } from "@/mcp/shared/state";
 import { normalizePath } from "@/shared/path";
@@ -21,7 +22,7 @@ describe.runIf(HAS_WASM)("call graph cache", () => {
     fs.writeFileSync(filePath, content);
   };
 
-  const configure = (withCache: boolean): void => {
+  const configure = async (withCache: boolean): Promise<void> => {
     workerState.callGraphIndexer = null;
     workerState.callGraphIndexedRoot = null;
     workerState.config = {
@@ -29,13 +30,13 @@ describe.runIf(HAS_WASM)("call graph cache", () => {
       excludeNodeModules: true,
       maxDepth: 50,
       extensionPath: EXTENSION_PATH,
-      cacheDir: withCache ? cacheDir : undefined,
     };
+    workerState.indexCache = withCache ? await IndexCache.open(tmpDir) : null;
   };
 
   /** One process: index and let the call-graph service persist its database. */
   const indexOnce = async (withCache = true): Promise<void> => {
-    configure(withCache);
+    await configure(withCache);
     await ensureCallGraphReady();
   };
 
@@ -66,9 +67,8 @@ describe.runIf(HAS_WASM)("call graph cache", () => {
   });
 
   it("keeps the in-memory index usable when cache persistence fails", async () => {
-    const blockerPath = path.join(tmpDir, "not-a-directory");
-    fs.writeFileSync(blockerPath, "file");
-    cacheDir = path.join(blockerPath, "cache");
+    // A plain file where .graph-it/ belongs makes every write fail on every OS.
+    fs.writeFileSync(path.dirname(cacheDir), "file");
 
     await expect(indexOnce()).resolves.toBeUndefined();
 
@@ -161,12 +161,43 @@ describe.runIf(HAS_WASM)("call graph cache", () => {
     }
   });
 
-  it("indexes from scratch when no cacheDir is configured", async () => {
+  it("indexes from scratch when no cache is configured", async () => {
     await indexOnce();
 
     const extractFile = vi.spyOn(GraphExtractor.prototype, "extractFile");
     try {
       await indexOnce(false);
+      expect(extractFile).toHaveBeenCalledTimes(13);
+    } finally {
+      extractFile.mockRestore();
+    }
+  });
+
+  it("waits for another process indexing the call graph, then restores its database", async () => {
+    await indexOnce();
+    const lockPath = path.join(cacheDir, "index.lock");
+    fs.writeFileSync(lockPath, JSON.stringify({ pid: process.ppid, acquiredAt: Date.now() }));
+    setTimeout(() => fs.rmSync(lockPath), 300);
+
+    const extractFile = vi.spyOn(GraphExtractor.prototype, "extractFile");
+    try {
+      await indexOnce();
+      expect(extractFile).not.toHaveBeenCalled();
+      expect(fs.existsSync(lockPath)).toBe(false);
+    } finally {
+      extractFile.mockRestore();
+    }
+  });
+
+  it("does not restore a database written under another guard", async () => {
+    await indexOnce();
+    const metaPath = path.join(cacheDir, "meta.json");
+    const meta = JSON.parse(fs.readFileSync(metaPath, "utf-8"));
+    fs.writeFileSync(metaPath, JSON.stringify({ ...meta, version: "999.0.0" }));
+
+    const extractFile = vi.spyOn(GraphExtractor.prototype, "extractFile");
+    try {
+      await indexOnce();
       expect(extractFile).toHaveBeenCalledTimes(13);
     } finally {
       extractFile.mockRestore();

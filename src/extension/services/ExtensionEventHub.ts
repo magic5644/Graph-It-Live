@@ -3,7 +3,6 @@ import * as vscode from "vscode";
 import type { Spider } from "../../analyzer/Spider";
 import { SUPPORTED_SOURCE_FILE_REGEX } from "../../shared/constants";
 import type { VsCodeLogger } from "../extensionLogger";
-import type { BackgroundIndexingManager } from "./BackgroundIndexingManager";
 import type { EditorNavigationService } from "./EditorNavigationService";
 import type { EventType } from "./FileChangeScheduler";
 import type { ProviderStateManager } from "./ProviderStateManager";
@@ -20,7 +19,6 @@ export type GraphRefreshReason =
 
 export interface EventHubOptions {
   spider?: Spider;
-  indexingManager?: BackgroundIndexingManager;
   unusedAnalysisCache?: UnusedAnalysisCache;
   stateManager: ProviderStateManager;
   navigationService?: EditorNavigationService;
@@ -36,7 +34,6 @@ export interface EventHubOptions {
 
 export class ExtensionEventHub {
   private readonly spider?: Spider;
-  private readonly indexingManager?: BackgroundIndexingManager;
   private readonly unusedAnalysisCache?: UnusedAnalysisCache;
   private readonly stateManager: ProviderStateManager;
   private readonly navigationService?: EditorNavigationService;
@@ -54,7 +51,6 @@ export class ExtensionEventHub {
 
   constructor(options: EventHubOptions) {
     this.spider = options.spider;
-    this.indexingManager = options.indexingManager;
     this.unusedAnalysisCache = options.unusedAnalysisCache;
     this.stateManager = options.stateManager;
     this.navigationService = options.navigationService;
@@ -84,7 +80,6 @@ export class ExtensionEventHub {
     this.stateManager.invalidateSymbolCache(filePath);
 
     await this.spider.reanalyzeFile(filePath);
-    await this.indexingManager?.persistIndexIfEnabled();
 
     if (this.stateManager.currentSymbol) {
       await this.handleDrillDown(this.stateManager.currentSymbol, true);
@@ -192,13 +187,11 @@ export class ExtensionEventHub {
         if (await this.spider.reanalyzeFile(filePath) === null) {
           throw new Error(`Dependency index could not analyze changed file: ${filePath}`);
         }
-        await this.indexingManager?.persistIndexIfEnabled();
         await this.refreshByCurrentView();
         break;
 
       case "delete":
         this.spider.handleFileDeleted(filePath);
-        await this.indexingManager?.persistIndexIfEnabled();
         await this.handleDeletedFileRefresh(filePath);
         break;
     }

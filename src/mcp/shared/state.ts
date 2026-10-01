@@ -9,6 +9,7 @@
 
 import type { FSWatcher } from "chokidar";
 import type { AstWorkerHost } from "../../analyzer/ast/AstWorkerHost";
+import type { IndexCache } from "../../analyzer/cache/IndexCache";
 import type { CallGraphIndexer } from "../../analyzer/callgraph/CallGraphIndexer";
 import type { GraphExtractor } from "../../analyzer/callgraph/GraphExtractor";
 import type { Parser } from "../../analyzer/Parser";
@@ -52,6 +53,7 @@ export class WorkerState {
   private _callGraphIndexer: CallGraphIndexer | null = null;
   private _graphExtractor: GraphExtractor | null = null;
   private _callGraphIndexedRoot: string | null = null;
+  private _indexCache: IndexCache | null = null;
 
   // ============================================================================
   // Core Components
@@ -123,6 +125,15 @@ export class WorkerState {
 
   set callGraphIndexedRoot(value: string | null) {
     this._callGraphIndexedRoot = value;
+  }
+
+  /** Shared `.graph-it/cache/`; null when this process runs without a cache. */
+  get indexCache(): IndexCache | null {
+    return this._indexCache;
+  }
+
+  set indexCache(value: IndexCache | null) {
+    this._indexCache = value;
   }
 
   // ============================================================================
@@ -283,6 +294,7 @@ export class WorkerState {
       this._callGraphIndexer = null;
     }
     this._callGraphIndexedRoot = null;
+    this._indexCache = null;
 
     // Clear components
     this._spider = null;

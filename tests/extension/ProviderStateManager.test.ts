@@ -7,7 +7,6 @@ const configValues: Record<string, unknown> = {
   enableBackgroundIndexing: true,
   indexingConcurrency: 8,
   indexingStartDelay: 2000,
-  persistIndex: true,
   ignoreTypeImports: true,
 };
 
