@@ -1147,13 +1147,15 @@ export class LmToolsService {
                 JSON.stringify({
                   symbolId,
                   dependentCount: dependents.length,
-                  dependents: dependents.map((d) => ({
-                    symbolId: d.targetSymbolId ?? d.sourceSymbolId,
-                    filePath: d.targetFilePath,
-                    relativePath: d.targetFilePath && rootDir
-                      ? toRelativePath(d.targetFilePath, rootDir)
-                      : d.targetFilePath,
-                  })),
+                  // The dependent is the edge source; target* fields are the queried symbol.
+                  dependents: dependents.map((d) => {
+                    const dependentFilePath = symbolFilePath(d.sourceSymbolId);
+                    return {
+                      symbolId: d.sourceSymbolId,
+                      filePath: dependentFilePath,
+                      relativePath: rootDir ? toRelativePath(dependentFilePath, rootDir) : dependentFilePath,
+                    };
+                  }),
                 }),
               ),
             ]);

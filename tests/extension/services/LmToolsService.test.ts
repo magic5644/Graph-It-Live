@@ -579,6 +579,54 @@ describe('LmToolsService', () => {
     });
   });
 
+  describe('get_symbol_dependents', () => {
+    const TOOL = 'graph-it-live_get_symbol_dependents';
+    const target = { targetSymbolId: '/workspace/src/a.ts:helper', targetFilePath: '/workspace/src/a.ts' };
+
+    it('lists each dependent symbol and its own file, not the queried symbol', async () => {
+      const spider = {
+        getSymbolDependents: vi.fn().mockResolvedValue([
+          { sourceSymbolId: '/workspace/src/b.ts:runB', ...target },
+          { sourceSymbolId: '/workspace/lib/c.ts:(file)', ...target },
+        ]),
+      };
+      new LmToolsService({ provider: createProvider({ spider }), logger }).registerAll();
+
+      const result = await invokeTool(TOOL, { filePath: '/workspace/src/a.ts', symbolName: 'helper' }) as Record<string, unknown>;
+
+      expect(result).toMatchObject({ symbolId: 'src/a.ts:helper', dependentCount: 2 });
+      expect(result.dependents).toEqual([
+        { symbolId: 'src/b.ts:runB', filePath: 'src/b.ts', relativePath: 'src/b.ts' },
+        { symbolId: 'lib/c.ts:(file)', filePath: 'lib/c.ts', relativePath: 'lib/c.ts' },
+      ]);
+    });
+
+    it('splits a Windows-style dependent symbol id at the symbol separator, not the drive colon', async () => {
+      const spider = {
+        getSymbolDependents: vi.fn().mockResolvedValue([
+          { sourceSymbolId: String.raw`C:\ws\src\b.ts:runB`, ...target },
+        ]),
+      };
+      new LmToolsService({ provider: createProvider({ spider }), logger }).registerAll();
+
+      const result = await invokeTool(TOOL, { filePath: '/workspace/src/a.ts', symbolName: 'helper' }) as Record<string, unknown>;
+
+      // Raw on POSIX, redacted to [external:<basename>] on Windows: either way the file path drops the symbol name.
+      const [dependent] = result.dependents as Array<{ symbolId: string; filePath: string }>;
+      expect(dependent.symbolId).toContain('runB');
+      expect(dependent.filePath).not.toContain('runB');
+      expect(dependent.filePath).toMatch(/b\.ts\]?$/);
+    });
+
+    it('returns an empty list when nothing depends on the symbol', async () => {
+      new LmToolsService({ provider: createProvider({ spider: { getSymbolDependents: vi.fn().mockResolvedValue([]) } }), logger }).registerAll();
+
+      const result = await invokeTool(TOOL, { filePath: '/workspace/src/a.ts', symbolName: 'helper' }) as Record<string, unknown>;
+
+      expect(result).toMatchObject({ dependentCount: 0, dependents: [] });
+    });
+  });
+
   describe('get_impact_analysis', () => {
     const TOOL = 'graph-it-live_get_impact_analysis';
 
