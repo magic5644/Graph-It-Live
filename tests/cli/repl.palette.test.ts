@@ -14,7 +14,6 @@ import {
   getSlashCommandHelpLines,
   stepHistory,
 } from '../../src/cli/repl/ink/ReplInkApp';
-import { buildMainActionChoices } from '../../src/cli/repl/prompts';
 
 const HIDDEN_ALIASES = ['/path', '/deps', '/dependencies', '/deps-in', '/deps-out', '/path-in', '/path-out', '/cycle'];
 
@@ -211,32 +210,5 @@ describe('Ink next-step hints', () => {
     expect(cycleNextStepHint(hints, '/check')).toBe('/summary');
     expect(cycleNextStepHint(hints, '/sum')).toBeUndefined();
     expect(cycleNextStepHint([], '')).toBeUndefined();
-  });
-});
-
-describe('legacy main palette', () => {
-  it('shows each intent group once, in order, with /quit and without /command', () => {
-    const choices = buildMainActionChoices('/');
-    const headers = choices.filter((choice) => choice.disabled).map((choice) => choice.name);
-    const names = choices.map((choice) => choice.name);
-
-    expect(headers).toEqual([
-      '── 🧭 Navigate ──',
-      '── 🔍 Understand ──',
-      '── 🔗 Relations ──',
-      '── 📐 Workspace ──',
-      '── 💾 Output ──',
-      '── ⚙ Session ──',
-    ]);
-    expect(names.some((name) => name.startsWith('/scope'))).toBe(true);
-    expect(names.some((name) => name.startsWith('/quit'))).toBe(true);
-    expect(names.some((name) => name.startsWith('/command'))).toBe(false);
-  });
-
-  it('finds /scope from the old /path name', () => {
-    const choices = buildMainActionChoices('/path');
-
-    expect(choices.some((choice) => choice.name.startsWith('/scope'))).toBe(true);
-    expect(choices.find((choice) => choice.name.startsWith('/scope'))?.value).toEqual({ kind: 'action', action: 'setPath' });
   });
 });

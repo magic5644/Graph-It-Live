@@ -293,44 +293,22 @@ Wrap a path that contains spaces in quotes (`/file "src/my file.ts"`) or escape 
 
 For `/trace`, `/callers` and `/impact`, type `#` after a workspace file (`/trace src/index.ts#`) and the palette lists that file's symbols, filtered by what follows the `#`. Typing `#` right after a completed file argument joins it to the file. The symbol list of each file is extracted once per session.
 
-#### Post-result actions
+#### History and next steps
 
-After each result, the REPL supports contextual actions:
-
-- drill-down into current file/symbol context
-- export current structured result in another format
-- save current output to file
-- set default session format
-- run context-aware follow-up actions (for example dependency, cycle, trace, dead-code, or architecture follow-ups)
+- `↑`/`↓` (on an empty line or while browsing) and `Ctrl+P`/`Ctrl+N` recall previous command lines.
+- After each result, the footer suggests next steps for the current context: callers, impact and trace for the current symbol; explain, dependencies and cycles for the current file; otherwise summary, architecture and dead-code check. `Tab` puts the next suggestion on the command line.
+- `Ctrl+F` searches the output, `Esc` clears the search.
 
 #### Session state
 
 REPL session state is in-memory for the current invocation and tracks:
 
-- `workspaceRoot`
-- `lastFile`
-- `lastSymbol`
-- `lastResult`
-- `lastCommandLine`
-- `preferredFormat`
-- `recentFiles` (max 5, newest first)
-- `tipCounter`
+- `workspaceRoot` (set with `/scope`)
+- `lastFile` (set with `/file`, `/trace`, `/explain`, `/check-dependencies`, `/callers`, `/impact`)
+- `lastSymbol` (set with `/trace`, `/callers`, `/impact`)
+- `preferredFormat` (set with `/format`)
 
-#### Tips
-
-The REPL tip system includes:
-
-- general rotating tips
-- command-step tips (for example trace/check-dependencies/cycles/result steps)
-- persona-tagged tips (role-oriented hints)
-
-#### Save path safety
-
-When saving from REPL:
-
-- writes are restricted to paths inside the workspace root
-- path checks are enforced using resolved/real paths
-- symlink targets are refused for overwrite
+Other commands (`/summary`, `/check`, `/architecture`, `/cycles`, `/query`, `/format`, `/help`, ...) keep the current context; `/scope` clears it.
 
 ### scan
 

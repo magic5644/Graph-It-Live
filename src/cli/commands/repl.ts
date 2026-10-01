@@ -10,7 +10,6 @@
 
 import * as path from 'node:path';
 import { promises as fs } from 'node:fs';
-import { ExitPromptError } from '@inquirer/core';
 import { SourceFileCollector } from '../../analyzer/SourceFileCollector.js';
 import { CLI_OUTPUT_FORMATS, formatOutput } from '../formatter.js';
 import type { CliOutputFormat } from '../formatter.js';
@@ -18,28 +17,9 @@ import type { CliRuntime } from '../runtime.js';
 import { normalizePathForComparison } from '../../shared/path.js';
 import { loggerFactory, type LogLevel } from '../../shared/logger.js';
 import { parseSymbolRef } from '../symbols.js';
-import {
-  confirmScan,
-  inputCommandLine,
-  inputQueryQuestion,
-  inputWikiOutputDir,
-  inputSavePath,
-  searchDirectory,
-  searchFile,
-  selectOrInputSymbol,
-  askTraceOptions,
-  askArchitectureOptions,
-  askCheckDepsOptions,
-  type MainActionSelection,
-  selectExportFormat,
-  selectMainAction,
-  selectPostResultAction,
-  selectPreferredFormat,
-} from '../repl/prompts.js';
 import { createSessionState } from '../repl/sessionState.js';
 import { sanitizeTerminalText } from '../repl/terminal.js';
 import { tokenizeCommandLine } from '../repl/tokenize.js';
-import { getTip, getPersonaTip } from '../repl/tips.js';
 import {
   getSlashCommandHelpLines,
   runInkReplSession,
@@ -53,9 +33,6 @@ const useColor = !process.env.NO_COLOR && process.stdout.isTTY;
 const DIM = useColor ? '\x1b[2m' : '';
 const BOLD = useColor ? '\x1b[1m' : '';
 const RESET = useColor ? '\x1b[0m' : '';
-const BLUE = useColor ? '\x1b[38;5;33m' : '';
-const ORANGE = useColor ? '\x1b[38;5;214m' : '';
-const SPARK = useColor ? '\x1b[38;5;117m' : '';
 
 const NON_TTY_MESSAGE =
   'Interactive mode unavailable (no TTY).\n' +
@@ -63,26 +40,14 @@ const NON_TTY_MESSAGE =
 
 interface ReplActionResult {
   command: string;
-  rawData?: unknown;
   output?: string;
   effectiveFormat?: CliOutputFormat;
   contextFile?: string;
   contextSymbol?: string;
   shouldQuit?: boolean;
-  skipPostAction?: boolean;
 }
 
-interface TypedCommandOptions {
-  uiMode: 'legacy' | 'ink';
-}
-
-const LEGACY_TYPED_COMMAND_OPTIONS: TypedCommandOptions = { uiMode: 'legacy' };
-const INK_TYPED_COMMAND_OPTIONS: TypedCommandOptions = { uiMode: 'ink' };
 type DependencyDirection = 'both' | 'outgoing' | 'incoming';
-
-type ReplMainAction = 'trace' | 'command' | 'setPath' | 'checkDependencies' | 'cycles' | 'check' | 'summary' | 'architecture' | 'query' | 'format' | 'help';
-type ReplStickyAction = 'architecture' | 'summary' | 'check';
-type ReplFileAction = 'trace' | 'checkDependencies' | 'cycles';
 type ReplRunner = (args: string[], runtime: CliRuntime, format: CliOutputFormat) => Promise<string>;
 
 const REPL_TYPED_RUNNER_LOADERS = {
@@ -128,16 +93,6 @@ function resolveTypedRunnerKey(command: string): keyof typeof REPL_TYPED_RUNNER_
   return undefined;
 }
 
-function buildBanner(): string {
-  return [
-    '',
-    `  ${BLUE}●${RESET}${DIM}─${RESET}${BLUE}■${RESET}   ${BOLD}Graph-It-Live${RESET} ${DIM}v${VERSION}${RESET} ${SPARK}✦${RESET}`,
-    `  ${BLUE}│${RESET} ${DIM}╲${RESET}   ${DIM}Type / to browse commands, or press Enter to search the palette${RESET}`,
-    `  ${BLUE}●${RESET}${DIM}─${RESET}${ORANGE}■${RESET}   ${DIM}Dependency & architecture explorer · Ctrl+C to quit${RESET}`,
-    '',
-  ].join('\n');
-}
-
 function buildReplHelpText(state: ReturnType<typeof createSessionState>): string {
   const lastFile = state.lastFile ? path.relative(state.workspaceRoot, state.lastFile) : 'none';
   return [
@@ -161,20 +116,6 @@ function buildReplHelpText(state: ReturnType<typeof createSessionState>): string
   ].join('\n');
 }
 
-function normalizeSelection(
-  selection: Awaited<ReturnType<typeof selectMainAction>> | MainActionSelection | ReplMainAction | 'quit',
-): MainActionSelection {
-  if (typeof selection !== 'string') {
-    return selection;
-  }
-
-  if (selection === 'quit') {
-    return { kind: 'quit' };
-  }
-
-  return { kind: 'action', action: selection };
-}
-
 function normalizeSlashCommand(command: string): string {
   return command.startsWith('/') ? command.slice(1) : command;
 }
@@ -182,26 +123,6 @@ function normalizeSlashCommand(command: string): string {
 function formatTerminalError(error: unknown): string {
   const message = error instanceof Error ? error.message : String(error);
   return sanitizeTerminalText(message, 240);
-}
-
-function formatStatusValue(value: string | undefined): string {
-  return sanitizeTerminalText(value ?? 'none', 120);
-}
-
-function buildPromptChrome(state: ReturnType<typeof createSessionState>): string {
-  const relFile = state.lastFile
-    ? path.relative(state.workspaceRoot, state.lastFile)
-    : 'none';
-  const symbol = state.lastSymbol ?? 'none';
-  const generalTip = getTip('general', state.tipCounter);
-  const personaTip = getPersonaTip(state.tipCounter);
-
-  return [
-    buildBanner(),
-    `${DIM}workspace:${RESET} ${formatStatusValue(state.workspaceRoot)}  ${DIM}format:${RESET} ${state.preferredFormat}  ${DIM}last file:${RESET} ${formatStatusValue(relFile)}  ${DIM}last symbol:${RESET} ${formatStatusValue(symbol)}`,
-    `${DIM}tip:${RESET} ${generalTip}`,
-    `${DIM}    ${personaTip}${RESET}`,
-  ].join('\n');
 }
 
 async function runQuietlyDuringBootstrap<T>(work: () => Promise<T>): Promise<T> {
@@ -235,140 +156,71 @@ export async function run(runtime: CliRuntime): Promise<void> {
 
   try {
     await runQuietlyDuringBootstrap(() => runtime.ensureIndexed({ silent: true }));
-  } catch {
-    const doScan = await confirmScan('Index missing or stale.').catch(() => false);
-    if (!doScan) {
-      process.stdout.write('Goodbye!\n');
-      return;
-    }
-    try {
-      await runQuietlyDuringBootstrap(() => runtime.ensureIndexed({ silent: true }));
-    } catch (err) {
-      process.stderr.write(
-        `Scan error: ${formatTerminalError(err)}\n`,
-      );
-      return;
-    }
+  } catch (err) {
+    process.stderr.write(`Scan error: ${formatTerminalError(err)}\n`);
+    return;
   }
 
   const collector = new SourceFileCollector({ excludeNodeModules: true });
-  let allFiles = await runQuietlyDuringBootstrap(
+  const allFiles = await runQuietlyDuringBootstrap(
     () => collector.collectAllSourceFiles(runtime.workspaceRoot),
   );
   const state = createSessionState(runtime.workspaceRoot);
-  const useLegacyUi = process.env.GRAPH_IT_REPL_LEGACY === '1' || Boolean(process.env.VITEST);
 
-  if (useLegacyUi) {
-    let quit = false;
-    while (!quit) {
-      quit = await runOneCycle(runtime, state, allFiles);
-    }
-  } else {
-    await runInkReplSession({
-      version: VERSION,
-      workspaceRoot: state.workspaceRoot,
-      allFiles,
-      preferredFormat: state.preferredFormat,
-      lastFile: state.lastFile,
-      lastSymbol: state.lastSymbol,
-      listFileSymbols: (absoluteFile: string) => extractFileSymbols(absoluteFile, runtime),
-      onSubmitCommand: async (commandLine: string) => {
-        const prevWorkspaceRoot = state.workspaceRoot;
-        const prevPreferredFormat = state.preferredFormat;
-        const prevLastFile = state.lastFile;
-        const prevLastSymbol = state.lastSymbol;
+  await runInkReplSession({
+    version: VERSION,
+    workspaceRoot: state.workspaceRoot,
+    allFiles,
+    preferredFormat: state.preferredFormat,
+    lastFile: state.lastFile,
+    lastSymbol: state.lastSymbol,
+    listFileSymbols: (absoluteFile: string) => extractFileSymbols(absoluteFile, runtime),
+    onSubmitCommand: async (commandLine: string) => {
+      const prevWorkspaceRoot = state.workspaceRoot;
+      const prevPreferredFormat = state.preferredFormat;
+      const prevLastFile = state.lastFile;
+      const prevLastSymbol = state.lastSymbol;
 
-        const result = await runTypedCommandLine(
-          runtime,
-          state,
-          state.preferredFormat,
-          commandLine,
-          allFiles,
-          INK_TYPED_COMMAND_OPTIONS,
-        );
+      const result = await runTypedCommandLine(runtime, state, state.preferredFormat, commandLine);
 
-        applyResultToSession(state, result, false);
+      applyResultToSession(state, result);
 
-        const response: InkReplCommandResponse = {
-          command: result.command,
-          output: result.output
-            ? stripSavedOutputNoise(result.output, result.effectiveFormat)
-            : undefined,
-          shouldQuit: result.shouldQuit,
-        };
+      const response: InkReplCommandResponse = {
+        command: result.command,
+        output: result.output
+          ? stripSavedOutputNoise(result.output, result.effectiveFormat)
+          : undefined,
+        shouldQuit: result.shouldQuit,
+      };
 
-        // Propagate state changes back to the REPL for display/autocomplete
-        const workspaceChanged = state.workspaceRoot !== prevWorkspaceRoot;
-        const formatChanged = state.preferredFormat !== prevPreferredFormat;
-        const lastFileChanged = state.lastFile !== prevLastFile;
-        const lastSymbolChanged = state.lastSymbol !== prevLastSymbol;
-        if (workspaceChanged || formatChanged || lastFileChanged || lastSymbolChanged) {
-          response.updatedContext = {};
-          if (workspaceChanged) {
-            const newAllFiles = await collector.collectAllSourceFiles(state.workspaceRoot);
-            allFiles = newAllFiles;
-            response.updatedContext.workspaceRoot = state.workspaceRoot;
-            response.updatedContext.allFiles = newAllFiles;
-          }
-          if (formatChanged) {
-            response.updatedContext.preferredFormat = state.preferredFormat;
-          }
-          if (lastFileChanged) {
-            response.updatedContext.lastFile = state.lastFile ?? null;
-          }
-          if (lastSymbolChanged) {
-            response.updatedContext.lastSymbol = state.lastSymbol ?? null;
-          }
+      // Propagate state changes back to the REPL for display/autocomplete
+      const workspaceChanged = state.workspaceRoot !== prevWorkspaceRoot;
+      const formatChanged = state.preferredFormat !== prevPreferredFormat;
+      const lastFileChanged = state.lastFile !== prevLastFile;
+      const lastSymbolChanged = state.lastSymbol !== prevLastSymbol;
+      if (workspaceChanged || formatChanged || lastFileChanged || lastSymbolChanged) {
+        response.updatedContext = {};
+        if (workspaceChanged) {
+          const newAllFiles = await collector.collectAllSourceFiles(state.workspaceRoot);
+          response.updatedContext.workspaceRoot = state.workspaceRoot;
+          response.updatedContext.allFiles = newAllFiles;
         }
+        if (formatChanged) {
+          response.updatedContext.preferredFormat = state.preferredFormat;
+        }
+        if (lastFileChanged) {
+          response.updatedContext.lastFile = state.lastFile ?? null;
+        }
+        if (lastSymbolChanged) {
+          response.updatedContext.lastSymbol = state.lastSymbol ?? null;
+        }
+      }
 
-        return response;
-      },
-    });
-  }
+      return response;
+    },
+  });
 
   process.stdout.write('\nGoodbye!\n');
-}
-
-function isPathInsideWorkspace(resolvedPath: string, workspaceRoot: string): boolean {
-  const relative = path.relative(workspaceRoot, resolvedPath);
-  return relative !== '' && !relative.startsWith('..') && !path.isAbsolute(relative);
-}
-
-async function findNearestExistingParent(targetDir: string): Promise<string> {
-  let current = targetDir;
-  for (;;) {
-    try {
-      await fs.access(current);
-      return current;
-    } catch {
-      const parent = path.dirname(current);
-      if (parent === current) {
-        throw new Error('No existing parent directory found for save path.');
-      }
-      current = parent;
-    }
-  }
-}
-
-async function isSafeWorkspaceWritePath(
-  targetPath: string,
-  workspaceRoot: string,
-): Promise<boolean> {
-  if (!isPathInsideWorkspace(targetPath, workspaceRoot)) {
-    return false;
-  }
-
-  const realWorkspaceRoot = normalizePathForComparison(
-    await fs.realpath(workspaceRoot),
-  );
-  const existingParent = await findNearestExistingParent(path.dirname(targetPath));
-  const realParent = normalizePathForComparison(await fs.realpath(existingParent));
-
-  // Both paths are normalised (forward slashes only), so path.sep check is redundant.
-  return (
-    realParent === realWorkspaceRoot ||
-    realParent.startsWith(`${realWorkspaceRoot}/`)
-  );
 }
 
 function parseRawCommandOutput(output: string): unknown {
@@ -385,43 +237,27 @@ async function executeCommandForRepl(
   runtime: CliRuntime,
   preferredFormat: CliOutputFormat,
   runner: (args: string[], runtime: CliRuntime, format: CliOutputFormat) => Promise<string>,
-): Promise<Pick<ReplActionResult, 'command' | 'rawData' | 'output' | 'effectiveFormat'>> {
+): Promise<Pick<ReplActionResult, 'command' | 'output' | 'effectiveFormat'>> {
   const jsonOutput = await runner(args, runtime, 'json');
   const rawData = parseRawCommandOutput(jsonOutput);
 
   try {
     const output = formatOutput(rawData, preferredFormat, command);
-    return { command, rawData, output, effectiveFormat: preferredFormat };
+    return { command, output, effectiveFormat: preferredFormat };
   } catch {
     const output = formatOutput(rawData, 'text', command);
-    return { command, rawData, output, effectiveFormat: 'text' };
+    return { command, output, effectiveFormat: 'text' };
   }
 }
 
 function applyResultToSession(
   state: ReturnType<typeof createSessionState>,
   result: ReplActionResult,
-  emitOutput = true,
 ): void {
-  state.lastFile = result.contextFile;
-  state.lastSymbol = result.contextSymbol;
-  state.tipCounter += 1;
-
-  // Track recently-visited files (deduped, newest first, max 5)
-  if (result.contextFile) {
-    const relFile = path.relative(state.workspaceRoot, result.contextFile);
-    state.recentFiles = [
-      relFile,
-      ...state.recentFiles.filter((f) => f !== relFile),
-    ].slice(0, 5);
-  }
-
-  if (result.output) {
-    state.lastResult = result.rawData ?? result.output;
-    if (emitOutput) {
-      const sanitizedOutput = stripSavedOutputNoise(result.output, result.effectiveFormat);
-      process.stdout.write(sanitizedOutput.endsWith('\n') ? sanitizedOutput : `${sanitizedOutput}\n`);
-    }
+  // A result without a file context (help, usage, workspace-wide commands) keeps the current context.
+  if ('contextFile' in result) {
+    state.lastFile = result.contextFile;
+    state.lastSymbol = result.contextSymbol;
   }
 
   if (result.effectiveFormat && result.effectiveFormat !== state.preferredFormat) {
@@ -431,32 +267,12 @@ function applyResultToSession(
   }
 }
 
-async function runTypedCommandFromPrompt(
-  runtime: CliRuntime,
-  state: ReturnType<typeof createSessionState>,
-  preferredFormat: CliOutputFormat,
-  allFiles: string[],
-): Promise<ReplActionResult> {
-  const commandLine = await inputCommandLine(state.lastCommandLine ?? '');
-  return runTypedCommandLine(
-    runtime,
-    state,
-    preferredFormat,
-    commandLine,
-    allFiles,
-    LEGACY_TYPED_COMMAND_OPTIONS,
-  );
-}
-
 async function runTypedCommandLine(
   runtime: CliRuntime,
   state: ReturnType<typeof createSessionState>,
   preferredFormat: CliOutputFormat,
   commandLine: string,
-  allFiles: string[],
-  options?: TypedCommandOptions,
 ): Promise<ReplActionResult> {
-  const resolvedOptions = options ?? LEGACY_TYPED_COMMAND_OPTIONS;
   const trimmedCommandLine = commandLine.trim();
   const parsed = tokenizeCommandLine(trimmedCommandLine);
   const tokens = parsed.tokens;
@@ -465,7 +281,6 @@ async function runTypedCommandLine(
     return {
       command: 'command',
       output: `Invalid command line: ${sanitizeTerminalText(parsed.error)}`,
-      skipPostAction: true,
     };
   }
 
@@ -486,12 +301,10 @@ async function runTypedCommandLine(
     return {
       command: 'command',
       output: 'No command provided after graph-it prefix.',
-      skipPostAction: true,
     };
   }
 
   const { effectiveFormat, cleanedArgs, invalidFormatValue } = extractFormatOverride(rawArgs, preferredFormat);
-  state.lastCommandLine = trimmedCommandLine;
   const contextualArgs = rebaseTypedArgs(
     normalizedCommand,
     applyImplicitFileContext(normalizedCommand, cleanedArgs, state),
@@ -510,8 +323,6 @@ async function runTypedCommandLine(
     contextualArgs,
     state,
     runtime,
-    allFiles,
-    resolvedOptions,
   );
   if (sessionCommand) {
     return sessionCommand;
@@ -528,17 +339,15 @@ async function runTypedCommandLine(
     return contextualResult;
   }
 
-  if (resolvedOptions.uiMode === 'ink') {
-    const guidedResult = await runInkGuidedCommand(
-      normalizedCommand,
-      contextualArgs,
-      runtime,
-      state,
-      effectiveFormat,
-    );
-    if (guidedResult) {
-      return guidedResult;
-    }
+  const guidedResult = await runInkGuidedCommand(
+    normalizedCommand,
+    contextualArgs,
+    runtime,
+    state,
+    effectiveFormat,
+  );
+  if (guidedResult) {
+    return guidedResult;
   }
 
   const runnerKey = resolveTypedRunnerKey(normalizedCommand);
@@ -560,7 +369,6 @@ async function runTypedCommandLine(
   return {
     command: normalizedCommand,
     output: `Unknown REPL command "${sanitizeTerminalText(normalizedCommand)}". Try: /scope, /file, /trace, /explain, /callers, /impact, /context, /query, /review-pr, /help.`,
-    skipPostAction: true,
   };
 }
 
@@ -569,23 +377,20 @@ async function handleTypedSessionCommand(
   args: string[],
   state: ReturnType<typeof createSessionState>,
   runtime: CliRuntime,
-  allFiles: string[],
-  options: TypedCommandOptions,
 ): Promise<ReplActionResult | undefined> {
   if (command === 'help') {
     return {
       command: 'help',
       output: buildReplHelpText(state),
-      skipPostAction: true,
     };
   }
 
   if (command === 'quit') {
-    return { command: 'quit', shouldQuit: true, skipPostAction: true };
+    return { command: 'quit', shouldQuit: true };
   }
 
   if (command === 'scope' || command === 'path') {
-    return handlePathSessionCommand(args, state, runtime, allFiles, options);
+    return handlePathSessionCommand(args, state, runtime);
   }
 
   if (command === 'export') {
@@ -597,14 +402,14 @@ async function handleTypedSessionCommand(
       ? state.workspaceRoot
       : undefined;
     await runExportHtml(runtime, workspaceName, args, state.lastFile ?? defaultScope);
-    return { command: 'export', skipPostAction: true };
+    return { command: 'export' };
   }
 
   if (command !== 'format') {
     if (command !== 'file') {
       return undefined;
     }
-    return handleFileSessionCommand(args, state, runtime, allFiles, options);
+    return handleFileSessionCommand(args, state, runtime);
   }
 
   const requestedFormat = args[0];
@@ -614,22 +419,17 @@ async function handleTypedSessionCommand(
     return {
       command: 'format',
       output: `Unknown format "${sanitizeTerminalText(requestedFormat)}". Valid formats: ${CLI_OUTPUT_FORMATS.join(', ')}`,
-      skipPostAction: true,
     };
-  } else if (options.uiMode === 'legacy') {
-    state.preferredFormat = await selectPreferredFormat(state.preferredFormat);
   } else {
     return {
       command: 'format',
       output: `Current format: ${state.preferredFormat}. Set a value explicitly, e.g. /format markdown. Valid formats: ${CLI_OUTPUT_FORMATS.join(', ')}`,
-      skipPostAction: true,
     };
   }
 
   return {
     command: 'format',
     output: `Default format set to ${state.preferredFormat}.`,
-    skipPostAction: true,
   };
 }
 
@@ -645,7 +445,6 @@ function applyWorkspaceScope(
   return {
     command: 'scope',
     output: `Session workspace set to ${path.relative(runtime.workspaceRoot, state.workspaceRoot) || '.'}.`,
-    skipPostAction: true,
   };
 }
 
@@ -653,33 +452,21 @@ async function handlePathSessionCommand(
   args: string[],
   state: ReturnType<typeof createSessionState>,
   runtime: CliRuntime,
-  allFiles: string[],
-  options: TypedCommandOptions,
 ): Promise<ReplActionResult> {
-  let targetDirectory: string;
-  if (args[0]) {
-    targetDirectory = path.isAbsolute(args[0])
-      ? path.resolve(args[0])
-      : path.resolve(state.workspaceRoot, args[0]);
-  } else if (options.uiMode === 'ink') {
+  if (!args[0]) {
     return {
       command: 'scope',
       output: `Current workspace scope: ${path.relative(runtime.workspaceRoot, state.workspaceRoot) || '.'}. Usage: /scope <directory>`,
-      skipPostAction: true,
     };
-  } else {
-    const selectedRelativeDirectory = await searchDirectory(
-      getScopedFiles(allFiles, state.workspaceRoot),
-      state.workspaceRoot,
-    );
-    targetDirectory = path.resolve(state.workspaceRoot, selectedRelativeDirectory || '.');
   }
+  const targetDirectory = path.isAbsolute(args[0])
+    ? path.resolve(args[0])
+    : path.resolve(state.workspaceRoot, args[0]);
 
   if (!isWithinRoot(targetDirectory, runtime.workspaceRoot)) {
     return {
       command: 'scope',
       output: 'Refusing to set workspace scope outside project root.',
-      skipPostAction: true,
     };
   }
 
@@ -687,8 +474,7 @@ async function handlePathSessionCommand(
   if (!stats?.isDirectory()) {
     return {
       command: 'scope',
-      output: `Directory not found: ${sanitizeTerminalText(args[0] ?? '', 140)}`,
-      skipPostAction: true,
+      output: `Directory not found: ${sanitizeTerminalText(args[0], 140)}`,
     };
   }
 
@@ -699,25 +485,17 @@ async function handleFileSessionCommand(
   args: string[],
   state: ReturnType<typeof createSessionState>,
   runtime: CliRuntime,
-  allFiles: string[],
-  options: TypedCommandOptions,
 ): Promise<ReplActionResult> {
-  if (!args[0] && options.uiMode === 'ink') {
+  if (!args[0]) {
     return {
       command: 'file',
       output: state.lastFile
         ? `Current file context: ${path.relative(runtime.workspaceRoot, state.lastFile)}. Usage: /file <path>`
         : 'No file context set. Usage: /file <path>',
-      skipPostAction: true,
     };
   }
 
-  const resolvedFile = args[0]
-    ? parseSymbolRef(args[0], state.workspaceRoot).filePath
-    : path.resolve(
-      state.workspaceRoot,
-      await searchFile(getScopedFiles(allFiles, state.workspaceRoot), state.workspaceRoot),
-    );
+  const resolvedFile = parseSymbolRef(args[0], state.workspaceRoot).filePath;
 
   state.lastFile = resolvedFile;
   state.lastSymbol = undefined;
@@ -726,7 +504,6 @@ async function handleFileSessionCommand(
     command: 'file',
     output: `Current file context set to ${path.relative(runtime.workspaceRoot, resolvedFile)}.`,
     contextFile: resolvedFile,
-    skipPostAction: true,
   };
 }
 
@@ -775,10 +552,6 @@ function applyImplicitFileContext(
 function isWithinRoot(candidatePath: string, rootPath: string): boolean {
   const relative = path.relative(rootPath, candidatePath);
   return !relative.startsWith('..') && !path.isAbsolute(relative);
-}
-
-function getScopedFiles(allFiles: string[], workspaceScope: string): string[] {
-  return allFiles.filter((filePath) => isWithinRoot(filePath, workspaceScope));
 }
 
 function resolveScopedFileArg(command: string, firstArg: string, state: ReturnType<typeof createSessionState>): string {
@@ -937,7 +710,6 @@ async function runInkGuidedTrace(
     return {
       command: 'trace',
       output: 'Trace needs a file context. Usage: /trace <file#Symbol> or set a file with /file <path>.',
-      skipPostAction: true,
     };
   }
 
@@ -1007,7 +779,6 @@ async function runSymbolToolCommand(
     return {
       command,
       output: `/${command} needs a symbol. Usage: /${command} <file#Symbol>, or pick one first with /trace <file#Symbol>.`,
-      skipPostAction: true,
     };
   }
 
@@ -1034,7 +805,6 @@ async function runExplainCommand(
     return {
       command: 'explain',
       output: 'Explain needs a file. Usage: /explain <file>, or set a file with /file <path>.',
-      skipPostAction: true,
     };
   }
 
@@ -1057,8 +827,7 @@ async function runContextCommand(
       return {
         command: 'context',
         output: 'Context needs a question or a symbol. Usage: /context "<question>" [--detail compact], or pick a symbol first with /trace <file#Symbol>.',
-        skipPostAction: true,
-      };
+        };
     }
     contextArgs = ['--seeds', `${state.lastFile}#${state.lastSymbol}`];
   }
@@ -1080,7 +849,6 @@ async function runInkGuidedCheckDependencies(
     return {
       command: 'check-dependencies',
       output: 'check-dependencies needs a file path. Usage: /check-dependencies <file> [--incoming|--outgoing|--both]',
-      skipPostAction: true,
     };
   }
 
@@ -1088,385 +856,9 @@ async function runInkGuidedCheckDependencies(
   return runCheckDepsWithDirection(direction, absoluteFile, runtime, preferredFormat);
 }
 
-function getDefaultSaveExtension(format: CliOutputFormat | undefined): string {
-  switch (format) {
-    case 'mermaid':
-      return '.mmd';
-    case 'json':
-      return '.json';
-    case 'toon':
-      return '.toon';
-    case 'markdown':
-      return '.md';
-    case 'text':
-    default:
-      return '.txt';
-  }
-}
-
-function buildDefaultSavePathForFormat(command: string, format: CliOutputFormat | undefined): string {
-  const stamp = new Date().toISOString().replaceAll(':', '-');
-  const extension = getDefaultSaveExtension(format);
-  return path.join('.graph-it', 'exports', `${stamp}-${command}${extension}`);
-}
-
-function stripSavedOutputNoise(content: string, format: CliOutputFormat | undefined): string {
-  if (format !== 'mermaid' && format !== 'json' && format !== 'toon') {
-    return content;
-  }
-
-  const cleaned = content
-    .split('\n')
-    .filter((line) => {
-      const trimmed = line.trim();
-      if (trimmed.startsWith('%% output truncated')) return false;
-      if (/^PARSING ERROR\b/i.test(trimmed)) return false;
-      return true;
-    })
-    .join('\n');
-
-  return cleaned;
-}
-
-async function runOneCycle(
-  runtime: CliRuntime,
-  state: ReturnType<typeof createSessionState>,
-  allFiles: string[],
-): Promise<boolean> {
-  const selection = normalizeSelection(
-    await selectMainActionWithRecovery(buildPromptChrome(state)),
-  );
-  if (selection.kind === 'quit') return true;
-
-  try {
-    const result = await runAction(selection, runtime, state, allFiles);
-    applyResultToSession(state, result);
-    if (result.shouldQuit) return true;
-    if (result.skipPostAction) return false;
-    return await handlePostResult(
-      result.rawData,
-      result.output,
-      result.effectiveFormat,
-      result.command,
-      runtime,
-      state,
-      result.contextFile,
-    );
-  } catch (err) {
-    if (err instanceof ExitPromptError) return true;
-    process.stderr.write(`Error: ${formatTerminalError(err)}\n`);
-    return false;
-  }
-}
-
-async function selectMainActionWithRecovery(
-  promptMessage: string,
-): Promise<Awaited<ReturnType<typeof selectMainAction>>> {
-  try {
-    return await selectMainAction(promptMessage);
-  } catch (err) {
-    if (err instanceof ExitPromptError) {
-      return { kind: 'quit' };
-    }
-    process.stderr.write(`Unexpected error: ${formatTerminalError(err)}\n`);
-    return { kind: 'quit' };
-  }
-}
-
-async function handleFollowUpAction(
-  postAction: string,
-  contextFile: string | undefined,
-  runtime: CliRuntime,
-  state: ReturnType<typeof createSessionState>,
-): Promise<void> {
-  const fileForFollowUp = contextFile ?? state.lastFile;
-
-  if (postAction === 'followUpDeps' && fileForFollowUp) {
-    const result = await runFileDrivenActionFor('checkDependencies', fileForFollowUp, runtime, state, state.preferredFormat);
-    applyResultToSession(state, result);
-    return;
-  }
-
-  if (postAction === 'followUpCycles' && fileForFollowUp) {
-    const result = await runFileDrivenActionFor('cycles', fileForFollowUp, runtime, state, state.preferredFormat);
-    applyResultToSession(state, result);
-    return;
-  }
-
-  if (postAction === 'followUpTrace' && fileForFollowUp) {
-    const result = await runFileDrivenActionForTrace(fileForFollowUp, runtime, state, state.preferredFormat);
-    applyResultToSession(state, result);
-    return;
-  }
-
-  if (postAction === 'followUpDeadCode') {
-    const result = await runStickyContextAction('check', runtime, state, state.preferredFormat);
-    applyResultToSession(state, result);
-    return;
-  }
-
-  if (postAction === 'followUpArchitecture') {
-    const result = await runStickyContextAction('architecture', runtime, state, state.preferredFormat);
-    applyResultToSession(state, result);
-  }
-}
-
-async function handlePostResult(
-  rawData: unknown,
-  output: string | undefined,
-  effectiveFormat: CliOutputFormat | undefined,
-  command: string,
-  runtime: CliRuntime,
-  state: ReturnType<typeof createSessionState>,
-  contextFile: string | undefined,
-): Promise<boolean> {
-  const resultTip = getTip(`result.${command}`, state.tipCounter);
-  const tipSuffix = resultTip ? `\n${DIM}  💡 ${resultTip}${RESET}` : '';
-
-  let postAction: Awaited<ReturnType<typeof selectPostResultAction>>;
-  try {
-    postAction = await selectPostResultAction(
-      `${buildPromptChrome(state)}\n${DIM}current result:${RESET} ${sanitizeTerminalText(command, 40)}\n${DIM}tip:${RESET} Type ${BOLD}/${RESET} for follow-up actions.${tipSuffix}`,
-      command,
-    );
-  } catch (err) {
-    if (err instanceof ExitPromptError) return true;
-    throw err;
-  }
-
-  if (postAction === 'quit') return true;
-
-  if (postAction === 'export' && rawData !== undefined) {
-    await handleExport(rawData, command);
-  }
-
-  if (postAction === 'saveToFile' && output) {
-    await handleSaveToFile(output, command, runtime.workspaceRoot, rawData, effectiveFormat);
-  }
-
-  if (postAction === 'setFormat') {
-    state.preferredFormat = await selectPreferredFormat(state.preferredFormat);
-    process.stdout.write(`Default format set to ${state.preferredFormat}.\n`);
-  }
-
-  if (postAction === 'drillDown') {
-    const drillDownFile = contextFile ?? state.lastFile;
-    if (!drillDownFile) {
-      process.stdout.write('Drill-down unavailable for this result (no file context).\n');
-      return false;
-    }
-    await handleDrillDown(drillDownFile, runtime, state);
-  }
-
-  // Context-aware follow-up actions — delegated to helper to keep complexity low
-  await handleFollowUpAction(postAction, contextFile, runtime, state);
-
-  return false;
-}
-
-async function runAction(
-  selection: MainActionSelection,
-  runtime: CliRuntime,
-  state: ReturnType<typeof createSessionState>,
-  allFiles: string[],
-): Promise<ReplActionResult> {
-  if (selection.kind === 'typed') {
-    return runTypedCommandLine(
-      runtime,
-      state,
-      state.preferredFormat,
-      selection.commandLine ?? '',
-      allFiles,
-      LEGACY_TYPED_COMMAND_OPTIONS,
-    );
-  }
-
-  const action = selection.action;
-  const preferredFormat: CliOutputFormat = state.preferredFormat;
-
-  if (!action) {
-    return {
-      command: 'help',
-      output: buildReplHelpText(state),
-      skipPostAction: true,
-    };
-  }
-
-  switch (action) {
-    case 'command':
-      return runTypedCommandFromPrompt(runtime, state, preferredFormat, allFiles);
-    case 'setPath':
-      return runSetPathAction(runtime, state, allFiles);
-    case 'format':
-      return runFormatAction(state);
-    case 'help':
-      return {
-        command: 'help',
-        output: buildReplHelpText(state),
-        skipPostAction: true,
-      };
-    case 'query':
-      return runQueryAction(runtime, preferredFormat);
-    case 'wiki':
-      return runWikiAction(runtime, preferredFormat);
-    case 'architecture':
-    case 'summary':
-    case 'check':
-      return runStickyContextAction(action, runtime, state, preferredFormat);
-    case 'quit':
-      return { command: 'quit', shouldQuit: true, skipPostAction: true };
-    default:
-      return runFileDrivenAction(action as ReplFileAction, runtime, state, allFiles, preferredFormat);
-  }
-}
-
-async function runSetPathAction(
-  runtime: CliRuntime,
-  state: ReturnType<typeof createSessionState>,
-  allFiles: string[],
-): Promise<ReplActionResult> {
-  const scopedFiles = getScopedFiles(allFiles, state.workspaceRoot);
-  const selectedRelativeDirectory = await searchDirectory(scopedFiles, state.workspaceRoot);
-  const nextWorkspace = path.resolve(state.workspaceRoot, selectedRelativeDirectory || '.');
-
-  if (!isWithinRoot(nextWorkspace, runtime.workspaceRoot)) {
-    return {
-      command: 'scope',
-      output: 'Refusing to set workspace scope outside project root.',
-      skipPostAction: true,
-    };
-  }
-
-  state.workspaceRoot = nextWorkspace;
-  state.lastFile = undefined;
-  state.lastSymbol = undefined;
-
-  return {
-    command: 'scope',
-    output: `Session workspace set to ${path.relative(runtime.workspaceRoot, state.workspaceRoot) || '.'}.`,
-    skipPostAction: true,
-  };
-}
-
-async function runFormatAction(state: ReturnType<typeof createSessionState>): Promise<ReplActionResult> {
-  state.preferredFormat = await selectPreferredFormat(state.preferredFormat);
-  return {
-    command: 'format',
-    output: `Default format set to ${state.preferredFormat}.`,
-    skipPostAction: true,
-  };
-}
-
-async function runQueryAction(
-  runtime: CliRuntime,
-  preferredFormat: CliOutputFormat,
-): Promise<ReplActionResult> {
-  const question = await inputQueryQuestion();
-  if (!question.trim()) {
-    return {
-      command: 'query',
-      output: 'No question provided. Try: /query "how does Spider crawl files"',
-      skipPostAction: true,
-    };
-  }
-  return executeCommandForRepl('query', [question], runtime, preferredFormat, (await import('./query.js')).run);
-}
-
-async function runWikiAction(
-  runtime: CliRuntime,
-  preferredFormat: CliOutputFormat,
-): Promise<ReplActionResult> {
-  const outputDir = await inputWikiOutputDir();
-  return executeCommandForRepl('wiki', outputDir ? ['--output', outputDir] : [], runtime, preferredFormat, (await import('./wiki.js')).run);
-}
-
-async function runStickyContextAction(
-  action: ReplStickyAction,
-  runtime: CliRuntime,
-  state: ReturnType<typeof createSessionState>,
-  preferredFormat: CliOutputFormat,
-): Promise<ReplActionResult> {
-  const actionConfig: Record<
-    ReplStickyAction,
-    {
-      command: 'architecture' | 'summary' | 'check';
-      getArgs: () => Promise<string[]> | string[];
-      loadRunner: () => Promise<{
-        run: (args: string[], rt: CliRuntime, fmt: CliOutputFormat) => Promise<string>;
-      }>;
-    }
-  > = {
-    architecture: {
-      command: 'architecture',
-      getArgs: async () => {
-        const opts = await askArchitectureOptions(state.tipCounter);
-        if (opts.maxFiles !== undefined) return [`--maxFiles=${opts.maxFiles}`];
-        return [];
-      },
-      loadRunner: () => import('./architecture.js'),
-    },
-    summary: {
-      command: 'summary',
-      getArgs: () => (state.lastFile ? [state.lastFile] : []),
-      loadRunner: () => import('./summary.js'),
-    },
-    check: {
-      command: 'check',
-      getArgs: () => (state.lastFile ? [state.lastFile] : []),
-      loadRunner: () => import('./check.js'),
-    },
-  };
-
-  const config = actionConfig[action];
-  const { run } = await config.loadRunner();
-  const args = await config.getArgs();
-  const result = await executeCommandForRepl(
-    config.command,
-    args,
-    runtime,
-    preferredFormat,
-    run,
-  );
-
-  return {
-    ...result,
-    contextFile: state.lastFile,
-    contextSymbol: state.lastSymbol,
-  };
-}
-
-async function runFileDrivenAction(
-  action: ReplFileAction,
-  runtime: CliRuntime,
-  state: ReturnType<typeof createSessionState>,
-  allFiles: string[],
-  preferredFormat: CliOutputFormat,
-): Promise<ReplActionResult> {
-  const scopedFiles = getScopedFiles(allFiles, state.workspaceRoot);
-  const rel = await searchFile(
-    scopedFiles,
-    state.workspaceRoot,
-    state.recentFiles,
-    'trace.file',
-    state.tipCounter,
-  );
-  const absoluteFile = path.resolve(state.workspaceRoot, rel);
-
-  if (action === 'checkDependencies') {
-    const opts = await askCheckDepsOptions(state.tipCounter);
-    return runCheckDepsWithDirection(opts.direction, absoluteFile, runtime, preferredFormat);
-  }
-
-  if (action === 'cycles') {
-    return runFileDrivenActionFor('cycles', absoluteFile, runtime, state, preferredFormat);
-  }
-
-  return runFileDrivenActionForTrace(absoluteFile, runtime, state, preferredFormat, rel);
-}
-
 /** Run check-dependencies, path, or path-in depending on chosen direction. */
 async function runCheckDepsWithDirection(
-  direction: 'both' | 'outgoing' | 'incoming',
+  direction: DependencyDirection,
   absoluteFile: string,
   runtime: CliRuntime,
   preferredFormat: CliOutputFormat,
@@ -1488,49 +880,22 @@ async function runCheckDepsWithDirection(
   return { ...result, contextFile: absoluteFile };
 }
 
-/** Run cycles or checkDependencies for a pre-known file (used by follow-up actions). */
-async function runFileDrivenActionFor(
-  action: 'cycles' | 'checkDependencies',
-  absoluteFile: string,
-  runtime: CliRuntime,
-  _state: ReturnType<typeof createSessionState>,
-  preferredFormat: CliOutputFormat,
-): Promise<ReplActionResult> {
-  if (action === 'checkDependencies') {
-    const { run } = await import('./checkDependencies.js');
-    const result = await executeCommandForRepl('check-dependencies', [absoluteFile], runtime, preferredFormat, run);
-    return { ...result, contextFile: absoluteFile };
+function stripSavedOutputNoise(content: string, format: CliOutputFormat | undefined): string {
+  if (format !== 'mermaid' && format !== 'json' && format !== 'toon') {
+    return content;
   }
 
-  const { run } = await import('./cycles.js');
-  const result = await executeCommandForRepl('cycles', [absoluteFile], runtime, preferredFormat, run);
-  return { ...result, contextFile: absoluteFile };
-}
+  const cleaned = content
+    .split('\n')
+    .filter((line) => {
+      const trimmed = line.trim();
+      if (trimmed.startsWith('%% output truncated')) return false;
+      if (/^PARSING ERROR\b/i.test(trimmed)) return false;
+      return true;
+    })
+    .join('\n');
 
-/** Run trace (with symbol autocomplete) for a pre-known file (used by follow-up actions). */
-async function runFileDrivenActionForTrace(
-  absoluteFile: string,
-  runtime: CliRuntime,
-  state: ReturnType<typeof createSessionState>,
-  preferredFormat: CliOutputFormat,
-  rel?: string,
-): Promise<ReplActionResult> {
-  const displayPath = rel ?? path.relative(state.workspaceRoot, absoluteFile);
-  const symbols = await extractFileSymbols(absoluteFile, runtime);
-  const opts = await askTraceOptions(state.tipCounter);
-  const symbolName = await selectOrInputSymbol(displayPath, symbols, state.tipCounter, state.lastSymbol ?? '');
-
-  if (symbolName.trim()) {
-    const args: string[] = [`${absoluteFile}#${symbolName.trim()}`];
-    if (opts.maxDepth !== undefined) args.push(`--maxDepth=${opts.maxDepth}`);
-    const { run } = await import('./trace.js');
-    const result = await executeCommandForRepl('trace', args, runtime, preferredFormat, run);
-    return { ...result, contextFile: absoluteFile, contextSymbol: symbolName.trim() };
-  }
-
-  const { run } = await import('./explain.js');
-  const result = await executeCommandForRepl('explain', [absoluteFile], runtime, preferredFormat, run);
-  return { ...result, contextFile: absoluteFile };
+  return cleaned;
 }
 
 /**
@@ -1576,114 +941,3 @@ async function extractFileSymbols(
   }
 }
 
-async function handleExport(rawData: unknown, command: string): Promise<void> {
-  try {
-    const fmt = await selectExportFormat();
-    const exported = formatOutput(rawData, fmt, command);
-    const sanitizedExport = stripSavedOutputNoise(exported, fmt);
-    process.stdout.write(sanitizedExport.endsWith('\n') ? sanitizedExport : `${sanitizedExport}\n`);
-  } catch (err) {
-    if (err instanceof ExitPromptError) return;
-    process.stderr.write(
-      `Export error: ${formatTerminalError(err)}\n`,
-    );
-  }
-}
-
-async function handleSaveToFile(
-  output: string,
-  command: string,
-  workspaceRoot: string,
-  rawData?: unknown,
-  effectiveFormat?: CliOutputFormat,
-): Promise<void> {
-  try {
-    const chosenPath = await inputSavePath(buildDefaultSavePathForFormat(command, effectiveFormat));
-    const resolvedPath = path.resolve(workspaceRoot, chosenPath);
-
-    if (!(await isSafeWorkspaceWritePath(resolvedPath, workspaceRoot))) {
-      process.stderr.write('Refusing to write outside workspace root.\n');
-      return;
-    }
-
-    await fs.mkdir(path.dirname(resolvedPath), { recursive: true });
-
-    // TOCTOU mitigation: re-validate after directory creation.
-    if (!(await isSafeWorkspaceWritePath(resolvedPath, workspaceRoot))) {
-      process.stderr.write('Refusing to write outside workspace root.\n');
-      return;
-    }
-
-    // Symlink hardening: never follow a symlink at the target path.
-    try {
-      const stats = await fs.lstat(resolvedPath);
-      if (stats.isSymbolicLink()) {
-        process.stderr.write('Refusing to overwrite a symlink target.\n');
-        return;
-      }
-    } catch (lstatErr) {
-      const code = (lstatErr as NodeJS.ErrnoException | undefined)?.code;
-      if (code !== 'ENOENT') throw lstatErr;
-    }
-
-    const baseContent = rawData !== undefined && effectiveFormat
-      ? formatOutput(rawData, effectiveFormat, command)
-      : output;
-    const sanitizedContent = stripSavedOutputNoise(baseContent, effectiveFormat);
-
-    await fs.writeFile(resolvedPath, sanitizedContent, 'utf-8');
-    process.stdout.write(`Saved: ${path.relative(workspaceRoot, resolvedPath)}\n`);
-  } catch (err) {
-    if (err instanceof ExitPromptError) return;
-    process.stderr.write(
-      `Save error: ${formatTerminalError(err)}\n`,
-    );
-  }
-}
-
-async function handleDrillDown(
-  filePath: string,
-  runtime: CliRuntime,
-  state: ReturnType<typeof createSessionState>,
-): Promise<void> {
-  const rel = path.relative(runtime.workspaceRoot, filePath);
-  const symbols = await extractFileSymbols(filePath, runtime);
-  const symbolName = await selectOrInputSymbol(rel, symbols, state.tipCounter, state.lastSymbol ?? '').catch(() => '');
-  try {
-    if (symbolName.trim()) {
-      const { run } = await import('./trace.js');
-      const result = await executeCommandForRepl(
-        'trace',
-        [`${filePath}#${symbolName.trim()}`],
-        runtime,
-        state.preferredFormat,
-        run,
-      );
-      state.lastFile = filePath;
-      state.lastSymbol = symbolName.trim();
-      state.lastResult = result.rawData ?? result.output;
-      const output = result.output ?? '';
-      process.stdout.write(output.endsWith('\n') ? output : `${output}\n`);
-    } else {
-      const { run } = await import('./explain.js');
-      const result = await executeCommandForRepl(
-        'explain',
-        [filePath],
-        runtime,
-        state.preferredFormat,
-        run,
-      );
-      state.lastFile = filePath;
-      state.lastSymbol = undefined;
-      state.lastResult = result.rawData ?? result.output;
-      const output = result.output ?? '';
-      process.stdout.write(output.endsWith('\n') ? output : `${output}\n`);
-    }
-  } catch (err) {
-    if (!(err instanceof ExitPromptError)) {
-      process.stderr.write(
-        `Error: ${formatTerminalError(err)}\n`,
-      );
-    }
-  }
-}

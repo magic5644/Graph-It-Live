@@ -1,8 +1,9 @@
 /**
  * REPL end-to-end chaining tests.
  *
- * These tests execute the real REPL loop with mocked prompts/runtime/commands
- * to validate command chaining and input propagation between cycles.
+ * The Ink UI is replaced by a stub that captures onSubmitCommand, so typed
+ * command lines run through the real REPL command handler with mocked
+ * runtime/commands to validate command chaining between submissions.
  */
 
 /// <reference types="node" />
@@ -10,22 +11,12 @@
 import * as path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { CliRuntime } from '../../src/cli/runtime';
+import type { InkReplCommandResponse } from '../../src/cli/repl/ink/ReplInkApp';
+
+type SubmitCommand = (commandLine: string) => Promise<InkReplCommandResponse>;
 
 const mocks = vi.hoisted(() => ({
-  selectMainAction: vi.fn(),
-  selectPostResultAction: vi.fn(),
-  searchDirectory: vi.fn(),
-  searchFile: vi.fn(),
-  selectOrInputSymbol: vi.fn(),
-  askTraceOptions: vi.fn(),
-  askCheckDepsOptions: vi.fn(),
-  askArchitectureOptions: vi.fn(),
-  inputCommandLine: vi.fn(),
-  inputSavePath: vi.fn(),
-  selectExportFormat: vi.fn(),
-  selectPreferredFormat: vi.fn(),
-  confirmScan: vi.fn(),
-  buildContextualPostResultEntries: vi.fn().mockReturnValue([]),
+  runInkReplSession: vi.fn(),
 
   traceRun: vi.fn(),
   pathRun: vi.fn(),
@@ -41,21 +32,9 @@ const mocks = vi.hoisted(() => ({
   reviewPrRun: vi.fn(),
 }));
 
-vi.mock('../../src/cli/repl/prompts.js', () => ({
-  selectMainAction: mocks.selectMainAction,
-  selectPostResultAction: mocks.selectPostResultAction,
-  searchDirectory: mocks.searchDirectory,
-  searchFile: mocks.searchFile,
-  inputSavePath: mocks.inputSavePath,
-  selectOrInputSymbol: mocks.selectOrInputSymbol,
-  askTraceOptions: mocks.askTraceOptions,
-  askCheckDepsOptions: mocks.askCheckDepsOptions,
-  askArchitectureOptions: mocks.askArchitectureOptions,
-  inputCommandLine: mocks.inputCommandLine,
-  selectExportFormat: mocks.selectExportFormat,
-  selectPreferredFormat: mocks.selectPreferredFormat,
-  confirmScan: mocks.confirmScan,
-  buildContextualPostResultEntries: mocks.buildContextualPostResultEntries,
+vi.mock('../../src/cli/repl/ink/ReplInkApp.js', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../../src/cli/repl/ink/ReplInkApp.js')>()),
+  runInkReplSession: mocks.runInkReplSession,
 }));
 
 vi.mock('../../src/analyzer/SourceFileCollector.js', () => ({
@@ -90,8 +69,24 @@ function createRuntimeStub() {
   };
 }
 
-async function runWithRuntimeStub(runtime: ReturnType<typeof createRuntimeStub>): Promise<void> {
+/** Start the REPL, then submit each command line in order through the Ink bridge. */
+async function typedSession(
+  runtime: ReturnType<typeof createRuntimeStub>,
+  ...commandLines: string[]
+): Promise<InkReplCommandResponse[]> {
+  let submit: SubmitCommand | undefined;
+  mocks.runInkReplSession.mockImplementation(async (options: { onSubmitCommand: SubmitCommand }) => {
+    submit = options.onSubmitCommand;
+  });
   await run(runtime as unknown as CliRuntime);
+  if (!submit) {
+    throw new Error('runInkReplSession was not called');
+  }
+  const responses: InkReplCommandResponse[] = [];
+  for (const commandLine of commandLines) {
+    responses.push(await submit(commandLine));
+  }
+  return responses;
 }
 
 describe('REPL command chaining e2e', () => {
@@ -111,19 +106,9 @@ describe('REPL command chaining e2e', () => {
     stdoutSpy.mockImplementation(() => true);
     stderrSpy.mockImplementation(() => true);
 
-    mocks.selectExportFormat.mockResolvedValue('json');
-    mocks.selectPreferredFormat.mockResolvedValue('json');
-    mocks.inputSavePath.mockResolvedValue('.graph-it/exports/repl-output.txt');
-    mocks.inputCommandLine.mockResolvedValue('');
-    mocks.searchDirectory.mockResolvedValue('src');
-    mocks.confirmScan.mockResolvedValue(true);
-    mocks.selectOrInputSymbol.mockResolvedValue('');
-    mocks.askTraceOptions.mockResolvedValue({ maxDepth: 10 });
-    mocks.askCheckDepsOptions.mockResolvedValue({ direction: 'both' });
-    mocks.askArchitectureOptions.mockResolvedValue({ maxFiles: undefined });
-
     mocks.traceRun.mockResolvedValue('{"trace":"ok"}');
     mocks.pathRun.mockResolvedValue('{"path":"ok"}');
+    mocks.pathInRun.mockResolvedValue('{"pathIn":"ok"}');
     mocks.explainRun.mockResolvedValue('{"explain":"ok"}');
     mocks.summaryRun.mockResolvedValue('{"summary":"ok"}');
     mocks.architectureRun.mockResolvedValue('{"architecture":"ok"}');
@@ -135,19 +120,38 @@ describe('REPL command chaining e2e', () => {
     mocks.reviewPrRun.mockResolvedValue('{"review":"ok"}');
   });
 
-  function typedSession(...commandLines: string[]): void {
-    for (const commandLine of commandLines) {
-      mocks.selectMainAction.mockResolvedValueOnce({ kind: 'typed', commandLine });
-      mocks.selectPostResultAction.mockResolvedValueOnce('newAnalysis');
-    }
-    mocks.selectMainAction.mockResolvedValueOnce({ kind: 'quit' });
-  }
+  afterEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it('prints the no-TTY message and does not start the UI without a TTY', async () => {
+    Object.defineProperty(process.stdin, 'isTTY', { value: false, configurable: true });
+
+    await run(createRuntimeStub() as unknown as CliRuntime);
+
+    expect(stdoutSpy).toHaveBeenCalledWith(expect.stringContaining('Interactive mode unavailable (no TTY).'));
+    expect(mocks.runInkReplSession).not.toHaveBeenCalled();
+  });
+
+  it('reports a scan error and does not start the UI when indexing fails', async () => {
+    const runtime = createRuntimeStub();
+    runtime.ensureIndexed.mockRejectedValueOnce(new Error('disk full'));
+
+    await run(runtime as unknown as CliRuntime);
+
+    expect(stderrSpy).toHaveBeenCalledWith('Scan error: disk full\n');
+    expect(mocks.runInkReplSession).not.toHaveBeenCalled();
+  });
+
+  it('says goodbye once the UI session ends', async () => {
+    await typedSession(createRuntimeStub());
+
+    expect(stdoutSpy).toHaveBeenCalledWith('\nGoodbye!\n');
+  });
 
   it('runs /callers through query_call_graph and reuses the symbol for /impact', async () => {
-    typedSession('/callers src/index.ts#main --depth=3', '/impact --includeTransitive=true');
-
     const runtime = createRuntimeStub();
-    await runWithRuntimeStub(runtime);
+    await typedSession(runtime, '/callers src/index.ts#main --depth=3', '/impact --includeTransitive=true');
 
     const filePath = path.resolve('/workspace', 'src/index.ts');
     expect(mocks.toolRun).toHaveBeenNthCalledWith(
@@ -165,10 +169,7 @@ describe('REPL command chaining e2e', () => {
   });
 
   it('keeps backslashes of a Windows-style symbol target intact in the tool arguments', async () => {
-    typedSession(String.raw`/callers src\utils.ts#parse`);
-
-    const runtime = createRuntimeStub();
-    await runWithRuntimeStub(runtime);
+    await typedSession(createRuntimeStub(), String.raw`/callers src\utils.ts#parse`);
 
     const [args] = mocks.toolRun.mock.calls[0] as [string[]];
     expect(JSON.parse(args[2])).toEqual({
@@ -179,21 +180,16 @@ describe('REPL command chaining e2e', () => {
   });
 
   it('asks for a symbol when /callers or /impact has no symbol context', async () => {
-    typedSession('/file src/index.ts', '/callers', '/impact');
-
-    const runtime = createRuntimeStub();
-    await runWithRuntimeStub(runtime);
+    const [, callers, impact] = await typedSession(createRuntimeStub(), '/file src/index.ts', '/callers', '/impact');
 
     expect(mocks.toolRun).not.toHaveBeenCalled();
-    expect(stdoutSpy).toHaveBeenCalledWith(expect.stringContaining('/callers needs a symbol'));
-    expect(stdoutSpy).toHaveBeenCalledWith(expect.stringContaining('/impact needs a symbol'));
+    expect(callers.output).toContain('/callers needs a symbol');
+    expect(impact.output).toContain('/impact needs a symbol');
   });
 
   it('runs /explain on the current file and keeps that file as context', async () => {
-    typedSession('/file src/utils.ts', '/explain', '/summary');
-
     const runtime = createRuntimeStub();
-    await runWithRuntimeStub(runtime);
+    await typedSession(runtime, '/file src/utils.ts', '/explain', '/summary');
 
     const filePath = path.resolve('/workspace', 'src/utils.ts');
     expect(mocks.explainRun).toHaveBeenCalledWith([filePath], runtime, 'json');
@@ -201,20 +197,15 @@ describe('REPL command chaining e2e', () => {
   });
 
   it('asks for a file when /explain has no file context', async () => {
-    typedSession('/explain');
-
-    const runtime = createRuntimeStub();
-    await runWithRuntimeStub(runtime);
+    const [response] = await typedSession(createRuntimeStub(), '/explain');
 
     expect(mocks.explainRun).not.toHaveBeenCalled();
-    expect(stdoutSpy).toHaveBeenCalledWith(expect.stringContaining('Explain needs a file'));
+    expect(response.output).toContain('Explain needs a file');
   });
 
   it('passes a /context question through and seeds a bare /context with the current symbol', async () => {
-    typedSession('/context how is the index built --detail compact', '/callers src/index.ts#main', '/context');
-
     const runtime = createRuntimeStub();
-    await runWithRuntimeStub(runtime);
+    await typedSession(runtime, '/context how is the index built --detail compact', '/callers src/index.ts#main', '/context');
 
     expect(mocks.contextRun).toHaveBeenNthCalledWith(
       1,
@@ -231,324 +222,111 @@ describe('REPL command chaining e2e', () => {
   });
 
   it('asks for a question when /context has no symbol context', async () => {
-    typedSession('/context');
-
-    const runtime = createRuntimeStub();
-    await runWithRuntimeStub(runtime);
+    const [response] = await typedSession(createRuntimeStub(), '/context');
 
     expect(mocks.contextRun).not.toHaveBeenCalled();
-    expect(stdoutSpy).toHaveBeenCalledWith(expect.stringContaining('Context needs a question or a symbol'));
+    expect(response.output).toContain('Context needs a question or a symbol');
   });
 
   it('runs /review-pr with its flags', async () => {
-    typedSession('/review-pr --base origin/main');
-
     const runtime = createRuntimeStub();
-    await runWithRuntimeStub(runtime);
+    await typedSession(runtime, '/review-pr --base origin/main');
 
     expect(mocks.reviewPrRun).toHaveBeenCalledWith(['--base', 'origin/main'], runtime, 'json');
   });
 
-  afterEach(() => {
-    vi.clearAllMocks();
-  });
-
-  it('chains selected file from trace into check input', async () => {
-    mocks.selectMainAction
-      .mockResolvedValueOnce('trace')
-      .mockResolvedValueOnce('check')
-      .mockResolvedValueOnce('quit');
-
-    mocks.selectPostResultAction
-      .mockResolvedValueOnce('newAnalysis')
-      .mockResolvedValueOnce('quit');
-
-    mocks.searchFile.mockResolvedValueOnce('src/index.ts');
-    mocks.selectOrInputSymbol.mockResolvedValueOnce('main');
-
+  it('chains the traced file and symbol into /check and /callers', async () => {
     const runtime = createRuntimeStub();
-    await runWithRuntimeStub(runtime);
+    await typedSession(runtime, '/trace src/index.ts#main --maxDepth=10', '/check', '/callers');
 
     const expectedFile = path.resolve('/workspace', 'src/index.ts');
-
-    expect(mocks.traceRun).toHaveBeenCalledWith(
-      [`${expectedFile}#main`, '--maxDepth=10'],
-      runtime,
-      'json',
-    );
+    expect(mocks.traceRun).toHaveBeenCalledWith([`${expectedFile}#main`, '--maxDepth', '10'], runtime, 'json');
     expect(mocks.checkRun).toHaveBeenCalledWith([expectedFile], runtime, 'json');
+    expect(JSON.parse((mocks.toolRun.mock.calls[0] as [string[]])[0][2])).toMatchObject({
+      filePath: expectedFile,
+      symbolName: 'main',
+    });
   });
 
-  it('chains selected file from trace into summary codemap input', async () => {
-    mocks.selectMainAction
-      .mockResolvedValueOnce('trace')
-      .mockResolvedValueOnce('summary')
-      .mockResolvedValueOnce('quit');
-
-    mocks.selectPostResultAction
-      .mockResolvedValueOnce('newAnalysis')
-      .mockResolvedValueOnce('quit');
-
-    mocks.searchFile.mockResolvedValueOnce('src/index.ts');
-    mocks.selectOrInputSymbol.mockResolvedValueOnce('handler');
-
+  it('keeps the file context across /format, /help and usage messages', async () => {
     const runtime = createRuntimeStub();
-    await runWithRuntimeStub(runtime);
+    await typedSession(runtime, '/file src/utils.ts', '/format json', '/help', '/callers', '/summary');
 
-    const expectedFile = path.resolve('/workspace', 'src/index.ts');
+    expect(mocks.summaryRun).toHaveBeenCalledWith([path.resolve('/workspace', 'src/utils.ts')], runtime, 'json');
+  });
+
+  it('drops the symbol when a command moves the context to another file', async () => {
+    const [, , callers] = await typedSession(
+      createRuntimeStub(),
+      '/trace src/index.ts#main',
+      '/check-dependencies src/utils.ts',
+      '/callers',
+    );
+
+    expect(mocks.toolRun).not.toHaveBeenCalled();
+    expect(callers.output).toContain('/callers needs a symbol');
+  });
+
+  it('explains the file when /trace has no symbol and keeps the file for /summary', async () => {
+    const runtime = createRuntimeStub();
+    await typedSession(runtime, '/trace src/utils.ts', '/summary');
+
+    const expectedFile = path.resolve('/workspace', 'src/utils.ts');
+    expect(mocks.traceRun).not.toHaveBeenCalled();
+    expect(mocks.explainRun).toHaveBeenCalledWith([expectedFile], runtime, 'json');
     expect(mocks.summaryRun).toHaveBeenCalledWith([expectedFile], runtime, 'json');
   });
 
-  it('does not execute drill-down when there is no file context', async () => {
-    mocks.selectMainAction
-      .mockResolvedValueOnce('summary')
-      .mockResolvedValueOnce('quit');
+  it('asks for a file context when /trace has none', async () => {
+    const [response] = await typedSession(createRuntimeStub(), '/trace');
 
-    mocks.selectPostResultAction.mockResolvedValueOnce('drillDown');
-
-    const runtime = createRuntimeStub();
-    await runWithRuntimeStub(runtime);
-
-    expect(mocks.summaryRun).toHaveBeenCalledWith([], runtime, 'json');
     expect(mocks.traceRun).not.toHaveBeenCalled();
-    expect(mocks.explainRun).not.toHaveBeenCalled();
-    expect(stdoutSpy).toHaveBeenCalledWith(
-      'Drill-down unavailable for this result (no file context).\n',
-    );
+    expect(response.output).toContain('Trace needs a file context');
   });
 
-  it('drill-down on dependency result reuses current file context and allows empty symbol fallback', async () => {
-    mocks.selectMainAction
-      .mockResolvedValueOnce('checkDependencies')
-      .mockResolvedValueOnce('quit');
-
-    mocks.selectPostResultAction.mockResolvedValueOnce('drillDown');
-
-    mocks.searchFile.mockResolvedValueOnce('src/utils.ts');
-    mocks.selectOrInputSymbol.mockResolvedValueOnce('');
-
+  it('runs /architecture without arguments and passes --maxFiles=N as two arguments', async () => {
     const runtime = createRuntimeStub();
-    await runWithRuntimeStub(runtime);
+    await typedSession(runtime, '/architecture', '/architecture --maxFiles=100');
 
-    const expectedFile = path.resolve('/workspace', 'src/utils.ts');
-
-    expect(mocks.checkDependenciesRun).toHaveBeenCalledWith([expectedFile], runtime, 'json');
-    expect(mocks.explainRun).toHaveBeenCalledWith([expectedFile], runtime, 'json');
+    expect(mocks.architectureRun).toHaveBeenNthCalledWith(1, [], runtime, 'json');
+    expect(mocks.architectureRun).toHaveBeenNthCalledWith(2, ['--maxFiles', '100'], runtime, 'json');
   });
 
-  it('reuses previous symbol as drill-down default input', async () => {
-    mocks.selectMainAction
-      .mockResolvedValueOnce('trace')
-      .mockResolvedValueOnce('quit');
+  it('uses the session format set with /format on the next command', async () => {
+    mocks.summaryRun.mockResolvedValue('{"filesIndexed":2}');
 
-    mocks.selectPostResultAction.mockResolvedValueOnce('drillDown');
+    const [, summary] = await typedSession(createRuntimeStub(), '/format mermaid', '/summary');
 
-    mocks.searchFile.mockResolvedValueOnce('src/index.ts');
-    mocks.selectOrInputSymbol
-      .mockResolvedValueOnce('handler')
-      .mockResolvedValueOnce('');
-
-    const runtime = createRuntimeStub();
-    await runWithRuntimeStub(runtime);
-
-    const expectedFile = path.resolve('/workspace', 'src/index.ts');
-    const expectedRelative = path.relative('/workspace', expectedFile);
-
-    expect(mocks.selectOrInputSymbol).toHaveBeenNthCalledWith(
-      1,
-      'src/index.ts',
-      expect.any(Array),
-      expect.any(Number),
-      expect.any(String),
-    );
-    expect(mocks.selectOrInputSymbol).toHaveBeenNthCalledWith(
-      2,
-      expectedRelative,
-      expect.any(Array),
-      expect.any(Number),
-      'handler',
-    );
-    expect(mocks.explainRun).toHaveBeenCalledWith([expectedFile], runtime, 'json');
-  });
-
-  it('chains file context from explain fallback into check when trace symbol is empty', async () => {
-    mocks.selectMainAction
-      .mockResolvedValueOnce('trace')
-      .mockResolvedValueOnce('check')
-      .mockResolvedValueOnce('quit');
-
-    mocks.selectPostResultAction
-      .mockResolvedValueOnce('newAnalysis')
-      .mockResolvedValueOnce('quit');
-
-    mocks.searchFile.mockResolvedValueOnce('src/utils.ts');
-    mocks.selectOrInputSymbol.mockResolvedValueOnce('');
-
-    const runtime = createRuntimeStub();
-    await runWithRuntimeStub(runtime);
-
-    const expectedFile = path.resolve('/workspace', 'src/utils.ts');
-
-    expect(mocks.explainRun).toHaveBeenCalledWith([expectedFile], runtime, 'json');
-    expect(mocks.checkRun).toHaveBeenCalledWith([expectedFile], runtime, 'json');
-  });
-
-  it('runs full architecture action from REPL main menu', async () => {
-    mocks.selectMainAction
-      .mockResolvedValueOnce('architecture')
-      .mockResolvedValueOnce('quit');
-
-    mocks.selectPostResultAction.mockResolvedValueOnce('quit');
-
-    const runtime = createRuntimeStub();
-    await runWithRuntimeStub(runtime);
-
-    // Architecture called with no args when unlimited (no maxFiles)
-    expect(mocks.architectureRun).toHaveBeenCalledWith([], runtime, 'json');
-  });
-
-  it('passes --maxFiles arg to architecture when cap is configured', async () => {
-    mocks.selectMainAction
-      .mockResolvedValueOnce('architecture')
-      .mockResolvedValueOnce('quit');
-    mocks.selectPostResultAction.mockResolvedValueOnce('quit');
-    mocks.askArchitectureOptions.mockResolvedValueOnce({ maxFiles: 100 });
-
-    const runtime = createRuntimeStub();
-    await runWithRuntimeStub(runtime);
-
-    expect(mocks.architectureRun).toHaveBeenCalledWith(['--maxFiles=100'], runtime, 'json');
-  });
-
-  it('does not print the header as standalone scrollback before the prompt loop', async () => {
-    mocks.selectMainAction.mockResolvedValueOnce({ kind: 'quit' });
-
-    const runtime = createRuntimeStub();
-    await runWithRuntimeStub(runtime);
-
-    expect(stdoutSpy).not.toHaveBeenCalledWith(expect.stringContaining('Type / to browse commands'));
-    expect(stdoutSpy).toHaveBeenCalledWith('\nGoodbye!\n');
-  });
-
-  it('changes preferred format and uses it on next command', async () => {
-    mocks.selectMainAction
-      .mockResolvedValueOnce('summary')
-      .mockResolvedValueOnce('summary')
-      .mockResolvedValueOnce('quit');
-
-    mocks.selectPostResultAction
-      .mockResolvedValueOnce('setFormat')
-      .mockResolvedValueOnce('quit');
-
-    mocks.selectPreferredFormat.mockResolvedValueOnce('json');
-
-    const runtime = createRuntimeStub();
-    await runWithRuntimeStub(runtime);
-
-    expect(mocks.summaryRun).toHaveBeenNthCalledWith(1, [], runtime, 'json');
-    expect(mocks.summaryRun).toHaveBeenNthCalledWith(2, [], runtime, 'json');
-  });
-
-  it('exports using structured raw data even when display format is text', async () => {
-    mocks.selectMainAction
-      .mockResolvedValueOnce('checkDependencies')
-      .mockResolvedValueOnce('quit');
-
-    mocks.selectPostResultAction.mockResolvedValueOnce('export');
-    mocks.selectExportFormat.mockResolvedValueOnce('json');
-    mocks.searchFile.mockResolvedValueOnce('src/utils.ts');
-    mocks.checkDependenciesRun.mockResolvedValueOnce('{"outgoing":{"dependencyCount":1},"incoming":{"referencingFileCount":2}}');
-
-    const runtime = createRuntimeStub();
-    await runWithRuntimeStub(runtime);
-
-    expect(stdoutSpy).toHaveBeenCalledWith(expect.stringContaining('"outgoing"'));
-  });
-
-  it('keeps mermaid output when preferred format is mermaid', async () => {
-    mocks.selectMainAction
-      .mockResolvedValueOnce('summary')
-      .mockResolvedValueOnce('summary')
-      .mockResolvedValueOnce('quit');
-
-    mocks.selectPostResultAction
-      .mockResolvedValueOnce('setFormat')
-      .mockResolvedValueOnce('quit');
-
-    mocks.selectPreferredFormat.mockResolvedValueOnce('mermaid');
-    mocks.summaryRun
-      .mockResolvedValueOnce('{"filesIndexed":2}')
-      .mockResolvedValueOnce('{"filesIndexed":2}');
-
-    const runtime = createRuntimeStub();
-    await runWithRuntimeStub(runtime);
-
-    expect(stdoutSpy).toHaveBeenCalledWith(expect.stringContaining('graph TD'));
+    expect(summary.output).toContain('graph TD');
     expect(stdoutSpy).not.toHaveBeenCalledWith(
       'Rendered in text (default mermaid unsupported for this command).\n',
     );
   });
 
-  it('executes a free-form command from REPL command input', async () => {
-    mocks.selectMainAction
-      .mockResolvedValueOnce('command')
-      .mockResolvedValueOnce('quit');
-
-    mocks.selectPostResultAction.mockResolvedValueOnce('quit');
-    mocks.inputCommandLine.mockResolvedValueOnce('architecture --format mermaid');
+  it('renders a typed --format override and strips the graph-it prefix', async () => {
+    const runtime = createRuntimeStub();
     mocks.architectureRun.mockResolvedValueOnce(
       '{"nodes":[{"id":"a","relativePath":"src/a.ts"}],"edges":[]}',
     );
 
-    const runtime = createRuntimeStub();
-    await runWithRuntimeStub(runtime);
+    const [response] = await typedSession(runtime, 'graph-it architecture --format mermaid');
 
     expect(mocks.architectureRun).toHaveBeenCalledWith([], runtime, 'json');
-    expect(stdoutSpy).toHaveBeenCalledWith(expect.stringContaining('graph LR'));
+    expect(response.output).toContain('graph LR');
   });
 
-  it('warns user when an unknown --format value is given in free-form command', async () => {
-    mocks.selectMainAction
-      .mockResolvedValueOnce('command')
-      .mockResolvedValueOnce('quit');
+  it('warns when an unknown or missing --format value is given', async () => {
+    mocks.architectureRun.mockResolvedValue('{"nodes":[],"edges":[]}');
 
-    mocks.selectPostResultAction.mockResolvedValueOnce('quit');
-    mocks.inputCommandLine.mockResolvedValueOnce('architecture --format banana');
-    mocks.architectureRun.mockResolvedValueOnce('{"nodes":[],"edges":[]}');
+    await typedSession(createRuntimeStub(), '/architecture --format banana', '/architecture --format');
 
-    const runtime = createRuntimeStub();
-    await runWithRuntimeStub(runtime);
-
-    expect(stdoutSpy).toHaveBeenCalledWith(
-      expect.stringContaining('Unknown format "banana"'),
-    );
-  });
-
-  it('warns user when --format is provided without a value', async () => {
-    mocks.selectMainAction
-      .mockResolvedValueOnce({ kind: 'typed', commandLine: '/architecture --format' })
-      .mockResolvedValueOnce({ kind: 'quit' });
-
-    mocks.selectPostResultAction.mockResolvedValueOnce('quit');
-    mocks.architectureRun.mockResolvedValueOnce('{"nodes":[],"edges":[]}');
-
-    const runtime = createRuntimeStub();
-    await runWithRuntimeStub(runtime);
-
-    expect(stdoutSpy).toHaveBeenCalledWith(
-      expect.stringContaining('Unknown format "(missing value)"'),
-    );
+    expect(stdoutSpy).toHaveBeenCalledWith(expect.stringContaining('Unknown format "banana"'));
+    expect(stdoutSpy).toHaveBeenCalledWith(expect.stringContaining('Unknown format "(missing value)"'));
   });
 
   it('supports quoted file paths in typed slash commands', async () => {
-    mocks.selectMainAction
-      .mockResolvedValueOnce({ kind: 'typed', commandLine: '/check-dependencies "src/my file.ts"' })
-      .mockResolvedValueOnce({ kind: 'quit' });
-
-    mocks.selectPostResultAction.mockResolvedValueOnce('quit');
-
     const runtime = createRuntimeStub();
-    await runWithRuntimeStub(runtime);
+    await typedSession(runtime, '/check-dependencies "src/my file.ts"');
 
     expect(mocks.checkDependenciesRun).toHaveBeenCalledWith(
       [path.resolve('/workspace', 'src/my file.ts')],
@@ -558,14 +336,8 @@ describe('REPL command chaining e2e', () => {
   });
 
   it('executes cycles slash command', async () => {
-    mocks.selectMainAction
-      .mockResolvedValueOnce({ kind: 'typed', commandLine: '/cycles src/index.ts' })
-      .mockResolvedValueOnce({ kind: 'quit' });
-
-    mocks.selectPostResultAction.mockResolvedValueOnce('quit');
-
     const runtime = createRuntimeStub();
-    await runWithRuntimeStub(runtime);
+    await typedSession(runtime, '/cycles src/index.ts');
 
     expect(mocks.cyclesRun).toHaveBeenCalledWith(
       [path.resolve('/workspace', 'src/index.ts')],
@@ -574,92 +346,27 @@ describe('REPL command chaining e2e', () => {
     );
   });
 
-  it('check-dependencies uses path command when direction is outgoing-only', async () => {
-    mocks.selectMainAction
-      .mockResolvedValueOnce('checkDependencies')
-      .mockResolvedValueOnce('quit');
-    mocks.selectPostResultAction.mockResolvedValueOnce('quit');
-    mocks.searchFile.mockResolvedValueOnce('src/index.ts');
-    mocks.askCheckDepsOptions.mockResolvedValueOnce({ direction: 'outgoing' });
-
+  it('routes /check-dependencies --outgoing to path and --incoming to path-in', async () => {
     const runtime = createRuntimeStub();
-    await runWithRuntimeStub(runtime);
+    await typedSession(runtime, '/check-dependencies src/index.ts --outgoing', '/deps src/utils.ts --in');
 
-    expect(mocks.pathRun).toHaveBeenCalledWith(
-      [path.resolve('/workspace', 'src/index.ts')],
-      runtime,
-      'json',
-    );
+    expect(mocks.pathRun).toHaveBeenCalledWith([path.resolve('/workspace', 'src/index.ts')], runtime, 'json');
+    expect(mocks.pathInRun).toHaveBeenCalledWith([path.resolve('/workspace', 'src/utils.ts')], runtime, 'json');
     expect(mocks.checkDependenciesRun).not.toHaveBeenCalled();
   });
 
-  it('check-dependencies uses pathIn command when direction is incoming-only', async () => {
-    mocks.selectMainAction
-      .mockResolvedValueOnce('checkDependencies')
-      .mockResolvedValueOnce('quit');
-    mocks.selectPostResultAction.mockResolvedValueOnce('quit');
-    mocks.searchFile.mockResolvedValueOnce('src/utils.ts');
-    mocks.askCheckDepsOptions.mockResolvedValueOnce({ direction: 'incoming' });
+  it('asks for a file when /check-dependencies has no file context', async () => {
+    const [response] = await typedSession(createRuntimeStub(), '/check-dependencies');
 
-    const runtime = createRuntimeStub();
-    await runWithRuntimeStub(runtime);
-
-    expect(mocks.pathInRun).toHaveBeenCalledWith(
-      [path.resolve('/workspace', 'src/utils.ts')],
-      runtime,
-      'json',
-    );
     expect(mocks.checkDependenciesRun).not.toHaveBeenCalled();
-  });
-
-  it('post-result followUpDeps runs check-dependencies on last context file', async () => {
-    mocks.selectMainAction
-      .mockResolvedValueOnce('trace')
-      .mockResolvedValueOnce('quit');
-    mocks.selectPostResultAction.mockResolvedValueOnce('followUpDeps');
-    mocks.searchFile.mockResolvedValueOnce('src/index.ts');
-    mocks.selectOrInputSymbol.mockResolvedValueOnce('myFn');
-
-    const runtime = createRuntimeStub();
-    await runWithRuntimeStub(runtime);
-
-    const expectedFile = path.resolve('/workspace', 'src/index.ts');
-    expect(mocks.traceRun).toHaveBeenCalledWith(
-      [`${expectedFile}#myFn`, '--maxDepth=10'],
-      runtime,
-      'json',
-    );
-    expect(mocks.checkDependenciesRun).toHaveBeenCalledWith([expectedFile], runtime, 'json');
-  });
-
-  it('post-result followUpCycles runs cycles on last context file', async () => {
-    mocks.selectMainAction
-      .mockResolvedValueOnce('trace')
-      .mockResolvedValueOnce('quit');
-    mocks.selectPostResultAction.mockResolvedValueOnce('followUpCycles');
-    mocks.searchFile.mockResolvedValueOnce('src/utils.ts');
-    mocks.selectOrInputSymbol.mockResolvedValueOnce('parse');
-
-    const runtime = createRuntimeStub();
-    await runWithRuntimeStub(runtime);
-
-    const expectedFile = path.resolve('/workspace', 'src/utils.ts');
-    expect(mocks.cyclesRun).toHaveBeenCalledWith([expectedFile], runtime, 'json');
+    expect(response.output).toContain('check-dependencies needs a file path');
   });
 
   it('sets current file context with /file and reuses it for summary', async () => {
-    mocks.selectMainAction
-      .mockResolvedValueOnce({ kind: 'typed', commandLine: '/file src/index.ts' })
-      .mockResolvedValueOnce({ kind: 'typed', commandLine: '/summary' })
-      .mockResolvedValueOnce({ kind: 'quit' });
-
-    mocks.selectPostResultAction
-      .mockResolvedValueOnce('newAnalysis')
-      .mockResolvedValueOnce('quit');
-
     const runtime = createRuntimeStub();
-    await runWithRuntimeStub(runtime);
+    const [file] = await typedSession(runtime, '/file src/index.ts', '/summary');
 
+    expect(file.output).toBe(`Current file context set to ${path.join('src', 'index.ts')}.`);
     expect(mocks.summaryRun).toHaveBeenCalledWith(
       [path.resolve('/workspace', 'src/index.ts')],
       runtime,
@@ -667,70 +374,35 @@ describe('REPL command chaining e2e', () => {
     );
   });
 
-  it('executes a typed slash command selected directly from the palette', async () => {
-    mocks.selectMainAction
-      .mockResolvedValueOnce({ kind: 'typed', commandLine: '/architecture --format mermaid' })
-      .mockResolvedValueOnce({ kind: 'quit' });
+  it('shows the current file context or usage for a bare /file', async () => {
+    const [none, , current] = await typedSession(createRuntimeStub(), '/file', '/file src/index.ts', '/file');
 
-    mocks.selectPostResultAction.mockResolvedValueOnce('quit');
-    mocks.architectureRun.mockResolvedValueOnce(
-      '{"nodes":[{"id":"a","relativePath":"src/a.ts"}],"edges":[]}',
-    );
-
-    const runtime = createRuntimeStub();
-    await runWithRuntimeStub(runtime);
-
-    expect(mocks.architectureRun).toHaveBeenCalledWith([], runtime, 'json');
-    expect(stdoutSpy).toHaveBeenCalledWith(expect.stringContaining('graph LR'));
+    expect(none.output).toBe('No file context set. Usage: /file <path>');
+    expect(current.output).toBe(`Current file context: ${path.join('src', 'index.ts')}. Usage: /file <path>`);
   });
 
-  it('shows slash help without opening a post-result menu', async () => {
-    mocks.selectMainAction
-      .mockResolvedValueOnce({ kind: 'action', action: 'help' })
-      .mockResolvedValueOnce({ kind: 'quit' });
+  it('shows slash help', async () => {
+    const [response] = await typedSession(createRuntimeStub(), '/help');
 
-    const runtime = createRuntimeStub();
-    await runWithRuntimeStub(runtime);
-
-    expect(stdoutSpy).toHaveBeenCalledWith(expect.stringContaining('Slash commands'));
-    expect(stdoutSpy).toHaveBeenCalledWith(expect.stringContaining('/trace'));
-    expect(stdoutSpy).toHaveBeenCalledWith(expect.stringContaining('/path-in'));
-    expect(stdoutSpy).toHaveBeenCalledWith(expect.stringContaining('/deps-in'));
-    expect(stdoutSpy).toHaveBeenCalledWith(expect.stringContaining('/scan'));
-    expect(mocks.selectPostResultAction).not.toHaveBeenCalled();
+    expect(response.output).toContain('Slash commands');
+    expect(response.output).toContain('/trace');
+    expect(response.output).toContain('/scan');
   });
 
-  it('changes the default format from the slash palette action', async () => {
-    mocks.selectMainAction
-      .mockResolvedValueOnce({ kind: 'action', action: 'format' })
-      .mockResolvedValueOnce('quit');
-
-    mocks.selectPreferredFormat.mockResolvedValueOnce('markdown');
-
-    const runtime = createRuntimeStub();
-    await runWithRuntimeStub(runtime);
-
-    expect(mocks.selectPreferredFormat).toHaveBeenCalledWith('text');
-    expect(stdoutSpy).toHaveBeenCalledWith('Default format set to markdown.\n');
-  });
-
-  it('uses .mmd as default save extension for mermaid results', async () => {
-    mocks.selectMainAction
-      .mockResolvedValueOnce({ kind: 'typed', commandLine: '/architecture --format mermaid' })
-      .mockResolvedValueOnce({ kind: 'quit' });
-
-    mocks.selectPostResultAction.mockResolvedValueOnce('saveToFile');
-    mocks.architectureRun.mockResolvedValueOnce(
-      '{"nodes":[{"id":"a","relativePath":"src/a.ts"}],"edges":[]}',
+  it('quits on /quit and reports empty, invalid and unknown command lines', async () => {
+    const [quit, empty, prefixOnly, invalid, unknown] = await typedSession(
+      createRuntimeStub(),
+      '/quit',
+      '   ',
+      'graph-it',
+      '/file "unterminated',
+      '/bogus',
     );
 
-    const runtime = createRuntimeStub();
-    await runWithRuntimeStub(runtime);
-
-    const exportDir = path.join('.graph-it', 'exports', '');
-    const escapedDir = exportDir.replaceAll('\\', '\\\\');
-    expect(mocks.inputSavePath).toHaveBeenCalledWith(
-      expect.stringMatching(new RegExp(String.raw`${escapedDir}.*-architecture\.mmd$`)),
-    );
+    expect(quit.shouldQuit).toBe(true);
+    expect(empty.output).toContain('Empty command.');
+    expect(prefixOnly.output).toBe('No command provided after graph-it prefix.');
+    expect(invalid.output).toContain('Invalid command line:');
+    expect(unknown.output).toContain('Unknown REPL command "bogus"');
   });
 });
