@@ -1,5 +1,5 @@
 /**
- * Tests for REPL session state.
+ * Tests for REPL utilities: session state and terminal text sanitizing.
  */
 import * as path from 'node:path';
 import { describe, expect, it } from 'vitest';
@@ -7,6 +7,7 @@ import {
   createSessionState,
   type SessionState,
 } from '../../src/cli/repl/sessionState';
+import { sanitizeTerminalText } from '../../src/cli/repl/terminal';
 
 describe('createSessionState', () => {
   it('sets workspaceRoot from argument', () => {
@@ -29,5 +30,12 @@ describe('createSessionState', () => {
     const state: SessionState = createSessionState('/tmp/ws');
     state.lastFile = '/tmp/ws/src/index.ts';
     expect(state.lastFile).toBe('/tmp/ws/src/index.ts');
+  });
+});
+
+describe('sanitizeTerminalText', () => {
+  it('removes ANSI, control and bidi characters', () => {
+    const raw = 'hello\u001b[31m world\u202Eevil\u009bboom';
+    expect(sanitizeTerminalText(raw)).toBe('hello [31m world evil boom');
   });
 });
