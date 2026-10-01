@@ -352,7 +352,7 @@ Examples:
   graph-it tool analyze_dependencies --filePath=/abs/path/file.ts
   graph-it tool crawl_dependency_graph --entryFile=/abs/path/file.ts
   graph-it tool analyze_dependencies --args '{"filePath":"/abs/path/file.ts"}'
-  graph-it tool expand_node --filePath=/abs/path/file.ts --args '{"knownPaths":[]}'
+  graph-it tool query_call_graph --filePath=/abs/path/file.ts --symbolName=handle --direction=callers --depth=1
   graph-it tool graph_context --question="what calls the request handler" --scope='src/**' --format=toon
   graph-it tool graph_context --args '{"mode":"path","from":{"filePath":"src/api.ts","symbolName":"handle"},"to":{"filePath":"src/db.ts","symbolName":"query"},"directed":true,"format":"toon"}' --format toon
 `,

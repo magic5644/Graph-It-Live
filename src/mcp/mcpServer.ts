@@ -116,8 +116,6 @@ import {
   type CrawlDependencyGraphResult,
   createErrorResponse,
   createSuccessResponse,
-  ExpandNodeParamsSchema,
-  type ExpandNodeResult,
   FindReferencingFilesParamsSchema,
   type FindReferencingFilesResult,
   FindUnusedSymbolsParamsSchema,
@@ -126,10 +124,6 @@ import {
   type GetImpactAnalysisResult,
   GraphContextParamsSchema,
   type GetIndexStatusResult,
-  GetSymbolCallersParamsSchema,
-  type GetSymbolCallersResult,
-  GetSymbolDependentsParamsSchema,
-  type GetSymbolDependentsResult,
   GetSymbolGraphParamsSchema,
   type GetSymbolGraphResult,
   InvalidateFilesParamsSchema,
@@ -137,8 +131,6 @@ import {
   MCP_TOOL_VERSION,
   type McpToolResponse,
   type PaginationInfo,
-  ParseImportsParamsSchema,
-  type ParseImportsResult,
   QueryCallGraphParamsSchema,
   type RebuildIndexResult,
   ResolveModulePathParamsSchema,
@@ -903,90 +895,6 @@ For an open-ended question, start with graphitlive_graph_context and come here w
   },
 );
 
-// Tool: graphitlive_expand_node
-server.registerTool(
-  "graphitlive_expand_node",
-  {
-    title: "Expand Node Dependencies",
-    description: `Returns the dependencies of one file that are not already in a set of paths you provide.
-
-WHEN: exploring a large graph incrementally, or lazily loading one node at a time.
-WHY: skips re-analysing what you already hold, so only newly discovered files come back.
-RETURNS: the new nodes and edges only, with the same fields as crawl_dependency_graph.
-LIMITS: output capped by tokenBudget (default 4000, 0 = no limit); a cut sets truncated=true, omitted counts and nextOffset - pass it as offset to read the rest.`,
-    inputSchema: ExpandNodeParamsSchema.extend({
-      response_format: ResponseFormatSchema.describe(
-        "Output format: 'json', 'markdown', or 'toon' (Token-Oriented Object Notation for reduced token usage) (default: toon - RECOMMENDED for 30-60% token savings)",
-      ),
-    }),
-    outputSchema: McpToolResponseSchema,
-    annotations: {
-      readOnlyHint: true,
-      destructiveHint: false,
-      idempotentHint: true,
-      openWorldHint: false,
-    },
-  },
-  async ({ filePath, knownPaths, extraDepth, offset, tokenBudget, response_format }) => {
-    const workerCheck = await ensureWorkerReady();
-    const responseFormat = response_format;
-    if (workerCheck.error)
-      return formatToolResponse(workerCheck.response, responseFormat, "graphitlive_expand_node");
-
-    const response = await invokeToolWithResponse<ExpandNodeResult>(
-      "expand_node",
-      {
-        filePath,
-        knownPaths,
-        extraDepth,
-        offset,
-        tokenBudget,
-      },
-    );
-
-    return formatToolResponse(response, responseFormat, "graphitlive_expand_node");
-  },
-);
-
-// Tool: graphitlive_parse_imports
-server.registerTool(
-  "graphitlive_parse_imports",
-  {
-    title: "Parse Raw Import Statements",
-    description: `Returns the import statements of one file exactly as written, without resolving them to paths.
-
-WHEN: inspecting import style or alias usage, or debugging why a specifier fails to resolve.
-WHY: regex-based, and extracts the script block from Vue/Svelte files first.
-RETURNS: module specifier as written, import type, line number.
-LIMITS: does not resolve paths - use graphitlive_analyze_dependencies for resolved targets.`,
-    inputSchema: ParseImportsParamsSchema.extend({
-      response_format: ResponseFormatSchema.describe(
-        "Output format: 'json', 'markdown', or 'toon' (Token-Oriented Object Notation for reduced token usage) (default: toon - RECOMMENDED for 30-60% token savings)",
-      ),
-    }),
-    outputSchema: McpToolResponseSchema,
-    annotations: {
-      readOnlyHint: true,
-      destructiveHint: false,
-      idempotentHint: true,
-      openWorldHint: false,
-    },
-  },
-  async ({ filePath, response_format }) => {
-    const workerCheck = await ensureWorkerReady();
-    const responseFormat = response_format;
-    if (workerCheck.error)
-      return formatToolResponse(workerCheck.response, responseFormat, "graphitlive_parse_imports");
-
-    const response = await invokeToolWithResponse<ParseImportsResult>(
-      "parse_imports",
-      { filePath },
-    );
-
-    return formatToolResponse(response, responseFormat, "graphitlive_parse_imports");
-  },
-);
-
 // Tool: graphitlive_verify_dependency_usage
 server.registerTool(
   "graphitlive_verify_dependency_usage",
@@ -1211,7 +1119,7 @@ server.registerTool(
 WHEN: "which function in this file calls the database / uses X", scoping a refactor to one symbol rather than the whole file.
 WHY: ts-morph AST parsing, so import aliases are tracked back to their original names and type-only imports are separated from runtime ones.
 RETURNS: exported symbols (name, kind, line, category) and symbol-to-symbol edges tagged runtime or type-only.
-NOT THIS TOOL: for calls between symbols defined in the same file, use graphitlive_analyze_file_logic. This tool crosses the file boundary outward; that one stays inside it.
+NOT THIS TOOL: for calls between symbols defined in the same file, use graphitlive_generate_codemap (its call flow section). This tool crosses the file boundary outward; that one stays inside it.
 For an open-ended question, start with graphitlive_graph_context and come here when you need this specific cut.`,
     inputSchema: GetSymbolGraphParamsSchema.extend({
       response_format: ResponseFormatSchema.describe(
@@ -1280,48 +1188,6 @@ LIMITS: an export reached only through a dynamic or string-keyed lookup can stil
   },
 );
 
-// Tool: graphitlive_get_symbol_dependents
-server.registerTool(
-  "graphitlive_get_symbol_dependents",
-  {
-    title: "Find All Callers of a Symbol (Impact Analysis)",
-    description: `Lists the symbols that use one given symbol - one hop, computed from source at call time.
-
-WHEN: changing a signature and needing every call site, or assessing the blast radius of a symbol-level change.
-WHY: re-reads the referencing files instead of a cached index, so it reflects edits the index has not absorbed yet.
-RETURNS: caller symbol id, file path and workspace-relative path per dependent, plus a total count.
-PICKING BETWEEN THE THREE: this one for every reference, including file-level imports, computed fresh; graphitlive_get_symbol_callers for call sites only; graphitlive_query_call_graph for multi-hop traversal, callees, or relation types.`,
-    inputSchema: GetSymbolDependentsParamsSchema.extend({
-      response_format: ResponseFormatSchema.describe(
-        "Output format: 'json', 'markdown', or 'toon' (Token-Oriented Object Notation for reduced token usage) (default: toon - RECOMMENDED for 30-60% token savings)",
-      ),
-    }),
-    outputSchema: McpToolResponseSchema,
-    annotations: {
-      readOnlyHint: true,
-      destructiveHint: false,
-      idempotentHint: true,
-      openWorldHint: false,
-    },
-  },
-  async ({ filePath, symbolName, response_format }) => {
-    const workerCheck = await ensureWorkerReady();
-    const responseFormat = response_format;
-    if (workerCheck.error)
-      return formatToolResponse(workerCheck.response, responseFormat, "graphitlive_get_symbol_dependents");
-
-    const response = await invokeToolWithResponse<GetSymbolDependentsResult>(
-      "get_symbol_dependents",
-      {
-        filePath,
-        symbolName,
-      },
-    );
-
-    return formatToolResponse(response, responseFormat, "graphitlive_get_symbol_dependents");
-  },
-);
-
 // Tool: graphitlive_trace_function_execution
 server.registerTool(
   "graphitlive_trace_function_execution",
@@ -1362,49 +1228,6 @@ For an open-ended question, start with graphitlive_graph_context and come here w
     );
 
     return formatToolResponse(response, responseFormat, "graphitlive_trace_function_execution");
-  },
-);
-
-// Tool: graphitlive_get_symbol_callers
-server.registerTool(
-  "graphitlive_get_symbol_callers",
-  {
-    title: "Get Symbol Callers (Reverse Dependencies)",
-    description: `Lists the call sites of one given symbol - one hop, from the call graph index.
-
-WHEN: the plain question "who calls X"; finding call sites before a rename; spotting a symbol with no callers.
-WHY: reads CALLS edges from the indexed call graph, so it returns only symbols that call X. File-level imports and other references are not callers; use graphitlive_get_symbol_dependents for those.
-RETURNS: one entry per caller symbol with file path, workspace-relative path, line of the first call and usage type. Type-only references are added only with includeTypeOnly.
-PICKING BETWEEN THE THREE: this one for call sites; graphitlive_get_symbol_dependents for every reference (imports included) computed fresh from source; graphitlive_query_call_graph when you need more than one hop, callees as well as callers, or relation types such as INHERITS and IMPLEMENTS.`,
-    inputSchema: GetSymbolCallersParamsSchema.extend({
-      response_format: ResponseFormatSchema.describe(
-        "Output format: 'json', 'markdown', or 'toon' (Token-Oriented Object Notation for reduced token usage) (default: toon - RECOMMENDED for 30-60% token savings)",
-      ),
-    }),
-    outputSchema: McpToolResponseSchema,
-    annotations: {
-      readOnlyHint: true,
-      destructiveHint: false,
-      idempotentHint: true,
-      openWorldHint: false,
-    },
-  },
-  async ({ filePath, symbolName, includeTypeOnly, response_format }) => {
-    const workerCheck = await ensureWorkerReady();
-    const responseFormat = response_format;
-    if (workerCheck.error)
-      return formatToolResponse(workerCheck.response, responseFormat, "graphitlive_get_symbol_callers");
-
-    const response = await invokeToolWithResponse<GetSymbolCallersResult>(
-      "get_symbol_callers",
-      {
-        filePath,
-        symbolName,
-        includeTypeOnly,
-      },
-    );
-
-    return formatToolResponse(response, responseFormat, "graphitlive_get_symbol_callers");
   },
 );
 
@@ -1529,52 +1352,6 @@ For an open-ended question, start with graphitlive_graph_context and come here w
   },
 );
 
-// Tool: graphitlive_analyze_file_logic
-server.registerTool(
-  "graphitlive_analyze_file_logic",
-  {
-    title: "Analyze File Logic & Call Hierarchy",
-    description: `Returns the call hierarchy among the symbols defined INSIDE one file, ignoring anything it imports.
-
-WHEN: understanding how a file works internally, or spotting recursion before a refactor.
-WHY: built from the file's AST (no language server needed), so it works the same in the CLI, MCP and VS Code. Calls are matched by name within the file.
-RETURNS: nodes (symbol id, LSP SymbolKind number, type, export status, start/end line range), call edges with call-site line numbers, and cycle detection with the symbols involved.
-NOT THIS TOOL: for what this file's symbols reach in OTHER files, use graphitlive_get_symbol_graph.
-SUPPORTS: TypeScript, JavaScript, Python, Rust.
-For an open-ended question, start with graphitlive_graph_context and come here when you need this specific cut.`,
-    inputSchema: z.object({
-      filePath: z.string().describe("Absolute path to the file to analyze"),
-      includeExternal: z
-        .boolean()
-        .optional()
-        .describe("Include external calls (default: false - intra-file only)"),
-      response_format: ResponseFormatSchema.describe(
-        "Output format: 'json', 'markdown', or 'toon' (default: toon - RECOMMENDED for 30-60% token savings)",
-      ),
-    }),
-    outputSchema: McpToolResponseSchema,
-    annotations: {
-      readOnlyHint: true,
-      destructiveHint: false,
-      idempotentHint: true,
-      openWorldHint: false,
-    },
-  },
-  async ({ filePath, includeExternal, response_format }) => {
-    const workerCheck = await ensureWorkerReady();
-    const responseFormat = response_format;
-    if (workerCheck.error)
-      return formatToolResponse(workerCheck.response, responseFormat, "graphitlive_analyze_file_logic");
-
-    const response = await invokeToolWithResponse("analyze_file_logic", {
-      filePath,
-      includeExternal: includeExternal ?? false,
-    });
-
-    return formatToolResponse(response, responseFormat, "graphitlive_analyze_file_logic");
-  },
-);
-
 // Tool: graphitlive_generate_codemap
 server.registerTool(
   "graphitlive_generate_codemap",
@@ -1583,7 +1360,7 @@ server.registerTool(
     description: `Returns one file's exports, internals, dependencies, dependents and internal call flow in a single call.
 
 WHEN: getting oriented in an unfamiliar file, or gathering the full context of a file before refactoring it.
-WHY: one call in place of analyze_dependencies, get_symbol_graph, find_referencing_files and analyze_file_logic together.
+WHY: one call in place of analyze_dependencies, get_symbol_graph and find_referencing_files together, plus the calls between the file's own symbols.
 RETURNS: path, language, line count, exported and internal symbols, dependencies, dependents, intra-file call flow, cycle detection.
 SUPPORTS: TypeScript, JavaScript, Python, Rust, Vue, Svelte.`,
     inputSchema: z.object({
@@ -1621,10 +1398,10 @@ server.registerTool(
     title: "Query Cross-File Call Graph",
     description: `Traces calls across files for several hops, in either direction, from a SQLite-backed call graph.
 
-WHEN: multi-hop traversal ("three levels deep"), callees as well as callers, relation types beyond plain calls, or cycle detection across modules.
-WHY: built from tree-sitter AST analysis, so it holds real call edges (CALLS, INHERITS, IMPLEMENTS, USES) rather than import edges.
+WHEN: "who calls X" (direction=callers, depth=1), "what does X call" (direction=callees), multi-hop traversal ("three levels deep"), or cycle detection across modules.
+WHY: built from tree-sitter AST analysis, so it holds real call edges (CALLS, INHERITS, IMPLEMENTS) rather than import edges. Type-only references (USES) are added with includeTypeOnly.
 RETURNS: the matched symbol, its callers and callees with file and line, relation type, and a cyclic flag per edge.
-PICKING BETWEEN THE THREE: this one once you need depth, direction or relation types; graphitlive_get_symbol_callers for a fast single-hop "who calls X"; graphitlive_get_symbol_dependents for a single hop computed fresh from source.
+NOT THIS TOOL: for every file that imports a file, use graphitlive_find_referencing_files.
 LIMITS: the first call indexes the workspace (3-8s); later queries are fast. Output capped by tokenBudget (default 4000, 0 = no limit); a cut sets truncated=true, omitted counts and nextOffset - pass it as offset to read the rest.`,
     inputSchema: QueryCallGraphParamsSchema.extend({
       response_format: ResponseFormatSchema.describe(
@@ -1639,7 +1416,7 @@ LIMITS: the first call indexes the workspace (3-8s); later queries are fast. Out
       openWorldHint: false,
     },
   },
-  async ({ filePath, symbolName, direction, depth, relationTypes, offset, tokenBudget, response_format }) => {
+  async ({ filePath, symbolName, direction, depth, relationTypes, includeTypeOnly, offset, tokenBudget, response_format }) => {
     const workerCheck = await ensureWorkerReady();
     const responseFormat = response_format;
     if (workerCheck.error)
@@ -1647,7 +1424,7 @@ LIMITS: the first call indexes the workspace (3-8s); later queries are fast. Out
 
     const response = await invokeToolWithResponse(
       "query_call_graph",
-      { filePath, symbolName, direction, depth, relationTypes, offset, tokenBudget },
+      { filePath, symbolName, direction, depth, relationTypes, includeTypeOnly, offset, tokenBudget },
     );
 
     return formatToolResponse(response, responseFormat, "graphitlive_query_call_graph");

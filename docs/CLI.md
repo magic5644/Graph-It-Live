@@ -1168,7 +1168,7 @@ graph-it export src/analyzer --format html --output analyzer.html
 
 ### tool
 
-Invoke any of the 22 MCP analysis tools supported by the generic CLI command. The other five MCP tools have dedicated CLI equivalents or are covered by `--workspace`.
+Invoke any of the 22 analysis tools supported by the generic CLI command: the 17 MCP analysis tools plus five CLI-only transition aliases (see [Tool Count: CLI vs MCP](#tool-count-cli-vs-mcp)). The other five MCP tools have dedicated CLI equivalents or are covered by `--workspace`.
 
 ```
 graph-it tool <name> [--<param>=<value>...] [options]
@@ -1236,10 +1236,10 @@ graph-it tool analyze_dependencies --filePath=/abs/path/to/file.ts
 graph-it tool analyze_dependencies --args '{"filePath":"/abs/path/to/file.ts"}'
 
 # Combine both: named flags override matching JSON keys
-graph-it tool expand_node --filePath=/abs/path/to/file.ts --args '{"knownPaths":[]}'
+graph-it tool query_call_graph --filePath=/abs/path/to/file.ts --args '{"symbolName":"crawl","relationTypes":["CALLS"]}'
 
 # With format
-graph-it tool get_symbol_callers --filePath=/abs/path/to/Spider.ts --symbolName=crawl --format json
+graph-it tool query_call_graph --filePath=/abs/path/to/Spider.ts --symbolName=crawl --format json
 ```
 
 **Examples per tool:**
@@ -1267,10 +1267,7 @@ graph-it tool resolve_module_path --fromFile=$(pwd)/src/app.ts --moduleSpecifier
 graph-it tool get_symbol_graph --filePath=$(pwd)/src/Spider.ts
 
 # Find all callers of a specific symbol across the project
-graph-it tool get_symbol_callers --filePath=$(pwd)/src/Spider.ts --symbolName=crawl
-
-# Find all symbols that depend on a specific symbol
-graph-it tool get_symbol_dependents --filePath=$(pwd)/src/Spider.ts --symbolName=Spider
+graph-it tool query_call_graph --filePath=$(pwd)/src/Spider.ts --symbolName=crawl --direction=callers --depth=1
 
 # Trace complete execution path from a symbol
 graph-it tool trace_function_execution --filePath=$(pwd)/src/Spider.ts --symbolName=crawl
@@ -1283,9 +1280,6 @@ graph-it tool get_impact_analysis --filePath=$(pwd)/src/utils.ts --symbolName=fo
 
 # Generate AI-friendly codemap of a file
 graph-it tool generate_codemap --filePath=$(pwd)/src/Spider.ts
-
-# Intra-file call hierarchy
-graph-it tool analyze_file_logic --filePath=$(pwd)/src/mcp/mcpServer.ts
 
 # Cross-file call graph (BFS from a symbol)
 graph-it tool query_call_graph --filePath=$(pwd)/src/Spider.ts --symbolName=crawl --depth=3
@@ -1304,12 +1298,6 @@ graph-it tool invalidate_files --filePaths='["$(pwd)/src/api.ts"]'
 
 # Full index rebuild
 graph-it tool rebuild_index
-
-# Expand a node incrementally
-graph-it tool expand_node --filePath=$(pwd)/src/app.ts --knownPaths='[]' --extraDepth=2
-
-# Parse raw import statements (no path resolution)
-graph-it tool parse_imports --filePath=$(pwd)/src/app.ts
 ```
 
 ---
@@ -1430,7 +1418,7 @@ Requires an active internet connection and `npm` in `PATH`.
 
 ## MCP Tools Reference (via `graph-it tool`)
 
-The `graph-it tool` command invokes 22 MCP analysis tools by name. The MCP server exposes 27 tools in total; the other five have dedicated CLI equivalents: `review_pr` → `review-pr`, `query_natural_language` → `query`, `generate_wiki` → `wiki`, `get_session_stats` → `stats`, and `set_workspace` → `--workspace` (see [Tool Count: CLI vs MCP](#tool-count-cli-vs-mcp)).
+The `graph-it tool` command invokes 22 analysis tools by name: the 17 MCP analysis tools and five CLI-only transition aliases. The MCP server exposes 22 tools in total; the five that `graph-it tool` does not list have dedicated CLI equivalents: `review_pr` → `review-pr`, `query_natural_language` → `query`, `generate_wiki` → `wiki`, `get_session_stats` → `stats`, and `set_workspace` → `--workspace` (see [Tool Count: CLI vs MCP](#tool-count-cli-vs-mcp)).
 
 ### Tool Details
 
@@ -1464,8 +1452,8 @@ output size. Nodes keep crawl order (nearest first). A cut sets
 this page, and `nextOffset` gives the next page: pass it as `--offset` until
 `nextOffset` is absent to read the whole graph. Each edge is sent once, with the
 page holding the later of its two ends, so every edge refers to nodes already
-sent. `nodeCount` and `edgeCount` keep the full totals. `expand_node` takes the
-same `tokenBudget` and `offset` and reports the same fields.
+sent. `nodeCount` and `edgeCount` keep the full totals. The CLI alias
+`expand_node` takes the same `tokenBudget` and `offset` and reports the same fields.
 
 Each node in `nodes[]` includes:
 - `hubScore` (0–1): proportion of workspace files that import this node
@@ -1487,6 +1475,8 @@ graph-it tool find_referencing_files --targetPath=/abs/path/to/utils.ts
 
 #### `expand_node`
 
+> **Transition alias (CLI only):** the MCP server no longer lists this tool. Use `crawl_dependency_graph` instead.
+
 **What it returns:** The immediate dependencies (one level) of a node, useful for incremental graph exploration without re-crawling the full tree.
 
 ```bash
@@ -1498,6 +1488,8 @@ graph-it tool expand_node --filePath=/abs/path/to/app.ts --knownPaths='[]' --ext
 ---
 
 #### `parse_imports`
+
+> **Transition alias (CLI only):** the MCP server no longer lists this tool. Use `analyze_dependencies`, which returns each specifier as written along with its resolved path instead.
 
 **What it returns:** Raw import statements parsed from the source file, without path resolution. Useful for inspecting import syntax and module specifiers directly.
 
@@ -1591,6 +1583,8 @@ graph-it tool find_unused_symbols --filePath=/abs/path/to/api.ts
 
 #### `get_symbol_dependents`
 
+> **Transition alias (CLI only):** the MCP server no longer lists this tool. Use `query_call_graph --direction=callers --depth=1` (add `--includeTypeOnly=true` for type references) or `find_referencing_files` for file-level imports instead.
+
 **What it returns:** All symbols (across the entire project) that depend on a specific symbol — the reverse of `get_symbol_graph`.
 
 ```bash
@@ -1615,6 +1609,8 @@ graph-it tool trace_function_execution --filePath=/abs/path/to/Spider.ts --symbo
 ---
 
 #### `get_symbol_callers`
+
+> **Transition alias (CLI only):** the MCP server no longer lists this tool. Use `query_call_graph --direction=callers --depth=1` instead.
 
 **What it returns:** The call sites of a specific symbol across the project, one entry per caller symbol with the line of its first call, read from the call graph index. File-level imports are not callers; use `get_symbol_dependents` for every reference. Type-only references are included only with `--includeTypeOnly=true`.
 
@@ -1651,6 +1647,8 @@ graph-it tool get_impact_analysis --filePath=/abs/path/to/utils.ts --symbolName=
 ---
 
 #### `analyze_file_logic`
+
+> **Transition alias (CLI only):** the MCP server no longer lists this tool. Use `generate_codemap` (its `callFlow` section) or `graph-it explain` instead.
 
 **What it returns:** Intra-file call hierarchy from AST analysis — entry points, call order, internal cycles, symbol types.
 
@@ -1707,10 +1705,13 @@ is the internal worker name exposed by the CLI analysis-tool bridge.
 
 #### `query_call_graph`
 
-**What it returns:** BFS neighbourhood of callers and callees from a symbol, using the SQLite call graph index built by the Live Call Graph engine.
+**What it returns:** BFS neighbourhood of callers and callees from a symbol, using the SQLite call graph index built by the Live Call Graph engine. This is the one tool for "who calls X" and "what does X call". Type-only references (`USES` edges) are left out unless you pass `--includeTypeOnly=true`; `--relationTypes` overrides both.
 
 ```bash
 graph-it tool query_call_graph --filePath=/abs/path/to/Spider.ts --symbolName=crawl --depth=3
+
+# Who calls crawl? (one hop)
+graph-it tool query_call_graph --filePath=/abs/path/to/Spider.ts --symbolName=crawl --direction=callers --depth=1
 ```
 
 **Output fields:** `symbol`, `callers[]`, `callees[]`, `totalCallers`, `totalCallees`, `depth`, `direction`, `indexedFiles`, `truncated`, `omitted`, and optional `indexTimeMs`
@@ -1803,7 +1804,7 @@ Before modifying a module, understand its full impact surface:
 graph-it tool find_referencing_files --targetPath=$(pwd)/src/UserService.ts
 
 # 2. Find all callers of the function you're changing
-graph-it tool get_symbol_callers --filePath=$(pwd)/src/UserService.ts --symbolName=getUser
+graph-it tool query_call_graph --filePath=$(pwd)/src/UserService.ts --symbolName=getUser --direction=callers --depth=1
 
 # 3. Detect if your new signature breaks anything
 graph-it tool analyze_breaking_changes \
@@ -1923,14 +1924,23 @@ graph-it tool verify_dependency_usage \
 
 ## Tool Count: CLI vs MCP
 
-The CLI exposes **22 tools** via `graph-it tool --list`, while the MCP server provides **27 tools** in total. This is by design:
+The CLI exposes **22 tools** via `graph-it tool --list`, and the MCP server provides **22 tools** in total. The two lists overlap on 17 analysis tools:
 
 | Context | Tool count | Notes |
 |---------|-----------|-------|
-| `graph-it tool --list` | 22 | General-purpose analysis tools |
-| MCP server (`graph-it serve`) | 27 | Same 22 + 5 excluded (see below) |
+| `graph-it tool --list` | 22 | 17 shared analysis tools + 5 CLI-only transition aliases |
+| MCP server (`graph-it serve`) | 22 | 17 shared analysis tools + 5 excluded from `tool --list` (see below) |
 
-The 5 tools excluded from `tool --list` fall into two groups:
+The five transition aliases overlapped with other tools and confused agents choosing a tool, so the MCP server no longer lists them. The CLI keeps them during a transition:
+
+| CLI alias | Use instead |
+|-----------|-------------|
+| `get_symbol_callers`, `get_symbol_dependents` | `query_call_graph --direction=callers --depth=1` |
+| `parse_imports` | `analyze_dependencies` |
+| `expand_node` | `crawl_dependency_graph` |
+| `analyze_file_logic` | `generate_codemap` or `graph-it explain` |
+
+The 5 MCP tools excluded from `tool --list` fall into two groups:
 
 - **`set_workspace`** — a **server management tool**. It tells a running MCP server instance which directory to analyze. In CLI context this is handled by the `--workspace` flag (or auto-detection from `cwd`), so it is intentionally excluded from the CLI tool list.
 - **`review_pr`, `query_natural_language`, `generate_wiki`, `get_session_stats`** — each has a dedicated, first-class CLI command instead of being invoked generically via `tool`: [`review-pr`](#review-pr), [`query`](#query), [`wiki`](#wiki), [`stats`](#stats).

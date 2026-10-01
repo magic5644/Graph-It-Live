@@ -568,7 +568,13 @@ export const QueryCallGraphParamsSchema = z.object({
   relationTypes: z
     .array(z.enum(["CALLS", "INHERITS", "IMPLEMENTS", "USES"]))
     .optional()
-    .describe("Filter by relation types (default: all)"),
+    .describe("Filter by relation types (default: CALLS, INHERITS and IMPLEMENTS; USES is added with includeTypeOnly)"),
+  includeTypeOnly: z
+    .boolean()
+    .optional()
+    .describe(
+      "Also include USES edges (type-only references such as interfaces and type aliases). Default is false. Ignored when relationTypes is set.",
+    ),
   offset: GraphToolOffsetSchema,
   tokenBudget: GraphToolTokenBudgetSchema,
 });
