@@ -96,6 +96,10 @@ describe('Ink REPL session context', () => {
 
       expect(aliased.output).toBe('Session workspace set to src.');
       expect(scoped.output).toBe('Session workspace set to src.');
+
+      // An absolute path keeps its separators, backslashes included on Windows.
+      const absolute = await session.submit(`/scope ${path.join(workspaceRoot, 'src')}`);
+      expect(absolute.output).toBe('Session workspace set to src.');
     } finally {
       await fs.rm(workspaceRoot, { recursive: true, force: true });
     }

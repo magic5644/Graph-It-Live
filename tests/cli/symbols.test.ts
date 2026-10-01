@@ -63,4 +63,18 @@ describe("parseSymbolRef", () => {
       expect((err as CliError).exitCode).toBe(ExitCode.SECURITY_VIOLATION);
     }
   });
+
+  it("throws SECURITY_VIOLATION for a sibling directory sharing the root prefix", () => {
+    expect(() => parseSymbolRef(`${ROOT}-evil${path.sep}a.ts`, ROOT)).toThrow(
+      expect.objectContaining({ exitCode: ExitCode.SECURITY_VIOLATION }),
+    );
+  });
+
+  it.runIf(process.platform === "win32")("accepts a drive letter typed in another case on Windows", () => {
+    const lowerDrive = ROOT[0].toLowerCase() + ROOT.slice(1);
+    const upperDrive = ROOT[0].toUpperCase() + ROOT.slice(1);
+    const result = parseSymbolRef(String.raw`${lowerDrive}\src\a.ts#main`, upperDrive);
+    expect(result.symbolName).toBe("main");
+    expect(result.filePath.toLowerCase()).toBe(path.join(ROOT, "src", "a.ts").toLowerCase());
+  });
 });

@@ -2,7 +2,9 @@
  * Minimal tokenizer for REPL command lines.
  *
  * Supports spaces, single/double quotes, and backslash escapes without trying
- * to emulate a full shell.
+ * to emulate a full shell. A backslash escapes only whitespace or a quote, so
+ * Windows paths (C:\repo\src, \\server\share) keep their separators.
+ * Single quotes keep their content literal.
  */
 
 export interface TokenizeResult {
@@ -12,6 +14,10 @@ export interface TokenizeResult {
 
 function isWhitespace(char: string): boolean {
   return /\s/.test(char);
+}
+
+function isEscapable(char: string | undefined): boolean {
+  return char !== undefined && (isWhitespace(char) || char === '"' || char === "'");
 }
 
 function handleQuotedChar(
@@ -52,14 +58,15 @@ export function tokenizeCommandLine(input: string): TokenizeResult {
     current = '';
   };
 
-  for (const char of input) {
+  const chars = [...input];
+  for (const [index, char] of chars.entries()) {
     if (escaped) {
       current += char;
       escaped = false;
       continue;
     }
 
-    if (char === '\\') {
+    if (char === '\\' && quote !== "'" && isEscapable(chars[index + 1])) {
       escaped = true;
       continue;
     }
@@ -77,10 +84,6 @@ export function tokenizeCommandLine(input: string): TokenizeResult {
     if (next.pushCurrent) {
       pushCurrent();
     }
-  }
-
-  if (escaped) {
-    return { tokens: [], error: 'dangling escape at end of command' };
   }
 
   if (quote) {
