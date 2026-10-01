@@ -69,15 +69,12 @@ async function startInkSession(workspaceRoot = '/workspace'): Promise<InkSession
 
 describe('Ink REPL session context', () => {
   beforeEach(() => {
-    vi.stubEnv('VITEST', '');
-    vi.stubEnv('GRAPH_IT_REPL_LEGACY', '');
     Object.defineProperty(process.stdin, 'isTTY', { value: true, configurable: true });
     vi.spyOn(process.stdout, 'write').mockImplementation(() => true);
     vi.spyOn(process.stderr, 'write').mockImplementation(() => true);
   });
 
   afterEach(() => {
-    vi.unstubAllEnvs();
     vi.restoreAllMocks();
     mocks.runInkReplSession.mockReset();
     mocks.explainRun.mockReset();
