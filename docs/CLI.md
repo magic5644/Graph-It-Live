@@ -280,6 +280,10 @@ Hidden aliases (accepted when typed, not listed in the palette):
 | `/deps`, `/dependencies`, `/deps-in`, `/deps-out`, `/path-in`, `/path-out` | `/check-dependencies` |
 | `/cycle` | `/cycles` |
 
+#### Typing paths
+
+Wrap a path that contains spaces in quotes (`/file "src/my file.ts"`) or escape each space with a backslash (`/file src/my\ file.ts`). A backslash escapes only a space or a quote, so Windows paths such as `C:\repo\src` or `\\server\share` can be typed as they are. Single quotes keep their content literal.
+
 #### Post-result actions
 
 After each result, the REPL supports contextual actions:
