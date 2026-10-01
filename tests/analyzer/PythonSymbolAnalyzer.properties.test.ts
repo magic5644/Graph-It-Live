@@ -21,10 +21,12 @@ const mockExtensionPath = path.resolve(process.cwd());
 const fixturesDir = path.resolve(__dirname, '../fixtures/python-project');
 
 /**
- * Crash-safe sweep of temp_*.py fixtures left behind by interrupted runs.
+ * Crash-safe sweep of temp_sym_*.py fixtures left behind by interrupted runs.
  * Per-test `finally`/unlink handles the happy path; this catches orphans
  * when the process dies between writeFile and unlink. Cross-OS: uses
  * fs.readdir + path.join + unlink (no shell/glob).
+ * Only this file's own prefix is swept: other test files write temp_*.py
+ * into the same fixture directory and run in parallel workers.
  */
 async function sweepTempFixtures(): Promise<void> {
   let entries: string[];
@@ -35,7 +37,7 @@ async function sweepTempFixtures(): Promise<void> {
   }
   await Promise.all(
     entries
-      .filter((name) => name.startsWith('temp_') && name.endsWith('.py'))
+      .filter((name) => name.startsWith('temp_sym_') && name.endsWith('.py'))
       .map((name) => fs.unlink(path.join(fixturesDir, name)).catch(() => {})),
   );
 }
@@ -349,7 +351,7 @@ describe('PythonSymbolAnalyzer Property-Based Tests', { timeout: 30_000 }, () =>
 
   // Simple sanity check test
   it('Mock parser should work with simple Python code', async () => {
-    const tempFilePath = path.join(fixturesDir, `temp_sanity_${Date.now()}.py`);
+    const tempFilePath = path.join(fixturesDir, `temp_sym_sanity_${Date.now()}.py`);
     const content = "# Test\ndef test_func():\n    pass";
     
     try {
@@ -493,7 +495,7 @@ describe('PythonSymbolAnalyzer Property-Based Tests', { timeout: 30_000 }, () =>
           pythonFileWithSymbolsArbitrary(),
           async (pythonFile) => {
             // Create a temporary test file
-            const tempFilePath = path.join(fixturesDir, `temp_symbols_${Date.now()}.py`);
+            const tempFilePath = path.join(fixturesDir, `temp_sym_symbols_${Date.now()}.py`);
 
             try {
               await fs.writeFile(tempFilePath, pythonFile.content);
@@ -534,7 +536,7 @@ describe('PythonSymbolAnalyzer Property-Based Tests', { timeout: 30_000 }, () =>
         fc.asyncProperty(
           pythonFileWithSymbolsArbitrary(),
           async (pythonFile) => {
-            const tempFilePath = path.join(fixturesDir, `temp_id_${Date.now()}.py`);
+            const tempFilePath = path.join(fixturesDir, `temp_sym_id_${Date.now()}.py`);
 
             try {
               await fs.writeFile(tempFilePath, pythonFile.content);
@@ -593,7 +595,7 @@ describe('PythonSymbolAnalyzer Property-Based Tests', { timeout: 30_000 }, () =>
             });
 
             const content = lines.join('\n');
-            const tempFilePath = path.join(fixturesDir, `temp_lines_${Date.now()}.py`);
+            const tempFilePath = path.join(fixturesDir, `temp_sym_lines_${Date.now()}.py`);
 
             try {
               await fs.writeFile(tempFilePath, content);
@@ -629,7 +631,7 @@ describe('PythonSymbolAnalyzer Property-Based Tests', { timeout: 30_000 }, () =>
         fc.asyncProperty(
           pythonFileWithSymbolsArbitrary(),
           async (pythonFile) => {
-            const tempFilePath = path.join(fixturesDir, `temp_category_${Date.now()}.py`);
+            const tempFilePath = path.join(fixturesDir, `temp_sym_category_${Date.now()}.py`);
 
             try {
               await fs.writeFile(tempFilePath, pythonFile.content);
@@ -681,7 +683,7 @@ describe('PythonSymbolAnalyzer Property-Based Tests', { timeout: 30_000 }, () =>
             });
 
             const content = lines.join('\n');
-            const tempFilePath = path.join(fixturesDir, `temp_async_${Date.now()}.py`);
+            const tempFilePath = path.join(fixturesDir, `temp_sym_async_${Date.now()}.py`);
 
             try {
               await fs.writeFile(tempFilePath, content);
@@ -740,7 +742,7 @@ describe('PythonSymbolAnalyzer Property-Based Tests', { timeout: 30_000 }, () =>
             });
 
             const content = lines.join('\n');
-            const tempFilePath = path.join(fixturesDir, `temp_private_${Date.now()}.py`);
+            const tempFilePath = path.join(fixturesDir, `temp_sym_private_${Date.now()}.py`);
 
             try {
               await fs.writeFile(tempFilePath, content);
@@ -787,7 +789,7 @@ describe('PythonSymbolAnalyzer Property-Based Tests', { timeout: 30_000 }, () =>
             });
 
             const content = lines.join('\n');
-            const tempFilePath = path.join(fixturesDir, `temp_decorated_${Date.now()}.py`);
+            const tempFilePath = path.join(fixturesDir, `temp_sym_decorated_${Date.now()}.py`);
 
             try {
               await fs.writeFile(tempFilePath, content);
@@ -820,7 +822,7 @@ describe('PythonSymbolAnalyzer Property-Based Tests', { timeout: 30_000 }, () =>
         fc.asyncProperty(
           pythonFileWithSymbolsArbitrary(),
           async (pythonFile) => {
-            const tempFilePath = path.join(fixturesDir, `temp_idempotent_${Date.now()}.py`);
+            const tempFilePath = path.join(fixturesDir, `temp_sym_idempotent_${Date.now()}.py`);
 
             try {
               await fs.writeFile(tempFilePath, pythonFile.content);
@@ -895,7 +897,7 @@ describe('PythonSymbolAnalyzer Property-Based Tests', { timeout: 30_000 }, () =>
             });
 
             const content = lines.join('\n');
-            const tempFilePath = path.join(fixturesDir, `temp_mixed_types_${Date.now()}.py`);
+            const tempFilePath = path.join(fixturesDir, `temp_sym_mixed_types_${Date.now()}.py`);
 
             try {
               await fs.writeFile(tempFilePath, content);
