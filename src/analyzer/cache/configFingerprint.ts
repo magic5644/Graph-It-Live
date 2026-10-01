@@ -1,8 +1,8 @@
 import { createHash } from "node:crypto";
 import * as fs from "node:fs";
 import * as path from "node:path";
-import { normalizePath } from "../shared/path";
-import { isPathWithinRootCanonical } from "../shared/pathSecurity";
+import { normalizePath } from "../../shared/path";
+import { isPathWithinRootCanonical } from "../../shared/pathSecurity";
 
 /** Fingerprint resolver inputs; unavailable or external configs disable cache reuse. */
 export function configFingerprint(workspaceRoot: string, sourceFiles: readonly string[]): string | undefined {

@@ -13,6 +13,7 @@
  * NO vscode imports allowed in analyzer/ — this service is the only VS Code entry point.
  */
 
+import { IndexCache } from "@/analyzer/cache/IndexCache";
 import { CallGraphIndexer, getSqlJsWasmPath } from "@/analyzer/callgraph/CallGraphIndexer";
 import { queryNeighbourhood } from "@/analyzer/callgraph/CallGraphQuery";
 import { detectCycleEdges } from "@/analyzer/callgraph/cycleUtils";
@@ -118,6 +119,7 @@ export class CallGraphViewService implements vscode.Disposable, ICallGraphQueryS
   private saveListener: vscode.Disposable | null = null;
   /** Workspace root for which the DB has been fully indexed (null = not indexed yet). */
   private workspaceIndexedRoot: string | null = null;
+  private cacheTask: { root: string; cache: Promise<IndexCache> } | null = null;
   /** De-duplication guard: promise for an in-flight workspace index pass. */
   private indexWorkspacePromise: Promise<void> | null = null;
   /** True when the in-flight indexWorkspacePromise was started in silent (background) mode. */
@@ -417,9 +419,9 @@ export class CallGraphViewService implements vscode.Disposable, ICallGraphQueryS
       this.indexer = null;
     }
     // Delete persisted DB so loadFromFile won't restore stale data
-    const dbPath = this.getDbFilePath();
-    if (dbPath) {
-      try { await vscode.workspace.fs.delete(vscode.Uri.file(dbPath)); }
+    const cache = await this.getCache();
+    if (cache) {
+      try { await vscode.workspace.fs.delete(vscode.Uri.file(cache.callGraphPath)); }
       catch { /* file may not exist — that's fine */ }
     }
 
@@ -443,12 +445,15 @@ export class CallGraphViewService implements vscode.Disposable, ICallGraphQueryS
     this.saveListener = null;
     this.sidebarWebview = null;
     await this.waitForActiveOperations();
-    // Persist the final DB state before closing the connection.
+    // Persist the final DB state before closing the connection. Skipped while
+    // another process holds the lock: it is indexing and writes a fresher DB.
     if (this.indexer && this.workspaceIndexedRoot) {
-      const dbPath = this.getDbFilePath();
-      if (dbPath) {
-        try { await this.indexer.saveToFile(dbPath); }
+      const cache = await this.getCache();
+      const release = cache?.tryLock();
+      if (cache && release) {
+        try { cache.save({ callGraph: this.indexer.exportDb() }); }
         catch (err: unknown) { this.log(`[CallGraph] Failed to persist DB: ${errorMessage(err)}`); }
+        finally { release(); }
       }
     }
     try { this.extractor?.dispose(); }
@@ -488,14 +493,11 @@ export class CallGraphViewService implements vscode.Disposable, ICallGraphQueryS
       const wasmPath = getSqlJsWasmPath(this.context.extensionPath);
       this.indexer = new CallGraphIndexer(wasmPath);
 
-      // Try to restore from persisted DB file (fast path — avoids full re-index)
-      const dbPath = this.getDbFilePath();
-      if (dbPath) {
-        const loaded = await this.indexer.loadFromFile(dbPath);
-        if (loaded) {
-          this.log("[CallGraph] Restored DB from disk");
-          return this.indexer;
-        }
+      // Try to restore the DB shared with the CLI and MCP server (fast path — avoids full re-index)
+      const cache = await this.getCache();
+      if (cache && (await this.restoreDb(this.indexer, cache))) {
+        this.log("[CallGraph] Restored DB from disk");
+        return this.indexer;
       }
 
       await this.indexer.init();
@@ -511,19 +513,38 @@ export class CallGraphViewService implements vscode.Disposable, ICallGraphQueryS
     return this.extractor;
   }
 
+  /** Waits for a process indexing right now, so its DB is the one restored. */
+  private async restoreDb(indexer: CallGraphIndexer, cache: IndexCache): Promise<boolean> {
+    const release = await cache.lock();
+    try {
+      return cache.isValid() && (await indexer.loadFromFile(cache.callGraphPath));
+    } finally {
+      release();
+    }
+  }
+
   /**
-   * Compute the path to the persisted call graph DB file.
-   * Returns null if globalStorageUri is unavailable.
-   * DB file name is derived from viewport workspace root hash for isolation.
+   * The `.graph-it/cache/` shared with the CLI and MCP server.
+   * Returns null when no workspace is open.
    */
-  private getDbFilePath(): string | null {
-    const storageUri = this.context.globalStorageUri;
-    if (!storageUri) return null;
+  private getCache(): Promise<IndexCache> | null {
     const workspaceRoot = this.workspaceIndexedRoot
       ?? normalizePath(vscode.workspace.workspaceFolders?.[0]?.uri.fsPath ?? "");
     if (!workspaceRoot) return null;
+    if (this.cacheTask?.root !== workspaceRoot) {
+      this.cacheTask = { root: workspaceRoot, cache: IndexCache.open(workspaceRoot) };
+      this.deleteLegacyDb(workspaceRoot);
+    }
+    return this.cacheTask.cache;
+  }
+
+  /** Versions before the shared cache kept one DB per workspace in globalStorage. */
+  private deleteLegacyDb(workspaceRoot: string): void {
+    const storageUri = this.context.globalStorageUri;
+    if (!storageUri) return;
     const hash = crypto.createHash("sha256").update(workspaceRoot).digest("hex").slice(0, 12);
-    return path.join(storageUri.fsPath, `callgraph-${hash}.db`);
+    const legacyDb = vscode.Uri.file(path.join(storageUri.fsPath, `callgraph-${hash}.db`));
+    Promise.resolve(vscode.workspace.fs.delete(legacyDb)).catch(() => { /* already gone */ });
   }
 
   private postMessage(message: CallGraphExtensionMessage): void {
@@ -613,7 +634,7 @@ export class CallGraphViewService implements vscode.Disposable, ICallGraphQueryS
     }
 
     this.indexWorkspacePromiseSilent = silent;
-    this.indexWorkspacePromise = this.doIndexWorkspace(workspaceRoot, indexer, extractor, skipPath)
+    this.indexWorkspacePromise = this.doIndexWorkspaceLocked(workspaceRoot, indexer, extractor, skipPath)
       .finally(() => {
         this.indexWorkspacePromise = null;
         this.indexWorkspacePromiseSilent = false;
@@ -714,6 +735,22 @@ export class CallGraphViewService implements vscode.Disposable, ICallGraphQueryS
     }
   }
 
+  /** Holds the cache lock so the CLI or MCP server waits instead of indexing too. */
+  private async doIndexWorkspaceLocked(
+    workspaceRoot: string,
+    indexer: CallGraphIndexer,
+    extractor: GraphExtractor,
+    skipPath?: string,
+  ): Promise<void> {
+    const cache = await this.getCache();
+    const release = cache ? await cache.lock() : null;
+    try {
+      await this.doIndexWorkspace(workspaceRoot, indexer, extractor, skipPath);
+    } finally {
+      release?.();
+    }
+  }
+
   private async doIndexWorkspace(
     workspaceRoot: string,
     indexer: CallGraphIndexer,
@@ -777,9 +814,9 @@ export class CallGraphViewService implements vscode.Disposable, ICallGraphQueryS
     );
 
     // Persist before the active indexing operation releases the database.
-    const dbPath = this.getDbFilePath();
-    if (dbPath) {
-      try { await indexer.saveToFile(dbPath); }
+    const cache = await this.getCache();
+    if (cache) {
+      try { cache.save({ callGraph: indexer.exportDb() }); }
       catch (err: unknown) { this.log(`[CallGraph] Failed to persist DB after indexing: ${errorMessage(err)}`); }
     }
   }

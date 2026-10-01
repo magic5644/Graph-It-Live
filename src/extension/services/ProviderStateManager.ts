@@ -56,7 +56,6 @@ export class ProviderStateManager {
         ? config.get<number>('indexingConcurrency', profileDefaults.indexingConcurrency)
         : profileDefaults.indexingConcurrency,
       indexingStartDelay: config.get<number>('indexingStartDelay', this.defaultIndexingDelay),
-      persistIndex: config.get<boolean>('persistIndex', false),
       ignoreTypeImports: config.get<boolean>('ignoreTypeImports', false),
       unusedDependencyMode: config.get<'none' | 'hide' | 'dim'>('unusedDependencyMode', 'none'),
       unusedAnalysisConcurrency: isCustomProfile

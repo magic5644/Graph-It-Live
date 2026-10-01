@@ -229,7 +229,6 @@ export function createGraphProviderServiceContainer(
       () =>
         new ExtensionEventHub({
           spider: container.get(graphProviderServiceTokens.spider),
-          indexingManager: container.get(graphProviderServiceTokens.indexingManager),
           unusedAnalysisCache: container.get(graphProviderServiceTokens.unusedAnalysisCache),
           stateManager: container.get(graphProviderServiceTokens.stateManager),
           navigationService: container.get(graphProviderServiceTokens.navigationService),

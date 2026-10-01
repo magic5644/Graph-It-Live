@@ -8,6 +8,7 @@
  * NO vscode imports — this module is VS Code agnostic.
  */
 
+import type { IndexCache } from "@/analyzer/cache/IndexCache";
 import type { CallGraphEdge } from "@/analyzer/callgraph/CallGraphIndexer";
 import { CallGraphIndexer } from "@/analyzer/callgraph/CallGraphIndexer";
 import { detectCycleEdges } from "@/analyzer/callgraph/cycleUtils";
@@ -96,7 +97,7 @@ export async function ensureCallGraphReady(): Promise<void> {
   // Avoid duplicate indexing
   if (indexPromise !== null) return indexPromise;
 
-  indexPromise = doInitAndIndex(config.extensionPath, workspaceRoot, config.cacheDir);
+  indexPromise = doInitAndIndex(config.extensionPath, workspaceRoot, workerState.indexCache);
   try {
     await indexPromise;
   } finally {
@@ -220,16 +221,30 @@ async function rebuildCallGraph(
 async function doInitAndIndex(
   extensionPath: string | undefined,
   workspaceRoot: string,
-  cacheDir?: string,
+  cache: IndexCache | null,
 ): Promise<void> {
   if (!extensionPath) {
     throw new Error("extensionPath required for call graph WASM parsers");
   }
 
+  // Held from restore to save: a second process waits, then restores this result.
+  const release = cache ? await cache.lock() : null;
+  try {
+    await indexCallGraph(extensionPath, workspaceRoot, cache);
+  } finally {
+    release?.();
+  }
+}
+
+async function indexCallGraph(
+  extensionPath: string,
+  workspaceRoot: string,
+  cache: IndexCache | null,
+): Promise<void> {
   const startTime = Date.now();
   const { indexer, restored } = await initializeCallGraphIndexer(
     extensionPath,
-    cacheDir,
+    cache,
   );
 
   // Initialize GraphExtractor (tree-sitter WASM)
@@ -283,21 +298,7 @@ async function doInitAndIndex(
   workerState.graphExtractor = extractor;
   workerState.callGraphIndexedRoot = workspaceRoot;
 
-  if (cacheDir) {
-    const cachePath = path.join(cacheDir, "callgraph.db");
-    const temporaryPath = `${cachePath}.${process.pid}.tmp`;
-    try {
-      await fs.mkdir(cacheDir, { recursive: true });
-      await fs.writeFile(temporaryPath, indexer.exportDb());
-      await fs.rename(temporaryPath, cachePath);
-    } catch (error) {
-      await fs.rm(temporaryPath, { force: true }).catch(() => undefined);
-      log.warn(
-        "Could not persist call graph cache:",
-        error instanceof Error ? error.message : String(error),
-      );
-    }
-  }
+  cache?.save({ callGraph: indexer.exportDb() });
 
   const duration = Date.now() - startTime;
   log.info(`Call graph indexed ${callgraphFiles.length} files in ${duration}ms`);
@@ -305,13 +306,12 @@ async function doInitAndIndex(
 
 async function initializeCallGraphIndexer(
   extensionPath: string,
-  cacheDir?: string,
+  cache: IndexCache | null,
 ): Promise<{ indexer: CallGraphIndexer; restored: boolean }> {
   const wasmPath = path.join(extensionPath, "dist", "wasm", "sqljs.wasm");
   await fs.access(wasmPath);
   const indexer = new CallGraphIndexer(wasmPath);
-  const dbPath = cacheDir ? path.join(cacheDir, "callgraph.db") : null;
-  const restored = dbPath ? await indexer.loadFromFile(dbPath) : false;
+  const restored = cache?.isValid() ? await indexer.loadFromFile(cache.callGraphPath) : false;
   if (!restored) await indexer.init();
   return { indexer, restored };
 }

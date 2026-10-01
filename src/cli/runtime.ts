@@ -11,13 +11,12 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { AstWorkerHost } from "../analyzer/ast/AstWorkerHost";
+import { IndexCache, restoreOrBuildIndex } from "../analyzer/cache/IndexCache";
 import { Parser } from "../analyzer/Parser";
 import { SourceFileCollector } from "../analyzer/SourceFileCollector";
-import type { Spider } from "../analyzer/Spider";
 import { SpiderBuilder } from "../analyzer/SpiderBuilder";
 import { PathResolver } from "../analyzer/utils/PathResolver";
 import { workerState } from "../mcp/shared/state";
-import { normalizePath } from "../shared/path";
 import {
   getLogger,
   getLogLevelFromEnv,
@@ -27,7 +26,6 @@ import {
 } from "../shared/logger";
 import { CliError, ExitCode } from "./errors";
 import { ErrorCollectorBackend, type CollectedLogEntry } from "./errorCollector";
-import { configFingerprint } from "./configFingerprint";
 
 // Send all logs to stderr so stdout stays clean for data output
 setLoggerBackend({
@@ -39,30 +37,12 @@ loggerFactory.setDefaultLevel(getLogLevelFromEnv("LOG_LEVEL"));
 
 const log = getLogger("CliRuntime");
 
-/** Injected at build time; "0.0.0-dev" in local builds. */
-const CLI_VERSION = process.env.CLI_VERSION ?? "0.0.0-dev";
-
 /** Persisted state written to .graph-it/state.json */
 export interface CliState {
   lastScanTimestamp?: string;
   filesIndexed?: number;
   workspaceRoot: string;
 }
-
-/** Layout version of .graph-it/cache/ itself. Bump when file names or roles change. */
-const CACHE_SCHEMA = 1;
-
-/**
- * Above this fraction of added/changed/deleted files, a full rebuild is cheaper
- * and safer than an incremental pass. Also the periodic self-heal for the
- * known drift in incremental call-graph edge resolution.
- */
-const STALE_THRESHOLD = 0.2;
-
-/** File names inside .graph-it/cache/ */
-const CACHE_META_FILE = "meta.json";
-const CACHE_REVERSE_INDEX_FILE = "reverse-index.json";
-const CACHE_CALLGRAPH_FILE = "callgraph.db";
 
 /** What one ensureIndexed() call actually did. */
 export interface IndexOutcome {
@@ -76,27 +56,6 @@ export interface IndexOutcome {
   fromCache: boolean;
   /** Wall-clock time spent in ensureIndexed(). */
   durationMs: number;
-}
-
-/** Guard written alongside the cached indexes. */
-interface CliCacheMeta {
-  schema: number;
-  cliVersion: string;
-  savedAt: string;
-  workspaceRoot: string;
-  configFingerprint: string;
-}
-
-/**
- * Write a file atomically: temp file in the same directory, then rename.
- * The pid suffix keeps concurrent CLI processes from colliding on the temp name.
- * Mirrors the pattern in analyzer/stats/statsPersistence.ts.
- */
-function writeFileAtomic(filePath: string, data: string | Uint8Array): void {
-  const dir = path.dirname(filePath);
-  const tmpPath = path.join(dir, `.${path.basename(filePath)}.${process.pid}.tmp`);
-  fs.writeFileSync(tmpPath, data);
-  fs.renameSync(tmpPath, filePath);
 }
 
 /**
@@ -135,25 +94,22 @@ function findTsConfig(rootDir: string): string | undefined {
 export class CliRuntime {
   readonly workspaceRoot: string;
   private readonly stateDir: string;
-  private readonly cacheDir: string;
   private readonly cacheEnabled: boolean;
   private _initialized = false;
   private _indexReady = false;
-  private _reverseIndexRestored = false;
   private _sourceFiles: string[] | null = null;
-  private _configFingerprint: string | undefined;
+  private indexCache: IndexCache | null = null;
   private errorCollectorBackend: ErrorCollectorBackend | null = null;
 
   constructor(workspaceRoot: string, options?: { cache?: boolean }) {
     this.workspaceRoot = path.resolve(workspaceRoot);
     this.stateDir = path.join(this.workspaceRoot, ".graph-it");
-    this.cacheDir = path.join(this.stateDir, "cache");
     this.cacheEnabled = (options?.cache ?? true) && !process.env.GRAPH_IT_NO_CACHE;
   }
 
   /** Delete the persisted index cache. Backs the `--reindex` flag. */
   clearCache(): void {
-    fs.rmSync(this.cacheDir, { recursive: true, force: true });
+    new IndexCache(this.workspaceRoot, []).clear();
   }
 
   /** Whether the runtime has been initialized (Spider built + index ready) */
@@ -255,7 +211,8 @@ export class CliRuntime {
 
     workerState.spider = builder.build();
     if (this.cacheEnabled) {
-      this._configFingerprint = configFingerprint(this.workspaceRoot, await this.collectSourceFiles());
+      this.indexCache = new IndexCache(this.workspaceRoot, await this.collectSourceFiles());
+      workerState.indexCache = this.indexCache;
     }
     workerState.config = {
       rootDir: this.workspaceRoot,
@@ -263,62 +220,11 @@ export class CliRuntime {
       excludeNodeModules: true,
       maxDepth: 50,
       extensionPath: cliExtensionPath,
-      // Undefined disables call-graph persistence — the MCP worker never sets it.
-      cacheDir: this.cacheEnabled && this.isCacheMetaValid() ? this.cacheDir : undefined,
     };
     workerState.isReady = true;
     this._initialized = true;
 
-    if (this.cacheEnabled) {
-      this._reverseIndexRestored = this.tryRestoreReverseIndex();
-    }
-
     log.info("Runtime initialized for", this.workspaceRoot);
-  }
-
-  /**
-   * Restore the reverse index persisted by a previous CLI process.
-   * Any failure (missing, corrupt, stale guard) falls back to a cold build.
-   */
-  private tryRestoreReverseIndex(): boolean {
-    if (!this.isCacheMetaValid()) return false;
-
-    try {
-      const raw = fs.readFileSync(
-        path.join(this.cacheDir, CACHE_REVERSE_INDEX_FILE),
-        "utf-8",
-      );
-      // deserialize() re-checks the index version and rootDir on its own.
-      const restored = workerState.spider?.enableReverseIndex(raw) ?? false;
-      if (restored) log.info("Restored reverse index from cache");
-      return restored;
-    } catch {
-      return false;
-    }
-  }
-
-  /**
-   * Validate the cache guard file.
-   *
-   * NOTE: CLI_VERSION is "0.0.0-dev" in a local build, so a rebuilt analyzer does
-   * NOT invalidate the cache during development — use `--reindex` there. Released
-   * builds carry a real version, and the extractor half is additionally covered by
-   * the dist/queries/*.scm mtime check.
-   */
-  private isCacheMetaValid(): boolean {
-    try {
-      const raw = fs.readFileSync(path.join(this.cacheDir, CACHE_META_FILE), "utf-8");
-      const meta = JSON.parse(raw) as CliCacheMeta;
-      return (
-        meta.schema === CACHE_SCHEMA &&
-        meta.cliVersion === CLI_VERSION &&
-        this._configFingerprint !== undefined &&
-        meta.configFingerprint === this._configFingerprint &&
-        normalizePath(meta.workspaceRoot) === normalizePath(this.workspaceRoot)
-      );
-    } catch {
-      return false;
-    }
   }
 
   /**
@@ -362,13 +268,23 @@ export class CliRuntime {
     });
 
     try {
-      const incremental = await this.tryIncrementalIndex(spider, {
-        silent,
+      const result = await restoreOrBuildIndex(spider, {
+        cache: this.indexCache,
+        reverseIndexOptions: { excludeNodeModules: true, ignoreTypeImports: false },
+        sourceFiles: this.indexCache ? await this.collectSourceFiles() : undefined,
+        buildFullIndex: () => {
+          if (!silent) process.stderr.write("\r  Indexing workspace...");
+          return spider.buildFullIndex();
+        },
+        onWait: (holderPid) => {
+          if (!silent) {
+            process.stderr.write(`  Waiting for the index being built by process ${holderPid ?? "?"}...\n`);
+          }
+        },
         onReindexStart: () => {
           progressLabel = "Re-indexing changed";
         },
       });
-      const result = incremental ?? (await this.runFullIndex(spider, silent));
 
       const durationMs = Date.now() - startTime;
       if (!silent) {
@@ -385,10 +301,11 @@ export class CliRuntime {
         workspaceRoot: this.workspaceRoot,
       });
 
-      workerState.warmupInfo = { completed: true, durationMs, ...result };
+      const { cancelled: _cancelled, ...outcome } = result;
+      workerState.warmupInfo = { completed: true, durationMs, ...outcome };
       this._indexReady = true;
 
-      return { ...result, durationMs };
+      return { ...outcome, durationMs };
     } finally {
       unsubscribe();
     }
@@ -405,66 +322,6 @@ export class CliRuntime {
     return `\r  Loaded ${result.filesIndexed} files from cache, re-indexed ${result.filesAnalyzed} changed`;
   }
 
-  private async runFullIndex(
-    spider: Spider,
-    silent: boolean,
-  ): Promise<Omit<IndexOutcome, "durationMs">> {
-    // A restored index may still contain deleted files when churn forces a full rebuild.
-    spider.clearCache();
-    if (!silent) {
-      process.stderr.write("\r  Indexing workspace...");
-    }
-    const result = await spider.buildFullIndex();
-    return {
-      // buildFullIndex counts every file it attempted, including ones that failed
-      // to parse; the reverse index holds only the files actually indexed.
-      filesIndexed: spider.getCacheStats().reverseIndexStats?.indexedFiles ?? result.indexedFiles,
-      filesFound: result.indexedFiles,
-      filesAnalyzed: result.indexedFiles,
-      fromCache: false,
-    };
-  }
-
-  /**
-   * Re-index only what changed since the cached index was written.
-   * Returns null when there is no usable cache or the workspace churned too much,
-   * in which case the caller falls back to a full build.
-   */
-  private async tryIncrementalIndex(
-    spider: Spider,
-    hooks: { silent: boolean; onReindexStart: () => void },
-  ): Promise<Omit<IndexOutcome, "durationMs"> | null> {
-    if (!this._reverseIndexRestored) return null;
-
-    const filesOnDisk = await this.collectSourceFiles();
-    const validation = await spider.validateReverseIndex(STALE_THRESHOLD, filesOnDisk);
-
-    if (!validation?.isValid) {
-      log.info("Cached index too stale, rebuilding from scratch");
-      return null;
-    }
-
-    for (const deleted of validation.missingFiles) {
-      spider.handleFileDeleted(deleted);
-    }
-
-    if (validation.staleFiles.length > 0) {
-      hooks.onReindexStart();
-    }
-    const reindexed = await spider.reindexStaleFiles(validation.staleFiles);
-
-    log.info(
-      `Incremental index: ${reindexed} changed, ${validation.missingFiles.length} deleted`,
-    );
-    return {
-      filesIndexed:
-        spider.getCacheStats().reverseIndexStats?.indexedFiles ?? filesOnDisk.length,
-      filesFound: filesOnDisk.length,
-      filesAnalyzed: reindexed,
-      fromCache: true,
-    };
-  }
-
   /** Walk the workspace once per process and memoize the result. */
   private async collectSourceFiles(): Promise<string[]> {
     this._sourceFiles ??= await new SourceFileCollector({
@@ -476,53 +333,9 @@ export class CliRuntime {
   }
 
   /**
-   * Persist the reverse index and the call graph DB for the next CLI process.
-   * Best-effort: a cache that fails to write only costs the next run some time.
-   */
-  private saveCache(): void {
-    if (!this.cacheEnabled || !this._indexReady || this._configFingerprint === undefined) return;
-
-    try {
-      fs.mkdirSync(this.cacheDir, { recursive: true });
-
-      const serialized = workerState.spider?.getSerializedReverseIndex();
-      if (serialized) {
-        writeFileAtomic(path.join(this.cacheDir, CACHE_REVERSE_INDEX_FILE), serialized);
-      }
-
-      if (workerState.callGraphIndexer) {
-        writeFileAtomic(
-          path.join(this.cacheDir, CACHE_CALLGRAPH_FILE),
-          workerState.callGraphIndexer.exportDb(),
-        );
-      } else if (!this.isCacheMetaValid()) {
-        // Do not bless an older DB with the new configuration guard after a file-only command.
-        fs.rmSync(path.join(this.cacheDir, CACHE_CALLGRAPH_FILE), { force: true });
-      }
-
-      const meta: CliCacheMeta = {
-        schema: CACHE_SCHEMA,
-        cliVersion: CLI_VERSION,
-        savedAt: new Date().toISOString(),
-        workspaceRoot: this.workspaceRoot,
-        configFingerprint: this._configFingerprint,
-      };
-      // Written last: the guard is only valid once the payloads are on disk.
-      writeFileAtomic(path.join(this.cacheDir, CACHE_META_FILE), JSON.stringify(meta, null, 2));
-    } catch (err) {
-      log.warn("Could not save cache:", err instanceof Error ? err.message : String(err));
-    }
-  }
-
-  /**
    * Dispose all resources.
    */
   async dispose(): Promise<void> {
-    // ponytail: last-writer-wins across concurrent CLI processes; both wrote a
-    // valid index of the same workspace. Add an flock if redundant indexing shows
-    // up in a profile.
-    this.saveCache();
-
     if (workerState.astWorkerHost) {
       await workerState.astWorkerHost.stop();
     }

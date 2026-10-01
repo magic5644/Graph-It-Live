@@ -1,3 +1,5 @@
+import fs from "node:fs";
+import os from "node:os";
 import path from "node:path";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import * as vscode from "vscode";
@@ -296,10 +298,16 @@ describe("GraphProvider", () => {
       cancelled: false,
       data: [],
     });
+    // The index lock lives in <workspaceRoot>/.graph-it/cache/: keep it out of the repo.
+    spiderMock.workspaceRoot = fs.mkdtempSync(path.join(os.tmpdir(), "graph-it-provider-"));
 
-    await provider.forceReindex();
+    try {
+      await provider.forceReindex();
 
-    expect(spiderMock.buildFullIndexInWorker).toHaveBeenCalled();
+      expect(spiderMock.buildFullIndexInWorker).toHaveBeenCalled();
+    } finally {
+      fs.rmSync(spiderMock.workspaceRoot, { recursive: true, force: true });
+    }
   });
 
   it("should return index status", () => {

@@ -59,11 +59,10 @@ export interface McpWorkerConfig {
   excludeNodeModules: boolean;
   maxDepth: number;
   /**
-   * Directory where analysis indexes may be persisted between processes.
-   * The CLI and MCP server share this cache so the call graph can be reused
-   * across commands and server sessions.
+   * Restore and persist the indexes in `<rootDir>/.graph-it/cache/`, shared with
+   * the CLI and the VS Code extension so whichever starts first indexes for all.
    */
-  cacheDir?: string;
+  shareIndexCache?: boolean;
 }
 
 /**
