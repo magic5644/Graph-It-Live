@@ -72,20 +72,6 @@ export function activate(context: vscode.ExtensionContext) {
     });
     const lmToolsService = new LmToolsService({ provider, logger: log });
     
-    // Watch for performance profile changes and apply preset values
-    const profileWatcher = vscode.workspace.onDidChangeConfiguration(async (e) => {
-        if (e.affectsConfiguration('graph-it-live.performanceProfile')) {
-            const config = vscode.workspace.getConfiguration('graph-it-live');
-            const profile = config.get<'default' | 'low-memory' | 'high-performance' | 'custom'>('performanceProfile', 'default');
-            
-            if (profile !== 'custom') {
-                // Apply profile settings automatically
-                await provider.stateManager.applyProfileSettings(profile);
-                log.info(`Applied performance profile: ${profile}`);
-            }
-        }
-    });
-    
     // Get the fileChangeScheduler from provider (it's created during provider construction)
     const fileChangeScheduler = provider.fileChangeScheduler;
     if (!fileChangeScheduler) {
@@ -107,9 +93,6 @@ export function activate(context: vscode.ExtensionContext) {
     const disposables: vscode.Disposable[] = [
       // Output channel disposal
       outputChannel,
-      
-      // Profile watcher
-      profileWatcher,
 
         // Call Graph panel service
         callGraphViewService,

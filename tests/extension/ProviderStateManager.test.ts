@@ -1,5 +1,10 @@
+import { readFileSync } from 'node:fs';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { ProviderStateManager } from '../../src/extension/services/ProviderStateManager';
+
+const packageJson = JSON.parse(
+  readFileSync(new URL('../../package.json', import.meta.url), 'utf8'),
+) as { contributes: { configuration: Array<{ properties: Record<string, unknown> }> } };
 
 const configValues: Record<string, unknown> = {
   excludeNodeModules: false,
@@ -203,6 +208,72 @@ describe('ProviderStateManager', () => {
       const snapshot = manager.loadConfiguration();
       expect(snapshot.showCommunities).toBe(true);
       delete configValues['showCommunities'];
+    });
+  });
+
+  describe('performanceProfile', () => {
+    const overrides = {
+      unusedAnalysisConcurrency: 7,
+      unusedAnalysisMaxEdges: 0,
+      persistUnusedAnalysisCache: true,
+      maxUnusedAnalysisCacheSize: 999,
+      maxCacheSize: 1234,
+      maxSymbolCacheSize: 321,
+    };
+
+    const loadWith = (profile: unknown, extra: Record<string, unknown> = {}) => {
+      Object.assign(configValues, { performanceProfile: profile, ...extra });
+      try {
+        return new ProviderStateManager(context, 1000).loadConfiguration();
+      } finally {
+        for (const key of ['performanceProfile', ...Object.keys(extra)]) delete configValues[key];
+      }
+    };
+
+    it('ignores the advanced overrides for a preset profile', () => {
+      const snapshot = loadWith('low-memory', overrides);
+      expect(snapshot).toMatchObject({
+        performanceProfile: 'low-memory',
+        indexingConcurrency: 2,
+        unusedAnalysisConcurrency: 2,
+        unusedAnalysisMaxEdges: 1000,
+        persistUnusedAnalysisCache: false,
+        maxUnusedAnalysisCacheSize: 100,
+        maxCacheSize: 200,
+        maxSymbolCacheSize: 100,
+      });
+    });
+
+    it('sets the unused-analysis cache size from the high-performance profile', () => {
+      const snapshot = loadWith('high-performance');
+      expect(snapshot.maxUnusedAnalysisCacheSize).toBe(500);
+      expect(snapshot.unusedAnalysisConcurrency).toBe(12);
+    });
+
+    it('reads every advanced override for the custom profile', () => {
+      const snapshot = loadWith('custom', overrides);
+      expect(snapshot).toMatchObject({ ...overrides, indexingConcurrency: 8 });
+    });
+
+    it('contributes exactly the profile overrides as advanced settings', () => {
+      const snapshot = loadWith('high-performance');
+      const advanced = packageJson.contributes.configuration.flatMap((section) =>
+        Object.entries(section.properties)
+          .filter(([, schema]) => (schema as { tags?: string[] }).tags?.includes('advanced'))
+          .map(([key]) => key.replace('graph-it-live.', '')),
+      );
+      expect(advanced.sort()).toEqual(['indexingConcurrency', ...Object.keys(overrides)].sort());
+      for (const key of advanced) expect(snapshot).toHaveProperty(key);
+    });
+
+    it('falls back to default values for an unknown profile', () => {
+      const snapshot = loadWith('turbo', overrides);
+      expect(snapshot).toMatchObject({
+        indexingConcurrency: 4,
+        unusedAnalysisMaxEdges: 2000,
+        maxUnusedAnalysisCacheSize: 200,
+        maxCacheSize: 500,
+      });
     });
   });
 });

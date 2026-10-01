@@ -1324,206 +1324,230 @@
         }
       }
     ],
-    "configuration": {
-      "title": "Graph-It-Live",
-      "properties": {
-        "graph-it-live.maxDepth": {
-          "type": "number",
-          "default": 50,
-          "description": "Maximum dependency depth to analyze",
-          "minimum": 1,
-          "maximum": 100
-        },
-        "graph-it-live.excludeNodeModules": {
-          "type": "boolean",
-          "default": true,
-          "description": "Exclude node_modules from graph"
-        },
-        "graph-it-live.ignoreTypeImports": {
-          "type": "boolean",
-          "default": false,
-          "description": "Ignore TypeScript type-only imports and exports in the dependency graph. You might need to restart VS Code for this setting to take effect."
-        },
-        "graph-it-live.enableMcpServer": {
-          "type": "boolean",
-          "default": false,
-          "description": "Enable MCP (Model Context Protocol) server for LLM integration. When enabled, exposes dependency analysis tools to GitHub Copilot and other MCP-compatible AI assistants.",
-          "markdownDescription": "Enable **MCP (Model Context Protocol)** server for LLM integration. When enabled, exposes dependency analysis tools to GitHub Copilot and other MCP-compatible AI assistants.\n\n[Learn more about MCP](https://code.visualstudio.com/api/extension-guides/ai/mcp)"
-        },
-        "graph-it-live.enableMcpDebugLogging": {
-          "type": "boolean",
-          "default": false,
-          "description": "Enable detailed debug logging for MCP server. Creates ~/mcp-debug.log with automatic rotation (5MB limit per file, keeps 2 files). Only enable for troubleshooting.",
-          "markdownDescription": "**[Privacy Notice]** Enable detailed debug logging for MCP server. Creates `~/mcp-debug.log` with automatic rotation (5MB limit per file, keeps last 2 files). Log file may contain project paths and file names. Only enable temporarily for troubleshooting, then disable to prevent unnecessary data accumulation."
-        },
-        "graph-it-live.enableBackgroundIndexing": {
-          "type": "boolean",
-          "default": true,
-          "description": "Enable background indexing for faster reverse dependency lookups. When enabled, the extension will index all files in the workspace at startup."
-        },
-        "graph-it-live.preIndexCallGraph": {
-          "type": "boolean",
-          "default": true,
-          "description": "Pre-index the call graph database at startup alongside background indexing. When enabled, the first 'Show Call Graph' command is near-instant because the symbol-level index is already built."
-        },
-        "graph-it-live.persistIndex": {
-          "type": "boolean",
-          "default": false,
-          "description": "Persist the reverse index to disk for faster startup. Files are validated using mtime and size to detect changes. Enable this option only if you have some performance issues on large projects.",
-          "deprecationMessage": "No longer used: the index is always shared with the CLI and MCP server in .graph-it/cache/."
-        },
-        "graph-it-live.indexingConcurrency": {
-          "type": "number",
-          "default": 4,
-          "description": "Number of files to process in parallel during background indexing. Lower values reduce CPU usage but increase indexing time.",
-          "markdownDescription": "Number of files to process in parallel during background indexing.\n\n⚠️ **Note**: This setting is only editable when Performance Profile is set to 'custom'. Otherwise, it's automatically configured by the selected profile.",
-          "minimum": 1,
-          "maximum": 16,
-          "editPresentation": "multilineText",
-          "order": 100
-        },
-        "graph-it-live.indexingStartDelay": {
-          "type": "number",
-          "default": 1000,
-          "description": "Delay in milliseconds before starting background indexing after extension activation. Allows VS Code to finish startup first.",
-          "minimum": 0,
-          "maximum": 30000
-        },
-        "graph-it-live.logLevel": {
-          "type": "string",
-          "enum": [
-            "debug",
-            "info",
-            "warn",
-            "error",
-            "none"
-          ],
-          "default": "info",
-          "description": "Logging level for the extension. Debug shows all logs, none disables logging.",
-          "markdownDescription": "Logging level for the extension output channel.\n\n- **debug**: Verbose output for troubleshooting\n- **info**: Standard operation logs\n- **warn**: Warnings only\n- **error**: Errors only\n- **none**: Disable logging"
-        },
-        "graph-it-live.unusedDependencyMode": {
-          "type": "string",
-          "enum": [
-            "hide",
-            "dim"
-          ],
-          "default": "hide",
-          "description": "Choose how to display unused dependencies in the graph. 'hide' removes them, 'dim' reduces their opacity.",
-          "markdownDescription": "Choose how to display unused dependencies in the graph.\n\n- **hide**: Remove edges for imports that are not actually used in the code\n- **dim**: Show unused edges with reduced opacity"
-        },
-        "graph-it-live.showCommunities": {
-          "type": "boolean",
-          "default": true,
-          "markdownDescription": "Show community clustering on the dependency graph (background tint on nodes + community legend). Disable to hide community visualization."
-        },
-        "graph-it-live.unusedAnalysisConcurrency": {
-          "type": "number",
-          "default": 4,
-          "minimum": 1,
-          "maximum": 16,
-          "description": "Number of source files to analyze in parallel for unused dependency detection. Lower values use less memory but are slower. Adjust based on your machine's capabilities.",
-          "markdownDescription": "Number of source files to analyze in parallel for unused dependency detection.\n\n⚠️ **Note**: This setting is only editable when Performance Profile is set to 'custom'. Otherwise, it's automatically configured by the selected profile.\n\n- **1-2**: Low-memory machines (<4GB RAM)\n- **4**: Default, balanced\n- **8-16**: High-performance machines (16GB+ RAM)",
-          "order": 101
-        },
-        "graph-it-live.unusedAnalysisMaxEdges": {
-          "type": "number",
-          "default": 2000,
-          "minimum": 0,
-          "description": "Skip automatic unused dependency analysis if the graph has more edges than this threshold. Set to 0 to disable the limit. Manual analysis via toolbar button still works.",
-          "markdownDescription": "Skip automatic unused dependency analysis if the graph exceeds this edge count.\n\n⚠️ **Note**: This setting is only editable when Performance Profile is set to 'custom'. Otherwise, it's automatically configured by the selected profile.\n\n- **0**: No limit (always analyze)\n- **1000-2000**: Recommended for low-memory machines\n- **5000+**: High-performance machines",
-          "order": 102
-        },
-        "graph-it-live.persistUnusedAnalysisCache": {
-          "type": "boolean",
-          "default": false,
-          "description": "Cache unused dependency analysis results to disk for faster subsequent loads. Results are invalidated when files change.",
-          "markdownDescription": "Cache unused dependency analysis results to disk.\n\n⚠️ **Experimental**: Enable for large projects with stable dependencies. Disable if you experience stale results."
-        },
-        "graph-it-live.maxUnusedAnalysisCacheSize": {
-          "type": "number",
-          "default": 200,
-          "minimum": 10,
-          "maximum": 1000,
-          "description": "Maximum number of source files to cache for unused dependency analysis. Uses LRU (Least Recently Used) eviction when limit is reached.",
-          "markdownDescription": "Maximum number of source files to cache for unused dependency analysis.\n\n- **Lower values** (50-100): Reduce memory usage on constrained systems\n- **Higher values** (500-1000): Better cache hit rate on large projects\n\nUses **LRU eviction** - least recently accessed entries are removed when limit is reached."
-        },
-        "graph-it-live.maxCacheSize": {
-          "type": "number",
-          "default": 500,
-          "minimum": 50,
-          "maximum": 2000,
-          "description": "Maximum number of file dependency analyses to keep in memory cache. Lower values reduce memory usage.",
-          "markdownDescription": "Maximum number of file dependency analyses to keep in memory cache.\n\n⚠️ **Note**: This setting is only editable when Performance Profile is set to 'custom'. Otherwise, it's automatically configured by the selected profile.",
-          "order": 103
-        },
-        "graph-it-live.maxSymbolCacheSize": {
-          "type": "number",
-          "default": 200,
-          "minimum": 50,
-          "maximum": 1000,
-          "description": "Maximum number of symbol analysis results to keep in memory cache. Lower values reduce memory usage.",
-          "markdownDescription": "Maximum number of symbol analysis results to keep in memory cache.\n\n⚠️ **Note**: This setting is only editable when Performance Profile is set to 'custom'. Otherwise, it's automatically configured by the selected profile.",
-          "order": 104
-        },
-        "graph-it-live.performanceProfile": {
-          "type": "string",
-          "enum": [
-            "default",
-            "low-memory",
-            "high-performance",
-            "custom"
-          ],
-          "default": "default",
-          "description": "Performance profile preset that automatically configures cache sizes and concurrency.",
-          "markdownDescription": "Performance profile preset:\n\n- **default**: Balanced settings (4GB-8GB RAM)\n- **low-memory**: Optimized for machines with <4GB RAM\n- **high-performance**: Maximizes speed on powerful machines (16GB+ RAM)\n- **custom**: Manual configuration (all performance settings become editable)",
-          "order": 99
-        },
-        "graph-it-live.symbolViewLayout": {
-          "type": "string",
-          "enum": [
-            "hierarchical",
-            "force-directed",
-            "radial"
-          ],
-          "default": "hierarchical",
-          "description": "Layout algorithm for symbol-level drill-down view.",
-          "markdownDescription": "Layout algorithm for symbol-level drill-down view:\n\n- **hierarchical**: Top-to-bottom layout (Sugiyama/Dagre). Best for call flows\n- **force-directed**: Interactive physics-based layout. Best for exploring relationships\n- **radial**: Concentric circles with the current file at center. Experimental"
-        },
-        "graph-it-live.branchWatch.enabled": {
-          "type": "boolean",
-          "default": false,
-          "scope": "resource",
-          "description": "Automatically review saved branch changes against a Git base branch. Structural analysis only; tests must pass before delivery."
-        },
-        "graph-it-live.branchWatch.baseRef": {
-          "type": "string",
-          "default": "",
-          "scope": "resource",
-          "description": "Git branch reference used as the base. Local and remote-tracking branches are supported; no fetch is performed."
-        },
-        "graph-it-live.branchWatch.headRef": {
-          "type": "string",
-          "default": "",
-          "scope": "resource",
-          "description": "Git branch reference used as the head. Empty uses the current branch and saved workspace changes."
-        },
-        "graph-it-live.branchWatch.maxFiles": {
-          "type": "integer",
-          "default": 200,
-          "minimum": 1,
-          "maximum": 1000,
-          "scope": "resource",
-          "description": "Maximum number of files analyzed by Branch Watch. Higher values improve coverage but increase analysis time and memory usage. Range: 1–1000."
-        },
-        "graph-it-live.workspaceFolder": {
-          "type": "string",
-          "default": "",
-          "scope": "window",
-          "description": "Workspace folder analyzed by Graph-It-Live in a multi-root workspace. Empty uses the active editor folder, then the first folder."
+    "configuration": [
+      {
+        "title": "Graph-It-Live",
+        "properties": {
+          "graph-it-live.maxDepth": {
+            "type": "number",
+            "default": 50,
+            "description": "Maximum dependency depth to analyze",
+            "minimum": 1,
+            "maximum": 100
+          },
+          "graph-it-live.excludeNodeModules": {
+            "type": "boolean",
+            "default": true,
+            "description": "Exclude node_modules from graph"
+          },
+          "graph-it-live.ignoreTypeImports": {
+            "type": "boolean",
+            "default": false,
+            "description": "Ignore TypeScript type-only imports and exports in the dependency graph. You might need to restart VS Code for this setting to take effect."
+          },
+          "graph-it-live.enableMcpServer": {
+            "type": "boolean",
+            "default": false,
+            "description": "Enable MCP (Model Context Protocol) server for LLM integration. When enabled, exposes dependency analysis tools to GitHub Copilot and other MCP-compatible AI assistants.",
+            "markdownDescription": "Enable **MCP (Model Context Protocol)** server for LLM integration. When enabled, exposes dependency analysis tools to GitHub Copilot and other MCP-compatible AI assistants.\n\n[Learn more about MCP](https://code.visualstudio.com/api/extension-guides/ai/mcp)"
+          },
+          "graph-it-live.enableMcpDebugLogging": {
+            "type": "boolean",
+            "default": false,
+            "description": "Enable detailed debug logging for MCP server. Creates ~/mcp-debug.log with automatic rotation (5MB limit per file, keeps 2 files). Only enable for troubleshooting.",
+            "markdownDescription": "**[Privacy Notice]** Enable detailed debug logging for MCP server. Creates `~/mcp-debug.log` with automatic rotation (5MB limit per file, keeps last 2 files). Log file may contain project paths and file names. Only enable temporarily for troubleshooting, then disable to prevent unnecessary data accumulation."
+          },
+          "graph-it-live.enableBackgroundIndexing": {
+            "type": "boolean",
+            "default": true,
+            "description": "Enable background indexing for faster reverse dependency lookups. When enabled, the extension will index all files in the workspace at startup."
+          },
+          "graph-it-live.preIndexCallGraph": {
+            "type": "boolean",
+            "default": true,
+            "description": "Pre-index the call graph database at startup alongside background indexing. When enabled, the first 'Show Call Graph' command is near-instant because the symbol-level index is already built."
+          },
+          "graph-it-live.indexingStartDelay": {
+            "type": "number",
+            "default": 1000,
+            "description": "Delay in milliseconds before starting background indexing after extension activation. Allows VS Code to finish startup first.",
+            "minimum": 0,
+            "maximum": 30000
+          },
+          "graph-it-live.logLevel": {
+            "type": "string",
+            "enum": [
+              "debug",
+              "info",
+              "warn",
+              "error",
+              "none"
+            ],
+            "default": "info",
+            "description": "Logging level for the extension. Debug shows all logs, none disables logging.",
+            "markdownDescription": "Logging level for the extension output channel.\n\n- **debug**: Verbose output for troubleshooting\n- **info**: Standard operation logs\n- **warn**: Warnings only\n- **error**: Errors only\n- **none**: Disable logging"
+          },
+          "graph-it-live.unusedDependencyMode": {
+            "type": "string",
+            "enum": [
+              "hide",
+              "dim"
+            ],
+            "default": "hide",
+            "description": "Choose how to display unused dependencies in the graph. 'hide' removes them, 'dim' reduces their opacity.",
+            "markdownDescription": "Choose how to display unused dependencies in the graph.\n\n- **hide**: Remove edges for imports that are not actually used in the code\n- **dim**: Show unused edges with reduced opacity"
+          },
+          "graph-it-live.showCommunities": {
+            "type": "boolean",
+            "default": true,
+            "markdownDescription": "Show community clustering on the dependency graph (background tint on nodes + community legend). Disable to hide community visualization."
+          },
+          "graph-it-live.performanceProfile": {
+            "type": "string",
+            "enum": [
+              "default",
+              "low-memory",
+              "high-performance",
+              "custom"
+            ],
+            "default": "default",
+            "description": "Performance profile preset that sets cache sizes, concurrency, and unused-analysis limits.",
+            "markdownDescription": "Performance profile preset:\n\n- **default**: Balanced settings (4GB-8GB RAM)\n- **low-memory**: Optimized for machines with <4GB RAM\n- **high-performance**: Maximizes speed on powerful machines (16GB+ RAM)\n- **custom**: Use the values in the **Advanced: Performance overrides** section",
+            "order": 0
+          },
+          "graph-it-live.symbolViewLayout": {
+            "type": "string",
+            "enum": [
+              "hierarchical",
+              "force-directed",
+              "radial"
+            ],
+            "default": "hierarchical",
+            "description": "Layout algorithm for symbol-level drill-down view.",
+            "markdownDescription": "Layout algorithm for symbol-level drill-down view:\n\n- **hierarchical**: Top-to-bottom layout (Sugiyama/Dagre). Best for call flows\n- **force-directed**: Interactive physics-based layout. Best for exploring relationships\n- **radial**: Concentric circles with the current file at center. Experimental"
+          },
+          "graph-it-live.branchWatch.enabled": {
+            "type": "boolean",
+            "default": false,
+            "scope": "resource",
+            "description": "Automatically review saved branch changes against a Git base branch. Structural analysis only; tests must pass before delivery."
+          },
+          "graph-it-live.branchWatch.baseRef": {
+            "type": "string",
+            "default": "",
+            "scope": "resource",
+            "description": "Git branch reference used as the base. Local and remote-tracking branches are supported; no fetch is performed."
+          },
+          "graph-it-live.branchWatch.headRef": {
+            "type": "string",
+            "default": "",
+            "scope": "resource",
+            "description": "Git branch reference used as the head. Empty uses the current branch and saved workspace changes."
+          },
+          "graph-it-live.branchWatch.maxFiles": {
+            "type": "integer",
+            "default": 200,
+            "minimum": 1,
+            "maximum": 1000,
+            "scope": "resource",
+            "description": "Maximum number of files analyzed by Branch Watch. Higher values improve coverage but increase analysis time and memory usage. Range: 1–1000."
+          },
+          "graph-it-live.workspaceFolder": {
+            "type": "string",
+            "default": "",
+            "scope": "window",
+            "description": "Workspace folder analyzed by Graph-It-Live in a multi-root workspace. Empty uses the active editor folder, then the first folder."
+          }
+        }
+      },
+      {
+        "title": "Advanced: Performance overrides",
+        "order": 100,
+        "properties": {
+          "graph-it-live.indexingConcurrency": {
+            "type": "number",
+            "default": 4,
+            "description": "Number of files to process in parallel during background indexing. Lower values reduce CPU usage but increase indexing time.",
+            "markdownDescription": "Number of files to process in parallel during background indexing.\n\nOverride used only when `#graph-it-live.performanceProfile#` is `custom`; other profiles set this value.",
+            "minimum": 1,
+            "maximum": 16,
+            "order": 0,
+            "tags": [
+              "advanced"
+            ]
+          },
+          "graph-it-live.unusedAnalysisConcurrency": {
+            "type": "number",
+            "default": 4,
+            "minimum": 1,
+            "maximum": 16,
+            "description": "Number of source files to analyze in parallel for unused dependency detection. Lower values use less memory but are slower. Adjust based on your machine's capabilities.",
+            "markdownDescription": "Number of source files to analyze in parallel for unused dependency detection.\n\n- **1-2**: Low-memory machines (<4GB RAM)\n- **4**: Default, balanced\n- **8-16**: High-performance machines (16GB+ RAM)\n\nOverride used only when `#graph-it-live.performanceProfile#` is `custom`; other profiles set this value.",
+            "order": 1,
+            "tags": [
+              "advanced"
+            ]
+          },
+          "graph-it-live.unusedAnalysisMaxEdges": {
+            "type": "number",
+            "default": 2000,
+            "minimum": 0,
+            "description": "Skip automatic unused dependency analysis if the graph has more edges than this threshold. Set to 0 to disable the limit. Manual analysis via toolbar button still works.",
+            "markdownDescription": "Skip automatic unused dependency analysis if the graph exceeds this edge count.\n\n- **0**: No limit (always analyze)\n- **1000-2000**: Recommended for low-memory machines\n- **5000+**: High-performance machines\n\nOverride used only when `#graph-it-live.performanceProfile#` is `custom`; other profiles set this value.",
+            "order": 2,
+            "tags": [
+              "advanced"
+            ]
+          },
+          "graph-it-live.persistUnusedAnalysisCache": {
+            "type": "boolean",
+            "default": false,
+            "description": "Cache unused dependency analysis results to disk for faster subsequent loads. Results are invalidated when files change.",
+            "markdownDescription": "Cache unused dependency analysis results to disk.\n\n⚠️ **Experimental**: Enable for large projects with stable dependencies. Disable if you experience stale results.\n\nOverride used only when `#graph-it-live.performanceProfile#` is `custom`; other profiles set this value.",
+            "tags": [
+              "advanced"
+            ],
+            "order": 3
+          },
+          "graph-it-live.maxUnusedAnalysisCacheSize": {
+            "type": "number",
+            "default": 200,
+            "minimum": 10,
+            "maximum": 1000,
+            "description": "Maximum number of source files to cache for unused dependency analysis. Uses LRU (Least Recently Used) eviction when limit is reached.",
+            "markdownDescription": "Maximum number of source files to cache for unused dependency analysis.\n\n- **Lower values** (50-100): Reduce memory usage on constrained systems\n- **Higher values** (500-1000): Better cache hit rate on large projects\n\nUses **LRU eviction** - least recently accessed entries are removed when limit is reached.\n\nOverride used only when `#graph-it-live.performanceProfile#` is `custom`; other profiles set this value.",
+            "tags": [
+              "advanced"
+            ],
+            "order": 4
+          },
+          "graph-it-live.maxCacheSize": {
+            "type": "number",
+            "default": 500,
+            "minimum": 50,
+            "maximum": 2000,
+            "description": "Maximum number of file dependency analyses to keep in memory cache. Lower values reduce memory usage.",
+            "markdownDescription": "Maximum number of file dependency analyses to keep in memory cache.\n\nOverride used only when `#graph-it-live.performanceProfile#` is `custom`; other profiles set this value.",
+            "order": 5,
+            "tags": [
+              "advanced"
+            ]
+          },
+          "graph-it-live.maxSymbolCacheSize": {
+            "type": "number",
+            "default": 200,
+            "minimum": 50,
+            "maximum": 1000,
+            "description": "Maximum number of symbol analysis results to keep in memory cache. Lower values reduce memory usage.",
+            "markdownDescription": "Maximum number of symbol analysis results to keep in memory cache.\n\nOverride used only when `#graph-it-live.performanceProfile#` is `custom`; other profiles set this value.",
+            "order": 6,
+            "tags": [
+              "advanced"
+            ]
+          }
         }
       }
-    },
+    ],
     "viewsWelcome": [
       {
         "view": "graph-it-live.branchWatchView",

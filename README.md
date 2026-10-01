@@ -317,7 +317,7 @@ Set these options in VS Code settings:
 
 Workspace indexing (extension, CLI, and MCP) skips paths listed in the root `.gitignore`, plus `tests/fixtures/` and `out-*/` by default. Add a root `.graphitignore` with gitignore syntax to exclude more paths, or negate a rule to include it again, for example `!tests/fixtures/`.
 
-For concurrency, cache, persistence, logging, and unused-analysis settings, see the [development guide](DEVELOPMENT.md).
+`performanceProfile` sets indexing concurrency, cache sizes, and unused-analysis limits. To tune them by hand, select `custom` and edit the **Advanced: Performance overrides** section (search `@tag:advanced graph-it-live` in the Settings editor). The other profiles ignore these overrides.
 
 ## CI review gate
 

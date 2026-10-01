@@ -667,6 +667,14 @@ suite('Settings Configuration', () => {
     );
   });
 
+  test('Should contribute profile overrides as advanced settings', () => {
+    const config = vscode.workspace.getConfiguration('graph-it-live');
+
+    assert.strictEqual(config.inspect('maxUnusedAnalysisCacheSize')?.defaultValue, 200);
+    assert.strictEqual(config.inspect('indexingConcurrency')?.defaultValue, 4);
+    assert.strictEqual(config.inspect('persistIndex')?.defaultValue, undefined, 'persistIndex should be removed');
+  });
+
   test('Should update maxDepth setting', async function() {
     this.timeout(10000);
     
