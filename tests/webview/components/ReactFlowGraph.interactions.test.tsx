@@ -40,6 +40,26 @@ function clickEdge(source = a, target = b) {
 afterEach(() => { cleanup(); vi.restoreAllMocks(); vi.useRealTimers(); });
 
 describe('file graph interactions', () => {
+  it('preserves measured dimensions through expansion, streaming updates and highlight cleanup', () => {
+    vi.useFakeTimers();
+    const view = render(<ReactFlowGraph {...props} expandAll={false} />);
+    const measure = () => act(() => flow.props.onNodesChange?.(flow.props.nodes!.map(n => ({
+      id: n.id, type: 'dimensions' as const, dimensions: { width: 137, height: 43 },
+    }))));
+    measure();
+    act(() => node(b).data.onExpandRequest(b));
+    expect(node(a).width).toBe(137);
+    expect(node(b).height).toBe(43);
+    measure();
+    view.rerender(<ReactFlowGraph {...props} expandAll={false} data={{ ...data, edges: [...data.edges] }} />);
+    expect(node(c).width).toBe(137);
+    act(() => vi.advanceTimersByTime(2500));
+    expect(node(a).width).toBe(137);
+    expect(node(c).height).toBe(43);
+    view.rerender(<ReactFlowGraph {...props} expandAll={false} resetToken={1} />);
+    expect(flow.props.nodes?.map(n => n.id)).toEqual([a, b, x]);
+  });
+
   it('explains the distinct participant count and uses the correct unit in each mode', () => {
     const cyclic: GraphData = { nodes: [a, b, c, d], edges: [
       { source: a, target: b }, { source: b, target: a }, { source: b, target: c },
