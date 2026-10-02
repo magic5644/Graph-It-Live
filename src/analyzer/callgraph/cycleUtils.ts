@@ -3,6 +3,48 @@
  * No vscode imports — safe in both layers.
  */
 
+function getFinishOrder(adjacency: Map<string, string[]>): string[] {
+  const visited = new Set<string>();
+  const finishOrder: string[] = [];
+  for (const node of adjacency.keys()) {
+    const stack = [{ node, exiting: false }];
+    while (stack.length > 0) {
+      const entry = stack.pop()!;
+      if (entry.exiting) {
+        finishOrder.push(entry.node);
+        continue;
+      }
+      if (visited.has(entry.node)) continue;
+      visited.add(entry.node);
+      stack.push({ node: entry.node, exiting: true });
+      for (const neighbor of adjacency.get(entry.node) ?? []) {
+        stack.push({ node: neighbor, exiting: false });
+      }
+    }
+  }
+
+  return finishOrder;
+}
+
+function findComponents(reverse: Map<string, string[]>, finishOrder: string[]): Map<string, number> {
+  const components = new Map<string, number>();
+  for (const node of finishOrder) {
+    if (components.has(node)) continue;
+    const component = components.size;
+    const stack = [node];
+    components.set(node, component);
+    while (stack.length > 0) {
+      for (const neighbor of reverse.get(stack.pop()!) ?? []) {
+        if (!components.has(neighbor)) {
+          components.set(neighbor, component);
+          stack.push(neighbor);
+        }
+      }
+    }
+  }
+  return components;
+}
+
 /**
  * An edge belongs to a cycle exactly when its endpoints are in the same
  * strongly connected component. Iterative Kosaraju traversal keeps this
@@ -21,39 +63,9 @@ export function detectCycleEdges(
     reverse.get(target)?.push(source);
   }
 
-  const visited = new Set<string>();
-  const finishOrder: string[] = [];
-  for (const node of adjacency.keys()) {
-    const stack = [{ node, exiting: false }];
-    while (stack.length > 0) {
-      const entry = stack.pop()!;
-      if (entry.exiting) {
-        finishOrder.push(entry.node);
-      } else if (!visited.has(entry.node)) {
-        visited.add(entry.node);
-        stack.push({ node: entry.node, exiting: true });
-        for (const neighbor of adjacency.get(entry.node) ?? []) {
-          if (!visited.has(neighbor)) stack.push({ node: neighbor, exiting: false });
-        }
-      }
-    }
-  }
-
-  const components = new Map<string, number>();
-  for (const node of finishOrder.reverse()) {
-    if (components.has(node)) continue;
-    const component = components.size;
-    const stack = [node];
-    components.set(node, component);
-    while (stack.length > 0) {
-      for (const neighbor of reverse.get(stack.pop()!) ?? []) {
-        if (!components.has(neighbor)) {
-          components.set(neighbor, component);
-          stack.push(neighbor);
-        }
-      }
-    }
-  }
+  const finishOrder = getFinishOrder(adjacency);
+  finishOrder.reverse();
+  const components = findComponents(reverse, finishOrder);
 
   return new Set(edges
     .filter(({ source, target }) => components.get(source) === components.get(target))
