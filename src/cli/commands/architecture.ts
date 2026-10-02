@@ -14,6 +14,7 @@ import { validateFilePath } from "../../mcp/types";
 import { normalizePath } from "../../shared/path.js";
 import type { CliOutputFormat } from "../formatter";
 import { formatOutput } from "../formatter";
+import { readIntegerOption } from "../options";
 import type { CliRuntime } from "../runtime";
 
 interface ArchitectureNode {
@@ -51,15 +52,7 @@ function isWithinWorkspace(filePath: string, workspaceRoot: string): boolean {
 }
 
 function parseMaxFiles(args: string[]): number {
-  let maxFiles = Number.POSITIVE_INFINITY;
-  const maxFilesIdx = args.indexOf("--maxFiles");
-  if (maxFilesIdx >= 0 && args[maxFilesIdx + 1]) {
-    const parsed = Number.parseInt(args[maxFilesIdx + 1], 10);
-    if (!Number.isNaN(parsed) && parsed > 0) {
-      maxFiles = parsed;
-    }
-  }
-  return maxFiles;
+  return readIntegerOption(args, "--maxFiles", { min: 1 }) ?? Number.POSITIVE_INFINITY;
 }
 
 function initializeAccumulator(): ArchitectureAccumulator {
@@ -144,9 +137,9 @@ export async function run(
   runtime: CliRuntime,
   format: CliOutputFormat,
 ): Promise<string> {
-  await runtime.ensureIndexed();
-
   const maxFiles = parseMaxFiles(args);
+
+  await runtime.ensureIndexed();
 
   const collector = new SourceFileCollector({ excludeNodeModules: true });
   const allFiles = await collector.collectAllSourceFiles(runtime.workspaceRoot);

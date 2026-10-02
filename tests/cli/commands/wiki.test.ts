@@ -155,28 +155,25 @@ describe("wiki command", () => {
     );
   });
 
-  it("clamps --top to default 10 when value is invalid", async () => {
-    await run(["--top", "abc"], makeRuntime(), "text");
-
-    expect(mocks.executeGenerateWiki).toHaveBeenCalledWith(
-      expect.objectContaining({ topHubsLimit: 10 }),
+  it("rejects --top when value is invalid", async () => {
+    await expect(run(["--top", "abc"], makeRuntime(), "text")).rejects.toThrow(
+      `--top must be an integer between 1 and 50, got "abc"`,
     );
+    expect(mocks.executeGenerateWiki).not.toHaveBeenCalled();
   });
 
-  it("clamps --top to default 10 when value is 0", async () => {
-    await run(["--top", "0"], makeRuntime(), "text");
-
-    expect(mocks.executeGenerateWiki).toHaveBeenCalledWith(
-      expect.objectContaining({ topHubsLimit: 10 }),
+  it("rejects --top when value is 0", async () => {
+    await expect(run(["--top", "0"], makeRuntime(), "text")).rejects.toThrow(
+      `--top must be an integer between 1 and 50, got "0"`,
     );
+    expect(mocks.executeGenerateWiki).not.toHaveBeenCalled();
   });
 
-  it("clamps --top to default 10 when value exceeds 50", async () => {
-    await run(["--top", "99"], makeRuntime(), "text");
-
-    expect(mocks.executeGenerateWiki).toHaveBeenCalledWith(
-      expect.objectContaining({ topHubsLimit: 10 }),
+  it("rejects --top when value exceeds 50", async () => {
+    await expect(run(["--top", "99"], makeRuntime(), "text")).rejects.toThrow(
+      `--top must be an integer between 1 and 50, got "99"`,
     );
+    expect(mocks.executeGenerateWiki).not.toHaveBeenCalled();
   });
 
   // -------------------------------------------------------------------------

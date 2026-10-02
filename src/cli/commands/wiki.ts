@@ -14,6 +14,7 @@ import { normalizePath } from "../../shared/path.js";
 import type { CliOutputFormat } from "../formatter.js";
 import type { CliRuntime } from "../runtime.js";
 import { executeGenerateWiki } from "../../mcp/tools/wiki.js";
+import { readIntegerOption } from "../options.js";
 
 // ---------------------------------------------------------------------------
 // Flag helpers
@@ -42,10 +43,7 @@ function parseOutputDir(args: string[]): string {
 }
 
 function parseTop(args: string[]): number {
-  const raw = parseFlag(args, "--top");
-  if (!raw) return 10;
-  const parsed = Number.parseInt(raw, 10);
-  return !Number.isNaN(parsed) && parsed >= 1 && parsed <= 50 ? parsed : 10;
+  return readIntegerOption(args, "--top", { min: 1, max: 50 }) ?? 10;
 }
 
 function parseWikiFormat(

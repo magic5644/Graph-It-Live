@@ -202,8 +202,9 @@ Watch base/head selection in `.graph-it/branch-watch.json`. `.graph-it/` writes
 its own `.gitignore`, so none of it shows up in `git status`. It is disposable;
 delete it at any time.
 
-> Global options must appear **before** the command name:
-> `graph-it --reindex summary`, not `graph-it summary --reindex`.
+> Global options can appear before or after the command name (`graph-it --reindex summary` and `graph-it summary --reindex` are equivalent). They are removed from the command's own arguments, so `--workspace <dir>` never becomes part of a `query` question.
+>
+> Numeric command options (`--maxDepth`, `--depth`, `--token-budget`, `--max-files`, `--maxFiles`, `--top`, ...) must be integers within the documented range. Any other value stops the command with an error and exit code 1.
 
 ---
 
