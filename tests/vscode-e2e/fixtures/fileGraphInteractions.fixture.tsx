@@ -78,6 +78,28 @@ async function run() {
   await new Promise(resolve => setTimeout(resolve, 800));
   check(viewport() === initialViewport, 'Restoring hidden nodes moved the viewport');
 
+  const leaf = '/p/types/prisma.types.ts';
+  const expansionGraph: GraphData = {
+    nodes: [...paths, leaf],
+    edges: [
+      ...paths.slice(1).map(target => ({ source: a, target })),
+      { source: b, target: d }, { source: b, target: c }, { source: b, target: x },
+      { source: c, target: d }, { source: c, target: leaf }, { source: leaf, target: d }, { source: x, target: d },
+    ],
+  };
+  show(expansionGraph, 'child-expansion', false);
+  await until(() => document.querySelectorAll('.react-flow__node').length === 5 && !!node(c)?.querySelector('button[aria-label="Expand node"]'), 'Initial collapsed graph is incorrect');
+  node(c)!.querySelector<HTMLButtonElement>('button[aria-label="Expand node"]')!.click();
+  show({ ...expansionGraph, nodes: [...expansionGraph.nodes], edges: [...expansionGraph.edges], nodeMetadata: Object.fromEntries([...paths, leaf].map((path, i) => [path, { hubScore: 0, communityId: i === 5 ? 2 : 1, communityKey: i === 5 ? 'types' : 'helpers' }])) }, 'child-expansion', false);
+  await until(() => !!node(leaf), 'Expanding a child did not reveal its dependency');
+  await new Promise(resolve => setTimeout(resolve, 2500));
+  for (const id of [...paths, leaf]) {
+    const element = node(id);
+    check(element && getComputedStyle(element).visibility !== 'hidden' && getComputedStyle(element).display !== 'none' && Number(getComputedStyle(element).opacity) > 0, `Expanded graph hides ${id}: ${element?.getAttribute('style')}`);
+    const bounds = element.getBoundingClientRect();
+    check(bounds.width > 0 && bounds.height > 0, `Expanded graph lost geometry for ${id}`);
+  }
+
   const badge = () => document.querySelector<HTMLElement>('[data-testid="cycles-badge"]');
   show({ nodes: [a, b, c], edges: [
     { source: a, target: b }, { source: b, target: a },

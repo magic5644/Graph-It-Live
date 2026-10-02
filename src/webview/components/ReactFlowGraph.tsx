@@ -408,7 +408,18 @@ const ReactFlowGraphContent: React.FC<ReactFlowGraphProps> = ({
     });
 
   // Initialize React Flow states early
-  const [nodes, setNodes, onNodesChange] = useNodesState([]);
+  const [nodes, setNodeState, onNodesChange] = useNodesState([]);
+  const setNodes = useCallback((nextNodes: Node[]) => {
+    setNodeState(previous => {
+      const measured = new Map(previous.map(node => [node.id, node]));
+      // Replacing nodes without their measured dimensions makes React Flow hide them.
+      return nextNodes.map(node => ({
+        ...node,
+        width: measured.get(node.id)?.width,
+        height: measured.get(node.id)?.height,
+      }));
+    });
+  }, [setNodeState]);
   const [edges, setEdges, onEdgesChange] = useEdgesState([]);
   
   // Store graph data in ref so handleHighlight can access the complete graph
