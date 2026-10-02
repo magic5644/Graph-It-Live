@@ -14,7 +14,7 @@ import type { CliRuntime } from "../runtime";
 
 export async function run(
   _args: string[],
-  _runtime: CliRuntime,
+  runtime: CliRuntime,
   _format: CliOutputFormat,
 ): Promise<string> {
   // __dirname is injected by the esbuild ESM banner shim
@@ -23,7 +23,9 @@ export async function run(
 
   const child = spawn(process.execPath, [mcpServerPath], {
     stdio: "inherit",
-    env: { ...process.env },
+    // The MCP server reads its workspace from WORKSPACE_ROOT (cwd otherwise):
+    // pass the one the CLI resolved from --workspace or auto-detection.
+    env: { ...process.env, WORKSPACE_ROOT: runtime.workspaceRoot },
   });
 
   return new Promise<string>((resolve, reject) => {
