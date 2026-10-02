@@ -36,7 +36,7 @@ export function formatToolResponse<T>(
   responseFormat: ResponseFormat,
   toolName?: string,
   detail?: GraphContextDetail,
-): { content: { type: 'text'; text: string }[]; structuredContent: McpToolResponse<T> } {
+): { content: { type: 'text'; text: string }[]; structuredContent: McpToolResponse<T>; isError?: true } {
   // Paths become workspace-relative first, so duplicated path keys compare equal.
   const redactedResponse = compactOutput(redactAbsolutePaths(response, response.metadata.workspaceRoot));
   let publicResponse: McpToolResponse<T> = redactedResponse;
@@ -57,7 +57,10 @@ export function formatToolResponse<T>(
     } else {
       formatted = formatDataAsToon(publicResponse.data, inferObjectNameFromResponse(publicResponse), toolName);
     }
-    text = formatted.content;
+    // graph_context already reports its own errors and freshness.
+    text = toolName === 'graphitlive_graph_context'
+      ? formatted.content
+      : formatToonEnvelope(publicResponse, formatted.content);
   } else if (responseFormat === 'markdown') {
     text = `\`\`\`json\n${JSON.stringify(publicResponse, null, 2)}\n\`\`\``;
   } else {
@@ -67,7 +70,34 @@ export function formatToolResponse<T>(
   return {
     content: [{ type: 'text', text }],
     structuredContent: publicResponse,
+    // MCP clients read isError, not structuredContent.success, to detect failures.
+    ...(publicResponse.success ? {} : { isError: true as const }),
   };
+}
+
+/**
+ * TOON text only carries `data`: prepend the error of a failed call and the
+ * metadata needed to read the result (freshness, pagination). A failure with
+ * no data keeps only the error, not an empty `data()` section.
+ */
+function formatToonEnvelope<T>(response: McpToolResponse<T>, dataContent: string): string {
+  const sections: string[] = [];
+  if (!response.success) {
+    sections.push(jsonToToon([{ message: response.error ?? 'Unknown error' }], { objectName: 'errors' }));
+  }
+  const { indexedAt, stale } = response.metadata;
+  const meta = {
+    ...(indexedAt === undefined ? {} : { indexedAt: indexedAt ?? '' }),
+    ...(stale === undefined ? {} : { stale }),
+    ...response.pagination,
+  };
+  if (Object.keys(meta).length > 0) {
+    sections.push(jsonToToon([meta], { objectName: 'meta' }));
+  }
+  if (response.success || (response.data !== null && response.data !== undefined)) {
+    sections.push(dataContent);
+  }
+  return sections.join('\n');
 }
 
 function formatGraphContextAsToon<T>(

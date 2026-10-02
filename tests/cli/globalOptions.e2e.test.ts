@@ -124,58 +124,65 @@ describe.skipIf(!distExists)("CLI global options (E2E)", { timeout: SUBPROCESS_T
     expect(result.stdout).toContain("helper");
   });
 
-  it("serve --workspace answers a tool call on a file of that workspace from another cwd", async () => {
+  /** Start `graph-it serve` from an unrelated cwd and complete the MCP handshake. */
+  const startSession = async () => {
     const child = spawn(process.execPath, [DIST_ENTRY, "serve", "--workspace", tmpDir], {
       cwd: otherCwd,
       stdio: ["pipe", "pipe", "ignore"],
     });
-    try {
-      const responses = new Map<number, Record<string, unknown>>();
-      let buffer = "";
-      child.stdout.setEncoding("utf-8");
-      child.stdout.on("data", (chunk: string) => {
-        buffer += chunk;
-        let newline = buffer.indexOf("\n");
-        while (newline >= 0) {
-          const line = buffer.slice(0, newline).trim();
-          buffer = buffer.slice(newline + 1);
-          if (line.startsWith("{")) {
-            const message = JSON.parse(line) as { id?: number };
-            if (typeof message.id === "number") responses.set(message.id, message);
-          }
-          newline = buffer.indexOf("\n");
+    const responses = new Map<number, Record<string, unknown>>();
+    let buffer = "";
+    child.stdout.setEncoding("utf-8");
+    child.stdout.on("data", (chunk: string) => {
+      buffer += chunk;
+      let newline = buffer.indexOf("\n");
+      while (newline >= 0) {
+        const line = buffer.slice(0, newline).trim();
+        buffer = buffer.slice(newline + 1);
+        if (line.startsWith("{")) {
+          const message = JSON.parse(line) as { id?: number };
+          if (typeof message.id === "number") responses.set(message.id, message);
         }
-      });
-      const send = (message: Record<string, unknown>) => child.stdin.write(`${JSON.stringify(message)}\n`);
-      const waitFor = async (id: number) => {
-        const deadline = Date.now() + 45_000;
-        while (!responses.has(id)) {
-          if (Date.now() > deadline || child.exitCode !== null) throw new Error(`no response ${id}`);
-          await new Promise((resolve) => setTimeout(resolve, 100));
-        }
-        return responses.get(id)!;
+        newline = buffer.indexOf("\n");
+      }
+    });
+    const send = (message: Record<string, unknown>) => child.stdin.write(`${JSON.stringify(message)}\n`);
+    const waitFor = async (id: number) => {
+      const deadline = Date.now() + 45_000;
+      while (!responses.has(id)) {
+        if (Date.now() > deadline || child.exitCode !== null) throw new Error(`no response ${id}`);
+        await new Promise((resolve) => setTimeout(resolve, 100));
+      }
+      return responses.get(id)!;
+    };
+    let nextId = 1;
+    const request = async (method: string, params: Record<string, unknown>) => {
+      const id = nextId++;
+      send({ jsonrpc: "2.0", id, method, params });
+      return waitFor(id);
+    };
+    await request("initialize", {
+      protocolVersion: "2025-06-18",
+      capabilities: {},
+      clientInfo: { name: "e2e", version: "1" },
+    });
+    send({ jsonrpc: "2.0", method: "notifications/initialized" });
+    const callTool = async (name: string, args: Record<string, unknown>) =>
+      (await request("tools/call", { name, arguments: args })).result as {
+        isError?: boolean;
+        content: Array<{ text: string }>;
+        structuredContent?: Record<string, unknown>;
       };
+    return { child, callTool };
+  };
 
-      send({
-        jsonrpc: "2.0",
-        id: 1,
-        method: "initialize",
-        params: { protocolVersion: "2025-06-18", capabilities: {}, clientInfo: { name: "e2e", version: "1" } },
+  it("serve --workspace answers a tool call on a file of that workspace from another cwd", async () => {
+    const { child, callTool } = await startSession();
+    try {
+      const result = await callTool("graphitlive_analyze_dependencies", {
+        filePath: path.join(tmpDir, "src/a.ts"),
+        response_format: "json",
       });
-      await waitFor(1);
-      send({ jsonrpc: "2.0", method: "notifications/initialized" });
-      send({
-        jsonrpc: "2.0",
-        id: 2,
-        method: "tools/call",
-        params: {
-          name: "graphitlive_analyze_dependencies",
-          arguments: { filePath: path.join(tmpDir, "src/a.ts"), response_format: "json" },
-        },
-      });
-
-      const response = await waitFor(2);
-      const result = response.result as { isError?: boolean; content: Array<{ text: string }> };
       expect(result.isError).not.toBe(true);
       expect(result.content.map((c) => c.text).join("\n")).toContain("b.ts");
       expect(await closeSession(child)).toBe(0);
@@ -218,6 +225,21 @@ describe.skipIf(!distExists)("CLI global options (E2E)", { timeout: SUBPROCESS_T
       expect(await Promise.race([exited, timeout])).toBe(exitCode);
     } finally {
       if (child.exitCode === null) child.kill("SIGKILL");
+    }
+  });
+
+  it.each(["toon", "json", "markdown"])("serve flags a failed %s tool call with isError and the error text (#238)", async (format) => {
+    const { child, callTool } = await startSession();
+    try {
+      const result = await callTool("graphitlive_analyze_dependencies", {
+        filePath: path.join(tmpDir, "src/missing.ts"),
+        response_format: format,
+      });
+      expect(result.isError).toBe(true);
+      expect(result.content[0].text).toMatch(/not found|does not exist|ENOENT/i);
+      expect(await closeSession(child)).toBe(0);
+    } finally {
+      if (child.exitCode === null) child.kill();
     }
   });
 
