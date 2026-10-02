@@ -13,8 +13,10 @@ import { run } from "../../../src/cli/commands/serve.js";
 
 const runtime = (workspaceRoot: string) => ({ workspaceRoot }) as never;
 
-function fakeChild(): EventEmitter {
-  const child = new EventEmitter();
+type FakeChild = EventEmitter & { kill: ReturnType<typeof vi.fn> };
+
+function fakeChild(): FakeChild {
+  const child = Object.assign(new EventEmitter(), { kill: vi.fn() });
   mocks.spawn.mockReturnValue(child);
   return child;
 }
@@ -62,5 +64,39 @@ describe("serve command", () => {
     const done = run([], runtime("/work/project"), "text");
     child.emit("error", new Error("ENOENT"));
     await expect(done).rejects.toThrow("Failed to start MCP server: ENOENT");
+  });
+
+  it.each(["SIGTERM", "SIGINT"] as const)("forwards %s to the server and resolves once it exits (#241)", async (signal) => {
+    const child = fakeChild();
+    const before = process.listenerCount(signal);
+    const done = run([], runtime("/work/project"), "text");
+    expect(process.listenerCount(signal)).toBe(before + 1);
+
+    process.listeners(signal).at(-1)?.(signal);
+    expect(child.kill).toHaveBeenCalledWith(signal);
+    // Windows: kill() terminates the child with code 1, which is not a failure here.
+    child.emit("exit", 1, null);
+
+    await expect(done).resolves.toBe("");
+    expect(process.listenerCount(signal)).toBe(before);
+  });
+
+  it("stops forwarding signals when the server cannot start", async () => {
+    const child = fakeChild();
+    const before = process.listenerCount("SIGTERM");
+    const done = run([], runtime("/work/project"), "text");
+    child.emit("error", new Error("ENOENT"));
+
+    await expect(done).rejects.toThrow("ENOENT");
+    expect(process.listenerCount("SIGTERM")).toBe(before);
+  });
+
+  it("still reports a crash when no signal was forwarded", async () => {
+    const child = fakeChild();
+    const done = run([], runtime("/work/project"), "text");
+    child.emit("exit", 1, null);
+
+    await expect(done).rejects.toThrow("MCP server exited with code 1");
+    expect(child.kill).not.toHaveBeenCalled();
   });
 });

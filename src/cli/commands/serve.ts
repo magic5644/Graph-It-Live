@@ -12,6 +12,8 @@ import { CliError, ExitCode } from "../errors";
 import type { CliOutputFormat } from "../formatter";
 import type { CliRuntime } from "../runtime";
 
+const FORWARDED_SIGNALS = ["SIGINT", "SIGTERM"] as const;
+
 export async function run(
   _args: string[],
   runtime: CliRuntime,
@@ -28,8 +30,21 @@ export async function run(
     env: { ...process.env, WORKSPACE_ROOT: runtime.workspaceRoot },
   });
 
+  // Forward termination signals so a supervisor that stops the CLI also stops
+  // the server. index.ts handles the same signals and sets the exit code.
+  let forwarded = false;
+  const forward = (signal: NodeJS.Signals): void => {
+    forwarded = true;
+    child.kill(signal);
+  };
+  const stopForwarding = (): void => {
+    for (const signal of FORWARDED_SIGNALS) process.off(signal, forward);
+  };
+  for (const signal of FORWARDED_SIGNALS) process.on(signal, forward);
+
   return new Promise<string>((resolve, reject) => {
     child.on("error", (err) => {
+      stopForwarding();
       reject(
         new CliError(
           `Failed to start MCP server: ${err.message}`,
@@ -38,7 +53,9 @@ export async function run(
       );
     });
     child.on("exit", (code) => {
-      if (code === 0) {
+      stopForwarding();
+      // Windows has no catchable SIGTERM: kill() ends the child with code 1.
+      if (code === 0 || forwarded) {
         resolve("");
       } else {
         reject(
