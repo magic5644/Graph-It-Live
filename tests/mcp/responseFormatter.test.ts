@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach } from 'vitest';
-import { createSuccessResponse } from '../../src/mcp/types';
+import { createErrorResponse, createSuccessResponse } from '../../src/mcp/types';
 import { sessionStats } from '../../src/shared/sessionStats';
 import { formatToolResponse, formatDataAsToon, suggestFormat, extractArrayData, inferObjectName } from '../../src/mcp/responseFormatter';
 
@@ -115,6 +115,82 @@ describe('formatToolResponse', () => {
 
     expect(text).not.toContain('query(');
     expect(text).toContain('[src/a.ts:main,main]');
+  });
+});
+
+describe('formatToolResponse failures and metadata (#238)', () => {
+  const missing = () => createErrorResponse('File not found: src/missing.ts', 5, '/workspace');
+
+  it.each(['toon', 'json', 'markdown'] as const)('sets isError and states the error in %s text', (format) => {
+    const result = formatToolResponse(missing(), format, 'graphitlive_analyze_dependencies');
+
+    expect(result.isError).toBe(true);
+    expect(result.content[0].text).toContain('File not found: src/missing.ts');
+    expect(result.structuredContent.success).toBe(false);
+  });
+
+  it('gives a failed TOON call an errors section instead of an empty data section', () => {
+    const text = formatToolResponse(missing(), 'toon').content[0].text;
+
+    expect(text).toBe('errors(message)\n[File not found: src/missing.ts]');
+    expect(text).not.toContain('data()');
+  });
+
+  it('keeps the data of a failed call that carries some', () => {
+    const response = { ...createErrorResponse<{ files: string[] }>('partial', 5, '/workspace'), data: { files: ['a.ts'] } };
+
+    const text = formatToolResponse(response, 'toon').content[0].text;
+
+    expect(text).toContain('errors(message)\n[partial]');
+    expect(text).toContain('a.ts');
+  });
+
+  it('falls back to a generic message when a failure has no error text', () => {
+    const response = { ...missing(), error: undefined };
+
+    expect(formatToolResponse(response, 'toon').content[0].text).toContain('[Unknown error]');
+  });
+
+  it('leaves isError unset on success', () => {
+    const result = formatToolResponse(createSuccessResponse({ ok: true }, 5, '/workspace'), 'toon');
+
+    expect(result).not.toHaveProperty('isError');
+  });
+
+  it('keeps freshness metadata in TOON text', () => {
+    const response = createSuccessResponse([{ file: 'a.ts' }], 5, '/workspace', undefined, {
+      indexedAt: '2026-10-02T10:00:00.000Z',
+      stale: true,
+    });
+
+    const text = formatToolResponse(response, 'toon').content[0].text;
+
+    expect(text.startsWith('meta(indexedAt,stale)\n[2026-10-02T10:00:00.000Z,true]\n')).toBe(true);
+    expect(text).toContain('[a.ts]');
+  });
+
+  it('writes an unknown index time as an empty cell', () => {
+    const response = createSuccessResponse([{ file: 'a.ts' }], 5, '/workspace', undefined, {
+      indexedAt: null,
+      stale: false,
+    });
+
+    expect(formatToolResponse(response, 'toon').content[0].text).toContain('meta(indexedAt,stale)\n[,false]');
+  });
+
+  it('keeps pagination in TOON text', () => {
+    const response = createSuccessResponse([{ file: 'a.ts' }], 5, '/workspace', {
+      total: 30, limit: 10, offset: 0, hasMore: true,
+    });
+
+    expect(formatToolResponse(response, 'toon').content[0].text).toContain('meta(total,limit,offset,hasMore)\n[30,10,0,true]');
+  });
+
+  it('does not add a second errors section to a failed graph_context call', () => {
+    const text = formatToolResponse(createErrorResponse('bad seed', 5, '/workspace'), 'toon', 'graphitlive_graph_context').content[0].text;
+
+    expect(text.match(/errors\(/g)).toHaveLength(1);
+    expect(text).toContain('bad seed');
   });
 });
 
