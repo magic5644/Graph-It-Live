@@ -22,6 +22,9 @@ async function workspace(commit = true) {
 }
 afterEach(async () => { await Promise.all(roots.splice(0).map(root => fs.rm(root, { recursive: true, force: true }))); });
 
+// Each test spawns many git processes; slow on Windows runners.
+const GIT_TEST_TIMEOUT = 20_000;
+
 describe('BranchWatchAnalyzer limits', () => {
   it('normalizes invalid and out-of-range file limits', () => {
     expect(normalizeBranchWatchMaxFiles(Number.NaN)).toBe(BRANCH_WATCH_MAX_FILES);
@@ -31,7 +34,7 @@ describe('BranchWatchAnalyzer limits', () => {
   });
 });
 
-describe('BranchWatchAnalyzer capture', () => {
+describe('BranchWatchAnalyzer capture', { timeout: GIT_TEST_TIMEOUT }, () => {
   it('compares branch commits and final disk contents with the merge-base, not the advanced base tip', async () => {
     const root = await workspace();
     const common = git(root, 'rev-parse', 'HEAD');
@@ -136,7 +139,7 @@ describe('BranchWatchAnalyzer capture', () => {
   });
 });
 
-describe('BranchWatchAnalyzer findings', () => {
+describe('BranchWatchAnalyzer findings', { timeout: GIT_TEST_TIMEOUT }, () => {
   it('reports Vue prop contract changes through Branch Watch', async () => {
     const root = await workspace();
     await fs.writeFile(path.join(root, 'Child.vue'), '<script setup lang="ts">defineProps<{ oldName: string }>();</script><template />\n');
@@ -229,7 +232,7 @@ describe('BranchWatchAnalyzer findings', () => {
       expect((await analyzer.analyze(await analyzer.capture('main'))).cycles).toEqual([]);
       expect((await analyzer.analyze(await analyzer.capture('main'))).cycleSummary).toEqual({ detected: 0, scopeComplete: true });
     } finally { await spider.dispose(); }
-  }, 15_000);
+  });
 
   it('keeps unsupported, deleted and unreadable files visible without a false clean result', async () => {
     const root = await workspace();
