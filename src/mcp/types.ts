@@ -262,7 +262,7 @@ export const SetWorkspaceParamsSchema = z.object({
     "Absolute path to the project/workspace directory to analyze",
   ),
   tsConfigPath: FilePathSchema.optional().describe(
-    "Optional path to tsconfig.json for path alias resolution",
+    "Optional path to tsconfig.json for path alias resolution. Omitted: kept when the same workspace is selected again, otherwise each file uses its nearest tsconfig.json",
   ),
   excludeNodeModules: z
     .boolean()

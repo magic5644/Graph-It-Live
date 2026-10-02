@@ -17,6 +17,7 @@ import {
   fitToTokenBudget,
   getRelativePath,
   mapKindToLspNumber,
+  nextWorkspaceConfig,
   updateNodeCounts,
   validateAnalysisInput,
   validateFileExists,
@@ -24,6 +25,7 @@ import {
 } from "../../../src/mcp/shared/helpers";
 import type { EdgeInfo, NodeInfo } from "../../../src/mcp/types";
 import { normalizePath } from "../../../src/shared/path";
+import { PathResolver } from "../../../src/analyzer/utils/PathResolver";
 
 describe("MCP Worker Helpers", () => {
   describe("getRelativePath", () => {
@@ -653,6 +655,73 @@ describe("MCP Worker Helpers", () => {
 
     it("returns an empty result as is when there is nothing to cut", () => {
       expect(fitToTokenBudget(0, 1, build).keptCount).toBe(0);
+    });
+  });
+
+  describe("nextWorkspaceConfig (#240)", () => {
+    const current = {
+      workspaceRoot: "/work/a",
+      tsConfigPath: "/work/a/tsconfig.json",
+      excludeNodeModules: false,
+      maxDepth: 7,
+      extensionPath: "/ext",
+    };
+
+    it("drops the previous workspace's tsconfig when the root changes", () => {
+      const next = nextWorkspaceConfig(current, { workspaceRoot: "/work/b" });
+
+      expect(next.workspaceRoot).toBe("/work/b");
+      expect(next.tsConfigPath).toBeUndefined();
+    });
+
+    it("uses the tsconfig passed with the new root", () => {
+      const next = nextWorkspaceConfig(current, { workspaceRoot: "/work/b", tsConfigPath: "/work/b/tsconfig.app.json" });
+
+      expect(next.tsConfigPath).toBe("/work/b/tsconfig.app.json");
+    });
+
+    it("keeps the tsconfig when the same root is selected again", () => {
+      expect(nextWorkspaceConfig(current, { workspaceRoot: "/work/a/" }).tsConfigPath).toBe("/work/a/tsconfig.json");
+    });
+
+    it("treats Windows separators and drive-letter case as the same root", () => {
+      const windows = { ...current, workspaceRoot: String.raw`C:\work\a`, tsConfigPath: String.raw`C:\work\a\tsconfig.json` };
+
+      expect(nextWorkspaceConfig(windows, { workspaceRoot: "c:/work/a" }).tsConfigPath).toBe(windows.tsConfigPath);
+      expect(nextWorkspaceConfig(windows, { workspaceRoot: String.raw`C:\work\b` }).tsConfigPath).toBeUndefined();
+    });
+
+    it("carries session preferences over and keeps unrelated fields", () => {
+      const next = nextWorkspaceConfig(current, { workspaceRoot: "/work/b" });
+
+      expect(next).toMatchObject({ excludeNodeModules: false, maxDepth: 7, extensionPath: "/ext" });
+      expect(nextWorkspaceConfig(current, { workspaceRoot: "/work/b", excludeNodeModules: true, maxDepth: 3 }))
+        .toMatchObject({ excludeNodeModules: true, maxDepth: 3 });
+    });
+
+    it("lets workspace B resolve aliases with its own tsconfig after A", async () => {
+      const root = await fs.realpath(await fs.mkdtemp(path.join(os.tmpdir(), "graph-it-roots-")));
+      try {
+        for (const name of ["a", "b"]) {
+          await fs.mkdir(path.join(root, name, "lib"), { recursive: true });
+          await fs.mkdir(path.join(root, name, "src"), { recursive: true });
+          await fs.writeFile(path.join(root, name, "lib/x.ts"), "export const x = 1;\n");
+          await fs.writeFile(path.join(root, name, "src/app.ts"), 'import { x } from "@local/x";\n');
+          await fs.writeFile(
+            path.join(root, name, "tsconfig.json"),
+            JSON.stringify({ compilerOptions: { baseUrl: ".", paths: { "@local/*": ["lib/*"] } } }),
+          );
+        }
+        const a = { ...current, workspaceRoot: path.join(root, "a"), tsConfigPath: path.join(root, "a/tsconfig.json") };
+        const b = nextWorkspaceConfig(a, { workspaceRoot: path.join(root, "b") });
+
+        const resolver = new PathResolver(b.tsConfigPath, b.excludeNodeModules, b.workspaceRoot);
+        const resolved = await resolver.resolve(path.join(root, "b/src/app.ts"), "@local/x");
+
+        expect(normalizePath(resolved ?? "")).toBe(normalizePath(path.join(root, "b/lib/x.ts")));
+      } finally {
+        await fs.rm(root, { recursive: true, force: true });
+      }
     });
   });
 });

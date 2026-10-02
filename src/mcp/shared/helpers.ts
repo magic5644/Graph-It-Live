@@ -12,7 +12,7 @@ import {
   toWorkspaceRelativePath,
   validateWorkspacePath,
 } from "../../shared/pathSecurity";
-import { normalizePath } from "../../shared/path";
+import { normalizePath, normalizePathForComparison } from "../../shared/path";
 import { estimateTokens } from "../../shared/toon";
 import { detectLanguageFromExtension } from "../../shared/utils/languageDetection";
 import type { EdgeInfo, NodeInfo } from "../types";
@@ -28,6 +28,35 @@ import type { GraphNodeMetadata } from "../../shared/graph-types";
  */
 export function getRelativePath(absolutePath: string, workspaceRoot: string): string {
   return toWorkspaceRelativePath(absolutePath, workspaceRoot);
+}
+
+/** Session options that set_workspace can change. */
+export interface WorkspaceSessionConfig {
+  workspaceRoot: string;
+  tsConfigPath?: string;
+  excludeNodeModules: boolean;
+  maxDepth: number;
+}
+
+/**
+ * Apply a set_workspace call to the session options. A tsconfig belongs to its
+ * workspace: moving to another root drops it, so the new root auto-detects its
+ * own, unless one is passed. excludeNodeModules and maxDepth are session
+ * preferences and carry over.
+ */
+export function nextWorkspaceConfig<T extends WorkspaceSessionConfig>(
+  current: T,
+  update: Partial<WorkspaceSessionConfig> & { workspaceRoot: string },
+): T {
+  const sameRoot = normalizePathForComparison(current.workspaceRoot)
+    === normalizePathForComparison(update.workspaceRoot);
+  return {
+    ...current,
+    workspaceRoot: update.workspaceRoot,
+    tsConfigPath: update.tsConfigPath ?? (sameRoot ? current.tsConfigPath : undefined),
+    excludeNodeModules: update.excludeNodeModules ?? current.excludeNodeModules,
+    maxDepth: update.maxDepth ?? current.maxDepth,
+  };
 }
 
 // ============================================================================

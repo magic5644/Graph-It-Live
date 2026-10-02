@@ -105,6 +105,7 @@ import * as path from "node:path";
 import * as z from "zod/v4";
 import { McpWorkerHost } from "./McpWorkerHost";
 import { formatToolResponse } from "./responseFormatter";
+import { nextWorkspaceConfig } from "./shared/helpers";
 import { mcpToolDescription } from "./toolDescriptions";
 import {
   AnalyzeBreakingChangesParamsSchema,
@@ -659,13 +660,12 @@ server.registerTool(
       );
     }
 
-    // Update configuration
-    currentConfig.workspaceRoot = workspacePath;
-    if (resolvedTsConfigPath !== undefined)
-      currentConfig.tsConfigPath = resolvedTsConfigPath;
-    if (excludeNodeModules !== undefined)
-      currentConfig.excludeNodeModules = excludeNodeModules;
-    if (maxDepth !== undefined) currentConfig.maxDepth = maxDepth;
+    Object.assign(currentConfig, nextWorkspaceConfig(currentConfig, {
+      workspaceRoot: workspacePath,
+      tsConfigPath: resolvedTsConfigPath,
+      excludeNodeModules,
+      maxDepth,
+    }));
 
     debugLog(`[McpServer] Workspace updated to: ${workspacePath}`);
 
