@@ -65,19 +65,47 @@ const DEFAULT_EXCLUDE_SUFFIXES = [
   ".min.js",
 ];
 
-function matchesSimplePattern(relPath: string, pattern: string): boolean {
-  // "tests/**" or "tests/" → starts with
-  const p = pattern.replace(/\/\*\*$/, "/").replaceAll('**/', "").replaceAll('*', "");
-  if (pattern.endsWith("/**") || pattern.endsWith("/")) {
-    return relPath.startsWith(p);
-  }
-  // "**/*.test.ts" → suffix check
-  if (pattern.startsWith("**/")) {
-    const suffix = pattern.slice(3);
-    return relPath.endsWith(suffix) || relPath.includes(`/${suffix}`);
-  }
-  // Exact match or contains
-  return relPath === p || relPath.includes(p);
+const GLOB_TOKENS: Record<string, string> = {
+  "**/": "(?:.*/)?",
+  "**": ".*",
+  "*": "[^/]*",
+  "?": "[^/]",
+};
+
+function globToRegExp(glob: string): RegExp {
+  const re = glob.replaceAll(/\*\*\/|\*\*|[*?]|[.+^${}()|[\]\\]/g, (t) => GLOB_TOKENS[t] ?? `\\${t}`);
+  // A match on a directory also excludes everything under it.
+  return new RegExp(`^${re}(?:/.*)?$`);
+}
+
+/**
+ * Gitignore-like matching on a workspace-relative path:
+ * - `*` matches within one segment, `**` across segments, `?` one character;
+ * - a pattern containing `/` is anchored at the workspace root ("tests/**");
+ * - a pattern without `/` matches any segment or trailing part ("*.test.ts", "fixtures").
+ */
+export function matchesExcludePattern(relPath: string, pattern: string): boolean {
+  const p = toRelPattern(pattern);
+  if (!p) return false;
+  const re = globToRegExp(p);
+  if (p.includes("/")) return re.test(relPath);
+  const segments = relPath.split("/");
+  return segments.some((_, i) => re.test(segments.slice(i).join("/")));
+}
+
+function toRelPattern(pattern: string): string {
+  let p = pattern.replaceAll("\\", "/");
+  while (p.startsWith("./")) p = p.slice(2);
+  while (p.endsWith("/")) p = p.slice(0, -1);
+  return p;
+}
+
+const quote = (s: string) => `\`${s}\``;
+
+/** Workspace-relative scope with "/" separators; "" means the whole workspace. */
+export function normalizeScope(workspaceRoot: string, scope: string): string {
+  const absolute = path.resolve(workspaceRoot, scope.replaceAll("\\", "/"));
+  return path.relative(workspaceRoot, absolute).replaceAll("\\", "/");
 }
 
 function buildScopePredicate(
@@ -87,35 +115,31 @@ function buildScopePredicate(
 ): (absPath: string) => boolean {
   const effectiveExclude = exclude ?? [];
   const useDefaults = exclude === undefined;
+  const relScope = scope ? normalizeScope(workspaceRoot, scope) : "";
 
   return (absPath: string): boolean => {
     const rel = path.relative(workspaceRoot, absPath).replaceAll('\\', "/");
 
     // Scope restriction
-    if (scope) {
-      const normalizedScope = scope.replaceAll('\\', "/").replace(/\/$/, "") + "/";
-      if (!rel.startsWith(normalizedScope) && rel !== scope.replace(/\/$/, "")) {
-        return false;
-      }
+    if (relScope && rel !== relScope && !rel.startsWith(`${relScope}/`)) {
+      return false;
     }
 
     // Explicit exclude patterns
     for (const pattern of effectiveExclude) {
-      if (matchesSimplePattern(rel, pattern)) return false;
+      if (matchesExcludePattern(rel, pattern)) return false;
     }
 
     // Default excludes (applied when no explicit --exclude given)
-    if (useDefaults) {
-      for (const prefix of DEFAULT_EXCLUDES) {
-        if (rel.startsWith(prefix)) return false;
-      }
-      for (const suffix of DEFAULT_EXCLUDE_SUFFIXES) {
-        if (rel.endsWith(suffix)) return false;
-      }
-    }
-
-    return true;
+    return !useDefaults || !isDefaultExcluded(rel);
   };
+}
+
+function isDefaultExcluded(rel: string): boolean {
+  return (
+    DEFAULT_EXCLUDES.some((prefix) => rel.startsWith(prefix)) ||
+    DEFAULT_EXCLUDE_SUFFIXES.some((suffix) => rel.endsWith(suffix))
+  );
 }
 
 // ---------------------------------------------------------------------------
@@ -142,7 +166,7 @@ export class WikiGenerator {
   constructor(opts: WikiGeneratorOptions) {
     this.db = opts.db;
     this.outputDir = opts.outputDir;
-    this.workspaceRoot = opts.workspaceRoot;
+    this.workspaceRoot = normalizePath(opts.workspaceRoot);
     this.topHubsLimit = opts.topHubsLimit ?? 10;
     this.scope = opts.scope;
     this.exclude = opts.exclude;
@@ -160,12 +184,16 @@ export class WikiGenerator {
     const hubMap = this.buildHubMap();
 
     // Enumerate files — with scope/exclude applied
-    const allFiles = this.queryFiles();
+    const allFiles = this.queryFiles().map((f) => normalizePath(f));
     const files = allFiles.filter(scopePredicate);
+    if (allFiles.length > 0 && files.length === 0) {
+      throw new Error(
+        `No indexed file matches the wiki filters (${this.describeFilters()}). Check --scope and --exclude.`,
+      );
+    }
 
     // Build all articles (pure, no I/O)
-    const articles: WikiArticle[] = files.map((filePath) => {
-      const normalized = normalizePath(filePath);
+    const articles: WikiArticle[] = files.map((normalized) => {
       // ADR-F2-01: prefer hubScore from GraphData.nodeMetadata when available.
       // externalNodeMetadata.hubScore is in [0-1]; scale to 0-100 to match WikiArticle range.
       const externalScore = this.externalNodeMetadata?.[normalized]?.hubScore;
@@ -215,15 +243,20 @@ export class WikiGenerator {
     };
   }
 
+  private describeFilters(): string {
+    const parts: string[] = [];
+    if (this.scope) parts.push(`scope ${quote(normalizeScope(this.workspaceRoot, this.scope) || ".")}`);
+    if (this.exclude?.length) parts.push(`exclude ${this.exclude.map(quote).join(", ")}`);
+    if (!this.exclude) parts.push("default excludes");
+    return parts.join(", ");
+  }
+
   private buildScopeNote(includedCount: number, excludedCount: number): string | undefined {
     const parts: string[] = [];
     if (this.scope) {
-      const displayScope = path.isAbsolute(this.scope)
-        ? path.relative(this.workspaceRoot, this.scope)
-        : this.scope;
-      parts.push(`scope: \`${displayScope}\``);
+      parts.push(`scope: ${quote(normalizeScope(this.workspaceRoot, this.scope) || ".")}`);
     }
-    if (this.exclude?.length) parts.push(`excluding: ${this.exclude.map((e) => `\`${e}\``).join(", ")}`);
+    if (this.exclude?.length) parts.push(`excluding: ${this.exclude.map(quote).join(", ")}`);
     if (!this.exclude) parts.push("auto-excludes: tests/, dist/, *.test.ts applied");
     if (excludedCount > 0) parts.push(`${excludedCount} file${excludedCount > 1 ? "s" : ""} excluded`);
 

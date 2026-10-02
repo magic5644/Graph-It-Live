@@ -2,7 +2,11 @@ import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import * as os from "node:os";
 import * as fs from "node:fs/promises";
 import * as path from "node:path";
-import { WikiGenerator } from "../../../src/analyzer/wiki/WikiGenerator.js";
+import {
+  WikiGenerator,
+  matchesExcludePattern,
+  normalizeScope,
+} from "../../../src/analyzer/wiki/WikiGenerator.js";
 
 // ---------------------------------------------------------------------------
 // Minimal DB mock helpers
@@ -35,26 +39,23 @@ function makeDb(rows: {
     }),
     prepare: vi.fn((sql: string) => {
       let results: Array<Record<string, unknown>> = [];
-      if (sql.includes("FROM nodes WHERE path = ?")) {
-        results = nodes.map((n) => ({ name: n.name, type: n.type, start_line: n.start_line }));
-      } else if (sql.includes("n_tgt.path = ?")) {
-        // callers
-        results = edges.map((e) => ({
-          caller_path: e.source_path,
-          caller_name: e.source_name,
-          source_line: e.source_line,
-        }));
-      } else if (sql.includes("n_src.path = ?")) {
-        // callees
-        results = edges.map((e) => ({
-          callee_path: e.target_path,
-          callee_name: e.source_name,
-          source_line: e.source_line,
-        }));
-      }
       let idx = 0;
       return {
-        bind: vi.fn(),
+        bind: vi.fn(([boundPath]: unknown[]) => {
+          if (sql.includes("FROM nodes WHERE path = ?")) {
+            results = nodes
+              .filter((n) => n.path === boundPath)
+              .map((n) => ({ name: n.name, type: n.type, start_line: n.start_line }));
+          } else if (sql.includes("n_tgt.path = ?")) {
+            results = edges
+              .filter((e) => e.target_path === boundPath)
+              .map((e) => ({ caller_path: e.source_path, caller_name: e.source_name, source_line: e.source_line }));
+          } else if (sql.includes("n_src.path = ?")) {
+            results = edges
+              .filter((e) => e.source_path === boundPath)
+              .map((e) => ({ callee_path: e.target_path, callee_name: e.source_name, source_line: e.source_line }));
+          }
+        }),
         step: vi.fn(() => idx < results.length),
         getAsObject: vi.fn(() => results[idx++] ?? {}),
         free: vi.fn(),
@@ -186,7 +187,7 @@ describe("WikiGenerator", () => {
     const result = await gen.generate();
 
     const indexContent = await fs.readFile(path.join(tmpDir, "index.md"), "utf-8");
-    const links = [...indexContent.matchAll(/\[.*?\]\((.*?)\)/g)].map((m) => m[1]);
+    const links = [...indexContent.matchAll(/\]\(([^)]*)\)/g)].map((m) => m[1]);
     for (const link of links) {
       expect(link).not.toMatch(/^[A-Za-z]:\\|^\//); // not absolute
     }
@@ -201,5 +202,143 @@ describe("WikiGenerator", () => {
 
     expect(result.articlesCount).toBe(0);
     expect(result.topHubs).toEqual([]);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Regression tests (v1.17.1)
+// ---------------------------------------------------------------------------
+
+describe("matchesExcludePattern (#221)", () => {
+  it.each([
+    ["tests/analyzer/wiki/a.test.ts", "**/*.test.ts", true],
+    ["a.test.ts", "**/*.test.ts", true],
+    ["tests/analyzer/wiki/a.ts", "**/*.test.ts", false],
+    ["src/deep/a.test.ts", "*.test.ts", true],
+    ["src/a.ts", "*.test.ts", false],
+    ["tests/a.ts", "tests/**", true],
+    ["tests/a.ts", "tests/", true],
+    ["src/tests/a.ts", "tests/**", false],
+    ["src/fixtures/a.ts", "fixtures", true],
+    ["src/fixturesX/a.ts", "fixtures", false],
+    ["src/a.ts", "src/?.ts", true],
+    ["src/ab.ts", "src/?.ts", false],
+    ["src/a/b.ts", "src/*.ts", false],
+    ["src/a/b.ts", "src/**/b.ts", true],
+    ["src/b.ts", "src/**/b.ts", true],
+    ["src/a+b(1).ts", "src/a+b(1).ts", true],
+    ["src/aab1.ts", "src/a+b(1).ts", false],
+    ["tests/a.ts", String.raw`.\tests\**`, true],
+    ["tests/a.ts", "./tests/**", true],
+    ["src/a.ts", "", false],
+    ["src/a.ts", "./", false],
+  ])("%s vs %s → %s", (relPath, pattern, expected) => {
+    expect(matchesExcludePattern(relPath, pattern)).toBe(expected);
+  });
+});
+
+describe("normalizeScope (#221)", () => {
+  const root = path.resolve("/workspace");
+
+  it.each([
+    ["./src/analyzer/wiki", "src/analyzer/wiki"],
+    ["src/analyzer/wiki/", "src/analyzer/wiki"],
+    [String.raw`src\analyzer\wiki`, "src/analyzer/wiki"],
+    [String.raw`.\src\analyzer`, "src/analyzer"],
+    [".", ""],
+    ["./", ""],
+  ])("%s → %s", (scope, expected) => {
+    expect(normalizeScope(root, scope)).toBe(expected);
+  });
+
+  it("accepts an absolute scope inside the workspace", () => {
+    expect(normalizeScope(root, path.join(root, "src", "lib"))).toBe("src/lib");
+  });
+
+  it("keeps a scope outside the workspace outside (matches nothing)", () => {
+    expect(normalizeScope(root, "../other").startsWith("..")).toBe(true);
+  });
+});
+
+describe("WikiGenerator regressions (v1.17.1)", () => {
+  let tmpDir: string;
+
+  beforeEach(async () => {
+    tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), "wiki-gen-reg-"));
+  });
+
+  afterEach(async () => {
+    await fs.rm(tmpDir, { recursive: true, force: true });
+  });
+
+  describe("scope and exclude filtering (#221)", () => {
+    const fileIndex = [
+      "/workspace/src/analyzer/wiki/A.ts",
+      "/workspace/src/analyzer/wiki/A.test.ts",
+      "/workspace/src/other/B.ts",
+      "/workspace/srcfoo/C.ts",
+    ];
+
+    it("applies a ./-prefixed scope like the plain one", async () => {
+      const db = makeDb({ fileIndex });
+      const result = await new WikiGenerator({
+        db, outputDir: tmpDir, workspaceRoot: "/workspace", scope: "./src/analyzer/wiki", exclude: [],
+      }).generate();
+      expect(result.articlesCount).toBe(2);
+      expect(result.scopeNote).toContain("scope: `src/analyzer/wiki`");
+    });
+
+    it("applies a Windows-style scope", async () => {
+      const db = makeDb({ fileIndex });
+      const result = await new WikiGenerator({
+        db, outputDir: tmpDir, workspaceRoot: "/workspace", scope: String.raw`src\analyzer\wiki`, exclude: [],
+      }).generate();
+      expect(result.articlesCount).toBe(2);
+    });
+
+    it("does not treat a scope as a bare string prefix", async () => {
+      const db = makeDb({ fileIndex });
+      const result = await new WikiGenerator({
+        db, outputDir: tmpDir, workspaceRoot: "/workspace", scope: "src", exclude: [],
+      }).generate();
+      expect(result.articlesCount).toBe(3); // srcfoo/C.ts excluded
+    });
+
+    it("honours a ** exclude glob", async () => {
+      const db = makeDb({ fileIndex });
+      const result = await new WikiGenerator({
+        db, outputDir: tmpDir, workspaceRoot: "/workspace", scope: "src/analyzer/wiki", exclude: ["**/*.test.ts"],
+      }).generate();
+      expect(result.articlesCount).toBe(1);
+      const articles = await fs.readdir(path.join(tmpDir, "articles"));
+      expect(articles).toEqual(["src_analyzer_wiki_A.ts.md"]);
+    });
+
+    it("throws a clear error when the filters leave no file, without writing anything", async () => {
+      const db = makeDb({ fileIndex });
+      const outputDir = path.join(tmpDir, "wiki");
+      const gen = new WikiGenerator({
+        db, outputDir, workspaceRoot: "/workspace", scope: "./does/not/exist",
+      });
+      await expect(gen.generate()).rejects.toThrow(/No indexed file matches the wiki filters \(scope `does\/not\/exist`/);
+      await expect(fs.access(outputDir)).rejects.toThrow();
+    });
+
+    it("throws when the excludes remove every file", async () => {
+      const db = makeDb({ fileIndex });
+      const gen = new WikiGenerator({ db, outputDir: tmpDir, workspaceRoot: "/workspace", exclude: ["**"] });
+      await expect(gen.generate()).rejects.toThrow(/exclude `\*\*`/);
+    });
+
+    it("filters raw Windows paths from the index", async () => {
+      const db = makeDb({
+        fileIndex: [String.raw`C:\ws\src\a\b.ts`, String.raw`C:\ws\lib\c.ts`],
+      });
+      const result = await new WikiGenerator({
+        db, outputDir: tmpDir, workspaceRoot: String.raw`C:\ws`, scope: String.raw`.\src`, exclude: [],
+      }).generate();
+      expect(result.articlesCount).toBe(1);
+      expect(await fs.readdir(path.join(tmpDir, "articles"))).toEqual(["src_a_b.ts.md"]);
+    });
   });
 });
