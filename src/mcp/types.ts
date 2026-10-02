@@ -1266,6 +1266,14 @@ export interface RebuildIndexResult {
     targetFiles: number;
     totalReferences: number;
   };
+  /** Call graph rebuilt from scratch (no cache), or why it could not be */
+  callGraph?: {
+    rebuilt: boolean;
+    indexedFiles?: number;
+    symbols?: number;
+    relations?: number;
+    error?: string;
+  };
 }
 
 /**

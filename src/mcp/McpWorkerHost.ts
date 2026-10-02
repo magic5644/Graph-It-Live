@@ -217,7 +217,7 @@ export class McpWorkerHost {
 
     const requestId = this.generateRequestId();
 
-    return new Promise((resolve, reject) => {
+    const result = await new Promise<T>((resolve, reject) => {
       const timeoutId = setTimeout(() => {
         this.pendingRequests.delete(requestId);
         this.worker?.postMessage({ type: 'cancel', requestId });
@@ -237,6 +237,18 @@ export class McpWorkerHost {
         params,
       });
     });
+    this.recordFreshness(tool);
+    return result;
+  }
+
+  /** Explicit invalidations and rebuilds move the freshness the same way the file watcher does. */
+  private recordFreshness(tool: McpToolName): void {
+    if (tool === 'invalidate_files') {
+      this.lastInvalidatedAt = new Date().toISOString();
+    } else if (tool === 'rebuild_index') {
+      this.indexedAt = new Date().toISOString();
+      this.lastInvalidatedAt = null;
+    }
   }
 
   /**

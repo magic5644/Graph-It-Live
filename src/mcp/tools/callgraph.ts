@@ -136,6 +136,7 @@ async function selectStaleJobs(
   indexer: CallGraphIndexer,
   callgraphFiles: string[],
   extensionPath: string,
+  pendingFiles: readonly string[],
 ): Promise<CallGraphJob[]> {
   const onDisk = new Set(callgraphFiles);
   invalidateMissingFiles(indexer, onDisk);
@@ -150,7 +151,9 @@ async function selectStaleJobs(
   // Re-extract importers of changed files so cross-file edges get re-resolved.
   // The Spider reverse index is already warm in this process, so this is free.
   const selected = selectChangedJobs(jobs);
-  await addReferencingJobs(selected, jobs, onDisk);
+  // Explicitly invalidated files are re-extracted even when their mtime did not move.
+  for (const filePath of pendingFiles) addIndexableJob(selected, filePath, onDisk);
+  await addReferencingJobs(selected, [...selected.values()], onDisk);
 
   if (shouldRebuild(callgraphFiles.length, selected.size)) {
     return rebuildCallGraph(indexer, callgraphFiles);
@@ -185,12 +188,12 @@ async function addReferencingJobs(
   for (const job of jobs) {
     const referencingFiles = await spider.findReferencingFiles(job.filePath);
     for (const referencing of referencingFiles) {
-      addImporterJob(selected, normalizePath(referencing.path), onDisk);
+      addIndexableJob(selected, normalizePath(referencing.path), onDisk);
     }
   }
 }
 
-function addImporterJob(
+function addIndexableJob(
   selected: Map<string, CallGraphJob>,
   importer: string,
   onDisk: Set<string>,
@@ -242,9 +245,12 @@ async function indexCallGraph(
   cache: IndexCache | null,
 ): Promise<void> {
   const startTime = Date.now();
+  // Snapshot what was explicitly invalidated: marks made while indexing stay pending.
+  const pendingFiles = [...workerState.callGraphPendingFiles];
+  const fullRebuild = workerState.callGraphFullRebuild;
   const { indexer, restored } = await initializeCallGraphIndexer(
     extensionPath,
-    cache,
+    fullRebuild ? null : cache,
   );
 
   // Initialize GraphExtractor (tree-sitter WASM)
@@ -270,6 +276,7 @@ async function indexCallGraph(
     indexer,
     callgraphFiles,
     extensionPath,
+    pendingFiles,
   );
 
   log.info(
@@ -297,6 +304,7 @@ async function indexCallGraph(
   workerState.callGraphIndexer = indexer;
   workerState.graphExtractor = extractor;
   workerState.callGraphIndexedRoot = workspaceRoot;
+  workerState.clearCallGraphPending(pendingFiles, fullRebuild);
 
   cache?.save({ callGraph: indexer.exportDb() });
 
@@ -321,9 +329,10 @@ async function selectCallGraphJobs(
   indexer: CallGraphIndexer,
   callgraphFiles: string[],
   extensionPath: string,
+  pendingFiles: readonly string[],
 ): Promise<CallGraphJob[]> {
   if (restored) {
-    return selectStaleJobs(indexer, callgraphFiles, extensionPath);
+    return selectStaleJobs(indexer, callgraphFiles, extensionPath, pendingFiles);
   }
   return callgraphFiles.map((filePath) => ({
     filePath,

@@ -339,4 +339,69 @@ describe("WorkerState", () => {
       expect(summary.hasResolver).toBe(false);
     });
   });
+
+  describe("call graph refresh marks (#227)", () => {
+    it("marks files as pending and forces a refresh", () => {
+      state.callGraphIndexedRoot = "/ws";
+      state.markCallGraphStale([String.raw`C:\ws\src\a.ts`, "/ws/src/b.ts"]);
+
+      expect([...state.callGraphPendingFiles]).toEqual(["c:/ws/src/a.ts", "/ws/src/b.ts"]);
+      expect(state.callGraphFullRebuild).toBe(false);
+      expect(state.callGraphIndexedRoot).toBeNull();
+    });
+
+    it("marks the whole call graph for a rebuild without arguments", () => {
+      state.callGraphIndexedRoot = "/ws";
+      state.markCallGraphStale();
+
+      expect(state.callGraphFullRebuild).toBe(true);
+      expect(state.callGraphIndexedRoot).toBeNull();
+    });
+
+    it("clears what a refresh covered and keeps the call graph ready", () => {
+      state.markCallGraphStale(["/ws/a.ts"]);
+      state.callGraphIndexedRoot = "/ws";
+
+      state.clearCallGraphPending(["/ws/a.ts"], false);
+
+      expect(state.callGraphPendingFiles.size).toBe(0);
+      expect(state.callGraphIndexedRoot).toBe("/ws");
+    });
+
+    it("keeps files marked during a refresh pending and flags another refresh", () => {
+      state.markCallGraphStale(["/ws/a.ts"]);
+      const covered = [...state.callGraphPendingFiles];
+      state.markCallGraphStale(["/ws/b.ts"]); // edit arriving while indexing runs
+      state.callGraphIndexedRoot = "/ws";
+
+      state.clearCallGraphPending(covered, false);
+
+      expect([...state.callGraphPendingFiles]).toEqual(["/ws/b.ts"]);
+      expect(state.callGraphIndexedRoot).toBeNull();
+    });
+
+    it("keeps a full rebuild requested during an incremental refresh", () => {
+      state.markCallGraphStale(["/ws/a.ts"]);
+      state.markCallGraphStale();
+      state.callGraphIndexedRoot = "/ws";
+
+      state.clearCallGraphPending(["/ws/a.ts"], false);
+
+      expect(state.callGraphFullRebuild).toBe(true);
+      expect(state.callGraphIndexedRoot).toBeNull();
+
+      state.clearCallGraphPending([], true);
+      expect(state.callGraphFullRebuild).toBe(false);
+    });
+
+    it("forgets every mark on reset", () => {
+      state.markCallGraphStale(["/ws/a.ts"]);
+      state.markCallGraphStale();
+
+      state.reset();
+
+      expect(state.callGraphPendingFiles.size).toBe(0);
+      expect(state.callGraphFullRebuild).toBe(false);
+    });
+  });
 });
