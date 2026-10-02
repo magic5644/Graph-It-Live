@@ -1545,17 +1545,17 @@ async function main(): Promise<void> {
   });
 
   // Handle graceful shutdown
-  process.on("SIGINT", () => {
-    debugLog("[McpServer] Received SIGINT, shutting down...");
+  const shutdown = (reason: string): void => {
+    debugLog(`[McpServer] ${reason}, shutting down...`);
     flushStatsOnce();
     void workerHost?.dispose().then(() => process.exit(0)).catch(() => process.exit(0));
-  });
-
-  process.on("SIGTERM", () => {
-    debugLog("[McpServer] Received SIGTERM, shutting down...");
-    flushStatsOnce();
-    void workerHost?.dispose().then(() => process.exit(0)).catch(() => process.exit(0));
-  });
+    if (!workerHost) process.exit(0);
+  };
+  process.on("SIGINT", () => shutdown("Received SIGINT"));
+  process.on("SIGTERM", () => shutdown("Received SIGTERM"));
+  // MCP stdio shutdown starts with the client closing stdin. Exiting here also
+  // ends `graph-it serve`, whose parent may not forward signals (Windows).
+  process.stdin.on("end", () => shutdown("stdin closed"));
 
   // Covers stdio transport close / normal exit paths (flushStatsOnce is idempotent).
   process.on("exit", () => {

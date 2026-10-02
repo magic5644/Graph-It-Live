@@ -34,9 +34,24 @@ describe.skipIf(!distExists)("CLI global options (E2E)", { timeout: SUBPROCESS_T
   });
 
   afterEach(() => {
-    fs.rmSync(tmpDir, { recursive: true, force: true });
-    fs.rmSync(otherCwd, { recursive: true, force: true });
+    // Windows releases a dead process's cwd with a delay.
+    fs.rmSync(tmpDir, { recursive: true, force: true, maxRetries: 10, retryDelay: 200 });
+    fs.rmSync(otherCwd, { recursive: true, force: true, maxRetries: 10, retryDelay: 200 });
   });
+
+  /** End the MCP session like a client does: close stdin, then wait for the process tree to exit. */
+  const closeSession = async (child: ReturnType<typeof spawn>): Promise<number | null> => {
+    if (child.exitCode !== null) return child.exitCode;
+    const exited = new Promise<number | null>((resolve) => child.once("exit", (code) => resolve(code)));
+    child.stdin?.end();
+    const timeout = new Promise<"timeout">((resolve) => setTimeout(() => resolve("timeout"), 15_000));
+    const outcome = await Promise.race([exited, timeout]);
+    if (outcome === "timeout") {
+      child.kill();
+      throw new Error("MCP server did not exit after stdin closed");
+    }
+    return outcome;
+  };
 
   /** Run the CLI from an unrelated cwd so only --workspace can point at tmpDir. */
   const cli = (...args: string[]) =>
@@ -133,8 +148,23 @@ describe.skipIf(!distExists)("CLI global options (E2E)", { timeout: SUBPROCESS_T
       const result = response.result as { isError?: boolean; content: Array<{ text: string }> };
       expect(result.isError).not.toBe(true);
       expect(result.content.map((c) => c.text).join("\n")).toContain("b.ts");
+      expect(await closeSession(child)).toBe(0);
     } finally {
-      child.kill();
+      if (child.exitCode === null) child.kill();
+    }
+  });
+
+  it("serve exits once the client closes stdin, without a signal", async () => {
+    const child = spawn(process.execPath, [DIST_ENTRY, "serve", "--workspace", tmpDir], {
+      cwd: otherCwd,
+      stdio: ["pipe", "ignore", "ignore"],
+    });
+    try {
+      await new Promise((resolve) => setTimeout(resolve, 1_000));
+
+      expect(await closeSession(child)).toBe(0);
+    } finally {
+      if (child.exitCode === null) child.kill();
     }
   });
 });
