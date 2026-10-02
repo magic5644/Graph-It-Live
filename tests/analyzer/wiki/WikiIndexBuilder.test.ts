@@ -11,6 +11,9 @@ function makeArticle(title: string, hubScore: number, filePath = `/ws/${title}.t
     symbols: [],
     callers: [],
     callees: [],
+    callerCount: 0,
+    calleeCount: 0,
+    diagrams: [],
   };
 }
 

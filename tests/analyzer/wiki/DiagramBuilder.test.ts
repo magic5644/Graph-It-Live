@@ -23,6 +23,8 @@ function makeArticle(overrides: Partial<WikiArticle> = {}): WikiArticle {
     symbols: [],
     callers: [],
     callees: [],
+    callerCount: 0,
+    calleeCount: 0,
     diagrams: [],
     ...overrides,
   };

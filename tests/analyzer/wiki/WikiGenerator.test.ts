@@ -209,6 +209,22 @@ describe("WikiGenerator", () => {
 // Regression tests (v1.17.1)
 // ---------------------------------------------------------------------------
 
+/** Every Markdown link in the generated articles and index, with the file holding it. */
+async function collectLinks(outputDir: string): Promise<Array<{ from: string; target: string }>> {
+  const files = [
+    path.join(outputDir, "index.md"),
+    ...(await fs.readdir(path.join(outputDir, "articles"))).map((f) => path.join(outputDir, "articles", f)),
+  ];
+  const links: Array<{ from: string; target: string }> = [];
+  for (const file of files) {
+    const content = await fs.readFile(file, "utf-8");
+    for (const m of content.matchAll(/\]\(([^)]+)\)/g)) {
+      if (m[1].endsWith(".md")) links.push({ from: file, target: m[1] });
+    }
+  }
+  return links;
+}
+
 describe("matchesExcludePattern (#221)", () => {
   it.each([
     ["tests/analyzer/wiki/a.test.ts", "**/*.test.ts", true],
@@ -339,6 +355,145 @@ describe("WikiGenerator regressions (v1.17.1)", () => {
       }).generate();
       expect(result.articlesCount).toBe(1);
       expect(await fs.readdir(path.join(tmpDir, "articles"))).toEqual(["src_a_b.ts.md"]);
+    });
+  });
+
+  describe("article name collisions (#220)", () => {
+    it("writes one distinct article per file when paths flatten to the same name", async () => {
+      const db = makeDb({
+        fileIndex: ["/workspace/src/a/b.ts", "/workspace/src/a_b.ts", "/workspace/src/main.ts"],
+        nodes: [
+          { path: "/workspace/src/a/b.ts", name: "nested", type: "function", start_line: 1 },
+          { path: "/workspace/src/a_b.ts", name: "flat", type: "function", start_line: 1 },
+        ],
+        edges: [
+          { source_path: "/workspace/src/main.ts", source_name: "main", target_path: "/workspace/src/a_b.ts", source_line: 3 },
+        ],
+      });
+      const result = await new WikiGenerator({ db, outputDir: tmpDir, workspaceRoot: "/workspace" }).generate();
+
+      const articles = await fs.readdir(path.join(tmpDir, "articles"));
+      expect(result.articlesCount).toBe(3);
+      expect(articles).toHaveLength(result.articlesCount);
+      expect(articles.sort()).toEqual(["src_a_b.ts-2.md", "src_a_b.ts.md", "src_main.ts.md"]);
+
+      const nested = await fs.readFile(path.join(tmpDir, "articles", "src_a_b.ts.md"), "utf-8");
+      const flat = await fs.readFile(path.join(tmpDir, "articles", "src_a_b.ts-2.md"), "utf-8");
+      expect(nested).toContain("nested");
+      expect(flat).toContain("flat");
+      expect(flat).toContain("[src/main.ts](src_main.ts.md)");
+
+      const main = await fs.readFile(path.join(tmpDir, "articles", "src_main.ts.md"), "utf-8");
+      expect(main).toContain("[src/a_b.ts](src_a_b.ts-2.md)");
+
+      const index = await fs.readFile(path.join(tmpDir, "index.md"), "utf-8");
+      expect(index).toContain("(articles/src_a_b.ts.md)");
+      expect(index).toContain("(articles/src_a_b.ts-2.md)");
+    });
+
+    it("disambiguates names that differ only by case (case-insensitive file systems)", async () => {
+      const db = makeDb({ fileIndex: ["/workspace/src/Foo.ts", "/workspace/src/foo.ts"] });
+      const result = await new WikiGenerator({ db, outputDir: tmpDir, workspaceRoot: "/workspace" }).generate();
+
+      const articles = await fs.readdir(path.join(tmpDir, "articles"));
+      expect(new Set(articles.map((a) => a.toLowerCase())).size).toBe(2);
+      expect(articles).toHaveLength(result.articlesCount);
+    });
+
+    it("keeps a real file named like a suffixed article distinct", async () => {
+      const db = makeDb({
+        fileIndex: ["/workspace/src/a/b.ts", "/workspace/src/a_b.ts", "/workspace/src/a_b.ts-2"],
+      });
+      const result = await new WikiGenerator({ db, outputDir: tmpDir, workspaceRoot: "/workspace" }).generate();
+      const articles = await fs.readdir(path.join(tmpDir, "articles"));
+      expect(articles).toHaveLength(3);
+      expect(result.articlesCount).toBe(3);
+    });
+
+    it("handles colliding Windows paths", async () => {
+      const db = makeDb({ fileIndex: [String.raw`C:\ws\src\a\b.ts`, String.raw`C:\ws\src\a_b.ts`] });
+      const result = await new WikiGenerator({ db, outputDir: tmpDir, workspaceRoot: String.raw`C:\ws` }).generate();
+      const articles = await fs.readdir(path.join(tmpDir, "articles"));
+      expect(articles.sort()).toEqual(["src_a_b.ts-2.md", "src_a_b.ts.md"]);
+      expect(result.articlesCount).toBe(2);
+    });
+  });
+
+  describe("article content (#222)", () => {
+    it("links only to generated articles and shows out-of-scope files as plain text", async () => {
+      const db = makeDb({
+        fileIndex: ["/workspace/src/wiki/a.ts", "/workspace/src/wiki/b.ts", "/workspace/src/other/c.ts"],
+        edges: [
+          { source_path: "/workspace/src/wiki/b.ts", source_name: "bFn", target_path: "/workspace/src/wiki/a.ts", source_line: 1 },
+          { source_path: "/workspace/src/other/c.ts", source_name: "cFn", target_path: "/workspace/src/wiki/a.ts", source_line: 2 },
+          { source_path: "/workspace/src/wiki/a.ts", source_name: "aFn", target_path: "/workspace/src/other/c.ts", source_line: 3 },
+        ],
+      });
+      await new WikiGenerator({ db, outputDir: tmpDir, workspaceRoot: "/workspace", scope: "src/wiki" }).generate();
+
+      const a = await fs.readFile(path.join(tmpDir, "articles", "src_wiki_a.ts.md"), "utf-8");
+      expect(a).toContain("| bFn | [src/wiki/b.ts](src_wiki_b.ts.md) | 1 |");
+      expect(a).toContain("| cFn | src/other/c.ts | 2 |");
+      expect(a).not.toContain("src_other_c.ts.md");
+
+      for (const { from, target } of await collectLinks(tmpDir)) {
+        await expect(fs.access(path.resolve(path.dirname(from), target)), `${from} → ${target}`).resolves.toBeUndefined();
+      }
+    });
+
+    it("states how many callers and callees were left out", async () => {
+      const callers = Array.from({ length: 25 }, (_, i) => ({
+        source_path: `/workspace/src/c${i}.ts`, source_name: `c${i}`, target_path: "/workspace/src/hub.ts", source_line: i + 1,
+      }));
+      const callees = Array.from({ length: 21 }, (_, i) => ({
+        source_path: "/workspace/src/hub.ts", source_name: `d${i}`, target_path: `/workspace/src/d${i}.ts`, source_line: i + 1,
+      }));
+      const db = makeDb({ fileIndex: ["/workspace/src/hub.ts"], edges: [...callers, ...callees] });
+      const gen = new WikiGenerator({ db, outputDir: tmpDir, workspaceRoot: "/workspace" });
+      await gen.generate();
+
+      const hub = await fs.readFile(path.join(tmpDir, "articles", "src_hub.ts.md"), "utf-8");
+      expect(hub).toContain("> 20 of 25 callers shown.");
+      expect(hub).toContain("> 20 of 21 callees shown.");
+      expect(hub.match(/^\| c\d+ \|/gm)).toHaveLength(20);
+
+      const index = await fs.readFile(path.join(tmpDir, "index.md"), "utf-8");
+      expect(index).toContain("25 callers");
+      expect(index).toMatch(/\| 0 \| 25 \|/);
+    });
+
+    it("adds no truncation note when every relation is listed", async () => {
+      const db = makeDb({
+        fileIndex: ["/workspace/src/a.ts", "/workspace/src/b.ts"],
+        edges: [{ source_path: "/workspace/src/b.ts", source_name: "bFn", target_path: "/workspace/src/a.ts", source_line: 1 }],
+      });
+      await new WikiGenerator({ db, outputDir: tmpDir, workspaceRoot: "/workspace" }).generate();
+      const a = await fs.readFile(path.join(tmpDir, "articles", "src_a.ts.md"), "utf-8");
+      expect(a).not.toMatch(/of \d+ (callers|callees) shown/);
+    });
+
+    it("removes stale generated articles but keeps unrelated files", async () => {
+      const files = ["/workspace/src/a.ts", "/workspace/lib/b.ts"];
+      await new WikiGenerator({ db: makeDb({ fileIndex: files }), outputDir: tmpDir, workspaceRoot: "/workspace" }).generate();
+      const articlesDir = path.join(tmpDir, "articles");
+      await fs.writeFile(path.join(articlesDir, "notes.md"), "# My own notes\n", "utf-8");
+      await fs.mkdir(path.join(articlesDir, "sub.md"));
+
+      await new WikiGenerator({
+        db: makeDb({ fileIndex: files }), outputDir: tmpDir, workspaceRoot: "/workspace", scope: "src",
+      }).generate();
+
+      expect((await fs.readdir(articlesDir)).sort()).toEqual(["notes.md", "src_a.ts.md", "sub.md"]);
+      const index = await fs.readFile(path.join(tmpDir, "index.md"), "utf-8");
+      expect(index).not.toContain("lib_b.ts.md");
+    });
+
+    it("starts every article with the generated-article marker", async () => {
+      const db = makeDb({ fileIndex: ["/workspace/src/a.ts"] });
+      await new WikiGenerator({ db, outputDir: tmpDir, workspaceRoot: "/workspace" }).generate();
+      const a = await fs.readFile(path.join(tmpDir, "articles", "src_a.ts.md"), "utf-8");
+      expect(a.split("\n")[0]).toBe("<!-- graph-it-live:wiki-article -->");
+      expect(a.split("\n")[1]).toBe("# a");
     });
   });
 });
