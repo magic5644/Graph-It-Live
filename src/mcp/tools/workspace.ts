@@ -61,6 +61,9 @@ export function executeInvalidateFiles(
   const invalidatedFiles: string[] = [];
   const notFoundFiles: string[] = [];
 
+  // The call graph has its own database: re-extract these files before the next graph query.
+  workerState.markCallGraphStale(filePaths);
+
   for (const filePath of filePaths) {
     const wasInvalidated = spider.invalidateFile(filePath);
     if (wasInvalidated) {
@@ -76,6 +79,24 @@ export function executeInvalidateFiles(
     notFoundFiles,
     reverseIndexUpdated: spider.isReverseIndexEnabled(),
   };
+}
+
+/**
+ * Rebuild the call graph from scratch. A workspace without call graph support
+ * (no WASM parsers, no supported file) keeps the dependency rebuild usable:
+ * the failure is reported instead of thrown.
+ */
+async function rebuildCallGraph(): Promise<RebuildIndexResult["callGraph"]> {
+  const { ensureCallGraphReady } = await import("./callgraph.js");
+  try {
+    await ensureCallGraphReady();
+  } catch (error) {
+    return { rebuilt: false, error: error instanceof Error ? error.message : String(error) };
+  }
+  const counts = workerState.callGraphIndexer?.getCounts();
+  return counts
+    ? { rebuilt: true, indexedFiles: counts.files, symbols: counts.symbols, relations: counts.relations }
+    : { rebuilt: false, error: "Call graph indexer not initialized" };
 }
 
 /**
@@ -101,10 +122,15 @@ export async function executeRebuildIndex(
     });
   });
 
+  // Rebuild the call graph too, ignoring its cache, so graph queries match the new index.
+  workerState.markCallGraphStale();
+  const callGraph = await rebuildCallGraph();
+
   const rebuildTimeMs = Date.now() - startTime;
   const cacheStats = await spider.getCacheStatsAsync();
 
   return {
+    callGraph,
     reindexedCount: cacheStats.dependencyCache.size,
     rebuildTimeMs,
     newCacheSize: cacheStats.dependencyCache.size,

@@ -591,6 +591,58 @@ describe('McpWorkerHost', () => {
       expect(freshness.indexedAt).not.toBeNull();
     });
 
+    /** Invoke `tool` and answer it like the worker would. */
+    async function invokeAndAnswer(tool: 'invalidate_files' | 'rebuild_index' | 'get_index_status', error = false) {
+      const invokePromise = host.invoke(tool, {});
+      const posted = getMockWorker().postMessage.mock.calls
+        .map((call) => call[0])
+        .filter((msg) => msg?.type === 'invoke' && msg.tool === tool)
+        .at(-1);
+      getMockWorker().emit('message', error
+        ? { type: 'error', requestId: posted.requestId, error: 'boom' }
+        : { type: 'result', requestId: posted.requestId, data: {}, executionTimeMs: 1 });
+      return invokePromise;
+    }
+
+    it('becomes stale after an explicit invalidate_files (#227)', async () => {
+      await startReadyHost();
+
+      await invokeAndAnswer('invalidate_files');
+
+      expect(host.freshness().stale).toBe(true);
+      expect(host.freshness().lastInvalidatedAt).not.toBeNull();
+    });
+
+    it('is fresh again after rebuild_index, with a new indexedAt (#227)', async () => {
+      await startReadyHost();
+      const warmupIndexedAt = host.freshness().indexedAt;
+      await invokeAndAnswer('invalidate_files');
+      await new Promise((resolve) => setTimeout(resolve, 5));
+
+      await invokeAndAnswer('rebuild_index');
+
+      const freshness = host.freshness();
+      expect(freshness).toMatchObject({ lastInvalidatedAt: null, stale: false });
+      expect(freshness.indexedAt).not.toBe(warmupIndexedAt);
+    });
+
+    it('keeps staleness when rebuild_index fails (#227)', async () => {
+      await startReadyHost();
+      await invokeAndAnswer('invalidate_files');
+
+      await expect(invokeAndAnswer('rebuild_index', true)).rejects.toThrow('boom');
+
+      expect(host.freshness().stale).toBe(true);
+    });
+
+    it('leaves freshness alone for read-only tools', async () => {
+      await startReadyHost();
+
+      await invokeAndAnswer('get_index_status');
+
+      expect(host.freshness().stale).toBe(false);
+    });
+
     it('clears staleness after a new full index pass', async () => {
       await startReadyHost();
       getMockWorker().emit('message', {

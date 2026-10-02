@@ -157,6 +157,18 @@ describe("workspace tools", () => {
     });
   });
 
+  describe("executeInvalidateFiles call graph (#227)", () => {
+    it("schedules every given file for call graph re-extraction", () => {
+      setupWorkerState({ invalidateFile: vi.fn(() => false), isReverseIndexEnabled: () => true });
+      workerState.callGraphIndexedRoot = "/test";
+
+      executeInvalidateFiles({ filePaths: ["/test/src/a.ts", String.raw`C:\test\src\b.ts`] });
+
+      expect([...workerState.callGraphPendingFiles]).toEqual(["/test/src/a.ts", "c:/test/src/b.ts"]);
+      expect(workerState.callGraphIndexedRoot).toBeNull();
+    });
+  });
+
   describe("executeRebuildIndex", () => {
     it("reverseIndexEnabled stays true across clear and rebuild cycle", async () => {
       const postMessage = vi.fn();
@@ -215,6 +227,22 @@ describe("workspace tools", () => {
         indexedFiles: 0,
         targetFiles: 0,
         totalReferences: 0,
+      });
+    });
+    it("reports why the call graph could not be rebuilt instead of failing (#227)", async () => {
+      setupWorkerState({
+        clearCache: vi.fn(),
+        buildFullIndex: vi.fn(async () => {}),
+        getCacheStatsAsync: async () => ({ dependencyCache: { size: 1 }, reverseIndexStats: null }),
+      });
+
+      // No extensionPath in the config: the call graph WASM parsers cannot load.
+      const result = await executeRebuildIndex(vi.fn());
+
+      expect(result.reindexedCount).toBe(1);
+      expect(result.callGraph).toEqual({
+        rebuilt: false,
+        error: "extensionPath required for call graph WASM parsers",
       });
     });
   });

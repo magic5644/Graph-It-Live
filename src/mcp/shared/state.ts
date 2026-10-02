@@ -16,6 +16,7 @@ import type { Parser } from "../../analyzer/Parser";
 import type { Spider } from "../../analyzer/Spider";
 import type { SymbolReverseIndex } from "../../analyzer/SymbolReverseIndex";
 import type { PathResolver } from "../../analyzer/utils/PathResolver";
+import { normalizePath } from "../../shared/path";
 import type { McpWorkerConfig } from "../types";
 
 /**
@@ -54,6 +55,8 @@ export class WorkerState {
   private _graphExtractor: GraphExtractor | null = null;
   private _callGraphIndexedRoot: string | null = null;
   private _indexCache: IndexCache | null = null;
+  private readonly _callGraphPendingFiles = new Set<string>();
+  private _callGraphFullRebuild = false;
 
   // ============================================================================
   // Core Components
@@ -125,6 +128,41 @@ export class WorkerState {
 
   set callGraphIndexedRoot(value: string | null) {
     this._callGraphIndexedRoot = value;
+  }
+
+  /** Files the next call graph refresh must re-extract, whatever their mtime. */
+  get callGraphPendingFiles(): ReadonlySet<string> {
+    return this._callGraphPendingFiles;
+  }
+
+  /** True when the next call graph refresh must ignore the cache and rebuild everything. */
+  get callGraphFullRebuild(): boolean {
+    return this._callGraphFullRebuild;
+  }
+
+  /**
+   * Schedule `filePaths` (or, without argument, the whole call graph) for
+   * re-extraction; the next graph query refreshes the call graph first.
+   */
+  markCallGraphStale(filePaths?: readonly string[]): void {
+    if (filePaths === undefined) {
+      this._callGraphFullRebuild = true;
+    } else {
+      for (const filePath of filePaths) this._callGraphPendingFiles.add(normalizePath(filePath));
+    }
+    this._callGraphIndexedRoot = null;
+  }
+
+  /**
+   * Called after a successful refresh with what it covered. Files marked while
+   * it ran stay pending and keep the call graph flagged for another refresh.
+   */
+  clearCallGraphPending(refreshed: Iterable<string>, fullRebuild: boolean): void {
+    for (const filePath of refreshed) this._callGraphPendingFiles.delete(filePath);
+    if (fullRebuild) this._callGraphFullRebuild = false;
+    if (this._callGraphPendingFiles.size > 0 || this._callGraphFullRebuild) {
+      this._callGraphIndexedRoot = null;
+    }
   }
 
   /** Shared `.graph-it/cache/`; null when this process runs without a cache. */
@@ -294,6 +332,8 @@ export class WorkerState {
       this._callGraphIndexer = null;
     }
     this._callGraphIndexedRoot = null;
+    this._callGraphPendingFiles.clear();
+    this._callGraphFullRebuild = false;
     this._indexCache = null;
 
     // Clear components

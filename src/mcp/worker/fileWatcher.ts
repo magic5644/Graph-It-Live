@@ -264,8 +264,8 @@ function performFileInvalidation(
   log.debug("File", event + ":", path.basename(filePath));
 
   // The call graph has its own database; Spider invalidation does not refresh it.
-  // Reuse lazy workspace indexing on the next graph query after a change.
-  workerState.callGraphIndexedRoot = null;
+  // Re-extract the file on the next graph query, even if its mtime did not move.
+  workerState.markCallGraphStale([filePath]);
   if (event === "unlink") {
     workerState.callGraphIndexer?.invalidateFile(filePath);
   }

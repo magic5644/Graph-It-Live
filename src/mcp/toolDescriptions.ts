@@ -167,7 +167,10 @@ const TOOL_DESCRIPTIONS: Record<DescribedToolName, ToolDescription> = {
         lm: "WHEN: results look stale after edits the file watcher missed. Paths must lie inside an open workspace folder.",
       },
       "WHY: analysis is cached per file; the cache is otherwise refreshed by the file watcher.",
-      "RETURNS: how many files were invalidated, which were cleared, and which held no cache entry.",
+      {
+        mcp: "RETURNS: how many files were invalidated, which were cleared, and which held no cache entry. The call graph re-extracts these files on the next graph query.",
+        lm: "RETURNS: how many files were invalidated, which were cleared, and which held no cache entry.",
+      },
     ],
   },
   rebuild_index: {
@@ -176,7 +179,7 @@ const TOOL_DESCRIPTIONS: Record<DescribedToolName, ToolDescription> = {
       "WHEN: after a branch switch or large refactor when the index no longer matches the tree; invalidate_files is enough for a few files.",
       "WHY: restores a graph that is consistent with what is on disk.",
       {
-        mcp: "RETURNS: files re-indexed, duration, new cache size and reverse-index statistics.",
+        mcp: "RETURNS: files re-indexed, duration, new cache size, reverse-index statistics, and the call graph rebuilt from scratch (files, symbols, relations) or why it could not be.",
         lm: "RETURNS: rebuild duration and new cache size.",
       },
       "LIMITS: takes seconds on a large workspace.",
