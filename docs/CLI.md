@@ -1096,13 +1096,13 @@ graph-it wiki [options]
 | Option | Default | Description |
 |--------|---------|-------------|
 | `--output <dir>` | `wiki` | Output directory (relative to workspace root, or absolute) |
-| `--scope <rel-path>` | entire workspace | Restrict the wiki to a relative path within the workspace |
-| `--exclude <pattern>` | — | Glob-like pattern to exclude (repeatable). Replaces the default exclusions when passed |
+| `--scope <rel-path>` | entire workspace | Restrict the wiki to a folder or file within the workspace (`src/lib`, `./src/lib`, `src\lib` and absolute paths inside the workspace are equivalent) |
+| `--exclude <pattern>` | — | Glob pattern to exclude (repeatable): `*` within a segment, `**` across segments, `?` one character. A pattern with `/` is anchored at the workspace root (`tests/**`); one without `/` matches any segment (`*.test.ts`, `fixtures`). Replaces the default exclusions when passed |
 | `--top <N>` | `10` | Number of top hub files to list in the index (1–50) |
 | `--format <fmt>` | `markdown` | Output summary format: `markdown`, `json`, `toon` |
 | `--workspace, -w` | auto-detected | Project root |
 
-`tests/`, `dist/`, `*.test.ts` and similar are excluded automatically unless `--exclude` is passed.
+`tests/`, `dist/`, `*.test.ts` and similar are excluded automatically unless `--exclude` is passed. The command fails with an error when the filters leave no indexed file.
 
 **Examples:**
 
