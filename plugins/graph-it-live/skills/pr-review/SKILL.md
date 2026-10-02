@@ -15,14 +15,30 @@ context: fork
 
 Use deterministic local diff analysis first. Deepen only findings that need additional evidence.
 
-## Prerequisites
+## CLI and Capability Discovery
 
-```bash
-npm install -g @magic5644/graph-it-live
-git fetch origin main
-```
+Prefer the Graph-It CLI. At the first activation of any Graph-It skill in a session, check
+`graph-it --version` when the CLI and terminal are available; use only its existing newer-version
+notice and do not poll npm. Share discovery, version, and update decisions across Graph-It skills
+for the session. Run `graph-it tool --list` once, consult `graph-it --help` or command help as
+needed, and refresh only when the CLI/version, server, or workspace changes or a requested tool is
+unknown. Examples are illustrative, not a fixed inventory. Do not install automatically. If the
+CLI is unavailable or unsuitable, use MCP only when the connected host advertises a structurally
+equivalent tool and its schema; otherwise explain the gap. `graph-it tool <name>` invokes analysis
+directly through CLI; `graph-it serve` starts MCP. CLI `--format` and MCP `response_format` are
+distinct.
 
-Run commands from the repository root. The CLI indexes automatically for `review-pr`.
+If the CLI reports a newer version, interactive use requires explicit positive confirmation before
+running `graph-it update`; silence, timeout, refusal, non-TTY, or generic Agent mode is not consent.
+When automatic mode is explicitly enabled and pre-authorized, default the update decision to yes and
+run `graph-it update` without another prompt. After success, refresh the version and `--list`,
+invalidate cached capabilities, and advise that a running MCP server needs a host-authorized restart.
+On failure, keep using the existing CLI only if it remains usable; otherwise explain the failure
+and stop CLI analysis. Warn briefly and do not retry in a loop. Do not install the CLI without an
+explicit request.
+
+Fetch the Git base ref needed for review. Run commands from the repository root; the CLI indexes
+automatically for `review-pr`, so do not run `graph-it scan` first.
 
 ## Local Review Workflow
 
@@ -65,7 +81,9 @@ it does not replace tests, security review, or domain review.
 
 ### 3. Deepen high-risk findings
 
-Use absolute paths for all `graph-it tool` file parameters:
+These examples illustrate CLI use; verify tool names and parameters in the installed inventory/help.
+For MCP fallback, use only a structurally equivalent tool advertised by the connected host and its
+exact input schema. Use absolute paths when the selected CLI parameter requires them:
 
 ```bash
 # Blast radius and known dependent symbols
@@ -98,7 +116,12 @@ Do not invent runtime behavior from graph data. Cite the command output that sup
 
 ## GitHub Actions Gate
 
-Use the published composite action in a consumer workflow:
+When creating or modernizing a workflow, resolve the latest stable **official GitHub release**
+first, then resolve that release tag to its full commit SHA (dereference annotated tags when
+needed). Pin the action to that SHA and comment the corresponding release tag. Do not trust
+`target_commitish` as the tag's commit, use a floating ref, or copy this dated example without
+resolving the current release. This is a verified snapshot of `v1.17.0` as of 2026-10-02, not a
+claim that it remains the latest release:
 
 ```yaml
 name: Graph-It Review Gate
@@ -118,13 +141,14 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
-      - uses: magic5644/Graph-It-Live/.github/actions/graph-it-review-gate@v1.14.2
+      - uses: magic5644/Graph-It-Live/.github/actions/graph-it-review-gate@2f9d5cd9756c8add33e7a2b30e34be7c131048ac # v1.17.0
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
           comment: ${{ github.event.pull_request.head.repo.fork && 'false' || 'true' }}
           fail-on-risk: high
           max-depth: "3"
           max-files: "200"
+          cli-version: "" # empty installs the npm CLI @latest; independent of the pinned Action SHA
 ```
 
 Action inputs:
@@ -137,6 +161,19 @@ Action inputs:
 - `max-depth` and `max-files` — control bounded analysis.
 
 Action outputs: `risk`, `score`, `cli-version`.
+
+Use Dependabot to propose Action reference updates. Merge this entry into an existing
+`.github/dependabot.yml` rather than replacing other update configuration; Dependabot opens PRs and
+does not auto-merge them unless separately configured:
+
+```yaml
+version: 2
+updates:
+  - package-ecosystem: github-actions
+    directory: "/"
+    schedule:
+      interval: weekly
+```
 
 Use least privilege: remove `pull-requests: write` and set `comment: false` if comments are not needed.
 Do not expose write tokens to untrusted fork code.

@@ -52,11 +52,36 @@ After global install, `graph-it` is available on PATH. Verify:
 graph-it --version
 ```
 
-Check updates:
+Do not install the CLI automatically. Update only under the confirmation policy below. If it is
+unavailable, offer the documented install options and wait for an explicit request.
 
-```bash
-graph-it update
-```
+## CLI and Capability Discovery
+
+At the first activation of any Graph-It skill in a session, check `graph-it --version` when the CLI
+and terminal are available. Prefer the CLI when its executable and a terminal are available; use
+MCP only as fallback when the CLI is unavailable or unsuitable and the connected host advertises an
+equivalent tool and schema. Use only the CLI's existing newer-version notice, if provided; do not
+poll npm or add a separate update check. Share the version, inventory, and update decision across
+Graph-It skills in the same session so discovery and any prompt happen at most once. Discover tools
+with `graph-it tool --list`; consult `graph-it --help` or command help only when needed. Reuse that
+inventory until the CLI/version, MCP server, or workspace context changes, or a requested tool is
+unknown. Treat examples below as illustrative, not as a fixed capability list.
+
+If the CLI reports a newer version, ask for explicit positive confirmation before running
+`graph-it update` in interactive use. Silence, timeout, refusal, non-TTY execution, and generic
+Agent mode are not consent. When automatic mode is explicitly enabled and pre-authorized, default
+the update decision to yes and run `graph-it update` without another prompt. On success, refresh
+`graph-it --version` and `graph-it tool --list`;
+invalidate cached capabilities. If an MCP server is already running, advise that its host must
+authorize a restart before it can use the updated CLI. On failure, keep using the existing CLI only
+if it remains usable; otherwise explain the failure and stop CLI analysis. Give a brief warning and
+do not escalate or retry in a loop.
+
+`graph-it tool <name>` invokes an analysis tool directly through the CLI; it does not route every
+CLI command through MCP. `graph-it serve` starts the MCP server. For MCP fallback, use only tools,
+namespaces, and parameters advertised by the connected host's current tool schemas. CLI `--format`
+and MCP `response_format` are different interfaces; use the latter only if the MCP schema supports
+it.
 
 ## Supported Languages
 
@@ -81,6 +106,7 @@ This TOON result is the **primary context** for agents: `nodes`, `edges`, `faile
 Only after that, run targeted analysis:
 
 ```bash
+# Illustrative tool names; verify the installed inventory and parameters first
 graph-it tool generate_codemap --filePath=/abs/path/to/file.ts
 graph-it tool query_call_graph --filePath=/abs/path/to/file.ts --symbolName=mySymbol --depth=3
 graph-it explain /abs/path/to/file.ts
@@ -164,10 +190,10 @@ Detect dead code — exported symbols that no other file imports:
 graph-it check src/api.ts
 ```
 
-Workspace-wide dead code scan:
+Workspace-wide dead code scan, if the installed inventory advertises an equivalent tool:
 
 ```bash
-graph-it check
+graph-it tool scan_dead_code
 ```
 
 Generate a markdown wiki from call graph relationships:
@@ -194,15 +220,15 @@ Read `risk`, `score`, `limitations`, and `isPartial` before making a merge recom
 - `isPartial: true` means file, parser, or impact-depth limits prevented a complete result.
 - No breaking signature does **not** prove that a behavioral change is safe; inspect tests and affected flows.
 
-The same bounded review is available through the MCP `review_pr` tool with `baseRef`, optional
-`headRef`, `maxDepth`, and `maxFiles`. MCP exposes structured limitations and `isPartial`; the
-VS Code Branch Watch confidence label is UI context and is not part of the CLI/MCP contract.
+If the connected MCP host advertises a structurally equivalent review tool, use its exact name and
+input schema. Do not assume CLI options map to MCP parameters. The VS Code Branch Watch confidence
+label is UI context and is not part of the CLI contract.
 
 Use the **pr-review** skill for the full review workflow and GitHub Actions gate.
 
 ### Output Formats
 
-All commands support `--format`:
+For CLI commands that advertise `--format` in `graph-it --help` or command help:
 
 | Format     | Best for                                     |
 |------------|----------------------------------------------|
@@ -223,42 +249,13 @@ graph-it trace src/index.ts#main --format mermaid  # human sees the diagram
 graph-it path src/index.ts --format mermaid        # dependency tree as flowchart
 ```
 
-## Advanced: MCP Tool Invocation
+## Tool Invocation Examples
 
-`graph-it tool` can invoke **22 analysis tools** directly from CLI. Five of them are CLI-only transition aliases that the MCP server no longer lists (see the note under the table).
-Server-management tool `set_workspace` is MCP-server only and intentionally excluded from `graph-it tool`.
-
-```bash
-graph-it tool --list                    # List all available tools
-graph-it tool <tool_name> [--params]    # Invoke a specific tool
-```
-
-### Available MCP Tools
-
-| Tool | Description |
-|------|-------------|
-| `analyze_dependencies` | Direct imports and exports of a file |
-| `crawl_dependency_graph` | Full dependency tree from an entry file |
-| `find_referencing_files` | All files that import a given file (reverse lookup) |
-| `verify_dependency_usage` | Check whether a specific import is actually used |
-| `resolve_module_path` | Resolve a module specifier to an absolute file path |
-| `get_symbol_graph` | Symbol-level dependencies within a file |
-| `find_unused_symbols` | Dead code detection — unused exported symbols |
-| `trace_function_execution` | Full recursive call chain from a function |
-| `analyze_breaking_changes` | Detect breaking changes when modifying function signatures |
-| `get_impact_analysis` | Full impact: callers + breaking changes combined |
-| `get_index_status` | Current state of the dependency index |
-| `invalidate_files` | Flush cache for specific files after modifications |
-| `rebuild_index` | Rebuild the entire dependency index from scratch |
-| `generate_codemap` | Comprehensive structural overview of any source file |
-| `query_call_graph` | Callers and callees of a symbol ("who calls X": `--direction=callers --depth=1`); `--includeTypeOnly` adds type-only references |
-| `scan_dead_code` | Workspace-wide dead code scan across all files |
-
-> Transition aliases, CLI only: `get_symbol_callers` and `get_symbol_dependents` (use `query_call_graph`), `parse_imports` (use `analyze_dependencies`), `expand_node` (use `crawl_dependency_graph`), `analyze_file_logic` (use `generate_codemap` or `graph-it explain`).
-> `query_natural_language` and `generate_wiki` are available as dedicated CLI commands (`graph-it query`, `graph-it wiki`) and as MCP server tools, but **not** in `graph-it tool --list`.
-> Run `graph-it tool --list` for the installed CLI's authoritative tool inventory; releases can add tools over time.
-
-### Tool Invocation Examples
+These examples illustrate CLI usage, not a guaranteed tool set. Check the installed inventory and
+relevant help before choosing a tool or parameter. If `query_call_graph` is available, use it for
+call-site queries; use `graph-it explain` for intra-file logic. For MCP, use only the host-advertised
+tool name/namespace and schema. If `graph_context` is advertised, it can be a starting point for
+open-ended questions; do not assume it is exposed.
 
 ```bash
 # Analyze a single file's dependencies
@@ -267,7 +264,7 @@ graph-it tool analyze_dependencies --filePath=/abs/path/to/file.ts
 # Find all files importing a specific file
 graph-it tool find_referencing_files --targetPath=/abs/path/to/file.ts
 
-# Get the call sites of a symbol ("who calls X")
+# Illustrative: query call sites only if this tool and parameters are advertised
 graph-it tool query_call_graph --filePath=/abs/path/to/file.ts --symbolName=myFunction --direction=callers --depth=1
 
 # Full impact analysis
@@ -279,7 +276,7 @@ graph-it tool analyze_breaking_changes --args '{"filePath":"/abs/path/to/file.ts
 # Generate codemap
 graph-it tool generate_codemap --filePath=/abs/path/to/file.ts
 
-# Query call graph (BFS) — requires filePath; depth param is 'depth', NOT 'maxDepth'
+# Illustrative: verify the installed tool's supported parameters first
 graph-it tool query_call_graph --filePath=/abs/path/server.ts --symbolName=handleRequest --depth=3
 
 # Workspace-wide dead code scan (across all files, unlike find_unused_symbols which is per-file)
@@ -292,18 +289,14 @@ graph-it query "what calls the MCP worker and how"
 graph-it wiki --output docs/wiki
 ```
 
-**Important:** Tool `--filePath` arguments require **absolute paths**.
+For CLI tool parameters, follow the installed tool's help/schema; use absolute paths when that
+parameter requires one. CLI `--format` controls CLI output only.
 
 ## Critical Rules (NEVER)
 
-- **NEVER** call analysis tool commands without running `graph-it scan` first — all tools depend on the index. `review-pr` is the sole exception because it indexes automatically.
-- **NEVER** use relative paths with `--filePath` — all file args must be absolute paths
-- **NEVER** confuse `find_unused_symbols` (per-file) with `scan_dead_code` (workspace-wide); use `scan_dead_code` when you need a project-wide dead code report
-- **NEVER** use `--maxDepth` with `query_call_graph` — the correct parameter is `--depth`
-- **NEVER** invoke `set_workspace` from the CLI — it is MCP server only; the CLI uses `WORKSPACE_ROOT` env var or `graph-it scan` from the project root
-- **NEVER** use `--format json` for large dependency graphs sent to an LLM — use `--format toon` to save 30-60% tokens
-- **NEVER** pass `--filePath` to `find_referencing_files`; the expected parameter is `--targetPath`
-- **NEVER** call `analyze_breaking_changes` with `--newFilePath`; it expects `oldContent` / `newContent`
+- **NEVER** run analysis before `graph-it scan`, except `review-pr`, which indexes automatically.
+- **NEVER** assume a tool name or parameter exists because it appears in an example; verify the current CLI inventory/help or MCP schema.
+- **NEVER** pass CLI flags or output settings to MCP unless its advertised input schema supports them.
 
 ## MCP Server Mode
 
@@ -313,26 +306,17 @@ Launch as an MCP server for AI client integration (no VS Code required):
 graph-it serve
 ```
 
-MCP server currently exposes **22 tools**:
-- 17 analysis tools from `graph-it tool --list` (all except the five transition aliases)
-- `set_workspace` (server management)
-- `review_pr`
-- `query_natural_language`
-- `generate_wiki`
-- `get_session_stats`
+MCP availability is determined by the connected host's current advertised tools and input schemas;
+it may differ from the installed CLI inventory. Do not assume tool names, namespaces, parameters,
+or output options from this document. `response_format` is not the CLI `--format` flag and should
+be used only when the host schema advertises it.
 
 ### Calling MCP tools
 
-- Start with `graph_context` for open-ended questions. It is the deterministic,
-  token-bounded gateway over the same index and covers `search`, `neighbors`,
-  `path`, `impact`, `refactor` and `overview`. Reach for a specialised tool when
-  you need a cut it cannot express.
-- `response_format` is the only output knob (`json`, `markdown`, `toon`); it
-  defaults to `toon`. The legacy `format` parameter has been removed — it was
-  advertised on most tools but never read.
-- Every tool response carries `metadata.indexedAt` and `metadata.stale`. A
-  `stale: true` result is still usable; it means a file changed after the last
-  full index pass, so the answer may not reflect every edit yet.
+- If the host advertises `graph_context`, consider it for open-ended questions; use only its
+  advertised schema and response shape. Otherwise choose among tools the host actually exposes.
+- MCP output options and response metadata vary by tool/schema. Do not assume `response_format` or
+  metadata fields unless the current host schema or response provides them.
 
 ### MCP Client Configuration
 
@@ -444,8 +428,12 @@ Cycles are auto-detected and reported.
 **"Who calls this function across the project?"**
 
 ```bash
-graph-it tool get_symbol_callers --filePath=/abs/path/src/utils/formatDate.ts --symbolName=formatDate
+# If advertised by the installed CLI, query_call_graph can report call sites
+graph-it tool query_call_graph --filePath=/abs/path/src/utils/formatDate.ts --symbolName=formatDate --direction=callers --depth=1
 ```
+
+For MCP, first check whether the host advertises an equivalent call-graph tool and use its exact
+schema. Call sites are not a substitute for all symbol references.
 
 **"Answer architecture questions in natural language"**
 
@@ -465,14 +453,13 @@ graph-it wiki --output wiki
 graph-it review-pr --base origin/main --format markdown
 ```
 
-Escalate every high/critical symbol with `get_impact_analysis` or `get_symbol_callers`. Treat any
+Escalate every high/critical symbol with an advertised impact-analysis capability. Treat any
 reported limitation as a manual-review item.
 
 ## Update
 
-```bash
-graph-it update
-```
+Run `graph-it update` only under the confirmation policy above; after success, refresh the version
+and inventory and coordinate any MCP server restart with its host.
 
 ## Related Skills
 

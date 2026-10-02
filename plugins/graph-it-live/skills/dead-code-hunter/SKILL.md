@@ -18,20 +18,25 @@ context: fork
 Systematic scan of the dependency graph to surface orphan symbols and unreferenced files.
 Produces a ranked, safety-annotated deletion plan powered by Graph-It-Live.
 
-## Requires
+## CLI and Capability Discovery
 
-Graph-It-Live CLI installed and indexed:
+Prefer the Graph-It CLI. At the first activation of any Graph-It skill in a session, check
+`graph-it --version` when the CLI and terminal are available; use only its existing newer-version
+notice and do not poll npm. Share discovery, version, and update decisions across Graph-It skills
+for the session. Run `graph-it tool --list` once, consult `graph-it --help` or command help as
+needed, and refresh only when the CLI/version, server, or workspace changes or a requested tool is
+unknown. Examples are illustrative, not a fixed inventory. Do not install automatically. If the
+CLI is unavailable or unsuitable, use MCP only when the connected host advertises an equivalent
+tool and its schema; otherwise explain the gap. `graph-it tool <name>` invokes analysis directly
+through CLI; `graph-it serve` starts MCP. CLI `--format` and MCP `response_format` are distinct.
 
-```bash
-npm install -g @magic5644/graph-it-live
-graph-it scan
-```
-
-Check updates:
-
-```bash
-graph-it update
-```
+If the CLI reports a newer version, interactive use requires explicit positive confirmation before
+running `graph-it update`; silence, timeout, refusal, non-TTY, or generic Agent mode is not consent.
+When automatic mode is explicitly enabled and pre-authorized, default the update decision to yes and
+run `graph-it update` without another prompt. After success, refresh the version and `--list`,
+invalidate cached capabilities, and advise that a running MCP server needs a host-authorized restart.
+On failure, keep using the existing CLI only if it remains usable; otherwise explain the failure
+and stop CLI analysis. Warn briefly and do not retry in a loop.
 
 ## When to Use
 
@@ -60,45 +65,42 @@ graph-it architecture --format toon
 
 Use it to identify packages, public entry points, and generated areas that require review rather than automatic deletion.
 
-### Step 2 — Run workspace-wide dead code scan
+### Step 2 — Run a dead-code scan
 
-```bash
-graph-it check                     # scan entire workspace
-graph-it check src/                # scope to a specific folder
-graph-it check src/ --format toon  # toon format saves 30-60% tokens
-```
-
-Or via the MCP tool directly (supports `scopePath` param):
+If the installed CLI inventory advertises `scan_dead_code`, it can be invoked directly for the
+workspace:
 
 ```bash
 graph-it tool scan_dead_code
-graph-it tool scan_dead_code --scopePath=/abs/path/src
-graph-it tool scan_dead_code --scopePath=/abs/path/src --format=toon
 ```
 
-This returns a ranked list of dead symbols and ghost files in a single pass. **No per-file loop needed for discovery — use Step 3 to confirm high-priority candidates before deleting.**
+Use `--format` only as a CLI option supported by the installed command. For MCP, use an equivalent
+tool only if the host advertises it, and pass only parameters in its input schema. Restrict scope
+only when the current CLI help or MCP schema documents a scope parameter. A scan surfaces
+candidates; **confirm each high-priority candidate in Step 3 before recommending deletion.**
 
 ---
 
 ### Step 3 — Per-file confirmation (avoid false positives)
 
-`scan_dead_code` uses static analysis. A symbol may be called **dynamically** or **from outside the indexed workspace** (e.g. a published library). For high-confidence verification on specific candidates:
+`scan_dead_code` uses static analysis. A symbol may be used dynamically, from outside the indexed
+workspace, or through a reference type the scan does not cover. For each symbol candidate, seek
+independent incoming-reference/dependent evidence, including type-only references when the
+available capability supports them. Use `get_symbol_dependents` only if the installed CLI
+inventory advertises it and its supported parameters are known; for MCP, use only the connected
+host's exact tool name and input schema. `query_call_graph` callers, when available, describe call
+sites and are not a complete reference check. For a file candidate, check incoming file references
+with an advertised equivalent capability and separately rule out entry points/public API use.
 
-```bash
-# Who references this symbol? (0 dependents = confirmed dead)
-graph-it tool get_symbol_dependents --filePath=<absolutePath> --symbolName=<symbol>
-
-# Is this file imported by anything? (0 refs + not an entry point = ghost file)
-graph-it tool find_referencing_files --targetPath=<absolutePath>
-```
-
-- **0 dependents** → confirmed dead code candidate
-- **1+ dependents** → false positive, discard
-- **Only test-file dependents** → flag as "test-only symbol", handle separately
+- **Zero call sites alone** → unconfirmed, never a deletion basis
+- **Incoming references found** → retain or classify for review (test-only use is not automatically dead)
+- **Required reference capability/result missing, partial, or unable to cover relevant types** → unconfirmed; do not recommend deletion
+- **No relevant incoming references confirmed** → candidate for manual safety review, not automatic deletion
 
 Do not use `get_symbol_callers` for this check: it returns call sites only, so a symbol passed as a callback, re-exported, or used as a type reports 0 callers while still in use.
 
-A ghost file may contain multiple symbols — mark the entire file for deletion rather than symbol-by-symbol.
+A ghost file may contain multiple symbols. Do not recommend deleting it until incoming-reference
+checks, entry-point checks, and external/public-use review are complete.
 
 ---
 
@@ -108,9 +110,9 @@ Apply this risk classification:
 
 | Risk Level | Criteria | Action |
 |---|---|---|
-| **Safe** | 0 callers, 0 referencing files, not a public API export | Delete freely |
-| **Ghost file** | 0 referencing files, not an entry point | Delete entire file |
-| **Likely safe** | 0 callers confirmed, file has other live symbols | Remove symbol, keep file |
+| **Candidate for safe review** | No relevant incoming references confirmed (including type-only references when supported); not a public API export or entry point | Review manually before deletion |
+| **Possible ghost file** | No incoming file references confirmed and not an entry point | Review file contents and external/public use |
+| **Unconfirmed** | Only call sites checked, confirmation unavailable/partial, or relevant reference types unsupported | Do not recommend deletion |
 | **Review first** | Symbol is exported from a barrel (`index.ts`) | Check if barrel is consumed externally |
 | **Do not delete** | Dynamic call patterns detected (`eval`, string-based dispatch) | Flag only |
 | **Test-only** | Only called from test files | Evaluate — may be intentional |
@@ -127,24 +129,18 @@ Produce a **Deletion Plan** in this format:
 
 **Scanned**: `<N>` files | **Candidates found**: `<M>` symbols + `<K>` ghost files
 
-#### Ghost Files (entire file can be deleted)
+#### Possible Ghost Files (confirmation required)
 
 | File | Last modified | Reason |
 |------|--------------|--------|
-| `src/utils/oldMigration.ts` | 2022-03-11 | 0 imports, 0 callers, not an entry point |
+| `src/utils/oldMigration.ts` | 2022-03-11 | No incoming file references confirmed; entry-point and external-use checks completed |
 
-**Suggested command:**
-```bash
-# Review first, then:
-rm src/utils/oldMigration.ts
-```
+#### Symbol Candidates — Manual Review
 
-#### Orphan Symbols — Safe to Remove
-
-| Symbol | File | Kind | Callers |
+| Symbol | File | Kind | Reference evidence |
 |--------|------|------|---------|
-| `formatLegacyCurrency` | `src/utils/format.ts` | function | 0 |
-| `MD5Hash` | `src/services/auth.ts` | function | 0 |
+| `formatLegacyCurrency` | `src/utils/format.ts` | function | Include incoming-reference and type-only check status |
+| `MD5Hash` | `src/services/auth.ts` | function | Include incoming-reference and type-only check status |
 
 #### Orphan Symbols — Review First
 
@@ -162,16 +158,15 @@ rm src/utils/oldMigration.ts
 
 ### Recommended Deletion Order
 
-1. Ghost files first — highest impact, no surgical precision needed
-2. Orphan symbols in non-barrel files — safe, isolated changes
-3. Barrel exports — requires checking external consumers
-4. Test-only symbols — discuss with the team
+1. Complete missing incoming-reference checks; keep unconfirmed candidates out of deletion recommendations
+2. Review possible ghost files, public APIs, barrel exports, and external consumers
+3. Review remaining symbol candidates and test-only use with the team
 
 ---
 
 ## Safety Checklist Before Deleting
 
-- [ ] Re-run `graph-it scan` + `graph-it check` after any refactor that modified imports
+- [ ] Re-run `graph-it scan` and the currently advertised workspace scan after any refactor that modified imports
 - [ ] Check if the project is a **published library** — unused exports may be part of the public API
 - [ ] Check `package.json` `exports` field — symbols exported via package entry points are always live
 - [ ] Run the test suite after each deletion batch to catch dynamic usage not visible to static analysis
@@ -179,14 +174,16 @@ rm src/utils/oldMigration.ts
 
 ---
 
-## Quick Scan (Single File or Folder)
+## Quick Scan (Single File)
 
 ```bash
-graph-it scan                                                                     # build/refresh index
-graph-it check src/utils/format.ts                                               # per-file unused symbols
-graph-it check src/utils/                                                        # scoped folder scan
-graph-it tool find_unused_symbols --filePath=/abs/path/src/utils/format.ts       # same as above, MCP tool
+graph-it scan
+graph-it check src/utils/format.ts
 ```
+
+`graph-it check` is file-scoped in the CLI help observed for this installation. Use a workspace or
+folder scan only through a capability and scope parameter documented by the installed CLI or the
+connected MCP host schema.
 
 ---
 
@@ -195,7 +192,7 @@ graph-it tool find_unused_symbols --filePath=/abs/path/src/utils/format.ts      
 - **Dynamic dispatch** (`obj[methodName]()`, `require(variable)`) is invisible to static analysis — always review before deleting
 - **Monorepos**: scan per package, not at root, to avoid cross-package false positives
 - **Framework magic**: decorators (`@Component`, `@Injectable`) may make symbols appear unused but they're resolved at runtime — exclude framework entry files from the scan
-- **`graph-it check` is the native single-pass dead code scanner** — `graph-it check` (no args) runs `scan_dead_code` across the whole workspace. Use `graph-it check <folder>` to scope by directory.
+- The installed CLI help describes `graph-it check` as file-scoped. Use a workspace scan only through a currently advertised capability; apply scope only when its help or input schema documents it.
 
 ## Related Skills
 

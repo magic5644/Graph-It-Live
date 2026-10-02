@@ -18,12 +18,30 @@ context: fork
 AI-guided architectural tour of any codebase for a new developer.
 Powered by Graph-It-Live — extracts entry points, business logic, and the most complex module in one structured pass.
 
-## Requires
+## CLI and Capability Discovery
 
-Graph-It-Live CLI installed and indexed:
+Prefer the Graph-It CLI. At the first activation of any Graph-It skill in a session, check
+`graph-it --version` when the CLI and terminal are available; use only its existing newer-version
+notice and do not poll npm. Share discovery, version, and update decisions across Graph-It skills
+for the session. Run `graph-it tool --list` once, consult `graph-it --help` or command help as
+needed, and refresh only when the CLI/version, server, or workspace changes or a requested tool is
+unknown. Examples are illustrative, not a fixed inventory. Do not install automatically. If the
+CLI is unavailable or unsuitable, use MCP only when the connected host advertises a structurally
+equivalent tool and its schema; otherwise explain the gap. `graph-it tool <name>` invokes analysis
+directly through CLI; `graph-it serve` starts MCP. CLI `--format` and MCP `response_format` are
+distinct.
+
+If the CLI reports a newer version, interactive use requires explicit positive confirmation before
+running `graph-it update`; silence, timeout, refusal, non-TTY, or generic Agent mode is not consent.
+When automatic mode is explicitly enabled and pre-authorized, default the update decision to yes and
+run `graph-it update` without another prompt. After success, refresh the version and `--list`,
+invalidate cached capabilities, and advise that a running MCP server needs a host-authorized restart.
+On failure, keep using the existing CLI only if it remains usable; otherwise explain the failure
+and stop CLI analysis. Warn briefly and do not retry in a loop.
+
+Build or refresh the index before analysis:
 
 ```bash
-npm install -g @magic5644/graph-it-live
 graph-it scan
 ```
 
@@ -109,7 +127,7 @@ The combination of both tells you:
 - **generate_codemap** → what the file does (exported symbols, internal call depth, its own dependencies)
 - **find_referencing_files** → how central it is (how many other files rely on it)
 
-Look for files that score high on both axes: many exports **and** many importers. A file with rich exports but no importers is dead code; a file with many importers but few exports is a utility hub. The real business logic sits at the intersection.
+Look for files that score high on both axes: many exports **and** many importers. A file with rich exports but no importers may be an entry point, public API, or dead-code candidate; confirm references and external use before classifying. A file with many importers but few exports is a utility hub. The real business logic sits at the intersection.
 
 Pick the **1–3 files** with the highest combination of fan-in + exported symbol count. These are the business logic core.
 
