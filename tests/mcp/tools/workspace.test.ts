@@ -174,7 +174,7 @@ describe("workspace tools", () => {
       const postMessage = vi.fn();
       const spiderMock = {
         clearCache: vi.fn(),
-        buildFullIndex: vi.fn(async () => {}),
+        buildFullIndex: vi.fn(async () => ({ indexedFiles: 3, duration: 1, cancelled: false })),
         isReverseIndexEnabled: vi.fn(() => true),
         getCacheStatsAsync: async () => ({
           dependencyCache: { size: 3 },
@@ -199,6 +199,7 @@ describe("workspace tools", () => {
       const postMessage = vi.fn();
       const buildFullIndex = vi.fn(async (cb: any) => {
         cb(1, 2, "src/a.ts");
+        return { indexedFiles: 5, duration: 1, cancelled: false };
       });
       const spiderMock = {
         clearCache: vi.fn(),
@@ -232,7 +233,7 @@ describe("workspace tools", () => {
     it("reports why the call graph could not be rebuilt instead of failing (#227)", async () => {
       setupWorkerState({
         clearCache: vi.fn(),
-        buildFullIndex: vi.fn(async () => {}),
+        buildFullIndex: vi.fn(async () => ({ indexedFiles: 1, duration: 1, cancelled: false })),
         getCacheStatsAsync: async () => ({ dependencyCache: { size: 1 }, reverseIndexStats: null }),
       });
 
@@ -244,6 +245,22 @@ describe("workspace tools", () => {
         rebuilt: false,
         error: "extensionPath required for call graph WASM parsers",
       });
+    });
+
+    it("reports the indexed file count, not the capped analysis cache size (#243)", async () => {
+      setupWorkerState({
+        clearCache: vi.fn(),
+        buildFullIndex: vi.fn(async () => ({ indexedFiles: 1200, duration: 1, cancelled: false })),
+        getCacheStatsAsync: async () => ({
+          dependencyCache: { size: 500 },
+          reverseIndexStats: { indexedFiles: 1200, targetFiles: 900, totalReferences: 4000 },
+        }),
+      });
+
+      const result = await executeRebuildIndex(vi.fn());
+
+      expect(result.reindexedCount).toBe(1200);
+      expect(result.newCacheSize).toBe(500);
     });
   });
 });

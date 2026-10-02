@@ -113,7 +113,7 @@ export async function executeRebuildIndex(
 
   // Re-index by building full index again
   // This will scan the workspace and rebuild the reverse index
-  await spider.buildFullIndex((processed, total, currentFile) => {
+  const { indexedFiles } = await spider.buildFullIndex((processed, total, currentFile) => {
     postMessage({
       type: "warmup-progress",
       processed,
@@ -131,7 +131,8 @@ export async function executeRebuildIndex(
 
   return {
     callGraph,
-    reindexedCount: cacheStats.dependencyCache.size,
+    // The analysis cache is capped on large workspaces: count the indexed files.
+    reindexedCount: indexedFiles,
     rebuildTimeMs,
     newCacheSize: cacheStats.dependencyCache.size,
     reverseIndexStats: cacheStats.reverseIndexStats ?? {

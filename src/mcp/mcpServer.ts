@@ -696,7 +696,9 @@ server.registerTool(
           "get_index_status",
           {},
         );
-        filesIndexed = statusResult.cacheSize;
+        // cacheSize counts the in-memory analysis cache: empty after a cache
+        // restore and capped on large workspaces.
+        filesIndexed = statusResult.warmup.filesIndexed ?? statusResult.reverseIndexStats?.indexedFiles ?? 0;
       }
 
       const response: McpToolResponse<SetWorkspaceResult> = {
