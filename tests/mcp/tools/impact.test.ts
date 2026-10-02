@@ -117,6 +117,21 @@ describe("impact tools", () => {
       expect(result.removedSymbols.sort()).toEqual(["Options", "farewell"]);
     });
 
+    it("reports an added export as non-breaking, without an addedSymbols field (#245)", async () => {
+      const filePath = await createTempFile(tempDir, "api.ts", oldContent);
+      useRealAnalyzer();
+
+      const result = await executeAnalyzeBreakingChanges({
+        filePath,
+        oldContent,
+        newContent: `${oldContent}\nexport function added(): void {}`,
+      });
+
+      expect(result.breakingChangeCount).toBe(0);
+      expect(result.removedSymbols).toEqual([]);
+      expect(result).not.toHaveProperty("addedSymbols");
+    });
+
     it("reports no change when the omitted newContent matches the old content", async () => {
       const filePath = await createTempFile(tempDir, "api.ts", oldContent);
       useRealAnalyzer();

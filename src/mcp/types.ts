@@ -1498,8 +1498,6 @@ export interface AnalyzeBreakingChangesResult {
   nonBreakingChanges: string[];
   /** Symbols that were removed entirely */
   removedSymbols: string[];
-  /** Symbols that were added */
-  addedSymbols: string[];
 }
 
 /** Result of deterministic local PR review analysis. */
