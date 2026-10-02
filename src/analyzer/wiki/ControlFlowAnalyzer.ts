@@ -125,6 +125,31 @@ function isLoopStatement(stmt: ts.Statement): boolean {
   );
 }
 
+/** True when no statement after `stmt` in the same block can run. */
+function terminates(stmt: ts.Statement): boolean {
+  if (ts.isReturnStatement(stmt) || ts.isThrowStatement(stmt)) return true;
+  if (ts.isBlock(stmt)) return statementsTerminate(stmt.statements);
+  if (ts.isIfStatement(stmt)) {
+    return !!stmt.elseStatement && terminates(stmt.thenStatement) && terminates(stmt.elseStatement);
+  }
+  return false;
+}
+
+function statementsTerminate(statements: ts.NodeArray<ts.Statement>): boolean {
+  for (const stmt of statements) {
+    if (ts.isBreakStatement(stmt) || ts.isContinueStatement(stmt)) return false;
+    if (terminates(stmt)) return true;
+  }
+  return false;
+}
+
+/** An empty clause falls through to the next one. */
+function clauseTerminates(clauses: ts.NodeArray<ts.CaseOrDefaultClause>, index: number): boolean {
+  const clause = clauses[index];
+  if (clause.statements.length > 0) return statementsTerminate(clause.statements);
+  return index + 1 < clauses.length && clauseTerminates(clauses, index + 1);
+}
+
 // ---------------------------------------------------------------------------
 // Mermaid generation
 // ---------------------------------------------------------------------------
@@ -154,39 +179,44 @@ function buildControlFlowMermaid(
 
   const startId = newId();
   lines.push(`  ${startId}([${sanitize(fn.name)}])`);
-  let prev = startId;
 
   function connect(from: string, to: string, label?: string) {
     lines.push(label ? `  ${from} -- ${label} --> ${to}` : `  ${from} --> ${to}`);
   }
 
-  function processBlock(block: ts.Block, prevId: string): string {
-    let cur = prevId;
+  // Each process* returns the exit node id to chain the next statement onto,
+  // or null when the path ended on a return/throw (later statements are unreachable).
+  function processBlock(block: ts.Block, prevId: string): string | null {
+    let cur: string | null = prevId;
     for (const stmt of block.statements) {
-      if (truncated) break;
+      if (truncated || cur === null) break;
       cur = processStatement(stmt, cur);
     }
     return cur;
   }
 
-  function processReturn(stmt: ts.ReturnStatement, prevId: string): string {
+  function processBranch(stmt: ts.Statement, entryId: string): string | null {
+    return ts.isBlock(stmt) ? processBlock(stmt, entryId) : processStatement(stmt, entryId);
+  }
+
+  function processReturn(stmt: ts.ReturnStatement, prevId: string): null {
     const retId = newId();
     const label = stmt.expression
       ? sanitize(stmt.expression.getText(sf)).substring(0, 20)
       : "void";
     lines.push(`  ${retId}([return: ${label}])`);
     connect(prevId, retId);
-    return retId;
+    return null;
   }
 
-  function processThrow(prevId: string): string {
+  function processThrow(prevId: string): null {
     const throwId = newId();
     lines.push(`  ${throwId}[/throw/]`);
     connect(prevId, throwId);
-    return throwId;
+    return null;
   }
 
-  function processIf(stmt: ts.IfStatement, prevId: string): string {
+  function processIf(stmt: ts.IfStatement, prevId: string): string | null {
     const condId = newId();
     const condText = sanitize(stmt.expression.getText(sf));
     lines.push(`  ${condId}{${condText}?}`);
@@ -195,46 +225,46 @@ function buildControlFlowMermaid(
     const thenId = newId();
     lines.push(`  ${thenId}[then]`);
     connect(condId, thenId, "yes");
-    const thenExit = ts.isBlock(stmt.thenStatement)
-      ? processBlock(stmt.thenStatement, thenId)
-      : thenId;
+    const thenExit = processBranch(stmt.thenStatement, thenId);
 
-    let noExit = condId;
+    let noExit: string | null = condId;
     if (stmt.elseStatement && !truncated) {
       const elseId = newId();
       lines.push(`  ${elseId}[else]`);
       connect(condId, elseId, "no");
-      noExit = ts.isBlock(stmt.elseStatement)
-        ? processBlock(stmt.elseStatement, elseId)
-        : elseId;
+      noExit = processBranch(stmt.elseStatement, elseId);
     }
 
     return connectIfMerge(condId, thenExit, noExit);
   }
 
-  function connectIfMerge(condId: string, thenExit: string, noExit: string): string {
-    if (truncated) return thenExit;
+  function connectIfMerge(condId: string, thenExit: string | null, noExit: string | null): string | null {
+    if (thenExit === null && noExit === null) return null;
+    if (truncated) return thenExit ?? noExit;
 
     const mergeId = newId();
     lines.push(`  ${mergeId}[ ]`);
-    connect(thenExit, mergeId);
-    if (noExit === condId) {connect(condId, mergeId, "no");}
-    else {connect(noExit, mergeId);}
+    if (thenExit !== null) connect(thenExit, mergeId);
+    if (noExit === condId) connect(condId, mergeId, "no");
+    else if (noExit !== null) connect(noExit, mergeId);
     return mergeId;
   }
 
-  function processSwitch(stmt: ts.SwitchStatement, prevId: string): string {
+  function processSwitch(stmt: ts.SwitchStatement, prevId: string): string | null {
     const switchId = newId();
     const switchText = sanitize(stmt.expression.getText(sf));
     lines.push(`  ${switchId}{switch: ${switchText}}`);
     connect(prevId, switchId);
 
     const exits = addSwitchCases(stmt, switchId);
-    if (truncated || exits.length === 0) return switchId;
+    if (truncated) return switchId;
+    if (exits.length === 0) return null;
 
     const mergeId = newId();
     lines.push(`  ${mergeId}[ ]`);
-    for (const exitId of exits) connect(exitId, mergeId);
+    for (const exitId of exits) {
+      connect(exitId, mergeId, exitId === switchId ? "no match" : undefined);
+    }
     return mergeId;
   }
 
@@ -249,7 +279,7 @@ function buildControlFlowMermaid(
         : "default";
       lines.push(`  ${caseId}[${caseLabel}]`);
       connect(switchId, caseId, caseLabel);
-      exits.push(caseId);
+      if (!clauseTerminates(stmt.caseBlock.clauses, i)) exits.push(caseId);
     }
 
     if (stmt.caseBlock.clauses.length > maxCases && !truncated) {
@@ -258,6 +288,7 @@ function buildControlFlowMermaid(
       connect(switchId, moreId);
       exits.push(moreId);
     }
+    if (!stmt.caseBlock.clauses.some(ts.isDefaultClause)) exits.push(switchId);
     return exits;
   }
 
@@ -309,8 +340,7 @@ function buildControlFlowMermaid(
     return exprId;
   }
 
-  // Returns the "exit" node id to chain next statement onto
-  function processStatement(stmt: ts.Statement, prevId: string): string {
+  function processStatement(stmt: ts.Statement, prevId: string): string | null {
     if (counter >= MAX_NODES_PER_DIAGRAM) {
       truncated = true;
       return prevId;
@@ -323,14 +353,17 @@ function buildControlFlowMermaid(
     if (isLoopStatement(stmt)) return processLoop(stmt, prevId);
     if (ts.isTryStatement(stmt)) return processTry(stmt, prevId);
     if (ts.isExpressionStatement(stmt)) return processExpression(stmt, prevId);
+    if (ts.isBlock(stmt)) return processBlock(stmt, prevId);
     return prevId;
   }
 
-  prev = processBlock(fn.body, prev);
+  const last = processBlock(fn.body, startId);
 
-  // End node (only if we didn't end on a return/throw)
-  const endId = newId();
-  lines.push(`  ${endId}([end])`, `  ${prev} --> ${endId}`);
+  // End node only when the body can complete without a return/throw
+  if (last !== null) {
+    const endId = newId();
+    lines.push(`  ${endId}([end])`, `  ${last} --> ${endId}`);
+  }
 
   return {
     mermaid: lines.join("\n"),

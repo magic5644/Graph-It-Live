@@ -99,7 +99,7 @@ export function fn4(x: number) { if (x) { return 1; } else { return 2; } }
 export function fn5(x: number) { if (x) { return 1; } else { return 2; } }
 `);
     const result = analyzeControlFlow(filePath);
-    expect(result.length).toBe(5);
+    expect(result).toHaveLength(5);
   });
 
   it("does not set truncated for function count when all functions are shown", () => {
@@ -111,7 +111,7 @@ export function fn4(x: number) { if (x > 0) { return 1; } else { return 2; } }
 `);
     const result = analyzeControlFlow(filePath);
     // All 4 functions should be shown — no truncation note for function count
-    expect(result.length).toBe(4);
+    expect(result).toHaveLength(4);
     // None should have a "Showing X of Y" truncation note
     for (const diagram of result) {
       expect(diagram.truncationNote ?? "").not.toMatch(/Showing \d+ of \d+/);
@@ -212,5 +212,178 @@ export function fn_high(x: number, y: string) {
     expect(result.length).toBeGreaterThanOrEqual(2);
     // The first result should be fn_high (higher complexity)
     expect(result[0].title).toContain("fn_high");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Terminating statements (#222)
+// ---------------------------------------------------------------------------
+
+/** Node id whose label contains `text`, e.g. "n7" for `n7[console.logafter]`. */
+function nodeId(mermaid: string, text: string): string {
+  const line = mermaid.split("\n").find((l) => /^\s+n\d+[[({/]/.test(l) && l.includes(text));
+  if (!line) throw new Error(`no node containing ${text}\n${mermaid}`);
+  return /n\d+/.exec(line)![0];
+}
+
+function edgesInto(mermaid: string, id: string): string[] {
+  return mermaid.split("\n").filter((l) => l.includes("-->") && l.trim().endsWith(` ${id}`));
+}
+
+function diagramFor(source: string): string {
+  const result = analyzeControlFlow(writeTmp("flow.ts", source));
+  expect(result).toHaveLength(1);
+  return result[0].mermaid;
+}
+
+describe("analyzeControlFlow — terminating statements", () => {
+  it("draws no edge to a statement after an if/else whose branches both return", () => {
+    const mermaid = diagramFor(`
+export function f(x: number) {
+  if (x > 0) {
+    return 1;
+  } else {
+    return 2;
+  }
+  console.log("after");
+}
+`);
+    expect(mermaid).not.toContain("after");
+    expect(mermaid).not.toContain("([end])");
+  });
+
+  it("treats single-statement branches without braces the same way", () => {
+    const mermaid = diagramFor(`
+export function f(x: number) {
+  if (x > 0) return 1;
+  else throw new Error("neg");
+  console.log("after");
+}
+`);
+    expect(mermaid).not.toContain("after");
+    expect(mermaid).toContain("[/throw/]");
+    expect(mermaid).not.toContain("([end])");
+  });
+
+  it("continues after an if whose only branch returns", () => {
+    const mermaid = diagramFor(`
+export function f(x: number) {
+  if (x > 0) return 1;
+  if (x < -10) { console.log("small"); }
+  console.log("after");
+}
+`);
+    const after = nodeId(mermaid, "after");
+    expect(edgesInto(mermaid, after)).toHaveLength(1);
+    const returnNode = nodeId(mermaid, "return: 1");
+    expect(mermaid).not.toMatch(new RegExp(String.raw`${returnNode} -->`));
+    expect(mermaid).toContain("([end])");
+  });
+
+  it("merges only the branch that can complete", () => {
+    const mermaid = diagramFor(`
+export function f(x: number) {
+  if (x > 0) {
+    return 1;
+  } else {
+    console.log("neg");
+  }
+  console.log("after");
+}
+`);
+    const returnNode = nodeId(mermaid, "return: 1");
+    expect(mermaid).not.toMatch(new RegExp(String.raw`${returnNode} -->`));
+    expect(mermaid).toContain("after");
+  });
+
+  it("stops at an else-if chain that returns on every branch", () => {
+    const mermaid = diagramFor(`
+export function f(x: number) {
+  if (x > 0) return "pos";
+  else if (x < 0) return "neg";
+  else return "zero";
+  console.log("after");
+}
+`);
+    expect(mermaid).not.toContain("after");
+    expect(mermaid).not.toContain("([end])");
+  });
+
+  it("ignores statements after a throw inside a nested block", () => {
+    const mermaid = diagramFor(`
+export function f(x: number) {
+  if (x > 0) {
+    {
+      throw new Error("x");
+    }
+    console.log("dead");
+  } else {
+    console.log("neg");
+  }
+  console.log("after");
+}
+`);
+    expect(mermaid).not.toContain("dead");
+    expect(mermaid).toContain("after");
+  });
+
+  it("stops after a switch whose cases all return, default included", () => {
+    const mermaid = diagramFor(`
+export function f(x: number) {
+  switch (x) {
+    case 1:
+    case 2:
+      return "low";
+    default:
+      throw new Error("bad");
+  }
+  console.log("after");
+}
+`);
+    expect(mermaid).not.toContain("after");
+    expect(mermaid).not.toContain("([end])");
+  });
+
+  it("keeps a no-match path for a switch without default", () => {
+    const mermaid = diagramFor(`
+export function f(x: number) {
+  switch (x) {
+    case 1:
+      return "one";
+    case 2:
+      return "two";
+  }
+  console.log("after");
+}
+`);
+    expect(mermaid).toContain("-- no match -->");
+    expect(mermaid).toContain("after");
+  });
+
+  it("does not treat a case ending with break as terminating", () => {
+    const mermaid = diagramFor(`
+export function f(x: number) {
+  switch (x) {
+    case 1:
+      console.log("one");
+      break;
+    default:
+      return "other";
+  }
+  console.log("after");
+}
+`);
+    const caseOne = nodeId(mermaid, "[1]");
+    expect(mermaid).toMatch(new RegExp(String.raw`${caseOne} --> n\d+`));
+    expect(mermaid).toContain("after");
+  });
+
+  it("still ends a function that falls off its body", () => {
+    const mermaid = diagramFor(`
+export function f(x: number) {
+  if (x > 0) { console.log("pos"); } else { console.log("neg"); }
+}
+`);
+    expect(mermaid).toContain("([end])");
   });
 });
