@@ -77,7 +77,6 @@ export async function executeAnalyzeBreakingChanges(
   const breakingChanges: BreakingChangeInfo[] = [];
   const nonBreakingChanges: string[] = [];
   const removedSymbols: string[] = [];
-  const addedSymbols: string[] = [];
 
   for (const result of results) {
     for (const change of result.breakingChanges) {
@@ -114,7 +113,6 @@ export async function executeAnalyzeBreakingChanges(
     breakingChanges,
     nonBreakingChanges,
     removedSymbols,
-    addedSymbols,
   };
 }
 

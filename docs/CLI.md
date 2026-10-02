@@ -1637,7 +1637,7 @@ graph-it tool get_symbol_callers --filePath=/abs/path/to/Spider.ts --symbolName=
 graph-it tool analyze_breaking_changes --filePath=/abs/path/to/api.ts --oldContent='export function getUser(id: string): User;' --newContent='export function getUser(id: number): User;'
 ```
 
-**Output fields:** `filePath`, `breakingChangeCount`, `errorCount`, `warningCount`, `breakingChanges[]`, `nonBreakingChanges[]`, `removedSymbols[]`, `addedSymbols[]`
+**Output fields:** `filePath`, `breakingChangeCount`, `errorCount`, `warningCount`, `breakingChanges[]`, `nonBreakingChanges[]`, `removedSymbols[]`
 
 ---
 
