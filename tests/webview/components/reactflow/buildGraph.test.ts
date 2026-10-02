@@ -1233,16 +1233,17 @@ describe("buildReactFlowGraph", () => {
     });
   });
 
-  describe("MAX_CYCLE_DETECT_EDGES threshold", () => {
-    it("skips cycle detection when edge count exceeds MAX_CYCLE_DETECT_EDGES", () => {
-      // Build a graph that exceeds the cycle detection threshold
-      const edgeCount = GRAPH_LIMITS.MAX_CYCLE_DETECT_EDGES + 1;
+  describe("large graph cycle detection", () => {
+    it("detects cycles above the former 3,000-edge threshold", () => {
+      // A deep cycle must remain detectable even when most nodes are not rendered.
+      const edgeCount = 3001;
       const nodes = Array.from({ length: edgeCount + 1 }, (_, i) => `n${i}.ts`);
       const edges = Array.from({ length: edgeCount }, (_, i) => ({
         source: `n${i}.ts`,
         target: `n${i + 1}.ts`,
       }));
 
+      edges.push({ source: nodes[nodes.length - 1], target: nodes[0] });
       const data: GraphData = {
         nodes,
         edges,
@@ -1258,9 +1259,41 @@ describe("buildReactFlowGraph", () => {
         callbacks: createMockCallbacks(),
       });
 
-      // cycles should be empty when edge count exceeds threshold
-      expect(result.cycles.size).toBe(0);
+      expect(result.cycles.size).toBe(nodes.length);
     });
+  });
+
+  it("counts collapsed cycle nodes but does not label a one-way bridge as cyclic", () => {
+    const data: GraphData = {
+      nodes: ['a.ts', 'b.ts', 'c.ts', 'd.ts'],
+      edges: [
+        { source: 'a.ts', target: 'b.ts' }, { source: 'b.ts', target: 'a.ts' },
+        { source: 'b.ts', target: 'c.ts' },
+        { source: 'c.ts', target: 'd.ts' }, { source: 'd.ts', target: 'c.ts' },
+      ],
+    };
+    const params = { data, currentFilePath: 'a.ts', expandAll: false, expandedNodes: new Set<string>(), showParents: false, callbacks: createMockCallbacks() };
+    const collapsed = buildReactFlowGraph(params);
+    expect(collapsed.cycles.size).toBe(4);
+    expect(collapsed.nodes.map(n => n.id)).toEqual(['a.ts', 'b.ts']);
+    const expanded = buildReactFlowGraph({ ...params, expandedNodes: new Set(data.nodes) });
+    expect(expanded.edges.find(e => e.id === 'b.ts->c.ts')?.label).toBeUndefined();
+    expect(expanded.edges.find(e => e.id === 'c.ts->d.ts')?.label).toBe('cycle');
+    const filtered = buildReactFlowGraph({ ...params, unusedDependencyMode: 'hide', unusedEdges: ['b.ts->a.ts'], filterUnused: true });
+    expect(filtered.cycles).toEqual(new Set(['c.ts', 'd.ts']));
+  });
+
+  it("normalizes Windows paths before detecting cycles and styling nodes", () => {
+    const result = buildReactFlowGraph({
+      data: { nodes: ['C:/src/a.ts', 'C:/src/b.ts'], edges: [
+        { source: 'C:\\src\\a.ts', target: 'C:/src/b.ts' },
+        { source: 'C:\\src\\b.ts', target: 'C:/src/a.ts' },
+      ] },
+      currentFilePath: 'C:/src/a.ts', expandAll: false, expandedNodes: new Set(), showParents: false, callbacks: createMockCallbacks(),
+    });
+    expect(result.cycles).toEqual(new Set(['c:/src/a.ts', 'c:/src/b.ts']));
+    expect(result.edges.every(e => e.label === 'cycle')).toBe(true);
+    expect(result.nodes.every(n => 'isInCycle' in n.data && n.data.isInCycle)).toBe(true);
   });
 
   describe("nodeLabels fallback — path.pop()", () => {

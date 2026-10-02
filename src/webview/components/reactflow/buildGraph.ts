@@ -1,5 +1,5 @@
 import type { Edge, Node } from "reactflow";
-import { detectCycles } from "../../../analyzer/callgraph/cycleUtils";
+import { detectCycleEdges } from "../../../analyzer/callgraph/cycleUtils";
 import { getLogger } from "../../../shared/logger";
 import type {
   GraphData,
@@ -22,7 +22,6 @@ export type UnusedDependencyMode = "none" | "hide" | "dim";
 
 export const GRAPH_LIMITS = {
   MAX_RENDER_NODES: 400,
-  MAX_CYCLE_DETECT_EDGES: 3000,
   MAX_PROCESS_EDGES: 20000,
   MAX_RENDER_EDGES: 1500,
   MAX_DAGRE_NODES: 350,
@@ -243,7 +242,7 @@ function createVisibleEdges(
     relationType?: "dependency" | "call" | "reference";
   }>,
   visibleNodes: Set<string>,
-  cycles: Set<string>,
+  cycleEdges: Set<string>,
   unusedEdges: string[],
   unusedDependencyMode: "none" | "hide" | "dim",
   filterUnused: boolean,
@@ -268,7 +267,7 @@ function createVisibleEdges(
       seenEdgeIds.add(id);
 
       const isUnused = unusedEdgeSet.has(id);
-      const isCircular = cycles.has(source) && cycles.has(target);
+      const isCircular = cycleEdges.has(id);
       const edgeStyle = createEdgeStyleUtil(isCircular);
 
       // In dim mode, apply reduced opacity and dashed style to unused edges
@@ -411,10 +410,17 @@ export function buildReactFlowGraph(params: {
       filterUnused,
     });
 
-  const cycles =
-    edgesForProcessing.length <= GRAPH_LIMITS.MAX_CYCLE_DETECT_EDGES
-      ? detectCycles(edgesForProcessing)
-      : new Set<string>();
+  const normalizedEdges = edgesForProcessing.map(({ source, target, ...rest }) => ({
+    ...rest, source: normalizePath(source), target: normalizePath(target),
+  }));
+  const cycleEdges = detectCycleEdges(normalizedEdges);
+  const cycles = new Set<string>();
+  for (const { source, target } of normalizedEdges) {
+    if (cycleEdges.has(`${source}->${target}`)) {
+      cycles.add(source);
+      cycles.add(target);
+    }
+  }
 
   const getLabel = (path: string) =>
     data.nodeLabels?.[path] || path.split(/[/\\]/).pop() || path;
@@ -586,7 +592,7 @@ export function buildReactFlowGraph(params: {
   let edges: Edge[] = createVisibleEdges(
     edgesForProcessing,
     visibleNodes,
-    cycles,
+    cycleEdges,
     unusedEdges,
     unusedDependencyMode,
     filterUnused,

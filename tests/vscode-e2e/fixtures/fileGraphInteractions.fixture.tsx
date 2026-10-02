@@ -13,9 +13,9 @@ const data: GraphData = {
   edges: [{ source: a, target: b }, { source: b, target: c }, { source: c, target: d }, { source: a, target: x }],
   nodeMetadata: Object.fromEntries(paths.map((p, i) => [p, { hubScore: 0, communityId: i + 1, communityKey: ['a', 'b', 'c', 'd', 'x'][i] }])),
 };
-function show(graph: GraphData, key: string) {
+function show(graph: GraphData, key: string, expandAll = true) {
   root.render(React.createElement(ReactFlowGraph, {
-    key, data: graph, currentFilePath: graph.nodes[0], expandAll: true,
+    key, data: graph, currentFilePath: graph.nodes[0], expandAll,
     onExpandAllChange: () => {}, onNodeClick: () => {}, onDrillDown: () => {}, onFindReferences: () => {},
   }));
 }
@@ -77,6 +77,29 @@ async function run() {
   await until(() => document.querySelectorAll('.react-flow__node').length === 5, 'Restore did not reveal all files');
   await new Promise(resolve => setTimeout(resolve, 800));
   check(viewport() === initialViewport, 'Restoring hidden nodes moved the viewport');
+
+  const badge = () => document.querySelector<HTMLElement>('[data-testid="cycles-badge"]');
+  show({ nodes: [a, b, c], edges: [
+    { source: a, target: b }, { source: b, target: a },
+    { source: a, target: c }, { source: c, target: b },
+  ] }, 'overlapping-cycles');
+  await until(() => !!badge()?.textContent?.includes('3 files in analyzed graph'), 'Overlapping cycle participant count is incorrect');
+  check(badge()?.title.includes('including collapsed or hidden nodes'), 'Cycle count scope is unexplained');
+  await until(() => document.querySelectorAll('.react-flow__edge-text').length === 4, 'Not all overlapping cycle edges are labelled');
+
+  const separateCycles: GraphData = { nodes: [a, b, c, d], edges: [
+    { source: a, target: b }, { source: b, target: a }, { source: b, target: c },
+    { source: c, target: d }, { source: d, target: c },
+  ] };
+  show(separateCycles, 'collapsed-cycles', false);
+  await until(() => !!badge()?.textContent?.includes('4 files in analyzed graph') && document.querySelectorAll('.react-flow__node').length === 2, 'Collapsed cycle participants were omitted from the badge');
+  show(separateCycles, 'separate-cycles');
+  await until(() => !!edge(b, c) && document.querySelectorAll('.react-flow__edge-text').length === 4, 'Separate cycles did not render');
+  check(edge(b, c)?.querySelector('path')?.style.stroke !== edge(a, b)?.querySelector('path')?.style.stroke, 'One-way bridge was styled as cyclic');
+
+  const cycleNodes = Array.from({ length: 3002 }, (_, i) => `/p/cycle/n${i}.ts`);
+  show({ nodes: cycleNodes, edges: cycleNodes.map((source, i) => ({ source, target: cycleNodes[(i + 1) % cycleNodes.length] })) }, 'large-cycle', false);
+  await until(() => !!badge()?.textContent?.includes('3002 files in analyzed graph'), 'Cycle detection was skipped above 3000 edges');
 
   // Exercise the current render ceilings with actual SVG edges and node geometry.
   const largeNodes = Array.from({ length: 400 }, (_, i) => `/p/src/g${i % 4}/f${i}.ts`);

@@ -1,71 +1,63 @@
 /**
- * Cycle detection (DFS) for directed graphs.
- * Shared utility between the call graph analyzer and the webview ReactFlow renderer.
- *
- * No vscode imports — safe to use in analyzer/ and webview/ layers.
+ * Shared directed-cycle detection for analyzer and webview graphs.
+ * No vscode imports — safe in both layers.
  */
 
 /**
- * Detects cycles in a directed graph using DFS.
- * Returns a Set of directed edge keys ("source->target") that participate in
- * at least one cycle. Only the specific back-edges and the edges along the
- * cycle path are included — edges that merely connect two nodes that happen
- * to be cycle participants are NOT marked.
- *
- * @param edges - Array of directed edges with source and target node IDs
- * @returns Set of edge keys ("source->target") that form cycles
+ * An edge belongs to a cycle exactly when its endpoints are in the same
+ * strongly connected component. Iterative Kosaraju traversal keeps this
+ * O(V + E) and avoids call-stack overflow on deep dependency graphs.
  */
 export function detectCycleEdges(
   edges: Array<{ source: string; target: string }>,
 ): Set<string> {
-  const cycleEdgeKeys = new Set<string>();
   const adjacency = new Map<string, string[]>();
-
+  const reverse = new Map<string, string[]>();
   for (const { source, target } of edges) {
-    const list = adjacency.get(source);
-    if (list) {
-      list.push(target);
-    } else {
-      adjacency.set(source, [target]);
-    }
+    if (!adjacency.has(source)) adjacency.set(source, []);
+    if (!adjacency.has(target)) adjacency.set(target, []);
+    adjacency.get(source)?.push(target);
+    if (!reverse.has(target)) reverse.set(target, []);
+    reverse.get(target)?.push(source);
   }
 
   const visited = new Set<string>();
-  const recursionStack = new Set<string>();
-
-  function dfs(node: string, path: string[]): void {
-    visited.add(node);
-    recursionStack.add(node);
-    const currentPath = [...path, node];
-
-    for (const neighbor of adjacency.get(node) ?? []) {
-      if (!visited.has(neighbor)) {
-        dfs(neighbor, currentPath);
-      } else if (recursionStack.has(neighbor)) {
-        // Found a back-edge → mark each edge along the cycle path.
-        const cycleStart = currentPath.indexOf(neighbor);
-        if (cycleStart >= 0) {
-          const cyclePath = currentPath.slice(cycleStart);
-          for (let i = 0; i < cyclePath.length - 1; i++) {
-            cycleEdgeKeys.add(`${cyclePath[i]}->${cyclePath[i + 1]}`);
-          }
-          // Close the cycle: last node → neighbor (which is cyclePath[0])
-          cycleEdgeKeys.add(`${cyclePath.at(-1)}->${neighbor}`);
-        } else {
-          // Fallback: only mark the back-edge itself
-          cycleEdgeKeys.add(`${node}->${neighbor}`);
+  const finishOrder: string[] = [];
+  for (const node of adjacency.keys()) {
+    const stack = [{ node, exiting: false }];
+    while (stack.length > 0) {
+      const entry = stack.pop()!;
+      if (entry.exiting) {
+        finishOrder.push(entry.node);
+      } else if (!visited.has(entry.node)) {
+        visited.add(entry.node);
+        stack.push({ node: entry.node, exiting: true });
+        for (const neighbor of adjacency.get(entry.node) ?? []) {
+          if (!visited.has(neighbor)) stack.push({ node: neighbor, exiting: false });
         }
       }
     }
-
-    recursionStack.delete(node);
   }
 
-  for (const node of adjacency.keys()) {
-    if (!visited.has(node)) dfs(node, []);
+  const components = new Map<string, number>();
+  for (const node of finishOrder.reverse()) {
+    if (components.has(node)) continue;
+    const component = components.size;
+    const stack = [node];
+    components.set(node, component);
+    while (stack.length > 0) {
+      for (const neighbor of reverse.get(stack.pop()!) ?? []) {
+        if (!components.has(neighbor)) {
+          components.set(neighbor, component);
+          stack.push(neighbor);
+        }
+      }
+    }
   }
 
-  return cycleEdgeKeys;
+  return new Set(edges
+    .filter(({ source, target }) => components.get(source) === components.get(target))
+    .map(({ source, target }) => `${source}->${target}`));
 }
 
 /**
@@ -87,7 +79,7 @@ export function detectCycles(
 
 /**
  * Given a set of edges and the cycle node set, returns the IDs of edges
- * where both source and target are cycle participants.
+ * that belong to a directed cycle and have both endpoints in cycleNodes.
  *
  * @param edges - All edges to check
  * @param cycleNodes - Set of node IDs in cycles (from detectCycles)
@@ -97,7 +89,8 @@ export function getCyclicEdgeIds(
   edges: Array<{ source: string; target: string }>,
   cycleNodes: Set<string>,
 ): string[] {
+  const cycleEdges = detectCycleEdges(edges);
   return edges
-    .filter((e) => cycleNodes.has(e.source) && cycleNodes.has(e.target))
+    .filter((e) => cycleNodes.has(e.source) && cycleNodes.has(e.target) && cycleEdges.has(`${e.source}->${e.target}`))
     .map((e) => `${e.source}::${e.target}`);
 }
