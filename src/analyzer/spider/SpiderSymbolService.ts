@@ -484,7 +484,7 @@ export class SpiderSymbolService {
   async scanDeadCode(
     scopePath: string,
     options: { maxFiles?: number; hasReverseIndex: boolean }
-  ): Promise<{ entries: Array<{ filePath: string; unusedSymbols: SymbolInfo[] }>; scannedFiles: number; skippedFiles: number }> {
+  ): Promise<{ entries: Array<{ filePath: string; unusedSymbols: SymbolInfo[] }>; scannedFiles: number; skippedFiles: number; filesBeyondLimit: number }> {
     const { maxFiles = 500, hasReverseIndex } = options;
 
     if (!hasReverseIndex) {
@@ -529,6 +529,11 @@ export class SpiderSymbolService {
       }
     }
 
-    return { entries, scannedFiles: filesToScan.length, skippedFiles };
+    return {
+      entries,
+      scannedFiles: filesToScan.length,
+      skippedFiles,
+      filesBeyondLimit: analysableFiles.length - filesToScan.length,
+    };
   }
 }

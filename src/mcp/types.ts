@@ -747,7 +747,8 @@ export const ScanDeadCodeParamsSchema = z.object({
     .default(500)
     .optional()
     .describe(
-      "Maximum number of files to analyse (default: 500). Prevents OOM on very large monorepos.",
+      "Maximum number of files to analyse (default: 500). Prevents OOM on very large monorepos. " +
+        "When reached, the result has truncated=true and filesBeyondLimit > 0.",
     ),
 });
 export type ScanDeadCodeParams = z.infer<typeof ScanDeadCodeParamsSchema>;
@@ -1689,6 +1690,10 @@ export interface ScanDeadCodeResult {
   entries: DeadCodeFileEntry[];
   /** Number of files skipped (unsupported language / parse error) */
   skippedFiles: number;
+  /** True when maxFiles stopped the scan: unscanned files may hold dead code too */
+  truncated: boolean;
+  /** Analysable files left out by maxFiles */
+  filesBeyondLimit: number;
   /** Total analysis time in milliseconds */
   analysisTimeMs: number;
 }

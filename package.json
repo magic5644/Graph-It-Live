@@ -1232,7 +1232,7 @@
         "displayName": "Graph-It-Live: Scan Dead Code",
         "icon": "$(trash)",
         "userDescription": "Workspace-wide scan for unused exported symbols (dead code) across the entire project or a scoped directory",
-        "modelDescription": "Lists the unused exported symbols across a whole workspace or directory.\n\nWHEN: auditing code quality, or cleaning up before a refactor; use find_unused_symbols for a single file.\nWHY: combines the reverse index with per-file symbol analysis, so the scan stays linear instead of comparing every file against every other.\nRETURNS: files scanned, files holding dead code, total unused symbols, per-file unused symbol lists, scan duration.\nLIMITS: scopePath must be an absolute path inside the workspace; results are incomplete while background indexing runs; an export reached only through a dynamic lookup can still be listed.",
+        "modelDescription": "Lists the unused exported symbols across a whole workspace or directory.\n\nWHEN: auditing code quality, or cleaning up before a refactor; use find_unused_symbols for a single file.\nWHY: combines the reverse index with per-file symbol analysis, so the scan stays linear instead of comparing every file against every other.\nRETURNS: files scanned, files holding dead code, total unused symbols, per-file unused symbol lists, scan duration, and truncated with filesBeyondLimit when maxFiles stopped the scan.\nLIMITS: scopePath must be an absolute path inside the workspace; results are incomplete while background indexing runs; an export reached only through a dynamic lookup can still be listed.",
         "inputSchema": {
           "type": "object",
           "properties": {

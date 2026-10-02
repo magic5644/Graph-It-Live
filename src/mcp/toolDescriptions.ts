@@ -322,7 +322,7 @@ const TOOL_DESCRIPTIONS: Record<DescribedToolName, ToolDescription> = {
     lines: [
       "WHEN: auditing code quality, or cleaning up before a refactor; use find_unused_symbols for a single file.",
       "WHY: combines the reverse index with per-file symbol analysis, so the scan stays linear instead of comparing every file against every other.",
-      "RETURNS: files scanned, files holding dead code, total unused symbols, per-file unused symbol lists, scan duration.",
+      "RETURNS: files scanned, files holding dead code, total unused symbols, per-file unused symbol lists, scan duration, and truncated with filesBeyondLimit when maxFiles stopped the scan.",
       {
         mcp: "LIMITS: needs background indexing to have finished; an export reached only through a dynamic lookup can still be listed.",
         lm: "LIMITS: scopePath must be an absolute path inside the workspace; results are incomplete while background indexing runs; an export reached only through a dynamic lookup can still be listed.",

@@ -23,6 +23,10 @@ export interface DeadCodeScanResult {
   totalUnusedSymbols: number;
   entries: DeadCodeScanEntry[];
   skippedFiles: number;
+  /** True when maxFiles stopped the scan: unscanned files may hold dead code too. */
+  truncated: boolean;
+  /** Analysable files left out by maxFiles */
+  filesBeyondLimit: number;
   analysisTimeMs: number;
 }
 
@@ -69,6 +73,8 @@ export async function scanDeadCode(
     totalUnusedSymbols: entries.reduce((sum, entry) => sum + entry.unusedCount, 0),
     entries,
     skippedFiles: rawResult.skippedFiles,
+    truncated: rawResult.filesBeyondLimit > 0,
+    filesBeyondLimit: rawResult.filesBeyondLimit,
     analysisTimeMs: Date.now() - startTime,
   };
 }

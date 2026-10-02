@@ -1744,7 +1744,7 @@ graph-it tool scan_dead_code
 graph-it tool scan_dead_code --scopePath=/abs/path/to/src/utils/
 ```
 
-**Output fields:** `rootDir`, `scopePath`, `scannedFiles`, `filesWithDeadCode`, `totalUnusedSymbols`, `entries[]`, `skippedFiles`, `analysisTimeMs`
+**Output fields:** `rootDir`, `scopePath`, `scannedFiles`, `filesWithDeadCode`, `totalUnusedSymbols`, `entries[]`, `skippedFiles`, `truncated`, `filesBeyondLimit`, `analysisTimeMs`. When `truncated` is `true`, `maxFiles` stopped the scan and `filesBeyondLimit` files were not analysed: raise `--maxFiles` or narrow `--scopePath` before concluding there is no dead code.
 
 ---
 
