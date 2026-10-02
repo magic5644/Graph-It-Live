@@ -1104,6 +1104,8 @@ graph-it wiki [options]
 
 `tests/`, `dist/`, `*.test.ts` and similar are excluded automatically unless `--exclude` is passed. The command fails with an error when the filters leave no indexed file.
 
+Each article lists at most 20 callers and 20 callees and states how many were left out. Links point only to articles of the same run; files outside the scope appear as plain text. Article names flatten the path (`src/foo.ts` → `src_foo.ts.md`); colliding names get a numeric suffix (`src_a_b.ts-2.md`). Regenerating the wiki deletes articles of earlier runs that no longer match an included file; only files carrying the generated-article marker are deleted.
+
 **Examples:**
 
 ```bash

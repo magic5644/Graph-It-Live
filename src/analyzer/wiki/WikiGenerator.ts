@@ -32,6 +32,12 @@ function displayPath(filePath: string, workspaceRoot: string): string {
   return path.relative(workspaceRoot, filePath).replaceAll('\\', "/");
 }
 
+/** First line of every generated article; only marked files are removed as stale. */
+const ARTICLE_MARKER = "<!-- graph-it-live:wiki-article -->";
+
+/** Maximum callers/callees listed per article. */
+const MAX_LINKS = 20;
+
 // ---------------------------------------------------------------------------
 // Scope filtering helpers
 // ---------------------------------------------------------------------------
@@ -162,6 +168,8 @@ export class WikiGenerator {
   private readonly scope: string | undefined;
   private readonly exclude: string[] | undefined;
   private readonly externalNodeMetadata: Record<string, GraphNodeMetadata> | undefined;
+  /** normalized source path → generated article path, for files of the current run. */
+  private articlePaths = new Map<string, string>();
 
   constructor(opts: WikiGeneratorOptions) {
     this.db = opts.db;
@@ -191,6 +199,7 @@ export class WikiGenerator {
         `No indexed file matches the wiki filters (${this.describeFilters()}). Check --scope and --exclude.`,
       );
     }
+    this.articlePaths = this.assignArticlePaths(files);
 
     // Build all articles (pure, no I/O)
     const articles: WikiArticle[] = files.map((normalized) => {
@@ -212,6 +221,7 @@ export class WikiGenerator {
       const markdown = this.renderArticle(article);
       await fs.writeFile(article.articlePath, markdown, "utf-8");
     }
+    await this.removeStaleArticles(articlesDir);
 
     // Build architecture diagram from article data
     const archDiagram = buildArchitectureDiagram(
@@ -243,6 +253,37 @@ export class WikiGenerator {
     };
   }
 
+  /**
+   * Flattens each workspace-relative path into one article file name. Names that
+   * collide (`src/a/b.ts` and `src/a_b.ts`, or names differing only by case on
+   * case-insensitive file systems) get a numeric suffix.
+   */
+  private assignArticlePaths(files: string[]): Map<string, string> {
+    const paths = new Map<string, string>();
+    const used = new Set<string>();
+    for (const file of files) {
+      const base = displayPath(file, this.workspaceRoot).replaceAll("/", "_");
+      let name = `${base}.md`;
+      let n = 1;
+      while (used.has(name.toLowerCase())) name = `${base}-${++n}.md`;
+      used.add(name.toLowerCase());
+      paths.set(file, path.join(this.outputDir, "articles", name));
+    }
+    return paths;
+  }
+
+  /** Deletes articles left by a previous run; files without the marker are kept. */
+  private async removeStaleArticles(articlesDir: string): Promise<void> {
+    const current = new Set([...this.articlePaths.values()].map((p) => path.basename(p)));
+    const entries = await fs.readdir(articlesDir, { withFileTypes: true });
+    for (const entry of entries) {
+      if (!entry.isFile() || !entry.name.endsWith(".md") || current.has(entry.name)) continue;
+      const stalePath = path.join(articlesDir, entry.name);
+      const content = await fs.readFile(stalePath, "utf-8");
+      if (content.startsWith(ARTICLE_MARKER)) await fs.rm(stalePath, { force: true });
+    }
+  }
+
   private describeFilters(): string {
     const parts: string[] = [];
     if (this.scope) parts.push(`scope ${quote(normalizeScope(this.workspaceRoot, this.scope) || ".")}`);
@@ -267,24 +308,41 @@ export class WikiGenerator {
   buildArticle(filePath: string, hubScore: number): WikiArticle {
     const ext = path.extname(filePath);
     const title = path.basename(filePath, ext);
-    const articlePath = path.join(
-      this.outputDir,
-      "articles",
-      displayPath(filePath, this.workspaceRoot).replaceAll('/', "_") + ".md",
-    );
+    const articlePath =
+      this.articlePaths.get(filePath) ??
+      path.join(
+        this.outputDir,
+        "articles",
+        displayPath(filePath, this.workspaceRoot).replaceAll('/', "_") + ".md",
+      );
 
     const symbols = this.querySymbols(filePath);
-    const callers = this.queryCallers(filePath);
-    const callees = this.queryCallees(filePath);
+    const allCallers = this.queryCallers(filePath);
+    const allCallees = this.queryCallees(filePath);
+    const callers = allCallers.slice(0, MAX_LINKS);
+    const callees = allCallees.slice(0, MAX_LINKS);
     const display = (fp: string) => displayPath(fp, this.workspaceRoot);
+
+    const base: WikiArticle = {
+      title,
+      filePath,
+      articlePath,
+      hubScore,
+      symbols,
+      callers,
+      callees,
+      callerCount: allCallers.length,
+      calleeCount: allCallees.length,
+      diagrams: [],
+    };
 
     // Build diagrams
     const diagrams: MermaidDiagram[] = [];
 
-    const depDiagram = buildDependencyDiagram({ title, filePath, articlePath, hubScore, symbols, callers, callees, diagrams: [] }, display);
+    const depDiagram = buildDependencyDiagram(base, display);
     if (depDiagram) diagrams.push(depDiagram);
 
-    const callerDiagram = buildCallerDiagram({ title, filePath, articlePath, hubScore, symbols, callers, callees, diagrams: [] }, display);
+    const callerDiagram = buildCallerDiagram(base, display);
     if (callerDiagram) diagrams.push(callerDiagram);
 
     // Control flow diagrams (only for TS/JS files)
@@ -294,7 +352,7 @@ export class WikiGenerator {
       diagrams.push(...cfDiagrams);
     }
 
-    return { title, filePath, articlePath, hubScore, symbols, callers, callees, diagrams };
+    return { ...base, diagrams };
   }
 
   renderArticle(article: WikiArticle): string {
@@ -315,7 +373,7 @@ export class WikiGenerator {
         .replaceAll(">", "&gt;")
         .replaceAll(/\r?\n/g, " ");
 
-    const headerLines = [`# ${safe(article.title)}`, `> ${safe(relSrc)} | Hub Score: ${article.hubScore}/100`, ""];
+    const headerLines = [ARTICLE_MARKER, `# ${safe(article.title)}`, `> ${safe(relSrc)} | Hub Score: ${article.hubScore}/100`, ""];
     lines.push(...headerLines);
 
     if (article.symbols.length > 0) {
@@ -329,35 +387,10 @@ export class WikiGenerator {
       lines.push(...symbolLines);
     }
 
-    if (article.callers.length > 0) {
-      const callerLines = [
-        "## Called by",
-        "| Symbol | File | Line |",
-        "|--------|------|------|",
-        ...article.callers.map((c) => {
-          const link = relLink(article.articlePath, this.articlePathFor(c.filePath));
-          const fileDisplay = displayPath(c.filePath, this.workspaceRoot);
-          return `| ${safe(c.name)} | [${safe(fileDisplay)}](${link}) | ${c.callSiteLine} |`;
-        }),
-        "",
-      ];
-      lines.push(...callerLines);
-    }
-
-    if (article.callees.length > 0) {
-      const calleeLines = [
-        "## External calls",
-        "| Symbol | File | Line |",
-        "|--------|------|------|",
-        ...article.callees.map((c) => {
-          const link = relLink(article.articlePath, this.articlePathFor(c.filePath));
-          const fileDisplay = displayPath(c.filePath, this.workspaceRoot);
-          return `| ${safe(c.name)} | [${safe(fileDisplay)}](${link}) | ${c.callSiteLine} |`;
-        }),
-        "",
-      ];
-      lines.push(...calleeLines);
-    }
+    lines.push(
+      ...this.renderLinkTable("Called by", "callers", article, article.callers, article.callerCount, safe),
+      ...this.renderLinkTable("External calls", "callees", article, article.callees, article.calleeCount, safe),
+    );
 
     const diagramLines = article.diagrams.flatMap((diagram) => {
       const block = [`## ${diagram.title}`];
@@ -370,6 +403,32 @@ export class WikiGenerator {
     lines.push(...diagramLines);
 
     return lines.join("\n");
+  }
+
+  /**
+   * Links point only to articles generated in this run; other files are shown
+   * as plain text. A note states how many entries were left out.
+   */
+  private renderLinkTable(
+    heading: string,
+    noun: string,
+    article: WikiArticle,
+    links: WikiLink[],
+    total: number,
+    safe: (s: string) => string,
+  ): string[] {
+    if (links.length === 0) return [];
+    const lines = [`## ${heading}`];
+    if (total > links.length) lines.push(`> ${links.length} of ${total} ${noun} shown.`, "");
+    lines.push("| Symbol | File | Line |", "|--------|------|------|");
+    for (const c of links) {
+      const fileDisplay = safe(displayPath(c.filePath, this.workspaceRoot));
+      const target = this.articlePaths.get(c.filePath);
+      const file = target ? `[${fileDisplay}](${relLink(article.articlePath, target)})` : fileDisplay;
+      lines.push(`| ${safe(c.name)} | ${file} | ${c.callSiteLine} |`);
+    }
+    lines.push("");
+    return lines;
   }
 
   renderIndex(
@@ -406,7 +465,7 @@ export class WikiGenerator {
       );
       lines.push(
         "## God Node",
-        `[${godNode.title}](${godLink}) — Hub Score: ${godNode.hubScore}/100 — ${godNode.symbols.length} symbols — ${godNode.callers.length} callers`,
+        `[${godNode.title}](${godLink}) — Hub Score: ${godNode.hubScore}/100 — ${godNode.symbols.length} symbols — ${godNode.callerCount} callers`,
         ""
       );
     }
@@ -433,7 +492,7 @@ export class WikiGenerator {
             path.join(this.outputDir, "index.md"),
             a.articlePath,
           );
-          return `| [${a.title}](${link}) | ${a.hubScore} | ${a.symbols.length} | ${a.callers.length} | ${a.diagrams.length} |`;
+          return `| [${a.title}](${link}) | ${a.hubScore} | ${a.symbols.length} | ${a.callerCount} | ${a.diagrams.length} |`;
         }),
         "",
       ];
@@ -441,15 +500,6 @@ export class WikiGenerator {
     }
 
     return lines.join("\n");
-  }
-
-  private articlePathFor(filePath: string): string {
-    const normalized = normalizePath(filePath);
-    return path.join(
-      this.outputDir,
-      "articles",
-      displayPath(normalized, this.workspaceRoot).replaceAll('/', "_") + ".md",
-    );
   }
 
   private buildHubMap(): Map<string, number> {
@@ -552,7 +602,6 @@ export class WikiGenerator {
         JOIN nodes n_src ON e.source_id = n_src.id
         WHERE n_tgt.path = ?
         ORDER BY e.source_line ASC
-        LIMIT 20
       `);
       stmt.bind([filePath]);
       while (stmt.step()) {
@@ -584,7 +633,6 @@ export class WikiGenerator {
         JOIN nodes n_tgt ON e.target_id = n_tgt.id
         WHERE n_src.path = ?
         ORDER BY e.source_line ASC
-        LIMIT 20
       `);
       stmt.bind([filePath]);
       while (stmt.step()) {

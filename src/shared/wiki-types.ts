@@ -35,6 +35,8 @@ export interface WikiArticle {
   symbols: WikiSymbol[];
   callers: WikiLink[]; // top 20
   callees: WikiLink[]; // top 20
+  callerCount: number; // total before the top-20 cut
+  calleeCount: number; // total before the top-20 cut
   diagrams: MermaidDiagram[];
 }
 
