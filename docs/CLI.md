@@ -1328,6 +1328,7 @@ Launches the full 22-tool MCP server process on `stdio`. The server:
 - Performs dependency analysis on the workspace
 - Returns results on stdout
 - Auto-invalidates the cache when files change (via `chokidar`, debounced 300 ms)
+- Exits when the client closes stdin; `SIGTERM` and `SIGINT` sent to `graph-it serve` are forwarded to the server, and the CLI exits with code 143 or 130 once it has stopped
 
 **MCP client configuration:**
 

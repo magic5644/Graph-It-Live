@@ -184,6 +184,43 @@ describe.skipIf(!distExists)("CLI global options (E2E)", { timeout: SUBPROCESS_T
     }
   });
 
+  // Windows has no catchable SIGTERM/SIGINT for a spawned process: kill() ends
+  // the CLI at once, so the forwarding path is covered by serve unit tests there.
+  it.skipIf(process.platform === "win32").each([
+    ["SIGTERM", 143],
+    ["SIGINT", 130],
+  ] as const)("serve stops the server on %s with stdin still open (#241)", async (signal, exitCode) => {
+    const child = spawn(process.execPath, [DIST_ENTRY, "serve", "--workspace", tmpDir], {
+      cwd: otherCwd,
+      stdio: ["pipe", "pipe", "ignore"],
+    });
+    try {
+      const initialized = new Promise<void>((resolve) => {
+        child.stdout.setEncoding("utf-8");
+        child.stdout.on("data", (chunk: string) => {
+          if (chunk.includes('"id":1')) resolve();
+        });
+      });
+      child.stdin.write(
+        `${JSON.stringify({
+          jsonrpc: "2.0",
+          id: 1,
+          method: "initialize",
+          params: { protocolVersion: "2025-06-18", capabilities: {}, clientInfo: { name: "e2e", version: "1" } },
+        })}\n`,
+      );
+      await initialized;
+
+      const exited = new Promise<number | null>((resolve) => child.once("exit", (code) => resolve(code)));
+      child.kill(signal);
+      const timeout = new Promise<"timeout">((resolve) => setTimeout(() => resolve("timeout"), 15_000));
+
+      expect(await Promise.race([exited, timeout])).toBe(exitCode);
+    } finally {
+      if (child.exitCode === null) child.kill("SIGKILL");
+    }
+  });
+
   it("serve exits once the client closes stdin, without a signal", async () => {
     const child = spawn(process.execPath, [DIST_ENTRY, "serve", "--workspace", tmpDir], {
       cwd: otherCwd,
