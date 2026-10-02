@@ -41,6 +41,7 @@ import {
   sanitizeString,
   SetWorkspaceParamsSchema,
   TraceFunctionExecutionParamsSchema,
+  resolveToolFilePaths,
   validateFilePath,
   validateToolParams,
 } from '../../src/mcp/types';
@@ -1566,5 +1567,65 @@ describe('validateFilePath — uncovered branches', () => {
     expect(() =>
       validateFilePath('/project/src/deeply/nested/file.ts', '/project')
     ).not.toThrow();
+  });
+});
+
+describe('validated file paths resolve against the workspace, not the cwd (GHSA-2pv3-2vx4-vf28)', () => {
+  const rootDir = path.resolve('/workspace-root');
+
+  it('returns the absolute path it validated', () => {
+    expect(validateFilePath('src/probe.ts', rootDir)).toBe(path.join(rootDir, 'src/probe.ts'));
+    expect(validateFilePath(path.join(rootDir, 'src/../probe.ts'), rootDir)).toBe(path.join(rootDir, 'probe.ts'));
+  });
+
+  it('never resolves a relative path against process.cwd()', () => {
+    expect(validateFilePath('probe.ts', rootDir)).not.toBe(path.resolve('probe.ts'));
+  });
+
+  it('replaces every file-path parameter of a tool with its validated path', () => {
+    expect(resolveToolFilePaths('analyze_breaking_changes', { filePath: 'probe.ts', oldContent: 'x' }, rootDir))
+      .toEqual({ filePath: path.join(rootDir, 'probe.ts'), oldContent: 'x' });
+    expect(resolveToolFilePaths('verify_dependency_usage', { sourceFile: 'a.ts', targetFile: 'b.ts' }, rootDir))
+      .toEqual({ sourceFile: path.join(rootDir, 'a.ts'), targetFile: path.join(rootDir, 'b.ts') });
+    expect(resolveToolFilePaths('invalidate_files', { filePaths: ['a.ts', 'lib/b.ts'] }, rootDir))
+      .toEqual({ filePaths: [path.join(rootDir, 'a.ts'), path.join(rootDir, 'lib/b.ts')] });
+  });
+
+  it('covers every path parameter of the file tools', () => {
+    const cases: Array<[Parameters<typeof resolveToolFilePaths>[0], string]> = [
+      ['analyze_dependencies', 'filePath'], ['crawl_dependency_graph', 'entryFile'],
+      ['find_referencing_files', 'targetPath'], ['parse_imports', 'filePath'],
+      ['resolve_module_path', 'fromFile'], ['get_symbol_graph', 'filePath'],
+      ['find_unused_symbols', 'filePath'], ['trace_function_execution', 'filePath'],
+      ['get_impact_analysis', 'filePath'], ['generate_codemap', 'filePath'],
+      ['query_call_graph', 'filePath'], ['analyze_file_logic', 'filePath'],
+    ];
+    for (const [tool, key] of cases) {
+      expect(resolveToolFilePaths(tool, { [key]: 'probe.ts' }, rootDir)).toEqual({ [key]: path.join(rootDir, 'probe.ts') });
+    }
+  });
+
+  it('rejects a parameter that leaves the workspace', () => {
+    expect(() => resolveToolFilePaths('parse_imports', { filePath: '../outside/probe.ts' }, rootDir)).toThrow('outside workspace');
+    expect(() => resolveToolFilePaths('invalidate_files', { filePaths: ['a.ts', '../x.ts'] }, rootDir)).toThrow('outside workspace');
+  });
+
+  it('keeps workspace-relative parameters of other tools untouched', () => {
+    const wiki = { outputDir: 'wiki', scope: 'src' };
+    expect(resolveToolFilePaths('generate_wiki', wiki, rootDir)).toBe(wiki);
+    expect(resolveToolFilePaths('get_index_status', {}, rootDir)).toEqual({});
+    expect(resolveToolFilePaths('parse_imports', null, rootDir)).toBeNull();
+  });
+
+  it('does not mutate the caller params', () => {
+    const params = { filePath: 'probe.ts' };
+    resolveToolFilePaths('parse_imports', params, rootDir);
+    expect(params.filePath).toBe('probe.ts');
+  });
+
+  it.skipIf(process.platform !== 'win32')('resolves Windows relative paths against the workspace drive', () => {
+    const winRoot = String.raw`C:\project`;
+    expect(validateFilePath(String.raw`src\probe.ts`, winRoot)).toBe(String.raw`C:\project\src\probe.ts`);
+    expect(validateFilePath('c:/project/src/probe.ts', winRoot).toLowerCase()).toBe(String.raw`c:\project\src\probe.ts`);
   });
 });

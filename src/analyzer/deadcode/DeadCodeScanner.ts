@@ -48,8 +48,7 @@ export async function scanDeadCode(
   rootDir: string,
   options: DeadCodeScanOptions,
 ): Promise<DeadCodeScanResult> {
-  const scopePath = options.scopePath ?? rootDir;
-  validateWorkspacePath(scopePath, rootDir);
+  const scopePath = validateWorkspacePath(options.scopePath ?? rootDir, rootDir);
   const startTime = Date.now();
   const rawResult = await spider.scanDeadCode(scopePath, { maxFiles: options.maxFiles });
   const entries = rawResult.entries.map((entry) => {

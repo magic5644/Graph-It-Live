@@ -35,7 +35,12 @@ export function isPathWithinRootCanonical(
   return canonicalPath === canonicalRoot || canonicalPath.startsWith(`${canonicalRoot}/`);
 }
 
-export function validateWorkspacePath(filePath: string, rootDir: string): void {
+/**
+ * Check that filePath stays inside rootDir and return the absolute path that
+ * was checked. A relative path is resolved against rootDir, not the process
+ * cwd: callers must use the returned path for file I/O.
+ */
+export function validateWorkspacePath(filePath: string, rootDir: string): string {
   if (filePath.includes("\0")) {
     throw new Error("Path contains null bytes");
   }
@@ -45,6 +50,7 @@ export function validateWorkspacePath(filePath: string, rootDir: string): void {
   if (!isPathWithinRootCanonical(filePath, rootDir)) {
     throw new Error(`File path escapes workspace through a symbolic link: ${filePath}`);
   }
+  return path.resolve(rootDir, filePath);
 }
 
 export function toWorkspaceRelativePath(

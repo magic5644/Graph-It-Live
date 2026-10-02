@@ -874,11 +874,54 @@ export function isPathWithinRootCanonical(filePath: string, rootDir: string): bo
  *
  * @param filePath - The file path to validate
  * @param rootDir - The workspace root directory
- * @returns true if valid, throws error if invalid
+ * @returns the absolute path that was validated (relative paths resolve
+ *   against rootDir); throws if the path leaves the workspace
  */
-export function validateFilePath(filePath: string, rootDir: string): boolean {
-  validateWorkspacePath(filePath, rootDir);
-  return true;
+export function validateFilePath(filePath: string, rootDir: string): string {
+  return validateWorkspacePath(filePath, rootDir);
+}
+
+/** File-path parameters of each tool, absolute or relative to the workspace. */
+const TOOL_FILE_PATH_PARAMS: Partial<Record<McpToolName, readonly string[]>> = {
+  analyze_dependencies: ["filePath"],
+  crawl_dependency_graph: ["entryFile"],
+  find_referencing_files: ["targetPath"],
+  expand_node: ["filePath"],
+  parse_imports: ["filePath"],
+  verify_dependency_usage: ["sourceFile", "targetFile"],
+  resolve_module_path: ["fromFile"],
+  invalidate_files: ["filePaths"],
+  get_symbol_graph: ["filePath"],
+  find_unused_symbols: ["filePath"],
+  get_symbol_dependents: ["filePath"],
+  trace_function_execution: ["filePath"],
+  get_symbol_callers: ["filePath"],
+  analyze_breaking_changes: ["filePath"],
+  get_impact_analysis: ["filePath"],
+  analyze_file_logic: ["filePath"],
+  generate_codemap: ["filePath"],
+  query_call_graph: ["filePath"],
+};
+
+/**
+ * Validate the file-path parameters of a tool call and replace each one with
+ * the absolute path that was validated. Both dispatchers (MCP worker, CLI
+ * `tool`) run this, so an executor never reads a relative path against the
+ * process cwd after it was checked against the workspace (CWE-22).
+ */
+export function resolveToolFilePaths<T>(tool: McpToolName, params: T, rootDir: string): T {
+  const keys = TOOL_FILE_PATH_PARAMS[tool];
+  if (!keys || typeof params !== "object" || params === null) return params;
+  const resolved = { ...params } as Record<string, unknown>;
+  for (const key of keys) {
+    const value = resolved[key];
+    if (typeof value === "string") {
+      resolved[key] = validateFilePath(value, rootDir);
+    } else if (Array.isArray(value)) {
+      resolved[key] = value.map((item: string) => validateFilePath(item, rootDir));
+    }
+  }
+  return resolved as T;
 }
 
 /**
