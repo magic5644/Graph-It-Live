@@ -1314,6 +1314,8 @@ const ReactFlowGraphContent: React.FC<ReactFlowGraphProps> = ({
       >
         {graph.cycles.size > 0 && (
           <div
+            data-testid="cycles-badge"
+            title="Distinct cycle participants in the analyzed graph, including collapsed or hidden nodes. This is not the number of cycles."
             style={{
               background: "var(--vscode-editor-background)",
               padding: "8px 12px",
@@ -1333,7 +1335,7 @@ const ReactFlowGraphContent: React.FC<ReactFlowGraphProps> = ({
                 background: "#dc3545",
               }}
             />
-            <span>Circular dependency ({graph.cycles.size} files)</span>
+            <span>Circular dependency ({graph.cycles.size} {mode === "symbol" ? "symbols" : "files"} in analyzed graph)</span>
           </div>
         )}
         {mode === 'file' && showCommunities && <CommunityLegend

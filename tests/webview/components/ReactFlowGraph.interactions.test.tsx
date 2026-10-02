@@ -40,6 +40,21 @@ function clickEdge(source = a, target = b) {
 afterEach(() => { cleanup(); vi.restoreAllMocks(); vi.useRealTimers(); });
 
 describe('file graph interactions', () => {
+  it('explains the distinct participant count and uses the correct unit in each mode', () => {
+    const cyclic: GraphData = { nodes: [a, b, c, d], edges: [
+      { source: a, target: b }, { source: b, target: a }, { source: b, target: c },
+      { source: c, target: d }, { source: d, target: c },
+    ] };
+    const view = render(<ReactFlowGraph {...props} data={cyclic} expandAll={false} />);
+    expect(flow.props.nodes).toHaveLength(2);
+    expect(screen.getByTestId('cycles-badge').textContent).toContain('4 files in analyzed graph');
+    expect(screen.getByTestId('cycles-badge').title).toContain('including collapsed or hidden nodes');
+    view.rerender(<ReactFlowGraph {...props} data={cyclic} mode="symbol" />);
+    expect(screen.getByTestId('cycles-badge').textContent).toContain('4 symbols in analyzed graph');
+    view.rerender(<ReactFlowGraph {...props} />);
+    expect(screen.queryByTestId('cycles-badge')).toBeNull();
+  });
+
   it('restores dimmed elements on pane click without restoring excluded communities or moving nodes', () => {
     vi.useFakeTimers();
     const build = vi.spyOn(builder, 'buildReactFlowGraph');
