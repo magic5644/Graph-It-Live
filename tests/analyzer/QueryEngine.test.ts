@@ -703,3 +703,124 @@ describe('QueryEngine.query (end-to-end)', () => {
     expect(result.nodes.map(node => node.id)).toEqual(['direct']);
   });
 });
+
+// ---------------------------------------------------------------------------
+// JSON output budget (#228)
+// ---------------------------------------------------------------------------
+
+describe('QueryEngine JSON output budget', () => {
+  let db: Database;
+
+  beforeEach(async () => {
+    db = await createTestDb();
+    // 120 symbols sharing the keyword, chained by CALLS edges.
+    for (let i = 0; i < 120; i++) {
+      insertNode(
+        db,
+        `/workspace/src/analyzer/callgraph/CallGraphIndexer${i}.ts:resolveWorkspaceImport${i}`,
+        `resolveWorkspaceImport${i}`,
+        'function',
+        `/workspace/src/analyzer/callgraph/CallGraphIndexer${i}.ts`,
+      );
+    }
+    for (let i = 0; i < 119; i++) {
+      insertEdge(
+        db,
+        `/workspace/src/analyzer/callgraph/CallGraphIndexer${i}.ts:resolveWorkspaceImport${i}`,
+        `/workspace/src/analyzer/callgraph/CallGraphIndexer${i + 1}.ts:resolveWorkspaceImport${i + 1}`,
+      );
+    }
+  });
+
+  afterEach(() => db.close());
+
+  const request = (outputFormat: 'json' | 'toon', tokenBudget: number) => ({
+    question: 'resolveWorkspaceImport',
+    workspaceRoot: '/workspace',
+    depth: 2,
+    tokenBudget,
+    outputFormat,
+  });
+
+  it.each([500, 1000])('keeps the returned nodes/edges within a %i-token budget', async (tokenBudget) => {
+    const { estimateTokens } = await import('../../src/shared/toon');
+    const result = await new QueryEngine(db, null).query(request('json', tokenBudget));
+
+    const sent = estimateTokens(JSON.stringify({ nodes: result.nodes, edges: result.edges }));
+    expect(result.meta.truncated).toBe(true);
+    expect(sent).toBeLessThanOrEqual(tokenBudget);
+    expect(result.meta.tokenEstimate).toBe(sent);
+    expect(result.nodes.length).toBeGreaterThan(0);
+    expect(result.nodes.length).toBeLessThan(result.nodeCount);
+    expect(result.json).toBeUndefined();
+  });
+
+  it('keeps only edges between returned nodes', async () => {
+    const result = await new QueryEngine(db, null).query(request('json', 500));
+    const ids = new Set(result.nodes.map(n => n.id));
+    for (const edge of result.edges) {
+      expect(ids.has(edge.source) && ids.has(edge.target)).toBe(true);
+    }
+    expect(result.edges.length).toBeLessThan(result.edgeCount);
+  });
+
+  it('returns everything untruncated when the budget is large enough', async () => {
+    const { estimateTokens } = await import('../../src/shared/toon');
+    const result = await new QueryEngine(db, null).query(request('json', 100_000));
+    expect(result.meta.truncated).toBe(false);
+    expect(result.nodes).toHaveLength(result.nodeCount);
+    expect(result.edges).toHaveLength(result.edgeCount);
+    expect(result.meta.tokenEstimate).toBe(estimateTokens(JSON.stringify({ nodes: result.nodes, edges: result.edges })));
+  });
+
+  it('still budgets the compact JSON for TOON output', async () => {
+    const { estimateTokens } = await import('../../src/shared/toon');
+    const result = await new QueryEngine(db, null).query(request('toon', 500));
+    expect(result.json).toBeDefined();
+    expect(estimateTokens(result.json!)).toBeLessThanOrEqual(500);
+    expect(result.meta.tokenEstimate).toBe(estimateTokens(result.json!));
+    expect(result.nodes).toHaveLength(result.nodeCount);
+  });
+});
+
+describe('QueryEngine.toBudgetedJson', () => {
+  let db: Database;
+
+  beforeEach(async () => {
+    db = await createTestDb();
+  });
+
+  afterEach(() => db.close());
+
+  const nodes = Array.from({ length: 60 }, (_, i) => ({
+    id: `node-${i}`,
+    name: `dispatchWebviewMessageToRouterHandlers${i}`,
+    type: 'function',
+    path: `/workspace/src/extension/services/WebviewMessageRouter/file${i}.ts`,
+    startLine: i,
+    relevanceScore: 60 - i,
+  }));
+
+  it('keeps the most relevant prefix in order', () => {
+    const engine = new QueryEngine(db, null);
+    const fitted = engine.toBudgetedJson(nodes, [], 300);
+    expect(fitted.truncated).toBe(true);
+    expect(fitted.nodes).toEqual(nodes.slice(0, fitted.nodes.length));
+  });
+
+  it('returns the input arrays unchanged within budget', () => {
+    const engine = new QueryEngine(db, null);
+    const edges = [{ source: 'node-0', target: 'node-1', relation: 'CALLS' as const }];
+    const fitted = engine.toBudgetedJson(nodes.slice(0, 2), edges, 4000);
+    expect(fitted.truncated).toBe(false);
+    expect(fitted.nodes).toHaveLength(2);
+    expect(fitted.edges).toEqual(edges);
+  });
+
+  it('returns no node when even one node exceeds the budget', () => {
+    const engine = new QueryEngine(db, null);
+    const fitted = engine.toBudgetedJson(nodes, [], 5);
+    expect(fitted.truncated).toBe(true);
+    expect(fitted.nodes).toEqual([]);
+  });
+});
