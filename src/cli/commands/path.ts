@@ -8,6 +8,7 @@
 
 import { executeCrawlDependencyGraph } from "../../mcp/tools";
 import { CliError, ExitCode } from "../errors";
+import { readIntegerOption } from "../options";
 import type { CliOutputFormat } from "../formatter";
 import { formatOutput } from "../formatter";
 import type { CliRuntime } from "../runtime";
@@ -25,16 +26,11 @@ export async function run(
     );
   }
 
-  await runtime.ensureIndexed();
-
   const ref = parseSymbolRef(args[0], runtime.workspaceRoot);
 
-  // Optional --maxDepth
-  let maxDepth: number | undefined;
-  const depthIdx = args.indexOf("--maxDepth");
-  if (depthIdx >= 0 && args[depthIdx + 1]) {
-    maxDepth = Number.parseInt(args[depthIdx + 1], 10);
-  }
+  const maxDepth = readIntegerOption(args, "--maxDepth", { min: 1, max: 100 });
+
+  await runtime.ensureIndexed();
 
   const result = await executeCrawlDependencyGraph({
     entryFile: ref.filePath,

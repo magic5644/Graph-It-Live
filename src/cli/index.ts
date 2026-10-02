@@ -262,8 +262,10 @@ export function findCommandStart(argv: string[], command: string): number {
 
 /**
  * Remove global flags (and the value of string-typed ones) from a command's raw
- * args. Commands that take their file from `args[0]` would otherwise read a
- * trailing global flag such as `summary --format toon` as the file path.
+ * args. Global flags are already parsed once by main(); left in place, they leak
+ * into command parsing: `summary --format toon` reads `--format` as the file,
+ * `query ... --workspace dir` appends `dir` to the question, and `context -f json`
+ * rejects `-f` as an unknown option.
  */
 export function stripGlobalOptions(args: string[]): string[] {
   const result: string[] = [];
@@ -283,11 +285,6 @@ export function stripGlobalOptions(args: string[]): string[] {
   }
   return result;
 }
-
-// Commands that read their target file from `args[0]`.
-const FILE_ARG_COMMANDS = new Set([
-  "summary", "trace", "explain", "path", "path-in", "check-dependencies", "cycles", "check",
-]);
 
 /**
  * Build the runtime for this invocation, applying the index-cache flags.
@@ -397,9 +394,7 @@ async function main(): Promise<void> {
   const argsAfterCommand = commandPosInArgv >= 0
     ? argvAfterBinary.slice(commandPosInArgv + 1)
     : commandArgs;
-  const rawCommandArgs = FILE_ARG_COMMANDS.has(command)
-    ? stripGlobalOptions(argsAfterCommand)
-    : argsAfterCommand;
+  const rawCommandArgs = stripGlobalOptions(argsAfterCommand);
 
   // Validate output format
   const format = (values.format ?? "text") as CliOutputFormat;

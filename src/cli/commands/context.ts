@@ -3,6 +3,7 @@
 import { executeGraphContext } from '../../mcp/tools/index.js';
 import { GraphContextParamsSchema, type GraphContextParams } from '../../mcp/types.js';
 import { CliError, ExitCode } from '../errors.js';
+import { readIntegerOption } from '../options.js';
 import type { CliOutputFormat } from '../formatter.js';
 import { formatOutput } from '../formatter.js';
 import type { CliRuntime } from '../runtime.js';
@@ -20,13 +21,6 @@ function value(args: string[], flag: string): string | undefined {
   return index < 0 ? undefined : args[index + 1];
 }
 
-function numberValue(args: string[], flag: string): number | undefined {
-  const raw = value(args, flag);
-  if (raw === undefined) return undefined;
-  const parsed = Number(raw);
-  if (!Number.isInteger(parsed)) throw new CliError(`${flag} must be an integer`, ExitCode.GENERAL_ERROR);
-  return parsed;
-}
 
 function values(args: string[], flag: string): string[] {
   return args.flatMap((arg, index) => arg === flag ? [args[index + 1]] : []);
@@ -68,9 +62,10 @@ function parse(args: string[]): GraphContextParams {
       ? relationValues as NonNullable<GraphContextParams['relations']>
       : undefined,
     scope: value(args, '--scope'),
-    depth: numberValue(args, '--depth'),
-    maxNodes: numberValue(args, '--max-nodes'),
-    tokenBudget: numberValue(args, '--token-budget'),
+    // Ranges are checked by GraphContextParamsSchema below.
+    depth: readIntegerOption(args, '--depth', { min: 0 }),
+    maxNodes: readIntegerOption(args, '--max-nodes', { min: 0 }),
+    tokenBudget: readIntegerOption(args, '--token-budget', { min: 0 }),
     from: from === undefined ? undefined : seed(from),
     to: to === undefined ? undefined : seed(to),
     directed: args.includes('--directed') || undefined,

@@ -16,6 +16,7 @@ import { executeQueryNaturalLanguage } from "../../mcp/tools";
 import type { QueryNaturalLanguageParams } from "../../mcp/tools/query.js";
 import { normalizePath } from "../../shared/path.js";
 import { CliError, ExitCode } from "../errors.js";
+import { readIntegerOption } from "../options.js";
 import type { CliOutputFormat } from "../formatter.js";
 import { relativizeWorkspacePaths } from "../formatter.js";
 import type { CliRuntime } from "../runtime.js";
@@ -25,25 +26,11 @@ import type { CliRuntime } from "../runtime.js";
 // ---------------------------------------------------------------------------
 
 function parseDepth(args: string[]): number {
-  const idx = args.indexOf("--depth");
-  if (idx >= 0 && args[idx + 1]) {
-    const parsed = Number.parseInt(args[idx + 1], 10);
-    if (!Number.isNaN(parsed) && parsed >= 1 && parsed <= 5) {
-      return parsed;
-    }
-  }
-  return 2;
+  return readIntegerOption(args, "--depth", { min: 1, max: 5 }) ?? 2;
 }
 
 function parseTokenBudget(args: string[]): number {
-  const idx = args.indexOf("--token-budget");
-  if (idx >= 0 && args[idx + 1]) {
-    const parsed = Number.parseInt(args[idx + 1], 10);
-    if (!Number.isNaN(parsed) && parsed >= 500 && parsed <= 16000) {
-      return parsed;
-    }
-  }
-  return 4000;
+  return readIntegerOption(args, "--token-budget", { min: 500, max: 16000 }) ?? 4000;
 }
 
 /**
