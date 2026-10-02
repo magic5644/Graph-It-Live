@@ -1,5 +1,45 @@
 # Changelog
 
+## v1.17.1
+
+### Security
+
+- **Validated file paths used by MCP and CLI tools**: File-path parameters now reach executors as the absolute paths checked against the workspace, preventing relative paths from being read against an unrelated process working directory. Dead-code scans also use their validated scope path. Fixes GHSA-2pv3-2vx4-vf28 (CWE-22).
+- **CLI symbol paths and wiki output confined to the workspace**: `file#Symbol` targets now use canonical containment checks to reject symlinks pointing outside the workspace. MCP wiki output is resolved against the workspace root so generation writes to the directory that was validated.
+
+### Changed
+
+- **Breaking-change response cleanup**: Removed the always-empty `addedSymbols` field from `analyze_breaking_changes`; additions were never analyzed by this tool. CLI documentation now reflects the actual response.
+- **Plugin skills use capability discovery**: Analysis, onboarding, dead-code and PR-review skills prefer the CLI, discover available commands and schemas, and use MCP equivalents when appropriate. Version and capability checks are shared within a session; updates require confirmation unless explicitly pre-authorized. Dead-code recommendations require incoming-reference and public-API checks rather than zero call sites alone. Review Gate guidance pins the Action to a verified release commit and documents independent CLI version selection and Dependabot updates.
+- **Plugin manifests synchronized**: Plugin and marketplace versions and their pinned MCP CLI commands now match the published `v1.17.0` package.
+
+### Fixed
+
+- **Call-graph cycle freshness**: Cross-file cycles are detected after external edges are resolved. Every indexing refresh recomputes cycle flags across the resolved graph, excluding type-only `USES` edges, so unchanged files no longer retain stale flags when a cycle is created or broken elsewhere.
+- **File-graph cycle counts and highlighting**: Iterative strongly connected components count every cycle participant and highlight only edges belonging to a cycle, including overlapping cycles and deep graphs. Removed the 3,000-edge cutoff and recursive traversal; clarified the cycle badge scope and simplified the traversal implementation.
+- **Graph expansion visibility**: Existing nodes retain their measured dimensions during graph synchronization and expansion-highlight cleanup, preventing initialized nodes from disappearing after expansion.
+- **Call-graph invalidation and rebuilds**: `invalidate_files` now refreshes affected files and their importers on the next graph query, even when modification times are unchanged. Invalidations received during a refresh remain pending. `rebuild_index` rebuilds the call graph from scratch and reports its result or failure reason; freshness metadata follows invalidation and successful rebuilds.
+- **Workspace index counts**: `set_workspace.filesIndexed` and `rebuild_index.reindexedCount` report indexed files rather than the bounded in-memory analysis cache size, including after a persisted-cache restore. Cache sizes remain available separately.
+- **Workspace configuration isolation**: Changing the workspace root through `set_workspace` clears the previous workspace's `tsConfigPath` unless a new one is supplied. Reselecting the same root keeps it; other session preferences carry over.
+- **MCP errors and TOON metadata**: Failed calls set `isError` in every response format. TOON responses include error text instead of an empty result, retain freshness and pagination metadata, and omit an empty data section when a failure has no data.
+- **Impact analysis for unknown symbols**: MCP and VS Code LM tools reject missing or misspelled symbols with up to three close name matches instead of reporting a safe change. When symbols cannot be listed, the summary states that the symbol was not verified.
+- **Empty replacement content**: `analyze_breaking_changes` and its VS Code LM equivalent analyze `newContent: ""` as an emptied file. Only an omitted value falls back to the file on disk.
+- **Dead-code scan limits**: Results expose `truncated` and `filesBeyondLimit` when `maxFiles` caps a scan, so unscanned files are no longer presented as a complete analysis. MCP, CLI and LM tool descriptions document the limit.
+- **Natural-language JSON token budgets**: JSON queries fit the actual full node and edge payload within `tokenBudget`, retaining the most relevant nodes and measuring `meta.tokenEstimate` on the payload sent. TOON keeps budgeting its compact payload; MCP, CLI and LM tools share the correction.
+- **CLI global and numeric options**: Global options work before or after every command and are removed from command arguments, keeping workspace paths out of query questions and allowing global format flags in `context`. Numeric options reject missing, non-integer and out-of-range values with a usage error and exit code 1.
+- **CLI query and wiki formats**: `query` honors JSON, TOON and text output, including its documented text default; Markdown and Mermaid requests fall back to text. `wiki` honors JSON, TOON and Markdown through the global `--format` option.
+- **MCP server workspace selection**: `graph-it serve --workspace <dir>` passes the resolved workspace to its child through `WORKSPACE_ROOT`, overriding inherited values instead of analyzing the process working directory.
+- **MCP process shutdown**: The stdio server exits when the client closes stdin. `graph-it serve` forwards `SIGTERM` and `SIGINT`, waits for the child to stop and exits with code 143 or 130 without reporting a normal Windows termination as a crash.
+- **Wiki exclusions and scopes**: Exclusion globs support `*`, `**` and `?`. Relative, `./`-prefixed, Windows-style and in-workspace absolute scopes resolve consistently, respect folder boundaries and compare normalized indexed paths. Filters leaving no indexed files return an error instead of generating an empty wiki.
+- **Wiki article names, links and regeneration**: Colliding flattened paths, including case-insensitive collisions, receive unique article names shared by the index and links. Links only target articles generated in the same run; out-of-scope files remain plain text. Caller/callee lists disclose truncation, and regeneration removes obsolete marked articles while preserving user files.
+- **Wiki control-flow diagrams**: Paths stop after `return` or `throw`, including nested blocks, brace-less branches, fully terminating if/else branches and switches with a terminating default. Switches without a default retain a no-match path, and `break` does not terminate the function.
+
+### Tests
+
+- **MCP stdio smoke test**: Replaced `scripts/test-mcp.js` with a built-CLI end-to-end test used by `npm run test:mcp`. It discovers the live tool inventory, calls every advertised tool, fails on missing results or tool errors, and verifies that an intended failure is flagged. CLI E2E tests share a reusable MCP session helper.
+- Added regression coverage for workspace containment and relative paths, CLI options and formats, server workspace selection and shutdown, index counts and refreshes, cycle detection, impact analysis, token budgets, dead-code limits, wiki generation and graph expansion visibility.
+- Increased Git-backed Branch Watch test timeouts to 20 seconds for slower Windows runners.
+
 ## v1.17.0
 
 ### Added
