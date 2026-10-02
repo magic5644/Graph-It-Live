@@ -43,7 +43,7 @@ body{
   font-size:16px;line-height:1.65;-webkit-font-smoothing:antialiased;overflow-x:hidden;
 }
 a{color:inherit;text-decoration:none}
-a:focus-visible,button:focus-visible{outline:2px solid #93c5fd;outline-offset:5px}
+a:focus-visible,button:focus-visible,summary:focus-visible{outline:2px solid #93c5fd;outline-offset:5px}
 ::selection{background:#254e7a;color:#fff}
 img{max-width:100%;display:block}
 .wrap{max-width:var(--max);margin:0 auto;padding:0 24px}
@@ -142,6 +142,7 @@ h3{font-size:19px;font-weight:700;letter-spacing:-.015em;margin:0 0 9px}
   transition:border-color .2s,transform .2s,box-shadow .2s;position:relative;overflow:hidden;
 }
 .card:hover{border-color:var(--line-strong);transform:translateY(-3px);box-shadow:0 18px 40px -22px rgba(0,0,0,.9)}
+summary{cursor:pointer;font-size:19px;font-weight:700}
 .card p{color:var(--muted);font-size:14.8px;margin:0}
 .ico{
   width:42px;height:42px;border-radius:11px;display:grid;place-items:center;margin-bottom:18px;
@@ -316,7 +317,7 @@ footer{border-top:1px solid var(--line);padding:46px 0 40px;color:var(--muted);f
 <div class="hero">
   <canvas id="graph-bg" aria-hidden="true"></canvas>
   <div class="wrap">
-    <div class="pill"><b>MCP</b> 27 graph tools for your AI assistant</div>
+    <div class="pill"><b>MCP</b> 22 graph tools for your AI assistant</div>
     <h1>See your codebase<br><span class="grad">as a graph</span></h1>
     <p class="lede">
       Imports, symbols, cross-file calls, cycles, dead code and change impact —
@@ -346,7 +347,7 @@ footer{border-top:1px solid var(--line);padding:46px 0 40px;color:var(--muted);f
     </div>
     <div class="demo-caption"><span>YOUR CODE. THE CONNECTIONS. THE WHOLE PICTURE.</span><a href="#views">Explore the three views ↗</a></div>
     <div class="stats rv">
-      <div class="stat"><b>27</b><span>MCP graph tools</span></div>
+      <div class="stat"><b>22</b><span>MCP graph tools</span></div>
       <div class="stat"><b>10+</b><span>Languages parsed</span></div>
       <div class="stat"><b>3</b><span>Graph views</span></div>
       <div class="stat"><b>100%</b><span>Local analysis</span></div>
@@ -461,6 +462,43 @@ footer{border-top:1px solid var(--line);padding:46px 0 40px;color:var(--muted);f
       <p>22 MCP tools expose the same local graph to GitHub Copilot, Claude, Cursor, Windsurf, Antigravity and any MCP client.</p>
     </div>
 
+    <details class="card rv" id="mcp-tools" style="margin-bottom:34px">
+      <summary>Explore all 22 MCP tools</summary>
+      <p style="margin:16px 0">These are the names advertised by <code>graph-it serve</code>. Start with <code>graphitlive_graph_context</code> for an open-ended question; choose a specialized tool for a specific task.</p>
+      <div class="tbl-scroll">
+        <table class="tbl">
+          <thead><tr><th scope="col">MCP tool</th><th scope="col">Purpose</th></tr></thead>
+          <tbody>
+            <tr><td><code>graphitlive_graph_context</code></td><td>Bounded unified context: search, neighbors, path, impact, refactor and overview.</td></tr>
+            <tr><td><code>graphitlive_analyze_dependencies</code></td><td>Import/export statements with written specifiers and resolved paths.</td></tr>
+            <tr><td><code>graphitlive_crawl_dependency_graph</code></td><td>Transitive file dependencies and circular imports.</td></tr>
+            <tr><td><code>graphitlive_find_referencing_files</code></td><td>Files that import or reference a target file.</td></tr>
+            <tr><td><code>graphitlive_verify_dependency_usage</code></td><td>Whether an imported file's symbols are actually used.</td></tr>
+            <tr><td><code>graphitlive_resolve_module_path</code></td><td>Resolve a module specifier, including aliases and implicit extensions.</td></tr>
+            <tr><td><code>graphitlive_get_symbol_graph</code></td><td>Exported symbols and their dependencies outside the file.</td></tr>
+            <tr><td><code>graphitlive_generate_codemap</code></td><td>Exports, internals, dependencies, dependents and intra-file call flow.</td></tr>
+            <tr><td><code>graphitlive_query_call_graph</code></td><td>Multi-hop callers and callees; type-only relations are excluded by default.</td></tr>
+            <tr><td><code>graphitlive_trace_function_execution</code></td><td>Follow a symbol's execution chain across files.</td></tr>
+            <tr><td><code>graphitlive_get_impact_analysis</code></td><td>Direct and transitive impact of changing a symbol.</td></tr>
+            <tr><td><code>graphitlive_analyze_breaking_changes</code></td><td>Compare file versions for signature changes that break callers.</td></tr>
+            <tr><td><code>graphitlive_review_pr</code></td><td>Local Git diff review with risk, impact evidence and limitations.</td></tr>
+            <tr><td><code>graphitlive_find_unused_symbols</code></td><td>Unused exported symbols in one file.</td></tr>
+            <tr><td><code>graphitlive_scan_dead_code</code></td><td>Workspace or scoped unused-export scan; reports file-limit truncation.</td></tr>
+            <tr><td><code>graphitlive_query_natural_language</code></td><td>Relevant subgraph for a plain-language question within a token budget.</td></tr>
+            <tr><td><code>graphitlive_generate_wiki</code></td><td>Navigable Markdown wiki generated from call-graph relationships.</td></tr>
+            <tr><td><code>graphitlive_get_session_stats</code></td><td>Session response sizes, TOON/JSON comparison and token usage.</td></tr>
+            <tr><td><code>graphitlive_set_workspace</code></td><td>Select the server session's workspace and optional resolver configuration.</td></tr>
+            <tr><td><code>graphitlive_get_index_status</code></td><td>Index readiness, indexed-file counts and cache statistics.</td></tr>
+            <tr><td><code>graphitlive_invalidate_files</code></td><td>Invalidate selected files for refresh on the next graph query.</td></tr>
+            <tr><td><code>graphitlive_rebuild_index</code></td><td>Rebuild workspace indexes, including the call graph.</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <p style="margin-top:16px"><code>crawl_dependency_graph</code> and <code>query_call_graph</code> accept <code>tokenBudget</code> (<code>0</code> disables the cap). Pass a returned <code>nextOffset</code> as <code>offset</code> to continue; <code>graph_context</code> uses cursor pagination.</p>
+      <p style="margin-top:16px">The MCP server does not register <code>get_symbol_callers</code>, <code>get_symbol_dependents</code>, <code>parse_imports</code>, <code>expand_node</code> or <code>analyze_file_logic</code>. Use <code>query_call_graph</code> (callers, depth 1), <code>analyze_dependencies</code>, <code>crawl_dependency_graph</code> and <code>generate_codemap</code> respectively. The five old names remain CLI transition aliases.</p>
+      <p style="margin-top:16px">The CLI's <code>tool --list</code> also has 22 entries, but a different inventory: 17 shared analysis tools plus five aliases. MCP-only <code>set_workspace</code> corresponds to CLI <code>--workspace</code>; use <code>review-pr</code>, <code>query</code>, <code>wiki</code> and <code>stats</code> for the other four MCP capabilities.</p>
+    </details>
+
     <div class="grid g2 rv" style="margin-bottom:34px">
       <div class="card">
         <div class="ico"><svg viewBox="0 0 24 24"><path d="M12 3v3M12 18v3M3 12h3M18 12h3M5.6 5.6l2.1 2.1M16.3 16.3l2.1 2.1M18.4 5.6l-2.1 2.1M7.7 16.3l-2.1 2.1"/><circle cx="12" cy="12" r="3.4"/></svg></div>
@@ -477,6 +515,7 @@ footer{border-top:1px solid var(--line);padding:46px 0 40px;color:var(--muted);f
         <div class="ico"><svg viewBox="0 0 24 24"><path d="M4 7h16M4 12h16M4 17h9"/><circle cx="19" cy="17" r="2"/></svg></div>
         <h3>Portable agent plugin</h3>
         <p>One package bundling the MCP server plus four skills: <code>graph-it-live</code>, <code>onboarding-express</code>, <code>dead-code-hunter</code> and <code>pr-review</code>.</p>
+        <p style="margin-top:12px">Plugin manifests pin a published CLI version and use <code>npx --prefer-offline</code>. Skills discover the installed capabilities, prefer the CLI, and fall back to MCP equivalents.</p>
         <ul>
           <li>Claude Code &amp; GitHub Copilot CLI marketplaces</li>
           <li>VS Code: <em>Chat: Install Plugin From Source</em></li>
@@ -554,12 +593,14 @@ footer{border-top:1px solid var(--line);padding:46px 0 40px;color:var(--muted);f
   <span class="c-str">"graph-it-live"</span>: {
     <span class="c-str">"type"</span>: <span class="c-cmd">"stdio"</span>,
     <span class="c-str">"command"</span>: <span class="c-cmd">"npx"</span>,
-    <span class="c-str">"args"</span>: [<span class="c-cmd">"-y"</span>, <span class="c-cmd">"@magic5644/graph-it-live@latest"</span>, <span class="c-cmd">"serve"</span>]
+    <span class="c-str">"args"</span>: [<span class="c-cmd">"-y"</span>, <span class="c-cmd">"--prefer-offline"</span>, <span class="c-cmd">"@magic5644/graph-it-live@latest"</span>, <span class="c-cmd">"serve"</span>],
+    <span class="c-str">"env"</span>: { <span class="c-str">"WORKSPACE_ROOT"</span>: <span class="c-cmd">"/path/to/project"</span> }
   }
 }</code></pre>
         </div>
       </div>
     </div>
+    <p class="rv" style="color:var(--muted);font-size:14.5px;margin-top:20px">Install the CLI first for configurations using <code>graph-it</code>. For other clients, place the server entry under the expected <code>servers</code> or <code>mcpServers</code> key and replace <code>/path/to/project</code> with your workspace root.</p>
 
     <div class="frame rv" style="margin-top:40px">
       <div class="frame-bar"><i class="dot"></i><i class="dot"></i><i class="dot"></i><span>Graph-It-Live tools in GitHub Copilot</span></div>
@@ -574,7 +615,7 @@ footer{border-top:1px solid var(--line);padding:46px 0 40px;color:var(--muted);f
     <div class="sec-head rv">
       <div class="eyebrow">Standalone CLI</div>
       <h2>The same engine, without VS Code</h2>
-      <p>Index a workspace, trace a symbol, export a graph, or start the MCP server — straight from your terminal.</p>
+      <p>Requires Node.js 22+. Index a workspace, trace a symbol, export a graph, or start the MCP server — straight from your terminal.</p>
     </div>
 
     <div class="grid g2">
@@ -588,6 +629,13 @@ footer{border-top:1px solid var(--line);padding:46px 0 40px;color:var(--muted);f
 <span class="c-cmd">npx</span> @magic5644/graph-it-live scan</code></pre>
         </div>
         <div class="code" style="margin-top:20px">
+          <div class="code-head"><span class="file">start with the shared index</span><button class="copy">Copy</button></div>
+<pre><code><span class="c-cmd">graph-it</span> scan
+<span class="c-cmd">graph-it</span> architecture --format toon
+<span class="c-cmd">graph-it</span> tool --list</code></pre>
+        </div>
+        <p style="color:var(--muted);font-size:14.5px;margin-top:16px">Extension, MCP and CLI share <code>.graph-it/cache/</code>. Indexing respects <code>.gitignore</code> and <code>.graphitignore</code>. Use <code>--reindex</code> for a clean rebuild or <code>--no-cache</code> to bypass persistence.</p>
+        <div class="code" style="margin-top:20px">
           <div class="code-head"><span class="file">unified graph context</span><button class="copy">Copy</button></div>
 <pre><code><span class="c-cmd">graph-it</span> context <span class="c-str">"what calls the request handler"</span> \
   --scope <span class="c-str">'src/**'</span> --format toon
@@ -600,25 +648,57 @@ footer{border-top:1px solid var(--line);padding:46px 0 40px;color:var(--muted);f
       <div class="rv">
         <div class="code">
           <div class="code-head"><span class="file">common commands</span><button class="copy">Copy</button></div>
-<pre><code><span class="c-cmd">graph-it</span> scan                    <span class="c-dim">Index the workspace</span>
-<span class="c-cmd">graph-it</span> summary                 <span class="c-dim">Workspace overview</span>
-<span class="c-cmd">graph-it</span> summary &lt;file&gt;          <span class="c-dim">File codemap</span>
-<span class="c-cmd">graph-it</span> trace &lt;file#Symbol&gt;     <span class="c-dim">Trace execution</span>
-<span class="c-cmd">graph-it</span> explain &lt;file&gt;          <span class="c-dim">Intra-file call flow</span>
-<span class="c-cmd">graph-it</span> path &lt;file&gt;             <span class="c-dim">Dependency path</span>
-<span class="c-cmd">graph-it</span> check [path]            <span class="c-dim">Unused exports</span>
-<span class="c-cmd">graph-it</span> query <span class="c-str">"&lt;question&gt;"</span>      <span class="c-dim">Ask the graph</span>
-<span class="c-cmd">graph-it</span> review-pr --base main   <span class="c-dim">Local PR review</span>
-<span class="c-cmd">graph-it</span> wiki                    <span class="c-dim">Markdown wiki</span>
-<span class="c-cmd">graph-it</span> export [path]           <span class="c-dim">Export as HTML</span>
-<span class="c-cmd">graph-it</span> serve                   <span class="c-dim">MCP stdio server</span></code></pre>
+<pre><code><span class="c-cmd">graph-it</span> scan                         <span class="c-dim"># Index workspace</span>
+<span class="c-cmd">graph-it</span> summary                      <span class="c-dim"># Workspace overview</span>
+<span class="c-cmd">graph-it</span> summary src/index.ts         <span class="c-dim"># File codemap</span>
+<span class="c-cmd">graph-it</span> architecture                 <span class="c-dim"># Workspace graph</span>
+<span class="c-cmd">graph-it</span> trace src/index.ts#main      <span class="c-dim"># Trace execution</span>
+<span class="c-cmd">graph-it</span> explain src/index.ts         <span class="c-dim"># Intra-file flow</span>
+<span class="c-cmd">graph-it</span> path src/index.ts            <span class="c-dim"># Dependencies</span>
+<span class="c-cmd">graph-it</span> path-in src/index.ts         <span class="c-dim"># Reverse dependencies</span>
+<span class="c-cmd">graph-it</span> check-dependencies src/index.ts <span class="c-dim"># Both directions</span>
+<span class="c-cmd">graph-it</span> cycles src/index.ts          <span class="c-dim"># Circular imports</span>
+<span class="c-cmd">graph-it</span> check                        <span class="c-dim"># Unused exports</span>
+<span class="c-cmd">graph-it</span> query <span class="c-str">"what calls main"</span>     <span class="c-dim"># Ask the graph</span>
+<span class="c-cmd">graph-it</span> context <span class="c-str">"what calls main"</span>   <span class="c-dim"># Bounded context</span>
+<span class="c-cmd">graph-it</span> review-pr --base origin/main <span class="c-dim"># Local diff review</span>
+<span class="c-cmd">graph-it</span> wiki --output wiki           <span class="c-dim"># Markdown wiki</span>
+<span class="c-cmd">graph-it</span> export                       <span class="c-dim"># Export as HTML</span>
+<span class="c-cmd">graph-it</span> stats                        <span class="c-dim"># Token statistics</span>
+<span class="c-cmd">graph-it</span> tool --list                  <span class="c-dim"># Discover tools</span>
+<span class="c-cmd">graph-it</span> serve --workspace /path/to/project <span class="c-dim"># MCP server</span>
+<span class="c-cmd">graph-it</span> install                      <span class="c-dim"># Expose bundled CLI</span>
+<span class="c-cmd">graph-it</span> update                       <span class="c-dim"># Update CLI</span>
+<span class="c-cmd">graph-it</span> --help                       <span class="c-dim"># Commands and options</span>
+<span class="c-cmd">graph-it</span> --version                    <span class="c-dim"># Installed version</span></code></pre>
         </div>
         <p style="color:var(--muted);font-size:14.5px;margin-top:16px">
-          Analysis commands support <code>--format json|toon|markdown</code>; <code>trace</code> and <code>path</code> also emit Mermaid.
+          Output defaults to <code>text</code>. Use <code>json</code> for scripts and <code>toon</code> for compact AI context. Most analysis commands also support <code>markdown</code>; <code>trace</code> and <code>path</code> emit Mermaid. <code>query</code> supports text/JSON/TOON (Markdown and Mermaid fall back to text); <code>wiki</code> supports JSON/TOON/Markdown.
+          Global <code>--workspace</code> and <code>--format</code> options work before or after the command.
           <a href="https://github.com/magic5644/Graph-It-Live/blob/main/docs/CLI.md" style="color:#93c5fd;font-weight:600" target="_blank" rel="noopener">Full CLI reference →</a>
         </p>
       </div>
     </div>
+
+    <details class="card rv" style="margin-top:34px">
+      <summary>Interactive REPL commands</summary>
+      <p style="margin:16px 0">Run <code>graph-it</code> without arguments in an interactive terminal. The palette groups canonical commands by intent; file and symbol commands reuse the current context when their target is omitted.</p>
+      <div class="tbl-scroll">
+        <table class="tbl" id="repl-commands">
+          <thead><tr><th scope="col">Group</th><th scope="col">Slash commands</th></tr></thead>
+          <tbody>
+            <tr><td>Navigate</td><td><code>/scope</code>, <code>/file</code></td></tr>
+            <tr><td>Understand</td><td><code>/trace</code>, <code>/explain</code>, <code>/context</code>, <code>/query</code></td></tr>
+            <tr><td>Relations</td><td><code>/check-dependencies</code>, <code>/cycles</code>, <code>/callers</code>, <code>/impact</code></td></tr>
+            <tr><td>Workspace</td><td><code>/summary</code>, <code>/architecture</code>, <code>/check</code>, <code>/review-pr</code>, <code>/scan</code></td></tr>
+            <tr><td>Output</td><td><code>/format</code>, <code>/export</code>, <code>/wiki</code></td></tr>
+            <tr><td>Session</td><td><code>/help</code>, <code>/quit</code></td></tr>
+          </tbody>
+        </table>
+      </div>
+      <p style="margin-top:16px">Type <code>file#Symbol</code> with <code>/trace</code>, <code>/callers</code> or <code>/impact</code> for symbol completion. Up/Down recall history; Tab inserts a suggested follow-up command. <code>/scope</code> replaces <code>/path</code> in the palette; the old alias still works.</p>
+      <p style="margin-top:16px"><code>/review-pr --base origin/main</code> reviews the working tree; add <code>--head feature/my-change</code> to compare committed refs.</p>
+    </details>
 
     <div class="card rv" style="margin-top:34px">
       <h3>CI review gate</h3>
@@ -690,6 +770,7 @@ footer{border-top:1px solid var(--line);padding:46px 0 40px;color:var(--muted);f
         <div class="foot-col">
           <h4>Docs</h4>
           <a href="https://github.com/magic5644/Graph-It-Live/blob/main/docs/CLI.md" target="_blank" rel="noopener">CLI reference</a>
+          <a href="#mcp-tools">MCP tool catalog</a>
           <a href="https://github.com/magic5644/Graph-It-Live/blob/main/docs/architecture/TOON_FORMAT.md" target="_blank" rel="noopener">TOON format</a>
           <a href="https://github.com/magic5644/Graph-It-Live/blob/main/DEVELOPMENT.md" target="_blank" rel="noopener">Development guide</a>
           <a href="https://github.com/magic5644/Graph-It-Live/blob/main/docs/README.md" target="_blank" rel="noopener">Documentation index</a>
