@@ -1578,7 +1578,7 @@
     "test:bench:memory": "node scripts/run-memory-bench.mjs",
     "test:context-economy": "npm run build:cli && node scripts/context-economy-corpus.mjs",
     "sync:tool-descriptions": "node scripts/sync-tool-descriptions.mjs",
-    "test:mcp": "node scripts/test-mcp.js",
+    "test:mcp": "vitest run tests/cli/serveTools.e2e.test.ts",
     "test:cli:e2e": "bash scripts/test-cli-e2e.sh",
     "lint": "eslint src",
     "lint:fix": "eslint src --fix",

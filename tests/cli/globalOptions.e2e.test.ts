@@ -10,6 +10,7 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { closeSession, startMcpSession } from "./mcpSession";
 
 const REPO_ROOT = path.resolve(__dirname, "../..");
 const DIST_ENTRY = path.join(REPO_ROOT, "dist/graph-it.js");
@@ -38,20 +39,6 @@ describe.skipIf(!distExists)("CLI global options (E2E)", { timeout: SUBPROCESS_T
     fs.rmSync(tmpDir, { recursive: true, force: true, maxRetries: 10, retryDelay: 200 });
     fs.rmSync(otherCwd, { recursive: true, force: true, maxRetries: 10, retryDelay: 200 });
   });
-
-  /** End the MCP session like a client does: close stdin, then wait for the process tree to exit. */
-  const closeSession = async (child: ReturnType<typeof spawn>): Promise<number | null> => {
-    if (child.exitCode !== null) return child.exitCode;
-    const exited = new Promise<number | null>((resolve) => child.once("exit", (code) => resolve(code)));
-    child.stdin?.end();
-    const timeout = new Promise<"timeout">((resolve) => setTimeout(() => resolve("timeout"), 15_000));
-    const outcome = await Promise.race([exited, timeout]);
-    if (outcome === "timeout") {
-      child.kill();
-      throw new Error("MCP server did not exit after stdin closed");
-    }
-    return outcome;
-  };
 
   /** Run the CLI from an unrelated cwd so only --workspace can point at tmpDir. */
   const cli = (...args: string[]) =>
@@ -124,57 +111,7 @@ describe.skipIf(!distExists)("CLI global options (E2E)", { timeout: SUBPROCESS_T
     expect(result.stdout).toContain("helper");
   });
 
-  /** Start `graph-it serve` from an unrelated cwd and complete the MCP handshake. */
-  const startSession = async () => {
-    const child = spawn(process.execPath, [DIST_ENTRY, "serve", "--workspace", tmpDir], {
-      cwd: otherCwd,
-      stdio: ["pipe", "pipe", "ignore"],
-    });
-    const responses = new Map<number, Record<string, unknown>>();
-    let buffer = "";
-    child.stdout.setEncoding("utf-8");
-    child.stdout.on("data", (chunk: string) => {
-      buffer += chunk;
-      let newline = buffer.indexOf("\n");
-      while (newline >= 0) {
-        const line = buffer.slice(0, newline).trim();
-        buffer = buffer.slice(newline + 1);
-        if (line.startsWith("{")) {
-          const message = JSON.parse(line) as { id?: number };
-          if (typeof message.id === "number") responses.set(message.id, message);
-        }
-        newline = buffer.indexOf("\n");
-      }
-    });
-    const send = (message: Record<string, unknown>) => child.stdin.write(`${JSON.stringify(message)}\n`);
-    const waitFor = async (id: number) => {
-      const deadline = Date.now() + 45_000;
-      while (!responses.has(id)) {
-        if (Date.now() > deadline || child.exitCode !== null) throw new Error(`no response ${id}`);
-        await new Promise((resolve) => setTimeout(resolve, 100));
-      }
-      return responses.get(id)!;
-    };
-    let nextId = 1;
-    const request = async (method: string, params: Record<string, unknown>) => {
-      const id = nextId++;
-      send({ jsonrpc: "2.0", id, method, params });
-      return waitFor(id);
-    };
-    await request("initialize", {
-      protocolVersion: "2025-06-18",
-      capabilities: {},
-      clientInfo: { name: "e2e", version: "1" },
-    });
-    send({ jsonrpc: "2.0", method: "notifications/initialized" });
-    const callTool = async (name: string, args: Record<string, unknown>) =>
-      (await request("tools/call", { name, arguments: args })).result as {
-        isError?: boolean;
-        content: Array<{ text: string }>;
-        structuredContent?: Record<string, unknown>;
-      };
-    return { child, callTool };
-  };
+  const startSession = () => startMcpSession(DIST_ENTRY, tmpDir, otherCwd);
 
   it("serve --workspace answers a tool call on a file of that workspace from another cwd", async () => {
     const { child, callTool } = await startSession();
