@@ -61,6 +61,29 @@ describe('Spider - scanDeadCode', () => {
     expect(result.scannedFiles).toBeGreaterThan(0);
   });
 
+  it('reports no truncation when the scope fits maxFiles (#231)', async () => {
+    const result = await spider.scanDeadCode(undefined, { maxFiles: 10_000 });
+
+    expect(result.scannedFiles).toBeGreaterThan(1);
+    expect(result.filesBeyondLimit).toBe(0);
+  });
+
+  it('reports the files left out when maxFiles is reached (#231)', async () => {
+    const full = await spider.scanDeadCode(undefined, { maxFiles: 10_000 });
+    const capped = await spider.scanDeadCode(undefined, { maxFiles: 1 });
+
+    expect(capped.scannedFiles).toBe(1);
+    expect(capped.filesBeyondLimit).toBe(full.scannedFiles - 1);
+  });
+
+  it('reports no truncation when maxFiles equals the number of files (#231)', async () => {
+    const full = await spider.scanDeadCode(undefined, { maxFiles: 10_000 });
+    const exact = await spider.scanDeadCode(undefined, { maxFiles: full.scannedFiles });
+
+    expect(exact.scannedFiles).toBe(full.scannedFiles);
+    expect(exact.filesBeyondLimit).toBe(0);
+  });
+
   it('should throw INDEX_NOT_READY when reverse index is absent', async () => {
     const spiderWithoutIndex = new SpiderBuilder()
       .withRootDir(fixturesDir)

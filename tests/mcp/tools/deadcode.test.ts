@@ -148,6 +148,30 @@ describe("deadcode tools", () => {
       expect(spiderMock.scanDeadCode).toHaveBeenCalledWith(tempDir, { maxFiles: 100 });
     });
 
+    it("reports truncation when maxFiles left files unscanned (#231)", async () => {
+      setupWorkerState({
+        scanDeadCode: vi.fn(async () => ({ entries: [], scannedFiles: 2, skippedFiles: 0, filesBeyondLimit: 3 })),
+      });
+
+      const result = await executeScanDeadCode({ maxFiles: 2 });
+
+      expect(result.truncated).toBe(true);
+      expect(result.filesBeyondLimit).toBe(3);
+      expect(result.scannedFiles).toBe(2);
+      expect(result.totalUnusedSymbols).toBe(0);
+    });
+
+    it("reports no truncation when every file was scanned (#231)", async () => {
+      setupWorkerState({
+        scanDeadCode: vi.fn(async () => ({ entries: [], scannedFiles: 4, skippedFiles: 0, filesBeyondLimit: 0 })),
+      });
+
+      const result = await executeScanDeadCode({});
+
+      expect(result.truncated).toBe(false);
+      expect(result.filesBeyondLimit).toBe(0);
+    });
+
     it("should include relative paths in entries", async () => {
       const fileA = path.join(tempDir, "src", "utils.ts");
 
