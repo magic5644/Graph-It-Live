@@ -788,4 +788,77 @@ describe("CallGraphIndexer", () => {
     expect(edgeRows[0]?.values.length).toBe(1);
     expect(edgeRows[0]?.values[0][0]).toBe(99);
   });
+
+  // -------------------------------------------------------------------------
+  // Cycle flags on the resolved graph (#239)
+  // -------------------------------------------------------------------------
+
+  describe("cycle flags after resolveExternalEdges (#239)", () => {
+    const FILE_X = String.raw`C:\repo\src\x.ts`.replaceAll("\\", "/");
+    const FILE_Y = "C:/repo/src/y.ts";
+    const xId = `${FILE_X}:x:1`;
+    const yId = `${FILE_Y}:y:1`;
+    const nodeX = makeNode({ id: xId, name: "x", path: FILE_X, folder: "C:/repo/src", startLine: 1 });
+    const nodeY = makeNode({ id: yId, name: "y", path: FILE_Y, folder: "C:/repo/src", startLine: 1 });
+    const callsX = makeEdge({ sourceId: yId, targetId: "@@external:x", sourceLine: 2 });
+    const callsY = makeEdge({ sourceId: xId, targetId: "@@external:y", sourceLine: 2 });
+
+    const cyclicFlags = (): Record<string, number> => {
+      const rows = indexer.getDb().exec("SELECT source_id, target_id, is_cyclic FROM edges ORDER BY source_id");
+      return Object.fromEntries(
+        (rows[0]?.values ?? []).map(([source, target, flag]) => [`${source}->${target}`, flag as number]),
+      );
+    };
+
+    it("flags a two-file call cycle on a cold build", () => {
+      indexer.indexFile([nodeX], [callsY], FILE_X, "typescript", 1000);
+      indexer.indexFile([nodeY], [callsX], FILE_Y, "typescript", 1000);
+
+      indexer.resolveExternalEdges();
+
+      expect(cyclicFlags()).toEqual({ [`${xId}->${yId}`]: 1, [`${yId}->${xId}`]: 1 });
+    });
+
+    it("clears the flags of unchanged files when a refresh breaks the cycle, and sets them again", () => {
+      indexer.indexFile([nodeX], [callsY], FILE_X, "typescript", 1000);
+      indexer.indexFile([nodeY], [callsX], FILE_Y, "typescript", 1000);
+      indexer.resolveExternalEdges();
+
+      // Only x.ts is re-extracted: it no longer calls y.
+      indexer.indexFile([nodeX], [], FILE_X, "typescript", 2000);
+      indexer.resolveExternalEdges();
+      expect(cyclicFlags()).toEqual({ [`${yId}->${xId}`]: 0 });
+
+      indexer.indexFile([nodeX], [callsY], FILE_X, "typescript", 3000);
+      indexer.resolveExternalEdges();
+      expect(cyclicFlags()).toEqual({ [`${xId}->${yId}`]: 1, [`${yId}->${xId}`]: 1 });
+    });
+
+    it("recomputes the flags even when no stub is left to resolve", () => {
+      indexer.indexFile([nodeY], [], FILE_Y, "typescript", 1000);
+      indexer.indexFile([nodeX], [makeEdge({ sourceId: xId, targetId: yId })], FILE_X, "typescript", 1000);
+      // A stale flag, e.g. restored from a cache written before the cycle broke.
+      indexer.markCycles([{ sourceId: xId, targetId: yId }]);
+
+      expect(indexer.resolveExternalEdges().before).toBe(0);
+      expect(cyclicFlags()).toEqual({ [`${xId}->${yId}`]: 0 });
+    });
+
+    it("does not let a type-only USES edge close a cycle", () => {
+      indexer.indexFile([nodeX], [callsY], FILE_X, "typescript", 1000);
+      indexer.indexFile([nodeY], [{ ...callsX, typeRelation: "USES" }], FILE_Y, "typescript", 1000);
+
+      indexer.resolveExternalEdges();
+
+      expect(Object.values(cyclicFlags())).toEqual([0, 0]);
+    });
+
+    it("flags a self-recursive call", () => {
+      indexer.indexFile([nodeX], [makeEdge({ sourceId: xId, targetId: xId })], FILE_X, "typescript", 1000);
+
+      indexer.resolveExternalEdges();
+
+      expect(cyclicFlags()).toEqual({ [`${xId}->${xId}`]: 1 });
+    });
+  });
 });

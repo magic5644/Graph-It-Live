@@ -4,23 +4,18 @@
  * on a throwaway workspace.
  */
 import * as fs from "node:fs";
-import * as os from "node:os";
 import * as path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { LanguageService } from "@/analyzer/LanguageService";
-import { CliRuntime } from "@/cli/runtime";
+import type { CliRuntime } from "@/cli/runtime";
 import { workerState } from "@/mcp/shared/state";
 import { executeQueryCallGraph } from "@/mcp/tools/callgraph";
 import { executeInvalidateFiles, executeRebuildIndex } from "@/mcp/tools/workspace";
 import { normalizePath } from "@/shared/path";
+import { indexWorkspace, rewriteKeepingMtime, wasmBuilt } from "./callGraphWorkspace";
 
 const WITH_CALL = 'import { helper } from "./b";\nexport function run() { return helper(); }\n';
 // Same length as WITH_CALL, so neither size nor mtime betrays the edit.
 const WITHOUT_CALL = 'import { helper } from "./b";\nexport function run() { return 42 + 1 ; }\n';
-
-// The call graph parsers load from dist/wasm (built before the tests in CI).
-const REPO_ROOT = path.resolve(__dirname, "../../..");
-const wasmBuilt = fs.existsSync(path.join(REPO_ROOT, "dist/wasm/sqljs.wasm"));
 
 // Cold indexing with the WASM parsers is slow on the Windows runner.
 describe.skipIf(!wasmBuilt)("call graph refresh on invalidate_files / rebuild_index", { timeout: 30_000 }, () => {
@@ -28,13 +23,6 @@ describe.skipIf(!wasmBuilt)("call graph refresh on invalidate_files / rebuild_in
   let runtime: CliRuntime;
   let fileA: string;
   let fileB: string;
-
-  /** Rewrite a file without moving its mtime: only an explicit invalidation can notice. */
-  const rewriteKeepingMtime = (filePath: string, content: string): void => {
-    const { atime, mtime } = fs.statSync(filePath);
-    fs.writeFileSync(filePath, content);
-    fs.utimesSync(filePath, atime, mtime);
-  };
 
   const callersOfHelper = async (): Promise<string[]> => {
     const result = await executeQueryCallGraph({
@@ -47,20 +35,12 @@ describe.skipIf(!wasmBuilt)("call graph refresh on invalidate_files / rebuild_in
   };
 
   beforeEach(async () => {
-    tmpDir = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "callgraph-refresh-")));
-    fs.mkdirSync(path.join(tmpDir, "src"));
-    fs.writeFileSync(path.join(tmpDir, "package.json"), "{}");
+    ({ tmpDir, runtime } = await indexWorkspace("callgraph-refresh-", {
+      "b.ts": "export function helper() { return 1; }\n",
+      "a.ts": WITH_CALL,
+    }));
     fileA = normalizePath(path.join(tmpDir, "src/a.ts"));
     fileB = normalizePath(path.join(tmpDir, "src/b.ts"));
-    fs.writeFileSync(fileB, "export function helper() { return 1; }\n");
-    fs.writeFileSync(fileA, WITH_CALL);
-
-    LanguageService.reset();
-    runtime = new CliRuntime(tmpDir);
-    await runtime.init();
-    // Under Vitest the runtime derives its package root from src/, not dist/.
-    workerState.config = { ...workerState.getConfig(), extensionPath: REPO_ROOT };
-    await runtime.ensureIndexed({ silent: true });
     expect(await callersOfHelper()).toEqual(["run"]);
   });
 

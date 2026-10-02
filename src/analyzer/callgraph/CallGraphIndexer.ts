@@ -5,7 +5,7 @@
  * - Initialize the in-memory SQLite database with the schema from db-schema.sql
  * - Upsert nodes and edges for a given source file (atomic transaction)
  * - Invalidate (delete + re-index) all data for a given file path
- * - Mark edges as cyclic (is_cyclic = 1) after cycle detection
+ * - Resolve cross-file stubs, then recompute is_cyclic flags on the whole graph
  *
  * NO vscode imports — this module is VS Code-agnostic.
  *
@@ -14,6 +14,7 @@
  */
 
 import type { RelationType, SupportedLang, SymbolType } from "@/shared/callgraph-types";
+import { detectCycleEdges } from "./cycleUtils";
 import fs from "node:fs/promises";
 import path from "node:path";
 import type { Database, SqlJsStatic } from "sql.js";
@@ -445,6 +446,7 @@ export class CallGraphIndexer {
     const before = (beforeRows[0]?.values[0][0] as number | null) ?? 0;
 
     if (before === 0) {
+      this.recomputeCycles();
       return { before: 0, resolved: 0, deleted: 0 };
     }
 
@@ -507,8 +509,36 @@ export class CallGraphIndexer {
     // Defensive: remove any orphaned external sources.
     db.run("DELETE FROM edges WHERE source_id LIKE '@@external:%'");
 
+    this.recomputeCycles();
     const deleted = before - resolved;
     return { before, resolved, deleted };
+  }
+
+  /**
+   * Recompute every is_cyclic flag from the whole resolved graph. Runs at the
+   * end of resolveExternalEdges(): a cross-file cycle only closes once its
+   * stubs point at real nodes, and re-extracting one file can open or break a
+   * cycle that runs through files that were not re-extracted. Type-only USES
+   * edges are not calls and never close a cycle.
+   */
+  private recomputeCycles(): void {
+    const db = this.getDb();
+    const rows = db.exec("SELECT source_id, target_id FROM edges WHERE type_relation != 'USES'");
+    const edges = (rows[0]?.values ?? []).map(([source, target]) => ({
+      source: source as string,
+      target: target as string,
+    }));
+    const cycleEdgeKeys = detectCycleEdges(edges);
+
+    db.run("UPDATE edges SET is_cyclic = 0 WHERE is_cyclic = 1");
+    if (cycleEdgeKeys.size === 0) return;
+    const stmt = db.prepare(
+      "UPDATE edges SET is_cyclic = 1 WHERE source_id = ? AND target_id = ? AND type_relation != 'USES'",
+    );
+    for (const { source, target } of edges) {
+      if (cycleEdgeKeys.delete(`${source}->${target}`)) stmt.run([source, target]);
+    }
+    stmt.free();
   }
 
   /**
