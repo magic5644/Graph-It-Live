@@ -243,6 +243,23 @@ describe.skipIf(!distExists)("CLI global options (E2E)", { timeout: SUBPROCESS_T
     }
   });
 
+  it("set_workspace reports the indexed files after a cache restore (#243)", async () => {
+    const { child, callTool } = await startSession();
+    try {
+      // The first call builds the index and saves the shared cache; the second
+      // restarts the worker, which restores that cache instead of parsing.
+      const select = async () => (await callTool("graphitlive_set_workspace", {
+        workspacePath: tmpDir,
+        response_format: "json",
+      })).structuredContent?.data as { filesIndexed: number };
+      expect((await select()).filesIndexed).toBe(2);
+      expect((await select()).filesIndexed).toBe(2);
+      expect(await closeSession(child)).toBe(0);
+    } finally {
+      if (child.exitCode === null) child.kill();
+    }
+  });
+
   it("serve exits once the client closes stdin, without a signal", async () => {
     const child = spawn(process.execPath, [DIST_ENTRY, "serve", "--workspace", tmpDir], {
       cwd: otherCwd,
