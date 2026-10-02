@@ -793,7 +793,7 @@
         "displayName": "Graph-It-Live: Get Impact Analysis",
         "icon": "$(report)",
         "userDescription": "Analyze the scope and risk of changing a symbol — shows affected files and symbols",
-        "modelDescription": "Reports everything affected by changing one symbol, direct and transitive.\n\nWHEN: assessing a refactor before starting it, or prioritising which call sites to update first.\nWHY: walks the symbol reverse index outward, keeping runtime and type-only impact separate and aggregating per file.\nRETURNS: impact level (high, medium, low), total impact count, runtime versus type-only breakdown, impacted symbols with depth (1 = direct) and affected files. Transitive impact only with includeTransitive.\nFor an open-ended question, start with graph-it-live_graph_context and come here when you need this specific cut.",
+        "modelDescription": "Reports everything affected by changing one symbol, direct and transitive.\n\nWHEN: assessing a refactor before starting it, or prioritising which call sites to update first.\nWHY: walks the symbol reverse index outward, keeping runtime and type-only impact separate and aggregating per file.\nRETURNS: impact level (high, medium, low), total impact count, runtime versus type-only breakdown, impacted symbols with depth (1 = direct) and affected files. Transitive impact only with includeTransitive. An unknown symbol returns an error listing close name matches.\nFor an open-ended question, start with graph-it-live_graph_context and come here when you need this specific cut.",
         "inputSchema": {
           "type": "object",
           "properties": {

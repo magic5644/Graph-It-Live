@@ -21,6 +21,7 @@ import {
   type ReviewPrParams,
 } from '@/mcp/types';
 import type { Dependency } from '@/analyzer/types';
+import { checkSymbolInFile, symbolNotFoundMessage } from '@/analyzer/utils/SymbolLookup';
 import { convertSpiderToLspFormat } from '@/shared/converters';
 import {
   toWorkspaceRelativePath,
@@ -727,6 +728,11 @@ export class LmToolsService {
           const filePath = this.resolveWorkspacePath(options.input.filePath);
           const rootDir = this.getWorkspaceRoot();
           try {
+            const symbolCheck = await checkSymbolInFile(spider, filePath, symbolName);
+            if (symbolCheck.status === 'missing') {
+              const fileLabel = rootDir ? toWorkspaceRelativePath(filePath, rootDir) : nodePath.basename(filePath);
+              return this.errorResult(symbolNotFoundMessage(symbolName, fileLabel, symbolCheck.suggestions));
+            }
             const directDependents = await spider.getSymbolDependents(filePath, symbolName);
             const impactedItems = directDependents.map((dep) => this.buildImpactItem(dep, 1, rootDir));
 

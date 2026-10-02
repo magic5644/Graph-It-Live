@@ -816,6 +816,20 @@ describe('LmToolsService', () => {
       expect(getSymbolDependents).toHaveBeenCalledWith('/workspace/src/b.ts', 'runB');
     });
 
+    it('returns an error with close matches for an unknown symbol (#229)', async () => {
+      const getSymbolDependents = vi.fn().mockResolvedValue([]);
+      const getSymbolGraph = vi.fn().mockResolvedValue({
+        symbols: [{ name: 'helper', kind: 'Function', line: 1, isExported: true, id: 'helper', category: 'function' }],
+        dependencies: [],
+      });
+      new LmToolsService({ provider: createProvider({ spider: { getSymbolDependents, getSymbolGraph } }), logger }).registerAll();
+
+      const result = await invokeTool(TOOL, { filePath: '/workspace/src/a.ts', symbolName: 'helpr' }) as Record<string, unknown>;
+
+      expect(result).toMatchObject({ error: expect.stringContaining("Symbol 'helpr' not found in src/a.ts. Did you mean: helper?") });
+      expect(getSymbolDependents).not.toHaveBeenCalled();
+    });
+
     it('keeps drive-letter paths intact when deriving the caller file', async () => {
       const getSymbolDependents = vi.fn().mockResolvedValue([
         { sourceSymbolId: 'C:/repo/src/caller.ts:run', targetSymbolId: '/workspace/src/a.ts:helper', targetFilePath: '/workspace/src/a.ts' },
