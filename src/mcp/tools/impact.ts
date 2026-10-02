@@ -43,9 +43,9 @@ export async function executeAnalyzeBreakingChanges(
 ): Promise<AnalyzeBreakingChangesResult> {
   const { filePath, symbolName, oldContent } = params;
 
-  // If newContent not provided, read current file
+  // Only an omitted newContent falls back to the file on disk: "" means the file was emptied.
   let newContent = params.newContent;
-  if (!newContent) {
+  if (newContent === undefined) {
     try {
       newContent = await fs.readFile(filePath, "utf-8");
     } catch {

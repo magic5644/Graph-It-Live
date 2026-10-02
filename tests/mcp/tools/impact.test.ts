@@ -78,6 +78,73 @@ describe("impact tools", () => {
     });
   });
 
+  describe("executeAnalyzeBreakingChanges newContent fallback (#223)", () => {
+    const oldContent = [
+      "export function greet(name: string): string { return name; }",
+      "export interface Options { verbose: boolean }",
+      "export function farewell(): void {}",
+    ].join("\n");
+
+    const useRealAnalyzer = () => {
+      const analyze = vi.fn(async (filePath: string, oldText: string, newText: string) => {
+        const { SignatureAnalyzer } = await import("../../../src/analyzer/SignatureAnalyzer");
+        return new SignatureAnalyzer().analyzeBreakingChanges(filePath, oldText, newText);
+      });
+      workerState.astWorkerHost = { analyzeBreakingChanges: analyze, stop: () => {} } as any;
+      return analyze;
+    };
+
+    it("analyzes an empty newContent as an emptied file instead of reading the disk", async () => {
+      const filePath = await createTempFile(tempDir, "api.ts", oldContent);
+      const analyze = useRealAnalyzer();
+
+      const result = await executeAnalyzeBreakingChanges({ filePath, oldContent, newContent: "" });
+
+      expect(analyze).toHaveBeenCalledWith(filePath, oldContent, "");
+      expect(result.breakingChangeCount).toBe(3);
+      expect(result.removedSymbols.sort()).toEqual(["Options", "farewell", "greet"]);
+      expect(result.errorCount).toBe(3);
+    });
+
+    it("reads the file on disk when newContent is omitted", async () => {
+      const current = "export function greet(name: string): string { return name; }";
+      const filePath = await createTempFile(tempDir, "api.ts", current);
+      const analyze = useRealAnalyzer();
+
+      const result = await executeAnalyzeBreakingChanges({ filePath, oldContent });
+
+      expect(analyze).toHaveBeenCalledWith(filePath, oldContent, current);
+      expect(result.removedSymbols.sort()).toEqual(["Options", "farewell"]);
+    });
+
+    it("reports no change when the omitted newContent matches the old content", async () => {
+      const filePath = await createTempFile(tempDir, "api.ts", oldContent);
+      useRealAnalyzer();
+
+      const result = await executeAnalyzeBreakingChanges({ filePath, oldContent });
+
+      expect(result.breakingChangeCount).toBe(0);
+    });
+
+    it("fails clearly when newContent is omitted and the file cannot be read", async () => {
+      useRealAnalyzer();
+      const filePath = path.join(tempDir, "missing.ts");
+
+      await expect(executeAnalyzeBreakingChanges({ filePath, oldContent })).rejects.toThrow(
+        `Cannot read current file: ${filePath}`,
+      );
+    });
+
+    it("keeps the symbolName filter on an emptied file", async () => {
+      const filePath = await createTempFile(tempDir, "api.ts", oldContent);
+      useRealAnalyzer();
+
+      const result = await executeAnalyzeBreakingChanges({ filePath, oldContent, newContent: "", symbolName: "greet" });
+
+      expect(result.removedSymbols).toEqual(["greet"]);
+    });
+  });
+
   describe("executeGetImpactAnalysis", () => {
     it("should return impact summary for direct dependents", async () => {
       const filePath = await createTempFile(tempDir, "utils.ts", "");
