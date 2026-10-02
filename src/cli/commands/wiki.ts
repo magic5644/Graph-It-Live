@@ -46,15 +46,9 @@ function parseTop(args: string[]): number {
   return readIntegerOption(args, "--top", { min: 1, max: 50 }) ?? 10;
 }
 
-function parseWikiFormat(
-  args: string[],
-  topLevelFormat: CliOutputFormat,
-): "markdown" | "json" | "toon" {
-  const raw = parseFlag(args, "--format");
-  if (raw === "markdown" || raw === "json" || raw === "toon") return raw;
-  if (topLevelFormat === "json") return "json";
-  if (topLevelFormat === "toon") return "toon";
-  return "markdown";
+/** main() and the REPL strip --format from args; text and mermaid render as markdown. */
+function toWikiFormat(format: CliOutputFormat): "markdown" | "json" | "toon" {
+  return format === "json" || format === "toon" ? format : "markdown";
 }
 
 // ---------------------------------------------------------------------------
@@ -68,7 +62,7 @@ export async function run(
 ): Promise<string> {
   const outputDir = parseOutputDir(args);
   const topHubsLimit = parseTop(args);
-  const wikiFormat = parseWikiFormat(args, format);
+  const wikiFormat = toWikiFormat(format);
   const scope = parseFlag(args, "--scope");
   const exclude = parseFlagMulti(args, "--exclude");
 

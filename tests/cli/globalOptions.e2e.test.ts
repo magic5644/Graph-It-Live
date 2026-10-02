@@ -71,6 +71,36 @@ describe.skipIf(!distExists)("CLI global options (E2E)", { timeout: SUBPROCESS_T
     expect(JSON.parse(result.stdout).question).toBe("what calls helper");
   });
 
+  it.each([
+    ["--format text", ["--format", "text"]],
+    ["-f text", ["-f", "text"]],
+    ["no --format", []],
+  ])("query with %s prints text output (#244)", (_label, formatArgs) => {
+    const result = cli("-w", tmpDir, "query", "what calls helper", ...formatArgs);
+
+    expect(result.status).toBe(0);
+    expect(result.stdout).toContain("Question: what calls helper");
+    expect(result.stdout).not.toMatch(/^nodes\[/m);
+  });
+
+  it("query -f toon prints the TOON subgraph", () => {
+    const result = cli("-w", tmpDir, "query", "what calls helper", "-f", "toon");
+
+    expect(result.status).toBe(0);
+    expect(result.stdout).not.toContain("Question:");
+  });
+
+  it.each([
+    ["json", (out: string) => expect(JSON.parse(out).articlesCount).toBeGreaterThan(0)],
+    ["toon", (out: string) => expect(out).toContain("wiki articles=")],
+    ["text", (out: string) => expect(out).toContain("# Wiki generated")],
+  ] as const)("wiki honours the global %s format", (format, check) => {
+    const result = cli("-w", tmpDir, "wiki", "--output", "out", "--format", format);
+
+    expect(result.status).toBe(0);
+    check(result.stdout);
+  });
+
   it("accepts the global -f option after the context command", () => {
     const result = cli("context", "what calls helper", "-f", "json", "-w", tmpDir);
 

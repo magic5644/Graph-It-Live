@@ -189,8 +189,8 @@ describe("wiki command", () => {
     expect(output).toContain("CallGraphIndexer.ts");
   });
 
-  it("returns JSON output when --format json", async () => {
-    const output = await run(["--format", "json"], makeRuntime(), "text");
+  it("returns JSON output for the json format", async () => {
+    const output = await run([], makeRuntime(), "json");
 
     expect(() => JSON.parse(output)).not.toThrow();
     const parsed = JSON.parse(output);
@@ -199,15 +199,8 @@ describe("wiki command", () => {
     expect(parsed.topHubs).toHaveLength(2);
   });
 
-  it("returns JSON when top-level format is json (no --format flag)", async () => {
-    const output = await run([], makeRuntime(), "json");
-
-    expect(() => JSON.parse(output)).not.toThrow();
-    expect(JSON.parse(output).articlesCount).toBe(5);
-  });
-
-  it("returns toon output when --format toon", async () => {
-    const output = await run(["--format", "toon"], makeRuntime(), "text");
+  it("returns toon output for the toon format", async () => {
+    const output = await run([], makeRuntime(), "toon");
 
     expect(output).toContain("wiki articles=5");
     expect(output).toContain("index=wiki/index.md");
@@ -215,17 +208,10 @@ describe("wiki command", () => {
     expect(output).toContain("CallGraphIndexer.ts(42)");
   });
 
-  it("returns toon when top-level format is toon (no --format flag)", async () => {
-    const output = await run([], makeRuntime(), "toon");
-
-    expect(output).toContain("wiki articles=5");
-  });
-
-  it("--format flag overrides top-level format", async () => {
-    const output = await run(["--format", "markdown"], makeRuntime(), "json");
+  it.each(["markdown", "mermaid"] as const)("renders markdown for the %s format", async (format) => {
+    const output = await run([], makeRuntime(), format);
 
     expect(output).toContain("# Wiki generated");
-    expect(() => JSON.parse(output)).toThrow();
   });
 
   // -------------------------------------------------------------------------
@@ -243,7 +229,7 @@ describe("wiki command", () => {
   it("includes scopeNote in toon output when present", async () => {
     mocks.executeGenerateWiki.mockResolvedValue(makeWikiResult({ scopeNote: "Scoped to src/" }));
 
-    const output = await run(["--format", "toon"], makeRuntime(), "text");
+    const output = await run([], makeRuntime(), "toon");
 
     expect(output).toContain("scope: Scoped to src/");
   });

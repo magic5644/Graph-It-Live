@@ -2,7 +2,7 @@
  * CLI Command: query
  *
  * Query the codebase with natural language using the call graph index.
- * Returns a TOON-format subgraph by default, JSON, or human-readable text.
+ * Returns human-readable text by default, or a TOON / JSON subgraph.
  *
  * Usage: graph-it query "<question>" [--depth N] [--token-budget N] [--format toon|json|text]
  *
@@ -33,24 +33,8 @@ function parseTokenBudget(args: string[]): number {
   return readIntegerOption(args, "--token-budget", { min: 500, max: 16000 }) ?? 4000;
 }
 
-/**
- * Parse --format from command args.
- * Returns "toon" | "json" | "text" when the flag is present, undefined otherwise.
- * This allows the caller to fall back to the top-level CLI format when absent.
- */
-function parseQueryFormatFromArgs(args: string[]): "toon" | "json" | "text" | undefined {
-  const idx = args.indexOf("--format");
-  if (idx >= 0 && args[idx + 1]) {
-    const val = args[idx + 1];
-    if (val === "toon" || val === "json" || val === "text") {
-      return val;
-    }
-  }
-  return undefined;
-}
-
 /** Flags that consume the next argument as their value. */
-const FLAG_WITH_VALUE = new Set(["--depth", "--token-budget", "--format"]);
+const FLAG_WITH_VALUE = new Set(["--depth", "--token-budget"]);
 
 /**
  * Extract the question: all positional non-flag arguments joined as a sentence.
@@ -130,9 +114,9 @@ export async function run(
 
   const depth = parseDepth(args);
   const tokenBudget = parseTokenBudget(args);
-  // --format in args overrides the top-level CLI format (e.g. REPL session default)
-  const queryFormatFromArgs = parseQueryFormatFromArgs(args);
-  const queryFormat: 'toon' | 'json' | 'text' = queryFormatFromArgs ?? (format === 'json' ? 'json' : 'toon');
+  // main() and the REPL strip --format from args and pass it here; formats
+  // query cannot render (markdown, mermaid) fall back to text.
+  const queryFormat = format === "json" || format === "toon" ? format : "text";
 
   await runtime.ensureIndexed();
 

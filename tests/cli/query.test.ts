@@ -97,7 +97,7 @@ describe('query command', () => {
   // -------------------------------------------------------------------------
   it('throws CliError when no question is provided', async () => {
     await expect(run([], makeRuntime(), 'text')).rejects.toThrow(CliError);
-    await expect(run(['--format', 'toon'], makeRuntime(), 'text')).rejects.toThrow(CliError);
+    await expect(run(['--depth', '3'], makeRuntime(), 'toon')).rejects.toThrow(CliError);
   });
 
   it('CliError for missing question has GENERAL_ERROR exit code', async () => {
@@ -118,25 +118,35 @@ describe('query command', () => {
     mocks.executeQueryNaturalLanguage.mockResolvedValueOnce(toonResult);
 
     const output = await run(
-      ['how does the indexer work', '--format', 'toon'],
+      ['how does the indexer work'],
       makeRuntime(),
-      'text',
+      'toon',
     );
 
     expect(output).toBe(toonResult.toon);
   });
 
-  it('uses toon as default format when no --format flag', async () => {
-    const toonResult = makeToonResult();
-    mocks.executeQueryNaturalLanguage.mockResolvedValueOnce(toonResult);
+  it('renders text for the global text format (the CLI default)', async () => {
+    // Regression #244: main() strips --format from the command args, so the
+    // global format is the only signal and `text` must not fall back to TOON.
+    mocks.executeQueryNaturalLanguage.mockResolvedValueOnce(makeJsonResult());
 
     const output = await run(['how does the indexer work'], makeRuntime(), 'text');
 
-    expect(output).toBe(toonResult.toon);
+    expect(output).toContain('Question: ');
+    expect(output).toContain('Matching nodes:');
     expect(mocks.executeQueryNaturalLanguage).toHaveBeenCalledWith(
-      expect.objectContaining({ outputFormat: 'toon' }),
+      expect.objectContaining({ outputFormat: 'json' }),
       expect.anything(),
     );
+  });
+
+  it.each(['markdown', 'mermaid'] as const)('falls back to text for the %s format', async (format) => {
+    mocks.executeQueryNaturalLanguage.mockResolvedValueOnce(makeJsonResult());
+
+    const output = await run(['how does the indexer work'], makeRuntime(), format);
+
+    expect(output).toContain('Matching nodes:');
   });
 
   // -------------------------------------------------------------------------
@@ -147,9 +157,9 @@ describe('query command', () => {
     mocks.executeQueryNaturalLanguage.mockResolvedValueOnce(jsonResult);
 
     const output = await run(
-      ['how does the indexer work', '--format', 'json'],
+      ['how does the indexer work'],
       makeRuntime(),
-      'text',
+      'json',
     );
 
     expect(() => JSON.parse(output)).not.toThrow();
@@ -163,9 +173,9 @@ describe('query command', () => {
     mocks.executeQueryNaturalLanguage.mockResolvedValueOnce(makeJsonResult());
 
     await run(
-      ['how does the indexer work', '--format', 'json'],
+      ['how does the indexer work'],
       makeRuntime(),
-      'text',
+      'json',
     );
 
     expect(mocks.executeQueryNaturalLanguage).toHaveBeenCalledWith(
@@ -251,7 +261,7 @@ describe('query command', () => {
       }),
     );
 
-    const output = await run(['how does the indexer work', '--format', 'text'], makeRuntime(), 'text');
+    const output = await run(['how does the indexer work'], makeRuntime(), 'text');
 
     expect(output).toContain('CallGraphIndexer (src/analyzer/CallGraphIndexer.ts:42)');
   });
@@ -271,7 +281,7 @@ describe('query command', () => {
       }),
     );
 
-    const output = await run(['how does the indexer work', '--format', 'text'], makeRuntime(), 'text');
+    const output = await run(['how does the indexer work'], makeRuntime(), 'text');
 
     expect(output).toContain('CallGraphIndexer (src/analyzer/CallGraphIndexer.ts)');
   });
@@ -283,7 +293,7 @@ describe('query command', () => {
       }),
     );
 
-    const output = await run(['how does the indexer work', '--format', 'toon'], makeRuntime(), 'text');
+    const output = await run(['how does the indexer work'], makeRuntime(), 'toon');
 
     expect(output).toBe('[src/a.ts:A:3,A,class,src/a.ts,3,0]');
   });
@@ -291,7 +301,7 @@ describe('query command', () => {
   it('strips the workspace root from JSON output', async () => {
     mocks.executeQueryNaturalLanguage.mockResolvedValueOnce(makeJsonResult());
 
-    const output = await run(['how does the indexer work', '--format', 'json'], makeRuntime(), 'text');
+    const output = await run(['how does the indexer work'], makeRuntime(), 'json');
 
     expect(output).not.toContain('/workspace/');
     expect(JSON.parse(output).nodes[0].path).toBe('src/analyzer/CallGraphIndexer.ts');
@@ -341,7 +351,7 @@ describe('query command', () => {
     mocks.executeQueryNaturalLanguage.mockResolvedValueOnce(jsonResult);
 
     const output = await run(
-      ['how does the indexer work', '--format', 'text'],
+      ['how does the indexer work'],
       makeRuntime(),
       'text',
     );
