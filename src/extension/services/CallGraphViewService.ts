@@ -16,7 +16,6 @@
 import { IndexCache } from "@/analyzer/cache/IndexCache";
 import { CallGraphIndexer, getSqlJsWasmPath } from "@/analyzer/callgraph/CallGraphIndexer";
 import { queryNeighbourhood } from "@/analyzer/callgraph/CallGraphQuery";
-import { detectCycleEdges } from "@/analyzer/callgraph/cycleUtils";
 import { collectChangedFiles, getQueryFreshnessCutoffs, GraphExtractor } from "@/analyzer/callgraph/GraphExtractor";
 import { SourceFileCollector } from "@/analyzer/SourceFileCollector";
 import type {
@@ -296,16 +295,6 @@ export class CallGraphViewService implements vscode.Disposable, ICallGraphQueryS
       const { nodes, edges } = await extractor.extractFile(filePath, lang, fileMtime);
       if (this.disposed) return;
       indexer.indexFile(nodes, edges, filePath, lang, fileMtime);
-
-      const fileCycleEdgeKeys = detectCycleEdges(
-        edges.filter((e) => e.typeRelation !== "USES").map((e) => ({ source: e.sourceId, target: e.targetId })),
-      );
-      const fileCyclicPairs = edges.filter(
-        (e) => fileCycleEdgeKeys.has(`${e.sourceId}->${e.targetId}`),
-      );
-      if (fileCyclicPairs.length > 0) {
-        indexer.markCycles(fileCyclicPairs);
-      }
 
       // Resolve root node from the just-extracted symbols (avoids DB round-trip).
       const rootNode = this.resolveRootNode(nodes, cursorLine);
@@ -643,18 +632,13 @@ export class CallGraphViewService implements vscode.Disposable, ICallGraphQueryS
     return this.indexWorkspacePromise;
   }
 
-  /**
-   * Extract files in parallel batches, insert into the DB serially,
-   * and accumulate edges for a final cycle-detection pass.
-   */
+  /** Extract files in parallel batches and insert them into the DB serially. */
   private async extractAndIndexBatches(
     jobs: Array<{ filePath: string; lang: SupportedLang; mtime: number }>,
     indexer: CallGraphIndexer,
     extractor: GraphExtractor,
     progressState: { done: number; total: number },
-  ): Promise<Array<{ sourceId: string; targetId: string; typeRelation: string }>> {
-    const allEdges: Array<{ sourceId: string; targetId: string; typeRelation: string }> = [];
-
+  ): Promise<void> {
     for (let i = 0; i < jobs.length; i += EXTRACT_BATCH) {
       if (this.disposed) break;
       const batch = jobs.slice(i, i + EXTRACT_BATCH);
@@ -676,9 +660,6 @@ export class CallGraphViewService implements vscode.Disposable, ICallGraphQueryS
         for (const r of results) {
           if (r.ok && r.extracted) {
             indexer.indexFile(r.extracted.nodes, r.extracted.edges, r.job.filePath, r.job.lang, r.job.mtime);
-            for (const e of r.extracted.edges) {
-              allEdges.push({ sourceId: e.sourceId, targetId: e.targetId, typeRelation: e.typeRelation });
-            }
           }
           progressState.done++;
         }
@@ -688,10 +669,8 @@ export class CallGraphViewService implements vscode.Disposable, ICallGraphQueryS
         this.log(`[CallGraph] Batch commit failed, falling back to per-file: ${errorMessage(batchErr)}`);
         // Undo the progress counted in the try block — indexResultsOneByOne will re-count.
         progressState.done -= results.length;
-        // Also undo any edges pushed before the failure — the fallback re-pushes them.
-        allEdges.length = allEdges.length - results.reduce((n, r) => n + (r.ok && r.extracted ? r.extracted.edges.length : 0), 0);
         // Fallback: re-index failed batch file-by-file with individual transactions
-        this.indexResultsOneByOne(results, indexer, allEdges, progressState);
+        this.indexResultsOneByOne(results, indexer, progressState);
       }
 
       // Check the runtime flag so a silent background walk can be "upgraded"
@@ -710,23 +689,18 @@ export class CallGraphViewService implements vscode.Disposable, ICallGraphQueryS
       // (editor switching, typing, IntelliSense) stays responsive during indexing.
       await new Promise<void>((resolve) => setImmediate(resolve));
     }
-    return allEdges;
   }
 
   /** Fallback: index extraction results one file at a time (used when a batch transaction fails). */
   private indexResultsOneByOne(
     results: Array<{ job: { filePath: string; lang: SupportedLang; mtime: number }; extracted: { nodes: import("@/analyzer/callgraph/CallGraphIndexer").CallGraphNode[]; edges: import("@/analyzer/callgraph/CallGraphIndexer").CallGraphEdge[] } | null; ok: boolean }>,
     indexer: CallGraphIndexer,
-    allEdges: Array<{ sourceId: string; targetId: string; typeRelation: string }>,
     progressState: { done: number; total: number },
   ): void {
     for (const r of results) {
       if (r.ok && r.extracted) {
         try {
           indexer.indexFile(r.extracted.nodes, r.extracted.edges, r.job.filePath, r.job.lang, r.job.mtime);
-          for (const e of r.extracted.edges) {
-            allEdges.push({ sourceId: e.sourceId, targetId: e.targetId, typeRelation: e.typeRelation });
-          }
         } catch (fileErr: unknown) {
           this.log(`[CallGraph] Index failed for ${r.job.filePath}: ${errorMessage(fileErr)}`);
         }
@@ -786,22 +760,8 @@ export class CallGraphViewService implements vscode.Disposable, ICallGraphQueryS
 
     // Phase 2 — parallel extraction + serial DB insertion
     const progressState = { done: skipped, total };
-    const allEdges = await this.extractAndIndexBatches(jobs, indexer, extractor, progressState);
+    await this.extractAndIndexBatches(jobs, indexer, extractor, progressState);
     if (this.disposed) return;
-
-    // Phase 3 — single cycle-detection pass
-    const nonUsesEdges = allEdges
-      .filter((e) => e.typeRelation !== "USES")
-      .map((e) => ({ source: e.sourceId, target: e.targetId }));
-    if (nonUsesEdges.length > 0) {
-      const cycleEdgeKeys = detectCycleEdges(nonUsesEdges);
-      const cyclicPairs = allEdges.filter(
-        (e) => cycleEdgeKeys.has(`${e.sourceId}->${e.targetId}`),
-      );
-      if (cyclicPairs.length > 0) {
-        indexer.markCycles(cyclicPairs.map((e) => ({ sourceId: e.sourceId, targetId: e.targetId })));
-      }
-    }
 
     if (this.disposed) return;
     this.workspaceIndexedRoot = workspaceRoot;
@@ -1014,15 +974,8 @@ export class CallGraphViewService implements vscode.Disposable, ICallGraphQueryS
     if (this.disposed) return;
     indexer.indexFile(nodes, edges, filePath, lang, mtime);
 
-    const cycleEdgeKeys = detectCycleEdges(edges.map((e) => ({ source: e.sourceId, target: e.targetId })));
-    const cyclicPairs = edges.filter(
-      (e) => cycleEdgeKeys.has(`${e.sourceId}->${e.targetId}`),
-    );
-    if (cyclicPairs.length > 0) {
-      indexer.markCycles(cyclicPairs);
-    }
-
-    // Re-resolve cross-file edges since this file may introduce or change call stubs.
+    // Re-resolve cross-file edges since this file may introduce or change call
+    // stubs; this also recomputes the cycle flags of the whole graph.
     indexer.resolveExternalEdges();
 
     // Re-query using the saved root symbol and re-send the graph

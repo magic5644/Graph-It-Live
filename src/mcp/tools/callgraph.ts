@@ -9,9 +9,7 @@
  */
 
 import type { IndexCache } from "@/analyzer/cache/IndexCache";
-import type { CallGraphEdge } from "@/analyzer/callgraph/CallGraphIndexer";
 import { CallGraphIndexer } from "@/analyzer/callgraph/CallGraphIndexer";
-import { detectCycleEdges } from "@/analyzer/callgraph/cycleUtils";
 import type { ExtractorConfig } from "@/analyzer/callgraph/GraphExtractor";
 import {
   collectChangedFiles,
@@ -123,14 +121,11 @@ interface CallGraphJob {
  * Returns every file when the workspace churned past REBUILD_THRESHOLD, after
  * wiping the DB clean — the caller then indexes from scratch.
  *
- * ponytail: two known drifts that only a rebuild heals.
- *  1. resolveExternalEdges() permanently deletes unresolved `@@external:` stubs,
- *     so an edge whose TARGET gained a symbol is not restored by re-extracting
- *     the target alone. Importers of changed files are re-extracted to cover the
- *     import-based cases; non-import resolution (dynamic dispatch, Go/Java
- *     package-level) stays uncovered until the next full rebuild.
- *  2. `is_cyclic` flags on edges of unchanged files are not recomputed, so a
- *     cycle broken elsewhere can stay flagged until the next full rebuild.
+ * ponytail: resolveExternalEdges() permanently deletes unresolved `@@external:`
+ * stubs, so an edge whose TARGET gained a symbol is not restored by re-extracting
+ * the target alone. Importers of changed files are re-extracted to cover the
+ * import-based cases; non-import resolution (dynamic dispatch, Go/Java
+ * package-level) stays uncovered until the next full rebuild.
  */
 async function selectStaleJobs(
   indexer: CallGraphIndexer,
@@ -285,12 +280,9 @@ async function indexCallGraph(
   );
 
   // Extract + index the selected files in batches
-  const allEdges = await indexCallGraphJobs(indexer, extractor, jobs);
+  await indexCallGraphJobs(indexer, extractor, jobs);
 
-  // Cycle detection
-  markCycleEdges(indexer, allEdges);
-
-  // Resolve cross-file edges
+  // Resolve cross-file edges, then flag cycles on the resolved graph
   const resolveStats = indexer.resolveExternalEdges();
   log.info(
     `Cross-file resolution: resolved=${resolveStats.resolved} unresolved=${resolveStats.deleted}`,
@@ -344,51 +336,30 @@ async function indexCallGraphJobs(
   indexer: CallGraphIndexer,
   extractor: GraphExtractor,
   jobs: CallGraphJob[],
-): Promise<CallGraphEdge[]> {
-  const allEdges: CallGraphEdge[] = [];
+): Promise<void> {
   indexer.beginBatch();
   try {
     for (const job of jobs) {
-      await indexCallGraphJob(indexer, extractor, job, allEdges);
+      await indexCallGraphJob(indexer, extractor, job);
     }
     indexer.commitBatch();
   } catch (err) {
     indexer.rollbackBatch();
     throw err;
   }
-  return allEdges;
 }
 
 async function indexCallGraphJob(
   indexer: CallGraphIndexer,
   extractor: GraphExtractor,
   job: CallGraphJob,
-  allEdges: CallGraphEdge[],
 ): Promise<void> {
   try {
     const stat = await fs.stat(job.filePath);
     const result = await extractor.extractFile(job.filePath, job.lang, stat.mtimeMs);
     indexer.indexFile(result.nodes, result.edges, job.filePath, job.lang, stat.mtimeMs);
-    allEdges.push(...result.edges);
   } catch {
     // Skip files that fail to parse (binary files, encoding issues, etc.)
-  }
-}
-
-function markCycleEdges(indexer: CallGraphIndexer, allEdges: CallGraphEdge[]): void {
-  const nonUsesEdges = allEdges
-    .filter((e) => e.typeRelation !== "USES")
-    .map((e) => ({ source: e.sourceId, target: e.targetId }));
-  if (nonUsesEdges.length === 0) return;
-
-  const cycleEdgeKeys = detectCycleEdges(nonUsesEdges);
-  const cyclicPairs = allEdges.filter((e) =>
-    cycleEdgeKeys.has(`${e.sourceId}->${e.targetId}`),
-  );
-  if (cyclicPairs.length > 0) {
-    indexer.markCycles(
-      cyclicPairs.map((e) => ({ sourceId: e.sourceId, targetId: e.targetId })),
-    );
   }
 }
 
