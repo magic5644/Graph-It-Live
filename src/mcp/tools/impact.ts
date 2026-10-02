@@ -2,6 +2,7 @@ import * as fs from "node:fs/promises";
 import { ReviewGateAnalyzer, type SymbolDependentsProvider } from "../../analyzer/ReviewGateAnalyzer";
 import type { Spider } from "../../analyzer/Spider";
 import type { SymbolDependency } from "../../analyzer/types";
+import { checkSymbolInFile, symbolNotFoundMessage } from "../../analyzer/utils/SymbolLookup";
 import { getRelativePath, validateFileExists } from "../shared/helpers";
 import { workerState } from "../shared/state";
 import type {
@@ -271,7 +272,11 @@ function generateImpactSummary(
   typeOnlyCount: number,
   fileCount: number,
   level: "high" | "medium" | "low",
+  symbolVerified: boolean,
 ): string {
+  if (totalCount === 0 && !symbolVerified) {
+    return `No known dependents found for '${symbolName}', but the symbols of this file could not be listed, so the symbol itself was not verified.`;
+  }
   if (totalCount === 0) {
     return `Symbol '${symbolName}' has no known dependents. Changes should be safe.`;
   }
@@ -319,6 +324,14 @@ export async function executeGetImpactAnalysis(
   const config = workerState.getConfig();
   await validateFileExists(filePath);
 
+  // An unknown symbol has no dependents too: tell it apart from a safe change.
+  const symbolCheck = await checkSymbolInFile(spider, filePath, symbolName);
+  if (symbolCheck.status === "missing") {
+    throw new Error(
+      symbolNotFoundMessage(symbolName, getRelativePath(filePath, config.rootDir), symbolCheck.suggestions),
+    );
+  }
+
   const symbolId = `${filePath}:${symbolName}`;
   const impactedItems: ImpactedItem[] = [];
   const visitedSymbols = new Set<string>();
@@ -364,6 +377,7 @@ export async function executeGetImpactAnalysis(
     metrics.typeOnlyCount,
     affectedFilesSet.size,
     impactLevel,
+    symbolCheck.status === "found",
   );
 
   return {

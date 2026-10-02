@@ -269,8 +269,8 @@ const TOOL_DESCRIPTIONS: Record<DescribedToolName, ToolDescription> = {
       "WHEN: assessing a refactor before starting it, or prioritising which call sites to update first.",
       "WHY: walks the symbol reverse index outward, keeping runtime and type-only impact separate and aggregating per file.",
       {
-        mcp: "RETURNS: impact level (high, medium, low), total impact count, runtime versus type-only breakdown, impacted symbols with depth (1 = direct), affected files, and a written summary.",
-        lm: "RETURNS: impact level (high, medium, low), total impact count, runtime versus type-only breakdown, impacted symbols with depth (1 = direct) and affected files. Transitive impact only with includeTransitive.",
+        mcp: "RETURNS: impact level (high, medium, low), total impact count, runtime versus type-only breakdown, impacted symbols with depth (1 = direct), affected files, and a written summary. An unknown symbol returns an error listing close name matches.",
+        lm: "RETURNS: impact level (high, medium, low), total impact count, runtime versus type-only breakdown, impacted symbols with depth (1 = direct) and affected files. Transitive impact only with includeTransitive. An unknown symbol returns an error listing close name matches.",
       },
       OPEN_ENDED_HINT,
     ],

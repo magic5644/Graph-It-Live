@@ -236,6 +236,68 @@ describe("impact tools", () => {
     });
   });
 
+  describe("executeGetImpactAnalysis symbol check (#229)", () => {
+    const symbols = (...names: string[]) =>
+      names.map((name) => ({ name, kind: "Function", line: 1, isExported: true, id: name, category: "function" }));
+
+    it("rejects an unknown symbol with close matches instead of a safe verdict", async () => {
+      const filePath = await createTempFile(tempDir, "utils.ts", "");
+      const getSymbolDependents = vi.fn(async () => []);
+      setupWorkerState({
+        getSymbolGraph: vi.fn(async () => ({ symbols: symbols("greet", "farewell"), dependencies: [] })),
+        getSymbolDependents,
+      });
+
+      await expect(executeGetImpactAnalysis({ filePath, symbolName: "gret" })).rejects.toThrow(
+        "Symbol 'gret' not found in utils.ts. Did you mean: greet?",
+      );
+      expect(getSymbolDependents).not.toHaveBeenCalled();
+    });
+
+    it("keeps the safe-change message for a known symbol without dependents", async () => {
+      const filePath = await createTempFile(tempDir, "utils.ts", "");
+      setupWorkerState({
+        getSymbolGraph: vi.fn(async () => ({ symbols: symbols("greet"), dependencies: [] })),
+        getSymbolDependents: vi.fn(async () => []),
+      });
+
+      const result = await executeGetImpactAnalysis({ filePath, symbolName: "greet" });
+
+      expect(result.totalImpactCount).toBe(0);
+      expect(result.impactLevel).toBe("low");
+      expect(result.summary).toBe("Symbol 'greet' has no known dependents. Changes should be safe.");
+    });
+
+    it("does not claim safety when the file's symbols cannot be listed", async () => {
+      const filePath = await createTempFile(tempDir, "main.go", "");
+      setupWorkerState({
+        getSymbolGraph: vi.fn(async () => ({ symbols: [], dependencies: [] })),
+        getSymbolDependents: vi.fn(async () => []),
+      });
+
+      const result = await executeGetImpactAnalysis({ filePath, symbolName: "Main" });
+
+      expect(result.summary).not.toContain("should be safe");
+      expect(result.summary).toContain("was not verified");
+    });
+
+    it("still reports dependents of a verified symbol", async () => {
+      const filePath = await createTempFile(tempDir, "utils.ts", "");
+      const consumerFile = path.join(tempDir, "consumer.ts");
+      setupWorkerState({
+        getSymbolGraph: vi.fn(async () => ({ symbols: symbols("greet"), dependencies: [] })),
+        getSymbolDependents: vi.fn(async () => [
+          { sourceSymbolId: `${consumerFile}:useGreet`, targetSymbolId: `${filePath}:greet`, targetFilePath: filePath },
+        ]),
+      });
+
+      const result = await executeGetImpactAnalysis({ filePath, symbolName: "greet" });
+
+      expect(result.totalImpactCount).toBe(1);
+      expect(result.summary).toContain("Modifying 'greet' will affect");
+    });
+  });
+
   it("uses the warmed Spider provider for dependent, cycle, and unused-export review evidence", async () => {
     execFileSync("git", ["init", "--initial-branch=main"], { cwd: tempDir });
     execFileSync("git", ["config", "user.email", "test@example.com"], { cwd: tempDir });
