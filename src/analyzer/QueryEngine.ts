@@ -114,8 +114,13 @@ export class QueryEngine {
     const scopedNodeIds = new Set(nodes.map(node => node.id));
     const edges = this.fetchEdges(scopedNodeIds);
 
-    // 6. Serialize to a compact JSON string if requested
-    const { json, truncated, tokenEstimate } = this.toCompactJson(nodes, edges, tokenBudget);
+    // 6. Fit the payload the caller receives into the token budget: the full
+    // node/edge objects for JSON output, the compact JSON string (encoded as TOON
+    // by the MCP layer) otherwise.
+    const fitted = request.outputFormat === 'json'
+      ? { ...this.toBudgetedJson(nodes, edges, tokenBudget), json: undefined }
+      : { ...this.toCompactJson(nodes, edges, tokenBudget), nodes, edges };
+    const { json, truncated, tokenEstimate } = fitted;
 
     const totalMs = Date.now() - t0;
 
@@ -123,8 +128,8 @@ export class QueryEngine {
       question: request.question,
       extractedKeywords: keywords,
       seedNodeIds: seeds.map(s => s.id),
-      nodes,
-      edges,
+      nodes: fitted.nodes,
+      edges: fitted.edges,
       nodeCount: nodes.length,
       edgeCount: edges.length,
       json,
@@ -406,55 +411,84 @@ export class QueryEngine {
       truncated: false,
     };
 
-    const fullJson = JSON.stringify(payload);
-    const jsonTokens = estimateTokens(fullJson);
-
-    if (jsonTokens <= tokenBudget) {
-      return { json: fullJson, truncated: false, tokenEstimate: jsonTokens };
-    }
-
-    // Truncate nodes to fit within budget.
-    // Selection uses the REAL tokenizer (estimateTokens), not a chars/4 heuristic:
-    // char-length approximations under-truncate by ~2x on realistic identifiers/paths
-    // (cl100k_base ratio is well below 4 chars/token), letting the payload blow past
-    // tokenBudget after re-verification. Binary search bounds tokenizer calls to
-    // O(log n) instead of one call per node.
-    const buildTruncated = (k: number): { json: string; tokens: number } => {
-      const selectedNodes = compactNodes.slice(0, k);
-      const selectedIds = new Set(selectedNodes.map(n => n.id));
-      const selectedEdges = compactEdges.filter(
-        e => selectedIds.has(e.src) && selectedIds.has(e.tgt),
-      );
-      const truncatedPayload = {
-        nodes: selectedNodes,
-        edges: selectedEdges,
-        nodeCount: nodes.length,
-        edgeCount: edges.length,
-        truncated: true,
-      };
-      const json = JSON.stringify(truncatedPayload);
-      return { json, tokens: estimateTokens(json) };
-    };
-
-    // Node count k -> token count is monotonic non-decreasing (adding a node can
-    // only add matching edges, never remove any), so binary search for the largest
-    // k whose real token count still fits the budget is safe.
-    let lo = 0;
-    let hi = compactNodes.length;
-    while (lo < hi) {
-      const mid = Math.ceil((lo + hi) / 2);
-      const { tokens } = buildTruncated(mid);
-      if (tokens <= tokenBudget) {
-        lo = mid;
-      } else {
-        hi = mid - 1;
-      }
-    }
-
-    const { json: truncatedJson, tokens: truncTokens } = buildTruncated(lo);
-
-    return { json: truncatedJson, truncated: true, tokenEstimate: truncTokens };
+    const fitted = fitNodesToBudget(compactNodes, compactEdges, tokenBudget, (selectedNodes, selectedEdges, truncated) =>
+      JSON.stringify({ ...payload, nodes: selectedNodes, edges: selectedEdges, truncated }),
+    );
+    return { json: fitted.json, truncated: fitted.truncated, tokenEstimate: fitted.tokens };
   }
+
+  /**
+   * Keep the full node/edge objects (JSON output) within the token budget.
+   * `tokenEstimate` measures `JSON.stringify({ nodes, edges })` of what is returned.
+   */
+  toBudgetedJson(
+    nodes: QueryResultNode[],
+    edges: QueryResultEdge[],
+    tokenBudget: number,
+  ): { nodes: QueryResultNode[]; edges: QueryResultEdge[]; truncated: boolean; tokenEstimate: number } {
+    const fitted = fitNodesToBudget(nodes, edges, tokenBudget, (selectedNodes, selectedEdges) =>
+      JSON.stringify({ nodes: selectedNodes, edges: selectedEdges }),
+    );
+    return { nodes: fitted.nodes, edges: fitted.edges, truncated: fitted.truncated, tokenEstimate: fitted.tokens };
+  }
+}
+
+/**
+ * Largest prefix of `nodes` (relevance order) whose serialization, with the edges
+ * between kept nodes, fits `tokenBudget`.
+ *
+ * Selection uses the REAL tokenizer (estimateTokens), not a chars/4 heuristic:
+ * char-length approximations under-truncate by ~2x on realistic identifiers/paths
+ * (cl100k_base ratio is well below 4 chars/token), letting the payload blow past
+ * tokenBudget after re-verification. Binary search bounds tokenizer calls to
+ * O(log n) instead of one call per node.
+ */
+function fitNodesToBudget<N extends { id: string }, E extends QueryResultEdge | CompactEdge>(
+  nodes: N[],
+  edges: E[],
+  tokenBudget: number,
+  serialize: (nodes: N[], edges: E[], truncated: boolean) => string,
+): { nodes: N[]; edges: E[]; json: string; tokens: number; truncated: boolean } {
+  const fullJson = serialize(nodes, edges, false);
+  const fullTokens = estimateTokens(fullJson);
+  if (fullTokens <= tokenBudget) {
+    return { nodes, edges, json: fullJson, tokens: fullTokens, truncated: false };
+  }
+
+  const build = (k: number) => {
+    const selectedNodes = nodes.slice(0, k);
+    const selectedIds = new Set(selectedNodes.map(n => n.id));
+    const selectedEdges = edges.filter(e => {
+      const [src, tgt] = edgeEndpoints(e);
+      return selectedIds.has(src) && selectedIds.has(tgt);
+    });
+    const json = serialize(selectedNodes, selectedEdges, true);
+    return { nodes: selectedNodes, edges: selectedEdges, json, tokens: estimateTokens(json), truncated: true };
+  };
+
+  // Node count k -> token count is monotonic non-decreasing (adding a node can
+  // only add matching edges, never remove any), so binary search for the largest
+  // k whose real token count still fits the budget is safe.
+  let lo = 0;
+  let hi = nodes.length;
+  while (lo < hi) {
+    const mid = Math.ceil((lo + hi) / 2);
+    if (build(mid).tokens <= tokenBudget) {
+      lo = mid;
+    } else {
+      hi = mid - 1;
+    }
+  }
+  return build(lo);
+}
+
+interface CompactEdge {
+  src: string;
+  tgt: string;
+}
+
+function edgeEndpoints(edge: QueryResultEdge | CompactEdge): [string, string] {
+  return 'src' in edge ? [edge.src, edge.tgt] : [edge.source, edge.target];
 }
 
 // Re-export RawNodeRow for test use
