@@ -1329,8 +1329,9 @@ export class LmToolsService {
         ): Promise<vscode.LanguageModelToolResult> => {
           const { oldContent, symbolName, newContent: inputNewContent } = options.input;
           const filePath = this.resolveWorkspacePath(options.input.filePath);
+          // Only an omitted newContent falls back to the file on disk: "" means the file was emptied.
           let newContent = inputNewContent;
-          if (!newContent) {
+          if (newContent === undefined) {
             try {
               newContent = await fs.readFile(filePath, 'utf-8');
             } catch {

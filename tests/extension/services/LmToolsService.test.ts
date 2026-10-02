@@ -598,6 +598,19 @@ describe('LmToolsService', () => {
       expect(result).toMatchObject({ error: expect.stringContaining('Cannot read current file') });
     });
 
+    it('analyzes an empty newContent instead of reading the file on disk (#223)', async () => {
+      vi.mocked(fsPromises.readFile).mockClear();
+
+      const result = await invokeTool(TOOL, {
+        filePath: '/workspace/src/a.ts',
+        oldContent: 'export function myFn() {}',
+        newContent: '',
+      }) as Record<string, unknown>;
+
+      expect(result).not.toHaveProperty('error');
+      expect(fsPromises.readFile).not.toHaveBeenCalled();
+    });
+
     it('reads current file content when newContent is not provided', async () => {
       vi.mocked(fsPromises.readFile).mockResolvedValue(
         'export function myFn(x: string) {}' as unknown as Awaited<ReturnType<typeof fsPromises.readFile>>,
