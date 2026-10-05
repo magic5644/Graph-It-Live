@@ -18,11 +18,11 @@ if (!outPath) {
   console.error('usage: node scripts/eval/dump-tools.mjs <output.json> [serverPath]');
   process.exit(2);
 }
-// Resolve to an absolute path so a value starting with '-' cannot be parsed as a node flag.
 const serverPath = path.resolve(process.argv[3] ?? 'dist/mcpServer.mjs');
 const TIMEOUT_MS = 30_000;
 
-const child = spawn(process.execPath, [serverPath], {
+// '--' ends node's own options, so serverPath can never be parsed as a node flag.
+const child = spawn(process.execPath, ['--', serverPath], {
   env: { ...process.env, WORKSPACE_ROOT: process.cwd() },
   stdio: ['pipe', 'pipe', 'ignore'],
 });
