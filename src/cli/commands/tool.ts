@@ -109,16 +109,16 @@ export async function run(
     );
   }
 
-  await runtime.ensureIndexed();
-
   // Parse --args JSON or key=value pairs from remaining args
   const params = parseToolArgs(args.slice(1));
 
-  // Validate params via Zod
+  // Validate params via Zod before indexing so bad input fails fast
   const validation = validateToolParams(toolName, params);
   if (!validation.success) {
     throw new CliError(validation.error, ExitCode.GENERAL_ERROR);
   }
+
+  await runtime.ensureIndexed();
 
   const result = await invokeTool(toolName, validation.data);
   return formatOutput(result, format, "tool");

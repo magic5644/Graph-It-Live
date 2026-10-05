@@ -54,9 +54,27 @@ describe("tool command dispatch", () => {
     await expect(run(["nope"], runtimeStub, "json")).rejects.toThrow('Unknown tool "nope"');
   });
 
-  it("reports Zod validation errors", async () => {
-    await expect(run(["analyze_dependencies"], runtimeStub, "json")).rejects.toThrow();
+  it("reports Zod validation errors without indexing the workspace (issue #254)", async () => {
+    vi.mocked(runtimeStub.ensureIndexed).mockClear();
+    await expect(
+      run(["get_symbol_dependents", "--symbolName=a"], runtimeStub, "json"),
+    ).rejects.toThrow("Invalid parameters: filePath");
+    expect(runtimeStub.ensureIndexed).not.toHaveBeenCalled();
     expect(executeMock).not.toHaveBeenCalled();
+  });
+
+  it("indexes the workspace before running a tool with valid params", async () => {
+    const order: string[] = [];
+    vi.mocked(runtimeStub.ensureIndexed).mockClear().mockImplementationOnce(async () => {
+      order.push("index");
+    });
+    executeMock.mockImplementationOnce((name: string) => {
+      order.push("execute");
+      return { called: name };
+    });
+    await run(["get_symbol_dependents", `--filePath=${file}`, "--symbolName=a"], runtimeStub, "json");
+    expect(runtimeStub.ensureIndexed).toHaveBeenCalledOnce();
+    expect(order).toEqual(["index", "execute"]);
   });
 
   it("passes merged --args and named flags to the handler (issue #159)", async () => {
