@@ -1,0 +1,13 @@
+version: 2
+updates:
+  # Keeps SHA-pinned actions (and their "# vX.Y.Z" comments) up to date.
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+    cooldown:
+      default-days: 7
+    groups:
+      github-actions:
+        patterns:
+          - "*"

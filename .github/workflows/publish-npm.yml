@@ -1,10 +1,7 @@
 name: Publish (Selective)
 
 permissions:
-  contents: write
-  packages: write
-  id-token: write
-  attestations: write
+  contents: read
 
 on:
   workflow_dispatch:
@@ -49,8 +46,9 @@ jobs:
     outputs:
       sha: ${{ steps.ref.outputs.sha }}
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
+          persist-credentials: false
           ref: ${{ inputs.ref }}
           fetch-depth: 1
       - id: ref
@@ -87,8 +85,9 @@ jobs:
 
       - name: Resolve release tag and version
         id: release_meta
+        env:
+          RAW_INPUT: ${{ inputs.version }}
         run: |
-          RAW_INPUT="${{ inputs.version }}"
           if [[ "$RAW_INPUT" == v* ]]; then
             RELEASE_TAG="$RAW_INPUT"
           else
@@ -114,25 +113,28 @@ jobs:
           fi
           echo "OK: version $VERSION not yet published on npm"
 
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
+          persist-credentials: false
           ref: ${{ needs.resolve-ref.outputs.sha }}
 
       - name: Use Node.js
-        uses: actions/setup-node@v6
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version: '24.x'
-          cache: npm
+          # No dependency cache in release jobs: a poisoned cache entry would ship.
+          package-manager-cache: false
 
       - name: Update Package Version
         run: npm version ${{ steps.release_meta.outputs.version }} --no-git-tag-version
 
       - name: Install Dependencies
-        run: npm ci
+        run: npm ci --ignore-scripts
 
-      - name: Install VS Code Extension Manager
+      - name: Add locked npm binaries to PATH
         if: ${{ inputs.publish_vscode == true || inputs.publish_openvsx == true }}
-        run: npm install -g @vscode/vsce
+        shell: bash
+        run: echo "$GITHUB_WORKSPACE/node_modules/.bin" >> "$GITHUB_PATH"
 
       - name: Package Extension
         if: ${{ inputs.publish_vscode == true || inputs.publish_openvsx == true }}
@@ -141,22 +143,22 @@ jobs:
       - name: Verify packaged VSIX content
         if: ${{ inputs.publish_vscode == true || inputs.publish_openvsx == true }}
         run: |
-          if npx vsce ls graph-it-live-*.vsix | grep -q "\.map$"; then
+          if vsce ls graph-it-live-*.vsix | grep -q "\.map$"; then
             echo "ERROR: source maps found in VSIX"
             exit 1
           fi
-          WASM_COUNT=$(npx vsce ls graph-it-live-*.vsix | grep -c "\.wasm$")
+          WASM_COUNT=$(vsce ls graph-it-live-*.vsix | grep -c "\.wasm$")
           [ "$WASM_COUNT" -ge 8 ] || { echo "ERROR: expected at least 8 WASM files, found $WASM_COUNT"; exit 1; }
 
       - name: Attest Build Provenance
         if: ${{ inputs.publish_vscode == true || inputs.publish_openvsx == true }}
-        uses: actions/attest-build-provenance@v4
+        uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
         with:
           subject-path: "graph-it-live-${{ steps.release_meta.outputs.version }}.vsix"
 
       - name: Upload VSIX as Artifact
         if: ${{ inputs.publish_vscode == true || inputs.publish_openvsx == true }}
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: graph-it-live
           path: "*.vsix"
@@ -166,17 +168,17 @@ jobs:
         if: ${{ inputs.publish_vscode == true }}
         env:
           VSCE_PAT: ${{ secrets.VSCE_PAT }}
-        run: vsce publish -p $VSCE_PAT --packagePath graph-it-live-${{ steps.release_meta.outputs.version }}.vsix
+        run: vsce publish --packagePath graph-it-live-${{ steps.release_meta.outputs.version }}.vsix
 
       - name: Publish to Open VSX Registry
         if: ${{ inputs.publish_openvsx == true }}
         env:
           OVSX_PAT: ${{ secrets.OVSX_PAT }}
-        run: npx ovsx publish -p $OVSX_PAT --packagePath graph-it-live-${{ steps.release_meta.outputs.version }}.vsix
+        run: ovsx publish --packagePath graph-it-live-${{ steps.release_meta.outputs.version }}.vsix
 
       - name: Publish artifact to GitHub Release
         if: ${{ inputs.publish_vscode == true || inputs.publish_openvsx == true }}
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@efb35369e0ad2afab669f228072c1b0d510eae64 # v3.0.3
         continue-on-error: true
         with:
           files: "graph-it-live-*.vsix"
@@ -225,10 +227,11 @@ jobs:
 
       - name: Set up Node.js for npm publish
         if: ${{ inputs.publish_npm == true }}
-        uses: actions/setup-node@v6
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version: '24.x'
           registry-url: 'https://registry.npmjs.org'
+          package-manager-cache: false
           scope: '@magic5644'
 
       - name: Publish CLI to npm
