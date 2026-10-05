@@ -44,18 +44,19 @@ jobs:
         os: [ubuntu-latest, windows-latest, macos-latest]
 
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
+          persist-credentials: false
           ref: ${{ inputs.ref || github.sha }}
 
       - name: Use Node.js ${{ inputs.node-version }}
-        uses: actions/setup-node@v6
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version: ${{ inputs.node-version }}
           cache: npm
 
       - name: Install Dependencies
-        run: npm ci
+        run: npm ci --ignore-scripts
 
       - name: Lint
         run: npm run lint
@@ -71,9 +72,10 @@ jobs:
         if: runner.os != 'Linux'
         run: npm run test
 
-      - name: Install VS Code Extension Manager
+      - name: Add locked npm binaries to PATH
         if: inputs.run-e2e
-        run: npm install -g @vscode/vsce
+        shell: bash
+        run: echo "$GITHUB_WORKSPACE/node_modules/.bin" >> "$GITHUB_PATH"
 
       - name: Run E2E Tests (Linux)
         if: inputs.run-e2e && runner.os == 'Linux'
@@ -104,7 +106,7 @@ jobs:
 
       - name: Upload E2E Test Report (Linux)
         if: always() && inputs.run-e2e && runner.os == 'Linux'
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: e2e-test-report-linux
           path: |
@@ -132,11 +134,12 @@ jobs:
 
       - name: Run VSIX Smoke Validation (Windows/macOS)
         if: inputs.run-e2e && runner.os != 'Linux'
+        shell: bash
         run: |
           npm run package:vsix
           npm run package:verify
           echo "Verifying WASM files are present in VSIX"
-          npx vsce ls graph-it-live-*.vsix | grep "\.wasm$"
+          vsce ls graph-it-live-*.vsix | grep "\.wasm$"
 
   package:
     name: Package Extension
@@ -147,21 +150,23 @@ jobs:
     if: inputs.package-extension
 
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
+          persist-credentials: false
           ref: ${{ inputs.ref || github.sha }}
 
       - name: Use Node.js
-        uses: actions/setup-node@v6
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version: ${{ inputs.node-version }}
           cache: npm
 
       - name: Install Dependencies
-        run: npm ci
+        run: npm ci --ignore-scripts
 
-      - name: Install VS Code Extension Manager
-        run: npm install -g @vscode/vsce
+      - name: Add locked npm binaries to PATH
+        shell: bash
+        run: echo "$GITHUB_WORKSPACE/node_modules/.bin" >> "$GITHUB_PATH"
 
       - name: Package Extension
         run: npm run package:vsix
@@ -178,19 +183,19 @@ jobs:
 
       - name: Verify no source maps in VSIX
         run: |
-          if npx vsce ls graph-it-live-*.vsix | grep -q "\.map$"; then
+          if vsce ls graph-it-live-*.vsix | grep -q "\.map$"; then
             echo "❌ ERROR: .map files found in package!"
-            npx vsce ls graph-it-live-*.vsix | grep "\.map$"
+            vsce ls graph-it-live-*.vsix | grep "\.map$"
             exit 1
           fi
           echo "✅ No .map files in package"
 
       - name: Verify WASM files in VSIX
         run: |
-          WASM_COUNT=$(npx vsce ls graph-it-live-*.vsix | grep -c "\.wasm$")
+          WASM_COUNT=$(vsce ls graph-it-live-*.vsix | grep -c "\.wasm$")
           if [ "$WASM_COUNT" -lt 8 ]; then
             echo "❌ ERROR: Expected at least 8 WASM files, found $WASM_COUNT"
-            npx vsce ls graph-it-live-*.vsix | grep "\.wasm$" || true
+            vsce ls graph-it-live-*.vsix | grep "\.wasm$" || true
             exit 1
           fi
           echo "✅ WASM files detected: $WASM_COUNT"

@@ -1624,7 +1624,7 @@
     "@vitest/coverage-v8": "^4.1.11",
     "@vitest/ui": "^4.1.11",
     "@vscode/test-electron": "^3.1.0",
-    "@vscode/vsce": "^3.9.2",
+    "@vscode/vsce": "^4.0.0",
     "esbuild": "^0.28.2",
     "esbuild-css-modules-plugin": "^3.1.5",
     "eslint": "^10.11.0",
@@ -1633,6 +1633,7 @@
     "globals": "^17.13.0",
     "happy-dom": "^20.14.5",
     "mocha": "^11.8.0",
+    "ovsx": "^1.2.0",
     "typescript": "^6.0.3",
     "typescript-eslint": "^8.71.0",
     "vitest": "^4.1.11"
@@ -1645,6 +1646,9 @@
     "mocha": {
       "diff": ">=8.0.3",
       "serialize-javascript": ">=7.0.3"
+    },
+    "ovsx": {
+      "@vscode/vsce": "$@vscode/vsce"
     }
   },
   "publishConfig": {
