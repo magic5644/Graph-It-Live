@@ -39,6 +39,8 @@ interface WorkerResponse {
 export interface IndexedFileData {
   filePath: string;
   dependencies: Dependency[];
+  /** Specifiers whose target lies outside the workspace root */
+  outOfRootImports?: string[];
   mtime: number;
   size: number;
 }

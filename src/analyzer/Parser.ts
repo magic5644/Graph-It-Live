@@ -1,5 +1,5 @@
 import { FileReader } from "./FileReader";
-import { Dependency, ILanguageAnalyzer, ParsedImport } from "./types";
+import type { Dependency, ILanguageAnalyzer, ImportResolution, ParsedImport } from "./types";
 import { extractFilePath } from "./utils/PathExtractor";
 import { PathResolver } from "./utils/PathResolver";
 
@@ -246,5 +246,16 @@ export class Parser implements ILanguageAnalyzer {
     // Extract file path from potential symbol ID
     const actualFromFile = extractFilePath(fromFile);
     return this.pathResolver.resolve(actualFromFile, moduleSpecifier);
+  }
+
+  /**
+   * ILanguageAnalyzer implementation: Resolve module path, reporting a target
+   * outside the workspace root
+   */
+  async resolveImport(
+    fromFile: string,
+    moduleSpecifier: string,
+  ): Promise<ImportResolution> {
+    return this.pathResolver.resolveImport(extractFilePath(fromFile), moduleSpecifier);
   }
 }

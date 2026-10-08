@@ -7,6 +7,10 @@ import {
   normalizePath,
 } from './types';
 import { getLogger } from '../shared/logger';
+import type { OutOfRootImports } from './utils/workspaceBoundary';
+
+/** How many skipped specifiers getOutOfRootImports() reports */
+const OUT_OF_ROOT_EXAMPLES = 5;
 
 /** Logger instance for ReverseIndex */
 const log = getLogger('ReverseIndex');
@@ -15,7 +19,7 @@ const log = getLogger('ReverseIndex');
  * Current version of the serialized index format
  * Increment when making breaking changes to the format
  */
-const INDEX_VERSION = 1;
+const INDEX_VERSION = 2;
 
 /**
  * ReverseIndex - Maintains a mapping from target files to their referencing files
@@ -39,6 +43,12 @@ export class ReverseIndex {
   private readonly fileHashes: Map<string, FileHash> = new Map();
 
   /**
+   * Maps source file path -> module specifiers resolving outside the workspace
+   * root, so a narrow root is reported instead of looking complete
+   */
+  private readonly outOfRootImports: Map<string, string[]> = new Map();
+
+  /**
    * Root directory of the workspace (used for validation on deserialize)
    */
   private readonly rootDir: string;
@@ -52,18 +62,25 @@ export class ReverseIndex {
    * @param sourcePath The file that contains the imports
    * @param dependencies The resolved dependencies from that file
    * @param fileHash Optional hash for staleness tracking
+   * @param outOfRootImports Specifiers dropped by the workspace-root boundary;
+   *   undefined keeps the ones already recorded (a cached re-add)
    */
   addDependencies(
     sourcePath: string,
     dependencies: Dependency[],
-    fileHash?: FileHash
+    fileHash?: FileHash,
+    outOfRootImports?: string[]
   ): void {
     // Normalize paths for cross-platform consistency
     const normalizedSourcePath = normalizePath(sourcePath);
+    const skipped = outOfRootImports ?? this.outOfRootImports.get(normalizedSourcePath);
     
     // First, remove all existing entries from this source file
     // This handles the case where imports were removed
     this.removeDependenciesFromSource(normalizedSourcePath);
+    if (skipped && skipped.length > 0) {
+      this.outOfRootImports.set(normalizedSourcePath, skipped);
+    }
 
     // Add new entries
     for (const dep of dependencies) {
@@ -107,6 +124,7 @@ export class ReverseIndex {
       // This prevents losing references when addDependencies() is called immediately after
     }
     this.fileHashes.delete(normalizedSourcePath);
+    this.outOfRootImports.delete(normalizedSourcePath);
   }
 
   /**
@@ -209,6 +227,7 @@ export class ReverseIndex {
   clear(): void {
     this.reverseMap.clear();
     this.fileHashes.clear();
+    this.outOfRootImports.clear();
   }
 
   /**
@@ -285,6 +304,7 @@ export class ReverseIndex {
       rootDir: this.rootDir,
       reverseMap: reverseMapObj,
       fileHashes: fileHashesObj,
+      outOfRootImports: Object.fromEntries(this.outOfRootImports),
     };
   }
 
@@ -318,6 +338,12 @@ export class ReverseIndex {
     // Restore file hashes (paths are already normalized in serialized data)
     for (const [filePath, hash] of Object.entries(data.fileHashes)) {
       index.fileHashes.set(normalizePath(filePath), hash);
+    }
+
+    for (const [sourcePath, specifiers] of Object.entries(data.outOfRootImports ?? {})) {
+      if (Array.isArray(specifiers)) {
+        index.outOfRootImports.set(normalizePath(sourcePath), specifiers.filter((s) => typeof s === 'string'));
+      }
     }
 
     // Restore reverse map (paths are already normalized in serialized data)
@@ -417,5 +443,16 @@ export class ReverseIndex {
       targetFiles: this.reverseMap.size,
       totalReferences,
     };
+  }
+
+  /** Imports dropped by the workspace-root boundary across all indexed files. */
+  getOutOfRootImports(): OutOfRootImports {
+    let count = 0;
+    const specifiers = new Set<string>();
+    for (const skipped of this.outOfRootImports.values()) {
+      count += skipped.length;
+      for (const specifier of skipped) specifiers.add(specifier);
+    }
+    return { count, examples: [...specifiers].sort().slice(0, OUT_OF_ROOT_EXAMPLES) };
   }
 }

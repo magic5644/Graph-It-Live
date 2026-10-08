@@ -1,3 +1,4 @@
+import { reportOutOfRootImports } from "../../analyzer/utils/workspaceBoundary";
 import { workerState } from "../shared/state";
 import type {
     GetIndexStatusResult,
@@ -25,6 +26,7 @@ export async function executeGetIndexStatus(): Promise<GetIndexStatusResult> {
     reverseIndexEnabled: spider.isReverseIndexEnabled(),
     cacheSize: cacheStats.dependencyCache.size,
     reverseIndexStats: cacheStats.reverseIndexStats,
+    ...reportOutOfRootImports(spider.getOutOfRootImports(), spider.workspaceRoot),
     progress:
       indexStatus.state === "indexing"
         ? {

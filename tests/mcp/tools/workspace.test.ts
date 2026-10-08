@@ -1,3 +1,6 @@
+import * as fs from "node:fs";
+import * as os from "node:os";
+import * as path from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { workerState } from "../../../src/mcp/shared/state";
 import {
@@ -26,6 +29,7 @@ describe("workspace tools", () => {
   describe("executeGetIndexStatus", () => {
     const idleSpider = {
       getIndexStatus: () => ({ state: "complete", processed: 0, total: 0, percentage: 0 }),
+      getOutOfRootImports: () => ({ count: 0, examples: [] }),
       getCacheStatsAsync: async () => ({
         dependencyCache: { size: 0 },
         reverseIndexStats: { indexedFiles: 708, targetFiles: 243, totalReferences: 1415 },
@@ -61,6 +65,44 @@ describe("workspace tools", () => {
       });
     });
 
+    it("reports no out-of-root imports, and no warning, when none were skipped", async () => {
+      setupWorkerState(idleSpider);
+
+      const result = await executeGetIndexStatus();
+
+      expect(result.outOfRootImports).toBe(0);
+      expect(result).not.toHaveProperty("warning");
+      expect(result).not.toHaveProperty("monorepoRoot");
+    });
+
+    // Regression test for #264: a sub-package root must not look workspace-wide.
+    it("reports skipped out-of-root imports with the monorepo root relative to the workspace", async () => {
+      const mono = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "graph-it-status-")));
+      try {
+        const worker = path.join(mono, "apps", "worker");
+        fs.mkdirSync(worker, { recursive: true });
+        fs.writeFileSync(path.join(mono, "package.json"), '{ "workspaces": ["apps/*"] }');
+        setupWorkerState({
+          ...idleSpider,
+          workspaceRoot: worker,
+          getOutOfRootImports: () => ({ count: 1, examples: ["@core/x"] }),
+        });
+
+        const result = await executeGetIndexStatus();
+
+        expect(result).toMatchObject({
+          outOfRootImports: 1,
+          outOfRootImportExamples: ["@core/x"],
+          monorepoRoot: "../..",
+        });
+        expect(result.warning).toContain("Monorepo root detected (../..)");
+        expect(result.warning).toContain("graphitlive_set_workspace");
+        expect(JSON.stringify(result)).not.toContain(mono);
+      } finally {
+        fs.rmSync(mono, { recursive: true, force: true });
+      }
+    });
+
     it("passes the cache provenance fields of warmup through", async () => {
       setupWorkerState(idleSpider);
       workerState.warmupInfo = {
@@ -87,7 +129,8 @@ describe("workspace tools", () => {
           percentage: 50,
           currentFile: "src/index.ts",
         }),
-        getCacheStatsAsync: async () => ({
+        getOutOfRootImports: () => ({ count: 0, examples: [] }),
+      getCacheStatsAsync: async () => ({
           dependencyCache: { size: 3 },
           reverseIndexStats: {
             indexedFiles: 1,
@@ -176,7 +219,8 @@ describe("workspace tools", () => {
         clearCache: vi.fn(),
         buildFullIndex: vi.fn(async () => ({ indexedFiles: 3, duration: 1, cancelled: false })),
         isReverseIndexEnabled: vi.fn(() => true),
-        getCacheStatsAsync: async () => ({
+        getOutOfRootImports: () => ({ count: 0, examples: [] }),
+      getCacheStatsAsync: async () => ({
           dependencyCache: { size: 3 },
           reverseIndexStats: {
             indexedFiles: 3,
@@ -204,7 +248,8 @@ describe("workspace tools", () => {
       const spiderMock = {
         clearCache: vi.fn(),
         buildFullIndex,
-        getCacheStatsAsync: async () => ({
+        getOutOfRootImports: () => ({ count: 0, examples: [] }),
+      getCacheStatsAsync: async () => ({
           dependencyCache: { size: 5 },
           reverseIndexStats: null,
         }),
@@ -234,7 +279,8 @@ describe("workspace tools", () => {
       setupWorkerState({
         clearCache: vi.fn(),
         buildFullIndex: vi.fn(async () => ({ indexedFiles: 1, duration: 1, cancelled: false })),
-        getCacheStatsAsync: async () => ({ dependencyCache: { size: 1 }, reverseIndexStats: null }),
+        getOutOfRootImports: () => ({ count: 0, examples: [] }),
+      getCacheStatsAsync: async () => ({ dependencyCache: { size: 1 }, reverseIndexStats: null }),
       });
 
       // No extensionPath in the config: the call graph WASM parsers cannot load.
@@ -251,7 +297,8 @@ describe("workspace tools", () => {
       setupWorkerState({
         clearCache: vi.fn(),
         buildFullIndex: vi.fn(async () => ({ indexedFiles: 1200, duration: 1, cancelled: false })),
-        getCacheStatsAsync: async () => ({
+        getOutOfRootImports: () => ({ count: 0, examples: [] }),
+      getCacheStatsAsync: async () => ({
           dependencyCache: { size: 500 },
           reverseIndexStats: { indexedFiles: 1200, targetFiles: 900, totalReferences: 4000 },
         }),

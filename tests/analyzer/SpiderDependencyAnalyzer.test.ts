@@ -111,6 +111,7 @@ describe('SpiderDependencyAnalyzer - reverse index file hashes', () => {
         normalizePath(filePath),
         [],
         expect.objectContaining({ mtime: expect.any(Number), size: expect.any(Number) }),
+        [],
       );
     } finally {
       fs.rmSync(tmpDir, { recursive: true, force: true });
@@ -155,5 +156,37 @@ describe('SpiderDependencyAnalyzer - module resolution and cache invalidation', 
     analyzer.invalidateDependencyCache(filePath);
 
     expect(cache.get(normalizePath(filePath))).toBeUndefined();
+  });
+
+  // Regression test for #264: a boundary drop reaches the reverse index, and a cached re-add keeps it.
+  it('passes out-of-root imports to the reverse index, and none on a cached re-add', async () => {
+    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'graph-it-outofroot-'));
+    try {
+      const filePath = path.join(tmpDir, 'a.ts');
+      fs.writeFileSync(filePath, 'import { x } from "@core/x";\n');
+
+      const addDependencies = vi.fn();
+      const languageService = {
+        getAnalyzer: vi.fn(() => ({
+          parseImports: vi.fn().mockResolvedValue([{ path: '', type: 'import', line: 1, module: '@core/x' }]),
+          resolvePath: vi.fn().mockResolvedValue(null),
+          resolveImport: vi.fn().mockResolvedValue({ path: null, outsideRoot: true }),
+        })),
+      } as unknown as ConstructorParameters<typeof SpiderDependencyAnalyzer>[0];
+      const analyzer = new SpiderDependencyAnalyzer(
+        languageService,
+        { isWithinWorkspace: () => true } as never,
+        new Cache({ maxSize: 100 }),
+        { isEnabled: () => true, addDependencies } as never,
+      );
+
+      await expect(analyzer.analyze(filePath)).resolves.toEqual([]);
+      await analyzer.analyze(filePath);
+
+      expect(addDependencies).toHaveBeenNthCalledWith(1, normalizePath(filePath), [], expect.anything(), ['@core/x']);
+      expect(addDependencies).toHaveBeenNthCalledWith(2, normalizePath(filePath), [], expect.anything(), undefined);
+    } finally {
+      fs.rmSync(tmpDir, { recursive: true, force: true });
+    }
   });
 });

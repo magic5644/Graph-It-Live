@@ -57,6 +57,15 @@ graph-it scan
 
 The reverse lookup index (who imports what, who calls what) is always built automatically — no extra flags needed.
 
+**Monorepos.** Scanning one package is fine for finding candidates (smaller and faster), but there
+"unused" means unused *inside that package*: a sibling package may still import the export. Without
+`--workspace`, the CLI uses the nearest directory holding `package.json` or `tsconfig.json`;
+`graph-it -w <dir>` is used exactly as given, and `.graph-it/` (index + cache) is created there. If
+`scan` prints `Warning: N imports resolve outside the workspace root`, imports to or from sibling
+packages are not in the index. Before recommending a deletion, confirm there is no consumer from the
+monorepo root (`graph-it -w <monorepoRoot> tool find_referencing_files --targetPath=<path>`), or
+state in the report that the result is limited to the selected package.
+
 For a large or unfamiliar workspace, take a compact baseline before scanning:
 
 ```bash
@@ -96,6 +105,7 @@ with an advertised equivalent capability and separately rule out entry points/pu
 - **Incoming references found** → retain or classify for review (test-only use is not automatically dead)
 - **Required reference capability/result missing, partial, or unable to cover relevant types** → unconfirmed; do not recommend deletion
 - **No relevant incoming references confirmed** → candidate for manual safety review, not automatic deletion
+- **Package-scoped index in a monorepo, no monorepo-root check** → unconfirmed for sibling-package use; say so
 
 Do not use `get_symbol_callers` for this check: it returns call sites only, so a symbol passed as a callback, re-exported, or used as a type reports 0 callers while still in use.
 
@@ -167,6 +177,7 @@ Produce a **Deletion Plan** in this format:
 ## Safety Checklist Before Deleting
 
 - [ ] Re-run `graph-it scan` and the currently advertised workspace scan after any refactor that modified imports
+- [ ] In a monorepo, confirm each candidate has no consumer from the monorepo root (or state the package-only scope)
 - [ ] Check if the project is a **published library** — unused exports may be part of the public API
 - [ ] Check `package.json` `exports` field — symbols exported via package entry points are always live
 - [ ] Run the test suite after each deletion batch to catch dynamic usage not visible to static analysis
@@ -190,7 +201,7 @@ connected MCP host schema.
 ## Limitations & Future Improvements
 
 - **Dynamic dispatch** (`obj[methodName]()`, `require(variable)`) is invisible to static analysis — always review before deleting
-- **Monorepos**: scan per package, not at root, to avoid cross-package false positives
+- **Monorepos**: a per-package scan only sees consumers inside that package; an export it reports as unused may be imported by a sibling package. Confirm from the monorepo root before deleting (see Step 1)
 - **Framework magic**: decorators (`@Component`, `@Injectable`) may make symbols appear unused but they're resolved at runtime — exclude framework entry files from the scan
 - The installed CLI help describes `graph-it check` as file-scoped. Use a workspace scan only through a currently advertised capability; apply scope only when its help or input schema documents it.
 

@@ -32,14 +32,13 @@
  * NO import * as vscode from 'vscode' allowed!
  */
 
-import * as path from "node:path";
 import { parseArgs } from "node:util";
 import { flushSession } from "../analyzer/stats/statsPersistence";
 import { sessionStats } from "../shared/sessionStats";
 import { classifyError, CliError, ExitCode } from "./errors";
 import type { CliOutputFormat } from "./formatter";
 import { CLI_OUTPUT_FORMATS, renderCliOutput } from "./formatter";
-import { CliRuntime, findWorkspaceRoot } from "./runtime";
+import { CliRuntime, resolveCliWorkspaceRoot } from "./runtime";
 import { maybeNotifyCliUpdate } from "./versionCheck";
 
 // ============================================================================
@@ -316,8 +315,7 @@ export function commandWantsHelp(command: string, commandArgs: string[], rawArgv
 /** Handle the no-command case: launch REPL in TTY, print help otherwise. */
 async function handleNoCommand(values: Record<string, unknown>): Promise<void> {
   if (process.stdin.isTTY) {
-    const workspaceRaw = (values.workspace as string | undefined) ?? process.cwd();
-    const workspaceRoot = findWorkspaceRoot(path.resolve(workspaceRaw));
+    const workspaceRoot = resolveCliWorkspaceRoot(values.workspace as string | undefined);
     await maybeNotifyCliUpdate({ workspaceRoot, currentVersion: VERSION });
     const { run } = await import("./commands/repl.js");
     await run(createRuntime(workspaceRoot, values));
@@ -406,8 +404,7 @@ async function main(): Promise<void> {
   }
 
   // Resolve workspace
-  const workspaceRaw = (values.workspace as string | undefined) ?? process.cwd();
-  const workspaceRoot = findWorkspaceRoot(path.resolve(workspaceRaw));
+  const workspaceRoot = resolveCliWorkspaceRoot(values.workspace as string | undefined);
   const runtime = createRuntime(workspaceRoot, values);
   activeRuntime = runtime;
 
@@ -555,6 +552,6 @@ async function dispatch(
 if (require.main === module) {
   main().catch((err) => {
     process.stderr.write(`Fatal: ${err instanceof Error ? err.message : String(err)}\n`);
-    process.exit(ExitCode.GENERAL_ERROR);
+    process.exit(err instanceof CliError ? err.exitCode : ExitCode.GENERAL_ERROR);
   });
 }

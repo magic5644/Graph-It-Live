@@ -43,6 +43,8 @@ import {
   shouldSkipDirectory,
 } from "./SourceFileFilters";
 import type { Dependency } from "./types";
+import { isPathWithinRootCanonical } from "@/shared/pathSecurity";
+import { resolveFileImports } from "./utils/resolveFileImports";
 
 const log = new ConsoleLogger("IndexerWorker");
 
@@ -85,6 +87,7 @@ interface WorkerResponse {
 interface IndexedFileData {
   filePath: string;
   dependencies: Dependency[];
+  outOfRootImports: string[];
   mtime: number;
   size: number;
 }
@@ -172,6 +175,7 @@ async function countSourceFiles(
 async function analyzeFile(
   filePath: string,
   languageService: LanguageService,
+  rootDir: string,
 ): Promise<IndexedFileData | null> {
   try {
     const stats = await fs.stat(filePath);
@@ -179,23 +183,17 @@ async function analyzeFile(
     // Use LanguageService to get the appropriate analyzer for this file
     const analyzer = languageService.getAnalyzer(filePath);
     const parsedImports = await analyzer.parseImports(filePath);
-    const dependencies: Dependency[] = [];
-
-    for (const imp of parsedImports) {
-      const resolvedPath = await analyzer.resolvePath(filePath, imp.module);
-      if (resolvedPath) {
-        dependencies.push({
-          path: resolvedPath,
-          type: imp.type,
-          line: imp.line,
-          module: imp.module,
-        });
-      }
-    }
+    const { dependencies, outOfRootImports } = await resolveFileImports(
+      analyzer,
+      filePath,
+      parsedImports,
+      (resolvedPath) => isPathWithinRootCanonical(resolvedPath, rootDir),
+    );
 
     return {
       filePath,
       dependencies,
+      outOfRootImports,
       mtime: stats.mtimeMs,
       size: stats.size,
     };
@@ -250,7 +248,7 @@ async function runIndexing(config: WorkerConfig): Promise<void> {
         break;
       }
 
-      const result = await analyzeFile(filePath, languageService);
+      const result = await analyzeFile(filePath, languageService, config.rootDir);
       if (result) {
         indexedData.push(result);
       }

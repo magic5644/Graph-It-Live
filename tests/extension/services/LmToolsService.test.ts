@@ -249,6 +249,43 @@ describe('LmToolsService', () => {
     });
   });
 
+  // Regression test for #264: the VS Code index status reports what a narrow folder leaves out.
+  it('reports out-of-root imports in get_index_status', async () => {
+    const spider = {
+      getIndexStatus: vi.fn().mockReturnValue({ state: 'complete' }),
+      getCacheStatsAsync: vi.fn().mockResolvedValue({ dependencyCache: { size: 0 } }),
+      hasReverseIndex: vi.fn().mockReturnValue(true),
+      getOutOfRootImports: vi.fn().mockReturnValue({ count: 2, examples: ['@core/x', '../../core/y'] }),
+      workspaceRoot: '/no-such-dir/graph-it-264/apps/worker',
+    };
+    new LmToolsService({ provider: createProvider({ spider }), logger }).registerAll();
+
+    const result = await invokeTool('graph-it-live_get_index_status', {});
+
+    expect(result).toMatchObject({
+      state: 'complete',
+      outOfRootImports: 2,
+      outOfRootImportExamples: ['@core/x', '../../core/y'],
+    });
+    expect((result as { warning: string }).warning).toContain('2 imports resolve outside the workspace root');
+  });
+
+  it('reports out-of-root imports as unknown when the reverse index is off', async () => {
+    const spider = {
+      getIndexStatus: vi.fn().mockReturnValue({ state: 'idle' }),
+      getCacheStatsAsync: vi.fn().mockResolvedValue({ dependencyCache: { size: 0 } }),
+      hasReverseIndex: vi.fn().mockReturnValue(false),
+      getOutOfRootImports: vi.fn().mockReturnValue(null),
+      workspaceRoot: '/no-such-dir/graph-it-264',
+    };
+    new LmToolsService({ provider: createProvider({ spider }), logger }).registerAll();
+
+    const result = await invokeTool('graph-it-live_get_index_status', {});
+
+    expect(result).not.toHaveProperty('outOfRootImports');
+    expect((result as { warning: string }).warning).toContain('enableBackgroundIndexing');
+  });
+
   it('registers graph context against the live graph index', async () => {
     executeGraphContextWithIndexes.mockResolvedValueOnce({ mode: 'search', nodes: [], edges: [] });
     const spider = createProvider().getSpiderForLmTools();

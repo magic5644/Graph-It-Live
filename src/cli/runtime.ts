@@ -16,6 +16,12 @@ import { Parser } from "../analyzer/Parser";
 import { SourceFileCollector } from "../analyzer/SourceFileCollector";
 import { SpiderBuilder } from "../analyzer/SpiderBuilder";
 import { PathResolver } from "../analyzer/utils/PathResolver";
+import {
+  describeOutOfRootImports,
+  findMonorepoRoot,
+  findWorkspaceRoot,
+  toDisplayPath,
+} from "../analyzer/utils/workspaceBoundary";
 import { workerState } from "../mcp/shared/state";
 import {
   getLogger,
@@ -59,25 +65,17 @@ export interface IndexOutcome {
 }
 
 /**
- * Locate the workspace root by searching upward for package.json or tsconfig.json.
- * Falls back to cwd().
+ * The CLI workspace root. An explicit --workspace is used exactly as given and
+ * must be an existing directory; without it, the nearest package root at or
+ * above cwd (see findWorkspaceRoot).
  */
-export function findWorkspaceRoot(startDir: string): string {
-  let dir = path.resolve(startDir);
-  const { root } = path.parse(dir);
-
-  while (dir !== root) {
-    if (
-      fs.existsSync(path.join(dir, "package.json")) ||
-      fs.existsSync(path.join(dir, "tsconfig.json"))
-    ) {
-      return dir;
-    }
-    dir = path.dirname(dir);
+export function resolveCliWorkspaceRoot(explicit: string | undefined, cwd = process.cwd()): string {
+  if (explicit === undefined) return findWorkspaceRoot(cwd);
+  const root = path.resolve(cwd, explicit);
+  if (!fs.statSync(root, { throwIfNoEntry: false })?.isDirectory()) {
+    throw new CliError(`Workspace directory not found: ${explicit}`, ExitCode.WORKSPACE_NOT_FOUND);
   }
-
-  // Fallback to the original startDir
-  return path.resolve(startDir);
+  return root;
 }
 
 /**
@@ -289,6 +287,8 @@ export class CliRuntime {
       const durationMs = Date.now() - startTime;
       if (!silent) {
         process.stderr.write(this.describeOutcome(result) + "\n");
+        const warning = this.describeOutOfRootImports();
+        if (warning) process.stderr.write(`  Warning: ${warning}\n`);
       }
       log.info(
         `${result.fromCache ? "Cache" : "Index"}: ${result.filesIndexed} files,`,
@@ -309,6 +309,19 @@ export class CliRuntime {
     } finally {
       unsubscribe();
     }
+  }
+
+  /**
+   * Names the imports the root boundary skipped and the --workspace to rerun
+   * with, so a sub-package scan does not look workspace-wide. Null when none.
+   */
+  private describeOutOfRootImports(): string | null {
+    const summary = workerState.getSpider().getOutOfRootImports();
+    if (!summary || summary.count === 0) return null;
+    const monorepoRoot = findMonorepoRoot(this.workspaceRoot);
+    const target = monorepoRoot ? toDisplayPath(process.cwd(), monorepoRoot) : null;
+    return `${describeOutOfRootImports(summary, target)} ` +
+      `Rerun with --workspace ${target ?? "<directory containing them>"} to include them.`;
   }
 
   /** One-line stderr summary naming where this run's index came from. */

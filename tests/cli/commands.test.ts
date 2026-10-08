@@ -143,7 +143,7 @@ describe("findWorkspaceRoot integration", () => {
   });
 
   it("detects fixture project root from subdirectory", async () => {
-    const { findWorkspaceRoot } = await import("../../src/cli/runtime.js");
+    const { findWorkspaceRoot } = await import("../../src/analyzer/utils/workspaceBoundary.js");
     const subDir = path.join(tmpDir, "src");
     const root = findWorkspaceRoot(subDir);
     expect(root).toBe(tmpDir);

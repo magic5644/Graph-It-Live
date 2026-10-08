@@ -2,7 +2,7 @@ import * as fs from "node:fs/promises";
 import * as path from "node:path";
 import { PYTHON_EXTENSIONS, SUPPORTED_FILE_EXTENSIONS } from "../../shared/constants";
 import { isPathWithinRootCanonical } from "../../shared/pathSecurity";
-import { normalizePath } from "../types";
+import { normalizePath, type ImportResolution } from "../types";
 import { parseTsConfig, resolveExtendsTargets, type TsConfigJson } from "./tsconfig";
 
 /**
@@ -214,34 +214,44 @@ export class PathResolver {
     currentFilePath: string,
     modulePath: string,
   ): Promise<string | null> {
+    return (await this.resolveImport(currentFilePath, modulePath)).path;
+  }
+
+  /**
+   * Like resolve(), but tells an import whose target lies outside the workspace
+   * root (dropped by the root boundary) apart from one that cannot be resolved.
+   */
+  async resolveImport(
+    currentFilePath: string,
+    modulePath: string,
+  ): Promise<ImportResolution> {
+    const candidate = await this.resolveCandidate(currentFilePath, modulePath);
+    const kept = this.keepWithinWorkspace(candidate);
+    return { path: kept, outsideRoot: candidate !== null && kept === null };
+  }
+
+  private async resolveCandidate(
+    currentFilePath: string,
+    modulePath: string,
+  ): Promise<string | null> {
     // Load static tsconfig if provided (legacy behavior for backwards compatibility)
     await this.ensureTsConfigLoaded();
 
-    // Try TypeScript config aliases
-    const tsConfigResolved = await this.tryTsConfigAliases(currentFilePath, modulePath);
-    if (tsConfigResolved) {
-      return this.keepWithinWorkspace(tsConfigResolved);
-    }
+    return (
+      // Try TypeScript config aliases
+      (await this.tryTsConfigAliases(currentFilePath, modulePath)) ||
+      // Try special module patterns (subpath imports, Rust, scoped packages)
+      (await this.trySpecialModulePatterns(currentFilePath, modulePath)) ||
+      // Try Python-specific imports
+      (await this.tryPythonImports(currentFilePath, modulePath)) ||
+      (this.isNodeModule(modulePath)
+        ? this.nodeModuleCandidate(modulePath)
+        : await this.tryRelativePath(currentFilePath, modulePath))
+    );
+  }
 
-    // Try special module patterns (subpath imports, Rust, scoped packages)
-    const specialPatternResolved = await this.trySpecialModulePatterns(currentFilePath, modulePath);
-    if (specialPatternResolved) {
-      return this.keepWithinWorkspace(specialPatternResolved);
-    }
-
-    // Try Python-specific imports
-    const pythonResolved = await this.tryPythonImports(currentFilePath, modulePath);
-    if (pythonResolved) {
-      return this.keepWithinWorkspace(pythonResolved);
-    }
-
-    // Handle node_modules
-    if (this.isNodeModule(modulePath)) {
-      return this.excludeNodeModules ? null : modulePath;
-    }
-
-    // Try relative paths
-    return this.keepWithinWorkspace(await this.tryRelativePath(currentFilePath, modulePath));
+  private nodeModuleCandidate(modulePath: string): string | null {
+    return this.excludeNodeModules ? null : modulePath;
   }
 
   /**

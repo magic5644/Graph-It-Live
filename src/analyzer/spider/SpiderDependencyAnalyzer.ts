@@ -1,5 +1,6 @@
 import { LanguageService } from '../LanguageService';
 import { PathResolver } from '../utils/PathResolver';
+import { resolveFileImports } from '../utils/resolveFileImports';
 import { Cache } from '../Cache';
 import { ReverseIndex } from '../ReverseIndex';
 import { ReverseIndexManager } from '../ReverseIndexManager';
@@ -38,37 +39,16 @@ export class SpiderDependencyAnalyzer {
 
       log.debug(`Parsed ${parsedImports.length} imports from ${filePath}`);
 
-      const dependencies: Dependency[] = [];
-      const seenResolvedPaths = new Set<string>();
-
-      for (const imp of parsedImports) {
-        // Use analyzer's resolvePath method for language-specific resolution
-        const resolvedPath = await analyzer.resolvePath(filePath, imp.module);
-        if (!resolvedPath) {
-          log.debug(`Failed to resolve module "${imp.module}" from ${filePath}`);
-          continue;
-        }
-
-        if (!this.resolver.isWithinWorkspace(resolvedPath)) {
-          log.warn(`Skipping dependency outside workspace: ${imp.module}`);
-          continue;
-        }
-
-        const normalizedResolved = normalizePath(resolvedPath);
-        if (seenResolvedPaths.has(normalizedResolved)) continue;
-        seenResolvedPaths.add(normalizedResolved);
-
-        dependencies.push({
-          path: normalizedResolved,
-          type: imp.type,
-          line: imp.line,
-          module: imp.module,
-        });
-      }
+      const { dependencies, outOfRootImports } = await resolveFileImports(
+        analyzer,
+        filePath,
+        parsedImports,
+        (resolvedPath) => this.resolver.isWithinWorkspace(resolvedPath),
+      );
 
       log.debug(`Resolved ${dependencies.length} dependencies for ${filePath}`);
       this.dependencyCache.set(key, dependencies);
-      await this.updateReverseIndexIfEnabled(filePath, key, dependencies);
+      await this.updateReverseIndexIfEnabled(filePath, key, dependencies, outOfRootImports);
 
       return dependencies;
     } catch (error) {
@@ -97,7 +77,8 @@ export class SpiderDependencyAnalyzer {
   private async updateReverseIndexIfEnabled(
     diskFilePath: string,
     normalizedFilePath: string,
-    dependencies: Dependency[]
+    dependencies: Dependency[],
+    outOfRootImports?: string[]
   ): Promise<void> {
     if (!this.reverseIndexManager.isEnabled()) {
       return;
@@ -111,7 +92,7 @@ export class SpiderDependencyAnalyzer {
 
     const fileHash = await ReverseIndex.getFileHashFromDisk(diskFilePath);
     if (fileHash) {
-      this.reverseIndexManager.addDependencies(normalizedFilePath, dependencies, fileHash);
+      this.reverseIndexManager.addDependencies(normalizedFilePath, dependencies, fileHash, outOfRootImports);
     }
   }
 }

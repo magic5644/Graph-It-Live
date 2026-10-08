@@ -1,6 +1,7 @@
 import { ReverseIndex } from './ReverseIndex';
 import { SymbolReverseIndex } from './SymbolReverseIndex';
 import type { Dependency, FileHash, SymbolDependency } from './types';
+import type { OutOfRootImports } from './utils/workspaceBoundary';
 
 /**
  * Encapsulates reverse index lifecycle and operations for Spider/MCP.
@@ -56,8 +57,13 @@ export class ReverseIndexManager {
     this.reverseIndex ??= new ReverseIndex(this.rootDir);
   }
 
-  addDependencies(sourcePath: string, dependencies: Dependency[], fileHash?: FileHash): void {
-    this.reverseIndex?.addDependencies(sourcePath, dependencies, fileHash);
+  addDependencies(
+    sourcePath: string,
+    dependencies: Dependency[],
+    fileHash?: FileHash,
+    outOfRootImports?: string[],
+  ): void {
+    this.reverseIndex?.addDependencies(sourcePath, dependencies, fileHash, outOfRootImports);
   }
 
   removeDependenciesFromSource(sourcePath: string): void {
@@ -82,6 +88,11 @@ export class ReverseIndexManager {
 
   getStats() {
     return this.reverseIndex?.getStats();
+  }
+
+  /** Null when the reverse index is off: skipped imports are recorded only while it is built. */
+  getOutOfRootImports(): OutOfRootImports | null {
+    return this.reverseIndex?.getOutOfRootImports() ?? null;
   }
 
   // ===========================

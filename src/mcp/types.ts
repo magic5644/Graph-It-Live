@@ -12,6 +12,7 @@ import * as nodePath from "node:path";
 import { z } from "zod/v4";
 import type { Dependency, DependencyType } from "../analyzer/types";
 import type { ReviewGateResult } from "../analyzer/ReviewGateAnalyzer";
+import type { OutOfRootReport } from "../analyzer/utils/workspaceBoundary";
 import {
   getRelativePath as _getRelativePath,
 } from "../shared/path";
@@ -1212,8 +1213,10 @@ export interface ResolveModulePathResult {
 export interface SetWorkspaceResult {
   /** Whether the workspace was successfully set */
   success: boolean;
-  /** The new workspace path */
+  /** The new workspace path (reported as "." once it is the active root) */
   workspacePath: string;
+  /** Directory name of the new workspace root, so the active root is identifiable */
+  workspaceName?: string;
   /** Number of files indexed during warmup */
   filesIndexed: number;
   /** Time taken to index in milliseconds */
@@ -1227,7 +1230,7 @@ export interface SetWorkspaceResult {
 /**
  * Result of get_index_status tool
  */
-export interface GetIndexStatusResult {
+export interface GetIndexStatusResult extends OutOfRootReport {
   /** Current indexing state */
   state: "idle" | "counting" | "indexing" | "complete" | "error";
   /** Whether the index is ready for queries */

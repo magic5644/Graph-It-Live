@@ -2,6 +2,7 @@ import * as vscode from 'vscode';
 import * as path from 'node:path';
 import { IndexCache, type ReverseIndexOptions } from '../../analyzer/cache/IndexCache';
 import { Spider } from '../../analyzer/Spider';
+import { reportOutOfRootImports } from '../../analyzer/utils/workspaceBoundary';
 
 type Logger = {
   info: (message: string, ...args: unknown[]) => void;
@@ -43,6 +44,7 @@ export class BackgroundIndexingManager {
   private disposed = false;
   private disposeTask: Promise<void> | null = null;
   private cacheTask: Promise<IndexCache> | null = null;
+  private outOfRootWarned = false;
 
   constructor(options: BackgroundIndexingManagerOptions) {
     this.context = options.context;
@@ -154,6 +156,18 @@ export class BackgroundIndexingManager {
     await this.persistIndex().catch((error: unknown) => this.log.warn('Could not persist index:', error));
   }
 
+  /**
+   * Says once per session that imports were skipped by the folder boundary, so
+   * a sub-package folder does not look like the whole monorepo.
+   */
+  private warnOutOfRootImports(): void {
+    if (this.outOfRootWarned) return;
+    const { warning } = reportOutOfRootImports(this.spider.getOutOfRootImports(), this.spider.workspaceRoot);
+    if (!warning) return;
+    this.outOfRootWarned = true;
+    this.log.warn(warning);
+  }
+
   private clearScheduledIndexing(): void {
     if (this.indexingStartTimer) {
       clearTimeout(this.indexingStartTimer);
@@ -231,6 +245,7 @@ export class BackgroundIndexingManager {
 
         if (validation?.isValid) {
           this.log.info('Successfully restored and validated persisted index');
+          this.warnOutOfRootImports();
           return;
         }
 
@@ -243,6 +258,7 @@ export class BackgroundIndexingManager {
           if (this.disposed) return;
           await this.persistIndex();
           this.log.info('Incremental re-index complete');
+          this.warnOutOfRootImports();
         } else {
           await this.startBackgroundIndexingWithProgress();
         }
@@ -302,6 +318,7 @@ export class BackgroundIndexingManager {
       } else {
         this.log.info('Indexed', result.indexedFiles, 'files in', result.duration, 'ms');
         this.statusBarItem.text = `$(check) Graph-It-Live: ${result.indexedFiles} files indexed`;
+        this.warnOutOfRootImports();
         await this.persistIndex();
         if (this.disposed) return;
         await this.onIndexingComplete();

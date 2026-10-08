@@ -60,6 +60,7 @@ const createSpider = () => ({
     reindexStaleFiles: vi.fn(async () => 0),
     buildFullIndexInWorker: vi.fn(async () => ({ indexedFiles: 1, duration: 0, cancelled: false })),
     subscribeToIndexStatus: vi.fn(() => () => {}),
+    getOutOfRootImports: vi.fn(() => ({ count: 0, examples: [] as string[] })),
 });
 
 const baseConfig: BackgroundIndexingConfig = {
@@ -92,7 +93,7 @@ const createManager = (config: Partial<BackgroundIndexingConfig> = {}) => {
     /** Runs what scheduleDeferredIndexing() starts once its delay elapses. */
     const restore = () => (manager as unknown as { tryRestoreIndex(): Promise<void> }).tryRestoreIndex();
 
-    return { manager, context, spider, restore, onIndexingComplete };
+    return { manager, context, spider, restore, onIndexingComplete, logger };
 };
 
 const managers: BackgroundIndexingManager[] = [];
@@ -127,6 +128,27 @@ describe('BackgroundIndexingManager', () => {
         expect(fs.readFileSync(path.join(workspaceRoot, '.graph-it', '.gitignore'), 'utf-8')).toBe('*\n');
         // The copy older versions kept in workspaceState is dropped.
         expect(context.workspaceState.update).toHaveBeenCalledWith('graph-it-live.reverseIndex', undefined);
+    });
+
+    // Regression test for #264: a sub-package folder must say it misses sibling packages.
+    it('warns once in the output channel when imports resolve outside the folder', async () => {
+        const { restore, spider, manager, logger } = createManager();
+        spider.getOutOfRootImports.mockReturnValue({ count: 2, examples: ['@core/x', '../../core/y'] });
+
+        await restore();
+        await manager.forceReindex();
+
+        expect(logger.warn).toHaveBeenCalledOnce();
+        expect(logger.warn.mock.calls[0][0]).toContain('2 imports resolve outside the workspace root');
+        expect(logger.warn.mock.calls[0][0]).toContain('VS Code: open it as the workspace folder');
+    });
+
+    it('stays silent when no import was skipped', async () => {
+        const { restore, logger } = createManager();
+
+        await restore();
+
+        expect(logger.warn).not.toHaveBeenCalled();
     });
 
     it('restores an index another process wrote instead of indexing again', async () => {

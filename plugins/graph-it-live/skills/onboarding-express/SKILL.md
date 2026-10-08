@@ -39,11 +39,21 @@ invalidate cached capabilities, and advise that a running MCP server needs a hos
 On failure, keep using the existing CLI only if it remains usable; otherwise explain the failure
 and stop CLI analysis. Warn briefly and do not retry in a loop.
 
-Build or refresh the index before analysis:
+## Choose the Workspace Root
 
-```bash
-graph-it scan
-```
+Graph-It-Live analyzes one workspace root and skips every import that resolves outside it. Without
+`--workspace`, the CLI uses the nearest directory holding `package.json` or `tsconfig.json`; an
+explicit `graph-it -w <dir>` is used exactly as given. The index and cache (`.graph-it/`) are
+created in the chosen root.
+
+- **Monorepo tour, entry points, dependents, impact, cross-package questions**: use the monorepo
+  root through `graph-it -w <monorepoRoot> <command>` rather than `cd` into a package.
+- **One package only**: scan that package, then say in the report that sibling packages are not
+  covered.
+- If `scan` prints `Warning: N imports resolve outside the workspace root`, the results cover the
+  current root only. Rerun with the `--workspace` it names, or report the limitation; never present
+  the narrow results as workspace-wide. `graph-it tool get_index_status` reports the same
+  `outOfRootImports` count and `monorepoRoot`.
 
 ## When to Use
 
@@ -62,7 +72,8 @@ graph-it scan
 graph-it scan
 ```
 
-Always run first. All subsequent commands depend on it.
+Run it once first; all subsequent commands depend on it. It is incremental and cached, so no
+timeout wrapper is needed. Check its stderr for the out-of-root warning (see Choose the Workspace Root).
 
 ---
 
@@ -94,8 +105,10 @@ For each candidate entry file (max 5), run both directions:
 graph-it explain <filePath> --format toon
 
 # Incoming: who imports/calls this file
-graph-it tool find_referencing_files --targetPath=<absolutePath>
+graph-it tool find_referencing_files --targetPath=<path>
 ```
+
+`<path>` may be absolute or relative to the workspace root (for example `apps/worker/src/a.ts`).
 
 Rank by:
 1. **Highest fan-out** (outgoing) + **0 fan-in** (nothing imports it) → true root entry points
@@ -117,10 +130,10 @@ For each candidate business logic file, run **both directions** to build a compl
 
 ```bash
 # Outgoing: what this file exports, imports, and calls internally
-graph-it tool generate_codemap --filePath=<absolutePath> --format toon
+graph-it tool generate_codemap --filePath=<path> --format toon
 
 # Incoming: who depends on this file across the project
-graph-it tool find_referencing_files --targetPath=<absolutePath>
+graph-it tool find_referencing_files --targetPath=<path>
 ```
 
 The combination of both tells you:
@@ -138,7 +151,7 @@ Pick the **1–3 files** with the highest combination of fan-in + exported symbo
 For a representative sample of files (top 20 by size, or all files for small projects under 50 files), run:
 
 ```bash
-graph-it explain <absolutePath> --format toon
+graph-it explain <path> --format toon
 ```
 
 Score each file using this heuristic:
@@ -168,6 +181,21 @@ From the highest-scored entry point, trace the full execution chain:
 
 ```bash
 graph-it trace <entryFile>#<mainFunction> --format mermaid
+```
+
+The output names each node by its symbol and workspace-relative file; calls into external modules
+are dashed `:::external` nodes:
+
+```mermaid
+graph TD
+  S0["main · src/index.ts"]
+  S1["parse · src/parser.ts"]
+  S2["tokenize · src/parser.ts"]
+  S3(["readFileSync · node:fs"]):::external
+  S0 --> S1
+  S1 --> S2
+  S0 --> S3
+  classDef external stroke-dasharray: 4 2
 ```
 
 Use `--format mermaid` here because the output is intended for a human — the Mermaid diagram renders as a visual flowchart in VS Code, GitHub, Obsidian, and most Markdown preview panes. For all other graph-it calls in this workflow, prefer `--format toon` (token-efficient, AI-readable).
@@ -212,9 +240,9 @@ Synthesize steps 3–6 into this structured report:
 
 ## Tips
 
-- On a **monorepo**, scope the tour per package: `cd packages/api && graph-it scan` then repeat the workflow.
+- On a **monorepo**, tour from the monorepo root with `graph-it -w <monorepoRoot> ...` (see Choose the Workspace Root). Narrow to one package with `--maxFiles` or per-package file paths, not by changing the root.
 - If the architecture graph returns too much data, lower `--maxFiles` or tour one package/folder at a time.
-- If indexing is incomplete, rerun `graph-it scan` from the package root and report the unanalysed area rather than guessing.
+- If indexing is incomplete or `scan` warns about out-of-root imports, report the unanalysed area rather than guessing.
 - The "most complex module" heuristic is architectural, not cyclomatic. For line-level complexity, combine with a linter.
 - After the tour, run the **dead-code-hunter** skill to find safe cleanup targets before the new developer starts writing code — a clean codebase is much easier to onboard into.
 - For deeper call-graph questions ("what calls this function?", "what breaks if I change X?"), use the **graph-it-live** skill directly.
