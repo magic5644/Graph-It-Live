@@ -3,6 +3,7 @@ import { ReviewGateAnalyzer, type SymbolDependentsProvider } from "../../analyze
 import type { Spider } from "../../analyzer/Spider";
 import type { SymbolDependency } from "../../analyzer/types";
 import { checkSymbolInFile, symbolNotFoundMessage } from "../../analyzer/utils/SymbolLookup";
+import { normalizePath } from "../../shared/path";
 import { getRelativePath, validateFileExists } from "../shared/helpers";
 import { workerState } from "../shared/state";
 import type {
@@ -202,11 +203,12 @@ function processTransitiveDependent(
   depth: number,
   ctx: TransitiveContext,
 ): void {
-  if (ctx.visitedSymbols.has(dep.sourceSymbolId)) return;
+  const sourceKey = normalizePath(dep.sourceSymbolId);
+  if (ctx.visitedSymbols.has(sourceKey)) return;
 
   const item = createImpactedItem(dep, depth, ctx.rootDir);
   ctx.impactedItems.push(item);
-  ctx.visitedSymbols.add(dep.sourceSymbolId);
+  ctx.visitedSymbols.add(sourceKey);
   ctx.affectedFilesSet.add(item.filePath);
 
   if (depth < ctx.maxDepth) {
@@ -332,7 +334,8 @@ export async function executeGetImpactAnalysis(
 
   const symbolId = `${filePath}:${symbolName}`;
   const impactedItems: ImpactedItem[] = [];
-  const visitedSymbols = new Set<string>();
+  // Seeded with the target so a mutual recursion never lists it as its own impact.
+  const visitedSymbols = new Set<string>([normalizePath(symbolId)]);
   const affectedFilesSet = new Set<string>();
 
   // Get direct dependents
@@ -342,9 +345,11 @@ export async function executeGetImpactAnalysis(
   );
 
   for (const dep of directDependents) {
+    const sourceKey = normalizePath(dep.sourceSymbolId);
+    if (visitedSymbols.has(sourceKey)) continue;
     const item = createImpactedItem(dep, 1, config.rootDir);
     impactedItems.push(item);
-    visitedSymbols.add(dep.sourceSymbolId);
+    visitedSymbols.add(sourceKey);
     affectedFilesSet.add(item.filePath);
   }
 

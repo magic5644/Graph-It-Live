@@ -68,7 +68,8 @@ export function doSomething() {
       const result = analyzer.analyzeFileContent('/test.ts', content);
       
       expect(result.dependencies).toHaveLength(1);
-      expect(result.dependencies[0].targetSymbolId).toBe('./utils:*');
+      // The accessed member is the dependency, not the whole namespace (#259).
+    expect(result.dependencies[0].targetSymbolId).toBe('./utils:helper');
     });
 
     it('should ignore type-only imports', () => {

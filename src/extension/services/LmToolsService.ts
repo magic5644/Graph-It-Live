@@ -23,6 +23,7 @@ import {
 import type { Dependency } from '@/analyzer/types';
 import { checkSymbolInFile, symbolNotFoundMessage } from '@/analyzer/utils/SymbolLookup';
 import { convertSpiderToLspFormat } from '@/shared/converters';
+import { normalizePath } from '@/shared/path';
 import {
   toWorkspaceRelativePath,
   validateWorkspacePath,
@@ -581,7 +582,6 @@ export class LmToolsService {
     const indexer = this.provider.getCallGraphViewServiceForLmTools()?.getCallGraphIndexerForLmTools();
     if (!indexer) return null;
 
-    const { normalizePath } = await import('../../shared/path.js');
     const db = indexer.getDb();
     const symbolRows = db.exec('SELECT id FROM nodes WHERE path = ? AND name = ?', [normalizePath(filePath), symbolName]);
     const symbolId = symbolRows[0]?.values[0]?.[0] as string | undefined;
@@ -673,8 +673,9 @@ export class LmToolsService {
     queue: Array<{ symbolId: string; depth: number }>,
     result: ReturnType<LmToolsService['buildImpactItem']>[],
   ): void {
-    if (visited.has(dep.sourceSymbolId)) return;
-    visited.add(dep.sourceSymbolId);
+    const sourceKey = normalizePath(dep.sourceSymbolId);
+    if (visited.has(sourceKey)) return;
+    visited.add(sourceKey);
     result.push(this.buildImpactItem(dep, currentDepth, rootDir));
     if (currentDepth < maxDepth) {
       queue.push({ symbolId: dep.sourceSymbolId, depth: currentDepth + 1 });
@@ -686,8 +687,10 @@ export class LmToolsService {
     spider: ReturnType<GraphProvider['getSpiderForLmTools']> & object,
     maxDepth: number,
     rootDir: string | undefined,
+    targetSymbolId: string,
   ): Promise<ReturnType<LmToolsService['buildImpactItem']>[]> {
-    const visited = new Set<string>(directDependents.map((d) => d.sourceSymbolId));
+    // The target is seeded so a mutual recursion never lists it as its own impact.
+    const visited = new Set<string>([targetSymbolId, ...directDependents.map((d) => d.sourceSymbolId)].map(normalizePath));
     const queue = directDependents.map((d) => ({ symbolId: d.sourceSymbolId, depth: 2 }));
     const transitiveItems: ReturnType<LmToolsService['buildImpactItem']>[] = [];
 
@@ -738,7 +741,7 @@ export class LmToolsService {
 
             if (includeTransitive && maxDepth > 1) {
               const transitiveItems = await this.collectTransitiveDependents(
-                directDependents, spider, maxDepth, rootDir,
+                directDependents, spider, maxDepth, rootDir, `${filePath}:${symbolName}`,
               );
               impactedItems.push(...transitiveItems);
             }
@@ -1435,7 +1438,6 @@ export class LmToolsService {
           const { symbolName, direction = 'both', depth = 2, relationTypes } = options.input;
           const filePath = this.resolveWorkspacePath(options.input.filePath);
           try {
-            const { normalizePath } = await import('../../shared/path.js');
             const db = indexer.getDb();
             const normalizedPath = normalizePath(filePath);
             const symbolRows = db.exec(

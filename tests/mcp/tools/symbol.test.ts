@@ -148,5 +148,36 @@ describe("symbol tools", () => {
       expect(result.dependentCount).toBe(1);
       expect(result.dependents[0].targetRelativePath).toBe("target.ts");
     });
+
+    const symbolGraph = (filePath: string, names: string[]) => ({
+      symbols: names.map((name) => ({
+        name, kind: "FunctionDeclaration", line: 1, isExported: true, id: `${filePath}:${name}`,
+      })),
+      dependencies: [],
+    });
+
+    it("throws the not-found message with suggestions for an unknown symbol", async () => {
+      const filePath = await createTempFile(tempDir, "core.ts", "");
+      const getSymbolDependents = vi.fn();
+      setupWorkerState({ getSymbolGraph: vi.fn(async () => symbolGraph(filePath, ["target"])), getSymbolDependents });
+
+      await expect(executeGetSymbolDependents({ filePath, symbolName: "targt" })).rejects.toThrow(
+        "Symbol 'targt' not found in core.ts. Did you mean: target?",
+      );
+      expect(getSymbolDependents).not.toHaveBeenCalled();
+    });
+
+    it("returns zero dependents for a known symbol nobody uses", async () => {
+      const filePath = await createTempFile(tempDir, "core.ts", "");
+      setupWorkerState({
+        getSymbolGraph: vi.fn(async () => symbolGraph(filePath, ["target"])),
+        getSymbolDependents: vi.fn(async () => []),
+      });
+
+      const result = await executeGetSymbolDependents({ filePath, symbolName: "target" });
+
+      expect(result.dependentCount).toBe(0);
+      expect(result.dependents).toEqual([]);
+    });
   });
 });

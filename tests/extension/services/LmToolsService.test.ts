@@ -816,6 +816,27 @@ describe('LmToolsService', () => {
       expect(getSymbolDependents).toHaveBeenCalledWith('/workspace/src/b.ts', 'runB');
     });
 
+    it('does not list the target as its own transitive impact in a mutual recursion (#259)', async () => {
+      // The target path goes through path.resolve, so the recursive edge reuses the path the tool passed.
+      let targetFile = '';
+      const getSymbolDependents = vi.fn(async (file: string, symbol: string) => {
+        if (symbol === 'isEven') {
+          targetFile = file;
+          return [{ sourceSymbolId: `${file}:isOdd`, targetSymbolId: `${file}:isEven`, targetFilePath: file }];
+        }
+        return [{ sourceSymbolId: `${targetFile}:isEven`, targetSymbolId: `${file}:isOdd`, targetFilePath: file }];
+      });
+      new LmToolsService({ provider: createProvider({ spider: { getSymbolDependents } }), logger }).registerAll();
+
+      const result = await invokeTool(TOOL, {
+        filePath: '/workspace/src/a.ts', symbolName: 'isEven', includeTransitive: true, maxDepth: 3,
+      }) as Record<string, unknown>;
+
+      expect((result.impactedItems as Array<Record<string, unknown>>).map((i) => [i.symbolId, i.depth])).toEqual([
+        ['src/a.ts:isOdd', 1],
+      ]);
+    });
+
     it('returns an error with close matches for an unknown symbol (#229)', async () => {
       const getSymbolDependents = vi.fn().mockResolvedValue([]);
       const getSymbolGraph = vi.fn().mockResolvedValue({

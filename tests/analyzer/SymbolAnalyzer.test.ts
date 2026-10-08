@@ -303,3 +303,50 @@ export function run(options: Options): number { return helper() + options.depth;
     expect([...(graph.get('/test.ts:helper') ?? [])]).toEqual([]);
   });
 });
+
+describe('SymbolAnalyzer - namespace imports', () => {
+  const targetsOf = (content: string, source: string) =>
+    new SymbolAnalyzer()
+      .analyzeFileContent('/consumer.ts', content)
+      .dependencies.filter((d) => d.sourceSymbolId === `/consumer.ts:${source}` && d.targetFilePath === './mod')
+      .map((d) => d.targetSymbolId)
+      .sort();
+
+  it('resolves a member access on a namespace to the accessed export', () => {
+    const content = `
+import * as m from './mod';
+export const run = () => m.fn(1);
+`;
+    expect(targetsOf(content, 'run')).toEqual(['./mod:fn']);
+  });
+
+  it.each(['vi.spyOn', 'jest.spyOn', 'spyOn'])('resolves %s(ns, "member") to the spied export', (spyOn) => {
+    const content = `
+import * as m from './mod';
+export const spy = ${spyOn}(m, "fn");
+`;
+    expect(targetsOf(content, 'spy')).toEqual(['./mod:fn']);
+  });
+
+  it('keeps a bare namespace passed as a value unresolved', () => {
+    const content = `
+import * as m from './mod';
+declare function register(target: unknown, name: string): void;
+export const all = () => register(m, "fn");
+export const copy = { ...m };
+`;
+    expect(targetsOf(content, 'all')).toEqual(['./mod:*']);
+    expect(targetsOf(content, 'copy')).toEqual(['./mod:*']);
+  });
+
+  it('keeps isTypeOnly for a member of a type-only namespace import', () => {
+    const content = `
+import type * as T from './types';
+export function read(options: T.Options): void {}
+`;
+    const deps = new SymbolAnalyzer()
+      .analyzeFileContent('/consumer.ts', content)
+      .dependencies.filter((d) => d.sourceSymbolId === '/consumer.ts:read');
+    expect(deps.map((d) => [d.targetSymbolId, d.isTypeOnly])).toEqual([['./types:Options', true]]);
+  });
+});
