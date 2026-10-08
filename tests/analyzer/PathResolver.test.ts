@@ -51,12 +51,6 @@ describe("PathResolver - tsconfig path aliases", () => {
     }
   });
 
-  it("reads JSONC configs with comments, trailing commas and a BOM", async () => {
-    write("tsconfig.json", '﻿{\n  // tsc --init\n  "extends": "./base",\n}');
-    write("base.json", '﻿{ /* base */ "compilerOptions": { "baseUrl": ".", "paths": { "@/*": ["src/*"], }, }, }');
-    expect(await resolve("@/lib/x")).toBe(target);
-  });
-
   it("ignores malformed configs and malformed paths entries without throwing", async () => {
     write("tsconfig.json", '{ "compilerOptions": { "paths": { "~/*": "src/*", "@/*": [42] } } }');
     expect(await resolve("~/lib/x")).toBeNull();
@@ -64,23 +58,39 @@ describe("PathResolver - tsconfig path aliases", () => {
     expect(await resolve("~/lib/x")).toBeNull();
   });
 
-  it("follows an array extends where later entries override earlier ones", async () => {
-    write("tsconfig.json", '{ "extends": ["./first.json", "./second.json"] }');
-    write("first.json", '{ "compilerOptions": { "paths": { "@/*": ["wrong/*"] } } }');
-    write("second.json", '{ "compilerOptions": { "paths": { "@/*": ["src/*"] } } }');
-    expect(await resolve("@/lib/x")).toBe(target);
-  });
-
-  it("follows a package extends resolved from node_modules", async () => {
-    write("tsconfig.json", '{ "extends": "@acme/tsconfig/base.json" }');
-    write("node_modules/@acme/tsconfig/package.json", '{ "name": "@acme/tsconfig", "version": "1.0.0" }');
-    write("node_modules/@acme/tsconfig/base.json", '{ "compilerOptions": { "baseUrl": "../../../", "paths": { "@/*": ["src/*"] } } }');
-    expect(await resolve("@/lib/x")).toBe(target);
-  });
-
-  it("ignores missing extends targets and survives cycles", async () => {
-    write("tsconfig.json", '{ "extends": ["./missing", "@missing/pkg", "./loop.json"], "compilerOptions": { "paths": { "@/*": ["src/*"] } } }');
-    write("loop.json", '{ "extends": "./tsconfig.json" }');
+  it.each<[string, Record<string, string>]>([
+    [
+      "JSONC configs with comments, trailing commas and a BOM",
+      {
+        "tsconfig.json": '\uFEFF{\n  // tsc --init\n  "extends": "./base",\n}',
+        "base.json": '\uFEFF{ /* base */ "compilerOptions": { "baseUrl": ".", "paths": { "@/*": ["src/*"], }, }, }',
+      },
+    ],
+    [
+      "an array extends where later entries override earlier ones",
+      {
+        "tsconfig.json": '{ "extends": ["./first.json", "./second.json"] }',
+        "first.json": '{ "compilerOptions": { "paths": { "@/*": ["wrong/*"] } } }',
+        "second.json": '{ "compilerOptions": { "paths": { "@/*": ["src/*"] } } }',
+      },
+    ],
+    [
+      "a package extends resolved from node_modules",
+      {
+        "tsconfig.json": '{ "extends": "@acme/tsconfig/base.json" }',
+        "node_modules/@acme/tsconfig/package.json": '{ "name": "@acme/tsconfig", "version": "1.0.0" }',
+        "node_modules/@acme/tsconfig/base.json": '{ "compilerOptions": { "baseUrl": "../../../", "paths": { "@/*": ["src/*"] } } }',
+      },
+    ],
+    [
+      "missing extends targets and cycles",
+      {
+        "tsconfig.json": '{ "extends": ["./missing", "@missing/pkg", "./loop.json"], "compilerOptions": { "paths": { "@/*": ["src/*"] } } }',
+        "loop.json": '{ "extends": "./tsconfig.json" }',
+      },
+    ],
+  ])("resolves @/* through %s", async (_name, files) => {
+    for (const [relative, content] of Object.entries(files)) write(relative, content);
     expect(await resolve("@/lib/x")).toBe(target);
   });
 
