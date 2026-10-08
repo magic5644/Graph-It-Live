@@ -32,7 +32,10 @@ export interface ReviewEvidence {
 
 export interface ReviewScoreFactors {
   breakingChanges: number;
-  /** Weight of consumers that are neither updated in this diff nor covered by a test. */
+  /**
+   * Weight of consumers left for the author: for a change that breaks call sites,
+   * every consumer this diff does not touch, tested or not.
+   */
   unverifiedConsumers: number;
   cycles: number;
   unusedExport: number;
@@ -42,13 +45,17 @@ export interface ReviewScoreFactors {
 
 /**
  * Where a changed contract's consumers stand. A consumer that the diff already
- * updates, or that a test exercises, is accounted for; what is left is the
- * surface nobody has checked.
+ * updates is accounted for. A consumer a test exercises is accounted for only
+ * when the change leaves its call sites valid: otherwise it is still broken, and
+ * the test merely makes that breakage fail loudly.
  */
 export interface ConsumerStanding {
-  /** Consumer files the diff already touches. */
+  /**
+   * Consumer files the diff already touches. File-level only: the file changed,
+   * which does not prove its call to the changed symbol was fixed.
+   */
   updated: string[];
-  /** Consumer files a test reaches, so a real incompatibility fails loudly. */
+  /** Consumer files the diff does not touch but a test reaches, so a real incompatibility fails loudly. */
   covered: string[];
   /** Neither — the risk this gate exists to report. */
   unverified: string[];
@@ -289,9 +296,9 @@ export class ReviewGateAnalyzer {
 
   /**
    * Split the consumers of a changed contract into the ones this diff already
-   * updates, the ones a test exercises, and the ones nobody checked. Only the
-   * last group is a risk: a consumer the author touched has been considered, and
-   * a consumer under test fails loudly if the contract no longer fits.
+   * updates, the ones a test exercises, and the ones nobody checked. How much the
+   * last two groups weigh depends on whether the change breaks call sites; see
+   * `getScoreFactors`.
    */
   private async getConsumerStanding(
     impact: SymbolImpact,
@@ -359,11 +366,11 @@ export class ReviewGateAnalyzer {
     // has to be edited for it, so it must not drown the findings that do need work.
     // Kept non-zero on purpose — at zero the symbol would vanish from the report.
     const RESIDUAL_WEIGHT = 5;
-    // Every consumer the walk found is either updated in this diff or exercised by
-    // a test: the contract change has been carried through everywhere it lands, so
-    // it is residual work, not unhandled risk.
-    const consumersAccountedFor = input.consumers.unverified.length === 0
-      && input.consumers.updated.length + input.consumers.covered.length > 0;
+    // When call sites must change, a consumer this diff does not touch is broken
+    // whether or not a test reaches it — the test only makes the breakage fail
+    // later, in CI. So only a diff that updates every consumer is residual work.
+    const untouchedConsumers = input.consumers.covered.length + input.consumers.unverified.length;
+    const consumersAccountedFor = input.consumers.updated.length > 0 && untouchedConsumers === 0;
     let breakingChangeWeight = 50;
     if (input.hasConfirmedZeroImpact || !input.consumersMustAct || consumersAccountedFor) {
       breakingChangeWeight = RESIDUAL_WEIGHT;
@@ -375,10 +382,10 @@ export class ReviewGateAnalyzer {
       // one contract change for its consumers, and who must act on it is already
       // scored by the consumer factors below.
       breakingChanges: input.breakingChangeCount > 0 ? breakingChangeWeight : 0,
-      // Scored on what nobody checked, not on how widely the contract is used: a
-      // heavily used contract whose consumers are all updated or under test is
-      // exactly the well-handled change this gate should wave through.
-      unverifiedConsumers: input.consumersMustAct ? input.consumers.unverified.length * 5 : 0, cycles: input.cycles ? 20 : 0,
+      // Scored on what the diff leaves broken, not on how widely the contract is
+      // used: a heavily used contract whose consumers are all updated is exactly
+      // the well-handled change this gate should wave through.
+      unverifiedConsumers: input.consumersMustAct ? untouchedConsumers * 5 : 0, cycles: input.cycles ? 20 : 0,
       unusedExport: input.unusedExport ? 10 : 0, missingTestCandidate: input.testCandidateCount === 0 ? 10 : 0,
       // An incomplete impact walk means "there may be consumers I did not see" —
       // a risk only when consumers actually have to be updated. Charging it
@@ -401,14 +408,14 @@ export class ReviewGateAnalyzer {
     if (input.impact.count > 0) evidence.push({ kind: "impact", detail: `${input.impact.count} known dependent symbol(s).` });
     const consumerTotal = input.consumers.updated.length + input.consumers.covered.length + input.consumers.unverified.length;
     if (consumerTotal > 0) {
-      const unverifiedDetail = input.consumers.unverified.length > 0
-        ? `: ${input.consumers.unverified.join(", ")}` : "";
-      const unhandled = input.consumersMustAct
-        ? `${input.consumers.unverified.length} unverified${unverifiedDetail}`
-        : `${input.consumers.unverified.length} neither, but this change requires no call-site update`;
+      const { updated, covered, unverified } = input.consumers;
+      const unverifiedDetail = unverified.length > 0 ? `: ${unverified.join(", ")}` : "";
+      const standing = input.consumersMustAct
+        ? `${covered.length + unverified.length} must be updated (${covered.length} with tests that will fail, ${unverified.length} unverified${unverifiedDetail})`
+        : `${covered.length} covered by tests, ${unverified.length} neither, but this change requires no call-site update`;
       evidence.push({
         kind: "consumers",
-        detail: `${consumerTotal} consumer file(s): ${input.consumers.updated.length} updated in this diff, ${input.consumers.covered.length} covered by tests, ${unhandled}.`,
+        detail: `${consumerTotal} consumer file(s): ${updated.length} updated in this diff, ${standing}.`,
       });
     }
     if (input.cycles) evidence.push({ kind: "cycle", detail: "Changed symbol participates in a detected symbol dependency cycle." });
@@ -781,10 +788,12 @@ export function renderReviewMarkdown(result: ReviewGateResult): string {
     `| ${safe(symbol.risk)} | ${symbol.score} | ${safe(symbol.filePath)} | ${safe(symbol.name)} | ${symbol.consumers.updated.length} | ${symbol.consumers.covered.length} | ${symbol.consumers.unverified.length} |`,
   );
 
+  // A non-zero consumer weight means the change breaks call sites, so every
+  // untouched consumer is to check — a tested one included.
   const unverified = result.symbols
-    .filter((symbol) => symbol.consumers.unverified.length > 0 && symbol.scoreFactors.unverifiedConsumers > 0)
+    .filter((symbol) => symbol.scoreFactors.unverifiedConsumers > 0)
     .slice(0, 10)
-    .map((symbol) => `- ${safe(symbol.name)}: ${symbol.consumers.unverified.map(safe).join(", ")}`);
+    .map((symbol) => `- ${safe(symbol.name)}: ${[...symbol.consumers.covered, ...symbol.consumers.unverified].map(safe).join(", ")}`);
 
   return [
     "<!-- graph-it-review-gate -->",

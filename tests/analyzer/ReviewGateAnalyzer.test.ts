@@ -136,7 +136,8 @@ describe("ReviewGateAnalyzer", { timeout: GIT_TEST_TIMEOUT }, () => {
     expect(markdown).toContain("| Risk | Score | File | Symbol | Updated | Covered | Unverified |");
     expect(markdown).toContain("| medium | 25 | src/api.ts | greet | 1 | 2 | 1 |");
     expect(markdown).toContain("### Consumers to check");
-    expect(markdown).toContain("- greet: src/d.ts");
+    // A must-act change leaves every untouched consumer to check, the tested ones included.
+    expect(markdown).toContain("- greet: src/b.ts, src/c.ts, src/d.ts");
     // The raw dependent count is context, not the headline the old table led with.
     expect(markdown).not.toContain("42");
   });
@@ -494,10 +495,11 @@ describe("ReviewGateAnalyzer - consumer standing", () => {
   const NEW_API = "export function greet(name: string, formal: boolean): string { return name; }\n";
 
   /**
-   * The gate answers "did we update every consumer, and is the rest under test?".
-   * A widely used contract whose consumers are all handled is a well-managed
-   * change, not a risky one — so the score follows the unverified remainder, not
-   * the raw consumer count.
+   * The gate answers "did we update every consumer?". A widely used contract whose
+   * consumers are all updated is a well-managed change, not a risky one — so the
+   * score follows the untouched remainder, not the raw consumer count. A test on an
+   * untouched consumer of a call-site-breaking change does not handle it: it only
+   * makes the breakage fail later.
    */
   const analyzerWith = async (consumerFiles: string[], edges: Record<string, string[]> = {}) => {
     const workspace = await createGitWorkspaceWithDiff(OLD_API, NEW_API);
@@ -537,7 +539,7 @@ describe("ReviewGateAnalyzer - consumer standing", () => {
     expect(symbol.scoreFactors.unverifiedConsumers).toBe(0);
   });
 
-  it("treats a consumer reached by a test as covered, not as risk", async () => {
+  it("still charges an untouched consumer of a call-site-breaking change when a test reaches it", async () => {
     const { analyzer } = await analyzerWith(
       ["src/consumer.ts"],
       { "src/consumer.ts": ["tests/consumer.test.ts"] },
@@ -545,8 +547,75 @@ describe("ReviewGateAnalyzer - consumer standing", () => {
 
     const [symbol] = (await analyzer.analyze({ baseRef: "main" })).symbols;
 
+    // The test status is kept as evidence, but the consumer still has to be edited.
     expect(symbol.consumers.covered).toEqual(["src/consumer.ts"]);
     expect(symbol.consumers.unverified).toEqual([]);
+    expect(symbol.scoreFactors.breakingChanges).toBe(25);
+    expect(symbol.scoreFactors.unverifiedConsumers).toBe(5);
+  });
+
+  it("rates a new required parameter high when no tested consumer is updated (#261)", async () => {
+    const six = Array.from({ length: 6 }, (_, i) => `src/c${i + 1}.ts`);
+    const edges = Object.fromEntries(six.map((file, i) => [file, [`src/c${i + 1}.test.ts`]]));
+    const { analyzer } = await analyzerWith(six, edges);
+
+    const [symbol] = (await analyzer.analyze({ baseRef: "main" })).symbols;
+    const consumerEvidence = symbol.evidence.find((e) => e.kind === "consumers");
+
+    expect(symbol.consumers.covered).toEqual(six);
+    expect(symbol.scoreFactors).toMatchObject({ breakingChanges: 25, unverifiedConsumers: 30 });
+    expect(symbol.score).toBe(55);
+    expect(symbol.risk).toBe("high");
+    expect(consumerEvidence?.detail).toBe(
+      "6 consumer file(s): 0 updated in this diff, 6 must be updated (6 with tests that will fail, 0 unverified).",
+    );
+  });
+
+  it("gives the residual weight once the diff updates every consumer", async () => {
+    const { workspace, analyzer } = await analyzerWith(["src/a.ts", "src/b.ts"], {
+      "src/a.ts": ["tests/a.test.ts"],
+      "src/b.ts": ["tests/b.test.ts"],
+    });
+    for (const file of ["a", "b"]) {
+      await fs.writeFile(path.join(workspace, "src", `${file}.ts`), "export const updated = 1;\n");
+    }
+    execFileSync("git", ["add", "src"], { cwd: workspace });
+
+    const symbol = (await analyzer.analyze({ baseRef: "main" })).symbols.find((s) => s.filePath === "src/api.ts")!;
+
+    expect(symbol.consumers.updated).toEqual(["src/a.ts", "src/b.ts"]);
+    expect(symbol.scoreFactors).toMatchObject({ breakingChanges: 5, unverifiedConsumers: 0 });
+    expect(symbol.risk).toBe("low");
+  });
+
+  it("does not give the residual weight when only part of the consumers is updated", async () => {
+    const files = ["src/a.ts", "src/b.ts", "src/c.ts", "src/d.ts", "src/e.ts", "src/f.ts"];
+    const edges = Object.fromEntries(files.map((file) => [file, [file.replace("src/", "tests/").replace(".ts", ".test.ts")]]));
+    const { workspace, analyzer } = await analyzerWith(files, edges);
+    for (const file of files.slice(0, 3)) await fs.writeFile(path.join(workspace, file), "export const updated = 1;\n");
+    execFileSync("git", ["add", "src"], { cwd: workspace });
+
+    const symbol = (await analyzer.analyze({ baseRef: "main" })).symbols.find((s) => s.filePath === "src/api.ts")!;
+
+    expect(symbol.consumers.updated).toEqual(files.slice(0, 3));
+    expect(symbol.consumers.covered).toEqual(files.slice(3));
+    expect(symbol.scoreFactors).toMatchObject({ breakingChanges: 25, unverifiedConsumers: 15 });
+    expect(symbol.risk).toBe("medium");
+  });
+
+  /**
+   * "Updated" is file-level: a consumer edited for an unrelated reason counts as
+   * updated even if its call to the changed symbol is still broken. This pins the
+   * documented heuristic; verifying call arity is a separate enhancement.
+   */
+  it("counts a consumer changed for an unrelated reason as updated (file-level heuristic)", async () => {
+    const { workspace, analyzer } = await analyzerWith(["src/consumer.ts"]);
+    await fs.writeFile(path.join(workspace, "src", "consumer.ts"), "// unrelated edit\ngreet(\"x\");\n");
+    execFileSync("git", ["add", "src/consumer.ts"], { cwd: workspace });
+
+    const symbol = (await analyzer.analyze({ baseRef: "main" })).symbols.find((s) => s.filePath === "src/api.ts")!;
+
+    expect(symbol.consumers.updated).toEqual(["src/consumer.ts"]);
     expect(symbol.scoreFactors.unverifiedConsumers).toBe(0);
   });
 
@@ -585,7 +654,7 @@ describe("ReviewGateAnalyzer - consumer standing", () => {
     const [symbol] = (await analyzer.analyze({ baseRef: "main" })).symbols;
 
     expect(symbol.consumers.covered).toEqual(["src/consumer.ts"]);
-    expect(symbol.scoreFactors.unverifiedConsumers).toBe(0);
+    expect(symbol.consumers.unverified).toEqual([]);
   });
 
   it("follows the reverse index through an intermediate file to reach the test", async () => {
@@ -638,19 +707,7 @@ describe("ReviewGateAnalyzer - consumer standing", () => {
     expect(symbol.consumers.unverified).toEqual(["src/consumer.ts"]);
   });
 
-  it("does not score many consumers when every one of them is covered", async () => {
-    const many = Array.from({ length: 12 }, (_, i) => `src/consumer${i}.ts`);
-    const edges = Object.fromEntries(many.map((file, i) => [file, [`tests/consumer${i}.test.ts`]]));
-    const { analyzer } = await analyzerWith(many, edges);
-
-    const [symbol] = (await analyzer.analyze({ baseRef: "main" })).symbols;
-
-    expect(symbol.consumers.covered).toHaveLength(12);
-    expect(symbol.scoreFactors.unverifiedConsumers).toBe(0);
-    expect(symbol.risk).not.toBe("critical");
-  });
-
-  it("reports the three buckets as evidence a reviewer can act on", async () => {
+  it("reports the consumers a call-site-breaking change leaves to update, with their test status", async () => {
     const { analyzer } = await analyzerWith(
       ["src/consumer.ts", "src/other.ts"],
       { "src/consumer.ts": ["tests/consumer.test.ts"] },
@@ -660,8 +717,9 @@ describe("ReviewGateAnalyzer - consumer standing", () => {
     const consumerEvidence = symbol.evidence.find((e) => e.kind === "consumers");
 
     expect(consumerEvidence?.detail).toContain("2 consumer file(s)");
-    expect(consumerEvidence?.detail).toContain("1 covered by tests");
-    expect(consumerEvidence?.detail).toContain("1 unverified: src/other.ts");
+    expect(consumerEvidence?.detail).toContain("0 updated in this diff");
+    expect(consumerEvidence?.detail).toContain("2 must be updated (1 with tests that will fail, 1 unverified: src/other.ts)");
+    expect(consumerEvidence?.detail).not.toContain("0 unverified");
   });
 });
 
@@ -701,6 +759,31 @@ describe("ReviewGateAnalyzer - does the change require consumers to act?", () =>
     expect(symbol.consumers.unverified).toEqual(["src/consumer.ts"]);
     expect(symbol.scoreFactors.unverifiedConsumers).toBe(0);
     expect(symbol.evidence.some((e) => e.kind === "consumers" && e.detail.includes("requires no call-site update"))).toBe(true);
+  });
+});
+
+describe("ReviewGateAnalyzer - tested consumers of a change that keeps call sites valid", () => {
+  const consumersWithTests = (workspace: string) => ({
+    getSymbolDependents: (filePath: string) => {
+      const relative = filePath.slice(workspace.length + 1).replaceAll("\\", "/");
+      if (relative === "src/api.ts") return Promise.resolve([{ sourceSymbolId: `${path.join(workspace, "src/consumer.ts")}:use` }]);
+      if (relative === "src/consumer.ts") return Promise.resolve([{ sourceSymbolId: `${path.join(workspace, "tests/consumer.test.ts")}:(file)` }]);
+      return Promise.resolve([]);
+    },
+  });
+
+  it.each([
+    ["return type changed", "export function greet(name: string): Promise<string> { return Promise.resolve(name); }\n"],
+    ["optional parameter added", "export function greet(name: string, formal?: boolean): string { return name; }\n"],
+  ])("stays low when the %s and the untouched consumer is tested", async (_label, newApi) => {
+    const workspace = await createGitWorkspaceWithDiff("export function greet(name: string): string { return name; }\n", newApi);
+    const analyzer = new ReviewGateAnalyzer(workspace, consumersWithTests(workspace) as never);
+
+    const symbol = (await analyzer.analyze({ baseRef: "main" })).symbols.find((s) => s.filePath === "src/api.ts");
+
+    expect(symbol).toBeDefined();
+    expect(symbol!.risk).toBe("low");
+    expect(symbol!.scoreFactors.unverifiedConsumers).toBe(0);
   });
 });
 
