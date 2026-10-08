@@ -151,6 +151,7 @@ import type { GraphContextResponse } from "../shared/graph-context-types";
 import { GenerateWikiSchema } from "./tools/wiki.js";
 import { executeGetSessionStats, GetSessionStatsSchema, type GetSessionStatsResult } from "./tools/stats.js";
 import { flushSession } from "../analyzer/stats/statsPersistence";
+import { findWorkspaceRoot } from "../analyzer/utils/workspaceBoundary";
 import { sessionStats } from "../shared/sessionStats";
 
 // Session stats: this process is the MCP entry point.
@@ -210,9 +211,10 @@ if (!currentConfig.workspaceRoot) {
       "[McpServer] No workspace configured - use graphitlive_set_workspace tool to set workspace",
     );
   } else {
-    currentConfig.workspaceRoot = cwd;
+    // Same rule as the CLI without --workspace: the nearest package root.
+    currentConfig.workspaceRoot = findWorkspaceRoot(cwd);
     debugLog(
-      "[McpServer] WORKSPACE_ROOT not set, using current working directory:",
+      "[McpServer] WORKSPACE_ROOT not set, using the package root of the current working directory:",
       currentConfig.workspaceRoot,
     );
   }
@@ -706,10 +708,12 @@ server.registerTool(
         data: {
           success: true,
           workspacePath,
+          workspaceName: path.basename(workspacePath),
           filesIndexed,
           indexingTimeMs: executionTimeMs,
           previousWorkspace: previousWorkspace || undefined,
-          message: `Workspace set to ${workspacePath}. Indexed ${filesIndexed} files in ${executionTimeMs}ms.`,
+          // The basename, not the path: response redaction only rewrites whole path strings.
+          message: `Workspace set to ${path.basename(workspacePath)}. Indexed ${filesIndexed} files in ${executionTimeMs}ms.`,
         },
         metadata: {
           executionTimeMs,

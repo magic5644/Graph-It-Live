@@ -113,7 +113,8 @@ export class SpiderWorkerManager {
       this.reverseIndexManager.addDependencies(
         normalizedPath,
         fileData.dependencies,
-        { mtime: fileData.mtime, size: fileData.size }
+        { mtime: fileData.mtime, size: fileData.size },
+        fileData.outOfRootImports ?? []
       );
     }
   }

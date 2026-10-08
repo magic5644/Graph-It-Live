@@ -260,7 +260,7 @@ describe('ReverseIndex', () => {
             // Serialize
             const serialized = index.serialize();
             
-            expect(serialized.version).toBe(1);
+            expect(serialized.version).toBe(2);
             expect(serialized.rootDir).toBe(rootDir);
             expect(serialized.timestamp).toBeGreaterThan(0);
 
@@ -349,6 +349,76 @@ describe('ReverseIndex', () => {
             expect(refs).toHaveLength(1000);
             // Should be very fast (< 5ms) - O(1) for getting the map + O(n) for converting to array
             expect(duration).toBeLessThan(50);
+        });
+    });
+
+    // Regression tests for #264: imports dropped by the root boundary survive re-adds and the cache.
+    describe('out-of-root imports', () => {
+        const a = '/test/project/src/a.ts';
+        const b = '/test/project/src/b.ts';
+        const hash: FileHash = { mtime: 1, size: 1 };
+
+        it('counts skipped imports per source and reports a few sorted examples', () => {
+            index.addDependencies(a, [], hash, ['@core/x', '../../core/y']);
+            index.addDependencies(b, [], hash, ['@core/x', 'f1', 'f2', 'f3', 'f4']);
+
+            expect(index.getOutOfRootImports()).toEqual({
+                count: 7,
+                examples: ['../../core/y', '@core/x', 'f1', 'f2', 'f3'],
+            });
+        });
+
+        it('keeps the recorded imports on a cached re-add and replaces them on a fresh analysis', () => {
+            index.addDependencies(a, [], hash, ['@core/x']);
+            index.addDependencies(a, []);
+            expect(index.getOutOfRootImports().count).toBe(1);
+
+            index.addDependencies(a, [], hash, []);
+            expect(index.getOutOfRootImports()).toEqual({ count: 0, examples: [] });
+        });
+
+        it('forgets them when the source is removed or the index cleared', () => {
+            index.addDependencies(a, [], hash, ['@core/x']);
+            index.removeDependenciesFromSource(a);
+            expect(index.getOutOfRootImports().count).toBe(0);
+
+            index.addDependencies(b, [], hash, ['@core/x']);
+            index.clear();
+            expect(index.getOutOfRootImports().count).toBe(0);
+        });
+
+        it('round-trips through serialize/deserialize', () => {
+            index.addDependencies(a, [], hash, ['@core/x']);
+
+            const serialized = index.serialize();
+            expect(serialized.outOfRootImports).toEqual({ [a]: ['@core/x'] });
+
+            const restored = ReverseIndex.deserialize(serialized, rootDir);
+            expect(restored?.getOutOfRootImports()).toEqual({ count: 1, examples: ['@core/x'] });
+        });
+
+        it('normalizes Windows source keys so a re-add replaces the restored entry', () => {
+            const winIndex = new ReverseIndex('C:\\repo');
+            winIndex.addDependencies('C:\\repo\\src\\a.ts', [], hash, ['@core/x']);
+            const restored = ReverseIndex.deserialize(winIndex.serialize(), 'c:/repo');
+
+            restored?.addDependencies('c:/repo/src/a.ts', [], hash, []);
+            expect(restored?.getOutOfRootImports().count).toBe(0);
+        });
+
+        it('ignores malformed out-of-root entries read from disk', () => {
+            const serialized = {
+                ...index.serialize(),
+                outOfRootImports: { [a]: 'not-an-array', [b]: ['@core/x', 42] },
+            } as unknown as ReturnType<ReverseIndex['serialize']>;
+
+            const restored = ReverseIndex.deserialize(serialized, rootDir);
+            expect(restored?.getOutOfRootImports()).toEqual({ count: 1, examples: ['@core/x'] });
+        });
+
+        it('rejects a version-1 index, which carries no out-of-root data', () => {
+            const serialized = { ...index.serialize(), version: 1 };
+            expect(ReverseIndex.deserialize(serialized, rootDir)).toBeNull();
         });
     });
 });

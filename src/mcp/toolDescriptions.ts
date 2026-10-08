@@ -42,7 +42,7 @@ const TOOL_DESCRIPTIONS: Record<DescribedToolName, ToolDescription> = {
     lines: [
       "WHEN: once per session, as setup before the first analysis. The root resolved at startup comes from WORKSPACE_ROOT or the working directory the client happened to spawn the server in, so it is often absent or points at the wrong project. Call this again during a session only to switch projects, or to reach a path outside the current root (paths outside it are rejected).",
       "NOT THIS TOOL: it is setup, and answers no question about code. It is never the reply to a question about architecture, callers, dependencies, dead code or documentation - once the root is set, call the tool that answers the question. One call holds for the whole session; repeating it re-indexes for nothing.",
-      "RETURNS: resolved workspace path, number of files indexed, indexing duration.",
+      "RETURNS: workspace name (the path itself is reported relative to the new root), previous workspace, number of files indexed, indexing duration.",
     ],
   },
   graph_context: {
@@ -151,11 +151,11 @@ const TOOL_DESCRIPTIONS: Record<DescribedToolName, ToolDescription> = {
   get_index_status: {
     summary: "Reports the state of the dependency index backing the other tools.",
     lines: [
-      "WHEN: checking readiness before a large analysis, or explaining unexpectedly empty results.",
-      `WHY: distinguishes "no results" from "index not built yet".`,
+      "WHEN: checking readiness before a large analysis, or explaining unexpectedly empty or incomplete results.",
+      `WHY: distinguishes "no results" from "index not built yet", and tells whether imports were skipped because they resolve outside the workspace root (a monorepo sub-package misses its sibling packages).`,
       {
-        mcp: "RETURNS: index state, files indexed, reverse-index statistics, cache size and hit rate, warmup completion and duration.",
-        lm: "RETURNS: index state, readiness flag, whether the reverse index exists, cache size and reverse-index statistics (files indexed included).",
+        mcp: "RETURNS: index state, files indexed, reverse-index statistics, cache size and hit rate, warmup completion and duration, and outOfRootImports (with examples, the relative monorepoRoot and a warning when above 0).",
+        lm: "RETURNS: index state, readiness flag, whether the reverse index exists, cache size, reverse-index statistics (files indexed included), and outOfRootImports (with examples, the relative monorepoRoot and a warning when above 0).",
       },
     ],
   },

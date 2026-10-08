@@ -231,6 +231,8 @@ export interface SerializedReverseIndex {
   reverseMap: Record<string, ReverseIndexEntry[]>;
   /** Map of file path -> file hash */
   fileHashes: Record<string, FileHash>;
+  /** Map of source path -> module specifiers that resolved outside the workspace root */
+  outOfRootImports?: Record<string, string[]>;
 }
 
 export interface SymbolInfo {
@@ -277,6 +279,23 @@ export interface ILanguageAnalyzer {
     fromFile: string,
     moduleSpecifier: string,
   ): Promise<string | null>;
+
+  /**
+   * Like resolvePath(), but reports a target dropped because it lies outside
+   * the workspace root. Analyzers whose resolver applies no root boundary omit it.
+   */
+  resolveImport?(
+    fromFile: string,
+    moduleSpecifier: string,
+  ): Promise<ImportResolution>;
+}
+
+/** Outcome of resolving one import against the workspace root boundary. */
+export interface ImportResolution {
+  /** Resolved absolute path, or null when unresolved or outside the root */
+  path: string | null;
+  /** True when the import resolved to a file outside the workspace root */
+  outsideRoot: boolean;
 }
 
 /**

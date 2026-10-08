@@ -19,6 +19,7 @@ import type { Dependency, IndexingProgressCallback, SpiderConfig } from './types
 import { normalizePath } from '@/shared/path';
 import { YIELD_INTERVAL_MS, yieldToEventLoop } from './utils/EventLoopYield';
 import { PathResolver } from './utils/PathResolver';
+import type { OutOfRootImports } from './utils/workspaceBoundary';
 
 /**
  * Internal interface defining all services required by Spider.
@@ -500,6 +501,11 @@ export class Spider {
     missingFiles: string[];
   } | null> {
     return this.reverseIndexManager.validate(staleThreshold, filesOnDisk, filesToCheck);
+  }
+
+  /** Imports the workspace-root boundary dropped from the reverse index; null when it is off. */
+  getOutOfRootImports(): OutOfRootImports | null {
+    return this.reverseIndexManager.getOutOfRootImports();
   }
 
   getIndexStatus(): IndexerStatusSnapshot {

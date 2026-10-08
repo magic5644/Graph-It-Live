@@ -832,7 +832,7 @@
         "displayName": "Graph-It-Live: Get Index Status",
         "icon": "$(pulse)",
         "userDescription": "Check if the dependency index is ready and get cache statistics",
-        "modelDescription": "Reports the state of the dependency index backing the other tools.\n\nWHEN: checking readiness before a large analysis, or explaining unexpectedly empty results.\nWHY: distinguishes \"no results\" from \"index not built yet\".\nRETURNS: index state, readiness flag, whether the reverse index exists, cache size and reverse-index statistics (files indexed included).",
+        "modelDescription": "Reports the state of the dependency index backing the other tools.\n\nWHEN: checking readiness before a large analysis, or explaining unexpectedly empty or incomplete results.\nWHY: distinguishes \"no results\" from \"index not built yet\", and tells whether imports were skipped because they resolve outside the workspace root (a monorepo sub-package misses its sibling packages).\nRETURNS: index state, readiness flag, whether the reverse index exists, cache size, reverse-index statistics (files indexed included), and outOfRootImports (with examples, the relative monorepoRoot and a warning when above 0).",
         "inputSchema": {
           "type": "object",
           "properties": {}

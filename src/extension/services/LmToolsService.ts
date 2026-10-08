@@ -12,6 +12,7 @@
 import { LspCallHierarchyAnalyzer } from '@/analyzer/LspCallHierarchyAnalyzer';
 import { QueryEngine } from '@/analyzer/QueryEngine';
 import { ReviewGateAnalyzer } from '@/analyzer/ReviewGateAnalyzer';
+import { reportOutOfRootImports } from '@/analyzer/utils/workspaceBoundary';
 import { scanDeadCode } from '@/analyzer/deadcode/DeadCodeScanner';
 import {
   QueryNaturalLanguageParamsSchema,
@@ -811,6 +812,7 @@ export class LmToolsService {
                   hasReverseIndex: spider.hasReverseIndex(),
                   cacheSize: cacheStats.dependencyCache.size,
                   reverseIndexStats: cacheStats.reverseIndexStats,
+                  ...reportOutOfRootImports(spider.getOutOfRootImports(), spider.workspaceRoot),
                 }),
               ),
             ]);

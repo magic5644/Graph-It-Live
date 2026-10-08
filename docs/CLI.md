@@ -161,7 +161,13 @@ These options are available for every command:
 | `--reindex` | — | — | Discard the cached index and rebuild it from scratch |
 | `--no-cache` | — | — | Neither read nor write the index cache for this run |
 
-**Workspace auto-detection:** If `--workspace` is omitted, `graph-it` looks for a `package.json`, `tsconfig.json`, `pyproject.toml`, or `Cargo.toml` in the current directory and its ancestors.
+**Workspace auto-detection:** If `--workspace` is omitted, `graph-it` uses the nearest directory, from the current one upward, that holds a `package.json` or `tsconfig.json` (the current directory when none does). An explicit `--workspace` is used exactly as given and must be an existing directory (exit code `3` otherwise). The MCP server applies the same rule to its working directory when `WORKSPACE_ROOT` is unset. The index and cache (`.graph-it/`) are created in the chosen root.
+
+**Imports outside the workspace root** are skipped, never analyzed. When a scan skips some — typically from a monorepo sub-package whose path aliases or relative imports reach a sibling package — it prints one warning naming the detected monorepo root and the `--workspace` to rerun with, and `get_index_status` reports the count:
+
+```text
+  Warning: 1 import resolves outside the workspace root and was skipped (e.g. @core/x); dependents, impact and dead-code results cover this root only. Monorepo root detected (../..). Rerun with --workspace ../.. to include them.
+```
 
 ```bash
 # Explicit workspace
@@ -1540,7 +1546,7 @@ graph-it tool resolve_module_path --fromFile=/abs/path/to/app.ts --moduleSpecifi
 graph-it tool get_index_status
 ```
 
-**Output fields:** `state`, `isReady`, `reverseIndexEnabled`, `cacheSize`, `reverseIndexStats`, `warmup`, and optional `callGraph`
+**Output fields:** `state`, `isReady`, `reverseIndexEnabled`, `cacheSize`, `reverseIndexStats`, `outOfRootImports`, `warmup`, and optional `callGraph`. When `outOfRootImports` is above 0 (imports skipped because they resolve outside the workspace root), it also returns `outOfRootImportExamples`, `monorepoRoot` (relative to the workspace root, when one is detected) and a `warning`.
 
 ---
 
