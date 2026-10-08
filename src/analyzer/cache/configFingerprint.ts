@@ -3,6 +3,7 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 import { normalizePath } from "../../shared/path";
 import { isPathWithinRootCanonical } from "../../shared/pathSecurity";
+import { parseTsConfig, resolveExtendsTargets } from "../utils/tsconfig";
 
 /** Fingerprint resolver inputs; unavailable or external configs disable cache reuse. */
 export function configFingerprint(workspaceRoot: string, sourceFiles: readonly string[]): string | undefined {
@@ -44,9 +45,9 @@ function readConfigContents(workspaceRoot: string, directories: Set<string>): Ma
     const content = readConfig(file, workspaceRoot);
     if (content === undefined) continue;
     contents.set(key, content);
-    const extendedConfig = getExtendedConfig(file, content, workspaceRoot);
-    if (extendedConfig === undefined) return undefined;
-    if (extendedConfig) pending.push(extendedConfig);
+    const extendedConfigs = getExtendedConfigs(file, content, workspaceRoot);
+    if (!extendedConfigs) return undefined;
+    pending.push(...extendedConfigs);
   }
   return contents;
 }
@@ -56,13 +57,8 @@ function readConfig(file: string, workspaceRoot: string): string | undefined {
   return fs.readFileSync(file, "utf-8");
 }
 
-function getExtendedConfig(file: string, content: string, workspaceRoot: string): string | null | undefined {
-  // Invalid JSON is also fingerprinted; the resolver ignores it until repaired.
-  let config: { extends?: unknown } | null;
-  try { config = JSON.parse(content) as typeof config; } catch { return null; }
-  if (typeof config?.extends !== "string") return null;
-  const base = path.resolve(path.dirname(file), config.extends);
-  if (!isPathWithinRootCanonical(base, workspaceRoot)) return undefined;
-  const json = base.endsWith(".json") ? base : `${base}.json`;
-  return fs.existsSync(json) ? json : base;
+function getExtendedConfigs(file: string, content: string, workspaceRoot: string): string[] | undefined {
+  // Invalid JSONC is also fingerprinted; the resolver ignores it until repaired.
+  const targets = resolveExtendsTargets(file, parseTsConfig(file, content)?.extends);
+  return targets.every(target => isPathWithinRootCanonical(target, workspaceRoot)) ? targets : undefined;
 }

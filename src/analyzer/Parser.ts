@@ -27,7 +27,8 @@ export class Parser implements ILanguageAnalyzer {
   private readonly ignoreTypeImports: boolean;
   constructor(rootDir?: string, ignoreTypeImports?: boolean) {
     this.fileReader = new FileReader();
-    this.pathResolver = new PathResolver(rootDir);
+    // rootDir is the workspace root, not a tsconfig path: aliases come from the nearest tsconfig.json.
+    this.pathResolver = new PathResolver(undefined, true, rootDir);
     this.ignoreTypeImports = ignoreTypeImports ?? false;
   }
   // Regex patterns for different import types
