@@ -121,7 +121,7 @@ export async function run(
   await runtime.ensureIndexed();
 
   const result = await invokeTool(toolName, validation.data);
-  return formatOutput(result, format, "tool");
+  return formatOutput(result, format, "tool", runtime.workspaceRoot);
 }
 
 export function parseToolArgs(args: string[]): Record<string, unknown> {

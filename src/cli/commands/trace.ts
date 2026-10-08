@@ -44,5 +44,5 @@ export async function run(
     maxDepth,
   });
 
-  return formatOutput(result, format, "trace");
+  return formatOutput(result, format, "trace", runtime.workspaceRoot);
 }

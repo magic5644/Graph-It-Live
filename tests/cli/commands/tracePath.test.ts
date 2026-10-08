@@ -63,6 +63,18 @@ describe("trace and path commands", () => {
       expect(mocks.executeTraceFunctionExecution).not.toHaveBeenCalled();
     });
 
+    it("labels Mermaid nodes with workspace-relative paths (#265)", async () => {
+      mocks.executeTraceFunctionExecution.mockResolvedValue({
+        callChain: [{ callerSymbolId: `${root}/a.ts:run`, calledSymbolId: `${root}/b.ts:end` }],
+      });
+
+      const out = await runTrace(["a.ts#run"], runtime(), "mermaid");
+
+      expect(out).toContain('S0["run · a.ts"]');
+      expect(out).toContain('S1["end · b.ts"]');
+      expect(out).not.toContain(root);
+    });
+
     it("requires a symbol reference", async () => {
       await expect(runTrace([], runtime(), "json")).rejects.toThrow("Usage: graph-it trace");
     });
