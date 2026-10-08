@@ -2,6 +2,7 @@ import * as fs from "node:fs";
 import { createRequire } from "node:module";
 import * as path from "node:path";
 import { ts } from "ts-morph";
+import { normalizePath } from "../../shared/path";
 
 /** The tsconfig fields the analyzer reads; values stay `unknown` until checked. */
 export interface TsConfigJson {
@@ -14,7 +15,8 @@ export interface TsConfigJson {
  * Returns undefined when the text is not a JSON object.
  */
 export function parseTsConfig(file: string, text: string): TsConfigJson | undefined {
-  const { config, error } = ts.parseConfigFileTextToJson(file, text);
+  // TypeScript asserts on backslash file names when it reports a diagnostic (Windows paths).
+  const { config, error } = ts.parseConfigFileTextToJson(normalizePath(file), text);
   return error ? undefined : (config as TsConfigJson);
 }
 

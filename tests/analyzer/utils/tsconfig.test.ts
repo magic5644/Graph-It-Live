@@ -12,6 +12,8 @@ describe("parseTsConfig", () => {
 
   it("returns undefined for malformed or non-object text", () => {
     expect(parseTsConfig("tsconfig.json", "{ invalid")).toBeUndefined();
+    expect(parseTsConfig(String.raw`D:\repo\package.json`, "{ invalid")).toBeUndefined();
+    expect(parseTsConfig("/repo/tsconfig.json", "{ invalid")).toBeUndefined();
     expect(parseTsConfig("tsconfig.json", "[1]")).toBeUndefined();
   });
 });
@@ -65,11 +67,12 @@ describe("resolveExtendsTargets", () => {
     expect(resolveExtendsTargets(config, "@acme/tsconfig")).toEqual([packageDefault]);
   });
 
-  it.skipIf(process.platform === "win32")("keeps package targets under a symlinked config directory", () => {
+  it("keeps package targets under a symlinked config directory", () => {
     write("node_modules/@acme/tsconfig/package.json", '{ "name": "@acme/tsconfig", "version": "1.0.0" }');
     write("node_modules/@acme/tsconfig/base.json");
     const link = `${root}-link`;
-    fs.symlinkSync(root, link, "dir");
+    // "junction" needs no privilege on Windows and is ignored elsewhere.
+    fs.symlinkSync(root, link, "junction");
     try {
       expect(resolveExtendsTargets(path.join(link, "tsconfig.json"), "@acme/tsconfig/base.json")).toEqual([
         path.join(link, "node_modules", "@acme", "tsconfig", "base.json"),
