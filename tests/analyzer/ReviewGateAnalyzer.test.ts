@@ -39,7 +39,10 @@ afterEach(async () => {
   await Promise.all(temporaryDirectories.splice(0).map((directory) => fs.rm(directory, { recursive: true, force: true })));
 });
 
-describe("ReviewGateAnalyzer", () => {
+// Each test spawns several git processes; slow on Windows runners.
+const GIT_TEST_TIMEOUT = 20_000;
+
+describe("ReviewGateAnalyzer", { timeout: GIT_TEST_TIMEOUT }, () => {
   it("compares Git filenames containing spaces without quoting or splitting them", async () => {
     const workspace = await createGitWorkspace();
     const filename = "src/quoted space file.ts";
