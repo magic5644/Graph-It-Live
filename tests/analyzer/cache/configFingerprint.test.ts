@@ -34,6 +34,29 @@ describe("configFingerprint", () => {
     expect(configFingerprint(root, [source])).toBe(missing);
   });
 
+  it("tracks parents of JSONC configs and array extends", () => {
+    fs.writeFileSync(path.join(root, "tsconfig.json"), '{\n  // tsc --init\n  "extends": ["./first.json", "./second.json"],\n}');
+    fs.writeFileSync(path.join(root, "first.json"), "{}");
+    fs.writeFileSync(path.join(root, "second.json"), '{ /* JSONC parent */ "compilerOptions": {}, }');
+    const before = configFingerprint(root, [source]);
+    fs.writeFileSync(path.join(root, "first.json"), '{"compilerOptions":{"baseUrl":"."}}');
+    const firstEdited = configFingerprint(root, [source]);
+    expect(firstEdited).not.toBe(before);
+    fs.writeFileSync(path.join(root, "second.json"), '{ /* JSONC parent */ "compilerOptions": { "baseUrl": "src" }, }');
+    expect(configFingerprint(root, [source])).not.toBe(firstEdited);
+  });
+
+  it("tracks configs extended from workspace node_modules", () => {
+    const base = path.join(root, "node_modules", "@acme", "tsconfig", "base.json");
+    fs.mkdirSync(path.dirname(base), { recursive: true });
+    fs.writeFileSync(path.join(path.dirname(base), "package.json"), '{"name":"@acme/tsconfig"}');
+    fs.writeFileSync(base, "{}");
+    fs.writeFileSync(path.join(root, "tsconfig.json"), '{"extends":"@acme/tsconfig/base.json"}');
+    const before = configFingerprint(root, [source]);
+    fs.writeFileSync(base, '{"compilerOptions":{"baseUrl":"."}}');
+    expect(configFingerprint(root, [source])).not.toBe(before);
+  });
+
   it("handles cycles and extensionless parent configs", () => {
     fs.writeFileSync(path.join(root, "tsconfig.json"), '{"extends":"./base"}');
     fs.writeFileSync(path.join(root, "base"), '{"extends":"./tsconfig.json"}');
