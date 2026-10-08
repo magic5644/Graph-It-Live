@@ -132,6 +132,35 @@ describe.skipIf(!distExists)("CLI index cache flags (E2E)", { timeout: SUBPROCES
     expect(result.referencingFiles).toHaveLength(1);
   });
 
+  it("caches a sub-package whose tsconfig extends a base outside it, until the base changes (#263)", () => {
+    const pkg = path.join(tmpDir, "packages", "p1");
+    const base = path.join(tmpDir, "tsconfig.base.json");
+    fs.mkdirSync(pkg, { recursive: true });
+    fs.cpSync(path.join(tmpDir, "src"), path.join(pkg, "src"), { recursive: true });
+    fs.writeFileSync(path.join(pkg, "package.json"), '{"name":"p1"}');
+    fs.writeFileSync(path.join(pkg, "tsconfig.json"), '{"extends":"../../tsconfig.base.json","include":["src"]}');
+    fs.writeFileSync(base, '{"compilerOptions":{"strict":true}}');
+    const scanFromCache = (): boolean =>
+      (
+        JSON.parse(
+          execFileSync(process.execPath, [DIST_ENTRY, "-w", pkg, "scan", "--format", "json"], {
+            encoding: "utf-8",
+            stdio: ["ignore", "pipe", "ignore"],
+          }),
+        ) as { warmup: { fromCache: boolean } }
+      ).warmup.fromCache;
+
+    expect(scanFromCache()).toBe(false);
+    expect(scanFromCache()).toBe(true);
+    expect(fs.readdirSync(path.join(pkg, ".graph-it", "cache"))).toEqual(
+      expect.arrayContaining(["meta.json", "reverse-index.json"]),
+    );
+
+    fs.writeFileSync(base, '{"compilerOptions":{"strict":false}}');
+    expect(scanFromCache()).toBe(false);
+    expect(scanFromCache()).toBe(true);
+  });
+
   it("continues a cursor in a new process using the cached graph", () => {
     const args = ["context", "--seeds", "src/b.ts#b", "--mode", "neighbors", "--max-nodes", "2", "--format", "json"];
     const first = JSON.parse(cli(...args)) as GraphContextResponse;

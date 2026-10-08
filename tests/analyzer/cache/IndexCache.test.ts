@@ -149,14 +149,13 @@ describe("IndexCache", () => {
       expect(open().save({ callGraph: new Uint8Array([1]) })).toBe(false);
     });
 
-    it("is disabled when the resolver config points outside the workspace", () => {
+    it("is enabled and saves when the resolver config extends a file outside the workspace", () => {
       fs.writeFileSync(path.join(tmpDir, "tsconfig.json"), '{"extends":"../outside.json"}');
       const cache = open();
 
-      expect(cache.enabled).toBe(false);
-      expect(cache.save({ callGraph: new Uint8Array([1]) })).toBe(false);
-      expect(cache.isValid()).toBe(false);
-      expect(fs.existsSync(cacheDir)).toBe(false);
+      expect(cache.enabled).toBe(true);
+      expect(cache.save({ callGraph: new Uint8Array([1]) })).toBe(true);
+      expect(open().isValid()).toBe(true);
     });
 
     it("clear() removes the cache, and is safe when there is none", () => {
