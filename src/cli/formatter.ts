@@ -45,7 +45,12 @@ export function validateFormatForCommand(format: CliOutputFormat, _command: stri
 /**
  * Format any data payload for CLI output.
  */
-export function formatOutput(data: unknown, format: CliOutputFormat, command: string): string {
+export function formatOutput(
+  data: unknown,
+  format: CliOutputFormat,
+  command: string,
+  workspaceRoot?: string,
+): string {
   validateFormatForCommand(format, command);
 
   switch (format) {
@@ -57,9 +62,9 @@ export function formatOutput(data: unknown, format: CliOutputFormat, command: st
     case "text":
       return formatText(data, command);
     case "markdown":
-      return formatMarkdown(data, command);
+      return formatMarkdown(data, command, workspaceRoot);
     case "mermaid":
-      return formatMermaid(data, command);
+      return formatMermaid(data, command, workspaceRoot);
     case "html":
       throw new Error('Format "html" must be handled before formatOutput — use runExportHtml directly.');
   }
@@ -278,10 +283,10 @@ function formatTrace(data: Record<string, unknown>): string {
   ].join("\n");
 }
 
-function formatMarkdown(data: unknown, command: string): string {
+function formatMarkdown(data: unknown, command: string, workspaceRoot?: string): string {
   const heading = `## graph-it ${command}\n\n`;
 
-  const mermaid = tryBuildMermaid(data) ?? buildMermaidFromGenericJson(data, command);
+  const mermaid = tryBuildMermaid(data, workspaceRoot) ?? buildMermaidFromGenericJson(data, command);
   if (mermaid) {
     return heading + "```mermaid\n" + mermaid + "\n```\n\n" + "```json\n" + JSON.stringify(data, null, 2) + "\n```";
   }
@@ -293,8 +298,8 @@ function formatMarkdown(data: unknown, command: string): string {
   return heading + "```json\n" + JSON.stringify(data, null, 2) + "\n```";
 }
 
-function formatMermaid(data: unknown, command: string): string {
-  const mermaid = tryBuildMermaid(data) ?? buildMermaidFromGenericJson(data, command);
+function formatMermaid(data: unknown, command: string, workspaceRoot?: string): string {
+  const mermaid = tryBuildMermaid(data, workspaceRoot) ?? buildMermaidFromGenericJson(data, command);
   return mermaid;
 }
 
@@ -323,7 +328,7 @@ interface DependencyCheckLike {
   };
 }
 
-function tryBuildMermaid(data: unknown): string | null {
+function tryBuildMermaid(data: unknown, workspaceRoot?: string): string | null {
   if (typeof data !== "object" || data === null) {
     return null;
   }
@@ -345,7 +350,7 @@ function tryBuildMermaid(data: unknown): string | null {
       trace: Array.isArray(obj["trace"]) ? obj["trace"] : undefined,
       steps: Array.isArray(obj["steps"]) ? obj["steps"] : undefined,
     };
-    return buildMermaidFromTrace(trace);
+    return buildMermaidFromTrace(trace, workspaceRoot);
   }
 
   // Trace result with callChain (from executeTraceFunctionExecution)
@@ -356,9 +361,7 @@ function tryBuildMermaid(data: unknown): string | null {
         callerSymbolId: pickMermaidString([entry["callerSymbolId"]], "?"),
         calledSymbolId: pickMermaidString([entry["calledSymbolId"]], "?"),
       }));
-    return buildMermaidFromCallChain(
-      chain,
-    );
+    return buildMermaidFromCallChain(chain, workspaceRoot);
   }
 
   // check-dependencies result (incoming + outgoing)
@@ -408,8 +411,53 @@ function toRecord(value: unknown): Record<string, unknown> | undefined {
   return value as Record<string, unknown>;
 }
 
-function sanitizeMermaidId(id: string): string {
-  return id.replaceAll(/\W/g, "_");
+/**
+ * Returns the synthetic id (`<prefix>0`, `<prefix>1`, …) of `key`, declaring the node on first use.
+ *
+ * Ids derived from names or paths collide (`a$b` and `a_b`, or two `helper`
+ * functions in different files) and can hit Mermaid reserved words such as
+ * `end`, which break the parser. Synthetic ids avoid both; the readable text
+ * lives in the escaped label.
+ */
+function declareMermaidNode(
+  ids: Map<string, string>,
+  lines: string[],
+  prefix: string,
+  key: string,
+  label: string,
+  external = false,
+): string {
+  const existing = ids.get(key);
+  if (existing) return existing;
+  const id = prefix + String(ids.size);
+  ids.set(key, id);
+  const escaped = escapeMermaidLabel(label);
+  lines.push(external ? `  ${id}(["${escaped}"]):::external` : `  ${id}["${escaped}"]`);
+  return id;
+}
+
+// Matches POSIX (`/x`), Windows drive (`c:/x`, `C:\x`) and UNC (`\\host`) paths.
+const ABSOLUTE_PATH_PATTERN = /^(?:[A-Za-z]:)?[\\/]/;
+
+function toDisplayPath(filePath: string, workspaceRoot: string | undefined): string {
+  const normalized = normalizePath(filePath);
+  return workspaceRoot ? relativizeWorkspacePaths(normalized, workspaceRoot) : normalized;
+}
+
+/**
+ * Label for a `<file>:<name>` symbol id. A file part that is not an absolute
+ * path (`node:fs`, a bare package) marks a symbol outside the workspace.
+ */
+function describeSymbolId(
+  symbolId: string,
+  workspaceRoot: string | undefined,
+): { label: string; external: boolean } {
+  const separator = symbolId.lastIndexOf(":");
+  if (separator <= 0) return { label: symbolId, external: false };
+  const file = symbolId.slice(0, separator);
+  const name = symbolId.slice(separator + 1);
+  if (!ABSOLUTE_PATH_PATTERN.test(file)) return { label: `${name} · ${file}`, external: true };
+  return { label: `${name} · ${toDisplayPath(file, workspaceRoot)}`, external: false };
 }
 
 function escapeMermaidLabel(label: string): string {
@@ -422,6 +470,11 @@ function escapeMermaidLabel(label: string): string {
   }
   return cleaned.slice(0, MAX_MERMAID_LABEL_LENGTH - 1) + "…";
 }
+
+// Node declarations precede edges, so an entry is added only while its two
+// nodes, its edge, a classDef and the truncation comment still fit in
+// MAX_MERMAID_LINES; otherwise finalizeMermaid would cut every edge.
+const SYMBOL_GRAPH_LINE_BUDGET = MAX_MERMAID_LINES - 5;
 
 function finalizeMermaid(lines: string[]): string {
   if (lines.length <= MAX_MERMAID_LINES) {
@@ -447,13 +500,11 @@ function buildMermaidFromGraph(graph: GraphLike): string | null {
       [node?.["id"], node?.["file"], node?.["filePath"], node?.["path"], node?.["name"]],
       "unknown",
     );
-    const shortId = "N" + String(i);
-    idMap.set(originalId, shortId);
     const label = pickMermaidString(
       [node?.["relativePath"], node?.["name"], node?.["file"], node?.["filePath"], originalId],
       originalId,
     );
-    lines.push("  " + shortId + "[\"" + escapeMermaidLabel(label) + "\"]");
+    declareMermaidNode(idMap, lines, "N", originalId, label);
   }
 
   if (nodes.length > visibleNodeCount) {
@@ -465,8 +516,8 @@ function buildMermaidFromGraph(graph: GraphLike): string | null {
     const edge = toRecord(edges[i]);
     const srcOriginal = pickMermaidString([edge?.["source"], edge?.["from"]], "?");
     const tgtOriginal = pickMermaidString([edge?.["target"], edge?.["to"]], "?");
-    const src = idMap.get(srcOriginal) ?? sanitizeMermaidId(srcOriginal);
-    const tgt = idMap.get(tgtOriginal) ?? sanitizeMermaidId(tgtOriginal);
+    const src = declareMermaidNode(idMap, lines, "N", srcOriginal, srcOriginal);
+    const tgt = declareMermaidNode(idMap, lines, "N", tgtOriginal, tgtOriginal);
     lines.push(`  ${src} --> ${tgt}`);
   }
 
@@ -477,19 +528,26 @@ function buildMermaidFromGraph(graph: GraphLike): string | null {
   return finalizeMermaid(lines);
 }
 
-function buildMermaidFromTrace(trace: TraceLike): string | null {
+function buildMermaidFromTrace(trace: TraceLike, workspaceRoot?: string): string | null {
   const steps = trace.trace ?? trace.steps ?? [];
   if (steps.length === 0) return null;
 
-  const lines = ["graph TD"];
+  const nodeLines = ["graph TD"];
+  const edgeLines: string[] = [];
+  const ids = new Map<string, string>();
+  const declare = (raw: string): string =>
+    declareMermaidNode(ids, nodeLines, "S", raw, workspaceRoot ? relativizeWorkspacePaths(raw, workspaceRoot) : raw);
 
-  const visibleStepCount = Math.min(steps.length, MAX_TRACE_EDGES);
-  for (let i = 0; i < visibleStepCount; i += 1) {
-    const step = toRecord(steps[i]);
-    const from = sanitizeMermaidId(valueToMermaidString(step?.["caller"] ?? step?.["from"], "?"));
-    const to = sanitizeMermaidId(valueToMermaidString(step?.["callee"] ?? step?.["to"], "?"));
-    lines.push(`  ${from} --> ${to}`);
+  const maxStepCount = Math.min(steps.length, MAX_TRACE_EDGES);
+  let visibleStepCount = 0;
+  while (visibleStepCount < maxStepCount && nodeLines.length + edgeLines.length <= SYMBOL_GRAPH_LINE_BUDGET) {
+    const step = toRecord(steps[visibleStepCount]);
+    const from = declare(valueToMermaidString(step?.["caller"] ?? step?.["from"], "?"));
+    const to = declare(valueToMermaidString(step?.["callee"] ?? step?.["to"], "?"));
+    edgeLines.push(`  ${from} --> ${to}`);
+    visibleStepCount += 1;
   }
+  const lines = [...nodeLines, ...edgeLines];
 
   if (steps.length > visibleStepCount) {
     lines.push(`%% trace truncated (${steps.length - visibleStepCount} hidden step(s))`);
@@ -500,22 +558,33 @@ function buildMermaidFromTrace(trace: TraceLike): string | null {
 
 function buildMermaidFromCallChain(
   chain: { callerSymbolId: string; calledSymbolId: string }[],
+  workspaceRoot?: string,
 ): string | null {
   if (chain.length === 0) return null;
 
-  const lines = ["graph TD"];
-  const seen = new Set<string>();
+  const nodeLines = ["graph TD"];
+  const edgeLines = new Set<string>();
+  const ids = new Map<string, string>();
+  let hasExternal = false;
+  const declare = (symbolId: string): string => {
+    const { label, external } = describeSymbolId(symbolId, workspaceRoot);
+    hasExternal ||= external;
+    return declareMermaidNode(ids, nodeLines, "S", symbolId, label, external);
+  };
 
-  const visibleEntryCount = Math.min(chain.length, MAX_CALLCHAIN_EDGES);
-  for (let i = 0; i < visibleEntryCount; i += 1) {
-    const entry = chain[i];
-    const from = sanitizeMermaidId(entry.callerSymbolId.split(":").pop() ?? entry.callerSymbolId);
-    const to = sanitizeMermaidId(entry.calledSymbolId.split(":").pop() ?? entry.calledSymbolId);
-    const edge = `  ${from} --> ${to}`;
-    if (!seen.has(edge)) {
-      lines.push(edge);
-      seen.add(edge);
-    }
+  const maxEntryCount = Math.min(chain.length, MAX_CALLCHAIN_EDGES);
+  let visibleEntryCount = 0;
+  while (visibleEntryCount < maxEntryCount && nodeLines.length + edgeLines.size <= SYMBOL_GRAPH_LINE_BUDGET) {
+    const entry = chain[visibleEntryCount];
+    const from = declare(entry.callerSymbolId);
+    const to = declare(entry.calledSymbolId);
+    edgeLines.add(`  ${from} --> ${to}`);
+    visibleEntryCount += 1;
+  }
+
+  const lines = [...nodeLines, ...edgeLines];
+  if (hasExternal) {
+    lines.push("  classDef external stroke-dasharray: 4 2");
   }
 
   if (chain.length > visibleEntryCount) {
@@ -536,10 +605,6 @@ function pickPathLikeValue(item: Record<string, unknown>): string | undefined {
   return undefined;
 }
 
-function toNodeId(rawId: string): string {
-  return sanitizeMermaidId(rawId);
-}
-
 function toNodeLabel(raw: string): string {
   const normalized = raw.replaceAll("\\", "/");
   const segments = normalized.split("/");
@@ -558,21 +623,14 @@ function buildMermaidFromDependencyCheck(data: DependencyCheckLike): string | nu
 
   const lines = ["graph LR"];
   const nodes = new Map<string, string>();
-  const centerId = toNodeId(centerRaw);
-
-  nodes.set(centerRaw, centerId);
-  lines.push(`  ${centerId}["${escapeMermaidLabel(toNodeLabel(centerRaw))}"]`);
+  const centerId = declareMermaidNode(nodes, lines, "D", centerRaw, toNodeLabel(centerRaw));
 
   const visibleOutgoingCount = Math.min(outgoing.length, MAX_DEPENDENCY_RELATIONS);
   for (let i = 0; i < visibleOutgoingCount; i += 1) {
     const dep = outgoing[i];
     const depPath = pickPathLikeValue(dep);
     if (!depPath) continue;
-    const depId = toNodeId(depPath);
-    if (!nodes.has(depPath)) {
-      nodes.set(depPath, depId);
-      lines.push(`  ${depId}["${escapeMermaidLabel(toNodeLabel(depPath))}"]`);
-    }
+    const depId = declareMermaidNode(nodes, lines, "D", depPath, toNodeLabel(depPath));
     lines.push(`  ${centerId} --> ${depId}`);
   }
 
@@ -581,11 +639,7 @@ function buildMermaidFromDependencyCheck(data: DependencyCheckLike): string | nu
     const ref = incoming[i];
     const refPath = pickPathLikeValue(ref);
     if (!refPath) continue;
-    const refId = toNodeId(refPath);
-    if (!nodes.has(refPath)) {
-      nodes.set(refPath, refId);
-      lines.push(`  ${refId}["${escapeMermaidLabel(toNodeLabel(refPath))}"]`);
-    }
+    const refId = declareMermaidNode(nodes, lines, "D", refPath, toNodeLabel(refPath));
     lines.push(`  ${refId} --> ${centerId}`);
   }
 

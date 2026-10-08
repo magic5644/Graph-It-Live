@@ -291,9 +291,13 @@ describe("formatOutput - mermaid", () => {
       ],
       visitedSymbols: ["/abs/src/a.ts:main", "/abs/src/a.ts:helper"],
     };
-    const out = formatOutput(traceData, "mermaid", "trace");
-    expect(out).toContain("graph TD");
-    expect(out).toContain("main --> helper");
+    const out = formatOutput(traceData, "mermaid", "trace", "/abs");
+    expect(out).toBe([
+      "graph TD",
+      '  S0["main · src/a.ts"]',
+      '  S1["helper · src/a.ts"]',
+      "  S0 --> S1",
+    ].join("\n"));
   });
 
   it("generates graph from check-dependencies result", () => {
@@ -388,6 +392,201 @@ describe("formatOutput - mermaid", () => {
     expect(out).toContain('graph LR');
     expect(out).not.toContain('output truncated');
     expect(out.split('\n').length).toBeLessThanOrEqual(700);
+  });
+});
+
+describe("formatOutput - mermaid call chain (#265)", () => {
+  const ROOT = "/ws";
+  const chainOf = (...pairs: [string, string][]) => ({
+    callChain: pairs.map(([callerSymbolId, calledSymbolId]) => ({ callerSymbolId, calledSymbolId })),
+  });
+  const edgeLines = (out: string) => out.split("\n").filter((line) => line.includes("-->"));
+  // Resolves every edge back to the labels of its two nodes, so a diagram that
+  // renders but depicts the wrong relationships still fails.
+  const labelledEdges = (out: string) => {
+    const labels = new Map<string, string>();
+    for (const match of out.matchAll(/^ {2}(S\d+)\(?\["([^"]*)"\]/gm)) {
+      labels.set(match[1], match[2]);
+    }
+    return edgeLines(out).map((line) => {
+      const [from, to] = line.trim().split(" --> ");
+      return `${labels.get(from)} -> ${labels.get(to)}`;
+    });
+  };
+
+  const issueChain = chainOf(
+    ["/ws/src/e.ts:entry", "/ws/src/a.ts:helper"],
+    ["/ws/src/a.ts:helper", "/ws/src/x.ts:x"],
+    ["/ws/src/e.ts:entry", "/ws/src/b.ts:helper"],
+    ["/ws/src/b.ts:helper", "node:fs:readFileSync"],
+    ["/ws/src/b.ts:helper", "/ws/src/b.ts:end"],
+  );
+
+  it("renders the issue reproduction exactly as expected", () => {
+    expect(formatOutput(issueChain, "mermaid", "trace", ROOT)).toBe([
+      "graph TD",
+      '  S0["entry · src/e.ts"]',
+      '  S1["helper · src/a.ts"]',
+      '  S2["x · src/x.ts"]',
+      '  S3["helper · src/b.ts"]',
+      '  S4(["readFileSync · node:fs"]):::external',
+      '  S5["end · src/b.ts"]',
+      "  S0 --> S1",
+      "  S1 --> S2",
+      "  S0 --> S3",
+      "  S3 --> S4",
+      "  S3 --> S5",
+      "  classDef external stroke-dasharray: 4 2",
+    ].join("\n"));
+  });
+
+  it("keeps same-name symbols from different files as distinct nodes with the right edges", () => {
+    expect(labelledEdges(formatOutput(issueChain, "mermaid", "trace", ROOT))).toEqual([
+      "entry · src/e.ts -> helper · src/a.ts",
+      "helper · src/a.ts -> x · src/x.ts",
+      "entry · src/e.ts -> helper · src/b.ts",
+      "helper · src/b.ts -> readFileSync · node:fs",
+      "helper · src/b.ts -> end · src/b.ts",
+    ]);
+  });
+
+  it("never emits a reserved word as a node id", () => {
+    const out = formatOutput(
+      chainOf(["/ws/a.ts:graph", "/ws/a.ts:end"], ["/ws/a.ts:end", "/ws/a.ts:subgraph"]),
+      "mermaid",
+      "trace",
+      ROOT,
+    );
+    for (const line of edgeLines(out)) {
+      expect(line).toMatch(/^\s+S\d+ --> S\d+$/);
+    }
+    expect(out).not.toMatch(/^\s+(end|graph|subgraph)\b/m);
+  });
+
+  it("keeps names that would collide after sanitizing as distinct nodes", () => {
+    const out = formatOutput(chainOf(["/ws/a.ts:a$b", "/ws/a.ts:a_b"]), "mermaid", "trace", ROOT);
+    expect(labelledEdges(out)).toEqual(["a$b · a.ts -> a_b · a.ts"]);
+  });
+
+  it("escapes quotes and line breaks in symbol labels", () => {
+    const out = formatOutput(chainOf(['/ws/a.ts:say"hi"', "/ws/a.ts:line\nbreak"]), "mermaid", "trace", ROOT);
+    expect(out).toContain(`S0["say'hi' · a.ts"]`);
+    expect(out).toContain('S1["line break · a.ts"]');
+  });
+
+  it("does not expose the workspace root and marks only external symbols", () => {
+    const out = formatOutput(issueChain, "mermaid", "trace", ROOT);
+    expect(out).not.toContain("/ws/");
+    expect(out.match(/:::external/g)).toHaveLength(1);
+  });
+
+  it("omits classDef when every symbol is local", () => {
+    const out = formatOutput(chainOf(["/ws/a.ts:f", "/ws/a.ts:g"]), "mermaid", "trace", ROOT);
+    expect(out).not.toContain("classDef");
+  });
+
+  it("handles Windows ids with backslashes and drive letters", () => {
+    const out = formatOutput(
+      chainOf(["C:\\ws\\src\\a.ts:helper", "C:\\ws\\src\\b.ts:helper"], ["C:\\ws\\src\\b.ts:helper", "lodash:map"]),
+      "mermaid",
+      "trace",
+      "C:\\ws",
+    );
+    expect(labelledEdges(out)).toEqual(["helper · src/a.ts -> helper · src/b.ts", "helper · src/b.ts -> map · lodash"]);
+    expect(out).toContain('S2(["map · lodash"]):::external');
+    expect(out.toLowerCase()).not.toContain("c:");
+  });
+
+  it("keeps the normalized absolute path when no workspace root is given", () => {
+    const out = formatOutput(chainOf(["/ws/a.ts:f", "bare"]), "mermaid", "trace");
+    expect(out).toContain('S0["f · /ws/a.ts"]');
+    expect(out).toContain('S1["bare"]');
+  });
+
+  it("deduplicates repeated edges", () => {
+    const out = formatOutput(chainOf(["/ws/a.ts:f", "/ws/a.ts:g"], ["/ws/a.ts:f", "/ws/a.ts:g"]), "mermaid", "trace", ROOT);
+    expect(edgeLines(out)).toEqual(["  S0 --> S1"]);
+  });
+
+  it("embeds the same block in markdown output", () => {
+    const mermaid = formatOutput(issueChain, "mermaid", "trace", ROOT);
+    const markdown = formatOutput(issueChain, "markdown", "trace", ROOT);
+    expect(markdown).toContain("```mermaid\n" + mermaid + "\n```");
+  });
+
+  it("still marks call chain truncation", () => {
+    const pairs = Array.from({ length: 510 }, (_, i): [string, string] => [`/ws/a.ts:f${i}`, `/ws/a.ts:g${i}`]);
+    const out = formatOutput(chainOf(...pairs), "mermaid", "trace", ROOT);
+    const lines = out.split("\n");
+    // Unique nodes would push edges past the line cap: entries stop early instead.
+    expect(lines.length).toBeLessThanOrEqual(700);
+    expect(edgeLines(out).length).toBeGreaterThan(200);
+    expect(lines.at(-1)).toMatch(/^%% call chain truncated \(\d+ hidden edge\(s\)\)$/);
+
+    const short = Array.from({ length: 505 }, (_, i): [string, string] => ["/ws/a.ts:f", `/ws/a.ts:g${i % 3}`]);
+    expect(formatOutput(chainOf(...short), "mermaid", "trace", ROOT)).toContain("%% call chain truncated (5 hidden edge(s))");
+  });
+});
+
+describe("formatOutput - mermaid synthetic ids for other shapes (#265)", () => {
+  it("uses synthetic ids for generic trace steps", () => {
+    const out = formatOutput(
+      { steps: [{ caller: "/ws/a.ts", callee: "end" }, { from: "end", to: "a$b" }, { from: "end", to: "a_b" }] },
+      "mermaid",
+      "trace",
+      "/ws",
+    );
+    expect(out).toBe([
+      "graph TD",
+      '  S0["a.ts"]',
+      '  S1["end"]',
+      '  S2["a$b"]',
+      '  S3["a_b"]',
+      "  S0 --> S1",
+      "  S1 --> S2",
+      "  S1 --> S3",
+    ].join("\n"));
+  });
+
+  it("marks generic trace truncation and keeps raw labels without a root", () => {
+    const steps = Array.from({ length: 502 }, () => ({ caller: "/ws/a", callee: "/ws/b" }));
+    const out = formatOutput({ trace: steps }, "mermaid", "trace");
+    expect(out).toContain('S0["/ws/a"]');
+    expect(out).toContain("%% trace truncated (2 hidden step(s))");
+  });
+
+  it("stops generic trace steps before node declarations push edges past the line cap", () => {
+    const steps = Array.from({ length: 400 }, (_, i) => ({ caller: `c${i}`, callee: `d${i}` }));
+    const lines = formatOutput({ trace: steps }, "mermaid", "trace").split("\n");
+    expect(lines.length).toBeLessThanOrEqual(700);
+    expect(lines.filter((line) => line.includes("-->")).length).toBeGreaterThan(200);
+    expect(lines.at(-1)).toMatch(/^%% trace truncated \(\d+ hidden step\(s\)\)$/);
+  });
+
+  it("declares undeclared graph edge endpoints instead of using raw ids", () => {
+    const out = formatOutput({ nodes: [{ id: "a", name: "a.ts" }], edges: [{ source: "a", target: "end" }] }, "mermaid", "path");
+    expect(out).toContain('  N1["end"]');
+    expect(out).toContain("  N0 --> N1");
+  });
+
+  it("keeps dependency-check paths that collide after sanitizing as distinct nodes", () => {
+    const out = formatOutput({
+      filePath: "/ws/src/index.ts",
+      relativePath: "src/index.ts",
+      outgoing: { dependencies: [{ path: "src/a-b.ts" }, { path: "src/a_b.ts" }, { path: "src/a-b.ts" }] },
+      incoming: { referencingFiles: [{ path: "src/end" }] },
+    }, "mermaid", "check-dependencies");
+    expect(out).toBe([
+      "graph LR",
+      '  D0["index.ts"]',
+      '  D1["a-b.ts"]',
+      "  D0 --> D1",
+      '  D2["a_b.ts"]',
+      "  D0 --> D2",
+      "  D0 --> D1",
+      '  D3["end"]',
+      "  D3 --> D0",
+    ].join("\n"));
   });
 });
 

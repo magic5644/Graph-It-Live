@@ -242,7 +242,7 @@ async function executeCommandForRepl(
   const rawData = parseRawCommandOutput(jsonOutput);
 
   try {
-    const output = formatOutput(rawData, preferredFormat, command);
+    const output = formatOutput(rawData, preferredFormat, command, runtime.workspaceRoot);
     return { command, output, effectiveFormat: preferredFormat };
   } catch {
     const output = formatOutput(rawData, 'text', command);
