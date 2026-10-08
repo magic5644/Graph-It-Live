@@ -3,7 +3,7 @@ import * as path from "node:path";
 import { PYTHON_EXTENSIONS, SUPPORTED_FILE_EXTENSIONS } from "../../shared/constants";
 import { isPathWithinRootCanonical } from "../../shared/pathSecurity";
 import { normalizePath } from "../types";
-import { parseTsConfig, resolveExtendsTargets } from "./tsconfig";
+import { parseTsConfig, resolveExtendsTargets, type TsConfigJson } from "./tsconfig";
 
 /**
  * Resolves module paths to absolute file paths
@@ -453,34 +453,13 @@ export class PathResolver {
       }
       const tsConfigDir = path.dirname(tsConfigPath);
 
-      // First, process "extends" to get parent aliases (they have lower priority)
+      // Parents first, in declaration order: later configs override earlier aliases.
+      // A missing parent fails readFile above and is skipped.
       for (const parentPath of resolveExtendsTargets(tsConfigPath, tsConfig.extends)) {
-        if (await this.fileExists(parentPath)) {
-          await this.loadTsConfigPathAliasesRecursive(parentPath, aliases, visited);
-        }
+        await this.loadTsConfigPathAliasesRecursive(parentPath, aliases, visited); // NOSONAR S9382: order defines precedence
       }
 
-      // Then, process this config's paths (they override parent aliases)
-      const paths = tsConfig.compilerOptions?.paths;
-      const baseUrl = typeof tsConfig.compilerOptions?.baseUrl === "string" ? tsConfig.compilerOptions.baseUrl : ".";
-
-      if (paths && typeof paths === "object") {
-        for (const [alias, targets] of Object.entries(paths)) {
-          // Remove trailing /* from alias
-          const cleanAlias = alias.replace(/\/\*$/, "");
-
-          // Get first target and remove trailing /*
-          const target = Array.isArray(targets) && typeof targets[0] === "string"
-            ? targets[0].replace(/\/\*$/, "")
-            : undefined;
-
-          if (target) {
-            // Resolve relative to this tsconfig's directory
-            const absoluteTarget = path.resolve(tsConfigDir, baseUrl, target);
-            aliases.set(cleanAlias, normalizePath(absoluteTarget));
-          }
-        }
-      }
+      addPathAliases(tsConfig, tsConfigDir, aliases);
     } catch {
       // Gracefully handle missing or invalid tsconfig
       // Silent failure - tsconfig is optional
@@ -1200,5 +1179,21 @@ export class PathResolver {
     }
 
     return null;
+  }
+}
+
+/** Add a config's "paths" (first target only) to the alias map, resolved against its baseUrl. */
+function addPathAliases(tsConfig: TsConfigJson, tsConfigDir: string, aliases: Map<string, string>): void {
+  const paths = tsConfig.compilerOptions?.paths;
+  if (!paths || typeof paths !== "object") {
+    return;
+  }
+  const baseUrl = typeof tsConfig.compilerOptions?.baseUrl === "string" ? tsConfig.compilerOptions.baseUrl : ".";
+  for (const [alias, targets] of Object.entries(paths)) {
+    const target: unknown = Array.isArray(targets) ? targets[0] : undefined;
+    if (typeof target === "string" && target) {
+      // Strip trailing /* from both sides; resolve relative to the declaring config
+      aliases.set(alias.replace(/\/\*$/, ""), normalizePath(path.resolve(tsConfigDir, baseUrl, target.replace(/\/\*$/, ""))));
+    }
   }
 }
