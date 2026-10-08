@@ -124,7 +124,9 @@ export class SpiderSymbolService {
 
   async getSymbolDependents(filePath: string, symbolName: string): Promise<SymbolDependency[]> {
     const referencingFiles = await this.findReferencingFiles(filePath);
-    return this.collectSymbolDependents(referencingFiles, filePath, symbolName);
+    // A file never references itself, yet its other symbols can call the target.
+    const sourcePaths = [filePath, ...referencingFiles.map((ref) => ref.path)];
+    return this.collectSymbolDependents(sourcePaths, filePath, symbolName);
   }
 
   async traceFunctionExecution(
@@ -271,25 +273,30 @@ export class SpiderSymbolService {
   }
 
   private async collectSymbolDependents(
-    referencingFiles: Dependency[],
+    sourcePaths: string[],
     targetFilePath: string,
     symbolName: string
   ): Promise<SymbolDependency[]> {
-    const dependents: SymbolDependency[] = [];
+    // Keyed by source symbol so each dependent is listed once, whatever the edge source.
+    const dependents = new Map<string, SymbolDependency>();
     const normalizedTarget = normalizePath(targetFilePath);
+    const targetSymbolId = this.symbolDependencyHelper.buildUsedSymbolId(normalizedTarget, symbolName);
 
-    for (const ref of referencingFiles) {
-      const { dependencies } = await this.getSymbolGraph(ref.path);
+    for (const sourcePath of sourcePaths) {
+      const { dependencies } = await this.getSymbolGraph(sourcePath);
 
       for (const dep of dependencies) {
-        const isMatch = await this.symbolDependencyHelper.doesDependencyTargetFile(dep, ref.path, normalizedTarget);
-        if (isMatch && this.symbolDependencyHelper.extractSymbolName(dep.targetSymbolId) === symbolName) {
-          dependents.push(dep);
+        const sourceSymbolId = normalizePath(dep.sourceSymbolId);
+        // A recursive call does not make the symbol its own dependent.
+        if (sourceSymbolId === targetSymbolId || dependents.has(sourceSymbolId)) continue;
+        if (this.symbolDependencyHelper.extractSymbolName(dep.targetSymbolId) !== symbolName) continue;
+        if (await this.symbolDependencyHelper.doesDependencyTargetFile(dep, sourcePath, normalizedTarget)) {
+          dependents.set(sourceSymbolId, dep);
         }
       }
     }
 
-    return dependents;
+    return [...dependents.values()];
   }
 
   /**

@@ -161,6 +161,43 @@ describe("impact tools", () => {
   });
 
   describe("executeGetImpactAnalysis", () => {
+    it("expands transitively through a same-file caller without listing duplicates or the target", async () => {
+      const filePath = await createTempFile(tempDir, "core.ts", "");
+      const consumerFile = path.join(tempDir, "consumer.ts");
+      const edge = (source: string, target: string) => ({
+        sourceSymbolId: source,
+        targetSymbolId: target,
+        targetFilePath: filePath,
+        isTypeOnly: false,
+      });
+      const getSymbolDependents = vi.fn(async (_file: string, symbol: string) => {
+        if (symbol === "target") {
+          // The same caller reported twice must count once.
+          return [edge(`${filePath}:Service`, `${filePath}:target`), edge(`${filePath}:Service`, `${filePath}:target`)];
+        }
+        if (symbol === "Service") {
+          // consumer.ts uses Service, and Service is mutually recursive with target.
+          return [edge(`${consumerFile}:useService`, `${filePath}:Service`), edge(`${filePath}:target`, `${filePath}:Service`)];
+        }
+        return [];
+      });
+      setupWorkerState({ getSymbolDependents });
+
+      const result = await executeGetImpactAnalysis({
+        filePath,
+        symbolName: "target",
+        includeTransitive: true,
+        maxDepth: 3,
+      });
+
+      expect(result.impactedItems.map((item) => [item.symbolId, item.depth])).toEqual([
+        [`${filePath}:Service`, 1],
+        [`${consumerFile}:useService`, 2],
+      ]);
+      expect(result.directImpactCount).toBe(1);
+      expect(result.transitiveImpactCount).toBe(1);
+    });
+
     it("should return impact summary for direct dependents", async () => {
       const filePath = await createTempFile(tempDir, "utils.ts", "");
       const consumerFile = path.join(tempDir, "consumer.ts");

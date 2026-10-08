@@ -1,3 +1,4 @@
+import { checkSymbolInFile, symbolNotFoundMessage } from "../../analyzer/utils/SymbolLookup";
 import { getRelativePath, validateFileExists } from "../shared/helpers";
 import { workerState } from "../shared/state";
 import type {
@@ -126,6 +127,14 @@ export async function executeGetSymbolDependents(
   const spider = workerState.getSpider();
   const config = workerState.getConfig();
   await validateFileExists(filePath);
+
+  // An unknown symbol has no dependents too: tell it apart from an unused one.
+  const symbolCheck = await checkSymbolInFile(spider, filePath, symbolName);
+  if (symbolCheck.status === "missing") {
+    throw new Error(
+      symbolNotFoundMessage(symbolName, getRelativePath(filePath, config.rootDir), symbolCheck.suggestions),
+    );
+  }
 
   const dependents = await spider.getSymbolDependents(filePath, symbolName);
 

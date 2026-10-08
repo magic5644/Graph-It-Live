@@ -1592,7 +1592,7 @@ graph-it tool find_unused_symbols --filePath=/abs/path/to/api.ts
 
 > **Transition alias (CLI only):** the MCP server no longer lists this tool. Use `query_call_graph --direction=callers --depth=1` (add `--includeTypeOnly=true` for type references) or `find_referencing_files` for file-level imports instead.
 
-**What it returns:** All symbols (across the entire project) that depend on a specific symbol — the reverse of `get_symbol_graph`.
+**What it returns:** All symbols (across the entire project) that depend on a specific symbol — the reverse of `get_symbol_graph`. Callers in the same file and namespace-import uses (`ns.symbol`, `vi.spyOn(ns, "symbol")`) count; a bare namespace passed as a value does not. An unknown symbol is an error listing close name matches.
 
 ```bash
 graph-it tool get_symbol_dependents --filePath=/abs/path/to/Spider.ts --symbolName=Spider

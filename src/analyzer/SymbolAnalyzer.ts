@@ -3,6 +3,7 @@ import {
   Project,
   SourceFile,
   SyntaxKind,
+  type CallExpression,
   type ClassDeclaration,
   type VariableStatement,
 } from "ts-morph";
@@ -762,7 +763,10 @@ export class SymbolAnalyzer implements ISymbolAnalyzer {
       const importInfo = importMap.get(identifier.getText());
       if (!importInfo) continue;
 
-      const targetSymbolId = this.buildTargetSymbolId(importInfo);
+      const originalName = importInfo.originalName === "*"
+        ? (namespaceMemberName(identifier) ?? "*")
+        : importInfo.originalName;
+      const targetSymbolId = this.buildTargetSymbolId({ originalName, modulePath: importInfo.modulePath });
 
       if (!dependencies.some((d) => d.symbolId === targetSymbolId)) {
         dependencies.push({
@@ -985,4 +989,31 @@ export class SymbolAnalyzer implements ISymbolAnalyzer {
     const result = this.analyzeFileContent(filePath, content);
     return result.dependencies;
   }
+}
+
+/**
+ * Export of a namespace import named exactly by this use of the namespace:
+ * `ns.fn`, `ns.Type` in a type, or `spyOn(ns, "fn")`. Undefined for a bare use
+ * such as `fn(ns)` or `{ ...ns }`, which may touch any export.
+ */
+function namespaceMemberName(identifier: Node): string | undefined {
+  const parent = identifier.getParent();
+  if (Node.isPropertyAccessExpression(parent) && parent.getExpression() === identifier) {
+    return parent.getName();
+  }
+  if (Node.isQualifiedName(parent) && parent.getLeft() === identifier) {
+    return parent.getRight().getText();
+  }
+  if (Node.isCallExpression(parent) && isSpyOnCall(parent)) {
+    const [object, member] = parent.getArguments();
+    if (object === identifier && Node.isStringLiteral(member)) return member.getLiteralValue();
+  }
+  return undefined;
+}
+
+/** `spyOn(...)`, `vi.spyOn(...)` or `jest.spyOn(...)`: the second argument names a member of the first. */
+function isSpyOnCall(call: CallExpression): boolean {
+  const callee = call.getExpression();
+  const name = Node.isPropertyAccessExpression(callee) ? callee.getName() : callee.getText();
+  return name === "spyOn";
 }
