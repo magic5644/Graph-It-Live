@@ -110,11 +110,11 @@ For each changed symbol, the bounded analysis can report:
 - known dependent symbols and transitive impact up to `--depth` (default `3`, maximum `10`);
 - cycle and unused-export evidence when the local index provides it;
 - conventional test-file candidates;
-- consumer standing: files **updated** in the diff, **covered** by a test path, or **unverified**.
+- consumer standing: files **updated** in the diff, **covered** by a test path, or **unverified**. "Updated" is file-level: the consumer file changed, which does not prove its call site was fixed.
 
-The score is capped at `100` per symbol, and the result score is the highest symbol score. Risk thresholds are `low` (<20), `medium` (20–49), `high` (50–79), and `critical` (80–100). Unverified consumers add risk only when the change requires call-site updates. Missing optional evidence, unsupported file types, and file limits are reported as limitations rather than invented findings. The command does not fail solely because the risk is high; use the Action's `fail-on-risk` input to gate CI.
+The score is capped at `100` per symbol, and the result score is the highest symbol score. Risk thresholds are `low` (<20), `medium` (20–49), `high` (50–79), and `critical` (80–100). When the change requires call-site updates (anything but a return-type change), every consumer the diff does not touch adds risk, covered or not: a test only makes the breakage fail later. Otherwise consumers add no risk. Missing optional evidence, unsupported file types, and file limits are reported as limitations rather than invented findings. The command does not fail solely because the risk is high; use the Action's `fail-on-risk` input to gate CI.
 
-`--max-files` defaults to `200` and accepts values from `1` to `1000`. The default output is text. Markdown output includes a consumer table and a list of unverified consumers; JSON and TOON expose the complete structured result. Invalid refs and invalid limits exit non-zero.
+`--max-files` defaults to `200` and accepts values from `1` to `1000`. The default output is text. Markdown output includes a consumer table and a list of consumers to check; JSON and TOON expose the complete structured result. Invalid refs and invalid limits exit non-zero.
 
 The MCP tool `graphitlive_review_pr` exposes the same bounded analysis through `baseRef`, optional `headRef`, `maxDepth`, and `maxFiles`. Omit `headRef` to review the checked-out worktree; provide a local or remote branch ref to compare two committed branch refs. The Action emits `vscode://magic5644.graph-it-live/graph-it-live.reviewCallGraph?file=<workspace-relative>&symbol=<encoded>&depth=3` only when a risky symbol has a workspace-relative file; the extension accepts depth 1–5 and validates the path again. Branch Watch's VS Code confidence label is UI context for incomplete local evidence; the CLI and MCP continue to expose the structured limitations and `isPartial` fields instead of that label.
 
