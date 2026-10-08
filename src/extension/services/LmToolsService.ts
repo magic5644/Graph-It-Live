@@ -1350,10 +1350,7 @@ export class LmToolsService {
           try {
             const { SignatureAnalyzer } = await import('../../analyzer/SignatureAnalyzer.js');
             const analyzer = new SignatureAnalyzer();
-            let results = analyzer.analyzeBreakingChanges(filePath, oldContent, newContent);
-            if (symbolName) {
-              results = results.filter(r => r.symbolName === symbolName);
-            }
+            const results = analyzer.analyzeBreakingChanges(filePath, oldContent, newContent, symbolName);
             const breakingChanges = results.flatMap(r => r.breakingChanges);
             const nonBreakingChanges = results.flatMap(r => r.nonBreakingChanges);
             return new vscode.LanguageModelToolResult([

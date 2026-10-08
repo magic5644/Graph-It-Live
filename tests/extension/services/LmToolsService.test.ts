@@ -59,7 +59,10 @@ vi.mock('vscode', () => {
 
 vi.mock('@/analyzer/SignatureAnalyzer', () => ({
   SignatureAnalyzer: class {
-    analyzeBreakingChanges(_file: string, _old: string, _new: string) {
+    analyzeBreakingChanges(_file: string, _old: string, _new: string, symbolName?: string) {
+      if (symbolName && symbolName !== 'myFn') {
+        throw new Error(`Symbol '${symbolName}' not found in oldContent or newContent.`);
+      }
       return [
         {
           symbolName: 'myFn',
@@ -563,7 +566,7 @@ describe('LmToolsService', () => {
       expect(result.nonBreakingChanges).toHaveLength(1);
     });
 
-    it('filters results by symbolName when provided', async () => {
+    it('passes symbolName to the analyzer and surfaces an unknown symbol as an error', async () => {
       // The mock returns results for 'myFn' only
       const resultMatching = await invokeTool(TOOL, {
         filePath: '/workspace/src/a.ts',
@@ -582,9 +585,8 @@ describe('LmToolsService', () => {
         symbolName: 'other',
       }) as Record<string, unknown>;
 
-      // Mock only returns results for 'myFn', filter for 'other' yields nothing
-      expect(resultNonMatching.breakingChangesCount).toBe(0);
-      expect(resultNonMatching.hasBreakingChanges).toBe(false);
+      // An unknown symbol is an error, never an empty "safe" result (#260)
+      expect(resultNonMatching).toMatchObject({ error: expect.stringContaining("Symbol 'other' not found") });
     });
 
     it('returns error when newContent is missing and file cannot be read', async () => {

@@ -86,9 +86,9 @@ describe("impact tools", () => {
     ].join("\n");
 
     const useRealAnalyzer = () => {
-      const analyze = vi.fn(async (filePath: string, oldText: string, newText: string) => {
+      const analyze = vi.fn(async (filePath: string, oldText: string, newText: string, symbolName?: string) => {
         const { SignatureAnalyzer } = await import("../../../src/analyzer/SignatureAnalyzer");
-        return new SignatureAnalyzer().analyzeBreakingChanges(filePath, oldText, newText);
+        return new SignatureAnalyzer().analyzeBreakingChanges(filePath, oldText, newText, symbolName);
       });
       workerState.astWorkerHost = { analyzeBreakingChanges: analyze, stop: () => {} } as any;
       return analyze;
@@ -100,7 +100,7 @@ describe("impact tools", () => {
 
       const result = await executeAnalyzeBreakingChanges({ filePath, oldContent, newContent: "" });
 
-      expect(analyze).toHaveBeenCalledWith(filePath, oldContent, "");
+      expect(analyze).toHaveBeenCalledWith(filePath, oldContent, "", undefined);
       expect(result.breakingChangeCount).toBe(3);
       expect(result.removedSymbols.sort()).toEqual(["Options", "farewell", "greet"]);
       expect(result.errorCount).toBe(3);
@@ -113,7 +113,7 @@ describe("impact tools", () => {
 
       const result = await executeAnalyzeBreakingChanges({ filePath, oldContent });
 
-      expect(analyze).toHaveBeenCalledWith(filePath, oldContent, current);
+      expect(analyze).toHaveBeenCalledWith(filePath, oldContent, current, undefined);
       expect(result.removedSymbols.sort()).toEqual(["Options", "farewell"]);
     });
 
@@ -157,6 +157,59 @@ describe("impact tools", () => {
       const result = await executeAnalyzeBreakingChanges({ filePath, oldContent, newContent: "", symbolName: "greet" });
 
       expect(result.removedSymbols).toEqual(["greet"]);
+    });
+
+    it("passes symbolName to the worker and rejects a placeholder oldContent (#260)", async () => {
+      const filePath = await createTempFile(tempDir, "api.ts", oldContent);
+      const analyze = useRealAnalyzer();
+
+      await expect(
+        executeAnalyzeBreakingChanges({ filePath, oldContent: "PLACEHOLDER", symbolName: "greet" }),
+      ).rejects.toThrow(
+        "Failed to analyze breaking changes: Symbol 'greet' is not declared in oldContent; cannot compare.",
+      );
+      expect(analyze).toHaveBeenCalledWith(filePath, "PLACEHOLDER", oldContent, "greet");
+    });
+
+    it("rejects a misspelled symbolName with a suggestion (#260)", async () => {
+      const filePath = await createTempFile(tempDir, "api.ts", oldContent);
+      useRealAnalyzer();
+
+      await expect(executeAnalyzeBreakingChanges({ filePath, oldContent, symbolName: "gret" })).rejects.toThrow(
+        "Symbol 'gret' not found in oldContent or newContent. Did you mean: greet?",
+      );
+    });
+
+    it("still reports a breaking change for a real comparison filtered by symbolName (#260)", async () => {
+      const filePath = await createTempFile(tempDir, "api.ts", oldContent);
+      useRealAnalyzer();
+
+      const result = await executeAnalyzeBreakingChanges({
+        filePath,
+        oldContent,
+        newContent: oldContent.replace("greet(name: string)", "greet(name: string, title: string)"),
+        symbolName: "greet",
+      });
+
+      expect(result.breakingChangeCount).toBe(1);
+      expect(result.breakingChanges[0]).toMatchObject({ type: "parameter-added-required", severity: "error" });
+    });
+
+    it("reports a new export as non-breaking when oldContent is a real baseline (#260)", async () => {
+      const filePath = await createTempFile(tempDir, "api.ts", oldContent);
+      useRealAnalyzer();
+
+      const result = await executeAnalyzeBreakingChanges({
+        filePath,
+        oldContent,
+        newContent: `${oldContent}\nexport function added(): void {}`,
+        symbolName: "added",
+      });
+
+      expect(result.breakingChangeCount).toBe(0);
+      expect(result.nonBreakingChanges).toEqual([
+        "'added' is new: it is not declared in oldContent, so no existing caller can break",
+      ]);
     });
   });
 

@@ -254,7 +254,8 @@ export class AstWorkerHost {
   public async analyzeBreakingChanges(
     filePath: string,
     oldContent: string,
-    newContent: string
+    newContent: string,
+    symbolName?: string
   ): Promise<SignatureComparisonResult[]> {
     const result = await this.sendRequest({
       type: 'analyzeBreakingChanges',
@@ -262,6 +263,7 @@ export class AstWorkerHost {
       filePath,
       oldContent,
       newContent,
+      symbolName,
     });
     return result as SignatureComparisonResult[];
   }

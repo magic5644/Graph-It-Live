@@ -255,6 +255,7 @@ const TOOL_DESCRIPTIONS: Record<DescribedToolName, ToolDescription> = {
         mcp: "DETECTS: added required parameter, removed parameter, changed parameter type, changed return type, parameter reordering.",
         lm: "DETECTS: added required parameter, removed parameter, changed parameter or return type, optional made required, reduced visibility, removed or changed interface member, changed type alias.",
       },
+      "INPUT: oldContent must be the full previous file content, not a placeholder. With symbolName, an unknown symbol returns an error listing close name matches, a symbol missing from a non-empty oldContent that declares nothing returns an error, and a symbol new in newContent is reported as a non-breaking change.",
     ],
   },
   review_pr: {

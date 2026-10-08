@@ -63,15 +63,11 @@ export async function executeAnalyzeBreakingChanges(
       filePath,
       oldContent,
       newContent,
+      symbolName,
     );
   } catch (error) {
     const errorMsg = error instanceof Error ? error.message : "Unknown error";
     throw new Error(`Failed to analyze breaking changes: ${errorMsg}`, { cause: error });
-  }
-
-  // Filter by symbolName if provided
-  if (symbolName) {
-    results = results.filter((r) => r.symbolName === symbolName);
   }
 
   // Aggregate all breaking changes

@@ -14,7 +14,7 @@ export type WorkerRequest =
   | { type: 'extractInterfaceMembers'; id: number; filePath: string; content: string }
   | { type: 'extractTypeAliases'; id: number; filePath: string; content: string }
   | { type: 'compareSignatures'; id: number; oldSig: SignatureInfo; newSig: SignatureInfo }
-  | { type: 'analyzeBreakingChanges'; id: number; filePath: string; oldContent: string; newContent: string }
+  | { type: 'analyzeBreakingChanges'; id: number; filePath: string; oldContent: string; newContent: string; symbolName?: string }
   | { type: 'reset'; id: number }
   | { type: 'getFileCount'; id: number };
 
