@@ -181,7 +181,8 @@ async function handleMessage(message: WorkerRequest): Promise<void> {
         result = signatureAnalyzer.analyzeBreakingChanges(
           message.filePath,
           message.oldContent,
-          message.newContent
+          message.newContent,
+          message.symbolName
         );
         break;
       }

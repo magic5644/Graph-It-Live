@@ -84,6 +84,15 @@ describe.skipIf(!distExists)("MCP tools over graph-it serve (E2E)", { timeout: 1
       }
       expect(failures).toEqual([]);
 
+      // A placeholder oldContent cannot be compared and must not look like "no breaking change" (#260).
+      const placeholder = await callTool("graphitlive_analyze_breaking_changes", {
+        filePath: b,
+        symbolName: "helper",
+        oldContent: "PLACEHOLDER",
+      });
+      expect(placeholder.isError).toBe(true);
+      expect(placeholder.content[0].text).toContain("Symbol 'helper' is not declared in oldContent; cannot compare.");
+
       // An intended failure must still be reported as one.
       const missing = await callTool("graphitlive_analyze_dependencies", { filePath: path.join(tmpDir, "src/missing.ts") });
       expect(missing.isError).toBe(true);

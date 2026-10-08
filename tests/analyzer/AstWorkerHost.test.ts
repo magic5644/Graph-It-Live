@@ -89,6 +89,14 @@ export function myFunction(a: string, b: number): string {
     expect(funcResult?.breakingChanges[0].type).toBe('parameter-added-required');
   });
 
+  it('forwards symbolName to the worker and rejects a placeholder oldContent (#260)', async () => {
+    const newContent = 'export function myFunction(a: string, b: number): string { return a + b; }';
+
+    await expect(
+      workerHost.analyzeBreakingChanges('/test.ts', 'PLACEHOLDER', newContent, 'myFunction'),
+    ).rejects.toThrow("Symbol 'myFunction' is not declared in oldContent; cannot compare.");
+  });
+
   it('should get internal export dependency graph', async () => {
     const content = `
 export function helperA() {

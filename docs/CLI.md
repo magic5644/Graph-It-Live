@@ -1639,6 +1639,8 @@ graph-it tool analyze_breaking_changes --filePath=/abs/path/to/api.ts --oldConte
 
 **Output fields:** `filePath`, `breakingChangeCount`, `errorCount`, `warningCount`, `breakingChanges[]`, `nonBreakingChanges[]`, `removedSymbols[]`
 
+`oldContent` must be the full previous file content. With `symbolName`, the tool fails instead of reporting zero changes when the symbol is declared in neither version (the error lists close name matches) or when a non-empty `oldContent` declares nothing comparable, such as a placeholder. A symbol declared only in the new version is reported as a non-breaking change.
+
 ---
 
 #### `get_impact_analysis`

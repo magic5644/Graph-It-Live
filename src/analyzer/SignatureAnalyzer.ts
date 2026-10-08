@@ -14,6 +14,7 @@
 
 import { Project, SourceFile, SyntaxKind, type ParameterDeclaration, type TypeLiteralNode } from 'ts-morph';
 import * as path from 'node:path';
+import { closestNames, symbolNotFoundMessage } from './utils/SymbolLookup';
 
 /**
  * Represents a function/method parameter
@@ -497,9 +498,46 @@ export class SignatureAnalyzer {
   }
 
   /**
-   * Analyze a file for potential breaking changes compared to an old version
+   * Analyze a file for potential breaking changes compared to an old version.
+   * With `symbolName`, only that symbol (or the members of that class) is reported,
+   * and a symbol that cannot be compared throws instead of returning an empty, "safe" result.
    */
   public analyzeBreakingChanges(
+    filePath: string,
+    oldContent: string,
+    newContent: string,
+    symbolName?: string
+  ): SignatureComparisonResult[] {
+    const results = this.analyzeAllBreakingChanges(filePath, oldContent, newContent);
+    if (!symbolName) return results;
+
+    const matches = (name: string) =>
+      name === symbolName || name.startsWith(`${symbolName}.`) || name.endsWith(`.${symbolName}`);
+    const oldNames = this.declaredNames(filePath, 'old', oldContent);
+    const newNames = this.declaredNames(filePath, 'new', newContent);
+    if (oldNames.some(matches)) {
+      return results.filter((r) => matches(r.symbolName));
+    }
+    if (!newNames.some(matches)) {
+      const names = [...new Set([...oldNames, ...newNames])];
+      throw new Error(symbolNotFoundMessage(symbolName, 'oldContent or newContent', closestNames(names, symbolName)));
+    }
+    // An old version that declares nothing (e.g. a placeholder) is not a baseline: a
+    // blank one is a new file, but anything else means the real content was not passed.
+    if (oldNames.length === 0 && oldContent.trim() !== '') {
+      throw new Error(
+        `Symbol '${symbolName}' is not declared in oldContent; cannot compare. Pass the full previous file content.`,
+      );
+    }
+    return [{
+      symbolName,
+      hasBreakingChanges: false,
+      breakingChanges: [],
+      nonBreakingChanges: [`'${symbolName}' is new: it is not declared in oldContent, so no existing caller can break`],
+    }];
+  }
+
+  private analyzeAllBreakingChanges(
     filePath: string,
     oldContent: string,
     newContent: string
@@ -611,6 +649,38 @@ export class SignatureAnalyzer {
   }
 
   /**
+   * Top-level declarations plus the member names results use (`Class.method`, `Component.props`),
+   * so a declared symbol with nothing comparable (an enum, a constant) is not reported as unknown.
+   */
+  private declaredNames(filePath: string, side: 'old' | 'new', content: string): string[] {
+    const sideFilePath = `${filePath}.${side}`;
+    const names = [
+      ...this.extractSignatures(sideFilePath, content).map((s) => s.name),
+      ...this.extractInterfaceMembers(sideFilePath, content).keys(),
+      ...this.extractTypeAliases(sideFilePath, content).map((t) => t.name),
+    ];
+    const sourceFile = this.getOrCreateSourceFile(sideFilePath, content);
+    for (const declaration of [
+      ...sourceFile.getClasses(),
+      ...sourceFile.getEnums(),
+      ...sourceFile.getVariableDeclarations(),
+      ...sourceFile.getInterfaces(),
+      ...sourceFile.getTypeAliases(),
+    ]) {
+      const name = declaration.getName();
+      if (name) names.push(name);
+    }
+    if (this.isVueFile(filePath) && this.extractVueProps(sideFilePath, content).length > 0) {
+      names.push(this.vuePropsName(filePath));
+    }
+    return names;
+  }
+
+  private vuePropsName(filePath: string): string {
+    return `${path.basename(filePath, path.extname(filePath))}.props`;
+  }
+
+  /**
    * Create a result for a removed symbol
    */
   private createRemovedResult(
@@ -660,7 +730,7 @@ export class SignatureAnalyzer {
   ): void {
     const oldProps = this.extractVueProps(`${filePath}.old`, oldContent);
     const newProps = this.extractVueProps(`${filePath}.new`, newContent);
-    const componentName = `${path.basename(filePath, path.extname(filePath))}.props`;
+    const componentName = this.vuePropsName(filePath);
     const oldMembers = oldProps;
     const newMembers = newProps;
     if (oldMembers.length === 0 && newMembers.length === 0) return;

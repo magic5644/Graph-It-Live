@@ -633,4 +633,103 @@ describe('SignatureAnalyzer', () => {
       ]));
     });
   });
+
+  describe('analyzeBreakingChanges with symbolName (#260)', () => {
+    const oldContent = 'export function createUser(name: string): string { return name; }\n';
+    const newContent = 'export function createUser(name: string, role: string): string { return name + role; }\n';
+
+    it('keeps a valid comparison unchanged', () => {
+      const results = analyzer.analyzeBreakingChanges('/src/api.ts', oldContent, newContent, 'createUser');
+
+      expect(results).toHaveLength(1);
+      expect(results[0].breakingChanges).toEqual([
+        expect.objectContaining({ type: 'parameter-added-required', severity: 'error' }),
+      ]);
+    });
+
+    it('rejects a placeholder oldContent instead of reporting no breaking change', () => {
+      expect(() => analyzer.analyzeBreakingChanges('/src/api.ts', 'PLACEHOLDER', newContent, 'createUser'))
+        .toThrow("Symbol 'createUser' is not declared in oldContent; cannot compare. Pass the full previous file content.");
+    });
+
+    it('rejects a misspelled symbolName with a suggestion', () => {
+      expect(() => analyzer.analyzeBreakingChanges('/src/api.ts', oldContent, newContent, 'createUsr'))
+        .toThrow("Symbol 'createUsr' not found in oldContent or newContent. Did you mean: createUser?");
+    });
+
+    it('rejects an unknown symbolName without suggestions when nothing is close', () => {
+      expect(() => analyzer.analyzeBreakingChanges('/src/api.ts', oldContent, newContent, 'zzz'))
+        .toThrow("Symbol 'zzz' not found in oldContent or newContent. No symbol with a similar name is declared in this file.");
+    });
+
+    it('reports a symbol removed from newContent as member-removed', () => {
+      const results = analyzer.analyzeBreakingChanges('/src/api.ts', oldContent, '', 'createUser');
+
+      expect(results[0].breakingChanges).toEqual([expect.objectContaining({ type: 'member-removed' })]);
+    });
+
+    it('reports a new export as a non-breaking addition when oldContent is a real baseline', () => {
+      const added = `${oldContent}export function deleteUser(id: string): void {}\n`;
+
+      const results = analyzer.analyzeBreakingChanges('/src/api.ts', oldContent, added, 'deleteUser');
+
+      expect(results).toEqual([{
+        symbolName: 'deleteUser',
+        hasBreakingChanges: false,
+        breakingChanges: [],
+        nonBreakingChanges: ["'deleteUser' is new: it is not declared in oldContent, so no existing caller can break"],
+      }]);
+    });
+
+    it('treats a blank oldContent as a new file, not a placeholder', () => {
+      const results = analyzer.analyzeBreakingChanges('/src/api.ts', '  \n', newContent, 'createUser');
+
+      expect(results[0].hasBreakingChanges).toBe(false);
+      expect(results[0].nonBreakingChanges).toHaveLength(1);
+    });
+
+    it('returns no change for an unchanged signature', () => {
+      expect(analyzer.analyzeBreakingChanges('/src/api.ts', oldContent, oldContent, 'createUser')).toEqual([]);
+    });
+
+    it('matches a class by name and a method by member name', () => {
+      const oldClass = 'export class Repo { save(id: string): void {} }';
+      const newClass = 'export class Repo { save(id: string, force: boolean): void {} }';
+
+      for (const symbolName of ['Repo', 'save', 'Repo.save']) {
+        const results = analyzer.analyzeBreakingChanges('/src/repo.ts', oldClass, newClass, symbolName);
+        expect(results.map((r) => r.symbolName)).toEqual(['Repo.save']);
+      }
+    });
+
+    it('finds interfaces, type aliases and Vue props by name', () => {
+      const types = 'export interface Options { a: string }\nexport type Id = string;\n';
+      expect(analyzer.analyzeBreakingChanges('/src/types.ts', types, types, 'Options')).toEqual([]);
+      expect(analyzer.analyzeBreakingChanges('/src/types.ts', types, types, 'Id')).toEqual([]);
+
+      const vue = '<script setup lang="ts">defineProps<{ label: string }>();</script><template />';
+      expect(analyzer.analyzeBreakingChanges('/components/Counter.vue', vue, vue, 'Counter.props')).toEqual([]);
+    });
+
+    it('accepts declared symbols that have nothing to compare: classes without methods, enums, constants', () => {
+      const old = 'export class Config { port = 1 }\nexport enum Mode { A }\nexport const LIMIT = 3;\n';
+
+      for (const symbolName of ['Config', 'Mode', 'LIMIT']) {
+        expect(analyzer.analyzeBreakingChanges('/src/config.ts', old, old, symbolName)).toEqual([]);
+      }
+      const added = `${old}export const MAX = 4;\n`;
+      expect(analyzer.analyzeBreakingChanges('/src/config.ts', old, added, 'MAX')[0].hasBreakingChanges).toBe(false);
+    });
+
+    it('accepts Windows paths for the analyzed file', () => {
+      expect(() => analyzer.analyzeBreakingChanges(String.raw`C:\repo\src\api.ts`, 'PLACEHOLDER', newContent, 'createUser'))
+        .toThrow('is not declared in oldContent');
+      // The props name must be the one the comparison reports, whatever the separator handling.
+      const vuePath = String.raw`C:\repo\components\Counter.vue`;
+      const oldVue = '<script setup lang="ts">defineProps<{ label: string }>();</script><template />';
+      const newVue = '<script setup lang="ts">defineProps<{ label: number }>();</script><template />';
+      const [all] = analyzer.analyzeBreakingChanges(vuePath, oldVue, newVue);
+      expect(analyzer.analyzeBreakingChanges(vuePath, oldVue, newVue, all.symbolName)).toEqual([all]);
+    });
+  });
 });
