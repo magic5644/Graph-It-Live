@@ -18,20 +18,34 @@ import * as fs from 'node:fs';
 import * as os from 'node:os';
 import { runTests, runVSCodeCommand } from '@vscode/test-electron';
 
+// The folder containing the Extension Manifest package.json
+const extensionDevelopmentPath = path.resolve(__dirname, '../../');
+// Use fixtures as workspace root to allow tests to access all test projects
+// Use absolute path from extension root to avoid path resolution issues
+const workspaceRoot = path.resolve(extensionDevelopmentPath, 'tests/fixtures');
+
+/**
+ * The extension writes its shared index cache to <workspace>/.graph-it/. Under
+ * the fixtures it would leak into the next run (a stale index) and the repo.
+ */
+function removeFixtureIndexCaches(): void {
+  for (const entry of fs.readdirSync(workspaceRoot, { recursive: true, withFileTypes: true })) {
+    if (entry.isDirectory() && entry.name === '.graph-it') {
+      fs.rmSync(path.join(entry.parentPath, entry.name), { recursive: true, force: true });
+    }
+  }
+}
+
 async function main() {
   const useVsix = process.argv.includes('--vsix');
   let temporaryProfileDirectory: string | undefined;
 
   try {
-    // The folder containing the Extension Manifest package.json
-    const extensionDevelopmentPath = path.resolve(__dirname, '../../');
+    removeFixtureIndexCaches();
 
     // The path to test runner
     const extensionTestsPath = path.resolve(__dirname, './suite/index');
 
-    // Use fixtures as workspace root to allow tests to access all test projects
-    // Use absolute path from extension root to avoid path resolution issues
-    const workspaceRoot = path.resolve(extensionDevelopmentPath, 'tests/fixtures');
     const vscodeVersion = process.env.VSCODE_TEST_VERSION ?? 'stable';
     const vscodeCachePath = path.resolve(extensionDevelopmentPath, '.vscode-test');
     const reportFileFromEnv = process.env.E2E_MOCHA_REPORT_FILE;
@@ -120,6 +134,7 @@ async function main() {
     console.error('❌ Failed to run tests:', err);
     process.exitCode = 1;
   } finally {
+    removeFixtureIndexCaches();
     if (temporaryProfileDirectory) {
       fs.rmSync(temporaryProfileDirectory, { recursive: true, force: true });
     }
