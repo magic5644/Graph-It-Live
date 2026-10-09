@@ -141,7 +141,7 @@ function formatMarkdownTable(name: string, rows: unknown[]): string {
   if (columns.length === 0) return `${heading}\n\n_${rows.length} empty rows_`;
   const cell = (value: unknown): string => {
     if (value === undefined || value === null) return '';
-    return markdownCell(typeof value === 'object' ? JSON.stringify(value) : String(value));
+    return markdownCell(isPrimitive(value) ? String(value) : JSON.stringify(value));
   };
   return [
     heading,
