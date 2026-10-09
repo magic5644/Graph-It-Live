@@ -1,75 +1,69 @@
 # Graph-It-Live Documentation
 
-**Last Updated:** 2026-06-04
+**Last Updated:** 2026-10-09
 
-This directory is the single source of truth for technical documentation. It is organized into four sections.
+Technical documentation for the VS Code extension, the `graph-it` CLI and the MCP server. User-facing setup and features are in the root [README](../README.md).
 
 ---
+
+## Usage
+
+| File | Description |
+|------|-------------|
+| [CLI.md](CLI.md) | `graph-it` CLI reference: REPL, commands, options, output formats, environment variables, MCP tools via `graph-it tool`, review gate |
+| [examples/graph-it-review-gate.yml](examples/graph-it-review-gate.yml) | Consumer workflow for the Graph-It Review Gate GitHub Action |
 
 ## Architecture
 
-Documentation describing how the system is built and how the layers interact.
+| File | Description |
+|------|-------------|
+| [architecture/codemaps/architecture.md](architecture/codemaps/architecture.md) | System overview: layers, services, MCP tools, review gate |
+| [architecture/codemaps/backend.md](architecture/codemaps/backend.md) | Analyzer layer: Spider, parsers, indexes, call graph, Branch Watch, community detection |
+| [architecture/codemaps/cli.md](architecture/codemaps/cli.md) | Standalone CLI layer |
+| [architecture/codemaps/frontend.md](architecture/codemaps/frontend.md) | Webview (React, ReactFlow, Cytoscape) |
+| [architecture/codemaps/data.md](architecture/codemaps/data.md) | Messages, shared types, MCP tool names |
+| [architecture/codemaps/class-hierarchy.md](architecture/codemaps/class-hierarchy.md) | Core interfaces, classes and design patterns |
+| [architecture/TOON_FORMAT.md](architecture/TOON_FORMAT.md) | TOON serialization format |
+| [architecture/MCP_PAYLOAD_LIMITS.md](architecture/MCP_PAYLOAD_LIMITS.md) | MCP input validation and payload size limits |
+| [architecture/MCP_DEBUG_LOGGING_SECURITY.md](architecture/MCP_DEBUG_LOGGING_SECURITY.md) | MCP debug logging: opt-in, rotation, privacy |
+| [architecture/PERFORMANCE_OPTIMIZATIONS.md](architecture/PERFORMANCE_OPTIMIZATIONS.md) | Batch processing, concurrency, caching |
+
+### Diagrams
+
+The diagrams are being refreshed in #300; some content predates Branch Watch and the review gate.
 
 | File | Description |
 |------|-------------|
-| [architecture/codemaps/architecture.md](architecture/codemaps/architecture.md) | System overview — layers, services, file count |
-| [architecture/codemaps/class-hierarchy.md](architecture/codemaps/class-hierarchy.md) | **Class hierarchy diagram** — core interfaces, 45+ classes, design patterns |
-| [architecture/codemaps/backend.md](architecture/codemaps/backend.md) | Analyzer, MCP, and extension services |
-| [architecture/codemaps/cli.md](architecture/codemaps/cli.md) | Standalone CLI layer (`graph-it`) |
-| [architecture/codemaps/frontend.md](architecture/codemaps/frontend.md) | Webview / React components |
-| [architecture/codemaps/data.md](architecture/codemaps/data.md) | Data flow and shared types |
-| [architecture/TOON_FORMAT.md](architecture/TOON_FORMAT.md) | TOON serialization format spec (token-efficient output) |
-| [architecture/MCP_PAYLOAD_LIMITS.md](architecture/MCP_PAYLOAD_LIMITS.md) | MCP input validation and payload size limits |
-| [architecture/MCP_DEBUG_LOGGING_SECURITY.md](architecture/MCP_DEBUG_LOGGING_SECURITY.md) | MCP debug logging — opt-in, rotation, privacy |
-| [architecture/PERFORMANCE_OPTIMIZATIONS.md](architecture/PERFORMANCE_OPTIMIZATIONS.md) | Performance patterns: batch processing, concurrency, caching |
-| [architecture/graph-it-live-architecture.svg](architecture/graph-it-live-architecture.svg) | Architecture diagram (SVG) |
-| [architecture/graph-it-live-architecture-diagram.html](architecture/graph-it-live-architecture-diagram.html) | Architecture diagram (interactive HTML) |
-| [architecture/graph-it-live-runtime-flows-diagram.html](architecture/graph-it-live-runtime-flows-diagram.html) | Runtime flows diagram — extension ↔ analyzer ↔ MCP ↔ CLI |
+| [architecture/graph-it-live-architecture-diagram.html](architecture/graph-it-live-architecture-diagram.html) | Architecture overview (interactive HTML) |
+| [architecture/graph-it-live-four-layer-diagram.html](architecture/graph-it-live-four-layer-diagram.html) | Four-layer view: analyzer, extension, MCP, webview |
+| [architecture/graph-it-live-runtime-flows-diagram.html](architecture/graph-it-live-runtime-flows-diagram.html) | Runtime flows: extension, MCP server, CLI |
+| [architecture/graph-it-live-architecture.svg](architecture/graph-it-live-architecture.svg) | Static class diagram (April 2026, outdated) |
 
----
+### Architecture decision records
+
+| File | Decision |
+|------|----------|
+| [architecture/ADR-F2-01-hubscore-source-of-truth.md](architecture/ADR-F2-01-hubscore-source-of-truth.md) | `hubScore` source of truth |
+| [architecture/ADR-F3-01-visjs-inlining-strategy.md](architecture/ADR-F3-01-visjs-inlining-strategy.md) | Inlining vis.js in the standalone HTML export |
+| [architecture/ADR-F3-02-vis-network-dependency-position.md](architecture/ADR-F3-02-vis-network-dependency-position.md) | `vis-network` as dependency vs devDependency |
+| [architecture/ADR-F4-01-community-detection-algo.md](architecture/ADR-F4-01-community-detection-algo.md) | Community detection (Louvain, superseded by path-based detection) |
+| [architecture/ADR-F5-01-graph-context-gateway.md](architecture/ADR-F5-01-graph-context-gateway.md) | Unified graph context gateway |
+| [architecture/ADR-S2-01-toon-field-mcp-compat.md](architecture/ADR-S2-01-toon-field-mcp-compat.md) | MCP compatibility of the `toon` field |
+| [development/ADR-001-package-manager-choice.md](development/ADR-001-package-manager-choice.md) | npm vs Yarn |
 
 ## Development
 
-Standards and guidelines for contributors.
-
 | File | Description |
 |------|-------------|
-| [CLI.md](CLI.md) | **CLI + interactive REPL reference** — commands, options, output formats, tools, and interactive workflows |
-| [development/CODING_STANDARDS.md](development/CODING_STANDARDS.md) | TypeScript conventions, layer rules, React patterns |
-| [development/CROSS_PLATFORM_TESTING.md](development/CROSS_PLATFORM_TESTING.md) | Cross-platform path handling and test guidelines |
-| [development/ADR-001-package-manager-choice.md](development/ADR-001-package-manager-choice.md) | ADR: npm vs Yarn decision |
-
----
+| [development/CODING_STANDARDS.md](development/CODING_STANDARDS.md) | TypeScript, layering and MCP conventions |
+| [development/CROSS_PLATFORM_TESTING.md](development/CROSS_PLATFORM_TESTING.md) | Windows, macOS and Linux path handling and testing |
+| [benchmarks/graph-context-benchmark.md](benchmarks/graph-context-benchmark.md) | Graph context benchmark |
 
 ## Specifications
 
-Design documents and approved feature specs.
-
 | File | Description |
 |------|-------------|
-| [specs/2026-03-17-graph-it-cli-design.md](specs/2026-03-17-graph-it-cli-design.md) | CLI design spec — approved 2026-03-17, implemented in PR #80 |
-| [specs/2026-04-12-csharp-go-java-language-support.md](specs/2026-04-12-csharp-go-java-language-support.md) | C#, Go, Java language support — implemented |
-| [specs/2026-04-21-dead-code-scan.md](specs/2026-04-21-dead-code-scan.md) | Workspace-wide dead code scan — implemented via MCP, LM Tool, and `graph-it check` |
+| [specs/2026-07-17-graph-it-review-gate.md](specs/2026-07-17-graph-it-review-gate.md) | Review gate: `review-pr`, risk model, GitHub Action |
+| [specs/requirements/F4-user-stories.md](specs/requirements/F4-user-stories.md) | Community detection user stories (delivered, then replaced by path-based detection) |
 
----
-
-## Superpowers
-
-Planning and design artifacts produced with the Superpowers workflow.
-
-| File | Description |
-|------|-------------|
-| [superpowers/specs/2026-04-30-cli-repl-design.md](superpowers/specs/2026-04-30-cli-repl-design.md) | CLI guided REPL design spec — approved for the no-argument TTY workflow |
-| [superpowers/plans/2026-04-30-cli-repl.md](superpowers/plans/2026-04-30-cli-repl.md) | CLI guided REPL implementation plan |
-
----
-
-## Removed Documentation
-
-The following documents were removed as obsolete:
-
-| File (removed) | Reason |
-|----------------|--------|
-| `MCP_MODULARIZATION.md` | Plan superseded — tools are now split into `src/mcp/tools/` per category, no registry pattern needed |
-| `MIGRATION_MCP_DEBUG_LOGGING.md` | One-time migration notice for a change already shipped |
-| `PAYLOAD_LIMITS_IMPLEMENTATION.md` | Implementation recap fully covered by `architecture/MCP_PAYLOAD_LIMITS.md` |
+Finished one-off documents (sprint notes, implemented specs and plans) were removed in #301; they remain in Git history.
