@@ -94,38 +94,6 @@ releases.
 
 ## Quick Start
 
-## `review-pr`
-
-Run a deterministic local review of a Git diff:
-
-```bash
-graph-it review-pr --base origin/main [--head <ref>] [--depth 3] [--max-files 200] --format text|json|toon|markdown|mermaid
-```
-
-The command first ensures that the workspace index is available. It then lists changed files with `git diff` and compares exported TypeScript and JavaScript signatures between the base and head. Without `--head`, the head is the current working tree (`HEAD` plus staged and unstaged file contents). With `--head <ref>`, both sides come from Git refs and the changed-file list uses the three-dot comparison.
-
-For each changed symbol, the bounded analysis can report:
-
-- breaking signature changes;
-- known dependent symbols and transitive impact up to `--depth` (default `3`, maximum `10`);
-- cycle and unused-export evidence when the local index provides it;
-- conventional test-file candidates;
-- consumer standing: files **updated** in the diff, **covered** by a test path, or **unverified**. "Updated" is file-level: the consumer file changed, which does not prove its call site was fixed.
-
-The score is capped at `100` per symbol, and the result score is the highest symbol score. Risk thresholds are `low` (<20), `medium` (20–49), `high` (50–79), and `critical` (80–100). When the change requires call-site updates (anything but a return-type change), every consumer the diff does not touch adds risk, covered or not: a test only makes the breakage fail later. Otherwise consumers add no risk. Missing optional evidence, unsupported file types, and file limits are reported as limitations rather than invented findings. The command does not fail solely because the risk is high; use the Action's `fail-on-risk` input to gate CI.
-
-`--max-files` defaults to `200` and accepts values from `1` to `1000`. The default output is text. Markdown output includes a consumer table and a list of consumers to check; JSON and TOON expose the complete structured result. Invalid refs and invalid limits exit non-zero.
-
-The MCP tool `graphitlive_review_pr` exposes the same bounded analysis through `baseRef`, optional `headRef`, `maxDepth`, and `maxFiles`. Omit `headRef` to review the checked-out worktree; provide a local or remote branch ref to compare two committed branch refs. The Action emits `vscode://magic5644.graph-it-live/graph-it-live.reviewCallGraph?file=<workspace-relative>&symbol=<encoded>&depth=3` only when a risky symbol has a workspace-relative file; the extension accepts depth 1–5 and validates the path again. Branch Watch's VS Code confidence label is UI context for incomplete local evidence; the CLI and MCP continue to expose the structured limitations and `isPartial` fields instead of that label.
-
-### GitHub Actions consumer workflow
-
-The composite Action has no trigger of its own. Consumer repositories must add a `pull_request` workflow; see [`examples/graph-it-review-gate.yml`](examples/graph-it-review-gate.yml). It installs `@magic5644/graph-it-live@latest` in a temporary prefix and runs `graph-it review-pr --workspace "$GITHUB_WORKSPACE"` against the checked-out consumer repository. It never installs or builds consumer dependencies.
-
-`cli-version` is optional: omit it to use npm `latest`, or supply an npm version, tag, or range. The Action validates the CLI's actual `graph-it-live vX.Y.Z` output, logs it, exposes it as `outputs.cli-version`, and rejects versions below `1.13.0`. It also exposes `risk` and `score` outputs.
-
-Use `magic5644/Graph-It-Live/.github/actions/graph-it-review-gate@v1.14.2` only after the manual npm publication and immutable Git tag release are complete. Never use `pull_request_target` to inspect untrusted PR code. Set `comment: false` for fork PRs; then grant only `contents: read` rather than `pull-requests: write`.
-
 ```bash
 # 1. Go to your project root
 cd /path/to/your/project
@@ -207,10 +175,23 @@ whenever more than 20% of the workspace changed — that last case triggers a fu
 rebuild. Added, deleted and renamed files are all detected.
 
 Turn it off with `--no-cache` (or `GRAPH_IT_NO_CACHE=1`), and force a clean
-rebuild with `--reindex`. The VS Code extension also stores its local Branch
+rebuild with `--reindex`. After each indexing run the CLI also writes
+`.graph-it/state.json` (`workspaceRoot`, `lastScanTimestamp`, `filesIndexed`).
+The VS Code extension also stores its local Branch
 Watch base/head selection in `.graph-it/branch-watch.json`. `.graph-it/` writes
 its own `.gitignore`, so none of it shows up in `git status`. It is disposable;
 delete it at any time.
+
+### Environment variables
+
+| Variable | Effect |
+|----------|--------|
+| `GRAPH_IT_NO_CACHE=1` | Same as `--no-cache` (any non-empty value) |
+| `GRAPH_IT_DISABLE_UPDATE_CHECK=1` | Skip the new-version notice. The notice is shown only on an interactive terminal |
+| `GRAPH_IT_NO_STATS=1` | Do not persist session stats to `~/.graph-it/stats` (see [`stats`](#stats)) |
+| `NO_COLOR` | Disable colors in the REPL |
+
+`query` reads LLM provider variables (see [`query`](#query)); `serve` reads its own (see [`serve`](#serve)).
 
 > Global options can appear before or after the command name (`graph-it --reindex summary` and `graph-it summary --reindex` are equivalent). They are removed from the command's own arguments, so `--workspace <dir>` never becomes part of a `query` question.
 >
@@ -236,13 +217,15 @@ MCP tools take `response_format` (`json`, `markdown`, `toon`). MCP `markdown` is
 
 **Format availability per command:**
 
-| Format | scan | summary | explain | path | check | trace | query | tool |
-|--------|:----:|:-------:|:-------:|:----:|:-----:|:-----:|:-----:|:----:|
-| `text` | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
-| `json` | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
-| `toon` | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
-| `markdown` | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | — | ✓ |
-| `mermaid` | — | — | — | ✓ | — | ✓ | — | — |
+`scan`, `summary`, `trace`, `explain`, `path`, `path-in`, `check-dependencies`, `cycles`, `architecture`, `check`, `review-pr` and `tool` accept all five formats. `mermaid` draws the nodes and edges when the result has them, and a generic diagram of the JSON fields otherwise. The other commands differ:
+
+| Command | Accepted formats | Other values |
+|---------|------------------|--------------|
+| `context` | `text`, `json`, `toon` | `markdown` and `mermaid` print `json` |
+| `query` | `text`, `json`, `toon` | print `text` |
+| `wiki` | `markdown` *(default)*, `json`, `toon` | print `markdown` |
+| `stats` | `text`, `json` | `markdown` and `toon` print the `text` report |
+| `export` | `html` only | rejected |
 
 **Examples:**
 
@@ -351,15 +334,23 @@ graph-it scan [options]
 1. Walks the workspace and parses every source file
 2. Builds a dependency graph in memory (import/export edges)
 3. Constructs a reverse index for O(1) "who imports this?" lookups
-4. Prints index statistics: files indexed, total edges, duration
+4. Prints the index status: state, reverse-index statistics, imports skipped outside the root, and warm-up counts
 
 **Output (text):**
 
 ```
-Indexed 347 files, 1 824 edges in 3.2 s
-  TypeScript: 284 files
-  JavaScript: 63 files
-  Cycles detected: 2
+state: complete
+isReady: true
+reverseIndexEnabled: true
+cacheSize: 0
+reverseIndexStats:
+  indexedFiles: 542
+  targetFiles: 222
+  totalReferences: 1494
+outOfRootImports: 0
+warmup:
+  completed: true
+  ...
 ```
 
 **Examples:**
@@ -367,7 +358,7 @@ Indexed 347 files, 1 824 edges in 3.2 s
 ```bash
 graph-it scan
 graph-it scan --workspace /path/to/project
-graph-it scan --format json       # → { "files": 347, "edges": 1824, ... }
+graph-it scan --format json | jq '.reverseIndexStats.indexedFiles'
 ```
 
 > **Tip:** In CI, run `graph-it scan` as a warm-up step before chaining other commands.
@@ -464,7 +455,7 @@ Uses AST analysis (Tree-sitter + ts-morph) to map every symbol in the file and c
 - Entry points (symbols called by nobody internally)
 - Cycle detection (recursive calls)
 
-Each symbol's `kind` is shown by its LSP SymbolKind name (`Function`, `Method`, `Class`, …) in every format. The MCP `analyze_file_logic` tool keeps the numeric value.
+Each symbol's `kind` is shown by its LSP SymbolKind name (`Function`, `Method`, `Class`, …) in every format. The `graph-it tool analyze_file_logic` alias keeps the numeric value.
 
 **Output (text):**
 
@@ -516,44 +507,43 @@ graph-it path <file> [options]
 |--------|---------|-------------|
 | `--workspace, -w` | auto-detected | Project root |
 | `--format, -f` | `text` | Output format (`mermaid` generates a flowchart) |
-| `--maxDepth <N>` | unlimited | Maximum traversal depth |
+| `--maxDepth <N>` | `50` | Maximum traversal depth, 1–100 |
 
 **What it does:**
 
-Starting from `<file>`, follows all import edges recursively (BFS) and returns:
-- The complete list of reachable files
-- Direct dependency edges
-- Cycle detection (circular imports highlighted)
-- Depth at which each file is reached
+Starting from `<file>`, follows all import edges recursively and returns:
+- `nodes`: every reachable file, with `relativePath`, `dependencyCount`, `dependentCount`, `hubScore` and `communityId`
+- `edges`: direct dependency edges (`source`, `target`, `sourceRelative`, `targetRelative`)
+- `circularDependencies`: each cycle as a list of file paths
+- `nodeCount`, `edgeCount` and the effective `maxDepth`
 
-**Output (text):**
+**Output (text, abridged):**
 
 ```
-src/index.ts (depth 0)
-  → src/app.ts (depth 1)
-  → src/config.ts (depth 1)
-      → src/env.ts (depth 2)
-      → src/constants.ts (depth 2)
-  → src/router.ts (depth 1)
-      → src/handlers/auth.ts (depth 2)
-      → src/handlers/users.ts (depth 2)
-          ⟲ src/app.ts [CYCLE]
-
-Total: 8 files, 2 cycles
+entryFile: /path/to/project/src/cli/options.ts
+maxDepth: 50
+nodeCount: 2
+edgeCount: 1
+nodes:
+  [0]:
+    path: /path/to/project/src/cli/options.ts
+    relativePath: src/cli/options.ts
+    ...
+edges:
+  [0]:
+    sourceRelative: src/cli/options.ts
+    targetRelative: src/cli/errors.ts
+    ...
+circularDependencies: []
 ```
 
 **Output (mermaid):**
 
 ```mermaid
 graph LR
-  src/index.ts --> src/app.ts
-  src/index.ts --> src/config.ts
-  src/config.ts --> src/env.ts
-  src/config.ts --> src/constants.ts
-  src/index.ts --> src/router.ts
-  src/router.ts --> src/handlers/auth.ts
-  src/router.ts --> src/handlers/users.ts
-  src/handlers/users.ts -.->|CYCLE| src/app.ts
+  N0["src/cli/options.ts"]
+  N1["src/cli/errors.ts"]
+  N0 --> N1
 ```
 
 **Examples:**
@@ -562,7 +552,7 @@ graph LR
 graph-it path src/index.ts
 graph-it path src/index.ts --maxDepth 3
 graph-it path src/index.ts --format mermaid > architecture.md
-graph-it path src/index.ts --format json | jq '.files | length'
+graph-it path src/index.ts --format json | jq '.nodeCount'
 ```
 
 > **Use case:** Generate an architecture diagram in seconds. Pipe `--format mermaid` output directly into your README, Notion page, or Confluence doc.
@@ -756,7 +746,7 @@ graph-it check src/utils/
 graph-it check src/api/handlers.ts
 
 # Output as JSON for scripting
-graph-it check --format json | jq '[.[] | select(.unusedCount > 0)]'
+graph-it check --format json | jq '.entries[] | {relativePath, unusedCount}'
 
 # Output as Markdown for PR descriptions
 graph-it check --format markdown > dead-code-report.md
@@ -958,6 +948,40 @@ evidence marked `AMBIGUOUS` when several internal targets match.
 Because the cursor is bound to the index revision, a later standalone CLI
 invocation can reject it after re-indexing. Start again without `--cursor` when
 that happens.
+
+---
+
+### review-pr
+
+Run a deterministic local review of a Git diff:
+
+```bash
+graph-it review-pr --base origin/main [--head <ref>] [--depth 3] [--max-files 200] --format text|json|toon|markdown|mermaid
+```
+
+The command first ensures that the workspace index is available. It then lists changed files with `git diff` and compares exported TypeScript and JavaScript signatures between the base and head. Without `--head`, the head is the current working tree (`HEAD` plus staged and unstaged file contents). With `--head <ref>`, both sides come from Git refs and the changed-file list uses the three-dot comparison.
+
+For each changed symbol, the bounded analysis can report:
+
+- breaking signature changes;
+- known dependent symbols and transitive impact up to `--depth` (default `3`, maximum `10`);
+- cycle and unused-export evidence when the local index provides it;
+- conventional test-file candidates;
+- consumer standing: files **updated** in the diff, **covered** by a test path, or **unverified**. "Updated" is file-level: the consumer file changed, which does not prove its call site was fixed.
+
+The score is capped at `100` per symbol, and the result score is the highest symbol score. Risk thresholds are `low` (<20), `medium` (20–49), `high` (50–79), and `critical` (80–100). When the change requires call-site updates (anything but a return-type change), every consumer the diff does not touch adds risk, covered or not: a test only makes the breakage fail later. Otherwise consumers add no risk. Missing optional evidence, unsupported file types, and file limits are reported as limitations rather than invented findings. The command does not fail solely because the risk is high; use the Action's `fail-on-risk` input to gate CI.
+
+`--max-files` defaults to `200` and accepts values from `1` to `1000`. The default output is text. Markdown output includes a consumer table and a list of consumers to check; JSON and TOON expose the complete structured result. Invalid refs and invalid limits exit non-zero.
+
+The MCP tool `graphitlive_review_pr` exposes the same bounded analysis through `baseRef`, optional `headRef`, `maxDepth`, and `maxFiles`. Omit `headRef` to review the checked-out worktree; provide a local or remote branch ref to compare two committed branch refs. The Action emits `vscode://magic5644.graph-it-live/graph-it-live.reviewCallGraph?file=<workspace-relative>&symbol=<encoded>&depth=3` only when a risky symbol has a workspace-relative file; the extension accepts depth 1–5 and validates the path again. Branch Watch's VS Code confidence label is UI context for incomplete local evidence; the CLI and MCP continue to expose the structured limitations and `isPartial` fields instead of that label.
+
+#### GitHub Actions consumer workflow
+
+The composite Action has no trigger of its own. Consumer repositories must add a `pull_request` workflow; see [`examples/graph-it-review-gate.yml`](examples/graph-it-review-gate.yml). It installs `@magic5644/graph-it-live@latest` in a temporary prefix and runs `graph-it review-pr --workspace "$GITHUB_WORKSPACE"` against the checked-out consumer repository. It never installs or builds consumer dependencies.
+
+`cli-version` is optional: omit it to use npm `latest`, or supply an npm version, tag, or range. The Action validates the CLI's actual `graph-it-live vX.Y.Z` output, logs it, exposes it as `outputs.cli-version`, and rejects versions below `1.13.0`. It also exposes `risk` and `score` outputs.
+
+Pin the Action to a release tag, such as `magic5644/Graph-It-Live/.github/actions/graph-it-review-gate@v1.18.0`. Never use `pull_request_target` to inspect untrusted PR code. Set `comment: false` for fork PRs; then grant only `contents: read` rather than `pull-requests: write`.
 
 ---
 
@@ -1415,6 +1439,8 @@ the repository workflow updates the pin after each npm publish.
 | `WORKSPACE_ROOT` | `cwd` | Absolute path to project root |
 | `EXCLUDE_NODE_MODULES` | `true` | Whether to skip `node_modules` |
 | `MAX_DEPTH` | `50` | Maximum dependency depth |
+| `TSCONFIG_PATH` | — | Path to the `tsconfig.json` used to resolve path aliases |
+| `DEBUG_MCP` | — | `true` writes a rotating debug log to `~/mcp-debug.log` (5 MB) |
 
 ---
 
@@ -1858,7 +1884,7 @@ Find and remove unreachable code safely:
 graph-it check --format json > dead-code.json
 
 # Count total unused exports
-cat dead-code.json | jq '[.[].unusedCount] | add'
+jq '.totalUnusedSymbols' dead-code.json
 
 # Scope to a specific module
 graph-it check src/utils/ --format markdown > utils-dead-code.md
@@ -1903,7 +1929,7 @@ echo "=== Indexing workspace ==="
 graph-it scan --workspace .
 
 echo "=== Dead code check ==="
-DEAD=$(graph-it check --format json | jq '[.[].unusedCount] | add // 0')
+DEAD=$(graph-it check --format json | jq '.totalUnusedSymbols')
 echo "Unused exports: $DEAD"
 if [ "$DEAD" -gt 10 ]; then
   echo "⚠ Too many unused exports ($DEAD). Clean up dead code before merging."
@@ -1911,10 +1937,10 @@ if [ "$DEAD" -gt 10 ]; then
 fi
 
 echo "=== Checking for circular dependencies ==="
-CYCLES=$(graph-it tool get_index_status --format json | jq '.cycles // 0')
+CYCLES=$(graph-it path src/index.ts --format json | jq '.circularDependencies | length')
 if [ "$CYCLES" -gt 0 ]; then
   echo "⚠ $CYCLES circular dependency/ies detected."
-  graph-it path src/index.ts --format json | jq '.cycles[]'
+  graph-it path src/index.ts --format json | jq -c '.circularDependencies[]'
 fi
 
 echo "✅ Dependency checks passed."
@@ -1924,22 +1950,22 @@ echo "✅ Dependency checks passed."
 
 ### Piping & Scripting
 
-Because all commands support `--format json`, the output integrates naturally with `jq` and shell pipelines:
+Because the analysis commands support `--format json`, the output integrates naturally with `jq` and shell pipelines:
 
 ```bash
-# Find the 10 most-imported files in the project
-graph-it scan --format json \
-  | jq -r '.files[] | "\(.importedBy) \(.path)"' \
+# Find the 10 files imported most often within the graph reachable from an entry point
+graph-it path src/index.ts --format json \
+  | jq -r '.nodes[] | "\(.dependentCount) \(.relativePath)"' \
   | sort -rn | head -10
 
 # List all TypeScript files with circular dependencies
 graph-it tool crawl_dependency_graph --entryFile=$(pwd)/src/index.ts --format json \
-  | jq -r '.cycles[] | .files[]' | sort -u
+  | jq -r '.circularDependencies[][]' | sort -u
 
 # Generate a report of all files that depend on a utility module
 graph-it tool find_referencing_files \
   --targetPath=$(pwd)/src/utils/format.ts \
-  --format json | jq -r '.referencingFiles[]'
+  --format json | jq -r '.referencingFiles[].path'
 
 # Check if a specific import is unused in a file
 graph-it tool verify_dependency_usage \

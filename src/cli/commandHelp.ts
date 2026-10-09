@@ -20,7 +20,8 @@ Options:
   --token-budget <n>     Token budget (500-16000)
   --directed             Use directed traversal
   --cursor <cursor>      Continue a previous response
-  --format <format>      toon|json
+  --detail <level>       compact|standard|full (default: standard)
+  --format <format>      text|json|toon (markdown and mermaid print json)
   --workspace, -w        Workspace root directory (default: auto-detected)
   --help, -h             Show help
 
@@ -255,7 +256,7 @@ Examples:
 Usage: graph-it stats [options]
 
 Options:
-  --stats-dir <dir>    Directory containing session stats files (default: .graph-it)
+  --stats-dir <dir>    Directory containing session stats files (default: ~/.graph-it/stats)
   --format, -f         Output format: text|json|markdown (default: text)
   --help, -h           Show this help
 
