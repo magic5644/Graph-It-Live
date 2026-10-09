@@ -239,29 +239,34 @@ export class BackgroundIndexingManager {
       },
       async (progress) => {
         progress.report({ message: 'Validating index...' });
-        const validation = await this.spider.validateReverseIndex();
+        // Files on disk the index never saw count as stale: an index persisted
+        // mid-build otherwise validates against its own few entries only.
+        const validation = await this.spider.validateReverseIndex(undefined, cache.sourceFiles);
 
         if (this.disposed) return;
 
-        if (validation?.isValid) {
+        if (!validation || (!validation.isValid && validation.missingFiles.length > 0)) {
+          this.log.info('Index is stale, re-indexing the workspace');
+          await this.startBackgroundIndexingWithProgress();
+          return;
+        }
+
+        const { staleFiles, missingFiles } = validation;
+        if (staleFiles.length === 0 && missingFiles.length === 0) {
           this.log.info('Successfully restored and validated persisted index');
           this.warnOutOfRootImports();
           return;
         }
 
-        const staleCount = validation ? validation.staleFiles.length + validation.missingFiles.length : 0;
-        this.log.info('Index is stale, re-indexing', staleCount, 'files');
-
-        if (validation && validation.staleFiles.length > 0 && validation.missingFiles.length === 0) {
-          progress.report({ message: `Re-indexing ${validation.staleFiles.length} changed files...` });
-          await this.spider.reindexStaleFiles(validation.staleFiles);
-          if (this.disposed) return;
-          await this.persistIndex();
-          this.log.info('Incremental re-index complete');
-          this.warnOutOfRootImports();
-        } else {
-          await this.startBackgroundIndexingWithProgress();
+        progress.report({ message: `Re-indexing ${staleFiles.length} changed files...` });
+        for (const deleted of missingFiles) {
+          this.spider.handleFileDeleted(deleted);
         }
+        await this.spider.reindexStaleFiles(staleFiles);
+        if (this.disposed) return;
+        await this.persistIndex();
+        this.log.info('Incremental re-index complete:', staleFiles.length, 'changed,', missingFiles.length, 'deleted');
+        this.warnOutOfRootImports();
       }
     );
   }

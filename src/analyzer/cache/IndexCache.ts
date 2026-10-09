@@ -99,6 +99,8 @@ function sameOptions(a: ReverseIndexOptions | undefined, b: ReverseIndexOptions)
 
 export class IndexCache {
   readonly dir: string;
+  /** The files fingerprinted; a restored index must cover them, not only its own entries. */
+  readonly sourceFiles: readonly string[];
   private readonly workspaceRoot: string;
   /** Undefined when resolver configs cannot be fingerprinted: the cache is then disabled. */
   private readonly fingerprint: string | undefined;
@@ -110,6 +112,7 @@ export class IndexCache {
   constructor(workspaceRoot: string, sourceFiles: readonly string[]) {
     this.workspaceRoot = path.resolve(workspaceRoot);
     this.dir = IndexCache.dirFor(this.workspaceRoot);
+    this.sourceFiles = sourceFiles;
     this.fingerprint = configFingerprint(this.workspaceRoot, sourceFiles);
   }
 

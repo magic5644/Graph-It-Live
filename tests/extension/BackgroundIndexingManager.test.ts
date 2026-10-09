@@ -58,6 +58,7 @@ const createSpider = () => ({
     enableReverseIndex: vi.fn(() => true),
     validateReverseIndex: vi.fn(async () => ({ isValid: true, staleFiles: [], missingFiles: [], stalePercentage: 0 })),
     reindexStaleFiles: vi.fn(async () => 0),
+    handleFileDeleted: vi.fn(),
     buildFullIndexInWorker: vi.fn(async () => ({ indexedFiles: 1, duration: 0, cancelled: false })),
     subscribeToIndexStatus: vi.fn(() => () => {}),
     getOutOfRootImports: vi.fn(() => ({ count: 0, examples: [] as string[] })),
@@ -283,6 +284,52 @@ describe('BackgroundIndexingManager', () => {
 
         await restore();
 
+        expect(spider.buildFullIndexInWorker).toHaveBeenCalledOnce();
+    });
+
+    // Regression: an index persisted mid-build validated against its own entries only,
+    // so the workspace files it never saw were never indexed.
+    it('validates a restored index against the source files on disk', async () => {
+        (await openCache()).save({ reverseIndex: { data: 'PARTIAL', options } });
+        const { restore, spider } = createManager();
+
+        await restore();
+
+        expect(spider.validateReverseIndex).toHaveBeenCalledWith(undefined, [path.join(workspaceRoot, 'a.ts')]);
+    });
+
+    it('indexes new and changed files even when the restored index is within the stale threshold', async () => {
+        (await openCache()).save({ reverseIndex: { data: 'FROM_CLI', options } });
+        const { restore, spider } = createManager();
+        spider.validateReverseIndex.mockResolvedValue({ isValid: true, staleFiles: ['/w/new.ts'], missingFiles: [], stalePercentage: 0.05 });
+
+        await restore();
+
+        expect(spider.reindexStaleFiles).toHaveBeenCalledWith(['/w/new.ts']);
+        expect(spider.buildFullIndexInWorker).not.toHaveBeenCalled();
+        expect(cachedIndex()).toBe('SERIALIZED');
+    });
+
+    it('drops deleted files from a restored index within the stale threshold without a full rebuild', async () => {
+        (await openCache()).save({ reverseIndex: { data: 'FROM_CLI', options } });
+        const { restore, spider } = createManager();
+        spider.validateReverseIndex.mockResolvedValue({ isValid: true, staleFiles: [], missingFiles: ['/w/gone.ts'], stalePercentage: 0.05 });
+
+        await restore();
+
+        expect(spider.handleFileDeleted).toHaveBeenCalledWith('/w/gone.ts');
+        expect(spider.buildFullIndexInWorker).not.toHaveBeenCalled();
+        expect(cachedIndex()).toBe('SERIALIZED');
+    });
+
+    it('rebuilds when the restored index cannot be validated', async () => {
+        (await openCache()).save({ reverseIndex: { data: 'FROM_CLI', options } });
+        const { restore, spider } = createManager();
+        spider.validateReverseIndex.mockResolvedValue(null as never);
+
+        await restore();
+
+        expect(spider.reindexStaleFiles).not.toHaveBeenCalled();
         expect(spider.buildFullIndexInWorker).toHaveBeenCalledOnce();
     });
 
