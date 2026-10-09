@@ -266,6 +266,63 @@ describe('BackgroundIndexingManager', () => {
         expect(fs.existsSync(path.join(cacheDir(), 'reverse-index.json'))).toBe(false);
     });
 
+    // Regression: dispose() cancelled the build, then persisted the partial index it left.
+    it('does not write a build cancelled by closing the window', async () => {
+        const { manager, restore, spider } = createManager();
+        let finishBuild: (result: { indexedFiles: number; duration: number; cancelled: boolean }) => void = () => {};
+        spider.buildFullIndexInWorker.mockReturnValue(new Promise((resolve) => { finishBuild = resolve; }));
+        spider.cancelIndexing.mockImplementation(() => finishBuild({ indexedFiles: 3, duration: 0, cancelled: true }));
+        spider.getSerializedReverseIndex.mockReturnValue('PARTIAL');
+
+        const restoring = restore();
+        await vi.waitFor(() => expect(spider.buildFullIndexInWorker).toHaveBeenCalledOnce());
+        await manager.dispose();
+        await restoring;
+
+        expect(fs.existsSync(path.join(cacheDir(), 'reverse-index.json'))).toBe(false);
+    });
+
+    it('keeps the last complete index when a later rebuild is cancelled', async () => {
+        const { manager, restore, spider } = createManager();
+        await restore();
+        spider.buildFullIndexInWorker.mockResolvedValue({ indexedFiles: 1, duration: 0, cancelled: true });
+        spider.getSerializedReverseIndex.mockReturnValue('PARTIAL');
+
+        await manager.forceReindex();
+        await manager.dispose();
+
+        expect(cachedIndex()).toBe('SERIALIZED');
+    });
+
+    it('writes a restored index back on dispose', async () => {
+        (await openCache()).save({ reverseIndex: { data: 'FROM_CLI', options } });
+        const { manager, restore, spider } = createManager();
+        await restore();
+        spider.getSerializedReverseIndex.mockReturnValue('AFTER_EDITS');
+
+        await manager.dispose();
+
+        expect(cachedIndex()).toBe('AFTER_EDITS');
+    });
+
+    it('does not write a restored index closed before it was validated', async () => {
+        (await openCache()).save({ reverseIndex: { data: 'FROM_CLI', options } });
+        const { manager, restore, spider } = createManager();
+        let finishValidation: () => void = () => {};
+        spider.validateReverseIndex.mockReturnValue(new Promise((resolve) => {
+            finishValidation = () => resolve({ isValid: true, staleFiles: [], missingFiles: [], stalePercentage: 0 });
+        }));
+        spider.getSerializedReverseIndex.mockReturnValue('UNVALIDATED');
+
+        const restoring = restore();
+        await vi.waitFor(() => expect(spider.validateReverseIndex).toHaveBeenCalledOnce());
+        const disposing = manager.dispose();
+        finishValidation();
+        await Promise.all([disposing, restoring]);
+
+        expect(cachedIndex()).toBe('FROM_CLI');
+    });
+
     it('reports a failed build and releases the lock', async () => {
         const { manager, spider } = createManager();
         spider.buildFullIndexInWorker.mockRejectedValue(new Error('worker crashed'));
