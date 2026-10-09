@@ -527,7 +527,7 @@ export class SpiderSymbolService {
     for (const filePath of filesToScan) {
       if (signal) {
         // Yield to the event loop so a pending cancel message can abort the signal.
-        await setImmediate();
+        await setImmediate(); // NOSONAR S9382: one yield per file is the cancellation point
         signal.throwIfAborted();
       }
       try {

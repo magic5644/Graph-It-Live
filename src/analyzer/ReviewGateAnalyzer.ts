@@ -584,11 +584,9 @@ export class ReviewGateAnalyzer {
   private async keepFilesNamingMember(impact: SymbolImpact, memberName: string, headRef: string): Promise<SymbolImpact> {
     const escaped = memberName.replaceAll(/[.*+?^${}()|[\]\\]/g, String.raw`\$&`);
     const mentions = new RegExp(String.raw`(^|[^\w$])${escaped}($|[^\w$])`);
-    const naming = new Set<string>();
-    for (const file of new Set([...impact.consumerFiles, ...impact.testDependents])) {
-      const content = await this.readConsumerContent(file, headRef);
-      if (content === null || mentions.test(content)) naming.add(file);
-    }
+    const files = [...new Set([...impact.consumerFiles, ...impact.testDependents])];
+    const contents = await Promise.all(files.map((file) => this.readConsumerContent(file, headRef)));
+    const naming = new Set(files.filter((_file, index) => contents[index] === null || mentions.test(contents[index])));
     const keep = (files: string[]): string[] => files.filter((file) => naming.has(file));
     return {
       ...impact,
