@@ -323,13 +323,15 @@ export class WikiGenerator {
   private async removeStaleArticles(articlesDir: string): Promise<void> {
     const current = new Set([...this.articlePaths.values()].map((p) => path.basename(p)));
     const entries = await fs.readdir(articlesDir, { withFileTypes: true });
-    for (const entry of entries) {
-      if (!entry.isFile() || !entry.name.endsWith(".md") || current.has(entry.name)) continue;
-      const stalePath = path.join(articlesDir, entry.name);
+    const candidates = entries
+      .filter((entry) => entry.isFile() && entry.name.endsWith(".md") && !current.has(entry.name))
+      .map((entry) => path.join(articlesDir, entry.name));
+    await Promise.all(candidates.map(async (stalePath) => {
       const content = await fs.readFile(stalePath, "utf-8");
       if (content.startsWith(GENERATED_MARKER)) await fs.rm(stalePath, { force: true });
-    }
+    }));
   }
+
 
   private describeFilters(): string {
     const parts: string[] = [];

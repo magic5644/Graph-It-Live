@@ -120,12 +120,12 @@ function formatMarkdown<T>(response: McpToolResponse<T>): string {
   if (fields.length > 0) blocks.push(fields.map(([key, value]) => formatMarkdownField(key, value)).join('\n'));
 
   for (const section of sections) blocks.push(formatMarkdownTable(section.name, section.items));
-  if (typeof data !== 'object' && data !== undefined) blocks.push(markdownText(String(data)));
+  if (isPrimitive(data)) blocks.push(markdownText(String(data)));
   return blocks.length === 0 ? '_No results._' : blocks.join('\n\n');
 }
 
 function formatMarkdownField(key: string, value: unknown): string {
-  const text = String(value);
+  const text = isPrimitive(value) ? String(value) : JSON.stringify(value);
   if (!text.includes('\n')) return `- **${markdownCell(key)}**: ${markdownCell(text)}`;
   // Multi-line strings such as the query tool's TOON subgraph stay verbatim, in a
   // fence longer than any backtick run they contain.
@@ -150,6 +150,10 @@ function formatMarkdownTable(name: string, rows: unknown[]): string {
     `| ${columns.map(() => '---').join(' | ')} |`,
     ...records.map(row => `| ${columns.map(column => cell(row[column])).join(' | ')} |`),
   ].join('\n');
+}
+
+function isPrimitive(value: unknown): value is string | number | boolean | bigint {
+  return ['string', 'number', 'boolean', 'bigint'].includes(typeof value);
 }
 
 /** One line of text: newlines and other control characters would end a list item or a table row. */
