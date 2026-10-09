@@ -45,6 +45,8 @@ export class BackgroundIndexingManager {
   private disposeTask: Promise<void> | null = null;
   private cacheTask: Promise<IndexCache> | null = null;
   private outOfRootWarned = false;
+  /** Set once a build finished or a restore validated: only then is the in-memory index worth writing. */
+  private indexComplete = false;
 
   constructor(options: BackgroundIndexingManagerOptions) {
     this.context = options.context;
@@ -107,9 +109,10 @@ export class BackgroundIndexingManager {
   /**
    * Write the reverse index to the shared .graph-it/cache/. Skipped while another
    * process holds the lock: it is indexing and writes a fresher index itself.
+   * Also skipped while the index is partial (build cancelled, e.g. on shutdown).
    */
   async persistIndex(): Promise<void> {
-    if (!this.cacheTask) return;
+    if (!this.cacheTask || !this.indexComplete) return;
     const serialized = this.spider.getSerializedReverseIndex();
     if (!serialized) return;
     const cache = await this.cacheTask;
@@ -253,6 +256,7 @@ export class BackgroundIndexingManager {
 
         const { staleFiles, missingFiles } = validation;
         if (staleFiles.length === 0 && missingFiles.length === 0) {
+          this.indexComplete = true;
           this.log.info('Successfully restored and validated persisted index');
           this.warnOutOfRootImports();
           return;
@@ -264,6 +268,7 @@ export class BackgroundIndexingManager {
         }
         await this.spider.reindexStaleFiles(staleFiles);
         if (this.disposed) return;
+        this.indexComplete = true;
         await this.persistIndex();
         this.log.info('Incremental re-index complete:', staleFiles.length, 'changed,', missingFiles.length, 'deleted');
         this.warnOutOfRootImports();
@@ -313,6 +318,8 @@ export class BackgroundIndexingManager {
     });
 
     try {
+      // A build replaces the index: until it finishes, what is in memory is partial.
+      this.indexComplete = false;
       const result = await this.spider.buildFullIndexInWorker(workerPath);
 
       if (this.disposed) return;
@@ -324,6 +331,7 @@ export class BackgroundIndexingManager {
         this.log.info('Indexed', result.indexedFiles, 'files in', result.duration, 'ms');
         this.statusBarItem.text = `$(check) Graph-It-Live: ${result.indexedFiles} files indexed`;
         this.warnOutOfRootImports();
+        this.indexComplete = true;
         await this.persistIndex();
         if (this.disposed) return;
         await this.onIndexingComplete();
