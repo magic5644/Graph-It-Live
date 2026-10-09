@@ -50,6 +50,7 @@ Before modifying matching paths—or when task topic matches—read correspondin
 | AIDD agents, gates, memory, handoffs | `.claude/rules/agent-workflow.md` |
 | Broad-task bootstrap, shell use, exploration, refactoring, codemaps | `.claude/rules/development-workflow.md` |
 | Source changes or SonarQube | `.claude/rules/quality-gates.md` |
+| Release preparation (docs audit, changelog, tag) | `.claude/rules/release.md` |
 
 Claude Code and VS Code load matching `.claude/rules` automatically. Codex must follow routing table explicitly.
 
