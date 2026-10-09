@@ -26,10 +26,17 @@ export function findStickyComment(comments) {
     : undefined;
 }
 
+/**
+ * `endpoint` lists and creates comments on one pull request:
+ * `/repos/{owner}/{repo}/issues/{number}/comments`. A comment is updated at
+ * `/repos/{owner}/{repo}/issues/comments/{id}`, without the number: appending the
+ * id to `endpoint` returned 404, and the 404 fallback posted a new comment on
+ * every run instead of updating the sticky one.
+ */
 export function getCommentUpsert(endpoint, existing) {
   return {
     method: existing ? "PATCH" : "POST",
-    url: existing ? `${endpoint}/${existing.id}` : endpoint,
+    url: existing ? `${endpoint.replace(/\/\d+\/comments$/, "/comments")}/${existing.id}` : endpoint,
     operation: existing ? "update comment" : "create comment",
   };
 }
