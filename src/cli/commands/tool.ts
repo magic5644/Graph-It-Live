@@ -229,7 +229,7 @@ export function getToolHelp(name: string): string | undefined {
   const params = Object.entries(properties).map(([key, prop]) => {
     const flag = `--${key} <${prop.type ?? "json"}>`.padEnd(32);
     const presence = required.includes(key) ? "required" : "optional";
-    return `  ${flag} ${presence}${prop.description ? `  ${prop.description}` : ""}`;
+    return ["  " + flag, presence, prop.description].filter(Boolean).join("  ");
   });
   const example = ["graph-it tool", tool, ...required.map((key) => `--${key} <${key}>`)].join(" ");
   return `graph-it tool ${tool} — ${toolSummary(tool)}
