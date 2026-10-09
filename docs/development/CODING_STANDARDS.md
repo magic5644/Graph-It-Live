@@ -20,12 +20,12 @@ The project follows a **six-layer architecture**:
 
 - **`src/cli/`**: Standalone terminal interface (Pure Node.js, **NO vscode imports**)
   - Published as `graph-it` npm package
-  - 9 commands: scan, summary, trace, explain, path, check, serve, tool, update
+  - 20 commands plus an interactive REPL (`graph-it --help` lists them)
   - CliRuntime, SymbolRef addressing, ExitCode, CliOutputFormat
 
 - **`src/mcp/`**: MCP server for LLM/AI (Pure Node.js, **NO vscode imports**)
   - Standalone process with stdio transport
-  - 21 dependency analysis tools in `mcp/tools/`
+  - 22 tools registered in `mcp/mcpServer.ts`, implemented in `mcp/tools/`
   - Zod v4 validation with payload size limits
 
 - **`src/shared/`**: Shared types and utilities
@@ -418,24 +418,24 @@ const filePath = filePathSchema.parse(userInput);
 
 ### Tool Description Format
 
-All tools must follow the **WHEN/WHY/WHAT** pattern:
+`src/mcp/toolDescriptions.ts` is the single source of truth for the MCP server, `graph-it tool --list` and the Language Model tool `modelDescription` fields in `package.json`. Each entry is a one-sentence summary followed by labelled lines (`WHEN:`, `WHY:`, `RETURNS:`, and `LIMITS:` or `NOT THIS TOOL:` when needed):
 
 ```typescript
-{
-  name: "graphItLive_analyzeFile",
-  description: `
-    **WHEN**: When you need to analyze a single file's symbols and dependencies
-    **WHY**: AST parsing is required - you cannot do this without running analysis code
-    **WHAT**: Returns symbol graph with all imported symbols and their locations
-  `,
-  inputSchema: { /* Zod schema */ },
-}
+set_workspace: {
+  summary: "Points this server session at the project root the other tools analyse.",
+  lines: [
+    "WHEN: once per session, as setup before the first analysis. ...",
+    "RETURNS: workspace name, previous workspace, number of files indexed, indexing duration.",
+  ],
+},
 ```
+
+Run `npm run sync:tool-descriptions` after editing it; `tests/mcp/toolDescriptions.test.ts` fails when `package.json` drifts.
 
 ### Tool Naming
 
-- All tools prefixed: `graphItLive_` (e.g., `graphItLive_setWorkspace`)
-- Camel case after prefix
+- MCP tools: `graphitlive_` prefix, snake_case (e.g., `graphitlive_set_workspace`)
+- Language Model tools: `graph-it-live_` prefix, same snake_case name (e.g., `graph-it-live_graph_context`)
 - Descriptive names with action verbs
 
 ---
@@ -594,7 +594,7 @@ Before submitting a PR:
 ## 📚 Complementary Resources
 
 - **Detailed Architecture**: See `AGENTS.md`
-- **MCP Server**: See `src/mcp/README.md` (to be created)
+- **MCP Server**: See `docs/CLI.md` (*MCP Tools Reference*) and `docs/architecture/MCP_PAYLOAD_LIMITS.md`
 - **Cross-Platform Testing**: See `docs/development/CROSS_PLATFORM_TESTING.md`
 - **Performance**: See `docs/architecture/PERFORMANCE_OPTIMIZATIONS.md`
 - **Git Workflow**: Conventional Commits style
@@ -602,5 +602,5 @@ Before submitting a PR:
 ---
 
 **Maintained by**: Graph-It-Live Development Team  
-**Last updated**: January 2026  
+**Last updated**: October 2026  
 **Document version**: 1.0
