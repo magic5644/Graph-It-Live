@@ -18,8 +18,11 @@ describe("review-gate comment helpers", () => {
   it("selects only a marker-owned bot comment and creates an encoded deep link", () => {
     const sticky = findStickyComment([{ user: { type: "User" }, body: MARKER }, { id: 7, user: { type: "Bot" }, body: `${MARKER} old` }]);
     expect(sticky).toMatchObject({ id: 7 });
-    expect(getCommentUpsert("https://example.test/comments", sticky)).toEqual({ method: "PATCH", url: "https://example.test/comments/7", operation: "update comment" });
-    expect(getCommentUpsert("https://example.test/comments", undefined)).toEqual({ method: "POST", url: "https://example.test/comments", operation: "create comment" });
+    const endpoint = "https://api.github.com/repos/owner/repo/issues/282/comments";
+    // Regression: the update URL has no issue number; appending the id to the list
+    // endpoint returned 404 and the fallback posted a new comment on every run.
+    expect(getCommentUpsert(endpoint, sticky)).toEqual({ method: "PATCH", url: "https://api.github.com/repos/owner/repo/issues/comments/7", operation: "update comment" });
+    expect(getCommentUpsert(endpoint, undefined)).toEqual({ method: "POST", url: endpoint, operation: "create comment" });
     expect(buildReviewDeepLink(result)).toBe("vscode://magic5644.graph-it-live/graph-it-live.reviewCallGraph?file=src%2Fa+b%26c.ts&symbol=greet%2F%3F&depth=3");
     expect(findStickyComment([{ id: 8, user: { type: "Bot" }, body: "other" }, { id: 9, user: { type: "Bot" }, body: 1 }])).toBeUndefined();
     expect(findStickyComment("invalid")).toBeUndefined();
@@ -46,15 +49,24 @@ describe("review-gate comment helpers", () => {
   });
 
   it("recreates a sticky comment when its update target no longer exists", async () => {
-    const endpoint = "https://example.test/comments";
+    const endpoint = "https://api.github.com/repos/owner/repo/issues/282/comments";
     const headers = { authorization: "Bearer token" };
     const fetchMock = vi.fn()
       .mockResolvedValueOnce({ ok: false, status: 404, statusText: "Not Found", text: async () => '{"message":"Not Found"}' })
       .mockResolvedValueOnce({ ok: true, text: async () => '{"id":8}' });
 
     await expect(upsertReviewComment(fetchMock, endpoint, headers, { id: 7 }, "updated report")).resolves.toEqual({ id: 8 });
-    expect(fetchMock).toHaveBeenNthCalledWith(1, `${endpoint}/7`, expect.objectContaining({ method: "PATCH" }));
+    expect(fetchMock).toHaveBeenNthCalledWith(1, "https://api.github.com/repos/owner/repo/issues/comments/7", expect.objectContaining({ method: "PATCH" }));
     expect(fetchMock).toHaveBeenNthCalledWith(2, endpoint, expect.objectContaining({ method: "POST" }));
+  });
+
+  it("updates the sticky comment in place when it exists", async () => {
+    const endpoint = "https://api.github.com/repos/owner/repo/issues/282/comments";
+    const fetchMock = vi.fn().mockResolvedValueOnce({ ok: true, text: async () => '{"id":7}' });
+
+    await expect(upsertReviewComment(fetchMock, endpoint, {}, { id: 7 }, "updated report")).resolves.toEqual({ id: 7 });
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(fetchMock).toHaveBeenCalledWith("https://api.github.com/repos/owner/repo/issues/comments/7", expect.objectContaining({ method: "PATCH", body: JSON.stringify({ body: "updated report" }) }));
   });
 
   it("preserves update failures other than a missing comment", async () => {
