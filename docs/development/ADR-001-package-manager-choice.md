@@ -2,6 +2,8 @@
 
 **Status**: Accepted
 
+> **Update 2026-10:** the native `tree-sitter` conflict that triggered this ADR no longer exists. The project now uses WASM grammars (`web-tree-sitter`, `tree-sitter-wasms`), and `.npmrc` no longer carries the workaround. The decision to stay on npm still holds.
+
 **Date**: 2026-01-13
 
 **Deciders**: magic56
@@ -263,10 +265,10 @@ This decision should be revisited if:
 
 ## Related Documents
 
-- [AGENTS.md](../AGENTS.md) - Documents current npm configuration
-- [changelog.md](../changelog.md) - v1.6.1 dependency upgrade notes
-- [.npmrc](../.npmrc) - Current peer dependency workaround
-- [package.json](../package.json) - Build scripts with `--no-dependencies`
+- [AGENTS.md](../../AGENTS.md) - Documents current npm configuration
+- [changelog.md](../../changelog.md) - v1.6.1 dependency upgrade notes
+- [.npmrc](../../.npmrc) - Current peer dependency workaround
+- [package.json](../../package.json) - Build scripts with `--no-dependencies`
 
 ---
 

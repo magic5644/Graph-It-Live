@@ -72,17 +72,17 @@ for (const [source, targets] of edgesBySource) {
 
 ### 2. Concurrency Control
 
-Process source files in batches of 8 to prevent memory explosion:
+Process source files in batches (`GraphViewService.ts`) to prevent memory explosion. The batch size is the `graph-it-live.unusedAnalysisConcurrency` setting: default 4, set by `graph-it-live.performanceProfile` (`low-memory` 2, `default` 4, `high-performance` 12) or chosen with the `custom` profile:
 
 ```typescript
-const CONCURRENCY = 8; // Tuned for balance between speed and memory
+const CONCURRENCY = this.config.unusedAnalysisConcurrency;
 for (let i = 0; i < sourceFiles.length; i += CONCURRENCY) {
   const batch = sourceFiles.slice(i, i + CONCURRENCY);
   await Promise.all(batch.map(processSourceFile));
 }
 ```
 
-**Why 8?**: Empirically determined to balance:
+**Why bounded?** The batch size balances:
 - CPU utilization (enough parallelism)
 - Memory usage (avoid OOM on large files)
 - I/O throughput (disk read concurrency)
@@ -126,7 +126,7 @@ The `getSymbolGraph()` method uses LRU cache from previous work:
 - Cache key: normalized file path
 - Cache value: parsed AST with resolved symbol dependencies
 - Hit rate: ~80% in typical navigation patterns
-- Max size: configurable via `maxSymbolCacheSize` (default 500)
+- Max size: configurable via `maxSymbolCacheSize` (default 200)
 
 ### 5. Early Exits and Pre-filtering
 
@@ -181,7 +181,7 @@ Logs progress every 8 files for user feedback on large repos.
 - **Time**: 8-12 seconds (5x faster)
 - **Memory**: 400-600 MB peak (5x less)
 - **AST Parses**: 200 (one per unique source)
-- **Concurrent Operations**: Max 8 at a time
+- **Concurrent Operations**: Max `unusedAnalysisConcurrency` at a time (8 in this measurement)
 - **Failure Rate**: <1% (only on disk I/O errors)
 
 ### Scalability

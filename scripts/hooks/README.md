@@ -305,13 +305,10 @@ if [[ "$CURRENT_BRANCH" =~ ^(main|develop|staging|release/.*)$ ]]; then
 
 ## Related Documentation
 
-- [Package Validator Agent](../../.agents/agents/package-validator.md)
-- [Architecture Guardian Agent](../../.agents/agents/architecture-guardian.md)
-- [Build & Packaging](../../docs/agent-instructions/build-packaging.md)
-- [Architecture](../../docs/agent-instructions/architecture.md)
+- [Build & Packaging rules](../../.claude/rules/build-packaging.md)
+- [Architecture rules](../../.claude/rules/architecture.md)
 
 ## CI/CD Integration
 
 These hooks are local. For CI/CD, see:
 - [GitHub Actions Workflows](../../.github/workflows/)
-- [Package Validation Instructions](../../.github/instructions/package_validation.instructions.md)
