@@ -41,6 +41,35 @@ describe("resolveFileImports", () => {
     expect(result.outOfRootImports).toEqual(["@core/x"]);
   });
 
+  it("keeps source order and first-seen line when resolutions settle out of order", async () => {
+    const delays: Record<string, number> = { "./slow": 20, "./fast": 0, "./slow-alias": 5 };
+    const targets: Record<string, string> = {
+      "./slow": String.raw`C:\repo\apps\worker\src\slow.ts`,
+      "./fast": String.raw`C:\repo\apps\worker\src\fast.ts`,
+      "./slow-alias": "c:/repo/apps/worker/src/slow.ts",
+    };
+    const analyzer: ILanguageAnalyzer = {
+      parseImports: async () => [],
+      resolvePath: async () => null,
+      resolveImport: (_from, specifier) =>
+        new Promise((resolve) =>
+          setTimeout(() => resolve({ path: targets[specifier], outsideRoot: false }), delays[specifier]),
+        ),
+    };
+
+    const result = await resolveFileImports(
+      analyzer,
+      from,
+      [imp("./slow", 1), imp("./fast", 2), imp("./slow-alias", 3)],
+      insideRoot,
+    );
+
+    expect(result.dependencies.map((d) => [d.module, d.line, d.path])).toEqual([
+      ["./slow", 1, normalizePath(targets["./slow"])],
+      ["./fast", 2, normalizePath(targets["./fast"])],
+    ]);
+  });
+
   it("applies the boundary itself for analyzers without resolveImport()", async () => {
     const analyzer: ILanguageAnalyzer = {
       parseImports: async () => [],
