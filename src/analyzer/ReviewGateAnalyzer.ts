@@ -2,6 +2,7 @@ import { execFile } from "node:child_process";
 import * as fs from "node:fs/promises";
 import * as path from "node:path";
 import { promisify } from "node:util";
+import { SUPPORTED_SOURCE_FILE_REGEX } from "../shared/constants";
 import { normalizePath } from "../shared/path";
 import { detectCycles } from "./callgraph/cycleUtils";
 import { SignatureAnalyzer, type BreakingChange, type SignatureInfo } from "./SignatureAnalyzer";
@@ -189,7 +190,11 @@ export class ReviewGateAnalyzer {
     changedFiles: ReadonlySet<string>,
   ): Promise<ReviewSymbol[]> {
     if (!SIGNATURE_ANALYSIS_EXTENSIONS.has(path.extname(relativePath).toLowerCase())) {
-      limitations.push(`Signature and symbol evidence unavailable for unsupported file type: ${relativePath}.`);
+      // Only source code can carry a contract the gate fails to check. Reporting a
+      // README or a workflow file as a gap made almost every review "partial".
+      if (SUPPORTED_SOURCE_FILE_REGEX.test(relativePath)) {
+        limitations.push(`Signature and symbol evidence unavailable for unsupported file type: ${relativePath}.`);
+      }
       return [];
     }
     const absolutePath = this.resolveWorkspacePath(relativePath);
@@ -211,7 +216,7 @@ export class ReviewGateAnalyzer {
       functions: this.extractTopLevelFunctions(absolutePath, newContent),
     };
     const comparisons = this.analyzeSignatures(absolutePath, relativePath, oldContent, newContent, limitations);
-    return Promise.all(comparisons.map((comparison) => this.createReviewSymbol(comparison, absolutePath, relativePath, maxDepth, fileEvidence, changedFiles)));
+    return Promise.all(comparisons.map((comparison) => this.createReviewSymbol(comparison, absolutePath, relativePath, maxDepth, fileEvidence, changedFiles, headRef)));
   }
 
   private analyzeSignatures(absolutePath: string, relativePath: string, oldContent: string, newContent: string, limitations: string[]): Array<{ symbolName: string; breakingChanges: BreakingChange[] }> {
@@ -231,6 +236,7 @@ export class ReviewGateAnalyzer {
     maxDepth: number,
     fileEvidence: FileEvidence,
     changedFiles: ReadonlySet<string>,
+    headRef: string,
   ): Promise<ReviewSymbol> {
     const errorBreakingChanges = comparison.breakingChanges.filter(
       (change) => change.severity === "error",
@@ -245,7 +251,7 @@ export class ReviewGateAnalyzer {
     const impact: SymbolImpact = errorBreakingChanges.length > 0
       ? this.isVuePropsSymbol(comparison.symbolName)
         ? await this.getVuePropsImpact(absolutePath)
-        : await this.getTypeImpact(absolutePath, comparison.symbolName, effectiveMaxDepth, fileEvidence.functions)
+        : await this.getTypeImpact(absolutePath, comparison.symbolName, effectiveMaxDepth, fileEvidence.functions, headRef)
       : EMPTY_IMPACT;
     const cycles = fileEvidence.cycleSymbols.has(this.toSymbolId(absolutePath, comparison.symbolName));
     const unusedExport = fileEvidence.unusedSymbols.has(comparison.symbolName);
@@ -347,6 +353,15 @@ export class ReviewGateAnalyzer {
     return false;
   }
 
+  /** Consumer content at the reviewed ref, or null when it is unreadable or outside the workspace. */
+  private async readConsumerContent(relativePath: string, headRef: string): Promise<string | null> {
+    try {
+      return await this.readHeadContent(headRef, this.resolveWorkspacePath(relativePath), relativePath);
+    } catch {
+      return null;
+    }
+  }
+
   private toAbsolute(relativePath: string): string {
     return normalizePath(path.resolve(this.workspaceRoot, relativePath));
   }
@@ -371,6 +386,12 @@ export class ReviewGateAnalyzer {
     // later, in CI. So only a diff that updates every consumer is residual work.
     const untouchedConsumers = input.consumers.covered.length + input.consumers.unverified.length;
     const consumersAccountedFor = input.consumers.updated.length > 0 && untouchedConsumers === 0;
+    // Cycles, an unused export or a missing test make a broken contract riskier;
+    // on their own they are the state of the code, not a risk this diff creates.
+    // A compatible change to a symbol in an existing cycle used to score "medium".
+    if (input.breakingChangeCount === 0) {
+      return { breakingChanges: 0, unverifiedConsumers: 0, cycles: 0, unusedExport: 0, missingTestCandidate: 0, partialImpact: 0 };
+    }
     let breakingChangeWeight = 50;
     if (input.hasConfirmedZeroImpact || !input.consumersMustAct || consumersAccountedFor) {
       breakingChangeWeight = RESIDUAL_WEIGHT;
@@ -381,7 +402,7 @@ export class ReviewGateAnalyzer {
       // Once per symbol, not per change: removing four members from one interface is
       // one contract change for its consumers, and who must act on it is already
       // scored by the consumer factors below.
-      breakingChanges: input.breakingChangeCount > 0 ? breakingChangeWeight : 0,
+      breakingChanges: breakingChangeWeight,
       // Scored on what the diff leaves broken, not on how widely the contract is
       // used: a heavily used contract whose consumers are all updated is exactly
       // the well-handled change this gate should wave through.
@@ -517,18 +538,19 @@ export class ReviewGateAnalyzer {
     symbolName: string,
     maxDepth: number,
     functions: SignatureInfo[],
+    headRef: string,
   ): Promise<SymbolImpact> {
     // Identifier match, so `Promise<X>`, `X[]` and `X | undefined` all count as returning X.
     const factories = functions.filter((signature) => signature.name !== symbolName
       && signature.returnType.split(/[^\w$]+/).includes(symbolName));
-    let impact = await this.getImpact(filePath, symbolName, maxDepth);
+    let impact = await this.getImpact(filePath, symbolName, maxDepth, headRef);
     for (const factory of factories) {
       impact = mergeImpacts(impact, await this.walkDependents(filePath, factory.name, maxDepth));
     }
     return impact;
   }
 
-  private async getImpact(filePath: string, symbolName: string, maxDepth: number): Promise<SymbolImpact> {
+  private async getImpact(filePath: string, symbolName: string, maxDepth: number, headRef: string): Promise<SymbolImpact> {
     if (!this.dependents) return EMPTY_IMPACT;
 
     const direct = await this.walkDependents(filePath, symbolName, maxDepth);
@@ -544,9 +566,36 @@ export class ReviewGateAnalyzer {
     if (separator <= 0) return direct;
 
     const viaContainer = await this.walkDependents(filePath, symbolName.slice(0, separator), maxDepth);
-    return viaContainer.count > 0
-      ? { ...viaContainer, partial: true, containerScoped: true }
-      : direct;
+    if (viaContainer.count === 0) return direct;
+    const member = await this.keepFilesNamingMember(viaContainer, symbolName.slice(symbolName.lastIndexOf(".") + 1), headRef);
+    // No consumer of the class even names the member, so none of them can call it.
+    if (member.consumerFiles.length === 0 && member.testDependents.length === 0) return direct;
+    return { ...member, partial: true, containerScoped: true };
+  }
+
+  /**
+   * Narrow a container's consumers to the files that name the member.
+   *
+   * Every file that uses a class is a consumer of the class, but only a file that
+   * writes the member's name can call it. Without this, changing one method of a
+   * widely used class charged the author for every file that touches the class.
+   * A file that cannot be read is kept: unknown is not the same as unaffected.
+   */
+  private async keepFilesNamingMember(impact: SymbolImpact, memberName: string, headRef: string): Promise<SymbolImpact> {
+    const escaped = memberName.replaceAll(/[.*+?^${}()|[\]\\]/g, String.raw`\$&`);
+    const mentions = new RegExp(String.raw`(^|[^\w$])${escaped}($|[^\w$])`);
+    const naming = new Set<string>();
+    for (const file of new Set([...impact.consumerFiles, ...impact.testDependents])) {
+      const content = await this.readConsumerContent(file, headRef);
+      if (content === null || mentions.test(content)) naming.add(file);
+    }
+    const keep = (files: string[]): string[] => files.filter((file) => naming.has(file));
+    return {
+      ...impact,
+      consumerFiles: keep(impact.consumerFiles),
+      testDependents: keep(impact.testDependents),
+      coveredFiles: keep(impact.coveredFiles),
+    };
   }
 
   private isVuePropsSymbol(symbolName: string): boolean {

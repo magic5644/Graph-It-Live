@@ -634,6 +634,34 @@ describe('SignatureAnalyzer', () => {
     });
   });
 
+  describe('object-literal parameter types', () => {
+    const scan = (oldType: string, newType: string) => analyzer.analyzeBreakingChanges(
+      '/options.ts',
+      `export function scan(options: ${oldType}): void {}\n`,
+      `export function scan(options: ${newType}): void {}\n`,
+    ).find(result => result.symbolName === 'scan');
+
+    it('treats an added optional property as compatible', () => {
+      const result = scan('{ maxFiles?: number; strict: boolean }', '{ maxFiles?: number; strict: boolean; signal?: AbortSignal }');
+
+      expect(result?.breakingChanges ?? []).toEqual([]);
+      expect(result?.nonBreakingChanges).toContain("Parameter 'options' gained optional properties");
+    });
+
+    it.each([
+      ['an added required property', '{ maxFiles?: number }', '{ maxFiles?: number; signal: AbortSignal }'],
+      ['a removed property', '{ maxFiles?: number; strict?: boolean }', '{ maxFiles?: number }'],
+      ['a retyped property', '{ maxFiles?: number }', '{ maxFiles?: string }'],
+      ['a property made required', '{ maxFiles?: number }', '{ maxFiles: number }'],
+      ['a method member', '{ run(): void }', '{ run(): void; stop?: number }'],
+      ['a non-literal type', 'Options', 'Options & { signal?: AbortSignal }'],
+    ])('keeps %s as a parameter type change', (_case, oldType, newType) => {
+      expect(scan(oldType, newType)?.breakingChanges).toEqual([
+        expect.objectContaining({ type: 'parameter-type-changed' }),
+      ]);
+    });
+  });
+
   describe('analyzeBreakingChanges with symbolName (#260)', () => {
     const oldContent = 'export function createUser(name: string): string { return name; }\n';
     const newContent = 'export function createUser(name: string, role: string): string { return name + role; }\n';

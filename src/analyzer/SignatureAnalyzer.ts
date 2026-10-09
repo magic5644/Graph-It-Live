@@ -16,6 +16,9 @@ import { Project, SourceFile, SyntaxKind, type ParameterDeclaration, type TypeLi
 import * as path from 'node:path';
 import { closestNames, symbolNotFoundMessage } from './utils/SymbolLookup';
 
+/** Scratch in-memory file used to parse a parameter's declared type text. */
+const PARAMETER_TYPE_FILE = '__parameter_type__.ts';
+
 /**
  * Represents a function/method parameter
  */
@@ -749,7 +752,7 @@ export class SignatureAnalyzer {
 
     const typeArgument = defineProps.getTypeArguments()[0];
     if (typeArgument?.getKind() === SyntaxKind.TypeLiteral) {
-      return this.extractVueTypeMembers(typeArgument.asKindOrThrow(SyntaxKind.TypeLiteral));
+      return this.extractTypeLiteralProperties(typeArgument.asKindOrThrow(SyntaxKind.TypeLiteral));
     }
     if (typeArgument?.getKind() === SyntaxKind.TypeReference) {
       const typeName = typeArgument.getText().split('<', 1)[0];
@@ -815,7 +818,28 @@ export class SignatureAnalyzer {
     return props;
   }
 
-  private extractVueTypeMembers(typeLiteral: TypeLiteralNode): InterfaceMemberInfo[] {
+  /**
+   * Whether an object-literal parameter type only gained optional properties.
+   * The types differ as text, yet every argument that fitted the old type still
+   * fits the new one, so no call site breaks.
+   */
+  private isOptionalPropertyWidening(oldType: string, newType: string): boolean {
+    const oldProperties = this.parseTypeLiteralProperties(oldType);
+    const newProperties = this.parseTypeLiteralProperties(newType);
+    return oldProperties !== null && newProperties !== null
+      && !this.compareInterfaces('parameter', oldProperties, newProperties).hasBreakingChanges;
+  }
+
+  /** Properties of a `{ ... }` type, or null when the type is anything else or has non-property members. */
+  private parseTypeLiteralProperties(typeText: string): InterfaceMemberInfo[] | null {
+    const typeLiteral = this.getOrCreateSourceFile(PARAMETER_TYPE_FILE, `type T = ${typeText};`)
+      .getTypeAlias('T')?.getTypeNode()?.asKind(SyntaxKind.TypeLiteral);
+    if (!typeLiteral) return null;
+    const properties = this.extractTypeLiteralProperties(typeLiteral);
+    return properties.length === typeLiteral.getMembers().length ? properties : null;
+  }
+
+  private extractTypeLiteralProperties(typeLiteral: TypeLiteralNode): InterfaceMemberInfo[] {
     return typeLiteral.getMembers()
       .filter(member => member.getKind() === SyntaxKind.PropertySignature)
       .map(member => {
@@ -960,7 +984,7 @@ export class SignatureAnalyzer {
         continue;
       }
 
-      this.handleChangedParameter(oldParam, newParam, newSig, breakingChanges);
+      this.handleChangedParameter(oldParam, newParam, newSig, breakingChanges, nonBreakingChanges);
     }
   }
 
@@ -995,10 +1019,13 @@ export class SignatureAnalyzer {
     oldParam: ParameterInfo,
     newParam: ParameterInfo,
     newSig: SignatureInfo,
-    breakingChanges: BreakingChange[]
+    breakingChanges: BreakingChange[],
+    nonBreakingChanges: string[]
   ): void {
     // Check type change
-    if (oldParam.type !== newParam.type) {
+    if (oldParam.type !== newParam.type && this.isOptionalPropertyWidening(oldParam.type, newParam.type)) {
+      nonBreakingChanges.push(`Parameter '${newParam.name}' gained optional properties`);
+    } else if (oldParam.type !== newParam.type) {
       breakingChanges.push({
         type: 'parameter-type-changed',
         symbolName: newSig.name,
