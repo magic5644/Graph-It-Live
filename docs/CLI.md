@@ -226,6 +226,7 @@ MCP tools take `response_format` (`json`, `markdown`, `toon`). MCP `markdown` is
 | `wiki` | `markdown` *(default)*, `json`, `toon` | print `markdown` |
 | `stats` | `text`, `json` | `markdown` and `toon` print the `text` report |
 | `export` | `html` only | rejected |
+| `serve`, `install`, `update` | — | `--format` is ignored |
 
 **Examples:**
 
