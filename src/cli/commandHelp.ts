@@ -228,7 +228,9 @@ Examples:
 Usage: graph-it wiki [options]
 
 Options:
-  --output <dir>       Output directory, relative to workspace root (default: wiki)
+  --output <dir>       Output directory inside the workspace; relative paths
+                       resolve against the workspace root (default: wiki)
+  --force              Replace existing index.md/articles the wiki did not generate
   --scope <rel-path>   Restrict wiki to a relative path within the workspace
   --exclude <pattern>  Glob-like pattern to exclude (repeatable)
   --top N              Number of top hub files to include, 1-50 (default: 10)
@@ -239,6 +241,9 @@ Options:
 Description:
   tests/, dist/, *.test.ts and similar are excluded automatically unless
   --exclude is passed, which replaces the default exclusions.
+  --output outside the workspace, or through a symbolic link that leaves it,
+  is rejected. Existing files without the generated-file marker are never
+  replaced unless --force is passed; symbolic links are never written through.
 
 Examples:
   graph-it wiki

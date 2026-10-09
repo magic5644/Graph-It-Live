@@ -3,14 +3,12 @@
  *
  * Usage:
  *   graph-it wiki [--output <dir>] [--scope <rel-path>] [--exclude <pattern>]...
- *                 [--top N] [--format markdown|json|toon]
+ *                 [--top N] [--force] [--format markdown|json|toon]
  *
  * By default, tests/, dist/, *.test.ts etc. are excluded automatically.
  * Limitations (scope, truncation) are documented in the generated wiki itself.
  */
 
-import path from "node:path";
-import { normalizePath } from "../../shared/path.js";
 import type { CliOutputFormat } from "../formatter.js";
 import type { CliRuntime } from "../runtime.js";
 import { executeGenerateWiki } from "../../mcp/tools/wiki.js";
@@ -68,18 +66,13 @@ export async function run(
 
   await runtime.ensureIndexed();
 
-  const workspaceRoot = normalizePath(runtime.workspaceRoot);
-  const absoluteOutputDir = path.isAbsolute(outputDir)
-    ? path.resolve(outputDir)
-    : path.resolve(workspaceRoot, outputDir);
-  const normalizedOutputDir = normalizePath(absoluteOutputDir);
-
+  // executeGenerateWiki resolves outputDir against the workspace and rejects paths outside it.
   const result = await executeGenerateWiki({
-    outputDir: normalizedOutputDir,
+    outputDir,
     topHubsLimit,
     scope,
     exclude: exclude.length > 0 ? exclude : undefined,
-  });
+  }, args.includes("--force"));
 
   switch (wikiFormat) {
     case "json":

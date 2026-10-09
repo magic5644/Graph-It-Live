@@ -18,7 +18,7 @@ describe('formatToolResponse', () => {
     const result = formatToolResponse(response, 'markdown');
 
     expect(result.structuredContent).not.toBe(response);
-    expect(result.content[0].text).toMatch(/```json/);
+    expect(result.content[0].text).toBe('- **ok**: true');
   });
 
   it('formats response as TOON when requested', () => {
@@ -464,5 +464,120 @@ describe('session stats recording', () => {
     expect(snapshot.totals.jsonTokens).toBe(
       snapshot.byTool['tool_a'].jsonTokens + snapshot.byTool['tool_b'].jsonTokens,
     );
+  });
+});
+
+describe('formatToolResponse markdown (#269)', () => {
+  const markdown = (data: unknown, extra: Record<string, unknown> = {}) =>
+    formatToolResponse({ ...createSuccessResponse(data, 5, '/workspace'), ...extra }, 'markdown').content[0].text;
+
+  it('renders scalars as a list and each array as a table, not JSON', () => {
+    const text = markdown({
+      filePath: '/workspace/src/a.ts',
+      dependencyCount: 1,
+      dependencies: [{ path: '/workspace/src/b.ts', type: 'import', line: 1 }],
+    });
+
+    expect(text).toBe([
+      '- **filePath**: src/a.ts',
+      '- **dependencyCount**: 1',
+      '',
+      '### dependencies',
+      '',
+      '| path | type | line |',
+      '| --- | --- | --- |',
+      '| src/b.ts | import | 1 |',
+    ].join('\n'));
+    expect(text).not.toContain('```');
+    expect(text).not.toContain('"success"');
+  });
+
+  it('keeps the same content as TOON for every array section', () => {
+    const text = markdown({ nodes: [{ id: 'a' }], edges: [{ source: 'a', target: 'b' }], truncated: false });
+
+    expect(text).toContain('- **truncated**: false');
+    expect(text).toContain('### nodes');
+    expect(text).toContain('### edges');
+    expect(text).toContain('| a | b |');
+  });
+
+  it('escapes pipes and flattens control characters inside cells', () => {
+    const text = markdown({ items: [{ name: 'a|b', note: 'line1\nline2\u0007', meta: { k: 1 }, empty: null }] });
+
+    expect(text).toContain(String.raw`| a\|b | line1 line2  | {"k":1} |  |`);
+  });
+
+  it('uses the union of row keys as columns', () => {
+    const text = markdown({ items: [{ a: 1 }, { b: 2 }] });
+
+    expect(text).toContain('| a | b |');
+    expect(text).toContain('| 1 |  |');
+    expect(text).toContain('|  | 2 |');
+  });
+
+  it('states rows that carry no field', () => {
+    expect(markdown({ items: [{}, {}] })).toBe('### items\n\n_2 empty rows_');
+  });
+
+  it('keeps a multi-line string field verbatim in a fenced block', () => {
+    const text = markdown({ question: 'q', toon: 'nodes(id)\n[a]' });
+
+    expect(text).toContain('- **question**: q');
+    expect(text).toContain('- **toon**:\n\n```text\nnodes(id)\n[a]\n```');
+  });
+
+  it('sizes the fence past any backtick run in a multi-line value', () => {
+    expect(markdown({ note: 'a\n````\nb' })).toBe('- **note**:\n\n`````text\na\n````\nb\n`````');
+  });
+
+  it('escapes backslashes before pipes, and pipes in keys, headers and section names', () => {
+    const text = markdown({ 'a|b': 'x', 'my|rows': [{ 'c|d': 'e\\' }] });
+
+    expect(text).toContain(String.raw`- **a\|b**: x`);
+    expect(text).toContain(String.raw`### my\|rows`);
+    expect(text).toContain(String.raw`| c\|d |`);
+    expect(text).toContain(String.raw`| e\\ |`);
+  });
+
+  it('renders freshness and pagination before the data', () => {
+    const text = markdown([{ file: 'a.ts' }], {
+      metadata: { ...createSuccessResponse(null, 5, '/workspace').metadata, indexedAt: '2026-10-09T00:00:00Z', stale: true },
+      pagination: { total: 3, limit: 1, offset: 0, hasMore: true },
+    });
+
+    expect(text.split('\n\n')[0]).toBe([
+      '- **indexedAt**: 2026-10-09T00:00:00Z',
+      '- **stale**: true',
+      '- **total**: 3',
+      '- **limit**: 1',
+      '- **offset**: 0',
+      '- **hasMore**: true',
+    ].join('\n'));
+    expect(text).toContain('### files');
+  });
+
+  it('renders a primitive payload as text and an empty payload explicitly', () => {
+    expect(markdown('done\nnow')).toBe('done now');
+    expect(markdown(null)).toBe('_No results._');
+    expect(markdown({})).toBe('_No results._');
+  });
+
+  it('states the error of a failed call first, without a data section', () => {
+    const text = formatToolResponse(createErrorResponse('File not found:\nsrc/x.ts', 5, '/workspace'), 'markdown').content[0].text;
+
+    expect(text).toBe('**Error:** File not found: src/x.ts');
+  });
+
+  it('falls back to a generic error message', () => {
+    const response = { ...createErrorResponse('x', 5, '/workspace'), error: undefined };
+
+    expect(formatToolResponse(response, 'markdown').content[0].text).toBe('**Error:** Unknown error');
+  });
+
+  it('leaves json and toon output unchanged', () => {
+    const response = createSuccessResponse({ items: [{ a: 1 }] }, 5, '/workspace');
+
+    expect(formatToolResponse(response, 'json').content[0].text).toContain('"items": [');
+    expect(formatToolResponse(response, 'toon').content[0].text).toContain('items(a)');
   });
 });

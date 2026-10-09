@@ -3,6 +3,7 @@ import { z } from "zod/v4";
 import { workerState } from "../shared/state.js";
 import type { WikiGenerateResult } from "../../shared/wiki-types.js";
 import { normalizePath } from "../../shared/path.js";
+import { validateWorkspacePath } from "../../shared/pathSecurity.js";
 
 // NO vscode imports — VS Code agnostic
 
@@ -77,8 +78,13 @@ async function ensureCallGraphReady(workspaceRoot: string): Promise<void> {
 // Tool execution
 // ---------------------------------------------------------------------------
 
+/**
+ * @param overwrite - replace existing files that the wiki did not generate; the
+ *   CLI's `--force`, never exposed to MCP clients.
+ */
 export async function executeGenerateWiki(
   params: GenerateWikiParams,
+  overwrite = false,
 ): Promise<GenerateWikiMcpResult> {
   const config = workerState.getConfig();
   const workspaceRoot = normalizePath(config.rootDir);
@@ -92,8 +98,9 @@ export async function executeGenerateWiki(
     );
   }
 
+  // Checked here, not only in the MCP worker, because the CLI calls this directly.
   const resolvedOutputDir = normalizePath(
-    path.resolve(workspaceRoot, params.outputDir ?? "wiki"),
+    validateWorkspacePath(params.outputDir ?? "wiki", workspaceRoot),
   );
 
   const { WikiGenerator } = await import(
@@ -107,6 +114,7 @@ export async function executeGenerateWiki(
     topHubsLimit: params.topHubsLimit ?? 10,
     scope: params.scope,
     exclude: params.exclude,
+    overwrite,
   });
 
   const result: WikiGenerateResult = await generator.generate();

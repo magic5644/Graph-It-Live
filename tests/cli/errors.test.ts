@@ -38,6 +38,11 @@ describe("classifyError", () => {
     expect(result.exitCode).toBe(ExitCode.SECURITY_VIOLATION);
   });
 
+  it("classifies a symbolic-link escape as security violation", () => {
+    const result = classifyError(new Error("File path escapes workspace through a symbolic link: linked"));
+    expect(result.exitCode).toBe(ExitCode.SECURITY_VIOLATION);
+  });
+
   it("classifies not initialized as workspace not found", () => {
     const result = classifyError(new Error("Worker not initialized"));
     expect(result.exitCode).toBe(ExitCode.WORKSPACE_NOT_FOUND);

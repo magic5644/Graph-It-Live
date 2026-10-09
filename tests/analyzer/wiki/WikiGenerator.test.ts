@@ -496,4 +496,108 @@ describe("WikiGenerator regressions (v1.17.1)", () => {
       expect(a.split("\n")[1]).toBe("# a");
     });
   });
+
+  describe("overwrite protection (#269)", () => {
+    const files = ["/workspace/src/a.ts"];
+    const generate = (overwrite?: boolean) =>
+      new WikiGenerator({ db: makeDb({ fileIndex: files }), outputDir: tmpDir, workspaceRoot: "/workspace", overwrite }).generate();
+    const indexPath = () => path.join(tmpDir, "index.md");
+    const articlePath = () => path.join(tmpDir, "articles", "src_a.ts.md");
+
+    it("starts the index with the generated-file marker", async () => {
+      await generate();
+      const index = await fs.readFile(indexPath(), "utf-8");
+      expect(index.split("\n")[0]).toBe("<!-- graph-it-live:wiki-article -->");
+    });
+
+    it("regenerates over its own previous output", async () => {
+      await generate();
+      await expect(generate()).resolves.toMatchObject({ articlesCount: 1 });
+    });
+
+    it("refuses to replace a hand-written index.md and writes nothing", async () => {
+      await fs.writeFile(indexPath(), "hand-written\n", "utf-8");
+
+      await expect(generate()).rejects.toThrow(/Refusing to overwrite .*index\.md.*--force/);
+      expect(await fs.readFile(indexPath(), "utf-8")).toBe("hand-written\n");
+      await expect(fs.stat(path.join(tmpDir, "articles"))).rejects.toThrow();
+    });
+
+    it("regenerates over an index.md written by v1.17.1, before the marker", async () => {
+      await fs.writeFile(indexPath(), "# Wiki — workspace\n\nold\n", "utf-8");
+
+      await generate();
+
+      expect(await fs.readFile(indexPath(), "utf-8")).toMatch(/^<!-- graph-it-live:wiki-article -->\n# Wiki — workspace/);
+    });
+
+    it("does not take a foreign file titled like another workspace's index for its own", async () => {
+      await fs.writeFile(indexPath(), "# Wiki — other\n", "utf-8");
+      await expect(generate()).rejects.toThrow(/Refusing to overwrite/);
+    });
+
+    it("refuses to replace a hand-written article", async () => {
+      await fs.mkdir(path.join(tmpDir, "articles"));
+      await fs.writeFile(articlePath(), "mine\n", "utf-8");
+
+      await expect(generate()).rejects.toThrow(/Refusing to overwrite .*src_a\.ts\.md/);
+      expect(await fs.readFile(articlePath(), "utf-8")).toBe("mine\n");
+      await expect(fs.stat(indexPath())).rejects.toThrow();
+    });
+
+    it("replaces foreign files when overwrite is set", async () => {
+      await fs.mkdir(path.join(tmpDir, "articles"));
+      await fs.writeFile(indexPath(), "hand-written\n", "utf-8");
+      await fs.writeFile(articlePath(), "mine\n", "utf-8");
+
+      await generate(true);
+
+      expect(await fs.readFile(indexPath(), "utf-8")).toMatch(/^<!-- graph-it-live:wiki-article -->\n# Wiki/);
+      expect(await fs.readFile(articlePath(), "utf-8")).toMatch(/^<!-- graph-it-live:wiki-article -->/);
+    });
+
+    it("refuses a directory where a wiki file goes, even with overwrite", async () => {
+      await fs.mkdir(indexPath());
+      await expect(generate(true)).rejects.toThrow(/directory or special file/);
+    });
+
+    it("never writes through a symbolic link, even with overwrite", async () => {
+      const outside = await fs.mkdtemp(path.join(os.tmpdir(), "wiki-gen-outside-"));
+      try {
+        const target = path.join(outside, "victim.md");
+        await fs.writeFile(target, "keep\n", "utf-8");
+        await fs.symlink(target, indexPath());
+
+        await expect(generate(true)).rejects.toThrow(/symbolic link .*index\.md/);
+        expect(await fs.readFile(target, "utf-8")).toBe("keep\n");
+      } finally {
+        await fs.rm(outside, { recursive: true, force: true });
+      }
+    });
+
+    it("never writes through a hard link, even with overwrite", async () => {
+      const other = path.join(tmpDir, "..", `${path.basename(tmpDir)}-linked.md`);
+      await fs.writeFile(other, "keep\n", "utf-8");
+      try {
+        await fs.link(other, indexPath());
+
+        await expect(generate(true)).rejects.toThrow(/hard link/);
+        expect(await fs.readFile(other, "utf-8")).toBe("keep\n");
+      } finally {
+        await fs.rm(other, { force: true });
+      }
+    });
+
+    it("never writes through a symbolic articles directory", async () => {
+      const outside = await fs.mkdtemp(path.join(os.tmpdir(), "wiki-gen-outside-"));
+      try {
+        await fs.symlink(outside, path.join(tmpDir, "articles"), "junction");
+
+        await expect(generate(true)).rejects.toThrow(/symbolic link .*articles/);
+        expect(await fs.readdir(outside)).toEqual([]);
+      } finally {
+        await fs.rm(outside, { recursive: true, force: true });
+      }
+    });
+  });
 });

@@ -232,6 +232,8 @@ All analysis commands support multiple output formats via `--format`:
 
 `toon` output is compacted: paths are workspace-relative, and keys that repeat a sibling are dropped (`relativePath` and `id` when equal to `path`, `sourceRelative`/`targetRelative`, and `sourceFile`/`targetFile` already carried by `sourceId`/`targetId`). MCP responses apply the same rule in every format. `json` keeps the full, uncompacted fields listed below.
 
+MCP tools take `response_format` (`json`, `markdown`, `toon`). MCP `markdown` is readable Markdown with the same content as `toon`: the error of a failed call, freshness and pagination, scalar fields as a list, then one table per array. `structuredContent` always carries the full response.
+
 **Format availability per command:**
 
 | Format | scan | summary | explain | path | check | trace | query | tool |
@@ -1108,7 +1110,8 @@ graph-it wiki [options]
 
 | Option | Default | Description |
 |--------|---------|-------------|
-| `--output <dir>` | `wiki` | Output directory (relative to workspace root, or absolute) |
+| `--output <dir>` | `wiki` | Output directory inside the workspace. Relative paths resolve against the workspace root; an absolute path must point inside it |
+| `--force` | off | Replace an existing `index.md` or article that the wiki did not generate |
 | `--scope <rel-path>` | entire workspace | Restrict the wiki to a folder or file within the workspace (`src/lib`, `./src/lib`, `src\lib` and absolute paths inside the workspace are equivalent) |
 | `--exclude <pattern>` | — | Glob pattern to exclude (repeatable): `*` within a segment, `**` across segments, `?` one character. A pattern with `/` is anchored at the workspace root (`tests/**`); one without `/` matches any segment (`*.test.ts`, `fixtures`). Replaces the default exclusions when passed |
 | `--top <N>` | `10` | Number of top hub files to list in the index (1–50) |
@@ -1119,13 +1122,15 @@ graph-it wiki [options]
 
 Each article lists at most 20 callers and 20 callees and states how many were left out. Links point only to articles of the same run; files outside the scope appear as plain text. Article names flatten the path (`src/foo.ts` → `src_foo.ts.md`); colliding names get a numeric suffix (`src_a_b.ts-2.md`). Regenerating the wiki deletes articles of earlier runs that no longer match an included file; only files carrying the generated-article marker are deleted.
 
+The output directory must stay inside the workspace: a path outside it, a `../` escape, a path on another Windows drive, or a symbolic link that leaves the workspace is rejected (exit code 5) before anything is written. Every generated file, `index.md` included, starts with the `<!-- graph-it-live:wiki-article -->` marker. When `index.md` or an article already exists without that marker, the command writes nothing (an `index.md` written by v1.17.1, before the marker, is still recognized by its `# Wiki — <workspace>` title) and fails (exit code 1) unless `--force` is passed. Symbolic links and directories in place of a wiki file are never written through, even with `--force`.
+
 **Examples:**
 
 ```bash
 graph-it wiki                                  # write to ./wiki/
 graph-it wiki --output docs/wiki               # write to ./docs/wiki/
 graph-it wiki --top 20 --format json           # JSON summary, top 20 hubs
-graph-it wiki --output /tmp/preview            # absolute output path
+graph-it wiki --output docs --force            # replace a hand-written docs/index.md
 graph-it wiki --scope src/analyzer --exclude "**/*.spec.ts"
 ```
 
@@ -1802,7 +1807,7 @@ Generate a navigable markdown wiki from the call graph. One article per source f
 
 | Parameter | Type | Default | Description |
 |-----------|------|---------|-------------|
-| `outputDir` | string | `wiki` | Workspace-relative output directory for wiki files |
+| `outputDir` | string | `wiki` | Workspace-relative output directory for wiki files. Existing files without the generated-file marker are never replaced; the call fails instead |
 | `topHubsLimit` | number | `10` | Number of top hub files to list (1–50) |
 | `scope` | string | whole workspace | Relative path to restrict the generated wiki |
 | `exclude` | string[] | default exclusions | Relative glob patterns to exclude |

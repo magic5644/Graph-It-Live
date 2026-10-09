@@ -593,7 +593,7 @@ server.registerTool(
     description: mcpToolDescription("set_workspace"),
     inputSchema: SetWorkspaceParamsSchema.extend({
       response_format: ResponseFormatSchema.describe(
-        "Output format: 'json', 'markdown', or 'toon' (Token-Oriented Object Notation for reduced token usage) (default: toon - RECOMMENDED for 30-60% token savings)",
+        "Output format: 'json', 'markdown' (readable lists and tables), or 'toon' (Token-Oriented Object Notation for reduced token usage) (default: toon - RECOMMENDED for 30-60% token savings)",
       ),
     }),
     outputSchema: McpToolResponseSchema,
@@ -757,7 +757,7 @@ server.registerTool(
     description: mcpToolDescription("analyze_dependencies"),
     inputSchema: AnalyzeDependenciesParamsSchema.extend({
       response_format: ResponseFormatSchema.describe(
-        "Output format: 'json', 'markdown', or 'toon' (Token-Oriented Object Notation for reduced token usage) (default: toon - RECOMMENDED for 30-60% token savings)",
+        "Output format: 'json', 'markdown' (readable lists and tables), or 'toon' (Token-Oriented Object Notation for reduced token usage) (default: toon - RECOMMENDED for 30-60% token savings)",
       ),
     }),
     outputSchema: McpToolResponseSchema,
@@ -794,7 +794,7 @@ server.registerTool(
     description: mcpToolDescription("crawl_dependency_graph"),
     inputSchema: CrawlDependencyGraphParamsSchema.extend({
       response_format: ResponseFormatSchema.describe(
-        "Output format: 'json', 'markdown', or 'toon' (Token-Oriented Object Notation for reduced token usage) (default: toon - RECOMMENDED for 30-60% token savings)",
+        "Output format: 'json', 'markdown' (readable lists and tables), or 'toon' (Token-Oriented Object Notation for reduced token usage) (default: toon - RECOMMENDED for 30-60% token savings)",
       ),
     }),
     outputSchema: McpToolResponseSchema,
@@ -856,7 +856,7 @@ server.registerTool(
     description: mcpToolDescription("find_referencing_files"),
     inputSchema: FindReferencingFilesParamsSchema.extend({
       response_format: ResponseFormatSchema.describe(
-        "Output format: 'json', 'markdown', or 'toon' (Token-Oriented Object Notation for reduced token usage) (default: toon - RECOMMENDED for 30-60% token savings)",
+        "Output format: 'json', 'markdown' (readable lists and tables), or 'toon' (Token-Oriented Object Notation for reduced token usage) (default: toon - RECOMMENDED for 30-60% token savings)",
       ),
     }),
     outputSchema: McpToolResponseSchema,
@@ -890,7 +890,7 @@ server.registerTool(
     description: mcpToolDescription("verify_dependency_usage"),
     inputSchema: VerifyDependencyUsageParamsSchema.extend({
       response_format: ResponseFormatSchema.describe(
-        "Output format: 'json', 'markdown', or 'toon' (Token-Oriented Object Notation for reduced token usage) (default: toon - RECOMMENDED for 30-60% token savings)",
+        "Output format: 'json', 'markdown' (readable lists and tables), or 'toon' (Token-Oriented Object Notation for reduced token usage) (default: toon - RECOMMENDED for 30-60% token savings)",
       ),
     }),
     outputSchema: McpToolResponseSchema,
@@ -927,7 +927,7 @@ server.registerTool(
     description: mcpToolDescription("resolve_module_path"),
     inputSchema: ResolveModulePathParamsSchema.extend({
       response_format: ResponseFormatSchema.describe(
-        "Output format: 'json', 'markdown', or 'toon' (Token-Oriented Object Notation for reduced token usage) (default: toon - RECOMMENDED for 30-60% token savings)",
+        "Output format: 'json', 'markdown' (readable lists and tables), or 'toon' (Token-Oriented Object Notation for reduced token usage) (default: toon - RECOMMENDED for 30-60% token savings)",
       ),
     }),
     outputSchema: McpToolResponseSchema,
@@ -961,7 +961,7 @@ server.registerTool(
     description: mcpToolDescription("get_index_status"),
     inputSchema: z.object({
       response_format: ResponseFormatSchema.describe(
-        "Output format: 'json', 'markdown', or 'toon' (Token-Oriented Object Notation for reduced token usage) (default: toon - RECOMMENDED for 30-60% token savings)",
+        "Output format: 'json', 'markdown' (readable lists and tables), or 'toon' (Token-Oriented Object Notation for reduced token usage) (default: toon - RECOMMENDED for 30-60% token savings)",
       ),
     }),
     outputSchema: McpToolResponseSchema,
@@ -995,7 +995,7 @@ server.registerTool(
     description: mcpToolDescription("invalidate_files"),
     inputSchema: InvalidateFilesParamsSchema.extend({
       response_format: ResponseFormatSchema.describe(
-        "Output format: 'json', 'markdown', or 'toon' (Token-Oriented Object Notation for reduced token usage) (default: toon - RECOMMENDED for 30-60% token savings)",
+        "Output format: 'json', 'markdown' (readable lists and tables), or 'toon' (Token-Oriented Object Notation for reduced token usage) (default: toon - RECOMMENDED for 30-60% token savings)",
       ),
     }),
     outputSchema: McpToolResponseSchema,
@@ -1040,7 +1040,7 @@ server.registerTool(
     description: mcpToolDescription("rebuild_index"),
     inputSchema: z.object({
       response_format: ResponseFormatSchema.describe(
-        "Output format: 'json', 'markdown', or 'toon' (Token-Oriented Object Notation for reduced token usage) (default: toon - RECOMMENDED for 30-60% token savings)",
+        "Output format: 'json', 'markdown' (readable lists and tables), or 'toon' (Token-Oriented Object Notation for reduced token usage) (default: toon - RECOMMENDED for 30-60% token savings)",
       ),
     }),
     outputSchema: McpToolResponseSchema,
@@ -1083,7 +1083,7 @@ server.registerTool(
     description: mcpToolDescription("get_symbol_graph"),
     inputSchema: GetSymbolGraphParamsSchema.extend({
       response_format: ResponseFormatSchema.describe(
-        "Output format: 'json', 'markdown', or 'toon' (Token-Oriented Object Notation for reduced token usage) (default: toon - RECOMMENDED for 30-60% token savings)",
+        "Output format: 'json', 'markdown' (readable lists and tables), or 'toon' (Token-Oriented Object Notation for reduced token usage) (default: toon - RECOMMENDED for 30-60% token savings)",
       ),
     }),
     outputSchema: McpToolResponseSchema,
@@ -1117,7 +1117,7 @@ server.registerTool(
     description: mcpToolDescription("find_unused_symbols"),
     inputSchema: FindUnusedSymbolsParamsSchema.extend({
       response_format: ResponseFormatSchema.describe(
-        "Output format: 'json', 'markdown', or 'toon' (Token-Oriented Object Notation for reduced token usage) (default: toon - RECOMMENDED for 30-60% token savings)",
+        "Output format: 'json', 'markdown' (readable lists and tables), or 'toon' (Token-Oriented Object Notation for reduced token usage) (default: toon - RECOMMENDED for 30-60% token savings)",
       ),
     }),
     outputSchema: McpToolResponseSchema,
@@ -1151,7 +1151,7 @@ server.registerTool(
     description: mcpToolDescription("trace_function_execution"),
     inputSchema: TraceFunctionExecutionParamsSchema.extend({
       response_format: ResponseFormatSchema.describe(
-        "Output format: 'json', 'markdown', or 'toon' (Token-Oriented Object Notation for reduced token usage) (default: toon - RECOMMENDED for 30-60% token savings)",
+        "Output format: 'json', 'markdown' (readable lists and tables), or 'toon' (Token-Oriented Object Notation for reduced token usage) (default: toon - RECOMMENDED for 30-60% token savings)",
       ),
     }),
     outputSchema: McpToolResponseSchema,
@@ -1189,7 +1189,7 @@ server.registerTool(
     description: mcpToolDescription("analyze_breaking_changes"),
     inputSchema: AnalyzeBreakingChangesParamsSchema.extend({
       response_format: ResponseFormatSchema.describe(
-        "Output format: 'json', 'markdown', or 'toon' (Token-Oriented Object Notation for reduced token usage) (default: toon - RECOMMENDED for 30-60% token savings)",
+        "Output format: 'json', 'markdown' (readable lists and tables), or 'toon' (Token-Oriented Object Notation for reduced token usage) (default: toon - RECOMMENDED for 30-60% token savings)",
       ),
     }),
     outputSchema: McpToolResponseSchema,
@@ -1227,7 +1227,7 @@ server.registerTool(
     title: "Review Pull Request Diff",
     description: mcpToolDescription("review_pr"),
     inputSchema: ReviewPrParamsSchema.extend({
-      response_format: ResponseFormatSchema.describe("Output format: 'json', 'markdown', or 'toon'"),
+      response_format: ResponseFormatSchema.describe("Output format: 'json', 'markdown' (readable lists and tables), or 'toon'"),
     }),
     outputSchema: McpToolResponseSchema,
     annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
@@ -1251,7 +1251,7 @@ server.registerTool(
     description: mcpToolDescription("get_impact_analysis"),
     inputSchema: GetImpactAnalysisParamsSchema.extend({
       response_format: ResponseFormatSchema.describe(
-        "Output format: 'json', 'markdown', or 'toon' (Token-Oriented Object Notation for reduced token usage) (default: toon - RECOMMENDED for 30-60% token savings)",
+        "Output format: 'json', 'markdown' (readable lists and tables), or 'toon' (Token-Oriented Object Notation for reduced token usage) (default: toon - RECOMMENDED for 30-60% token savings)",
       ),
     }),
     outputSchema: McpToolResponseSchema,
@@ -1297,7 +1297,7 @@ server.registerTool(
     inputSchema: z.object({
       filePath: z.string().describe("Absolute path to the file to generate a codemap for"),
       response_format: ResponseFormatSchema.describe(
-        "Output format: 'json', 'markdown', or 'toon' (default: toon - RECOMMENDED for 30-60% token savings)",
+        "Output format: 'json', 'markdown' (readable lists and tables), or 'toon' (default: toon - RECOMMENDED for 30-60% token savings)",
       ),
     }),
     outputSchema: McpToolResponseSchema,
@@ -1330,7 +1330,7 @@ server.registerTool(
     description: mcpToolDescription("query_call_graph"),
     inputSchema: QueryCallGraphParamsSchema.extend({
       response_format: ResponseFormatSchema.describe(
-        "Output format: 'json', 'markdown', or 'toon' (default: toon - RECOMMENDED for 30-60% token savings)",
+        "Output format: 'json', 'markdown' (readable lists and tables), or 'toon' (default: toon - RECOMMENDED for 30-60% token savings)",
       ),
     }),
     outputSchema: McpToolResponseSchema,
@@ -1364,7 +1364,7 @@ server.registerTool(
     description: mcpToolDescription("scan_dead_code"),
     inputSchema: ScanDeadCodeParamsSchema.extend({
       response_format: ResponseFormatSchema.describe(
-        "Output format: 'json', 'markdown', or 'toon' (default: toon)",
+        "Output format: 'json', 'markdown' (readable lists and tables), or 'toon' (default: toon)",
       ),
     }),
     outputSchema: McpToolResponseSchema,
@@ -1432,7 +1432,7 @@ server.registerTool(
     description: mcpToolDescription("query_natural_language"),
     inputSchema: QueryNaturalLanguageParamsSchema.extend({
       response_format: ResponseFormatSchema.describe(
-        "Output format: 'json', 'markdown', or 'toon' (default: toon - RECOMMENDED for 30-60% token savings)",
+        "Output format: 'json', 'markdown' (readable lists and tables), or 'toon' (default: toon - RECOMMENDED for 30-60% token savings)",
       ),
     }),
     outputSchema: McpToolResponseSchema,
@@ -1466,7 +1466,7 @@ server.registerTool(
     description: mcpToolDescription("generate_wiki"),
     inputSchema: GenerateWikiSchema.extend({
       response_format: ResponseFormatSchema.describe(
-        "Output format: 'json', 'markdown', or 'toon' (default: json). scope and exclude filtering is applied before generation — limitations are documented in the generated wiki itself.",
+        "Output format: 'json', 'markdown' (readable lists and tables), or 'toon' (default: json). scope and exclude filtering is applied before generation — limitations are documented in the generated wiki itself.",
       ),
     }),
     outputSchema: McpToolResponseSchema,
