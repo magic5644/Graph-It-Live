@@ -102,6 +102,79 @@ describe("tool command", () => {
       expect(() => parseToolArgs(["--args", "[1]"])).toThrow("--args must be a JSON object");
       expect(() => parseToolArgs(["--args", "null"])).toThrow("--args must be a JSON object");
     });
+
+    it("rejects --args with a missing or empty value", async () => {
+      const { parseToolArgs } = await import("../../src/cli/commands/tool.js");
+      expect(() => parseToolArgs(["--args"])).toThrow("Invalid JSON after --args");
+      expect(() => parseToolArgs(["--args", ""])).toThrow("Invalid JSON after --args");
+    });
+
+    it("reads a space-separated value like the = form (issue #268)", async () => {
+      const { parseToolArgs } = await import("../../src/cli/commands/tool.js");
+      expect(parseToolArgs(["--filePath", "/x"])).toEqual({ filePath: "/x" });
+      expect(parseToolArgs(["--filePath", String.raw`C:\repo\a.ts`])).toEqual({ filePath: String.raw`C:\repo\a.ts` });
+      expect(parseToolArgs(["--depth", "2"])).toEqual({ depth: 2 });
+      expect(parseToolArgs(["--depth", "-1"])).toEqual({ depth: -1 });
+      expect(parseToolArgs(["--relationTypes", '["calls"]'])).toEqual({ relationTypes: ["calls"] });
+    });
+
+    it("lets a space-separated flag override --args keys", async () => {
+      const { parseToolArgs } = await import("../../src/cli/commands/tool.js");
+      expect(parseToolArgs(["--depth", "3", "--args", '{"depth":1,"scope":"src/**"}'])).toEqual({
+        depth: 3,
+        scope: "src/**",
+      });
+    });
+
+    it("lets a boolean parameter stand alone before another flag", async () => {
+      const { parseToolArgs } = await import("../../src/cli/commands/tool.js");
+      const booleans = new Set(["includeTypeOnly"]);
+      expect(parseToolArgs(["--includeTypeOnly", "--filePath", "/x"], booleans)).toEqual({
+        includeTypeOnly: true,
+        filePath: "/x",
+      });
+      expect(parseToolArgs(["--filePath", "/x", "--includeTypeOnly"], booleans)).toEqual({
+        filePath: "/x",
+        includeTypeOnly: true,
+      });
+      expect(parseToolArgs(["--includeTypeOnly", "false"], booleans)).toEqual({ includeTypeOnly: false });
+      expect(parseToolArgs(["--includeTypeOnly=false"], booleans)).toEqual({ includeTypeOnly: false });
+    });
+
+    it("rejects a non-boolean flag with no value", async () => {
+      const { parseToolArgs } = await import("../../src/cli/commands/tool.js");
+      expect(() => parseToolArgs(["--filePath"])).toThrow("--filePath needs a value");
+      expect(() => parseToolArgs(["--filePath", "--depth=2"])).toThrow("--filePath needs a value");
+    });
+
+    it("rejects a stray positional instead of dropping it", async () => {
+      const { parseToolArgs } = await import("../../src/cli/commands/tool.js");
+      expect(() => parseToolArgs(["/abs/a.ts"])).toThrow('Unexpected argument "/abs/a.ts"');
+      expect(() => parseToolArgs(["--depth=2", "extra"])).toThrow("--<name>=<value> or --<name> <value>");
+    });
+  });
+
+  describe("getToolHelp", () => {
+    it("lists the tool's parameters with type, required flag and description (issue #268)", async () => {
+      const { getToolHelp } = await import("../../src/cli/commands/tool.js");
+      const help = getToolHelp("query_call_graph") ?? "";
+      expect(help).toContain("graph-it tool query_call_graph");
+      expect(help).toMatch(/--filePath <string>\s+required/);
+      expect(help).toMatch(/--includeTypeOnly <boolean>\s+optional/);
+      expect(help).toContain("--relationTypes <array>");
+      expect(help).toContain("graph-it tool query_call_graph --filePath <filePath> --symbolName <symbolName>");
+    });
+
+    it("says a tool without parameters has none", async () => {
+      const { getToolHelp } = await import("../../src/cli/commands/tool.js");
+      expect(getToolHelp("get_index_status")).toContain("(none)");
+    });
+
+    it("returns undefined for an unknown or MCP-only tool", async () => {
+      const { getToolHelp } = await import("../../src/cli/commands/tool.js");
+      expect(getToolHelp("nope")).toBeUndefined();
+      expect(getToolHelp("set_workspace")).toBeUndefined();
+    });
   });
 
 });

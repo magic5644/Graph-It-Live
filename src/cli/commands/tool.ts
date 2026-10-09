@@ -6,6 +6,7 @@
  * CRITICAL ARCHITECTURE RULE: This module is completely VS Code agnostic!
  */
 
+import { z } from "zod";
 import { workerState } from "../../mcp/shared/state";
 import { toolSummary } from "../../mcp/toolDescriptions";
 import {
@@ -55,7 +56,7 @@ import type {
   TraceFunctionExecutionParams,
   VerifyDependencyUsageParams,
 } from "../../mcp/types";
-import { resolveToolFilePaths, validateToolParams } from "../../mcp/types";
+import { resolveToolFilePaths, toolSchemas, validateToolParams } from "../../mcp/types";
 import { CliError, ExitCode } from "../errors";
 import type { CliOutputFormat } from "../formatter";
 import { formatOutput } from "../formatter";
@@ -109,8 +110,8 @@ export async function run(
     );
   }
 
-  // Parse --args JSON or key=value pairs from remaining args
-  const params = parseToolArgs(args.slice(1));
+  // Parse --args JSON and --key=value / --key value flags from remaining args
+  const params = parseToolArgs(args.slice(1), booleanParams(toolName));
 
   // Validate params via Zod before indexing so bad input fails fast
   const validation = validateToolParams(toolName, params);
@@ -124,42 +125,125 @@ export async function run(
   return formatOutput(result, format, "tool", runtime.workspaceRoot);
 }
 
-export function parseToolArgs(args: string[]): Record<string, unknown> {
-  // --args '<json>' provides the base object; named --key=value flags override its keys
-  const result: Record<string, unknown> = {};
-  const argsIdx = args.indexOf("--args");
-  if (argsIdx >= 0 && args[argsIdx + 1]) {
-    let parsed: unknown;
-    try {
-      parsed = JSON.parse(args[argsIdx + 1]);
-    } catch {
+/**
+ * Tool parameters from CLI flags. `--args '<json>'` provides the base object;
+ * named flags override its keys. A flag takes its value after `=` or from the
+ * next token, except the tool's boolean parameters, which may stand alone.
+ * Any other token is a usage error: dropping it silently would report the
+ * parameter as missing instead of pointing at the mistake.
+ */
+export function parseToolArgs(
+  args: string[],
+  booleanKeys: ReadonlySet<string> = new Set(),
+): Record<string, unknown> {
+  let base: Record<string, unknown> = {};
+  const named: Record<string, unknown> = {};
+  let i = 0;
+  while (i < args.length) {
+    const arg = args[i];
+    const eqIdx = arg.indexOf("=");
+    if (arg === "--args") {
+      base = parseArgsJson(args[i + 1]);
+      i += 2;
+    } else if (!arg.startsWith("--")) {
       throw new CliError(
-        "Invalid JSON after --args",
+        `Unexpected argument "${arg}". Pass tool parameters as --<name>=<value> or --<name> <value> ` +
+          `(see graph-it tool <name> --help)`,
         ExitCode.GENERAL_ERROR,
       );
+    } else if (eqIdx >= 0) {
+      named[arg.slice(2, eqIdx)] = parseFlagValue(arg.slice(eqIdx + 1));
+      i += 1;
+    } else {
+      const { value, width } = readSpacedValue(arg, args[i + 1], booleanKeys.has(arg.slice(2)));
+      named[arg.slice(2)] = value;
+      i += width;
     }
-    if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) {
-      throw new CliError("--args must be a JSON object", ExitCode.GENERAL_ERROR);
-    }
-    Object.assign(result, parsed);
   }
+  return { ...base, ...named };
+}
 
-  // Parse key=value pairs
-  for (const [i, arg] of args.entries()) {
-    if (argsIdx >= 0 && i === argsIdx + 1) continue; // the --args JSON value
-    if (arg.startsWith("--") && arg.includes("=")) {
-      const eqIdx = arg.indexOf("=");
-      const key = arg.slice(2, eqIdx);
-      const val = arg.slice(eqIdx + 1);
-      // Try to parse as JSON value (number, boolean, array)
-      try {
-        result[key] = JSON.parse(val);
-      } catch {
-        result[key] = val;
-      }
-    }
+function parseArgsJson(json: string | undefined): Record<string, unknown> {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(json ?? "");
+  } catch {
+    throw new CliError("Invalid JSON after --args", ExitCode.GENERAL_ERROR);
   }
-  return result;
+  if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) {
+    throw new CliError("--args must be a JSON object", ExitCode.GENERAL_ERROR);
+  }
+  return parsed as Record<string, unknown>;
+}
+
+/** JSON value (number, boolean, array) when the text parses as one, the text otherwise. */
+function parseFlagValue(text: string): unknown {
+  try {
+    return JSON.parse(text);
+  } catch {
+    return text;
+  }
+}
+
+/** Value of a flag written without `=`, and how many tokens it spans. */
+function readSpacedValue(
+  flag: string,
+  next: string | undefined,
+  isBoolean: boolean,
+): { value: unknown; width: number } {
+  if (isBoolean) {
+    return next === "true" || next === "false"
+      ? { value: next === "true", width: 2 }
+      : { value: true, width: 1 };
+  }
+  if (next === undefined || next.startsWith("--")) {
+    throw new CliError(`${flag} needs a value: ${flag}=<value> or ${flag} <value>`, ExitCode.GENERAL_ERROR);
+  }
+  return { value: parseFlagValue(next), width: 2 };
+}
+
+interface ToolInputSchema {
+  properties?: Record<string, { type?: string; description?: string }>;
+  required?: string[];
+}
+
+/** JSON Schema of a tool's input: the same Zod schema that validates it. */
+function toolInputSchema(tool: McpToolName): ToolInputSchema {
+  return z.toJSONSchema(toolSchemas[tool], { io: "input", unrepresentable: "any" }) as ToolInputSchema;
+}
+
+function booleanParams(tool: McpToolName): Set<string> {
+  const { properties = {} } = toolInputSchema(tool);
+  return new Set(Object.keys(properties).filter((key) => properties[key].type === "boolean"));
+}
+
+/**
+ * `graph-it tool <name> --help`: the tool's parameters with type, required flag
+ * and description, plus an example. Undefined for an unknown tool name, so the
+ * caller falls back to the generic `tool` help.
+ */
+export function getToolHelp(name: string): string | undefined {
+  if (!TOOL_NAMES.includes(name as McpToolName)) return undefined;
+  const tool = name as McpToolName;
+  const { properties = {}, required = [] } = toolInputSchema(tool);
+  const params = Object.entries(properties).map(([key, prop]) => {
+    const flag = `--${key} <${prop.type ?? "json"}>`.padEnd(32);
+    const presence = required.includes(key) ? "required" : "optional";
+    return `  ${flag} ${presence}${prop.description ? `  ${prop.description}` : ""}`;
+  });
+  const example = ["graph-it tool", tool, ...required.map((key) => `--${key} <${key}>`)].join(" ");
+  return `graph-it tool ${tool} — ${toolSummary(tool)}
+
+Usage: graph-it tool ${tool} [--<param> <value>...] [--args '<json>'] [options]
+
+Parameters:
+${params.length > 0 ? params.join("\n") : "  (none)"}
+
+Array and object values are JSON: --<param>='["a","b"]'.
+
+Example:
+  ${example}
+`;
 }
 
 type CliToolHandler = (params: unknown) => Promise<unknown> | void;

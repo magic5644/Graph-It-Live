@@ -197,6 +197,10 @@ A process that finds `index.lock` held waits for it (the CLI prints
 `Waiting for the index being built by process N...`). A lock whose process is
 gone, or older than 10 minutes, is taken over.
 
+Indexing progress (`Indexing: n/m files...`) redraws in place only when stderr
+is a terminal. Piped or redirected stderr (agents, CI logs) gets a single
+summary line, such as `Indexed n/m files`.
+
 The cache is invalidated automatically when the CLI version changes, when a
 language query file is updated, per file by modification time and size, and
 whenever more than 20% of the workspace changed — that last case triggers a full
@@ -457,6 +461,8 @@ Uses AST analysis (Tree-sitter + ts-morph) to map every symbol in the file and c
 - Which functions/methods call each other
 - Entry points (symbols called by nobody internally)
 - Cycle detection (recursive calls)
+
+Each symbol's `kind` is shown by its LSP SymbolKind name (`Function`, `Method`, `Class`, …) in every format. The MCP `analyze_file_logic` tool keeps the numeric value.
 
 **Output (text):**
 
@@ -1182,8 +1188,9 @@ graph-it export src/analyzer --format html --output analyzer.html
 Invoke any of the 22 analysis tools supported by the generic CLI command: the 17 MCP analysis tools plus five CLI-only transition aliases (see [Tool Count: CLI vs MCP](#tool-count-cli-vs-mcp)). The other five MCP tools have dedicated CLI equivalents or are covered by `--workspace`.
 
 ```
-graph-it tool <name> [--<param>=<value>...] [options]
+graph-it tool <name> [--<param>=<value> | --<param> <value>...] [options]
 graph-it tool --list
+graph-it tool <name> --help
 graph-it tool <name> --args '<json>'
 ```
 
@@ -1198,8 +1205,9 @@ graph-it tool <name> --args '<json>'
 
 | Option | Default | Description |
 |--------|---------|-------------|
-| `--<param>=<value>` | — | Pass individual parameters directly |
-| `--args '<json>'` | — | Pass parameters as a JSON object. Named `--<param>=<value>` flags are merged in and override matching keys |
+| `--<param>=<value>`, `--<param> <value>` | — | Pass individual parameters directly. Values are read as JSON when they parse (numbers, booleans, arrays), as text otherwise. A boolean parameter may stand alone (`--includeTypeOnly`). Any other token is a usage error |
+| `--args '<json>'` | — | Pass parameters as a JSON object. Named `--<param>` flags are merged in and override matching keys |
+| `--help, -h` | — | After `<name>`: list that tool's parameters (type, required/optional, description) and an example |
 | `--workspace, -w` | auto-detected | Project root |
 | `--format, -f` | `text` | Output format |
 
