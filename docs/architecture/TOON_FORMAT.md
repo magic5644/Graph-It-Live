@@ -366,6 +366,6 @@ When modifying the TOON module:
 
 ### Related Documentation
 
-- [MCP Server Documentation](../docs/mcp-server.md)
-- [Response Formatting](../src/mcp/responseFormatter.ts)
-- [Shared Utilities](../src/shared/README.md)
+- [CLI and MCP tools reference](../CLI.md)
+- [Response Formatting](../../src/mcp/responseFormatter.ts)
+- [TOON encoder](../../src/shared/toon.ts)

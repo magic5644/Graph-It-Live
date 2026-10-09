@@ -181,7 +181,7 @@ docs/AGENT_*
 !.agents/plugins/marketplace.json
 
 
-codemaps/
+/codemaps/
 
 mcp.json
 !plugins/

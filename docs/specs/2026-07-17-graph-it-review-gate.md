@@ -6,7 +6,7 @@
 
 ## Risk model
 
-A breaking signature finding contributes 50 points. Each known dependent contributes 5 points. A detected symbol cycle contributes 20 points, an unused changed export contributes 10 points, and no conventional test-file candidate contributes 10 points. An impact traversal truncated by depth contributes 10 points. The per-symbol score is capped at 100; the review score is the maximum symbol score. Thresholds: low < 20, medium < 50, high < 80, critical ≥ 80.
+A symbol without an error-level breaking change scores 0. Otherwise the breaking finding contributes once per symbol: 50 points, 25 when a test covers the change, or 5 (residual) when impact is confirmed zero, when consumers need not act (`consumersMustAct` is false: only return types changed), or when the diff updates every consumer. When consumers must act, each consumer the diff does not touch (covered or unverified) contributes 5 points, and a partial impact walk contributes 10 points. A detected symbol cycle contributes 20 points, an unused changed export 10 points, and no conventional test-file candidate 10 points. The per-symbol score is capped at 100; the review score is the maximum symbol score. Thresholds: low < 20, medium < 50, high < 80, critical ≥ 80.
 
 ## Security and trust boundaries
 
@@ -16,7 +16,7 @@ The VS Code URI is `vscode://magic5644.graph-it-live/graph-it-live.reviewCallGra
 
 ## External composite Action distribution
 
-The composite Action is consumed from `magic5644/Graph-It-Live/.github/actions/graph-it-review-gate@v1.14.2`; it has no trigger and each consumer supplies a `pull_request` workflow with a full-history checkout. It installs `@magic5644/graph-it-live@latest` in an isolated temporary npm prefix by default. A non-empty `cli-version` input is passed as the package specifier, so it may be an exact version, tag, or range. The Action parses the actual CLI output (`graph-it-live vX.Y.Z`), exposes the resolved version, and rejects every effective version lower than `1.13.0`, including prereleases of that minimum.
+The composite Action is consumed from `magic5644/Graph-It-Live/.github/actions/graph-it-review-gate@v1.18.0`; it has no trigger and each consumer supplies a `pull_request` workflow with a full-history checkout. It installs `@magic5644/graph-it-live@latest` in an isolated temporary npm prefix by default. A non-empty `cli-version` input is passed as the package specifier, so it may be an exact version, tag, or range. The Action parses the actual CLI output (`graph-it-live vX.Y.Z`), exposes the resolved version, and rejects every effective version lower than `1.13.0`, including prereleases of that minimum.
 
 The Action does not run `npm ci`, project scripts, or local builds in the consumer checkout. It invokes the installed CLI with `--workspace "$GITHUB_WORKSPACE"`. Consumer workflows must use `pull_request`, never `pull_request_target`, for untrusted code. Comments require `pull-requests: write` and should be disabled (`comment: false`) for fork PRs; read-only analysis requires only `contents: read`. npm publication, public `npx` verification, and creation of an immutable release tag are manual post-merge release steps.
 

@@ -45,7 +45,7 @@ When using the "Filter Unused Dependencies" feature in Graph-It-Live:
 
 ## Test Coverage
 
-See [tests/analyzer/RustUnusedImportsIntegration.test.ts](../../tests/analyzer/RustUnusedImportsIntegration.test.ts) for:
+See [tests/analyzer/RustUnusedImportsIntegration.test.ts](../../analyzer/RustUnusedImportsIntegration.test.ts) for:
 1. Detection of called functions in symbol dependencies
 2. Exclusion of uncalled (imported-only) functions from dependencies
 3. Correct file-level usage verification
