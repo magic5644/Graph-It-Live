@@ -210,6 +210,32 @@ describe.skipIf(!distExists)("CLI global options (E2E)", { timeout: SUBPROCESS_T
       if (child.exitCode === null) child.kill();
     }
   });
+
+  it("reads tool --param value like --param=value, without \\r progress on piped stderr (#268)", () => {
+    const file = path.join(tmpDir, "src/a.ts");
+    const result = cli("tool", "generate_codemap", "-w", tmpDir, "--filePath", file, "--format", "json");
+
+    expect(result.status).toBe(0);
+    expect(JSON.parse(result.stdout).filePath).toBe(file);
+    expect(result.stderr).not.toContain("\r");
+  });
+
+  it("rejects a stray tool argument with a usage error (#268)", () => {
+    const result = cli("tool", "generate_codemap", "-w", tmpDir, path.join(tmpDir, "src/a.ts"));
+
+    expect(result.status).toBe(1);
+    expect(result.stderr).toContain("Unexpected argument");
+  });
+
+  it("lists a tool's parameters for tool <name> --help, generic help otherwise (#268)", () => {
+    const toolHelp = cli("tool", "generate_codemap", "--help");
+    expect(toolHelp.status).toBe(0);
+    expect(toolHelp.stdout).toMatch(/--filePath <string>\s+required/);
+
+    const generic = cli("tool", "nope", "--help");
+    expect(generic.status).toBe(0);
+    expect(generic.stdout).toContain("graph-it tool — Invoke any MCP tool directly");
+  });
 });
 
 describe.skipIf(!distExists)("CLI numeric options (E2E)", { timeout: SUBPROCESS_TIMEOUT_MS }, () => {

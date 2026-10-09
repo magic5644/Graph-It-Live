@@ -42,10 +42,14 @@ describe("CliRuntime index cache", { timeout: 15_000 }, () => {
   };
 
   /** Same cycle, but not silent: returns what the user would see on stderr. */
-  const runVerbose = async (): Promise<{ stderr: string; outcome: IndexOutcome }> => {
+  const runVerbose = async (
+    { isTTY = false } = {},
+  ): Promise<{ stderr: string; outcome: IndexOutcome }> => {
     const runtime = new CliRuntime(tmpDir);
     runtimes.push(runtime);
     let stderr = "";
+    const ttyDescriptor = Object.getOwnPropertyDescriptor(process.stderr, "isTTY");
+    Object.defineProperty(process.stderr, "isTTY", { value: isTTY, configurable: true, writable: true });
     const write = vi
       .spyOn(process.stderr, "write")
       .mockImplementation((chunk: string | Uint8Array) => {
@@ -59,6 +63,8 @@ describe("CliRuntime index cache", { timeout: 15_000 }, () => {
       return { stderr, outcome };
     } finally {
       write.mockRestore();
+      if (ttyDescriptor) Object.defineProperty(process.stderr, "isTTY", ttyDescriptor);
+      else delete (process.stderr as { isTTY?: boolean }).isTTY;
     }
   };
 
@@ -254,6 +260,22 @@ describe("CliRuntime index cache", { timeout: 15_000 }, () => {
 
     expect(outcome).toMatchObject({ fromCache: true, filesAnalyzed: 1 });
     expect(stderr).toContain("from cache, re-indexed 1 changed");
+  });
+
+  it("prints only a plain summary line when stderr is not a TTY (issue #268)", async () => {
+    const { stderr, outcome } = await runVerbose({ isTTY: false });
+    // Timestamped lines come from the logger, not from the progress output.
+    const progress = stderr.split("\n").filter((line) => line && !/^\d{4}-\d{2}-\d{2}T/.test(line));
+
+    expect(stderr).not.toContain("\r");
+    expect(progress).toEqual([`  Indexed ${outcome.filesIndexed}/${outcome.filesFound} files`]);
+  });
+
+  it("redraws progress with \\r on a TTY", async () => {
+    const { stderr, outcome } = await runVerbose({ isTTY: true });
+
+    expect(stderr).toContain("\r  Indexing workspace...");
+    expect(stderr).toContain(`\r  Indexed ${outcome.filesIndexed}/${outcome.filesFound} files\n`);
   });
 
   it("never prints a 0/0 progress line", async () => {

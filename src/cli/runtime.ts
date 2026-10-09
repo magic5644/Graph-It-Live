@@ -251,6 +251,9 @@ export class CliRuntime {
     const spider = workerState.spider;
     const startTime = Date.now();
     const silent = options?.silent ?? false;
+    // `\r` redraws only make sense on a terminal: piped or redirected stderr
+    // (agents, CI logs) gets just the final summary line.
+    const live = !silent && process.stderr.isTTY === true;
     // Names the work actually in progress: a warm run re-analyzes only the files
     // that changed, and calling that "Indexing" over the whole workspace count
     // would misreport where the answers come from.
@@ -258,7 +261,7 @@ export class CliRuntime {
 
     const unsubscribe = spider.subscribeToIndexStatus((snapshot) => {
       // total === 0 means there is nothing to do — printing "0/0" reads as a bug.
-      if (!silent && snapshot.state === "indexing" && snapshot.total > 0) {
+      if (live && snapshot.state === "indexing" && snapshot.total > 0) {
         process.stderr.write(
           `\r  ${progressLabel}: ${snapshot.processed}/${snapshot.total} files...`,
         );
@@ -271,7 +274,7 @@ export class CliRuntime {
         reverseIndexOptions: { excludeNodeModules: true, ignoreTypeImports: false },
         sourceFiles: this.indexCache ? await this.collectSourceFiles() : undefined,
         buildFullIndex: () => {
-          if (!silent) process.stderr.write("\r  Indexing workspace...");
+          if (live) process.stderr.write("\r  Indexing workspace...");
           return spider.buildFullIndex();
         },
         onWait: (holderPid) => {
@@ -286,7 +289,7 @@ export class CliRuntime {
 
       const durationMs = Date.now() - startTime;
       if (!silent) {
-        process.stderr.write(this.describeOutcome(result) + "\n");
+        process.stderr.write(`${live ? "\r" : ""}${this.describeOutcome(result)}\n`);
         const warning = this.describeOutOfRootImports();
         if (warning) process.stderr.write(`  Warning: ${warning}\n`);
       }
@@ -327,12 +330,12 @@ export class CliRuntime {
   /** One-line stderr summary naming where this run's index came from. */
   private describeOutcome(result: Omit<IndexOutcome, "durationMs">): string {
     if (!result.fromCache) {
-      return `\r  Indexed ${result.filesIndexed}/${result.filesFound} files`;
+      return `  Indexed ${result.filesIndexed}/${result.filesFound} files`;
     }
     if (result.filesAnalyzed === 0) {
-      return `\r  Loaded ${result.filesIndexed} files from cache (nothing changed)`;
+      return `  Loaded ${result.filesIndexed} files from cache (nothing changed)`;
     }
-    return `\r  Loaded ${result.filesIndexed} files from cache, re-indexed ${result.filesAnalyzed} changed`;
+    return `  Loaded ${result.filesIndexed} files from cache, re-indexed ${result.filesAnalyzed} changed`;
   }
 
   /** Walk the workspace once per process and memoize the result. */

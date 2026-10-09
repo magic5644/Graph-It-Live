@@ -378,7 +378,11 @@ async function main(): Promise<void> {
   const rawArgvSlice = process.argv.slice(2);
   if (values.help || commandWantsHelp(command, commandArgs, rawArgvSlice)) {
     const { getCommandHelp } = await import("./commandHelp.js");
-    process.stdout.write(getCommandHelp(command));
+    // `tool <name> --help` lists that tool's parameters; an unknown name gets the generic tool help.
+    const toolHelp = command === "tool" && commandArgs[0]
+      ? (await import("./commands/tool.js")).getToolHelp(commandArgs[0])
+      : undefined;
+    process.stdout.write(toolHelp ?? getCommandHelp(command));
     process.exit(ExitCode.SUCCESS);
   }
 

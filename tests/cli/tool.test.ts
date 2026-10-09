@@ -90,6 +90,26 @@ describe("tool command dispatch", () => {
     );
   });
 
+  it("reads space-separated values and schema booleans (issue #268)", async () => {
+    await run(
+      ["query_call_graph", "--includeTypeOnly", "--filePath", file, "--symbolName", "a", "--depth", "2"],
+      runtimeStub,
+      "json",
+    );
+    expect(executeMock).toHaveBeenCalledWith(
+      "executeQueryCallGraph",
+      expect.objectContaining({ filePath: file, symbolName: "a", depth: 2, includeTypeOnly: true }),
+    );
+  });
+
+  it("rejects a stray positional without indexing the workspace", async () => {
+    vi.mocked(runtimeStub.ensureIndexed).mockClear();
+    await expect(run(["generate_codemap", file], runtimeStub, "json")).rejects.toThrow(
+      `Unexpected argument "${file}"`,
+    );
+    expect(runtimeStub.ensureIndexed).not.toHaveBeenCalled();
+  });
+
   const cases: Array<[string, (f: string) => Record<string, unknown>, string]> = [
     ["analyze_dependencies", (f) => ({ filePath: f }), "executeAnalyzeDependencies"],
     ["crawl_dependency_graph", (f) => ({ entryFile: f }), "executeCrawlDependencyGraph"],

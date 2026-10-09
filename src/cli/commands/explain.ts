@@ -13,6 +13,14 @@ import { formatOutput } from "../formatter";
 import type { CliRuntime } from "../runtime";
 import { parseSymbolRef } from "../symbols";
 
+/** LSP SymbolKind names, indexed by kind number - 1 (the spec numbers them from 1). */
+const LSP_SYMBOL_KIND_NAMES = [
+  "File", "Module", "Namespace", "Package", "Class", "Method", "Property", "Field",
+  "Constructor", "Enum", "Interface", "Function", "Variable", "Constant", "String",
+  "Number", "Boolean", "Array", "Object", "Key", "Null", "EnumMember", "Struct",
+  "Event", "Operator", "TypeParameter",
+];
+
 export async function run(
   args: string[],
   runtime: CliRuntime,
@@ -33,5 +41,10 @@ export async function run(
     filePath: ref.filePath,
   });
 
-  return formatOutput(result, format, "explain");
+  // MCP and the webview keep the LSP number; a CLI reader needs its name.
+  const nodes = result.graph.nodes.map((node) => ({
+    ...node,
+    kind: LSP_SYMBOL_KIND_NAMES[node.kind - 1] ?? node.kind,
+  }));
+  return formatOutput({ ...result, graph: { ...result.graph, nodes } }, format, "explain");
 }

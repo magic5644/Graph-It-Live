@@ -38,7 +38,7 @@ Usage: graph-it scan [options]
 Options:
   --workspace, -w   Workspace root directory (default: auto-detected)
   --format, -f      Output format: text|json|toon|markdown|mermaid (default: text)
-  --help, -h        Show this help
+  --help, -h        Show this help; after <name>, list that tool's parameters
 
 Examples:
   graph-it scan
@@ -332,7 +332,8 @@ Examples:
 `,
   tool: `graph-it tool — Invoke any MCP tool directly
 
-Usage: graph-it tool <name> [--<param>=<value>...] [options]
+Usage: graph-it tool <name> [--<param>=<value> | --<param> <value>...] [options]
+       graph-it tool <name> --help
        graph-it tool --list
 
 Arguments:
@@ -340,8 +341,8 @@ Arguments:
 
 Options:
   --list            List all available MCP tools with descriptions
-  --args '<json>'   Pass parameters as a JSON object; named --<param>=<value>
-                    flags are merged in and override matching keys
+  --args '<json>'   Pass parameters as a JSON object; named --<param> flags
+                    are merged in and override matching keys
   --workspace, -w   Workspace root directory (default: auto-detected)
   --format, -f      Output format: text|json|toon|markdown|mermaid (default: text)
   --help, -h        Show this help
@@ -350,6 +351,8 @@ Examples:
   graph-it tool --list
   graph-it tool get_index_status
   graph-it tool analyze_dependencies --filePath=/abs/path/file.ts
+  graph-it tool analyze_dependencies --filePath /abs/path/file.ts
+  graph-it tool generate_codemap --help
   graph-it tool crawl_dependency_graph --entryFile=/abs/path/file.ts
   graph-it tool analyze_dependencies --args '{"filePath":"/abs/path/file.ts"}'
   graph-it tool query_call_graph --filePath=/abs/path/file.ts --symbolName=handle --direction=callers --depth=1
