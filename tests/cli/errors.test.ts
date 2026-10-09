@@ -28,19 +28,12 @@ describe("classifyError", () => {
     expect(result.exitCode).toBe(ExitCode.WORKSPACE_NOT_FOUND);
   });
 
-  it("classifies path traversal as security violation", () => {
-    const result = classifyError(new Error("Path traversal detected"));
-    expect(result.exitCode).toBe(ExitCode.SECURITY_VIOLATION);
-  });
-
-  it("classifies outside workspace as security violation", () => {
-    const result = classifyError(new Error("path is outside workspace"));
-    expect(result.exitCode).toBe(ExitCode.SECURITY_VIOLATION);
-  });
-
-  it("classifies a symbolic-link escape as security violation", () => {
-    const result = classifyError(new Error("File path escapes workspace through a symbolic link: linked"));
-    expect(result.exitCode).toBe(ExitCode.SECURITY_VIOLATION);
+  it.each([
+    "Path traversal detected",
+    "path is outside workspace",
+    "File path escapes workspace through a symbolic link: linked",
+  ])("classifies %s as security violation", (message) => {
+    expect(classifyError(new Error(message)).exitCode).toBe(ExitCode.SECURITY_VIOLATION);
   });
 
   it("classifies not initialized as workspace not found", () => {
