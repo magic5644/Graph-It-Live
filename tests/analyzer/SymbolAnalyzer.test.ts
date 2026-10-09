@@ -249,6 +249,47 @@ export function parse(input: string, radix?: number): number {
     expect(parseSymbols).toHaveLength(1);
   });
 
+  describe('intra-file member calls', () => {
+    const targetsOf = (content: string, source: string) => new SymbolAnalyzer()
+      .analyzeFileContent('/calls.ts', content).dependencies
+      .filter(d => d.sourceSymbolId === `/calls.ts:${source}`)
+      .map(d => d.targetSymbolId);
+
+    // Regression: `spider.scanDeadCode()` inside `function scanDeadCode` was
+    // resolved by name to the function itself and reported as a cycle.
+    it('does not resolve obj.method() to a local function of the same name', () => {
+      const content = `export function scanDeadCode(spider: { scanDeadCode(): number }) { return spider.scanDeadCode(); }\n`;
+      expect(targetsOf(content, 'scanDeadCode')).not.toContain('/calls.ts:scanDeadCode');
+    });
+
+    it('does not resolve a bare call to a class method of the same name', () => {
+      const content = `export class Runner { run() { return 1; } }\nexport function start(run: () => number) { return run(); }\n`;
+      expect(targetsOf(content, 'start')).toEqual([]);
+    });
+
+    it('resolves this.method() to the enclosing class method, arrow functions included', () => {
+      const content = `export class Greeter {
+  greet() { return [1].map(() => this.wrap()); }
+  wrap() { return 1; }
+}
+`;
+      expect(targetsOf(content, 'Greeter')).toContain('/calls.ts:Greeter.wrap');
+    });
+
+    it('ignores this.method() where this is not the class instance', () => {
+      const content = `export class Greeter {
+  greet() {
+    const other = { wrap() { return 2; }, call() { return this.wrap(); } };
+    return function (this: { wrap(): number }) { return this.wrap(); }.call(other);
+  }
+  wrap() { return 1; }
+  missing() { return this.absent?.(); }
+}
+`;
+      expect(targetsOf(content, 'Greeter')).not.toContain('/calls.ts:Greeter.wrap');
+    });
+  });
+
   it('should record end lines for symbols and lines for call sites', () => {
     const analyzer = new SymbolAnalyzer();
     const content = `import { format } from './format';
@@ -284,7 +325,7 @@ export function main() {
     const lineOf = (source: string, target: string) =>
       result.dependencies.find(d => d.sourceSymbolId === `/greeter.ts:${source}` && d.targetSymbolId.endsWith(target))?.line;
     expect(lineOf('Greeter', ':format')).toBe(5);
-    expect(lineOf('Greeter', ':wrap')).toBe(5);
+    expect(lineOf('Greeter', ':Greeter.wrap')).toBe(5);
     expect(lineOf('main', ':helper')).toBe(18);
     expect(lineOf('main', './lazy:default')).toBe(19);
   });
