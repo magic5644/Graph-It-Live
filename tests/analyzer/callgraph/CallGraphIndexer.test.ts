@@ -13,6 +13,8 @@ import type {
     CallGraphEdge,
     CallGraphNode,
 } from "../../../src/analyzer/callgraph/CallGraphIndexer";
+import fs from "node:fs/promises";
+import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
@@ -121,6 +123,42 @@ describe("CallGraphIndexer", () => {
     const fresh = new CallGraphIndexer(SQL_WASM_PATH);
     await expect(fresh.init()).resolves.not.toThrow();
     fresh.dispose();
+  });
+
+  describe("loadFromFile", () => {
+    let dir: string;
+
+    beforeEach(async () => {
+      dir = await fs.mkdtemp(path.join(os.tmpdir(), "gil-cgdb-"));
+    });
+
+    afterEach(async () => {
+      await fs.rm(dir, { recursive: true, force: true });
+    });
+
+    it("loads a database saved with the current schema version", async () => {
+      const dbPath = path.join(dir, "callgraph.db");
+      await indexer.saveToFile(dbPath);
+      const fresh = new CallGraphIndexer(SQL_WASM_PATH);
+
+      await expect(fresh.loadFromFile(dbPath)).resolves.toBe(true);
+      fresh.dispose();
+    });
+
+    // v3 databases hold the old typescript.scm output (#267): rebuild them
+    it("rejects a database saved with schema version 3", async () => {
+      const dbPath = path.join(dir, "callgraph.db");
+      indexer.getDb().run("UPDATE metadata SET value = '3' WHERE key = 'schema_version'");
+      await indexer.saveToFile(dbPath);
+      const fresh = new CallGraphIndexer(SQL_WASM_PATH);
+
+      await expect(fresh.loadFromFile(dbPath)).resolves.toBe(false);
+      fresh.dispose();
+    });
+
+    it("returns false when the file does not exist", async () => {
+      await expect(indexer.loadFromFile(path.join(dir, "missing.db"))).resolves.toBe(false);
+    });
   });
 
   it("getDb() throws before init()", () => {

@@ -8,12 +8,13 @@ import { executeScanDeadCode } from "../../../src/mcp/tools/deadcode";
 describe("deadcode tools", () => {
   let tempDir: string;
 
-  const makeSymbol = (name: string, kind = "FunctionDeclaration") => ({
+  const makeSymbol = (name: string, kind = "FunctionDeclaration", category = "function") => ({
     id: `sym:${name}`,
     name,
     kind,
     line: 1,
     isExported: true,
+    category,
   });
 
   const setupWorkerState = (spiderMock: any) => {
@@ -74,7 +75,7 @@ describe("deadcode tools", () => {
       expect(result.analysisTimeMs).toBeGreaterThanOrEqual(0);
     });
 
-    it("should categorize symbol kinds correctly", async () => {
+    it("should keep the category set by the language analyzer", async () => {
       const fileA = path.join(tempDir, "index.ts");
 
       const spiderMock = {
@@ -83,12 +84,12 @@ describe("deadcode tools", () => {
             {
               filePath: fileA,
               unusedSymbols: [
-                makeSymbol("myFn", "FunctionDeclaration"),
-                makeSymbol("MyClass", "ClassDeclaration"),
-                makeSymbol("myVar", "VariableDeclaration"),
-                makeSymbol("MyInterface", "InterfaceDeclaration"),
-                makeSymbol("MyType", "TypeAliasDeclaration"),
-                makeSymbol("other", "EnumDeclaration"),
+                // Arrow const: kind says variable, the analyzer says function
+                makeSymbol("arrowFn", "VariableDeclaration", "function"),
+                makeSymbol("count", "VariableDeclaration", "variable"),
+                makeSymbol("Color", "EnumDeclaration", "type"),
+                // Rust struct: no kind substring maps it, the analyzer says class
+                makeSymbol("Point", "StructDeclaration", "class"),
               ],
             },
           ],
@@ -100,14 +101,14 @@ describe("deadcode tools", () => {
       setupWorkerState(spiderMock);
 
       const result = await executeScanDeadCode({});
-      const symbols = result.entries[0].unusedSymbols;
+      const categories = result.entries[0].unusedSymbols.map((s) => [s.name, s.category]);
 
-      expect(symbols.find((s) => s.name === "myFn")?.category).toBe("function");
-      expect(symbols.find((s) => s.name === "MyClass")?.category).toBe("class");
-      expect(symbols.find((s) => s.name === "myVar")?.category).toBe("variable");
-      expect(symbols.find((s) => s.name === "MyInterface")?.category).toBe("interface");
-      expect(symbols.find((s) => s.name === "MyType")?.category).toBe("type");
-      expect(symbols.find((s) => s.name === "other")?.category).toBe("other");
+      expect(categories).toEqual([
+        ["arrowFn", "function"],
+        ["count", "variable"],
+        ["Color", "type"],
+        ["Point", "class"],
+      ]);
     });
 
     it("should use provided scopePath when given", async () => {
