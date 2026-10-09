@@ -29,7 +29,10 @@ export interface McpWorkerHostOptions {
   workerPath: string;
   /** Timeout for warmup in milliseconds (default: 60000 = 1 minute) */
   warmupTimeout?: number;
-  /** Timeout for tool invocations in milliseconds (default: 30000 = 30 seconds) */
+  /**
+   * Timeout for tool invocations in milliseconds (default: 30000 = 30 seconds).
+   * Measured from when the worker starts the request, not from when it was queued.
+   */
   invokeTimeout?: number;
 }
 
@@ -60,9 +63,16 @@ export interface IndexFreshness {
 }
 
 interface PendingRequest {
+  tool: McpToolName;
+  params: unknown;
   resolve: (data: unknown) => void;
   reject: (error: Error) => void;
-  timeoutId: ReturnType<typeof setTimeout>;
+  /** Time the request entered the queue */
+  queuedAt: number;
+  /** Requests queued or running ahead of this one when it was queued */
+  queuedAhead: number;
+  /** Set once the request is posted to the worker */
+  timeoutId?: ReturnType<typeof setTimeout>;
 }
 
 // ============================================================================
@@ -80,7 +90,9 @@ export class McpWorkerHost {
   private readonly invokeTimeout: number;
   private isReady = false;
   private isStarting = false;
+  /** Running and queued requests, in FIFO order (Map keeps insertion order) */
   private readonly pendingRequests = new Map<string, PendingRequest>();
+  private activeRequestId: string | null = null;
   private requestCounter = 0;
   private warmupProgressCallback: WarmupProgressCallback | null = null;
   private indexedAt: string | null = null;
@@ -205,7 +217,13 @@ export class McpWorkerHost {
   }
 
   /**
-   * Invoke a tool on the worker
+   * Invoke a tool on the worker.
+   *
+   * Requests run one at a time, in arrival order. CPU-bound analysis on the
+   * single worker thread does not get faster by interleaving, and interleaved
+   * requests all finish together, so a burst would exhaust every caller's
+   * timeout at once. Serialized, each request gets the full timeout for its own
+   * work and the error says how long it waited behind others.
    * @param tool The tool name to invoke
    * @param params The parameters for the tool
    * @returns The result from the tool
@@ -218,27 +236,43 @@ export class McpWorkerHost {
     const requestId = this.generateRequestId();
 
     const result = await new Promise<T>((resolve, reject) => {
-      const timeoutId = setTimeout(() => {
-        this.pendingRequests.delete(requestId);
-        this.worker?.postMessage({ type: 'cancel', requestId });
-        reject(new Error(`Tool invocation timeout after ${this.invokeTimeout}ms`));
-      }, this.invokeTimeout);
-
       this.pendingRequests.set(requestId, {
-        resolve: resolve as (data: unknown) => void,
-        reject,
-        timeoutId,
-      });
-
-      this.postMessage({
-        type: 'invoke',
-        requestId,
         tool,
         params,
+        resolve: resolve as (data: unknown) => void,
+        reject,
+        queuedAt: Date.now(),
+        queuedAhead: this.pendingRequests.size,
       });
+      this.startNextRequest();
     });
     this.recordFreshness(tool);
     return result;
+  }
+
+  /** Post the oldest queued request once the worker is idle, and arm its timeout. */
+  private startNextRequest(): void {
+    if (this.activeRequestId || !this.worker) return;
+    const next = this.pendingRequests.entries().next();
+    if (next.done) return;
+    const [requestId, request] = next.value;
+    this.activeRequestId = requestId;
+    const waitedMs = Date.now() - request.queuedAt;
+
+    // ponytail: a timed-out request frees the slot at once. A handler that ignores
+    // the cancel keeps running beside the next request; handlers that loop over
+    // files check the AbortSignal, so this overlap stays short.
+    request.timeoutId = setTimeout(() => {
+      this.worker?.postMessage({ type: 'cancel', requestId });
+      const stillQueued = this.pendingRequests.size - 1;
+      this.takeRequest(requestId)?.reject(new Error(
+        `Tool invocation timeout after ${this.invokeTimeout}ms of work ` +
+        `(waited ${waitedMs}ms in queue behind ${request.queuedAhead} request(s); ` +
+        `${stillQueued} still queued)`
+      ));
+    }, this.invokeTimeout);
+
+    this.postMessage({ type: 'invoke', requestId, tool: request.tool, params: request.params });
   }
 
   /** Explicit invalidations and rebuilds move the freshness the same way the file watcher does. */
@@ -325,12 +359,13 @@ export class McpWorkerHost {
    * Clean up internal state
    */
   private cleanup(): void {
-    // Reject all pending requests
+    // Reject all running and queued requests
     for (const [requestId, pending] of this.pendingRequests) {
       clearTimeout(pending.timeoutId);
       pending.reject(new Error('Worker terminated'));
       this.pendingRequests.delete(requestId);
     }
+    this.activeRequestId = null;
 
     this.worker = null;
     this.isReady = false;
@@ -356,26 +391,31 @@ export class McpWorkerHost {
   }
 
   /**
+   * Remove a request and, when it was the running one, start the next queued request
+   */
+  private takeRequest(requestId: string): PendingRequest | undefined {
+    const pending = this.pendingRequests.get(requestId);
+    if (!pending) return undefined;
+    clearTimeout(pending.timeoutId);
+    this.pendingRequests.delete(requestId);
+    if (this.activeRequestId === requestId) {
+      this.activeRequestId = null;
+      this.startNextRequest();
+    }
+    return pending;
+  }
+
+  /**
    * Resolve a pending request
    */
   private resolveRequest(requestId: string, data: unknown): void {
-    const pending = this.pendingRequests.get(requestId);
-    if (pending) {
-      clearTimeout(pending.timeoutId);
-      this.pendingRequests.delete(requestId);
-      pending.resolve(data);
-    }
+    this.takeRequest(requestId)?.resolve(data);
   }
 
   /**
    * Reject a pending request
    */
   private rejectRequest(requestId: string, error: Error): void {
-    const pending = this.pendingRequests.get(requestId);
-    if (pending) {
-      clearTimeout(pending.timeoutId);
-      this.pendingRequests.delete(requestId);
-      pending.reject(error);
-    }
+    this.takeRequest(requestId)?.reject(error);
   }
 }

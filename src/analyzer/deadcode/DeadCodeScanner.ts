@@ -47,10 +47,11 @@ export async function scanDeadCode(
   spider: Spider,
   rootDir: string,
   options: DeadCodeScanOptions,
+  signal?: AbortSignal,
 ): Promise<DeadCodeScanResult> {
   const scopePath = validateWorkspacePath(options.scopePath ?? rootDir, rootDir);
   const startTime = Date.now();
-  const rawResult = await spider.scanDeadCode(scopePath, { maxFiles: options.maxFiles });
+  const rawResult = await spider.scanDeadCode(scopePath, { maxFiles: options.maxFiles, signal });
   const entries = rawResult.entries.map((entry) => {
     const unusedSymbols = entry.unusedSymbols.map((symbol) => ({
       ...symbol,

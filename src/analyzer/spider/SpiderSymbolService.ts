@@ -1,4 +1,5 @@
 import path from 'node:path';
+import { setImmediate } from 'node:timers/promises';
 import { SUPPORTED_SYMBOL_ANALYSIS_EXTENSIONS } from '../../shared/constants';
 import { getLogger } from '../../shared/logger';
 import { AstWorkerHost } from '../ast/AstWorkerHost';
@@ -485,14 +486,15 @@ export class SpiderSymbolService {
    * @param options.maxFiles - Hard cap on files analysed (default: 500).
    * @param options.hasReverseIndex - Whether the reverse index is available.
    *   If false, throws INDEX_NOT_READY — we never fall back to O(n²) lookups.
+   * @param options.signal - Aborts the scan between files.
    * @returns Array of { filePath, unusedSymbols } entries (only files that
    *   have at least one unused export are included).
    */
   async scanDeadCode(
     scopePath: string,
-    options: { maxFiles?: number; hasReverseIndex: boolean }
+    options: { maxFiles?: number; hasReverseIndex: boolean; signal?: AbortSignal }
   ): Promise<{ entries: Array<{ filePath: string; unusedSymbols: SymbolInfo[] }>; scannedFiles: number; skippedFiles: number; filesBeyondLimit: number }> {
-    const { maxFiles = 500, hasReverseIndex } = options;
+    const { maxFiles = 500, hasReverseIndex, signal } = options;
 
     if (!hasReverseIndex) {
       throw new SpiderError(
@@ -523,6 +525,11 @@ export class SpiderSymbolService {
     let skippedFiles = 0;
 
     for (const filePath of filesToScan) {
+      if (signal) {
+        // Yield to the event loop so a pending cancel message can abort the signal.
+        await setImmediate();
+        signal.throwIfAborted();
+      }
       try {
         const unusedSymbols = await this.findUnusedSymbols(filePath);
         if (unusedSymbols.length > 0) {
