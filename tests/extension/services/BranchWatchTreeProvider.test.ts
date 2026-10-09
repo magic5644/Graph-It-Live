@@ -29,7 +29,8 @@ describe('BranchWatchTreeProvider', () => {
     expect(tree.getChildren().find(item => item.label === 'Tests')?.children?.[0].label).toBe('Tests must pass before delivery.');
     const changed = { ...result, fileImpacts: [{ path: 'api.py', availability: 'available' as const, limitations: [], dependents: [{ path: 'consumer.py', depth: 1, changed: false }] }], limitations: ['behavior unverified'] };
     tree.setState({ phase: 'ready', result: changed });
-    expect(branchWatchStatus({ phase: 'ready', result: changed }).text).toContain('WARNING · 1 checks · risk low · confidence medium');
+    // "behavior unverified" holds for any static analysis: it does not lower confidence.
+    expect(branchWatchStatus({ phase: 'ready', result: changed }).text).toContain('WARNING · 1 checks · risk low · confidence high');
     const files = tree.getChildren().find(item => item.label === 'Changed files');
     const consumer = files?.children?.[0].children?.[0];
     expect(consumer?.command).toMatchObject({ command: 'graph-it-live.branchWatch.openFile', arguments: [{ file: 'consumer.py' }] });
@@ -91,11 +92,38 @@ describe('BranchWatchTreeProvider', () => {
     tree.dispose();
   });
 
+  it('lowers confidence when a scored risk rests on estimated consumers', () => {
+    const symbol = {
+      name: 'Service.run', filePath: 'api.ts', score: 60, risk: 'high' as const, breakingChanges: [], impactedSymbolCount: 4,
+      consumers: { updated: [], covered: [], unverified: ['a.ts'] }, cycleEvidence: [], unusedExportEvidence: false, testCandidates: [],
+      scoreFactors: { breakingChanges: 50, unverifiedConsumers: 5, cycles: 0, unusedExport: 0, missingTestCandidate: 0, partialImpact: 5 },
+      evidence: [{ kind: 'partial' as const, detail: 'Dependents are tracked per exported symbol, not per member.' }],
+    };
+    const estimated = { ...result, review: { ...result.review, risk: 'high' as const, score: 60, symbols: [symbol] } };
+    expect(branchWatchStatus({ phase: 'ready', result: estimated }).text).toContain('confidence medium');
+
+    const unscored = { ...result, review: { ...result.review, symbols: [{ ...symbol, score: 0 }] } };
+    expect(branchWatchStatus({ phase: 'ready', result: unscored }).text).toContain('confidence high');
+  });
+
+  it.each([
+    ['a partial review', { review: { ...result.review, isPartial: true } }],
+    ['a snapshot limitation', { snapshot: { ...result.snapshot, limitations: ['unsafe path skipped'] } }],
+    ['a partial file impact', { fileImpacts: [{ path: 'api.ts', availability: 'partial' as const, limitations: [], dependents: [] }] }],
+  ])('lowers confidence to medium for %s', (_case, override) => {
+    expect(branchWatchStatus({ phase: 'ready', result: { ...result, ...override } }).text).toContain('confidence medium');
+  });
+
+  it('reports low confidence when no changed file could be read', () => {
+    const unreadable = { ...result, snapshot: { ...result.snapshot, changes: [{ path: 'api.ts', kind: 'modified' as const }], readablePaths: [] } };
+    expect(branchWatchStatus({ phase: 'ready', result: unreadable }).text).toContain('confidence low');
+  });
+
   it('exports the complete visible status as plain text', () => {
     const tree = new BranchWatchTreeProvider('/workspace');
     tree.setState({ phase: 'ready', result: { ...result, limitations: ['one limitation'] } });
     const text = tree.getCopyText();
-    expect(text).toContain('WARNING · 1 checks · risk low · confidence medium');
+    expect(text).toContain('WARNING · 1 checks · risk low · confidence high');
     expect(text).toContain('Workspace: /workspace');
     expect(text).toContain('one limitation');
     expect(text).toContain('Tests must pass before delivery.');

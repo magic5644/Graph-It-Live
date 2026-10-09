@@ -134,7 +134,7 @@ export class BranchWatchAnalyzer {
     if (!signatureChanges.length) return emptyReview;
     if (!signatureChanges.every(c => snapshot.readablePaths.includes(c.path))) {
       limitations.push('Signature comparison unavailable: some changed files are unsafe, unreadable or outside the analysis limit.');
-      return emptyReview;
+      return { ...emptyReview, isPartial: true };
     }
     const review = await new ReviewGateAnalyzer(this.root, this.dependents).analyze({
       baseRef: snapshot.mergeBaseSha, maxFiles: this.maxFiles, maxDepth: 3,

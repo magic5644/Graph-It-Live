@@ -196,10 +196,11 @@ describe("ReviewGateAnalyzer", { timeout: GIT_TEST_TIMEOUT }, () => {
 
     expect(result.symbols[0]).toMatchObject({
       name: "Api",
-      score: 10,
+      score: 0,
       risk: "low",
       impactedSymbolCount: 0,
-      scoreFactors: { breakingChanges: 0, unverifiedConsumers: 0, missingTestCandidate: 10 },
+      // No contract broken: a missing test is not a risk this diff creates.
+      scoreFactors: { breakingChanges: 0, unverifiedConsumers: 0, cycles: 0, missingTestCandidate: 0 },
     });
     expect(result.symbols[0].evidence.some((e) => e.kind === "impact")).toBe(false);
   });
@@ -306,10 +307,11 @@ describe("ReviewGateAnalyzer", { timeout: GIT_TEST_TIMEOUT }, () => {
 
     expect(result.symbols[0]).toMatchObject({
       name: "Message",
-      score: 10,
+      score: 0,
       risk: "low",
       impactedSymbolCount: 0,
-      scoreFactors: { breakingChanges: 0, unverifiedConsumers: 0, missingTestCandidate: 10 },
+      // No contract broken: a missing test is not a risk this diff creates.
+      scoreFactors: { breakingChanges: 0, unverifiedConsumers: 0, cycles: 0, missingTestCandidate: 0 },
     });
   });
 
@@ -382,16 +384,24 @@ describe("ReviewGateAnalyzer", { timeout: GIT_TEST_TIMEOUT }, () => {
     ]));
   });
 
-  it("marks changed non-source files as unsupported instead of passing them to signature analysis", async () => {
+  it("skips changed files that are not source code without marking the review partial", async () => {
     const workspace = await createGitWorkspace();
     await fs.writeFile(path.join(workspace, "notes.md"), "changed documentation\n");
     execFileSync("git", ["add", "notes.md"], { cwd: workspace });
     const result = await new ReviewGateAnalyzer(workspace).analyze({ baseRef: "main" });
 
+    expect(result.changedFiles).toContain("notes.md");
+    expect(result.limitations.join(" ")).not.toContain("notes.md");
+  });
+
+  it("marks changed source files without signature support as unsupported", async () => {
+    const workspace = await createGitWorkspace();
+    await fs.writeFile(path.join(workspace, "src", "tool.py"), "def run():\n    return 1\n");
+    execFileSync("git", ["add", "src/tool.py"], { cwd: workspace });
+    const result = await new ReviewGateAnalyzer(workspace).analyze({ baseRef: "main" });
+
     expect(result.isPartial).toBe(true);
-    expect(result.limitations).toEqual(expect.arrayContaining([
-      "Signature and symbol evidence unavailable for unsupported file type: notes.md.",
-    ]));
+    expect(result.limitations).toContain("Signature and symbol evidence unavailable for unsupported file type: src/tool.py.");
   });
 
   it("continues with an explicit limitation when signature analysis fails for one file", async () => {
@@ -476,6 +486,51 @@ describe("ReviewGateAnalyzer - member-level impact", () => {
     // Not the 5-point "confirmed zero impact" weight.
     expect(symbol?.scoreFactors.breakingChanges).toBeGreaterThan(5);
     expect(symbol?.evidence.some((e) => e.kind === "partial" && e.detail.includes("per member"))).toBe(true);
+  });
+
+  /**
+   * Regression (#266 review): every file that used the class was charged as a
+   * consumer to update, although only files that name the member can call it.
+   */
+  it("keeps only the container's consumers that name the changed member", async () => {
+    const workspace = await createGitWorkspaceWithDiff(OLD_CLASS, NEW_CLASS);
+    await fs.writeFile(path.join(workspace, "src", "caller.ts"), "export const useRun = (s: { run(n: string): string }) => s.run('a');\n");
+    await fs.writeFile(path.join(workspace, "src", "holder.ts"), "export const keep = (s: unknown) => s;\n");
+    await fs.mkdir(path.join(workspace, "tests"));
+    await fs.writeFile(path.join(workspace, "tests", "holder.test.ts"), "import { keep } from '../src/holder';\n");
+    const consumers = ["src/caller.ts", "src/holder.ts", "src/missing.ts", "tests/holder.test.ts"];
+    const dependents = {
+      getSymbolDependents: (_filePath: string, symbolName: string) => Promise.resolve(
+        symbolName === "Service"
+          ? consumers.map((file) => ({ sourceSymbolId: `${path.join(workspace, file)}:consumer` }))
+          : [],
+      ),
+    };
+
+    const result = await new ReviewGateAnalyzer(workspace, dependents as never).analyze({ baseRef: "main" });
+
+    const symbol = result.symbols.find((s) => s.name === "Service.run");
+    // missing.ts cannot be read, so it stays: unknown is not unaffected.
+    expect(symbol?.consumers.unverified).toEqual(["src/caller.ts", "src/missing.ts"]);
+    expect(symbol?.scoreFactors.unverifiedConsumers).toBe(10);
+    expect(symbol?.evidence.some((e) => e.kind === "partial" && e.detail.includes("per member"))).toBe(true);
+  });
+
+  it("treats a member no consumer of the container names as having no impact", async () => {
+    const workspace = await createGitWorkspaceWithDiff(OLD_CLASS, NEW_CLASS);
+    await fs.writeFile(path.join(workspace, "src", "holder.ts"), "export const runner = 1; // Service holder\n");
+    const dependents = {
+      getSymbolDependents: (_filePath: string, symbolName: string) => Promise.resolve(
+        symbolName === "Service" ? [{ sourceSymbolId: `${path.join(workspace, "src/holder.ts")}:runner` }] : [],
+      ),
+    };
+
+    const result = await new ReviewGateAnalyzer(workspace, dependents as never).analyze({ baseRef: "main" });
+
+    const symbol = result.symbols.find((s) => s.name === "Service.run");
+    expect(symbol?.impactedSymbolCount).toBe(0);
+    expect(symbol?.consumers.unverified).toEqual([]);
+    expect(symbol?.scoreFactors.breakingChanges).toBe(5);
   });
 
   it("keeps a genuine zero when the containing symbol has no dependents either", async () => {

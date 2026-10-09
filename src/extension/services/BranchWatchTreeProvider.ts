@@ -33,14 +33,26 @@ export function branchWatchStatus(state: BranchWatchViewState): { text: string; 
 
 type ConsumerCheck = { text: string; icon: string };
 
+/**
+ * How far the displayed risk can be trusted: whether the evidence it was built
+ * from is complete and exact. Notes that hold for every static analysis, such as
+ * "behavior unverified", say nothing about that and do not lower it.
+ */
 function analysisConfidence(result: BranchWatchResult): 'high' | 'medium' | 'low' {
   const changedPaths = new Set(result.snapshot.changes.map(change => change.path));
   const criticalGap = result.snapshot.changes.length > 0
     && (result.snapshot.readablePaths.length === 0
       || result.fileImpacts.some(impact => changedPaths.has(impact.path) && impact.availability === 'unavailable'));
   if (criticalGap) return 'low';
-  if (result.review.isPartial || result.limitations.length > 0) return 'medium';
-  return 'high';
+  // A scored symbol whose consumers were estimated (depth limit, class instead of
+  // member, Vue file boundary) carries a risk built on an approximation.
+  const estimatedRisk = result.review.symbols.some(symbol => symbol.score > 0
+    && symbol.evidence.some(evidence => evidence.kind === 'partial'));
+  const incompleteEvidence = result.review.isPartial
+    || result.snapshot.limitations.length > 0
+    || result.fileImpacts.some(impact => impact.availability !== 'available' || impact.limitations.length > 0)
+    || result.cycleSummary?.scopeComplete === false;
+  return estimatedRisk || incompleteEvidence ? 'medium' : 'high';
 }
 
 function consumerCheck(result: BranchWatchResult, filePath: string): ConsumerCheck {

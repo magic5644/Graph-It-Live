@@ -247,6 +247,16 @@ describe('BranchWatchAnalyzer findings', { timeout: GIT_TEST_TIMEOUT }, () => {
     expect(result.cycleSummary).toEqual({ detected: 0, scopeComplete: true });
   });
 
+  it('marks the review partial when a changed source file cannot be compared', async () => {
+    const root = await workspace();
+    await fs.appendFile(path.join(root, 'api.ts'), '// changed\n');
+    const analyzer = new BranchWatchAnalyzer(root);
+    const snapshot = await analyzer.capture('main');
+    const result = await analyzer.analyze({ ...snapshot, readablePaths: [] });
+    expect(result.review.isPartial).toBe(true);
+    expect(result.limitations.join(' ')).toContain('Signature comparison unavailable');
+  });
+
   it('bounds impact depth and exposes lookup failures instead of inventing zero impact', async () => {
     const root = await workspace();
     await fs.appendFile(path.join(root, 'api.ts'), '// changed\n');
