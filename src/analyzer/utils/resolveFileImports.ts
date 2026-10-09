@@ -23,10 +23,16 @@ export async function resolveFileImports(
   const seenResolvedPaths = new Set<string>();
   const outOfRootImports = new Set<string>();
 
-  for (const imp of parsedImports) {
-    const { path: resolvedPath, outsideRoot } = analyzer.resolveImport
-      ? await analyzer.resolveImport(filePath, imp.module)
-      : applyBoundary(await analyzer.resolvePath(filePath, imp.module), isWithinWorkspace);
+  const resolutions = await Promise.all(
+    parsedImports.map(async (imp): Promise<ImportResolution> =>
+      analyzer.resolveImport
+        ? analyzer.resolveImport(filePath, imp.module)
+        : applyBoundary(await analyzer.resolvePath(filePath, imp.module), isWithinWorkspace),
+    ),
+  );
+
+  for (const [index, imp] of parsedImports.entries()) {
+    const { path: resolvedPath, outsideRoot } = resolutions[index];
 
     if (outsideRoot) {
       outOfRootImports.add(toReportableSpecifier(imp.module));

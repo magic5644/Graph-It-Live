@@ -453,6 +453,6 @@ export class ReverseIndex {
       count += skipped.length;
       for (const specifier of skipped) specifiers.add(specifier);
     }
-    return { count, examples: [...specifiers].sort().slice(0, OUT_OF_ROOT_EXAMPLES) };
+    return { count, examples: [...specifiers].sort((a, b) => a.localeCompare(b)).slice(0, OUT_OF_ROOT_EXAMPLES) };
   }
 }
