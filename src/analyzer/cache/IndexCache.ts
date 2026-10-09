@@ -367,8 +367,6 @@ export interface RestoreOrBuildOptions {
   reverseIndexOptions: ReverseIndexOptions;
   /** Full build used when nothing usable is cached (in-process or worker). */
   buildFullIndex: () => Promise<{ indexedFiles: number; cancelled: boolean }>;
-  /** Files on disk as this Spider sees them; collected by the Spider when omitted. */
-  sourceFiles?: readonly string[];
   onWait?: (holderPid: number | undefined) => void;
   onReindexStart?: (changedFiles: number) => void;
 }
@@ -390,7 +388,7 @@ export async function restoreOrBuildIndex(
     const restored = cached ? spider.enableReverseIndex(cached) : false;
     if (restored) log.info("Restored reverse index from cache");
 
-    const incremental = restored ? await reindexChanged(spider, options) : null;
+    const incremental = cache && restored ? await reindexChanged(spider, cache, options) : null;
     const { deleted, ...outcome } = incremental ?? (await buildFromScratch(spider, options));
 
     const changed = !outcome.fromCache || outcome.filesAnalyzed > 0 || deleted > 0;
@@ -406,9 +404,12 @@ export async function restoreOrBuildIndex(
 
 async function reindexChanged(
   spider: Spider,
+  cache: IndexCache,
   options: RestoreOrBuildOptions,
 ): Promise<IndexRun | null> {
-  const validation = await spider.validateReverseIndex(STALE_THRESHOLD, options.sourceFiles);
+  // Files on disk the index never saw count as stale: an index persisted
+  // mid-build would otherwise validate against its own few entries only.
+  const validation = await spider.validateReverseIndex(STALE_THRESHOLD, cache.sourceFiles);
   if (!validation?.isValid) {
     log.info("Cached index too stale, rebuilding from scratch");
     return null;
@@ -426,7 +427,7 @@ async function reindexChanged(
   const filesIndexed = spider.getCacheStats().reverseIndexStats?.indexedFiles ?? 0;
   return {
     filesIndexed,
-    filesFound: options.sourceFiles?.length ?? filesIndexed,
+    filesFound: cache.sourceFiles.length,
     filesAnalyzed: reindexed,
     fromCache: true,
     cancelled: false,

@@ -272,7 +272,6 @@ export class CliRuntime {
       const result = await restoreOrBuildIndex(spider, {
         cache: this.indexCache,
         reverseIndexOptions: { excludeNodeModules: true, ignoreTypeImports: false },
-        sourceFiles: this.indexCache ? await this.collectSourceFiles() : undefined,
         buildFullIndex: () => {
           if (live) process.stderr.write("\r  Indexing workspace...");
           return spider.buildFullIndex();
