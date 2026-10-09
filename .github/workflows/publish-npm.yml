@@ -184,7 +184,7 @@ jobs:
           files: "graph-it-live-*.vsix"
           tag_name: "${{ steps.release_meta.outputs.release_tag }}"
           name: "${{ steps.release_meta.outputs.release_tag }}"
-          generate_release_notes: true
+          # Attach the VSIX only: release.yml owns the release body.
           draft: false
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

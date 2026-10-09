@@ -12,6 +12,7 @@ Thank you for your interest in contributing to Graph-It-Live! This document prov
 - [Submitting Changes](#submitting-changes)
 - [Coding Standards](#coding-standards)
 - [Documentation](#documentation)
+- [Releasing](#releasing)
 
 ## Code of Conduct
 
@@ -380,6 +381,25 @@ npx vsce ls | grep "\.wasm$"  # Verify WASM files are included
 ```
 
 For complete package verification details, see [DEVELOPMENT.md](DEVELOPMENT.md#package-verification).
+
+## Releasing
+
+The version is not committed: workflows set it from the tag at publish time.
+
+1. Merge a PR that adds a `## v<version>` section at the top of `changelog.md`. The release fails before publishing anything when this section is missing.
+2. Push the tag `v<version>` on `main`, or create the release (and its tag) in the GitHub UI. Either way the tag push starts `.github/workflows/release.yml`.
+3. `release.yml` validates, packages and publishes the VSIX to the VS Code Marketplace and Open VSX, then writes the GitHub release:
+   - attaches the VSIX;
+   - **replaces** the release body (it never appends) with the output of `node scripts/release-notes.mjs <tag> <file>`: the `changelog.md` section, the PRs merged since the previous `v*` tag grouped by Conventional Commit type of the PR title (breaking changes first: `!` or a `BREAKING CHANGE:` footer; bot PRs under chores), and the *Full Changelog* compare link.
+
+   Notes typed when creating the release in the UI are overwritten, and re-running the workflow gives the same body.
+4. `Publish (Selective)` (`.github/workflows/publish-npm.yml`) publishes the CLI to npm and, optionally, the stores. It only attaches the VSIX to the release and never changes its body.
+
+Preview the release body locally (requires `gh` authenticated and the tags fetched):
+
+```bash
+node scripts/release-notes.mjs v1.18.0 release-notes.md
+```
 
 ## Getting Help
 
