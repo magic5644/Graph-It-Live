@@ -25,8 +25,7 @@ where legacy validation messages say "bytes."
 
 ### Graph tool output budget
 
-`graphitlive_crawl_dependency_graph`, `graphitlive_expand_node`, and
-`graphitlive_query_call_graph` accept `tokenBudget` (integer 500–16,000,
+`graphitlive_crawl_dependency_graph` and `graphitlive_query_call_graph` accept `tokenBudget` (integer 500–16,000,
 default 4,000, or `0` for no limit) and `offset`. A larger result is cut to fit
 and reports `truncated: true`, `omitted` counts and `nextOffset`; passing
 `nextOffset` back as `offset` until it is absent returns every item once. A
@@ -96,8 +95,6 @@ The following tools have payload protection:
 - `analyze_dependencies` - file paths
 - `crawl_dependency_graph` - entry file paths
 - `find_referencing_files` - target file paths
-- `expand_node` - file paths and known paths arrays
-- `parse_imports` - file paths
 - `verify_dependency_usage` - source and target file paths
 - `resolve_module_path` - file paths and module specifiers
 - `invalidate_files` - file paths arrays
@@ -105,9 +102,7 @@ The following tools have payload protection:
 #### Symbol-Level Tools
 - `get_symbol_graph` - file paths
 - `find_unused_symbols` - file paths
-- `get_symbol_dependents` - file paths and symbol names
 - `trace_function_execution` - file paths and symbol names
-- `get_symbol_callers` - file paths and symbol names
 - `get_impact_analysis` - file paths and symbol names
 - `graph_context` - questions, seeds, endpoints, relations, scope, traversal,
   pagination, and representation bounds
@@ -262,7 +257,7 @@ projects in the same session without friction.
 
 **Residual risk**: a compromised or prompt-injected LLM client could call
 `set_workspace` against a sensitive directory (e.g. `~/.ssh`, `~/.aws`) and then
-use an analysis tool (`analyze_file_logic`, `generate_wiki`, `parse_imports`) to
+use an analysis tool (`generate_codemap`, `generate_wiki`, `analyze_dependencies`) to
 read and surface file contents from that directory back to the model. The MCP
 server has no sandbox beyond the OS-level permissions of the user running it.
 
