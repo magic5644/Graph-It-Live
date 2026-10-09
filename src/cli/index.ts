@@ -308,6 +308,15 @@ export function commandWantsHelp(command: string, commandArgs: string[], rawArgv
     (rawArgvSlice.includes("-h") && rawArgvSlice.indexOf(command) < rawArgvSlice.indexOf("-h"));
 }
 
+/** `tool <name> --help` lists that tool's parameters; anything else gets the command's help. */
+async function resolveCommandHelp(command: string, commandArgs: string[]): Promise<string> {
+  const { getCommandHelp } = await import("./commandHelp.js");
+  const toolHelp = command === "tool" && commandArgs[0]
+    ? (await import("./commands/tool.js")).getToolHelp(commandArgs[0])
+    : undefined;
+  return toolHelp ?? getCommandHelp(command);
+}
+
 // ============================================================================
 // Main
 // ============================================================================
@@ -377,12 +386,7 @@ async function main(): Promise<void> {
   // Per-command --help dispatch (check both parsed positionals and raw argv flags)
   const rawArgvSlice = process.argv.slice(2);
   if (values.help || commandWantsHelp(command, commandArgs, rawArgvSlice)) {
-    const { getCommandHelp } = await import("./commandHelp.js");
-    // `tool <name> --help` lists that tool's parameters; an unknown name gets the generic tool help.
-    const toolHelp = command === "tool" && commandArgs[0]
-      ? (await import("./commands/tool.js")).getToolHelp(commandArgs[0])
-      : undefined;
-    process.stdout.write(toolHelp ?? getCommandHelp(command));
+    process.stdout.write(await resolveCommandHelp(command, commandArgs));
     process.exit(ExitCode.SUCCESS);
   }
 
