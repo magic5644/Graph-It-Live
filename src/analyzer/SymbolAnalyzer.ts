@@ -555,25 +555,15 @@ export class SymbolAnalyzer implements ISymbolAnalyzer {
   }
 
   /**
-   * Collect all function and method names from a source file
+   * Collect the top-level function names of a source file. Class methods are
+   * left out: a bare call can only reach a function in scope, never a method.
    */
   private collectFunctionNames(sourceFile: SourceFile): Set<string> {
     const functionNames = new Set<string>();
-
-    // Get all top-level function names
     for (const func of sourceFile.getFunctions()) {
       const name = func.getName();
       if (name) functionNames.add(name);
     }
-
-    // Get all class methods
-    for (const cls of sourceFile.getClasses()) {
-      for (const method of cls.getMethods()) {
-        const name = method.getName();
-        if (name) functionNames.add(name);
-      }
-    }
-
     return functionNames;
   }
 
@@ -598,7 +588,7 @@ export class SymbolAnalyzer implements ISymbolAnalyzer {
 
     // Property access: obj.method()
     if (Node.isPropertyAccessExpression(expression)) {
-      this.addPropertyAccessCall(expression, functionNames, filePath, calls);
+      this.addPropertyAccessCall(expression, filePath, calls);
     }
   }
 
@@ -623,25 +613,34 @@ export class SymbolAnalyzer implements ISymbolAnalyzer {
   }
 
   /**
-   * Add a property access call (e.g., obj.method())
+   * Add a `this.method()` call to a method of the enclosing class.
+   *
+   * Only `this` is known to point into this file. `obj.method()` targets whatever
+   * `obj` is, and resolving it by name alone turned `spider.scan()` inside a
+   * local `function scan` into a self-call, reported as a dependency cycle.
    */
   private addPropertyAccessCall(
     expression: Node,
-    functionNames: Set<string>,
     filePath: string,
     calls: Array<UsedSymbol>
   ): void {
-    if (Node.isPropertyAccessExpression(expression)) {
-      const methodName = expression.getName();
-      if (functionNames.has(methodName)) {
-        calls.push({
-          symbolId: `${filePath}:${methodName}`,
-          filePath,
-          isTypeOnly: false,
-          line: expression.getStartLineNumber(),
-        });
-      }
-    }
+    if (!Node.isPropertyAccessExpression(expression) || !Node.isThisExpression(expression.getExpression())) return;
+    // The nearest scope that binds `this`; arrow functions keep the outer one.
+    const owner = expression.getFirstAncestor((ancestor) =>
+      Node.isClassDeclaration(ancestor)
+      || Node.isFunctionDeclaration(ancestor)
+      || Node.isFunctionExpression(ancestor)
+      || Node.isObjectLiteralExpression(ancestor));
+    if (!owner || !Node.isClassDeclaration(owner)) return;
+    const className = owner.getName();
+    const methodName = expression.getName();
+    if (!className || !owner.getMethod(methodName)) return;
+    calls.push({
+      symbolId: `${filePath}:${className}.${methodName}`,
+      filePath,
+      isTypeOnly: false,
+      line: expression.getStartLineNumber(),
+    });
   }
 
   /**
