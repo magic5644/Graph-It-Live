@@ -193,6 +193,12 @@ describe("commandHelp", () => {
     }
   });
 
+  it("documents context --detail and the real stats directory", async () => {
+    const { getCommandHelp } = await import("../../src/cli/commandHelp.js");
+    expect(getCommandHelp("context")).toContain("--detail <level>       compact|standard|full");
+    expect(getCommandHelp("stats")).toContain("(default: ~/.graph-it/stats)");
+  });
+
   it("returns fallback for unknown commands", async () => {
     const { getCommandHelp } = await import("../../src/cli/commandHelp.js");
     const help = getCommandHelp("nonexistent");
