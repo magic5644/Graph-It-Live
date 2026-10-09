@@ -11,6 +11,7 @@ import {
   type ReverseIndexOptions,
 } from "@/analyzer/cache/IndexCache";
 import type { Spider } from "@/analyzer/Spider";
+import { SpiderBuilder } from "@/analyzer/SpiderBuilder";
 
 const OPTIONS: ReverseIndexOptions = { excludeNodeModules: true, ignoreTypeImports: false };
 
@@ -332,14 +333,14 @@ describe("IndexCache", () => {
       const outcome = await restoreOrBuildIndex(spider as unknown as Spider, {
         cache: open(),
         reverseIndexOptions: OPTIONS,
-        sourceFiles: ["/w/a.ts", "/w/b.ts"],
         buildFullIndex: vi.fn(),
         onReindexStart,
       });
 
+      expect(spider.validateReverseIndex).toHaveBeenCalledWith(0.2, sourceFiles());
       expect(spider.handleFileDeleted).toHaveBeenCalledWith("/w/gone.ts");
       expect(onReindexStart).toHaveBeenCalledWith(1);
-      expect(outcome).toMatchObject({ fromCache: true, filesAnalyzed: 1, filesFound: 2 });
+      expect(outcome).toMatchObject({ fromCache: true, filesAnalyzed: 1, filesFound: 1 });
       expect(open().readReverseIndex(OPTIONS)).toBe("SERIALIZED");
     });
 
@@ -357,6 +358,60 @@ describe("IndexCache", () => {
 
       await expect(run(createSpider(), open(), failing)).rejects.toThrow("boom");
       expect(fs.existsSync(lockPath)).toBe(false);
+    });
+  });
+
+  describe("restoreOrBuildIndex with a real Spider", () => {
+    const files = ["a.ts", "b.ts", "c.ts"];
+    const realSpider = () =>
+      new SpiderBuilder().withRootDir(tmpDir).withExtensionPath(process.cwd()).withReverseIndex(true).build();
+    const restore = async () => {
+      const spider = realSpider();
+      const outcome = await restoreOrBuildIndex(spider, {
+        cache: await IndexCache.open(tmpDir),
+        reverseIndexOptions: OPTIONS,
+        buildFullIndex: () => spider.buildFullIndex(),
+      });
+      await spider.dispose();
+      return outcome;
+    };
+
+    beforeEach(() => {
+      fs.writeFileSync(path.join(tmpDir, "src", "a.ts"), 'import { b } from "./b";\nexport const a = b;\n');
+      fs.writeFileSync(path.join(tmpDir, "src", "b.ts"), 'import { c } from "./c";\nexport const b = c;\n');
+      fs.writeFileSync(path.join(tmpDir, "src", "c.ts"), "export const c = 1;\n");
+    });
+
+    // Regression #279: a session closed mid-index persisted one file's entries,
+    // and a restore that only checked those entries reported the index complete.
+    it("rebuilds a partial index persisted mid-build instead of restoring it", async () => {
+      const partial = realSpider();
+      await partial.analyze(path.join(tmpDir, "src", "a.ts"));
+      const data = partial.getSerializedReverseIndex();
+      await partial.dispose();
+      expect(data).not.toBeNull();
+      (await IndexCache.open(tmpDir)).save({ reverseIndex: { data: data ?? "", options: OPTIONS } });
+
+      const outcome = await restore();
+
+      expect(outcome).toMatchObject({ fromCache: false, filesIndexed: files.length, filesFound: files.length });
+      const saved = JSON.parse((await IndexCache.open(tmpDir)).readReverseIndex(OPTIONS) ?? "{}");
+      expect(Object.keys(saved.fileHashes)).toHaveLength(files.length);
+    });
+
+    it("rebuilds when the cached reverse index is truncated", async () => {
+      await restore();
+      const indexPath = path.join(cacheDir, "reverse-index.json");
+      const full = fs.readFileSync(indexPath, "utf-8");
+      fs.writeFileSync(indexPath, full.slice(0, full.length / 2));
+
+      expect(await restore()).toMatchObject({ fromCache: false, filesIndexed: files.length });
+    });
+
+    it("restores a complete index without parsing anything", async () => {
+      await restore();
+
+      expect(await restore()).toMatchObject({ fromCache: true, filesAnalyzed: 0, filesIndexed: files.length });
     });
   });
 });
