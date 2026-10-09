@@ -60,14 +60,16 @@ export function buildReleaseNotes({ changelog, tag, previousTag, repo, prs }) {
     for (const [key, title] of GROUPS) {
       const items = sorted.filter((pr) => prGroup(pr) === key);
       if (items.length > 0) {
-        parts.push(`### ${title}\n${items.map((pr) => `- ${pr.title} by @${login(pr)} in ${pr.url}`).join('\n')}`);
+        const lines = items.map((pr) => `- ${pr.title} by @${login(pr)} in ${pr.url}`);
+        parts.push([`### ${title}`, ...lines].join('\n'));
       }
     }
     const contributors = [...new Set(sorted.filter((pr) => !isBot(pr.author)).map(login))].sort((a, b) =>
       a.localeCompare(b),
     );
     if (contributors.length > 0) {
-      parts.push(`## Contributors\nThanks to ${contributors.map((name) => `@${name}`).join(', ')}.`);
+      const mentions = contributors.map((name) => '@' + name).join(', ');
+      parts.push(`## Contributors\nThanks to ${mentions}.`);
     }
   }
   if (previousTag) {
