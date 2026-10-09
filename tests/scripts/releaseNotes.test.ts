@@ -83,9 +83,27 @@ describe('buildReleaseNotes', () => {
         '### Fixes\n- fix: a by @alice in https://github.com/o/r/pull/11\n- fix: b by @alice in https://github.com/o/r/pull/12',
         '### Documentation\n- docs: c by @alice in https://github.com/o/r/pull/10',
         '### Chores / dependencies\n- chore(deps): e by @dependabot in https://github.com/o/r/pull/14',
+        '## Contributors\nThanks to @alice.',
         '**Full Changelog**: https://github.com/o/r/compare/v1.1.0...v1.2.0',
       ].join('\n\n') + '\n',
     );
+  });
+
+  it('credits each human author once, sorted, and never bots', () => {
+    const notes = buildReleaseNotes({
+      changelog,
+      tag: 'v1.2.0',
+      previousTag: 'v1.1.0',
+      repo: 'o/r',
+      prs: [
+        pr(1, 'fix: a', { author: { login: 'zoe' } }),
+        pr(2, 'fix: b'),
+        pr(3, 'feat: c', { author: { login: 'zoe' } }),
+        pr(4, 'chore: d', { author: { login: 'github-actions[bot]', is_bot: true } }),
+      ],
+    });
+
+    expect(notes).toContain('## Contributors\nThanks to @alice, @zoe.\n\n**Full Changelog**');
   });
 
   it('omits the PR list and compare link when there is nothing to show', () => {

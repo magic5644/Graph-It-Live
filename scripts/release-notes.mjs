@@ -56,12 +56,18 @@ export function buildReleaseNotes({ changelog, tag, previousTag, repo, prs }) {
   if (prs.length > 0) {
     parts.push("## What's Changed");
     const sorted = [...prs].sort((a, b) => a.number - b.number);
+    const login = (pr) => (pr.author?.login ?? 'ghost').replace(/^app\//, '');
     for (const [key, title] of GROUPS) {
       const items = sorted.filter((pr) => prGroup(pr) === key);
       if (items.length > 0) {
-        const login = (pr) => (pr.author?.login ?? 'ghost').replace(/^app\//, '');
         parts.push(`### ${title}\n${items.map((pr) => `- ${pr.title} by @${login(pr)} in ${pr.url}`).join('\n')}`);
       }
+    }
+    const contributors = [...new Set(sorted.filter((pr) => !isBot(pr.author)).map(login))].sort((a, b) =>
+      a.localeCompare(b),
+    );
+    if (contributors.length > 0) {
+      parts.push(`## Contributors\nThanks to ${contributors.map((name) => `@${name}`).join(', ')}.`);
     }
   }
   if (previousTag) {
