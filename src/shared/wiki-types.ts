@@ -53,6 +53,8 @@ export interface WikiGeneratorOptions extends WikiScopeOptions {
   outputDir: string; // absolute
   workspaceRoot: string; // absolute
   topHubsLimit?: number; // default 10
+  /** Replace existing files that lack the generated-file marker (default false). */
+  overwrite?: boolean;
   /**
    * Optional per-node metadata from GraphData.nodeMetadata.
    * When present, WikiGenerator uses nodeMetadata[normalizePath(filePath)].hubScore

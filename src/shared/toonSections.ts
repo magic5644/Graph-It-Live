@@ -57,25 +57,31 @@ export function encodeToonSections(data: unknown, rootName?: string): EncodedToo
  * from the output entirely.
  */
 export function formatToonScalarHeader(data: unknown, sections: ToonSection[]): string {
+  const parts = collectScalarFields(data, sections).map(([key, value]) => `${key}=${String(value)}`);
+  return parts.length === 0 ? "" : `# ${parts.join(" ")}\n`;
+}
+
+/**
+ * The payload's scalar fields that no section encodes, as `[key, value]` pairs.
+ * Small scalar records such as `omitted: { nodes, edges }` become `omitted.nodes`.
+ */
+export function collectScalarFields(data: unknown, sections: ToonSection[]): Array<[string, unknown]> {
   if (typeof data !== "object" || data === null || Array.isArray(data)) {
-    return "";
+    return [];
   }
 
   const encoded = new Set(sections.map(section => section.name));
-  const parts = Object.entries(data as Record<string, unknown>).flatMap(([key, value]) => {
+  return Object.entries(data as Record<string, unknown>).flatMap(([key, value]): Array<[string, unknown]> => {
     if (encoded.has(key) || Array.isArray(value) || value === undefined || value === null) {
       return [];
     }
     if (typeof value === "object") {
-      // Small scalar records such as `omitted: { nodes, edges }`.
       return Object.entries(value as Record<string, unknown>)
         .filter(([, nested]) => typeof nested !== "object")
-        .map(([nestedKey, nested]) => `${key}.${nestedKey}=${String(nested)}`);
+        .map(([nestedKey, nested]) => [`${key}.${nestedKey}`, nested]);
     }
-    return [`${key}=${String(value)}`];
+    return [[key, value]];
   });
-
-  return parts.length === 0 ? "" : `# ${parts.join(" ")}\n`;
 }
 
 /**

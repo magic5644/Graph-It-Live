@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { collectToonSections, encodeToonSections, formatToonScalarHeader } from '../../src/shared/toonSections';
+import { collectScalarFields, collectToonSections, encodeToonSections, formatToonScalarHeader } from '../../src/shared/toonSections';
 
 describe('encodeToonSections', () => {
   it('encodes every array and the scalar fields of a crawl-like result', () => {
@@ -97,5 +97,18 @@ describe('formatToonScalarHeader', () => {
     expect(formatToonScalarHeader([{ a: 1 }], [])).toBe('');
     expect(formatToonScalarHeader(3, [])).toBe('');
     expect(formatToonScalarHeader({}, [])).toBe('');
+  });
+});
+
+describe('collectScalarFields', () => {
+  it('returns unencoded scalars and flattens small scalar records', () => {
+    const data = { nodes: [{ id: 'a' }], count: 2, omitted: { nodes: 1, deep: { x: 1 } }, none: null };
+
+    expect(collectScalarFields(data, [{ name: 'nodes', items: [] }])).toEqual([['count', 2], ['omitted.nodes', 1]]);
+  });
+
+  it('returns nothing for arrays and primitives', () => {
+    expect(collectScalarFields([{ a: 1 }], [])).toEqual([]);
+    expect(collectScalarFields('x', [])).toEqual([]);
   });
 });

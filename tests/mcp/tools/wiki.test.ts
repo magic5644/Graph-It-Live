@@ -117,7 +117,7 @@ describe("executeGenerateWiki", () => {
 
   it("returns articlesCount from WikiGenerator result", async () => {
     const result = await executeGenerateWiki({
-      outputDir: tmpDir,
+      outputDir: "wiki",
       topHubsLimit: 5,
     });
 
@@ -126,7 +126,7 @@ describe("executeGenerateWiki", () => {
 
   it("returns topHubs array", async () => {
     const result = await executeGenerateWiki({
-      outputDir: tmpDir,
+      outputDir: "wiki",
     });
 
     expect(result.topHubs).toHaveLength(2);
@@ -139,7 +139,7 @@ describe("executeGenerateWiki", () => {
 
   it("indexPath is relative to workspaceRoot", async () => {
     const result = await executeGenerateWiki({
-      outputDir: tmpDir,
+      outputDir: "wiki",
     });
 
     expect(result.indexPath).not.toContain(WORKSPACE);
@@ -148,7 +148,7 @@ describe("executeGenerateWiki", () => {
 
   it("articlesDir is relative to workspaceRoot", async () => {
     const result = await executeGenerateWiki({
-      outputDir: tmpDir,
+      outputDir: "wiki",
     });
 
     expect(result.articlesDir).not.toContain(WORKSPACE);
@@ -167,7 +167,7 @@ describe("executeGenerateWiki", () => {
     }));
 
     const result = await executeGenerateWiki({
-      outputDir: tmpDir,
+      outputDir: "wiki",
       scope: "src/",
     });
 
@@ -176,7 +176,7 @@ describe("executeGenerateWiki", () => {
 
   it("scopeNote is undefined when not returned", async () => {
     const result = await executeGenerateWiki({
-      outputDir: tmpDir,
+      outputDir: "wiki",
     });
 
     expect(result.scopeNote).toBeUndefined();
@@ -192,7 +192,7 @@ describe("executeGenerateWiki", () => {
     WikiGeneratorMock.mockClear();
 
     await executeGenerateWiki({
-      outputDir: tmpDir,
+      outputDir: "wiki",
       topHubsLimit: 7,
     });
 
@@ -207,7 +207,7 @@ describe("executeGenerateWiki", () => {
     WikiGeneratorMock.mockClear();
 
     await executeGenerateWiki({
-      outputDir: tmpDir,
+      outputDir: "wiki",
       scope: "src/analyzer",
     });
 
@@ -222,7 +222,7 @@ describe("executeGenerateWiki", () => {
     WikiGeneratorMock.mockClear();
 
     await executeGenerateWiki({
-      outputDir: tmpDir,
+      outputDir: "wiki",
       exclude: ["tests/", "dist/"],
     });
 
@@ -241,7 +241,7 @@ describe("executeGenerateWiki", () => {
     workerState.callGraphIndexedRoot = undefined as unknown as string;
 
     await expect(
-      executeGenerateWiki({ outputDir: tmpDir }),
+      executeGenerateWiki({ outputDir: "wiki" }),
     ).rejects.toThrow(/not initialized/i);
   });
 
@@ -254,7 +254,7 @@ describe("executeGenerateWiki", () => {
     const WikiGeneratorMock = vi.mocked(WikiGenerator);
     WikiGeneratorMock.mockClear();
 
-    await executeGenerateWiki({ outputDir: tmpDir });
+    await executeGenerateWiki({ outputDir: "wiki" });
 
     expect(WikiGeneratorMock).toHaveBeenCalledWith(
       expect.objectContaining({ workspaceRoot: expect.stringContaining("wiki-mcp-workspace") }),
@@ -280,8 +280,63 @@ describe("executeGenerateWiki", () => {
     await executeGenerateWiki({});
 
     expect(MockWikiGeneratorClass).toHaveBeenCalledWith(
-      expect.objectContaining({ outputDir: normalizePath(path.join(WORKSPACE, "wiki")) }),
+      expect.objectContaining({ outputDir: normalizePath(path.join(WORKSPACE, "wiki")), overwrite: false }),
     );
+  });
+
+  it("forwards the overwrite opt-in to WikiGenerator", async () => {
+    MockWikiGeneratorClass.mockClear();
+
+    await executeGenerateWiki({ outputDir: "docs" }, true);
+
+    expect(MockWikiGeneratorClass).toHaveBeenCalledWith(expect.objectContaining({ overwrite: true }));
+  });
+
+  it("accepts an absolute outputDir inside the workspace (CLI path)", async () => {
+    MockWikiGeneratorClass.mockClear();
+
+    await executeGenerateWiki({ outputDir: path.join(WORKSPACE, "docs", "wiki") });
+
+    expect(MockWikiGeneratorClass).toHaveBeenCalledWith(
+      expect.objectContaining({ outputDir: normalizePath(path.join(WORKSPACE, "docs", "wiki")) }),
+    );
+  });
+
+  it.each([
+    ["an absolute path outside the workspace", () => path.join(os.tmpdir(), "elsewhere")],
+    ["a ../ escape", () => path.join("..", "elsewhere")],
+    ["a sibling sharing the workspace prefix", () => `${WORKSPACE}-sibling`],
+  ])("rejects %s before generating anything (#269)", async (_label, outputDir) => {
+    MockWikiGeneratorClass.mockClear();
+
+    await expect(executeGenerateWiki({ outputDir: outputDir() })).rejects.toThrow("outside workspace");
+    expect(MockWikiGeneratorClass).not.toHaveBeenCalled();
+  });
+
+  it("rejects an outputDir containing a null byte", async () => {
+    MockWikiGeneratorClass.mockClear();
+
+    await expect(executeGenerateWiki({ outputDir: "wi\0ki" })).rejects.toThrow("null bytes");
+    expect(MockWikiGeneratorClass).not.toHaveBeenCalled();
+  });
+
+  it("rejects an outputDir that leaves the workspace through a symbolic link (#269)", async () => {
+    const root = await fs.mkdtemp(path.join(os.tmpdir(), "wiki-mcp-root-"));
+    try {
+      await fs.symlink(tmpDir, path.join(root, "linked"), "junction");
+      vi.mocked(workerState.getConfig).mockReturnValue({ rootDir: root } as unknown as ReturnType<typeof workerState.getConfig>);
+      workerState.callGraphIndexedRoot = normalizePath(root);
+      MockWikiGeneratorClass.mockClear();
+
+      await expect(executeGenerateWiki({ outputDir: "linked" })).rejects.toThrow("symbolic link");
+      expect(MockWikiGeneratorClass).not.toHaveBeenCalled();
+    } finally {
+      await fs.rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it.skipIf(process.platform !== "win32")("rejects an outputDir on another Windows drive", async () => {
+    await expect(executeGenerateWiki({ outputDir: String.raw`Z:\elsewhere` })).rejects.toThrow("outside workspace");
   });
 });
 

@@ -48,7 +48,7 @@ export function classifyError(error: unknown): { message: string; exitCode: Exit
 
   const message = error instanceof Error ? error.message : String(error);
 
-  if (message.includes("Path traversal") || message.includes("outside workspace")) {
+  if (message.includes("Path traversal") || message.includes("outside workspace") || message.includes("escapes workspace")) {
     return { message, exitCode: ExitCode.SECURITY_VIOLATION };
   }
 

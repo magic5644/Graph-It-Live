@@ -8,7 +8,7 @@
  */
 
 import { jsonToToon, estimateTokenSavings } from '../shared/toon';
-import { encodeToonSections } from '../shared/toonSections';
+import { collectScalarFields, collectToonSections, encodeToonSections } from '../shared/toonSections';
 import { sessionStats } from '../shared/sessionStats';
 import { getLogger } from '../shared/logger';
 import { normalizePath } from '../shared/path';
@@ -62,7 +62,7 @@ export function formatToolResponse<T>(
       ? formatted.content
       : formatToonEnvelope(publicResponse, formatted.content);
   } else if (responseFormat === 'markdown') {
-    text = `\`\`\`json\n${JSON.stringify(publicResponse, null, 2)}\n\`\`\``;
+    text = formatMarkdown(publicResponse);
   } else {
     text = JSON.stringify(publicResponse, null, 2);
   }
@@ -98,6 +98,69 @@ function formatToonEnvelope<T>(response: McpToolResponse<T>, dataContent: string
     sections.push(dataContent);
   }
   return sections.join('\n');
+}
+
+/**
+ * Readable Markdown with the same content as TOON: the error, freshness and
+ * pagination, scalar fields as a list, then one table per array.
+ */
+function formatMarkdown<T>(response: McpToolResponse<T>): string {
+  const blocks: string[] = [];
+  if (!response.success) blocks.push(`**Error:** ${markdownText(response.error ?? 'Unknown error')}`);
+
+  const { indexedAt, stale } = response.metadata;
+  const data: unknown = response.data;
+  const sections = collectToonSections(data);
+  const fields: Array<[string, unknown]> = [
+    ...(indexedAt === undefined || indexedAt === null ? [] : [['indexedAt', indexedAt] as [string, unknown]]),
+    ...(stale === undefined ? [] : [['stale', stale] as [string, unknown]]),
+    ...Object.entries(response.pagination ?? {}),
+    ...collectScalarFields(data, sections),
+  ];
+  if (fields.length > 0) blocks.push(fields.map(([key, value]) => formatMarkdownField(key, value)).join('\n'));
+
+  for (const section of sections) blocks.push(formatMarkdownTable(section.name, section.items));
+  if (typeof data !== 'object' && data !== undefined) blocks.push(markdownText(String(data)));
+  return blocks.length === 0 ? '_No results._' : blocks.join('\n\n');
+}
+
+function formatMarkdownField(key: string, value: unknown): string {
+  const text = String(value);
+  if (!text.includes('\n')) return `- **${markdownCell(key)}**: ${markdownCell(text)}`;
+  // Multi-line strings such as the query tool's TOON subgraph stay verbatim, in a
+  // fence longer than any backtick run they contain.
+  const longestRun = Math.max(0, ...(text.match(/`+/g) ?? []).map(run => run.length));
+  const fence = '`'.repeat(Math.max(3, longestRun + 1));
+  return `- **${markdownCell(key)}**:\n\n${fence}text\n${text}\n${fence}`;
+}
+
+function formatMarkdownTable(name: string, rows: unknown[]): string {
+  const records = rows as Array<Record<string, unknown>>;
+  const columns = [...new Set(records.flatMap(row => Object.keys(row)))];
+  const heading = `### ${markdownCell(name)}`;
+  if (columns.length === 0) return `${heading}\n\n_${rows.length} empty rows_`;
+  const cell = (value: unknown): string => {
+    if (value === undefined || value === null) return '';
+    return markdownCell(typeof value === 'object' ? JSON.stringify(value) : String(value));
+  };
+  return [
+    heading,
+    '',
+    `| ${columns.map(markdownCell).join(' | ')} |`,
+    `| ${columns.map(() => '---').join(' | ')} |`,
+    ...records.map(row => `| ${columns.map(column => cell(row[column])).join(' | ')} |`),
+  ].join('\n');
+}
+
+/** One line of text: newlines and other control characters would end a list item or a table row. */
+function markdownText(text: string): string {
+  // eslint-disable-next-line no-control-regex
+  return text.replaceAll(/[\x00-\x1F\x7F]+/g, ' ');
+}
+
+/** Single-line text that cannot break a table: backslashes go first so `\|` stays an escaped pipe. */
+function markdownCell(text: string): string {
+  return markdownText(text).replaceAll('\\', '\\\\').replaceAll('|', String.raw`\|`);
 }
 
 function formatGraphContextAsToon<T>(

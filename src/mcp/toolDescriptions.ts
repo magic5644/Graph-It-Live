@@ -352,7 +352,7 @@ const TOOL_DESCRIPTIONS: Record<DescribedToolName, ToolDescription> = {
       "WHEN: producing browsable documentation, or a persistent overview of files and their relationships.",
       "WHY: one article per source file, cross-linked through real caller and callee edges.",
       "RETURNS: number of articles written, index path, articles directory, and the top files by hub score.",
-      "LIMITS: writes files to disk. The first call indexes the workspace (3-8s).",
+      "LIMITS: writes files to disk, and fails instead of replacing an index.md or article it did not generate. The first call indexes the workspace (3-8s).",
     ],
   },
   get_session_stats: {

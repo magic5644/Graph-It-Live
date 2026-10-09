@@ -3,8 +3,6 @@
  * executeGenerateWiki is mocked — no DB or WikiGenerator runs.
  */
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import path from "node:path";
-import { normalizePath } from "../../../src/shared/path";
 
 // ---------------------------------------------------------------------------
 // Hoist mocks
@@ -82,6 +80,7 @@ describe("wiki command", () => {
       expect.objectContaining({
         outputDir: expect.stringContaining("wiki"),
       }),
+      false,
     );
   });
 
@@ -90,6 +89,7 @@ describe("wiki command", () => {
 
     expect(mocks.executeGenerateWiki).toHaveBeenCalledWith(
       expect.objectContaining({ topHubsLimit: 10 }),
+      false,
     );
   });
 
@@ -98,6 +98,7 @@ describe("wiki command", () => {
 
     expect(mocks.executeGenerateWiki).toHaveBeenCalledWith(
       expect.objectContaining({ scope: undefined }),
+      false,
     );
   });
 
@@ -106,6 +107,7 @@ describe("wiki command", () => {
 
     expect(mocks.executeGenerateWiki).toHaveBeenCalledWith(
       expect.objectContaining({ exclude: undefined }),
+      false,
     );
   });
 
@@ -120,6 +122,7 @@ describe("wiki command", () => {
       expect.objectContaining({
         outputDir: expect.stringContaining("out/wiki"),
       }),
+      false,
     );
   });
 
@@ -128,6 +131,7 @@ describe("wiki command", () => {
 
     expect(mocks.executeGenerateWiki).toHaveBeenCalledWith(
       expect.objectContaining({ scope: "src/analyzer" }),
+      false,
     );
   });
 
@@ -136,6 +140,7 @@ describe("wiki command", () => {
 
     expect(mocks.executeGenerateWiki).toHaveBeenCalledWith(
       expect.objectContaining({ exclude: ["tests/"] }),
+      false,
     );
   });
 
@@ -144,6 +149,7 @@ describe("wiki command", () => {
 
     expect(mocks.executeGenerateWiki).toHaveBeenCalledWith(
       expect.objectContaining({ exclude: ["tests/", "dist/"] }),
+      false,
     );
   });
 
@@ -152,6 +158,7 @@ describe("wiki command", () => {
 
     expect(mocks.executeGenerateWiki).toHaveBeenCalledWith(
       expect.objectContaining({ topHubsLimit: 5 }),
+      false,
     );
   });
 
@@ -241,19 +248,32 @@ describe("wiki command", () => {
   });
 
   // -------------------------------------------------------------------------
-  // 6. output path is resolved against the workspace
+  // 6. output path and overwrite opt-in (#269)
   // -------------------------------------------------------------------------
 
-  it("passes a workspace-resolved outputDir to executeGenerateWiki", async () => {
-    await run([], makeRuntime("/my/project"), "text");
+  it("passes --output unresolved: executeGenerateWiki confines it to the workspace", async () => {
+    await run(["--output", "../outside"], makeRuntime("/my/project"), "text");
 
     expect(mocks.executeGenerateWiki).toHaveBeenCalledWith(
       {
-        outputDir: normalizePath(path.resolve("/my/project", "wiki")),
+        outputDir: "../outside",
         topHubsLimit: 10,
         scope: undefined,
         exclude: undefined,
       },
+      false,
     );
+  });
+
+  it("opts in to overwriting foreign files only with --force", async () => {
+    await run(["--force"], makeRuntime(), "text");
+
+    expect(mocks.executeGenerateWiki).toHaveBeenCalledWith(expect.objectContaining({ outputDir: "wiki" }), true);
+  });
+
+  it("propagates a refusal from executeGenerateWiki", async () => {
+    mocks.executeGenerateWiki.mockRejectedValueOnce(new Error("File path is outside workspace: /tmp/x"));
+
+    await expect(run(["--output", "/tmp/x"], makeRuntime(), "text")).rejects.toThrow("outside workspace");
   });
 });
