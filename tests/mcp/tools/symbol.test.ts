@@ -40,7 +40,7 @@ describe("symbol tools", () => {
   });
 
   describe("executeGetSymbolGraph", () => {
-    it("should return categorized symbols and enriched dependencies", async () => {
+    it("should keep analyzer categories and enrich dependencies", async () => {
       const filePath = await createTempFile(tempDir, "main.ts", "");
       const depFile = path.join(tempDir, "dep.ts");
 
@@ -49,10 +49,19 @@ describe("symbol tools", () => {
           symbols: [
             {
               name: "main",
-              kind: "FunctionDeclaration",
+              kind: "VariableDeclaration",
               line: 1,
               isExported: true,
               id: `${filePath}:main`,
+              category: "function",
+            },
+            {
+              name: "Draw",
+              kind: "InterfaceDeclaration",
+              line: 3,
+              isExported: true,
+              id: `${filePath}:Draw`,
+              category: "type",
             },
           ],
           dependencies: [
@@ -70,9 +79,10 @@ describe("symbol tools", () => {
 
       const result = await executeGetSymbolGraph({ filePath });
 
-      expect(result.symbolCount).toBe(1);
+      expect(result.symbolCount).toBe(2);
       expect(result.dependencies[0].targetRelativePath).toBe("dep.ts");
-      expect(result.symbols[0].category).toBe("function");
+      // Not re-derived from kind: arrow const stays function, Rust trait stays type
+      expect(result.symbols.map((s) => s.category)).toEqual(["function", "type"]);
       expect(result.relativePath).toBe("main.ts");
     });
   });
@@ -85,10 +95,11 @@ describe("symbol tools", () => {
         findUnusedSymbols: vi.fn(async () => [
           {
             name: "unused",
-            kind: "VariableDeclaration",
+            kind: "EnumDeclaration",
             line: 2,
             isExported: true,
             id: `${filePath}:unused`,
+            category: "type",
           },
         ]),
         getSymbolGraph: vi.fn(async () => ({
@@ -118,7 +129,7 @@ describe("symbol tools", () => {
       expect(result.unusedCount).toBe(1);
       expect(result.totalExportedSymbols).toBe(2);
       expect(result.unusedPercentage).toBe(50);
-      expect(result.unusedSymbols[0].category).toBe("variable");
+      expect(result.unusedSymbols[0].category).toBe("type");
     });
   });
 

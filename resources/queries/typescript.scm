@@ -1,11 +1,10 @@
 ; TypeScript/JavaScript Tree-sitter query for call graph extraction
 ; Capture names:
-;   @def.function  — top-level function declarations
+;   @def.function  — function declarations and function-valued const/let/var
 ;   @def.method    — class method definitions
 ;   @def.class     — class declarations
 ;   @def.interface — interface declarations
 ;   @def.type      — type alias declarations
-;   @def.variable  — exported const/let/var declarations
 ;   @call          — CALLS relation (function/method invocations)
 ;   @inherit       — INHERITS relation (extends clause)
 ;   @impl          — IMPLEMENTS relation (implements clause)
@@ -19,16 +18,17 @@
 (function_declaration
   name: (identifier) @def.function)
 
-; Arrow function assigned to a const (exported or not)
+; Arrow function or function expression assigned to a const/let/var
+; (exported or not): a function, like the SymbolAnalyzer category
 (lexical_declaration
   (variable_declarator
-    name: (identifier) @def.variable
-    value: (arrow_function)))
+    name: (identifier) @def.function
+    value: [(arrow_function) (function_expression)]))
 
 (variable_declaration
   (variable_declarator
-    name: (identifier) @def.variable
-    value: (arrow_function)))
+    name: (identifier) @def.function
+    value: [(arrow_function) (function_expression)]))
 
 ; Class declarations
 (class_declaration

@@ -127,8 +127,12 @@ CREATE TABLE IF NOT EXISTS metadata (
 );
 `;
 
-/** Bump when the schema changes — forces a full rebuild on load. */
-const CURRENT_SCHEMA_VERSION = 3;
+/**
+ * Bump when the schema or the extracted nodes change (e.g. a .scm query edit):
+ * a mismatch forces a full rebuild on load, since mtime-fresh files are skipped.
+ * v4: function-valued consts are `function` nodes (#267).
+ */
+const CURRENT_SCHEMA_VERSION = 4;
 
 /**
  * Optional FTS5 schema for fast symbol name search.

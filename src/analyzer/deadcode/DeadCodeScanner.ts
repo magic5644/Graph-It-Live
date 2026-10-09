@@ -30,19 +30,6 @@ export interface DeadCodeScanResult {
   analysisTimeMs: number;
 }
 
-function categorizeSymbolKind(
-  kind: string,
-): "function" | "class" | "variable" | "interface" | "type" | "other" {
-  if (kind.includes("Function")) return "function";
-  if (kind.includes("Class")) return "class";
-  if (kind.includes("Variable") || kind.includes("Const") || kind.includes("Let")) {
-    return "variable";
-  }
-  if (kind.includes("Interface")) return "interface";
-  if (kind.includes("Type")) return "type";
-  return "other";
-}
-
 export async function scanDeadCode(
   spider: Spider,
   rootDir: string,
@@ -53,15 +40,11 @@ export async function scanDeadCode(
   const startTime = Date.now();
   const rawResult = await spider.scanDeadCode(scopePath, { maxFiles: options.maxFiles, signal });
   const entries = rawResult.entries.map((entry) => {
-    const unusedSymbols = entry.unusedSymbols.map((symbol) => ({
-      ...symbol,
-      category: categorizeSymbolKind(symbol.kind),
-    }));
     return {
       filePath: entry.filePath,
       relativePath: getRelativePath(entry.filePath, rootDir),
-      unusedCount: unusedSymbols.length,
-      unusedSymbols,
+      unusedCount: entry.unusedSymbols.length,
+      unusedSymbols: entry.unusedSymbols,
     };
   });
 

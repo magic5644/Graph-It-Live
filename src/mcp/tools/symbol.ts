@@ -9,27 +9,7 @@ import type {
     GetSymbolGraphParams,
     GetSymbolGraphResult,
     SymbolDependencyEdge,
-    SymbolInfo,
 } from "../types";
-
-/**
- * Categorize a symbol by its kind
- */
-function categorizeSymbolKind(
-  kind: string,
-): "function" | "class" | "variable" | "interface" | "type" | "other" {
-  if (kind.includes("Function")) return "function";
-  if (kind.includes("Class")) return "class";
-  if (
-    kind.includes("Variable") ||
-    kind.includes("Const") ||
-    kind.includes("Let")
-  )
-    return "variable";
-  if (kind.includes("Interface")) return "interface";
-  if (kind.includes("Type")) return "type";
-  return "other";
-}
 
 /**
  * Get symbol graph for a file
@@ -54,12 +34,6 @@ export async function executeGetSymbolGraph(
     }),
   );
 
-  // Categorize symbols
-  const categorizedSymbols: SymbolInfo[] = symbols.map((symbol) => ({
-    ...symbol,
-    category: categorizeSymbolKind(symbol.kind),
-  }));
-
   const relativePath = getRelativePath(filePath, config.rootDir);
 
   return {
@@ -67,7 +41,7 @@ export async function executeGetSymbolGraph(
     relativePath,
     symbolCount: symbols.length,
     dependencyCount: dependencies.length,
-    symbols: categorizedSymbols,
+    symbols,
     dependencies: enrichedDependencies,
     isSymbolView: true,
   };
@@ -90,14 +64,6 @@ export async function executeFindUnusedSymbols(
   const { symbols } = await spider.getSymbolGraph(filePath);
   const exportedSymbols = symbols.filter((s) => s.isExported);
 
-  // Categorize unused symbols
-  const categorizedUnusedSymbols: SymbolInfo[] = unusedSymbols.map(
-    (symbol) => ({
-      ...symbol,
-      category: categorizeSymbolKind(symbol.kind),
-    }),
-  );
-
   const unusedCount = unusedSymbols.length;
   const totalExportedSymbols = exportedSymbols.length;
   const unusedPercentage =
@@ -111,7 +77,7 @@ export async function executeFindUnusedSymbols(
     filePath,
     relativePath,
     unusedCount,
-    unusedSymbols: categorizedUnusedSymbols,
+    unusedSymbols,
     totalExportedSymbols,
     unusedPercentage,
   };

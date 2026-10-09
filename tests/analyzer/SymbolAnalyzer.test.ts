@@ -391,3 +391,76 @@ export function read(options: T.Options): void {}
     expect(deps.map((d) => [d.targetSymbolId, d.isTypeOnly])).toEqual([['./types:Options', true]]);
   });
 });
+
+describe('SymbolAnalyzer - category', () => {
+  const content = `
+type Fn = () => number;
+declare function wrap<T>(fn: T): T;
+export const f = () => 1;
+export const g = async function () { return 2; };
+export const p = (() => 1);
+export const s = (() => 1) satisfies Fn;
+export const a = (() => 1) as Fn;
+export const t = <Fn>(() => 1);
+export const n = (() => 1)!;
+export const c = /* c */ async () => 1;
+export const k = 42;
+export const h = wrap(() => 1);
+export const iife = (() => 1)();
+export let u;
+export enum E { A }
+export class C {
+  run() { return 1; }
+  handler = () => 1;
+  count = 0;
+  get size() { return 1; }
+}
+export namespace N {}
+export interface I {}
+export type T = string;
+export function d() { return g(); }
+const local = function () { return 3; };
+let localValue = 4;
+enum LocalEnum { B }
+class LocalClass {}
+function localFn() { return local() + localValue; }
+`;
+  const expected = {
+    f: 'function', g: 'function', p: 'function', s: 'function', a: 'function',
+    t: 'function', n: 'function', c: 'function',
+    k: 'variable', h: 'variable', iife: 'variable', u: 'variable',
+    E: 'type', C: 'class', 'C.run': 'function', 'C.handler': 'function', 'C.count': 'variable', 'C.size': 'function',
+    N: 'other',
+    I: 'interface', T: 'type', d: 'function',
+    local: 'function', localValue: 'variable', LocalEnum: 'type', LocalClass: 'class', localFn: 'function',
+  };
+
+  it('categorizes function-valued consts as function and keeps kind VariableDeclaration', () => {
+    const symbols = new SymbolAnalyzer().analyzeFileContent('/cat.ts', content).symbols;
+    const byName = new Map(symbols.map((s) => [s.name, s]));
+
+    expect(Object.fromEntries(Object.keys(expected).map((name) => [name, byName.get(name)?.category])))
+      .toEqual(expected);
+    for (const name of ['f', 'g', 'p', 's', 'c', 'k', 'h', 'local']) {
+      expect(byName.get(name)?.kind).toBe('VariableDeclaration');
+    }
+    expect(byName.get('E')?.kind).toBe('EnumDeclaration');
+  });
+
+  it('gives getExportedSymbols the same categories as analyzeFileContent', () => {
+    const analyzer = new SymbolAnalyzer();
+    const full = analyzer.analyzeFileContent('/cat.ts', content).symbols.filter((s) => s.isExported);
+    const exported = analyzer.getExportedSymbols('/cat.ts', content);
+
+    expect(exported.map((s) => [s.name, s.category])).toEqual(full.map((s) => [s.name, s.category]));
+  });
+
+  it('does not change filterRuntimeSymbols for the new categories', () => {
+    const analyzer = new SymbolAnalyzer();
+    const runtime = analyzer.filterRuntimeSymbols(analyzer.getExportedSymbols('/cat.ts', content));
+
+    expect(runtime.map((s) => s.name).sort()).toEqual(
+      ['C', 'E', 'N', 'a', 'c', 'd', 'f', 'g', 'h', 'iife', 'k', 'n', 'p', 's', 't', 'u'],
+    );
+  });
+});

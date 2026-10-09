@@ -18,11 +18,39 @@ type UsedSymbol = {
   line?: number;
 };
 
-/** Map ts-morph kind names to category */
+/**
+ * Unwrap `(x)`, `x as T`, `<T>x`, `x satisfies T` and `x!` around an initializer.
+ * Call expressions stay wrapped: `wrap(() => 1)` returns whatever `wrap` returns.
+ */
+function unwrapInitializer(node: Node | undefined): Node | undefined {
+  while (
+    Node.isParenthesizedExpression(node) ||
+    Node.isAsExpression(node) ||
+    Node.isTypeAssertion(node) ||
+    Node.isSatisfiesExpression(node) ||
+    Node.isNonNullExpression(node)
+  ) {
+    node = node.getExpression();
+  }
+  return node;
+}
+
+/**
+ * Category of a declaration node. The single TS kind→category mapping: MCP tools
+ * and the dead-code scan reuse `symbol.category` instead of re-deriving it.
+ */
 function getCategory(
-  kind: string,
+  node: Node,
 ): "function" | "class" | "variable" | "interface" | "type" | "other" {
-  switch (kind) {
+  if (Node.isVariableDeclaration(node) || Node.isPropertyDeclaration(node)) {
+    // The kind name never says whether the value is a function: look at it.
+    // ponytail: syntactic only, `wrap(() => 1)` stays variable; type-based detection if needed
+    const value = unwrapInitializer(node.getInitializer());
+    return Node.isArrowFunction(value) || Node.isFunctionExpression(value)
+      ? "function"
+      : "variable";
+  }
+  switch (node.getKindName()) {
     case "FunctionDeclaration":
     case "ArrowFunction":
     case "MethodDeclaration":
@@ -34,11 +62,8 @@ function getCategory(
     case "InterfaceDeclaration":
       return "interface";
     case "TypeAliasDeclaration":
+    case "EnumDeclaration": // same category as Rust enums
       return "type";
-    case "VariableDeclaration":
-    case "PropertyDeclaration":
-    case "EnumDeclaration":
-      return "variable";
     default:
       return "other";
   }
@@ -180,15 +205,7 @@ export class SymbolAnalyzer implements ISymbolAnalyzer {
       const decl = declarations[0];
       if (!decl) continue;
 
-      this.addSymbol(
-        symbols,
-        name,
-        decl.getKindName(),
-        decl.getStartLineNumber(),
-        decl.getEndLineNumber(),
-        filePath,
-        true,
-      );
+      this.addSymbol(symbols, name, decl, filePath, true);
 
       if (
         decl.getKindName() === "ClassDeclaration" &&
@@ -244,15 +261,7 @@ export class SymbolAnalyzer implements ISymbolAnalyzer {
     for (const varDecl of declarations) {
       const varName = varDecl.getName();
       if (!exportedNames.has(varName)) {
-        this.addSymbol(
-          symbols,
-          varName,
-          "VariableDeclaration",
-          varDecl.getStartLineNumber(),
-          varDecl.getEndLineNumber(),
-          filePath,
-          false,
-        );
+        this.addSymbol(symbols, varName, varDecl, filePath, false);
       }
     }
   }
@@ -266,60 +275,32 @@ export class SymbolAnalyzer implements ISymbolAnalyzer {
     exportedNames: Set<string>,
     symbols: SymbolInfo[],
   ): void {
-    const declarationInfo = this.getDeclarationInfo(statement);
-    if (!declarationInfo || exportedNames.has(declarationInfo.name)) {
+    const name = this.getDeclarationName(statement);
+    if (!name || exportedNames.has(name)) {
       return;
     }
 
-    this.addSymbol(
-      symbols,
-      declarationInfo.name,
-      declarationInfo.kind,
-      statement.getStartLineNumber(),
-      statement.getEndLineNumber(),
-      filePath,
-      false,
-    );
+    this.addSymbol(symbols, name, statement, filePath, false);
 
-    if (declarationInfo.isClass && Node.isClassDeclaration(statement)) {
+    if (Node.isClassDeclaration(statement)) {
       this.extractClassMembers(statement, filePath, symbols);
     }
   }
 
   /**
-   * Get declaration information from a node
+   * Name of a class, function, interface, type alias or enum declaration
    */
-  private getDeclarationInfo(statement: Node): {
-    name: string;
-    kind: string;
-    isClass: boolean;
-  } | null {
-    if (Node.isClassDeclaration(statement)) {
-      const name = statement.getName();
-      if (name) return { name, kind: "ClassDeclaration", isClass: true };
-    } else if (Node.isFunctionDeclaration(statement)) {
-      const name = statement.getName();
-      if (name) return { name, kind: "FunctionDeclaration", isClass: false };
-    } else if (Node.isInterfaceDeclaration(statement)) {
-      return {
-        name: statement.getName(),
-        kind: "InterfaceDeclaration",
-        isClass: false,
-      };
-    } else if (Node.isTypeAliasDeclaration(statement)) {
-      return {
-        name: statement.getName(),
-        kind: "TypeAliasDeclaration",
-        isClass: false,
-      };
-    } else if (Node.isEnumDeclaration(statement)) {
-      return {
-        name: statement.getName(),
-        kind: "EnumDeclaration",
-        isClass: false,
-      };
+  private getDeclarationName(statement: Node): string | undefined {
+    if (
+      Node.isClassDeclaration(statement) ||
+      Node.isFunctionDeclaration(statement) ||
+      Node.isInterfaceDeclaration(statement) ||
+      Node.isTypeAliasDeclaration(statement) ||
+      Node.isEnumDeclaration(statement)
+    ) {
+      return statement.getName();
     }
-    return null;
+    return undefined;
   }
 
   /**
@@ -328,20 +309,18 @@ export class SymbolAnalyzer implements ISymbolAnalyzer {
   private addSymbol(
     symbols: SymbolInfo[],
     name: string,
-    kind: string,
-    line: number,
-    endLine: number,
+    node: Node,
     filePath: string,
     isExported: boolean,
   ): void {
     symbols.push({
       name,
-      kind,
-      line,
-      endLine,
+      kind: node.getKindName(),
+      line: node.getStartLineNumber(),
+      endLine: node.getEndLineNumber(),
       isExported,
       id: `${filePath}:${name}`,
-      category: getCategory(kind),
+      category: getCategory(node),
     });
   }
 
@@ -914,7 +893,7 @@ export class SymbolAnalyzer implements ISymbolAnalyzer {
         isExported: false, // Methods are not directly exported
         id: `${filePath}:${fullName}`,
         parentSymbolId,
-        category: getCategory(memberKind), // Use base kind for category
+        category: getCategory(member), // Use base kind for category
       });
     }
   }
@@ -938,15 +917,14 @@ export class SymbolAnalyzer implements ISymbolAnalyzer {
       const decl = declarations[0];
       if (!decl) continue;
 
-      const kind = decl.getKindName();
       symbols.push({
         name,
-        kind,
+        kind: decl.getKindName(),
         line: decl.getStartLineNumber(),
         endLine: decl.getEndLineNumber(),
         isExported: true,
         id: `${filePath}:${name}`,
-        category: getCategory(kind),
+        category: getCategory(decl),
       });
     }
     return symbols;
