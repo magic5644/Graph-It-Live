@@ -15,9 +15,10 @@ import type {
  */
 export async function executeScanDeadCode(
   params: ScanDeadCodeParams,
+  signal?: AbortSignal,
 ): Promise<ScanDeadCodeResult> {
   const spider = workerState.getSpider();
   const config = workerState.getConfig();
   validateScopePath(params.scopePath ?? config.rootDir, config.rootDir);
-  return scanDeadCode(spider, config.rootDir, params);
+  return scanDeadCode(spider, config.rootDir, params, signal);
 }

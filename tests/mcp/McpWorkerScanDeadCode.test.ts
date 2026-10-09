@@ -11,7 +11,7 @@
 import * as fs from "node:fs/promises";
 import { tmpdir } from "node:os";
 import * as path from "node:path";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { Spider } from "../../src/analyzer/Spider";
 import { SpiderBuilder } from "../../src/analyzer/SpiderBuilder";
 import { workerState } from "../../src/mcp/shared/state";
@@ -185,5 +185,34 @@ describe("MCP invokeTool – scan_dead_code", () => {
       // relativePath must be shorter than the absolute filePath
       expect(entry.relativePath.length).toBeLessThan(entry.filePath.length);
     }
+  });
+
+  it("stops scanning between files once the invocation signal aborts", async () => {
+    const symbolService = (spider as unknown as {
+      symbolService: { findUnusedSymbols: (filePath: string) => Promise<unknown[]> };
+    }).symbolService;
+    const original = symbolService.findUnusedSymbols.bind(symbolService);
+    const controller = new AbortController();
+    const findUnused = vi.spyOn(symbolService, "findUnusedSymbols").mockImplementation((filePath) => {
+      controller.abort();
+      return original(filePath);
+    });
+
+    const response = await new Promise<McpWorkerResponse>((resolve) => {
+      void invokeTool("cancel-request-id", "scan_dead_code", {}, resolve, controller.signal);
+    });
+
+    expect(response).toMatchObject({ type: "error", code: "CANCELLED" });
+    // The workspace has two files: the scan stopped after the first one.
+    expect(findUnused).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not analyse any file when the signal is already aborted", async () => {
+    const controller = new AbortController();
+    controller.abort();
+
+    await expect(spider.scanDeadCode(tempDir, { signal: controller.signal })).rejects.toMatchObject({
+      name: "AbortError",
+    });
   });
 });

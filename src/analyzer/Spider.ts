@@ -674,12 +674,13 @@ export class Spider {
 
   async scanDeadCode(
     scopePath?: string,
-    options?: { maxFiles?: number }
+    options?: { maxFiles?: number; signal?: AbortSignal }
   ): Promise<{ entries: Array<{ filePath: string; unusedSymbols: import('./types').SymbolInfo[] }>; scannedFiles: number; skippedFiles: number; filesBeyondLimit: number }> {
     const resolvedScope = scopePath ?? this.config.rootDir;
     return this.symbolService.scanDeadCode(resolvedScope, {
       maxFiles: options?.maxFiles,
       hasReverseIndex: this.hasReverseIndex(),
+      signal: options?.signal,
     });
   }
 

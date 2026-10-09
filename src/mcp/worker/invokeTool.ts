@@ -129,7 +129,8 @@ const toolHandlers: Partial<Record<McpToolName, ToolHandler>> = {
     executeGenerateCodemap(params as GenerateCodemapParams),
   query_call_graph: (params) =>
     executeQueryCallGraph(params as QueryCallGraphParams),
-  scan_dead_code: (params) => executeScanDeadCode(params as ScanDeadCodeParams),
+  scan_dead_code: (params, _config, _postMessage, signal) =>
+    executeScanDeadCode(params as ScanDeadCodeParams, signal),
   query_natural_language: (params) => executeQueryNaturalLanguage(params as QueryNaturalLanguageParams),
   generate_wiki: (params, config) =>
     executeGenerateWiki(validateGenerateWikiParams(params as GenerateWikiParams, config)),

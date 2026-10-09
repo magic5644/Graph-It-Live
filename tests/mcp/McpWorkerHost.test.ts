@@ -347,6 +347,93 @@ describe('McpWorkerHost', () => {
     });
   });
 
+  describe('request queue', () => {
+    const invokeMessages = () =>
+      getMockWorker().postMessage.mock.calls
+        .map((call) => call[0])
+        .filter((msg) => msg?.type === 'invoke');
+    const answer = (requestId: string, data: unknown) =>
+      getMockWorker().emit('message', { type: 'result', requestId, data, executionTimeMs: 1 });
+
+    beforeEach(async () => {
+      vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'Date'] });
+      host = new McpWorkerHost({ ...defaultOptions, invokeTimeout: 60000 });
+      const startPromise = host.start({
+        rootDir: '/workspace',
+        excludeNodeModules: true,
+        maxDepth: 50,
+      });
+      await Promise.resolve();
+      getMockWorker().emit('message', { type: 'ready', warmupDuration: 1, indexedFiles: 1 });
+      await startPromise;
+    });
+
+    afterEach(() => {
+      vi.useRealTimers();
+    });
+
+    it('runs a concurrent burst one request at a time and resolves every call', async () => {
+      const calls = [1, 2, 3].map(() => host.invoke('scan_dead_code', {}));
+
+      for (let i = 0; i < calls.length; i++) {
+        expect(invokeMessages()).toHaveLength(i + 1);
+        vi.advanceTimersByTime(50000);
+        answer(invokeMessages()[i].requestId, i);
+      }
+
+      await expect(Promise.all(calls)).resolves.toEqual([0, 1, 2]);
+    });
+
+    it('arms the timeout when a request starts, not when it is queued', async () => {
+      const first = host.invoke('scan_dead_code', {});
+      const second = host.invoke('scan_dead_code', {});
+
+      vi.advanceTimersByTime(50000);
+      answer(invokeMessages()[0].requestId, 'first');
+      vi.advanceTimersByTime(20000);
+      answer(invokeMessages()[1].requestId, 'second');
+
+      await expect(first).resolves.toBe('first');
+      await expect(second).resolves.toBe('second');
+    });
+
+    it('times out an isolated request, cancels it and starts the next one', async () => {
+      const first = host.invoke('scan_dead_code', {});
+      const second = host.invoke('get_index_status', {});
+      const third = host.invoke('get_index_status', {});
+      const firstFailure = expect(first).rejects.toThrow(
+        'Tool invocation timeout after 60000ms of work (waited 0ms in queue behind 0 request(s); 2 still queued)',
+      );
+
+      vi.advanceTimersByTime(60000);
+      await firstFailure;
+      const [firstMessage, secondMessage] = invokeMessages();
+      expect(getMockWorker().postMessage).toHaveBeenCalledWith({ type: 'cancel', requestId: firstMessage.requestId });
+      expect(secondMessage.tool).toBe('get_index_status');
+
+      // A late answer to the timed-out request must not settle anything else.
+      answer(firstMessage.requestId, 'late');
+      answer(secondMessage.requestId, 'second');
+      await expect(second).resolves.toBe('second');
+
+      const thirdFailure = expect(third).rejects.toThrow('(waited 60000ms in queue behind 2 request(s); 0 still queued)');
+      vi.advanceTimersByTime(60000);
+      await thirdFailure;
+    });
+
+    it('rejects queued requests that never started when the host is disposed', async () => {
+      const running = host.invoke('scan_dead_code', {});
+      const queued = host.invoke('scan_dead_code', {});
+      expect(invokeMessages()).toHaveLength(1);
+
+      void host.dispose();
+
+      await expect(running).rejects.toThrow('Worker terminated');
+      await expect(queued).rejects.toThrow('Worker terminated');
+      expect(invokeMessages()).toHaveLength(1);
+    });
+  });
+
   describe('ready()', () => {
     it('should return false before start', () => {
       host = new McpWorkerHost(defaultOptions);
