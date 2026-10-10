@@ -7,27 +7,13 @@
 
 import * as assert from 'node:assert';
 import * as vscode from 'vscode';
-import { sleep } from './_helpers';
+import { getIndexStatus, lmToolsSupported, sleep } from './_helpers';
 
 interface IndexStatus {
   state?: string;
   outOfRootImports?: number;
   outOfRootImportExamples?: string[];
   warning?: string;
-}
-
-const lmToolsSupported = (): boolean =>
-  typeof vscode.lm === 'object' && vscode.lm !== null && typeof vscode.lm.invokeTool === 'function';
-
-async function getIndexStatus(): Promise<IndexStatus> {
-  const result = await vscode.lm.invokeTool('graph-it-live_get_index_status', {
-    input: {},
-    toolInvocationToken: undefined,
-  });
-  const text = result.content
-    .map((part) => (part instanceof vscode.LanguageModelTextPart ? part.value : ''))
-    .join('');
-  return JSON.parse(text) as IndexStatus;
 }
 
 suite('Out-of-root imports (#264)', function () {
@@ -45,7 +31,7 @@ suite('Out-of-root imports (#264)', function () {
     let status: IndexStatus = {};
     const deadline = Date.now() + 80000;
     while (Date.now() < deadline) {
-      status = await getIndexStatus();
+      status = await getIndexStatus<IndexStatus>();
       if (status.state === 'complete' && (status.outOfRootImports ?? 0) > 0) break;
       await sleep(500);
     }

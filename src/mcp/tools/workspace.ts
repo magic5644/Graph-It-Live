@@ -1,3 +1,4 @@
+import { IndexCache } from "../../analyzer/cache/IndexCache";
 import { reportOutOfRootImports } from "../../analyzer/utils/workspaceBoundary";
 import { workerState } from "../shared/state";
 import type {
@@ -49,6 +50,7 @@ export async function executeGetIndexStatus(): Promise<GetIndexStatusResult> {
           };
         })()
       : undefined,
+    cacheFiles: workerState.indexCache ? IndexCache.fileSizes(workerState.indexCache.dir) : undefined,
   };
 }
 

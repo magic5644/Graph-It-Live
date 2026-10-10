@@ -97,3 +97,18 @@ export async function openCallGraphFor(
     `openCallGraphFor: timed out waiting for callGraphReady for ${pathSegments.join('/')}`,
   );
 }
+
+export const lmToolsSupported = (): boolean =>
+  typeof vscode.lm === 'object' && vscode.lm !== null && typeof vscode.lm.invokeTool === 'function';
+
+/** Invoke the get_index_status LM tool and parse its JSON payload. */
+export async function getIndexStatus<T>(): Promise<T> {
+  const result = await vscode.lm.invokeTool('graph-it-live_get_index_status', {
+    input: {},
+    toolInvocationToken: undefined,
+  });
+  const text = result.content
+    .map((part) => (part instanceof vscode.LanguageModelTextPart ? part.value : ''))
+    .join('');
+  return JSON.parse(text) as T;
+}
