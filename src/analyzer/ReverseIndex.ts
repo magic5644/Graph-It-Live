@@ -369,7 +369,8 @@ export class ReverseIndex {
       const currentHash = await ReverseIndex.getFileHashFromDisk(filePath);
 
       if (!currentHash) {
-        missingFiles.push(filePath);
+        // Absent from disk and from the index is the correct state for a deleted file.
+        if (this.fileHashes.has(filePath)) missingFiles.push(filePath);
         continue;
       }
 
