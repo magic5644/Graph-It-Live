@@ -1,61 +1,43 @@
-import { describe, bench } from 'vitest';
+import { describe, bench, beforeAll } from 'vitest';
 import { Spider } from '../../src/analyzer/Spider';
 import { ReverseIndex } from '../../src/analyzer/ReverseIndex';
 import path from 'node:path';
 
 const BENCH_OPTIONS = {
-  time: 10,
+  time: 100,
   warmupTime: 0,
-  warmupIterations: 0,
-  iterations: 1,
+  warmupIterations: 2,
+  iterations: 10,
 } as const;
 
 /**
  * Benchmark tests for reverse index performance
- * 
+ *
  * These benchmarks compare:
  * 1. Reverse lookup WITH index (O(1)) vs WITHOUT index (O(n))
  * 2. Full index build time
  * 3. Serialization/deserialization performance
- * 
+ *
+ * Every index is built before measurement: only the named operation is timed.
+ *
  * Run with: npm run test:bench
- * 
- * IMPORTANT: Uses permanent fixtures in tests/fixtures/bench-permanent
- * and lazy initialization to avoid Vitest Bench warmup race condition.
  */
 
 // Path to permanent fixtures (no cleanup, always available)
 const BENCH_PERMANENT_PATH = path.resolve(process.cwd(), 'tests/fixtures/bench-permanent');
 const SHARED_FILE = path.join(BENCH_PERMANENT_PATH, 'src/shared.ts');
+const FILE_COUNT = 1000;
+const TARGET_PATH = '/test/shared.ts';
 
-// Lazy-initialized singletons (survive warmup phase)
-let _spiderWithIndex: Spider | null = null;
-let _spiderWithoutIndex: Spider | null = null;
-let _indexBuilt = false;
-
-async function getSpiderWithIndex(): Promise<Spider> {
-  if (!_spiderWithIndex) {
-    _spiderWithIndex = new Spider({
-      rootDir: BENCH_PERMANENT_PATH,
-      enableReverseIndex: true,
-      indexingConcurrency: 8,
-    });
+function buildIndex(): ReverseIndex {
+  const index = new ReverseIndex('/test');
+  for (let i = 0; i < FILE_COUNT; i++) {
+    index.addDependencies(`/test/file${i}.ts`, [
+      { path: TARGET_PATH, type: 'import', line: 1, module: './shared' },
+      { path: `/test/dep${i % 50}.ts`, type: 'import', line: 2, module: `./dep${i % 50}` },
+    ], { mtime: i, size: i * 10 });
   }
-  if (!_indexBuilt) {
-    await _spiderWithIndex.buildFullIndex();
-    _indexBuilt = true;
-  }
-  return _spiderWithIndex;
-}
-
-function getSpiderWithoutIndex(): Spider {
-  if (!_spiderWithoutIndex) {
-    _spiderWithoutIndex = new Spider({
-      rootDir: BENCH_PERMANENT_PATH,
-      enableReverseIndex: false,
-    });
-  }
-  return _spiderWithoutIndex;
+  return index;
 }
 
 /**
@@ -63,88 +45,66 @@ function getSpiderWithoutIndex(): Spider {
  * They use in-memory data structures only
  */
 describe('ReverseIndex Unit Benchmarks', () => {
-  bench('getReferencingFiles O(1) lookup - 1000 entries', () => {
-    const index = new ReverseIndex('/test');
-    const targetPath = '/test/shared.ts';
+  const index = buildIndex();
+  const serialized = index.serialize();
+  const deps = Array.from({ length: 10 }, (_, i) => ({
+    path: `/test/dep${i}.ts`,
+    type: 'import' as const,
+    line: i + 1,
+    module: `./dep${i}`,
+  }));
 
-    // Setup: Add 1000 source files referencing target
-    for (let i = 0; i < 1000; i++) {
-      index.addDependencies(`/test/file${i}.ts`, [
-        { path: targetPath, type: 'import', line: 1, module: './shared' },
-      ], { mtime: i, size: i * 10 });
-    }
-
-    // Benchmark the lookup
-    index.getReferencingFiles(targetPath);
+  bench(`getReferencingFiles O(1) lookup - ${FILE_COUNT} referencing files`, () => {
+    index.getReferencingFiles(TARGET_PATH);
   }, BENCH_OPTIONS);
 
-  bench('addDependencies - single file with 10 deps', () => {
-    const index = new ReverseIndex('/test');
-    const deps = Array.from({ length: 10 }, (_, i) => ({
-      path: `/test/dep${i}.ts`,
-      type: 'import' as const,
-      line: i + 1,
-      module: `./dep${i}`,
-    }));
-
-    index.addDependencies('/test/source.ts', deps, { mtime: 123, size: 1024 });
+  // Re-adding an existing source replaces its entries: the index size stays constant.
+  bench(`addDependencies - re-index 1 file with 10 deps in a ${FILE_COUNT}-file index`, () => {
+    index.addDependencies('/test/file0.ts', deps, { mtime: 123, size: 1024 });
   }, BENCH_OPTIONS);
 
-  bench('serialize - 500 files index', () => {
-    const index = new ReverseIndex('/test');
-    
-    // Setup
-    for (let i = 0; i < 500; i++) {
-      index.addDependencies(`/test/file${i}.ts`, [
-        { path: '/test/shared.ts', type: 'import', line: 1, module: './shared' },
-      ], { mtime: i, size: i * 10 });
-    }
-
+  bench(`serialize - ${FILE_COUNT} files index`, () => {
     index.serialize();
   }, BENCH_OPTIONS);
 
-  bench('deserialize - 500 files index', () => {
-    const index = new ReverseIndex('/test');
-    
-    // Setup
-    for (let i = 0; i < 500; i++) {
-      index.addDependencies(`/test/file${i}.ts`, [
-        { path: '/test/shared.ts', type: 'import', line: 1, module: './shared' },
-      ], { mtime: i, size: i * 10 });
-    }
-
-    const serialized = index.serialize();
+  bench(`deserialize - ${FILE_COUNT} files index`, () => {
     ReverseIndex.deserialize(serialized, '/test');
   }, BENCH_OPTIONS);
 
-  bench('isFileStale check - 1000 files', () => {
-    const index = new ReverseIndex('/test');
-    
-    // Setup
-    for (let i = 0; i < 1000; i++) {
-      index.addDependencies(`/test/file${i}.ts`, [], { mtime: i, size: i * 10 });
-    }
-
-    // Check staleness for all files
-    for (let i = 0; i < 1000; i++) {
+  bench(`isFileStale check - ${FILE_COUNT} files`, () => {
+    for (let i = 0; i < FILE_COUNT; i++) {
       index.isFileStale(`/test/file${i}.ts`, { mtime: i, size: i * 10 });
     }
   }, BENCH_OPTIONS);
 });
 
 /**
- * Spider integration benchmarks - use permanent fixtures with lazy init
+ * Spider integration benchmarks - use permanent fixtures
  * These tests compare indexed vs fallback lookup performance
  */
 describe('Spider Integration Benchmarks', () => {
+  const spiderWithIndex = new Spider({
+    rootDir: BENCH_PERMANENT_PATH,
+    enableReverseIndex: true,
+    indexingConcurrency: 8,
+  });
+  const spiderWithoutIndex = new Spider({
+    rootDir: BENCH_PERMANENT_PATH,
+    enableReverseIndex: false,
+  });
+
+  beforeAll(async () => {
+    await spiderWithIndex.buildFullIndex();
+  });
+
   bench('findReferencingFiles WITH index (O(1) lookup)', async () => {
-    const spider = await getSpiderWithIndex();
-    await spider.findReferencingFiles(SHARED_FILE);
+    await spiderWithIndex.findReferencingFiles(SHARED_FILE);
   }, BENCH_OPTIONS);
 
-  bench('findReferencingFiles WITHOUT index (O(n) scan)', async () => {
-    const spider = getSpiderWithoutIndex();
-    await spider.findReferencingFiles(SHARED_FILE);
+  // findReferencingFiles() would serve the fallback cache after the first call;
+  // this variant always runs the project scan.
+  bench('findReferencingFilesWithFallback WITHOUT index (O(n) scan)', async () => {
+    await spiderWithoutIndex.findReferencingFilesWithFallback(SHARED_FILE);
   }, BENCH_OPTIONS);
 });
 

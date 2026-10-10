@@ -1,8 +1,9 @@
 /**
  * Performance benchmarks for Rust support
  * 
- * Ensures Rust analysis doesn't add overhead to TypeScript projects
- * and performs reasonably for Rust projects.
+ * Measures Rust parsing and crawl cost next to the TypeScript equivalent.
+ * Lazy parser loading for TypeScript-only projects is asserted in
+ * tests/analyzer/LanguageService.lazyLoading.test.ts.
  */
 
 import path from 'node:path';
@@ -12,7 +13,6 @@ import { RustSymbolAnalyzer } from "../../src/analyzer/languages/RustSymbolAnaly
 import { Parser } from "../../src/analyzer/Parser";
 import { Spider } from "../../src/analyzer/Spider";
 import { SymbolAnalyzer } from "../../src/analyzer/SymbolAnalyzer";
-import { detectLanguageFromExtension } from '../../src/shared/utils/languageDetection';
 
 const BENCH_OPTIONS = {
   time: 10,
@@ -80,30 +80,6 @@ describe('Rust Performance Benchmarks', () => {
     }, BENCH_OPTIONS);
   });
 
-  describe('Memory efficiency', () => {
-    bench('Rust: Create parser instance (lazy tree-sitter loading)', () => {
-      const _parser = new RustParser();
-      // Prevent unused variable warning - parser is used for instantiation benchmarking
-      expect(_parser).toBeDefined();
-    }, BENCH_OPTIONS);
-
-    bench('TypeScript: Create parser instance', () => {
-      const _parser = new Parser();
-      // Prevent unused variable warning - parser is used for instantiation benchmarking
-      expect(_parser).toBeDefined();
-    }, BENCH_OPTIONS);
-  });
-
-  describe('Zero overhead for TypeScript-only projects', () => {
-    bench('TypeScript project: Spider should not load Rust parser', async () => {
-      // This benchmark ensures Rust parser is only loaded when needed
-      const spider = new Spider({ rootDir: tsFixturesDir, maxDepth: 20 });
-      const mainFile = path.join(tsFixturesDir, 'src/main.ts');
-      await spider.crawl(mainFile);
-      // Rust parser should NOT be instantiated here
-    }, BENCH_OPTIONS);
-  });
-
   describe('Rust-specific features', () => {
     bench('Rust: Parse mod declarations', async () => {
       const mainFile = path.join(rustFixturesDir, 'main.rs');
@@ -136,14 +112,4 @@ describe('Rust Performance Benchmarks', () => {
       await rustSymbolAnalyzer.getSymbolDependencies(mainFile);
     }, BENCH_OPTIONS);
   });
-});
-
-describe('Language Detection Performance', () => {
-  bench('Detect Rust file extension (.rs)', () => {
-    detectLanguageFromExtension('/path/to/file.rs');
-  }, BENCH_OPTIONS);
-
-  bench('Detect TypeScript file extension (.ts)', () => {
-    detectLanguageFromExtension('/path/to/file.ts');
-  }, BENCH_OPTIONS);
 });

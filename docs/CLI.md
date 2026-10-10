@@ -1106,11 +1106,11 @@ extract keywords; without a provider key it uses the deterministic heuristic
 fallback. MCP response synthesis belongs to the calling AI client, not to
 Graph-It-Live's local analyzers.
 
-**TOON secondary benchmark workflow:**
+**TOON encoding benchmark:**
 
 ```bash
-# Primary + secondary payload benchmarks for session-stats TOON encoding
-npx vitest bench tests/benchmarks/sessionStatsToon.bench.ts
+# TOON encoding + token estimate on 100 / 1,000 / 5,000-node crawl payloads
+npx vitest bench --run --config vitest.benchmark.config.mts tests/benchmarks/sessionStatsToon.bench.ts
 ```
 
 **Examples:**

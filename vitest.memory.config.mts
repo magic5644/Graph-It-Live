@@ -10,6 +10,8 @@ export default defineConfig({
     globals: true,
     environment: 'node',
     include: ['tests/benchmarks/memory/**/*.bench.ts'],
+    // Heap benches call gc() between phases; without this flag it is undefined.
+    execArgv: ['--expose-gc'],
     silent: false,
     reporters: ['default'],
   },

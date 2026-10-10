@@ -304,18 +304,15 @@ Key hotspots to watch:
 
 ## Testing
 
-Performance regression tests in `tests/benchmarks/`:
+Performance suites (none of them enforce a timing threshold):
 
-```typescript
-// Benchmark: 1000-edge graph analysis
-const start = Date.now();
-await graphViewService.buildGraphData(entryFile, true);
-const duration = Date.now() - start;
+| Command | Files | Purpose |
+| --- | --- | --- |
+| `npm run test:bench` | `tests/benchmarks/*.bench.ts` | Vitest timing benches, one file per process (`scripts/run-benchmarks.mjs`). Each bench builds its fixtures before measurement and times only the named operation. |
+| `npm run test:bench:memory` | `tests/benchmarks/memory/*.bench.ts` | Heap and database-size checks with assertions; workers start with `--expose-gc` (`vitest.memory.config.mts`). |
+| `npm test` | `tests/benchmarks/graphContextBenchmark.test.ts`, `tests/cli/workCounters.test.ts` | Deterministic assertions (graph_context benchmark contract, cache work counters) that run with the unit suite. |
 
-expect(duration).toBeLessThan(15000); // 15s threshold
-```
-
-Run with: `npm run test:benchmark`
+The unused-dependency benches above live in `tests/benchmarks/unusedDependencies.bench.ts`.
 
 ## Conclusion
 
