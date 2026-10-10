@@ -133,6 +133,46 @@ describe('ReverseIndex', () => {
             expect(index.getReferencingFiles('/test/project/src/shared.ts')).toEqual([]);
             expect(index.getEmptyMapCount()).toBe(0);
         });
+
+        const sharedDep: Dependency = { path: 'C:\\proj\\src\\shared.ts', type: 'import', line: 1, module: './shared' };
+
+        it('removes Windows-path sources whatever the separators and drive case', () => {
+            index.addDependencies('C:\\proj\\src\\a.ts', [sharedDep]);
+
+            index.removeDependenciesFromSource('c:/proj/src/a.ts');
+
+            expect(index.getReferencingFiles('c:/proj/src/shared.ts')).toEqual([]);
+        });
+
+        it('re-adds a source after its empty target map was evicted', () => {
+            index.addDependencies('/test/project/src/a.ts', [sharedDep]);
+            index.removeDependenciesFromSource('/test/project/src/a.ts');
+            expect(index.getReferencingFiles(sharedDep.path)).toEqual([]);
+
+            index.addDependencies('/test/project/src/a.ts', [sharedDep]);
+            index.removeDependenciesFromSource('/test/project/src/a.ts');
+
+            expect(index.getCallerCount(sharedDep.path)).toBe(0);
+        });
+
+        it('removes entries restored by deserialize', () => {
+            index.addDependencies('C:\\proj\\src\\a.ts', [sharedDep]);
+            const restored = ReverseIndex.deserialize(index.serialize(), rootDir)!;
+
+            restored.removeDependenciesFromSource('c:/proj/src/a.ts');
+
+            expect(restored.getCallerCount(sharedDep.path)).toBe(0);
+        });
+
+        it('forgets sources dropped by clear', () => {
+            index.addDependencies('/test/project/src/a.ts', [sharedDep]);
+            index.clear();
+            index.addDependencies('/test/project/src/b.ts', [sharedDep]);
+
+            index.removeDependenciesFromSource('/test/project/src/a.ts');
+
+            expect(index.getCallerCount(sharedDep.path)).toBe(1);
+        });
     });
 
     describe('getReferencingFiles', () => {

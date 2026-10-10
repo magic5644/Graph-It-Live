@@ -72,6 +72,12 @@ export class SymbolReverseIndex {
   private readonly reverseMap: Map<string, Map<string, SymbolReverseEntry>> = new Map();
 
   /**
+   * Maps source file path -> [targetSymbolId, callerSymbolId] pairs it added, so
+   * removing a file touches only its own entries instead of scanning every caller
+   */
+  private readonly forwardMap: Map<string, [string, string][]> = new Map();
+
+  /**
    * Maps file path -> file hash for staleness detection
    */
   private readonly fileHashes: Map<string, FileHash> = new Map();
@@ -120,6 +126,7 @@ export class SymbolReverseIndex {
         this.reverseMap.set(dep.targetSymbolId, targetMap);
       }
       targetMap.set(dep.sourceSymbolId, entry);
+      this.addForwardEntry(normalizedSourcePath, dep.targetSymbolId, dep.sourceSymbolId);
     }
 
     // Update file hash if provided
@@ -140,18 +147,17 @@ export class SymbolReverseIndex {
   removeDependenciesFromSource(sourceFilePath: string): void {
     const normalizedSourcePath = normalizePath(sourceFilePath);
 
-    // Iterate all target symbols and remove entries from this source
-    for (const [, callerMap] of this.reverseMap) {
-      // Find and remove entries where callerFilePath matches
-      for (const [callerSymbolId, entry] of callerMap) {
-        if (entry.callerFilePath === normalizedSourcePath) {
-          callerMap.delete(callerSymbolId);
-        }
+    for (const [targetSymbolId, callerSymbolId] of this.forwardMap.get(normalizedSourcePath) ?? []) {
+      const callerMap = this.reverseMap.get(targetSymbolId);
+      // Another file may have re-added the same caller ID since; keep its entry
+      if (callerMap?.get(callerSymbolId)?.callerFilePath === normalizedSourcePath) {
+        callerMap.delete(callerSymbolId);
       }
 
       // NOTE: Do NOT delete empty maps here - they will be cleaned up lazily
       // This prevents losing references when addDependencies() is called immediately after
     }
+    this.forwardMap.delete(normalizedSourcePath);
 
     // Remove file hash
     this.fileHashes.delete(normalizedSourcePath);
@@ -271,6 +277,7 @@ export class SymbolReverseIndex {
    */
   clear(): void {
     this.reverseMap.clear();
+    this.forwardMap.clear();
     this.fileHashes.clear();
     this.lastUpdated = Date.now();
   }
@@ -341,7 +348,9 @@ export class SymbolReverseIndex {
     for (const [targetSymbolId, entries] of Object.entries(data.reverseMap)) {
       const callerMap = new Map<string, SymbolReverseEntry>();
       for (const entry of entries) {
-        callerMap.set(entry.callerSymbolId, entry);
+        const callerFilePath = normalizePath(entry.callerFilePath);
+        callerMap.set(entry.callerSymbolId, { ...entry, callerFilePath });
+        this.addForwardEntry(callerFilePath, targetSymbolId, entry.callerSymbolId);
       }
       this.reverseMap.set(targetSymbolId, callerMap);
     }
@@ -353,6 +362,16 @@ export class SymbolReverseIndex {
 
     this.lastUpdated = data.timestamp;
     return true;
+  }
+
+  /** Records that sourceFilePath (already normalized) added callerSymbolId to targetSymbolId. */
+  private addForwardEntry(sourceFilePath: string, targetSymbolId: string, callerSymbolId: string): void {
+    let pairs = this.forwardMap.get(sourceFilePath);
+    if (!pairs) {
+      pairs = [];
+      this.forwardMap.set(sourceFilePath, pairs);
+    }
+    pairs.push([targetSymbolId, callerSymbolId]);
   }
 
   /**

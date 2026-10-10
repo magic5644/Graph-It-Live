@@ -5,6 +5,7 @@ import { beforeAll, describe, expect, it, vi } from "vitest";
 import { GraphExtractor } from "@/analyzer/callgraph/GraphExtractor";
 import { LanguageService } from "@/analyzer/LanguageService";
 import { ReverseIndex } from "@/analyzer/ReverseIndex";
+import { SymbolReverseIndex } from "@/analyzer/SymbolReverseIndex";
 import { CliRuntime } from "@/cli/runtime";
 import { workerState } from "@/mcp/shared/state";
 import { ensureCallGraphReady, executeQueryCallGraph } from "@/mcp/tools/callgraph";
@@ -147,6 +148,58 @@ describe.runIf(wasmBuilt)("scaling n vs 4n", () => {
     expect(small.cold.queries.sql).toBeGreaterThan(0);
     expectLinear(small.cold.queries, large.cold.queries);
     expectLinear(small.warm.queries, large.warm.queries);
+  });
+});
+
+describe("reverse index full build n vs 4n", () => {
+  /**
+   * Issue #316: Map deletes and iterations made while adding n files with two
+   * imports each. A removal that scans the whole index per file is quadratic.
+   * Plain counters, not vi.spyOn: recording millions of calls exhausts memory.
+   */
+  const mapWorkFor = (n: number, add: (i: number) => void): number => {
+    const proto = Map.prototype;
+    const { delete: originalDelete, [Symbol.iterator]: originalIterator } = proto;
+    let work = 0;
+    proto.delete = function (this: Map<unknown, unknown>, key: unknown) {
+      work++;
+      return originalDelete.call(this, key);
+    };
+    proto[Symbol.iterator] = function (this: Map<unknown, unknown>) {
+      work++;
+      return originalIterator.call(this);
+    };
+    try {
+      for (let i = 0; i < n; i++) add(i);
+      return work;
+    } finally {
+      proto.delete = originalDelete;
+      proto[Symbol.iterator] = originalIterator;
+    }
+  };
+
+  it("builds ReverseIndex in linear work", () => {
+    const workFor = (n: number): number => {
+      const index = new ReverseIndex("/ws");
+      return mapWorkFor(n, (i) => index.addDependencies(`/ws/m${i}.ts`, [
+        { path: "/ws/hub.ts", type: "import", line: 1, module: "./hub" },
+        { path: `/ws/m${(i * 7 + 1) % n}.ts`, type: "import", line: 2, module: "./m" },
+      ]));
+    };
+    const small = workFor(1_000);
+    expect(workFor(4_000)).toBeLessThanOrEqual(MAX_RATIO * small);
+  });
+
+  it("builds SymbolReverseIndex in linear work", () => {
+    const workFor = (n: number): number => {
+      const index = new SymbolReverseIndex("/ws");
+      return mapWorkFor(n, (i) => index.addDependencies(`/ws/m${i}.ts`, [
+        { sourceSymbolId: `/ws/m${i}.ts:m${i}`, targetSymbolId: "/ws/hub.ts:hub", targetFilePath: "/ws/hub.ts" },
+        { sourceSymbolId: `/ws/m${i}.ts:m${i}`, targetSymbolId: `/ws/m${(i * 7 + 1) % n}.ts:m`, targetFilePath: "/ws/m.ts" },
+      ]));
+    };
+    const small = workFor(1_000);
+    expect(workFor(4_000)).toBeLessThanOrEqual(MAX_RATIO * small);
   });
 });
 
