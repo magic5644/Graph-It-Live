@@ -61,8 +61,9 @@ jobs:
     with:
       node-version: '24.x'
       ref: ${{ needs.resolve-ref.outputs.sha }}
-      run-e2e: true
-      package-extension: true
+      # E2E and VSIX packaging only cover the stores, not the npm CLI.
+      run-e2e: ${{ inputs.publish_vscode || inputs.publish_openvsx }}
+      package-extension: ${{ inputs.publish_vscode || inputs.publish_openvsx }}
 
   publish:
     permissions:
@@ -72,7 +73,9 @@ jobs:
       attestations: write
     runs-on: ubuntu-latest
     needs: [resolve-ref, validate]
-    if: ${{ needs.validate.result == 'success' || (inputs.skip_tests == true && needs.validate.result == 'skipped') }}
+    # Without a status function GitHub prepends success(), which is false when
+    # validate is skipped: !cancelled() lets the skip_tests branch be evaluated.
+    if: ${{ !cancelled() && needs.resolve-ref.result == 'success' && (needs.validate.result == 'success' || (inputs.skip_tests == true && needs.validate.result == 'skipped')) }}
     steps:
       - name: Validate at least one store is selected
         run: |

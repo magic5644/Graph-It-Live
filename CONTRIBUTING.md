@@ -395,6 +395,8 @@ The version is not committed: workflows set it from the tag at publish time.
 
    Notes typed when creating the release in the UI are overwritten, and re-running the workflow gives the same body.
 5. `Publish (Selective)` (`.github/workflows/publish-npm.yml`) publishes the CLI to npm and, optionally, the stores. It only attaches the VSIX to the release and never changes its body.
+   - Its validation runs the unit tests on Linux, macOS and Windows; VS Code E2E tests and VSIX packaging run only when a store is selected.
+   - Set `skip_tests` only for the tag that `release.yml` already validated. A failed or cancelled validation never publishes.
 
 Preview the release body locally (requires `gh` authenticated and the tags fetched):
 
