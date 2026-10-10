@@ -1,0 +1,81 @@
+name: Benchmark A/B
+
+# Same-runner A/B (#293): base and head are built and benchmarked in one job,
+# interleaved, so runner hardware drift cancels out. scripts/bench-compare.mjs
+# compares medians across runs and keeps one sticky comment on the PR listing
+# regressions and gains. Informational, not blocking.
+# Cost: two `npm ci` + `build:cli`, then RUNS x 2 full bench suites (~1 min each).
+
+on:
+  pull_request:
+    branches: [main]
+    types: [opened, synchronize, reopened]
+    paths:
+      - 'src/analyzer/**'
+      - 'src/mcp/**'
+      - 'src/cli/**'
+      - 'src/shared/**'
+      - 'tests/benchmarks/**'
+      - 'vitest.benchmark.config.mts'
+      - 'scripts/bench-compare.mjs'
+      - '.github/workflows/bench-ab.yml'
+
+permissions:
+  contents: read
+  # Required only for comments on pull requests from repository branches.
+  pull-requests: write
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  bench:
+    name: Benchmark A/B (Linux)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          path: head
+
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          ref: ${{ github.event.pull_request.base.sha }}
+          path: base
+
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: |
+            base/package-lock.json
+            head/package-lock.json
+
+      - name: Install and build base and head
+        run: |
+          for side in base head; do
+            (cd "$side" && npm ci --ignore-scripts && npm run build:cli)
+          done
+
+      - name: Run benchmarks (base and head interleaved)
+        env:
+          LOG_LEVEL: error
+          RUNS: "3"
+        run: |
+          mkdir -p "$RUNNER_TEMP/bench"
+          for run in $(seq "$RUNS"); do
+            for side in base head; do
+              (cd "$side" && node node_modules/vitest/vitest.mjs bench --run --no-file-parallelism --maxWorkers 1 \
+                --config vitest.benchmark.config.mts --outputJson "$RUNNER_TEMP/bench/$side-$run.json")
+            done
+          done
+
+      - name: Compare and comment
+        env:
+          GITHUB_TOKEN: ${{ !github.event.pull_request.head.repo.fork && secrets.GITHUB_TOKEN || '' }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          THRESHOLD_PERCENT: "10"
+        run: node head/scripts/bench-compare.mjs "$RUNNER_TEMP/bench" "$THRESHOLD_PERCENT"

@@ -20,9 +20,9 @@ export function buildReviewDeepLink(result, extensionId = "magic5644.graph-it-li
   return `vscode://${extensionId}/graph-it-live.reviewCallGraph?${params.toString()}`;
 }
 
-export function findStickyComment(comments) {
+export function findStickyComment(comments, marker = MARKER) {
   return Array.isArray(comments)
-    ? comments.find((comment) => comment?.user?.type === "Bot" && typeof comment.body === "string" && comment.body.includes(MARKER))
+    ? comments.find((comment) => comment?.user?.type === "Bot" && typeof comment.body === "string" && comment.body.includes(marker))
     : undefined;
 }
 
