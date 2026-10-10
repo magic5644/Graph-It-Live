@@ -248,11 +248,12 @@ export class ReviewGateAnalyzer {
     const isMemberLevelChange = errorBreakingChanges.length > 0
       && errorBreakingChanges.every((change) => change.type === "member-removed" || change.type === "member-renamed" || change.type === "member-type-changed" || change.type === "member-optional-to-required");
     const effectiveMaxDepth = isMemberLevelChange ? 1 : maxDepth;
-    const impact: SymbolImpact = errorBreakingChanges.length > 0
+    const contractImpact: SymbolImpact = errorBreakingChanges.length > 0
       ? this.isVuePropsSymbol(comparison.symbolName)
         ? await this.getVuePropsImpact(absolutePath)
         : await this.getTypeImpact(absolutePath, comparison.symbolName, effectiveMaxDepth, fileEvidence.functions, headRef)
       : EMPTY_IMPACT;
+    const impact = await this.keepCallsThatBreak(contractImpact, comparison.symbolName, errorBreakingChanges, headRef);
     const cycles = fileEvidence.cycleSymbols.has(this.toSymbolId(absolutePath, comparison.symbolName));
     const unusedExport = fileEvidence.unusedSymbols.has(comparison.symbolName);
     // A dependents provider that actually ran and found zero live consumers (not just
@@ -567,7 +568,7 @@ export class ReviewGateAnalyzer {
 
     const viaContainer = await this.walkDependents(filePath, symbolName.slice(0, separator), maxDepth);
     if (viaContainer.count === 0) return direct;
-    const member = await this.keepFilesNamingMember(viaContainer, symbolName.slice(symbolName.lastIndexOf(".") + 1), headRef);
+    const member = await this.keepFilesNamingMember(viaContainer, symbolName, headRef);
     // No consumer of the class even names the member, so none of them can call it.
     if (member.consumerFiles.length === 0 && member.testDependents.length === 0) return direct;
     return { ...member, partial: true, containerScoped: true };
@@ -579,15 +580,51 @@ export class ReviewGateAnalyzer {
    * Every file that uses a class is a consumer of the class, but only a file that
    * writes the member's name can call it. Without this, changing one method of a
    * widely used class charged the author for every file that touches the class.
-   * A file that cannot be read is kept: unknown is not the same as unaffected.
+   * A constructor is named by `new Class(` or `super(`, never by "constructor".
    */
-  private async keepFilesNamingMember(impact: SymbolImpact, memberName: string, headRef: string): Promise<SymbolImpact> {
-    const escaped = memberName.replaceAll(/[.*+?^${}()|[\]\\]/g, String.raw`\$&`);
-    const mentions = new RegExp(String.raw`(^|[^\w$])${escaped}($|[^\w$])`);
+  private async keepFilesNamingMember(impact: SymbolImpact, symbolName: string, headRef: string): Promise<SymbolImpact> {
+    const mentions = isConstructor(symbolName)
+      ? new RegExp(callPattern(symbolName))
+      : new RegExp(String.raw`(^|[^\w$])${escapeRegExp(memberName(symbolName))}($|[^\w$])`);
+    return this.keepConsumerFiles(impact, headRef, (content) => mentions.test(content));
+  }
+
+  /**
+   * Narrow consumers to the files that call the symbol with an argument it no longer takes.
+   *
+   * Removing an optional, defaulted or rest parameter leaves every call that omits
+   * it valid: only a call passing at least `breaksCallsWithArgs` arguments breaks.
+   * Without this, dropping an optional parameter no caller passed charged the
+   * author for every consumer of the symbol.
+   */
+  private async keepCallsThatBreak(
+    impact: SymbolImpact,
+    symbolName: string,
+    changes: BreakingChange[],
+    headRef: string,
+  ): Promise<SymbolImpact> {
+    const minArgs = argumentsThatBreak(changes);
+    if (minArgs === undefined || impact.count === 0) return impact;
+    const calls = new RegExp(callPattern(symbolName), "g");
+    const narrowed = await this.keepConsumerFiles(impact, headRef, (content) =>
+      [...content.matchAll(calls)].some((call) => countArguments(content, call.index + call[0].length) >= minArgs));
+    // No call passes the removed argument, so nothing breaks.
+    return narrowed.consumerFiles.length === 0 && narrowed.testDependents.length === 0 ? EMPTY_IMPACT : narrowed;
+  }
+
+  /** Keep the consumers whose content passes `matches`. A file that cannot be read is kept: unknown is not unaffected. */
+  private async keepConsumerFiles(
+    impact: SymbolImpact,
+    headRef: string,
+    matches: (content: string) => boolean,
+  ): Promise<SymbolImpact> {
     const files = [...new Set([...impact.consumerFiles, ...impact.testDependents])];
     const contents = await Promise.all(files.map((file) => this.readConsumerContent(file, headRef)));
-    const naming = new Set(files.filter((_file, index) => contents[index] === null || mentions.test(contents[index])));
-    const keep = (files: string[]): string[] => files.filter((file) => naming.has(file));
+    const kept = new Set(files.filter((_file, index) => {
+      const content = contents[index];
+      return content === null || matches(content);
+    }));
+    const keep = (list: string[]): string[] => list.filter((file) => kept.has(file));
     return {
       ...impact,
       consumerFiles: keep(impact.consumerFiles),
@@ -790,6 +827,86 @@ export class ReviewGateAnalyzer {
 const EMPTY_IMPACT: SymbolImpact = {
   count: 0, partial: false, testDependents: [], consumerFiles: [], coveredFiles: [],
 };
+
+function escapeRegExp(text: string): string {
+  return text.replaceAll(/[.*+?^${}()|[\]\\]/g, String.raw`\$&`);
+}
+
+function memberName(symbolName: string): string {
+  return symbolName.slice(symbolName.lastIndexOf(".") + 1);
+}
+
+function isConstructor(symbolName: string): boolean {
+  return symbolName.endsWith(".constructor");
+}
+
+/**
+ * Source of a regex matching a call to the symbol up to its opening `(`: `new Class(`
+ * or `super(` for a constructor, `name(` otherwise. Type arguments are allowed.
+ * ponytail: textual, so an aliased import or a call through a variable is missed;
+ * use the call graph's call sites if that ever matters.
+ */
+function callPattern(symbolName: string): string {
+  const callee = isConstructor(symbolName)
+    ? String.raw`(?:\bnew\s+${escapeRegExp(symbolName.slice(0, symbolName.lastIndexOf(".")))}|\bsuper)`
+    : String.raw`(?:^|[^\w$])${escapeRegExp(memberName(symbolName))}`;
+  return String.raw`${callee}\s*(?:<[^()]*>)?\s*\(`;
+}
+
+/** Fewest arguments a breaking call passes, or undefined when some change breaks every call. */
+function argumentsThatBreak(changes: BreakingChange[]): number | undefined {
+  let fewest: number | undefined;
+  for (const change of changes) {
+    if (change.breaksCallsWithArgs === undefined) return undefined;
+    fewest = Math.min(fewest ?? Infinity, change.breaksCallsWithArgs);
+  }
+  return fewest;
+}
+
+/** Index just past the string or comment starting at `index`, or `index` when none starts there. */
+function skipLiteral(text: string, index: number): number {
+  const quote = text[index];
+  if (quote === '"' || quote === "'" || quote === "`") {
+    let end = index + 1;
+    while (end < text.length && text[end] !== quote) end += text[end] === "\\" ? 2 : 1;
+    return end + 1;
+  }
+  let close: string;
+  if (text.startsWith("//", index)) close = "\n";
+  else if (text.startsWith("/*", index)) close = "*/";
+  else return index;
+  const end = text.indexOf(close, index + 2);
+  return end === -1 ? text.length : end + close.length;
+}
+
+/**
+ * Number of arguments of the call whose `(` ends just before `start`. A spread or
+ * an unclosed call counts as Infinity: when unsure, the call is kept.
+ */
+function countArguments(text: string, start: number): number {
+  let depth = 0;
+  let commas = 0;
+  let empty = true;
+  let index = start;
+  while (index < text.length) {
+    const skipped = skipLiteral(text, index);
+    if (skipped !== index) {
+      empty = false;
+      index = skipped;
+      continue;
+    }
+    const char = text[index];
+    if (depth === 0) {
+      if (")]}".includes(char)) return commas + Number(!empty);
+      if (text.startsWith("...", index)) return Infinity;
+      if (char === ",") commas++;
+    }
+    depth += Number("([{".includes(char)) - Number(")]}".includes(char));
+    empty &&= /\s/.test(char);
+    index++;
+  }
+  return Infinity;
+}
 
 /** Union of two walks; the count is a sum, so a dependent reached through both counts twice. */
 function mergeImpacts(left: SymbolImpact, right: SymbolImpact): SymbolImpact {

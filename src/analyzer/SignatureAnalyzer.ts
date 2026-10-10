@@ -94,6 +94,11 @@ export interface BreakingChange {
   oldValue?: string;
   newValue?: string;
   line?: number;
+  /**
+   * Set when the removed parameter could be omitted (optional, defaulted or rest):
+   * only a call passing at least this many arguments breaks.
+   */
+  breaksCallsWithArgs?: number;
 }
 
 /**
@@ -961,6 +966,9 @@ export class SignatureAnalyzer {
           severity: 'error',
           oldValue: `${oldParam.name}: ${oldParam.type}`,
           line: newSig.line,
+          ...(oldParam.isOptional || oldParam.hasDefault || oldParam.isRest
+            ? { breaksCallsWithArgs: oldParam.position + 1 }
+            : {}),
         });
       }
     }
