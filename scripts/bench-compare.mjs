@@ -43,15 +43,16 @@ export function collectSamples(reports) {
 }
 
 /**
- * A change counts only beyond the threshold and when the run ranges do not
- * overlap: one slow run on either side stays noise.
+ * A change counts only when the gap between the run ranges exceeds the
+ * threshold: every head run slower (or faster) than every base run by that
+ * much. Disjoint ranges alone are not enough: with 3 runs a side they occur
+ * by chance for 1 bench in 20 (77 benches), the median change being noise.
  */
 export function classify(base, head, threshold) {
   if (!base) return 'added';
   if (!head) return 'removed';
-  const change = median(head) / median(base) - 1;
-  if (change >= threshold && Math.min(...head) > Math.max(...base)) return 'regression';
-  if (change <= -threshold && Math.max(...head) < Math.min(...base)) return 'gain';
+  if (Math.min(...head) / Math.max(...base) - 1 >= threshold) return 'regression';
+  if (Math.max(...head) / Math.min(...base) - 1 <= -threshold) return 'gain';
   return 'noise';
 }
 
@@ -105,8 +106,9 @@ export function renderBenchComment(rows, { threshold, runs }) {
     `## Benchmark A/B: ${regressions.length} regression(s), ${gains.length} gain(s)`,
     '',
     `Base and head ran interleaved on the same Linux runner, ${runs} run(s) each. ` +
-      `A benchmark changes only beyond ±${Math.round(threshold * 100)}% of its median ` +
-      'and when its base and head run ranges do not overlap. Informational, not blocking.',
+      `A benchmark changes only when every head run is more than ${Math.round(threshold * 100)}% ` +
+      'slower (regression) or faster (gain) than every base run. Change is between medians. ' +
+      'Informational, not blocking.',
     ...section('Regressions', regressions),
     ...section('Gains', gains),
     ...(oneSided.length > 0

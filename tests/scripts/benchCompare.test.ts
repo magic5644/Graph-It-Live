@@ -74,6 +74,12 @@ describe('classify', () => {
     expect(classify([10, 10, 5], [7, 7, 11], 0.1)).toBe('noise');
   });
 
+  it('keeps disjoint run ranges as noise when their gap is below the threshold', () => {
+    // Median +16.7 %, every head run slower, but the fastest head run is only 4.8 % above the slowest base run.
+    expect(classify([10, 10, 10.5], [11.5, 11.7, 11], 0.1)).toBe('noise');
+    expect(classify([10.5, 10.5, 10], [9, 8.8, 9.6], 0.1)).toBe('noise');
+  });
+
   it('reports a benchmark missing on one side', () => {
     expect(classify(undefined, [1], 0.1)).toBe('added');
     expect(classify([1], undefined, 0.1)).toBe('removed');
@@ -105,7 +111,7 @@ describe('renderBenchComment', () => {
     expect(body.startsWith(MARKER)).toBe(true);
     expect(body).toContain('## Benchmark A/B: 1 regression(s), 1 gain(s)');
     expect(body).toContain('3 run(s) each');
-    expect(body).toContain('±10%');
+    expect(body).toContain('more than 10%');
     expect(body).toContain('### Regressions\n| Benchmark | Base (ms) | Head (ms) | Change |');
     expect(body).toContain('| reverseIndex.bench.ts > ReverseIndex > slow | 10 | 20 | +100.0% |');
     expect(body).toContain('| reverseIndex.bench.ts > ReverseIndex > fast | 10 | 5 | -50.0% |');
@@ -196,7 +202,7 @@ describe('main', () => {
     const fetchMock = vi.fn();
     const body = await main([dir, '60'], {}, fetchMock);
     expect(body).toContain('0 regression(s)');
-    expect(body).toContain('±60%');
+    expect(body).toContain('more than 60%');
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
