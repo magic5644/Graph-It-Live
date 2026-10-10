@@ -143,7 +143,7 @@ function loadReports(dir, prefix) {
 
 export async function main([dir, thresholdPercent = String(DEFAULT_THRESHOLD_PERCENT)], env = process.env, fetchImpl = fetch) {
   const threshold = Number(thresholdPercent) / 100;
-  if (!dir || !(threshold > 0)) {
+  if (!dir || !Number.isFinite(threshold) || threshold <= 0) {
     throw new Error('Usage: node scripts/bench-compare.mjs <report-dir> [threshold-percent]');
   }
   const base = loadReports(dir, 'base-');
@@ -161,11 +161,7 @@ export async function main([dir, thresholdPercent = String(DEFAULT_THRESHOLD_PER
   return body;
 }
 
+// An error propagates: Node prints it and exits with code 1.
 if (import.meta.url === pathToFileURL(process.argv[1] ?? '').href) {
-  try {
-    await main(process.argv.slice(2));
-  } catch (error) {
-    console.error(`ERROR: ${error.message}`);
-    process.exit(1);
-  }
+  await main(process.argv.slice(2));
 }

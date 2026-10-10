@@ -6,7 +6,9 @@ import { afterAll, bench, describe } from 'vitest';
 import { BranchWatchAnalyzer } from '../../src/analyzer/BranchWatchAnalyzer';
 import { Spider } from '../../src/analyzer/Spider';
 
-const BENCH_OPTIONS = { time: 2000, warmupTime: 0, warmupIterations: 0, iterations: 1 } as const;
+// One warmup iteration absorbs the lazy git + index setup: inside a sample it
+// flipped the median between ~45 ms and ~1 s depending on the sample count.
+const BENCH_OPTIONS = { time: 2000, warmupTime: 0, warmupIterations: 1, iterations: 1 } as const;
 
 let root: string | undefined;
 let spider: Spider | undefined;
