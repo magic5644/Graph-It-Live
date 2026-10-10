@@ -13,10 +13,12 @@ import { PythonSymbolAnalyzer } from "../../src/analyzer/languages/PythonSymbolA
 import { Parser } from "../../src/analyzer/Parser";
 import { SymbolAnalyzer } from "../../src/analyzer/SymbolAnalyzer";
 
+// One warmup iteration keeps the cold first call (WASM grammar load, ~8 ms) out of
+// the samples: with `time: 10` it flipped the median up to 27x between runs.
 const BENCH_OPTIONS = {
   time: 10,
   warmupTime: 0,
-  warmupIterations: 0,
+  warmupIterations: 1,
   iterations: 1,
 } as const;
 
