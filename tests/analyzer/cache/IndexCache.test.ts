@@ -365,11 +365,11 @@ describe("IndexCache", () => {
     const files = ["a.ts", "b.ts", "c.ts"];
     const realSpider = () =>
       new SpiderBuilder().withRootDir(tmpDir).withExtensionPath(process.cwd()).withReverseIndex(true).build();
-    const restore = async () => {
+    const restore = async (reverseIndexOptions = OPTIONS) => {
       const spider = realSpider();
       const outcome = await restoreOrBuildIndex(spider, {
         cache: await IndexCache.open(tmpDir),
-        reverseIndexOptions: OPTIONS,
+        reverseIndexOptions,
         buildFullIndex: () => spider.buildFullIndex(),
       });
       await spider.dispose();
@@ -412,6 +412,14 @@ describe("IndexCache", () => {
       await restore();
 
       expect(await restore()).toMatchObject({ fromCache: true, filesAnalyzed: 0, filesIndexed: files.length });
+    });
+
+    it("rebuilds exactly once when a reverse-index option changes", async () => {
+      const changed = { ...OPTIONS, excludeNodeModules: false };
+      await restore();
+
+      expect(await restore(changed)).toMatchObject({ fromCache: false, filesAnalyzed: files.length });
+      expect(await restore(changed)).toMatchObject({ fromCache: true, filesAnalyzed: 0 });
     });
   });
 });
