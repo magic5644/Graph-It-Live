@@ -158,18 +158,6 @@ END;
 `;
 
 // ---------------------------------------------------------------------------
-// Configuration
-// ---------------------------------------------------------------------------
-
-export interface CallGraphIndexerConfig {
-  /**
-   * Maximum SQL database size in MB before automatic LRU eviction triggers.
-   * Defaults to 256 MB. Set to 0 to disable automatic eviction.
-   */
-  maxDbSizeMB?: number;
-}
-
-// ---------------------------------------------------------------------------
 // CallGraphIndexer
 // ---------------------------------------------------------------------------
 
@@ -182,13 +170,11 @@ export class CallGraphIndexer {
   private SQL: SqlJsStatic | null = null;
   private initPromise: Promise<void> | null = null;
   private readonly wasmPath: string;
-  private readonly maxDbSizeMB: number;
   /** True when an explicit batch transaction is active (beginBatch/commitBatch). */
   private inBatch = false;
 
-  constructor(wasmPath: string, config?: CallGraphIndexerConfig) {
+  constructor(wasmPath: string) {
     this.wasmPath = wasmPath;
-    this.maxDbSizeMB = config?.maxDbSizeMB ?? 256;
   }
 
   // ---------------------------------------------------------------------------
@@ -709,57 +695,6 @@ export class CallGraphIndexer {
     this.db = null;
     this.SQL = null;
     this.initPromise = null;
-  }
-
-  // ---------------------------------------------------------------------------
-  // Memory management — size monitoring and LRU eviction
-  // ---------------------------------------------------------------------------
-
-  /**
-   * Return the current in-memory SQLite database size in megabytes.
-   * Uses SQLite PRAGMAs — no data export needed.
-   */
-  getDatabaseSizeMB(): number {
-    if (!this.db) return 0;
-    const pageCountRows = this.db.exec("PRAGMA page_count");
-    const pageSizeRows = this.db.exec("PRAGMA page_size");
-    const pageCount = (pageCountRows[0]?.values[0]?.[0] as number) ?? 0;
-    const pageSize = (pageSizeRows[0]?.values[0]?.[0] as number) ?? 4096;
-    return (pageCount * pageSize) / 1024 / 1024;
-  }
-
-  /**
-   * Evict the `n` oldest indexed files (by `indexed_at`) from the database.
-   * Cascades through nodes and edges via `invalidateFile()`.
-   *
-   * @returns Array of evicted file paths.
-   */
-  evictOldestFiles(n: number): string[] {
-    if (n <= 0 || !this.db) return [];
-    const rows = this.db.exec(
-      `SELECT path FROM file_index ORDER BY indexed_at ASC LIMIT ${n}`,
-    );
-    const paths = (rows[0]?.values ?? []).map((r) => r[0] as string);
-    for (const p of paths) {
-      this.invalidateFile(p);
-    }
-    return paths;
-  }
-
-  /**
-   * If the database exceeds `maxSizeMB`, evict the oldest 10 % of indexed
-   * files to reclaim space.  Uses `this.maxDbSizeMB` when no argument is given.
-   */
-  checkAndEvict(maxSizeMB?: number): void {
-    const limit = maxSizeMB ?? this.maxDbSizeMB;
-    if (limit <= 0) return; // eviction disabled
-    if (this.getDatabaseSizeMB() <= limit) return;
-    if (!this.db) return;
-
-    const countRows = this.db.exec("SELECT COUNT(*) FROM file_index");
-    const total = (countRows[0]?.values[0]?.[0] as number) ?? 0;
-    const evictCount = Math.max(1, Math.ceil(total * 0.1));
-    this.evictOldestFiles(evictCount);
   }
 } // end class CallGraphIndexer
 
