@@ -1,17 +1,17 @@
 /**
  * Performance benchmarks for Python support
  * 
- * Ensures Python analysis doesn't add overhead to TypeScript projects
- * and performs reasonably for Python projects.
+ * Measures Python parsing and crawl cost next to the TypeScript equivalent.
+ * Lazy parser loading for TypeScript-only projects is asserted in
+ * tests/analyzer/LanguageService.lazyLoading.test.ts.
  */
 
 import path from 'node:path';
-import { bench, describe, expect } from 'vitest';
+import { bench, describe } from 'vitest';
 import { PythonParser } from "../../src/analyzer/languages/PythonParser";
 import { PythonSymbolAnalyzer } from "../../src/analyzer/languages/PythonSymbolAnalyzer";
 import { Parser } from "../../src/analyzer/Parser";
 import { SymbolAnalyzer } from "../../src/analyzer/SymbolAnalyzer";
-import { detectLanguageFromExtension } from '../../src/shared/utils/languageDetection';
 
 const BENCH_OPTIONS = {
   time: 10,
@@ -92,47 +92,4 @@ describe('Python Performance Benchmarks', () => {
       await spider.crawl(mainFile);
     }, BENCH_OPTIONS);
   });
-
-  describe('Memory efficiency', () => {
-    bench('Python: Create parser instance (lazy tree-sitter loading)', () => {
-      const _parser = new PythonParser();
-      // Prevent unused variable warning - parser is used for instantiation benchmarking
-      expect(_parser).toBeDefined();
-    }, BENCH_OPTIONS);
-
-    bench('TypeScript: Create parser instance', () => {
-      const _parser = new Parser();
-      // Prevent unused variable warning - parser is used for instantiation benchmarking
-      expect(_parser).toBeDefined();
-    }, BENCH_OPTIONS);
-  });
-
-  describe('Zero overhead for TypeScript-only projects', () => {
-    bench('TypeScript project: Spider should not load Python parser', async () => {
-      // This benchmark ensures Python parser is only loaded when needed
-      const { SpiderBuilder } = await import('../../src/analyzer/SpiderBuilder');
-      const spider = new SpiderBuilder()
-        .withRootDir(tsFixturesDir)
-        .withMaxDepth(20)
-        .withExtensionPath(extensionPath)
-        .build();
-      const mainFile = path.join(tsFixturesDir, 'src/main.ts');
-      await spider.crawl(mainFile);
-      // Python parser should NOT be instantiated here
-    }, BENCH_OPTIONS);
-  });
-});
-
-describe('Language Detection Performance', () => {
-  bench('Detect Python file extension (.py)', () => {
-    detectLanguageFromExtension('/path/to/file.py');
-  }, BENCH_OPTIONS);
-
-  bench('Detect TypeScript file extension (.ts)', () => {
-    detectLanguageFromExtension('/path/to/file.ts');
-  }, BENCH_OPTIONS);
-
-  bench('Detect Python stub file extension (.pyi)', () => {
-    detectLanguageFromExtension('/path/to/file.pyi');
-  }, BENCH_OPTIONS);
 });

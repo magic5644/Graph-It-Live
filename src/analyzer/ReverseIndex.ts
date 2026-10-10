@@ -112,7 +112,7 @@ export class ReverseIndex {
    * Call this when a file is deleted or before re-analyzing
    * 
    * NOTE: Empty maps are NOT cleaned up here to avoid race conditions during re-analysis.
-   * Use cleanup() or rely on lazy cleanup in getReferencingFiles() instead.
+   * They are removed lazily in getReferencingFiles() instead.
    */
   removeDependenciesFromSource(sourcePath: string): void {
     const normalizedSourcePath = normalizePath(sourcePath);
@@ -241,29 +241,6 @@ export class ReverseIndex {
       if (sourceMap.size === 0) count++;
     }
     return count;
-  }
-
-  /**
-   * Clean up empty maps in the reverse index
-   * This removes target paths that have no references left
-   * @returns Number of empty maps removed
-   */
-  cleanup(): number {
-    let cleanedCount = 0;
-    const emptyTargets: string[] = [];
-    
-    for (const [targetPath, sourceMap] of this.reverseMap) {
-      if (sourceMap.size === 0) {
-        emptyTargets.push(targetPath);
-      }
-    }
-    
-    for (const targetPath of emptyTargets) {
-      this.reverseMap.delete(targetPath);
-      cleanedCount++;
-    }
-    
-    return cleanedCount;
   }
 
   /**

@@ -1,75 +1,63 @@
 import { bench, describe } from "vitest";
-import { estimateTokenSavings, jsonToToon } from "../../src/shared/toon";
+import { formatDataAsToon } from "../../src/mcp/responseFormatter";
+import type { CrawlDependencyGraphResult } from "../../src/mcp/types";
 
 const BENCH_OPTIONS = {
-  time: 10,
+  time: 100,
   warmupTime: 0,
-  warmupIterations: 0,
-  iterations: 1,
+  warmupIterations: 1,
+  iterations: 5,
 } as const;
 
-function buildCurrentSessionRows(toolCount: number): Array<Record<string, unknown>> {
-  const rows: Array<Record<string, unknown>> = [];
-  for (let i = 0; i < toolCount; i++) {
-    rows.push({
-      scope: "current_session",
-      toolName: `graphitlive_tool_${String(i).padStart(2, "0")}`,
-      calls: 10 + i,
-      jsonTokens: 300 + i * 20,
-      toonTokens: 180 + i * 12,
-      savings: 120 + i * 8,
-      truncations: i % 3,
-      llmCalls: 0,
-      llmTokensUsed: 0,
-    });
-  }
-  return rows;
+/**
+ * Benchmark for the TOON encoding + token estimate that runs on every MCP/CLI
+ * TOON response (formatDataAsToon → jsonToToon + estimateTokenSavings, then
+ * session stats). Payloads follow the crawl_dependency_graph result shape with
+ * ~4 edges per node, the ratio measured on this repository.
+ *
+ * Run with: npm run test:bench
+ */
+
+const EDGES_PER_NODE = 4;
+
+function buildCrawlResult(nodeCount: number): CrawlDependencyGraphResult {
+  const relativePath = (i: number) => `src/module${Math.floor(i / 20)}/file${i}.ts`;
+  const nodes = Array.from({ length: nodeCount }, (_, i) => ({
+    path: `/workspace/${relativePath(i)}`,
+    relativePath: relativePath(i),
+    extension: ".ts",
+    dependencyCount: EDGES_PER_NODE,
+    dependentCount: EDGES_PER_NODE,
+    hubScore: (i % 100) / 100,
+    communityId: Math.floor(i / 20) + 1,
+  }));
+  const edges = nodes.flatMap((node, i) =>
+    Array.from({ length: EDGES_PER_NODE }, (_, j) => {
+      const target = nodes[(i * 7 + j * 13 + 1) % nodeCount];
+      return {
+        source: node.path,
+        target: target.path,
+        sourceRelative: node.relativePath,
+        targetRelative: target.relativePath,
+      };
+    }),
+  );
+  return {
+    entryFile: nodes[0].path,
+    maxDepth: 50,
+    nodeCount,
+    edgeCount: edges.length,
+    nodes,
+    edges,
+    circularDependencies: [],
+  };
 }
 
-function buildHistoryRows(sourceCount: number, toolsPerSource: number): Array<Record<string, unknown>> {
-  const rows: Array<Record<string, unknown>> = [];
-  for (let s = 0; s < sourceCount; s++) {
-    rows.push({
-      scope: "history_by_source",
-      source: `source_${s}`,
-      sessions: 20 + s,
-      calls: 200 + s * 10,
-      jsonTokens: 25000 + s * 1000,
-      toonTokens: 15000 + s * 600,
-      savings: 10000 + s * 400,
-      truncations: s,
-      llmCalls: s % 2,
-      llmTokensUsed: s * 100,
-    });
+describe("TOON response encoding (crawl_dependency_graph payloads)", () => {
+  for (const nodeCount of [100, 1_000, 5_000]) {
+    const payload = buildCrawlResult(nodeCount);
+    bench(`formatDataAsToon - ${nodeCount} nodes / ${payload.edgeCount} edges`, () => {
+      formatDataAsToon(payload, "data", "graphitlive_crawl_dependency_graph");
+    }, BENCH_OPTIONS);
   }
-
-  for (let i = 0; i < toolsPerSource; i++) {
-    rows.push({
-      scope: "history_by_tool",
-      toolName: `graphitlive_tool_${String(i).padStart(3, "0")}`,
-      calls: 5 + i,
-      jsonTokens: 400 + i * 15,
-      toonTokens: 240 + i * 9,
-      savings: 160 + i * 6,
-      truncations: i % 4,
-    });
-  }
-
-  return rows;
-}
-
-describe("TOON session-stats benchmarks", () => {
-  bench("primary benchmark - current session payload", () => {
-    const rows = buildCurrentSessionRows(30);
-    const json = JSON.stringify(rows, null, 2);
-    const toon = jsonToToon(rows, { objectName: "session_stats_primary" });
-    estimateTokenSavings(json, toon);
-  }, BENCH_OPTIONS);
-
-  bench("secondary benchmark - persisted history payload", () => {
-    const rows = buildHistoryRows(3, 120);
-    const json = JSON.stringify(rows, null, 2);
-    const toon = jsonToToon(rows, { objectName: "session_stats_secondary" });
-    estimateTokenSavings(json, toon);
-  }, BENCH_OPTIONS);
 });

@@ -117,6 +117,18 @@ describe('ReverseIndex', () => {
             expect(refs).toHaveLength(1);
             expect(refs[0].path).toBe('/test/project/src/b.ts');
         });
+
+        it('keeps empty target maps until getReferencingFiles evicts them lazily', () => {
+            index.addDependencies('/test/project/src/a.ts', [
+                { path: '/test/project/src/shared.ts', type: 'import', line: 1, module: './shared' },
+            ]);
+
+            index.removeDependenciesFromSource('/test/project/src/a.ts');
+            expect(index.getEmptyMapCount()).toBe(1);
+
+            expect(index.getReferencingFiles('/test/project/src/shared.ts')).toEqual([]);
+            expect(index.getEmptyMapCount()).toBe(0);
+        });
     });
 
     describe('getReferencingFiles', () => {
@@ -243,7 +255,7 @@ describe('ReverseIndex', () => {
             expect(restored.getReferencingFiles(newPath)).toHaveLength(1);
             expect(restored.getReferencingFiles(oldPath)).toEqual([]);
             // Serialization must not eagerly delete maps used by in-flight indexing.
-            expect(index.cleanup()).toBe(1);
+            expect(index.getEmptyMapCount()).toBe(1);
         });
 
         it('should serialize and deserialize correctly', () => {

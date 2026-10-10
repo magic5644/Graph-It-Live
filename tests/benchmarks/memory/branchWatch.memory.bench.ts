@@ -7,7 +7,8 @@ import { BranchWatchAnalyzer } from '../../../src/analyzer/BranchWatchAnalyzer';
 import { Spider } from '../../../src/analyzer/Spider';
 
 const heapMb = () => process.memoryUsage().heapUsed / 1024 / 1024;
-const forceGc = () => (globalThis as { gc?: () => void }).gc?.();
+const gc = (globalThis as { gc?: () => void }).gc;
+const forceGc = () => gc?.();
 let root: string;
 let spider: Spider;
 let analyzer: BranchWatchAnalyzer;
@@ -43,6 +44,8 @@ describe('Branch Watch memory', () => {
   });
 
   it('keeps heap growth bounded across repeated capture and analysis cycles', async () => {
+    // vitest.memory.config.mts starts workers with --expose-gc; without it heap numbers include garbage.
+    expect(typeof gc).toBe('function');
     forceGc();
     const before = heapMb();
     const cpuBefore = process.cpuUsage();

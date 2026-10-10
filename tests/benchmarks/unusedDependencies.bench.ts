@@ -168,9 +168,9 @@ describe('Unused Dependency Analysis Performance', () => {
     bench('getSymbolGraph - cache miss (new file)', async () => {
       const spider = await getSpider();
       const symbolService = getSymbolService(spider);
-      // Use existing different file to measure cache miss
-      // First call on utils.ts will be a cache miss
+      // Evict the entry first so every iteration misses, as after a file save.
       const utilsFile = path.join(BENCH_PERMANENT_PATH, 'src/utils.ts');
+      spider.invalidateFile(utilsFile);
       await symbolService.getSymbolGraph(utilsFile);
     }, BENCH_OPTIONS);
   });
