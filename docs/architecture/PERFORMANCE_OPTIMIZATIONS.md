@@ -314,6 +314,8 @@ Performance suites (none of them enforce a timing threshold):
 
 The unused-dependency benches above live in `tests/benchmarks/unusedDependencies.bench.ts`.
 
+On pull requests touching `src/analyzer/**`, `src/mcp/**`, `src/cli/**`, `src/shared/**` or the benches, the `Benchmark A/B` workflow (`.github/workflows/bench-ab.yml`) builds base and head on one Linux runner and runs the timing suite 3 times each, interleaved. `scripts/bench-compare.mjs` compares each bench's median across runs and updates one PR comment listing regressions and gains: a change counts only beyond ±10 % and when the base and head run ranges do not overlap. It is informational, not blocking. Added CI time: two installs and CLI builds, plus 6 suite runs (~20 s each locally).
+
 ## Conclusion
 
 These optimizations provide a solid foundation for scalable unused dependency analysis. The key principles:
