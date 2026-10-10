@@ -310,7 +310,7 @@ Performance suites (none of them enforce a timing threshold):
 | --- | --- | --- |
 | `npm run test:bench` | `tests/benchmarks/*.bench.ts` | Vitest timing benches, one file per process (`scripts/run-benchmarks.mjs`). Each bench builds its fixtures before measurement and times only the named operation. |
 | `npm run test:bench:memory` | `tests/benchmarks/memory/*.bench.ts` | Heap and database-size checks with assertions; workers start with `--expose-gc` (`vitest.memory.config.mts`). |
-| `npm test` | `tests/benchmarks/graphContextBenchmark.test.ts`, `tests/cli/workCounters.test.ts` | Deterministic assertions (graph_context benchmark contract, cache work counters) that run with the unit suite. |
+| `npm test` | `tests/benchmarks/graphContextBenchmark.test.ts`, `tests/cli/workCounters.test.ts`, `tests/cli/scaling.test.ts` | Deterministic assertions (graph_context benchmark contract, cache work counters, n vs 4n work ratios) that run with the unit suite. |
 
 The unused-dependency benches above live in `tests/benchmarks/unusedDependencies.bench.ts`.
 
