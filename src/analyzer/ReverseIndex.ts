@@ -379,16 +379,7 @@ export class ReverseIndex {
       }
     }
 
-    let newFiles = 0;
-    if (filesOnDisk) {
-      for (const filePath of filesOnDisk) {
-        const normalized = normalizePath(filePath);
-        if (!this.fileHashes.has(normalized) && !staleFiles.includes(normalized)) {
-          staleFiles.push(normalized);
-          newFiles++;
-        }
-      }
-    }
+    const newFiles = filesOnDisk ? this.addUnindexedFiles(filesOnDisk, staleFiles) : 0;
 
     // Denominator covers every distinct file considered: indexed ∪ on-disk.
     const totalFiles = (filesToCheck ? candidates.length : this.fileHashes.size) + newFiles;
@@ -401,6 +392,19 @@ export class ReverseIndex {
       stalePercentage,
       missingFiles,
     };
+  }
+
+  /** Appends on-disk files absent from the index to staleFiles; returns how many were added. */
+  private addUnindexedFiles(filesOnDisk: readonly string[], staleFiles: string[]): number {
+    let added = 0;
+    for (const filePath of filesOnDisk) {
+      const normalized = normalizePath(filePath);
+      if (!this.fileHashes.has(normalized) && !staleFiles.includes(normalized)) {
+        staleFiles.push(normalized);
+        added++;
+      }
+    }
+    return added;
   }
 
   /**
