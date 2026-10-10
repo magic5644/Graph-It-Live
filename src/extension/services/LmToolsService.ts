@@ -9,6 +9,7 @@
  * Architecture rule: this file IS in the extension layer and MAY import vscode.
  */
 
+import { IndexCache } from '@/analyzer/cache/IndexCache';
 import { LspCallHierarchyAnalyzer } from '@/analyzer/LspCallHierarchyAnalyzer';
 import { QueryEngine } from '@/analyzer/QueryEngine';
 import { ReviewGateAnalyzer } from '@/analyzer/ReviewGateAnalyzer';
@@ -813,6 +814,7 @@ export class LmToolsService {
                   cacheSize: cacheStats.dependencyCache.size,
                   reverseIndexStats: cacheStats.reverseIndexStats,
                   ...reportOutOfRootImports(spider.getOutOfRootImports(), spider.workspaceRoot),
+                  cacheFiles: IndexCache.fileSizes(IndexCache.dirFor(spider.workspaceRoot)),
                 }),
               ),
             ]);

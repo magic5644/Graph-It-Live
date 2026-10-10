@@ -57,6 +57,26 @@ describe("IndexCache", () => {
       expect(readMeta()).toMatchObject({ schema: INDEX_CACHE_SCHEMA, reverseIndexOptions: OPTIONS });
     });
 
+    it("reports the on-disk size of each saved payload", () => {
+      open().save({ reverseIndex: { data: "INDEX", options: OPTIONS }, callGraph: new Uint8Array(7) });
+
+      expect(IndexCache.fileSizes(cacheDir)).toEqual({ reverseIndexBytes: 5, callGraphBytes: 7 });
+    });
+
+    it("reports 0 for payloads not written yet", () => {
+      expect(IndexCache.fileSizes(cacheDir)).toEqual({ reverseIndexBytes: 0, callGraphBytes: 0 });
+      open().save({ reverseIndex: { data: "INDEX", options: OPTIONS } });
+      expect(IndexCache.fileSizes(cacheDir)).toEqual({ reverseIndexBytes: 5, callGraphBytes: 0 });
+    });
+
+    it("reports 0 when the cache path is unreadable", () => {
+      // A file where the directory should be: stat fails (ENOTDIR on POSIX), not only ENOENT.
+      fs.mkdirSync(path.dirname(cacheDir), { recursive: true });
+      fs.writeFileSync(cacheDir, "not a directory");
+
+      expect(IndexCache.fileSizes(cacheDir)).toEqual({ reverseIndexBytes: 0, callGraphBytes: 0 });
+    });
+
     it.each([
       { excludeNodeModules: false, ignoreTypeImports: false },
       { excludeNodeModules: true, ignoreTypeImports: true },

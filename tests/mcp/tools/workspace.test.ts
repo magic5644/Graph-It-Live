@@ -65,6 +65,30 @@ describe("workspace tools", () => {
       });
     });
 
+    it("omits cacheFiles when this process runs without the shared cache", async () => {
+      setupWorkerState(idleSpider);
+
+      const result = await executeGetIndexStatus();
+
+      expect(result.cacheFiles).toBeUndefined();
+    });
+
+    it("reports the on-disk size of the shared cache files", async () => {
+      setupWorkerState(idleSpider);
+      const dir = fs.mkdtempSync(path.join(os.tmpdir(), "graph-it-status-cache-"));
+      try {
+        fs.writeFileSync(path.join(dir, "reverse-index.json"), "{}");
+        workerState.indexCache = { dir } as any;
+
+        const result = await executeGetIndexStatus();
+
+        // callgraph.db not written yet: 0, not absent.
+        expect(result.cacheFiles).toEqual({ reverseIndexBytes: 2, callGraphBytes: 0 });
+      } finally {
+        fs.rmSync(dir, { recursive: true, force: true });
+      }
+    });
+
     it("reports no out-of-root imports, and no warning, when none were skipped", async () => {
       setupWorkerState(idleSpider);
 

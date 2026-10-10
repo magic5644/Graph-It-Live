@@ -335,7 +335,7 @@ graph-it scan [options]
 1. Walks the workspace and parses every source file
 2. Builds a dependency graph in memory (import/export edges)
 3. Constructs a reverse index for O(1) "who imports this?" lookups
-4. Prints the index status: state, reverse-index statistics, imports skipped outside the root, and warm-up counts
+4. Prints the index status: state, reverse-index statistics, imports skipped outside the root, warm-up counts, and the on-disk size of the cache files
 
 **Output (text):**
 
@@ -352,6 +352,9 @@ outOfRootImports: 0
 warmup:
   completed: true
   ...
+cacheFiles:
+  reverseIndexBytes: 412345
+  callGraphBytes: 1708032
 ```
 
 **Examples:**
@@ -1586,7 +1589,7 @@ graph-it tool resolve_module_path --fromFile=/abs/path/to/app.ts --moduleSpecifi
 graph-it tool get_index_status
 ```
 
-**Output fields:** `state`, `isReady`, `reverseIndexEnabled`, `cacheSize`, `reverseIndexStats`, `outOfRootImports`, `warmup`, and optional `callGraph`. When `outOfRootImports` is above 0 (imports skipped because they resolve outside the workspace root), it also returns `outOfRootImportExamples`, `monorepoRoot` (relative to the workspace root, when one is detected) and a `warning`.
+**Output fields:** `state`, `isReady`, `reverseIndexEnabled`, `cacheSize`, `reverseIndexStats`, `outOfRootImports`, `warmup`, optional `callGraph`, and `cacheFiles` — the on-disk size in bytes of `.graph-it/cache/reverse-index.json` (`reverseIndexBytes`) and `callgraph.db` (`callGraphBytes`), 0 for one not written yet. When `outOfRootImports` is above 0 (imports skipped because they resolve outside the workspace root), it also returns `outOfRootImportExamples`, `monorepoRoot` (relative to the workspace root, when one is detected) and a `warning`.
 
 ---
 

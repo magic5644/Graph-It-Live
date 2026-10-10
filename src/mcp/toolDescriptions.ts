@@ -154,8 +154,8 @@ const TOOL_DESCRIPTIONS: Record<DescribedToolName, ToolDescription> = {
       "WHEN: checking readiness before a large analysis, or explaining unexpectedly empty or incomplete results.",
       `WHY: distinguishes "no results" from "index not built yet", and tells whether imports were skipped because they resolve outside the workspace root (a monorepo sub-package misses its sibling packages).`,
       {
-        mcp: "RETURNS: index state, files indexed, reverse-index statistics, cache size and hit rate, warmup completion and duration, and outOfRootImports (with examples, the relative monorepoRoot and a warning when above 0).",
-        lm: "RETURNS: index state, readiness flag, whether the reverse index exists, cache size, reverse-index statistics (files indexed included), and outOfRootImports (with examples, the relative monorepoRoot and a warning when above 0).",
+        mcp: "RETURNS: index state, files indexed, reverse-index statistics, cache size and hit rate, warmup completion and duration, cacheFiles (on-disk bytes of the cached reverse index and call graph), and outOfRootImports (with examples, the relative monorepoRoot and a warning when above 0).",
+        lm: "RETURNS: index state, readiness flag, whether the reverse index exists, cache size, reverse-index statistics (files indexed included), cacheFiles (on-disk bytes of the cached reverse index and call graph), and outOfRootImports (with examples, the relative monorepoRoot and a warning when above 0).",
       },
     ],
   },

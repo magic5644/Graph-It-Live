@@ -1280,6 +1280,14 @@ export interface GetIndexStatusResult extends OutOfRootReport {
     symbols: number;
     relations: number;
   };
+  /**
+   * On-disk size of the shared `.graph-it/cache/` payloads, 0 for one not written
+   * yet. Absent when this process runs without the shared cache.
+   */
+  cacheFiles?: {
+    reverseIndexBytes: number;
+    callGraphBytes: number;
+  };
 }
 
 /**
