@@ -1,6 +1,10 @@
-import { describe, it, expect, beforeEach } from 'vitest';
+import * as fs from 'node:fs';
+import * as os from 'node:os';
+import * as path from 'node:path';
+import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { ReverseIndex } from '../../src/analyzer/ReverseIndex';
 import { Dependency, FileHash } from '../../src/analyzer/types';
+import { normalizePath } from '../../src/shared/path';
 
 describe('ReverseIndex', () => {
     const rootDir = '/test/project';
@@ -340,6 +344,54 @@ describe('ReverseIndex', () => {
             
             expect(result.missingFiles).toContain('/non/existent/file.ts');
             expect(result.stalePercentage).toBe(1); // 100% stale
+        });
+
+        // Branch Watch passes the paths a branch deletes in filesToCheck (#313).
+        describe('deleted paths in filesToCheck', () => {
+            let tmpDir: string;
+            let kept: string;
+
+            beforeEach(async () => {
+                tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'graph-it-deleted-'));
+                kept = path.join(tmpDir, 'kept.ts');
+                fs.writeFileSync(kept, 'export const x = 1;\n');
+                index = new ReverseIndex(tmpDir);
+                const hash = await ReverseIndex.getFileHashFromDisk(kept);
+                index.addDependencies(kept, [], hash ?? undefined);
+            });
+
+            afterEach(() => {
+                fs.rmSync(tmpDir, { recursive: true, force: true });
+            });
+
+            it('does not report a deleted path that is no longer indexed as missing', async () => {
+                const deleted = path.join(tmpDir, 'deleted.ts');
+
+                const result = await index.validateIndex(0, [kept], [kept, deleted]);
+
+                expect(result.missingFiles).toEqual([]);
+                expect(result.staleFiles).toEqual([]);
+                expect(result.isValid).toBe(true);
+            });
+
+            it('reports a deleted path that is still indexed as missing', async () => {
+                const deleted = path.join(tmpDir, 'deleted.ts');
+                index.addDependencies(deleted, [], { mtime: 1, size: 1 });
+
+                const result = await index.validateIndex(0, [kept], [kept, deleted]);
+
+                expect(result.missingFiles).toEqual([normalizePath(deleted)]);
+                expect(result.isValid).toBe(false);
+            });
+
+            it('matches Windows-shaped deleted paths against normalized index keys', async () => {
+                const winIndex = new ReverseIndex('C:\\proj');
+                winIndex.addDependencies('C:\\proj\\src\\still.ts', [], { mtime: 1, size: 1 });
+
+                const result = await winIndex.validateIndex(0, [], ['c:\\proj\\src\\still.ts', 'C:\\proj\\src\\gone.ts']);
+
+                expect(result.missingFiles).toEqual(['c:/proj/src/still.ts']);
+            });
         });
     });
 
