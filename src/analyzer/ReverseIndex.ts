@@ -38,6 +38,12 @@ export class ReverseIndex {
   private readonly reverseMap: Map<string, Map<string, ReverseIndexEntry>> = new Map();
 
   /**
+   * Maps source file path -> target file paths it imports, so removing a source
+   * touches only its own targets instead of scanning the whole reverseMap
+   */
+  private readonly forwardMap: Map<string, Set<string>> = new Map();
+
+  /**
    * Maps file path -> FileHash for staleness detection
    */
   private readonly fileHashes: Map<string, FileHash> = new Map();
@@ -85,6 +91,7 @@ export class ReverseIndex {
     // Add new entries
     for (const dep of dependencies) {
       const normalizedTargetPath = normalizePath(dep.path);
+      this.addForwardEntry(normalizedSourcePath, normalizedTargetPath);
       
       const entry: ReverseIndexEntry = {
         sourcePath: normalizedSourcePath,
@@ -117,12 +124,12 @@ export class ReverseIndex {
   removeDependenciesFromSource(sourcePath: string): void {
     const normalizedSourcePath = normalizePath(sourcePath);
     
-    // Iterate through all target files and remove entries from this source
-    for (const [, sourceMap] of this.reverseMap) {
-      sourceMap.delete(normalizedSourcePath);
+    for (const targetPath of this.forwardMap.get(normalizedSourcePath) ?? []) {
+      this.reverseMap.get(targetPath)?.delete(normalizedSourcePath);
       // NOTE: Do NOT delete empty maps here - they will be cleaned up lazily
       // This prevents losing references when addDependencies() is called immediately after
     }
+    this.forwardMap.delete(normalizedSourcePath);
     this.fileHashes.delete(normalizedSourcePath);
     this.outOfRootImports.delete(normalizedSourcePath);
   }
@@ -226,6 +233,7 @@ export class ReverseIndex {
    */
   clear(): void {
     this.reverseMap.clear();
+    this.forwardMap.clear();
     this.fileHashes.clear();
     this.outOfRootImports.clear();
   }
@@ -333,6 +341,7 @@ export class ReverseIndex {
           ...entry,
           sourcePath: normalizedSourcePath,
         });
+        index.addForwardEntry(normalizedSourcePath, normalizedTargetPath);
       }
       index.reverseMap.set(normalizedTargetPath, sourceMap);
     }
@@ -392,6 +401,16 @@ export class ReverseIndex {
       stalePercentage,
       missingFiles,
     };
+  }
+
+  /** Records that sourcePath imports targetPath (both already normalized). */
+  private addForwardEntry(sourcePath: string, targetPath: string): void {
+    let targets = this.forwardMap.get(sourcePath);
+    if (!targets) {
+      targets = new Set();
+      this.forwardMap.set(sourcePath, targets);
+    }
+    targets.add(targetPath);
   }
 
   /** Appends on-disk files absent from the index to staleFiles; returns how many were added. */

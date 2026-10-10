@@ -263,6 +263,62 @@ describe('SymbolReverseIndex', () => {
       expect(callers).toHaveLength(1);
       expect(callers[0].callerSymbolId).toBe('src/b.ts:funcB');
     });
+
+    const dep = (sourceSymbolId: string): SymbolDependency => ({
+      sourceSymbolId,
+      targetSymbolId: './shared:helper',
+      targetFilePath: './shared',
+    });
+
+    it('removes Windows-path sources whatever the separators and drive case', () => {
+      index.addDependencies('C:\\proj\\src\\a.ts', [dep('a:funcA')]);
+
+      index.removeDependenciesFromSource('c:/proj/src/a.ts');
+
+      expect(index.getCallers('./shared:helper')).toHaveLength(0);
+    });
+
+    it('keeps an entry another file re-added under the same caller ID', () => {
+      index.addDependencies('/test/project/src/a.ts', [dep('shared:id')]);
+      index.addDependencies('/test/project/src/b.ts', [dep('shared:id')]);
+
+      index.removeDependenciesFromSource('/test/project/src/a.ts');
+
+      expect(index.getCallers('./shared:helper')).toEqual([
+        expect.objectContaining({ callerFilePath: '/test/project/src/b.ts' }),
+      ]);
+    });
+
+    it('leaves empty caller maps for lazy cleanup', () => {
+      index.addDependencies('/test/project/src/a.ts', [dep('a:funcA')]);
+
+      index.removeDependenciesFromSource('/test/project/src/a.ts');
+
+      expect(index.getStats().targetSymbolCount).toBe(1);
+      expect(index.cleanup()).toBe(1);
+    });
+
+    it('removes entries restored by deserialize', () => {
+      index.addDependencies('C:\\proj\\src\\a.ts', [dep('a:funcA')]);
+      const serialized = index.serialize();
+      serialized.reverseMap['./shared:helper'][0].callerFilePath = 'C:\\proj\\src\\a.ts';
+      const restored = new SymbolReverseIndex(rootDir);
+      expect(restored.deserialize(serialized)).toBe(true);
+
+      restored.removeDependenciesFromSource('c:/proj/src/a.ts');
+
+      expect(restored.getCallers('./shared:helper')).toHaveLength(0);
+    });
+
+    it('forgets sources dropped by clear', () => {
+      index.addDependencies('/test/project/src/a.ts', [dep('a:funcA')]);
+      index.clear();
+      index.addDependencies('/test/project/src/b.ts', [dep('a:funcA')]);
+
+      index.removeDependenciesFromSource('/test/project/src/a.ts');
+
+      expect(index.getCallerCount('./shared:helper')).toBe(1);
+    });
   });
 
   describe('clear', () => {
