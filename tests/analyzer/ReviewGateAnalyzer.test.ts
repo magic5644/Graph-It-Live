@@ -545,6 +545,109 @@ describe("ReviewGateAnalyzer - member-level impact", () => {
   });
 });
 
+describe("ReviewGateAnalyzer - removed optional parameter", { timeout: GIT_TEST_TIMEOUT }, () => {
+  const OLD_CLASS = "export class Service {\n  constructor(path: string, config?: { size: number }) {}\n}\n";
+  const NEW_CLASS = "export class Service {\n  constructor(path: string) {}\n}\n";
+
+  const dependentsOf = (workspace: string, symbol: string, files: string[]) => ({
+    getSymbolDependents: (_filePath: string, symbolName: string) => Promise.resolve(
+      symbolName === symbol ? files.map((file) => ({ sourceSymbolId: `${path.join(workspace, file)}:consumer` })) : [],
+    ),
+  });
+
+  const write = async (workspace: string, files: Record<string, string>) => {
+    for (const [file, content] of Object.entries(files)) {
+      await fs.mkdir(path.dirname(path.join(workspace, file)), { recursive: true });
+      await fs.writeFile(path.join(workspace, file), content);
+    }
+  };
+
+  /** Regression (#295): dropping an optional constructor parameter nobody passed scored "high". */
+  it("charges only the consumers whose calls pass the removed argument", async () => {
+    const workspace = await createGitWorkspaceWithDiff(OLD_CLASS, NEW_CLASS);
+    await write(workspace, {
+      "src/omits.ts": "export const a = new Service(`(,)` + fn(1, [2, 3]) /* , ) */);\n",
+      "src/passes.ts": "export const b = new Service('p', { size: 1 });\n",
+      "src/sub.ts": "export class Sub extends Service { constructor() { super('p', { size: 2 }); } }\n",
+    });
+    const dependents = dependentsOf(workspace, "Service", ["src/omits.ts", "src/passes.ts", "src/sub.ts"]);
+
+    const result = await new ReviewGateAnalyzer(workspace, dependents as never).analyze({ baseRef: "main" });
+
+    const symbol = result.symbols.find((s) => s.name === "Service.constructor");
+    expect(symbol?.breakingChanges[0]).toMatchObject({ type: "parameter-removed", breaksCallsWithArgs: 2 });
+    expect(symbol?.consumers.unverified).toEqual(["src/passes.ts", "src/sub.ts"]);
+  });
+
+  it("scores the removal as residual when no call passes the argument", async () => {
+    const workspace = await createGitWorkspaceWithDiff(OLD_CLASS, NEW_CLASS);
+    await write(workspace, {
+      "src/omits.ts": "export const a = new Service('p');\n",
+      "tests/omits.test.ts": "const s = new Service<string>(\"a, b)\");\n",
+    });
+    const dependents = dependentsOf(workspace, "Service", ["src/omits.ts", "tests/omits.test.ts"]);
+
+    const result = await new ReviewGateAnalyzer(workspace, dependents as never).analyze({ baseRef: "main" });
+
+    const symbol = result.symbols.find((s) => s.name === "Service.constructor");
+    expect(symbol?.impactedSymbolCount).toBe(0);
+    expect(symbol?.scoreFactors.breakingChanges).toBe(5);
+    expect(symbol?.risk).toBe("low");
+  });
+
+  it("keeps a spread call, an unclosed call and an unreadable consumer", async () => {
+    const workspace = await createGitWorkspaceWithDiff(
+      "export function greet(name: string, formal = false): string { return name; }\n",
+      "export function greet(name: string): string { return name; }\n",
+    );
+    await write(workspace, {
+      "src/spread.ts": "export const a = greet(...args);\n",
+      "src/unclosed.ts": "export const b = greet('a'",
+      "src/omits.ts": "export const c = greet('a'); // greet\n",
+    });
+    const files = ["src/spread.ts", "src/unclosed.ts", "src/omits.ts", "src/missing.ts"];
+
+    const result = await new ReviewGateAnalyzer(workspace, dependentsOf(workspace, "greet", files) as never)
+      .analyze({ baseRef: "main" });
+
+    const symbol = result.symbols.find((s) => s.name === "greet");
+    expect(symbol?.consumers.unverified).toEqual(["src/missing.ts", "src/spread.ts", "src/unclosed.ts"]);
+  });
+
+  it("still charges every consumer when a required parameter is removed", async () => {
+    const workspace = await createGitWorkspaceWithDiff(
+      "export function greet(name: string, formal: boolean): string { return name; }\n",
+      "export function greet(name: string): string { return name; }\n",
+    );
+    await write(workspace, { "src/one.ts": "greet('a', true);\n", "src/two.ts": "greet('a');\n" });
+
+    const result = await new ReviewGateAnalyzer(workspace, dependentsOf(workspace, "greet", ["src/one.ts", "src/two.ts"]) as never)
+      .analyze({ baseRef: "main" });
+
+    const symbol = result.symbols.find((s) => s.name === "greet");
+    expect(symbol?.breakingChanges[0].breaksCallsWithArgs).toBeUndefined();
+    expect(symbol?.consumers.unverified).toEqual(["src/one.ts", "src/two.ts"]);
+  });
+
+  /** A constructor is called as `new Class(`; the word "constructor" does not name it. */
+  it("finds the callers of a changed constructor by `new Class(`", async () => {
+    const workspace = await createGitWorkspaceWithDiff(
+      "export class Service {\n  constructor(path: string) {}\n}\n",
+      "export class Service {\n  constructor(path: string, size: number) {}\n}\n",
+    );
+    await write(workspace, {
+      "src/caller.ts": "export const a = new Service('p');\n",
+      "src/other.ts": "export class Other { constructor() {} } // Service\n",
+    });
+
+    const result = await new ReviewGateAnalyzer(workspace, dependentsOf(workspace, "Service", ["src/caller.ts", "src/other.ts"]) as never)
+      .analyze({ baseRef: "main" });
+
+    const symbol = result.symbols.find((s) => s.name === "Service.constructor");
+    expect(symbol?.consumers.unverified).toEqual(["src/caller.ts"]);
+  });
+});
+
 describe("ReviewGateAnalyzer - consumer standing", () => {
   const OLD_API = "export function greet(name: string): string { return name; }\n";
   const NEW_API = "export function greet(name: string, formal: boolean): string { return name; }\n";

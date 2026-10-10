@@ -313,6 +313,26 @@ describe('SignatureAnalyzer', () => {
       expect(removed!.description).toContain('options');
     });
 
+    it.each([
+      ['optional', { isOptional: true, hasDefault: false, isRest: false }, 2],
+      ['defaulted', { isOptional: false, hasDefault: true, isRest: false }, 2],
+      ['rest', { isOptional: false, hasDefault: false, isRest: true }, 2],
+      ['required', { isOptional: false, hasDefault: false, isRest: false }, undefined],
+    ])('tells which calls break when a %s parameter is removed', (_label, flags, expected) => {
+      const input = { name: 'input', type: 'string', isOptional: false, hasDefault: false, isRest: false, position: 0 };
+      const sig = (parameters: SignatureInfo['parameters']): SignatureInfo => ({
+        name: 'process', kind: 'function', parameters, returnType: 'void', isAsync: false, line: 1,
+      });
+
+      const result = analyzer.compareSignatures(
+        sig([input, { name: 'extra', type: 'string', position: 1, ...flags }]),
+        sig([input]),
+      );
+
+      const removed = result.breakingChanges.find(c => c.type === 'parameter-removed');
+      expect(removed?.breaksCallsWithArgs).toBe(expected);
+    });
+
     it('should detect parameter type change as breaking', () => {
       const oldSig: SignatureInfo = {
         name: 'setId',
