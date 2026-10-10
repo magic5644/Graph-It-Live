@@ -205,6 +205,7 @@ describe('main', () => {
     await expect(main([], {})).rejects.toThrow('Usage');
     await expect(main([dir, 'abc'], {})).rejects.toThrow('Usage');
     await expect(main([dir, '0'], {})).rejects.toThrow('Usage');
+    await expect(main([dir, 'Infinity'], {})).rejects.toThrow('Usage');
     writeFileSync(path.join(dir, 'base-1.json'), JSON.stringify(report({ lookup: 1 })));
     await expect(main([dir], {})).rejects.toThrow('Expected base-*.json and head-*.json');
   });
