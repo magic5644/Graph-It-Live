@@ -1235,9 +1235,11 @@ describe('LmToolsService', () => {
 
   describe('expand_node', () => {
     it('returns only nodes and edges the caller does not know yet', async () => {
+      // knownPaths go through path.resolve (a drive letter on Windows): the crawl returns resolved paths too.
+      const [a, b, c] = [A, B, C].map((p) => path.resolve(p));
       const crawl = vi.fn().mockResolvedValue({
-        nodes: [A, B, C],
-        edges: [{ source: A, target: B }, { source: B, target: C }, { source: A, target: A }],
+        nodes: [a, b, c],
+        edges: [{ source: a, target: b }, { source: b, target: c }, { source: a, target: a }],
       });
       new LmToolsService({ provider: createProvider({ spider: { crawl } }), logger }).registerAll();
 
