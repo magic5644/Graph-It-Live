@@ -288,7 +288,7 @@ async function measureMemory(workspace, target, cycles, scratch) {
 
 /**
  * One fresh VS Code instance per run, empty profile and index cache, the extension
- * loaded from source: activation, first call graph, background index, and the
+ * loaded from source: activation, background index, then first call graph, and the
  * extension host RSS.
  */
 async function measureVscode(workspace, target, runs) {
@@ -306,7 +306,11 @@ async function measureVscode(workspace, target, runs) {
         extensionTestsPath: VSCODE_BENCH,
         // Electron rejects --expose-gc in NODE_OPTIONS; an undefined value unsets it.
         extensionTestsEnv: { NODE_OPTIONS: undefined, BENCH_VSCODE_FILE: target.file, BENCH_VSCODE_OUT: out },
-        launchArgs: [workspace, '--disable-extensions', `--user-data-dir=${path.join(profile, 'user-data')}`],
+        // An empty extensions directory instead of --disable-extensions, which would make VS Code
+        // ignore --disable-extension. The built-in TypeScript service is disabled: it competes for
+        // CPU, and on the generated corpus its import chain overflows tsserver's stack (crash loop).
+        launchArgs: [workspace, `--extensions-dir=${path.join(profile, 'extensions')}`,
+          '--disable-extension=vscode.typescript-language-features', `--user-data-dir=${path.join(profile, 'user-data')}`],
       });
       samples.push(JSON.parse(readFileSync(out, 'utf8')));
     } finally {
@@ -316,8 +320,8 @@ async function measureVscode(workspace, target, runs) {
   const metric = (name) => summarize(samples.map((sample) => sample[name]));
   return {
     'vscode.activation': metric('activation'),
-    'vscode.firstCallGraph': metric('firstCallGraph'),
     'vscode.indexReady': metric('indexReady'),
+    'vscode.firstCallGraph': metric('firstCallGraph'),
   };
 }
 

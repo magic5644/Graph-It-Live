@@ -33,8 +33,6 @@ async function waitForIndex(started: number): Promise<number> {
 
 /** Time from `showCallGraph` to the webview's `callGraphReady`, the view already mounted. */
 async function measureFirstCallGraph(root: vscode.Uri, file: string): Promise<Sample> {
-  await vscode.commands.executeCommand('graph-it-live.graphView.focus');
-  await sleep(800); // resolveWebviewView + React mount, as in openCallGraphFor
   await vscode.window.showTextDocument(vscode.Uri.joinPath(root, file));
   const started = performance.now();
   await showCallGraphAndWait(TIMEOUT_MS, POLL_MS);
@@ -54,9 +52,13 @@ export async function run(): Promise<void> {
   const started = performance.now();
   await extension.activate();
   const activation: Sample = { wallMs: performance.now() - started, rssMB: currentRssMB() };
-  // Polled alongside the first graph, which competes with indexing as it would for a user.
-  const [firstCallGraph, indexMs] = await Promise.all([measureFirstCallGraph(folder.uri, file), waitForIndex(started)]);
+  // Background indexing starts when the view resolves. Index first: the status is polled
+  // through vscode.lm, a round trip to the renderer that a rendering call graph would hold up.
+  await vscode.commands.executeCommand('graph-it-live.graphView.focus');
+  await sleep(800); // resolveWebviewView + React mount, as in openCallGraphFor
+  const indexReady: Sample = { wallMs: await waitForIndex(started), rssMB: currentRssMB() };
+  const firstCallGraph = await measureFirstCallGraph(folder.uri, file);
   // The peak RSS of the whole session: extension host and its worker threads.
-  const indexReady: Sample = { wallMs: indexMs, rssMB: process.resourceUsage().maxRSS / 1024 };
+  firstCallGraph.rssMB = process.resourceUsage().maxRSS / 1024;
   fs.writeFileSync(out, JSON.stringify({ activation, firstCallGraph, indexReady }));
 }
