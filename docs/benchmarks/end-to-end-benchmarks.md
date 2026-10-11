@@ -12,12 +12,12 @@
 | `mcp.concurrent5` | 5 identical `query_call_graph` calls sent at once, one burst per run: latency of each call |
 | `mcp.concurrent5.queueWait` | Time each call of a burst waited in the server FIFO queue (`queuedAhead` in `McpWorkerHost`). The worker runs one call at a time in arrival order, so a call waits for the latency of the call ahead of it |
 | `vscode.activation` | `activate()` of the extension, loaded from source in a fresh VS Code instance (empty profile, empty index cache); RSS is the extension host's after activation |
-| `vscode.firstCallGraph` | `graph-it-live.showCallGraph` on the hub file until the webview reports the graph rendered (`callGraphReady`), the sidebar view already mounted; extension host RSS after the render |
-| `vscode.indexReady` | From activation until the background index reports `complete` (polled through `get_index_status`), concurrently with the first call graph; peak RSS of the extension host over the session (worker threads included) |
+| `vscode.indexReady` | From activation until the background index reports `complete` (polled through `get_index_status`); background indexing starts when the sidebar view resolves, opened right after activation; extension host RSS at that point |
+| `vscode.firstCallGraph` | Then `graph-it-live.showCallGraph` on the hub file until the webview reports the graph rendered (`callGraphReady`); peak RSS of the extension host over the session (worker threads included) |
 
 A second MCP session measures memory stability: `--cycles` index/query cycles (default 20), each a `rebuild_index` followed by `find_referencing_files` and `query_call_graph`. After each cycle, every thread of the server collects garbage (`--expose-gc`) and reports its V8 heap. The report lists the heap of the server main thread and the sum of its worker threads (the MCP worker and its parser workers) after the first and the last cycle, the growth, each group's sampled peak heap (every 50 ms), and the server process peak RSS. Worker threads share the process memory, so RSS has no per-thread split: the per-thread figure is the V8 heap. Cycles are paced 2.1 s apart, under the server limit of 5 `rebuild_index` calls per 10 s.
 
-The VS Code surface runs `tests/vscode-e2e/bench/index.ts` through the E2E harness (`@vscode/test-electron`, the version from `VSCODE_TEST_VERSION`, default `stable`): one VS Code instance per run, opened on the corpus with other extensions disabled. The extension is activated by `onStartupFinished`; the run fails rather than report 0 ms if it activated before the benchmark could time it. The file graph has no render acknowledgement, so the first graph timed is the call graph.
+The VS Code surface runs `tests/vscode-e2e/bench/index.ts` through the E2E harness (`@vscode/test-electron`, the version from `VSCODE_TEST_VERSION`, default `stable`): one VS Code instance per run, opened on the corpus with an empty extensions directory and the built-in TypeScript service disabled (it competes for CPU, and on `generated` it crash-loops on a stack overflow). The steps run one after another: the index status goes through `vscode.lm`, a round trip to the renderer, which a rendering call graph holds up. The extension is activated by `onStartupFinished`; the run fails rather than report 0 ms if it activated before the benchmark could time it. The file graph has no render acknowledgement, so the first graph timed is the call graph.
 
 Run it with `npm run bench:e2e` (builds the extension, CLI and E2E harness first) or `node scripts/bench-e2e.mjs` after `npm run build && npm run compile:tests`. On Linux without a display, wrap it in `xvfb-run -a`.
 
@@ -38,9 +38,9 @@ Reference run (macOS arm64, 16 CPUs, Node 22, 5 runs, p50):
 | `mcp.queryCallGraph` | 26 ms | 503 ms |
 | `mcp.concurrent5` (p50 / p95) | 72 / 121 ms | 1,424 / 2,382 ms |
 | `mcp.concurrent5.queueWait` (p50 / p95) | 49 / 97 ms | 951 / 1,899 ms |
-| `vscode.activation` | 200 ms, 244 MB | 200 ms, 244 MB |
-| `vscode.firstCallGraph` (p50 / p95) | 979 / 1,081 ms, 523 MB | 91,485 / 150,032 ms, 446 MB |
-| `vscode.indexReady` | 2,297 ms, 543 MB | 62,321 ms, 737 MB |
+| `vscode.activation` | 208 ms, 251 MB | 206 ms, 252 MB |
+| `vscode.indexReady` | 2,021 ms, 467 MB | 3,604 ms, 527 MB |
+| `vscode.firstCallGraph` (p50 / p95) | 492 / 535 ms, 520 MB | 89,111 / 143,446 ms, 582 MB (renderer-bound, #326) |
 | Heap after cycle 1 → 20, server / workers | 106.1 → 106.2 MB / 314.1 → 311.6 MB | 108.0 → 106.6 MB / 258.3 → 258.2 MB |
 | Memory session peak RSS | 933 MB | 1,216 MB |
 | Cache on disk | reverse index 0.4 MB, call graph 9.9 MB | reverse index 7.0 MB, call graph 24.8 MB |
