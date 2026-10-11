@@ -74,9 +74,9 @@ export function generateCorpus(root, files) {
 /** This repository at a fixed tag: a real, public, multi-language workspace. */
 function extractSelf(root) {
   const archive = path.join(root, '..', 'self.tar');
-  execFileSync('git', ['-C', REPO_ROOT, 'archive', '--format=tar', '-o', archive, SELF_REF]);
+  execFileSync('git', ['-C', REPO_ROOT, 'archive', '--format=tar', '-o', archive, SELF_REF]); // NOSONAR S4036: developer and CI tool, trusted PATH
   mkdirSync(root, { recursive: true });
-  execFileSync('tar', ['-xf', archive, '-C', root]);
+  execFileSync('tar', ['-xf', archive, '-C', root]); // NOSONAR S4036: developer and CI tool, trusted PATH
   rmSync(archive);
 }
 
@@ -103,7 +103,7 @@ async function sample(runs, measure, before = () => {}) {
   const samples = [];
   for (let run = 0; run < runs; run++) {
     before(run);
-    samples.push(await measure());
+    samples.push(await measure()); // NOSONAR S9382: samples run one at a time, parallel runs would skew timings
   }
   return summarize(samples);
 }
@@ -247,7 +247,7 @@ export async function main(args, env = process.env) {
   });
   try {
     const report = { version: 1, node: process.versions.node, platform: process.platform, arch: process.arch, cpus: cpus().length, runs: options.runs, corpora: [] };
-    for (const name of options.corpora) report.corpora.push(await benchCorpus(name, options, scratch));
+    for (const name of options.corpora) report.corpora.push(await benchCorpus(name, options, scratch)); // NOSONAR S9382: one corpus at a time, parallel runs would skew timings
     const markdown = renderReport(report);
     mkdirSync(options.out, { recursive: true });
     writeFileSync(path.join(options.out, 'report.json'), `${JSON.stringify(report, null, 2)}\n`);
