@@ -1,0 +1,58 @@
+name: Benchmark E2E
+
+# End-to-end benchmarks (#294): the built CLI and MCP server timed as real
+# processes on frozen corpora (this repository at a fixed tag and a seeded
+# 10,000-file workspace). Absolute numbers, so a trend across weekly runs, not
+# a PR gate: same-runner A/B comparisons stay in bench-ab.yml.
+# Report: job summary, plus report.json and report.md as an artifact.
+
+on:
+  schedule:
+    - cron: '0 4 * * 1'
+  workflow_dispatch:
+    inputs:
+      runs:
+        description: Samples per metric
+        default: '5'
+      corpus:
+        description: Comma-separated corpora (self, generated)
+        default: self,generated
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}
+  cancel-in-progress: false
+
+jobs:
+  bench:
+    name: Benchmark E2E (Linux)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      # Full history: the `self` corpus is extracted with `git archive <tag>`.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: "22"
+          cache: npm
+
+      - name: Install and build CLI
+        run: npm ci --ignore-scripts && npm run build:cli
+
+      - name: Run end-to-end benchmarks
+        env:
+          RUNS: ${{ inputs.runs || '5' }}
+          CORPUS: ${{ inputs.corpus || 'self,generated' }}
+        run: node scripts/bench-e2e.mjs --runs "$RUNS" --corpus "$CORPUS" --out "$RUNNER_TEMP/bench-e2e"
+
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: bench-e2e-${{ github.run_id }}
+          path: ${{ runner.temp }}/bench-e2e
+          retention-days: 90
