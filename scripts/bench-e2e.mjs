@@ -3,6 +3,7 @@ import { appendFileSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSy
 import { cpus, tmpdir } from 'node:os';
 import path from 'node:path';
 import { performance } from 'node:perf_hooks';
+import { setTimeout as sleep } from 'node:timers/promises';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { parseArgs, promisify } from 'node:util';
 import { closeSession, startMcpSession } from '../tests/cli/mcpSession.ts';
@@ -10,13 +11,20 @@ import { closeSession, startMcpSession } from '../tests/cli/mcpSession.ts';
 // End-to-end benchmarks of the built CLI and MCP server on frozen corpora (#294).
 // Unlike the vitest benches, each sample is a real process: wall time includes
 // Node startup, and the peak RSS of every process is recorded at exit.
-// Usage: node scripts/bench-e2e.mjs [--runs 5] [--corpus self,generated] [--files 10000] [--out <dir>]
+// Usage: node scripts/bench-e2e.mjs [--runs 5] [--corpus self,generated] [--files 10000] [--cycles 20] [--out <dir>]
 
 const execFileAsync = promisify(execFile);
 const REPO_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const ENTRY = path.join(REPO_ROOT, 'dist', 'graph-it.js');
 export const SELF_REF = 'v1.18.0';
 const MCP_QUERIES_PER_RUN = 5;
+const CONCURRENT_CALLS = 5;
+const MB = 1024 * 1024;
+// The server accepts 5 rebuild_index calls per 10 s (RATE_LIMIT_MAX_CALLS in src/mcp/mcpServer.ts).
+const REBUILD_INTERVAL_MS = 2_100;
+// ponytail: fixed wait for every thread to answer a heap probe (preload polls every 50 ms);
+// count per-thread acknowledgements if a probe ever misses a thread.
+const HEAP_PROBE_WAIT_MS = 1_000;
 
 /** Each corpus names one file to edit and one hub symbol to query. */
 const TARGETS = {
@@ -24,11 +32,32 @@ const TARGETS = {
   generated: { edit: 'src/d0/m1.ts', file: 'src/hub.ts', symbol: 'hub' },
 };
 
-// Loaded with --require by every benchmarked process (CLI, MCP server): writes
-// the process peak RSS (KB, worker threads included) to BENCH_RSS_DIR at exit.
-const RSS_PRELOAD = `if (require('node:worker_threads').isMainThread) process.on('exit', () => {
-  require('node:fs').writeFileSync(require('node:path').join(process.env.BENCH_RSS_DIR, process.pid + '.kb'), String(process.resourceUsage().maxRSS));
+// Loaded with --require (and --expose-gc) by every thread of every benchmarked
+// process (CLI, MCP server). The main thread writes the process peak RSS (KB,
+// worker threads included) to BENCH_RSS_DIR at exit. A worker thread shares that
+// RSS, so each thread also samples its own V8 heap every 50 ms; when the `probe`
+// file names a new cycle, it collects garbage and writes its heap and peak heap.
+const PRELOAD = `const fs = require('node:fs');
+const path = require('node:path');
+const v8 = require('node:v8');
+const { isMainThread, threadId } = require('node:worker_threads');
+const dir = process.env.BENCH_RSS_DIR;
+if (isMainThread) process.on('exit', () => {
+  fs.writeFileSync(path.join(dir, process.pid + '.kb'), String(process.resourceUsage().maxRSS));
 });
+let peak = 0;
+let answered = '';
+setInterval(() => {
+  peak = Math.max(peak, v8.getHeapStatistics().used_heap_size);
+  let cycle = '';
+  try { cycle = fs.readFileSync(path.join(dir, 'probe'), 'utf8'); } catch {}
+  if (cycle === '' || cycle === answered) return;
+  answered = cycle;
+  globalThis.gc();
+  const heap = v8.getHeapStatistics().used_heap_size;
+  fs.writeFileSync(path.join(dir, 'heap-' + cycle + '-' + process.pid + '-' + threadId + '.json'),
+    JSON.stringify({ main: isMainThread, heap, peak: Math.max(peak, heap) }));
+}, 50).unref();
 `;
 
 /** Nearest-rank percentile of a non-empty list. */
@@ -88,7 +117,8 @@ function freshRssDir(scratch) {
 
 /** Largest peak RSS (MB) written by the processes of one sample. */
 export function readPeakRss(dir) {
-  const kilobytes = readdirSync(dir).map((name) => Number(readFileSync(path.join(dir, name), 'utf8')));
+  const kilobytes = readdirSync(dir).filter((name) => name.endsWith('.kb'))
+    .map((name) => Number(readFileSync(path.join(dir, name), 'utf8')));
   return kilobytes.length > 0 ? Math.max(...kilobytes) / 1024 : undefined;
 }
 
@@ -160,12 +190,94 @@ async function measureMcp(workspace, target, runs, scratch) {
     const queries = runs * MCP_QUERIES_PER_RUN;
     const references = await sample(queries, () => timed(() => session.callTool('graphitlive_find_referencing_files', { targetPath })));
     const callGraph = await sample(queries, () => timed(() => session.callTool('graphitlive_query_call_graph', callers)));
+    const bursts = [];
+    for (let run = 0; run < runs; run++) bursts.push(await burst(session, 'graphitlive_query_call_graph', callers)); // NOSONAR S9382: one burst at a time, overlapping bursts would merge their queues
     await closeSession(session.child);
     return {
       'mcp.firstResponse': summarize([{ ...firstResponse, rssMB: readPeakRss(rssDir) }]),
       'mcp.findReferencingFiles': references,
       'mcp.queryCallGraph': callGraph,
+      [`mcp.concurrent${CONCURRENT_CALLS}`]: summarize(bursts.flat().map((wallMs) => ({ wallMs }))),
+      [`mcp.concurrent${CONCURRENT_CALLS}.queueWait`]: summarize(bursts.flatMap(queueWaits).map((wallMs) => ({ wallMs }))),
     };
+  } finally {
+    session.child.kill();
+  }
+}
+
+/** Latency of each of CONCURRENT_CALLS identical calls sent at once. */
+function burst(session, name, args) {
+  const started = performance.now();
+  return Promise.all(Array.from({ length: CONCURRENT_CALLS }, () =>
+    session.callTool(name, args).then(() => performance.now() - started)));
+}
+
+/**
+ * Queue wait of each call of one burst. The server runs one call at a time, in
+ * arrival order (FIFO in McpWorkerHost, `queuedAhead`), so a call starts when the
+ * one ahead of it ends: its wait is the latency of its predecessor.
+ */
+export function queueWaits(latencies) {
+  const sorted = [...latencies].sort((a, b) => a - b);
+  return sorted.map((_, index) => (index === 0 ? 0 : sorted[index - 1]));
+}
+
+/** Sums the answers to one heap probe into the server (main) thread and its worker threads, in MB. */
+export function readHeapProbe(dir, cycle) {
+  const totals = { server: { heapMB: 0, peakHeapMB: 0 }, workers: { heapMB: 0, peakHeapMB: 0 } };
+  for (const name of readdirSync(dir).filter((file) => file.startsWith(`heap-${cycle}-`))) {
+    const answer = JSON.parse(readFileSync(path.join(dir, name), 'utf8'));
+    const total = answer.main ? totals.server : totals.workers;
+    total.heapMB += answer.heap / MB;
+    total.peakHeapMB += answer.peak / MB;
+  }
+  return totals;
+}
+
+/** Heap of each thread group after every cycle, its peak, and the process peak RSS. */
+export function summarizeMemory(probes, peakRssMB) {
+  const round = (value) => Math.round(value * 10) / 10;
+  const group = (name) => ({
+    heapMB: probes.map((probe) => round(probe[name].heapMB)),
+    peakHeapMB: round(Math.max(...probes.map((probe) => probe[name].peakHeapMB))),
+  });
+  return {
+    cycles: probes.length,
+    peakRssMB: peakRssMB === undefined ? undefined : Math.round(peakRssMB),
+    server: group('server'),
+    workers: group('workers'),
+  };
+}
+
+async function callOk(session, name, args) {
+  const result = await session.callTool(name, args);
+  if (result.isError) throw new Error(`${name} failed: ${result.content[0]?.text}`);
+}
+
+/** One full rebuild, the two queries, then a heap probe; paced under the rebuild rate limit. */
+async function memoryCycle(session, targetPath, symbolName, dir, cycle) {
+  const started = performance.now();
+  await callOk(session, 'graphitlive_rebuild_index', {});
+  await callOk(session, 'graphitlive_find_referencing_files', { targetPath });
+  await callOk(session, 'graphitlive_query_call_graph', { filePath: targetPath, symbolName, direction: 'callers' });
+  writeFileSync(path.join(dir, 'probe'), String(cycle));
+  await sleep(Math.max(HEAP_PROBE_WAIT_MS, REBUILD_INTERVAL_MS - (performance.now() - started)));
+  return readHeapProbe(dir, cycle);
+}
+
+/**
+ * A second MCP session, warm cache: `cycles` index/query cycles. Heap after a
+ * forced GC that grows from the first cycle to the last points to a leak.
+ */
+async function measureMemory(workspace, target, cycles, scratch) {
+  const rssDir = freshRssDir(scratch);
+  const targetPath = path.join(workspace, target.file);
+  const session = await startMcpSession(ENTRY, workspace, workspace);
+  try {
+    const probes = [];
+    for (let cycle = 1; cycle <= cycles; cycle++) probes.push(await memoryCycle(session, targetPath, target.symbol, rssDir, cycle)); // NOSONAR S9382: cycles run one after another by design
+    await closeSession(session.child);
+    return summarizeMemory(probes, readPeakRss(rssDir));
   } finally {
     session.child.kill();
   }
@@ -184,11 +296,29 @@ async function benchCorpus(name, options, scratch) {
   const target = TARGETS[name];
   const cli = await measureCli(workspace, target, options.runs, scratch);
   const mcp = await measureMcp(workspace, target, options.runs, scratch);
-  return { name, ref: name === 'self' ? SELF_REF : undefined, files, cache: cli.cache, metrics: { ...cli.metrics, ...mcp } };
+  const memory = await measureMemory(workspace, target, options.cycles, scratch);
+  return { name, ref: name === 'self' ? SELF_REF : undefined, files, cache: cli.cache, metrics: { ...cli.metrics, ...mcp }, memory };
 }
 
 const cellMB = (value) => (value === undefined ? '—' : String(value));
-const cellBytes = (value) => (value === undefined ? '—' : `${(value / 1024 / 1024).toFixed(1)} MB`);
+const cellBytes = (value) => (value === undefined ? '—' : `${(value / MB).toFixed(1)} MB`);
+
+function renderMemory(memory) {
+  const row = (label, group) => {
+    const [first, last] = [group.heapMB[0], group.heapMB.at(-1)];
+    return `| ${label} | ${first} | ${last} | ${(last - first).toFixed(1)} | ${group.peakHeapMB} |`;
+  };
+  return [
+    '',
+    `Memory over ${memory.cycles} index/query cycle(s) in one MCP session (rebuild_index, then both queries): ` +
+      `V8 heap after a forced GC at the end of each cycle. Server process peak RSS (worker threads included): ${cellMB(memory.peakRssMB)} MB.`,
+    '',
+    '| Threads | Heap after cycle 1 (MB) | Heap after last cycle (MB) | Growth (MB) | Peak heap (MB) |',
+    '| --- | ---: | ---: | ---: | ---: |',
+    row('server (main)', memory.server),
+    row('workers', memory.workers),
+  ];
+}
 
 export function renderReport(report) {
   const lines = [
@@ -209,6 +339,7 @@ export function renderReport(report) {
       '| --- | ---: | ---: | ---: | ---: |',
       ...Object.entries(corpus.metrics).map(([metric, value]) =>
         `| ${metric} | ${value.runs} | ${value.p50Ms} | ${value.p95Ms} | ${cellMB(value.peakRssMB)} |`),
+      ...(corpus.memory ? renderMemory(corpus.memory) : []),
     );
   }
   return lines.join('\n');
@@ -221,13 +352,18 @@ export function parseOptions(args) {
       runs: { type: 'string', default: '5' },
       corpus: { type: 'string', default: 'self,generated' },
       files: { type: 'string', default: '10000' },
+      cycles: { type: 'string', default: '20' },
       out: { type: 'string', default: path.join(REPO_ROOT, '.reports', 'bench-e2e', 'latest') },
     },
   });
-  const options = { runs: Number(values.runs), files: Number(values.files), corpora: values.corpus.split(','), out: path.resolve(values.out) };
-  const unknown = options.corpora.filter((name) => !(name in TARGETS));
-  if (!Number.isInteger(options.runs) || options.runs < 1 || !Number.isInteger(options.files) || options.files < 2 || unknown.length > 0) {
-    throw new Error('Usage: node scripts/bench-e2e.mjs [--runs <n ≥ 1>] [--corpus self,generated] [--files <n ≥ 2>] [--out <dir>]');
+  const options = {
+    runs: Number(values.runs), files: Number(values.files), cycles: Number(values.cycles),
+    corpora: values.corpus.split(','), out: path.resolve(values.out),
+  };
+  const atLeast = (value, min) => Number.isInteger(value) && value >= min;
+  const known = options.corpora.every((name) => name in TARGETS);
+  if (!atLeast(options.runs, 1) || !atLeast(options.files, 2) || !atLeast(options.cycles, 1) || !known) {
+    throw new Error('Usage: node scripts/bench-e2e.mjs [--runs <n ≥ 1>] [--corpus self,generated] [--files <n ≥ 2>] [--cycles <n ≥ 1>] [--out <dir>]');
   }
   return options;
 }
@@ -236,12 +372,12 @@ export async function main(args, env = process.env) {
   const options = parseOptions(args);
   const scratch = mkdtempSync(path.join(tmpdir(), 'graph-it-bench-e2e-'));
   const preload = path.join(scratch, 'rss-preload.cjs');
-  writeFileSync(preload, RSS_PRELOAD);
+  writeFileSync(preload, PRELOAD);
   const { NODE_OPTIONS, GRAPH_IT_DISABLE_UPDATE_CHECK, LOG_LEVEL } = process.env;
   const saved = { NODE_OPTIONS, GRAPH_IT_DISABLE_UPDATE_CHECK, LOG_LEVEL };
   // Children inherit process.env. NODE_OPTIONS reads `\` as an escape: use `/`.
   Object.assign(process.env, {
-    NODE_OPTIONS: `${NODE_OPTIONS ?? ''} --require "${preload.replaceAll('\\', '/')}"`.trim(),
+    NODE_OPTIONS: `${NODE_OPTIONS ?? ''} --expose-gc --require "${preload.replaceAll('\\', '/')}"`.trim(),
     GRAPH_IT_DISABLE_UPDATE_CHECK: '1',
     LOG_LEVEL: 'error',
   });
@@ -261,7 +397,8 @@ export async function main(args, env = process.env) {
       else process.env[key] = value;
     }
     delete process.env.BENCH_RSS_DIR;
-    rmSync(scratch, { recursive: true, force: true });
+    // A server killed after a failure may still be writing its cache: retry, so its error is not masked.
+    rmSync(scratch, { recursive: true, force: true, maxRetries: 5 });
   }
 }
 

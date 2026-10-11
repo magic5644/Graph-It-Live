@@ -15,9 +15,12 @@ import {
   main,
   parseOptions,
   percentile,
+  queueWaits,
+  readHeapProbe,
   readPeakRss,
   renderReport,
   summarize,
+  summarizeMemory,
   type BenchReport,
 } from '../../scripts/bench-e2e.mjs';
 import { REPO_ROOT, wasmBuilt } from '../mcp/tools/callGraphWorkspace';
@@ -104,6 +107,65 @@ describe('readPeakRss', () => {
   it('returns undefined when no process wrote its peak', () => {
     expect(readPeakRss(tempDir())).toBeUndefined();
   });
+
+  it('ignores the heap probe files written next to the peaks', () => {
+    const dir = tempDir();
+    writeFileSync(path.join(dir, '1.kb'), '102400');
+    writeFileSync(path.join(dir, 'probe'), '3');
+    writeFileSync(path.join(dir, 'heap-3-1-0.json'), '{}');
+    expect(readPeakRss(dir)).toBe(100);
+  });
+});
+
+describe('queueWaits', () => {
+  it('charges each call the latency of the call served before it', () => {
+    expect(queueWaits([30, 10, 50, 20, 40])).toEqual([0, 10, 20, 30, 40]);
+  });
+
+  it('gives a single call no wait', () => {
+    expect(queueWaits([12])).toEqual([0]);
+  });
+});
+
+describe('readHeapProbe', () => {
+  const answer = (dir: string, name: string, main: boolean, heapMB: number, peakMB: number) =>
+    writeFileSync(path.join(dir, name), JSON.stringify({ main, heap: heapMB * 1024 * 1024, peak: peakMB * 1024 * 1024 }));
+
+  it('splits the main thread from the sum of the worker threads, in MB', () => {
+    const dir = tempDir();
+    answer(dir, 'heap-1-42-0.json', true, 100, 120);
+    answer(dir, 'heap-1-42-1.json', false, 200, 400);
+    answer(dir, 'heap-1-42-2.json', false, 30, 50);
+    answer(dir, 'heap-10-42-1.json', false, 999, 999);
+    expect(readHeapProbe(dir, 1)).toEqual({
+      server: { heapMB: 100, peakHeapMB: 120 },
+      workers: { heapMB: 230, peakHeapMB: 450 },
+    });
+  });
+
+  it('reports zero when no thread answered the probe', () => {
+    expect(readHeapProbe(tempDir(), 1)).toEqual({ server: { heapMB: 0, peakHeapMB: 0 }, workers: { heapMB: 0, peakHeapMB: 0 } });
+  });
+});
+
+describe('summarizeMemory', () => {
+  const probe = (server: number, workers: number, peak: number) => ({
+    server: { heapMB: server, peakHeapMB: peak },
+    workers: { heapMB: workers, peakHeapMB: peak * 2 },
+  });
+
+  it('keeps the heap after every cycle and the largest peak, rounded to 0.1 MB', () => {
+    expect(summarizeMemory([probe(100.04, 200.26, 120), probe(100.31, 201, 130.04)], 800.6)).toEqual({
+      cycles: 2,
+      peakRssMB: 801,
+      server: { heapMB: [100, 100.3], peakHeapMB: 130 },
+      workers: { heapMB: [200.3, 201], peakHeapMB: 260.1 },
+    });
+  });
+
+  it('leaves the peak RSS undefined when the server did not write it', () => {
+    expect(summarizeMemory([probe(1, 2, 3)], undefined).peakRssMB).toBeUndefined();
+  });
 });
 
 describe('renderReport', () => {
@@ -117,6 +179,11 @@ describe('renderReport', () => {
       },
       {
         name: 'generated', ref: undefined, files: 10_003, cache: undefined,
+        memory: {
+          cycles: 20, peakRssMB: undefined,
+          server: { heapMB: [100, 101.5], peakHeapMB: 130 },
+          workers: { heapMB: [250, 249.2], peakHeapMB: 480 },
+        },
         metrics: { 'mcp.queryCallGraph': { runs: 15, p50Ms: 12, p95Ms: 14, peakRssMB: undefined } },
       },
     ],
@@ -130,11 +197,20 @@ describe('renderReport', () => {
     expect(markdown).toContain('| scan.cold | 3 | 2000 | 2100 | 600 |');
   });
 
+  it('renders the heap of the server and worker threads across the cycles', () => {
+    const markdown = renderReport(report);
+    expect(markdown).toContain('Memory over 20 index/query cycle(s)');
+    expect(markdown).toContain('| server (main) | 100 | 101.5 | 1.5 | 130 |');
+    expect(markdown).toContain('| workers | 250 | 249.2 | -0.8 | 480 |');
+    expect(markdown.match(/Memory over/g)).toHaveLength(1);
+  });
+
   it('marks missing values instead of printing undefined', () => {
     const markdown = renderReport(report);
     expect(markdown).toContain('### generated (10003 files)');
     expect(markdown).toContain('reverse index —, call graph —');
     expect(markdown).toContain('| mcp.queryCallGraph | 15 | 12 | 14 | — |');
+    expect(markdown).toContain('peak RSS (worker threads included): — MB');
     expect(markdown).not.toContain('undefined');
   });
 });
@@ -142,13 +218,13 @@ describe('renderReport', () => {
 describe('parseOptions', () => {
   it('defaults to five runs on both corpora with 10,000 generated files', () => {
     expect(parseOptions([])).toEqual({
-      runs: 5, files: 10_000, corpora: ['self', 'generated'], out: path.join(REPO_ROOT, '.reports', 'bench-e2e', 'latest'),
+      runs: 5, files: 10_000, cycles: 20, corpora: ['self', 'generated'], out: path.join(REPO_ROOT, '.reports', 'bench-e2e', 'latest'),
     });
   });
 
   it('reads every option', () => {
-    expect(parseOptions(['--runs', '2', '--corpus', 'generated', '--files', '50', '--out', 'out'])).toEqual({
-      runs: 2, files: 50, corpora: ['generated'], out: path.resolve('out'),
+    expect(parseOptions(['--runs', '2', '--corpus', 'generated', '--files', '50', '--cycles', '3', '--out', 'out'])).toEqual({
+      runs: 2, files: 50, cycles: 3, corpora: ['generated'], out: path.resolve('out'),
     });
   });
 
@@ -156,6 +232,7 @@ describe('parseOptions', () => {
     [['--runs', '0']],
     [['--runs', '1.5']],
     [['--files', '1']],
+    [['--cycles', '0']],
     [['--corpus', 'self,private']],
   ])('rejects %j', (args) => {
     expect(() => parseOptions(args)).toThrow(/^Usage:/);
@@ -176,15 +253,21 @@ describe.runIf(cliBuilt && wasmBuilt)('main', () => {
     const nodeOptions = process.env.NODE_OPTIONS;
     const stdout = vi.spyOn(process.stdout, 'write').mockReturnValue(true);
 
-    const report = await main(['--runs', '1', '--corpus', 'generated', '--files', '20', '--out', out], { GITHUB_STEP_SUMMARY: summary });
+    const report = await main(['--runs', '1', '--corpus', 'generated', '--files', '20', '--cycles', '2', '--out', out], { GITHUB_STEP_SUMMARY: summary });
 
     stdout.mockRestore();
     const [corpus] = report.corpora;
     expect(corpus.files).toBe(23);
     expect(Object.keys(corpus.metrics)).toEqual([
       'cli.coldStart', 'scan.cold', 'scan.warm', 'scan.afterEdit', 'callGraph.cold', 'callGraph.warm',
-      'mcp.firstResponse', 'mcp.findReferencingFiles', 'mcp.queryCallGraph',
+      'mcp.firstResponse', 'mcp.findReferencingFiles', 'mcp.queryCallGraph', 'mcp.concurrent5', 'mcp.concurrent5.queueWait',
     ]);
+    expect(corpus.metrics['mcp.concurrent5'].runs).toBe(5);
+    expect(corpus.metrics['mcp.concurrent5.queueWait'].p50Ms).toBeLessThanOrEqual(corpus.metrics['mcp.concurrent5'].p50Ms);
+    expect(corpus.memory?.cycles).toBe(2);
+    expect(corpus.memory?.server.heapMB.every((heapMB) => heapMB > 0)).toBe(true);
+    expect(corpus.memory?.workers.heapMB.every((heapMB) => heapMB > 0)).toBe(true);
+    expect(corpus.memory?.peakRssMB).toBeGreaterThan(0);
     expect(corpus.metrics['scan.cold'].peakRssMB).toBeGreaterThan(0);
     expect(corpus.metrics['mcp.firstResponse'].peakRssMB).toBeGreaterThan(0);
     expect(corpus.metrics['mcp.queryCallGraph'].runs).toBe(5);

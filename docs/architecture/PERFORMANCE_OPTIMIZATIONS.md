@@ -311,7 +311,7 @@ Performance suites (none of them enforce a timing threshold):
 | `npm run test:bench` | `tests/benchmarks/*.bench.ts` | Vitest timing benches, one file per process (`scripts/run-benchmarks.mjs`). Each bench builds its fixtures before measurement and times only the named operation. |
 | `npm run test:bench:memory` | `tests/benchmarks/memory/*.bench.ts` | Heap and database-size checks with assertions; workers start with `--expose-gc` (`vitest.memory.config.mts`). |
 | `npm test` | `tests/benchmarks/graphContextBenchmark.test.ts`, `tests/cli/workCounters.test.ts`, `tests/cli/scaling.test.ts` | Deterministic assertions (graph_context benchmark contract, cache work counters, n vs 4n work ratios) that run with the unit suite. |
-| `npm run bench:e2e` | `scripts/bench-e2e.mjs` | Built CLI and MCP server timed as real processes on frozen corpora: wall time (Node startup included), peak RSS per process, on-disk cache sizes. See [End-to-end benchmarks](../benchmarks/end-to-end-benchmarks.md). |
+| `npm run bench:e2e` | `scripts/bench-e2e.mjs` | Built CLI and MCP server timed as real processes on frozen corpora: wall time (Node startup included), peak RSS per process, on-disk cache sizes, 5 concurrent MCP calls through the FIFO queue, and heap stability over repeated index/query cycles. See [End-to-end benchmarks](../benchmarks/end-to-end-benchmarks.md). |
 
 The unused-dependency benches above live in `tests/benchmarks/unusedDependencies.bench.ts`.
 
