@@ -5,12 +5,12 @@
 | Metric | Measures |
 | --- | --- |
 | `cli.coldStart` | `graph-it --version` |
-| `scan.cold` / `scan.warm` / `scan.afterEdit` | `graph-it scan` with no cache, a valid cache, and one file edited |
+| `scan.cold` / `scan.warm` / `scan.afterEdit` | `graph-it scan` with no cache, a valid cache (cache restore and validation), and one file edited |
 | `callGraph.cold` / `callGraph.warm` | `graph-it tool query_call_graph` (callers of a hub) without and with `callgraph.db` |
 | `mcp.firstResponse` | `graph-it serve` from an empty cache: spawn, handshake and first `find_referencing_files`; peak RSS of the whole session |
 | `mcp.findReferencingFiles` / `mcp.queryCallGraph` | Warm requests in the same session, 5 per run |
 
-Run it with `npm run test:bench:e2e` (builds the CLI first) or `node scripts/bench-e2e.mjs` after `npm run build:cli`.
+Run it with `npm run bench:e2e` (builds the CLI first) or `node scripts/bench-e2e.mjs` after `npm run build:cli`.
 
 Options: `--runs <n>` (default 5), `--corpus self,generated`, `--files <n>` (generated size, default 10,000), `--out <dir>` (default `.reports/bench-e2e/latest`, with `report.json` and `report.md`). The `Benchmark E2E` workflow (`.github/workflows/bench-e2e.yml`) runs it weekly and on demand on Linux. It publishes the report in the job summary and as an artifact. The numbers are absolute, so compare runs from the same machine.
 
