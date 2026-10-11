@@ -1,6 +1,6 @@
 # End-to-end benchmarks
 
-`scripts/bench-e2e.mjs` runs `dist/graph-it.js` on two frozen corpora: `self` (this repository extracted with `git archive v1.18.0`) and `generated` (a seeded 10,000-module TypeScript workspace, same files on every run). Each sample is one process. A preload loaded through `NODE_OPTIONS` records each process's peak RSS (`process.resourceUsage().maxRSS`, worker threads included) on exit.
+`scripts/bench-e2e.mjs` runs `dist/graph-it.js` and the VS Code extension on two frozen corpora: `self` (this repository extracted with `git archive v1.18.0`) and `generated` (a seeded 10,000-module TypeScript workspace, same files on every run). Each sample is one process. A preload loaded through `NODE_OPTIONS` records each process's peak RSS (`process.resourceUsage().maxRSS`, worker threads included) on exit.
 
 | Metric | Measures |
 | --- | --- |
@@ -11,12 +11,17 @@
 | `mcp.findReferencingFiles` / `mcp.queryCallGraph` | Warm requests in the same session, 5 per run |
 | `mcp.concurrent5` | 5 identical `query_call_graph` calls sent at once, one burst per run: latency of each call |
 | `mcp.concurrent5.queueWait` | Time each call of a burst waited in the server FIFO queue (`queuedAhead` in `McpWorkerHost`). The worker runs one call at a time in arrival order, so a call waits for the latency of the call ahead of it |
+| `vscode.activation` | `activate()` of the extension, loaded from source in a fresh VS Code instance (empty profile, empty index cache); RSS is the extension host's after activation |
+| `vscode.firstCallGraph` | `graph-it-live.showCallGraph` on the hub file until the webview reports the graph rendered (`callGraphReady`), the sidebar view already mounted; extension host RSS after the render |
+| `vscode.indexReady` | From activation until the background index reports `complete` (polled through `get_index_status`), concurrently with the first call graph; peak RSS of the extension host over the session (worker threads included) |
 
 A second MCP session measures memory stability: `--cycles` index/query cycles (default 20), each a `rebuild_index` followed by `find_referencing_files` and `query_call_graph`. After each cycle, every thread of the server collects garbage (`--expose-gc`) and reports its V8 heap. The report lists the heap of the server main thread and the sum of its worker threads (the MCP worker and its parser workers) after the first and the last cycle, the growth, each group's sampled peak heap (every 50 ms), and the server process peak RSS. Worker threads share the process memory, so RSS has no per-thread split: the per-thread figure is the V8 heap. Cycles are paced 2.1 s apart, under the server limit of 5 `rebuild_index` calls per 10 s.
 
-Run it with `npm run bench:e2e` (builds the CLI first) or `node scripts/bench-e2e.mjs` after `npm run build:cli`.
+The VS Code surface runs `tests/vscode-e2e/bench/index.ts` through the E2E harness (`@vscode/test-electron`, the version from `VSCODE_TEST_VERSION`, default `stable`): one VS Code instance per run, opened on the corpus with other extensions disabled. The extension is activated by `onStartupFinished`; the run fails rather than report 0 ms if it activated before the benchmark could time it. The file graph has no render acknowledgement, so the first graph timed is the call graph.
 
-Options: `--runs <n>` (default 5), `--corpus self,generated`, `--files <n>` (generated size, default 10,000), `--cycles <n>` (memory cycles, default 20), `--out <dir>` (default `.reports/bench-e2e/latest`, with `report.json` and `report.md`). The `Benchmark E2E` workflow (`.github/workflows/bench-e2e.yml`) runs it weekly and on demand on Linux. It publishes the report in the job summary and as an artifact. The numbers are absolute, so compare runs from the same machine.
+Run it with `npm run bench:e2e` (builds the extension, CLI and E2E harness first) or `node scripts/bench-e2e.mjs` after `npm run build && npm run compile:tests`. On Linux without a display, wrap it in `xvfb-run -a`.
+
+Options: `--runs <n>` (default 5), `--corpus self,generated`, `--files <n>` (generated size, default 10,000), `--cycles <n>` (memory cycles, default 20), `--no-vscode` (CLI and MCP only, no VS Code instance), `--out <dir>` (default `.reports/bench-e2e/latest`, with `report.json` and `report.md`). The `Benchmark E2E` workflow (`.github/workflows/bench-e2e.yml`) runs it weekly and on demand on Linux. It publishes the report in the job summary and as an artifact. The numbers are absolute, so compare runs from the same machine.
 
 Reference run (macOS arm64, 16 CPUs, Node 22, 5 runs, p50):
 

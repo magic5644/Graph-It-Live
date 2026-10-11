@@ -1,7 +1,7 @@
 name: Benchmark E2E
 
 # End-to-end benchmarks (#294): the built CLI and MCP server timed as real
-# processes on frozen corpora (this repository at a fixed tag and a seeded
+# processes, and the VS Code extension in fresh VS Code instances (#321), on frozen corpora (this repository at a fixed tag and a seeded
 # 10,000-file workspace). Absolute numbers, so a trend across weekly runs, not
 # a PR gate: same-runner A/B comparisons stay in bench-ab.yml.
 # Report: job summary, plus report.json and report.md as an artifact.
@@ -29,7 +29,7 @@ jobs:
   bench:
     name: Benchmark E2E (Linux)
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 45
     steps:
       # Full history: the `self` corpus is extracted with `git archive <tag>`.
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -42,14 +42,14 @@ jobs:
           node-version: "22"
           cache: npm
 
-      - name: Install and build CLI
-        run: npm ci --ignore-scripts && npm run build:cli
+      - name: Install and build extension, CLI and E2E harness
+        run: npm ci --ignore-scripts && npm run build && npm run compile:tests
 
       - name: Run end-to-end benchmarks
         env:
           RUNS: ${{ inputs.runs || '5' }}
           CORPUS: ${{ inputs.corpus || 'self,generated' }}
-        run: node scripts/bench-e2e.mjs --runs "$RUNS" --corpus "$CORPUS" --out "$RUNNER_TEMP/bench-e2e"
+        run: xvfb-run -a node scripts/bench-e2e.mjs --runs "$RUNS" --corpus "$CORPUS" --out "$RUNNER_TEMP/bench-e2e"
 
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
