@@ -1576,6 +1576,7 @@
     "test:all": "npm run test:unit",
     "test:bench": "node scripts/run-benchmarks.mjs",
     "test:bench:memory": "node scripts/run-memory-bench.mjs",
+    "test:bench:e2e": "npm run build:cli && node scripts/bench-e2e.mjs",
     "test:context-economy": "npm run build:cli && node scripts/context-economy-corpus.mjs",
     "sync:tool-descriptions": "node scripts/sync-tool-descriptions.mjs",
     "test:mcp": "vitest run tests/cli/serveTools.e2e.test.ts",

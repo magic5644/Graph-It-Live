@@ -29,6 +29,7 @@ export async function startMcpSession(distEntry: string, workspace: string, cwd:
     stdio: ["pipe", "pipe", "ignore"],
   });
   const responses = new Map<number, Record<string, unknown>>();
+  const waiters = new Map<number, () => void>();
   let buffer = "";
   child.stdout.setEncoding("utf-8");
   child.stdout.on("data", (chunk: string) => {
@@ -39,17 +40,31 @@ export async function startMcpSession(distEntry: string, workspace: string, cwd:
       buffer = buffer.slice(newline + 1);
       if (line.startsWith("{")) {
         const message = JSON.parse(line) as { id?: number };
-        if (typeof message.id === "number") responses.set(message.id, message);
+        if (typeof message.id === "number") {
+          responses.set(message.id, message);
+          waiters.get(message.id)?.();
+        }
       }
       newline = buffer.indexOf("\n");
     }
   });
   const send = (message: Record<string, unknown>) => child.stdin.write(`${JSON.stringify(message)}\n`);
+  // Resolves on the response line itself, not on a poll: benchmarks time these calls.
   const waitFor = async (id: number) => {
-    const deadline = Date.now() + 45_000;
-    while (!responses.has(id)) {
-      if (Date.now() > deadline || child.exitCode !== null) throw new Error(`no response ${id}`);
-      await new Promise((resolve) => setTimeout(resolve, 100));
+    if (!responses.has(id)) {
+      await new Promise<void>((resolve, reject) => {
+        const fail = () => reject(new Error(`no response ${id}`));
+        const timer = setTimeout(fail, 45_000);
+        const done = (settle: () => void) => () => {
+          clearTimeout(timer);
+          child.off("exit", onExit);
+          waiters.delete(id);
+          settle();
+        };
+        const onExit = done(fail);
+        waiters.set(id, done(resolve));
+        child.once("exit", onExit);
+      });
     }
     return responses.get(id)!;
   };
