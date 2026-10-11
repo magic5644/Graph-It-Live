@@ -38,6 +38,9 @@ Reference run (macOS arm64, 16 CPUs, Node 22, 5 runs, p50):
 | `mcp.queryCallGraph` | 26 ms | 503 ms |
 | `mcp.concurrent5` (p50 / p95) | 72 / 121 ms | 1,424 / 2,382 ms |
 | `mcp.concurrent5.queueWait` (p50 / p95) | 49 / 97 ms | 951 / 1,899 ms |
+| `vscode.activation` | 200 ms, 244 MB | 200 ms, 244 MB |
+| `vscode.firstCallGraph` (p50 / p95) | 979 / 1,081 ms, 523 MB | 91,485 / 150,032 ms, 446 MB |
+| `vscode.indexReady` | 2,297 ms, 543 MB | 62,321 ms, 737 MB |
 | Heap after cycle 1 → 20, server / workers | 106.1 → 106.2 MB / 314.1 → 311.6 MB | 108.0 → 106.6 MB / 258.3 → 258.2 MB |
 | Memory session peak RSS | 933 MB | 1,216 MB |
 | Cache on disk | reverse index 0.4 MB, call graph 9.9 MB | reverse index 7.0 MB, call graph 24.8 MB |
