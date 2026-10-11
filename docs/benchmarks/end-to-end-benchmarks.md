@@ -9,10 +9,14 @@
 | `callGraph.cold` / `callGraph.warm` | `graph-it tool query_call_graph` (callers of a hub) without and with `callgraph.db` |
 | `mcp.firstResponse` | `graph-it serve` from an empty cache: spawn, handshake and first `find_referencing_files`; peak RSS of the whole session |
 | `mcp.findReferencingFiles` / `mcp.queryCallGraph` | Warm requests in the same session, 5 per run |
+| `mcp.concurrent5` | 5 identical `query_call_graph` calls sent at once, one burst per run: latency of each call |
+| `mcp.concurrent5.queueWait` | Time each call of a burst waited in the server FIFO queue (`queuedAhead` in `McpWorkerHost`). The worker runs one call at a time in arrival order, so a call waits for the latency of the call ahead of it |
+
+A second MCP session measures memory stability: `--cycles` index/query cycles (default 20), each a `rebuild_index` followed by `find_referencing_files` and `query_call_graph`. After each cycle, every thread of the server collects garbage (`--expose-gc`) and reports its V8 heap. The report lists the heap of the server main thread and the sum of its worker threads (the MCP worker and its parser workers) after the first and the last cycle, the growth, each group's sampled peak heap (every 50 ms), and the server process peak RSS. Worker threads share the process memory, so RSS has no per-thread split: the per-thread figure is the V8 heap. Cycles are paced 2.1 s apart, under the server limit of 5 `rebuild_index` calls per 10 s.
 
 Run it with `npm run bench:e2e` (builds the CLI first) or `node scripts/bench-e2e.mjs` after `npm run build:cli`.
 
-Options: `--runs <n>` (default 5), `--corpus self,generated`, `--files <n>` (generated size, default 10,000), `--out <dir>` (default `.reports/bench-e2e/latest`, with `report.json` and `report.md`). The `Benchmark E2E` workflow (`.github/workflows/bench-e2e.yml`) runs it weekly and on demand on Linux. It publishes the report in the job summary and as an artifact. The numbers are absolute, so compare runs from the same machine.
+Options: `--runs <n>` (default 5), `--corpus self,generated`, `--files <n>` (generated size, default 10,000), `--cycles <n>` (memory cycles, default 20), `--out <dir>` (default `.reports/bench-e2e/latest`, with `report.json` and `report.md`). The `Benchmark E2E` workflow (`.github/workflows/bench-e2e.yml`) runs it weekly and on demand on Linux. It publishes the report in the job summary and as an artifact. The numbers are absolute, so compare runs from the same machine.
 
 Reference run (macOS arm64, 16 CPUs, Node 22, 5 runs, p50):
 
@@ -27,4 +31,8 @@ Reference run (macOS arm64, 16 CPUs, Node 22, 5 runs, p50):
 | `mcp.firstResponse` | 2,438 ms, 991 MB | 4,286 ms, 1,368 MB |
 | `mcp.findReferencingFiles` | 2 ms | 105 ms |
 | `mcp.queryCallGraph` | 26 ms | 503 ms |
+| `mcp.concurrent5` (p50 / p95) | 72 / 121 ms | 1,424 / 2,382 ms |
+| `mcp.concurrent5.queueWait` (p50 / p95) | 49 / 97 ms | 951 / 1,899 ms |
+| Heap after cycle 1 → 20, server / workers | 106.1 → 106.2 MB / 314.1 → 311.6 MB | 108.0 → 106.6 MB / 258.3 → 258.2 MB |
+| Memory session peak RSS | 933 MB | 1,216 MB |
 | Cache on disk | reverse index 0.4 MB, call graph 9.9 MB | reverse index 7.0 MB, call graph 24.8 MB |
