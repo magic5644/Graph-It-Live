@@ -26,7 +26,7 @@ async function waitForIndex(started: number): Promise<number> {
     const status = await getIndexStatus<{ state?: string }>();
     if (status.state === 'complete') return performance.now() - started;
     if (status.state === 'error') throw new Error('Background indexing failed');
-    await sleep(POLL_MS);
+    await sleep(POLL_MS); // NOSONAR S9382: polling, each check waits for the previous one
   }
   throw new Error(`Background indexing did not complete within ${TIMEOUT_MS} ms`);
 }
