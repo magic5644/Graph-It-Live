@@ -311,40 +311,12 @@ Performance suites (none of them enforce a timing threshold):
 | `npm run test:bench` | `tests/benchmarks/*.bench.ts` | Vitest timing benches, one file per process (`scripts/run-benchmarks.mjs`). Each bench builds its fixtures before measurement and times only the named operation. |
 | `npm run test:bench:memory` | `tests/benchmarks/memory/*.bench.ts` | Heap and database-size checks with assertions; workers start with `--expose-gc` (`vitest.memory.config.mts`). |
 | `npm test` | `tests/benchmarks/graphContextBenchmark.test.ts`, `tests/cli/workCounters.test.ts`, `tests/cli/scaling.test.ts` | Deterministic assertions (graph_context benchmark contract, cache work counters, n vs 4n work ratios) that run with the unit suite. |
-| `npm run test:bench:e2e` | `scripts/bench-e2e.mjs` | Built CLI and MCP server timed as real processes on frozen corpora: wall time (Node startup included), peak RSS per process, on-disk cache sizes. |
+| `npm run test:bench:e2e` | `scripts/bench-e2e.mjs` | Built CLI and MCP server timed as real processes on frozen corpora: wall time (Node startup included), peak RSS per process, on-disk cache sizes. See [End-to-end benchmarks](../benchmarks/end-to-end-benchmarks.md). |
 
 The unused-dependency benches above live in `tests/benchmarks/unusedDependencies.bench.ts`.
 
 On pull requests touching `src/analyzer/**`, `src/mcp/**`, `src/cli/**`, `src/shared/**` or the benches, the `Benchmark A/B` workflow (`.github/workflows/bench-ab.yml`) builds base and head on one Linux runner and runs the timing suite 3 times each, interleaved. `scripts/bench-compare.mjs` compares each bench's median across runs and updates one PR comment listing regressions and gains: a change counts only beyond ±10 % and when the base and head run ranges do not overlap. It is informational, not blocking. Added CI time: two installs and CLI builds, plus 6 suite runs (~20 s each locally).
 
-### End-to-end benchmarks
-
-`scripts/bench-e2e.mjs` runs `dist/graph-it.js` on two frozen corpora: `self` (this repository extracted with `git archive v1.18.0`) and `generated` (a seeded 10,000-module TypeScript workspace, same files on every run). Each sample is one process. A preload loaded through `NODE_OPTIONS` records each process's peak RSS (`process.resourceUsage().maxRSS`, worker threads included) on exit.
-
-| Metric | Measures |
-| --- | --- |
-| `cli.coldStart` | `graph-it --version` |
-| `scan.cold` / `scan.warm` / `scan.afterEdit` | `graph-it scan` with no cache, a valid cache, and one file edited |
-| `callGraph.cold` / `callGraph.warm` | `graph-it tool query_call_graph` (callers of a hub) without and with `callgraph.db` |
-| `mcp.firstResponse` | `graph-it serve` from an empty cache: spawn, handshake and first `find_referencing_files`; peak RSS of the whole session |
-| `mcp.findReferencingFiles` / `mcp.queryCallGraph` | Warm requests in the same session, 5 per run |
-
-Options: `--runs <n>` (default 5), `--corpus self,generated`, `--files <n>` (generated size, default 10,000), `--out <dir>` (default `.reports/bench-e2e/latest`, with `report.json` and `report.md`). The `Benchmark E2E` workflow (`.github/workflows/bench-e2e.yml`) runs it weekly and on demand on Linux. It publishes the report in the job summary and as an artifact. The numbers are absolute, so compare runs from the same machine.
-
-Reference run (macOS arm64, 16 CPUs, Node 22, 5 runs, p50):
-
-| Metric | self (931 files) | generated (10,003 files) |
-| --- | --- | --- |
-| `cli.coldStart` | 238 ms, 255 MB | 237 ms, 252 MB |
-| `scan.cold` | 2,076 ms, 684 MB | 3,737 ms, 603 MB |
-| `scan.warm` | 432 ms, 374 MB | 651 ms, 409 MB |
-| `scan.afterEdit` | 434 ms, 368 MB | 650 ms, 417 MB |
-| `callGraph.cold` | 1,712 ms, 487 MB | 3,303 ms, 723 MB |
-| `callGraph.warm` | 428 ms, 378 MB | 1,284 ms, 635 MB |
-| `mcp.firstResponse` | 2,438 ms, 991 MB | 4,286 ms, 1,368 MB |
-| `mcp.findReferencingFiles` | 2 ms | 105 ms |
-| `mcp.queryCallGraph` | 26 ms | 503 ms |
-| Cache on disk | reverse index 0.4 MB, call graph 9.9 MB | reverse index 7.0 MB, call graph 24.8 MB |
 
 ## Conclusion
 
