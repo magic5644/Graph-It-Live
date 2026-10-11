@@ -81,21 +81,26 @@ export async function openCallGraphFor(
   const doc = await vscode.workspace.openTextDocument(file);
   await vscode.window.showTextDocument(doc);
 
+  await showCallGraphAndWait(45000, 200);
+  return doc;
+}
+
+/**
+ * Execute `graph-it-live.showCallGraph` for the active editor and wait until the
+ * webview posts `callGraphReady` (`graph-it-live.callGraphRenderCount` increments).
+ */
+export async function showCallGraphAndWait(timeoutMs: number, intervalMs: number): Promise<void> {
   const prevCount = (await getContextKey<number>('graph-it-live.callGraphRenderCount')) ?? 0;
   await vscode.commands.executeCommand('graph-it-live.showCallGraph');
 
-  // Poll until callGraphRenderCount increments (callGraphReady received by service)
-  const timeoutMs = 45000;
-  const intervalMs = 200;
   const start = Date.now();
   while (Date.now() - start < timeoutMs) {
     const current = await getContextKey<number>('graph-it-live.callGraphRenderCount');
-    if ((current ?? 0) > prevCount) return doc;
+    if ((current ?? 0) > prevCount) return;
     await sleep(intervalMs);
   }
-  throw new Error(
-    `openCallGraphFor: timed out waiting for callGraphReady for ${pathSegments.join('/')}`,
-  );
+  const file = vscode.window.activeTextEditor?.document.uri.fsPath;
+  throw new Error(`Timed out after ${timeoutMs} ms waiting for callGraphReady for ${file}`);
 }
 
 export const lmToolsSupported = (): boolean =>

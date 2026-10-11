@@ -195,6 +195,7 @@ describe('renderReport', () => {
     expect(markdown).toContain(`### self (${SELF_REF}, 900 files)`);
     expect(markdown).toContain('reverse index 3.0 MB, call graph 9.5 MB');
     expect(markdown).toContain('| scan.cold | 3 | 2000 | 2100 | 600 |');
+    expect(markdown).toContain("its RSS is the extension host's");
   });
 
   it('renders the heap of the server and worker threads across the cycles', () => {
@@ -218,13 +219,13 @@ describe('renderReport', () => {
 describe('parseOptions', () => {
   it('defaults to five runs on both corpora with 10,000 generated files', () => {
     expect(parseOptions([])).toEqual({
-      runs: 5, files: 10_000, cycles: 20, corpora: ['self', 'generated'], out: path.join(REPO_ROOT, '.reports', 'bench-e2e', 'latest'),
+      runs: 5, files: 10_000, cycles: 20, corpora: ['self', 'generated'], vscode: true, out: path.join(REPO_ROOT, '.reports', 'bench-e2e', 'latest'),
     });
   });
 
   it('reads every option', () => {
-    expect(parseOptions(['--runs', '2', '--corpus', 'generated', '--files', '50', '--cycles', '3', '--out', 'out'])).toEqual({
-      runs: 2, files: 50, cycles: 3, corpora: ['generated'], out: path.resolve('out'),
+    expect(parseOptions(['--runs', '2', '--corpus', 'generated', '--files', '50', '--cycles', '3', '--no-vscode', '--out', 'out'])).toEqual({
+      runs: 2, files: 50, cycles: 3, corpora: ['generated'], vscode: false, out: path.resolve('out'),
     });
   });
 
@@ -246,14 +247,14 @@ describe('parseOptions', () => {
 const cliBuilt = existsSync(path.join(REPO_ROOT, 'dist', 'graph-it.js')) && existsSync(path.join(REPO_ROOT, 'dist', 'mcpServer.mjs'));
 
 describe.runIf(cliBuilt && wasmBuilt)('main', () => {
-  it('measures every surface on a generated corpus and writes the reports', async () => {
+  it('measures the CLI and MCP surfaces on a generated corpus and writes the reports', async () => {
     const out = tempDir();
     const summary = path.join(out, 'summary.md');
     mkdirSync(out, { recursive: true });
     const nodeOptions = process.env.NODE_OPTIONS;
     const stdout = vi.spyOn(process.stdout, 'write').mockReturnValue(true);
 
-    const report = await main(['--runs', '1', '--corpus', 'generated', '--files', '20', '--cycles', '2', '--out', out], { GITHUB_STEP_SUMMARY: summary });
+    const report = await main(['--runs', '1', '--corpus', 'generated', '--files', '20', '--cycles', '2', '--no-vscode', '--out', out], { GITHUB_STEP_SUMMARY: summary });
 
     stdout.mockRestore();
     const [corpus] = report.corpora;

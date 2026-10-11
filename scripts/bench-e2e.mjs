@@ -6,16 +6,19 @@ import { performance } from 'node:perf_hooks';
 import { setTimeout as sleep } from 'node:timers/promises';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { parseArgs, promisify } from 'node:util';
+import { runTests } from '@vscode/test-electron';
 import { closeSession, startMcpSession } from '../tests/cli/mcpSession.ts';
 
 // End-to-end benchmarks of the built CLI and MCP server on frozen corpora (#294).
 // Unlike the vitest benches, each sample is a real process: wall time includes
 // Node startup, and the peak RSS of every process is recorded at exit.
-// Usage: node scripts/bench-e2e.mjs [--runs 5] [--corpus self,generated] [--files 10000] [--cycles 20] [--out <dir>]
+// The VS Code surface runs tests/vscode-e2e/bench in a fresh VS Code instance per sample.
+// Usage: node scripts/bench-e2e.mjs [--runs 5] [--corpus self,generated] [--files 10000] [--cycles 20] [--no-vscode] [--out <dir>]
 
 const execFileAsync = promisify(execFile);
 const REPO_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const ENTRY = path.join(REPO_ROOT, 'dist', 'graph-it.js');
+const VSCODE_BENCH = path.join(REPO_ROOT, 'tests', 'vscode-e2e', 'bench', 'index.js');
 export const SELF_REF = 'v1.18.0';
 const MCP_QUERIES_PER_RUN = 5;
 const CONCURRENT_CALLS = 5;
@@ -283,6 +286,41 @@ async function measureMemory(workspace, target, cycles, scratch) {
   }
 }
 
+/**
+ * One fresh VS Code instance per run, empty profile and index cache, the extension
+ * loaded from source: activation, first call graph, background index, and the
+ * extension host RSS.
+ */
+async function measureVscode(workspace, target, runs) {
+  const samples = [];
+  for (let run = 0; run < runs; run++) {
+    rmSync(cacheDir(workspace), { recursive: true, force: true });
+    // Short path: VS Code puts its IPC socket in the profile, and macOS caps socket paths at 104 bytes.
+    const profile = mkdtempSync(path.join(tmpdir(), 'g-'));
+    const out = path.join(profile, 'sample.json');
+    try {
+      await runTests({ // NOSONAR S9382: one VS Code instance at a time, parallel instances would skew timings
+        version: process.env.VSCODE_TEST_VERSION ?? 'stable',
+        cachePath: path.join(REPO_ROOT, '.vscode-test'),
+        extensionDevelopmentPath: REPO_ROOT,
+        extensionTestsPath: VSCODE_BENCH,
+        // Electron rejects --expose-gc in NODE_OPTIONS; an undefined value unsets it.
+        extensionTestsEnv: { NODE_OPTIONS: undefined, BENCH_VSCODE_FILE: target.file, BENCH_VSCODE_OUT: out },
+        launchArgs: [workspace, '--disable-extensions', `--user-data-dir=${path.join(profile, 'user-data')}`],
+      });
+      samples.push(JSON.parse(readFileSync(out, 'utf8')));
+    } finally {
+      rmSync(profile, { recursive: true, force: true, maxRetries: 5 });
+    }
+  }
+  const metric = (name) => summarize(samples.map((sample) => sample[name]));
+  return {
+    'vscode.activation': metric('activation'),
+    'vscode.firstCallGraph': metric('firstCallGraph'),
+    'vscode.indexReady': metric('indexReady'),
+  };
+}
+
 function countFiles(dir) {
   return readdirSync(dir, { recursive: true, withFileTypes: true })
     .filter((entry) => entry.isFile()).length;
@@ -297,7 +335,8 @@ async function benchCorpus(name, options, scratch) {
   const cli = await measureCli(workspace, target, options.runs, scratch);
   const mcp = await measureMcp(workspace, target, options.runs, scratch);
   const memory = await measureMemory(workspace, target, options.cycles, scratch);
-  return { name, ref: name === 'self' ? SELF_REF : undefined, files, cache: cli.cache, metrics: { ...cli.metrics, ...mcp }, memory };
+  const vscode = options.vscode ? await measureVscode(workspace, target, options.runs) : {};
+  return { name, ref: name === 'self' ? SELF_REF : undefined, files, cache: cli.cache, metrics: { ...cli.metrics, ...mcp, ...vscode }, memory };
 }
 
 const cellMB = (value) => (value === undefined ? '—' : String(value));
@@ -325,7 +364,8 @@ export function renderReport(report) {
     `## End-to-end benchmarks (${report.platform}-${report.arch}, Node ${report.node}, ${report.cpus} CPUs)`,
     '',
     `Each CLI sample is one process (Node startup included), ${report.runs} run(s) per metric. ` +
-      'Peak RSS is the largest process of the sample; for MCP, the whole session.',
+      'Peak RSS is the largest process of the sample; for MCP, the whole session. ' +
+      'Each VS Code sample is one fresh instance from an empty index cache; its RSS is the extension host\'s.',
   ];
   for (const corpus of report.corpora) {
     const label = [corpus.ref, `${corpus.files} files`].filter(Boolean).join(', ');
@@ -353,17 +393,18 @@ export function parseOptions(args) {
       corpus: { type: 'string', default: 'self,generated' },
       files: { type: 'string', default: '10000' },
       cycles: { type: 'string', default: '20' },
+      'no-vscode': { type: 'boolean', default: false },
       out: { type: 'string', default: path.join(REPO_ROOT, '.reports', 'bench-e2e', 'latest') },
     },
   });
   const options = {
     runs: Number(values.runs), files: Number(values.files), cycles: Number(values.cycles),
-    corpora: values.corpus.split(','), out: path.resolve(values.out),
+    corpora: values.corpus.split(','), vscode: !values['no-vscode'], out: path.resolve(values.out),
   };
   const atLeast = (value, min) => Number.isInteger(value) && value >= min;
   const known = options.corpora.every((name) => name in TARGETS);
   if (!atLeast(options.runs, 1) || !atLeast(options.files, 2) || !atLeast(options.cycles, 1) || !known) {
-    throw new Error('Usage: node scripts/bench-e2e.mjs [--runs <n ≥ 1>] [--corpus self,generated] [--files <n ≥ 2>] [--cycles <n ≥ 1>] [--out <dir>]');
+    throw new Error('Usage: node scripts/bench-e2e.mjs [--runs <n ≥ 1>] [--corpus self,generated] [--files <n ≥ 2>] [--cycles <n ≥ 1>] [--no-vscode] [--out <dir>]');
   }
   return options;
 }

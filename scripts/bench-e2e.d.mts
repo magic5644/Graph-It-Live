@@ -51,5 +51,5 @@ export function queueWaits(latencies: number[]): number[];
 export function readHeapProbe(dir: string, cycle: number): HeapProbe;
 export function summarizeMemory(probes: HeapProbe[], peakRssMB: number | undefined): MemoryReport;
 export function renderReport(report: BenchReport): string;
-export function parseOptions(args: string[]): { runs: number; files: number; cycles: number; corpora: string[]; out: string };
+export function parseOptions(args: string[]): { runs: number; files: number; cycles: number; corpora: string[]; vscode: boolean; out: string };
 export function main(args: string[], env?: Record<string, string | undefined>): Promise<BenchReport>;
