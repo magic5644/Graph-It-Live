@@ -117,13 +117,15 @@ describe('detectLouvainCommunities', () => {
     });
   });
 
-  it('ignores edges to unknown nodes and non-positive weights', () => {
+  it('ignores edges to unknown nodes and non-positive or non-finite weights', () => {
     const result = detectLouvainCommunities({
       nodes: ['a', 'b'],
       edges: [
         { source: 'a', target: 'missing' },
         { source: 'a', target: 'b', weight: 0 },
         { source: 'b', target: 'a', weight: -1 },
+        { source: 'a', target: 'b', weight: Number.NaN },
+        { source: 'a', target: 'b', weight: Number.POSITIVE_INFINITY },
       ],
     });
 

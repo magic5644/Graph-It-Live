@@ -28,7 +28,7 @@ export function detectLouvainCommunities(graph: CommunityGraph): CommunityResult
     const source = indexById.get(normalizePath(edge.source));
     const target = indexById.get(normalizePath(edge.target));
     const weight = edge.weight ?? 1;
-    if (source === undefined || target === undefined || !(weight > 0)) continue;
+    if (source === undefined || target === undefined || !Number.isFinite(weight) || weight <= 0) continue;
     if (source === target) {
       selfLoops[source] += weight;
       continue;

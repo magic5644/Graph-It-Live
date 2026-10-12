@@ -103,7 +103,7 @@ export class GraphContextCommunities {
     const nodes = this.nodes.filter(node => this.assignments.get(node.id) === communityId);
     if (nodes.length === 0) return undefined;
     const nodeIds = new Set(nodes.map(node => node.id));
-    const hub = nodes.reduce((best, node) => (this.totalDegree(node) > this.totalDegree(best) ? node : best));
+    const hub = nodes.reduce((best, node) => (this.totalDegree(node) > this.totalDegree(best) ? node : best), nodes[0]);
     return {
       id: communityId,
       label: labelCommunity(
