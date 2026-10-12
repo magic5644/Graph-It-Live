@@ -42,7 +42,20 @@ export interface BenchReport {
   corpora: CorpusReport[];
 }
 
+export interface OssCorpus {
+  url: string;
+  tag: string;
+  commit: string;
+  /** SPDX expression, then the license file of the project */
+  license: string;
+  edit: string;
+  file: string;
+  symbol: string;
+}
+
 export const SELF_REF: string;
+export const OSS_CORPORA: Record<string, OssCorpus>;
+export function fetchCorpus(name: string, corpus: OssCorpus, corporaDir: string, root: string): void;
 export function percentile(values: number[], p: number): number;
 export function summarize(samples: Array<{ wallMs: number; rssMB?: number }>): MetricSummary;
 export function generateCorpus(root: string, files: number): void;
@@ -51,5 +64,5 @@ export function queueWaits(latencies: number[]): number[];
 export function readHeapProbe(dir: string, cycle: number): HeapProbe;
 export function summarizeMemory(probes: HeapProbe[], peakRssMB: number | undefined): MemoryReport;
 export function renderReport(report: BenchReport): string;
-export function parseOptions(args: string[]): { runs: number; files: number; cycles: number; corpora: string[]; vscode: boolean; out: string };
+export function parseOptions(args: string[]): { runs: number; files: number; cycles: number; corpora: string[]; vscode: boolean; corporaDir: string; out: string };
 export function main(args: string[], env?: Record<string, string | undefined>): Promise<BenchReport>;

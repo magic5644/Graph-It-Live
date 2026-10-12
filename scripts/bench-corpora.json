@@ -1,0 +1,56 @@
+{
+  "typescript": {
+    "url": "https://github.com/honojs/hono",
+    "tag": "v4.6.9",
+    "commit": "7c050b2840bd94baa2a71d8ed0786c7d07bcc1b9",
+    "license": "MIT, LICENSE",
+    "edit": "src/jsx/hooks/index.ts",
+    "file": "src/jsx/hooks/index.ts",
+    "symbol": "useState"
+  },
+  "python": {
+    "url": "https://github.com/pallets/flask",
+    "tag": "3.1.0",
+    "commit": "ab8149664182b662453a563161aa89013c806dc9",
+    "license": "BSD-3-Clause, LICENSE.txt",
+    "edit": "src/flask/templating.py",
+    "file": "src/flask/templating.py",
+    "symbol": "render_template"
+  },
+  "rust": {
+    "url": "https://github.com/BurntSushi/ripgrep",
+    "tag": "14.1.1",
+    "commit": "4649aa9700619f94cf9c66876e9549d83420e16c",
+    "license": "MIT OR Unlicense, COPYING",
+    "edit": "crates/core/flags/parse.rs",
+    "file": "crates/core/flags/parse.rs",
+    "symbol": "parse_low_raw"
+  },
+  "go": {
+    "url": "https://github.com/gin-gonic/gin",
+    "tag": "v1.10.0",
+    "commit": "75ccf94d605a05fe24817fc2f166f6f2959d5cea",
+    "license": "MIT, LICENSE",
+    "edit": "gin.go",
+    "file": "gin.go",
+    "symbol": "New"
+  },
+  "java": {
+    "url": "https://github.com/google/gson",
+    "tag": "gson-parent-2.11.0",
+    "commit": "828a97be0f8d58108b140b77df8dc76b657f4a87",
+    "license": "Apache-2.0, LICENSE",
+    "edit": "gson/src/main/java/com/google/gson/Gson.java",
+    "file": "gson/src/main/java/com/google/gson/Gson.java",
+    "symbol": "fromJson"
+  },
+  "csharp": {
+    "url": "https://github.com/serilog/serilog",
+    "tag": "v4.2.0",
+    "commit": "0e316b7cb072ee660b97976098b1bbdb20ac6da0",
+    "license": "Apache-2.0, LICENSE",
+    "edit": "src/Serilog/Core/Logger.cs",
+    "file": "src/Serilog/Core/Logger.cs",
+    "symbol": "Write"
+  }
+}
