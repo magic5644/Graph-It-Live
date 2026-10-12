@@ -9,6 +9,7 @@
  *   symbols/functions.ts  — call hierarchy: helperA, helperB, mainProcess, …
  *   symbols/recursion.ts  — mutual recursion: isEven ↔ isOdd, fibonacci
  *   python-project/main.py — Python smoke (skipped if fixture absent)
+ *   symbols/wide-hub.ts   — generated at runtime: one hub with 600 callers
  */
 
 import { after, before, teardown } from 'mocha';
@@ -181,6 +182,26 @@ suite('Call Graph Test Suite', () => {
       `callGraphRenderCount should increase after file save ` +
       `(before=${renderCountBefore}, after=${renderCountAfter})`,
     );
+  });
+
+  // ============================================================================
+  // B8b — Large fan-in: neighbourhood is capped so layout stays responsive (#326)
+  // ============================================================================
+
+  test('Should cap the rendered nodes for a hub with hundreds of callers', async function () {
+    this.timeout(90000);
+    const file = getProjectFile('symbols', 'wide-hub.ts');
+    const callers = Array.from({ length: 600 }, (_, i) => `export function caller${i}() { return hub(); }`);
+    const source = ['export function hub() { return 0; }', ...callers, ''].join('\n');
+    await vscode.workspace.fs.writeFile(file, Buffer.from(source, 'utf8'));
+    try {
+      await openCallGraphFor('symbols', 'wide-hub.ts');
+      const nodeCount = await getContextKey<number>('graph-it-live.callGraphNodeCount');
+      assert.strictEqual(nodeCount, 500, `Expected the 500-node cap, got ${nodeCount ?? 'undefined'}`);
+    } finally {
+      await vscode.commands.executeCommand('workbench.action.closeActiveEditor');
+      await vscode.workspace.fs.delete(file);
+    }
   });
 
   // ============================================================================

@@ -252,6 +252,7 @@ export function CytoscapeGraph({ onReady, postMessage }: Readonly<CytoscapeGraph
   const [isLoading, setIsLoading] = useState(false);
   const [loadingMessage, setLoadingMessage] = useState("Analyzing…");
   const [isEmpty, setIsEmpty] = useState(false);
+  const [hiddenNodeCount, setHiddenNodeCount] = useState(0);
 
   // T027 — filter legend state
   const [hiddenFilters, setHiddenFilters] = useState<Set<string>>(new Set());
@@ -455,6 +456,8 @@ export function CytoscapeGraph({ onReady, postMessage }: Readonly<CytoscapeGraph
   function handleShowCallGraph(msg: ShowCallGraphMessage): void {
     const cy = cyRef.current;
     if (!cy) return;
+
+    setHiddenNodeCount(msg.hiddenNodeCount ?? 0);
 
     if (msg.nodes.length === 0) {
       setIsLoading(false);
@@ -722,6 +725,28 @@ export function CytoscapeGraph({ onReady, postMessage }: Readonly<CytoscapeGraph
           hiddenFilters={hiddenFilters}
           onToggle={handleFilterToggle}
         />
+      )}
+
+      {/* Truncation notice — the extension caps large neighbourhoods (#326) */}
+      {!isLoading && !isEmpty && hiddenNodeCount > 0 && (
+        <div
+          style={{
+            position: "absolute",
+            bottom: "12px",
+            left: "12px",
+            background: "var(--vscode-sideBar-background, rgba(30,30,30,0.85))",
+            border: "1px solid var(--vscode-panel-border, rgba(128,128,128,0.3))",
+            borderRadius: "6px",
+            padding: "4px 8px",
+            fontSize: "11px",
+            color: "var(--vscode-descriptionForeground, #888)",
+            zIndex: 20,
+          }}
+          role="status"
+          data-testid="truncation-notice"
+        >
+          {hiddenNodeCount.toLocaleString()} more symbols not shown — open a narrower symbol to explore them
+        </div>
       )}
 
       {/* Loading overlay */}

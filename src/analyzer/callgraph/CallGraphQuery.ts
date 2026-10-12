@@ -22,6 +22,13 @@ import type {
 } from "@/shared/callgraph-types";
 import type { Database } from "sql.js";
 
+/**
+ * Symbols above this count are not sent to the webview: fcose layout time grows
+ * roughly quadratically (≈0.75 s at 500 symbols, ≈5.6 s at 2,000) and a
+ * 10,000-caller hub froze the renderer for ~90 s (#326).
+ */
+export const MAX_NEIGHBOURHOOD_NODES = 500;
+
 // ---------------------------------------------------------------------------
 // Public result type
 // ---------------------------------------------------------------------------
@@ -34,6 +41,8 @@ export interface NeighbourhoodResult {
   compounds: SerializedCompoundNode[];
   /** Traversal depth used */
   depth: number;
+  /** Reachable symbols left out because the neighbourhood hit `maxNodes` */
+  hiddenNodeCount: number;
   /** Unix timestamp (ms) */
   timestamp: number;
 }
@@ -73,15 +82,17 @@ interface RawEdge {
  * @param db       The sql.js Database (already initialized with schema + data).
  * @param rootId   The symbol ID to start traversal from.
  * @param depth    Maximum BFS hop count (default: 2).
+ * @param maxNodes Maximum symbols kept, root and nearest hops first.
  * @returns        Serialized neighbourhood ready for the webview.
  */
 export function queryNeighbourhood(
   db: Database,
   rootId: string,
   depth = 2,
+  maxNodes = MAX_NEIGHBOURHOOD_NODES,
 ): NeighbourhoodResult {
   // 1. Gather all reachable node IDs via bidirectional BFS
-  const visitedIds = bfsBidirectional(db, rootId, depth);
+  const { visited: visitedIds, hidden } = bfsBidirectional(db, rootId, depth, maxNodes);
 
   // If root not found, return empty result
   if (visitedIds.size === 0) {
@@ -91,6 +102,7 @@ export function queryNeighbourhood(
       edges: [],
       compounds: [],
       depth,
+      hiddenNodeCount: 0,
       timestamp: Date.now(),
     };
   }
@@ -134,6 +146,7 @@ export function queryNeighbourhood(
     edges,
     compounds,
     depth,
+    hiddenNodeCount: hidden.size,
     timestamp: Date.now(),
   };
 }
@@ -144,15 +157,17 @@ export function queryNeighbourhood(
 
 /**
  * Bidirectional BFS: walk outgoing edges (source→target) AND incoming edges
- * (target→source) up to `depth` hops. Returns set of all visited node IDs
- * including the root.
+ * (target→source) up to `depth` hops. Returns the visited node IDs (root
+ * included, at most `maxNodes`) and the reachable IDs dropped by that cap.
  */
 function bfsBidirectional(
   db: Database,
   rootId: string,
   depth: number,
-): Set<string> {
+  maxNodes: number,
+): { visited: Set<string>; hidden: Set<string> } {
   const visited = new Set<string>();
+  const hidden = new Set<string>();
 
   // Verify root exists first
   const rootCheck = db.exec(
@@ -160,7 +175,7 @@ function bfsBidirectional(
     [rootId],
   );
   if (!rootCheck[0]?.values?.length) {
-    return visited;
+    return { visited, hidden };
   }
 
   visited.add(rootId);
@@ -168,10 +183,10 @@ function bfsBidirectional(
 
   for (let hop = 0; hop < depth; hop++) {
     if (frontier.size === 0) break;
-    frontier = collectFrontierNeighbours(db, frontier, visited);
+    frontier = collectFrontierNeighbours(db, frontier, { visited, hidden, maxNodes });
   }
 
-  return visited;
+  return { visited, hidden };
 }
 
 /**
@@ -182,7 +197,7 @@ function bfsBidirectional(
 function collectFrontierNeighbours(
   db: Database,
   frontier: Set<string>,
-  visited: Set<string>,
+  bfs: BfsState,
 ): Set<string> {
   const nextFrontier = new Set<string>();
   const frontierArr = [...frontier];
@@ -194,7 +209,7 @@ function collectFrontierNeighbours(
     frontierArr,
   );
   for (const row of outgoing[0]?.values ?? []) {
-    addIfReachable(row[0] as string, visited, nextFrontier);
+    addIfReachable(row[0] as string, bfs, nextFrontier);
   }
 
   // Incoming: frontier nodes as targets → get their sources
@@ -203,21 +218,30 @@ function collectFrontierNeighbours(
     frontierArr,
   );
   for (const row of incoming[0]?.values ?? []) {
-    addIfReachable(row[0] as string, visited, nextFrontier);
+    addIfReachable(row[0] as string, bfs, nextFrontier);
   }
 
   return nextFrontier;
 }
 
+interface BfsState {
+  visited: Set<string>;
+  hidden: Set<string>;
+  maxNodes: number;
+}
+
 function addIfReachable(
   id: string,
-  visited: Set<string>,
+  { visited, hidden, maxNodes }: BfsState,
   frontier: Set<string>,
 ): void {
-  if (id && !id.startsWith("@@external:") && !visited.has(id)) {
-    visited.add(id);
-    frontier.add(id);
+  if (!id || id.startsWith("@@external:") || visited.has(id)) return;
+  if (visited.size >= maxNodes) {
+    hidden.add(id);
+    return;
   }
+  visited.add(id);
+  frontier.add(id);
 }
 
 // ---------------------------------------------------------------------------
