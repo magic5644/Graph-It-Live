@@ -1,7 +1,7 @@
 import { Spider } from '../../analyzer/Spider';
 import { normalizePath } from '../../analyzer/types';
 import { computeNodeMetadata } from '../../analyzer/NodeMetadataBuilder';
-import type { GraphData, GraphNodeMetadata } from '../../shared/types';
+import type { CommunityMode, GraphData, GraphEdge, GraphNodeMetadata } from '../../shared/types';
 
 type Logger = {
   debug: (message: string, ...args: unknown[]) => void;
@@ -40,7 +40,8 @@ export interface ExpansionCallbacks {
 export class NodeInteractionService {
   constructor(
     private readonly spider: Spider,
-    private readonly logger: Logger
+    private readonly logger: Logger,
+    private readonly getCommunityMode: () => CommunityMode = () => 'path'
   ) {}
 
   async expandNode(
@@ -160,13 +161,31 @@ export class NodeInteractionService {
     if (nodes.length === 0) return undefined;
 
     const parentCounts = await this.populateParentCounts(nodes);
+    const communityMode = this.getCommunityMode();
     const tempData: GraphData = {
       nodes,
-      edges: [],
+      edges: communityMode === 'louvain' ? await this.collectEdgesBetween(nodes) : [],
       parentCounts: Object.keys(parentCounts).length > 0 ? parentCounts : undefined,
     };
-    computeNodeMetadata(tempData, this.spider.workspaceRoot);
+    computeNodeMetadata(tempData, this.spider.workspaceRoot, communityMode);
     return tempData.nodeMetadata;
+  }
+
+  // Louvain needs the import edges between the known nodes, but the webview only sends their paths.
+  private async collectEdgesBetween(nodes: string[]): Promise<GraphEdge[]> {
+    const known = new Set(nodes.map(normalizePath));
+    const edgeLists = await Promise.all(nodes.map(async (source) => {
+      try {
+        const dependencies = await this.spider.analyze(source);
+        return dependencies
+          .filter((dependency) => known.has(normalizePath(dependency.path)))
+          .map((dependency) => ({ source, target: dependency.path }));
+      } catch (err) {
+        this.logger.debug('Failed to read dependencies for', source, err instanceof Error ? err.message : String(err));
+        return [];
+      }
+    }));
+    return edgeLists.flat();
   }
 
   private async populateParentCounts(nodes: string[]): Promise<Record<string, number>> {

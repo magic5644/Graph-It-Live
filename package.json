@@ -1402,6 +1402,19 @@
             "default": true,
             "markdownDescription": "Show community clustering on the dependency graph (background tint on nodes + community legend). Disable to hide community visualization."
           },
+          "graph-it-live.communityMode": {
+            "type": "string",
+            "enum": [
+              "path",
+              "louvain"
+            ],
+            "enumDescriptions": [
+              "Group files by their first functional folder (src/analyzer, src/webview, ...)",
+              "Group files by import structure (deterministic Louvain), named after their dominant folder"
+            ],
+            "default": "path",
+            "markdownDescription": "How the dependency graph groups files into communities (node tint and legend). **path** groups by folder; **louvain** groups files that import each other, which shows coupling that folders hide."
+          },
           "graph-it-live.performanceProfile": {
             "type": "string",
             "enum": [

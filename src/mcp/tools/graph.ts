@@ -74,7 +74,7 @@ export async function executeCrawlDependencyGraph(
   params: CrawlDependencyGraphParams,
   signal?: AbortSignal,
 ): Promise<CrawlDependencyGraphResult> {
-  const { entryFile, maxDepth, limit, offset, onlyUsed, tokenBudget } = params;
+  const { entryFile, maxDepth, limit, offset, onlyUsed, tokenBudget, communityMode } = params;
   const spider = workerState.getSpider();
   const config = workerState.getConfig();
 
@@ -91,7 +91,7 @@ export async function executeCrawlDependencyGraph(
     const parentCounts: Record<string, number> = {};
     for (const [fp, cnt] of dependentCount) parentCounts[normalizePath(fp)] = cnt;
     const graphData: GraphData = { nodes: graph.nodes.map(normalizePath), edges: graph.edges, parentCounts };
-    computeNodeMetadata(graphData, config.rootDir);
+    computeNodeMetadata(graphData, config.rootDir, communityMode);
 
     // Build node and edge info — use graphData.nodes (already normalized) so
     // metadata lookup keys match nodeMetadata index (Règle 03).

@@ -3,6 +3,7 @@ import * as path from 'node:path';
 import { normalizePath } from '../../shared/path';
 import { exportHtml } from '../../analyzer/export/HtmlExporter';
 import { computeNodeMetadata } from '../../analyzer/NodeMetadataBuilder';
+import { readCommunityMode } from '../options';
 import type { CliRuntime } from '../runtime';
 import type { GraphData } from '../../shared/graph-types';
 
@@ -101,9 +102,11 @@ export async function runExportHtml(
   args: string[],
   scopePath?: string,
 ): Promise<void> {
+  const communityMode = readCommunityMode(args);
+  // communities is declared so its value is not read as the scope positional.
   const { values: cmdValues, positionals } = parseArgs({
     args,
-    options: { output: { type: 'string', short: 'o' } },
+    options: { output: { type: 'string', short: 'o' }, communities: { type: 'string' } },
     strict: false,
     allowPositionals: true,
   });
@@ -121,7 +124,7 @@ export async function runExportHtml(
   const raw = JSON.parse(jsonOutput) as RawRecord;
   const { rawNodes, rawEdges } = parseArchitectureOutput(raw);
   const graphData = buildGraphData(rawNodes, rawEdges);
-  computeNodeMetadata(graphData, runtime.workspaceRoot); // populates hubScore + communityId
+  computeNodeMetadata(graphData, runtime.workspaceRoot, communityMode); // populates hubScore + communityId
 
   // Scope filter: positional arg or state.lastFile narrows the graph
   filterGraphByScope(graphData, resolvedScope);

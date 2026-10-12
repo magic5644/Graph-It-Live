@@ -105,6 +105,7 @@ export function buildNodeInfo(
     };
     if (meta?.hubScore !== undefined) node.hubScore = meta.hubScore;
     if (meta?.communityId !== undefined) node.communityId = meta.communityId;
+    if (meta?.communityKey) node.communityKey = meta.communityKey;
     return node;
   });
 }

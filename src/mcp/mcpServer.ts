@@ -805,13 +805,13 @@ server.registerTool(
       openWorldHint: false,
     },
   },
-  async ({ entryFile, maxDepth, limit, offset, onlyUsed, tokenBudget, response_format }) => {
+  async ({ entryFile, maxDepth, limit, offset, onlyUsed, tokenBudget, communityMode, response_format }) => {
     const workerCheck = await ensureWorkerReady();
     const responseFormat = response_format;
     if (workerCheck.error)
       return formatToolResponse(workerCheck.response, responseFormat, "graphitlive_crawl_dependency_graph");
 
-    const params = { entryFile, maxDepth, limit, offset, onlyUsed, tokenBudget };
+    const params = { entryFile, maxDepth, limit, offset, onlyUsed, tokenBudget, communityMode };
     const result = await workerHost?.invoke<CrawlDependencyGraphResult>(
       "crawl_dependency_graph",
       params,

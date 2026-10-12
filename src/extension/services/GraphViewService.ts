@@ -9,7 +9,7 @@ type Logger = {
   debug: (message: string, ...args: unknown[]) => void;
 };
 
-import type { GraphData } from '../../shared/types';
+import type { CommunityMode, GraphData } from '../../shared/types';
 
 export interface GraphViewServiceConfig {
   unusedAnalysisConcurrency: number;
@@ -21,7 +21,8 @@ export class GraphViewService {
     private readonly spider: Spider,
     private readonly logger: Logger,
     private readonly config: GraphViewServiceConfig,
-    private readonly unusedCache?: UnusedAnalysisCache
+    private readonly unusedCache?: UnusedAnalysisCache,
+    private readonly getCommunityMode: () => CommunityMode = () => 'path'
   ) {}
 
   async buildGraphData(
@@ -86,7 +87,7 @@ export class GraphViewService {
 
     // Compute per-node metadata (hubScore, fileExtension) from parentCounts.
     // computeNodeMetadata is pure — no FS reads, no vscode imports.
-    computeNodeMetadata(enrichedData, this.spider.workspaceRoot);
+    computeNodeMetadata(enrichedData, this.spider.workspaceRoot, this.getCommunityMode());
 
     return enrichedData;
   }

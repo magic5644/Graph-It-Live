@@ -100,6 +100,7 @@ Arguments:
   <file>            Entry file to start crawling from
 
 Options:
+  --communities M   Community grouping: path (by folder, default) | louvain (by imports)
   --workspace, -w   Workspace root directory (default: auto-detected)
   --format, -f      Output format: text|json|toon|markdown|mermaid (default: text)
   --help, -h        Show this help
@@ -107,6 +108,7 @@ Options:
 Examples:
   graph-it path src/index.ts
   graph-it path src/index.ts --format mermaid
+  graph-it path src/index.ts --communities louvain --format json
 `,
   "path-in": `graph-it path-in — Find incoming dependencies for a target file
 
@@ -160,6 +162,7 @@ Usage: graph-it architecture [options]
 
 Options:
   --maxFiles N       Optional cap on analyzed source files
+  --communities M    Community grouping: path (by folder, default) | louvain (by imports)
   --workspace, -w    Workspace root directory (default: auto-detected)
   --format, -f       Output format: text|json|toon|markdown|mermaid (default: text)
   --help, -h         Show this help
@@ -168,6 +171,7 @@ Examples:
   graph-it architecture
   graph-it architecture --format mermaid
   graph-it architecture --maxFiles 2000
+  graph-it architecture --communities louvain --format json
 `,
   check: `graph-it check — Find unused exported symbols in a file
 
@@ -277,6 +281,7 @@ Arguments:
 
 Options:
   --output, -o <file>  Output HTML file path (default: graph.html)
+  --communities <mode>  Community grouping: path (by folder, default) | louvain (by imports)
   --format, -f          Must be "html" — this is the only supported format
   --workspace, -w       Workspace root directory (default: auto-detected)
   --help, -h            Show this help
@@ -284,6 +289,7 @@ Options:
 Examples:
   graph-it export --format html
   graph-it export src/analyzer --format html --output analyzer.html
+  graph-it export --format html --communities louvain
 `,
   serve: `graph-it serve — Launch MCP stdio server
 

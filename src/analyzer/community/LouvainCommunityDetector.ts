@@ -72,6 +72,50 @@ export function labelCommunity(memberPaths: readonly string[], hubLabel: string)
   return dominant === '.' ? hubLabel : dominant;
 }
 
+/**
+ * File-graph counterpart of detectPathCommunityAssignments: Louvain over the import edges,
+ * each community keyed by labelCommunity of its workspace-relative members (hub = most
+ * connected member). Isolated files get communityId 0 and an empty key.
+ */
+export function detectLouvainCommunityAssignments(
+  graph: CommunityGraph,
+  workspaceRoot?: string,
+): Map<string, { communityId: number; communityKey: string }> {
+  const { assignments } = detectLouvainCommunities(graph);
+  const root = workspaceRoot === undefined ? undefined : normalizePath(workspaceRoot);
+  const relative = (filePath: string): string =>
+    root ? path.relative(root, filePath).replaceAll('\\', '/') : filePath;
+
+  const degrees = new Map<string, number>();
+  for (const edge of graph.edges) {
+    for (const end of [normalizePath(edge.source), normalizePath(edge.target)]) {
+      degrees.set(end, (degrees.get(end) ?? 0) + 1);
+    }
+  }
+  const members = new Map<number, string[]>();
+  for (const [filePath, communityId] of assignments) {
+    if (communityId === 0) continue;
+    const list = members.get(communityId);
+    if (list) list.push(filePath);
+    else members.set(communityId, [filePath]);
+  }
+
+  const keys = new Map<number, string>();
+  const usedKeys = new Set<string>();
+  for (const [communityId, list] of [...members].sort(([left], [right]) => left - right)) {
+    const hub = list.reduce((best, filePath) =>
+      (degrees.get(filePath) ?? 0) > (degrees.get(best) ?? 0) ? filePath : best);
+    const label = labelCommunity(list.map(relative), relative(hub));
+    // Two communities can share a dominant folder; the legend groups by key, so keep keys unique.
+    const key = usedKeys.has(label) ? `${label} #${communityId}` : label;
+    usedKeys.add(key);
+    keys.set(communityId, key);
+  }
+
+  return new Map([...assignments].map(([filePath, communityId]) =>
+    [filePath, { communityId, communityKey: keys.get(communityId) ?? '' }]));
+}
+
 // Code-unit order, not localeCompare: assignments must not depend on the host locale.
 function compareIds(left: string, right: string): number {
   if (left < right) return -1;

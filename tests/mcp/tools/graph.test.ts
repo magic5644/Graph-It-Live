@@ -132,6 +132,28 @@ describe("graph tools", () => {
       expect(communityIds[0]).not.toBe(communityIds[1]);
     });
 
+    it("should group imported files together with communityMode louvain", async () => {
+      const subDirA = path.join(tempDir, "moduleA");
+      const subDirB = path.join(tempDir, "moduleB");
+      await fs.mkdir(subDirA);
+      await fs.mkdir(subDirB);
+      const fileA = await createTempFile(subDirA, "index.ts", "");
+      const fileB = await createTempFile(subDirB, "index.ts", "");
+      setupWorkerState({
+        config: { maxDepth: 5 },
+        updateConfig: vi.fn(),
+        crawl: vi.fn(async () => ({ nodes: [fileA, fileB], edges: [{ source: fileA, target: fileB }] })),
+        verifyDependencyUsage: vi.fn(async () => true),
+      });
+
+      const byFolder = await executeCrawlDependencyGraph({ entryFile: fileA });
+      const structural = await executeCrawlDependencyGraph({ entryFile: fileA, communityMode: "louvain" });
+
+      expect(byFolder.nodes[0].communityId).not.toBe(byFolder.nodes[1].communityId);
+      expect(structural.nodes.map((node) => node.communityId)).toEqual([1, 1]);
+      expect(structural.nodes[0].communityKey).toBe(structural.nodes[1].communityKey);
+    });
+
     it("should bound concurrent usage verification and preserve edge order", async () => {
       const entryFile = await createTempFile(tempDir, "entry.ts", "");
       const nodes = Array.from({ length: 21 }, (_, index) =>

@@ -7,6 +7,7 @@ const createSpider = () => ({
   findReferencingFiles: vi.fn(),
   hasReverseIndex: vi.fn(),
   getCallerCount: vi.fn(),
+  analyze: vi.fn().mockResolvedValue([]),
   verifyDependencyUsage: vi.fn().mockResolvedValue(true),
   workspaceRoot: '/workspace',
 }) as unknown as Spider;
@@ -96,5 +97,36 @@ describe('NodeInteractionService', () => {
         'src/analyzer/caller.ts',
       ]),
     );
+  });
+
+  it('reads import edges between known nodes for louvain communities', async () => {
+    const root = '/workspace/src/api/root.ts';
+    const known = '/workspace/src/db/known.ts';
+    const caller = '/workspace/src/web/caller.ts';
+    (spider.findReferencingFiles as ReturnType<typeof vi.fn>).mockResolvedValue([{ path: caller }]);
+    (spider.hasReverseIndex as ReturnType<typeof vi.fn>).mockReturnValue(false);
+    (spider.analyze as ReturnType<typeof vi.fn>).mockImplementation(async (filePath: string) => {
+      if (filePath === root) return [{ path: known }, { path: '/workspace/src/outside.ts' }];
+      if (filePath === caller) throw new Error('parse failed');
+      return [];
+    });
+
+    const service = new NodeInteractionService(spider, logger, () => 'louvain');
+    const result = await service.getReferencingFiles(root, [root, known]);
+
+    expect(result.data.nodeMetadata?.[root]).toMatchObject({ communityId: 1 });
+    expect(result.data.nodeMetadata?.[known]).toEqual(result.data.nodeMetadata?.[root]);
+    // analyze failed for caller.ts, so it has no edge and stays isolated.
+    expect(result.data.nodeMetadata?.[caller]).toMatchObject({ communityId: 0, communityKey: '' });
+    expect(logger.debug).toHaveBeenCalledWith('Failed to read dependencies for', caller, 'parse failed');
+  });
+
+  it('does not read edges in path mode', async () => {
+    (spider.findReferencingFiles as ReturnType<typeof vi.fn>).mockResolvedValue([]);
+    (spider.hasReverseIndex as ReturnType<typeof vi.fn>).mockReturnValue(false);
+
+    await new NodeInteractionService(spider, logger).getReferencingFiles('/workspace/src/a.ts', []);
+
+    expect(spider.analyze).not.toHaveBeenCalled();
   });
 });

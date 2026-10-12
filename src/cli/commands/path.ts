@@ -8,7 +8,7 @@
 
 import { executeCrawlDependencyGraph } from "../../mcp/tools";
 import { CliError, ExitCode } from "../errors";
-import { readIntegerOption } from "../options";
+import { readCommunityMode, readIntegerOption } from "../options";
 import type { CliOutputFormat } from "../formatter";
 import { formatOutput } from "../formatter";
 import type { CliRuntime } from "../runtime";
@@ -21,7 +21,7 @@ export async function run(
 ): Promise<string> {
   if (args.length < 1) {
     throw new CliError(
-      "Usage: graph-it path <entryFile> [--maxDepth N]",
+      "Usage: graph-it path <entryFile> [--maxDepth N] [--communities path|louvain]",
       ExitCode.GENERAL_ERROR,
     );
   }
@@ -29,12 +29,14 @@ export async function run(
   const ref = parseSymbolRef(args[0], runtime.workspaceRoot);
 
   const maxDepth = readIntegerOption(args, "--maxDepth", { min: 1, max: 100 });
+  const communityMode = readCommunityMode(args);
 
   await runtime.ensureIndexed();
 
   const result = await executeCrawlDependencyGraph({
     entryFile: ref.filePath,
     maxDepth,
+    communityMode,
   });
 
   return formatOutput(result, format, "path");

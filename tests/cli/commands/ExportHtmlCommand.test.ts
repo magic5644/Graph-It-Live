@@ -228,6 +228,22 @@ describe('runExportHtml', () => {
     expect(graphDataArg.nodes).toEqual([nodeId]);
   });
 
+  it('passes --communities to computeNodeMetadata without reading its value as the scope', async () => {
+    await runExportHtml(fakeRuntime, 'my-project', ['--communities', 'louvain']);
+
+    expect(mockComputeNodeMetadata).toHaveBeenCalledWith(expect.anything(), fakeRuntime.workspaceRoot, 'louvain');
+    expect(mockExportHtml.mock.calls[0][0].nodes).toHaveLength(2);
+  });
+
+  it('uses path communities by default and rejects an unknown mode', async () => {
+    await runExportHtml(fakeRuntime, 'my-project', []);
+    expect(mockComputeNodeMetadata).toHaveBeenCalledWith(expect.anything(), fakeRuntime.workspaceRoot, undefined);
+
+    await expect(runExportHtml(fakeRuntime, 'my-project', ['--communities', 'folders'])).rejects.toThrow(
+      '--communities must be path or louvain, got "folders"',
+    );
+  });
+
   it('passes communityId from nodeMetadata to exportHtml nodes', async () => {
     const nodeId = '/workspace/my-project/src/a.ts';
     mockArchitectureRun.mockResolvedValue(

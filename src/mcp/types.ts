@@ -10,6 +10,7 @@
 
 import * as nodePath from "node:path";
 import { z } from "zod/v4";
+import { COMMUNITY_MODES } from "../shared/graph-types";
 import type { Dependency, DependencyType } from "../analyzer/types";
 import type { ReviewGateResult } from "../analyzer/ReviewGateAnalyzer";
 import type { OutOfRootReport } from "../analyzer/utils/workspaceBoundary";
@@ -336,6 +337,13 @@ export const CrawlDependencyGraphParamsSchema = z.object({
     .optional()
     .describe(
       "If true, only returns edges where symbols are actually used (requires AST analysis, slower)",
+    ),
+  communityMode: z
+    .enum(COMMUNITY_MODES)
+    .optional()
+    .describe(
+      "How nodes are grouped into communityId/communityKey: 'path' (default) by folder, " +
+        "'louvain' by import structure (deterministic Louvain over the crawled graph)",
     ),
   tokenBudget: GraphToolTokenBudgetSchema,
 });
@@ -1084,8 +1092,10 @@ export interface NodeInfo {
   dependentCount: number;
   /** Hub score 0–1: proportion of workspace files that import this node */
   hubScore?: number;
-  /** Community id: 0 = isolated, 1+ = functional subdirectory cluster */
+  /** Community id: 0 = isolated, 1+ = cluster (folder or Louvain, see communityMode) */
   communityId?: number;
+  /** Community name: folder domain (path) or dominant folder/hub (louvain); absent when isolated */
+  communityKey?: string;
 }
 
 /**

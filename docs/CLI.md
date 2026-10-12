@@ -512,11 +512,12 @@ graph-it path <file> [options]
 | `--workspace, -w` | auto-detected | Project root |
 | `--format, -f` | `text` | Output format (`mermaid` generates a flowchart) |
 | `--maxDepth <N>` | `50` | Maximum traversal depth, 1–100 |
+| `--communities <mode>` | `path` | How `communityId`/`communityKey` group files: `path` by folder, `louvain` by import structure (see [Community modes](#community-modes)) |
 
 **What it does:**
 
 Starting from `<file>`, follows all import edges recursively and returns:
-- `nodes`: every reachable file, with `relativePath`, `dependencyCount`, `dependentCount`, `hubScore` and `communityId`
+- `nodes`: every reachable file, with `relativePath`, `dependencyCount`, `dependentCount`, `hubScore`, `communityId` and `communityKey` (omitted for files in no community)
 - `edges`: direct dependency edges (`source`, `target`, `sourceRelative`, `targetRelative`)
 - `circularDependencies`: each cycle as a list of file paths
 - `nodeCount`, `edgeCount` and the effective `maxDepth`
@@ -555,6 +556,7 @@ graph LR
 ```bash
 graph-it path src/index.ts
 graph-it path src/index.ts --maxDepth 3
+graph-it path src/index.ts --communities louvain --format json | jq '.nodes[] | {relativePath, communityKey}'
 graph-it path src/index.ts --format mermaid > architecture.md
 graph-it path src/index.ts --format json | jq '.nodeCount'
 ```
@@ -664,8 +666,11 @@ graph-it architecture [options]
 | Option | Default | Description |
 |--------|---------|-------------|
 | `--maxFiles <N>` | unlimited | Cap on the number of analyzed source files |
+| `--communities <mode>` | `path` | How `communityId`/`communityKey` group files: `path` by folder, `louvain` by import structure |
 | `--workspace, -w` | auto-detected | Project root |
 | `--format, -f` | `text` | Output format (`toon` recommended for large graphs; `mermaid` for diagrams) |
+
+Each node carries `communityId` (`0` = no community) and `communityKey` (`""` = no community).
 
 **Examples:**
 
@@ -674,7 +679,19 @@ graph-it architecture
 graph-it architecture --format mermaid
 graph-it architecture --format toon
 graph-it architecture --maxFiles 2000
+graph-it architecture --communities louvain --format json
 ```
+
+#### Community modes
+
+`path`, `architecture` and `export` accept `--communities path|louvain`; the MCP tool `crawl_dependency_graph` takes the same value as `communityMode`, and the VS Code graph reads the `graph-it-live.communityMode` setting. All three use the same detection, so the same graph gives the same communities.
+
+| Mode | Groups files by | `communityKey` |
+|------|-----------------|----------------|
+| `path` (default) | First functional folder after `src`, `lib`, `packages`… | Folder name, e.g. `analyzer` |
+| `louvain` | Import structure: deterministic Louvain (modularity), files that import each other end up together | Dominant folder of the members, e.g. `src/analyzer`, or the most connected file for root-level files; `#<id>` is appended when two communities share a folder |
+
+Files without a folder domain (`path`) or without any import edge (`louvain`) get `communityId` `0`.
 
 > **Use case:** Bootstrap AI-assisted exploration of an unfamiliar codebase — pipe `--format toon` into an LLM prompt for a token-efficient architecture snapshot.
 
@@ -1204,6 +1221,7 @@ graph-it export [scope] --format html [options]
 | Option | Default | Description |
 |--------|---------|-------------|
 | `--output, -o <file>` | `graph.html` | Output HTML file path |
+| `--communities <mode>` | `path` | Node colors by folder (`path`) or by import structure (`louvain`) |
 | `--format, -f` | — | Must be `html` — this is the only supported format for `export` |
 | `--workspace, -w` | auto-detected | Project root |
 
@@ -1212,6 +1230,7 @@ graph-it export [scope] --format html [options]
 ```bash
 graph-it export --format html
 graph-it export src/analyzer --format html --output analyzer.html
+graph-it export --format html --communities louvain
 ```
 
 ---
