@@ -80,6 +80,6 @@ Open-source corpora, same machine and settings (5 runs, p50; `mcp.concurrent5` p
 | `vscode.activation` | 207 ms, 244 MB | 205 ms, 252 MB | 203 ms, 253 MB | 204 ms, 251 MB | 210 ms, 252 MB | 204 ms, 243 MB |
 | `vscode.indexReady` | 1,571 ms, 426 MB | 1,499 ms, 396 MB | 1,628 ms, 441 MB | 1,519 ms, 410 MB | 2,039 ms, 493 MB | 1,524 ms, 473 MB |
 | `vscode.firstCallGraph` | 148 ms, 458 MB | 104 ms, 443 MB | 130 ms, 508 MB | 213 ms, 445 MB | 1,060 ms, 534 MB | 165 ms, 516 MB |
-| Heap after cycle 1 → 20, server / workers | 105.8 → 106 MB / 249.8 → 246.8 MB | 105.2 → 105.6 MB / 223.9 → 222.5 MB | 105.2 → 105.6 MB / 228.3 → 223.6 MB | 105.2 → 105.6 MB / 285 → 333.9 MB | 105.3 → 105.6 MB / 265.6 → 266 MB | 105.6 → 105.6 MB / 241.5 → 243.8 MB |
+| Heap after cycle 1 → 20, server / workers | 105.8 → 106 MB / 249.8 → 246.8 MB | 105.2 → 105.6 MB / 223.9 → 222.5 MB | 105.2 → 105.6 MB / 228.3 → 223.6 MB | 105.2 → 105.6 MB / 281.5 → 257.8 MB; 285 → 333.9 MB before #330 | 105.3 → 105.6 MB / 265.6 → 266 MB | 105.6 → 105.6 MB / 241.5 → 243.8 MB |
 | Memory session peak RSS | 800 MB | 792 MB | 1,219 MB | 826 MB | 915 MB | 800 MB |
 | Cache on disk | reverse index 0.2 MB, call graph 5.7 MB | reverse index 0.0 MB, call graph 3.5 MB | reverse index 0.1 MB, call graph 9.1 MB | reverse index 0.0 MB, call graph 6.1 MB | reverse index 0.0 MB, call graph 24.3 MB | reverse index 0.0 MB, call graph 17.2 MB |
