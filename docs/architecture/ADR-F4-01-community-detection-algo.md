@@ -4,7 +4,7 @@
 
 Superseded (commit `1cedc4d`, *replace Louvain with path-based community detection*).
 
-> **Mise à jour 2026-10 :** l'implémentation Louvain se trouve dans `src/analyzer/community/LouvainDetector.ts` (testée, sans appelant en production). Le `communityId` des noeuds vient de la détection par dossier `src/analyzer/community/PathCommunityDetector.ts` (`detectPathCommunityAssignments`), appelée par `NodeMetadataBuilder`. Les chemins `communityDetection.ts` et `CommunityDetector.ts` ci-dessous n'existent pas.
+> **Mise à jour 2026-10 :** l'implémentation Louvain complète et déterministe se trouve dans `src/analyzer/community/LouvainCommunityDetector.ts`, utilisée seulement par les statistiques `graph_context` (#337). Le `communityId` des noeuds vient de la détection par dossier `src/analyzer/community/PathCommunityDetector.ts` (`detectPathCommunityAssignments`), appelée par `NodeMetadataBuilder`. Les chemins `communityDetection.ts` et `CommunityDetector.ts` ci-dessous n'existent pas.
 
 ## Context
 

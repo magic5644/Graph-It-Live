@@ -119,7 +119,7 @@ describe('GraphContextCommunities', () => {
     });
 
     expect(topology.getCommunity(0)?.nodes).toEqual([isolated]);
-    expect(topology.getCommunity(1)).toEqual({ id: 1, nodes: [looped], edges: [loop] });
+    expect(topology.getCommunity(1)).toEqual({ id: 1, label: 'looped', nodes: [looped], edges: [loop] });
     expect(topology.topHubs(1)).toEqual([{
       node: looped,
       communityId: 1,
@@ -161,10 +161,39 @@ describe('GraphContextCommunities', () => {
 
     expect(topology.getCommunity(1)).toEqual({
       id: 1,
+      label: 'a',
       nodes: connectedNodes,
       edges: connectedEdges,
     });
     expect(reversed.getCommunity(1)).toEqual(topology.getCommunity(1));
     expect(reversed.graphStats).toEqual(topology.graphStats);
+  });
+
+  it('labels communities by dominant folder, else by hub', () => {
+    const fileNodes: GraphContextNode[] = [
+      { id: 'file:src/api/a.ts', kind: 'file', name: 'a.ts', path: 'src/api/a.ts' },
+      { id: 'file:src/api/b.ts', kind: 'file', name: 'b.ts', path: 'src/api/b.ts' },
+      { id: 'file:src/util.ts', kind: 'file', name: 'util.ts', path: 'src/util.ts' },
+      { id: 'file:main.ts', kind: 'file', name: 'main.ts', path: 'main.ts' },
+      { id: 'file:cli.ts', kind: 'file', name: 'cli.ts', path: 'cli.ts' },
+      { id: 'file:setup.ts', kind: 'file', name: 'setup.ts', path: 'setup.ts' },
+    ];
+    const imports = (source: string, target: string): GraphContextEdge => ({
+      source: `file:${source}`, target: `file:${target}`, relation: 'IMPORTS', confidence: 'RESOLVED',
+    });
+    const topology = new GraphContextCommunities({
+      revision: 'labels-v1',
+      fresh: true,
+      nodes: fileNodes,
+      edges: [
+        imports('src/api/a.ts', 'src/api/b.ts'),
+        imports('src/api/a.ts', 'src/util.ts'),
+        imports('src/api/b.ts', 'src/util.ts'),
+        imports('main.ts', 'setup.ts'),
+        imports('cli.ts', 'setup.ts'),
+      ],
+    });
+
+    expect([1, 2].map(id => topology.getCommunity(id)?.label).sort()).toEqual(['setup.ts', 'src/api']);
   });
 });
