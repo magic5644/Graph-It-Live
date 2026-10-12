@@ -146,6 +146,21 @@ function formatText(data: unknown, command: string): string {
   }
 }
 
+/** Largest communities as text lines, keyed by communityKey; files with no community are skipped. */
+function formatCommunities(nodes: Array<Record<string, unknown>>): string[] {
+  const sizes = new Map<string, number>();
+  for (const node of nodes) {
+    const key = node["communityKey"];
+    if (typeof key === "string" && key !== "") sizes.set(key, (sizes.get(key) ?? 0) + 1);
+  }
+  if (sizes.size === 0) return [];
+  const largest = [...sizes]
+    .sort(([leftKey, left], [rightKey, right]) => right - left || leftKey.localeCompare(rightKey))
+    .slice(0, 8)
+    .map(([key, size]) => `  - ${key}  files:${size}`);
+  return ["", `Largest communities (${sizes.size} total):`, ...largest];
+}
+
 function formatArchitecture(data: Record<string, unknown>): string {
   const workspaceRootRaw = data["workspaceRoot"];
   const workspaceRoot = typeof workspaceRootRaw === "string" ? workspaceRootRaw : "unknown";
@@ -183,6 +198,8 @@ function formatArchitecture(data: Record<string, unknown>): string {
   if (topDependents.length > 0) {
     lines.push("", "Top files by incoming dependencies:", ...topDependents);
   }
+
+  lines.push(...formatCommunities(nodes));
 
   if (skippedFiles > 0) {
     lines.push("", "Note: some files were skipped (details available with --format json). ");

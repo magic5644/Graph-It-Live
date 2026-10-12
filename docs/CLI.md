@@ -670,7 +670,7 @@ graph-it architecture [options]
 | `--workspace, -w` | auto-detected | Project root |
 | `--format, -f` | `text` | Output format (`toon` recommended for large graphs; `mermaid` for diagrams) |
 
-Each node carries `communityId` (`0` = no community) and `communityKey` (`""` = no community).
+Each node carries `communityId` (`0` = no community) and `communityKey` (`""` = no community). The `text` format lists the 8 largest communities after the top files.
 
 **Examples:**
 
