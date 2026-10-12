@@ -729,7 +729,7 @@ export function CytoscapeGraph({ onReady, postMessage }: Readonly<CytoscapeGraph
 
       {/* Truncation notice — the extension caps large neighbourhoods (#326) */}
       {!isLoading && !isEmpty && hiddenNodeCount > 0 && (
-        <div
+        <output
           style={{
             position: "absolute",
             bottom: "12px",
@@ -742,11 +742,10 @@ export function CytoscapeGraph({ onReady, postMessage }: Readonly<CytoscapeGraph
             color: "var(--vscode-descriptionForeground, #888)",
             zIndex: 20,
           }}
-          role="status"
           data-testid="truncation-notice"
         >
           {hiddenNodeCount.toLocaleString()} more symbols not shown — open a narrower symbol to explore them
-        </div>
+        </output>
       )}
 
       {/* Loading overlay */}
