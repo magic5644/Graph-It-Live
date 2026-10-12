@@ -37,6 +37,7 @@ const tempDir = () => {
 };
 
 afterEach(() => {
+  vi.unstubAllEnvs();
   for (const dir of dirs.splice(0)) rmSync(dir, { recursive: true, force: true });
 });
 
@@ -134,6 +135,10 @@ describe('fetchCorpus', () => {
 
   it('extracts the pinned commit without its history, then reuses the cached repository', () => {
     const corpus = upstream();
+    // Windows runners set core.autocrlf=true globally; the extracted bytes must not depend on it.
+    const home = tempDir();
+    writeFileSync(path.join(home, '.gitconfig'), '[core]\n\tautocrlf = true\n');
+    vi.stubEnv('GIT_CONFIG_GLOBAL', path.join(home, '.gitconfig'));
     const cache = path.join(tempDir(), 'corpora');
     const [first, second] = [path.join(tempDir(), 'ws'), path.join(tempDir(), 'ws')];
 
