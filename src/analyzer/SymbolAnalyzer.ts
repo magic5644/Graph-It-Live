@@ -110,12 +110,12 @@ export class SymbolAnalyzer implements ISymbolAnalyzer {
   }
 
   /**
-   * Reset the project if it has too many files to prevent memory bloat
+   * Reset the project after maxFiles parses to prevent memory bloat
    */
   private maybeResetProject(): void {
     if (this.fileCount >= this.maxFiles) {
       log.debug(
-        `Resetting ts-morph project (${this.fileCount} files in memory)`,
+        `Resetting ts-morph project (${this.fileCount} parses since last reset)`,
       );
       this.project = this.createProject();
       this.fileCount = 0;
@@ -123,7 +123,7 @@ export class SymbolAnalyzer implements ISymbolAnalyzer {
   }
 
   /**
-   * Get the number of files currently in memory
+   * Get the number of source files parsed since the last reset
    */
   public getFileCount(): number {
     return this.fileCount;
@@ -175,17 +175,19 @@ export class SymbolAnalyzer implements ISymbolAnalyzer {
   }
 
   /**
-   * Get or create source file in the project
+   * Get or create source file in the project. A reparse counts like a new file:
+   * ts-morph keeps wrapper nodes of the previous tree in its node cache, freed
+   * only with the project, so a workspace under maxFiles files re-analyzed again
+   * and again would otherwise grow without bound.
    */
   private getOrCreateSourceFile(filePath: string, content: string): SourceFile {
-    let sourceFile = this.project.getSourceFile(filePath);
+    this.fileCount++;
+    const sourceFile = this.project.getSourceFile(filePath);
     if (sourceFile) {
       sourceFile.replaceWithText(content);
-    } else {
-      sourceFile = this.project.createSourceFile(filePath, content);
-      this.fileCount++;
+      return sourceFile;
     }
-    return sourceFile;
+    return this.project.createSourceFile(filePath, content);
   }
 
   /**

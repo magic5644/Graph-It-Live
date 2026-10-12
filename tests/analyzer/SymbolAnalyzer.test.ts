@@ -249,6 +249,30 @@ export function parse(input: string, radix?: number): number {
     expect(parseSymbols).toHaveLength(1);
   });
 
+  it('counts reparses of the same file toward the project reset', () => {
+    // ts-morph keeps wrapper nodes of replaced trees until the project is dropped:
+    // a workspace under maxFiles files rebuilt again and again must still reset.
+    const analyzer = new SymbolAnalyzer(undefined, { maxFiles: 3 });
+    analyzer.analyzeFileContent('/a.ts', 'export const a = 1;');
+    analyzer.analyzeFileContent('/a.ts', 'export const a = 2;');
+    expect(analyzer.getFileCount()).toBe(2);
+
+    analyzer.analyzeFileContent('/a.ts', 'export const a = 3;');
+    const result = analyzer.analyzeFileContent('/a.ts', 'export const b = 4;');
+
+    expect(analyzer.getFileCount()).toBe(1);
+    expect(result.symbols.map(s => s.name)).toEqual(['b']);
+  });
+
+  it('reparses an existing file with its new content', () => {
+    const analyzer = new SymbolAnalyzer();
+    analyzer.analyzeFileContent('/a.ts', 'export const a = 1;');
+
+    const result = analyzer.analyzeFileContent('/a.ts', 'export function b() {}');
+
+    expect(result.symbols.map(s => s.name)).toEqual(['b']);
+  });
+
   describe('intra-file member calls', () => {
     const targetsOf = (content: string, source: string) => new SymbolAnalyzer()
       .analyzeFileContent('/calls.ts', content).dependencies
