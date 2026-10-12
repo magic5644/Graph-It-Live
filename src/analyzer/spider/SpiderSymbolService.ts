@@ -17,6 +17,8 @@ const log = getLogger('SpiderSymbolService');
 
 type SymbolGraph = { symbols: SymbolInfo[]; dependencies: SymbolDependency[] };
 
+const SYMBOL_ANALYSIS_EXTENSIONS: ReadonlySet<string> = new Set(SUPPORTED_SYMBOL_ANALYSIS_EXTENSIONS);
+
 export type ReferencingFilesProvider = (targetPath: string) => Promise<Dependency[]>;
 
 /**
@@ -48,6 +50,11 @@ export class SpiderSymbolService {
     }
 
     const key = normalizePath(filePath);
+    // The AST worker parses every non-Python/Rust file with ts-morph, so other
+    // languages (Go, C#, Java...) would yield bogus TypeScript symbols.
+    if (this.isAstUnsupportedFile(key)) {
+      return { symbols: [], dependencies: [] };
+    }
     const cached = this.symbolCache.get(key);
     if (cached) {
       return cached;
@@ -458,19 +465,12 @@ export class SpiderSymbolService {
   /**
    * Check if a file is NOT supported by the AST worker for symbol analysis.
    * The AST worker only handles TypeScript/JavaScript, Python, and Rust.
-   * C#, Go, and Java files use file-level parsers only — symbol-level
-   * verification would always return empty dependencies, causing all
-   * of their imports to be incorrectly marked as unused.
+   * Other languages (C#, Go, Java, GraphQL...) use file-level parsers only —
+   * symbol-level verification would always return empty dependencies, causing
+   * all of their imports to be incorrectly marked as unused.
    */
   private isAstUnsupportedFile(filePath: string): boolean {
-    return (
-      filePath.endsWith('.gql') ||
-      filePath.endsWith('.graphql') ||
-      filePath.endsWith('.cs') ||
-      filePath.endsWith('.csproj') ||
-      filePath.endsWith('.go') ||
-      filePath.endsWith('.java')
-    );
+    return !SYMBOL_ANALYSIS_EXTENSIONS.has(path.extname(filePath).toLowerCase());
   }
 
   // ──────────────────────────────────────────────────────────────────────────
@@ -512,11 +512,7 @@ export class SpiderSymbolService {
     const allFiles = await collector.collectAllSourceFiles(scopePath);
 
     // Filter to files supported by the symbol analyser
-    const SUPPORTED_EXTENSIONS_SET = new Set(SUPPORTED_SYMBOL_ANALYSIS_EXTENSIONS as readonly string[]);
-    const analysableFiles = allFiles.filter((f) => {
-      const ext = path.extname(f).toLowerCase();
-      return SUPPORTED_EXTENSIONS_SET.has(ext);
-    });
+    const analysableFiles = allFiles.filter((f) => !this.isAstUnsupportedFile(f));
 
     // Apply hard cap
     const filesToScan = analysableFiles.slice(0, maxFiles);
