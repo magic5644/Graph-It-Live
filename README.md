@@ -92,7 +92,7 @@ Drill into TypeScript, JavaScript, Python, or Rust files to see functions, class
 
 The Live Call Graph shows cross-file symbol relationships in a Cytoscape.js panel.
 
-- Expand callers and callees with a depth from 1 to 5.
+- Expand callers and callees with a depth from 1 to 5. A view shows at most 500 symbols, nearest hops first; a notice counts the hidden ones.
 - Group symbols by folder.
 - Number calls in invocation order.
 - Highlight self-recursion and mutual recursion.
