@@ -5,12 +5,16 @@
  * frozen corpora (#294) and renders a Markdown report.
  */
 
+import { execFileSync } from 'node:child_process';
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
+import { pathToFileURL } from 'node:url';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
+  OSS_CORPORA,
   SELF_REF,
+  fetchCorpus,
   generateCorpus,
   main,
   parseOptions,
@@ -93,6 +97,72 @@ describe('generateCorpus', () => {
     for (const relPath of ['src/d0/m42.ts', 'src/d1/m119.ts', 'tsconfig.json']) {
       expect(read(b, relPath)).toBe(read(a, relPath));
     }
+  });
+});
+
+describe('OSS_CORPORA', () => {
+  it('pins one public project per supported language to a full commit, with its license', () => {
+    expect(Object.keys(OSS_CORPORA)).toEqual(['typescript', 'python', 'rust', 'go', 'java', 'csharp']);
+    for (const corpus of Object.values(OSS_CORPORA)) {
+      expect(corpus.url).toMatch(/^https:\/\/github\.com\/[\w.-]+\/[\w.-]+$/);
+      expect(corpus.commit).toMatch(/^[0-9a-f]{40}$/);
+      expect(corpus.tag).not.toBe('');
+      expect(corpus.license).toMatch(/^\S.*, \S+$/);
+      expect([corpus.edit, corpus.file, corpus.symbol].every(Boolean)).toBe(true);
+    }
+  });
+});
+
+describe('fetchCorpus', () => {
+  const git = (cwd: string, ...args: string[]) =>
+    execFileSync('git', ['-c', 'user.name=bench', '-c', 'user.email=bench@example.com', ...args], { cwd, encoding: 'utf8' }).trim();
+
+  /** A local upstream with two commits: the first one pinned, the second one moved past it. */
+  const upstream = () => {
+    const dir = tempDir();
+    git(dir, 'init', '-q');
+    mkdirSync(path.join(dir, 'src'));
+    writeFileSync(path.join(dir, 'src', 'hub.ts'), 'export const v = 1;\n');
+    git(dir, 'add', '.');
+    git(dir, 'commit', '-q', '-m', 'pinned');
+    const commit = git(dir, 'rev-parse', 'HEAD');
+    writeFileSync(path.join(dir, 'src', 'hub.ts'), 'export const v = 2;\n');
+    git(dir, 'commit', '-q', '-am', 'later');
+    git(dir, 'config', 'uploadpack.allowAnySHA1InWant', 'true');
+    return { url: pathToFileURL(dir).href, tag: 'v1', commit, license: 'MIT, LICENSE', edit: 'src/hub.ts', file: 'src/hub.ts', symbol: 'v' };
+  };
+
+  it('extracts the pinned commit without its history, then reuses the cached repository', () => {
+    const corpus = upstream();
+    const cache = path.join(tempDir(), 'corpora');
+    const [first, second] = [path.join(tempDir(), 'ws'), path.join(tempDir(), 'ws')];
+
+    fetchCorpus('demo', corpus, cache, first);
+    rmSync(new URL(corpus.url), { recursive: true, force: true });
+    fetchCorpus('demo', corpus, cache, second);
+
+    for (const root of [first, second]) {
+      expect(readFileSync(path.join(root, 'src', 'hub.ts'), 'utf8')).toBe('export const v = 1;\n');
+      expect(existsSync(path.join(root, '.git'))).toBe(false);
+    }
+  });
+
+  it('fetches again when the cached repository lacks the pinned commit', () => {
+    const corpus = upstream();
+    const cache = tempDir();
+    mkdirSync(path.join(cache, 'demo.git'));
+    writeFileSync(path.join(cache, 'demo.git', 'stale'), '');
+    const root = path.join(tempDir(), 'ws');
+
+    fetchCorpus('demo', corpus, cache, root);
+
+    expect(readFileSync(path.join(root, 'src', 'hub.ts'), 'utf8')).toBe('export const v = 1;\n');
+    expect(existsSync(path.join(cache, 'demo.git', 'stale'))).toBe(false);
+  });
+
+  it('throws when the commit cannot be fetched', () => {
+    const corpus = { ...upstream(), commit: '0'.repeat(40) };
+    expect(() => fetchCorpus('demo', corpus, tempDir(), path.join(tempDir(), 'ws'))).toThrow();
   });
 });
 
@@ -217,15 +287,16 @@ describe('renderReport', () => {
 });
 
 describe('parseOptions', () => {
-  it('defaults to five runs on both corpora with 10,000 generated files', () => {
+  it('defaults to five runs on every corpus with 10,000 generated files', () => {
     expect(parseOptions([])).toEqual({
-      runs: 5, files: 10_000, cycles: 20, corpora: ['self', 'generated'], vscode: true, out: path.join(REPO_ROOT, '.reports', 'bench-e2e', 'latest'),
+      runs: 5, files: 10_000, cycles: 20, corpora: ['self', 'generated', ...Object.keys(OSS_CORPORA)], vscode: true,
+      corporaDir: path.join(REPO_ROOT, '.reports', 'bench-e2e', 'corpora'), out: path.join(REPO_ROOT, '.reports', 'bench-e2e', 'latest'),
     });
   });
 
   it('reads every option', () => {
-    expect(parseOptions(['--runs', '2', '--corpus', 'generated', '--files', '50', '--cycles', '3', '--no-vscode', '--out', 'out'])).toEqual({
-      runs: 2, files: 50, cycles: 3, corpora: ['generated'], vscode: false, out: path.resolve('out'),
+    expect(parseOptions(['--runs', '2', '--corpus', 'generated,go', '--files', '50', '--cycles', '3', '--no-vscode', '--corpora-dir', 'cache', '--out', 'out'])).toEqual({
+      runs: 2, files: 50, cycles: 3, corpora: ['generated', 'go'], vscode: false, corporaDir: path.resolve('cache'), out: path.resolve('out'),
     });
   });
 

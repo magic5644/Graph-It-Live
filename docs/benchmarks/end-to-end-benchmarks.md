@@ -1,6 +1,6 @@
 # End-to-end benchmarks
 
-`scripts/bench-e2e.mjs` runs `dist/graph-it.js` and the VS Code extension on two frozen corpora: `self` (this repository extracted with `git archive v1.18.0`) and `generated` (a seeded 10,000-module TypeScript workspace, same files on every run). Each sample is one process. A preload loaded through `NODE_OPTIONS` records each process's peak RSS (`process.resourceUsage().maxRSS`, worker threads included) on exit.
+`scripts/bench-e2e.mjs` runs `dist/graph-it.js` and the VS Code extension on frozen corpora: `self` (this repository extracted with `git archive v1.18.0`), `generated` (a seeded 10,000-module TypeScript workspace, same files on every run), and one medium open-source project per supported language (below). Each sample is one process. A preload loaded through `NODE_OPTIONS` records each process's peak RSS (`process.resourceUsage().maxRSS`, worker threads included) on exit.
 
 | Metric | Measures |
 | --- | --- |
@@ -19,9 +19,26 @@ A second MCP session measures memory stability: `--cycles` index/query cycles (d
 
 The VS Code surface runs `tests/vscode-e2e/bench/index.ts` through the E2E harness (`@vscode/test-electron`, the version from `VSCODE_TEST_VERSION`, default `stable`): one VS Code instance per run, opened on the corpus with an empty extensions directory and the built-in TypeScript service disabled (it competes for CPU, and on `generated` it crash-loops on a stack overflow). The steps run one after another: the index status goes through `vscode.lm`, a round trip to the renderer, which a rendering call graph holds up. The extension is activated by `onStartupFinished`; the run fails rather than report 0 ms if it activated before the benchmark could time it. The file graph has no render acknowledgement, so the first graph timed is the call graph.
 
+## Open-source corpora
+
+Each project is pinned to a commit in `scripts/bench-corpora.json`, with its tag, its license, the file edited by `scan.afterEdit` and the hub symbol whose callers are queried. The first run fetches each commit (`git fetch --depth 1`) into a bare repository under `--corpora-dir` and extracts it with `git archive`; later runs reuse it. No third-party code is committed: the workflow caches `--corpora-dir`, keyed on the manifest.
+
+| Corpus | Project | Tag | License | Hub symbol |
+| --- | --- | --- | --- | --- |
+| `typescript` | [honojs/hono](https://github.com/honojs/hono) | `v4.6.9` | MIT | `useState` (`src/jsx/hooks/index.ts`) |
+| `python` | [pallets/flask](https://github.com/pallets/flask) | `3.1.0` | BSD-3-Clause | `render_template` (`src/flask/templating.py`) |
+| `rust` | [BurntSushi/ripgrep](https://github.com/BurntSushi/ripgrep) | `14.1.1` | MIT OR Unlicense | `parse_low_raw` (`crates/core/flags/parse.rs`) |
+| `go` | [gin-gonic/gin](https://github.com/gin-gonic/gin) | `v1.10.0` | MIT | `New` (`gin.go`) |
+| `java` | [google/gson](https://github.com/google/gson) | `gson-parent-2.11.0` | Apache-2.0 | `fromJson` (`gson/src/main/java/com/google/gson/Gson.java`) |
+| `csharp` | [serilog/serilog](https://github.com/serilog/serilog) | `v4.2.0` | Apache-2.0 | `Write` (`src/Serilog/Core/Logger.cs`) |
+
+To change a corpus, update its `tag`, full `commit` and targets together; the new manifest hash invalidates the CI cache.
+
+## Running
+
 Run it with `npm run bench:e2e` (builds the extension, CLI and E2E harness first) or `node scripts/bench-e2e.mjs` after `npm run build && npm run compile:tests`. On Linux without a display, wrap it in `xvfb-run -a`.
 
-Options: `--runs <n>` (default 5), `--corpus self,generated`, `--files <n>` (generated size, default 10,000), `--cycles <n>` (memory cycles, default 20), `--no-vscode` (CLI and MCP only, no VS Code instance), `--out <dir>` (default `.reports/bench-e2e/latest`, with `report.json` and `report.md`). The `Benchmark E2E` workflow (`.github/workflows/bench-e2e.yml`) runs it weekly and on demand on Linux. It publishes the report in the job summary and as an artifact. The numbers are absolute, so compare runs from the same machine.
+Options: `--runs <n>` (default 5), `--corpus <names>` (comma-separated, default every corpus), `--files <n>` (generated size, default 10,000), `--cycles <n>` (memory cycles, default 20), `--no-vscode` (CLI and MCP only, no VS Code instance), `--corpora-dir <dir>` (fetched open-source corpora, default `.reports/bench-e2e/corpora`), `--out <dir>` (default `.reports/bench-e2e/latest`, with `report.json` and `report.md`). The `Benchmark E2E` workflow (`.github/workflows/bench-e2e.yml`) runs it weekly and on demand on Linux. It publishes the report in the job summary and as an artifact. The numbers are absolute, so compare runs from the same machine.
 
 Reference run (macOS arm64, 16 CPUs, Node 22, 5 runs, p50):
 

@@ -13,7 +13,8 @@ import { closeSession, startMcpSession } from '../tests/cli/mcpSession.ts';
 // Unlike the vitest benches, each sample is a real process: wall time includes
 // Node startup, and the peak RSS of every process is recorded at exit.
 // The VS Code surface runs tests/vscode-e2e/bench in a fresh VS Code instance per sample.
-// Usage: node scripts/bench-e2e.mjs [--runs 5] [--corpus self,generated] [--files 10000] [--cycles 20] [--no-vscode] [--out <dir>]
+// Open-source corpora (#320) are fetched at a pinned commit into --corpora-dir, never committed.
+// Usage: node scripts/bench-e2e.mjs [--runs 5] [--corpus self,generated,...] [--files 10000] [--cycles 20] [--no-vscode] [--corpora-dir <dir>] [--out <dir>]
 
 const execFileAsync = promisify(execFile);
 const REPO_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
@@ -29,10 +30,14 @@ const REBUILD_INTERVAL_MS = 2_100;
 // count per-thread acknowledgements if a probe ever misses a thread.
 const HEAP_PROBE_WAIT_MS = 1_000;
 
+/** One medium open-source project per supported language: repository, tag, pinned commit, license. */
+export const OSS_CORPORA = JSON.parse(readFileSync(path.join(REPO_ROOT, 'scripts', 'bench-corpora.json'), 'utf8'));
+
 /** Each corpus names one file to edit and one hub symbol to query. */
 const TARGETS = {
   self: { edit: 'src/shared/path.ts', file: 'src/shared/path.ts', symbol: 'normalizePath' },
   generated: { edit: 'src/d0/m1.ts', file: 'src/hub.ts', symbol: 'hub' },
+  ...OSS_CORPORA,
 };
 
 // Loaded with --require (and --expose-gc) by every thread of every benchmarked
@@ -103,13 +108,38 @@ export function generateCorpus(root, files) {
   }
 }
 
-/** This repository at a fixed tag: a real, public, multi-language workspace. */
-function extractSelf(root) {
-  const archive = path.join(root, '..', 'self.tar');
-  execFileSync('git', ['-C', REPO_ROOT, 'archive', '--format=tar', '-o', archive, SELF_REF]); // NOSONAR S4036: developer and CI tool, trusted PATH
+const git = (...args) => execFileSync('git', args, { stdio: ['ignore', 'pipe', 'pipe'] }); // NOSONAR S4036: developer and CI tool, trusted PATH
+
+/** Extracts `ref` of the repository `gitDir` into `root`, without its history. */
+function extract(root, gitDir, ref) {
+  const archive = `${root}.tar`;
+  git('-C', gitDir, 'archive', '--format=tar', '-o', archive, ref);
   mkdirSync(root, { recursive: true });
   execFileSync('tar', ['-xf', archive, '-C', root]); // NOSONAR S4036: developer and CI tool, trusted PATH
   rmSync(archive);
+}
+
+/**
+ * Extracts an open-source corpus at its pinned commit. The commit is fetched once
+ * (shallow) into a bare repository under `corporaDir`, which CI caches.
+ */
+export function fetchCorpus(name, corpus, corporaDir, root) {
+  const gitDir = path.join(corporaDir, `${name}.git`);
+  try {
+    git('--git-dir', gitDir, 'cat-file', '-e', `${corpus.commit}^{commit}`);
+  } catch {
+    rmSync(gitDir, { recursive: true, force: true });
+    git('init', '--bare', '-q', gitDir);
+    git('--git-dir', gitDir, 'fetch', '-q', '--depth', '1', corpus.url, `${corpus.commit}:refs/bench/${name}`);
+  }
+  extract(root, gitDir, corpus.commit);
+}
+
+/** Label of a corpus in the report: the tag of this repository or of the open-source project. */
+function corpusRef(name) {
+  if (name === 'self') return SELF_REF;
+  const corpus = OSS_CORPORA[name];
+  return corpus && `${new URL(corpus.url).pathname.slice(1)}@${corpus.tag}`;
 }
 
 /** Points the next benchmarked processes at an empty RSS directory. */
@@ -332,15 +362,17 @@ function countFiles(dir) {
 
 async function benchCorpus(name, options, scratch) {
   const workspace = path.join(scratch, name);
-  if (name === 'self') extractSelf(workspace);
-  else generateCorpus(workspace, options.files);
+  // This repository at a fixed tag: a real, public, multi-language workspace.
+  if (name === 'self') extract(workspace, REPO_ROOT, SELF_REF);
+  else if (name === 'generated') generateCorpus(workspace, options.files);
+  else fetchCorpus(name, OSS_CORPORA[name], options.corporaDir, workspace);
   const files = countFiles(workspace);
   const target = TARGETS[name];
   const cli = await measureCli(workspace, target, options.runs, scratch);
   const mcp = await measureMcp(workspace, target, options.runs, scratch);
   const memory = await measureMemory(workspace, target, options.cycles, scratch);
   const vscode = options.vscode ? await measureVscode(workspace, target, options.runs) : {};
-  return { name, ref: name === 'self' ? SELF_REF : undefined, files, cache: cli.cache, metrics: { ...cli.metrics, ...mcp, ...vscode }, memory };
+  return { name, ref: corpusRef(name), files, cache: cli.cache, metrics: { ...cli.metrics, ...mcp, ...vscode }, memory };
 }
 
 const cellMB = (value) => (value === undefined ? '—' : String(value));
@@ -394,21 +426,23 @@ export function parseOptions(args) {
     args,
     options: {
       runs: { type: 'string', default: '5' },
-      corpus: { type: 'string', default: 'self,generated' },
+      corpus: { type: 'string', default: Object.keys(TARGETS).join(',') },
       files: { type: 'string', default: '10000' },
       cycles: { type: 'string', default: '20' },
       'no-vscode': { type: 'boolean', default: false },
+      'corpora-dir': { type: 'string', default: path.join(REPO_ROOT, '.reports', 'bench-e2e', 'corpora') },
       out: { type: 'string', default: path.join(REPO_ROOT, '.reports', 'bench-e2e', 'latest') },
     },
   });
   const options = {
     runs: Number(values.runs), files: Number(values.files), cycles: Number(values.cycles),
-    corpora: values.corpus.split(','), vscode: !values['no-vscode'], out: path.resolve(values.out),
+    corpora: values.corpus.split(','), vscode: !values['no-vscode'],
+    corporaDir: path.resolve(values['corpora-dir']), out: path.resolve(values.out),
   };
   const atLeast = (value, min) => Number.isInteger(value) && value >= min;
   const known = options.corpora.every((name) => name in TARGETS);
   if (!atLeast(options.runs, 1) || !atLeast(options.files, 2) || !atLeast(options.cycles, 1) || !known) {
-    throw new Error('Usage: node scripts/bench-e2e.mjs [--runs <n ≥ 1>] [--corpus self,generated] [--files <n ≥ 2>] [--cycles <n ≥ 1>] [--no-vscode] [--out <dir>]');
+    throw new Error(`Usage: node scripts/bench-e2e.mjs [--runs <n ≥ 1>] [--corpus ${Object.keys(TARGETS).join(',')}] [--files <n ≥ 2>] [--cycles <n ≥ 1>] [--no-vscode] [--corpora-dir <dir>] [--out <dir>]`);
   }
   return options;
 }
