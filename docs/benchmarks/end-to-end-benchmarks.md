@@ -61,3 +61,25 @@ Reference run (macOS arm64, 16 CPUs, Node 22, 5 runs, p50):
 | Heap after cycle 1 → 20, server / workers | 106.1 → 106.2 MB / 314.1 → 311.6 MB | 108.0 → 106.6 MB / 258.3 → 258.2 MB |
 | Memory session peak RSS | 933 MB | 1,216 MB |
 | Cache on disk | reverse index 0.4 MB, call graph 9.9 MB | reverse index 7.0 MB, call graph 24.8 MB |
+
+Open-source corpora, same machine and settings (5 runs, p50; `mcp.concurrent5` p50 / p95):
+
+| Metric | typescript (439 files) | python (249 files) | rust (213 files) | go (120 files) | java (303 files) | csharp (281 files) |
+| --- | --- | --- | --- | --- | --- | --- |
+| `cli.coldStart` | 253 ms, 256 MB | 248 ms, 255 MB | 249 ms, 254 MB | 247 ms, 252 MB | 246 ms, 251 MB | 244 ms, 251 MB |
+| `scan.cold` | 1,741 ms, 589 MB | 975 ms, 477 MB | 1,353 ms, 593 MB | 1,302 ms, 634 MB | 1,797 ms, 596 MB | 1,186 ms, 590 MB |
+| `scan.warm` | 428 ms, 370 MB | 404 ms, 383 MB | 406 ms, 382 MB | 402 ms, 386 MB | 415 ms, 378 MB | 418 ms, 374 MB |
+| `scan.afterEdit` | 434 ms, 363 MB | 427 ms, 370 MB | 433 ms, 386 MB | 437 ms, 383 MB | 448 ms, 392 MB | 447 ms, 417 MB |
+| `callGraph.cold` | 1,332 ms, 448 MB | 521 ms, 391 MB | 770 ms, 433 MB | 647 ms, 429 MB | 1,321 ms, 570 MB | 1,028 ms, 501 MB |
+| `callGraph.warm` | 367 ms, 346 MB | 341 ms, 335 MB | 368 ms, 371 MB | 355 ms, 362 MB | 453 ms, 423 MB | 369 ms, 372 MB |
+| `mcp.firstResponse` | 2,046 ms, 785 MB | 1,295 ms, 569 MB | 1,671 ms, 746 MB | 1,618 ms, 844 MB | 2,606 ms, 1,028 MB | 1,509 ms, 794 MB |
+| `mcp.findReferencingFiles` | 0 ms | 0 ms | 0 ms | 0 ms | 0 ms | 0 ms |
+| `mcp.queryCallGraph` | 5 ms | 1 ms | 7 ms | 18 ms | 50 ms | 5 ms |
+| `mcp.concurrent5` | 13 / 21 ms | 3 / 4 ms | 20 / 33 ms | 52 / 87 ms | 147 / 246 ms | 14 / 23 ms |
+| `mcp.concurrent5.queueWait` | 9 / 17 ms | 2 / 4 ms | 13 / 27 ms | 35 / 70 ms | 99 / 197 ms | 9 / 19 ms |
+| `vscode.activation` | 207 ms, 244 MB | 205 ms, 252 MB | 203 ms, 253 MB | 204 ms, 251 MB | 210 ms, 252 MB | 204 ms, 243 MB |
+| `vscode.indexReady` | 1,571 ms, 426 MB | 1,499 ms, 396 MB | 1,628 ms, 441 MB | 1,519 ms, 410 MB | 2,039 ms, 493 MB | 1,524 ms, 473 MB |
+| `vscode.firstCallGraph` | 148 ms, 458 MB | 104 ms, 443 MB | 130 ms, 508 MB | 213 ms, 445 MB | 1,060 ms, 534 MB | 165 ms, 516 MB |
+| Heap after cycle 1 → 20, server / workers | 105.8 → 106 MB / 249.8 → 246.8 MB | 105.2 → 105.6 MB / 223.9 → 222.5 MB | 105.2 → 105.6 MB / 228.3 → 223.6 MB | 105.2 → 105.6 MB / 285 → 333.9 MB | 105.3 → 105.6 MB / 265.6 → 266 MB | 105.6 → 105.6 MB / 241.5 → 243.8 MB |
+| Memory session peak RSS | 800 MB | 792 MB | 1,219 MB | 826 MB | 915 MB | 800 MB |
+| Cache on disk | reverse index 0.2 MB, call graph 5.7 MB | reverse index 0.0 MB, call graph 3.5 MB | reverse index 0.1 MB, call graph 9.1 MB | reverse index 0.0 MB, call graph 6.1 MB | reverse index 0.0 MB, call graph 24.3 MB | reverse index 0.0 MB, call graph 17.2 MB |
