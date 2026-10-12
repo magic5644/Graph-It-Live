@@ -108,7 +108,8 @@ export function generateCorpus(root, files) {
   }
 }
 
-const git = (...args) => execFileSync('git', args, { stdio: ['ignore', 'pipe', 'pipe'] }); // NOSONAR S4036: developer and CI tool, trusted PATH
+// core.autocrlf=false: `git archive` would otherwise write CRLF on Windows, and the corpus must be the same bytes on every OS.
+const git = (...args) => execFileSync('git', ['-c', 'core.autocrlf=false', ...args], { stdio: ['ignore', 'pipe', 'pipe'] }); // NOSONAR S4036: developer and CI tool, trusted PATH
 
 /** Extracts `ref` of the repository `gitDir` into `root`, without its history. */
 function extract(root, gitDir, ref) {
