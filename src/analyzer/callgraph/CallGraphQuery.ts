@@ -353,11 +353,14 @@ function buildCompounds(nodes: SerializedCallNode[]): SerializedCompoundNode[] {
   const fileMap = new Map<string, SerializedCompoundNode>();
 
   for (const node of nodes) {
-    // Top-level folder compound — use full workspace-relative path for readability
-    if (!folderMap.has(node.folder)) {
-      folderMap.set(node.folder, {
-        id: node.folder,
-        label: node.folder,
+    // Top-level folder compound — use full workspace-relative path for readability.
+    // Files at the workspace root have folder "": Cytoscape rejects an empty element
+    // ID, which would abort the whole render, so the root folder is ".".
+    const folder = node.folder || ".";
+    if (!folderMap.has(folder)) {
+      folderMap.set(folder, {
+        id: folder,
+        label: folder,
         type: "compound",
         compoundLevel: "folder",
       });
@@ -370,7 +373,7 @@ function buildCompounds(nodes: SerializedCallNode[]): SerializedCompoundNode[] {
         label,
         type: "compound",
         compoundLevel: "file",
-        parent: node.folder,
+        parent: folder,
       });
     }
   }
