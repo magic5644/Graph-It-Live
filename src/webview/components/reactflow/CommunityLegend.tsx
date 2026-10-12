@@ -1,4 +1,5 @@
 import React from 'react';
+import type { CommunityMode } from '../../../shared/types';
 
 export interface CommunityEntry {
   id: number;
@@ -13,9 +14,10 @@ interface CommunityLegendProps {
   excluded?: ReadonlySet<string>;
   onToggle?: (key: string) => void;
   onShowAll?: () => void;
+  communityMode?: CommunityMode;
 }
 
-export function CommunityLegend({ communities, excluded, onToggle, onShowAll }: Readonly<CommunityLegendProps>): React.JSX.Element | null {
+export function CommunityLegend({ communities, excluded, onToggle, onShowAll, communityMode = 'path' }: Readonly<CommunityLegendProps>): React.JSX.Element | null {
   if (communities.length === 0) return null;
 
   return (
@@ -32,7 +34,9 @@ export function CommunityLegend({ communities, excluded, onToggle, onShowAll }: 
     }}>
       <div style={{ marginBottom: 6 }}>
         <div style={{ fontWeight: 'bold', opacity: 0.9, lineHeight: 1.2 }}>Import clusters</div>
-        <div style={{ opacity: 0.75, fontSize: 10, marginTop: 2 }}>Groups based on folders</div>
+        <div style={{ opacity: 0.75, fontSize: 10, marginTop: 2 }}>
+          {communityMode === 'louvain' ? 'Groups based on imports (Louvain)' : 'Groups based on folders'}
+        </div>
         {onShowAll && <button type="button" onClick={onShowAll}>Show all</button>}
       </div>
       {communities.map(({ id, label, color, key, count }) => (

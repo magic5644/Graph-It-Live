@@ -1,4 +1,5 @@
 import * as vscode from 'vscode';
+import type { CommunityMode } from '../../shared/graph-types';
 import type { BackgroundIndexingConfig } from './BackgroundIndexingManager';
 
 export type UnusedDependencyMode = 'none' | 'hide' | 'dim';
@@ -19,6 +20,7 @@ export interface ProviderConfigSnapshot extends BackgroundIndexingConfig {
   maxSymbolCacheSize: number;
   performanceProfile: PerformanceProfile;
   showCommunities: boolean;
+  communityMode: CommunityMode;
 }
 
 type ProfileTuning = Pick<
@@ -106,6 +108,7 @@ export class ProviderStateManager {
       ...tuning,
       performanceProfile: profile,
       showCommunities: config.get<boolean>('showCommunities', true),
+      communityMode: config.get<string>('communityMode', 'path') === 'louvain' ? 'louvain' : 'path',
     };
   }
 

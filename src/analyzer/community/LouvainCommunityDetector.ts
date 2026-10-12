@@ -104,7 +104,7 @@ export function detectLouvainCommunityAssignments(
   const usedKeys = new Set<string>();
   for (const [communityId, list] of [...members].sort(([left], [right]) => left - right)) {
     const hub = list.reduce((best, filePath) =>
-      (degrees.get(filePath) ?? 0) > (degrees.get(best) ?? 0) ? filePath : best);
+      (degrees.get(filePath) ?? 0) > (degrees.get(best) ?? 0) ? filePath : best, list[0]);
     const label = labelCommunity(list.map(relative), relative(hub));
     // Two communities can share a dominant folder; the legend groups by key, so keep keys unique.
     const key = usedKeys.has(label) ? `${label} #${communityId}` : label;

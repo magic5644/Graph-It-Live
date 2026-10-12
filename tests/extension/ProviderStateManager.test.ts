@@ -211,6 +211,19 @@ describe('ProviderStateManager', () => {
     });
   });
 
+  describe('communityMode', () => {
+    it.each([
+      [undefined, 'path'],
+      ['louvain', 'louvain'],
+      ['folders', 'path'],
+    ])('maps %s to %s', (value, expected) => {
+      if (value !== undefined) configValues['communityMode'] = value;
+      const snapshot = new ProviderStateManager(context, 1000).loadConfiguration();
+      expect(snapshot.communityMode).toBe(expected);
+      delete configValues['communityMode'];
+    });
+  });
+
   describe('performanceProfile', () => {
     const overrides = {
       unusedAnalysisConcurrency: 7,

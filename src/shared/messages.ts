@@ -14,7 +14,7 @@ import type {
   CallGraphSymbolFocusCommand,
   ShowCallGraphMessage,
 } from "./callgraph-types";
-import type { GraphData } from "./graph-types";
+import type { CommunityMode, GraphData } from "./graph-types";
 import type {
     BreadcrumbPath,
     IntraFileGraph,
@@ -39,6 +39,8 @@ export interface ShowGraphMessage {
   unusedDependencyMode?: "none" | "hide" | "dim";
   filterUnused?: boolean;
   showCommunities?: boolean;
+  /** How nodeMetadata communities were computed, so the legend can say so. */
+  communityMode?: CommunityMode;
 }
 
 export interface OpenFileMessage {

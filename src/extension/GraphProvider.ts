@@ -61,7 +61,7 @@ export class GraphProvider implements vscode.WebviewViewProvider {
   private readonly _stateManager: ProviderStateManager;
   private readonly _graphState: GraphState;
   /** Node metadata of the last file graph sent to the webview — E2E observability only. */
-  private _lastFileGraphMetadata?: GraphData["nodeMetadata"];
+  private _lastFileGraphMetadata: GraphData["nodeMetadata"];
   /**
    * Optional callback used by EditorEventsService to notify MCP server.
    * Populated by extension activation if MCP server is registered.
@@ -1453,6 +1453,7 @@ export class GraphProvider implements vscode.WebviewViewProvider {
         unusedDependencyMode: effectiveMode,
         filterUnused: filterActive,
         showCommunities: this._configSnapshot.showCommunities,
+        communityMode: this._configSnapshot.communityMode,
       };
       this._view.webview.postMessage(initialMessage);
       this._lastFileGraphMetadata = initialGraphData.nodeMetadata;
@@ -1487,6 +1488,7 @@ export class GraphProvider implements vscode.WebviewViewProvider {
           unusedDependencyMode: effectiveMode,
           filterUnused: filterActive,
           showCommunities: this._configSnapshot.showCommunities,
+          communityMode: this._configSnapshot.communityMode,
         };
 
         this._view.webview.postMessage(enrichedMessage);
