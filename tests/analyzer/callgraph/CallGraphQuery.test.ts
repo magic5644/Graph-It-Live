@@ -231,6 +231,21 @@ describe("queryNeighbourhood", () => {
     expect(compound).toBeDefined();
   });
 
+  it("gives files at the workspace root a non-empty folder compound ID", () => {
+    // Cytoscape rejects an empty element ID: the whole render failed on gin (Go, sources at the root).
+    const rootFile = "/workspace/gin.go";
+    const caller = node(rootFile, "Default", 1, { folder: "" });
+    const callee = node(rootFile, "New", 10, { folder: "" });
+    indexer.indexFile([caller, callee], [edge(caller, callee)], rootFile, "go", 100);
+
+    const result = queryNeighbourhood(indexer.getDb(), caller.id, 1);
+
+    expect(result.compounds).toEqual([
+      { id: ".", label: ".", type: "compound", compoundLevel: "folder" },
+      { id: rootFile, label: "gin.go", type: "compound", compoundLevel: "file", parent: "." },
+    ]);
+  });
+
   // -------------------------------------------------------------------------
   // Cycle detection
   // -------------------------------------------------------------------------
