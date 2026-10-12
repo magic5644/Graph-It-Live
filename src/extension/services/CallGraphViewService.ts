@@ -573,6 +573,7 @@ export class CallGraphViewService implements vscode.Disposable, ICallGraphQueryS
       edges: result.edges,
       compounds: result.compounds,
       depth: result.depth,
+      hiddenNodeCount: result.hiddenNodeCount,
       timestamp: result.timestamp,
     });
   }

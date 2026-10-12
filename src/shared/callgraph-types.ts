@@ -96,6 +96,8 @@ export interface ShowCallGraphMessage {
   compounds: SerializedCompoundNode[];
   /** Traversal depth used to build this neighbourhood */
   depth: number;
+  /** Reachable symbols omitted to keep the layout responsive (absent = none) */
+  hiddenNodeCount?: number;
   /** Unix ms — webview discards messages older than the last received */
   timestamp: number;
 }

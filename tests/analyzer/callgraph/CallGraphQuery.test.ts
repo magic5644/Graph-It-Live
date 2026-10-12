@@ -13,6 +13,7 @@ import {
     type CallGraphNode,
 } from "@/analyzer/callgraph/CallGraphIndexer";
 import {
+    MAX_NEIGHBOURHOOD_NODES,
     queryNeighbourhood,
     type NeighbourhoodResult,
 } from "@/analyzer/callgraph/CallGraphQuery";
@@ -104,6 +105,43 @@ describe("queryNeighbourhood", () => {
     expect(result.edges).toHaveLength(0);
     expect(result.compounds).toHaveLength(0);
     expect(result.rootSymbolId).toBe("nonexistent:root:1");
+  });
+
+  it("reports no hidden nodes when the neighbourhood fits the cap", () => {
+    const root = node(FILE_A, "small", 1);
+    indexer.indexFile([root], [], FILE_A, "typescript", 100);
+
+    expect(queryNeighbourhood(indexer.getDb(), root.id, 1).hiddenNodeCount).toBe(0);
+    expect(queryNeighbourhood(indexer.getDb(), "missing:root:1", 1).hiddenNodeCount).toBe(0);
+  });
+
+  it("caps a large fan-in hub and counts the hidden callers (#326)", () => {
+    const hub = node(FILE_A, "hub", 1);
+    const callers = Array.from({ length: 12 }, (_, i) => node(FILE_B, `caller${i}`, 10 + i * 5));
+    indexer.indexFile([hub], [], FILE_A, "typescript", 100);
+    indexer.indexFile(callers, callers.map((c) => edge(c, hub)), FILE_B, "typescript", 100);
+
+    const result = queryNeighbourhood(indexer.getDb(), hub.id, 1, 5);
+
+    expect(result.nodes).toHaveLength(5);
+    expect(result.hiddenNodeCount).toBe(8);
+    expect(result.nodes.find((n) => n.isRoot)?.id).toBe(hub.id);
+    const nodeIds = new Set(result.nodes.map((n) => n.id));
+    for (const e of result.edges) {
+      expect(nodeIds.has(e.sourceId) && nodeIds.has(e.targetId)).toBe(true);
+    }
+  });
+
+  it("defaults the cap to MAX_NEIGHBOURHOOD_NODES", () => {
+    const hub = node(FILE_A, "bigHub", 1);
+    const callers = Array.from({ length: MAX_NEIGHBOURHOOD_NODES + 10 }, (_, i) => node(FILE_B, `c${i}`, 10 + i * 5));
+    indexer.indexFile([hub], [], FILE_A, "typescript", 100);
+    indexer.indexFile(callers, callers.map((c) => edge(c, hub)), FILE_B, "typescript", 100);
+
+    const result = queryNeighbourhood(indexer.getDb(), hub.id, 1);
+
+    expect(result.nodes).toHaveLength(MAX_NEIGHBOURHOOD_NODES);
+    expect(result.hiddenNodeCount).toBe(11);
   });
 
   // -------------------------------------------------------------------------
