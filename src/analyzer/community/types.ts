@@ -1,6 +1,6 @@
 export interface CommunityGraph {
   nodes: string[];
-  edges: Array<{ source: string; target: string }>;
+  edges: Array<{ source: string; target: string; weight?: number }>;  // weight defaults to 1
 }
 
 export interface CommunityResult {

@@ -14,7 +14,7 @@ import type {
   GraphContextSnapshot,
 } from '@/shared/graph-context-types';
 import { compileFileScope } from './FileScopeMatcher';
-import { GraphContextCommunities } from './GraphContextCommunities';
+import { GraphContextCommunities, type GraphContextCommunity } from './GraphContextCommunities';
 import { toEvidence } from './GraphContextEvidence';
 import { findShortestPath } from './GraphContextPathFinder';
 import { resolveSeeds } from './GraphContextResolver';
@@ -287,19 +287,16 @@ export class GraphContextRetriever {
         : request.maxNodes ?? Math.min(DEFAULT_MAX_NODES, 20),
     );
     const hubs = topology.topHubs(hubLimit);
-    const communityNodes = Array.from(
+    const communities = Array.from(
       { length: Math.min(graphStats.communityCount, MAX_OVERVIEW_COMMUNITIES) },
-      (_unused, index): GraphContextNode => {
-        const communityId = index + 1;
-        const memberCount = topology.getCommunity(communityId)?.nodes.length ?? 0;
-        return {
-          id: `community:${communityId}`,
-          kind: 'community',
-          name: `Community ${communityId} (${memberCount} nodes)`,
-          score: memberCount,
-        };
-      },
+      (_unused, index) => topology.getCommunity(index + 1) as GraphContextCommunity,
     );
+    const communityNodes = communities.map((community): GraphContextNode => ({
+      id: `community:${community.id}`,
+      kind: 'community',
+      name: `Community ${community.id}: ${community.label} (${community.nodes.length} nodes)`,
+      score: community.nodes.length,
+    }));
     const hubNodes = hubs.map(hub => ({ ...hub.node, score: hub.totalDegree }));
     const nodes = [...hubNodes, ...communityNodes];
     const hubIds = new Set(hubNodes.map(node => node.id));
@@ -318,7 +315,7 @@ export class GraphContextRetriever {
           target: communityId,
           relation: 'BELONGS_TO',
           confidence: 'INFERRED',
-          evidence: { reason: 'Deterministic federated graph community assignment' },
+          evidence: { reason: 'Deterministic Louvain community assignment' },
         });
       }
     }
@@ -338,7 +335,9 @@ export class GraphContextRetriever {
         + (relationAllowed('BELONGS_TO', request.relations)
           ? graphStats.nodeCount - (topology.getCommunity(0)?.nodes.length ?? 0)
           : 0),
-      nextQueries: communityNodes.map(node => `Inspect ${node.name.toLowerCase()}`),
+      nextQueries: communities.map(community => (
+        `Inspect community ${community.id}: ${community.label} (${community.nodes.length} nodes)`
+      )),
     };
   }
 }

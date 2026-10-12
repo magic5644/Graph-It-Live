@@ -244,13 +244,13 @@ describe('graph_context MCP contract', () => {
     expect(result.seeds[0]).toBe('file:src/services/UserService.ts');
     expect(result.nodes).toEqual(expect.arrayContaining([
       expect.objectContaining({ id: 'file:src/services/UserService.ts', score: 4 }),
-      expect.objectContaining({ kind: 'community', name: expect.stringMatching(/^Community \d+ \(\d+ nodes\)$/) }),
+      expect.objectContaining({ kind: 'community', name: expect.stringMatching(/^Community \d+: \S+ \(\d+ nodes\)$/) }),
     ]));
     expect(result.edges).toEqual(expect.arrayContaining([
       expect.objectContaining({ relation: 'BELONGS_TO', confidence: 'INFERRED' }),
     ]));
     expect(result.nextQueries).toEqual(expect.arrayContaining([
-      expect.stringMatching(/^Inspect community \d+ \(\d+ nodes\)$/),
+      expect.stringMatching(/^Inspect community \d+: \S+ \(\d+ nodes\)$/),
     ]));
     expect(snapshotRead).toHaveBeenCalledTimes(4);
     expect([...formatted.content[0].text.matchAll(/^([a-zA-Z_]+)\(/gm)].map(match => match[1])).toEqual([
