@@ -1,5 +1,32 @@
 # Changelog
 
+## v1.19.0
+
+### Breaking / Behavior changes
+
+- **Live Call Graph shows at most 500 symbols**: The neighbourhood stops at 500 symbols, root and nearest hops first, and the panel shows how many symbols are hidden. A hub with 10,000 callers used to freeze the view for about 90 s while laying out every caller; it now opens in about 1.3 s.
+- **Review Gate no longer charges a removed optional parameter to every caller**: Removing an optional, defaulted or rest parameter now counts only the calls that still pass that argument. When no call passes it, the change has zero impact instead of a high risk score.
+
+### Changed
+
+- **`get_index_status` reports cache file sizes**: A new `cacheFiles` field gives the on-disk size in bytes of `.graph-it/cache/reverse-index.json` (`reverseIndexBytes`) and `callgraph.db` (`callGraphBytes`), 0 for a file not written yet. Available in the MCP tool, `graph-it tool get_index_status`, `graph-it scan` and the VS Code language model tool.
+- **Faster full indexing on large workspaces**: Building the reverse index from scratch was quadratic in the number of files; removing a file from the index now costs only its own dependencies.
+- **Unused call-graph eviction removed**: The internal 256 MB call-graph database limit was never applied. It is removed rather than wired in, because evicting files would silently return incomplete callers and callees. `callgraph.db` is about 8 MB for a 12,000-file workspace.
+
+### Fixed
+
+- **Branch Watch**: Switching to a branch that deletes a source file no longer fails with "Dependency index is incomplete".
+- **AST worker memory**: In workspaces under 100 files, the TypeScript symbol analyzer was never reset, so the worker heap grew on every rebuild. Reparses now count toward the reset.
+- **Live Call Graph for files at the workspace root**: A workspace whose sources sit at the root (common in Go projects) made the call graph fail to render. Root files are now grouped under `.`.
+- **npm publish workflow**: Publishing with `skip_tests` no longer skips the publish job silently.
+
+### Tests
+
+- Added deterministic work counters for the index caches and linear-scaling checks (n vs 4n files), both blocking on Linux, macOS and Windows.
+- Pull requests get a same-runner A/B benchmark comparison that reports regressions and gains.
+- Added weekly end-to-end benchmarks for the CLI, MCP server and VS Code extension on frozen corpora, including per-language open-source projects, heap stability, server and worker memory and concurrent MCP calls. Reference numbers are in `docs/benchmarks/end-to-end-benchmarks.md`.
+- Removed misleading, dead and setup-dominated micro-benchmarks.
+
 ## v1.18.0
 
 ### Breaking / Behavior changes
