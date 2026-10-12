@@ -217,10 +217,33 @@ describe('detectLouvainCommunityAssignments', () => {
     expect(result.get('c:/project/left/a.ts')?.communityKey).toBe('left');
   });
 
-  it('keeps absolute folders as keys without a workspace root', () => {
+  it('shortens absolute folders without a workspace root', () => {
     const result = detectLouvainCommunityAssignments(twoCliques());
 
-    expect(result.get('/project/left/a.ts')?.communityKey).toBe('/project/left');
+    expect(result.get('/project/left/a.ts')?.communityKey).toBe('project/left');
+  });
+
+  it('keeps the last two folder segments, longer only when they clash', () => {
+    const pair = (folder: string) => [`/repo/${folder}/a.ts`, `/repo/${folder}/b.ts`];
+    const folders = [
+      'backend/src/audit/models/auditCheck/closureVAT',
+      'backend/src/accountingLine/domain',
+      'backend/src/accountingPeriod/domain',
+      'backend/src/x/shared/utils',
+      'backend/src/y/shared/utils',
+    ];
+    const graph: CommunityGraph = {
+      nodes: folders.flatMap(pair),
+      edges: folders.map(folder => { const [source, target] = pair(folder); return { source, target }; }),
+    };
+    const result = detectLouvainCommunityAssignments(graph, '/repo');
+    const keyOf = (folder: string) => result.get(`/repo/${folder}/a.ts`)?.communityKey;
+
+    expect(keyOf(folders[0])).toBe('auditCheck/closureVAT');
+    expect(keyOf(folders[1])).toBe('accountingLine/domain');
+    expect(keyOf(folders[2])).toBe('accountingPeriod/domain');
+    expect(keyOf(folders[3])).toBe('x/shared/utils');
+    expect(keyOf(folders[4])).toBe('y/shared/utils');
   });
 
   it('returns an empty map for an empty graph', () => {

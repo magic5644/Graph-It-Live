@@ -689,7 +689,7 @@ graph-it architecture --communities louvain --format json
 | Mode | Groups files by | `communityKey` |
 |------|-----------------|----------------|
 | `path` (default) | First functional folder after `src`, `lib`, `packages`… | Folder name, e.g. `analyzer` |
-| `louvain` | Import structure: deterministic Louvain (modularity), files that import each other end up together | Dominant folder of the members, e.g. `src/analyzer`, or the most connected file for root-level files; `#<id>` is appended when two communities share a folder |
+| `louvain` | Import structure: deterministic Louvain (modularity), files that import each other end up together | Dominant folder of the members, or the most connected file for root-level files, cut to its last two segments (more when needed to stay distinct), e.g. `analyzer/graph-context`; `#<id>` is appended when two communities share a folder |
 
 Files without a folder domain (`path`) or without any import edge (`louvain`) get `communityId` `0`.
 
