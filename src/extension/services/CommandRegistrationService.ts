@@ -216,6 +216,9 @@ export class CommandRegistrationService {
       if (key === 'graph-it-live.callGraphCycleCount') {
         return this.provider.getCallGraphCycleCount();
       }
+      if (key === 'graph-it-live.fileGraphNodeMetadata') {
+        return this.provider.getFileGraphNodeMetadata();
+      }
       // Return undefined for unknown keys
       return undefined;
     });

@@ -119,3 +119,18 @@ describe('CommunityLegend', () => {
     expect(span2.textContent).toBe('B.ts');
   });
 });
+
+describe('CommunityLegend subtitle', () => {
+  const communities = [{ id: 1, label: 'src/api', color: '#123456', key: 'domain:src/api', count: 2 }];
+
+  it('says folders by default', () => {
+    render(React.createElement(CommunityLegend, { communities }));
+    expect(screen.getByText('Groups based on folders')).toBeTruthy();
+  });
+
+  it('says imports in louvain mode', () => {
+    render(React.createElement(CommunityLegend, { communities, communityMode: 'louvain' }));
+    expect(screen.getByText('Groups based on imports (Louvain)')).toBeTruthy();
+    expect(screen.queryByText('Groups based on folders')).toBeNull();
+  });
+});

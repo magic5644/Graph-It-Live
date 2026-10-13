@@ -132,6 +132,20 @@ describe("formatOutput - text", () => {
     expect(out).toContain("skipped files: 2");
     expect(out).toContain("details available with --format json");
     expect(out).not.toContain("Parse error: unexpected token");
+    expect(out).not.toContain("Largest communities");
+  });
+
+  it("lists the largest communities in text architecture output", () => {
+    const node = (relativePath: string, communityKey: string) => ({ relativePath, communityKey });
+    const out = formatOutput({
+      workspaceRoot: "/repo",
+      nodes: [
+        node("src/a/x.ts", "src/a"), node("src/a/y.ts", "src/a"),
+        node("src/b/z.ts", "src/b"), node("index.ts", ""),
+      ],
+    }, "text", "architecture");
+
+    expect(out).toContain("Largest communities (2 total):\n  - src/a  files:2\n  - src/b  files:1");
   });
 });
 

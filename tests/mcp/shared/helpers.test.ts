@@ -127,6 +127,20 @@ describe("MCP Worker Helpers", () => {
       expect(nodes[0].dependentCount).toBe(0);
     });
 
+    it("should attach communityKey only when the node has one", () => {
+      const named = normalizePath("/proj/src/a.ts");
+      const isolated = normalizePath("/proj/b.ts");
+      const metadata = {
+        [named]: { hubScore: 0, communityId: 1, communityKey: "src" },
+        [isolated]: { hubScore: 0, communityId: 0, communityKey: "" },
+      };
+
+      const nodes = buildNodeInfo([named, isolated], new Map(), new Map(), "/proj", metadata);
+
+      expect(nodes[0].communityKey).toBe("src");
+      expect(nodes[1]).not.toHaveProperty("communityKey");
+    });
+
     it("should not include hubScore/communityId when metadata is undefined", () => {
       const nodePaths = [normalizePath("/proj/src/a.ts")];
       const nodes = buildNodeInfo(nodePaths, new Map(), new Map(), "/proj", undefined);

@@ -11,6 +11,24 @@ import { normalizePath } from '../../src/shared/path.js';
 import type { GraphData } from '../../src/shared/graph-types.js';
 
 describe('computeNodeMetadata', () => {
+  it('groups by import structure in louvain mode, by folder by default', () => {
+    const a = '/project/src/service/a.ts';
+    const b = '/project/src/utils/b.ts';
+    const c = '/project/src/other/c.ts';
+    const graph = (): GraphData => ({ nodes: [a, b, c], edges: [{ source: a, target: b }] });
+
+    const byFolder = graph();
+    computeNodeMetadata(byFolder, '/project');
+    expect(byFolder.nodeMetadata?.[a].communityKey).toBe('service');
+    expect(byFolder.nodeMetadata?.[b].communityKey).toBe('utils');
+
+    const structural = graph();
+    computeNodeMetadata(structural, '/project', 'louvain');
+    expect(structural.nodeMetadata?.[a]).toMatchObject({ communityId: 1, communityKey: 'src/service' });
+    expect(structural.nodeMetadata?.[b]).toMatchObject({ communityId: 1, communityKey: 'src/service' });
+    expect(structural.nodeMetadata?.[c]).toMatchObject({ communityId: 0, communityKey: '' });
+  });
+
   it('keeps domain keys when numeric community ids change', () => {
     const a = '/project/src/service/a.ts';
     const b = '/project/src/utils/b.ts';

@@ -67,6 +67,35 @@ describe('architecture command', () => {
     expect(parsed.edges[0]).toMatchObject({ source: fileA, target: fileB });
   });
 
+  it('assigns communities by folder by default and by imports with --communities louvain', async () => {
+    const workspaceRoot = '/workspace';
+    const fileA = normalizePath(path.resolve(workspaceRoot, 'src/api/a.ts'));
+    const fileB = normalizePath(path.resolve(workspaceRoot, 'src/db/b.ts'));
+    const runtime = { workspaceRoot, ensureIndexed: vi.fn().mockResolvedValue(undefined) };
+    const runWith = async (args: string[]) => {
+      mocks.collectAllSourceFiles.mockResolvedValueOnce([fileA, fileB]);
+      mocks.executeAnalyzeDependencies
+        .mockResolvedValueOnce({ dependencies: [{ path: fileB, type: 'import', line: 1, module: '../db/b' }] })
+        .mockResolvedValueOnce({ dependencies: [] });
+      const parsed = JSON.parse(await run(args, runtime as never, 'json')) as {
+        nodes: Array<{ path: string; communityId: number; communityKey: string }>;
+      };
+      return new Map(parsed.nodes.map((node) => [node.path, node]));
+    };
+
+    const byFolder = await runWith([]);
+    expect(byFolder.get(fileA)?.communityKey).toBe('api');
+    expect(byFolder.get(fileB)?.communityKey).toBe('db');
+
+    const structural = await runWith(['--communities', 'louvain']);
+    expect(structural.get(fileA)).toMatchObject({ communityId: 1, communityKey: 'src/api' });
+    expect(structural.get(fileB)).toMatchObject({ communityId: 1, communityKey: 'src/api' });
+
+    await expect(run(['--communities', 'folders'], runtime as never, 'json')).rejects.toThrow(
+      '--communities must be path or louvain, got "folders"',
+    );
+  });
+
   it('respects --maxFiles cap', async () => {
     const workspaceRoot = '/workspace';
     const files = [

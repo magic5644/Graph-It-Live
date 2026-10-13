@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   detectLouvainCommunities,
+  detectLouvainCommunityAssignments,
   labelCommunity,
 } from '../../../src/analyzer/community/LouvainCommunityDetector';
 import type { CommunityGraph } from '../../../src/analyzer/community/types';
@@ -170,5 +171,82 @@ describe('labelCommunity', () => {
 
   it('normalizes Windows separators', () => {
     expect(labelCommunity([String.raw`src\a\x.ts`, 'src/a/y.ts'], 'hub')).toBe('src/a');
+  });
+});
+
+describe('detectLouvainCommunityAssignments', () => {
+  it('keys each community by its dominant workspace-relative folder and keeps isolated nodes unnamed', () => {
+    const result = detectLouvainCommunityAssignments(twoCliques(), '/project');
+
+    expect(result.get('/project/left/a.ts')).toEqual({ communityId: 1, communityKey: 'left' });
+    expect(result.get('/project/right/h.ts')).toEqual({ communityId: 2, communityKey: 'right' });
+    expect(result.get('/project/isolated.ts')).toEqual({ communityId: 0, communityKey: '' });
+  });
+
+  it('names a root-level community after its most connected file', () => {
+    const edges = ['/project/a.ts', '/project/b.ts'].map(source => ({ source, target: '/project/hub.ts' }));
+    const result = detectLouvainCommunityAssignments(
+      { nodes: ['/project/a.ts', '/project/b.ts', '/project/hub.ts'], edges },
+      '/project',
+    );
+
+    expect(result.get('/project/a.ts')).toEqual({ communityId: 1, communityKey: 'hub.ts' });
+  });
+
+  it('suffixes the id when two communities share a dominant folder', () => {
+    const graph: CommunityGraph = {
+      nodes: ['/project/src/a.ts', '/project/src/b.ts', '/project/src/c.ts', '/project/src/d.ts'],
+      edges: [
+        { source: '/project/src/a.ts', target: '/project/src/b.ts' },
+        { source: '/project/src/c.ts', target: '/project/src/d.ts' },
+      ],
+    };
+    const keys = [...detectLouvainCommunityAssignments(graph, '/project').values()].map(value => value.communityKey);
+
+    expect(new Set(keys)).toEqual(new Set(['src', 'src #2']));
+  });
+
+  it('labels Windows paths relative to the workspace root', () => {
+    const graph = twoCliques(String.raw`C:\project`);
+    const windows: CommunityGraph = {
+      nodes: graph.nodes.map(node => node.replaceAll('/', '\\')),
+      edges: graph.edges.map(edge => ({ source: edge.source.replaceAll('/', '\\'), target: edge.target.replaceAll('/', '\\') })),
+    };
+    const result = detectLouvainCommunityAssignments(windows, String.raw`C:\project`);
+
+    expect(result.get('c:/project/left/a.ts')?.communityKey).toBe('left');
+  });
+
+  it('shortens absolute folders without a workspace root', () => {
+    const result = detectLouvainCommunityAssignments(twoCliques());
+
+    expect(result.get('/project/left/a.ts')?.communityKey).toBe('project/left');
+  });
+
+  it('keeps the last two folder segments, longer only when they clash', () => {
+    const pair = (folder: string) => [`/repo/${folder}/a.ts`, `/repo/${folder}/b.ts`];
+    const folders = [
+      'backend/src/audit/models/auditCheck/closureVAT',
+      'backend/src/accountingLine/domain',
+      'backend/src/accountingPeriod/domain',
+      'backend/src/x/shared/utils',
+      'backend/src/y/shared/utils',
+    ];
+    const graph: CommunityGraph = {
+      nodes: folders.flatMap(pair),
+      edges: folders.map(folder => { const [source, target] = pair(folder); return { source, target }; }),
+    };
+    const result = detectLouvainCommunityAssignments(graph, '/repo');
+    const keyOf = (folder: string) => result.get(`/repo/${folder}/a.ts`)?.communityKey;
+
+    expect(keyOf(folders[0])).toBe('auditCheck/closureVAT');
+    expect(keyOf(folders[1])).toBe('accountingLine/domain');
+    expect(keyOf(folders[2])).toBe('accountingPeriod/domain');
+    expect(keyOf(folders[3])).toBe('x/shared/utils');
+    expect(keyOf(folders[4])).toBe('y/shared/utils');
+  });
+
+  it('returns an empty map for an empty graph', () => {
+    expect(detectLouvainCommunityAssignments({ nodes: [], edges: [] }, '/project').size).toBe(0);
   });
 });

@@ -9,6 +9,7 @@ import {
     setLoggerBackend,
 } from "../shared/logger";
 import {
+    CommunityMode,
     EmptyStateMessage,
     ExpandedGraphMessage,
     ExpansionProgressMessage,
@@ -213,6 +214,7 @@ const App: React.FC = () => {
   >("none");
   const [filterUnused, setFilterUnused] = React.useState<boolean>(false);
   const [showCommunities, setShowCommunities] = React.useState<boolean>(true);
+  const [communityMode, setCommunityMode] = React.useState<CommunityMode>("path");
   const [layout, setLayout] = React.useState<
     "hierarchical" | "force" | "radial"
   >("hierarchical");
@@ -359,6 +361,9 @@ const App: React.FC = () => {
       }
       if (message.showCommunities !== undefined) {
         setShowCommunities(message.showCommunities);
+      }
+      if (message.communityMode !== undefined) {
+        setCommunityMode(message.communityMode);
       }
     },
     [],
@@ -963,6 +968,7 @@ const App: React.FC = () => {
             unusedDependencyMode={unusedDependencyMode}
             filterUnused={filterUnused}
             showCommunities={showCommunities}
+            communityMode={communityMode}
             mode={viewMode as "file" | "symbol"}
             symbolData={symbolData}
             layout={layout}

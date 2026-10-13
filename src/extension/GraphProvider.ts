@@ -9,6 +9,7 @@ import { Spider } from "../analyzer/Spider";
 import { SUPPORTED_SOURCE_FILE_REGEX } from "../shared/constants";
 import type {
   ExtensionToWebviewMessage,
+  GraphData,
   WebviewToExtensionMessage,
 } from "../shared/types";
 import { getExtensionLogger } from "./extensionLogger";
@@ -59,6 +60,8 @@ export class GraphProvider implements vscode.WebviewViewProvider {
   private readonly _messageDispatcher: MessageDispatcher;
   private readonly _stateManager: ProviderStateManager;
   private readonly _graphState: GraphState;
+  /** Node metadata of the last file graph sent to the webview — E2E observability only. */
+  private _lastFileGraphMetadata: GraphData["nodeMetadata"];
   /**
    * Optional callback used by EditorEventsService to notify MCP server.
    * Populated by extension activation if MCP server is registered.
@@ -1263,6 +1266,10 @@ export class GraphProvider implements vscode.WebviewViewProvider {
     return this._graphState.getReverseDependenciesVisible();
   }
 
+  public getFileGraphNodeMetadata(): GraphData["nodeMetadata"] {
+    return this._lastFileGraphMetadata;
+  }
+
   /** E2E observability pass-throughs to CallGraphViewService */
   public getCallGraphRenderCount(): number {
     return this._callGraphViewService?.getCallGraphRenderCount() ?? 0;
@@ -1446,8 +1453,10 @@ export class GraphProvider implements vscode.WebviewViewProvider {
         unusedDependencyMode: effectiveMode,
         filterUnused: filterActive,
         showCommunities: this._configSnapshot.showCommunities,
+        communityMode: this._configSnapshot.communityMode,
       };
       this._view.webview.postMessage(initialMessage);
+      this._lastFileGraphMetadata = initialGraphData.nodeMetadata;
 
       // Step 2: If usage check is required, perform it and send update
       if (checkUsage) {
@@ -1479,6 +1488,7 @@ export class GraphProvider implements vscode.WebviewViewProvider {
           unusedDependencyMode: effectiveMode,
           filterUnused: filterActive,
           showCommunities: this._configSnapshot.showCommunities,
+          communityMode: this._configSnapshot.communityMode,
         };
 
         this._view.webview.postMessage(enrichedMessage);

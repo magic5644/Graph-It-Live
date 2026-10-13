@@ -101,6 +101,20 @@ describe("trace and path commands", () => {
       expect(mocks.executeCrawlDependencyGraph).not.toHaveBeenCalled();
     });
 
+    it("passes --communities to the crawl and rejects an unknown mode before crawling", async () => {
+      await runPath(["a.ts", "--communities", "louvain"], runtime(), "json");
+      expect(mocks.executeCrawlDependencyGraph).toHaveBeenCalledWith({
+        entryFile: path.join(root, "a.ts"),
+        communityMode: "louvain",
+      });
+
+      mocks.executeCrawlDependencyGraph.mockClear();
+      await expect(runPath(["a.ts", "--communities", "folders"], runtime(), "json")).rejects.toThrow(
+        `--communities must be path or louvain, got "folders"`,
+      );
+      expect(mocks.executeCrawlDependencyGraph).not.toHaveBeenCalled();
+    });
+
     it("requires an entry file", async () => {
       await expect(runPath([], runtime(), "json")).rejects.toThrow("Usage: graph-it path");
     });

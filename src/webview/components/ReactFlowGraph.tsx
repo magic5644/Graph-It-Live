@@ -13,7 +13,7 @@ import ReactFlow, {
 // @ts-expect-error - ReactFlow types are complex
 import reactFlowStyles from "reactflow/dist/style.css";
 import { getLogger } from "../../shared/logger";
-import { GraphData, SymbolDependency, SymbolInfo } from "../../shared/types";
+import { CommunityMode, GraphData, SymbolDependency, SymbolInfo } from "../../shared/types";
 import {
   createDebouncedRafScheduler,
   createSizePoller,
@@ -103,6 +103,8 @@ interface ReactFlowGraphProps {
   onHighlight?: (symbolId: string) => void;
   /** Whether to show community tint and legend (default true) */
   showCommunities?: boolean;
+  /** How communities were computed; only changes the legend wording */
+  communityMode?: CommunityMode;
 }
 
 function stableGlobal<T>(key: string, factory: () => T): T {
@@ -368,6 +370,7 @@ const ReactFlowGraphContent: React.FC<ReactFlowGraphProps> = ({
   unusedDependencyMode = "none",
   filterUnused: backendFilterUnused,
   showCommunities = true,
+  communityMode = "path",
   mode = "file",
   symbolData,
   onLayoutChange,
@@ -1351,6 +1354,7 @@ const ReactFlowGraphContent: React.FC<ReactFlowGraphProps> = ({
         )}
         {mode === 'file' && showCommunities && <CommunityLegend
           communities={communities}
+          communityMode={communityMode}
           excluded={excludedCommunities}
           onToggle={toggleCommunity}
           onShowAll={showAllCommunities}

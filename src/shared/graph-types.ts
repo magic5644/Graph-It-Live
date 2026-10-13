@@ -10,6 +10,10 @@ export interface GraphEdge {
   relationType?: "dependency" | "call" | "reference";
 }
 
+/** File-graph community detection: `path` groups by folder (default), `louvain` by import structure. */
+export const COMMUNITY_MODES = ["path", "louvain"] as const;
+export type CommunityMode = (typeof COMMUNITY_MODES)[number];
+
 /**
  * Per-node metadata for the file-level dependency graph.
  * All fields except hubScore are optional — absent means "not available", never default to 0.
@@ -22,7 +26,7 @@ export interface GraphNodeMetadata {
   /** File extension without leading dot, lowercase (e.g. "ts", "tsx", "py"). Absent if unknown or empty. */
   fileExtension?: string;
   /**
-   * Path-based community assignment.
+   * Community assignment (path or Louvain, see CommunityMode).
    * 0 = no domain. 1+ = cluster id. absent = not yet computed.
    */
   communityId?: number;

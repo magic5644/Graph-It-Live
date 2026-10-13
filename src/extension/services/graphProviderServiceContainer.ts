@@ -3,6 +3,7 @@ import * as vscode from "vscode";
 import { Spider } from "../../analyzer/Spider";
 import { SpiderBuilder } from "../../analyzer/SpiderBuilder";
 import type { CallGraphWebviewCommand } from "../../shared/callgraph-types";
+import type { CommunityMode } from "../../shared/graph-types";
 import type { VsCodeLogger } from "../extensionLogger";
 import { WebviewManager } from "../WebviewManager";
 import { BackgroundIndexingManager } from "./BackgroundIndexingManager";
@@ -24,6 +25,12 @@ import { ServiceContainer, ServiceToken } from "./ServiceContainer";
 import { SourceFileWatcher } from "./SourceFileWatcher";
 import { SymbolViewService } from "./SymbolViewService";
 import { UnusedAnalysisCache } from "./UnusedAnalysisCache";
+
+// Read on every graph build, so changing the setting applies on the refresh it triggers.
+function readCommunityMode(): CommunityMode {
+  const mode = vscode.workspace.getConfiguration("graph-it-live").get<string>("communityMode", "path");
+  return mode === "louvain" ? "louvain" : "path";
+}
 
 export const graphProviderServiceTokens = {
   spider: Symbol("Spider") as ServiceToken<Spider>,
@@ -174,6 +181,7 @@ export function createGraphProviderServiceContainer(
           unusedAnalysisMaxEdges: configSnapshot.unusedAnalysisMaxEdges,
         },
         container.get(graphProviderServiceTokens.unusedAnalysisCache),
+        readCommunityMode,
       );
     });
 
@@ -184,7 +192,7 @@ export function createGraphProviderServiceContainer(
 
     container.register(
       graphProviderServiceTokens.nodeInteractionService,
-      () => new NodeInteractionService(container.get(graphProviderServiceTokens.spider), options.logger),
+      () => new NodeInteractionService(container.get(graphProviderServiceTokens.spider), options.logger, readCommunityMode),
     );
 
     container.register(

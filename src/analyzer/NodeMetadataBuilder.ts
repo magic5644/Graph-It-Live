@@ -1,6 +1,7 @@
 import * as path from 'node:path';
-import type { GraphData, GraphNodeMetadata } from '../shared/graph-types.js';
+import type { CommunityMode, GraphData, GraphNodeMetadata } from '../shared/graph-types.js';
 import { normalizePath } from '../shared/path.js';
+import { detectLouvainCommunityAssignments } from './community/LouvainCommunityDetector.js';
 import { detectPathCommunityAssignments } from './community/PathCommunityDetector.js';
 
 /**
@@ -14,10 +15,15 @@ import { detectPathCommunityAssignments } from './community/PathCommunityDetecto
  *
  * fileExtension: path.extname(filePath).slice(1).toLowerCase(), omitted if empty.
  * loc: not computed here (would require FS read) — absent on all nodes.
+ * communityId/communityKey: folder-based for `path` (default), import-structure-based for `louvain`.
  *
  * CRITICAL ARCHITECTURE RULE: NO import from 'vscode' — pure Node.js only.
  */
-export function computeNodeMetadata(graphData: GraphData, workspaceRoot?: string): void {
+export function computeNodeMetadata(
+  graphData: GraphData,
+  workspaceRoot?: string,
+  communityMode: CommunityMode = 'path',
+): void {
   const nodes = graphData.nodes;
   if (nodes.length === 0) return;
 
@@ -44,7 +50,9 @@ export function computeNodeMetadata(graphData: GraphData, workspaceRoot?: string
   graphData.nodeMetadata = nodeMetadata;
 
   try {
-    const communityMap = detectPathCommunityAssignments(graphData.nodes, workspaceRoot);
+    const communityMap = communityMode === 'louvain'
+      ? detectLouvainCommunityAssignments(graphData, workspaceRoot)
+      : detectPathCommunityAssignments(graphData.nodes, workspaceRoot);
     for (const [filePath, assignment] of communityMap) {
       const meta = graphData.nodeMetadata?.[normalizePath(filePath)];
       if (meta) Object.assign(meta, assignment);

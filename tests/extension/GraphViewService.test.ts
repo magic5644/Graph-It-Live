@@ -55,4 +55,21 @@ describe('GraphViewService', () => {
     expect(data.parentCounts).toBeUndefined();
     expect(spider.getCallerCount).not.toHaveBeenCalled();
   });
+
+  it('assigns communities with the mode read at build time', async () => {
+    const api = '/workspace/src/api/a.ts';
+    const db = '/workspace/src/db/b.ts';
+    (spider.crawl as ReturnType<typeof vi.fn>).mockResolvedValue({ nodes: [api, db], edges: [{ source: api, target: db }] });
+    (spider.hasReverseIndex as ReturnType<typeof vi.fn>).mockReturnValue(false);
+    Object.assign(spider, { workspaceRoot: '/workspace' });
+    let mode: 'path' | 'louvain' = 'path';
+    const service = new GraphViewService(spider, logger, defaultConfig, undefined, () => mode);
+
+    const byFolder = await service.buildGraphData(api);
+    expect(byFolder.nodeMetadata?.[db].communityKey).toBe('db');
+
+    mode = 'louvain';
+    const structural = await service.buildGraphData(api);
+    expect(structural.nodeMetadata?.[db]).toMatchObject({ communityId: 1, communityKey: 'src/api' });
+  });
 });

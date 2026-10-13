@@ -8,13 +8,15 @@
  */
 
 import * as path from "node:path";
+import { computeNodeMetadata } from "../../analyzer/NodeMetadataBuilder.js";
 import { SourceFileCollector } from "../../analyzer/SourceFileCollector.js";
 import { executeAnalyzeDependencies } from "../../mcp/tools";
 import { validateFilePath } from "../../mcp/types";
+import type { GraphData } from "../../shared/graph-types.js";
 import { normalizePath } from "../../shared/path.js";
 import type { CliOutputFormat } from "../formatter";
 import { formatOutput } from "../formatter";
-import { readIntegerOption } from "../options";
+import { readCommunityMode, readIntegerOption } from "../options";
 import type { CliRuntime } from "../runtime";
 
 interface ArchitectureNode {
@@ -138,6 +140,7 @@ export async function run(
   format: CliOutputFormat,
 ): Promise<string> {
   const maxFiles = parseMaxFiles(args);
+  const communityMode = readCommunityMode(args);
 
   await runtime.ensureIndexed();
 
@@ -162,13 +165,17 @@ export async function run(
     }
   }
 
+  const edges = [...acc.edgesByKey.values()];
+  const graphData: GraphData = { nodes: [...acc.nodesByPath.keys()], edges };
+  computeNodeMetadata(graphData, runtime.workspaceRoot, communityMode);
+
   const nodes = [...acc.nodesByPath.values()].map((node) => ({
     ...node,
     dependencyCount: acc.dependencyCount.get(node.path) ?? 0,
     dependentCount: acc.dependentCount.get(node.path) ?? 0,
+    communityId: graphData.nodeMetadata?.[node.path]?.communityId ?? 0,
+    communityKey: graphData.nodeMetadata?.[node.path]?.communityKey ?? "",
   }));
-
-  const edges = [...acc.edgesByKey.values()];
 
   const architecture = {
     workspaceRoot: runtime.workspaceRoot,

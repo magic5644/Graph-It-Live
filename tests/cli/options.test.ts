@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { CliError, ExitCode } from "../../src/cli/errors";
-import { readIntegerOption } from "../../src/cli/options";
+import { readCommunityMode, readIntegerOption } from "../../src/cli/options";
 
 describe("readIntegerOption", () => {
   it("returns undefined when the flag is absent", () => {
@@ -44,5 +44,27 @@ describe("readIntegerOption", () => {
       expect(error).toBeInstanceOf(CliError);
       expect((error as CliError).exitCode).toBe(ExitCode.GENERAL_ERROR);
     }
+  });
+});
+
+describe("readCommunityMode", () => {
+  it("returns undefined when the flag is absent", () => {
+    expect(readCommunityMode(["src/a.ts", "--maxDepth", "3"])).toBeUndefined();
+  });
+
+  it.each([
+    [["--communities", "path"], "path"],
+    [["src/a.ts", "--communities", "louvain"], "louvain"],
+  ])("reads %j", (args, expected) => {
+    expect(readCommunityMode(args)).toBe(expected);
+  });
+
+  it.each([
+    [["--communities", "Louvain"], `--communities must be path or louvain, got "Louvain"`],
+    [["--communities", "folders"], `--communities must be path or louvain, got "folders"`],
+    [["--communities"], "--communities must be path or louvain, got no value"],
+    [["--communities", "--format"], "--communities must be path or louvain, got no value"],
+  ])("rejects %j", (args, message) => {
+    expect(() => readCommunityMode(args)).toThrow(message);
   });
 });

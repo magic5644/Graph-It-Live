@@ -78,7 +78,7 @@ const TOOL_DESCRIPTIONS: Record<DescribedToolName, ToolDescription> = {
       },
       "WHY: crawls real import edges across the workspace rather than inferring structure from file names.",
       {
-        mcp: "RETURNS: nodes (path, extension, dependency count, dependent count, circular flag) and edges (import relations); paginated via offset/limit.",
+        mcp: "RETURNS: nodes (path, extension, dependency count, dependent count, circular flag, communityId/communityKey: by folder, or by import structure with communityMode 'louvain') and edges (import relations); paginated via offset/limit.",
         lm: "RETURNS: nodes (workspace-relative path) and edges (import relations, source and target). maxDepth defaults to the configured graph-it-live.maxDepth, else 3.",
       },
       { mcp: `LIMITS: ${TOKEN_BUDGET_LIMIT}` },

@@ -262,6 +262,15 @@ describe('CrawlDependencyGraphParamsSchema', () => {
     }
   });
 
+  it('accepts communityMode path or louvain and rejects other values', () => {
+    const parse = (communityMode: unknown) =>
+      CrawlDependencyGraphParamsSchema.safeParse({ entryFile: '/project/src/main.ts', communityMode });
+    expect(CrawlDependencyGraphParamsSchema.parse({ entryFile: '/project/src/main.ts' }).communityMode).toBeUndefined();
+    expect(parse('path').success).toBe(true);
+    expect(parse('louvain').success).toBe(true);
+    expect(parse('folders').success).toBe(false);
+  });
+
   it('validates minimal parameters', () => {
     const result = CrawlDependencyGraphParamsSchema.safeParse({
       entryFile: '/project/src/main.ts',

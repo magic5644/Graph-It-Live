@@ -312,6 +312,7 @@ Set these options in VS Code settings:
 | `graph-it-live.excludeNodeModules` | `true` | Exclude dependencies from `node_modules` |
 | `graph-it-live.enableBackgroundIndexing` | `true` | Build reverse-dependency indexes in the background |
 | `graph-it-live.unusedDependencyMode` | `hide` | Hide or dim unused dependencies |
+| `graph-it-live.communityMode` | `path` | Group graph communities by folder (`path`) or by import structure (`louvain`); same as CLI `--communities` |
 | `graph-it-live.preIndexCallGraph` | `true` | Pre-index the Live Call Graph |
 | `graph-it-live.symbolViewLayout` | `hierarchical` | Select `hierarchical`, `force-directed`, or `radial` |
 
