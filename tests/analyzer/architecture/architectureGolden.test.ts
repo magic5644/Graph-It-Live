@@ -18,8 +18,12 @@ describe.each(fixtures)("architecture golden output: %s", (fixture) => {
   const rootDir = path.resolve(__dirname, "../../fixtures", fixture);
   const root = normalizePath(rootDir);
   // Absolute paths differ per machine and OS; snapshots keep them relative to the fixture.
+  // workspaceRoot is echoed as given (backslashes on Windows), every other path is normalized.
   const stable = (value: unknown) =>
-    JSON.stringify(value, null, 2).replaceAll(JSON.stringify(root).slice(1, -1), "<root>") + "\n";
+    [rootDir, root].reduce(
+      (json, absolute) => json.replaceAll(JSON.stringify(absolute).slice(1, -1), "<root>"),
+      JSON.stringify(value, null, 2),
+    ) + "\n";
 
   beforeEach(() => {
     workerState.parser = new Parser();
