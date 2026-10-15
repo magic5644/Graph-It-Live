@@ -142,6 +142,7 @@ graph-it trace <file#Symbol>          Trace execution from a symbol
 graph-it explain <file>               Explain intra-file call flow
 graph-it path <file>                  Show a dependency path
 graph-it check [path]                 Find unused exported symbols
+graph-it architecture --groups        Show the workspace architecture by community
 graph-it query "<question>"           Ask a natural-language graph question
 graph-it context "<question>"         Retrieve bounded graph context
 graph-it wiki                         Generate a navigable Markdown wiki
@@ -150,7 +151,7 @@ graph-it export [path]                Export the graph as HTML
 graph-it --help                       Show all commands and options
 ```
 
-Analysis commands support `--format json|toon|markdown`. `trace` and `path` also support `--format mermaid`. Use `--workspace <path>` or `-w` to analyze a project other than the current directory.
+Analysis commands support `--format json|toon|markdown`. `trace`, `path` and `architecture` also support `--format mermaid`. Use `--workspace <path>` or `-w` to analyze a project other than the current directory.
 
 See the [complete CLI reference](docs/CLI.md), including installation troubleshooting, REPL commands, output formats, and tool details.
 

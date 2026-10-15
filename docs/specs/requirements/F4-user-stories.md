@@ -5,7 +5,7 @@
 **Date** : 2026-06-29
 **Dépendances feature** : F2 (NodeMetadataBuilder, `hubScore`, `fileExtension` — source of truth)
 
-> **Mise à jour 2026-10 :** livré puis remplacé. Le module Louvain est `src/analyzer/community/LouvainCommunityDetector.ts` (et non `src/analyzer/CommunityDetector.ts`), utilisé seulement par les statistiques `graph_context` (#337). `NodeMetadataBuilder` utilise la détection par dossier `src/analyzer/community/PathCommunityDetector.ts`. Voir ADR-F4-01.
+> **Mise à jour 2026-10 :** livré puis remplacé. Le module Louvain est `src/analyzer/community/LouvainCommunityDetector.ts` (et non `src/analyzer/CommunityDetector.ts`), utilisé par les statistiques `graph_context` (#337) et, en option `louvain`, par `NodeMetadataBuilder` (#338). Par défaut, `NodeMetadataBuilder` utilise la détection par dossier `src/analyzer/community/PathCommunityDetector.ts`. Voir ADR-F4-01.
 
 ---
 
