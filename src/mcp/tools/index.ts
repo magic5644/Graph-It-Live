@@ -22,6 +22,9 @@ export {
     executeFindReferencingFiles
 } from "./graph";
 export {
+    executeExploreArchitecture
+} from "./architecture";
+export {
     executeGraphContext
 } from "./graphContext";
 export {

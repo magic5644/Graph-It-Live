@@ -17,6 +17,7 @@ const executors = vi.hoisted(() => {
     "executeParseImports", "executeQueryCallGraph", "executeReviewPr", "executeRebuildIndex",
     "executeResolveModulePath", "executeScanDeadCode", "executeTraceFunctionExecution",
     "executeVerifyDependencyUsage", "executeQueryNaturalLanguage", "executeGenerateWiki",
+    "executeExploreArchitecture",
   ];
   return Object.fromEntries(names.map((name) => [name, vi.fn(async () => ({ ok: name }))]));
 });
@@ -88,6 +89,7 @@ describe("invokeTool", () => {
       ["review_pr", "executeReviewPr", { baseRef: "HEAD" }],
       ["graph_context", "executeGraphContext", { question: "q" }],
       ["query_natural_language", "executeQueryNaturalLanguage", { question: "q" }],
+      ["explore_architecture", "executeExploreArchitecture", { from: "api", to: "db" }],
     ] as const) {
       expect((await call(tool, params)).type).toBe("result");
       expect(executors[executor]).toHaveBeenCalledTimes(1);

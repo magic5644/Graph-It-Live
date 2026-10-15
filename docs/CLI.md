@@ -708,6 +708,8 @@ With `--format mermaid` (or `markdown`), `--groups` draws a `flowchart LR` from 
 
 Node ids are numeric (`G1`, `F0`), so identical labels in different groups, quotes, `|`, `#` or Windows paths keep the diagram valid. The same renderer draws the [wiki](#wiki) index diagram.
 
+Agents explore the same groups step by step with the MCP tool [`explore_architecture`](#explore_architecture): it builds the same graph, so for the same `--maxFiles` and community mode its `totals`, `groups` and `groupEdges` counts equal this output.
+
 #### Curated diagrams
 
 The generated diagram shows structure, not intent. For a presentation-grade diagram (like `docs/architecture/*.html`), feed the grouped JSON to a diagram skill such as `architecture-diagram` or `archify`:
@@ -1341,6 +1343,7 @@ Available MCP tools:
   generate_codemap             Returns one file's exports, internals, dependencies, dependents and internal call flow in a single call.
   query_call_graph             Traces calls across files for several hops, in either direction, from a SQLite-backed call graph.
   scan_dead_code               Lists the unused exported symbols across a whole workspace or directory.
+  explore_architecture         Explores the workspace architecture step by step: groups, one group's boundary, then the file pairs behind a group edge.
 ```
 
 **Calling a tool with parameters:**
@@ -1539,7 +1542,7 @@ Requires an active internet connection and `npm` in `PATH`.
 
 ## MCP Tools Reference (via `graph-it tool`)
 
-The `graph-it tool` command invokes 22 analysis tools by name: the 17 MCP analysis tools and five CLI-only transition aliases. The MCP server exposes 22 tools in total; the five that `graph-it tool` does not list have dedicated CLI equivalents: `review_pr` → `review-pr`, `query_natural_language` → `query`, `generate_wiki` → `wiki`, `get_session_stats` → `stats`, and `set_workspace` → `--workspace` (see [Tool Count: CLI vs MCP](#tool-count-cli-vs-mcp)).
+The `graph-it tool` command invokes 23 analysis tools by name: the 18 MCP analysis tools and five CLI-only transition aliases. The MCP server exposes 23 tools in total; the five that `graph-it tool` does not list have dedicated CLI equivalents: `review_pr` → `review-pr`, `query_natural_language` → `query`, `generate_wiki` → `wiki`, `get_session_stats` → `stats`, and `set_workspace` → `--workspace` (see [Tool Count: CLI vs MCP](#tool-count-cli-vs-mcp)).
 
 ### Tool Details
 
@@ -1866,6 +1869,27 @@ graph-it tool scan_dead_code --scopePath=/abs/path/to/src/utils/
 
 ---
 
+#### `explore_architecture`
+
+**What it returns:** The grouped workspace architecture, one step at a time, from the same graph as [`architecture --groups`](#grouped-output) (same counts for the same `maxFiles` and `communityMode`):
+
+| Request | View | Content |
+|---------|------|---------|
+| no `group`, `from`, `to` | `summary` | `totals`, `unassigned`, the largest `groups` and `groupEdges` (with `fromLabel` / `toLabel`) |
+| `group` | `group` | the group, its `files`, and its `incoming` / `outgoing` group edges |
+| `from` + `to` | `evidence` | the distinct file `pairs` (`source` imports `target`) behind that group edge; empty when the groups are not linked |
+
+```bash
+graph-it tool explore_architecture
+graph-it tool explore_architecture --group=analyzer
+graph-it tool explore_architecture --from=mcp --to=analyzer --limit=20 --offset=20
+graph-it tool explore_architecture --communityMode=louvain
+```
+
+A group is referenced by `key`, `label` or `id` (`0` or `unassigned` for files without a group); an unknown group is an error. Lists are paginated by `limit` (default 50, max 500) and `offset`: `page` gives the totals, `truncated` and `nextOffset`. Every response carries `context` (community mode, graph kind `imports`, scope, exclusions, `maxFiles`, truncation, failed files) and `provenance`, which separates code facts (static import pairs) from computed groupings and states that labels carry no interpretation. Symbols and lines come from `find_referencing_files`, `get_symbol_callers` and `get_impact_analysis`, named in `nextSteps`. The graph is rebuilt on each call, so a page is consistent with the others as long as the code does not change between calls.
+
+---
+
 #### `query_natural_language` (MCP)
 
 **What it returns:** A structured, relevant graph subgraph for the calling model to interpret. The MCP tool does not synthesize prose. The dedicated CLI equivalent, `graph-it query`, returns an answer using the configured provider or its heuristic fallback.
@@ -2047,12 +2071,12 @@ graph-it tool verify_dependency_usage \
 
 ## Tool Count: CLI vs MCP
 
-The CLI exposes **22 tools** via `graph-it tool --list`, and the MCP server provides **22 tools** in total. The two lists overlap on 17 analysis tools:
+The CLI exposes **23 tools** via `graph-it tool --list`, and the MCP server provides **23 tools** in total. The two lists overlap on 18 analysis tools:
 
 | Context | Tool count | Notes |
 |---------|-----------|-------|
-| `graph-it tool --list` | 22 | 17 shared analysis tools + 5 CLI-only transition aliases |
-| MCP server (`graph-it serve`) | 22 | 17 shared analysis tools + 5 excluded from `tool --list` (see below) |
+| `graph-it tool --list` | 23 | 18 shared analysis tools + 5 CLI-only transition aliases |
+| MCP server (`graph-it serve`) | 23 | 18 shared analysis tools + 5 excluded from `tool --list` (see below) |
 
 The five transition aliases overlapped with other tools and confused agents choosing a tool, so the MCP server no longer lists them. The CLI keeps them during a transition:
 
