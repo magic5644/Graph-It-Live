@@ -1244,6 +1244,14 @@ Each article contains:
 
 Export the dependency graph as a standalone, self-contained HTML file (no server required) — open it directly in a browser.
 
+The page groups files by community (same groups and counts as `architecture --groups`):
+
+- The header states workspace, scope, index revision (last scan time), grouping mode and totals (files, file edges split intra-group / inter-group, groups).
+- Groups are drawn as ellipses labelled with their computed name and file count, files as boxes. Graphs above 200 files open collapsed; double-click a group to expand it, a file to collapse its group, or use **Expand all** / **Collapse all**.
+- Edges are directed (importer → imported). An edge touching a collapsed group is labelled with its number of distinct file pairs; click any edge to list those pairs (50 per page).
+- Click a node to list its outgoing (orange) and incoming (blue) dependencies. The filter box matches file paths and group labels.
+- Layout is force-directed only: a layered layout would imply false layering on cyclic groups.
+
 ```
 graph-it export [scope] --format html [options]
 ```
@@ -1259,7 +1267,7 @@ graph-it export [scope] --format html [options]
 | Option | Default | Description |
 |--------|---------|-------------|
 | `--output, -o <file>` | `graph.html` | Output HTML file path |
-| `--communities <mode>` | `path` | Node colors by folder (`path`) or by import structure (`louvain`) |
+| `--communities <mode>` | `path` | Group files by folder domain (`path`) or by import structure (`louvain`) |
 | `--format, -f` | — | Must be `html` — this is the only supported format for `export` |
 | `--workspace, -w` | auto-detected | Project root |
 

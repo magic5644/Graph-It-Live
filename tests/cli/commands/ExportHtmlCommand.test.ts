@@ -13,10 +13,6 @@ vi.mock('../../../src/cli/commands/architecture.js', () => ({
   run: mockArchitectureRun,
 }));
 
-vi.mock('../../../src/shared/path', () => ({
-  normalizePath: (p: string) => p.replaceAll('\\', '/'),
-}));
-
 vi.mock('../../../src/analyzer/NodeMetadataBuilder', () => ({
   computeNodeMetadata: mockComputeNodeMetadata,
 }));
@@ -27,6 +23,7 @@ import type { CliRuntime } from '../../../src/cli/runtime';
 
 const fakeRuntime = {
   workspaceRoot: '/workspace/my-project',
+  loadState: () => ({ lastScanTimestamp: '2026-10-15T09:10:38.000Z' }),
 } as unknown as CliRuntime;
 
 const architectureJsonOutput = JSON.stringify({
@@ -85,34 +82,39 @@ describe('runExportHtml', () => {
     expect(config.workspaceName).toBe('my-project');
   });
 
-  it('builds nodes from architecture output', async () => {
+  it('passes the scoped graph and header context to exportHtml', async () => {
     await runExportHtml(fakeRuntime, 'my-project', []);
 
     const config = mockExportHtml.mock.calls[0][0];
-    expect(config.nodes).toHaveLength(2);
-    expect(config.nodes[0].id).toBe('/workspace/my-project/src/a.ts');
-    expect(config.nodes[0].label).toBe('a.ts');
-    expect(config.nodes[1].id).toBe('/workspace/my-project/src/b.ts');
-    expect(config.nodes[1].label).toBe('b.ts');
+    expect(config.graphData.nodes).toEqual(['/workspace/my-project/src/a.ts', '/workspace/my-project/src/b.ts']);
+    expect(config.graphData.edges).toEqual([
+      { source: '/workspace/my-project/src/a.ts', target: '/workspace/my-project/src/b.ts' },
+    ]);
+    expect(config.context).toEqual({
+      scope: 'workspace',
+      revision: '2026-10-15T09:10:38.000Z',
+      communityMode: 'path',
+      failedFiles: 0,
+    });
+    expect(config.workspaceRoot).toBe('/workspace/my-project');
   });
 
-  it('builds edges from architecture output with id', async () => {
-    await runExportHtml(fakeRuntime, 'my-project', []);
+  it('states a relative scope, the community mode and failed files', async () => {
+    mockArchitectureRun.mockResolvedValue(JSON.stringify({
+      ...JSON.parse(architectureJsonOutput),
+      failedFiles: [{ filePath: '/workspace/my-project/src/x.ts' }],
+    }));
 
-    const config = mockExportHtml.mock.calls[0][0];
-    expect(config.edges).toHaveLength(1);
-    expect(config.edges[0].from).toBe('/workspace/my-project/src/a.ts');
-    expect(config.edges[0].to).toBe('/workspace/my-project/src/b.ts');
-    expect(config.edges[0].id).toBe(
-      '/workspace/my-project/src/a.ts::/workspace/my-project/src/b.ts'
-    );
+    await runExportHtml(fakeRuntime, 'my-project', ['src', '--communities', 'louvain']);
+
+    expect(mockExportHtml.mock.calls[0][0].context).toMatchObject({ scope: 'src', communityMode: 'louvain', failedFiles: 1 });
   });
 
-  it('passes empty unusedEdges by default', async () => {
-    await runExportHtml(fakeRuntime, 'my-project', []);
+  it('names a scope equal to the workspace root "." and tolerates a missing state', async () => {
+    const runtime = { ...fakeRuntime, loadState: () => null } as unknown as CliRuntime;
+    await runExportHtml(runtime, 'my-project', ['.']);
 
-    const config = mockExportHtml.mock.calls[0][0];
-    expect(config.unusedEdges).toEqual([]);
+    expect(mockExportHtml.mock.calls[0][0].context).toMatchObject({ scope: '.', revision: undefined });
   });
 
   it('calls architecture run with json format', async () => {
@@ -135,8 +137,8 @@ describe('runExportHtml', () => {
     await runExportHtml(fakeRuntime, 'my-project', []);
 
     const config = mockExportHtml.mock.calls[0][0];
-    expect(config.nodes).toHaveLength(0);
-    expect(config.edges).toHaveLength(0);
+    expect(config.graphData.nodes).toHaveLength(0);
+    expect(config.graphData.edges).toHaveLength(0);
   });
 
   it('falls back to empty arrays when nodes/edges are not arrays', async () => {
@@ -145,8 +147,8 @@ describe('runExportHtml', () => {
     await runExportHtml(fakeRuntime, 'my-project', []);
 
     const config = mockExportHtml.mock.calls[0][0];
-    expect(config.nodes).toHaveLength(0);
-    expect(config.edges).toHaveLength(0);
+    expect(config.graphData.nodes).toHaveLength(0);
+    expect(config.graphData.edges).toHaveLength(0);
   });
 
   it('falls back to path when node id is absent', async () => {
@@ -160,8 +162,7 @@ describe('runExportHtml', () => {
     await runExportHtml(fakeRuntime, 'my-project', []);
 
     const config = mockExportHtml.mock.calls[0][0];
-    expect(config.nodes[0].id).toBe('/workspace/my-project/src/c.ts');
-    expect(config.nodes[0].label).toBe('c.ts');
+    expect(config.graphData.nodes).toEqual(['/workspace/my-project/src/c.ts']);
   });
 
   it('falls back to empty string when both node id and path are absent', async () => {
@@ -175,7 +176,7 @@ describe('runExportHtml', () => {
     await runExportHtml(fakeRuntime, 'my-project', []);
 
     const config = mockExportHtml.mock.calls[0][0];
-    expect(config.nodes[0].id).toBe('');
+    expect(config.graphData.nodes).toEqual(['']);
   });
 
   it('falls back to empty string when edge source or target are absent', async () => {
@@ -189,26 +190,7 @@ describe('runExportHtml', () => {
     await runExportHtml(fakeRuntime, 'my-project', []);
 
     const config = mockExportHtml.mock.calls[0][0];
-    expect(config.edges[0].from).toBe('');
-    expect(config.edges[0].to).toBe('');
-  });
-
-  it('passes nodeMetadata hubScore when present', async () => {
-    const nodeId = '/workspace/my-project/src/a.ts';
-    mockArchitectureRun.mockResolvedValue(
-      JSON.stringify({
-        nodes: [{ id: nodeId, path: nodeId, nodeMetadata: { hubScore: 0.9 } }],
-        edges: [],
-        nodeMetadata: { [nodeId]: { hubScore: 0.9 } },
-      })
-    );
-
-    // computeNodeMetadata is now mocked and does not populate nodeMetadata by default,
-    // so hubScore remains undefined unless the mock explicitly sets it.
-    await runExportHtml(fakeRuntime, 'my-project', []);
-
-    const config = mockExportHtml.mock.calls[0][0];
-    expect(config.nodes[0].hubScore).toBeUndefined();
+    expect(config.graphData.edges).toEqual([{ source: '', target: '' }]);
   });
 
   it('calls computeNodeMetadata with graphData after parentCounts reconstruction', async () => {
@@ -232,7 +214,7 @@ describe('runExportHtml', () => {
     await runExportHtml(fakeRuntime, 'my-project', ['--communities', 'louvain']);
 
     expect(mockComputeNodeMetadata).toHaveBeenCalledWith(expect.anything(), fakeRuntime.workspaceRoot, 'louvain');
-    expect(mockExportHtml.mock.calls[0][0].nodes).toHaveLength(2);
+    expect(mockExportHtml.mock.calls[0][0].graphData.nodes).toHaveLength(2);
   });
 
   it('uses path communities by default and rejects an unknown mode', async () => {
@@ -244,7 +226,7 @@ describe('runExportHtml', () => {
     );
   });
 
-  it('passes communityId from nodeMetadata to exportHtml nodes', async () => {
+  it('passes the nodeMetadata computed before the scope filter to exportHtml', async () => {
     const nodeId = '/workspace/my-project/src/a.ts';
     mockArchitectureRun.mockResolvedValue(
       JSON.stringify({
@@ -262,7 +244,6 @@ describe('runExportHtml', () => {
     await runExportHtml(fakeRuntime, 'my-project', []);
 
     const config = mockExportHtml.mock.calls[0][0];
-    expect(config.nodes[0].communityId).toBe(2);
-    expect(config.nodes[0].hubScore).toBe(0.75);
+    expect(config.graphData.nodeMetadata[nodeId]).toEqual({ hubScore: 0.75, communityId: 2 });
   });
 });
