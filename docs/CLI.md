@@ -667,6 +667,7 @@ graph-it architecture [options]
 |--------|---------|-------------|
 | `--maxFiles <N>` | unlimited | Cap on the number of analyzed source files |
 | `--communities <mode>` | `path` | How `communityId`/`communityKey` group files: `path` by folder, `louvain` by import structure |
+| `--groups` | off | Add `context`, `groups`, `unassigned`, `groupEdges` and `totals` to `json`/`toon` output (see [Grouped output](#grouped-output)) |
 | `--workspace, -w` | auto-detected | Project root |
 | `--format, -f` | `text` | Output format (`toon` recommended for large graphs; `mermaid` for diagrams) |
 
@@ -680,7 +681,22 @@ graph-it architecture --format mermaid
 graph-it architecture --format toon
 graph-it architecture --maxFiles 2000
 graph-it architecture --communities louvain --format json
+graph-it architecture --groups --format toon
 ```
+
+#### Grouped output
+
+`--groups` aggregates the file graph by community. Counts come from the full analyzed graph, before any display cap; without the flag the output is unchanged.
+
+| Field | Content |
+|-------|---------|
+| `context` | `communityMode`, `graphKind` (`imports`), `scope`, `exclusions`, `indexedAt` (last scan), `maxFiles`, `truncated` (`--maxFiles` hit), `failedFiles` |
+| `groups` | `id`, `key`, `label`, `fileCount`, `internalEdgeCount` per community |
+| `unassigned` | `fileCount` and `internalEdgeCount` of files with `communityId` `0` |
+| `groupEdges` | `from`, `to`, `fileEdgeCount`: distinct directed file pairs from a file of `from` importing a file of `to`; group `0` = unassigned files |
+| `totals` | `files`, `fileEdges`, `intraGroupEdges`, `interGroupEdges` (`intraGroupEdges + interGroupEdges = fileEdges`) |
+
+`fileEdgeCount` counts file pairs; it is not the edge weight Louvain optimizes. Louvain ids are only valid within one result: they can change after any code change, so match groups across runs by `key`, not `id`.
 
 #### Community modes
 

@@ -10,9 +10,12 @@
 import * as path from "node:path";
 import { computeNodeMetadata } from "../../analyzer/NodeMetadataBuilder.js";
 import { SourceFileCollector } from "../../analyzer/SourceFileCollector.js";
+import { DEFAULT_IGNORE_PATTERNS } from "../../analyzer/SourceFileFilters.js";
+import { aggregateCommunityGroups } from "../../analyzer/community/groupAggregation.js";
 import { executeAnalyzeDependencies } from "../../mcp/tools";
 import { validateFilePath } from "../../mcp/types";
 import type { GraphData } from "../../shared/graph-types.js";
+import { IGNORED_DIRECTORIES } from "../../shared/constants.js";
 import { normalizePath } from "../../shared/path.js";
 import type { CliOutputFormat } from "../formatter";
 import { formatOutput } from "../formatter";
@@ -189,5 +192,24 @@ export async function run(
     edges,
   };
 
-  return formatOutput(architecture, format, "architecture");
+  if (!args.includes("--groups")) {
+    return formatOutput(architecture, format, "architecture");
+  }
+
+  // Aggregated from the full graph here, so later display caps never change the counts.
+  const context = {
+    communityMode: communityMode ?? "path",
+    graphKind: "imports",
+    scope: "workspace",
+    exclusions: [...IGNORED_DIRECTORIES, ".*/", ".gitignore", ".graphitignore", ...DEFAULT_IGNORE_PATTERNS].join(", "),
+    indexedAt: runtime.loadState()?.lastScanTimestamp,
+    maxFiles: Number.isFinite(maxFiles) ? maxFiles : undefined,
+    truncated: files.length < allFiles.length,
+    failedFiles: failedFiles.length,
+  };
+  return formatOutput(
+    { ...architecture, context, ...aggregateCommunityGroups(graphData) },
+    format,
+    "architecture",
+  );
 }
