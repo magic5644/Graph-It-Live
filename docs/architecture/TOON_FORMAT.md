@@ -360,9 +360,8 @@ When modifying the TOON module:
 1. Ensure cross-platform compatibility (Windows, Linux, macOS)
 2. Add tests for new features
 3. Update token savings benchmarks
-4. Run security scan: `npm run snyk`
-5. Verify types: `npm run check:types`
-6. Lint: `npm run lint`
+4. Verify types: `npm run check:types`
+5. Lint: `npm run lint`
 
 ### Related Documentation
 
