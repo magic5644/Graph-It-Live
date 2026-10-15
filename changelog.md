@@ -1,5 +1,34 @@
 # Changelog
 
+## v1.20.0
+
+### Breaking / Behavior changes
+
+- **`graph-it tool` drops the five transition aliases** (#304): `graph-it tool get_symbol_callers`, `get_symbol_dependents`, `parse_imports`, `expand_node` and `analyze_file_logic` now exit non-zero and name the replacement: `query_call_graph --direction=callers --depth=1`, `analyze_dependencies`, `crawl_dependency_graph`, or `generate_codemap` / `graph-it explain`. The MCP server already stopped registering these tools in v1.17.0, which announced their removal; only the CLI aliases remained. This release stays a minor version because the change ends that announced deprecation, touches no MCP tool, setting or VS Code command, and the VS Code language model tools with the same names are unchanged.
+- **`graph_context` communities use full Louvain** (#337): Community assignments in `graph_context` statistics and overview come from a deterministic full Louvain (local moving plus aggregation) instead of single-level label propagation. Communities are numbered largest first and labelled by dominant folder or hub, so ids and names differ from v1.19.0. File-graph `communityId` stays folder-based by default.
+- **Wiki index diagram is grouped**: The `graph-it wiki` and MCP `generate_wiki` index draw the static call graph between wiki files grouped by folder community, replacing the top-hub-files diagram.
+- **HTML export reworked** (#348): `graph-it export --format html` builds its groups from the same aggregation as `architecture --groups`; see *Changed*.
+
+### Changed
+
+- **New MCP tool `explore_architecture`** (#349): Explores the grouped architecture step by step: without arguments, totals, unassigned files, largest groups and group edges; with `group`, that group's files and incoming / outgoing group edges; with `from` and `to`, the distinct file pairs behind a group edge. Lists are paginated by `offset` / `limit` with `total`, `truncated` and `nextOffset`. Also available as `graph-it tool explore_architecture`. The MCP server now exposes 23 tools.
+- **`graph-it architecture --groups`** (#346): Adds `context`, `groups`, `unassigned`, `groupEdges` and `totals` to `json` / `toon` output, counted on the full graph before any display cap. Intra-group plus inter-group edges always equal file edges. Output without the flag is unchanged.
+- **Grouped Mermaid and Markdown diagrams** (#347): With `--groups`, `architecture --format mermaid|markdown` draws one subgraph per community while the graph fits 260 files and 250 intra-group edges, and one node per group beyond. Inter-group edges carry the number of distinct file pairs; `%%` comments state the mode, scope, totals and hidden groups or edges.
+- **Explorable HTML export** (#348): The header states workspace, scope, index revision, grouping mode and totals. Groups collapse and expand (double-click, *Expand all* / *Collapse all*), directed group edges show file-pair counts and list their file pairs 50 per page on click, node selection lists incoming and outgoing dependencies, and groups are told apart from files by shape and text, not only colour.
+- **Choice of community mode** (#338, #308): New setting `graph-it-live.communityMode` (`path` by folder, default, or `louvain` by import structure), CLI option `--communities path|louvain` on `path`, `architecture` and `export`, and `communityMode` on MCP `crawl_dependency_graph` and `explore_architecture`. All surfaces share one computation, so the same graph gives the same communities. The graph legend names the active mode, Louvain communities are labelled by their last folder segments, and text `architecture` output lists the largest communities.
+
+### Fixed
+
+- **Symbol analysis on Go, C# and Java** (#334): These files were parsed as TypeScript and produced bogus symbols and dependencies (for example `fmt:default`). Symbol analysis and dead-code scans now skip languages the AST worker cannot parse.
+- **Mermaid labels in architecture and wiki diagrams**: Control characters and backticks are stripped and `#` is encoded, so source-derived names no longer break diagrams.
+- **Extension icon**: Resized to 512×512 to meet the Marketplace limit.
+
+### Tests
+
+- Added unit tests for group aggregation, `explore_architecture` pagination and errors, grouped Mermaid and wiki diagrams, and the HTML export.
+- Added a VS Code E2E test for `graph-it-live.communityMode`.
+- A test checks that MCP tool descriptions only name registered MCP tools; tests for the removed aliases were deleted with their executors.
+
 ## v1.19.0
 
 ### Breaking / Behavior changes
