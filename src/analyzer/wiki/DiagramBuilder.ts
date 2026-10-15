@@ -203,7 +203,7 @@ export function buildGroupedDiagram(
 
   const groups = aggregation.groups.map(({ id, label, fileCount }) => ({ id, label: label || `group ${id}`, fileCount }));
   if (unassigned.fileCount > 0) groups.push({ id: 0, label: "unassigned", fileCount: unassigned.fileCount });
-  const shownGroups = groups.sort((a, b) => b.fileCount - a.fileCount || a.id - b.id).slice(0, maxFiles);
+  const shownGroups = groups.toSorted((a, b) => b.fileCount - a.fileCount || a.id - b.id).slice(0, maxFiles);
   const shownIds = new Set(shownGroups.map((group) => group.id));
   const shownEdges = aggregation.groupEdges
     .filter((edge) => shownIds.has(edge.from) && shownIds.has(edge.to))
