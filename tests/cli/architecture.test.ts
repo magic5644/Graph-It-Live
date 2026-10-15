@@ -96,6 +96,72 @@ describe('architecture command', () => {
     );
   });
 
+  it('adds grouped sections only with --groups', async () => {
+    const workspaceRoot = '/workspace';
+    const fileA = normalizePath(path.resolve(workspaceRoot, 'src/api/a.ts'));
+    const fileB = normalizePath(path.resolve(workspaceRoot, 'src/db/b.ts'));
+    const fileC = normalizePath(path.resolve(workspaceRoot, 'src/db/c.ts'));
+    const runtime = {
+      workspaceRoot,
+      ensureIndexed: vi.fn().mockResolvedValue(undefined),
+      loadState: () => ({ workspaceRoot, lastScanTimestamp: '2026-10-15T00:00:00.000Z' }),
+    };
+    const dependencies = new Map([[fileA, [fileB, fileC]], [fileB, [fileC]], [fileC, []]]);
+    mocks.executeAnalyzeDependencies.mockImplementation(async ({ filePath }: { filePath: string }) => ({
+      dependencies: (dependencies.get(filePath) ?? []).map((dependency) => ({ path: dependency })),
+    }));
+    const runWith = async (args: string[], format: 'json' | 'toon') => {
+      mocks.collectAllSourceFiles.mockResolvedValueOnce([fileA, fileB, fileC]);
+      return run(args, runtime as never, format);
+    };
+
+    const plain = JSON.parse(await runWith([], 'json')) as Record<string, unknown>;
+    expect(Object.keys(plain)).not.toContain('groups');
+
+    const grouped = JSON.parse(await runWith(['--groups', '--maxFiles', '2'], 'json')) as Record<string, unknown>;
+    expect(grouped.context).toEqual({
+      communityMode: 'path',
+      graphKind: 'imports',
+      scope: 'workspace',
+      exclusions: expect.stringContaining('node_modules, .git, dist'),
+      indexedAt: '2026-10-15T00:00:00.000Z',
+      maxFiles: 2,
+      truncated: true,
+      failedFiles: 0,
+    });
+    expect(grouped.groups).toEqual([
+      { id: 1, key: 'api', label: 'api', fileCount: 1, internalEdgeCount: 0 },
+      { id: 2, key: 'db', label: 'db', fileCount: 2, internalEdgeCount: 1 },
+    ]);
+    expect(grouped.groupEdges).toEqual([{ from: 1, to: 2, fileEdgeCount: 2 }]);
+    expect(grouped.totals).toEqual({ files: 3, fileEdges: 3, intraGroupEdges: 1, interGroupEdges: 2 });
+
+    const toon = await runWith(['--groups', '--communities', 'louvain'], 'toon');
+    expect(toon).toContain('context.communityMode=louvain');
+    expect(toon).toContain('totals.fileEdges=3 totals.intraGroupEdges=3 totals.interGroupEdges=0');
+    expect(toon).toContain('groups(id,key,label,fileCount,internalEdgeCount)\n[1,src/db,src/db,3,3]');
+  });
+
+  it('reports failed files in the grouped context and still counts them as files', async () => {
+    const workspaceRoot = '/workspace';
+    const fileA = normalizePath(path.resolve(workspaceRoot, 'src/api/a.ts'));
+    mocks.collectAllSourceFiles.mockResolvedValueOnce([fileA]);
+    mocks.executeAnalyzeDependencies.mockRejectedValueOnce(new Error('parse failed'));
+    const runtime = { workspaceRoot, ensureIndexed: vi.fn().mockResolvedValue(undefined), loadState: () => null };
+
+    const parsed = JSON.parse(await run(['--groups'], runtime as never, 'json')) as {
+      skippedFiles: number;
+      context: Record<string, unknown>;
+      totals: Record<string, number>;
+    };
+
+    expect(parsed.skippedFiles).toBe(1);
+    expect(parsed.context).toMatchObject({ failedFiles: 1, truncated: false });
+    expect(parsed.context).not.toHaveProperty('indexedAt');
+    expect(parsed.context).not.toHaveProperty('maxFiles');
+    expect(parsed.totals).toEqual({ files: 1, fileEdges: 0, intraGroupEdges: 0, interGroupEdges: 0 });
+  });
+
   it('respects --maxFiles cap', async () => {
     const workspaceRoot = '/workspace';
     const files = [
