@@ -163,7 +163,8 @@ Usage: graph-it architecture [options]
 Options:
   --maxFiles N       Optional cap on analyzed source files
   --communities M    Community grouping: path (by folder, default) | louvain (by imports)
-  --groups           Add groups, groupEdges and totals per community (json/toon)
+  --groups           Add groups, groupEdges and totals per community (json/toon);
+                     group the mermaid/markdown diagram by community
   --workspace, -w    Workspace root directory (default: auto-detected)
   --format, -f       Output format: text|json|toon|markdown|mermaid (default: text)
   --help, -h         Show this help
@@ -174,6 +175,7 @@ Examples:
   graph-it architecture --maxFiles 2000
   graph-it architecture --communities louvain --format json
   graph-it architecture --groups --format toon
+  graph-it architecture --groups --format mermaid
 `,
   check: `graph-it check — Find unused exported symbols in a file
 

@@ -127,8 +127,14 @@ graph-it architecture --maxFiles 300 --format toon
 Visual option for humans (not for LLM context):
 
 ```bash
-graph-it architecture --format mermaid
+graph-it architecture --format mermaid            # flat file graph
+graph-it architecture --groups --format mermaid   # one subgraph (or node) per folder group, edges labelled with file-pair counts
 ```
+
+For a curated diagram, run `graph-it architecture --groups --format json` and hand `groups`,
+`groupEdges` and `context` to a diagram skill (`architecture-diagram`, `archify`) with the exact
+counts. Role notes and rules are human annotations; runtime flows come from `graph-it trace` and
+are static analysis, not observed execution.
 
 ### Index the Workspace
 

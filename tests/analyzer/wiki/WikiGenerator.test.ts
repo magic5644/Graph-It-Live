@@ -35,6 +35,10 @@ function makeDb(rows: {
         const result = [...hubMap.entries()].map(([p, h]) => [p, h]);
         return [{ columns: ["path", "hub"], values: result }];
       }
+      if (sql.includes("SELECT DISTINCT n_src.path AS source")) {
+        const pairs = edges.filter((e) => e.source_path !== e.target_path).map((e) => `${e.source_path}\0${e.target_path}`);
+        return [{ columns: ["source", "target"], values: [...new Set(pairs)].map((pair) => pair.split("\0")) }];
+      }
       return [];
     }),
     prepare: vi.fn((sql: string) => {
@@ -99,6 +103,32 @@ describe("WikiGenerator", () => {
 
     const artDir = await fs.readdir(path.join(tmpDir, "articles"));
     expect(artDir).toHaveLength(2);
+  });
+
+  it("draws the index architecture diagram grouped by path community from file call pairs", async () => {
+    const workspaceRoot = "/workspace";
+    const call = (source_path: string, target_path: string) =>
+      ({ source_path, source_name: "fn", target_path, source_line: 1 });
+    const db = makeDb({
+      fileIndex: ["/workspace/src/api/a.ts", "/workspace/src/api/b.ts", "/workspace/src/db/c.ts"],
+      edges: [
+        call("/workspace/src/api/a.ts", "/workspace/src/api/b.ts"),
+        call("/workspace/src/api/a.ts", "/workspace/src/db/c.ts"),
+        call("/workspace/src/api/a.ts", "/workspace/src/db/c.ts"),
+        call("/workspace/src/db/c.ts", "/workspace/src/db/c.ts"),
+        call("/workspace/src/api/b.ts", "/workspace/other/out-of-scope.ts"),
+      ],
+    });
+
+    await new WikiGenerator({ db, outputDir: tmpDir, workspaceRoot }).generate();
+
+    const index = await fs.readFile(path.join(tmpDir, "index.md"), "utf-8");
+    expect(index).toContain("## Architecture overview\n```mermaid\nflowchart LR\n%% grouped by path · static call graph");
+    expect(index).toContain("%% 3 files, 2 file edges (1 intra-group, 1 inter-group)");
+    expect(index).toContain('  subgraph G1["api (2 files)"]');
+    expect(index).toContain('    F2["src/db/c.ts"]');
+    expect(index).toContain("  G1 -->|1| G2");
+    expect(index).not.toContain("out-of-scope");
   });
 
   it("renders article with no absolute paths", async () => {

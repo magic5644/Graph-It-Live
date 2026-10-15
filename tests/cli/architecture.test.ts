@@ -110,7 +110,7 @@ describe('architecture command', () => {
     mocks.executeAnalyzeDependencies.mockImplementation(async ({ filePath }: { filePath: string }) => ({
       dependencies: (dependencies.get(filePath) ?? []).map((dependency) => ({ path: dependency })),
     }));
-    const runWith = async (args: string[], format: 'json' | 'toon') => {
+    const runWith = async (args: string[], format: 'json' | 'toon' | 'mermaid' | 'markdown') => {
       mocks.collectAllSourceFiles.mockResolvedValueOnce([fileA, fileB, fileC]);
       return run(args, runtime as never, format);
     };
@@ -135,6 +135,18 @@ describe('architecture command', () => {
     ]);
     expect(grouped.groupEdges).toEqual([{ from: 1, to: 2, fileEdgeCount: 2 }]);
     expect(grouped.totals).toEqual({ files: 3, fileEdges: 3, intraGroupEdges: 1, interGroupEdges: 2 });
+
+    const mermaid = await runWith(['--groups', '--maxFiles', '2'], 'mermaid');
+    expect(mermaid.split('\n').slice(0, 4)).toEqual([
+      'flowchart LR',
+      '%% grouped by path · imports graph · scope workspace · analysis cut at --maxFiles 2',
+      '%% 3 files, 3 file edges (1 intra-group, 2 inter-group)',
+      '%% view: expanded; hidden: 0 group(s), 0 group edge(s)',
+    ]);
+    expect(mermaid).toContain('  subgraph G2["db (2 files)"]\n    F0["src/db/b.ts"]\n    F1["src/db/c.ts"]\n  end');
+    expect(mermaid).toContain('  F0 --> F1\n  G1 -->|2| G2');
+    expect(await runWith(['--groups'], 'markdown')).toContain('```mermaid\nflowchart LR\n%% grouped by path');
+    expect(await runWith([], 'mermaid')).toMatch(/^graph LR\n {2}N0\["src\/api\/a.ts"\]/);
 
     const toon = await runWith(['--groups', '--communities', 'louvain'], 'toon');
     expect(toon).toContain('context.communityMode=louvain');
