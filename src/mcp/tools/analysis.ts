@@ -1,4 +1,4 @@
-import { validateFileExists } from "../shared/helpers";
+import { validateFileExists } from "../../shared/pathSecurity";
 import { workerState } from "../shared/state";
 import type {
     AnalyzeDependenciesParams,

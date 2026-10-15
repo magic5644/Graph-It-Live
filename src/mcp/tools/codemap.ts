@@ -1,7 +1,8 @@
 import * as nodePath from "node:path";
 import { LspCallHierarchyAnalyzer } from "../../analyzer/LspCallHierarchyAnalyzer";
 import { detectLanguageFromExtension } from "../../shared/utils/languageDetection";
-import { convertSpiderToLspFormat, getRelativePath, validateFileExists } from "../shared/helpers";
+import { convertSpiderToLspFormat, getRelativePath } from "../shared/helpers";
+import { validateFileExists } from "../../shared/pathSecurity";
 import { workerState } from "../shared/state";
 import type { GenerateCodemapParams } from "../types";
 

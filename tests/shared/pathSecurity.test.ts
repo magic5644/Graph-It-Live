@@ -6,6 +6,7 @@ import {
   isPathWithinRoot,
   isPathWithinRootCanonical,
   toWorkspaceRelativePath,
+  validateFileExists,
   validateWorkspacePath,
 } from "../../src/shared/pathSecurity";
 
@@ -52,5 +53,17 @@ describe("pathSecurity", () => {
     expect(toWorkspaceRelativePath("/private/secret.ts", "/project")).toBe(
       "[external:secret.ts]",
     );
+  });
+
+  it("accepts an existing file and rejects a missing path or a directory", async () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "graph-it-root-"));
+    temporaryPaths.push(root);
+    const file = path.join(root, "file.ts");
+    const missing = path.join(root, "missing.ts");
+    fs.writeFileSync(file, "");
+
+    await expect(validateFileExists(file)).resolves.toBeUndefined();
+    await expect(validateFileExists(missing)).rejects.toThrow(`File not found: ${missing}`);
+    await expect(validateFileExists(root)).rejects.toThrow(`Path is not a file: ${root}`);
   });
 });
