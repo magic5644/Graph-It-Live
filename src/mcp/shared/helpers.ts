@@ -9,10 +9,10 @@ import * as path from "node:path";
 import { SUPPORTED_SYMBOL_ANALYSIS_EXTENSIONS } from "../../shared/constants";
 import {
   toWorkspaceRelativePath,
+  validateFileExists,
   validateWorkspacePath,
 } from "../../shared/pathSecurity";
 import { normalizePath, normalizePathForComparison } from "../../shared/path";
-import { validateFileExists } from "../../shared/pathSecurity";
 import { estimateTokens } from "../../shared/toon";
 import { detectLanguageFromExtension } from "../../shared/utils/languageDetection";
 import type { EdgeInfo, NodeInfo } from "../types";
