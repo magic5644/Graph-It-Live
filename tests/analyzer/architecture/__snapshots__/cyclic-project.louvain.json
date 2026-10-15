@@ -1,0 +1,359 @@
+{
+  "cli": {
+    "workspaceRoot": "<root>",
+    "scannedFiles": 5,
+    "analyzedFiles": 5,
+    "skippedFiles": 0,
+    "failedFiles": [],
+    "nodeCount": 5,
+    "edgeCount": 5,
+    "nodes": [
+      {
+        "id": "<root>/complex-cycle/a.ts",
+        "path": "<root>/complex-cycle/a.ts",
+        "relativePath": "complex-cycle/a.ts",
+        "extension": "ts",
+        "dependencyCount": 1,
+        "dependentCount": 1,
+        "communityId": 1,
+        "communityKey": "complex-cycle"
+      },
+      {
+        "id": "<root>/complex-cycle/b.ts",
+        "path": "<root>/complex-cycle/b.ts",
+        "relativePath": "complex-cycle/b.ts",
+        "extension": "ts",
+        "dependencyCount": 1,
+        "dependentCount": 1,
+        "communityId": 1,
+        "communityKey": "complex-cycle"
+      },
+      {
+        "id": "<root>/complex-cycle/c.ts",
+        "path": "<root>/complex-cycle/c.ts",
+        "relativePath": "complex-cycle/c.ts",
+        "extension": "ts",
+        "dependencyCount": 1,
+        "dependentCount": 1,
+        "communityId": 1,
+        "communityKey": "complex-cycle"
+      },
+      {
+        "id": "<root>/simple-cycle/a.ts",
+        "path": "<root>/simple-cycle/a.ts",
+        "relativePath": "simple-cycle/a.ts",
+        "extension": "ts",
+        "dependencyCount": 1,
+        "dependentCount": 1,
+        "communityId": 2,
+        "communityKey": "simple-cycle"
+      },
+      {
+        "id": "<root>/simple-cycle/b.ts",
+        "path": "<root>/simple-cycle/b.ts",
+        "relativePath": "simple-cycle/b.ts",
+        "extension": "ts",
+        "dependencyCount": 1,
+        "dependentCount": 1,
+        "communityId": 2,
+        "communityKey": "simple-cycle"
+      }
+    ],
+    "edges": [
+      {
+        "source": "<root>/complex-cycle/a.ts",
+        "target": "<root>/complex-cycle/b.ts",
+        "sourceRelative": "complex-cycle/a.ts",
+        "targetRelative": "complex-cycle/b.ts"
+      },
+      {
+        "source": "<root>/complex-cycle/b.ts",
+        "target": "<root>/complex-cycle/c.ts",
+        "sourceRelative": "complex-cycle/b.ts",
+        "targetRelative": "complex-cycle/c.ts"
+      },
+      {
+        "source": "<root>/complex-cycle/c.ts",
+        "target": "<root>/complex-cycle/a.ts",
+        "sourceRelative": "complex-cycle/c.ts",
+        "targetRelative": "complex-cycle/a.ts"
+      },
+      {
+        "source": "<root>/simple-cycle/a.ts",
+        "target": "<root>/simple-cycle/b.ts",
+        "sourceRelative": "simple-cycle/a.ts",
+        "targetRelative": "simple-cycle/b.ts"
+      },
+      {
+        "source": "<root>/simple-cycle/b.ts",
+        "target": "<root>/simple-cycle/a.ts",
+        "sourceRelative": "simple-cycle/b.ts",
+        "targetRelative": "simple-cycle/a.ts"
+      }
+    ],
+    "context": {
+      "communityMode": "path",
+      "graphKind": "imports",
+      "scope": "workspace",
+      "exclusions": "node_modules, .git, dist, build, out, coverage, .next, .nuxt, __pycache__, .venv, venv, target, .*/, .gitignore, .graphitignore, tests/fixtures/, out-*/",
+      "truncated": false,
+      "failedFiles": 0
+    },
+    "groups": [
+      {
+        "id": 1,
+        "key": "complex-cycle",
+        "label": "complex-cycle",
+        "fileCount": 3,
+        "internalEdgeCount": 3
+      },
+      {
+        "id": 2,
+        "key": "simple-cycle",
+        "label": "simple-cycle",
+        "fileCount": 2,
+        "internalEdgeCount": 2
+      }
+    ],
+    "unassigned": {
+      "fileCount": 0,
+      "internalEdgeCount": 0
+    },
+    "groupEdges": [],
+    "totals": {
+      "files": 5,
+      "fileEdges": 5,
+      "intraGroupEdges": 5,
+      "interGroupEdges": 0
+    }
+  },
+  "summary": {
+    "view": "summary",
+    "context": {
+      "communityMode": "louvain",
+      "graphKind": "imports",
+      "scope": "workspace",
+      "exclusions": "node_modules, .git, dist, build, out, coverage, .next, .nuxt, __pycache__, .venv, venv, target, .*/, .gitignore, .graphitignore, tests/fixtures/, out-*/",
+      "truncated": false,
+      "failedFiles": 0
+    },
+    "provenance": {
+      "facts": "File pairs are static import relations extracted from source code, not observed execution.",
+      "grouping": "Groups are computed by the communityMode detector; group ids are only valid within the same graph and communityMode.",
+      "interpretation": "None: labels are folder keys or detector output, not business names or responsibilities."
+    },
+    "totals": {
+      "files": 5,
+      "fileEdges": 5,
+      "intraGroupEdges": 5,
+      "interGroupEdges": 0
+    },
+    "unassigned": {
+      "fileCount": 0,
+      "internalEdgeCount": 0
+    },
+    "groups": [
+      {
+        "id": 1,
+        "key": "complex-cycle",
+        "label": "complex-cycle",
+        "fileCount": 3,
+        "internalEdgeCount": 3
+      },
+      {
+        "id": 2,
+        "key": "simple-cycle",
+        "label": "simple-cycle",
+        "fileCount": 2,
+        "internalEdgeCount": 2
+      }
+    ],
+    "groupEdges": [],
+    "page": {
+      "offset": 0,
+      "limit": 50,
+      "totalGroups": 2,
+      "totalGroupEdges": 0,
+      "truncated": false
+    },
+    "nextSteps": "Pass group for one group's files and boundary, or from and to for the file pairs behind a group edge."
+  },
+  "firstPage": {
+    "view": "summary",
+    "context": {
+      "communityMode": "louvain",
+      "graphKind": "imports",
+      "scope": "workspace",
+      "exclusions": "node_modules, .git, dist, build, out, coverage, .next, .nuxt, __pycache__, .venv, venv, target, .*/, .gitignore, .graphitignore, tests/fixtures/, out-*/",
+      "truncated": false,
+      "failedFiles": 0
+    },
+    "provenance": {
+      "facts": "File pairs are static import relations extracted from source code, not observed execution.",
+      "grouping": "Groups are computed by the communityMode detector; group ids are only valid within the same graph and communityMode.",
+      "interpretation": "None: labels are folder keys or detector output, not business names or responsibilities."
+    },
+    "totals": {
+      "files": 5,
+      "fileEdges": 5,
+      "intraGroupEdges": 5,
+      "interGroupEdges": 0
+    },
+    "unassigned": {
+      "fileCount": 0,
+      "internalEdgeCount": 0
+    },
+    "groups": [
+      {
+        "id": 1,
+        "key": "complex-cycle",
+        "label": "complex-cycle",
+        "fileCount": 3,
+        "internalEdgeCount": 3
+      }
+    ],
+    "groupEdges": [],
+    "page": {
+      "offset": 0,
+      "limit": 1,
+      "totalGroups": 2,
+      "totalGroupEdges": 0,
+      "truncated": true,
+      "nextOffset": 1
+    },
+    "nextSteps": "Pass group for one group's files and boundary, or from and to for the file pairs behind a group edge."
+  },
+  "secondPage": {
+    "view": "summary",
+    "context": {
+      "communityMode": "louvain",
+      "graphKind": "imports",
+      "scope": "workspace",
+      "exclusions": "node_modules, .git, dist, build, out, coverage, .next, .nuxt, __pycache__, .venv, venv, target, .*/, .gitignore, .graphitignore, tests/fixtures/, out-*/",
+      "truncated": false,
+      "failedFiles": 0
+    },
+    "provenance": {
+      "facts": "File pairs are static import relations extracted from source code, not observed execution.",
+      "grouping": "Groups are computed by the communityMode detector; group ids are only valid within the same graph and communityMode.",
+      "interpretation": "None: labels are folder keys or detector output, not business names or responsibilities."
+    },
+    "totals": {
+      "files": 5,
+      "fileEdges": 5,
+      "intraGroupEdges": 5,
+      "interGroupEdges": 0
+    },
+    "unassigned": {
+      "fileCount": 0,
+      "internalEdgeCount": 0
+    },
+    "groups": [
+      {
+        "id": 2,
+        "key": "simple-cycle",
+        "label": "simple-cycle",
+        "fileCount": 2,
+        "internalEdgeCount": 2
+      }
+    ],
+    "groupEdges": [],
+    "page": {
+      "offset": 1,
+      "limit": 1,
+      "totalGroups": 2,
+      "totalGroupEdges": 0,
+      "truncated": false
+    },
+    "nextSteps": "Pass group for one group's files and boundary, or from and to for the file pairs behind a group edge."
+  },
+  "groupViews": [
+    {
+      "view": "group",
+      "context": {
+        "communityMode": "louvain",
+        "graphKind": "imports",
+        "scope": "workspace",
+        "exclusions": "node_modules, .git, dist, build, out, coverage, .next, .nuxt, __pycache__, .venv, venv, target, .*/, .gitignore, .graphitignore, tests/fixtures/, out-*/",
+        "truncated": false,
+        "failedFiles": 0
+      },
+      "provenance": {
+        "facts": "File pairs are static import relations extracted from source code, not observed execution.",
+        "grouping": "Groups are computed by the communityMode detector; group ids are only valid within the same graph and communityMode.",
+        "interpretation": "None: labels are folder keys or detector output, not business names or responsibilities."
+      },
+      "totals": {
+        "files": 5,
+        "fileEdges": 5,
+        "intraGroupEdges": 5,
+        "interGroupEdges": 0
+      },
+      "group": {
+        "id": 1,
+        "key": "complex-cycle",
+        "label": "complex-cycle",
+        "fileCount": 3,
+        "internalEdgeCount": 3
+      },
+      "incoming": [],
+      "outgoing": [],
+      "files": [
+        "complex-cycle/a.ts",
+        "complex-cycle/b.ts",
+        "complex-cycle/c.ts"
+      ],
+      "page": {
+        "total": 3,
+        "offset": 0,
+        "returned": 3,
+        "truncated": false
+      },
+      "nextSteps": "Pass from and to to list the file pairs behind an incoming or outgoing edge."
+    },
+    {
+      "view": "group",
+      "context": {
+        "communityMode": "louvain",
+        "graphKind": "imports",
+        "scope": "workspace",
+        "exclusions": "node_modules, .git, dist, build, out, coverage, .next, .nuxt, __pycache__, .venv, venv, target, .*/, .gitignore, .graphitignore, tests/fixtures/, out-*/",
+        "truncated": false,
+        "failedFiles": 0
+      },
+      "provenance": {
+        "facts": "File pairs are static import relations extracted from source code, not observed execution.",
+        "grouping": "Groups are computed by the communityMode detector; group ids are only valid within the same graph and communityMode.",
+        "interpretation": "None: labels are folder keys or detector output, not business names or responsibilities."
+      },
+      "totals": {
+        "files": 5,
+        "fileEdges": 5,
+        "intraGroupEdges": 5,
+        "interGroupEdges": 0
+      },
+      "group": {
+        "id": 2,
+        "key": "simple-cycle",
+        "label": "simple-cycle",
+        "fileCount": 2,
+        "internalEdgeCount": 2
+      },
+      "incoming": [],
+      "outgoing": [],
+      "files": [
+        "simple-cycle/a.ts",
+        "simple-cycle/b.ts"
+      ],
+      "page": {
+        "total": 2,
+        "offset": 0,
+        "returned": 2,
+        "truncated": false
+      },
+      "nextSteps": "Pass from and to to list the file pairs behind an incoming or outgoing edge."
+    }
+  ],
+  "evidence": [],
+  "evidencePages": []
+}
