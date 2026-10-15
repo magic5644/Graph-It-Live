@@ -154,7 +154,7 @@ export async function buildArchitectureGraph(
   const failedFiles: FailedArchitectureFile[] = [];
   for (const filePath of files) {
     options.signal?.throwIfAborted();
-    const failure = await collectArchitectureForFile(acc, workspaceRoot, filePath);
+    const failure = await collectArchitectureForFile(acc, workspaceRoot, filePath); // NOSONAR S9382: one file at a time bounds memory and keeps node/edge order deterministic
     if (failure) failedFiles.push(failure);
   }
 
