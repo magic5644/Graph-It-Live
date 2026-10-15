@@ -144,7 +144,7 @@ export function exportHtml(config: HtmlExporterConfig): void {
   // Groups are collapsed by the page itself, not by vis-network clustering: a vis cluster
   // edge merges both directions, which would misreport directed file-pair counts.
   // Physics layout only: hierarchical layout would imply false layering on cyclic groups.
-  const html = `<!DOCTYPE html>
+  const html = String.raw`<!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="UTF-8">
@@ -241,7 +241,7 @@ export function exportHtml(config: HtmlExporterConfig): void {
     function groupNode(g, position) {
       return {
         id: groupNodeId(g.id), shape: 'ellipse', ...position,
-        label: g.label + '\\n' + g.fileCount + ' file(s)',
+        label: g.label + '\n' + g.fileCount + ' file(s)',
         title: g.label + ': ' + g.fileCount + ' file(s), ' + g.internalEdgeCount + ' internal edge(s). Double-click to expand.',
         color: { background: g.color, border: '#ddd' }, borderWidth: 2,
         font: { color: '#fff', size: 13, bold: true },

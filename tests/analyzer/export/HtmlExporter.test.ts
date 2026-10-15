@@ -403,6 +403,7 @@ describe('exportHtml', () => {
     expect(page.nodes.get().map((n: { id: string; shape: string }) => [n.id, n.shape])).toEqual([
       ['group:1', 'ellipse'], ['group:2', 'ellipse'], ['group:0', 'ellipse'],
     ]);
+    expect(page.nodes.get('group:1').label).toBe('core\n2 file(s)');
     const groupEdges = page.edges.get().map((e: { from: string; to: string; label: string }) => [e.from, e.to, e.label]);
     const expected = aggregateCommunityGroups(sampleGraph()).groupEdges
       .map(edge => [`group:${edge.from}`, `group:${edge.to}`, String(edge.fileEdgeCount)]);
