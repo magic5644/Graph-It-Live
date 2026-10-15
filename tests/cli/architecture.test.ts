@@ -13,7 +13,7 @@ vi.mock('../../src/analyzer/SourceFileCollector.js', () => ({
   },
 }));
 
-vi.mock('../../src/mcp/tools', () => ({
+vi.mock('../../src/mcp/tools/analysis', () => ({
   executeAnalyzeDependencies: mocks.executeAnalyzeDependencies,
 }));
 
@@ -49,6 +49,7 @@ describe('architecture command', () => {
     const runtime = {
       workspaceRoot,
       ensureIndexed: vi.fn().mockResolvedValue(undefined),
+      loadState: () => null,
     };
 
     const output = await run([], runtime as never, 'json');
@@ -71,7 +72,7 @@ describe('architecture command', () => {
     const workspaceRoot = '/workspace';
     const fileA = normalizePath(path.resolve(workspaceRoot, 'src/api/a.ts'));
     const fileB = normalizePath(path.resolve(workspaceRoot, 'src/db/b.ts'));
-    const runtime = { workspaceRoot, ensureIndexed: vi.fn().mockResolvedValue(undefined) };
+    const runtime = { workspaceRoot, ensureIndexed: vi.fn().mockResolvedValue(undefined), loadState: () => null };
     const runWith = async (args: string[]) => {
       mocks.collectAllSourceFiles.mockResolvedValueOnce([fileA, fileB]);
       mocks.executeAnalyzeDependencies
@@ -188,6 +189,7 @@ describe('architecture command', () => {
     const runtime = {
       workspaceRoot,
       ensureIndexed: vi.fn().mockResolvedValue(undefined),
+      loadState: () => null,
     };
 
     const output = await run(['--maxFiles', '2'], runtime as never, 'json');
@@ -211,6 +213,7 @@ describe('architecture command', () => {
     const runtime = {
       workspaceRoot,
       ensureIndexed: vi.fn().mockResolvedValue(undefined),
+      loadState: () => null,
     };
 
     const output = await run([], runtime as never, 'mermaid');

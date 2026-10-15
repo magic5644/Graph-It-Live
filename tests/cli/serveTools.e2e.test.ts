@@ -68,6 +68,7 @@ describe.skipIf(!distExists)("MCP tools over graph-it serve (E2E)", { timeout: 1
       graphitlive_query_call_graph: { filePath: b, symbolName: "helper" },
       graphitlive_scan_dead_code: {},
       graphitlive_graph_context: { question: "what calls helper" },
+      graphitlive_explore_architecture: {},
       graphitlive_query_natural_language: { question: "what calls helper" },
       graphitlive_generate_wiki: { outputDir: "wiki" },
       graphitlive_get_session_stats: {},

@@ -5,6 +5,7 @@ import {
   executeAnalyzeDependencies,
   executeAnalyzeFileLogic,
   executeCrawlDependencyGraph,
+  executeExploreArchitecture,
   executeExpandNode,
   executeFindReferencingFiles,
   executeFindUnusedSymbols,
@@ -33,6 +34,7 @@ import type {
   AnalyzeFileLogicParams,
   CrawlDependencyGraphParams,
   ExpandNodeParams,
+  ExploreArchitectureParams,
   FindReferencingFilesParams,
   FindUnusedSymbolsParams,
   GenerateCodemapParams,
@@ -134,6 +136,8 @@ const toolHandlers: Partial<Record<McpToolName, ToolHandler>> = {
   query_natural_language: (params) => executeQueryNaturalLanguage(params as QueryNaturalLanguageParams),
   generate_wiki: (params, config) =>
     executeGenerateWiki(validateGenerateWikiParams(params as GenerateWikiParams, config)),
+  explore_architecture: (params, _config, _postMessage, signal) =>
+    executeExploreArchitecture(params as ExploreArchitectureParams, signal),
 };
 
 async function executeValidatedTool(

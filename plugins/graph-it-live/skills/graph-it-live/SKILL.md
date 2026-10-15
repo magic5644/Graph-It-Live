@@ -136,6 +136,10 @@ For a curated diagram, run `graph-it architecture --groups --format json` and ha
 counts. Role notes and rules are human annotations; runtime flows come from `graph-it trace` and
 are static analysis, not observed execution.
 
+To explore the same groups step by step instead of reading the whole graph, call
+`graph-it tool explore_architecture` (summary), then `--group=<key>` (files and boundary), then
+`--from=<key> --to=<key>` (the file pairs behind a group edge, paginated by `--limit`/`--offset`).
+
 ### Index the Workspace
 
 **Run `scan` before analysis commands** to build the dependency index. Most analysis commands depend on it.

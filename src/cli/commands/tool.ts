@@ -14,6 +14,7 @@ import {
   executeAnalyzeDependencies,
   executeAnalyzeFileLogic,
   executeCrawlDependencyGraph,
+  executeExploreArchitecture,
   executeExpandNode,
   executeFindReferencingFiles,
   executeFindUnusedSymbols,
@@ -39,6 +40,7 @@ import type {
   AnalyzeFileLogicParams,
   CrawlDependencyGraphParams,
   ExpandNodeParams,
+  ExploreArchitectureParams,
   FindReferencingFilesParams,
   FindUnusedSymbolsParams,
   GenerateCodemapParams,
@@ -86,6 +88,7 @@ const TOOL_NAMES: McpToolName[] = [
   "generate_codemap",
   "query_call_graph",
   "scan_dead_code",
+  "explore_architecture",
 ];
 
 export async function run(
@@ -289,6 +292,7 @@ const cliToolHandlers: Partial<Record<McpToolName, CliToolHandler>> = {
   query_call_graph: (params) =>
     executeQueryCallGraph(params as QueryCallGraphParams),
   scan_dead_code: (params) => executeScanDeadCode(params as ScanDeadCodeParams),
+  explore_architecture: (params) => executeExploreArchitecture(params as ExploreArchitectureParams),
 };
 
 async function invokeTool(tool: McpToolName, params: unknown): Promise<unknown> {

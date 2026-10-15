@@ -124,6 +124,7 @@ import {
   type FindUnusedSymbolsResult,
   GetImpactAnalysisParamsSchema,
   type GetImpactAnalysisResult,
+  ExploreArchitectureParamsSchema,
   GraphContextParamsSchema,
   type GetIndexStatusResult,
   GetSymbolGraphParamsSchema,
@@ -1421,6 +1422,32 @@ server.registerTool(
       params,
     );
     return formatToolResponse(response, responseFormat, "graphitlive_graph_context", params.detail);
+  },
+);
+
+// Tool: graphitlive_explore_architecture
+server.registerTool(
+  "graphitlive_explore_architecture",
+  {
+    title: "Explore Grouped Architecture",
+    description: mcpToolDescription("explore_architecture"),
+    inputSchema: ExploreArchitectureParamsSchema,
+    outputSchema: McpToolResponseSchema,
+    annotations: {
+      readOnlyHint: true,
+      destructiveHint: false,
+      idempotentHint: true,
+      openWorldHint: false,
+    },
+  },
+  async ({ response_format, ...params }) => {
+    const responseFormat = response_format ?? "toon";
+    const workerCheck = await ensureWorkerReady();
+    if (workerCheck.error)
+      return formatToolResponse(workerCheck.response, responseFormat, "graphitlive_explore_architecture");
+
+    const response = await invokeToolWithResponse("explore_architecture", params);
+    return formatToolResponse(response, responseFormat, "graphitlive_explore_architecture");
   },
 );
 

@@ -121,7 +121,8 @@ export type McpToolName =
   | "query_call_graph" // NEW: Cross-file call graph query (callers/callees via SQLite)
   | "scan_dead_code" // NEW: Workspace-wide dead code scan
   | "query_natural_language" // Natural language query over the call graph
-  | "generate_wiki"; // Generate markdown wiki from call graph
+  | "generate_wiki" // Generate markdown wiki from call graph
+  | "explore_architecture"; // Grouped architecture summary, group boundary, edge evidence
 
 // ============================================================================
 // Zod Schemas for Tool Parameters
@@ -743,6 +744,46 @@ export const GenerateWikiParamsSchema = z.object({
 }).strict();
 export type GenerateWikiParams = z.infer<typeof GenerateWikiParamsSchema>;
 
+const GroupRefSchema = z
+  .union([z.number().int().min(0), z.string().min(1).max(256)])
+  .describe("Group key (e.g. 'analyzer'), label, or numeric id from a previous response; 0 or 'unassigned' for files without a group");
+
+export const ExploreArchitectureParamsSchema = z.object({
+  communityMode: z
+    .enum(COMMUNITY_MODES)
+    .optional()
+    .describe("How files are grouped: 'path' (default) by folder domain, 'louvain' by import structure"),
+  maxFiles: z
+    .number()
+    .int()
+    .min(1)
+    .max(PAGINATION_LIMITS.MAX_OFFSET)
+    .optional()
+    .describe("Analyse only the first maxFiles source files, like graph-it architecture --maxFiles (default: all)"),
+  group: GroupRefSchema.optional().describe("Return this group's files and its incoming / outgoing group edges"),
+  from: GroupRefSchema.optional().describe("Source group of the edge whose file pairs to return (requires to)"),
+  to: GroupRefSchema.optional().describe("Target group of the edge whose file pairs to return (requires from)"),
+  limit: z
+    .number()
+    .int()
+    .min(1)
+    .max(500)
+    .optional()
+    .describe("Items per page: groups and group edges, group files, or file pairs (default: 50)"),
+  offset: GraphToolOffsetSchema,
+  // In the schema itself: an object with refinements cannot be extended by the server.
+  response_format: z.enum(["json", "markdown", "toon"]).optional()
+    .describe("Output format: 'json', 'markdown', or 'toon' (default: toon)"),
+}).superRefine((params, context) => {
+  if ((params.from === undefined) !== (params.to === undefined)) {
+    context.addIssue({ code: "custom", message: "Both from and to are required for edge evidence" });
+  }
+  if (params.group !== undefined && params.from !== undefined) {
+    context.addIssue({ code: "custom", message: "Pass either group or from and to, not both" });
+  }
+});
+export type ExploreArchitectureParams = z.infer<typeof ExploreArchitectureParamsSchema>;
+
 // NEW: Schema for scan_dead_code (workspace-wide dead code scan)
 export const ScanDeadCodeParamsSchema = z.object({
   scopePath: FilePathSchema.optional().describe(
@@ -794,6 +835,7 @@ export const toolSchemas: Record<McpToolName, z.ZodType<unknown>> = {
   generate_codemap: GenerateCodemapParamsSchema,
   query_call_graph: QueryCallGraphParamsSchema,
   scan_dead_code: ScanDeadCodeParamsSchema,
+  explore_architecture: ExploreArchitectureParamsSchema,
   query_natural_language: QueryNaturalLanguageParamsSchema,
   generate_wiki: GenerateWikiParamsSchema,
 };

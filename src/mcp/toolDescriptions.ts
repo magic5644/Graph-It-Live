@@ -355,6 +355,16 @@ const TOOL_DESCRIPTIONS: Record<DescribedToolName, ToolDescription> = {
       "LIMITS: writes files to disk, and fails instead of replacing an index.md or article it did not generate. The first call indexes the workspace (3-8s).",
     ],
   },
+  explore_architecture: {
+    summary:
+      "Explores the workspace architecture step by step: groups, one group's boundary, then the file pairs behind a group edge.",
+    lines: [
+      `WHEN: "how is this project structured", "what depends on the analyzer layer", "why does group A import group B".`,
+      "WHY: aggregates the whole import graph by folder domain (communityMode 'path') or import structure ('louvain') before any paging, so counts match graph-it architecture --groups and every group edge is backed by its file pairs.",
+      "RETURNS: no group/from/to - totals, unassigned files, the largest groups and group edges; group - its files and incoming / outgoing group edges; from + to - the distinct file pairs of that edge. Each response states its context (grouping, graph kind, truncation) and separates code facts from computed groupings.",
+      "LIMITS: import relations only (static analysis, not observed execution); lists paginated by offset/limit (default 50) with total, truncated and nextOffset; analyses every source file on each call. Symbols and lines come from graphitlive_find_referencing_files, graphitlive_get_symbol_callers and graphitlive_get_impact_analysis.",
+    ],
+  },
   get_session_stats: {
     summary:
       "Reports how large this session's TOON responses were against their JSON equivalent, plus real token usage.",

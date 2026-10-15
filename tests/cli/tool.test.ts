@@ -136,6 +136,7 @@ describe("tool command dispatch", () => {
     ["query_call_graph", (f) => ({ filePath: f, symbolName: "a" }), "executeQueryCallGraph"],
     ["scan_dead_code", () => ({}), "executeScanDeadCode"],
     ["graph_context", () => ({ question: "what calls a" }), "executeGraphContext"],
+    ["explore_architecture", () => ({ group: "src" }), "executeExploreArchitecture"],
   ];
 
   it.each(cases)("dispatches %s", async (tool, params, expected) => {
