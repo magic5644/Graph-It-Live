@@ -1,0 +1,550 @@
+{
+  "cli": {
+    "workspaceRoot": "<root>",
+    "scannedFiles": 6,
+    "analyzedFiles": 6,
+    "skippedFiles": 0,
+    "failedFiles": [],
+    "nodeCount": 6,
+    "edgeCount": 5,
+    "nodes": [
+      {
+        "id": "<root>/src/circular.ts",
+        "path": "<root>/src/circular.ts",
+        "relativePath": "src/circular.ts",
+        "extension": "ts",
+        "dependencyCount": 1,
+        "dependentCount": 0,
+        "communityId": 0,
+        "communityKey": ""
+      },
+      {
+        "id": "<root>/src/main.ts",
+        "path": "<root>/src/main.ts",
+        "relativePath": "src/main.ts",
+        "extension": "ts",
+        "dependencyCount": 2,
+        "dependentCount": 1,
+        "communityId": 0,
+        "communityKey": ""
+      },
+      {
+        "id": "<root>/src/components/Button.tsx",
+        "path": "<root>/src/components/Button.tsx",
+        "relativePath": "src/components/Button.tsx",
+        "extension": "tsx",
+        "dependencyCount": 1,
+        "dependentCount": 1,
+        "communityId": 1,
+        "communityKey": "components"
+      },
+      {
+        "id": "<root>/src/utils.ts",
+        "path": "<root>/src/utils.ts",
+        "relativePath": "src/utils.ts",
+        "extension": "ts",
+        "dependencyCount": 0,
+        "dependentCount": 3,
+        "communityId": 0,
+        "communityKey": ""
+      },
+      {
+        "id": "<root>/src/index.ts",
+        "path": "<root>/src/index.ts",
+        "relativePath": "src/index.ts",
+        "extension": "ts",
+        "dependencyCount": 1,
+        "dependentCount": 0,
+        "communityId": 0,
+        "communityKey": ""
+      },
+      {
+        "id": "<root>/src/logger.js",
+        "path": "<root>/src/logger.js",
+        "relativePath": "src/logger.js",
+        "extension": "js",
+        "dependencyCount": 0,
+        "dependentCount": 0,
+        "communityId": 0,
+        "communityKey": ""
+      }
+    ],
+    "edges": [
+      {
+        "source": "<root>/src/circular.ts",
+        "target": "<root>/src/main.ts",
+        "sourceRelative": "src/circular.ts",
+        "targetRelative": "src/main.ts"
+      },
+      {
+        "source": "<root>/src/components/Button.tsx",
+        "target": "<root>/src/utils.ts",
+        "sourceRelative": "src/components/Button.tsx",
+        "targetRelative": "src/utils.ts"
+      },
+      {
+        "source": "<root>/src/index.ts",
+        "target": "<root>/src/utils.ts",
+        "sourceRelative": "src/index.ts",
+        "targetRelative": "src/utils.ts"
+      },
+      {
+        "source": "<root>/src/main.ts",
+        "target": "<root>/src/utils.ts",
+        "sourceRelative": "src/main.ts",
+        "targetRelative": "src/utils.ts"
+      },
+      {
+        "source": "<root>/src/main.ts",
+        "target": "<root>/src/components/Button.tsx",
+        "sourceRelative": "src/main.ts",
+        "targetRelative": "src/components/Button.tsx"
+      }
+    ],
+    "context": {
+      "communityMode": "path",
+      "graphKind": "imports",
+      "scope": "workspace",
+      "exclusions": "node_modules, .git, dist, build, out, coverage, .next, .nuxt, __pycache__, .venv, venv, target, .*/, .gitignore, .graphitignore, tests/fixtures/, out-*/",
+      "truncated": false,
+      "failedFiles": 0
+    },
+    "groups": [
+      {
+        "id": 1,
+        "key": "components",
+        "label": "components",
+        "fileCount": 1,
+        "internalEdgeCount": 0
+      }
+    ],
+    "unassigned": {
+      "fileCount": 5,
+      "internalEdgeCount": 3
+    },
+    "groupEdges": [
+      {
+        "from": 0,
+        "to": 1,
+        "fileEdgeCount": 1
+      },
+      {
+        "from": 1,
+        "to": 0,
+        "fileEdgeCount": 1
+      }
+    ],
+    "totals": {
+      "files": 6,
+      "fileEdges": 5,
+      "intraGroupEdges": 3,
+      "interGroupEdges": 2
+    }
+  },
+  "summary": {
+    "view": "summary",
+    "context": {
+      "communityMode": "louvain",
+      "graphKind": "imports",
+      "scope": "workspace",
+      "exclusions": "node_modules, .git, dist, build, out, coverage, .next, .nuxt, __pycache__, .venv, venv, target, .*/, .gitignore, .graphitignore, tests/fixtures/, out-*/",
+      "truncated": false,
+      "failedFiles": 0
+    },
+    "provenance": {
+      "facts": "File pairs are static import relations extracted from source code, not observed execution.",
+      "grouping": "Groups are computed by the communityMode detector; group ids are only valid within the same graph and communityMode.",
+      "interpretation": "None: labels are folder keys or detector output, not business names or responsibilities."
+    },
+    "totals": {
+      "files": 6,
+      "fileEdges": 5,
+      "intraGroupEdges": 3,
+      "interGroupEdges": 2
+    },
+    "unassigned": {
+      "fileCount": 1,
+      "internalEdgeCount": 0
+    },
+    "groups": [
+      {
+        "id": 1,
+        "key": "src",
+        "label": "src",
+        "fileCount": 3,
+        "internalEdgeCount": 2
+      },
+      {
+        "id": 2,
+        "key": "src #2",
+        "label": "src #2",
+        "fileCount": 2,
+        "internalEdgeCount": 1
+      }
+    ],
+    "groupEdges": [
+      {
+        "from": 2,
+        "to": 1,
+        "fileEdgeCount": 2,
+        "fromLabel": "src #2",
+        "toLabel": "src"
+      }
+    ],
+    "page": {
+      "offset": 0,
+      "limit": 50,
+      "totalGroups": 2,
+      "totalGroupEdges": 1,
+      "truncated": false
+    },
+    "nextSteps": "Pass group for one group's files and boundary, or from and to for the file pairs behind a group edge."
+  },
+  "firstPage": {
+    "view": "summary",
+    "context": {
+      "communityMode": "louvain",
+      "graphKind": "imports",
+      "scope": "workspace",
+      "exclusions": "node_modules, .git, dist, build, out, coverage, .next, .nuxt, __pycache__, .venv, venv, target, .*/, .gitignore, .graphitignore, tests/fixtures/, out-*/",
+      "truncated": false,
+      "failedFiles": 0
+    },
+    "provenance": {
+      "facts": "File pairs are static import relations extracted from source code, not observed execution.",
+      "grouping": "Groups are computed by the communityMode detector; group ids are only valid within the same graph and communityMode.",
+      "interpretation": "None: labels are folder keys or detector output, not business names or responsibilities."
+    },
+    "totals": {
+      "files": 6,
+      "fileEdges": 5,
+      "intraGroupEdges": 3,
+      "interGroupEdges": 2
+    },
+    "unassigned": {
+      "fileCount": 1,
+      "internalEdgeCount": 0
+    },
+    "groups": [
+      {
+        "id": 1,
+        "key": "src",
+        "label": "src",
+        "fileCount": 3,
+        "internalEdgeCount": 2
+      }
+    ],
+    "groupEdges": [
+      {
+        "from": 2,
+        "to": 1,
+        "fileEdgeCount": 2,
+        "fromLabel": "src #2",
+        "toLabel": "src"
+      }
+    ],
+    "page": {
+      "offset": 0,
+      "limit": 1,
+      "totalGroups": 2,
+      "totalGroupEdges": 1,
+      "truncated": true,
+      "nextOffset": 1
+    },
+    "nextSteps": "Pass group for one group's files and boundary, or from and to for the file pairs behind a group edge."
+  },
+  "secondPage": {
+    "view": "summary",
+    "context": {
+      "communityMode": "louvain",
+      "graphKind": "imports",
+      "scope": "workspace",
+      "exclusions": "node_modules, .git, dist, build, out, coverage, .next, .nuxt, __pycache__, .venv, venv, target, .*/, .gitignore, .graphitignore, tests/fixtures/, out-*/",
+      "truncated": false,
+      "failedFiles": 0
+    },
+    "provenance": {
+      "facts": "File pairs are static import relations extracted from source code, not observed execution.",
+      "grouping": "Groups are computed by the communityMode detector; group ids are only valid within the same graph and communityMode.",
+      "interpretation": "None: labels are folder keys or detector output, not business names or responsibilities."
+    },
+    "totals": {
+      "files": 6,
+      "fileEdges": 5,
+      "intraGroupEdges": 3,
+      "interGroupEdges": 2
+    },
+    "unassigned": {
+      "fileCount": 1,
+      "internalEdgeCount": 0
+    },
+    "groups": [
+      {
+        "id": 2,
+        "key": "src #2",
+        "label": "src #2",
+        "fileCount": 2,
+        "internalEdgeCount": 1
+      }
+    ],
+    "groupEdges": [],
+    "page": {
+      "offset": 1,
+      "limit": 1,
+      "totalGroups": 2,
+      "totalGroupEdges": 1,
+      "truncated": false
+    },
+    "nextSteps": "Pass group for one group's files and boundary, or from and to for the file pairs behind a group edge."
+  },
+  "groupViews": [
+    {
+      "view": "group",
+      "context": {
+        "communityMode": "louvain",
+        "graphKind": "imports",
+        "scope": "workspace",
+        "exclusions": "node_modules, .git, dist, build, out, coverage, .next, .nuxt, __pycache__, .venv, venv, target, .*/, .gitignore, .graphitignore, tests/fixtures/, out-*/",
+        "truncated": false,
+        "failedFiles": 0
+      },
+      "provenance": {
+        "facts": "File pairs are static import relations extracted from source code, not observed execution.",
+        "grouping": "Groups are computed by the communityMode detector; group ids are only valid within the same graph and communityMode.",
+        "interpretation": "None: labels are folder keys or detector output, not business names or responsibilities."
+      },
+      "totals": {
+        "files": 6,
+        "fileEdges": 5,
+        "intraGroupEdges": 3,
+        "interGroupEdges": 2
+      },
+      "group": {
+        "id": 1,
+        "key": "src",
+        "label": "src",
+        "fileCount": 3,
+        "internalEdgeCount": 2
+      },
+      "incoming": [
+        {
+          "from": 2,
+          "to": 1,
+          "fileEdgeCount": 2,
+          "fromLabel": "src #2",
+          "toLabel": "src"
+        }
+      ],
+      "outgoing": [],
+      "files": [
+        "src/components/Button.tsx",
+        "src/index.ts",
+        "src/utils.ts"
+      ],
+      "page": {
+        "total": 3,
+        "offset": 0,
+        "returned": 3,
+        "truncated": false
+      },
+      "nextSteps": "Pass from and to to list the file pairs behind an incoming or outgoing edge."
+    },
+    {
+      "view": "group",
+      "context": {
+        "communityMode": "louvain",
+        "graphKind": "imports",
+        "scope": "workspace",
+        "exclusions": "node_modules, .git, dist, build, out, coverage, .next, .nuxt, __pycache__, .venv, venv, target, .*/, .gitignore, .graphitignore, tests/fixtures/, out-*/",
+        "truncated": false,
+        "failedFiles": 0
+      },
+      "provenance": {
+        "facts": "File pairs are static import relations extracted from source code, not observed execution.",
+        "grouping": "Groups are computed by the communityMode detector; group ids are only valid within the same graph and communityMode.",
+        "interpretation": "None: labels are folder keys or detector output, not business names or responsibilities."
+      },
+      "totals": {
+        "files": 6,
+        "fileEdges": 5,
+        "intraGroupEdges": 3,
+        "interGroupEdges": 2
+      },
+      "group": {
+        "id": 2,
+        "key": "src #2",
+        "label": "src #2",
+        "fileCount": 2,
+        "internalEdgeCount": 1
+      },
+      "incoming": [],
+      "outgoing": [
+        {
+          "from": 2,
+          "to": 1,
+          "fileEdgeCount": 2,
+          "fromLabel": "src #2",
+          "toLabel": "src"
+        }
+      ],
+      "files": [
+        "src/circular.ts",
+        "src/main.ts"
+      ],
+      "page": {
+        "total": 2,
+        "offset": 0,
+        "returned": 2,
+        "truncated": false
+      },
+      "nextSteps": "Pass from and to to list the file pairs behind an incoming or outgoing edge."
+    },
+    {
+      "view": "group",
+      "context": {
+        "communityMode": "louvain",
+        "graphKind": "imports",
+        "scope": "workspace",
+        "exclusions": "node_modules, .git, dist, build, out, coverage, .next, .nuxt, __pycache__, .venv, venv, target, .*/, .gitignore, .graphitignore, tests/fixtures/, out-*/",
+        "truncated": false,
+        "failedFiles": 0
+      },
+      "provenance": {
+        "facts": "File pairs are static import relations extracted from source code, not observed execution.",
+        "grouping": "Groups are computed by the communityMode detector; group ids are only valid within the same graph and communityMode.",
+        "interpretation": "None: labels are folder keys or detector output, not business names or responsibilities."
+      },
+      "totals": {
+        "files": 6,
+        "fileEdges": 5,
+        "intraGroupEdges": 3,
+        "interGroupEdges": 2
+      },
+      "group": {
+        "id": 0,
+        "key": "",
+        "label": "unassigned",
+        "fileCount": 1,
+        "internalEdgeCount": 0
+      },
+      "incoming": [],
+      "outgoing": [],
+      "files": [
+        "src/logger.js"
+      ],
+      "page": {
+        "total": 1,
+        "offset": 0,
+        "returned": 1,
+        "truncated": false
+      },
+      "nextSteps": "Pass from and to to list the file pairs behind an incoming or outgoing edge."
+    }
+  ],
+  "evidence": [
+    {
+      "view": "evidence",
+      "context": {
+        "communityMode": "louvain",
+        "graphKind": "imports",
+        "scope": "workspace",
+        "exclusions": "node_modules, .git, dist, build, out, coverage, .next, .nuxt, __pycache__, .venv, venv, target, .*/, .gitignore, .graphitignore, tests/fixtures/, out-*/",
+        "truncated": false,
+        "failedFiles": 0
+      },
+      "provenance": {
+        "facts": "File pairs are static import relations extracted from source code, not observed execution.",
+        "grouping": "Groups are computed by the communityMode detector; group ids are only valid within the same graph and communityMode.",
+        "interpretation": "None: labels are folder keys or detector output, not business names or responsibilities."
+      },
+      "totals": {
+        "files": 6,
+        "fileEdges": 5,
+        "intraGroupEdges": 3,
+        "interGroupEdges": 2
+      },
+      "from": {
+        "id": 2,
+        "key": "src #2",
+        "label": "src #2",
+        "fileCount": 2,
+        "internalEdgeCount": 1
+      },
+      "to": {
+        "id": 1,
+        "key": "src",
+        "label": "src",
+        "fileCount": 3,
+        "internalEdgeCount": 2
+      },
+      "pairs": [
+        {
+          "source": "src/main.ts",
+          "target": "src/components/Button.tsx"
+        },
+        {
+          "source": "src/main.ts",
+          "target": "src/utils.ts"
+        }
+      ],
+      "page": {
+        "total": 2,
+        "offset": 0,
+        "returned": 2,
+        "truncated": false
+      },
+      "nextSteps": "For the symbols and lines behind a file pair, call graphitlive_find_referencing_files on the target, then graphitlive_query_call_graph or graphitlive_get_impact_analysis on the symbols involved."
+    }
+  ],
+  "evidencePages": [
+    {
+      "view": "evidence",
+      "context": {
+        "communityMode": "louvain",
+        "graphKind": "imports",
+        "scope": "workspace",
+        "exclusions": "node_modules, .git, dist, build, out, coverage, .next, .nuxt, __pycache__, .venv, venv, target, .*/, .gitignore, .graphitignore, tests/fixtures/, out-*/",
+        "truncated": false,
+        "failedFiles": 0
+      },
+      "provenance": {
+        "facts": "File pairs are static import relations extracted from source code, not observed execution.",
+        "grouping": "Groups are computed by the communityMode detector; group ids are only valid within the same graph and communityMode.",
+        "interpretation": "None: labels are folder keys or detector output, not business names or responsibilities."
+      },
+      "totals": {
+        "files": 6,
+        "fileEdges": 5,
+        "intraGroupEdges": 3,
+        "interGroupEdges": 2
+      },
+      "from": {
+        "id": 2,
+        "key": "src #2",
+        "label": "src #2",
+        "fileCount": 2,
+        "internalEdgeCount": 1
+      },
+      "to": {
+        "id": 1,
+        "key": "src",
+        "label": "src",
+        "fileCount": 3,
+        "internalEdgeCount": 2
+      },
+      "pairs": [
+        {
+          "source": "src/main.ts",
+          "target": "src/utils.ts"
+        }
+      ],
+      "page": {
+        "total": 2,
+        "offset": 1,
+        "returned": 1,
+        "truncated": false
+      },
+      "nextSteps": "For the symbols and lines behind a file pair, call graphitlive_find_referencing_files on the target, then graphitlive_query_call_graph or graphitlive_get_impact_analysis on the symbols involved."
+    }
+  ]
+}
