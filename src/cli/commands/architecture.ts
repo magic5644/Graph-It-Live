@@ -7,8 +7,9 @@
  * CRITICAL ARCHITECTURE RULE: This module is completely VS Code agnostic!
  */
 
-import { buildArchitectureGraph } from "../../mcp/tools/architecture.js";
+import { buildArchitectureGraph } from "../../analyzer/architecture/ArchitectureGraphBuilder.js";
 import { aggregateCommunityGroups } from "../../analyzer/community/groupAggregation.js";
+import { workerState } from "../../mcp/shared/state";
 import type { CliOutputFormat } from "../formatter";
 import { formatOutput } from "../formatter";
 import { readCommunityMode, readIntegerOption } from "../options";
@@ -29,7 +30,7 @@ export async function run(
   await runtime.ensureIndexed();
 
   const { graphData, nodes, edges, scannedFiles, analyzedFiles, failedFiles, context } =
-    await buildArchitectureGraph(runtime.workspaceRoot, {
+    await buildArchitectureGraph(runtime.workspaceRoot, (filePath) => workerState.getSpider().analyze(filePath), {
       maxFiles,
       communityMode,
       indexedAt: runtime.loadState()?.lastScanTimestamp,

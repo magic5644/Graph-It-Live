@@ -13,16 +13,23 @@ vi.mock('../../src/analyzer/SourceFileCollector.js', () => ({
   },
 }));
 
-vi.mock('../../src/mcp/tools/analysis', () => ({
-  executeAnalyzeDependencies: mocks.executeAnalyzeDependencies,
+// The fixture paths do not exist on disk; analysis results come from the mock below.
+vi.mock('../../src/shared/pathSecurity', async (importOriginal) => ({
+  ...(await importOriginal<object>()),
+  validateFileExists: vi.fn(),
 }));
 
 import { run } from '../../src/cli/commands/architecture.js';
+import { workerState } from '../../src/mcp/shared/state';
 
 describe('architecture command', () => {
   beforeEach(() => {
     mocks.collectAllSourceFiles.mockReset();
     mocks.executeAnalyzeDependencies.mockReset();
+    // Same { dependencies } shape the analysis tool used to return, so the scenarios stay unchanged.
+    vi.spyOn(workerState, 'getSpider').mockReturnValue({
+      analyze: async (filePath: string) => (await mocks.executeAnalyzeDependencies({ filePath })).dependencies,
+    } as never);
   });
 
   it('builds workspace architecture graph from all source files', async () => {
