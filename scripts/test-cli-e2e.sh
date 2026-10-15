@@ -81,20 +81,16 @@ section "File-level"
 graph-it "$W" tool analyze_dependencies    "--filePath=$SAMPLE_FILE"                               && pass "analyze_dependencies"    || fail "analyze_dependencies"
 graph-it "$W" tool crawl_dependency_graph  "--entryFile=$ENTRY_FILE"                               && pass "crawl_dependency_graph"  || fail "crawl_dependency_graph"
 graph-it "$W" tool find_referencing_files  "--targetPath=$SAMPLE_FILE"                             && pass "find_referencing_files"  || fail "find_referencing_files"
-graph-it "$W" tool expand_node             "--filePath=$SAMPLE_FILE" "--knownPaths=[]"             && pass "expand_node"             || fail "expand_node"
-graph-it "$W" tool parse_imports           "--filePath=$SAMPLE_FILE"                               && pass "parse_imports"           || fail "parse_imports"
 graph-it "$W" tool verify_dependency_usage "--sourceFile=$SAMPLE_FILE" "--targetFile=$ENTRY_FILE" && pass "verify_dependency_usage" || fail "verify_dependency_usage"
 graph-it "$W" tool resolve_module_path     "--fromFile=$SAMPLE_FILE" "--moduleSpecifier=./commandHelp" && pass "resolve_module_path" || fail "resolve_module_path"
-graph-it "$W" tool analyze_file_logic      "--filePath=$SAMPLE_FILE"                               && pass "analyze_file_logic"      || fail "analyze_file_logic"
 graph-it "$W" tool generate_codemap        "--filePath=$SAMPLE_FILE"                               && pass "generate_codemap"        || fail "generate_codemap"
 
 # ── 6. Symbol-level tools ────────────────────────────────────────────────────
 section "Symbol-level"
 graph-it "$W" tool get_symbol_graph        "--filePath=$SAMPLE_FILE"                               && pass "get_symbol_graph"        || fail "get_symbol_graph"
 graph-it "$W" tool find_unused_symbols     "--filePath=$SAMPLE_FILE"                               && pass "find_unused_symbols"     || fail "find_unused_symbols"
-graph-it "$W" tool get_symbol_dependents   "--filePath=$SAMPLE_FILE" "--symbolName=$SYMBOL"        && pass "get_symbol_dependents"   || fail "get_symbol_dependents"
 graph-it "$W" tool trace_function_execution "--filePath=$SAMPLE_FILE" "--symbolName=$SYMBOL"       && pass "trace_function_execution" || fail "trace_function_execution"
-graph-it "$W" tool get_symbol_callers      "--filePath=$SAMPLE_FILE" "--symbolName=$SYMBOL"        && pass "get_symbol_callers"      || fail "get_symbol_callers"
+graph-it "$W" tool get_symbol_callers      "--filePath=$SAMPLE_FILE" "--symbolName=$SYMBOL" 2>/dev/null && fail "removed alias get_symbol_callers rejected" || pass "removed alias get_symbol_callers rejected"
 
 # ── 7. Impact & breaking changes ─────────────────────────────────────────────
 section "Impact & breaking changes"

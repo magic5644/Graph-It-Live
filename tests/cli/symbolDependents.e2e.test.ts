@@ -54,16 +54,7 @@ describe.skipIf(!distExists)("symbol dependents (E2E)", { timeout: 60_000 }, () 
     fs.rmSync(workspace, { recursive: true, force: true, maxRetries: 10, retryDelay: 200 });
   });
 
-  it("get_symbol_dependents counts same-file, named, namespace and spyOn dependents", () => {
-    const result = cli("tool", "get_symbol_dependents", `--filePath=${core}`, "--symbolName=target");
-
-    expect(result.status).toBe(0);
-    const output = JSON.parse(result.stdout) as { dependentCount: number; dependents: Array<{ sourceSymbolId: string }> };
-    expect(output.dependentCount).toBe(4);
-    expect(sourceNames(output.dependents.map((d) => d.sourceSymbolId))).toEqual(["Service", "spy", "viaNamed", "viaNamespace"]);
-  });
-
-  it("get_impact_analysis reports the same four dependents", () => {
+  it("get_impact_analysis counts same-file, named, namespace and spyOn dependents", () => {
     const result = cli("tool", "get_impact_analysis", `--filePath=${core}`, "--symbolName=target");
 
     expect(result.status).toBe(0);
@@ -72,8 +63,8 @@ describe.skipIf(!distExists)("symbol dependents (E2E)", { timeout: 60_000 }, () 
     expect(sourceNames(output.impactedItems.map((i) => i.symbolId))).toEqual(["Service", "spy", "viaNamed", "viaNamespace"]);
   });
 
-  it.each(["get_symbol_dependents", "get_impact_analysis"])("%s fails for an unknown symbol", (tool) => {
-    const result = cli("tool", tool, `--filePath=${core}`, "--symbolName=doesNotExist");
+  it("get_impact_analysis fails for an unknown symbol", () => {
+    const result = cli("tool", "get_impact_analysis", `--filePath=${core}`, "--symbolName=doesNotExist");
 
     expect(result.status).not.toBe(0);
     expect(result.stderr).toContain("Symbol 'doesNotExist' not found in src/core.ts");

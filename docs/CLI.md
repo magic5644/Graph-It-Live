@@ -459,7 +459,7 @@ Uses AST analysis (Tree-sitter + ts-morph) to map every symbol in the file and c
 - Entry points (symbols called by nobody internally)
 - Cycle detection (recursive calls)
 
-Each symbol's `kind` is shown by its LSP SymbolKind name (`Function`, `Method`, `Class`, …) in every format. The `graph-it tool analyze_file_logic` alias keeps the numeric value.
+Each symbol's `kind` is shown by its LSP SymbolKind name (`Function`, `Method`, `Class`, …) in every format.
 
 **Output (text):**
 
@@ -1285,7 +1285,7 @@ graph-it export --format html --communities louvain
 
 ### tool
 
-Invoke any of the 22 analysis tools supported by the generic CLI command: the 17 MCP analysis tools plus five CLI-only transition aliases (see [Tool Count: CLI vs MCP](#tool-count-cli-vs-mcp)). The other five MCP tools have dedicated CLI equivalents or are covered by `--workspace`.
+Invoke any of the 18 MCP analysis tools by name (see [Tool Count: CLI vs MCP](#tool-count-cli-vs-mcp)). The other five MCP tools have dedicated CLI equivalents or are covered by `--workspace`.
 
 ```
 graph-it tool <name> [--<param>=<value> | --<param> <value>...] [options]
@@ -1325,8 +1325,6 @@ Available MCP tools:
   analyze_dependencies         Lists the import/export statements of one file, with each specifier resolved to a path on disk.
   crawl_dependency_graph       Builds the transitive file dependency graph reachable from one entry file.
   find_referencing_files       Lists every file that imports or references a given file (reverse dependency lookup).
-  expand_node                  Returns the dependencies of one file that are not already in a set of paths you provide.
-  parse_imports                Returns the import statements of one file: module specifier, import type and line.
   verify_dependency_usage      Reports whether a source file actually uses any symbol from a target file it imports.
   resolve_module_path          Resolves one module specifier, as seen from a given file, to a path on disk.
   get_index_status             Reports the state of the dependency index backing the other tools.
@@ -1334,12 +1332,9 @@ Available MCP tools:
   rebuild_index                Clears all cached analysis and re-indexes the whole workspace.
   get_symbol_graph             Lists the symbols a file exports and the symbols OUTSIDE the file that each of them depends on.
   find_unused_symbols          Lists the symbols a file exports that nothing else in the workspace imports.
-  get_symbol_dependents        Lists the symbols that use one given symbol - one hop, computed from source at call time.
   trace_function_execution     Follows the call chain outward from one symbol, recursively, across files.
-  get_symbol_callers           Lists the call sites of one given symbol - one hop, from the call graph index.
   analyze_breaking_changes     Compares two versions of a file and reports which signature changes break callers.
   get_impact_analysis          Reports everything affected by changing one symbol, direct and transitive.
-  analyze_file_logic           Returns the call hierarchy among the symbols defined INSIDE one file, ignoring anything it imports.
   generate_codemap             Returns one file's exports, internals, dependencies, dependents and internal call flow in a single call.
   query_call_graph             Traces calls across files for several hops, in either direction, from a SQLite-backed call graph.
   scan_dead_code               Lists the unused exported symbols across a whole workspace or directory.
@@ -1542,7 +1537,7 @@ Requires an active internet connection and `npm` in `PATH`.
 
 ## MCP Tools Reference (via `graph-it tool`)
 
-The `graph-it tool` command invokes 23 analysis tools by name: the 18 MCP analysis tools and five CLI-only transition aliases. The MCP server exposes 23 tools in total; the five that `graph-it tool` does not list have dedicated CLI equivalents: `review_pr` → `review-pr`, `query_natural_language` → `query`, `generate_wiki` → `wiki`, `get_session_stats` → `stats`, and `set_workspace` → `--workspace` (see [Tool Count: CLI vs MCP](#tool-count-cli-vs-mcp)).
+The `graph-it tool` command invokes the 18 MCP analysis tools by name. The MCP server exposes 23 tools in total; the five that `graph-it tool` does not list have dedicated CLI equivalents: `review_pr` → `review-pr`, `query_natural_language` → `query`, `generate_wiki` → `wiki`, `get_session_stats` → `stats`, and `set_workspace` → `--workspace` (see [Tool Count: CLI vs MCP](#tool-count-cli-vs-mcp)).
 
 ### Tool Details
 
@@ -1577,7 +1572,6 @@ this page, and `nextOffset` gives the next page: pass it as `--offset` until
 `nextOffset` is absent to read the whole graph. Each edge is sent once, with the
 page holding the later of its two ends, so every edge refers to nodes already
 sent. `nodeCount` and `edgeCount` keep the full totals. The CLI alias
-`expand_node` takes the same `tokenBudget` and `offset` and reports the same fields.
 
 Each node in `nodes[]` includes:
 - `hubScore` (0–1): proportion of workspace files that import this node
@@ -1594,34 +1588,6 @@ graph-it tool find_referencing_files --targetPath=/abs/path/to/utils.ts
 ```
 
 **Output fields:** `targetPath`, `referencingFileCount`, `referencingFiles[]`
-
----
-
-#### `expand_node`
-
-> **Transition alias (CLI only):** the MCP server no longer lists this tool. Use `crawl_dependency_graph` instead.
-
-**What it returns:** The immediate dependencies (one level) of a node, useful for incremental graph exploration without re-crawling the full tree.
-
-```bash
-graph-it tool expand_node --filePath=/abs/path/to/app.ts --knownPaths='[]' --extraDepth=1
-```
-
-**Output fields:** `expandedNode`, `newNodeCount`, `newEdgeCount`, `newNodes[]`, `newEdges[]`
-
----
-
-#### `parse_imports`
-
-> **Transition alias (CLI only):** the MCP server no longer lists this tool. Use `analyze_dependencies`, which returns each specifier as written along with its resolved path instead.
-
-**What it returns:** Raw import statements parsed from the source file, without path resolution. Useful for inspecting import syntax and module specifiers directly.
-
-```bash
-graph-it tool parse_imports --filePath=/abs/path/to/app.ts
-```
-
-**Output fields:** `filePath`, `importCount`, `imports[]` (each entry includes `module`, `type`, and `line`)
 
 ---
 
@@ -1705,20 +1671,6 @@ graph-it tool find_unused_symbols --filePath=/abs/path/to/api.ts
 
 ---
 
-#### `get_symbol_dependents`
-
-> **Transition alias (CLI only):** the MCP server no longer lists this tool. Use `query_call_graph --direction=callers --depth=1` (add `--includeTypeOnly=true` for type references) or `find_referencing_files` for file-level imports instead.
-
-**What it returns:** All symbols (across the entire project) that depend on a specific symbol — the reverse of `get_symbol_graph`. Callers in the same file and namespace-import uses (`ns.symbol`, `vi.spyOn(ns, "symbol")`) count; a bare namespace passed as a value does not. An unknown symbol is an error listing close name matches.
-
-```bash
-graph-it tool get_symbol_dependents --filePath=/abs/path/to/Spider.ts --symbolName=Spider
-```
-
-**Output fields:** `filePath`, `symbolName`, `dependentCount`, `dependents[]`
-
----
-
 #### `trace_function_execution`
 
 **What it returns:** The complete recursive call chain from a starting symbol — DFS traversal following every outgoing call edge until leaf functions.
@@ -1729,20 +1681,6 @@ graph-it tool trace_function_execution --filePath=/abs/path/to/Spider.ts --symbo
 ```
 
 **Output fields:** `rootSymbol`, `maxDepth`, `callCount`, `uniqueSymbolCount`, `maxDepthReached`, `callChain[]`, `visitedSymbols[]`
-
----
-
-#### `get_symbol_callers`
-
-> **Transition alias (CLI only):** the MCP server no longer lists this tool. Use `query_call_graph --direction=callers --depth=1` instead.
-
-**What it returns:** The call sites of a specific symbol across the project, one entry per caller symbol with the line of its first call, read from the call graph index. File-level imports are not callers; use `get_symbol_dependents` for every reference. Type-only references are included only with `--includeTypeOnly=true`.
-
-```bash
-graph-it tool get_symbol_callers --filePath=/abs/path/to/Spider.ts --symbolName=crawl
-```
-
-**Output fields:** `symbolId`, caller counts, `callers[]`, and `callerFiles[]`
 
 ---
 
@@ -1769,20 +1707,6 @@ graph-it tool get_impact_analysis --filePath=/abs/path/to/utils.ts --symbolName=
 ```
 
 **Output fields:** `targetSymbol`, `impactLevel`, impact counts, `impactedItems[]`, `affectedFiles[]`, and `summary`
-
----
-
-#### `analyze_file_logic`
-
-> **Transition alias (CLI only):** the MCP server no longer lists this tool. Use `generate_codemap` (its `callFlow` section) or `graph-it explain` instead.
-
-**What it returns:** Intra-file call hierarchy from AST analysis — entry points, call order, internal cycles, symbol types.
-
-```bash
-graph-it tool analyze_file_logic --filePath=/abs/path/to/mcpServer.ts
-```
-
-**Output fields:** `filePath`, `relativePath`, `language`, `graph`, `metadata`, `summary`, and optional partial-result warnings
 
 ---
 
@@ -1886,7 +1810,7 @@ graph-it tool explore_architecture --from=mcp --to=analyzer --limit=20 --offset=
 graph-it tool explore_architecture --communityMode=louvain
 ```
 
-A group is referenced by `key`, `label` or `id` (`0` or `unassigned` for files without a group); an unknown group is an error. Lists are paginated by `limit` (default 50, max 500) and `offset`: `page` gives the totals, `truncated` and `nextOffset`. Every response carries `context` (community mode, graph kind `imports`, scope, exclusions, `maxFiles`, truncation, failed files) and `provenance`, which separates code facts (static import pairs) from computed groupings and states that labels carry no interpretation. Symbols and lines come from `find_referencing_files`, `get_symbol_callers` and `get_impact_analysis`, named in `nextSteps`. The graph is rebuilt on each call, so a page is consistent with the others as long as the code does not change between calls.
+A group is referenced by `key`, `label` or `id` (`0` or `unassigned` for files without a group); an unknown group is an error. Lists are paginated by `limit` (default 50, max 500) and `offset`: `page` gives the totals, `truncated` and `nextOffset`. Every response carries `context` (community mode, graph kind `imports`, scope, exclusions, `maxFiles`, truncation, failed files) and `provenance`, which separates code facts (static import pairs) from computed groupings and states that labels carry no interpretation. Symbols and lines come from `find_referencing_files`, `query_call_graph` and `get_impact_analysis`, named in `nextSteps`. The graph is rebuilt on each call, so a page is consistent with the others as long as the code does not change between calls.
 
 ---
 
@@ -2071,21 +1995,23 @@ graph-it tool verify_dependency_usage \
 
 ## Tool Count: CLI vs MCP
 
-The CLI exposes **23 tools** via `graph-it tool --list`, and the MCP server provides **23 tools** in total. The two lists overlap on 18 analysis tools:
+The CLI exposes **18 tools** via `graph-it tool --list`, and the MCP server provides **23 tools** in total. All 18 CLI tools are MCP analysis tools:
 
 | Context | Tool count | Notes |
 |---------|-----------|-------|
-| `graph-it tool --list` | 23 | 18 shared analysis tools + 5 CLI-only transition aliases |
+| `graph-it tool --list` | 18 | 18 shared analysis tools |
 | MCP server (`graph-it serve`) | 23 | 18 shared analysis tools + 5 excluded from `tool --list` (see below) |
 
-The five transition aliases overlapped with other tools and confused agents choosing a tool, so the MCP server no longer lists them. The CLI keeps them during a transition:
+v1.20.0 removed the five transition aliases that v1.17.0 had already dropped from the MCP server. `graph-it tool <alias>` now exits non-zero and names the replacement:
 
-| CLI alias | Use instead |
-|-----------|-------------|
+| Removed alias | Use instead |
+|---------------|-------------|
 | `get_symbol_callers`, `get_symbol_dependents` | `query_call_graph --direction=callers --depth=1` |
 | `parse_imports` | `analyze_dependencies` |
 | `expand_node` | `crawl_dependency_graph` |
 | `analyze_file_logic` | `generate_codemap` or `graph-it explain` |
+
+The VS Code Language Model tools of the same names (`graph-it-live_get_symbol_callers`, …) are unaffected.
 
 The 5 MCP tools excluded from `tool --list` fall into two groups:
 

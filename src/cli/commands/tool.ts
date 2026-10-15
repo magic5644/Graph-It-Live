@@ -12,21 +12,16 @@ import { toolSummary } from "../../mcp/toolDescriptions";
 import {
   executeAnalyzeBreakingChanges,
   executeAnalyzeDependencies,
-  executeAnalyzeFileLogic,
   executeCrawlDependencyGraph,
   executeExploreArchitecture,
-  executeExpandNode,
   executeFindReferencingFiles,
   executeFindUnusedSymbols,
   executeGenerateCodemap,
   executeGraphContext,
   executeGetImpactAnalysis,
   executeGetIndexStatus,
-  executeGetSymbolCallers,
-  executeGetSymbolDependents,
   executeGetSymbolGraph,
   executeInvalidateFiles,
-  executeParseImports,
   executeQueryCallGraph,
   executeRebuildIndex,
   executeResolveModulePath,
@@ -37,21 +32,16 @@ import {
 import type {
   AnalyzeBreakingChangesParams,
   AnalyzeDependenciesParams,
-  AnalyzeFileLogicParams,
   CrawlDependencyGraphParams,
-  ExpandNodeParams,
   ExploreArchitectureParams,
   FindReferencingFilesParams,
   FindUnusedSymbolsParams,
   GenerateCodemapParams,
   GraphContextParams,
   GetImpactAnalysisParams,
-  GetSymbolCallersParams,
-  GetSymbolDependentsParams,
   GetSymbolGraphParams,
   InvalidateFilesParams,
   McpToolName,
-  ParseImportsParams,
   QueryCallGraphParams,
   ResolveModulePathParams,
   ScanDeadCodeParams,
@@ -70,8 +60,6 @@ const TOOL_NAMES: McpToolName[] = [
   "analyze_dependencies",
   "crawl_dependency_graph",
   "find_referencing_files",
-  "expand_node",
-  "parse_imports",
   "verify_dependency_usage",
   "resolve_module_path",
   "get_index_status",
@@ -79,17 +67,23 @@ const TOOL_NAMES: McpToolName[] = [
   "rebuild_index",
   "get_symbol_graph",
   "find_unused_symbols",
-  "get_symbol_dependents",
   "trace_function_execution",
-  "get_symbol_callers",
   "analyze_breaking_changes",
   "get_impact_analysis",
-  "analyze_file_logic",
   "generate_codemap",
   "query_call_graph",
   "scan_dead_code",
   "explore_architecture",
 ];
+
+/** Transition aliases removed in v1.20.0, mapped to the command that replaces them. */
+const REMOVED_TOOLS: Partial<Record<string, string>> = {
+  get_symbol_callers: "tool query_call_graph --direction=callers --depth=1",
+  get_symbol_dependents: "tool query_call_graph --direction=callers --depth=1",
+  parse_imports: "tool analyze_dependencies",
+  expand_node: "tool crawl_dependency_graph",
+  analyze_file_logic: "tool generate_codemap (or graph-it explain)",
+};
 
 export async function run(
   args: string[],
@@ -106,6 +100,13 @@ export async function run(
   }
 
   const toolName = args[0] as McpToolName;
+  const replacement = REMOVED_TOOLS[toolName];
+  if (replacement) {
+    throw new CliError(
+      `Tool "${toolName}" was removed in v1.20.0. Use: graph-it ${replacement}`,
+      ExitCode.GENERAL_ERROR,
+    );
+  }
   if (!TOOL_NAMES.includes(toolName)) {
     throw new CliError(
       `Unknown tool "${toolName}". Available tools:\n${TOOL_NAMES.join("\n")}`,
@@ -259,10 +260,6 @@ const cliToolHandlers: Partial<Record<McpToolName, CliToolHandler>> = {
     executeCrawlDependencyGraph(params as CrawlDependencyGraphParams),
   find_referencing_files: (params) =>
     executeFindReferencingFiles(params as FindReferencingFilesParams),
-  expand_node: (params) =>
-    executeExpandNode(params as ExpandNodeParams),
-  parse_imports: (params) =>
-    executeParseImports(params as ParseImportsParams),
   verify_dependency_usage: (params) =>
     executeVerifyDependencyUsage(params as VerifyDependencyUsageParams),
   resolve_module_path: (params) =>
@@ -275,18 +272,12 @@ const cliToolHandlers: Partial<Record<McpToolName, CliToolHandler>> = {
     executeGetSymbolGraph(params as GetSymbolGraphParams),
   find_unused_symbols: (params) =>
     executeFindUnusedSymbols(params as FindUnusedSymbolsParams),
-  get_symbol_dependents: (params) =>
-    executeGetSymbolDependents(params as GetSymbolDependentsParams),
   trace_function_execution: (params) =>
     executeTraceFunctionExecution(params as TraceFunctionExecutionParams),
-  get_symbol_callers: (params) =>
-    executeGetSymbolCallers(params as GetSymbolCallersParams),
   analyze_breaking_changes: (params) =>
     executeAnalyzeBreakingChanges(params as AnalyzeBreakingChangesParams),
   get_impact_analysis: (params) =>
     executeGetImpactAnalysis(params as GetImpactAnalysisParams),
-  analyze_file_logic: (params) =>
-    executeAnalyzeFileLogic(params as AnalyzeFileLogicParams),
   generate_codemap: (params) =>
     executeGenerateCodemap(params as GenerateCodemapParams),
   query_call_graph: (params) =>

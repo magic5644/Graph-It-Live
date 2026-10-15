@@ -15,7 +15,6 @@ import {
   GenericStringSchema,
   SetWorkspaceParamsSchema,
   AnalyzeBreakingChangesParamsSchema,
-  GetSymbolCallersParamsSchema,
 } from '../../src/mcp/types';
 
 // Helper functions to reduce nesting depth and improve cross-platform compatibility
@@ -199,44 +198,6 @@ describe('Payload Size Limits', () => {
 
         expectSchemaRejects(
           AnalyzeBreakingChangesParamsSchema,
-          invalidParams,
-          /Symbol name exceeds maximum length/
-        );
-      });
-    });
-
-    describe('GetSymbolCallersParamsSchema', () => {
-      it('should validate valid symbol callers params', () => {
-        const validParams = {
-          filePath: path.join('/', 'Users', 'test', 'project', 'src', 'utils.ts'),
-          symbolName: 'calculateSum',
-          includeTypeOnly: false,
-        };
-
-        expectSchemaAccepts(GetSymbolCallersParamsSchema, validParams);
-      });
-
-      it('should reject oversized file path', () => {
-        const invalidParams = {
-          filePath: '/path/' + 'a'.repeat(PAYLOAD_LIMITS.FILE_PATH),
-          symbolName: 'test',
-        };
-
-        expectSchemaRejects(
-          GetSymbolCallersParamsSchema,
-          invalidParams,
-          /File path exceeds maximum length/
-        );
-      });
-
-      it('should reject oversized symbol name', () => {
-        const invalidParams = {
-          filePath: path.join('/', 'Users', 'test', 'project', 'src', 'utils.ts'),
-          symbolName: 'b'.repeat(PAYLOAD_LIMITS.SYMBOL_NAME + 1),
-        };
-
-        expectSchemaRejects(
-          GetSymbolCallersParamsSchema,
           invalidParams,
           /Symbol name exceeds maximum length/
         );

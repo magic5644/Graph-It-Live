@@ -3,21 +3,16 @@ import { workerState } from "../shared/state";
 import {
   executeAnalyzeBreakingChanges,
   executeAnalyzeDependencies,
-  executeAnalyzeFileLogic,
   executeCrawlDependencyGraph,
   executeExploreArchitecture,
-  executeExpandNode,
   executeFindReferencingFiles,
   executeFindUnusedSymbols,
   executeGenerateCodemap,
   executeGraphContext,
   executeGetImpactAnalysis,
   executeGetIndexStatus,
-  executeGetSymbolCallers,
-  executeGetSymbolDependents,
   executeGetSymbolGraph,
   executeInvalidateFiles,
-  executeParseImports,
   executeQueryCallGraph,
   executeReviewPr,
   executeRebuildIndex,
@@ -31,23 +26,18 @@ import {
 import type {
   AnalyzeBreakingChangesParams,
   AnalyzeDependenciesParams,
-  AnalyzeFileLogicParams,
   CrawlDependencyGraphParams,
-  ExpandNodeParams,
   ExploreArchitectureParams,
   FindReferencingFilesParams,
   FindUnusedSymbolsParams,
   GenerateCodemapParams,
   GraphContextParams,
   GetImpactAnalysisParams,
-  GetSymbolCallersParams,
-  GetSymbolDependentsParams,
   GetSymbolGraphParams,
   InvalidateFilesParams,
   McpToolName,
   McpWorkerConfig,
   McpWorkerResponse,
-  ParseImportsParams,
   ReviewPrParams,
   QueryCallGraphParams,
   ResolveModulePathParams,
@@ -98,10 +88,6 @@ const toolHandlers: Partial<Record<McpToolName, ToolHandler>> = {
     executeCrawlDependencyGraph(params as CrawlDependencyGraphParams, signal),
   find_referencing_files: (params) =>
     executeFindReferencingFiles(params as FindReferencingFilesParams),
-  expand_node: (params) =>
-    executeExpandNode(params as ExpandNodeParams),
-  parse_imports: (params) =>
-    executeParseImports(params as ParseImportsParams),
   verify_dependency_usage: (params) =>
     executeVerifyDependencyUsage(params as VerifyDependencyUsageParams),
   resolve_module_path: (params) =>
@@ -114,19 +100,13 @@ const toolHandlers: Partial<Record<McpToolName, ToolHandler>> = {
     executeGetSymbolGraph(params as GetSymbolGraphParams),
   find_unused_symbols: (params) =>
     executeFindUnusedSymbols(params as FindUnusedSymbolsParams),
-  get_symbol_dependents: (params) =>
-    executeGetSymbolDependents(params as GetSymbolDependentsParams),
   trace_function_execution: (params) =>
     executeTraceFunctionExecution(params as TraceFunctionExecutionParams),
-  get_symbol_callers: (params) =>
-    executeGetSymbolCallers(params as GetSymbolCallersParams),
   analyze_breaking_changes: (params) =>
     executeAnalyzeBreakingChanges(params as AnalyzeBreakingChangesParams),
   review_pr: (params) => executeReviewPr(params as ReviewPrParams),
   get_impact_analysis: (params) =>
     executeGetImpactAnalysis(params as GetImpactAnalysisParams),
-  analyze_file_logic: (params) =>
-    executeAnalyzeFileLogic(params as AnalyzeFileLogicParams),
   generate_codemap: (params) =>
     executeGenerateCodemap(params as GenerateCodemapParams),
   query_call_graph: (params) =>

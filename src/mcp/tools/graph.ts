@@ -18,8 +18,6 @@ import type {
     CrawlDependencyGraphParams,
     CrawlDependencyGraphResult,
     EdgeInfo,
-    ExpandNodeParams,
-    ExpandNodeResult,
     FindReferencingFilesParams,
     FindReferencingFilesResult,
 } from "../types";
@@ -153,61 +151,6 @@ function createAbortError(): Error {
   const error = new Error("Tool invocation cancelled");
   error.name = "AbortError";
   return error;
-}
-
-/**
- * Expand a node to discover new dependencies not in the known set
- */
-export async function executeExpandNode(
-  params: ExpandNodeParams,
-): Promise<ExpandNodeResult> {
-  const { filePath, knownPaths, extraDepth, offset = 0, tokenBudget } = params;
-  const spider = workerState.getSpider();
-  const config = workerState.getConfig();
-
-  await validateFileExists(filePath);
-
-  const existingNodes = new Set<string>(knownPaths);
-  const result = await spider.crawlFrom(
-    filePath,
-    existingNodes,
-    extraDepth ?? 10,
-  );
-
-  const newEdges = result.edges.map((edge) => ({
-    source: edge.source,
-    target: edge.target,
-    sourceRelative: getRelativePath(edge.source, config.rootDir),
-    targetRelative: getRelativePath(edge.target, config.rootDir),
-  }));
-  // Same paging as crawl_dependency_graph: an edge follows its later new end.
-  const owners = edgeOwners(result.nodes, result.edges);
-  const pageSize = Math.max(0, result.nodes.length - offset);
-  const page = (count: number): ExpandNodeResult => {
-    const end = offset + count;
-    return {
-      expandedNode: filePath,
-      newNodeCount: result.nodes.length,
-      newEdgeCount: result.edges.length,
-      newNodes: result.nodes.slice(offset, end),
-      newEdges: newEdges.filter((_, index) => owners[index] >= offset && owners[index] < end),
-      ...(end < result.nodes.length ? { nextOffset: end } : {}),
-    };
-  };
-  if (!tokenBudget) return page(pageSize);
-
-  const fullPage = page(pageSize);
-  return fitToTokenBudget(pageSize, tokenBudget, (count) => {
-    const budgeted = page(count);
-    return {
-      ...budgeted,
-      truncated: count < pageSize,
-      omitted: {
-        nodes: pageSize - count,
-        edges: fullPage.newEdges.length - budgeted.newEdges.length,
-      },
-    };
-  }).result;
 }
 
 /**

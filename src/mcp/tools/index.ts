@@ -1,6 +1,5 @@
 export {
     executeAnalyzeDependencies,
-    executeParseImports,
     executeVerifyDependencyUsage
 } from "./analysis";
 export {
@@ -13,12 +12,10 @@ export {
     executeScanDeadCode
 } from "./deadcode";
 export {
-    executeGetSymbolCallers,
     executeTraceFunctionExecution
 } from "./execution";
 export {
     executeCrawlDependencyGraph,
-    executeExpandNode,
     executeFindReferencingFiles
 } from "./graph";
 export {
@@ -40,7 +37,6 @@ export {
 } from "./resolve";
 export {
     executeFindUnusedSymbols,
-    executeGetSymbolDependents,
     executeGetSymbolGraph
 } from "./symbol";
 export {

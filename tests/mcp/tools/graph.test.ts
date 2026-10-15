@@ -7,7 +7,6 @@ import { normalizePath } from "../../../src/shared/path";
 import { estimateTokens } from "../../../src/shared/toon";
 import {
     executeCrawlDependencyGraph,
-    executeExpandNode,
     executeFindReferencingFiles,
 } from "../../../src/mcp/tools/graph";
 
@@ -338,87 +337,6 @@ describe("graph tools", () => {
       expect(result.nodes).toHaveLength(301);
       expect(result.truncated).toBeUndefined();
       expect(result.omitted).toBeUndefined();
-    });
-
-    it("cuts expand_node new nodes and drops their edges", async () => {
-      const entryFile = await createTempFile(tempDir, "entry.ts", "");
-      const deps = manyFiles();
-      setupWorkerState({
-        crawlFrom: vi.fn(async () => ({
-          nodes: deps,
-          edges: deps.map((dep) => ({ source: entryFile, target: dep })),
-        })),
-      });
-
-      const result = await executeExpandNode({
-        filePath: entryFile,
-        knownPaths: [entryFile],
-        tokenBudget: 1_000,
-      });
-
-      expect(result.truncated).toBe(true);
-      expect(result.newNodeCount).toBe(300);
-      expect(result.newNodes.length).toBeLessThan(300);
-      expect(result.newEdges).toHaveLength(result.newNodes.length);
-      expect(result.omitted).toEqual({
-        nodes: 300 - result.newNodes.length,
-        edges: 300 - result.newEdges.length,
-      });
-      expect(estimateTokens(JSON.stringify(result))).toBeLessThanOrEqual(1_000);
-    });
-
-    it("pages expand_node new nodes with offset until nextOffset is gone", async () => {
-      const entryFile = await createTempFile(tempDir, "entry.ts", "");
-      const deps = manyFiles();
-      setupWorkerState({
-        crawlFrom: vi.fn(async () => ({
-          nodes: deps,
-          edges: deps.map((dep) => ({ source: entryFile, target: dep })),
-        })),
-      });
-
-      const seenNodes: string[] = [];
-      let edgeCount = 0;
-      let offset: number | undefined = 0;
-      while (offset !== undefined) {
-        const page = await executeExpandNode({ filePath: entryFile, knownPaths: [entryFile], offset, tokenBudget: 1_000 });
-        seenNodes.push(...page.newNodes);
-        edgeCount += page.newEdges.length;
-        offset = page.nextOffset;
-      }
-
-      expect(seenNodes).toEqual(deps);
-      expect(edgeCount).toBe(300);
-    });
-  });
-
-  describe("executeExpandNode", () => {
-    it("should expand node and return relative edge info", async () => {
-      const entryFile = await createTempFile(tempDir, "entry.ts", "");
-      const depFile = path.join(tempDir, "dep.ts");
-
-      const spiderMock = {
-        crawlFrom: vi.fn(async () => ({
-          nodes: [depFile],
-          edges: [{ source: entryFile, target: depFile }],
-        })),
-      };
-
-      setupWorkerState(spiderMock);
-
-      const result = await executeExpandNode({
-        filePath: entryFile,
-        knownPaths: [entryFile],
-      });
-
-      expect(result.newNodeCount).toBe(1);
-      expect(result.newEdgeCount).toBe(1);
-      expect(result.newEdges[0]).toEqual({
-        source: entryFile,
-        target: depFile,
-        sourceRelative: "entry.ts",
-        targetRelative: "dep.ts",
-      });
     });
   });
 

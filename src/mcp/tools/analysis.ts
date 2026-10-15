@@ -1,11 +1,8 @@
-import * as fs from "node:fs/promises";
 import { validateFileExists } from "../shared/helpers";
 import { workerState } from "../shared/state";
 import type {
     AnalyzeDependenciesParams,
     AnalyzeDependenciesResult,
-    ParseImportsParams,
-    ParseImportsResult,
     VerifyDependencyUsageParams,
     VerifyDependencyUsageResult,
 } from "../types";
@@ -32,32 +29,6 @@ export async function executeAnalyzeDependencies(
     dependencies: dependencies.map((dep) =>
       enrichDependency(dep, config.rootDir),
     ),
-  };
-}
-
-/**
- * Parse imports from a file without resolving paths
- */
-export async function executeParseImports(
-  params: ParseImportsParams,
-): Promise<ParseImportsResult> {
-  const { filePath } = params;
-  const parser = workerState.getParser();
-
-  // Validate file exists
-  await validateFileExists(filePath);
-
-  const content = await fs.readFile(filePath, "utf-8");
-  const imports = parser.parse(content, filePath);
-
-  return {
-    filePath,
-    importCount: imports.length,
-    imports: imports.map((imp) => ({
-      module: imp.module,
-      type: imp.type,
-      line: imp.line,
-    })),
   };
 }
 

@@ -32,6 +32,7 @@ describe.skipIf(!distExists)("relative file paths resolve against the workspace 
       fs.mkdirSync(dir);
       fs.writeFileSync(path.join(dir, "package.json"), "{}");
       fs.writeFileSync(path.join(dir, "probe.ts"), probe);
+      fs.writeFileSync(path.join(dir, `${path.basename(dir)}-only.ts`), "export const w = 1, o = 1;\n");
     }
   });
 
@@ -43,8 +44,8 @@ describe.skipIf(!distExists)("relative file paths resolve against the workspace 
   const cli = (...args: string[]) =>
     spawnSync(process.execPath, [DIST_ENTRY, "-w", workspace, ...args], { cwd: outside, encoding: "utf-8" });
 
-  it("tool parse_imports reads the workspace file", () => {
-    const result = cli("tool", "parse_imports", "--filePath=probe.ts", "--format", "json");
+  it("tool analyze_dependencies reads the workspace file", () => {
+    const result = cli("tool", "analyze_dependencies", "--filePath=probe.ts", "--format", "json");
 
     expect(result.status).toBe(0);
     expect(result.stdout).toContain("./workspace-only");

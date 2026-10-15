@@ -54,10 +54,32 @@ describe("tool command dispatch", () => {
     await expect(run(["nope"], runtimeStub, "json")).rejects.toThrow('Unknown tool "nope"');
   });
 
+  it.each([
+    ["get_symbol_callers", "graph-it tool query_call_graph --direction=callers --depth=1"],
+    ["get_symbol_dependents", "graph-it tool query_call_graph --direction=callers --depth=1"],
+    ["parse_imports", "graph-it tool analyze_dependencies"],
+    ["expand_node", "graph-it tool crawl_dependency_graph"],
+    ["analyze_file_logic", "graph-it tool generate_codemap (or graph-it explain)"],
+  ])("rejects the removed alias %s and names its replacement (issue #304)", async (tool, replacement) => {
+    vi.mocked(runtimeStub.ensureIndexed).mockClear();
+    await expect(run([tool, `--filePath=${file}`], runtimeStub, "json")).rejects.toThrow(
+      `Tool "${tool}" was removed in v1.20.0. Use: ${replacement}`,
+    );
+    expect(runtimeStub.ensureIndexed).not.toHaveBeenCalled();
+    expect(executeMock).not.toHaveBeenCalled();
+  });
+
+  it("lists no removed alias (issue #304)", async () => {
+    const output = await run(["--list"], runtimeStub, "text");
+    for (const alias of ["get_symbol_callers", "get_symbol_dependents", "parse_imports", "expand_node", "analyze_file_logic"]) {
+      expect(output).not.toContain(alias);
+    }
+  });
+
   it("reports Zod validation errors without indexing the workspace (issue #254)", async () => {
     vi.mocked(runtimeStub.ensureIndexed).mockClear();
     await expect(
-      run(["get_symbol_dependents", "--symbolName=a"], runtimeStub, "json"),
+      run(["get_impact_analysis", "--symbolName=a"], runtimeStub, "json"),
     ).rejects.toThrow("Invalid parameters: filePath");
     expect(runtimeStub.ensureIndexed).not.toHaveBeenCalled();
     expect(executeMock).not.toHaveBeenCalled();
@@ -72,21 +94,21 @@ describe("tool command dispatch", () => {
       order.push("execute");
       return { called: name };
     });
-    await run(["get_symbol_dependents", `--filePath=${file}`, "--symbolName=a"], runtimeStub, "json");
+    await run(["get_impact_analysis", `--filePath=${file}`, "--symbolName=a"], runtimeStub, "json");
     expect(runtimeStub.ensureIndexed).toHaveBeenCalledOnce();
     expect(order).toEqual(["index", "execute"]);
   });
 
   it("passes merged --args and named flags to the handler (issue #159)", async () => {
     const output = await run(
-      ["expand_node", `--filePath=${file}`, "--args", '{"knownPaths":[]}'],
+      ["crawl_dependency_graph", `--entryFile=${file}`, "--args", '{"maxDepth":2}'],
       runtimeStub,
       "json",
     );
-    expect(JSON.parse(output)).toEqual({ called: "executeExpandNode" });
+    expect(JSON.parse(output)).toEqual({ called: "executeCrawlDependencyGraph" });
     expect(executeMock).toHaveBeenCalledWith(
-      "executeExpandNode",
-      expect.objectContaining({ filePath: file, knownPaths: [] }),
+      "executeCrawlDependencyGraph",
+      expect.objectContaining({ entryFile: file, maxDepth: 2 }),
     );
   });
 
@@ -114,7 +136,6 @@ describe("tool command dispatch", () => {
     ["analyze_dependencies", (f) => ({ filePath: f }), "executeAnalyzeDependencies"],
     ["crawl_dependency_graph", (f) => ({ entryFile: f }), "executeCrawlDependencyGraph"],
     ["find_referencing_files", (f) => ({ targetPath: f }), "executeFindReferencingFiles"],
-    ["parse_imports", (f) => ({ filePath: f }), "executeParseImports"],
     ["verify_dependency_usage", (f) => ({ sourceFile: f, targetFile: f }), "executeVerifyDependencyUsage"],
     ["resolve_module_path", (f) => ({ fromFile: f, moduleSpecifier: "./b" }), "executeResolveModulePath"],
     ["get_index_status", () => ({}), "executeGetIndexStatus"],
@@ -122,16 +143,13 @@ describe("tool command dispatch", () => {
     ["rebuild_index", () => ({}), "executeRebuildIndex"],
     ["get_symbol_graph", (f) => ({ filePath: f }), "executeGetSymbolGraph"],
     ["find_unused_symbols", (f) => ({ filePath: f }), "executeFindUnusedSymbols"],
-    ["get_symbol_dependents", (f) => ({ filePath: f, symbolName: "a" }), "executeGetSymbolDependents"],
     ["trace_function_execution", (f) => ({ filePath: f, symbolName: "a" }), "executeTraceFunctionExecution"],
-    ["get_symbol_callers", (f) => ({ filePath: f, symbolName: "a" }), "executeGetSymbolCallers"],
     [
       "analyze_breaking_changes",
       (f) => ({ filePath: f, oldContent: "export const a = 1;", newContent: "export const b = 1;" }),
       "executeAnalyzeBreakingChanges",
     ],
     ["get_impact_analysis", (f) => ({ filePath: f, symbolName: "a" }), "executeGetImpactAnalysis"],
-    ["analyze_file_logic", (f) => ({ filePath: f }), "executeAnalyzeFileLogic"],
     ["generate_codemap", (f) => ({ filePath: f }), "executeGenerateCodemap"],
     ["query_call_graph", (f) => ({ filePath: f, symbolName: "a" }), "executeQueryCallGraph"],
     ["scan_dead_code", () => ({}), "executeScanDeadCode"],

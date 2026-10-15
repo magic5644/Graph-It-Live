@@ -101,8 +101,6 @@ export type McpToolName =
   | "analyze_dependencies"
   | "crawl_dependency_graph"
   | "find_referencing_files"
-  | "expand_node"
-  | "parse_imports"
   | "verify_dependency_usage" // NEW: Verify if a dependency is actually used
   | "resolve_module_path"
   | "get_index_status"
@@ -110,13 +108,10 @@ export type McpToolName =
   | "rebuild_index"
   | "get_symbol_graph"
   | "find_unused_symbols"
-  | "get_symbol_dependents"
   | "trace_function_execution"
-  | "get_symbol_callers" // call sites of a symbol from the call graph
   | "analyze_breaking_changes" // NEW: Detect breaking changes
   | "review_pr" // Deterministic local Git diff review
   | "get_impact_analysis" // NEW: Full impact analysis
-  | "analyze_file_logic" // NEW: LSP-based intra-file call hierarchy
   | "generate_codemap" // NEW: Full codemap generation for a single file
   | "query_call_graph" // NEW: Cross-file call graph query (callers/callees via SQLite)
   | "scan_dead_code" // NEW: Workspace-wide dead code scan
@@ -361,30 +356,6 @@ export type FindReferencingFilesParams = z.infer<
   typeof FindReferencingFilesParamsSchema
 >;
 
-export const ExpandNodeParamsSchema = z.object({
-  filePath: FilePathSchema.describe("Absolute path to the node to expand"),
-  knownPaths: z
-    .array(FilePathSchema)
-    .max(50000)
-    .describe("Array of already known file paths to exclude (max: 50000)"),
-  extraDepth: z
-    .number()
-    .min(1)
-    .max(100)
-    .optional()
-    .describe(
-      "Additional depth to scan from this node (default: 10, min: 1, max: 100)",
-    ),
-  offset: GraphToolOffsetSchema,
-  tokenBudget: GraphToolTokenBudgetSchema,
-});
-export type ExpandNodeParams = z.infer<typeof ExpandNodeParamsSchema>;
-
-export const ParseImportsParamsSchema = z.object({
-  filePath: FilePathSchema.describe("Absolute path to the file to parse"),
-});
-export type ParseImportsParams = z.infer<typeof ParseImportsParamsSchema>;
-
 export const VerifyDependencyUsageParamsSchema = z.object({
   sourceFile: FilePathSchema.describe(
     "Absolute path to the source file (the one importing using symbols)",
@@ -441,18 +412,6 @@ export type FindUnusedSymbolsParams = z.infer<
   typeof FindUnusedSymbolsParamsSchema
 >;
 
-export const GetSymbolDependentsParamsSchema = z.object({
-  filePath: FilePathSchema.describe(
-    "Absolute path to the file containing the symbol",
-  ),
-  symbolName: SymbolNameSchema.describe(
-    "Name of the symbol to find dependents for",
-  ),
-});
-export type GetSymbolDependentsParams = z.infer<
-  typeof GetSymbolDependentsParamsSchema
->;
-
 export const TraceFunctionExecutionParamsSchema = z.object({
   filePath: FilePathSchema.describe(
     "Absolute path to the file containing the root symbol",
@@ -471,25 +430,6 @@ export const TraceFunctionExecutionParamsSchema = z.object({
 });
 export type TraceFunctionExecutionParams = z.infer<
   typeof TraceFunctionExecutionParamsSchema
->;
-
-// Schema for get_symbol_callers
-export const GetSymbolCallersParamsSchema = z.object({
-  filePath: FilePathSchema.describe(
-    "The absolute path to the file containing the target symbol.",
-  ),
-  symbolName: SymbolNameSchema.describe(
-    "The name of the symbol (function, class, method, variable) to find callers for.",
-  ),
-  includeTypeOnly: z
-    .boolean()
-    .optional()
-    .describe(
-      "Also include type-only references (interfaces, type aliases). Default is false: only call sites are returned.",
-    ),
-});
-export type GetSymbolCallersParams = z.infer<
-  typeof GetSymbolCallersParamsSchema
 >;
 
 // NEW: Schema for analyze_breaking_changes
@@ -536,7 +476,7 @@ export type GetImpactAnalysisParams = z.infer<
   typeof GetImpactAnalysisParamsSchema
 >;
 
-// NEW: Schema for analyze_file_logic (LSP-based intra-file call hierarchy)
+// Schema for `graph-it explain` (intra-file call hierarchy)
 export const AnalyzeFileLogicParamsSchema = z.object({
   filePath: FilePathSchema.describe("Absolute path to the file to analyze"),
   includeExternal: z
@@ -816,8 +756,6 @@ export const toolSchemas: Record<McpToolName, z.ZodType<unknown>> = {
   analyze_dependencies: AnalyzeDependenciesParamsSchema,
   crawl_dependency_graph: CrawlDependencyGraphParamsSchema,
   find_referencing_files: FindReferencingFilesParamsSchema,
-  expand_node: ExpandNodeParamsSchema,
-  parse_imports: ParseImportsParamsSchema,
   verify_dependency_usage: VerifyDependencyUsageParamsSchema,
   resolve_module_path: ResolveModulePathParamsSchema,
   get_index_status: GetIndexStatusParamsSchema,
@@ -825,13 +763,10 @@ export const toolSchemas: Record<McpToolName, z.ZodType<unknown>> = {
   rebuild_index: RebuildIndexParamsSchema,
   get_symbol_graph: GetSymbolGraphParamsSchema,
   find_unused_symbols: FindUnusedSymbolsParamsSchema,
-  get_symbol_dependents: GetSymbolDependentsParamsSchema,
   trace_function_execution: TraceFunctionExecutionParamsSchema,
-  get_symbol_callers: GetSymbolCallersParamsSchema,
   analyze_breaking_changes: AnalyzeBreakingChangesParamsSchema,
   review_pr: ReviewPrParamsSchema,
   get_impact_analysis: GetImpactAnalysisParamsSchema,
-  analyze_file_logic: AnalyzeFileLogicParamsSchema,
   generate_codemap: GenerateCodemapParamsSchema,
   query_call_graph: QueryCallGraphParamsSchema,
   scan_dead_code: ScanDeadCodeParamsSchema,
@@ -937,19 +872,14 @@ const TOOL_FILE_PATH_PARAMS: Partial<Record<McpToolName, readonly string[]>> = {
   analyze_dependencies: ["filePath"],
   crawl_dependency_graph: ["entryFile"],
   find_referencing_files: ["targetPath"],
-  expand_node: ["filePath"],
-  parse_imports: ["filePath"],
   verify_dependency_usage: ["sourceFile", "targetFile"],
   resolve_module_path: ["fromFile"],
   invalidate_files: ["filePaths"],
   get_symbol_graph: ["filePath"],
   find_unused_symbols: ["filePath"],
-  get_symbol_dependents: ["filePath"],
   trace_function_execution: ["filePath"],
-  get_symbol_callers: ["filePath"],
   analyze_breaking_changes: ["filePath"],
   get_impact_analysis: ["filePath"],
-  analyze_file_logic: ["filePath"],
   generate_codemap: ["filePath"],
   query_call_graph: ["filePath"],
 };
@@ -1182,52 +1112,6 @@ export interface ReferencingFileInfo {
 }
 
 /**
- * Result of expand_node tool
- */
-export interface ExpandNodeResult {
-  /** The node that was expanded */
-  expandedNode: string;
-  /** Number of new nodes discovered */
-  newNodeCount: number;
-  /** Number of new edges discovered */
-  newEdgeCount: number;
-  /** Newly discovered nodes */
-  newNodes: string[];
-  /** Newly discovered edges */
-  newEdges: EdgeInfo[];
-  /** Offset of the next page when nodes remain; pass it back as offset */
-  nextOffset?: number;
-  /** Set when a tokenBudget was applied: true if nodes or edges were cut */
-  truncated?: boolean;
-  /** New nodes and edges cut by the tokenBudget */
-  omitted?: { nodes: number; edges: number };
-}
-
-/**
- * Result of parse_imports tool
- */
-export interface ParseImportsResult {
-  /** The parsed file path */
-  filePath: string;
-  /** Number of imports found */
-  importCount: number;
-  /** Raw imports without path resolution */
-  imports: ParsedImportInfo[];
-}
-
-/**
- * Parsed import information (before resolution)
- */
-export interface ParsedImportInfo {
-  /** Module specifier as written in code */
-  module: string;
-  /** Type of import */
-  type: ImportType;
-  /** Line number */
-  line: number;
-}
-
-/**
  * Result of verify_dependency_usage tool
  */
 export interface VerifyDependencyUsageResult {
@@ -1454,17 +1338,6 @@ export interface FindUnusedSymbolsResult {
   unusedPercentage: number;
 }
 
-export interface GetSymbolDependentsResult {
-  /** The file path containing the symbol */
-  filePath: string;
-  /** The name of the symbol */
-  symbolName: string;
-  /** Number of dependents found */
-  dependentCount: number;
-  /** List of dependents (usages) */
-  dependents: SymbolDependencyEdge[];
-}
-
 /**
  * Call chain entry for trace_function_execution result
  */
@@ -1506,44 +1379,6 @@ export interface TraceFunctionExecutionResult {
   callChain: CallChainEntry[];
   /** List of all unique symbol IDs visited */
   visitedSymbols: string[];
-}
-
-// ============================================================================
-// Symbol Callers Result
-// ============================================================================
-
-/**
- * Caller entry from the call graph
- */
-export interface SymbolCallerInfo {
-  /** The symbol that calls the target */
-  callerSymbolId: string;
-  /** The file containing the caller */
-  callerFilePath: string;
-  /** Relative path from workspace root */
-  callerRelativePath: string;
-  /** Line of the first call site in the caller */
-  line: number;
-  /** Whether this is a type-only import */
-  isTypeOnly: boolean;
-}
-
-/**
- * Result of get_symbol_callers tool
- */
-export interface GetSymbolCallersResult {
-  /** The symbol ID being queried */
-  symbolId: string;
-  /** Total number of callers */
-  callerCount: number;
-  /** Number of runtime callers (non-type imports) */
-  runtimeCallerCount: number;
-  /** Number of type-only callers */
-  typeOnlyCallerCount: number;
-  /** List of all callers */
-  callers: SymbolCallerInfo[];
-  /** Unique files that contain callers */
-  callerFiles: string[];
 }
 
 // ============================================================================
@@ -1666,7 +1501,7 @@ export interface GetImpactAnalysisResult {
 }
 
 /**
- * Result of analyze_file_logic tool
+ * Result of `graph-it explain` (intra-file call hierarchy)
  * Returns LSP-based intra-file call hierarchy with symbol nodes and edges
  */
 export interface AnalyzeFileLogicResult {

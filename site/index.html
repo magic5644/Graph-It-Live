@@ -495,8 +495,8 @@ footer{border-top:1px solid var(--line);padding:46px 0 40px;color:var(--muted);f
         </table>
       </div>
       <p style="margin-top:16px"><code>crawl_dependency_graph</code> and <code>query_call_graph</code> accept <code>tokenBudget</code> (<code>0</code> disables the cap). Pass a returned <code>nextOffset</code> as <code>offset</code> to continue; <code>graph_context</code> uses cursor pagination.</p>
-      <p style="margin-top:16px">The MCP server does not register <code>get_symbol_callers</code>, <code>get_symbol_dependents</code>, <code>parse_imports</code>, <code>expand_node</code> or <code>analyze_file_logic</code>. Use <code>query_call_graph</code> (callers, depth 1), <code>analyze_dependencies</code>, <code>crawl_dependency_graph</code> and <code>generate_codemap</code> respectively. The five old names remain CLI transition aliases.</p>
-      <p style="margin-top:16px">The CLI's <code>tool --list</code> also has 22 entries, but a different inventory: 17 shared analysis tools plus five aliases. MCP-only <code>set_workspace</code> corresponds to CLI <code>--workspace</code>; use <code>review-pr</code>, <code>query</code>, <code>wiki</code> and <code>stats</code> for the other four MCP capabilities.</p>
+      <p style="margin-top:16px">The MCP server does not register <code>get_symbol_callers</code>, <code>get_symbol_dependents</code>, <code>parse_imports</code>, <code>expand_node</code> or <code>analyze_file_logic</code>. Use <code>query_call_graph</code> (callers, depth 1), <code>analyze_dependencies</code>, <code>crawl_dependency_graph</code> and <code>generate_codemap</code> respectively. <code>graph-it tool</code> rejects the five old names since v1.20.0 and names the replacement.</p>
+      <p style="margin-top:16px">The CLI's <code>tool --list</code> has 18 entries, all shared analysis tools. MCP-only <code>set_workspace</code> corresponds to CLI <code>--workspace</code>; use <code>review-pr</code>, <code>query</code>, <code>wiki</code> and <code>stats</code> for the other four MCP capabilities.</p>
     </details>
 
     <div class="grid g2 rv" style="margin-bottom:34px">
