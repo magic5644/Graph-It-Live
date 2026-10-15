@@ -29,9 +29,11 @@ describe("buildArchitectureGraph", () => {
     await fs.rm(root, { recursive: true, force: true });
   });
 
-  it("builds nodes, edges and path groups from the injected analysis", async () => {
+  it("builds nodes, deduplicated edges and path groups from the injected analysis", async () => {
     const analyzeFile = vi.fn(async (filePath: string) =>
-      filePath === normalizePath(fileA) ? [dependency(fileB), dependency(path.join(root, "..", "outside.ts"))] : []);
+      filePath === normalizePath(fileA)
+        ? [dependency(fileB), dependency(fileB), dependency(path.join(root, "..", "outside.ts"))]
+        : []);
 
     const graph = await buildArchitectureGraph(root, analyzeFile, { indexedAt: "2026-10-15T00:00:00Z" });
 

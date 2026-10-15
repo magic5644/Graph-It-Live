@@ -20,7 +20,6 @@ import {
   nextWorkspaceConfig,
   updateNodeCounts,
   validateAnalysisInput,
-  validateFileExists,
   validateScopePath,
 } from "../../../src/mcp/shared/helpers";
 import type { EdgeInfo, NodeInfo } from "../../../src/mcp/types";
@@ -345,41 +344,6 @@ describe("MCP Worker Helpers", () => {
       }));
 
       expect(detectCircularDependencies(edges)).toEqual([]);
-    });
-  });
-
-  describe("validateFileExists", () => {
-    let tempFile: string;
-
-    beforeEach(async () => {
-      // Create a temporary file for testing
-      const tmpDir = os.tmpdir();
-      tempFile = path.join(tmpDir, `test-${Date.now()}.txt`);
-      await fs.writeFile(tempFile, "test content");
-    });
-
-    afterEach(async () => {
-      // Cleanup
-      try {
-        await fs.unlink(tempFile);
-      } catch {
-        // Ignore cleanup errors
-      }
-    });
-
-    it("should pass for existing file", async () => {
-      await expect(validateFileExists(tempFile)).resolves.toBeUndefined();
-    });
-
-    it("should throw for non-existent file", async () => {
-      await expect(validateFileExists("/nonexistent/file.txt")).rejects.toThrow(
-        "File not found",
-      );
-    });
-
-    it("should throw for directory", async () => {
-      const tmpDir = os.tmpdir();
-      await expect(validateFileExists(tmpDir)).rejects.toThrow("Path is not a file");
     });
   });
 

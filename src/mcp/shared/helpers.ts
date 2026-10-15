@@ -270,8 +270,6 @@ export function detectCircularDependencies(
 // File Validation
 // ============================================================================
 
-// Lives in shared so the analyzer architecture graph reports the same reasons.
-export { validateFileExists };
 
 /**
  * Validate analysis input parameters

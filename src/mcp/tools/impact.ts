@@ -4,7 +4,8 @@ import type { Spider } from "../../analyzer/Spider";
 import type { SymbolDependency } from "../../analyzer/types";
 import { checkSymbolInFile, symbolNotFoundMessage } from "../../analyzer/utils/SymbolLookup";
 import { normalizePath } from "../../shared/path";
-import { getRelativePath, validateFileExists } from "../shared/helpers";
+import { getRelativePath } from "../shared/helpers";
+import { validateFileExists } from "../../shared/pathSecurity";
 import { workerState } from "../shared/state";
 import type {
     AnalyzeBreakingChangesParams,
