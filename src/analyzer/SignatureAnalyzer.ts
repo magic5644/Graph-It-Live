@@ -14,6 +14,7 @@
 
 import { Project, SourceFile, SyntaxKind, type ParameterDeclaration, type TypeLiteralNode } from 'ts-morph';
 import * as path from 'node:path';
+import { normalizePath } from '../shared/path';
 import { closestNames, symbolNotFoundMessage } from './utils/SymbolLookup';
 
 /** Scratch in-memory file used to parse a parameter's declared type text. */
@@ -109,6 +110,19 @@ export interface SignatureComparisonResult {
   hasBreakingChanges: boolean;
   breakingChanges: BreakingChange[];
   nonBreakingChanges: string[];
+}
+
+/** A module a re-export points to, loaded by the caller (it owns resolution, workspace bounds and the ref read). */
+export interface ReexportedModule {
+  filePath: string;
+  content: string;
+}
+
+export type ReexportModuleLoader = (fromFile: string, specifier: string) => Promise<ReexportedModule | null>;
+
+/** Where an exported name now comes from: `importedName` is its name in the declaring module. */
+interface MovedDeclaration extends ReexportedModule {
+  importedName: string;
 }
 
 /**
@@ -570,9 +584,149 @@ export class SignatureAnalyzer {
     return results;
   }
 
+  /**
+   * Re-checks symbols reported as removed against the new file's re-exports
+   * (`export { x } from`, `import { x }; export { x }`, `export *`): a declaration that
+   * moved to another module but is still exported here breaks no import site, so it is
+   * compared with its new declaration instead. A re-export target `loadModule` cannot
+   * load keeps the removal and is listed in `limitations`.
+   */
+  public async resolveReexportedRemovals(
+    filePath: string,
+    oldContent: string,
+    newContent: string,
+    results: SignatureComparisonResult[],
+    loadModule: ReexportModuleLoader,
+  ): Promise<{ results: SignatureComparisonResult[]; limitations: string[] }> {
+    const newNames = new Set(this.declaredNames(filePath, 'new', newContent));
+    const limitations = new Set<string>();
+    const resolved: SignatureComparisonResult[] = [];
+    for (const result of results) {
+      const isRemoval = result.breakingChanges.length === 1 && !newNames.has(result.symbolName);
+      const moved = isRemoval
+        ? await this.findMovedDeclaration(filePath, newContent, result.symbolName.split('.')[0], loadModule, limitations, new Set())
+        : undefined;
+      const comparison = moved && this.compareMovedSymbol(filePath, oldContent, result.symbolName, moved);
+      if (!comparison) {
+        resolved.push(result);
+      } else if (comparison.hasBreakingChanges || comparison.nonBreakingChanges.length > 0) {
+        resolved.push(comparison);
+      }
+    }
+    return { results: resolved, limitations: [...limitations] };
+  }
+
   // ============================================================================
   // Private Helper Methods
   // ============================================================================
+
+  /**
+   * Follows the re-exports of `name` (through barrels) to the module that declares it.
+   * ponytail: each removed symbol re-parses its chain (the caller memoizes loads); cache the
+   * parsed modules per call if a file moving many symbols behind deep barrels gets slow.
+   */
+  private async findMovedDeclaration(
+    fromFile: string,
+    content: string,
+    name: string,
+    loadModule: ReexportModuleLoader,
+    limitations: Set<string>,
+    visited: Set<string>,
+  ): Promise<MovedDeclaration | undefined> {
+    for (const { specifier, importedName, wildcard } of this.reexportsOf(this.getOrCreateSourceFile(fromFile, content), name)) {
+      const target = await loadModule(fromFile, specifier).catch(() => null);
+      if (!target) {
+        // An `export *` may not re-export this name at all: report the module once, not per name.
+        limitations.add(wildcard
+          ? `Re-exports from '${specifier}' could not be resolved; removals behind them are unverified.`
+          : `Re-export of '${name}' from '${specifier}' could not be resolved; its removal is unverified.`);
+        continue;
+      }
+      const key = normalizePath(target.filePath);
+      if (visited.has(key)) continue;
+      visited.add(key);
+      if (this.declaresTopLevel(target, importedName)) return { ...target, importedName };
+      const moved = await this.findMovedDeclaration(target.filePath, target.content, importedName, loadModule, limitations, visited);
+      if (moved) return moved;
+    }
+    return undefined;
+  }
+
+  /**
+   * Module specifiers that may export `name`, with the name it has there.
+   * `export * as ns` is skipped: it exports a namespace object, not the name itself.
+   * ponytail: a default import re-exported by name (`import x from`; `export { x }`) is not
+   * followed, so its removal stays reported; follow it if barrels use that form.
+   */
+  private reexportsOf(sourceFile: SourceFile, name: string): Array<{ specifier: string; importedName: string; wildcard?: boolean }> {
+    const reexports: Array<{ specifier: string; importedName: string; wildcard?: boolean }> = [];
+    for (const declaration of sourceFile.getExportDeclarations()) {
+      const specifier = declaration.getModuleSpecifierValue();
+      if (specifier && declaration.isNamespaceExport() && !declaration.getNamespaceExport()) {
+        reexports.push({ specifier, importedName: name, wildcard: true });
+        continue;
+      }
+      const exported = declaration.getNamedExports()
+        .find((specifierNode) => (specifierNode.getAliasNode()?.getText() ?? specifierNode.getName()) === name);
+      if (!exported) continue;
+      const reexport = specifier
+        ? { specifier, importedName: exported.getName() }
+        : this.importedBinding(sourceFile, exported.getName());
+      if (reexport) reexports.push(reexport);
+    }
+    return reexports;
+  }
+
+  private importedBinding(sourceFile: SourceFile, localName: string): { specifier: string; importedName: string } | undefined {
+    for (const declaration of sourceFile.getImportDeclarations()) {
+      const imported = declaration.getNamedImports()
+        .find((specifierNode) => (specifierNode.getAliasNode()?.getText() ?? specifierNode.getName()) === localName);
+      if (imported) return { specifier: declaration.getModuleSpecifierValue(), importedName: imported.getName() };
+    }
+    return undefined;
+  }
+
+  private declaresTopLevel(module: ReexportedModule, name: string): boolean {
+    const sourceFile = this.getOrCreateSourceFile(module.filePath, module.content);
+    return [
+      ...sourceFile.getFunctions(),
+      ...sourceFile.getClasses(),
+      ...sourceFile.getEnums(),
+      ...sourceFile.getVariableDeclarations(),
+      ...sourceFile.getInterfaces(),
+      ...sourceFile.getTypeAliases(),
+    ].some((declaration) => declaration.getName() === name);
+  }
+
+  /**
+   * Compares the old declaration of `symbolName` with the one it moved to, under the old name.
+   * Undefined when the moved declaration has no such function, member, interface or type alias.
+   */
+  private compareMovedSymbol(
+    filePath: string,
+    oldContent: string,
+    symbolName: string,
+    moved: MovedDeclaration,
+  ): SignatureComparisonResult | undefined {
+    const exportedName = symbolName.split('.')[0];
+    const toOldName = (name: string) => exportedName + name.slice(moved.importedName.length);
+    const oldPath = `${filePath}.old`;
+
+    const oldSig = this.extractSignatures(oldPath, oldContent).find((s) => s.name === symbolName);
+    if (oldSig) {
+      const newSig = this.extractSignatures(moved.filePath, moved.content)
+        .find((s) => toOldName(s.name) === symbolName && (s.name === moved.importedName || s.name.startsWith(`${moved.importedName}.`)));
+      return newSig && this.compareSignatures(oldSig, { ...newSig, name: symbolName });
+    }
+    const oldMembers = this.extractInterfaceMembers(oldPath, oldContent).get(symbolName);
+    if (oldMembers) {
+      const newMembers = this.extractInterfaceMembers(moved.filePath, moved.content).get(moved.importedName);
+      return newMembers && this.compareInterfaces(symbolName, oldMembers, newMembers);
+    }
+    const oldType = this.extractTypeAliases(oldPath, oldContent).find((t) => t.name === symbolName);
+    const newType = this.extractTypeAliases(moved.filePath, moved.content).find((t) => t.name === moved.importedName);
+    return oldType && newType && this.compareTypeAliases(oldType, { ...newType, name: symbolName });
+  }
 
   /**
    * Compare functions between old and new content

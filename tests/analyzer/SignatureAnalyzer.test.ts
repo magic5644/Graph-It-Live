@@ -1,3 +1,4 @@
+import * as path from 'node:path';
 import { describe, it, expect, beforeEach } from 'vitest';
 import {
   SignatureAnalyzer,
@@ -778,6 +779,164 @@ describe('SignatureAnalyzer', () => {
       const newVue = '<script setup lang="ts">defineProps<{ label: number }>();</script><template />';
       const [all] = analyzer.analyzeBreakingChanges(vuePath, oldVue, newVue);
       expect(analyzer.analyzeBreakingChanges(vuePath, oldVue, newVue, all.symbolName)).toEqual([all]);
+    });
+  });
+
+  /** Regression (#363): a declaration moved behind a re-export was reported as removed. */
+  describe('resolveReexportedRemovals', () => {
+    const root = path.join(path.sep, 'workspace', 'src');
+    const filePath = path.join(root, 'helpers.ts');
+    const OLD_HELPERS = [
+      'export function moved(a: string): string { return a; }',
+      'export interface Shape { size: number }',
+      'export type Id = string;',
+      'export class Store { get(key: string): string { return key; } }',
+    ].join('\n');
+    const MOVED = [
+      'export function moved(a: string): string { return a; }',
+      'export interface Shape { size: number }',
+      'export type Id = string;',
+      'export class Store { get(key: string): string { return key; } }',
+    ].join('\n');
+
+    const loaderFor = (modules: Record<string, string>) => {
+      const requested: string[] = [];
+      const load = (fromFile: string, specifier: string) => {
+        requested.push(fromFile);
+        const target = path.join(path.dirname(fromFile), `${specifier}.ts`);
+        const content = modules[target];
+        return Promise.resolve(content === undefined ? null : { filePath: target, content });
+      };
+      return { load, requested };
+    };
+
+    const resolve = (newContent: string, modules: Record<string, string>, oldContent = OLD_HELPERS) => {
+      const { load } = loaderFor(modules);
+      const results = analyzer.analyzeBreakingChanges(filePath, oldContent, newContent);
+      return analyzer.resolveReexportedRemovals(filePath, oldContent, newContent, results, load);
+    };
+
+    const elsewhere = { [path.join(root, 'elsewhere.ts')]: MOVED };
+
+    it.each([
+      ['export { ... } from', 'export { moved, Store } from "./elsewhere";\nexport type { Shape, Id } from "./elsewhere";'],
+      ['import then export', 'import { moved, Store, type Shape, type Id } from "./elsewhere";\nexport { moved, Store, type Shape, type Id };'],
+      ['export *', 'export * from "./elsewhere";'],
+    ])('drops removals re-exported with %s', async (_form, newContent) => {
+      const before = analyzer.analyzeBreakingChanges(filePath, OLD_HELPERS, newContent);
+      expect(before.map((r) => r.symbolName).sort()).toEqual(['Id', 'Shape', 'Store.get', 'moved']);
+
+      expect(await resolve(newContent, elsewhere)).toEqual({ results: [], limitations: [] });
+    });
+
+    it('follows a barrel chain and skips an export * that does not declare the name', async () => {
+      const modules = {
+        [path.join(root, 'empty.ts')]: 'export const unrelated = 1;',
+        [path.join(root, 'barrel.ts')]: 'export * from "./empty";\nexport * from "./elsewhere";',
+        ...elsewhere,
+      };
+      expect(await resolve('export * from "./barrel";', modules)).toEqual({ results: [], limitations: [] });
+    });
+
+    it('stops on a re-export cycle and keeps the removal', async () => {
+      const modules = {
+        [path.join(root, 'a.ts')]: 'export * from "./b";',
+        [path.join(root, 'b.ts')]: 'export * from "./a";',
+      };
+      const { results } = await resolve('export * from "./a";', modules);
+      expect(results.map((r) => r.symbolName).sort()).toEqual(['Id', 'Shape', 'Store.get', 'moved']);
+    });
+
+    it('still reports a name only exported under an alias', async () => {
+      const { results } = await resolve('export { moved as renamed } from "./elsewhere";', elsewhere, 'export function moved(a: string): string { return a; }');
+      expect(results).toHaveLength(1);
+      expect(results[0].breakingChanges[0]).toMatchObject({ type: 'member-removed', symbolName: 'moved' });
+    });
+
+    it('compares a re-export alias with the declaration it points to', async () => {
+      const modules = { [path.join(root, 'elsewhere.ts')]: 'export function original(a: string): string { return a; }' };
+      const oldContent = 'export function moved(a: string): string { return a; }';
+      expect(await resolve('export { original as moved } from "./elsewhere";', modules, oldContent)).toEqual({ results: [], limitations: [] });
+    });
+
+    it('reports a signature change when the moved declaration changed', async () => {
+      const modules = {
+        [path.join(root, 'elsewhere.ts')]: [
+          'export function moved(a: string, b: number): string { return a; }',
+          'export interface Shape { size: string }',
+          'export type Id = number;',
+          'export class Store { get(key: number): string { return String(key); } }',
+        ].join('\n'),
+      };
+      const { results } = await resolve('export * from "./elsewhere";', modules);
+      const types = Object.fromEntries(results.map((r) => [r.symbolName, r.breakingChanges[0].type]));
+      expect(types).toEqual({
+        moved: 'parameter-added-required',
+        Shape: 'member-type-changed',
+        Id: 'type-alias-changed',
+        'Store.get': 'parameter-type-changed',
+      });
+    });
+
+    it('keeps the removal when the target no longer declares the member', async () => {
+      const modules = { [path.join(root, 'elsewhere.ts')]: 'export class Store {}\nexport const moved = 1;\nexport interface Other {}' };
+      const { results } = await resolve('export * from "./elsewhere";', modules);
+      expect(results.map((r) => r.symbolName).sort()).toEqual(['Id', 'Shape', 'Store.get', 'moved']);
+    });
+
+    it('keeps the removal and lists a limitation when the target cannot be resolved', async () => {
+      const oldContent = 'export function moved(a: string): string { return a; }';
+      const { results, limitations } = await resolve('export { moved } from "./missing";', {}, oldContent);
+      expect(results[0].breakingChanges[0]).toMatchObject({ type: 'member-removed', symbolName: 'moved' });
+      expect(limitations).toEqual(["Re-export of 'moved' from './missing' could not be resolved; its removal is unverified."]);
+    });
+
+    it('reports an unresolvable export * once for every removal behind it', async () => {
+      const { results, limitations } = await resolve('export * from "./missing";', {});
+      expect(results).toHaveLength(4);
+      expect(limitations).toEqual(["Re-exports from './missing' could not be resolved; removals behind them are unverified."]);
+    });
+
+    it('keeps the removal when export * as ns only exports a namespace', async () => {
+      const oldContent = 'export function moved(a: string): string { return a; }';
+      const { results } = await resolve('export * as moved from "./elsewhere";', elsewhere, oldContent);
+      expect(results[0].breakingChanges[0]).toMatchObject({ type: 'member-removed', symbolName: 'moved' });
+    });
+
+    it('keeps the removal with a limitation when the loader rejects', async () => {
+      const oldContent = 'export function moved(a: string): string { return a; }';
+      const newContent = 'export { moved } from "./elsewhere";';
+      const results = analyzer.analyzeBreakingChanges(filePath, oldContent, newContent);
+      const resolved = await analyzer.resolveReexportedRemovals(filePath, oldContent, newContent, results, () => Promise.reject(new Error('git failed')));
+      expect(resolved.results).toEqual(results);
+      expect(resolved.limitations).toHaveLength(1);
+    });
+
+    it('detects a cycle when the loader spells one Windows path two ways', async () => {
+      const winFile = String.raw`C:\ws\src\helpers.ts`;
+      const oldContent = 'export function moved(a: string): string { return a; }';
+      const newContent = 'export * from "./a";';
+      const spellings = [String.raw`C:\ws\src\a.ts`, 'c:/ws/src/a.ts'];
+      let calls = 0;
+      const load = () => {
+        const filePath = spellings[calls % 2];
+        calls++;
+        return Promise.resolve(calls > 4 ? null : { filePath, content: 'export * from "./a";' });
+      };
+      const results = analyzer.analyzeBreakingChanges(winFile, oldContent, newContent);
+      const resolved = await analyzer.resolveReexportedRemovals(winFile, oldContent, newContent, results, load);
+      expect(calls).toBe(2);
+      expect(resolved.results).toEqual(results);
+    });
+
+    it('leaves non-removal results and unexported locals untouched', async () => {
+      const oldContent = 'export function kept(a: string): string { return a; }';
+      const newContent = 'export function kept(a: number): string { return String(a); }';
+      const { load, requested } = loaderFor({});
+      const results = analyzer.analyzeBreakingChanges(filePath, oldContent, newContent);
+      const resolved = await analyzer.resolveReexportedRemovals(filePath, oldContent, newContent, results, load);
+      expect(resolved.results).toEqual(results);
+      expect(requested).toEqual([]);
     });
   });
 });
