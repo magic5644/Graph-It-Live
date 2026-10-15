@@ -1,6 +1,6 @@
 import { parseArgs } from 'node:util';
 import * as path from 'node:path';
-import { normalizePath } from '../../shared/path';
+import { getRelativePath, normalizePath } from '../../shared/path';
 import { exportHtml } from '../../analyzer/export/HtmlExporter';
 import { computeNodeMetadata } from '../../analyzer/NodeMetadataBuilder';
 import { readCommunityMode } from '../options';
@@ -124,28 +124,21 @@ export async function runExportHtml(
   const raw = JSON.parse(jsonOutput) as RawRecord;
   const { rawNodes, rawEdges } = parseArchitectureOutput(raw);
   const graphData = buildGraphData(rawNodes, rawEdges);
+  // Communities are computed on the whole graph, before the scope filter, so groups keep
+  // the same memberships as the architecture output.
   computeNodeMetadata(graphData, runtime.workspaceRoot, communityMode); // populates hubScore + communityId
 
   // Scope filter: positional arg or state.lastFile narrows the graph
   filterGraphByScope(graphData, resolvedScope);
 
-  const nodes = graphData.nodes.map(filePath => ({
-    id: filePath,
-    label: path.basename(filePath),
-    hubScore: graphData.nodeMetadata?.[normalizePath(filePath)]?.hubScore,
-    communityId: graphData.nodeMetadata?.[normalizePath(filePath)]?.communityId,
-  }));
-
-  const edges = graphData.edges.map(e => ({
-    from: e.source,
-    to: e.target,
-    id: `${e.source}::${e.target}`,
-  }));
-
   exportHtml({
-    nodes,
-    edges,
-    unusedEdges: graphData.unusedEdges ?? [],
+    graphData,
+    context: {
+      scope: resolvedScope ? getRelativePath(resolvedScope, normalizePath(runtime.workspaceRoot)) || '.' : 'workspace',
+      revision: runtime.loadState()?.lastScanTimestamp,
+      communityMode: communityMode ?? 'path',
+      failedFiles: Array.isArray(raw['failedFiles']) ? raw['failedFiles'].length : 0,
+    },
     workspaceName,
     outputPath,
     workspaceRoot: runtime.workspaceRoot,

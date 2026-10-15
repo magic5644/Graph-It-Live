@@ -20,13 +20,36 @@ import {
   hubScoreColor,
   hubScoreBorderWidth,
   nodeColor,
-  buildCommunityLegend,
+  buildHtmlGraphModel,
   exportHtml,
   jsonForScript,
   type HtmlExporterConfig,
-  type HtmlNodeData,
 } from '../../../src/analyzer/export/HtmlExporter';
+import { aggregateCommunityGroups } from '../../../src/analyzer/community/groupAggregation';
 import { COMMUNITY_PALETTE } from '../../../src/shared/communityPalette';
+import type { GraphData } from '../../../src/shared/graph-types';
+import { normalizePath } from '../../../src/shared/path';
+
+/** Two path groups plus one unassigned file; a cycle between core and ui. */
+function sampleGraph(root = '/ws'): GraphData {
+  const file = (rel: string): string => `${root}/${rel}`;
+  return {
+    nodes: [file('src/core/a.ts'), file('src/core/b.ts'), file('src/ui/c.ts'), file('main.ts')],
+    edges: [
+      { source: file('src/core/a.ts'), target: file('src/core/b.ts') },
+      { source: file('src/ui/c.ts'), target: file('src/core/a.ts') },
+      { source: file('src/ui/c.ts'), target: file('src/core/b.ts') },
+      { source: file('src/core/b.ts'), target: file('src/ui/c.ts') },
+      { source: file('main.ts'), target: file('src/ui/c.ts') },
+    ],
+    nodeMetadata: {
+      [file('src/core/a.ts')]: { hubScore: 0.9, communityId: 1, communityKey: 'core' },
+      [file('src/core/b.ts')]: { hubScore: 0.1, communityId: 1, communityKey: 'core' },
+      [file('src/ui/c.ts')]: { hubScore: 0.1, communityId: 2, communityKey: 'ui' },
+      [file('main.ts')]: { hubScore: 0, communityId: 0, communityKey: '' },
+    },
+  };
+}
 
 describe('htmlEscape', () => {
   it('escapes &', () => {
@@ -170,105 +193,57 @@ describe('nodeColor', () => {
   });
 });
 
-describe('buildCommunityLegend', () => {
-  it('returns empty string when no nodes have communityId > 0', () => {
-    const nodes: HtmlNodeData[] = [
-      { id: '/src/a.ts', label: 'a.ts', hubScore: 0.5 },
-      { id: '/src/b.ts', label: 'b.ts', communityId: 0 },
-    ];
-    expect(buildCommunityLegend(nodes)).toBe('');
+
+describe('buildHtmlGraphModel', () => {
+  it('reuses aggregateCommunityGroups labels and counts and adds the unassigned group', () => {
+    const graph = sampleGraph();
+    const model = buildHtmlGraphModel(graph, '/ws');
+    const aggregation = aggregateCommunityGroups(graph);
+
+    expect(model.totals).toEqual(aggregation.totals);
+    expect(model.groups.map(({ id, label, fileCount, internalEdgeCount }) => ({ id, label, fileCount, internalEdgeCount }))).toEqual([
+      { id: 1, label: 'core', fileCount: 2, internalEdgeCount: 1 },
+      { id: 2, label: 'ui', fileCount: 1, internalEdgeCount: 0 },
+      { id: 0, label: 'unassigned', fileCount: 1, internalEdgeCount: 0 },
+    ]);
+    expect(model.groups[0].color).toBe(COMMUNITY_PALETTE[0]);
+    expect(model.edges).toHaveLength(5);
   });
 
-  it('returns empty string for empty nodes array', () => {
-    expect(buildCommunityLegend([])).toBe('');
+  it('labels files with workspace-relative paths and keeps absolute ids', () => {
+    const model = buildHtmlGraphModel(sampleGraph(), '/ws');
+    const file = model.files.find(f => f.id === '/ws/src/core/a.ts');
+    expect(file).toMatchObject({ label: 'src/core/a.ts', group: 1, borderWidth: 4 });
   });
 
-  it('renders the "Import clusters" title when communities exist', () => {
-    const nodes: HtmlNodeData[] = [
-      { id: '/src/a.ts', label: 'a.ts', communityId: 1, hubScore: 0.8 },
-    ];
-    const html = buildCommunityLegend(nodes);
-    expect(html).toContain('Import clusters');
+  it('normalizes Windows paths for ids, groups and relative labels', () => {
+    const graph = sampleGraph(String.raw`C:\repo`);
+    graph.nodes = graph.nodes.map(node => node.replaceAll('/', '\\'));
+    graph.edges = graph.edges.map(edge => ({ source: edge.source.replaceAll('/', '\\'), target: edge.target.replaceAll('/', '\\') }));
+    graph.nodeMetadata = Object.fromEntries(
+      Object.entries(graph.nodeMetadata!).map(([key, value]) => [normalizePath(key), value]),
+    );
+
+    const model = buildHtmlGraphModel(graph, String.raw`C:\repo`);
+
+    expect(model.files.map(f => f.id)).toContain('c:/repo/src/ui/c.ts');
+    expect(model.files.find(f => f.id === 'c:/repo/src/ui/c.ts')).toMatchObject({ label: 'src/ui/c.ts', group: 2 });
+    expect(model.totals.files).toBe(4);
   });
 
-  it('renders one cluster entry per unique communityId', () => {
-    const nodes: HtmlNodeData[] = [
-      { id: '/src/a.ts', label: 'a.ts', communityId: 1, hubScore: 0.5 },
-      { id: '/src/b.ts', label: 'b.ts', communityId: 2, hubScore: 0.3 },
-      { id: '/src/c.ts', label: 'c.ts', communityId: 1, hubScore: 0.2 },
-    ];
-    const html = buildCommunityLegend(nodes);
-    expect(html).toContain('Cluster 1');
-    expect(html).toContain('Cluster 2');
-    // Should not duplicate cluster 1
-    expect(html.split('Cluster 1').length - 1).toBe(1);
+  it('names a group without key by its id and keeps paths outside the root absolute', () => {
+    const graph: GraphData = {
+      nodes: ['/elsewhere/x.ts'],
+      edges: [],
+      nodeMetadata: { '/elsewhere/x.ts': { hubScore: 0, communityId: 3, communityKey: '' } },
+    };
+    const model = buildHtmlGraphModel(graph, '/ws');
+    expect(model.groups).toMatchObject([{ id: 3, label: 'group 3' }]);
+    expect(model.files[0].label).toBe('/elsewhere/x.ts');
   });
 
-  it('uses directory path from any community node as label', () => {
-    const nodes: HtmlNodeData[] = [
-      { id: '/workspace/src/analyzer/low.ts', label: 'low.ts', communityId: 1, hubScore: 0.1 },
-      { id: '/workspace/src/analyzer/high.ts', label: 'high.ts', communityId: 1, hubScore: 0.9 },
-      { id: '/workspace/src/analyzer/mid.ts', label: 'mid.ts', communityId: 1, hubScore: 0.5 },
-    ];
-    const html = buildCommunityLegend(nodes);
-    // Label should be the common directory path, not a specific file
-    expect(html).toContain('analyzer');
-    // No individual filenames should appear as labels
-    expect(html).not.toContain('low.ts');
-    expect(html).not.toContain('high.ts');
-    expect(html).not.toContain('mid.ts');
-  });
-
-  it('uses directory path label regardless of hubScore', () => {
-    const nodes: HtmlNodeData[] = [
-      { id: '/workspace/src/webview/a.ts', label: 'a.ts', communityId: 1 },
-      { id: '/workspace/src/webview/b.ts', label: 'b.ts', communityId: 1, hubScore: 0.4 },
-    ];
-    const html = buildCommunityLegend(nodes);
-    expect(html).toContain('webview');
-  });
-
-  it('sorts clusters by communityId ascending', () => {
-    const nodes: HtmlNodeData[] = [
-      { id: '/src/z.ts', label: 'z.ts', communityId: 3, hubScore: 0.5 },
-      { id: '/src/a.ts', label: 'a.ts', communityId: 1, hubScore: 0.5 },
-      { id: '/src/m.ts', label: 'm.ts', communityId: 2, hubScore: 0.5 },
-    ];
-    const html = buildCommunityLegend(nodes);
-    const pos1 = html.indexOf('Cluster 1');
-    const pos2 = html.indexOf('Cluster 2');
-    const pos3 = html.indexOf('Cluster 3');
-    expect(pos1).toBeLessThan(pos2);
-    expect(pos2).toBeLessThan(pos3);
-  });
-
-  it('uses the correct palette color for communityId', () => {
-    const nodes: HtmlNodeData[] = [
-      { id: '/src/a.ts', label: 'a.ts', communityId: 2, hubScore: 0.5 },
-    ];
-    const html = buildCommunityLegend(nodes);
-    expect(html).toContain(COMMUNITY_PALETTE[1]); // index (2-1) % 12 = 1
-  });
-
-  it('escapes special characters in node paths (Règle 10)', () => {
-    const nodes: HtmlNodeData[] = [
-      { id: '/src/<evil>&dir/a.ts', label: 'a.ts', communityId: 1, hubScore: 0.5 },
-    ];
-    const html = buildCommunityLegend(nodes);
-    expect(html).not.toContain('<evil>');
-    expect(html).toContain('&lt;evil&gt;');
-    expect(html).toContain('&amp;dir');
-  });
-
-  it('is a fixed-position overlay with inline CSS only', () => {
-    const nodes: HtmlNodeData[] = [
-      { id: '/src/a.ts', label: 'a.ts', communityId: 1, hubScore: 0.5 },
-    ];
-    const html = buildCommunityLegend(nodes);
-    expect(html).toContain('position:fixed');
-    // No external stylesheet references
-    expect(html).not.toContain('href=');
-    expect(html).not.toContain('url(');
+  it('returns an empty model for an empty graph', () => {
+    expect(buildHtmlGraphModel({ nodes: [], edges: [] })).toMatchObject({ groups: [], files: [], edges: [] });
   });
 });
 
@@ -289,141 +264,213 @@ describe('exportHtml', () => {
   });
 
   const baseConfig: HtmlExporterConfig = {
-    nodes: [
-      { id: '/src/a.ts', label: 'a.ts', hubScore: 0.1 },
-      { id: '/src/b.ts', label: 'b.ts', hubScore: 0.6 },
-    ],
-    edges: [
-      { from: '/src/a.ts', to: '/src/b.ts', id: '/src/a.ts::/src/b.ts' },
-      { from: '/src/b.ts', to: '/src/a.ts', id: '/src/b.ts::/src/a.ts' },
-    ],
-    unusedEdges: ['/src/b.ts::/src/a.ts'],
+    graphData: sampleGraph(),
+    context: { scope: 'workspace', revision: '2026-10-15T09:10:38.000Z', communityMode: 'path' },
     workspaceName: 'my-project',
     outputPath: '/output/graph.html',
+    workspaceRoot: '/ws',
   };
 
-  it('creates output directory', () => {
-    exportHtml(baseConfig);
-    expect(mockMkdirSync).toHaveBeenCalledWith('/output', { recursive: true });
-  });
-
-  it('writes to correct outputPath', () => {
-    exportHtml(baseConfig);
-    expect(mockWriteFileSync).toHaveBeenCalledWith(
-      '/output/graph.html',
-      expect.any(String),
-      'utf-8',
-    );
-  });
-
-  it.each([
-    ['inlines vis-network source', 'vis-network mock'],
-    ['marks unused edges as dashes:true', '"dashes":true'],
-    ['marks used edges as dashes:false', '"dashes":false'],
-  ])('%s', (_description, expectedText) => {
-    exportHtml(baseConfig);
-    const html = mockWriteFileSync.mock.calls[0][1] as string;
-    expect(html).toContain(expectedText);
-  });
-
-  it('escapes workspaceName in HTML title', () => {
-    const config = { ...baseConfig, workspaceName: '<My & Project>' };
+  function render(config: HtmlExporterConfig = baseConfig): string {
     exportHtml(config);
-    const html = mockWriteFileSync.mock.calls[0][1] as string;
-    expect(html).toContain('&lt;My &amp; Project&gt;');
-    expect(html).not.toContain('<My & Project>');
-  });
+    return mockWriteFileSync.mock.calls[0][1] as string;
+  }
 
-  it('includes node labels in output', () => {
-    exportHtml(baseConfig);
-    const html = mockWriteFileSync.mock.calls[0][1] as string;
-    expect(html).toContain('a.ts');
-    expect(html).toContain('b.ts');
-  });
-
-  it('does not interpolate a repository path as a raw script terminator', () => {
-    const config: HtmlExporterConfig = {
-      ...baseConfig,
-      nodes: [{ id: '</script><script>alert(1)</script>', label: 'unsafe.ts' }],
+  /** Runs the page script against minimal vis-network and DOM fakes. */
+  function runPage(html: string) {
+    const script = html.split('<script>')[2].split('</script>')[0];
+    class DataSet {
+      items = new Map<string, Record<string, unknown>>();
+      clear(): void { this.items.clear(); }
+      add(list: Record<string, unknown>[]): void { list.forEach(item => this.items.set(String(item.id), item)); }
+      update(list: Record<string, unknown>[]): void {
+        list.forEach(item => this.items.set(String(item.id), { ...this.items.get(String(item.id)), ...item }));
+      }
+      get(arg?: string | { filter: (item: Record<string, unknown>) => boolean }): unknown {
+        if (typeof arg === 'string') return this.items.get(arg);
+        const all = [...this.items.values()];
+        return arg ? all.filter(arg.filter) : all;
+      }
+    }
+    const handlers: Record<string, (params: { nodes: string[]; edges: string[] }) => void> = {};
+    class Network {
+      getPositions(): Record<string, unknown> { return {}; }
+      on(event: string, handler: (params: { nodes: string[]; edges: string[] }) => void): void { handlers[event] = handler; }
+      once(): void {}
+      setOptions(): void {}
+      stabilize(): void {}
+      fit(): void {}
+    }
+    const elements = new Map<string, Record<string, unknown>>();
+    const element = (tag = 'div'): Record<string, unknown> => {
+      const node: Record<string, unknown> = {
+        tag, textContent: '', style: {}, children: [] as unknown[],
+        classList: { add: vi.fn(), remove: vi.fn(), toggle: vi.fn() },
+        appendChild: (child: unknown) => (node.children as unknown[]).push(child),
+        replaceChildren: (...children: unknown[]) => { node.children = children; },
+        addEventListener: (_event: string, listener: () => void) => { node.onClick = listener; },
+      };
+      return node;
     };
+    const document = {
+      getElementById: (id: string) => elements.get(id) ?? elements.set(id, element()).get(id),
+      createElement: element,
+    };
+    const run = new Function('vis', 'document', `${script}; return { nodes, edges, expanded, render, applyFilter, setAllExpanded };`);
+    const page = run({ DataSet, Network }, document);
+    const text = (node: Record<string, unknown>): string =>
+      [node.textContent, ...(node.children as Record<string, unknown>[]).map(text)].join(' ');
+    return { ...page, handlers, panelText: () => text(document.getElementById('panel')!) };
+  }
 
-    exportHtml(config);
-
-    const html = mockWriteFileSync.mock.calls[0][1] as string;
-    expect(html).not.toContain('const nodesData = [{"id":"</script>');
-    expect(html).toContain('const nodesData = [{"id":"\\u003C/script\\u003E');
+  it('creates output directory and writes to outputPath', () => {
+    render();
+    expect(mockMkdirSync).toHaveBeenCalledWith('/output', { recursive: true });
+    expect(mockWriteFileSync).toHaveBeenCalledWith('/output/graph.html', expect.any(String), 'utf-8');
   });
 
-  it('uses custom outputPath', () => {
-    const config = { ...baseConfig, outputPath: '/custom/output/result.html' };
-    exportHtml(config);
-    expect(mockMkdirSync).toHaveBeenCalledWith('/custom/output', { recursive: true });
-    expect(mockWriteFileSync).toHaveBeenCalledWith(
-      '/custom/output/result.html',
-      expect.any(String),
-      'utf-8',
-    );
-  });
-
-  it('produces valid HTML structure', () => {
-    exportHtml(baseConfig);
-    const html = mockWriteFileSync.mock.calls[0][1] as string;
+  it('inlines vis-network and produces the page structure', () => {
+    const html = render();
     expect(html).toContain('<!DOCTYPE html>');
+    expect(html).toContain('vis-network mock');
     expect(html).toContain('<div id="graph">');
     expect(html).toContain('vis.Network');
-    expect(html).toContain('vis.DataSet');
   });
 
-  it('does NOT include legend when no node has communityId > 0', () => {
-    exportHtml(baseConfig);
-    const html = mockWriteFileSync.mock.calls[0][1] as string;
-    expect(html).not.toContain('Import clusters');
+  it('states workspace, scope, revision, grouping and totals in the header', () => {
+    const header = render().split('<div id="titlebar">')[1].split('</div>')[0];
+    expect(header).toContain('my-project');
+    expect(header).toContain('scope: workspace');
+    expect(header).toContain('revision: 2026-10-15T09:10:38.000Z');
+    expect(header).toContain('grouping: path');
+    expect(header).toContain('5 file edges (1 intra-group, 4 inter-group), 3 groups');
+    expect(header).not.toContain('failed analysis');
   });
 
-  it('includes legend when at least one node has communityId > 0', () => {
-    const config: HtmlExporterConfig = {
+  it('reports an unknown revision and failed files', () => {
+    const header = render({ ...baseConfig, context: { scope: 'src', communityMode: 'louvain', failedFiles: 2 } });
+    expect(header).toContain('revision: unknown');
+    expect(header).toContain('grouping: louvain');
+    expect(header).toContain('2 file(s) failed analysis');
+  });
+
+  it('builds the legend from computed group labels, not from paths', () => {
+    const legend = render().split('<div id="legend">')[1];
+    expect(legend).toContain('Groups (path)');
+    expect(legend).toContain('core — 2 file(s), 1 internal edge(s)');
+    expect(legend).toContain('unassigned — 1 file(s)');
+    expect(legend).not.toContain('Cluster');
+  });
+
+  it('omits the legend for an empty graph', () => {
+    const html = render({ ...baseConfig, graphData: { nodes: [], edges: [] } });
+    expect(html).not.toContain('<div id="legend">');
+  });
+
+  it('escapes workspace name, context, group labels and paths', () => {
+    const graphData = sampleGraph();
+    graphData.nodeMetadata!['/ws/src/core/a.ts'].communityKey = '<img src=x onerror=alert(1)>';
+    graphData.nodeMetadata!['/ws/src/core/b.ts'].communityKey = '<img src=x onerror=alert(1)>';
+    graphData.nodes.push('/ws/</script><script>alert(1)</script>.ts');
+    const html = render({
       ...baseConfig,
-      nodes: [
-        { id: '/src/a.ts', label: 'a.ts', hubScore: 0.1, communityId: 1 },
-        { id: '/src/b.ts', label: 'b.ts', hubScore: 0.6, communityId: 2 },
-      ],
-    };
-    exportHtml(config);
-    const html = mockWriteFileSync.mock.calls[0][1] as string;
-    expect(html).toContain('Import clusters');
-    expect(html).toContain('Cluster 1');
-    expect(html).toContain('Cluster 2');
+      graphData,
+      workspaceName: '<My & Project>',
+      context: { scope: '<scope>', revision: '"rev"', communityMode: '<mode>' },
+    });
+
+    expect(html).toContain('&lt;My &amp; Project&gt;');
+    expect(html).toContain('scope: &lt;scope&gt;');
+    expect(html).toContain('revision: &quot;rev&quot;');
+    expect(html).toContain('&lt;img src=x onerror=alert(1)&gt; — 2 file(s)');
+    expect(html).not.toContain('<img');
+    expect(html).not.toContain('<My & Project>');
+    expect(html).not.toContain('</script><script>alert(1)');
+    expect(html).toContain(String.raw`\u003C/script\u003E`);
   });
 
-  it('legend appears before </body>', () => {
-    const config: HtmlExporterConfig = {
-      ...baseConfig,
-      nodes: [
-        { id: '/src/a.ts', label: 'a.ts', communityId: 1, hubScore: 0.5 },
-      ],
-    };
-    exportHtml(config);
-    const html = mockWriteFileSync.mock.calls[0][1] as string;
-    const legendPos = html.indexOf('Import clusters');
-    const bodyClosePos = html.indexOf('</body>');
-    expect(legendPos).toBeGreaterThan(0);
-    expect(legendPos).toBeLessThan(bodyClosePos);
+  it('starts expanded with file edges for small graphs', () => {
+    const page = runPage(render());
+    expect(page.nodes.get().map((n: { id: string }) => n.id)).toHaveLength(4);
+    expect(page.edges.get()).toHaveLength(5);
+    expect(page.edges.get().every((e: { label?: string }) => e.label === undefined)).toBe(true);
   });
 
-  it('legend uses inline CSS only (CSP safe)', () => {
-    const config: HtmlExporterConfig = {
-      ...baseConfig,
-      nodes: [
-        { id: '/src/a.ts', label: 'a.ts', communityId: 1, hubScore: 0.5 },
-      ],
-    };
-    exportHtml(config);
-    const html = mockWriteFileSync.mock.calls[0][1] as string;
-    // Extract legend portion
-    const legendStart = html.indexOf('<div style="position:fixed');
-    const legendEnd = html.indexOf('</div>', legendStart) + 6;
-    const legendHtml = html.slice(legendStart, legendEnd);
-    expect(legendHtml).not.toContain('href=');
-    expect(legendHtml).not.toContain('url(');
+  it('collapses groups into directed group edges whose counts match the aggregation', () => {
+    const page = runPage(render());
+    page.setAllExpanded(false);
+
+    expect(page.nodes.get().map((n: { id: string; shape: string }) => [n.id, n.shape])).toEqual([
+      ['group:1', 'ellipse'], ['group:2', 'ellipse'], ['group:0', 'ellipse'],
+    ]);
+    const groupEdges = page.edges.get().map((e: { from: string; to: string; label: string }) => [e.from, e.to, e.label]);
+    const expected = aggregateCommunityGroups(sampleGraph()).groupEdges
+      .map(edge => [`group:${edge.from}`, `group:${edge.to}`, String(edge.fileEdgeCount)]);
+    expect(groupEdges).toEqual(expect.arrayContaining(expected));
+    expect(groupEdges).toHaveLength(expected.length);
+  });
+
+  it('lists the file pairs behind a clicked aggregated edge', () => {
+    const page = runPage(render());
+    page.setAllExpanded(false);
+    page.handlers.click({ nodes: [], edges: ['["group:2","group:1"]'] });
+
+    const panel = page.panelText();
+    expect(panel).toContain('ui → core');
+    expect(panel).toContain('2 distinct file pair(s)');
+    expect(panel).toContain('src/ui/c.ts → src/core/a.ts');
+    expect(panel).toContain('src/ui/c.ts → src/core/b.ts');
+    expect(panel).toContain('page 1 / 1');
+  });
+
+  it('paginates evidence 50 pairs at a time', () => {
+    const graphData: GraphData = { nodes: [], edges: [], nodeMetadata: {} };
+    for (let i = 0; i < 60; i++) {
+      const source = `/ws/a/f${i}.ts`;
+      graphData.nodes.push(source);
+      graphData.edges.push({ source, target: '/ws/b/t.ts' });
+      graphData.nodeMetadata![source] = { hubScore: 0, communityId: 1, communityKey: 'a' };
+    }
+    graphData.nodeMetadata!['/ws/b/t.ts'] = { hubScore: 0, communityId: 2, communityKey: 'b' };
+    const page = runPage(render({ ...baseConfig, graphData }));
+    page.setAllExpanded(false);
+    page.handlers.click({ nodes: [], edges: ['["group:1","group:2"]'] });
+    expect(page.panelText()).toContain('page 1 / 2');
+    expect(page.panelText()).toContain('a/f0.ts → b/t.ts');
+    expect(page.panelText()).not.toContain('a/f50.ts → b/t.ts');
+  });
+
+  it('expands a group on double-click, collapses it from a file, and lists incoming and outgoing', () => {
+    const page = runPage(render());
+    page.setAllExpanded(false);
+    page.handlers.doubleClick({ nodes: ['group:1'], edges: [] });
+    expect(page.nodes.get().map((n: { id: string }) => n.id)).toEqual(['group:2', 'group:0', '/ws/src/core/a.ts', '/ws/src/core/b.ts']);
+
+    page.handlers.click({ nodes: ['/ws/src/core/b.ts'], edges: [] });
+    expect(page.panelText()).toContain('Outgoing → depends on (orange): 1');
+    expect(page.panelText()).toContain('Incoming ← used by (blue): 2');
+    expect(page.edges.get('["/ws/src/core/b.ts","group:2"]').color.color).toBe('#ffaa00');
+
+    page.handlers.doubleClick({ nodes: ['/ws/src/core/a.ts'], edges: [] });
+    expect(page.nodes.get()).toHaveLength(3);
+    page.handlers.doubleClick({ nodes: [], edges: [] });
+    expect(page.nodes.get()).toHaveLength(3);
+  });
+
+  it('filters by file path or group label', () => {
+    const page = runPage(render());
+    page.applyFilter('  CORE ');
+    expect(page.nodes.get().map((n: { id: string }) => n.id)).toEqual(['/ws/src/core/a.ts', '/ws/src/core/b.ts']);
+
+    page.applyFilter('c.ts');
+    page.setAllExpanded(false);
+    expect(page.nodes.get().map((n: { id: string }) => n.id)).toEqual(['group:2']);
+  });
+
+  it('starts collapsed above 200 files', () => {
+    const graphData: GraphData = { nodes: [], edges: [], nodeMetadata: {} };
+    for (let i = 0; i < 201; i++) graphData.nodes.push(`/ws/a/f${i}.ts`);
+    const page = runPage(render({ ...baseConfig, graphData }));
+    expect(page.nodes.get().map((n: { id: string }) => n.id)).toEqual(['group:0']);
   });
 });
