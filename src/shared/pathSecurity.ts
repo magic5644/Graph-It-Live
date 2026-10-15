@@ -63,3 +63,18 @@ export function toWorkspaceRelativePath(
   }
   return relativePath.replaceAll("\\", "/");
 }
+
+/** Validate that a file exists and is a regular file. */
+export async function validateFileExists(filePath: string): Promise<void> {
+  try {
+    const stats = await fs.promises.stat(filePath);
+    if (!stats.isFile()) {
+      throw new Error(`Path is not a file: ${filePath}`);
+    }
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") {
+      throw new Error(`File not found: ${filePath}`, { cause: error });
+    }
+    throw error;
+  }
+}

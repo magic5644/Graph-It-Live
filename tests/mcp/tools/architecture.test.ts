@@ -13,8 +13,10 @@ vi.mock("../../../src/analyzer/SourceFileCollector", () => ({
   },
 }));
 
-vi.mock("../../../src/mcp/tools/analysis", () => ({
-  executeAnalyzeDependencies: mocks.executeAnalyzeDependencies,
+// The fixture paths do not exist on disk; analysis results come from the mock below.
+vi.mock("../../../src/shared/pathSecurity", async (importOriginal) => ({
+  ...(await importOriginal<object>()),
+  validateFileExists: vi.fn(),
 }));
 
 import { run as runArchitectureCli } from "../../../src/cli/commands/architecture";
@@ -37,6 +39,10 @@ const imports: Record<string, string[]> = {
 describe("executeExploreArchitecture", () => {
   beforeEach(() => {
     workerState.config = { rootDir: workspaceRoot, excludeNodeModules: true, maxDepth: 3 };
+    // Same { dependencies } shape the analysis tool used to return, so the scenarios stay unchanged.
+    vi.spyOn(workerState, "getSpider").mockReturnValue({
+      analyze: async (filePath: string) => (await mocks.executeAnalyzeDependencies({ filePath })).dependencies,
+    } as never);
     mocks.collectAllSourceFiles.mockResolvedValue(Object.keys(imports).map(file));
     mocks.executeAnalyzeDependencies.mockImplementation(async ({ filePath }: { filePath: string }) => {
       const relative = normalizePath(path.relative(workspaceRoot, filePath));

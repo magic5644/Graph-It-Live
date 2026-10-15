@@ -5,7 +5,6 @@
  * All functions here are stateless and have no side effects.
  */
 
-import * as fs from "node:fs/promises";
 import * as path from "node:path";
 import { SUPPORTED_SYMBOL_ANALYSIS_EXTENSIONS } from "../../shared/constants";
 import {
@@ -13,6 +12,7 @@ import {
   validateWorkspacePath,
 } from "../../shared/pathSecurity";
 import { normalizePath, normalizePathForComparison } from "../../shared/path";
+import { validateFileExists } from "../../shared/pathSecurity";
 import { estimateTokens } from "../../shared/toon";
 import { detectLanguageFromExtension } from "../../shared/utils/languageDetection";
 import type { EdgeInfo, NodeInfo } from "../types";
@@ -270,22 +270,8 @@ export function detectCircularDependencies(
 // File Validation
 // ============================================================================
 
-/**
- * Validate that a file exists and is a regular file
- */
-export async function validateFileExists(filePath: string): Promise<void> {
-  try {
-    const stats = await fs.stat(filePath);
-    if (!stats.isFile()) {
-      throw new Error(`Path is not a file: ${filePath}`);
-    }
-  } catch (error) {
-    if ((error as NodeJS.ErrnoException).code === "ENOENT") {
-      throw new Error(`File not found: ${filePath}`, { cause: error });
-    }
-    throw error;
-  }
-}
+// Lives in shared so the analyzer architecture graph reports the same reasons.
+export { validateFileExists };
 
 /**
  * Validate analysis input parameters
