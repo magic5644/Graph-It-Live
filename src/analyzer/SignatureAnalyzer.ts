@@ -599,21 +599,22 @@ export class SignatureAnalyzer {
     loadModule: ReexportModuleLoader,
   ): Promise<{ results: SignatureComparisonResult[]; limitations: string[] }> {
     const newNames = new Set(this.declaredNames(filePath, 'new', newContent));
-    const limitations = new Set<string>();
-    const resolved: SignatureComparisonResult[] = [];
-    for (const result of results) {
+    // Limitations are collected per result and merged in input order, so output stays deterministic.
+    const resolutions = await Promise.all(results.map(async (result) => {
+      const limitations = new Set<string>();
       const isRemoval = result.breakingChanges.length === 1 && !newNames.has(result.symbolName);
       const moved = isRemoval
         ? await this.findMovedDeclaration(filePath, newContent, result.symbolName.split('.')[0], loadModule, limitations, new Set())
         : undefined;
-      const comparison = moved && this.compareMovedSymbol(filePath, oldContent, result.symbolName, moved);
-      if (!comparison) {
-        resolved.push(result);
-      } else if (comparison.hasBreakingChanges || comparison.nonBreakingChanges.length > 0) {
-        resolved.push(comparison);
-      }
-    }
-    return { results: resolved, limitations: [...limitations] };
+      return { result, limitations, comparison: moved && this.compareMovedSymbol(filePath, oldContent, result.symbolName, moved) };
+    }));
+    return {
+      results: resolutions.flatMap(({ result, comparison }) => {
+        if (!comparison) return [result];
+        return comparison.hasBreakingChanges || comparison.nonBreakingChanges.length > 0 ? [comparison] : [];
+      }),
+      limitations: [...new Set(resolutions.flatMap(({ limitations }) => [...limitations]))],
+    };
   }
 
   // ============================================================================
