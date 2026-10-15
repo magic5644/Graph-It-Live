@@ -9,12 +9,13 @@ import type {
   WikiLink,
   WikiSymbol,
 } from "../../shared/wiki-types.js";
-import type { GraphNodeMetadata } from "../../shared/graph-types.js";
+import type { GraphData, GraphEdge, GraphNodeMetadata } from "../../shared/graph-types.js";
+import { computeNodeMetadata } from "../NodeMetadataBuilder.js";
 import { analyzeControlFlow } from "./ControlFlowAnalyzer.js";
 import {
-  buildArchitectureDiagram,
   buildCallerDiagram,
   buildDependencyDiagram,
+  buildGroupedDiagram,
 } from "./DiagramBuilder.js";
 
 // Constraint #0: NEVER emit absolute paths in generated markdown.
@@ -242,11 +243,10 @@ export class WikiGenerator {
     }
     await this.removeStaleArticles(articlesDir);
 
-    // Build architecture diagram from article data
-    const archDiagram = buildArchitectureDiagram(
-      articles,
-      (fp) => displayPath(fp, this.workspaceRoot),
-    );
+    const archDiagram = buildGroupedDiagram(this.buildFileGraph(files), {
+      display: (fp) => displayPath(fp, this.workspaceRoot),
+      context: "grouped by path · static call graph: a file edge is at least one call between two wiki files",
+    });
 
     // Build scope note
     const excludedCount = allFiles.length - files.length;
@@ -584,6 +584,33 @@ export class WikiGenerator {
     }
 
     return map;
+  }
+
+  /** Wiki files linked by their static calls, with path communities (same detector as the CLI). */
+  private buildFileGraph(files: string[]): GraphData {
+    const inScope = new Set(files);
+    const edges = this.queryFileCallPairs().filter((edge) => inScope.has(edge.source) && inScope.has(edge.target));
+    const graphData: GraphData = { nodes: files, edges };
+    computeNodeMetadata(graphData, this.workspaceRoot);
+    return graphData;
+  }
+
+  private queryFileCallPairs(): GraphEdge[] {
+    try {
+      const result = this.db.exec(`
+        SELECT DISTINCT n_src.path AS source, n_tgt.path AS target
+        FROM edges e
+        JOIN nodes n_src ON e.source_id = n_src.id
+        JOIN nodes n_tgt ON e.target_id = n_tgt.id
+        WHERE n_src.path <> n_tgt.path
+      `);
+      return (result[0]?.values ?? []).map(([source, target]) => ({
+        source: normalizePath(String(source)),
+        target: normalizePath(String(target)),
+      }));
+    } catch {
+      return []; // No edges yet
+    }
   }
 
   private queryFiles(): string[] {

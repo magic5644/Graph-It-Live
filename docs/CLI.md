@@ -667,7 +667,7 @@ graph-it architecture [options]
 |--------|---------|-------------|
 | `--maxFiles <N>` | unlimited | Cap on the number of analyzed source files |
 | `--communities <mode>` | `path` | How `communityId`/`communityKey` group files: `path` by folder, `louvain` by import structure |
-| `--groups` | off | Add `context`, `groups`, `unassigned`, `groupEdges` and `totals` to `json`/`toon` output (see [Grouped output](#grouped-output)) |
+| `--groups` | off | Add `context`, `groups`, `unassigned`, `groupEdges` and `totals` to `json`/`toon` output; group `mermaid`/`markdown` diagrams (see [Grouped output](#grouped-output)) |
 | `--workspace, -w` | auto-detected | Project root |
 | `--format, -f` | `text` | Output format (`toon` recommended for large graphs; `mermaid` for diagrams) |
 
@@ -682,6 +682,7 @@ graph-it architecture --format toon
 graph-it architecture --maxFiles 2000
 graph-it architecture --communities louvain --format json
 graph-it architecture --groups --format toon
+graph-it architecture --groups --format mermaid
 ```
 
 #### Grouped output
@@ -697,6 +698,27 @@ graph-it architecture --groups --format toon
 | `totals` | `files`, `fileEdges`, `intraGroupEdges`, `interGroupEdges` (`intraGroupEdges + interGroupEdges = fileEdges`) |
 
 `fileEdgeCount` counts file pairs; it is not the edge weight Louvain optimizes. Louvain ids are only valid within one result: they can change after any code change, so match groups across runs by `key`, not `id`.
+
+With `--format mermaid` (or `markdown`), `--groups` draws a `flowchart LR` from the same counts:
+
+- up to 260 files and 250 intra-group edges: one `subgraph` per group holding its files and the edges between them;
+- beyond: one node per group (`analyzer (207 files)`), collapsed;
+- edges between groups always join groups, labelled with `fileEdgeCount` (`G5 -->|141| G4`); at most 250 are drawn, the strongest first;
+- leading `%%` comments state the community mode, graph kind, scope, `--maxFiles` cut, totals, the view (`expanded` / `collapsed`) and the hidden groups and group edges.
+
+Node ids are numeric (`G1`, `F0`), so identical labels in different groups, quotes, `|`, `#` or Windows paths keep the diagram valid. The same renderer draws the [wiki](#wiki) index diagram.
+
+#### Curated diagrams
+
+The generated diagram shows structure, not intent. For a presentation-grade diagram (like `docs/architecture/*.html`), feed the grouped JSON to a diagram skill such as `architecture-diagram` or `archify`:
+
+```bash
+graph-it architecture --groups --format json > architecture.json
+```
+
+> Using `architecture.json`, draw one box per entry of `groups` (label and `fileCount`) and one arrow per `groupEdges` entry labelled with `fileEdgeCount`. Keep the counts exactly; state `context.communityMode` and `context.scope` in the caption. Add the role notes below as annotations.
+
+Role notes, layering rules and business names are human annotations: write them yourself and mark them as such, they are not derived from the graph. Draw runtime flows from `graph-it trace <file>#<symbol>` and label them static analysis: a call edge says the code can call, not that it ran.
 
 #### Community modes
 
@@ -1161,7 +1183,7 @@ graph-it stats --stats-dir /tmp/graph-it-stats --format markdown
 
 ### wiki
 
-Generate a navigable markdown wiki from the call graph. Creates one article per source file with hub scores, symbol lists, caller/callee cross-links, and a grouped index — all with relative links only (portable, can be committed to the repo).
+Generate a navigable markdown wiki from the call graph. Creates one article per source file with hub scores, symbol lists, caller/callee cross-links, and a grouped index — all with relative links only (portable, can be committed to the repo). The index opens with an architecture diagram grouped by path community, drawn like [`architecture --groups --format mermaid`](#grouped-output) from the static call graph: a file edge is at least one call between two wiki files. Beyond 50 files or 40 intra-group edges, groups collapse to single nodes and the index says so.
 
 ```
 graph-it wiki [options]
@@ -1199,7 +1221,7 @@ graph-it wiki --scope src/analyzer --exclude "**/*.spec.ts"
 
 ```
 wiki/
-  index.md          # Grouped file index with hub scores
+  index.md          # Grouped architecture diagram + file index with hub scores
   articles/
     src_foo.ts.md   # One article per source file
     src_bar.ts.md

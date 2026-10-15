@@ -8,6 +8,8 @@
  * NO import * as vscode from 'vscode' allowed!
  */
 
+import { buildGroupedDiagram } from "../analyzer/wiki/DiagramBuilder";
+import type { GraphData } from "../shared/graph-types";
 import { normalizePath } from "../shared/path";
 import { estimateTokenSavings } from "../shared/toon";
 import { encodeToonSections, formatToonScalarHeader } from "../shared/toonSections";
@@ -352,6 +354,11 @@ function tryBuildMermaid(data: unknown, workspaceRoot?: string): string | null {
 
   const obj = data as Record<string, unknown>;
 
+  // `architecture --groups`: aggregated groups instead of the flat file graph
+  if (Array.isArray(obj["groups"]) && Array.isArray(obj["nodes"]) && Array.isArray(obj["edges"])) {
+    return buildGroupedMermaidFromArchitecture(obj["nodes"], obj["edges"], toRecord(obj["context"]));
+  }
+
   // Graph-like data (nodes + edges)
   if (Array.isArray(obj["nodes"]) && Array.isArray(obj["edges"])) {
     const graph: GraphLike = {
@@ -543,6 +550,50 @@ function buildMermaidFromGraph(graph: GraphLike): string | null {
   }
 
   return finalizeMermaid(lines);
+}
+
+/**
+ * Rebuilds the file graph of `architecture --groups` so the shared renderer recomputes
+ * exactly the groups and counts of the JSON output.
+ */
+function buildGroupedMermaidFromArchitecture(
+  nodes: unknown[],
+  edges: unknown[],
+  context: Record<string, unknown> | undefined,
+): string | null {
+  const graphData: GraphData = { nodes: [], edges: [], nodeMetadata: {} };
+  const labels = new Map<string, string>();
+  for (const node of nodes.map(toRecord)) {
+    const filePath = normalizePath(pickMermaidString([node?.["path"], node?.["id"]], "unknown"));
+    graphData.nodes.push(filePath);
+    graphData.nodeMetadata![filePath] = {
+      hubScore: 0,
+      communityId: Number(node?.["communityId"] ?? 0),
+      communityKey: pickMermaidString([node?.["communityKey"]], ""),
+    };
+    labels.set(filePath, pickMermaidString([node?.["relativePath"]], filePath));
+  }
+  for (const edge of edges.map(toRecord)) {
+    graphData.edges.push({
+      source: pickMermaidString([edge?.["source"]], "?"),
+      target: pickMermaidString([edge?.["target"]], "?"),
+    });
+  }
+
+  const scope = [
+    `grouped by ${pickMermaidString([context?.["communityMode"]], "path")}`,
+    `${pickMermaidString([context?.["graphKind"]], "imports")} graph`,
+    `scope ${pickMermaidString([context?.["scope"]], "workspace")}`,
+    context?.["truncated"] === true && `analysis cut at --maxFiles ${pickMermaidString([context["maxFiles"]], "?")}`,
+  ].filter((part): part is string => typeof part === "string");
+  // Mermaid renders at most 500 edges by default: half for files inside groups, half between groups.
+  const diagram = buildGroupedDiagram(graphData, {
+    display: (filePath) => labels.get(normalizePath(filePath)) ?? filePath,
+    context: scope.join(" · "),
+    maxFiles: MAX_GRAPH_NODES,
+    maxEdges: MAX_GRAPH_EDGES / 2,
+  });
+  return diagram?.mermaid ?? null;
 }
 
 function buildMermaidFromTrace(trace: TraceLike, workspaceRoot?: string): string | null {

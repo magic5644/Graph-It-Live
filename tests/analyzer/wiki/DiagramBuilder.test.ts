@@ -2,8 +2,10 @@ import { describe, it, expect } from "vitest";
 import {
   buildDependencyDiagram,
   buildCallerDiagram,
-  buildArchitectureDiagram,
+  buildGroupedDiagram,
 } from "../../../src/analyzer/wiki/DiagramBuilder.js";
+import type { GraphData } from "../../../src/shared/graph-types.js";
+import { normalizePath } from "../../../src/shared/path.js";
 import type { WikiArticle, WikiLink } from "../../../src/shared/wiki-types.js";
 
 // ---------------------------------------------------------------------------
@@ -169,107 +171,107 @@ describe("buildCallerDiagram", () => {
 });
 
 // ---------------------------------------------------------------------------
-// buildArchitectureDiagram
+// buildGroupedDiagram
 // ---------------------------------------------------------------------------
 
-describe("buildArchitectureDiagram", () => {
-  it("returns null when articles array is empty", () => {
-    expect(buildArchitectureDiagram([], display)).toBeNull();
+describe("buildGroupedDiagram", () => {
+  /** Files under /workspace/src/<group>/…; group ids follow first appearance, "" = unassigned. */
+  function graph(edges: Array<[string, string]>, extraFiles: string[] = []): GraphData {
+    const files = [...new Set([...edges.flat(), ...extraFiles])];
+    const keys = [...new Set(files.map((file) => file.split("/")[3]).filter((key) => key.includes(".") === false))];
+    const nodeMetadata = Object.fromEntries(files.map((file) => {
+      const key = file.split("/")[3];
+      const id = keys.indexOf(key) + 1;
+      return [file, { hubScore: 0, communityId: id, communityKey: id === 0 ? "" : key }];
+    }));
+    return { nodes: files, edges: edges.map(([source, target]) => ({ source, target })), nodeMetadata };
+  }
+  const options = { display, context: "grouped by path · imports graph" };
+  const api = "/workspace/src/api/index.ts";
+  const api2 = "/workspace/src/api/routes.ts";
+  const db = "/workspace/src/db/index.ts";
+  const root = "/workspace/src/main.ts";
+
+  it("returns null for an empty graph", () => {
+    expect(buildGroupedDiagram({ nodes: [], edges: [] }, options)).toBeNull();
   });
 
-  it("returns null when only one article (needs ≥2 hubs)", () => {
-    const articles = [makeArticle({ hubScore: 10 })];
-    expect(buildArchitectureDiagram(articles, display)).toBeNull();
+  it("draws one subgraph per group, file edges inside groups and counted edges between them", () => {
+    const result = buildGroupedDiagram(graph([[api, api2], [api, db], [api2, db], [root, api]]), options)!;
+
+    expect(result).toMatchObject({ type: "architecture", truncated: false, truncationNote: undefined });
+    expect(result.mermaid.split("\n")).toEqual([
+      "flowchart LR",
+      "%% grouped by path · imports graph",
+      "%% 4 files, 4 file edges (1 intra-group, 3 inter-group)",
+      "%% view: expanded; hidden: 0 group(s), 0 group edge(s)",
+      '  subgraph G1["api (2 files)"]',
+      '    F0["src/api/index.ts"]',
+      '    F1["src/api/routes.ts"]',
+      "  end",
+      '  subgraph G0["unassigned (1 file)"]',
+      '    F2["src/main.ts"]',
+      "  end",
+      '  subgraph G2["db (1 file)"]',
+      '    F3["src/db/index.ts"]',
+      "  end",
+      "  F0 --> F1",
+      "  G1 -->|2| G2",
+      "  G0 -->|1| G1",
+    ]);
   });
 
-  it("returns a diagram when at least 2 hub articles exist", () => {
-    const articles = [
-      makeArticle({
-        filePath: "/workspace/src/hub1.ts",
-        hubScore: 20,
-        callees: [],
-      }),
-      makeArticle({
-        filePath: "/workspace/src/hub2.ts",
-        hubScore: 10,
-        callees: [],
-      }),
-    ];
-    const result = buildArchitectureDiagram(articles, display);
-    expect(result).not.toBeNull();
-    expect(result!.type).toBe("architecture");
-    expect(result!.mermaid).toContain("flowchart TD");
-    expect(result!.mermaid).toContain("hub1.ts");
-    expect(result!.mermaid).toContain("hub2.ts");
+  it("collapses groups into nodes beyond the caps and says so", () => {
+    const result = buildGroupedDiagram(graph([[api, api2], [api, db], [api2, db]]), { ...options, maxFiles: 2 })!;
+
+    expect(result.mermaid).not.toContain("subgraph");
+    expect(result.mermaid).toContain("%% view: collapsed; hidden: 0 group(s), 0 group edge(s)");
+    expect(result.mermaid).toContain('  G1["api (2 files)"]');
+    expect(result.mermaid).toContain("  G1 -->|2| G2");
+    expect(result.truncated).toBe(true);
+    expect(result.truncationNote).toBe("Collapsed to groups: 3 files and 1 intra-group edges exceed 2 files or 40 edges");
   });
 
-  it("deduplicates edges between hub files", () => {
-    const hub2 = makeArticle({
-      filePath: "/workspace/src/hub2.ts",
-      hubScore: 10,
-      callees: [],
-    });
-    const hub1 = makeArticle({
-      filePath: "/workspace/src/hub1.ts",
-      hubScore: 20,
-      callees: [
-        makeLink("/workspace/src/hub2.ts"),
-        makeLink("/workspace/src/hub2.ts"), // duplicate
-      ],
-    });
-    const result = buildArchitectureDiagram([hub1, hub2], display);
-    expect(result).not.toBeNull();
-    const edges = result!.mermaid
-      .split("\n")
-      .filter((l) => /^\s+\w+ --> \w+$/.test(l));
-    // Only one edge hub1 → hub2, no duplicate
-    expect(edges).toHaveLength(1);
+  it("collapses when intra-group edges exceed maxEdges, and hides the smallest groups and weakest edges", () => {
+    const cache = "/workspace/src/cache/lru.ts";
+    const result = buildGroupedDiagram(
+      graph([[api, api2], [api, db], [api2, db], [api, cache]]),
+      { ...options, maxFiles: 2, maxEdges: 0 },
+    )!;
+
+    expect(result.mermaid).toContain("%% 4 files, 4 file edges (1 intra-group, 3 inter-group)");
+    expect(result.mermaid).toContain("%% view: collapsed; hidden: 1 group(s), 2 group edge(s)");
+    expect(result.mermaid).not.toContain("cache");
+    expect(result.mermaid).not.toContain("-->");
+    expect(result.truncationNote).toContain("1 smallest group(s) hidden; 2 weakest group edge(s) hidden");
   });
 
-  it("truncates when articles exceed limit", () => {
-    const articles: WikiArticle[] = Array.from({ length: 10 }, (_, i) =>
-      makeArticle({
-        filePath: `/workspace/src/file${i}.ts`,
-        hubScore: 10 - i,
-        callees: [],
-      }),
-    );
-    // limit to 3 → truncated because 10 > 3
-    const result = buildArchitectureDiagram(articles, display, 3);
-    expect(result).not.toBeNull();
-    expect(result!.truncated).toBe(true);
-    expect(result!.truncationNote).toMatch(/3/);
-  });
+  it("keeps Mermaid valid with special characters, duplicate labels and Windows paths", () => {
+    const quoted = String.raw`C:\ws\src\api\a"b|c<d>` + "`#1;.ts";
+    const twin = String.raw`C:\ws\src\db\a"b|c<d>` + "`#1;.ts";
+    const data: GraphData = {
+      nodes: [quoted, twin],
+      edges: [{ source: quoted, target: twin }],
+      nodeMetadata: {
+        [normalizePath(quoted)]: { hubScore: 0, communityId: 1, communityKey: 'a"pi\n' },
+        [normalizePath(twin)]: { hubScore: 0, communityId: 2, communityKey: 'a"pi\n' },
+      },
+    };
+    const result = buildGroupedDiagram(data, {
+      display: (fp) => fp.split("/").at(-1)!,
+      context: "line\nbreak",
+    })!;
 
-  it("is not truncated when articles fit within limit", () => {
-    const articles = [
-      makeArticle({ filePath: "/workspace/src/a.ts", hubScore: 5, callees: [] }),
-      makeArticle({ filePath: "/workspace/src/b.ts", hubScore: 3, callees: [] }),
-    ];
-    const result = buildArchitectureDiagram(articles, display);
-    expect(result).not.toBeNull();
-    expect(result!.truncated).toBe(false);
-  });
-
-  it("respects MAX_ARCH_EDGES (40) limit on edges", () => {
-    // Create one big hub with 50 callees all pointing to other hubs
-    const targets: WikiArticle[] = Array.from({ length: 50 }, (_, i) =>
-      makeArticle({
-        filePath: `/workspace/src/dep${i}.ts`,
-        hubScore: 1,
-        callees: [],
-      }),
-    );
-    const hub = makeArticle({
-      filePath: "/workspace/src/hub.ts",
-      hubScore: 100,
-      callees: targets.map((t) => makeLink(t.filePath)),
-    });
-    const result = buildArchitectureDiagram([hub, ...targets], display);
-    expect(result).not.toBeNull();
-    const edges = result!.mermaid
-      .split("\n")
-      .filter((l) => /^\s+\w+ --> \w+$/.test(l));
-    expect(edges.length).toBeLessThanOrEqual(40);
+    const lines = result.mermaid.split("\n");
+    expect(lines[1]).toBe("%% line break");
+    expect(lines.filter((line) => line.includes("subgraph"))).toEqual([
+      "  subgraph G1[\"a'pi  (1 file)\"]",
+      "  subgraph G2[\"a'pi  (1 file)\"]",
+    ]);
+    expect(lines.filter((line) => line.startsWith("    F"))).toEqual([
+      "    F0[\"a'bcd#35;1;.ts\"]",
+      "    F1[\"a'bcd#35;1;.ts\"]",
+    ]);
+    expect(lines.at(-1)).toBe("  G1 -->|1| G2");
   });
 });
