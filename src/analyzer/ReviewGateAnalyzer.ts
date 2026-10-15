@@ -5,8 +5,9 @@ import { promisify } from "node:util";
 import { SUPPORTED_SOURCE_FILE_REGEX } from "../shared/constants";
 import { normalizePath } from "../shared/path";
 import { detectCycles } from "./callgraph/cycleUtils";
-import { SignatureAnalyzer, type BreakingChange, type SignatureInfo } from "./SignatureAnalyzer";
+import { SignatureAnalyzer, type BreakingChange, type ReexportedModule, type SignatureInfo } from "./SignatureAnalyzer";
 import type { SymbolDependency, SymbolInfo } from "./types";
+import { PathResolver } from "./utils/PathResolver";
 
 const execFileAsync = promisify(execFile);
 const DEFAULT_MAX_FILES = 200;
@@ -123,12 +124,14 @@ interface DependentWalkState {
 export class ReviewGateAnalyzer {
   private readonly normalizedRoot: string;
   private readonly signatures = new SignatureAnalyzer();
+  private readonly resolver: PathResolver;
 
   constructor(
     private readonly workspaceRoot: string,
     private readonly dependents?: SymbolDependentsProvider,
   ) {
     this.normalizedRoot = normalizePath(path.resolve(workspaceRoot));
+    this.resolver = new PathResolver(undefined, true, workspaceRoot);
   }
 
   async analyze(options: ReviewGateOptions): Promise<ReviewGateResult> {
@@ -215,13 +218,36 @@ export class ReviewGateAnalyzer {
       ...await this.collectFileEvidence(absolutePath, relativePath, limitations, availability),
       functions: this.extractTopLevelFunctions(absolutePath, newContent),
     };
-    const comparisons = this.analyzeSignatures(absolutePath, relativePath, oldContent, newContent, limitations);
+    const comparisons = await this.analyzeSignatures(absolutePath, relativePath, oldContent, newContent, headRef, limitations);
     return Promise.all(comparisons.map((comparison) => this.createReviewSymbol(comparison, absolutePath, relativePath, maxDepth, fileEvidence, changedFiles, headRef)));
   }
 
-  private analyzeSignatures(absolutePath: string, relativePath: string, oldContent: string, newContent: string, limitations: string[]): Array<{ symbolName: string; breakingChanges: BreakingChange[] }> {
+  private async analyzeSignatures(
+    absolutePath: string,
+    relativePath: string,
+    oldContent: string,
+    newContent: string,
+    headRef: string,
+    limitations: string[],
+  ): Promise<Array<{ symbolName: string; breakingChanges: BreakingChange[] }>> {
     try {
-      return this.signatures.analyzeBreakingChanges(absolutePath, oldContent, newContent);
+      const comparisons = this.signatures.analyzeBreakingChanges(absolutePath, oldContent, newContent);
+      // Every removed symbol walks its re-export chain: load each module once, not once per symbol.
+      const loaded = new Map<string, Promise<ReexportedModule | null>>();
+      const reexports = await this.signatures.resolveReexportedRemovals(
+        absolutePath, oldContent, newContent, comparisons,
+        (fromFile, specifier) => {
+          const key = `${normalizePath(fromFile)}\0${specifier}`;
+          let module = loaded.get(key);
+          if (!module) {
+            module = this.loadHeadModule(fromFile, specifier, headRef);
+            loaded.set(key, module);
+          }
+          return module;
+        },
+      );
+      limitations.push(...reexports.limitations.map((limitation) => `${relativePath}: ${limitation}`));
+      return reexports.results;
     } catch (error) {
       const detail = error instanceof Error ? error.message : "unknown parser error";
       limitations.push(`Signature evidence unavailable for ${relativePath}: ${detail}.`);
@@ -503,6 +529,20 @@ export class ReviewGateAnalyzer {
     } catch {
       return null;
     }
+  }
+
+  /** Head content of a module a changed file re-exports from; null when unresolved or outside the workspace. */
+  private async loadHeadModule(fromFile: string, specifier: string, headRef: string): Promise<ReexportedModule | null> {
+    const resolved = await this.resolver.resolve(fromFile, specifier);
+    if (!resolved) return null;
+    let absolutePath: string;
+    try {
+      absolutePath = this.resolveWorkspacePath(resolved);
+    } catch {
+      return null;
+    }
+    const content = await this.readHeadContent(headRef, absolutePath, normalizePath(path.relative(this.normalizedRoot, absolutePath)));
+    return content === null ? null : { filePath: absolutePath, content };
   }
 
   private async readHeadContent(headRef: string, absolutePath: string, relativePath: string): Promise<string | null> {

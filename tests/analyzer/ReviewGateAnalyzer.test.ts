@@ -1051,3 +1051,93 @@ describe("ReviewGateAnalyzer - interface consumed through its factory", () => {
     expect(symbol.risk).not.toBe("critical");
   });
 });
+
+/** Regression (#363): a function moved behind a re-export was reported as removed, raising the risk to high. */
+describe("ReviewGateAnalyzer - re-exported declaration", { timeout: GIT_TEST_TIMEOUT }, () => {
+  const OLD_HELPERS = "export function check(target: string): boolean { return target.length > 0; }\n";
+  const MOVED = "export function check(target: string): boolean { return target.length > 0; }\n";
+
+  async function moveCheck(newHelpers: string, moved?: string): Promise<string> {
+    const workspace = await createGitWorkspaceWithDiff(OLD_HELPERS, newHelpers, "src/mcp/helpers.ts");
+    if (moved !== undefined) {
+      await fs.mkdir(path.join(workspace, "src", "shared"), { recursive: true });
+      await fs.writeFile(path.join(workspace, "src", "shared", "security.ts"), moved);
+    }
+    return workspace;
+  }
+
+  it.each([
+    ['import { check } from "../shared/security";\nexport { check };\n'],
+    ['export { check } from "../shared/security.js";\n'],
+  ])("scores a moved but still exported function low: %s", async (newHelpers) => {
+    const workspace = await moveCheck(newHelpers, MOVED);
+    const result = await new ReviewGateAnalyzer(workspace).analyze({ baseRef: "main" });
+
+    expect(result.symbols).toEqual([]);
+    expect(result.risk).toBe("low");
+    expect(result.limitations.filter((limitation) => limitation.includes("Re-export"))).toEqual([]);
+  });
+
+  it("follows a tsconfig path alias found from the changed file", async () => {
+    const workspace = await moveCheck('export { check } from "@/shared/security";\n', MOVED);
+    await fs.writeFile(
+      path.join(workspace, "tsconfig.json"),
+      JSON.stringify({ compilerOptions: { baseUrl: ".", paths: { "@/*": ["src/*"] } } }),
+    );
+    const result = await new ReviewGateAnalyzer(workspace).analyze({ baseRef: "main" });
+
+    expect(result.symbols).toEqual([]);
+  });
+
+  it("reports a parameter change made while moving the function", async () => {
+    const workspace = await moveCheck(
+      'export * from "../shared/security";\n',
+      "export function check(target: string, root: string): boolean { return target.startsWith(root); }\n",
+    );
+    const result = await new ReviewGateAnalyzer(workspace).analyze({ baseRef: "main" });
+
+    expect(result.symbols[0].breakingChanges[0]).toMatchObject({ type: "parameter-added-required", symbolName: "check" });
+  });
+
+  it("keeps the removal and lists a limitation when the re-export target is missing", async () => {
+    const workspace = await moveCheck('export { check } from "../shared/security";\n');
+    const result = await new ReviewGateAnalyzer(workspace).analyze({ baseRef: "main" });
+
+    expect(result.symbols[0].breakingChanges[0]).toMatchObject({ type: "member-removed", symbolName: "check" });
+    expect(result.limitations).toContain(
+      "src/mcp/helpers.ts: Re-export of 'check' from '../shared/security' could not be resolved; its removal is unverified.",
+    );
+  });
+
+  it("loads an unresolvable export * once for every removal behind it", async () => {
+    const workspace = await createGitWorkspaceWithDiff(
+      "export function check(a: string): string { return a; }\nexport function scan(a: string): string { return a; }\n",
+      'export * from "../shared/missing";\n',
+      "src/mcp/helpers.ts",
+    );
+    const result = await new ReviewGateAnalyzer(workspace).analyze({ baseRef: "main" });
+
+    expect(result.symbols.map((symbol) => symbol.name).sort()).toEqual(["check", "scan"]);
+    expect(result.limitations.filter((limitation) => limitation.includes("Re-exports"))).toEqual([
+      "src/mcp/helpers.ts: Re-exports from '../shared/missing' could not be resolved; removals behind them are unverified.",
+    ]);
+  });
+
+  it("reads the re-export target at the head ref, not the working tree", async () => {
+    const workspace = await moveCheck('export * from "../shared/security";\n', MOVED);
+    execFileSync("git", ["add", "."], { cwd: workspace });
+    execFileSync("git", ["commit", "-m", "move"], { cwd: workspace });
+    await fs.writeFile(path.join(workspace, "src", "shared", "security.ts"), "export const unrelated = 1;\n");
+
+    const result = await new ReviewGateAnalyzer(workspace).analyze({ baseRef: "main~1", headRef: "main" });
+
+    expect(result.symbols).toEqual([]);
+  });
+
+  it("does not follow a re-export outside the workspace", async () => {
+    const workspace = await moveCheck('export * from "../../../outside";\n');
+    const result = await new ReviewGateAnalyzer(workspace).analyze({ baseRef: "main" });
+
+    expect(result.symbols[0].breakingChanges[0].type).toBe("member-removed");
+  });
+});
