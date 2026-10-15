@@ -41,7 +41,7 @@ export async function run(
     filePath: ref.filePath,
   });
 
-  // MCP and the webview keep the LSP number; a CLI reader needs its name.
+  // The webview keeps the LSP number; a CLI reader needs its name.
   const nodes = result.graph.nodes.map((node) => ({
     ...node,
     kind: LSP_SYMBOL_KIND_NAMES[node.kind - 1] ?? node.kind,

@@ -1,5 +1,5 @@
 /**
- * Integration tests for analyze_file_logic MCP tool (T070-T074)
+ * Integration tests for intra-file call hierarchy (graph-it explain) (T070-T074)
  * Tests the complete flow from MCP tool call to formatted response
  */
 
@@ -13,7 +13,7 @@ import { tmpdir } from 'node:os';
 import * as path from 'node:path';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
-describe('MCP Integration - analyze_file_logic (T070-T074)', () => {
+describe('Integration - intra-file call hierarchy (T070-T074)', () => {
   let tempDir: string;
   let spider: Spider;
 

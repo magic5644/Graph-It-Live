@@ -27,7 +27,15 @@ interface ToolDescription {
   lines: DescriptionLine[];
 }
 
-export type DescribedToolName = McpToolName | "get_session_stats";
+/** VS Code Language Model tools with no MCP or CLI counterpart since v1.20.0. */
+type LmOnlyToolName =
+  | "get_symbol_callers"
+  | "get_symbol_dependents"
+  | "parse_imports"
+  | "expand_node"
+  | "analyze_file_logic";
+
+export type DescribedToolName = McpToolName | "get_session_stats" | LmOnlyToolName;
 
 const OPEN_ENDED_HINT =
   "For an open-ended question, start with graphitlive_graph_context and come here when you need this specific cut.";
@@ -103,30 +111,17 @@ const TOOL_DESCRIPTIONS: Record<DescribedToolName, ToolDescription> = {
       "Returns the dependencies of one file that are not already in a set of paths you provide.",
     lines: [
       "WHEN: exploring a large graph incrementally, or lazily loading one node at a time.",
-      {
-        mcp: "WHY: skips re-analysing what you already hold, so only newly discovered files come back.",
-        lm: "WHY: crawls the file's transitive dependencies and drops what you already hold, so only newly discovered files come back.",
-      },
+      "WHY: crawls the file's transitive dependencies and drops what you already hold, so only newly discovered files come back.",
       "RETURNS: the new nodes and edges only, with the same fields as crawl_dependency_graph.",
-      { mcp: `LIMITS: ${TOKEN_BUDGET_LIMIT}` },
     ],
   },
   parse_imports: {
     summary: "Returns the import statements of one file: module specifier, import type and line.",
     lines: [
-      {
-        mcp: "WHEN: inspecting import style or alias usage, or debugging why a specifier fails to resolve.",
-        lm: "WHEN: inspecting import style or alias usage, without the resolved paths.",
-      },
-      {
-        mcp: "WHY: regex-based, and extracts the script block from Vue/Svelte files first.",
-        lm: "WHY: uses the language-aware parser pipeline, so it is more accurate than a text search.",
-      },
+      "WHEN: inspecting import style or alias usage, without the resolved paths.",
+      "WHY: uses the language-aware parser pipeline, so it is more accurate than a text search.",
       "RETURNS: module specifier as written, import type, line number.",
-      {
-        mcp: "LIMITS: does not resolve paths - use graphitlive_analyze_dependencies for resolved targets.",
-        lm: "LIMITS: lists only imports that resolve to a workspace file, once per file - use graphitlive_resolve_module_path to debug one that does not.",
-      },
+      "LIMITS: lists only imports that resolve to a workspace file, once per file - use graphitlive_resolve_module_path to debug one that does not.",
     ],
   },
   verify_dependency_usage: {
@@ -213,10 +208,7 @@ const TOOL_DESCRIPTIONS: Record<DescribedToolName, ToolDescription> = {
       "Lists the symbols that use one given symbol - one hop, computed from source at call time.",
     lines: [
       "WHEN: changing a signature and needing every call site, or assessing the blast radius of a symbol-level change.",
-      {
-        mcp: "WHY: re-reads the referencing files instead of a cached index, so it reflects edits the index has not absorbed yet.",
-        lm: "WHY: walks the symbol graphs of every file that references the target, so file-level imports count as well as calls.",
-      },
+      "WHY: walks the symbol graphs of every file that references the target, so file-level imports count as well as calls.",
       "RETURNS: caller symbol id, file path and workspace-relative path per dependent, plus a total count.",
       "PICKING BETWEEN THE THREE: this one for every reference, including file-level imports, computed fresh; graphitlive_get_symbol_callers for call sites only; graphitlive_query_call_graph for multi-hop traversal, callees, or relation types.",
     ],
@@ -235,10 +227,7 @@ const TOOL_DESCRIPTIONS: Record<DescribedToolName, ToolDescription> = {
     lines: [
       `WHEN: the plain question "who calls X"; finding call sites before a rename; spotting a symbol with no callers.`,
       "WHY: reads CALLS edges from the indexed call graph, so it returns only symbols that call X. File-level imports and other references are not callers; use graphitlive_get_symbol_dependents for those.",
-      {
-        mcp: "RETURNS: one entry per caller symbol with file path, workspace-relative path, line of the first call and usage type. Type-only references are added only with includeTypeOnly.",
-        lm: "RETURNS: one entry per caller symbol with workspace-relative path, line of the first call and a type-only flag, plus runtime and type-only counts. Type-only references are added only with includeTypeOnly. The source field says whether the call graph or the symbol dependents fallback answered (the call graph is used once indexed; line is null in the fallback).",
-      },
+      "RETURNS: one entry per caller symbol with workspace-relative path, line of the first call and a type-only flag, plus runtime and type-only counts. Type-only references are added only with includeTypeOnly. The source field says whether the call graph or the symbol dependents fallback answered (the call graph is used once indexed; line is null in the fallback).",
       "PICKING BETWEEN THE THREE: this one for call sites; graphitlive_get_symbol_dependents for every reference (imports included) computed fresh from source; graphitlive_query_call_graph when you need more than one hop, callees as well as callers, or relation types such as INHERITS and IMPLEMENTS.",
     ],
   },
@@ -284,7 +273,7 @@ const TOOL_DESCRIPTIONS: Record<DescribedToolName, ToolDescription> = {
       "Returns the call hierarchy among the symbols defined INSIDE one file, ignoring anything it imports.",
     lines: [
       "WHEN: understanding how a file works internally, or spotting recursion before a refactor.",
-      "WHY: built from the file's AST (no language server needed), so it works the same in the CLI, MCP and VS Code. Calls are matched by name within the file.",
+      "WHY: built from the file's AST, so no language server is needed. Calls are matched by name within the file.",
       "RETURNS: nodes (symbol id, LSP SymbolKind number, type, export status, start/end line range), call edges with call-site line numbers, and cycle detection with the symbols involved.",
       "NOT THIS TOOL: for what this file's symbols reach in OTHER files, use graphitlive_get_symbol_graph.",
       "SUPPORTS: TypeScript, JavaScript, Python, Rust.",
@@ -362,7 +351,7 @@ const TOOL_DESCRIPTIONS: Record<DescribedToolName, ToolDescription> = {
       `WHEN: "how is this project structured", "what depends on the analyzer layer", "why does group A import group B".`,
       "WHY: aggregates the whole import graph by folder domain (communityMode 'path') or import structure ('louvain') before any paging, so counts match graph-it architecture --groups and every group edge is backed by its file pairs.",
       "RETURNS: no group/from/to - totals, unassigned files, the largest groups and group edges; group - its files and incoming / outgoing group edges; from + to - the distinct file pairs of that edge. Each response states its context (grouping, graph kind, truncation) and separates code facts from computed groupings.",
-      "LIMITS: import relations only (static analysis, not observed execution); lists paginated by offset/limit (default 50) with total, truncated and nextOffset; analyses every source file on each call. Symbols and lines come from graphitlive_find_referencing_files, graphitlive_get_symbol_callers and graphitlive_get_impact_analysis.",
+      "LIMITS: import relations only (static analysis, not observed execution); lists paginated by offset/limit (default 50) with total, truncated and nextOffset; analyses every source file on each call. Symbols and lines come from graphitlive_find_referencing_files, graphitlive_query_call_graph and graphitlive_get_impact_analysis.",
     ],
   },
   get_session_stats: {

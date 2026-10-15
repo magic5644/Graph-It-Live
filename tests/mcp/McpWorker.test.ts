@@ -336,10 +336,10 @@ describe("McpWorker - File Watching Simulation", () => {
 });
 
 // ============================================================================
-// Tests for analyze_file_logic MCP tool (T067-T069)
+// Tests for intra-file call hierarchy (graph-it explain) (T067-T069)
 // ============================================================================
 
-describe("McpWorker - analyze_file_logic tool", () => {
+describe("McpWorker - intra-file call hierarchy tool", () => {
   let spider: Spider;
   let tempDir: string;
 
@@ -512,10 +512,10 @@ class PrivateClass {}
 });
 
 // ============================================================================
-// Tests for analyze_file_logic MCP tool validation and error handling (T067-T068)
+// Tests for intra-file call hierarchy (graph-it explain) validation and error handling (T067-T068)
 // ============================================================================
 
-describe("McpWorker - analyze_file_logic validation and errors (T064-T065)", () => {
+describe("McpWorker - intra-file call hierarchy validation and errors (T064-T065)", () => {
   let tempDir: string;
 
   beforeEach(async () => {
@@ -536,7 +536,7 @@ describe("McpWorker - analyze_file_logic validation and errors (T064-T065)", () 
       const relativePath = "test.ts";
 
       // This should fail with FILE_NOT_FOUND since relative paths are rejected
-      // Note: We can't directly test executeAnalyzeFileLogic without initializing the worker
+      // Note: We can't directly test the executor without initializing the worker
       // So we test the validation logic that would be applied
       expect(path.isAbsolute(relativePath)).toBe(false);
     });

@@ -1,7 +1,7 @@
 /**
- * MCP Integration Tests for analyze_file_logic tool (T070-T074)
+ * Integration tests for the intra-file call hierarchy behind `graph-it explain` (T070-T074)
  *
- * Tests the complete MCP pipeline for symbol-level analysis:
+ * Runs the executor on a real Spider for symbol-level analysis:
  * - TypeScript/JavaScript/Python file analysis
  * - TOON and JSON format output
  * - Error handling (invalid paths, unsupported extensions)
@@ -11,10 +11,8 @@ import * as fs from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import {
-    McpWorkerHost,
-    type McpWorkerHostOptions,
-} from "../../src/mcp/McpWorkerHost";
+import { workerState } from "../../src/mcp/shared/state";
+import { executeAnalyzeFileLogic } from "../../src/mcp/tools/logic";
 import { SpiderBuilder } from "../../src/analyzer/SpiderBuilder";
 import { LspCallHierarchyAnalyzer } from "../../src/analyzer/LspCallHierarchyAnalyzer";
 import type {
@@ -27,7 +25,7 @@ import { detectLanguageFromExtension } from "../../src/shared/utils/languageDete
 
 function assertAnalyzeFileLogicResult(value: unknown): asserts value is AnalyzeFileLogicResult {
   if (!value || typeof value !== "object") {
-    throw new Error("Expected object result from analyze_file_logic");
+    throw new Error("Expected object result from executeAnalyzeFileLogic");
   }
   const candidate = value as { filePath?: unknown; language?: unknown; graph?: unknown };
   if (
@@ -36,21 +34,18 @@ function assertAnalyzeFileLogicResult(value: unknown): asserts value is AnalyzeF
     || !candidate.graph
     || typeof candidate.graph !== "object"
   ) {
-    throw new Error("Invalid analyze_file_logic result shape");
+    throw new Error("Invalid executeAnalyzeFileLogic result shape");
   }
 }
 
-async function invokeAnalyze(
-  worker: McpWorkerHost,
-  params: AnalyzeFileLogicParams,
-): Promise<AnalyzeFileLogicResult> {
-  const result = await worker.invoke("analyze_file_logic", params);
+async function invokeAnalyze(params: AnalyzeFileLogicParams): Promise<AnalyzeFileLogicResult> {
+  const result: unknown = await executeAnalyzeFileLogic(params);
   assertAnalyzeFileLogicResult(result);
   return result;
 }
 
-describe("MCP analyze_file_logic Integration Tests (T070-T074)", () => {
-  let mcpWorker: McpWorkerHost;
+describe("intra-file logic analysis integration (T070-T074)", () => {
+  let workspaceSpider: ReturnType<SpiderBuilder["build"]>;
   let tempDir: string;
 
   beforeAll(async () => {
@@ -61,28 +56,20 @@ describe("MCP analyze_file_logic Integration Tests (T070-T074)", () => {
     const rawTempDir = await fs.mkdtemp(path.join(tmpdir(), "mcp-analyze-file-logic-"));
     tempDir = await fs.realpath(rawTempDir);
 
-    const workerPath = path.resolve(__dirname, "../../dist/mcpWorker.js");
-    const options: McpWorkerHostOptions = {
-      workerPath,
-      warmupTimeout: 15000,
-      invokeTimeout: 15000,
-    };
-
-    mcpWorker = new McpWorkerHost(options);
-
-    // Start the worker with workspace configuration
-    await mcpWorker.start({
-      rootDir: tempDir,
-      excludeNodeModules: true,
-      maxDepth: 50,
-      extensionPath: process.cwd(),
-    });
+    workspaceSpider = new SpiderBuilder()
+      .withRootDir(tempDir)
+      .withExtensionPath(process.cwd())
+      .build();
+    workerState.spider = workspaceSpider;
+    workerState.parser = {} as typeof workerState.parser;
+    workerState.resolver = {} as typeof workerState.resolver;
+    workerState.config = { rootDir: tempDir, excludeNodeModules: true, maxDepth: 50 };
+    workerState.isReady = true;
   }, 20000);
 
   afterAll(async () => {
-    if (mcpWorker) {
-      await mcpWorker.dispose();
-    }
+    workerState.reset();
+    await workspaceSpider?.dispose();
     // Cleanup temp directory
     if (tempDir) {
       await fs.rm(tempDir, { recursive: true, force: true }).catch(() => {});
@@ -114,10 +101,9 @@ export class Calculator {
       const params: AnalyzeFileLogicParams = {
         filePath: tsFile,
         includeExternal: false,
-        format: "toon",
       };
 
-      const result = await invokeAnalyze(mcpWorker, params);
+      const result = await invokeAnalyze(params);
 
       expect(result).toBeDefined();
       expect(result).toHaveProperty("filePath");
@@ -159,7 +145,7 @@ export class Calculator {
         filePath: tsFile,
       };
 
-      const result = await mcpWorker.invoke("analyze_file_logic", params);
+      const result = await executeAnalyzeFileLogic(params);
 
       expect(result).toBeDefined();
       expect(result).toHaveProperty("graph");
@@ -186,10 +172,9 @@ class Calculator:
       const params: AnalyzeFileLogicParams = {
         filePath: pyFile,
         includeExternal: false,
-        format: "toon",
       };
 
-      const result = await invokeAnalyze(mcpWorker, params);
+      const result = await invokeAnalyze(params);
 
       expect(result).toBeDefined();
       expect(result.filePath).toBe(pyFile);
@@ -228,7 +213,7 @@ struct Point {
 `,
       );
 
-      const result = await invokeAnalyze(mcpWorker, { filePath: rsFile, format: "json" });
+      const result = await invokeAnalyze({ filePath: rsFile });
 
       expect(result.language).toBe("rust");
       const byName = new Map(result.graph.nodes.map(n => [n.name, n]));
@@ -248,21 +233,10 @@ struct Point {
       };
 
       await expect(
-        mcpWorker.invoke("analyze_file_logic", params),
+        executeAnalyzeFileLogic(params),
       ).rejects.toThrow(/not found|does not exist/i);
     });
 
-    it("should reject path outside workspace", async () => {
-      const outsideFile = path.resolve(tempDir, "..", "outside-workspace.ts");
-      await fs.writeFile(outsideFile, "export function outside() {}\n");
-      try {
-        await expect(
-          mcpWorker.invoke("analyze_file_logic", { filePath: outsideFile }),
-        ).rejects.toThrow(/outside workspace/i);
-      } finally {
-        await fs.rm(outsideFile, { force: true }).catch(() => {});
-      }
-    });
   });
 
   describe("T073: Unsupported file extension error", () => {
@@ -275,7 +249,7 @@ struct Point {
       };
 
       await expect(
-        mcpWorker.invoke("analyze_file_logic", params),
+        executeAnalyzeFileLogic(params),
       ).rejects.toThrow(/UNSUPPORTED_FILE_TYPE/i);
     });
 
@@ -288,7 +262,7 @@ struct Point {
       };
 
       await expect(
-        mcpWorker.invoke("analyze_file_logic", params),
+        executeAnalyzeFileLogic(params),
       ).rejects.toThrow(/UNSUPPORTED_FILE_TYPE/i);
     });
 
@@ -313,7 +287,7 @@ struct Point {
           filePath: file,
         };
 
-        const result = await invokeAnalyze(mcpWorker, params);
+        const result = await invokeAnalyze(params);
         expect(result).toBeDefined();
         expect(result.graph).toBeDefined();
       }
@@ -339,10 +313,9 @@ module.exports = { main };
 
       const params: AnalyzeFileLogicParams = {
         filePath: jsFile,
-        format: "json",
       };
 
-      const result = await invokeAnalyze(mcpWorker, params);
+      const result = await invokeAnalyze(params);
 
       expect(result).toBeDefined();
       expect(result.language).toBe("javascript");
@@ -369,7 +342,7 @@ module.exports = { main };
         filePath: tsFile,
       };
 
-      const result = await invokeAnalyze(mcpWorker, params);
+      const result = await invokeAnalyze(params);
 
       expect(result).toBeDefined();
       expect(result.graph).toBeDefined();
@@ -377,7 +350,7 @@ module.exports = { main };
     });
   });
 
-  describe("MCP parity with extension analysis pipeline", () => {
+  describe("parity with extension analysis pipeline", () => {
     it("matches direct Spider + LspCallHierarchyAnalyzer graph for TypeScript file", async () => {
       const tsFile = path.join(tempDir, "parity.ts");
       await fs.writeFile(
@@ -398,10 +371,9 @@ function gamma(z: number): number {
 
       const mcpParams: AnalyzeFileLogicParams = {
         filePath: tsFile,
-        format: "json",
       };
 
-      const mcpResult = await invokeAnalyze(mcpWorker, mcpParams);
+      const mcpResult = await invokeAnalyze(mcpParams);
 
       const spider = new SpiderBuilder()
         .withRootDir(tempDir)
@@ -441,7 +413,7 @@ function gamma(z: number): number {
         filePath: emptyFile,
       };
 
-      const result = await invokeAnalyze(mcpWorker, params);
+      const result = await invokeAnalyze(params);
 
       expect(result).toBeDefined();
       expect(result.graph.nodes.length).toBe(0);
@@ -462,7 +434,7 @@ function gamma(z: number): number {
         filePath: commentsFile,
       };
 
-      const result = await invokeAnalyze(mcpWorker, params);
+      const result = await invokeAnalyze(params);
 
       expect(result).toBeDefined();
       // Should have no symbols (only comments)
@@ -484,7 +456,7 @@ function gamma(z: number): number {
       };
 
       const startTime = Date.now();
-      const result = await invokeAnalyze(mcpWorker, params);
+      const result = await invokeAnalyze(params);
       const duration = Date.now() - startTime;
 
       expect(result).toBeDefined();

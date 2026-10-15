@@ -20,21 +20,17 @@ import {
   GraphNodeMetadataSchema,
   createSuccessResponse,
   enrichDependency,
-  ExpandNodeParamsSchema,
   FindReferencingFilesParamsSchema,
   FindUnusedSymbolsParamsSchema,
   GenerateCodemapParamsSchema,
   GetImpactAnalysisParamsSchema,
   GetIndexStatusParamsSchema,
   getRelativePath,
-  GetSymbolCallersParamsSchema,
-  GetSymbolDependentsParamsSchema,
   GetSymbolGraphParamsSchema,
   InvalidateFilesParamsSchema,
   isPathWithinRoot,
   MCP_TOOL_VERSION,
   normalizePathForComparison,
-  ParseImportsParamsSchema,
   QueryCallGraphParamsSchema,
   RebuildIndexParamsSchema,
   ResolveModulePathParamsSchema,
@@ -241,9 +237,9 @@ describe('AnalyzeDependenciesParamsSchema', () => {
 });
 
 describe('graph tool offset', () => {
-  it('accepts a non-negative integer offset on expand_node and query_call_graph', () => {
-    expect(ExpandNodeParamsSchema.safeParse({ filePath: '/p/a.ts', knownPaths: [], offset: 10 }).success).toBe(true);
-    expect(ExpandNodeParamsSchema.safeParse({ filePath: '/p/a.ts', knownPaths: [], offset: -1 }).success).toBe(false);
+  it('accepts a non-negative integer offset on crawl_dependency_graph and query_call_graph', () => {
+    expect(CrawlDependencyGraphParamsSchema.safeParse({ entryFile: '/p/a.ts', offset: 10 }).success).toBe(true);
+    expect(CrawlDependencyGraphParamsSchema.safeParse({ entryFile: '/p/a.ts', offset: -1 }).success).toBe(false);
     expect(QueryCallGraphParamsSchema.safeParse({ filePath: '/p/a.ts', symbolName: 'a', offset: 2.5 }).success).toBe(false);
   });
 });
@@ -350,39 +346,6 @@ describe('FindReferencingFilesParamsSchema', () => {
   });
 });
 
-describe('ExpandNodeParamsSchema', () => {
-  it('validates with knownPaths', () => {
-    const result = ExpandNodeParamsSchema.safeParse({
-      filePath: '/project/src/component.ts',
-      knownPaths: ['/project/src/index.ts', '/project/src/utils.ts'],
-    });
-
-    expect(result.success).toBe(true);
-    if (result.success) {
-      expect(result.data.knownPaths).toHaveLength(2);
-    }
-  });
-
-  it('rejects without required knownPaths', () => {
-    const result = ExpandNodeParamsSchema.safeParse({
-      filePath: '/project/src/component.ts',
-    });
-
-    // knownPaths is required in the schema
-    expect(result.success).toBe(false);
-  });
-});
-
-describe('ParseImportsParamsSchema', () => {
-  it('validates valid parameters', () => {
-    const result = ParseImportsParamsSchema.safeParse({
-      filePath: '/project/src/file.vue',
-    });
-
-    expect(result.success).toBe(true);
-  });
-});
-
 describe('ResolveModulePathParamsSchema', () => {
   it('validates required parameters', () => {
     const result = ResolveModulePathParamsSchema.safeParse({
@@ -456,37 +419,6 @@ describe('FindUnusedSymbolsParamsSchema', () => {
     });
 
     expect(result.success).toBe(true);
-  });
-});
-
-describe('GetSymbolDependentsParamsSchema', () => {
-  it('validates valid parameters', () => {
-    const result = GetSymbolDependentsParamsSchema.safeParse({
-      filePath: '/project/src/service.ts',
-      symbolName: 'getUserById',
-    });
-
-    expect(result.success).toBe(true);
-    if (result.success) {
-      expect(result.data.filePath).toBe('/project/src/service.ts');
-      expect(result.data.symbolName).toBe('getUserById');
-    }
-  });
-
-  it('rejects missing symbolName', () => {
-    const result = GetSymbolDependentsParamsSchema.safeParse({
-      filePath: '/project/src/service.ts',
-    });
-
-    expect(result.success).toBe(false);
-  });
-
-  it('rejects missing filePath', () => {
-    const result = GetSymbolDependentsParamsSchema.safeParse({
-      symbolName: 'getUserById',
-    });
-
-    expect(result.success).toBe(false);
   });
 });
 
@@ -606,43 +538,6 @@ describe('SetWorkspaceParamsSchema', () => {
 
   it('rejects missing workspacePath', () => {
     const result = SetWorkspaceParamsSchema.safeParse({});
-
-    expect(result.success).toBe(false);
-  });
-});
-
-describe('GetSymbolCallersParamsSchema', () => {
-  it('validates minimal parameters', () => {
-    const result = GetSymbolCallersParamsSchema.safeParse({
-      filePath: '/project/src/utils.ts',
-      symbolName: 'formatDate',
-    });
-
-    expect(result.success).toBe(true);
-    if (result.success) {
-      expect(result.data.filePath).toBe('/project/src/utils.ts');
-      expect(result.data.symbolName).toBe('formatDate');
-      expect(result.data.includeTypeOnly).toBeUndefined();
-    }
-  });
-
-  it('validates with includeTypeOnly=false', () => {
-    const result = GetSymbolCallersParamsSchema.safeParse({
-      filePath: '/project/src/utils.ts',
-      symbolName: 'formatDate',
-      includeTypeOnly: false,
-    });
-
-    expect(result.success).toBe(true);
-    if (result.success) {
-      expect(result.data.includeTypeOnly).toBe(false);
-    }
-  });
-
-  it('rejects missing symbolName', () => {
-    const result = GetSymbolCallersParamsSchema.safeParse({
-      filePath: '/project/src/utils.ts',
-    });
 
     expect(result.success).toBe(false);
   });
@@ -1603,11 +1498,11 @@ describe('validated file paths resolve against the workspace, not the cwd (GHSA-
   it('covers every path parameter of the file tools', () => {
     const cases: Array<[Parameters<typeof resolveToolFilePaths>[0], string]> = [
       ['analyze_dependencies', 'filePath'], ['crawl_dependency_graph', 'entryFile'],
-      ['find_referencing_files', 'targetPath'], ['parse_imports', 'filePath'],
+      ['find_referencing_files', 'targetPath'],
       ['resolve_module_path', 'fromFile'], ['get_symbol_graph', 'filePath'],
       ['find_unused_symbols', 'filePath'], ['trace_function_execution', 'filePath'],
       ['get_impact_analysis', 'filePath'], ['generate_codemap', 'filePath'],
-      ['query_call_graph', 'filePath'], ['analyze_file_logic', 'filePath'],
+      ['query_call_graph', 'filePath'], ['analyze_breaking_changes', 'filePath'],
     ];
     for (const [tool, key] of cases) {
       expect(resolveToolFilePaths(tool, { [key]: 'probe.ts' }, rootDir)).toEqual({ [key]: path.join(rootDir, 'probe.ts') });
@@ -1615,7 +1510,7 @@ describe('validated file paths resolve against the workspace, not the cwd (GHSA-
   });
 
   it('rejects a parameter that leaves the workspace', () => {
-    expect(() => resolveToolFilePaths('parse_imports', { filePath: '../outside/probe.ts' }, rootDir)).toThrow('outside workspace');
+    expect(() => resolveToolFilePaths('analyze_dependencies', { filePath: '../outside/probe.ts' }, rootDir)).toThrow('outside workspace');
     expect(() => resolveToolFilePaths('invalidate_files', { filePaths: ['a.ts', '../x.ts'] }, rootDir)).toThrow('outside workspace');
   });
 
@@ -1623,12 +1518,12 @@ describe('validated file paths resolve against the workspace, not the cwd (GHSA-
     const wiki = { outputDir: 'wiki', scope: 'src' };
     expect(resolveToolFilePaths('generate_wiki', wiki, rootDir)).toBe(wiki);
     expect(resolveToolFilePaths('get_index_status', {}, rootDir)).toEqual({});
-    expect(resolveToolFilePaths('parse_imports', null, rootDir)).toBeNull();
+    expect(resolveToolFilePaths('analyze_dependencies', null, rootDir)).toBeNull();
   });
 
   it('does not mutate the caller params', () => {
     const params = { filePath: 'probe.ts' };
-    resolveToolFilePaths('parse_imports', params, rootDir);
+    resolveToolFilePaths('analyze_dependencies', params, rootDir);
     expect(params.filePath).toBe('probe.ts');
   });
 

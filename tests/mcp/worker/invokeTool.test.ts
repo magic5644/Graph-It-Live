@@ -9,12 +9,10 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const executors = vi.hoisted(() => {
   const names = [
-    "executeAnalyzeBreakingChanges", "executeAnalyzeDependencies", "executeAnalyzeFileLogic",
-    "executeCrawlDependencyGraph", "executeExpandNode", "executeFindReferencingFiles",
-    "executeFindUnusedSymbols", "executeGenerateCodemap", "executeGraphContext",
-    "executeGetImpactAnalysis", "executeGetIndexStatus", "executeGetSymbolCallers",
-    "executeGetSymbolDependents", "executeGetSymbolGraph", "executeInvalidateFiles",
-    "executeParseImports", "executeQueryCallGraph", "executeReviewPr", "executeRebuildIndex",
+    "executeAnalyzeBreakingChanges", "executeAnalyzeDependencies", "executeCrawlDependencyGraph",
+    "executeFindReferencingFiles", "executeFindUnusedSymbols", "executeGenerateCodemap",
+    "executeGraphContext", "executeGetImpactAnalysis", "executeGetIndexStatus",
+    "executeGetSymbolGraph", "executeInvalidateFiles", "executeQueryCallGraph", "executeReviewPr", "executeRebuildIndex",
     "executeResolveModulePath", "executeScanDeadCode", "executeTraceFunctionExecution",
     "executeVerifyDependencyUsage", "executeQueryNaturalLanguage", "executeGenerateWiki",
     "executeExploreArchitecture",
@@ -105,10 +103,10 @@ describe("invokeTool", () => {
   });
 
   it("rejects a relative path that leaves the workspace as a security error", async () => {
-    const response = await call("parse_imports", { filePath: "../outside/probe.ts" });
+    const response = await call("analyze_dependencies", { filePath: "../outside/probe.ts" });
 
     expect(response).toMatchObject({ type: "error", code: "SECURITY_ERROR" });
-    expect(executors.executeParseImports).not.toHaveBeenCalled();
+    expect(executors.executeAnalyzeDependencies).not.toHaveBeenCalled();
   });
 
   it("reports validation and initialization errors", async () => {

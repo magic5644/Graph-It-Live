@@ -17,6 +17,7 @@ import {
   mcpToolDescription,
   toolSummary,
 } from '../../src/mcp/toolDescriptions';
+import { toolSchemas } from '../../src/mcp/types';
 
 interface LmToolContribution {
   name: string;
@@ -50,6 +51,15 @@ describe('tool descriptions registry', () => {
     }
   });
 
+  it('MCP descriptions name only registered MCP tools (issue #304)', () => {
+    const mcpToolNames = new Set([...Object.keys(toolSchemas), 'get_session_stats']);
+    for (const name of mcpToolNames) {
+      for (const [, ref] of mcpToolDescription(name as DescribedToolName).matchAll(/graphitlive_([a-z_]+)/g)) {
+        expect(mcpToolNames, `${name} references graphitlive_${ref}`).toContain(ref);
+      }
+    }
+  });
+
   it('LM descriptions do not advertise MCP-only paging or output parameters', () => {
     for (const tool of lmTools) {
       expect(lmToolDescription(shortName(tool)), tool.name).not.toMatch(/nextOffset|response_format/);
@@ -59,9 +69,9 @@ describe('tool descriptions registry', () => {
   });
 
   it('starts every description with its summary and keeps surface-only lines apart', () => {
-    expect(mcpToolDescription('expand_node')).toMatch(/^Returns the dependencies of one file[^\n]*\n\nWHEN:/);
-    expect(mcpToolDescription('expand_node')).toContain('LIMITS: output capped by tokenBudget');
-    expect(lmToolDescription('expand_node')).not.toContain('LIMITS:');
+    expect(mcpToolDescription('crawl_dependency_graph')).toMatch(/^Builds the transitive file dependency graph[^\n]*\n\nWHEN:/);
+    expect(mcpToolDescription('crawl_dependency_graph')).toContain('LIMITS: output capped by tokenBudget');
+    expect(lmToolDescription('crawl_dependency_graph')).not.toContain('LIMITS:');
     expect(mcpToolDescription('query_call_graph')).toContain('graphitlive_find_referencing_files');
     expect(lmToolDescription('query_call_graph')).toContain('graph-it-live_find_referencing_files');
     expect(toolSummary('get_symbol_graph')).toBe(mcpToolDescription('get_symbol_graph').split('\n')[0]);

@@ -5,7 +5,6 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { workerState } from "../../../src/mcp/shared/state";
 import {
     executeFindUnusedSymbols,
-    executeGetSymbolDependents,
     executeGetSymbolGraph,
 } from "../../../src/mcp/tools/symbol";
 
@@ -130,65 +129,6 @@ describe("symbol tools", () => {
       expect(result.totalExportedSymbols).toBe(2);
       expect(result.unusedPercentage).toBe(50);
       expect(result.unusedSymbols[0].category).toBe("type");
-    });
-  });
-
-  describe("executeGetSymbolDependents", () => {
-    it("should return dependents with relative paths", async () => {
-      const filePath = await createTempFile(tempDir, "entry.ts", "");
-      const targetFile = path.join(tempDir, "target.ts");
-
-      const spiderMock = {
-        getSymbolDependents: vi.fn(async () => [
-          {
-            sourceSymbolId: `${filePath}:main`,
-            targetSymbolId: `${targetFile}:dep`,
-            targetFilePath: targetFile,
-            isTypeOnly: false,
-          },
-        ]),
-      };
-
-      setupWorkerState(spiderMock);
-
-      const result = await executeGetSymbolDependents({
-        filePath,
-        symbolName: "main",
-      });
-
-      expect(result.dependentCount).toBe(1);
-      expect(result.dependents[0].targetRelativePath).toBe("target.ts");
-    });
-
-    const symbolGraph = (filePath: string, names: string[]) => ({
-      symbols: names.map((name) => ({
-        name, kind: "FunctionDeclaration", line: 1, isExported: true, id: `${filePath}:${name}`,
-      })),
-      dependencies: [],
-    });
-
-    it("throws the not-found message with suggestions for an unknown symbol", async () => {
-      const filePath = await createTempFile(tempDir, "core.ts", "");
-      const getSymbolDependents = vi.fn();
-      setupWorkerState({ getSymbolGraph: vi.fn(async () => symbolGraph(filePath, ["target"])), getSymbolDependents });
-
-      await expect(executeGetSymbolDependents({ filePath, symbolName: "targt" })).rejects.toThrow(
-        "Symbol 'targt' not found in core.ts. Did you mean: target?",
-      );
-      expect(getSymbolDependents).not.toHaveBeenCalled();
-    });
-
-    it("returns zero dependents for a known symbol nobody uses", async () => {
-      const filePath = await createTempFile(tempDir, "core.ts", "");
-      setupWorkerState({
-        getSymbolGraph: vi.fn(async () => symbolGraph(filePath, ["target"])),
-        getSymbolDependents: vi.fn(async () => []),
-      });
-
-      const result = await executeGetSymbolDependents({ filePath, symbolName: "target" });
-
-      expect(result.dependentCount).toBe(0);
-      expect(result.dependents).toEqual([]);
     });
   });
 });

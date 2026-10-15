@@ -374,16 +374,13 @@ type ExtensionMessage =
 
 ```typescript
 // MCP Server ↔ MCP Client (AI/LLM)
-// MCP registers 22 tools (prefixed graphitlive_): 21 below plus get_session_stats.
-// Five names marked (alias) are no longer MCP tools; `graph-it tool` keeps them.
+// MCP registers 23 tools (prefixed graphitlive_): 22 below plus get_session_stats.
 type McpToolName =
   | "set_workspace"          // Set workspace directory (rate-limited: 5 calls/10s)
   | "graph_context"          // Token-bounded subgraph answering a question
   | "analyze_dependencies"   // Single-file dependency analysis
   | "crawl_dependency_graph" // Recursive file-level crawl
   | "find_referencing_files" // Reverse file lookup
-  | "expand_node"            // (alias) use crawl_dependency_graph
-  | "parse_imports"          // (alias) use analyze_dependencies
   | "verify_dependency_usage"// Verify if import is actually used
   | "resolve_module_path"    // Resolve a module specifier
   | "get_index_status"       // Index health & stats
@@ -391,18 +388,16 @@ type McpToolName =
   | "rebuild_index"          // Full index rebuild (rate-limited: 5 calls/10s)
   | "get_symbol_graph"       // Symbol-level dependency graph
   | "find_unused_symbols"    // Dead code detection
-  | "get_symbol_dependents"  // (alias) use query_call_graph
   | "trace_function_execution" // Execution path tracing
-  | "get_symbol_callers"     // (alias) use query_call_graph
   | "analyze_breaking_changes" // Detect breaking API changes
   | "review_pr"              // Review a local Git diff (risk score, evidence)
   | "get_impact_analysis"    // Full change impact analysis
-  | "analyze_file_logic"     // (alias) use generate_codemap
   | "generate_codemap"       // AI-friendly code map (TOON format)
   | "query_call_graph"       // Cross-file caller/callee queries via SQLite BFS
   | "scan_dead_code"         // Workspace-wide or scoped unused export scan
   | "query_natural_language" // Subgraph relevant to a plain-language question
-  | "generate_wiki";         // Navigable Markdown wiki from the call graph index
+  | "generate_wiki"          // Navigable Markdown wiki from the call graph index
+  | "explore_architecture";  // Grouped architecture summary, group boundary, edge evidence
 
 interface McpToolRequest {
   toolName: McpToolName;

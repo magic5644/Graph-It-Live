@@ -7,7 +7,6 @@ import { workerState } from "../../../src/mcp/shared/state";
 const { mockQueryCallGraph } = vi.hoisted(() => ({ mockQueryCallGraph: vi.fn() }));
 vi.mock("../../../src/mcp/tools/callgraph", () => ({ executeQueryCallGraph: mockQueryCallGraph }));
 import {
-    executeGetSymbolCallers,
     executeTraceFunctionExecution,
 } from "../../../src/mcp/tools/execution";
 
@@ -79,75 +78,6 @@ describe("execution tools", () => {
       expect(result.rootSymbol.relativePath).toBe("main.ts");
       expect(result.callChain[0].resolvedRelativePath).toBe("utils.ts");
       expect(result.callCount).toBe(1);
-    });
-  });
-
-  describe("executeGetSymbolCallers", () => {
-    const edge = (sourceName: string, sourceFile: string, relation: string, sourceLine: number) => ({
-      sourceId: `${sourceFile}:${sourceName}:1`,
-      sourceName,
-      sourceFile,
-      targetId: "target",
-      targetName: "helper",
-      targetFile: path.join(tempDir, "utils.ts"),
-      relation,
-      sourceLine,
-      isCyclic: false,
-    });
-
-    it("returns one runtime entry per caller symbol from CALLS edges", async () => {
-      const filePath = path.join(tempDir, "utils.ts");
-      const fileA = path.join(tempDir, "a.ts");
-      const fileB = path.join(tempDir, "b.ts");
-      setupWorkerState({});
-      mockQueryCallGraph.mockResolvedValue({
-        callers: [edge("runA", fileA, "CALLS", 12), edge("runA", fileA, "CALLS", 20), edge("runB", fileB, "CALLS", 5)],
-      });
-
-      const result = await executeGetSymbolCallers({ filePath, symbolName: "helper" });
-
-      expect(mockQueryCallGraph).toHaveBeenCalledWith({
-        filePath,
-        symbolName: "helper",
-        direction: "callers",
-        depth: 1,
-        relationTypes: ["CALLS"],
-      });
-      expect(result.symbolId).toBe(`${filePath}:helper`);
-      expect(result.callers).toEqual([
-        { callerSymbolId: `${fileA}:runA`, callerFilePath: fileA, callerRelativePath: "a.ts", line: 12, isTypeOnly: false },
-        { callerSymbolId: `${fileB}:runB`, callerFilePath: fileB, callerRelativePath: "b.ts", line: 5, isTypeOnly: false },
-      ]);
-      expect(result).toMatchObject({ callerCount: 2, runtimeCallerCount: 2, typeOnlyCallerCount: 0 });
-      expect(result.callerFiles).toEqual([fileA, fileB]);
-    });
-
-    it("adds USES edges as type-only only when includeTypeOnly is set", async () => {
-      const filePath = path.join(tempDir, "utils.ts");
-      const fileA = path.join(tempDir, "a.ts");
-      const fileT = path.join(tempDir, "types.ts");
-      setupWorkerState({});
-      mockQueryCallGraph.mockResolvedValue({
-        callers: [edge("runA", fileA, "USES", 3), edge("runA", fileA, "CALLS", 9), edge("Shape", fileT, "USES", 4)],
-      });
-
-      const result = await executeGetSymbolCallers({ filePath, symbolName: "helper", includeTypeOnly: true });
-
-      expect(mockQueryCallGraph.mock.calls[0][0].relationTypes).toEqual(["CALLS", "USES"]);
-      expect(result.callers.map((c) => [c.callerSymbolId, c.line, c.isTypeOnly])).toEqual([
-        [`${fileA}:runA`, 9, false],
-        [`${fileT}:Shape`, 4, true],
-      ]);
-      expect(result).toMatchObject({ callerCount: 2, runtimeCallerCount: 1, typeOnlyCallerCount: 1 });
-    });
-
-    it("returns an empty result when the symbol has no callers", async () => {
-      setupWorkerState({});
-      mockQueryCallGraph.mockResolvedValue({ callers: [] });
-
-      const result = await executeGetSymbolCallers({ filePath: path.join(tempDir, "utils.ts"), symbolName: "helper" });
-
-      expect(result).toMatchObject({ callerCount: 0, callers: [], callerFiles: [] });
     });
   });
 });

@@ -39,8 +39,6 @@ describe("tool command", () => {
     expect(output).toContain("analyze_dependencies");
     expect(output).toContain("crawl_dependency_graph");
     expect(output).toContain("find_referencing_files");
-    expect(output).toContain("expand_node");
-    expect(output).toContain("parse_imports");
     expect(output).toContain("verify_dependency_usage");
     expect(output).toContain("resolve_module_path");
     expect(output).toContain("get_index_status");
@@ -48,12 +46,9 @@ describe("tool command", () => {
     expect(output).toContain("rebuild_index");
     expect(output).toContain("get_symbol_graph");
     expect(output).toContain("find_unused_symbols");
-    expect(output).toContain("get_symbol_dependents");
     expect(output).toContain("trace_function_execution");
-    expect(output).toContain("get_symbol_callers");
     expect(output).toContain("analyze_breaking_changes");
     expect(output).toContain("get_impact_analysis");
-    expect(output).toContain("analyze_file_logic");
     expect(output).toContain("generate_codemap");
     expect(output).toContain("query_call_graph");
     expect(output).toContain("scan_dead_code");

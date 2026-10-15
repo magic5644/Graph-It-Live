@@ -199,7 +199,7 @@ setTimeout(() => {
   // Test 4: Valid symbol name (should succeed)
   testToolCall(
     'Valid symbol name',
-    'get_symbol_callers',
+    'get_impact_analysis',
     {
       filePath: '/Users/test/project/src/index.ts',
       symbolName: 'myFunction',
@@ -210,7 +210,7 @@ setTimeout(() => {
   // Test 5: Oversized symbol name (should fail)
   testToolCall(
     'Oversized symbol name (>500 bytes)',
-    'get_symbol_callers',
+    'get_impact_analysis',
     {
       filePath: '/Users/test/project/src/index.ts',
       symbolName: 'a'.repeat(600),

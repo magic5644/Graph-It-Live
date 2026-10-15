@@ -5,7 +5,6 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { workerState } from "../../../src/mcp/shared/state";
 import {
     executeAnalyzeDependencies,
-    executeParseImports,
     executeVerifyDependencyUsage,
 } from "../../../src/mcp/tools/analysis";
 
@@ -68,28 +67,6 @@ describe("analysis tools", () => {
         module: "./dep",
         extension: "ts",
       });
-    });
-  });
-
-  describe("executeParseImports", () => {
-    it("should parse imports using the parser", async () => {
-      const entryFile = await createTempFile(tempDir, "entry.ts", "import './dep';");
-
-      const parserMock = {
-        parse: vi.fn(() => [
-          { module: "./dep", type: "import", line: 1 },
-        ]),
-      };
-
-      setupWorkerState({ analyze: vi.fn() }, parserMock);
-
-      const result = await executeParseImports({ filePath: entryFile });
-
-      expect(parserMock.parse).toHaveBeenCalledOnce();
-      expect(result.importCount).toBe(1);
-      expect(result.imports).toEqual([
-        { module: "./dep", type: "import", line: 1 },
-      ]);
     });
   });
 

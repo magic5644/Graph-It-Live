@@ -203,7 +203,7 @@ const PROVENANCE = {
 
 const NEXT_STEPS =
   "For the symbols and lines behind a file pair, call graphitlive_find_referencing_files on the target, " +
-  "then graphitlive_get_symbol_callers or graphitlive_get_impact_analysis on the symbols involved.";
+  "then graphitlive_query_call_graph or graphitlive_get_impact_analysis on the symbols involved.";
 
 type GroupRef = number | string;
 

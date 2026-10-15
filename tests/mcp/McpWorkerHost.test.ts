@@ -280,7 +280,7 @@ describe('McpWorkerHost', () => {
     });
 
     it('should reject on error response', async () => {
-      const invokePromise = host.invoke('parse_imports', { content: 'invalid' });
+      const invokePromise = host.invoke('analyze_dependencies', { content: 'invalid' });
 
       const postedMessage = getMockWorker().postMessage.mock.calls.find(
         (call) => call[0]?.type === 'invoke'

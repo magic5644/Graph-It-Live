@@ -205,7 +205,7 @@ Branch Watch adds a native path alongside the existing webview: `BranchWatchServ
 
 **Server:**
 
-- `mcpServer.ts` - MCP server entry point; registers all 22 tools, includes an in-memory sliding-window rate limiter (`checkRateLimit`) for `set_workspace`/`rebuild_index` (5 calls/10s) and `invalidate_files` (20 calls/10s)
+- `mcpServer.ts` - MCP server entry point; registers all 23 tools, includes an in-memory sliding-window rate limiter (`checkRateLimit`) for `set_workspace`/`rebuild_index` (5 calls/10s) and `invalidate_files` (20 calls/10s)
 - `McpWorker.ts` - Worker thread (NO vscode imports)
 - `McpWorkerHost.ts` - Worker communication
 - `McpServerProvider.ts` - VS Code MCP server provider
@@ -216,7 +216,7 @@ Branch Watch adds a native path alongside the existing webview: `BranchWatchServ
 - `shared/helpers.ts` - Shared MCP worker utilities
 - `shared/state.ts` - MCP worker shared state management
 
-**22 Tools Available** (`graphitlive_` prefix in MCP protocol):
+**23 Tools Available** (`graphitlive_` prefix in MCP protocol):
 
 1. `set_workspace` - Set workspace directory
 2. `analyze_dependencies` - Single-file dependency analysis
@@ -240,8 +240,9 @@ Branch Watch adds a native path alongside the existing webview: `BranchWatchServ
 20. `query_natural_language` - Subgraph relevant to a plain-language question
 21. `generate_wiki` - Navigable Markdown wiki from the call graph index
 22. `get_session_stats` - TOON vs JSON token savings for the session
+23. `explore_architecture` - Grouped architecture summary, group boundary, edge evidence
 
-`expand_node`, `parse_imports`, `get_symbol_callers`, `get_symbol_dependents` and `analyze_file_logic` are no longer MCP tools (v1.17.0). `graph-it tool` still accepts them as transition aliases.
+`expand_node`, `parse_imports`, `get_symbol_callers`, `get_symbol_dependents` and `analyze_file_logic` left the MCP server in v1.17.0 and `graph-it tool` in v1.20.0. Only the VS Code Language Model tools of the same names remain.
 
 ## Graph-It Review Gate
 
