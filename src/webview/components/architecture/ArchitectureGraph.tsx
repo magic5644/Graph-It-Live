@@ -165,7 +165,7 @@ export function ArchitectureGraph({ postMessage }: Readonly<ArchitectureGraphPro
     };
     const resizeObserver = typeof ResizeObserver === "undefined" ? null : new ResizeObserver(handleResize);
     resizeObserver?.observe(container);
-    // Fallback for environments where ResizeObserver is unavailable
+    // Also covers environments without ResizeObserver; the debounce merges both sources.
     window.addEventListener("resize", handleResize);
 
     return () => {
