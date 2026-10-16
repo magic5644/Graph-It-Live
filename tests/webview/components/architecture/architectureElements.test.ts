@@ -1,4 +1,4 @@
-import { groupDetail, overviewArchitecture } from "@/analyzer/architecture/ArchitectureExplorer";
+import { exploreArchitecture, groupDetail, overviewArchitecture } from "@/analyzer/architecture/ArchitectureExplorer";
 import type { ArchitectureGraph } from "@/analyzer/architecture/ArchitectureGraphBuilder";
 import { aggregateCommunityGroups } from "@/analyzer/community/groupAggregation";
 import type { ArchitectureSummaryMessage } from "@/shared/architecture-types";
@@ -13,6 +13,7 @@ import {
   placeNewFiles,
   renderedFileCount,
   findGroups,
+  focusGroup,
   highlightFocus,
   type LayoutBox,
   measureInteraction,
@@ -180,14 +181,14 @@ describe("highlight, find and min-imports filter", () => {
 
   it("draws no count label and fades nothing by default", () => {
     const cy = createCy();
-    expect(measureInteraction(cy)).toEqual({ highlightedGroups: 0, fadedGroups: 0, labelledEdges: 0, shownGroupEdges: 2 });
+    expect(measureInteraction(cy)).toEqual({ highlightedGroups: 0, fadedGroups: 0, labelledEdges: 0, shownGroupEdges: 2, shownFileEdges: 0 });
     cy.destroy();
   });
 
   it("highlights a group's neighbourhood, labels its edges and fades the rest, then clears", () => {
     const cy = createCy();
     highlightFocus(cy, cy.$("#group-2"));
-    expect(measureInteraction(cy)).toEqual({ highlightedGroups: 2, fadedGroups: 1, labelledEdges: 1, shownGroupEdges: 2 });
+    expect(measureInteraction(cy)).toEqual({ highlightedGroups: 2, fadedGroups: 1, labelledEdges: 1, shownGroupEdges: 2, shownFileEdges: 0 });
     expect(cy.$("#edge-1-2").style("label")).toBe("2");
     expect(cy.$("#edge-0-1").hasClass("faded")).toBe(true);
 
@@ -195,14 +196,14 @@ describe("highlight, find and min-imports filter", () => {
     expect(measureInteraction(cy)).toMatchObject({ highlightedGroups: 3, fadedGroups: 0, labelledEdges: 2 });
 
     highlightFocus(cy, cy.collection());
-    expect(measureInteraction(cy)).toEqual({ highlightedGroups: 0, fadedGroups: 0, labelledEdges: 0, shownGroupEdges: 2 });
+    expect(measureInteraction(cy)).toEqual({ highlightedGroups: 0, fadedGroups: 0, labelledEdges: 0, shownGroupEdges: 2, shownFileEdges: 0 });
     cy.destroy();
   });
 
   it("highlights a hovered edge with the two groups at its ends", () => {
     const cy = createCy();
     highlightFocus(cy, cy.$("#edge-0-1"));
-    expect(measureInteraction(cy)).toEqual({ highlightedGroups: 2, fadedGroups: 1, labelledEdges: 1, shownGroupEdges: 2 });
+    expect(measureInteraction(cy)).toEqual({ highlightedGroups: 2, fadedGroups: 1, labelledEdges: 1, shownGroupEdges: 2, shownFileEdges: 0 });
     expect(cy.$("#group-2").hasClass("faded")).toBe(true);
     cy.destroy();
   });
@@ -212,7 +213,7 @@ describe("highlight, find and min-imports filter", () => {
     expect(applyMinImports(cy, 2)).toBe(1);
     expect(cy.$("#edge-0-1").style("display")).toBe("none");
     highlightFocus(cy, cy.$("#group-1"));
-    expect(measureInteraction(cy)).toEqual({ highlightedGroups: 2, fadedGroups: 1, labelledEdges: 1, shownGroupEdges: 1 });
+    expect(measureInteraction(cy)).toEqual({ highlightedGroups: 2, fadedGroups: 1, labelledEdges: 1, shownGroupEdges: 1, shownFileEdges: 0 });
 
     applyMinImports(cy, 3);
     expect(measureInteraction(cy).shownGroupEdges).toBe(0);
@@ -232,6 +233,7 @@ describe("highlight, find and min-imports filter", () => {
         fadedGroups: cy.nodes().empty() ? 0 : 2,
         labelledEdges: 0,
         shownGroupEdges: 0,
+        shownFileEdges: 0,
       });
       cy.destroy();
     }
@@ -295,7 +297,11 @@ describe("expanded groups", () => {
   const nodeIds = (elements: ReturnType<typeof toArchitectureElements>) =>
     elements.filter(element => element.group === "nodes").map(element => element.data.id);
 
-  /** Every group edge's count is drawn once, split over its file and group ends; no id repeats. */
+  /**
+   * No id repeats, every edge joins drawn nodes and is labelled with what its evidence lists;
+   * group edges are all kept, and once the expanded groups are fully loaded, the file edges of a
+   * group edge touching one add up to its count.
+   */
   function expectConserved(expansions: Expansions) {
     const elements = toArchitectureElements(summary, expansions);
     const ids = elements.map(element => element.data.id);
@@ -304,10 +310,22 @@ describe("expanded groups", () => {
     const drawn = new Map<string, number>();
     for (const edge of edgesOf(elements)) {
       expect(nodes.has(String(edge.data.source)) && nodes.has(String(edge.data.target))).toBe(true);
-      const key = `${edge.data.from}>${edge.data.to}`;
+      const { from, to, sourceFile, targetFile } = edge.data as { from: number; to: number; sourceFile?: string; targetFile?: string };
+      expect(edge.data.label).toBe(String(exploreArchitecture(graph, { from, to, sourceFile, targetFile }).page.total));
+      expect(edge.data.fileEdge).toBe(sourceFile !== undefined || targetFile !== undefined);
+      if (!edge.data.fileEdge) continue;
+      const key = `${from}>${to}`;
       drawn.set(key, (drawn.get(key) ?? 0) + Number(edge.data.fileEdgeCount));
     }
-    for (const edge of summary.groupEdges) expect(drawn.get(`${edge.from}>${edge.to}`)).toBe(edge.fileEdgeCount);
+    expect(edgesOf(elements).filter(edge => !edge.data.fileEdge).map(edge => edge.data.id))
+      .toEqual(summary.groupEdges.map(edge => `edge-${edge.from}-${edge.to}`));
+    const fullyLoaded = [...expansions.values()].every(expansion => expansion.nextOffset === undefined);
+    for (const edge of summary.groupEdges) {
+      const count = drawn.get(`${edge.from}>${edge.to}`) ?? 0;
+      const touched = expansions.has(edge.from) || expansions.has(edge.to);
+      if (fullyLoaded && touched) expect(count).toBe(edge.fileEdgeCount);
+      else expect(count).toBeLessThanOrEqual(edge.fileEdgeCount);
+    }
     return elements;
   }
 
@@ -319,7 +337,7 @@ describe("expanded groups", () => {
   it.each([
     [{ 1: 1 }], [{ 1: 2 }], [{ 2: 1 }], [{ 1: 1, 2: 1 }], [{ 1: 2, 2: 1 }], [{ 1: 1, 2: 2 }], [{ 1: 2, 2: 2 }],
     [{ 1: 2, 2: 2, 3: 1 }], [{ 3: 1 }], [{ 1: 1, 3: 1 }],
-  ])("keeps every group edge count, split over what is drawn, for pages %j", (pages) => {
+  ])("labels every edge with its evidence total and keeps every group edge, for pages %j", (pages) => {
     expectConserved(expand(pages));
   });
 
@@ -344,27 +362,40 @@ describe("expanded groups", () => {
     expect(pair(toArchitectureElements(summary, expand({ 1: 2 })))).toHaveLength(1);
   });
 
-  it("hides the group edges of a fully loaded group and restores them on collapse", () => {
-    const expanded = toArchitectureElements(summary, expand({ 1: 2 }));
-    const groupEdgeIds = (elements: ReturnType<typeof toArchitectureElements>) =>
-      edgesOf(elements).map(edge => String(edge.data.id)).filter(id => id.startsWith("edge-"));
-
-    expect(groupEdgeIds(expanded)).toEqual(["edge-2-3"]);
-    expect(nodeIds(expanded)).not.toContain("more-1");
-    expect(groupEdgeIds(toArchitectureElements(summary, new Map()))).toEqual(summary.groupEdges.map(edge => `edge-${edge.from}-${edge.to}`));
+  it("keeps the group edges on an expanded group and flags its file edges", () => {
+    const edges = edgesOf(toArchitectureElements(summary, expand({ 1: 2 })));
+    expect(edges.filter(edge => !edge.data.fileEdge).map(edge => edge.data.source)).toContain("group-1");
+    expect(edges.filter(edge => edge.data.fileEdge).length).toBeGreaterThan(0);
+    expect(edgesOf(toArchitectureElements(summary, new Map())).every(edge => edge.data.fileEdge === false)).toBe(true);
   });
 
-  it("draws file → file edges between two expanded groups, and the rest towards their +N more nodes", () => {
+  it("focuses a group: only it, its files and what its edges reach stay drawn", () => {
+    const colors = { foreground: "#000", background: "#fff", border: "#999", edge: "#888", accent: "#00f" };
+    const cy = cytoscape({ headless: true, styleEnabled: true, style: buildArchitectureStylesheet(colors), elements: toArchitectureElements(summary, expand({ 3: 1 })) });
+    const shown = focusGroup(cy, cy.getElementById("group-3"));
+    const visible = cy.nodes().filter(node => node.style("display") !== "none").map(node => node.id());
+
+    // c imports a3 and is imported by a2 and b3: a and b stay, as compound-free groups.
+    expect(shown.nodes().filter(node => !node.isChild()).map(node => node.id()).sort()).toEqual(["group-1", "group-2", "group-3"]);
+    expect(visible).toContain("file:c/c1.ts");
+    expect(focusGroup(cy, cy.collection()).length).toBe(cy.elements().length);
+    expect(cy.elements(".hidden").length).toBe(0);
+    // File edges stay hidden until highlighted.
+    expect(cy.edges("[?fileEdge]").filter(edge => edge.style("display") !== "none").length).toBe(0);
+    highlightFocus(cy, cy.getElementById("file:c/c1.ts"));
+    expect(cy.edges("[?fileEdge]").filter(edge => edge.style("display") !== "none").length).toBeGreaterThan(0);
+  });
+
+  it("draws file → file edges between two expanded groups, and pairs with an unloaded file once it is loaded", () => {
     const both = edgesOf(expectConserved(expand({ 1: 2, 2: 2 })))
-      .filter(edge => [edge.data.from, edge.data.to].sort().join() === "1,2");
+      .filter(edge => edge.data.fileEdge && [edge.data.from, edge.data.to].sort().join() === "1,2");
     expect(both.every(edge => String(edge.data.source).startsWith("file:") && String(edge.data.target).startsWith("file:"))).toBe(true);
     expect(both).toHaveLength(5);
 
-    // b3 is not loaded: a2 → b3 goes to b's +N more node.
+    // b3 is not loaded: a2 → b3 waits for b's second page, no edge stands in for it.
     const partial = edgesOf(expectConserved(expand({ 1: 2, 2: 1 })));
-    const toMore = partial.find(edge => edge.data.id === "file:a/a2.ts->more-2")?.data;
-    expect(toMore).toMatchObject({ label: "1", sourceFile: "a/a2.ts" });
-    expect(toMore).not.toHaveProperty("targetFile");
+    expect(partial.some(edge => String(edge.data.target) === "more-2" || String(edge.data.source) === "more-2")).toBe(false);
+    expect(partial.some(edge => edge.data.id === "file:a/a2.ts->file:b/b3.ts")).toBe(false);
   });
 
   it("merges each page once and in order, and keeps counts from the full graph", () => {
@@ -418,5 +449,18 @@ describe("expanded groups", () => {
     }
     const added = second.getElementById("file:a/a2.ts");
     expect(added.position("y")).toBeGreaterThan(box.y2);
+  });
+
+  it("keys file nodes and edges by normalized paths, whatever the separators", () => {
+    const detail = groupDetail(graph, 1, { limit: 2 });
+    const windows = {
+      ...detail,
+      files: detail.files.map(file => ({ ...file, relativePath: file.relativePath.replaceAll("/", "\\") })),
+      outgoing: detail.outgoing.map(entry => ({ ...entry, relativePath: entry.relativePath.replaceAll("/", "\\") })),
+    };
+    const elements = toArchitectureElements(summary, mergeGroupDetail(new Map(), windows).expansions);
+
+    expect(nodeIds(elements)).toEqual(expect.arrayContaining(["file:a/a3.ts", "file:a/a1.ts"]));
+    expect(edgesOf(elements).map(edge => String(edge.data.source))).toContain("file:a/a1.ts");
   });
 });

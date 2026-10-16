@@ -58,13 +58,15 @@ export interface ArchitectureRevisionChangedMessage {
   currentRevision: string;
 }
 
-/** Drives the controls as a user would (E2E driver only); groups are named by key. */
+/** Drives the controls as a user would (E2E driver only); groups are named by key, `expand` enters a group as a double-click does. */
 export interface ArchitectureControlsMessage {
   type: "architectureControls";
   find?: string;
   minImports?: number;
   expand?: string;
   collapse?: string;
+  /** Focuses this group, as a click does (empty: back to the overview). */
+  focus?: string;
   /** Selects the first edge of this expanded group, which opens its evidence. */
   evidenceOf?: string;
   /** Clicks the source of this evidence row. */
@@ -125,8 +127,10 @@ export interface ArchitectureInteractedCommand {
   fadedGroups: number;
   /** Group edges drawn with their count label. */
   labelledEdges: number;
-  /** Group edges drawn, after the min-imports filter. */
+  /** Group edges drawn, after the min-imports filter and the focus. */
   shownGroupEdges: number;
+  /** File edges drawn: only those of the hovered or selected file. */
+  shownFileEdges: number;
 }
 
 /** Asks for one page of a group's files (offset 0 expands it). */
@@ -162,8 +166,12 @@ export interface ArchitectureDetailRenderedCommand {
   /** Files of the expanded groups, loaded or not. */
   expandedFileCount: number;
   renderedFiles: number;
-  /** Edges between two group-level ends (collapsed group or "+N more files"). */
+  /** Edges with no file end. */
   groupLevelEdges: number;
+  /** Groups drawn, collapsed or entered, after the focus. */
+  visibleGroups: number;
+  /** Group of the focus; undefined shows the whole architecture. */
+  focusedGroup?: string;
   /** The 500-file cap message is shown. */
   capReached: boolean;
   evidence?: { edgeCount: number; total: number; shown: number; firstSource?: string };

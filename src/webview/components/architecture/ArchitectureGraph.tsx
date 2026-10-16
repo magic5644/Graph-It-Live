@@ -13,6 +13,7 @@ import type {
   ArchitectureControlsMessage,
   ArchitectureEvidencePageMessage,
   ArchitectureExtensionMessage,
+  ArchitectureGroupDetailMessage,
   ArchitectureStateMessage,
   ArchitectureSummaryMessage,
   ArchitectureWebviewCommand,
@@ -24,6 +25,7 @@ import {
   type Expansions,
   FILE_CAP_MESSAGE,
   findGroups,
+  focusGroup,
   highlightFocus,
   type LayoutBox,
   measureInteraction,
@@ -292,6 +294,37 @@ function EvidencePanel({ evidence, onOpen, onMore, onClose }: Readonly<EvidenceP
   );
 }
 
+interface BreadcrumbProps {
+  summary: ArchitectureSummaryMessage;
+  expansions: Expansions;
+  focusId: number | null;
+  onOverview: () => void;
+  onFocus: (groupId: number) => void;
+  onLeave: (groupId: number) => void;
+}
+
+/** Where the view is: the overview, the focused group, the entered groups, each with a way back. */
+function Breadcrumb({ summary, expansions, focusId, onOverview, onFocus, onLeave }: Readonly<BreadcrumbProps>) {
+  const labelOf = (id: number) => (id === 0 ? "unassigned" : summary.groups.find((group) => group.id === id)?.label ?? `group ${id}`);
+  const entered = [...expansions.keys()];
+  return (
+    <nav aria-label="Architecture path" style={{ padding: "4px 10px", fontSize: 12, borderBottom: "1px solid var(--vscode-widget-border)" }}>
+      <button type="button" onClick={onOverview} disabled={focusId === null && entered.length === 0}>Overview</button>
+      {focusId !== null && !expansions.has(focusId) && <> › <strong>{labelOf(focusId)}</strong></>}
+      {entered.map((id) => (
+        <span key={id}>
+          {" › "}
+          <button type="button" onClick={() => onFocus(id)} aria-current={id === focusId ? "location" : undefined}>{labelOf(id)}</button>
+          <button type="button" aria-label={`Leave ${labelOf(id)}`} onClick={() => onLeave(id)}>×</button>
+        </span>
+      ))}
+      <span style={{ marginLeft: 8, color: "var(--vscode-descriptionForeground)" }}>
+        Click: focus · Double-click or Enter: enter · Escape: back
+      </span>
+    </nav>
+  );
+}
+
 function StatePanel({ state, onRetry }: Readonly<{ state: ArchitectureStateMessage; onRetry: () => void }>) {
   return (
     <output style={{ display: "block", padding: 16, fontSize: 12 }}>
@@ -325,15 +358,20 @@ export function ArchitectureGraph({ postMessage }: Readonly<ArchitectureGraphPro
   const [expansions, setExpansions] = useState<Expansions>(NO_EXPANSION);
   const [capReached, setCapReached] = useState(false);
   const [evidence, setEvidence] = useState<EvidenceState | null>(null);
+  /** Focused group: only it and what it is linked to stay drawn. */
+  const [focusId, setFocusId] = useState<number | null>(null);
   /** Tapped element or find matches: what the highlight returns to after a hover. */
   const pinnedRef = useRef<cytoscape.Collection | null>(null);
   // Messages and Cytoscape events read the latest values here: several can arrive before a render.
   const summaryRef = useRef(summary);
   const expansionsRef = useRef(expansions);
   const evidenceRef = useRef(evidence);
+  const focusRef = useRef(focusId);
+  /** What the next render fits: the focus, an entered group once its files are drawn, or everything. */
+  const fitRef = useRef<"focus" | "enter" | "all" | null>(null);
   /** What the last render drew: its summary (to report a new one once) and its counts. */
-  const renderedRef = useRef<{ summary: ArchitectureSummaryMessage | null; renderedFiles: number; groupLevelEdges: number }>({
-    summary: null, renderedFiles: 0, groupLevelEdges: 0,
+  const renderedRef = useRef<{ summary: ArchitectureSummaryMessage | null; renderedFiles: number; groupLevelEdges: number; visibleGroups: number }>({
+    summary: null, renderedFiles: 0, groupLevelEdges: 0, visibleGroups: 0,
   });
 
   const updateExpansions = (next: Expansions) => {
@@ -344,101 +382,178 @@ export function ArchitectureGraph({ postMessage }: Readonly<ArchitectureGraphPro
     evidenceRef.current = next;
     setEvidence(next);
   };
+  const updateFocus = (next: number | null, fit: "focus" | "enter" | "all") => {
+    focusRef.current = next;
+    setFocusId(next);
+    fitRef.current = fit;
+  };
   const post = (message: ArchitectureWebviewCommand) => postMessageRef.current(message);
 
-  /** Expanding, paging, collapsing and evidence, shared by clicks, keys and the E2E driver. */
-  const actions = {
-    expand(groupId: number) {
-      const revision = summaryRef.current?.revision;
-      if (revision !== undefined && !expansionsRef.current.has(groupId)) post({ command: "architectureExpandGroup", revision, groupId, offset: 0 });
-    },
-    loadMore(groupId: number) {
-      const revision = summaryRef.current?.revision;
-      const expansion = expansionsRef.current.get(groupId);
-      if (revision === undefined || expansion?.nextOffset === undefined) return;
-      post({ command: "architectureExpandGroup", revision, groupId, offset: expansion.files.length });
-    },
-    collapse(groupId: number) {
-      const next = new Map(expansionsRef.current);
-      next.delete(groupId);
-      updateExpansions(next);
-      setCapReached(false);
-    },
-    showEvidence(edge: cytoscape.EdgeSingular) {
-      const revision = summaryRef.current?.revision;
-      if (revision === undefined) return;
-      const ends: EvidenceEnds = { from: edge.data("from"), to: edge.data("to") };
-      if (edge.data("sourceFile") !== undefined) ends.sourceFile = edge.data("sourceFile");
-      if (edge.data("targetFile") !== undefined) ends.targetFile = edge.data("targetFile");
-      const edgeCount = Number(edge.data("fileEdgeCount"));
-      const title = `${edge.data("fromName")} → ${edge.data("toName")}: ${edgeCount} file pair${edgeCount === 1 ? "" : "s"} (static imports)`;
-      updateEvidence({ ends, title, edgeCount, pairs: [] });
-      post({ command: "architectureEvidence", revision, ...ends, offset: 0 });
-    },
-    moreEvidence() {
-      const revision = summaryRef.current?.revision;
-      const current = evidenceRef.current;
-      if (revision !== undefined && current?.nextOffset !== undefined) {
-        post({ command: "architectureEvidence", revision, ...current.ends, offset: current.pairs.length });
-      }
-    },
-    openFile(relativePath: string) {
-      const revision = summaryRef.current?.revision;
-      if (revision !== undefined) post({ command: "architectureOpenFile", revision, relativePath });
-    },
-    reset() {
-      updateExpansions(NO_EXPANSION);
-      updateEvidence(null);
-      setCapReached(false);
-    },
-    /** A click: an edge opens its evidence, a group expands, an expanded group collapses, "+N more" loads a page. */
-    tap(target: cytoscape.SingularElementArgument) {
-      if (target.isEdge()) this.showEvidence(target);
-      else if (target.data("more")) this.loadMore(target.data("groupId"));
-      else if (target.data("expanded")) this.collapse(target.data("groupId"));
-      else if (!target.data("file")) this.expand(target.data("groupId"));
-    },
-    /**
-     * The canvas has no focusable nodes: the tapped node is the focused one. Enter expands it
-     * (outside text fields and buttons); Escape closes the evidence, else collapses, else clears.
-     */
-    key(event: KeyboardEvent, clearFocus: () => void) {
-      const focused = pinnedRef.current?.length === 1 ? pinnedRef.current[0] : undefined;
-      if (event.key === "Enter") {
-        const typing = event.target instanceof HTMLElement && event.target.closest("input, button, textarea") !== null;
-        if (!typing && focused?.isNode() && !focused.data("file")) this.tap(focused);
-      } else if (event.key === "Escape") {
-        if (evidenceRef.current) updateEvidence(null);
-        else if (focused?.data("expanded")) this.collapse(focused.data("groupId"));
-        else clearFocus();
-      }
-    },
-    receiveEvidence(page: ArchitectureEvidencePageMessage) {
-      const current = evidenceRef.current;
-      // A page for another edge, revision or offset (a late answer, a double click) is dropped.
-      if (!current || page.revision !== summaryRef.current?.revision || !sameEnds(current.ends, page)) return;
-      if (page.page.offset !== current.pairs.length) return;
-      updateEvidence({ ...current, pairs: [...current.pairs, ...page.pairs], total: page.page.total, nextOffset: page.page.nextOffset });
-    },
-    /** E2E driver: the same actions as a user, groups named by key. */
-    control(message: ArchitectureControlsMessage) {
-      const idOf = (key: string | undefined) =>
-        key === undefined ? undefined : cyRef.current?.nodes().filter((node) => !node.isChild() && node.data("key") === `${summaryRef.current?.context.communityMode}:${key}`)[0];
-      const expand = idOf(message.expand);
-      if (expand) this.expand(expand.data("groupId"));
-      const collapse = idOf(message.collapse);
-      if (collapse) this.collapse(collapse.data("groupId"));
-      const evidenceOf = idOf(message.evidenceOf);
-      if (evidenceOf) {
-        const groupId = evidenceOf.data("groupId");
-        const edge = cyRef.current?.edges().filter((candidate) => candidate.data("from") !== candidate.data("to")
-          && (candidate.data("from") === groupId || candidate.data("to") === groupId))[0];
-        if (edge) this.showEvidence(edge);
-      }
-      const row = message.openEvidenceRow === undefined ? undefined : evidenceRef.current?.pairs[message.openEvidenceRow];
-      if (row) this.openFile(row.source);
-    },
+  /** Groups with a page requested and not received yet: any other page (a late answer after a collapse) is dropped. */
+  const pendingRef = useRef(new Set<number>());
+
+  // Expanding, paging, collapsing and evidence, shared by clicks, keys, messages and the E2E driver.
+  const requestPage = (groupId: number, offset: number) => {
+    const revision = summaryRef.current?.revision;
+    if (revision === undefined) return;
+    pendingRef.current.add(groupId);
+    post({ command: "architectureExpandGroup", revision, groupId, offset });
   };
+  const expand = (groupId: number) => {
+    if (!expansionsRef.current.has(groupId)) requestPage(groupId, 0);
+  };
+  const loadMore = (groupId: number) => {
+    const expansion = expansionsRef.current.get(groupId);
+    if (expansion?.nextOffset !== undefined) requestPage(groupId, expansion.files.length);
+  };
+  const collapse = (groupId: number) => {
+    pendingRef.current.delete(groupId);
+    const next = new Map(expansionsRef.current);
+    next.delete(groupId);
+    updateExpansions(next);
+    setCapReached(false);
+  };
+  const showEvidence = (edge: cytoscape.EdgeSingular) => {
+    const revision = summaryRef.current?.revision;
+    if (revision === undefined) return;
+    const ends: EvidenceEnds = { from: edge.data("from"), to: edge.data("to") };
+    if (edge.data("sourceFile") !== undefined) ends.sourceFile = edge.data("sourceFile");
+    if (edge.data("targetFile") !== undefined) ends.targetFile = edge.data("targetFile");
+    const edgeCount = Number(edge.data("fileEdgeCount"));
+    const title = `${edge.data("fromName")} → ${edge.data("toName")}: ${edgeCount} file pair${edgeCount === 1 ? "" : "s"} (static imports)`;
+    updateEvidence({ ends, title, edgeCount, pairs: [] });
+    post({ command: "architectureEvidence", revision, ...ends, offset: 0 });
+  };
+  const moreEvidence = () => {
+    const revision = summaryRef.current?.revision;
+    const current = evidenceRef.current;
+    if (revision !== undefined && current?.nextOffset !== undefined) {
+      post({ command: "architectureEvidence", revision, ...current.ends, offset: current.pairs.length });
+    }
+  };
+  const openFile = (relativePath: string) => {
+    const revision = summaryRef.current?.revision;
+    if (revision !== undefined) post({ command: "architectureOpenFile", revision, relativePath });
+  };
+  /** Enters a group: focuses it, expands it and zooms on it once its files are drawn. */
+  const enter = (groupId: number) => {
+    updateFocus(groupId, "enter");
+    expand(groupId);
+  };
+  /** Back to the whole architecture: every group collapsed, no focus. */
+  const overview = () => {
+    pendingRef.current.clear();
+    updateExpansions(NO_EXPANSION);
+    setCapReached(false);
+    updateFocus(null, "all");
+  };
+  const leave = (groupId: number) => {
+    collapse(groupId);
+    fitRef.current = "focus";
+  };
+  const reset = () => {
+    pendingRef.current.clear();
+    updateExpansions(NO_EXPANSION);
+    updateEvidence(null);
+    setCapReached(false);
+    updateFocus(null, "all");
+  };
+  const isGroup = (target: cytoscape.SingularElementArgument) => target.isNode() && !target.data("file") && !target.data("more");
+  /** A click: an edge opens its evidence, a group gets the focus, "+N more" loads a page. */
+  const tap = (target: cytoscape.SingularElementArgument) => {
+    if (target.isEdge()) showEvidence(target);
+    else if (target.data("more")) loadMore(target.data("groupId"));
+    else if (isGroup(target)) updateFocus(target.data("groupId"), "focus");
+  };
+  /** A double click enters a group. */
+  const dbltap = (target: cytoscape.SingularElementArgument) => {
+    if (isGroup(target)) enter(target.data("groupId"));
+  };
+  /**
+   * The canvas has no focusable nodes: the tapped node is the selected one. Enter enters it
+   * (outside text fields and buttons); Escape closes the evidence, else leaves the last entered
+   * group, else drops the focus, else clears the highlight.
+   */
+  const key = (event: KeyboardEvent, clearFocus: () => void) => {
+    const selected = pinnedRef.current?.length === 1 ? pinnedRef.current[0] : undefined;
+    if (event.key === "Enter") {
+      const typing = event.target instanceof HTMLElement && event.target.closest("input, button, textarea") !== null;
+      if (!typing && selected) dbltap(selected);
+      return;
+    }
+    if (event.key !== "Escape") return;
+    const lastEntered = [...expansionsRef.current.keys()].at(-1);
+    if (evidenceRef.current) updateEvidence(null);
+    else if (lastEntered !== undefined) leave(lastEntered);
+    else if (focusRef.current === null) clearFocus();
+    else updateFocus(null, "all");
+  };
+  const receiveSummary = (message: ArchitectureSummaryMessage) => {
+    // Group ids and pages only hold for their revision; a stale mark or a rebuild of the same graph keeps them.
+    if (summaryRef.current?.revision !== message.revision) reset();
+    summaryRef.current = message;
+    setSummary(message);
+    setState(null);
+  };
+  const receiveDetail = ({ revision, detail }: ArchitectureGroupDetailMessage) => {
+    if (revision !== summaryRef.current?.revision || !pendingRef.current.delete(detail.group.id)) return;
+    const merged = mergeGroupDetail(expansionsRef.current, detail);
+    updateExpansions(merged.expansions);
+    setCapReached(merged.capReached);
+  };
+  const receiveEvidence = (page: ArchitectureEvidencePageMessage) => {
+    const current = evidenceRef.current;
+    // A page for another edge, revision or offset (a late answer, a double click) is dropped.
+    if (!current || page.revision !== summaryRef.current?.revision || !sameEnds(current.ends, page)) return;
+    if (page.page.offset !== current.pairs.length) return;
+    updateEvidence({ ...current, pairs: [...current.pairs, ...page.pairs], total: page.page.total, nextOffset: page.page.nextOffset });
+  };
+  /** The id of the drawn group with this key (E2E driver). */
+  const groupOf = (groupKey: string | undefined): number | undefined => {
+    if (!groupKey) return undefined;
+    const key = `${summaryRef.current?.context.communityMode}:${groupKey}`;
+    return Array.from(cyRef.current?.nodes() ?? []).find((node) => !node.isChild() && node.data("key") === key)?.data("groupId");
+  };
+  /** E2E driver: selects the first edge of a group (its evidence opens), then clicks a row's source. */
+  const controlEvidence = ({ evidenceOf, openEvidenceRow }: ArchitectureControlsMessage) => {
+    const groupId = groupOf(evidenceOf);
+    const touches = (edge: cytoscape.EdgeSingular) => edge.data("from") === groupId || edge.data("to") === groupId;
+    const edge = Array.from(cyRef.current?.edges() ?? []).find((candidate) => candidate.data("from") !== candidate.data("to") && touches(candidate));
+    if (groupId !== undefined && edge) showEvidence(edge);
+    const row = openEvidenceRow === undefined ? undefined : evidenceRef.current?.pairs[openEvidenceRow];
+    if (row) openFile(row.source);
+  };
+  /** E2E driver: the same actions as a user, groups named by key. */
+  const control = (message: ArchitectureControlsMessage) => {
+    if (message.find !== undefined) setQuery(message.find);
+    if (message.minImports !== undefined) setMinImports(message.minImports);
+    if (message.focus === "") updateFocus(null, "all");
+    const focusId = groupOf(message.focus);
+    if (focusId !== undefined) updateFocus(focusId, "focus");
+    const expandId = groupOf(message.expand);
+    if (expandId !== undefined) enter(expandId);
+    const collapseId = groupOf(message.collapse);
+    if (collapseId !== undefined) collapse(collapseId);
+    controlEvidence(message);
+  };
+  const receive = (message: ArchitectureExtensionMessage) => {
+    switch (message.type) {
+      case "architectureSummary":
+        return receiveSummary(message);
+      case "architectureState":
+        return setState(message);
+      case "architectureGroupDetail":
+        return receiveDetail(message);
+      case "architectureEvidencePage":
+        return receiveEvidence(message);
+      case "architectureRevisionChanged":
+        reset();
+        return post({ command: "architectureMounted" });
+      case "architectureControls":
+        return control(message);
+    }
+  };
+  const actions = { tap, dbltap, key, openFile, moreEvidence, receive, overview, leave, updateFocus };
   const actionsRef = useRef(actions);
   actionsRef.current = actions;
 
@@ -446,30 +561,7 @@ export function ArchitectureGraph({ postMessage }: Readonly<ArchitectureGraphPro
     const handleMessage = (event: MessageEvent<ArchitectureExtensionMessage>) => {
       // Extension messages come from the webview's own vscode-webview:// origin (S2819).
       if (event.origin && !event.origin.startsWith("vscode-webview://") && event.origin !== "null") return;
-      const message = event.data;
-      if (message?.type === "architectureSummary") {
-        // Group ids and pages only hold for their revision; a stale mark or a rebuild of the same graph keeps them.
-        if (summaryRef.current?.revision !== message.revision) actionsRef.current.reset();
-        summaryRef.current = message;
-        setSummary(message);
-        setState(null);
-      } else if (message?.type === "architectureState") {
-        setState(message);
-      } else if (message?.type === "architectureGroupDetail") {
-        if (message.revision !== summaryRef.current?.revision) return;
-        const merged = mergeGroupDetail(expansionsRef.current, message.detail);
-        updateExpansions(merged.expansions);
-        setCapReached(merged.capReached);
-      } else if (message?.type === "architectureEvidencePage") {
-        actionsRef.current.receiveEvidence(message);
-      } else if (message?.type === "architectureRevisionChanged") {
-        actionsRef.current.reset();
-        postMessageRef.current({ command: "architectureMounted" });
-      } else if (message?.type === "architectureControls") {
-        if (message.find !== undefined) setQuery(message.find);
-        if (message.minImports !== undefined) setMinImports(message.minImports);
-        actionsRef.current.control(message);
-      }
+      if (event.data?.type) actionsRef.current.receive(event.data);
     };
     window.addEventListener("message", handleMessage);
     postMessageRef.current({ command: "architectureMounted" });
@@ -504,12 +596,14 @@ export function ArchitectureGraph({ postMessage }: Readonly<ArchitectureGraphPro
     cy.on("tap", (event) => {
       if (event.target === cy) {
         clearFocus();
+        if (focusRef.current !== null) actionsRef.current.updateFocus(null, "all");
         return;
       }
       pinnedRef.current = event.target;
       showFocus(cy, event.target, postMessageRef.current);
       actionsRef.current.tap(event.target);
     });
+    cy.on("dbltap", "node", (event) => actionsRef.current.dbltap(event.target));
     const handleKeyDown = (event: KeyboardEvent): void => actionsRef.current.key(event, clearFocus);
     window.addEventListener("keydown", handleKeyDown);
     cyRef.current = cy;
@@ -552,7 +646,7 @@ export function ArchitectureGraph({ postMessage }: Readonly<ArchitectureGraphPro
     cy.elements().remove();
     cy.add(elements);
     pinnedRef.current = pinnedIds.size > 0 ? cy.elements().filter((element) => pinnedIds.has(element.id())) : null;
-    renderedRef.current = { summary, ...countRendered(elements) };
+    renderedRef.current = { summary, ...countRendered(elements), visibleGroups: 0 };
     const groups = cy.nodes().filter((node) => !node.isChild());
     const finish = (fit: boolean) => {
       settleLayout(cy, groups);
@@ -581,22 +675,44 @@ export function ArchitectureGraph({ postMessage }: Readonly<ArchitectureGraphPro
     finish(freshRevision);
   }, [summary, expansions]);
 
+  // After each render: hide what the focus leaves out, then fit what was asked for.
+  useEffect(() => {
+    const cy = cyRef.current;
+    if (!cy || !summary) return;
+    const group = focusId === null ? cy.collection() : cy.getElementById(`group-${focusId}`);
+    const shown = focusGroup(cy, group);
+    renderedRef.current.visibleGroups = shown.nodes().filter((node) => !node.isChild()).length;
+    const fit = fitRef.current;
+    if (fit === "enter" && group.nonempty() && !group.isParent()) {
+      // The entered group's files are not drawn yet: zoom once they are, unless no page is coming (cap).
+      if (!pendingRef.current.has(Number(focusId))) fitRef.current = null;
+      return;
+    }
+    if (fit !== null) {
+      cy.fit(fit === "enter" ? group : shown, 30);
+      fitRef.current = null;
+    }
+  }, [summary, expansions, focusId]);
+
   // Before the highlight effects, so their report stays the last message of a render.
   useEffect(() => {
     if (!summary) return;
-    const { renderedFiles, groupLevelEdges } = renderedRef.current;
+    const { renderedFiles, groupLevelEdges, visibleGroups } = renderedRef.current;
+    const focused = focusId === 0 ? "" : summary.groups.find((group) => group.id === focusId)?.key;
     postMessageRef.current({
       command: "architectureDetailRendered",
       expandedGroups: expansions.size,
       expandedFileCount: [...expansions.values()].reduce((total, expansion) => total + expansion.total, 0),
       renderedFiles,
       groupLevelEdges,
+      visibleGroups,
+      focusedGroup: focusId === null ? undefined : focused,
       capReached,
       evidence: evidence?.total === undefined
         ? undefined
         : { edgeCount: evidence.edgeCount, total: evidence.total, shown: evidence.pairs.length, firstSource: evidence.pairs[0]?.source },
     });
-  }, [summary, expansions, evidence, capReached]);
+  }, [summary, expansions, evidence, capReached, focusId]);
 
   useEffect(() => {
     const cy = cyRef.current;
@@ -631,6 +747,14 @@ export function ArchitectureGraph({ postMessage }: Readonly<ArchitectureGraphPro
             minImports={minImports}
             onMinImports={setMinImports}
             capReached={capReached}
+          />
+          <Breadcrumb
+            summary={summary}
+            expansions={expansions}
+            focusId={focusId}
+            onOverview={() => actionsRef.current.overview()}
+            onFocus={(groupId) => actionsRef.current.updateFocus(groupId, "enter")}
+            onLeave={(groupId) => actionsRef.current.leave(groupId)}
           />
         </>
       )}

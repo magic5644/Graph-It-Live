@@ -500,6 +500,14 @@ describe("ArchitectureViewService", () => {
       expect(opened).toEqual([]);
     });
 
+    it.each([-1, 1.5, Number.NaN, "2"])("reads the first page for the invalid offset %s", async (offset) => {
+      const { service, revision } = await built();
+      await service.handleWebviewMessage({ command: "architectureExpandGroup", revision, groupId: 1, offset } as never);
+      expect(posted.at(-1)).toMatchObject({ detail: { page: { offset: 0 } } });
+      await service.handleWebviewMessage({ command: "architectureEvidence", revision, from: 1, to: 2, offset } as never);
+      expect(posted.at(-1)).toMatchObject({ page: { offset: 0, total: 2 } });
+    });
+
     it("keeps answering a stale-marked summary, whose revision is unchanged", async () => {
       const { service, revision } = await built();
       service.markStale();

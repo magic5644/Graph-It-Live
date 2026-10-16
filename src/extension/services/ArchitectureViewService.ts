@@ -77,11 +77,14 @@ function waitForIdleIndex(
   });
 }
 
+/** A page offset from the webview; anything but a non-negative integer reads the first page. */
+const validOffset = (offset: unknown) => (Number.isSafeInteger(offset) && Number(offset) >= 0 ? Number(offset) : undefined);
+
 /** One evidence page for an edge, echoing the request's file filters. */
 function evidencePage(graph: ArchitectureGraph, request: ArchitectureEvidenceCommand): ArchitectureExtensionMessage {
   const { revision, from, to, sourceFile, targetFile, offset } = request;
   // from and to always select the evidence view.
-  const evidence = exploreArchitecture(graph, { from, to, sourceFile, targetFile, offset, revision }) as
+  const evidence = exploreArchitecture(graph, { from, to, sourceFile, targetFile, offset: validOffset(offset), revision }) as
     Extract<ReturnType<typeof exploreArchitecture>, { view: "evidence" }>;
   return { type: "architectureEvidencePage", revision, from, to, sourceFile, targetFile, pairs: evidence.pairs, page: evidence.page };
 }
@@ -136,7 +139,7 @@ export class ArchitectureViewService {
         this.answer(message.revision, (graph) => ({
           type: "architectureGroupDetail",
           revision: message.revision,
-          detail: groupDetail(graph, message.groupId, { offset: message.offset }),
+          detail: groupDetail(graph, message.groupId, { offset: validOffset(message.offset) }),
         }));
         return Promise.resolve();
       case "architectureEvidence":
@@ -300,12 +303,13 @@ export class ArchitectureViewService {
 
   /** E2E driver: sets the webview's controls; any extension can call it, so check the values. */
   setControls(controls: Omit<ArchitectureControlsMessage, "type"> | undefined): void {
-    const { find, minImports, expand, collapse, evidenceOf, openEvidenceRow } = controls ?? {};
+    const { find, minImports, focus, expand, collapse, evidenceOf, openEvidenceRow } = controls ?? {};
     const text = (value: unknown) => (typeof value === "string" ? value.slice(0, 256) : undefined);
     this.options.post({
       type: "architectureControls",
       find: text(find),
       minImports: Number.isSafeInteger(minImports) && Number(minImports) >= 1 ? minImports : undefined,
+      focus: text(focus),
       expand: text(expand),
       collapse: text(collapse),
       evidenceOf: text(evidenceOf),

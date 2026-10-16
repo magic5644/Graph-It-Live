@@ -60,6 +60,7 @@ interface ArchitectureInteraction {
   fadedGroups: number;
   labelledEdges: number;
   shownGroupEdges: number;
+  shownFileEdges: number;
 }
 
 const readInteractionCount = async () => (await getContextKey<number>('graph-it-live.architectureInteractionCount')) ?? 0;
@@ -90,6 +91,8 @@ interface ArchitectureDetail {
   expandedFileCount: number;
   renderedFiles: number;
   groupLevelEdges: number;
+  visibleGroups: number;
+  focusedGroup?: string;
   capReached: boolean;
   evidence?: { edgeCount: number; total: number; shown: number; firstSource?: string };
 }
@@ -114,12 +117,21 @@ async function expectDetail(
   assert.fail(`${description}: last detail ${JSON.stringify(last)}`);
 }
 
-/** Expands `key`, opens the evidence of one of its edges, opens its first file, then collapses. */
-async function exploreGroup(key: string, groupEdges: number): Promise<void> {
-  const expanded = await expectDetail(`expanding ${key}`, { expand: key }, detail => detail.expandedGroups === 1);
-  assert.ok(expanded.expandedFileCount > 0, 'the expanded group has files');
+/**
+ * Focuses `key` (it and its one neighbour stay drawn), enters it, opens the evidence of one of
+ * its edges and its first file, then goes back to the overview.
+ */
+async function exploreGroup(key: string, groups: number, groupEdges: number): Promise<void> {
+  const focused = await expectDetail(`focusing ${key}`, { focus: key }, detail => detail.focusedGroup === key);
+  assert.strictEqual(focused.visibleGroups, 2, 'the focus keeps the group and the group it imports');
+  assert.strictEqual(focused.expandedGroups, 0, 'a focus does not expand');
+
+  const expanded = await expectDetail(`entering ${key}`, { expand: key }, detail => detail.expandedGroups === 1);
+  assert.ok(expanded.expandedFileCount > 0, 'the entered group has files');
   assert.strictEqual(expanded.renderedFiles, Math.min(expanded.expandedFileCount, 200), 'rendered file nodes');
-  assert.ok(expanded.groupLevelEdges < groupEdges, 'the expanded group edges are drawn from its files');
+  assert.strictEqual(expanded.groupLevelEdges, groupEdges, 'the group edges stay on the entered group');
+  const interaction = await getContextKey<ArchitectureInteraction>('graph-it-live.architectureInteraction');
+  assert.strictEqual(interaction?.shownFileEdges, 0, 'file edges wait for a hovered or selected file');
 
   const { evidence } = await expectDetail(`the evidence of ${key}`, { evidenceOf: key }, detail => detail.evidence !== undefined);
   assert.ok(evidence && evidence.total > 0, 'the evidence lists file pairs');
@@ -135,9 +147,10 @@ async function exploreGroup(key: string, groupEdges: number): Promise<void> {
   assert.strictEqual(active(), evidence.firstSource, 'the clicked row opens its file');
 
   await vscode.commands.executeCommand('graph-it-live.graphView.focus');
-  const collapsed = await expectDetail(`collapsing ${key}`, { collapse: key }, detail => detail.expandedGroups === 0);
+  const collapsed = await expectDetail(`leaving ${key}`, { collapse: key }, detail => detail.expandedGroups === 0);
   assert.strictEqual(collapsed.renderedFiles, 0);
-  assert.strictEqual(collapsed.groupLevelEdges, groupEdges, 'collapsing restores the group edges');
+  const overview = await expectDetail('the overview', { focus: '' }, detail => detail.focusedGroup === undefined);
+  assert.strictEqual(overview.visibleGroups, groups, 'the overview draws every group again');
 }
 
 /** Measured on the real canvas: no two group boxes intersect and every label fits its box. */
@@ -259,29 +272,30 @@ suite('Architecture view mode', () => {
     await openFreshArchitecture();
     const { groups, groupEdges } = EXPECTED.path;
     const nothing = { highlightedGroups: 0, fadedGroups: 0, labelledEdges: 0 };
+    const noFileEdge = { shownFileEdges: 0 };
     try {
       // Count labels are hidden until an edge is highlighted.
-      await expectInteraction('the default picture', undefined, { ...nothing, shownGroupEdges: groupEdges });
+      await expectInteraction('the default picture', undefined, { ...nothing, shownGroupEdges: groupEdges, ...noFileEdge });
       // layers imports one unassigned file: layers and unassigned stay, the 18 other groups fade.
       await expectInteraction('the layers neighbourhood', { find: 'LAYERS' }, {
-        highlightedGroups: 2, fadedGroups: groups - 2, labelledEdges: 1, shownGroupEdges: groupEdges,
+        highlightedGroups: 2, fadedGroups: groups - 2, labelledEdges: 1, shownGroupEdges: groupEdges, ...noFileEdge,
       });
       // 3 of the 6 group edges carry a single import; the layers edge is one of them.
       await expectInteraction('the min-imports filter', { minImports: 2 }, {
-        highlightedGroups: 1, fadedGroups: groups - 1, labelledEdges: 0, shownGroupEdges: 3,
+        highlightedGroups: 1, fadedGroups: groups - 1, labelledEdges: 0, shownGroupEdges: 3, ...noFileEdge,
       });
-      await expectInteraction('the cleared find', { find: '' }, { ...nothing, shownGroupEdges: 3 });
-      await expectInteraction('the reset filter', { minImports: 1 }, { ...nothing, shownGroupEdges: groupEdges });
+      await expectInteraction('the cleared find', { find: '' }, { ...nothing, shownGroupEdges: 3, ...noFileEdge });
+      await expectInteraction('the reset filter', { minImports: 1 }, { ...nothing, shownGroupEdges: groupEdges, ...noFileEdge });
     } finally {
       await vscode.commands.executeCommand('graph-it-live.e2eArchitectureControls', { find: '', minImports: 1 });
     }
   });
 
-  test('expands a group, lists the evidence of its edge, opens a file and collapses, in path and louvain modes', async function () {
+  test('focuses and enters a group, lists the evidence of its edge, opens a file and goes back, in path and louvain modes', async function () {
     this.timeout(300000);
     const byFolder = await openFreshArchitecture();
     // layers (4 files) imports one unassigned file.
-    await exploreGroup('layers', EXPECTED.path.groupEdges);
+    await exploreGroup('layers', EXPECTED.path.groups, EXPECTED.path.groupEdges);
 
     // A stale mark keeps the expanded group.
     await expectDetail('expanding layers again', { expand: 'layers' }, detail => detail.expandedGroups === 1);
@@ -296,11 +310,12 @@ suite('Architecture view mode', () => {
       await vscode.workspace.fs.writeFile(file, original);
     }
     await expectDetail('collapsing layers', { collapse: 'layers' }, detail => detail.expandedGroups === 0);
+    await expectDetail('the overview', { focus: '' }, detail => detail.focusedGroup === undefined);
 
     await config().update('communityMode', 'louvain', vscode.ConfigurationTarget.Global);
     await waitForRender('the louvain render', byFolder.renderCount, render => render.communityMode === 'louvain');
     // src/layers (4 files) imports one file of src/components.
-    await exploreGroup('src/layers', EXPECTED.louvain.groupEdges);
+    await exploreGroup('src/layers', EXPECTED.louvain.groups, EXPECTED.louvain.groupEdges);
   });
 
   test('the Graph, List and Symbol buttons leave the architecture view', async function () {
