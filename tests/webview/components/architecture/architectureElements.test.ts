@@ -378,10 +378,10 @@ describe("expanded groups", () => {
     // c imports a3 and is imported by a2 and b3: a and b stay, as compound-free groups.
     expect(shown.nodes().filter(node => !node.isChild()).map(node => node.id()).sort()).toEqual(["group-1", "group-2", "group-3"]);
     expect(visible).toContain("file:c/c1.ts");
-    expect(focusGroup(cy, cy.collection()).length).toBe(cy.elements().length);
-    expect(cy.elements(".hidden").length).toBe(0);
+    expect(focusGroup(cy, cy.collection())).toHaveLength(cy.elements().length);
+    expect(cy.elements(".hidden")).toHaveLength(0);
     // File edges stay hidden until highlighted.
-    expect(cy.edges("[?fileEdge]").filter(edge => edge.style("display") !== "none").length).toBe(0);
+    expect(cy.edges("[?fileEdge]").filter(edge => edge.style("display") !== "none")).toHaveLength(0);
     highlightFocus(cy, cy.getElementById("file:c/c1.ts"));
     expect(cy.edges("[?fileEdge]").filter(edge => edge.style("display") !== "none").length).toBeGreaterThan(0);
   });
