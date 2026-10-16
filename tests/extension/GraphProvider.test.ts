@@ -799,6 +799,9 @@ describe("GraphProvider", () => {
     expect(markStale).toHaveBeenCalledOnce();
 
     expect(provider.getArchitectureE2EState()).toMatchObject({ buildCount: 0, renderCount: 0 });
+    const setControls = vi.spyOn(service, "setControls").mockReturnValue(undefined);
+    provider.setArchitectureControls({ find: "ui" });
+    expect(setControls).toHaveBeenCalledWith({ find: "ui" });
 
     Object.assign(getService<any>(graphProviderServiceTokens.spider), { beginShutdown: vi.fn().mockResolvedValue(undefined) });
     vi.spyOn(indexingManager, "dispose").mockResolvedValue(undefined);

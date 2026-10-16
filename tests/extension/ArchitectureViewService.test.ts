@@ -371,6 +371,7 @@ describe("ArchitectureViewService", () => {
     expect(service.getE2EState()).toEqual({
       buildCount: 0, renderCount: 1, groupCount: 3, groupEdgeCount: 2, revision: "abc", communityMode: "path", stale: true,
       overlappingGroups: 1, overflowingLabels: 2, positions: "path:ui@0,0", resizeCount: 0, viewSize: { width: 0, height: 0 },
+      interactionCount: 0, interaction: null,
     });
   });
 
@@ -379,5 +380,26 @@ describe("ArchitectureViewService", () => {
     await service.handleWebviewMessage({ command: "architectureResized", width: 300, height: 200 });
     await service.handleWebviewMessage({ command: "architectureResized", width: 420, height: 200 });
     expect(service.getE2EState()).toMatchObject({ renderCount: 0, resizeCount: 2, viewSize: { width: 420, height: 200 } });
+  });
+
+  it("keeps the last interaction and forwards the E2E controls to the webview", async () => {
+    const service = createService();
+    const interacted = {
+      command: "architectureInteracted" as const,
+      highlightedGroups: 2,
+      fadedGroups: 1,
+      labelledEdges: 1,
+      shownGroupEdges: 3,
+    };
+    await service.handleWebviewMessage(interacted);
+    await service.handleWebviewMessage({ ...interacted, highlightedGroups: 0 });
+    expect(service.getE2EState()).toMatchObject({
+      renderCount: 0,
+      interactionCount: 2,
+      interaction: { ...interacted, highlightedGroups: 0 },
+    });
+
+    service.setControls({ find: "ui", minImports: 2 });
+    expect(posted.at(-1)).toEqual({ type: "architectureControls", find: "ui", minImports: 2 });
   });
 });

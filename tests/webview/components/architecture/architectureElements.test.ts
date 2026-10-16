@@ -4,8 +4,12 @@ import { aggregateCommunityGroups } from "@/analyzer/community/groupAggregation"
 import type { ArchitectureSummaryMessage } from "@/shared/architecture-types";
 import type { GraphData } from "@/shared/graph-types";
 import {
+  applyMinImports,
   ARCHITECTURE_FCOSE_LAYOUT,
+  findGroups,
+  highlightFocus,
   type LayoutBox,
+  measureInteraction,
   nodeBox,
   separateOverlaps,
   toArchitectureElements,
@@ -158,6 +162,65 @@ describe("separateOverlaps", () => {
     separateOverlaps(boxes);
     expect(boxes).toHaveLength(150);
     expect(overlaps(boxes)).toBe(0);
+    cy.destroy();
+  });
+});
+
+describe("highlight, find and min-imports filter", () => {
+  const colors = { foreground: "#fff", background: "#000", border: "#888", edge: "#888", accent: "#08f" };
+  // group-0 (unassigned main) → group-1 (ui): 1 import; group-1 (ui) → group-2 (store): 2 imports.
+  const createCy = () =>
+    cytoscape({ headless: true, styleEnabled: true, style: buildArchitectureStylesheet(colors), elements: toArchitectureElements(summaryOf(graphData)) });
+
+  it("draws no count label and fades nothing by default", () => {
+    const cy = createCy();
+    expect(measureInteraction(cy)).toEqual({ highlightedGroups: 0, fadedGroups: 0, labelledEdges: 0, shownGroupEdges: 2 });
+    cy.destroy();
+  });
+
+  it("highlights a group's neighbourhood, labels its edges and fades the rest, then clears", () => {
+    const cy = createCy();
+    highlightFocus(cy, cy.$("#group-2"));
+    expect(measureInteraction(cy)).toEqual({ highlightedGroups: 2, fadedGroups: 1, labelledEdges: 1, shownGroupEdges: 2 });
+    expect(cy.$("#edge-1-2").style("label")).toBe("2");
+    expect(cy.$("#edge-0-1").hasClass("faded")).toBe(true);
+
+    highlightFocus(cy, cy.$("#group-1"));
+    expect(measureInteraction(cy)).toMatchObject({ highlightedGroups: 3, fadedGroups: 0, labelledEdges: 2 });
+
+    highlightFocus(cy, cy.collection());
+    expect(measureInteraction(cy)).toEqual({ highlightedGroups: 0, fadedGroups: 0, labelledEdges: 0, shownGroupEdges: 2 });
+    cy.destroy();
+  });
+
+  it("highlights a hovered edge with the two groups at its ends", () => {
+    const cy = createCy();
+    highlightFocus(cy, cy.$("#edge-0-1"));
+    expect(measureInteraction(cy)).toEqual({ highlightedGroups: 2, fadedGroups: 1, labelledEdges: 1, shownGroupEdges: 2 });
+    expect(cy.$("#group-2").hasClass("faded")).toBe(true);
+    cy.destroy();
+  });
+
+  it("hides the edges below the min-imports threshold and leaves them out of the neighbourhood", () => {
+    const cy = createCy();
+    applyMinImports(cy, 2);
+    expect(cy.$("#edge-0-1").style("display")).toBe("none");
+    highlightFocus(cy, cy.$("#group-1"));
+    expect(measureInteraction(cy)).toEqual({ highlightedGroups: 2, fadedGroups: 1, labelledEdges: 1, shownGroupEdges: 1 });
+
+    applyMinImports(cy, 3);
+    expect(measureInteraction(cy).shownGroupEdges).toBe(0);
+    applyMinImports(cy, 1);
+    expect(measureInteraction(cy).shownGroupEdges).toBe(2);
+    cy.destroy();
+  });
+
+  it("finds groups by label or key, case-insensitive, and nothing for a blank query", () => {
+    const cy = createCy();
+    expect(findGroups(cy, "  UI ").map((node) => node.id())).toEqual(["group-1"]);
+    expect(findGroups(cy, "unassigned").map((node) => node.id())).toEqual(["group-0"]);
+    expect(findGroups(cy, "   ").empty()).toBe(true);
+    expect(findGroups(cy, "nope").empty()).toBe(true);
     cy.destroy();
   });
 });

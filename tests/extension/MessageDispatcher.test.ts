@@ -74,17 +74,26 @@ describe("MessageDispatcher", () => {
     };
 
     const resized = { command: "architectureResized" as const, width: 300, height: 200 };
+    const interacted = {
+      command: "architectureInteracted" as const,
+      highlightedGroups: 2,
+      fadedGroups: 1,
+      labelledEdges: 1,
+      shownGroupEdges: 1,
+    };
 
     await dispatcher.handle({ command: "architectureMounted" });
     await dispatcher.handle({ command: "architectureRefresh" });
     await dispatcher.handle(rendered);
     await dispatcher.handle(resized);
+    await dispatcher.handle(interacted);
 
     expect(handleArchitectureMessage.mock.calls).toEqual([
       [{ command: "architectureMounted" }],
       [{ command: "architectureRefresh" }],
       [rendered],
       [resized],
+      [interacted],
     ]);
   });
 

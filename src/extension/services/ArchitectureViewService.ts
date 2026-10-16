@@ -2,7 +2,9 @@ import { overviewArchitecture } from "@/analyzer/architecture/ArchitectureExplor
 import { buildArchitectureGraph, type AnalyzeFile } from "@/analyzer/architecture/ArchitectureGraphBuilder";
 import type { IndexerStatusSnapshot } from "@/analyzer/IndexerStatus";
 import type {
+  ArchitectureControlsMessage,
   ArchitectureExtensionMessage,
+  ArchitectureInteractedCommand,
   ArchitectureRenderedCommand,
   ArchitectureSummaryMessage,
   ArchitectureWebviewCommand,
@@ -79,6 +81,8 @@ export class ArchitectureViewService {
   private lastRender: ArchitectureRenderedCommand | null = null;
   private resizeCount = 0;
   private viewSize = { width: 0, height: 0 };
+  private interactionCount = 0;
+  private lastInteraction: ArchitectureInteractedCommand | null = null;
   /** A source file changed while the running build was analysing. */
   private changedDuringBuild = false;
   private disposed = false;
@@ -98,6 +102,10 @@ export class ArchitectureViewService {
       case "architectureResized":
         this.resizeCount += 1;
         this.viewSize = { width: message.width, height: message.height };
+        return Promise.resolve();
+      case "architectureInteracted":
+        this.interactionCount += 1;
+        this.lastInteraction = message;
         return Promise.resolve();
     }
   }
@@ -201,7 +209,14 @@ export class ArchitectureViewService {
       positions: this.lastRender?.positions,
       resizeCount: this.resizeCount,
       viewSize: this.viewSize,
+      interactionCount: this.interactionCount,
+      interaction: this.lastInteraction,
     };
+  }
+
+  /** E2E driver: sets the webview's find and min-imports controls. */
+  setControls(controls: Omit<ArchitectureControlsMessage, "type">): void {
+    this.options.post({ type: "architectureControls", ...controls });
   }
 
   dispose(): void {
