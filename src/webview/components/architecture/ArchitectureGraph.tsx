@@ -58,7 +58,10 @@ function measureLayout(nodes: cytoscape.NodeCollection) {
   return { overlappingGroups, overflowingLabels, positions };
 }
 
-/** Highlights `focus` and reports what is drawn (E2E observability). */
+/**
+ * Highlights `focus` and reports what is drawn (E2E observability).
+ * ponytail: every hover reads the computed style of all edges; fine for ≤ 150 groups, gate the report behind an E2E flag if hovering lags.
+ */
 function showFocus(cy: cytoscape.Core, focus: cytoscape.Collection, post: (message: ArchitectureWebviewCommand) => void): void {
   highlightFocus(cy, focus);
   post({ command: "architectureInteracted", ...measureInteraction(cy) });
@@ -133,6 +136,8 @@ function SummaryHeader({ summary, onRefresh }: Readonly<{ summary: ArchitectureS
 
 interface GraphControlsProps {
   summary: ArchitectureSummaryMessage;
+  /** Group edges left by the min-imports filter, counted on the canvas. */
+  shownEdges: number;
   query: string;
   onQuery: (query: string) => void;
   minImports: number;
@@ -140,9 +145,8 @@ interface GraphControlsProps {
 }
 
 /** Find and weak-edge filter: they only change what is drawn, never the counts above. */
-function GraphControls({ summary, query, onQuery, minImports, onMinImports }: Readonly<GraphControlsProps>) {
+function GraphControls({ summary, shownEdges, query, onQuery, minImports, onMinImports }: Readonly<GraphControlsProps>) {
   const counts = summary.groupEdges.map((edge) => edge.fileEdgeCount);
-  const shown = counts.filter((count) => count >= minImports).length;
   return (
     <div style={{ padding: "4px 10px", fontSize: 12, borderBottom: "1px solid var(--vscode-widget-border)" }}>
       <div style={{ display: "flex", flexWrap: "wrap", gap: 8, alignItems: "center" }}>
@@ -165,10 +169,13 @@ function GraphControls({ summary, query, onQuery, minImports, onMinImports }: Re
           />
         </label>
       </div>
-      {shown < counts.length && (
+      {shownEdges < counts.length && (
         <div>
-          {shown} of {counts.length} group edges shown (min. {minImports} imports). Totals include them.
+          {shownEdges} of {counts.length} group edges shown (min. {minImports} imports). Totals include them.
         </div>
+      )}
+      {query.trim() && summary.hiddenGroups > 0 && (
+        <div>Find searches the {summary.groups.length} groups shown; the {summary.hiddenGroups} hidden groups are not searched.</div>
       )}
     </div>
   );
@@ -203,6 +210,7 @@ export function ArchitectureGraph({ postMessage }: Readonly<ArchitectureGraphPro
   const [state, setState] = useState<ArchitectureStateMessage | null>({ type: "architectureState", status: "building" });
   const [query, setQuery] = useState("");
   const [minImports, setMinImports] = useState(1);
+  const [shownEdges, setShownEdges] = useState(0);
   /** Tapped element or find matches: what the highlight returns to after a hover. */
   const pinnedRef = useRef<cytoscape.Collection | null>(null);
 
@@ -331,7 +339,7 @@ export function ArchitectureGraph({ postMessage }: Readonly<ArchitectureGraphPro
   useEffect(() => {
     const cy = cyRef.current;
     if (!cy || !summary) return;
-    applyMinImports(cy, minImports);
+    setShownEdges(applyMinImports(cy, minImports));
     showFocus(cy, pinnedRef.current ?? cy.collection(), postMessageRef.current);
   }, [summary, minImports]);
 
@@ -353,6 +361,7 @@ export function ArchitectureGraph({ postMessage }: Readonly<ArchitectureGraphPro
           <SummaryHeader summary={summary} onRefresh={refresh} />
           <GraphControls
             summary={summary}
+            shownEdges={shownEdges}
             query={query}
             onQuery={setQuery}
             minImports={minImports}

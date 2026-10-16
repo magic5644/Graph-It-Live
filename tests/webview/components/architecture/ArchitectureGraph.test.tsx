@@ -66,7 +66,7 @@ vi.mock("cytoscape-fcose", () => ({ default: () => {} }));
 // The highlight and filter helpers run on real Cytoscape in architectureElements.test.ts.
 const helpers = vi.hoisted(() => ({
   empty: { empty: () => true, nonempty: () => false },
-  applyMinImports: vi.fn(),
+  applyMinImports: vi.fn(() => 1),
   findGroups: vi.fn(),
   highlightFocus: vi.fn(),
   measureInteraction: () => ({ highlightedGroups: 2, fadedGroups: 1, labelledEdges: 1, shownGroupEdges: 1 }),
@@ -290,8 +290,11 @@ describe("ArchitectureGraph", () => {
       renderWithSummary();
       const find = screen.getByRole("searchbox", { name: "Find group" }) as HTMLInputElement;
 
+      expect(screen.queryByText(/hidden groups are not searched/)).toBeNull();
       fireEvent.change(find, { target: { value: "ui" } });
       expect(helpers.findGroups).toHaveBeenLastCalledWith(cy.instance, "ui");
+      // summary hides 1 of its 3 groups: find cannot see it, and says so.
+      expect(screen.getByText("Find searches the 2 groups shown; the 1 hidden groups are not searched.")).toBeTruthy();
       expect(helpers.highlightFocus).toHaveBeenLastCalledWith(cy.instance, matches);
       expect(cy.instance.center).toHaveBeenCalledWith(matches);
 
@@ -312,14 +315,21 @@ describe("ArchitectureGraph", () => {
       const min = screen.getByRole("spinbutton", { name: /Min. imports per edge/ }) as HTMLInputElement;
       expect(min.max).toBe("3");
 
+      helpers.applyMinImports.mockReturnValue(0);
       fireEvent.change(min, { target: { value: "4" } });
       expect(helpers.applyMinImports).toHaveBeenLastCalledWith(cy.instance, 4);
       expect(screen.getByText("0 of 1 group edges shown (min. 4 imports). Totals include them.")).toBeTruthy();
       // The totals line is unchanged by the filter.
       expect(screen.getByText(/4 file edges/)).toBeTruthy();
 
-      fireEvent.change(min, { target: { value: "" } });
-      expect(min.value).toBe("1");
+      helpers.applyMinImports.mockReturnValue(1);
+      for (const value of ["", "0", "-3"]) {
+        fireEvent.change(min, { target: { value: "4" } });
+        fireEvent.change(min, { target: { value } });
+        expect(min.value).toBe("1");
+      }
+      fireEvent.change(min, { target: { value: "2.7" } });
+      expect(min.value).toBe("2");
       expect(screen.queryByText(/group edges shown/)).toBeNull();
     });
 
@@ -330,6 +340,31 @@ describe("ArchitectureGraph", () => {
       expect(helpers.applyMinImports).toHaveBeenLastCalledWith(cy.instance, 2);
       send({ type: "architectureControls" });
       expect((screen.getByRole("searchbox") as HTMLInputElement).value).toBe("store");
+    });
+
+    it("drops a tapped group when a new summary arrives, keeping the find", () => {
+      const matches = { empty: () => false, nonempty: () => true };
+      helpers.findGroups.mockImplementation((_cy, query: string) => (query ? matches : empty));
+      renderWithSummary();
+      const node = { data: () => "ui" };
+      act(() => cy.state.handlers.get("tap")?.({ target: node }));
+      send({ ...summary, revision: "r2" });
+      expect(helpers.highlightFocus).toHaveBeenLastCalledWith(cy.instance, empty);
+      act(() => cy.state.handlers.get("mouseout")?.({}));
+      expect(helpers.highlightFocus).toHaveBeenLastCalledWith(cy.instance, empty);
+
+      fireEvent.change(screen.getByRole("searchbox"), { target: { value: "ui" } });
+      send({ ...summary, revision: "r3" });
+      expect(helpers.findGroups).toHaveBeenLastCalledWith(cy.instance, "ui");
+      expect(helpers.highlightFocus).toHaveBeenLastCalledWith(cy.instance, matches);
+    });
+
+    it("Escape with nothing highlighted reports an empty highlight", () => {
+      const { postMessage } = renderWithSummary();
+      helpers.highlightFocus.mockClear();
+      fireEvent.keyDown(window, { key: "Escape" });
+      expect(helpers.highlightFocus.mock.lastCall?.[1].empty()).toBe(true);
+      expect(postMessage).toHaveBeenLastCalledWith(interacted);
     });
 
     it("stops listening to Escape once unmounted", () => {
