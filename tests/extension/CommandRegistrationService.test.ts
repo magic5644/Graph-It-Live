@@ -63,6 +63,7 @@ function createProviderMock(): GraphProvider {
     getFileGraphNodeMetadata: vi.fn().mockReturnValue({}),
     getArchitectureE2EState: vi.fn().mockReturnValue({
       buildCount: 2, renderCount: 3, groupCount: 20, groupEdgeCount: 6, revision: 'r1', communityMode: 'path', stale: true,
+      resizeCount: 4, viewWidth: 320,
     }),
   } as unknown as GraphProvider;
 }
@@ -151,6 +152,8 @@ describe('CommandRegistrationService', () => {
     expect(await getContext('graph-it-live.architectureBuildCount')).toBe(2);
     expect(await getContext('graph-it-live.architectureCommunityMode')).toBe('path');
     expect(await getContext('graph-it-live.architectureStale')).toBe(true);
+    expect(await getContext('graph-it-live.architectureResizeCount')).toBe(4);
+    expect(await getContext('graph-it-live.architectureViewWidth')).toBe(320);
     expect(await getContext('graph-it-live.unknown')).toBeUndefined();
     expect(await getContext('graph-it-live.reverseDependenciesVisible')).toBe(false);
     expect([
@@ -167,6 +170,8 @@ describe('CommandRegistrationService', () => {
     expect(await getContext('graph-it-live.architectureGroupEdgeCount')).toBe(0);
     expect(await getContext('graph-it-live.architectureBuildCount')).toBe(0);
     expect(await getContext('graph-it-live.architectureStale')).toBe(false);
+    expect(await getContext('graph-it-live.architectureResizeCount')).toBe(0);
+    expect(await getContext('graph-it-live.architectureViewWidth')).toBe(0);
   });
 
   it.each([

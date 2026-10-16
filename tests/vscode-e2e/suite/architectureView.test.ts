@@ -113,6 +113,35 @@ suite('Architecture view mode', () => {
     assert.strictEqual(refreshed.groupCount, EXPECTED.path.groups);
   });
 
+  test('re-fits the graph when the view is resized, without re-rendering or rebuilding', async function () {
+    this.timeout(240000);
+    const built = await openFreshArchitecture();
+    const readResize = async () => ({
+      count: (await getContextKey<number>('graph-it-live.architectureResizeCount')) ?? 0,
+      width: (await getContextKey<number>('graph-it-live.architectureViewWidth')) ?? 0,
+    });
+    await sleep(500); // let the resize from the header appearing settle
+    const before = await readResize();
+
+    await vscode.commands.executeCommand('graph-it-live.graphView.focus');
+    await vscode.commands.executeCommand('workbench.action.increaseViewWidth');
+    try {
+      const start = Date.now();
+      let after = await readResize();
+      while (Date.now() - start < 15000 && !(after.count > before.count && after.width !== before.width)) {
+        await sleep(250);
+        after = await readResize();
+      }
+      assert.ok(after.count > before.count, `no re-fit after the resize: ${JSON.stringify({ before, after })}`);
+      assert.notStrictEqual(after.width, before.width, 'the canvas follows the view width');
+      const render = await readRender();
+      assert.strictEqual(render.renderCount, built.renderCount, 'a resize does not re-run the layout');
+      assert.strictEqual(render.buildCount, built.buildCount, 'a resize does not rebuild');
+    } finally {
+      await vscode.commands.executeCommand('workbench.action.decreaseViewWidth');
+    }
+  });
+
   test('the Graph, List and Symbol buttons leave the architecture view', async function () {
     this.timeout(60000);
     await openGraphFor('sample-project', 'src', 'utils.ts');

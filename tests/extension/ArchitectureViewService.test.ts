@@ -367,6 +367,14 @@ describe("ArchitectureViewService", () => {
     });
     expect(service.getE2EState()).toEqual({
       buildCount: 0, renderCount: 1, groupCount: 3, groupEdgeCount: 2, revision: "abc", communityMode: "path", stale: true,
+      resizeCount: 0, viewWidth: 0,
     });
+  });
+
+  it("counts resizes and keeps the last view width, without counting a render", async () => {
+    const service = createService();
+    await service.handleWebviewMessage({ command: "architectureResized", width: 300, height: 200 });
+    await service.handleWebviewMessage({ command: "architectureResized", width: 420, height: 200 });
+    expect(service.getE2EState()).toMatchObject({ renderCount: 0, resizeCount: 2, viewWidth: 420 });
   });
 });

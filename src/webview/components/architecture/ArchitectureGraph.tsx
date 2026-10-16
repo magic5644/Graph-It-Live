@@ -151,7 +151,27 @@ export function ArchitectureGraph({ postMessage }: Readonly<ArchitectureGraphPro
       container.title = "";
     });
     cyRef.current = cy;
+
+    // Re-fit when the view is resized (same pattern as CytoscapeGraph). Debounced so a
+    // live drag does not thrash; the layout is not re-run, only the viewport.
+    let resizeTimer: ReturnType<typeof setTimeout> | undefined;
+    const handleResize = (): void => {
+      clearTimeout(resizeTimer);
+      resizeTimer = setTimeout(() => {
+        cy.resize();
+        cy.fit(undefined, 30);
+        postMessageRef.current({ command: "architectureResized", width: container.clientWidth, height: container.clientHeight });
+      }, 120);
+    };
+    const resizeObserver = typeof ResizeObserver === "undefined" ? null : new ResizeObserver(handleResize);
+    resizeObserver?.observe(container);
+    // Fallback for environments where ResizeObserver is unavailable
+    window.addEventListener("resize", handleResize);
+
     return () => {
+      clearTimeout(resizeTimer);
+      resizeObserver?.disconnect();
+      window.removeEventListener("resize", handleResize);
       cy.destroy();
       cyRef.current = null;
     };
