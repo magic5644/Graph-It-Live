@@ -203,9 +203,9 @@ describe("ArchitectureViewService", () => {
     const running = service.build();
     await vi.waitFor(() => expect(calls).toBe(1));
     service.dispose();
+    posted = [];
     release();
     await running;
-    posted = [];
     service.markStale();
     await service.build();
     await service.show();
@@ -286,6 +286,39 @@ describe("ArchitectureViewService", () => {
     expect(summaries()).toHaveLength(1);
     expect(service.getE2EState().buildCount).toBe(1);
     expect(states().some(state => state.status === "error")).toBe(false);
+  });
+
+  it("never posts the progress of an aborted build after the next build's summary", async () => {
+    let release!: () => void;
+    const gate = new Promise<void>(resolve => { release = resolve; });
+    let calls = 0;
+    const service = createService({ analyzeFile: async () => { calls += 1; if (calls === 1) await gate; return []; } });
+
+    const first = service.build();
+    await vi.waitFor(() => expect(calls).toBe(1));
+    await service.build();
+    expect(posted.at(-1)?.type).toBe("architectureSummary");
+    release();
+    await first;
+
+    expect(posted.at(-1)?.type).toBe("architectureSummary");
+  });
+
+  it("never posts the indexing wait of an aborted build after the next build's summary", async () => {
+    const listeners: ((snapshot: IndexerStatusSnapshot) => void)[] = [];
+    // Listeners are never removed: models a notification already dispatched to the aborted build's listener.
+    const service = createService({ subscribeToIndexStatus: (callback) => { listeners.push(callback); return () => {}; } });
+
+    const first = service.build();
+    const second = service.build();
+    await first;
+    listeners[1](idle);
+    await second;
+    expect(posted.at(-1)?.type).toBe("architectureSummary");
+    listeners[0]({ state: "indexing" } as IndexerStatusSnapshot);
+
+    expect(posted.at(-1)?.type).toBe("architectureSummary");
+    expect(states().some(state => state.message === "Waiting for indexing to finish…")).toBe(false);
   });
 
   it("lets a mount during a build wait for that build instead of starting another", async () => {
