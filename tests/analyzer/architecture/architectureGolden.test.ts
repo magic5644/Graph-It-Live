@@ -52,6 +52,7 @@ describe.each(fixtures)("architecture golden output: %s", (fixture) => {
 
     // Checked outside the snapshot so a CLI run in the wrong mode cannot be recorded as the reference.
     expect(cli.context.communityMode).toBe(communityMode);
+    expect(cli.context.revision).toBe(summary.context.revision);
     expect(cli.groups).toEqual(summary.groups);
     expect(cli.groupEdges).toEqual(summary.groupEdges.map(({ from, to, fileEdgeCount }) => ({ from, to, fileEdgeCount })));
     expect(cli.totals).toEqual(summary.totals);

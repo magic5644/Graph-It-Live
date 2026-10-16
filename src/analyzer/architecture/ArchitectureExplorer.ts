@@ -16,7 +16,7 @@ const DEFAULT_EXPLORE_LIMIT = 50;
 /** Keeps code facts, computed groupings and interpretation apart, as #300 requires. */
 const PROVENANCE = {
   facts: "File pairs are static import relations extracted from source code, not observed execution.",
-  grouping: "Groups are computed by the communityMode detector; group ids are only valid within the same graph and communityMode.",
+  grouping: "Groups are computed by the communityMode detector; group ids are only valid for the same context.revision.",
   interpretation: "None: labels are folder keys or detector output, not business names or responsibilities.",
 };
 
@@ -33,6 +33,8 @@ export interface ArchitectureExploreOptions {
   to?: GroupRef;
   offset?: number;
   limit?: number;
+  /** context.revision of the response the group ids or offset come from. */
+  revision?: string;
 }
 
 function page<T>(items: T[], offset: number, limit: number) {
@@ -86,6 +88,16 @@ function resolveGroup(aggregation: CommunityGroupAggregation, ref: GroupRef): Co
   return group;
 }
 
+/** Group ids and offsets from a response built on another graph would silently point elsewhere. */
+function assertRevision(current: string, requested: string | undefined): void {
+  if (requested !== undefined && requested !== current) {
+    throw new Error(
+      `Architecture changed (revision ${requested} -> ${current}): group ids and pages from earlier responses no longer apply. ` +
+      "Restart from the summary: call explore_architecture without group, from, to, offset or revision.",
+    );
+  }
+}
+
 /**
  * A bounded summary, one group with its boundary, or the file pairs behind one group edge.
  * Counts come from aggregateCommunityGroups on the full graph, before any paging.
@@ -94,6 +106,7 @@ export function exploreArchitecture(
   { context, graphData, nodes, edges }: ArchitectureGraph,
   options: ArchitectureExploreOptions = {},
 ) {
+  assertRevision(context.revision, options.revision);
   const aggregation = aggregateCommunityGroups(graphData);
   const offset = options.offset ?? 0;
   const limit = options.limit ?? DEFAULT_EXPLORE_LIMIT;

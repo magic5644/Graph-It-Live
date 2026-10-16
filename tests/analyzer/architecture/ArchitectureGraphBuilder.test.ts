@@ -59,6 +59,20 @@ describe("buildArchitectureGraph", () => {
     expect(graph.edges[0].target).toBe(normalizePath(fileB));
   });
 
+  it("gives the same graph the same revision, whatever the separators, and a new one when it changes", async () => {
+    const analyze = (target: string) => async (filePath: string) =>
+      filePath === normalizePath(fileA) ? [dependency(target)] : [];
+    const posix = await buildArchitectureGraph(root, analyze(fileB));
+    const windows = await buildArchitectureGraph(root, analyze(normalizePath(fileB).replaceAll("/", "\\")));
+    const louvain = await buildArchitectureGraph(root, analyze(fileB), { communityMode: "louvain" });
+    const noEdge = await buildArchitectureGraph(root, async () => []);
+
+    expect(posix.context.revision).toMatch(/^[0-9a-f]{64}$/);
+    expect(windows.context.revision).toBe(posix.context.revision);
+    expect(louvain.context.revision).not.toBe(posix.context.revision);
+    expect(noEdge.context.revision).not.toBe(posix.context.revision);
+  });
+
   it("reports missing, outside and failing files with the analysis tool's reasons", async () => {
     const missing = path.join(root, "src", "gone.ts");
     const outside = path.join(root, "..", "outside.ts");

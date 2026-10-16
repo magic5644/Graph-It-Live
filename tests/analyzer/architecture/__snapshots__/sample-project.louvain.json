@@ -103,6 +103,7 @@
     ],
     "context": {
       "communityMode": "louvain",
+      "revision": "8c398b20225c41802c98c7c7b3d0c2676496eb425b9d67519c090e6aa59cc802",
       "graphKind": "imports",
       "scope": "workspace",
       "exclusions": "node_modules, .git, dist, build, out, coverage, .next, .nuxt, __pycache__, .venv, venv, target, .*/, .gitignore, .graphitignore, tests/fixtures/, out-*/",
@@ -147,6 +148,7 @@
     "view": "summary",
     "context": {
       "communityMode": "louvain",
+      "revision": "8c398b20225c41802c98c7c7b3d0c2676496eb425b9d67519c090e6aa59cc802",
       "graphKind": "imports",
       "scope": "workspace",
       "exclusions": "node_modules, .git, dist, build, out, coverage, .next, .nuxt, __pycache__, .venv, venv, target, .*/, .gitignore, .graphitignore, tests/fixtures/, out-*/",
@@ -155,7 +157,7 @@
     },
     "provenance": {
       "facts": "File pairs are static import relations extracted from source code, not observed execution.",
-      "grouping": "Groups are computed by the communityMode detector; group ids are only valid within the same graph and communityMode.",
+      "grouping": "Groups are computed by the communityMode detector; group ids are only valid for the same context.revision.",
       "interpretation": "None: labels are folder keys or detector output, not business names or responsibilities."
     },
     "totals": {
@@ -206,6 +208,7 @@
     "view": "summary",
     "context": {
       "communityMode": "louvain",
+      "revision": "8c398b20225c41802c98c7c7b3d0c2676496eb425b9d67519c090e6aa59cc802",
       "graphKind": "imports",
       "scope": "workspace",
       "exclusions": "node_modules, .git, dist, build, out, coverage, .next, .nuxt, __pycache__, .venv, venv, target, .*/, .gitignore, .graphitignore, tests/fixtures/, out-*/",
@@ -214,7 +217,7 @@
     },
     "provenance": {
       "facts": "File pairs are static import relations extracted from source code, not observed execution.",
-      "grouping": "Groups are computed by the communityMode detector; group ids are only valid within the same graph and communityMode.",
+      "grouping": "Groups are computed by the communityMode detector; group ids are only valid for the same context.revision.",
       "interpretation": "None: labels are folder keys or detector output, not business names or responsibilities."
     },
     "totals": {
@@ -259,6 +262,7 @@
     "view": "summary",
     "context": {
       "communityMode": "louvain",
+      "revision": "8c398b20225c41802c98c7c7b3d0c2676496eb425b9d67519c090e6aa59cc802",
       "graphKind": "imports",
       "scope": "workspace",
       "exclusions": "node_modules, .git, dist, build, out, coverage, .next, .nuxt, __pycache__, .venv, venv, target, .*/, .gitignore, .graphitignore, tests/fixtures/, out-*/",
@@ -267,7 +271,7 @@
     },
     "provenance": {
       "facts": "File pairs are static import relations extracted from source code, not observed execution.",
-      "grouping": "Groups are computed by the communityMode detector; group ids are only valid within the same graph and communityMode.",
+      "grouping": "Groups are computed by the communityMode detector; group ids are only valid for the same context.revision.",
       "interpretation": "None: labels are folder keys or detector output, not business names or responsibilities."
     },
     "totals": {
@@ -304,6 +308,7 @@
       "view": "group",
       "context": {
         "communityMode": "louvain",
+        "revision": "8c398b20225c41802c98c7c7b3d0c2676496eb425b9d67519c090e6aa59cc802",
         "graphKind": "imports",
         "scope": "workspace",
         "exclusions": "node_modules, .git, dist, build, out, coverage, .next, .nuxt, __pycache__, .venv, venv, target, .*/, .gitignore, .graphitignore, tests/fixtures/, out-*/",
@@ -312,7 +317,7 @@
       },
       "provenance": {
         "facts": "File pairs are static import relations extracted from source code, not observed execution.",
-        "grouping": "Groups are computed by the communityMode detector; group ids are only valid within the same graph and communityMode.",
+        "grouping": "Groups are computed by the communityMode detector; group ids are only valid for the same context.revision.",
         "interpretation": "None: labels are folder keys or detector output, not business names or responsibilities."
       },
       "totals": {
@@ -357,6 +362,7 @@
       "view": "group",
       "context": {
         "communityMode": "louvain",
+        "revision": "8c398b20225c41802c98c7c7b3d0c2676496eb425b9d67519c090e6aa59cc802",
         "graphKind": "imports",
         "scope": "workspace",
         "exclusions": "node_modules, .git, dist, build, out, coverage, .next, .nuxt, __pycache__, .venv, venv, target, .*/, .gitignore, .graphitignore, tests/fixtures/, out-*/",
@@ -365,7 +371,7 @@
       },
       "provenance": {
         "facts": "File pairs are static import relations extracted from source code, not observed execution.",
-        "grouping": "Groups are computed by the communityMode detector; group ids are only valid within the same graph and communityMode.",
+        "grouping": "Groups are computed by the communityMode detector; group ids are only valid for the same context.revision.",
         "interpretation": "None: labels are folder keys or detector output, not business names or responsibilities."
       },
       "totals": {
@@ -409,6 +415,7 @@
       "view": "group",
       "context": {
         "communityMode": "louvain",
+        "revision": "8c398b20225c41802c98c7c7b3d0c2676496eb425b9d67519c090e6aa59cc802",
         "graphKind": "imports",
         "scope": "workspace",
         "exclusions": "node_modules, .git, dist, build, out, coverage, .next, .nuxt, __pycache__, .venv, venv, target, .*/, .gitignore, .graphitignore, tests/fixtures/, out-*/",
@@ -417,7 +424,7 @@
       },
       "provenance": {
         "facts": "File pairs are static import relations extracted from source code, not observed execution.",
-        "grouping": "Groups are computed by the communityMode detector; group ids are only valid within the same graph and communityMode.",
+        "grouping": "Groups are computed by the communityMode detector; group ids are only valid for the same context.revision.",
         "interpretation": "None: labels are folder keys or detector output, not business names or responsibilities."
       },
       "totals": {
@@ -454,6 +461,7 @@
       "view": "evidence",
       "context": {
         "communityMode": "louvain",
+        "revision": "8c398b20225c41802c98c7c7b3d0c2676496eb425b9d67519c090e6aa59cc802",
         "graphKind": "imports",
         "scope": "workspace",
         "exclusions": "node_modules, .git, dist, build, out, coverage, .next, .nuxt, __pycache__, .venv, venv, target, .*/, .gitignore, .graphitignore, tests/fixtures/, out-*/",
@@ -462,7 +470,7 @@
       },
       "provenance": {
         "facts": "File pairs are static import relations extracted from source code, not observed execution.",
-        "grouping": "Groups are computed by the communityMode detector; group ids are only valid within the same graph and communityMode.",
+        "grouping": "Groups are computed by the communityMode detector; group ids are only valid for the same context.revision.",
         "interpretation": "None: labels are folder keys or detector output, not business names or responsibilities."
       },
       "totals": {
@@ -509,6 +517,7 @@
       "view": "evidence",
       "context": {
         "communityMode": "louvain",
+        "revision": "8c398b20225c41802c98c7c7b3d0c2676496eb425b9d67519c090e6aa59cc802",
         "graphKind": "imports",
         "scope": "workspace",
         "exclusions": "node_modules, .git, dist, build, out, coverage, .next, .nuxt, __pycache__, .venv, venv, target, .*/, .gitignore, .graphitignore, tests/fixtures/, out-*/",
@@ -517,7 +526,7 @@
       },
       "provenance": {
         "facts": "File pairs are static import relations extracted from source code, not observed execution.",
-        "grouping": "Groups are computed by the communityMode detector; group ids are only valid within the same graph and communityMode.",
+        "grouping": "Groups are computed by the communityMode detector; group ids are only valid for the same context.revision.",
         "interpretation": "None: labels are folder keys or detector output, not business names or responsibilities."
       },
       "totals": {

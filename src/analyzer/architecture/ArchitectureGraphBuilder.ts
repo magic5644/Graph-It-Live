@@ -5,6 +5,7 @@
  * CRITICAL ARCHITECTURE RULE: This module is completely VS Code agnostic!
  */
 
+import { createHash } from "node:crypto";
 import * as path from "node:path";
 import { computeNodeMetadata } from "../NodeMetadataBuilder";
 import { SourceFileCollector } from "../SourceFileCollector";
@@ -138,6 +139,23 @@ async function collectArchitectureForFile(
   }
 }
 
+/**
+ * Hash of what group ids and pages depend on: same graph, same revision on every OS,
+ * since paths are workspace-relative and normalized.
+ */
+function architectureRevision(
+  communityMode: CommunityMode,
+  nodes: { relativePath: string; communityId: number }[],
+  edges: ArchitectureEdge[],
+): string {
+  const content = JSON.stringify([
+    communityMode,
+    nodes.map(node => `${node.relativePath}\t${node.communityId}`).sort((a, b) => a.localeCompare(b)),
+    edges.map(edge => `${edge.sourceRelative}\t${edge.targetRelative}`).sort((a, b) => a.localeCompare(b)),
+  ]);
+  return createHash("sha256").update(content).digest("hex");
+}
+
 /** Builds the workspace imports graph with community metadata, plus what was analysed. */
 export async function buildArchitectureGraph(
   workspaceRoot: string,
@@ -169,8 +187,10 @@ export async function buildArchitectureGraph(
     communityKey: graphData.nodeMetadata?.[node.path]?.communityKey ?? "",
   }));
 
+  const communityMode = options.communityMode ?? "path";
   const context = {
-    communityMode: options.communityMode ?? "path",
+    communityMode,
+    revision: architectureRevision(communityMode, nodes, edges),
     graphKind: "imports",
     scope: "workspace",
     exclusions: [...IGNORED_DIRECTORIES, ".*/", ".gitignore", ".graphitignore", ...DEFAULT_IGNORE_PATTERNS].join(", "),
