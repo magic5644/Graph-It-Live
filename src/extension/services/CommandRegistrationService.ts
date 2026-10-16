@@ -222,6 +222,9 @@ export class CommandRegistrationService {
       ['graph-it-live.architectureBuildCount', () => architecture()?.buildCount ?? 0],
       ['graph-it-live.architectureCommunityMode', () => architecture()?.communityMode],
       ['graph-it-live.architectureStale', () => architecture()?.stale ?? false],
+      ['graph-it-live.architectureOverlappingGroups', () => architecture()?.overlappingGroups ?? 0],
+      ['graph-it-live.architectureOverflowingLabels', () => architecture()?.overflowingLabels ?? 0],
+      ['graph-it-live.architecturePositions', () => architecture()?.positions],
       ['graph-it-live.architectureResizeCount', () => architecture()?.resizeCount ?? 0],
       ['graph-it-live.architectureViewSize', () => architecture()?.viewSize],
     ]);

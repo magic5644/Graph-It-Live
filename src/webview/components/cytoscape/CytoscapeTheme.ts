@@ -11,6 +11,7 @@
 
 import cytoscape from "cytoscape";
 import { LANGUAGE_COLORS } from "../../../shared/constants";
+import { ARCHITECTURE_FONT_SIZE } from "../architecture/architectureElements";
 
 // cytoscape uses `export =` so we access types via namespace
 type CyStylesheet = cytoscape.StylesheetStyle | cytoscape.StylesheetCSS;
@@ -395,13 +396,17 @@ export function buildArchitectureStylesheet(colors: ArchitectureThemeColors): Cy
       style: {
         label: "data(label)",
         "text-wrap": "wrap",
+        // Box sizes come from toArchitectureElements so the wrapped label stays inside.
+        "text-max-width": "data(textWidth)",
+        "text-overflow-wrap": "anywhere",
         "text-valign": "center",
         "text-halign": "center",
-        "font-size": "11px",
+        "font-size": ARCHITECTURE_FONT_SIZE,
+        "min-zoomed-font-size": 6,
         color: colors.foreground,
         shape: "round-rectangle",
-        width: "data(size)",
-        height: "data(size)",
+        width: "data(width)",
+        height: "data(height)",
         "background-color": colors.background,
         "border-width": 2,
         "border-color": colors.accent,

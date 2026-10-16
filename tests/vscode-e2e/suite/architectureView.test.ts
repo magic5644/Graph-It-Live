@@ -10,6 +10,9 @@ interface ArchitectureRender {
   buildCount: number;
   communityMode?: string;
   stale: boolean;
+  overlappingGroups: number;
+  overflowingLabels: number;
+  positions?: string;
 }
 
 // Expected numbers from the E2E workspace (tests/fixtures), recorded with:
@@ -30,6 +33,9 @@ async function readRender(): Promise<ArchitectureRender> {
     buildCount: (await read('BuildCount')) as number,
     communityMode: (await read('CommunityMode')) as string | undefined,
     stale: (await read('Stale')) as boolean,
+    overlappingGroups: (await read('OverlappingGroups')) as number,
+    overflowingLabels: (await read('OverflowingLabels')) as number,
+    positions: (await read('Positions')) as string | undefined,
   };
 }
 
@@ -47,6 +53,13 @@ async function waitForRender(
     await sleep(250);
   }
   assert.fail(`Timed out waiting for ${description}. Last render: ${JSON.stringify(render)}`);
+}
+
+/** Measured on the real canvas: no two group boxes intersect and every label fits its box. */
+function assertReadableLayout(render: ArchitectureRender): void {
+  assert.strictEqual(render.overlappingGroups, 0, 'overlapping group nodes');
+  assert.strictEqual(render.overflowingLabels, 0, 'labels drawn outside their node');
+  assert.strictEqual(render.positions?.split(';').length, render.groupCount, 'one position per group');
 }
 
 /** Opens the view and refreshes it: earlier suites edit fixtures, which leaves the cached summary stale. */
@@ -81,6 +94,7 @@ suite('Architecture view mode', () => {
     assert.strictEqual(byFolder.groupEdgeCount, EXPECTED.path.groupEdges, 'rendered group edges');
     assert.strictEqual(byFolder.stale, false);
     assert.match(byFolder.revision ?? '', /^[0-9a-f]{64}$/);
+    assertReadableLayout(byFolder);
 
     await config().update('communityMode', 'louvain', vscode.ConfigurationTarget.Global);
     const structural = await waitForRender('the louvain render', byFolder.renderCount, render => render.communityMode === 'louvain');
@@ -88,6 +102,11 @@ suite('Architecture view mode', () => {
     assert.notStrictEqual(structural.revision, byFolder.revision, 'louvain ids get a new revision');
     assert.strictEqual(structural.groupCount, EXPECTED.louvain.groups, 'rendered louvain groups');
     assert.strictEqual(structural.groupEdgeCount, EXPECTED.louvain.groupEdges, 'rendered louvain group edges');
+    assertReadableLayout(structural);
+
+    await config().update('communityMode', undefined, vscode.ConfigurationTarget.Global);
+    const back = await waitForRender('the path render again', structural.renderCount, render => render.communityMode === 'path');
+    assert.strictEqual(back.positions, byFolder.positions, 'a communityMode round trip redraws the same picture');
   });
 
   test('marks the view stale on a file change without rebuilding, and Refresh rebuilds', async function () {
@@ -111,6 +130,7 @@ suite('Architecture view mode', () => {
     const refreshed = await waitForRender('the refreshed render', staleCount, render => !render.stale);
     assert.strictEqual(refreshed.buildCount, built.buildCount + 1, 'Refresh rebuilds once');
     assert.strictEqual(refreshed.groupCount, EXPECTED.path.groups);
+    assert.strictEqual(refreshed.positions, built.positions, 'Refresh of an unchanged graph keeps every position');
   });
 
   test('re-fits the graph when the view is resized, without re-rendering or rebuilding', async function () {

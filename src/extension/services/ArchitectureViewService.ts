@@ -196,6 +196,9 @@ export class ArchitectureViewService {
       revision: this.lastRender?.revision,
       communityMode: this.lastRender?.communityMode,
       stale: this.lastRender?.stale ?? false,
+      overlappingGroups: this.lastRender?.overlappingGroups ?? 0,
+      overflowingLabels: this.lastRender?.overflowingLabels ?? 0,
+      positions: this.lastRender?.positions,
       resizeCount: this.resizeCount,
       viewSize: this.viewSize,
     };

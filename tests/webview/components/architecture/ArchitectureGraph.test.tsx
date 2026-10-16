@@ -6,22 +6,52 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import type { ArchitectureExtensionMessage, ArchitectureSummaryMessage } from "@/shared/architecture-types";
 
 // Cytoscape needs a canvas: stand in a fake that records elements and runs layouts at once.
+// fcose drops every node at the origin; labels are as wide as `labelWidth` (default: textWidth).
 const cy = vi.hoisted(() => {
-  const state = { nodes: 0, edges: 0, handlers: new Map<string, (event: unknown) => void>() };
+  type Data = Record<string, string | number | boolean>;
+  type Point = { x: number; y: number };
+  const state = {
+    nodes: [] as ReturnType<typeof fakeNode>[],
+    edges: 0,
+    labelWidth: undefined as number | undefined,
+    handlers: new Map<string, (event: unknown) => void>(),
+  };
+  function fakeNode(data: Data) {
+    let position: Point = { x: 0, y: 0 };
+    const node = {
+      data: (key: string) => data[key],
+      position: (arg?: string | Point) => {
+        if (typeof arg === "object") position = { ...arg };
+        return typeof arg === "string" ? position[arg as keyof Point] : position;
+      },
+      outerWidth: () => Number(data.width) + 2,
+      outerHeight: () => Number(data.height) + 2,
+      boundingBox: (options: { includeNodes?: boolean }) => {
+        const width = options.includeNodes === false ? (state.labelWidth ?? Number(data.textWidth)) : node.outerWidth();
+        const height = options.includeNodes === false ? 22 : node.outerHeight();
+        return { x1: position.x - width / 2, x2: position.x + width / 2, y1: position.y - height / 2, y2: position.y + height / 2 };
+      },
+    };
+    return node;
+  }
   const instance = {
     on: (name: string, _selector: string, handler: (event: unknown) => void) => state.handlers.set(name, handler),
-    elements: () => ({ remove: () => { state.nodes = 0; state.edges = 0; } }),
-    add: (elements: { group: string }[]) => {
-      state.nodes += elements.filter(element => element.group === "nodes").length;
+    elements: () => ({ remove: () => { state.nodes = []; state.edges = 0; } }),
+    add: (elements: { group: string; data: Data }[]) => {
+      state.nodes.push(...elements.filter(element => element.group === "nodes").map(element => fakeNode(element.data)));
       state.edges += elements.filter(element => element.group === "edges").length;
     },
-    layout: () => {
+    layout: (options: { name: string; positions?: (node: unknown) => Point }) => {
       let stop = () => {};
-      return { on: (_name: string, handler: () => void) => { stop = handler; }, run: () => stop() };
+      const run = () => {
+        for (const node of state.nodes) node.position(options.positions?.(node) ?? { x: 0, y: 0 });
+        stop();
+      };
+      return { on: (_name: string, handler: () => void) => { stop = handler; }, run };
     },
     fit: vi.fn(),
     resize: vi.fn(),
-    nodes: () => ({ length: state.nodes }),
+    nodes: () => state.nodes,
     edges: () => ({ length: state.edges }),
     destroy: () => {},
   };
@@ -89,14 +119,62 @@ describe("ArchitectureGraph", () => {
     expect(screen.getByText(/2 failed/)).toBeTruthy();
     expect(screen.getByText(/Only the first 10 files/)).toBeTruthy();
     expect(screen.queryByText(/Files changed/)).toBeNull();
-    expect(postMessage).toHaveBeenLastCalledWith({
+    expect(postMessage).toHaveBeenLastCalledWith(expect.objectContaining({
       command: "architectureRendered",
       revision: "r1",
       renderedGroups: 3,
       renderedGroupEdges: 1,
       communityMode: "louvain",
       stale: false,
-    });
+      overflowingLabels: 0,
+    }));
+  });
+
+  it("pushes overlapping groups apart, then redraws the same picture for the same groups", () => {
+    const postMessage = vi.fn();
+    const layout = vi.spyOn(cy.instance, "layout");
+    try {
+      render(<ArchitectureGraph postMessage={postMessage} />);
+      const fresh = { ...summary, groups: summary.groups.map(group => ({ ...group, key: `stable-${group.key}` })) };
+      send(fresh);
+      const first = postMessage.mock.lastCall?.[0];
+      expect(layout).toHaveBeenLastCalledWith(expect.objectContaining({ name: "fcose", randomize: true }));
+      // fcose left every node at the origin: separateOverlaps spread them.
+      expect(first.overlappingGroups).toBe(0);
+      expect(first.positions.split(";")).toHaveLength(3);
+      expect(new Set(cy.state.nodes.map(node => `${node.position("x")},${node.position("y")}`)).size).toBe(3);
+
+      send({ ...fresh, revision: "r2", stale: true });
+      expect(layout).toHaveBeenLastCalledWith(expect.objectContaining({ name: "preset" }));
+      expect(postMessage.mock.lastCall?.[0].positions).toBe(first.positions);
+
+      // A group whose size changed cannot reuse its box: the whole graph is laid out again.
+      send({ ...fresh, groups: [{ ...fresh.groups[0], fileCount: 50 }, fresh.groups[1]] });
+      expect(layout).toHaveBeenLastCalledWith(expect.objectContaining({ name: "fcose" }));
+    } finally {
+      layout.mockRestore();
+    }
+  });
+
+  it("reports an empty render when there is no group", () => {
+    const postMessage = vi.fn();
+    render(<ArchitectureGraph postMessage={postMessage} />);
+    send({ ...summary, groups: [], groupEdges: [], unassigned: { fileCount: 0, internalEdgeCount: 0 } });
+    expect(postMessage).toHaveBeenLastCalledWith(expect.objectContaining({
+      renderedGroups: 0, renderedGroupEdges: 0, overlappingGroups: 0, overflowingLabels: 0, positions: "",
+    }));
+  });
+
+  it("reports a label drawn outside its node", () => {
+    const postMessage = vi.fn();
+    cy.state.labelWidth = 500;
+    try {
+      render(<ArchitectureGraph postMessage={postMessage} />);
+      send(summary);
+      expect(postMessage).toHaveBeenLastCalledWith(expect.objectContaining({ overflowingLabels: 3 }));
+    } finally {
+      cy.state.labelWidth = undefined;
+    }
   });
 
   it("shows the stale banner, whose Refresh asks for a rebuild", () => {

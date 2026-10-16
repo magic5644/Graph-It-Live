@@ -15,11 +15,39 @@ import type {
   ArchitectureWebviewCommand,
 } from "../../../shared/architecture-types";
 import { buildArchitectureStylesheet } from "../cytoscape/CytoscapeTheme";
-import { toArchitectureElements } from "./architectureElements";
+import { ARCHITECTURE_FCOSE_LAYOUT, type LayoutBox, separateOverlaps, toArchitectureElements } from "./architectureElements";
 // eslint-disable-next-line @typescript-eslint/no-require-imports
 const fcose = require("cytoscape-fcose") as cytoscape.Ext;
 
 cytoscape.use(fcose);
+
+/**
+ * Last position and size per group key, kept for the webview's lifetime (remounts
+ * included), so Refresh or a communityMode round trip redraws the same picture.
+ */
+const savedLayout = new Map<string, LayoutBox>();
+
+const BODY_BOX = { includeLabels: false, includeOverlays: false };
+const LABEL_BOX = { includeNodes: false, includeEdges: false, includeOverlays: false };
+
+/** E2E observability: overlapping group pairs, labels drawn outside their node, and the positions. */
+function measureLayout(nodes: cytoscape.NodeCollection) {
+  const bodies = nodes.map((node) => node.boundingBox(BODY_BOX));
+  let overlappingGroups = 0;
+  for (const [i, a] of bodies.entries()) {
+    overlappingGroups += bodies.slice(i + 1).filter((b) => a.x1 < b.x2 && b.x1 < a.x2 && a.y1 < b.y2 && b.y1 < a.y2).length;
+  }
+  const overflowingLabels = nodes.filter((node, i) => {
+    const label = node.boundingBox(LABEL_BOX);
+    const body = bodies[i];
+    return label.x1 < body.x1 || label.x2 > body.x2 || label.y1 < body.y1 || label.y2 > body.y2;
+  }).length;
+  const positions = nodes
+    .map((node) => `${node.data("key")}@${Math.round(node.position("x"))},${Math.round(node.position("y"))}`)
+    .sort((a, b) => a.localeCompare(b))
+    .join(";");
+  return { overlappingGroups, overflowingLabels, positions };
+}
 
 interface ArchitectureGraphProps {
   postMessage: (message: ArchitectureWebviewCommand) => void;
@@ -180,19 +208,34 @@ export function ArchitectureGraph({ postMessage }: Readonly<ArchitectureGraphPro
   useEffect(() => {
     const cy = cyRef.current;
     if (!cy || !summary) return;
-    // ponytail: a stale-only update re-runs the layout too; split it out if large graphs flicker.
     cy.elements().remove();
     cy.add(toArchitectureElements(summary));
-    const layout = cy.layout({ name: "fcose", animate: false, randomize: true, nodeSeparation: 120, idealEdgeLength: 160 } as cytoscape.LayoutOptions);
+    const nodes = cy.nodes();
+    const reused = nodes.every((node) => {
+      const saved = savedLayout.get(node.data("key"));
+      return saved?.width === node.data("width") && saved.height === node.data("height");
+    });
+    // ponytail: one new or resized group re-runs the whole layout; pin the known ones
+    // (fcose fixedNodeConstraint) if users miss their picture after small edits.
+    const layout = reused
+      ? cy.layout({ name: "preset", positions: (node: cytoscape.NodeSingular) => savedLayout.get(node.data("key")) } as cytoscape.LayoutOptions)
+      : cy.layout(ARCHITECTURE_FCOSE_LAYOUT as cytoscape.LayoutOptions);
     layout.on("layoutstop", () => {
+      const boxes = nodes.map((node) => ({ node, ...node.position(), width: node.outerWidth(), height: node.outerHeight() }));
+      separateOverlaps(boxes);
+      for (const { node, x, y } of boxes) {
+        node.position({ x, y });
+        savedLayout.set(node.data("key"), { x, y, width: node.data("width"), height: node.data("height") });
+      }
       cy.fit(undefined, 30);
       postMessageRef.current({
         command: "architectureRendered",
         revision: summary.revision,
-        renderedGroups: cy.nodes().length,
+        renderedGroups: nodes.length,
         renderedGroupEdges: cy.edges().length,
         communityMode: summary.context.communityMode,
         stale: summary.stale,
+        ...measureLayout(nodes),
       });
     });
     layout.run();
