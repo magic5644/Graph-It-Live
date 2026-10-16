@@ -144,7 +144,7 @@ export class ArchitectureViewService {
     this.options.post(this.summary);
   }
 
-  /** A new build aborts the running one; an aborted build never posts its result. */
+  /** A new build aborts the running one; an aborted build never posts anything. */
   async build(): Promise<void> {
     if (this.disposed) return;
     this.running?.controller.abort();
@@ -152,10 +152,14 @@ export class ArchitectureViewService {
     const communityMode = this.options.readCommunityMode();
     this.running = { controller, communityMode };
     const { signal } = controller;
+    // Every message of this build goes through here: once aborted (replaced or disposed), it posts nothing, progress included.
+    const post = (message: ArchitectureExtensionMessage) => {
+      if (!signal.aborted) this.options.post(message);
+    };
     try {
-      this.options.post({ type: "architectureState", status: "building", message: "Building architecture…" });
+      post({ type: "architectureState", status: "building", message: "Building architecture…" });
       await waitForIdleIndex(this.options, signal, () =>
-        this.options.post({ type: "architectureState", status: "building", message: "Waiting for indexing to finish…" }));
+        post({ type: "architectureState", status: "building", message: "Waiting for indexing to finish…" }));
       let lastProgressAt = Number.NEGATIVE_INFINITY;
       const graph = await buildArchitectureGraph(this.options.workspaceRoot, this.options.analyzeFile, {
         communityMode,
@@ -165,14 +169,14 @@ export class ArchitectureViewService {
           if (now - lastProgressAt < PROGRESS_INTERVAL_MS) return;
           lastProgressAt = now;
           const percent = Math.round((analyzed / total) * 100);
-          this.options.post({ type: "architectureState", status: "building", message: `Analysing files (${analyzed}/${total})…`, percent });
+          post({ type: "architectureState", status: "building", message: `Analysing files (${analyzed}/${total})…`, percent });
         },
       });
       signal.throwIfAborted();
       this.buildCount += 1;
       if (graph.scannedFiles === 0) {
         this.summary = null;
-        this.options.post({ type: "architectureState", status: "empty", message: "No source file found in the workspace folder." });
+        post({ type: "architectureState", status: "empty", message: "No source file found in the workspace folder." });
         return;
       }
       this.summary = {
@@ -183,12 +187,12 @@ export class ArchitectureViewService {
       };
       // Cleared only once posted: a change seen by an aborted build still applies to the next one.
       this.changedDuringBuild = false;
-      this.options.post(this.summary);
+      post(this.summary);
     } catch (error) {
       if (signal.aborted) return;
       // Only workspace-level failures get here (per-file ones are counted in failedFiles); keep the root out of the view.
       const message = maskWorkspaceRoot(error instanceof Error ? error.message : String(error), this.options.workspaceRoot);
-      this.options.post({ type: "architectureState", status: "error", message });
+      post({ type: "architectureState", status: "error", message });
     } finally {
       if (this.running?.controller === controller) this.running = null;
     }
