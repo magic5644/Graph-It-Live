@@ -203,7 +203,7 @@ describe("highlight, find and min-imports filter", () => {
 
   it("hides the edges below the min-imports threshold and leaves them out of the neighbourhood", () => {
     const cy = createCy();
-    applyMinImports(cy, 2);
+    expect(applyMinImports(cy, 2)).toBe(1);
     expect(cy.$("#edge-0-1").style("display")).toBe("none");
     highlightFocus(cy, cy.$("#group-1"));
     expect(measureInteraction(cy)).toEqual({ highlightedGroups: 2, fadedGroups: 1, labelledEdges: 1, shownGroupEdges: 1 });
@@ -213,6 +213,22 @@ describe("highlight, find and min-imports filter", () => {
     applyMinImports(cy, 1);
     expect(measureInteraction(cy).shownGroupEdges).toBe(2);
     cy.destroy();
+  });
+
+  it("handles a graph without edges and an empty graph", () => {
+    const noEdges = { ...summaryOf(graphData), groupEdges: [] };
+    for (const summary of [noEdges, { ...noEdges, groups: [], unassigned: { fileCount: 0, internalEdgeCount: 0 } }]) {
+      const cy = cytoscape({ headless: true, styleEnabled: true, style: buildArchitectureStylesheet(colors), elements: toArchitectureElements(summary) });
+      expect(applyMinImports(cy, 2)).toBe(0);
+      highlightFocus(cy, findGroups(cy, "ui"));
+      expect(measureInteraction(cy)).toEqual({
+        highlightedGroups: cy.nodes().empty() ? 0 : 1,
+        fadedGroups: cy.nodes().empty() ? 0 : 2,
+        labelledEdges: 0,
+        shownGroupEdges: 0,
+      });
+      cy.destroy();
+    }
   });
 
   it("finds groups by label or key, case-insensitive, and nothing for a blank query", () => {

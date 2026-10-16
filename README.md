@@ -112,7 +112,7 @@ The Live Call Graph supports TypeScript, JavaScript, Vue, Svelte, Python, Rust, 
 - Groups follow `graph-it-live.communityMode`: folders (`path`) or import communities (`louvain`). Changing the setting rebuilds the view.
 - A group node shows its file count; an edge counts the distinct file-to-file imports between two groups. Files outside any group appear as a dashed *unassigned* node.
 - Hover or click a group (or an edge) to highlight its neighbourhood: the rest fades and only the highlighted edges show their import count. *Escape* or a click on the background clears it.
-- *Find group* highlights and centres the groups whose name or folder contains the text. *Min. imports per edge* hides the weaker group edges; the header states how many are shown, and totals still include the hidden ones.
+- *Find group* highlights and centres the drawn groups whose name or folder contains the text (groups beyond the 150 drawn are not searched, and the header says so). *Min. imports per edge* hides the weaker group edges; the header states how many are shown, and totals still include the hidden ones.
 - The header shows totals (files, file edges within and between groups) from the full graph. At most 150 groups are drawn, largest first; the header says how many groups and group edges are hidden, and totals still include them.
 - The view is built when it opens, on *Refresh*, and when the setting changes. Changing, creating or deleting a source file only shows a *Files changed* banner: a build reads every file, so you decide when to *Refresh*.
 - It analyses the configured workspace folder. Use the *Graph*, *List* or *Symbol* buttons to leave it.

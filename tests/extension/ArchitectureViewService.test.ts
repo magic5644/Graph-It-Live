@@ -401,5 +401,12 @@ describe("ArchitectureViewService", () => {
 
     service.setControls({ find: "ui", minImports: 2 });
     expect(posted.at(-1)).toEqual({ type: "architectureControls", find: "ui", minImports: 2 });
+
+    service.setControls({ find: 123, minImports: Number.NaN } as never);
+    expect(posted.at(-1)).toEqual({ type: "architectureControls", find: undefined, minImports: undefined });
+    service.setControls({ find: "x".repeat(300), minImports: 0 });
+    expect(posted.at(-1)).toEqual({ type: "architectureControls", find: "x".repeat(256), minImports: undefined });
+    service.setControls(undefined);
+    expect(posted.at(-1)).toEqual({ type: "architectureControls", find: undefined, minImports: undefined });
   });
 });

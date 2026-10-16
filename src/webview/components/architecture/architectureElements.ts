@@ -134,13 +134,14 @@ export function toArchitectureElements(summary: ArchitectureSummaryMessage): Arc
   return [...nodes, ...edges];
 }
 
-/** Hides (class `weak`) the group edges with fewer than `minImports` file imports. */
-export function applyMinImports(cy: Core, minImports: number): void {
+/** Hides (class `weak`) the group edges with fewer than `minImports` file imports; returns how many stay. */
+export function applyMinImports(cy: Core, minImports: number): number {
   cy.batch(() => {
     cy.edges().forEach((edge) => {
       edge.toggleClass("weak", edge.data("fileEdgeCount") < minImports);
     });
   });
+  return cy.edges().not(".weak").length;
 }
 
 /** Groups whose label or key contains `query`, case-insensitive; none for a blank query. */

@@ -214,9 +214,14 @@ export class ArchitectureViewService {
     };
   }
 
-  /** E2E driver: sets the webview's find and min-imports controls. */
-  setControls(controls: Omit<ArchitectureControlsMessage, "type">): void {
-    this.options.post({ type: "architectureControls", ...controls });
+  /** E2E driver: sets the webview's find and min-imports controls; any extension can call it, so check the values. */
+  setControls(controls: Omit<ArchitectureControlsMessage, "type"> | undefined): void {
+    const { find, minImports } = controls ?? {};
+    this.options.post({
+      type: "architectureControls",
+      find: typeof find === "string" ? find.slice(0, 256) : undefined,
+      minImports: Number.isSafeInteger(minImports) && Number(minImports) >= 1 ? minImports : undefined,
+    });
   }
 
   dispose(): void {
