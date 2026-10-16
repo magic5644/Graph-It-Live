@@ -132,6 +132,32 @@ describe("executeExploreArchitecture", () => {
     await expect(executeExploreArchitecture({ from: "api", to: 99 })).rejects.toThrow('Unknown group "99"');
   });
 
+  it("keeps the revision for the same workspace and rejects a stale one once a folder is added", async () => {
+    mocks.collectAllSourceFiles.mockResolvedValue([file("src/b/x.ts")]);
+    imports["src/a/y.ts"] = [];
+    imports["src/b/x.ts"] = [];
+    try {
+      const before = await executeExploreArchitecture({ group: 1 });
+      const again = await executeExploreArchitecture({ group: 1, revision: before.context.revision });
+      mocks.collectAllSourceFiles.mockResolvedValue([file("src/a/y.ts"), file("src/b/x.ts")]);
+      const after = await executeExploreArchitecture({});
+
+      expect(before.group.key).toBe("b");
+      expect(again.group.key).toBe("b");
+      expect(again.context.revision).toBe(before.context.revision);
+      expect(after.context.revision).not.toBe(before.context.revision);
+      expect(after.groups.find(group => group.id === 1)?.key).toBe("a");
+      await expect(executeExploreArchitecture({ group: 1, revision: before.context.revision })).rejects.toThrow(
+        `Architecture changed (revision ${before.context.revision} -> ${after.context.revision})`,
+      );
+      await expect(executeExploreArchitecture({ group: 1, revision: before.context.revision }))
+        .rejects.toThrow("Restart from the summary");
+    } finally {
+      delete imports["src/a/y.ts"];
+      delete imports["src/b/x.ts"];
+    }
+  });
+
   it("groups by import structure with communityMode louvain", async () => {
     const summary = await executeExploreArchitecture({ communityMode: "louvain" });
 
@@ -145,6 +171,7 @@ describe("ExploreArchitectureParamsSchema", () => {
     expect(ExploreArchitectureParamsSchema.safeParse({}).success).toBe(true);
     expect(ExploreArchitectureParamsSchema.safeParse({ group: 2, limit: 10 }).success).toBe(true);
     expect(ExploreArchitectureParamsSchema.safeParse({ from: "api", to: "db", offset: 50 }).success).toBe(true);
+    expect(ExploreArchitectureParamsSchema.safeParse({ group: 2, revision: "a".repeat(64) }).success).toBe(true);
   });
 
   it("rejects a single edge end, a group with an edge, and out-of-range paging", () => {
@@ -152,5 +179,6 @@ describe("ExploreArchitectureParamsSchema", () => {
     expect(ExploreArchitectureParamsSchema.safeParse({ group: "api", from: "api", to: "db" }).success).toBe(false);
     expect(ExploreArchitectureParamsSchema.safeParse({ limit: 501 }).success).toBe(false);
     expect(ExploreArchitectureParamsSchema.safeParse({ group: "" }).success).toBe(false);
+    expect(ExploreArchitectureParamsSchema.safeParse({ revision: "stale" }).success).toBe(false);
   });
 });

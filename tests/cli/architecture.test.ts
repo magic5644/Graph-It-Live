@@ -129,6 +129,7 @@ describe('architecture command', () => {
     const grouped = JSON.parse(await runWith(['--groups', '--maxFiles', '2'], 'json')) as Record<string, unknown>;
     expect(grouped.context).toEqual({
       communityMode: 'path',
+      revision: expect.stringMatching(/^[0-9a-f]{64}$/),
       graphKind: 'imports',
       scope: 'workspace',
       exclusions: expect.stringContaining('node_modules, .git, dist'),

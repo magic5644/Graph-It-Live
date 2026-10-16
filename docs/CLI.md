@@ -691,7 +691,7 @@ graph-it architecture --groups --format mermaid
 
 | Field | Content |
 |-------|---------|
-| `context` | `communityMode`, `graphKind` (`imports`), `scope`, `exclusions`, `indexedAt` (last scan), `maxFiles`, `truncated` (`--maxFiles` hit), `failedFiles` |
+| `context` | `communityMode`, `revision` (same value as `explore_architecture`), `graphKind` (`imports`), `scope`, `exclusions`, `indexedAt` (last scan), `maxFiles`, `truncated` (`--maxFiles` hit), `failedFiles` |
 | `groups` | `id`, `key`, `label`, `fileCount`, `internalEdgeCount` per community |
 | `unassigned` | `fileCount` and `internalEdgeCount` of files with `communityId` `0` |
 | `groupEdges` | `from`, `to`, `fileEdgeCount`: distinct directed file pairs from a file of `from` importing a file of `to`; group `0` = unassigned files |
@@ -1810,7 +1810,7 @@ graph-it tool explore_architecture --from=mcp --to=analyzer --limit=20 --offset=
 graph-it tool explore_architecture --communityMode=louvain
 ```
 
-A group is referenced by `id` (a number, such as `--group=2`) or by `key` or `label` (a string, such as `--group=analyzer` or `--group='"2"'` for a folder named `2`); `0` or `unassigned` names the files without a group, and an unknown group is an error. Every list is paginated by `limit` (default 50, max 500) and `offset`: the group view pages `files`, `incoming` and `outgoing` together (edges sorted by `fileEdgeCount`), and `page` gives each list's total, `truncated` and a `nextOffset` while any list has more items. Every response carries `context` (community mode, graph kind `imports`, scope, exclusions, `maxFiles`, truncation, failed files) and `provenance`, which separates code facts (static import pairs) from computed groupings and states that labels carry no interpretation. Symbols and lines come from `find_referencing_files`, `query_call_graph` and `get_impact_analysis`, named in `nextSteps`. The graph is rebuilt on each call, so a page is consistent with the others as long as the code does not change between calls.
+A group is referenced by `id` (a number, such as `--group=2`) or by `key` or `label` (a string, such as `--group=analyzer` or `--group='"2"'` for a folder named `2`); `0` or `unassigned` names the files without a group, and an unknown group is an error. Every list is paginated by `limit` (default 50, max 500) and `offset`: the group view pages `files`, `incoming` and `outgoing` together (edges sorted by `fileEdgeCount`), and `page` gives each list's total, `truncated` and a `nextOffset` while any list has more items. Every response carries `context` (community mode, `revision`, graph kind `imports`, scope, exclusions, `maxFiles`, truncation, failed files) and `provenance`, which separates code facts (static import pairs) from computed groupings and states that labels carry no interpretation. Symbols and lines come from `find_referencing_files`, `query_call_graph` and `get_impact_analysis`, named in `nextSteps`. The graph is rebuilt on each call and group ids depend on it: `context.revision` is a SHA-256 of the community mode, each file's group and the file edges, identical on every OS for the same graph. Pass it back as `revision` (`--revision=<hash>`) with a group id or an `offset`; if the architecture has changed since, the call fails with both revisions and you restart from the summary. Without `revision`, the call is answered from the current graph.
 
 ---
 

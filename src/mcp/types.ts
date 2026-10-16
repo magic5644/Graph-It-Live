@@ -711,6 +711,11 @@ export const ExploreArchitectureParamsSchema = z.object({
     .optional()
     .describe("Items per page: groups and group edges, a group's files and its incoming and outgoing edges, or file pairs (default: 50)"),
   offset: GraphToolOffsetSchema,
+  revision: z
+    .string()
+    .regex(/^[0-9a-f]{64}$/)
+    .optional()
+    .describe("context.revision of the response the group ids or offset come from; the call fails if the architecture has changed since"),
   // In the schema itself: an object with refinements cannot be extended by the server.
   response_format: z.enum(["json", "markdown", "toon"]).optional()
     .describe("Output format: 'json', 'markdown', or 'toon' (default: toon)"),

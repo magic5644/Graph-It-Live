@@ -64,6 +64,14 @@ describe("exploreArchitecture", () => {
     expect(summary.page).toMatchObject({ offset: 0, limit: 50, truncated: false, nextOffset: undefined });
   });
 
+  it("answers with the current revision and rejects another one", () => {
+    const { revision } = graph.context;
+
+    expect(exploreArchitecture(graph, { group: 2, revision })).toEqual(exploreArchitecture(graph, { group: 2 }));
+    expect(() => exploreArchitecture(graph, { group: 2, revision: hubGraph.context.revision }))
+      .toThrow(`Architecture changed (revision ${hubGraph.context.revision} -> ${revision})`);
+  });
+
   it("throws for an unknown group", () => {
     expect(() => exploreArchitecture(graph, { group: "missing" }))
       .toThrow('Unknown group "missing". Call explore_architecture without group, from or to to list the groups.');
