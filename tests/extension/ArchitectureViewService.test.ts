@@ -7,6 +7,7 @@ import type { IndexerStatusSnapshot } from "../../src/analyzer/IndexerStatus";
 import {
   ArchitectureViewService,
   MAX_RENDERED_GROUPS,
+  maskWorkspaceRoot,
   type ArchitectureViewServiceOptions,
 } from "../../src/extension/services/ArchitectureViewService";
 import type { ArchitectureExtensionMessage, ArchitectureSummaryMessage } from "../../src/shared/architecture-types";
@@ -134,12 +135,46 @@ describe("ArchitectureViewService", () => {
 
     const running = service.build();
     service.markStale();
+    expect(posted.some(message => message.type === "architectureSummary")).toBe(false);
     release();
     await running;
     expect(summaries()[0].stale).toBe(true);
 
     await service.build();
     expect(summaries()[1].stale).toBe(false);
+  });
+
+  it("keeps a change seen by an aborted build for the build that replaces it", async () => {
+    let release!: () => void;
+    const gate = new Promise<void>(resolve => { release = resolve; });
+    let calls = 0;
+    const service = createService({ analyzeFile: async () => { calls += 1; if (calls === 1) await gate; return []; } });
+
+    const first = service.build();
+    await vi.waitFor(() => expect(calls).toBe(1));
+    service.markStale();
+    const second = service.build();
+    release();
+    await Promise.all([first, second]);
+
+    expect(summaries().map(summary => summary.stale)).toEqual([true]);
+  });
+
+  it("builds the new mode when mounted while a build of the old mode runs", async () => {
+    let release!: () => void;
+    const gate = new Promise<void>(resolve => { release = resolve; });
+    let calls = 0;
+    const service = createService({ analyzeFile: async () => { calls += 1; if (calls === 1) await gate; return []; } });
+
+    const first = service.build();
+    await vi.waitFor(() => expect(calls).toBe(1));
+    communityMode = "louvain";
+    const second = service.show();
+    release();
+    await Promise.all([first, second]);
+
+    expect(summaries().map(summary => summary.context.communityMode)).toEqual(["louvain"]);
+    expect(service.getE2EState().buildCount).toBe(1);
   });
 
   it("rebuilds in the new mode when the setting changes during a build", async () => {
@@ -171,6 +206,7 @@ describe("ArchitectureViewService", () => {
     release();
     await running;
     posted = [];
+    service.markStale();
     await service.build();
     await service.show();
     await service.handleWebviewMessage({ command: "architectureRefresh" });
@@ -212,6 +248,14 @@ describe("ArchitectureViewService", () => {
     fail = false;
     await service.handleWebviewMessage({ command: "architectureRefresh" });
     expect(summaries()).toHaveLength(1);
+  });
+
+  it("masks the workspace root in every Windows separator form", () => {
+    const root = String.raw`C:\Users\dev\ws`;
+    expect(maskWorkspaceRoot(String.raw`EACCES: scandir 'C:\Users\dev\ws\src'`, root)).toBe(String.raw`EACCES: scandir '<workspace>\src'`);
+    expect(maskWorkspaceRoot("EACCES: scandir 'C:/Users/dev/ws/src'", root)).toBe("EACCES: scandir '<workspace>/src'");
+    expect(maskWorkspaceRoot("ENOENT 'c:/Users/dev/ws/a.ts'", root)).toBe("ENOENT '<workspace>/a.ts'");
+    expect(maskWorkspaceRoot("unrelated", "")).toBe("unrelated");
   });
 
   it("counts files whose analysis throws as failed, and still posts a summary", async () => {

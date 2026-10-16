@@ -8,6 +8,7 @@ import type {
   ArchitectureWebviewCommand,
 } from "@/shared/architecture-types";
 import type { CommunityMode } from "@/shared/graph-types";
+import { normalizePath } from "@/shared/path";
 
 /** Groups beyond this are counted in hiddenGroups, never dropped from totals. */
 export const MAX_RENDERED_GROUPS = 150;
@@ -20,6 +21,18 @@ export interface ArchitectureViewServiceOptions {
   readCommunityMode: () => CommunityMode;
   subscribeToIndexStatus: (callback: (snapshot: IndexerStatusSnapshot) => void) => () => void;
   post: (message: ArchitectureExtensionMessage) => void;
+}
+
+/** Masks the workspace root in every separator form a Node error message may use on Windows. */
+export function maskWorkspaceRoot(message: string, workspaceRoot: string): string {
+  if (!workspaceRoot) return message;
+  const forms = new Set([
+    workspaceRoot,
+    workspaceRoot.replaceAll("\\", "/"),
+    workspaceRoot.replaceAll("/", "\\"),
+    normalizePath(workspaceRoot),
+  ]);
+  return [...forms].reduce((text, form) => text.replaceAll(form, "<workspace>"), message);
 }
 
 /** Resolves once the reverse index is not being built, so both do not compete for the Spider. */
@@ -105,8 +118,13 @@ export class ArchitectureViewService {
     if (current !== undefined && current !== this.options.readCommunityMode()) await this.build();
   }
 
+  /** Marks the cached summary stale; during a build, the build's own summary carries it. */
   markStale(): void {
-    if (this.running) this.changedDuringBuild = true;
+    if (this.disposed) return;
+    if (this.running) {
+      this.changedDuringBuild = true;
+      return;
+    }
     if (!this.summary || this.summary.stale) return;
     this.summary = { ...this.summary, stale: true };
     this.options.post(this.summary);
@@ -116,7 +134,6 @@ export class ArchitectureViewService {
   async build(): Promise<void> {
     if (this.disposed) return;
     this.running?.controller.abort();
-    this.changedDuringBuild = false;
     const controller = new AbortController();
     const communityMode = this.options.readCommunityMode();
     this.running = { controller, communityMode };
@@ -150,11 +167,13 @@ export class ArchitectureViewService {
         stale: this.changedDuringBuild,
         ...overviewArchitecture(graph, MAX_RENDERED_GROUPS),
       };
+      // Cleared only once posted: a change seen by an aborted build still applies to the next one.
+      this.changedDuringBuild = false;
       this.options.post(this.summary);
     } catch (error) {
       if (signal.aborted) return;
       // Only workspace-level failures get here (per-file ones are counted in failedFiles); keep the root out of the view.
-      const message = (error instanceof Error ? error.message : String(error)).replaceAll(this.options.workspaceRoot, "<workspace>");
+      const message = maskWorkspaceRoot(error instanceof Error ? error.message : String(error), this.options.workspaceRoot);
       this.options.post({ type: "architectureState", status: "error", message });
     } finally {
       if (this.running?.controller === controller) this.running = null;
