@@ -9,7 +9,7 @@
  * change between builds), so every message carrying ids carries it.
  */
 
-import type { ArchitectureOverview } from "../analyzer/architecture/ArchitectureExplorer";
+import type { ArchitectureGroupDetail, ArchitectureOverview } from "../analyzer/architecture/ArchitectureExplorer";
 
 // ---------------------------------------------------------------------------
 // Extension → Webview messages
@@ -33,14 +33,51 @@ export interface ArchitectureSummaryMessage extends ArchitectureOverview {
   stale: boolean;
 }
 
-/** Sets the find and min-imports controls as a user would (E2E driver only). */
+/** One page of an expanded group (answers architectureExpandGroup). */
+export interface ArchitectureGroupDetailMessage {
+  type: "architectureGroupDetail";
+  revision: string;
+  detail: ArchitectureGroupDetail;
+}
+
+/** Workspace-relative file pairs behind one edge (answers architectureEvidence). */
+export interface ArchitectureEvidencePageMessage {
+  type: "architectureEvidencePage";
+  revision: string;
+  from: number;
+  to: number;
+  sourceFile?: string;
+  targetFile?: string;
+  pairs: { source: string; target: string }[];
+  page: { total: number; offset: number; returned: number; truncated: boolean; nextOffset?: number };
+}
+
+/** Answers a request made with another revision: the webview drops its detail and asks for the summary again. */
+export interface ArchitectureRevisionChangedMessage {
+  type: "architectureRevisionChanged";
+  currentRevision: string;
+}
+
+/** Drives the controls as a user would (E2E driver only); groups are named by key. */
 export interface ArchitectureControlsMessage {
   type: "architectureControls";
   find?: string;
   minImports?: number;
+  expand?: string;
+  collapse?: string;
+  /** Selects the first edge of this expanded group, which opens its evidence. */
+  evidenceOf?: string;
+  /** Clicks the source of this evidence row. */
+  openEvidenceRow?: number;
 }
 
-export type ArchitectureExtensionMessage = ArchitectureStateMessage | ArchitectureSummaryMessage | ArchitectureControlsMessage;
+export type ArchitectureExtensionMessage =
+  | ArchitectureStateMessage
+  | ArchitectureSummaryMessage
+  | ArchitectureGroupDetailMessage
+  | ArchitectureEvidencePageMessage
+  | ArchitectureRevisionChangedMessage
+  | ArchitectureControlsMessage;
 
 // ---------------------------------------------------------------------------
 // Webview → Extension messages
@@ -92,9 +129,53 @@ export interface ArchitectureInteractedCommand {
   shownGroupEdges: number;
 }
 
+/** Asks for one page of a group's files (offset 0 expands it). */
+export interface ArchitectureExpandGroupCommand {
+  command: "architectureExpandGroup";
+  revision: string;
+  groupId: number;
+  offset?: number;
+}
+
+/** Asks for the file pairs behind an edge; a file restricts one end. */
+export interface ArchitectureEvidenceCommand {
+  command: "architectureEvidence";
+  revision: string;
+  from: number;
+  to: number;
+  sourceFile?: string;
+  targetFile?: string;
+  offset?: number;
+}
+
+/** Opens a workspace-relative file of the graph; never an absolute path. */
+export interface ArchitectureOpenFileCommand {
+  command: "architectureOpenFile";
+  revision: string;
+  relativePath: string;
+}
+
+/** What the expanded groups and the evidence panel show (E2E observability only). */
+export interface ArchitectureDetailRenderedCommand {
+  command: "architectureDetailRendered";
+  expandedGroups: number;
+  /** Files of the expanded groups, loaded or not. */
+  expandedFileCount: number;
+  renderedFiles: number;
+  /** Edges between two group-level ends (collapsed group or "+N more files"). */
+  groupLevelEdges: number;
+  /** The 500-file cap message is shown. */
+  capReached: boolean;
+  evidence?: { edgeCount: number; total: number; shown: number; firstSource?: string };
+}
+
 export type ArchitectureWebviewCommand =
   | ArchitectureMountedCommand
   | ArchitectureRefreshCommand
   | ArchitectureRenderedCommand
   | ArchitectureResizedCommand
-  | ArchitectureInteractedCommand;
+  | ArchitectureInteractedCommand
+  | ArchitectureExpandGroupCommand
+  | ArchitectureEvidenceCommand
+  | ArchitectureOpenFileCommand
+  | ArchitectureDetailRenderedCommand;

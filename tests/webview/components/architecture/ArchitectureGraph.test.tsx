@@ -12,7 +12,7 @@ const cy = vi.hoisted(() => {
   type Point = { x: number; y: number };
   const state = {
     nodes: [] as ReturnType<typeof fakeNode>[],
-    edges: 0,
+    edges: [] as ReturnType<typeof fakeEdge>[],
     labelWidth: undefined as number | undefined,
     handlers: new Map<string, (event: unknown) => void>(),
   };
@@ -20,6 +20,18 @@ const cy = vi.hoisted(() => {
     let position: Point = { x: 0, y: 0 };
     const node = {
       data: (key: string) => data[key],
+      id: () => String(data.id),
+      isNode: () => true,
+      isEdge: () => false,
+      isChild: () => data.parent !== undefined,
+      isParent: () => state.nodes.some(other => other.data("parent") === data.id),
+      children: () => {
+        const children = state.nodes.filter(other => other.data("parent") === data.id);
+        return Object.assign(children, {
+          shift: (delta: Point) => children.forEach(child =>
+            child.position({ x: Number(child.position("x")) + delta.x, y: Number(child.position("y")) + delta.y })),
+        });
+      },
       position: (arg?: string | Point) => {
         if (typeof arg === "object") position = { ...arg };
         return typeof arg === "string" ? position[arg as keyof Point] : position;
@@ -32,22 +44,29 @@ const cy = vi.hoisted(() => {
         return { x1: position.x - width / 2, x2: position.x + width / 2, y1: position.y - height / 2, y2: position.y + height / 2 };
       },
     };
-    return node;
+    return asCollection(node);
+  }
+  function fakeEdge(data: Data) {
+    return asCollection({ data: (key: string) => data[key], id: () => String(data.id), isNode: () => false, isEdge: () => true });
+  }
+  /** A Cytoscape element is also a collection of itself. */
+  function asCollection<T extends object>(element: T) {
+    return Object.assign(element, { length: 1, 0: element, map: <R,>(fn: (item: T) => R) => [fn(element)] });
   }
   const instance = {
     on: (name: string, selector: string | ((event: unknown) => void), handler?: (event: unknown) => void) =>
       state.handlers.set(name, handler ?? (selector as (event: unknown) => void)),
-    collection: () => ({ empty: () => true, nonempty: () => false }),
+    collection: () => ({ empty: () => true, nonempty: () => false, length: 0, map: () => [] }),
     center: vi.fn(),
-    elements: () => ({ remove: () => { state.nodes = []; state.edges = 0; } }),
+    elements: () => Object.assign([...state.nodes, ...state.edges], { remove: () => { state.nodes = []; state.edges = []; } }),
     add: (elements: { group: string; data: Data }[]) => {
       state.nodes.push(...elements.filter(element => element.group === "nodes").map(element => fakeNode(element.data)));
-      state.edges += elements.filter(element => element.group === "edges").length;
+      state.edges.push(...elements.filter(element => element.group === "edges").map(element => fakeEdge(element.data)));
     },
-    layout: (options: { name: string; positions?: (node: unknown) => Point }) => {
+    layout: () => {
       let stop = () => {};
       const run = () => {
-        for (const node of state.nodes) node.position(options.positions?.(node) ?? { x: 0, y: 0 });
+        for (const node of state.nodes) node.position({ x: 0, y: 0 });
         stop();
       };
       return { on: (_name: string, handler: () => void) => { stop = handler; }, run };
@@ -55,7 +74,7 @@ const cy = vi.hoisted(() => {
     fit: vi.fn(),
     resize: vi.fn(),
     nodes: () => state.nodes,
-    edges: () => ({ length: state.edges }),
+    edges: () => state.edges,
     destroy: () => {},
   };
   const factory = Object.assign(() => instance, { use: () => {} });
@@ -65,11 +84,13 @@ vi.mock("cytoscape", () => ({ default: cy.factory }));
 vi.mock("cytoscape-fcose", () => ({ default: () => {} }));
 // The highlight and filter helpers run on real Cytoscape in architectureElements.test.ts.
 const helpers = vi.hoisted(() => ({
-  empty: { empty: () => true, nonempty: () => false },
+  empty: { empty: () => true, nonempty: () => false, length: 0, map: () => [] },
   applyMinImports: vi.fn(() => 1),
   findGroups: vi.fn(),
   highlightFocus: vi.fn(),
   measureInteraction: () => ({ highlightedGroups: 2, fadedGroups: 1, labelledEdges: 1, shownGroupEdges: 1 }),
+  // Lays out new files on real Cytoscape; tested in architectureElements.test.ts.
+  placeNewFiles: vi.fn(),
 }));
 helpers.findGroups.mockImplementation(() => helpers.empty);
 vi.mock("@/webview/components/architecture/architectureElements", async (importOriginal) => ({
@@ -107,6 +128,17 @@ const summary: ArchitectureSummaryMessage = {
   totalGroups: 3,
   hiddenGroups: 1,
   hiddenGroupEdges: 2,
+};
+
+/** A hovered or tapped file node: tapping it only pins it. */
+const fileTarget = (tooltip: string) => {
+  const target = {
+    data: (key: string) => ({ tooltip, file: true } as Record<string, unknown>)[key],
+    id: () => `file:${tooltip}`,
+    isNode: () => true,
+    isEdge: () => false,
+  };
+  return Object.assign(target, { length: 1, 0: target, map: <R,>(fn: (item: typeof target) => R) => [fn(target)] });
 };
 
 /** Last message of a kind: interactions are reported after every render. */
@@ -164,8 +196,9 @@ describe("ArchitectureGraph", () => {
       expect(first.positions.split(";")).toHaveLength(3);
       expect(new Set(cy.state.nodes.map(node => `${node.position("x")},${node.position("y")}`)).size).toBe(3);
 
+      const layouts = layout.mock.calls.length;
       send({ ...fresh, revision: "r2", stale: true });
-      expect(layout).toHaveBeenLastCalledWith(expect.objectContaining({ name: "preset" }));
+      expect(layout).toHaveBeenCalledTimes(layouts);
       expect(lastOf(postMessage, "architectureRendered").positions).toBe(first.positions);
 
       // A group whose size changed cannot reuse its box: the whole graph is laid out again.
@@ -270,7 +303,7 @@ describe("ArchitectureGraph", () => {
 
     it("highlights the hovered element, then returns to the pinned one", () => {
       const { postMessage } = renderWithSummary();
-      const node = { data: () => "ui" };
+      const node = fileTarget("ui");
       act(() => cy.state.handlers.get("mouseover")?.({ target: node }));
       expect(helpers.highlightFocus).toHaveBeenLastCalledWith(cy.instance, node);
       expect(postMessage).toHaveBeenLastCalledWith(interacted);
@@ -346,7 +379,7 @@ describe("ArchitectureGraph", () => {
       const matches = { empty: () => false, nonempty: () => true };
       helpers.findGroups.mockImplementation((_cy, query: string) => (query ? matches : empty));
       renderWithSummary();
-      const node = { data: () => "ui" };
+      const node = fileTarget("ui");
       act(() => cy.state.handlers.get("tap")?.({ target: node }));
       send({ ...summary, revision: "r2" });
       expect(helpers.highlightFocus).toHaveBeenLastCalledWith(cy.instance, empty);
@@ -430,5 +463,167 @@ describe("ArchitectureGraph", () => {
       vi.unstubAllGlobals();
       vi.useRealTimers();
     }
+  });
+
+  describe("expanded groups and evidence", () => {
+    /** One page of group 1 (ui, 5 files in pages of 2), files named f<offset>. */
+    const page = (offset: number, revision = "r1", group = 1) => ({
+      type: "architectureGroupDetail" as const,
+      revision,
+      detail: {
+        context: summary.context,
+        group: { ...summary.groups[0], id: group },
+        files: [offset, offset + 1].filter(index => index < 5)
+          .map(index => ({ relativePath: `ui/f${index}.ts`, dependencyCount: 1, dependentCount: 0 })),
+        internalPairs: [],
+        outgoingPairs: [],
+        outgoing: offset === 0 ? [{ relativePath: "ui/f0.ts", toGroup: 2, fileEdgeCount: 3 }] : [],
+        incoming: [],
+        page: { total: 5, offset, returned: 2, truncated: offset + 2 < 5, nextOffset: offset + 2 < 5 ? offset + 2 : undefined, limit: 2 },
+      },
+    });
+    const nodeById = (id: string) => cy.state.nodes.find(node => node.id() === id);
+    const tap = (target: unknown) => act(() => cy.state.handlers.get("tap")?.({ target }));
+    const fileIds = () => cy.state.nodes.filter(node => node.data("file")).map(node => node.id());
+    const setup = () => {
+      const postMessage = vi.fn();
+      render(<ArchitectureGraph postMessage={postMessage} />);
+      send(summary);
+      return postMessage;
+    };
+
+    afterEach(() => vi.clearAllMocks());
+
+    it("expands a tapped group page by page from its +N more files node, and collapses it", () => {
+      const postMessage = setup();
+      tap(nodeById("group-1"));
+      expect(postMessage).toHaveBeenCalledWith({ command: "architectureExpandGroup", revision: "r1", groupId: 1, offset: 0 });
+
+      send(page(0));
+      expect(fileIds()).toEqual(["file:ui/f0.ts", "file:ui/f1.ts"]);
+      expect(nodeById("more-1")?.data("label")).toBe("+3 more files");
+      expect(helpers.placeNewFiles).toHaveBeenCalled();
+      // f0 → store replaces the ui → store group edge: its 3 imports now start at f0.
+      expect(cy.state.edges.map(edge => edge.id())).toContain("file:ui/f0.ts->group-2");
+      expect(lastOf(postMessage, "architectureDetailRendered")).toEqual({
+        command: "architectureDetailRendered", expandedGroups: 1, expandedFileCount: 5, renderedFiles: 2, groupLevelEdges: 0,
+        capReached: false, evidence: undefined,
+      });
+
+      tap(nodeById("more-1"));
+      expect(postMessage).toHaveBeenLastCalledWith({ command: "architectureExpandGroup", revision: "r1", groupId: 1, offset: 2 });
+      send(page(2));
+      // A page received twice is merged once.
+      send(page(2));
+      expect(fileIds()).toHaveLength(4);
+      tap(nodeById("group-1"));
+      expect(fileIds()).toEqual([]);
+      expect(lastOf(postMessage, "architectureDetailRendered")).toMatchObject({ expandedGroups: 0, groupLevelEdges: 1 });
+    });
+
+    it("expands the focused group on Enter and collapses it on Escape", () => {
+      const postMessage = setup();
+      tap(nodeById("group-1"));
+      send(page(0));
+      fireEvent.keyDown(window, { key: "Escape" });
+      expect(fileIds()).toEqual([]);
+
+      postMessage.mockClear();
+      fireEvent.keyDown(window, { key: "Enter" });
+      expect(postMessage).toHaveBeenCalledWith({ command: "architectureExpandGroup", revision: "r1", groupId: 1, offset: 0 });
+      postMessage.mockClear();
+      fireEvent.keyDown(screen.getByRole("searchbox"), { key: "Enter" });
+      expect(lastOf(postMessage, "architectureExpandGroup")).toBeUndefined();
+    });
+
+    it("keeps the expanded groups and the tapped element on a stale mark, and drops them on a new revision", () => {
+      setup();
+      tap(nodeById("group-1"));
+      send(page(0));
+      send({ ...summary, stale: true });
+      expect(fileIds()).toHaveLength(2);
+      expect(helpers.highlightFocus.mock.lastCall?.[1].map((element: { id(): string }) => element.id())).toEqual(["group-1"]);
+
+      send({ ...summary, revision: "r2" });
+      expect(fileIds()).toEqual([]);
+      // A late page of the old revision is dropped.
+      send(page(0, "r1"));
+      expect(fileIds()).toEqual([]);
+    });
+
+    it("drops what it holds and asks for the summary again when the revision changed", () => {
+      const postMessage = setup();
+      send(page(0));
+      postMessage.mockClear();
+      send({ type: "architectureRevisionChanged", currentRevision: "r2" });
+      expect(postMessage).toHaveBeenCalledWith({ command: "architectureMounted" });
+      expect(fileIds()).toEqual([]);
+    });
+
+    it("refuses a page past the file cap and says so", () => {
+      setup();
+      const big = page(0);
+      big.detail.files = Array.from({ length: 501 }, (_, index) => ({ relativePath: `ui/g${index}.ts`, dependencyCount: 0, dependentCount: 0 }));
+      send(big);
+      expect(fileIds()).toEqual([]);
+      expect(screen.getByText("Collapse a group first (500 files shown)")).toBeTruthy();
+    });
+
+    it("lists the evidence of a tapped edge page by page, opens its files and closes on Escape", () => {
+      const postMessage = setup();
+      tap(cy.state.edges.find(edge => edge.id() === "edge-1-2"));
+      expect(lastOf(postMessage, "architectureEvidence")).toEqual({ command: "architectureEvidence", revision: "r1", from: 1, to: 2, offset: 0 });
+      expect(screen.getByText("ui → store: 3 file pairs (static imports)")).toBeTruthy();
+      expect(document.activeElement).toBe(screen.getByRole("button", { name: "Close evidence" }));
+
+      const evidencePage = (offset: number, pairs: { source: string; target: string }[], nextOffset?: number) => ({
+        type: "architectureEvidencePage" as const, revision: "r1", from: 1, to: 2, pairs,
+        page: { total: 3, offset, returned: pairs.length, truncated: nextOffset !== undefined, nextOffset },
+      });
+      send(evidencePage(0, [{ source: "ui/a.ts", target: "store/b.ts" }, { source: "ui/a.ts", target: "store/c.ts" }], 2));
+      // Another edge's page, or one at the wrong offset, is dropped.
+      send({ ...evidencePage(2, [{ source: "x.ts", target: "y.ts" }]), from: 2 });
+      send(evidencePage(1, [{ source: "x.ts", target: "y.ts" }]));
+      expect(screen.getByText("showing 2 of 3")).toBeTruthy();
+      expect(lastOf(postMessage, "architectureDetailRendered")?.evidence).toEqual({ edgeCount: 3, total: 3, shown: 2, firstSource: "ui/a.ts" });
+
+      fireEvent.click(screen.getByRole("button", { name: "Load more" }));
+      expect(postMessage).toHaveBeenLastCalledWith({ command: "architectureEvidence", revision: "r1", from: 1, to: 2, offset: 2 });
+      send(evidencePage(2, [{ source: "ui/d.ts", target: "store/b.ts" }]));
+      expect(screen.getByText("showing 3 of 3")).toBeTruthy();
+      expect(screen.queryByRole("button", { name: "Load more" })).toBeNull();
+
+      fireEvent.click(screen.getByRole("button", { name: "ui/d.ts" }));
+      expect(postMessage).toHaveBeenLastCalledWith({ command: "architectureOpenFile", revision: "r1", relativePath: "ui/d.ts" });
+      fireEvent.keyDown(window, { key: "Escape" });
+      expect(screen.queryByRole("region", { name: "Evidence" })).toBeNull();
+    });
+
+    it("filters the evidence of a file edge by its file, and closes from its button", () => {
+      const postMessage = setup();
+      send(page(0));
+      tap(cy.state.edges.find(edge => edge.id() === "file:ui/f0.ts->group-2"));
+      expect(lastOf(postMessage, "architectureEvidence")).toEqual({
+        command: "architectureEvidence", revision: "r1", from: 1, to: 2, sourceFile: "ui/f0.ts", offset: 0,
+      });
+      expect(screen.getByText("ui/f0.ts → store: 3 file pairs (static imports)")).toBeTruthy();
+      fireEvent.click(screen.getByRole("button", { name: "Close evidence" }));
+      expect(screen.queryByRole("region", { name: "Evidence" })).toBeNull();
+    });
+
+    it("drives the same actions from the E2E controls, groups named by key", () => {
+      const postMessage = setup();
+      send({ type: "architectureControls", expand: "ui" });
+      expect(postMessage).toHaveBeenLastCalledWith({ command: "architectureExpandGroup", revision: "r1", groupId: 1, offset: 0 });
+      send(page(0));
+      send({ type: "architectureControls", evidenceOf: "ui" });
+      expect(lastOf(postMessage, "architectureEvidence")).toMatchObject({ from: 1, to: 2, sourceFile: "ui/f0.ts" });
+      send({ type: "architectureEvidencePage", revision: "r1", from: 1, to: 2, sourceFile: "ui/f0.ts",
+        pairs: [{ source: "ui/f0.ts", target: "store/b.ts" }], page: { total: 1, offset: 0, returned: 1, truncated: false } });
+      send({ type: "architectureControls", openEvidenceRow: 0 });
+      expect(postMessage).toHaveBeenLastCalledWith({ command: "architectureOpenFile", revision: "r1", relativePath: "ui/f0.ts" });
+      send({ type: "architectureControls", collapse: "ui", expand: "missing", openEvidenceRow: 5 });
+      expect(fileIds()).toEqual([]);
+    });
   });
 });

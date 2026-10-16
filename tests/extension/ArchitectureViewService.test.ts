@@ -41,6 +41,8 @@ describe("ArchitectureViewService", () => {
   let root: string;
   let posted: ArchitectureExtensionMessage[];
   let communityMode: CommunityMode;
+  let opened: string[];
+  let warnings: string[];
 
   const summaries = () => posted.filter((message): message is ArchitectureSummaryMessage => message.type === "architectureSummary");
   const states = () => posted.filter(message => message.type === "architectureState");
@@ -54,6 +56,10 @@ describe("ArchitectureViewService", () => {
         return () => {};
       },
       post: (message) => posted.push(message),
+      openFile: async (absolutePath) => {
+        opened.push(absolutePath);
+      },
+      warn: (message) => warnings.push(message),
       ...overrides,
     });
 
@@ -61,6 +67,8 @@ describe("ArchitectureViewService", () => {
     root = await fs.realpath(await fs.mkdtemp(path.join(os.tmpdir(), "gitl-architecture-view-")));
     await writeWorkspace(root, workspace);
     posted = [];
+    opened = [];
+    warnings = [];
     communityMode = "path";
   });
 
@@ -404,7 +412,7 @@ describe("ArchitectureViewService", () => {
     expect(service.getE2EState()).toEqual({
       buildCount: 0, renderCount: 1, groupCount: 3, groupEdgeCount: 2, revision: "abc", communityMode: "path", stale: true,
       overlappingGroups: 1, overflowingLabels: 2, positions: "path:ui@0,0", resizeCount: 0, viewSize: { width: 0, height: 0 },
-      interactionCount: 0, interaction: null,
+      interactionCount: 0, interaction: null, detailCount: 0, detail: null,
     });
   });
 
@@ -441,5 +449,131 @@ describe("ArchitectureViewService", () => {
     expect(posted.at(-1)).toEqual({ type: "architectureControls", find: "x".repeat(256), minImports: undefined });
     service.setControls(undefined);
     expect(posted.at(-1)).toEqual({ type: "architectureControls", find: undefined, minImports: undefined });
+  });
+
+  describe("group detail, evidence and opening files", () => {
+    const built = async () => {
+      const service = createService();
+      await service.show();
+      return { service, revision: summaries()[0].revision };
+    };
+
+    it("answers a group page and the evidence of an edge with the summary's revision", async () => {
+      const { service, revision } = await built();
+      await service.handleWebviewMessage({ command: "architectureExpandGroup", revision, groupId: 1 });
+      await service.handleWebviewMessage({
+        command: "architectureEvidence", revision, from: 1, to: 2, sourceFile: "src/ui/view.ts",
+      });
+
+      expect(posted.at(-2)).toMatchObject({
+        type: "architectureGroupDetail",
+        revision,
+        detail: { group: { key: "ui" }, files: [{ relativePath: "src/ui/view.ts" }, { relativePath: "src/ui/form.ts" }] },
+      });
+      expect(posted.at(-1)).toEqual({
+        type: "architectureEvidencePage",
+        revision,
+        from: 1,
+        to: 2,
+        sourceFile: "src/ui/view.ts",
+        targetFile: undefined,
+        pairs: [{ source: "src/ui/view.ts", target: "src/store/state.ts" }],
+        page: { total: 1, offset: 0, returned: 1, truncated: false, nextOffset: undefined },
+      });
+    });
+
+    it("answers a stale revision, or a request before any build, with the current revision", async () => {
+      const early = createService();
+      await early.handleWebviewMessage({ command: "architectureExpandGroup", revision: "old", groupId: 1 });
+      expect(posted.at(-1)).toEqual({ type: "architectureRevisionChanged", currentRevision: "" });
+
+      const { service, revision } = await built();
+      for (const message of [
+        { command: "architectureExpandGroup", revision: "old", groupId: 1 },
+        { command: "architectureEvidence", revision: "old", from: 1, to: 2 },
+        { command: "architectureOpenFile", revision: "old", relativePath: "main.ts" },
+      ] as const) {
+        posted = [];
+        await service.handleWebviewMessage(message);
+        expect(posted).toEqual([{ type: "architectureRevisionChanged", currentRevision: revision }]);
+      }
+      expect(opened).toEqual([]);
+    });
+
+    it("keeps answering a stale-marked summary, whose revision is unchanged", async () => {
+      const { service, revision } = await built();
+      service.markStale();
+      await service.handleWebviewMessage({ command: "architectureExpandGroup", revision, groupId: 0 });
+      expect(posted.at(-1)).toMatchObject({ type: "architectureGroupDetail", detail: { files: [{ relativePath: "main.ts" }] } });
+    });
+
+    it("logs an unknown group instead of answering", async () => {
+      const { service, revision } = await built();
+      const count = posted.length;
+      await service.handleWebviewMessage({ command: "architectureExpandGroup", revision, groupId: 99 });
+      expect(posted).toHaveLength(count);
+      expect(warnings).toEqual([expect.stringContaining('Unknown group "99"')]);
+    });
+
+    it("opens a file of the graph by its workspace-relative path", async () => {
+      const { service, revision } = await built();
+      await service.handleWebviewMessage({ command: "architectureOpenFile", revision, relativePath: "src/ui/view.ts" });
+      await service.handleWebviewMessage({ command: "architectureOpenFile", revision, relativePath: String.raw`src\ui\form.ts` });
+      expect(opened).toEqual([path.join(root, "src/ui/view.ts"), path.join(root, "src/ui/form.ts")]);
+      expect(warnings).toEqual([]);
+    });
+
+    it.each([
+      ["a parent path", "../outside.ts"],
+      ["a Windows parent path", String.raw`..\outside.ts`],
+      ["a nested parent path", "src/../../outside.ts"],
+      ["a POSIX absolute path", "/etc/passwd"],
+      ["a Windows absolute path", String.raw`C:\Windows\win.ini`],
+      ["a file outside the graph", "src/ui/missing.ts"],
+      ["a null byte", "main.ts\0"],
+    ])("refuses %s without opening anything", async (_name, relativePath) => {
+      const { service, revision } = await built();
+      await service.handleWebviewMessage({ command: "architectureOpenFile", revision, relativePath });
+      expect(opened).toEqual([]);
+      expect(warnings).toEqual([expect.stringContaining("refused to open a file")]);
+      expect(warnings[0]).not.toContain(root);
+    });
+
+    it("refuses a graph file replaced by a symlink leaving the workspace since the build", async () => {
+      const outside = await fs.realpath(await fs.mkdtemp(path.join(os.tmpdir(), "gitl-outside-")));
+      try {
+        const { service, revision } = await built();
+        await fs.writeFile(path.join(outside, "secret.ts"), "");
+        await fs.rm(path.join(root, "src/ui/form.ts"));
+        await fs.symlink(path.join(outside, "secret.ts"), path.join(root, "src/ui/form.ts"));
+        await service.handleWebviewMessage({ command: "architectureOpenFile", revision, relativePath: "src/ui/form.ts" });
+        expect(opened).toEqual([]);
+        expect(warnings).toEqual([expect.stringContaining("symbolic link")]);
+      } finally {
+        await fs.rm(outside, { recursive: true, force: true });
+      }
+    });
+
+    it("logs a failure to open a validated file", async () => {
+      const service = createService({ openFile: async () => { throw new Error("cannot open"); } });
+      await service.show();
+      await service.handleWebviewMessage({ command: "architectureOpenFile", revision: summaries()[0].revision, relativePath: "main.ts" });
+      expect(warnings).toEqual(["Architecture view: refused to open a file (cannot open)"]);
+    });
+
+    it("keeps the last detail render and forwards the expansion controls", async () => {
+      const service = createService();
+      const detail = {
+        command: "architectureDetailRendered" as const,
+        expandedGroups: 1, expandedFileCount: 4, renderedFiles: 4, groupLevelEdges: 2, capReached: false,
+      };
+      await service.handleWebviewMessage(detail);
+      expect(service.getE2EState()).toMatchObject({ detailCount: 1, detail });
+
+      service.setControls({ expand: "ui", collapse: "store", evidenceOf: "ui", openEvidenceRow: 0 });
+      expect(posted.at(-1)).toMatchObject({ expand: "ui", collapse: "store", evidenceOf: "ui", openEvidenceRow: 0 });
+      service.setControls({ expand: 1, openEvidenceRow: -1 } as never);
+      expect(posted.at(-1)).toMatchObject({ expand: undefined, openEvidenceRow: undefined });
+    });
   });
 });

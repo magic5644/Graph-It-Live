@@ -9,6 +9,7 @@ import {
   type CommunityGroup,
   type CommunityGroupAggregation,
 } from "../community/groupAggregation";
+import { normalizePath } from "../../shared/path";
 import type { ArchitectureGraph } from "./ArchitectureGraphBuilder";
 
 const DEFAULT_EXPLORE_LIMIT = 50;
@@ -35,7 +36,18 @@ export interface ArchitectureExploreOptions {
   limit?: number;
   /** context.revision of the response the group ids or offset come from. */
   revision?: string;
+  /** Evidence only: keeps the pairs whose source (or target) is this workspace-relative file. */
+  sourceFile?: string;
+  targetFile?: string;
 }
+
+export interface GroupDetailOptions {
+  offset?: number;
+  limit?: number;
+  revision?: string;
+}
+
+const DEFAULT_GROUP_DETAIL_LIMIT = 200;
 
 const byFileCount = (left: CommunityGroup, right: CommunityGroup) => right.fileCount - left.fileCount || left.id - right.id;
 
@@ -127,12 +139,16 @@ export function exploreArchitecture(
   if (options.from !== undefined && options.to !== undefined) {
     const from = resolveGroup(aggregation, options.from);
     const to = resolveGroup(aggregation, options.to);
+    const sourceFile = options.sourceFile === undefined ? undefined : normalizePath(options.sourceFile);
+    const targetFile = options.targetFile === undefined ? undefined : normalizePath(options.targetFile);
     const pairs = edges
       .filter(edge => communityOf(edge.source) === from.id && communityOf(edge.target) === to.id)
+      .filter(edge => (sourceFile === undefined || edge.sourceRelative === sourceFile)
+        && (targetFile === undefined || edge.targetRelative === targetFile))
       .map(edge => ({ source: edge.sourceRelative, target: edge.targetRelative }))
       .sort((left, right) => left.source.localeCompare(right.source) || left.target.localeCompare(right.target));
     const { items, ...pageInfo } = page(pairs, offset, limit);
-    return { view: "evidence", ...base, from, to, pairs: items, page: pageInfo, nextSteps: NEXT_STEPS };
+    return { view: "evidence" as const, ...base, from, to, pairs: items, page: pageInfo, nextSteps: NEXT_STEPS };
   }
 
   if (options.group !== undefined) {
@@ -144,7 +160,7 @@ export function exploreArchitecture(
     const { incoming, outgoing, files: filePage, page: pageInfo } =
       pageGroup(files, aggregation.groupEdges, group.id, offset, limit);
     return {
-      view: "group",
+      view: "group" as const,
       ...base,
       group,
       incoming: incoming.map(withLabels),
@@ -159,7 +175,7 @@ export function exploreArchitecture(
   const groupEdges = page(aggregation.groupEdges.toSorted((left, right) => right.fileEdgeCount - left.fileEdgeCount), offset, limit);
   const truncated = groups.truncated || groupEdges.truncated;
   return {
-    view: "summary",
+    view: "summary" as const,
     ...base,
     unassigned: aggregation.unassigned,
     groups: groups.items,
@@ -175,6 +191,78 @@ export function exploreArchitecture(
     nextSteps: "Pass group for one group's files and boundary, or from and to for the file pairs behind a group edge.",
   };
 }
+
+interface FileGroupCount {
+  relativePath: string;
+  group: number;
+  fileEdgeCount: number;
+}
+
+/** Counts one more file pair between `relativePath` and `group`. */
+function bump(counts: Map<string, FileGroupCount>, relativePath: string, group: number) {
+  const key = `${relativePath}\0${group}`;
+  const entry = counts.get(key);
+  if (entry) entry.fileEdgeCount += 1;
+  else counts.set(key, { relativePath, group, fileEdgeCount: 1 });
+}
+
+/**
+ * One page of a group's files (most depended-on first), with every file pair whose source is
+ * on the page and the per-file counts across the group's boundary. A pair is returned on its
+ * source's page only, so the union of all pages holds each pair exactly once, and the counts
+ * come from the full graph whatever the page.
+ */
+export function groupDetail(
+  { context, graphData, nodes, edges }: ArchitectureGraph,
+  groupRef: GroupRef,
+  options: GroupDetailOptions = {},
+) {
+  assertRevision(context.revision, options.revision);
+  const group = resolveGroup(aggregateCommunityGroups(graphData), groupRef);
+  const offset = options.offset ?? 0;
+  const limit = options.limit ?? DEFAULT_GROUP_DETAIL_LIMIT;
+  const groupOf = new Map(nodes.map(node => [node.relativePath, node.communityId]));
+  const files = nodes
+    .filter(node => node.communityId === group.id)
+    .map(({ relativePath, dependencyCount, dependentCount }) => ({ relativePath, dependencyCount, dependentCount }))
+    .sort((left, right) => right.dependentCount - left.dependentCount || left.relativePath.localeCompare(right.relativePath));
+  const { items, ...pageInfo } = page(files, offset, limit);
+  const shown = new Set(items.map(file => file.relativePath));
+
+  const internalPairs: { source: string; target: string }[] = [];
+  const outgoingPairs: { source: string; target: string; toGroup: number }[] = [];
+  const outgoing = new Map<string, FileGroupCount>();
+  const incoming = new Map<string, FileGroupCount>();
+  for (const { sourceRelative: source, targetRelative: target } of edges) {
+    const toGroup = groupOf.get(target) ?? 0;
+    if (shown.has(source) && toGroup === group.id) internalPairs.push({ source, target });
+    else if (shown.has(source)) {
+      outgoingPairs.push({ source, target, toGroup });
+      bump(outgoing, source, toGroup);
+    }
+    const fromGroup = groupOf.get(source) ?? 0;
+    if (shown.has(target) && fromGroup !== group.id) bump(incoming, target, fromGroup);
+  }
+  const byPair = (left: { source: string; target: string }, right: { source: string; target: string }) =>
+    left.source.localeCompare(right.source) || left.target.localeCompare(right.target);
+  const byFileAndGroup = (left: FileGroupCount, right: FileGroupCount) =>
+    left.relativePath.localeCompare(right.relativePath) || left.group - right.group;
+
+  return {
+    context,
+    group,
+    files: items,
+    internalPairs: internalPairs.sort(byPair),
+    outgoingPairs: outgoingPairs.sort(byPair),
+    outgoing: [...outgoing.values()].sort(byFileAndGroup)
+      .map(({ relativePath, group: toGroup, fileEdgeCount }) => ({ relativePath, toGroup, fileEdgeCount })),
+    incoming: [...incoming.values()].sort(byFileAndGroup)
+      .map(({ relativePath, group: fromGroup, fileEdgeCount }) => ({ relativePath, fromGroup, fileEdgeCount })),
+    page: { ...pageInfo, limit },
+  };
+}
+
+export type ArchitectureGroupDetail = ReturnType<typeof groupDetail>;
 
 /**
  * Every group edge between the `maxGroups` largest groups, for a renderer that shows them all.
