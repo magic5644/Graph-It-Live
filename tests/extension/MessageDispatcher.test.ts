@@ -68,6 +68,9 @@ describe("MessageDispatcher", () => {
       renderedGroupEdges: 1,
       communityMode: "path" as const,
       stale: false,
+      overlappingGroups: 0,
+      overflowingLabels: 0,
+      positions: "",
     };
 
     const resized = { command: "architectureResized" as const, width: 300, height: 200 };

@@ -58,6 +58,12 @@ export interface ArchitectureRenderedCommand {
   renderedGroupEdges: number;
   communityMode: ArchitectureOverview["context"]["communityMode"];
   stale: boolean;
+  /** Pairs of group nodes whose boxes intersect. */
+  overlappingGroups: number;
+  /** Group nodes whose label is drawn outside the node box. */
+  overflowingLabels: number;
+  /** Sorted `key@x,y` of every group node, to compare layouts across renders. */
+  positions: string;
 }
 
 /** The graph was re-fitted to a resized view (E2E observability only). */

@@ -63,7 +63,7 @@ function createProviderMock(): GraphProvider {
     getFileGraphNodeMetadata: vi.fn().mockReturnValue({}),
     getArchitectureE2EState: vi.fn().mockReturnValue({
       buildCount: 2, renderCount: 3, groupCount: 20, groupEdgeCount: 6, revision: 'r1', communityMode: 'path', stale: true,
-      resizeCount: 4, viewSize: { width: 320, height: 200 },
+      overlappingGroups: 1, overflowingLabels: 2, positions: 'path:ui@0,0', resizeCount: 4, viewSize: { width: 320, height: 200 },
     }),
   } as unknown as GraphProvider;
 }
@@ -152,6 +152,9 @@ describe('CommandRegistrationService', () => {
     expect(await getContext('graph-it-live.architectureBuildCount')).toBe(2);
     expect(await getContext('graph-it-live.architectureCommunityMode')).toBe('path');
     expect(await getContext('graph-it-live.architectureStale')).toBe(true);
+    expect(await getContext('graph-it-live.architectureOverlappingGroups')).toBe(1);
+    expect(await getContext('graph-it-live.architectureOverflowingLabels')).toBe(2);
+    expect(await getContext('graph-it-live.architecturePositions')).toBe('path:ui@0,0');
     expect(await getContext('graph-it-live.architectureResizeCount')).toBe(4);
     expect(await getContext('graph-it-live.architectureViewSize')).toEqual({ width: 320, height: 200 });
     expect(await getContext('graph-it-live.unknown')).toBeUndefined();
@@ -171,6 +174,9 @@ describe('CommandRegistrationService', () => {
     expect(await getContext('graph-it-live.architectureBuildCount')).toBe(0);
     expect(await getContext('graph-it-live.architectureStale')).toBe(false);
     expect(await getContext('graph-it-live.architectureResizeCount')).toBe(0);
+    expect(await getContext('graph-it-live.architectureOverlappingGroups')).toBe(0);
+    expect(await getContext('graph-it-live.architectureOverflowingLabels')).toBe(0);
+    expect(await getContext('graph-it-live.architecturePositions')).toBeUndefined();
     expect(await getContext('graph-it-live.architectureViewSize')).toBeUndefined();
   });
 

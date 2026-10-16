@@ -364,10 +364,13 @@ describe("ArchitectureViewService", () => {
       renderedGroupEdges: 2,
       communityMode: "path",
       stale: true,
+      overlappingGroups: 1,
+      overflowingLabels: 2,
+      positions: "path:ui@0,0",
     });
     expect(service.getE2EState()).toEqual({
       buildCount: 0, renderCount: 1, groupCount: 3, groupEdgeCount: 2, revision: "abc", communityMode: "path", stale: true,
-      resizeCount: 0, viewSize: { width: 0, height: 0 },
+      overlappingGroups: 1, overflowingLabels: 2, positions: "path:ui@0,0", resizeCount: 0, viewSize: { width: 0, height: 0 },
     });
   });
 
