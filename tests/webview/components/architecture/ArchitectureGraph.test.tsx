@@ -35,7 +35,10 @@ const cy = vi.hoisted(() => {
     return node;
   }
   const instance = {
-    on: (name: string, _selector: string, handler: (event: unknown) => void) => state.handlers.set(name, handler),
+    on: (name: string, selector: string | ((event: unknown) => void), handler?: (event: unknown) => void) =>
+      state.handlers.set(name, handler ?? (selector as (event: unknown) => void)),
+    collection: () => ({ empty: () => true, nonempty: () => false }),
+    center: vi.fn(),
     elements: () => ({ remove: () => { state.nodes = []; state.edges = 0; } }),
     add: (elements: { group: string; data: Data }[]) => {
       state.nodes.push(...elements.filter(element => element.group === "nodes").map(element => fakeNode(element.data)));
@@ -60,6 +63,19 @@ const cy = vi.hoisted(() => {
 });
 vi.mock("cytoscape", () => ({ default: cy.factory }));
 vi.mock("cytoscape-fcose", () => ({ default: () => {} }));
+// The highlight and filter helpers run on real Cytoscape in architectureElements.test.ts.
+const helpers = vi.hoisted(() => ({
+  empty: { empty: () => true, nonempty: () => false },
+  applyMinImports: vi.fn(),
+  findGroups: vi.fn(),
+  highlightFocus: vi.fn(),
+  measureInteraction: () => ({ highlightedGroups: 2, fadedGroups: 1, labelledEdges: 1, shownGroupEdges: 1 }),
+}));
+helpers.findGroups.mockImplementation(() => helpers.empty);
+vi.mock("@/webview/components/architecture/architectureElements", async (importOriginal) => ({
+  ...(await importOriginal<object>()),
+  ...helpers,
+}));
 
 import { ArchitectureGraph } from "@/webview/components/architecture/ArchitectureGraph";
 
@@ -93,6 +109,10 @@ const summary: ArchitectureSummaryMessage = {
   hiddenGroupEdges: 2,
 };
 
+/** Last message of a kind: interactions are reported after every render. */
+const lastOf = (postMessage: ReturnType<typeof vi.fn>, command: string) =>
+  postMessage.mock.calls.map(([message]) => message).findLast((message) => message.command === command);
+
 const send = (message: ArchitectureExtensionMessage) =>
   act(() => { window.dispatchEvent(new MessageEvent("message", { data: message })); });
 
@@ -119,7 +139,7 @@ describe("ArchitectureGraph", () => {
     expect(screen.getByText(/2 failed/)).toBeTruthy();
     expect(screen.getByText(/Only the first 10 files/)).toBeTruthy();
     expect(screen.queryByText(/Files changed/)).toBeNull();
-    expect(postMessage).toHaveBeenLastCalledWith(expect.objectContaining({
+    expect(lastOf(postMessage, "architectureRendered")).toEqual(expect.objectContaining({
       command: "architectureRendered",
       revision: "r1",
       renderedGroups: 3,
@@ -137,7 +157,7 @@ describe("ArchitectureGraph", () => {
       render(<ArchitectureGraph postMessage={postMessage} />);
       const fresh = { ...summary, groups: summary.groups.map(group => ({ ...group, key: `stable-${group.key}` })) };
       send(fresh);
-      const first = postMessage.mock.lastCall?.[0];
+      const first = lastOf(postMessage, "architectureRendered");
       expect(layout).toHaveBeenLastCalledWith(expect.objectContaining({ name: "fcose", randomize: true }));
       // fcose left every node at the origin: separateOverlaps spread them.
       expect(first.overlappingGroups).toBe(0);
@@ -146,7 +166,7 @@ describe("ArchitectureGraph", () => {
 
       send({ ...fresh, revision: "r2", stale: true });
       expect(layout).toHaveBeenLastCalledWith(expect.objectContaining({ name: "preset" }));
-      expect(postMessage.mock.lastCall?.[0].positions).toBe(first.positions);
+      expect(lastOf(postMessage, "architectureRendered").positions).toBe(first.positions);
 
       // A group whose size changed cannot reuse its box: the whole graph is laid out again.
       send({ ...fresh, groups: [{ ...fresh.groups[0], fileCount: 50 }, fresh.groups[1]] });
@@ -160,7 +180,7 @@ describe("ArchitectureGraph", () => {
     const postMessage = vi.fn();
     render(<ArchitectureGraph postMessage={postMessage} />);
     send({ ...summary, groups: [], groupEdges: [], unassigned: { fileCount: 0, internalEdgeCount: 0 } });
-    expect(postMessage).toHaveBeenLastCalledWith(expect.objectContaining({
+    expect(lastOf(postMessage, "architectureRendered")).toEqual(expect.objectContaining({
       renderedGroups: 0, renderedGroupEdges: 0, overlappingGroups: 0, overflowingLabels: 0, positions: "",
     }));
   });
@@ -171,7 +191,7 @@ describe("ArchitectureGraph", () => {
     try {
       render(<ArchitectureGraph postMessage={postMessage} />);
       send(summary);
-      expect(postMessage).toHaveBeenLastCalledWith(expect.objectContaining({ overflowingLabels: 3 }));
+      expect(lastOf(postMessage, "architectureRendered")).toEqual(expect.objectContaining({ overflowingLabels: 3 }));
     } finally {
       cy.state.labelWidth = undefined;
     }
@@ -221,6 +241,104 @@ describe("ArchitectureGraph", () => {
     expect(container.title).toBe("ui\n5 files");
     act(() => cy.state.handlers.get("mouseout")?.({}));
     expect(container.title).toBe("");
+  });
+
+  describe("highlight, find and min-imports filter", () => {
+    const { empty } = helpers;
+    const interacted = { command: "architectureInteracted", highlightedGroups: 2, fadedGroups: 1, labelledEdges: 1, shownGroupEdges: 1 };
+    const renderWithSummary = () => {
+      const postMessage = vi.fn();
+      const view = render(<ArchitectureGraph postMessage={postMessage} />);
+      send(summary);
+      return { postMessage, ...view };
+    };
+
+    afterEach(() => {
+      vi.clearAllMocks();
+      helpers.findGroups.mockImplementation(() => empty);
+    });
+
+    it("draws the summary with the default filter and no highlight, and reports it", () => {
+      const { postMessage } = renderWithSummary();
+      expect(helpers.applyMinImports).toHaveBeenLastCalledWith(cy.instance, 1);
+      expect(helpers.findGroups).toHaveBeenLastCalledWith(cy.instance, "");
+      expect(helpers.highlightFocus).toHaveBeenLastCalledWith(cy.instance, empty);
+      expect(cy.instance.center).not.toHaveBeenCalled();
+      expect(postMessage).toHaveBeenLastCalledWith(interacted);
+      expect(screen.queryByText(/group edges shown/)).toBeNull();
+    });
+
+    it("highlights the hovered element, then returns to the pinned one", () => {
+      const { postMessage } = renderWithSummary();
+      const node = { data: () => "ui" };
+      act(() => cy.state.handlers.get("mouseover")?.({ target: node }));
+      expect(helpers.highlightFocus).toHaveBeenLastCalledWith(cy.instance, node);
+      expect(postMessage).toHaveBeenLastCalledWith(interacted);
+      act(() => cy.state.handlers.get("mouseout")?.({}));
+      expect(helpers.highlightFocus).toHaveBeenLastCalledWith(cy.instance, empty);
+
+      act(() => cy.state.handlers.get("tap")?.({ target: node }));
+      expect(helpers.highlightFocus).toHaveBeenLastCalledWith(cy.instance, node);
+      act(() => cy.state.handlers.get("mouseover")?.({ target: { data: () => "store" } }));
+      act(() => cy.state.handlers.get("mouseout")?.({}));
+      expect(helpers.highlightFocus).toHaveBeenLastCalledWith(cy.instance, node);
+    });
+
+    it("finds and centres matching groups; Escape and a background tap clear the find and the highlight", () => {
+      const matches = { empty: () => false, nonempty: () => true };
+      helpers.findGroups.mockImplementation((_cy, query: string) => (query ? matches : empty));
+      renderWithSummary();
+      const find = screen.getByRole("searchbox", { name: "Find group" }) as HTMLInputElement;
+
+      fireEvent.change(find, { target: { value: "ui" } });
+      expect(helpers.findGroups).toHaveBeenLastCalledWith(cy.instance, "ui");
+      expect(helpers.highlightFocus).toHaveBeenLastCalledWith(cy.instance, matches);
+      expect(cy.instance.center).toHaveBeenCalledWith(matches);
+
+      fireEvent.keyDown(find, { key: "Enter" });
+      expect(find.value).toBe("ui");
+      fireEvent.keyDown(find, { key: "Escape" });
+      expect(find.value).toBe("");
+      expect(helpers.highlightFocus).toHaveBeenLastCalledWith(cy.instance, empty);
+
+      fireEvent.change(find, { target: { value: "store" } });
+      act(() => cy.state.handlers.get("tap")?.({ target: cy.instance }));
+      expect(find.value).toBe("");
+      expect(helpers.highlightFocus).toHaveBeenLastCalledWith(cy.instance, empty);
+    });
+
+    it("hides weak edges from the min-imports control and states how many are shown", () => {
+      renderWithSummary();
+      const min = screen.getByRole("spinbutton", { name: /Min. imports per edge/ }) as HTMLInputElement;
+      expect(min.max).toBe("3");
+
+      fireEvent.change(min, { target: { value: "4" } });
+      expect(helpers.applyMinImports).toHaveBeenLastCalledWith(cy.instance, 4);
+      expect(screen.getByText("0 of 1 group edges shown (min. 4 imports). Totals include them.")).toBeTruthy();
+      // The totals line is unchanged by the filter.
+      expect(screen.getByText(/4 file edges/)).toBeTruthy();
+
+      fireEvent.change(min, { target: { value: "" } });
+      expect(min.value).toBe("1");
+      expect(screen.queryByText(/group edges shown/)).toBeNull();
+    });
+
+    it("applies the controls sent by the extension", () => {
+      renderWithSummary();
+      send({ type: "architectureControls", find: "store", minImports: 2 });
+      expect((screen.getByRole("searchbox") as HTMLInputElement).value).toBe("store");
+      expect(helpers.applyMinImports).toHaveBeenLastCalledWith(cy.instance, 2);
+      send({ type: "architectureControls" });
+      expect((screen.getByRole("searchbox") as HTMLInputElement).value).toBe("store");
+    });
+
+    it("stops listening to Escape once unmounted", () => {
+      const { unmount } = renderWithSummary();
+      unmount();
+      helpers.highlightFocus.mockClear();
+      fireEvent.keyDown(window, { key: "Escape" });
+      expect(helpers.highlightFocus).not.toHaveBeenCalled();
+    });
   });
 
   it("re-fits once after a debounced resize, without re-running the layout, and cleans up", () => {

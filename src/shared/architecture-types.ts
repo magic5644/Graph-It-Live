@@ -33,7 +33,14 @@ export interface ArchitectureSummaryMessage extends ArchitectureOverview {
   stale: boolean;
 }
 
-export type ArchitectureExtensionMessage = ArchitectureStateMessage | ArchitectureSummaryMessage;
+/** Sets the find and min-imports controls as a user would (E2E driver only). */
+export interface ArchitectureControlsMessage {
+  type: "architectureControls";
+  find?: string;
+  minImports?: number;
+}
+
+export type ArchitectureExtensionMessage = ArchitectureStateMessage | ArchitectureSummaryMessage | ArchitectureControlsMessage;
 
 // ---------------------------------------------------------------------------
 // Webview → Extension messages
@@ -73,8 +80,21 @@ export interface ArchitectureResizedCommand {
   height: number;
 }
 
+/** What the highlight and edge filter draw after an interaction (E2E observability only). */
+export interface ArchitectureInteractedCommand {
+  command: "architectureInteracted";
+  /** Groups in the highlighted neighbourhood; 0 when nothing is highlighted. */
+  highlightedGroups: number;
+  fadedGroups: number;
+  /** Group edges drawn with their count label. */
+  labelledEdges: number;
+  /** Group edges drawn, after the min-imports filter. */
+  shownGroupEdges: number;
+}
+
 export type ArchitectureWebviewCommand =
   | ArchitectureMountedCommand
   | ArchitectureRefreshCommand
   | ArchitectureRenderedCommand
-  | ArchitectureResizedCommand;
+  | ArchitectureResizedCommand
+  | ArchitectureInteractedCommand;

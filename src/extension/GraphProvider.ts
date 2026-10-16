@@ -1309,6 +1309,11 @@ export class GraphProvider implements vscode.WebviewViewProvider {
     return this.architectureViewService?.getE2EState();
   }
 
+  /** E2E driver pass-through to ArchitectureViewService */
+  public setArchitectureControls(controls: Parameters<ArchitectureViewService["setControls"]>[0]): void {
+    this.architectureViewService?.setControls(controls);
+  }
+
   /** E2E observability pass-throughs to CallGraphViewService */
   public getCallGraphRenderCount(): number {
     return this._callGraphViewService?.getCallGraphRenderCount() ?? 0;

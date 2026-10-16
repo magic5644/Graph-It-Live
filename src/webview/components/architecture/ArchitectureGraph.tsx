@@ -15,7 +15,16 @@ import type {
   ArchitectureWebviewCommand,
 } from "../../../shared/architecture-types";
 import { buildArchitectureStylesheet } from "../cytoscape/CytoscapeTheme";
-import { ARCHITECTURE_FCOSE_LAYOUT, type LayoutBox, separateOverlaps, toArchitectureElements } from "./architectureElements";
+import {
+  applyMinImports,
+  ARCHITECTURE_FCOSE_LAYOUT,
+  findGroups,
+  highlightFocus,
+  type LayoutBox,
+  measureInteraction,
+  separateOverlaps,
+  toArchitectureElements,
+} from "./architectureElements";
 // eslint-disable-next-line @typescript-eslint/no-require-imports
 const fcose = require("cytoscape-fcose") as cytoscape.Ext;
 
@@ -47,6 +56,12 @@ function measureLayout(nodes: cytoscape.NodeCollection) {
     .sort((a, b) => a.localeCompare(b))
     .join(";");
   return { overlappingGroups, overflowingLabels, positions };
+}
+
+/** Highlights `focus` and reports what is drawn (E2E observability). */
+function showFocus(cy: cytoscape.Core, focus: cytoscape.Collection, post: (message: ArchitectureWebviewCommand) => void): void {
+  highlightFocus(cy, focus);
+  post({ command: "architectureInteracted", ...measureInteraction(cy) });
 }
 
 interface ArchitectureGraphProps {
@@ -116,6 +131,49 @@ function SummaryHeader({ summary, onRefresh }: Readonly<{ summary: ArchitectureS
   );
 }
 
+interface GraphControlsProps {
+  summary: ArchitectureSummaryMessage;
+  query: string;
+  onQuery: (query: string) => void;
+  minImports: number;
+  onMinImports: (minImports: number) => void;
+}
+
+/** Find and weak-edge filter: they only change what is drawn, never the counts above. */
+function GraphControls({ summary, query, onQuery, minImports, onMinImports }: Readonly<GraphControlsProps>) {
+  const counts = summary.groupEdges.map((edge) => edge.fileEdgeCount);
+  const shown = counts.filter((count) => count >= minImports).length;
+  return (
+    <div style={{ padding: "4px 10px", fontSize: 12, borderBottom: "1px solid var(--vscode-widget-border)" }}>
+      <div style={{ display: "flex", flexWrap: "wrap", gap: 8, alignItems: "center" }}>
+        <input
+          type="search"
+          aria-label="Find group"
+          placeholder="Find group"
+          value={query}
+          onChange={(event) => onQuery(event.target.value)}
+        />
+        <label>
+          Min. imports per edge{" "}
+          <input
+            type="number"
+            min={1}
+            max={Math.max(1, ...counts)}
+            value={minImports}
+            onChange={(event) => onMinImports(Math.max(1, Math.floor(Number(event.target.value)) || 1))}
+            style={{ width: 56 }}
+          />
+        </label>
+      </div>
+      {shown < counts.length && (
+        <div>
+          {shown} of {counts.length} group edges shown (min. {minImports} imports). Totals include them.
+        </div>
+      )}
+    </div>
+  );
+}
+
 function StatePanel({ state, onRetry }: Readonly<{ state: ArchitectureStateMessage; onRetry: () => void }>) {
   return (
     <output style={{ display: "block", padding: 16, fontSize: 12 }}>
@@ -143,6 +201,10 @@ export function ArchitectureGraph({ postMessage }: Readonly<ArchitectureGraphPro
   postMessageRef.current = postMessage;
   const [summary, setSummary] = useState<ArchitectureSummaryMessage | null>(null);
   const [state, setState] = useState<ArchitectureStateMessage | null>({ type: "architectureState", status: "building" });
+  const [query, setQuery] = useState("");
+  const [minImports, setMinImports] = useState(1);
+  /** Tapped element or find matches: what the highlight returns to after a hover. */
+  const pinnedRef = useRef<cytoscape.Collection | null>(null);
 
   useEffect(() => {
     const handleMessage = (event: MessageEvent<ArchitectureExtensionMessage>) => {
@@ -154,6 +216,9 @@ export function ArchitectureGraph({ postMessage }: Readonly<ArchitectureGraphPro
         setState(null);
       } else if (message?.type === "architectureState") {
         setState(message);
+      } else if (message?.type === "architectureControls") {
+        if (message.find !== undefined) setQuery(message.find);
+        if (message.minImports !== undefined) setMinImports(message.minImports);
       }
     };
     window.addEventListener("message", handleMessage);
@@ -172,12 +237,32 @@ export function ArchitectureGraph({ postMessage }: Readonly<ArchitectureGraphPro
       minZoom: 0.05,
       maxZoom: 5,
     });
+    const pinned = () => pinnedRef.current ?? cy.collection();
+    const clearFocus = () => {
+      pinnedRef.current = null;
+      setQuery("");
+      showFocus(cy, cy.collection(), postMessageRef.current);
+    };
     cy.on("mouseover", "node, edge", (event) => {
       container.title = String(event.target.data("tooltip") ?? "");
+      showFocus(cy, event.target, postMessageRef.current);
     });
     cy.on("mouseout", "node, edge", () => {
       container.title = "";
+      showFocus(cy, pinned(), postMessageRef.current);
     });
+    cy.on("tap", (event) => {
+      if (event.target === cy) {
+        clearFocus();
+        return;
+      }
+      pinnedRef.current = event.target;
+      showFocus(cy, event.target, postMessageRef.current);
+    });
+    const handleKeyDown = (event: KeyboardEvent): void => {
+      if (event.key === "Escape") clearFocus();
+    };
+    window.addEventListener("keydown", handleKeyDown);
     cyRef.current = cy;
 
     // Re-fit when the view is resized (same pattern as CytoscapeGraph). Debounced so a
@@ -200,6 +285,7 @@ export function ArchitectureGraph({ postMessage }: Readonly<ArchitectureGraphPro
       clearTimeout(resizeTimer);
       resizeObserver?.disconnect();
       window.removeEventListener("resize", handleResize);
+      window.removeEventListener("keydown", handleKeyDown);
       cy.destroy();
       cyRef.current = null;
     };
@@ -209,6 +295,7 @@ export function ArchitectureGraph({ postMessage }: Readonly<ArchitectureGraphPro
     const cy = cyRef.current;
     if (!cy || !summary) return;
     cy.elements().remove();
+    pinnedRef.current = null;
     cy.add(toArchitectureElements(summary));
     const nodes = cy.nodes();
     const reused = nodes.every((node) => {
@@ -241,11 +328,38 @@ export function ArchitectureGraph({ postMessage }: Readonly<ArchitectureGraphPro
     layout.run();
   }, [summary]);
 
+  useEffect(() => {
+    const cy = cyRef.current;
+    if (!cy || !summary) return;
+    applyMinImports(cy, minImports);
+    showFocus(cy, pinnedRef.current ?? cy.collection(), postMessageRef.current);
+  }, [summary, minImports]);
+
+  useEffect(() => {
+    const cy = cyRef.current;
+    if (!cy || !summary) return;
+    const matches = findGroups(cy, query);
+    pinnedRef.current = matches;
+    showFocus(cy, matches, postMessageRef.current);
+    if (matches.nonempty()) cy.center(matches);
+  }, [summary, query]);
+
   const refresh = () => postMessageRef.current({ command: "architectureRefresh" });
   return (
     <div style={{ display: "flex", flexDirection: "column", width: "100%", height: "100%" }}>
       {state && <StatePanel state={state} onRetry={refresh} />}
-      {!state && summary && <SummaryHeader summary={summary} onRefresh={refresh} />}
+      {!state && summary && (
+        <>
+          <SummaryHeader summary={summary} onRefresh={refresh} />
+          <GraphControls
+            summary={summary}
+            query={query}
+            onQuery={setQuery}
+            minImports={minImports}
+            onMinImports={setMinImports}
+          />
+        </>
+      )}
       <div
         ref={containerRef}
         data-testid="architecture-graph"

@@ -1,3 +1,4 @@
+import type { Collection, Core } from "cytoscape";
 import type { ArchitectureSummaryMessage } from "../../../shared/architecture-types";
 
 export interface ArchitectureElement {
@@ -113,6 +114,7 @@ export function toArchitectureElements(summary: ArchitectureSummaryMessage): Arc
         label: lines.join("\n"),
         ...nodeBox(lines, Math.round(32 + 14 * Math.log2(1 + group.fileCount))),
         unassigned: group.id === 0,
+        search: `${group.label}\n${group.key}`.toLowerCase(),
         tooltip: `${group.key || group.label}\n${plural(group.fileCount, "file")}\n${plural(group.internalEdgeCount, "internal edge")}`,
       },
     };
@@ -124,9 +126,51 @@ export function toArchitectureElements(summary: ArchitectureSummaryMessage): Arc
       source: `group-${edge.from}`,
       target: `group-${edge.to}`,
       label: String(edge.fileEdgeCount),
+      fileEdgeCount: edge.fileEdgeCount,
       width: Math.round((1 + Math.log2(edge.fileEdgeCount)) * 10) / 10,
       tooltip: `${edge.fromLabel} → ${edge.toLabel}\n${plural(edge.fileEdgeCount, "file import")}`,
     },
   }));
   return [...nodes, ...edges];
+}
+
+/** Hides (class `weak`) the group edges with fewer than `minImports` file imports. */
+export function applyMinImports(cy: Core, minImports: number): void {
+  cy.batch(() => {
+    cy.edges().forEach((edge) => {
+      edge.toggleClass("weak", edge.data("fileEdgeCount") < minImports);
+    });
+  });
+}
+
+/** Groups whose label or key contains `query`, case-insensitive; none for a blank query. */
+export function findGroups(cy: Core, query: string): Collection {
+  const needle = query.trim().toLowerCase();
+  return needle ? cy.nodes().filter((node) => String(node.data("search")).includes(needle)) : cy.collection();
+}
+
+/**
+ * Highlights `focus`, its shown edges and the groups at their ends, and fades the rest
+ * (classes only, no relayout). An empty focus clears the highlight.
+ */
+export function highlightFocus(cy: Core, focus: Collection): void {
+  cy.batch(() => {
+    cy.elements().removeClass("faded highlighted");
+    if (focus.empty()) return;
+    const edges = focus.edges().union(focus.nodes().connectedEdges()).not(".weak");
+    const shown = focus.union(edges).union(edges.connectedNodes());
+    shown.addClass("highlighted");
+    cy.elements().not(shown).addClass("faded");
+  });
+}
+
+/** E2E observability, read from the computed style: what the stylesheet actually draws. */
+export function measureInteraction(cy: Core) {
+  const edges = cy.edges().filter((edge) => edge.style("display") !== "none");
+  return {
+    highlightedGroups: cy.nodes(".highlighted").length,
+    fadedGroups: cy.nodes().filter((node) => Number(node.style("opacity")) < 1).length,
+    labelledEdges: edges.filter((edge) => edge.style("label") !== "").length,
+    shownGroupEdges: edges.length,
+  };
 }

@@ -419,7 +419,6 @@ export function buildArchitectureStylesheet(colors: ArchitectureThemeColors): Cy
     {
       selector: "edge",
       style: {
-        label: "data(label)",
         width: "data(width)",
         "font-size": "10px",
         color: colors.foreground,
@@ -431,5 +430,12 @@ export function buildArchitectureStylesheet(colors: ArchitectureThemeColors): Cy
         "target-arrow-shape": "triangle",
       },
     },
+    // Count labels only on highlighted edges: on every edge they bury the central groups.
+    {
+      selector: "edge.highlighted",
+      style: { label: "data(label)", "line-color": colors.accent, "target-arrow-color": colors.accent },
+    },
+    { selector: ".faded", style: { opacity: 0.15 } },
+    { selector: "edge.weak", style: { display: "none" } },
   ];
 }

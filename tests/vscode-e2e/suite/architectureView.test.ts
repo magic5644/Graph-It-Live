@@ -55,6 +55,36 @@ async function waitForRender(
   assert.fail(`Timed out waiting for ${description}. Last render: ${JSON.stringify(render)}`);
 }
 
+interface ArchitectureInteraction {
+  highlightedGroups: number;
+  fadedGroups: number;
+  labelledEdges: number;
+  shownGroupEdges: number;
+}
+
+const readInteractionCount = async () => (await getContextKey<number>('graph-it-live.architectureInteractionCount')) ?? 0;
+
+/**
+ * Sets the find and min-imports controls (none: the picture the render drew), then waits
+ * for the drawn picture to match `expected`.
+ */
+async function expectInteraction(
+  description: string,
+  controls: { find?: string; minImports?: number } | undefined,
+  expected: ArchitectureInteraction,
+): Promise<void> {
+  const before = controls ? await readInteractionCount() : -1;
+  if (controls) await vscode.commands.executeCommand('graph-it-live.e2eArchitectureControls', controls);
+  const start = Date.now();
+  let last: ArchitectureInteraction | undefined;
+  while (Date.now() - start < 15000) {
+    last = await getContextKey<ArchitectureInteraction>('graph-it-live.architectureInteraction');
+    if ((await readInteractionCount()) > before && JSON.stringify(last) === JSON.stringify({ command: 'architectureInteracted', ...expected })) return;
+    await sleep(250);
+  }
+  assert.fail(`${description}: expected ${JSON.stringify(expected)}, last interaction ${JSON.stringify(last)}`);
+}
+
 /** Measured on the real canvas: no two group boxes intersect and every label fits its box. */
 function assertReadableLayout(render: ArchitectureRender): void {
   assert.strictEqual(render.overlappingGroups, 0, 'overlapping group nodes');
@@ -166,6 +196,29 @@ suite('Architecture view mode', () => {
       assert.strictEqual(render.buildCount, built.buildCount, 'a resize does not rebuild');
     } finally {
       await vscode.commands.executeCommand('workbench.action.toggleMaximizedPanel');
+    }
+  });
+
+  test('labels only highlighted edges, highlights a found group neighbourhood, filters weak edges, and clears', async function () {
+    this.timeout(240000);
+    await openFreshArchitecture();
+    const { groups, groupEdges } = EXPECTED.path;
+    const nothing = { highlightedGroups: 0, fadedGroups: 0, labelledEdges: 0 };
+    try {
+      // Count labels are hidden until an edge is highlighted.
+      await expectInteraction('the default picture', undefined, { ...nothing, shownGroupEdges: groupEdges });
+      // layers imports one unassigned file: layers and unassigned stay, the 18 other groups fade.
+      await expectInteraction('the layers neighbourhood', { find: 'LAYERS' }, {
+        highlightedGroups: 2, fadedGroups: groups - 2, labelledEdges: 1, shownGroupEdges: groupEdges,
+      });
+      // 3 of the 6 group edges carry a single import; the layers edge is one of them.
+      await expectInteraction('the min-imports filter', { minImports: 2 }, {
+        highlightedGroups: 1, fadedGroups: groups - 1, labelledEdges: 0, shownGroupEdges: 3,
+      });
+      await expectInteraction('the cleared find', { find: '' }, { ...nothing, shownGroupEdges: 3 });
+      await expectInteraction('the reset filter', { minImports: 1 }, { ...nothing, shownGroupEdges: groupEdges });
+    } finally {
+      await vscode.commands.executeCommand('graph-it-live.e2eArchitectureControls', { find: '', minImports: 1 });
     }
   });
 

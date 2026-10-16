@@ -64,7 +64,9 @@ function createProviderMock(): GraphProvider {
     getArchitectureE2EState: vi.fn().mockReturnValue({
       buildCount: 2, renderCount: 3, groupCount: 20, groupEdgeCount: 6, revision: 'r1', communityMode: 'path', stale: true,
       overlappingGroups: 1, overflowingLabels: 2, positions: 'path:ui@0,0', resizeCount: 4, viewSize: { width: 320, height: 200 },
+      interactionCount: 5, interaction: { highlightedGroups: 2 },
     }),
+    setArchitectureControls: vi.fn(),
   } as unknown as GraphProvider;
 }
 
@@ -114,8 +116,8 @@ describe('CommandRegistrationService', () => {
 
     const disposables = service.registerAll();
 
-    expect(disposables).toHaveLength(15); // getContext is shared; filter commands share one disposable
-    expect(registerCommand).toHaveBeenCalledTimes(16);
+    expect(disposables).toHaveLength(16); // getContext is shared; filter commands share one disposable
+    expect(registerCommand).toHaveBeenCalledTimes(17);
     expect(registeredHandlers.has('graph-it-live.showGraph')).toBe(true);
     expect(registeredHandlers.has('graph-it-live.forceReindex')).toBe(true);
     expect(registeredHandlers.has('graph-it-live.expandAllNodes')).toBe(true);
@@ -157,6 +159,11 @@ describe('CommandRegistrationService', () => {
     expect(await getContext('graph-it-live.architecturePositions')).toBe('path:ui@0,0');
     expect(await getContext('graph-it-live.architectureResizeCount')).toBe(4);
     expect(await getContext('graph-it-live.architectureViewSize')).toEqual({ width: 320, height: 200 });
+    expect(await getContext('graph-it-live.architectureInteractionCount')).toBe(5);
+    expect(await getContext('graph-it-live.architectureInteraction')).toEqual({ highlightedGroups: 2 });
+
+    await registeredHandlers.get('graph-it-live.e2eArchitectureControls')?.({ find: 'ui', minImports: 2 });
+    expect(provider.setArchitectureControls).toHaveBeenCalledWith({ find: 'ui', minImports: 2 });
     expect(await getContext('graph-it-live.unknown')).toBeUndefined();
     expect(await getContext('graph-it-live.reverseDependenciesVisible')).toBe(false);
     expect([
@@ -178,6 +185,8 @@ describe('CommandRegistrationService', () => {
     expect(await getContext('graph-it-live.architectureOverflowingLabels')).toBe(0);
     expect(await getContext('graph-it-live.architecturePositions')).toBeUndefined();
     expect(await getContext('graph-it-live.architectureViewSize')).toBeUndefined();
+    expect(await getContext('graph-it-live.architectureInteractionCount')).toBe(0);
+    expect(await getContext('graph-it-live.architectureInteraction')).toBeUndefined();
   });
 
   it.each([

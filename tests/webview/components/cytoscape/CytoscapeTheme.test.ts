@@ -23,6 +23,9 @@ describe("CytoscapeTheme", () => {
     });
     expect(styleOf(sheet, "node[?unassigned]")).toEqual({ "border-style": "dashed", "border-color": "#333" });
     expect(styleOf(sheet, "edge")).toMatchObject({ "line-color": "#444", width: "data(width)", "target-arrow-shape": "triangle" });
+    // Count labels only on highlighted edges.
+    expect(styleOf(sheet, "edge")).not.toHaveProperty("label");
+    expect(styleOf(sheet, "edge.highlighted")).toEqual({ label: "data(label)", "line-color": "#555", "target-arrow-color": "#555" });
   });
 
   it("builds distinct call graph palettes for dark and light themes", () => {
