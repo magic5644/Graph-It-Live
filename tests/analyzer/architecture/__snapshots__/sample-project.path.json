@@ -348,9 +348,11 @@
         "src/components/Button.tsx"
       ],
       "page": {
-        "total": 1,
         "offset": 0,
-        "returned": 1,
+        "limit": 50,
+        "totalFiles": 1,
+        "totalIncoming": 1,
+        "totalOutgoing": 1,
         "truncated": false
       },
       "nextSteps": "Pass from and to to list the file pairs behind an incoming or outgoing edge."
@@ -409,9 +411,11 @@
         "src/utils.ts"
       ],
       "page": {
-        "total": 5,
         "offset": 0,
-        "returned": 5,
+        "limit": 50,
+        "totalFiles": 5,
+        "totalIncoming": 1,
+        "totalOutgoing": 1,
         "truncated": false
       },
       "nextSteps": "Pass from and to to list the file pairs behind an incoming or outgoing edge."

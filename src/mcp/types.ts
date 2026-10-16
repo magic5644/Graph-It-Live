@@ -686,7 +686,7 @@ export type GenerateWikiParams = z.infer<typeof GenerateWikiParamsSchema>;
 
 const GroupRefSchema = z
   .union([z.number().int().min(0), z.string().min(1).max(256)])
-  .describe("Group key (e.g. 'analyzer'), label, or numeric id from a previous response; 0 or 'unassigned' for files without a group");
+  .describe("Numeric group id from a previous response, or a group key (e.g. 'analyzer') or label as a string; 0 or 'unassigned' for files without a group");
 
 export const ExploreArchitectureParamsSchema = z.object({
   communityMode: z
@@ -709,7 +709,7 @@ export const ExploreArchitectureParamsSchema = z.object({
     .min(1)
     .max(500)
     .optional()
-    .describe("Items per page: groups and group edges, group files, or file pairs (default: 50)"),
+    .describe("Items per page: groups and group edges, a group's files and its incoming and outgoing edges, or file pairs (default: 50)"),
   offset: GraphToolOffsetSchema,
   // In the schema itself: an object with refinements cannot be extended by the server.
   response_format: z.enum(["json", "markdown", "toon"]).optional()

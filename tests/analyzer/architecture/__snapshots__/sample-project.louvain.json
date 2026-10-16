@@ -344,9 +344,11 @@
         "src/utils.ts"
       ],
       "page": {
-        "total": 3,
         "offset": 0,
-        "returned": 3,
+        "limit": 50,
+        "totalFiles": 3,
+        "totalIncoming": 1,
+        "totalOutgoing": 0,
         "truncated": false
       },
       "nextSteps": "Pass from and to to list the file pairs behind an incoming or outgoing edge."
@@ -394,9 +396,11 @@
         "src/main.ts"
       ],
       "page": {
-        "total": 2,
         "offset": 0,
-        "returned": 2,
+        "limit": 50,
+        "totalFiles": 2,
+        "totalIncoming": 0,
+        "totalOutgoing": 1,
         "truncated": false
       },
       "nextSteps": "Pass from and to to list the file pairs behind an incoming or outgoing edge."
@@ -435,9 +439,11 @@
         "src/logger.js"
       ],
       "page": {
-        "total": 1,
         "offset": 0,
-        "returned": 1,
+        "limit": 50,
+        "totalFiles": 1,
+        "totalIncoming": 0,
+        "totalOutgoing": 0,
         "truncated": false
       },
       "nextSteps": "Pass from and to to list the file pairs behind an incoming or outgoing edge."
