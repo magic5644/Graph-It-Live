@@ -44,15 +44,15 @@ function waitForIdleIndex(
   return new Promise((resolve, reject) => {
     let unsubscribe = () => {};
     let done = false;
-    const finish = (error?: unknown) => {
+    const finish = (error?: Error) => {
       if (done) return;
       done = true;
       unsubscribe();
       signal.removeEventListener("abort", onAbort);
       if (error === undefined) resolve();
-      else reject(error instanceof Error ? error : new Error(String(error)));
+      else reject(error);
     };
-    const onAbort = () => finish(signal.reason);
+    const onAbort = () => finish(signal.reason instanceof Error ? signal.reason : new Error("Architecture build aborted"));
     signal.addEventListener("abort", onAbort);
     // subscribe notifies the current state synchronously, possibly before it returns.
     let notifiedBusy = false;
