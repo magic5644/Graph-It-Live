@@ -41,8 +41,8 @@ const byFileCount = (left: CommunityGroup, right: CommunityGroup) => right.fileC
 
 /** Adds both group labels to a group edge, so renderers never look groups up. */
 function edgeLabeler(aggregation: CommunityGroupAggregation) {
-  const labelOf = (id: number) =>
-    id === 0 ? "unassigned" : aggregation.groups.find(group => group.id === id)?.label ?? "";
+  const labels = new Map<number, string>(aggregation.groups.map(group => [group.id, group.label]));
+  const labelOf = (id: number) => (id === 0 ? "unassigned" : labels.get(id) ?? "");
   return (edge: CommunityGroupAggregation["groupEdges"][number]) =>
     ({ ...edge, fromLabel: labelOf(edge.from), toLabel: labelOf(edge.to) });
 }
@@ -199,6 +199,7 @@ export function overviewArchitecture(
     unassigned: aggregation.unassigned,
     groups,
     groupEdges,
+    totalGroups: aggregation.groups.length,
     hiddenGroups: aggregation.groups.length - groups.length,
     hiddenGroupEdges: aggregation.groupEdges.length - groupEdges.length,
   };

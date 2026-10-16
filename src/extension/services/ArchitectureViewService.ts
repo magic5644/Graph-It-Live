@@ -23,7 +23,11 @@ export interface ArchitectureViewServiceOptions {
 }
 
 /** Resolves once the reverse index is not being built, so both do not compete for the Spider. */
-function waitForIdleIndex(options: ArchitectureViewServiceOptions, signal: AbortSignal): Promise<void> {
+function waitForIdleIndex(
+  options: ArchitectureViewServiceOptions,
+  signal: AbortSignal,
+  onBusy: () => void,
+): Promise<void> {
   return new Promise((resolve, reject) => {
     let unsubscribe = () => {};
     let done = false;
@@ -38,8 +42,13 @@ function waitForIdleIndex(options: ArchitectureViewServiceOptions, signal: Abort
     const onAbort = () => finish(signal.reason);
     signal.addEventListener("abort", onAbort);
     // subscribe notifies the current state synchronously, possibly before it returns.
+    let notifiedBusy = false;
     unsubscribe = options.subscribeToIndexStatus((snapshot) => {
       if (!BUSY_INDEX_STATES.has(snapshot.state)) finish();
+      else if (!notifiedBusy) {
+        notifiedBusy = true;
+        onBusy();
+      }
     });
     if (done) unsubscribe();
   });
@@ -55,6 +64,9 @@ export class ArchitectureViewService {
   private buildCount = 0;
   private renderCount = 0;
   private lastRender: ArchitectureRenderedCommand | null = null;
+  /** A source file changed while the running build was analysing. */
+  private changedDuringBuild = false;
+  private disposed = false;
 
   constructor(private readonly options: ArchitectureViewServiceOptions) {}
 
@@ -73,6 +85,7 @@ export class ArchitectureViewService {
 
   /** Posts the cached summary when it matches the communityMode setting, else builds. */
   show(): Promise<void> {
+    if (this.disposed) return Promise.resolve();
     const communityMode = this.options.readCommunityMode();
     if (this.running?.communityMode === communityMode) {
       // The running build posts its summary when done.
@@ -93,6 +106,7 @@ export class ArchitectureViewService {
   }
 
   markStale(): void {
+    if (this.running) this.changedDuringBuild = true;
     if (!this.summary || this.summary.stale) return;
     this.summary = { ...this.summary, stale: true };
     this.options.post(this.summary);
@@ -100,14 +114,17 @@ export class ArchitectureViewService {
 
   /** A new build aborts the running one; an aborted build never posts its result. */
   async build(): Promise<void> {
+    if (this.disposed) return;
     this.running?.controller.abort();
+    this.changedDuringBuild = false;
     const controller = new AbortController();
     const communityMode = this.options.readCommunityMode();
     this.running = { controller, communityMode };
     const { signal } = controller;
     try {
-      this.options.post({ type: "architectureState", status: "building", message: "Waiting for indexing to finish…" });
-      await waitForIdleIndex(this.options, signal);
+      this.options.post({ type: "architectureState", status: "building", message: "Building architecture…" });
+      await waitForIdleIndex(this.options, signal, () =>
+        this.options.post({ type: "architectureState", status: "building", message: "Waiting for indexing to finish…" }));
       let lastProgressAt = Number.NEGATIVE_INFINITY;
       const graph = await buildArchitectureGraph(this.options.workspaceRoot, this.options.analyzeFile, {
         communityMode,
@@ -130,13 +147,15 @@ export class ArchitectureViewService {
       this.summary = {
         type: "architectureSummary",
         revision: graph.context.revision,
-        stale: false,
+        stale: this.changedDuringBuild,
         ...overviewArchitecture(graph, MAX_RENDERED_GROUPS),
       };
       this.options.post(this.summary);
     } catch (error) {
       if (signal.aborted) return;
-      this.options.post({ type: "architectureState", status: "error", message: error instanceof Error ? error.message : String(error) });
+      // Only workspace-level failures get here (per-file ones are counted in failedFiles); keep the root out of the view.
+      const message = (error instanceof Error ? error.message : String(error)).replaceAll(this.options.workspaceRoot, "<workspace>");
+      this.options.post({ type: "architectureState", status: "error", message });
     } finally {
       if (this.running?.controller === controller) this.running = null;
     }
@@ -156,6 +175,7 @@ export class ArchitectureViewService {
   }
 
   dispose(): void {
+    this.disposed = true;
     this.running?.controller.abort();
     this.running = null;
   }

@@ -1,6 +1,6 @@
 import * as assert from 'node:assert';
 import * as vscode from 'vscode';
-import { getContextKey, getProjectFile, sleep, waitForViewMode } from './_helpers';
+import { getContextKey, getProjectFile, openGraphFor, sleep, waitForViewMode } from './_helpers';
 
 interface ArchitectureRender {
   renderCount: number;
@@ -49,6 +49,16 @@ async function waitForRender(
   assert.fail(`Timed out waiting for ${description}. Last render: ${JSON.stringify(render)}`);
 }
 
+/** Opens the view and refreshes it: earlier suites edit fixtures, which leaves the cached summary stale. */
+async function openFreshArchitecture(): Promise<ArchitectureRender> {
+  await vscode.commands.executeCommand('graph-it-live.setViewModeArchitecture');
+  await waitForViewMode('architecture');
+  await sleep(500); // let the mount post architectureMounted first
+  const before = (await readRender()).renderCount;
+  await vscode.commands.executeCommand('graph-it-live.refreshGraph');
+  return waitForRender('a fresh render', before, render => !render.stale && render.communityMode === 'path');
+}
+
 suite('Architecture view mode', () => {
   const config = () => vscode.workspace.getConfiguration('graph-it-live');
 
@@ -66,11 +76,7 @@ suite('Architecture view mode', () => {
 
   test('renders the collapsed groups of graph-it architecture --groups, then rebuilds for louvain', async function () {
     this.timeout(240000);
-    const before = (await readRender()).renderCount;
-
-    await vscode.commands.executeCommand('graph-it-live.setViewModeArchitecture');
-    await waitForViewMode('architecture');
-    const byFolder = await waitForRender('the path render', before, render => render.communityMode === 'path');
+    const byFolder = await openFreshArchitecture();
     assert.strictEqual(byFolder.groupCount, EXPECTED.path.groups, 'rendered groups');
     assert.strictEqual(byFolder.groupEdgeCount, EXPECTED.path.groupEdges, 'rendered group edges');
     assert.strictEqual(byFolder.stale, false);
@@ -86,10 +92,7 @@ suite('Architecture view mode', () => {
 
   test('marks the view stale on a file change without rebuilding, and Refresh rebuilds', async function () {
     this.timeout(240000);
-    const before = (await readRender()).renderCount;
-    await vscode.commands.executeCommand('graph-it-live.setViewModeArchitecture');
-    await waitForViewMode('architecture');
-    const built = await waitForRender('the first render', before, render => !render.stale);
+    const built = await openFreshArchitecture();
 
     const file = getProjectFile('sample-project', 'src', 'utils.ts');
     const original = await vscode.workspace.fs.readFile(file);
@@ -110,11 +113,18 @@ suite('Architecture view mode', () => {
     assert.strictEqual(refreshed.groupCount, EXPECTED.path.groups);
   });
 
-  test('the Graph button leaves the architecture view', async function () {
-    this.timeout(30000);
-    await vscode.commands.executeCommand('graph-it-live.setViewModeArchitecture');
-    await waitForViewMode('architecture');
-    await vscode.commands.executeCommand('graph-it-live.setViewModeFile');
-    await waitForViewMode('file');
+  test('the Graph, List and Symbol buttons leave the architecture view', async function () {
+    this.timeout(60000);
+    await openGraphFor('sample-project', 'src', 'utils.ts');
+    for (const [command, mode] of [
+      ['graph-it-live.setViewModeFile', 'file'],
+      ['graph-it-live.setViewModeList', 'list'],
+      ['graph-it-live.setViewModeSymbol', 'symbol'],
+    ] as const) {
+      await vscode.commands.executeCommand('graph-it-live.setViewModeArchitecture');
+      await waitForViewMode('architecture');
+      await vscode.commands.executeCommand(command);
+      await waitForViewMode(mode, { timeoutMs: 15000 });
+    }
   });
 });

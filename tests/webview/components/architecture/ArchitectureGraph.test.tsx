@@ -1,0 +1,134 @@
+// @vitest-environment happy-dom
+
+import React from "react";
+import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import type { ArchitectureExtensionMessage, ArchitectureSummaryMessage } from "@/shared/architecture-types";
+
+// Cytoscape needs a canvas: stand in a fake that records elements and runs layouts at once.
+const cy = vi.hoisted(() => {
+  const state = { nodes: 0, edges: 0, handlers: new Map<string, (event: unknown) => void>() };
+  const instance = {
+    on: (name: string, _selector: string, handler: (event: unknown) => void) => state.handlers.set(name, handler),
+    elements: () => ({ remove: () => { state.nodes = 0; state.edges = 0; } }),
+    add: (elements: { group: string }[]) => {
+      state.nodes += elements.filter(element => element.group === "nodes").length;
+      state.edges += elements.filter(element => element.group === "edges").length;
+    },
+    layout: () => {
+      let stop = () => {};
+      return { on: (_name: string, handler: () => void) => { stop = handler; }, run: () => stop() };
+    },
+    fit: () => {},
+    nodes: () => ({ length: state.nodes }),
+    edges: () => ({ length: state.edges }),
+    destroy: () => {},
+  };
+  const factory = Object.assign(() => instance, { use: () => {} });
+  return { state, factory };
+});
+vi.mock("cytoscape", () => ({ default: cy.factory }));
+vi.mock("cytoscape-fcose", () => ({ default: () => {} }));
+
+import { ArchitectureGraph } from "@/webview/components/architecture/ArchitectureGraph";
+
+const summary: ArchitectureSummaryMessage = {
+  type: "architectureSummary",
+  revision: "r1",
+  stale: false,
+  context: {
+    communityMode: "louvain",
+    revision: "r1",
+    graphKind: "imports",
+    scope: "workspace",
+    exclusions: "",
+    indexedAt: undefined,
+    maxFiles: 10,
+    truncated: true,
+    failedFiles: 2,
+  },
+  provenance: { facts: "File pairs are static import relations.", grouping: "", interpretation: "" },
+  scannedFiles: 12,
+  analyzedFiles: 10,
+  totals: { files: 10, fileEdges: 4, intraGroupEdges: 1, interGroupEdges: 3 },
+  unassigned: { fileCount: 1, internalEdgeCount: 0 },
+  groups: [
+    { id: 1, key: "ui", label: "ui", fileCount: 5, internalEdgeCount: 1 },
+    { id: 2, key: "store", label: "store", fileCount: 4, internalEdgeCount: 0 },
+  ],
+  groupEdges: [{ from: 1, to: 2, fileEdgeCount: 3, fromLabel: "ui", toLabel: "store" }],
+  totalGroups: 3,
+  hiddenGroups: 1,
+  hiddenGroupEdges: 2,
+};
+
+const send = (message: ArchitectureExtensionMessage) =>
+  act(() => { window.dispatchEvent(new MessageEvent("message", { data: message })); });
+
+describe("ArchitectureGraph", () => {
+  afterEach(cleanup);
+
+  it("asks for the summary on mount and shows the build progress", () => {
+    const postMessage = vi.fn();
+    render(<ArchitectureGraph postMessage={postMessage} />);
+
+    expect(postMessage).toHaveBeenCalledWith({ command: "architectureMounted" });
+    send({ type: "architectureState", status: "building", message: "Analysing files (3/10)…", percent: 30 });
+    expect(screen.getByText("Analysing files (3/10)…")).toBeTruthy();
+    expect(screen.getByRole("progressbar")).toBeTruthy();
+  });
+
+  it("renders the header from the summary and reports what was drawn", () => {
+    const postMessage = vi.fn();
+    render(<ArchitectureGraph postMessage={postMessage} />);
+    send(summary);
+
+    expect(screen.getByText("Groups based on imports (Louvain)")).toBeTruthy();
+    expect(screen.getByText(/2 of 3 groups shown/)).toBeTruthy();
+    expect(screen.getByText(/2 failed/)).toBeTruthy();
+    expect(screen.getByText(/Only the first 10 files/)).toBeTruthy();
+    expect(screen.queryByText(/Files changed/)).toBeNull();
+    expect(postMessage).toHaveBeenLastCalledWith({
+      command: "architectureRendered",
+      revision: "r1",
+      renderedGroups: 3,
+      renderedGroupEdges: 1,
+      communityMode: "louvain",
+      stale: false,
+    });
+  });
+
+  it("shows the stale banner, whose Refresh asks for a rebuild", () => {
+    const postMessage = vi.fn();
+    render(<ArchitectureGraph postMessage={postMessage} />);
+    send({ ...summary, stale: true, hiddenGroups: 0, context: { ...summary.context, truncated: false, failedFiles: 0 } });
+
+    expect(screen.getByText(/Files changed since this view was built/)).toBeTruthy();
+    expect(screen.queryByText(/groups shown/)).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Refresh" }));
+    expect(postMessage).toHaveBeenLastCalledWith({ command: "architectureRefresh" });
+  });
+
+  it("offers Retry on error and states when there is nothing to show", () => {
+    const postMessage = vi.fn();
+    render(<ArchitectureGraph postMessage={postMessage} />);
+
+    send({ type: "architectureState", status: "error", message: "boom" });
+    expect(screen.getByText(/Architecture build failed: boom/)).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Retry" }));
+    expect(postMessage).toHaveBeenLastCalledWith({ command: "architectureRefresh" });
+
+    send({ type: "architectureState", status: "empty", message: "No source file found in the workspace folder." });
+    expect(screen.getByText("No source file found in the workspace folder.")).toBeTruthy();
+  });
+
+  it("sets the hovered element's tooltip on the container", () => {
+    render(<ArchitectureGraph postMessage={vi.fn()} />);
+    const container = screen.getByTestId("architecture-graph");
+
+    act(() => cy.state.handlers.get("mouseover")?.({ target: { data: () => "ui\n5 files" } }));
+    expect(container.title).toBe("ui\n5 files");
+    act(() => cy.state.handlers.get("mouseout")?.({}));
+    expect(container.title).toBe("");
+  });
+});

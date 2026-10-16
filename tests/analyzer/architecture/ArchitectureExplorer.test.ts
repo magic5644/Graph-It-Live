@@ -175,9 +175,15 @@ describe("overviewArchitecture", () => {
       { from: 0, to: 1, fileEdgeCount: 1, fromLabel: "unassigned", toLabel: "ui" },
       { from: 1, to: 2, fileEdgeCount: 3, fromLabel: "ui", toLabel: "store" },
     ]);
-    expect(overview).toMatchObject({ hiddenGroups: 0, hiddenGroupEdges: 0, scannedFiles: 6, analyzedFiles: 6 });
+    expect(overview).toMatchObject({ totalGroups: 3, hiddenGroups: 0, hiddenGroupEdges: 0, scannedFiles: 6, analyzedFiles: 6 });
     expect(overview.unassigned).toEqual({ fileCount: 1, internalEdgeCount: 0 });
     expect(overview.context.revision).toBe(graph.context.revision);
+  });
+
+  it.each([[0, SPOKES + 1], [SPOKES + 1, 0], [SPOKES, 1]])("keeps the cap of %i groups, %i hidden", (cap, hidden) => {
+    const overview = overviewArchitecture(hubGraph, cap);
+    expect(overview.groups).toHaveLength(cap);
+    expect(overview).toMatchObject({ totalGroups: SPOKES + 1, hiddenGroups: hidden });
   });
 
   it("keeps the largest groups and their edges, with totals from the full graph", () => {

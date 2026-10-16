@@ -56,6 +56,11 @@ function createProviderMock(): GraphProvider {
     getViewMode: vi.fn().mockReturnValue('file'), // E2E test helper
     getReverseDependenciesVisible: vi.fn().mockReturnValue(false),
     showReviewCallGraph: vi.fn(),
+    getCallGraphRenderCount: vi.fn().mockReturnValue(1),
+    getCallGraphNodeCount: vi.fn().mockReturnValue(2),
+    getCallGraphEdgeCount: vi.fn().mockReturnValue(3),
+    getCallGraphCycleCount: vi.fn().mockReturnValue(4),
+    getFileGraphNodeMetadata: vi.fn().mockReturnValue({}),
     getArchitectureE2EState: vi.fn().mockReturnValue({
       buildCount: 2, renderCount: 3, groupCount: 20, groupEdgeCount: 6, revision: 'r1', communityMode: 'path', stale: true,
     }),
@@ -147,6 +152,14 @@ describe('CommandRegistrationService', () => {
     expect(await getContext('graph-it-live.architectureCommunityMode')).toBe('path');
     expect(await getContext('graph-it-live.architectureStale')).toBe(true);
     expect(await getContext('graph-it-live.unknown')).toBeUndefined();
+    expect(await getContext('graph-it-live.reverseDependenciesVisible')).toBe(false);
+    expect([
+      await getContext('graph-it-live.callGraphRenderCount'),
+      await getContext('graph-it-live.callGraphNodeCount'),
+      await getContext('graph-it-live.callGraphEdgeCount'),
+      await getContext('graph-it-live.callGraphCycleCount'),
+      await getContext('graph-it-live.fileGraphNodeMetadata'),
+    ]).toEqual([1, 2, 3, 4, {}]);
 
     (provider.getArchitectureE2EState as ReturnType<typeof vi.fn>).mockReturnValue(undefined);
     expect(await getContext('graph-it-live.architectureRenderCount')).toBe(0);

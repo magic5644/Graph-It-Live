@@ -53,7 +53,6 @@ const bannerStyle: React.CSSProperties = {
 
 function SummaryHeader({ summary, onRefresh }: Readonly<{ summary: ArchitectureSummaryMessage; onRefresh: () => void }>) {
   const { context, totals } = summary;
-  const totalGroups = summary.groups.length + summary.hiddenGroups;
   return (
     <div style={{ padding: "6px 10px", fontSize: 12, borderBottom: "1px solid var(--vscode-widget-border)" }}>
       {summary.stale && (
@@ -80,7 +79,7 @@ function SummaryHeader({ summary, onRefresh }: Readonly<{ summary: ArchitectureS
       )}
       {summary.hiddenGroups > 0 && (
         <div>
-          {summary.groups.length} of {totalGroups} groups shown (largest first); {summary.hiddenGroupEdges} group
+          {summary.groups.length} of {summary.totalGroups} groups shown (largest first); {summary.hiddenGroupEdges} group
           edges hidden. Totals include them.
         </div>
       )}
