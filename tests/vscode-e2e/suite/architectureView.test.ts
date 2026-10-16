@@ -118,27 +118,34 @@ suite('Architecture view mode', () => {
     const built = await openFreshArchitecture();
     const readResize = async () => ({
       count: (await getContextKey<number>('graph-it-live.architectureResizeCount')) ?? 0,
-      width: (await getContextKey<number>('graph-it-live.architectureViewWidth')) ?? 0,
+      size: JSON.stringify(await getContextKey('graph-it-live.architectureViewSize')),
     });
-    await sleep(500); // let the resize from the header appearing settle
-    const before = await readResize();
+    // Mount and header re-fits arrive asynchronously: wait until the count stops moving.
+    let before = await readResize();
+    for (let settled = 0; settled < 4; ) {
+      await sleep(250);
+      const next = await readResize();
+      settled = next.count === before.count ? settled + 1 : 0;
+      before = next;
+    }
 
-    await vscode.commands.executeCommand('graph-it-live.graphView.focus');
-    await vscode.commands.executeCommand('workbench.action.increaseViewWidth');
+    // The view lives in the panel: maximizing it changes the container size. Toggling is
+    // symmetric, so the finally block restores the layout whatever it was.
+    await vscode.commands.executeCommand('workbench.action.toggleMaximizedPanel');
     try {
       const start = Date.now();
       let after = await readResize();
-      while (Date.now() - start < 15000 && !(after.count > before.count && after.width !== before.width)) {
+      while (Date.now() - start < 15000 && !(after.count > before.count && after.size !== before.size)) {
         await sleep(250);
         after = await readResize();
       }
       assert.ok(after.count > before.count, `no re-fit after the resize: ${JSON.stringify({ before, after })}`);
-      assert.notStrictEqual(after.width, before.width, 'the canvas follows the view width');
+      assert.notStrictEqual(after.size, before.size, 'the canvas follows the view size');
       const render = await readRender();
       assert.strictEqual(render.renderCount, built.renderCount, 'a resize does not re-run the layout');
       assert.strictEqual(render.buildCount, built.buildCount, 'a resize does not rebuild');
     } finally {
-      await vscode.commands.executeCommand('workbench.action.decreaseViewWidth');
+      await vscode.commands.executeCommand('workbench.action.toggleMaximizedPanel');
     }
   });
 

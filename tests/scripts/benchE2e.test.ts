@@ -114,7 +114,8 @@ describe('OSS_CORPORA', () => {
   });
 });
 
-describe('fetchCorpus', () => {
+// Real git processes: spawning ~10 of them exceeds the 5 s default on Windows runners.
+describe('fetchCorpus', { timeout: 30_000 }, () => {
   const git = (cwd: string, ...args: string[]) =>
     execFileSync('git', ['-c', 'user.name=bench', '-c', 'user.email=bench@example.com', ...args], { cwd, encoding: 'utf8' }).trim();
 

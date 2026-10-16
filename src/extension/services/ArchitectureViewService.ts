@@ -78,7 +78,7 @@ export class ArchitectureViewService {
   private renderCount = 0;
   private lastRender: ArchitectureRenderedCommand | null = null;
   private resizeCount = 0;
-  private viewWidth = 0;
+  private viewSize = { width: 0, height: 0 };
   /** A source file changed while the running build was analysing. */
   private changedDuringBuild = false;
   private disposed = false;
@@ -97,7 +97,7 @@ export class ArchitectureViewService {
         return Promise.resolve();
       case "architectureResized":
         this.resizeCount += 1;
-        this.viewWidth = message.width;
+        this.viewSize = { width: message.width, height: message.height };
         return Promise.resolve();
     }
   }
@@ -197,7 +197,7 @@ export class ArchitectureViewService {
       communityMode: this.lastRender?.communityMode,
       stale: this.lastRender?.stale ?? false,
       resizeCount: this.resizeCount,
-      viewWidth: this.viewWidth,
+      viewSize: this.viewSize,
     };
   }
 

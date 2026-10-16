@@ -184,4 +184,20 @@ describe("ArchitectureGraph", () => {
       vi.useRealTimers();
     }
   });
+
+  it("falls back to the window resize event without ResizeObserver", () => {
+    vi.useFakeTimers();
+    vi.stubGlobal("ResizeObserver", undefined);
+    try {
+      const { unmount } = render(<ArchitectureGraph postMessage={vi.fn()} />);
+      cy.instance.resize.mockClear();
+      window.dispatchEvent(new Event("resize"));
+      vi.advanceTimersByTime(120);
+      expect(cy.instance.resize).toHaveBeenCalledTimes(1);
+      unmount();
+    } finally {
+      vi.unstubAllGlobals();
+      vi.useRealTimers();
+    }
+  });
 });

@@ -223,7 +223,7 @@ export class CommandRegistrationService {
       ['graph-it-live.architectureCommunityMode', () => architecture()?.communityMode],
       ['graph-it-live.architectureStale', () => architecture()?.stale ?? false],
       ['graph-it-live.architectureResizeCount', () => architecture()?.resizeCount ?? 0],
-      ['graph-it-live.architectureViewWidth', () => architecture()?.viewWidth ?? 0],
+      ['graph-it-live.architectureViewSize', () => architecture()?.viewSize],
     ]);
     // Unknown keys return undefined.
     return vscode.commands.registerCommand('getContext', (key: string) => getters.get(key)?.());
