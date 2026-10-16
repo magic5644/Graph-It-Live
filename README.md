@@ -105,6 +105,16 @@ The Live Call Graph shows cross-file symbol relationships in a Cytoscape.js pane
 
 The Live Call Graph supports TypeScript, JavaScript, Vue, Svelte, Python, Rust, C#, Go, and Java. C#, Go, and Java are supported in the file graph and Live Call Graph; Symbol View support is currently limited to TypeScript, JavaScript, Python, and Rust.
 
+### Architecture view
+
+*Switch to Architecture View* (title bar of the *Dependency Graph* view, icon `$(type-hierarchy)`) shows the whole workspace as collapsed groups with the directed import edges between them. It uses the same groups and counts as `graph-it architecture --groups` and the `explore_architecture` MCP tool.
+
+- Groups follow `graph-it-live.communityMode`: folders (`path`) or import communities (`louvain`). Changing the setting rebuilds the view.
+- A group node shows its file count; an edge label counts the distinct file-to-file imports between two groups. Files outside any group appear as a dashed *unassigned* node.
+- The header shows totals (files, file edges within and between groups) from the full graph. At most 150 groups are drawn, largest first; the header says how many groups and group edges are hidden, and totals still include them.
+- The view is built when it opens, on *Refresh*, and when the setting changes. Changing, creating or deleting a source file only shows a *Files changed* banner: a build reads every file, so you decide when to *Refresh*.
+- It analyses the configured workspace folder. Use the *Graph*, *List* or *Symbol* buttons to leave it.
+
 ### Unused dependencies and impact analysis
 
 - Hide or dim unused dependencies.

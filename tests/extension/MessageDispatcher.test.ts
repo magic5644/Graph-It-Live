@@ -53,4 +53,117 @@ describe("MessageDispatcher", () => {
 
     expect(graphState.setExpandAll as ReturnType<typeof vi.fn>).toHaveBeenCalledWith(true);
   });
+
+  it("routes architecture messages to the architecture handler", async () => {
+    const handleArchitectureMessage = vi.fn().mockResolvedValue(undefined);
+    const dispatcher = new MessageDispatcher({
+      graphState: createGraphStateMock(),
+      handleArchitectureMessage,
+      logger: { debug: vi.fn() },
+    } as unknown as ConstructorParameters<typeof MessageDispatcher>[0]);
+    const rendered = {
+      command: "architectureRendered" as const,
+      revision: "r1",
+      renderedGroups: 2,
+      renderedGroupEdges: 1,
+      communityMode: "path" as const,
+      stale: false,
+    };
+
+    await dispatcher.handle({ command: "architectureMounted" });
+    await dispatcher.handle({ command: "architectureRefresh" });
+    await dispatcher.handle(rendered);
+
+    expect(handleArchitectureMessage.mock.calls).toEqual([
+      [{ command: "architectureMounted" }],
+      [{ command: "architectureRefresh" }],
+      [rendered],
+    ]);
+  });
+
+  describe("routing", () => {
+    const createDeps = () => ({
+      graphState: createGraphStateMock(),
+      getUnusedFilterActive: vi.fn().mockReturnValue(false),
+      toggleUnusedFilter: vi.fn(),
+      handleOpenFile: vi.fn(),
+      handleExpandNode: vi.fn(),
+      handleCancelExpandNode: vi.fn(),
+      handleFindReferencingFiles: vi.fn(),
+      handleDrillDown: vi.fn(),
+      updateGraph: vi.fn(),
+      refreshGraph: vi.fn(),
+      handleSelectSymbol: vi.fn(),
+      sendGraphUpdate: vi.fn(),
+      setViewMode: vi.fn(),
+      getViewMode: vi.fn().mockReturnValue("file"),
+      getSelectedSymbolId: vi.fn().mockReturnValue(undefined),
+      setSelectedSymbolId: vi.fn(),
+      getLastActiveFilePath: vi.fn().mockReturnValue(undefined),
+      parseFilePathAndSymbol: vi.fn().mockReturnValue(undefined),
+      getActiveEditorFilePath: vi.fn().mockReturnValue(undefined),
+      handleCallGraphMessage: vi.fn(),
+      logger: { debug: vi.fn() },
+    });
+
+    it("forwards each message to its handler", async () => {
+      const deps = createDeps();
+      const dispatcher = new MessageDispatcher(deps);
+
+      await dispatcher.handle({ command: "openFile", path: "/a.ts", line: 3 });
+      await dispatcher.handle({ command: "expandNode", nodeId: "/a.ts", knownNodes: ["/b.ts"] });
+      await dispatcher.handle({ command: "cancelExpandNode", nodeId: "/a.ts" });
+      await dispatcher.handle({ command: "refreshGraph" });
+      await dispatcher.handle({ command: "findReferencingFiles", nodeId: "/a.ts" });
+      await dispatcher.handle({ command: "drillDown", filePath: "/a.ts" });
+      await dispatcher.handle({ command: "ready" });
+      await dispatcher.handle({ command: "enableUnusedFilter" });
+      await dispatcher.handle({ command: "selectSymbol", symbolId: "/a.ts:x" });
+      await dispatcher.handle({ command: "navigateToSymbol", filePath: "/a.ts", line: 2 } as never);
+      await dispatcher.handle({ command: "callGraphMounted" });
+      await dispatcher.handle({ command: "callGraphOpenFile", uri: "/a.ts", line: 0, character: 0 });
+      await dispatcher.handle({ command: "callGraphSymbolFocus", nodeId: "n", path: "/a.ts", startLine: 0, startCol: 0 });
+      await dispatcher.handle({ command: "callGraphReady", nodeCount: 1, edgeCount: 0 });
+      await dispatcher.handle({ command: "callGraphDepthChanged", depth: 2 });
+      await dispatcher.handle({ command: "callGraphFilterChanged", filterType: "folder", value: "src", visible: false });
+      deps.getUnusedFilterActive.mockReturnValue(true);
+      await dispatcher.handle({ command: "disableUnusedFilter" });
+      await dispatcher.handle({ command: "enableUnusedFilter" });
+      for (const level of ["debug", "info", "warn", "error"] as const) {
+        await dispatcher.handle({ command: "webviewLog", level, message: "from webview" });
+      }
+
+      expect(deps.handleOpenFile.mock.calls).toEqual([["/a.ts", 3], ["/a.ts", 2]]);
+      expect(deps.handleExpandNode).toHaveBeenCalledWith("/a.ts", ["/b.ts"]);
+      expect(deps.handleCancelExpandNode).toHaveBeenCalledWith("/a.ts");
+      expect(deps.refreshGraph).toHaveBeenCalledOnce();
+      expect(deps.handleFindReferencingFiles).toHaveBeenCalledWith("/a.ts", undefined);
+      expect(deps.handleDrillDown).toHaveBeenCalledWith("/a.ts");
+      expect(deps.updateGraph).toHaveBeenCalledOnce();
+      expect(deps.toggleUnusedFilter).toHaveBeenCalledTimes(2);
+      expect(deps.handleCallGraphMessage).toHaveBeenCalledTimes(6);
+      expect(deps.handleSelectSymbol).toHaveBeenCalledWith("/a.ts:x");
+      expect(deps.handleCallGraphMessage).toHaveBeenCalledWith({ command: "callGraphMounted" });
+      expect(deps.logger.debug).toHaveBeenCalled();
+    });
+
+    it("switches back to file mode on the previous symbol's file, else refreshes", async () => {
+      const deps = createDeps();
+      deps.getSelectedSymbolId.mockReturnValue("/src/a.ts:run");
+      deps.parseFilePathAndSymbol.mockReturnValue({ actualFilePath: "/src/a.ts" });
+      const dispatcher = new MessageDispatcher(deps);
+
+      await dispatcher.handle({ command: "switchMode", mode: "file" });
+      expect(deps.setViewMode).toHaveBeenCalledWith("file");
+      expect(deps.sendGraphUpdate).toHaveBeenCalledWith("/src/a.ts", false);
+
+      deps.getSelectedSymbolId.mockReturnValue(undefined);
+      await dispatcher.handle({ command: "switchMode", mode: "file" });
+      expect(deps.updateGraph).toHaveBeenCalledOnce();
+
+      deps.getActiveEditorFilePath.mockReturnValue("/src/b.ts");
+      await dispatcher.handle({ command: "switchMode", mode: "symbol" });
+      expect(deps.handleDrillDown).toHaveBeenCalledWith("/src/b.ts");
+    });
+  });
 });

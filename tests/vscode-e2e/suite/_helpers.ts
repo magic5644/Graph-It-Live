@@ -1,7 +1,7 @@
 import * as assert from 'node:assert';
 import * as vscode from 'vscode';
 
-export type ViewMode = 'file' | 'list' | 'symbol';
+export type ViewMode = 'file' | 'list' | 'symbol' | 'architecture';
 
 export function getProjectFile(projectName: string, ...pathSegments: string[]): vscode.Uri {
   const workspaceFolders = vscode.workspace.workspaceFolders;

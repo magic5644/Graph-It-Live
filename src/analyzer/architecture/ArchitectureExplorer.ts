@@ -37,6 +37,16 @@ export interface ArchitectureExploreOptions {
   revision?: string;
 }
 
+const byFileCount = (left: CommunityGroup, right: CommunityGroup) => right.fileCount - left.fileCount || left.id - right.id;
+
+/** Adds both group labels to a group edge, so renderers never look groups up. */
+function edgeLabeler(aggregation: CommunityGroupAggregation) {
+  const labelOf = (id: number) =>
+    id === 0 ? "unassigned" : aggregation.groups.find(group => group.id === id)?.label ?? "";
+  return (edge: CommunityGroupAggregation["groupEdges"][number]) =>
+    ({ ...edge, fromLabel: labelOf(edge.from), toLabel: labelOf(edge.to) });
+}
+
 function page<T>(items: T[], offset: number, limit: number) {
   const slice = items.slice(offset, offset + limit);
   const nextOffset = offset + slice.length < items.length ? offset + slice.length : undefined;
@@ -110,10 +120,7 @@ export function exploreArchitecture(
   const aggregation = aggregateCommunityGroups(graphData);
   const offset = options.offset ?? 0;
   const limit = options.limit ?? DEFAULT_EXPLORE_LIMIT;
-  const labelOf = (id: number) =>
-    id === 0 ? "unassigned" : aggregation.groups.find(group => group.id === id)?.label ?? "";
-  const withLabels = (edge: CommunityGroupAggregation["groupEdges"][number]) =>
-    ({ ...edge, fromLabel: labelOf(edge.from), toLabel: labelOf(edge.to) });
+  const withLabels = edgeLabeler(aggregation);
   const communityOf = (filePath: string) => graphData.nodeMetadata?.[filePath]?.communityId ?? 0;
   const base = { context, provenance: PROVENANCE, totals: aggregation.totals };
 
@@ -148,7 +155,7 @@ export function exploreArchitecture(
     };
   }
 
-  const groups = page(aggregation.groups.toSorted((left, right) => right.fileCount - left.fileCount || left.id - right.id), offset, limit);
+  const groups = page(aggregation.groups.toSorted(byFileCount), offset, limit);
   const groupEdges = page(aggregation.groupEdges.toSorted((left, right) => right.fileEdgeCount - left.fileEdgeCount), offset, limit);
   const truncated = groups.truncated || groupEdges.truncated;
   return {
@@ -168,3 +175,33 @@ export function exploreArchitecture(
     nextSteps: "Pass group for one group's files and boundary, or from and to for the file pairs behind a group edge.",
   };
 }
+
+/**
+ * Every group edge between the `maxGroups` largest groups, for a renderer that shows them all.
+ * The unassigned files are always kept; counts and hidden totals come from the full aggregation.
+ */
+export function overviewArchitecture(
+  { context, graphData, scannedFiles, analyzedFiles }: ArchitectureGraph,
+  maxGroups: number,
+) {
+  const aggregation = aggregateCommunityGroups(graphData);
+  const groups = aggregation.groups.toSorted(byFileCount).slice(0, maxGroups);
+  const shown = new Set([0, ...groups.map(group => group.id)]);
+  const groupEdges = aggregation.groupEdges
+    .filter(edge => shown.has(edge.from) && shown.has(edge.to))
+    .map(edgeLabeler(aggregation));
+  return {
+    context,
+    provenance: PROVENANCE,
+    scannedFiles,
+    analyzedFiles,
+    totals: aggregation.totals,
+    unassigned: aggregation.unassigned,
+    groups,
+    groupEdges,
+    hiddenGroups: aggregation.groups.length - groups.length,
+    hiddenGroupEdges: aggregation.groupEdges.length - groupEdges.length,
+  };
+}
+
+export type ArchitectureOverview = ReturnType<typeof overviewArchitecture>;

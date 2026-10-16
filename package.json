@@ -172,6 +172,12 @@
         "category": "Graph-It-Live"
       },
       {
+        "command": "graph-it-live.setViewModeArchitecture",
+        "title": "Switch to Architecture View",
+        "icon": "$(type-hierarchy)",
+        "category": "Graph-It-Live"
+      },
+      {
         "command": "graph-it-live.showReverseDependencies",
         "title": "Show Reverse Dependencies",
         "icon": "$(references)",
@@ -375,6 +381,11 @@
           "when": "view == graph-it-live.graphView && graph-it-live.viewMode == 'symbol'",
           "group": "navigation@6",
           "icon": "$(symbol-class)"
+        },
+        {
+          "command": "graph-it-live.setViewModeArchitecture",
+          "when": "view == graph-it-live.graphView && graph-it-live.viewMode != 'architecture'",
+          "group": "navigation@6"
         },
         {
           "command": "graph-it-live.showCallGraph",

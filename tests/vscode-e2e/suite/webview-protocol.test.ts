@@ -95,6 +95,29 @@ suite('Webview Protocol - Context Value Side Effects', () => {
       await waitForViewMode('file');
       assert.strictEqual(await getContextKey('graph-it-live.viewMode'), 'file');
     });
+
+    test('Should round-trip architectureMounted / architectureSummary / architectureRendered', async function() {
+      this.timeout(120000);
+
+      await openGraphFor('sample-project', 'src', 'utils.ts');
+      const before = (await getContextKey<number>('graph-it-live.architectureRenderCount')) ?? 0;
+
+      // The webview mounts the view and posts architectureMounted; the extension answers with
+      // architectureState / architectureSummary; the webview reports architectureRendered.
+      await vscode.commands.executeCommand('graph-it-live.setViewModeArchitecture');
+      await waitForViewMode('architecture');
+      const start = Date.now();
+      while (((await getContextKey<number>('graph-it-live.architectureRenderCount')) ?? 0) <= before) {
+        assert.ok(Date.now() - start < 90000, 'Timed out waiting for architectureRendered');
+        await sleep(250);
+      }
+      assert.match((await getContextKey<string>('graph-it-live.architectureRevision')) ?? '', /^[0-9a-f]{64}$/);
+      assert.ok(((await getContextKey<number>('graph-it-live.architectureGroupCount')) ?? 0) > 0);
+
+      // toggleViewMode (File <-> Symbol) never cycles through Architecture: it leaves it for file.
+      await vscode.commands.executeCommand('graph-it-live.toggleViewMode');
+      await waitForViewMode('file');
+    });
   });
 
   // ============================================================================

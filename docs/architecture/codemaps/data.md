@@ -10,6 +10,7 @@
 - `src/shared/graph-types.ts` - Graph-specific type definitions
 - `src/shared/symbol-types.ts` - Symbol-specific type definitions
 - `src/shared/callgraph-types.ts` - Call graph message types (extension ↔ callgraph webview protocol)
+- `src/shared/architecture-types.ts` - Architecture view messages: `architectureState`, `architectureSummary` (extension → webview, `type`), `architectureMounted`, `architectureRefresh`, `architectureRendered` (webview → extension, `command`); every message with group ids carries `revision` (`context.revision`)
 - `src/shared/messages.ts` - Extension ↔ webview message protocol
 - `src/shared/constants.ts` - Application-wide constants
 - `src/shared/path.ts` - Cross-platform path normalization

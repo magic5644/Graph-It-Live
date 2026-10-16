@@ -5,6 +5,10 @@
  */
 
 import type {
+  ArchitectureExtensionMessage,
+  ArchitectureWebviewCommand,
+} from "./architecture-types";
+import type {
   CallGraphDepthChangedCommand,
   CallGraphFilterChangedCommand,
   CallGraphIndexingMessage,
@@ -147,7 +151,7 @@ export interface SwitchModeMessage {
 
 export interface SwitchViewModeMessage {
   command: "switchViewMode";
-  mode: "file" | "list" | "symbol";
+  mode: "file" | "list" | "symbol" | "architecture";
 }
 
 export interface WebviewLogMessage {
@@ -224,7 +228,8 @@ export type ExtensionToWebviewMessage =
   | ShowSymbolListMessage
   | SwitchViewModeMessage
   | ShowCallGraphMessage
-  | CallGraphIndexingMessage;
+  | CallGraphIndexingMessage
+  | ArchitectureExtensionMessage;
 
 export type WebviewToExtensionMessage =
   | OpenFileMessage
@@ -247,4 +252,5 @@ export type WebviewToExtensionMessage =
   | CallGraphDepthChangedCommand
   | CallGraphFilterChangedCommand
   | CallGraphSymbolFocusCommand
-  | CallGraphMountedCommand;
+  | CallGraphMountedCommand
+  | ArchitectureWebviewCommand;

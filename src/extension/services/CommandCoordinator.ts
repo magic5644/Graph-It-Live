@@ -12,6 +12,7 @@ export interface CommandCoordinatorDependencies {
   setViewModeFile(): Promise<void>;
   setViewModeList(): Promise<void>;
   setViewModeSymbol(): Promise<void>;
+  setViewModeArchitecture(): Promise<void>;
   showReverseDependencies(): Promise<void>;
   hideReverseDependencies(): Promise<void>;
   getUnusedFilterActive(): boolean;
@@ -60,6 +61,10 @@ export class CommandCoordinator {
 
   async handleSetViewModeSymbol(): Promise<void> {
     await this.provider.setViewModeSymbol();
+  }
+
+  async handleSetViewModeArchitecture(): Promise<void> {
+    await this.provider.setViewModeArchitecture();
   }
 
   async handleShowReverseDependencies(): Promise<void> {

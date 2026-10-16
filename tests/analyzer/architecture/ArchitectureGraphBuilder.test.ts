@@ -125,4 +125,10 @@ describe("buildArchitectureGraph", () => {
     await expect(buildArchitectureGraph(root, async () => [], { signal: AbortSignal.abort() }))
       .rejects.toThrow();
   });
+
+  it("reports progress after each analysed file", async () => {
+    const onProgress = vi.fn();
+    await buildArchitectureGraph(root, async () => [], { onProgress });
+    expect(onProgress.mock.calls).toEqual([[1, 2], [2, 2]]);
+  });
 });
