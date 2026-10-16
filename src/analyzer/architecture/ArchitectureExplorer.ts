@@ -45,11 +45,13 @@ function resolveGroup(aggregation: CommunityGroupAggregation, ref: GroupRef): Co
   const groups = aggregation.unassigned.fileCount > 0
     ? [...aggregation.groups, { id: 0, key: "", label: "unassigned", ...aggregation.unassigned }]
     : aggregation.groups;
-  const text = String(ref);
-  const group = groups.find(candidate => candidate.key !== "" && candidate.key === text)
-    ?? groups.find(candidate => String(candidate.id) === text || candidate.label === text);
+  // A number is an id from a previous response: a folder key "2" must not shadow group 2.
+  const group = typeof ref === "number"
+    ? groups.find(candidate => candidate.id === ref)
+    : groups.find(candidate => candidate.key !== "" && candidate.key === ref)
+      ?? groups.find(candidate => String(candidate.id) === ref || candidate.label === ref);
   if (!group) {
-    throw new Error(`Unknown group "${text}". Call explore_architecture without group, from or to to list the groups.`);
+    throw new Error(`Unknown group "${ref}". Call explore_architecture without group, from or to to list the groups.`);
   }
   return group;
 }
@@ -89,15 +91,28 @@ export function exploreArchitecture(
       .filter(node => node.communityId === group.id)
       .map(node => node.relativePath)
       .sort((left, right) => left.localeCompare(right));
-    const { items, ...pageInfo } = page(files, offset, limit);
+    const filePage = page(files, offset, limit);
+    const incoming = page(aggregation.groupEdges.filter(edge => edge.to === group.id)
+      .toSorted((left, right) => right.fileEdgeCount - left.fileEdgeCount || left.from - right.from), offset, limit);
+    const outgoing = page(aggregation.groupEdges.filter(edge => edge.from === group.id)
+      .toSorted((left, right) => right.fileEdgeCount - left.fileEdgeCount || left.to - right.to), offset, limit);
+    const truncated = filePage.truncated || incoming.truncated || outgoing.truncated;
     return {
       view: "group",
       ...base,
       group,
-      incoming: aggregation.groupEdges.filter(edge => edge.to === group.id).map(withLabels),
-      outgoing: aggregation.groupEdges.filter(edge => edge.from === group.id).map(withLabels),
-      files: items,
-      page: pageInfo,
+      incoming: incoming.items.map(withLabels),
+      outgoing: outgoing.items.map(withLabels),
+      files: filePage.items,
+      page: {
+        offset,
+        limit,
+        totalFiles: filePage.total,
+        totalIncoming: incoming.total,
+        totalOutgoing: outgoing.total,
+        truncated,
+        nextOffset: truncated ? offset + limit : undefined,
+      },
       nextSteps: "Pass from and to to list the file pairs behind an incoming or outgoing edge.",
     };
   }

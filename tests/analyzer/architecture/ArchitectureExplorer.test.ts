@@ -18,22 +18,36 @@ const workspace: Record<string, string[]> = {
   "src/2/extra.ts": [],
 };
 
+// The hub imports one file in each of 600 groups, and each of those files imports the hub back.
+const SPOKES = 600;
+const spokes = Array.from({ length: SPOKES }, (_, index) => `src/s${index}/spoke.ts`);
+const hubWorkspace: Record<string, string[]> = {
+  "src/hub/hub.ts": spokes,
+  ...Object.fromEntries(spokes.map(spoke => [spoke, ["src/hub/hub.ts"]])),
+};
+
+async function buildWorkspace(root: string, files: Record<string, string[]>): Promise<ArchitectureGraph> {
+  for (const relative of Object.keys(files)) {
+    await fs.mkdir(path.dirname(path.join(root, relative)), { recursive: true });
+    await fs.writeFile(path.join(root, relative), "");
+  }
+  // readdir order differs between file systems; pin it so group ids are deterministic.
+  vi.spyOn(SourceFileCollector.prototype, "collectAllSourceFiles")
+    .mockResolvedValue(Object.keys(files).map(relative => path.join(root, relative)));
+  return buildArchitectureGraph(root, async (filePath) =>
+    files[normalizePath(path.relative(root, filePath))].map(relative =>
+      ({ path: path.join(root, relative), type: "import" as const, line: 1, module: relative })));
+}
+
 describe("exploreArchitecture", () => {
   let root: string;
   let graph: ArchitectureGraph;
+  let hubGraph: ArchitectureGraph;
 
   beforeAll(async () => {
     root = await fs.realpath(await fs.mkdtemp(path.join(os.tmpdir(), "gitl-explorer-")));
-    for (const relative of Object.keys(workspace)) {
-      await fs.mkdir(path.dirname(path.join(root, relative)), { recursive: true });
-      await fs.writeFile(path.join(root, relative), "");
-    }
-    // readdir order differs between file systems; pin it so group ids are deterministic.
-    vi.spyOn(SourceFileCollector.prototype, "collectAllSourceFiles")
-      .mockResolvedValue(Object.keys(workspace).map(relative => path.join(root, relative)));
-    graph = await buildArchitectureGraph(root, async (filePath) =>
-      workspace[normalizePath(path.relative(root, filePath))].map(relative =>
-        ({ path: path.join(root, relative), type: "import" as const, line: 1, module: relative })));
+    graph = await buildWorkspace(path.join(root, "small"), workspace);
+    hubGraph = await buildWorkspace(path.join(root, "hub"), hubWorkspace);
   });
 
   afterAll(async () => {
@@ -80,5 +94,51 @@ describe("exploreArchitecture", () => {
     expect(last.page).toEqual({ total: 3, offset: 2, returned: 1, truncated: false, nextOffset: undefined });
     expect(past.view === "evidence" && past.pairs).toEqual([]);
     expect(past.page).toEqual({ total: 3, offset: 10, returned: 0, truncated: false, nextOffset: undefined });
+  });
+
+  it("resolves a numeric reference by id only, even when a folder key has the same text", () => {
+    const byId = exploreArchitecture(graph, { group: 2 });
+    const edge = exploreArchitecture(graph, { from: 1, to: 2 });
+    const reversed = exploreArchitecture(graph, { from: 2, to: 1 });
+
+    expect(byId.view === "group" && byId.group.key).toBe("store");
+    expect(edge.view === "evidence" && edge.to.key).toBe("store");
+    expect(edge.view === "evidence" && edge.pairs).toHaveLength(3);
+    expect(reversed.view === "evidence" && reversed.from.key).toBe("store");
+    expect(() => exploreArchitecture(graph, { group: 99 })).toThrow('Unknown group "99"');
+  });
+
+  it("pages a group's incoming and outgoing edges with the files", () => {
+    const first = exploreArchitecture(hubGraph, { group: "hub", limit: 1 });
+
+    expect(first.view === "group" && first.files).toEqual(["src/hub/hub.ts"]);
+    expect(first.view === "group" && first.incoming).toHaveLength(1);
+    expect(first.view === "group" && first.outgoing).toHaveLength(1);
+    expect(first.page).toEqual({
+      offset: 0, limit: 1, totalFiles: 1, totalIncoming: SPOKES, totalOutgoing: SPOKES, truncated: true, nextOffset: 1,
+    });
+  });
+
+  it("walks every boundary edge exactly once, then stops", () => {
+    const incoming: string[] = [];
+    const outgoing: string[] = [];
+    let offset: number | undefined = 0;
+    let last;
+    while (offset !== undefined) {
+      last = exploreArchitecture(hubGraph, { group: "hub", offset, limit: 250 });
+      if (last.view !== "group") throw new Error("expected the group view");
+      incoming.push(...last.incoming.map(edge => edge.fromLabel));
+      outgoing.push(...last.outgoing.map(edge => edge.toLabel));
+      offset = last.page.nextOffset;
+    }
+    const past = exploreArchitecture(hubGraph, { group: "hub", offset: SPOKES, limit: 250 });
+
+    expect(new Set(incoming).size).toBe(SPOKES);
+    expect(incoming).toHaveLength(SPOKES);
+    expect(new Set(outgoing).size).toBe(SPOKES);
+    expect(outgoing).toHaveLength(SPOKES);
+    expect(last?.page).toMatchObject({ offset: 500, truncated: false, nextOffset: undefined });
+    expect(past.view === "group" && [past.files, past.incoming, past.outgoing]).toEqual([[], [], []]);
+    expect(past.page).toMatchObject({ totalFiles: 1, totalIncoming: SPOKES, totalOutgoing: SPOKES, truncated: false });
   });
 });
