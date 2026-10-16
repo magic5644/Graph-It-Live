@@ -35,6 +35,7 @@ export class CommandRegistrationService {
       this.registerSetViewModeFileCommand(),
       this.registerSetViewModeListCommand(),
       this.registerSetViewModeSymbolCommand(),
+      this.registerSetViewModeArchitectureCommand(),
       this.registerShowReverseDependenciesCommand(),
       this.registerHideReverseDependenciesCommand(),
       this.registerToggleUnusedFilterCommands(),
@@ -144,6 +145,16 @@ export class CommandRegistrationService {
     );
   }
 
+  private registerSetViewModeArchitectureCommand(): vscode.Disposable {
+    return this.registerProviderCommand(
+      'graph-it-live.setViewModeArchitecture',
+      async () => {
+        await this.commandCoordinator.handleSetViewModeArchitecture();
+      },
+      'Graph-It-Live: Switch to architecture view failed'
+    );
+  }
+
   private registerShowReverseDependenciesCommand(): vscode.Disposable {
     return this.registerProviderCommand(
       'graph-it-live.showReverseDependencies',
@@ -194,34 +205,26 @@ export class CommandRegistrationService {
    * This is needed for E2E testing as VS Code doesn't expose context keys directly
    */
   private registerGetContextCommand(): vscode.Disposable {
-    return vscode.commands.registerCommand('getContext', async (key: string) => {
-      // For now, we only support our own context keys
-      if (key === 'graph-it-live.viewMode') {
-        return this.provider.getViewMode();
-      }
-      if (key === 'graph-it-live.reverseDependenciesVisible') {
-        // Context keys are stored in VS Code's internal state
-        // We need to track this in GraphProvider to return it here
-        return this.provider.getReverseDependenciesVisible();
-      }
-      if (key === 'graph-it-live.callGraphRenderCount') {
-        return this.provider.getCallGraphRenderCount();
-      }
-      if (key === 'graph-it-live.callGraphNodeCount') {
-        return this.provider.getCallGraphNodeCount();
-      }
-      if (key === 'graph-it-live.callGraphEdgeCount') {
-        return this.provider.getCallGraphEdgeCount();
-      }
-      if (key === 'graph-it-live.callGraphCycleCount') {
-        return this.provider.getCallGraphCycleCount();
-      }
-      if (key === 'graph-it-live.fileGraphNodeMetadata') {
-        return this.provider.getFileGraphNodeMetadata();
-      }
-      // Return undefined for unknown keys
-      return undefined;
-    });
+    const architecture = () => this.provider.getArchitectureE2EState();
+    // Context keys are stored in VS Code's internal state, so GraphProvider tracks the ones tests read.
+    const getters = new Map<string, () => unknown>([
+      ['graph-it-live.viewMode', () => this.provider.getViewMode()],
+      ['graph-it-live.reverseDependenciesVisible', () => this.provider.getReverseDependenciesVisible()],
+      ['graph-it-live.callGraphRenderCount', () => this.provider.getCallGraphRenderCount()],
+      ['graph-it-live.callGraphNodeCount', () => this.provider.getCallGraphNodeCount()],
+      ['graph-it-live.callGraphEdgeCount', () => this.provider.getCallGraphEdgeCount()],
+      ['graph-it-live.callGraphCycleCount', () => this.provider.getCallGraphCycleCount()],
+      ['graph-it-live.fileGraphNodeMetadata', () => this.provider.getFileGraphNodeMetadata()],
+      ['graph-it-live.architectureRenderCount', () => architecture()?.renderCount ?? 0],
+      ['graph-it-live.architectureGroupCount', () => architecture()?.groupCount ?? 0],
+      ['graph-it-live.architectureGroupEdgeCount', () => architecture()?.groupEdgeCount ?? 0],
+      ['graph-it-live.architectureRevision', () => architecture()?.revision],
+      ['graph-it-live.architectureBuildCount', () => architecture()?.buildCount ?? 0],
+      ['graph-it-live.architectureCommunityMode', () => architecture()?.communityMode],
+      ['graph-it-live.architectureStale', () => architecture()?.stale ?? false],
+    ]);
+    // Unknown keys return undefined.
+    return vscode.commands.registerCommand('getContext', async (key: string) => getters.get(key)?.());
   }
 
   private registerProviderCommand(

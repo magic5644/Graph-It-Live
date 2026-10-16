@@ -11,6 +11,7 @@ function createProviderMock(overrides: Partial<CommandCoordinatorDependencies> =
     setViewModeFile: vi.fn(),
     setViewModeList: vi.fn(),
     setViewModeSymbol: vi.fn(),
+    setViewModeArchitecture: vi.fn(),
     showReverseDependencies: vi.fn(),
     hideReverseDependencies: vi.fn(),
     getUnusedFilterActive: vi.fn().mockReturnValue(false),
@@ -36,6 +37,38 @@ describe("CommandCoordinator", () => {
 
     expect(provider.forceReindex).toHaveBeenCalled();
     expect(ui.showInformationMessage).toHaveBeenCalledWith("Graph-It-Live: Re-index triggered");
+  });
+
+  it.each([
+    ["handleExpandAll", "expandAllNodes"],
+    ["handleRefreshGraph", "refreshGraph"],
+    ["handleToggleViewMode", "toggleViewMode"],
+    ["handleSetViewModeFile", "setViewModeFile"],
+    ["handleSetViewModeList", "setViewModeList"],
+    ["handleSetViewModeSymbol", "setViewModeSymbol"],
+    ["handleSetViewModeArchitecture", "setViewModeArchitecture"],
+    ["handleShowReverseDependencies", "showReverseDependencies"],
+    ["handleHideReverseDependencies", "hideReverseDependencies"],
+  ] as const)("%s delegates to the provider's %s", async (handler, method) => {
+    const provider = createProviderMock();
+    await new CommandCoordinator({ provider, ui: createUiMock() })[handler]();
+    expect(provider[method]).toHaveBeenCalledOnce();
+  });
+
+  it("disables the unused filter only when active", async () => {
+    const provider = createProviderMock({ getUnusedFilterActive: vi.fn().mockReturnValue(true) });
+    const coordinator = new CommandCoordinator({ provider, ui: createUiMock() });
+
+    await coordinator.handleDisableUnusedFilter();
+    await coordinator.handleEnableUnusedFilter();
+
+    expect(provider.toggleUnusedFilter).toHaveBeenCalledOnce();
+  });
+
+  it("says when no indexer is available", async () => {
+    const ui = createUiMock();
+    await new CommandCoordinator({ provider: createProviderMock(), ui }).handleShowIndexStatus();
+    expect(ui.showInformationMessage).toHaveBeenCalledWith("Graph-It-Live: No indexer available");
   });
 
   it("enables unused filter only when inactive", async () => {

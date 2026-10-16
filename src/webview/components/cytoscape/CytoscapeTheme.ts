@@ -377,3 +377,54 @@ export function buildCallGraphStylesheet(isDark = true): CyStylesheet[] {
     },
   ];
 }
+
+/** Colors read from the `--vscode-*` variables, so light, dark and high-contrast themes all apply. */
+export interface ArchitectureThemeColors {
+  foreground: string;
+  background: string;
+  border: string;
+  edge: string;
+  accent: string;
+}
+
+/** Stylesheet for the architecture view's group nodes and group edges. */
+export function buildArchitectureStylesheet(colors: ArchitectureThemeColors): CyStylesheet[] {
+  return [
+    {
+      selector: "node",
+      style: {
+        label: "data(label)",
+        "text-wrap": "wrap",
+        "text-valign": "center",
+        "text-halign": "center",
+        "font-size": "11px",
+        color: colors.foreground,
+        shape: "round-rectangle",
+        width: "data(size)",
+        height: "data(size)",
+        "background-color": colors.background,
+        "border-width": 2,
+        "border-color": colors.accent,
+      },
+    },
+    {
+      selector: "node[?unassigned]",
+      style: { "border-style": "dashed", "border-color": colors.border },
+    },
+    {
+      selector: "edge",
+      style: {
+        label: "data(label)",
+        width: "data(width)",
+        "font-size": "10px",
+        color: colors.foreground,
+        "text-background-color": colors.background,
+        "text-background-opacity": 1,
+        "curve-style": "bezier",
+        "line-color": colors.edge,
+        "target-arrow-color": colors.edge,
+        "target-arrow-shape": "triangle",
+      },
+    },
+  ];
+}

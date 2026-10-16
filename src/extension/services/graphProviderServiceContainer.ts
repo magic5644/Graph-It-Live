@@ -2,10 +2,12 @@ import * as path from "node:path";
 import * as vscode from "vscode";
 import { Spider } from "../../analyzer/Spider";
 import { SpiderBuilder } from "../../analyzer/SpiderBuilder";
+import type { ArchitectureWebviewCommand } from "../../shared/architecture-types";
 import type { CallGraphWebviewCommand } from "../../shared/callgraph-types";
 import type { CommunityMode } from "../../shared/graph-types";
 import type { VsCodeLogger } from "../extensionLogger";
 import { WebviewManager } from "../WebviewManager";
+import { ArchitectureViewService } from "./ArchitectureViewService";
 import { BackgroundIndexingManager } from "./BackgroundIndexingManager";
 import { EditorNavigationService } from "./EditorNavigationService";
 import type { GraphRefreshReason } from "./ExtensionEventHub";
@@ -47,6 +49,7 @@ export const graphProviderServiceTokens = {
   sourceFileWatcher: Symbol("SourceFileWatcher") as ServiceToken<SourceFileWatcher>,
   eventHub: Symbol("ExtensionEventHub") as ServiceToken<ExtensionEventHub>,
   messageDispatcher: Symbol("MessageDispatcher") as ServiceToken<MessageDispatcher>,
+  architectureViewService: Symbol("ArchitectureViewService") as ServiceToken<ArchitectureViewService>,
 } as const;
 
 export interface MessageDispatcherCallbacks {
@@ -75,6 +78,7 @@ export interface MessageDispatcherCallbacks {
   ): { actualFilePath: string } | undefined;
   getActiveEditorFilePath(): string | undefined;
   handleCallGraphMessage?: (msg: CallGraphWebviewCommand) => void;
+  handleArchitectureMessage?: (msg: ArchitectureWebviewCommand) => Promise<void>;
 }
 
 export interface GraphProviderServiceContainerOptions {
@@ -232,6 +236,19 @@ export function createGraphProviderServiceContainer(
         }),
     );
 
+    container.register(graphProviderServiceTokens.architectureViewService, () => {
+      const spider = container.get(graphProviderServiceTokens.spider);
+      return new ArchitectureViewService({
+        workspaceRoot,
+        analyzeFile: (filePath) => spider.analyze(filePath),
+        readCommunityMode,
+        subscribeToIndexStatus: (callback) => spider.subscribeToIndexStatus(callback),
+        post: (message) => {
+          void options.viewProvider()?.webview.postMessage(message);
+        },
+      });
+    });
+
     container.register(
       graphProviderServiceTokens.eventHub,
       () =>
@@ -272,6 +289,7 @@ export function createGraphProviderServiceContainer(
         parseFilePathAndSymbol: options.callbacks.parseFilePathAndSymbol,
         getActiveEditorFilePath: options.callbacks.getActiveEditorFilePath,
         handleCallGraphMessage: options.callbacks.handleCallGraphMessage,
+        handleArchitectureMessage: options.callbacks.handleArchitectureMessage,
         logger: options.logger,
       }),
   );

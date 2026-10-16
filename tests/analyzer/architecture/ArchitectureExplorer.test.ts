@@ -2,7 +2,7 @@ import * as fs from "node:fs/promises";
 import * as os from "node:os";
 import * as path from "node:path";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
-import { exploreArchitecture } from "../../../src/analyzer/architecture/ArchitectureExplorer";
+import { exploreArchitecture, overviewArchitecture } from "../../../src/analyzer/architecture/ArchitectureExplorer";
 import { buildArchitectureGraph, type ArchitectureGraph } from "../../../src/analyzer/architecture/ArchitectureGraphBuilder";
 import { SourceFileCollector } from "../../../src/analyzer/SourceFileCollector";
 import { normalizePath } from "../../../src/shared/path";
@@ -148,5 +148,49 @@ describe("exploreArchitecture", () => {
     expect(last?.page).toMatchObject({ offset: 500, truncated: false, nextOffset: undefined });
     expect(past.view === "group" && [past.files, past.incoming, past.outgoing]).toEqual([[], [], []]);
     expect(past.page).toMatchObject({ totalFiles: 1, totalIncoming: SPOKES, totalOutgoing: SPOKES, truncated: false });
+  });
+});
+
+describe("overviewArchitecture", () => {
+  let root: string;
+  let graph: ArchitectureGraph;
+  let hubGraph: ArchitectureGraph;
+
+  beforeAll(async () => {
+    root = await fs.realpath(await fs.mkdtemp(path.join(os.tmpdir(), "gitl-overview-")));
+    graph = await buildWorkspace(path.join(root, "small"), workspace);
+    hubGraph = await buildWorkspace(path.join(root, "hub"), hubWorkspace);
+  });
+
+  afterAll(async () => {
+    vi.restoreAllMocks();
+    await fs.rm(root, { recursive: true, force: true });
+  });
+
+  it("lists every group and labelled group edge when under the cap", () => {
+    const overview = overviewArchitecture(graph, 150);
+
+    expect(overview.groups.map(group => group.key)).toEqual(["ui", "store", "2"]);
+    expect(overview.groupEdges).toEqual([
+      { from: 0, to: 1, fileEdgeCount: 1, fromLabel: "unassigned", toLabel: "ui" },
+      { from: 1, to: 2, fileEdgeCount: 3, fromLabel: "ui", toLabel: "store" },
+    ]);
+    expect(overview).toMatchObject({ hiddenGroups: 0, hiddenGroupEdges: 0, scannedFiles: 6, analyzedFiles: 6 });
+    expect(overview.unassigned).toEqual({ fileCount: 1, internalEdgeCount: 0 });
+    expect(overview.context.revision).toBe(graph.context.revision);
+  });
+
+  it("keeps the largest groups and their edges, with totals from the full graph", () => {
+    const overview = overviewArchitecture(hubGraph, 150);
+    const shown = new Set(overview.groups.map(group => group.id));
+
+    expect(overview.groups).toHaveLength(150);
+    expect(overview.groups[0].key).toBe("hub");
+    expect(overview.hiddenGroups).toBe(SPOKES + 1 - 150);
+    expect(overview.groupEdges.every(edge => shown.has(edge.from) && shown.has(edge.to))).toBe(true);
+    expect(overview.groupEdges).toHaveLength(2 * 149);
+    expect(overview.hiddenGroupEdges).toBe(2 * SPOKES - 2 * 149);
+    expect(overview.totals).toEqual(exploreArchitecture(hubGraph).totals);
+    expect(overview.totals.interGroupEdges).toBe(2 * SPOKES);
   });
 });

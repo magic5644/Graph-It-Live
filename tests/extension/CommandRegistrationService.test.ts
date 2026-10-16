@@ -56,6 +56,9 @@ function createProviderMock(): GraphProvider {
     getViewMode: vi.fn().mockReturnValue('file'), // E2E test helper
     getReverseDependenciesVisible: vi.fn().mockReturnValue(false),
     showReviewCallGraph: vi.fn(),
+    getArchitectureE2EState: vi.fn().mockReturnValue({
+      buildCount: 2, renderCount: 3, groupCount: 20, groupEdgeCount: 6, revision: 'r1', communityMode: 'path', stale: true,
+    }),
   } as unknown as GraphProvider;
 }
 
@@ -68,6 +71,7 @@ function createCommandCoordinatorMock(): CommandCoordinator {
     handleSetViewModeFile: vi.fn(),
     handleSetViewModeList: vi.fn(),
     handleSetViewModeSymbol: vi.fn(),
+    handleSetViewModeArchitecture: vi.fn(),
     handleShowReverseDependencies: vi.fn(),
     handleHideReverseDependencies: vi.fn(),
     handleEnableUnusedFilter: vi.fn(),
@@ -104,8 +108,8 @@ describe('CommandRegistrationService', () => {
 
     const disposables = service.registerAll();
 
-    expect(disposables).toHaveLength(14); // getContext is shared; filter commands share one disposable
-    expect(registerCommand).toHaveBeenCalledTimes(15);
+    expect(disposables).toHaveLength(15); // getContext is shared; filter commands share one disposable
+    expect(registerCommand).toHaveBeenCalledTimes(16);
     expect(registeredHandlers.has('graph-it-live.showGraph')).toBe(true);
     expect(registeredHandlers.has('graph-it-live.forceReindex')).toBe(true);
     expect(registeredHandlers.has('graph-it-live.expandAllNodes')).toBe(true);
@@ -114,6 +118,7 @@ describe('CommandRegistrationService', () => {
     expect(registeredHandlers.has('graph-it-live.setViewModeFile')).toBe(true);
     expect(registeredHandlers.has('graph-it-live.setViewModeList')).toBe(true);
     expect(registeredHandlers.has('graph-it-live.setViewModeSymbol')).toBe(true);
+    expect(registeredHandlers.has('graph-it-live.setViewModeArchitecture')).toBe(true);
     expect(registeredHandlers.has('getContext')).toBe(true); // E2E test helper
     expect(registeredHandlers.has('graph-it-live.showReverseDependencies')).toBe(true);
     expect(registeredHandlers.has('graph-it-live.hideReverseDependencies')).toBe(true);
@@ -121,6 +126,56 @@ describe('CommandRegistrationService', () => {
     expect(registeredHandlers.has('graph-it-live.disableUnusedFilter')).toBe(true);
     expect(registeredHandlers.has('graph-it-live.showIndexStatus')).toBe(true);
     expect(registeredHandlers.has('graph-it-live.reviewCallGraph')).toBe(true);
+  });
+
+  it('switches to the architecture view and exposes its E2E state through getContext', async () => {
+    const provider = createProviderMock();
+    const commandCoordinator = createCommandCoordinatorMock();
+    const service = new CommandRegistrationService({ provider, commandCoordinator, logger: createLoggerMock() });
+    service.registerAll();
+
+    await registeredHandlers.get('graph-it-live.setViewModeArchitecture')?.();
+    expect(commandCoordinator.handleSetViewModeArchitecture).toHaveBeenCalled();
+
+    const getContext = registeredHandlers.get('getContext')!;
+    expect(await getContext('graph-it-live.viewMode')).toBe('file');
+    expect(await getContext('graph-it-live.architectureRenderCount')).toBe(3);
+    expect(await getContext('graph-it-live.architectureGroupCount')).toBe(20);
+    expect(await getContext('graph-it-live.architectureGroupEdgeCount')).toBe(6);
+    expect(await getContext('graph-it-live.architectureRevision')).toBe('r1');
+    expect(await getContext('graph-it-live.architectureBuildCount')).toBe(2);
+    expect(await getContext('graph-it-live.architectureCommunityMode')).toBe('path');
+    expect(await getContext('graph-it-live.architectureStale')).toBe(true);
+    expect(await getContext('graph-it-live.unknown')).toBeUndefined();
+
+    (provider.getArchitectureE2EState as ReturnType<typeof vi.fn>).mockReturnValue(undefined);
+    expect(await getContext('graph-it-live.architectureRenderCount')).toBe(0);
+    expect(await getContext('graph-it-live.architectureGroupCount')).toBe(0);
+    expect(await getContext('graph-it-live.architectureGroupEdgeCount')).toBe(0);
+    expect(await getContext('graph-it-live.architectureBuildCount')).toBe(0);
+    expect(await getContext('graph-it-live.architectureStale')).toBe(false);
+  });
+
+  it.each([
+    ['graph-it-live.forceReindex', 'handleForceReindex'],
+    ['graph-it-live.expandAllNodes', 'handleExpandAll'],
+    ['graph-it-live.refreshGraph', 'handleRefreshGraph'],
+    ['graph-it-live.toggleViewMode', 'handleToggleViewMode'],
+    ['graph-it-live.setViewModeFile', 'handleSetViewModeFile'],
+    ['graph-it-live.setViewModeList', 'handleSetViewModeList'],
+    ['graph-it-live.setViewModeSymbol', 'handleSetViewModeSymbol'],
+    ['graph-it-live.showReverseDependencies', 'handleShowReverseDependencies'],
+    ['graph-it-live.hideReverseDependencies', 'handleHideReverseDependencies'],
+    ['graph-it-live.enableUnusedFilter', 'handleEnableUnusedFilter'],
+    ['graph-it-live.disableUnusedFilter', 'handleDisableUnusedFilter'],
+    ['graph-it-live.showIndexStatus', 'handleShowIndexStatus'],
+  ] as const)('%s runs CommandCoordinator.%s', async (commandId, handler) => {
+    const commandCoordinator = createCommandCoordinatorMock();
+    new CommandRegistrationService({ provider: createProviderMock(), commandCoordinator, logger: createLoggerMock() }).registerAll();
+
+    await registeredHandlers.get(commandId)?.();
+
+    expect(commandCoordinator[handler]).toHaveBeenCalledOnce();
   });
 
   it('focuses the view when showGraph is executed', async () => {

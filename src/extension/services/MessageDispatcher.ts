@@ -1,3 +1,4 @@
+import type { ArchitectureWebviewCommand } from "../../shared/architecture-types";
 import type { CallGraphWebviewCommand } from "../../shared/callgraph-types";
 import { SUPPORTED_SOURCE_FILE_REGEX } from "../../shared/constants";
 import type {
@@ -32,6 +33,7 @@ interface MessageDispatcherDependencies {
   parseFilePathAndSymbol(symbolId: string): { actualFilePath: string } | undefined;
   getActiveEditorFilePath(): string | undefined;
   handleCallGraphMessage?: (msg: CallGraphWebviewCommand) => void;
+  handleArchitectureMessage?: (msg: ArchitectureWebviewCommand) => Promise<void>;
   logger: { debug: (message: string, ...args: unknown[]) => void };
 }
 
@@ -110,6 +112,15 @@ export class MessageDispatcher {
         },
         callGraphFilterChanged: async (m) => {
           deps.handleCallGraphMessage?.(m);
+        },
+        architectureMounted: async (m) => {
+          await deps.handleArchitectureMessage?.(m);
+        },
+        architectureRefresh: async (m) => {
+          await deps.handleArchitectureMessage?.(m);
+        },
+        architectureRendered: async (m) => {
+          await deps.handleArchitectureMessage?.(m);
         },
       },
     });

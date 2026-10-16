@@ -756,4 +756,53 @@ describe("GraphProvider", () => {
       showCommunities: true,
     });
   });
+
+  it("runs the architecture view mode through ArchitectureViewService", async () => {
+    const webview = {
+      postMessage: vi.fn(),
+      asWebviewUri: vi.fn(),
+      options: {},
+      html: "",
+      onDidReceiveMessage: vi.fn().mockReturnValue({ dispose: vi.fn() }),
+      cspSource: "test-csp",
+    };
+    provider.resolveWebviewView({ webview, onDidDispose: vi.fn() } as any, {} as any, {} as any);
+    const service = getService<any>(graphProviderServiceTokens.architectureViewService);
+    const build = vi.spyOn(service, "build").mockResolvedValue(undefined);
+    const handleCommunityModeChange = vi.spyOn(service, "handleCommunityModeChange").mockResolvedValue(undefined);
+    const markStale = vi.spyOn(service, "markStale");
+    const dispose = vi.spyOn(service, "dispose");
+
+    await provider.setViewModeArchitecture();
+    expect(provider.getViewMode()).toBe("architecture");
+    expect(vscode.commands.executeCommand).toHaveBeenCalledWith("setContext", "graph-it-live.viewMode", "architecture");
+    expect(webview.postMessage).toHaveBeenLastCalledWith({ command: "switchViewMode", mode: "architecture" });
+
+    // Active-file updates keep the workspace-wide view instead of posting a file graph.
+    webview.postMessage.mockClear();
+    await provider.updateGraph();
+    expect(webview.postMessage.mock.calls).toEqual([[{ command: "switchViewMode", mode: "architecture" }]]);
+
+    const onMessage = webview.onDidReceiveMessage.mock.calls[0][0];
+    await onMessage({ command: "architectureMounted" });
+    expect(build).toHaveBeenCalledOnce();
+
+    await provider.refreshGraph();
+    expect(build).toHaveBeenCalledTimes(2);
+
+    const indexingManager = getService<any>(graphProviderServiceTokens.indexingManager);
+    vi.spyOn(indexingManager, "handleConfigUpdate").mockResolvedValue(undefined);
+    provider.updateConfig();
+    expect(handleCommunityModeChange).toHaveBeenCalledOnce();
+
+    await provider.handleFileChange(np(path.join(testRootDir, "src", "main.ts")), "change");
+    expect(markStale).toHaveBeenCalledOnce();
+
+    expect(provider.getArchitectureE2EState()).toMatchObject({ buildCount: 0, renderCount: 0 });
+
+    Object.assign(getService<any>(graphProviderServiceTokens.spider), { beginShutdown: vi.fn().mockResolvedValue(undefined) });
+    vi.spyOn(indexingManager, "dispose").mockResolvedValue(undefined);
+    await provider.dispose();
+    expect(dispose).toHaveBeenCalled();
+  });
 });

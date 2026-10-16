@@ -54,6 +54,8 @@ export interface ArchitectureGraphOptions {
   /** Last scan timestamp, when the caller knows it. */
   indexedAt?: string;
   signal?: AbortSignal;
+  /** Called after each analysed file, so a caller can report progress. */
+  onProgress?: (analyzed: number, total: number) => void;
 }
 
 function isWithinWorkspace(filePath: string, workspaceRoot: string): boolean {
@@ -171,10 +173,11 @@ export async function buildArchitectureGraph(
 
   const acc = initializeAccumulator();
   const failedFiles: FailedArchitectureFile[] = [];
-  for (const filePath of files) {
+  for (const [index, filePath] of files.entries()) {
     options.signal?.throwIfAborted();
     const failure = await collectArchitectureForFile(acc, workspaceRoot, filePath, analyzeFile); // NOSONAR S9382: one file at a time bounds memory and keeps node/edge order deterministic
     if (failure) failedFiles.push(failure);
+    options.onProgress?.(index + 1, files.length);
   }
 
   const edges = [...acc.edgesByKey.values()];

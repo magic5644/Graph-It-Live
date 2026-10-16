@@ -25,6 +25,7 @@ import {
     WebviewToExtensionMessage,
 } from "../shared/types";
 import { AtomicSymbolGraph } from "./components/AtomicSymbolGraph";
+import { ArchitectureGraph } from "./components/architecture/ArchitectureGraph";
 import { CytoscapeGraph } from "./components/cytoscape/CytoscapeGraph";
 import ReactFlowGraph from "./components/ReactFlowGraph";
 import SymbolCardView from "./components/SymbolCardView";
@@ -246,7 +247,7 @@ const App: React.FC = () => {
     }
   }, []);
   const [viewMode, setViewMode] = React.useState<
-    "file" | "list" | "symbol" | "references" | "callgraph"
+    "file" | "list" | "symbol" | "references" | "callgraph" | "architecture"
   >("file");
   const [expandAll, setExpandAll] = React.useState<boolean>(false);
   // Toggle to show/hide parent/reference files for the current root file
@@ -313,9 +314,9 @@ const App: React.FC = () => {
       );
 
       if (!message.isRefresh || isNavigation) {
-        // Don't override callgraph viewMode — the call graph should stay visible
+        // Don't override callgraph or architecture viewMode — they stay visible
         // until the user explicitly navigates back.
-        if (viewModeRef.current !== "callgraph") {
+        if (viewModeRef.current !== "callgraph" && viewModeRef.current !== "architecture") {
           setViewMode("file");
         }
         setSymbolData(undefined);
@@ -548,8 +549,8 @@ const App: React.FC = () => {
     } else if (mode === "symbol") {
       setViewMode("symbol");
       setSymbolViewMode("graph");
-    } else if (mode === "file") {
-      setViewMode("file");
+    } else if (mode === "file" || mode === "architecture") {
+      setViewMode(mode);
     }
   }, []);
 
@@ -829,7 +830,8 @@ const App: React.FC = () => {
     };
   }, [expandAll]);
 
-  if (!graphData) {
+  // The architecture view is workspace-wide: it needs no file graph.
+  if (!graphData && viewMode !== "architecture") {
     return (
       <div
         style={{
@@ -883,7 +885,7 @@ const App: React.FC = () => {
   return (
     <ErrorBoundary>
       <div style={{ width: "100vw", height: "100vh", position: "relative" }}>
-        {emptyStateMessage && (
+        {emptyStateMessage && viewMode !== "architecture" && (
           <div
             style={{
               position: "absolute",
@@ -1028,6 +1030,10 @@ const App: React.FC = () => {
             postMessage={(msg: unknown) => vscode?.postMessage(msg as WebviewToExtensionMessage)}
           />
         </div>
+
+        {viewMode === "architecture" && (
+          <ArchitectureGraph postMessage={(msg) => vscode?.postMessage(msg)} />
+        )}
       </div>
     </ErrorBoundary>
   );

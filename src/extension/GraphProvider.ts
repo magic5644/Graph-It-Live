@@ -13,6 +13,7 @@ import type {
   WebviewToExtensionMessage,
 } from "../shared/types";
 import { getExtensionLogger } from "./extensionLogger";
+import type { ArchitectureViewService } from "./services/ArchitectureViewService";
 import type { BackgroundIndexingManager } from "./services/BackgroundIndexingManager";
 import type { CallGraphViewService } from "./services/CallGraphViewService";
 import type { EditorNavigationService } from "./services/EditorNavigationService";
@@ -225,6 +226,12 @@ export class GraphProvider implements vscode.WebviewViewProvider {
       : undefined;
   }
 
+  private get architectureViewService(): ArchitectureViewService | undefined {
+    return this._container.has(graphProviderServiceTokens.architectureViewService)
+      ? this._container.get(graphProviderServiceTokens.architectureViewService)
+      : undefined;
+  }
+
   private get eventHub(): ExtensionEventHub | undefined {
     return this._container.has(graphProviderServiceTokens.eventHub)
       ? this._container.get(graphProviderServiceTokens.eventHub)
@@ -261,6 +268,8 @@ export class GraphProvider implements vscode.WebviewViewProvider {
     this._isDisposing = true;
     this._drillDownSeq++;
     this._graphState.abortAndClearExpansionControllers();
+    // A running build holds its webview message open until aborted.
+    this.architectureViewService?.dispose();
     const unusedCache = this.unusedAnalysisCache;
     const shutdownTasks = [
       this.spider?.beginShutdown(),
@@ -351,6 +360,9 @@ export class GraphProvider implements vscode.WebviewViewProvider {
         handleCallGraphMessage: (msg) => {
           this._callGraphViewService?.handleWebviewMessage(msg);
         },
+        handleArchitectureMessage: async (msg) => {
+          await this.architectureViewService?.handleWebviewMessage(msg);
+        },
       },
       onIndexingComplete: () => this._refreshAfterIndexing(),
       viewProvider: () => this._view,
@@ -422,6 +434,9 @@ export class GraphProvider implements vscode.WebviewViewProvider {
         });
       }
 
+      if (this._stateManager.viewMode === "architecture") {
+        void this.architectureViewService?.handleCommunityModeChange();
+      }
       this.updateGraph();
     }
   }
@@ -451,6 +466,7 @@ export class GraphProvider implements vscode.WebviewViewProvider {
       this._symbolGraphCache = null;
       log.debug(`[GraphProvider] Symbol graph cache invalidated (${eventType}): ${filePath}`);
     }
+    this.architectureViewService?.markStale();
     await this.eventHub?.handleFileChange(filePath, eventType);
   }
 
@@ -973,7 +989,9 @@ export class GraphProvider implements vscode.WebviewViewProvider {
       log.info(`Refreshing current graph view: mode=${currentMode}, file=${currentFilePath}`);
       log.info(`currentSymbol=${this._stateManager.currentSymbol}`);
 
-      if (currentMode === "callgraph") {
+      if (currentMode === "architecture") {
+        await this.architectureViewService?.build();
+      } else if (currentMode === "callgraph") {
         // In call graph view — force a full reindex + re-render
         if (this._callGraphViewService) {
           log.info("Triggering call graph force reindex via refresh");
@@ -1125,6 +1143,22 @@ export class GraphProvider implements vscode.WebviewViewProvider {
     await this._updateViewModeContext();
   }
 
+  /**
+   * Switch to the workspace architecture view: the webview mounts it and asks
+   * for the cached summary or a build.
+   */
+  public async setViewModeArchitecture(): Promise<void> {
+    if (!this._view) {
+      vscode.window.showWarningMessage("View not initialized");
+      return;
+    }
+
+    log.info("Switching to architecture view mode");
+    await this._stateManager.setViewMode("architecture");
+    await this._updateViewModeContext();
+    await this._view.webview.postMessage({ command: "switchViewMode", mode: "architecture" });
+  }
+
   public async showReviewCallGraph(relativePath: string, symbolName: string | undefined, depth: number): Promise<void> {
     if (!this._callGraphViewService) throw new Error("Call graph service is unavailable");
     await this.setViewModeCallgraph();
@@ -1270,6 +1304,11 @@ export class GraphProvider implements vscode.WebviewViewProvider {
     return this._lastFileGraphMetadata;
   }
 
+  /** E2E observability pass-through to ArchitectureViewService */
+  public getArchitectureE2EState(): ReturnType<ArchitectureViewService["getE2EState"]> | undefined {
+    return this.architectureViewService?.getE2EState();
+  }
+
   /** E2E observability pass-throughs to CallGraphViewService */
   public getCallGraphRenderCount(): number {
     return this._callGraphViewService?.getCallGraphRenderCount() ?? 0;
@@ -1354,6 +1393,13 @@ export class GraphProvider implements vscode.WebviewViewProvider {
   ): Promise<void> {
     if (!this._view || !this.spider || !this.graphViewService) {
       log.debug("View or Spider not initialized");
+      return;
+    }
+
+    // The architecture view is workspace-wide: active-file updates only make sure
+    // the webview (e.g. after a reload) shows that mode.
+    if (this._stateManager.viewMode === "architecture") {
+      await this._view.webview.postMessage({ command: "switchViewMode", mode: "architecture" });
       return;
     }
 

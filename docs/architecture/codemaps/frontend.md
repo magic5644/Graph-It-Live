@@ -76,6 +76,15 @@ components/cytoscape/GraphLegend.tsx (259 lines)
 ├→ Filter overlay for call graph panel
 ├→ Accessible <label> checkboxes for language/type filters
 └→ Posts callGraphFilterChanged on toggle
+
+components/architecture/ArchitectureGraph.tsx (sidebar `architecture` view mode, in dist/webview.js)
+├→ Mounted only in that mode; posts architectureMounted, renders architectureSummary / architectureState
+├→ Cytoscape + fcose, colours from --vscode-* variables (buildArchitectureStylesheet)
+├→ Header: totals, cap note, failed / truncated, stale banner with Refresh; Retry on error
+└→ Posts architectureRendered (E2E counters)
+
+components/architecture/architectureElements.ts
+└→ toArchitectureElements(summary): pure mapping to Cytoscape elements; no grouping or counting
 ```
 
 **Critical rules for Cytoscape:**
