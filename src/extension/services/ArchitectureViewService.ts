@@ -50,7 +50,7 @@ function waitForIdleIndex(
       unsubscribe();
       signal.removeEventListener("abort", onAbort);
       if (error === undefined) resolve();
-      else reject(error);
+      else reject(error instanceof Error ? error : new Error(String(error)));
     };
     const onAbort = () => finish(signal.reason);
     signal.addEventListener("abort", onAbort);
