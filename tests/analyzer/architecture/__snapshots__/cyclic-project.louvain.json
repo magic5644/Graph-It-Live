@@ -92,7 +92,7 @@
       }
     ],
     "context": {
-      "communityMode": "path",
+      "communityMode": "louvain",
       "graphKind": "imports",
       "scope": "workspace",
       "exclusions": "node_modules, .git, dist, build, out, coverage, .next, .nuxt, __pycache__, .venv, venv, target, .*/, .gitignore, .graphitignore, tests/fixtures/, out-*/",

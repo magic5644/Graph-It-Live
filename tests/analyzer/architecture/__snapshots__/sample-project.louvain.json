@@ -15,8 +15,8 @@
         "extension": "ts",
         "dependencyCount": 1,
         "dependentCount": 0,
-        "communityId": 0,
-        "communityKey": ""
+        "communityId": 2,
+        "communityKey": "src #2"
       },
       {
         "id": "<root>/src/main.ts",
@@ -25,8 +25,8 @@
         "extension": "ts",
         "dependencyCount": 2,
         "dependentCount": 1,
-        "communityId": 0,
-        "communityKey": ""
+        "communityId": 2,
+        "communityKey": "src #2"
       },
       {
         "id": "<root>/src/components/Button.tsx",
@@ -36,7 +36,7 @@
         "dependencyCount": 1,
         "dependentCount": 1,
         "communityId": 1,
-        "communityKey": "components"
+        "communityKey": "src"
       },
       {
         "id": "<root>/src/utils.ts",
@@ -45,8 +45,8 @@
         "extension": "ts",
         "dependencyCount": 0,
         "dependentCount": 3,
-        "communityId": 0,
-        "communityKey": ""
+        "communityId": 1,
+        "communityKey": "src"
       },
       {
         "id": "<root>/src/index.ts",
@@ -55,8 +55,8 @@
         "extension": "ts",
         "dependencyCount": 1,
         "dependentCount": 0,
-        "communityId": 0,
-        "communityKey": ""
+        "communityId": 1,
+        "communityKey": "src"
       },
       {
         "id": "<root>/src/logger.js",
@@ -102,7 +102,7 @@
       }
     ],
     "context": {
-      "communityMode": "path",
+      "communityMode": "louvain",
       "graphKind": "imports",
       "scope": "workspace",
       "exclusions": "node_modules, .git, dist, build, out, coverage, .next, .nuxt, __pycache__, .venv, venv, target, .*/, .gitignore, .graphitignore, tests/fixtures/, out-*/",
@@ -112,26 +112,28 @@
     "groups": [
       {
         "id": 1,
-        "key": "components",
-        "label": "components",
-        "fileCount": 1,
-        "internalEdgeCount": 0
+        "key": "src",
+        "label": "src",
+        "fileCount": 3,
+        "internalEdgeCount": 2
+      },
+      {
+        "id": 2,
+        "key": "src #2",
+        "label": "src #2",
+        "fileCount": 2,
+        "internalEdgeCount": 1
       }
     ],
     "unassigned": {
-      "fileCount": 5,
-      "internalEdgeCount": 3
+      "fileCount": 1,
+      "internalEdgeCount": 0
     },
     "groupEdges": [
       {
-        "from": 0,
+        "from": 2,
         "to": 1,
-        "fileEdgeCount": 1
-      },
-      {
-        "from": 1,
-        "to": 0,
-        "fileEdgeCount": 1
+        "fileEdgeCount": 2
       }
     ],
     "totals": {

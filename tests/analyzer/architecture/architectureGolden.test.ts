@@ -39,7 +39,7 @@ describe.each(fixtures)("architecture golden output: %s", (fixture) => {
 
   it.each(modes)("matches the golden CLI and MCP output in %s mode", async (communityMode) => {
     const runtime = { workspaceRoot: rootDir, ensureIndexed: async () => undefined, loadState: () => null };
-    const cli = JSON.parse(await runArchitectureCli(["--groups", "--communityMode", communityMode], runtime as never, "json"));
+    const cli = JSON.parse(await runArchitectureCli(["--groups", "--communities", communityMode], runtime as never, "json"));
     const summary = await executeExploreArchitecture({ communityMode });
     const firstPage = await executeExploreArchitecture({ communityMode, limit: 1 });
     const secondPage = await executeExploreArchitecture({ communityMode, limit: 1, offset: 1 });
@@ -49,6 +49,13 @@ describe.each(fixtures)("architecture golden output: %s", (fixture) => {
       executeExploreArchitecture({ communityMode, from: edge.from, to: edge.to })));
     const evidencePages = await Promise.all(summary.groupEdges.map(edge =>
       executeExploreArchitecture({ communityMode, from: edge.from, to: edge.to, limit: 1, offset: 1 })));
+
+    // Checked outside the snapshot so a CLI run in the wrong mode cannot be recorded as the reference.
+    expect(cli.context.communityMode).toBe(communityMode);
+    expect(cli.groups).toEqual(summary.groups);
+    expect(cli.groupEdges).toEqual(summary.groupEdges.map(({ from, to, fileEdgeCount }) => ({ from, to, fileEdgeCount })));
+    expect(cli.totals).toEqual(summary.totals);
+    expect(cli.unassigned).toEqual(summary.unassigned);
 
     await expect(stable({ cli, summary, firstPage, secondPage, groupViews, evidence, evidencePages }))
       .toMatchFileSnapshot(`__snapshots__/${fixture}.${communityMode}.json`);
