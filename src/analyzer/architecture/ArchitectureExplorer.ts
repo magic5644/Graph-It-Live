@@ -41,6 +41,36 @@ function page<T>(items: T[], offset: number, limit: number) {
   return { items: slice, total: items.length, offset, returned: slice.length, truncated: nextOffset !== undefined, nextOffset };
 }
 
+/** Pages a group's files and both sides of its boundary together, heaviest edges first. */
+function pageGroup(
+  files: string[],
+  groupEdges: CommunityGroupAggregation["groupEdges"],
+  groupId: number,
+  offset: number,
+  limit: number,
+) {
+  const filePage = page(files, offset, limit);
+  const incoming = page(groupEdges.filter(edge => edge.to === groupId)
+    .toSorted((left, right) => right.fileEdgeCount - left.fileEdgeCount || left.from - right.from), offset, limit);
+  const outgoing = page(groupEdges.filter(edge => edge.from === groupId)
+    .toSorted((left, right) => right.fileEdgeCount - left.fileEdgeCount || left.to - right.to), offset, limit);
+  const truncated = filePage.truncated || incoming.truncated || outgoing.truncated;
+  return {
+    files: filePage.items,
+    incoming: incoming.items,
+    outgoing: outgoing.items,
+    page: {
+      offset,
+      limit,
+      totalFiles: filePage.total,
+      totalIncoming: incoming.total,
+      totalOutgoing: outgoing.total,
+      truncated,
+      nextOffset: truncated ? offset + limit : undefined,
+    },
+  };
+}
+
 function resolveGroup(aggregation: CommunityGroupAggregation, ref: GroupRef): CommunityGroup {
   const groups = aggregation.unassigned.fileCount > 0
     ? [...aggregation.groups, { id: 0, key: "", label: "unassigned", ...aggregation.unassigned }]
@@ -91,28 +121,16 @@ export function exploreArchitecture(
       .filter(node => node.communityId === group.id)
       .map(node => node.relativePath)
       .sort((left, right) => left.localeCompare(right));
-    const filePage = page(files, offset, limit);
-    const incoming = page(aggregation.groupEdges.filter(edge => edge.to === group.id)
-      .toSorted((left, right) => right.fileEdgeCount - left.fileEdgeCount || left.from - right.from), offset, limit);
-    const outgoing = page(aggregation.groupEdges.filter(edge => edge.from === group.id)
-      .toSorted((left, right) => right.fileEdgeCount - left.fileEdgeCount || left.to - right.to), offset, limit);
-    const truncated = filePage.truncated || incoming.truncated || outgoing.truncated;
+    const { incoming, outgoing, files: filePage, page: pageInfo } =
+      pageGroup(files, aggregation.groupEdges, group.id, offset, limit);
     return {
       view: "group",
       ...base,
       group,
-      incoming: incoming.items.map(withLabels),
-      outgoing: outgoing.items.map(withLabels),
-      files: filePage.items,
-      page: {
-        offset,
-        limit,
-        totalFiles: filePage.total,
-        totalIncoming: incoming.total,
-        totalOutgoing: outgoing.total,
-        truncated,
-        nextOffset: truncated ? offset + limit : undefined,
-      },
+      incoming: incoming.map(withLabels),
+      outgoing: outgoing.map(withLabels),
+      files: filePage,
+      page: pageInfo,
       nextSteps: "Pass from and to to list the file pairs behind an incoming or outgoing edge.",
     };
   }
