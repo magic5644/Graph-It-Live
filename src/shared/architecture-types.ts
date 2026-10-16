@@ -53,6 +53,7 @@ export interface ArchitectureRefreshCommand {
 export interface ArchitectureRenderedCommand {
   command: "architectureRendered";
   revision: string;
+  /** Group nodes drawn, the unassigned node included. */
   renderedGroups: number;
   renderedGroupEdges: number;
   communityMode: ArchitectureOverview["context"]["communityMode"];

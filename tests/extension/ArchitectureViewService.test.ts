@@ -127,6 +127,58 @@ describe("ArchitectureViewService", () => {
     expect(service.getE2EState().buildCount).toBe(2);
   });
 
+  it("posts the summary stale when a file changed during its build", async () => {
+    let release!: () => void;
+    const gate = new Promise<void>(resolve => { release = resolve; });
+    const service = createService({ analyzeFile: async () => { await gate; return []; } });
+
+    const running = service.build();
+    service.markStale();
+    release();
+    await running;
+    expect(summaries()[0].stale).toBe(true);
+
+    await service.build();
+    expect(summaries()[1].stale).toBe(false);
+  });
+
+  it("rebuilds in the new mode when the setting changes during a build", async () => {
+    let release!: () => void;
+    const gate = new Promise<void>(resolve => { release = resolve; });
+    let calls = 0;
+    const service = createService({ analyzeFile: async () => { calls += 1; if (calls === 1) await gate; return []; } });
+
+    const first = service.build();
+    await vi.waitFor(() => expect(calls).toBe(1));
+    communityMode = "louvain";
+    const second = service.handleCommunityModeChange();
+    await service.handleCommunityModeChange(); // already building louvain
+    release();
+    await Promise.all([first, second]);
+
+    expect(summaries().map(summary => summary.context.communityMode)).toEqual(["louvain"]);
+  });
+
+  it("stops for good once disposed, even during analysis", async () => {
+    let release!: () => void;
+    const gate = new Promise<void>(resolve => { release = resolve; });
+    let calls = 0;
+    const service = createService({ analyzeFile: async () => { calls += 1; await gate; return []; } });
+
+    const running = service.build();
+    await vi.waitFor(() => expect(calls).toBe(1));
+    service.dispose();
+    release();
+    await running;
+    posted = [];
+    await service.build();
+    await service.show();
+    await service.handleWebviewMessage({ command: "architectureRefresh" });
+
+    expect(posted).toEqual([]);
+    expect(service.getE2EState().buildCount).toBe(0);
+  });
+
   it("posts empty when the workspace has no source file", async () => {
     const empty = await fs.mkdtemp(path.join(os.tmpdir(), "gitl-architecture-empty-"));
     try {
@@ -150,6 +202,12 @@ describe("ArchitectureViewService", () => {
 
     await service.build();
     expect(posted.at(-1)).toEqual({ type: "architectureState", status: "error", message: "index unavailable" });
+
+    const leaking = createService({
+      subscribeToIndexStatus: () => { throw new Error(`EACCES: scandir '${root}/src'`); },
+    });
+    await leaking.build();
+    expect(posted.at(-1)).toMatchObject({ status: "error", message: "EACCES: scandir '<workspace>/src'" });
 
     fail = false;
     await service.handleWebviewMessage({ command: "architectureRefresh" });
@@ -216,6 +274,7 @@ describe("ArchitectureViewService", () => {
     const build = service.build();
     await Promise.resolve();
     expect(analyzeFile).not.toHaveBeenCalled();
+    expect(states().map(state => state.message)).toEqual(["Building architecture…", "Waiting for indexing to finish…"]);
     notify({ state: "complete" } as IndexerStatusSnapshot);
     await build;
     expect(unsubscribe).toHaveBeenCalledOnce();
@@ -230,6 +289,7 @@ describe("ArchitectureViewService", () => {
 
   it("reports progress as a percentage of analysed files", async () => {
     await createService().build();
+    expect(states().some(state => state.message === "Waiting for indexing to finish…")).toBe(false);
     expect(states().some(state => state.percent !== undefined && state.percent > 0)).toBe(true);
   });
 
