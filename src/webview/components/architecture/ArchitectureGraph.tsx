@@ -389,14 +389,14 @@ export function ArchitectureGraph({ postMessage }: Readonly<ArchitectureGraphPro
   };
   const post = (message: ArchitectureWebviewCommand) => postMessageRef.current(message);
 
-  /** Groups with a page requested and not received yet: any other page (a late answer after a collapse) is dropped. */
-  const pendingRef = useRef(new Set<number>());
+  /** Offset of the page requested per group: any other page (a late answer after leaving a group) is dropped. */
+  const pendingRef = useRef(new Map<number, number>());
 
   // Expanding, paging, collapsing and evidence, shared by clicks, keys, messages and the E2E driver.
   const requestPage = (groupId: number, offset: number) => {
     const revision = summaryRef.current?.revision;
     if (revision === undefined) return;
-    pendingRef.current.add(groupId);
+    pendingRef.current.set(groupId, offset);
     post({ command: "architectureExpandGroup", revision, groupId, offset });
   };
   const expand = (groupId: number) => {
@@ -496,7 +496,8 @@ export function ArchitectureGraph({ postMessage }: Readonly<ArchitectureGraphPro
     setState(null);
   };
   const receiveDetail = ({ revision, detail }: ArchitectureGroupDetailMessage) => {
-    if (revision !== summaryRef.current?.revision || !pendingRef.current.delete(detail.group.id)) return;
+    if (revision !== summaryRef.current?.revision || pendingRef.current.get(detail.group.id) !== detail.page.offset) return;
+    pendingRef.current.delete(detail.group.id);
     const merged = mergeGroupDetail(expansionsRef.current, detail);
     updateExpansions(merged.expansions);
     setCapReached(merged.capReached);
@@ -719,7 +720,7 @@ export function ArchitectureGraph({ postMessage }: Readonly<ArchitectureGraphPro
     if (!cy || !summary) return;
     setShownEdges(applyMinImports(cy, minImports));
     showFocus(cy, pinnedRef.current ?? cy.collection(), postMessageRef.current);
-  }, [summary, expansions, minImports]);
+  }, [summary, expansions, focusId, minImports]);
 
   // A new revision finds again; a stale mark or a page keeps what is pinned.
   const revision = summary?.revision;

@@ -349,14 +349,15 @@ export function countRendered(elements: readonly ArchitectureElement[]) {
   };
 }
 
-/** Hides (class `weak`) the edges with fewer than `minImports` file imports; returns how many group edges stay. */
+/** Hides (class `weak`) the group edges with fewer than `minImports` file imports; returns how many stay drawn (focus included). */
 export function applyMinImports(cy: Core, minImports: number): number {
   cy.batch(() => {
     cy.edges().forEach((edge) => {
-      edge.toggleClass("weak", edge.data("fileEdgeCount") < minImports);
+      // A file edge stands for one file: the filter is about weak group relations.
+      edge.toggleClass("weak", !edge.data("fileEdge") && edge.data("fileEdgeCount") < minImports);
     });
   });
-  return cy.edges().filter((edge) => !edge.data("fileEdge") && !edge.hasClass("weak")).length;
+  return cy.edges().filter((edge) => !edge.data("fileEdge") && !edge.hasClass("weak") && !edge.hasClass("hidden")).length;
 }
 
 /**
@@ -388,7 +389,9 @@ export function highlightFocus(cy: Core, focus: Collection): void {
   cy.batch(() => {
     cy.elements().removeClass("faded highlighted");
     if (focus.empty()) return;
-    const edges = focus.edges().union(focus.nodes().connectedEdges()).not(".weak");
+    // A group's file edges stay hidden: only a file (or the edge itself) shows them.
+    const nodeEdges = focus.nodes().connectedEdges("[!fileEdge]").union(focus.nodes("[?file]").connectedEdges());
+    const edges = focus.edges().union(nodeEdges).not(".weak");
     const shown = focus.union(edges).union(edges.connectedNodes());
     shown.addClass("highlighted");
     cy.elements().not(shown).addClass("faded");

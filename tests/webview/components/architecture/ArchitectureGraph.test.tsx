@@ -619,6 +619,18 @@ describe("ArchitectureGraph", () => {
       expect(fileIds()).toEqual([]);
     });
 
+    it("keeps the page asked for when a stale page of an earlier visit arrives first", () => {
+      setup();
+      enter("group-1");
+      send(page(0));
+      tap(nodeById("more-1"));
+      leave("ui");
+      enter("group-1");
+      send(page(2));
+      send(page(0));
+      expect(fileIds()).toEqual(["file:ui/f0.ts", "file:ui/f1.ts"]);
+    });
+
     it("refuses a page past the file cap and says so", () => {
       setup();
       enter("group-1");
