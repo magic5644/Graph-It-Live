@@ -252,8 +252,8 @@ export function groupDetail(
     context,
     group,
     files: items,
-    internalPairs: internalPairs.sort(byPair),
-    outgoingPairs: outgoingPairs.sort(byPair),
+    internalPairs: internalPairs.toSorted(byPair),
+    outgoingPairs: outgoingPairs.toSorted(byPair),
     outgoing: [...outgoing.values()].sort(byFileAndGroup)
       .map(({ relativePath, group: toGroup, fileEdgeCount }) => ({ relativePath, toGroup, fileEdgeCount })),
     incoming: [...incoming.values()].sort(byFileAndGroup)

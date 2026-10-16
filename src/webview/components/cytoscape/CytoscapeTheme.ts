@@ -443,6 +443,11 @@ export function buildArchitectureStylesheet(colors: ArchitectureThemeColors): Cy
       style: { label: "data(label)", "line-color": colors.accent, "target-arrow-color": colors.accent },
     },
     { selector: ".faded", style: { opacity: 0.15 } },
+    // File edges show for the hovered or selected file only (it highlights them).
+    { selector: "edge[?fileEdge]", style: { display: "none" } },
+    { selector: "edge[?fileEdge].highlighted", style: { display: "element" } },
     { selector: "edge.weak", style: { display: "none" } },
+    // Outside the focused group.
+    { selector: ".hidden", style: { display: "none" } },
   ];
 }

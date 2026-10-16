@@ -234,14 +234,14 @@ interface EdgeEnds {
   targetFile?: string;
 }
 
-const bump = (counts: Map<string, number>, key: string, value = 1) => counts.set(key, (counts.get(key) ?? 0) + value);
-
 function edgeElement(id: string, source: string, target: string, count: number, ends: EdgeEnds & { fromName: string; toName: string }): ArchitectureElement {
   const { from, to, sourceFile, targetFile, fromName, toName } = ends;
   return {
     group: "edges",
     data: {
       id, source, target, label: String(count), fileEdgeCount: count, width: edgeWidth(count), from, to, fromName, toName,
+      // Drawn only for the hovered or selected file: all of them at once bury the picture.
+      fileEdge: sourceFile !== undefined || targetFile !== undefined,
       ...(sourceFile === undefined ? {} : { sourceFile }),
       ...(targetFile === undefined ? {} : { targetFile }),
       tooltip: `${fromName} → ${toName}\n${plural(count, "file import")}`,
@@ -250,22 +250,17 @@ function edgeElement(id: string, source: string, target: string, count: number, 
 }
 
 /**
- * Edges once some groups are expanded. A file pair is drawn at the most detailed level both
- * ends are loaded at: file → file, file ↔ collapsed group, or towards the "+N more files" node of
- * an expanded group for its files not loaded yet. Each group edge keeps, at group level, only
- * the pairs no file end carries, so no pair is drawn twice or lost; internal pairs wait until
- * both files are loaded.
+ * Edges once some groups are expanded. Every edge is labelled with the full count of the file
+ * pairs it stands for, which is what its evidence lists: group → group (an expanded group keeps
+ * them on its compound), file ↔ collapsed group from a loaded file's boundary counts, and
+ * file → file once both files are loaded. A pair with a file not loaded yet (counted in its
+ * group's "+N more files" node) is drawn once its page is loaded.
  */
 class EdgeCollector {
   readonly edges: ArchitectureElement[] = [];
   private readonly labels: Map<number, string>;
   /** Expanded group of every loaded file. */
   private readonly loaded = new Map<string, number>();
-  /** Pairs drawn below group level, per "from>to" group pair. */
-  private readonly covered = new Map<string, number>();
-  /** Pairs drawn file → file, per "source\0target group" and per "target\0source group". */
-  private readonly fromLoaded = new Map<string, number>();
-  private readonly intoLoaded = new Map<string, number>();
 
   constructor(
     summary: ArchitectureSummaryMessage,
@@ -282,11 +277,6 @@ class EdgeCollector {
     return this.loaded.get(normalizePath(relativePath)) === group;
   }
 
-  /** A collapsed group, or the "+N more files" node standing for an expanded group's unloaded files. */
-  private groupEnd(id: number): string {
-    return this.expansions.get(id)?.nextOffset === undefined ? `group-${id}` : `more-${id}`;
-  }
-
   private add(source: string, target: string, count: number, ends: EdgeEnds, id = `${source}->${target}`): void {
     const nameOf = (group: number) => (group === 0 ? "unassigned" : this.labels.get(group) ?? "");
     const fromName = ends.sourceFile ?? nameOf(ends.from);
@@ -294,46 +284,38 @@ class EdgeCollector {
     this.edges.push(edgeElement(id, source, target, count, { ...ends, fromName, toName }));
   }
 
-  /** File → file pairs whose both ends are loaded; must run for every group before `boundary`. */
+  /** File → file pairs whose both ends are loaded. */
   filePairs(id: number, expansion: GroupExpansion): void {
-    for (const pair of expansion.internalPairs) {
-      if (this.isLoaded(pair.target, id)) {
-        this.add(fileNodeId(pair.source), fileNodeId(pair.target), 1, { from: id, to: id, sourceFile: pair.source, targetFile: pair.target });
-      }
-    }
-    for (const pair of expansion.outgoingPairs.filter((entry) => this.shown.has(entry.toGroup) && this.isLoaded(entry.target, entry.toGroup))) {
+    const pairs = [...expansion.internalPairs.map((pair) => ({ ...pair, toGroup: id })), ...expansion.outgoingPairs];
+    for (const pair of pairs.filter((entry) => this.shown.has(entry.toGroup) && this.isLoaded(entry.target, entry.toGroup))) {
       this.add(fileNodeId(pair.source), fileNodeId(pair.target), 1, { from: id, to: pair.toGroup, sourceFile: pair.source, targetFile: pair.target });
-      bump(this.fromLoaded, `${pair.source}\0${pair.toGroup}`);
-      bump(this.intoLoaded, `${pair.target}\0${id}`);
     }
   }
 
-  /** What is left of each loaded file's boundary counts once the file → file pairs are drawn. */
+  /** A loaded file's imports from and to each collapsed group, with the full count. */
   boundary(id: number, expansion: GroupExpansion): void {
-    for (const entry of expansion.outgoing.filter((candidate) => this.shown.has(candidate.toGroup))) {
-      bump(this.covered, `${id}>${entry.toGroup}`, entry.fileEdgeCount);
-      const rest = entry.fileEdgeCount - (this.fromLoaded.get(`${entry.relativePath}\0${entry.toGroup}`) ?? 0);
-      if (rest > 0) this.add(fileNodeId(entry.relativePath), this.groupEnd(entry.toGroup), rest, { from: id, to: entry.toGroup, sourceFile: entry.relativePath });
+    const collapsed = (group: number) => this.shown.has(group) && !this.expansions.has(group);
+    for (const entry of expansion.outgoing.filter((candidate) => collapsed(candidate.toGroup))) {
+      const ends = { from: id, to: entry.toGroup, sourceFile: entry.relativePath };
+      this.add(fileNodeId(entry.relativePath), `group-${entry.toGroup}`, entry.fileEdgeCount, ends);
     }
-    for (const entry of expansion.incoming.filter((candidate) => this.shown.has(candidate.fromGroup))) {
-      // Pairs from loaded files of an expanded source group are already drawn from its side.
-      const rest = entry.fileEdgeCount - (this.intoLoaded.get(`${entry.relativePath}\0${entry.fromGroup}`) ?? 0);
-      bump(this.covered, `${entry.fromGroup}>${id}`, rest);
-      if (rest > 0) this.add(this.groupEnd(entry.fromGroup), fileNodeId(entry.relativePath), rest, { from: entry.fromGroup, to: id, targetFile: entry.relativePath });
+    for (const entry of expansion.incoming.filter((candidate) => collapsed(candidate.fromGroup))) {
+      const ends = { from: entry.fromGroup, to: id, targetFile: entry.relativePath };
+      this.add(`group-${entry.fromGroup}`, fileNodeId(entry.relativePath), entry.fileEdgeCount, ends);
     }
   }
 
-  /** The pairs of a group edge that no file end carries. */
   groupEdge(edge: ArchitectureSummaryMessage["groupEdges"][number]): void {
-    const rest = edge.fileEdgeCount - (this.covered.get(`${edge.from}>${edge.to}`) ?? 0);
-    if (rest > 0) this.add(this.groupEnd(edge.from), this.groupEnd(edge.to), rest, { from: edge.from, to: edge.to }, `edge-${edge.from}-${edge.to}`);
+    this.add(`group-${edge.from}`, `group-${edge.to}`, edge.fileEdgeCount, { from: edge.from, to: edge.to }, `edge-${edge.from}-${edge.to}`);
   }
 }
 
 function edgeElements(summary: ArchitectureSummaryMessage, expansions: Expansions, shown: Set<number>): ArchitectureElement[] {
   const collector = new EdgeCollector(summary, expansions, shown);
-  for (const [id, expansion] of expansions) collector.filePairs(id, expansion);
-  for (const [id, expansion] of expansions) collector.boundary(id, expansion);
+  for (const [id, expansion] of expansions) {
+    collector.filePairs(id, expansion);
+    collector.boundary(id, expansion);
+  }
   for (const edge of summary.groupEdges) collector.groupEdge(edge);
   return collector.edges;
 }
@@ -367,14 +349,29 @@ export function countRendered(elements: readonly ArchitectureElement[]) {
   };
 }
 
-/** Hides (class `weak`) the group edges with fewer than `minImports` file imports; returns how many stay. */
+/** Hides (class `weak`) the edges with fewer than `minImports` file imports; returns how many group edges stay. */
 export function applyMinImports(cy: Core, minImports: number): number {
   cy.batch(() => {
     cy.edges().forEach((edge) => {
       edge.toggleClass("weak", edge.data("fileEdgeCount") < minImports);
     });
   });
-  return cy.edges().not(".weak").length;
+  return cy.edges().filter((edge) => !edge.data("fileEdge") && !edge.hasClass("weak")).length;
+}
+
+/**
+ * Keeps only `group`, its files and what its edges reach (with the compound around a reached
+ * file); everything else gets class `hidden`. Returns what stays drawn. An empty group shows all.
+ */
+export function focusGroup(cy: Core, group: Collection): Collection {
+  cy.batch(() => cy.elements().removeClass("hidden"));
+  if (group.empty()) return cy.elements();
+  const core = group.union(group.descendants());
+  const edges = core.connectedEdges();
+  const reached = edges.connectedNodes();
+  const shown = core.union(edges).union(reached).union(reached.parents()).union(reached.parents().children());
+  cy.batch(() => cy.elements().not(shown).addClass("hidden"));
+  return shown;
 }
 
 /** Groups whose label or key contains `query`, case-insensitive; none for a blank query. */
@@ -405,6 +402,7 @@ export function measureInteraction(cy: Core) {
     highlightedGroups: cy.nodes(".highlighted").length,
     fadedGroups: cy.nodes().filter((node) => Number(node.style("opacity")) < 1).length,
     labelledEdges: edges.filter((edge) => edge.style("label") !== "").length,
-    shownGroupEdges: edges.length,
+    shownGroupEdges: edges.filter((edge) => !edge.data("fileEdge")).length,
+    shownFileEdges: edges.filter((edge) => edge.data("fileEdge")).length,
   };
 }

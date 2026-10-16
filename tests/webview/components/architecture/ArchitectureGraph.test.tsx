@@ -25,6 +25,8 @@ const cy = vi.hoisted(() => {
       isEdge: () => false,
       isChild: () => data.parent !== undefined,
       isParent: () => state.nodes.some(other => other.data("parent") === data.id),
+      empty: () => false,
+      nonempty: () => true,
       children: () => {
         const children = state.nodes.filter(other => other.data("parent") === data.id);
         return Object.assign(children, {
@@ -75,6 +77,8 @@ const cy = vi.hoisted(() => {
     resize: vi.fn(),
     nodes: () => state.nodes,
     edges: () => state.edges,
+    getElementById: (id: string) =>
+      state.nodes.find(node => node.id() === id) ?? { empty: () => true, nonempty: () => false, isParent: () => false },
     destroy: () => {},
   };
   const factory = Object.assign(() => instance, { use: () => {} });
@@ -89,8 +93,9 @@ const helpers = vi.hoisted(() => ({
   findGroups: vi.fn(),
   highlightFocus: vi.fn(),
   measureInteraction: () => ({ highlightedGroups: 2, fadedGroups: 1, labelledEdges: 1, shownGroupEdges: 1 }),
-  // Lays out new files on real Cytoscape; tested in architectureElements.test.ts.
+  // Lays out new files and hides what the focus leaves out on real Cytoscape; tested in architectureElements.test.ts.
   placeNewFiles: vi.fn(),
+  focusGroup: vi.fn(() => ({ nodes: () => ({ filter: () => ({ length: 3 }) }) })),
 }));
 helpers.findGroups.mockImplementation(() => helpers.empty);
 vi.mock("@/webview/components/architecture/architectureElements", async (importOriginal) => ({
@@ -484,6 +489,8 @@ describe("ArchitectureGraph", () => {
     });
     const nodeById = (id: string) => cy.state.nodes.find(node => node.id() === id);
     const tap = (target: unknown) => act(() => cy.state.handlers.get("tap")?.({ target }));
+    const enter = (id: string) => act(() => cy.state.handlers.get("dbltap")?.({ target: nodeById(id) }));
+    const leave = (label: string) => fireEvent.click(screen.getByRole("button", { name: `Leave ${label}` }));
     const fileIds = () => cy.state.nodes.filter(node => node.data("file")).map(node => node.id());
     const setup = () => {
       const postMessage = vi.fn();
@@ -494,20 +501,21 @@ describe("ArchitectureGraph", () => {
 
     afterEach(() => vi.clearAllMocks());
 
-    it("expands a tapped group page by page from its +N more files node, and collapses it", () => {
+    it("enters a double-clicked group page by page from its +N more files node, and leaves it", () => {
       const postMessage = setup();
-      tap(nodeById("group-1"));
+      enter("group-1");
       expect(postMessage).toHaveBeenCalledWith({ command: "architectureExpandGroup", revision: "r1", groupId: 1, offset: 0 });
 
       send(page(0));
       expect(fileIds()).toEqual(["file:ui/f0.ts", "file:ui/f1.ts"]);
       expect(nodeById("more-1")?.data("label")).toBe("+3 more files");
       expect(helpers.placeNewFiles).toHaveBeenCalled();
-      // f0 → store replaces the ui → store group edge: its 3 imports now start at f0.
-      expect(cy.state.edges.map(edge => edge.id())).toContain("file:ui/f0.ts->group-2");
+      // The ui → store group edge stays; f0's 3 imports to store are drawn for f0 only.
+      expect(cy.state.edges.map(edge => edge.id())).toEqual(expect.arrayContaining(["edge-1-2", "file:ui/f0.ts->group-2"]));
+      expect(cy.instance.fit).toHaveBeenLastCalledWith(nodeById("group-1"), 30);
       expect(lastOf(postMessage, "architectureDetailRendered")).toEqual({
-        command: "architectureDetailRendered", expandedGroups: 1, expandedFileCount: 5, renderedFiles: 2, groupLevelEdges: 0,
-        capReached: false, evidence: undefined,
+        command: "architectureDetailRendered", expandedGroups: 1, expandedFileCount: 5, renderedFiles: 2, groupLevelEdges: 1,
+        visibleGroups: 3, focusedGroup: "ui", capReached: false, evidence: undefined,
       });
 
       tap(nodeById("more-1"));
@@ -516,14 +524,50 @@ describe("ArchitectureGraph", () => {
       // A page received twice is merged once.
       send(page(2));
       expect(fileIds()).toHaveLength(4);
-      tap(nodeById("group-1"));
+      leave("ui");
       expect(fileIds()).toEqual([]);
-      expect(lastOf(postMessage, "architectureDetailRendered")).toMatchObject({ expandedGroups: 0, groupLevelEdges: 1 });
+      expect(lastOf(postMessage, "architectureDetailRendered")).toMatchObject({ expandedGroups: 0, groupLevelEdges: 1, focusedGroup: "ui" });
     });
 
-    it("expands the focused group on Enter and collapses it on Escape", () => {
+    it("focuses a clicked group without expanding it; Overview and a background click show everything again", () => {
+      const postMessage = setup();
+      tap(nodeById("group-2"));
+      expect(lastOf(postMessage, "architectureExpandGroup")).toBeUndefined();
+      expect(helpers.focusGroup).toHaveBeenLastCalledWith(cy.instance, nodeById("group-2"));
+      expect(lastOf(postMessage, "architectureDetailRendered")).toMatchObject({ focusedGroup: "store", expandedGroups: 0 });
+      expect(screen.getByRole("navigation", { name: "Architecture path" }).textContent).toContain("store");
+
+      fireEvent.click(screen.getByRole("button", { name: "Overview" }));
+      expect(lastOf(postMessage, "architectureDetailRendered")).toMatchObject({ focusedGroup: undefined });
+      expect((screen.getByRole("button", { name: "Overview" }) as HTMLButtonElement).disabled).toBe(true);
+
+      tap(nodeById("group-0"));
+      expect(lastOf(postMessage, "architectureDetailRendered")).toMatchObject({ focusedGroup: "" });
+      act(() => cy.state.handlers.get("tap")?.({ target: cy.instance }));
+      expect(lastOf(postMessage, "architectureDetailRendered")).toMatchObject({ focusedGroup: undefined });
+    });
+
+    it("Escape leaves the last entered group, then drops the focus; Overview leaves every group", () => {
+      const postMessage = setup();
+      enter("group-1");
+      send(page(0));
+      enter("group-2");
+      send({ ...page(0), detail: { ...page(0).detail, group: summary.groups[1], files: [{ relativePath: "store/s.ts", dependencyCount: 0, dependentCount: 1 }] } });
+      expect(fileIds()).toHaveLength(3);
+      fireEvent.keyDown(window, { key: "Escape" });
+      expect(fileIds()).toEqual(["file:ui/f0.ts", "file:ui/f1.ts"]);
+      fireEvent.click(screen.getByRole("button", { name: "Overview" }));
+      expect(fileIds()).toEqual([]);
+      tap(nodeById("group-1"));
+      fireEvent.keyDown(window, { key: "Escape" });
+      expect(lastOf(postMessage, "architectureDetailRendered")).toMatchObject({ focusedGroup: undefined });
+    });
+
+    it("enters the selected group on Enter, and leaves it on Escape", () => {
       const postMessage = setup();
       tap(nodeById("group-1"));
+      fireEvent.keyDown(window, { key: "Enter" });
+      expect(postMessage).toHaveBeenCalledWith({ command: "architectureExpandGroup", revision: "r1", groupId: 1, offset: 0 });
       send(page(0));
       fireEvent.keyDown(window, { key: "Escape" });
       expect(fileIds()).toEqual([]);
@@ -539,6 +583,7 @@ describe("ArchitectureGraph", () => {
     it("keeps the expanded groups and the tapped element on a stale mark, and drops them on a new revision", () => {
       setup();
       tap(nodeById("group-1"));
+      enter("group-1");
       send(page(0));
       send({ ...summary, stale: true });
       expect(fileIds()).toHaveLength(2);
@@ -553,15 +598,30 @@ describe("ArchitectureGraph", () => {
 
     it("drops what it holds and asks for the summary again when the revision changed", () => {
       const postMessage = setup();
+      enter("group-1");
       send(page(0));
+      expect(fileIds()).toHaveLength(2);
       postMessage.mockClear();
       send({ type: "architectureRevisionChanged", currentRevision: "r2" });
       expect(postMessage).toHaveBeenCalledWith({ command: "architectureMounted" });
       expect(fileIds()).toEqual([]);
     });
 
+    it("drops a page it did not ask for, such as a late answer after a collapse", () => {
+      setup();
+      send(page(0));
+      expect(fileIds()).toEqual([]);
+      enter("group-1");
+      send(page(0));
+      tap(nodeById("more-1"));
+      leave("ui");
+      send(page(2));
+      expect(fileIds()).toEqual([]);
+    });
+
     it("refuses a page past the file cap and says so", () => {
       setup();
+      enter("group-1");
       const big = page(0);
       big.detail.files = Array.from({ length: 501 }, (_, index) => ({ relativePath: `ui/g${index}.ts`, dependencyCount: 0, dependentCount: 0 }));
       send(big);
@@ -601,6 +661,7 @@ describe("ArchitectureGraph", () => {
 
     it("filters the evidence of a file edge by its file, and closes from its button", () => {
       const postMessage = setup();
+      enter("group-1");
       send(page(0));
       tap(cy.state.edges.find(edge => edge.id() === "file:ui/f0.ts->group-2"));
       expect(lastOf(postMessage, "architectureEvidence")).toEqual({
@@ -613,8 +674,12 @@ describe("ArchitectureGraph", () => {
 
     it("drives the same actions from the E2E controls, groups named by key", () => {
       const postMessage = setup();
+      send({ type: "architectureControls", focus: "store" });
+      expect(lastOf(postMessage, "architectureDetailRendered")).toMatchObject({ focusedGroup: "store" });
+      send({ type: "architectureControls", focus: "" });
+      expect(lastOf(postMessage, "architectureDetailRendered")).toMatchObject({ focusedGroup: undefined });
       send({ type: "architectureControls", expand: "ui" });
-      expect(postMessage).toHaveBeenLastCalledWith({ command: "architectureExpandGroup", revision: "r1", groupId: 1, offset: 0 });
+      expect(lastOf(postMessage, "architectureExpandGroup")).toEqual({ command: "architectureExpandGroup", revision: "r1", groupId: 1, offset: 0 });
       send(page(0));
       send({ type: "architectureControls", evidenceOf: "ui" });
       expect(lastOf(postMessage, "architectureEvidence")).toMatchObject({ from: 1, to: 2, sourceFile: "ui/f0.ts" });
