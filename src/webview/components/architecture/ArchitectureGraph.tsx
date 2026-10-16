@@ -56,10 +56,10 @@ function SummaryHeader({ summary, onRefresh }: Readonly<{ summary: ArchitectureS
   return (
     <div style={{ padding: "6px 10px", fontSize: 12, borderBottom: "1px solid var(--vscode-widget-border)" }}>
       {summary.stale && (
-        <div role="status" style={bannerStyle}>
+        <output style={{ ...bannerStyle, display: "block" }}>
           Files changed since this view was built.{" "}
           <button type="button" onClick={onRefresh}>Refresh</button>
-        </div>
+        </output>
       )}
       <div style={{ fontWeight: 600 }}>{MODE_WORDING[context.communityMode]}</div>
       <div>
@@ -90,7 +90,7 @@ function SummaryHeader({ summary, onRefresh }: Readonly<{ summary: ArchitectureS
 
 function StatePanel({ state, onRetry }: Readonly<{ state: ArchitectureStateMessage; onRetry: () => void }>) {
   return (
-    <div role="status" style={{ padding: 16, fontSize: 12 }}>
+    <output style={{ display: "block", padding: 16, fontSize: 12 }}>
       {state.status === "building" && (
         <>
           <div>{state.message ?? "Building architecture…"}</div>
@@ -104,7 +104,7 @@ function StatePanel({ state, onRetry }: Readonly<{ state: ArchitectureStateMessa
           <button type="button" onClick={onRetry}>Retry</button>
         </>
       )}
-    </div>
+    </output>
   );
 }
 
@@ -118,6 +118,8 @@ export function ArchitectureGraph({ postMessage }: Readonly<ArchitectureGraphPro
 
   useEffect(() => {
     const handleMessage = (event: MessageEvent<ArchitectureExtensionMessage>) => {
+      // Extension messages come from the webview's own vscode-webview:// origin (S2819).
+      if (event.origin && !event.origin.startsWith("vscode-webview://") && event.origin !== "null") return;
       const message = event.data;
       if (message?.type === "architectureSummary") {
         setSummary(message);

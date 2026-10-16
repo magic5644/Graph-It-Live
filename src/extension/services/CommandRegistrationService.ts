@@ -224,7 +224,7 @@ export class CommandRegistrationService {
       ['graph-it-live.architectureStale', () => architecture()?.stale ?? false],
     ]);
     // Unknown keys return undefined.
-    return vscode.commands.registerCommand('getContext', async (key: string) => getters.get(key)?.());
+    return vscode.commands.registerCommand('getContext', (key: string) => getters.get(key)?.());
   }
 
   private registerProviderCommand(

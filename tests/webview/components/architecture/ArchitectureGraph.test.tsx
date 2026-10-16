@@ -122,6 +122,18 @@ describe("ArchitectureGraph", () => {
     expect(screen.getByText("No source file found in the workspace folder.")).toBeTruthy();
   });
 
+  it("ignores messages from another origin", () => {
+    render(<ArchitectureGraph postMessage={vi.fn()} />);
+    act(() => {
+      window.dispatchEvent(new MessageEvent("message", { data: summary, origin: "https://evil.example" }));
+    });
+    expect(screen.queryByText("Groups based on imports (Louvain)")).toBeNull();
+    act(() => {
+      window.dispatchEvent(new MessageEvent("message", { data: summary, origin: "vscode-webview://abc" }));
+    });
+    expect(screen.getByText("Groups based on imports (Louvain)")).toBeTruthy();
+  });
+
   it("sets the hovered element's tooltip on the container", () => {
     render(<ArchitectureGraph postMessage={vi.fn()} />);
     const container = screen.getByTestId("architecture-graph");
