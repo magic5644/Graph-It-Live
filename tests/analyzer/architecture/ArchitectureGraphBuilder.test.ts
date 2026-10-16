@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import * as fs from "node:fs/promises";
 import * as os from "node:os";
 import * as path from "node:path";
@@ -71,6 +72,32 @@ describe("buildArchitectureGraph", () => {
     expect(windows.context.revision).toBe(posix.context.revision);
     expect(louvain.context.revision).not.toBe(posix.context.revision);
     expect(noEdge.context.revision).not.toBe(posix.context.revision);
+  });
+
+  it("gives the same revision whatever the file order within a group, and its own one to an empty workspace", async () => {
+    const upper = path.join(root, "src", "api", "B.ts");
+    await fs.writeFile(upper, "");
+    const collect = vi.spyOn(SourceFileCollector.prototype, "collectAllSourceFiles");
+    const analyze = async (filePath: string) => filePath === normalizePath(upper) ? [dependency(fileA)] : [];
+
+    collect.mockResolvedValueOnce([fileA, upper, fileB]);
+    const forward = await buildArchitectureGraph(root, analyze);
+    // Swapping folders would renumber the groups; swapping files inside api must not change anything.
+    collect.mockResolvedValueOnce([upper, fileA, fileB]);
+    const backward = await buildArchitectureGraph(root, analyze);
+    collect.mockResolvedValueOnce([]);
+    const empty = await buildArchitectureGraph(root, analyze);
+
+    // Code-unit order puts "B.ts" before "a.ts"; localeCompare would not, and varies with the locale.
+    const codeUnitOrder = JSON.stringify([
+      "path",
+      ["src/api/B.ts\t1", "src/api/a.ts\t1", "src/db/b.ts\t2"],
+      ["src/api/B.ts\tsrc/api/a.ts"],
+    ]);
+    expect(forward.context.revision).toBe(createHash("sha256").update(codeUnitOrder).digest("hex"));
+    expect(backward.context.revision).toBe(forward.context.revision);
+    expect(empty.context.revision).toMatch(/^[0-9a-f]{64}$/);
+    expect(empty.context.revision).not.toBe(forward.context.revision);
   });
 
   it("reports missing, outside and failing files with the analysis tool's reasons", async () => {

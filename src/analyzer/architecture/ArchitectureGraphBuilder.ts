@@ -148,10 +148,12 @@ function architectureRevision(
   nodes: { relativePath: string; communityId: number }[],
   edges: ArchitectureEdge[],
 ): string {
+  // Code-unit order, not localeCompare: collation varies with the machine's locale. Entries are unique.
+  const byCodeUnit = (a: string, b: string) => (a < b ? -1 : 1);
   const content = JSON.stringify([
     communityMode,
-    nodes.map(node => `${node.relativePath}\t${node.communityId}`).sort((a, b) => a.localeCompare(b)),
-    edges.map(edge => `${edge.sourceRelative}\t${edge.targetRelative}`).sort((a, b) => a.localeCompare(b)),
+    nodes.map(node => `${node.relativePath}\t${node.communityId}`).sort(byCodeUnit),
+    edges.map(edge => `${edge.sourceRelative}\t${edge.targetRelative}`).sort(byCodeUnit),
   ]);
   return createHash("sha256").update(content).digest("hex");
 }
