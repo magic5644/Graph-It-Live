@@ -230,16 +230,18 @@ export class CommandRegistrationService {
       ['graph-it-live.architectureViewSize', () => architecture()?.viewSize],
       ['graph-it-live.architectureInteractionCount', () => architecture()?.interactionCount ?? 0],
       ['graph-it-live.architectureInteraction', () => architecture()?.interaction],
+      ['graph-it-live.architectureDetailCount', () => architecture()?.detailCount ?? 0],
+      ['graph-it-live.architectureDetail', () => architecture()?.detail],
     ]);
     // Unknown keys return undefined.
     return vscode.commands.registerCommand('getContext', (key: string) => getters.get(key)?.());
   }
 
-  /** E2E test helper: drives the architecture view's find and min-imports controls, which tests cannot type into. */
+  /** E2E test helper: drives the architecture view's controls and clicks, which tests cannot reach in the webview. */
   private registerArchitectureControlsCommand(): vscode.Disposable {
     return vscode.commands.registerCommand(
       'graph-it-live.e2eArchitectureControls',
-      (controls: { find?: string; minImports?: number }) => this.provider.setArchitectureControls(controls)
+      (controls: Parameters<GraphProvider['setArchitectureControls']>[0]) => this.provider.setArchitectureControls(controls)
     );
   }
 

@@ -1,16 +1,21 @@
-import { overviewArchitecture } from "@/analyzer/architecture/ArchitectureExplorer";
-import { buildArchitectureGraph, type AnalyzeFile } from "@/analyzer/architecture/ArchitectureGraphBuilder";
+import * as path from "node:path";
+import { exploreArchitecture, groupDetail, overviewArchitecture } from "@/analyzer/architecture/ArchitectureExplorer";
+import { buildArchitectureGraph, type AnalyzeFile, type ArchitectureGraph } from "@/analyzer/architecture/ArchitectureGraphBuilder";
 import type { IndexerStatusSnapshot } from "@/analyzer/IndexerStatus";
 import type {
   ArchitectureControlsMessage,
+  ArchitectureDetailRenderedCommand,
+  ArchitectureEvidenceCommand,
   ArchitectureExtensionMessage,
   ArchitectureInteractedCommand,
+  ArchitectureOpenFileCommand,
   ArchitectureRenderedCommand,
   ArchitectureSummaryMessage,
   ArchitectureWebviewCommand,
 } from "@/shared/architecture-types";
 import type { CommunityMode } from "@/shared/graph-types";
 import { normalizePath } from "@/shared/path";
+import { validateWorkspacePath } from "@/shared/pathSecurity";
 
 /** Groups beyond this are counted in hiddenGroups, never dropped from totals. */
 export const MAX_RENDERED_GROUPS = 150;
@@ -23,6 +28,9 @@ export interface ArchitectureViewServiceOptions {
   readCommunityMode: () => CommunityMode;
   subscribeToIndexStatus: (callback: (snapshot: IndexerStatusSnapshot) => void) => () => void;
   post: (message: ArchitectureExtensionMessage) => void;
+  /** Opens a validated absolute path in an editor. */
+  openFile: (absolutePath: string) => Promise<void>;
+  warn: (message: string) => void;
 }
 
 /** Masks the workspace root in every separator form a Node error message may use on Windows. */
@@ -69,12 +77,23 @@ function waitForIdleIndex(
   });
 }
 
+/** One evidence page for an edge, echoing the request's file filters. */
+function evidencePage(graph: ArchitectureGraph, request: ArchitectureEvidenceCommand): ArchitectureExtensionMessage {
+  const { revision, from, to, sourceFile, targetFile, offset } = request;
+  // from and to always select the evidence view.
+  const evidence = exploreArchitecture(graph, { from, to, sourceFile, targetFile, offset, revision }) as
+    Extract<ReturnType<typeof exploreArchitecture>, { view: "evidence" }>;
+  return { type: "architectureEvidencePage", revision, from, to, sourceFile, targetFile, pairs: evidence.pairs, page: evidence.page };
+}
+
 /**
  * Builds the workspace architecture on demand for the sidebar's Architecture view mode.
  * A build is O(files): file changes only mark the cached summary stale.
  */
 export class ArchitectureViewService {
   private summary: ArchitectureSummaryMessage | null = null;
+  /** The graph of `summary`, which group detail and evidence pages are read from. */
+  private graph: { graph: ArchitectureGraph; files: Set<string> } | null = null;
   private running: { controller: AbortController; communityMode: CommunityMode } | null = null;
   private buildCount = 0;
   private renderCount = 0;
@@ -83,6 +102,8 @@ export class ArchitectureViewService {
   private viewSize = { width: 0, height: 0 };
   private interactionCount = 0;
   private lastInteraction: ArchitectureInteractedCommand | null = null;
+  private detailCount = 0;
+  private lastDetail: ArchitectureDetailRenderedCommand | null = null;
   /** A source file changed while the running build was analysing. */
   private changedDuringBuild = false;
   private disposed = false;
@@ -107,6 +128,61 @@ export class ArchitectureViewService {
         this.interactionCount += 1;
         this.lastInteraction = message;
         return Promise.resolve();
+      case "architectureDetailRendered":
+        this.detailCount += 1;
+        this.lastDetail = message;
+        return Promise.resolve();
+      case "architectureExpandGroup":
+        this.answer(message.revision, (graph) => ({
+          type: "architectureGroupDetail",
+          revision: message.revision,
+          detail: groupDetail(graph, message.groupId, { offset: message.offset }),
+        }));
+        return Promise.resolve();
+      case "architectureEvidence":
+        this.answer(message.revision, (graph) => evidencePage(graph, message));
+        return Promise.resolve();
+      case "architectureOpenFile":
+        return this.openFile(message);
+    }
+  }
+
+  /** The graph a request's revision points at, or null once it is gone (stale request, rebuild, empty workspace). */
+  private graphFor(revision: string) {
+    if (this.graph?.graph.context.revision === revision) return this.graph;
+    this.options.post({ type: "architectureRevisionChanged", currentRevision: this.summary?.revision ?? "" });
+    return null;
+  }
+
+  private answer(revision: string, read: (graph: ArchitectureGraph) => ArchitectureExtensionMessage): void {
+    const cached = this.graphFor(revision);
+    if (!cached) return;
+    try {
+      this.options.post(read(cached.graph));
+    } catch (error) {
+      // Only an unknown group gets here: the ids come from this revision's summary.
+      this.options.warn(`Architecture view: ${error instanceof Error ? error.message : String(error)}`);
+    }
+  }
+
+  /**
+   * Opens a file of the cached graph. The path comes from the webview: it must be relative,
+   * one of the graph's files, and stay in the workspace once symlinks are resolved (CWE-22).
+   */
+  private async openFile({ revision, relativePath }: ArchitectureOpenFileCommand): Promise<void> {
+    const cached = this.graphFor(revision);
+    if (!cached) return;
+    const relative = normalizePath(String(relativePath));
+    const { workspaceRoot } = this.options;
+    try {
+      if (path.isAbsolute(relative) || path.win32.isAbsolute(relative) || !cached.files.has(relative)) {
+        throw new Error(`not a file of the architecture graph: ${relative}`);
+      }
+      const absolutePath = validateWorkspacePath(path.join(workspaceRoot, relative), workspaceRoot);
+      await this.options.openFile(absolutePath);
+    } catch (error) {
+      const reason = error instanceof Error ? error.message : String(error);
+      this.options.warn(`Architecture view: refused to open a file (${maskWorkspaceRoot(reason, workspaceRoot)})`);
     }
   }
 
@@ -176,6 +252,7 @@ export class ArchitectureViewService {
       this.buildCount += 1;
       if (graph.scannedFiles === 0) {
         this.summary = null;
+        this.graph = null;
         post({ type: "architectureState", status: "empty", message: "No source file found in the workspace folder." });
         return;
       }
@@ -185,6 +262,7 @@ export class ArchitectureViewService {
         stale: this.changedDuringBuild,
         ...overviewArchitecture(graph, MAX_RENDERED_GROUPS),
       };
+      this.graph = { graph, files: new Set(graph.nodes.map(node => node.relativePath)) };
       // Cleared only once posted: a change seen by an aborted build still applies to the next one.
       this.changedDuringBuild = false;
       post(this.summary);
@@ -215,16 +293,23 @@ export class ArchitectureViewService {
       viewSize: this.viewSize,
       interactionCount: this.interactionCount,
       interaction: this.lastInteraction,
+      detailCount: this.detailCount,
+      detail: this.lastDetail,
     };
   }
 
-  /** E2E driver: sets the webview's find and min-imports controls; any extension can call it, so check the values. */
+  /** E2E driver: sets the webview's controls; any extension can call it, so check the values. */
   setControls(controls: Omit<ArchitectureControlsMessage, "type"> | undefined): void {
-    const { find, minImports } = controls ?? {};
+    const { find, minImports, expand, collapse, evidenceOf, openEvidenceRow } = controls ?? {};
+    const text = (value: unknown) => (typeof value === "string" ? value.slice(0, 256) : undefined);
     this.options.post({
       type: "architectureControls",
-      find: typeof find === "string" ? find.slice(0, 256) : undefined,
+      find: text(find),
       minImports: Number.isSafeInteger(minImports) && Number(minImports) >= 1 ? minImports : undefined,
+      expand: text(expand),
+      collapse: text(collapse),
+      evidenceOf: text(evidenceOf),
+      openEvidenceRow: Number.isSafeInteger(openEvidenceRow) && Number(openEvidenceRow) >= 0 ? openEvidenceRow : undefined,
     });
   }
 

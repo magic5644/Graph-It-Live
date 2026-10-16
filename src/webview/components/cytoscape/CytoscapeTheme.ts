@@ -416,6 +416,13 @@ export function buildArchitectureStylesheet(colors: ArchitectureThemeColors): Cy
       selector: "node[?unassigned]",
       style: { "border-style": "dashed", "border-color": colors.border },
     },
+    // An expanded group: a compound around its files, titled above them.
+    {
+      selector: "node:parent",
+      style: { "text-valign": "top", "background-opacity": 0.4, padding: "12px" },
+    },
+    { selector: "node[?file]", style: { "border-width": 1 } },
+    { selector: "node[?more]", style: { "border-style": "dotted", "border-color": colors.border } },
     {
       selector: "edge",
       style: {

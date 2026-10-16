@@ -1,4 +1,4 @@
-import { overviewArchitecture } from "@/analyzer/architecture/ArchitectureExplorer";
+import { groupDetail, overviewArchitecture } from "@/analyzer/architecture/ArchitectureExplorer";
 import type { ArchitectureGraph } from "@/analyzer/architecture/ArchitectureGraphBuilder";
 import { aggregateCommunityGroups } from "@/analyzer/community/groupAggregation";
 import type { ArchitectureSummaryMessage } from "@/shared/architecture-types";
@@ -6,6 +6,12 @@ import type { GraphData } from "@/shared/graph-types";
 import {
   applyMinImports,
   ARCHITECTURE_FCOSE_LAYOUT,
+  type Expansions,
+  FILE_CAP_MESSAGE,
+  MAX_RENDERED_FILES,
+  mergeGroupDetail,
+  placeNewFiles,
+  renderedFileCount,
   findGroups,
   highlightFocus,
   type LayoutBox,
@@ -238,5 +244,179 @@ describe("highlight, find and min-imports filter", () => {
     expect(findGroups(cy, "   ").empty()).toBe(true);
     expect(findGroups(cy, "nope").empty()).toBe(true);
     cy.destroy();
+  });
+});
+
+// a (3 files), b (3 files) and c (1 file). Most depended-on first, a pages as [a3, a1] then [a2],
+// so the internal pair a1 → a2 crosses pages of 2 files; b pages as [b1, b2] then [b3].
+const IMPORTS: Record<string, string[]> = {
+  "a/a1.ts": ["b/b1.ts", "b/b2.ts", "a/a2.ts", "a/a3.ts"],
+  "a/a2.ts": ["b/b3.ts", "c/c1.ts"],
+  "a/a3.ts": ["b/b1.ts"],
+  "b/b1.ts": ["a/a1.ts"],
+  "b/b2.ts": [],
+  "b/b3.ts": ["c/c1.ts"],
+  "c/c1.ts": ["a/a3.ts"],
+};
+const GROUP_IDS: Record<string, number> = { a: 1, b: 2, c: 3 };
+
+function detailGraph(): ArchitectureGraph {
+  const files = Object.keys(IMPORTS);
+  const groupOf = (file: string) => file.split("/")[0];
+  const edges = files.flatMap(source => IMPORTS[source].map(target =>
+    ({ source: `/w/${source}`, target: `/w/${target}`, sourceRelative: source, targetRelative: target })));
+  const nodes = files.map(file => ({
+    id: `/w/${file}`, path: `/w/${file}`, relativePath: file, extension: "ts",
+    dependencyCount: IMPORTS[file].length,
+    dependentCount: edges.filter(edge => edge.targetRelative === file).length,
+    communityId: GROUP_IDS[groupOf(file)], communityKey: groupOf(file),
+  }));
+  const nodeMetadata = Object.fromEntries(nodes.map(node => [node.path, { communityId: node.communityId, communityKey: node.communityKey }]));
+  return {
+    context: { revision: "r1", communityMode: "path" },
+    graphData: { nodes: nodes.map(node => node.path), edges, nodeMetadata },
+    nodes, edges, scannedFiles: files.length, analyzedFiles: files.length,
+  } as unknown as ArchitectureGraph;
+}
+
+describe("expanded groups", () => {
+  const graph = detailGraph();
+  const summary: ArchitectureSummaryMessage = { type: "architectureSummary", revision: "r1", stale: false, ...overviewArchitecture(graph, 150) };
+  const expand = (pages: Record<number, number>, limit = 2) => {
+    let expansions: Expansions = new Map();
+    for (const [group, count] of Object.entries(pages)) {
+      for (let index = 0; index < count; index++) {
+        expansions = mergeGroupDetail(expansions, groupDetail(graph, Number(group), { offset: index * limit, limit })).expansions;
+      }
+    }
+    return expansions;
+  };
+  const edgesOf = (elements: ReturnType<typeof toArchitectureElements>) => elements.filter(element => element.group === "edges");
+  const nodeIds = (elements: ReturnType<typeof toArchitectureElements>) =>
+    elements.filter(element => element.group === "nodes").map(element => element.data.id);
+
+  /** Every group edge's count is drawn once, split over its file and group ends; no id repeats. */
+  function expectConserved(expansions: Expansions) {
+    const elements = toArchitectureElements(summary, expansions);
+    const ids = elements.map(element => element.data.id);
+    expect(new Set(ids).size).toBe(ids.length);
+    const nodes = new Set(nodeIds(elements));
+    const drawn = new Map<string, number>();
+    for (const edge of edgesOf(elements)) {
+      expect(nodes.has(String(edge.data.source)) && nodes.has(String(edge.data.target))).toBe(true);
+      const key = `${edge.data.from}>${edge.data.to}`;
+      drawn.set(key, (drawn.get(key) ?? 0) + Number(edge.data.fileEdgeCount));
+    }
+    for (const edge of summary.groupEdges) expect(drawn.get(`${edge.from}>${edge.to}`)).toBe(edge.fileEdgeCount);
+    return elements;
+  }
+
+  it("draws the same picture as the summary with nothing expanded", () => {
+    expect(toArchitectureElements(summary, new Map())).toEqual(toArchitectureElements(summary));
+    expectConserved(new Map());
+  });
+
+  it.each([
+    [{ 1: 1 }], [{ 1: 2 }], [{ 2: 1 }], [{ 1: 1, 2: 1 }], [{ 1: 2, 2: 1 }], [{ 1: 1, 2: 2 }], [{ 1: 2, 2: 2 }],
+    [{ 1: 2, 2: 2, 3: 1 }], [{ 3: 1 }], [{ 1: 1, 3: 1 }],
+  ])("keeps every group edge count, split over what is drawn, for pages %j", (pages) => {
+    expectConserved(expand(pages));
+  });
+
+  it("draws a group's first page in a compound, with a +N more files node", () => {
+    const elements = expectConserved(expand({ 1: 1 }));
+    const ids = nodeIds(elements);
+
+    expect(ids).toEqual(expect.arrayContaining(["group-1", "file:a/a3.ts", "file:a/a1.ts", "more-1"]));
+    expect(ids).not.toContain("file:a/a2.ts");
+    expect(elements.find(element => element.data.id === "more-1")?.data).toMatchObject({ parent: "group-1", label: "+1 more files" });
+    expect(elements.find(element => element.data.id === "group-1")?.data).toMatchObject({ expanded: true, label: "a · 3 files" });
+    // a1 → b1 and a1 → b2 go to the collapsed b, labelled with their count, with a1 as the evidence filter.
+    expect(edgesOf(elements).find(edge => edge.data.id === "file:a/a1.ts->group-2")?.data)
+      .toMatchObject({ label: "2", from: 1, to: 2, sourceFile: "a/a1.ts", fromName: "a/a1.ts", toName: "b" });
+  });
+
+  it("draws an internal pair once its target's page is loaded", () => {
+    const pair = (elements: ReturnType<typeof toArchitectureElements>) =>
+      edgesOf(elements).filter(edge => edge.data.id === "file:a/a1.ts->file:a/a2.ts");
+
+    expect(pair(toArchitectureElements(summary, expand({ 1: 1 })))).toHaveLength(0);
+    expect(pair(toArchitectureElements(summary, expand({ 1: 2 })))).toHaveLength(1);
+  });
+
+  it("hides the group edges of a fully loaded group and restores them on collapse", () => {
+    const expanded = toArchitectureElements(summary, expand({ 1: 2 }));
+    const groupEdgeIds = (elements: ReturnType<typeof toArchitectureElements>) =>
+      edgesOf(elements).map(edge => String(edge.data.id)).filter(id => id.startsWith("edge-"));
+
+    expect(groupEdgeIds(expanded)).toEqual(["edge-2-3"]);
+    expect(nodeIds(expanded)).not.toContain("more-1");
+    expect(groupEdgeIds(toArchitectureElements(summary, new Map()))).toEqual(summary.groupEdges.map(edge => `edge-${edge.from}-${edge.to}`));
+  });
+
+  it("draws file → file edges between two expanded groups, and the rest towards their +N more nodes", () => {
+    const both = edgesOf(expectConserved(expand({ 1: 2, 2: 2 })))
+      .filter(edge => [edge.data.from, edge.data.to].sort().join() === "1,2");
+    expect(both.every(edge => String(edge.data.source).startsWith("file:") && String(edge.data.target).startsWith("file:"))).toBe(true);
+    expect(both).toHaveLength(5);
+
+    // b3 is not loaded: a2 → b3 goes to b's +N more node.
+    const partial = edgesOf(expectConserved(expand({ 1: 2, 2: 1 })));
+    const toMore = partial.find(edge => edge.data.id === "file:a/a2.ts->more-2")?.data;
+    expect(toMore).toMatchObject({ label: "1", sourceFile: "a/a2.ts" });
+    expect(toMore).not.toHaveProperty("targetFile");
+  });
+
+  it("merges each page once and in order, and keeps counts from the full graph", () => {
+    const first = groupDetail(graph, 1, { limit: 2 });
+    const once = mergeGroupDetail(new Map(), first).expansions;
+    const twice = mergeGroupDetail(once, first);
+    const skipped = mergeGroupDetail(new Map(), groupDetail(graph, 1, { offset: 2, limit: 2 }));
+
+    expect(twice).toEqual({ expansions: once, capReached: false });
+    expect(skipped.expansions.size).toBe(0);
+    expect(once.get(1)).toMatchObject({ total: 3, nextOffset: 2 });
+    expect(renderedFileCount(once)).toBe(2);
+    expect(toArchitectureElements(summary, once).filter(element => element.data.unassigned === false && element.data.id === "group-1")[0].data.label)
+      .toBe("a · 3 files");
+  });
+
+  it(`refuses a page that would draw more than ${MAX_RENDERED_FILES} files`, () => {
+    const page = (id: number, count: number) => ({
+      ...groupDetail(graph, 1),
+      group: { ...groupDetail(graph, 1).group, id },
+      files: Array.from({ length: count }, (_, index) => ({ relativePath: `g${id}/f${index}.ts`, dependencyCount: 0, dependentCount: 0 })),
+      internalPairs: [], outgoingPairs: [], outgoing: [], incoming: [],
+      page: { total: count, offset: 0, returned: count, truncated: false, nextOffset: undefined, limit: 500 },
+    });
+    const full = mergeGroupDetail(new Map(), page(1, 300)).expansions;
+    const refused = mergeGroupDetail(full, page(2, 201));
+
+    expect(refused).toEqual({ expansions: full, capReached: true });
+    expect(mergeGroupDetail(full, page(2, 200)).capReached).toBe(false);
+    expect(FILE_CAP_MESSAGE).toBe("Collapse a group first (500 files shown)");
+  });
+
+  it("lays out only the files without a position: a first page around the group, the next one below", () => {
+    const colors = { foreground: "#000", background: "#fff", border: "#999", edge: "#888", accent: "#00f" };
+    const headless = (expansions: Expansions) =>
+      cytoscape({ headless: true, styleEnabled: true, style: buildArchitectureStylesheet(colors), elements: toArchitectureElements(summary, expansions) });
+    const first = headless(expand({ 1: 1 }));
+    placeNewFiles(first, new Map(), () => ({ x: 1000, y: 500 }));
+    const box = first.$('[?file], [?more]').boundingBox();
+    expect((box.x1 + box.x2) / 2).toBeCloseTo(1000, 0);
+
+    const positions = new Map(first.$('[?file], [?more]').map(node => [node.id(), { ...node.position() }]));
+    const second = headless(expand({ 1: 2 }));
+    second.nodes().forEach(node => {
+      const saved = positions.get(node.id());
+      if (saved) node.position(saved);
+    });
+    placeNewFiles(second, positions, () => ({ x: 0, y: 0 }));
+    for (const [id, saved] of positions) {
+      if (second.getElementById(id).nonempty()) expect(second.getElementById(id).position()).toEqual(saved);
+    }
+    const added = second.getElementById("file:a/a2.ts");
+    expect(added.position("y")).toBeGreaterThan(box.y2);
   });
 });

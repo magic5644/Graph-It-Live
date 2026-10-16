@@ -2,9 +2,10 @@ import * as fs from "node:fs/promises";
 import * as os from "node:os";
 import * as path from "node:path";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
-import { exploreArchitecture, overviewArchitecture } from "../../../src/analyzer/architecture/ArchitectureExplorer";
+import { exploreArchitecture, groupDetail, overviewArchitecture } from "../../../src/analyzer/architecture/ArchitectureExplorer";
 import { buildArchitectureGraph, type ArchitectureGraph } from "../../../src/analyzer/architecture/ArchitectureGraphBuilder";
 import { SourceFileCollector } from "../../../src/analyzer/SourceFileCollector";
+import { SpiderBuilder } from "../../../src/analyzer/SpiderBuilder";
 import { normalizePath } from "../../../src/shared/path";
 
 // ui imports store three times; main.ts sits at the root, outside any folder group.
@@ -24,6 +25,15 @@ const spokes = Array.from({ length: SPOKES }, (_, index) => `src/s${index}/spoke
 const hubWorkspace: Record<string, string[]> = {
   "src/hub/hub.ts": spokes,
   ...Object.fromEntries(spokes.map(spoke => [spoke, ["src/hub/hub.ts"]])),
+};
+
+// 201 files in src/big, all imported once: main imports the first 200 and the first imports the
+// last, so the last file sorts on page 2 while its importer sits on page 1.
+const BIG = Array.from({ length: 201 }, (_, index) => `src/big/f${String(index).padStart(3, "0")}.ts`);
+const bigWorkspace: Record<string, string[]> = {
+  "src/main/main.ts": BIG.slice(0, 200),
+  [BIG[0]]: [BIG[200]],
+  ...Object.fromEntries(BIG.slice(1).map(file => [file, []])),
 };
 
 async function buildWorkspace(root: string, files: Record<string, string[]>): Promise<ArchitectureGraph> {
@@ -149,6 +159,132 @@ describe("exploreArchitecture", () => {
     expect(past.view === "group" && [past.files, past.incoming, past.outgoing]).toEqual([[], [], []]);
     expect(past.page).toMatchObject({ totalFiles: 1, totalIncoming: SPOKES, totalOutgoing: SPOKES, truncated: false });
   });
+});
+
+describe("groupDetail", () => {
+  let root: string;
+  let graph: ArchitectureGraph;
+  let bigGraph: ArchitectureGraph;
+
+  beforeAll(async () => {
+    root = await fs.realpath(await fs.mkdtemp(path.join(os.tmpdir(), "gitl-detail-")));
+    graph = await buildWorkspace(path.join(root, "small"), workspace);
+    bigGraph = await buildWorkspace(path.join(root, "big"), bigWorkspace);
+  });
+
+  afterAll(async () => {
+    vi.restoreAllMocks();
+    await fs.rm(root, { recursive: true, force: true });
+  });
+
+  it("lists a group's files most depended-on first, with their pairs and boundary counts", () => {
+    const store = groupDetail(graph, "store");
+
+    expect(store.group).toMatchObject({ key: "store", fileCount: 2, internalEdgeCount: 1 });
+    expect(store.files).toEqual([
+      { relativePath: "src/store/state.ts", dependencyCount: 1, dependentCount: 2 },
+      { relativePath: "src/store/actions.ts", dependencyCount: 0, dependentCount: 2 },
+    ].sort((left, right) => left.relativePath.localeCompare(right.relativePath)));
+    expect(store.internalPairs).toEqual([{ source: "src/store/state.ts", target: "src/store/actions.ts" }]);
+    expect(store.outgoing).toEqual([]);
+    expect(store.incoming).toEqual([
+      { relativePath: "src/store/actions.ts", fromGroup: 1, fileEdgeCount: 1 },
+      { relativePath: "src/store/state.ts", fromGroup: 1, fileEdgeCount: 2 },
+    ]);
+    expect(store.page).toEqual({ total: 2, offset: 0, returned: 2, truncated: false, nextOffset: undefined, limit: 200 });
+
+    const ui = groupDetail(graph, 1);
+    expect(ui.outgoing).toEqual([
+      { relativePath: "src/ui/form.ts", toGroup: 2, fileEdgeCount: 1 },
+      { relativePath: "src/ui/view.ts", toGroup: 2, fileEdgeCount: 2 },
+    ]);
+    expect(ui.outgoingPairs).toHaveLength(3);
+    expect(ui.incoming).toEqual([{ relativePath: "src/ui/view.ts", fromGroup: 0, fileEdgeCount: 1 }]);
+  });
+
+  it("expands the unassigned files as group 0", () => {
+    const unassigned = groupDetail(graph, 0);
+
+    expect(unassigned.group).toMatchObject({ id: 0, label: "unassigned" });
+    expect(unassigned.files.map(file => file.relativePath)).toEqual(["main.ts"]);
+    expect(unassigned.outgoingPairs).toEqual([{ source: "main.ts", target: "src/ui/view.ts", toGroup: 1 }]);
+  });
+
+  it("returns a pair on its source's page, so pages hold every internal pair once", () => {
+    const first = groupDetail(bigGraph, "big");
+    const second = groupDetail(bigGraph, "big", { offset: first.page.nextOffset });
+
+    expect(first.files).toHaveLength(200);
+    expect(first.page).toMatchObject({ total: 201, returned: 200, truncated: true, nextOffset: 200 });
+    expect(first.internalPairs).toEqual([{ source: BIG[0], target: BIG[200] }]);
+    expect(second.files.map(file => file.relativePath)).toEqual([BIG[200]]);
+    expect(second.page).toMatchObject({ offset: 200, returned: 1, truncated: false, nextOffset: undefined });
+    expect(second.internalPairs).toEqual([]);
+    expect(groupDetail(bigGraph, "big", { offset: 201 }).files).toEqual([]);
+    expect(first.incoming).toHaveLength(200);
+    expect(second.incoming).toEqual([]);
+  });
+
+  it("rejects another revision and an unknown group", () => {
+    expect(groupDetail(graph, 2, { revision: graph.context.revision }).group.key).toBe("store");
+    expect(() => groupDetail(graph, 2, { revision: bigGraph.context.revision })).toThrow("Architecture changed");
+    expect(() => groupDetail(graph, 99)).toThrow('Unknown group "99"');
+  });
+
+  it("filters evidence by source or target file, normalizing Windows separators", () => {
+    const bySource = exploreArchitecture(graph, { from: "ui", to: "store", sourceFile: String.raw`src\ui\view.ts` });
+    const byTarget = exploreArchitecture(graph, { from: "ui", to: "store", targetFile: "src/store/state.ts" });
+    const byBoth = exploreArchitecture(graph, { from: 1, to: 2, sourceFile: "src/ui/form.ts", targetFile: "src/store/state.ts" });
+
+    expect(bySource.view === "evidence" && bySource.pairs).toEqual([
+      { source: "src/ui/view.ts", target: "src/store/actions.ts" },
+      { source: "src/ui/view.ts", target: "src/store/state.ts" },
+    ]);
+    expect(byTarget.page).toMatchObject({ total: 2 });
+    expect(byBoth.page).toMatchObject({ total: 1 });
+  });
+});
+
+describe.each(["sample-project", "cyclic-project"])("groupDetail on %s", (fixture) => {
+  const rootDir = path.resolve(__dirname, "../../fixtures", fixture);
+
+  it.each(["path", "louvain"] as const)("adds up to the group edges and their evidence in %s mode", async (communityMode) => {
+    const spider = new SpiderBuilder().withRootDir(rootDir).withExcludeNodeModules(true).build();
+    const graph = await buildArchitectureGraph(rootDir, filePath => spider.analyze(filePath), { communityMode });
+    const summary = exploreArchitecture(graph, { limit: 1000 });
+    if (summary.view !== "summary") throw new Error("expected the summary view");
+    const outgoing = new Map<string, number>();
+    const incoming = new Map<string, number>();
+    const add = (counts: Map<string, number>, key: string, count: number) => counts.set(key, (counts.get(key) ?? 0) + count);
+    const groups = [...summary.groups.map(entry => entry.id), ...(summary.unassigned.fileCount > 0 ? [0] : [])];
+    for (const group of groups) {
+      const internal = new Set<string>();
+      // One file per page: the sums must not depend on paging.
+      for (let offset: number | undefined = 0; offset !== undefined;) {
+        const detail = groupDetail(graph, group, { offset, limit: 1 });
+        for (const entry of detail.outgoing) add(outgoing, `${group}>${entry.toGroup}`, entry.fileEdgeCount);
+        for (const entry of detail.incoming) add(incoming, `${entry.fromGroup}>${group}`, entry.fileEdgeCount);
+        for (const pair of detail.internalPairs) internal.add(`${pair.source}>${pair.target}`);
+        for (const entry of detail.outgoing) {
+          const evidence = exploreArchitecture(graph, { from: group, to: entry.toGroup, sourceFile: entry.relativePath });
+          expect(evidence.page).toMatchObject({ total: entry.fileEdgeCount });
+        }
+        expect(detail.internalPairs.length + detail.outgoingPairs.length)
+          .toBe(detail.files.reduce((total, file) => total + file.dependencyCount, 0));
+        offset = detail.page.nextOffset;
+      }
+      const internalEdgeCount = group === 0 ? summary.unassigned.internalEdgeCount : summary.groups.find(entry => entry.id === group)?.internalEdgeCount;
+      expect(internal.size).toBe(internalEdgeCount);
+    }
+    for (const edge of summary.groupEdges) {
+      const key = `${edge.from}>${edge.to}`;
+      expect([outgoing.get(key), incoming.get(key)]).toEqual([edge.fileEdgeCount, edge.fileEdgeCount]);
+      expect(exploreArchitecture(graph, { from: edge.from, to: edge.to }).page).toMatchObject({ total: edge.fileEdgeCount });
+    }
+    expect(outgoing.size).toBe(summary.groupEdges.length);
+    expect(incoming.size).toBe(summary.groupEdges.length);
+    expect([...outgoing.values()].reduce((total, count) => total + count, 0)).toBe(summary.totals.interGroupEdges);
+  }, 60000);
 });
 
 describe("overviewArchitecture", () => {

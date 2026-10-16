@@ -85,6 +85,61 @@ async function expectInteraction(
   assert.fail(`${description}: expected ${JSON.stringify(expected)}, last interaction ${JSON.stringify(last)}`);
 }
 
+interface ArchitectureDetail {
+  expandedGroups: number;
+  expandedFileCount: number;
+  renderedFiles: number;
+  groupLevelEdges: number;
+  capReached: boolean;
+  evidence?: { edgeCount: number; total: number; shown: number; firstSource?: string };
+}
+
+const readDetailCount = async () => (await getContextKey<number>('graph-it-live.architectureDetailCount')) ?? 0;
+
+/** Sends the controls (none: only waits), then waits for what the expanded groups and evidence show to satisfy `predicate`. */
+async function expectDetail(
+  description: string,
+  controls: Record<string, string | number> | undefined,
+  predicate: (detail: ArchitectureDetail) => boolean,
+): Promise<ArchitectureDetail> {
+  const before = controls ? await readDetailCount() : -1;
+  if (controls) await vscode.commands.executeCommand('graph-it-live.e2eArchitectureControls', controls);
+  const start = Date.now();
+  let last: ArchitectureDetail | undefined;
+  while (Date.now() - start < 30000) {
+    last = await getContextKey<ArchitectureDetail>('graph-it-live.architectureDetail');
+    if ((await readDetailCount()) > before && last && predicate(last)) return last;
+    await sleep(250);
+  }
+  assert.fail(`${description}: last detail ${JSON.stringify(last)}`);
+}
+
+/** Expands `key`, opens the evidence of one of its edges, opens its first file, then collapses. */
+async function exploreGroup(key: string, groupEdges: number): Promise<void> {
+  const expanded = await expectDetail(`expanding ${key}`, { expand: key }, detail => detail.expandedGroups === 1);
+  assert.ok(expanded.expandedFileCount > 0, 'the expanded group has files');
+  assert.strictEqual(expanded.renderedFiles, Math.min(expanded.expandedFileCount, 200), 'rendered file nodes');
+  assert.ok(expanded.groupLevelEdges < groupEdges, 'the expanded group edges are drawn from its files');
+
+  const { evidence } = await expectDetail(`the evidence of ${key}`, { evidenceOf: key }, detail => detail.evidence !== undefined);
+  assert.ok(evidence && evidence.total > 0, 'the evidence lists file pairs');
+  assert.strictEqual(evidence.total, evidence.edgeCount, 'the evidence total equals the edge label');
+
+  await vscode.commands.executeCommand('graph-it-live.e2eArchitectureControls', { openEvidenceRow: 0 });
+  const start = Date.now();
+  const active = () => {
+    const uri = vscode.window.activeTextEditor?.document.uri;
+    return uri ? vscode.workspace.asRelativePath(uri, false) : undefined;
+  };
+  while (Date.now() - start < 15000 && active() !== evidence.firstSource) await sleep(250);
+  assert.strictEqual(active(), evidence.firstSource, 'the clicked row opens its file');
+
+  await vscode.commands.executeCommand('graph-it-live.graphView.focus');
+  const collapsed = await expectDetail(`collapsing ${key}`, { collapse: key }, detail => detail.expandedGroups === 0);
+  assert.strictEqual(collapsed.renderedFiles, 0);
+  assert.strictEqual(collapsed.groupLevelEdges, groupEdges, 'collapsing restores the group edges');
+}
+
 /** Measured on the real canvas: no two group boxes intersect and every label fits its box. */
 function assertReadableLayout(render: ArchitectureRender): void {
   assert.strictEqual(render.overlappingGroups, 0, 'overlapping group nodes');
@@ -220,6 +275,32 @@ suite('Architecture view mode', () => {
     } finally {
       await vscode.commands.executeCommand('graph-it-live.e2eArchitectureControls', { find: '', minImports: 1 });
     }
+  });
+
+  test('expands a group, lists the evidence of its edge, opens a file and collapses, in path and louvain modes', async function () {
+    this.timeout(300000);
+    const byFolder = await openFreshArchitecture();
+    // layers (4 files) imports one unassigned file.
+    await exploreGroup('layers', EXPECTED.path.groupEdges);
+
+    // A stale mark keeps the expanded group.
+    await expectDetail('expanding layers again', { expand: 'layers' }, detail => detail.expandedGroups === 1);
+    const file = getProjectFile('sample-project', 'src', 'utils.ts');
+    const original = await vscode.workspace.fs.readFile(file);
+    try {
+      await vscode.workspace.fs.writeFile(file, Buffer.concat([Buffer.from(original), Buffer.from('\n// architecture detail E2E\n')]));
+      await waitForRender('the stale banner', byFolder.renderCount, render => render.stale);
+      const kept = await expectDetail('the stale detail', undefined, detail => detail.expandedGroups === 1);
+      assert.strictEqual(kept.renderedFiles, Math.min(kept.expandedFileCount, 200), 'a stale mark keeps the rendered files');
+    } finally {
+      await vscode.workspace.fs.writeFile(file, original);
+    }
+    await expectDetail('collapsing layers', { collapse: 'layers' }, detail => detail.expandedGroups === 0);
+
+    await config().update('communityMode', 'louvain', vscode.ConfigurationTarget.Global);
+    await waitForRender('the louvain render', byFolder.renderCount, render => render.communityMode === 'louvain');
+    // src/layers (4 files) imports one file of src/components.
+    await exploreGroup('src/layers', EXPECTED.louvain.groupEdges);
   });
 
   test('the Graph, List and Symbol buttons leave the architecture view', async function () {

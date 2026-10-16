@@ -1,6 +1,7 @@
 /**
  * ArchitectureGraph — the sidebar's Architecture view mode: collapsed groups and the
- * group edges between them, rendered with Cytoscape + fcose.
+ * group edges between them, rendered with Cytoscape + fcose. A group expands into its
+ * files, and any edge lists the file pairs behind it.
  *
  * Mounted only in architecture mode. On mount it posts `architectureMounted`, and the
  * extension answers with the cached summary or a build, so no message can arrive early.
@@ -9,6 +10,8 @@
 import cytoscape from "cytoscape";
 import React, { useEffect, useRef, useState } from "react";
 import type {
+  ArchitectureControlsMessage,
+  ArchitectureEvidencePageMessage,
   ArchitectureExtensionMessage,
   ArchitectureStateMessage,
   ArchitectureSummaryMessage,
@@ -18,10 +21,15 @@ import { buildArchitectureStylesheet } from "../cytoscape/CytoscapeTheme";
 import {
   applyMinImports,
   ARCHITECTURE_FCOSE_LAYOUT,
+  type Expansions,
+  FILE_CAP_MESSAGE,
   findGroups,
   highlightFocus,
   type LayoutBox,
   measureInteraction,
+  mergeGroupDetail,
+  countRendered,
+  placeNewFiles,
   separateOverlaps,
   toArchitectureElements,
 } from "./architectureElements";
@@ -35,6 +43,9 @@ cytoscape.use(fcose);
  * included), so Refresh or a communityMode round trip redraws the same picture.
  */
 const savedLayout = new Map<string, LayoutBox>();
+/** Position per file node of the rendered revision, so a page or a collapse leaves the other files in place. */
+const filePositions = new Map<string, cytoscape.Position>();
+const NO_EXPANSION: Expansions = new Map();
 
 const BODY_BOX = { includeLabels: false, includeOverlays: false };
 const LABEL_BOX = { includeNodes: false, includeEdges: false, includeOverlays: false };
@@ -66,6 +77,64 @@ function showFocus(cy: cytoscape.Core, focus: cytoscape.Collection, post: (messa
   highlightFocus(cy, focus);
   post({ command: "architectureInteracted", ...measureInteraction(cy) });
 }
+
+/**
+ * Pushes overlapping groups (collapsed or expanded) apart, then remembers every position.
+ * An expanded group moves with its files; its collapsed position stays the one to return to.
+ */
+function settleLayout(cy: cytoscape.Core, groups: cytoscape.NodeSingular[]): void {
+  const boxes = groups.map((node) => ({ node, ...node.position(), width: node.outerWidth(), height: node.outerHeight() }));
+  separateOverlaps(boxes);
+  for (const { node, x, y } of boxes) {
+    if (node.isParent()) {
+      node.children().shift({ x: x - node.position("x"), y: y - node.position("y") });
+    } else {
+      node.position({ x, y });
+      savedLayout.set(node.data("key"), { x, y, width: node.data("width"), height: node.data("height") });
+    }
+  }
+  cy.nodes().forEach((node) => {
+    if (node.isChild()) filePositions.set(node.id(), { ...node.position() });
+  });
+}
+
+/**
+ * Puts every group and file back where it was drawn; false (nothing moved) when a group is new
+ * or resized, which needs a full layout.
+ */
+function restorePositions(cy: cytoscape.Core, groups: cytoscape.NodeSingular[]): boolean {
+  const known = groups.every((node) => {
+    const saved = savedLayout.get(node.data("key"));
+    return saved?.width === node.data("width") && saved.height === node.data("height");
+  });
+  if (!known) return false;
+  cy.nodes().forEach((node) => {
+    const saved = node.isChild() ? filePositions.get(node.id()) : savedLayout.get(node.data("key"));
+    if (saved && !node.isParent()) node.position({ x: saved.x, y: saved.y });
+  });
+  return true;
+}
+
+/** The ends an evidence request names; a file restricts one end. */
+interface EvidenceEnds {
+  from: number;
+  to: number;
+  sourceFile?: string;
+  targetFile?: string;
+}
+
+interface EvidenceState {
+  ends: EvidenceEnds;
+  title: string;
+  /** The selected edge's count. */
+  edgeCount: number;
+  pairs: ArchitectureEvidencePageMessage["pairs"];
+  total?: number;
+  nextOffset?: number;
+}
+
+const sameEnds = (left: EvidenceEnds, right: EvidenceEnds) =>
+  left.from === right.from && left.to === right.to && left.sourceFile === right.sourceFile && left.targetFile === right.targetFile;
 
 interface ArchitectureGraphProps {
   postMessage: (message: ArchitectureWebviewCommand) => void;
@@ -142,10 +211,11 @@ interface GraphControlsProps {
   onQuery: (query: string) => void;
   minImports: number;
   onMinImports: (minImports: number) => void;
+  capReached: boolean;
 }
 
 /** Find and weak-edge filter: they only change what is drawn, never the counts above. */
-function GraphControls({ summary, shownEdges, query, onQuery, minImports, onMinImports }: Readonly<GraphControlsProps>) {
+function GraphControls({ summary, shownEdges, query, onQuery, minImports, onMinImports, capReached }: Readonly<GraphControlsProps>) {
   const counts = summary.groupEdges.map((edge) => edge.fileEdgeCount);
   return (
     <div style={{ padding: "4px 10px", fontSize: 12, borderBottom: "1px solid var(--vscode-widget-border)" }}>
@@ -177,7 +247,48 @@ function GraphControls({ summary, shownEdges, query, onQuery, minImports, onMinI
       {query.trim() && summary.hiddenGroups > 0 && (
         <div>Find searches the {summary.groups.length} groups shown; the {summary.hiddenGroups} hidden groups are not searched.</div>
       )}
+      {capReached && <output style={{ ...bannerStyle, display: "block" }}>{FILE_CAP_MESSAGE}</output>}
     </div>
+  );
+}
+
+interface EvidencePanelProps {
+  evidence: EvidenceState;
+  onOpen: (relativePath: string) => void;
+  onMore: () => void;
+  onClose: () => void;
+}
+
+/** The file pairs behind the selected edge; every path is a button that opens the file. */
+function EvidencePanel({ evidence, onOpen, onMore, onClose }: Readonly<EvidencePanelProps>) {
+  const closeRef = useRef<HTMLButtonElement>(null);
+  // Keyboard users land in the panel when it opens for a new edge.
+  useEffect(() => closeRef.current?.focus(), [evidence.ends]);
+  const pathButton = (relativePath: string) => (
+    <button type="button" onClick={() => onOpen(relativePath)} style={{ fontFamily: "var(--vscode-editor-font-family)" }}>
+      {relativePath}
+    </button>
+  );
+  return (
+    <section
+      aria-label="Evidence"
+      style={{
+        position: "absolute", top: 0, right: 0, width: "45%", maxHeight: "100%", overflow: "auto", padding: "6px 10px",
+        fontSize: 12, background: "var(--vscode-editorWidget-background)", border: "1px solid var(--vscode-widget-border)",
+      }}
+    >
+      <div style={{ display: "flex", gap: 8, alignItems: "baseline" }}>
+        <strong style={{ flex: 1 }}>{evidence.title}</strong>
+        <button type="button" ref={closeRef} aria-label="Close evidence" onClick={onClose}>×</button>
+      </div>
+      {evidence.total !== undefined && <div>showing {evidence.pairs.length} of {evidence.total}</div>}
+      <ul style={{ listStyle: "none", padding: 0, margin: "4px 0" }}>
+        {evidence.pairs.map((pair) => (
+          <li key={`${pair.source}>${pair.target}`}>{pathButton(pair.source)} → {pathButton(pair.target)}</li>
+        ))}
+      </ul>
+      {evidence.nextOffset !== undefined && <button type="button" onClick={onMore}>Load more</button>}
+    </section>
   );
 }
 
@@ -211,8 +322,125 @@ export function ArchitectureGraph({ postMessage }: Readonly<ArchitectureGraphPro
   const [query, setQuery] = useState("");
   const [minImports, setMinImports] = useState(1);
   const [shownEdges, setShownEdges] = useState(0);
+  const [expansions, setExpansions] = useState<Expansions>(NO_EXPANSION);
+  const [capReached, setCapReached] = useState(false);
+  const [evidence, setEvidence] = useState<EvidenceState | null>(null);
   /** Tapped element or find matches: what the highlight returns to after a hover. */
   const pinnedRef = useRef<cytoscape.Collection | null>(null);
+  // Messages and Cytoscape events read the latest values here: several can arrive before a render.
+  const summaryRef = useRef(summary);
+  const expansionsRef = useRef(expansions);
+  const evidenceRef = useRef(evidence);
+  /** What the last render drew: its summary (to report a new one once) and its counts. */
+  const renderedRef = useRef<{ summary: ArchitectureSummaryMessage | null; renderedFiles: number; groupLevelEdges: number }>({
+    summary: null, renderedFiles: 0, groupLevelEdges: 0,
+  });
+
+  const updateExpansions = (next: Expansions) => {
+    expansionsRef.current = next;
+    setExpansions(next);
+  };
+  const updateEvidence = (next: EvidenceState | null) => {
+    evidenceRef.current = next;
+    setEvidence(next);
+  };
+  const post = (message: ArchitectureWebviewCommand) => postMessageRef.current(message);
+
+  /** Expanding, paging, collapsing and evidence, shared by clicks, keys and the E2E driver. */
+  const actions = {
+    expand(groupId: number) {
+      const revision = summaryRef.current?.revision;
+      if (revision !== undefined && !expansionsRef.current.has(groupId)) post({ command: "architectureExpandGroup", revision, groupId, offset: 0 });
+    },
+    loadMore(groupId: number) {
+      const revision = summaryRef.current?.revision;
+      const expansion = expansionsRef.current.get(groupId);
+      if (revision === undefined || expansion?.nextOffset === undefined) return;
+      post({ command: "architectureExpandGroup", revision, groupId, offset: expansion.files.length });
+    },
+    collapse(groupId: number) {
+      const next = new Map(expansionsRef.current);
+      next.delete(groupId);
+      updateExpansions(next);
+      setCapReached(false);
+    },
+    showEvidence(edge: cytoscape.EdgeSingular) {
+      const revision = summaryRef.current?.revision;
+      if (revision === undefined) return;
+      const ends: EvidenceEnds = { from: edge.data("from"), to: edge.data("to") };
+      if (edge.data("sourceFile") !== undefined) ends.sourceFile = edge.data("sourceFile");
+      if (edge.data("targetFile") !== undefined) ends.targetFile = edge.data("targetFile");
+      const edgeCount = Number(edge.data("fileEdgeCount"));
+      const title = `${edge.data("fromName")} → ${edge.data("toName")}: ${edgeCount} file pair${edgeCount === 1 ? "" : "s"} (static imports)`;
+      updateEvidence({ ends, title, edgeCount, pairs: [] });
+      post({ command: "architectureEvidence", revision, ...ends, offset: 0 });
+    },
+    moreEvidence() {
+      const revision = summaryRef.current?.revision;
+      const current = evidenceRef.current;
+      if (revision !== undefined && current?.nextOffset !== undefined) {
+        post({ command: "architectureEvidence", revision, ...current.ends, offset: current.pairs.length });
+      }
+    },
+    openFile(relativePath: string) {
+      const revision = summaryRef.current?.revision;
+      if (revision !== undefined) post({ command: "architectureOpenFile", revision, relativePath });
+    },
+    reset() {
+      updateExpansions(NO_EXPANSION);
+      updateEvidence(null);
+      setCapReached(false);
+    },
+    /** A click: an edge opens its evidence, a group expands, an expanded group collapses, "+N more" loads a page. */
+    tap(target: cytoscape.SingularElementArgument) {
+      if (target.isEdge()) this.showEvidence(target);
+      else if (target.data("more")) this.loadMore(target.data("groupId"));
+      else if (target.data("expanded")) this.collapse(target.data("groupId"));
+      else if (!target.data("file")) this.expand(target.data("groupId"));
+    },
+    /**
+     * The canvas has no focusable nodes: the tapped node is the focused one. Enter expands it
+     * (outside text fields and buttons); Escape closes the evidence, else collapses, else clears.
+     */
+    key(event: KeyboardEvent, clearFocus: () => void) {
+      const focused = pinnedRef.current?.length === 1 ? pinnedRef.current[0] : undefined;
+      if (event.key === "Enter") {
+        const typing = event.target instanceof HTMLElement && event.target.closest("input, button, textarea") !== null;
+        if (!typing && focused?.isNode() && !focused.data("file")) this.tap(focused);
+      } else if (event.key === "Escape") {
+        if (evidenceRef.current) updateEvidence(null);
+        else if (focused?.data("expanded")) this.collapse(focused.data("groupId"));
+        else clearFocus();
+      }
+    },
+    receiveEvidence(page: ArchitectureEvidencePageMessage) {
+      const current = evidenceRef.current;
+      // A page for another edge, revision or offset (a late answer, a double click) is dropped.
+      if (!current || page.revision !== summaryRef.current?.revision || !sameEnds(current.ends, page)) return;
+      if (page.page.offset !== current.pairs.length) return;
+      updateEvidence({ ...current, pairs: [...current.pairs, ...page.pairs], total: page.page.total, nextOffset: page.page.nextOffset });
+    },
+    /** E2E driver: the same actions as a user, groups named by key. */
+    control(message: ArchitectureControlsMessage) {
+      const idOf = (key: string | undefined) =>
+        key === undefined ? undefined : cyRef.current?.nodes().filter((node) => !node.isChild() && node.data("key") === `${summaryRef.current?.context.communityMode}:${key}`)[0];
+      const expand = idOf(message.expand);
+      if (expand) this.expand(expand.data("groupId"));
+      const collapse = idOf(message.collapse);
+      if (collapse) this.collapse(collapse.data("groupId"));
+      const evidenceOf = idOf(message.evidenceOf);
+      if (evidenceOf) {
+        const groupId = evidenceOf.data("groupId");
+        const edge = cyRef.current?.edges().filter((candidate) => candidate.data("from") !== candidate.data("to")
+          && (candidate.data("from") === groupId || candidate.data("to") === groupId))[0];
+        if (edge) this.showEvidence(edge);
+      }
+      const row = message.openEvidenceRow === undefined ? undefined : evidenceRef.current?.pairs[message.openEvidenceRow];
+      if (row) this.openFile(row.source);
+    },
+  };
+  const actionsRef = useRef(actions);
+  actionsRef.current = actions;
 
   useEffect(() => {
     const handleMessage = (event: MessageEvent<ArchitectureExtensionMessage>) => {
@@ -220,13 +448,27 @@ export function ArchitectureGraph({ postMessage }: Readonly<ArchitectureGraphPro
       if (event.origin && !event.origin.startsWith("vscode-webview://") && event.origin !== "null") return;
       const message = event.data;
       if (message?.type === "architectureSummary") {
+        // Group ids and pages only hold for their revision; a stale mark or a rebuild of the same graph keeps them.
+        if (summaryRef.current?.revision !== message.revision) actionsRef.current.reset();
+        summaryRef.current = message;
         setSummary(message);
         setState(null);
       } else if (message?.type === "architectureState") {
         setState(message);
+      } else if (message?.type === "architectureGroupDetail") {
+        if (message.revision !== summaryRef.current?.revision) return;
+        const merged = mergeGroupDetail(expansionsRef.current, message.detail);
+        updateExpansions(merged.expansions);
+        setCapReached(merged.capReached);
+      } else if (message?.type === "architectureEvidencePage") {
+        actionsRef.current.receiveEvidence(message);
+      } else if (message?.type === "architectureRevisionChanged") {
+        actionsRef.current.reset();
+        postMessageRef.current({ command: "architectureMounted" });
       } else if (message?.type === "architectureControls") {
         if (message.find !== undefined) setQuery(message.find);
         if (message.minImports !== undefined) setMinImports(message.minImports);
+        actionsRef.current.control(message);
       }
     };
     window.addEventListener("message", handleMessage);
@@ -266,10 +508,9 @@ export function ArchitectureGraph({ postMessage }: Readonly<ArchitectureGraphPro
       }
       pinnedRef.current = event.target;
       showFocus(cy, event.target, postMessageRef.current);
+      actionsRef.current.tap(event.target);
     });
-    const handleKeyDown = (event: KeyboardEvent): void => {
-      if (event.key === "Escape") clearFocus();
-    };
+    const handleKeyDown = (event: KeyboardEvent): void => actionsRef.current.key(event, clearFocus);
     window.addEventListener("keydown", handleKeyDown);
     cyRef.current = cy;
 
@@ -302,55 +543,78 @@ export function ArchitectureGraph({ postMessage }: Readonly<ArchitectureGraphPro
   useEffect(() => {
     const cy = cyRef.current;
     if (!cy || !summary) return;
+    const previous = renderedRef.current.summary;
+    const freshRevision = previous?.revision !== summary.revision;
+    if (freshRevision) filePositions.clear();
+    // A page, a collapse or a stale mark redraws the same graph: keep what was tapped.
+    const pinnedIds = new Set(freshRevision ? [] : (pinnedRef.current?.map((element) => element.id()) ?? []));
+    const elements = toArchitectureElements(summary, expansions);
     cy.elements().remove();
-    pinnedRef.current = null;
-    cy.add(toArchitectureElements(summary));
-    const nodes = cy.nodes();
-    const reused = nodes.every((node) => {
-      const saved = savedLayout.get(node.data("key"));
-      return saved?.width === node.data("width") && saved.height === node.data("height");
-    });
-    // ponytail: one new or resized group re-runs the whole layout; pin the known ones
-    // (fcose fixedNodeConstraint) if users miss their picture after small edits.
-    const layout = reused
-      ? cy.layout({ name: "preset", positions: (node: cytoscape.NodeSingular) => savedLayout.get(node.data("key")) } as cytoscape.LayoutOptions)
-      : cy.layout(ARCHITECTURE_FCOSE_LAYOUT as cytoscape.LayoutOptions);
-    layout.on("layoutstop", () => {
-      const boxes = nodes.map((node) => ({ node, ...node.position(), width: node.outerWidth(), height: node.outerHeight() }));
-      separateOverlaps(boxes);
-      for (const { node, x, y } of boxes) {
-        node.position({ x, y });
-        savedLayout.set(node.data("key"), { x, y, width: node.data("width"), height: node.data("height") });
-      }
-      cy.fit(undefined, 30);
+    cy.add(elements);
+    pinnedRef.current = pinnedIds.size > 0 ? cy.elements().filter((element) => pinnedIds.has(element.id())) : null;
+    renderedRef.current = { summary, ...countRendered(elements) };
+    const groups = cy.nodes().filter((node) => !node.isChild());
+    const finish = (fit: boolean) => {
+      settleLayout(cy, groups);
+      if (fit) cy.fit(undefined, 30);
+      if (previous === summary) return;
       postMessageRef.current({
         command: "architectureRendered",
         revision: summary.revision,
-        renderedGroups: nodes.length,
+        renderedGroups: groups.length,
         renderedGroupEdges: cy.edges().length,
         communityMode: summary.context.communityMode,
         stale: summary.stale,
-        ...measureLayout(nodes),
+        ...measureLayout(groups),
       });
+    };
+    if (!restorePositions(cy, groups)) {
+      // ponytail: one new or resized group re-runs the whole layout; pin the known ones
+      // (fcose fixedNodeConstraint) if users miss their picture after small edits.
+      const layout = cy.layout(ARCHITECTURE_FCOSE_LAYOUT as cytoscape.LayoutOptions);
+      layout.on("layoutstop", () => finish(true));
+      layout.run();
+      return;
+    }
+    placeNewFiles(cy, filePositions, (group) => savedLayout.get(group.data("key")) ?? { x: 0, y: 0 });
+    // Only a new revision re-fits: a page, a collapse or a stale mark keeps the viewport.
+    finish(freshRevision);
+  }, [summary, expansions]);
+
+  // Before the highlight effects, so their report stays the last message of a render.
+  useEffect(() => {
+    if (!summary) return;
+    const { renderedFiles, groupLevelEdges } = renderedRef.current;
+    postMessageRef.current({
+      command: "architectureDetailRendered",
+      expandedGroups: expansions.size,
+      expandedFileCount: [...expansions.values()].reduce((total, expansion) => total + expansion.total, 0),
+      renderedFiles,
+      groupLevelEdges,
+      capReached,
+      evidence: evidence?.total === undefined
+        ? undefined
+        : { edgeCount: evidence.edgeCount, total: evidence.total, shown: evidence.pairs.length, firstSource: evidence.pairs[0]?.source },
     });
-    layout.run();
-  }, [summary]);
+  }, [summary, expansions, evidence, capReached]);
 
   useEffect(() => {
     const cy = cyRef.current;
     if (!cy || !summary) return;
     setShownEdges(applyMinImports(cy, minImports));
     showFocus(cy, pinnedRef.current ?? cy.collection(), postMessageRef.current);
-  }, [summary, minImports]);
+  }, [summary, expansions, minImports]);
 
+  // A new revision finds again; a stale mark or a page keeps what is pinned.
+  const revision = summary?.revision;
   useEffect(() => {
     const cy = cyRef.current;
-    if (!cy || !summary) return;
+    if (!cy || revision === undefined) return;
     const matches = findGroups(cy, query);
     pinnedRef.current = matches;
     showFocus(cy, matches, postMessageRef.current);
     if (matches.nonempty()) cy.center(matches);
-  }, [summary, query]);
+  }, [revision, query]);
 
   const refresh = () => postMessageRef.current({ command: "architectureRefresh" });
   return (
@@ -366,14 +630,21 @@ export function ArchitectureGraph({ postMessage }: Readonly<ArchitectureGraphPro
             onQuery={setQuery}
             minImports={minImports}
             onMinImports={setMinImports}
+            capReached={capReached}
           />
         </>
       )}
-      <div
-        ref={containerRef}
-        data-testid="architecture-graph"
-        style={{ flex: 1, minHeight: 0, visibility: state ? "hidden" : "visible" }}
-      />
+      <div style={{ position: "relative", flex: 1, minHeight: 0, visibility: state ? "hidden" : "visible" }}>
+        <div ref={containerRef} data-testid="architecture-graph" style={{ position: "absolute", inset: 0 }} />
+        {!state && evidence && (
+          <EvidencePanel
+            evidence={evidence}
+            onOpen={(relativePath) => actionsRef.current.openFile(relativePath)}
+            onMore={() => actionsRef.current.moreEvidence()}
+            onClose={() => updateEvidence(null)}
+          />
+        )}
+      </div>
     </div>
   );
 }

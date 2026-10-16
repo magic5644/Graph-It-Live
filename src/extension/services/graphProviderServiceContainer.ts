@@ -246,6 +246,10 @@ export function createGraphProviderServiceContainer(
         post: (message) => {
           void options.viewProvider()?.webview.postMessage(message);
         },
+        openFile: async (absolutePath) => {
+          await vscode.window.showTextDocument(vscode.Uri.file(absolutePath), { preview: true });
+        },
+        warn: (message) => options.logger.warn(message),
       });
     });
 
