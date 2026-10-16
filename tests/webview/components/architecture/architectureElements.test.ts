@@ -386,6 +386,25 @@ describe("expanded groups", () => {
     expect(cy.edges("[?fileEdge]").filter(edge => edge.style("display") !== "none").length).toBeGreaterThan(0);
   });
 
+  it("shows file edges for a highlighted file only, whatever the min-imports filter, and counts drawn group edges", () => {
+    const colors = { foreground: "#000", background: "#fff", border: "#999", edge: "#888", accent: "#00f" };
+    const cy = cytoscape({ headless: true, styleEnabled: true, style: buildArchitectureStylesheet(colors), elements: toArchitectureElements(summary, expand({ 1: 2 })) });
+    const shownFileEdges = () => cy.edges("[?fileEdge]").filter(edge => edge.style("display") !== "none");
+
+    // Hovering a group linked to the expanded one does not draw the files' edges into it.
+    highlightFocus(cy, cy.getElementById("group-2"));
+    expect(shownFileEdges()).toHaveLength(0);
+    // a1 → b1 and a1 → b2 are one import each per file pair: the filter keeps them for a highlighted file.
+    expect(applyMinImports(cy, 2)).toBe(cy.edges("[!fileEdge]").filter(edge => edge.data("fileEdgeCount") >= 2).length);
+    highlightFocus(cy, cy.getElementById("file:a/a1.ts"));
+    expect(shownFileEdges().length).toBeGreaterThan(0);
+
+    applyMinImports(cy, 1);
+    focusGroup(cy, cy.getElementById("group-3"));
+    expect(applyMinImports(cy, 1)).toBe(cy.edges("[!fileEdge]").not(".hidden").length);
+    expect(cy.edges("[!fileEdge]").not(".hidden").length).toBeLessThan(cy.edges("[!fileEdge]").length);
+  });
+
   it("draws file → file edges between two expanded groups, and pairs with an unloaded file once it is loaded", () => {
     const both = edgesOf(expectConserved(expand({ 1: 2, 2: 2 })))
       .filter(edge => edge.data.fileEdge && [edge.data.from, edge.data.to].sort().join() === "1,2");
