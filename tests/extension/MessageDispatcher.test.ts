@@ -70,14 +70,18 @@ describe("MessageDispatcher", () => {
       stale: false,
     };
 
+    const resized = { command: "architectureResized" as const, width: 300, height: 200 };
+
     await dispatcher.handle({ command: "architectureMounted" });
     await dispatcher.handle({ command: "architectureRefresh" });
     await dispatcher.handle(rendered);
+    await dispatcher.handle(resized);
 
     expect(handleArchitectureMessage.mock.calls).toEqual([
       [{ command: "architectureMounted" }],
       [{ command: "architectureRefresh" }],
       [rendered],
+      [resized],
     ]);
   });
 

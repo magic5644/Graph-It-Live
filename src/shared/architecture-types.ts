@@ -60,7 +60,15 @@ export interface ArchitectureRenderedCommand {
   stale: boolean;
 }
 
+/** The graph was re-fitted to a resized view (E2E observability only). */
+export interface ArchitectureResizedCommand {
+  command: "architectureResized";
+  width: number;
+  height: number;
+}
+
 export type ArchitectureWebviewCommand =
   | ArchitectureMountedCommand
   | ArchitectureRefreshCommand
-  | ArchitectureRenderedCommand;
+  | ArchitectureRenderedCommand
+  | ArchitectureResizedCommand;

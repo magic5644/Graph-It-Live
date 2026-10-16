@@ -122,6 +122,9 @@ export class MessageDispatcher {
         architectureRendered: async (m) => {
           await deps.handleArchitectureMessage?.(m);
         },
+        architectureResized: async (m) => {
+          await deps.handleArchitectureMessage?.(m);
+        },
       },
     });
   }

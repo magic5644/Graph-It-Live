@@ -19,13 +19,14 @@ const cy = vi.hoisted(() => {
       let stop = () => {};
       return { on: (_name: string, handler: () => void) => { stop = handler; }, run: () => stop() };
     },
-    fit: () => {},
+    fit: vi.fn(),
+    resize: vi.fn(),
     nodes: () => ({ length: state.nodes }),
     edges: () => ({ length: state.edges }),
     destroy: () => {},
   };
   const factory = Object.assign(() => instance, { use: () => {} });
-  return { state, factory };
+  return { state, factory, instance };
 });
 vi.mock("cytoscape", () => ({ default: cy.factory }));
 vi.mock("cytoscape-fcose", () => ({ default: () => {} }));
@@ -142,5 +143,45 @@ describe("ArchitectureGraph", () => {
     expect(container.title).toBe("ui\n5 files");
     act(() => cy.state.handlers.get("mouseout")?.({}));
     expect(container.title).toBe("");
+  });
+
+  it("re-fits once after a debounced resize, without re-running the layout, and cleans up", () => {
+    vi.useFakeTimers();
+    let onResize = () => {};
+    const observe = vi.fn();
+    const disconnect = vi.fn();
+    vi.stubGlobal("ResizeObserver", function (callback: () => void) {
+      onResize = callback;
+      return { observe, disconnect };
+    });
+    const layout = vi.spyOn(cy.instance, "layout");
+    try {
+      const postMessage = vi.fn();
+      const { unmount } = render(<ArchitectureGraph postMessage={postMessage} />);
+      expect(observe).toHaveBeenCalledWith(screen.getByTestId("architecture-graph"));
+      cy.instance.resize.mockClear();
+      cy.instance.fit.mockClear();
+
+      onResize();
+      window.dispatchEvent(new Event("resize"));
+      vi.advanceTimersByTime(119);
+      expect(cy.instance.resize).not.toHaveBeenCalled();
+      vi.advanceTimersByTime(1);
+      expect(cy.instance.resize).toHaveBeenCalledTimes(1);
+      expect(cy.instance.fit).toHaveBeenCalledExactlyOnceWith(undefined, 30);
+      expect(layout).not.toHaveBeenCalled();
+      expect(postMessage).toHaveBeenLastCalledWith({ command: "architectureResized", width: 0, height: 0 });
+
+      onResize();
+      unmount();
+      expect(disconnect).toHaveBeenCalled();
+      window.dispatchEvent(new Event("resize"));
+      vi.runAllTimers();
+      expect(cy.instance.resize).toHaveBeenCalledTimes(1);
+    } finally {
+      layout.mockRestore();
+      vi.unstubAllGlobals();
+      vi.useRealTimers();
+    }
   });
 });
