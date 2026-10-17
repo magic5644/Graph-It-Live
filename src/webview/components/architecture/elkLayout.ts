@@ -1,5 +1,6 @@
 import type { Core, EdgeCollection, EdgeSingular, NodeSingular, Position } from "cytoscape";
 import type { ElkExtendedEdge, ElkNode, ElkPoint } from "elkjs/lib/elk-api";
+import { normalizePath } from "../../utils/path";
 
 /**
  * ELK layered, top to bottom: the analyzer's layers are partitions (highest layer on top, layer 0
@@ -29,7 +30,7 @@ export interface EdgeRoute {
   target: Position;
 }
 
-const keyOf = (node: NodeSingular): string => String(node.data("key") ?? node.id());
+const keyOf = (node: NodeSingular): string => normalizePath(String(node.data("key") ?? node.id()));
 /** Stable across builds (group keys and file paths), unlike edge ids. */
 export const routeKey = (edge: EdgeSingular): string => `${keyOf(edge.source())}>${keyOf(edge.target())}`;
 
