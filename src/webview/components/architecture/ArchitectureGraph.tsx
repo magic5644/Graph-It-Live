@@ -22,16 +22,17 @@ import { buildArchitectureStylesheet } from "../cytoscape/CytoscapeTheme";
 import {
   applyMinImports,
   ARCHITECTURE_FCOSE_LAYOUT,
-  cappedUnitEdges,
   type Expansions,
   FILE_CAP_MESSAGE,
   findGroups,
   fitReadable,
+  hiddenUnitEdgeCount,
   focusGroup,
   highlightFocus,
   layoutUnits,
   type LayoutBox,
   levelSummary,
+  maxEdgeImports,
   plural,
   measureInteraction,
   measureUnitLevel,
@@ -198,8 +199,9 @@ const bannerStyle: React.CSSProperties = {
 
 /** Units level: layers, red edges and the colour of each unit. */
 function UnitsHeader({ summary, minImports }: Readonly<{ summary: ArchitectureSummaryMessage; minImports: number }>) {
-  const level = summary.units!;
-  const hidden = minImports > 1 ? 0 : cappedUnitEdges(level).size;
+  const level = summary.units;
+  if (!level) return null;
+  const hidden = hiddenUnitEdgeCount(level, minImports);
   return (
     <div>
       <div>
@@ -296,7 +298,7 @@ function GraphControls({ summary, shownEdges, query, onQuery, minImports, onMinI
           <input
             type="number"
             min={1}
-            max={Math.max(1, ...counts)}
+            max={maxEdgeImports(summary)}
             value={minImports}
             onChange={(event) => onMinImports(Math.max(1, Math.floor(Number(event.target.value)) || 1))}
             style={{ width: 56 }}
@@ -756,8 +758,10 @@ export function ArchitectureGraph({ postMessage }: Readonly<ArchitectureGraphPro
       postMessageRef.current(renderedReport(cy, summary, groups, unit));
     };
     const restored = restorePositions(cy, groups);
-    if (!restored && summary.units && unit === null) {
+    if (!restored && summary.units) {
+      // Units, and an entered unit's groups, sit on their layers.
       layoutUnits(cy);
+      placeNewFiles(cy, filePositions, (group) => group.position());
       finish(true);
       return;
     }

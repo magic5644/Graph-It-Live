@@ -9,6 +9,7 @@ import {
   buildArchitectureUnits,
   classifyUnitEdge,
   groupByUnit,
+  layerGroupsWithinUnits,
   ROOT_UNIT,
 } from "@/analyzer/architecture/architectureUnits";
 import { SpiderBuilder } from "@/analyzer/SpiderBuilder";
@@ -90,6 +91,18 @@ describe("assignUnits", () => {
   });
 });
 
+describe("assignUnits edge cases", () => {
+  it("returns nothing for no file", () => {
+    expect(assignUnits(root, [])).toEqual({ unitOf: new Map(), names: new Map() });
+  });
+
+  it("accepts Windows separators and keys files by normalized path", () => {
+    write("apps/web/package.json", manifest("@acme/web"));
+    const { unitOf } = assignUnits(root, [String.raw`apps\web\src\main.ts`, String.raw`tools\x.ts`]);
+    expect(Object.fromEntries(unitOf)).toEqual({ "apps/web/src/main.ts": "apps/web", "tools/x.ts": ROOT_UNIT });
+  });
+});
+
 describe("classifyUnitEdge", () => {
   it("flags cycles, edges to the same or a higher layer, and keeps the others down", () => {
     expect(classifyUnitEdge(1, 1, true)).toBe("cycle");
@@ -137,6 +150,25 @@ describe("buildArchitectureUnits", () => {
     write("pkg/package.json", manifest("pkg"));
     expect(buildArchitectureUnits(graph, root).context.revision).not.toBe(before);
     expect(before).not.toBe(graph.context.revision);
+  });
+});
+
+describe("buildArchitectureUnits on an empty graph", () => {
+  it("has no unit, edge or cycle", async () => {
+    const { units } = await unitsOf({});
+    expect(units).toMatchObject({ units: [], unitEdges: [], upwardEdges: 0, cycles: 0, totals: { files: 0, fileEdges: 0 } });
+  });
+});
+
+describe("layerGroupsWithinUnits", () => {
+  it("layers each unit's groups on their own and flags their cycles, leaving edges across units out", () => {
+    const groupUnits = { 1: "web", 2: "web", 3: "web", 4: "lib", 5: "lib" };
+    const { groupLayers, groupEdgeKinds } = layerGroupsWithinUnits(
+      [{ from: 1, to: 2 }, { from: 2, to: 3 }, { from: 3, to: 2 }, { from: 1, to: 4 }, { from: 4, to: 5 }],
+      groupUnits,
+    );
+    expect(groupLayers).toEqual({ 1: 1, 2: 0, 3: 0, 4: 1, 5: 0 });
+    expect(groupEdgeKinds).toEqual({ "1>2": "down", "2>3": "cycle", "3>2": "cycle", "4>5": "down" });
   });
 });
 

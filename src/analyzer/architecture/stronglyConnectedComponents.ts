@@ -13,56 +13,60 @@ export interface LayeredGraph {
   layerOf: Map<string, number>;
 }
 
+interface TarjanState {
+  index: Map<string, number>;
+  lowLink: Map<string, number>;
+  stack: string[];
+  onStack: Set<string>;
+  work: { node: string; next: number }[];
+  components: string[][];
+}
+
+function visit(state: TarjanState, node: string): void {
+  state.index.set(node, state.index.size);
+  state.lowLink.set(node, state.index.size - 1);
+  state.stack.push(node);
+  state.onStack.add(node);
+  state.work.push({ node, next: 0 });
+}
+
+function lowerTo(state: TarjanState, node: string, value: number): void {
+  state.lowLink.set(node, Math.min(state.lowLink.get(node)!, value));
+}
+
+/** `node` is done: hand its low link to its parent, and pop its component when it is a root. */
+function finish(state: TarjanState, node: string): void {
+  state.work.pop();
+  const parent = state.work.at(-1);
+  if (parent) lowerTo(state, parent.node, state.lowLink.get(node)!);
+  if (state.lowLink.get(node) !== state.index.get(node)) return;
+  const component: string[] = [];
+  let member: string;
+  do {
+    member = state.stack.pop()!;
+    state.onStack.delete(member);
+    component.push(member);
+  } while (member !== node);
+  state.components.push(component.toReversed());
+}
+
 /**
  * Tarjan's algorithm, iterative so a long dependency chain cannot overflow the stack.
  * Components come out sinks first (reverse topological order); ties follow `nodes` order.
  */
 export function stronglyConnectedComponents(nodes: readonly string[], successors: ReadonlyMap<string, readonly string[]>): string[][] {
-  const index = new Map<string, number>();
-  const lowLink = new Map<string, number>();
-  const stack: string[] = [];
-  const onStack = new Set<string>();
-  const work: { node: string; next: number }[] = [];
-  const components: string[][] = [];
-
-  const visit = (node: string) => {
-    index.set(node, index.size);
-    lowLink.set(node, index.size - 1);
-    stack.push(node);
-    onStack.add(node);
-    work.push({ node, next: 0 });
-  };
-  const lowerTo = (node: string, value: number) => lowLink.set(node, Math.min(lowLink.get(node)!, value));
-  /** Pops the component rooted at `root` off the stack. */
-  const popComponent = (root: string) => {
-    const component: string[] = [];
-    let member: string;
-    do {
-      member = stack.pop()!;
-      onStack.delete(member);
-      component.push(member);
-    } while (member !== root);
-    components.push(component.reverse());
-  };
-
+  const state: TarjanState = { index: new Map(), lowLink: new Map(), stack: [], onStack: new Set(), work: [], components: [] };
   for (const start of nodes) {
-    if (!index.has(start)) visit(start);
-    while (work.length > 0) {
-      const frame = work.at(-1)!;
+    if (!state.index.has(start)) visit(state, start);
+    while (state.work.length > 0) {
+      const frame = state.work.at(-1)!;
       const target = successors.get(frame.node)?.[frame.next++];
-      if (target === undefined) {
-        work.pop();
-        const parent = work.at(-1);
-        if (parent) lowerTo(parent.node, lowLink.get(frame.node)!);
-        if (lowLink.get(frame.node) === index.get(frame.node)) popComponent(frame.node);
-      } else if (!index.has(target)) {
-        visit(target);
-      } else if (onStack.has(target)) {
-        lowerTo(frame.node, index.get(target)!);
-      }
+      if (target === undefined) finish(state, frame.node);
+      else if (!state.index.has(target)) visit(state, target);
+      else if (state.onStack.has(target)) lowerTo(state, frame.node, state.index.get(target)!);
     }
   }
-  return components;
+  return state.components;
 }
 
 /** Collapses cycles, then ranks each component by the longest dependency chain below it. */

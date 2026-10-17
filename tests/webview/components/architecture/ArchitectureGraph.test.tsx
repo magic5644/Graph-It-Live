@@ -727,6 +727,8 @@ describe("ArchitectureGraph", () => {
         cycles: 1,
         totals: { files: 9, fileEdges: 5, intraUnitEdges: 1, interUnitEdges: 4 },
         groupUnits: { 1: "apps/web", 2: "packages/core" },
+        groupLayers: { 1: 0, 2: 0 },
+        groupEdgeKinds: {},
       },
     };
     const nodeById = (id: string) => cy.state.nodes.find(node => node.id() === id);
