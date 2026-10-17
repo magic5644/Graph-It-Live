@@ -191,6 +191,7 @@ export class ReverseIndex {
    * mtime and size), so a caller can skip parsing it again.
    * @returns undefined when the file was never indexed, is gone, or changed since
    */
+  // ponytail: mtime and size only, like validateIndex; an edit keeping both is missed. Hash contents if that bites.
   async getFreshDependencies(sourcePath: string): Promise<Dependency[] | undefined> {
     const normalizedSourcePath = normalizePath(sourcePath);
     if (!this.fileHashes.has(normalizedSourcePath)) return undefined;
@@ -198,12 +199,13 @@ export class ReverseIndex {
     // Checked after the await: the file may have been re-indexed or removed meanwhile.
     if (!currentHash || this.isFileStale(normalizedSourcePath, currentHash)) return undefined;
 
-    // One entry per target: a file importing the same target twice keeps the last import.
     const dependencies: Dependency[] = [];
     for (const targetPath of this.forwardMap.get(normalizedSourcePath) ?? []) {
       const entry = this.reverseMap.get(targetPath)?.get(normalizedSourcePath);
       if (entry) dependencies.push({ path: targetPath, type: entry.type, line: entry.line, module: entry.module });
     }
+    // A restored index lists targets in serialized order; analyze() lists them in import order.
+    dependencies.sort((left, right) => left.line - right.line);
     return dependencies;
   }
 

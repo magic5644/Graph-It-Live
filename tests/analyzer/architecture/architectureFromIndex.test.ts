@@ -14,13 +14,13 @@ const modes: CommunityMode[] = ["path", "louvain"];
 const spiderFor = (rootDir: string) =>
   new SpiderBuilder().withRootDir(rootDir).withExcludeNodeModules(true).withReverseIndex(true).build();
 
-/** Everything the view shows, independent of the order files were analysed in. */
+/** Everything the view shows, in the order it was built: the index keeps import order. */
 function shown(graph: ArchitectureGraph) {
   return {
     revision: graph.context.revision,
     overview: overviewArchitecture(graph, Number.POSITIVE_INFINITY),
-    nodes: graph.nodes.map(node => JSON.stringify(node)).sort(),
-    edges: graph.edges.map(edge => JSON.stringify(edge)).sort(),
+    nodes: graph.nodes,
+    edges: graph.edges,
     failedFiles: graph.failedFiles,
   };
 }

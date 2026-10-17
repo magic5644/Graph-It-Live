@@ -1,7 +1,7 @@
 import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { ReverseIndex } from '../../src/analyzer/ReverseIndex';
 import { Dependency, FileHash } from '../../src/analyzer/types';
 import { normalizePath } from '../../src/shared/path';
@@ -578,6 +578,50 @@ describe('ReverseIndex', () => {
         it('returns undefined for an indexed file deleted from disk', async () => {
             fs.rmSync(source);
             expect(await index.getFreshDependencies(source)).toBeUndefined();
+        });
+
+        it('lists the dependencies in import order after a serialize/deserialize round trip', async () => {
+            // b.ts was a target before z.ts, so the restored index, grouped by target, lists it first.
+            index.addDependencies(source, [
+                { path: path.join(tmpDir, 'z.ts'), type: 'import', line: 1, module: './z' },
+                { path: path.join(tmpDir, 'b.ts'), type: 'import', line: 2, module: './b' },
+            ], (await ReverseIndex.getFileHashFromDisk(source)) ?? undefined);
+            index.addDependencies(path.join(tmpDir, 'other.ts'), [
+                { path: path.join(tmpDir, 'b.ts'), type: 'import', line: 1, module: './b' },
+            ]);
+            const restored = ReverseIndex.deserialize(index.serialize(), tmpDir);
+            expect((await restored?.getFreshDependencies(source))?.map(dep => dep.module)).toEqual(['./z', './b']);
+        });
+
+        it('returns undefined when the file is removed from the index while its stat runs', async () => {
+            const stat = ReverseIndex.getFileHashFromDisk;
+            const spy = vi.spyOn(ReverseIndex, 'getFileHashFromDisk').mockImplementation(async (filePath) => {
+                index.removeDependenciesFromSource(source);
+                return stat(filePath);
+            });
+            try {
+                expect(await index.getFreshDependencies(source)).toBeUndefined();
+            } finally {
+                spy.mockRestore();
+            }
+        });
+
+        it('returns the new dependencies when the file is re-indexed while its stat runs', async () => {
+            const stat = ReverseIndex.getFileHashFromDisk;
+            const hash = await stat(source);
+            const spy = vi.spyOn(ReverseIndex, 'getFileHashFromDisk').mockImplementation(async (filePath) => {
+                index.addDependencies(source, [
+                    { path: path.join(tmpDir, 'd.ts'), type: 'import', line: 1, module: './d' },
+                ], hash ?? undefined);
+                return stat(filePath);
+            });
+            try {
+                expect(await index.getFreshDependencies(source)).toEqual([
+                    { path: target('d.ts'), type: 'import', line: 1, module: './d' },
+                ]);
+            } finally {
+                spy.mockRestore();
+            }
         });
 
         it('returns undefined for a file removed from the index', async () => {
