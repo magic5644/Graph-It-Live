@@ -5,14 +5,15 @@
  * CRITICAL ARCHITECTURE RULE: This module is completely VS Code agnostic!
  */
 
-import { exploreArchitecture } from "../../analyzer/architecture/ArchitectureExplorer";
+import { exploreArchitecture, exploreUnits } from "../../analyzer/architecture/ArchitectureExplorer";
 import { buildArchitectureGraph } from "../../analyzer/architecture/ArchitectureGraphBuilder";
+import { buildArchitectureUnits } from "../../analyzer/architecture/architectureUnits";
 import { workerState } from "../shared/state";
 import type { ExploreArchitectureParams } from "../types";
 
 /**
  * Progressive exploration of the grouped architecture: a bounded summary, one group with
- * its boundary, or the file pairs behind one group edge.
+ * its boundary, the file pairs behind one group edge, or the units with their layers.
  */
 export async function executeExploreArchitecture(
   params: ExploreArchitectureParams,
@@ -24,5 +25,8 @@ export async function executeExploreArchitecture(
     (filePath) => workerState.getSpider().analyze(filePath),
     { maxFiles: params.maxFiles, communityMode: params.communityMode, signal },
   );
+  if (params.level === "units") {
+    return exploreUnits(buildArchitectureUnits(graph, workerState.getConfig().rootDir), params);
+  }
   return exploreArchitecture(graph, params);
 }

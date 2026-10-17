@@ -1,6 +1,7 @@
 import * as path from "node:path";
 import { exploreArchitecture, groupDetail, overviewArchitecture } from "@/analyzer/architecture/ArchitectureExplorer";
 import { buildArchitectureGraph, type AnalyzeFile, type ArchitectureGraph } from "@/analyzer/architecture/ArchitectureGraphBuilder";
+import { assignUnits, buildArchitectureUnits, groupByUnit } from "@/analyzer/architecture/architectureUnits";
 import type { IndexerStatusSnapshot } from "@/analyzer/IndexerStatus";
 import type {
   ArchitectureControlsMessage,
@@ -75,6 +76,36 @@ function waitForIdleIndex(
     });
     if (done) unsubscribe();
   });
+}
+
+/**
+ * In path mode, the units on top and their unit-scoped folder groups below: the groups (and
+ * the graph group detail and evidence read) never mix files of two units.
+ * ponytail: every group is sent (no MAX_RENDERED_GROUPS cap) since only one unit's groups are drawn at once; cap per unit if a unit holds hundreds.
+ */
+function viewArchitecture(graph: ArchitectureGraph, workspaceRoot: string): Omit<ArchitectureSummaryMessage, "type" | "stale"> & { graph: ArchitectureGraph } {
+  if (graph.context.communityMode !== "path") {
+    return { graph, revision: graph.context.revision, ...overviewArchitecture(graph, MAX_RENDERED_GROUPS) };
+  }
+  const assignment = assignUnits(workspaceRoot, graph.nodes.map((node) => node.relativePath));
+  const units = buildArchitectureUnits(graph, workspaceRoot, assignment);
+  const { graph: grouped, groupUnits } = groupByUnit(graph, units, assignment);
+  const { context: _context, ...unitLevel } = units;
+  const overview = overviewArchitecture(grouped, Number.POSITIVE_INFINITY);
+  // Inside a unit, a group is named by its folder; the unit's own files by the unit.
+  const names = new Map(units.units.map((unit) => [unit.key, unit.name]));
+  const labels = new Map(overview.groups.map((group) => {
+    const unit = groupUnits[group.id];
+    return [group.id, group.key === unit ? names.get(unit)! : group.key.slice(unit.length + 1)];
+  }));
+  return {
+    graph: grouped,
+    revision: grouped.context.revision,
+    ...overview,
+    groups: overview.groups.map((group) => ({ ...group, label: labels.get(group.id)! })),
+    groupEdges: overview.groupEdges.map((edge) => ({ ...edge, fromLabel: labels.get(edge.from)!, toLabel: labels.get(edge.to)! })),
+    units: { ...unitLevel, groupUnits },
+  };
 }
 
 /** A page offset from the webview; anything but a non-negative integer reads the first page. */
@@ -259,13 +290,9 @@ export class ArchitectureViewService {
         post({ type: "architectureState", status: "empty", message: "No source file found in the workspace folder." });
         return;
       }
-      this.summary = {
-        type: "architectureSummary",
-        revision: graph.context.revision,
-        stale: this.changedDuringBuild,
-        ...overviewArchitecture(graph, MAX_RENDERED_GROUPS),
-      };
-      this.graph = { graph, files: new Set(graph.nodes.map(node => node.relativePath)) };
+      const { graph: viewGraph, ...overview } = viewArchitecture(graph, this.options.workspaceRoot);
+      this.summary = { type: "architectureSummary", stale: this.changedDuringBuild, ...overview };
+      this.graph = { graph: viewGraph, files: new Set(viewGraph.nodes.map(node => node.relativePath)) };
       // Cleared only once posted: a change seen by an aborted build still applies to the next one.
       this.changedDuringBuild = false;
       post(this.summary);
@@ -292,6 +319,8 @@ export class ArchitectureViewService {
       overlappingGroups: this.lastRender?.overlappingGroups ?? 0,
       overflowingLabels: this.lastRender?.overflowingLabels ?? 0,
       positions: this.lastRender?.positions,
+      unit: this.lastRender?.unit,
+      unitLevel: this.lastRender?.unitLevel,
       resizeCount: this.resizeCount,
       viewSize: this.viewSize,
       interactionCount: this.interactionCount,
@@ -303,10 +332,11 @@ export class ArchitectureViewService {
 
   /** E2E driver: sets the webview's controls; any extension can call it, so check the values. */
   setControls(controls: Omit<ArchitectureControlsMessage, "type"> | undefined): void {
-    const { find, minImports, focus, expand, collapse, evidenceOf, openEvidenceRow } = controls ?? {};
+    const { unit, find, minImports, focus, expand, collapse, evidenceOf, openEvidenceRow } = controls ?? {};
     const text = (value: unknown) => (typeof value === "string" ? value.slice(0, 256) : undefined);
     this.options.post({
       type: "architectureControls",
+      unit: text(unit),
       find: text(find),
       minImports: Number.isSafeInteger(minImports) && Number(minImports) >= 1 ? minImports : undefined,
       focus: text(focus),

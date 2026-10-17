@@ -1,0 +1,5 @@
+{
+  "name": "@ws/web",
+  "private": true,
+  "dependencies": { "@ws/core": "file:../../packages/core", "@ws/ui": "file:../../packages/ui" }
+}

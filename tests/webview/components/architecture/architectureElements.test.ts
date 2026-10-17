@@ -162,7 +162,7 @@ describe("separateOverlaps", () => {
       toLabel: "",
     }));
     const summary = { ...summaryOf(graphData), groups, groupEdges, unassigned: { fileCount: 0, internalEdgeCount: 0 } };
-    const colors = { foreground: "#fff", background: "#000", border: "#888", edge: "#888", accent: "#08f" };
+    const colors = { foreground: "#fff", background: "#000", border: "#888", edge: "#888", accent: "#08f", error: "#f00" };
     const cy = cytoscape({ headless: true, styleEnabled: true, style: buildArchitectureStylesheet(colors), elements: toArchitectureElements(summary) });
     cy.layout(ARCHITECTURE_FCOSE_LAYOUT as cytoscape.LayoutOptions).run();
     const boxes = cy.nodes().map((node) => ({ ...node.position(), width: node.outerWidth(), height: node.outerHeight() }));
@@ -174,7 +174,7 @@ describe("separateOverlaps", () => {
 });
 
 describe("highlight, find and min-imports filter", () => {
-  const colors = { foreground: "#fff", background: "#000", border: "#888", edge: "#888", accent: "#08f" };
+  const colors = { foreground: "#fff", background: "#000", border: "#888", edge: "#888", accent: "#08f", error: "#f00" };
   // group-0 (unassigned main) → group-1 (ui): 1 import; group-1 (ui) → group-2 (store): 2 imports.
   const createCy = () =>
     cytoscape({ headless: true, styleEnabled: true, style: buildArchitectureStylesheet(colors), elements: toArchitectureElements(summaryOf(graphData)) });
@@ -370,7 +370,7 @@ describe("expanded groups", () => {
   });
 
   it("focuses a group: only it, its files and what its edges reach stay drawn", () => {
-    const colors = { foreground: "#000", background: "#fff", border: "#999", edge: "#888", accent: "#00f" };
+    const colors = { foreground: "#000", background: "#fff", border: "#999", edge: "#888", accent: "#00f", error: "#f00" };
     const cy = cytoscape({ headless: true, styleEnabled: true, style: buildArchitectureStylesheet(colors), elements: toArchitectureElements(summary, expand({ 3: 1 })) });
     const shown = focusGroup(cy, cy.getElementById("group-3"));
     const visible = cy.nodes().filter(node => node.style("display") !== "none").map(node => node.id());
@@ -387,7 +387,7 @@ describe("expanded groups", () => {
   });
 
   it("shows file edges for a highlighted file only, whatever the min-imports filter, and counts drawn group edges", () => {
-    const colors = { foreground: "#000", background: "#fff", border: "#999", edge: "#888", accent: "#00f" };
+    const colors = { foreground: "#000", background: "#fff", border: "#999", edge: "#888", accent: "#00f", error: "#f00" };
     const cy = cytoscape({ headless: true, styleEnabled: true, style: buildArchitectureStylesheet(colors), elements: toArchitectureElements(summary, expand({ 1: 2 })) });
     const shownFileEdges = () => cy.edges("[?fileEdge]").filter(edge => edge.style("display") !== "none");
 
@@ -448,7 +448,7 @@ describe("expanded groups", () => {
   });
 
   it("lays out only the files without a position: a first page around the group, the next one below", () => {
-    const colors = { foreground: "#000", background: "#fff", border: "#999", edge: "#888", accent: "#00f" };
+    const colors = { foreground: "#000", background: "#fff", border: "#999", edge: "#888", accent: "#00f", error: "#f00" };
     const headless = (expansions: Expansions) =>
       cytoscape({ headless: true, styleEnabled: true, style: buildArchitectureStylesheet(colors), elements: toArchitectureElements(summary, expansions) });
     const first = headless(expand({ 1: 1 }));

@@ -1,0 +1,1 @@
+{ "name": "@ws/types", "private": true, "dependencies": { "@ws/core": "file:../core" } }

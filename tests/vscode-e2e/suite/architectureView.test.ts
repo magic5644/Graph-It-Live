@@ -13,15 +13,29 @@ interface ArchitectureRender {
   overlappingGroups: number;
   overflowingLabels: number;
   positions?: string;
+  /** Entered unit; undefined at the units level. */
+  unit?: string;
+  unitLevel?: { units: number; colors: number; redEdges: number; edgesNotDown: number; hiddenEdges: number; minLabelPx: number };
 }
 
 // Expected numbers from the E2E workspace (tests/fixtures), recorded with:
-//   node dist/graph-it.js architecture --groups --communities <mode> --format json -w tests/fixtures
-// Rendered groups = groups.length + 1 for the unassigned files (unassigned.fileCount > 0).
+//   node dist/graph-it.js architecture --level units --format json -w tests/fixtures
+//   node dist/graph-it.js architecture --groups --communities louvain --format json -w tests/fixtures
+// Path mode draws the units (11 packages or (root), 9 unit edges, the 2 edges of the
+// workspaces-project core ↔ types cycle in red); (root) holds 18 folder groups and 4 group edges.
+// Louvain: rendered groups = groups.length + 1 for the unassigned files.
 const EXPECTED = {
-  path: { groups: 19 + 1, groupEdges: 6 },
-  louvain: { groups: 23 + 1, groupEdges: 1 },
+  units: { groups: 11, groupEdges: 9, redEdges: 2 },
+  root: { groups: 18, groupEdges: 4 },
+  louvain: { groups: 24 + 1, groupEdges: 1 },
 } as const;
+
+/** Enters a unit (empty: back to the units), then waits for its render. */
+async function enterUnit(unit: string): Promise<ArchitectureRender> {
+  const before = (await readRender()).renderCount;
+  await vscode.commands.executeCommand('graph-it-live.e2eArchitectureControls', { unit });
+  return waitForRender(`the ${unit || 'units'} render`, before, render => (render.unit ?? '') === unit);
+}
 
 async function readRender(): Promise<ArchitectureRender> {
   const read = (key: string) => getContextKey(`graph-it-live.architecture${key}`);
@@ -36,6 +50,8 @@ async function readRender(): Promise<ArchitectureRender> {
     overlappingGroups: (await read('OverlappingGroups')) as number,
     overflowingLabels: (await read('OverflowingLabels')) as number,
     positions: (await read('Positions')) as string | undefined,
+    unit: (await read('Unit')) as string | undefined,
+    unitLevel: (await read('UnitLevel')) as ArchitectureRender['unitLevel'],
   };
 }
 
@@ -185,11 +201,21 @@ suite('Architecture view mode', () => {
     await waitForViewMode('file');
   });
 
-  test('renders the collapsed groups of graph-it architecture --groups, then rebuilds for louvain', async function () {
+  test('renders the units of graph-it architecture --level units in layers, then rebuilds for louvain', async function () {
     this.timeout(240000);
     const byFolder = await openFreshArchitecture();
-    assert.strictEqual(byFolder.groupCount, EXPECTED.path.groups, 'rendered groups');
-    assert.strictEqual(byFolder.groupEdgeCount, EXPECTED.path.groupEdges, 'rendered group edges');
+    assert.strictEqual(byFolder.unit, undefined, 'path mode opens on the units');
+    assert.strictEqual(byFolder.groupCount, EXPECTED.units.groups, 'rendered units');
+    assert.strictEqual(byFolder.groupEdgeCount, EXPECTED.units.groupEdges, 'rendered unit edges');
+    assert.deepStrictEqual(byFolder.unitLevel, {
+      units: EXPECTED.units.groups,
+      colors: EXPECTED.units.groups,
+      redEdges: EXPECTED.units.redEdges,
+      edgesNotDown: 0,
+      hiddenEdges: 0,
+      minLabelPx: byFolder.unitLevel?.minLabelPx,
+    }, 'one colour per unit, red cycle edges, every other edge drawn downwards, none hidden');
+    assert.ok((byFolder.unitLevel?.minLabelPx ?? 0) >= 8, `labels readable after the fit: ${byFolder.unitLevel?.minLabelPx}px`);
     assert.strictEqual(byFolder.stale, false);
     assert.match(byFolder.revision ?? '', /^[0-9a-f]{64}$/);
     assertReadableLayout(byFolder);
@@ -227,7 +253,7 @@ suite('Architecture view mode', () => {
     await vscode.commands.executeCommand('graph-it-live.refreshGraph');
     const refreshed = await waitForRender('the refreshed render', staleCount, render => !render.stale);
     assert.strictEqual(refreshed.buildCount, built.buildCount + 1, 'Refresh rebuilds once');
-    assert.strictEqual(refreshed.groupCount, EXPECTED.path.groups);
+    assert.strictEqual(refreshed.groupCount, EXPECTED.units.groups);
     assert.strictEqual(refreshed.positions, built.positions, 'Refresh of an unchanged graph keeps every position');
   });
 
@@ -267,20 +293,34 @@ suite('Architecture view mode', () => {
     }
   });
 
+  test('enters a unit: its folder groups only, in the unit colour, and goes back to the units', async function () {
+    this.timeout(240000);
+    const units = await openFreshArchitecture();
+    const web = await enterUnit('workspaces-project/apps/web');
+    assert.strictEqual(web.groupCount, 2, 'the groups of @ws/web only');
+    assert.strictEqual(web.groupEdgeCount, 1, 'the group edges inside @ws/web');
+    assert.strictEqual(web.unitLevel, undefined);
+    assertReadableLayout(web);
+    const back = await enterUnit('');
+    assert.strictEqual(back.groupCount, EXPECTED.units.groups);
+    assert.strictEqual(back.positions, units.positions, 'the units come back where they were');
+  });
+
   test('labels only highlighted edges, highlights a found group neighbourhood, filters weak edges, and clears', async function () {
     this.timeout(240000);
     await openFreshArchitecture();
-    const { groups, groupEdges } = EXPECTED.path;
+    await enterUnit('(root)');
+    const { groups, groupEdges } = EXPECTED.root;
     const nothing = { highlightedGroups: 0, fadedGroups: 0, labelledEdges: 0 };
     const noFileEdge = { shownFileEdges: 0 };
     try {
       // Count labels are hidden until an edge is highlighted.
       await expectInteraction('the default picture', undefined, { ...nothing, shownGroupEdges: groupEdges, ...noFileEdge });
-      // layers imports one unassigned file: layers and unassigned stay, the 18 other groups fade.
+      // layers imports one file of the (root) group: both stay, the 16 other groups fade.
       await expectInteraction('the layers neighbourhood', { find: 'LAYERS' }, {
         highlightedGroups: 2, fadedGroups: groups - 2, labelledEdges: 1, shownGroupEdges: groupEdges, ...noFileEdge,
       });
-      // 3 of the 6 group edges carry a single import; the layers edge is one of them.
+      // 1 of the 4 group edges carries a single import: the layers edge.
       await expectInteraction('the min-imports filter', { minImports: 2 }, {
         highlightedGroups: 1, fadedGroups: groups - 1, labelledEdges: 0, shownGroupEdges: 3, ...noFileEdge,
       });
@@ -288,28 +328,31 @@ suite('Architecture view mode', () => {
       await expectInteraction('the reset filter', { minImports: 1 }, { ...nothing, shownGroupEdges: groupEdges, ...noFileEdge });
     } finally {
       await vscode.commands.executeCommand('graph-it-live.e2eArchitectureControls', { find: '', minImports: 1 });
+      await enterUnit('');
     }
   });
 
   test('focuses and enters a group, lists the evidence of its edge, opens a file and goes back, in path and louvain modes', async function () {
     this.timeout(300000);
-    const byFolder = await openFreshArchitecture();
-    // layers (4 files) imports one unassigned file.
-    await exploreGroup('layers', EXPECTED.path.groups, EXPECTED.path.groupEdges);
+    await openFreshArchitecture();
+    const byFolder = await enterUnit('(root)');
+    // layers (4 files) imports one file of the (root) group.
+    await exploreGroup('(root)/layers', EXPECTED.root.groups, EXPECTED.root.groupEdges);
 
-    // A stale mark keeps the expanded group.
-    await expectDetail('expanding layers again', { expand: 'layers' }, detail => detail.expandedGroups === 1);
+    // A stale mark keeps the entered unit and the expanded group.
+    await expectDetail('expanding layers again', { expand: '(root)/layers' }, detail => detail.expandedGroups === 1);
     const file = getProjectFile('sample-project', 'src', 'utils.ts');
     const original = await vscode.workspace.fs.readFile(file);
     try {
       await vscode.workspace.fs.writeFile(file, Buffer.concat([Buffer.from(original), Buffer.from('\n// architecture detail E2E\n')]));
       await waitForRender('the stale banner', byFolder.renderCount, render => render.stale);
       const kept = await expectDetail('the stale detail', undefined, detail => detail.expandedGroups === 1);
+      assert.strictEqual((await readRender()).unit, '(root)', 'a stale mark keeps the entered unit');
       assert.strictEqual(kept.renderedFiles, Math.min(kept.expandedFileCount, 200), 'a stale mark keeps the rendered files');
     } finally {
       await vscode.workspace.fs.writeFile(file, original);
     }
-    await expectDetail('collapsing layers', { collapse: 'layers' }, detail => detail.expandedGroups === 0);
+    await expectDetail('collapsing layers', { collapse: '(root)/layers' }, detail => detail.expandedGroups === 0);
     await expectDetail('the overview', { focus: '' }, detail => detail.focusedGroup === undefined);
 
     await config().update('communityMode', 'louvain', vscode.ConfigurationTarget.Global);

@@ -1,0 +1,261 @@
+{
+  "cli": {
+    "workspaceRoot": "<root>",
+    "scannedFiles": 8,
+    "analyzedFiles": 8,
+    "skippedFiles": 0,
+    "failedFiles": [],
+    "nodeCount": 8,
+    "edgeCount": 10,
+    "context": {
+      "communityMode": "path",
+      "revision": "ef903803b3b162fc628ca438b6593142084d41c119adc17435de90f40048a8ce",
+      "graphKind": "imports",
+      "scope": "workspace",
+      "exclusions": "node_modules, .git, dist, build, out, coverage, .next, .nuxt, __pycache__, .venv, venv, target, .*/, .gitignore, .graphitignore, tests/fixtures/, out-*/",
+      "truncated": false,
+      "failedFiles": 0
+    },
+    "units": [
+      {
+        "key": "apps/web",
+        "name": "@ws/web",
+        "fileCount": 2,
+        "internalEdgeCount": 1,
+        "layer": 2
+      },
+      {
+        "key": "(root)",
+        "name": "(root)",
+        "fileCount": 1,
+        "internalEdgeCount": 0,
+        "layer": 2
+      },
+      {
+        "key": "functions/notify",
+        "name": "@ws/notify",
+        "fileCount": 1,
+        "internalEdgeCount": 0,
+        "layer": 1
+      },
+      {
+        "key": "packages/ui",
+        "name": "@ws/ui",
+        "fileCount": 1,
+        "internalEdgeCount": 0,
+        "layer": 1
+      },
+      {
+        "key": "tools/legacy",
+        "name": "legacy-tool",
+        "fileCount": 1,
+        "internalEdgeCount": 0,
+        "layer": 1
+      },
+      {
+        "key": "packages/core",
+        "name": "@ws/core",
+        "fileCount": 1,
+        "internalEdgeCount": 0,
+        "layer": 0
+      },
+      {
+        "key": "packages/types",
+        "name": "@ws/types",
+        "fileCount": 1,
+        "internalEdgeCount": 0,
+        "layer": 0
+      }
+    ],
+    "unitEdges": [
+      {
+        "from": "apps/web",
+        "to": "packages/ui",
+        "fileEdgeCount": 2,
+        "kind": "down"
+      },
+      {
+        "from": "(root)",
+        "to": "packages/ui",
+        "fileEdgeCount": 1,
+        "kind": "down"
+      },
+      {
+        "from": "apps/web",
+        "to": "packages/core",
+        "fileEdgeCount": 1,
+        "kind": "down"
+      },
+      {
+        "from": "functions/notify",
+        "to": "packages/core",
+        "fileEdgeCount": 1,
+        "kind": "down"
+      },
+      {
+        "from": "packages/core",
+        "to": "packages/types",
+        "fileEdgeCount": 1,
+        "kind": "cycle"
+      },
+      {
+        "from": "packages/types",
+        "to": "packages/core",
+        "fileEdgeCount": 1,
+        "kind": "cycle"
+      },
+      {
+        "from": "packages/ui",
+        "to": "packages/core",
+        "fileEdgeCount": 1,
+        "kind": "down"
+      },
+      {
+        "from": "tools/legacy",
+        "to": "packages/core",
+        "fileEdgeCount": 1,
+        "kind": "down"
+      }
+    ],
+    "upwardEdges": 0,
+    "cycles": 1,
+    "totals": {
+      "files": 8,
+      "fileEdges": 10,
+      "intraUnitEdges": 1,
+      "interUnitEdges": 9
+    }
+  },
+  "firstPage": {
+    "view": "units",
+    "context": {
+      "communityMode": "path",
+      "revision": "ef903803b3b162fc628ca438b6593142084d41c119adc17435de90f40048a8ce",
+      "graphKind": "imports",
+      "scope": "workspace",
+      "exclusions": "node_modules, .git, dist, build, out, coverage, .next, .nuxt, __pycache__, .venv, venv, target, .*/, .gitignore, .graphitignore, tests/fixtures/, out-*/",
+      "truncated": false,
+      "failedFiles": 0
+    },
+    "provenance": {
+      "facts": "File pairs are static import relations extracted from source code, not observed execution.",
+      "grouping": "Units are package folders (package.json), else top-level folders; layer = rank in the unit graph after collapsing cycles, 0 = depends on no other unit.",
+      "interpretation": "None: names are package names or folders, not roles."
+    },
+    "totals": {
+      "files": 8,
+      "fileEdges": 10,
+      "intraUnitEdges": 1,
+      "interUnitEdges": 9
+    },
+    "upwardEdges": 0,
+    "cycles": 1,
+    "units": [
+      {
+        "key": "apps/web",
+        "name": "@ws/web",
+        "fileCount": 2,
+        "internalEdgeCount": 1,
+        "layer": 2
+      },
+      {
+        "key": "(root)",
+        "name": "(root)",
+        "fileCount": 1,
+        "internalEdgeCount": 0,
+        "layer": 2
+      }
+    ],
+    "unitEdges": [
+      {
+        "from": "apps/web",
+        "to": "packages/ui",
+        "fileEdgeCount": 2,
+        "kind": "down"
+      },
+      {
+        "from": "(root)",
+        "to": "packages/ui",
+        "fileEdgeCount": 1,
+        "kind": "down"
+      }
+    ],
+    "page": {
+      "offset": 0,
+      "limit": 2,
+      "totalUnits": 7,
+      "totalUnitEdges": 8,
+      "truncated": true,
+      "nextOffset": 2
+    },
+    "nextSteps": "Call without level for the folder groups, then group, or from and to, for files and file pairs."
+  },
+  "groups": [
+    {
+      "id": 1,
+      "key": "apps/web",
+      "label": "@ws/web",
+      "fileCount": 1,
+      "internalEdgeCount": 0
+    },
+    {
+      "id": 2,
+      "key": "apps/web/pages",
+      "label": "pages",
+      "fileCount": 1,
+      "internalEdgeCount": 0
+    },
+    {
+      "id": 3,
+      "key": "(root)/scripts",
+      "label": "scripts",
+      "fileCount": 1,
+      "internalEdgeCount": 0
+    },
+    {
+      "id": 4,
+      "key": "functions/notify",
+      "label": "@ws/notify",
+      "fileCount": 1,
+      "internalEdgeCount": 0
+    },
+    {
+      "id": 5,
+      "key": "packages/ui",
+      "label": "@ws/ui",
+      "fileCount": 1,
+      "internalEdgeCount": 0
+    },
+    {
+      "id": 6,
+      "key": "tools/legacy",
+      "label": "legacy-tool",
+      "fileCount": 1,
+      "internalEdgeCount": 0
+    },
+    {
+      "id": 7,
+      "key": "packages/core",
+      "label": "@ws/core",
+      "fileCount": 1,
+      "internalEdgeCount": 0
+    },
+    {
+      "id": 8,
+      "key": "packages/types",
+      "label": "@ws/types",
+      "fileCount": 1,
+      "internalEdgeCount": 0
+    }
+  ],
+  "groupUnits": {
+    "1": "apps/web",
+    "2": "apps/web",
+    "3": "(root)",
+    "4": "functions/notify",
+    "5": "packages/ui",
+    "6": "tools/legacy",
+    "7": "packages/core",
+    "8": "packages/types"
+  }
+}

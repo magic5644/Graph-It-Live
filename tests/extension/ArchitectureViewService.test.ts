@@ -14,7 +14,7 @@ import type { ArchitectureExtensionMessage, ArchitectureSummaryMessage } from ".
 import type { CommunityMode } from "../../src/shared/graph-types";
 import { normalizePath } from "../../src/shared/path";
 
-// ui imports store twice; main.ts sits at the root, outside any folder group.
+// ui imports store twice; main.ts sits at the root. No package: units are src and (root).
 const workspace: Record<string, string[]> = {
   "main.ts": ["src/ui/view.ts"],
   "src/ui/view.ts": ["src/store/state.ts"],
@@ -87,14 +87,25 @@ describe("ArchitectureViewService", () => {
       scannedFiles: 4,
       analyzedFiles: 4,
       totals: { files: 4, fileEdges: 3, intraGroupEdges: 0, interGroupEdges: 3 },
-      unassigned: { fileCount: 1, internalEdgeCount: 0 },
+      unassigned: { fileCount: 0, internalEdgeCount: 0 },
       hiddenGroups: 0,
       hiddenGroupEdges: 0,
     });
     expect(summary.revision).toBe(summary.context.revision);
-    expect(summary.groups.map(group => group.key)).toEqual(["ui", "store"]);
+    // Folder groups are scoped to their unit, ids in the units' order: (root) above src.
+    expect(summary.groups.map(group => [group.id, group.key])).toEqual([[3, "src/ui"], [1, "(root)"], [2, "src/store"]]);
+    // Inside a unit, a group is named by its folder.
+    expect(summary.groups.map(group => group.label)).toEqual(["ui", "(root)", "store"]);
     expect(summary.groupEdges.map(edge => [edge.fromLabel, edge.toLabel, edge.fileEdgeCount]))
-      .toEqual([["unassigned", "ui", 1], ["ui", "store", 2]]);
+      .toEqual([["(root)", "ui", 1], ["ui", "store", 2]]);
+    expect(summary.units).toMatchObject({
+      units: [{ key: "(root)", layer: 1, fileCount: 1 }, { key: "src", layer: 0, fileCount: 3 }],
+      unitEdges: [{ from: "(root)", to: "src", fileEdgeCount: 1, kind: "down" }],
+      upwardEdges: 0,
+      cycles: 0,
+      totals: { files: 4, fileEdges: 3, intraUnitEdges: 2, interUnitEdges: 1 },
+      groupUnits: { 1: "(root)", 2: "src", 3: "src" },
+    });
   });
 
   it("reposts the cached summary on mount and rebuilds when communityMode changes", async () => {
@@ -378,17 +389,30 @@ describe("ArchitectureViewService", () => {
     expect(states().some(state => state.percent !== undefined && state.percent > 0)).toBe(true);
   });
 
-  it("caps rendered groups at 150 and keeps totals from the full aggregation", async () => {
+  it("caps rendered louvain groups at 150, keeps totals from the full aggregation, and sends every unit-scoped group", async () => {
     const groups = 200;
-    const many = Object.fromEntries(Array.from({ length: groups }, (_, index) => [`g${index}/a.ts`, []]));
+    // One import per folder: Louvain keeps each pair as its own community.
+    const many = Object.fromEntries(Array.from({ length: groups }, (_, index) => [
+      [`g${index}/a.ts`, [`g${index}/b.ts`]],
+      [`g${index}/b.ts`, []],
+    ]).flat());
     const wide = await fs.realpath(await fs.mkdtemp(path.join(os.tmpdir(), "gitl-architecture-wide-")));
     try {
       await writeWorkspace(wide, many);
+      communityMode = "louvain";
       await createService({ workspaceRoot: wide, analyzeFile: analyzerFor(wide, many) }).build();
       const [summary] = summaries();
+      expect(summary.units).toBeUndefined();
       expect(summary.groups).toHaveLength(MAX_RENDERED_GROUPS);
       expect(summary.hiddenGroups).toBe(groups - MAX_RENDERED_GROUPS);
-      expect(summary.totals.files).toBe(groups);
+      expect(summary.totals.files).toBe(2 * groups);
+
+      communityMode = "path";
+      await createService({ workspaceRoot: wide, analyzeFile: analyzerFor(wide, many) }).build();
+      const byUnit = summaries()[1];
+      expect(byUnit.groups).toHaveLength(groups);
+      expect(byUnit.hiddenGroups).toBe(0);
+      expect(byUnit.units?.units).toHaveLength(groups);
     } finally {
       await fs.rm(wide, { recursive: true, force: true });
     }
@@ -411,7 +435,8 @@ describe("ArchitectureViewService", () => {
     });
     expect(service.getE2EState()).toEqual({
       buildCount: 0, renderCount: 1, groupCount: 3, groupEdgeCount: 2, revision: "abc", communityMode: "path", stale: true,
-      overlappingGroups: 1, overflowingLabels: 2, positions: "path:ui@0,0", resizeCount: 0, viewSize: { width: 0, height: 0 },
+      overlappingGroups: 1, overflowingLabels: 2, positions: "path:ui@0,0", unit: undefined, unitLevel: undefined,
+      resizeCount: 0, viewSize: { width: 0, height: 0 },
       interactionCount: 0, interaction: null, detailCount: 0, detail: null,
     });
   });
@@ -460,20 +485,20 @@ describe("ArchitectureViewService", () => {
 
     it("answers a group page and the evidence of an edge with the summary's revision", async () => {
       const { service, revision } = await built();
-      await service.handleWebviewMessage({ command: "architectureExpandGroup", revision, groupId: 1 });
+      await service.handleWebviewMessage({ command: "architectureExpandGroup", revision, groupId: 3 });
       await service.handleWebviewMessage({
-        command: "architectureEvidence", revision, from: 1, to: 2, sourceFile: "src/ui/view.ts",
+        command: "architectureEvidence", revision, from: 3, to: 2, sourceFile: "src/ui/view.ts",
       });
 
       expect(posted.at(-2)).toMatchObject({
         type: "architectureGroupDetail",
         revision,
-        detail: { group: { key: "ui" }, files: [{ relativePath: "src/ui/view.ts" }, { relativePath: "src/ui/form.ts" }] },
+        detail: { group: { key: "src/ui" }, files: [{ relativePath: "src/ui/view.ts" }, { relativePath: "src/ui/form.ts" }] },
       });
       expect(posted.at(-1)).toEqual({
         type: "architectureEvidencePage",
         revision,
-        from: 1,
+        from: 3,
         to: 2,
         sourceFile: "src/ui/view.ts",
         targetFile: undefined,
@@ -502,16 +527,16 @@ describe("ArchitectureViewService", () => {
 
     it.each([-1, 1.5, Number.NaN, "2"])("reads the first page for the invalid offset %s", async (offset) => {
       const { service, revision } = await built();
-      await service.handleWebviewMessage({ command: "architectureExpandGroup", revision, groupId: 1, offset } as never);
+      await service.handleWebviewMessage({ command: "architectureExpandGroup", revision, groupId: 3, offset } as never);
       expect(posted.at(-1)).toMatchObject({ detail: { page: { offset: 0 } } });
-      await service.handleWebviewMessage({ command: "architectureEvidence", revision, from: 1, to: 2, offset } as never);
+      await service.handleWebviewMessage({ command: "architectureEvidence", revision, from: 3, to: 2, offset } as never);
       expect(posted.at(-1)).toMatchObject({ page: { offset: 0, total: 2 } });
     });
 
     it("keeps answering a stale-marked summary, whose revision is unchanged", async () => {
       const { service, revision } = await built();
       service.markStale();
-      await service.handleWebviewMessage({ command: "architectureExpandGroup", revision, groupId: 0 });
+      await service.handleWebviewMessage({ command: "architectureExpandGroup", revision, groupId: 1 });
       expect(posted.at(-1)).toMatchObject({ type: "architectureGroupDetail", detail: { files: [{ relativePath: "main.ts" }] } });
     });
 
@@ -578,10 +603,10 @@ describe("ArchitectureViewService", () => {
       await service.handleWebviewMessage(detail);
       expect(service.getE2EState()).toMatchObject({ detailCount: 1, detail });
 
-      service.setControls({ expand: "ui", collapse: "store", evidenceOf: "ui", openEvidenceRow: 0 });
-      expect(posted.at(-1)).toMatchObject({ expand: "ui", collapse: "store", evidenceOf: "ui", openEvidenceRow: 0 });
-      service.setControls({ expand: 1, openEvidenceRow: -1 } as never);
-      expect(posted.at(-1)).toMatchObject({ expand: undefined, openEvidenceRow: undefined });
+      service.setControls({ unit: "apps/web", expand: "ui", collapse: "store", evidenceOf: "ui", openEvidenceRow: 0 });
+      expect(posted.at(-1)).toMatchObject({ unit: "apps/web", expand: "ui", collapse: "store", evidenceOf: "ui", openEvidenceRow: 0 });
+      service.setControls({ unit: 3, expand: 1, openEvidenceRow: -1 } as never);
+      expect(posted.at(-1)).toMatchObject({ unit: undefined, expand: undefined, openEvidenceRow: undefined });
     });
   });
 });

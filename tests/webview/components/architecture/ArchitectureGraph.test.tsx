@@ -74,6 +74,8 @@ const cy = vi.hoisted(() => {
       return { on: (_name: string, handler: () => void) => { stop = handler; }, run };
     },
     fit: vi.fn(),
+    zoom: vi.fn(() => 1),
+    width: () => 800,
     resize: vi.fn(),
     nodes: () => state.nodes,
     edges: () => state.edges,
@@ -96,6 +98,9 @@ const helpers = vi.hoisted(() => ({
   // Lays out new files and hides what the focus leaves out on real Cytoscape; tested in architectureElements.test.ts.
   placeNewFiles: vi.fn(),
   focusGroup: vi.fn(() => ({ nodes: () => ({ filter: () => ({ length: 3 }) }) })),
+  // dagre layers and the units measurement run on real Cytoscape in architectureUnitsLevel.test.ts.
+  layoutUnits: vi.fn(),
+  measureUnitLevel: vi.fn(() => ({ units: 2, colors: 2, redEdges: 1, edgesNotDown: 0, hiddenEdges: 0, minLabelPx: 11 })),
 }));
 helpers.findGroups.mockImplementation(() => helpers.empty);
 vi.mock("@/webview/components/architecture/architectureElements", async (importOriginal) => ({
@@ -701,6 +706,89 @@ describe("ArchitectureGraph", () => {
       expect(postMessage).toHaveBeenLastCalledWith({ command: "architectureOpenFile", revision: "r1", relativePath: "ui/f0.ts" });
       send({ type: "architectureControls", collapse: "ui", expand: "missing", openEvidenceRow: 5 });
       expect(fileIds()).toEqual([]);
+    });
+  });
+  describe("units level", () => {
+    const withUnits: ArchitectureSummaryMessage = {
+      ...summary,
+      context: { ...summary.context, communityMode: "path", truncated: false },
+      hiddenGroups: 0,
+      unassigned: { fileCount: 0, internalEdgeCount: 0 },
+      units: {
+        units: [
+          { key: "apps/web", name: "@ws/web", fileCount: 5, internalEdgeCount: 1, layer: 1 },
+          { key: "packages/core", name: "@ws/core", fileCount: 4, internalEdgeCount: 0, layer: 1 },
+        ],
+        unitEdges: [
+          { from: "apps/web", to: "packages/core", fileEdgeCount: 3, kind: "cycle" },
+          { from: "packages/core", to: "apps/web", fileEdgeCount: 1, kind: "cycle" },
+        ],
+        upwardEdges: 0,
+        cycles: 1,
+        totals: { files: 9, fileEdges: 5, intraUnitEdges: 1, interUnitEdges: 4 },
+        groupUnits: { 1: "apps/web", 2: "packages/core" },
+      },
+    };
+    const nodeById = (id: string) => cy.state.nodes.find(node => node.id() === id);
+    const edgeById = (id: string) => cy.state.edges.find(edge => edge.id() === id);
+    const setup = () => {
+      const postMessage = vi.fn();
+      render(<ArchitectureGraph postMessage={postMessage} />);
+      send(withUnits);
+      return postMessage;
+    };
+    const dbltap = (target: unknown) => act(() => cy.state.handlers.get("dbltap")?.({ target }));
+
+    afterEach(() => vi.clearAllMocks());
+
+    it("draws the units in layers with their counts and legend, and reports them", () => {
+      const postMessage = setup();
+      expect(helpers.layoutUnits).toHaveBeenCalledOnce();
+      expect(screen.getByText(/Units in layers/)).toBeTruthy();
+      expect(screen.getByText(/2 units/)).toBeTruthy();
+      expect(screen.getByText(/0 upward dependencies, 1 cycle/)).toBeTruthy();
+      expect(screen.getByRole("list", { name: "Units" }).textContent).toBe("@ws/web@ws/core");
+      expect(cy.state.nodes.map(node => node.data("key"))).toEqual(["units:apps/web", "units:packages/core"]);
+      expect(lastOf(postMessage, "architectureRendered")).toEqual(expect.objectContaining({
+        renderedGroups: 2, renderedGroupEdges: 2, unit: undefined, unitLevel: expect.objectContaining({ redEdges: 1 }),
+      }));
+    });
+
+    it("states the hidden weaker edges", () => {
+      const many = { ...withUnits.units!, unitEdges: Array.from({ length: 8 }, (_, index) =>
+        ({ from: "apps/web", to: index % 2 ? "packages/core" : `lib${index}`, fileEdgeCount: 10 - index, kind: "down" as const })) };
+      render(<ArchitectureGraph postMessage={vi.fn()} />);
+      send({ ...withUnits, units: many });
+      expect(screen.getByText(/2 weaker edges hidden/)).toBeTruthy();
+    });
+
+    it("enters a double-clicked unit, shows its groups, and goes back with the Units button or Escape", () => {
+      const postMessage = setup();
+      // A unit edge only highlights: its ends are units, not groups.
+      act(() => cy.state.handlers.get("tap")?.({ target: edgeById("edge-1-2") }));
+      expect(postMessage).not.toHaveBeenCalledWith(expect.objectContaining({ command: "architectureEvidence" }));
+
+      dbltap(nodeById("group-1"));
+      expect(cy.state.nodes.map(node => node.data("key"))).toEqual(["path:ui"]);
+      expect(nodeById("group-1")?.data("color")).toBeDefined();
+      expect(lastOf(postMessage, "architectureRendered")).toEqual(expect.objectContaining({ unit: "apps/web", unitLevel: undefined }));
+      expect(screen.getByRole("button", { name: "@ws/web" })).toBeTruthy();
+
+      fireEvent.click(screen.getByRole("button", { name: "Units" }));
+      expect(cy.state.nodes.map(node => node.data("key"))).toEqual(["units:apps/web", "units:packages/core"]);
+
+      dbltap(nodeById("group-2"));
+      expect(cy.state.nodes.map(node => node.data("key"))).toEqual(["path:store"]);
+      act(() => { window.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape" })); });
+      expect(cy.state.nodes.map(node => node.data("key"))).toEqual(["units:apps/web", "units:packages/core"]);
+    });
+
+    it("enters and leaves units from the E2E controls", () => {
+      const postMessage = setup();
+      send({ type: "architectureControls", unit: "packages/core" });
+      expect(lastOf(postMessage, "architectureRendered")).toEqual(expect.objectContaining({ unit: "packages/core" }));
+      send({ type: "architectureControls", unit: "" });
+      expect(lastOf(postMessage, "architectureRendered")).toEqual(expect.objectContaining({ unit: undefined }));
     });
   });
 });

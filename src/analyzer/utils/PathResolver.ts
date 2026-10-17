@@ -50,6 +50,10 @@ export class PathResolver {
     Promise<Map<string, string>>
   > = new Map();
 
+  // Cache: node_modules/<package> link path -> real workspace package dir (or null)
+  private readonly linkedPackageDirs: Map<string, Promise<string | null>> =
+    new Map();
+
   // Promises for loading tsconfig.json files (to avoid concurrent loads)
   private readonly tsConfigLoadPromises: Map<
     string,
@@ -245,7 +249,8 @@ export class PathResolver {
       // Try Python-specific imports
       (await this.tryPythonImports(currentFilePath, modulePath)) ||
       (this.isNodeModule(modulePath)
-        ? this.nodeModuleCandidate(modulePath)
+        ? ((await this.resolveLinkedWorkspacePackage(currentFilePath, modulePath)) ??
+          this.nodeModuleCandidate(modulePath))
         : await this.tryRelativePath(currentFilePath, modulePath))
     );
   }
@@ -294,6 +299,14 @@ export class PathResolver {
     );
     if (fileDependencyResolved) {
       return fileDependencyResolved;
+    }
+
+    const linkedResolved = await this.resolveLinkedWorkspacePackage(
+      currentFilePath,
+      modulePath,
+    );
+    if (linkedResolved) {
+      return linkedResolved;
     }
 
     // Treat as node_module
@@ -1020,6 +1033,65 @@ export class PathResolver {
     }
 
     return null;
+  }
+
+  /**
+   * Resolve a workspace package imported by name through the node_modules link
+   * the package manager created (npm/yarn/pnpm workspaces): `@scope/lib` or
+   * `lib` lands on the package's source files when the link points to a folder
+   * inside the workspace root. Installed copies (real folders) stay external.
+   */
+  private async resolveLinkedWorkspacePackage(
+    currentFilePath: string,
+    modulePath: string,
+  ): Promise<string | null> {
+    const match = /^((?:@[^/]+\/)?[^/:]+)(\/.*)?$/.exec(modulePath);
+    if (!match || !this.workspaceRoot) {
+      return null;
+    }
+    const [, packageName, subpath] = match;
+
+    let currentDir = path.dirname(currentFilePath);
+    while (!this.shouldStopSearch(currentDir)) {
+      const packageDir = await this.linkedPackageDir(
+        path.join(currentDir, "node_modules", packageName),
+      );
+      if (packageDir) {
+        return this.resolvePackageEntry(packageDir, packageName, subpath);
+      }
+      const parentDir = path.dirname(currentDir);
+      if (parentDir === currentDir) {
+        break;
+      }
+      currentDir = parentDir;
+    }
+    return null;
+  }
+
+  /** Real folder behind a node_modules link when it is a workspace package, else null (cached). */
+  private linkedPackageDir(linkPath: string): Promise<string | null> {
+    const key = normalizePath(linkPath);
+    let cached = this.linkedPackageDirs.get(key);
+    if (!cached) {
+      cached = this.readLinkedPackageDir(linkPath);
+      this.linkedPackageDirs.set(key, cached);
+    }
+    return cached;
+  }
+
+  private async readLinkedPackageDir(linkPath: string): Promise<string | null> {
+    try {
+      const realDir = await fs.realpath(linkPath);
+      const root = await fs.realpath(this.workspaceRoot as string);
+      const relative = path.relative(root, realDir);
+      const isWorkspacePackage =
+        relative !== "" &&
+        !path.isAbsolute(relative) &&
+        !relative.split(path.sep).some((segment) => segment === ".." || segment === "node_modules");
+      return isWorkspacePackage ? realDir : null;
+    } catch {
+      return null;
+    }
   }
 
   /**

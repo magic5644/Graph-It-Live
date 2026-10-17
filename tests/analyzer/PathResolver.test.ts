@@ -166,3 +166,75 @@ describe("PathResolver - non-TypeScript sources with a workspace tsconfig", () =
     expect(await resolver().resolve(main, "not-rust-like")).toBeNull();
   });
 });
+
+/** #388: workspace packages imported by name land on their sources through the node_modules link. */
+describe("PathResolver - linked workspace packages", () => {
+  let root: string;
+  let main: string;
+  const write = (relative: string, content = "") => {
+    const file = path.join(root, relative);
+    fs.mkdirSync(path.dirname(file), { recursive: true });
+    fs.writeFileSync(file, content);
+    return file;
+  };
+  const link = (target: string, name: string, base = root) => {
+    const linkPath = path.join(base, "node_modules", name);
+    fs.mkdirSync(path.dirname(linkPath), { recursive: true });
+    fs.symlinkSync(target, linkPath, "junction");
+  };
+  const resolve = (specifier: string, resolver = new PathResolver(undefined, true, root)) => resolver.resolve(main, specifier);
+
+  beforeEach(() => {
+    root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "graph-it-linked-")));
+    write("package.json", JSON.stringify({ name: "root", private: true, workspaces: ["apps/*", "libs/*"] }));
+    main = write("apps/web/src/main.ts");
+    write("libs/core-lib/package.json", JSON.stringify({ name: "@acme/core", main: "dist/index.js" }));
+    write("libs/core-lib/src/index.ts", "export const core = 1;");
+    write("libs/core-lib/src/format/date.ts", "export const date = 1;");
+    write("libs/plain/package.json", JSON.stringify({ name: "plain-utils" }));
+    write("libs/plain/index.ts", "export const plain = 1;");
+    link(path.join(root, "libs/core-lib"), "@acme/core");
+    link(path.join(root, "libs/plain"), "plain-utils");
+  });
+  afterEach(() => fs.rmSync(root, { recursive: true, force: true }));
+
+  it("resolves a scoped package whose folder has another name to its source entry", async () => {
+    expect(await resolve("@acme/core")).toBe(normalizePath(path.join(root, "libs/core-lib/src/index.ts")));
+  });
+
+  it("resolves an unscoped package and a subpath", async () => {
+    expect(await resolve("plain-utils")).toBe(normalizePath(path.join(root, "libs/plain/index.ts")));
+    expect(await resolve("@acme/core/format/date")).toBe(normalizePath(path.join(root, "libs/core-lib/src/format/date.ts")));
+  });
+
+  it("finds the link in a package's own node_modules", async () => {
+    write("libs/nested/package.json", JSON.stringify({ name: "nested" }));
+    write("libs/nested/src/index.ts");
+    link(path.join(root, "libs/nested"), "nested", path.join(root, "apps/web"));
+    expect(await resolve("nested")).toBe(normalizePath(path.join(root, "libs/nested/src/index.ts")));
+  });
+
+  it("keeps installed packages, links leaving the root and node builtins external", async () => {
+    write("node_modules/lodash/package.json", JSON.stringify({ name: "lodash" }));
+    write("node_modules/lodash/index.js");
+    const outside = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "graph-it-outside-")));
+    try {
+      fs.writeFileSync(path.join(outside, "package.json"), JSON.stringify({ name: "outside" }));
+      fs.writeFileSync(path.join(outside, "index.ts"), "");
+      link(outside, "outside");
+      expect(await resolve("lodash")).toBeNull();
+      expect(await resolve("outside")).toBeNull();
+      expect(await resolve("node:fs")).toBeNull();
+      expect(await resolve("lodash", new PathResolver(undefined, false, root))).toBe("lodash");
+    } finally {
+      fs.rmSync(outside, { recursive: true, force: true });
+    }
+  });
+
+  it("ignores a link whose package.json names another package, and caches the lookup", async () => {
+    const resolver = new PathResolver(undefined, true, root);
+    link(path.join(root, "libs/plain"), "renamed");
+    expect(await resolve("renamed", resolver)).toBeNull();
+    expect(await resolve("plain-utils", resolver)).toBe(await resolve("plain-utils", resolver));
+  });
+});

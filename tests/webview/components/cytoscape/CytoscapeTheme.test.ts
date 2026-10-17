@@ -7,7 +7,7 @@ const styleOf = (sheet: ReturnType<typeof buildArchitectureStylesheet>, selector
 describe("CytoscapeTheme", () => {
   it("colors architecture groups and edges from the theme colors", () => {
     const sheet = buildArchitectureStylesheet({
-      foreground: "#111", background: "#222", border: "#333", edge: "#444", accent: "#555",
+      foreground: "#111", background: "#222", border: "#333", edge: "#444", accent: "#555", error: "#666",
     });
 
     expect(styleOf(sheet, "node")).toMatchObject({ color: "#111", "background-color": "#222", "border-color": "#555" });
@@ -26,6 +26,9 @@ describe("CytoscapeTheme", () => {
     // Count labels only on highlighted edges.
     expect(styleOf(sheet, "edge")).not.toHaveProperty("label");
     expect(styleOf(sheet, "edge.highlighted")).toEqual({ label: "data(label)", "line-color": "#555", "target-arrow-color": "#555" });
+    // A unit's colour fills its node lightly; upward and cycle unit edges use the error colour.
+    expect(styleOf(sheet, "node[color]")).toEqual({ "border-color": "data(color)", "background-color": "data(color)", "background-opacity": 0.3 });
+    expect(styleOf(sheet, 'edge[kind = "upward"], edge[kind = "cycle"]')).toEqual({ "line-color": "#666", "target-arrow-color": "#666" });
   });
 
   it("builds distinct call graph palettes for dark and light themes", () => {

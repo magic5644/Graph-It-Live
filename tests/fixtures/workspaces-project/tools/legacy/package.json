@@ -1,0 +1,1 @@
+{ "name": "legacy-tool", "private": true, "dependencies": { "@ws/core": "file:../../packages/core" } }
