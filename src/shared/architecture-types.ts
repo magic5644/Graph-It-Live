@@ -10,6 +10,13 @@
  */
 
 import type { ArchitectureGroupDetail, ArchitectureOverview } from "../analyzer/architecture/ArchitectureExplorer";
+import type { ArchitectureUnits } from "../analyzer/architecture/architectureUnits";
+
+/** The units level of a path-mode summary: what `graph-it architecture --level units` reports, plus the unit of each group. */
+export type ArchitectureUnitLevel = Omit<ArchitectureUnits, "context"> & {
+  /** Unit key of every group id of the summary. */
+  groupUnits: Record<number, string>;
+};
 
 // ---------------------------------------------------------------------------
 // Extension → Webview messages
@@ -31,6 +38,8 @@ export interface ArchitectureSummaryMessage extends ArchitectureOverview {
   revision: string;
   /** Source files changed since the build; only Refresh rebuilds. */
   stale: boolean;
+  /** Path mode only: units drawn on top, each entered to show its groups. */
+  units?: ArchitectureUnitLevel;
 }
 
 /** One page of an expanded group (answers architectureExpandGroup). */
@@ -61,6 +70,8 @@ export interface ArchitectureRevisionChangedMessage {
 /** Drives the controls as a user would (E2E driver only); groups are named by key, `expand` enters a group as a double-click does. */
 export interface ArchitectureControlsMessage {
   type: "architectureControls";
+  /** Enters this unit, as a double-click on it does ("": back to the units); the other controls wait for the next message. */
+  unit?: string;
   find?: string;
   minImports?: number;
   expand?: string;
@@ -110,6 +121,22 @@ export interface ArchitectureRenderedCommand {
   overflowingLabels: number;
   /** Sorted `key@x,y` of every group node, to compare layouts across renders. */
   positions: string;
+  /** Entered unit; undefined at the units level or without units. */
+  unit?: string;
+  /** What the units level draws, measured on the canvas once fitted. */
+  unitLevel?: {
+    units: number;
+    /** Distinct unit colours. */
+    colors: number;
+    /** Drawn upward and cycle edges. */
+    redEdges: number;
+    /** Drawn down edges whose target is not below their source. */
+    edgesNotDown: number;
+    /** Unit edges hidden by the cap or the min-imports filter. */
+    hiddenEdges: number;
+    /** On-screen size of the node labels after the fit. */
+    minLabelPx: number;
+  };
 }
 
 /** The graph was re-fitted to a resized view (E2E observability only). */

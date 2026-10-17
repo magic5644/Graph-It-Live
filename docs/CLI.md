@@ -668,6 +668,7 @@ graph-it architecture [options]
 | `--maxFiles <N>` | unlimited | Cap on the number of analyzed source files |
 | `--communities <mode>` | `path` | How `communityId`/`communityKey` group files: `path` by folder, `louvain` by import structure |
 | `--groups` | off | Add `context`, `groups`, `unassigned`, `groupEdges` and `totals` to `json`/`toon` output; group `mermaid`/`markdown` diagrams (see [Grouped output](#grouped-output)) |
+| `--level <level>` | — | `groups` = `--groups`; `units` replaces the file graph with the packages and their layers (see [Units output](#units-output)) |
 | `--workspace, -w` | auto-detected | Project root |
 | `--format, -f` | `text` | Output format (`toon` recommended for large graphs; `mermaid` for diagrams) |
 
@@ -683,6 +684,7 @@ graph-it architecture --maxFiles 2000
 graph-it architecture --communities louvain --format json
 graph-it architecture --groups --format toon
 graph-it architecture --groups --format mermaid
+graph-it architecture --level units --format toon
 ```
 
 #### Grouped output
@@ -736,6 +738,18 @@ Files without a folder domain (`path`) or without any import edge (`louvain`) ge
 > **Use case:** Bootstrap AI-assisted exploration of an unfamiliar codebase — pipe `--format toon` into an LLM prompt for a token-efficient architecture snapshot.
 
 ---
+
+#### Units output
+
+`--level units` reports what the VS Code Architecture view draws on top in `path` mode, with the same counts as `explore_architecture` with `level: "units"`. A unit is a package: a folder holding a `package.json` (workspace member or not, outside `node_modules`); files outside every package go to `(root)`. Without any package below the root, units are the top-level folders. Imports of a workspace package by its name resolve to its sources through the `node_modules` link.
+
+| Field | Content |
+|-------|---------|
+| `context` | as above; `revision` also covers the units and their names |
+| `units` | `key` (folder or `(root)`), `name` (`package.json` name, else the folder), `fileCount`, `internalEdgeCount`, `layer` (0 = depends on no other unit; the units of a cycle share a layer), deepest layer last |
+| `unitEdges` | `from`, `to`, `fileEdgeCount`, `kind`: `down`, `upward` (to the same or a higher layer) or `cycle` (both units in one cycle), heaviest first |
+| `upwardEdges`, `cycles` | number of upward edges, and of groups of units that depend on each other |
+| `totals` | `files`, `fileEdges`, `intraUnitEdges`, `interUnitEdges` |
 
 ### check
 

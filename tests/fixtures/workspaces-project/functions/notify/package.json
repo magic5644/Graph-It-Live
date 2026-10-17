@@ -1,0 +1,1 @@
+{ "name": "@ws/notify", "private": true, "dependencies": { "@ws/core": "file:../../packages/core" } }

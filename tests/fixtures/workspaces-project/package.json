@@ -1,0 +1,6 @@
+{
+  "name": "workspaces-root",
+  "private": true,
+  "workspaces": ["apps/*", "packages/*", "functions/*"],
+  "devDependencies": { "@ws/ui": "file:packages/ui" }
+}

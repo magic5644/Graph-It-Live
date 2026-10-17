@@ -386,6 +386,8 @@ export interface ArchitectureThemeColors {
   border: string;
   edge: string;
   accent: string;
+  /** Upward and cycle unit edges. */
+  error: string;
 }
 
 /** Stylesheet for the architecture view's group nodes and group edges. */
@@ -411,6 +413,11 @@ export function buildArchitectureStylesheet(colors: ArchitectureThemeColors): Cy
         "border-width": 2,
         "border-color": colors.accent,
       },
+    },
+    // A unit's colour, kept by its folder groups once entered; the light fill keeps labels readable.
+    {
+      selector: "node[color]",
+      style: { "border-color": "data(color)", "background-color": "data(color)", "background-opacity": 0.3 },
     },
     {
       selector: "node[?unassigned]",
@@ -442,6 +449,7 @@ export function buildArchitectureStylesheet(colors: ArchitectureThemeColors): Cy
       selector: "edge.highlighted",
       style: { label: "data(label)", "line-color": colors.accent, "target-arrow-color": colors.accent },
     },
+    { selector: 'edge[kind = "upward"], edge[kind = "cycle"]', style: { "line-color": colors.error, "target-arrow-color": colors.error } },
     { selector: ".faded", style: { opacity: 0.15 } },
     // File edges show for the hovered or selected file only (it highlights them).
     { selector: "edge[?fileEdge]", style: { display: "none" } },

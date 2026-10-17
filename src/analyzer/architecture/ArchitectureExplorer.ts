@@ -11,6 +11,7 @@ import {
 } from "../community/groupAggregation";
 import { normalizePath } from "../../shared/path";
 import type { ArchitectureGraph } from "./ArchitectureGraphBuilder";
+import type { ArchitectureUnits } from "./architectureUnits";
 
 const DEFAULT_EXPLORE_LIMIT = 50;
 
@@ -189,6 +190,42 @@ export function exploreArchitecture(
       nextOffset: truncated ? offset + limit : undefined,
     },
     nextSteps: "Pass group for one group's files and boundary, or from and to for the file pairs behind a group edge.",
+  };
+}
+
+/** Units provenance: what a unit and a layer are, so a reader never takes them for responsibilities. */
+const UNIT_PROVENANCE = {
+  ...PROVENANCE,
+  grouping: "Units are package folders (package.json), else top-level folders; layer = rank in the unit graph after collapsing cycles, 0 = depends on no other unit.",
+  interpretation: "None: names are package names or folders, not roles.",
+};
+
+/** The units, heaviest unit edges first, paged like the summary; counts come from every file pair. */
+export function exploreUnits(units: ArchitectureUnits, options: Pick<ArchitectureExploreOptions, "offset" | "limit" | "revision"> = {}) {
+  assertRevision(units.context.revision, options.revision);
+  const offset = options.offset ?? 0;
+  const limit = options.limit ?? DEFAULT_EXPLORE_LIMIT;
+  const unitPage = page(units.units, offset, limit);
+  const edgePage = page(units.unitEdges, offset, limit);
+  const truncated = unitPage.truncated || edgePage.truncated;
+  return {
+    view: "units" as const,
+    context: units.context,
+    provenance: UNIT_PROVENANCE,
+    totals: units.totals,
+    upwardEdges: units.upwardEdges,
+    cycles: units.cycles,
+    units: unitPage.items,
+    unitEdges: edgePage.items,
+    page: {
+      offset,
+      limit,
+      totalUnits: unitPage.total,
+      totalUnitEdges: edgePage.total,
+      truncated,
+      nextOffset: truncated ? offset + limit : undefined,
+    },
+    nextSteps: "Call without level for the folder groups, then group, or from and to, for files and file pairs.",
   };
 }
 

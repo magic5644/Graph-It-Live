@@ -700,6 +700,10 @@ export const ExploreArchitectureParamsSchema = z.object({
     .max(PAGINATION_LIMITS.MAX_OFFSET)
     .optional()
     .describe("Analyse only the first maxFiles source files, like graph-it architecture --maxFiles (default: all)"),
+  level: z
+    .enum(["groups", "units"])
+    .optional()
+    .describe("groups (default): folder or Louvain groups; units: packages (else top-level folders) with their layers, unit edges (down, upward, cycle) and cycles, like graph-it architecture --level units"),
   group: GroupRefSchema.optional().describe("Return this group's files and its incoming / outgoing group edges"),
   from: GroupRefSchema.optional().describe("Source group of the edge whose file pairs to return (requires to)"),
   to: GroupRefSchema.optional().describe("Target group of the edge whose file pairs to return (requires from)"),
@@ -725,6 +729,9 @@ export const ExploreArchitectureParamsSchema = z.object({
   }
   if (params.group !== undefined && params.from !== undefined) {
     context.addIssue({ code: "custom", message: "Pass either group or from and to, not both" });
+  }
+  if (params.level === "units" && (params.group !== undefined || params.from !== undefined)) {
+    context.addIssue({ code: "custom", message: "level units lists units and unit edges only: drop group, from and to" });
   }
 });
 export type ExploreArchitectureParams = z.infer<typeof ExploreArchitectureParamsSchema>;
