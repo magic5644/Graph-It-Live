@@ -2,7 +2,7 @@
 
 import React from "react";
 import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { ArchitectureExtensionMessage, ArchitectureSummaryMessage } from "@/shared/architecture-types";
 
 // Cytoscape needs a canvas: stand in a fake that records elements and runs layouts at once.
@@ -14,6 +14,8 @@ const cy = vi.hoisted(() => {
     nodes: [] as ReturnType<typeof fakeNode>[],
     edges: [] as ReturnType<typeof fakeEdge>[],
     labelWidth: undefined as number | undefined,
+    container: undefined as HTMLElement | undefined,
+    container: undefined as HTMLElement | undefined,
     handlers: new Map<string, (event: unknown) => void>(),
   };
   function fakeNode(data: Data) {
@@ -82,6 +84,8 @@ const cy = vi.hoisted(() => {
     getElementById: (id: string) =>
       state.nodes.find(node => node.id() === id) ?? { empty: () => true, nonempty: () => false, isParent: () => false },
     destroy: () => {},
+    destroyed: () => false,
+    container: () => (state.container ??= document.createElement("div")),
   };
   const factory = Object.assign(() => instance, { use: () => {} });
   return { state, factory, instance };
@@ -98,14 +102,25 @@ const helpers = vi.hoisted(() => ({
   // Lays out new files and hides what the focus leaves out on real Cytoscape; tested in architectureElements.test.ts.
   placeNewFiles: vi.fn(),
   focusGroup: vi.fn(() => ({ nodes: () => ({ filter: () => ({ length: 3 }) }) })),
-  // dagre layers and the units measurement run on real Cytoscape in architectureUnitsLevel.test.ts.
-  layoutUnits: vi.fn(),
-  measureUnitLevel: vi.fn(() => ({ units: 2, colors: 2, redEdges: 1, edgesNotDown: 0, hiddenEdges: 0, minLabelPx: 11 })),
+  // The units measurement runs on real Cytoscape in architectureUnitsLevel.test.ts.
+  measureUnitLevel: vi.fn(() => ({ units: 2, colors: 2, redEdges: 1, edgesNotDown: 0, routedEdges: 2, hiddenEdges: 0, minLabelPx: 11 })),
 }));
 helpers.findGroups.mockImplementation(() => helpers.empty);
 vi.mock("@/webview/components/architecture/architectureElements", async (importOriginal) => ({
   ...(await importOriginal<object>()),
   ...helpers,
+}));
+
+// ELK runs on real Cytoscape in elkLayout.test.ts and architectureUnitsLevel.test.ts; here its worker answers when told.
+const elk = vi.hoisted(() => ({
+  runner: { layout: vi.fn(), terminate: vi.fn() },
+  toElkGraph: vi.fn(() => ({ id: "root" })),
+  applyElkLayout: vi.fn(() => new Map([["a>b", { points: [], source: { x: 0, y: 0 }, target: { x: 0, y: 0 } }]])),
+  applyRoutes: vi.fn(),
+}));
+vi.mock("@/webview/components/architecture/elkWorker", () => ({ createElk: () => elk.runner }));
+vi.mock("@/webview/components/architecture/elkLayout", () => ({
+  toElkGraph: elk.toElkGraph, applyElkLayout: elk.applyElkLayout, applyRoutes: elk.applyRoutes,
 }));
 
 import { ArchitectureGraph } from "@/webview/components/architecture/ArchitectureGraph";
@@ -733,19 +748,41 @@ describe("ArchitectureGraph", () => {
     };
     const nodeById = (id: string) => cy.state.nodes.find(node => node.id() === id);
     const edgeById = (id: string) => cy.state.edges.find(edge => edge.id() === id);
-    const setup = () => {
+    /** Units never drawn before: no saved position to restore, so ELK lays them out. */
+    let fileCount = 20;
+    const unseen = (): ArchitectureSummaryMessage => {
+      fileCount += 10;
+      return { ...withUnits, units: { ...withUnits.units!, units: withUnits.units!.units.map(entry => ({ ...entry, fileCount })) } };
+    };
+    /** Lets the ELK worker's answer reach the component. */
+    const settle = () => act(async () => {});
+    const setup = async (level = withUnits) => {
       const postMessage = vi.fn();
       render(<ArchitectureGraph postMessage={postMessage} />);
-      send(withUnits);
+      send(level);
+      await settle();
       return postMessage;
     };
-    const dbltap = (target: unknown) => act(() => cy.state.handlers.get("dbltap")?.({ target }));
+    const dbltap = async (target: unknown) => {
+      act(() => cy.state.handlers.get("dbltap")?.({ target }));
+      await settle();
+    };
+    /** The next ELK layout, settled when the test says so. */
+    const deferLayout = () => {
+      const answer = Promise.withResolvers<{ id: string }>();
+      elk.runner.layout.mockReturnValueOnce(answer.promise);
+      return answer;
+    };
 
+    beforeEach(() => elk.runner.layout.mockResolvedValue({ id: "root" }));
     afterEach(() => vi.clearAllMocks());
 
-    it("draws the units in layers with their counts and legend, and reports them", () => {
-      const postMessage = setup();
-      expect(helpers.layoutUnits).toHaveBeenCalledOnce();
+    it("draws the units in layers with their counts and legend, and reports them", async () => {
+      const postMessage = await setup(unseen());
+      expect(elk.runner.layout).toHaveBeenCalledOnce();
+      expect(elk.applyElkLayout).toHaveBeenCalledOnce();
+      // The routes ELK returned are drawn once the positions settle.
+      expect(elk.applyRoutes).toHaveBeenLastCalledWith(cy.instance, expect.anything(), expect.objectContaining({ size: 1 }));
       expect(screen.getByText(/Units in layers/)).toBeTruthy();
       expect(screen.getByText(/2 units/)).toBeTruthy();
       expect(screen.getByText(/0 upward dependencies, 1 cycle/)).toBeTruthy();
@@ -764,13 +801,69 @@ describe("ArchitectureGraph", () => {
       expect(screen.getByText(/2 weaker edges hidden/)).toBeTruthy();
     });
 
-    it("enters a double-clicked unit, shows its groups, and goes back with the Units button or Escape", () => {
-      const postMessage = setup();
+    it("lays out off the UI thread: the canvas stays hidden until ELK answers, then is reported", async () => {
+      const answer = deferLayout();
+      const postMessage = vi.fn();
+      render(<ArchitectureGraph postMessage={postMessage} />);
+      send(unseen());
+      expect(cy.instance.container().style.visibility).toBe("hidden");
+      // The webview keeps handling input meanwhile: a control message is answered at once.
+      send({ type: "architectureControls", minImports: 2 });
+      expect(lastOf(postMessage, "architectureRendered")).toBeUndefined();
+
+      answer.resolve({ id: "root" });
+      await settle();
+      expect(cy.instance.container().style.visibility).toBe("");
+      expect(lastOf(postMessage, "architectureRendered")).toEqual(expect.objectContaining({ renderedGroups: 2 }));
+    });
+
+    it("drops an ELK answer a later render superseded", async () => {
+      const stale = deferLayout();
+      const postMessage = await setup(unseen());
+      // The units are still waiting for ELK: entering a unit starts another layout.
+      await dbltap(nodeById("group-1"));
+      expect(lastOf(postMessage, "architectureRendered")).toEqual(expect.objectContaining({ unit: "apps/web" }));
+      const applied = elk.applyElkLayout.mock.calls.length;
+      stale.resolve({ id: "root" });
+      await settle();
+      expect(elk.applyElkLayout).toHaveBeenCalledTimes(applied);
+      expect(postMessage.mock.calls.filter(([message]) => message.command === "architectureRendered")).toHaveLength(1);
+    });
+
+    it("still draws and reports the level when the ELK layout fails", async () => {
+      const error = vi.spyOn(console, "error").mockImplementation(() => {});
+      try {
+        elk.runner.layout.mockRejectedValueOnce(new Error("ELK worker failed: blocked"));
+        const postMessage = await setup(unseen());
+        expect(error).toHaveBeenCalledWith("[Graph-It-Live] ELK layout failed", expect.any(Error));
+        expect(elk.applyElkLayout).not.toHaveBeenCalled();
+        expect(cy.instance.container().style.visibility).toBe("");
+        expect(lastOf(postMessage, "architectureRendered")).toEqual(expect.objectContaining({ renderedGroups: 2, overlappingGroups: 0 }));
+      } finally {
+        error.mockRestore();
+      }
+    });
+
+    it("drops the routes of the edges around a dragged node, and stops the worker on unmount", async () => {
+      const { unmount } = render(<ArchitectureGraph postMessage={vi.fn()} />);
+      const edges = { kind: "connected edges" };
+      const around = { connectedEdges: () => edges };
+      const moved = { union: () => around, descendants: () => moved };
+      const target = { union: () => moved, ancestors: () => moved };
+      act(() => cy.state.handlers.get("drag")?.({ target }));
+      expect(elk.applyRoutes).toHaveBeenLastCalledWith(cy.instance, edges, expect.any(Map));
+      const terminated = elk.runner.terminate.mock.calls.length;
+      unmount();
+      expect(elk.runner.terminate).toHaveBeenCalledTimes(terminated + 1);
+    });
+
+    it("enters a double-clicked unit, shows its groups, and goes back with the Units button or Escape", async () => {
+      const postMessage = await setup();
       // A unit edge only highlights: its ends are units, not groups.
       act(() => cy.state.handlers.get("tap")?.({ target: edgeById("edge-1-2") }));
       expect(postMessage).not.toHaveBeenCalledWith(expect.objectContaining({ command: "architectureEvidence" }));
 
-      dbltap(nodeById("group-1"));
+      await dbltap(nodeById("group-1"));
       expect(cy.state.nodes.map(node => node.data("key"))).toEqual(["path:ui"]);
       expect(nodeById("group-1")?.data("color")).toBeDefined();
       expect(lastOf(postMessage, "architectureRendered")).toEqual(expect.objectContaining({ unit: "apps/web", unitLevel: undefined }));
@@ -779,17 +872,19 @@ describe("ArchitectureGraph", () => {
       fireEvent.click(screen.getByRole("button", { name: "Units" }));
       expect(cy.state.nodes.map(node => node.data("key"))).toEqual(["units:apps/web", "units:packages/core"]);
 
-      dbltap(nodeById("group-2"));
+      await dbltap(nodeById("group-2"));
       expect(cy.state.nodes.map(node => node.data("key"))).toEqual(["path:store"]);
       act(() => { window.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape" })); });
       expect(cy.state.nodes.map(node => node.data("key"))).toEqual(["units:apps/web", "units:packages/core"]);
     });
 
-    it("enters and leaves units from the E2E controls", () => {
-      const postMessage = setup();
+    it("enters and leaves units from the E2E controls", async () => {
+      const postMessage = await setup();
       send({ type: "architectureControls", unit: "packages/core" });
+      await settle();
       expect(lastOf(postMessage, "architectureRendered")).toEqual(expect.objectContaining({ unit: "packages/core" }));
       send({ type: "architectureControls", unit: "" });
+      await settle();
       expect(lastOf(postMessage, "architectureRendered")).toEqual(expect.objectContaining({ unit: undefined }));
     });
   });

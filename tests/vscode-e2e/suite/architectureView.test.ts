@@ -15,7 +15,7 @@ interface ArchitectureRender {
   positions?: string;
   /** Entered unit; undefined at the units level. */
   unit?: string;
-  unitLevel?: { units: number; colors: number; redEdges: number; edgesNotDown: number; hiddenEdges: number; minLabelPx: number };
+  unitLevel?: { units: number; colors: number; redEdges: number; edgesNotDown: number; routedEdges: number; hiddenEdges: number; minLabelPx: number };
 }
 
 // Expected numbers from the E2E workspace (tests/fixtures), recorded with:
@@ -212,6 +212,8 @@ suite('Architecture view mode', () => {
       colors: EXPECTED.units.groups,
       redEdges: EXPECTED.units.redEdges,
       edgesNotDown: 0,
+      // ELK ran in its blob worker under the webview CSP, and routed every drawn edge.
+      routedEdges: EXPECTED.units.groupEdges,
       hiddenEdges: 0,
       minLabelPx: byFolder.unitLevel?.minLabelPx,
     }, 'one colour per unit, red cycle edges, every other edge drawn downwards, none hidden');

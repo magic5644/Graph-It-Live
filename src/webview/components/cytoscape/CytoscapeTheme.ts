@@ -444,6 +444,18 @@ export function buildArchitectureStylesheet(colors: ArchitectureThemeColors): Cy
         "target-arrow-shape": "triangle",
       },
     },
+    // An ELK route (elkLayout.applyRoutes): orthogonal segments between ELK's own endpoints.
+    {
+      selector: "edge[?routed]",
+      style: {
+        "curve-style": "segments",
+        "edge-distances": "endpoints",
+        "source-endpoint": "data(sourceEndpoint)",
+        "target-endpoint": "data(targetEndpoint)",
+        "segment-weights": "data(segmentWeights)",
+        "segment-distances": "data(segmentDistances)",
+      },
+    },
     // Count labels only on highlighted edges: on every edge they bury the central groups.
     {
       selector: "edge.highlighted",

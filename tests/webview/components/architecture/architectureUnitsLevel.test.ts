@@ -1,4 +1,5 @@
 import cytoscape from "cytoscape";
+import ELK from "elkjs/lib/elk.bundled.js";
 import { describe, expect, it, vi } from "vitest";
 import type { ArchitectureSummaryMessage, ArchitectureUnitLevel } from "@/shared/architecture-types";
 import {
@@ -6,7 +7,6 @@ import {
   ARCHITECTURE_FONT_SIZE,
   cappedUnitEdges,
   fitReadable,
-  layoutUnits,
   levelSummary,
   measureUnitLevel,
   MIN_READABLE_ZOOM,
@@ -14,6 +14,7 @@ import {
   unitColor,
   UNIT_EDGES_PER_UNIT,
 } from "@/webview/components/architecture/architectureElements";
+import { applyElkLayout, applyRoutes, toElkGraph } from "@/webview/components/architecture/elkLayout";
 import { buildArchitectureStylesheet } from "@/webview/components/cytoscape/CytoscapeTheme";
 
 const colors = { foreground: "#fff", background: "#000", border: "#888", edge: "#888", accent: "#08f", error: "#f00" };
@@ -151,10 +152,15 @@ describe("cappedUnitEdges", () => {
   });
 });
 
-describe("layoutUnits", () => {
-  it("puts every unit on the row of its layer, dependents above, so every down edge goes down", () => {
+/** The ELK layout the webview's worker computes, run in-thread (elk.bundled) and applied. */
+async function layOut(cy: cytoscape.Core) {
+  return applyElkLayout(cy, await new ELK().layout(toElkGraph(cy)));
+}
+
+describe("ELK layered layout of the units", () => {
+  it("puts every unit on the row of its layer, dependents above, so every down edge goes down", async () => {
     const cy = canvas();
-    layoutUnits(cy);
+    await layOut(cy);
     const y = (id: string) => cy.getElementById(id).position("y");
     expect(y("group-1")).toBeLessThan(y("group-2"));
     expect(y("group-2")).toBeLessThan(y("group-3"));
@@ -163,12 +169,36 @@ describe("layoutUnits", () => {
     expect(y("group-5")).toBe(Math.max(y("group-3"), y("group-4")));
     expect(measureUnitLevel(cy)).toMatchObject({ units: 5, colors: 5, redEdges: 2, edgesNotDown: 0, hiddenEdges: 0 });
   });
+
+  it("routes every edge orthogonally, with no segment through a unit box (workspaces-project)", async () => {
+    const cy = canvas();
+    const routes = await layOut(cy);
+    expect(routes.size).toBe(cy.edges().length);
+    applyRoutes(cy, cy.edges(), routes);
+    expect(measureUnitLevel(cy).routedEdges).toBe(cy.edges().length);
+    // Boxes shrunk by a pixel: a route starts and ends on the border of its units.
+    const boxes = cy.nodes().map((node) => {
+      const { x, y } = node.position();
+      const [w, h] = [Number(node.data("width")) / 2 - 1, Number(node.data("height")) / 2 - 1];
+      return { id: node.id(), x1: x - w, x2: x + w, y1: y - h, y2: y + h };
+    });
+    for (const [key, { points }] of routes) {
+      for (const [index, from] of points.slice(0, -1).entries()) {
+        const to = points[index + 1];
+        expect(from.x === to.x || from.y === to.y, `${key} segment ${index} is not orthogonal`).toBe(true);
+        const [x1, x2] = [Math.min(from.x, to.x), Math.max(from.x, to.x)];
+        const [y1, y2] = [Math.min(from.y, to.y), Math.max(from.y, to.y)];
+        const crossed = boxes.filter((box) => x1 < box.x2 && box.x1 < x2 && y1 < box.y2 && box.y1 < y2);
+        expect(crossed.map((box) => box.id), `${key} segment ${index}`).toEqual([]);
+      }
+    }
+  });
 });
 
 describe("fitReadable", () => {
-  it("never zooms out below a readable label size", () => {
+  it("never zooms out below a readable label size", async () => {
     const cy = canvas();
-    layoutUnits(cy);
+    await layOut(cy);
     // Headless: no viewport size, so fit leaves the zoom alone; force a tiny zoom first.
     cy.zoom(0.1);
     fitReadable(cy);
@@ -179,13 +209,13 @@ describe("fitReadable", () => {
 });
 
 describe("an entered unit", () => {
-  it("lays its groups on their layers, with the unit colour and its edge kinds", () => {
+  it("lays its groups on their layers, with the unit colour and its edge kinds", async () => {
     const elements = toLevelElements(summary, "apps/web");
     const nodes = elements.filter(element => element.group === "nodes").map(element => element.data);
     expect(nodes.map(node => [node.id, node.layer])).toEqual([["group-1", 1], ["group-2", 0]]);
     expect(elements.filter(element => element.group === "edges").map(element => [element.data.kind, element.data.capped])).toEqual([["down", false]]);
     const cy = canvas(elements);
-    layoutUnits(cy);
+    await layOut(cy);
     expect(cy.getElementById("group-1").position("y")).toBeLessThan(cy.getElementById("group-2").position("y"));
   });
 });
