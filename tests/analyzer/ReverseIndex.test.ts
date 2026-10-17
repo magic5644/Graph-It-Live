@@ -525,4 +525,64 @@ describe('ReverseIndex', () => {
             expect(ReverseIndex.deserialize(serialized, rootDir)).toBeNull();
         });
     });
+
+    // The architecture view reads indexed files from here instead of parsing them again (#383).
+    describe('getFreshDependencies', () => {
+        let tmpDir: string;
+        let source: string;
+        const target = (name: string) => normalizePath(path.join(tmpDir, name));
+
+        beforeEach(async () => {
+            tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'graph-it-fresh-'));
+            source = path.join(tmpDir, 'a.ts');
+            fs.writeFileSync(source, "import './b';\n");
+            index = new ReverseIndex(tmpDir);
+            index.addDependencies(source, [
+                { path: path.join(tmpDir, 'b.ts'), type: 'import', line: 1, module: './b' },
+                { path: path.join(tmpDir, 'c.ts'), type: 'dynamic', line: 3, module: './c' },
+            ], (await ReverseIndex.getFileHashFromDisk(source)) ?? undefined);
+        });
+
+        afterEach(() => {
+            fs.rmSync(tmpDir, { recursive: true, force: true });
+        });
+
+        it('returns the recorded dependencies of an unchanged file', async () => {
+            expect(await index.getFreshDependencies(source)).toEqual([
+                { path: target('b.ts'), type: 'import', line: 1, module: './b' },
+                { path: target('c.ts'), type: 'dynamic', line: 3, module: './c' },
+            ]);
+        });
+
+        it('keeps the dependencies after a serialize/deserialize round trip', async () => {
+            const restored = ReverseIndex.deserialize(index.serialize(), tmpDir);
+            expect(await restored?.getFreshDependencies(source)).toEqual(await index.getFreshDependencies(source));
+        });
+
+        it('returns an empty list for an indexed file without dependencies', async () => {
+            index.addDependencies(source, [], (await ReverseIndex.getFileHashFromDisk(source)) ?? undefined);
+            expect(await index.getFreshDependencies(source)).toEqual([]);
+        });
+
+        it('returns undefined for a file that was never indexed', async () => {
+            const other = path.join(tmpDir, 'other.ts');
+            fs.writeFileSync(other, '');
+            expect(await index.getFreshDependencies(other)).toBeUndefined();
+        });
+
+        it('returns undefined for a file changed since it was indexed', async () => {
+            fs.writeFileSync(source, "import './b';\nimport './d';\n");
+            expect(await index.getFreshDependencies(source)).toBeUndefined();
+        });
+
+        it('returns undefined for an indexed file deleted from disk', async () => {
+            fs.rmSync(source);
+            expect(await index.getFreshDependencies(source)).toBeUndefined();
+        });
+
+        it('returns undefined for a file removed from the index', async () => {
+            index.removeDependenciesFromSource(source);
+            expect(await index.getFreshDependencies(source)).toBeUndefined();
+        });
+    });
 });

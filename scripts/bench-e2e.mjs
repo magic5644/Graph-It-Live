@@ -319,8 +319,8 @@ async function measureMemory(workspace, target, cycles, scratch) {
 
 /**
  * One fresh VS Code instance per run, empty profile and index cache, the extension
- * loaded from source: activation, background index, then first call graph, and the
- * extension host RSS.
+ * loaded from source: activation, background index, the architecture view opened while
+ * indexing then rebuilt once indexed, first call graph, and the extension host RSS.
  */
 async function measureVscode(workspace, target, runs) {
   const samples = [];
@@ -353,6 +353,8 @@ async function measureVscode(workspace, target, runs) {
     'vscode.activation': metric('activation'),
     'vscode.indexReady': metric('indexReady'),
     'vscode.firstCallGraph': metric('firstCallGraph'),
+    'vscode.architectureDuringIndex': metric('architectureDuringIndex'),
+    'vscode.architectureIndexed': metric('architectureIndexed'),
   };
 }
 

@@ -240,7 +240,8 @@ export function createGraphProviderServiceContainer(
       const spider = container.get(graphProviderServiceTokens.spider);
       return new ArchitectureViewService({
         workspaceRoot,
-        analyzeFile: (filePath) => spider.analyze(filePath),
+        // Once indexed, the workspace is not parsed a second time (#383).
+        analyzeFile: (filePath) => spider.analyzeFromIndex(filePath),
         readCommunityMode,
         subscribeToIndexStatus: (callback) => spider.subscribeToIndexStatus(callback),
         post: (message) => {

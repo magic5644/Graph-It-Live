@@ -450,6 +450,11 @@ export class Spider {
     return this.dependencyAnalyzer.analyze(filePath);
   }
 
+  /** Same dependencies as analyze(), read from the reverse index while the file is unchanged. */
+  async analyzeFromIndex(filePath: string): Promise<Dependency[]> {
+    return this.dependencyAnalyzer.analyzeFromIndex(filePath);
+  }
+
   clearCache(): void {
     this.cacheCoordinator.clearAll();
     this.referenceLookup.clearFallbackCache();

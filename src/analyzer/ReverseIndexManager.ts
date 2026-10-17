@@ -74,6 +74,11 @@ export class ReverseIndexManager {
     return this.reverseIndex ? this.reverseIndex.getReferencingFiles(targetPath) : [];
   }
 
+  /** Undefined when the reverse index is off, or the file is unknown to it or changed since. */
+  async getFreshDependencies(sourcePath: string): Promise<Dependency[] | undefined> {
+    return this.reverseIndex?.getFreshDependencies(sourcePath);
+  }
+
   getCallerCount(targetPath: string): number {
     return this.reverseIndex ? this.reverseIndex.getCallerCount(targetPath) : 0;
   }

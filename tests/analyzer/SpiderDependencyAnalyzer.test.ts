@@ -190,3 +190,33 @@ describe('SpiderDependencyAnalyzer - module resolution and cache invalidation', 
     }
   });
 });
+
+describe('SpiderDependencyAnalyzer - analyzeFromIndex', () => {
+  const indexed = [{ path: '/workspace/b.ts', type: 'import' as const, line: 1, module: './b' }];
+
+  function makeIndexedAnalyzer(fresh: typeof indexed | undefined) {
+    const parseImports = vi.fn().mockResolvedValue([]);
+    const analyzer = makeAnalyzer(parseImports);
+    Object.assign(
+      (analyzer as unknown as { reverseIndexManager: Record<string, unknown> }).reverseIndexManager,
+      { getFreshDependencies: vi.fn().mockResolvedValue(fresh) },
+    );
+    return { analyzer, parseImports };
+  }
+
+  it('returns the indexed dependencies of an unchanged file without parsing it', async () => {
+    const { analyzer, parseImports } = makeIndexedAnalyzer(indexed);
+    const analyze = vi.spyOn(analyzer, 'analyze');
+
+    await expect(analyzer.analyzeFromIndex('/workspace/a.ts')).resolves.toEqual(indexed);
+    expect(analyze).not.toHaveBeenCalled();
+    expect(parseImports).not.toHaveBeenCalled();
+  });
+
+  it('analyzes a file the index does not hold fresh', async () => {
+    const { analyzer, parseImports } = makeIndexedAnalyzer(undefined);
+
+    await expect(analyzer.analyzeFromIndex('/workspace/a.ts')).resolves.toEqual([]);
+    expect(parseImports).toHaveBeenCalledTimes(1);
+  });
+});

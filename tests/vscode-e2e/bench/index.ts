@@ -7,7 +7,7 @@
 import * as fs from 'node:fs';
 import { performance } from 'node:perf_hooks';
 import * as vscode from 'vscode';
-import { getIndexStatus, showCallGraphAndWait, sleep } from '../suite/_helpers';
+import { getContextKey, getIndexStatus, showCallGraphAndWait, sleep } from '../suite/_helpers';
 
 const MB = 1024 * 1024;
 const TIMEOUT_MS = 600_000;
@@ -30,6 +30,21 @@ async function waitForIndex(started: number): Promise<number> {
   }
   throw new Error(`Background indexing did not complete within ${TIMEOUT_MS} ms`);
 }
+
+/** Resolves once the architecture view has rendered a build after `afterBuilds`. */
+async function waitForArchitecture(afterBuilds: number): Promise<void> {
+  const started = performance.now();
+  const read = (key: string) => getContextKey<number>(`graph-it-live.architecture${key}`);
+  while (performance.now() - started < TIMEOUT_MS) {
+    // A render of the new build: the view renders once the build's summary arrives.
+    if (((await read('BuildCount')) ?? 0) > afterBuilds && ((await read('RenderCount')) ?? 0) > afterBuilds) return;
+    await sleep(POLL_MS); // NOSONAR S9382: polling, each check waits for the previous one
+  }
+  throw new Error(`The architecture view did not render within ${TIMEOUT_MS} ms`);
+}
+
+/** Peak RSS so far of the extension host and its worker threads. */
+const peakRssMB = (): number => process.resourceUsage().maxRSS / 1024;
 
 /** Time from `showCallGraph` to the webview's `callGraphReady`, the view already mounted. */
 async function measureFirstCallGraph(root: vscode.Uri, file: string): Promise<Sample> {
@@ -56,9 +71,20 @@ export async function run(): Promise<void> {
   // through vscode.lm, a round trip to the renderer that a rendering call graph would hold up.
   await vscode.commands.executeCommand('graph-it-live.graphView.focus');
   await sleep(800); // resolveWebviewView + React mount, as in openCallGraphFor
+  // Opened while the background index is being built, as on a first start (#383).
+  const architectureStarted = performance.now();
+  await vscode.commands.executeCommand('graph-it-live.setViewModeArchitecture');
   const indexReady: Sample = { wallMs: await waitForIndex(started), rssMB: currentRssMB() };
+  await waitForArchitecture(0);
+  const architectureDuringIndex: Sample = { wallMs: performance.now() - architectureStarted, rssMB: peakRssMB() };
+  // Built again with the index ready: what reopening the view costs.
+  const rebuildStarted = performance.now();
+  await vscode.commands.executeCommand('graph-it-live.refreshGraph');
+  await waitForArchitecture(1);
+  const architectureIndexed: Sample = { wallMs: performance.now() - rebuildStarted, rssMB: peakRssMB() };
+  await vscode.commands.executeCommand('graph-it-live.setViewModeFile');
   const firstCallGraph = await measureFirstCallGraph(folder.uri, file);
   // The peak RSS of the whole session: extension host and its worker threads.
-  firstCallGraph.rssMB = process.resourceUsage().maxRSS / 1024;
-  fs.writeFileSync(out, JSON.stringify({ activation, firstCallGraph, indexReady }));
+  firstCallGraph.rssMB = peakRssMB();
+  fs.writeFileSync(out, JSON.stringify({ activation, firstCallGraph, indexReady, architectureDuringIndex, architectureIndexed }));
 }
