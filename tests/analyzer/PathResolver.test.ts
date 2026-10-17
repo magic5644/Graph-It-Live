@@ -231,10 +231,45 @@ describe("PathResolver - linked workspace packages", () => {
     }
   });
 
-  it("ignores a link whose package.json names another package, and caches the lookup", async () => {
-    const resolver = new PathResolver(undefined, true, root);
+  it("ignores a link whose package.json names another package, a subpath leaving its package, and a file link", async () => {
     link(path.join(root, "libs/plain"), "renamed");
-    expect(await resolve("renamed", resolver)).toBeNull();
-    expect(await resolve("plain-utils", resolver)).toBe(await resolve("plain-utils", resolver));
+    expect(await resolve("renamed")).toBeNull();
+    expect(await resolve("@acme/core/../../plain/index")).toBeNull();
+    // File symlinks need admin rights on Windows; junctions (directories) do not.
+    if (process.platform !== "win32") {
+      write("libs/file.ts");
+      fs.symlinkSync(path.join(root, "libs/file.ts"), path.join(root, "node_modules/filelink"), "file");
+      expect(await resolve("filelink")).toBeNull();
+    }
+  });
+
+  it("keeps the workspace root as given when its real path differs (macOS /var, Windows 8.3 names)", async () => {
+    // os.tmpdir() is not canonical on macOS (/var -> /private/var) nor on Windows CI (RUNNER~1).
+    const given = fs.mkdtempSync(path.join(os.tmpdir(), "graph-it-alias-"));
+    try {
+      fs.mkdirSync(path.join(given, "libs/x"), { recursive: true });
+      fs.writeFileSync(path.join(given, "libs/x/package.json"), JSON.stringify({ name: "x" }));
+      fs.writeFileSync(path.join(given, "libs/x/index.ts"), "");
+      fs.mkdirSync(path.join(given, "app"), { recursive: true });
+      fs.mkdirSync(path.join(given, "node_modules"));
+      fs.symlinkSync(path.join(given, "libs/x"), path.join(given, "node_modules/x"), "junction");
+      const resolved = await new PathResolver(undefined, true, given).resolve(path.join(given, "app/main.ts"), "x");
+      expect(resolved).toBe(normalizePath(path.join(given, "libs/x/index.ts")));
+    } finally {
+      fs.rmSync(given, { recursive: true, force: true });
+    }
+  });
+
+  it("caches the link lookup for the resolver's lifetime", async () => {
+    const resolver = new PathResolver(undefined, true, root);
+    const entry = normalizePath(path.join(root, "libs/plain/index.ts"));
+    expect(await resolve("plain-utils", resolver)).toBe(entry);
+    // Gone from disk, still known: the second lookup reads no link.
+    const linkPath = path.join(root, "node_modules/plain-utils");
+    // A junction is removed as a directory on Windows.
+    if (process.platform === "win32") fs.rmdirSync(linkPath);
+    else fs.unlinkSync(linkPath);
+    expect(await resolve("plain-utils", resolver)).toBe(entry);
+    expect(await resolve("plain-utils")).toBeNull();
   });
 });

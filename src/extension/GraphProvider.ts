@@ -466,7 +466,7 @@ export class GraphProvider implements vscode.WebviewViewProvider {
       this._symbolGraphCache = null;
       log.debug(`[GraphProvider] Symbol graph cache invalidated (${eventType}): ${filePath}`);
     }
-    this.architectureViewService?.markStale();
+    this.architectureViewService?.markStale(filePath, eventType);
     await this.eventHub?.handleFileChange(filePath, eventType);
   }
 

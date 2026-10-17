@@ -147,6 +147,63 @@ describe("ArchitectureViewService", () => {
     expect(service.getE2EState().buildCount).toBe(2);
   });
 
+  it("marks stale only for a change to a file of the graph, a deletion of one, or a creation", async () => {
+    const service = createService();
+    await service.build();
+    service.markStale(path.join(root, "dist/bundle.js"), "change");
+    service.markStale(path.join(root, ".serverless/handler.js"), "delete");
+    expect(summaries()).toHaveLength(1);
+    service.markStale(path.join(root, "src/ui/view.ts"), "change");
+    expect(summaries().map(summary => summary.stale)).toEqual([false, true]);
+
+    await service.build();
+    service.markStale(path.join(root, "src/new.ts"), "create");
+    expect(summaries().at(-1)?.stale).toBe(true);
+  });
+
+  it("ignores changes to files outside the graph made during a build", async () => {
+    let release!: () => void;
+    const gate = new Promise<void>(resolve => { release = resolve; });
+    const analyze = analyzerFor(root, workspace);
+    const service = createService({ analyzeFile: async (filePath) => { await gate; return analyze(filePath); } });
+    const running = service.build();
+    service.markStale(path.join(root, "build/out.js"), "change");
+    release();
+    await running;
+    expect(summaries()[0].stale).toBe(false);
+
+    const gated = new Promise<void>(resolve => { release = resolve; });
+    const next = createService({ analyzeFile: async (filePath) => { await gated; return analyze(filePath); } });
+    const second = next.build();
+    next.markStale(path.join(root, "src/store/state.ts"), "change");
+    release();
+    await second;
+    expect(summaries().at(-1)?.stale).toBe(true);
+  });
+
+  it("keeps the largest groups of each unit, and the layers and edge kinds inside units", async () => {
+    const many = Object.fromEntries([
+      ...Array.from({ length: MAX_RENDERED_GROUPS + 2 }, (_, index) => [`big/d${index}/a.ts`, index === 0 ? ["big/d1/a.ts"] : []]),
+      ["small/x/a.ts", ["small/y/a.ts"]],
+      ["small/y/a.ts", ["small/x/a.ts"]],
+    ]);
+    const wide = await fs.realpath(await fs.mkdtemp(path.join(os.tmpdir(), "gitl-architecture-units-")));
+    try {
+      await writeWorkspace(wide, many);
+      await createService({ workspaceRoot: wide, analyzeFile: analyzerFor(wide, many) }).build();
+      const [summary] = summaries();
+      const unitOf = summary.units!.groupUnits;
+      expect(summary.groups.filter(group => unitOf[group.id] === "big")).toHaveLength(MAX_RENDERED_GROUPS);
+      expect(summary.groups.filter(group => unitOf[group.id] === "small")).toHaveLength(2);
+      expect(summary.hiddenGroups).toBe(2);
+      const id = (key: string) => summary.groups.find(group => group.key === key)!.id;
+      expect(summary.units!.groupLayers[id("big/d0")]).toBe(1);
+      expect(summary.units!.groupEdgeKinds[`${id("small/x")}>${id("small/y")}`]).toBe("cycle");
+    } finally {
+      await fs.rm(wide, { recursive: true, force: true });
+    }
+  });
+
   it("posts the summary stale when a file changed during its build", async () => {
     let release!: () => void;
     const gate = new Promise<void>(resolve => { release = resolve; });

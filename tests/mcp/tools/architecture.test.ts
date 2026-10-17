@@ -181,4 +181,12 @@ describe("ExploreArchitectureParamsSchema", () => {
     expect(ExploreArchitectureParamsSchema.safeParse({ group: "" }).success).toBe(false);
     expect(ExploreArchitectureParamsSchema.safeParse({ revision: "stale" }).success).toBe(false);
   });
+
+  it("accepts level units with paging only", () => {
+    expect(ExploreArchitectureParamsSchema.safeParse({ level: "units", limit: 5, offset: 5 }).success).toBe(true);
+    expect(ExploreArchitectureParamsSchema.safeParse({ level: "groups", group: 2 }).success).toBe(true);
+    expect(ExploreArchitectureParamsSchema.safeParse({ level: "units", group: 2 }).success).toBe(false);
+    expect(ExploreArchitectureParamsSchema.safeParse({ level: "units", from: 1, to: 2 }).success).toBe(false);
+    expect(ExploreArchitectureParamsSchema.safeParse({ level: "files" }).success).toBe(false);
+  });
 });

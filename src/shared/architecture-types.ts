@@ -10,12 +10,16 @@
  */
 
 import type { ArchitectureGroupDetail, ArchitectureOverview } from "../analyzer/architecture/ArchitectureExplorer";
-import type { ArchitectureUnits } from "../analyzer/architecture/architectureUnits";
+import type { ArchitectureUnitEdgeKind, ArchitectureUnits } from "../analyzer/architecture/architectureUnits";
 
 /** The units level of a path-mode summary: what `graph-it architecture --level units` reports, plus the unit of each group. */
 export type ArchitectureUnitLevel = Omit<ArchitectureUnits, "context"> & {
   /** Unit key of every group id of the summary. */
   groupUnits: Record<number, string>;
+  /** Layer of every group within its unit. */
+  groupLayers: Record<number, number>;
+  /** Kind of every group edge inside a unit, keyed `from>to`. */
+  groupEdgeKinds: Record<string, ArchitectureUnitEdgeKind>;
 };
 
 // ---------------------------------------------------------------------------

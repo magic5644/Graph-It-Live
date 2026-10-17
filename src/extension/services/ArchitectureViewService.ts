@@ -1,7 +1,7 @@
 import * as path from "node:path";
 import { exploreArchitecture, groupDetail, overviewArchitecture } from "@/analyzer/architecture/ArchitectureExplorer";
 import { buildArchitectureGraph, type AnalyzeFile, type ArchitectureGraph } from "@/analyzer/architecture/ArchitectureGraphBuilder";
-import { assignUnits, buildArchitectureUnits, groupByUnit } from "@/analyzer/architecture/architectureUnits";
+import { assignUnits, buildArchitectureUnits, groupByUnit, layerGroupsWithinUnits } from "@/analyzer/architecture/architectureUnits";
 import type { IndexerStatusSnapshot } from "@/analyzer/IndexerStatus";
 import type {
   ArchitectureControlsMessage,
@@ -78,10 +78,15 @@ function waitForIdleIndex(
   });
 }
 
+/** Inside a unit, a group is named by its folder; the unit's own files by the unit. */
+function groupLabel(group: { key: string }, unit: string, unitName: string): string {
+  return group.key === unit ? unitName : group.key.slice(unit.length + 1);
+}
+
 /**
  * In path mode, the units on top and their unit-scoped folder groups below: the groups (and
- * the graph group detail and evidence read) never mix files of two units.
- * ponytail: every group is sent (no MAX_RENDERED_GROUPS cap) since only one unit's groups are drawn at once; cap per unit if a unit holds hundreds.
+ * the graph group detail and evidence read) never mix files of two units. Each unit keeps its
+ * MAX_RENDERED_GROUPS largest groups (hiddenGroups counts the others), with their layers.
  */
 function viewArchitecture(graph: ArchitectureGraph, workspaceRoot: string): Omit<ArchitectureSummaryMessage, "type" | "stale"> & { graph: ArchitectureGraph } {
   if (graph.context.communityMode !== "path") {
@@ -92,19 +97,31 @@ function viewArchitecture(graph: ArchitectureGraph, workspaceRoot: string): Omit
   const { graph: grouped, groupUnits } = groupByUnit(graph, units, assignment);
   const { context: _context, ...unitLevel } = units;
   const overview = overviewArchitecture(grouped, Number.POSITIVE_INFINITY);
-  // Inside a unit, a group is named by its folder; the unit's own files by the unit.
   const names = new Map(units.units.map((unit) => [unit.key, unit.name]));
-  const labels = new Map(overview.groups.map((group) => {
+  // Groups come largest first: keep the first MAX_RENDERED_GROUPS of each unit.
+  const perUnit = new Map<string, number>();
+  const groups = overview.groups.filter((group) => {
     const unit = groupUnits[group.id];
-    return [group.id, group.key === unit ? names.get(unit)! : group.key.slice(unit.length + 1)];
+    perUnit.set(unit, (perUnit.get(unit) ?? 0) + 1);
+    return (perUnit.get(unit) ?? 0) <= MAX_RENDERED_GROUPS;
+  });
+  const labels = new Map(groups.map((group) => {
+    const unit = groupUnits[group.id];
+    return [group.id, groupLabel(group, unit, names.get(unit) ?? unit)];
   }));
+  const groupEdges = overview.groupEdges
+    .filter((edge) => labels.has(edge.from) && labels.has(edge.to))
+    .map((edge) => ({ ...edge, fromLabel: labels.get(edge.from) ?? "", toLabel: labels.get(edge.to) ?? "" }));
+  const shownUnits = Object.fromEntries(groups.map((group) => [group.id, groupUnits[group.id]]));
   return {
     graph: grouped,
     revision: grouped.context.revision,
     ...overview,
-    groups: overview.groups.map((group) => ({ ...group, label: labels.get(group.id)! })),
-    groupEdges: overview.groupEdges.map((edge) => ({ ...edge, fromLabel: labels.get(edge.from)!, toLabel: labels.get(edge.to)! })),
-    units: { ...unitLevel, groupUnits },
+    groups: groups.map((group) => ({ ...group, label: labels.get(group.id) ?? group.label })),
+    groupEdges,
+    hiddenGroups: overview.groups.length - groups.length,
+    hiddenGroupEdges: overview.groupEdges.length - groupEdges.length,
+    units: { ...unitLevel, groupUnits: shownUnits, ...layerGroupsWithinUnits(groupEdges, shownUnits) },
   };
 }
 
@@ -139,7 +156,7 @@ export class ArchitectureViewService {
   private detailCount = 0;
   private lastDetail: ArchitectureDetailRenderedCommand | null = null;
   /** A source file changed while the running build was analysing. */
-  private changedDuringBuild = false;
+  private changedDuringBuild: { files: Set<string>; any: boolean } = { files: new Set(), any: false };
   private disposed = false;
 
   constructor(private readonly options: ArchitectureViewServiceOptions) {}
@@ -242,13 +259,21 @@ export class ArchitectureViewService {
     if (current !== undefined && current !== this.options.readCommunityMode()) await this.build();
   }
 
-  /** Marks the cached summary stale; during a build, the build's own summary carries it. */
-  markStale(): void {
+  /**
+   * Marks the cached summary stale when the change can alter it: a file of the graph changed or
+   * was deleted, or a file was created (no path: any change). Files the graph never read (build
+   * output, ignored folders) leave it as it is. During a build, the build's own summary carries it.
+   * ponytail: any created file counts, ignored ones included; check the collector's ignore rules if that shows the banner for nothing.
+   */
+  markStale(filePath?: string, eventType?: "create" | "change" | "delete"): void {
     if (this.disposed) return;
+    const relative = filePath === undefined ? undefined : normalizePath(path.relative(this.options.workspaceRoot, filePath));
     if (this.running) {
-      this.changedDuringBuild = true;
+      if (relative === undefined || eventType === "create") this.changedDuringBuild.any = true;
+      else this.changedDuringBuild.files.add(relative);
       return;
     }
+    if (relative !== undefined && eventType !== "create" && !this.graph?.files.has(relative)) return;
     if (!this.summary || this.summary.stale) return;
     this.summary = { ...this.summary, stale: true };
     this.options.post(this.summary);
@@ -291,10 +316,12 @@ export class ArchitectureViewService {
         return;
       }
       const { graph: viewGraph, ...overview } = viewArchitecture(graph, this.options.workspaceRoot);
-      this.summary = { type: "architectureSummary", stale: this.changedDuringBuild, ...overview };
-      this.graph = { graph: viewGraph, files: new Set(viewGraph.nodes.map(node => node.relativePath)) };
+      const files = new Set(viewGraph.nodes.map(node => node.relativePath));
+      const { files: changed, any } = this.changedDuringBuild;
+      this.summary = { type: "architectureSummary", stale: any || [...changed].some(file => files.has(file)), ...overview };
+      this.graph = { graph: viewGraph, files };
       // Cleared only once posted: a change seen by an aborted build still applies to the next one.
-      this.changedDuringBuild = false;
+      this.changedDuringBuild = { files: new Set(), any: false };
       post(this.summary);
     } catch (error) {
       if (signal.aborted) return;

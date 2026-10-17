@@ -1,5 +1,6 @@
 import dagre from "@dagrejs/dagre";
 import type { Collection, Core, LayoutOptions, NodeSingular, Position } from "cytoscape";
+import type { ArchitectureUnitEdgeKind } from "../../../analyzer/architecture/architectureUnits";
 import type { ArchitectureGroupDetailMessage, ArchitectureSummaryMessage, ArchitectureUnitLevel } from "../../../shared/architecture-types";
 import { normalizePath } from "../../utils/path";
 
@@ -420,13 +421,33 @@ export const unitColor = (index: number) => `hsl(${Math.round((index * 137.508) 
 /** At the units level, the strongest edges up to this many per unit are drawn; upward and cycle edges always are. */
 export const UNIT_EDGES_PER_UNIT = 3;
 
-/** Unit edges hidden by default: down edges beyond the UNIT_EDGES_PER_UNIT × units strongest (edges come heaviest first). */
-export function cappedUnitEdges(level: ArchitectureUnitLevel): Set<string> {
-  const cap = UNIT_EDGES_PER_UNIT * level.units.length;
-  return new Set(level.unitEdges
-    .filter((edge, rank) => rank >= cap && edge.kind === "down")
-    .map((edge) => `${edge.from}\0${edge.to}`));
+interface RankedEdge {
+  key: string;
+  fileEdgeCount: number;
+  kind?: ArchitectureUnitEdgeKind;
 }
+
+/** Keys of the down edges beyond the UNIT_EDGES_PER_UNIT × nodes strongest; upward and cycle edges are never capped. */
+function cappedKeys(edges: readonly RankedEdge[], nodes: number): Set<string> {
+  const cap = UNIT_EDGES_PER_UNIT * nodes;
+  return new Set(edges
+    .toSorted((left, right) => right.fileEdgeCount - left.fileEdgeCount)
+    .filter((edge, rank) => rank >= cap && edge.kind === "down")
+    .map((edge) => edge.key));
+}
+
+/** Unit edges hidden by default (keys `from\0to`). */
+export function cappedUnitEdges(level: ArchitectureUnitLevel): Set<string> {
+  return cappedKeys(level.unitEdges.map((edge) => ({ ...edge, key: `${edge.from}\0${edge.to}` })), level.units.length);
+}
+
+/** Unit edges the header says are hidden; none once min-imports takes over. */
+export const hiddenUnitEdgeCount = (level: ArchitectureUnitLevel, minImports: number) =>
+  (minImports > 1 ? 0 : cappedUnitEdges(level).size);
+
+/** Largest file-pair count of a level's edges, the bound of the min-imports control. */
+export const maxEdgeImports = (summary: ArchitectureSummaryMessage) =>
+  Math.max(1, ...summary.groupEdges.map((edge) => edge.fileEdgeCount));
 
 const unitName = (level: ArchitectureUnitLevel, key: string) => level.units.find((unit) => unit.key === key)?.name ?? key;
 
@@ -469,35 +490,59 @@ export function levelSummary(summary: ArchitectureSummaryMessage, unit: string |
 
 /**
  * Elements of a level: groups as toArchitectureElements draws them, plus, with units, the
- * colour of each unit (an entered unit's groups keep it), its layer and the kind of each
- * unit edge (`upward` and `cycle` drawn red, `capped` hidden until min-imports overrides).
+ * colour of each unit (an entered unit's groups keep it), the layer of each node and the kind
+ * of each edge (`upward` and `cycle` drawn red, `capped` hidden until min-imports overrides).
  */
 export function toLevelElements(summary: ArchitectureSummaryMessage, unit: string | null, expansions: Expansions = NO_EXPANSIONS): ArchitectureElement[] {
   const level = summary.units;
   const elements = toArchitectureElements(levelSummary(summary, unit), level && unit === null ? NO_EXPANSIONS : expansions);
   if (!level) return elements;
-  if (unit !== null) {
-    const color = unitColor(level.units.findIndex((entry) => entry.key === unit));
-    return elements.map((element) => (element.group === "nodes" ? { ...element, data: { ...element.data, color } } : element));
-  }
-  const capped = cappedUnitEdges(level);
+  return unit === null ? decorateUnits(elements, level) : decorateUnitGroups(elements, level, unit);
+}
+
+function decorateUnits(elements: ArchitectureElement[], level: ArchitectureUnitLevel): ArchitectureElement[] {
   const idOf = new Map(level.units.map((entry, index) => [entry.key, index + 1]));
   const edgeOf = new Map(level.unitEdges.map((edge) => [`edge-${idOf.get(edge.from)}-${idOf.get(edge.to)}`, edge]));
+  const capped = cappedUnitEdges(level);
   return elements.map((element) => {
     if (element.group === "nodes") {
       const index = Number(element.data.groupId) - 1;
-      const { key, layer } = level.units[index];
-      return { ...element, data: { ...element.data, key: `units:${key}`, unitKey: key, layer, color: unitColor(index) } };
+      const entry = level.units[index];
+      if (!entry) return element;
+      return { ...element, data: { ...element.data, key: `units:${entry.key}`, unitKey: entry.key, layer: entry.layer, color: unitColor(index) } };
     }
-    const edge = edgeOf.get(String(element.data.id))!;
+    const edge = edgeOf.get(String(element.data.id));
+    if (!edge) return element;
     return { ...element, data: { ...element.data, unitEdge: true, kind: edge.kind, capped: capped.has(`${edge.from}\0${edge.to}`) } };
   });
 }
 
+/** An entered unit's groups: the unit's colour, their layer within the unit, and the kind of the edges between them. */
+function decorateUnitGroups(elements: ArchitectureElement[], level: ArchitectureUnitLevel, unit: string): ArchitectureElement[] {
+  const color = unitColor(Math.max(0, level.units.findIndex((entry) => entry.key === unit)));
+  const groupEdges = elements.filter((element) => element.group === "edges" && !element.data.fileEdge);
+  const nodes = elements.filter((element) => element.group === "nodes" && element.data.parent === undefined).length;
+  const ranked = groupEdges.map((element) => ({
+    key: String(element.data.id),
+    fileEdgeCount: Number(element.data.fileEdgeCount),
+    kind: level.groupEdgeKinds[`${element.data.from}>${element.data.to}`],
+  }));
+  const kindOf = new Map(ranked.map((edge) => [edge.key, edge.kind]));
+  const capped = cappedKeys(ranked, nodes);
+  return elements.map((element) => {
+    if (element.group === "nodes") {
+      const layer = element.data.parent === undefined ? level.groupLayers[Number(element.data.groupId)] : undefined;
+      return { ...element, data: { ...element.data, color, ...(layer === undefined ? {} : { layer }) } };
+    }
+    const kind = kindOf.get(String(element.data.id));
+    return kind === undefined ? element : { ...element, data: { ...element.data, kind, capped: capped.has(String(element.data.id)) } };
+  });
+}
+
 /**
- * Top-to-bottom layers with dagre: every unit on the row of its layer (units nobody depends on
- * on top, layer 0 at the bottom). Down edges keep their layer gap as minimum length and a
- * virtual sink sits below layer 0, so the tight ranking is exactly the units' layers.
+ * Top-to-bottom layers with dagre: units nobody depends on on top, layer 0 at the bottom. Down
+ * edges keep their layer gap as minimum length and a virtual sink sits below layer 0, so without
+ * cycles the tight ranking is exactly the units' layers; a cycle is spread over several rows.
  */
 export function layoutUnits(cy: Core): void {
   const graph = new dagre.graphlib.Graph();
@@ -505,15 +550,22 @@ export function layoutUnits(cy: Core): void {
   graph.setDefaultEdgeLabel(() => ({}));
   const sink = "\0sink";
   graph.setNode(sink, { width: 1, height: 1 });
-  cy.nodes().forEach((node) => {
+  // Top-level nodes only: an expanded group's files keep their own layout.
+  const nodes = cy.nodes().filter((node) => !node.isChild() && node.data("layer") !== undefined);
+  nodes.forEach((node) => {
     graph.setNode(node.id(), { width: node.data("width"), height: node.data("height") });
     if (node.data("layer") === 0) graph.setEdge(node.id(), sink, { minlen: 1 });
   });
   cy.edges('[kind = "down"]').forEach((edge) => {
     graph.setEdge(edge.source().id(), edge.target().id(), { minlen: edge.source().data("layer") - edge.target().data("layer") });
   });
+  // A cycle's members share a layer; on one row their edges would cross every node between them.
+  // dagre breaks the cycle and spreads them over rows instead (cycle edges may point up: they are red).
+  cy.edges('[kind = "cycle"]').forEach((edge) => {
+    if (!graph.hasEdge(edge.source().id(), edge.target().id())) graph.setEdge(edge.source().id(), edge.target().id(), { minlen: 1 });
+  });
   dagre.layout(graph);
-  cy.nodes().forEach((node) => {
+  nodes.forEach((node) => {
     const { x, y } = graph.node(node.id());
     node.position({ x, y });
   });
@@ -522,10 +574,19 @@ export function layoutUnits(cy: Core): void {
 /** Zoom below which an ARCHITECTURE_FONT_SIZE label is drawn under 8px on screen. */
 export const MIN_READABLE_ZOOM = 8 / ARCHITECTURE_FONT_SIZE;
 
-/** Fits everything, but never below MIN_READABLE_ZOOM: a large graph keeps its top in view and pans instead. */
+const FIT_PADDING = 30;
+
+/**
+ * Fits everything, but never below MIN_READABLE_ZOOM: a larger graph keeps its top centre in
+ * view (the units nobody depends on) and the rest is reached by panning.
+ */
 export function fitReadable(cy: Core): void {
-  cy.fit(undefined, 30);
-  if (cy.zoom() < MIN_READABLE_ZOOM) cy.zoom({ level: MIN_READABLE_ZOOM, renderedPosition: { x: cy.width() / 2, y: 0 } });
+  cy.fit(undefined, FIT_PADDING);
+  if (cy.zoom() >= MIN_READABLE_ZOOM) return;
+  const box = cy.elements().boundingBox();
+  cy.zoom(MIN_READABLE_ZOOM);
+  // Rendered = model × zoom + pan: put the box's top centre at the top centre of the view.
+  cy.pan({ x: cy.width() / 2 - ((box.x1 + box.x2) / 2) * MIN_READABLE_ZOOM, y: FIT_PADDING - box.y1 * MIN_READABLE_ZOOM });
 }
 
 /** E2E observability of the units level, read from what is drawn. */

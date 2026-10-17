@@ -10,6 +10,7 @@ import { createHash } from "node:crypto";
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { domainFromDirParts } from "../community/PathCommunityDetector";
+import { normalizePath } from "../../shared/path";
 import type { ArchitectureGraph } from "./ArchitectureGraphBuilder";
 import { layerGraph } from "./stronglyConnectedComponents";
 
@@ -67,7 +68,8 @@ function foldersOf(relativePath: string): string[] {
  * member or not), else to ROOT_UNIT. Without any package below the root, units are the
  * top-level folders. Files come from SourceFileCollector, so node_modules is never read.
  */
-export function assignUnits(workspaceRoot: string, relativePaths: readonly string[]): UnitAssignment {
+export function assignUnits(workspaceRoot: string, files: readonly string[]): UnitAssignment {
+  const relativePaths = files.map(normalizePath);
   const isPackage = new Map<string, boolean>();
   for (const folder of new Set(relativePaths.flatMap(foldersOf))) {
     isPackage.set(folder, fs.existsSync(path.join(workspaceRoot, folder, "package.json")));
@@ -201,5 +203,27 @@ export function groupByUnit(
   return {
     graph: { ...graph, nodes, graphData: { ...graph.graphData, nodeMetadata }, context: units.context },
     groupUnits,
+  };
+}
+
+/**
+ * Layer of every folder group within its unit (cycles collapsed, as for the units), and the kind
+ * of every group edge whose ends share a unit, keyed `from>to`. Edges across units are left out:
+ * a unit's groups are drawn on their own.
+ */
+export function layerGroupsWithinUnits(
+  groupEdges: readonly { from: number; to: number }[],
+  groupUnits: Readonly<Record<number, string>>,
+): { groupLayers: Record<number, number>; groupEdgeKinds: Record<string, ArchitectureUnitEdgeKind> } {
+  const ids = Object.keys(groupUnits);
+  const inside = groupEdges.filter((edge) => groupUnits[edge.from] === groupUnits[edge.to]);
+  const successors = new Map<string, string[]>();
+  for (const { from, to } of inside) successors.set(String(from), [...(successors.get(String(from)) ?? []), String(to)]);
+  const { componentOf, layerOf } = layerGraph(ids, successors);
+  const layer = (id: number) => layerOf.get(String(id)) ?? 0;
+  return {
+    groupLayers: Object.fromEntries(ids.map((id) => [id, layerOf.get(id) ?? 0])),
+    groupEdgeKinds: Object.fromEntries(inside.map(({ from, to }) =>
+      [`${from}>${to}`, classifyUnitEdge(layer(from), layer(to), componentOf.get(String(from)) === componentOf.get(String(to)))])),
   };
 }

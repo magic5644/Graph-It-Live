@@ -50,9 +50,14 @@ export class PathResolver {
     Promise<Map<string, string>>
   > = new Map();
 
-  // Cache: node_modules/<package> link path -> real workspace package dir (or null)
+  // Cache: node_modules/<package> link path -> real workspace package dir (or null).
+  // ponytail: kept for the resolver's lifetime (rebuilt with the Spider config); a link created by
+  // `npm install` mid-session resolves after a restart or a configuration change.
   private readonly linkedPackageDirs: Map<string, Promise<string | null>> =
     new Map();
+
+  // Cache: directory -> whether it holds a node_modules folder
+  private readonly nodeModulesDirs: Map<string, Promise<boolean>> = new Map();
 
   // Promises for loading tsconfig.json files (to avoid concurrent loads)
   private readonly tsConfigLoadPromises: Map<
@@ -1050,12 +1055,16 @@ export class PathResolver {
       return null;
     }
     const [, packageName, subpath] = match;
+    // A subpath never leaves its package.
+    if (subpath?.split("/").includes("..")) {
+      return null;
+    }
 
     let currentDir = path.dirname(currentFilePath);
     while (!this.shouldStopSearch(currentDir)) {
-      const packageDir = await this.linkedPackageDir(
-        path.join(currentDir, "node_modules", packageName),
-      );
+      const packageDir = (await this.hasNodeModules(currentDir))
+        ? await this.linkedPackageDir(path.join(currentDir, "node_modules", packageName))
+        : null;
       if (packageDir) {
         return this.resolvePackageEntry(packageDir, packageName, subpath);
       }
@@ -1066,6 +1075,17 @@ export class PathResolver {
       currentDir = parentDir;
     }
     return null;
+  }
+
+  /** One stat per directory, so a bare import does not cost a realpath per ancestor and package. */
+  private hasNodeModules(dir: string): Promise<boolean> {
+    const key = normalizePath(dir);
+    let cached = this.nodeModulesDirs.get(key);
+    if (!cached) {
+      cached = fs.stat(path.join(dir, "node_modules")).then((stats) => stats.isDirectory(), () => false);
+      this.nodeModulesDirs.set(key, cached);
+    }
+    return cached;
   }
 
   /** Real folder behind a node_modules link when it is a workspace package, else null (cached). */
@@ -1081,14 +1101,15 @@ export class PathResolver {
 
   private async readLinkedPackageDir(linkPath: string): Promise<string | null> {
     try {
-      const realDir = await fs.realpath(linkPath);
-      const root = await fs.realpath(this.workspaceRoot as string);
-      const relative = path.relative(root, realDir);
+      // Both sides through the native realpath (Windows 8.3 short names, macOS /var -> /private/var
+      // expanded alike), then re-rooted on the workspace root as given, like every collected file.
+      const workspaceRoot = this.workspaceRoot as string;
+      const relative = path.relative(await fs.realpath(workspaceRoot), await fs.realpath(linkPath));
       const isWorkspacePackage =
         relative !== "" &&
         !path.isAbsolute(relative) &&
         !relative.split(path.sep).some((segment) => segment === ".." || segment === "node_modules");
-      return isWorkspacePackage ? realDir : null;
+      return isWorkspacePackage ? path.join(workspaceRoot, relative) : null;
     } catch {
       return null;
     }

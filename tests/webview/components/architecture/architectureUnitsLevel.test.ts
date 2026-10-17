@@ -1,5 +1,5 @@
 import cytoscape from "cytoscape";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import type { ArchitectureSummaryMessage, ArchitectureUnitLevel } from "@/shared/architecture-types";
 import {
   applyMinImports,
@@ -38,6 +38,8 @@ const units: ArchitectureUnitLevel = {
   cycles: 1,
   totals: { files: 7, fileEdges: 7, intraUnitEdges: 1, interUnitEdges: 6 },
   groupUnits: { 1: "apps/web", 2: "apps/web", 3: "packages/ui", 4: "packages/core", 5: "packages/types", 6: "tool" },
+  groupLayers: { 1: 1, 2: 0, 3: 0, 4: 0, 5: 0, 6: 0 },
+  groupEdgeKinds: { "1>2": "down" },
 };
 
 const summary: ArchitectureSummaryMessage = {
@@ -156,9 +158,9 @@ describe("layoutUnits", () => {
     const y = (id: string) => cy.getElementById(id).position("y");
     expect(y("group-1")).toBeLessThan(y("group-2"));
     expect(y("group-2")).toBeLessThan(y("group-3"));
-    // Layer 0, the isolated unit included, shares the bottom row.
-    expect(y("group-4")).toBe(y("group-3"));
-    expect(y("group-5")).toBe(y("group-3"));
+    // The core ↔ types cycle is spread over two rows; the isolated layer-0 unit sits on the bottom row.
+    expect(y("group-4")).not.toBe(y("group-3"));
+    expect(y("group-5")).toBe(Math.max(y("group-3"), y("group-4")));
     expect(measureUnitLevel(cy)).toMatchObject({ units: 5, colors: 5, redEdges: 2, edgesNotDown: 0, hiddenEdges: 0 });
   });
 });
@@ -173,5 +175,33 @@ describe("fitReadable", () => {
     expect(cy.zoom()).toBeGreaterThanOrEqual(MIN_READABLE_ZOOM);
     expect(measureUnitLevel(cy).minLabelPx).toBeGreaterThanOrEqual(8);
     expect(ARCHITECTURE_FONT_SIZE * MIN_READABLE_ZOOM).toBeCloseTo(8);
+  });
+});
+
+describe("an entered unit", () => {
+  it("lays its groups on their layers, with the unit colour and its edge kinds", () => {
+    const elements = toLevelElements(summary, "apps/web");
+    const nodes = elements.filter(element => element.group === "nodes").map(element => element.data);
+    expect(nodes.map(node => [node.id, node.layer])).toEqual([["group-1", 1], ["group-2", 0]]);
+    expect(elements.filter(element => element.group === "edges").map(element => [element.data.kind, element.data.capped])).toEqual([["down", false]]);
+    const cy = canvas(elements);
+    layoutUnits(cy);
+    expect(cy.getElementById("group-1").position("y")).toBeLessThan(cy.getElementById("group-2").position("y"));
+  });
+});
+
+describe("fitReadable on a large graph", () => {
+  it("keeps the top centre of the graph in view at the readable zoom", () => {
+    const wide = Array.from({ length: 40 }, (_, index) =>
+      ({ group: "nodes" as const, data: { id: `n${index}` }, position: { x: index * 150, y: 100 + index * 60 } }));
+    const cy = cytoscape({ headless: true, elements: wide });
+    // Headless has no viewport: stand in a 400px-wide view whose fit would zoom far out.
+    vi.spyOn(cy, "width").mockReturnValue(400);
+    vi.spyOn(cy, "fit").mockImplementation(() => cy.zoom(0.05));
+    fitReadable(cy);
+    expect(cy.zoom()).toBeCloseTo(MIN_READABLE_ZOOM);
+    const box = cy.elements().renderedBoundingBox();
+    expect(box.y1).toBeCloseTo(30, 0);
+    expect((box.x1 + box.x2) / 2).toBeCloseTo(200, 0);
   });
 });
