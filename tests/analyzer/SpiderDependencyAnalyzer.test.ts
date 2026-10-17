@@ -219,4 +219,14 @@ describe('SpiderDependencyAnalyzer - analyzeFromIndex', () => {
     await expect(analyzer.analyzeFromIndex('/workspace/a.ts')).resolves.toEqual([]);
     expect(parseImports).toHaveBeenCalledTimes(1);
   });
+
+  it('propagates the analysis failure of a file the index does not hold', async () => {
+    const analyzer = makeAnalyzer(() => Promise.reject(new SpiderError('Parse failed', SpiderErrorCode.PARSE_ERROR)));
+    Object.assign(
+      (analyzer as unknown as { reverseIndexManager: Record<string, unknown> }).reverseIndexManager,
+      { getFreshDependencies: vi.fn().mockResolvedValue(undefined) },
+    );
+
+    await expect(analyzer.analyzeFromIndex('/workspace/bad.ts')).rejects.toMatchObject({ code: SpiderErrorCode.PARSE_ERROR });
+  });
 });
