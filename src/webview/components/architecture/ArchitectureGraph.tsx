@@ -1,13 +1,15 @@
 /**
  * ArchitectureGraph — the sidebar's Architecture view mode: collapsed groups and the
- * group edges between them, rendered with Cytoscape + fcose. A group expands into its
- * files, and any edge lists the file pairs behind it.
+ * group edges between them, rendered with Cytoscape: ELK layered (in a worker) for units and
+ * their groups, fcose for Louvain groups. A group expands into its files, and any edge lists
+ * the file pairs behind it.
  *
  * Mounted only in architecture mode. On mount it posts `architectureMounted`, and the
  * extension answers with the cached summary or a build, so no message can arrive early.
  */
 
 import cytoscape from "cytoscape";
+import type { ElkNode } from "elkjs/lib/elk-api";
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import type {
   ArchitectureControlsMessage,
@@ -29,7 +31,6 @@ import {
   hiddenUnitEdgeCount,
   focusGroup,
   highlightFocus,
-  layoutUnits,
   type LayoutBox,
   levelSummary,
   maxEdgeImports,
@@ -43,6 +44,8 @@ import {
   toLevelElements,
   unitColor,
 } from "./architectureElements";
+import { applyElkLayout, applyRoutes, type EdgeRoute, toElkGraph } from "./elkLayout";
+import { createElk, type ElkRunner } from "./elkWorker";
 // eslint-disable-next-line @typescript-eslint/no-require-imports
 const fcose = require("cytoscape-fcose") as cytoscape.Ext;
 
@@ -56,6 +59,8 @@ const savedLayout = new Map<string, LayoutBox>();
 /** Position per file node of the rendered revision, so a page or a collapse leaves the other files in place. */
 const filePositions = new Map<string, cytoscape.Position>();
 const NO_EXPANSION: Expansions = new Map();
+/** ELK route per edge key: drawn again while both ends are where ELK put them. */
+const savedRoutes = new Map<string, EdgeRoute>();
 
 const BODY_BOX = { includeLabels: false, includeOverlays: false };
 const LABEL_BOX = { includeNodes: false, includeEdges: false, includeOverlays: false };
@@ -125,6 +130,27 @@ function settleLayout(cy: cytoscape.Core, groups: cytoscape.NodeSingular[]): voi
   }
   cy.nodes().forEach((node) => {
     if (node.isChild()) filePositions.set(node.id(), { ...node.position() });
+  });
+  applyRoutes(cy, cy.edges(), savedRoutes);
+}
+
+/**
+ * Lays the level out with ELK in its worker, the canvas hidden meanwhile, then finishes unless
+ * `current()` turned false (a later render or an unmount drops the result). A failed layout
+ * still finishes: settleLayout spreads the nodes.
+ */
+function layoutWithElk(cy: cytoscape.Core, elk: Pick<ElkRunner, "layout">, current: () => boolean, finish: () => void): void {
+  const container = cy.container();
+  container?.style.setProperty("visibility", "hidden");
+  const settle = (layout?: ElkNode) => {
+    if (!current()) return;
+    container?.style.removeProperty("visibility");
+    if (layout) for (const [key, route] of applyElkLayout(cy, layout)) savedRoutes.set(key, route);
+    finish();
+  };
+  elk.layout(toElkGraph(cy)).then(settle, (error: unknown) => {
+    console.error("[Graph-It-Live] ELK layout failed", error);
+    settle();
   });
 }
 
@@ -424,6 +450,9 @@ function StatePanel({ state, onRetry }: Readonly<{ state: ArchitectureStateMessa
 export function ArchitectureGraph({ postMessage }: Readonly<ArchitectureGraphProps>): React.ReactElement {
   const containerRef = useRef<HTMLDivElement>(null);
   const cyRef = useRef<cytoscape.Core | null>(null);
+  const elkRef = useRef<ElkRunner | null>(null);
+  /** Bumped by every render: an ELK result for an older one is dropped. */
+  const layoutRunRef = useRef(0);
   const postMessageRef = useRef(postMessage);
   postMessageRef.current = postMessage;
   const [summary, setSummary] = useState<ArchitectureSummaryMessage | null>(null);
@@ -703,9 +732,16 @@ export function ArchitectureGraph({ postMessage }: Readonly<ArchitectureGraphPro
       actionsRef.current.tap(event.target);
     });
     cy.on("dbltap", "node", (event) => actionsRef.current.dbltap(event.target));
+    // A dragged node leaves its routes: its edges go back to the default curve.
+    cy.on("drag", "node", (event) => {
+      const moved = event.target.union(event.target.ancestors());
+      applyRoutes(cy, moved.union(moved.descendants()).connectedEdges(), savedRoutes);
+    });
     const handleKeyDown = (event: KeyboardEvent): void => actionsRef.current.key(event, clearFocus);
     window.addEventListener("keydown", handleKeyDown);
     cyRef.current = cy;
+    const elk = createElk();
+    elkRef.current = elk;
 
     // Re-fit when the view is resized (same pattern as CytoscapeGraph). Debounced so a
     // live drag does not thrash; the layout is not re-run, only the viewport.
@@ -730,12 +766,18 @@ export function ArchitectureGraph({ postMessage }: Readonly<ArchitectureGraphPro
       window.removeEventListener("keydown", handleKeyDown);
       cy.destroy();
       cyRef.current = null;
+      elk.terminate();
+      elkRef.current = null;
     };
   }, []);
 
   useEffect(() => {
     const cy = cyRef.current;
-    if (!cy || !summary || !drawn) return;
+    const elk = elkRef.current;
+    if (!cy || !elk || !summary || !drawn) return;
+    const run = ++layoutRunRef.current;
+    // Shown again by any render: only a pending ELK layout hides the canvas.
+    cy.container()?.style.removeProperty("visibility");
     const previous = renderedRef.current.summary;
     const freshRevision = previous?.revision !== summary.revision;
     // A new level re-fits like a new revision; a page, a collapse or a stale mark keeps the viewport.
@@ -760,9 +802,7 @@ export function ArchitectureGraph({ postMessage }: Readonly<ArchitectureGraphPro
     const restored = restorePositions(cy, groups);
     if (!restored && summary.units) {
       // Units, and an entered unit's groups, sit on their layers.
-      layoutUnits(cy);
-      placeNewFiles(cy, filePositions, (group) => group.position());
-      finish(true);
+      layoutWithElk(cy, elk, () => run === layoutRunRef.current && !cy.destroyed(), () => finish(true));
       return;
     }
     if (!restored) {

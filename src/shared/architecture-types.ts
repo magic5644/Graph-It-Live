@@ -136,6 +136,8 @@ export interface ArchitectureRenderedCommand {
     redEdges: number;
     /** Drawn down edges whose target is not below their source. */
     edgesNotDown: number;
+    /** Drawn edges on their ELK route: the layout ran in its worker. */
+    routedEdges: number;
     /** Unit edges hidden by the cap or the min-imports filter. */
     hiddenEdges: number;
     /** On-screen size of the node labels after the fit. */

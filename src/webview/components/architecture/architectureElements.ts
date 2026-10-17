@@ -1,4 +1,3 @@
-import dagre from "@dagrejs/dagre";
 import type { Collection, Core, LayoutOptions, NodeSingular, Position } from "cytoscape";
 import type { ArchitectureUnitEdgeKind } from "../../../analyzer/architecture/architectureUnits";
 import type { ArchitectureGroupDetailMessage, ArchitectureSummaryMessage, ArchitectureUnitLevel } from "../../../shared/architecture-types";
@@ -539,38 +538,6 @@ function decorateUnitGroups(elements: ArchitectureElement[], level: Architecture
   });
 }
 
-/**
- * Top-to-bottom layers with dagre: units nobody depends on on top, layer 0 at the bottom. Down
- * edges keep their layer gap as minimum length and a virtual sink sits below layer 0, so without
- * cycles the tight ranking is exactly the units' layers; a cycle is spread over several rows.
- */
-export function layoutUnits(cy: Core): void {
-  const graph = new dagre.graphlib.Graph();
-  graph.setGraph({ rankdir: "TB", nodesep: 40, ranksep: 80 });
-  graph.setDefaultEdgeLabel(() => ({}));
-  const sink = "\0sink";
-  graph.setNode(sink, { width: 1, height: 1 });
-  // Top-level nodes only: an expanded group's files keep their own layout.
-  const nodes = cy.nodes().filter((node) => !node.isChild() && node.data("layer") !== undefined);
-  nodes.forEach((node) => {
-    graph.setNode(node.id(), { width: node.data("width"), height: node.data("height") });
-    if (node.data("layer") === 0) graph.setEdge(node.id(), sink, { minlen: 1 });
-  });
-  cy.edges('[kind = "down"]').forEach((edge) => {
-    graph.setEdge(edge.source().id(), edge.target().id(), { minlen: edge.source().data("layer") - edge.target().data("layer") });
-  });
-  // A cycle's members share a layer; on one row their edges would cross every node between them.
-  // dagre breaks the cycle and spreads them over rows instead (cycle edges may point up: they are red).
-  cy.edges('[kind = "cycle"]').forEach((edge) => {
-    if (!graph.hasEdge(edge.source().id(), edge.target().id())) graph.setEdge(edge.source().id(), edge.target().id(), { minlen: 1 });
-  });
-  dagre.layout(graph);
-  nodes.forEach((node) => {
-    const { x, y } = graph.node(node.id());
-    node.position({ x, y });
-  });
-}
-
 /** Zoom below which an ARCHITECTURE_FONT_SIZE label is drawn under 8px on screen. */
 export const MIN_READABLE_ZOOM = 8 / ARCHITECTURE_FONT_SIZE;
 
@@ -598,6 +565,7 @@ export function measureUnitLevel(cy: Core) {
     redEdges: drawn.filter((edge) => edge.data("kind") !== "down").length,
     /** Drawn down edges whose target is not below their source. */
     edgesNotDown: drawn.filter((edge) => edge.data("kind") === "down" && edge.target().position("y") <= edge.source().position("y")).length,
+    routedEdges: drawn.filter((edge) => edge.data("routed") === true).length,
     hiddenEdges: cy.edges(".weak").length,
     minLabelPx: Math.round(ARCHITECTURE_FONT_SIZE * cy.zoom() * 100) / 100,
   };

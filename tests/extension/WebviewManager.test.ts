@@ -84,6 +84,8 @@ describe("WebviewManager", () => {
       expect(html).toContain("style-src");
       expect(html).toContain("script-src 'nonce-");
       expect(html).toContain("img-src");
+      // The Architecture view's ELK layout runs in a worker started from a blob URL.
+      expect(html).toContain("worker-src blob:");
     });
 
     it("should use webview CSP source in Content Security Policy", () => {
