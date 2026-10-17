@@ -62,7 +62,7 @@ describe("ELK layout of compounds", () => {
     expect(routes.size).toBe(cy.edges().length);
     // Edges ending on a compound (cycle → base) and crossing the hierarchy are drawn on their route too.
     applyRoutes(cy, cy.edges(), routes);
-    expect(cy.edges("[?routed]").length).toBe(cy.edges().length);
+    expect(cy.edges("[?routed]")).toHaveLength(cy.edges().length);
 
     // ELK's own boxes: every child inside its parent.
     const box = (entry: ElkNode): Box => ({ x1: entry.x ?? 0, y1: entry.y ?? 0, x2: (entry.x ?? 0) + (entry.width ?? 0), y2: (entry.y ?? 0) + (entry.height ?? 0) });
@@ -106,7 +106,7 @@ describe("a 500-node level", () => {
     started = performance.now();
     applyRoutes(cy, cy.edges(), applyElkLayout(cy, layout));
     mainThread += performance.now() - started;
-    expect(cy.edges("[?routed]").length).toBe(900);
+    expect(cy.edges("[?routed]")).toHaveLength(900);
     // ~80× apart locally; 5× keeps slow CI runners green.
     expect(mainThread * 5, `main thread ${Math.round(mainThread)} ms, ELK ${Math.round(worker)} ms`).toBeLessThan(worker);
   }, 60_000);
