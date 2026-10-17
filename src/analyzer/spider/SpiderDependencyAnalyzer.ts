@@ -62,6 +62,14 @@ export class SpiderDependencyAnalyzer {
     }
   }
 
+  /**
+   * Reads an unchanged file's dependencies from the reverse index, else analyzes it:
+   * the dependency cache is bounded, so after indexing most files would be parsed again.
+   */
+  async analyzeFromIndex(filePath: string): Promise<Dependency[]> {
+    return (await this.reverseIndexManager.getFreshDependencies(filePath)) ?? this.analyze(filePath);
+  }
+
   async resolveModuleSpecifier(fromFilePath: string, moduleSpecifier: string): Promise<string | null> {
     try {
       return await this.resolver.resolve(fromFilePath, moduleSpecifier);
