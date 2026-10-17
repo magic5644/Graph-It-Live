@@ -170,7 +170,7 @@ describe("ELK layered layout of the units", () => {
     expect(measureUnitLevel(cy)).toMatchObject({ units: 5, colors: 5, redEdges: 2, edgesNotDown: 0, hiddenEdges: 0 });
   });
 
-  it("routes every edge orthogonally, with no segment through a unit box (workspaces-project)", async () => {
+  it("routes every edge orthogonally, with no segment through a unit box (the workspaces-project units above)", async () => {
     const cy = canvas();
     const routes = await layOut(cy);
     expect(routes.size).toBe(cy.edges().length);

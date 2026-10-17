@@ -18,7 +18,7 @@ export interface ElkRunner {
 export function createElk(): ElkRunner {
   workerUrl ??= URL.createObjectURL(new Blob([elkWorkerSource], { type: "text/javascript" }));
   const url = workerUrl;
-  let fail: (error: Error) => void = () => undefined;
+  let fail!: (error: Error) => void;
   const failed = new Promise<never>((_resolve, reject) => {
     fail = reject;
   });

@@ -60,6 +60,9 @@ describe("ELK layout of compounds", () => {
     const layout = await new ELK().layout(toElkGraph(cy));
     const routes = applyElkLayout(cy, layout);
     expect(routes.size).toBe(cy.edges().length);
+    // Edges ending on a compound (cycle → base) and crossing the hierarchy are drawn on their route too.
+    applyRoutes(cy, cy.edges(), routes);
+    expect(cy.edges("[?routed]").length).toBe(cy.edges().length);
 
     // ELK's own boxes: every child inside its parent.
     const box = (entry: ElkNode): Box => ({ x1: entry.x ?? 0, y1: entry.y ?? 0, x2: (entry.x ?? 0) + (entry.width ?? 0), y2: (entry.y ?? 0) + (entry.height ?? 0) });
@@ -164,9 +167,22 @@ describe("applyRoutes", () => {
     expect(cy.edges().first().data("routed")).toBeUndefined();
   });
 
-  it("keys routes by node key, stable across builds, else by node id", () => {
+  it("keys routes by node key, stable across builds, else by node id, as normalized paths", () => {
     const cy = canvas([node("a"), { group: "nodes", data: { id: "file:x.ts" } }, edge("a", "file:x.ts")]);
     expect(routeKey(cy.edges().first())).toBe("k:a>file:x.ts");
+    const windows = canvas([
+      { group: "nodes", data: { id: "g", key: String.raw`path:apps\web` } },
+      { group: "nodes", data: { id: String.raw`file:C:\ws\src\x.ts` } },
+      edge("g", String.raw`file:C:\ws\src\x.ts`),
+    ]);
+    expect(routeKey(windows.edges().first())).toBe("path:apps/web>file:C:/ws/src/x.ts");
+  });
+
+  it("handles an empty level", () => {
+    const cy = canvas([]);
+    expect(toElkGraph(cy)).toMatchObject({ id: "root", children: [], edges: [] });
+    expect(applyElkLayout(cy, { id: "root" }).size).toBe(0);
+    expect(() => applyRoutes(cy, cy.edges(), new Map())).not.toThrow();
   });
 
   it("skips ELK edges without a section or no longer drawn", () => {
