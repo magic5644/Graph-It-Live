@@ -5,16 +5,16 @@
  * CRITICAL ARCHITECTURE RULE: This module is completely VS Code agnostic!
  */
 
-import { exploreArchitecture, exploreUnits } from "../../analyzer/architecture/ArchitectureExplorer";
+import { exploreArchitecture, exploreUnitEvidence, exploreUnits } from "../../analyzer/architecture/ArchitectureExplorer";
 import { buildArchitectureGraph } from "../../analyzer/architecture/ArchitectureGraphBuilder";
-import { buildArchitectureUnits, folderLevel } from "../../analyzer/architecture/architectureUnits";
+import { assignUnits, buildArchitectureUnits, folderLevel } from "../../analyzer/architecture/architectureUnits";
 import { workerState } from "../shared/state";
 import type { ExploreArchitectureParams } from "../types";
 
 /**
  * Progressive exploration of the grouped architecture: a bounded summary, one group with
- * its boundary, the file pairs behind one group edge, or the units with their layers; with
- * `folder`, the same views one level below a unit or folder.
+ * its boundary, the file pairs behind one group edge, the units with their layers or the file
+ * pairs behind one unit edge; with `folder`, the same views one level below a unit or folder.
  */
 export async function executeExploreArchitecture(
   params: ExploreArchitectureParams,
@@ -27,7 +27,11 @@ export async function executeExploreArchitecture(
     { maxFiles: params.maxFiles, communityMode: params.communityMode, signal },
   );
   if (params.level === "units") {
-    return exploreUnits(buildArchitectureUnits(graph, workerState.getConfig().rootDir), params);
+    const { rootDir } = workerState.getConfig();
+    const assignment = assignUnits(rootDir, graph.nodes.map((node) => node.relativePath));
+    const units = buildArchitectureUnits(graph, rootDir, assignment);
+    if (params.from === undefined || params.to === undefined) return exploreUnits(units, params);
+    return exploreUnitEvidence(graph, units, assignment.unitOf, { ...params, from: String(params.from), to: String(params.to) });
   }
   if (params.folder !== undefined) {
     const { graph: level, nestedGroups } = folderLevel(graph, workerState.getConfig().rootDir, params.folder);

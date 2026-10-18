@@ -679,7 +679,9 @@ describe("ArchitectureGraph", () => {
       send({ ...evidencePage(2, [{ source: "x.ts", target: "y.ts" }]), from: 2 });
       send(evidencePage(1, [{ source: "x.ts", target: "y.ts" }]));
       expect(screen.getByText("showing 2 of 3")).toBeTruthy();
-      expect(lastOf(postMessage, "architectureDetailRendered")?.evidence).toEqual({ edgeCount: 3, total: 3, shown: 2, firstSource: "ui/a.ts" });
+      expect(lastOf(postMessage, "architectureDetailRendered")?.evidence).toMatchObject({
+        edgeCount: 3, total: 3, shown: 2, firstSource: "ui/a.ts", pairs: ["ui/a.ts → store/b.ts", "ui/a.ts → store/c.ts"],
+      });
 
       fireEvent.click(screen.getByRole("button", { name: "Load more" }));
       expect(postMessage).toHaveBeenLastCalledWith({ command: "architectureEvidence", revision: "r1", from: 1, to: 2, offset: 2 });
@@ -860,12 +862,62 @@ describe("ArchitectureGraph", () => {
       expect(elk.runner.terminate).toHaveBeenCalledTimes(terminated + 1);
     });
 
+    it("lists the file pairs of a clicked unit edge by unit key, pages them, opens a file and closes on entering a unit", async () => {
+      const postMessage = await setup();
+      const unitEdge = edgeById("edge-1-2");
+      expect(unitEdge?.data("tooltip")).toBe("@ws/web → @ws/core\n3 file imports · click files");
+      act(() => cy.state.handlers.get("tap")?.({ target: unitEdge }));
+      expect(lastOf(postMessage, "architectureUnitEvidence")).toEqual({
+        command: "architectureUnitEvidence", revision: "r1", from: "apps/web", to: "packages/core", offset: 0,
+      });
+      expect(lastOf(postMessage, "architectureEvidence")).toBeUndefined();
+      const panel = () => screen.queryByRole("region", { name: "Evidence" });
+      expect(panel()?.textContent).toContain("@ws/web → @ws/core: 3 file pairs (static imports) (cycle)");
+
+      const unitPage = (offset: number, pairs: { source: string; target: string }[], nextOffset?: number) => ({
+        type: "architectureEvidencePage" as const, revision: "r1", from: "apps/web", to: "packages/core", pairs,
+        page: { total: 3, offset, returned: pairs.length, truncated: nextOffset !== undefined, nextOffset },
+      });
+      // The group ids 1 → 2 name another edge than the unit keys.
+      send({ ...unitPage(0, [{ source: "x.ts", target: "y.ts" }]), from: 1, to: 2 });
+      send(unitPage(0, [
+        { source: "apps/web/src/a.ts", target: "packages/core/src/index.ts" },
+        { source: "apps/web/src/b.ts", target: "packages/core/src/index.ts" },
+      ], 2));
+      expect(screen.getByText("showing 2 of 3")).toBeTruthy();
+      fireEvent.click(screen.getByRole("button", { name: "Load more" }));
+      expect(postMessage).toHaveBeenLastCalledWith({
+        command: "architectureUnitEvidence", revision: "r1", from: "apps/web", to: "packages/core", offset: 2,
+      });
+      send(unitPage(2, [{ source: "apps/web/src/c.ts", target: "packages/core/src/util.ts" }]));
+      expect(screen.getByText("showing 3 of 3")).toBeTruthy();
+      expect(lastOf(postMessage, "architectureDetailRendered")?.evidence?.pairs).toEqual([
+        "apps/web/src/a.ts → packages/core/src/index.ts",
+        "apps/web/src/b.ts → packages/core/src/index.ts",
+        "apps/web/src/c.ts → packages/core/src/util.ts",
+      ]);
+      fireEvent.click(screen.getByRole("button", { name: "apps/web/src/c.ts" }));
+      expect(postMessage).toHaveBeenLastCalledWith({ command: "architectureOpenFile", revision: "r1", relativePath: "apps/web/src/c.ts" });
+
+      // A click on a unit focuses it and opens no panel; entering a unit closes the panel.
+      postMessage.mockClear();
+      act(() => cy.state.handlers.get("tap")?.({ target: nodeById("group-2") }));
+      expect(lastOf(postMessage, "architectureUnitEvidence")).toBeUndefined();
+      expect(panel()).not.toBeNull();
+      await dbltap(nodeById("group-1"));
+      expect(panel()).toBeNull();
+    });
+
+    it("names no kind on a down unit edge, and opens a unit edge's evidence from the E2E driver", async () => {
+      const down = { ...withUnits.units!, unitEdges: [{ from: "apps/web", to: "packages/core", fileEdgeCount: 1, kind: "down" as const }] };
+      const postMessage = await setup({ ...withUnits, units: down });
+      send({ type: "architectureControls", evidenceOf: "apps/web" });
+      expect(lastOf(postMessage, "architectureUnitEvidence")).toMatchObject({ from: "apps/web", to: "packages/core" });
+      expect(screen.getByRole("region", { name: "Evidence" }).textContent).toContain("@ws/web → @ws/core: 1 file pair (static imports)×");
+    });
+
     it("enters a double-clicked unit, shows its groups, and goes back with the Units button or Escape", async () => {
       const postMessage = await setup();
-      // A unit edge only highlights: its ends are units, not groups.
-      act(() => cy.state.handlers.get("tap")?.({ target: edgeById("edge-1-2") }));
-      expect(postMessage).not.toHaveBeenCalledWith(expect.objectContaining({ command: "architectureEvidence" }));
-
       await dbltap(nodeById("group-1"));
       expect(cy.state.nodes.map(node => node.data("key"))).toEqual(["path:ui"]);
       expect(nodeById("group-1")?.data("color")).toBeDefined();

@@ -1,0 +1,102 @@
+[
+  {
+    "from": "apps/web",
+    "to": "packages/ui",
+    "kind": "down",
+    "total": 2,
+    "pairs": [
+      {
+        "source": "apps/web/src/main.ts",
+        "target": "packages/ui/src/index.ts"
+      },
+      {
+        "source": "apps/web/src/pages/home.ts",
+        "target": "packages/ui/src/index.ts"
+      }
+    ]
+  },
+  {
+    "from": "(root)",
+    "to": "packages/ui",
+    "kind": "down",
+    "total": 1,
+    "pairs": [
+      {
+        "source": "scripts/build.ts",
+        "target": "packages/ui/src/index.ts"
+      }
+    ]
+  },
+  {
+    "from": "apps/web",
+    "to": "packages/core",
+    "kind": "down",
+    "total": 1,
+    "pairs": [
+      {
+        "source": "apps/web/src/main.ts",
+        "target": "packages/core/src/index.ts"
+      }
+    ]
+  },
+  {
+    "from": "functions/notify",
+    "to": "packages/core",
+    "kind": "down",
+    "total": 1,
+    "pairs": [
+      {
+        "source": "functions/notify/handler.ts",
+        "target": "packages/core/src/index.ts"
+      }
+    ]
+  },
+  {
+    "from": "packages/core",
+    "to": "packages/types",
+    "kind": "cycle",
+    "total": 1,
+    "pairs": [
+      {
+        "source": "packages/core/src/index.ts",
+        "target": "packages/types/src/index.ts"
+      }
+    ]
+  },
+  {
+    "from": "packages/types",
+    "to": "packages/core",
+    "kind": "cycle",
+    "total": 1,
+    "pairs": [
+      {
+        "source": "packages/types/src/index.ts",
+        "target": "packages/core/src/index.ts"
+      }
+    ]
+  },
+  {
+    "from": "packages/ui",
+    "to": "packages/core",
+    "kind": "down",
+    "total": 1,
+    "pairs": [
+      {
+        "source": "packages/ui/src/index.ts",
+        "target": "packages/core/src/index.ts"
+      }
+    ]
+  },
+  {
+    "from": "tools/legacy",
+    "to": "packages/core",
+    "kind": "down",
+    "total": 1,
+    "pairs": [
+      {
+        "source": "tools/legacy/index.ts",
+        "target": "packages/core/src/index.ts"
+      }
+    ]
+  }
+]

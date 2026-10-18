@@ -520,7 +520,13 @@ function decorateUnits(elements: ArchitectureElement[], level: ArchitectureUnitL
     }
     const edge = edgeOf.get(String(element.data.id));
     if (!edge) return element;
-    return { ...element, data: { ...element.data, unitEdge: true, kind: edge.kind, capped: capped.has(`${edge.from}\0${edge.to}`) } };
+    return {
+      ...element,
+      data: {
+        ...element.data, unitEdge: true, fromUnit: edge.from, toUnit: edge.to, kind: edge.kind,
+        capped: capped.has(`${edge.from}\0${edge.to}`), tooltip: `${element.data.tooltip} · click files`,
+      },
+    };
   });
 }
 

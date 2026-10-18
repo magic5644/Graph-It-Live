@@ -67,12 +67,13 @@ export interface ArchitectureGroupDetailMessage {
   detail: ArchitectureGroupDetail;
 }
 
-/** Workspace-relative file pairs behind one edge (answers architectureEvidence). */
+/** Workspace-relative file pairs behind one edge (answers architectureEvidence and architectureUnitEvidence). */
 export interface ArchitectureEvidencePageMessage {
   type: "architectureEvidencePage";
   revision: string;
-  from: number;
-  to: number;
+  /** Group ids, or unit keys for a unit edge. */
+  from: number | string;
+  to: number | string;
   sourceFile?: string;
   targetFile?: string;
   pairs: { source: string; target: string }[];
@@ -98,7 +99,7 @@ export interface ArchitectureControlsMessage {
   collapse?: string;
   /** Focuses this group, as a click does (empty: back to the overview). */
   focus?: string;
-  /** Selects the first edge of this expanded group, which opens its evidence. */
+  /** Selects the first edge of this expanded group (or, at the units level, of this unit), which opens its evidence. */
   evidenceOf?: string;
   /** Clicks the source of this evidence row. */
   openEvidenceRow?: number;
@@ -214,6 +215,16 @@ export interface ArchitectureEvidenceCommand {
   offset?: number;
 }
 
+/** Asks for the file pairs behind a unit edge, by unit key (path mode, units level). */
+export interface ArchitectureUnitEvidenceCommand {
+  command: "architectureUnitEvidence";
+  /** The summary's revision. */
+  revision: string;
+  from: string;
+  to: string;
+  offset?: number;
+}
+
 /** Opens a workspace-relative file of the graph; never an absolute path. */
 export interface ArchitectureOpenFileCommand {
   command: "architectureOpenFile";
@@ -237,7 +248,8 @@ export interface ArchitectureDetailRenderedCommand {
   focusedGroup?: string;
   /** The 500-file cap message is shown. */
   capReached: boolean;
-  evidence?: { edgeCount: number; total: number; shown: number; firstSource?: string };
+  /** `pairs`: the shown rows, as `source → target`. */
+  evidence?: { edgeCount: number; total: number; shown: number; firstSource?: string; title: string; pairs: string[] };
 }
 
 export type ArchitectureWebviewCommand =
@@ -249,5 +261,6 @@ export type ArchitectureWebviewCommand =
   | ArchitectureEnterFolderCommand
   | ArchitectureExpandGroupCommand
   | ArchitectureEvidenceCommand
+  | ArchitectureUnitEvidenceCommand
   | ArchitectureOpenFileCommand
   | ArchitectureDetailRenderedCommand;

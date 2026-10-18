@@ -87,6 +87,8 @@ describe("MessageDispatcher", () => {
     await dispatcher.handle(rendered);
     await dispatcher.handle(resized);
     await dispatcher.handle(interacted);
+    const unitEvidence = { command: "architectureUnitEvidence" as const, revision: "r1", from: "apps/web", to: "packages/core" };
+    await dispatcher.handle(unitEvidence);
 
     expect(handleArchitectureMessage.mock.calls).toEqual([
       [{ command: "architectureMounted" }],
@@ -94,6 +96,7 @@ describe("MessageDispatcher", () => {
       [rendered],
       [resized],
       [interacted],
+      [unitEvidence],
     ]);
   });
 

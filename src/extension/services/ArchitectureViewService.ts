@@ -1,5 +1,5 @@
 import * as path from "node:path";
-import { exploreArchitecture, groupDetail, overviewArchitecture } from "@/analyzer/architecture/ArchitectureExplorer";
+import { exploreArchitecture, exploreUnitEvidence, groupDetail, overviewArchitecture } from "@/analyzer/architecture/ArchitectureExplorer";
 import { buildArchitectureGraph, type AnalyzeFile, type ArchitectureGraph } from "@/analyzer/architecture/ArchitectureGraphBuilder";
 import {
   assignUnits,
@@ -20,6 +20,7 @@ import type {
   ArchitectureOpenFileCommand,
   ArchitectureRenderedCommand,
   ArchitectureSummaryMessage,
+  ArchitectureUnitEvidenceCommand,
   ArchitectureWebviewCommand,
 } from "@/shared/architecture-types";
 import type { CommunityMode } from "@/shared/graph-types";
@@ -170,6 +171,15 @@ function evidencePage(graph: ArchitectureGraph, request: ArchitectureEvidenceCom
   return { type: "architectureEvidencePage", revision, from, to, sourceFile, targetFile, pairs: evidence.pairs, page: evidence.page };
 }
 
+/** One evidence page for a unit edge, read from every file pair of the units' graph. */
+function unitEvidencePage(source: UnitSource | undefined, request: ArchitectureUnitEvidenceCommand): ArchitectureExtensionMessage {
+  if (!source) throw new Error("unit edges only exist in path mode");
+  const { revision, from, to, offset } = request;
+  const evidence = exploreUnitEvidence(source.graph, source.units, source.assignment.unitOf,
+    { from: String(from), to: String(to), offset: validOffset(offset), revision });
+  return { type: "architectureEvidencePage", revision, from, to, pairs: evidence.pairs, page: evidence.page };
+}
+
 /**
  * Builds the workspace architecture on demand for the sidebar's Architecture view mode.
  * A build is O(files): file changes only mark the cached summary stale.
@@ -230,6 +240,9 @@ export class ArchitectureViewService {
       case "architectureEvidence":
         this.answer(message.revision, message.folder, (graph) => evidencePage(graph, message));
         return Promise.resolve();
+      case "architectureUnitEvidence":
+        this.answer(message.revision, undefined, () => unitEvidencePage(this.graph?.source, message));
+        return Promise.resolve();
       case "architectureOpenFile":
         return this.openFile(message);
     }
@@ -252,7 +265,7 @@ export class ArchitectureViewService {
     try {
       this.options.post(read(cached.graph));
     } catch (error) {
-      // Only an unknown group gets here: the ids come from this revision's summary.
+      // Only an unknown group or unit gets here: the ids and keys come from this revision's summary.
       this.options.warn(`Architecture view: ${error instanceof Error ? error.message : String(error)}`);
     }
   }

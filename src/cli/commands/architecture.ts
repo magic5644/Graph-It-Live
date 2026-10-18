@@ -8,7 +8,8 @@
  */
 
 import { buildArchitectureGraph } from "../../analyzer/architecture/ArchitectureGraphBuilder.js";
-import { buildArchitectureUnits, folderLevel } from "../../analyzer/architecture/architectureUnits.js";
+import { exploreUnitEvidence } from "../../analyzer/architecture/ArchitectureExplorer.js";
+import { assignUnits, buildArchitectureUnits, folderLevel } from "../../analyzer/architecture/architectureUnits.js";
 import { aggregateCommunityGroups } from "../../analyzer/community/groupAggregation.js";
 import { CliError, ExitCode } from "../errors";
 import { workerState } from "../../mcp/shared/state";
@@ -32,16 +33,16 @@ function readLevel(args: string[]): (typeof LEVELS)[number] | undefined {
   return level;
 }
 
-/** `--folder <unit or folder key>`, or undefined when the flag is absent. */
-function readFolder(args: string[]): string | undefined {
-  const index = args.indexOf("--folder");
+/** `<flag> <unit or folder key>` (`--folder`, `--from`, `--to`), or undefined when the flag is absent. */
+function readKey(args: string[], flag: string, what: string): string | undefined {
+  const index = args.indexOf(flag);
   if (index < 0) return undefined;
-  const folder = args[index + 1];
-  if (folder === undefined || folder.startsWith("--") || folder.trim() === "") {
-    throw new CliError("--folder must be a unit or folder key", ExitCode.GENERAL_ERROR);
+  const key = args[index + 1];
+  if (key === undefined || key.startsWith("--") || key.trim() === "") {
+    throw new CliError(`${flag} must be ${what}`, ExitCode.GENERAL_ERROR);
   }
   // Keys use "/" on every OS: a Windows user may type app\core.
-  return folder.replaceAll("\\", "/");
+  return key.replaceAll("\\", "/");
 }
 
 export async function run(
@@ -52,9 +53,14 @@ export async function run(
   const maxFiles = parseMaxFiles(args);
   const communityMode = readCommunityMode(args);
   const level = readLevel(args);
-  const folder = readFolder(args);
+  const folder = readKey(args, "--folder", "a unit or folder key");
   if (folder !== undefined && (level === "units" || communityMode === "louvain")) {
     throw new CliError("--folder lists one folder level in path mode: drop --level units and --communities louvain", ExitCode.GENERAL_ERROR);
+  }
+  const from = readKey(args, "--from", "a unit key");
+  const to = readKey(args, "--to", "a unit key");
+  if ((from === undefined) !== (to === undefined) || (from !== undefined && level !== "units")) {
+    throw new CliError("--from and --to name the two units of a unit edge: pass both, with --level units", ExitCode.GENERAL_ERROR);
   }
 
   await runtime.ensureIndexed();
@@ -81,7 +87,14 @@ export async function run(
   if (level === "units") {
     // Units replace the file graph: the units, layers and unit edges the view draws.
     const { nodes: _nodes, edges: _edges, ...files } = architecture;
-    return formatOutput({ ...files, ...buildArchitectureUnits(graph, runtime.workspaceRoot) }, format, "architecture");
+    const assignment = assignUnits(runtime.workspaceRoot, nodes.map((node) => node.relativePath));
+    const units = buildArchitectureUnits(graph, runtime.workspaceRoot, assignment);
+    if (from !== undefined && to !== undefined) {
+      // Every file pair of the unit edge: the CLI does not page.
+      const evidence = exploreUnitEvidence(graph, units, assignment.unitOf, { from, to, limit: Number.POSITIVE_INFINITY });
+      return formatOutput({ ...files, ...evidence }, format, "architecture");
+    }
+    return formatOutput({ ...files, ...units }, format, "architecture");
   }
 
   if (folder !== undefined) {

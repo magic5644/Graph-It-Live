@@ -686,6 +686,7 @@ graph-it architecture --communities louvain --format json
 graph-it architecture --groups --format toon
 graph-it architecture --groups --format mermaid
 graph-it architecture --level units --format toon
+graph-it architecture --level units --from apps/web --to packages/core --format json
 graph-it architecture --folder "(root)/analyzer" --format toon
 ```
 
@@ -752,6 +753,8 @@ Files without a folder domain (`path`) or without any import edge (`louvain`) ge
 | `unitEdges` | `from`, `to`, `fileEdgeCount`, `kind`: `down`, `upward` (to the same or a higher layer) or `cycle` (both units in one cycle), heaviest first |
 | `upwardEdges`, `cycles` | number of upward edges, and of groups of units that depend on each other |
 | `totals` | `files`, `fileEdges`, `intraUnitEdges`, `interUnitEdges` |
+
+With `--from <unit key> --to <unit key>` (both required, `--level units` only), the output is the evidence of that unit edge instead: `from` and `to` (the units), `kind` (`down`, `upward` or `cycle`; absent when the units are not linked) and every file `pairs` (`source` imports `target`), sorted by target then source path, with `page.total` equal to the edge's `fileEdgeCount`. These are the pairs the Architecture view lists when a unit edge is clicked. A key may be typed with `\` on Windows; an unknown unit is an error.
 
 #### Folder levels
 
@@ -1822,6 +1825,7 @@ graph-it tool scan_dead_code --scopePath=/abs/path/to/src/utils/
 | no `group`, `from`, `to` | `summary` | `totals`, `unassigned`, the largest `groups` and `groupEdges` (with `fromLabel` / `toLabel`) |
 | `group` | `group` | the group, its `files`, and its `incoming` / `outgoing` group edges |
 | `from` + `to` | `evidence` | the distinct file `pairs` (`source` imports `target`) behind that group edge; empty when the groups are not linked |
+| `level: "units"` + `from` + `to` (unit keys) | `evidence` | the file `pairs` behind that unit edge, sorted by target then source, with the edge `kind`; `page.total` equals its `fileEdgeCount` |
 | `folder` (with any of the above) | as above | the same views one [folder level](#folder-levels) down, plus `folder` and `nestedGroups`; group ids and `revision` belong to that level |
 
 ```bash
@@ -1830,6 +1834,7 @@ graph-it tool explore_architecture --group=analyzer
 graph-it tool explore_architecture --from=mcp --to=analyzer --limit=20 --offset=20
 graph-it tool explore_architecture --communityMode=louvain
 graph-it tool explore_architecture --level=units
+graph-it tool explore_architecture --level=units --from=apps/web --to=packages/core
 graph-it tool explore_architecture --folder='(root)/analyzer' --group='(root)/analyzer/community'
 ```
 

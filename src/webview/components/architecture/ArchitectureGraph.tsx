@@ -174,10 +174,10 @@ function restorePositions(cy: cytoscape.Core, groups: cytoscape.NodeSingular[]):
   return true;
 }
 
-/** The ends an evidence request names; a file restricts one end. */
+/** The ends an evidence request names: group ids (a file restricts one end), or unit keys for a unit edge. */
 interface EvidenceEnds {
-  from: number;
-  to: number;
+  from: number | string;
+  to: number | string;
   sourceFile?: string;
   targetFile?: string;
 }
@@ -570,23 +570,30 @@ export function ArchitectureGraph({ postMessage }: Readonly<ArchitectureGraphPro
     updateExpansions(next);
     setCapReached(false);
   };
-  const showEvidence = (edge: cytoscape.EdgeSingular) => {
+  /** A unit edge's pairs are asked by unit key, any other edge's by the drawn level's group ids. */
+  const requestEvidence = ({ from, to, ...files }: EvidenceEnds, offset: number) => {
     const at = levelOf();
     if (!at) return;
-    const ends: EvidenceEnds = { from: edge.data("from"), to: edge.data("to") };
+    if (typeof from === "string" || typeof to === "string") {
+      post({ command: "architectureUnitEvidence", revision: at.revision, from: String(from), to: String(to), offset });
+    } else post({ command: "architectureEvidence", ...at, from, to, ...files, offset });
+  };
+  const showEvidence = (edge: cytoscape.EdgeSingular) => {
+    if (!levelOf()) return;
+    const unitEdge = edge.data("unitEdge") === true;
+    const ends: EvidenceEnds = unitEdge ? { from: edge.data("fromUnit"), to: edge.data("toUnit") } : { from: edge.data("from"), to: edge.data("to") };
     if (edge.data("sourceFile") !== undefined) ends.sourceFile = edge.data("sourceFile");
     if (edge.data("targetFile") !== undefined) ends.targetFile = edge.data("targetFile");
     const edgeCount = Number(edge.data("fileEdgeCount"));
-    const title = `${edge.data("fromName")} → ${edge.data("toName")}: ${edgeCount} file pair${edgeCount === 1 ? "" : "s"} (static imports)`;
+    // Red unit edges say why in words, not by colour alone.
+    const kind = unitEdge && edge.data("kind") !== "down" ? ` (${edge.data("kind")})` : "";
+    const title = `${edge.data("fromName")} → ${edge.data("toName")}: ${edgeCount} file pair${edgeCount === 1 ? "" : "s"} (static imports)${kind}`;
     updateEvidence({ ends, title, edgeCount, pairs: [] });
-    post({ command: "architectureEvidence", ...at, ...ends, offset: 0 });
+    requestEvidence(ends, 0);
   };
   const moreEvidence = () => {
-    const at = levelOf();
     const current = evidenceRef.current;
-    if (at && current?.nextOffset !== undefined) {
-      post({ command: "architectureEvidence", ...at, ...current.ends, offset: current.pairs.length });
-    }
+    if (current?.nextOffset !== undefined) requestEvidence(current.ends, current.pairs.length);
   };
   const openFile = (relativePath: string) => {
     const at = levelOf();
@@ -648,11 +655,9 @@ export function ArchitectureGraph({ postMessage }: Readonly<ArchitectureGraphPro
     fitRef.current = "all";
   };
   const isGroup = (target: cytoscape.SingularElementArgument) => target.isNode() && !target.data("file") && !target.data("more");
-  /** A click: an edge opens its evidence (a unit edge only highlights), a group gets the focus, "+N more" loads a page. */
+  /** A click: an edge opens its evidence, a group gets the focus, "+N more" loads a page. */
   const tap = (target: cytoscape.SingularElementArgument) => {
-    if (target.isEdge()) {
-      if (!target.data("unitEdge")) showEvidence(target);
-    }
+    if (target.isEdge()) showEvidence(target);
     else if (target.data("more")) loadMore(target.data("groupId"));
     else if (isGroup(target)) updateFocus(target.data("groupId"), "focus");
   };
@@ -716,9 +721,12 @@ export function ArchitectureGraph({ postMessage }: Readonly<ArchitectureGraphPro
     return Array.from(cyRef.current?.nodes() ?? [])
       .find((node) => !node.isChild() && node.data("unitKey") === undefined && node.data("groupKey") === groupKey)?.data("groupId");
   };
-  /** E2E driver: selects the first edge of a group (its evidence opens), then clicks a row's source. */
+  /** The id of the drawn unit with this key (E2E driver, units level). */
+  const unitIdOf = (unitKey: string | undefined): number | undefined =>
+    (unitKey ? Array.from(cyRef.current?.nodes() ?? []).find((node) => node.data("unitKey") === unitKey)?.data("groupId") : undefined);
+  /** E2E driver: selects the first edge of a group or unit (its evidence opens), then clicks a row's source. */
   const controlEvidence = ({ evidenceOf, openEvidenceRow }: ArchitectureControlsMessage) => {
-    const groupId = groupOf(evidenceOf);
+    const groupId = groupOf(evidenceOf) ?? unitIdOf(evidenceOf);
     const touches = (edge: cytoscape.EdgeSingular) => edge.data("from") === groupId || edge.data("to") === groupId;
     const edge = Array.from(cyRef.current?.edges() ?? []).find((candidate) => candidate.data("from") !== candidate.data("to") && touches(candidate));
     if (groupId !== undefined && edge) showEvidence(edge);
@@ -940,7 +948,10 @@ export function ArchitectureGraph({ postMessage }: Readonly<ArchitectureGraphPro
       capReached,
       evidence: evidence?.total === undefined
         ? undefined
-        : { edgeCount: evidence.edgeCount, total: evidence.total, shown: evidence.pairs.length, firstSource: evidence.pairs[0]?.source },
+        : {
+          edgeCount: evidence.edgeCount, total: evidence.total, shown: evidence.pairs.length, firstSource: evidence.pairs[0]?.source,
+          title: evidence.title, pairs: evidence.pairs.map((pair) => `${pair.source} → ${pair.target}`),
+        },
     });
   }, [summary, drawn, expansions, evidence, capReached, focusId]);
 
