@@ -189,4 +189,13 @@ describe("ExploreArchitectureParamsSchema", () => {
     expect(ExploreArchitectureParamsSchema.safeParse({ level: "units", from: 1, to: 2 }).success).toBe(false);
     expect(ExploreArchitectureParamsSchema.safeParse({ level: "files" }).success).toBe(false);
   });
+
+  it("accepts a folder with any view, but not with level units, Louvain, or an empty or oversized key", () => {
+    expect(ExploreArchitectureParamsSchema.safeParse({ folder: "app" }).success).toBe(true);
+    expect(ExploreArchitectureParamsSchema.safeParse({ folder: "app", from: "app/core", to: "app/ui" }).success).toBe(true);
+    expect(ExploreArchitectureParamsSchema.safeParse({ folder: "" }).success).toBe(false);
+    expect(ExploreArchitectureParamsSchema.safeParse({ folder: "a".repeat(1025) }).success).toBe(false);
+    expect(ExploreArchitectureParamsSchema.safeParse({ folder: "app", level: "units" }).success).toBe(false);
+    expect(ExploreArchitectureParamsSchema.safeParse({ folder: "app", communityMode: "louvain" }).success).toBe(false);
+  });
 });

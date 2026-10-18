@@ -118,6 +118,9 @@ describe("architecture folder levels golden output: nested workspace", () => {
     await expect(runArchitectureCli(["--folder", "app", "--level", "units"], runtime as never, "json")).rejects.toThrow("--folder lists one folder level");
     await expect(runArchitectureCli(["--folder", "app", "--communities", "louvain"], runtime as never, "json")).rejects.toThrow("--folder lists one folder level");
     await expect(runArchitectureCli(["--folder"], runtime as never, "json")).rejects.toThrow("--folder must be a unit or folder key");
+    await expect(runArchitectureCli(["--folder", " "], runtime as never, "json")).rejects.toThrow("--folder must be a unit or folder key");
+    // A Windows-style key reads as the "/" key.
+    expect(JSON.parse(await runArchitectureCli(["--folder", "app\\core"], runtime as never, "json")).folder).toBe("app/core");
     await expect(runArchitectureCli(["--folder", "nowhere"], runtime as never, "json")).rejects.toThrow('No file below folder "nowhere"');
   });
 });

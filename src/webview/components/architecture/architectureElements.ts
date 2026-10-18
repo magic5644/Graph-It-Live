@@ -524,6 +524,16 @@ function decorateUnits(elements: ArchitectureElement[], level: ArchitectureUnitL
   });
 }
 
+/** A group's layer, its key within the entered folder, and `folder` (the key to enter) when it holds sub-folders. */
+function folderGroupData(data: ArchitectureElement["data"], level: ArchitectureUnitLevel, nested: ReadonlySet<number>, folder?: string) {
+  const layer = level.groupLayers[Number(data.groupId)];
+  return {
+    ...(layer === undefined ? {} : { layer }),
+    ...(folder === undefined ? {} : { key: `${data.key}@${folder}` }),
+    ...(nested.has(Number(data.groupId)) ? { folder: data.groupKey, tooltip: `${data.tooltip}\nSub-folders: double-click to enter` } : {}),
+  };
+}
+
 /**
  * An entered unit's or folder's groups: the unit's colour, their layer within the level, the kind
  * of the edges between them, and `folder` (the key to enter) on the groups holding sub-folders.
@@ -542,20 +552,7 @@ function decorateUnitGroups(elements: ArchitectureElement[], level: Architecture
   const nested = new Set(level.nestedGroups);
   return elements.map((element) => {
     if (element.group === "nodes" && element.data.parent !== undefined) return { ...element, data: { ...element.data, color } };
-    if (element.group === "nodes") {
-      const { groupId, groupKey, key, tooltip } = element.data;
-      const layer = level.groupLayers[Number(groupId)];
-      return {
-        ...element,
-        data: {
-          ...element.data,
-          color,
-          ...(layer === undefined ? {} : { layer }),
-          ...(folder === undefined ? {} : { key: `${key}@${folder}` }),
-          ...(nested.has(Number(groupId)) ? { folder: groupKey, tooltip: `${tooltip}\nSub-folders: double-click to enter` } : {}),
-        },
-      };
-    }
+    if (element.group === "nodes") return { ...element, data: { ...element.data, color, ...folderGroupData(element.data, level, nested, folder) } };
     const kind = kindOf.get(String(element.data.id));
     return kind === undefined ? element : { ...element, data: { ...element.data, kind, capped: capped.has(String(element.data.id)) } };
   });
