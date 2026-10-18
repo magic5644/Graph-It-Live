@@ -417,7 +417,11 @@ function Breadcrumb({ summary, unit, folders, onUnits, onLevel, expansions, focu
   const labelOf = (id: number) => (id === 0 ? "unassigned" : summary.groups.find((group) => group.id === id)?.label ?? `group ${id}`);
   const entered = [...expansions.keys()];
   const unitName = summary.units?.units.find((entry) => entry.key === unit)?.name;
-  const levels = [unitName ?? "Overview", ...folders.map((folder) => folder.slice(folder.lastIndexOf("/") + 1))];
+  // Keyed by folder key (the unit's level by ""): unique along one path.
+  const levels = [
+    { key: "", name: unitName ?? "Overview" },
+    ...folders.map((folder) => ({ key: folder, name: folder.slice(folder.lastIndexOf("/") + 1) })),
+  ];
   return (
     <nav aria-label="Architecture path" style={{ padding: "4px 10px", fontSize: 12, borderBottom: "1px solid var(--vscode-widget-border)" }}>
       {summary.units && (
@@ -426,9 +430,9 @@ function Breadcrumb({ summary, unit, folders, onUnits, onLevel, expansions, focu
           {unit !== null && " › "}
         </>
       )}
-      {(!summary.units || unit !== null) && levels.map((name, depth) => (depth < levels.length - 1
-        ? <span key={`level-${depth}`}><button type="button" onClick={() => onLevel(depth)}>{name}</button>{" › "}</span>
-        : <button key={`level-${depth}`} type="button" onClick={onOverview} disabled={focusId === null && entered.length === 0}>{name}</button>))}
+      {(!summary.units || unit !== null) && levels.map(({ key, name }, depth) => (depth < levels.length - 1
+        ? <span key={key}><button type="button" onClick={() => onLevel(depth)}>{name}</button>{" › "}</span>
+        : <button key={key} type="button" onClick={onOverview} disabled={focusId === null && entered.length === 0}>{name}</button>))}
       {focusId !== null && !expansions.has(focusId) && <> › <strong>{labelOf(focusId)}</strong></>}
       {entered.map((id) => (
         <span key={id}>
