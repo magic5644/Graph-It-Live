@@ -41,6 +41,7 @@ const units: ArchitectureUnitLevel = {
   groupUnits: { 1: "apps/web", 2: "apps/web", 3: "packages/ui", 4: "packages/core", 5: "packages/types", 6: "tool" },
   groupLayers: { 1: 1, 2: 0, 3: 0, 4: 0, 5: 0, 6: 0 },
   groupEdgeKinds: { "1>2": "down" },
+  nestedGroups: [],
 };
 
 const summary: ArchitectureSummaryMessage = {

@@ -1,11 +1,19 @@
 import * as path from "node:path";
 import { exploreArchitecture, groupDetail, overviewArchitecture } from "@/analyzer/architecture/ArchitectureExplorer";
 import { buildArchitectureGraph, type AnalyzeFile, type ArchitectureGraph } from "@/analyzer/architecture/ArchitectureGraphBuilder";
-import { assignUnits, buildArchitectureUnits, groupByUnit, layerGroupsWithinUnits } from "@/analyzer/architecture/architectureUnits";
+import {
+  assignUnits,
+  buildArchitectureUnits,
+  groupByUnit,
+  layerGroupsWithinUnits,
+  type ArchitectureUnits,
+  type UnitAssignment,
+} from "@/analyzer/architecture/architectureUnits";
 import type { IndexerStatusSnapshot } from "@/analyzer/IndexerStatus";
 import type {
   ArchitectureControlsMessage,
   ArchitectureDetailRenderedCommand,
+  ArchitectureEnterFolderCommand,
   ArchitectureEvidenceCommand,
   ArchitectureExtensionMessage,
   ArchitectureInteractedCommand,
@@ -78,23 +86,33 @@ function waitForIdleIndex(
   });
 }
 
-/** Inside a unit, a group is named by its folder; the unit's own files by the unit. */
-function groupLabel(group: { key: string }, unit: string, unitName: string): string {
-  return group.key === unit ? unitName : group.key.slice(unit.length + 1);
+/** Inside a unit or folder, a group is named by its sub-folder; the parent's own files by the parent. */
+function groupLabel(group: { key: string }, parent: string, parentName: string): string {
+  return group.key === parent ? parentName : group.key.slice(parent.length + 1);
+}
+
+interface LevelGraph {
+  graph: ArchitectureGraph;
+  files: Set<string>;
+}
+
+type ViewLevel = Omit<ArchitectureSummaryMessage, "type" | "stale"> & { graph: ArchitectureGraph };
+
+/** What a path-mode build keeps to answer a folder level later. */
+interface UnitSource {
+  graph: ArchitectureGraph;
+  units: ArchitectureUnits;
+  assignment: UnitAssignment;
 }
 
 /**
  * In path mode, the units on top and their unit-scoped folder groups below: the groups (and
  * the graph group detail and evidence read) never mix files of two units. Each unit keeps its
  * MAX_RENDERED_GROUPS largest groups (hiddenGroups counts the others), with their layers.
+ * With a folder: that folder's sub-folders and own files, the level below.
  */
-function viewArchitecture(graph: ArchitectureGraph, workspaceRoot: string): Omit<ArchitectureSummaryMessage, "type" | "stale"> & { graph: ArchitectureGraph } {
-  if (graph.context.communityMode !== "path") {
-    return { graph, revision: graph.context.revision, ...overviewArchitecture(graph, MAX_RENDERED_GROUPS) };
-  }
-  const assignment = assignUnits(workspaceRoot, graph.nodes.map((node) => node.relativePath));
-  const units = buildArchitectureUnits(graph, workspaceRoot, assignment);
-  const { graph: grouped, groupUnits } = groupByUnit(graph, units, assignment);
+function viewUnitLevel({ graph, units, assignment }: UnitSource, folder?: string): ViewLevel {
+  const { graph: grouped, groupUnits, nestedGroups } = groupByUnit(graph, units, assignment, folder);
   const { context: _context, ...unitLevel } = units;
   const overview = overviewArchitecture(grouped, Number.POSITIVE_INFINITY);
   const names = new Map(units.units.map((unit) => [unit.key, unit.name]));
@@ -107,7 +125,8 @@ function viewArchitecture(graph: ArchitectureGraph, workspaceRoot: string): Omit
   });
   const labels = new Map(groups.map((group) => {
     const unit = groupUnits[group.id];
-    return [group.id, groupLabel(group, unit, names.get(unit) ?? unit)];
+    const parent = folder ?? unit;
+    return [group.id, groupLabel(group, parent, folder === undefined ? names.get(unit) ?? unit : parent.slice(parent.lastIndexOf("/") + 1))];
   }));
   const groupEdges = overview.groupEdges
     .filter((edge) => labels.has(edge.from) && labels.has(edge.to))
@@ -121,8 +140,22 @@ function viewArchitecture(graph: ArchitectureGraph, workspaceRoot: string): Omit
     groupEdges,
     hiddenGroups: overview.groups.length - groups.length,
     hiddenGroupEdges: overview.groupEdges.length - groupEdges.length,
-    units: { ...unitLevel, groupUnits: shownUnits, ...layerGroupsWithinUnits(groupEdges, shownUnits) },
+    units: {
+      ...unitLevel,
+      groupUnits: shownUnits,
+      ...layerGroupsWithinUnits(groupEdges, shownUnits),
+      nestedGroups: nestedGroups.filter((id) => labels.has(id)),
+    },
   };
+}
+
+function viewArchitecture(graph: ArchitectureGraph, workspaceRoot: string): ViewLevel & { source?: UnitSource } {
+  if (graph.context.communityMode !== "path") {
+    return { graph, revision: graph.context.revision, ...overviewArchitecture(graph, MAX_RENDERED_GROUPS) };
+  }
+  const assignment = assignUnits(workspaceRoot, graph.nodes.map((node) => node.relativePath));
+  const source = { graph, units: buildArchitectureUnits(graph, workspaceRoot, assignment), assignment };
+  return { ...viewUnitLevel(source), source };
 }
 
 /** A page offset from the webview; anything but a non-negative integer reads the first page. */
@@ -143,8 +176,8 @@ function evidencePage(graph: ArchitectureGraph, request: ArchitectureEvidenceCom
  */
 export class ArchitectureViewService {
   private summary: ArchitectureSummaryMessage | null = null;
-  /** The graph of `summary`, which group detail and evidence pages are read from. */
-  private graph: { graph: ArchitectureGraph; files: Set<string> } | null = null;
+  /** The graph of `summary`, which group detail and evidence pages are read from, and of each entered folder. */
+  private graph: (LevelGraph & { source?: UnitSource; folders: Map<string, LevelGraph> }) | null = null;
   private running: { controller: AbortController; communityMode: CommunityMode } | null = null;
   private buildCount = 0;
   private renderCount = 0;
@@ -183,30 +216,38 @@ export class ArchitectureViewService {
         this.detailCount += 1;
         this.lastDetail = message;
         return Promise.resolve();
+      case "architectureEnterFolder":
+        this.enterFolder(message);
+        return Promise.resolve();
       case "architectureExpandGroup":
-        this.answer(message.revision, (graph) => ({
+        this.answer(message.revision, message.folder, (graph) => ({
           type: "architectureGroupDetail",
           revision: message.revision,
+          folder: message.folder,
           detail: groupDetail(graph, message.groupId, { offset: validOffset(message.offset) }),
         }));
         return Promise.resolve();
       case "architectureEvidence":
-        this.answer(message.revision, (graph) => evidencePage(graph, message));
+        this.answer(message.revision, message.folder, (graph) => evidencePage(graph, message));
         return Promise.resolve();
       case "architectureOpenFile":
         return this.openFile(message);
     }
   }
 
-  /** The graph a request's revision points at, or null once it is gone (stale request, rebuild, empty workspace). */
-  private graphFor(revision: string) {
-    if (this.graph?.graph.context.revision === revision) return this.graph;
+  /**
+   * The graph a request's revision points at (an entered folder's when `folder` is set), or null
+   * once it is gone (stale request, rebuild, empty workspace).
+   */
+  private graphFor(revision: string, folder?: string) {
+    const cached = folder === undefined ? this.graph : this.graph?.folders.get(String(folder));
+    if (cached?.graph.context.revision === revision) return cached;
     this.options.post({ type: "architectureRevisionChanged", currentRevision: this.summary?.revision ?? "" });
     return null;
   }
 
-  private answer(revision: string, read: (graph: ArchitectureGraph) => ArchitectureExtensionMessage): void {
-    const cached = this.graphFor(revision);
+  private answer(revision: string, folder: string | undefined, read: (graph: ArchitectureGraph) => ArchitectureExtensionMessage): void {
+    const cached = this.graphFor(revision, folder);
     if (!cached) return;
     try {
       this.options.post(read(cached.graph));
@@ -216,12 +257,26 @@ export class ArchitectureViewService {
     }
   }
 
+  /** Answers the level below a unit or folder of the summary's units (path mode), keeping its graph for the requests made there. */
+  private enterFolder({ revision, folder }: ArchitectureEnterFolderCommand): void {
+    if (!this.graphFor(revision) || !this.graph?.source) return;
+    const { source, folders } = this.graph;
+    const key = String(folder);
+    const { graph, ...level } = viewUnitLevel(source, key);
+    if (graph.nodes.length === 0) {
+      this.options.warn(`Architecture view: no file below "${key.slice(0, 256)}"`);
+      return;
+    }
+    folders.set(key, { graph, files: new Set(graph.nodes.map((node) => node.relativePath)) });
+    this.options.post({ type: "architectureFolderLevel", revision, folder: key, level });
+  }
+
   /**
    * Opens a file of the cached graph. The path comes from the webview: it must be relative,
    * one of the graph's files, and stay in the workspace once symlinks are resolved (CWE-22).
    */
-  private async openFile({ revision, relativePath }: ArchitectureOpenFileCommand): Promise<void> {
-    const cached = this.graphFor(revision);
+  private async openFile({ revision, folder, relativePath }: ArchitectureOpenFileCommand): Promise<void> {
+    const cached = this.graphFor(revision, folder);
     if (!cached) return;
     const relative = normalizePath(String(relativePath));
     const { workspaceRoot } = this.options;
@@ -315,11 +370,11 @@ export class ArchitectureViewService {
         post({ type: "architectureState", status: "empty", message: "No source file found in the workspace folder." });
         return;
       }
-      const { graph: viewGraph, ...overview } = viewArchitecture(graph, this.options.workspaceRoot);
+      const { graph: viewGraph, source, ...overview } = viewArchitecture(graph, this.options.workspaceRoot);
       const files = new Set(viewGraph.nodes.map(node => node.relativePath));
       const { files: changed, any } = this.changedDuringBuild;
       this.summary = { type: "architectureSummary", stale: any || [...changed].some(file => files.has(file)), ...overview };
-      this.graph = { graph: viewGraph, files };
+      this.graph = { graph: viewGraph, files, source, folders: new Map() };
       // Cleared only once posted: a change seen by an aborted build still applies to the next one.
       this.changedDuringBuild = { files: new Set(), any: false };
       post(this.summary);
@@ -347,6 +402,7 @@ export class ArchitectureViewService {
       overflowingLabels: this.lastRender?.overflowingLabels ?? 0,
       positions: this.lastRender?.positions,
       unit: this.lastRender?.unit,
+      folder: this.lastRender?.folder,
       unitLevel: this.lastRender?.unitLevel,
       resizeCount: this.resizeCount,
       viewSize: this.viewSize,
@@ -359,11 +415,12 @@ export class ArchitectureViewService {
 
   /** E2E driver: sets the webview's controls; any extension can call it, so check the values. */
   setControls(controls: Omit<ArchitectureControlsMessage, "type"> | undefined): void {
-    const { unit, find, minImports, focus, expand, collapse, evidenceOf, openEvidenceRow } = controls ?? {};
+    const { unit, folder, find, minImports, focus, expand, collapse, evidenceOf, openEvidenceRow } = controls ?? {};
     const text = (value: unknown) => (typeof value === "string" ? value.slice(0, 256) : undefined);
     this.options.post({
       type: "architectureControls",
       unit: text(unit),
+      folder: text(folder),
       find: text(find),
       minImports: Number.isSafeInteger(minImports) && Number(minImports) >= 1 ? minImports : undefined,
       focus: text(focus),

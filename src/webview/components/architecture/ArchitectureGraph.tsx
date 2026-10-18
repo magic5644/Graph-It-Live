@@ -15,6 +15,7 @@ import type {
   ArchitectureControlsMessage,
   ArchitectureEvidencePageMessage,
   ArchitectureExtensionMessage,
+  ArchitectureFolderLevelMessage,
   ArchitectureGroupDetailMessage,
   ArchitectureStateMessage,
   ArchitectureSummaryMessage,
@@ -90,6 +91,7 @@ function renderedReport(
   summary: ArchitectureSummaryMessage,
   groups: cytoscape.NodeCollection,
   unit: string | null,
+  folder: string | undefined,
 ): ArchitectureWebviewCommand {
   return {
     command: "architectureRendered",
@@ -100,6 +102,7 @@ function renderedReport(
     stale: summary.stale,
     ...measureLayout(groups),
     unit: unit ?? undefined,
+    folder,
     unitLevel: summary.units && unit === null ? measureUnitLevel(cy) : undefined,
   };
 }
@@ -188,6 +191,12 @@ interface EvidenceState {
   total?: number;
   nextOffset?: number;
 }
+
+/** What a render fits: the focus, an entered group, everything, or the level's last viewport. */
+type Fit = "focus" | "enter" | "all" | "restore";
+
+/** Key of a level: the units (null), a unit's top folders, or one of its folders. */
+const levelKey = (unit: string | null, folder: string | undefined) => `${unit ?? ""}>${folder ?? ""}`;
 
 const sameEnds = (left: EvidenceEnds, right: EvidenceEnds) =>
   left.from === right.from && left.to === right.to && left.sourceFile === right.sourceFile && left.targetFile === right.targetFile;
@@ -388,7 +397,11 @@ interface BreadcrumbProps {
   summary: ArchitectureSummaryMessage;
   /** Entered unit; null at the units level or without units. */
   unit: string | null;
+  /** Entered folders within the unit, outermost first. */
+  folders: readonly string[];
   onUnits: () => void;
+  /** Back to the unit's top level (0) or to its depth-th entered folder. */
+  onLevel: (depth: number) => void;
   expansions: Expansions;
   focusId: number | null;
   onOverview: () => void;
@@ -396,11 +409,15 @@ interface BreadcrumbProps {
   onLeave: (groupId: number) => void;
 }
 
-/** Where the view is: the overview, the focused group, the entered groups, each with a way back. */
-function Breadcrumb({ summary, unit, onUnits, expansions, focusId, onOverview, onFocus, onLeave }: Readonly<BreadcrumbProps>) {
+/**
+ * Where the view is: the units, the entered unit and folders (each returns to its level), then the
+ * focused group and the entered groups of the drawn level, each with a way back.
+ */
+function Breadcrumb({ summary, unit, folders, onUnits, onLevel, expansions, focusId, onOverview, onFocus, onLeave }: Readonly<BreadcrumbProps>) {
   const labelOf = (id: number) => (id === 0 ? "unassigned" : summary.groups.find((group) => group.id === id)?.label ?? `group ${id}`);
   const entered = [...expansions.keys()];
   const unitName = summary.units?.units.find((entry) => entry.key === unit)?.name;
+  const levels = [unitName ?? "Overview", ...folders.map((folder) => folder.slice(folder.lastIndexOf("/") + 1))];
   return (
     <nav aria-label="Architecture path" style={{ padding: "4px 10px", fontSize: 12, borderBottom: "1px solid var(--vscode-widget-border)" }}>
       {summary.units && (
@@ -409,9 +426,9 @@ function Breadcrumb({ summary, unit, onUnits, expansions, focusId, onOverview, o
           {unit !== null && " › "}
         </>
       )}
-      {(!summary.units || unit !== null) && (
-        <button type="button" onClick={onOverview} disabled={focusId === null && entered.length === 0}>{unitName ?? "Overview"}</button>
-      )}
+      {(!summary.units || unit !== null) && levels.map((name, depth) => (depth < levels.length - 1
+        ? <span key={`level-${depth}`}><button type="button" onClick={() => onLevel(depth)}>{name}</button>{" › "}</span>
+        : <button key={`level-${depth}`} type="button" onClick={onOverview} disabled={focusId === null && entered.length === 0}>{name}</button>))}
       {focusId !== null && !expansions.has(focusId) && <> › <strong>{labelOf(focusId)}</strong></>}
       {entered.map((id) => (
         <span key={id}>
@@ -469,8 +486,22 @@ export function ArchitectureGraph({ postMessage }: Readonly<ArchitectureGraphPro
   const [focusId, setFocusId] = useState<number | null>(null);
   /** Entered unit (path mode): its folder groups are drawn; null draws the units. */
   const [unit, setUnit] = useState<string | null>(null);
-  /** What the current level draws, shaped as a summary (units, one unit's groups, or every group). */
-  const drawn = useMemo(() => (summary ? levelSummary(summary, unit) : null), [summary, unit]);
+  /** Entered folders within the unit, outermost first: the last one's level is drawn. */
+  const [folders, setFolders] = useState<readonly string[]>([]);
+  const folder = folders.at(-1);
+  /** Levels received per folder key, for this revision. */
+  const levelsRef = useRef(new Map<string, ArchitectureFolderLevelMessage["level"]>());
+  /** Viewport per level, for this revision: the breadcrumb returns to it. */
+  const viewportsRef = useRef(new Map<string, { zoom: number; pan: cytoscape.Position }>());
+  /** Folder asked for: drawn when its level arrives, unless the view went elsewhere meanwhile. */
+  const pendingFolderRef = useRef<string | null>(null);
+  /** The summary, or the entered folder's level shaped as one. */
+  const source = useMemo(() => {
+    const level = folder === undefined ? undefined : levelsRef.current.get(folder);
+    return summary && level ? { ...level, type: "architectureSummary" as const, stale: summary.stale } : summary;
+  }, [summary, folder]);
+  /** What the current level draws, shaped as a summary (units, one unit's or folder's groups, or every group). */
+  const drawn = useMemo(() => (source ? levelSummary(source, unit) : null), [source, unit]);
   /** Tapped element or find matches: what the highlight returns to after a hover. */
   const pinnedRef = useRef<cytoscape.Collection | null>(null);
   // Messages and Cytoscape events read the latest values here: several can arrive before a render.
@@ -479,13 +510,15 @@ export function ArchitectureGraph({ postMessage }: Readonly<ArchitectureGraphPro
   const evidenceRef = useRef(evidence);
   const focusRef = useRef(focusId);
   const unitRef = useRef(unit);
-  /** What the next render fits: the focus, an entered group once its files are drawn, or everything. */
-  const fitRef = useRef<"focus" | "enter" | "all" | null>(null);
+  const foldersRef = useRef(folders);
+  /** What the next render fits: the focus, an entered group once its files are drawn, everything, or the level's last viewport. */
+  const fitRef = useRef<Fit | null>(null);
   /** What the last render drew: its level (to report a new one once) and its counts. */
   const renderedRef = useRef<{
-    summary: ArchitectureSummaryMessage | null; unit: string | null; renderedFiles: number; groupLevelEdges: number; visibleGroups: number;
+    summary: ArchitectureSummaryMessage | null; unit: string | null; folder: string | undefined;
+    renderedFiles: number; groupLevelEdges: number; visibleGroups: number;
   }>({
-    summary: null, unit: null, renderedFiles: 0, groupLevelEdges: 0, visibleGroups: 0,
+    summary: null, unit: null, folder: undefined, renderedFiles: 0, groupLevelEdges: 0, visibleGroups: 0,
   });
 
   const updateExpansions = (next: Expansions) => {
@@ -496,7 +529,7 @@ export function ArchitectureGraph({ postMessage }: Readonly<ArchitectureGraphPro
     evidenceRef.current = next;
     setEvidence(next);
   };
-  const updateFocus = (next: number | null, fit: "focus" | "enter" | "all") => {
+  const updateFocus = (next: number | null, fit: Fit) => {
     focusRef.current = next;
     setFocusId(next);
     fitRef.current = fit;
@@ -505,13 +538,19 @@ export function ArchitectureGraph({ postMessage }: Readonly<ArchitectureGraphPro
 
   /** Offset of the page requested per group: any other page (a late answer after leaving a group) is dropped. */
   const pendingRef = useRef(new Map<number, number>());
+  /** The drawn level's revision and folder: every request names the level its group ids come from. */
+  const levelOf = () => {
+    const current = foldersRef.current.at(-1);
+    const revision = current === undefined ? summaryRef.current?.revision : levelsRef.current.get(current)?.revision;
+    return revision === undefined ? undefined : { revision, folder: current };
+  };
 
   // Expanding, paging, collapsing and evidence, shared by clicks, keys, messages and the E2E driver.
   const requestPage = (groupId: number, offset: number) => {
-    const revision = summaryRef.current?.revision;
-    if (revision === undefined) return;
+    const at = levelOf();
+    if (!at) return;
     pendingRef.current.set(groupId, offset);
-    post({ command: "architectureExpandGroup", revision, groupId, offset });
+    post({ command: "architectureExpandGroup", ...at, groupId, offset });
   };
   const expand = (groupId: number) => {
     if (!expansionsRef.current.has(groupId)) requestPage(groupId, 0);
@@ -528,42 +567,64 @@ export function ArchitectureGraph({ postMessage }: Readonly<ArchitectureGraphPro
     setCapReached(false);
   };
   const showEvidence = (edge: cytoscape.EdgeSingular) => {
-    const revision = summaryRef.current?.revision;
-    if (revision === undefined) return;
+    const at = levelOf();
+    if (!at) return;
     const ends: EvidenceEnds = { from: edge.data("from"), to: edge.data("to") };
     if (edge.data("sourceFile") !== undefined) ends.sourceFile = edge.data("sourceFile");
     if (edge.data("targetFile") !== undefined) ends.targetFile = edge.data("targetFile");
     const edgeCount = Number(edge.data("fileEdgeCount"));
     const title = `${edge.data("fromName")} → ${edge.data("toName")}: ${edgeCount} file pair${edgeCount === 1 ? "" : "s"} (static imports)`;
     updateEvidence({ ends, title, edgeCount, pairs: [] });
-    post({ command: "architectureEvidence", revision, ...ends, offset: 0 });
+    post({ command: "architectureEvidence", ...at, ...ends, offset: 0 });
   };
   const moreEvidence = () => {
-    const revision = summaryRef.current?.revision;
+    const at = levelOf();
     const current = evidenceRef.current;
-    if (revision !== undefined && current?.nextOffset !== undefined) {
-      post({ command: "architectureEvidence", revision, ...current.ends, offset: current.pairs.length });
+    if (at && current?.nextOffset !== undefined) {
+      post({ command: "architectureEvidence", ...at, ...current.ends, offset: current.pairs.length });
     }
   };
   const openFile = (relativePath: string) => {
-    const revision = summaryRef.current?.revision;
-    if (revision !== undefined) post({ command: "architectureOpenFile", revision, relativePath });
+    const at = levelOf();
+    if (at) post({ command: "architectureOpenFile", ...at, relativePath });
   };
   /** Enters a group: focuses it, expands it and zooms on it once its files are drawn. */
   const enter = (groupId: number) => {
     updateFocus(groupId, "enter");
     expand(groupId);
   };
-  /** Enters a unit (null: back to the units): its folder groups, nothing expanded or focused. */
-  const selectUnit = (next: string | null) => {
+  /**
+   * Draws another level (a unit, null for the units, and the folders entered in it): nothing
+   * expanded or focused, and the viewport it was left with when it was drawn before.
+   */
+  const goTo = (nextUnit: string | null, nextFolders: readonly string[]) => {
+    const cy = cyRef.current;
+    if (cy) viewportsRef.current.set(levelKey(unitRef.current, foldersRef.current.at(-1)), { zoom: cy.zoom(), pan: { ...cy.pan() } });
     pendingRef.current.clear();
+    pendingFolderRef.current = null;
     updateExpansions(NO_EXPANSION);
     updateEvidence(null);
     setCapReached(false);
-    updateFocus(null, "all");
-    unitRef.current = next;
-    setUnit(next);
+    updateFocus(null, viewportsRef.current.has(levelKey(nextUnit, nextFolders.at(-1))) ? "restore" : "all");
+    unitRef.current = nextUnit;
+    setUnit(nextUnit);
+    foldersRef.current = nextFolders;
+    setFolders(nextFolders);
   };
+  /** Enters a unit (null: back to the units): its folder groups. */
+  const selectUnit = (next: string | null) => goTo(next, []);
+  /** Enters a folder of the drawn level: drawn at once if its level was received, else once it is. */
+  const enterFolder = (key: string) => {
+    const revision = summaryRef.current?.revision;
+    if (revision === undefined) return;
+    if (levelsRef.current.has(key)) {
+      goTo(unitRef.current, [...foldersRef.current, key]);
+      return;
+    }
+    pendingFolderRef.current = key;
+    post({ command: "architectureEnterFolder", revision, folder: key });
+  };
+  const upOneFolder = () => goTo(unitRef.current, foldersRef.current.slice(0, -1));
   /** Back to the whole architecture: every group collapsed, no focus. */
   const overview = () => {
     pendingRef.current.clear();
@@ -575,7 +636,13 @@ export function ArchitectureGraph({ postMessage }: Readonly<ArchitectureGraphPro
     collapse(groupId);
     fitRef.current = "focus";
   };
-  const reset = () => selectUnit(null);
+  /** A new revision: back to the units, and the levels and viewports of the old one are gone. */
+  const reset = () => {
+    goTo(null, []);
+    levelsRef.current.clear();
+    viewportsRef.current.clear();
+    fitRef.current = "all";
+  };
   const isGroup = (target: cytoscape.SingularElementArgument) => target.isNode() && !target.data("file") && !target.data("more");
   /** A click: an edge opens its evidence (a unit edge only highlights), a group gets the focus, "+N more" loads a page. */
   const tap = (target: cytoscape.SingularElementArgument) => {
@@ -585,15 +652,16 @@ export function ArchitectureGraph({ postMessage }: Readonly<ArchitectureGraphPro
     else if (target.data("more")) loadMore(target.data("groupId"));
     else if (isGroup(target)) updateFocus(target.data("groupId"), "focus");
   };
-  /** A double click enters a unit or a group. */
+  /** A double click enters a unit, a folder holding sub-folders, or a group (its files). */
   const dbltap = (target: cytoscape.SingularElementArgument) => {
     if (target.isNode() && target.data("unitKey") !== undefined) selectUnit(target.data("unitKey"));
+    else if (target.isNode() && target.data("folder") !== undefined) enterFolder(target.data("folder"));
     else if (isGroup(target)) enter(target.data("groupId"));
   };
   /**
    * The canvas has no focusable nodes: the tapped node is the selected one. Enter enters it
    * (outside text fields and buttons); Escape closes the evidence, else leaves the last entered
-   * group, else drops the focus, else goes back to the units, else clears the highlight.
+   * group, else drops the focus, else goes up one folder, else back to the units, else clears the highlight.
    */
   const key = (event: KeyboardEvent, clearFocus: () => void) => {
     const selected = pinnedRef.current?.length === 1 ? pinnedRef.current[0] : undefined;
@@ -607,6 +675,7 @@ export function ArchitectureGraph({ postMessage }: Readonly<ArchitectureGraphPro
     if (evidenceRef.current) updateEvidence(null);
     else if (lastEntered !== undefined) leave(lastEntered);
     else if (focusRef.current !== null) updateFocus(null, "all");
+    else if (foldersRef.current.length > 0) upOneFolder();
     else if (unitRef.current !== null) selectUnit(null);
     else clearFocus();
   };
@@ -617,8 +686,14 @@ export function ArchitectureGraph({ postMessage }: Readonly<ArchitectureGraphPro
     setSummary(message);
     setState(null);
   };
+  const receiveFolderLevel = ({ revision, folder: key, level }: ArchitectureFolderLevelMessage) => {
+    if (revision !== summaryRef.current?.revision || pendingFolderRef.current !== key) return;
+    levelsRef.current.set(key, level);
+    goTo(unitRef.current, [...foldersRef.current, key]);
+  };
   const receiveDetail = ({ revision, detail }: ArchitectureGroupDetailMessage) => {
-    if (revision !== summaryRef.current?.revision || pendingRef.current.get(detail.group.id) !== detail.page.offset) return;
+    // A level's revision covers its folder: a page for another level is dropped.
+    if (revision !== levelOf()?.revision || pendingRef.current.get(detail.group.id) !== detail.page.offset) return;
     pendingRef.current.delete(detail.group.id);
     const merged = mergeGroupDetail(expansionsRef.current, detail);
     updateExpansions(merged.expansions);
@@ -627,15 +702,15 @@ export function ArchitectureGraph({ postMessage }: Readonly<ArchitectureGraphPro
   const receiveEvidence = (page: ArchitectureEvidencePageMessage) => {
     const current = evidenceRef.current;
     // A page for another edge, revision or offset (a late answer, a double click) is dropped.
-    if (!current || page.revision !== summaryRef.current?.revision || !sameEnds(current.ends, page)) return;
+    if (!current || page.revision !== levelOf()?.revision || !sameEnds(current.ends, page)) return;
     if (page.page.offset !== current.pairs.length) return;
     updateEvidence({ ...current, pairs: [...current.pairs, ...page.pairs], total: page.page.total, nextOffset: page.page.nextOffset });
   };
   /** The id of the drawn group with this key (E2E driver). */
   const groupOf = (groupKey: string | undefined): number | undefined => {
     if (!groupKey) return undefined;
-    const key = `${summaryRef.current?.context.communityMode}:${groupKey}`;
-    return Array.from(cyRef.current?.nodes() ?? []).find((node) => !node.isChild() && node.data("key") === key)?.data("groupId");
+    return Array.from(cyRef.current?.nodes() ?? [])
+      .find((node) => !node.isChild() && node.data("unitKey") === undefined && node.data("groupKey") === groupKey)?.data("groupId");
   };
   /** E2E driver: selects the first edge of a group (its evidence opens), then clicks a row's source. */
   const controlEvidence = ({ evidenceOf, openEvidenceRow }: ArchitectureControlsMessage) => {
@@ -653,6 +728,11 @@ export function ArchitectureGraph({ postMessage }: Readonly<ArchitectureGraphPro
       selectUnit(message.unit === "" ? null : message.unit);
       return;
     }
+    if (message.folder !== undefined) {
+      if (message.folder === "") upOneFolder();
+      else enterFolder(message.folder);
+      return;
+    }
     if (message.find !== undefined) setQuery(message.find);
     if (message.minImports !== undefined) setMinImports(message.minImports);
     if (message.focus === "") updateFocus(null, "all");
@@ -668,6 +748,8 @@ export function ArchitectureGraph({ postMessage }: Readonly<ArchitectureGraphPro
     switch (message.type) {
       case "architectureSummary":
         return receiveSummary(message);
+      case "architectureFolderLevel":
+        return receiveFolderLevel(message);
       case "architectureState":
         return setState(message);
       case "architectureGroupDetail":
@@ -681,7 +763,7 @@ export function ArchitectureGraph({ postMessage }: Readonly<ArchitectureGraphPro
         return control(message);
     }
   };
-  const actions = { tap, dbltap, key, openFile, moreEvidence, receive, overview, leave, updateFocus, selectUnit };
+  const actions = { tap, dbltap, key, openFile, moreEvidence, receive, overview, leave, updateFocus, selectUnit, goTo };
   const actionsRef = useRef(actions);
   actionsRef.current = actions;
 
@@ -774,22 +856,22 @@ export function ArchitectureGraph({ postMessage }: Readonly<ArchitectureGraphPro
   useEffect(() => {
     const cy = cyRef.current;
     const elk = elkRef.current;
-    if (!cy || !elk || !summary || !drawn) return;
+    if (!cy || !elk || !summary || !source || !drawn) return;
     const run = ++layoutRunRef.current;
     // Shown again by any render: only a pending ELK layout hides the canvas.
     cy.container()?.style.removeProperty("visibility");
     const previous = renderedRef.current.summary;
     const freshRevision = previous?.revision !== summary.revision;
     // A new level re-fits like a new revision; a page, a collapse or a stale mark keeps the viewport.
-    const freshLevel = freshRevision || renderedRef.current.unit !== unit;
+    const freshLevel = freshRevision || renderedRef.current.unit !== unit || renderedRef.current.folder !== folder;
     if (freshRevision) filePositions.clear();
     // A page, a collapse or a stale mark redraws the same graph: keep what was tapped.
     const pinnedIds = new Set(freshLevel ? [] : (pinnedRef.current?.map((element) => element.id()) ?? []));
-    const elements = toLevelElements(summary, unit, expansions);
+    const elements = toLevelElements(source, unit, expansions, folder);
     cy.elements().remove();
     cy.add(elements);
     pinnedRef.current = pinnedIds.size > 0 ? cy.elements().filter((element) => pinnedIds.has(element.id())) : null;
-    renderedRef.current = { summary: drawn, unit, ...countRendered(elements), visibleGroups: 0 };
+    renderedRef.current = { summary: drawn, unit, folder, ...countRendered(elements), visibleGroups: 0 };
     const groups = cy.nodes().filter((node) => !node.isChild());
     const finish = (fit: boolean) => {
       settleLayout(cy, groups);
@@ -797,7 +879,7 @@ export function ArchitectureGraph({ postMessage }: Readonly<ArchitectureGraphPro
       if (previous === drawn) return;
       // Measured after the min-imports filter, which runs in a later effect.
       applyMinImports(cy, minImportsRef.current);
-      postMessageRef.current(renderedReport(cy, summary, groups, unit));
+      postMessageRef.current(renderedReport(cy, summary, groups, unit, folder));
     };
     const restored = restorePositions(cy, groups);
     if (!restored && summary.units) {
@@ -816,7 +898,7 @@ export function ArchitectureGraph({ postMessage }: Readonly<ArchitectureGraphPro
     placeNewFiles(cy, filePositions, (group) => savedLayout.get(group.data("key")) ?? { x: 0, y: 0 });
     // Only a new revision or level re-fits: a page, a collapse or a stale mark keeps the viewport.
     finish(freshLevel);
-  }, [summary, drawn, unit, expansions]);
+  }, [summary, source, drawn, unit, folder, expansions]);
 
   // After each render: hide what the focus leaves out, then fit what was asked for.
   useEffect(() => {
@@ -831,10 +913,12 @@ export function ArchitectureGraph({ postMessage }: Readonly<ArchitectureGraphPro
       if (!pendingRef.current.has(Number(focusId))) fitRef.current = null;
       return;
     }
-    if (fit === "all") fitReadable(cy);
+    const viewport = fit === "restore" ? viewportsRef.current.get(levelKey(unit, folder)) : undefined;
+    if (viewport) cy.viewport(viewport);
+    else if (fit === "all" || fit === "restore") fitReadable(cy);
     else if (fit !== null) cy.fit(fit === "enter" ? group : shown, 30);
     fitRef.current = null;
-  }, [summary, drawn, expansions, focusId]);
+  }, [summary, drawn, unit, folder, expansions, focusId]);
 
   // Before the highlight effects, so their report stays the last message of a render.
   useEffect(() => {
@@ -872,7 +956,7 @@ export function ArchitectureGraph({ postMessage }: Readonly<ArchitectureGraphPro
     pinnedRef.current = matches;
     showFocus(cy, matches, postMessageRef.current);
     if (matches.nonempty()) cy.center(matches);
-  }, [revision, unit, query]);
+  }, [revision, unit, folder, query]);
 
   const refresh = () => postMessageRef.current({ command: "architectureRefresh" });
   return (
@@ -893,7 +977,9 @@ export function ArchitectureGraph({ postMessage }: Readonly<ArchitectureGraphPro
           <Breadcrumb
             summary={drawn}
             unit={unit}
+            folders={folders}
             onUnits={() => actionsRef.current.selectUnit(null)}
+            onLevel={(depth) => actionsRef.current.goTo(unit, folders.slice(0, depth))}
             expansions={expansions}
             focusId={focusId}
             onOverview={() => actionsRef.current.overview()}

@@ -10,7 +10,7 @@ import {
   maskWorkspaceRoot,
   type ArchitectureViewServiceOptions,
 } from "../../src/extension/services/ArchitectureViewService";
-import type { ArchitectureExtensionMessage, ArchitectureSummaryMessage } from "../../src/shared/architecture-types";
+import type { ArchitectureExtensionMessage, ArchitectureFolderLevelMessage, ArchitectureSummaryMessage } from "../../src/shared/architecture-types";
 import type { CommunityMode } from "../../src/shared/graph-types";
 import { normalizePath } from "../../src/shared/path";
 
@@ -202,6 +202,70 @@ describe("ArchitectureViewService", () => {
     } finally {
       await fs.rm(wide, { recursive: true, force: true });
     }
+  });
+
+  it("answers a folder level, then the group pages, evidence and files of that level", async () => {
+    const nested = {
+      "app/src/core/engine.ts": ["app/src/core/util/math.ts", "app/src/ui/view.ts"],
+      "app/src/core/util/math.ts": [],
+      "app/src/ui/view.ts": ["app/src/core/util/math.ts"],
+    };
+    const deep = await fs.realpath(await fs.mkdtemp(path.join(os.tmpdir(), "gitl-architecture-folders-")));
+    try {
+      await writeWorkspace(deep, nested);
+      const service = createService({ workspaceRoot: deep, analyzeFile: analyzerFor(deep, nested) });
+      await service.build();
+      const [summary] = summaries();
+      const top = (key: string) => summary.groups.find(group => group.key === key)!.id;
+      expect(summary.units!.nestedGroups).toEqual([top("app/core")]);
+
+      await service.handleWebviewMessage({ command: "architectureEnterFolder", revision: summary.revision, folder: "app/core" });
+      const entered = posted.at(-1) as ArchitectureFolderLevelMessage;
+      expect(entered).toMatchObject({ type: "architectureFolderLevel", revision: summary.revision, folder: "app/core" });
+      const { level } = entered;
+      expect(level.revision).not.toBe(summary.revision);
+      expect(level.groups.map(group => `${group.label}:${group.fileCount}`).sort()).toEqual(["core:1", "util:1"]);
+      expect(level.groupEdges.map(edge => `${edge.fromLabel}>${edge.toLabel}`)).toEqual(["core>util"]);
+      expect(level.units!.nestedGroups).toEqual([]);
+
+      const util = level.groups.find(group => group.key === "app/core/util")!.id;
+      const core = level.groups.find(group => group.key === "app/core")!.id;
+      await service.handleWebviewMessage({ command: "architectureExpandGroup", revision: level.revision, folder: "app/core", groupId: util });
+      expect(posted.at(-1)).toMatchObject({ type: "architectureGroupDetail", folder: "app/core", detail: { files: [{ relativePath: "app/src/core/util/math.ts" }] } });
+      await service.handleWebviewMessage({ command: "architectureEvidence", revision: level.revision, folder: "app/core", from: core, to: util });
+      expect(posted.at(-1)).toMatchObject({ type: "architectureEvidencePage", pairs: [{ source: "app/src/core/engine.ts", target: "app/src/core/util/math.ts" }] });
+      await service.handleWebviewMessage({ command: "architectureOpenFile", revision: level.revision, folder: "app/core", relativePath: "app/src/core/engine.ts" });
+      expect(opened).toEqual([path.join(deep, "app/src/core/engine.ts")]);
+      // A file of the workspace outside the level is not one of its files.
+      await service.handleWebviewMessage({ command: "architectureOpenFile", revision: level.revision, folder: "app/core", relativePath: "app/src/ui/view.ts" });
+      expect(opened).toHaveLength(1);
+      expect(warnings.at(-1)).toContain("refused to open a file");
+
+      // The level's ids are not the top level's: the top revision with the folder, or the reverse, is stale.
+      await service.handleWebviewMessage({ command: "architectureExpandGroup", revision: summary.revision, folder: "app/core", groupId: util });
+      expect(posted.at(-1)).toEqual({ type: "architectureRevisionChanged", currentRevision: summary.revision });
+      await service.handleWebviewMessage({ command: "architectureEvidence", revision: level.revision, from: core, to: util });
+      expect(posted.at(-1)).toEqual({ type: "architectureRevisionChanged", currentRevision: summary.revision });
+
+      const count = posted.length;
+      await service.handleWebviewMessage({ command: "architectureEnterFolder", revision: summary.revision, folder: "nowhere" });
+      expect(posted).toHaveLength(count);
+      expect(warnings.at(-1)).toBe('Architecture view: no file below "nowhere"');
+      await service.handleWebviewMessage({ command: "architectureEnterFolder", revision: "old", folder: "app/core" });
+      expect(posted.at(-1)).toEqual({ type: "architectureRevisionChanged", currentRevision: summary.revision });
+    } finally {
+      await fs.rm(deep, { recursive: true, force: true });
+    }
+  });
+
+  it("has no folder levels in Louvain mode", async () => {
+    communityMode = "louvain";
+    const service = createService();
+    await service.build();
+    const [summary] = summaries();
+    const count = posted.length;
+    await service.handleWebviewMessage({ command: "architectureEnterFolder", revision: summary.revision, folder: "src" });
+    expect(posted).toHaveLength(count);
   });
 
   it("posts the summary stale when a file changed during its build", async () => {
@@ -492,7 +556,7 @@ describe("ArchitectureViewService", () => {
     });
     expect(service.getE2EState()).toEqual({
       buildCount: 0, renderCount: 1, groupCount: 3, groupEdgeCount: 2, revision: "abc", communityMode: "path", stale: true,
-      overlappingGroups: 1, overflowingLabels: 2, positions: "path:ui@0,0", unit: undefined, unitLevel: undefined,
+      overlappingGroups: 1, overflowingLabels: 2, positions: "path:ui@0,0", unit: undefined, folder: undefined, unitLevel: undefined,
       resizeCount: 0, viewSize: { width: 0, height: 0 },
       interactionCount: 0, interaction: null, detailCount: 0, detail: null,
     });
@@ -662,8 +726,15 @@ describe("ArchitectureViewService", () => {
 
       service.setControls({ unit: "apps/web", expand: "ui", collapse: "store", evidenceOf: "ui", openEvidenceRow: 0 });
       expect(posted.at(-1)).toMatchObject({ unit: "apps/web", expand: "ui", collapse: "store", evidenceOf: "ui", openEvidenceRow: 0 });
-      service.setControls({ unit: 3, expand: 1, openEvidenceRow: -1 } as never);
-      expect(posted.at(-1)).toMatchObject({ unit: undefined, expand: undefined, openEvidenceRow: undefined });
+      service.setControls({ unit: 3, folder: 4, expand: 1, openEvidenceRow: -1 } as never);
+      expect(posted.at(-1)).toMatchObject({ unit: undefined, folder: undefined, expand: undefined, openEvidenceRow: undefined });
+      service.setControls({ folder: "apps/web/pages" });
+      expect(posted.at(-1)).toMatchObject({ folder: "apps/web/pages" });
+      await service.handleWebviewMessage({
+        command: "architectureRendered", revision: "abc", renderedGroups: 2, renderedGroupEdges: 1, communityMode: "path", stale: false,
+        overlappingGroups: 0, overflowingLabels: 0, positions: "", unit: "apps/web", folder: "apps/web/pages",
+      });
+      expect(service.getE2EState().folder).toBe("apps/web/pages");
     });
   });
 });

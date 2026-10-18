@@ -1,0 +1,79 @@
+{
+  "app": {
+    "revision": "2bfdbde3e60a7ca839ca6282704abdba11fac4742104c5d25739441a296bab1c",
+    "totals": {
+      "files": 7,
+      "fileEdges": 8,
+      "intraGroupEdges": 4,
+      "interGroupEdges": 4
+    },
+    "groups": [
+      "app 1 files 0 internal",
+      "app/core 4 files 3 internal",
+      "app/ui 2 files 1 internal"
+    ],
+    "groupEdges": [
+      "app > app/core 1",
+      "app > app/ui 1",
+      "app/core > app/ui 1",
+      "app/ui > app/core 1"
+    ],
+    "nested": [
+      "app/core",
+      "app/ui"
+    ]
+  },
+  "app/core": {
+    "revision": "706ca7def40253c946decf49a9b5e93c35e1f4c7c5e0751d355889776f0bb693",
+    "totals": {
+      "files": 4,
+      "fileEdges": 3,
+      "intraGroupEdges": 2,
+      "interGroupEdges": 1
+    },
+    "groups": [
+      "app/core 2 files 1 internal",
+      "app/core/util 2 files 1 internal"
+    ],
+    "groupEdges": [
+      "app/core > app/core/util 1"
+    ],
+    "nested": [
+      "app/core/util"
+    ]
+  },
+  "app/core/util": {
+    "revision": "a6bca78e894b0fcabd490d37e70b5e2e252edd51605e16d558e5e15f412b0251",
+    "totals": {
+      "files": 2,
+      "fileEdges": 1,
+      "intraGroupEdges": 0,
+      "interGroupEdges": 1
+    },
+    "groups": [
+      "app/core/util 1 files 0 internal",
+      "app/core/util/deep 1 files 0 internal"
+    ],
+    "groupEdges": [
+      "app/core/util > app/core/util/deep 1"
+    ],
+    "nested": []
+  },
+  "app/ui": {
+    "revision": "561cc7e796578887c26ed87deb1e43d81cc4804e85a23e808a48675fc6f10ced",
+    "totals": {
+      "files": 2,
+      "fileEdges": 1,
+      "intraGroupEdges": 0,
+      "interGroupEdges": 1
+    },
+    "groups": [
+      "app/ui 1 files 0 internal",
+      "app/ui/widgets 1 files 0 internal"
+    ],
+    "groupEdges": [
+      "app/ui/widgets > app/ui 1"
+    ],
+    "nested": []
+  }
+}

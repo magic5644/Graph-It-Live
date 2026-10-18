@@ -38,12 +38,17 @@ function inferCommonDirPrefixLen(relPaths: string[]): number {
  * Exported for reuse (webview legend keeps its own copy — no cross-layer import).
  */
 export function domainFromDirParts(dirParts: string[], commonPrefixLen: number): string | undefined {
+  return dirParts[domainIndex(dirParts, commonPrefixLen)];
+}
+
+/** Index of the domain in dirParts (dirParts.length when none): the folders below it are its sub-folders. */
+export function domainIndex(dirParts: string[], commonPrefixLen: number): number {
   let startIdx = commonPrefixLen;
   // Advance past the LAST umbrella dir in the leading run so nested roots collapse.
   for (let i = commonPrefixLen; i < dirParts.length; i++) {
     if (UMBRELLA_DIRS.has(dirParts[i])) startIdx = i + 1;
   }
-  return dirParts[startIdx];
+  return startIdx;
 }
 
 /**

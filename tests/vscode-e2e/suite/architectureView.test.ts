@@ -15,6 +15,8 @@ interface ArchitectureRender {
   positions?: string;
   /** Entered unit; undefined at the units level. */
   unit?: string;
+  /** Entered folder within the unit; undefined at its top level. */
+  folder?: string;
   unitLevel?: { units: number; colors: number; redEdges: number; edgesNotDown: number; routedEdges: number; hiddenEdges: number; minLabelPx: number };
 }
 
@@ -23,12 +25,21 @@ interface ArchitectureRender {
 //   node dist/graph-it.js architecture --groups --communities louvain --format json -w tests/fixtures
 // Path mode draws the units (11 packages or (root), 9 unit edges, the 2 edges of the
 // workspaces-project core ↔ types cycle in red); (root) holds 18 folder groups and 4 group edges.
+//   node dist/graph-it.js architecture --folder "(root)/graphql-project" --format json -w tests/fixtures
 // Louvain: rendered groups = groups.length + 1 for the unassigned files.
 const EXPECTED = {
   units: { groups: 11, groupEdges: 9, redEdges: 2 },
   root: { groups: 18, groupEdges: 4 },
+  graphql: { groups: 3, groupEdges: 2, evidenceOf: '(root)/graphql-project/queries' },
   louvain: { groups: 24 + 1, groupEdges: 1 },
 } as const;
+
+/** Enters a folder of the drawn level (empty: up one level), then waits for the render of `expected`. */
+async function enterFolder(folder: string, expected: string | undefined): Promise<ArchitectureRender> {
+  const before = (await readRender()).renderCount;
+  await vscode.commands.executeCommand('graph-it-live.e2eArchitectureControls', { folder });
+  return waitForRender(`the ${expected ?? 'unit'} render`, before, render => render.folder === expected);
+}
 
 /** Enters a unit (empty: back to the units), then waits for its render. */
 async function enterUnit(unit: string): Promise<ArchitectureRender> {
@@ -51,6 +62,7 @@ async function readRender(): Promise<ArchitectureRender> {
     overflowingLabels: (await read('OverflowingLabels')) as number,
     positions: (await read('Positions')) as string | undefined,
     unit: (await read('Unit')) as string | undefined,
+    folder: (await read('Folder')) as string | undefined,
     unitLevel: (await read('UnitLevel')) as ArchitectureRender['unitLevel'],
   };
 }
@@ -306,6 +318,26 @@ suite('Architecture view mode', () => {
     const back = await enterUnit('');
     assert.strictEqual(back.groupCount, EXPECTED.units.groups);
     assert.strictEqual(back.positions, units.positions, 'the units come back where they were');
+  });
+
+  test('walks down a unit folder by folder: its sub-folders and their edges, evidence there, and back up', async function () {
+    this.timeout(240000);
+    await openFreshArchitecture();
+    const root = await enterUnit('(root)');
+    assert.strictEqual(root.groupCount, EXPECTED.root.groups);
+    // (root)/graphql-project holds 3 sub-folders, 2 folder edges between them (graph-it architecture --folder).
+    const graphql = await enterFolder('(root)/graphql-project', '(root)/graphql-project');
+    assert.strictEqual(graphql.unit, '(root)');
+    assert.strictEqual(graphql.groupCount, EXPECTED.graphql.groups, 'the sub-folders of graphql-project');
+    assert.strictEqual(graphql.groupEdgeCount, EXPECTED.graphql.groupEdges, 'the edges between them');
+    assert.notStrictEqual(graphql.revision, undefined);
+    assertReadableLayout(graphql);
+    const { evidence } = await expectDetail('the evidence one level down', { evidenceOf: EXPECTED.graphql.evidenceOf }, detail => detail.evidence !== undefined);
+    assert.ok(evidence && evidence.total > 0 && evidence.total === evidence.edgeCount, 'the evidence lists the edge\'s file pairs');
+    const up = await enterFolder('', undefined);
+    assert.strictEqual(up.groupCount, EXPECTED.root.groups, 'back to the unit\'s top folders');
+    assert.strictEqual(up.positions, root.positions, 'the top folders come back where they were');
+    await enterUnit('');
   });
 
   test('labels only highlighted edges, highlights a found group neighbourhood, filters weak edges, and clears', async function () {

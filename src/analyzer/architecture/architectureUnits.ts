@@ -9,7 +9,7 @@
 import { createHash } from "node:crypto";
 import * as fs from "node:fs";
 import * as path from "node:path";
-import { domainFromDirParts } from "../community/PathCommunityDetector";
+import { domainIndex } from "../community/PathCommunityDetector";
 import { normalizePath } from "../../shared/path";
 import type { ArchitectureGraph } from "./ArchitectureGraphBuilder";
 import { layerGraph } from "./stronglyConnectedComponents";
@@ -170,23 +170,38 @@ export function buildArchitectureUnits(graph: ArchitectureGraph, workspaceRoot: 
 export type ArchitectureUnits = ReturnType<typeof buildArchitectureUnits>;
 
 /**
- * The graph regrouped by unit-scoped folder groups (`<unit>/<domain>`, or the unit itself for
- * its files outside any domain folder), so a unit's groups never mix files of other units.
- * Group ids follow the units' order; `context.revision` is the units' revision.
+ * Folder keys of a file, from its unit down to its own folder: the unit, then `<unit>/<domain>`
+ * (umbrella folders such as src or tests skipped, as for the path groups), then each sub-folder.
+ */
+export function folderKeys(relativePath: string, unit: string): string[] {
+  const normalized = normalizePath(relativePath);
+  const inside = unit === ROOT_UNIT ? normalized : normalized.slice(unit.length + 1);
+  const dirs = inside.split("/").slice(0, -1);
+  const chain = dirs.slice(domainIndex(dirs, 0));
+  return [unit, ...chain.map((_, index) => `${unit}/${chain.slice(0, index + 1).join("/")}`)];
+}
+
+/**
+ * The graph regrouped by unit-scoped folder groups, so a unit's groups never mix files of other
+ * units. Without `folder`: every unit's top folders (`<unit>/<domain>`), plus the unit itself for
+ * its files outside any domain folder; group ids follow the units' order and `context.revision`
+ * is the units' revision. With a unit or folder key: only the files below it, grouped by its
+ * sub-folders, plus the folder itself for its own files; the revision then covers the folder.
+ * `nestedGroups` are the groups holding sub-folders: the next level down.
  */
 export function groupByUnit(
   graph: ArchitectureGraph,
   units: ArchitectureUnits,
   assignment: UnitAssignment,
-): { graph: ArchitectureGraph; groupUnits: Record<number, string> } {
+  folder?: string,
+): { graph: ArchitectureGraph; groupUnits: Record<number, string>; nestedGroups: number[] } {
   const unitOrder = new Map(units.units.map((unit, index) => [unit.key, index]));
-  const keyOf = (relativePath: string) => {
-    const unit = assignment.unitOf.get(relativePath)!;
-    const inside = unit === ROOT_UNIT ? relativePath : relativePath.slice(unit.length + 1);
-    const domain = domainFromDirParts(inside.split("/").slice(0, -1), 0);
-    return { unit, key: domain ? `${unit}/${domain}` : unit };
-  };
-  const keys = graph.nodes.map((node) => ({ path: node.path, ...keyOf(node.relativePath) }));
+  const keys = graph.nodes.flatMap((node) => {
+    const unit = assignment.unitOf.get(node.relativePath)!;
+    const chain = folderKeys(node.relativePath, unit);
+    const level = folder === undefined ? 0 : chain.indexOf(folder);
+    return level < 0 ? [] : [{ node, unit, key: chain[level + 1] ?? chain[level], nested: chain.length > level + 2 }];
+  });
   const ordered = [...new Map(keys.map((entry) => [entry.key, entry.unit])).entries()]
     .sort(([leftKey, leftUnit], [rightKey, rightUnit]) =>
       unitOrder.get(leftUnit)! - unitOrder.get(rightUnit)! || byCodeUnit(leftKey, rightKey));
@@ -194,15 +209,27 @@ export function groupByUnit(
   const groupUnits: Record<number, string> = Object.fromEntries(ordered.map(([key, unit]) => [idOf.get(key)!, unit]));
 
   const nodeMetadata = { ...graph.graphData.nodeMetadata };
-  const nodes = graph.nodes.map((node, index) => {
-    const { key } = keys[index];
+  const nodes = keys.map(({ node, key }) => {
     const communityId = idOf.get(key)!;
     nodeMetadata[node.path] = { ...nodeMetadata[node.path], communityId, communityKey: key };
     return { ...node, communityId, communityKey: key };
   });
+  // A folder level keeps the pairs between its own files: the counts add up level by level.
+  const inside = new Set(nodes.map((node) => node.path));
+  const edges = graph.edges.filter((edge) => inside.has(edge.source) && inside.has(edge.target));
+  const revision = folder === undefined
+    ? units.context.revision
+    : createHash("sha256").update(JSON.stringify([units.context.revision, folder])).digest("hex");
   return {
-    graph: { ...graph, nodes, graphData: { ...graph.graphData, nodeMetadata }, context: units.context },
+    graph: {
+      ...graph,
+      nodes,
+      edges,
+      graphData: { ...graph.graphData, nodes: graph.graphData.nodes.filter((filePath) => inside.has(filePath)), edges, nodeMetadata },
+      context: { ...units.context, revision },
+    },
     groupUnits,
+    nestedGroups: [...new Set(keys.filter((entry) => entry.nested).map((entry) => idOf.get(entry.key)!))].sort((left, right) => left - right),
   };
 }
 
@@ -226,4 +253,20 @@ export function layerGroupsWithinUnits(
     groupEdgeKinds: Object.fromEntries(inside.map(({ from, to }) =>
       [`${from}>${to}`, classifyUnitEdge(layer(from), layer(to), componentOf.get(String(from)) === componentOf.get(String(to)))])),
   };
+}
+
+/**
+ * The level below a unit or folder key (path mode), as `graph-it architecture --folder` and
+ * explore_architecture `folder` report it: the files below it, grouped by its sub-folders.
+ */
+export function folderLevel(graph: ArchitectureGraph, workspaceRoot: string, folder: string) {
+  if (graph.context.communityMode !== "path") {
+    throw new Error("folder levels exist in communityMode 'path' only: Louvain groups have no folders.");
+  }
+  const assignment = assignUnits(workspaceRoot, graph.nodes.map((node) => node.relativePath));
+  const level = groupByUnit(graph, buildArchitectureUnits(graph, workspaceRoot, assignment), assignment, folder);
+  if (level.graph.nodes.length === 0) {
+    throw new Error(`No file below folder "${folder}". Pass a unit key (level units) or a group key of a folder level.`);
+  }
+  return level;
 }

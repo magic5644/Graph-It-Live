@@ -227,6 +227,7 @@ export class CommandRegistrationService {
       ['graph-it-live.architectureOverflowingLabels', () => architecture()?.overflowingLabels ?? 0],
       ['graph-it-live.architecturePositions', () => architecture()?.positions],
       ['graph-it-live.architectureUnit', () => architecture()?.unit],
+      ['graph-it-live.architectureFolder', () => architecture()?.folder],
       ['graph-it-live.architectureUnitLevel', () => architecture()?.unitLevel],
       ['graph-it-live.architectureResizeCount', () => architecture()?.resizeCount ?? 0],
       ['graph-it-live.architectureViewSize', () => architecture()?.viewSize],

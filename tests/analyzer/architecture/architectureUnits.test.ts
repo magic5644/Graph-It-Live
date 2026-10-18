@@ -8,10 +8,13 @@ import {
   assignUnits,
   buildArchitectureUnits,
   classifyUnitEdge,
+  folderKeys,
+  folderLevel,
   groupByUnit,
   layerGroupsWithinUnits,
   ROOT_UNIT,
 } from "@/analyzer/architecture/architectureUnits";
+import { aggregateCommunityGroups } from "@/analyzer/community/groupAggregation";
 import { SpiderBuilder } from "@/analyzer/SpiderBuilder";
 import { normalizePath } from "@/shared/path";
 
@@ -229,5 +232,116 @@ describe("cross-package imports by package name", () => {
     const units = buildArchitectureUnits(graph, root);
     expect(units.unitEdges.map((edge) => `${edge.from}>${edge.to}`).sort()).toEqual(["apps/web>services/core-lib", "apps/web>services/utils"]);
     expect(units.units.find((unit) => unit.key === "services/core-lib")?.name).toBe("@acme/core");
+  });
+});
+
+describe("folderKeys", () => {
+  it("lists the unit, then its domain folder and each sub-folder, umbrella folders skipped", () => {
+    expect(folderKeys("app/src/core/util/b.ts", "app")).toEqual(["app", "app/core", "app/core/util"]);
+    expect(folderKeys("app/tests/core/a.test.ts", "app")).toEqual(["app", "app/core"]);
+    expect(folderKeys("src\\analyzer\\community\\x.ts", ROOT_UNIT)).toEqual([ROOT_UNIT, `${ROOT_UNIT}/analyzer`, `${ROOT_UNIT}/analyzer/community`]);
+    expect(folderKeys("app/main.ts", "app")).toEqual(["app"]);
+    expect(folderKeys("lib/x.ts", ROOT_UNIT)).toEqual([ROOT_UNIT]);
+  });
+});
+
+describe("folder levels", () => {
+  const nested = {
+    "app/main.ts": ["app/src/ui/c.ts"],
+    "app/src/core/a.ts": ["app/src/core/util/b.ts", "app/src/ui/c.ts"],
+    "app/src/core/util/b.ts": ["app/src/core/util/deep/d.ts"],
+    "app/src/core/util/deep/d.ts": ["app/src/ui/c.ts"],
+    "app/src/ui/c.ts": ["app/src/core/a.ts"],
+    "app/src/ui/widgets/w.ts": ["app/src/core/util/b.ts", "lib/x.ts"],
+    "app/tests/core/a.test.ts": ["app/src/core/a.ts"],
+    "lib/x.ts": [],
+  };
+
+  async function levelsOf(files: Record<string, string[]>) {
+    const { graph } = await unitsOf(files);
+    const assignment = assignUnits(root, graph.nodes.map((node) => node.relativePath));
+    const units = buildArchitectureUnits(graph, root, assignment);
+    return { graph, assignment, units, level: (folder?: string) => groupByUnit(graph, units, assignment, folder) };
+  }
+
+  it("groups the files below a folder by its sub-folders, then its own files, and flags the nested groups", async () => {
+    const { units, level } = await levelsOf(nested);
+    const keysOf = (folder: string) => {
+      const { graph, nestedGroups } = level(folder);
+      const aggregation = aggregateCommunityGroups(graph.graphData);
+      return {
+        groups: aggregation.groups.map((group) => `${group.key}:${group.fileCount}`),
+        nested: nestedGroups.map((id) => aggregation.groups.find((group) => group.id === id)?.key),
+      };
+    };
+    expect(keysOf("app")).toEqual({ groups: ["app:1", "app/core:4", "app/ui:2"], nested: ["app/core", "app/ui"] });
+    expect(keysOf("app/core")).toEqual({ groups: ["app/core:2", "app/core/util:2"], nested: ["app/core/util"] });
+    expect(keysOf("app/core/util")).toEqual({ groups: ["app/core/util:1", "app/core/util/deep:1"], nested: [] });
+    // Without folder: every unit's top groups, with the units' revision, as before.
+    const top = level();
+    expect(top.graph.nodes).toHaveLength(8);
+    expect(top.graph.context.revision).toBe(units.context.revision);
+    expect(top.nestedGroups.map((id) => top.graph.nodes.find((node) => node.communityId === id)?.communityKey)).toEqual(["app/core", "app/ui"]);
+    // A folder level has a revision of its own: its ids are not the top level's.
+    const revisions = new Set([units.context.revision, level("app").graph.context.revision, level("app/core").graph.context.revision]);
+    expect(revisions.size).toBe(3);
+    expect(level("nowhere").graph.nodes).toHaveLength(0);
+  });
+
+  /** Every group's files and every sibling edge, counted again from the raw file pairs, down every level. */
+  function expectCountsAddUp(graph: Awaited<ReturnType<typeof levelsOf>>["graph"], level: (folder?: string) => ReturnType<typeof groupByUnit>, assignment: ReturnType<typeof assignUnits>, folder: string): number {
+    const { graph: grouped, nestedGroups } = level(folder);
+    const aggregation = aggregateCommunityGroups(grouped.graphData);
+    const keysOfFile = (relativePath: string) => folderKeys(relativePath, assignment.unitOf.get(relativePath)!);
+    const under = (key: string) => new Set(graph.nodes.map((node) => node.relativePath).filter((file) => {
+      const keys = keysOfFile(file);
+      return key === folder ? keys.at(-1) === folder : keys.includes(key);
+    }));
+    const keyOf = new Map(aggregation.groups.map((group) => [group.id, group.key]));
+    expect(aggregation.unassigned.fileCount).toBe(0);
+    let levels = 1;
+    for (const group of aggregation.groups) {
+      expect(group.fileCount, group.key).toBe(under(group.key).size);
+      if (!nestedGroups.includes(group.id)) continue;
+      const below = aggregateCommunityGroups(level(group.key).graph.graphData);
+      expect(below.totals.files, group.key).toBe(group.fileCount);
+      expect(below.totals.fileEdges, group.key).toBe(group.internalEdgeCount);
+      levels += expectCountsAddUp(graph, level, assignment, group.key);
+    }
+    for (const edge of aggregation.groupEdges) {
+      const from = under(keyOf.get(edge.from)!);
+      const to = under(keyOf.get(edge.to)!);
+      const pairs = graph.edges.filter((pair) => from.has(pair.sourceRelative) && to.has(pair.targetRelative)).length;
+      expect(edge.fileEdgeCount, `${keyOf.get(edge.from)} > ${keyOf.get(edge.to)}`).toBe(pairs);
+    }
+    return levels;
+  }
+
+  it("adds up level by level on a generated nested workspace", async () => {
+    const { graph, assignment, units, level } = await levelsOf(nested);
+    const visited = units.units.reduce((total, unit) => total + expectCountsAddUp(graph, level, assignment, unit.key), 0);
+    expect(visited).toBe(5); // app, app/core, app/core/util, app/ui and lib
+  });
+
+  it("adds up level by level on sample-project", async () => {
+    const fixture = path.resolve(__dirname, "../../fixtures/sample-project");
+    const spider = new SpiderBuilder().withRootDir(fixture).withExcludeNodeModules(true).build();
+    const graph = await buildArchitectureGraph(fixture, (filePath) => spider.analyze(filePath));
+    const assignment = assignUnits(fixture, graph.nodes.map((node) => node.relativePath));
+    const units = buildArchitectureUnits(graph, fixture, assignment);
+    const level = (folder?: string) => groupByUnit(graph, units, assignment, folder);
+    for (const unit of units.units) {
+      expect(aggregateCommunityGroups(level(unit.key).graph.graphData).totals).toMatchObject({ files: unit.fileCount, fileEdges: unit.internalEdgeCount });
+      expectCountsAddUp(graph, level, assignment, unit.key);
+    }
+  });
+
+  it("folderLevel answers a unit or folder key in path mode, and refuses an unknown folder or Louvain", async () => {
+    const { graph } = await levelsOf(nested);
+    expect(folderLevel(graph, root, "app/core").graph.nodes.map((node) => node.communityKey).sort())
+      .toEqual(["app/core", "app/core", "app/core/util", "app/core/util"]);
+    expect(() => folderLevel(graph, root, "nowhere")).toThrow('No file below folder "nowhere"');
+    const louvain = { ...graph, context: { ...graph.context, communityMode: "louvain" as const } };
+    expect(() => folderLevel(louvain, root, "app")).toThrow("communityMode 'path' only");
   });
 });

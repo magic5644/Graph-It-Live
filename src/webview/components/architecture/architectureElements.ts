@@ -188,6 +188,7 @@ function groupNode(summary: ArchitectureSummaryMessage, group: SummaryGroup, exp
       groupId: group.id,
       // Group ids are per build; the key is what a group keeps across builds.
       key: `${summary.context.communityMode}:${group.key}`,
+      groupKey: group.key,
       label: expanded ? lines.join(" · ") : lines.join("\n"),
       ...nodeBox(lines, Math.round(32 + 14 * Math.log2(1 + group.fileCount))),
       unassigned: group.id === 0,
@@ -491,12 +492,19 @@ export function levelSummary(summary: ArchitectureSummaryMessage, unit: string |
  * Elements of a level: groups as toArchitectureElements draws them, plus, with units, the
  * colour of each unit (an entered unit's groups keep it), the layer of each node and the kind
  * of each edge (`upward` and `cycle` drawn red, `capped` hidden until min-imports overrides).
+ * `folder` is the entered folder `summary` is the level of: a folder's own files keep the
+ * folder's key, so its nodes get keys of their own.
  */
-export function toLevelElements(summary: ArchitectureSummaryMessage, unit: string | null, expansions: Expansions = NO_EXPANSIONS): ArchitectureElement[] {
+export function toLevelElements(
+  summary: ArchitectureSummaryMessage,
+  unit: string | null,
+  expansions: Expansions = NO_EXPANSIONS,
+  folder?: string,
+): ArchitectureElement[] {
   const level = summary.units;
   const elements = toArchitectureElements(levelSummary(summary, unit), level && unit === null ? NO_EXPANSIONS : expansions);
   if (!level) return elements;
-  return unit === null ? decorateUnits(elements, level) : decorateUnitGroups(elements, level, unit);
+  return unit === null ? decorateUnits(elements, level) : decorateUnitGroups(elements, level, unit, folder);
 }
 
 function decorateUnits(elements: ArchitectureElement[], level: ArchitectureUnitLevel): ArchitectureElement[] {
@@ -516,8 +524,11 @@ function decorateUnits(elements: ArchitectureElement[], level: ArchitectureUnitL
   });
 }
 
-/** An entered unit's groups: the unit's colour, their layer within the unit, and the kind of the edges between them. */
-function decorateUnitGroups(elements: ArchitectureElement[], level: ArchitectureUnitLevel, unit: string): ArchitectureElement[] {
+/**
+ * An entered unit's or folder's groups: the unit's colour, their layer within the level, the kind
+ * of the edges between them, and `folder` (the key to enter) on the groups holding sub-folders.
+ */
+function decorateUnitGroups(elements: ArchitectureElement[], level: ArchitectureUnitLevel, unit: string, folder?: string): ArchitectureElement[] {
   const color = unitColor(Math.max(0, level.units.findIndex((entry) => entry.key === unit)));
   const groupEdges = elements.filter((element) => element.group === "edges" && !element.data.fileEdge);
   const nodes = elements.filter((element) => element.group === "nodes" && element.data.parent === undefined).length;
@@ -528,10 +539,22 @@ function decorateUnitGroups(elements: ArchitectureElement[], level: Architecture
   }));
   const kindOf = new Map(ranked.map((edge) => [edge.key, edge.kind]));
   const capped = cappedKeys(ranked, nodes);
+  const nested = new Set(level.nestedGroups);
   return elements.map((element) => {
+    if (element.group === "nodes" && element.data.parent !== undefined) return { ...element, data: { ...element.data, color } };
     if (element.group === "nodes") {
-      const layer = element.data.parent === undefined ? level.groupLayers[Number(element.data.groupId)] : undefined;
-      return { ...element, data: { ...element.data, color, ...(layer === undefined ? {} : { layer }) } };
+      const { groupId, groupKey, key, tooltip } = element.data;
+      const layer = level.groupLayers[Number(groupId)];
+      return {
+        ...element,
+        data: {
+          ...element.data,
+          color,
+          ...(layer === undefined ? {} : { layer }),
+          ...(folder === undefined ? {} : { key: `${key}@${folder}` }),
+          ...(nested.has(Number(groupId)) ? { folder: groupKey, tooltip: `${tooltip}\nSub-folders: double-click to enter` } : {}),
+        },
+      };
     }
     const kind = kindOf.get(String(element.data.id));
     return kind === undefined ? element : { ...element, data: { ...element.data, kind, capped: capped.has(String(element.data.id)) } };

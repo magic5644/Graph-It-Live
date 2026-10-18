@@ -423,6 +423,8 @@ export function buildArchitectureStylesheet(colors: ArchitectureThemeColors): Cy
       selector: "node[?unassigned]",
       style: { "border-style": "dashed", "border-color": colors.border },
     },
+    // A folder holding sub-folders: a double-click enters its level instead of expanding its files.
+    { selector: "node[folder]", style: { "border-style": "double", "border-width": 4 } },
     // An expanded group: a compound around its files, titled above them.
     {
       selector: "node:parent",
