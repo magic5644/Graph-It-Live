@@ -71,8 +71,7 @@ async function measureMatrix(unit: string): Promise<{ firstPaint: Sample; scroll
   let started = performance.now();
   const shown = await matrixPaint({ view: 'matrix' }, (paint) => paint.unit === unit && paint.cause === 'matrix');
   const firstPaint = { wallMs: performance.now() - started, rssMB: currentRssMB() };
-  const cells = shown.digest.split(';');
-  const [row, column] = cells[cells.length - 1].split(/>|=/);
+  const [row, column] = (shown.digest.split(';').pop() ?? '').split(/[>=]/);
   started = performance.now();
   await matrixPaint({ matrixCell: { row, column } }, (paint) => paint.cause === 'scroll');
   return { firstPaint, scroll: { wallMs: performance.now() - started, rssMB: currentRssMB() }, rows: shown.rows };

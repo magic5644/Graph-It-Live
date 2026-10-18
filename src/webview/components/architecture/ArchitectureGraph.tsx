@@ -11,7 +11,7 @@
 import cytoscape from "cytoscape";
 import type { ElkNode } from "elkjs/lib/elk-api";
 import React, { useEffect, useMemo, useRef, useState } from "react";
-import type { MatrixCell, MatrixRow } from "../../../analyzer/architecture/architectureMatrix";
+import { matrixDigest, type MatrixCell, type MatrixRow } from "../../../analyzer/architecture/architectureMatrix";
 import type {
   ArchitectureControlsMessage,
   ArchitectureEvidencePageMessage,
@@ -664,7 +664,8 @@ export function ArchitectureGraph({ postMessage }: Readonly<ArchitectureGraphPro
   /** Opens the evidence panel on an edge or a matrix cell; red ones say why in words, not by colour alone. */
   const openEvidence = (ends: EvidenceEnds, fromName: string, toName: string, edgeCount: number, kind?: string) => {
     if (!levelOf()) return;
-    const title = `${fromName} → ${toName}: ${edgeCount} file pair${edgeCount === 1 ? "" : "s"} (static imports)${kind ? ` (${kind})` : ""}`;
+    const why = kind ? ` (${kind})` : "";
+    const title = `${fromName} → ${toName}: ${edgeCount} file pair${edgeCount === 1 ? "" : "s"} (static imports)${why}`;
     updateEvidence({ ends, title, edgeCount, pairs: [] });
     requestEvidence(ends, 0);
   };
@@ -728,6 +729,8 @@ export function ArchitectureGraph({ postMessage }: Readonly<ArchitectureGraphPro
   };
   /** A matrix cell selects its row and opens its evidence; a unit's own pairs have no unit edge to list. */
   const matrixCell = (row: MatrixRow<number | string>, column: MatrixRow<number | string>, cell: MatrixCell | undefined) => {
+    // Handled once: a remount (Graph then Matrix again) must not click the driver's cell again.
+    setMatrixRequest(null);
     selectKey(row.key);
     if (!cell || (row === column && typeof row.id === "string")) return;
     const cycle = row !== column && row.cycle !== undefined && row.cycle === column.cycle;
@@ -743,11 +746,11 @@ export function ArchitectureGraph({ postMessage }: Readonly<ArchitectureGraphPro
   };
   const matrixPainted = (paint: MatrixPaint) => {
     if (!matrix) return;
-    const { totals, rows, cells, cycles } = matrix.matrix;
+    const { totals, cycles } = matrix.matrix;
     post({
       command: "architectureMatrixRendered", revision: matrix.revision, unit: matrix.unit, folder: matrix.folder,
       rows: totals.rows, cells: totals.cells, fileEdges: totals.fileEdges, upwardCells: totals.upwardCells, cycles: cycles.length,
-      digest: cells.map((cell) => `${rows[cell.row].key}>${rows[cell.column].key}=${cell.fileEdgeCount}`).sort((a, b) => (a < b ? -1 : Number(a > b))).join(";"),
+      digest: matrixDigest(matrix.matrix),
       ...paint,
     });
   };

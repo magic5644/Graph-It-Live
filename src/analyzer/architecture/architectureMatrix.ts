@@ -70,7 +70,7 @@ export function buildMatrix<Id extends number | string>(nodes: readonly MatrixNo
   const byName = (left: MatrixNode<Id>, right: MatrixNode<Id>) => byCodeUnit(left.label, right.label) || byCodeUnit(left.key, right.key);
   const sorted = nodes.toSorted(byName);
   const ids = sorted.map((node) => String(node.id));
-  const between = edges.filter((edge) => edge.from !== edge.to);
+  const between = edges.filter((edge) => edge.from !== edge.to && edge.fileEdgeCount > 0);
   const successors = new Map<string, string[]>();
   for (const { from, to } of between) successors.set(String(from), [...(successors.get(String(from)) ?? []), String(to)]);
   const { components, componentOf, layerOf } = layerGraph(ids, successors);
@@ -101,7 +101,7 @@ export function buildMatrix<Id extends number | string>(nodes: readonly MatrixNo
   for (const edge of between) {
     const row = indexOf.get(String(edge.from));
     const column = indexOf.get(String(edge.to));
-    if (row === undefined || column === undefined || edge.fileEdgeCount === 0) continue;
+    if (row === undefined || column === undefined) continue;
     cells.push({ row, column, fileEdgeCount: edge.fileEdgeCount, upward: column > row });
     outgoing[row].pairs += edge.fileEdgeCount;
     outgoing[row].groups += 1;
@@ -167,6 +167,11 @@ export function unitMatrix(units: Pick<ArchitectureUnits, "units" | "unitEdges">
     units.units.map((unit) => ({ id: unit.key, key: unit.key, label: unit.name, internalEdgeCount: unit.internalEdgeCount })),
     units.unitEdges,
   );
+}
+
+/** Sorted `rowKey>columnKey=count` of every non-zero cell: one string to compare two matrices (E2E). */
+export function matrixDigest({ rows, cells }: Pick<ArchitectureMatrix, "rows" | "cells">): string {
+  return cells.map((cell) => `${rows[cell.row].key}>${rows[cell.column].key}=${cell.fileEdgeCount}`).sort(byCodeUnit).join(";");
 }
 
 /** A CSV field: quoted when needed, and a leading formula character neutralised (CSV injection). */

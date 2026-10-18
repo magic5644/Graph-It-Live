@@ -303,7 +303,7 @@ describe("ArchitectureViewService", () => {
     await service.handleWebviewMessage({ command: "architectureMatrix", revision: summary.revision });
     const { matrix } = posted.at(-1) as ArchitectureMatrixMessage;
     expect(matrix.totals.fileEdges).toBe(summary.totals.fileEdges);
-    expect(matrix.rows.length).toBe(summary.groups.length + (summary.unassigned.fileCount > 0 ? 1 : 0));
+    expect(matrix.rows).toHaveLength(summary.groups.length + (summary.unassigned.fileCount > 0 ? 1 : 0));
   });
 
   it("has no folder levels in Louvain mode", async () => {
