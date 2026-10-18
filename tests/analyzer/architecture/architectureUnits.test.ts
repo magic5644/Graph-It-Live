@@ -2,7 +2,7 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { exploreUnits } from "@/analyzer/architecture/ArchitectureExplorer";
+import { exploreUnitEvidence, exploreUnits } from "@/analyzer/architecture/ArchitectureExplorer";
 import { buildArchitectureGraph, type AnalyzeFile } from "@/analyzer/architecture/ArchitectureGraphBuilder";
 import {
   assignUnits,
@@ -211,6 +211,64 @@ describe("exploreUnits", () => {
     expect(first.page).toMatchObject({ totalUnits: 3, totalUnitEdges: 2, truncated: true, nextOffset: 1 });
     expect(exploreUnits(units, { offset: 1, limit: 5, revision: units.context.revision }).units).toHaveLength(2);
     expect(() => exploreUnits(units, { revision: "0".repeat(64) })).toThrow("Architecture changed");
+  });
+});
+
+describe("exploreUnitEvidence", () => {
+  // A generated workspace with packages: files outside them are the (root) unit.
+  async function evidenceOf(files: Record<string, string[]>) {
+    write("apps/web/package.json", manifest("@acme/web"));
+    write("packages/core/package.json", manifest("@acme/core"));
+    const graph = await buildArchitectureGraph(root, workspace(files));
+    const assignment = assignUnits(root, graph.nodes.map((node) => node.relativePath));
+    const units = buildArchitectureUnits(graph, root, assignment);
+    return { units, explore: (options: Parameters<typeof exploreUnitEvidence>[3]) => exploreUnitEvidence(graph, units, assignment.unitOf, options) };
+  }
+  const files = {
+    "apps/web/src/b.ts": ["packages/core/src/z.ts", "packages/core/src/a.ts", "apps/web/src/a.ts"],
+    "apps/web/src/a.ts": ["packages/core/src/z.ts", "scripts/build.ts"],
+    "packages/core/src/a.ts": ["packages/core/src/z.ts"],
+    "packages/core/src/z.ts": [],
+    "scripts/build.ts": ["packages/core/src/a.ts"],
+  };
+
+  it("lists every file pair of a unit edge, sorted by target then source, as many as the edge counts", async () => {
+    const { units, explore } = await evidenceOf(files);
+    for (const edge of units.unitEdges) {
+      const { pairs, page } = explore({ from: edge.from, to: edge.to, limit: 500 });
+      expect(page.total, `${edge.from} → ${edge.to}`).toBe(edge.fileEdgeCount);
+      for (const pair of pairs) {
+        expect(pair.source.startsWith(edge.from === ROOT_UNIT ? "scripts/" : `${edge.from}/`)).toBe(true);
+        expect(pair.target.startsWith(edge.to === ROOT_UNIT ? "scripts/" : `${edge.to}/`)).toBe(true);
+      }
+    }
+    expect(explore({ from: "apps/web", to: "packages/core" })).toMatchObject({
+      view: "evidence",
+      from: { key: "apps/web", name: "@acme/web" },
+      to: { key: "packages/core" },
+      pairs: [
+        { source: "apps/web/src/b.ts", target: "packages/core/src/a.ts" },
+        { source: "apps/web/src/a.ts", target: "packages/core/src/z.ts" },
+        { source: "apps/web/src/b.ts", target: "packages/core/src/z.ts" },
+      ],
+      page: { total: 3, offset: 0, returned: 3, truncated: false },
+    });
+    // (root) by key, a unit by name, and Windows separators.
+    expect(explore({ from: ROOT_UNIT, to: "@acme/core" }).pairs).toEqual([{ source: "scripts/build.ts", target: "packages/core/src/a.ts" }]);
+    expect(explore({ from: "apps\\web", to: ROOT_UNIT }).pairs).toEqual([{ source: "apps/web/src/a.ts", target: "scripts/build.ts" }]);
+  });
+
+  it("pages without duplicates, returns an empty page past the end, and rejects an unknown unit or revision", async () => {
+    const { units, explore } = await evidenceOf(files);
+    const first = explore({ from: "apps/web", to: "packages/core", limit: 2 });
+    expect(first.page).toMatchObject({ total: 3, returned: 2, truncated: true, nextOffset: 2 });
+    const second = explore({ from: "apps/web", to: "packages/core", limit: 2, offset: 2, revision: units.context.revision });
+    expect(second.page).toMatchObject({ returned: 1, truncated: false, nextOffset: undefined });
+    expect(new Set([...first.pairs, ...second.pairs].map((pair) => `${pair.source}>${pair.target}`)).size).toBe(3);
+    expect(explore({ from: "apps/web", to: "packages/core", offset: 10 }).pairs).toEqual([]);
+    expect(explore({ from: "packages/core", to: "apps/web" }).page.total).toBe(0);
+    expect(() => explore({ from: "nowhere", to: "apps/web" })).toThrow('Unknown unit "nowhere"');
+    expect(() => explore({ from: "apps/web", to: "packages/core", revision: "0".repeat(64) })).toThrow("Architecture changed");
   });
 });
 

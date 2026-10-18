@@ -21,8 +21,11 @@ const stable = (value: unknown) =>
     JSON.stringify(value, null, 2),
   ) + "\n";
 
-async function viewSummary(): Promise<ArchitectureSummaryMessage> {
-  const posted: ArchitectureExtensionMessage[] = [];
+async function viewSummary(posted: ArchitectureExtensionMessage[] = []): Promise<ArchitectureSummaryMessage> {
+  return (await buildView(posted)).summary;
+}
+
+async function buildView(posted: ArchitectureExtensionMessage[]) {
   const service = new ArchitectureViewService({
     workspaceRoot: rootDir,
     analyzeFile: (filePath) => workerState.getSpider().analyze(filePath),
@@ -36,7 +39,7 @@ async function viewSummary(): Promise<ArchitectureSummaryMessage> {
     warn: () => {},
   });
   await service.build();
-  return posted.find((message): message is ArchitectureSummaryMessage => message.type === "architectureSummary")!;
+  return { service, summary: posted.find((message): message is ArchitectureSummaryMessage => message.type === "architectureSummary")! };
 }
 
 describe("architecture units golden output: workspaces-project", () => {
@@ -76,6 +79,32 @@ describe("architecture units golden output: workspaces-project", () => {
 
     await expect(stable({ cli, firstPage, groups: view.groups, groupUnits: view.units?.groupUnits }))
       .toMatchFileSnapshot("__snapshots__/workspaces-project.units.json");
+  });
+
+  it("lists the same file pairs behind every unit edge in the CLI, explore_architecture and the view", async () => {
+    const runtime = { workspaceRoot: rootDir, ensureIndexed: async () => undefined, loadState: () => null };
+    const posted: ArchitectureExtensionMessage[] = [];
+    const { service, summary } = await buildView(posted);
+    const evidence = [];
+    for (const edge of summary.units!.unitEdges) {
+      const cli = JSON.parse(await runArchitectureCli(["--level", "units", "--from", edge.from, "--to", edge.to], runtime as never, "json"));
+      const mcp = await executeExploreArchitecture({ level: "units", from: edge.from, to: edge.to, limit: 500 });
+      await service.handleWebviewMessage({ command: "architectureUnitEvidence", revision: summary.revision, from: edge.from, to: edge.to });
+      const view = posted.at(-1);
+      expect(view).toMatchObject({ type: "architectureEvidencePage", from: edge.from, to: edge.to });
+      expect(mcp).toMatchObject({ view: "evidence", kind: edge.kind, page: { total: edge.fileEdgeCount } });
+      expect(cli.pairs, `${edge.from} → ${edge.to}`).toEqual(mcp.pairs);
+      expect(view?.type === "architectureEvidencePage" && view.pairs).toEqual(mcp.pairs);
+      evidence.push({ from: edge.from, to: edge.to, kind: mcp.kind, total: mcp.page.total, pairs: mcp.pairs });
+    }
+    await expect(stable(evidence)).toMatchFileSnapshot("__snapshots__/workspaces-project.unit-evidence.json");
+  });
+
+  it("rejects --from without --to or --level units", async () => {
+    const runtime = { workspaceRoot: rootDir, ensureIndexed: async () => undefined, loadState: () => null };
+    await expect(runArchitectureCli(["--level", "units", "--from", "apps/web"], runtime as never, "json")).rejects.toThrow("--from and --to");
+    await expect(runArchitectureCli(["--from", "apps/web", "--to", "packages/core"], runtime as never, "json")).rejects.toThrow("with --level units");
+    await expect(runArchitectureCli(["--level", "units", "--from", "--to", "x"], runtime as never, "json")).rejects.toThrow("--from must be a unit key");
   });
 
   it("rejects an unknown --level", async () => {

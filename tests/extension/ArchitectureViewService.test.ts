@@ -628,6 +628,36 @@ describe("ArchitectureViewService", () => {
       });
     });
 
+    it("answers the file pairs of a unit edge by unit key, opens one, and warns on an unknown unit or without units", async () => {
+      const { service, revision } = await built();
+      await service.handleWebviewMessage({ command: "architectureUnitEvidence", revision, from: "(root)", to: "src" });
+      expect(posted.at(-1)).toEqual({
+        type: "architectureEvidencePage",
+        revision,
+        from: "(root)",
+        to: "src",
+        pairs: [{ source: "main.ts", target: "src/ui/view.ts" }],
+        page: { total: 1, offset: 0, returned: 1, truncated: false, nextOffset: undefined },
+      });
+      await service.handleWebviewMessage({ command: "architectureUnitEvidence", revision, from: "(root)", to: "src", offset: 1 });
+      expect(posted.at(-1)).toMatchObject({ pairs: [], page: { total: 1, offset: 1, returned: 0 } });
+      // A path coming back from the panel, in Windows form, opens the file of the units' graph.
+      await service.handleWebviewMessage({ command: "architectureOpenFile", revision, relativePath: "src\\ui\\view.ts" });
+      expect(opened).toEqual([path.join(root, "src/ui/view.ts")]);
+
+      const count = posted.length;
+      await service.handleWebviewMessage({ command: "architectureUnitEvidence", revision, from: "nowhere", to: "src" });
+      expect(posted).toHaveLength(count);
+      expect(warnings.at(-1)).toContain('Unknown unit "nowhere"');
+      await service.handleWebviewMessage({ command: "architectureUnitEvidence", revision: "old", from: "(root)", to: "src" });
+      expect(posted.at(-1)).toEqual({ type: "architectureRevisionChanged", currentRevision: revision });
+
+      communityMode = "louvain";
+      await service.build();
+      await service.handleWebviewMessage({ command: "architectureUnitEvidence", revision: summaries().at(-1)!.revision, from: "(root)", to: "src" });
+      expect(warnings.at(-1)).toContain("unit edges only exist in path mode");
+    });
+
     it("answers a stale revision, or a request before any build, with the current revision", async () => {
       const early = createService();
       await early.handleWebviewMessage({ command: "architectureExpandGroup", revision: "old", groupId: 1 });

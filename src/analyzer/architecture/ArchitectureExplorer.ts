@@ -11,7 +11,7 @@ import {
 } from "../community/groupAggregation";
 import { normalizePath } from "../../shared/path";
 import type { ArchitectureGraph } from "./ArchitectureGraphBuilder";
-import type { ArchitectureUnits } from "./architectureUnits";
+import { byCodeUnit, type ArchitectureUnit, type ArchitectureUnits } from "./architectureUnits";
 
 const DEFAULT_EXPLORE_LIMIT = 50;
 
@@ -226,6 +226,56 @@ export function exploreUnits(units: ArchitectureUnits, options: Pick<Architectur
       nextOffset: truncated ? offset + limit : undefined,
     },
     nextSteps: "Call without level for the folder groups, then group, or from and to, for files and file pairs.",
+  };
+}
+
+export interface UnitEvidenceOptions {
+  /** Unit key (e.g. "packages/core", "(root)"), else unit name. */
+  from: string;
+  to: string;
+  offset?: number;
+  limit?: number;
+  /** context.revision of the units response the offset comes from. */
+  revision?: string;
+}
+
+function resolveUnit(units: ArchitectureUnits, ref: string): ArchitectureUnit {
+  // Keys use "/" on every OS: a Windows user may type packages\core.
+  const key = ref.replaceAll("\\", "/");
+  const unit = units.units.find(candidate => candidate.key === key) ?? units.units.find(candidate => candidate.name === ref);
+  if (!unit) throw new Error(`Unknown unit "${ref}". Call explore_architecture with level units to list the units.`);
+  return unit;
+}
+
+/**
+ * The file pairs behind one unit edge, sorted by target then source so a target's importers sit
+ * together. Every graph edge between the two units is listed: the total is the edge's fileEdgeCount.
+ */
+export function exploreUnitEvidence(
+  graph: ArchitectureGraph,
+  units: ArchitectureUnits,
+  unitOf: ReadonlyMap<string, string>,
+  options: UnitEvidenceOptions,
+) {
+  assertRevision(units.context.revision, options.revision);
+  const from = resolveUnit(units, options.from);
+  const to = resolveUnit(units, options.to);
+  const pairs = graph.edges
+    .filter(edge => unitOf.get(edge.sourceRelative) === from.key && unitOf.get(edge.targetRelative) === to.key)
+    .map(edge => ({ source: edge.sourceRelative, target: edge.targetRelative }))
+    .sort((left, right) => byCodeUnit(left.target, right.target) || byCodeUnit(left.source, right.source));
+  const { items, ...pageInfo } = page(pairs, options.offset ?? 0, options.limit ?? DEFAULT_EXPLORE_LIMIT);
+  const kind = units.unitEdges.find(edge => edge.from === from.key && edge.to === to.key)?.kind;
+  return {
+    view: "evidence" as const,
+    context: units.context,
+    provenance: UNIT_PROVENANCE,
+    from,
+    to,
+    kind,
+    pairs: items,
+    page: pageInfo,
+    nextSteps: NEXT_STEPS,
   };
 }
 

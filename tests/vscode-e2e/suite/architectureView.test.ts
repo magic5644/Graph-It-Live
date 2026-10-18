@@ -26,12 +26,22 @@ interface ArchitectureRender {
 // Path mode draws the units (11 packages or (root), 9 unit edges, the 2 edges of the
 // workspaces-project core ↔ types cycle in red); (root) holds 18 folder groups and 4 group edges.
 //   node dist/graph-it.js architecture --folder "(root)/graphql-project" --format json -w tests/fixtures
+//   node dist/graph-it.js architecture --level units --from workspaces-project/apps/web --to workspaces-project/packages/ui --format json -w tests/fixtures
 // Louvain: rendered groups = groups.length + 1 for the unassigned files.
 const EXPECTED = {
   units: { groups: 11, groupEdges: 9, redEdges: 2 },
   root: { groups: 18, groupEdges: 4 },
   graphql: { groups: 3, groupEdges: 2, evidenceOf: '(root)/graphql-project/queries' },
   louvain: { groups: 24 + 1, groupEdges: 1 },
+  // The first edge of @ws/web, its heaviest: apps/web → packages/ui.
+  unitEvidence: {
+    of: 'workspaces-project/apps/web',
+    title: '@ws/web → @ws/ui: 2 file pairs (static imports)',
+    pairs: [
+      'workspaces-project/apps/web/src/main.ts → workspaces-project/packages/ui/src/index.ts',
+      'workspaces-project/apps/web/src/pages/home.ts → workspaces-project/packages/ui/src/index.ts',
+    ],
+  },
 } as const;
 
 /** Enters a folder of the drawn level (empty: up one level), then waits for the render of `expected`. */
@@ -122,7 +132,7 @@ interface ArchitectureDetail {
   visibleGroups: number;
   focusedGroup?: string;
   capReached: boolean;
-  evidence?: { edgeCount: number; total: number; shown: number; firstSource?: string };
+  evidence?: { edgeCount: number; total: number; shown: number; firstSource?: string; title: string; pairs: string[] };
 }
 
 const readDetailCount = async () => (await getContextKey<number>('graph-it-live.architectureDetailCount')) ?? 0;
@@ -318,6 +328,31 @@ suite('Architecture view mode', () => {
     const back = await enterUnit('');
     assert.strictEqual(back.groupCount, EXPECTED.units.groups);
     assert.strictEqual(back.positions, units.positions, 'the units come back where they were');
+  });
+
+  test('lists the file pairs behind a clicked unit edge, opens one, and entering a unit closes them', async function () {
+    this.timeout(240000);
+    await openFreshArchitecture();
+    const { of, title, pairs } = EXPECTED.unitEvidence;
+    const { evidence } = await expectDetail('the evidence of a unit edge', { evidenceOf: of }, detail => detail.evidence?.shown === pairs.length);
+    assert.ok(evidence);
+    assert.strictEqual(evidence.title, title);
+    assert.deepStrictEqual(evidence.pairs, pairs, 'the Evidence region lists the unit edge\'s file pairs');
+    assert.strictEqual(evidence.total, evidence.edgeCount, 'the evidence total equals the edge label');
+
+    await vscode.commands.executeCommand('graph-it-live.e2eArchitectureControls', { openEvidenceRow: 0 });
+    const active = () => {
+      const uri = vscode.window.activeTextEditor?.document.uri;
+      return uri ? vscode.workspace.asRelativePath(uri, false) : undefined;
+    };
+    const start = Date.now();
+    while (Date.now() - start < 15000 && active() !== evidence.firstSource) await sleep(250);
+    assert.strictEqual(active(), evidence.firstSource, 'the clicked row opens its file');
+
+    await vscode.commands.executeCommand('graph-it-live.graphView.focus');
+    await enterUnit(of);
+    await expectDetail('the evidence closed by entering the unit', undefined, detail => detail.evidence === undefined);
+    await enterUnit('');
   });
 
   test('walks down a unit folder by folder: its sub-folders and their edges, evidence there, and back up', async function () {

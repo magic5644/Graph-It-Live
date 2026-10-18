@@ -169,6 +169,8 @@ Options:
                      folders) with their layers, unit edges and cycles (json/toon)
   --folder K         Path mode: the level below a unit or folder key, as the view
                      draws it: its sub-folders and own files as groups (json/toon)
+  --from K --to K    With --level units: the file pairs behind the unit edge
+                     between these unit keys, sorted by target (json/toon)
   --workspace, -w    Workspace root directory (default: auto-detected)
   --format, -f       Output format: text|json|toon|markdown|mermaid (default: text)
   --help, -h         Show this help
@@ -181,6 +183,7 @@ Examples:
   graph-it architecture --groups --format toon
   graph-it architecture --groups --format mermaid
   graph-it architecture --level units --format toon
+  graph-it architecture --level units --from apps/web --to packages/core --format json
   graph-it architecture --folder "(root)/analyzer" --format toon
 `,
   check: `graph-it check — Find unused exported symbols in a file

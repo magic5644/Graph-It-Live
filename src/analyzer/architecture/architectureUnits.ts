@@ -96,7 +96,7 @@ export function classifyUnitEdge(fromLayer: number, toLayer: number, sameCompone
 }
 
 // Code-unit order, not localeCompare: collation varies with the machine's locale.
-const byCodeUnit = (left: string, right: string) => (left < right ? -1 : Number(left > right));
+export const byCodeUnit = (left: string, right: string) => (left < right ? -1 : Number(left > right));
 
 /**
  * Units, layers and unit → unit edges of an architecture graph, aggregated from every file

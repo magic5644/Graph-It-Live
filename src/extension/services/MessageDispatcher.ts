@@ -137,6 +137,9 @@ export class MessageDispatcher {
         architectureEvidence: async (m) => {
           await deps.handleArchitectureMessage?.(m);
         },
+        architectureUnitEvidence: async (m) => {
+          await deps.handleArchitectureMessage?.(m);
+        },
         architectureOpenFile: async (m) => {
           await deps.handleArchitectureMessage?.(m);
         },
