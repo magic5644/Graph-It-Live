@@ -355,21 +355,65 @@ function GraphControls({ summary, shownEdges, query, onQuery, minImports, onMinI
 
 interface EvidencePanelProps {
   evidence: EvidenceState;
+  /** The drawn level (changing it closes the panel): paths are shown below it. */
+  unit: string | null;
+  folder: string | undefined;
   onOpen: (relativePath: string) => void;
   onMore: () => void;
   onClose: () => void;
 }
 
-/** The file pairs behind the selected edge; every path is a button that opens the file. */
-function EvidencePanel({ evidence, onOpen, onMore, onClose }: Readonly<EvidencePanelProps>) {
+/**
+ * `relativePath` below a unit (its key is its folder), or below `folder`, a `<unit>/<sub-folders>`
+ * key whose umbrella dirs (src, lib…) are skipped; else the whole workspace-relative path.
+ */
+export function shortPath(relativePath: string, unit: string, folder?: string): string {
+  if (folder === undefined) return relativePath.startsWith(`${unit}/`) ? relativePath.slice(unit.length + 1) : relativePath;
+  // ponytail: last match of the sub-folders; a path repeating them (a/a/x.ts) is cut too far, the title keeps it whole.
+  const chain = `/${folder.slice(unit.length + 1)}/`;
+  const at = `/${relativePath}`.lastIndexOf(chain);
+  return at === -1 ? relativePath : relativePath.slice(at + chain.length - 1);
+}
+
+/** Consecutive pairs with one target share its heading: unit pages come sorted by target. */
+function byTarget(pairs: EvidenceState["pairs"]): { target: string; sources: string[] }[] {
+  const groups: { target: string; sources: string[] }[] = [];
+  for (const { source, target } of pairs) {
+    const last = groups.at(-1);
+    if (last?.target === target) last.sources.push(source);
+    else groups.push({ target, sources: [source] });
+  }
+  return groups;
+}
+
+// Link-like buttons on one line each, cut at the start so the file name stays visible.
+const EVIDENCE_CSS = `
+.evidence-path { display: block; min-width: 0; max-width: 100%; padding: 0; border: none; background: none; font: inherit;
+  font-family: var(--vscode-editor-font-family); color: var(--vscode-textLink-foreground); cursor: pointer;
+  overflow: hidden; white-space: nowrap; text-overflow: ellipsis; direction: rtl; text-align: left; }
+.evidence-path:hover, .evidence-path:focus-visible { color: var(--vscode-textLink-activeForeground); text-decoration: underline; }
+.evidence-path:focus-visible { outline: 1px solid var(--vscode-focusBorder); outline-offset: 1px; }`;
+
+/** The file pairs behind the selected edge, grouped by target; every path is a button that opens the file. */
+function EvidencePanel({ evidence, unit, folder, onOpen, onMore, onClose }: Readonly<EvidencePanelProps>) {
   const closeRef = useRef<HTMLButtonElement>(null);
   // Keyboard users land in the panel when it opens for a new edge.
   useEffect(() => closeRef.current?.focus(), [evidence.ends]);
-  const pathButton = (relativePath: string) => (
-    <button type="button" onClick={() => onOpen(relativePath)} style={{ fontFamily: "var(--vscode-editor-font-family)" }}>
-      {relativePath}
+  // A unit edge's end is a unit key; any other edge's paths lie below the drawn unit or folder.
+  const short = (relativePath: string, end: number | string) => {
+    if (typeof end === "string") return shortPath(relativePath, end);
+    return unit === null ? relativePath : shortPath(relativePath, unit, folder);
+  };
+  // dir="ltr" keeps the path's own order inside the right-to-left box that cuts its start.
+  const pathButton = (relativePath: string, end: number | string, row?: boolean) => (
+    <button
+      type="button" className="evidence-path" title={relativePath} aria-label={relativePath} data-row={row}
+      onClick={() => onOpen(relativePath)}
+    >
+      <span dir="ltr">{short(relativePath, end)}</span>
     </button>
   );
+  const listStyle = { listStyle: "none", padding: 0, margin: 0 } as const;
   return (
     <section
       aria-label="Evidence"
@@ -383,9 +427,20 @@ function EvidencePanel({ evidence, onOpen, onMore, onClose }: Readonly<EvidenceP
         <button type="button" ref={closeRef} aria-label="Close evidence" onClick={onClose}>×</button>
       </div>
       {evidence.total !== undefined && <div>showing {evidence.pairs.length} of {evidence.total}</div>}
-      <ul style={{ listStyle: "none", padding: 0, margin: "4px 0" }}>
-        {evidence.pairs.map((pair) => (
-          <li key={`${pair.source}>${pair.target}`}>{pathButton(pair.source)} → {pathButton(pair.target)}</li>
+      <style>{EVIDENCE_CSS}</style>
+      <ul style={{ ...listStyle, margin: "4px 0" }}>
+        {byTarget(evidence.pairs).map(({ target, sources }) => (
+          <li key={`${sources[0]}>${target}`} style={{ marginTop: 4 }}>
+            {pathButton(target, evidence.ends.to, true)}
+            <ul style={{ ...listStyle, paddingLeft: 12 }}>
+              {sources.map((source) => (
+                <li key={source} data-row data-source={source} data-target={target} style={{ display: "flex", gap: 4 }}>
+                  <span aria-hidden="true">← </span>
+                  {pathButton(source, evidence.ends.from)}
+                </li>
+              ))}
+            </ul>
+          </li>
         ))}
       </ul>
       {evidence.nextOffset !== undefined && <button type="button" onClick={onMore}>Load more</button>}
@@ -951,7 +1006,9 @@ export function ArchitectureGraph({ postMessage }: Readonly<ArchitectureGraphPro
         : {
           edgeCount: evidence.edgeCount, total: evidence.total, shown: evidence.pairs.length, firstSource: evidence.pairs[0]?.source,
           // The rows the Evidence region shows, read from the DOM this render committed.
-          title: evidence.title, pairs: Array.from(document.querySelectorAll('section[aria-label="Evidence"] li'), (row) => row.textContent ?? ""),
+          title: evidence.title,
+          pairs: Array.from(document.querySelectorAll<HTMLElement>('section[aria-label="Evidence"] [data-source]'), (row) => `${row.dataset.source} → ${row.dataset.target}`),
+          rows: Array.from(document.querySelectorAll('section[aria-label="Evidence"] [data-row]'), (row) => row.textContent ?? ""),
         },
     });
   }, [summary, drawn, expansions, evidence, capReached, focusId]);
@@ -1009,6 +1066,8 @@ export function ArchitectureGraph({ postMessage }: Readonly<ArchitectureGraphPro
         {!state && evidence && (
           <EvidencePanel
             evidence={evidence}
+            unit={unit}
+            folder={folder}
             onOpen={(relativePath) => actionsRef.current.openFile(relativePath)}
             onMore={() => actionsRef.current.moreEvidence()}
             onClose={() => updateEvidence(null)}
