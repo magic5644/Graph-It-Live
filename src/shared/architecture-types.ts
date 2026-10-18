@@ -248,8 +248,8 @@ export interface ArchitectureDetailRenderedCommand {
   focusedGroup?: string;
   /** The 500-file cap message is shown. */
   capReached: boolean;
-  /** `pairs`: the pairs of the aria-label="Evidence" region, as `source → target`; `rows`: its lines as shown, a target then `← <source>`. */
-  evidence?: { edgeCount: number; total: number; shown: number; firstSource?: string; title: string; pairs: string[]; rows: string[] };
+  /** `pairs`: the rows of the aria-label="Evidence" region, as `source → target`. */
+  evidence?: { edgeCount: number; total: number; shown: number; firstSource?: string; title: string; pairs: string[] };
 }
 
 export type ArchitectureWebviewCommand =

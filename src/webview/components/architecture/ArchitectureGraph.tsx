@@ -368,8 +368,9 @@ interface EvidencePanelProps {
  * key whose umbrella dirs (src, lib…) are skipped; else the whole workspace-relative path.
  */
 export function shortPath(relativePath: string, unit: string, folder?: string): string {
-  if (folder === undefined) return relativePath.startsWith(`${unit}/`) ? relativePath.slice(unit.length + 1) : relativePath;
-  // ponytail: last match of the sub-folders; a path repeating them (a/a/x.ts) is cut too far, the title keeps it whole.
+  if (folder === undefined || folder === unit) return relativePath.startsWith(`${unit}/`) ? relativePath.slice(unit.length + 1) : relativePath;
+  // A folder level only holds files below the folder: its sub-folders follow the path's last umbrella dir.
+  // ponytail: last match of them; a path repeating them (a/a/x.ts) is cut too far, the title keeps it whole.
   const chain = `/${folder.slice(unit.length + 1)}/`;
   const at = `/${relativePath}`.lastIndexOf(chain);
   return at === -1 ? relativePath : relativePath.slice(at + chain.length - 1);
@@ -405,9 +406,9 @@ function EvidencePanel({ evidence, unit, folder, onOpen, onMore, onClose }: Read
     return unit === null ? relativePath : shortPath(relativePath, unit, folder);
   };
   // dir="ltr" keeps the path's own order inside the right-to-left box that cuts its start.
-  const pathButton = (relativePath: string, end: number | string, row?: boolean) => (
+  const pathButton = (relativePath: string, end: number | string) => (
     <button
-      type="button" className="evidence-path" title={relativePath} aria-label={relativePath} data-row={row}
+      type="button" className="evidence-path" title={relativePath} aria-label={relativePath}
       onClick={() => onOpen(relativePath)}
     >
       <span dir="ltr">{short(relativePath, end)}</span>
@@ -431,10 +432,10 @@ function EvidencePanel({ evidence, unit, folder, onOpen, onMore, onClose }: Read
       <ul style={{ ...listStyle, margin: "4px 0" }}>
         {byTarget(evidence.pairs).map(({ target, sources }) => (
           <li key={`${sources[0]}>${target}`} style={{ marginTop: 4 }}>
-            {pathButton(target, evidence.ends.to, true)}
-            <ul style={{ ...listStyle, paddingLeft: 12 }}>
+            {pathButton(target, evidence.ends.to)}
+            <ul aria-label={`Imported by (${target})`} style={{ ...listStyle, paddingLeft: 12 }}>
               {sources.map((source) => (
-                <li key={source} data-row data-source={source} data-target={target} style={{ display: "flex", gap: 4 }}>
+                <li key={source} style={{ display: "flex", gap: 4 }}>
                   <span aria-hidden="true">← </span>
                   {pathButton(source, evidence.ends.from)}
                 </li>
@@ -1005,10 +1006,10 @@ export function ArchitectureGraph({ postMessage }: Readonly<ArchitectureGraphPro
         ? undefined
         : {
           edgeCount: evidence.edgeCount, total: evidence.total, shown: evidence.pairs.length, firstSource: evidence.pairs[0]?.source,
-          // The rows the Evidence region shows, read from the DOM this render committed.
+          // The pairs the Evidence region shows, read from the DOM this render committed: each source under its target's heading.
           title: evidence.title,
-          pairs: Array.from(document.querySelectorAll<HTMLElement>('section[aria-label="Evidence"] [data-source]'), (row) => `${row.dataset.source} → ${row.dataset.target}`),
-          rows: Array.from(document.querySelectorAll('section[aria-label="Evidence"] [data-row]'), (row) => row.textContent ?? ""),
+          pairs: Array.from(document.querySelectorAll('section[aria-label="Evidence"] li li'), (row) =>
+            `${row.querySelector("button")?.title} → ${row.parentElement?.closest("li")?.querySelector("button")?.title}`),
         },
     });
   }, [summary, drawn, expansions, evidence, capReached, focusId]);

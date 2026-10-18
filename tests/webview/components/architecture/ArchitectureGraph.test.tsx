@@ -127,6 +127,12 @@ vi.mock("@/webview/components/architecture/elkLayout", () => ({
 
 import { ArchitectureGraph, shortPath } from "@/webview/components/architecture/ArchitectureGraph";
 
+/** The Evidence region's lines as shown: a target heading, then `← <source>` below it. */
+const evidenceRows = () => Array.from(
+  screen.getByRole("region", { name: "Evidence" }).querySelectorAll("li"),
+  (row) => (row.querySelector("ul") ? row.querySelector("button")?.textContent : row.textContent),
+);
+
 const summary: ArchitectureSummaryMessage = {
   type: "architectureSummary",
   revision: "r1",
@@ -689,8 +695,9 @@ describe("ArchitectureGraph", () => {
       expect(screen.getByText("showing 3 of 3")).toBeTruthy();
       expect(screen.queryByRole("button", { name: "Load more" })).toBeNull();
       // Sorted by source: a target comes back under a new heading; no unit drawn, paths stay whole.
-      expect(lastOf(postMessage, "architectureDetailRendered")?.evidence?.rows).toEqual([
-        "store/b.ts", "← ui/a.ts", "store/c.ts", "← ui/a.ts", "store/b.ts", "← ui/d.ts",
+      expect(evidenceRows()).toEqual(["store/b.ts", "← ui/a.ts", "store/c.ts", "← ui/a.ts", "store/b.ts", "← ui/d.ts"]);
+      expect(lastOf(postMessage, "architectureDetailRendered")?.evidence?.pairs).toEqual([
+        "ui/a.ts → store/b.ts", "ui/a.ts → store/c.ts", "ui/d.ts → store/b.ts",
       ]);
 
       fireEvent.click(screen.getByRole("button", { name: "ui/d.ts" }));
@@ -896,11 +903,10 @@ describe("ArchitectureGraph", () => {
       ]));
       expect(screen.getByText("showing 3 of 3")).toBeTruthy();
       // The next page continues index.ts under its heading; each path is shown from its unit, whole in title and name.
-      expect(lastOf(postMessage, "architectureDetailRendered")?.evidence?.rows).toEqual([
-        "src/index.ts", "← src/a.ts", "← src/b.ts", "src/util.ts", "← src/c.ts",
-      ]);
+      expect(evidenceRows()).toEqual(["src/index.ts", "← src/a.ts", "← src/b.ts", "src/util.ts", "← src/c.ts"]);
       expect(screen.getByRole("button", { name: "packages/core/src/index.ts" }).getAttribute("title")).toBe("packages/core/src/index.ts");
       expect(screen.getByRole("button", { name: "apps/web/src/a.ts" }).textContent).toBe("src/a.ts");
+      expect(screen.getByRole("list", { name: "Imported by (packages/core/src/index.ts)" }).children).toHaveLength(2);
       expect(lastOf(postMessage, "architectureDetailRendered")?.evidence?.pairs).toEqual([
         "apps/web/src/a.ts → packages/core/src/index.ts",
         "apps/web/src/b.ts → packages/core/src/index.ts",
@@ -1134,6 +1140,7 @@ describe("shortPath", () => {
     expect(shortPath("packages/ui/src/forms/a.ts", "packages/ui", "packages/ui/forms")).toBe("a.ts");
     expect(shortPath("graphql-project/queries/q.ts", "(root)", "(root)/graphql-project")).toBe("queries/q.ts");
     expect(shortPath("a/src/a/x.ts", "(root)", "(root)/a")).toBe("x.ts");
+    expect(shortPath("packages/ui/src/x.ts", "packages/ui", "packages/ui")).toBe("src/x.ts");
   });
 
   it("keeps the whole path outside the unit or folder", () => {

@@ -41,8 +41,6 @@ const EXPECTED = {
       'workspaces-project/apps/web/src/main.ts → workspaces-project/packages/ui/src/index.ts',
       'workspaces-project/apps/web/src/pages/home.ts → workspaces-project/packages/ui/src/index.ts',
     ],
-    // One heading for the target, its importers below, each path from its unit.
-    rows: ['src/index.ts', '← src/main.ts', '← src/pages/home.ts'],
   },
 } as const;
 
@@ -134,7 +132,7 @@ interface ArchitectureDetail {
   visibleGroups: number;
   focusedGroup?: string;
   capReached: boolean;
-  evidence?: { edgeCount: number; total: number; shown: number; firstSource?: string; title: string; pairs: string[]; rows: string[] };
+  evidence?: { edgeCount: number; total: number; shown: number; firstSource?: string; title: string; pairs: string[] };
 }
 
 const readDetailCount = async () => (await getContextKey<number>('graph-it-live.architectureDetailCount')) ?? 0;
@@ -335,12 +333,11 @@ suite('Architecture view mode', () => {
   test('lists the file pairs behind a clicked unit edge, opens one, and entering a unit closes them', async function () {
     this.timeout(240000);
     await openFreshArchitecture();
-    const { of, title, pairs, rows } = EXPECTED.unitEvidence;
+    const { of, title, pairs } = EXPECTED.unitEvidence;
     const { evidence } = await expectDetail('the evidence of a unit edge', { evidenceOf: of }, detail => detail.evidence?.shown === pairs.length);
     assert.ok(evidence);
     assert.strictEqual(evidence.title, title);
     assert.deepStrictEqual(evidence.pairs, pairs, 'the Evidence region lists the unit edge\'s file pairs');
-    assert.deepStrictEqual(evidence.rows, rows, 'the pairs are grouped by target, paths short');
     assert.strictEqual(evidence.total, evidence.edgeCount, 'the evidence total equals the edge label');
 
     await vscode.commands.executeCommand('graph-it-live.e2eArchitectureControls', { openEvidenceRow: 0 });
