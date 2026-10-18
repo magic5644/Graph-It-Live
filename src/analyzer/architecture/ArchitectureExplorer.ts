@@ -260,6 +260,7 @@ export function exploreUnitEvidence(
   assertRevision(units.context.revision, options.revision);
   const from = resolveUnit(units, options.from);
   const to = resolveUnit(units, options.to);
+  if (from.key === to.key) throw new Error(`"${from.key}" names both ends: a unit edge joins two units.`);
   const pairs = graph.edges
     .filter(edge => unitOf.get(edge.sourceRelative) === from.key && unitOf.get(edge.targetRelative) === to.key)
     .map(edge => ({ source: edge.sourceRelative, target: edge.targetRelative }))

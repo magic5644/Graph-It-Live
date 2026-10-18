@@ -908,6 +908,32 @@ describe("ArchitectureGraph", () => {
       expect(panel()).toBeNull();
     });
 
+    it("replaces a unit edge's panel with another edge's, closes it with × and Escape, and leaves a double-clicked edge unassigned", async () => {
+      const postMessage = await setup();
+      const panel = () => screen.queryByRole("region", { name: "Evidence" });
+      const tapEdge = (id: string) => act(() => cy.state.handlers.get("tap")?.({ target: edgeById(id) }));
+      tapEdge("edge-1-2");
+      tapEdge("edge-2-1");
+      expect(lastOf(postMessage, "architectureUnitEvidence")).toMatchObject({ from: "packages/core", to: "apps/web" });
+      expect(panel()?.textContent).toContain("@ws/core → @ws/web: 1 file pair (static imports) (cycle)");
+      // A late page of the first edge is another edge's: dropped.
+      send({ type: "architectureEvidencePage", revision: "r1", from: "apps/web", to: "packages/core", pairs: [{ source: "a.ts", target: "b.ts" }],
+        page: { total: 3, offset: 0, returned: 1, truncated: true, nextOffset: 1 } });
+      expect(panel()?.textContent).not.toContain("a.ts");
+
+      fireEvent.click(screen.getByRole("button", { name: "Close evidence" }));
+      expect(panel()).toBeNull();
+      tapEdge("edge-1-2");
+      act(() => { window.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape" })); });
+      expect(panel()).toBeNull();
+      expect(cy.state.nodes.map(node => node.data("key"))).toEqual(["units:apps/web", "units:packages/core"]);
+
+      postMessage.mockClear();
+      await dbltap(edgeById("edge-1-2"));
+      expect(postMessage).not.toHaveBeenCalledWith(expect.objectContaining({ command: "architectureEnterFolder" }));
+      expect(cy.state.nodes.map(node => node.data("key"))).toEqual(["units:apps/web", "units:packages/core"]);
+    });
+
     it("names no kind on a down unit edge, and opens a unit edge's evidence from the E2E driver", async () => {
       const down = { ...withUnits.units!, unitEdges: [{ from: "apps/web", to: "packages/core", fileEdgeCount: 1, kind: "down" as const }] };
       const postMessage = await setup({ ...withUnits, units: down });

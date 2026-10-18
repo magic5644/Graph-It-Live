@@ -85,6 +85,10 @@ describe("architecture units golden output: workspaces-project", () => {
     const runtime = { workspaceRoot: rootDir, ensureIndexed: async () => undefined, loadState: () => null };
     const posted: ArchitectureExtensionMessage[] = [];
     const { service, summary } = await buildView(posted);
+    const packages = summary.units!.units.map((unit) => unit.key).filter((key) => key !== "(root)");
+    // A file is in a package unit below its folder, else in (root).
+    const inUnit = (file: string, unit: string) =>
+      (unit === "(root)" ? !packages.some((key) => file.startsWith(`${key}/`)) : file.startsWith(`${unit}/`));
     const evidence = [];
     for (const edge of summary.units!.unitEdges) {
       const cli = JSON.parse(await runArchitectureCli(["--level", "units", "--from", edge.from, "--to", edge.to], runtime as never, "json"));
@@ -94,6 +98,10 @@ describe("architecture units golden output: workspaces-project", () => {
       expect(view).toMatchObject({ type: "architectureEvidencePage", from: edge.from, to: edge.to });
       expect(mcp).toMatchObject({ view: "evidence", kind: edge.kind, page: { total: edge.fileEdgeCount } });
       expect(cli.pairs, `${edge.from} → ${edge.to}`).toEqual(mcp.pairs);
+      for (const pair of mcp.pairs) {
+        expect(inUnit(pair.source, edge.from), pair.source).toBe(true);
+        expect(inUnit(pair.target, edge.to), pair.target).toBe(true);
+      }
       expect(view?.type === "architectureEvidencePage" && view.pairs).toEqual(mcp.pairs);
       evidence.push({ from: edge.from, to: edge.to, kind: mcp.kind, total: mcp.page.total, pairs: mcp.pairs });
     }
