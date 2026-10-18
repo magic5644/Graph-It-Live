@@ -11,12 +11,14 @@
 import cytoscape from "cytoscape";
 import type { ElkNode } from "elkjs/lib/elk-api";
 import React, { useEffect, useMemo, useRef, useState } from "react";
+import type { MatrixCell, MatrixRow } from "../../../analyzer/architecture/architectureMatrix";
 import type {
   ArchitectureControlsMessage,
   ArchitectureEvidencePageMessage,
   ArchitectureExtensionMessage,
   ArchitectureFolderLevelMessage,
   ArchitectureGroupDetailMessage,
+  ArchitectureMatrixMessage,
   ArchitectureStateMessage,
   ArchitectureSummaryMessage,
   ArchitectureWebviewCommand,
@@ -45,6 +47,7 @@ import {
   toLevelElements,
   unitColor,
 } from "./architectureElements";
+import { ArchitectureMatrix, type MatrixPaint } from "./ArchitectureMatrix";
 import { applyElkLayout, applyRoutes, type EdgeRoute, toElkGraph } from "./elkLayout";
 import { createElk, type ElkRunner } from "./elkWorker";
 // eslint-disable-next-line @typescript-eslint/no-require-imports
@@ -198,6 +201,12 @@ type Fit = "focus" | "enter" | "all" | "restore";
 /** Key of a level: the units (null), a unit's top folders, or one of its folders. */
 const levelKey = (unit: string | null, folder: string | undefined) => `${unit ?? ""}>${folder ?? ""}`;
 
+/** The drawn level as a graph or as its dependency structure matrix. */
+type View = "graph" | "matrix";
+
+/** Key of a level's matrix: its revision (a folder's covers the folder), the entered unit and folder. */
+const matrixKey = (revision: string, unit: string | null | undefined, folder: string | undefined) => `${revision}|${unit ?? ""}|${folder ?? ""}`;
+
 const sameEnds = (left: EvidenceEnds, right: EvidenceEnds) =>
   left.from === right.from && left.to === right.to && left.sourceFile === right.sourceFile && left.targetFile === right.targetFile;
 
@@ -313,14 +322,21 @@ interface GraphControlsProps {
   minImports: number;
   onMinImports: (minImports: number) => void;
   capReached: boolean;
+  view: View;
+  onView: (view: View) => void;
 }
 
-/** Find and weak-edge filter: they only change what is drawn, never the counts above. */
-function GraphControls({ summary, shownEdges, query, onQuery, minImports, onMinImports, capReached }: Readonly<GraphControlsProps>) {
+/** Graph | Matrix toggle, then find and weak-edge filter: they only change what is drawn, never the counts above. */
+function GraphControls({ summary, shownEdges, query, onQuery, minImports, onMinImports, capReached, view, onView }: Readonly<GraphControlsProps>) {
   const counts = summary.groupEdges.map((edge) => edge.fileEdgeCount);
+  const toggle = (name: View, label: string) => (
+    <button type="button" aria-pressed={view === name} onClick={() => onView(name)} style={{ fontWeight: view === name ? 600 : undefined }}>{label}</button>
+  );
   return (
     <div style={{ padding: "4px 10px", fontSize: 12, borderBottom: "1px solid var(--vscode-widget-border)" }}>
       <div style={{ display: "flex", flexWrap: "wrap", gap: 8, alignItems: "center" }}>
+        <span>{toggle("graph", "Graph")}{toggle("matrix", "Matrix")}</span>
+        {view === "graph" && (<>
         <input
           type="search"
           aria-label="Find group"
@@ -339,8 +355,9 @@ function GraphControls({ summary, shownEdges, query, onQuery, minImports, onMinI
             style={{ width: 56 }}
           />
         </label>
+        </>)}
       </div>
-      {shownEdges < counts.length && (
+      {view === "graph" && shownEdges < counts.length && (
         <div>
           {shownEdges} of {counts.length} group edges shown (min. {minImports} imports). Totals include them.
         </div>
@@ -463,13 +480,14 @@ interface BreadcrumbProps {
   onOverview: () => void;
   onFocus: (groupId: number) => void;
   onLeave: (groupId: number) => void;
+  view: View;
 }
 
 /**
  * Where the view is: the units, the entered unit and folders (each returns to its level), then the
  * focused group and the entered groups of the drawn level, each with a way back.
  */
-function Breadcrumb({ summary, unit, folders, onUnits, onLevel, expansions, focusId, onOverview, onFocus, onLeave }: Readonly<BreadcrumbProps>) {
+function Breadcrumb({ summary, unit, folders, onUnits, onLevel, expansions, focusId, onOverview, onFocus, onLeave, view }: Readonly<BreadcrumbProps>) {
   const labelOf = (id: number) => (id === 0 ? "unassigned" : summary.groups.find((group) => group.id === id)?.label ?? `group ${id}`);
   const entered = [...expansions.keys()];
   const unitName = summary.units?.units.find((entry) => entry.key === unit)?.name;
@@ -498,7 +516,7 @@ function Breadcrumb({ summary, unit, folders, onUnits, onLevel, expansions, focu
         </span>
       ))}
       <span style={{ marginLeft: 8, color: "var(--vscode-descriptionForeground)" }}>
-        Click: focus · Double-click or Enter: enter · Escape: back
+        {view === "graph" ? "Click: focus · Double-click or Enter: enter · Escape: back" : "Cell: evidence · Header: enter · Arrows: move · Escape: back"}
       </span>
     </nav>
   );
@@ -555,6 +573,15 @@ export function ArchitectureGraph({ postMessage }: Readonly<ArchitectureGraphPro
   const viewportsRef = useRef(new Map<string, { zoom: number; pan: cytoscape.Position }>());
   /** Folder asked for: drawn when its level arrives, unless the view went elsewhere meanwhile. */
   const pendingFolderRef = useRef<string | null>(null);
+  /** Graph or matrix of the drawn level; switching keeps the level and the selection. */
+  const [view, setView] = useState<View>("graph");
+  const viewRef = useRef(view);
+  /** The drawn level's matrix, once received. */
+  const [matrix, setMatrix] = useState<ArchitectureMatrixMessage | null>(null);
+  /** Matrices received per level (matrixKey), for this revision. */
+  const matricesRef = useRef(new Map<string, ArchitectureMatrixMessage>());
+  /** A cell the E2E driver clicks; the matrix selects and reveals it. */
+  const [matrixRequest, setMatrixRequest] = useState<{ row: number; column: number } | null>(null);
   /** The summary, or the entered folder's level shaped as one. */
   const source = useMemo(() => {
     const level = folder === undefined ? undefined : levelsRef.current.get(folder);
@@ -634,18 +661,20 @@ export function ArchitectureGraph({ postMessage }: Readonly<ArchitectureGraphPro
       post({ command: "architectureUnitEvidence", revision: at.revision, from: String(from), to: String(to), offset });
     } else post({ command: "architectureEvidence", ...at, from, to, ...files, offset });
   };
-  const showEvidence = (edge: cytoscape.EdgeSingular) => {
+  /** Opens the evidence panel on an edge or a matrix cell; red ones say why in words, not by colour alone. */
+  const openEvidence = (ends: EvidenceEnds, fromName: string, toName: string, edgeCount: number, kind?: string) => {
     if (!levelOf()) return;
+    const title = `${fromName} → ${toName}: ${edgeCount} file pair${edgeCount === 1 ? "" : "s"} (static imports)${kind ? ` (${kind})` : ""}`;
+    updateEvidence({ ends, title, edgeCount, pairs: [] });
+    requestEvidence(ends, 0);
+  };
+  const showEvidence = (edge: cytoscape.EdgeSingular) => {
     const unitEdge = edge.data("unitEdge") === true;
     const ends: EvidenceEnds = unitEdge ? { from: edge.data("fromUnit"), to: edge.data("toUnit") } : { from: edge.data("from"), to: edge.data("to") };
     if (edge.data("sourceFile") !== undefined) ends.sourceFile = edge.data("sourceFile");
     if (edge.data("targetFile") !== undefined) ends.targetFile = edge.data("targetFile");
-    const edgeCount = Number(edge.data("fileEdgeCount"));
-    // Red unit edges say why in words, not by colour alone.
-    const kind = unitEdge && edge.data("kind") !== "down" ? ` (${edge.data("kind")})` : "";
-    const title = `${edge.data("fromName")} → ${edge.data("toName")}: ${edgeCount} file pair${edgeCount === 1 ? "" : "s"} (static imports)${kind}`;
-    updateEvidence({ ends, title, edgeCount, pairs: [] });
-    requestEvidence(ends, 0);
+    const kind = unitEdge && edge.data("kind") !== "down" ? edge.data("kind") : undefined;
+    openEvidence(ends, edge.data("fromName"), edge.data("toName"), Number(edge.data("fileEdgeCount")), kind);
   };
   const moreEvidence = () => {
     const current = evidenceRef.current;
@@ -692,6 +721,46 @@ export function ArchitectureGraph({ postMessage }: Readonly<ArchitectureGraphPro
     post({ command: "architectureEnterFolder", revision, folder: key });
   };
   const upOneFolder = () => goTo(unitRef.current, foldersRef.current.slice(0, -1));
+  /** The matrix's row is the graph's focus: switching views keeps it. */
+  const selectKey = (rowKey: string) => {
+    const groupId = drawn?.groups.find((group) => group.key === rowKey)?.id;
+    if (groupId !== undefined && groupId !== focusRef.current) updateFocus(groupId, "focus");
+  };
+  /** A matrix cell selects its row and opens its evidence; a unit's own pairs have no unit edge to list. */
+  const matrixCell = (row: MatrixRow<number | string>, column: MatrixRow<number | string>, cell: MatrixCell | undefined) => {
+    selectKey(row.key);
+    if (!cell || (row === column && typeof row.id === "string")) return;
+    const cycle = row !== column && row.cycle !== undefined && row.cycle === column.cycle;
+    openEvidence({ from: row.id, to: column.id }, row.label, column.label, cell.fileEdgeCount, cycle ? "cycle" : undefined);
+  };
+  /** Rows holding a level below: units, and folders holding sub-folders. */
+  const enterable = (row: MatrixRow<number | string>) => typeof row.id === "string" || (matrix?.nestedGroups.includes(row.id) ?? false);
+  /** A header enters its unit or folder (one level down), else selects its row. */
+  const matrixHeader = (row: MatrixRow<number | string>) => {
+    if (typeof row.id === "string") selectUnit(row.key);
+    else if (enterable(row)) enterFolder(row.key);
+    else selectKey(row.key);
+  };
+  const matrixPainted = (paint: MatrixPaint) => {
+    if (!matrix) return;
+    const { totals, rows, cells, cycles } = matrix.matrix;
+    post({
+      command: "architectureMatrixRendered", revision: matrix.revision, unit: matrix.unit, folder: matrix.folder,
+      rows: totals.rows, cells: totals.cells, fileEdges: totals.fileEdges, upwardCells: totals.upwardCells, cycles: cycles.length,
+      digest: cells.map((cell) => `${rows[cell.row].key}>${rows[cell.column].key}=${cell.fileEdgeCount}`).sort((a, b) => (a < b ? -1 : Number(a > b))).join(";"),
+      ...paint,
+    });
+  };
+  /** Unit colour of a matrix row: each unit's at the units level, the entered unit's inside it. */
+  const rowColor = (row: MatrixRow<number | string>) => {
+    const units = summary?.units?.units;
+    const index = units?.findIndex((entry) => entry.key === (unit ?? row.key)) ?? -1;
+    return index < 0 ? undefined : unitColor(index);
+  };
+  const switchView = (next: View) => {
+    viewRef.current = next;
+    setView(next);
+  };
   /** Back to the whole architecture: every group collapsed, no focus. */
   const overview = () => {
     pendingRef.current.clear();
@@ -708,6 +777,8 @@ export function ArchitectureGraph({ postMessage }: Readonly<ArchitectureGraphPro
     goTo(null, []);
     levelsRef.current.clear();
     viewportsRef.current.clear();
+    matricesRef.current.clear();
+    setMatrix(null);
     fitRef.current = "all";
   };
   const isGroup = (target: cytoscape.SingularElementArgument) => target.isNode() && !target.data("file") && !target.data("more");
@@ -732,17 +803,21 @@ export function ArchitectureGraph({ postMessage }: Readonly<ArchitectureGraphPro
     const selected = pinnedRef.current?.length === 1 ? pinnedRef.current[0] : undefined;
     if (event.key === "Enter") {
       const typing = event.target instanceof HTMLElement && event.target.closest("input, button, textarea") !== null;
-      if (!typing && selected) dbltap(selected);
+      if (!typing && selected && viewRef.current === "graph") dbltap(selected);
       return;
     }
-    if (event.key !== "Escape") return;
-    const lastEntered = [...expansionsRef.current.keys()].at(-1);
+    if (event.key === "Escape") back(clearFocus);
+  };
+  /** Escape; the matrix has no entered group or focus to leave, so it goes up a level. */
+  const back = (clearFocus: () => void) => {
+    const graph = viewRef.current === "graph";
+    const lastEntered = graph ? [...expansionsRef.current.keys()].at(-1) : undefined;
     if (evidenceRef.current) updateEvidence(null);
     else if (lastEntered !== undefined) leave(lastEntered);
-    else if (focusRef.current !== null) updateFocus(null, "all");
+    else if (graph && focusRef.current !== null) updateFocus(null, "all");
     else if (foldersRef.current.length > 0) upOneFolder();
     else if (unitRef.current !== null) selectUnit(null);
-    else clearFocus();
+    else if (graph) clearFocus();
   };
   const receiveSummary = (message: ArchitectureSummaryMessage) => {
     // Group ids and pages only hold for their revision; a stale mark or a rebuild of the same graph keeps them.
@@ -771,6 +846,23 @@ export function ArchitectureGraph({ postMessage }: Readonly<ArchitectureGraphPro
     if (page.page.offset !== current.pairs.length) return;
     updateEvidence({ ...current, pairs: [...current.pairs, ...page.pairs], total: page.page.total, nextOffset: page.page.nextOffset });
   };
+  /** Keeps every level's matrix of this revision; shows it if it is the drawn level's. */
+  const receiveMatrix = (message: ArchitectureMatrixMessage) => {
+    if (message.revision !== levelOf()?.revision && message.revision !== summaryRef.current?.revision) return;
+    const key = matrixKey(message.revision, message.unit, message.folder);
+    matricesRef.current.set(key, message);
+    const at = levelOf();
+    if (at && key === matrixKey(at.revision, unitRef.current, at.folder)) setMatrix(message);
+  };
+  /** E2E driver: the toggle, a matrix cell and a matrix header, named by row keys. */
+  const controlMatrix = ({ view: next, matrixCell: cell, matrixHeader: header }: ArchitectureControlsMessage) => {
+    if (next !== undefined) switchView(next);
+    const rows = matrix?.matrix.rows ?? [];
+    const indexOf = (rowKey: string) => rows.findIndex((row) => row.key === rowKey);
+    if (cell && indexOf(cell.row) >= 0 && indexOf(cell.column) >= 0) setMatrixRequest({ row: indexOf(cell.row), column: indexOf(cell.column) });
+    const headerRow = header === undefined ? undefined : rows[indexOf(header)];
+    if (headerRow) matrixHeader(headerRow);
+  };
   /** The id of the drawn group with this key (E2E driver). */
   const groupOf = (groupKey: string | undefined): number | undefined => {
     if (!groupKey) return undefined;
@@ -791,6 +883,7 @@ export function ArchitectureGraph({ postMessage }: Readonly<ArchitectureGraphPro
   };
   /** E2E driver: the same actions as a user, groups named by key. */
   const control = (message: ArchitectureControlsMessage) => {
+    controlMatrix(message);
     // Entering a unit first: the group keys below are those of the unit's groups, drawn on the next render.
     if (message.unit !== undefined) {
       selectUnit(message.unit === "" ? null : message.unit);
@@ -824,6 +917,8 @@ export function ArchitectureGraph({ postMessage }: Readonly<ArchitectureGraphPro
         return receiveDetail(message);
       case "architectureEvidencePage":
         return receiveEvidence(message);
+      case "architectureMatrix":
+        return receiveMatrix(message);
       case "architectureRevisionChanged":
         reset();
         return post({ command: "architectureMounted" });
@@ -831,7 +926,10 @@ export function ArchitectureGraph({ postMessage }: Readonly<ArchitectureGraphPro
         return control(message);
     }
   };
-  const actions = { tap, dbltap, key, openFile, moreEvidence, receive, overview, leave, updateFocus, selectUnit, goTo };
+  const actions = {
+    tap, dbltap, key, openFile, moreEvidence, receive, overview, leave, updateFocus, selectUnit, goTo,
+    switchView, matrixCell, matrixHeader, matrixPainted, enterable, rowColor,
+  };
   const actionsRef = useRef(actions);
   actionsRef.current = actions;
 
@@ -1032,6 +1130,17 @@ export function ArchitectureGraph({ postMessage }: Readonly<ArchitectureGraphPro
     if (matches.nonempty()) cy.center(matches);
   }, [revision, unit, folder, query]);
 
+  // The matrix of the drawn level: kept per level, asked for once.
+  useEffect(() => {
+    if (view !== "matrix" || revision === undefined) return;
+    const current = folders.at(-1);
+    const levelRevision = current === undefined ? revision : levelsRef.current.get(current)?.revision;
+    if (levelRevision === undefined) return;
+    const cached = matricesRef.current.get(matrixKey(levelRevision, unit, current));
+    setMatrix(cached ?? null);
+    if (!cached) postMessageRef.current({ command: "architectureMatrix", revision: levelRevision, folder: current, unit: unit ?? undefined });
+  }, [view, revision, unit, folders]);
+
   const refresh = () => postMessageRef.current({ command: "architectureRefresh" });
   return (
     <div style={{ display: "flex", flexDirection: "column", width: "100%", height: "100%" }}>
@@ -1047,6 +1156,8 @@ export function ArchitectureGraph({ postMessage }: Readonly<ArchitectureGraphPro
             minImports={minImports}
             onMinImports={setMinImports}
             capReached={capReached}
+            view={view}
+            onView={(next) => actionsRef.current.switchView(next)}
           />
           <Breadcrumb
             summary={drawn}
@@ -1059,11 +1170,28 @@ export function ArchitectureGraph({ postMessage }: Readonly<ArchitectureGraphPro
             onOverview={() => actionsRef.current.overview()}
             onFocus={(groupId) => actionsRef.current.updateFocus(groupId, "enter")}
             onLeave={(groupId) => actionsRef.current.leave(groupId)}
+            view={view}
           />
         </>
       )}
       <div style={{ position: "relative", flex: 1, minHeight: 0, visibility: state ? "hidden" : "visible" }}>
-        <div ref={containerRef} data-testid="architecture-graph" style={{ position: "absolute", inset: 0 }} />
+        {/* Hidden on a wrapper: the ELK layout shows and hides the container itself. */}
+        <div style={{ position: "absolute", inset: 0, visibility: view === "matrix" ? "hidden" : undefined }}>
+          <div ref={containerRef} data-testid="architecture-graph" style={{ position: "absolute", inset: 0 }} />
+        </div>
+        {!state && view === "matrix" && !matrix && <output style={{ display: "block", padding: 16, fontSize: 12 }}>Building the matrix…</output>}
+        {!state && view === "matrix" && matrix && (
+          <ArchitectureMatrix
+            matrix={matrix.matrix}
+            request={matrixRequest}
+            enterable={(row) => actionsRef.current.enterable(row)}
+            colorOf={(row) => actionsRef.current.rowColor(row)}
+            selectedKey={focusId === null ? undefined : drawn?.groups.find((group) => group.id === focusId)?.key}
+            onCell={(row, column, cell) => actionsRef.current.matrixCell(row, column, cell)}
+            onHeader={(row) => actionsRef.current.matrixHeader(row)}
+            onPaint={(paint) => actionsRef.current.matrixPainted(paint)}
+          />
+        )}
         {!state && evidence && (
           <EvidencePanel
             evidence={evidence}

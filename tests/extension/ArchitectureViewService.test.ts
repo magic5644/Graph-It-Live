@@ -10,7 +10,12 @@ import {
   maskWorkspaceRoot,
   type ArchitectureViewServiceOptions,
 } from "../../src/extension/services/ArchitectureViewService";
-import type { ArchitectureExtensionMessage, ArchitectureFolderLevelMessage, ArchitectureSummaryMessage } from "../../src/shared/architecture-types";
+import type {
+  ArchitectureExtensionMessage,
+  ArchitectureFolderLevelMessage,
+  ArchitectureMatrixMessage,
+  ArchitectureSummaryMessage,
+} from "../../src/shared/architecture-types";
 import type { CommunityMode } from "../../src/shared/graph-types";
 import { normalizePath } from "../../src/shared/path";
 
@@ -256,6 +261,49 @@ describe("ArchitectureViewService", () => {
     } finally {
       await fs.rm(deep, { recursive: true, force: true });
     }
+  });
+
+  it("answers the matrix of the units, of an entered unit and of a folder, read from that level's graph", async () => {
+    const service = createService();
+    await service.build();
+    const [summary] = summaries();
+    const matrixOf = async (request: { folder?: string; unit?: string; revision?: string }) => {
+      await service.handleWebviewMessage({ command: "architectureMatrix", revision: summary.revision, ...request });
+      return posted.at(-1) as ArchitectureMatrixMessage;
+    };
+
+    // (root) imports src: src (layer 0) comes first, and its two internal pairs sit on the diagonal.
+    const units = await matrixOf({});
+    expect(units).toMatchObject({ type: "architectureMatrix", revision: summary.revision, nestedGroups: [] });
+    expect(units.matrix.rows.map(row => [row.id, row.label])).toEqual([["src", "src"], ["(root)", "(root)"]]);
+    expect(units.matrix.cells).toEqual([{ row: 0, column: 0, fileEdgeCount: 2, upward: false }, { row: 1, column: 0, fileEdgeCount: 1, upward: false }]);
+
+    // Inside src: the summary's group ids, named within the unit; ui imports store twice.
+    const inside = await matrixOf({ unit: "src" });
+    const id = (key: string) => summary.groups.find(group => group.key === key)!.id;
+    expect(inside).toMatchObject({ unit: "src", folder: undefined });
+    expect(inside.matrix.rows.map(row => [row.id, row.label])).toEqual([[id("src/store"), "store"], [id("src/ui"), "ui"]]);
+    expect(inside.matrix.cells).toEqual([{ row: 1, column: 0, fileEdgeCount: 2, upward: false }]);
+
+    await service.handleWebviewMessage({ command: "architectureEnterFolder", revision: summary.revision, folder: "src/ui" });
+    const level = (posted.at(-1) as ArchitectureFolderLevelMessage).level;
+    const folder = await matrixOf({ revision: level.revision, folder: "src/ui", unit: "src" });
+    expect(folder.matrix.rows.map(row => [row.key, row.label])).toEqual([["src/ui", "ui"]]);
+    expect(folder.matrix.cells).toEqual([]);
+
+    await service.handleWebviewMessage({ command: "architectureMatrix", revision: "old" });
+    expect(posted.at(-1)).toEqual({ type: "architectureRevisionChanged", currentRevision: summary.revision });
+  });
+
+  it("answers the matrix of every group in Louvain mode", async () => {
+    communityMode = "louvain";
+    const service = createService();
+    await service.build();
+    const [summary] = summaries();
+    await service.handleWebviewMessage({ command: "architectureMatrix", revision: summary.revision });
+    const { matrix } = posted.at(-1) as ArchitectureMatrixMessage;
+    expect(matrix.totals.fileEdges).toBe(summary.totals.fileEdges);
+    expect(matrix.rows.length).toBe(summary.groups.length + (summary.unassigned.fileCount > 0 ? 1 : 0));
   });
 
   it("has no folder levels in Louvain mode", async () => {
@@ -558,8 +606,15 @@ describe("ArchitectureViewService", () => {
       buildCount: 0, renderCount: 1, groupCount: 3, groupEdgeCount: 2, revision: "abc", communityMode: "path", stale: true,
       overlappingGroups: 1, overflowingLabels: 2, positions: "path:ui@0,0", unit: undefined, folder: undefined, unitLevel: undefined,
       resizeCount: 0, viewSize: { width: 0, height: 0 },
-      interactionCount: 0, interaction: null, detailCount: 0, detail: null,
+      interactionCount: 0, interaction: null, detailCount: 0, detail: null, matrixCount: 0, matrix: null,
     });
+
+    const painted = {
+      command: "architectureMatrixRendered" as const, revision: "abc", rows: 2, cells: 3, fileEdges: 5, upwardCells: 1, cycles: 1,
+      renderedCells: 3, digest: "a>b=1", paintMs: 12, cause: "matrix" as const,
+    };
+    await service.handleWebviewMessage(painted);
+    expect(service.getE2EState()).toMatchObject({ renderCount: 1, matrixCount: 1, matrix: painted });
   });
 
   it("counts resizes and keeps the last view size, without counting a render", async () => {
@@ -595,6 +650,11 @@ describe("ArchitectureViewService", () => {
     expect(posted.at(-1)).toEqual({ type: "architectureControls", find: "x".repeat(256), minImports: undefined });
     service.setControls(undefined);
     expect(posted.at(-1)).toEqual({ type: "architectureControls", find: undefined, minImports: undefined });
+
+    service.setControls({ view: "matrix", matrixCell: { row: "src", column: "(root)" }, matrixHeader: "src" });
+    expect(posted.at(-1)).toMatchObject({ view: "matrix", matrixCell: { row: "src", column: "(root)" }, matrixHeader: "src" });
+    service.setControls({ view: "table", matrixCell: { row: "src", column: 3 }, matrixHeader: 4 } as never);
+    expect(posted.at(-1)).toMatchObject({ view: undefined, matrixCell: undefined, matrixHeader: undefined });
   });
 
   describe("group detail, evidence and opening files", () => {

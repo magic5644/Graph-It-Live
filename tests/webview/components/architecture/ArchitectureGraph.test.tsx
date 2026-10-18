@@ -3,7 +3,13 @@
 import React from "react";
 import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import type { ArchitectureExtensionMessage, ArchitectureFolderLevelMessage, ArchitectureSummaryMessage } from "@/shared/architecture-types";
+import { groupMatrix, unitMatrix } from "@/analyzer/architecture/architectureMatrix";
+import type {
+  ArchitectureExtensionMessage,
+  ArchitectureFolderLevelMessage,
+  ArchitectureMatrixMessage,
+  ArchitectureSummaryMessage,
+} from "@/shared/architecture-types";
 
 // Cytoscape needs a canvas: stand in a fake that records elements and runs layouts at once.
 // fcose drops every node at the origin; labels are as wide as `labelWidth` (default: textWidth).
@@ -985,24 +991,24 @@ describe("ArchitectureGraph", () => {
       expect(lastOf(postMessage, "architectureRendered")).toEqual(expect.objectContaining({ unit: undefined }));
     });
 
+    const nested: ArchitectureSummaryMessage = { ...withUnits, units: { ...withUnits.units!, nestedGroups: [1] } };
+    const { type: _type, stale: _stale, ...base } = nested;
+    const uiLevel: ArchitectureFolderLevelMessage = {
+      type: "architectureFolderLevel",
+      revision: "r1",
+      folder: "ui",
+      level: {
+        ...base,
+        revision: "r2",
+        groups: [
+          { id: 1, key: "ui", label: "ui", fileCount: 2, internalEdgeCount: 0 },
+          { id: 2, key: "ui/forms", label: "forms", fileCount: 3, internalEdgeCount: 1 },
+        ],
+        groupEdges: [{ from: 2, to: 1, fileEdgeCount: 2, fromLabel: "forms", toLabel: "ui" }],
+        units: { ...nested.units!, groupUnits: { 1: "apps/web", 2: "apps/web" }, groupLayers: { 1: 0, 2: 1 }, groupEdgeKinds: { "2>1": "down" }, nestedGroups: [] },
+      },
+    };
     describe("folder levels", () => {
-      const nested: ArchitectureSummaryMessage = { ...withUnits, units: { ...withUnits.units!, nestedGroups: [1] } };
-      const { type: _type, stale: _stale, ...base } = nested;
-      const uiLevel: ArchitectureFolderLevelMessage = {
-        type: "architectureFolderLevel",
-        revision: "r1",
-        folder: "ui",
-        level: {
-          ...base,
-          revision: "r2",
-          groups: [
-            { id: 1, key: "ui", label: "ui", fileCount: 2, internalEdgeCount: 0 },
-            { id: 2, key: "ui/forms", label: "forms", fileCount: 3, internalEdgeCount: 1 },
-          ],
-          groupEdges: [{ from: 2, to: 1, fileEdgeCount: 2, fromLabel: "forms", toLabel: "ui" }],
-          units: { ...nested.units!, groupUnits: { 1: "apps/web", 2: "apps/web" }, groupLayers: { 1: 0, 2: 1 }, groupEdgeKinds: { "2>1": "down" }, nestedGroups: [] },
-        },
-      };
       const keys = () => cy.state.nodes.map(node => node.data("key"));
       const escape = async () => {
         act(() => { window.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape" })); });
@@ -1129,6 +1135,124 @@ describe("ArchitectureGraph", () => {
         await settle();
         send({ type: "architectureControls", folder: "ui" });
         expect(lastOf(postMessage, "architectureEnterFolder")).toEqual(expect.objectContaining({ revision: "r3", folder: "ui" }));
+      });
+    });
+
+    describe("matrix", () => {
+      const unitsMatrix: ArchitectureMatrixMessage = { type: "architectureMatrix", revision: "r1", matrix: unitMatrix(withUnits.units!), nestedGroups: [] };
+      const webMatrix: ArchitectureMatrixMessage = {
+        type: "architectureMatrix", revision: "r1", unit: "apps/web", nestedGroups: [1],
+        matrix: groupMatrix({ ...withUnits, groups: [...withUnits.groups, { id: 3, key: "apps/web/lib", label: "lib", fileCount: 1, internalEdgeCount: 0 }], groupEdges: [{ from: 1, to: 3, fileEdgeCount: 2 }] }, (id) => id !== 2),
+      };
+      const nextFrame = () => act(() => new Promise<void>((resolve) => requestAnimationFrame(() => resolve())));
+      const toMatrix = async (postMessage: ReturnType<typeof vi.fn>, message = unitsMatrix) => {
+        fireEvent.click(screen.getByRole("button", { name: "Matrix" }));
+        send(message);
+        await nextFrame();
+        return postMessage;
+      };
+      const escape = async () => {
+        act(() => { window.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape" })); });
+        await settle();
+      };
+      const asked = (postMessage: ReturnType<typeof vi.fn>) => postMessage.mock.calls.filter(([message]) => message.command === "architectureMatrix").length;
+
+      it("asks for the drawn level's matrix once, shows it, reports it, and keeps it across toggles", async () => {
+        const postMessage = await setup();
+        fireEvent.click(screen.getByRole("button", { name: "Matrix" }));
+        expect(lastOf(postMessage, "architectureMatrix")).toEqual({ command: "architectureMatrix", revision: "r1", folder: undefined, unit: undefined });
+        expect(screen.getByText("Building the matrix…")).toBeTruthy();
+        expect(screen.queryByRole("textbox", { name: "Find group" })).toBeNull();
+        send(unitsMatrix);
+        await nextFrame();
+
+        expect(screen.getByRole("region", { name: /Dependency structure matrix: 2 rows, 3 non-empty cells/ })).toBeTruthy();
+        expect(screen.getByRole("button", { name: "@ws/web: Ca 1, Ce 3, I 0.75, enter" })).toBeTruthy();
+        expect(lastOf(postMessage, "architectureMatrixRendered")).toEqual(expect.objectContaining({
+          revision: "r1", rows: 2, cells: 3, fileEdges: 5, upwardCells: 1, cycles: 1, cause: "matrix",
+          digest: "apps/web>apps/web=1;apps/web>packages/core=3;packages/core>apps/web=1",
+        }));
+        expect(screen.getByTestId("architecture-graph").parentElement!.style.visibility).toBe("hidden");
+
+        fireEvent.click(screen.getByRole("button", { name: "Graph" }));
+        expect(screen.getByTestId("architecture-graph").parentElement!.style.visibility).toBe("");
+        fireEvent.click(screen.getByRole("button", { name: "Matrix" }));
+        expect(asked(postMessage)).toBe(1);
+        expect(screen.getByRole("region", { name: /Dependency structure matrix/ })).toBeTruthy();
+      });
+
+      it("opens the evidence of a clicked cell with its total, but not for a unit's own pairs", async () => {
+        const postMessage = await toMatrix(await setup());
+        fireEvent.click(screen.getByRole("button", { name: "@ws/web imports @ws/core: 3 file pairs" }));
+        expect(lastOf(postMessage, "architectureUnitEvidence")).toEqual({ command: "architectureUnitEvidence", revision: "r1", from: "apps/web", to: "packages/core", offset: 0 });
+        expect(screen.getByRole("region", { name: "Evidence" }).textContent).toContain("@ws/web → @ws/core: 3 file pairs (static imports) (cycle)");
+        // The matrix is its own stacking context, so its sticky headers stay below the evidence drawn after it.
+        const matrixRoot = screen.getByRole("region", { name: /Dependency structure matrix/ }).parentElement!;
+        expect(matrixRoot.style.zIndex).toBe("0");
+        expect(matrixRoot.compareDocumentPosition(screen.getByRole("region", { name: "Evidence" })) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+        expect(screen.getByText(/Cell: evidence · Header: enter/)).toBeTruthy();
+
+        fireEvent.click(screen.getByRole("button", { name: "Close evidence" }));
+        const evidence = postMessage.mock.calls.length;
+        fireEvent.click(screen.getByRole("button", { name: "@ws/web: 1 file pair inside" }));
+        expect(postMessage.mock.calls.slice(evidence).some(([message]) => message.command === "architectureUnitEvidence")).toBe(false);
+        expect(screen.queryByRole("region", { name: "Evidence" })).toBeNull();
+      });
+
+      it("enters a unit from its header, asks for its groups by group id, and Escape goes back to the units", async () => {
+        const postMessage = await toMatrix(await setup());
+        fireEvent.click(screen.getByRole("button", { name: "@ws/web: Ca 1, Ce 3, I 0.75, enter" }));
+        await settle();
+        expect(lastOf(postMessage, "architectureMatrix")).toEqual({ command: "architectureMatrix", revision: "r1", folder: undefined, unit: "apps/web" });
+        send(webMatrix);
+        await nextFrame();
+        fireEvent.click(screen.getByRole("button", { name: "ui imports lib: 2 file pairs" }));
+        expect(lastOf(postMessage, "architectureEvidence")).toEqual(expect.objectContaining({ revision: "r1", from: 1, to: 3 }));
+
+        await escape();
+        expect(screen.queryByRole("region", { name: "Evidence" })).toBeNull();
+        await escape();
+        expect(screen.getByRole("button", { name: "@ws/web: Ca 1, Ce 3, I 0.75, enter" })).toBeTruthy();
+        expect(asked(postMessage)).toBe(2);
+      });
+
+      it("enters a folder holding sub-folders from its header, and selects a row the graph focuses", async () => {
+        const postMessage = await setup(nested);
+        send({ type: "architectureControls", unit: "apps/web" });
+        await settle();
+        await toMatrix(postMessage, webMatrix);
+        fireEvent.click(screen.getByRole("button", { name: "lib: Ca 2, Ce 0, I 0" }));
+        expect(postMessage).not.toHaveBeenCalledWith(expect.objectContaining({ command: "architectureEnterFolder" }));
+        fireEvent.click(screen.getByRole("button", { name: "ui: Ca 0, Ce 2, I 1, enter" }));
+        expect(lastOf(postMessage, "architectureEnterFolder")).toEqual({ command: "architectureEnterFolder", revision: "r1", folder: "ui" });
+        send(uiLevel);
+        await settle();
+        expect(lastOf(postMessage, "architectureMatrix")).toEqual({ command: "architectureMatrix", revision: "r2", folder: "ui", unit: "apps/web" });
+      });
+
+      it("follows the E2E controls: toggle, cell and header by row key", async () => {
+        const postMessage = await setup();
+        send({ type: "architectureControls", view: "matrix" });
+        send(unitsMatrix);
+        await nextFrame();
+        send({ type: "architectureControls", matrixCell: { row: "packages/core", column: "apps/web" } });
+        expect(lastOf(postMessage, "architectureUnitEvidence")).toEqual(expect.objectContaining({ from: "packages/core", to: "apps/web" }));
+        send({ type: "architectureControls", matrixCell: { row: "nowhere", column: "apps/web" }, matrixHeader: "packages/core" });
+        await settle();
+        expect(lastOf(postMessage, "architectureMatrix")).toEqual(expect.objectContaining({ unit: "packages/core" }));
+        send({ type: "architectureControls", view: "graph" });
+        expect(screen.getByTestId("architecture-graph").parentElement!.style.visibility).toBe("");
+      });
+
+      it("forgets the matrices of an old revision, and drops a matrix for another level", async () => {
+        const postMessage = await toMatrix(await setup());
+        send({ ...unitsMatrix, unit: "apps/web" });
+        expect(screen.getByRole("region", { name: /2 rows/ })).toBeTruthy();
+        send({ ...unitsMatrix, revision: "old" });
+        send({ ...withUnits, revision: "r3", context: { ...withUnits.context, revision: "r3" } });
+        await settle();
+        expect(lastOf(postMessage, "architectureMatrix")).toEqual(expect.objectContaining({ revision: "r3" }));
+        expect(screen.getByText("Building the matrix…")).toBeTruthy();
       });
     });
   });

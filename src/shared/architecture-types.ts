@@ -10,6 +10,7 @@
  */
 
 import type { ArchitectureGroupDetail, ArchitectureOverview } from "../analyzer/architecture/ArchitectureExplorer";
+import type { ArchitectureMatrix } from "../analyzer/architecture/architectureMatrix";
 import type { ArchitectureUnitEdgeKind, ArchitectureUnits } from "../analyzer/architecture/architectureUnits";
 
 /** The units level of a path-mode summary: what `graph-it architecture --level units` reports, plus the unit of each group. */
@@ -80,6 +81,19 @@ export interface ArchitectureEvidencePageMessage {
   page: { total: number; offset: number; returned: number; truncated: boolean; nextOffset?: number };
 }
 
+/** The dependency structure matrix of one level (answers architectureMatrix); row ids are group ids, or unit keys at the units level. */
+export interface ArchitectureMatrixMessage {
+  type: "architectureMatrix";
+  /** Revision and folder of the level the request named. */
+  revision: string;
+  folder?: string;
+  /** Entered unit of the request, if any. */
+  unit?: string;
+  matrix: ArchitectureMatrix;
+  /** Rows holding sub-folders: a click on their header enters them (architectureEnterFolder). */
+  nestedGroups: number[];
+}
+
 /** Answers a request made with another revision: the webview drops its detail and asks for the summary again. */
 export interface ArchitectureRevisionChangedMessage {
   type: "architectureRevisionChanged";
@@ -103,6 +117,12 @@ export interface ArchitectureControlsMessage {
   evidenceOf?: string;
   /** Clicks the source of this evidence row. */
   openEvidenceRow?: number;
+  /** Shows the graph or the matrix of the drawn level, as the toolbar toggle does. */
+  view?: "graph" | "matrix";
+  /** Clicks the matrix cell of these row and column keys (the evidence opens). */
+  matrixCell?: { row: string; column: string };
+  /** Clicks the matrix header of this row key (a unit or a folder holding sub-folders is entered). */
+  matrixHeader?: string;
 }
 
 export type ArchitectureExtensionMessage =
@@ -111,6 +131,7 @@ export type ArchitectureExtensionMessage =
   | ArchitectureFolderLevelMessage
   | ArchitectureGroupDetailMessage
   | ArchitectureEvidencePageMessage
+  | ArchitectureMatrixMessage
   | ArchitectureRevisionChangedMessage
   | ArchitectureControlsMessage;
 
@@ -225,6 +246,36 @@ export interface ArchitectureUnitEvidenceCommand {
   offset?: number;
 }
 
+/** Asks for the matrix of the drawn level: `revision` and `folder` as for evidence, `unit` the entered unit (path mode). */
+export interface ArchitectureMatrixCommand {
+  command: "architectureMatrix";
+  revision: string;
+  folder?: string;
+  unit?: string;
+}
+
+/** What the matrix shows (E2E and benchmark observability only). */
+export interface ArchitectureMatrixRenderedCommand {
+  command: "architectureMatrixRendered";
+  revision: string;
+  unit?: string;
+  folder?: string;
+  rows: number;
+  /** Non-zero cells, the diagonal included, and the sum of their file pairs. */
+  cells: number;
+  fileEdges: number;
+  upwardCells: number;
+  cycles: number;
+  /** Cell buttons in the DOM: the virtualised window, not the whole matrix. */
+  renderedCells: number;
+  /** Sorted `rowKey>columnKey=count` of every non-zero cell, to compare with the CLI. */
+  digest: string;
+  /** From the matrix's arrival (or the last scroll) to the next frame after the commit. */
+  paintMs: number;
+  /** What triggered the paint. */
+  cause: "matrix" | "scroll";
+}
+
 /** Opens a workspace-relative file of the graph; never an absolute path. */
 export interface ArchitectureOpenFileCommand {
   command: "architectureOpenFile";
@@ -262,5 +313,7 @@ export type ArchitectureWebviewCommand =
   | ArchitectureExpandGroupCommand
   | ArchitectureEvidenceCommand
   | ArchitectureUnitEvidenceCommand
+  | ArchitectureMatrixCommand
+  | ArchitectureMatrixRenderedCommand
   | ArchitectureOpenFileCommand
   | ArchitectureDetailRenderedCommand;

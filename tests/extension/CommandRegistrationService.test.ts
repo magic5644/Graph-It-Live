@@ -64,7 +64,7 @@ function createProviderMock(): GraphProvider {
     getArchitectureE2EState: vi.fn().mockReturnValue({
       buildCount: 2, renderCount: 3, groupCount: 20, groupEdgeCount: 6, revision: 'r1', communityMode: 'path', stale: true,
       overlappingGroups: 1, overflowingLabels: 2, positions: 'path:ui@0,0', resizeCount: 4, viewSize: { width: 320, height: 200 },
-      interactionCount: 5, interaction: { highlightedGroups: 2 },
+      interactionCount: 5, interaction: { highlightedGroups: 2 }, matrixCount: 6, matrix: { rows: 11 },
     }),
     setArchitectureControls: vi.fn(),
   } as unknown as GraphProvider;
@@ -161,6 +161,8 @@ describe('CommandRegistrationService', () => {
     expect(await getContext('graph-it-live.architectureViewSize')).toEqual({ width: 320, height: 200 });
     expect(await getContext('graph-it-live.architectureInteractionCount')).toBe(5);
     expect(await getContext('graph-it-live.architectureInteraction')).toEqual({ highlightedGroups: 2 });
+    expect(await getContext('graph-it-live.architectureMatrixCount')).toBe(6);
+    expect(await getContext('graph-it-live.architectureMatrix')).toEqual({ rows: 11 });
 
     await registeredHandlers.get('graph-it-live.e2eArchitectureControls')?.({ find: 'ui', minImports: 2 });
     expect(provider.setArchitectureControls).toHaveBeenCalledWith({ find: 'ui', minImports: 2 });
@@ -187,6 +189,8 @@ describe('CommandRegistrationService', () => {
     expect(await getContext('graph-it-live.architectureViewSize')).toBeUndefined();
     expect(await getContext('graph-it-live.architectureInteractionCount')).toBe(0);
     expect(await getContext('graph-it-live.architectureInteraction')).toBeUndefined();
+    expect(await getContext('graph-it-live.architectureMatrixCount')).toBe(0);
+    expect(await getContext('graph-it-live.architectureMatrix')).toBeUndefined();
   });
 
   it.each([

@@ -1,0 +1,199 @@
+{
+  "cli": {
+    "workspaceRoot": "<root>",
+    "scannedFiles": 6,
+    "analyzedFiles": 6,
+    "skippedFiles": 0,
+    "failedFiles": [],
+    "nodeCount": 6,
+    "edgeCount": 5,
+    "level": "groups",
+    "view": "matrix",
+    "context": {
+      "communityMode": "louvain",
+      "revision": "8c398b20225c41802c98c7c7b3d0c2676496eb425b9d67519c090e6aa59cc802",
+      "graphKind": "imports",
+      "scope": "workspace",
+      "exclusions": "node_modules, .git, dist, build, out, coverage, .next, .nuxt, __pycache__, .venv, venv, target, .*/, .gitignore, .graphitignore, tests/fixtures/, out-*/",
+      "truncated": false,
+      "failedFiles": 0
+    },
+    "provenance": {
+      "facts": "File pairs are static import relations extracted from source code, not observed execution.",
+      "grouping": "Groups are computed by the communityMode detector; group ids are only valid for the same context.revision.",
+      "interpretation": "None: labels are folder keys or detector output, not business names or responsibilities."
+    },
+    "rows": [
+      {
+        "id": 1,
+        "key": "src",
+        "label": "src",
+        "internalEdgeCount": 2,
+        "layer": 0,
+        "outgoingPairs": 0,
+        "outgoingGroups": 0,
+        "incomingPairs": 2,
+        "incomingGroups": 1,
+        "instability": 0
+      },
+      {
+        "id": 0,
+        "key": "",
+        "label": "unassigned",
+        "internalEdgeCount": 0,
+        "layer": 0,
+        "outgoingPairs": 0,
+        "outgoingGroups": 0,
+        "incomingPairs": 0,
+        "incomingGroups": 0,
+        "instability": null
+      },
+      {
+        "id": 2,
+        "key": "src #2",
+        "label": "src #2",
+        "internalEdgeCount": 1,
+        "layer": 1,
+        "outgoingPairs": 2,
+        "outgoingGroups": 1,
+        "incomingPairs": 0,
+        "incomingGroups": 0,
+        "instability": 1
+      }
+    ],
+    "cells": [
+      {
+        "row": 0,
+        "column": 0,
+        "fileEdgeCount": 2,
+        "upward": false
+      },
+      {
+        "row": 2,
+        "column": 0,
+        "fileEdgeCount": 2,
+        "upward": false
+      },
+      {
+        "row": 2,
+        "column": 2,
+        "fileEdgeCount": 1,
+        "upward": false
+      }
+    ],
+    "cycles": [],
+    "totals": {
+      "rows": 3,
+      "cells": 3,
+      "fileEdges": 5,
+      "intraEdges": 3,
+      "interEdges": 2,
+      "upwardCells": 0
+    },
+    "formulas": {
+      "order": "Rows and columns share one order: layer 0 first (depends on no other row), the rows of a cycle together, then by label.",
+      "cell": "Cell (row, column) = distinct file pairs where a file of the row imports a file of the column; the diagonal counts the pairs inside the row.",
+      "upward": "In this order every dependency sits below the diagonal; a cell above it (upward) belongs to a cycle.",
+      "instability": "I = Ce / (Ca + Ce), Ce = outgoingPairs (efferent), Ca = incomingPairs (afferent), diagonal excluded; null when both are 0."
+    }
+  },
+  "firstPage": {
+    "view": "matrix",
+    "context": {
+      "communityMode": "louvain",
+      "revision": "8c398b20225c41802c98c7c7b3d0c2676496eb425b9d67519c090e6aa59cc802",
+      "graphKind": "imports",
+      "scope": "workspace",
+      "exclusions": "node_modules, .git, dist, build, out, coverage, .next, .nuxt, __pycache__, .venv, venv, target, .*/, .gitignore, .graphitignore, tests/fixtures/, out-*/",
+      "truncated": false,
+      "failedFiles": 0
+    },
+    "provenance": {
+      "facts": "File pairs are static import relations extracted from source code, not observed execution.",
+      "grouping": "Groups are computed by the communityMode detector; group ids are only valid for the same context.revision.",
+      "interpretation": "None: labels are folder keys or detector output, not business names or responsibilities."
+    },
+    "rows": [
+      {
+        "id": 1,
+        "key": "src",
+        "label": "src",
+        "internalEdgeCount": 2,
+        "layer": 0,
+        "outgoingPairs": 0,
+        "outgoingGroups": 0,
+        "incomingPairs": 2,
+        "incomingGroups": 1,
+        "instability": 0
+      },
+      {
+        "id": 0,
+        "key": "",
+        "label": "unassigned",
+        "internalEdgeCount": 0,
+        "layer": 0,
+        "outgoingPairs": 0,
+        "outgoingGroups": 0,
+        "incomingPairs": 0,
+        "incomingGroups": 0,
+        "instability": null
+      },
+      {
+        "id": 2,
+        "key": "src #2",
+        "label": "src #2",
+        "internalEdgeCount": 1,
+        "layer": 1,
+        "outgoingPairs": 2,
+        "outgoingGroups": 1,
+        "incomingPairs": 0,
+        "incomingGroups": 0,
+        "instability": 1
+      }
+    ],
+    "cells": [
+      {
+        "row": 0,
+        "column": 0,
+        "fileEdgeCount": 2,
+        "upward": false
+      },
+      {
+        "row": 2,
+        "column": 0,
+        "fileEdgeCount": 2,
+        "upward": false
+      }
+    ],
+    "cycles": [],
+    "totals": {
+      "rows": 3,
+      "cells": 3,
+      "fileEdges": 5,
+      "intraEdges": 3,
+      "interEdges": 2,
+      "upwardCells": 0
+    },
+    "formulas": {
+      "order": "Rows and columns share one order: layer 0 first (depends on no other row), the rows of a cycle together, then by label.",
+      "cell": "Cell (row, column) = distinct file pairs where a file of the row imports a file of the column; the diagonal counts the pairs inside the row.",
+      "upward": "In this order every dependency sits below the diagonal; a cell above it (upward) belongs to a cycle.",
+      "instability": "I = Ce / (Ca + Ce), Ce = outgoingPairs (efferent), Ca = incomingPairs (afferent), diagonal excluded; null when both are 0."
+    },
+    "page": {
+      "total": 3,
+      "offset": 0,
+      "returned": 2,
+      "truncated": true,
+      "nextOffset": 2
+    },
+    "nextSteps": "Pass from and to (two rows' ids, or unit keys with level units) for the file pairs behind a cell."
+  },
+  "csv": [
+    "row imports column,src,unassigned,src #2,Ce,Ca,I",
+    "src,2,,,0,2,0",
+    "unassigned,,,,0,0,",
+    "src #2,2,,1,2,0,1",
+    ""
+  ]
+}

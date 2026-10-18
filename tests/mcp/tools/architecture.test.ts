@@ -158,6 +158,24 @@ describe("executeExploreArchitecture", () => {
     }
   });
 
+  it("returns the matrix of the groups, the units or a folder, as graph-it architecture --matrix", async () => {
+    const runtime = { workspaceRoot, ensureIndexed: vi.fn(), loadState: () => null } as never;
+    const groups = await executeExploreArchitecture({ view: "matrix" });
+    const cli = JSON.parse(await runArchitectureCli(["--matrix"], runtime, "json"));
+    expect(groups).toMatchObject({ view: "matrix", rows: cli.rows, cells: cli.cells, totals: cli.totals, page: { total: cli.totals.cells } });
+    // db (layer 0), api, then the unassigned index.ts; api → db carries 3 pairs, db 1 inside.
+    expect(groups.rows.map(row => row.label)).toEqual(["db", "api", "unassigned"]);
+    expect(groups.cells).toContainEqual({ row: 1, column: 0, fileEdgeCount: 3, upward: false });
+
+    const units = await executeExploreArchitecture({ level: "units", view: "matrix" });
+    expect(units.rows.map(row => row.id)).toEqual(["src", "(root)"]);
+    expect(units.provenance.grouping).toContain("Units are package folders");
+
+    const folder = await executeExploreArchitecture({ folder: "src", view: "matrix", limit: 1 });
+    expect(folder).toMatchObject({ folder: "src", view: "matrix", page: { returned: 1, truncated: true } });
+    expect(folder.rows.map(row => row.key)).toEqual(["src/db", "src/api"]);
+  });
+
   it("groups by import structure with communityMode louvain", async () => {
     const summary = await executeExploreArchitecture({ communityMode: "louvain" });
 
@@ -198,5 +216,13 @@ describe("ExploreArchitectureParamsSchema", () => {
     expect(ExploreArchitectureParamsSchema.safeParse({ folder: "a".repeat(1025) }).success).toBe(false);
     expect(ExploreArchitectureParamsSchema.safeParse({ folder: "app", level: "units" }).success).toBe(false);
     expect(ExploreArchitectureParamsSchema.safeParse({ folder: "app", communityMode: "louvain" }).success).toBe(false);
+  });
+
+  it("accepts view matrix on any level, but not with a group or an edge", () => {
+    expect(ExploreArchitectureParamsSchema.safeParse({ view: "matrix", level: "units", offset: 10 }).success).toBe(true);
+    expect(ExploreArchitectureParamsSchema.safeParse({ view: "matrix", folder: "app" }).success).toBe(true);
+    expect(ExploreArchitectureParamsSchema.safeParse({ view: "matrix", group: 2 }).success).toBe(false);
+    expect(ExploreArchitectureParamsSchema.safeParse({ view: "matrix", from: "a", to: "b" }).success).toBe(false);
+    expect(ExploreArchitectureParamsSchema.safeParse({ view: "table" }).success).toBe(false);
   });
 });

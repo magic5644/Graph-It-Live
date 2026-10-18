@@ -129,7 +129,8 @@ Commands:
 
 Options:
   --workspace, -w   Workspace root directory (default: auto-detected)
-  --format, -f      Output format: text|json|toon|markdown|mermaid (default: text)
+  --format, -f      Output format: text|json|toon|markdown|mermaid (default: text);
+                    html for export, csv for architecture --matrix
   --help, -h        Show this help
   --version, -v     Show version
   --reindex         Discard the cached index and rebuild it from scratch

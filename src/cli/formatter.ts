@@ -9,6 +9,7 @@
  */
 
 import { buildGroupedDiagram } from "../analyzer/wiki/DiagramBuilder";
+import { CliError, ExitCode } from "./errors";
 import type { GraphData } from "../shared/graph-types";
 import { normalizePath } from "../shared/path";
 import { estimateTokenSavings } from "../shared/toon";
@@ -16,9 +17,9 @@ import { encodeToonSections, formatToonScalarHeader } from "../shared/toonSectio
 import { sessionStats } from "../shared/sessionStats";
 import { compactOutput } from "../shared/compactOutput";
 
-export type CliOutputFormat = "text" | "json" | "toon" | "markdown" | "mermaid" | "html";
+export type CliOutputFormat = "text" | "json" | "toon" | "markdown" | "mermaid" | "html" | "csv";
 
-export const CLI_OUTPUT_FORMATS: readonly CliOutputFormat[] = ["text", "json", "toon", "markdown", "mermaid", "html"];
+export const CLI_OUTPUT_FORMATS: readonly CliOutputFormat[] = ["text", "json", "toon", "markdown", "mermaid", "html", "csv"];
 
 /** Commands that can produce graph / mermaid output */
 const GRAPH_COMMANDS = new Set(["trace", "path", "scan", "architecture"]);
@@ -69,6 +70,8 @@ export function formatOutput(
       return formatMermaid(data, command, workspaceRoot);
     case "html":
       throw new Error('Format "html" must be handled before formatOutput — use runExportHtml directly.');
+    case "csv":
+      throw new CliError('Format "csv" is only produced by graph-it architecture --matrix.', ExitCode.UNSUPPORTED_FORMAT);
   }
 }
 
