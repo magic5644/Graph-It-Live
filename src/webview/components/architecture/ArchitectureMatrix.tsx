@@ -54,7 +54,8 @@ function cellBackground(cell: MatrixCell, max: number): string {
 
 function headerTitle(row: Row, index: number): string {
   const instability = row.instability === null ? "none (no pair across its boundary)" : String(row.instability);
-  return `${index + 1}. ${row.label}${row.key && row.key !== row.label ? ` (${row.key})` : ""} · layer ${row.layer}\n`
+  const key = row.key && row.key !== row.label ? ` (${row.key})` : "";
+  return `${index + 1}. ${row.label}${key} · layer ${row.layer}\n`
     + `Ca ${row.incomingPairs} incoming pairs from ${row.incomingGroups} · Ce ${row.outgoingPairs} outgoing pairs to ${row.outgoingGroups}\n`
     + `I = Ce / (Ca + Ce) = ${instability}`;
 }
@@ -231,7 +232,7 @@ export function ArchitectureMatrix(props: Readonly<ArchitectureMatrixProps>): Re
       <div style={{ display: "flex", flexWrap: "wrap", gap: 8, alignItems: "center", padding: "2px 10px", borderBottom: "1px solid var(--vscode-widget-border)" }}>
         <span>Row imports column · <span style={{ color: "var(--vscode-errorForeground)" }}>red: above the diagonal (cycle)</span> · outlined: cycles</span>
         <label style={{ display: "flex", alignItems: "center", gap: 4 }}>
-          Zoom
+          <span>Zoom</span>
           <input type="range" min={0} max={ZOOMS.length - 1} value={zoom} onChange={(event) => setZoom(Number(event.target.value))} />
         </label>
         <span style={{ color: "var(--vscode-descriptionForeground)" }} title={matrix.formulas.order}>

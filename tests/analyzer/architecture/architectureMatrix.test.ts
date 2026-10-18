@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { exploreMatrix } from "@/analyzer/architecture/ArchitectureExplorer";
 import type { ArchitectureGraph } from "@/analyzer/architecture/ArchitectureGraphBuilder";
-import { buildMatrix, groupMatrix, matrixToCsv, unitMatrix, type MatrixNode } from "@/analyzer/architecture/architectureMatrix";
+import { buildMatrix, groupMatrix, matrixDigest, matrixToCsv, unitMatrix, type MatrixNode } from "@/analyzer/architecture/architectureMatrix";
 
 const node = (id: string, internalEdgeCount = 0): MatrixNode<string> => ({ id, key: id, label: id, internalEdgeCount });
 const edge = (from: string, to: string, fileEdgeCount = 1) => ({ from, to, fileEdgeCount });
@@ -30,7 +30,7 @@ describe("buildMatrix", () => {
   });
 
   it("keeps a cycle's rows together and flags its cells above the diagonal", () => {
-    // x ↔ z form a cycle above base; y sits alone on layer 1 and sorts between them by name.
+    // x ↔ z form a cycle above base; y shares their layer, and the cycle ranks at its first member x, so y comes after z.
     const nodes = ["z", "y", "x", "base"].map((id) => node(id, id === "x" ? 2 : 0));
     const edges = [edge("x", "z"), edge("z", "x", 4), edge("x", "base"), edge("z", "base"), edge("y", "base")];
     const matrix = buildMatrix(nodes, edges);
@@ -58,6 +58,10 @@ describe("buildMatrix", () => {
   it("ignores self edges, zero counts and edges to unknown rows", () => {
     const matrix = buildMatrix([node("a")], [edge("a", "a", 7), edge("a", "ghost"), edge("a", "a", 0)]);
     expect(matrix.cells).toEqual([]);
+    // A zero-count edge is no dependency: it neither layers nor closes a cycle.
+    const zero = buildMatrix([node("a"), node("b")], [edge("a", "b"), edge("b", "a", 0)]);
+    expect(zero.cycles).toEqual([]);
+    expect(zero.rows.map((row) => [row.key, row.layer])).toEqual([["b", 0], ["a", 1]]);
     expect(buildMatrix([], []).totals).toEqual({ rows: 0, cells: 0, fileEdges: 0, intraEdges: 0, interEdges: 0, upwardCells: 0 });
   });
 
@@ -104,6 +108,13 @@ describe("groupMatrix and unitMatrix", () => {
     });
     expect(matrix.rows.map((row) => [row.id, row.label])).toEqual([["packages/core", "@ws/core"], ["apps/web", "@ws/web"]]);
     expect(matrix.cells).toContainEqual({ row: 1, column: 0, fileEdgeCount: 3, upward: false });
+  });
+});
+
+describe("matrixDigest", () => {
+  it("lists every non-zero cell by keys, in code-unit order", () => {
+    const matrix = buildMatrix([node("b", 1), node("a")], [edge("b", "a", 2)]);
+    expect(matrixDigest(matrix)).toBe("b>a=2;b>b=1");
   });
 });
 

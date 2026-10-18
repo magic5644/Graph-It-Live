@@ -59,12 +59,8 @@ function formatMatrix(
   return formatOutput({ ...files, ...level, ...view }, format, "architecture");
 }
 
-export async function run(
-  args: string[],
-  runtime: CliRuntime,
-  format: CliOutputFormat,
-): Promise<string> {
-  const maxFiles = parseMaxFiles(args);
+/** The flags, rejecting the combinations that name no single view. */
+function readFlags(args: string[], format: CliOutputFormat) {
   const communityMode = readCommunityMode(args);
   const level = readLevel(args);
   const folder = readKey(args, "--folder", "a unit or folder key");
@@ -83,6 +79,15 @@ export async function run(
   if (format === "csv" && !matrix) {
     throw new CliError('Format "csv" is only produced by graph-it architecture --matrix.', ExitCode.UNSUPPORTED_FORMAT);
   }
+  return { maxFiles: parseMaxFiles(args), communityMode, level, folder, from, to, matrix };
+}
+
+export async function run(
+  args: string[],
+  runtime: CliRuntime,
+  format: CliOutputFormat,
+): Promise<string> {
+  const { maxFiles, communityMode, level, folder, from, to, matrix } = readFlags(args, format);
 
   await runtime.ensureIndexed();
 

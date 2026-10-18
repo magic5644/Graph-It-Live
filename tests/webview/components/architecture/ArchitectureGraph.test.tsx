@@ -1242,6 +1242,12 @@ describe("ArchitectureGraph", () => {
         expect(lastOf(postMessage, "architectureMatrix")).toEqual(expect.objectContaining({ unit: "packages/core" }));
         send({ type: "architectureControls", view: "graph" });
         expect(screen.getByTestId("architecture-graph").parentElement!.style.visibility).toBe("");
+        // The driver's cell was clicked once: showing the matrix again does not click it again.
+        const clicks = postMessage.mock.calls.filter(([message]) => message.command === "architectureUnitEvidence").length;
+        send({ type: "architectureControls", view: "matrix", unit: "" });
+        await nextFrame();
+        expect(postMessage.mock.calls.filter(([message]) => message.command === "architectureUnitEvidence")).toHaveLength(clicks);
+        expect(screen.queryByRole("region", { name: "Evidence" })).toBeNull();
       });
 
       it("forgets the matrices of an old revision, and drops a matrix for another level", async () => {
