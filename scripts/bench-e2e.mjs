@@ -36,7 +36,8 @@ export const OSS_CORPORA = JSON.parse(readFileSync(path.join(REPO_ROOT, 'scripts
 /** Each corpus names one file to edit and one hub symbol to query. */
 const TARGETS = {
   self: { edit: 'src/shared/path.ts', file: 'src/shared/path.ts', symbol: 'normalizePath' },
-  generated: { edit: 'src/d0/m1.ts', file: 'src/hub.ts', symbol: 'hub' },
+  // matrixUnit: the unit whose Matrix view is timed, one row per 100 generated modules.
+  generated: { edit: 'src/d0/m1.ts', file: 'src/hub.ts', symbol: 'hub', matrixUnit: 'src' },
   ...OSS_CORPORA,
 };
 
@@ -336,7 +337,7 @@ async function measureVscode(workspace, target, runs) {
         extensionDevelopmentPath: REPO_ROOT,
         extensionTestsPath: VSCODE_BENCH,
         // Electron rejects --expose-gc in NODE_OPTIONS; an undefined value unsets it.
-        extensionTestsEnv: { NODE_OPTIONS: undefined, BENCH_VSCODE_FILE: target.file, BENCH_VSCODE_OUT: out },
+        extensionTestsEnv: { NODE_OPTIONS: undefined, BENCH_VSCODE_FILE: target.file, BENCH_VSCODE_OUT: out, BENCH_VSCODE_MATRIX_UNIT: target.matrixUnit },
         // An empty extensions directory instead of --disable-extensions, which would make VS Code
         // ignore --disable-extension. The built-in TypeScript service is disabled: it competes for
         // CPU, and on the generated corpus its import chain overflows tsserver's stack (crash loop).
@@ -355,6 +356,8 @@ async function measureVscode(workspace, target, runs) {
     'vscode.firstCallGraph': metric('firstCallGraph'),
     'vscode.architectureDuringIndex': metric('architectureDuringIndex'),
     'vscode.architectureIndexed': metric('architectureIndexed'),
+    // Matrix of the generated folders' unit: --files N gives N / 100 rows (50000 for 500 × 500).
+    ...(target.matrixUnit ? { 'vscode.matrixFirstPaint': metric('matrixFirstPaint'), 'vscode.matrixScroll': metric('matrixScroll') } : {}),
   };
 }
 
