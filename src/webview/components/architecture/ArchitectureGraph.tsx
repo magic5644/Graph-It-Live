@@ -11,7 +11,7 @@
 import cytoscape from "cytoscape";
 import type { ElkNode } from "elkjs/lib/elk-api";
 import React, { useEffect, useMemo, useRef, useState } from "react";
-import { matrixDigest, type MatrixCell, type MatrixRow } from "../../../analyzer/architecture/architectureMatrix";
+import type { MatrixCell, MatrixRow } from "../../../analyzer/architecture/architectureMatrix";
 import type {
   ArchitectureControlsMessage,
   ArchitectureEvidencePageMessage,
@@ -750,7 +750,7 @@ export function ArchitectureGraph({ postMessage }: Readonly<ArchitectureGraphPro
     post({
       command: "architectureMatrixRendered", revision: matrix.revision, unit: matrix.unit, folder: matrix.folder,
       rows: totals.rows, cells: totals.cells, fileEdges: totals.fileEdges, upwardCells: totals.upwardCells, cycles: cycles.length,
-      digest: matrixDigest(matrix.matrix),
+      digest: matrix.digest,
       ...paint,
     });
   };
