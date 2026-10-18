@@ -125,7 +125,7 @@ vi.mock("@/webview/components/architecture/elkLayout", () => ({
   toElkGraph: elk.toElkGraph, applyElkLayout: elk.applyElkLayout, applyRoutes: elk.applyRoutes,
 }));
 
-import { ArchitectureGraph } from "@/webview/components/architecture/ArchitectureGraph";
+import { ArchitectureGraph, shortPath } from "@/webview/components/architecture/ArchitectureGraph";
 
 const summary: ArchitectureSummaryMessage = {
   type: "architectureSummary",
@@ -688,6 +688,10 @@ describe("ArchitectureGraph", () => {
       send(evidencePage(2, [{ source: "ui/d.ts", target: "store/b.ts" }]));
       expect(screen.getByText("showing 3 of 3")).toBeTruthy();
       expect(screen.queryByRole("button", { name: "Load more" })).toBeNull();
+      // Sorted by source: a target comes back under a new heading; no unit drawn, paths stay whole.
+      expect(lastOf(postMessage, "architectureDetailRendered")?.evidence?.rows).toEqual([
+        "store/b.ts", "← ui/a.ts", "store/c.ts", "← ui/a.ts", "store/b.ts", "← ui/d.ts",
+      ]);
 
       fireEvent.click(screen.getByRole("button", { name: "ui/d.ts" }));
       expect(postMessage).toHaveBeenLastCalledWith({ command: "architectureOpenFile", revision: "r1", relativePath: "ui/d.ts" });
@@ -880,17 +884,23 @@ describe("ArchitectureGraph", () => {
       });
       // The group ids 1 → 2 name another edge than the unit keys.
       send({ ...unitPage(0, [{ source: "x.ts", target: "y.ts" }]), from: 1, to: 2 });
-      send(unitPage(0, [
-        { source: "apps/web/src/a.ts", target: "packages/core/src/index.ts" },
-        { source: "apps/web/src/b.ts", target: "packages/core/src/index.ts" },
-      ], 2));
-      expect(screen.getByText("showing 2 of 3")).toBeTruthy();
+      send(unitPage(0, [{ source: "apps/web/src/a.ts", target: "packages/core/src/index.ts" }], 1));
+      expect(screen.getByText("showing 1 of 3")).toBeTruthy();
       fireEvent.click(screen.getByRole("button", { name: "Load more" }));
       expect(postMessage).toHaveBeenLastCalledWith({
-        command: "architectureUnitEvidence", revision: "r1", from: "apps/web", to: "packages/core", offset: 2,
+        command: "architectureUnitEvidence", revision: "r1", from: "apps/web", to: "packages/core", offset: 1,
       });
-      send(unitPage(2, [{ source: "apps/web/src/c.ts", target: "packages/core/src/util.ts" }]));
+      send(unitPage(1, [
+        { source: "apps/web/src/b.ts", target: "packages/core/src/index.ts" },
+        { source: "apps/web/src/c.ts", target: "packages/core/src/util.ts" },
+      ]));
       expect(screen.getByText("showing 3 of 3")).toBeTruthy();
+      // The next page continues index.ts under its heading; each path is shown from its unit, whole in title and name.
+      expect(lastOf(postMessage, "architectureDetailRendered")?.evidence?.rows).toEqual([
+        "src/index.ts", "← src/a.ts", "← src/b.ts", "src/util.ts", "← src/c.ts",
+      ]);
+      expect(screen.getByRole("button", { name: "packages/core/src/index.ts" }).getAttribute("title")).toBe("packages/core/src/index.ts");
+      expect(screen.getByRole("button", { name: "apps/web/src/a.ts" }).textContent).toBe("src/a.ts");
       expect(lastOf(postMessage, "architectureDetailRendered")?.evidence?.pairs).toEqual([
         "apps/web/src/a.ts → packages/core/src/index.ts",
         "apps/web/src/b.ts → packages/core/src/index.ts",
@@ -1115,5 +1125,20 @@ describe("ArchitectureGraph", () => {
         expect(lastOf(postMessage, "architectureEnterFolder")).toEqual(expect.objectContaining({ revision: "r3", folder: "ui" }));
       });
     });
+  });
+});
+
+describe("shortPath", () => {
+  it("cuts a path at its unit, or at a folder key whose umbrella dirs are skipped", () => {
+    expect(shortPath("packages/ui/src/index.ts", "packages/ui")).toBe("src/index.ts");
+    expect(shortPath("packages/ui/src/forms/a.ts", "packages/ui", "packages/ui/forms")).toBe("a.ts");
+    expect(shortPath("graphql-project/queries/q.ts", "(root)", "(root)/graphql-project")).toBe("queries/q.ts");
+    expect(shortPath("a/src/a/x.ts", "(root)", "(root)/a")).toBe("x.ts");
+  });
+
+  it("keeps the whole path outside the unit or folder", () => {
+    expect(shortPath("graphql-project/q.ts", "(root)")).toBe("graphql-project/q.ts");
+    expect(shortPath("packages/core/x.ts", "packages/ui")).toBe("packages/core/x.ts");
+    expect(shortPath("packages/ui/src/x.ts", "packages/ui", "packages/ui/forms")).toBe("packages/ui/src/x.ts");
   });
 });
