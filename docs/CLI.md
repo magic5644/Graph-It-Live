@@ -670,8 +670,9 @@ graph-it architecture [options]
 | `--groups` | off | Add `context`, `groups`, `unassigned`, `groupEdges` and `totals` to `json`/`toon` output; group `mermaid`/`markdown` diagrams (see [Grouped output](#grouped-output)) |
 | `--level <level>` | — | `groups` = `--groups`; `units` replaces the file graph with the packages and their layers (see [Units output](#units-output)) |
 | `--folder <key>` | — | `path` mode: the level below a unit or folder key, its sub-folders and own files as groups (see [Folder levels](#folder-levels)) |
+| `--matrix` | off | Dependency structure matrix of the level (groups, `--level units` or `--folder`) instead (see [Matrix output](#matrix-output)) |
 | `--workspace, -w` | auto-detected | Project root |
-| `--format, -f` | `text` | Output format (`toon` recommended for large graphs; `mermaid` for diagrams) |
+| `--format, -f` | `text` | Output format (`toon` recommended for large graphs; `mermaid` for diagrams; `csv` with `--matrix` only) |
 
 Each node carries `communityId` (`0` = no community) and `communityKey` (`""` = no community). The `text` format lists the 8 largest communities after the top files.
 
@@ -688,6 +689,8 @@ graph-it architecture --groups --format mermaid
 graph-it architecture --level units --format toon
 graph-it architecture --level units --from apps/web --to packages/core --format json
 graph-it architecture --folder "(root)/analyzer" --format toon
+graph-it architecture --level units --matrix --format json
+graph-it architecture --matrix --format csv > matrix.csv
 ```
 
 #### Grouped output
@@ -759,6 +762,22 @@ With `--from <unit key> --to <unit key>` (both required, `--level units` only), 
 #### Folder levels
 
 `--folder <key>` walks down a unit as the Architecture view does when a folder is entered. The key is a unit key (from `--level units`) or a group key of a level: the top folders of a unit are `<unit>/<folder>` (umbrella folders such as `src` or `tests` skipped, so `app/src/core` and `app/tests/core` both fall in `app/core`), then each sub-folder adds its name (`app/core/util`). The output has the [grouped output](#grouped-output) fields for the files below the key only: each sub-folder is a group, the key's own files form the group whose key is the key itself, and `nestedGroups` lists the ids of the groups that hold sub-folders (pass their key to go one level deeper). Counts add up level by level: a group's `fileCount` and `internalEdgeCount` are the `totals.files` and `totals.fileEdges` of its own level. `context.revision` also covers the folder, so group ids hold for that level only. `--folder` is refused with `--level units` or `--communities louvain` (Louvain groups have no folders), and an unknown key is an error.
+
+#### Matrix output
+
+`--matrix` reports the dependency structure matrix of the level the other flags select: the groups (`path` or `louvain`, the unassigned files as one more row), the units (`--level units`) or a folder level (`--folder`). It is what the Architecture view's *Matrix* tab shows, with the same rows, cells and totals as `explore_architecture` with `view: "matrix"` (the CLI lists every cell, the MCP tool pages them).
+
+| Field | Content |
+|-------|---------|
+| `rows` | `id` (group id, or unit key), `key`, `label`, `layer`, `cycle` (index in `cycles`, when in one), `internalEdgeCount` (the diagonal), `outgoingPairs` / `outgoingGroups` (Ce), `incomingPairs` / `incomingGroups` (Ca), `instability` (`I = Ce / (Ca + Ce)`, 2 decimals, `null` without any pair across the row's boundary) |
+| `cells` | non-zero cells only, the diagonal included: `row`, `column` (indexes in `rows`), `fileEdgeCount` (file pairs where a file of the row imports a file of the column), `upward` (above the diagonal) |
+| `cycles` | `firstRow`, `lastRow`, `members` (keys) of each group of two or more rows that depend on each other |
+| `totals` | `rows`, `cells`, `fileEdges`, `intraEdges` (diagonal), `interEdges`, `upwardCells` |
+| `formulas` | how rows are ordered, what a cell and an upward cell are, and the instability formula |
+
+Rows and columns share one order: layer 0 first (depends on no other row), the rows of a cycle together, then by label (code-unit order, the same on every OS). Every dependency of a layered level then sits below the diagonal, so an `upward` cell belongs to a cycle. Off-diagonal cells are the `groupEdges` of `--groups` (or the `unitEdges` of `--level units`), and the diagonal their `internalEdgeCount`.
+
+`--format csv` writes the whole matrix for a spreadsheet: a header row of labels, one line per row with its counts (empty = 0), then `Ce`, `Ca` and `I`. A label starting with `=`, `+`, `-`, `@`, a tab or a carriage return is prefixed with `'`, so a spreadsheet never runs it as a formula (scoped package names such as `@scope/lib` show the `'`). `--matrix` is refused with `--from`/`--to`, and `csv` without `--matrix`.
 
 ### check
 
