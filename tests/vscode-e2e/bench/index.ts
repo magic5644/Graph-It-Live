@@ -43,6 +43,41 @@ async function waitForArchitecture(afterBuilds: number): Promise<void> {
   throw new Error(`The architecture view did not render within ${TIMEOUT_MS} ms`);
 }
 
+interface MatrixPaint { unit?: string; rows: number; digest: string; paintMs: number; cause: string }
+
+/** Sends the architecture controls, then waits for a matrix paint that satisfies `predicate`. */
+async function matrixPaint(controls: object, predicate: (paint: MatrixPaint) => boolean): Promise<MatrixPaint> {
+  const read = <T>(key: string) => getContextKey<T>(`graph-it-live.architectureMatrix${key}`);
+  const before = (await read<number>('Count')) ?? 0;
+  await vscode.commands.executeCommand('graph-it-live.e2eArchitectureControls', controls);
+  const started = performance.now();
+  while (performance.now() - started < TIMEOUT_MS) {
+    const paint = await read<MatrixPaint>('');
+    if (((await read<number>('Count')) ?? 0) > before && paint && predicate(paint)) return paint;
+    await sleep(POLL_MS); // NOSONAR S9382: polling, each check waits for the previous one
+  }
+  throw new Error(`The matrix did not paint within ${TIMEOUT_MS} ms`);
+}
+
+/**
+ * The Matrix view of the unit holding the generated folders (one group per 100 modules): first
+ * paint from the toggle, then a scroll to its last cell. Wall time, polling included.
+ */
+async function measureMatrix(unit: string): Promise<{ firstPaint: Sample; scroll: Sample; rows: number }> {
+  const read = (key: string) => getContextKey<number>(`graph-it-live.architecture${key}`);
+  const renders = (await read('RenderCount')) ?? 0;
+  await vscode.commands.executeCommand('graph-it-live.e2eArchitectureControls', { unit });
+  while (((await read('RenderCount')) ?? 0) <= renders) await sleep(POLL_MS); // NOSONAR S9382: polling
+  let started = performance.now();
+  const shown = await matrixPaint({ view: 'matrix' }, (paint) => paint.unit === unit && paint.cause === 'matrix');
+  const firstPaint = { wallMs: performance.now() - started, rssMB: currentRssMB() };
+  const cells = shown.digest.split(';');
+  const [row, column] = cells[cells.length - 1].split(/>|=/);
+  started = performance.now();
+  await matrixPaint({ matrixCell: { row, column } }, (paint) => paint.cause === 'scroll');
+  return { firstPaint, scroll: { wallMs: performance.now() - started, rssMB: currentRssMB() }, rows: shown.rows };
+}
+
 /** Peak RSS so far of the extension host and its worker threads. */
 const peakRssMB = (): number => process.resourceUsage().maxRSS / 1024;
 
@@ -82,9 +117,15 @@ export async function run(): Promise<void> {
   await vscode.commands.executeCommand('graph-it-live.refreshGraph');
   await waitForArchitecture(1);
   const architectureIndexed: Sample = { wallMs: performance.now() - rebuildStarted, rssMB: peakRssMB() };
+  const matrixUnit = process.env.BENCH_VSCODE_MATRIX_UNIT;
+  const matrix = matrixUnit ? await measureMatrix(matrixUnit) : undefined;
+  await vscode.commands.executeCommand('graph-it-live.e2eArchitectureControls', { view: 'graph', unit: '' });
   await vscode.commands.executeCommand('graph-it-live.setViewModeFile');
   const firstCallGraph = await measureFirstCallGraph(folder.uri, file);
   // The peak RSS of the whole session: extension host and its worker threads.
   firstCallGraph.rssMB = peakRssMB();
-  fs.writeFileSync(out, JSON.stringify({ activation, firstCallGraph, indexReady, architectureDuringIndex, architectureIndexed }));
+  fs.writeFileSync(out, JSON.stringify({
+    activation, firstCallGraph, indexReady, architectureDuringIndex, architectureIndexed,
+    matrixFirstPaint: matrix?.firstPaint, matrixScroll: matrix?.scroll, matrixRows: matrix?.rows,
+  }));
 }

@@ -89,6 +89,13 @@ describe("MessageDispatcher", () => {
     await dispatcher.handle(interacted);
     const unitEvidence = { command: "architectureUnitEvidence" as const, revision: "r1", from: "apps/web", to: "packages/core" };
     await dispatcher.handle(unitEvidence);
+    const matrix = { command: "architectureMatrix" as const, revision: "r1", unit: "apps/web" };
+    await dispatcher.handle(matrix);
+    const matrixRendered = {
+      command: "architectureMatrixRendered" as const, revision: "r1", rows: 2, cells: 1, fileEdges: 1, upwardCells: 0, cycles: 0,
+      renderedCells: 1, digest: "a>b=1", paintMs: 3, cause: "matrix" as const,
+    };
+    await dispatcher.handle(matrixRendered);
 
     expect(handleArchitectureMessage.mock.calls).toEqual([
       [{ command: "architectureMounted" }],
@@ -97,6 +104,8 @@ describe("MessageDispatcher", () => {
       [resized],
       [interacted],
       [unitEvidence],
+      [matrix],
+      [matrixRendered],
     ]);
   });
 

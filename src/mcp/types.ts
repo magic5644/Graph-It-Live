@@ -710,6 +710,10 @@ export const ExploreArchitectureParamsSchema = z.object({
     .max(1024)
     .optional()
     .describe("communityMode 'path' only: walk down one level, below this unit key (from level units) or group key; groups are then its sub-folders plus its own files (key = folder), nestedGroups those holding sub-folders; group, from and to then name groups of this level"),
+  view: z
+    .enum(["matrix"])
+    .optional()
+    .describe("matrix: the dependency structure matrix of the level (units with level units, a folder's groups with folder, else the groups): rows ordered by layer with each cycle's rows together, non-zero cells (row imports column, diagonal = pairs inside) paged by offset/limit, per-row Ce/Ca/instability with their formula, cycles and totals of every cell, like graph-it architecture --matrix"),
   group: GroupRefSchema.optional().describe("Return this group's files and its incoming / outgoing group edges"),
   from: GroupRefSchema.optional().describe("Source group of the edge whose file pairs to return (requires to); with level units, a unit key such as 'apps/web' or '(root)'"),
   to: GroupRefSchema.optional().describe("Target group of the edge whose file pairs to return (requires from); with level units, a unit key"),
@@ -741,6 +745,9 @@ export const ExploreArchitectureParamsSchema = z.object({
   }
   if (params.folder !== undefined && (params.level === "units" || params.communityMode === "louvain")) {
     context.addIssue({ code: "custom", message: "folder walks the path-mode folders: drop level units and communityMode louvain" });
+  }
+  if (params.view === "matrix" && (params.group !== undefined || params.from !== undefined)) {
+    context.addIssue({ code: "custom", message: "view matrix returns the whole level: drop group, from and to (call them afterwards for a row or a cell)" });
   }
 });
 export type ExploreArchitectureParams = z.infer<typeof ExploreArchitectureParamsSchema>;

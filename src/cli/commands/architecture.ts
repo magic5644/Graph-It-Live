@@ -8,7 +8,8 @@
  */
 
 import { buildArchitectureGraph } from "../../analyzer/architecture/ArchitectureGraphBuilder.js";
-import { exploreUnitEvidence } from "../../analyzer/architecture/ArchitectureExplorer.js";
+import { exploreMatrix, exploreUnitEvidence } from "../../analyzer/architecture/ArchitectureExplorer.js";
+import { groupMatrix, matrixToCsv, unitMatrix, type ArchitectureMatrix } from "../../analyzer/architecture/architectureMatrix.js";
 import { assignUnits, buildArchitectureUnits, folderLevel } from "../../analyzer/architecture/architectureUnits.js";
 import { aggregateCommunityGroups } from "../../analyzer/community/groupAggregation.js";
 import { CliError, ExitCode } from "../errors";
@@ -45,6 +46,19 @@ function readKey(args: string[], flag: string, what: string): string | undefined
   return key.replaceAll("\\", "/");
 }
 
+/** One level's matrix, every cell (the CLI does not page): csv for spreadsheets, else as explore_architecture view "matrix" reports it. */
+function formatMatrix(
+  files: object,
+  matrix: ArchitectureMatrix,
+  context: Parameters<typeof exploreMatrix>[1],
+  format: CliOutputFormat,
+  level: object,
+): string {
+  if (format === "csv") return matrixToCsv(matrix);
+  const { page: _page, nextSteps: _nextSteps, ...view } = exploreMatrix(matrix, context, { limit: Number.POSITIVE_INFINITY });
+  return formatOutput({ ...files, ...level, ...view }, format, "architecture");
+}
+
 export async function run(
   args: string[],
   runtime: CliRuntime,
@@ -61,6 +75,13 @@ export async function run(
   const to = readKey(args, "--to", "a unit key");
   if ((from === undefined) !== (to === undefined) || (from !== undefined && level !== "units")) {
     throw new CliError("--from and --to name the two units of a unit edge: pass both, with --level units", ExitCode.GENERAL_ERROR);
+  }
+  const matrix = args.includes("--matrix");
+  if (matrix && from !== undefined) {
+    throw new CliError("--matrix lists every cell of the level: drop --from and --to", ExitCode.GENERAL_ERROR);
+  }
+  if (format === "csv" && !matrix) {
+    throw new CliError('Format "csv" is only produced by graph-it architecture --matrix.', ExitCode.UNSUPPORTED_FORMAT);
   }
 
   await runtime.ensureIndexed();
@@ -89,6 +110,7 @@ export async function run(
     const { nodes: _nodes, edges: _edges, ...files } = architecture;
     const assignment = assignUnits(runtime.workspaceRoot, nodes.map((node) => node.relativePath));
     const units = buildArchitectureUnits(graph, runtime.workspaceRoot, assignment);
+    if (matrix) return formatMatrix(files, unitMatrix(units), units.context, format, { level });
     if (from !== undefined && to !== undefined) {
       // Every file pair of the unit edge: the CLI does not page.
       const evidence = exploreUnitEvidence(graph, units, assignment.unitOf, { from, to, limit: Number.POSITIVE_INFINITY });
@@ -101,11 +123,20 @@ export async function run(
     // The level the view draws below this unit or folder: its sub-folders, then its own files.
     const { graph: folderGraph, nestedGroups } = folderLevel(graph, runtime.workspaceRoot, folder);
     const { nodes: _nodes, edges: _edges, ...files } = architecture;
+    if (matrix) {
+      return formatMatrix(files, groupMatrix(aggregateCommunityGroups(folderGraph.graphData)), folderGraph.context, format, { folder, nestedGroups });
+    }
     return formatOutput(
       { ...files, context: folderGraph.context, folder, nestedGroups, ...aggregateCommunityGroups(folderGraph.graphData) },
       format,
       "architecture",
     );
+  }
+
+  if (matrix) {
+    // The groups' matrix: its cells are the group edges of --groups, its diagonal their internal pairs.
+    const { nodes: _nodes, edges: _edges, ...files } = architecture;
+    return formatMatrix(files, groupMatrix(aggregateCommunityGroups(graphData)), context, format, { level: "groups" });
   }
 
   if (!args.includes("--groups") && level !== "groups") {

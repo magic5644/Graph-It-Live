@@ -1,6 +1,7 @@
 import * as path from "node:path";
 import { exploreArchitecture, exploreUnitEvidence, groupDetail, overviewArchitecture } from "@/analyzer/architecture/ArchitectureExplorer";
 import { buildArchitectureGraph, type AnalyzeFile, type ArchitectureGraph } from "@/analyzer/architecture/ArchitectureGraphBuilder";
+import { groupMatrix, unitMatrix } from "@/analyzer/architecture/architectureMatrix";
 import {
   assignUnits,
   buildArchitectureUnits,
@@ -9,6 +10,7 @@ import {
   type ArchitectureUnits,
   type UnitAssignment,
 } from "@/analyzer/architecture/architectureUnits";
+import { aggregateCommunityGroups } from "@/analyzer/community/groupAggregation";
 import type { IndexerStatusSnapshot } from "@/analyzer/IndexerStatus";
 import type {
   ArchitectureControlsMessage,
@@ -17,6 +19,8 @@ import type {
   ArchitectureEvidenceCommand,
   ArchitectureExtensionMessage,
   ArchitectureInteractedCommand,
+  ArchitectureMatrixCommand,
+  ArchitectureMatrixRenderedCommand,
   ArchitectureOpenFileCommand,
   ArchitectureRenderedCommand,
   ArchitectureSummaryMessage,
@@ -181,6 +185,29 @@ function unitEvidencePage(source: UnitSource | undefined, request: ArchitectureU
 }
 
 /**
+ * The matrix of the level a request names, read from that level's graph: the units (path mode,
+ * nothing entered), an entered unit's groups (group ids of the summary), else every group of
+ * the graph (an entered folder, or Louvain). Unit groups are regrouped as the summary was, so
+ * their ids match it.
+ */
+function matrixMessage(graph: ArchitectureGraph, source: UnitSource | undefined, request: ArchitectureMatrixCommand): ArchitectureExtensionMessage {
+  const { revision, folder } = request;
+  const unit = request.unit === undefined ? undefined : String(request.unit);
+  const reply = { type: "architectureMatrix" as const, revision, folder, unit };
+  if (source && folder === undefined && unit === undefined) return { ...reply, matrix: unitMatrix(source.units), nestedGroups: [] };
+  const aggregation = aggregateCommunityGroups(graph.graphData);
+  if (!source) return { ...reply, matrix: groupMatrix(aggregation), nestedGroups: [] };
+  const { groupUnits, nestedGroups } = groupByUnit(source.graph, source.units, source.assignment, folder);
+  const inLevel = folder === undefined ? (id: number) => groupUnits[id] === unit : () => true;
+  const matrix = groupMatrix(aggregation, inLevel);
+  // Named as the graph names them, once ordered: the order stays the CLI's.
+  const parent = folder ?? unit ?? "";
+  const parentName = folder === undefined ? source.units.units.find((entry) => entry.key === unit)?.name ?? parent : parent.slice(parent.lastIndexOf("/") + 1);
+  const rows = matrix.rows.map((row) => ({ ...row, label: groupLabel(row, parent, parentName) }));
+  return { ...reply, matrix: { ...matrix, rows }, nestedGroups: nestedGroups.filter(inLevel) };
+}
+
+/**
  * Builds the workspace architecture on demand for the sidebar's Architecture view mode.
  * A build is O(files): file changes only mark the cached summary stale.
  */
@@ -198,6 +225,8 @@ export class ArchitectureViewService {
   private lastInteraction: ArchitectureInteractedCommand | null = null;
   private detailCount = 0;
   private lastDetail: ArchitectureDetailRenderedCommand | null = null;
+  private matrixCount = 0;
+  private lastMatrix: ArchitectureMatrixRenderedCommand | null = null;
   /** A source file changed while the running build was analysing. */
   private changedDuringBuild: { files: Set<string>; any: boolean } = { files: new Set(), any: false };
   private disposed = false;
@@ -225,6 +254,13 @@ export class ArchitectureViewService {
       case "architectureDetailRendered":
         this.detailCount += 1;
         this.lastDetail = message;
+        return Promise.resolve();
+      case "architectureMatrixRendered":
+        this.matrixCount += 1;
+        this.lastMatrix = message;
+        return Promise.resolve();
+      case "architectureMatrix":
+        this.answer(message.revision, message.folder, (graph) => matrixMessage(graph, this.graph?.source, message));
         return Promise.resolve();
       case "architectureEnterFolder":
         this.enterFolder(message);
@@ -424,13 +460,17 @@ export class ArchitectureViewService {
       interaction: this.lastInteraction,
       detailCount: this.detailCount,
       detail: this.lastDetail,
+      matrixCount: this.matrixCount,
+      matrix: this.lastMatrix,
     };
   }
 
   /** E2E driver: sets the webview's controls; any extension can call it, so check the values. */
   setControls(controls: Omit<ArchitectureControlsMessage, "type"> | undefined): void {
-    const { unit, folder, find, minImports, focus, expand, collapse, evidenceOf, openEvidenceRow } = controls ?? {};
+    const { unit, folder, find, minImports, focus, expand, collapse, evidenceOf, openEvidenceRow, view, matrixCell, matrixHeader } = controls ?? {};
     const text = (value: unknown) => (typeof value === "string" ? value.slice(0, 256) : undefined);
+    const row = text(matrixCell?.row);
+    const column = text(matrixCell?.column);
     this.options.post({
       type: "architectureControls",
       unit: text(unit),
@@ -442,6 +482,9 @@ export class ArchitectureViewService {
       collapse: text(collapse),
       evidenceOf: text(evidenceOf),
       openEvidenceRow: Number.isSafeInteger(openEvidenceRow) && Number(openEvidenceRow) >= 0 ? openEvidenceRow : undefined,
+      view: view === "graph" || view === "matrix" ? view : undefined,
+      matrixCell: row === undefined || column === undefined ? undefined : { row, column },
+      matrixHeader: text(matrixHeader),
     });
   }
 

@@ -42,7 +42,45 @@ const EXPECTED = {
       'workspaces-project/apps/web/src/pages/home.ts → workspaces-project/packages/ui/src/index.ts',
     ],
   },
+  // node dist/graph-it.js architecture --level units --matrix --format json -w tests/fixtures (and --folder "(root)", --communities louvain).
+  matrix: {
+    units: { rows: 11, cells: 14, fileEdges: 213, upwardCells: 1, cycles: 1 },
+    root: { rows: 18, cells: 20, fileEdges: 197, upwardCells: 1, cycles: 1 },
+    louvain: { rows: 25, cells: 25, fileEdges: 213, upwardCells: 0, cycles: 0 },
+  },
 } as const;
+
+interface MatrixRender {
+  revision: string;
+  unit?: string;
+  rows: number;
+  cells: number;
+  fileEdges: number;
+  upwardCells: number;
+  cycles: number;
+  renderedCells: number;
+  digest: string;
+}
+
+/** Sends the controls, then waits for a matrix paint that satisfies `predicate`. */
+async function expectMatrix(
+  description: string,
+  controls: Record<string, unknown>,
+  predicate: (matrix: MatrixRender) => boolean,
+): Promise<MatrixRender> {
+  const before = (await getContextKey<number>('graph-it-live.architectureMatrixCount')) ?? 0;
+  await vscode.commands.executeCommand('graph-it-live.e2eArchitectureControls', controls);
+  const start = Date.now();
+  let last: MatrixRender | undefined;
+  while (Date.now() - start < 30000) {
+    last = await getContextKey<MatrixRender>('graph-it-live.architectureMatrix');
+    if (((await getContextKey<number>('graph-it-live.architectureMatrixCount')) ?? 0) > before && last && predicate(last)) return last;
+    await sleep(250);
+  }
+  assert.fail(`${description}: last matrix ${JSON.stringify(last)}`);
+}
+
+const totalsOf = ({ rows, cells, fileEdges, upwardCells, cycles }: MatrixRender) => ({ rows, cells, fileEdges, upwardCells, cycles });
 
 /** Enters a folder of the drawn level (empty: up one level), then waits for the render of `expected`. */
 async function enterFolder(folder: string, expected: string | undefined): Promise<ArchitectureRender> {
@@ -140,7 +178,7 @@ const readDetailCount = async () => (await getContextKey<number>('graph-it-live.
 /** Sends the controls (none: only waits), then waits for what the expanded groups and evidence show to satisfy `predicate`. */
 async function expectDetail(
   description: string,
-  controls: Record<string, string | number> | undefined,
+  controls: Record<string, unknown> | undefined,
   predicate: (detail: ArchitectureDetail) => boolean,
 ): Promise<ArchitectureDetail> {
   const before = controls ? await readDetailCount() : -1;
@@ -428,6 +466,41 @@ suite('Architecture view mode', () => {
     await waitForRender('the louvain render', byFolder.renderCount, render => render.communityMode === 'louvain');
     // src/layers (4 files) imports one file of src/components.
     await exploreGroup('src/layers', EXPECTED.louvain.groups, EXPECTED.louvain.groupEdges);
+  });
+
+  test('shows the matrix of graph-it architecture --matrix, opens a cell\'s evidence, enters a unit from its header and goes back, in path and louvain modes', async function () {
+    this.timeout(300000);
+    await openFreshArchitecture();
+    try {
+      const units = await expectMatrix('the units matrix', { view: 'matrix' }, matrix => matrix.unit === undefined && matrix.rows === EXPECTED.matrix.units.rows);
+      assert.deepStrictEqual(totalsOf(units), EXPECTED.matrix.units, 'the same cells and totals as the CLI');
+      assert.ok(units.renderedCells > 0 && units.renderedCells <= units.cells + 1, `virtualised cells in the DOM: ${units.renderedCells}`);
+      assert.match(units.digest, /workspaces-project\/apps\/web>workspaces-project\/packages\/ui=2/);
+
+      const { of, title, pairs } = EXPECTED.unitEvidence;
+      const { evidence } = await expectDetail('the evidence of a matrix cell',
+        { matrixCell: { row: of, column: 'workspaces-project/packages/ui' } }, detail => detail.evidence?.shown === pairs.length);
+      assert.ok(evidence);
+      assert.strictEqual(evidence.title, title);
+      assert.deepStrictEqual(evidence.pairs, pairs, 'the cell lists the unit edge\'s file pairs');
+      assert.strictEqual(evidence.total, evidence.edgeCount, 'the evidence total equals the cell');
+
+      const root = await expectMatrix('the (root) matrix', { matrixHeader: '(root)' }, matrix => matrix.unit === '(root)');
+      assert.deepStrictEqual(totalsOf(root), EXPECTED.matrix.root, 'an entered unit\'s groups, as graph-it architecture --folder "(root)" --matrix');
+      const back = await expectMatrix('the units matrix again', { unit: '' }, matrix => matrix.unit === undefined);
+      assert.strictEqual(back.digest, units.digest, 'back to the units');
+
+      await config().update('communityMode', 'louvain', vscode.ConfigurationTarget.Global);
+      const louvain = await expectMatrix('the louvain matrix', {}, matrix => matrix.rows === EXPECTED.matrix.louvain.rows);
+      assert.deepStrictEqual(totalsOf(louvain), EXPECTED.matrix.louvain);
+      const cell = louvain.digest.split(';').map(entry => entry.split(/>|=/)).find(([row, column]) => row !== column);
+      assert.ok(cell, 'one cell between two groups');
+      const louvainEvidence = await expectDetail('the evidence of a louvain cell',
+        { matrixCell: { row: cell[0], column: cell[1] } }, detail => detail.evidence?.total !== undefined);
+      assert.strictEqual(louvainEvidence.evidence?.total, Number(cell[2]), 'the evidence total equals the cell');
+    } finally {
+      await vscode.commands.executeCommand('graph-it-live.e2eArchitectureControls', { view: 'graph' });
+    }
   });
 
   test('the Graph, List and Symbol buttons leave the architecture view', async function () {

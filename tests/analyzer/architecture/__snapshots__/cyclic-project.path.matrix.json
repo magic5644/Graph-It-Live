@@ -1,0 +1,167 @@
+{
+  "cli": {
+    "workspaceRoot": "<root>",
+    "scannedFiles": 5,
+    "analyzedFiles": 5,
+    "skippedFiles": 0,
+    "failedFiles": [],
+    "nodeCount": 5,
+    "edgeCount": 5,
+    "level": "groups",
+    "view": "matrix",
+    "context": {
+      "communityMode": "path",
+      "revision": "6f4d73ec1e588c222006c2d463e4c8fa71dc6b448a6fdb751b45938faf9a915a",
+      "graphKind": "imports",
+      "scope": "workspace",
+      "exclusions": "node_modules, .git, dist, build, out, coverage, .next, .nuxt, __pycache__, .venv, venv, target, .*/, .gitignore, .graphitignore, tests/fixtures/, out-*/",
+      "truncated": false,
+      "failedFiles": 0
+    },
+    "provenance": {
+      "facts": "File pairs are static import relations extracted from source code, not observed execution.",
+      "grouping": "Groups are computed by the communityMode detector; group ids are only valid for the same context.revision.",
+      "interpretation": "None: labels are folder keys or detector output, not business names or responsibilities."
+    },
+    "rows": [
+      {
+        "id": 1,
+        "key": "complex-cycle",
+        "label": "complex-cycle",
+        "internalEdgeCount": 3,
+        "layer": 0,
+        "outgoingPairs": 0,
+        "outgoingGroups": 0,
+        "incomingPairs": 0,
+        "incomingGroups": 0,
+        "instability": null
+      },
+      {
+        "id": 2,
+        "key": "simple-cycle",
+        "label": "simple-cycle",
+        "internalEdgeCount": 2,
+        "layer": 0,
+        "outgoingPairs": 0,
+        "outgoingGroups": 0,
+        "incomingPairs": 0,
+        "incomingGroups": 0,
+        "instability": null
+      }
+    ],
+    "cells": [
+      {
+        "row": 0,
+        "column": 0,
+        "fileEdgeCount": 3,
+        "upward": false
+      },
+      {
+        "row": 1,
+        "column": 1,
+        "fileEdgeCount": 2,
+        "upward": false
+      }
+    ],
+    "cycles": [],
+    "totals": {
+      "rows": 2,
+      "cells": 2,
+      "fileEdges": 5,
+      "intraEdges": 5,
+      "interEdges": 0,
+      "upwardCells": 0
+    },
+    "formulas": {
+      "order": "Rows and columns share one order: layer 0 first (depends on no other row), the rows of a cycle together, then by label.",
+      "cell": "Cell (row, column) = distinct file pairs where a file of the row imports a file of the column; the diagonal counts the pairs inside the row.",
+      "upward": "In this order every dependency sits below the diagonal; a cell above it (upward) belongs to a cycle.",
+      "instability": "I = Ce / (Ca + Ce), Ce = outgoingPairs (efferent), Ca = incomingPairs (afferent), diagonal excluded; null when both are 0."
+    }
+  },
+  "firstPage": {
+    "view": "matrix",
+    "context": {
+      "communityMode": "path",
+      "revision": "6f4d73ec1e588c222006c2d463e4c8fa71dc6b448a6fdb751b45938faf9a915a",
+      "graphKind": "imports",
+      "scope": "workspace",
+      "exclusions": "node_modules, .git, dist, build, out, coverage, .next, .nuxt, __pycache__, .venv, venv, target, .*/, .gitignore, .graphitignore, tests/fixtures/, out-*/",
+      "truncated": false,
+      "failedFiles": 0
+    },
+    "provenance": {
+      "facts": "File pairs are static import relations extracted from source code, not observed execution.",
+      "grouping": "Groups are computed by the communityMode detector; group ids are only valid for the same context.revision.",
+      "interpretation": "None: labels are folder keys or detector output, not business names or responsibilities."
+    },
+    "rows": [
+      {
+        "id": 1,
+        "key": "complex-cycle",
+        "label": "complex-cycle",
+        "internalEdgeCount": 3,
+        "layer": 0,
+        "outgoingPairs": 0,
+        "outgoingGroups": 0,
+        "incomingPairs": 0,
+        "incomingGroups": 0,
+        "instability": null
+      },
+      {
+        "id": 2,
+        "key": "simple-cycle",
+        "label": "simple-cycle",
+        "internalEdgeCount": 2,
+        "layer": 0,
+        "outgoingPairs": 0,
+        "outgoingGroups": 0,
+        "incomingPairs": 0,
+        "incomingGroups": 0,
+        "instability": null
+      }
+    ],
+    "cells": [
+      {
+        "row": 0,
+        "column": 0,
+        "fileEdgeCount": 3,
+        "upward": false
+      },
+      {
+        "row": 1,
+        "column": 1,
+        "fileEdgeCount": 2,
+        "upward": false
+      }
+    ],
+    "cycles": [],
+    "totals": {
+      "rows": 2,
+      "cells": 2,
+      "fileEdges": 5,
+      "intraEdges": 5,
+      "interEdges": 0,
+      "upwardCells": 0
+    },
+    "formulas": {
+      "order": "Rows and columns share one order: layer 0 first (depends on no other row), the rows of a cycle together, then by label.",
+      "cell": "Cell (row, column) = distinct file pairs where a file of the row imports a file of the column; the diagonal counts the pairs inside the row.",
+      "upward": "In this order every dependency sits below the diagonal; a cell above it (upward) belongs to a cycle.",
+      "instability": "I = Ce / (Ca + Ce), Ce = outgoingPairs (efferent), Ca = incomingPairs (afferent), diagonal excluded; null when both are 0."
+    },
+    "page": {
+      "total": 2,
+      "offset": 0,
+      "returned": 2,
+      "truncated": false
+    },
+    "nextSteps": "Pass from and to (two rows' ids, or unit keys with level units) for the file pairs behind a cell."
+  },
+  "csv": [
+    "row imports column,complex-cycle,simple-cycle,Ce,Ca,I",
+    "complex-cycle,3,,0,0,",
+    "simple-cycle,,2,0,0,",
+    ""
+  ]
+}

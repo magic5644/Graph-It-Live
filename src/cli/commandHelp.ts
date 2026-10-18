@@ -171,8 +171,11 @@ Options:
                      draws it: its sub-folders and own files as groups (json/toon)
   --from K --to K    With --level units: the file pairs behind the unit edge
                      between these unit keys, sorted by target (json/toon)
+  --matrix           Dependency structure matrix of the level (groups, --level
+                     units or --folder): rows by layer, cycles together, cells =
+                     file pairs row → column, Ce/Ca/instability (json/toon/csv)
   --workspace, -w    Workspace root directory (default: auto-detected)
-  --format, -f       Output format: text|json|toon|markdown|mermaid (default: text)
+  --format, -f       Output format: text|json|toon|markdown|mermaid|csv (default: text)
   --help, -h         Show this help
 
 Examples:
@@ -185,6 +188,8 @@ Examples:
   graph-it architecture --level units --format toon
   graph-it architecture --level units --from apps/web --to packages/core --format json
   graph-it architecture --folder "(root)/analyzer" --format toon
+  graph-it architecture --level units --matrix --format json
+  graph-it architecture --matrix --format csv > matrix.csv
 `,
   check: `graph-it check — Find unused exported symbols in a file
 

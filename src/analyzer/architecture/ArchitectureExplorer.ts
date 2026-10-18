@@ -11,6 +11,7 @@ import {
 } from "../community/groupAggregation";
 import { normalizePath } from "../../shared/path";
 import type { ArchitectureGraph } from "./ArchitectureGraphBuilder";
+import type { ArchitectureMatrix } from "./architectureMatrix";
 import { byCodeUnit, type ArchitectureUnit, type ArchitectureUnits } from "./architectureUnits";
 
 const DEFAULT_EXPLORE_LIMIT = 50;
@@ -277,6 +278,28 @@ export function exploreUnitEvidence(
     pairs: items,
     page: pageInfo,
     nextSteps: NEXT_STEPS,
+  };
+}
+
+/**
+ * A dependency structure matrix with its cells paged, rows, cycles and totals whole: totals count
+ * every cell before the page. `units` names the provenance of unit rows.
+ */
+export function exploreMatrix(
+  matrix: ArchitectureMatrix,
+  context: ArchitectureGraph["context"],
+  options: Pick<ArchitectureExploreOptions, "offset" | "limit" | "revision"> & { units?: boolean } = {},
+) {
+  assertRevision(context.revision, options.revision);
+  const { items, ...pageInfo } = page(matrix.cells, options.offset ?? 0, options.limit ?? DEFAULT_EXPLORE_LIMIT);
+  return {
+    view: "matrix" as const,
+    context,
+    provenance: options.units ? UNIT_PROVENANCE : PROVENANCE,
+    ...matrix,
+    cells: items,
+    page: pageInfo,
+    nextSteps: "Pass from and to (two rows' ids, or unit keys with level units) for the file pairs behind a cell.",
   };
 }
 

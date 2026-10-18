@@ -23,6 +23,11 @@ describe("CLI_OUTPUT_FORMATS", () => {
     expect(CLI_OUTPUT_FORMATS).toContain("toon");
     expect(CLI_OUTPUT_FORMATS).toContain("markdown");
     expect(CLI_OUTPUT_FORMATS).toContain("mermaid");
+    expect(CLI_OUTPUT_FORMATS).toContain("csv");
+  });
+
+  it("leaves csv to graph-it architecture --matrix", () => {
+    expect(() => formatOutput(objectData, "csv", "summary")).toThrow('Format "csv" is only produced by graph-it architecture --matrix.');
   });
 });
 
