@@ -40,7 +40,8 @@ function readFolder(args: string[]): string | undefined {
   if (folder === undefined || folder.startsWith("--") || folder.trim() === "") {
     throw new CliError("--folder must be a unit or folder key", ExitCode.GENERAL_ERROR);
   }
-  return folder;
+  // Keys use "/" on every OS: a Windows user may type app\core.
+  return folder.replaceAll("\\", "/");
 }
 
 export async function run(

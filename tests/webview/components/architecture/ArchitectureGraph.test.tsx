@@ -976,6 +976,44 @@ describe("ArchitectureGraph", () => {
         expect(keys()).toEqual(["units:apps/web", "units:packages/core"]);
       });
 
+      it("returns from two folders down to the middle one with its breadcrumb step and viewport", async () => {
+        const deepUi: ArchitectureFolderLevelMessage = { ...uiLevel, level: { ...uiLevel.level, units: { ...uiLevel.level.units!, nestedGroups: [2] } } };
+        const formsLevel: ArchitectureFolderLevelMessage = {
+          ...uiLevel,
+          folder: "ui/forms",
+          level: {
+            ...uiLevel.level,
+            revision: "r3",
+            groups: [{ id: 1, key: "ui/forms", label: "forms", fileCount: 3, internalEdgeCount: 1 }],
+            groupEdges: [],
+            units: { ...uiLevel.level.units!, groupUnits: { 1: "apps/web" }, groupLayers: { 1: 0 }, groupEdgeKinds: {}, nestedGroups: [] },
+          },
+        };
+        const postMessage = await setup(nested);
+        await dbltap(nodeById("group-1"));
+        await dbltap(nodeById("group-1"));
+        send(deepUi);
+        await settle();
+        cy.instance.zoom.mockReturnValue(3);
+        cy.instance.pan.mockReturnValue({ x: 7, y: 8 });
+        await dbltap(nodeById("group-2"));
+        expect(lastOf(postMessage, "architectureEnterFolder")).toEqual({ command: "architectureEnterFolder", revision: "r1", folder: "ui/forms" });
+        send(formsLevel);
+        await settle();
+        cy.instance.zoom.mockReturnValue(1);
+        cy.instance.pan.mockReturnValue({ x: 0, y: 0 });
+        expect(keys()).toEqual(["path:ui/forms@ui/forms"]);
+        expect(screen.getByRole("navigation", { name: "Architecture path" }).textContent).toMatch(/Units › @ws\/web › ui › forms/);
+
+        const asked = postMessage.mock.calls.filter(([message]) => message.command === "architectureEnterFolder").length;
+        fireEvent.click(screen.getByRole("button", { name: "ui" }));
+        await settle();
+        expect(keys()).toEqual(["path:ui@ui", "path:ui/forms@ui"]);
+        expect(cy.instance.viewport).toHaveBeenLastCalledWith({ zoom: 3, pan: { x: 7, y: 8 } });
+        expect(lastOf(postMessage, "architectureRendered")).toEqual(expect.objectContaining({ folder: "ui" }));
+        expect(postMessage.mock.calls.filter(([message]) => message.command === "architectureEnterFolder")).toHaveLength(asked);
+      });
+
       it("enters and leaves folders from the E2E controls, and forgets them on a new revision", async () => {
         const postMessage = await setup(nested);
         send({ type: "architectureControls", unit: "apps/web" });

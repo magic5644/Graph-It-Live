@@ -267,6 +267,7 @@ export class ArchitectureViewService {
       this.options.warn(`Architecture view: no file below "${key.slice(0, 256)}"`);
       return;
     }
+    // ponytail: every entered folder's graph stays until the next build (≈ files × depth); evict the oldest if memory matters.
     folders.set(key, { graph, files: new Set(graph.nodes.map((node) => node.relativePath)) });
     this.options.post({ type: "architectureFolderLevel", revision, folder: key, level });
   }
