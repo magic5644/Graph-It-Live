@@ -950,7 +950,8 @@ export function ArchitectureGraph({ postMessage }: Readonly<ArchitectureGraphPro
         ? undefined
         : {
           edgeCount: evidence.edgeCount, total: evidence.total, shown: evidence.pairs.length, firstSource: evidence.pairs[0]?.source,
-          title: evidence.title, pairs: evidence.pairs.map((pair) => `${pair.source} → ${pair.target}`),
+          // The rows the Evidence region shows, read from the DOM this render committed.
+          title: evidence.title, pairs: Array.from(document.querySelectorAll('section[aria-label="Evidence"] li'), (row) => row.textContent ?? ""),
         },
     });
   }, [summary, drawn, expansions, evidence, capReached, focusId]);

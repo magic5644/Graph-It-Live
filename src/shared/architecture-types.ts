@@ -248,7 +248,7 @@ export interface ArchitectureDetailRenderedCommand {
   focusedGroup?: string;
   /** The 500-file cap message is shown. */
   capReached: boolean;
-  /** `pairs`: the shown rows, as `source → target`. */
+  /** `pairs`: the rows of the aria-label="Evidence" region, as `source → target`. */
   evidence?: { edgeCount: number; total: number; shown: number; firstSource?: string; title: string; pairs: string[] };
 }
 
