@@ -1,7 +1,7 @@
 import * as path from "node:path";
 import { exploreArchitecture, exploreUnitEvidence, groupDetail, overviewArchitecture } from "@/analyzer/architecture/ArchitectureExplorer";
 import { buildArchitectureGraph, type AnalyzeFile, type ArchitectureGraph } from "@/analyzer/architecture/ArchitectureGraphBuilder";
-import { groupMatrix, unitMatrix } from "@/analyzer/architecture/architectureMatrix";
+import { groupMatrix, matrixDigest, unitMatrix, type ArchitectureMatrix } from "@/analyzer/architecture/architectureMatrix";
 import {
   assignUnits,
   buildArchitectureUnits,
@@ -193,10 +193,11 @@ function unitEvidencePage(source: UnitSource | undefined, request: ArchitectureU
 function matrixMessage(graph: ArchitectureGraph, source: UnitSource | undefined, request: ArchitectureMatrixCommand): ArchitectureExtensionMessage {
   const { revision, folder } = request;
   const unit = request.unit === undefined ? undefined : String(request.unit);
-  const reply = { type: "architectureMatrix" as const, revision, folder, unit };
-  if (source && folder === undefined && unit === undefined) return { ...reply, matrix: unitMatrix(source.units), nestedGroups: [] };
+  const reply = (matrix: ArchitectureMatrix, nestedGroups: number[]) =>
+    ({ type: "architectureMatrix" as const, revision, folder, unit, matrix, digest: matrixDigest(matrix), nestedGroups });
+  if (source && folder === undefined && unit === undefined) return reply(unitMatrix(source.units), []);
   const aggregation = aggregateCommunityGroups(graph.graphData);
-  if (!source) return { ...reply, matrix: groupMatrix(aggregation), nestedGroups: [] };
+  if (!source) return reply(groupMatrix(aggregation), []);
   const { groupUnits, nestedGroups } = groupByUnit(source.graph, source.units, source.assignment, folder);
   const inLevel = folder === undefined ? (id: number) => groupUnits[id] === unit : () => true;
   const matrix = groupMatrix(aggregation, inLevel);
@@ -204,7 +205,7 @@ function matrixMessage(graph: ArchitectureGraph, source: UnitSource | undefined,
   const parent = folder ?? unit ?? "";
   const parentName = folder === undefined ? source.units.units.find((entry) => entry.key === unit)?.name ?? parent : parent.slice(parent.lastIndexOf("/") + 1);
   const rows = matrix.rows.map((row) => ({ ...row, label: groupLabel(row, parent, parentName) }));
-  return { ...reply, matrix: { ...matrix, rows }, nestedGroups: nestedGroups.filter(inLevel) };
+  return reply({ ...matrix, rows }, nestedGroups.filter(inLevel));
 }
 
 /**

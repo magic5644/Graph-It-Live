@@ -3,7 +3,7 @@
 import React from "react";
 import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { groupMatrix, unitMatrix } from "@/analyzer/architecture/architectureMatrix";
+import { groupMatrix, matrixDigest, unitMatrix } from "@/analyzer/architecture/architectureMatrix";
 import type {
   ArchitectureExtensionMessage,
   ArchitectureFolderLevelMessage,
@@ -1139,9 +1139,10 @@ describe("ArchitectureGraph", () => {
     });
 
     describe("matrix", () => {
-      const unitsMatrix: ArchitectureMatrixMessage = { type: "architectureMatrix", revision: "r1", matrix: unitMatrix(withUnits.units!), nestedGroups: [] };
+      const units = unitMatrix(withUnits.units!);
+      const unitsMatrix: ArchitectureMatrixMessage = { type: "architectureMatrix", revision: "r1", matrix: units, digest: matrixDigest(units), nestedGroups: [] };
       const webMatrix: ArchitectureMatrixMessage = {
-        type: "architectureMatrix", revision: "r1", unit: "apps/web", nestedGroups: [1],
+        type: "architectureMatrix", revision: "r1", unit: "apps/web", nestedGroups: [1], digest: "",
         matrix: groupMatrix({ ...withUnits, groups: [...withUnits.groups, { id: 3, key: "apps/web/lib", label: "lib", fileCount: 1, internalEdgeCount: 0 }], groupEdges: [{ from: 1, to: 3, fileEdgeCount: 2 }] }, (id) => id !== 2),
       };
       const nextFrame = () => act(() => new Promise<void>((resolve) => requestAnimationFrame(() => resolve())));

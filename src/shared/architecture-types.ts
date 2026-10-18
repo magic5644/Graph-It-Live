@@ -90,6 +90,8 @@ export interface ArchitectureMatrixMessage {
   /** Entered unit of the request, if any. */
   unit?: string;
   matrix: ArchitectureMatrix;
+  /** matrixDigest of `matrix`, echoed by the webview's paint report (E2E). */
+  digest: string;
   /** Rows holding sub-folders: a click on their header enters them (architectureEnterFolder). */
   nestedGroups: number[];
 }

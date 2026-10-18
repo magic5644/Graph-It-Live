@@ -274,7 +274,7 @@ describe("ArchitectureViewService", () => {
 
     // (root) imports src: src (layer 0) comes first, and its two internal pairs sit on the diagonal.
     const units = await matrixOf({});
-    expect(units).toMatchObject({ type: "architectureMatrix", revision: summary.revision, nestedGroups: [] });
+    expect(units).toMatchObject({ type: "architectureMatrix", revision: summary.revision, nestedGroups: [], digest: "(root)>src=1;src>src=2" });
     expect(units.matrix.rows.map(row => [row.id, row.label])).toEqual([["src", "src"], ["(root)", "(root)"]]);
     expect(units.matrix.cells).toEqual([{ row: 0, column: 0, fileEdgeCount: 2, upward: false }, { row: 1, column: 0, fileEdgeCount: 1, upward: false }]);
 
