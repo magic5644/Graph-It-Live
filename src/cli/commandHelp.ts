@@ -167,6 +167,8 @@ Options:
                      group the mermaid/markdown diagram by community
   --level L          groups (same as --groups) | units: packages (else top-level
                      folders) with their layers, unit edges and cycles (json/toon)
+  --folder K         Path mode: the level below a unit or folder key, as the view
+                     draws it: its sub-folders and own files as groups (json/toon)
   --workspace, -w    Workspace root directory (default: auto-detected)
   --format, -f       Output format: text|json|toon|markdown|mermaid (default: text)
   --help, -h         Show this help
@@ -179,6 +181,7 @@ Examples:
   graph-it architecture --groups --format toon
   graph-it architecture --groups --format mermaid
   graph-it architecture --level units --format toon
+  graph-it architecture --folder "(root)/analyzer" --format toon
 `,
   check: `graph-it check — Find unused exported symbols in a file
 

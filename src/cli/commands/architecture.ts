@@ -8,7 +8,7 @@
  */
 
 import { buildArchitectureGraph } from "../../analyzer/architecture/ArchitectureGraphBuilder.js";
-import { buildArchitectureUnits } from "../../analyzer/architecture/architectureUnits.js";
+import { buildArchitectureUnits, folderLevel } from "../../analyzer/architecture/architectureUnits.js";
 import { aggregateCommunityGroups } from "../../analyzer/community/groupAggregation.js";
 import { CliError, ExitCode } from "../errors";
 import { workerState } from "../../mcp/shared/state";
@@ -32,6 +32,17 @@ function readLevel(args: string[]): (typeof LEVELS)[number] | undefined {
   return level;
 }
 
+/** `--folder <unit or folder key>`, or undefined when the flag is absent. */
+function readFolder(args: string[]): string | undefined {
+  const index = args.indexOf("--folder");
+  if (index < 0) return undefined;
+  const folder = args[index + 1];
+  if (folder === undefined || folder.startsWith("--") || folder.trim() === "") {
+    throw new CliError("--folder must be a unit or folder key", ExitCode.GENERAL_ERROR);
+  }
+  return folder;
+}
+
 export async function run(
   args: string[],
   runtime: CliRuntime,
@@ -40,6 +51,10 @@ export async function run(
   const maxFiles = parseMaxFiles(args);
   const communityMode = readCommunityMode(args);
   const level = readLevel(args);
+  const folder = readFolder(args);
+  if (folder !== undefined && (level === "units" || communityMode === "louvain")) {
+    throw new CliError("--folder lists one folder level in path mode: drop --level units and --communities louvain", ExitCode.GENERAL_ERROR);
+  }
 
   await runtime.ensureIndexed();
 
@@ -66,6 +81,17 @@ export async function run(
     // Units replace the file graph: the units, layers and unit edges the view draws.
     const { nodes: _nodes, edges: _edges, ...files } = architecture;
     return formatOutput({ ...files, ...buildArchitectureUnits(graph, runtime.workspaceRoot) }, format, "architecture");
+  }
+
+  if (folder !== undefined) {
+    // The level the view draws below this unit or folder: its sub-folders, then its own files.
+    const { graph: folderGraph, nestedGroups } = folderLevel(graph, runtime.workspaceRoot, folder);
+    const { nodes: _nodes, edges: _edges, ...files } = architecture;
+    return formatOutput(
+      { ...files, context: folderGraph.context, folder, nestedGroups, ...aggregateCommunityGroups(folderGraph.graphData) },
+      format,
+      "architecture",
+    );
   }
 
   if (!args.includes("--groups") && level !== "groups") {

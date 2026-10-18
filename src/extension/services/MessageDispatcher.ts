@@ -128,6 +128,9 @@ export class MessageDispatcher {
         architectureInteracted: async (m) => {
           await deps.handleArchitectureMessage?.(m);
         },
+        architectureEnterFolder: async (m) => {
+          await deps.handleArchitectureMessage?.(m);
+        },
         architectureExpandGroup: async (m) => {
           await deps.handleArchitectureMessage?.(m);
         },

@@ -704,6 +704,12 @@ export const ExploreArchitectureParamsSchema = z.object({
     .enum(["groups", "units"])
     .optional()
     .describe("groups (default): folder or Louvain groups; units: packages (else top-level folders) with their layers, unit edges (down, upward, cycle) and cycles, like graph-it architecture --level units"),
+  folder: z
+    .string()
+    .min(1)
+    .max(1024)
+    .optional()
+    .describe("communityMode 'path' only: walk down one level, below this unit key (from level units) or group key; groups are then its sub-folders plus its own files (key = folder), nestedGroups those holding sub-folders; group, from and to then name groups of this level"),
   group: GroupRefSchema.optional().describe("Return this group's files and its incoming / outgoing group edges"),
   from: GroupRefSchema.optional().describe("Source group of the edge whose file pairs to return (requires to)"),
   to: GroupRefSchema.optional().describe("Target group of the edge whose file pairs to return (requires from)"),
@@ -732,6 +738,9 @@ export const ExploreArchitectureParamsSchema = z.object({
   }
   if (params.level === "units" && (params.group !== undefined || params.from !== undefined)) {
     context.addIssue({ code: "custom", message: "level units lists units and unit edges only: drop group, from and to" });
+  }
+  if (params.folder !== undefined && (params.level === "units" || params.communityMode === "louvain")) {
+    context.addIssue({ code: "custom", message: "folder walks the path-mode folders: drop level units and communityMode louvain" });
   }
 });
 export type ExploreArchitectureParams = z.infer<typeof ExploreArchitectureParamsSchema>;

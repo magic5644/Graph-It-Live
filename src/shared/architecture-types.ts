@@ -20,6 +20,8 @@ export type ArchitectureUnitLevel = Omit<ArchitectureUnits, "context"> & {
   groupLayers: Record<number, number>;
   /** Kind of every group edge inside a unit, keyed `from>to`. */
   groupEdgeKinds: Record<string, ArchitectureUnitEdgeKind>;
+  /** Groups holding sub-folders: entering one asks for its level (architectureEnterFolder). */
+  nestedGroups: number[];
 };
 
 // ---------------------------------------------------------------------------
@@ -46,10 +48,22 @@ export interface ArchitectureSummaryMessage extends ArchitectureOverview {
   units?: ArchitectureUnitLevel;
 }
 
+/** The level below a unit or folder (answers architectureEnterFolder); its revision and folder go with every request made there. */
+export interface ArchitectureFolderLevelMessage {
+  type: "architectureFolderLevel";
+  /** Revision of the summary the folder was entered from. */
+  revision: string;
+  /** Unit or folder key whose sub-folders and own files `level` draws. */
+  folder: string;
+  level: Omit<ArchitectureSummaryMessage, "type" | "stale">;
+}
+
 /** One page of an expanded group (answers architectureExpandGroup). */
 export interface ArchitectureGroupDetailMessage {
   type: "architectureGroupDetail";
   revision: string;
+  /** Entered folder of the request, if any. */
+  folder?: string;
   detail: ArchitectureGroupDetail;
 }
 
@@ -76,6 +90,8 @@ export interface ArchitectureControlsMessage {
   type: "architectureControls";
   /** Enters this unit, as a double-click on it does ("": back to the units); the other controls wait for the next message. */
   unit?: string;
+  /** Enters this folder of the drawn level, as a double-click on it does ("": back up one level); the other controls wait. */
+  folder?: string;
   find?: string;
   minImports?: number;
   expand?: string;
@@ -91,6 +107,7 @@ export interface ArchitectureControlsMessage {
 export type ArchitectureExtensionMessage =
   | ArchitectureStateMessage
   | ArchitectureSummaryMessage
+  | ArchitectureFolderLevelMessage
   | ArchitectureGroupDetailMessage
   | ArchitectureEvidencePageMessage
   | ArchitectureRevisionChangedMessage
@@ -127,6 +144,8 @@ export interface ArchitectureRenderedCommand {
   positions: string;
   /** Entered unit; undefined at the units level or without units. */
   unit?: string;
+  /** Entered folder within the unit; undefined at the unit's top level. */
+  folder?: string;
   /** What the units level draws, measured on the canvas once fitted. */
   unitLevel?: {
     units: number;
@@ -166,10 +185,19 @@ export interface ArchitectureInteractedCommand {
   shownFileEdges: number;
 }
 
-/** Asks for one page of a group's files (offset 0 expands it). */
+/** Asks for the level below a unit or folder key (path mode). */
+export interface ArchitectureEnterFolderCommand {
+  command: "architectureEnterFolder";
+  /** The summary's revision. */
+  revision: string;
+  folder: string;
+}
+
+/** Asks for one page of a group's files (offset 0 expands it); `folder` and `revision` name the level the group id comes from. */
 export interface ArchitectureExpandGroupCommand {
   command: "architectureExpandGroup";
   revision: string;
+  folder?: string;
   groupId: number;
   offset?: number;
 }
@@ -178,6 +206,7 @@ export interface ArchitectureExpandGroupCommand {
 export interface ArchitectureEvidenceCommand {
   command: "architectureEvidence";
   revision: string;
+  folder?: string;
   from: number;
   to: number;
   sourceFile?: string;
@@ -189,6 +218,7 @@ export interface ArchitectureEvidenceCommand {
 export interface ArchitectureOpenFileCommand {
   command: "architectureOpenFile";
   revision: string;
+  folder?: string;
   relativePath: string;
 }
 
@@ -216,6 +246,7 @@ export type ArchitectureWebviewCommand =
   | ArchitectureRenderedCommand
   | ArchitectureResizedCommand
   | ArchitectureInteractedCommand
+  | ArchitectureEnterFolderCommand
   | ArchitectureExpandGroupCommand
   | ArchitectureEvidenceCommand
   | ArchitectureOpenFileCommand

@@ -3,7 +3,7 @@
 import React from "react";
 import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import type { ArchitectureExtensionMessage, ArchitectureSummaryMessage } from "@/shared/architecture-types";
+import type { ArchitectureExtensionMessage, ArchitectureFolderLevelMessage, ArchitectureSummaryMessage } from "@/shared/architecture-types";
 
 // Cytoscape needs a canvas: stand in a fake that records elements and runs layouts at once.
 // fcose drops every node at the origin; labels are as wide as `labelWidth` (default: textWidth).
@@ -77,6 +77,8 @@ const cy = vi.hoisted(() => {
     },
     fit: vi.fn(),
     zoom: vi.fn(() => 1),
+    pan: vi.fn(() => ({ x: 0, y: 0 })),
+    viewport: vi.fn(),
     width: () => 800,
     resize: vi.fn(),
     nodes: () => state.nodes,
@@ -744,6 +746,7 @@ describe("ArchitectureGraph", () => {
         groupUnits: { 1: "apps/web", 2: "packages/core" },
         groupLayers: { 1: 0, 2: 0 },
         groupEdgeKinds: {},
+        nestedGroups: [],
       },
     };
     const nodeById = (id: string) => cy.state.nodes.find(node => node.id() === id);
@@ -886,6 +889,115 @@ describe("ArchitectureGraph", () => {
       send({ type: "architectureControls", unit: "" });
       await settle();
       expect(lastOf(postMessage, "architectureRendered")).toEqual(expect.objectContaining({ unit: undefined }));
+    });
+
+    describe("folder levels", () => {
+      const nested: ArchitectureSummaryMessage = { ...withUnits, units: { ...withUnits.units!, nestedGroups: [1] } };
+      const { type: _type, stale: _stale, ...base } = nested;
+      const uiLevel: ArchitectureFolderLevelMessage = {
+        type: "architectureFolderLevel",
+        revision: "r1",
+        folder: "ui",
+        level: {
+          ...base,
+          revision: "r2",
+          groups: [
+            { id: 1, key: "ui", label: "ui", fileCount: 2, internalEdgeCount: 0 },
+            { id: 2, key: "ui/forms", label: "forms", fileCount: 3, internalEdgeCount: 1 },
+          ],
+          groupEdges: [{ from: 2, to: 1, fileEdgeCount: 2, fromLabel: "forms", toLabel: "ui" }],
+          units: { ...nested.units!, groupUnits: { 1: "apps/web", 2: "apps/web" }, groupLayers: { 1: 0, 2: 1 }, groupEdgeKinds: { "2>1": "down" }, nestedGroups: [] },
+        },
+      };
+      const keys = () => cy.state.nodes.map(node => node.data("key"));
+      const escape = async () => {
+        act(() => { window.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape" })); });
+        await settle();
+      };
+
+      it("enters a folder holding sub-folders, asks the extension for its level, and draws its sub-folders", async () => {
+        const postMessage = await setup(nested);
+        await dbltap(nodeById("group-1"));
+        expect(nodeById("group-1")?.data("folder")).toBe("ui");
+        expect(nodeById("group-1")?.data("tooltip")).toContain("double-click to enter");
+
+        await dbltap(nodeById("group-1"));
+        expect(lastOf(postMessage, "architectureEnterFolder")).toEqual({ command: "architectureEnterFolder", revision: "r1", folder: "ui" });
+        expect(postMessage).not.toHaveBeenCalledWith(expect.objectContaining({ command: "architectureExpandGroup" }));
+        // A level for a folder not asked for, or another revision, is dropped.
+        send({ ...uiLevel, folder: "store" });
+        send({ ...uiLevel, revision: "old" });
+        expect(keys()).toEqual(["path:ui"]);
+
+        send(uiLevel);
+        await settle();
+        expect(keys()).toEqual(["path:ui@ui", "path:ui/forms@ui"]);
+        expect(nodeById("group-2")?.data("color")).toBe(nodeById("group-1")?.data("color"));
+        expect(nodeById("group-2")?.data("layer")).toBe(1);
+        expect(edgeById("edge-2-1")?.data("kind")).toBe("down");
+        expect(lastOf(postMessage, "architectureRendered")).toEqual(expect.objectContaining({ unit: "apps/web", folder: "ui" }));
+        expect(screen.getByRole("navigation", { name: "Architecture path" }).textContent).toMatch(/Units › @ws\/web › ui/);
+
+        // Requests made in the folder name its level: its revision and the folder.
+        await dbltap(nodeById("group-2"));
+        expect(lastOf(postMessage, "architectureExpandGroup")).toEqual({ command: "architectureExpandGroup", revision: "r2", folder: "ui", groupId: 2, offset: 0 });
+        act(() => cy.state.handlers.get("tap")?.({ target: edgeById("edge-2-1") }));
+        expect(lastOf(postMessage, "architectureEvidence")).toEqual(expect.objectContaining({ revision: "r2", folder: "ui", from: 2, to: 1 }));
+        send({ type: "architectureEvidencePage", revision: "r2", from: 2, to: 1, pairs: [{ source: "a.ts", target: "b.ts" }], page: { total: 1, offset: 0, returned: 1, truncated: false } });
+        fireEvent.click(screen.getByRole("button", { name: "a.ts" }));
+        expect(lastOf(postMessage, "architectureOpenFile")).toEqual({ command: "architectureOpenFile", revision: "r2", folder: "ui", relativePath: "a.ts" });
+      });
+
+      it("goes back up with Escape and the breadcrumb, to the viewport each level was left with", async () => {
+        const postMessage = await setup(nested);
+        await dbltap(nodeById("group-1"));
+        cy.instance.zoom.mockReturnValue(2);
+        cy.instance.pan.mockReturnValue({ x: 5, y: 6 });
+        await dbltap(nodeById("group-1"));
+        send(uiLevel);
+        await settle();
+        cy.instance.zoom.mockReturnValue(1);
+        cy.instance.pan.mockReturnValue({ x: 0, y: 0 });
+
+        await escape();
+        expect(keys()).toEqual(["path:ui"]);
+        expect(cy.instance.viewport).toHaveBeenLastCalledWith({ zoom: 2, pan: { x: 5, y: 6 } });
+
+        // Entered again from the level already received: no new request.
+        const asked = postMessage.mock.calls.filter(([message]) => message.command === "architectureEnterFolder").length;
+        await dbltap(nodeById("group-1"));
+        expect(keys()).toEqual(["path:ui@ui", "path:ui/forms@ui"]);
+        expect(postMessage.mock.calls.filter(([message]) => message.command === "architectureEnterFolder")).toHaveLength(asked);
+
+        fireEvent.click(screen.getByRole("button", { name: "@ws/web" }));
+        await settle();
+        expect(keys()).toEqual(["path:ui"]);
+        await escape();
+        expect(keys()).toEqual(["units:apps/web", "units:packages/core"]);
+      });
+
+      it("enters and leaves folders from the E2E controls, and forgets them on a new revision", async () => {
+        const postMessage = await setup(nested);
+        send({ type: "architectureControls", unit: "apps/web" });
+        await settle();
+        send({ type: "architectureControls", folder: "ui" });
+        send(uiLevel);
+        await settle();
+        expect(lastOf(postMessage, "architectureRendered")).toEqual(expect.objectContaining({ folder: "ui" }));
+        send({ type: "architectureControls", expand: "ui/forms" });
+        expect(lastOf(postMessage, "architectureExpandGroup")).toEqual(expect.objectContaining({ folder: "ui", groupId: 2 }));
+        send({ type: "architectureControls", folder: "" });
+        await settle();
+        expect(lastOf(postMessage, "architectureRendered")).toEqual(expect.objectContaining({ unit: "apps/web", folder: undefined }));
+
+        send({ ...nested, revision: "r3", context: { ...nested.context, revision: "r3" } });
+        await settle();
+        expect(keys()).toEqual(["units:apps/web", "units:packages/core"]);
+        send({ type: "architectureControls", unit: "apps/web" });
+        await settle();
+        send({ type: "architectureControls", folder: "ui" });
+        expect(lastOf(postMessage, "architectureEnterFolder")).toEqual(expect.objectContaining({ revision: "r3", folder: "ui" }));
+      });
     });
   });
 });

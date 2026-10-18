@@ -669,6 +669,7 @@ graph-it architecture [options]
 | `--communities <mode>` | `path` | How `communityId`/`communityKey` group files: `path` by folder, `louvain` by import structure |
 | `--groups` | off | Add `context`, `groups`, `unassigned`, `groupEdges` and `totals` to `json`/`toon` output; group `mermaid`/`markdown` diagrams (see [Grouped output](#grouped-output)) |
 | `--level <level>` | — | `groups` = `--groups`; `units` replaces the file graph with the packages and their layers (see [Units output](#units-output)) |
+| `--folder <key>` | — | `path` mode: the level below a unit or folder key, its sub-folders and own files as groups (see [Folder levels](#folder-levels)) |
 | `--workspace, -w` | auto-detected | Project root |
 | `--format, -f` | `text` | Output format (`toon` recommended for large graphs; `mermaid` for diagrams) |
 
@@ -685,6 +686,7 @@ graph-it architecture --communities louvain --format json
 graph-it architecture --groups --format toon
 graph-it architecture --groups --format mermaid
 graph-it architecture --level units --format toon
+graph-it architecture --folder "(root)/analyzer" --format toon
 ```
 
 #### Grouped output
@@ -750,6 +752,10 @@ Files without a folder domain (`path`) or without any import edge (`louvain`) ge
 | `unitEdges` | `from`, `to`, `fileEdgeCount`, `kind`: `down`, `upward` (to the same or a higher layer) or `cycle` (both units in one cycle), heaviest first |
 | `upwardEdges`, `cycles` | number of upward edges, and of groups of units that depend on each other |
 | `totals` | `files`, `fileEdges`, `intraUnitEdges`, `interUnitEdges` |
+
+#### Folder levels
+
+`--folder <key>` walks down a unit as the Architecture view does when a folder is entered. The key is a unit key (from `--level units`) or a group key of a level: the top folders of a unit are `<unit>/<folder>` (umbrella folders such as `src` or `tests` skipped, so `app/src/core` and `app/tests/core` both fall in `app/core`), then each sub-folder adds its name (`app/core/util`). The output has the [grouped output](#grouped-output) fields for the files below the key only: each sub-folder is a group, the key's own files form the group whose key is the key itself, and `nestedGroups` lists the ids of the groups that hold sub-folders (pass their key to go one level deeper). Counts add up level by level: a group's `fileCount` and `internalEdgeCount` are the `totals.files` and `totals.fileEdges` of its own level. `context.revision` also covers the folder, so group ids hold for that level only. `--folder` is refused with `--level units` or `--communities louvain` (Louvain groups have no folders), and an unknown key is an error.
 
 ### check
 
@@ -1816,12 +1822,15 @@ graph-it tool scan_dead_code --scopePath=/abs/path/to/src/utils/
 | no `group`, `from`, `to` | `summary` | `totals`, `unassigned`, the largest `groups` and `groupEdges` (with `fromLabel` / `toLabel`) |
 | `group` | `group` | the group, its `files`, and its `incoming` / `outgoing` group edges |
 | `from` + `to` | `evidence` | the distinct file `pairs` (`source` imports `target`) behind that group edge; empty when the groups are not linked |
+| `folder` (with any of the above) | as above | the same views one [folder level](#folder-levels) down, plus `folder` and `nestedGroups`; group ids and `revision` belong to that level |
 
 ```bash
 graph-it tool explore_architecture
 graph-it tool explore_architecture --group=analyzer
 graph-it tool explore_architecture --from=mcp --to=analyzer --limit=20 --offset=20
 graph-it tool explore_architecture --communityMode=louvain
+graph-it tool explore_architecture --level=units
+graph-it tool explore_architecture --folder='(root)/analyzer' --group='(root)/analyzer/community'
 ```
 
 A group is referenced by `id` (a number, such as `--group=2`) or by `key` or `label` (a string, such as `--group=analyzer` or `--group='"2"'` for a folder named `2`); `0` or `unassigned` names the files without a group, and an unknown group is an error. Every list is paginated by `limit` (default 50, max 500) and `offset`: the group view pages `files`, `incoming` and `outgoing` together (edges sorted by `fileEdgeCount`), and `page` gives each list's total, `truncated` and a `nextOffset` while any list has more items. Every response carries `context` (community mode, `revision`, graph kind `imports`, scope, exclusions, `maxFiles`, truncation, failed files) and `provenance`, which separates code facts (static import pairs) from computed groupings and states that labels carry no interpretation. Symbols and lines come from `find_referencing_files`, `query_call_graph` and `get_impact_analysis`, named in `nextSteps`. The graph is rebuilt on each call and group ids depend on it: `context.revision` is a SHA-256 of the community mode, each file's group and the file edges, identical on every OS for the same graph. Pass it back as `revision` (`--revision=<hash>`) with a group id or an `offset`; if the architecture has changed since, the call fails with both revisions and you restart from the summary. Without `revision`, the call is answered from the current graph.
