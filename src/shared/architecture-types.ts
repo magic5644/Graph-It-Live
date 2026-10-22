@@ -14,6 +14,11 @@ import type { ArchitectureMatrix } from "../analyzer/architecture/architectureMa
 import type { ArchitectureRuleSummary, WorkspaceArchitectureCheck } from "../analyzer/architecture/architectureRules";
 import type { ArchitectureUnitEdgeKind, ArchitectureUnits } from "../analyzer/architecture/architectureUnits";
 
+/** Groups drawn per level (per unit in path mode) until Show more groups; the largest first. */
+export const DEFAULT_RENDERED_GROUPS = 50;
+/** Groups drawn per level once Show more groups was clicked; beyond, they are counted in hiddenGroups. */
+export const MAX_RENDERED_GROUPS = 150;
+
 /** The units level of a path-mode summary: what `graph-it architecture --level units` reports, plus the unit of each group. */
 export type ArchitectureUnitLevel = Omit<ArchitectureUnits, "context"> & {
   /** Unit key of every group id of the summary. */
@@ -24,6 +29,8 @@ export type ArchitectureUnitLevel = Omit<ArchitectureUnits, "context"> & {
   groupEdgeKinds: Record<string, ArchitectureUnitEdgeKind>;
   /** Groups holding sub-folders: entering one asks for its level (architectureEnterFolder). */
   nestedGroups: number[];
+  /** Groups and group edges of each unit left out by the cap, by unit key. */
+  hiddenByUnit?: Record<string, { groups: number; groupEdges: number }>;
 };
 
 /** The declared rules (graphit.architecture.json) checked against one level, as graph-it check-architecture reports them. */
@@ -66,6 +73,10 @@ export interface ArchitectureSummaryMessage extends ArchitectureOverview {
   units?: ArchitectureUnitLevel;
   /** With a graphit.architecture.json at the workspace root: its rules checked against this level. */
   rules?: ArchitectureRulesView;
+  /** Groups drawn per level (per unit in path mode), largest first: DEFAULT_RENDERED_GROUPS until Show more groups. */
+  maxGroups?: number;
+  /** Drawn groups (the unassigned files included, id 0) with no drawn edge to a group of their level: drawn apart, below the graph. */
+  isolatedGroups?: number[];
 }
 
 /** The level below a unit or folder (answers architectureEnterFolder); its revision and folder go with every request made there. */
@@ -119,6 +130,20 @@ export interface ArchitectureMatrixMessage {
   violations?: Record<string, string[]>;
 }
 
+/** The groups left out by the cap that a find matches (answers architectureFind). */
+export interface ArchitectureFoundMessage {
+  type: "architectureFound";
+  /** Revision, folder and unit of the request. */
+  revision: string;
+  folder?: string;
+  unit?: string;
+  query: string;
+  /** Labels of the first matching hidden groups, largest first. */
+  matches: string[];
+  /** Every matching hidden group. */
+  total: number;
+}
+
 /** Answers a request made with another revision: the webview drops its detail and asks for the summary again. */
 export interface ArchitectureRevisionChangedMessage {
   type: "architectureRevisionChanged";
@@ -152,6 +177,8 @@ export interface ArchitectureControlsMessage {
   rule?: string;
   /** Clicks this role in the units' role legend: only its units stay drawn, a second click shows them all. */
   role?: string;
+  /** Clicks Show more groups. */
+  showMoreGroups?: boolean;
 }
 
 export type ArchitectureExtensionMessage =
@@ -161,6 +188,7 @@ export type ArchitectureExtensionMessage =
   | ArchitectureGroupDetailMessage
   | ArchitectureEvidencePageMessage
   | ArchitectureMatrixMessage
+  | ArchitectureFoundMessage
   | ArchitectureRevisionChangedMessage
   | ArchitectureControlsMessage;
 
@@ -224,6 +252,19 @@ export interface ArchitectureRenderedCommand {
   rules?: string[];
   /** The role legend as drawn: `role=count` per role, `*` after the filtered one. */
   roles?: string[];
+  /** A group level (not the units), as its header and canvas show it once laid out. */
+  groupLevel?: {
+    /** The header's `shown of total` groups, and the groups and group edges it says are hidden. */
+    shownGroups: number;
+    totalGroups: number;
+    hiddenGroups: number;
+    hiddenGroupEdges: number;
+    /** Groups the header announces without cross-group imports, and how many of them are drawn below every other group. */
+    isolatedGroups: number;
+    isolatedBelow: number;
+    /** On-screen size of the node labels. */
+    minLabelPx: number;
+  };
 }
 
 /** The graph was re-fitted to a resized view (E2E observability only). */
@@ -245,6 +286,21 @@ export interface ArchitectureInteractedCommand {
   shownGroupEdges: number;
   /** File edges drawn: only those of the hovered or selected file. */
   shownFileEdges: number;
+}
+
+/** Draws up to MAX_RENDERED_GROUPS groups per level from now on (Show more groups); the summary and entered levels are sent again. */
+export interface ArchitectureShowMoreGroupsCommand {
+  command: "architectureShowMoreGroups";
+  revision: string;
+}
+
+/** Asks which groups left out by the cap match a find, at the level `revision`, `folder` and `unit` name. */
+export interface ArchitectureFindCommand {
+  command: "architectureFind";
+  revision: string;
+  folder?: string;
+  unit?: string;
+  query: string;
 }
 
 /** Asks for the level below a unit or folder key (path mode). */
@@ -350,6 +406,10 @@ export interface ArchitectureDetailRenderedCommand {
   focusedGroup?: string;
   /** The 500-file cap message is shown. */
   capReached: boolean;
+  /** The find's result line, as drawn (empty without one). */
+  findStatus?: string;
+  /** `zoom@x,y` of the canvas after the render and its fit. */
+  viewport?: string;
   /** `pairs`: the rows of the aria-label="Evidence" region, as `source → target`. */
   evidence?: { edgeCount: number; total: number; shown: number; firstSource?: string; title: string; pairs: string[] };
 }
@@ -361,6 +421,8 @@ export type ArchitectureWebviewCommand =
   | ArchitectureResizedCommand
   | ArchitectureInteractedCommand
   | ArchitectureEnterFolderCommand
+  | ArchitectureShowMoreGroupsCommand
+  | ArchitectureFindCommand
   | ArchitectureExpandGroupCommand
   | ArchitectureEvidenceCommand
   | ArchitectureUnitEvidenceCommand

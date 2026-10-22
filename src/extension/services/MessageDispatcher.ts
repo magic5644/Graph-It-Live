@@ -131,6 +131,12 @@ export class MessageDispatcher {
         architectureEnterFolder: async (m) => {
           await deps.handleArchitectureMessage?.(m);
         },
+        architectureShowMoreGroups: async (m) => {
+          await deps.handleArchitectureMessage?.(m);
+        },
+        architectureFind: async (m) => {
+          await deps.handleArchitectureMessage?.(m);
+        },
         architectureExpandGroup: async (m) => {
           await deps.handleArchitectureMessage?.(m);
         },
