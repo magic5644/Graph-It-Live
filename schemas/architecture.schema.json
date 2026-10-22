@@ -6,6 +6,8 @@
       "type": "string"
     },
     "elements": {
+      "default": {},
+      "description": "Named sets of files the rules refer to",
       "type": "object",
       "propertyNames": {
         "type": "string",
@@ -50,16 +52,50 @@
               }
             ]
           },
+          "role": {
+            "description": "Unit roles (graph-it architecture --level units): every unit with one of them",
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": [
+                  "function",
+                  "micro-frontend",
+                  "frontend",
+                  "service",
+                  "library",
+                  "tooling",
+                  "unknown"
+                ]
+              },
+              {
+                "minItems": 1,
+                "maxItems": 128,
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "enum": [
+                    "function",
+                    "micro-frontend",
+                    "frontend",
+                    "service",
+                    "library",
+                    "tooling",
+                    "unknown"
+                  ]
+                }
+              }
+            ]
+          },
           "each": {
             "description": "Every matched folder or unit is an instance of its own: a rule from this element to itself means another instance",
             "type": "boolean"
           }
         },
         "additionalProperties": false
-      },
-      "description": "Named sets of files the rules refer to"
+      }
     },
     "rules": {
+      "default": [],
       "maxItems": 256,
       "type": "array",
       "items": {
@@ -141,11 +177,27 @@
         ],
         "additionalProperties": false
       }
+    },
+    "roles": {
+      "description": "Unit key or package name (* matches any characters) → role; the first matching entry overrides the inferred role",
+      "type": "object",
+      "propertyNames": {
+        "type": "string",
+        "maxLength": 214
+      },
+      "additionalProperties": {
+        "type": "string",
+        "enum": [
+          "function",
+          "micro-frontend",
+          "frontend",
+          "service",
+          "library",
+          "tooling",
+          "unknown"
+        ]
+      }
     }
   },
-  "required": [
-    "elements",
-    "rules"
-  ],
   "additionalProperties": false
 }

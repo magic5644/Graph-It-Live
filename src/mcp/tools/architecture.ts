@@ -8,7 +8,7 @@
 import { exploreArchitecture, exploreArchitectureCheck, exploreMatrix, exploreUnitEvidence, exploreUnits } from "../../analyzer/architecture/ArchitectureExplorer";
 import { buildArchitectureGraph } from "../../analyzer/architecture/ArchitectureGraphBuilder";
 import { groupMatrix, unitMatrix } from "../../analyzer/architecture/architectureMatrix";
-import { checkWorkspaceArchitecture } from "../../analyzer/architecture/architectureRules";
+import { checkWorkspaceArchitecture, loadDeclaredRoles } from "../../analyzer/architecture/architectureRules";
 import { assignUnits, buildArchitectureUnits, folderLevel } from "../../analyzer/architecture/architectureUnits";
 import { aggregateCommunityGroups } from "../../analyzer/community/groupAggregation";
 import { workerState } from "../shared/state";
@@ -33,7 +33,7 @@ export async function executeExploreArchitecture(
   if (params.level === "units") {
     const { rootDir } = workerState.getConfig();
     const assignment = assignUnits(rootDir, graph.nodes.map((node) => node.relativePath));
-    const units = buildArchitectureUnits(graph, rootDir, assignment);
+    const units = buildArchitectureUnits(graph, rootDir, assignment, await loadDeclaredRoles(rootDir));
     if (params.view === "matrix") return exploreMatrix(unitMatrix(units), units.context, { ...params, units: true });
     if (params.from === undefined || params.to === undefined) return exploreUnits(units, params);
     return exploreUnitEvidence(graph, units, assignment.unitOf, { ...params, from: String(params.from), to: String(params.to) });

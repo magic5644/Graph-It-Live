@@ -2,7 +2,7 @@
   "configFile": "graphit.architecture.json",
   "context": {
     "communityMode": "path",
-    "revision": "6c19fe4d535dbd77e599e1871f1d333d7434905a4cb23cb0682b561704ee9786",
+    "revision": "6eacc683ec5316ef8647d462c6a489c5259eef71e2201bb09725e43efdba7bbf",
     "graphKind": "imports",
     "scope": "workspace",
     "exclusions": "node_modules, .git, dist, build, out, coverage, .next, .nuxt, __pycache__, .venv, venv, target, .*/, .gitignore, .graphitignore, tests/fixtures/, out-*/",
