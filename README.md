@@ -123,6 +123,36 @@ The Live Call Graph supports TypeScript, JavaScript, Vue, Svelte, Python, Rust, 
 - The view is built when it opens, on *Refresh*, and when the setting changes. Changing or deleting a file of the graph, or creating a source file, only shows a *Files changed* banner (files the view never read, such as build output, do not): a build reads every file, so you decide when to *Refresh*.
 - It analyses the configured workspace folder. Use the *Graph*, *List* or *Symbol* buttons to leave it.
 
+### Architecture rules
+
+Write the intended architecture in `graphit.architecture.json` at the workspace root; the Architecture view, `graph-it check-architecture` and the `check_architecture` MCP tool check every static import against it. Rules are your annotation: the tool only compares import pairs with them.
+
+```json
+{
+  "$schema": "https://raw.githubusercontent.com/magic5644/Graph-It-Live/main/schemas/architecture.schema.json",
+  "elements": {
+    "functions": { "path": "functions/*", "each": true },
+    "frontend": { "path": "frontend/" },
+    "mfe": { "path": "mfe/*", "each": true },
+    "backend": { "path": "backend/" },
+    "shared": { "unit": ["@acme/shared-*"] }
+  },
+  "rules": [
+    { "name": "functions-only-shared", "from": "functions", "allowOnly": ["shared"], "severity": "error",
+      "reason": "Functions are deployed alone; they share code only through libraries." },
+    { "name": "frontend-not-backend", "from": ["frontend", "mfe"], "forbid": ["backend"], "severity": "error" },
+    { "name": "mfe-isolated", "from": "mfe", "forbid": ["mfe"], "severity": "warning" },
+    { "name": "no-unit-cycles", "noCycles": "units", "severity": "error" }
+  ]
+}
+```
+
+- An **element** is a named set of files, selected by `path` (gitignore-style patterns, as in `.graphitignore`) and/or `unit` (package names or unit keys of `graph-it architecture --level units`, `*` allowed). With `each: true` every matched folder or unit is an instance of its own: `mfe → mfe` then means "another micro-frontend", never a file of the same one.
+- **Rules**: `forbid` (the listed elements may not be imported), `allowOnly` (only the listed elements and the importer's own instance may be), `noCycles` (`"units"` or an `each` element: no import cycle between them). `severity` is `error` (default), `warning` or `off`; `reason` is shown with every violation.
+- The view shows "N violations of M rules (K new)" with a Rules panel: each rule with its count, a click lists its file pairs in the evidence panel. Violating edges are dashed red, violating matrix cells framed red, their rules in the tooltip. Editing the config or the baseline marks the view stale; *Refresh* checks again. An invalid config is reported with the JSON path of each error.
+- `graph-it check-architecture` exits with 1 when an `error` violation is not in the baseline, so it can gate CI; `--format sarif` lets GitHub code scanning annotate the importing line. On a codebase that already breaks the rules, `graph-it check-architecture --update-baseline` writes `graphit.architecture.baseline.json`: only new violations fail, and resolved ones are listed so the baseline can shrink. See [check-architecture](docs/CLI.md#check-architecture).
+- Files selected by no element are counted, and a pattern matching nothing is a config warning. The `$schema` gives completion and validation in editors.
+
 ### Unused dependencies and impact analysis
 
 - Hide or dim unused dependencies.
