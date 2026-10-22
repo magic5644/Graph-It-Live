@@ -140,6 +140,9 @@ export class MessageDispatcher {
         architectureUnitEvidence: async (m) => {
           await deps.handleArchitectureMessage?.(m);
         },
+        architectureRuleEvidence: async (m) => {
+          await deps.handleArchitectureMessage?.(m);
+        },
         architectureMatrix: async (m) => {
           await deps.handleArchitectureMessage?.(m);
         },

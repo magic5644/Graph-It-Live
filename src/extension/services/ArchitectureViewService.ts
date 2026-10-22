@@ -1,7 +1,21 @@
+import * as fs from "node:fs";
 import * as path from "node:path";
-import { exploreArchitecture, exploreUnitEvidence, groupDetail, overviewArchitecture } from "@/analyzer/architecture/ArchitectureExplorer";
+import {
+  exploreArchitecture,
+  exploreArchitectureCheck,
+  exploreUnitEvidence,
+  groupDetail,
+  overviewArchitecture,
+} from "@/analyzer/architecture/ArchitectureExplorer";
 import { buildArchitectureGraph, type AnalyzeFile, type ArchitectureGraph } from "@/analyzer/architecture/ArchitectureGraphBuilder";
 import { groupMatrix, matrixDigest, unitMatrix, type ArchitectureMatrix } from "@/analyzer/architecture/architectureMatrix";
+import {
+  ARCHITECTURE_BASELINE_FILE,
+  ARCHITECTURE_CONFIG_FILE,
+  checkWorkspaceArchitecture,
+  rulesByEdge,
+  type WorkspaceArchitectureCheck,
+} from "@/analyzer/architecture/architectureRules";
 import {
   assignUnits,
   buildArchitectureUnits,
@@ -23,6 +37,8 @@ import type {
   ArchitectureMatrixRenderedCommand,
   ArchitectureOpenFileCommand,
   ArchitectureRenderedCommand,
+  ArchitectureRuleEvidenceCommand,
+  ArchitectureRulesView,
   ArchitectureSummaryMessage,
   ArchitectureUnitEvidenceCommand,
   ArchitectureWebviewCommand,
@@ -163,6 +179,44 @@ function viewArchitecture(graph: ArchitectureGraph, workspaceRoot: string): View
   return { ...viewUnitLevel(source), source };
 }
 
+/** The rules check of a build: none without a config at the root, or why the config was refused. */
+type RulesState = { check: WorkspaceArchitectureCheck } | { configFile: string; error: string } | undefined;
+
+async function checkRules(graph: ArchitectureGraph, workspaceRoot: string): Promise<RulesState> {
+  if (!fs.existsSync(path.join(workspaceRoot, ARCHITECTURE_CONFIG_FILE))) return undefined;
+  try {
+    return { check: await checkWorkspaceArchitecture(graph, workspaceRoot) };
+  } catch (error) {
+    return { configFile: ARCHITECTURE_CONFIG_FILE, error: maskWorkspaceRoot(error instanceof Error ? error.message : String(error), workspaceRoot) };
+  }
+}
+
+/** The rules as one level shows them: its violating group edges keyed by its group ids, and the units' edges. */
+function rulesView(rules: RulesState, graph: ArchitectureGraph, unitOf?: ReadonlyMap<string, string>): { rules?: ArchitectureRulesView } {
+  if (!rules) return {};
+  if ("error" in rules) return { rules: { ...rules, rules: [], configWarnings: [], unitEdges: {}, groupEdges: {} } };
+  const { check } = rules;
+  const groupOf = new Map(graph.nodes.map((node) => [node.relativePath, node.communityId]));
+  return {
+    rules: {
+      configFile: check.configFile,
+      totals: check.totals,
+      rules: check.rules,
+      configWarnings: check.configWarnings,
+      unitEdges: unitOf ? rulesByEdge(check.violations, (file) => unitOf.get(file)) : {},
+      groupEdges: rulesByEdge(check.violations, (file) => groupOf.get(file)),
+    },
+  };
+}
+
+/** One page of a rule's violating file pairs, for the evidence panel. */
+function ruleEvidencePage(rules: RulesState, request: ArchitectureRuleEvidenceCommand): ArchitectureExtensionMessage {
+  if (!rules || !("check" in rules)) throw new Error("no architecture rules were checked");
+  const { revision, rule, offset } = request;
+  const { violations, page } = exploreArchitectureCheck(rules.check, { rule: String(rule).slice(0, 128), offset: validOffset(offset) });
+  return { type: "architectureEvidencePage", revision, rule, from: "", to: "", pairs: violations.map(({ source, target }) => ({ source, target })), page };
+}
+
 /** A page offset from the webview; anything but a non-negative integer reads the first page. */
 const validOffset = (offset: unknown) => (Number.isSafeInteger(offset) && Number(offset) >= 0 ? Number(offset) : undefined);
 
@@ -190,12 +244,21 @@ function unitEvidencePage(source: UnitSource | undefined, request: ArchitectureU
  * the graph (an entered folder, or Louvain). Unit groups are regrouped as the summary was, so
  * their ids match it.
  */
-function matrixMessage(graph: ArchitectureGraph, source: UnitSource | undefined, request: ArchitectureMatrixCommand): ArchitectureExtensionMessage {
+function matrixMessage(
+  graph: ArchitectureGraph,
+  source: UnitSource | undefined,
+  rules: RulesState,
+  request: ArchitectureMatrixCommand,
+): ArchitectureExtensionMessage {
   const { revision, folder } = request;
   const unit = request.unit === undefined ? undefined : String(request.unit);
+  const unitsLevel = source !== undefined && folder === undefined && unit === undefined;
+  // Rows are unit keys at the units level, else the group ids of the level's graph.
+  const { rules: view } = rulesView(rules, graph, source?.assignment.unitOf);
+  const violations = view?.totals === undefined ? {} : { violations: unitsLevel ? view.unitEdges : view.groupEdges };
   const reply = (matrix: ArchitectureMatrix, nestedGroups: number[]) =>
-    ({ type: "architectureMatrix" as const, revision, folder, unit, matrix, digest: matrixDigest(matrix), nestedGroups });
-  if (source && folder === undefined && unit === undefined) return reply(unitMatrix(source.units), []);
+    ({ type: "architectureMatrix" as const, revision, folder, unit, matrix, digest: matrixDigest(matrix), nestedGroups, ...violations });
+  if (source && unitsLevel) return reply(unitMatrix(source.units), []);
   const aggregation = aggregateCommunityGroups(graph.graphData);
   if (!source) return reply(groupMatrix(aggregation), []);
   const { groupUnits, nestedGroups } = groupByUnit(source.graph, source.units, source.assignment, folder);
@@ -215,7 +278,7 @@ function matrixMessage(graph: ArchitectureGraph, source: UnitSource | undefined,
 export class ArchitectureViewService {
   private summary: ArchitectureSummaryMessage | null = null;
   /** The graph of `summary`, which group detail and evidence pages are read from, and of each entered folder. */
-  private graph: (LevelGraph & { source?: UnitSource; folders: Map<string, LevelGraph> }) | null = null;
+  private graph: (LevelGraph & { source?: UnitSource; rules: RulesState; folders: Map<string, LevelGraph> }) | null = null;
   private running: { controller: AbortController; communityMode: CommunityMode } | null = null;
   private buildCount = 0;
   private renderCount = 0;
@@ -261,7 +324,7 @@ export class ArchitectureViewService {
         this.lastMatrix = message;
         return Promise.resolve();
       case "architectureMatrix":
-        this.answer(message.revision, message.folder, (graph) => matrixMessage(graph, this.graph?.source, message));
+        this.answer(message.revision, message.folder, (graph) => matrixMessage(graph, this.graph?.source, this.graph?.rules, message));
         return Promise.resolve();
       case "architectureEnterFolder":
         this.enterFolder(message);
@@ -279,6 +342,9 @@ export class ArchitectureViewService {
         return Promise.resolve();
       case "architectureUnitEvidence":
         this.answer(message.revision, undefined, () => unitEvidencePage(this.graph?.source, message));
+        return Promise.resolve();
+      case "architectureRuleEvidence":
+        this.answer(message.revision, undefined, () => ruleEvidencePage(this.graph?.rules, message));
         return Promise.resolve();
       case "architectureOpenFile":
         return this.openFile(message);
@@ -310,9 +376,10 @@ export class ArchitectureViewService {
   /** Answers the level below a unit or folder of the summary's units (path mode), keeping its graph for the requests made there. */
   private enterFolder({ revision, folder }: ArchitectureEnterFolderCommand): void {
     if (!this.graphFor(revision) || !this.graph?.source) return;
-    const { source, folders } = this.graph;
+    const { source, folders, rules } = this.graph;
     const key = String(folder);
-    const { graph, ...level } = viewUnitLevel(source, key);
+    const { graph, ...unitLevel } = viewUnitLevel(source, key);
+    const level = { ...unitLevel, ...rulesView(rules, graph, source.assignment.unitOf) };
     if (graph.nodes.length === 0) {
       this.options.warn(`Architecture view: no file below "${key.slice(0, 256)}"`);
       return;
@@ -368,18 +435,20 @@ export class ArchitectureViewService {
   /**
    * Marks the cached summary stale when the change can alter it: a file of the graph changed or
    * was deleted, or a file was created (no path: any change). Files the graph never read (build
-   * output, ignored folders) leave it as it is. During a build, the build's own summary carries it.
+   * output, ignored folders) leave it as it is; the rule files at the root always count. During a
+   * build, the build's own summary carries it.
    * ponytail: any created file counts, ignored ones included; check the collector's ignore rules if that shows the banner for nothing.
    */
   markStale(filePath?: string, eventType?: "create" | "change" | "delete"): void {
     if (this.disposed) return;
     const relative = filePath === undefined ? undefined : normalizePath(path.relative(this.options.workspaceRoot, filePath));
+    const rulesFile = relative === ARCHITECTURE_CONFIG_FILE || relative === ARCHITECTURE_BASELINE_FILE;
     if (this.running) {
-      if (relative === undefined || eventType === "create") this.changedDuringBuild.any = true;
+      if (relative === undefined || eventType === "create" || rulesFile) this.changedDuringBuild.any = true;
       else this.changedDuringBuild.files.add(relative);
       return;
     }
-    if (relative !== undefined && eventType !== "create" && !this.graph?.files.has(relative)) return;
+    if (relative !== undefined && eventType !== "create" && !rulesFile && !this.graph?.files.has(relative)) return;
     if (!this.summary || this.summary.stale) return;
     this.summary = { ...this.summary, stale: true };
     this.options.post(this.summary);
@@ -421,11 +490,18 @@ export class ArchitectureViewService {
         post({ type: "architectureState", status: "empty", message: "No source file found in the workspace folder." });
         return;
       }
+      const rules = await checkRules(graph, this.options.workspaceRoot);
+      signal.throwIfAborted();
       const { graph: viewGraph, source, ...overview } = viewArchitecture(graph, this.options.workspaceRoot);
       const files = new Set(viewGraph.nodes.map(node => node.relativePath));
       const { files: changed, any } = this.changedDuringBuild;
-      this.summary = { type: "architectureSummary", stale: any || [...changed].some(file => files.has(file)), ...overview };
-      this.graph = { graph: viewGraph, files, source, folders: new Map() };
+      this.summary = {
+        type: "architectureSummary",
+        stale: any || [...changed].some(file => files.has(file)),
+        ...overview,
+        ...rulesView(rules, viewGraph, source?.assignment.unitOf),
+      };
+      this.graph = { graph: viewGraph, files, source, rules, folders: new Map() };
       // Cleared only once posted: a change seen by an aborted build still applies to the next one.
       this.changedDuringBuild = { files: new Set(), any: false };
       post(this.summary);
@@ -455,6 +531,8 @@ export class ArchitectureViewService {
       unit: this.lastRender?.unit,
       folder: this.lastRender?.folder,
       unitLevel: this.lastRender?.unitLevel,
+      violationEdges: this.lastRender?.violationEdges ?? 0,
+      rules: this.lastRender?.rules ?? [],
       resizeCount: this.resizeCount,
       viewSize: this.viewSize,
       interactionCount: this.interactionCount,
@@ -468,7 +546,7 @@ export class ArchitectureViewService {
 
   /** E2E driver: sets the webview's controls; any extension can call it, so check the values. */
   setControls(controls: Omit<ArchitectureControlsMessage, "type"> | undefined): void {
-    const { unit, folder, find, minImports, focus, expand, collapse, evidenceOf, openEvidenceRow, view, matrixCell, matrixHeader } = controls ?? {};
+    const { unit, folder, find, minImports, focus, expand, collapse, evidenceOf, openEvidenceRow, view, matrixCell, matrixHeader, rule } = controls ?? {};
     const text = (value: unknown) => (typeof value === "string" ? value.slice(0, 256) : undefined);
     const row = text(matrixCell?.row);
     const column = text(matrixCell?.column);
@@ -486,6 +564,7 @@ export class ArchitectureViewService {
       view: view === "graph" || view === "matrix" ? view : undefined,
       matrixCell: row === undefined || column === undefined ? undefined : { row, column },
       matrixHeader: text(matrixHeader),
+      rule: text(rule),
     });
   }
 

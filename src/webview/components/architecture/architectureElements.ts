@@ -1,6 +1,11 @@
 import type { Collection, Core, LayoutOptions, NodeSingular, Position } from "cytoscape";
 import type { ArchitectureUnitEdgeKind } from "../../../analyzer/architecture/architectureUnits";
-import type { ArchitectureGroupDetailMessage, ArchitectureSummaryMessage, ArchitectureUnitLevel } from "../../../shared/architecture-types";
+import type {
+  ArchitectureGroupDetailMessage,
+  ArchitectureRulesView,
+  ArchitectureSummaryMessage,
+  ArchitectureUnitLevel,
+} from "../../../shared/architecture-types";
 import { normalizePath } from "../../utils/path";
 
 export interface ArchitectureElement {
@@ -436,14 +441,15 @@ function cappedKeys(edges: readonly RankedEdge[], nodes: number): Set<string> {
     .map((edge) => edge.key));
 }
 
-/** Unit edges hidden by default (keys `from\0to`). */
-export function cappedUnitEdges(level: ArchitectureUnitLevel): Set<string> {
-  return cappedKeys(level.unitEdges.map((edge) => ({ ...edge, key: `${edge.from}\0${edge.to}` })), level.units.length);
+/** Unit edges hidden by default (keys `from\0to`); an edge breaking a declared rule never is. */
+export function cappedUnitEdges(level: ArchitectureUnitLevel, rules?: ArchitectureRulesView): Set<string> {
+  const capped = cappedKeys(level.unitEdges.map((edge) => ({ ...edge, key: `${edge.from}\0${edge.to}` })), level.units.length);
+  return new Set([...capped].filter((key) => !rules?.unitEdges[key.replace("\0", ">")]));
 }
 
 /** Unit edges the header says are hidden; none once min-imports takes over. */
-export const hiddenUnitEdgeCount = (level: ArchitectureUnitLevel, minImports: number) =>
-  (minImports > 1 ? 0 : cappedUnitEdges(level).size);
+export const hiddenUnitEdgeCount = (level: ArchitectureUnitLevel, minImports: number, rules?: ArchitectureRulesView) =>
+  (minImports > 1 ? 0 : cappedUnitEdges(level, rules).size);
 
 /** Largest file-pair count of a level's edges, the bound of the min-imports control. */
 export const maxEdgeImports = (summary: ArchitectureSummaryMessage) =>
@@ -503,8 +509,21 @@ export function toLevelElements(
 ): ArchitectureElement[] {
   const level = summary.units;
   const elements = toArchitectureElements(levelSummary(summary, unit), level && unit === null ? NO_EXPANSIONS : expansions);
-  if (!level) return elements;
-  return unit === null ? decorateUnits(elements, level) : decorateUnitGroups(elements, level, unit, folder);
+  if (!level) return decorateViolations(elements, summary.rules, false);
+  const decorated = unit === null ? decorateUnits(elements, level) : decorateUnitGroups(elements, level, unit, folder);
+  return decorateViolations(decorated, summary.rules, unit === null);
+}
+
+/** Edges breaking a declared rule: drawn red and dashed, never capped, their rules in the tooltip. */
+function decorateViolations(elements: ArchitectureElement[], rules: ArchitectureRulesView | undefined, unitsLevel: boolean): ArchitectureElement[] {
+  if (!rules?.totals?.violations) return elements;
+  return elements.map((element) => {
+    if (element.group !== "edges" || element.data.fileEdge) return element;
+    const { data } = element;
+    const names = unitsLevel ? rules.unitEdges[`${data.fromUnit}>${data.toUnit}`] : rules.groupEdges[`${data.from}>${data.to}`];
+    if (!names) return element;
+    return { ...element, data: { ...data, violation: true, capped: false, rules: names, tooltip: `${data.tooltip}\nBreaks: ${names.join(", ")}` } };
+  });
 }
 
 function decorateUnits(elements: ArchitectureElement[], level: ArchitectureUnitLevel): ArchitectureElement[] {

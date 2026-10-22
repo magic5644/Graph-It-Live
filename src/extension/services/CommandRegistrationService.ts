@@ -229,6 +229,8 @@ export class CommandRegistrationService {
       ['graph-it-live.architectureUnit', () => architecture()?.unit],
       ['graph-it-live.architectureFolder', () => architecture()?.folder],
       ['graph-it-live.architectureUnitLevel', () => architecture()?.unitLevel],
+      ['graph-it-live.architectureViolationEdges', () => architecture()?.violationEdges ?? 0],
+      ['graph-it-live.architectureRulesPanel', () => architecture()?.rules ?? []],
       ['graph-it-live.architectureResizeCount', () => architecture()?.resizeCount ?? 0],
       ['graph-it-live.architectureViewSize', () => architecture()?.viewSize],
       ['graph-it-live.architectureInteractionCount', () => architecture()?.interactionCount ?? 0],

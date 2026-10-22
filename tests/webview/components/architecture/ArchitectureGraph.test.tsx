@@ -57,7 +57,9 @@ const cy = vi.hoisted(() => {
     return asCollection(node);
   }
   function fakeEdge(data: Data) {
-    return asCollection({ data: (key: string) => data[key], id: () => String(data.id), isNode: () => false, isEdge: () => true });
+    return asCollection({
+      data: (key: string) => data[key], id: () => String(data.id), isNode: () => false, isEdge: () => true, style: () => "element",
+    });
   }
   /** A Cytoscape element is also a collection of itself. */
   function asCollection<T extends object>(element: T) {
@@ -274,7 +276,7 @@ describe("ArchitectureGraph", () => {
     render(<ArchitectureGraph postMessage={postMessage} />);
     send({ ...summary, stale: true, hiddenGroups: 0, context: { ...summary.context, truncated: false, failedFiles: 0 } });
 
-    expect(screen.getByText(/Files changed since this view was built/)).toBeTruthy();
+    expect(screen.getByText(/Files or architecture rules changed since this view was built/)).toBeTruthy();
     expect(screen.queryByText(/groups shown/)).toBeNull();
     fireEvent.click(screen.getByRole("button", { name: "Refresh" }));
     expect(postMessage).toHaveBeenLastCalledWith({ command: "architectureRefresh" });
@@ -1278,5 +1280,73 @@ describe("shortPath", () => {
     expect(shortPath("graphql-project/q.ts", "(root)")).toBe("graphql-project/q.ts");
     expect(shortPath("packages/core/x.ts", "packages/ui")).toBe("packages/core/x.ts");
     expect(shortPath("packages/ui/src/x.ts", "packages/ui", "packages/ui/forms")).toBe("packages/ui/src/x.ts");
+  });
+});
+
+describe("ArchitectureGraph: declared architecture rules", () => {
+  afterEach(cleanup);
+
+  const rule = {
+    name: "ui-not-store", kind: "forbid" as const, severity: "error" as const, reason: "UI reads through the API.",
+    violations: 3, newViolations: 1, elementPairs: [{ from: "ui", to: "store", count: 3 }],
+  };
+  const withRules: ArchitectureSummaryMessage = {
+    ...summary,
+    rules: {
+      configFile: "graphit.architecture.json",
+      totals: { files: 10, unmatchedFiles: 2, rules: 2, brokenRules: 1, violations: 3, newViolations: 1, errors: 3, newErrors: 1, warnings: 0, resolved: 0 },
+      rules: [rule, { ...rule, name: "quiet", violations: 0, newViolations: 0, elementPairs: [] }],
+      configWarnings: ['$.elements.ghost.path: "nowhere/" matches no file'],
+      unitEdges: {},
+      groupEdges: { "1>2": ["ui-not-store"] },
+    },
+  };
+
+  it("states the violations, draws violating edges red with their rules, and lists a rule's pairs on click", () => {
+    const postMessage = vi.fn();
+    render(<ArchitectureGraph postMessage={postMessage} />);
+    send(withRules);
+
+    expect(screen.getByText(/3 violations of 1 rule \(1 new\)/)).toBeTruthy();
+    expect(screen.getByText(/2 files in no element/)).toBeTruthy();
+    expect(screen.getByText(/matches no file/)).toBeTruthy();
+    const edge = cy.state.edges.find((candidate) => candidate.id() === "edge-1-2")!;
+    expect(edge.data("violation")).toBe(true);
+    expect(edge.data("tooltip")).toContain("Breaks: ui-not-store");
+    expect(lastOf(postMessage, "architectureRendered")).toEqual(expect.objectContaining({
+      violationEdges: 1, rules: ["ui-not-store=3", "quiet=0"],
+    }));
+    expect((screen.getByRole("button", { name: "quiet" }) as HTMLButtonElement).disabled).toBe(true);
+
+    fireEvent.click(screen.getByRole("button", { name: "ui-not-store" }));
+    expect(postMessage).toHaveBeenCalledWith({ command: "architectureRuleEvidence", revision: "r1", rule: "ui-not-store", offset: 0 });
+    // An edge's page does not fill a rule's panel.
+    send({ type: "architectureEvidencePage", revision: "r1", from: 1, to: 2, pairs: [{ source: "x.ts", target: "y.ts" }], page: { total: 1, offset: 0, returned: 1, truncated: false } });
+    send({
+      type: "architectureEvidencePage", revision: "r1", rule: "ui-not-store", from: "", to: "",
+      pairs: [{ source: "ui/a.ts", target: "store/b.ts" }], page: { total: 3, offset: 0, returned: 1, truncated: true, nextOffset: 1 },
+    });
+    expect(screen.getByText(/Rule "ui-not-store" \(error\): 3 violating file pairs: UI reads through the API\./)).toBeTruthy();
+    expect(evidenceRows()).toEqual(["store/b.ts", "← ui/a.ts"]);
+    fireEvent.click(screen.getByRole("button", { name: "Load more" }));
+    expect(postMessage).toHaveBeenLastCalledWith({ command: "architectureRuleEvidence", revision: "r1", rule: "ui-not-store", offset: 1 });
+  });
+
+  it("clicks a rule from the E2E controls, and starts over when a rebuild changes the rules", () => {
+    const postMessage = vi.fn();
+    render(<ArchitectureGraph postMessage={postMessage} />);
+    send(withRules);
+    send({ type: "architectureControls", rule: "ui-not-store" });
+    expect(postMessage).toHaveBeenCalledWith(expect.objectContaining({ command: "architectureRuleEvidence", rule: "ui-not-store" }));
+
+    send({ ...withRules, rules: { ...withRules.rules!, groupEdges: {} } });
+    expect(screen.queryByRole("region", { name: "Evidence" })).toBeNull();
+    expect(cy.state.edges.find((candidate) => candidate.id() === "edge-1-2")!.data("violation")).toBeUndefined();
+  });
+
+  it("says why a refused config was not checked", () => {
+    render(<ArchitectureGraph postMessage={vi.fn()} />);
+    send({ ...summary, rules: { configFile: "graphit.architecture.json", error: "graphit.architecture.json: $.rules[0].from: unknown element \"x\"", rules: [], configWarnings: [], unitEdges: {}, groupEdges: {} } });
+    expect(screen.getByText(/Architecture rules not checked: .*unknown element "x"/)).toBeTruthy();
   });
 });
