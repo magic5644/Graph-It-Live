@@ -4,6 +4,7 @@ import {
   executeAnalyzeBreakingChanges,
   executeAnalyzeDependencies,
   executeCrawlDependencyGraph,
+  executeCheckArchitecture,
   executeExploreArchitecture,
   executeFindReferencingFiles,
   executeFindUnusedSymbols,
@@ -27,6 +28,7 @@ import type {
   AnalyzeBreakingChangesParams,
   AnalyzeDependenciesParams,
   CrawlDependencyGraphParams,
+  CheckArchitectureParams,
   ExploreArchitectureParams,
   FindReferencingFilesParams,
   FindUnusedSymbolsParams,
@@ -118,6 +120,8 @@ const toolHandlers: Partial<Record<McpToolName, ToolHandler>> = {
     executeGenerateWiki(validateGenerateWikiParams(params as GenerateWikiParams, config)),
   explore_architecture: (params, _config, _postMessage, signal) =>
     executeExploreArchitecture(params as ExploreArchitectureParams, signal),
+  check_architecture: (params, _config, _postMessage, signal) =>
+    executeCheckArchitecture(params as CheckArchitectureParams, signal),
 };
 
 async function executeValidatedTool(

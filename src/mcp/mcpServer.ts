@@ -124,6 +124,7 @@ import {
   type FindUnusedSymbolsResult,
   GetImpactAnalysisParamsSchema,
   type GetImpactAnalysisResult,
+  CheckArchitectureParamsSchema,
   ExploreArchitectureParamsSchema,
   GraphContextParamsSchema,
   type GetIndexStatusResult,
@@ -1448,6 +1449,32 @@ server.registerTool(
 
     const response = await invokeToolWithResponse("explore_architecture", params);
     return formatToolResponse(response, responseFormat, "graphitlive_explore_architecture");
+  },
+);
+
+// Tool: graphitlive_check_architecture
+server.registerTool(
+  "graphitlive_check_architecture",
+  {
+    title: "Check Architecture Rules",
+    description: mcpToolDescription("check_architecture"),
+    inputSchema: CheckArchitectureParamsSchema,
+    outputSchema: McpToolResponseSchema,
+    annotations: {
+      readOnlyHint: true,
+      destructiveHint: false,
+      idempotentHint: true,
+      openWorldHint: false,
+    },
+  },
+  async ({ response_format, ...params }) => {
+    const responseFormat = response_format ?? "toon";
+    const workerCheck = await ensureWorkerReady();
+    if (workerCheck.error)
+      return formatToolResponse(workerCheck.response, responseFormat, "graphitlive_check_architecture");
+
+    const response = await invokeToolWithResponse("check_architecture", params);
+    return formatToolResponse(response, responseFormat, "graphitlive_check_architecture");
   },
 );
 

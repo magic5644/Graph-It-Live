@@ -1,0 +1,162 @@
+{
+  "configFile": "graphit.architecture.json",
+  "context": {
+    "communityMode": "path",
+    "revision": "6c19fe4d535dbd77e599e1871f1d333d7434905a4cb23cb0682b561704ee9786",
+    "graphKind": "imports",
+    "scope": "workspace",
+    "exclusions": "node_modules, .git, dist, build, out, coverage, .next, .nuxt, __pycache__, .venv, venv, target, .*/, .gitignore, .graphitignore, tests/fixtures/, out-*/",
+    "truncated": false,
+    "failedFiles": 0,
+    "baseline": false
+  },
+  "passed": false,
+  "totals": {
+    "files": 11,
+    "unmatchedFiles": 1,
+    "rules": 4,
+    "brokenRules": 4,
+    "violations": 6,
+    "newViolations": 6,
+    "errors": 5,
+    "newErrors": 5,
+    "warnings": 1,
+    "resolved": 0
+  },
+  "rules": [
+    {
+      "name": "functions-only-shared",
+      "kind": "allowOnly",
+      "severity": "error",
+      "reason": "Functions are deployed alone; they share code only through libraries.",
+      "violations": 2,
+      "newViolations": 2,
+      "elementPairs": [
+        {
+          "from": "functions (functions/billing)",
+          "to": "backend",
+          "count": 1
+        },
+        {
+          "from": "functions (functions/mail)",
+          "to": "functions (functions/billing)",
+          "count": 1
+        }
+      ]
+    },
+    {
+      "name": "frontend-not-backend",
+      "kind": "forbid",
+      "severity": "error",
+      "violations": 1,
+      "newViolations": 1,
+      "elementPairs": [
+        {
+          "from": "frontend",
+          "to": "backend",
+          "count": 1
+        }
+      ]
+    },
+    {
+      "name": "mfe-isolated",
+      "kind": "forbid",
+      "severity": "warning",
+      "violations": 1,
+      "newViolations": 1,
+      "elementPairs": [
+        {
+          "from": "mfe (mfe/cart)",
+          "to": "mfe (mfe/checkout)",
+          "count": 1
+        }
+      ]
+    },
+    {
+      "name": "no-unit-cycles",
+      "kind": "noCycles",
+      "severity": "error",
+      "violations": 2,
+      "newViolations": 2,
+      "elementPairs": [
+        {
+          "from": "shared/ui",
+          "to": "shared/utils",
+          "count": 1
+        },
+        {
+          "from": "shared/utils",
+          "to": "shared/ui",
+          "count": 1
+        }
+      ]
+    }
+  ],
+  "violations": [
+    {
+      "rule": "frontend-not-backend",
+      "severity": "error",
+      "source": "frontend/src/app.ts",
+      "target": "backend/src/api.ts",
+      "line": 2,
+      "from": "frontend",
+      "to": "backend",
+      "new": true
+    },
+    {
+      "rule": "functions-only-shared",
+      "severity": "error",
+      "source": "functions/billing/index.ts",
+      "target": "backend/src/db.ts",
+      "line": 2,
+      "from": "functions (functions/billing)",
+      "to": "backend",
+      "new": true
+    },
+    {
+      "rule": "functions-only-shared",
+      "severity": "error",
+      "source": "functions/mail/index.ts",
+      "target": "functions/billing/index.ts",
+      "line": 1,
+      "from": "functions (functions/mail)",
+      "to": "functions (functions/billing)",
+      "new": true
+    },
+    {
+      "rule": "mfe-isolated",
+      "severity": "warning",
+      "source": "mfe/cart/src/index.ts",
+      "target": "mfe/checkout/src/index.ts",
+      "line": 2,
+      "from": "mfe (mfe/cart)",
+      "to": "mfe (mfe/checkout)",
+      "new": true
+    },
+    {
+      "rule": "no-unit-cycles",
+      "severity": "error",
+      "source": "shared/ui/src/index.ts",
+      "target": "shared/utils/src/index.ts",
+      "line": 1,
+      "from": "shared/ui",
+      "to": "shared/utils",
+      "new": true
+    },
+    {
+      "rule": "no-unit-cycles",
+      "severity": "error",
+      "source": "shared/utils/src/index.ts",
+      "target": "shared/ui/src/index.ts",
+      "line": 1,
+      "from": "shared/utils",
+      "to": "shared/ui",
+      "new": true
+    }
+  ],
+  "resolved": [],
+  "unmatchedFiles": [
+    "scripts/seed.ts"
+  ],
+  "configWarnings": []
+}

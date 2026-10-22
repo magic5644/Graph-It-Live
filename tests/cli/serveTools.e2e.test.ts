@@ -31,6 +31,11 @@ describe.skipIf(!distExists)("MCP tools over graph-it serve (E2E)", { timeout: 1
       path.join(tmpDir, "src/a.ts"),
       'import { helper } from "./b";\nexport function run() { return helper(); }\n',
     );
+    // check_architecture needs declared rules.
+    fs.writeFileSync(
+      path.join(tmpDir, "graphit.architecture.json"),
+      JSON.stringify({ elements: { src: { path: "src/" } }, rules: [{ name: "no-cycles", noCycles: "units" }] }),
+    );
     // review_pr diffs against a Git ref. Test-only fixture: git comes from PATH.
     const git = (...args: string[]) =>
       execFileSync("git", ["-c", "user.name=e2e", "-c", "user.email=e2e@example.com", ...args], { cwd: tmpDir }); // NOSONAR
@@ -69,6 +74,7 @@ describe.skipIf(!distExists)("MCP tools over graph-it serve (E2E)", { timeout: 1
       graphitlive_scan_dead_code: {},
       graphitlive_graph_context: { question: "what calls helper" },
       graphitlive_explore_architecture: {},
+      graphitlive_check_architecture: {},
       graphitlive_query_natural_language: { question: "what calls helper" },
       graphitlive_generate_wiki: { outputDir: "wiki" },
       graphitlive_get_session_stats: {},

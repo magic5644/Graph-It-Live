@@ -19,6 +19,7 @@ export {
     executeFindReferencingFiles
 } from "./graph";
 export {
+    executeCheckArchitecture,
     executeExploreArchitecture
 } from "./architecture";
 export {

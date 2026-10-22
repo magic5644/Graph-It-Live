@@ -117,7 +117,8 @@ export type McpToolName =
   | "scan_dead_code" // NEW: Workspace-wide dead code scan
   | "query_natural_language" // Natural language query over the call graph
   | "generate_wiki" // Generate markdown wiki from call graph
-  | "explore_architecture"; // Grouped architecture summary, group boundary, edge evidence
+  | "explore_architecture" // Grouped architecture summary, group boundary, edge evidence
+  | "check_architecture"; // Declared architecture rules checked against the imports
 
 // ============================================================================
 // Zod Schemas for Tool Parameters
@@ -752,6 +753,30 @@ export const ExploreArchitectureParamsSchema = z.object({
 });
 export type ExploreArchitectureParams = z.infer<typeof ExploreArchitectureParamsSchema>;
 
+const RulesFileSchema = z
+  .string()
+  .min(1)
+  .max(1024)
+  .refine((value) => !nodePath.isAbsolute(value) && !nodePath.win32.isAbsolute(value), "Must be relative to the workspace");
+
+export const CheckArchitectureParamsSchema = z.object({
+  config: RulesFileSchema.optional().describe("Rules file, relative to the workspace (default: graphit.architecture.json)"),
+  baseline: RulesFileSchema.optional()
+    .describe("Accepted violations, relative to the workspace (default: graphit.architecture.baseline.json when it exists)"),
+  rule: z.string().min(1).max(128).optional().describe("Return only the violations of this rule"),
+  limit: z.number().int().min(1).max(500).optional()
+    .describe("Violations per page; also caps unmatchedFiles and resolved (default: 50)"),
+  offset: GraphToolOffsetSchema,
+  revision: z
+    .string()
+    .regex(/^[0-9a-f]{64}$/)
+    .optional()
+    .describe("context.revision of the response the offset comes from; the call fails if the code, rules or baseline changed since"),
+  response_format: z.enum(["json", "markdown", "toon"]).optional()
+    .describe("Output format: 'json', 'markdown', or 'toon' (default: toon)"),
+}).strict();
+export type CheckArchitectureParams = z.infer<typeof CheckArchitectureParamsSchema>;
+
 // NEW: Schema for scan_dead_code (workspace-wide dead code scan)
 export const ScanDeadCodeParamsSchema = z.object({
   scopePath: FilePathSchema.optional().describe(
@@ -799,6 +824,7 @@ export const toolSchemas: Record<McpToolName, z.ZodType<unknown>> = {
   query_call_graph: QueryCallGraphParamsSchema,
   scan_dead_code: ScanDeadCodeParamsSchema,
   explore_architecture: ExploreArchitectureParamsSchema,
+  check_architecture: CheckArchitectureParamsSchema,
   query_natural_language: QueryNaturalLanguageParamsSchema,
   generate_wiki: GenerateWikiParamsSchema,
 };

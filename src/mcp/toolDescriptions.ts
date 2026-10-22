@@ -354,6 +354,16 @@ const TOOL_DESCRIPTIONS: Record<DescribedToolName, ToolDescription> = {
       "LIMITS: import relations only (static analysis, not observed execution); every list (groups, group edges, files, incoming, outgoing, pairs, matrix cells) paginated by offset/limit (default 50) with totals, truncated and nextOffset; analyses every source file on each call, so pass the previous context.revision with a group id or offset: the call fails if the architecture changed, and you restart from the summary. Symbols and lines come from graphitlive_find_referencing_files, graphitlive_query_call_graph and graphitlive_get_impact_analysis.",
     ],
   },
+  check_architecture: {
+    summary:
+      "Checks the workspace imports against the architecture rules declared in graphit.architecture.json.",
+    lines: [
+      `WHEN: "does this change break the architecture", "may the frontend import the backend", before adding an import across packages, or to list the violations a CI gate reports.`,
+      "WHY: rules are human annotation (elements selected by path patterns or units; forbid, allowOnly, noCycles); the check compares every static import pair with them, as graph-it check-architecture does, and a baseline separates accepted violations from new ones.",
+      "RETURNS: passed (false when an error-severity violation is new), totals per severity, each rule with its violation count and element pairs, the violating file pairs (source, target, import line, element pairs, new) sorted by rule, files no element selects, baseline entries no longer found (resolved), and config warnings (patterns matching nothing). Invalid configs fail with the JSON path of each error.",
+      "LIMITS: import relations only (static analysis), no rule on symbols or calls; violations paginated by offset/limit (default 50) with totals; analyses every source file on each call, so pass the previous context.revision with an offset: the call fails if the code, rules or baseline changed. Pair it with graphitlive_explore_architecture to see the units and edges the rules refer to.",
+    ],
+  },
   get_session_stats: {
     summary:
       "Reports how large this session's TOON responses were against their JSON equivalent, plus real token usage.",
