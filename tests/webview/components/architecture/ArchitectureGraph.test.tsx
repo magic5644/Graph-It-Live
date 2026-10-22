@@ -106,6 +106,7 @@ vi.mock("cytoscape-fcose", () => ({ default: () => {} }));
 const helpers = vi.hoisted(() => ({
   empty: { empty: () => true, nonempty: () => false, length: 0, map: () => [] },
   applyMinImports: vi.fn(() => 1),
+  applyRoleFilter: vi.fn(() => 2),
   findGroups: vi.fn(),
   highlightFocus: vi.fn(),
   measureInteraction: () => ({ highlightedGroups: 2, fadedGroups: 1, labelledEdges: 1, shownGroupEdges: 1 }),
@@ -754,8 +755,14 @@ describe("ArchitectureGraph", () => {
       unassigned: { fileCount: 0, internalEdgeCount: 0 },
       units: {
         units: [
-          { key: "apps/web", name: "@ws/web", fileCount: 5, internalEdgeCount: 1, layer: 1 },
-          { key: "packages/core", name: "@ws/core", fileCount: 4, internalEdgeCount: 0, layer: 1 },
+          {
+            key: "apps/web", name: "@ws/web", fileCount: 5, internalEdgeCount: 1, layer: 1,
+            role: "frontend", confidence: "inferred", evidence: [{ role: "frontend", detail: "`react` in dependencies" }],
+          },
+          {
+            key: "packages/core", name: "@ws/core", fileCount: 4, internalEdgeCount: 0, layer: 1,
+            role: "library", confidence: "declared", evidence: [{ role: "library", detail: 'declared by roles["@ws/core"] in graphit.architecture.json' }],
+          },
         ],
         unitEdges: [
           { from: "apps/web", to: "packages/core", fileEdgeCount: 3, kind: "cycle" },
@@ -763,6 +770,7 @@ describe("ArchitectureGraph", () => {
         ],
         upwardEdges: 0,
         cycles: 1,
+        roleCounts: { frontend: 1, library: 1 },
         totals: { files: 9, fileEdges: 5, intraUnitEdges: 1, interUnitEdges: 4 },
         groupUnits: { 1: "apps/web", 2: "packages/core" },
         groupLayers: { 1: 0, 2: 0 },
@@ -810,11 +818,36 @@ describe("ArchitectureGraph", () => {
       expect(screen.getByText(/Units in layers/)).toBeTruthy();
       expect(screen.getByText(/2 units/)).toBeTruthy();
       expect(screen.getByText(/0 upward dependencies, 1 cycle/)).toBeTruthy();
-      expect(screen.getByRole("list", { name: "Units" }).textContent).toBe("@ws/web@ws/core");
+      expect(screen.getByRole("list", { name: "Units" }).textContent).toBe("@ws/web [frontend?]@ws/core [library]");
       expect(cy.state.nodes.map(node => node.data("key"))).toEqual(["units:apps/web", "units:packages/core"]);
       expect(lastOf(postMessage, "architectureRendered")).toEqual(expect.objectContaining({
         renderedGroups: 2, renderedGroupEdges: 2, unit: undefined, unitLevel: expect.objectContaining({ redEdges: 1 }),
       }));
+    });
+
+    it("lists the units per role, filters them on a legend click, and reports the legend", async () => {
+      const postMessage = await setup(unseen());
+      const legend = screen.getByRole("list", { name: "Unit roles" });
+      expect(legend.textContent).toBe("1 frontend1 library");
+      expect(screen.getByText(/\[role\?\] inferred from manifests and files/)).toBeTruthy();
+      expect(lastOf(postMessage, "architectureRendered")).toEqual(expect.objectContaining({ roles: ["frontend=1", "library=1"] }));
+      expect(helpers.applyRoleFilter).toHaveBeenLastCalledWith(cy.instance, null);
+
+      fireEvent.click(screen.getByRole("button", { name: "1 library" }));
+      expect(helpers.applyRoleFilter).toHaveBeenLastCalledWith(cy.instance, "library");
+      expect(screen.getByRole("button", { name: "1 library" }).getAttribute("aria-pressed")).toBe("true");
+      expect(lastOf(postMessage, "architectureRendered")).toEqual(expect.objectContaining({ roles: ["frontend=1", "library=1*"] }));
+
+      // The E2E driver clicks the same button: a second click shows every unit again.
+      send({ type: "architectureControls", role: "library" });
+      expect(helpers.applyRoleFilter).toHaveBeenLastCalledWith(cy.instance, null);
+      expect(lastOf(postMessage, "architectureRendered")).toEqual(expect.objectContaining({ roles: ["frontend=1", "library=1"] }));
+
+      // A new revision draws every unit.
+      send({ type: "architectureControls", role: "frontend" });
+      send({ ...withUnits, revision: "r2" });
+      await settle();
+      expect(screen.getByRole("button", { name: "1 frontend" }).getAttribute("aria-pressed")).toBe("false");
     });
 
     it("states the hidden weaker edges", () => {

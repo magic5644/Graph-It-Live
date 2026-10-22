@@ -17,10 +17,15 @@ interface ArchitectureRender {
   unit?: string;
   /** Entered folder within the unit; undefined at its top level. */
   folder?: string;
-  unitLevel?: { units: number; colors: number; redEdges: number; edgesNotDown: number; routedEdges: number; hiddenEdges: number; minLabelPx: number };
+  unitLevel?: {
+    units: number; colors: number; redEdges: number; edgesNotDown: number; routedEdges: number; hiddenEdges: number; minLabelPx: number;
+    roleBadges: number; roleTooltips: number; shownUnits: number;
+  };
   /** Drawn edges breaking a declared rule, and the Rules panel as `name=count`. */
   violationEdges: number;
   rulesPanel: string[];
+  /** The role legend: `role=count`, `*` after the filtered role. */
+  roles: string[];
 }
 
 // Expected numbers from the E2E workspace (tests/fixtures), recorded with:
@@ -59,7 +64,17 @@ const EXPECTED = {
     violationEdges: 3,
     title: 'Rule "web-not-ui" (error): 2 violating file pairs: The web app reaches the UI kit through core.',
   },
+  // roleCounts of: node dist/graph-it.js architecture --level units --format json -w tests/fixtures
+  // (with ROLES_CONFIG written at the workspace root for `declared`).
+  roles: {
+    legend: ['function=1', 'library=4', 'tooling=2', 'unknown=4'],
+    libraries: 4,
+    declared: ['function=1', 'frontend=1', 'library=4', 'tooling=2', 'unknown=3'],
+  },
 } as const;
+
+/** Declares a role only: no element, no rule. */
+const ROLES_CONFIG = { roles: { '@ws/web': 'frontend' } };
 
 const RULES_CONFIG = {
   elements: { web: { unit: '@ws/web' }, ui: { unit: '@ws/ui' } },
@@ -134,6 +149,7 @@ async function readRender(): Promise<ArchitectureRender> {
     unitLevel: (await read('UnitLevel')) as ArchitectureRender['unitLevel'],
     violationEdges: (await read('ViolationEdges')) as number,
     rulesPanel: (await read('RulesPanel')) as string[],
+    roles: (await read('Roles')) as string[],
   };
 }
 
@@ -298,7 +314,10 @@ suite('Architecture view mode', () => {
       routedEdges: EXPECTED.units.groupEdges,
       hiddenEdges: 0,
       minLabelPx: byFolder.unitLevel?.minLabelPx,
-    }, 'one colour per unit, red cycle edges, every other edge drawn downwards, none hidden');
+      roleBadges: EXPECTED.units.groups,
+      roleTooltips: EXPECTED.units.groups,
+      shownUnits: EXPECTED.units.groups,
+    }, 'one colour and role badge per unit, red cycle edges, every other edge drawn downwards, none hidden');
     assert.ok((byFolder.unitLevel?.minLabelPx ?? 0) >= 8, `labels readable after the fit: ${byFolder.unitLevel?.minLabelPx}px`);
     assert.strictEqual(byFolder.stale, false);
     assert.match(byFolder.revision ?? '', /^[0-9a-f]{64}$/);
@@ -561,6 +580,40 @@ suite('Architecture view mode', () => {
     await vscode.commands.executeCommand('graph-it-live.refreshGraph');
     const restored = await waitForRender('the render without rules', staleCount, render => !render.stale && render.rulesPanel.length === 0);
     assert.strictEqual(restored.violationEdges, 0, 'deleting the config removes the red edges');
+  });
+
+  test('shows the unit roles of graph-it architecture --level units: legend counts, badges, evidence tooltips, role filter, declared role', async function () {
+    this.timeout(240000);
+    const built = await openFreshArchitecture();
+    assert.deepStrictEqual(built.roles, EXPECTED.roles.legend, 'legend counts equal the CLI roleCounts');
+    assert.strictEqual(built.unitLevel?.roleBadges, EXPECTED.units.groups, 'every unit drawn with its role badge');
+    assert.strictEqual(built.unitLevel?.roleTooltips, EXPECTED.units.groups, 'every unit tooltip lists its role and evidence');
+
+    // A real click on the legend's button: only the libraries stay drawn; a second click shows every unit.
+    await vscode.commands.executeCommand('graph-it-live.e2eArchitectureControls', { role: 'library' });
+    const filtered = await waitForRender('the library filter', built.renderCount, render => render.roles.includes('library=4*'));
+    assert.strictEqual(filtered.unitLevel?.shownUnits, EXPECTED.roles.libraries, 'the filter keeps the libraries only');
+    await vscode.commands.executeCommand('graph-it-live.e2eArchitectureControls', { role: 'library' });
+    const all = await waitForRender('every unit again', filtered.renderCount, render => !render.roles.some(role => role.endsWith('*')));
+    assert.strictEqual(all.unitLevel?.shownUnits, EXPECTED.units.groups, 'a second click shows every unit');
+
+    const root = vscode.workspace.workspaceFolders![0].uri;
+    const configFile = vscode.Uri.joinPath(root, 'graphit.architecture.json');
+    try {
+      await vscode.workspace.fs.writeFile(configFile, Buffer.from(JSON.stringify(ROLES_CONFIG, null, 2)));
+      const stale = await waitForRender('the stale banner after declaring a role', all.renderCount, render => render.stale);
+      await vscode.commands.executeCommand('graph-it-live.refreshGraph');
+      const declared = await waitForRender('the render with the declared role', stale.renderCount,
+        render => !render.stale && render.roles.includes('frontend=1'));
+      assert.deepStrictEqual(declared.roles, EXPECTED.roles.declared, 'a declared role overrides the inferred one, as the CLI reports');
+      assert.notStrictEqual(declared.revision, built.revision, 'roles are part of the revision');
+    } finally {
+      await vscode.workspace.fs.delete(configFile);
+    }
+    await sleep(1500); // let the delete mark the view stale before Refresh
+    const staleCount = (await readRender()).renderCount;
+    await vscode.commands.executeCommand('graph-it-live.refreshGraph');
+    await waitForRender('the inferred roles again', staleCount, render => !render.stale && render.roles.join() === EXPECTED.roles.legend.join());
   });
 
   test('the Graph, List and Symbol buttons leave the architecture view', async function () {

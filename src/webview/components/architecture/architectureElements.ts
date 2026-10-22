@@ -1,5 +1,5 @@
 import type { Collection, Core, LayoutOptions, NodeSingular, Position } from "cytoscape";
-import type { ArchitectureUnitEdgeKind } from "../../../analyzer/architecture/architectureUnits";
+import type { ArchitectureUnit, ArchitectureUnitEdgeKind } from "../../../analyzer/architecture/architectureUnits";
 import type {
   ArchitectureGroupDetailMessage,
   ArchitectureRulesView,
@@ -184,6 +184,8 @@ const edgeWidth = (count: number) => Math.round((1 + Math.log2(count)) * 10) / 1
 
 type SummaryGroup = ArchitectureSummaryMessage["groups"][number];
 
+const groupSize = (fileCount: number) => Math.round(32 + 14 * Math.log2(1 + fileCount));
+
 function groupNode(summary: ArchitectureSummaryMessage, group: SummaryGroup, expanded: boolean): ArchitectureElement {
   const lines = [group.label, plural(group.fileCount, "file")];
   return {
@@ -195,7 +197,7 @@ function groupNode(summary: ArchitectureSummaryMessage, group: SummaryGroup, exp
       key: `${summary.context.communityMode}:${group.key}`,
       groupKey: group.key,
       label: expanded ? lines.join(" · ") : lines.join("\n"),
-      ...nodeBox(lines, Math.round(32 + 14 * Math.log2(1 + group.fileCount))),
+      ...nodeBox(lines, groupSize(group.fileCount)),
       unassigned: group.id === 0,
       expanded,
       search: `${group.label}\n${group.key}`.toLowerCase(),
@@ -526,6 +528,32 @@ function decorateViolations(elements: ArchitectureElement[], rules: Architecture
   });
 }
 
+/** A unit's role badge: `[role]` when declared, `[role?]` when inferred. */
+export const roleBadge = (unit: Pick<ArchitectureUnit, "role" | "confidence">) => `[${unit.role}${unit.confidence === "inferred" ? "?" : ""}]`;
+
+/** The badge on top of the unit's label, and its role with every piece of evidence in the tooltip. */
+function roleData(data: ArchitectureElement["data"], unit: ArchitectureUnit): ArchitectureElement["data"] {
+  const lines = [roleBadge(unit), unit.name, plural(unit.fileCount, "file")];
+  const evidence = unit.evidence.map((entry) => `\n- ${entry.role === unit.role ? "" : entry.role + ": "}${entry.detail}`).join("");
+  return {
+    role: unit.role,
+    label: lines.join("\n"),
+    ...nodeBox(lines, groupSize(unit.fileCount)),
+    tooltip: `${data.tooltip}\nRole: ${unit.role} (${unit.confidence})${evidence || "\n- no evidence"}`,
+  };
+}
+
+/** Hides (class `filtered`) the units of other roles and their edges; null shows them all. Returns the units left. */
+export function applyRoleFilter(cy: Core, role: string | null): number {
+  cy.batch(() => {
+    cy.elements().removeClass("filtered");
+    if (role === null) return;
+    const out = cy.nodes().filter((node) => node.data("role") !== undefined && node.data("role") !== role);
+    out.union(out.connectedEdges()).addClass("filtered");
+  });
+  return cy.nodes().filter((node) => node.data("role") !== undefined && !node.hasClass("filtered")).length;
+}
+
 function decorateUnits(elements: ArchitectureElement[], level: ArchitectureUnitLevel): ArchitectureElement[] {
   const idOf = new Map(level.units.map((entry, index) => [entry.key, index + 1]));
   const edgeOf = new Map(level.unitEdges.map((edge) => [`edge-${idOf.get(edge.from)}-${idOf.get(edge.to)}`, edge]));
@@ -535,7 +563,10 @@ function decorateUnits(elements: ArchitectureElement[], level: ArchitectureUnitL
       const index = Number(element.data.groupId) - 1;
       const entry = level.units[index];
       if (!entry) return element;
-      return { ...element, data: { ...element.data, key: `units:${entry.key}`, unitKey: entry.key, layer: entry.layer, color: unitColor(index) } };
+      return {
+        ...element,
+        data: { ...element.data, key: `units:${entry.key}`, unitKey: entry.key, layer: entry.layer, color: unitColor(index), ...roleData(element.data, entry) },
+      };
     }
     const edge = edgeOf.get(String(element.data.id));
     if (!edge) return element;
@@ -613,5 +644,8 @@ export function measureUnitLevel(cy: Core) {
     routedEdges: drawn.filter((edge) => edge.data("routed") === true).length,
     hiddenEdges: cy.edges(".weak").length,
     minLabelPx: Math.round(ARCHITECTURE_FONT_SIZE * cy.zoom() * 100) / 100,
+    roleBadges: cy.nodes().filter((node) => String(node.data("label")).startsWith(`[${node.data("role")}`)).length,
+    roleTooltips: cy.nodes().filter((node) => String(node.data("tooltip")).includes(`\nRole: ${node.data("role")} (`)).length,
+    shownUnits: cy.nodes().not(".filtered").length,
   };
 }
