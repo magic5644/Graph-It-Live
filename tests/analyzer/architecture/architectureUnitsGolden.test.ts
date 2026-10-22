@@ -4,12 +4,11 @@ import { Parser } from "../../../src/analyzer/Parser";
 import { SpiderBuilder } from "../../../src/analyzer/SpiderBuilder";
 import { PathResolver } from "../../../src/analyzer/utils/PathResolver";
 import { run as runArchitectureCli } from "../../../src/cli/commands/architecture";
-import { ArchitectureViewService } from "../../../src/extension/services/ArchitectureViewService";
 import { workerState } from "../../../src/mcp/shared/state";
 import { executeExploreArchitecture } from "../../../src/mcp/tools/architecture";
-import type { IndexerStatusSnapshot } from "../../../src/analyzer/IndexerStatus";
 import type { ArchitectureExtensionMessage, ArchitectureSummaryMessage } from "../../../src/shared/architecture-types";
 import { normalizePath } from "../../../src/shared/path";
+import { buildView } from "./viewHarness";
 
 // Golden output of `graph-it architecture --level units` on an npm-workspaces fixture: the CLI,
 // explore_architecture and the extension's view must report the same units, layers and edges.
@@ -22,24 +21,7 @@ const stable = (value: unknown) =>
   ) + "\n";
 
 async function viewSummary(posted: ArchitectureExtensionMessage[] = []): Promise<ArchitectureSummaryMessage> {
-  return (await buildView(posted)).summary;
-}
-
-async function buildView(posted: ArchitectureExtensionMessage[]) {
-  const service = new ArchitectureViewService({
-    workspaceRoot: rootDir,
-    analyzeFile: (filePath) => workerState.getSpider().analyze(filePath),
-    readCommunityMode: () => "path",
-    subscribeToIndexStatus: (callback) => {
-      callback({ state: "idle" } as IndexerStatusSnapshot);
-      return () => {};
-    },
-    post: (message) => posted.push(message),
-    openFile: async () => {},
-    warn: () => {},
-  });
-  await service.build();
-  return { service, summary: posted.find((message): message is ArchitectureSummaryMessage => message.type === "architectureSummary")! };
+  return (await buildView(rootDir, posted)).summary;
 }
 
 describe("architecture units golden output: workspaces-project", () => {
@@ -84,7 +66,7 @@ describe("architecture units golden output: workspaces-project", () => {
   it("lists the same file pairs behind every unit edge in the CLI, explore_architecture and the view", async () => {
     const runtime = { workspaceRoot: rootDir, ensureIndexed: async () => undefined, loadState: () => null };
     const posted: ArchitectureExtensionMessage[] = [];
-    const { service, summary } = await buildView(posted);
+    const { service, summary } = await buildView(rootDir, posted);
     const packages = summary.units!.units.map((unit) => unit.key).filter((key) => key !== "(root)");
     // A file is in a package unit below its folder, else in (root).
     const inUnit = (file: string, unit: string) =>

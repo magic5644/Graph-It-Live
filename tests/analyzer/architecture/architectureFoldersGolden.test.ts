@@ -6,15 +6,13 @@ import { Parser } from "../../../src/analyzer/Parser";
 import { SpiderBuilder } from "../../../src/analyzer/SpiderBuilder";
 import { PathResolver } from "../../../src/analyzer/utils/PathResolver";
 import { run as runArchitectureCli } from "../../../src/cli/commands/architecture";
-import { ArchitectureViewService } from "../../../src/extension/services/ArchitectureViewService";
 import { workerState } from "../../../src/mcp/shared/state";
 import { executeExploreArchitecture } from "../../../src/mcp/tools/architecture";
-import type { IndexerStatusSnapshot } from "../../../src/analyzer/IndexerStatus";
 import type {
   ArchitectureExtensionMessage,
   ArchitectureFolderLevelMessage,
-  ArchitectureSummaryMessage,
 } from "../../../src/shared/architecture-types";
+import { buildView } from "./viewHarness";
 
 // Golden output of `graph-it architecture --folder` on a workspace nested three folders deep below
 // its unit: the CLI, explore_architecture and the extension's view must report the same levels.
@@ -48,20 +46,7 @@ function byKey({ groups, groupEdges, nestedGroups }: { groups: Group[]; groupEdg
 
 async function viewLevels(): Promise<Map<string, ArchitectureFolderLevelMessage>> {
   const posted: ArchitectureExtensionMessage[] = [];
-  const service = new ArchitectureViewService({
-    workspaceRoot: rootDir,
-    analyzeFile: (filePath) => workerState.getSpider().analyze(filePath),
-    readCommunityMode: () => "path",
-    subscribeToIndexStatus: (callback) => {
-      callback({ state: "idle" } as IndexerStatusSnapshot);
-      return () => {};
-    },
-    post: (message) => posted.push(message),
-    openFile: async () => {},
-    warn: () => {},
-  });
-  await service.build();
-  const summary = posted.find((message): message is ArchitectureSummaryMessage => message.type === "architectureSummary")!;
+  const { service, summary } = await buildView(rootDir, posted);
   for (const folder of folders) await service.handleWebviewMessage({ command: "architectureEnterFolder", revision: summary.revision, folder });
   const levels = posted.filter((message): message is ArchitectureFolderLevelMessage => message.type === "architectureFolderLevel");
   return new Map(levels.map((message) => [message.folder, message]));
