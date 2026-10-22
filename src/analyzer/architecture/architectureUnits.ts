@@ -13,6 +13,7 @@ import { domainIndex } from "../community/PathCommunityDetector";
 import { normalizePath } from "../../shared/path";
 import type { ArchitectureGraph } from "./ArchitectureGraphBuilder";
 import { layerGraph } from "./stronglyConnectedComponents";
+import { UNIT_ROLES, unitRole, type DeclaredRoles, type UnitRole, type UnitRoleInfo } from "./unitRoles";
 
 /** Unit of the files outside every package (or at the root of a workspace without packages). */
 export const ROOT_UNIT = "(root)";
@@ -27,6 +28,9 @@ export interface ArchitectureUnit {
   internalEdgeCount: number;
   /** 0 = depends on no other unit; units in one cycle share a layer. */
   layer: number;
+  role: UnitRole;
+  confidence: UnitRoleInfo["confidence"];
+  evidence: UnitRoleInfo["evidence"];
 }
 
 /** `upward`: to a unit at the same or a higher layer; `cycle`: both units in one cycle. */
@@ -100,17 +104,15 @@ export const byCodeUnit = (left: string, right: string) => (left < right ? -1 : 
 
 /**
  * Units, layers and unit → unit edges of an architecture graph, aggregated from every file
- * pair before any paging. `context.revision` also covers the units and their names.
+ * pair before any paging, with the role of every unit (`roles` of graphit.architecture.json
+ * win). `context.revision` also covers the units, their names and roles.
  */
-export function buildArchitectureUnits(graph: ArchitectureGraph, workspaceRoot: string, assignment?: UnitAssignment) {
+export function buildArchitectureUnits(graph: ArchitectureGraph, workspaceRoot: string, assignment?: UnitAssignment, declaredRoles?: DeclaredRoles) {
   const { unitOf, names } = assignment ?? assignUnits(workspaceRoot, graph.nodes.map((node) => node.relativePath));
   const unitKeys = [...names.keys()].sort(byCodeUnit);
-  const fileCount = new Map<string, number>(unitKeys.map((key) => [key, 0]));
+  const files = new Map<string, string[]>(unitKeys.map((key) => [key, []]));
   const internal = new Map<string, number>(unitKeys.map((key) => [key, 0]));
-  for (const node of graph.nodes) {
-    const unit = unitOf.get(node.relativePath)!;
-    fileCount.set(unit, fileCount.get(unit)! + 1);
-  }
+  for (const node of graph.nodes) files.get(unitOf.get(node.relativePath)!)!.push(node.relativePath);
 
   const pairs = new Map<string, { from: string; to: string; fileEdgeCount: number }>();
   for (const edge of graph.edges) {
@@ -131,13 +133,15 @@ export function buildArchitectureUnits(graph: ArchitectureGraph, workspaceRoot: 
   for (const targets of successors.values()) targets.sort(byCodeUnit);
   const { components, componentOf, layerOf } = layerGraph(unitKeys, successors);
 
+  const importers = (key: string) => [...pairs.values()].filter((pair) => pair.to === key).map((pair) => names.get(pair.from)!).sort(byCodeUnit);
   const units: ArchitectureUnit[] = unitKeys
     .map((key) => ({
       key,
       name: names.get(key)!,
-      fileCount: fileCount.get(key)!,
+      fileCount: files.get(key)!.length,
       internalEdgeCount: internal.get(key)!,
       layer: layerOf.get(key)!,
+      ...unitRole(workspaceRoot, { key, name: names.get(key)!, folder: key === ROOT_UNIT ? "" : key, files: files.get(key)!, importers: importers(key) }, declaredRoles),
     }))
     .sort((left, right) => right.layer - left.layer || right.fileCount - left.fileCount || byCodeUnit(left.key, right.key));
   const unitEdges: ArchitectureUnitEdge[] = [...pairs.values()]
@@ -149,7 +153,7 @@ export function buildArchitectureUnits(graph: ArchitectureGraph, workspaceRoot: 
   const interUnitEdges = unitEdges.reduce((total, edge) => total + edge.fileEdgeCount, 0);
 
   const revision = createHash("sha256")
-    .update(JSON.stringify([graph.context.revision, units.map((unit) => `${unit.key}\t${unit.name}`).sort(byCodeUnit)]))
+    .update(JSON.stringify([graph.context.revision, units.map((unit) => `${unit.key}\t${unit.name}\t${unit.role}\t${unit.confidence}`).sort(byCodeUnit)]))
     .digest("hex");
   return {
     context: { ...graph.context, revision },
@@ -158,6 +162,11 @@ export function buildArchitectureUnits(graph: ArchitectureGraph, workspaceRoot: 
     upwardEdges: unitEdges.filter((edge) => edge.kind === "upward").length,
     /** Groups of two or more units that depend on each other. */
     cycles: components.filter((members) => members.length > 1).length,
+    /** Units per role, in role priority order; roles no unit has are left out. */
+    roleCounts: Object.fromEntries(UNIT_ROLES.flatMap((role) => {
+      const count = units.filter((unit) => unit.role === role).length;
+      return count === 0 ? [] : [[role, count]];
+    })) as Partial<Record<UnitRole, number>>,
     totals: {
       files: graph.nodes.length,
       fileEdges: graph.edges.length,

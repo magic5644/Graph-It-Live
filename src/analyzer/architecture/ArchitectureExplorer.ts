@@ -199,7 +199,7 @@ export function exploreArchitecture(
 const UNIT_PROVENANCE = {
   ...PROVENANCE,
   grouping: "Units are package folders (package.json), else top-level folders; layer = rank in the unit graph after collapsing cycles, 0 = depends on no other unit.",
-  interpretation: "None: names are package names or folders, not roles.",
+  interpretation: "Roles only: each is inferred from the unit's manifest and files (confidence inferred, with its evidence) unless graphit.architecture.json declares it (confidence declared). Names are package names or folders.",
 };
 
 /** The units, heaviest unit edges first, paged like the summary; counts come from every file pair. */
@@ -217,6 +217,7 @@ export function exploreUnits(units: ArchitectureUnits, options: Pick<Architectur
     totals: units.totals,
     upwardEdges: units.upwardEdges,
     cycles: units.cycles,
+    roleCounts: units.roleCounts,
     units: unitPage.items,
     unitEdges: edgePage.items,
     page: {

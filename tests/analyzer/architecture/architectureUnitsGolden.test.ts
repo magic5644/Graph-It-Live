@@ -46,7 +46,7 @@ describe("architecture units golden output: workspaces-project", () => {
 
     expect(mcp.context.revision).toBe(cli.context.revision);
     expect(view.revision).toBe(cli.context.revision);
-    for (const field of ["units", "unitEdges", "upwardEdges", "cycles", "totals"] as const) {
+    for (const field of ["units", "unitEdges", "upwardEdges", "cycles", "roleCounts", "totals"] as const) {
       expect(mcp[field as keyof typeof mcp], field).toEqual(cli[field]);
       expect(view.units?.[field], field).toEqual(cli[field]);
     }

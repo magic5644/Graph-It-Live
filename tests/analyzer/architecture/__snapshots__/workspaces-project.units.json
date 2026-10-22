@@ -9,7 +9,7 @@
     "edgeCount": 10,
     "context": {
       "communityMode": "path",
-      "revision": "ef903803b3b162fc628ca438b6593142084d41c119adc17435de90f40048a8ce",
+      "revision": "bfe727ad97ac68fb3e86a5b29ef9ae2e3884fb28b729a8be4877ab713040eb74",
       "graphKind": "imports",
       "scope": "workspace",
       "exclusions": "node_modules, .git, dist, build, out, coverage, .next, .nuxt, __pycache__, .venv, venv, target, .*/, .gitignore, .graphitignore, tests/fixtures/, out-*/",
@@ -22,49 +22,100 @@
         "name": "@ws/web",
         "fileCount": 2,
         "internalEdgeCount": 1,
-        "layer": 2
+        "layer": 2,
+        "role": "unknown",
+        "confidence": "inferred",
+        "evidence": []
       },
       {
         "key": "(root)",
         "name": "(root)",
         "fileCount": 1,
         "internalEdgeCount": 0,
-        "layer": 2
+        "layer": 2,
+        "role": "tooling",
+        "confidence": "inferred",
+        "evidence": [
+          {
+            "role": "tooling",
+            "detail": "only scripts, tests or config (1 file)"
+          }
+        ]
       },
       {
         "key": "functions/notify",
         "name": "@ws/notify",
         "fileCount": 1,
         "internalEdgeCount": 0,
-        "layer": 1
+        "layer": 1,
+        "role": "function",
+        "confidence": "inferred",
+        "evidence": [
+          {
+            "role": "function",
+            "detail": "exported `handler` in `handler.ts`"
+          }
+        ]
       },
       {
         "key": "packages/ui",
         "name": "@ws/ui",
         "fileCount": 1,
         "internalEdgeCount": 0,
-        "layer": 1
+        "layer": 1,
+        "role": "library",
+        "confidence": "inferred",
+        "evidence": [
+          {
+            "role": "library",
+            "detail": "imported by `(root)`, `@ws/web`"
+          }
+        ]
       },
       {
         "key": "tools/legacy",
         "name": "legacy-tool",
         "fileCount": 1,
         "internalEdgeCount": 0,
-        "layer": 1
+        "layer": 1,
+        "role": "tooling",
+        "confidence": "inferred",
+        "evidence": [
+          {
+            "role": "tooling",
+            "detail": "only scripts, tests or config (1 file)"
+          }
+        ]
       },
       {
         "key": "packages/core",
         "name": "@ws/core",
         "fileCount": 1,
         "internalEdgeCount": 0,
-        "layer": 0
+        "layer": 0,
+        "role": "library",
+        "confidence": "inferred",
+        "evidence": [
+          {
+            "role": "library",
+            "detail": "imported by `@ws/notify`, `@ws/types`, `@ws/ui`, `@ws/web`, `legacy-tool`"
+          }
+        ]
       },
       {
         "key": "packages/types",
         "name": "@ws/types",
         "fileCount": 1,
         "internalEdgeCount": 0,
-        "layer": 0
+        "layer": 0,
+        "role": "library",
+        "confidence": "inferred",
+        "evidence": [
+          {
+            "role": "library",
+            "detail": "imported by `@ws/core`"
+          }
+        ]
       }
     ],
     "unitEdges": [
@@ -119,6 +170,12 @@
     ],
     "upwardEdges": 0,
     "cycles": 1,
+    "roleCounts": {
+      "function": 1,
+      "library": 3,
+      "tooling": 2,
+      "unknown": 1
+    },
     "totals": {
       "files": 8,
       "fileEdges": 10,
@@ -130,7 +187,7 @@
     "view": "units",
     "context": {
       "communityMode": "path",
-      "revision": "ef903803b3b162fc628ca438b6593142084d41c119adc17435de90f40048a8ce",
+      "revision": "bfe727ad97ac68fb3e86a5b29ef9ae2e3884fb28b729a8be4877ab713040eb74",
       "graphKind": "imports",
       "scope": "workspace",
       "exclusions": "node_modules, .git, dist, build, out, coverage, .next, .nuxt, __pycache__, .venv, venv, target, .*/, .gitignore, .graphitignore, tests/fixtures/, out-*/",
@@ -140,7 +197,7 @@
     "provenance": {
       "facts": "File pairs are static import relations extracted from source code, not observed execution.",
       "grouping": "Units are package folders (package.json), else top-level folders; layer = rank in the unit graph after collapsing cycles, 0 = depends on no other unit.",
-      "interpretation": "None: names are package names or folders, not roles."
+      "interpretation": "Roles only: each is inferred from the unit's manifest and files (confidence inferred, with its evidence) unless graphit.architecture.json declares it (confidence declared). Names are package names or folders."
     },
     "totals": {
       "files": 8,
@@ -150,20 +207,37 @@
     },
     "upwardEdges": 0,
     "cycles": 1,
+    "roleCounts": {
+      "function": 1,
+      "library": 3,
+      "tooling": 2,
+      "unknown": 1
+    },
     "units": [
       {
         "key": "apps/web",
         "name": "@ws/web",
         "fileCount": 2,
         "internalEdgeCount": 1,
-        "layer": 2
+        "layer": 2,
+        "role": "unknown",
+        "confidence": "inferred",
+        "evidence": []
       },
       {
         "key": "(root)",
         "name": "(root)",
         "fileCount": 1,
         "internalEdgeCount": 0,
-        "layer": 2
+        "layer": 2,
+        "role": "tooling",
+        "confidence": "inferred",
+        "evidence": [
+          {
+            "role": "tooling",
+            "detail": "only scripts, tests or config (1 file)"
+          }
+        ]
       }
     ],
     "unitEdges": [
