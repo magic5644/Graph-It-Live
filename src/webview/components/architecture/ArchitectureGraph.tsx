@@ -292,7 +292,7 @@ function RulesPanel({ rules, onRule }: Readonly<{ rules: ArchitectureRulesView; 
     <details open={totals.violations > 0}>
       <summary style={{ cursor: "pointer", color: failing ? "var(--vscode-errorForeground)" : undefined }}>
         {plural(totals.violations, "violation")} of {plural(totals.brokenRules, "rule")} ({totals.newViolations} new) · {rules.configFile}
-        {totals.unmatchedFiles > 0 && <span title="Files no element of the config selects: no rule checks them."> · {totals.unmatchedFiles} files in no element</span>}
+        {totals.unmatchedFiles > 0 && <span title="Files no element of the config selects: no rule checks them."> · {plural(totals.unmatchedFiles, "file")} in no element</span>}
       </summary>
       <ul aria-label="Architecture rules" style={{ listStyle: "none", padding: 0, margin: "2px 0", maxHeight: 96, overflow: "auto" }}>
         {rules.rules.map((rule) => (
