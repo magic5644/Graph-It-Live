@@ -816,7 +816,9 @@ export function ArchitectureGraph({ postMessage }: Readonly<ArchitectureGraphPro
       command: "architectureMatrixRendered", revision: matrix.revision, unit: matrix.unit, folder: matrix.folder,
       rows: totals.rows, cells: totals.cells, fileEdges: totals.fileEdges, upwardCells: totals.upwardCells, cycles: cycles.length,
       digest: matrix.digest,
-      violationCells: document.querySelectorAll('[data-violation="true"]').length,
+      // From the whole matrix: only the cells in view are in the DOM.
+      violationCells: matrix.matrix.cells.filter(({ row, column }) =>
+        matrix.violations?.[`${matrix.matrix.rows[row].id}>${matrix.matrix.rows[column].id}`] !== undefined).length,
       ...paint,
     });
   };
