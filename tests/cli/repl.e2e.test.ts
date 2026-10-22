@@ -30,6 +30,7 @@ const mocks = vi.hoisted(() => ({
   toolRun: vi.fn(),
   contextRun: vi.fn(),
   reviewPrRun: vi.fn(),
+  checkArchitectureRun: vi.fn(),
 }));
 
 vi.mock('../../src/cli/repl/ink/ReplInkApp.js', async (importOriginal) => ({
@@ -58,6 +59,7 @@ vi.mock('../../src/cli/commands/check.js', () => ({ run: mocks.checkRun }));
 vi.mock('../../src/cli/commands/tool.js', () => ({ run: mocks.toolRun }));
 vi.mock('../../src/cli/commands/context.js', () => ({ run: mocks.contextRun }));
 vi.mock('../../src/cli/commands/reviewPr.js', () => ({ run: mocks.reviewPrRun }));
+vi.mock('../../src/cli/commands/checkArchitecture.js', () => ({ run: mocks.checkArchitectureRun }));
 
 import { run } from '../../src/cli/commands/repl';
 
@@ -233,6 +235,26 @@ describe('REPL command chaining e2e', () => {
     await typedSession(runtime, '/review-pr --base origin/main');
 
     expect(mocks.reviewPrRun).toHaveBeenCalledWith(['--base', 'origin/main'], runtime, 'json');
+  });
+
+  it('runs /check-architecture with its flags, and keeps the report of a failing check', async () => {
+    const { CliError, ExitCode } = await import('../../src/cli/errors');
+    const runtime = createRuntimeStub();
+    mocks.checkArchitectureRun
+      .mockResolvedValueOnce(JSON.stringify({ passed: true, totals: { violations: 0 } }))
+      .mockRejectedValueOnce(new CliError('1 error violation(s) of the architecture rules not in the baseline', ExitCode.GENERAL_ERROR,
+        JSON.stringify({ passed: false, violations: [{ rule: 'frontend-not-backend', source: 'frontend/app.ts', target: 'backend/api.ts' }] })));
+    const [passing, failing] = await typedSession(runtime, '/check-architecture --baseline base.json', '/check-architecture');
+
+    expect(mocks.checkArchitectureRun).toHaveBeenNthCalledWith(1, ['--baseline', 'base.json'], runtime, 'json');
+    expect(passing.output).toContain('passed');
+    expect(failing.output).toContain('frontend-not-backend');
+    expect(failing.output).toContain('Error: 1 error violation(s) of the architecture rules not in the baseline');
+  });
+
+  it('leaves a failure without a report to the REPL error line', async () => {
+    mocks.checkArchitectureRun.mockRejectedValueOnce(new Error('No graphit.architecture.json in the workspace'));
+    await expect(typedSession(createRuntimeStub(), '/check-architecture')).rejects.toThrow('No graphit.architecture.json in the workspace');
   });
 
   it('chains the traced file and symbol into /check and /callers', async () => {

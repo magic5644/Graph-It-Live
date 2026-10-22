@@ -13,6 +13,7 @@ import { promises as fs } from 'node:fs';
 import { SourceFileCollector } from '../../analyzer/SourceFileCollector.js';
 import { CLI_OUTPUT_FORMATS, formatOutput } from '../formatter.js';
 import type { CliOutputFormat } from '../formatter.js';
+import { CliError } from '../errors.js';
 import type { CliRuntime } from '../runtime.js';
 import { normalizePathForComparison } from '../../shared/path.js';
 import { loggerFactory, type LogLevel } from '../../shared/logger.js';
@@ -63,6 +64,7 @@ const REPL_TYPED_RUNNER_LOADERS = {
   query: () => import('./query.js'),
   wiki: () => import('./wiki.js'),
   'review-pr': () => import('./reviewPr.js'),
+  'check-architecture': () => import('./checkArchitecture.js'),
 } satisfies Record<string, () => Promise<{ run: ReplRunner }>>;
 
 /** Symbol commands backed by an MCP tool through the `tool` runner. */
@@ -110,6 +112,7 @@ function buildReplHelpText(state: ReturnType<typeof createSessionState>): string
     '  /context "how is the index built" --detail compact',
     '  /review-pr --base origin/main',
     '  /architecture --format mermaid',
+    '  /check-architecture --baseline graphit.architecture.baseline.json',
     '  /export --output my-graph.html',
     '',
     `${DIM}session:${RESET} format=${state.preferredFormat}  last-file=${lastFile}`,
@@ -231,6 +234,20 @@ function parseRawCommandOutput(output: string): unknown {
   }
 }
 
+/** The command's JSON report; one that also fails (check-architecture) keeps its report, the error after it. */
+async function runForReport(
+  runner: (args: string[], runtime: CliRuntime, format: CliOutputFormat) => Promise<string>,
+  args: string[],
+  runtime: CliRuntime,
+): Promise<{ jsonOutput: string; failure: string }> {
+  try {
+    return { jsonOutput: await runner(args, runtime, 'json'), failure: '' };
+  } catch (error) {
+    if (!(error instanceof CliError) || error.output === undefined) throw error;
+    return { jsonOutput: error.output, failure: `\nError: ${formatTerminalError(error)}` };
+  }
+}
+
 async function executeCommandForRepl(
   command: string,
   args: string[],
@@ -238,14 +255,14 @@ async function executeCommandForRepl(
   preferredFormat: CliOutputFormat,
   runner: (args: string[], runtime: CliRuntime, format: CliOutputFormat) => Promise<string>,
 ): Promise<Pick<ReplActionResult, 'command' | 'output' | 'effectiveFormat'>> {
-  const jsonOutput = await runner(args, runtime, 'json');
+  const { jsonOutput, failure } = await runForReport(runner, args, runtime);
   const rawData = parseRawCommandOutput(jsonOutput);
 
   try {
-    const output = formatOutput(rawData, preferredFormat, command, runtime.workspaceRoot);
+    const output = formatOutput(rawData, preferredFormat, command, runtime.workspaceRoot) + failure;
     return { command, output, effectiveFormat: preferredFormat };
   } catch {
-    const output = formatOutput(rawData, 'text', command);
+    const output = formatOutput(rawData, 'text', command) + failure;
     return { command, output, effectiveFormat: 'text' };
   }
 }

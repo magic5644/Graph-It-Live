@@ -85,6 +85,7 @@ const SLASH_COMMANDS: SlashCommandEntry[] = [
   { group: 'Workspace', command: '/summary', description: 'Summarize workspace or file' },
   { group: 'Workspace', command: '/architecture', description: 'Build workspace graph', argsHint: '/architecture [--maxFiles N]' },
   { group: 'Workspace', command: '/check', description: 'Find dead code' },
+  { group: 'Workspace', command: '/check-architecture', description: 'Check imports against graphit.architecture.json', argsHint: '/check-architecture [--config <file>] [--baseline <file>] [--update-baseline]' },
   { group: 'Workspace', command: '/review-pr', description: 'Review the Git diff against a base ref', argsHint: '/review-pr --base <ref> [--head <ref>]' },
   { group: 'Workspace', command: '/scan', description: 'Force indexing scan' },
   { group: 'Output', command: '/format', description: 'Set default output format', argsHint: '/format <text|json|toon|markdown|mermaid>' },
@@ -200,6 +201,11 @@ const ARG_COMPLETIONS: Record<string, Array<{ value: string; description: string
   ],
   '/architecture': [
     { value: '--maxFiles', description: 'Limit analyzed files' },
+  ],
+  '/check-architecture': [
+    { value: '--config', description: 'Rules file in the workspace' },
+    { value: '--baseline', description: 'Accepted violations file' },
+    { value: '--update-baseline', description: 'Accept every current violation' },
   ],
   '/format': [
     { value: 'text', description: 'Plain text output' },
