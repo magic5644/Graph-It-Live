@@ -753,10 +753,11 @@ Files without a folder domain (`path`) or without any import edge (`louvain`) ge
 
 | Field | Content |
 |-------|---------|
-| `context` | as above; `revision` also covers the units and their names |
-| `units` | `key` (folder or `(root)`), `name` (`package.json` name, else the folder), `fileCount`, `internalEdgeCount`, `layer` (0 = depends on no other unit; the units of a cycle share a layer), deepest layer last |
+| `context` | as above; `revision` also covers the units, their names and roles |
+| `units` | `key` (folder or `(root)`), `name` (`package.json` name, else the folder), `fileCount`, `internalEdgeCount`, `layer` (0 = depends on no other unit; the units of a cycle share a layer), `role` (`function`, `micro-frontend`, `frontend`, `service`, `library`, `tooling` or `unknown`), `confidence` (`inferred`, or `declared` by `roles` in `graphit.architecture.json`) and `evidence` (`role` and `detail` of every match, the unit's role first by priority), deepest layer last |
 | `unitEdges` | `from`, `to`, `fileEdgeCount`, `kind`: `down`, `upward` (to the same or a higher layer) or `cycle` (both units in one cycle), heaviest first |
 | `upwardEdges`, `cycles` | number of upward edges, and of groups of units that depend on each other |
+| `roleCounts` | units per role, in role priority order (see *Architecture view* in the README for the evidence of each role) |
 | `totals` | `files`, `fileEdges`, `intraUnitEdges`, `interUnitEdges` |
 
 With `--from <unit key> --to <unit key>` (both required, `--level units` only), the output is the evidence of that unit edge instead: `from` and `to` (the units), `kind` (`down`, `upward` or `cycle`; absent when the units are not linked) and every file `pairs` (`source` imports `target`), sorted by target then source path, with `page.total` equal to the edge's `fileEdgeCount`. These are the pairs the Architecture view lists when a unit edge is clicked. A key may be typed with `\` on Windows; an unknown unit is an error.
