@@ -20,6 +20,7 @@ The `graph-it` CLI gives you full access to the dependency analysis engine of Gr
   - [check-dependencies](#check-dependencies)
   - [cycles](#cycles)
   - [architecture](#architecture)
+  - [check-architecture](#check-architecture)
   - [check](#check)
   - [trace](#trace)
   - [context](#context)
@@ -779,6 +780,65 @@ Rows and columns share one order: layer 0 first (depends on no other row), the r
 
 `--format csv` writes the whole matrix for a spreadsheet: a header row of labels, one line per row with its counts (empty = 0), then `Ce`, `Ca` and `I`. A label starting with `=`, `+`, `-`, `@`, a tab or a carriage return is prefixed with `'`, so a spreadsheet never runs it as a formula (scoped package names such as `@scope/lib` show the `'`). `--matrix` is refused with `--from`/`--to`, and `csv` without `--matrix`.
 
+### check-architecture
+
+Checks every static import of the workspace against the **architecture rules** declared in `graphit.architecture.json` at the workspace root. Rules are human annotation: the command only compares import pairs with them.
+
+```bash
+graph-it check-architecture [--config <file>] [--baseline <file>] [--update-baseline] [--format text|json|toon|markdown|sarif]
+```
+
+```json
+{
+  "$schema": "https://raw.githubusercontent.com/magic5644/Graph-It-Live/main/schemas/architecture.schema.json",
+  "elements": {
+    "functions": { "path": "functions/*", "each": true },
+    "frontend": { "path": "frontend/" },
+    "mfe": { "path": "mfe/*", "each": true },
+    "backend": { "path": "backend/" },
+    "shared": { "unit": ["@acme/shared-*"] }
+  },
+  "rules": [
+    { "name": "functions-only-shared", "from": "functions", "allowOnly": ["shared"], "severity": "error",
+      "reason": "Functions are deployed alone; they share code only through libraries." },
+    { "name": "frontend-not-backend", "from": ["frontend", "mfe"], "forbid": ["backend"], "severity": "error" },
+    { "name": "mfe-isolated", "from": "mfe", "forbid": ["mfe"], "severity": "warning" },
+    { "name": "no-unit-cycles", "noCycles": "units", "severity": "error" }
+  ]
+}
+```
+
+| Key | Meaning |
+|-----|---------|
+| `elements.<name>.path` | Workspace-relative gitignore-style patterns (the syntax of `.graphitignore`, no regular expression); no `..`, drive letter or backslash |
+| `elements.<name>.unit` | Unit keys or package names of [`--level units`](#units-output); `*` matches any characters |
+| `elements.<name>.each` | Every matched folder (or unit) is an instance of its own; a file never breaks a rule against its own instance |
+| `rules[].forbid` | Files of `from` may not import files of these elements |
+| `rules[].allowOnly` | Files of `from` may import only these elements and their own instance |
+| `rules[].noCycles` | `"units"`, or an element: no import cycle between units or between the element's instances |
+| `rules[].severity` | `error` (default, fails the command), `warning`, `off` (skipped) |
+| `rules[].reason` | Shown with every violation |
+
+The config is validated before anything runs: unknown keys, rules naming unknown elements, empty patterns, a missing kind or duplicate rule names are rejected with the JSON path of each error (`graphit.architecture.json: $.rules[0].from[1]: unknown element "web"`). Files larger than 256 KB (32 MB for a baseline) are refused, and `--config` / `--baseline` must stay inside the workspace. The published schema, [`schemas/architecture.schema.json`](../schemas/architecture.schema.json), gives completion in editors through `$schema`.
+
+**Output** (`json`): `configFile`, `baselineFile`, `context` (with `revision`), `passed`, `totals` (`violations`, `newViolations`, `errors`, `newErrors`, `warnings`, `brokenRules`, `unmatchedFiles`, `resolved`), `rules` (each with `kind`, `severity`, `reason`, `violations`, `newViolations` and its `elementPairs`), `violations` (`rule`, `severity`, `source`, `target`, import `line`, element instances `from` / `to`, `new`), sorted by rule then file, `resolved`, `unmatchedFiles` (files no element selects: no rule checks them) and `configWarnings` (patterns matching nothing).
+
+**Exit code**: 1 when an `error` violation is not in the baseline (the report is still printed on stdout), else 0.
+
+**Baseline**: `--update-baseline` writes every current violation to `graphit.architecture.baseline.json` (or `--baseline <file>`), as workspace-relative `/` paths sorted by rule and file pair, so the file is identical on Linux, macOS and Windows. With a baseline, only violations absent from it are `new`; its entries no longer found are listed in `resolved`, so rerunning `--update-baseline` shrinks it.
+
+**SARIF**: `--format sarif` writes SARIF 2.1.0 with one result per new violation, located on the importing line, for GitHub code scanning:
+
+```yaml
+- run: npx graph-it check-architecture --format sarif > architecture.sarif
+- uses: github/codeql-action/upload-sarif@v3
+  if: always()
+  with:
+    sarif_file: architecture.sarif
+```
+
+The VS Code Architecture view and the [`check_architecture`](#check_architecture) MCP tool report the same rules and counts.
+
 ### check
 
 Find unused exported symbols (dead code) — either workspace-wide, scoped to a directory, or for a single file.
@@ -1381,6 +1441,7 @@ Available MCP tools:
   query_call_graph             Traces calls across files for several hops, in either direction, from a SQLite-backed call graph.
   scan_dead_code               Lists the unused exported symbols across a whole workspace or directory.
   explore_architecture         Explores the workspace architecture step by step: groups, one group's boundary, then the file pairs behind a group edge.
+  check_architecture           Checks the workspace imports against the architecture rules declared in graphit.architecture.json.
 ```
 
 **Calling a tool with parameters:**
@@ -1858,6 +1919,20 @@ graph-it tool explore_architecture --folder='(root)/analyzer' --group='(root)/an
 ```
 
 A group is referenced by `id` (a number, such as `--group=2`) or by `key` or `label` (a string, such as `--group=analyzer` or `--group='"2"'` for a folder named `2`); `0` or `unassigned` names the files without a group, and an unknown group is an error. Every list is paginated by `limit` (default 50, max 500) and `offset`: the group view pages `files`, `incoming` and `outgoing` together (edges sorted by `fileEdgeCount`), and `page` gives each list's total, `truncated` and a `nextOffset` while any list has more items. Every response carries `context` (community mode, `revision`, graph kind `imports`, scope, exclusions, `maxFiles`, truncation, failed files) and `provenance`, which separates code facts (static import pairs) from computed groupings and states that labels carry no interpretation. Symbols and lines come from `find_referencing_files`, `query_call_graph` and `get_impact_analysis`, named in `nextSteps`. The graph is rebuilt on each call and group ids depend on it: `context.revision` is a SHA-256 of the community mode, each file's group and the file edges, identical on every OS for the same graph. Pass it back as `revision` (`--revision=<hash>`) with a group id or an `offset`; if the architecture has changed since, the call fails with both revisions and you restart from the summary. Without `revision`, the call is answered from the current graph.
+
+---
+
+#### `check_architecture`
+
+**What it returns:** what [`check-architecture`](#check-architecture) reports in `json` (same `violations`, `rules` and `totals`), with the `violations` paged by `limit` (default 50, max 500) and `offset`, or only one rule's with `rule`; `unmatchedFiles` and `resolved` are capped at `limit`, their totals whole. An agent can check a planned change against the rules before making it.
+
+```bash
+graph-it tool check_architecture
+graph-it tool check_architecture --rule=frontend-not-backend
+graph-it tool check_architecture --config=config/architecture.json --baseline=config/baseline.json
+```
+
+`config` and `baseline` are workspace-relative. Pass the previous `context.revision` back as `revision` with an `offset`: the call fails if the code, the rules or the baseline changed since.
 
 ---
 
