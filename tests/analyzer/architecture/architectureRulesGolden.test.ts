@@ -5,15 +5,14 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { Parser } from "@/analyzer/Parser";
 import { SpiderBuilder } from "@/analyzer/SpiderBuilder";
 import { PathResolver } from "@/analyzer/utils/PathResolver";
-import type { IndexerStatusSnapshot } from "@/analyzer/IndexerStatus";
 import { run as runCheckArchitecture } from "@/cli/commands/checkArchitecture";
 import { CliError, ExitCode } from "@/cli/errors";
 import { workerState } from "@/mcp/shared/state";
 import { executeCheckArchitecture } from "@/mcp/tools/architecture";
 import { CheckArchitectureParamsSchema } from "@/mcp/types";
-import { ArchitectureViewService } from "@/extension/services/ArchitectureViewService";
-import type { ArchitectureExtensionMessage, ArchitectureSummaryMessage } from "@/shared/architecture-types";
+import type { ArchitectureExtensionMessage } from "@/shared/architecture-types";
 import { createRulesWorkspace } from "./rulesWorkspace";
+import { buildView } from "./viewHarness";
 
 // `graph-it check-architecture` and check_architecture on the generated workspace: same
 // violations, exit code 1 on a new error, SARIF valid against the SARIF 2.1.0 schema.
@@ -28,24 +27,6 @@ async function cli(args: string[], format: "json" | "sarif" | "toon" | "csv" = "
     if (!(error instanceof CliError) || error.output === undefined) throw error;
     return { exitCode: error.exitCode, output: error.output, message: error.message };
   }
-}
-
-async function buildView(posted: ArchitectureExtensionMessage[]) {
-  const service = new ArchitectureViewService({
-    workspaceRoot: rootDir,
-    analyzeFile: (filePath) => workerState.getSpider().analyze(filePath),
-    readCommunityMode: () => "path",
-    subscribeToIndexStatus: (callback) => {
-      callback({ state: "idle" } as IndexerStatusSnapshot);
-      return () => {};
-    },
-    post: (message) => posted.push(message),
-    openFile: async () => {},
-    warn: () => {},
-  });
-  await service.build();
-  const summary = posted.findLast((message): message is ArchitectureSummaryMessage => message.type === "architectureSummary")!;
-  return { service, summary };
 }
 
 describe("architecture rules golden output: generated workspace", () => {
@@ -169,7 +150,7 @@ describe("architecture rules golden output: generated workspace", () => {
   it("shows the same rules in the view: counts, red unit edges and cells, a rule's pairs, folder levels", async () => {
     const report = JSON.parse((await cli([])).output);
     const posted: ArchitectureExtensionMessage[] = [];
-    const { service, summary } = await buildView(posted);
+    const { service, summary } = await buildView(rootDir, posted);
     const rules = summary.rules!;
     expect(rules.totals).toEqual(report.totals);
     expect(rules.rules).toEqual(report.rules);
@@ -203,7 +184,7 @@ describe("architecture rules golden output: generated workspace", () => {
 
   it("marks the view stale when a rule file changes, and reports a refused config with its JSON path", async () => {
     const posted: ArchitectureExtensionMessage[] = [];
-    const { service } = await buildView(posted);
+    const { service } = await buildView(rootDir, posted);
     const configPath = path.join(rootDir, "graphit.architecture.json");
     service.markStale(path.join(rootDir, "graphit.architecture.baseline.json"), "change");
     expect(posted.at(-1)).toMatchObject({ type: "architectureSummary", stale: true });
@@ -211,7 +192,7 @@ describe("architecture rules golden output: generated workspace", () => {
     const config = fs.readFileSync(configPath, "utf8");
     try {
       fs.writeFileSync(configPath, JSON.stringify({ elements: {}, rules: [{ name: "r", noCycles: "ghost" }] }));
-      const refused = await buildView([]);
+      const refused = await buildView(rootDir);
       expect(refused.summary.rules).toEqual({
         configFile: "graphit.architecture.json",
         error: 'graphit.architecture.json: $.rules[0].noCycles: unknown element "ghost"',
@@ -219,7 +200,7 @@ describe("architecture rules golden output: generated workspace", () => {
       });
       await refused.service.handleWebviewMessage({ command: "architectureRuleEvidence", revision: refused.summary.revision, rule: "r" });
       fs.rmSync(configPath);
-      const none = await buildView([]);
+      const none = await buildView(rootDir);
       expect(none.summary).not.toHaveProperty("rules");
     } finally {
       fs.writeFileSync(configPath, config);

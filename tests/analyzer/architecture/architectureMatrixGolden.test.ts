@@ -4,13 +4,12 @@ import { Parser } from "../../../src/analyzer/Parser";
 import { SpiderBuilder } from "../../../src/analyzer/SpiderBuilder";
 import { PathResolver } from "../../../src/analyzer/utils/PathResolver";
 import { run as runArchitectureCli } from "../../../src/cli/commands/architecture";
-import { ArchitectureViewService } from "../../../src/extension/services/ArchitectureViewService";
 import { workerState } from "../../../src/mcp/shared/state";
 import { executeExploreArchitecture } from "../../../src/mcp/tools/architecture";
-import type { IndexerStatusSnapshot } from "../../../src/analyzer/IndexerStatus";
-import type { ArchitectureExtensionMessage, ArchitectureMatrixMessage, ArchitectureSummaryMessage } from "../../../src/shared/architecture-types";
+import type { ArchitectureExtensionMessage, ArchitectureMatrixMessage } from "../../../src/shared/architecture-types";
 import type { CommunityMode } from "../../../src/shared/graph-types";
 import { normalizePath } from "../../../src/shared/path";
+import { buildView } from "./viewHarness";
 
 // Golden output of `graph-it architecture --matrix`: the CLI, explore_architecture view "matrix"
 // and the extension's Matrix view report the same rows, cells and totals, and the cells are the
@@ -29,20 +28,7 @@ interface CliMatrix {
 /** The Matrix view's answer for the level the summary opens on (units in path mode, every group in Louvain). */
 async function viewMatrix(rootDir: string, communityMode: CommunityMode): Promise<ArchitectureMatrixMessage> {
   const posted: ArchitectureExtensionMessage[] = [];
-  const service = new ArchitectureViewService({
-    workspaceRoot: rootDir,
-    analyzeFile: (filePath) => workerState.getSpider().analyze(filePath),
-    readCommunityMode: () => communityMode,
-    subscribeToIndexStatus: (callback) => {
-      callback({ state: "idle" } as IndexerStatusSnapshot);
-      return () => {};
-    },
-    post: (message) => posted.push(message),
-    openFile: async () => {},
-    warn: () => {},
-  });
-  await service.build();
-  const summary = posted.find((message): message is ArchitectureSummaryMessage => message.type === "architectureSummary")!;
+  const { service, summary } = await buildView(rootDir, posted, communityMode);
   await service.handleWebviewMessage({ command: "architectureMatrix", revision: summary.revision });
   return posted.at(-1) as ArchitectureMatrixMessage;
 }
