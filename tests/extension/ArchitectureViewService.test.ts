@@ -6,15 +6,17 @@ import type { AnalyzeFile } from "../../src/analyzer/architecture/ArchitectureGr
 import type { IndexerStatusSnapshot } from "../../src/analyzer/IndexerStatus";
 import {
   ArchitectureViewService,
-  MAX_RENDERED_GROUPS,
   maskWorkspaceRoot,
   type ArchitectureViewServiceOptions,
 } from "../../src/extension/services/ArchitectureViewService";
-import type {
-  ArchitectureExtensionMessage,
-  ArchitectureFolderLevelMessage,
-  ArchitectureMatrixMessage,
-  ArchitectureSummaryMessage,
+import {
+  DEFAULT_RENDERED_GROUPS,
+  MAX_RENDERED_GROUPS,
+  type ArchitectureExtensionMessage,
+  type ArchitectureFolderLevelMessage,
+  type ArchitectureFoundMessage,
+  type ArchitectureMatrixMessage,
+  type ArchitectureSummaryMessage,
 } from "../../src/shared/architecture-types";
 import type { CommunityMode } from "../../src/shared/graph-types";
 import { normalizePath } from "../../src/shared/path";
@@ -187,8 +189,10 @@ describe("ArchitectureViewService", () => {
   });
 
   it("keeps the largest groups of each unit, and the layers and edge kinds inside units", async () => {
+    const big = MAX_RENDERED_GROUPS + 2;
     const many = Object.fromEntries([
-      ...Array.from({ length: MAX_RENDERED_GROUPS + 2 }, (_, index) => [`big/d${index}/a.ts`, index === 0 ? ["big/d1/a.ts"] : []]),
+      // big/d0 imports big/d1 and small/x: every other big folder has no import.
+      ...Array.from({ length: big }, (_, index) => [`big/d${index}/a.ts`, index === 0 ? ["big/d1/a.ts", "small/x/a.ts"] : []]),
       ["small/x/a.ts", ["small/y/a.ts"]],
       ["small/y/a.ts", ["small/x/a.ts"]],
     ]);
@@ -198,12 +202,62 @@ describe("ArchitectureViewService", () => {
       await createService({ workspaceRoot: wide, analyzeFile: analyzerFor(wide, many) }).build();
       const [summary] = summaries();
       const unitOf = summary.units!.groupUnits;
-      expect(summary.groups.filter(group => unitOf[group.id] === "big")).toHaveLength(MAX_RENDERED_GROUPS);
+      expect(summary.groups.filter(group => unitOf[group.id] === "big")).toHaveLength(DEFAULT_RENDERED_GROUPS);
       expect(summary.groups.filter(group => unitOf[group.id] === "small")).toHaveLength(2);
-      expect(summary.hiddenGroups).toBe(2);
+      expect(summary.maxGroups).toBe(DEFAULT_RENDERED_GROUPS);
+      expect(summary.hiddenGroups).toBe(big - DEFAULT_RENDERED_GROUPS);
+      expect(summary.units!.hiddenByUnit).toEqual({ big: { groups: big - DEFAULT_RENDERED_GROUPS, groupEdges: 0 } });
       const id = (key: string) => summary.groups.find(group => group.key === key)!.id;
       expect(summary.units!.groupLayers[id("big/d0")]).toBe(1);
       expect(summary.units!.groupEdgeKinds[`${id("small/x")}>${id("small/y")}`]).toBe("cycle");
+      // The d0 → x edge crosses units: only d0 → d1 links big folders, so the other drawn ones are isolated.
+      expect(summary.isolatedGroups).toHaveLength(DEFAULT_RENDERED_GROUPS - 2);
+      expect(summary.isolatedGroups).not.toContain(id("big/d0"));
+      expect(summary.isolatedGroups).not.toContain(id("small/x"));
+    } finally {
+      await fs.rm(wide, { recursive: true, force: true });
+    }
+  });
+
+  it("finds hidden groups by label or key, and Show more groups sends the summary and entered levels again", async () => {
+    const many = Object.fromEntries(Array.from({ length: MAX_RENDERED_GROUPS + 2 }, (_, index) => [`big/d${index}/a.ts`, []]));
+    const wide = await fs.realpath(await fs.mkdtemp(path.join(os.tmpdir(), "gitl-architecture-more-")));
+    try {
+      await writeWorkspace(wide, many);
+      const service = createService({ workspaceRoot: wide, analyzeFile: analyzerFor(wide, many) });
+      await service.build();
+      const [summary] = summaries();
+      const { revision } = summary;
+      const found = () => posted.filter((message): message is ArchitectureFoundMessage => message.type === "architectureFound").at(-1);
+
+      await service.handleWebviewMessage({ command: "architectureFind", revision, unit: "big", query: " BIG/ " });
+      expect(found()).toMatchObject({ revision, unit: "big", query: " BIG/ ", total: summary.hiddenGroups });
+      expect(found()?.matches).toHaveLength(10);
+      await service.handleWebviewMessage({ command: "architectureFind", revision, unit: "small", query: "big/" });
+      expect(found()?.total).toBe(0);
+      await service.handleWebviewMessage({ command: "architectureFind", revision, query: "  " });
+      expect(found()?.total).toBe(0);
+      await service.handleWebviewMessage({ command: "architectureFind", revision: "old", query: "big" });
+      expect(posted.at(-1)).toEqual({ type: "architectureRevisionChanged", currentRevision: revision });
+
+      // An entered folder is sent again too, with the new cap.
+      await service.handleWebviewMessage({ command: "architectureEnterFolder", revision, folder: "big" });
+      posted.length = 0;
+      await service.handleWebviewMessage({ command: "architectureShowMoreGroups", revision });
+      const [more, folder] = posted as [ArchitectureSummaryMessage, ArchitectureFolderLevelMessage];
+      expect(more).toMatchObject({ type: "architectureSummary", revision, stale: false, maxGroups: MAX_RENDERED_GROUPS, hiddenGroups: 2 });
+      expect(more.groups).toHaveLength(MAX_RENDERED_GROUPS);
+      expect(folder).toMatchObject({ type: "architectureFolderLevel", revision, folder: "big" });
+      expect(folder.level.maxGroups).toBe(MAX_RENDERED_GROUPS);
+      await service.handleWebviewMessage({ command: "architectureFind", revision, unit: "big", query: "big/" });
+      expect(found()?.total).toBe(2);
+
+      posted.length = 0;
+      await service.handleWebviewMessage({ command: "architectureShowMoreGroups", revision });
+      expect(posted).toEqual([]);
+      // The cap stays raised for the next builds.
+      await service.build();
+      expect(summaries().at(-1)?.maxGroups).toBe(MAX_RENDERED_GROUPS);
     } finally {
       await fs.rm(wide, { recursive: true, force: true });
     }
@@ -558,7 +612,7 @@ describe("ArchitectureViewService", () => {
     expect(states().some(state => state.percent !== undefined && state.percent > 0)).toBe(true);
   });
 
-  it("caps rendered louvain groups at 150, keeps totals from the full aggregation, and sends every unit-scoped group", async () => {
+  it("caps rendered louvain groups at 50, keeps totals from the full aggregation, and sends every unit-scoped group", async () => {
     const groups = 200;
     // One import per folder: Louvain keeps each pair as its own community.
     const many = Object.fromEntries(Array.from({ length: groups }, (_, index) => [
@@ -572,9 +626,12 @@ describe("ArchitectureViewService", () => {
       await createService({ workspaceRoot: wide, analyzeFile: analyzerFor(wide, many) }).build();
       const [summary] = summaries();
       expect(summary.units).toBeUndefined();
-      expect(summary.groups).toHaveLength(MAX_RENDERED_GROUPS);
-      expect(summary.hiddenGroups).toBe(groups - MAX_RENDERED_GROUPS);
+      expect(summary.groups).toHaveLength(DEFAULT_RENDERED_GROUPS);
+      expect(summary.hiddenGroups).toBe(groups - DEFAULT_RENDERED_GROUPS);
+      expect(summary.hiddenGroupEdges).toBe(0);
       expect(summary.totals.files).toBe(2 * groups);
+      // No import crosses two groups: every drawn group is isolated.
+      expect(summary.isolatedGroups).toHaveLength(DEFAULT_RENDERED_GROUPS);
 
       communityMode = "path";
       await createService({ workspaceRoot: wide, analyzeFile: analyzerFor(wide, many) }).build();
