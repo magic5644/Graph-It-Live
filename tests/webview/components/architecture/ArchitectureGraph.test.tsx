@@ -1184,6 +1184,16 @@ describe("ArchitectureGraph", () => {
         expect(screen.getByRole("region", { name: /Dependency structure matrix/ })).toBeTruthy();
       });
 
+      it("reports the cells breaking a declared rule from the whole matrix, not only those in view", async () => {
+        const postMessage = await setup();
+        fireEvent.click(screen.getByRole("button", { name: "Matrix" }));
+        send({ ...unitsMatrix, violations: { "apps/web>packages/core": ["r"], "packages/core>apps/web": ["r"], "x>y": ["r"] } });
+        await nextFrame();
+
+        expect(lastOf(postMessage, "architectureMatrixRendered")).toEqual(expect.objectContaining({ violationCells: 2 }));
+        expect(screen.getByText(/red frame: breaks a rule/)).toBeTruthy();
+      });
+
       it("opens the evidence of a clicked cell with its total, but not for a unit's own pairs", async () => {
         const postMessage = await toMatrix(await setup());
         fireEvent.click(screen.getByRole("button", { name: "@ws/web imports @ws/core: 3 file pairs" }));

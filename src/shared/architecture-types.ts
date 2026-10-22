@@ -314,7 +314,7 @@ export interface ArchitectureMatrixRenderedCommand {
   paintMs: number;
   /** What triggered the paint. */
   cause: "matrix" | "scroll";
-  /** Cell buttons drawn as breaking a declared rule. */
+  /** Non-zero cells breaking a declared rule, in the whole matrix. */
   violationCells?: number;
 }
 
