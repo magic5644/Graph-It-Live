@@ -145,10 +145,10 @@ describe("CallGraphIndexer", () => {
       fresh.dispose();
     });
 
-    // v3 databases hold the old typescript.scm output (#267): rebuild them
-    it("rejects a database saved with schema version 3", async () => {
+    // Old caches lack module-bound import calls (#398), even when file mtimes match.
+    it.each([3, 4])("rejects a database saved with schema version %s", async (version) => {
       const dbPath = path.join(dir, "callgraph.db");
-      indexer.getDb().run("UPDATE metadata SET value = '3' WHERE key = 'schema_version'");
+      indexer.getDb().run("UPDATE metadata SET value = ? WHERE key = 'schema_version'", [String(version)]);
       await indexer.saveToFile(dbPath);
       const fresh = new CallGraphIndexer(SQL_WASM_PATH);
 

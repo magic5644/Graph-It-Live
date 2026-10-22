@@ -130,9 +130,9 @@ CREATE TABLE IF NOT EXISTS metadata (
 /**
  * Bump when the schema or the extracted nodes change (e.g. a .scm query edit):
  * a mismatch forces a full rebuild on load, since mtime-fresh files are skipped.
- * v4: function-valued consts are `function` nodes (#267).
+ * v5: named import calls retain their module and binding (#398).
  */
-const CURRENT_SCHEMA_VERSION = 4;
+const CURRENT_SCHEMA_VERSION = 5;
 
 /**
  * Optional FTS5 schema for fast symbol name search.
@@ -412,7 +412,7 @@ export class CallGraphIndexer {
   }
 
   /**
-   * Resolve `@@external:<name>` stub targets to real indexed node IDs.
+   * Resolve module-bound `@@import:` targets first, then `@@external:<name>` stubs.
    *
    * After workspace-wide indexing, call this once to replace cross-file stubs
    * with the IDs of the matching nodes in the workspace.  Ambiguous names
@@ -430,6 +430,7 @@ export class CallGraphIndexer {
    */
   resolveExternalEdges(): { before: number; resolved: number; deleted: number } {
     const db = this.getDb();
+    const imports = this.resolveImportedEdges();
 
     // Count stubs before resolution.
     const beforeRows = db.exec("SELECT COUNT(*) FROM edges WHERE target_id LIKE '@@external:%'");
@@ -437,7 +438,7 @@ export class CallGraphIndexer {
 
     if (before === 0) {
       this.recomputeCycles();
-      return { before: 0, resolved: 0, deleted: 0 };
+      return imports;
     }
 
     // Fetch all external stub edges together with the source node's file path and lang.
@@ -501,7 +502,32 @@ export class CallGraphIndexer {
 
     this.recomputeCycles();
     const deleted = before - resolved;
-    return { before, resolved, deleted };
+    return { before: before + imports.before, resolved: resolved + imports.resolved, deleted: deleted + imports.deleted };
+  }
+
+  private resolveImportedEdges(): { before: number; resolved: number; deleted: number } {
+    const db = this.getDb();
+    const rows = db.exec("SELECT rowid, target_id FROM edges WHERE target_id LIKE '@@import:%'")[0]?.values ?? [];
+    const lookup = db.prepare("SELECT id FROM nodes WHERE path = ? AND name = ? AND is_exported = 1 ORDER BY id LIMIT 2");
+    const update = db.prepare("UPDATE OR IGNORE edges SET target_id = ? WHERE rowid = ?");
+    let resolved = 0;
+    try {
+      for (const [rowid, target] of rows) {
+        const [modulePath, name] = JSON.parse(String(target).slice(9)) as [string, string];
+        lookup.bind([modulePath, name]);
+        if (!lookup.step()) continue;
+        const id = lookup.get()[0];
+        // Multiple exported definitions are ambiguous; do not choose an arbitrary target.
+        if (lookup.step()) continue;
+        update.run([id, rowid]);
+        resolved++;
+      }
+    } finally {
+      lookup.free();
+      update.free();
+    }
+    db.run("DELETE FROM edges WHERE target_id LIKE '@@import:%'");
+    return { before: rows.length, resolved, deleted: rows.length - resolved };
   }
 
   /**

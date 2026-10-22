@@ -28,7 +28,7 @@ vi.mock("web-tree-sitter", () => {
     };
     language: object = { __isMockLanguage: true };
     setLanguage = vi.fn();
-    parse = vi.fn().mockReturnValue({ rootNode: {}, delete: mockTreeDelete });
+    parse = vi.fn().mockReturnValue({ rootNode: { namedChildren: [] }, delete: mockTreeDelete });
     getLanguage = vi.fn();
     reset = vi.fn();
     delete = vi.fn();
@@ -52,7 +52,7 @@ vi.mock("@/analyzer/languages/WasmParserFactory", () => ({
       init: vi.fn().mockResolvedValue(undefined),
       getParser: vi.fn().mockResolvedValue({
         language: { __isMockLanguage: true },
-        parse: vi.fn().mockReturnValue({ rootNode: {}, delete: mockTreeDelete }),
+        parse: vi.fn().mockReturnValue({ rootNode: { namedChildren: [] }, delete: mockTreeDelete }),
         setLanguage: vi.fn(),
       }),
     }),

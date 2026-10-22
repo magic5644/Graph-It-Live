@@ -15,7 +15,8 @@
  *  3. For each relationship capture, walk up the AST to find the nearest
  *     enclosing `@def.*` node — this is the edge source.
  *  4. Intra-file target IDs are resolved against the extracted node set.
- *     Cross-file targets are stored as `@@external:<name>` stubs.
+ *     Named JS/TS imports retain their module in `@@import:` stubs;
+ *     other cross-file targets are stored as `@@external:<name>` stubs.
  *
  * NO vscode imports — this module is VS Code-agnostic.
  *
@@ -23,6 +24,7 @@
  */
 
 import { WasmParserFactory } from "@/analyzer/languages/WasmParserFactory";
+import { PathResolver } from "@/analyzer/utils/PathResolver";
 import type { RelationType, SupportedLang, SymbolType } from "@/shared/callgraph-types";
 import { getLogger } from "@/shared/logger";
 import { normalizePath } from "@/shared/path";
@@ -31,6 +33,7 @@ import path from "node:path";
 import type { Node as TreeNode } from "web-tree-sitter";
 import { Query } from "web-tree-sitter";
 import type { CallGraphEdge, CallGraphNode } from "./CallGraphIndexer";
+import { resolveNamedImportCalls } from "./importBindings";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -220,7 +223,11 @@ export class GraphExtractor {
       // Run query (compiled Query is cached per language — safe to reuse across files)
       const query = this.getOrCompileQuery(language, querySrc, lang);
       const captures = query.captures(tree.rootNode);
-      return this.processCaptures(captures, normalizedPath, lang, source);
+      const importTargets = lang === "typescript" || lang === "javascript"
+        ? await resolveNamedImportCalls(tree.rootNode, captures.filter(c => c.name === "call").map(c => c.node),
+          normalizedPath, new PathResolver(undefined, true, this.config.workspaceRoot))
+        : new Map<number, string | null>();
+      return this.processCaptures(captures, normalizedPath, lang, source, importTargets);
     } finally {
       tree.delete();
     }
@@ -259,11 +266,12 @@ export class GraphExtractor {
     normalizedFilePath: string,
     lang: SupportedLang,
     source: string,
+    importTargets: Map<number, string | null>,
   ): ExtractionResult {
     const folder = this.computeFolder(normalizedFilePath);
     const { nodeMap, defCaptures, positionToNodeId, nameToNodeIds } =
       this.buildNodeMap(captures, normalizedFilePath, lang, folder, source);
-    const edges = this.buildEdges(captures, normalizedFilePath, positionToNodeId, nameToNodeIds, defCaptures);
+    const edges = this.buildEdges(captures, normalizedFilePath, positionToNodeId, nameToNodeIds, defCaptures, importTargets);
     return { nodes: [...nodeMap.values()], edges };
   }
 
@@ -334,6 +342,7 @@ export class GraphExtractor {
     positionToNodeId: Map<string, string>,
     nameToNodeIds: Map<string, string[]>,
     defCaptures: Array<{ captureName: string; node: TreeNode }>,
+    importTargets: Map<number, string | null>,
   ): CallGraphEdge[] {
     const edges: CallGraphEdge[] = [];
     const seenEdges = new Set<string>();
@@ -349,7 +358,12 @@ export class GraphExtractor {
       );
       if (!sourceNodeId) continue;
       const targetNodeIds = nameToNodeIds.get(targetName);
-      const targetId = targetNodeIds?.[0] ?? `@@external:${targetName}`;
+      let targetId = targetNodeIds?.[0] ?? `@@external:${targetName}`;
+      if (relationType === "CALLS" && importTargets.has(capture.node.id)) {
+        const importedTarget = importTargets.get(capture.node.id);
+        if (!importedTarget || (!importedTarget.startsWith("@@import:") && !targetNodeIds?.includes(importedTarget))) continue;
+        targetId = importedTarget;
+      }
 
       // Skip cross-file edges from member/method access calls (e.g. obj.method()).
       // Without type information, name-only resolution creates false positives:
