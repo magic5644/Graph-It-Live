@@ -44,7 +44,7 @@ const HTML_FILES = ["index.html", "public/index.html", "src/index.html"];
 const BUNDLER_CONFIG = /^(?:(?:vite|webpack|next|nuxt|rspack|rsbuild|module-federation)\.config\.[cm]?[jt]s|angular\.json)$/;
 const FEDERATION = /ModuleFederationPlugin|@module-federation\/|single-spa/;
 const ENTRY_FILES = ["index.ts", "index.js", "src/index.ts", "src/index.js", "handler.ts", "handler.js", "src/handler.ts", "src/handler.js"];
-const HANDLER_EXPORT = /\bexport\s+(?:const|let|var|(?:async\s+)?function)\s+handler\b|\bexports\.handler\s*=|\bexport\s*\{[^}]*\bhandler\s*[,}]/;
+const HANDLER_EXPORT = /\bexport\s+(?:const|let|var|(?:async\s+)?function)\s+handler\b|\bexports\.handler\s*=|\bexport\s*\{[^}]{0,1000}\bhandler\s*[,}]/;
 const TOOLING_FOLDERS = new Set(["scripts", "script", "tools", "e2e", "test", "tests", "__tests__", "__mocks__", "fixtures", "bench", "benchmarks"]);
 const TOOLING_FILE = /\.(?:test|spec|config)\.[cm]?[jt]sx?$/;
 
@@ -184,7 +184,7 @@ function frontendEvidence(unit: UnitFolder, configs: readonly string[]): UnitRol
 }
 
 function serviceEvidence(unit: UnitFolder): UnitRoleEvidence[] {
-  const docker = /^\s*EXPOSE\s/im.test(unit.read("Dockerfile")) ? [{ role: "service" as const, detail: "`Dockerfile` with EXPOSE" }] : [];
+  const docker = /^[ \t]*EXPOSE[ \t]/im.test(unit.read("Dockerfile")) ? [{ role: "service" as const, detail: "`Dockerfile` with EXPOSE" }] : [];
   return [...dependencyEvidence(unit, "service", (name) => SERVICE_DEPENDENCIES.has(name)), ...docker];
 }
 

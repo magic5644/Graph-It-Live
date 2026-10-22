@@ -135,6 +135,7 @@ describe("unit roles edge cases", () => {
   it("reads SAM templates, Azure host.json, single-spa and handler re-exports", () => {
     write("sam/template.yaml", "Transform: AWS::Serverless-2016-10-31\n");
     write("cfn/template.yaml", "Resources: {}\n");
+    write("cfn/Dockerfile", "FROM node:22\n# EXPOSE 80 is not an instruction\n");
     write("az/host.json", "{}");
     write("spa/package.json", pkg("spa", { "single-spa": "6" }));
     write("cjs/src/handler.js", "exports.handler = async () => 1;\n");
