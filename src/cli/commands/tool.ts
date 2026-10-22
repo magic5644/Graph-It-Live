@@ -13,6 +13,7 @@ import {
   executeAnalyzeBreakingChanges,
   executeAnalyzeDependencies,
   executeCrawlDependencyGraph,
+  executeCheckArchitecture,
   executeExploreArchitecture,
   executeFindReferencingFiles,
   executeFindUnusedSymbols,
@@ -33,6 +34,7 @@ import type {
   AnalyzeBreakingChangesParams,
   AnalyzeDependenciesParams,
   CrawlDependencyGraphParams,
+  CheckArchitectureParams,
   ExploreArchitectureParams,
   FindReferencingFilesParams,
   FindUnusedSymbolsParams,
@@ -74,6 +76,7 @@ const TOOL_NAMES: McpToolName[] = [
   "query_call_graph",
   "scan_dead_code",
   "explore_architecture",
+  "check_architecture",
 ];
 
 /** Transition aliases removed in v1.20.0, mapped to the command that replaces them. */
@@ -284,6 +287,7 @@ const cliToolHandlers: Partial<Record<McpToolName, CliToolHandler>> = {
     executeQueryCallGraph(params as QueryCallGraphParams),
   scan_dead_code: (params) => executeScanDeadCode(params as ScanDeadCodeParams),
   explore_architecture: (params) => executeExploreArchitecture(params as ExploreArchitectureParams),
+  check_architecture: (params) => executeCheckArchitecture(params as CheckArchitectureParams),
 };
 
 async function invokeTool(tool: McpToolName, params: unknown): Promise<unknown> {

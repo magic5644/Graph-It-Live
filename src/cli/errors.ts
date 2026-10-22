@@ -30,11 +30,14 @@ export type ExitCode = (typeof ExitCode)[keyof typeof ExitCode];
  */
 export class CliError extends Error {
   readonly exitCode: ExitCode;
+  /** Printed to stdout before the error: a command's report that also fails the run (e.g. check-architecture). */
+  readonly output?: string;
 
-  constructor(message: string, exitCode: ExitCode) {
+  constructor(message: string, exitCode: ExitCode, output?: string) {
     super(message);
     this.name = "CliError";
     this.exitCode = exitCode;
+    this.output = output;
   }
 }
 

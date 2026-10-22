@@ -17,9 +17,9 @@ import { encodeToonSections, formatToonScalarHeader } from "../shared/toonSectio
 import { sessionStats } from "../shared/sessionStats";
 import { compactOutput } from "../shared/compactOutput";
 
-export type CliOutputFormat = "text" | "json" | "toon" | "markdown" | "mermaid" | "html" | "csv";
+export type CliOutputFormat = "text" | "json" | "toon" | "markdown" | "mermaid" | "html" | "csv" | "sarif";
 
-export const CLI_OUTPUT_FORMATS: readonly CliOutputFormat[] = ["text", "json", "toon", "markdown", "mermaid", "html", "csv"];
+export const CLI_OUTPUT_FORMATS: readonly CliOutputFormat[] = ["text", "json", "toon", "markdown", "mermaid", "html", "csv", "sarif"];
 
 /** Commands that can produce graph / mermaid output */
 const GRAPH_COMMANDS = new Set(["trace", "path", "scan", "architecture"]);
@@ -72,6 +72,8 @@ export function formatOutput(
       throw new Error('Format "html" must be handled before formatOutput — use runExportHtml directly.');
     case "csv":
       throw new CliError('Format "csv" is only produced by graph-it architecture --matrix.', ExitCode.UNSUPPORTED_FORMAT);
+    case "sarif":
+      throw new CliError('Format "sarif" is only produced by graph-it check-architecture.', ExitCode.UNSUPPORTED_FORMAT);
   }
 }
 

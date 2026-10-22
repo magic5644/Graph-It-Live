@@ -191,6 +191,30 @@ Examples:
   graph-it architecture --level units --matrix --format json
   graph-it architecture --matrix --format csv > matrix.csv
 `,
+  "check-architecture": `graph-it check-architecture — Check imports against declared architecture rules
+
+Usage: graph-it check-architecture [options]
+
+Reads graphit.architecture.json (elements selected by path patterns or units; forbid,
+allowOnly and noCycles rules) and reports every file pair breaking a rule. Exits with 1
+when an error-severity violation is not in the baseline, so it can gate CI.
+
+Options:
+  --config FILE      Rules file in the workspace (default: graphit.architecture.json)
+  --baseline FILE    Accepted violations (default: graphit.architecture.baseline.json
+                     when it exists); only violations absent from it count
+  --update-baseline  Write every current violation to the baseline file and exit 0
+  --workspace, -w    Workspace root directory (default: auto-detected)
+  --format, -f       Output format: text|json|toon|markdown|sarif (default: text);
+                     sarif lists the new violations on their importing line
+  --help, -h         Show this help
+
+Examples:
+  graph-it check-architecture
+  graph-it check-architecture --format sarif > architecture.sarif
+  graph-it check-architecture --update-baseline
+  graph-it check-architecture --config config/architecture.json --format json
+`,
   check: `graph-it check — Find unused exported symbols in a file
 
 Usage: graph-it check <file> [options]

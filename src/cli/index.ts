@@ -14,6 +14,7 @@
  *   check-dependencies <file>  Check incoming and outgoing dependencies
  *   cycles <file>     List confirmed dependency cycles involving file
  *   architecture      Build full workspace architecture graph
+ *   check-architecture  Check the imports against graphit.architecture.json
  *   check <file>      Check for unused symbols
  *   serve             Launch MCP stdio server
  *   tool <name>       Invoke any MCP tool directly
@@ -115,6 +116,8 @@ Commands:
                     Check incoming and outgoing dependencies for a file
   cycles <file>     List confirmed dependency cycles for a file
   architecture      Build full workspace architecture graph
+  check-architecture
+                    Check the imports against graphit.architecture.json (exit 1 on a new error)
   check <file>      Find unused exported symbols
   review-pr         Review a Git diff: --base <ref> [--head <ref>]
   serve             Launch MCP stdio server (passthrough)
@@ -130,7 +133,8 @@ Commands:
 Options:
   --workspace, -w   Workspace root directory (default: auto-detected)
   --format, -f      Output format: text|json|toon|markdown|mermaid (default: text);
-                    html for export, csv for architecture --matrix
+                    html for export, csv for architecture --matrix,
+                    sarif for check-architecture
   --help, -h        Show this help
   --version, -v     Show version
   --reindex         Discard the cached index and rebuild it from scratch
@@ -346,6 +350,11 @@ async function maybeRunStartupUpdateCheck(command: string, workspaceRoot: string
   });
 }
 
+/** A report that also fails the run (check-architecture) still goes to stdout, before the error. */
+function writeFailingReport(err: unknown, format: CliOutputFormat, workspaceRoot: string): void {
+  if (err instanceof CliError && err.output) process.stdout.write(renderCliOutput(err.output, format, workspaceRoot));
+}
+
 async function main(): Promise<void> {
   let parsedArgs: ReturnType<typeof parseArgs>;
 
@@ -437,6 +446,7 @@ async function main(): Promise<void> {
     }
     process.exitCode = ExitCode.SUCCESS;
   } catch (err) {
+    writeFailingReport(err, format, workspaceRoot);
     const { message, exitCode } = classifyError(err);
     process.stderr.write(`Error: ${message}\n`);
     process.exitCode = exitCode;
@@ -497,6 +507,10 @@ async function dispatch(
     }
     case "architecture": {
       const { run } = await import("./commands/architecture.js");
+      return run(args, runtime, format);
+    }
+    case "check-architecture": {
+      const { run } = await import("./commands/checkArchitecture.js");
       return run(args, runtime, format);
     }
     case "check": {

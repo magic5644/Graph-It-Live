@@ -5,13 +5,14 @@
  * CRITICAL ARCHITECTURE RULE: This module is completely VS Code agnostic!
  */
 
-import { exploreArchitecture, exploreMatrix, exploreUnitEvidence, exploreUnits } from "../../analyzer/architecture/ArchitectureExplorer";
+import { exploreArchitecture, exploreArchitectureCheck, exploreMatrix, exploreUnitEvidence, exploreUnits } from "../../analyzer/architecture/ArchitectureExplorer";
 import { buildArchitectureGraph } from "../../analyzer/architecture/ArchitectureGraphBuilder";
 import { groupMatrix, unitMatrix } from "../../analyzer/architecture/architectureMatrix";
+import { checkWorkspaceArchitecture } from "../../analyzer/architecture/architectureRules";
 import { assignUnits, buildArchitectureUnits, folderLevel } from "../../analyzer/architecture/architectureUnits";
 import { aggregateCommunityGroups } from "../../analyzer/community/groupAggregation";
 import { workerState } from "../shared/state";
-import type { ExploreArchitectureParams } from "../types";
+import type { CheckArchitectureParams, ExploreArchitectureParams } from "../types";
 
 /**
  * Progressive exploration of the grouped architecture: a bounded summary, one group with
@@ -46,4 +47,12 @@ export async function executeExploreArchitecture(
   }
   if (params.view === "matrix") return exploreMatrix(groupMatrix(aggregateCommunityGroups(graph.graphData)), graph.context, params);
   return exploreArchitecture(graph, params);
+}
+
+/** The declared architecture rules checked against every import pair, violations paged. */
+export async function executeCheckArchitecture(params: CheckArchitectureParams, signal?: AbortSignal) {
+  const { rootDir } = workerState.getConfig();
+  const graph = await buildArchitectureGraph(rootDir, (filePath) => workerState.getSpider().analyze(filePath), { signal });
+  const check = await checkWorkspaceArchitecture(graph, rootDir, { config: params.config, baseline: params.baseline });
+  return exploreArchitectureCheck(check, params);
 }
