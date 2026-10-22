@@ -54,7 +54,7 @@ export const IGNORED_DIRECTORIES = [
 
 
 export const WATCH_GLOB = "**/*.{ts,tsx,js,jsx,mjs,cjs,vue,svelte,gql,graphql,py,pyi,rs,toml,cs,csproj,go,java}";
-/** graphit.architecture.json and its baseline (src/analyzer/architecture/architectureRules.ts). */
+/** graphit.architecture.json and its baseline (architectureRules.ts); the view reads them at the root only, so a nested match changes nothing. */
 export const ARCHITECTURE_RULES_GLOB = "**/graphit.architecture{,.baseline}.json";
 
 // Language-specific colors for UI visualization

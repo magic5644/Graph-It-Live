@@ -1294,6 +1294,7 @@ describe("ArchitectureGraph: declared architecture rules", () => {
     ...summary,
     rules: {
       configFile: "graphit.architecture.json",
+      revision: "c1",
       totals: { files: 10, unmatchedFiles: 2, rules: 2, brokenRules: 1, violations: 3, newViolations: 1, errors: 3, newErrors: 1, warnings: 0, resolved: 0 },
       rules: [rule, { ...rule, name: "quiet", violations: 0, newViolations: 0, elementPairs: [] }],
       configWarnings: ['$.elements.ghost.path: "nowhere/" matches no file'],
@@ -1339,7 +1340,10 @@ describe("ArchitectureGraph: declared architecture rules", () => {
     send({ type: "architectureControls", rule: "ui-not-store" });
     expect(postMessage).toHaveBeenCalledWith(expect.objectContaining({ command: "architectureRuleEvidence", rule: "ui-not-store" }));
 
-    send({ ...withRules, rules: { ...withRules.rules!, groupEdges: {} } });
+    // A stale mark of the same check keeps the panel; a check with another revision starts over.
+    send({ ...withRules, stale: true });
+    expect(screen.getByRole("region", { name: "Evidence" })).toBeTruthy();
+    send({ ...withRules, rules: { ...withRules.rules!, revision: "c2", groupEdges: {} } });
     expect(screen.queryByRole("region", { name: "Evidence" })).toBeNull();
     expect(cy.state.edges.find((candidate) => candidate.id() === "edge-1-2")!.data("violation")).toBeUndefined();
   });

@@ -61,6 +61,7 @@ const RuleSchema = z.strictObject({
 });
 
 type RawRule = z.infer<typeof RuleSchema>;
+type ArchitectureConfigElements = Record<string, z.infer<typeof ElementSchema>>;
 const KINDS = ["forbid", "allowOnly", "noCycles"] as const;
 export type ArchitectureRuleKind = (typeof KINDS)[number];
 
@@ -75,17 +76,33 @@ function elementRefs(rule: RawRule): { name: string; at: (string | number)[] }[]
   return rule.noCycles === undefined || rule.noCycles === UNITS ? refs : [...refs, { name: rule.noCycles, at: ["noCycles"] }];
 }
 
+/**
+ * An element without `each` is one instance, which never breaks a rule against itself: such a
+ * rule could never report, so it is refused rather than silently passing.
+ */
+function selfRuleIssue(rule: RawRule, each: (name: string) => boolean): { message: string; at: string } | undefined {
+  if (rule.noCycles !== undefined && rule.noCycles !== UNITS && !each(rule.noCycles)) {
+    return { message: `noCycles on "${rule.noCycles}" needs each: true (one instance has no cycle with itself)`, at: "noCycles" };
+  }
+  const self = asList(rule.forbid).find((name) => asList(rule.from).includes(name) && !each(name));
+  return self === undefined ? undefined : { message: `forbidding "${self}" from itself needs each: true (a file never breaks a rule against its own instance)`, at: "forbid" };
+}
+
 /** Every rule names one kind and only elements of the config; rule names are unique. */
-function checkRule(rule: RawRule, index: number, elements: ReadonlySet<string>, names: Set<string>, context: z.RefinementCtx) {
+function checkRule(rule: RawRule, index: number, elements: ArchitectureConfigElements, names: Set<string>, context: z.RefinementCtx) {
   const issue = (message: string, ...at: (string | number)[]) => context.addIssue({ code: "custom", message, path: ["rules", index, ...at] });
   const kinds = KINDS.filter((kind) => rule[kind] !== undefined);
   if (kinds.length !== 1) issue("a rule needs exactly one of forbid, allowOnly or noCycles");
   if (kinds.includes("noCycles") === (rule.from !== undefined)) issue(rule.from === undefined ? "forbid and allowOnly need from" : "noCycles takes no from", "from");
   if (names.has(rule.name)) issue(`duplicate rule name "${rule.name}"`, "name");
   names.add(rule.name);
-  for (const { name, at } of elementRefs(rule)) {
-    if (!elements.has(name)) issue(`unknown element "${name}"`, ...at);
+  const refs = elementRefs(rule);
+  for (const { name, at } of refs) {
+    if (!(name in elements)) issue(`unknown element "${name}"`, ...at);
   }
+  if (refs.some(({ name }) => !(name in elements))) return;
+  const self = selfRuleIssue(rule, (name) => elements[name].each === true);
+  if (self) issue(self.message, self.at);
 }
 
 export const ArchitectureConfigSchema = z
@@ -99,7 +116,7 @@ export const ArchitectureConfigSchema = z
     if (elements.size > MAX_ELEMENTS) context.addIssue({ code: "custom", message: `at most ${MAX_ELEMENTS} elements`, path: ["elements"] });
     if (elements.has(UNITS)) context.addIssue({ code: "custom", message: `"${UNITS}" is reserved for noCycles: rename the element`, path: ["elements", UNITS] });
     const names = new Set<string>();
-    config.rules.forEach((rule, index) => checkRule(rule, index, elements, names, context));
+    config.rules.forEach((rule, index) => checkRule(rule, index, config.elements, names, context));
   });
 
 export type ArchitectureConfig = z.infer<typeof ArchitectureConfigSchema>;
@@ -297,6 +314,10 @@ function elementInstance(name: string, element: ArchitectureConfig["elements"][s
   };
 }
 
+/**
+ * ponytail: elements × files × folder depth `ignore` calls, then rules × edges; fine for tens of
+ * thousands of files and tens of rules, index the files by folder if a large config gets slow.
+ */
 function resolveElements(config: ArchitectureConfig, files: readonly string[], assignment: UnitAssignment): ResolvedElements {
   const membership = new Map<string, Membership>(files.map((file) => [file, new Map()]));
   const warnings: string[] = [];
@@ -458,7 +479,11 @@ export function checkArchitecture(
   });
   violations.sort(byEntry);
   const unmatchedFiles = files.filter((file) => elements.membership.get(file)!.size === 0).sort(byCodeUnit);
-  const resolved = (baseline ?? []).filter((entry) => !found.has(`${entry.rule}\0${entry.source}\0${entry.target}`)).sort(byEntry);
+  // A rule switched off is not checked: its accepted entries are neither found nor resolved.
+  const off = new Set(rules.filter((rule) => rule.severity === "off").map((rule) => rule.name));
+  const resolved = (baseline ?? [])
+    .filter((entry) => !off.has(entry.rule) && !found.has(`${entry.rule}\0${entry.source}\0${entry.target}`))
+    .sort(byEntry);
   const count = (severity: "error" | "warning", onlyNew: boolean) =>
     violations.filter((violation) => violation.severity === severity && (!onlyNew || violation.new)).length;
   const revision = createHash("sha256")

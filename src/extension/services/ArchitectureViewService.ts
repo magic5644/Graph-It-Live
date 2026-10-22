@@ -200,6 +200,7 @@ function rulesView(rules: RulesState, graph: ArchitectureGraph, unitOf?: Readonl
   return {
     rules: {
       configFile: check.configFile,
+      revision: check.context.revision,
       totals: check.totals,
       rules: check.rules,
       configWarnings: check.configWarnings,

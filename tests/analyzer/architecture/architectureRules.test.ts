@@ -74,6 +74,17 @@ describe("parseArchitectureConfig", () => {
     expect(issuesOf(withRules([], { "a b": { path: "a/" } }))[0]).toMatchObject({ path: '$.elements["a b"]' });
   });
 
+  it("rejects rules that could never report: against an element's single instance", () => {
+    expect(issuesOf(withRules([{ name: "r", noCycles: "frontend" }]))).toEqual([
+      { path: "$.rules[0].noCycles", message: expect.stringContaining('noCycles on "frontend" needs each: true') },
+    ]);
+    expect(issuesOf(withRules([{ name: "r", from: ["frontend", "mfe"], forbid: ["backend", "frontend"] }]))).toEqual([
+      { path: "$.rules[0].forbid", message: expect.stringContaining('forbidding "frontend" from itself needs each: true') },
+    ]);
+    // With each, another instance is meant: accepted.
+    expect(() => parseArchitectureConfig(withRules([{ name: "r", from: "mfe", forbid: "mfe" }, { name: "c", noCycles: "mfe" }]))).not.toThrow();
+  });
+
   it("rejects invalid JSON and oversized files before parsing", () => {
     expect(issuesOf("{")).toEqual([{ path: "$", message: expect.stringContaining("not valid JSON") }]);
     expect(issuesOf(" ".repeat(MAX_CONFIG_BYTES + 1))).toEqual([{ path: "$", message: `larger than ${MAX_CONFIG_BYTES} bytes` }]);
@@ -156,17 +167,17 @@ describe("checkArchitecture on the generated workspace", () => {
   });
 
   it("noCycles on an each element: cycles between its instances only", () => {
-    const cyclic: ArchitectureConfig = { elements: { lib: { unit: "shared/*", each: true }, all: { path: "*" } }, rules: [
+    const cyclic: ArchitectureConfig = { elements: { lib: { unit: "shared/*", each: true }, top: { path: "*", each: true } }, rules: [
       { name: "lib-cycles", noCycles: "lib" },
-      { name: "all-cycles", noCycles: "all" },
+      { name: "top-cycles", noCycles: "top" },
     ] };
     const result = checkArchitecture(graph, assignment, cyclic);
     expect(pairs(result, "lib-cycles").map(({ from, to }) => `${from} → ${to}`)).toEqual([
       "lib (shared/ui) → lib (shared/utils)",
       "lib (shared/utils) → lib (shared/ui)",
     ]);
-    // One instance has no cycle with itself.
-    expect(pairs(result, "all-cycles")).toEqual([]);
+    // Top-level folders: shared holds both libraries, so their cycle is inside one instance.
+    expect(pairs(result, "top-cycles")).toEqual([]);
   });
 
   it("sums totals per severity, lists unmatched files and fails on a new error", () => {
@@ -219,6 +230,11 @@ describe("checkArchitecture on the generated workspace", () => {
     expect(accepted.totals).toMatchObject({ violations: 6, newViolations: 1, newErrors: 0, resolved: 1 });
     expect(accepted.resolved).toEqual([{ rule: "gone", source: "old/a.ts", target: "old/b.ts" }]);
     expect(accepted.context.revision).not.toBe(first.context.revision);
+
+    // A rule switched off is not checked: its accepted entries are not resolved.
+    const switchedOff = config();
+    switchedOff.rules = switchedOff.rules.map((rule) => ({ ...rule, severity: rule.name === "no-unit-cycles" ? "off" : rule.severity }));
+    expect(checkArchitecture(graph, assignment, switchedOff, baseline).resolved).toEqual([{ rule: "gone", source: "old/a.ts", target: "old/b.ts" }]);
 
     const partial = checkArchitecture(graph, assignment, config(), baseline.filter((entry) => entry.rule !== "frontend-not-backend"));
     expect(partial.passed).toBe(false);

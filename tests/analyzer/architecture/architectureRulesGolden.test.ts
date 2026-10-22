@@ -134,6 +134,19 @@ describe("architecture rules golden output: generated workspace", () => {
     // Rewriting it drops the resolved entry, whatever the previous baseline held.
     await cli(["--update-baseline"]);
     expect(fs.readFileSync(baselinePath, "utf8")).toBe(written);
+
+    // A rule switched off keeps its accepted entries: it was not checked.
+    const configPath = path.join(rootDir, "graphit.architecture.json");
+    const original = fs.readFileSync(configPath, "utf8");
+    const off = JSON.parse(original);
+    off.rules = off.rules.map((rule: { name: string }) => (rule.name === "no-unit-cycles" ? { ...rule, severity: "off" } : rule));
+    fs.writeFileSync(configPath, JSON.stringify(off));
+    try {
+      await cli(["--update-baseline"]);
+      expect(fs.readFileSync(baselinePath, "utf8")).toBe(written);
+    } finally {
+      fs.writeFileSync(configPath, original);
+    }
     fs.rmSync(baselinePath);
   });
 

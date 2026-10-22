@@ -891,7 +891,8 @@ export function ArchitectureGraph({ postMessage }: Readonly<ArchitectureGraphPro
   const receiveSummary = (message: ArchitectureSummaryMessage) => {
     // Group ids and pages only hold for their revision; a stale mark or a rebuild of the same graph keeps them,
     // unless the rules changed (the matrices and evidence carry them).
-    const rulesChanged = JSON.stringify(summaryRef.current?.rules) !== JSON.stringify(message.rules);
+    const rulesKey = (summary: ArchitectureSummaryMessage | null) => summary?.rules?.revision ?? summary?.rules?.error;
+    const rulesChanged = rulesKey(summaryRef.current) !== rulesKey(message);
     if (summaryRef.current?.revision !== message.revision || (summaryRef.current && rulesChanged)) reset();
     summaryRef.current = message;
     setSummary(message);
