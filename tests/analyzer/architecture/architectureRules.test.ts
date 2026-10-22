@@ -7,9 +7,11 @@ import {
   ArchitectureConfigSchema,
   ArchitectureRulesFileError,
   checkArchitecture,
+  checkWorkspaceArchitecture,
   formatBaseline,
   jsonPath,
   loadArchitectureRules,
+  loadDeclaredRoles,
   matchesWildcard,
   MAX_CONFIG_BYTES,
   parseArchitectureConfig,
@@ -62,7 +64,7 @@ describe("parseArchitectureConfig", () => {
     for (const pattern of ["../outside", "a/../../b", String.raw`C:\repo`, "c:/repo", String.raw`a\b`]) {
       expect(issuesOf(withRules([], { a: { path: pattern } }))[0], pattern).toMatchObject({ path: "$.elements.a.path", message: expect.stringContaining("inside the workspace") });
     }
-    expect(issuesOf(withRules([], { a: {} }))).toEqual([{ path: "$.elements.a", message: "an element needs path or unit" }]);
+    expect(issuesOf(withRules([], { a: {} }))).toEqual([{ path: "$.elements.a", message: "an element needs path, unit or role" }]);
   });
 
   it("rejects rules without exactly one kind, misplaced from, duplicate names and the reserved element name", () => {
@@ -91,9 +93,17 @@ describe("parseArchitectureConfig", () => {
     expect(() => parseArchitectureConfig("{", "custom.json")).toThrow(/^custom\.json: \$: not valid JSON/);
   });
 
+  it("accepts a config declaring roles only, and rejects unknown roles", () => {
+    expect(parseArchitectureConfig(JSON.stringify({ roles: { "functions/*": "function" } }))).toEqual({
+      elements: {}, rules: [], roles: { "functions/*": "function" },
+    });
+    expect(issuesOf(JSON.stringify({ roles: { api: "backend" } }))).toEqual([{ path: "$.roles.api", message: expect.stringContaining("function") }]);
+    expect(issuesOf(withRules([], { a: { role: "lambda" } }))[0]).toMatchObject({ path: "$.elements.a.role" });
+  });
+
   it("publishes the JSON schema generated from the Zod schema", () => {
     const published = JSON.parse(fs.readFileSync(path.resolve(__dirname, "../../../schemas/architecture.schema.json"), "utf8"));
-    expect(published).toEqual(z.toJSONSchema(ArchitectureConfigSchema));
+    expect(published).toEqual(z.toJSONSchema(ArchitectureConfigSchema, { io: "input" }));
   });
 });
 
@@ -221,6 +231,22 @@ describe("checkArchitecture on the generated workspace", () => {
     expect(result.totals.unmatchedFiles).toBe(graph.nodes.length - 1);
   });
 
+  it("role: selects the units of a role, one instance per unit with each, and warns about a role no unit has", () => {
+    const roleOf = new Map([["functions/billing", "function"], ["functions/mail", "function"], ["backend", "service"]]);
+    const byRole: ArchitectureConfig = {
+      elements: { fn: { role: "function", each: true }, api: { role: ["service"] }, mfe: { role: "micro-frontend" } },
+      rules: [{ name: "fn-isolated", from: "fn", forbid: ["fn", "api"] }],
+    };
+    const result = checkArchitecture(graph, assignment, byRole, undefined, roleOf);
+    expect(pairs(result, "fn-isolated").map(({ from, to }) => `${from} → ${to}`)).toEqual([
+      "fn (functions/billing) → api",
+      "fn (functions/mail) → fn (functions/billing)",
+    ]);
+    expect(result.configWarnings).toEqual(['$.elements.mfe.role: "micro-frontend" matches no unit']);
+    // The roles are part of the revision.
+    expect(checkArchitecture(graph, assignment, byRole).context.revision).not.toBe(result.context.revision);
+  });
+
   it("baseline: accepted violations pass, a new one fails, a resolved one is listed", () => {
     const first = checkArchitecture(graph, assignment, config());
     const errors = first.violations.filter((violation) => violation.severity === "error");
@@ -288,6 +314,33 @@ describe("rule files in the workspace", () => {
     fs.writeFileSync(path.join(rootDir, "graphit.architecture.baseline.json"), formatBaseline([{ rule: "a", source: "x.ts", target: "y.ts" }]));
     expect(await loadArchitectureRules(rootDir)).toMatchObject({ baselineFile: "graphit.architecture.baseline.json", baseline: [{ rule: "a" }] });
     fs.rmSync(path.join(rootDir, "graphit.architecture.baseline.json"));
+  });
+
+  it("loads the declared roles, none without a config, and applies them to role elements", async () => {
+    const configFile = path.join(rootDir, "graphit.architecture.json");
+    const original = fs.readFileSync(configFile, "utf8");
+    try {
+      expect(await loadDeclaredRoles(rootDir)).toBeUndefined();
+      fs.writeFileSync(configFile, JSON.stringify({
+        elements: { fn: { role: "function" }, backend: { path: "backend/" } },
+        rules: [{ name: "fn-not-backend", from: "fn", forbid: "backend" }],
+        roles: { "@acme/fn-*": "function" },
+      }));
+      expect(await loadDeclaredRoles(rootDir)).toEqual({ "@acme/fn-*": "function" });
+      workerState.parser = new Parser();
+      workerState.resolver = new PathResolver(undefined, true, rootDir);
+      const spider = new SpiderBuilder().withRootDir(rootDir).withExcludeNodeModules(true).build();
+      const graph = await buildArchitectureGraph(rootDir, (file) => spider.analyze(file));
+      const check = await checkWorkspaceArchitecture(graph, rootDir);
+      expect(check.violations.map(({ source, target }) => `${source} → ${target}`)).toEqual(["functions/billing/index.ts → backend/src/db.ts"]);
+      fs.rmSync(configFile);
+      expect(await loadDeclaredRoles(rootDir)).toBeUndefined();
+      fs.writeFileSync(configFile, "{");
+      await expect(loadDeclaredRoles(rootDir)).rejects.toThrow("not valid JSON");
+    } finally {
+      workerState.reset();
+      fs.writeFileSync(configFile, original);
+    }
   });
 
   it("requires a named baseline and the config to exist", async () => {

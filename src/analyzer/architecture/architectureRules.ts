@@ -15,8 +15,11 @@ import { z } from "zod/v4";
 import { normalizePath } from "../../shared/path";
 import { validateWorkspacePath } from "../../shared/pathSecurity";
 import type { ArchitectureGraph } from "./ArchitectureGraphBuilder";
-import { assignUnits, byCodeUnit, type UnitAssignment } from "./architectureUnits";
+import { assignUnits, buildArchitectureUnits, byCodeUnit, type UnitAssignment } from "./architectureUnits";
 import { layerGraph } from "./stronglyConnectedComponents";
+import { matchesWildcard, UNIT_ROLES, type DeclaredRoles } from "./unitRoles";
+
+export { matchesWildcard } from "./unitRoles";
 
 export const ARCHITECTURE_CONFIG_FILE = "graphit.architecture.json";
 export const ARCHITECTURE_BASELINE_FILE = "graphit.architecture.baseline.json";
@@ -44,10 +47,12 @@ const ElementSchema = z
       .describe("Workspace-relative gitignore-style patterns, as in .graphitignore (e.g. 'frontend/', 'mfe/*')"),
     unit: oneOrMany(UnitPatternSchema).optional()
       .describe("Unit keys or package names (graph-it architecture --level units); * matches any characters"),
+    role: oneOrMany(z.enum(UNIT_ROLES)).optional()
+      .describe("Unit roles (graph-it architecture --level units): every unit with one of them"),
     each: z.boolean().optional()
       .describe("Every matched folder or unit is an instance of its own: a rule from this element to itself means another instance"),
   })
-  .refine((element) => element.path !== undefined || element.unit !== undefined, "an element needs path or unit");
+  .refine((element) => element.path !== undefined || element.unit !== undefined || element.role !== undefined, "an element needs path, unit or role");
 
 const RuleSchema = z.strictObject({
   name: z.string().min(1).max(128).describe("Shown with every violation; unique"),
@@ -108,8 +113,10 @@ function checkRule(rule: RawRule, index: number, elements: ArchitectureConfigEle
 export const ArchitectureConfigSchema = z
   .strictObject({
     $schema: z.string().optional(),
-    elements: z.record(NameSchema, ElementSchema).describe("Named sets of files the rules refer to"),
-    rules: z.array(RuleSchema).max(MAX_RULES),
+    elements: z.record(NameSchema, ElementSchema).default({}).describe("Named sets of files the rules refer to"),
+    rules: z.array(RuleSchema).max(MAX_RULES).default([]),
+    roles: z.record(UnitPatternSchema, z.enum(UNIT_ROLES)).optional()
+      .describe("Unit key or package name (* matches any characters) → role; the first matching entry overrides the inferred role"),
   })
   .superRefine((config, context) => {
     const elements = new Set(Object.keys(config.elements));
@@ -241,32 +248,6 @@ export async function loadArchitectureRules(workspaceRoot: string, files: Archit
   return { configFile, config, baselineFile, baseline: parseBaseline(baselineText, baselineFile) };
 }
 
-/** `*` matches any characters, everything else itself (no regular expression from the config). */
-export function matchesWildcard(pattern: string, text: string): boolean {
-  let p = 0;
-  let t = 0;
-  let star = -1;
-  let mark = 0;
-  while (t < text.length) {
-    if (p < pattern.length && pattern[p] !== "*" && pattern[p] === text[t]) {
-      p += 1;
-      t += 1;
-    } else if (p < pattern.length && pattern[p] === "*") {
-      star = p;
-      mark = t;
-      p += 1;
-    } else if (star >= 0) {
-      p = star + 1;
-      mark += 1;
-      t = mark;
-    } else {
-      return false;
-    }
-  }
-  while (pattern[p] === "*") p += 1;
-  return p === pattern.length;
-}
-
 /** Element name → instance, for one file. An element without `each` has one instance: its name. */
 type Membership = Map<string, string>;
 
@@ -287,7 +268,7 @@ function matchedPrefix(matcher: ReturnType<typeof ignore>, file: string): string
 }
 
 function patternWarnings(at: string, value: string | string[] | undefined, matches: (pattern: string) => boolean): string[] {
-  const what = at.endsWith("unit") ? "unit" : "file";
+  const what = at.endsWith(".path") ? "file" : "unit";
   return asList(value).flatMap((pattern, index) => {
     if (pattern.startsWith("!") || matches(pattern)) return [];
     const where = Array.isArray(value) ? `${at}[${index}]` : at;
@@ -298,11 +279,16 @@ function patternWarnings(at: string, value: string | string[] | undefined, match
 /** Instance of `file` in one element (path first, then unit), or undefined outside it. */
 type InstanceOf = (file: string) => string | undefined;
 
-function elementInstance(name: string, element: ArchitectureConfig["elements"][string], assignment: UnitAssignment): InstanceOf {
+/** Unit key → role, for the `role` selectors. */
+type RoleOf = ReadonlyMap<string, string>;
+
+function elementInstance(name: string, element: ArchitectureConfig["elements"][string], assignment: UnitAssignment, roleOf: RoleOf): InstanceOf {
   const matcher = element.path === undefined ? undefined : ignore().add(asList(element.path));
+  const roles = asList<string>(element.role);
   const units = new Set(
     [...assignment.names].filter(([key, unitName]) =>
-      asList(element.unit).some((pattern) => matchesWildcard(pattern, key) || matchesWildcard(pattern, unitName))).map(([key]) => key),
+      asList(element.unit).some((pattern) => matchesWildcard(pattern, key) || matchesWildcard(pattern, unitName))
+      || roles.includes(roleOf.get(key) ?? "")).map(([key]) => key),
   );
   return (file) => {
     const byPath = matcher === undefined ? undefined : matchedPrefix(matcher, file);
@@ -318,11 +304,11 @@ function elementInstance(name: string, element: ArchitectureConfig["elements"][s
  * ponytail: elements × files × folder depth `ignore` calls, then rules × edges; fine for tens of
  * thousands of files and tens of rules, index the files by folder if a large config gets slow.
  */
-function resolveElements(config: ArchitectureConfig, files: readonly string[], assignment: UnitAssignment): ResolvedElements {
+function resolveElements(config: ArchitectureConfig, files: readonly string[], assignment: UnitAssignment, roleOf: RoleOf): ResolvedElements {
   const membership = new Map<string, Membership>(files.map((file) => [file, new Map()]));
   const warnings: string[] = [];
   for (const [name, element] of Object.entries(config.elements)) {
-    const instanceOf = elementInstance(name, element, assignment);
+    const instanceOf = elementInstance(name, element, assignment, roleOf);
     for (const file of files) {
       const instance = instanceOf(file);
       if (instance !== undefined) membership.get(file)!.set(name, instance);
@@ -335,6 +321,7 @@ function resolveElements(config: ArchitectureConfig, files: readonly string[], a
       }),
       ...patternWarnings(`${at}.unit`, element.unit, (pattern) =>
         [...assignment.names].some(([key, unitName]) => matchesWildcard(pattern, key) || matchesWildcard(pattern, unitName))),
+      ...patternWarnings(`${at}.role`, element.role, (role) => [...roleOf.values()].includes(role)),
     );
   }
   return { membership, warnings };
@@ -444,17 +431,19 @@ function elementPairs(violations: readonly Found[]): ArchitectureRuleSummary["el
 
 /**
  * Checks every rule against the file pairs of the graph. Element `unit` selectors and noCycles
- * "units" read the unit assignment of `graph-it architecture --level units`. With a baseline,
- * only violations absent from it are new; `resolved` lists its entries no longer found.
+ * "units" read the unit assignment of `graph-it architecture --level units`, `role` selectors
+ * its unit roles (`roleOf`). With a baseline, only violations absent from it are new;
+ * `resolved` lists its entries no longer found.
  */
 export function checkArchitecture(
   graph: ArchitectureGraph,
   assignment: UnitAssignment,
   config: ArchitectureConfig,
   baseline?: readonly BaselineEntry[],
+  roleOf: RoleOf = new Map(),
 ) {
   const files = graph.nodes.map((node) => node.relativePath);
-  const elements = resolveElements(config, files, assignment);
+  const elements = resolveElements(config, files, assignment, roleOf);
   const accepted = new Set((baseline ?? []).map((entry) => `${entry.rule}\0${entry.source}\0${entry.target}`));
   const found = new Set<string>();
   const violations: ArchitectureViolation[] = [];
@@ -487,7 +476,12 @@ export function checkArchitecture(
   const count = (severity: "error" | "warning", onlyNew: boolean) =>
     violations.filter((violation) => violation.severity === severity && (!onlyNew || violation.new)).length;
   const revision = createHash("sha256")
-    .update(JSON.stringify([graph.context.revision, [...assignment.names].map((entry) => entry.join("\t")).sort(byCodeUnit), config, [...accepted].sort(byCodeUnit)]))
+    .update(JSON.stringify([
+      graph.context.revision,
+      [...assignment.names].map(([key, unitName]) => `${key}\t${unitName}\t${roleOf.get(key) ?? ""}`).sort(byCodeUnit),
+      config,
+      [...accepted].sort(byCodeUnit),
+    ]))
     .digest("hex");
   return {
     context: { ...graph.context, revision, baseline: baseline !== undefined },
@@ -523,7 +517,18 @@ export async function checkWorkspaceArchitecture(
 ) {
   const { configFile, config, baselineFile, baseline } = await loadArchitectureRules(workspaceRoot, files);
   const assignment = assignUnits(workspaceRoot, graph.nodes.map((node) => node.relativePath));
-  return { configFile, baselineFile, ...checkArchitecture(graph, assignment, config, baseline) };
+  const { units } = buildArchitectureUnits(graph, workspaceRoot, assignment, config.roles);
+  const roleOf = new Map(units.map((unit) => [unit.key, unit.role]));
+  return { configFile, baselineFile, ...checkArchitecture(graph, assignment, config, baseline, roleOf) };
+}
+
+/**
+ * The unit roles graphit.architecture.json declares, none without the file: what
+ * `graph-it architecture --level units`, explore_architecture and the view apply.
+ */
+export async function loadDeclaredRoles(workspaceRoot: string): Promise<DeclaredRoles | undefined> {
+  const text = await readWorkspaceFile(workspaceRoot, ARCHITECTURE_CONFIG_FILE, MAX_CONFIG_BYTES);
+  return text === undefined ? undefined : parseArchitectureConfig(text).roles;
 }
 
 export type WorkspaceArchitectureCheck = Awaited<ReturnType<typeof checkWorkspaceArchitecture>>;

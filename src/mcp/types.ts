@@ -704,7 +704,7 @@ export const ExploreArchitectureParamsSchema = z.object({
   level: z
     .enum(["groups", "units"])
     .optional()
-    .describe("groups (default): folder or Louvain groups; units: packages (else top-level folders) with their layers, unit edges (down, upward, cycle) and cycles, like graph-it architecture --level units"),
+    .describe("groups (default): folder or Louvain groups; units: packages (else top-level folders) with their layers, roles and role evidence, unit edges (down, upward, cycle) and cycles, like graph-it architecture --level units"),
   folder: z
     .string()
     .min(1)

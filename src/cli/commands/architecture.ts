@@ -10,6 +10,7 @@
 import { buildArchitectureGraph } from "../../analyzer/architecture/ArchitectureGraphBuilder.js";
 import { exploreMatrix, exploreUnitEvidence } from "../../analyzer/architecture/ArchitectureExplorer.js";
 import { groupMatrix, matrixToCsv, unitMatrix, type ArchitectureMatrix } from "../../analyzer/architecture/architectureMatrix.js";
+import { loadDeclaredRoles } from "../../analyzer/architecture/architectureRules.js";
 import { assignUnits, buildArchitectureUnits, folderLevel } from "../../analyzer/architecture/architectureUnits.js";
 import { aggregateCommunityGroups } from "../../analyzer/community/groupAggregation.js";
 import { CliError, ExitCode } from "../errors";
@@ -114,7 +115,7 @@ export async function run(
     // Units replace the file graph: the units, layers and unit edges the view draws.
     const { nodes: _nodes, edges: _edges, ...files } = architecture;
     const assignment = assignUnits(runtime.workspaceRoot, nodes.map((node) => node.relativePath));
-    const units = buildArchitectureUnits(graph, runtime.workspaceRoot, assignment);
+    const units = buildArchitectureUnits(graph, runtime.workspaceRoot, assignment, await loadDeclaredRoles(runtime.workspaceRoot));
     if (matrix) return formatMatrix(files, unitMatrix(units), units.context, format, { level });
     if (from !== undefined && to !== undefined) {
       // Every file pair of the unit edge: the CLI does not page.
