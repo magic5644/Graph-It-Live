@@ -1646,7 +1646,7 @@
     "@types/react": "^19.3.0",
     "@types/react-dom": "^19.3.0",
     "@types/sql.js": "^1.4.11",
-    "@types/vscode": "^1.140.0",
+    "@types/vscode": "^1.96.0",
     "@vitest/coverage-v8": "^4.1.12",
     "@vitest/ui": "^4.1.12",
     "@vscode/test-electron": "^3.1.0",
