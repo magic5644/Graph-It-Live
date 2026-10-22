@@ -33,6 +33,8 @@ interface ArchitectureEdge {
   target: string;
   sourceRelative: string;
   targetRelative: string;
+  /** Line of the first import of `target` in `source`, when the analysis knows it. */
+  line?: number;
 }
 
 interface ArchitectureAccumulator {
@@ -94,6 +96,7 @@ function registerEdge(
   sourcePath: string,
   targetPath: string,
   workspaceRoot: string,
+  line?: number,
 ): void {
   const normalizedSource = normalizePath(sourcePath);
   const normalizedTarget = normalizePath(targetPath);
@@ -107,6 +110,7 @@ function registerEdge(
     target: normalizedTarget,
     sourceRelative: normalizePath(path.relative(workspaceRoot, normalizedSource)),
     targetRelative: normalizePath(path.relative(workspaceRoot, normalizedTarget)),
+    ...(line ? { line } : {}),
   });
   acc.dependencyCount.set(normalizedSource, (acc.dependencyCount.get(normalizedSource) ?? 0) + 1);
   acc.dependentCount.set(normalizedTarget, (acc.dependentCount.get(normalizedTarget) ?? 0) + 1);
@@ -129,7 +133,7 @@ async function collectArchitectureForFile(
       }
       const normalizedDependencyPath = normalizePath(dep.path);
       registerNode(acc, workspaceRoot, normalizedDependencyPath);
-      registerEdge(acc, normalizedPath, normalizedDependencyPath, workspaceRoot);
+      registerEdge(acc, normalizedPath, normalizedDependencyPath, workspaceRoot, dep.line);
     }
     return null;
   } catch (err) {

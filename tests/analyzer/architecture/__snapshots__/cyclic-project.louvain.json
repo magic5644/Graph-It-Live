@@ -64,31 +64,36 @@
         "source": "<root>/complex-cycle/a.ts",
         "target": "<root>/complex-cycle/b.ts",
         "sourceRelative": "complex-cycle/a.ts",
-        "targetRelative": "complex-cycle/b.ts"
+        "targetRelative": "complex-cycle/b.ts",
+        "line": 1
       },
       {
         "source": "<root>/complex-cycle/b.ts",
         "target": "<root>/complex-cycle/c.ts",
         "sourceRelative": "complex-cycle/b.ts",
-        "targetRelative": "complex-cycle/c.ts"
+        "targetRelative": "complex-cycle/c.ts",
+        "line": 1
       },
       {
         "source": "<root>/complex-cycle/c.ts",
         "target": "<root>/complex-cycle/a.ts",
         "sourceRelative": "complex-cycle/c.ts",
-        "targetRelative": "complex-cycle/a.ts"
+        "targetRelative": "complex-cycle/a.ts",
+        "line": 1
       },
       {
         "source": "<root>/simple-cycle/a.ts",
         "target": "<root>/simple-cycle/b.ts",
         "sourceRelative": "simple-cycle/a.ts",
-        "targetRelative": "simple-cycle/b.ts"
+        "targetRelative": "simple-cycle/b.ts",
+        "line": 1
       },
       {
         "source": "<root>/simple-cycle/b.ts",
         "target": "<root>/simple-cycle/a.ts",
         "sourceRelative": "simple-cycle/b.ts",
-        "targetRelative": "simple-cycle/a.ts"
+        "targetRelative": "simple-cycle/a.ts",
+        "line": 1
       }
     ],
     "context": {
