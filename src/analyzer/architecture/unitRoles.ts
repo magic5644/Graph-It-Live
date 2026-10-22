@@ -44,7 +44,12 @@ const HTML_FILES = ["index.html", "public/index.html", "src/index.html"];
 const BUNDLER_CONFIG = /^(?:(?:vite|webpack|next|nuxt|rspack|rsbuild|module-federation)\.config\.[cm]?[jt]s|angular\.json)$/;
 const FEDERATION = /ModuleFederationPlugin|@module-federation\/|single-spa/;
 const ENTRY_FILES = ["index.ts", "index.js", "src/index.ts", "src/index.js", "handler.ts", "handler.js", "src/handler.ts", "src/handler.js"];
-const HANDLER_EXPORT = /\bexport\s+(?:const|let|var|(?:async\s+)?function)\s+handler\b|\bexports\.handler\s*=|\bexport\s*\{[^}]{0,1000}\bhandler\s*[,}]/;
+/** `export const handler`, `exports.handler =`, `export { run as handler }`. */
+const HANDLER_EXPORTS = [
+  /\bexport\s+(?:const|let|var|(?:async\s+)?function)\s+handler\b/,
+  /\bexports\.handler\s*=/,
+  /\bexport\s*\{[^}]{0,1000}\bhandler\s*[,}]/,
+];
 const TOOLING_FOLDERS = new Set(["scripts", "script", "tools", "e2e", "test", "tests", "__tests__", "__mocks__", "fixtures", "bench", "benchmarks"]);
 const TOOLING_FILE = /\.(?:test|spec|config)\.[cm]?[jt]sx?$/;
 
@@ -134,7 +139,10 @@ export interface UnitRoleInput {
 /** The unit's entry, `handler.*` or `index.*` included: manifest `main` and `module` often point at build output. */
 function exportsHandler(workspaceRoot: string, folder: string, manifest: Manifest): string | undefined {
   const entries = [manifest.main, manifest.module, ...ENTRY_FILES].filter((entry): entry is string => typeof entry === "string");
-  return entries.find((entry) => HANDLER_EXPORT.test(readUnitFile(workspaceRoot, folder, entry) ?? ""));
+  return entries.find((entry) => {
+    const text = readUnitFile(workspaceRoot, folder, entry) ?? "";
+    return HANDLER_EXPORTS.some((pattern) => pattern.test(text));
+  });
 }
 
 /** What one unit folder holds: its entries, its dependencies, and its files read on demand. */
@@ -194,7 +202,8 @@ function serviceEvidence(unit: UnitFolder): UnitRoleEvidence[] {
  */
 function collectEvidence(workspaceRoot: string, input: UnitRoleInput): UnitRoleEvidence[] {
   const unit = openFolder(workspaceRoot, input.folder);
-  const configs = [...unit.entries].filter((file) => BUNDLER_CONFIG.test(file)).sort();
+  // Code-unit order, as everywhere in the architecture output: the same on every OS and locale.
+  const configs = [...unit.entries].filter((file) => BUNDLER_CONFIG.test(file)).sort((left, right) => (left < right ? -1 : Number(left > right)));
   const evidence = [...functionEvidence(unit), ...microFrontendEvidence(unit, configs), ...frontendEvidence(unit, configs), ...serviceEvidence(unit)];
   const importers = input.importers.map((name) => `\`${name}\``).join(", ");
   if (importers) evidence.push({ role: "library", detail: `imported by ${importers}` });
