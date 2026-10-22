@@ -26,6 +26,11 @@ interface ArchitectureRender {
   rulesPanel: string[];
   /** The role legend: `role=count`, `*` after the filtered role. */
   roles: string[];
+  /** A group level: its header counts, isolated groups and label size. */
+  groupLevel?: {
+    shownGroups: number; totalGroups: number; hiddenGroups: number; hiddenGroupEdges: number;
+    isolatedGroups: number; isolatedBelow: number; minLabelPx: number;
+  };
 }
 
 // Expected numbers from the E2E workspace (tests/fixtures), recorded with:
@@ -150,6 +155,7 @@ async function readRender(): Promise<ArchitectureRender> {
     violationEdges: (await read('ViolationEdges')) as number,
     rulesPanel: (await read('RulesPanel')) as string[],
     roles: (await read('Roles')) as string[],
+    groupLevel: (await read('GroupLevel')) as ArchitectureRender['groupLevel'],
   };
 }
 
@@ -208,6 +214,8 @@ interface ArchitectureDetail {
   visibleGroups: number;
   focusedGroup?: string;
   capReached: boolean;
+  findStatus?: string;
+  viewport?: string;
   evidence?: { edgeCount: number; total: number; shown: number; firstSource?: string; title: string; pairs: string[] };
 }
 
@@ -330,6 +338,10 @@ suite('Architecture view mode', () => {
     assert.strictEqual(structural.groupCount, EXPECTED.louvain.groups, 'rendered louvain groups');
     assert.strictEqual(structural.groupEdgeCount, EXPECTED.louvain.groupEdges, 'rendered louvain group edges');
     assertReadableLayout(structural);
+    // 1 group edge among 25 groups: every other group is announced and packed below the linked ones.
+    assert.strictEqual(structural.groupLevel?.isolatedGroups, EXPECTED.louvain.groups - 2, 'isolated louvain groups');
+    assert.strictEqual(structural.groupLevel?.isolatedBelow, structural.groupLevel?.isolatedGroups, 'isolated groups drawn below the others');
+    assert.ok((structural.groupLevel?.minLabelPx ?? 0) >= 8, `labels readable after the fit: ${structural.groupLevel?.minLabelPx}px`);
 
     await config().update('communityMode', undefined, vscode.ConfigurationTarget.Global);
     const back = await waitForRender('the path render again', structural.renderCount, render => render.communityMode === 'path');
@@ -614,6 +626,81 @@ suite('Architecture view mode', () => {
     const staleCount = (await readRender()).renderCount;
     await vscode.commands.executeCommand('graph-it-live.refreshGraph');
     await waitForRender('the inferred roles again', staleCount, render => !render.stale && render.roles.join() === EXPECTED.roles.legend.join());
+  });
+
+  test('keeps the focused group, the find and the viewport across a stale mark and the min-imports filter', async function () {
+    this.timeout(240000);
+    await openFreshArchitecture();
+    await enterUnit('(root)');
+    const file = getProjectFile('sample-project', 'src', 'utils.ts');
+    const original = await vscode.workspace.fs.readFile(file);
+    try {
+      await vscode.commands.executeCommand('graph-it-live.e2eArchitectureControls', { find: 'LAYERS' });
+      const focused = await expectDetail('focusing layers', { focus: '(root)/layers' }, detail => detail.focusedGroup === '(root)/layers');
+      const highlight = await getContextKey<ArchitectureInteraction>('graph-it-live.architectureInteraction');
+      const before = (await readRender()).renderCount;
+      await vscode.workspace.fs.writeFile(file, Buffer.concat([Buffer.from(original), Buffer.from('\n// architecture context E2E\n')]));
+      const stale = await waitForRender('the stale banner', before, render => render.stale);
+      assert.strictEqual(stale.unit, '(root)', 'a stale mark keeps the entered unit');
+      const kept = await expectDetail('the stale detail', undefined, detail => detail.focusedGroup === '(root)/layers');
+      assert.strictEqual(kept.viewport, focused.viewport, 'a stale mark does not move the viewport');
+      assert.deepStrictEqual(await getContextKey('graph-it-live.architectureInteraction'), highlight, 'a stale mark keeps the found highlight');
+      assert.strictEqual(stale.groupLevel?.totalGroups, EXPECTED.root.groups, 'hidden and isolated groups stay counted');
+
+      const filtered = await expectDetail('the min-imports filter', { minImports: 2 }, detail => detail.focusedGroup === '(root)/layers');
+      assert.strictEqual(filtered.viewport, focused.viewport, 'the min-imports filter does not move the viewport');
+    } finally {
+      await vscode.workspace.fs.writeFile(file, original);
+      await vscode.commands.executeCommand('graph-it-live.e2eArchitectureControls', { find: '', minImports: 1, focus: '' });
+      await enterUnit('');
+    }
+  });
+
+  test('draws the 50 largest groups of a folder, finds a hidden one, and Show more groups draws up to 150', async function () {
+    this.timeout(300000);
+    // A (root) folder of 60 sub-folders: d0..d49 hold 2 files, d50..d59 one; d0 → d1 → … → d45 import each other.
+    const root = vscode.workspace.workspaceFolders![0].uri;
+    const unit = vscode.Uri.joinPath(root, 'zz-many-groups');
+    try {
+      for (let index = 0; index < 60; index++) {
+        const next = index < 45 ? `import { b } from '../d${index + 1}/b';\nexport const a = b;\n` : 'export const a = 1;\n';
+        await vscode.workspace.fs.writeFile(vscode.Uri.joinPath(unit, `d${index}`, 'a.ts'), Buffer.from(next));
+        if (index < 50) await vscode.workspace.fs.writeFile(vscode.Uri.joinPath(unit, `d${index}`, 'b.ts'), Buffer.from('export const b = 1;\n'));
+      }
+      await openFreshArchitecture();
+      await enterUnit('(root)');
+      const capped = await enterFolder('(root)/zz-many-groups', '(root)/zz-many-groups');
+      assert.strictEqual(capped.groupCount, 50, 'the 50 largest groups are drawn');
+      assert.deepStrictEqual(capped.groupLevel, {
+        shownGroups: 50, totalGroups: 60, hiddenGroups: 10, hiddenGroupEdges: 0,
+        // d46..d49 import nothing and nobody imports them.
+        isolatedGroups: 4, isolatedBelow: 4, minLabelPx: capped.groupLevel?.minLabelPx,
+      });
+      assert.ok((capped.groupLevel?.minLabelPx ?? 0) >= 8, `labels readable after the fit: ${capped.groupLevel?.minLabelPx}px`);
+      assertReadableLayout(capped);
+
+      const hidden = await expectDetail('finding a hidden group', { find: 'd55' }, detail => (detail.findStatus ?? '').includes('hidden'));
+      assert.match(hidden.findStatus ?? '', /"d55" is also in 1 hidden group \(d55\)\. Show more groups/);
+
+      await vscode.commands.executeCommand('graph-it-live.e2eArchitectureControls', { showMoreGroups: true });
+      const more = await waitForRender('Show more groups', capped.renderCount, render => render.groupCount === 60);
+      assert.strictEqual(more.folder, '(root)/zz-many-groups', 'Show more groups keeps the entered folder');
+      assert.strictEqual(more.revision, capped.revision, 'Show more groups keeps the revision');
+      assert.deepStrictEqual({ ...more.groupLevel, minLabelPx: 0 }, {
+        shownGroups: 60, totalGroups: 60, hiddenGroups: 0, hiddenGroupEdges: 0, isolatedGroups: 14, isolatedBelow: 14, minLabelPx: 0,
+      });
+      assertReadableLayout(more);
+      const drawn = await expectDetail('the find once drawn', undefined, detail => detail.findStatus === '');
+      assert.strictEqual(drawn.findStatus, '', 'the found group is drawn: nothing left to report');
+    } finally {
+      await vscode.commands.executeCommand('graph-it-live.e2eArchitectureControls', { find: '' });
+      await vscode.workspace.fs.delete(unit, { recursive: true });
+    }
+    await sleep(1500); // let the delete mark the view stale before Refresh
+    const staleCount = (await readRender()).renderCount;
+    await vscode.commands.executeCommand('graph-it-live.e2eArchitectureControls', { unit: '' });
+    await vscode.commands.executeCommand('graph-it-live.refreshGraph');
+    await waitForRender('the fixtures again', staleCount, render => !render.stale && render.groupCount === EXPECTED.units.groups);
   });
 
   test('the Graph, List and Symbol buttons leave the architecture view', async function () {
