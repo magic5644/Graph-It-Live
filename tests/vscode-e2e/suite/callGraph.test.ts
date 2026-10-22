@@ -70,6 +70,19 @@ suite('Call Graph Test Suite', () => {
     assert.ok(true, 'Call graph opened without error');
   });
 
+  test('LM callers include a named import alias (#398)', async function () {
+    this.timeout(90000);
+    await openCallGraphFor('symbols', 'alias-target.ts');
+    const result = await vscode.lm.invokeTool('graph-it-live_query_call_graph', {
+      input: { filePath: getProjectFile('symbols', 'alias-target.ts').fsPath, symbolName: 'aliasTarget398', direction: 'callers' },
+      toolInvocationToken: undefined,
+    });
+    const part = result.content.find(p => p instanceof vscode.LanguageModelTextPart);
+    assert.ok(part instanceof vscode.LanguageModelTextPart, 'Expected a JSON tool result');
+    const response = JSON.parse(part.value) as { callers: Array<{ sourceName: string }> };
+    assert.ok(response.callers.some(caller => caller.sourceName === 'aliasCaller398'), JSON.stringify(response));
+  });
+
   // ============================================================================
   // B3 — Graph content: nodeCount > 0 after opening
   // ============================================================================

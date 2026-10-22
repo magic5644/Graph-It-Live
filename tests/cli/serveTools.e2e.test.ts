@@ -29,8 +29,9 @@ describe.skipIf(!distExists)("MCP tools over graph-it serve (E2E)", { timeout: 1
     fs.writeFileSync(path.join(tmpDir, "src/b.ts"), HELPER_SOURCE);
     fs.writeFileSync(
       path.join(tmpDir, "src/a.ts"),
-      'import { helper } from "./b";\nexport function run() { return helper(); }\n',
+      'import { helper as renamedHelper } from "./b";\nexport function run() { return renamedHelper(); }\n',
     );
+    fs.writeFileSync(path.join(tmpDir, "src/entry.ts"), 'import { run } from "./a"; export function main() { return run(); }');
     // check_architecture needs declared rules.
     fs.writeFileSync(
       path.join(tmpDir, "graphit.architecture.json"),
@@ -90,6 +91,22 @@ describe.skipIf(!distExists)("MCP tools over graph-it serve (E2E)", { timeout: 1
         if (!result || result.isError) failures.push(`${name}: ${result?.content?.[0]?.text ?? "no result"}`);
       }
       expect(failures).toEqual([]);
+
+      const callersArgs = { filePath: b, symbolName: "helper", direction: "callers", depth: 2 };
+      const callers = await callTool("graphitlive_query_call_graph", { ...callersArgs, response_format: "json" });
+      expect(JSON.parse(callers.content[0].text).data).toMatchObject({
+        totalCallers: 2, callers: expect.arrayContaining([expect.objectContaining({ sourceName: "run" }), expect.objectContaining({ sourceName: "main" })]),
+      });
+      const context = await callTool("graphitlive_graph_context", {
+        mode: "path", from: { filePath: "src/entry.ts", symbolName: "main" },
+        to: { filePath: "src/b.ts", symbolName: "helper" }, relations: ["CALLS"],
+        directed: true, depth: 3, response_format: "json",
+      });
+      expect(JSON.parse(context.content[0].text).data.paths).toEqual([expect.objectContaining({ hops: 2 })]);
+
+      const cli = execFileSync(process.execPath, [DIST_ENTRY, "tool", "query_call_graph", "--args", JSON.stringify(callersArgs), "--format", "json"],
+        { cwd: tmpDir, encoding: "utf8", timeout: 30_000 });
+      expect(JSON.parse(cli)).toMatchObject({ totalCallers: 2 });
 
       // A placeholder oldContent cannot be compared and must not look like "no breaking change" (#260).
       const placeholder = await callTool("graphitlive_analyze_breaking_changes", {
