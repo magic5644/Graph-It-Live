@@ -29,6 +29,8 @@ interface ArchitectureMatrixProps {
   selectedKey: string | undefined;
   /** A cell to click from outside (E2E driver): selected, revealed and reported like a click. */
   request?: { row: number; column: number } | null;
+  /** Key of the row the find matches first: made active and scrolled into view, nothing opened. */
+  revealKey?: string;
   onCell: (row: Row, column: Row, cell: MatrixCell | undefined) => void;
   onHeader: (row: Row) => void;
   onPaint: (paint: MatrixPaint) => void;
@@ -165,6 +167,12 @@ export function ArchitectureMatrix(props: Readonly<ArchitectureMatrixProps>): Re
   useEffect(() => {
     if (request) select(request.row, request.column);
   }, [request]);
+  useEffect(() => {
+    const row = matrix.rows.findIndex((entry) => entry.key === props.revealKey);
+    if (row < 0) return;
+    setActive({ row, column: row });
+    reveal(row, row);
+  }, [props.revealKey, matrix]);
   const onScroll = (event: React.UIEvent<HTMLDivElement>) => {
     const { scrollTop: top, scrollLeft: left } = event.currentTarget;
     paintRef.current ??= { started: performance.now(), cause: "scroll" };

@@ -116,6 +116,56 @@ function pushApart(a: LayoutBox, b: LayoutBox): boolean {
   return true;
 }
 
+/** Narrowest packed area: a few groups without imports still share rows. */
+const MIN_PACK_WIDTH = 400;
+
+/**
+ * Packs `boxes` (in order, largest first) in rows below `main`, the box of every other group,
+ * left-aligned on it and wrapped at its width, or about square without one. Mutates x and y.
+ */
+export function packBelow(boxes: LayoutBox[], main?: { x1: number; x2: number; y2: number }): void {
+  const area = boxes.reduce((total, box) => total + (box.width + GAP) * (box.height + GAP), 0);
+  const width = Math.max(MIN_PACK_WIDTH, main ? main.x2 - main.x1 : Math.sqrt(area) * 1.5);
+  const left = main?.x1 ?? 0;
+  let x = left;
+  let y = main ? main.y2 + 4 * GAP : 0;
+  let rowHeight = 0;
+  for (const box of boxes) {
+    if (x > left && x + box.width > left + width) {
+      x = left;
+      y += rowHeight + GAP;
+      rowHeight = 0;
+    }
+    box.x = x + box.width / 2;
+    box.y = y + box.height / 2;
+    x += box.width + GAP;
+    rowHeight = Math.max(rowHeight, box.height);
+  }
+}
+
+/** What a force layout places: every element but the isolated groups and their files. */
+export function linkedElements(cy: Core): Collection {
+  const isolated = cy.nodes("[?isolated]");
+  return cy.elements().not(isolated.union(isolated.descendants()));
+}
+
+/** Packs the isolated groups in rows below the others (an expanded one with its files). */
+export function packIsolatedGroups(cy: Core): void {
+  const isolated = cy.nodes(":orphan[?isolated]");
+  if (isolated.empty()) return;
+  const others = cy.nodes(":orphan").not(isolated);
+  // A compound's box comes from its files: its own position may not follow them yet.
+  const boxes = isolated.map((node) => {
+    const { x1, x2, y1, y2 } = node.boundingBox({ includeLabels: false });
+    return { node, x: 0, y: 0, width: x2 - x1, height: y2 - y1, centre: { x: (x1 + x2) / 2, y: (y1 + y2) / 2 } };
+  });
+  packBelow(boxes, others.nonempty() ? others.boundingBox({ includeLabels: false }) : undefined);
+  for (const { node, x, y, centre } of boxes) {
+    if (node.isParent()) node.children().shift({ x: x - centre.x, y: y - centre.y });
+    else node.position({ x, y });
+  }
+}
+
 /**
  * fcose only discourages overlaps, so big groups can still land on each other: push
  * overlapping boxes apart until none is left. O(n²) per round, fine for ~150 groups.
@@ -186,7 +236,7 @@ type SummaryGroup = ArchitectureSummaryMessage["groups"][number];
 
 const groupSize = (fileCount: number) => Math.round(32 + 14 * Math.log2(1 + fileCount));
 
-function groupNode(summary: ArchitectureSummaryMessage, group: SummaryGroup, expanded: boolean): ArchitectureElement {
+function groupNode(summary: ArchitectureSummaryMessage, group: SummaryGroup, expanded: boolean, isolated: boolean): ArchitectureElement {
   const lines = [group.label, plural(group.fileCount, "file")];
   return {
     group: "nodes",
@@ -200,6 +250,8 @@ function groupNode(summary: ArchitectureSummaryMessage, group: SummaryGroup, exp
       ...nodeBox(lines, groupSize(group.fileCount)),
       unassigned: group.id === 0,
       expanded,
+      // No drawn edge to a group of its level: drawn apart, below the others.
+      isolated,
       search: `${group.label}\n${group.key}`.toLowerCase(),
       tooltip: `${group.key || group.label}\n${plural(group.fileCount, "file")}\n${plural(group.internalEdgeCount, "internal edge")}`,
     },
@@ -340,9 +392,10 @@ export function toArchitectureElements(summary: ArchitectureSummaryMessage, expa
     ? [...summary.groups, { id: 0, key: "", label: "unassigned", ...summary.unassigned }]
     : summary.groups;
   const shown = new Set(groups.map((group) => group.id));
+  const isolated = new Set(summary.isolatedGroups);
   const nodes = groups.flatMap((group) => {
     const expansion = expansions.get(group.id);
-    const node = groupNode(summary, group, expansion !== undefined);
+    const node = groupNode(summary, group, expansion !== undefined, isolated.has(group.id));
     return expansion ? [node, ...fileNodes(group.id, expansion)] : [node];
   });
   return [...nodes, ...edgeElements(summary, expansions, shown)];
@@ -481,18 +534,21 @@ export function levelSummary(summary: ArchitectureSummaryMessage, unit: string |
       totalGroups: level.units.length,
       hiddenGroups: 0,
       hiddenGroupEdges: 0,
+      isolatedGroups: [],
     };
   }
   const inUnit = (id: number) => level.groupUnits[id] === unit;
   const groups = summary.groups.filter((group) => inUnit(group.id));
+  const hidden = level.hiddenByUnit?.[unit] ?? { groups: 0, groupEdges: 0 };
   return {
     ...summary,
     groups,
     groupEdges: summary.groupEdges.filter((edge) => inUnit(edge.from) && inUnit(edge.to)),
     unassigned: { fileCount: 0, internalEdgeCount: 0 },
-    totalGroups: groups.length,
-    hiddenGroups: 0,
-    hiddenGroupEdges: 0,
+    totalGroups: groups.length + hidden.groups,
+    hiddenGroups: hidden.groups,
+    hiddenGroupEdges: hidden.groupEdges,
+    isolatedGroups: summary.isolatedGroups?.filter(inUnit),
   };
 }
 
@@ -631,6 +687,18 @@ export function fitReadable(cy: Core): void {
   cy.zoom(MIN_READABLE_ZOOM);
   // Rendered = model × zoom + pan: put the box's top centre at the top centre of the view.
   cy.pan({ x: cy.width() / 2 - ((box.x1 + box.x2) / 2) * MIN_READABLE_ZOOM, y: FIT_PADDING - box.y1 * MIN_READABLE_ZOOM });
+}
+
+/** E2E observability of a group level: its isolated groups, how many sit below every other group, and the label size. */
+export function measureIsolated(cy: Core) {
+  const groups = cy.nodes(":orphan");
+  const isolated = groups.filter("[?isolated]");
+  const others = groups.not(isolated);
+  const bottom = others.nonempty() ? others.boundingBox({ includeLabels: false }).y2 : Number.NEGATIVE_INFINITY;
+  return {
+    isolatedBelow: isolated.filter((node) => node.boundingBox({ includeLabels: false }).y1 >= bottom).length,
+    minLabelPx: Math.round(ARCHITECTURE_FONT_SIZE * cy.zoom() * 100) / 100,
+  };
 }
 
 /** E2E observability of the units level, read from what is drawn. */

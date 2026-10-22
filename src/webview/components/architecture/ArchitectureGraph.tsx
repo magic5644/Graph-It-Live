@@ -14,17 +14,19 @@ import React, { useEffect, useMemo, useRef, useState } from "react";
 import type { MatrixCell, MatrixRow } from "../../../analyzer/architecture/architectureMatrix";
 import type { ArchitectureRuleSummary } from "../../../analyzer/architecture/architectureRules";
 import type { UnitRole } from "../../../analyzer/architecture/unitRoles";
-import type {
-  ArchitectureControlsMessage,
-  ArchitectureEvidencePageMessage,
-  ArchitectureExtensionMessage,
-  ArchitectureFolderLevelMessage,
-  ArchitectureGroupDetailMessage,
-  ArchitectureMatrixMessage,
-  ArchitectureRulesView,
-  ArchitectureStateMessage,
-  ArchitectureSummaryMessage,
-  ArchitectureWebviewCommand,
+import {
+  MAX_RENDERED_GROUPS,
+  type ArchitectureControlsMessage,
+  type ArchitectureEvidencePageMessage,
+  type ArchitectureExtensionMessage,
+  type ArchitectureFolderLevelMessage,
+  type ArchitectureFoundMessage,
+  type ArchitectureGroupDetailMessage,
+  type ArchitectureMatrixMessage,
+  type ArchitectureRulesView,
+  type ArchitectureStateMessage,
+  type ArchitectureSummaryMessage,
+  type ArchitectureWebviewCommand,
 } from "../../../shared/architecture-types";
 import { buildArchitectureStylesheet } from "../cytoscape/CytoscapeTheme";
 import {
@@ -43,9 +45,12 @@ import {
   maxEdgeImports,
   plural,
   measureInteraction,
+  measureIsolated,
   measureUnitLevel,
   mergeGroupDetail,
   countRendered,
+  linkedElements,
+  packIsolatedGroups,
   placeNewFiles,
   roleBadge,
   separateOverlaps,
@@ -97,10 +102,12 @@ function measureLayout(nodes: cytoscape.NodeCollection) {
 function renderedReport(
   cy: cytoscape.Core,
   summary: ArchitectureSummaryMessage,
+  drawn: ArchitectureSummaryMessage,
   groups: cytoscape.NodeCollection,
   unit: string | null,
   folder: string | undefined,
 ): ArchitectureWebviewCommand {
+  const unitsLevel = summary.units !== undefined && unit === null;
   return {
     command: "architectureRendered",
     revision: summary.revision,
@@ -111,7 +118,15 @@ function renderedReport(
     ...measureLayout(groups),
     unit: unit ?? undefined,
     folder,
-    unitLevel: summary.units && unit === null ? measureUnitLevel(cy) : undefined,
+    unitLevel: unitsLevel ? measureUnitLevel(cy) : undefined,
+    groupLevel: unitsLevel ? undefined : {
+      shownGroups: drawn.groups.length,
+      totalGroups: drawn.totalGroups,
+      hiddenGroups: drawn.hiddenGroups,
+      hiddenGroupEdges: drawn.hiddenGroupEdges,
+      isolatedGroups: drawn.isolatedGroups?.length ?? 0,
+      ...measureIsolated(cy),
+    },
     violationEdges: cy.edges().filter((edge) => edge.data("violation") === true && edge.style("display") !== "none").length,
     // The Rules panel as the DOM shows it: `name=count` per rule.
     rules: Array.from(document.querySelectorAll<HTMLButtonElement>('[aria-label="Architecture rules"] button[data-rule]'),
@@ -365,6 +380,9 @@ function RulesPanel({ rules, onRule }: Readonly<{ rules: ArchitectureRulesView; 
 
 interface SummaryHeaderProps {
   summary: ArchitectureSummaryMessage;
+  /** The drawn level, shaped as a summary: its groups line. */
+  level: ArchitectureSummaryMessage;
+  onShowMore: () => void;
   /** Entered unit; null at the units level. */
   unit: string | null;
   minImports: number;
@@ -374,8 +392,12 @@ interface SummaryHeaderProps {
   onRole: (role: string) => void;
 }
 
-function SummaryHeader({ summary, unit, minImports, onRefresh, onRule, roleFilter, onRole }: Readonly<SummaryHeaderProps>) {
+/** Show more groups is offered while the cap is below MAX_RENDERED_GROUPS. */
+const canShowMore = (summary: ArchitectureSummaryMessage) => (summary.maxGroups ?? MAX_RENDERED_GROUPS) < MAX_RENDERED_GROUPS;
+
+function SummaryHeader({ summary, level, onShowMore, unit, minImports, onRefresh, onRule, roleFilter, onRole }: Readonly<SummaryHeaderProps>) {
   const { context, totals } = summary;
+  const isolated = level.isolatedGroups?.length ?? 0;
   return (
     <div style={{ padding: "6px 10px", fontSize: 12, borderBottom: "1px solid var(--vscode-widget-border)" }}>
       {summary.stale && (
@@ -402,12 +424,14 @@ function SummaryHeader({ summary, unit, minImports, onRefresh, onRule, roleFilte
       {context.truncated && (
         <div style={bannerStyle}>Only the first {context.maxFiles} files were analysed (maxFiles).</div>
       )}
-      {summary.hiddenGroups > 0 && (
+      {level.hiddenGroups > 0 && (
         <div>
-          {summary.groups.length} of {summary.totalGroups} groups shown (largest first); {summary.hiddenGroupEdges} group
-          edges hidden. Totals include them.
+          {level.groups.length} of {level.totalGroups} groups shown (largest first)
+          {level.hiddenGroupEdges > 0 && `; ${plural(level.hiddenGroupEdges, "group edge")} hidden`}. Totals include them.{" "}
+          {canShowMore(summary) && <button type="button" data-show-more onClick={onShowMore}>Show more groups</button>}
         </div>
       )}
+      {isolated > 0 && <div>{plural(isolated, "group")} without cross-group imports, drawn apart below the others.</div>}
       <div style={{ color: "var(--vscode-descriptionForeground)" }}>{summary.provenance.facts}</div>
     </div>
   );
@@ -424,10 +448,47 @@ interface GraphControlsProps {
   capReached: boolean;
   view: View;
   onView: (view: View) => void;
+  /** Groups the find matches where it searched: the canvas, or the matrix rows. */
+  findMatches: number;
+  /** The extension's answer about the hidden groups, for this query and level. */
+  found: ArchitectureFoundMessage | null;
+  onShowMore: () => void;
+  canShowMore: boolean;
+}
+
+/**
+ * The find's result line: hidden groups it matches (never reported as no group), else no match.
+ * The matrix holds every group of its level: nothing is hidden there.
+ */
+function FindStatus({ query, view, summary, findMatches, found, onShowMore, canShowMore }: Readonly<Pick<GraphControlsProps,
+  "query" | "view" | "summary" | "findMatches" | "found" | "onShowMore" | "canShowMore">>) {
+  const needle = query.trim();
+  const searchesHidden = view === "graph" && summary.hiddenGroups > 0;
+  let status: React.ReactNode = null;
+  if (searchesHidden && found && found.total > 0) {
+    status = <HiddenMatches needle={needle} findMatches={findMatches} found={found} onShowMore={onShowMore} canShowMore={canShowMore} />;
+  } else if (searchesHidden && !found) {
+    if (findMatches === 0) status = "Searching the hidden groups…";
+  } else if (findMatches === 0) status = `No group matches "${needle}".`;
+  return needle && status ? <output aria-label="Find result" style={{ display: "block" }}>{status}</output> : null;
+}
+
+/** "`x` is also in N hidden groups (…)", then Show more groups while the cap allows it. */
+function HiddenMatches({ needle, findMatches, found, onShowMore, canShowMore }: Readonly<{
+  needle: string; findMatches: number; found: ArchitectureFoundMessage; onShowMore: () => void; canShowMore: boolean;
+}>) {
+  const more = found.total > found.matches.length ? `, +${found.total - found.matches.length} more` : "";
+  return (
+    <>
+      {findMatches > 0 && `${plural(findMatches, "group")} drawn; `}"{needle}" is also in {plural(found.total, "hidden group")} ({found.matches.join(", ")}{more}).{" "}
+      {canShowMore ? <button type="button" onClick={onShowMore}>Show more groups</button> : `Only the ${MAX_RENDERED_GROUPS} largest groups are drawn.`}
+    </>
+  );
 }
 
 /** Graph | Matrix toggle, then find and weak-edge filter: they only change what is drawn, never the counts above. */
-function GraphControls({ summary, shownEdges, query, onQuery, minImports, onMinImports, capReached, view, onView }: Readonly<GraphControlsProps>) {
+function GraphControls(props: Readonly<GraphControlsProps>) {
+  const { summary, shownEdges, query, onQuery, minImports, onMinImports, capReached, view, onView } = props;
   const counts = summary.groupEdges.map((edge) => edge.fileEdgeCount);
   const toggle = (name: View, label: string) => (
     <button type="button" aria-pressed={view === name} onClick={() => onView(name)} style={{ fontWeight: view === name ? 600 : undefined }}>{label}</button>
@@ -436,7 +497,6 @@ function GraphControls({ summary, shownEdges, query, onQuery, minImports, onMinI
     <div style={{ padding: "4px 10px", fontSize: 12, borderBottom: "1px solid var(--vscode-widget-border)" }}>
       <div style={{ display: "flex", flexWrap: "wrap", gap: 8, alignItems: "center" }}>
         <span>{toggle("graph", "Graph")}{toggle("matrix", "Matrix")}</span>
-        {view === "graph" && (<>
         <input
           type="search"
           aria-label="Find group"
@@ -444,6 +504,7 @@ function GraphControls({ summary, shownEdges, query, onQuery, minImports, onMinI
           value={query}
           onChange={(event) => onQuery(event.target.value)}
         />
+        {view === "graph" && (
         <label>
           Min. imports per edge{" "}
           <input
@@ -455,16 +516,14 @@ function GraphControls({ summary, shownEdges, query, onQuery, minImports, onMinI
             style={{ width: 56 }}
           />
         </label>
-        </>)}
+        )}
       </div>
       {view === "graph" && shownEdges < counts.length && (
         <div>
           {shownEdges} of {counts.length} group edges shown (min. {minImports} imports). Totals include them.
         </div>
       )}
-      {query.trim() && summary.hiddenGroups > 0 && (
-        <div>Find searches the {summary.groups.length} groups shown; the {summary.hiddenGroups} hidden groups are not searched.</div>
-      )}
+      <FindStatus {...props} />
       {capReached && <output style={{ ...bannerStyle, display: "block" }}>{FILE_CAP_MESSAGE}</output>}
     </div>
   );
@@ -653,6 +712,14 @@ export function ArchitectureGraph({ postMessage }: Readonly<ArchitectureGraphPro
   const [summary, setSummary] = useState<ArchitectureSummaryMessage | null>(null);
   const [state, setState] = useState<ArchitectureStateMessage | null>({ type: "architectureState", status: "building" });
   const [query, setQuery] = useState("");
+  const queryRef = useRef(query);
+  queryRef.current = query;
+  /** Groups the find matches on the canvas or in the matrix. */
+  const [findMatches, setFindMatches] = useState(0);
+  /** The extension's answer about the hidden groups of the drawn level, for the current query. */
+  const [found, setFound] = useState<ArchitectureFoundMessage | null>(null);
+  /** Bumped when a level already received comes again (Show more groups): it is drawn anew. */
+  const [levelsVersion, setLevelsVersion] = useState(0);
   const [minImports, setMinImports] = useState(1);
   const minImportsRef = useRef(minImports);
   minImportsRef.current = minImports;
@@ -690,7 +757,7 @@ export function ArchitectureGraph({ postMessage }: Readonly<ArchitectureGraphPro
   const source = useMemo(() => {
     const level = folder === undefined ? undefined : levelsRef.current.get(folder);
     return summary && level ? { ...level, type: "architectureSummary" as const, stale: summary.stale } : summary;
-  }, [summary, folder]);
+  }, [summary, folder, levelsVersion]);
   /** What the current level draws, shaped as a summary (units, one unit's or folder's groups, or every group). */
   const drawn = useMemo(() => (source ? levelSummary(source, unit) : null), [source, unit]);
   /** Tapped element or find matches: what the highlight returns to after a hover. */
@@ -702,6 +769,12 @@ export function ArchitectureGraph({ postMessage }: Readonly<ArchitectureGraphPro
   const focusRef = useRef(focusId);
   const unitRef = useRef(unit);
   const foldersRef = useRef(folders);
+  /** The viewport is the whole-graph fit: a resize fits again. Any other zoom or pan (focus, find, the user) stays. */
+  const fittedRef = useRef(true);
+  const fitAll = (cy: cytoscape.Core) => {
+    fitReadable(cy);
+    fittedRef.current = true;
+  };
   /** What the next render fits: the focus, an entered group once its files are drawn, everything, or the level's last viewport. */
   const fitRef = useRef<Fit | null>(null);
   /** What the last render drew: its level (to report a new one once) and its counts. */
@@ -955,9 +1028,26 @@ export function ArchitectureGraph({ postMessage }: Readonly<ArchitectureGraphPro
     setState(null);
   };
   const receiveFolderLevel = ({ revision, folder: key, level }: ArchitectureFolderLevelMessage) => {
-    if (revision !== summaryRef.current?.revision || pendingFolderRef.current !== key) return;
+    if (revision !== summaryRef.current?.revision) return;
+    // A level sent again (Show more groups) replaces its groups and keeps the view where it is.
+    if (levelsRef.current.has(key)) {
+      levelsRef.current.set(key, level);
+      setLevelsVersion((version) => version + 1);
+      return;
+    }
+    if (pendingFolderRef.current !== key) return;
     levelsRef.current.set(key, level);
     goTo(unitRef.current, [...foldersRef.current, key]);
+  };
+  /** Kept only for the drawn level and the current query: a late answer is dropped. */
+  const receiveFound = (message: ArchitectureFoundMessage) => {
+    const at = levelOf();
+    if (!at || message.revision !== at.revision || message.folder !== at.folder || (message.unit ?? null) !== unitRef.current) return;
+    if (message.query === queryRef.current) setFound(message);
+  };
+  const showMoreGroups = () => {
+    const revision = summaryRef.current?.revision;
+    if (revision !== undefined) post({ command: "architectureShowMoreGroups", revision });
   };
   const receiveDetail = ({ revision, detail }: ArchitectureGroupDetailMessage) => {
     // A level's revision covers its folder: a page for another level is dropped.
@@ -1002,11 +1092,13 @@ export function ArchitectureGraph({ postMessage }: Readonly<ArchitectureGraphPro
   const unitIdOf = (unitKey: string | undefined): number | undefined =>
     (unitKey ? Array.from(cyRef.current?.nodes() ?? []).find((node) => node.data("unitKey") === unitKey)?.data("groupId") : undefined);
   /** E2E driver: selects the first edge of a group or unit (its evidence opens), then clicks a row's source. */
-  const controlEvidence = ({ evidenceOf, openEvidenceRow, rule, role }: ArchitectureControlsMessage) => {
+  const controlEvidence = ({ evidenceOf, openEvidenceRow, rule, role, showMoreGroups }: ArchitectureControlsMessage) => {
     // A real click on the Rules panel's button.
     if (rule !== undefined) document.querySelector<HTMLButtonElement>(`[aria-label="Architecture rules"] button[data-rule="${CSS.escape(rule)}"]`)?.click();
     // A real click on the role legend's button.
     if (role !== undefined) document.querySelector<HTMLButtonElement>(`[aria-label="Unit roles"] button[data-role="${CSS.escape(role)}"]`)?.click();
+    // A real click on the header's Show more groups.
+    if (showMoreGroups) document.querySelector<HTMLButtonElement>("button[data-show-more]")?.click();
     const groupId = groupOf(evidenceOf) ?? unitIdOf(evidenceOf);
     const touches = (edge: cytoscape.EdgeSingular) => edge.data("from") === groupId || edge.data("to") === groupId;
     const edge = Array.from(cyRef.current?.edges() ?? []).find((candidate) => candidate.data("from") !== candidate.data("to") && touches(candidate));
@@ -1052,6 +1144,8 @@ export function ArchitectureGraph({ postMessage }: Readonly<ArchitectureGraphPro
         return receiveEvidence(message);
       case "architectureMatrix":
         return receiveMatrix(message);
+      case "architectureFound":
+        return receiveFound(message);
       case "architectureRevisionChanged":
         reset();
         return post({ command: "architectureMounted" });
@@ -1060,8 +1154,8 @@ export function ArchitectureGraph({ postMessage }: Readonly<ArchitectureGraphPro
     }
   };
   const actions = {
-    tap, dbltap, key, openFile, moreEvidence, receive, overview, leave, updateFocus, selectUnit, goTo, openRule, toggleRole,
-    switchView, matrixCell, matrixHeader, matrixPainted, enterable, rowColor,
+    tap, dbltap, key, openFile, moreEvidence, receive, overview, leave, updateFocus, selectUnit, goTo, openRule, toggleRole, showMoreGroups,
+    switchView, matrixCell, matrixHeader, matrixPainted, enterable, rowColor, levelOf,
   };
   const actionsRef = useRef(actions);
   actionsRef.current = actions;
@@ -1113,6 +1207,10 @@ export function ArchitectureGraph({ postMessage }: Readonly<ArchitectureGraphPro
       actionsRef.current.tap(event.target);
     });
     cy.on("dbltap", "node", (event) => actionsRef.current.dbltap(event.target));
+    // Synchronous: fitAll sets the flag again right after its own zoom and pan.
+    cy.on("viewport", () => {
+      fittedRef.current = false;
+    });
     // A dragged node leaves its routes: its edges go back to the default curve.
     cy.on("drag", "node", (event) => {
       const moved = event.target.union(event.target.ancestors());
@@ -1131,7 +1229,8 @@ export function ArchitectureGraph({ postMessage }: Readonly<ArchitectureGraphPro
       clearTimeout(resizeTimer);
       resizeTimer = setTimeout(() => {
         cy.resize();
-        fitReadable(cy);
+        // A banner (stale, find) resizes the canvas too: only a whole-graph fit follows it.
+        if (fittedRef.current) fitAll(cy);
         postMessageRef.current({ command: "architectureResized", width: container.clientWidth, height: container.clientHeight });
       }, 120);
     };
@@ -1174,24 +1273,35 @@ export function ArchitectureGraph({ postMessage }: Readonly<ArchitectureGraphPro
     const groups = cy.nodes().filter((node) => !node.isChild());
     const finish = (fit: boolean) => {
       settleLayout(cy, groups);
-      if (fit) fitReadable(cy);
+      if (fit) fitAll(cy);
+      // The same level laid out again (Show more groups): what was found or tapped stays in view.
+      if (fit && !freshLevel && pinnedRef.current?.length) cy.center(pinnedRef.current);
       if (previous === drawn) return;
       // Measured after the min-imports and role filters, which run in later effects.
       applyMinImports(cy, minImportsRef.current);
       applyRoleFilter(cy, roleFilterRef.current);
-      postMessageRef.current(renderedReport(cy, summary, groups, unit, folder));
+      postMessageRef.current(renderedReport(cy, summary, drawn, groups, unit, folder));
+    };
+    const laidOut = () => {
+      packIsolatedGroups(cy);
+      finish(true);
     };
     const restored = restorePositions(cy, groups);
     if (!restored && summary.units) {
       // Units, and an entered unit's groups, sit on their layers.
-      layoutWithElk(cy, elk, () => run === layoutRunRef.current && !cy.destroyed(), () => finish(true));
+      layoutWithElk(cy, elk, () => run === layoutRunRef.current && !cy.destroyed(), laidOut);
       return;
     }
     if (!restored) {
       // ponytail: one new or resized group re-runs the whole layout; pin the known ones
       // (fcose fixedNodeConstraint) if users miss their picture after small edits.
-      const layout = cy.layout(ARCHITECTURE_FCOSE_LAYOUT as cytoscape.LayoutOptions);
-      layout.on("layoutstop", () => finish(true));
+      const linked = linkedElements(cy);
+      if (linked.nodes().empty()) {
+        laidOut();
+        return;
+      }
+      const layout = linked.layout(ARCHITECTURE_FCOSE_LAYOUT as cytoscape.LayoutOptions);
+      layout.on("layoutstop", laidOut);
       layout.run();
       return;
     }
@@ -1215,7 +1325,7 @@ export function ArchitectureGraph({ postMessage }: Readonly<ArchitectureGraphPro
     }
     const viewport = fit === "restore" ? viewportsRef.current.get(levelKey(unit, folder)) : undefined;
     if (viewport) cy.viewport(viewport);
-    else if (fit === "all" || fit === "restore") fitReadable(cy);
+    else if (fit === "all" || fit === "restore") fitAll(cy);
     else if (fit !== null) cy.fit(fit === "enter" ? group : shown, 30);
     fitRef.current = null;
   }, [summary, drawn, unit, folder, expansions, focusId]);
@@ -1234,6 +1344,8 @@ export function ArchitectureGraph({ postMessage }: Readonly<ArchitectureGraphPro
       visibleGroups,
       focusedGroup: focusId === null ? undefined : focused,
       capReached,
+      findStatus: document.querySelector('output[aria-label="Find result"]')?.textContent ?? "",
+      viewport: cyRef.current ? `${Math.round(cyRef.current.zoom() * 1000) / 1000}@${Math.round(cyRef.current.pan().x)},${Math.round(cyRef.current.pan().y)}` : undefined,
       evidence: evidence?.total === undefined
         ? undefined
         : {
@@ -1244,7 +1356,7 @@ export function ArchitectureGraph({ postMessage }: Readonly<ArchitectureGraphPro
             `${row.querySelector("button")?.title} → ${row.parentElement?.closest("li")?.querySelector("button")?.title}`),
         },
     });
-  }, [summary, drawn, expansions, evidence, capReached, focusId]);
+  }, [summary, drawn, expansions, evidence, capReached, focusId, findMatches, found, query, view, minImports]);
 
   useEffect(() => {
     const cy = cyRef.current;
@@ -1259,19 +1371,35 @@ export function ArchitectureGraph({ postMessage }: Readonly<ArchitectureGraphPro
     const current = summaryRef.current;
     if (!cy || !current?.units || unitRef.current !== null || cy.nodes().length === 0) return;
     applyRoleFilter(cy, roleFilter);
-    postMessageRef.current(renderedReport(cy, current, cy.nodes().filter((node) => !node.isChild()), null, undefined));
+    postMessageRef.current(renderedReport(cy, current, current, cy.nodes().filter((node) => !node.isChild()), null, undefined));
   }, [roleFilter]);
 
-  // A new revision or level finds again; a stale mark or a page keeps what is pinned.
+  // A new revision, level or cap (Show more groups) finds again; a stale mark or a page keeps what is pinned.
   const revision = summary?.revision;
+  const hiddenGroups = drawn?.hiddenGroups ?? 0;
   useEffect(() => {
     const cy = cyRef.current;
     if (!cy || revision === undefined) return;
     const matches = findGroups(cy, query);
     pinnedRef.current = matches;
+    setFindMatches(matches.length);
     showFocus(cy, matches, postMessageRef.current);
     if (matches.nonempty()) cy.center(matches);
-  }, [revision, unit, folder, query]);
+  }, [revision, unit, folder, query, hiddenGroups]);
+
+  // The hidden groups are searched by the extension: asked again for a new query, level or cap.
+  useEffect(() => {
+    setFound(null);
+    const at = actionsRef.current.levelOf();
+    if (!at || hiddenGroups === 0 || !query.trim()) return;
+    postMessageRef.current({ command: "architectureFind", ...at, unit: unit ?? undefined, query });
+  }, [revision, unit, folder, query, hiddenGroups]);
+
+  // The matrix holds every group of its level: its find searches the rows.
+  const needle = query.trim().toLowerCase();
+  const matrixMatches = view === "matrix" && needle && matrix
+    ? matrix.matrix.rows.filter((row) => `${row.label}\n${row.key}`.toLowerCase().includes(needle))
+    : [];
 
   // The matrix of the drawn level: kept per level, asked for once.
   useEffect(() => {
@@ -1291,7 +1419,8 @@ export function ArchitectureGraph({ postMessage }: Readonly<ArchitectureGraphPro
       {!state && summary && drawn && (
         <>
           <SummaryHeader
-            summary={summary} unit={unit} minImports={minImports} onRefresh={refresh}
+            summary={summary} level={drawn} onShowMore={() => actionsRef.current.showMoreGroups()}
+            unit={unit} minImports={minImports} onRefresh={refresh}
             onRule={(rule) => actionsRef.current.openRule(rule)}
             roleFilter={roleFilter} onRole={(role) => actionsRef.current.toggleRole(role)}
           />
@@ -1305,6 +1434,10 @@ export function ArchitectureGraph({ postMessage }: Readonly<ArchitectureGraphPro
             capReached={capReached}
             view={view}
             onView={(next) => actionsRef.current.switchView(next)}
+            findMatches={view === "matrix" ? matrixMatches.length : findMatches}
+            found={found}
+            onShowMore={() => actionsRef.current.showMoreGroups()}
+            canShowMore={canShowMore(summary)}
           />
           <Breadcrumb
             summary={drawn}
@@ -1332,6 +1465,7 @@ export function ArchitectureGraph({ postMessage }: Readonly<ArchitectureGraphPro
             matrix={matrix.matrix}
             violations={matrix.violations}
             request={matrixRequest}
+            revealKey={matrixMatches[0]?.key}
             enterable={(row) => actionsRef.current.enterable(row)}
             colorOf={(row) => actionsRef.current.rowColor(row)}
             selectedKey={focusId === null ? undefined : drawn?.groups.find((group) => group.id === focusId)?.key}

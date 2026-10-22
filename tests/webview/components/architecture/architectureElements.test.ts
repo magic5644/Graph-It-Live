@@ -13,10 +13,12 @@ import {
   placeNewFiles,
   renderedFileCount,
   findGroups,
+  fitReadable,
   focusGroup,
   highlightFocus,
   type LayoutBox,
   measureInteraction,
+  measureIsolated,
   nodeBox,
   separateOverlaps,
   toArchitectureElements,
@@ -25,7 +27,7 @@ import { buildArchitectureStylesheet } from "@/webview/components/cytoscape/Cyto
 import cytoscape from "cytoscape";
 // eslint-disable-next-line @typescript-eslint/no-require-imports
 cytoscape.use(require("cytoscape-fcose"));
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
 // ui/a imports store/b and store/c; main stays unassigned and imports ui/a. Raw Windows
 // paths in nodes and edges; nodeMetadata keys are normalized, as computeNodeMetadata writes them.
@@ -73,6 +75,12 @@ describe("toArchitectureElements", () => {
     expect(Number(store.data.height)).toBeGreaterThan(Number(ui.data.height));
     const edges = toArchitectureElements(summaryOf(graphData)).filter(element => element.group === "edges");
     expect(edges.map(edge => edge.data.width)).toEqual([1, 2]);
+  });
+
+  it("marks the isolated groups of the summary, the unassigned node included", () => {
+    const summary = { ...summaryOf(graphData), isolatedGroups: [0, 2] };
+    const isolated = toArchitectureElements(summary).filter((element) => element.data.isolated === true).map((element) => element.data.id);
+    expect(isolated.sort()).toEqual(["group-0", "group-2"]);
   });
 
   it("omits the unassigned node when every file has a group", () => {
@@ -169,6 +177,12 @@ describe("separateOverlaps", () => {
     separateOverlaps(boxes);
     expect(boxes).toHaveLength(150);
     expect(overlaps(boxes)).toBe(0);
+    // Fitted in a small view, every label (the 20 largest and any highlighted group alike) is drawn at 8px or more.
+    cy.nodes().forEach((node, index) => { node.position({ x: boxes[index].x, y: boxes[index].y }); });
+    vi.spyOn(cy, "width").mockReturnValue(400);
+    vi.spyOn(cy, "fit").mockImplementation(() => cy.zoom(0.35));
+    fitReadable(cy);
+    expect(measureIsolated(cy).minLabelPx).toBeGreaterThanOrEqual(8);
     cy.destroy();
   });
 });

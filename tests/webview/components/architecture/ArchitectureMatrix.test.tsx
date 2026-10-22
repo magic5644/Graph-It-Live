@@ -57,6 +57,18 @@ describe("ArchitectureMatrix", () => {
     expect(screen.getByText(/I = Ce \/ \(Ca \+ Ce\)/)).toBeTruthy();
   });
 
+  it("scrolls the row a find reveals into view and makes it active, without opening anything", () => {
+    const { onCell, rerender, ...props } = setup();
+    const region = screen.getByRole("region", { name: /Dependency structure matrix/ });
+    rerender(<ArchitectureMatrix {...props} onCell={onCell} revealKey="g250" />);
+    // 250 rows of 16 px, less the 600 px fallback viewport under its 36 px header.
+    expect(region.scrollTop).toBe(250 * 16 + 16 - (600 - 36));
+    expect(region.querySelector('[data-active="true"]')?.getAttribute("aria-label")).toBe("g250: 0 file pairs inside");
+    expect(onCell).not.toHaveBeenCalled();
+    rerender(<ArchitectureMatrix {...props} onCell={onCell} revealKey="none" />);
+    expect(region.scrollTop).toBe(250 * 16 + 16 - (600 - 36));
+  });
+
   it("reports a click on a cell or a header", () => {
     const { onCell, onHeader } = setup(small);
     fireEvent.click(screen.getByRole("button", { name: "g002 imports g001: 1 file pair" }));
