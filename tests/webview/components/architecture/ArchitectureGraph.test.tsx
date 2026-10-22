@@ -115,6 +115,10 @@ const helpers = vi.hoisted(() => ({
   focusGroup: vi.fn(() => ({ nodes: () => ({ filter: () => ({ length: 3 }) }) })),
   // The units measurement runs on real Cytoscape in architectureUnitsLevel.test.ts.
   measureUnitLevel: vi.fn(() => ({ units: 2, colors: 2, redEdges: 1, edgesNotDown: 0, routedEdges: 2, hiddenEdges: 0, minLabelPx: 11 })),
+  // Isolated groups are measured, set aside and packed on real Cytoscape in architectureElements.test.ts.
+  measureIsolated: vi.fn(() => ({ isolatedBelow: 0, minLabelPx: 11 })),
+  linkedElements: vi.fn(() => ({ nodes: () => ({ empty: () => false }), layout: (options: unknown) => cy.instance.layout(options) })),
+  packIsolatedGroups: vi.fn(),
 }));
 helpers.findGroups.mockImplementation(() => helpers.empty);
 vi.mock("@/webview/components/architecture/architectureElements", async (importOriginal) => ({
@@ -360,16 +364,16 @@ describe("ArchitectureGraph", () => {
     });
 
     it("finds and centres matching groups; Escape and a background tap clear the find and the highlight", () => {
-      const matches = { empty: () => false, nonempty: () => true };
+      const matches = { empty: () => false, nonempty: () => true, length: 1 };
       helpers.findGroups.mockImplementation((_cy, query: string) => (query ? matches : empty));
-      renderWithSummary();
+      const { postMessage } = renderWithSummary();
       const find = screen.getByRole("searchbox", { name: "Find group" }) as HTMLInputElement;
 
-      expect(screen.queryByText(/hidden groups are not searched/)).toBeNull();
       fireEvent.change(find, { target: { value: "ui" } });
       expect(helpers.findGroups).toHaveBeenLastCalledWith(cy.instance, "ui");
-      // summary hides 1 of its 3 groups: find cannot see it, and says so.
-      expect(screen.getByText("Find searches the 2 groups shown; the 1 hidden groups are not searched.")).toBeTruthy();
+      // summary hides 1 of its 3 groups: the extension searches it.
+      expect(postMessage).toHaveBeenCalledWith({ command: "architectureFind", revision: "r1", query: "ui" });
+      expect(screen.queryByRole("status", { name: "Find result" })).toBeNull();
       expect(helpers.highlightFocus).toHaveBeenLastCalledWith(cy.instance, matches);
       expect(cy.instance.center).toHaveBeenCalledWith(matches);
 
@@ -383,6 +387,68 @@ describe("ArchitectureGraph", () => {
       act(() => cy.state.handlers.get("tap")?.({ target: cy.instance }));
       expect(find.value).toBe("");
       expect(helpers.highlightFocus).toHaveBeenLastCalledWith(cy.instance, empty);
+    });
+
+    it("reports the hidden groups a find matches, never as no group, and Show more groups asks for them", () => {
+      const { postMessage } = renderWithSummary();
+      const find = screen.getByRole("searchbox", { name: "Find group" }) as HTMLInputElement;
+      const status = () => screen.queryByRole("status", { name: "Find result" })?.textContent;
+
+      fireEvent.change(find, { target: { value: "legacy" } });
+      expect(status()).toBe("Searching the hidden groups…");
+      // An answer for another query or revision is dropped.
+      send({ type: "architectureFound", revision: "r1", query: "leg", matches: ["legacy"], total: 1 });
+      send({ type: "architectureFound", revision: "r0", query: "legacy", matches: ["legacy"], total: 1 });
+      expect(status()).toBe("Searching the hidden groups…");
+      send({ type: "architectureFound", revision: "r1", query: "legacy", matches: ["legacy"], total: 1 });
+      expect(status()).toBe('"legacy" is also in 1 hidden group (legacy). Only the 150 largest groups are drawn.');
+      expect(lastOf(postMessage, "architectureDetailRendered").findStatus).toBe(status());
+
+      fireEvent.change(find, { target: { value: "nothing" } });
+      send({ type: "architectureFound", revision: "r1", query: "nothing", matches: [], total: 0 });
+      expect(status()).toBe('No group matches "nothing".');
+
+      // Below the cap's maximum, both the header and the find offer Show more groups.
+      send({ ...summary, maxGroups: 50 });
+      fireEvent.change(find, { target: { value: "legacy" } });
+      send({ type: "architectureFound", revision: "r1", query: "legacy", matches: ["a", "b"], total: 12 });
+      expect(status()).toBe('"legacy" is also in 12 hidden groups (a, b, +10 more). Show more groups');
+      const buttons = screen.getAllByRole("button", { name: "Show more groups" });
+      expect(buttons).toHaveLength(2);
+      fireEvent.click(buttons[1]);
+      expect(postMessage).toHaveBeenLastCalledWith({ command: "architectureShowMoreGroups", revision: "r1" });
+      postMessage.mockClear();
+      send({ type: "architectureControls", showMoreGroups: true });
+      expect(postMessage).toHaveBeenCalledWith({ command: "architectureShowMoreGroups", revision: "r1" });
+    });
+
+    it("states the groups without cross-group imports, and keeps the viewport and find when Show more groups draws more", () => {
+      const matches = { empty: () => false, nonempty: () => true, length: 1, map: () => ["group-1"] };
+      helpers.findGroups.mockImplementation((_cy, query: string) => (query ? matches : empty));
+      const { postMessage } = renderWithSummary();
+      send({ ...summary, isolatedGroups: [0, 2], groupEdges: [] });
+      expect(screen.getByText("2 groups without cross-group imports, drawn apart below the others.")).toBeTruthy();
+      expect(cy.state.nodes.filter(node => node.data("isolated") === true).map(node => node.id())).toEqual(["group-2", "group-0"]);
+      expect(lastOf(postMessage, "architectureRendered").groupLevel).toEqual({
+        shownGroups: 2, totalGroups: 3, hiddenGroups: 1, hiddenGroupEdges: 2, isolatedGroups: 2, isolatedBelow: 0, minLabelPx: 11,
+      });
+
+      fireEvent.change(screen.getByRole("searchbox", { name: "Find group" }), { target: { value: "ui" } });
+      vi.mocked(cy.instance.center).mockClear();
+      vi.mocked(cy.instance.fit).mockClear();
+      // Show more groups: the same revision with one more group is laid out again, centred on what was found.
+      send({ ...summary, maxGroups: 150, hiddenGroups: 0, groups: [...summary.groups, { id: 3, key: "legacy", label: "legacy", fileCount: 1, internalEdgeCount: 0 }] });
+      expect(helpers.packIsolatedGroups).toHaveBeenCalled();
+      expect(cy.instance.fit).toHaveBeenCalled();
+      // The find runs again on the groups now drawn, and stays in view.
+      expect(helpers.findGroups).toHaveBeenLastCalledWith(cy.instance, "ui");
+      expect(cy.instance.center).toHaveBeenLastCalledWith(matches);
+      // A stale mark finds nothing again: what is pinned stays.
+      vi.mocked(helpers.findGroups).mockClear();
+      send({ ...summary, maxGroups: 150, hiddenGroups: 0, stale: true, groups: [...summary.groups, { id: 3, key: "legacy", label: "legacy", fileCount: 1, internalEdgeCount: 0 }] });
+      expect(helpers.findGroups).not.toHaveBeenCalled();
+      // Same revision: nothing is reset or asked again.
+      expect(postMessage.mock.calls.filter(([message]) => message.command === "architectureMounted")).toHaveLength(1);
     });
 
     it("hides weak edges from the min-imports control and states how many are shown", () => {
@@ -478,12 +544,20 @@ describe("ArchitectureGraph", () => {
       expect(layout).not.toHaveBeenCalled();
       expect(postMessage).toHaveBeenLastCalledWith({ command: "architectureResized", width: 0, height: 0 });
 
+      // A zoom or pan of its own (focus, find, the user; a stale banner then shrinks the canvas) is kept.
+      act(() => cy.state.handlers.get("viewport")?.({}));
+      onResize();
+      vi.advanceTimersByTime(120);
+      expect(cy.instance.resize).toHaveBeenCalledTimes(2);
+      expect(cy.instance.fit).toHaveBeenCalledTimes(1);
+      expect(postMessage).toHaveBeenLastCalledWith({ command: "architectureResized", width: 0, height: 0 });
+
       onResize();
       unmount();
       expect(disconnect).toHaveBeenCalled();
       window.dispatchEvent(new Event("resize"));
       vi.runAllTimers();
-      expect(cy.instance.resize).toHaveBeenCalledTimes(1);
+      expect(cy.instance.resize).toHaveBeenCalledTimes(2);
     } finally {
       layout.mockRestore();
       vi.unstubAllGlobals();
@@ -552,7 +626,7 @@ describe("ArchitectureGraph", () => {
       expect(cy.instance.fit).toHaveBeenLastCalledWith(nodeById("group-1"), 30);
       expect(lastOf(postMessage, "architectureDetailRendered")).toEqual({
         command: "architectureDetailRendered", expandedGroups: 1, expandedFileCount: 5, renderedFiles: 2, groupLevelEdges: 1,
-        visibleGroups: 3, focusedGroup: "ui", capReached: false, evidence: undefined,
+        visibleGroups: 3, focusedGroup: "ui", capReached: false, findStatus: "", viewport: "1@0,0", evidence: undefined,
       });
 
       tap(nodeById("more-1"));

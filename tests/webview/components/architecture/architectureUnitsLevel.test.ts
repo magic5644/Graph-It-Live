@@ -9,7 +9,11 @@ import {
   cappedUnitEdges,
   fitReadable,
   levelSummary,
+  linkedElements,
+  measureIsolated,
   measureUnitLevel,
+  packBelow,
+  packIsolatedGroups,
   MIN_READABLE_ZOOM,
   roleBadge,
   toLevelElements,
@@ -97,6 +101,17 @@ describe("levelSummary", () => {
     expect(level.groups.map(group => group.id)).toEqual([1, 2]);
     expect(level.groupEdges).toEqual([summary.groupEdges[0]]);
     expect(level.totalGroups).toBe(2);
+  });
+
+  it("states an entered unit's hidden groups and edges, and only its isolated groups", () => {
+    const capped = {
+      ...summary,
+      isolatedGroups: [2, 6],
+      units: { ...units, hiddenByUnit: { "apps/web": { groups: 3, groupEdges: 4 } } },
+    };
+    expect(levelSummary(capped, "apps/web")).toMatchObject({ totalGroups: 5, hiddenGroups: 3, hiddenGroupEdges: 4, isolatedGroups: [2] });
+    expect(levelSummary(capped, "tool")).toMatchObject({ totalGroups: 1, hiddenGroups: 0, hiddenGroupEdges: 0, isolatedGroups: [6] });
+    expect(levelSummary(capped, null).isolatedGroups).toEqual([]);
   });
 
   it("returns a summary without units as it is", () => {
@@ -296,5 +311,60 @@ describe("fitReadable on a large graph", () => {
     const box = cy.elements().renderedBoundingBox();
     expect(box.y1).toBeCloseTo(30, 0);
     expect((box.x1 + box.x2) / 2).toBeCloseTo(200, 0);
+  });
+});
+
+describe("isolated groups", () => {
+  it("packs boxes in rows below the other groups, left-aligned and wrapped at their width", () => {
+    const boxes = [0, 1, 2].map(() => ({ x: 0, y: 0, width: 300, height: 40 }));
+    packBelow(boxes, { x1: -100, x2: 600, y2: 200 });
+    expect(boxes.map(({ x, y }) => [x, y])).toEqual([[50, 268], [362, 268], [50, 320]]);
+  });
+
+  it("packs about square without other groups, never narrower than a few groups", () => {
+    const boxes = Array.from({ length: 9 }, () => ({ x: 0, y: 0, width: 88, height: 88 }));
+    packBelow(boxes);
+    expect(new Set(boxes.map(box => box.y)).size).toBe(3);
+    expect(boxes[0]).toMatchObject({ x: 44, y: 44 });
+    const one = [{ x: 0, y: 0, width: 50, height: 50 }];
+    packBelow(one);
+    expect(one[0]).toMatchObject({ x: 25, y: 25 });
+  });
+
+  it("leaves them out of the ELK layout, packs them below the laid-out groups, and measures it", async () => {
+    // tool (group 6) has no edge inside its unit; at the units level nothing is isolated.
+    const level = { ...summary, isolatedGroups: [6], units: { ...units, groupUnits: { ...units.groupUnits, 6: "apps/web" } } };
+    const cy = canvas(toLevelElements(level, "apps/web"));
+    expect(cy.nodes("[?isolated]").map(node => node.id())).toEqual(["group-6"]);
+    expect(toElkGraph(cy).children?.map(child => child.id)).toEqual(["group-1", "group-2"]);
+    expect(linkedElements(cy).nodes().map(node => node.id())).toEqual(["group-1", "group-2"]);
+    await layOut(cy);
+    packIsolatedGroups(cy);
+    const tool = cy.getElementById("group-6").boundingBox({ includeLabels: false });
+    const linked = cy.nodes().not("[?isolated]").boundingBox({ includeLabels: false });
+    expect(tool.y1).toBeGreaterThan(linked.y2);
+    expect(measureIsolated(cy)).toEqual({ isolatedBelow: 1, minLabelPx: ARCHITECTURE_FONT_SIZE });
+  });
+
+  it("moves an expanded isolated group with its files, and does nothing without isolated groups", () => {
+    // Styled: a compound's box follows its files.
+    const cy = cytoscape({
+      headless: true,
+      styleEnabled: true,
+      style: buildArchitectureStylesheet(colors),
+      layout: { name: "preset" },
+      elements: [
+        { group: "nodes", data: { id: "a" }, position: { x: 0, y: 0 } },
+        { group: "nodes", data: { id: "b", isolated: true } },
+        { group: "nodes", data: { id: "f", parent: "b" }, position: { x: 500, y: -500 } },
+      ],
+    });
+    packIsolatedGroups(cy);
+    expect(cy.getElementById("f").position("y")).toBeGreaterThan(0);
+    expect(linkedElements(cy).map(element => element.id())).toEqual(["a"]);
+    const plain = cytoscape({ headless: true, layout: { name: "preset" }, elements: [{ group: "nodes", data: { id: "a" }, position: { x: 3, y: 4 } }] });
+    packIsolatedGroups(plain);
+    expect(plain.getElementById("a").position()).toEqual({ x: 3, y: 4 });
+    expect(measureIsolated(plain).isolatedBelow).toBe(0);
   });
 });

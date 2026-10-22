@@ -52,7 +52,8 @@ export function toElkGraph(cy: Core): ElkNode {
   return {
     id: "root",
     layoutOptions: ELK_LAYERED_OPTIONS,
-    children: cy.nodes(":orphan").map((node) => elkNode(node, partitionOf)),
+    // Isolated groups have no edge to lay out: they are packed below once ELK is done.
+    children: cy.nodes(":orphan[!isolated]").map((node) => elkNode(node, partitionOf)),
     edges,
   };
 }
