@@ -1042,7 +1042,8 @@ export function ArchitectureGraph({ postMessage }: Readonly<ArchitectureGraphPro
   /** Kept only for the drawn level and the current query: a late answer is dropped. */
   const receiveFound = (message: ArchitectureFoundMessage) => {
     const at = levelOf();
-    if (!at || message.revision !== at.revision || message.folder !== at.folder || (message.unit ?? null) !== unitRef.current) return;
+    // A message always carries a revision: without a drawn level, the first test drops it.
+    if (message.revision !== at?.revision || message.folder !== at.folder || (message.unit ?? null) !== unitRef.current) return;
     if (message.query === queryRef.current) setFound(message);
   };
   const showMoreGroups = () => {
