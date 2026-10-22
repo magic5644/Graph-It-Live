@@ -74,31 +74,36 @@
         "source": "<root>/src/circular.ts",
         "target": "<root>/src/main.ts",
         "sourceRelative": "src/circular.ts",
-        "targetRelative": "src/main.ts"
+        "targetRelative": "src/main.ts",
+        "line": 2
       },
       {
         "source": "<root>/src/components/Button.tsx",
         "target": "<root>/src/utils.ts",
         "sourceRelative": "src/components/Button.tsx",
-        "targetRelative": "src/utils.ts"
+        "targetRelative": "src/utils.ts",
+        "line": 1
       },
       {
         "source": "<root>/src/index.ts",
         "target": "<root>/src/utils.ts",
         "sourceRelative": "src/index.ts",
-        "targetRelative": "src/utils.ts"
+        "targetRelative": "src/utils.ts",
+        "line": 1
       },
       {
         "source": "<root>/src/main.ts",
         "target": "<root>/src/utils.ts",
         "sourceRelative": "src/main.ts",
-        "targetRelative": "src/utils.ts"
+        "targetRelative": "src/utils.ts",
+        "line": 1
       },
       {
         "source": "<root>/src/main.ts",
         "target": "<root>/src/components/Button.tsx",
         "sourceRelative": "src/main.ts",
-        "targetRelative": "src/components/Button.tsx"
+        "targetRelative": "src/components/Button.tsx",
+        "line": 2
       }
     ],
     "context": {

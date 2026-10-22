@@ -44,6 +44,8 @@ describe("buildArchitectureGraph", () => {
       target: normalizePath(fileB),
       sourceRelative: "src/api/a.ts",
       targetRelative: "src/db/b.ts",
+      // The first import of the target: its line locates a rule violation (SARIF).
+      line: 1,
     }]);
     expect(graph.nodes.map(node => [node.relativePath, node.dependencyCount, node.dependentCount, node.communityKey]))
       .toEqual([["src/api/a.ts", 1, 0, "api"], ["src/db/b.ts", 0, 1, "db"]]);

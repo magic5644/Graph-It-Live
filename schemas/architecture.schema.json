@@ -1,0 +1,151 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "$schema": {
+      "type": "string"
+    },
+    "elements": {
+      "type": "object",
+      "propertyNames": {
+        "type": "string",
+        "pattern": "^[\\w.-]{1,64}$"
+      },
+      "additionalProperties": {
+        "type": "object",
+        "properties": {
+          "path": {
+            "description": "Workspace-relative gitignore-style patterns, as in .graphitignore (e.g. 'frontend/', 'mfe/*')",
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 512
+              },
+              {
+                "minItems": 1,
+                "maxItems": 128,
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "maxLength": 512
+                }
+              }
+            ]
+          },
+          "unit": {
+            "description": "Unit keys or package names (graph-it architecture --level units); * matches any characters",
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 214
+              },
+              {
+                "minItems": 1,
+                "maxItems": 128,
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "maxLength": 214
+                }
+              }
+            ]
+          },
+          "each": {
+            "description": "Every matched folder or unit is an instance of its own: a rule from this element to itself means another instance",
+            "type": "boolean"
+          }
+        },
+        "additionalProperties": false
+      },
+      "description": "Named sets of files the rules refer to"
+    },
+    "rules": {
+      "maxItems": 256,
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128,
+            "description": "Shown with every violation; unique"
+          },
+          "from": {
+            "description": "Elements whose imports the rule checks (forbid, allowOnly)",
+            "anyOf": [
+              {
+                "type": "string",
+                "pattern": "^[\\w.-]{1,64}$"
+              },
+              {
+                "minItems": 1,
+                "maxItems": 128,
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "pattern": "^[\\w.-]{1,64}$"
+                }
+              }
+            ]
+          },
+          "forbid": {
+            "description": "Elements the files of from must not import",
+            "anyOf": [
+              {
+                "type": "string",
+                "pattern": "^[\\w.-]{1,64}$"
+              },
+              {
+                "minItems": 1,
+                "maxItems": 128,
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "pattern": "^[\\w.-]{1,64}$"
+                }
+              }
+            ]
+          },
+          "allowOnly": {
+            "description": "The only elements the files of from may import, besides their own element instance",
+            "maxItems": 256,
+            "type": "array",
+            "items": {
+              "type": "string",
+              "pattern": "^[\\w.-]{1,64}$"
+            }
+          },
+          "noCycles": {
+            "description": "'units', or an element with each: no import cycle between them",
+            "type": "string",
+            "pattern": "^[\\w.-]{1,64}$"
+          },
+          "severity": {
+            "description": "error (default) fails graph-it check-architecture; off skips the rule",
+            "type": "string",
+            "enum": [
+              "error",
+              "warning",
+              "off"
+            ]
+          },
+          "reason": {
+            "description": "Why the rule exists, shown with every violation",
+            "type": "string",
+            "maxLength": 1000
+          }
+        },
+        "required": [
+          "name"
+        ],
+        "additionalProperties": false
+      }
+    }
+  },
+  "required": [
+    "elements",
+    "rules"
+  ],
+  "additionalProperties": false
+}

@@ -12,6 +12,7 @@ import {
 import { normalizePath } from "../../shared/path";
 import type { ArchitectureGraph } from "./ArchitectureGraphBuilder";
 import type { ArchitectureMatrix } from "./architectureMatrix";
+import type { WorkspaceArchitectureCheck } from "./architectureRules";
 import { byCodeUnit, type ArchitectureUnit, type ArchitectureUnits } from "./architectureUnits";
 
 const DEFAULT_EXPLORE_LIMIT = 50;
@@ -405,3 +406,27 @@ export function overviewArchitecture(
 }
 
 export type ArchitectureOverview = ReturnType<typeof overviewArchitecture>;
+
+/**
+ * A rules check (check_architecture) with its violations paged, or only one rule's with `rule`;
+ * unmatched files and resolved baseline entries capped at the limit, totals whole.
+ */
+export function exploreArchitectureCheck(
+  check: WorkspaceArchitectureCheck,
+  options: { rule?: string; offset?: number; limit?: number; revision?: string } = {},
+) {
+  if (options.revision !== undefined && options.revision !== check.context.revision) {
+    throw new Error(
+      `Architecture or rules changed (revision ${options.revision} -> ${check.context.revision}): pages from earlier responses no longer apply. ` +
+      "Restart: call check_architecture without offset or revision.",
+    );
+  }
+  if (options.rule !== undefined && !check.rules.some(rule => rule.name === options.rule)) {
+    throw new Error(`Unknown rule "${options.rule}". Rules: ${check.rules.map(rule => rule.name).join(", ")}`);
+  }
+  const limit = options.limit ?? DEFAULT_EXPLORE_LIMIT;
+  const { violations, unmatchedFiles, resolved, ...rest } = check;
+  const shown = options.rule === undefined ? violations : violations.filter(violation => violation.rule === options.rule);
+  const { items, ...pageInfo } = page(shown, options.offset ?? 0, limit);
+  return { ...rest, violations: items, page: pageInfo, unmatchedFiles: unmatchedFiles.slice(0, limit), resolved: resolved.slice(0, limit) };
+}
