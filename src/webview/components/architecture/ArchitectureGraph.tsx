@@ -13,6 +13,7 @@ import type { ElkNode } from "elkjs/lib/elk-api";
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import type { MatrixCell, MatrixRow } from "../../../analyzer/architecture/architectureMatrix";
 import type { ArchitectureRuleSummary } from "../../../analyzer/architecture/architectureRules";
+import type { UnitRole } from "../../../analyzer/architecture/unitRoles";
 import type {
   ArchitectureControlsMessage,
   ArchitectureEvidencePageMessage,
@@ -28,6 +29,7 @@ import type {
 import { buildArchitectureStylesheet } from "../cytoscape/CytoscapeTheme";
 import {
   applyMinImports,
+  applyRoleFilter,
   ARCHITECTURE_FCOSE_LAYOUT,
   type Expansions,
   FILE_CAP_MESSAGE,
@@ -45,6 +47,7 @@ import {
   mergeGroupDetail,
   countRendered,
   placeNewFiles,
+  roleBadge,
   separateOverlaps,
   toLevelElements,
   unitColor,
@@ -113,6 +116,9 @@ function renderedReport(
     // The Rules panel as the DOM shows it: `name=count` per rule.
     rules: Array.from(document.querySelectorAll<HTMLButtonElement>('[aria-label="Architecture rules"] button[data-rule]'),
       (button) => `${button.dataset.rule}=${button.dataset.count}`),
+    // The role legend as the DOM shows it: `role=count`, `*` after the filtered role.
+    roles: Array.from(document.querySelectorAll<HTMLButtonElement>('[aria-label="Unit roles"] button[data-role]'),
+      (button) => `${button.dataset.role}=${button.dataset.count}${button.getAttribute("aria-pressed") === "true" ? "*" : ""}`),
   };
 }
 
@@ -250,8 +256,46 @@ const bannerStyle: React.CSSProperties = {
   margin: "4px 0",
 };
 
-/** Units level: layers, red edges and the colour of each unit. */
-function UnitsHeader({ summary, minImports }: Readonly<{ summary: ArchitectureSummaryMessage; minImports: number }>) {
+const ROLE_PLURALS: Partial<Record<UnitRole, string>> = { library: "libraries", tooling: "tooling", unknown: "unknown" };
+const roleCount = (role: UnitRole, count: number) => (count === 1 ? `1 ${role}` : `${count} ${ROLE_PLURALS[role] ?? role + "s"}`);
+
+/** Units per role, each a filter: a click keeps only its units drawn, a second click shows them all. */
+function RoleLegend({ roleCounts, roleFilter, onRole }: Readonly<{
+  roleCounts: Partial<Record<UnitRole, number>>;
+  roleFilter: string | null;
+  onRole: (role: string) => void;
+}>) {
+  return (
+    <div style={{ display: "flex", flexWrap: "wrap", gap: "2px 8px", alignItems: "baseline" }}>
+      <ul aria-label="Unit roles" style={{ display: "contents" }}>
+        {Object.entries(roleCounts).map(([role, count]) => (
+          <li key={role} style={{ listStyle: "none" }}>
+            <button
+              type="button" data-role={role} data-count={count} aria-pressed={roleFilter === role} onClick={() => onRole(role)}
+              title={roleFilter === role ? "Show every unit" : `Show only the ${role} units`}
+              style={{ fontWeight: roleFilter === role ? 600 : undefined }}
+            >
+              {roleCount(role as UnitRole, count ?? 0)}
+            </button>
+          </li>
+        ))}
+      </ul>
+      <span style={{ color: "var(--vscode-descriptionForeground)" }}>
+        [role?] inferred from manifests and files (hover a unit for its evidence), [role] declared in graphit.architecture.json
+      </span>
+    </div>
+  );
+}
+
+interface UnitsHeaderProps {
+  summary: ArchitectureSummaryMessage;
+  minImports: number;
+  roleFilter: string | null;
+  onRole: (role: string) => void;
+}
+
+/** Units level: layers, red edges, the role legend and the colour and role of each unit. */
+function UnitsHeader({ summary, minImports, roleFilter, onRole }: Readonly<UnitsHeaderProps>) {
   const level = summary.units;
   if (!level) return null;
   const hidden = hiddenUnitEdgeCount(level, minImports, summary.rules);
@@ -264,11 +308,12 @@ function UnitsHeader({ summary, minImports }: Readonly<{ summary: ArchitectureSu
         </span>
       </div>
       {hidden > 0 && <div>{hidden} weaker edges hidden (set min. imports to show them by weight).</div>}
+      <RoleLegend roleCounts={level.roleCounts} roleFilter={roleFilter} onRole={onRole} />
       <ul aria-label="Units" style={{ display: "flex", flexWrap: "wrap", gap: "2px 10px", listStyle: "none", padding: 0, margin: "2px 0", maxHeight: 48, overflow: "auto" }}>
         {level.units.map((unit, index) => (
-          <li key={unit.key} title={`${unit.key} · layer ${unit.layer}`}>
+          <li key={unit.key} title={`${unit.key} · layer ${unit.layer} · ${unit.role} (${unit.confidence})`}>
             <span aria-hidden="true" style={{ display: "inline-block", width: 9, height: 9, marginRight: 4, background: unitColor(index) }} />
-            {unit.name}
+            {unit.name} {roleBadge(unit)}
           </li>
         ))}
       </ul>
@@ -325,9 +370,11 @@ interface SummaryHeaderProps {
   minImports: number;
   onRefresh: () => void;
   onRule: (rule: ArchitectureRuleSummary) => void;
+  roleFilter: string | null;
+  onRole: (role: string) => void;
 }
 
-function SummaryHeader({ summary, unit, minImports, onRefresh, onRule }: Readonly<SummaryHeaderProps>) {
+function SummaryHeader({ summary, unit, minImports, onRefresh, onRule, roleFilter, onRole }: Readonly<SummaryHeaderProps>) {
   const { context, totals } = summary;
   return (
     <div style={{ padding: "6px 10px", fontSize: 12, borderBottom: "1px solid var(--vscode-widget-border)" }}>
@@ -338,7 +385,7 @@ function SummaryHeader({ summary, unit, minImports, onRefresh, onRule }: Readonl
         </output>
       )}
       <div style={{ fontWeight: 600 }}>{summary.units && unit === null ? "Units in layers: dependents above, dependencies below" : MODE_WORDING[context.communityMode]}</div>
-      {summary.units && unit === null && <UnitsHeader summary={summary} minImports={minImports} />}
+      {summary.units && unit === null && <UnitsHeader summary={summary} minImports={minImports} roleFilter={roleFilter} onRole={onRole} />}
       {summary.rules && <RulesPanel rules={summary.rules} onRule={onRule} />}
       <div>
         {totals.files} files · {totals.fileEdges} file edges ({totals.intraGroupEdges} within groups,{" "}
@@ -610,6 +657,10 @@ export function ArchitectureGraph({ postMessage }: Readonly<ArchitectureGraphPro
   const minImportsRef = useRef(minImports);
   minImportsRef.current = minImports;
   const [shownEdges, setShownEdges] = useState(0);
+  /** Role whose units alone are drawn at the units level; null draws them all. */
+  const [roleFilter, setRoleFilter] = useState<string | null>(null);
+  const roleFilterRef = useRef(roleFilter);
+  roleFilterRef.current = roleFilter;
   const [expansions, setExpansions] = useState<Expansions>(NO_EXPANSION);
   const [capReached, setCapReached] = useState(false);
   const [evidence, setEvidence] = useState<EvidenceState | null>(null);
@@ -850,8 +901,11 @@ export function ArchitectureGraph({ postMessage }: Readonly<ArchitectureGraphPro
     viewportsRef.current.clear();
     matricesRef.current.clear();
     setMatrix(null);
+    setRoleFilter(null);
     fitRef.current = "all";
   };
+  /** A legend click: keeps only this role's units, or shows them all again. */
+  const toggleRole = (role: string) => setRoleFilter((current) => (current === role ? null : role));
   const isGroup = (target: cytoscape.SingularElementArgument) => target.isNode() && !target.data("file") && !target.data("more");
   /** A click: an edge opens its evidence, a group gets the focus, "+N more" loads a page. */
   const tap = (target: cytoscape.SingularElementArgument) => {
@@ -948,9 +1002,11 @@ export function ArchitectureGraph({ postMessage }: Readonly<ArchitectureGraphPro
   const unitIdOf = (unitKey: string | undefined): number | undefined =>
     (unitKey ? Array.from(cyRef.current?.nodes() ?? []).find((node) => node.data("unitKey") === unitKey)?.data("groupId") : undefined);
   /** E2E driver: selects the first edge of a group or unit (its evidence opens), then clicks a row's source. */
-  const controlEvidence = ({ evidenceOf, openEvidenceRow, rule }: ArchitectureControlsMessage) => {
+  const controlEvidence = ({ evidenceOf, openEvidenceRow, rule, role }: ArchitectureControlsMessage) => {
     // A real click on the Rules panel's button.
     if (rule !== undefined) document.querySelector<HTMLButtonElement>(`[aria-label="Architecture rules"] button[data-rule="${CSS.escape(rule)}"]`)?.click();
+    // A real click on the role legend's button.
+    if (role !== undefined) document.querySelector<HTMLButtonElement>(`[aria-label="Unit roles"] button[data-role="${CSS.escape(role)}"]`)?.click();
     const groupId = groupOf(evidenceOf) ?? unitIdOf(evidenceOf);
     const touches = (edge: cytoscape.EdgeSingular) => edge.data("from") === groupId || edge.data("to") === groupId;
     const edge = Array.from(cyRef.current?.edges() ?? []).find((candidate) => candidate.data("from") !== candidate.data("to") && touches(candidate));
@@ -1004,7 +1060,7 @@ export function ArchitectureGraph({ postMessage }: Readonly<ArchitectureGraphPro
     }
   };
   const actions = {
-    tap, dbltap, key, openFile, moreEvidence, receive, overview, leave, updateFocus, selectUnit, goTo, openRule,
+    tap, dbltap, key, openFile, moreEvidence, receive, overview, leave, updateFocus, selectUnit, goTo, openRule, toggleRole,
     switchView, matrixCell, matrixHeader, matrixPainted, enterable, rowColor,
   };
   const actionsRef = useRef(actions);
@@ -1120,8 +1176,9 @@ export function ArchitectureGraph({ postMessage }: Readonly<ArchitectureGraphPro
       settleLayout(cy, groups);
       if (fit) fitReadable(cy);
       if (previous === drawn) return;
-      // Measured after the min-imports filter, which runs in a later effect.
+      // Measured after the min-imports and role filters, which run in later effects.
       applyMinImports(cy, minImportsRef.current);
+      applyRoleFilter(cy, roleFilterRef.current);
       postMessageRef.current(renderedReport(cy, summary, groups, unit, folder));
     };
     const restored = restorePositions(cy, groups);
@@ -1196,6 +1253,15 @@ export function ArchitectureGraph({ postMessage }: Readonly<ArchitectureGraphPro
     showFocus(cy, pinnedRef.current ?? cy.collection(), postMessageRef.current);
   }, [summary, drawn, expansions, focusId, minImports]);
 
+  // The legend's role filter, then what is drawn once filtered (the units level's render report).
+  useEffect(() => {
+    const cy = cyRef.current;
+    const current = summaryRef.current;
+    if (!cy || !current?.units || unitRef.current !== null || cy.nodes().length === 0) return;
+    applyRoleFilter(cy, roleFilter);
+    postMessageRef.current(renderedReport(cy, current, cy.nodes().filter((node) => !node.isChild()), null, undefined));
+  }, [roleFilter]);
+
   // A new revision or level finds again; a stale mark or a page keeps what is pinned.
   const revision = summary?.revision;
   useEffect(() => {
@@ -1227,6 +1293,7 @@ export function ArchitectureGraph({ postMessage }: Readonly<ArchitectureGraphPro
           <SummaryHeader
             summary={summary} unit={unit} minImports={minImports} onRefresh={refresh}
             onRule={(rule) => actionsRef.current.openRule(rule)}
+            roleFilter={roleFilter} onRole={(role) => actionsRef.current.toggleRole(role)}
           />
           <GraphControls
             summary={drawn}

@@ -150,6 +150,8 @@ export interface ArchitectureControlsMessage {
   matrixHeader?: string;
   /** Clicks this rule in the Rules panel (its violations open in the evidence panel). */
   rule?: string;
+  /** Clicks this role in the units' role legend: only its units stay drawn, a second click shows them all. */
+  role?: string;
 }
 
 export type ArchitectureExtensionMessage =
@@ -210,11 +212,18 @@ export interface ArchitectureRenderedCommand {
     hiddenEdges: number;
     /** On-screen size of the node labels after the fit. */
     minLabelPx: number;
+    /** Units drawn with a role badge, and with their role's evidence in the tooltip. */
+    roleBadges: number;
+    roleTooltips: number;
+    /** Units left by the role filter. */
+    shownUnits: number;
   };
   /** Drawn edges breaking a declared rule. */
   violationEdges?: number;
   /** The Rules panel as drawn: `name=count` per rule. */
   rules?: string[];
+  /** The role legend as drawn: `role=count` per role, `*` after the filtered one. */
+  roles?: string[];
 }
 
 /** The graph was re-fitted to a resized view (E2E observability only). */

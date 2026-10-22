@@ -4,12 +4,14 @@ import { describe, expect, it, vi } from "vitest";
 import type { ArchitectureSummaryMessage, ArchitectureUnitLevel } from "@/shared/architecture-types";
 import {
   applyMinImports,
+  applyRoleFilter,
   ARCHITECTURE_FONT_SIZE,
   cappedUnitEdges,
   fitReadable,
   levelSummary,
   measureUnitLevel,
   MIN_READABLE_ZOOM,
+  roleBadge,
   toLevelElements,
   unitColor,
   UNIT_EDGES_PER_UNIT,
@@ -22,11 +24,11 @@ const colors = { foreground: "#fff", background: "#000", border: "#888", edge: "
 // web → ui → core ↔ types (cycle), web → core; tool stands alone. Groups: web/pages (1), ui (2), core (3), types (4), tool (5).
 const units: ArchitectureUnitLevel = {
   units: [
-    { key: "apps/web", name: "@ws/web", fileCount: 3, internalEdgeCount: 1, layer: 2 },
-    { key: "packages/ui", name: "@ws/ui", fileCount: 1, internalEdgeCount: 0, layer: 1 },
-    { key: "packages/core", name: "@ws/core", fileCount: 1, internalEdgeCount: 0, layer: 0 },
-    { key: "packages/types", name: "@ws/types", fileCount: 1, internalEdgeCount: 0, layer: 0 },
-    { key: "tool", name: "tool", fileCount: 1, internalEdgeCount: 0, layer: 0 },
+    { key: "apps/web", name: "@ws/web", fileCount: 3, internalEdgeCount: 1, layer: 2, role: "frontend", confidence: "inferred", evidence: [{ role: "frontend", detail: "`react` in dependencies" }, { role: "frontend", detail: "`index.html`" }] },
+    { key: "packages/ui", name: "@ws/ui", fileCount: 1, internalEdgeCount: 0, layer: 1, role: "library", confidence: "declared", evidence: [{ role: "library", detail: 'declared by roles["@ws/ui"] in graphit.architecture.json' }, { role: "library", detail: "imported by `@ws/web`" }] },
+    { key: "packages/core", name: "@ws/core", fileCount: 1, internalEdgeCount: 0, layer: 0, role: "library", confidence: "inferred", evidence: [{ role: "library", detail: "imported by `@ws/types`, `@ws/ui`, `@ws/web`" }] },
+    { key: "packages/types", name: "@ws/types", fileCount: 1, internalEdgeCount: 0, layer: 0, role: "library", confidence: "inferred", evidence: [{ role: "library", detail: "imported by `@ws/core`" }] },
+    { key: "tool", name: "tool", fileCount: 1, internalEdgeCount: 0, layer: 0, role: "unknown", confidence: "inferred", evidence: [] },
   ],
   unitEdges: [
     { from: "apps/web", to: "packages/ui", fileEdgeCount: 2, kind: "down" },
@@ -37,6 +39,7 @@ const units: ArchitectureUnitLevel = {
   ],
   upwardEdges: 0,
   cycles: 1,
+  roleCounts: { frontend: 1, library: 3, unknown: 1 },
   totals: { files: 7, fileEdges: 7, intraUnitEdges: 1, interUnitEdges: 6 },
   groupUnits: { 1: "apps/web", 2: "apps/web", 3: "packages/ui", 4: "packages/core", 5: "packages/types", 6: "tool" },
   groupLayers: { 1: 1, 2: 0, 3: 0, 4: 0, 5: 0, 6: 0 },
@@ -118,6 +121,35 @@ describe("toLevelElements", () => {
       ["edge-1-2", "down", true, false], ["edge-1-3", "down", true, false], ["edge-3-4", "cycle", true, false],
       ["edge-4-3", "cycle", true, false], ["edge-2-3", "down", true, false],
     ]);
+  });
+
+  it("badges each unit with its role, and lists the role's evidence in its tooltip", () => {
+    const nodes = toLevelElements(summary, null).filter(element => element.group === "nodes").map(element => element.data);
+    expect(nodes.map(node => [node.role, String(node.label).split("\n")[0]])).toEqual([
+      ["frontend", "[frontend?]"], ["library", "[library]"], ["library", "[library?]"], ["library", "[library?]"], ["unknown", "[unknown?]"],
+    ]);
+    expect(nodes[0].tooltip).toBe("apps/web\n3 files\n1 internal edge\nRole: frontend (inferred)\n- `react` in dependencies\n- `index.html`");
+    expect(nodes[1].tooltip).toContain('Role: library (declared)\n- declared by roles["@ws/ui"] in graphit.architecture.json\n- imported by `@ws/web`');
+    expect(nodes[4].tooltip).toContain("Role: unknown (inferred)\n- no evidence");
+    // Evidence for another role than the unit's says which.
+    const mixed = { ...units.units[0], evidence: [...units.units[0].evidence, { role: "library" as const, detail: "imported by `x`" }] };
+    const withMixed = { ...summary, units: { ...units, units: [mixed, ...units.units.slice(1)] } };
+    expect(toLevelElements(withMixed, null)[0].data.tooltip).toContain("\n- library: imported by `x`");
+    expect(roleBadge({ role: "service", confidence: "declared" })).toBe("[service]");
+  });
+
+  it("filters the units by role, hiding the others and their edges, and measures what is left", () => {
+    const cy = canvas();
+    expect(applyRoleFilter(cy, "library")).toBe(3);
+    expect(cy.nodes().filter(node => node.visible()).map(node => node.data("unitKey"))).toEqual(["packages/ui", "packages/core", "packages/types"]);
+    expect(cy.edges().filter(edge => edge.visible()).map(edge => edge.id())).toEqual(["edge-3-4", "edge-4-3", "edge-2-3"]);
+    expect(measureUnitLevel(cy)).toMatchObject({ units: 5, roleBadges: 5, roleTooltips: 5, shownUnits: 3 });
+    expect(applyRoleFilter(cy, null)).toBe(5);
+    expect(cy.elements(".filtered")).toHaveLength(0);
+    // Groups of an entered unit have no role: a filter leaves them drawn.
+    const inside = canvas(toLevelElements(summary, "apps/web"));
+    expect(applyRoleFilter(inside, "library")).toBe(0);
+    expect(inside.nodes(".filtered")).toHaveLength(0);
   });
 
   it("draws the edges breaking a declared rule red and dashed, with their rules, at the units and group levels", () => {

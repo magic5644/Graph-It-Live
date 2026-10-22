@@ -13,6 +13,7 @@ import {
   ARCHITECTURE_BASELINE_FILE,
   ARCHITECTURE_CONFIG_FILE,
   checkWorkspaceArchitecture,
+  loadDeclaredRoles,
   rulesByEdge,
   type WorkspaceArchitectureCheck,
 } from "@/analyzer/architecture/architectureRules";
@@ -24,6 +25,7 @@ import {
   type ArchitectureUnits,
   type UnitAssignment,
 } from "@/analyzer/architecture/architectureUnits";
+import type { DeclaredRoles } from "@/analyzer/architecture/unitRoles";
 import { aggregateCommunityGroups } from "@/analyzer/community/groupAggregation";
 import type { IndexerStatusSnapshot } from "@/analyzer/IndexerStatus";
 import type {
@@ -170,12 +172,12 @@ function viewUnitLevel({ graph, units, assignment }: UnitSource, folder?: string
   };
 }
 
-function viewArchitecture(graph: ArchitectureGraph, workspaceRoot: string): ViewLevel & { source?: UnitSource } {
+function viewArchitecture(graph: ArchitectureGraph, workspaceRoot: string, declaredRoles?: DeclaredRoles): ViewLevel & { source?: UnitSource } {
   if (graph.context.communityMode !== "path") {
     return { graph, revision: graph.context.revision, ...overviewArchitecture(graph, MAX_RENDERED_GROUPS) };
   }
   const assignment = assignUnits(workspaceRoot, graph.nodes.map((node) => node.relativePath));
-  const source = { graph, units: buildArchitectureUnits(graph, workspaceRoot, assignment), assignment };
+  const source = { graph, units: buildArchitectureUnits(graph, workspaceRoot, assignment, declaredRoles), assignment };
   return { ...viewUnitLevel(source), source };
 }
 
@@ -492,8 +494,10 @@ export class ArchitectureViewService {
         return;
       }
       const rules = await checkRules(graph, this.options.workspaceRoot);
+      // A refused config is reported by the rules panel: the roles are then only inferred.
+      const declaredRoles = await loadDeclaredRoles(this.options.workspaceRoot).catch(() => undefined);
       signal.throwIfAborted();
-      const { graph: viewGraph, source, ...overview } = viewArchitecture(graph, this.options.workspaceRoot);
+      const { graph: viewGraph, source, ...overview } = viewArchitecture(graph, this.options.workspaceRoot, declaredRoles);
       const files = new Set(viewGraph.nodes.map(node => node.relativePath));
       const { files: changed, any } = this.changedDuringBuild;
       this.summary = {
@@ -534,6 +538,7 @@ export class ArchitectureViewService {
       unitLevel: this.lastRender?.unitLevel,
       violationEdges: this.lastRender?.violationEdges ?? 0,
       rules: this.lastRender?.rules ?? [],
+      roles: this.lastRender?.roles ?? [],
       resizeCount: this.resizeCount,
       viewSize: this.viewSize,
       interactionCount: this.interactionCount,
@@ -547,7 +552,7 @@ export class ArchitectureViewService {
 
   /** E2E driver: sets the webview's controls; any extension can call it, so check the values. */
   setControls(controls: Omit<ArchitectureControlsMessage, "type"> | undefined): void {
-    const { unit, folder, find, minImports, focus, expand, collapse, evidenceOf, openEvidenceRow, view, matrixCell, matrixHeader, rule } = controls ?? {};
+    const { unit, folder, find, minImports, focus, expand, collapse, evidenceOf, openEvidenceRow, view, matrixCell, matrixHeader, rule, role } = controls ?? {};
     const text = (value: unknown) => (typeof value === "string" ? value.slice(0, 256) : undefined);
     const row = text(matrixCell?.row);
     const column = text(matrixCell?.column);
@@ -566,6 +571,7 @@ export class ArchitectureViewService {
       matrixCell: row === undefined || column === undefined ? undefined : { row, column },
       matrixHeader: text(matrixHeader),
       rule: text(rule),
+      role: text(role),
     });
   }
 

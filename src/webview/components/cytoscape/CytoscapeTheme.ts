@@ -473,5 +473,7 @@ export function buildArchitectureStylesheet(colors: ArchitectureThemeColors): Cy
     { selector: "edge.weak", style: { display: "none" } },
     // Outside the focused group.
     { selector: ".hidden", style: { display: "none" } },
+    // Units of another role than the legend's filter.
+    { selector: ".filtered", style: { display: "none" } },
   ];
 }
