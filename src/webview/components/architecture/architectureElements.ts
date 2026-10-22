@@ -537,6 +537,7 @@ function roleData(data: ArchitectureElement["data"], unit: ArchitectureUnit): Ar
   const evidence = unit.evidence.map((entry) => `\n- ${entry.role === unit.role ? "" : entry.role + ": "}${entry.detail}`).join("");
   return {
     role: unit.role,
+    evidenceCount: unit.evidence.length,
     label: lines.join("\n"),
     ...nodeBox(lines, groupSize(unit.fileCount)),
     tooltip: `${data.tooltip}\nRole: ${unit.role} (${unit.confidence})${evidence || "\n- no evidence"}`,
@@ -645,7 +646,12 @@ export function measureUnitLevel(cy: Core) {
     hiddenEdges: cy.edges(".weak").length,
     minLabelPx: Math.round(ARCHITECTURE_FONT_SIZE * cy.zoom() * 100) / 100,
     roleBadges: cy.nodes().filter((node) => String(node.data("label")).startsWith(`[${node.data("role")}`)).length,
-    roleTooltips: cy.nodes().filter((node) => String(node.data("tooltip")).includes(`\nRole: ${node.data("role")} (`)).length,
+    // The role line, then one line per piece of evidence ("- no evidence" without any).
+    roleTooltips: cy.nodes().filter((node) => {
+      const [, role, ...evidence] = String(node.data("tooltip")).split("\nRole: ");
+      return role !== undefined && evidence.length === 0 && role.startsWith(`${node.data("role")} (`)
+        && role.split("\n- ").length - 1 === Math.max(1, Number(node.data("evidenceCount")));
+    }).length,
     shownUnits: cy.nodes().not(".filtered").length,
   };
 }

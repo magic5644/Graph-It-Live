@@ -333,6 +333,9 @@ describe("rule files in the workspace", () => {
       const graph = await buildArchitectureGraph(rootDir, (file) => spider.analyze(file));
       const check = await checkWorkspaceArchitecture(graph, rootDir);
       expect(check.violations.map(({ source, target }) => `${source} → ${target}`)).toEqual(["functions/billing/index.ts → backend/src/db.ts"]);
+      // A config declaring roles only checks nothing and passes.
+      fs.writeFileSync(configFile, JSON.stringify({ roles: { "@acme/fn-*": "function" } }));
+      expect(await checkWorkspaceArchitecture(graph, rootDir)).toMatchObject({ passed: true, rules: [], violations: [], totals: { rules: 0, violations: 0 } });
       fs.rmSync(configFile);
       expect(await loadDeclaredRoles(rootDir)).toBeUndefined();
       fs.writeFileSync(configFile, "{");
