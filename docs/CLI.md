@@ -275,6 +275,7 @@ The palette lists canonical commands only, grouped by intent. Aliases still work
 | Workspace | `/summary` | Summarize current file context or workspace |
 | Workspace | `/architecture` | Build workspace architecture graph |
 | Workspace | `/check` | Find unused exports |
+| Workspace | `/check-architecture` | Check imports against `graphit.architecture.json` (`--config`, `--baseline`, `--update-baseline`); a failing check shows its report, then the error |
 | Workspace | `/review-pr` | Review the Git diff against `--base <ref>` (optional `--head <ref>`) |
 | Workspace | `/scan` | Force a workspace indexing scan |
 | Output | `/format` | Set preferred output format for the session |
@@ -788,6 +789,8 @@ Checks every static import of the workspace against the **architecture rules** d
 graph-it check-architecture [--config <file>] [--baseline <file>] [--update-baseline] [--format text|json|toon|markdown|sarif]
 ```
 
+#### Architecture rules
+
 ```json
 {
   "$schema": "https://raw.githubusercontent.com/magic5644/Graph-It-Live/main/schemas/architecture.schema.json",
@@ -818,6 +821,14 @@ graph-it check-architecture [--config <file>] [--baseline <file>] [--update-base
 | `rules[].noCycles` | `"units"`, or an element: no import cycle between units or between the element's instances |
 | `rules[].severity` | `error` (default, fails the command), `warning`, `off` (skipped) |
 | `rules[].reason` | Shown with every violation |
+
+How the rules read:
+
+- A file can belong to several elements; a rule checks each element of the importing file it names.
+- `allowOnly` accepts the importer's own instance and **every** instance of a listed element (list an `each` element to allow all of them). A target selected by no element is a violation (`(no element)`).
+- An element without `each` is a single instance, and a file never breaks a rule against its own instance: `noCycles` on such an element, or `forbid` of the element it comes `from`, could never report, so the config is refused (`needs each: true`).
+- A rule with `severity: "off"` is not checked: its baseline entries are neither resolved nor dropped by `--update-baseline`.
+- Only `graphit.architecture.json` and `graphit.architecture.baseline.json` at the workspace root are read by the view; `--config` and `--baseline` name others for the CLI and MCP.
 
 The config is validated before anything runs: unknown keys, rules naming unknown elements, empty patterns, a missing kind or duplicate rule names are rejected with the JSON path of each error (`graphit.architecture.json: $.rules[0].from[1]: unknown element "web"`). Files larger than 256 KB (32 MB for a baseline) are refused, and `--config` / `--baseline` must stay inside the workspace. The published schema, [`schemas/architecture.schema.json`](../schemas/architecture.schema.json), gives completion in editors through `$schema`.
 

@@ -16,6 +16,9 @@ import {
   ARCHITECTURE_BASELINE_FILE,
   checkWorkspaceArchitecture,
   formatBaseline,
+  MAX_BASELINE_BYTES,
+  parseBaseline,
+  readWorkspaceFile,
   type ArchitectureViolation,
   type WorkspaceArchitectureCheck,
 } from "../../analyzer/architecture/architectureRules.js";
@@ -104,10 +107,14 @@ export async function run(args: string[], runtime: CliRuntime, format: CliOutput
   });
 
   if (updateBaseline) {
-    // Every current violation, the old baseline ignored: resolved ones drop out.
+    // Every current violation, the old baseline ignored (resolved ones drop out), except the
+    // entries of rules switched off: they were not checked, so they stay accepted.
     const check = await checkWorkspaceArchitecture(graph, workspaceRoot, { config, baseline: false });
     const file = baseline ?? ARCHITECTURE_BASELINE_FILE;
-    await fs.promises.writeFile(validateWorkspacePath(path.resolve(workspaceRoot, file), workspaceRoot), formatBaseline(check.violations));
+    const previousText = await readWorkspaceFile(workspaceRoot, file, MAX_BASELINE_BYTES);
+    const off = new Set(check.rules.filter((rule) => rule.severity === "off").map((rule) => rule.name));
+    const kept = previousText === undefined ? [] : parseBaseline(previousText, file).filter((entry) => off.has(entry.rule));
+    await fs.promises.writeFile(validateWorkspacePath(path.resolve(workspaceRoot, file), workspaceRoot), formatBaseline([...check.violations, ...kept]));
     return formatOutput({ baselineFile: file, violations: check.violations.length, rules: check.rules.map(({ name, violations }) => ({ name, violations })) }, format === "sarif" ? "json" : format, "check-architecture");
   }
 

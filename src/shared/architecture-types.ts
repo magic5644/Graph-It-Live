@@ -29,6 +29,8 @@ export type ArchitectureUnitLevel = Omit<ArchitectureUnits, "context"> & {
 /** The declared rules (graphit.architecture.json) checked against one level, as graph-it check-architecture reports them. */
 export interface ArchitectureRulesView {
   configFile: string;
+  /** context.revision of the check (code, rules and baseline): a new one redraws the violations. */
+  revision?: string;
   /** Why the config was refused (JSON paths of its errors); nothing else is set then. */
   error?: string;
   totals?: WorkspaceArchitectureCheck["totals"];
