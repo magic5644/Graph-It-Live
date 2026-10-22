@@ -49,23 +49,25 @@ async function collectNamedImports(
   filePath: string,
   resolver: PathResolver,
 ): Promise<Map<string, string | null>> {
-  const imports = new Map<string, string | null>();
-  for (const statement of root.namedChildren.filter(node => node.type === "import_statement")) {
+  const statements = root.namedChildren.filter(node => node.type === "import_statement");
+  const bindings = await Promise.all(statements.map(async (statement): Promise<Array<[string, string | null]>> => {
     const specifiers = statement.descendantsOfType("import_specifier");
-    if (specifiers.length === 0) continue;
+    if (specifiers.length === 0) return [];
     const moduleName = statement.childForFieldName("source")?.namedChildren[0]?.text;
     const typeOnly = statement.children.some(node => node.type === "type");
     const targetPath = !typeOnly && moduleName ? await resolver.resolve(filePath, moduleName) : null;
+    const imports: Array<[string, string | null]> = [];
     for (const specifier of specifiers) {
       const imported = specifier.childForFieldName("name");
       if (!imported) continue;
       const local = specifier.childForFieldName("alias") ?? imported;
       const isType = typeOnly || specifier.children.some(node => node.type === "type");
-      imports.set(local.text, targetPath && !isType
-        ? `@@import:${JSON.stringify([normalizePath(targetPath), imported.text])}` : null);
+      imports.push([local.text, targetPath && !isType
+        ? `@@import:${JSON.stringify([normalizePath(targetPath), imported.text])}` : null]);
     }
-  }
-  return imports;
+    return imports;
+  }));
+  return new Map(bindings.flat());
 }
 
 function collectShadows(root: TreeNode, imports: Map<string, string | null>) {

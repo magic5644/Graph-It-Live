@@ -120,6 +120,20 @@ function isMemberAccessCapture(node: TreeNode): boolean {
   return MEMBER_ACCESS_PARENT_TYPES.has(node.parent?.type ?? "");
 }
 
+function resolveEdgeTarget(
+  node: TreeNode,
+  relationType: RelationType,
+  targetNodeIds: string[] | undefined,
+  importTargets: Map<number, string | null>,
+): string | null {
+  if (relationType === "CALLS" && importTargets.has(node.id)) {
+    const target = importTargets.get(node.id);
+    if (!target) return null;
+    return target.startsWith("@@import:") || targetNodeIds?.includes(target) ? target : null;
+  }
+  return targetNodeIds?.[0] ?? `@@external:${node.text.trim()}`;
+}
+
 // ---------------------------------------------------------------------------
 // GraphExtractor
 // ---------------------------------------------------------------------------
@@ -358,12 +372,8 @@ export class GraphExtractor {
       );
       if (!sourceNodeId) continue;
       const targetNodeIds = nameToNodeIds.get(targetName);
-      let targetId = targetNodeIds?.[0] ?? `@@external:${targetName}`;
-      if (relationType === "CALLS" && importTargets.has(capture.node.id)) {
-        const importedTarget = importTargets.get(capture.node.id);
-        if (!importedTarget || (!importedTarget.startsWith("@@import:") && !targetNodeIds?.includes(importedTarget))) continue;
-        targetId = importedTarget;
-      }
+      const targetId = resolveEdgeTarget(capture.node, relationType, targetNodeIds, importTargets);
+      if (!targetId) continue;
 
       // Skip cross-file edges from member/method access calls (e.g. obj.method()).
       // Without type information, name-only resolution creates false positives:
