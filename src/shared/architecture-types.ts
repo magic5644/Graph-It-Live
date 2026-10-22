@@ -11,6 +11,7 @@
 
 import type { ArchitectureGroupDetail, ArchitectureOverview } from "../analyzer/architecture/ArchitectureExplorer";
 import type { ArchitectureMatrix } from "../analyzer/architecture/architectureMatrix";
+import type { ArchitectureRuleSummary, WorkspaceArchitectureCheck } from "../analyzer/architecture/architectureRules";
 import type { ArchitectureUnitEdgeKind, ArchitectureUnits } from "../analyzer/architecture/architectureUnits";
 
 /** The units level of a path-mode summary: what `graph-it architecture --level units` reports, plus the unit of each group. */
@@ -24,6 +25,20 @@ export type ArchitectureUnitLevel = Omit<ArchitectureUnits, "context"> & {
   /** Groups holding sub-folders: entering one asks for its level (architectureEnterFolder). */
   nestedGroups: number[];
 };
+
+/** The declared rules (graphit.architecture.json) checked against one level, as graph-it check-architecture reports them. */
+export interface ArchitectureRulesView {
+  configFile: string;
+  /** Why the config was refused (JSON paths of its errors); nothing else is set then. */
+  error?: string;
+  totals?: WorkspaceArchitectureCheck["totals"];
+  rules: ArchitectureRuleSummary[];
+  configWarnings: string[];
+  /** Rule names of every violating unit edge, keyed `from>to` by unit key. */
+  unitEdges: Record<string, string[]>;
+  /** Rule names of every violating group edge of the level, keyed `from>to` by group id. */
+  groupEdges: Record<string, string[]>;
+}
 
 // ---------------------------------------------------------------------------
 // Extension → Webview messages
@@ -47,6 +62,8 @@ export interface ArchitectureSummaryMessage extends ArchitectureOverview {
   stale: boolean;
   /** Path mode only: units drawn on top, each entered to show its groups. */
   units?: ArchitectureUnitLevel;
+  /** With a graphit.architecture.json at the workspace root: its rules checked against this level. */
+  rules?: ArchitectureRulesView;
 }
 
 /** The level below a unit or folder (answers architectureEnterFolder); its revision and folder go with every request made there. */
@@ -68,10 +85,12 @@ export interface ArchitectureGroupDetailMessage {
   detail: ArchitectureGroupDetail;
 }
 
-/** Workspace-relative file pairs behind one edge (answers architectureEvidence and architectureUnitEvidence). */
+/** Workspace-relative file pairs behind one edge (answers architectureEvidence, architectureUnitEvidence and architectureRuleEvidence). */
 export interface ArchitectureEvidencePageMessage {
   type: "architectureEvidencePage";
   revision: string;
+  /** The violations of this rule, instead of an edge (from and to are then empty). */
+  rule?: string;
   /** Group ids, or unit keys for a unit edge. */
   from: number | string;
   to: number | string;
@@ -94,6 +113,8 @@ export interface ArchitectureMatrixMessage {
   digest: string;
   /** Rows holding sub-folders: a click on their header enters them (architectureEnterFolder). */
   nestedGroups: number[];
+  /** Rule names of every cell breaking a declared rule, keyed `rowId>columnId`. */
+  violations?: Record<string, string[]>;
 }
 
 /** Answers a request made with another revision: the webview drops its detail and asks for the summary again. */
@@ -125,6 +146,8 @@ export interface ArchitectureControlsMessage {
   matrixCell?: { row: string; column: string };
   /** Clicks the matrix header of this row key (a unit or a folder holding sub-folders is entered). */
   matrixHeader?: string;
+  /** Clicks this rule in the Rules panel (its violations open in the evidence panel). */
+  rule?: string;
 }
 
 export type ArchitectureExtensionMessage =
@@ -186,6 +209,10 @@ export interface ArchitectureRenderedCommand {
     /** On-screen size of the node labels after the fit. */
     minLabelPx: number;
   };
+  /** Drawn edges breaking a declared rule. */
+  violationEdges?: number;
+  /** The Rules panel as drawn: `name=count` per rule. */
+  rules?: string[];
 }
 
 /** The graph was re-fitted to a resized view (E2E observability only). */
@@ -248,6 +275,15 @@ export interface ArchitectureUnitEvidenceCommand {
   offset?: number;
 }
 
+/** Asks for the violating file pairs of one declared rule (the Rules panel). */
+export interface ArchitectureRuleEvidenceCommand {
+  command: "architectureRuleEvidence";
+  /** The summary's revision. */
+  revision: string;
+  rule: string;
+  offset?: number;
+}
+
 /** Asks for the matrix of the drawn level: `revision` and `folder` as for evidence, `unit` the entered unit (path mode). */
 export interface ArchitectureMatrixCommand {
   command: "architectureMatrix";
@@ -276,6 +312,8 @@ export interface ArchitectureMatrixRenderedCommand {
   paintMs: number;
   /** What triggered the paint. */
   cause: "matrix" | "scroll";
+  /** Cell buttons drawn as breaking a declared rule. */
+  violationCells?: number;
 }
 
 /** Opens a workspace-relative file of the graph; never an absolute path. */
@@ -315,6 +353,7 @@ export type ArchitectureWebviewCommand =
   | ArchitectureExpandGroupCommand
   | ArchitectureEvidenceCommand
   | ArchitectureUnitEvidenceCommand
+  | ArchitectureRuleEvidenceCommand
   | ArchitectureMatrixCommand
   | ArchitectureMatrixRenderedCommand
   | ArchitectureOpenFileCommand

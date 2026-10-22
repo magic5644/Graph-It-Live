@@ -605,7 +605,7 @@ describe("ArchitectureViewService", () => {
     expect(service.getE2EState()).toEqual({
       buildCount: 0, renderCount: 1, groupCount: 3, groupEdgeCount: 2, revision: "abc", communityMode: "path", stale: true,
       overlappingGroups: 1, overflowingLabels: 2, positions: "path:ui@0,0", unit: undefined, folder: undefined, unitLevel: undefined,
-      resizeCount: 0, viewSize: { width: 0, height: 0 },
+      violationEdges: 0, rules: [], resizeCount: 0, viewSize: { width: 0, height: 0 },
       interactionCount: 0, interaction: null, detailCount: 0, detail: null, matrixCount: 0, matrix: null,
     });
 

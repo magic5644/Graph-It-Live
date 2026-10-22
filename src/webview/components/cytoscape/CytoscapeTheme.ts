@@ -464,6 +464,8 @@ export function buildArchitectureStylesheet(colors: ArchitectureThemeColors): Cy
       style: { label: "data(label)", "line-color": colors.accent, "target-arrow-color": colors.accent },
     },
     { selector: 'edge[kind = "upward"], edge[kind = "cycle"]', style: { "line-color": colors.error, "target-arrow-color": colors.error } },
+    // Breaks a declared architecture rule: red and dashed, apart from the upward and cycle edges.
+    { selector: "edge[?violation]", style: { "line-color": colors.error, "target-arrow-color": colors.error, "line-style": "dashed" } },
     { selector: ".faded", style: { opacity: 0.15 } },
     // File edges show for the hovered or selected file only (it highlights them).
     { selector: "edge[?fileEdge]", style: { display: "none" } },

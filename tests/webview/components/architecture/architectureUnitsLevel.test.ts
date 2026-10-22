@@ -120,6 +120,25 @@ describe("toLevelElements", () => {
     ]);
   });
 
+  it("draws the edges breaking a declared rule red and dashed, with their rules, at the units and group levels", () => {
+    const totals = { files: 7, unmatchedFiles: 0, rules: 1, brokenRules: 1, violations: 2, newViolations: 2, errors: 2, newErrors: 2, warnings: 0, resolved: 0 };
+    const ruled: ArchitectureSummaryMessage = {
+      ...summary,
+      rules: { configFile: "graphit.architecture.json", totals, rules: [], configWarnings: [], unitEdges: { "apps/web>packages/core": ["web-not-core"] }, groupEdges: { "1>2": ["inner"] } },
+    };
+    const cy = canvas(toLevelElements(ruled, null));
+    const violating = cy.edges("[?violation]");
+    expect(violating.map(edge => edge.id())).toEqual(["edge-1-3"]);
+    expect(violating[0].data("tooltip")).toContain("Breaks: web-not-core");
+    expect(violating[0].style("line-style")).toBe("dashed");
+    expect(violating[0].style("line-color")).toBe("rgb(255,0,0)");
+    expect(cy.edges("[!violation]").every(edge => edge.style("line-style") === "solid")).toBe(true);
+    const inUnit = toLevelElements(ruled, "apps/web").filter(element => element.group === "edges");
+    expect(inUnit.map(element => [element.data.id, element.data.rules])).toEqual([["edge-1-2", ["inner"]]]);
+    // Without a violation, the rules leave the elements as they are.
+    expect(toLevelElements({ ...ruled, rules: { ...ruled.rules!, totals: { ...totals, violations: 0 } } }, null)).toEqual(toLevelElements(summary, null));
+  });
+
   it("gives an entered unit's groups the unit's colour", () => {
     const nodes = toLevelElements(summary, "apps/web").filter(element => element.group === "nodes");
     expect(nodes.map(node => node.data.color)).toEqual([unitColor(0), unitColor(0)]);
@@ -139,6 +158,17 @@ describe("cappedUnitEdges", () => {
     };
     expect([...cappedUnitEdges(many)]).toEqual([`apps/web\0lib${UNIT_EDGES_PER_UNIT}`]);
     expect(cappedUnitEdges(units).size).toBe(0);
+  });
+
+  it("never hides an edge breaking a declared rule", () => {
+    const many: ArchitectureUnitLevel = {
+      ...units,
+      units: units.units.slice(0, 1),
+      unitEdges: Array.from({ length: UNIT_EDGES_PER_UNIT + 1 }, (_, index) =>
+        ({ from: "apps/web", to: `lib${index}`, fileEdgeCount: 9 - index, kind: "down" as const })),
+    };
+    const rules = { configFile: "graphit.architecture.json", rules: [], configWarnings: [], groupEdges: {}, unitEdges: { [`apps/web>lib${UNIT_EDGES_PER_UNIT}`]: ["r"] } };
+    expect(cappedUnitEdges(many, rules).size).toBe(0);
   });
 
   it("is what min-imports 1 hides, and a threshold overrides it", () => {

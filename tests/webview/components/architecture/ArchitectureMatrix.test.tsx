@@ -109,4 +109,14 @@ describe("cellLabel", () => {
     expect(cellLabel(a, b, 2)).toBe("g000 imports g001: 2 file pairs");
     expect(cellLabel(a, a, 1)).toBe("g000: 1 file pair inside");
   });
+
+  it("frames the cells breaking a declared rule and names the rules", () => {
+    setup(small, { violations: { "1>0": ["no-down"] } });
+    const broken = screen.getByRole("button", { name: `${cellLabel(small.rows[1], small.rows[0], 4)}, breaks no-down` });
+    expect(broken.dataset.violation).toBe("true");
+    expect(broken.style.boxShadow).toContain("var(--vscode-errorForeground");
+    expect(screen.getByText(/red frame: breaks a rule/)).toBeTruthy();
+    expect(screen.getByRole("button", { name: cellLabel(small.rows[2], small.rows[1], 1) }).dataset.violation).toBe("false");
+  });
 });
+

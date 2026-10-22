@@ -19,6 +19,8 @@ export interface MatrixPaint {
 
 interface ArchitectureMatrixProps {
   matrix: Matrix;
+  /** Rule names of every cell breaking a declared rule, keyed `rowId>columnId`. */
+  violations?: Readonly<Record<string, string[]>>;
   /** Rows whose header enters the level below: units, folders holding sub-folders. */
   enterable: (row: Row) => boolean;
   /** Unit colour of a row's swatch, if any. */
@@ -63,7 +65,7 @@ function headerTitle(row: Row, index: number): string {
 const range = (from: number, to: number) => Array.from({ length: Math.max(0, to - from) }, (_, offset) => from + offset);
 
 export function ArchitectureMatrix(props: Readonly<ArchitectureMatrixProps>): React.ReactElement {
-  const { matrix, enterable, colorOf, selectedKey, request } = props;
+  const { matrix, violations, enterable, colorOf, selectedKey, request } = props;
   const callbacks = useRef(props);
   callbacks.current = props;
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -201,24 +203,29 @@ export function ArchitectureMatrix(props: Readonly<ArchitectureMatrixProps>): Re
     const row = matrix.rows[cell.row];
     const column = matrix.rows[cell.column];
     const isActive = cell.row === active.row && cell.column === active.column;
+    const broken = cell.fileEdgeCount > 0 ? violations?.[`${row.id}>${column.id}`] : undefined;
     let background = "transparent";
     if (cell.fileEdgeCount > 0) {
       background = cell.row === cell.column ? "color-mix(in srgb, var(--vscode-descriptionForeground, #999) 35%, transparent)" : cellBackground(cell, max);
     }
+    const label = cellLabel(row, column, cell.fileEdgeCount) + (broken ? `, breaks ${broken.join(", ")}` : "");
     return (
       <button
         key={`${cell.row}:${cell.column}`}
         type="button"
         data-active={isActive}
+        data-violation={broken !== undefined}
         tabIndex={isActive ? 0 : -1}
-        aria-label={cellLabel(row, column, cell.fileEdgeCount)}
-        title={`${cellLabel(row, column, cell.fileEdgeCount)}${cell.upward ? " (above the diagonal: cycle)" : ""}`}
+        aria-label={label}
+        title={`${label}${cell.upward ? " (above the diagonal: cycle)" : ""}`}
         onClick={() => select(cell.row, cell.column)}
         onKeyDown={move}
         style={{
           position: "absolute", top: cell.row * size, left: HEADER_WIDTH + cell.column * size, width: size, height: size,
           padding: 0, border: "none", background, color: "var(--vscode-foreground)", font: "inherit", fontSize: Math.min(11, size / 2),
           outline: isActive ? "2px solid var(--vscode-focusBorder, #007fd4)" : undefined, outlineOffset: -2, cursor: "pointer",
+          // A broken rule: a red frame, so it reads apart from the red of a cycle's upward cells.
+          boxShadow: broken ? "inset 0 0 0 2px var(--vscode-errorForeground, #f14c4c)" : undefined,
         }}
       >
         {size >= NUMBERS_FROM && cell.fileEdgeCount > 0 ? cell.fileEdgeCount : null}
@@ -230,7 +237,10 @@ export function ArchitectureMatrix(props: Readonly<ArchitectureMatrixProps>): Re
     // zIndex 0: the sticky headers stay below the evidence panel drawn over the matrix.
     <div style={{ position: "absolute", inset: 0, zIndex: 0, display: "flex", flexDirection: "column", fontSize: 12 }}>
       <div style={{ display: "flex", flexWrap: "wrap", gap: 8, alignItems: "center", padding: "2px 10px", borderBottom: "1px solid var(--vscode-widget-border)" }}>
-        <span>Row imports column · <span style={{ color: "var(--vscode-errorForeground)" }}>red: above the diagonal (cycle)</span> · outlined: cycles</span>
+        <span>
+          Row imports column · <span style={{ color: "var(--vscode-errorForeground)" }}>red: above the diagonal (cycle)</span> · outlined: cycles
+          {violations && Object.keys(violations).length > 0 && <span style={{ color: "var(--vscode-errorForeground)" }}> · red frame: breaks a rule</span>}
+        </span>
         <label style={{ display: "flex", alignItems: "center", gap: 4 }}>
           <span>Zoom</span>
           <input type="range" min={0} max={ZOOMS.length - 1} value={zoom} onChange={(event) => setZoom(Number(event.target.value))} />

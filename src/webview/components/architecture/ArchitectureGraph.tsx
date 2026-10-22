@@ -12,6 +12,7 @@ import cytoscape from "cytoscape";
 import type { ElkNode } from "elkjs/lib/elk-api";
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import type { MatrixCell, MatrixRow } from "../../../analyzer/architecture/architectureMatrix";
+import type { ArchitectureRuleSummary } from "../../../analyzer/architecture/architectureRules";
 import type {
   ArchitectureControlsMessage,
   ArchitectureEvidencePageMessage,
@@ -19,6 +20,7 @@ import type {
   ArchitectureFolderLevelMessage,
   ArchitectureGroupDetailMessage,
   ArchitectureMatrixMessage,
+  ArchitectureRulesView,
   ArchitectureStateMessage,
   ArchitectureSummaryMessage,
   ArchitectureWebviewCommand,
@@ -107,6 +109,10 @@ function renderedReport(
     unit: unit ?? undefined,
     folder,
     unitLevel: summary.units && unit === null ? measureUnitLevel(cy) : undefined,
+    violationEdges: cy.edges().filter((edge) => edge.data("violation") === true && edge.style("display") !== "none").length,
+    // The Rules panel as the DOM shows it: `name=count` per rule.
+    rules: Array.from(document.querySelectorAll<HTMLButtonElement>('[aria-label="Architecture rules"] button[data-rule]'),
+      (button) => `${button.dataset.rule}=${button.dataset.count}`),
   };
 }
 
@@ -183,6 +189,8 @@ interface EvidenceEnds {
   to: number | string;
   sourceFile?: string;
   targetFile?: string;
+  /** A declared rule's violations instead of an edge (from and to empty). */
+  rule?: string;
 }
 
 interface EvidenceState {
@@ -208,7 +216,8 @@ type View = "graph" | "matrix";
 const matrixKey = (revision: string, unit: string | null | undefined, folder: string | undefined) => `${revision}|${unit ?? ""}|${folder ?? ""}`;
 
 const sameEnds = (left: EvidenceEnds, right: EvidenceEnds) =>
-  left.from === right.from && left.to === right.to && left.sourceFile === right.sourceFile && left.targetFile === right.targetFile;
+  left.from === right.from && left.to === right.to && left.sourceFile === right.sourceFile && left.targetFile === right.targetFile
+  && left.rule === right.rule;
 
 interface ArchitectureGraphProps {
   postMessage: (message: ArchitectureWebviewCommand) => void;
@@ -245,7 +254,7 @@ const bannerStyle: React.CSSProperties = {
 function UnitsHeader({ summary, minImports }: Readonly<{ summary: ArchitectureSummaryMessage; minImports: number }>) {
   const level = summary.units;
   if (!level) return null;
-  const hidden = hiddenUnitEdgeCount(level, minImports);
+  const hidden = hiddenUnitEdgeCount(level, minImports, summary.rules);
   return (
     <div>
       <div>
@@ -267,26 +276,70 @@ function UnitsHeader({ summary, minImports }: Readonly<{ summary: ArchitectureSu
   );
 }
 
+const SEVERITY_COLOR = { error: "var(--vscode-errorForeground)", warning: "var(--vscode-editorWarning-foreground)", off: undefined } as const;
+
+/**
+ * The declared rules (graphit.architecture.json): "N violations of M rules (K new)", then each
+ * rule with its count; a rule with violations opens its file pairs in the evidence panel.
+ */
+function RulesPanel({ rules, onRule }: Readonly<{ rules: ArchitectureRulesView; onRule: (rule: ArchitectureRuleSummary) => void }>) {
+  if (rules.error) {
+    return <output style={{ ...bannerStyle, display: "block", color: "var(--vscode-errorForeground)" }}>Architecture rules not checked: {rules.error}</output>;
+  }
+  const totals = rules.totals!;
+  const failing = totals.errors > 0;
+  return (
+    <details open={totals.violations > 0}>
+      <summary style={{ cursor: "pointer", color: failing ? "var(--vscode-errorForeground)" : undefined }}>
+        {plural(totals.violations, "violation")} of {plural(totals.brokenRules, "rule")} ({totals.newViolations} new) · {rules.configFile}
+        {totals.unmatchedFiles > 0 && <span title="Files no element of the config selects: no rule checks them."> · {totals.unmatchedFiles} files in no element</span>}
+      </summary>
+      <ul aria-label="Architecture rules" style={{ listStyle: "none", padding: 0, margin: "2px 0", maxHeight: 96, overflow: "auto" }}>
+        {rules.rules.map((rule) => (
+          <li key={rule.name} style={{ display: "flex", gap: 6, alignItems: "baseline" }}>
+            <button
+              type="button" data-rule={rule.name} data-count={rule.violations}
+              disabled={rule.violations === 0} title={rule.reason ?? rule.name} onClick={() => onRule(rule)}
+              style={{
+                padding: 0, border: "none", background: "none", font: "inherit", textDecoration: rule.violations > 0 ? "underline" : undefined,
+                cursor: rule.violations > 0 ? "pointer" : undefined, color: rule.violations > 0 ? SEVERITY_COLOR[rule.severity] : "inherit",
+              }}
+            >
+              {rule.name}
+            </button>
+            <span style={{ color: "var(--vscode-descriptionForeground)" }}>
+              {rule.kind} · {rule.severity} · {plural(rule.violations, "violation")}{rule.newViolations < rule.violations ? ` (${rule.newViolations} new)` : ""}
+            </span>
+          </li>
+        ))}
+      </ul>
+      {rules.configWarnings.map((warning) => <div key={warning} style={{ color: "var(--vscode-editorWarning-foreground)" }}>{warning}</div>)}
+    </details>
+  );
+}
+
 interface SummaryHeaderProps {
   summary: ArchitectureSummaryMessage;
   /** Entered unit; null at the units level. */
   unit: string | null;
   minImports: number;
   onRefresh: () => void;
+  onRule: (rule: ArchitectureRuleSummary) => void;
 }
 
-function SummaryHeader({ summary, unit, minImports, onRefresh }: Readonly<SummaryHeaderProps>) {
+function SummaryHeader({ summary, unit, minImports, onRefresh, onRule }: Readonly<SummaryHeaderProps>) {
   const { context, totals } = summary;
   return (
     <div style={{ padding: "6px 10px", fontSize: 12, borderBottom: "1px solid var(--vscode-widget-border)" }}>
       {summary.stale && (
         <output style={{ ...bannerStyle, display: "block" }}>
-          Files changed since this view was built.{" "}
+          Files or architecture rules changed since this view was built.{" "}
           <button type="button" onClick={onRefresh}>Refresh</button>
         </output>
       )}
       <div style={{ fontWeight: 600 }}>{summary.units && unit === null ? "Units in layers: dependents above, dependencies below" : MODE_WORDING[context.communityMode]}</div>
       {summary.units && unit === null && <UnitsHeader summary={summary} minImports={minImports} />}
+      {summary.rules && <RulesPanel rules={summary.rules} onRule={onRule} />}
       <div>
         {totals.files} files · {totals.fileEdges} file edges ({totals.intraGroupEdges} within groups,{" "}
         {totals.interGroupEdges} between groups)
@@ -654,10 +707,13 @@ export function ArchitectureGraph({ postMessage }: Readonly<ArchitectureGraphPro
     setCapReached(false);
   };
   /** A unit edge's pairs are asked by unit key, any other edge's by the drawn level's group ids. */
-  const requestEvidence = ({ from, to, ...files }: EvidenceEnds, offset: number) => {
+  const requestEvidence = ({ from, to, rule, ...files }: EvidenceEnds, offset: number) => {
     const at = levelOf();
     if (!at) return;
-    if (typeof from === "string" || typeof to === "string") {
+    // Rules are checked once per build: asked with the summary's revision at every level.
+    if (rule !== undefined) {
+      post({ command: "architectureRuleEvidence", revision: summaryRef.current?.revision ?? at.revision, rule, offset });
+    } else if (typeof from === "string" || typeof to === "string") {
       post({ command: "architectureUnitEvidence", revision: at.revision, from: String(from), to: String(to), offset });
     } else post({ command: "architectureEvidence", ...at, from, to, ...files, offset });
   };
@@ -667,6 +723,15 @@ export function ArchitectureGraph({ postMessage }: Readonly<ArchitectureGraphPro
     const why = kind ? ` (${kind})` : "";
     const title = `${fromName} → ${toName}: ${edgeCount} file pair${edgeCount === 1 ? "" : "s"} (static imports)${why}`;
     updateEvidence({ ends, title, edgeCount, pairs: [] });
+    requestEvidence(ends, 0);
+  };
+  /** Opens the evidence panel on a declared rule's violating file pairs. */
+  const openRule = (rule: ArchitectureRuleSummary) => {
+    if (!levelOf()) return;
+    const why = rule.reason ? `: ${rule.reason}` : "";
+    const title = `Rule "${rule.name}" (${rule.severity}): ${plural(rule.violations, "violating file pair")}${why}`;
+    const ends = { from: "", to: "", rule: rule.name };
+    updateEvidence({ ends, title, edgeCount: rule.violations, pairs: [] });
     requestEvidence(ends, 0);
   };
   const showEvidence = (edge: cytoscape.EdgeSingular) => {
@@ -751,6 +816,7 @@ export function ArchitectureGraph({ postMessage }: Readonly<ArchitectureGraphPro
       command: "architectureMatrixRendered", revision: matrix.revision, unit: matrix.unit, folder: matrix.folder,
       rows: totals.rows, cells: totals.cells, fileEdges: totals.fileEdges, upwardCells: totals.upwardCells, cycles: cycles.length,
       digest: matrix.digest,
+      violationCells: document.querySelectorAll('[data-violation="true"]').length,
       ...paint,
     });
   };
@@ -823,8 +889,10 @@ export function ArchitectureGraph({ postMessage }: Readonly<ArchitectureGraphPro
     else if (graph) clearFocus();
   };
   const receiveSummary = (message: ArchitectureSummaryMessage) => {
-    // Group ids and pages only hold for their revision; a stale mark or a rebuild of the same graph keeps them.
-    if (summaryRef.current?.revision !== message.revision) reset();
+    // Group ids and pages only hold for their revision; a stale mark or a rebuild of the same graph keeps them,
+    // unless the rules changed (the matrices and evidence carry them).
+    const rulesChanged = JSON.stringify(summaryRef.current?.rules) !== JSON.stringify(message.rules);
+    if (summaryRef.current?.revision !== message.revision || (summaryRef.current && rulesChanged)) reset();
     summaryRef.current = message;
     setSummary(message);
     setState(null);
@@ -845,7 +913,8 @@ export function ArchitectureGraph({ postMessage }: Readonly<ArchitectureGraphPro
   const receiveEvidence = (page: ArchitectureEvidencePageMessage) => {
     const current = evidenceRef.current;
     // A page for another edge, revision or offset (a late answer, a double click) is dropped.
-    if (!current || page.revision !== levelOf()?.revision || !sameEnds(current.ends, page)) return;
+    const revision = page.rule === undefined ? levelOf()?.revision : summaryRef.current?.revision;
+    if (!current || page.revision !== revision || !sameEnds(current.ends, page)) return;
     if (page.page.offset !== current.pairs.length) return;
     updateEvidence({ ...current, pairs: [...current.pairs, ...page.pairs], total: page.page.total, nextOffset: page.page.nextOffset });
   };
@@ -876,7 +945,9 @@ export function ArchitectureGraph({ postMessage }: Readonly<ArchitectureGraphPro
   const unitIdOf = (unitKey: string | undefined): number | undefined =>
     (unitKey ? Array.from(cyRef.current?.nodes() ?? []).find((node) => node.data("unitKey") === unitKey)?.data("groupId") : undefined);
   /** E2E driver: selects the first edge of a group or unit (its evidence opens), then clicks a row's source. */
-  const controlEvidence = ({ evidenceOf, openEvidenceRow }: ArchitectureControlsMessage) => {
+  const controlEvidence = ({ evidenceOf, openEvidenceRow, rule }: ArchitectureControlsMessage) => {
+    // A real click on the Rules panel's button.
+    if (rule !== undefined) document.querySelector<HTMLButtonElement>(`[aria-label="Architecture rules"] button[data-rule="${CSS.escape(rule)}"]`)?.click();
     const groupId = groupOf(evidenceOf) ?? unitIdOf(evidenceOf);
     const touches = (edge: cytoscape.EdgeSingular) => edge.data("from") === groupId || edge.data("to") === groupId;
     const edge = Array.from(cyRef.current?.edges() ?? []).find((candidate) => candidate.data("from") !== candidate.data("to") && touches(candidate));
@@ -930,7 +1001,7 @@ export function ArchitectureGraph({ postMessage }: Readonly<ArchitectureGraphPro
     }
   };
   const actions = {
-    tap, dbltap, key, openFile, moreEvidence, receive, overview, leave, updateFocus, selectUnit, goTo,
+    tap, dbltap, key, openFile, moreEvidence, receive, overview, leave, updateFocus, selectUnit, goTo, openRule,
     switchView, matrixCell, matrixHeader, matrixPainted, enterable, rowColor,
   };
   const actionsRef = useRef(actions);
@@ -1150,7 +1221,10 @@ export function ArchitectureGraph({ postMessage }: Readonly<ArchitectureGraphPro
       {state && <StatePanel state={state} onRetry={refresh} />}
       {!state && summary && drawn && (
         <>
-          <SummaryHeader summary={summary} unit={unit} minImports={minImports} onRefresh={refresh} />
+          <SummaryHeader
+            summary={summary} unit={unit} minImports={minImports} onRefresh={refresh}
+            onRule={(rule) => actionsRef.current.openRule(rule)}
+          />
           <GraphControls
             summary={drawn}
             shownEdges={shownEdges}
@@ -1186,6 +1260,7 @@ export function ArchitectureGraph({ postMessage }: Readonly<ArchitectureGraphPro
         {!state && view === "matrix" && matrix && (
           <ArchitectureMatrix
             matrix={matrix.matrix}
+            violations={matrix.violations}
             request={matrixRequest}
             enterable={(row) => actionsRef.current.enterable(row)}
             colorOf={(row) => actionsRef.current.rowColor(row)}

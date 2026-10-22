@@ -18,6 +18,9 @@ interface ArchitectureRender {
   /** Entered folder within the unit; undefined at its top level. */
   folder?: string;
   unitLevel?: { units: number; colors: number; redEdges: number; edgesNotDown: number; routedEdges: number; hiddenEdges: number; minLabelPx: number };
+  /** Drawn edges breaking a declared rule, and the Rules panel as `name=count`. */
+  violationEdges: number;
+  rulesPanel: string[];
 }
 
 // Expected numbers from the E2E workspace (tests/fixtures), recorded with:
@@ -48,7 +51,23 @@ const EXPECTED = {
     root: { rows: 18, cells: 20, fileEdges: 197, upwardCells: 1, cycles: 1 },
     louvain: { rows: 25, cells: 25, fileEdges: 213, upwardCells: 0, cycles: 0 },
   },
+  // RULES_CONFIG written at the workspace root, then:
+  //   node dist/graph-it.js check-architecture --format json -w tests/fixtures
+  // web-not-ui: the 2 pairs of the @ws/web → @ws/ui edge; no-unit-cycles: both core ↔ types imports.
+  rules: {
+    panel: ['web-not-ui=2', 'no-unit-cycles=2'],
+    violationEdges: 3,
+    title: 'Rule "web-not-ui" (error): 2 violating file pairs: The web app reaches the UI kit through core.',
+  },
 } as const;
+
+const RULES_CONFIG = {
+  elements: { web: { unit: '@ws/web' }, ui: { unit: '@ws/ui' } },
+  rules: [
+    { name: 'web-not-ui', from: 'web', forbid: 'ui', reason: 'The web app reaches the UI kit through core.' },
+    { name: 'no-unit-cycles', noCycles: 'units', severity: 'warning' },
+  ],
+};
 
 interface MatrixRender {
   revision: string;
@@ -60,6 +79,7 @@ interface MatrixRender {
   cycles: number;
   renderedCells: number;
   digest: string;
+  violationCells?: number;
 }
 
 /** Sends the controls, then waits for a matrix paint that satisfies `predicate`. */
@@ -112,6 +132,8 @@ async function readRender(): Promise<ArchitectureRender> {
     unit: (await read('Unit')) as string | undefined,
     folder: (await read('Folder')) as string | undefined,
     unitLevel: (await read('UnitLevel')) as ArchitectureRender['unitLevel'],
+    violationEdges: (await read('ViolationEdges')) as number,
+    rulesPanel: (await read('RulesPanel')) as string[],
   };
 }
 
@@ -501,6 +523,44 @@ suite('Architecture view mode', () => {
     } finally {
       await vscode.commands.executeCommand('graph-it-live.e2eArchitectureControls', { view: 'graph' });
     }
+  });
+
+  test('checks graphit.architecture.json: stale on edit, red edges and cells, Rules panel counts of the CLI, a rule\'s pairs', async function () {
+    this.timeout(240000);
+    const plain = await openFreshArchitecture();
+    assert.strictEqual(plain.violationEdges, 0, 'no config, no violation');
+    assert.deepStrictEqual(plain.rulesPanel, [], 'no config, no Rules panel');
+
+    const root = vscode.workspace.workspaceFolders![0].uri;
+    const configFile = vscode.Uri.joinPath(root, 'graphit.architecture.json');
+    try {
+      await vscode.workspace.fs.writeFile(configFile, Buffer.from(JSON.stringify(RULES_CONFIG, null, 2)));
+      const stale = await waitForRender('the stale banner after writing the config', plain.renderCount, render => render.stale);
+      assert.strictEqual(stale.buildCount, plain.buildCount, 'a config edit marks the view stale without rebuilding');
+
+      await vscode.commands.executeCommand('graph-it-live.refreshGraph');
+      const ruled = await waitForRender('the render with rules', stale.renderCount, render => !render.stale && render.rulesPanel.length > 0);
+      assert.deepStrictEqual(ruled.rulesPanel, EXPECTED.rules.panel, 'Rules panel counts equal graph-it check-architecture');
+      assert.strictEqual(ruled.violationEdges, EXPECTED.rules.violationEdges, 'violating unit edges drawn red');
+      assert.strictEqual(ruled.groupCount, EXPECTED.units.groups, 'rules change no unit');
+
+      const { evidence } = await expectDetail('the pairs of web-not-ui', { rule: 'web-not-ui' }, detail => detail.evidence?.title === EXPECTED.rules.title);
+      assert.deepStrictEqual(evidence?.pairs, EXPECTED.unitEvidence.pairs, 'clicking a rule lists its violating pairs');
+
+      const matrix = await expectMatrix('the units matrix with rules', { view: 'matrix' }, painted => painted.unit === undefined);
+      assert.strictEqual(matrix.violationCells, EXPECTED.rules.violationEdges, 'violating matrix cells framed red');
+      await vscode.commands.executeCommand('graph-it-live.e2eArchitectureControls', { view: 'graph' });
+
+      await vscode.workspace.fs.writeFile(configFile, Buffer.from('{ "elements": {}, "rules": [{ "name": "r", "noCycles": "ghost" }] }'));
+      await waitForRender('the stale banner after breaking the config', ruled.renderCount, render => render.stale);
+    } finally {
+      await vscode.workspace.fs.delete(configFile);
+    }
+    await sleep(1500); // let the delete mark the view stale before Refresh
+    const staleCount = (await readRender()).renderCount;
+    await vscode.commands.executeCommand('graph-it-live.refreshGraph');
+    const restored = await waitForRender('the render without rules', staleCount, render => !render.stale && render.rulesPanel.length === 0);
+    assert.strictEqual(restored.violationEdges, 0, 'deleting the config removes the red edges');
   });
 
   test('the Graph, List and Symbol buttons leave the architecture view', async function () {
