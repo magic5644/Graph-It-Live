@@ -206,7 +206,10 @@ describe("ArchitectureViewService", () => {
       expect(summary.groups.filter(group => unitOf[group.id] === "small")).toHaveLength(2);
       expect(summary.maxGroups).toBe(DEFAULT_RENDERED_GROUPS);
       expect(summary.hiddenGroups).toBe(big - DEFAULT_RENDERED_GROUPS);
-      expect(summary.units!.hiddenByUnit).toEqual({ big: { groups: big - DEFAULT_RENDERED_GROUPS, groupEdges: 0 } });
+      expect(summary.units!.groupsByUnit).toEqual({
+        big: { totalGroups: big, hiddenGroups: big - DEFAULT_RENDERED_GROUPS, hiddenGroupEdges: 0 },
+        small: { totalGroups: 2, hiddenGroups: 0, hiddenGroupEdges: 0 },
+      });
       const id = (key: string) => summary.groups.find(group => group.key === key)!.id;
       expect(summary.units!.groupLayers[id("big/d0")]).toBe(1);
       expect(summary.units!.groupEdgeKinds[`${id("small/x")}>${id("small/y")}`]).toBe("cycle");
@@ -216,6 +219,27 @@ describe("ArchitectureViewService", () => {
       expect(summary.isolatedGroups).not.toContain(id("small/x"));
     } finally {
       await fs.rm(wide, { recursive: true, force: true });
+    }
+  });
+
+  it("marks groups without a drawn edge isolated, the unassigned files included (louvain)", async () => {
+    communityMode = "louvain";
+    await createService().build();
+    const [summary] = summaries();
+    // main.ts → ui → store: one Louvain group per import chain, no file left unassigned.
+    expect(summary.unassigned.fileCount).toBe(0);
+    expect(summary.isolatedGroups).toEqual(summary.groups.filter(group => !summary.groupEdges.some(edge => edge.from === group.id || edge.to === group.id)).map(group => group.id));
+
+    const lonely = { ...workspace, "readme.ts": [] };
+    const root2 = await fs.realpath(await fs.mkdtemp(path.join(os.tmpdir(), "gitl-architecture-lonely-")));
+    try {
+      await writeWorkspace(root2, lonely);
+      await createService({ workspaceRoot: root2, analyzeFile: analyzerFor(root2, lonely) }).build();
+      const withLonely = summaries().at(-1)!;
+      expect(withLonely.unassigned.fileCount).toBe(1);
+      expect(withLonely.isolatedGroups).toContain(0);
+    } finally {
+      await fs.rm(root2, { recursive: true, force: true });
     }
   });
 

@@ -539,15 +539,13 @@ export function levelSummary(summary: ArchitectureSummaryMessage, unit: string |
   }
   const inUnit = (id: number) => level.groupUnits[id] === unit;
   const groups = summary.groups.filter((group) => inUnit(group.id));
-  const hidden = level.hiddenByUnit?.[unit] ?? { groups: 0, groupEdges: 0 };
+  const counts = level.groupsByUnit?.[unit] ?? { totalGroups: groups.length, hiddenGroups: 0, hiddenGroupEdges: 0 };
   return {
     ...summary,
     groups,
     groupEdges: summary.groupEdges.filter((edge) => inUnit(edge.from) && inUnit(edge.to)),
     unassigned: { fileCount: 0, internalEdgeCount: 0 },
-    totalGroups: groups.length + hidden.groups,
-    hiddenGroups: hidden.groups,
-    hiddenGroupEdges: hidden.groupEdges,
+    ...counts,
     isolatedGroups: summary.isolatedGroups?.filter(inUnit),
   };
 }

@@ -107,7 +107,7 @@ describe("levelSummary", () => {
     const capped = {
       ...summary,
       isolatedGroups: [2, 6],
-      units: { ...units, hiddenByUnit: { "apps/web": { groups: 3, groupEdges: 4 } } },
+      units: { ...units, groupsByUnit: { "apps/web": { totalGroups: 5, hiddenGroups: 3, hiddenGroupEdges: 4 } } },
     };
     expect(levelSummary(capped, "apps/web")).toMatchObject({ totalGroups: 5, hiddenGroups: 3, hiddenGroupEdges: 4, isolatedGroups: [2] });
     expect(levelSummary(capped, "tool")).toMatchObject({ totalGroups: 1, hiddenGroups: 0, hiddenGroupEdges: 0, isolatedGroups: [6] });
