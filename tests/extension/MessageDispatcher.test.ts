@@ -96,6 +96,10 @@ describe("MessageDispatcher", () => {
       renderedCells: 1, digest: "a>b=1", paintMs: 3, cause: "matrix" as const,
     };
     await dispatcher.handle(matrixRendered);
+    const showMore = { command: "architectureShowMoreGroups" as const, revision: "r1" };
+    await dispatcher.handle(showMore);
+    const find = { command: "architectureFind" as const, revision: "r1", unit: "apps/web", query: "ui" };
+    await dispatcher.handle(find);
 
     expect(handleArchitectureMessage.mock.calls).toEqual([
       [{ command: "architectureMounted" }],
@@ -106,6 +110,8 @@ describe("MessageDispatcher", () => {
       [unitEvidence],
       [matrix],
       [matrixRendered],
+      [showMore],
+      [find],
     ]);
   });
 

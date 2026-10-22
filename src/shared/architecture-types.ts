@@ -29,8 +29,8 @@ export type ArchitectureUnitLevel = Omit<ArchitectureUnits, "context"> & {
   groupEdgeKinds: Record<string, ArchitectureUnitEdgeKind>;
   /** Groups holding sub-folders: entering one asks for its level (architectureEnterFolder). */
   nestedGroups: number[];
-  /** Groups and group edges of each unit left out by the cap, by unit key. */
-  hiddenByUnit?: Record<string, { groups: number; groupEdges: number }>;
+  /** By unit key: the unit's groups, and its groups and group edges left out by the cap. */
+  groupsByUnit?: Record<string, { totalGroups: number; hiddenGroups: number; hiddenGroupEdges: number }>;
 };
 
 /** The declared rules (graphit.architecture.json) checked against one level, as graph-it check-architecture reports them. */

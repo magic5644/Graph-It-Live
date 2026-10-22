@@ -138,7 +138,7 @@ type OverviewEdge = ArchitectureOverview["groupEdges"][number];
 /**
  * Keeps the `maxGroups` largest groups of each unit ("" for every group without units) and the
  * edges between kept groups, the unassigned files (id 0) always kept. A kept group with no kept
- * edge to a group of its unit is isolated (drawn apart); the others are hidden, counted per unit.
+ * edge to a group of its unit is isolated (drawn apart); the others are hidden. Counts per unit.
  */
 function capGroups(groups: readonly OverviewGroup[], edges: readonly OverviewEdge[], maxGroups: number, unitOf: (id: number) => string, unassigned: boolean) {
   // Groups come largest first.
@@ -154,11 +154,12 @@ function capGroups(groups: readonly OverviewGroup[], edges: readonly OverviewEdg
   const linked = new Set(groupEdges.filter((edge) => unitOf(edge.from) === unitOf(edge.to)).flatMap((edge) => [edge.from, edge.to]));
   const drawn = unassigned ? [...kept.map((group) => group.id), 0] : kept.map((group) => group.id);
   const hidden = groups.filter((group) => !keptIds.has(group.id)).map(({ id, key, label }) => ({ key, label, unit: unitOf(id) }));
-  const hiddenByUnit: Record<string, { groups: number; groupEdges: number }> = {};
-  const bump = (unit: string) => (hiddenByUnit[unit] ??= { groups: 0, groupEdges: 0 });
-  for (const { unit } of hidden) bump(unit).groups += 1;
-  for (const edge of edges) if (!isKept(edge) && unitOf(edge.from) === unitOf(edge.to)) bump(unitOf(edge.from)).groupEdges += 1;
-  return { groups: kept, groupEdges, isolatedGroups: drawn.filter((id) => !linked.has(id)), hidden, hiddenByUnit };
+  const groupsByUnit: Record<string, { totalGroups: number; hiddenGroups: number; hiddenGroupEdges: number }> = {};
+  const unitEntry = (unit: string) => (groupsByUnit[unit] ??= { totalGroups: 0, hiddenGroups: 0, hiddenGroupEdges: 0 });
+  for (const group of groups) unitEntry(unitOf(group.id)).totalGroups += 1;
+  for (const { unit } of hidden) unitEntry(unit).hiddenGroups += 1;
+  for (const edge of edges) if (!isKept(edge) && unitOf(edge.from) === unitOf(edge.to)) unitEntry(unitOf(edge.from)).hiddenGroupEdges += 1;
+  return { groups: kept, groupEdges, isolatedGroups: drawn.filter((id) => !linked.has(id)), hidden, groupsByUnit };
 }
 
 /** What a path-mode build keeps to answer a folder level later. */
@@ -204,7 +205,7 @@ function viewUnitLevel({ graph, units, assignment }: UnitSource, maxGroups: numb
       groupUnits: shownUnits,
       ...layerGroupsWithinUnits(groupEdges, shownUnits),
       nestedGroups: nestedGroups.filter((id) => labels.has(id)),
-      hiddenByUnit: capped.hiddenByUnit,
+      groupsByUnit: capped.groupsByUnit,
     },
   };
 }
