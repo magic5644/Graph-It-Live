@@ -586,13 +586,14 @@ function SummaryHeader({ summary, level, onShowMore, unit, minImports, onRefresh
           <button type="button" onClick={onRefresh}>Refresh</button>
         </output>
       )}
-      <div>
-        <span style={{ fontWeight: 600 }} title={unitsLevel ? "Dependents above, dependencies below" : undefined}>
-          {unitsLevel ? "Units in layers" : MODE_WORDING[context.communityMode]}
-        </span>
-        {unitsLevel && <>{" · "}<UnitsSummary summary={summary} minImports={minImports} onCycle={onCycle} /></>}
-      </div>
+      {/* One row while the width allows: the summary, the role legend, then Details. */}
       <div style={{ display: "flex", flexWrap: "wrap", gap: "2px 12px", alignItems: "baseline" }}>
+        <span>
+          <span style={{ fontWeight: 600 }} title={unitsLevel ? "Dependents above, dependencies below" : undefined}>
+            {unitsLevel ? "Units in layers" : MODE_WORDING[context.communityMode]}
+          </span>
+          {unitsLevel && <>{" · "}<UnitsSummary summary={summary} minImports={minImports} onCycle={onCycle} /></>}
+        </span>
         {unitsLevel && summary.units && <RoleLegend roleCounts={summary.units.roleCounts} roleFilter={roleFilter} onRole={onRole} />}
         <SummaryDetails summary={summary} isolated={isolated} />
       </div>
