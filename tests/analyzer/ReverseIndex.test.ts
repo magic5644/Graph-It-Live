@@ -538,7 +538,19 @@ describe('ReverseIndex', () => {
 
             expect(index.getUnresolvedImportersOf('/test/project/src/feature/widget.tsx')).toEqual([a]);
             expect(index.getUnresolvedImportersOf('/test/project/src/feature/widget.d.ts')).toEqual([a]);
-            expect(index.getUnresolvedImportersOf('/test/project/src/gadget.ts')).toEqual([]);
+            expect(index.getUnresolvedImportersOf('/test/project/lib/gadget.ts')).toEqual([]);
+        });
+
+        it('ignores case, as macOS and Windows resolve `./widget` to `Widget.ts`', () => {
+            index.addDependencies(a, [], hash, [], ['./feature/widget']);
+
+            expect(index.getUnresolvedImportersOf('/test/project/src/feature/Widget.tsx')).toEqual([a]);
+        });
+
+        it('matches a new file through its folder, as Go imports name a package directory', () => {
+            index.addDependencies(a, [], hash, [], ['example.com/app/internal/store']);
+
+            expect(index.getUnresolvedImportersOf('/test/project/internal/store/memory.go')).toEqual([a]);
         });
 
         it('matches directory modules and dotted or Rust-style specifiers', () => {
@@ -548,6 +560,8 @@ describe('ReverseIndex', () => {
             expect(index.getUnresolvedImportersOf('/test/project/src/feature/index.ts')).toEqual([a]);
             expect(index.getUnresolvedImportersOf('/test/project/pkg/sub/helpers.py')).toEqual([b]);
             expect(index.getUnresolvedImportersOf('/test/project/src/net/client/mod.rs')).toEqual([b]);
+            // A file at the file-system root has no folder name to match `./x` with.
+            expect(index.getUnresolvedImportersOf('/main.ts')).toEqual([]);
         });
 
         it('normalizes Windows paths and never returns the created file itself', () => {

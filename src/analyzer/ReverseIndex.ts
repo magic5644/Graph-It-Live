@@ -16,9 +16,6 @@ const OUT_OF_ROOT_EXAMPLES = 5;
 /** Separators splitting a module specifier into the names it may refer to (paths, dotted modules, Rust paths) */
 const SPECIFIER_SEGMENT = /[/\\.:]+/;
 
-/** File stems an import names through their parent directory (`./dir` → `dir/index.ts`) */
-const DIRECTORY_MODULE_STEMS = new Set(['index', '__init__', 'mod']);
-
 /** Logger instance for ReverseIndex */
 const log = getLogger('ReverseIndex');
 
@@ -62,7 +59,7 @@ export class ReverseIndex {
   private readonly outOfRootImports: Map<string, string[]> = new Map();
 
   /**
-   * Maps source file path -> in-root module specifiers that resolved to nothing,
+   * Maps source file path -> module specifiers that resolved to nothing (missing files, packages),
    * so creating their target can re-analyse the source (its own mtime never moves)
    */
   private readonly unresolvedImports: Map<string, string[]> = new Map();
@@ -502,19 +499,23 @@ export class ReverseIndex {
 
   /**
    * Source files with an unresolved import that may name the given file, to re-analyse once it exists.
-   * shortcut: matches specifier segments against the file stem, so false positives cost one re-analysis;
+   * Names are the file stem and its folder (`dir/index.ts`, Go packages), ignoring case for
+   * case-insensitive file systems.
+   * shortcut: matches specifier segments against those names, so false positives cost one re-analysis;
    * a resolver-exact reverse lookup would need every analyzer to expose its candidate paths.
    */
   getUnresolvedImportersOf(filePath: string): string[] {
     const normalizedFilePath = normalizePath(filePath);
-    const stem = path.basename(normalizedFilePath).split('.')[0];
-    const names = new Set([stem]);
-    if (DIRECTORY_MODULE_STEMS.has(stem)) names.add(path.basename(path.dirname(normalizedFilePath)));
+    const names = new Set(
+      [path.basename(normalizedFilePath).split('.')[0], path.basename(path.dirname(normalizedFilePath))]
+        .filter((name) => name !== '')
+        .map((name) => name.toLowerCase()),
+    );
 
     const importers: string[] = [];
     for (const [sourcePath, specifiers] of this.unresolvedImports) {
       if (sourcePath === normalizedFilePath) continue;
-      if (specifiers.some((specifier) => specifier.split(SPECIFIER_SEGMENT).some((segment) => names.has(segment)))) {
+      if (specifiers.some((specifier) => specifier.split(SPECIFIER_SEGMENT).some((segment) => names.has(segment.toLowerCase())))) {
         importers.push(sourcePath);
       }
     }

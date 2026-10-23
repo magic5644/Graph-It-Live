@@ -41,7 +41,7 @@ export interface IndexedFileData {
   dependencies: Dependency[];
   /** Specifiers whose target lies outside the workspace root */
   outOfRootImports?: string[];
-  /** In-root specifiers that resolved to nothing */
+  /** Specifiers that resolved to nothing (not outside the root) */
   unresolvedImports?: string[];
   mtime: number;
   size: number;
