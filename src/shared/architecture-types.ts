@@ -283,6 +283,8 @@ export interface ArchitectureRenderedCommand {
   /** The legend overlay reaches past the canvas instead of scrolling, and its list scrolls inside it. */
   legendOverflowing?: boolean;
   legendScrolls?: boolean;
+  /** `width=…`, then the height of each row above the canvas (`label=px`). */
+  headerRows?: string[];
   /** Zoom of the canvas once fitted. */
   zoom?: number;
   /** A group level (not the units), as its header and canvas show it once laid out. */

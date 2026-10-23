@@ -253,6 +253,7 @@ interface RenderedReport {
   viewHeightPx?: number;
   legendOverflowing?: boolean;
   legendScrolls?: boolean;
+  headerRows?: string[];
   zoom?: number;
 }
 const readRendered = async () => (await getContextKey<RenderedReport>('graph-it-live.architectureRendered')) ?? {};
@@ -820,7 +821,7 @@ suite('Architecture view mode', () => {
       const render = await waitForRender('the 71 units', before, current => !current.stale && current.groupCount === EXPECTED.units.groups + 60);
       const rendered = await readRendered() as RenderedReport & { stale?: boolean };
       assert.ok((rendered.headerHeightPx ?? Infinity) <= (rendered.viewHeightPx ?? 0) * 0.25,
-        `header and controls within 25% of the view: ${rendered.headerHeightPx} of ${rendered.viewHeightPx}px (stale ${rendered.stale})`);
+        `header and controls within 25% of the view: ${rendered.headerHeightPx} of ${rendered.viewHeightPx}px (stale ${rendered.stale}, ${rendered.headerRows?.join(' ')})`);
       assert.strictEqual(rendered.legendOverflowing, false, 'the legend stays inside the canvas');
       assert.strictEqual(rendered.legendScrolls, true, '71 units scroll inside the legend, capped at 40% of the canvas');
       assert.strictEqual(render.unitLevel?.layerBands, EXPECTED.units.layers, 'the new units sit on layer 0');

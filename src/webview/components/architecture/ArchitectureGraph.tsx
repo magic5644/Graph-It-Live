@@ -124,6 +124,8 @@ export interface ViewChrome {
   viewHeightPx: number;
   legendOverflowing: boolean;
   legendScrolls: boolean;
+  /** `width` then each block above the canvas as `label=height`, to see which one grows. */
+  headerRows: string[];
 }
 
 /** What a render drew (E2E observability); the units level adds its own measures. */
@@ -1027,6 +1029,10 @@ export function ArchitectureGraph({ postMessage }: Readonly<ArchitectureGraphPro
       legendOverflowing: legend !== undefined && legend.bottom > area.bottom + 1,
       // Capped at 40% of the canvas: a long list scrolls inside it.
       legendScrolls: legendRef.current !== null && legendRef.current.scrollHeight > legendRef.current.clientHeight,
+      headerRows: [`width=${Math.round(root.width)}`, ...Array.from(rootRef.current?.children ?? [])
+        .filter((child) => child !== canvasAreaRef.current)
+        .flatMap((child) => Array.from(child.children))
+        .map((row) => `${row.getAttribute("aria-label") ?? row.tagName.toLowerCase()}=${Math.round(row.getBoundingClientRect().height)}`)],
     };
   };
   /** The layer bands of what is drawn, behind it. */
