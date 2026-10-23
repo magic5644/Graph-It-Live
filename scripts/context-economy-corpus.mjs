@@ -8,7 +8,7 @@ import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { estimateTokens, estimateTokenSavings } from '../src/shared/toon.ts';
 
-export const BENCHMARK_VERSION = 3;
+export const BENCHMARK_VERSION = 4;
 export const BENCHMARK_BOUNDS = Object.freeze({ scope: '**', depth: 2, maxNodes: 10, tokenBudget: 2000 });
 export const REFERENCE_WORKFLOWS = Object.freeze([
   { id: 'locate-concept', question: 'where is idempotency policy defined?', mode: 'search', expected: ['file:src/ts/controller.ts', 'document:docs/ADR-001.md'] },
@@ -17,6 +17,7 @@ export const REFERENCE_WORKFLOWS = Object.freeze([
   { id: 'controller-database', question: '', mode: 'path', from: 'src/ts/controller.ts#handleUser', to: 'src/ts/repository.ts#saveUser', expected: ['symbol:src/ts/controller.ts:handleUser:3', 'symbol:src/ts/repository.ts:saveUser:1'] },
   { id: 'refactor-interface', question: 'what depends on UserService?', mode: 'refactor', seeds: ['src/ts/controller.ts#UserService'], expected: ['symbol:src/ts/controller.ts:UserService:2'] },
   { id: 'document-symbol', question: 'what documentation explains handleUser?', mode: 'search', seeds: ['src/ts/controller.ts#handleUser'], expected: ['document:docs/ADR-001.md', 'rationale:docs/ADR-001.md:4'] },
+  { id: 'exact-identifier', question: 'resolveUser', mode: 'search', expected: ['symbol:src/ts/current.ts:resolveUser:0', 'symbol:src/ts/legacy.ts:resolveUser:0'] },
 ]);
 
 const FIXTURES = {

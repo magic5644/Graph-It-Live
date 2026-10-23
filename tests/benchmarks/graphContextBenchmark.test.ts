@@ -32,10 +32,10 @@ describe('graph context benchmark contract', () => {
     );
   });
 
-  it('defines one small deterministic corpus for six reference workflows', () => {
+  it('defines one small deterministic corpus for seven reference workflows', () => {
     const corpus = buildSharedCorpus();
 
-    expect(REFERENCE_WORKFLOWS).toHaveLength(6);
+    expect(REFERENCE_WORKFLOWS).toHaveLength(7);
     expect(corpus.files).toEqual(expect.objectContaining({
       'src/ts/controller.ts': expect.any(String),
       'src/python/repository.py': expect.any(String),
@@ -221,7 +221,7 @@ describe('graph context benchmark contract', () => {
       const graphItCalls = calls.filter(call => call.executable === process.execPath);
       expect(graphItCalls.every(call => !call.args.includes('--cursor'))).toBe(true);
       const coldCalls = graphItCalls.filter((_, index) => index % 4 === 0);
-      expect(coldCalls).toHaveLength(6);
+      expect(coldCalls).toHaveLength(7);
       for (const [index, workflow] of REFERENCE_WORKFLOWS.entries()) {
         const args = coldCalls[index].args;
         expect(args).toEqual(expect.arrayContaining([
@@ -234,7 +234,7 @@ describe('graph context benchmark contract', () => {
       }
 
       expect(report.workflows.map(workflow => workflow.graphify.status)).toEqual([
-        'measured', 'measured', 'measured', 'measured', 'measured', 'not-supported',
+        'measured', 'measured', 'measured', 'measured', 'measured', 'not-supported', 'measured',
       ]);
       expect(Object.fromEntries(report.workflows.map(workflow => [workflow.id, workflow.graphify.args]))).toEqual({
         'locate-concept': ['query', 'where is idempotency policy defined?', '--budget', '2000', '--graph', '<workspace>/graphify-out/graph.json'],
@@ -243,6 +243,7 @@ describe('graph context benchmark contract', () => {
         'controller-database': ['path', 'src/ts/controller.ts#handleUser', 'src/ts/repository.ts#saveUser', '--graph', '<workspace>/graphify-out/graph.json'],
         'refactor-interface': ['affected', 'UserService', '--depth', '2', '--graph', '<workspace>/graphify-out/graph.json'],
         'document-symbol': [],
+        'exact-identifier': ['query', 'resolveUser', '--budget', '2000', '--graph', '<workspace>/graphify-out/graph.json'],
       });
       expect(report.workflows.every(workflow => workflow.graphify.bounds.requested.maxNodes === 10)).toBe(true);
       expect(report.workflows.filter(workflow => workflow.id !== 'document-symbol').every(workflow => workflow.graphify.comparison !== 'not-supported')).toBe(true);
@@ -255,6 +256,7 @@ describe('graph context benchmark contract', () => {
         ['explain', 'handleUser', '--graph', expect.any(String)],
         ['path', 'src/ts/controller.ts#handleUser', 'src/ts/repository.ts#saveUser', '--graph', expect.any(String)],
         ['affected', 'UserService', '--depth', '2', '--graph', expect.any(String)],
+        ['query', 'resolveUser', '--budget', '2000', '--graph', expect.any(String)],
       ]);
 
       const serialized = readFileSync(join(outputRoot, 'latest', 'report.json'), 'utf8');
