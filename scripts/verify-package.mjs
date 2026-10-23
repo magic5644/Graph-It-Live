@@ -1,4 +1,5 @@
-import { execSync } from 'node:child_process';
+import { execFileSync } from 'node:child_process';
+import { createRequire } from 'node:module';
 import { pathToFileURL } from 'node:url';
 
 // Checks the files `vsce ls` would package: no source maps, and the extension icon.
@@ -18,7 +19,9 @@ export function packageErrors(listing) {
 }
 
 if (import.meta.url === pathToFileURL(process.argv[1] ?? '').href) {
-  const errors = packageErrors(execSync('npx vsce ls', { encoding: 'utf8' }));
+  // The local vsce through this Node binary: no PATH lookup, no shell.
+  const vsce = createRequire(import.meta.url).resolve('@vscode/vsce/vsce');
+  const errors = packageErrors(execFileSync(process.execPath, [vsce, 'ls'], { encoding: 'utf8' }));
   for (const error of errors) console.error(`❌ ERROR: ${error}`);
   if (errors.length > 0) process.exit(1);
   console.log('✅ No .map files in package');
