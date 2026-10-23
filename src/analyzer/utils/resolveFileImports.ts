@@ -6,7 +6,7 @@ export interface ResolvedFileImports {
   dependencies: Dependency[];
   /** Specifiers whose target lies outside the workspace root (reportable, deduplicated) */
   outOfRootImports: string[];
-  /** In-root specifiers that resolved to nothing yet, so creating their target can re-resolve them (deduplicated) */
+  /** Specifiers that resolved to nothing (not outside the root), so creating their target can re-resolve them (deduplicated) */
   unresolvedImports: string[];
 }
 
