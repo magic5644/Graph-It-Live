@@ -1003,7 +1003,7 @@ describe("ArchitectureViewService", () => {
         await service.handleWebviewMessage({ command: "architectureDependents", revision, seed: { kind: "unit", key: "src" } });
         expect(posted.at(-1)).toEqual({
           type: "architectureDependentsResult", revision, folder: undefined, unit: undefined, seed: { kind: "unit", key: "src" },
-          seedLabel: "src", seedGroups: ["src"], reachedFiles: 1,
+          seedLabel: "src", seedGroups: ["src"], reachedFiles: 1, totals: { files: 1, groups: 1 },
           groups: [{ key: "(root)", label: "(root)", directFiles: 1, transitiveFiles: 1, minDepth: 1 }],
           insideSeedGroup: { directFiles: 0, transitiveFiles: 0 }, maxDepthReached: false,
           provenance: expect.stringContaining("Static import relations only"),

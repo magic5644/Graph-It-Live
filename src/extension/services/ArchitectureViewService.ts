@@ -1,35 +1,26 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
-import {
-  exploreArchitecture,
-  exploreArchitectureCheck,
-  exploreUnitEvidence,
-  groupDetail,
-  overviewArchitecture,
-  type ArchitectureOverview,
-} from "@/analyzer/architecture/ArchitectureExplorer";
+import { exploreArchitecture, exploreArchitectureCheck, exploreUnitEvidence, groupDetail } from "@/analyzer/architecture/ArchitectureExplorer";
 import { buildArchitectureGraph, type AnalyzeFile, type ArchitectureGraph } from "@/analyzer/architecture/ArchitectureGraphBuilder";
-import { groupMatrix, matrixDigest, unitMatrix, type ArchitectureMatrix } from "@/analyzer/architecture/architectureMatrix";
+import { matrixDigest } from "@/analyzer/architecture/architectureMatrix";
 import {
   ARCHITECTURE_BASELINE_FILE,
   ARCHITECTURE_CONFIG_FILE,
   checkWorkspaceArchitecture,
   loadDeclaredRoles,
-  rulesByEdge,
   type WorkspaceArchitectureCheck,
 } from "@/analyzer/architecture/architectureRules";
 import {
-  assignUnits,
-  buildArchitectureUnits,
-  groupByUnit,
-  layerGroupsWithinUnits,
-  type ArchitectureUnits,
-  type UnitAssignment,
-} from "@/analyzer/architecture/architectureUnits";
-import { computeGroupDependents } from "@/analyzer/architecture/groupDependents";
-import { stronglyConnectedComponents } from "@/analyzer/architecture/stronglyConnectedComponents";
-import type { DeclaredRoles } from "@/analyzer/architecture/unitRoles";
-import { aggregateCommunityGroups } from "@/analyzer/community/groupAggregation";
+  findHiddenGroups,
+  levelMatrix,
+  levelViolations,
+  viewArchitecture,
+  viewDependents,
+  viewLevel,
+  viewUnitLevel,
+  type HiddenGroup,
+  type UnitSource,
+} from "@/analyzer/architecture/architectureView";
 import type { IndexerStatusSnapshot } from "@/analyzer/IndexerStatus";
 import {
   DEFAULT_RENDERED_GROUPS,
@@ -139,62 +130,10 @@ function waitForIdleIndex(
   });
 }
 
-/** Inside a unit or folder, a group is named by its sub-folder; the parent's own files by the parent. */
-function groupLabel(group: { key: string }, parent: string, parentName: string): string {
-  return group.key === parent ? parentName : group.key.slice(parent.length + 1);
-}
-
-/** A group the cap leaves out: named for the find only. */
-interface HiddenGroup {
-  key: string;
-  label: string;
-  /** Unit key in path mode, else "". */
-  unit: string;
-}
-
 interface LevelGraph {
   graph: ArchitectureGraph;
   files: Set<string>;
   hidden: HiddenGroup[];
-}
-
-type ViewLevel = Omit<ArchitectureSummaryMessage, "type" | "stale"> & { graph: ArchitectureGraph; hidden: HiddenGroup[] };
-
-type OverviewGroup = ArchitectureOverview["groups"][number];
-type OverviewEdge = ArchitectureOverview["groupEdges"][number];
-
-/**
- * Keeps the `maxGroups` largest groups of each unit ("" for every group without units) and the
- * edges between kept groups, the unassigned files (id 0) always kept. A kept group with no kept
- * edge to a group of its unit is isolated (drawn apart); the others are hidden. Counts per unit.
- */
-function capGroups(groups: readonly OverviewGroup[], edges: readonly OverviewEdge[], maxGroups: number, unitOf: (id: number) => string, unassigned: boolean) {
-  // Groups come largest first.
-  const perUnit = new Map<string, number>();
-  const kept = groups.filter((group) => {
-    const count = (perUnit.get(unitOf(group.id)) ?? 0) + 1;
-    perUnit.set(unitOf(group.id), count);
-    return count <= maxGroups;
-  });
-  const keptIds = new Set([0, ...kept.map((group) => group.id)]);
-  const isKept = (edge: OverviewEdge) => keptIds.has(edge.from) && keptIds.has(edge.to);
-  const groupEdges = edges.filter(isKept);
-  const linked = new Set(groupEdges.filter((edge) => unitOf(edge.from) === unitOf(edge.to)).flatMap((edge) => [edge.from, edge.to]));
-  const drawn = unassigned ? [...kept.map((group) => group.id), 0] : kept.map((group) => group.id);
-  const hidden = groups.filter((group) => !keptIds.has(group.id)).map(({ id, key, label }) => ({ key, label, unit: unitOf(id) }));
-  const groupsByUnit: Record<string, { totalGroups: number; hiddenGroups: number; hiddenGroupEdges: number }> = {};
-  const unitEntry = (unit: string) => (groupsByUnit[unit] ??= { totalGroups: 0, hiddenGroups: 0, hiddenGroupEdges: 0 });
-  for (const group of groups) unitEntry(unitOf(group.id)).totalGroups += 1;
-  for (const { unit } of hidden) unitEntry(unit).hiddenGroups += 1;
-  for (const edge of edges) if (!isKept(edge) && unitOf(edge.from) === unitOf(edge.to)) unitEntry(unitOf(edge.from)).hiddenGroupEdges += 1;
-  return { groups: kept, groupEdges, isolatedGroups: drawn.filter((id) => !linked.has(id)), hidden, groupsByUnit };
-}
-
-/** What a path-mode build keeps to answer a folder level later. */
-interface UnitSource {
-  graph: ArchitectureGraph;
-  units: ArchitectureUnits;
-  assignment: UnitAssignment;
 }
 
 /** Keys the E2E driver may press on the canvas: navigation and zoom only. */
@@ -209,80 +148,6 @@ function canvasControls(controls: Omit<ArchitectureControlsMessage, "type"> | un
     legendUnit: typeof legendUnit === "string" ? legendUnit.slice(0, 256) : undefined,
     cycleCount: cycleCount === true ? true : undefined,
   };
-}
-
-/** Unit keys of each cycle: the strongly connected components, of two units or more, that the cycle edges form. */
-function cycleUnits({ units, unitEdges }: ArchitectureUnits): string[][] {
-  const successors = new Map<string, string[]>();
-  for (const { from, to } of unitEdges.filter((edge) => edge.kind === "cycle")) successors.set(from, [...(successors.get(from) ?? []), to]);
-  return stronglyConnectedComponents(units.map((unit) => unit.key), successors).filter((members) => members.length > 1);
-}
-
-/**
- * In path mode, the units on top and their unit-scoped folder groups below: the groups (and
- * the graph group detail and evidence read) never mix files of two units. Each unit keeps its
- * `maxGroups` largest groups (hiddenGroups counts the others), with their layers.
- * With a folder: that folder's sub-folders and own files, the level below.
- */
-function viewUnitLevel({ graph, units, assignment }: UnitSource, maxGroups: number, folder?: string): ViewLevel {
-  const { graph: grouped, groupUnits, nestedGroups } = groupByUnit(graph, units, assignment, folder);
-  const { context: _context, ...unitLevel } = units;
-  const overview = overviewArchitecture(grouped, Number.POSITIVE_INFINITY);
-  const names = new Map(units.units.map((unit) => [unit.key, unit.name]));
-  const labelled = overview.groups.map((group) => {
-    const unit = groupUnits[group.id];
-    const parent = folder ?? unit;
-    return { ...group, label: groupLabel(group, parent, folder === undefined ? names.get(unit) ?? unit : parent.slice(parent.lastIndexOf("/") + 1)) };
-  });
-  const capped = capGroups(labelled, overview.groupEdges, maxGroups, (id) => groupUnits[id] ?? "", false);
-  const labels = new Map(capped.groups.map((group) => [group.id, group.label]));
-  const groupEdges = capped.groupEdges.map((edge) => ({ ...edge, fromLabel: labels.get(edge.from) ?? "", toLabel: labels.get(edge.to) ?? "" }));
-  const shownUnits = Object.fromEntries(capped.groups.map((group) => [group.id, groupUnits[group.id]]));
-  return {
-    graph: grouped,
-    revision: grouped.context.revision,
-    ...overview,
-    groups: capped.groups,
-    groupEdges,
-    hiddenGroups: capped.hidden.length,
-    hiddenGroupEdges: overview.groupEdges.length - groupEdges.length,
-    maxGroups,
-    isolatedGroups: capped.isolatedGroups,
-    hidden: capped.hidden,
-    units: {
-      ...unitLevel,
-      groupUnits: shownUnits,
-      ...layerGroupsWithinUnits(groupEdges, shownUnits),
-      nestedGroups: nestedGroups.filter((id) => labels.has(id)),
-      groupsByUnit: capped.groupsByUnit,
-      cycleUnits: cycleUnits(units),
-    },
-  };
-}
-
-/** Louvain groups: the `maxGroups` largest are drawn. */
-function viewGroups(graph: ArchitectureGraph, maxGroups: number): ViewLevel {
-  const overview = overviewArchitecture(graph, Number.POSITIVE_INFINITY);
-  const capped = capGroups(overview.groups, overview.groupEdges, maxGroups, () => "", overview.unassigned.fileCount > 0);
-  return {
-    graph,
-    revision: graph.context.revision,
-    ...overview,
-    groups: capped.groups,
-    groupEdges: capped.groupEdges,
-    hiddenGroups: capped.hidden.length,
-    hiddenGroupEdges: overview.groupEdges.length - capped.groupEdges.length,
-    maxGroups,
-    isolatedGroups: capped.isolatedGroups,
-    hidden: capped.hidden,
-  };
-}
-
-function viewArchitecture(graph: ArchitectureGraph, workspaceRoot: string, maxGroups: number, declaredRoles?: DeclaredRoles): ViewLevel & { source?: UnitSource } {
-  if (graph.context.communityMode !== "path") return viewGroups(graph, maxGroups);
-  const assignment = assignUnits(workspaceRoot, graph.nodes.map((node) => node.relativePath));
-  const source = { graph, units: buildArchitectureUnits(graph, workspaceRoot, assignment, declaredRoles), assignment };
-  return { ...viewUnitLevel(source, maxGroups), source };
 }
 
 /** The rules check of a build: none without a config at the root, or why the config was refused. */
@@ -302,7 +167,6 @@ function rulesView(rules: RulesState, graph: ArchitectureGraph, unitOf?: Readonl
   if (!rules) return {};
   if ("error" in rules) return { rules: { ...rules, rules: [], configWarnings: [], unitEdges: {}, groupEdges: {} } };
   const { check } = rules;
-  const groupOf = new Map(graph.nodes.map((node) => [node.relativePath, node.communityId]));
   return {
     rules: {
       configFile: check.configFile,
@@ -310,8 +174,7 @@ function rulesView(rules: RulesState, graph: ArchitectureGraph, unitOf?: Readonl
       totals: check.totals,
       rules: check.rules,
       configWarnings: check.configWarnings,
-      unitEdges: unitOf ? rulesByEdge(check.violations, (file) => unitOf.get(file)) : {},
-      groupEdges: rulesByEdge(check.violations, (file) => groupOf.get(file)),
+      ...levelViolations(check.violations, graph, unitOf),
     },
   };
 }
@@ -345,12 +208,7 @@ function unitEvidencePage(source: UnitSource | undefined, request: ArchitectureU
   return { type: "architectureEvidencePage", revision, from, to, pairs: evidence.pairs, page: evidence.page };
 }
 
-/**
- * The matrix of the level a request names, read from that level's graph: the units (path mode,
- * nothing entered), an entered unit's groups (group ids of the summary), else every group of
- * the graph (an entered folder, or Louvain). Unit groups are regrouped as the summary was, so
- * their ids match it.
- */
+/** The matrix of the level a request names, with its violating cells. */
 function matrixMessage(
   graph: ArchitectureGraph,
   source: UnitSource | undefined,
@@ -359,28 +217,12 @@ function matrixMessage(
 ): ArchitectureExtensionMessage {
   const { revision, folder } = request;
   const unit = request.unit === undefined ? undefined : String(request.unit);
-  const unitsLevel = source !== undefined && folder === undefined && unit === undefined;
+  const { matrix, nestedGroups, unitsLevel } = levelMatrix(graph, source, folder, unit);
   // Rows are unit keys at the units level, else the group ids of the level's graph.
   const { rules: view } = rulesView(rules, graph, source?.assignment.unitOf);
   const violations = view?.totals === undefined ? {} : { violations: unitsLevel ? view.unitEdges : view.groupEdges };
-  const reply = (matrix: ArchitectureMatrix, nestedGroups: number[]) =>
-    ({ type: "architectureMatrix" as const, revision, folder, unit, matrix, digest: matrixDigest(matrix), nestedGroups, ...violations });
-  if (source && unitsLevel) return reply(unitMatrix(source.units), []);
-  const aggregation = aggregateCommunityGroups(graph.graphData);
-  if (!source) return reply(groupMatrix(aggregation), []);
-  const { groupUnits, nestedGroups } = groupByUnit(source.graph, source.units, source.assignment, folder);
-  const inLevel = folder === undefined ? (id: number) => groupUnits[id] === unit : () => true;
-  const matrix = groupMatrix(aggregation, inLevel);
-  // Named as the graph names them, once ordered: the order stays the CLI's.
-  const parent = folder ?? unit ?? "";
-  const parentName = folder === undefined ? source.units.units.find((entry) => entry.key === unit)?.name ?? parent : parent.slice(parent.lastIndexOf("/") + 1);
-  const rows = matrix.rows.map((row) => ({ ...row, label: groupLabel(row, parent, parentName) }));
-  return reply({ ...matrix, rows }, nestedGroups.filter(inLevel));
+  return { type: "architectureMatrix", revision, folder, unit, matrix, digest: matrixDigest(matrix), nestedGroups, ...violations };
 }
-
-/** Group key of every file of a graph, "" for the unassigned files (id 0). */
-const groupKeys = (graph: ArchitectureGraph) =>
-  new Map(graph.nodes.map((node) => [node.relativePath, node.communityId === 0 ? "" : node.communityKey]));
 
 /** A workspace-relative file of the graph; anything else (absolute, outside, unknown) is refused. */
 function graphFile(files: ReadonlySet<string>, relativePath: unknown): string {
@@ -393,54 +235,25 @@ function graphFile(files: ReadonlySet<string>, relativePath: unknown): string {
 
 type DependentsRequest = ArchitectureDependentsCommand | ArchitectureDependentFilesCommand;
 
-/** The files of a dependents seed and its name: a file of the graph, a group of the level, or a unit (path mode); anything else is refused. */
-function seedFilesOf(full: LevelGraph, level: ArchitectureGraph, source: UnitSource | undefined, seed: DependentsRequest["seed"]) {
-  if (seed?.kind === "file") {
-    const file = graphFile(full.files, seed.relativePath);
-    return { files: [file], label: file };
-  }
-  if (seed?.kind === "group") {
-    const nodes = level.nodes.filter((node) => node.communityId === seed.groupId);
-    const label = nodes[0]?.communityId === 0 ? "unassigned" : nodes[0]?.communityKey ?? `group ${String(seed.groupId)}`;
-    return { files: nodes.map((node) => node.relativePath), label };
-  }
-  if (seed?.kind === "unit" && source) {
-    const key = String(seed.key);
-    const files = full.graph.nodes.map((node) => node.relativePath).filter((file) => source.assignment.unitOf.get(file) === key);
-    return { files, label: source.assignment.names.get(key) ?? key };
-  }
-  throw new Error("unknown dependents seed");
-}
-
 /**
- * The dependents of a request's seed, walked over every file pair of the summary's graph and
- * grouped as the request's level draws them: by unit at the units level, else by the level's
- * groups, the files outside an entered folder by the summary's groups.
+ * The dependents of a request's seed, grouped as the request's level draws them: by unit at the
+ * units level, else by the level's groups. A file seed must be a file of the summary's graph.
  */
 function dependentsOf(full: LevelGraph, level: ArchitectureGraph, source: UnitSource | undefined, request: DependentsRequest) {
-  // A seed without files (an unknown group or unit) has no dependents: the panel says so instead of waiting.
-  const seed = seedFilesOf(full, level, source, request.seed);
-  const unitOf = source !== undefined && request.folder === undefined && request.unit === undefined ? source.assignment : undefined;
-  const summaryKeys = groupKeys(full.graph);
-  const levelKeys = groupKeys(level);
-  // Keys are folder paths: a file whose summary key is the entered folder (or below) lies in the level, so both key sets never clash.
-  const groupOf = unitOf
-    ? (file: string) => unitOf.unitOf.get(file) ?? ""
-    : (file: string) => levelKeys.get(file) ?? summaryKeys.get(file) ?? "";
-  const dependents = computeGroupDependents(full.graph, seed.files, { groupOf });
-  // Units are named as the view names them; groups by their key.
-  const labelOf = (key: string, label: string) => unitOf?.names.get(key) ?? label;
-  return { dependents, seedLabel: seed.label, labelOf };
+  const { seed, folder, unit } = request;
+  const checked = seed?.kind === "file" ? { kind: "file" as const, relativePath: graphFile(full.files, seed.relativePath) } : seed;
+  return viewDependents(full.graph, level, source, checked, folder === undefined && unit === undefined);
 }
 
 function dependentsMessage(full: LevelGraph, level: ArchitectureGraph, source: UnitSource | undefined, request: ArchitectureDependentsCommand): ArchitectureExtensionMessage {
   const { revision, folder, unit, seed } = request;
-  const { dependents, seedLabel, labelOf } = dependentsOf(full, level, source, request);
+  const dependents = dependentsOf(full, level, source, request);
   return {
-    type: "architectureDependentsResult", revision, folder, unit, seed, seedLabel,
+    type: "architectureDependentsResult", revision, folder, unit, seed, seedLabel: dependents.seedLabel,
     seedGroups: dependents.seed.groups,
     reachedFiles: dependents.reachedFiles,
-    groups: dependents.groups.map((group) => ({ ...group, label: labelOf(group.key, group.label) })),
+    totals: dependents.totals,
+    groups: dependents.groups,
     insideSeedGroup: dependents.insideSeedGroup,
     maxDepthReached: dependents.maxDepthReached,
     provenance: dependents.provenance,
@@ -450,7 +263,7 @@ function dependentsMessage(full: LevelGraph, level: ArchitectureGraph, source: U
 function dependentFilesPage(full: LevelGraph, level: ArchitectureGraph, source: UnitSource | undefined, request: ArchitectureDependentFilesCommand): ArchitectureExtensionMessage {
   const { revision, folder, unit, seed, groupKey, offset } = request;
   // shortcut: each page walks the graph again (O(file pairs), milliseconds); cache per revision and seed if pages lag.
-  const { files, page } = dependentsOf(full, level, source, request).dependents.filesOf(String(groupKey), { offset: validOffset(offset) });
+  const { files, page } = dependentsOf(full, level, source, request).filesOf(String(groupKey), { offset: validOffset(offset) });
   return { type: "architectureDependentFilesPage", revision, folder, unit, seed, groupKey: String(groupKey), files, page };
 }
 
@@ -606,7 +419,7 @@ export class ArchitectureViewService {
     if (!this.graphFor(revision) || !this.summary || this.maxGroups === MAX_RENDERED_GROUPS) return;
     this.maxGroups = MAX_RENDERED_GROUPS;
     const cached = this.graph!;
-    const { graph: _graph, hidden, ...overview } = cached.source ? viewUnitLevel(cached.source, this.maxGroups) : viewGroups(cached.graph, this.maxGroups);
+    const { graph: _graph, hidden, ...overview } = viewLevel(cached.graph, cached.source, this.maxGroups);
     cached.hidden = hidden;
     this.summary = { ...this.summary, ...overview };
     this.options.post(this.summary);
@@ -617,13 +430,8 @@ export class ArchitectureViewService {
   private find({ revision, folder, unit, query }: ArchitectureFindCommand): void {
     const cached = this.graphFor(revision, folder);
     if (!cached) return;
-    const needle = String(query).trim().toLowerCase().slice(0, 256);
-    const matches = needle === "" ? [] : cached.hidden.filter((group) =>
-      (unit === undefined || group.unit === String(unit)) && `${group.label}\n${group.key}`.toLowerCase().includes(needle));
-    this.options.post({
-      type: "architectureFound", revision, folder, unit, query: String(query),
-      matches: matches.slice(0, 10).map((group) => group.label), total: matches.length,
-    });
+    const found = findHiddenGroups(cached.hidden, String(query).slice(0, 256), unit === undefined ? undefined : String(unit));
+    this.options.post({ type: "architectureFound", revision, folder, unit, query: String(query), ...found });
   }
 
   /**

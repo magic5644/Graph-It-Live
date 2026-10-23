@@ -170,6 +170,7 @@
     ],
     "upwardEdges": 0,
     "cycles": 1,
+    "layerCount": 3,
     "roleCounts": {
       "function": 1,
       "library": 3,
@@ -207,6 +208,7 @@
     },
     "upwardEdges": 0,
     "cycles": 1,
+    "layerCount": 3,
     "roleCounts": {
       "function": 1,
       "library": 3,

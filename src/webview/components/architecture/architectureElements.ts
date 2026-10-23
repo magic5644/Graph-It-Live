@@ -585,14 +585,12 @@ export function levelSummary(summary: ArchitectureSummaryMessage, unit: string |
     };
   }
   const inUnit = (id: number) => level.groupUnits[id] === unit;
-  const groups = summary.groups.filter((group) => inUnit(group.id));
-  const counts = level.groupsByUnit?.[unit] ?? { totalGroups: groups.length, hiddenGroups: 0, hiddenGroupEdges: 0 };
   return {
     ...summary,
-    groups,
+    groups: summary.groups.filter((group) => inUnit(group.id)),
     groupEdges: summary.groupEdges.filter((edge) => inUnit(edge.from) && inUnit(edge.to)),
     unassigned: { fileCount: 0, internalEdgeCount: 0 },
-    ...counts,
+    ...level.groupsByUnit[unit],
     isolatedGroups: summary.isolatedGroups?.filter(inUnit),
   };
 }

@@ -111,6 +111,8 @@ export function computeGroupDependents(graph: ArchitectureGraph, seedFiles: read
     groups,
     insideSeedGroup: { directFiles: inside.filter((file) => file.depth === 1).length, transitiveFiles: inside.length },
     reachedFiles: depthOf.size,
+    /** Reached files and groups outside the seeds' own groups. */
+    totals: { files: depthOf.size - inside.length, groups: groups.length },
     maxDepthReached,
     provenance: DEPENDENTS_PROVENANCE,
     /** One page of a group's reached files, by depth then path. */

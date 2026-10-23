@@ -217,6 +217,7 @@ export function exploreUnits(units: ArchitectureUnits, options: Pick<Architectur
     totals: units.totals,
     upwardEdges: units.upwardEdges,
     cycles: units.cycles,
+    layerCount: units.layerCount,
     roleCounts: units.roleCounts,
     units: unitPage.items,
     unitEdges: edgePage.items,

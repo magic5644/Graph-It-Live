@@ -833,7 +833,7 @@ describe("ArchitectureGraph", () => {
 
     describe("selection actions and dependents by group", () => {
       const result = (seed: ArchitectureDependentsSeed, overrides: Partial<ArchitectureDependentsResultMessage> = {}): ArchitectureDependentsResultMessage => ({
-        type: "architectureDependentsResult", revision: "r1", seed, seedLabel: "store", seedGroups: ["store"], reachedFiles: 4,
+        type: "architectureDependentsResult", revision: "r1", seed, seedLabel: "store", seedGroups: ["store"], reachedFiles: 4, totals: { files: 3, groups: 1 },
         groups: [{ key: "ui", label: "ui", directFiles: 1, transitiveFiles: 3, minDepth: 1 }],
         insideSeedGroup: { directFiles: 1, transitiveFiles: 1 }, maxDepthReached: false, provenance: "Static import relations only.",
         ...overrides,
@@ -907,7 +907,7 @@ describe("ArchitectureGraph", () => {
         action("Dependents by group");
         const seed = { kind: "file" as const, relativePath: "ui/f0.ts" };
         expect(lastOf(postMessage, "architectureDependents")).toEqual({ command: "architectureDependents", revision: "r1", seed });
-        send(result(seed, { seedLabel: "ui/f0.ts", seedGroups: ["ui"], groups: [] }));
+        send(result(seed, { seedLabel: "ui/f0.ts", seedGroups: ["ui"], groups: [], totals: { files: 0, groups: 0 } }));
         expect(helpers.markDependents).toHaveBeenLastCalledWith(cy.instance, new Map(), new Set(["ui"]), "ui/f0.ts");
         // A background click drops the selection and its actions.
         act(() => cy.state.handlers.get("tap")?.({ target: cy.instance }));
@@ -1010,12 +1010,14 @@ describe("ArchitectureGraph", () => {
         ],
         upwardEdges: 0,
         cycles: 1,
+        layerCount: 1,
         roleCounts: { frontend: 1, library: 1 },
         totals: { files: 9, fileEdges: 5, intraUnitEdges: 1, interUnitEdges: 4 },
         groupUnits: { 1: "apps/web", 2: "packages/core" },
         groupLayers: { 1: 0, 2: 0 },
         groupEdgeKinds: {},
         nestedGroups: [],
+        groupsByUnit: { "apps/web": { totalGroups: 1, hiddenGroups: 0, hiddenGroupEdges: 0 }, "packages/core": { totalGroups: 1, hiddenGroups: 0, hiddenGroupEdges: 0 } },
       },
     };
     const nodeById = (id: string) => cy.state.nodes.find(node => node.id() === id);
@@ -1611,7 +1613,7 @@ describe("ArchitectureGraph", () => {
         const seed = { kind: "unit" as const, key: "apps/web" };
         expect(lastOf(postMessage, "architectureDependents")).toEqual({ command: "architectureDependents", revision: "r1", seed });
         send({
-          type: "architectureDependentsResult", revision: "r1", seed, seedLabel: "@ws/web", seedGroups: ["apps/web"], reachedFiles: 1,
+          type: "architectureDependentsResult", revision: "r1", seed, seedLabel: "@ws/web", seedGroups: ["apps/web"], reachedFiles: 1, totals: { files: 1, groups: 1 },
           groups: [{ key: "packages/core", label: "@ws/core", directFiles: 1, transitiveFiles: 1, minDepth: 1 }],
           insideSeedGroup: { directFiles: 0, transitiveFiles: 0 }, maxDepthReached: true, provenance: "",
         });
