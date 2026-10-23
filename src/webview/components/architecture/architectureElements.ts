@@ -474,6 +474,34 @@ export function markNodes(cy: Core, className: "selected" | "found", nodes: Coll
   });
 }
 
+const DEPENDENT_CLASSES = "dependent dependent-direct dependents-seed dependents-dimmed";
+
+/**
+ * Dependents by group: drawn groups and units reached (`reached`: key → minimum depth) get a
+ * ring, thicker for direct importers; the seed's groups (and file) are outlined; the others are
+ * dimmed with their edges. Null clears it. Returns the highlighted groups.
+ */
+export function markDependents(cy: Core, reached: ReadonlyMap<string, number> | null, seedKeys: ReadonlySet<string>, seedFile?: string): number {
+  cy.batch(() => {
+    cy.elements().removeClass(DEPENDENT_CLASSES);
+    if (!reached) return;
+    cy.nodes().forEach((node) => {
+      if (node.data("file")) {
+        if (node.data("relativePath") === seedFile) node.addClass("dependents-seed");
+        return;
+      }
+      if (node.data("more") || node.data("cycle")) return;
+      const key = String(node.data("unitKey") ?? node.data("groupKey"));
+      const depth = reached.get(key);
+      if (seedKeys.has(key)) node.addClass("dependents-seed");
+      else if (depth === undefined) node.addClass("dependents-dimmed");
+      else node.addClass(depth === 1 ? "dependent-direct" : "dependent");
+    });
+    cy.edges().filter((edge) => edge.source().hasClass("dependents-dimmed") || edge.target().hasClass("dependents-dimmed")).addClass("dependents-dimmed");
+  });
+  return cy.nodes(".dependent, .dependent-direct").length;
+}
+
 /** Drawn with a focus ring: at least 3px of a border colour that is not the node's own fill colour. */
 const ringed = (node: NodeSingular) =>
   Number.parseFloat(node.style("border-width")) >= 3 && node.style("border-color") !== node.style("background-color");

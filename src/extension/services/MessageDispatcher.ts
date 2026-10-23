@@ -164,6 +164,18 @@ export class MessageDispatcher {
         architectureDetailRendered: async (m) => {
           await deps.handleArchitectureMessage?.(m);
         },
+        architectureRevealInFileGraph: async (m) => {
+          await deps.handleArchitectureMessage?.(m);
+        },
+        architectureDependents: async (m) => {
+          await deps.handleArchitectureMessage?.(m);
+        },
+        architectureDependentFiles: async (m) => {
+          await deps.handleArchitectureMessage?.(m);
+        },
+        architectureDependentsRendered: async (m) => {
+          await deps.handleArchitectureMessage?.(m);
+        },
       },
     });
   }

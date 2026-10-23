@@ -51,6 +51,7 @@ describe("ArchitectureViewService", () => {
   let posted: ArchitectureExtensionMessage[];
   let communityMode: CommunityMode;
   let opened: string[];
+  let revealed: string[];
   let settingsOpened: boolean[];
   let warnings: string[];
 
@@ -69,6 +70,9 @@ describe("ArchitectureViewService", () => {
       openFile: async (absolutePath) => {
         opened.push(absolutePath);
       },
+      revealInFileGraph: async (absolutePath) => {
+        revealed.push(absolutePath);
+      },
       openSettings: () => settingsOpened.push(true),
       warn: (message) => warnings.push(message),
       ...overrides,
@@ -79,6 +83,7 @@ describe("ArchitectureViewService", () => {
     await writeWorkspace(root, workspace);
     posted = [];
     opened = [];
+    revealed = [];
     settingsOpened = [];
     warnings = [];
     communityMode = "path";
@@ -718,7 +723,7 @@ describe("ArchitectureViewService", () => {
       buildCount: 0, renderCount: 1, groupCount: 3, groupEdgeCount: 2, revision: "abc", communityMode: "path", stale: true,
       overlappingGroups: 1, overflowingLabels: 2, positions: "path:ui@0,0", unit: undefined, folder: undefined, unitLevel: undefined,
       violationEdges: 0, rules: [], roles: [], resizeCount: 0, viewSize: { width: 0, height: 0 },
-      interactionCount: 0, interaction: null, detailCount: 0, detail: null, matrixCount: 0, matrix: null,
+      interactionCount: 0, interaction: null, detailCount: 0, detail: null, matrixCount: 0, matrix: null, dependents: null,
       // The whole report too, for the measures without a key of their own (header height, zoom…).
       rendered,
     });
@@ -776,6 +781,10 @@ describe("ArchitectureViewService", () => {
     expect(posted.at(-1)).toMatchObject({ zoom: undefined, keys: undefined, legendUnit: undefined, cycleCount: undefined });
     service.setControls({ keys: Array.from({ length: 30 }, () => "0") });
     expect((posted.at(-1) as ArchitectureControlsMessage).keys).toHaveLength(20);
+    service.setControls({ dependentsOf: "src/ui", revealFile: "main.ts", clearDependents: true });
+    expect(posted.at(-1)).toMatchObject({ dependentsOf: "src/ui", revealFile: "main.ts", clearDependents: true });
+    service.setControls({ dependentsOf: 1, revealFile: "x".repeat(300), clearDependents: "yes" } as never);
+    expect(posted.at(-1)).toMatchObject({ dependentsOf: undefined, revealFile: "x".repeat(256), clearDependents: undefined });
   });
 
   describe("group detail, evidence and opening files", () => {
@@ -896,12 +905,31 @@ describe("ArchitectureViewService", () => {
       ["a Windows absolute path", String.raw`C:\Windows\win.ini`],
       ["a file outside the graph", "src/ui/missing.ts"],
       ["a null byte", "main.ts\0"],
-    ])("refuses %s without opening anything", async (_name, relativePath) => {
+    ])("refuses %s without opening, revealing or walking anything", async (_name, relativePath) => {
       const { service, revision } = await built();
+      const count = posted.length;
       await service.handleWebviewMessage({ command: "architectureOpenFile", revision, relativePath });
+      await service.handleWebviewMessage({ command: "architectureRevealInFileGraph", revision, relativePath });
+      await service.handleWebviewMessage({ command: "architectureDependents", revision, unit: "src", seed: { kind: "file", relativePath } });
       expect(opened).toEqual([]);
-      expect(warnings).toEqual([expect.stringContaining("refused to open a file")]);
+      expect(revealed).toEqual([]);
+      expect(posted).toHaveLength(count);
+      expect(warnings).toEqual([
+        expect.stringContaining("refused to open a file"),
+        expect.stringContaining("refused to open a file"),
+        expect.stringContaining("not a file of the architecture graph"),
+      ]);
       expect(warnings[0]).not.toContain(root);
+    });
+
+    it("reveals a file of the graph in the file Dependency Graph, Windows separators included", async () => {
+      const { service, revision } = await built();
+      await service.handleWebviewMessage({ command: "architectureRevealInFileGraph", revision, relativePath: String.raw`src\ui\view.ts` });
+      expect(revealed).toEqual([path.join(root, "src/ui/view.ts")]);
+      expect(opened).toEqual([]);
+      await service.handleWebviewMessage({ command: "architectureRevealInFileGraph", revision: "old", relativePath: "main.ts" });
+      expect(posted.at(-1)).toEqual({ type: "architectureRevisionChanged", currentRevision: revision });
+      expect(revealed).toHaveLength(1);
     });
 
     it("refuses a graph file replaced by a symlink leaving the workspace since the build", async () => {
@@ -924,6 +952,110 @@ describe("ArchitectureViewService", () => {
       await service.show();
       await service.handleWebviewMessage({ command: "architectureOpenFile", revision: summaries()[0].revision, relativePath: "main.ts" });
       expect(warnings).toEqual(["Architecture view: refused to open a file (cannot open)"]);
+    });
+
+    describe("dependents by group", () => {
+      it("groups the dependents of a unit by unit at the units level", async () => {
+        const { service, revision } = await built();
+        await service.handleWebviewMessage({ command: "architectureDependents", revision, seed: { kind: "unit", key: "src" } });
+        expect(posted.at(-1)).toEqual({
+          type: "architectureDependentsResult", revision, folder: undefined, unit: undefined, seed: { kind: "unit", key: "src" },
+          seedLabel: "src", seedGroups: ["src"], reachedFiles: 1,
+          groups: [{ key: "(root)", label: "(root)", directFiles: 1, transitiveFiles: 1, minDepth: 1 }],
+          insideSeedGroup: { directFiles: 0, transitiveFiles: 0 }, maxDepthReached: false,
+          provenance: expect.stringContaining("Static import relations only"),
+        });
+      });
+
+      it("groups the dependents of a group or a file by the summary's groups inside a unit, and pages a group's files", async () => {
+        const { service, revision } = await built();
+        const expected = {
+          seedGroups: ["src/store"], reachedFiles: 3,
+          groups: [
+            { key: "src/ui", label: "src/ui", directFiles: 2, transitiveFiles: 2, minDepth: 1 },
+            { key: "(root)", label: "(root)", directFiles: 0, transitiveFiles: 1, minDepth: 2 },
+          ],
+          insideSeedGroup: { directFiles: 0, transitiveFiles: 0 },
+        };
+        await service.handleWebviewMessage({ command: "architectureDependents", revision, unit: "src", seed: { kind: "group", groupId: 2 } });
+        expect(posted.at(-1)).toMatchObject({ unit: "src", seedLabel: "src/store", ...expected });
+        await service.handleWebviewMessage({ command: "architectureDependents", revision, unit: "src", seed: { kind: "file", relativePath: "src/store/state.ts" } });
+        expect(posted.at(-1)).toMatchObject({ seedLabel: "src/store/state.ts", ...expected });
+
+        const seed = { kind: "group" as const, groupId: 2 };
+        await service.handleWebviewMessage({ command: "architectureDependentFiles", revision, unit: "src", seed, groupKey: "src/ui" });
+        expect(posted.at(-1)).toEqual({
+          type: "architectureDependentFilesPage", revision, folder: undefined, unit: "src", seed, groupKey: "src/ui",
+          files: [{ relativePath: "src/ui/form.ts", depth: 1 }, { relativePath: "src/ui/view.ts", depth: 1 }],
+          page: { total: 2, offset: 0, returned: 2, truncated: false, nextOffset: undefined },
+        });
+        await service.handleWebviewMessage({ command: "architectureDependentFiles", revision, unit: "src", seed, groupKey: "src/ui", offset: 1 });
+        expect(posted.at(-1)).toMatchObject({ files: [{ relativePath: "src/ui/view.ts" }], page: { offset: 1, returned: 1 } });
+      });
+
+      it("answers a stale revision with the current one and logs unknown seeds", async () => {
+        const { service, revision } = await built();
+        await service.handleWebviewMessage({ command: "architectureDependents", revision: "old", seed: { kind: "unit", key: "src" } });
+        expect(posted.at(-1)).toEqual({ type: "architectureRevisionChanged", currentRevision: revision });
+        const count = posted.length;
+        await service.handleWebviewMessage({ command: "architectureDependents", revision, seed: { kind: "group", groupId: 99 } });
+        await service.handleWebviewMessage({ command: "architectureDependents", revision, seed: { kind: "unit", key: "nowhere" } });
+        await service.handleWebviewMessage({ command: "architectureDependents", revision, seed: { kind: "symbol" } } as never);
+        await service.handleWebviewMessage({ command: "architectureDependentFiles", revision, seed: { kind: "unit", key: "nowhere" }, groupKey: "src" });
+        expect(posted).toHaveLength(count);
+        expect(warnings).toEqual([
+          "Architecture view: no file in the dependents seed group 99",
+          "Architecture view: no file in the dependents seed nowhere",
+          "Architecture view: unknown dependents seed",
+          "Architecture view: no file in the dependents seed nowhere",
+        ]);
+      });
+
+      it("has no unit seed in Louvain mode", async () => {
+        communityMode = "louvain";
+        const { service, revision } = await built();
+        await service.handleWebviewMessage({ command: "architectureDependents", revision, seed: { kind: "unit", key: "src" } });
+        expect(warnings).toEqual(["Architecture view: unknown dependents seed"]);
+        await service.handleWebviewMessage({ command: "architectureDependents", revision, seed: { kind: "file", relativePath: "src/store/state.ts" } });
+        expect(posted.at(-1)).toMatchObject({ type: "architectureDependentsResult", reachedFiles: 3 });
+      });
+
+      it("groups an entered folder's dependents by its groups, and the files outside it by the summary's", async () => {
+        const nested = {
+          "app/src/core/engine.ts": ["app/src/core/util/math.ts", "app/src/ui/view.ts"],
+          "app/src/core/util/math.ts": [],
+          "app/src/ui/view.ts": ["app/src/core/util/math.ts"],
+        };
+        const deep = await fs.realpath(await fs.mkdtemp(path.join(os.tmpdir(), "gitl-architecture-dependents-")));
+        try {
+          await writeWorkspace(deep, nested);
+          const service = createService({ workspaceRoot: deep, analyzeFile: analyzerFor(deep, nested) });
+          await service.build();
+          const [summary] = summaries();
+          await service.handleWebviewMessage({ command: "architectureEnterFolder", revision: summary.revision, folder: "app/core" });
+          const { level } = posted.at(-1) as ArchitectureFolderLevelMessage;
+          const util = level.groups.find((group) => group.key === "app/core/util")!.id;
+          await service.handleWebviewMessage({
+            command: "architectureDependents", revision: level.revision, folder: "app/core", unit: "app", seed: { kind: "group", groupId: util },
+          });
+          expect(posted.at(-1)).toMatchObject({
+            folder: "app/core", seedLabel: "app/core/util", seedGroups: ["app/core/util"],
+            groups: [
+              { key: "app/core", directFiles: 1, transitiveFiles: 1, minDepth: 1 },
+              { key: "app/ui", directFiles: 1, transitiveFiles: 1, minDepth: 1 },
+            ],
+          });
+        } finally {
+          await fs.rm(deep, { recursive: true, force: true });
+        }
+      });
+
+      it("keeps the dependents render for E2E", async () => {
+        const { service } = await built();
+        const rendered = { command: "architectureDependentsRendered" as const, seedLabel: "src", rows: ["(root)=1/1@1"], highlightedGroups: 1, view: "graph" as const };
+        await service.handleWebviewMessage(rendered);
+        expect(service.getE2EState().dependents).toEqual(rendered);
+      });
     });
 
     it("keeps the last detail render and forwards the expansion controls", async () => {

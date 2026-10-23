@@ -271,6 +271,8 @@ describe("GraphProvider", () => {
         expandAll: undefined, // globalState.get returns undefined by default mock
       }),
     );
+    // E2E observability: the file the file graph is rooted on.
+    expect(provider.getFileGraphRoot()).toBe(mainTsPath);
   });
 
   it("should resolve module specifiers when drilling down", async () => {

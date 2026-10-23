@@ -114,7 +114,7 @@ Branch Watch adds a native path alongside the existing webview: `BranchWatchServ
 - `services/BackgroundIndexingManager.ts` - Manages reverse index
 - `services/CallGraphViewService.ts` - Orchestrates call graph extraction → indexing → query → webview
 - `services/ICallGraphQueryService.ts` - Interface decoupling symbol view from call graph service (35 lines)
-- `services/ArchitectureViewService.ts` - Architecture view mode: builds `buildArchitectureGraph` + `overviewArchitecture` on demand (open, Refresh, `communityMode` change), aborts superseded builds, marks the summary stale on file changes
+- `services/ArchitectureViewService.ts` - Architecture view mode: builds `buildArchitectureGraph` + `overviewArchitecture` on demand (open, Refresh, `communityMode` change), aborts superseded builds, marks the summary stale on file changes; answers the selection actions (open file, Show in Dependency Graph, dependents by group, all paths validated against the graph and the workspace)
 - `services/CommandRegistrationService.ts` - VS Code command registration
 - `services/CommandCoordinator.ts` - Command coordination and sequencing
 - `services/EditorEventsService.ts` - Editor event subscriptions

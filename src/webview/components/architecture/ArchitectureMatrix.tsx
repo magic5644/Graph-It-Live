@@ -31,10 +31,21 @@ interface ArchitectureMatrixProps {
   request?: { row: number; column: number } | null;
   /** Key of the row the find matches first: made active and scrolled into view, nothing opened. */
   revealKey?: string;
+  /** Dependents by group, by row key: the seed's rows and the rows reached, directly or not. */
+  dependents?: ReadonlyMap<string, DependentMark>;
   onCell: (row: Row, column: Row, cell: MatrixCell | undefined) => void;
   onHeader: (row: Row) => void;
   onPaint: (paint: MatrixPaint) => void;
 }
+
+export type DependentMark = "seed" | "direct" | "transitive";
+
+/** A dependents mark in words (screen readers) and as a row tint: stronger for the seed and direct importers. */
+const DEPENDENT_MARKS: Record<DependentMark, { text: string; share: number }> = {
+  seed: { text: "the selection", share: 45 },
+  direct: { text: "depends on the selection directly", share: 35 },
+  transitive: { text: "depends on the selection transitively", share: 18 },
+};
 
 const HEADER_WIDTH = 260;
 const HEADER_HEIGHT = 36;
@@ -67,7 +78,7 @@ function headerTitle(row: Row, index: number): string {
 const range = (from: number, to: number) => Array.from({ length: Math.max(0, to - from) }, (_, offset) => from + offset);
 
 export function ArchitectureMatrix(props: Readonly<ArchitectureMatrixProps>): React.ReactElement {
-  const { matrix, violations, enterable, colorOf, selectedKey, request } = props;
+  const { matrix, violations, enterable, colorOf, selectedKey, request, dependents } = props;
   const callbacks = useRef(props);
   callbacks.current = props;
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -187,12 +198,15 @@ export function ArchitectureMatrix(props: Readonly<ArchitectureMatrixProps>): Re
   const rowHeaderCell = (index: number) => {
     const row = matrix.rows[index];
     const color = colorOf(row);
+    const mark = dependents?.get(row.key);
+    const tint = mark ? `color-mix(in srgb, var(--vscode-focusBorder, #007fd4) ${DEPENDENT_MARKS[mark].share}%, transparent)` : undefined;
+    const markText = mark ? `, ${DEPENDENT_MARKS[mark].text}` : "";
     return (
       <div key={row.key || `#${index}`} style={{ position: "absolute", top: index * size, left: 0, width: HEADER_WIDTH, height: size, boxSizing: "border-box", borderBottom: "1px solid var(--vscode-widget-border, #444)" }}>
         <button
-          type="button" style={{ ...headerButton, fontWeight: index === active.row ? 600 : undefined }}
+          type="button" data-dependent={mark} style={{ ...headerButton, fontWeight: index === active.row ? 600 : undefined, background: tint }}
           title={headerTitle(row, index)}
-          aria-label={`${row.label}: Ca ${row.incomingPairs}, Ce ${row.outgoingPairs}, I ${row.instability ?? "none"}${enterable(row) ? ", enter" : ""}`}
+          aria-label={`${row.label}: Ca ${row.incomingPairs}, Ce ${row.outgoingPairs}, I ${row.instability ?? "none"}${enterable(row) ? ", enter" : ""}${markText}`}
           onClick={() => callbacks.current.onHeader(row)}
         >
           <span style={{ width: "3ch", textAlign: "right", color: "var(--vscode-descriptionForeground)" }}>{index + 1}</span>

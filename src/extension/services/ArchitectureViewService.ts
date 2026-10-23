@@ -26,6 +26,7 @@ import {
   type ArchitectureUnits,
   type UnitAssignment,
 } from "@/analyzer/architecture/architectureUnits";
+import { computeGroupDependents } from "@/analyzer/architecture/groupDependents";
 import { stronglyConnectedComponents } from "@/analyzer/architecture/stronglyConnectedComponents";
 import type { DeclaredRoles } from "@/analyzer/architecture/unitRoles";
 import { aggregateCommunityGroups } from "@/analyzer/community/groupAggregation";
@@ -34,6 +35,9 @@ import {
   DEFAULT_RENDERED_GROUPS,
   MAX_RENDERED_GROUPS,
   type ArchitectureControlsMessage,
+  type ArchitectureDependentFilesCommand,
+  type ArchitectureDependentsCommand,
+  type ArchitectureDependentsRenderedCommand,
   type ArchitectureDetailRenderedCommand,
   type ArchitectureEnterFolderCommand,
   type ArchitectureEvidenceCommand,
@@ -44,6 +48,7 @@ import {
   type ArchitectureMatrixRenderedCommand,
   type ArchitectureOpenFileCommand,
   type ArchitectureRenderedCommand,
+  type ArchitectureRevealInFileGraphCommand,
   type ArchitectureRuleEvidenceCommand,
   type ArchitectureRulesView,
   type ArchitectureSummaryMessage,
@@ -65,6 +70,8 @@ export interface ArchitectureViewServiceOptions {
   post: (message: ArchitectureExtensionMessage) => void;
   /** Opens a validated absolute path in an editor. */
   openFile: (absolutePath: string) => Promise<void>;
+  /** Opens a validated absolute path and shows it in the file Dependency Graph (view mode file). */
+  revealInFileGraph: (absolutePath: string) => Promise<void>;
   /** Opens the extension's settings. */
   openSettings: () => void;
   warn: (message: string) => void;
@@ -353,6 +360,80 @@ function matrixMessage(
   return reply({ ...matrix, rows }, nestedGroups.filter(inLevel));
 }
 
+/** Group key of every file of a graph, "" for the unassigned files (id 0). */
+const groupKeys = (graph: ArchitectureGraph) =>
+  new Map(graph.nodes.map((node) => [node.relativePath, node.communityId === 0 ? "" : node.communityKey]));
+
+/** A workspace-relative file of the graph; anything else (absolute, outside, unknown) is refused. */
+function graphFile(files: ReadonlySet<string>, relativePath: unknown): string {
+  const relative = normalizePath(String(relativePath));
+  if (path.isAbsolute(relative) || path.win32.isAbsolute(relative) || !files.has(relative)) {
+    throw new Error(`not a file of the architecture graph: ${relative}`);
+  }
+  return relative;
+}
+
+type DependentsRequest = ArchitectureDependentsCommand | ArchitectureDependentFilesCommand;
+
+/** The files of a dependents seed and its name: a file of the graph, a group of the level, or a unit (path mode); anything else is refused. */
+function seedFilesOf(full: LevelGraph, level: ArchitectureGraph, source: UnitSource | undefined, seed: DependentsRequest["seed"]) {
+  if (seed?.kind === "file") {
+    const file = graphFile(full.files, seed.relativePath);
+    return { files: [file], label: file };
+  }
+  if (seed?.kind === "group") {
+    const nodes = level.nodes.filter((node) => node.communityId === seed.groupId);
+    const label = nodes[0]?.communityId === 0 ? "unassigned" : nodes[0]?.communityKey ?? `group ${String(seed.groupId)}`;
+    return { files: nodes.map((node) => node.relativePath), label };
+  }
+  if (seed?.kind === "unit" && source) {
+    const key = String(seed.key);
+    const files = full.graph.nodes.map((node) => node.relativePath).filter((file) => source.assignment.unitOf.get(file) === key);
+    return { files, label: source.assignment.names.get(key) ?? key };
+  }
+  throw new Error("unknown dependents seed");
+}
+
+/**
+ * The dependents of a request's seed, walked over every file pair of the summary's graph and
+ * grouped as the request's level draws them: by unit at the units level, else by the level's
+ * groups, the files outside an entered folder by the summary's groups.
+ */
+function dependentsOf(full: LevelGraph, level: ArchitectureGraph, source: UnitSource | undefined, request: DependentsRequest) {
+  const seed = seedFilesOf(full, level, source, request.seed);
+  if (seed.files.length === 0) throw new Error(`no file in the dependents seed ${seed.label}`);
+  const unitOf = source !== undefined && request.folder === undefined && request.unit === undefined ? source.assignment : undefined;
+  const summaryKeys = groupKeys(full.graph);
+  const levelKeys = groupKeys(level);
+  const groupOf = unitOf
+    ? (file: string) => unitOf.unitOf.get(file) ?? ""
+    : (file: string) => levelKeys.get(file) ?? summaryKeys.get(file) ?? "";
+  const dependents = computeGroupDependents(full.graph, seed.files, { groupOf });
+  // Units are named as the view names them; groups by their key.
+  const labelOf = (key: string, label: string) => unitOf?.names.get(key) ?? label;
+  return { dependents, seedLabel: seed.label, labelOf };
+}
+
+function dependentsMessage(full: LevelGraph, level: ArchitectureGraph, source: UnitSource | undefined, request: ArchitectureDependentsCommand): ArchitectureExtensionMessage {
+  const { revision, folder, unit, seed } = request;
+  const { dependents, seedLabel, labelOf } = dependentsOf(full, level, source, request);
+  return {
+    type: "architectureDependentsResult", revision, folder, unit, seed, seedLabel,
+    seedGroups: dependents.seed.groups,
+    reachedFiles: dependents.reachedFiles,
+    groups: dependents.groups.map((group) => ({ ...group, label: labelOf(group.key, group.label) })),
+    insideSeedGroup: dependents.insideSeedGroup,
+    maxDepthReached: dependents.maxDepthReached,
+    provenance: dependents.provenance,
+  };
+}
+
+function dependentFilesPage(full: LevelGraph, level: ArchitectureGraph, source: UnitSource | undefined, request: ArchitectureDependentFilesCommand): ArchitectureExtensionMessage {
+  const { revision, folder, unit, seed, groupKey, offset } = request;
+  const { files, page } = dependentsOf(full, level, source, request).dependents.filesOf(String(groupKey), { offset: validOffset(offset) });
+  return { type: "architectureDependentFilesPage", revision, folder, unit, seed, groupKey: String(groupKey), files, page };
+}
+
 /**
  * Builds the workspace architecture on demand for the sidebar's Architecture view mode.
  * A build is O(files): file changes only mark the cached summary stale.
@@ -375,6 +456,7 @@ export class ArchitectureViewService {
   private lastDetail: ArchitectureDetailRenderedCommand | null = null;
   private matrixCount = 0;
   private lastMatrix: ArchitectureMatrixRenderedCommand | null = null;
+  private lastDependents: ArchitectureDependentsRenderedCommand | null = null;
   /** A source file changed while the running build was analysing. */
   private changedDuringBuild: { files: Set<string>; any: boolean } = { files: new Set(), any: false };
   private disposed = false;
@@ -437,7 +519,18 @@ export class ArchitectureViewService {
         this.answer(message.revision, undefined, () => ruleEvidencePage(this.graph?.rules, message));
         return Promise.resolve();
       case "architectureOpenFile":
-        return this.openFile(message);
+        return this.openFile(message, this.options.openFile);
+      case "architectureRevealInFileGraph":
+        return this.openFile(message, this.options.revealInFileGraph);
+      case "architectureDependents":
+        this.answer(message.revision, message.folder, (level) => dependentsMessage(this.graph!, level, this.graph!.source, message));
+        return Promise.resolve();
+      case "architectureDependentFiles":
+        this.answer(message.revision, message.folder, (level) => dependentFilesPage(this.graph!, level, this.graph!.source, message));
+        return Promise.resolve();
+      case "architectureDependentsRendered":
+        this.lastDependents = message;
+        return Promise.resolve();
       case "architectureOpenSettings":
         this.options.openSettings();
         return Promise.resolve();
@@ -514,20 +607,20 @@ export class ArchitectureViewService {
   }
 
   /**
-   * Opens a file of the cached graph. The path comes from the webview: it must be relative,
-   * one of the graph's files, and stay in the workspace once symlinks are resolved (CWE-22).
+   * Opens a file of the cached graph with `open`. The path comes from the webview: it must be
+   * relative, one of the graph's files, and stay in the workspace once symlinks are resolved (CWE-22).
    */
-  private async openFile({ revision, folder, relativePath }: ArchitectureOpenFileCommand): Promise<void> {
+  private async openFile(
+    { revision, folder, relativePath }: ArchitectureOpenFileCommand | ArchitectureRevealInFileGraphCommand,
+    open: (absolutePath: string) => Promise<void>,
+  ): Promise<void> {
     const cached = this.graphFor(revision, folder);
     if (!cached) return;
-    const relative = normalizePath(String(relativePath));
     const { workspaceRoot } = this.options;
     try {
-      if (path.isAbsolute(relative) || path.win32.isAbsolute(relative) || !cached.files.has(relative)) {
-        throw new Error(`not a file of the architecture graph: ${relative}`);
-      }
+      const relative = graphFile(cached.files, relativePath);
       const absolutePath = validateWorkspacePath(path.join(workspaceRoot, relative), workspaceRoot);
-      await this.options.openFile(absolutePath);
+      await open(absolutePath);
     } catch (error) {
       const reason = error instanceof Error ? error.message : String(error);
       this.options.warn(`Architecture view: refused to open a file (${maskWorkspaceRoot(reason, workspaceRoot)})`);
@@ -675,6 +768,7 @@ export class ArchitectureViewService {
       matrixCount: this.matrixCount,
       matrix: this.lastMatrix,
       rendered: this.lastRender,
+      dependents: this.lastDependents,
     };
   }
 
@@ -701,6 +795,9 @@ export class ArchitectureViewService {
       rule: text(rule),
       role: text(role),
       showMoreGroups: showMoreGroups === true ? true : undefined,
+      dependentsOf: text(controls?.dependentsOf),
+      revealFile: text(controls?.revealFile),
+      clearDependents: controls?.clearDependents === true ? true : undefined,
       ...canvasControls(controls),
     });
   }

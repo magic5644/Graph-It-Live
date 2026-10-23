@@ -61,6 +61,7 @@ function createProviderMock(): GraphProvider {
     getCallGraphEdgeCount: vi.fn().mockReturnValue(3),
     getCallGraphCycleCount: vi.fn().mockReturnValue(4),
     getFileGraphNodeMetadata: vi.fn().mockReturnValue({}),
+    getFileGraphRoot: vi.fn().mockReturnValue(undefined),
     getArchitectureE2EState: vi.fn().mockReturnValue({
       buildCount: 2, renderCount: 3, groupCount: 20, groupEdgeCount: 6, revision: 'r1', communityMode: 'path', stale: true,
       overlappingGroups: 1, overflowingLabels: 2, positions: 'path:ui@0,0', resizeCount: 4, viewSize: { width: 320, height: 200 },
