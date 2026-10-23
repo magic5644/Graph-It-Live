@@ -993,22 +993,21 @@ describe("ArchitectureViewService", () => {
         expect(posted.at(-1)).toMatchObject({ files: [{ relativePath: "src/ui/view.ts" }], page: { offset: 1, returned: 1 } });
       });
 
-      it("answers a stale revision with the current one and logs unknown seeds", async () => {
+      it("answers a stale revision with the current one, an empty seed with no dependents, and logs an unknown seed kind", async () => {
         const { service, revision } = await built();
         await service.handleWebviewMessage({ command: "architectureDependents", revision: "old", seed: { kind: "unit", key: "src" } });
         expect(posted.at(-1)).toEqual({ type: "architectureRevisionChanged", currentRevision: revision });
-        const count = posted.length;
+        // The panel never waits: an unknown group or unit answers with nothing reached.
         await service.handleWebviewMessage({ command: "architectureDependents", revision, seed: { kind: "group", groupId: 99 } });
+        expect(posted.at(-1)).toMatchObject({ seedLabel: "group 99", seedGroups: [], reachedFiles: 0, groups: [] });
         await service.handleWebviewMessage({ command: "architectureDependents", revision, seed: { kind: "unit", key: "nowhere" } });
-        await service.handleWebviewMessage({ command: "architectureDependents", revision, seed: { kind: "symbol" } } as never);
+        expect(posted.at(-1)).toMatchObject({ seedLabel: "nowhere", reachedFiles: 0, groups: [] });
         await service.handleWebviewMessage({ command: "architectureDependentFiles", revision, seed: { kind: "unit", key: "nowhere" }, groupKey: "src" });
+        expect(posted.at(-1)).toMatchObject({ files: [], page: { total: 0 } });
+        const count = posted.length;
+        await service.handleWebviewMessage({ command: "architectureDependents", revision, seed: { kind: "symbol" } } as never);
         expect(posted).toHaveLength(count);
-        expect(warnings).toEqual([
-          "Architecture view: no file in the dependents seed group 99",
-          "Architecture view: no file in the dependents seed nowhere",
-          "Architecture view: unknown dependents seed",
-          "Architecture view: no file in the dependents seed nowhere",
-        ]);
+        expect(warnings).toEqual(["Architecture view: unknown dependents seed"]);
       });
 
       it("has no unit seed in Louvain mode", async () => {

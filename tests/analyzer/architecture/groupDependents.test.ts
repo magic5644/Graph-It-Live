@@ -142,6 +142,8 @@ describe("computeGroupDependents", () => {
     expect(first.files[0]).toEqual({ relativePath: "app/f00.ts", depth: 1 });
     expect(dependents.filesOf("app", { offset: 50 }).page).toEqual({ total: 60, offset: 50, returned: 10, truncated: false, nextOffset: undefined });
     expect(dependents.filesOf("unknown").page.total).toBe(0);
+    expect(dependents.filesOf("app", { offset: 80 })).toEqual({ files: [], page: { total: 60, offset: 80, returned: 0, truncated: false, nextOffset: undefined } });
+    expect(computeGroupDependents(graphOf({ "core.ts": { group: "core" } }), [])).toMatchObject({ seed: { files: 0, groups: [] }, reachedFiles: 0, groups: [] });
   });
 
   it("matches the hand-checked dependents of sample-project (path groups)", async () => {

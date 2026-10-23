@@ -400,11 +400,12 @@ function seedFilesOf(full: LevelGraph, level: ArchitectureGraph, source: UnitSou
  * groups, the files outside an entered folder by the summary's groups.
  */
 function dependentsOf(full: LevelGraph, level: ArchitectureGraph, source: UnitSource | undefined, request: DependentsRequest) {
+  // A seed without files (an unknown group or unit) has no dependents: the panel says so instead of waiting.
   const seed = seedFilesOf(full, level, source, request.seed);
-  if (seed.files.length === 0) throw new Error(`no file in the dependents seed ${seed.label}`);
   const unitOf = source !== undefined && request.folder === undefined && request.unit === undefined ? source.assignment : undefined;
   const summaryKeys = groupKeys(full.graph);
   const levelKeys = groupKeys(level);
+  // Keys are folder paths: a file whose summary key is the entered folder (or below) lies in the level, so both key sets never clash.
   const groupOf = unitOf
     ? (file: string) => unitOf.unitOf.get(file) ?? ""
     : (file: string) => levelKeys.get(file) ?? summaryKeys.get(file) ?? "";
@@ -430,6 +431,7 @@ function dependentsMessage(full: LevelGraph, level: ArchitectureGraph, source: U
 
 function dependentFilesPage(full: LevelGraph, level: ArchitectureGraph, source: UnitSource | undefined, request: ArchitectureDependentFilesCommand): ArchitectureExtensionMessage {
   const { revision, folder, unit, seed, groupKey, offset } = request;
+  // shortcut: each page walks the graph again (O(file pairs), milliseconds); cache per revision and seed if pages lag.
   const { files, page } = dependentsOf(full, level, source, request).dependents.filesOf(String(groupKey), { offset: validOffset(offset) });
   return { type: "architectureDependentFilesPage", revision, folder, unit, seed, groupKey: String(groupKey), files, page };
 }

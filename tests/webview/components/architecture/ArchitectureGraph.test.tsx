@@ -862,7 +862,7 @@ describe("ArchitectureGraph", () => {
 
         send(result(group2));
         const panel = screen.getByRole("region", { name: "Dependents" });
-        expect(panel.textContent).toContain("Depend on store: 3 files in 1 other group (static imports)");
+        expect(panel.textContent).toContain("Depends on store: 3 files in 1 group (static imports)");
         expect(panel.textContent).toContain("+ 1 file inside its own group (1 direct)");
         expect(panel.textContent).toContain("1 direct · 3 in all · min. depth 1");
         expect(panel.textContent).toContain("For symbol-level impact use get_impact_analysis");
