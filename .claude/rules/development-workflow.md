@@ -51,6 +51,7 @@ Understand full flow first. Trace callers and fix shared root cause once, not sy
 ## Git and Pull Requests
 
 - Use repository Conventional Commit style (`feat:`, `fix:`, `refactor:`, etc.).
+- Run the review agent (diff vs the issue's acceptance criteria) on the local branch and apply its findings before the first push: every push starts GitHub Actions, so a review fix after the PR wastes a CI run.
 - PR descriptions include concise summary, commands and outcomes for validation, screenshots/GIFs for webview UI changes, and relevant issue links.
 - Never claim check passed without running it in current session.
 
