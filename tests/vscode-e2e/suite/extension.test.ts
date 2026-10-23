@@ -44,6 +44,15 @@ suite('Graph-It-Live Extension Test Suite', () => {
     );
   });
 
+  test('The isolated VSIX profile never replaces the VSIX by the Marketplace release', function () {
+    if (!process.env.E2E_EXPECTED_VSIX_EXTENSION_DIR) this.skip();
+
+    // The update itself comes after a delay, so the settings are the deterministic guard.
+    const extensions = vscode.workspace.getConfiguration('extensions');
+    assert.strictEqual(extensions.get('autoUpdate'), false, 'Marketplace auto-update replaces the tested VSIX');
+    assert.strictEqual(extensions.get('autoCheckUpdates'), false);
+  });
+
   test('Extension should activate', async function() {
     this.timeout(30000); // Give extension time to activate and index
     

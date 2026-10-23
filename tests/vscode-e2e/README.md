@@ -25,6 +25,8 @@ This will:
 
 The VS Code version defaults to the latest stable release. Set `VSCODE_TEST_VERSION` to a specific VS Code version to pin a local or CI run.
 
+Set `E2E_SUITE_GLOB` (relative to the compiled `tests/vscode-e2e` folder, for example `**/architectureView.test.js`) to run only some suites. Windows and macOS runs: see `.github/workflows/e2e-os.yml` and the testing section of `CONTRIBUTING.md`.
+
 **Use this before releasing** to verify the package works as expected.
 
 ## What's Tested

@@ -2,6 +2,14 @@ import * as path from 'node:path';
 import Mocha from 'mocha';
 import { glob } from 'glob';
 
+/**
+ * Suites to run: `E2E_SUITE_GLOB` (relative to the compiled test root), or every suite.
+ * Backslashes become `/` because glob reads `\` as an escape, even on Windows.
+ */
+export function suiteGlob(env: NodeJS.ProcessEnv = process.env): string {
+  return env.E2E_SUITE_GLOB?.trim().replaceAll('\\', '/') || '**/**.test.js';
+}
+
 export async function run(): Promise<void> {
   const reporter = process.env.E2E_MOCHA_REPORTER || 'spec';
   const reporterOptions = process.env.E2E_MOCHA_REPORT_FILE
@@ -22,8 +30,10 @@ export async function run(): Promise<void> {
   const testsRoot = path.resolve(__dirname, '..');
 
   return new Promise((resolve, reject) => {
-    glob('**/**.test.js', { cwd: testsRoot })
+    glob(suiteGlob(), { cwd: testsRoot })
       .then((files) => {
+        // A mistyped glob would run 0 tests and pass.
+        if (files.length === 0) throw new Error(`No E2E suite matches "${suiteGlob()}"`);
         // Add files to the test suite
         files.forEach((f) => mocha.addFile(path.resolve(testsRoot, f)));
 

@@ -88,7 +88,13 @@ async function main() {
       const extensionsDirectory = path.join(temporaryProfileDirectory, 'extensions');
       const userDataDirectory = path.join(temporaryProfileDirectory, 'user-data');
       fs.mkdirSync(extensionsDirectory, { recursive: true });
-      fs.mkdirSync(userDataDirectory, { recursive: true });
+      fs.mkdirSync(path.join(userDataDirectory, 'User'), { recursive: true });
+      // The VSIX (0.0.1 until CI bumps it) is older than the Marketplace release: without this,
+      // VS Code replaces it mid-run and the suites test the published build instead.
+      fs.writeFileSync(path.join(userDataDirectory, 'User', 'settings.json'), JSON.stringify({
+        'extensions.autoUpdate': false,
+        'extensions.autoCheckUpdates': false,
+      }));
 
       const isolatedProfileArgs = [
         `--extensions-dir=${extensionsDirectory}`,

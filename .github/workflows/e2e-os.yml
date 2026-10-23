@@ -1,0 +1,78 @@
+name: VS Code E2E (Windows/macOS)
+
+# On-demand VS Code E2E from the packaged VSIX on Windows and macOS (#423):
+# regular CI runs them on Linux only. Dispatch it, or add the label `e2e:all-os`
+# to a pull request (later pushes to that pull request run it again).
+
+on:
+  workflow_dispatch:
+    inputs:
+      os:
+        description: Runner OS
+        type: choice
+        options: [both, windows-latest, macos-latest]
+        default: both
+      suite:
+        description: Suite glob, relative to the compiled tests/vscode-e2e folder
+        default: '**/architectureView.test.js'
+      vscode-version:
+        description: VS Code version (defaults to stable)
+        default: ''
+  pull_request:
+    types: [labeled, synchronize]
+
+permissions:
+  contents: read
+
+jobs:
+  e2e:
+    name: E2E on ${{ matrix.os }}
+    # Other labels added to the pull request run nothing.
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      (github.event.action == 'labeled' && github.event.label.name == 'e2e:all-os') ||
+      (github.event.action == 'synchronize' && contains(github.event.pull_request.labels.*.name, 'e2e:all-os'))
+    # Job level, so a skipped run never cancels a running one. Pushes to a pull request replace
+    # its run; dispatched runs never cancel each other.
+    concurrency:
+      group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.run_id }}-${{ matrix.os }}
+      cancel-in-progress: true
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        os: ${{ fromJSON((inputs.os || 'both') == 'both' && '["windows-latest","macos-latest"]' || format('["{0}"]', inputs.os)) }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: '24.x'
+          cache: npm
+
+      - name: Install Dependencies
+        run: npm ci --ignore-scripts
+
+      - name: Add locked npm binaries to PATH
+        shell: bash
+        run: echo "$GITHUB_WORKSPACE/node_modules/.bin" >> "$GITHUB_PATH"
+
+      - name: Run E2E Tests
+        shell: bash
+        env:
+          VSCODE_TEST_VERSION: ${{ inputs.vscode-version || 'stable' }}
+          E2E_SUITE_GLOB: ${{ inputs.suite || '**/architectureView.test.js' }}
+          E2E_MOCHA_REPORTER: xunit
+          E2E_MOCHA_REPORT_FILE: ${{ github.workspace }}/test-results/e2e-vscode-${{ runner.os }}.xml
+        run: npm run test:vscode:vsix
+
+      - name: Upload E2E Test Report
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: e2e-test-report-${{ runner.os }}
+          path: ${{ github.workspace }}/test-results/e2e-vscode-${{ runner.os }}.xml
+          if-no-files-found: warn

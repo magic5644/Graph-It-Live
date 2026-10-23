@@ -2,7 +2,7 @@
   "extends": "./tsconfig.test.json",
   "compilerOptions": {
     "module": "nodenext",
-    "target": "es2020",
+    "target": "es2022",
     "outDir": "./tests/vscode-e2e",
     "rootDir": "./tests/vscode-e2e",
     "skipLibCheck": true,
