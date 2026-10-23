@@ -486,9 +486,7 @@ export class Spider {
    */
   async reanalyzeUnresolvedImporters(createdFilePath: string): Promise<string[]> {
     const importers = this.reverseIndexManager.getUnresolvedImportersOf(createdFilePath);
-    for (const importer of importers) {
-      await this.reanalyzeFile(importer);
-    }
+    await Promise.all(importers.map((importer) => this.reanalyzeFile(importer)));
     return importers;
   }
 
