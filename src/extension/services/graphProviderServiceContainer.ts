@@ -250,6 +250,12 @@ export function createGraphProviderServiceContainer(
         openFile: async (absolutePath) => {
           await vscode.window.showTextDocument(vscode.Uri.file(absolutePath), { preview: true });
         },
+        // The file first: setViewModeFile roots the file graph on the active editor, so the
+        // graph ends up on this file whether or not it was already the active editor.
+        revealInFileGraph: async (absolutePath) => {
+          await vscode.window.showTextDocument(vscode.Uri.file(absolutePath), { preview: true });
+          await vscode.commands.executeCommand("graph-it-live.setViewModeFile");
+        },
         openSettings: () => {
         void vscode.commands.executeCommand("workbench.action.openSettings", "graph-it-live");
       },

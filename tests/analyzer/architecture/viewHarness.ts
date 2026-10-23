@@ -20,6 +20,7 @@ export async function buildView(rootDir: string, posted: ArchitectureExtensionMe
     },
     post: (message) => posted.push(message),
     openFile: async () => {},
+    revealInFileGraph: async () => {},
     openSettings: () => {},
     warn: () => {},
   });

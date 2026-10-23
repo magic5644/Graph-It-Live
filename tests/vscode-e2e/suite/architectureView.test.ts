@@ -331,6 +331,52 @@ async function openFreshArchitecture(): Promise<ArchitectureRender> {
   return waitForRender('a fresh render', before, render => !render.stale && render.communityMode === 'path');
 }
 
+interface DependentsReport {
+  seedLabel: string;
+  rows: string[];
+  highlightedGroups: number;
+  view: 'graph' | 'matrix';
+}
+
+/** Sends controls, then waits for the dependents panel and highlight to satisfy `predicate`. */
+async function expectDependents(
+  description: string,
+  controls: Record<string, unknown>,
+  predicate: (report: DependentsReport, groupCount: number) => boolean,
+): Promise<DependentsReport> {
+  await vscode.commands.executeCommand('graph-it-live.e2eArchitectureControls', controls);
+  const start = Date.now();
+  let last: DependentsReport | undefined;
+  let count = 0;
+  while (Date.now() - start < 30000) {
+    last = await getContextKey<DependentsReport>('graph-it-live.architectureDependents');
+    count = (await getContextKey<number>('graph-it-live.architectureDependentsGroupCount')) ?? 0;
+    if (last && predicate(last, count)) return last;
+    await sleep(250);
+  }
+  assert.fail(`${description}: last dependents ${JSON.stringify(last)}, ${count} highlighted`);
+}
+
+/** Workspace-relative path of the active editor's file. */
+const activeFile = () => {
+  const uri = vscode.window.activeTextEditor?.document.uri;
+  return uri ? vscode.workspace.asRelativePath(uri, false) : undefined;
+};
+
+/** Waits for the file Dependency Graph to be rooted on `relativePath`, in view mode file. */
+async function expectFileGraphOn(relativePath: string): Promise<void> {
+  await waitForViewMode('file', { timeoutMs: 15000 });
+  const start = Date.now();
+  const root = async () => {
+    const filePath = await getContextKey<string>('graph-it-live.fileGraphRoot');
+    return filePath ? vscode.workspace.asRelativePath(vscode.Uri.file(filePath), false) : undefined;
+  };
+  while (Date.now() - start < 15000 && (await root()) !== relativePath) await sleep(250);
+  assert.strictEqual(await root(), relativePath, 'the file graph is rooted on the revealed file');
+  assert.strictEqual(activeFile(), relativePath, 'the revealed file is the active editor');
+  assert.strictEqual(await getContextKey('graph-it-live.viewMode'), 'file');
+}
+
 suite('Architecture view mode', () => {
   const config = () => vscode.workspace.getConfiguration('graph-it-live');
 
@@ -862,6 +908,61 @@ suite('Architecture view mode', () => {
     const staleCount = (await readRender()).renderCount;
     await vscode.commands.executeCommand('graph-it-live.refreshGraph');
     await waitForRender('the fixtures again', staleCount, render => !render.stale && render.groupCount === EXPECTED.units.groups);
+  });
+
+  // Expected rows from the view's answers on tests/fixtures (path mode), checked against
+  // node dist/graph-it.js architecture --level units --format json -w tests/fixtures: @ws/web imports @ws/ui
+  // twice and workspaces-root once; in (root), only the (root) group reaches graphql-project's fragments/user.gql (depth 2).
+  test('shows dependents by group from a unit, a group and a file, highlights them in the graph and the matrix, and clears', async function () {
+    this.timeout(240000);
+    await openFreshArchitecture();
+    const ui = await expectDependents('the dependents of @ws/ui', { dependentsOf: 'workspaces-project/packages/ui' },
+      (report) => report.seedLabel === '@ws/ui');
+    assert.deepStrictEqual(ui.rows, ['workspaces-project/apps/web=2/2@1', 'workspaces-project=1/1@1']);
+    assert.strictEqual(ui.highlightedGroups, 2, 'both units are highlighted');
+    assert.strictEqual(await getContextKey('graph-it-live.architectureDependentsGroupCount'), 2);
+    await expectDependents('the matrix rows', { view: 'matrix' }, (report, count) => report.view === 'matrix' && count === 2);
+    await expectDependents('the graph again', { view: 'graph' }, (report, count) => report.view === 'graph' && count === 2);
+    await expectDependents('the cleared dependents', { clearDependents: true }, (report, count) => report.seedLabel === '' && count === 0);
+
+    await enterUnit('(root)');
+    const group = await expectDependents('the dependents of graphql-project', { dependentsOf: '(root)/graphql-project' },
+      (report) => report.seedLabel === '(root)/graphql-project');
+    assert.deepStrictEqual(group.rows, ['(root)=1/1@1']);
+    assert.strictEqual(group.highlightedGroups, 1);
+    await expectDetail('graphql-project expanded', { expand: '(root)/graphql-project' }, (detail) => detail.expandedGroups === 1);
+    const file = await expectDependents('the dependents of a file', { dependentsOf: 'graphql-project/fragments/user.gql' },
+      (report) => report.seedLabel === 'graphql-project/fragments/user.gql');
+    assert.deepStrictEqual(file.rows, ['(root)=0/1@2']);
+    assert.strictEqual(file.highlightedGroups, 1);
+    // Another level groups dependents differently: leaving the unit clears them.
+    await enterUnit('');
+    await expectDependents('the dependents cleared by the level change', {}, (report, count) => report.seedLabel === '' && count === 0);
+  });
+
+  test('Show in Dependency Graph roots the file graph on the file, whether or not it was the active editor', async function () {
+    this.timeout(240000);
+    const target = 'workspaces-project/packages/ui/src/index.ts';
+    const reveal = async () => {
+      await openFreshArchitecture();
+      await enterUnit('workspaces-project/packages/ui');
+      await expectDetail('the ui group expanded', { expand: 'workspaces-project/packages/ui' }, (detail) => detail.renderedFiles > 0);
+      await vscode.commands.executeCommand('graph-it-live.e2eArchitectureControls', { revealFile: target });
+      await expectFileGraphOn(target);
+    };
+    // Not the active editor: utils.ts is.
+    await openGraphFor('sample-project', 'src', 'utils.ts');
+    await reveal();
+
+    // Already the active editor, opened while the architecture view showed (so the file graph is still on utils.ts).
+    await openGraphFor('sample-project', 'src', 'utils.ts');
+    await openFreshArchitecture();
+    await vscode.window.showTextDocument(getProjectFile('workspaces-project', 'packages', 'ui', 'src', 'index.ts'));
+    await vscode.commands.executeCommand('graph-it-live.graphView.focus');
+    assert.strictEqual(activeFile(), target);
+    const before = await getContextKey<string>('graph-it-live.fileGraphRoot');
+    assert.ok(before?.endsWith('utils.ts'), `the file graph stays on utils.ts in architecture mode (${before})`);
+    await reveal();
   });
 
   test('the Graph, List and Symbol buttons leave the architecture view', async function () {

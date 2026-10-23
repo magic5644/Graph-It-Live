@@ -13,10 +13,15 @@ import type { ElkNode } from "elkjs/lib/elk-api";
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import type { MatrixCell, MatrixRow } from "../../../analyzer/architecture/architectureMatrix";
 import type { ArchitectureRuleSummary } from "../../../analyzer/architecture/architectureRules";
+import type { DependentFile } from "../../../analyzer/architecture/groupDependents";
 import type { UnitRole } from "../../../analyzer/architecture/unitRoles";
 import {
+  DEFAULT_RENDERED_GROUPS,
   MAX_RENDERED_GROUPS,
   type ArchitectureControlsMessage,
+  type ArchitectureDependentFilesPageMessage,
+  type ArchitectureDependentsResultMessage,
+  type ArchitectureDependentsSeed,
   type ArchitectureEvidencePageMessage,
   type ArchitectureExtensionMessage,
   type ArchitectureFolderLevelMessage,
@@ -57,6 +62,7 @@ import {
   nearestNode,
   countRendered,
   linkedElements,
+  markDependents,
   packIsolatedGroups,
   placeNewFiles,
   roleBadge,
@@ -64,7 +70,7 @@ import {
   toLevelElements,
   unitColor,
 } from "./architectureElements";
-import { ArchitectureMatrix, type MatrixPaint } from "./ArchitectureMatrix";
+import { ArchitectureMatrix, type DependentMark, type MatrixPaint } from "./ArchitectureMatrix";
 import { applyElkLayout, applyRoutes, type EdgeRoute, toElkGraph } from "./elkLayout";
 import { createElk, type ElkRunner } from "./elkWorker";
 import { parseColor, type Rgba, themeKindOf } from "./unitColors";
@@ -298,6 +304,39 @@ interface EvidenceState {
   pairs: ArchitectureEvidencePageMessage["pairs"];
   total?: number;
   nextOffset?: number;
+}
+
+/** What the selection actions act on: a file, a group of the drawn level, or a unit. */
+interface Selection {
+  seed: ArchitectureDependentsSeed;
+  label: string;
+}
+
+/** Dependents by group of a seed: asked, then answered; each expanded row's files load page by page. */
+interface DependentsState {
+  seed: ArchitectureDependentsSeed;
+  /** The seed's name until the answer names it. */
+  title: string;
+  result?: ArchitectureDependentsResultMessage;
+  files: ReadonlyMap<string, { files: DependentFile[]; total?: number; nextOffset?: number }>;
+}
+
+/** The side panel's tabs: both stay open, one is shown. */
+type Panel = "evidence" | "dependents";
+
+const sameSeed = (left: ArchitectureDependentsSeed, right: ArchitectureDependentsSeed) => JSON.stringify(left) === JSON.stringify(right);
+
+/** The matrix selects a row as the graph's focus: its actions act on that unit (units level) or group. */
+function rowSelection(drawn: ArchitectureSummaryMessage | null, focusId: number | null, unitsLevel: boolean): Selection | null {
+  const group = focusId === null ? undefined : drawn?.groups.find((entry) => entry.id === focusId);
+  if (!group) return null;
+  return { seed: unitsLevel ? { kind: "unit", key: group.key } : { kind: "group", groupId: group.id }, label: group.label };
+}
+
+/** The side panel shown: the chosen tab while it is open, else the other one. */
+function shownPanelOf(panel: Panel, evidence: boolean, dependents: boolean): Panel | null {
+  if (evidence && (panel === "evidence" || !dependents)) return "evidence";
+  return dependents ? "dependents" : null;
 }
 
 /** What a render fits: the focus, an entered group, everything, or the level's last viewport. */
@@ -722,6 +761,7 @@ interface EvidencePanelProps {
   onOpen: (relativePath: string) => void;
   onMore: () => void;
   onClose: () => void;
+  tabs?: React.ReactNode;
 }
 
 /**
@@ -756,8 +796,14 @@ const EVIDENCE_CSS = `
 .evidence-path:hover, .evidence-path:focus-visible { color: var(--vscode-textLink-activeForeground); text-decoration: underline; }
 .evidence-path:focus-visible { outline: 1px solid var(--vscode-focusBorder); outline-offset: 1px; }`;
 
+/** The side panel (evidence, dependents) over the canvas's right part. */
+const panelStyle: React.CSSProperties = {
+  position: "absolute", top: 0, right: 0, width: "45%", maxHeight: "100%", overflow: "auto", padding: "6px 10px",
+  fontSize: 12, background: "var(--vscode-editorWidget-background)", border: "1px solid var(--vscode-widget-border)",
+};
+
 /** The file pairs behind the selected edge, grouped by target; every path is a button that opens the file. */
-function EvidencePanel({ evidence, unit, folder, onOpen, onMore, onClose }: Readonly<EvidencePanelProps>) {
+function EvidencePanel({ evidence, unit, folder, onOpen, onMore, onClose, tabs }: Readonly<EvidencePanelProps>) {
   const closeRef = useRef<HTMLButtonElement>(null);
   // Keyboard users land in the panel when it opens for a new edge.
   useEffect(() => closeRef.current?.focus(), [evidence.ends]);
@@ -779,11 +825,9 @@ function EvidencePanel({ evidence, unit, folder, onOpen, onMore, onClose }: Read
   return (
     <section
       aria-label="Evidence"
-      style={{
-        position: "absolute", top: 0, right: 0, width: "45%", maxHeight: "100%", overflow: "auto", padding: "6px 10px",
-        fontSize: 12, background: "var(--vscode-editorWidget-background)", border: "1px solid var(--vscode-widget-border)",
-      }}
+      style={panelStyle}
     >
+      {tabs}
       <div style={{ display: "flex", gap: 8, alignItems: "baseline" }}>
         <strong style={{ flex: 1 }}>{evidence.title}</strong>
         <button type="button" ref={closeRef} aria-label="Close evidence" onClick={onClose}>×</button>
@@ -807,6 +851,160 @@ function EvidencePanel({ evidence, unit, folder, onOpen, onMore, onClose }: Read
       </ul>
       {evidence.nextOffset !== undefined && <button type="button" onClick={onMore}>Load more</button>}
     </section>
+  );
+}
+
+/** Evidence | Dependents, when both are open: each panel's header shows them. */
+function PanelTabs({ panel, onPanel }: Readonly<{ panel: Panel; onPanel: (panel: Panel) => void }>) {
+  const tab = (name: Panel, label: string) => (
+    <button type="button" data-panel={name} aria-pressed={panel === name} onClick={() => onPanel(name)} style={{ fontWeight: panel === name ? 600 : undefined }}>{label}</button>
+  );
+  return <div style={{ display: "flex", gap: 2, marginBottom: 4 }}>{tab("evidence", "Evidence")}{tab("dependents", "Dependents")}</div>;
+}
+
+
+interface DependentsPanelProps {
+  dependents: DependentsState;
+  tabs?: React.ReactNode;
+  onOpen: (relativePath: string) => void;
+  /** Expands or collapses a group's row. */
+  onRow: (groupKey: string) => void;
+  onMore: (groupKey: string) => void;
+  onClear: () => void;
+}
+
+/**
+ * The groups that depend on the seed (static imports), nearest first: each row expands to its
+ * files, each file opens on click. Counts come from the whole graph, never from what is drawn.
+ */
+function DependentsPanel({ dependents, tabs, onOpen, onRow, onMore, onClear }: Readonly<DependentsPanelProps>) {
+  const clearRef = useRef<HTMLButtonElement>(null);
+  // Keyboard users land in the panel when it opens for a new seed.
+  useEffect(() => clearRef.current?.focus(), [dependents.seed]);
+  const { result } = dependents;
+  const outside = result?.groups.reduce((total, group) => total + group.transitiveFiles, 0) ?? 0;
+  const listStyle = { listStyle: "none", padding: 0, margin: 0 } as const;
+  return (
+    <section aria-label="Dependents" style={panelStyle}>
+      {tabs}
+      <div style={{ display: "flex", gap: 8, alignItems: "baseline" }}>
+        <strong style={{ flex: 1 }}>
+          {result
+            ? `Depend on ${result.seedLabel}: ${plural(outside, "file")} in ${plural(result.groups.length, "other group")} (static imports)`
+            : `Dependents of ${dependents.title}…`}
+        </strong>
+        <button type="button" ref={clearRef} aria-label="Clear dependents" title="Clear the dependents and their highlight" onClick={onClear}>Clear</button>
+      </div>
+      {result && result.insideSeedGroup.transitiveFiles > 0 && (
+        <div>
+          + {plural(result.insideSeedGroup.transitiveFiles, "file")} inside {result.seedGroups.length === 1 ? "its own group" : "its own groups"} ({result.insideSeedGroup.directFiles} direct)
+        </div>
+      )}
+      <style>{EVIDENCE_CSS}</style>
+      <ul aria-label="Dependent groups" style={{ ...listStyle, margin: "4px 0" }}>
+        {result?.groups.map((group) => {
+          const loaded = dependents.files.get(group.key);
+          return (
+            <li key={group.key} data-group-key={group.key} style={{ marginTop: 4 }}>
+              <button
+                type="button" className="evidence-path" aria-expanded={loaded !== undefined} title={group.key || group.label}
+                onClick={() => onRow(group.key)}
+              >
+                <span dir="ltr">{group.label}</span>
+              </button>
+              <span style={{ color: "var(--vscode-descriptionForeground)" }}>
+                {group.directFiles} direct · {group.transitiveFiles} in all · min. depth {group.minDepth}
+              </span>
+              {loaded && (
+                <ul aria-label={`Dependent files (${group.label})`} style={{ ...listStyle, paddingLeft: 12 }}>
+                  {loaded.files.map((file) => (
+                    <li key={file.relativePath} style={{ display: "flex", gap: 4 }}>
+                      <span style={{ flex: "none", color: "var(--vscode-descriptionForeground)" }}>{file.depth}</span>
+                      <button type="button" className="evidence-path" title={file.relativePath} aria-label={`${file.relativePath}, depth ${file.depth}`} onClick={() => onOpen(file.relativePath)}>
+                        <span dir="ltr">{file.relativePath}</span>
+                      </button>
+                    </li>
+                  ))}
+                  {loaded.nextOffset !== undefined && (
+                    <li><button type="button" onClick={() => onMore(group.key)}>Load more ({loaded.files.length} of {loaded.total})</button></li>
+                  )}
+                </ul>
+              )}
+            </li>
+          );
+        })}
+      </ul>
+      {result && (
+        <div style={{ color: "var(--vscode-descriptionForeground)" }}>
+          <div>Depth 1 imports the selection directly. Counts cover every file of the graph, drawn or not: the view draws the {DEFAULT_RENDERED_GROUPS} largest groups per level ({MAX_RENDERED_GROUPS} after Show more groups), and files are listed {DEPENDENT_FILES_PAGE} per page.</div>
+          {result.maxDepthReached && <div>The walk stopped at its maximum depth: farther dependents are not counted.</div>}
+          <div>{result.provenance}</div>
+          <div>For symbol-level impact use get_impact_analysis (Copilot tool graph-it-live_get_impact_analysis, MCP graphitlive_get_impact_analysis).</div>
+        </div>
+      )}
+    </section>
+  );
+}
+
+const DEPENDENT_FILES_PAGE = 50;
+
+interface SelectionAction {
+  id: "open" | "reveal" | "dependents";
+  label: string;
+  run: () => void;
+}
+
+/** Over the canvas's bottom-left corner: what the selected file, group or unit can do (Tab reaches the buttons). */
+function SelectionActions({ selection, actions }: Readonly<{ selection: Selection; actions: SelectionAction[] }>) {
+  return (
+    <fieldset
+      aria-label={`Actions on ${selection.label}`}
+      style={{
+        position: "absolute", left: 8, bottom: 8, zIndex: 2, display: "flex", gap: 4, alignItems: "center", maxWidth: "60%", margin: 0,
+        padding: "2px 4px", fontSize: 12, background: "var(--vscode-editorWidget-background)", border: "1px solid var(--vscode-widget-border)",
+      }}
+    >
+      <span title={selection.label} style={{ minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", direction: "rtl" }}>
+        <span dir="ltr">{selection.label}</span>
+      </span>
+      {actions.map((action) => (
+        <button key={action.id} type="button" data-action={action.id} style={{ flex: "none" }} onClick={action.run}>{action.label}</button>
+      ))}
+    </fieldset>
+  );
+}
+
+/** The same actions at the pointer (right-click); the first takes the focus, Escape or a click elsewhere closes it. */
+function SelectionMenu({ at, actions, onClose }: Readonly<{ at: cytoscape.Position; actions: SelectionAction[]; onClose: () => void }>) {
+  const firstRef = useRef<HTMLButtonElement>(null);
+  useEffect(() => firstRef.current?.focus(), [at]);
+  return (
+    <menu
+      aria-label="Selection actions"
+      onBlur={(event) => {
+        if (!event.currentTarget.contains(event.relatedTarget as Node | null)) onClose();
+      }}
+      style={{
+        position: "absolute", left: at.x, top: at.y, zIndex: 3, margin: 0, padding: 2, fontSize: 12,
+        background: "var(--vscode-menu-background, var(--vscode-editorWidget-background))", color: "var(--vscode-menu-foreground, inherit)",
+        border: "1px solid var(--vscode-menu-border, var(--vscode-widget-border))",
+      }}
+    >
+      {actions.map((action, index) => (
+        <li key={action.id} style={{ listStyle: "none" }}>
+          <button
+            type="button" ref={index === 0 ? firstRef : undefined} data-menu-action={action.id}
+            style={{ ...linkStyle, color: "inherit", display: "block", width: "100%", textAlign: "left", padding: "2px 8px" }}
+            onClick={() => {
+              onClose();
+              action.run();
+            }}
+          >
+            {action.label}
+          </button>
+        </li>
+      ))}
+    </menu>
   );
 }
 
@@ -952,6 +1150,13 @@ export function ArchitectureGraph({ postMessage }: Readonly<ArchitectureGraphPro
   const [expansions, setExpansions] = useState<Expansions>(NO_EXPANSION);
   const [capReached, setCapReached] = useState(false);
   const [evidence, setEvidence] = useState<EvidenceState | null>(null);
+  const [dependents, setDependents] = useState<DependentsState | null>(null);
+  /** The side panel's tab shown when both are open. */
+  const [panel, setPanel] = useState<Panel>("evidence");
+  /** The selected file, group or unit of the graph: what the selection actions act on. */
+  const [selection, setSelection] = useState<Selection | null>(null);
+  /** The right-click menu's position on the canvas, when open. */
+  const [menu, setMenu] = useState<cytoscape.Position | null>(null);
   /** Focused group: only it and what it is linked to stay drawn. */
   const [focusId, setFocusId] = useState<number | null>(null);
   /** Entered unit (path mode): its folder groups are drawn; null draws the units. */
@@ -990,6 +1195,11 @@ export function ArchitectureGraph({ postMessage }: Readonly<ArchitectureGraphPro
   const summaryRef = useRef(summary);
   const expansionsRef = useRef(expansions);
   const evidenceRef = useRef(evidence);
+  const dependentsRef = useRef(dependents);
+  const panelRef = useRef(panel);
+  panelRef.current = panel;
+  const menuRef = useRef(menu);
+  menuRef.current = menu;
   const focusRef = useRef(focusId);
   const unitRef = useRef(unit);
   const foldersRef = useRef(folders);
@@ -1016,6 +1226,10 @@ export function ArchitectureGraph({ postMessage }: Readonly<ArchitectureGraphPro
   const updateEvidence = (next: EvidenceState | null) => {
     evidenceRef.current = next;
     setEvidence(next);
+  };
+  const updateDependents = (next: DependentsState | null) => {
+    dependentsRef.current = next;
+    setDependents(next);
   };
   const updateFocus = (next: number | null, fit: Fit) => {
     focusRef.current = next;
@@ -1093,6 +1307,7 @@ export function ArchitectureGraph({ postMessage }: Readonly<ArchitectureGraphPro
     if (!levelOf()) return;
     const why = kind ? ` (${kind})` : "";
     const title = `${fromName} → ${toName}: ${edgeCount} file pair${edgeCount === 1 ? "" : "s"} (static imports)${why}`;
+    setPanel("evidence");
     updateEvidence({ ends, title, edgeCount, pairs: [] });
     requestEvidence(ends, 0);
   };
@@ -1102,6 +1317,7 @@ export function ArchitectureGraph({ postMessage }: Readonly<ArchitectureGraphPro
     const why = rule.reason ? `: ${rule.reason}` : "";
     const title = `Rule "${rule.name}" (${rule.severity}): ${plural(rule.violations, "violating file pair")}${why}`;
     const ends = { from: "", to: "", rule: rule.name };
+    setPanel("evidence");
     updateEvidence({ ends, title, edgeCount: rule.violations, pairs: [] });
     requestEvidence(ends, 0);
   };
@@ -1121,6 +1337,57 @@ export function ArchitectureGraph({ postMessage }: Readonly<ArchitectureGraphPro
     const at = levelOf();
     if (at) post({ command: "architectureOpenFile", ...at, relativePath });
   };
+  /** Opens the file and switches the sidebar to the file Dependency Graph rooted on it. */
+  const revealInFileGraph = (relativePath: string) => {
+    const at = levelOf();
+    if (at) post({ command: "architectureRevealInFileGraph", ...at, relativePath });
+  };
+  /** The drawn level of a dependents request: its revision and folder, and the entered unit (none at the units level). */
+  const dependentsLevel = () => {
+    const at = levelOf();
+    return at && { ...at, unit: unitRef.current ?? undefined };
+  };
+  /** Asks which groups depend on the selection; the dependents tab opens at once and fills when answered. */
+  const showDependents = ({ seed, label }: Selection) => {
+    const at = dependentsLevel();
+    if (!at) return;
+    setPanel("dependents");
+    updateDependents({ seed, title: label, files: new Map() });
+    post({ command: "architectureDependents", ...at, seed });
+  };
+  const requestDependentFiles = (groupKey: string, offset: number) => {
+    const current = dependentsRef.current;
+    const at = dependentsLevel();
+    if (current && at) post({ command: "architectureDependentFiles", ...at, seed: current.seed, groupKey, offset });
+  };
+  /** A row expands to its first page of files, or collapses. */
+  const toggleDependentRow = (groupKey: string) => {
+    const current = dependentsRef.current;
+    if (!current) return;
+    const files = new Map(current.files);
+    if (files.delete(groupKey)) {
+      updateDependents({ ...current, files });
+      return;
+    }
+    files.set(groupKey, { files: [] });
+    updateDependents({ ...current, files });
+    requestDependentFiles(groupKey, 0);
+  };
+  const moreDependentFiles = (groupKey: string) => {
+    const loaded = dependentsRef.current?.files.get(groupKey);
+    if (loaded?.nextOffset !== undefined) requestDependentFiles(groupKey, loaded.files.length);
+  };
+  /** What the selection actions offer for it: a file opens and shows in the Dependency Graph too. */
+  const selectionActions = (selected: Selection): SelectionAction[] => {
+    const { seed } = selected;
+    const fileActions: SelectionAction[] = seed.kind === "file"
+      ? [
+        { id: "open", label: "Open file", run: () => openFile(seed.relativePath) },
+        { id: "reveal", label: "Show in Dependency Graph", run: () => revealInFileGraph(seed.relativePath) },
+      ]
+      : [];
+    return [...fileActions, { id: "dependents", label: "Dependents by group", run: () => showDependents(selected) }];
+  };
   /** Enters a group: focuses it, expands it and zooms on it once its files are drawn. */
   const enter = (groupId: number) => {
     updateFocus(groupId, "enter");
@@ -1137,6 +1404,10 @@ export function ArchitectureGraph({ postMessage }: Readonly<ArchitectureGraphPro
     pendingFolderRef.current = null;
     updateExpansions(NO_EXPANSION);
     updateEvidence(null);
+    // Dependents are grouped by the level they were asked at.
+    updateDependents(null);
+    setSelection(null);
+    setMenu(null);
     setCapReached(false);
     updateFocus(null, viewportsRef.current.has(levelKey(nextUnit, nextFolders.at(-1))) ? "restore" : "all");
     unitRef.current = nextUnit;
@@ -1228,8 +1499,17 @@ export function ArchitectureGraph({ postMessage }: Readonly<ArchitectureGraphPro
   const toggleRole = (role: string) => setRoleFilter((current) => (current === role ? null : role));
   const isGroup = (target: cytoscape.SingularElementArgument) =>
     target.isNode() && !target.data("file") && !target.data("more") && !target.data("cycle");
+  /** What the selection actions act on for a node: a file, a unit or a group; nothing for the other nodes. */
+  const selectionOf = (node: cytoscape.NodeSingular): Selection | null => {
+    if (node.data("file")) return { seed: { kind: "file", relativePath: node.data("relativePath") }, label: node.data("relativePath") };
+    if (!isGroup(node)) return null;
+    const label = String(node.data("label")).split("\n")[0].split(" · ")[0];
+    const unitKey = node.data("unitKey");
+    return unitKey === undefined ? { seed: { kind: "group", groupId: node.data("groupId") }, label } : { seed: { kind: "unit", key: unitKey }, label };
+  };
   /** The selected node: its focus ring and what the live region announces; none clears both. */
   const markSelected = (cy: cytoscape.Core, node: cytoscape.NodeSingular | undefined) => {
+    setSelection(node ? selectionOf(node) : null);
     selectedIdRef.current = node?.id() ?? null;
     markNodes(cy, "selected", node ?? cy.collection());
     const live = document.getElementById(LIVE_REGION);
@@ -1290,9 +1570,24 @@ export function ArchitectureGraph({ postMessage }: Readonly<ArchitectureGraphPro
   const tap = (target: cytoscape.SingularElementArgument) => {
     const cy = cyRef.current;
     if (cy) markSelected(cy, isGroup(target) ? target as cytoscape.NodeSingular : undefined);
+    setMenu(null);
+    // A file has no focus ring, but its actions apply.
+    if (target.isNode() && target.data("file")) setSelection(selectionOf(target));
     if (target.isEdge()) showEvidence(target);
     else if (target.data("more")) loadMore(target.data("groupId"));
     else if (isGroup(target)) updateFocus(target.data("groupId"), "focus");
+  };
+  /** A right-click selects the node as a click does, then opens its actions at the pointer. */
+  const contextMenu = (target: cytoscape.NodeSingular, at: cytoscape.Position) => {
+    const cy = cyRef.current;
+    const selected = selectionOf(target);
+    if (!cy || !selected) return;
+    // Selected without the focus a click gives: the menu acts on the node where it is.
+    pinnedRef.current = target;
+    markSelected(cy, isGroup(target) ? target : undefined);
+    setSelection(selected);
+    showFocus(cy, target, post);
+    setMenu({ ...at });
   };
   /** A double click enters a unit, a folder holding sub-folders, or a group (its files). */
   const dbltap = (target: cytoscape.SingularElementArgument) => {
@@ -1318,7 +1613,10 @@ export function ArchitectureGraph({ postMessage }: Readonly<ArchitectureGraphPro
   const back = (clearFocus: () => void) => {
     const graph = viewRef.current === "graph";
     const lastEntered = graph ? [...expansionsRef.current.keys()].at(-1) : undefined;
-    if (evidenceRef.current) updateEvidence(null);
+    const evidenceShown = evidenceRef.current !== null && (panelRef.current === "evidence" || dependentsRef.current === null);
+    if (menuRef.current) setMenu(null);
+    else if (evidenceShown) updateEvidence(null);
+    else if (dependentsRef.current) updateDependents(null);
     else if (lastEntered !== undefined) leave(lastEntered);
     else if (graph && focusRef.current !== null) updateFocus(null, "all");
     else if (foldersRef.current.length > 0) upOneFolder();
@@ -1374,6 +1672,26 @@ export function ArchitectureGraph({ postMessage }: Readonly<ArchitectureGraphPro
     if (page.page.offset !== current.pairs.length) return;
     updateEvidence({ ...current, pairs: [...current.pairs, ...page.pairs], total: page.page.total, nextOffset: page.page.nextOffset });
   };
+  /** The dependents being shown when a message answers them: same level, unit and seed; else null (a late answer). */
+  const currentDependents = (message: ArchitectureDependentsResultMessage | ArchitectureDependentFilesPageMessage) => {
+    const current = dependentsRef.current;
+    const at = levelOf();
+    const sameLevel = message.revision === at?.revision && message.folder === at.folder && (message.unit ?? null) === unitRef.current;
+    return current && sameLevel && sameSeed(current.seed, message.seed) ? current : null;
+  };
+  const receiveDependents = (message: ArchitectureDependentsResultMessage) => {
+    const current = currentDependents(message);
+    if (current) updateDependents({ ...current, title: message.seedLabel, result: message });
+  };
+  const receiveDependentFiles = (message: ArchitectureDependentFilesPageMessage) => {
+    const current = currentDependents(message);
+    const loaded = current?.files.get(message.groupKey);
+    // A page for a collapsed row or another offset (a double click) is dropped.
+    if (!current || loaded?.files.length !== message.page.offset) return;
+    const files = new Map(current.files);
+    files.set(message.groupKey, { files: [...loaded.files, ...message.files], total: message.page.total, nextOffset: message.page.nextOffset });
+    updateDependents({ ...current, files });
+  };
   /** Keeps every level's matrix of this revision; shows it if it is the drawn level's. */
   const receiveMatrix = (message: ArchitectureMatrixMessage) => {
     if (message.revision !== levelOf()?.revision && message.revision !== summaryRef.current?.revision) return;
@@ -1425,6 +1743,21 @@ export function ArchitectureGraph({ postMessage }: Readonly<ArchitectureGraphPro
     const row = openEvidenceRow === undefined ? undefined : evidenceRef.current?.pairs[openEvidenceRow];
     if (row) openFile(row.source);
   };
+  /** E2E driver: selects a drawn file (by path), group or unit (by key), then runs its action as the action bar does. */
+  const controlSelection = ({ dependentsOf, revealFile, clearDependents }: ArchitectureControlsMessage) => {
+    if (clearDependents) updateDependents(null);
+    const nodes = Array.from(cyRef.current?.nodes() ?? []);
+    const nodeOf = (key: string) => nodes.find((node) => node.data("file") && node.data("relativePath") === key)
+      ?? nodes.find((node) => isGroup(node) && (node.data("unitKey") ?? node.data("groupKey")) === key);
+    const file = revealFile === undefined ? undefined : nodeOf(revealFile);
+    if (file?.data("file")) revealInFileGraph(file.data("relativePath"));
+    const seed = dependentsOf === undefined ? undefined : nodeOf(dependentsOf);
+    const selected = seed && selectionOf(seed);
+    if (selected) {
+      setSelection(selected);
+      showDependents(selected);
+    }
+  };
   /** E2E driver: the same actions as a user, groups named by key. */
   const control = (message: ArchitectureControlsMessage) => {
     controlMatrix(message);
@@ -1449,6 +1782,7 @@ export function ArchitectureGraph({ postMessage }: Readonly<ArchitectureGraphPro
     if (collapseId !== undefined) collapse(collapseId);
     controlEvidence(message);
     controlCanvas(message);
+    controlSelection(message);
   };
   const receive = (message: ArchitectureExtensionMessage) => {
     switch (message.type) {
@@ -1466,6 +1800,10 @@ export function ArchitectureGraph({ postMessage }: Readonly<ArchitectureGraphPro
         return receiveMatrix(message);
       case "architectureFound":
         return receiveFound(message);
+      case "architectureDependentsResult":
+        return receiveDependents(message);
+      case "architectureDependentFilesPage":
+        return receiveDependentFiles(message);
       case "architectureRevisionChanged":
         reset();
         return post({ command: "architectureMounted" });
@@ -1475,7 +1813,8 @@ export function ArchitectureGraph({ postMessage }: Readonly<ArchitectureGraphPro
   };
   const actions = {
     tap, dbltap, key, canvasKey, zoom, legendUnit, showCycle, showBands, chrome, markSelected, openFile, moreEvidence, receive, overview, leave, updateFocus, selectUnit, goTo, openRule, toggleRole, showMoreGroups,
-    switchView, matrixCell, matrixHeader, matrixPainted, enterable, rowColor, levelOf,
+    switchView, matrixCell, matrixHeader, matrixPainted, enterable, rowColor, levelOf, contextMenu, selectionActions, toggleDependentRow,
+    moreDependentFiles, updateDependents,
   };
   const actionsRef = useRef(actions);
   actionsRef.current = actions;
@@ -1528,6 +1867,10 @@ export function ArchitectureGraph({ postMessage }: Readonly<ArchitectureGraphPro
       actionsRef.current.tap(event.target);
     });
     cy.on("dbltap", "node", (event) => actionsRef.current.dbltap(event.target));
+    cy.on("cxttap", "node", (event) => actionsRef.current.contextMenu(event.target, event.renderedPosition));
+    // The canvas's own menu replaces the webview's.
+    const preventMenu = (event: MouseEvent) => event.preventDefault();
+    container.addEventListener("contextmenu", preventMenu);
     // Synchronous: fitAll sets the flag again right after its own zoom and pan.
     cy.on("viewport", () => {
       fittedRef.current = false;
@@ -1577,6 +1920,7 @@ export function ArchitectureGraph({ postMessage }: Readonly<ArchitectureGraphPro
       window.removeEventListener("resize", handleResize);
       window.removeEventListener("keydown", handleKeyDown);
       container.removeEventListener("keydown", handleCanvasKey);
+      container.removeEventListener("contextmenu", preventMenu);
       cy.destroy();
       cyRef.current = null;
       elk.terminate();
@@ -1699,6 +2043,34 @@ export function ArchitectureGraph({ postMessage }: Readonly<ArchitectureGraphPro
     });
   }, [summary, drawn, expansions, evidence, capReached, focusId, findMatches, found, query, view, minImports]);
 
+  // The dependents highlight, drawn again on every render (the elements are new), then reported (E2E).
+  const dependentMarks = useMemo(() => {
+    const result = dependents?.result;
+    if (!result) return null;
+    const marks = new Map<string, DependentMark>(result.groups.map((group) => [group.key, group.minDepth === 1 ? "direct" : "transitive"]));
+    for (const key of result.seedGroups) marks.set(key, "seed");
+    return marks;
+  }, [dependents?.result]);
+  useEffect(() => {
+    const cy = cyRef.current;
+    if (!cy || !summary) return;
+    const result = dependents?.result;
+    const reached = result ? new Map(result.groups.map((group) => [group.key, group.minDepth])) : null;
+    const seedFile = dependents?.seed.kind === "file" ? dependents.seed.relativePath : undefined;
+    const highlighted = markDependents(cy, reached, new Set(result?.seedGroups), seedFile);
+    const matrixRows = matrix?.matrix.rows.filter((row) => dependentMarks?.get(row.key) === "direct" || dependentMarks?.get(row.key) === "transitive").length ?? 0;
+    postMessageRef.current({
+      command: "architectureDependentsRendered",
+      seedLabel: result?.seedLabel ?? "",
+      rows: Array.from(document.querySelectorAll<HTMLElement>('section[aria-label="Dependents"] li[data-group-key]'), (row) => {
+        const group = result?.groups.find((entry) => entry.key === row.dataset.groupKey);
+        return group ? `${group.key}=${group.directFiles}/${group.transitiveFiles}@${group.minDepth}` : "";
+      }),
+      highlightedGroups: view === "matrix" ? matrixRows : highlighted,
+      view,
+    });
+  }, [summary, drawn, expansions, dependents, dependentMarks, view, matrix, panel]);
+
   useEffect(() => {
     const cy = cyRef.current;
     if (!cy || !summary) return;
@@ -1759,6 +2131,9 @@ export function ArchitectureGraph({ postMessage }: Readonly<ArchitectureGraphPro
   const refresh = () => postMessageRef.current({ command: "architectureRefresh" });
   const unitsLevel = summary?.units !== undefined && unit === null;
   const levelName = unitsLevel ? "the units" : [unit, ...folders].findLast(Boolean) ?? "the groups";
+  const actionTarget = view === "matrix" ? rowSelection(drawn, focusId, unitsLevel) : selection;
+  const shownPanel = shownPanelOf(panel, evidence !== null, dependents !== null);
+  const tabs = evidence && dependents && shownPanel ? <PanelTabs panel={shownPanel} onPanel={setPanel} /> : undefined;
   return (
     <div ref={rootRef} style={{ display: "flex", flexDirection: "column", width: "100%", height: "100%" }}>
       {state && (
@@ -1831,6 +2206,7 @@ export function ArchitectureGraph({ postMessage }: Readonly<ArchitectureGraphPro
             violations={matrix.violations}
             request={matrixRequest}
             revealKey={matrixMatches[0]?.key}
+            dependents={dependentMarks ?? undefined}
             enterable={(row) => actionsRef.current.enterable(row)}
             colorOf={(row) => actionsRef.current.rowColor(row)}
             selectedKey={focusId === null ? undefined : drawn?.groups.find((group) => group.id === focusId)?.key}
@@ -1839,7 +2215,13 @@ export function ArchitectureGraph({ postMessage }: Readonly<ArchitectureGraphPro
             onPaint={(paint) => actionsRef.current.matrixPainted(paint)}
           />
         )}
-        {!state && evidence && (
+        {!state && actionTarget && (
+          <SelectionActions selection={actionTarget} actions={actionsRef.current.selectionActions(actionTarget)} />
+        )}
+        {!state && menu && selection && view === "graph" && (
+          <SelectionMenu at={menu} actions={actionsRef.current.selectionActions(selection)} onClose={() => setMenu(null)} />
+        )}
+        {!state && evidence && shownPanel === "evidence" && (
           <EvidencePanel
             evidence={evidence}
             unit={unit}
@@ -1847,6 +2229,17 @@ export function ArchitectureGraph({ postMessage }: Readonly<ArchitectureGraphPro
             onOpen={(relativePath) => actionsRef.current.openFile(relativePath)}
             onMore={() => actionsRef.current.moreEvidence()}
             onClose={() => updateEvidence(null)}
+            tabs={tabs}
+          />
+        )}
+        {!state && dependents && shownPanel === "dependents" && (
+          <DependentsPanel
+            dependents={dependents}
+            tabs={tabs}
+            onOpen={(relativePath) => actionsRef.current.openFile(relativePath)}
+            onRow={(groupKey) => actionsRef.current.toggleDependentRow(groupKey)}
+            onMore={(groupKey) => actionsRef.current.moreDependentFiles(groupKey)}
+            onClear={() => actionsRef.current.updateDependents(null)}
           />
         )}
       </div>

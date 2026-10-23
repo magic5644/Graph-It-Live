@@ -11,6 +11,7 @@ import {
   levelSummary,
   linkedElements,
   measureIsolated,
+  markDependents,
   markNodes,
   measureInteraction,
   measureUnitLevel,
@@ -451,6 +452,43 @@ describe("cycle blocks, layer bands and contrast (units level)", () => {
       style: [...buildArchitectureStylesheet({ ...colors, foreground: "#ffffff" }, "vscode-light")],
     });
     expect(measureUnitLevel(unreadable, white).minLabelContrast).toBeLessThan(4.5);
+  });
+
+  it("rings the dependents by depth, outlines the seed and dims the rest, then clears", () => {
+    const cy = canvas(toLevelElements(cyclic, null));
+    const unitNodes = cy.nodes().filter((node) => node.data("unitKey") !== undefined && !node.data("cycle"));
+    const [seed, direct, transitive, ...others] = unitNodes.map((node) => String(node.data("unitKey")));
+    const unitNode = (key: string) => unitNodes.filter((node) => node.data("unitKey") === key)[0];
+    expect(markDependents(cy, new Map([[direct, 1], [transitive, 2]]), new Set([seed]))).toBe(2);
+    expect(unitNode(seed).hasClass("dependents-seed")).toBe(true);
+    expect(unitNode(direct).hasClass("dependent-direct")).toBe(true);
+    expect(unitNode(transitive).hasClass("dependent")).toBe(true);
+    // Direct importers are ringed thicker than transitive ones, in the accent colour, never the unit's.
+    const width = (key: string) => Number.parseFloat(unitNode(key).style("border-width"));
+    expect(width(direct)).toBeGreaterThan(width(transitive));
+    expect(width(transitive)).toBeGreaterThanOrEqual(3);
+    expect(unitNode(direct).style("border-color")).not.toBe(unitNode(direct).style("background-color"));
+    expect(others.length).toBeGreaterThan(0);
+    for (const key of others) expect(Number(unitNode(key).style("opacity"))).toBeLessThan(1);
+    expect(cy.edges(".dependents-dimmed").every((edge) => edge.source().hasClass("dependents-dimmed") || edge.target().hasClass("dependents-dimmed"))).toBe(true);
+
+    expect(markDependents(cy, null, new Set())).toBe(0);
+    expect(cy.elements(".dependent, .dependent-direct, .dependents-seed, .dependents-dimmed")).toHaveLength(0);
+  });
+
+  it("outlines a seed file and leaves the other files and the more nodes alone", () => {
+    const cy = cytoscape({ headless: true, styleEnabled: true, elements: [
+      { data: { id: "group-1", groupId: 1, groupKey: "a" } },
+      { data: { id: "file:a/x.ts", parent: "group-1", file: true, relativePath: "a/x.ts" } },
+      { data: { id: "file:a/y.ts", parent: "group-1", file: true, relativePath: "a/y.ts" } },
+      { data: { id: "more-1", parent: "group-1", more: true } },
+      { data: { id: "group-2", groupId: 2, groupKey: "b" } },
+    ] });
+    expect(markDependents(cy, new Map([["b", 3]]), new Set(["a"]), "a/x.ts")).toBe(1);
+    expect(cy.getElementById("file:a/x.ts").hasClass("dependents-seed")).toBe(true);
+    expect(cy.getElementById("file:a/y.ts").classes()).toEqual([]);
+    expect(cy.getElementById("more-1").classes()).toEqual([]);
+    expect(cy.getElementById("group-2").hasClass("dependent")).toBe(true);
   });
 
   it("rings selected and found nodes in the accent colour, never in the unit's", () => {

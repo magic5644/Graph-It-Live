@@ -63,6 +63,8 @@ export class GraphProvider implements vscode.WebviewViewProvider {
   private readonly _graphState: GraphState;
   /** Node metadata of the last file graph sent to the webview — E2E observability only. */
   private _lastFileGraphMetadata: GraphData["nodeMetadata"];
+  /** File the last file graph was rooted on (E2E observability). */
+  private _lastFileGraphRoot: string | undefined;
   /**
    * Optional callback used by EditorEventsService to notify MCP server.
    * Populated by extension activation if MCP server is registered.
@@ -1304,6 +1306,10 @@ export class GraphProvider implements vscode.WebviewViewProvider {
     return this._lastFileGraphMetadata;
   }
 
+  public getFileGraphRoot(): string | undefined {
+    return this._lastFileGraphRoot;
+  }
+
   /** E2E observability pass-through to ArchitectureViewService */
   public getArchitectureE2EState(): ReturnType<ArchitectureViewService["getE2EState"]> | undefined {
     return this.architectureViewService?.getE2EState();
@@ -1508,6 +1514,7 @@ export class GraphProvider implements vscode.WebviewViewProvider {
       };
       this._view.webview.postMessage(initialMessage);
       this._lastFileGraphMetadata = initialGraphData.nodeMetadata;
+    this._lastFileGraphRoot = filePath;
 
       // Step 2: If usage check is required, perform it and send update
       if (checkUsage) {

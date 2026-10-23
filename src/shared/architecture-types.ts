@@ -13,6 +13,7 @@ import type { ArchitectureGroupDetail, ArchitectureOverview } from "../analyzer/
 import type { ArchitectureMatrix } from "../analyzer/architecture/architectureMatrix";
 import type { ArchitectureRuleSummary, WorkspaceArchitectureCheck } from "../analyzer/architecture/architectureRules";
 import type { ArchitectureUnitEdgeKind, ArchitectureUnits } from "../analyzer/architecture/architectureUnits";
+import type { DependentFile, DependentGroup } from "../analyzer/architecture/groupDependents";
 
 /** Groups drawn per level (per unit in path mode) until Show more groups; the largest first. */
 export const DEFAULT_RENDERED_GROUPS = 50;
@@ -146,6 +147,50 @@ export interface ArchitectureFoundMessage {
   total: number;
 }
 
+/**
+ * What "Dependents by group" starts from: a file of the graph, a group of the drawn level (its id
+ * is only valid with the request's revision and folder), or a unit (path mode, all its files).
+ */
+export type ArchitectureDependentsSeed =
+  | { kind: "file"; relativePath: string }
+  | { kind: "group"; groupId: number }
+  | { kind: "unit"; key: string };
+
+/**
+ * The files depending on a seed through static imports, grouped as the request's level draws
+ * them (answers architectureDependents): by unit at the units level, else by the level's groups,
+ * the files outside an entered folder by the summary's groups. Group keys, not ids, name them.
+ */
+export interface ArchitectureDependentsResultMessage {
+  type: "architectureDependentsResult";
+  /** Revision, folder, unit and seed of the request. */
+  revision: string;
+  folder?: string;
+  unit?: string;
+  seed: ArchitectureDependentsSeed;
+  seedLabel: string;
+  /** Group keys of the seed's files, reported apart in insideSeedGroup. */
+  seedGroups: string[];
+  /** Every file reached, the seed's own groups included. */
+  reachedFiles: number;
+  groups: DependentGroup[];
+  insideSeedGroup: { directFiles: number; transitiveFiles: number };
+  maxDepthReached: boolean;
+  provenance: string;
+}
+
+/** One page of a dependent group's files (answers architectureDependentFiles). */
+export interface ArchitectureDependentFilesPageMessage {
+  type: "architectureDependentFilesPage";
+  revision: string;
+  folder?: string;
+  unit?: string;
+  seed: ArchitectureDependentsSeed;
+  groupKey: string;
+  files: DependentFile[];
+  page: { total: number; offset: number; returned: number; truncated: boolean; nextOffset?: number };
+}
+
 /** Answers a request made with another revision: the webview drops its detail and asks for the summary again. */
 export interface ArchitectureRevisionChangedMessage {
   type: "architectureRevisionChanged";
@@ -181,6 +226,12 @@ export interface ArchitectureControlsMessage {
   role?: string;
   /** Clicks Show more groups. */
   showMoreGroups?: boolean;
+  /** Selects this drawn group or unit key, or this drawn file, then runs Dependents by group on it. */
+  dependentsOf?: string;
+  /** Selects this drawn file, then runs Show in Dependency Graph on it. */
+  revealFile?: string;
+  /** Clears the dependents highlight and panel. */
+  clearDependents?: boolean;
   /** Clicks this zoom control of the canvas overlay. */
   zoom?: "fit" | "in" | "out";
   /** Focuses the canvas, then presses these keys on it, one after the other (keyboard navigation). */
@@ -199,6 +250,8 @@ export type ArchitectureExtensionMessage =
   | ArchitectureEvidencePageMessage
   | ArchitectureMatrixMessage
   | ArchitectureFoundMessage
+  | ArchitectureDependentsResultMessage
+  | ArchitectureDependentFilesPageMessage
   | ArchitectureRevisionChangedMessage
   | ArchitectureControlsMessage;
 
@@ -436,6 +489,46 @@ export interface ArchitectureOpenFileCommand {
   relativePath: string;
 }
 
+/** Opens a file of the graph (as architectureOpenFile) and shows it in the file Dependency Graph. */
+export interface ArchitectureRevealInFileGraphCommand {
+  command: "architectureRevealInFileGraph";
+  revision: string;
+  folder?: string;
+  relativePath: string;
+}
+
+/** Asks which groups depend on a seed; `revision`, `folder` and `unit` name the drawn level. */
+export interface ArchitectureDependentsCommand {
+  command: "architectureDependents";
+  revision: string;
+  folder?: string;
+  unit?: string;
+  seed: ArchitectureDependentsSeed;
+}
+
+/** Asks for one page of a dependent group's files, by group key. */
+export interface ArchitectureDependentFilesCommand {
+  command: "architectureDependentFiles";
+  revision: string;
+  folder?: string;
+  unit?: string;
+  seed: ArchitectureDependentsSeed;
+  groupKey: string;
+  offset?: number;
+}
+
+/** What the dependents panel and highlight show (E2E observability only). */
+export interface ArchitectureDependentsRenderedCommand {
+  command: "architectureDependentsRendered";
+  /** Empty once cleared. */
+  seedLabel: string;
+  /** The panel's rows as drawn: `key=direct/transitive@minDepth`. */
+  rows: string[];
+  /** Drawn groups (or matrix rows) highlighted as dependents. */
+  highlightedGroups: number;
+  view: "graph" | "matrix";
+}
+
 /** What the expanded groups and the evidence panel show (E2E observability only). */
 export interface ArchitectureDetailRenderedCommand {
   command: "architectureDetailRendered";
@@ -476,4 +569,8 @@ export type ArchitectureWebviewCommand =
   | ArchitectureMatrixCommand
   | ArchitectureMatrixRenderedCommand
   | ArchitectureOpenFileCommand
+  | ArchitectureRevealInFileGraphCommand
+  | ArchitectureDependentsCommand
+  | ArchitectureDependentFilesCommand
+  | ArchitectureDependentsRenderedCommand
   | ArchitectureDetailRenderedCommand;

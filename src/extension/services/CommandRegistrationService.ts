@@ -216,6 +216,7 @@ export class CommandRegistrationService {
       ['graph-it-live.callGraphEdgeCount', () => this.provider.getCallGraphEdgeCount()],
       ['graph-it-live.callGraphCycleCount', () => this.provider.getCallGraphCycleCount()],
       ['graph-it-live.fileGraphNodeMetadata', () => this.provider.getFileGraphNodeMetadata()],
+      ['graph-it-live.fileGraphRoot', () => this.provider.getFileGraphRoot()],
       ['graph-it-live.architectureRenderCount', () => architecture()?.renderCount ?? 0],
       ['graph-it-live.architectureGroupCount', () => architecture()?.groupCount ?? 0],
       ['graph-it-live.architectureGroupEdgeCount', () => architecture()?.groupEdgeCount ?? 0],
@@ -242,6 +243,8 @@ export class CommandRegistrationService {
       ['graph-it-live.architectureMatrixCount', () => architecture()?.matrixCount ?? 0],
       ['graph-it-live.architectureMatrix', () => architecture()?.matrix],
       ['graph-it-live.architectureRendered', () => architecture()?.rendered],
+      ['graph-it-live.architectureDependentsGroupCount', () => architecture()?.dependents?.highlightedGroups ?? 0],
+      ['graph-it-live.architectureDependents', () => architecture()?.dependents],
     ]);
     // Unknown keys return undefined.
     return vscode.commands.registerCommand('getContext', (key: string) => getters.get(key)?.());

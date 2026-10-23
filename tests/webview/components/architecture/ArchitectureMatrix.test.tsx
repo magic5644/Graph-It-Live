@@ -108,6 +108,20 @@ describe("ArchitectureMatrix", () => {
     expect(screen.queryByRole("button", { name: /^g000: Ca/ })).toBeNull();
   });
 
+  it("tints the dependents' rows, the seed and direct importers more, and says so to screen readers", () => {
+    setup(small, { dependents: new Map([["g000", "seed"], ["g001", "direct"], ["g002", "transitive"]]) });
+    const header = (name: string) => screen.getByRole("button", { name: new RegExp(`^${name}: Ca`) });
+    expect(header("g000").getAttribute("aria-label")).toMatch(/, the selection$/);
+    expect(header("g001").getAttribute("aria-label")).toMatch(/, depends on the selection directly$/);
+    expect(header("g001").dataset.dependent).toBe("direct");
+    expect(header("g002").dataset.dependent).toBe("transitive");
+  });
+
+  it("leaves the rows alone without dependents", () => {
+    setup(small);
+    expect(screen.getByRole("button", { name: /^g001: Ca/ }).dataset.dependent).toBeUndefined();
+  });
+
   it("shows an empty matrix", () => {
     setup(buildMatrix([], []));
     expect(screen.getByRole("region", { name: "Dependency structure matrix: 0 rows, 0 non-empty cells" })).toBeTruthy();

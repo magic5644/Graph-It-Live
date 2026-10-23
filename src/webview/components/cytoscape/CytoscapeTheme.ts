@@ -460,6 +460,10 @@ export function buildArchitectureStylesheet(colors: ArchitectureThemeColors, kin
       },
     },
     // Selected (click, arrow keys) or found: a focus ring that is never the unit's colour.
+    // Dependents by group: the focus colour again, thicker for direct importers; the seed outlined twice.
+    { selector: "node.dependent", style: { "border-width": 3, "border-style": "dashed", "border-color": colors.accent } },
+    { selector: "node.dependent-direct", style: { "border-width": 6, "border-style": "solid", "border-color": colors.accent } },
+    { selector: "node.dependents-seed", style: { "border-width": 6, "border-style": "double", "border-color": colors.accent } },
     { selector: "node.selected", style: { "border-width": 4, "border-style": "solid", "border-color": colors.accent } },
     {
       selector: "node.found",
@@ -506,6 +510,8 @@ export function buildArchitectureStylesheet(colors: ArchitectureThemeColors, kin
     },
     // Breaks a declared architecture rule: red and dashed, apart from the upward and cycle edges.
     { selector: "edge[?violation]", style: { "line-color": colors.error, "target-arrow-color": colors.error, "line-style": "dashed" } },
+    // Unrelated to the dependents: dimmed less than a hover fade, which still applies over it.
+    { selector: ".dependents-dimmed", style: { opacity: 0.35 } },
     { selector: ".faded", style: { opacity: 0.15 } },
     // File edges show for the hovered or selected file only (it highlights them).
     { selector: "edge[?fileEdge]", style: { display: "none" } },

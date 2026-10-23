@@ -1,10 +1,13 @@
 // @vitest-environment happy-dom
 
 import React from "react";
-import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { groupMatrix, matrixDigest, unitMatrix } from "@/analyzer/architecture/architectureMatrix";
 import type {
+  ArchitectureDependentFilesPageMessage,
+  ArchitectureDependentsResultMessage,
+  ArchitectureDependentsSeed,
   ArchitectureExtensionMessage,
   ArchitectureFolderLevelMessage,
   ArchitectureMatrixMessage,
@@ -129,6 +132,8 @@ const helpers = vi.hoisted(() => ({
   // Bands, marks and arrow-key moves run on real Cytoscape in architectureUnitsLevel.test.ts.
   layerBands: vi.fn(() => [{ layer: 1, y1: -50, y2: 0 }, { layer: 0, y1: 0, y2: 50 }]),
   markNodes: vi.fn(),
+  // The dependents highlight runs on real Cytoscape in architectureElements.test.ts.
+  markDependents: vi.fn(() => 2),
   nearestNode: vi.fn(),
   describeNode: vi.fn(() => "described"),
 }));
@@ -826,6 +831,143 @@ describe("ArchitectureGraph", () => {
       expect(screen.queryByRole("region", { name: "Evidence" })).toBeNull();
     });
 
+    describe("selection actions and dependents by group", () => {
+      const result = (seed: ArchitectureDependentsSeed, overrides: Partial<ArchitectureDependentsResultMessage> = {}): ArchitectureDependentsResultMessage => ({
+        type: "architectureDependentsResult", revision: "r1", seed, seedLabel: "store", seedGroups: ["store"], reachedFiles: 4,
+        groups: [{ key: "ui", label: "ui", directFiles: 1, transitiveFiles: 3, minDepth: 1 }],
+        insideSeedGroup: { directFiles: 1, transitiveFiles: 1 }, maxDepthReached: false, provenance: "Static import relations only.",
+        ...overrides,
+      });
+      const filesPage = (seed: ArchitectureDependentsSeed, offset: number): ArchitectureDependentFilesPageMessage => ({
+        type: "architectureDependentFilesPage", revision: "r1", seed, groupKey: "ui",
+        files: [{ relativePath: `ui/d${offset}.ts`, depth: offset + 1 }],
+        page: { total: 2, offset, returned: 1, truncated: offset === 0, nextOffset: offset === 0 ? 1 : undefined },
+      });
+      const actionBar = () => screen.queryByRole("group", { name: /^Actions on / });
+      const action = (name: string) => fireEvent.click(within(actionBar()!).getByRole("button", { name }));
+      const group2 = { kind: "group" as const, groupId: 2 };
+
+      it("lists the groups depending on a tapped group, highlights them, pages a row's files and clears", () => {
+        const postMessage = setup();
+        expect(actionBar()).toBeNull();
+        tap(nodeById("group-2"));
+        expect(within(actionBar()!).getAllByRole("button").map((button) => button.textContent)).toEqual(["Dependents by group"]);
+        action("Dependents by group");
+        expect(lastOf(postMessage, "architectureDependents")).toEqual({ command: "architectureDependents", revision: "r1", seed: group2 });
+        expect(screen.getByRole("region", { name: "Dependents" }).textContent).toContain("Dependents of store…");
+        // A late answer for another seed or revision is dropped.
+        send(result({ kind: "group", groupId: 1 }));
+        send({ ...result(group2), revision: "r0" });
+        expect(screen.getByRole("region", { name: "Dependents" }).textContent).toContain("Dependents of store…");
+
+        send(result(group2));
+        const panel = screen.getByRole("region", { name: "Dependents" });
+        expect(panel.textContent).toContain("Depend on store: 3 files in 1 other group (static imports)");
+        expect(panel.textContent).toContain("+ 1 file inside its own group (1 direct)");
+        expect(panel.textContent).toContain("1 direct · 3 in all · min. depth 1");
+        expect(panel.textContent).toContain("For symbol-level impact use get_impact_analysis");
+        expect(panel.textContent).toContain("the 50 largest groups per level (150 after Show more groups), and files are listed 50 per page");
+        expect(helpers.markDependents).toHaveBeenLastCalledWith(cy.instance, new Map([["ui", 1]]), new Set(["store"]), undefined);
+        expect(lastOf(postMessage, "architectureDependentsRendered")).toEqual({
+          command: "architectureDependentsRendered", seedLabel: "store", rows: ["ui=1/3@1"], highlightedGroups: 2, view: "graph",
+        });
+
+        fireEvent.click(within(panel).getByRole("button", { name: "ui" }));
+        expect(lastOf(postMessage, "architectureDependentFiles")).toEqual({ command: "architectureDependentFiles", revision: "r1", seed: group2, groupKey: "ui", offset: 0 });
+        send(filesPage(group2, 0));
+        // A page at another offset (a double click) is dropped.
+        send(filesPage(group2, 5));
+        fireEvent.click(screen.getByRole("button", { name: "Load more (1 of 2)" }));
+        expect(lastOf(postMessage, "architectureDependentFiles")).toMatchObject({ offset: 1 });
+        send(filesPage(group2, 1));
+        expect(screen.getByRole("list", { name: "Dependent files (ui)" }).textContent).toBe("1ui/d0.ts2ui/d1.ts");
+        fireEvent.click(screen.getByRole("button", { name: "ui/d1.ts, depth 2" }));
+        expect(lastOf(postMessage, "architectureOpenFile")).toEqual({ command: "architectureOpenFile", revision: "r1", relativePath: "ui/d1.ts" });
+        // The row collapses, and a page for a collapsed row is dropped.
+        fireEvent.click(within(panel).getByRole("button", { name: "ui" }));
+        send(filesPage(group2, 0));
+        expect(screen.queryByRole("list", { name: "Dependent files (ui)" })).toBeNull();
+
+        fireEvent.click(screen.getByRole("button", { name: "Clear dependents" }));
+        expect(screen.queryByRole("region", { name: "Dependents" })).toBeNull();
+        expect(helpers.markDependents).toHaveBeenLastCalledWith(cy.instance, null, new Set(), undefined);
+        expect(lastOf(postMessage, "architectureDependentsRendered")).toMatchObject({ seedLabel: "", rows: [] });
+      });
+
+      it("offers a file's actions: open it, show it in the Dependency Graph, or seed the dependents", () => {
+        const postMessage = setup();
+        enter("group-1");
+        send(page(0));
+        tap(nodeById("file:ui/f0.ts"));
+        expect(actionBar()!.getAttribute("aria-label")).toBe("Actions on ui/f0.ts");
+        action("Open file");
+        expect(lastOf(postMessage, "architectureOpenFile")).toEqual({ command: "architectureOpenFile", revision: "r1", relativePath: "ui/f0.ts" });
+        action("Show in Dependency Graph");
+        expect(lastOf(postMessage, "architectureRevealInFileGraph")).toEqual({ command: "architectureRevealInFileGraph", revision: "r1", relativePath: "ui/f0.ts" });
+        action("Dependents by group");
+        const seed = { kind: "file" as const, relativePath: "ui/f0.ts" };
+        expect(lastOf(postMessage, "architectureDependents")).toEqual({ command: "architectureDependents", revision: "r1", seed });
+        send(result(seed, { seedLabel: "ui/f0.ts", seedGroups: ["ui"], groups: [] }));
+        expect(helpers.markDependents).toHaveBeenLastCalledWith(cy.instance, new Map(), new Set(["ui"]), "ui/f0.ts");
+        // A background click drops the selection and its actions.
+        act(() => cy.state.handlers.get("tap")?.({ target: cy.instance }));
+        expect(actionBar()).toBeNull();
+      });
+
+      it("opens the same actions at the pointer on a right-click; Escape closes the menu first", () => {
+        const postMessage = setup();
+        act(() => cy.state.handlers.get("cxttap")?.({ target: nodeById("group-1"), renderedPosition: { x: 10, y: 20 } }));
+        const menu = screen.getByRole("list", { name: "Selection actions" });
+        expect(menu.style.left).toBe("10px");
+        expect(document.activeElement).toBe(within(menu).getByRole("button", { name: "Dependents by group" }));
+        // The right-click selects without the focus a click gives.
+        expect(lastOf(postMessage, "architectureDetailRendered")).toMatchObject({ focusedGroup: undefined });
+        fireEvent.keyDown(window, { key: "Escape" });
+        expect(screen.queryByRole("list", { name: "Selection actions" })).toBeNull();
+
+        act(() => cy.state.handlers.get("cxttap")?.({ target: nodeById("group-1"), renderedPosition: { x: 10, y: 20 } }));
+        fireEvent.click(within(screen.getByRole("list", { name: "Selection actions" })).getByRole("button", { name: "Dependents by group" }));
+        expect(screen.queryByRole("list", { name: "Selection actions" })).toBeNull();
+        expect(lastOf(postMessage, "architectureDependents")).toMatchObject({ seed: { kind: "group", groupId: 1 } });
+        // A right-click on a "+N more" node opens nothing.
+        act(() => cy.state.handlers.get("cxttap")?.({ target: { ...nodeById("group-1"), data: (key: string) => (key === "more" ? true : undefined) }, renderedPosition: { x: 0, y: 0 } }));
+        expect(screen.queryByRole("list", { name: "Selection actions" })).toBeNull();
+      });
+
+      it("keeps the evidence and the dependents as two tabs; Escape closes the one shown", () => {
+        setup();
+        tap(nodeById("group-2"));
+        action("Dependents by group");
+        tap(cy.state.edges.find(edge => edge.id() === "edge-1-2"));
+        expect(screen.getByRole("region", { name: "Evidence" })).toBeTruthy();
+        fireEvent.click(screen.getByRole("button", { name: "Dependents" }));
+        expect(screen.getByRole("region", { name: "Dependents" })).toBeTruthy();
+        expect(screen.queryByRole("region", { name: "Evidence" })).toBeNull();
+        fireEvent.keyDown(window, { key: "Escape" });
+        expect(screen.getByRole("region", { name: "Evidence" })).toBeTruthy();
+        expect(screen.queryByRole("button", { name: "Dependents" })).toBeNull();
+        fireEvent.keyDown(window, { key: "Escape" });
+        expect(screen.queryByRole("region", { name: "Evidence" })).toBeNull();
+      });
+
+      it("runs the selection actions from the E2E controls, by group key or file path", () => {
+        const postMessage = setup();
+        send({ type: "architectureControls", dependentsOf: "store" });
+        expect(lastOf(postMessage, "architectureDependents")).toMatchObject({ seed: group2 });
+        expect(actionBar()!.getAttribute("aria-label")).toBe("Actions on store");
+        send({ type: "architectureControls", clearDependents: true });
+        expect(screen.queryByRole("region", { name: "Dependents" })).toBeNull();
+        enter("group-1");
+        send(page(0));
+        send({ type: "architectureControls", revealFile: "ui/f1.ts" });
+        expect(lastOf(postMessage, "architectureRevealInFileGraph")).toMatchObject({ relativePath: "ui/f1.ts" });
+        // Only a drawn file is revealed; an unknown key seeds nothing.
+        const count = postMessage.mock.calls.length;
+        send({ type: "architectureControls", revealFile: "store", dependentsOf: "nowhere" });
+        expect(postMessage.mock.calls.slice(count).some(([message]) => message.command === "architectureRevealInFileGraph" || message.command === "architectureDependents")).toBe(false);
+      });
+    });
+
     it("drives the same actions from the E2E controls, groups named by key", () => {
       const postMessage = setup();
       send({ type: "architectureControls", focus: "store" });
@@ -1459,6 +1601,25 @@ describe("ArchitectureGraph", () => {
         send(uiLevel);
         await settle();
         expect(lastOf(postMessage, "architectureMatrix")).toEqual({ command: "architectureMatrix", revision: "r2", folder: "ui", unit: "apps/web" });
+      });
+
+      it("seeds the dependents from the row a cell selects, and tints the rows reached", async () => {
+        const postMessage = await toMatrix(await setup());
+        fireEvent.click(screen.getByRole("button", { name: "@ws/web imports @ws/core: 3 file pairs" }));
+        fireEvent.click(screen.getByRole("button", { name: "Close evidence" }));
+        fireEvent.click(within(screen.getByRole("group", { name: "Actions on @ws/web" })).getByRole("button", { name: "Dependents by group" }));
+        const seed = { kind: "unit" as const, key: "apps/web" };
+        expect(lastOf(postMessage, "architectureDependents")).toEqual({ command: "architectureDependents", revision: "r1", seed });
+        send({
+          type: "architectureDependentsResult", revision: "r1", seed, seedLabel: "@ws/web", seedGroups: ["apps/web"], reachedFiles: 1,
+          groups: [{ key: "packages/core", label: "@ws/core", directFiles: 1, transitiveFiles: 1, minDepth: 1 }],
+          insideSeedGroup: { directFiles: 0, transitiveFiles: 0 }, maxDepthReached: true, provenance: "",
+        });
+        await nextFrame();
+        expect(screen.getByRole("button", { name: /^@ws\/core: Ca .*, depends on the selection directly$/ })).toBeTruthy();
+        expect(screen.getByRole("button", { name: /^@ws\/web: Ca .*, the selection$/ })).toBeTruthy();
+        expect(screen.getByRole("region", { name: "Dependents" }).textContent).toContain("The walk stopped at its maximum depth");
+        expect(lastOf(postMessage, "architectureDependentsRendered")).toMatchObject({ highlightedGroups: 1, view: "matrix" });
       });
 
       it("follows the E2E controls: toggle, cell and header by row key", async () => {
