@@ -409,27 +409,31 @@ function UnitsSummary({ summary, minImports, onCycle }: Readonly<UnitsSummaryPro
         {level.cycles > 0
           ? <button type="button" data-cycle-count onClick={onCycle} style={{ ...linkStyle, color: RED }} title="Show the cycle block">{plural(level.cycles, "cycle")}</button>
           : plural(level.cycles, "cycle")}
-      {hidden > 0 && <span title="Set Min. imports per edge to show the edges by weight"> · {hidden} weaker {hidden === 1 ? "edge" : "edges"} hidden</span>}
+      {hidden > 0 && <span title="Set Min. imports to show the edges by weight"> · {hidden} weaker {hidden === 1 ? "edge" : "edges"} hidden</span>}
     </span>
   );
 }
 
 /** The units' colours and roles, over the canvas: collapsible, scrolling past 40% of its height; a click selects the unit. */
-function UnitLegend({ summary, onUnit, legendRef }: Readonly<{
+function UnitLegend({ summary, onUnit, legendRef, roleFilter, onRole }: Readonly<{
   summary: ArchitectureSummaryMessage;
   onUnit: (key: string) => void;
   legendRef: React.RefObject<HTMLDetailsElement | null>;
+  roleFilter: string | null;
+  onRole: (role: string) => void;
 }>) {
   const units = summary.units?.units ?? [];
   return (
     <details
       ref={legendRef} open
       style={{
-        position: "absolute", top: 4, left: 4, maxWidth: "40%", maxHeight: "40%", overflow: "auto", zIndex: 1, padding: "2px 6px",
+        position: "absolute", top: 4, left: 4, maxWidth: "60%", maxHeight: "40%", overflow: "auto", zIndex: 1, padding: "2px 6px",
         fontSize: 12, background: "var(--vscode-editorWidget-background)", border: "1px solid var(--vscode-widget-border)",
       }}
     >
       <summary style={{ cursor: "pointer" }}>Legend ({plural(units.length, "unit")})</summary>
+      {/* The role filter lives with the colours and roles it filters: the header stays one row on a narrow view. */}
+      {summary.units && <RoleLegend roleCounts={summary.units.roleCounts} roleFilter={roleFilter} onRole={onRole} />}
       <ul aria-label="Units" style={{ listStyle: "none", padding: 0, margin: "2px 0" }}>
         {units.map((unit, index) => (
           <li key={unit.key}>
@@ -462,7 +466,7 @@ function ZoomControls({ onZoom }: Readonly<{ onZoom: (action: ZoomAction) => voi
 }
 
 /** Over the canvas: the zoom controls, the units legend, and why a level without edges draws no line. */
-function CanvasOverlays({ summary, drawn, unitsLevel, view, legendRef, onZoom, onUnit }: Readonly<{
+function CanvasOverlays({ summary, drawn, unitsLevel, view, legendRef, onZoom, onUnit, roleFilter, onRole }: Readonly<{
   summary: ArchitectureSummaryMessage;
   drawn: ArchitectureSummaryMessage;
   unitsLevel: boolean;
@@ -470,13 +474,15 @@ function CanvasOverlays({ summary, drawn, unitsLevel, view, legendRef, onZoom, o
   legendRef: React.RefObject<HTMLDetailsElement | null>;
   onZoom: (action: ZoomAction) => void;
   onUnit: (key: string) => void;
+  roleFilter: string | null;
+  onRole: (role: string) => void;
 }>) {
   // Without any edge, a level of several nodes would read as a failure: say why the canvas holds no line.
   const noEdges = view === "graph" && drawn.groups.length > 1 && drawn.groupEdges.length === 0;
   return (
     <>
       <ZoomControls onZoom={onZoom} />
-      {unitsLevel && <UnitLegend summary={summary} legendRef={legendRef} onUnit={onUnit} />}
+      {unitsLevel && <UnitLegend summary={summary} legendRef={legendRef} onUnit={onUnit} roleFilter={roleFilter} onRole={onRole} />}
       {noEdges && (
         <output style={{ position: "absolute", left: 0, right: 0, bottom: 40, textAlign: "center", fontSize: 12, pointerEvents: "none", color: "var(--vscode-descriptionForeground)" }}>
           No imports between these {unitsLevel ? "units" : "groups"}.
@@ -542,8 +548,6 @@ interface SummaryHeaderProps {
   minImports: number;
   onRefresh: () => void;
   onRule: (rule: ArchitectureRuleSummary) => void;
-  roleFilter: string | null;
-  onRole: (role: string) => void;
   onCycle: () => void;
 }
 
@@ -576,7 +580,7 @@ function SummaryDetails({ summary, isolated }: Readonly<{ summary: ArchitectureS
   );
 }
 
-function SummaryHeader({ summary, level, onShowMore, unit, minImports, onRefresh, onRule, roleFilter, onRole, onCycle }: Readonly<SummaryHeaderProps>) {
+function SummaryHeader({ summary, level, onShowMore, unit, minImports, onRefresh, onRule, onCycle }: Readonly<SummaryHeaderProps>) {
   const { context } = summary;
   const isolated = level.isolatedGroups?.length ?? 0;
   const unitsLevel = summary.units !== undefined && unit === null;
@@ -588,7 +592,7 @@ function SummaryHeader({ summary, level, onShowMore, unit, minImports, onRefresh
           <button type="button" onClick={onRefresh}>Refresh</button>
         </output>
       )}
-      {/* One row while the width allows: the summary, the role legend, then Details. */}
+      {/* One row while the width allows: the summary, then Details. */}
       <div style={{ display: "flex", flexWrap: "wrap", gap: "2px 12px", alignItems: "baseline" }}>
         <span>
           <span style={{ fontWeight: 600 }} title={unitsLevel ? "Dependents above, dependencies below" : undefined}>
@@ -596,7 +600,6 @@ function SummaryHeader({ summary, level, onShowMore, unit, minImports, onRefresh
           </span>
           {unitsLevel && <>{" · "}<UnitsSummary summary={summary} minImports={minImports} onCycle={onCycle} /></>}
         </span>
-        {unitsLevel && summary.units && <RoleLegend roleCounts={summary.units.roleCounts} roleFilter={roleFilter} onRole={onRole} />}
         <SummaryDetails summary={summary} isolated={isolated} />
       </div>
       {summary.rules && <RulesPanel rules={summary.rules} onRule={onRule} />}
@@ -633,6 +636,8 @@ interface GraphControlsProps {
   canShowMore: boolean;
   /** The units level, whose header already counts the edges the cap hides. */
   unitsLevel: boolean;
+  /** The breadcrumb: on the controls' row while the width allows. */
+  path?: React.ReactNode;
 }
 
 /**
@@ -667,13 +672,13 @@ function HiddenMatches({ needle, findMatches, found, onShowMore, canShowMore }: 
 
 /** Graph | Matrix toggle, then find and weak-edge filter: they only change what is drawn, never the counts above. */
 function GraphControls(props: Readonly<GraphControlsProps>) {
-  const { summary, shownEdges, query, onQuery, minImports, onMinImports, capReached, view, onView, unitsLevel } = props;
+  const { summary, shownEdges, query, onQuery, minImports, onMinImports, capReached, view, onView, unitsLevel, path } = props;
   const counts = summary.groupEdges.map((edge) => edge.fileEdgeCount);
   const toggle = (name: View, label: string) => (
     <button type="button" aria-pressed={view === name} onClick={() => onView(name)} style={{ fontWeight: view === name ? 600 : undefined }}>{label}</button>
   );
   return (
-    <div style={{ padding: "4px 10px", fontSize: 12 }}>
+    <div style={{ padding: "4px 10px", fontSize: 12, borderBottom: "1px solid var(--vscode-widget-border)" }}>
       <div style={{ display: "flex", flexWrap: "wrap", gap: 8, alignItems: "center" }}>
         <span>{toggle("graph", "Graph")}{toggle("matrix", "Matrix")}</span>
         <input
@@ -685,7 +690,7 @@ function GraphControls(props: Readonly<GraphControlsProps>) {
         />
         {view === "graph" && (
         <label>
-          Min. imports per edge{" "}
+          <span title="Min. imports per edge: hides the weaker edges">Min. imports</span>{" "}
           <input
             type="number"
             min={1}
@@ -696,6 +701,7 @@ function GraphControls(props: Readonly<GraphControlsProps>) {
           />
         </label>
         )}
+        {path}
       </div>
       {view === "graph" && shownEdges < counts.length && !(unitsLevel && minImports === 1) && (
         <div>
@@ -853,7 +859,7 @@ function Breadcrumb(props: Readonly<BreadcrumbProps>) {
   const last = !focused && entered.length === 0;
   return (
     <nav
-      aria-label="Architecture path" style={{ padding: "4px 10px", fontSize: 12 }}
+      aria-label="Architecture path" style={{ fontSize: 12 }}
       title={view === "graph"
         ? "Click: select · Double-click or Enter: enter · Arrows: move · Escape: back · 0, +, -: zoom"
         : "Cell: evidence · Header: enter · Arrows: move · Escape: back"}
@@ -1764,11 +1770,8 @@ export function ArchitectureGraph({ postMessage }: Readonly<ArchitectureGraphPro
             summary={summary} level={drawn} onShowMore={() => actionsRef.current.showMoreGroups()}
             unit={unit} minImports={minImports} onRefresh={refresh}
             onRule={(rule) => actionsRef.current.openRule(rule)}
-            roleFilter={roleFilter} onRole={(role) => actionsRef.current.toggleRole(role)}
             onCycle={() => actionsRef.current.showCycle()}
           />
-          {/* The path sits right of the controls while the width allows. */}
-          <div style={{ display: "flex", flexWrap: "wrap", alignItems: "baseline", borderBottom: "1px solid var(--vscode-widget-border)" }}>
           <GraphControls
             summary={drawn}
             unitsLevel={unitsLevel}
@@ -1784,8 +1787,7 @@ export function ArchitectureGraph({ postMessage }: Readonly<ArchitectureGraphPro
             found={found}
             onShowMore={() => actionsRef.current.showMoreGroups()}
             canShowMore={canShowMore(summary)}
-          />
-          <Breadcrumb
+            path={<Breadcrumb
             summary={drawn}
             unit={unit}
             folders={folders}
@@ -1798,8 +1800,8 @@ export function ArchitectureGraph({ postMessage }: Readonly<ArchitectureGraphPro
             onFocus={(groupId) => actionsRef.current.updateFocus(groupId, "enter")}
             onLeave={(groupId) => actionsRef.current.leave(groupId)}
             view={view}
+            />}
           />
-          </div>
         </>
       )}
       <div ref={canvasAreaRef} style={{ position: "relative", flex: 1, minHeight: 0, visibility: state ? "hidden" : "visible" }}>
@@ -1817,6 +1819,7 @@ export function ArchitectureGraph({ postMessage }: Readonly<ArchitectureGraphPro
             <CanvasOverlays
               summary={summary} drawn={drawn} unitsLevel={unitsLevel} view={view} legendRef={legendRef}
               onZoom={(action) => actionsRef.current.zoom(action)} onUnit={(key) => actionsRef.current.legendUnit(key)}
+              roleFilter={roleFilter} onRole={(role) => actionsRef.current.toggleRole(role)}
             />
           )}
         </div>

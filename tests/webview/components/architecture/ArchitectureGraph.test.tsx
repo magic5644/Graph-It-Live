@@ -471,7 +471,7 @@ describe("ArchitectureGraph", () => {
 
     it("hides weak edges from the min-imports control and states how many are shown", () => {
       renderWithSummary();
-      const min = screen.getByRole("spinbutton", { name: /Min. imports per edge/ }) as HTMLInputElement;
+      const min = screen.getByRole("spinbutton", { name: /Min. imports/ }) as HTMLInputElement;
       expect(min.max).toBe("3");
 
       helpers.applyMinImports.mockReturnValue(0);
