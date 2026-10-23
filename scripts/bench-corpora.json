@@ -8,6 +8,15 @@
     "file": "src/jsx/hooks/index.ts",
     "symbol": "useState"
   },
+  "typescript-large": {
+    "url": "https://github.com/nestjs/nest",
+    "tag": "v10.4.15",
+    "commit": "d0fb875e23e3e6baae8537efd41d54709acade0c",
+    "license": "MIT, LICENSE",
+    "edit": "packages/common/utils/shared.utils.ts",
+    "file": "packages/core/injector/injector.ts",
+    "symbol": "loadInstance"
+  },
   "python": {
     "url": "https://github.com/pallets/flask",
     "tag": "3.1.0",
