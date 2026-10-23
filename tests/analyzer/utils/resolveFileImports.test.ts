@@ -39,6 +39,7 @@ describe("resolveFileImports", () => {
       { path: "/repo/apps/worker/src/y.ts", type: "import", line: 1, module: "./y" },
     ]);
     expect(result.outOfRootImports).toEqual(["@core/x"]);
+    expect(result.unresolvedImports).toEqual(["missing"]);
   });
 
   it("keeps source order and first-seen line when resolutions settle out of order", async () => {

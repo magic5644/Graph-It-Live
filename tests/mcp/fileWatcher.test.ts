@@ -65,6 +65,33 @@ describe('MCP file watcher', () => {
     expect(snapshot.edges).toHaveLength(1);
   }, testTimeout);
 
+  // #387: the importer's own mtime never moves, so only the created file's event can add the edge.
+  it('adds the edge of an unchanged importer when its missing import target is created', async () => {
+    const appPath = path.join(root, 'src/app.ts');
+    const laterPath = normalizePath(path.join(root, 'src/later.ts'));
+    await fs.writeFile(appPath, "import { later } from './later'; export const result = later;");
+    await vi.waitFor(() => {
+      expect(postMessage).toHaveBeenCalledWith(expect.objectContaining({ event: 'change' }));
+    }, { timeout: eventTimeout });
+    await workerState.spider!.reanalyzeFile(appPath);
+    expect(await workerState.spider!.analyzeFromIndex(appPath)).toEqual([]);
+
+    await fs.writeFile(laterPath, 'export const later = 1;');
+    await vi.waitFor(async () => {
+      expect((await workerState.spider!.analyzeFromIndex(appPath)).map((d) => d.path)).toEqual([laterPath]);
+    }, { timeout: eventTimeout });
+  }, testTimeout);
+
+  it('keeps watching when re-analysing the importers of a created file fails', async () => {
+    const reanalyze = vi.spyOn(workerState.spider!, 'reanalyzeUnresolvedImporters').mockRejectedValue(new Error('boom'));
+    const createdPath = normalizePath(path.join(root, 'src/created.ts'));
+    await fs.writeFile(createdPath, 'export const created = 1;');
+    await vi.waitFor(() => {
+      expect(reanalyze).toHaveBeenCalledWith(createdPath);
+      expect(postMessage).toHaveBeenCalledWith(expect.objectContaining({ event: 'add', filePath: createdPath }));
+    }, { timeout: eventTimeout });
+  }, testTimeout);
+
   it('ignores unsupported files, excluded and gitignored directories but watches new nested source files', async () => {
     await fs.mkdir(path.join(root, 'node_modules'));
     await fs.writeFile(path.join(root, 'node_modules/ignored.ts'), 'export const ignored = 1;');

@@ -233,6 +233,8 @@ export interface SerializedReverseIndex {
   fileHashes: Record<string, FileHash>;
   /** Map of source path -> module specifiers that resolved outside the workspace root */
   outOfRootImports?: Record<string, string[]>;
+  /** Map of source path -> in-root module specifiers that resolved to nothing */
+  unresolvedImports?: Record<string, string[]>;
 }
 
 export interface SymbolInfo {

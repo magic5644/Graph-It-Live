@@ -420,6 +420,35 @@ suite('Architecture view mode', () => {
     assert.strictEqual(refreshed.positions, built.positions, 'Refresh of an unchanged graph keeps every position');
   });
 
+  // #387: the importer is unchanged, so the view reads it from the index; only the target's creation can add the edge.
+  test('draws the edge of an unchanged importer once its missing import target is created', async function () {
+    this.timeout(240000);
+    const importer = getProjectFile('sample-project', 'src', 'e2eLateImporter.ts');
+    const target = getProjectFile('workspaces-project', 'packages', 'ui', 'src', 'e2eLateTarget.ts');
+    try {
+      await vscode.workspace.fs.writeFile(importer, Buffer.from(
+        "import { late } from '../../workspaces-project/packages/ui/src/e2eLateTarget';\nexport const viaLate = late;\n",
+      ));
+      await sleep(2000); // let the importer's create event index it, its import still unresolved
+      await openFreshArchitecture();
+      const before = await expectMatrix('the units matrix', { view: 'matrix' }, matrix => matrix.unit === undefined);
+
+      const staleCount = (await readRender()).renderCount;
+      await vscode.workspace.fs.writeFile(target, Buffer.from('export const late = 1;\n'));
+      await waitForRender('the stale banner', staleCount, render => render.stale);
+      await sleep(2000); // let the create event re-analyse the importer before Refresh
+      await vscode.commands.executeCommand('graph-it-live.refreshGraph');
+      const after = await expectMatrix('the matrix with the new edge', { view: 'matrix' },
+        matrix => matrix.unit === undefined && matrix.revision !== before.revision);
+      assert.strictEqual(after.fileEdges, before.fileEdges + 1, 'the importer → created target edge');
+    } finally {
+      await vscode.commands.executeCommand('graph-it-live.e2eArchitectureControls', { view: 'graph' });
+      await vscode.workspace.fs.delete(importer).then(undefined, () => undefined);
+      await vscode.workspace.fs.delete(target).then(undefined, () => undefined);
+      await sleep(1500); // let the delete events reach the index before the next test refreshes
+    }
+  });
+
   test('re-fits the graph when the view is resized, without re-rendering or rebuilding', async function () {
     this.timeout(240000);
     const built = await openFreshArchitecture();

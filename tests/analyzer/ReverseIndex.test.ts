@@ -316,7 +316,7 @@ describe('ReverseIndex', () => {
             // Serialize
             const serialized = index.serialize();
             
-            expect(serialized.version).toBe(2);
+            expect(serialized.version).toBe(3);
             expect(serialized.rootDir).toBe(rootDir);
             expect(serialized.timestamp).toBeGreaterThan(0);
 
@@ -522,6 +522,73 @@ describe('ReverseIndex', () => {
 
         it('rejects a version-1 index, which carries no out-of-root data', () => {
             const serialized = { ...index.serialize(), version: 1 };
+            expect(ReverseIndex.deserialize(serialized, rootDir)).toBeNull();
+        });
+    });
+
+    // Regression tests for #387: creating an import target re-analyses its unchanged importers.
+    describe('unresolved imports', () => {
+        const a = '/test/project/src/a.ts';
+        const b = '/test/project/src/b.ts';
+        const hash: FileHash = { mtime: 1, size: 1 };
+
+        it('finds the sources whose unresolved specifier names the created file', () => {
+            index.addDependencies(a, [], hash, [], ['./feature/widget', 'react']);
+            index.addDependencies(b, [], hash, [], ['@/other']);
+
+            expect(index.getUnresolvedImportersOf('/test/project/src/feature/widget.tsx')).toEqual([a]);
+            expect(index.getUnresolvedImportersOf('/test/project/src/feature/widget.d.ts')).toEqual([a]);
+            expect(index.getUnresolvedImportersOf('/test/project/src/gadget.ts')).toEqual([]);
+        });
+
+        it('matches directory modules and dotted or Rust-style specifiers', () => {
+            index.addDependencies(a, [], hash, [], ['./feature']);
+            index.addDependencies(b, [], hash, [], ['pkg.sub.helpers', 'crate::net::client']);
+
+            expect(index.getUnresolvedImportersOf('/test/project/src/feature/index.ts')).toEqual([a]);
+            expect(index.getUnresolvedImportersOf('/test/project/pkg/sub/helpers.py')).toEqual([b]);
+            expect(index.getUnresolvedImportersOf('/test/project/src/net/client/mod.rs')).toEqual([b]);
+        });
+
+        it('normalizes Windows paths and never returns the created file itself', () => {
+            const winIndex = new ReverseIndex(String.raw`C:\repo`);
+            winIndex.addDependencies(String.raw`C:\repo\src\a.ts`, [], hash, [], [String.raw`.\b`]);
+            winIndex.addDependencies(String.raw`C:\repo\src\b.ts`, [], hash, [], ['./b']);
+
+            expect(winIndex.getUnresolvedImportersOf('c:/repo/src/b.ts')).toEqual([normalizePath(String.raw`C:\repo\src\a.ts`)]);
+        });
+
+        it('keeps them on a cached re-add and forgets them on removal, a resolved re-add or clear', () => {
+            index.addDependencies(a, [], hash, [], ['./widget']);
+            index.addDependencies(a, [], hash);
+            expect(index.getUnresolvedImportersOf('/test/project/src/widget.ts')).toEqual([a]);
+
+            index.addDependencies(a, [], hash, [], []);
+            expect(index.getUnresolvedImportersOf('/test/project/src/widget.ts')).toEqual([]);
+
+            index.addDependencies(a, [], hash, [], ['./widget']);
+            index.removeDependenciesFromSource(a);
+            expect(index.getUnresolvedImportersOf('/test/project/src/widget.ts')).toEqual([]);
+
+            index.addDependencies(b, [], hash, [], ['./widget']);
+            index.clear();
+            expect(index.getUnresolvedImportersOf('/test/project/src/widget.ts')).toEqual([]);
+        });
+
+        it('round-trips through serialize/deserialize, dropping malformed entries', () => {
+            index.addDependencies(a, [], hash, [], ['./widget']);
+            const serialized = index.serialize();
+            expect(serialized.unresolvedImports).toEqual({ [a]: ['./widget'] });
+
+            const restored = ReverseIndex.deserialize(
+                { ...serialized, unresolvedImports: { ...serialized.unresolvedImports, [b]: 'bad' } } as unknown as typeof serialized,
+                rootDir,
+            );
+            expect(restored?.getUnresolvedImportersOf('/test/project/src/widget.ts')).toEqual([a]);
+        });
+
+        it('rejects a version-2 index, which carries no unresolved-import data', () => {
+            const serialized = { ...index.serialize(), version: 2 };
             expect(ReverseIndex.deserialize(serialized, rootDir)).toBeNull();
         });
     });

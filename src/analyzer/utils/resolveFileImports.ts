@@ -6,6 +6,8 @@ export interface ResolvedFileImports {
   dependencies: Dependency[];
   /** Specifiers whose target lies outside the workspace root (reportable, deduplicated) */
   outOfRootImports: string[];
+  /** In-root specifiers that resolved to nothing yet, so creating their target can re-resolve them (deduplicated) */
+  unresolvedImports: string[];
 }
 
 /**
@@ -22,6 +24,7 @@ export async function resolveFileImports(
   const dependencies: Dependency[] = [];
   const seenResolvedPaths = new Set<string>();
   const outOfRootImports = new Set<string>();
+  const unresolvedImports = new Set<string>();
 
   const resolutions = await Promise.all(
     parsedImports.map(async (imp): Promise<ImportResolution> =>
@@ -38,7 +41,10 @@ export async function resolveFileImports(
       outOfRootImports.add(toReportableSpecifier(imp.module));
       continue;
     }
-    if (!resolvedPath) continue;
+    if (!resolvedPath) {
+      unresolvedImports.add(imp.module);
+      continue;
+    }
 
     const normalizedResolved = normalizePath(resolvedPath);
     if (seenResolvedPaths.has(normalizedResolved)) continue;
@@ -52,7 +58,7 @@ export async function resolveFileImports(
     });
   }
 
-  return { dependencies, outOfRootImports: [...outOfRootImports] };
+  return { dependencies, outOfRootImports: [...outOfRootImports], unresolvedImports: [...unresolvedImports] };
 }
 
 /** Boundary check for analyzers without resolveImport(), which apply none themselves. */
