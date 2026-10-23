@@ -890,7 +890,7 @@ function DependentsPanel({ dependents, tabs, onOpen, onRow, onMore, onClear }: R
       <div style={{ display: "flex", gap: 8, alignItems: "baseline" }}>
         <strong style={{ flex: 1 }}>
           {result
-            ? `Depend on ${result.seedLabel}: ${plural(outside, "file")} in ${plural(result.groups.length, "other group")} (static imports)`
+            ? `Depends on ${result.seedLabel}: ${plural(outside, "file")} in ${plural(result.groups.length, "group")} (static imports)`
             : `Dependents of ${dependents.title}…`}
         </strong>
         <button type="button" ref={clearRef} aria-label="Clear dependents" title="Clear the dependents and their highlight" onClick={onClear}>Clear</button>
@@ -1597,7 +1597,7 @@ export function ArchitectureGraph({ postMessage }: Readonly<ArchitectureGraphPro
   };
   /**
    * The canvas has no focusable nodes: the tapped node is the selected one. Enter enters it
-   * (outside text fields and buttons); Escape closes the evidence, else leaves the last entered
+   * (outside text fields and buttons); Escape closes the selection menu, else the shown panel (evidence or dependents), else leaves the last entered
    * group, else drops the focus, else goes up one folder, else back to the units, else clears the highlight.
    */
   const key = (event: KeyboardEvent, clearFocus: () => void) => {
