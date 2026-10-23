@@ -5,7 +5,7 @@
  */
 
 import * as fs from 'node:fs';
-import { performance } from 'node:perf_hooks';
+import { monitorEventLoopDelay, performance, type IntervalHistogram } from 'node:perf_hooks';
 import * as vscode from 'vscode';
 import { getContextKey, getIndexStatus, showCallGraphAndWait, sleep } from '../suite/_helpers';
 
@@ -77,6 +77,13 @@ async function measureMatrix(unit: string): Promise<{ firstPaint: Sample; scroll
   return { firstPaint, scroll: { wallMs: performance.now() - started, rssMB: currentRssMB() }, rows: shown.rows };
 }
 
+/** p99 and max event-loop delay (ms) recorded so far, then a fresh recording. */
+function takeLoopDelay(loop: IntervalHistogram): { p99: { wallMs: number }; max: { wallMs: number } } {
+  const delay = { p99: { wallMs: loop.percentile(99) / 1e6 }, max: { wallMs: loop.max / 1e6 } };
+  loop.reset();
+  return delay;
+}
+
 /** Peak RSS so far of the extension host and its worker threads. */
 const peakRssMB = (): number => process.resourceUsage().maxRSS / 1024;
 
@@ -106,16 +113,23 @@ export async function run(): Promise<void> {
   await vscode.commands.executeCommand('graph-it-live.graphView.focus');
   await sleep(800); // resolveWebviewView + React mount, as in openCallGraphFor
   // Opened while the background index is being built, as on a first start (#383).
+  // Extension-host responsiveness (#343), 10 ms resolution: event-loop delay from opening the view
+  // to its first render (background indexing included), then during the rebuild alone.
+  const loop = monitorEventLoopDelay({ resolution: 10 });
+  loop.enable();
   const architectureStarted = performance.now();
   await vscode.commands.executeCommand('graph-it-live.setViewModeArchitecture');
   const indexReady: Sample = { wallMs: await waitForIndex(started), rssMB: currentRssMB() };
   await waitForArchitecture(0);
   const architectureDuringIndex: Sample = { wallMs: performance.now() - architectureStarted, rssMB: peakRssMB() };
+  const duringIndexLoop = takeLoopDelay(loop);
   // Built again with the index ready: what reopening the view costs.
   const rebuildStarted = performance.now();
   await vscode.commands.executeCommand('graph-it-live.refreshGraph');
   await waitForArchitecture(1);
   const architectureIndexed: Sample = { wallMs: performance.now() - rebuildStarted, rssMB: peakRssMB() };
+  const indexedLoop = takeLoopDelay(loop);
+  loop.disable();
   const matrixUnit = process.env.BENCH_VSCODE_MATRIX_UNIT;
   const matrix = matrixUnit ? await measureMatrix(matrixUnit) : undefined;
   await vscode.commands.executeCommand('graph-it-live.e2eArchitectureControls', { view: 'graph', unit: '' });
@@ -125,6 +139,8 @@ export async function run(): Promise<void> {
   firstCallGraph.rssMB = peakRssMB();
   fs.writeFileSync(out, JSON.stringify({
     activation, firstCallGraph, indexReady, architectureDuringIndex, architectureIndexed,
+    architectureDuringIndexLoopP99: duringIndexLoop.p99, architectureDuringIndexLoopMax: duringIndexLoop.max,
+    architectureIndexedLoopP99: indexedLoop.p99, architectureIndexedLoopMax: indexedLoop.max,
     matrixFirstPaint: matrix?.firstPaint, matrixScroll: matrix?.scroll, matrixRows: matrix?.rows,
   }));
 }
