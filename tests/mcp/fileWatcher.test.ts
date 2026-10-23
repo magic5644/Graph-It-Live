@@ -82,6 +82,54 @@ describe('MCP file watcher', () => {
     }, { timeout: eventTimeout });
   }, testTimeout);
 
+  // #419: a tsconfig `paths` change moves no importer's mtime, so only its own event can re-resolve them.
+  it('adds then removes the edge of an unchanged importer when a tsconfig alias is added then removed', async () => {
+    const appPath = path.join(root, 'src/app.ts');
+    const oldPath = normalizePath(path.join(root, 'src/old.ts'));
+    const tsConfig = normalizePath(path.join(root, 'tsconfig.json'));
+    await fs.writeFile(appPath, "import { helper } from '@app/old'; export const result = helper;");
+    await vi.waitFor(() => {
+      expect(postMessage).toHaveBeenCalledWith(expect.objectContaining({ event: 'change' }));
+    }, { timeout: eventTimeout });
+    await workerState.spider!.reanalyzeFile(appPath);
+    expect(await workerState.spider!.analyzeFromIndex(appPath)).toEqual([]);
+
+    await fs.writeFile(tsConfig, JSON.stringify({ compilerOptions: { paths: { '@app/*': ['./src/*'] } } }));
+    await vi.waitFor(async () => {
+      expect(postMessage).toHaveBeenCalledWith(expect.objectContaining({ event: 'add', filePath: tsConfig }));
+      expect((await workerState.spider!.analyzeFromIndex(appPath)).map((d) => d.path)).toEqual([oldPath]);
+    }, { timeout: eventTimeout });
+
+    await fs.rm(tsConfig);
+    await vi.waitFor(async () => {
+      expect(postMessage).toHaveBeenCalledWith(expect.objectContaining({ event: 'unlink', filePath: tsConfig }));
+      expect(await workerState.spider!.analyzeFromIndex(appPath)).toEqual([]);
+    }, { timeout: eventTimeout });
+  }, testTimeout);
+
+  it('keeps watching when re-indexing after a resolver configuration change fails', async () => {
+    const reindex = vi.spyOn(workerState.spider!, 'handleResolverConfigChange').mockRejectedValue(new Error('boom'));
+    const packageJson = normalizePath(path.join(root, 'package.json'));
+    await fs.writeFile(packageJson, '{ "imports": { "#app/*": "./src/*" } }');
+    await vi.waitFor(() => {
+      expect(reindex).toHaveBeenCalled();
+      expect(postMessage).toHaveBeenCalledWith(expect.objectContaining({ event: 'add', filePath: packageJson }));
+    }, { timeout: eventTimeout });
+  }, testTimeout);
+
+  it('keeps the same watcher after a non-EMFILE watcher error', async () => {
+    const watcher = workerState.fileWatcher!;
+    watcher.emit('error', new Error('boom'));
+    watcher.emit('error', 'not an Error');
+    expect(workerState.fileWatcher).toBe(watcher);
+
+    const addedPath = normalizePath(path.join(root, 'src/afterError.ts'));
+    await fs.writeFile(addedPath, 'export const afterError = 1;');
+    await vi.waitFor(() => {
+      expect(postMessage).toHaveBeenCalledWith(expect.objectContaining({ event: 'add', filePath: addedPath }));
+    }, { timeout: eventTimeout });
+  }, testTimeout);
+
   it('keeps watching when re-analysing the importers of a created file fails', async () => {
     const reanalyze = vi.spyOn(workerState.spider!, 'reanalyzeUnresolvedImporters').mockRejectedValue(new Error('boom'));
     const createdPath = normalizePath(path.join(root, 'src/created.ts'));

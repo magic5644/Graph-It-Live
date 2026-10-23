@@ -1,7 +1,7 @@
 import * as path from "node:path";
 import * as vscode from "vscode";
 import type { Spider } from "../../analyzer/Spider";
-import { SUPPORTED_SOURCE_FILE_REGEX } from "../../shared/constants";
+import { RESOLVER_CONFIG_FILE_REGEX, SUPPORTED_SOURCE_FILE_REGEX } from "../../shared/constants";
 import type { VsCodeLogger } from "../extensionLogger";
 import type { EditorNavigationService } from "./EditorNavigationService";
 import type { EventType } from "./FileChangeScheduler";
@@ -172,6 +172,14 @@ export class ExtensionEventHub {
 
   private async processFileChange(filePath: string, eventType: EventType): Promise<void> {
     if (!this.spider) {
+      return;
+    }
+
+    // No importer's mtime moves when imports resolve elsewhere: re-index them all (#419).
+    if (RESOLVER_CONFIG_FILE_REGEX.test(filePath)) {
+      this.log.debug(`Resolver configuration ${eventType}:`, filePath);
+      await this.spider.handleResolverConfigChange();
+      await this.refreshByCurrentView();
       return;
     }
 

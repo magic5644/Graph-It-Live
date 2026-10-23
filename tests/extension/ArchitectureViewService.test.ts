@@ -240,6 +240,29 @@ describe("ArchitectureViewService", () => {
     expect(summaries().map(summary => summary.stale)).toEqual([false, true]);
   });
 
+  // #419: the build never reads a resolver config; only the re-index that its change starts does.
+  it("marks stale for a resolver config change, even one written before the build", async () => {
+    const config = path.join(root, "packages/app/tsconfig.json");
+    await fs.mkdir(path.dirname(config), { recursive: true });
+    await fs.writeFile(config, "{}");
+    const earlier = new Date(Date.now() - 1000);
+    await fs.utimes(config, earlier, earlier);
+    let release!: () => void;
+    const gate = new Promise<void>(resolve => { release = resolve; });
+    const analyze = analyzerFor(root, workspace);
+    const service = createService({ analyzeFile: async (filePath) => { await gate; return analyze(filePath); } });
+    const running = service.build();
+    service.markStale(config, "change");
+    release();
+    await running;
+    expect(summaries().map(summary => summary.stale)).toEqual([true]);
+
+    const next = createService();
+    await next.build();
+    next.markStale(path.join(root, "package.json"), "change");
+    expect(summaries().map(summary => summary.stale)).toEqual([true, false, true]);
+  });
+
   it("ignores changes to files outside the graph made during a build", async () => {
     let release!: () => void;
     const gate = new Promise<void>(resolve => { release = resolve; });

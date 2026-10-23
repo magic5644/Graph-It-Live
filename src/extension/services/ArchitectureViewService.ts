@@ -46,6 +46,7 @@ import {
   type ArchitectureUnitEvidenceCommand,
   type ArchitectureWebviewCommand,
 } from "@/shared/architecture-types";
+import { RESOLVER_CONFIG_FILE_REGEX } from "@/shared/constants";
 import type { CommunityMode } from "@/shared/graph-types";
 import { normalizePath } from "@/shared/path";
 import { validateWorkspacePath } from "@/shared/pathSecurity";
@@ -480,21 +481,21 @@ export class ArchitectureViewService {
   /**
    * Marks the cached summary stale when the change can alter it: a file of the graph changed or
    * was deleted, or a file was created (no path: any change). Files the graph never read (build
-   * output, ignored folders) leave it as it is; the rule files at the root always count. During a
-   * build, the build's own summary carries it.
+   * output, ignored folders) leave it as it is; the rule files at the root and resolver configs
+   * always count. During a build, the build's own summary carries it.
    * ponytail: any created file counts, ignored ones included; check the collector's ignore rules if that shows the banner for nothing.
    */
   markStale(filePath?: string, eventType?: "create" | "change" | "delete"): void {
     if (this.disposed) return;
     const relative = filePath === undefined ? undefined : normalizePath(path.relative(this.options.workspaceRoot, filePath));
-    const rulesFile = relative === ARCHITECTURE_CONFIG_FILE || relative === ARCHITECTURE_BASELINE_FILE;
+    const configFile = RESOLVER_CONFIG_FILE_REGEX.test(relative ?? "") || relative === ARCHITECTURE_CONFIG_FILE || relative === ARCHITECTURE_BASELINE_FILE;
     if (this.running) {
       if (this.readByBuild(filePath, eventType, this.running.startedAt)) return;
-      if (relative === undefined || eventType === "create" || rulesFile) this.changedDuringBuild.any = true;
+      if (relative === undefined || eventType === "create" || configFile) this.changedDuringBuild.any = true;
       else this.changedDuringBuild.files.add(relative);
       return;
     }
-    if (relative !== undefined && eventType !== "create" && !rulesFile && !this.graph?.files.has(relative)) return;
+    if (relative !== undefined && eventType !== "create" && !configFile && !this.graph?.files.has(relative)) return;
     if (!this.summary || this.summary.stale || this.readByBuild(filePath, eventType, this.graph?.startedAt)) return;
     this.summary = { ...this.summary, stale: true };
     this.options.post(this.summary);
@@ -502,10 +503,11 @@ export class ArchitectureViewService {
 
   /**
    * A late event for content the build already read. A created file still counts while indexed
-   * files import it unresolved: only their pending re-analysis adds those edges (#387).
+   * files import it unresolved: only their pending re-analysis adds those edges (#387). The build
+   * never reads a resolver config: only the re-index its change starts does (#419).
    */
   private readByBuild(filePath: string | undefined, eventType: "create" | "change" | "delete" | undefined, startedAt: number | undefined): boolean {
-    if (!writtenBefore(filePath, eventType, startedAt)) return false;
+    if (!writtenBefore(filePath, eventType, startedAt) || RESOLVER_CONFIG_FILE_REGEX.test(filePath!)) return false;
     return eventType !== "create" || this.options.unresolvedImportersOf(filePath!).length === 0;
   }
 

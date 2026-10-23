@@ -228,9 +228,10 @@ describe("GraphProvider", () => {
     const spider = getService(graphProviderServiceTokens.spider);
     expect(spider).toBeDefined();
     expect(Spider).toHaveBeenCalled();
-    // Source files, and the architecture rule files the Architecture view reads.
-    expect(vscode.workspace.createFileSystemWatcher).toHaveBeenCalledTimes(2);
+    // Source files, the architecture rule files the Architecture view reads, and the resolver configs (#419).
+    expect(vscode.workspace.createFileSystemWatcher).toHaveBeenCalledTimes(3);
     expect(vscode.workspace.createFileSystemWatcher).toHaveBeenCalledWith("**/graphit.architecture{,.baseline}.json");
+    expect(vscode.workspace.createFileSystemWatcher).toHaveBeenCalledWith("**/{package,tsconfig*}.json");
   });
 
   it("should update graph when updateGraph is called", async () => {

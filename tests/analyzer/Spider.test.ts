@@ -350,6 +350,53 @@ describe('Spider - reanalyzeUnresolvedImporters', () => {
   });
 });
 
+// #419: a tsconfig `paths` change re-resolves importers whose own mtime never moves.
+describe('Spider - handleResolverConfigChange', () => {
+  let tmpDir: string;
+  let spider: Spider;
+  let app: string;
+  let target: string;
+  const writeTsConfig = (paths: Record<string, string[]>) =>
+    fs.writeFile(path.join(tmpDir, 'tsconfig.json'), JSON.stringify({ compilerOptions: { baseUrl: '.', paths } }));
+
+  beforeEach(async () => {
+    tmpDir = await fs.realpath(await fs.mkdtemp(path.join(os.tmpdir(), 'graph-it-resolver-config-')));
+    app = path.join(tmpDir, 'app.ts');
+    target = path.join(tmpDir, 'lib', 'target.ts');
+    await fs.mkdir(path.dirname(target));
+    await fs.writeFile(target, 'export const target = 1;\n');
+    await fs.writeFile(app, "import { target } from '@lib/target';\n");
+    await writeTsConfig({});
+    spider = new SpiderBuilder().withRootDir(tmpDir).withReverseIndex(true).build();
+    await spider.analyze(app);
+  });
+
+  afterEach(async () => {
+    await fs.rm(tmpDir, { recursive: true, force: true });
+  });
+
+  it('adds the edge of an added alias and removes it once the alias is removed', async () => {
+    expect(await spider.analyzeFromIndex(app)).toEqual([]);
+
+    await writeTsConfig({ '@lib/*': ['lib/*'] });
+    expect(await spider.handleResolverConfigChange()).toBe(1);
+    expect((await spider.analyzeFromIndex(app)).map((d) => d.path)).toEqual([np(target)]);
+    expect((await spider.findReferencingFiles(target)).map((d) => d.path)).toEqual([np(app)]);
+
+    await writeTsConfig({});
+    await spider.handleResolverConfigChange();
+    expect(await spider.analyzeFromIndex(app)).toEqual([]);
+    expect(await spider.findReferencingFiles(target)).toEqual([]);
+  });
+
+  it('only drops the caches without a reverse index', async () => {
+    spider.disableReverseIndex();
+    await writeTsConfig({ '@lib/*': ['lib/*'] });
+    expect(await spider.handleResolverConfigChange()).toBe(0);
+    expect((await spider.analyze(app)).map((d) => d.path)).toEqual([np(target)]);
+  });
+});
+
 describe('Spider - Reverse Index Management', () => {
   let spider: Spider;
 

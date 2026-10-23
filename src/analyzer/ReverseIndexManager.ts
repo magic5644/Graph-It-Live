@@ -85,6 +85,11 @@ export class ReverseIndexManager {
     return this.reverseIndex?.getUnresolvedImportersOf(filePath) ?? [];
   }
 
+  /** Empty when the reverse index is off. */
+  getIndexedFiles(): string[] {
+    return this.reverseIndex?.getIndexedFiles() ?? [];
+  }
+
   getCallerCount(targetPath: string): number {
     return this.reverseIndex ? this.reverseIndex.getCallerCount(targetPath) : 0;
   }
