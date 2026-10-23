@@ -18,7 +18,7 @@ import {
 import { PathResolver } from '../../../src/analyzer/utils/PathResolver';
 import { formatToolResponse } from '../../../src/mcp/responseFormatter';
 import { workerState } from '../../../src/mcp/shared/state';
-import { executeGraphContext } from '../../../src/mcp/tools/graphContext';
+import { executeGraphContext, executeGraphContextWithIndexes } from '../../../src/mcp/tools/graphContext';
 import {
   createErrorResponse,
   createSuccessResponse,
@@ -418,6 +418,134 @@ describe('graph_context MCP contract', () => {
     expect(parsed.success).toBe(true);
     expect(parsed.data.mode).toBe('search');
     expect(parsed.data.nodes).toEqual(result.nodes);
+  });
+});
+
+describe('graph_context exact identifier ranking', () => {
+  // Two exact `normalizePath` definitions among camelCase and snake_case partial names.
+  const FIXTURE: Record<string, string[]> = {
+    'src/graph/PathFinder.ts': ['normalizeRelativePath'],
+    'src/graph/ScopeMatcher.ts': ['normalizeResolvedPath'],
+    'src/graph/Resolver.ts': ['normalizeRelativePath'],
+    'src/shared/path.ts': ['normalizePath', 'normalizePathForComparison'],
+    'src/legacy/paths.ts': ['normalize_path_segments', 'index'],
+    'src/legacy/scope.ts': ['$scope', 'scopeIndex'],
+    'src/webview/path.ts': ['normalizePath'],
+  };
+  let workspaceRoot: string;
+  let spider: Spider;
+  let indexer: CallGraphIndexer;
+
+  beforeEach(async () => {
+    workspaceRoot = normalizePath(await fs.mkdtemp(path.join(os.tmpdir(), 'graph-context-exact-')));
+    spider = new SpiderBuilder().withRootDir(workspaceRoot).withMaxDepth(3).withReverseIndex(true).build();
+    indexer = new CallGraphIndexer(SQL_WASM_PATH);
+    await indexer.init();
+    for (const [relativePath, names] of Object.entries(FIXTURE)) {
+      const filePath = normalizePath(path.join(workspaceRoot, relativePath));
+      await fs.mkdir(path.dirname(filePath), { recursive: true });
+      await fs.writeFile(filePath, names.map(name => `export function ${name}() {}\n`).join(''));
+      await indexFile(indexer, filePath, names.map((name, index) => makeNode(filePath, name, index + 1)));
+    }
+
+    workerState.spider = spider;
+    workerState.parser = new Parser();
+    workerState.resolver = new PathResolver(undefined, true, workspaceRoot);
+    workerState.config = { rootDir: workspaceRoot, excludeNodeModules: true, maxDepth: 3 };
+    workerState.callGraphIndexer = indexer;
+    workerState.callGraphIndexedRoot = workspaceRoot;
+    workerState.isReady = true;
+  });
+
+  afterEach(async () => {
+    await spider.dispose();
+    workerState.spider = null;
+    workerState.reset();
+    await fs.rm(workspaceRoot, { recursive: true, force: true });
+  });
+
+  async function rankedSymbols(
+    question: string,
+    scope?: string,
+    execute = executeGraphContext,
+  ): Promise<string[]> {
+    const result = await execute({
+      mode: 'search',
+      question,
+      scope,
+      depth: 1,
+      maxNodes: 3,
+      tokenBudget: 500,
+      detail: 'compact',
+    });
+    const formatted = formatToolResponse(
+      createSuccessResponse(result, 1, workspaceRoot),
+      'json',
+      'graphitlive_graph_context',
+      'compact',
+    );
+    const { data } = JSON.parse(formatted.content[0].text) as { data: GraphContextResponse };
+    return data.nodes.filter(node => node.kind === 'symbol').map(node => `${node.path}#${node.name}`);
+  }
+
+  it('serializes exact definitions before partial matches under a small budget', async () => {
+    const ranked = await rankedSymbols('normalizePath');
+
+    expect(ranked.slice(0, 2)).toEqual(['src/shared/path.ts#normalizePath', 'src/webview/path.ts#normalizePath']);
+    expect(await rankedSymbols('normalizePath')).toEqual(ranked);
+  });
+
+  it('applies the same ordering to the VS Code LM tool entry point', async () => {
+    const ranked = await rankedSymbols('normalizePath', undefined, params => executeGraphContextWithIndexes(params, {
+      rootDir: workspaceRoot,
+      spider,
+      callGraphIndexer: indexer,
+    }));
+
+    expect(ranked.slice(0, 2)).toEqual(['src/shared/path.ts#normalizePath', 'src/webview/path.ts#normalizePath']);
+  });
+
+  it('matches exact identifiers case-insensitively', async () => {
+    const ranked = await rankedSymbols('NormalizePath');
+
+    expect(ranked.slice(0, 2)).toEqual(['src/shared/path.ts#normalizePath', 'src/webview/path.ts#normalizePath']);
+  });
+
+  it('keeps $ in an exact identifier', async () => {
+    expect((await rankedSymbols('$scope'))[0]).toBe('src/legacy/scope.ts#$scope');
+  });
+
+  it('does not boost a symbol named after a stopword', async () => {
+    expect((await rankedSymbols('scope index'))[0]).toBe('src/legacy/scope.ts#scopeIndex');
+  });
+
+  it('ranks an exact snake_case identifier first', async () => {
+    expect((await rankedSymbols('normalize_path_segments'))[0]).toBe('src/legacy/paths.ts#normalize_path_segments');
+  });
+
+  it('keeps the exact definition first inside a natural-language question', async () => {
+    const ranked = await rankedSymbols('where is normalizePath defined');
+
+    expect(ranked.slice(0, 2)).toEqual(['src/shared/path.ts#normalizePath', 'src/webview/path.ts#normalizePath']);
+  });
+
+  it('filters exact candidates by scope', async () => {
+    const ranked = await rankedSymbols('normalizePath', 'src/webview/**');
+
+    expect(ranked).toEqual(['src/webview/path.ts#normalizePath']);
+  });
+
+  it('still ranks partial matches when no name matches exactly', async () => {
+    const ranked = await rankedSymbols('normalizeRelative');
+
+    expect(ranked.slice(0, 2)).toEqual([
+      'src/graph/PathFinder.ts#normalizeRelativePath',
+      'src/graph/Resolver.ts#normalizeRelativePath',
+    ]);
+  });
+
+  it('returns no symbols for an unknown identifier', async () => {
+    expect(await rankedSymbols('unknownIdentifierXyz')).toEqual([]);
   });
 });
 

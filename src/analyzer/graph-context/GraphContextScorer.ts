@@ -17,6 +17,9 @@ const STOPWORDS = new Set([
 ]);
 
 const WINDOWS_ABSOLUTE_PATH = /^[a-zA-Z]:\//;
+// Outweighs every per-keyword score so a name equal to a whole question word ranks
+// before names that only share its split tokens (`normalizePath` vs `normalizeRelativePath`).
+const EXACT_IDENTIFIER_SCORE = 1000;
 
 export interface ScoredGraphContextNode {
   node: GraphContextNode;
@@ -52,11 +55,14 @@ export class GraphContextScorer {
 
     const ftsScores = this.getFtsScores(keywords, scope);
     const questionTokens = new Set(splitIdentifier(question));
+    const questionIdentifiers = new Set(
+      question.toLowerCase().split(/[^\w$]+/).filter(word => !STOPWORDS.has(word)),
+    );
 
     return nodes
       .map((node): ScoredGraphContextNode => ({
         node,
-        score: this.scoreNode(node, keywords, questionTokens, ftsScores),
+        score: this.scoreNode(node, keywords, questionTokens, questionIdentifiers, ftsScores),
       }))
       .filter(candidate => candidate.score > 0)
       .sort(compareScoredNodes);
@@ -107,6 +113,7 @@ export class GraphContextScorer {
     node: GraphContextNode,
     keywords: string[],
     questionTokens: Set<string>,
+    questionIdentifiers: Set<string>,
     ftsScores: Map<string, number>,
   ): number {
     const absolutePath = qualifyPath(this.workspaceRoot, node.path);
@@ -115,18 +122,8 @@ export class GraphContextScorer {
       : ftsScores.get(nodeLookupKey(absolutePath, node.name, node.startLine))
         ?? ftsScores.get(nodeLookupKey(absolutePath, node.name))
         ?? 0;
-    const normalizedName = node.name.toLowerCase();
-    const nameTokens = new Set(splitIdentifier(node.name));
-    const pathTokens = new Set(splitIdentifier(node.path ?? ''));
-    let score = ftsScore * 20;
-
-    for (const keyword of keywords) {
-      if (normalizedName === keyword) score += 16;
-      else if (normalizedName.startsWith(keyword)) score += 10;
-      if (nameTokens.has(keyword)) score += 8;
-      if (pathTokens.has(keyword)) score += 4;
-      else if (node.path?.toLowerCase().includes(keyword)) score += 2;
-    }
+    let score = ftsScore * 20 + keywordScore(node, keywords);
+    if (questionIdentifiers.has(node.name.toLowerCase())) score += EXACT_IDENTIFIER_SCORE;
 
     if (questionTokens.has(node.kind)) score += 8;
     if (questionTokens.has('file') && node.kind === 'file') score += 8;
@@ -138,6 +135,23 @@ export class GraphContextScorer {
 
     return score;
   }
+}
+
+function keywordScore(node: GraphContextNode, keywords: string[]): number {
+  const normalizedName = node.name.toLowerCase();
+  const nameTokens = new Set(splitIdentifier(node.name));
+  const pathTokens = new Set(splitIdentifier(node.path ?? ''));
+  let score = 0;
+
+  for (const keyword of keywords) {
+    if (normalizedName === keyword) score += 16;
+    else if (normalizedName.startsWith(keyword)) score += 10;
+    if (nameTokens.has(keyword)) score += 8;
+    if (pathTokens.has(keyword)) score += 4;
+    else if (node.path?.toLowerCase().includes(keyword)) score += 2;
+  }
+
+  return score;
 }
 
 function hasIntentStem(tokens: Set<string>, stems: string[]): boolean {
