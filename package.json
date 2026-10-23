@@ -108,7 +108,8 @@
         {
           "id": "graph-it-live.branchWatchView",
           "name": "Branch status",
-          "icon": "$(git-branch)"
+          "icon": "$(git-branch)",
+          "visibility": "collapsed"
         }
       ]
     },

@@ -10,6 +10,13 @@ interface BranchWatchSnapshot {
 }
 
 suite('Branch Watch', () => {
+  // Opt-in: until it is needed, its view leaves the panel width to the Dependency Graph (#423).
+  test('contributes its view collapsed', () => {
+    const views = vscode.extensions.getExtension('magic5644.graph-it-live')?.packageJSON.contributes.views as Record<string, Array<{ id: string; visibility?: string }>>;
+    const view = views['graph-it-live-explorer'].find((entry) => entry.id === 'graph-it-live.branchWatchView');
+    assert.strictEqual(view?.visibility, 'collapsed');
+  });
+
   test('is opt-in, contributes the native commands, and does not open a panel automatically', async () => {
     const commands = await vscode.commands.getCommands(true);
     for (const command of [
