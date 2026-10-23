@@ -162,6 +162,8 @@ export function buildArchitectureUnits(graph: ArchitectureGraph, workspaceRoot: 
     upwardEdges: unitEdges.filter((edge) => edge.kind === "upward").length,
     /** Groups of two or more units that depend on each other. */
     cycles: components.filter((members) => members.length > 1).length,
+    /** Distinct layers of the units. */
+    layerCount: new Set(units.map((unit) => unit.layer)).size,
     /** Units per role, in role priority order; roles no unit has are left out. */
     roleCounts: Object.fromEntries(UNIT_ROLES.flatMap((role) => {
       const count = units.filter((unit) => unit.role === role).length;

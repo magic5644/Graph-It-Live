@@ -51,12 +51,17 @@ const units: ArchitectureUnitLevel = {
   ],
   upwardEdges: 0,
   cycles: 1,
+  layerCount: 3,
   roleCounts: { frontend: 1, library: 3, unknown: 1 },
   totals: { files: 7, fileEdges: 7, intraUnitEdges: 1, interUnitEdges: 6 },
   groupUnits: { 1: "apps/web", 2: "apps/web", 3: "packages/ui", 4: "packages/core", 5: "packages/types", 6: "tool" },
   groupLayers: { 1: 1, 2: 0, 3: 0, 4: 0, 5: 0, 6: 0 },
   groupEdgeKinds: { "1>2": "down" },
   nestedGroups: [],
+  groupsByUnit: {
+    "apps/web": { totalGroups: 2, hiddenGroups: 0, hiddenGroupEdges: 0 },
+    "packages/ui": { totalGroups: 1, hiddenGroups: 0, hiddenGroupEdges: 0 }, "packages/core": { totalGroups: 1, hiddenGroups: 0, hiddenGroupEdges: 0 }, "packages/types": { totalGroups: 1, hiddenGroups: 0, hiddenGroupEdges: 0 }, tool: { totalGroups: 1, hiddenGroups: 0, hiddenGroupEdges: 0 },
+  },
 };
 
 const summary: ArchitectureSummaryMessage = {
@@ -115,7 +120,7 @@ describe("levelSummary", () => {
     const capped = {
       ...summary,
       isolatedGroups: [2, 6],
-      units: { ...units, groupsByUnit: { "apps/web": { totalGroups: 5, hiddenGroups: 3, hiddenGroupEdges: 4 } } },
+      units: { ...units, groupsByUnit: { ...units.groupsByUnit, "apps/web": { totalGroups: 5, hiddenGroups: 3, hiddenGroupEdges: 4 } } },
     };
     expect(levelSummary(capped, "apps/web")).toMatchObject({ totalGroups: 5, hiddenGroups: 3, hiddenGroupEdges: 4, isolatedGroups: [2] });
     expect(levelSummary(capped, "tool")).toMatchObject({ totalGroups: 1, hiddenGroups: 0, hiddenGroupEdges: 0, isolatedGroups: [6] });

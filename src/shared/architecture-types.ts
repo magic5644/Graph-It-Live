@@ -31,7 +31,7 @@ export type ArchitectureUnitLevel = Omit<ArchitectureUnits, "context"> & {
   /** Groups holding sub-folders: entering one asks for its level (architectureEnterFolder). */
   nestedGroups: number[];
   /** By unit key: the unit's groups, and its groups and group edges left out by the cap. */
-  groupsByUnit?: Record<string, { totalGroups: number; hiddenGroups: number; hiddenGroupEdges: number }>;
+  groupsByUnit: Record<string, { totalGroups: number; hiddenGroups: number; hiddenGroupEdges: number }>;
   /** Unit keys of every cycle (strongly connected component of two or more units): each is drawn as one block. */
   cycleUnits?: string[][];
 };
@@ -173,6 +173,8 @@ export interface ArchitectureDependentsResultMessage {
   seedGroups: string[];
   /** Every file reached, the seed's own groups included. */
   reachedFiles: number;
+  /** Reached files and groups outside the seed's own groups: the panel's header. */
+  totals: { files: number; groups: number };
   groups: DependentGroup[];
   insideSeedGroup: { directFiles: number; transitiveFiles: number };
   maxDepthReached: boolean;

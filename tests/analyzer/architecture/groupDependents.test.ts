@@ -39,6 +39,7 @@ describe("computeGroupDependents", () => {
       ],
       insideSeedGroup: { directFiles: 0, transitiveFiles: 0 },
       reachedFiles: 3,
+      totals: { files: 3, groups: 3 },
       maxDepthReached: false,
       provenance: DEPENDENTS_PROVENANCE,
     });
@@ -90,6 +91,9 @@ describe("computeGroupDependents", () => {
     expect(summary(graph, ["core/a.ts"])).toMatchObject({
       groups: [{ key: "app", directFiles: 0, transitiveFiles: 1, minDepth: 3 }],
       insideSeedGroup: { directFiles: 1, transitiveFiles: 2 },
+      // The seed's own group is left out of the totals.
+      reachedFiles: 3,
+      totals: { files: 1, groups: 1 },
     });
     // A group seed: every file of core, so only app depends on it.
     expect(summary(graph, ["core/a.ts", "core/b.ts", "core/c.ts"])).toMatchObject({

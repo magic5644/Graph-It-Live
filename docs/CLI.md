@@ -757,6 +757,7 @@ Files without a folder domain (`path`) or without any import edge (`louvain`) ge
 | `units` | `key` (folder or `(root)`), `name` (`package.json` name, else the folder), `fileCount`, `internalEdgeCount`, `layer` (0 = depends on no other unit; the units of a cycle share a layer), `role` (`function`, `micro-frontend`, `frontend`, `service`, `library`, `tooling` or `unknown`), `confidence` (`inferred`, or `declared` by `roles` in `graphit.architecture.json`) and `evidence` (`role` and `detail` of every match, the unit's role first by priority), deepest layer last |
 | `unitEdges` | `from`, `to`, `fileEdgeCount`, `kind`: `down`, `upward` (to the same or a higher layer) or `cycle` (both units in one cycle), heaviest first |
 | `upwardEdges`, `cycles` | number of upward edges, and of groups of units that depend on each other |
+| `layerCount` | number of distinct layers of the units (the Architecture view's header) |
 | `roleCounts` | units per role, in role priority order (see *Architecture view* in the README for the evidence of each role) |
 | `totals` | `files`, `fileEdges`, `intraUnitEdges`, `interUnitEdges` |
 

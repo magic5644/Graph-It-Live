@@ -28,7 +28,7 @@ interface ArchitectureNode {
   dependentCount: number;
 }
 
-interface ArchitectureEdge {
+export interface ArchitectureEdge {
   source: string;
   target: string;
   sourceRelative: string;
@@ -44,7 +44,7 @@ interface ArchitectureAccumulator {
   dependentCount: Map<string, number>;
 }
 
-interface FailedArchitectureFile {
+export interface FailedArchitectureFile {
   filePath: string;
   relativePath: string;
   reason: string;

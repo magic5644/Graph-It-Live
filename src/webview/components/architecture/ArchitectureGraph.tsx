@@ -438,11 +438,10 @@ function UnitsSummary({ summary, minImports, onCycle }: Readonly<UnitsSummaryPro
   const level = summary.units;
   if (!level) return null;
   const hidden = hiddenUnitEdgeCount(level, minImports, summary.rules);
-  const layers = new Set(level.units.map((unit) => unit.layer)).size;
   return (
     <span>
       <span title="Packages (folders holding a package.json), else top-level folders">{plural(level.units.length, "unit")}</span>
-        {" · "}{plural(layers, "layer")}{" · "}
+        {" · "}{plural(level.layerCount, "layer")}{" · "}
         <span style={{ color: level.upwardEdges > 0 ? RED : undefined }} title="Unit edges to a unit on the same or a higher layer">{level.upwardEdges} upward</span>
         {" · "}
         {level.cycles > 0
@@ -882,7 +881,6 @@ function DependentsPanel({ dependents, tabs, onOpen, onRow, onMore, onClear }: R
   // Keyboard users land in the panel when it opens for a new seed.
   useEffect(() => clearRef.current?.focus(), [dependents.seed]);
   const { result } = dependents;
-  const outside = result?.groups.reduce((total, group) => total + group.transitiveFiles, 0) ?? 0;
   const listStyle = { listStyle: "none", padding: 0, margin: 0 } as const;
   return (
     <section aria-label="Dependents" style={panelStyle}>
@@ -890,7 +888,7 @@ function DependentsPanel({ dependents, tabs, onOpen, onRow, onMore, onClear }: R
       <div style={{ display: "flex", gap: 8, alignItems: "baseline" }}>
         <strong style={{ flex: 1 }}>
           {result
-            ? `Depends on ${result.seedLabel}: ${plural(outside, "file")} in ${plural(result.groups.length, "group")} (static imports)`
+            ? `Depends on ${result.seedLabel}: ${plural(result.totals.files, "file")} in ${plural(result.totals.groups, "group")} (static imports)`
             : `Dependents of ${dependents.title}…`}
         </strong>
         <button type="button" ref={clearRef} aria-label="Clear dependents" title="Clear the dependents and their highlight" onClick={onClear}>Clear</button>

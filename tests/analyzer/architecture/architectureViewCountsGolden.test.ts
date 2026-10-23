@@ -3,7 +3,9 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { Parser } from "../../../src/analyzer/Parser";
 import { SpiderBuilder } from "../../../src/analyzer/SpiderBuilder";
 import { PathResolver } from "../../../src/analyzer/utils/PathResolver";
+import { run as runArchitectureCli } from "../../../src/cli/commands/architecture";
 import { workerState } from "../../../src/mcp/shared/state";
+import { executeExploreArchitecture } from "../../../src/mcp/tools/architecture";
 import type {
   ArchitectureDependentsResultMessage,
   ArchitectureDependentsSeed,
@@ -42,9 +44,12 @@ describe.each(fixtures)("architecture view counts: %s", (fixture) => {
     const dependents = async (seed: ArchitectureDependentsSeed, unit?: string) => {
       await service.handleWebviewMessage({ command: "architectureDependents", revision, unit, seed });
       const result = posted.at(-1) as ArchitectureDependentsResultMessage;
+      const files = result.groups.reduce((total, group) => total + group.transitiveFiles, 0);
+      // Since #424 the analyzer sends these totals: they equal what the panel derived.
+      expect(result.totals).toEqual({ files, groups: result.groups.length });
       return {
         seed: result.seedLabel,
-        files: result.groups.reduce((total, group) => total + group.transitiveFiles, 0),
+        files,
         groups: result.groups.length,
         reachedFiles: result.reachedFiles,
         insideSeedGroup: result.insideSeedGroup,
@@ -61,6 +66,7 @@ describe.each(fixtures)("architecture view counts: %s", (fixture) => {
     const dependentsTotals = [];
     for (const { seed, unit } of seeds as { seed: ArchitectureDependentsSeed; unit?: string }[]) dependentsTotals.push(await dependents(seed, unit));
 
+    if (level) expect(level.layerCount).toBe(new Set(level.units.map((unit) => unit.layer)).size);
     const counts = {
       totalGroups: summary.totalGroups,
       hiddenGroups: summary.hiddenGroups,
@@ -74,5 +80,33 @@ describe.each(fixtures)("architecture view counts: %s", (fixture) => {
       dependents: dependentsTotals,
     };
     await expect(JSON.stringify(counts, null, 2) + "\n").toMatchFileSnapshot(`__snapshots__/${fixture}.${communityMode}.view-counts.json`);
+  });
+
+  // The view's summary, `graph-it architecture` JSON and explore_architecture report the same totals.
+  it.each(modes)("reports the same totals in the view, the CLI and explore_architecture in %s mode", async (communityMode) => {
+    const runtime = { workspaceRoot: rootDir, ensureIndexed: async () => undefined, loadState: () => null };
+    const { summary } = await buildView(rootDir, [], communityMode);
+    if (communityMode === "path") {
+      const cli = JSON.parse(await runArchitectureCli(["--level", "units"], runtime as never, "json"));
+      const mcp = await executeExploreArchitecture({ level: "units", limit: 500 });
+      const view = summary.units!;
+      expect(view.units).toHaveLength(cli.units.length);
+      expect(mcp.page).toMatchObject({ totalUnits: cli.units.length, totalUnitEdges: cli.unitEdges.length });
+      for (const field of ["layerCount", "upwardEdges", "cycles", "totals"] as const) {
+        expect(mcp[field], field).toEqual(cli[field]);
+        expect(view[field], field).toEqual(cli[field]);
+      }
+      return;
+    }
+    const cli = JSON.parse(await runArchitectureCli(["--groups", "--communities", "louvain"], runtime as never, "json"));
+    const mcp = await executeExploreArchitecture({ communityMode, limit: 500 });
+    expect(summary.revision).toBe(cli.context.revision);
+    expect(summary.totalGroups).toBe(cli.groups.length);
+    expect(summary.groupEdges.length + summary.hiddenGroupEdges).toBe(cli.groupEdges.length);
+    expect(mcp.page).toMatchObject({ totalGroups: cli.groups.length, totalGroupEdges: cli.groupEdges.length });
+    for (const field of ["totals", "unassigned"] as const) {
+      expect(mcp[field as keyof typeof mcp], field).toEqual(cli[field]);
+      expect(summary[field], field).toEqual(cli[field]);
+    }
   });
 });
