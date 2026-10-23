@@ -479,6 +479,11 @@ export class Spider {
     }
   }
 
+  /** Indexed files whose unresolved imports may resolve to `filePath` once it exists. */
+  getUnresolvedImportersOf(filePath: string): string[] {
+    return this.reverseIndexManager.getUnresolvedImportersOf(filePath);
+  }
+
   /**
    * Re-analyses the files whose unresolved imports may now resolve to a created file:
    * their own mtime never moves, so the reverse index would keep the missing edge.
