@@ -9,7 +9,7 @@ const webviewDir = path.resolve(__dirname, "../../../../src/webview/components/a
 const FORBIDDEN: { name: string; pattern: RegExp }[] = [
   {
     name: "a reduce summing an architecture count",
-    pattern: /\.reduce\([^;]*\b(?:transitiveFiles|directFiles|reachedFiles|fileCount|fileEdgeCount|internalEdgeCount|totalGroups|hiddenGroups|hiddenGroupEdges)\b/,
+    pattern: /\.reduce\([^;]*?\b(?:transitiveFiles|directFiles|reachedFiles|fileCount|fileEdgeCount|internalEdgeCount|totalGroups|hiddenGroups|hiddenGroupEdges)\b/,
   },
   { name: "a distinct count of layers, units or groups", pattern: /new Set\([^;]*\.(?:layer|unit|units|groupId|communityId)\b[^;]*\)\.size/ },
   { name: "a fallback for groupsByUnit", pattern: /groupsByUnit\?\./ },
@@ -34,12 +34,16 @@ describe("architecture webview aggregation guard", () => {
     expect(violations("colors: new Set(units.map((node) => String(node.data(\"color\")))).size,")).toEqual([]);
   });
 
+  it("recognises them over several lines", () => {
+    expect(violations("const outside = result.groups\n  .reduce((total, group) =>\n    total + group.transitiveFiles, 0);"))
+      .toEqual(["a reduce summing an architecture count"]);
+  });
+
   it("finds no architecture aggregation in src/webview/components/architecture", () => {
     const files = sourceFiles(webviewDir);
     expect(files.length).toBeGreaterThan(0);
-    const found = files.flatMap((file) =>
-      fs.readFileSync(file, "utf8").split("\n").flatMap((line, index) =>
-        violations(line).map((name) => `${path.relative(webviewDir, file)}:${index + 1}: ${name}`)));
+    // Whole files, so a chain split over lines is still caught.
+    const found = files.flatMap((file) => violations(fs.readFileSync(file, "utf8")).map((name) => `${path.relative(webviewDir, file)}: ${name}`));
     expect(found).toEqual([]);
   });
 });

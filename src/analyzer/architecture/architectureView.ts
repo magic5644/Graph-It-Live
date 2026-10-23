@@ -202,9 +202,9 @@ export function levelMatrix(graph: ArchitectureGraph, source: UnitSource | undef
   return { matrix: { ...matrix, rows }, nestedGroups: nestedGroups.filter(inLevel), unitsLevel };
 }
 
-/** The hidden groups (of `unit`, if set) whose label or key holds the query, case-insensitive: the first labels and how many match. */
+/** The hidden groups (of `unit`, if set) whose label or key holds the query (its first 256 characters once trimmed), case-insensitive: the first labels and how many match. */
 export function findHiddenGroups(hidden: readonly HiddenGroup[], query: string, unit?: string, limit = 10) {
-  const needle = query.trim().toLowerCase();
+  const needle = query.trim().toLowerCase().slice(0, 256);
   const matches = needle === "" ? [] : hidden.filter((group) =>
     (unit === undefined || group.unit === unit) && `${group.label}\n${group.key}`.toLowerCase().includes(needle));
   return { matches: matches.slice(0, limit).map((group) => group.label), total: matches.length };
