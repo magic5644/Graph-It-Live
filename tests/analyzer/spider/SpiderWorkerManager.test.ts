@@ -49,7 +49,7 @@ describe('SpiderWorkerManager', () => {
       duration: 5,
       cancelled: false,
       data: [
-        { filePath: `${root}/src/a.ts`, dependencies: [dep], outOfRootImports: ['@core/x'], mtime: 1, size: 1 },
+        { filePath: `${root}/src/a.ts`, dependencies: [dep], outOfRootImports: ['@core/x'], unresolvedImports: ['./z'], mtime: 1, size: 1 },
         { filePath: `${root}/src/y.ts`, dependencies: [], mtime: 1, size: 1 },
       ],
     });
@@ -60,6 +60,7 @@ describe('SpiderWorkerManager', () => {
     expect(cache.get(`${root}/src/a.ts`)).toEqual([dep]);
     expect(reverseIndex.getReferencingFiles(`${root}/src/y.ts`)).toHaveLength(1);
     expect(reverseIndex.getOutOfRootImports()).toEqual({ count: 1, examples: ['@core/x'] });
+    expect(reverseIndex.getUnresolvedImportersOf(`${root}/src/z.ts`)).toEqual([`${root}/src/a.ts`]);
   });
 
   it('reports out-of-root imports as unknown until the reverse index exists', () => {

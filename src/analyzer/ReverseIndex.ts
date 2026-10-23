@@ -1,4 +1,5 @@
 import * as fs from 'node:fs/promises';
+import * as path from 'node:path';
 import {
   ReverseIndexEntry,
   FileHash,
@@ -12,6 +13,12 @@ import type { OutOfRootImports } from './utils/workspaceBoundary';
 /** How many skipped specifiers getOutOfRootImports() reports */
 const OUT_OF_ROOT_EXAMPLES = 5;
 
+/** Separators splitting a module specifier into the names it may refer to (paths, dotted modules, Rust paths) */
+const SPECIFIER_SEGMENT = /[/\\.:]+/;
+
+/** File stems an import names through their parent directory (`./dir` → `dir/index.ts`) */
+const DIRECTORY_MODULE_STEMS = new Set(['index', '__init__', 'mod']);
+
 /** Logger instance for ReverseIndex */
 const log = getLogger('ReverseIndex');
 
@@ -19,7 +26,7 @@ const log = getLogger('ReverseIndex');
  * Current version of the serialized index format
  * Increment when making breaking changes to the format
  */
-const INDEX_VERSION = 2;
+const INDEX_VERSION = 3;
 
 /**
  * ReverseIndex - Maintains a mapping from target files to their referencing files
@@ -55,6 +62,12 @@ export class ReverseIndex {
   private readonly outOfRootImports: Map<string, string[]> = new Map();
 
   /**
+   * Maps source file path -> in-root module specifiers that resolved to nothing,
+   * so creating their target can re-analyse the source (its own mtime never moves)
+   */
+  private readonly unresolvedImports: Map<string, string[]> = new Map();
+
+  /**
    * Root directory of the workspace (used for validation on deserialize)
    */
   private readonly rootDir: string;
@@ -70,22 +83,29 @@ export class ReverseIndex {
    * @param fileHash Optional hash for staleness tracking
    * @param outOfRootImports Specifiers dropped by the workspace-root boundary;
    *   undefined keeps the ones already recorded (a cached re-add)
+   * @param unresolvedImports In-root specifiers that resolved to nothing;
+   *   undefined keeps the ones already recorded (a cached re-add)
    */
   addDependencies(
     sourcePath: string,
     dependencies: Dependency[],
     fileHash?: FileHash,
-    outOfRootImports?: string[]
+    outOfRootImports?: string[],
+    unresolvedImports?: string[]
   ): void {
     // Normalize paths for cross-platform consistency
     const normalizedSourcePath = normalizePath(sourcePath);
     const skipped = outOfRootImports ?? this.outOfRootImports.get(normalizedSourcePath);
+    const unresolved = unresolvedImports ?? this.unresolvedImports.get(normalizedSourcePath);
     
     // First, remove all existing entries from this source file
     // This handles the case where imports were removed
     this.removeDependenciesFromSource(normalizedSourcePath);
     if (skipped && skipped.length > 0) {
       this.outOfRootImports.set(normalizedSourcePath, skipped);
+    }
+    if (unresolved && unresolved.length > 0) {
+      this.unresolvedImports.set(normalizedSourcePath, unresolved);
     }
 
     // Add new entries
@@ -132,6 +152,7 @@ export class ReverseIndex {
     this.forwardMap.delete(normalizedSourcePath);
     this.fileHashes.delete(normalizedSourcePath);
     this.outOfRootImports.delete(normalizedSourcePath);
+    this.unresolvedImports.delete(normalizedSourcePath);
   }
 
   /**
@@ -259,6 +280,7 @@ export class ReverseIndex {
     this.forwardMap.clear();
     this.fileHashes.clear();
     this.outOfRootImports.clear();
+    this.unresolvedImports.clear();
   }
 
   /**
@@ -313,6 +335,7 @@ export class ReverseIndex {
       reverseMap: reverseMapObj,
       fileHashes: fileHashesObj,
       outOfRootImports: Object.fromEntries(this.outOfRootImports),
+      unresolvedImports: Object.fromEntries(this.unresolvedImports),
     };
   }
 
@@ -348,11 +371,8 @@ export class ReverseIndex {
       index.fileHashes.set(normalizePath(filePath), hash);
     }
 
-    for (const [sourcePath, specifiers] of Object.entries(data.outOfRootImports ?? {})) {
-      if (Array.isArray(specifiers)) {
-        index.outOfRootImports.set(normalizePath(sourcePath), specifiers.filter((s) => typeof s === 'string'));
-      }
-    }
+    restoreSpecifiers(data.outOfRootImports, index.outOfRootImports);
+    restoreSpecifiers(data.unresolvedImports, index.unresolvedImports);
 
     // Restore reverse map (paths are already normalized in serialized data)
     for (const [targetPath, entries] of Object.entries(data.reverseMap)) {
@@ -478,5 +498,35 @@ export class ReverseIndex {
       for (const specifier of skipped) specifiers.add(specifier);
     }
     return { count, examples: [...specifiers].sort((a, b) => a.localeCompare(b)).slice(0, OUT_OF_ROOT_EXAMPLES) };
+  }
+
+  /**
+   * Source files with an unresolved import that may name the given file, to re-analyse once it exists.
+   * shortcut: matches specifier segments against the file stem, so false positives cost one re-analysis;
+   * a resolver-exact reverse lookup would need every analyzer to expose its candidate paths.
+   */
+  getUnresolvedImportersOf(filePath: string): string[] {
+    const normalizedFilePath = normalizePath(filePath);
+    const stem = path.basename(normalizedFilePath).split('.')[0];
+    const names = new Set([stem]);
+    if (DIRECTORY_MODULE_STEMS.has(stem)) names.add(path.basename(path.dirname(normalizedFilePath)));
+
+    const importers: string[] = [];
+    for (const [sourcePath, specifiers] of this.unresolvedImports) {
+      if (sourcePath === normalizedFilePath) continue;
+      if (specifiers.some((specifier) => specifier.split(SPECIFIER_SEGMENT).some((segment) => names.has(segment)))) {
+        importers.push(sourcePath);
+      }
+    }
+    return importers;
+  }
+}
+
+/** Restores a serialized source path -> specifiers map, dropping malformed entries. */
+function restoreSpecifiers(data: Record<string, string[]> | undefined, target: Map<string, string[]>): void {
+  for (const [sourcePath, specifiers] of Object.entries(data ?? {})) {
+    if (Array.isArray(specifiers)) {
+      target.set(normalizePath(sourcePath), specifiers.filter((s) => typeof s === 'string'));
+    }
   }
 }

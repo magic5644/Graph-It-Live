@@ -282,6 +282,13 @@ function performFileInvalidation(
       if (workerState.symbolReverseIndex) {
         workerState.symbolReverseIndex.removeDependenciesFromSource(filePath);
       }
+
+      // Importers waiting on this file never change themselves, so re-resolve them now.
+      if (event === "add") {
+        workerState.spider.reanalyzeUnresolvedImporters(filePath).catch((error: unknown) => {
+          log.warn("Could not re-analyse importers of created file:", error instanceof Error ? error.message : String(error));
+        });
+      }
       break;
 
     case "unlink":

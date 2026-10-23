@@ -88,6 +88,7 @@ interface IndexedFileData {
   filePath: string;
   dependencies: Dependency[];
   outOfRootImports: string[];
+  unresolvedImports: string[];
   mtime: number;
   size: number;
 }
@@ -183,7 +184,7 @@ async function analyzeFile(
     // Use LanguageService to get the appropriate analyzer for this file
     const analyzer = languageService.getAnalyzer(filePath);
     const parsedImports = await analyzer.parseImports(filePath);
-    const { dependencies, outOfRootImports } = await resolveFileImports(
+    const { dependencies, outOfRootImports, unresolvedImports } = await resolveFileImports(
       analyzer,
       filePath,
       parsedImports,
@@ -194,6 +195,7 @@ async function analyzeFile(
       filePath,
       dependencies,
       outOfRootImports,
+      unresolvedImports,
       mtime: stats.mtimeMs,
       size: stats.size,
     };

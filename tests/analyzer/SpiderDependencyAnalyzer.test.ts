@@ -112,6 +112,7 @@ describe('SpiderDependencyAnalyzer - reverse index file hashes', () => {
         [],
         expect.objectContaining({ mtime: expect.any(Number), size: expect.any(Number) }),
         [],
+        [],
       );
     } finally {
       fs.rmSync(tmpDir, { recursive: true, force: true });
@@ -183,8 +184,8 @@ describe('SpiderDependencyAnalyzer - module resolution and cache invalidation', 
       await expect(analyzer.analyze(filePath)).resolves.toEqual([]);
       await analyzer.analyze(filePath);
 
-      expect(addDependencies).toHaveBeenNthCalledWith(1, normalizePath(filePath), [], expect.anything(), ['@core/x']);
-      expect(addDependencies).toHaveBeenNthCalledWith(2, normalizePath(filePath), [], expect.anything(), undefined);
+      expect(addDependencies).toHaveBeenNthCalledWith(1, normalizePath(filePath), [], expect.anything(), ['@core/x'], []);
+      expect(addDependencies).toHaveBeenNthCalledWith(2, normalizePath(filePath), [], expect.anything(), undefined, undefined);
     } finally {
       fs.rmSync(tmpDir, { recursive: true, force: true });
     }

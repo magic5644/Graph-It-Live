@@ -114,7 +114,8 @@ export class SpiderWorkerManager {
         normalizedPath,
         fileData.dependencies,
         { mtime: fileData.mtime, size: fileData.size },
-        fileData.outOfRootImports ?? []
+        fileData.outOfRootImports ?? [],
+        fileData.unresolvedImports ?? []
       );
     }
   }

@@ -62,8 +62,9 @@ export class ReverseIndexManager {
     dependencies: Dependency[],
     fileHash?: FileHash,
     outOfRootImports?: string[],
+    unresolvedImports?: string[],
   ): void {
-    this.reverseIndex?.addDependencies(sourcePath, dependencies, fileHash, outOfRootImports);
+    this.reverseIndex?.addDependencies(sourcePath, dependencies, fileHash, outOfRootImports, unresolvedImports);
   }
 
   removeDependenciesFromSource(sourcePath: string): void {
@@ -77,6 +78,11 @@ export class ReverseIndexManager {
   /** Undefined when the reverse index is off, or the file is unknown to it or changed since. */
   async getFreshDependencies(sourcePath: string): Promise<Dependency[] | undefined> {
     return this.reverseIndex?.getFreshDependencies(sourcePath);
+  }
+
+  /** Empty when the reverse index is off: unresolved imports are recorded only while it is built. */
+  getUnresolvedImportersOf(filePath: string): string[] {
+    return this.reverseIndex?.getUnresolvedImportersOf(filePath) ?? [];
   }
 
   getCallerCount(targetPath: string): number {

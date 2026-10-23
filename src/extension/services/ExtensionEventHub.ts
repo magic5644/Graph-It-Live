@@ -187,6 +187,7 @@ export class ExtensionEventHub {
         if (await this.spider.reanalyzeFile(filePath) === null) {
           throw new Error(`Dependency index could not analyze changed file: ${filePath}`);
         }
+        if (eventType === "create") await this.spider.reanalyzeUnresolvedImporters(filePath);
         await this.refreshByCurrentView();
         break;
 

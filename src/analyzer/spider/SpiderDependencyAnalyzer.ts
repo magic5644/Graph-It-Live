@@ -39,7 +39,7 @@ export class SpiderDependencyAnalyzer {
 
       log.debug(`Parsed ${parsedImports.length} imports from ${filePath}`);
 
-      const { dependencies, outOfRootImports } = await resolveFileImports(
+      const { dependencies, outOfRootImports, unresolvedImports } = await resolveFileImports(
         analyzer,
         filePath,
         parsedImports,
@@ -48,7 +48,7 @@ export class SpiderDependencyAnalyzer {
 
       log.debug(`Resolved ${dependencies.length} dependencies for ${filePath}`);
       this.dependencyCache.set(key, dependencies);
-      await this.updateReverseIndexIfEnabled(filePath, key, dependencies, outOfRootImports);
+      await this.updateReverseIndexIfEnabled(filePath, key, dependencies, outOfRootImports, unresolvedImports);
 
       return dependencies;
     } catch (error) {
@@ -86,7 +86,8 @@ export class SpiderDependencyAnalyzer {
     diskFilePath: string,
     normalizedFilePath: string,
     dependencies: Dependency[],
-    outOfRootImports?: string[]
+    outOfRootImports?: string[],
+    unresolvedImports?: string[]
   ): Promise<void> {
     if (!this.reverseIndexManager.isEnabled()) {
       return;
@@ -100,7 +101,7 @@ export class SpiderDependencyAnalyzer {
 
     const fileHash = await ReverseIndex.getFileHashFromDisk(diskFilePath);
     if (fileHash) {
-      this.reverseIndexManager.addDependencies(normalizedFilePath, dependencies, fileHash, outOfRootImports);
+      this.reverseIndexManager.addDependencies(normalizedFilePath, dependencies, fileHash, outOfRootImports, unresolvedImports);
     }
   }
 }

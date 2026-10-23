@@ -479,6 +479,19 @@ export class Spider {
     }
   }
 
+  /**
+   * Re-analyses the files whose unresolved imports may now resolve to a created file:
+   * their own mtime never moves, so the reverse index would keep the missing edge.
+   * @returns The re-analysed source files
+   */
+  async reanalyzeUnresolvedImporters(createdFilePath: string): Promise<string[]> {
+    const importers = this.reverseIndexManager.getUnresolvedImportersOf(createdFilePath);
+    for (const importer of importers) {
+      await this.reanalyzeFile(importer);
+    }
+    return importers;
+  }
+
   handleFileDeleted(filePath: string): void {
     this.referenceLookup.clearFallbackCache();
     this.cacheCoordinator.handleFileDeleted(filePath);

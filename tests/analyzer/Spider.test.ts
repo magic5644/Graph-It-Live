@@ -1,4 +1,6 @@
-import { describe, it, expect, beforeEach } from 'vitest';
+import * as fs from 'node:fs/promises';
+import os from 'node:os';
+import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { Spider } from '../../src/analyzer/Spider';
 import { SpiderBuilder } from '../../src/analyzer/SpiderBuilder';
 import { normalizePath } from '../../src/analyzer/types';
@@ -300,6 +302,46 @@ describe('Spider - File Invalidation', () => {
     const statsAfter = spider.getCacheStats();
     // Reverse index should have fewer references after invalidation
     expect(statsAfter.reverseIndexStats?.totalReferences).toBe(0);
+  });
+});
+
+// #387: an importer whose target did not exist yet gets its edge once the target is created.
+describe('Spider - reanalyzeUnresolvedImporters', () => {
+  let tmpDir: string;
+  let spider: Spider;
+
+  beforeEach(async () => {
+    tmpDir = await fs.realpath(await fs.mkdtemp(path.join(os.tmpdir(), 'graph-it-unresolved-')));
+    await fs.writeFile(path.join(tmpDir, 'app.ts'), "import { later } from './later';\nimport { x } from './other';\n");
+    spider = new SpiderBuilder().withRootDir(tmpDir).withReverseIndex(true).build();
+    await spider.analyze(path.join(tmpDir, 'app.ts'));
+  });
+
+  afterEach(async () => {
+    await fs.rm(tmpDir, { recursive: true, force: true });
+  });
+
+  it('re-analyses the importer so the created file gains its referencing edge', async () => {
+    const app = path.join(tmpDir, 'app.ts');
+    const later = path.join(tmpDir, 'later.ts');
+    await fs.writeFile(later, 'export const later = 1;\n');
+    // The importer is unchanged, so the architecture view reads it from the index.
+    expect(await spider.analyzeFromIndex(app)).toEqual([]);
+
+    expect(await spider.reanalyzeUnresolvedImporters(later)).toEqual([np(app)]);
+    expect((await spider.analyzeFromIndex(app)).map((d) => d.path)).toEqual([np(later)]);
+    expect((await spider.findReferencingFiles(later)).map((d) => d.path)).toEqual([np(app)]);
+
+    const restored = new SpiderBuilder().withRootDir(tmpDir).withReverseIndex(true).build();
+    restored.enableReverseIndex(spider.getSerializedReverseIndex()!);
+    expect(await restored.reanalyzeUnresolvedImporters(path.join(tmpDir, 'other.ts'))).toEqual([np(path.join(tmpDir, 'app.ts'))]);
+  });
+
+  it('re-analyses nothing for a file no unresolved import names, or without a reverse index', async () => {
+    expect(await spider.reanalyzeUnresolvedImporters(path.join(tmpDir, 'unrelated.ts'))).toEqual([]);
+
+    spider.disableReverseIndex();
+    expect(await spider.reanalyzeUnresolvedImporters(path.join(tmpDir, 'later.ts'))).toEqual([]);
   });
 });
 
