@@ -1,0 +1,52 @@
+{
+  "totalGroups": 2,
+  "hiddenGroups": 0,
+  "hiddenGroupEdges": 0,
+  "maxGroups": 50,
+  "keptGroups": [
+    1,
+    2
+  ],
+  "keptGroupEdges": 2,
+  "isolatedGroups": [],
+  "layerCount": 1,
+  "groupsByUnit": {
+    "src": {
+      "totalGroups": 2,
+      "hiddenGroups": 0,
+      "hiddenGroupEdges": 0
+    }
+  },
+  "dependents": [
+    {
+      "seed": "src",
+      "files": 0,
+      "groups": 0,
+      "reachedFiles": 0,
+      "insideSeedGroup": {
+        "directFiles": 0,
+        "transitiveFiles": 0
+      }
+    },
+    {
+      "seed": "src",
+      "files": 1,
+      "groups": 1,
+      "reachedFiles": 1,
+      "insideSeedGroup": {
+        "directFiles": 0,
+        "transitiveFiles": 0
+      }
+    },
+    {
+      "seed": "src/components",
+      "files": 2,
+      "groups": 1,
+      "reachedFiles": 2,
+      "insideSeedGroup": {
+        "directFiles": 0,
+        "transitiveFiles": 0
+      }
+    }
+  ]
+}

@@ -1,0 +1,37 @@
+{
+  "totalGroups": 2,
+  "hiddenGroups": 0,
+  "hiddenGroupEdges": 0,
+  "maxGroups": 50,
+  "keptGroups": [
+    1,
+    2
+  ],
+  "keptGroupEdges": 0,
+  "isolatedGroups": [
+    1,
+    2
+  ],
+  "dependents": [
+    {
+      "seed": "complex-cycle",
+      "files": 0,
+      "groups": 0,
+      "reachedFiles": 0,
+      "insideSeedGroup": {
+        "directFiles": 0,
+        "transitiveFiles": 0
+      }
+    },
+    {
+      "seed": "simple-cycle",
+      "files": 0,
+      "groups": 0,
+      "reachedFiles": 0,
+      "insideSeedGroup": {
+        "directFiles": 0,
+        "transitiveFiles": 0
+      }
+    }
+  ]
+}
