@@ -119,6 +119,9 @@ export class MessageDispatcher {
         architectureRefresh: async (m) => {
           await deps.handleArchitectureMessage?.(m);
         },
+        architectureOpenSettings: async (m) => {
+          await deps.handleArchitectureMessage?.(m);
+        },
         architectureRendered: async (m) => {
           await deps.handleArchitectureMessage?.(m);
         },

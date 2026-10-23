@@ -31,6 +31,8 @@ export type ArchitectureUnitLevel = Omit<ArchitectureUnits, "context"> & {
   nestedGroups: number[];
   /** By unit key: the unit's groups, and its groups and group edges left out by the cap. */
   groupsByUnit?: Record<string, { totalGroups: number; hiddenGroups: number; hiddenGroupEdges: number }>;
+  /** Unit keys of every cycle (strongly connected component of two or more units): each is drawn as one block. */
+  cycleUnits?: string[][];
 };
 
 /** The declared rules (graphit.architecture.json) checked against one level, as graph-it check-architecture reports them. */
@@ -179,6 +181,14 @@ export interface ArchitectureControlsMessage {
   role?: string;
   /** Clicks Show more groups. */
   showMoreGroups?: boolean;
+  /** Clicks this zoom control of the canvas overlay. */
+  zoom?: "fit" | "in" | "out";
+  /** Focuses the canvas, then presses these keys on it, one after the other (keyboard navigation). */
+  keys?: string[];
+  /** Clicks this unit in the units legend (it is selected and centred). */
+  legendUnit?: string;
+  /** Clicks the header's cycle count: the first cycle block is selected and fitted. */
+  cycleCount?: boolean;
 }
 
 export type ArchitectureExtensionMessage =
@@ -204,6 +214,11 @@ export interface ArchitectureMountedCommand {
 /** Rebuild now (Refresh, Retry). */
 export interface ArchitectureRefreshCommand {
   command: "architectureRefresh";
+}
+
+/** Opens the extension's settings (the empty state's action). */
+export interface ArchitectureOpenSettingsCommand {
+  command: "architectureOpenSettings";
 }
 
 /** What the webview rendered for a summary (E2E observability only). */
@@ -245,6 +260,16 @@ export interface ArchitectureRenderedCommand {
     roleTooltips: number;
     /** Units left by the role filter. */
     shownUnits: number;
+    /** Layer bands drawn behind the rows, and units whose centre lies outside their layer's band. */
+    layerBands?: number;
+    unitsOutsideBand?: number;
+    /** Cycle blocks drawn, and cycle members drawn outside their block. */
+    cycleBlocks?: number;
+    cycleMembersOutside?: number;
+    /** Lowest WCAG contrast of a unit label over its fill blended on the view background. */
+    minLabelContrast?: number;
+    /** Drawn upward and cycle edges showing their count without a hover. */
+    labelledRedEdges?: number;
   };
   /** Drawn edges breaking a declared rule. */
   violationEdges?: number;
@@ -252,6 +277,13 @@ export interface ArchitectureRenderedCommand {
   rules?: string[];
   /** The role legend as drawn: `role=count` per role, `*` after the filtered one. */
   roles?: string[];
+  /** Height of everything above the canvas (header, controls, breadcrumb), and of the whole view. */
+  headerHeightPx?: number;
+  viewHeightPx?: number;
+  /** The legend overlay reaches past the canvas instead of scrolling. */
+  legendOverflowing?: boolean;
+  /** Zoom of the canvas once fitted. */
+  zoom?: number;
   /** A group level (not the units), as its header and canvas show it once laid out. */
   groupLevel?: {
     /** The header's `shown of total` groups, and the groups and group edges it says are hidden. */
@@ -286,6 +318,16 @@ export interface ArchitectureInteractedCommand {
   shownGroupEdges: number;
   /** File edges drawn: only those of the hovered or selected file. */
   shownFileEdges: number;
+  /** Groups selected (click, arrow keys) and found (Find), and those of them drawn with their focus ring. */
+  selectedGroups?: number;
+  foundGroups?: number;
+  ringedGroups?: number;
+  /** Text of the canvas's live region (what a screen reader announces). */
+  announcement?: string;
+  /** The canvas has the keyboard focus. */
+  canvasFocused?: boolean;
+  /** Zoom of the canvas. */
+  zoom?: number;
 }
 
 /** Draws up to MAX_RENDERED_GROUPS groups per level from now on (Show more groups); the summary and entered levels are sent again. */
@@ -417,6 +459,7 @@ export interface ArchitectureDetailRenderedCommand {
 export type ArchitectureWebviewCommand =
   | ArchitectureMountedCommand
   | ArchitectureRefreshCommand
+  | ArchitectureOpenSettingsCommand
   | ArchitectureRenderedCommand
   | ArchitectureResizedCommand
   | ArchitectureInteractedCommand

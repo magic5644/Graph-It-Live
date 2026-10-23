@@ -11,9 +11,16 @@ import {
   levelSummary,
   linkedElements,
   measureIsolated,
+  markNodes,
+  measureInteraction,
   measureUnitLevel,
+  nearestNode,
+  describeNode,
+  layerBands,
+  bandLabel,
   packBelow,
   packIsolatedGroups,
+  placeNewFiles,
   MIN_READABLE_ZOOM,
   roleBadge,
   toLevelElements,
@@ -23,7 +30,7 @@ import {
 import { applyElkLayout, applyRoutes, toElkGraph } from "@/webview/components/architecture/elkLayout";
 import { buildArchitectureStylesheet } from "@/webview/components/cytoscape/CytoscapeTheme";
 
-const colors = { foreground: "#fff", background: "#000", border: "#888", edge: "#888", accent: "#08f", error: "#f00" };
+const colors = { foreground: "#fff", background: "#000", border: "#888", edge: "#888", accent: "#08f", error: "#f00", findMatch: "rgb(234, 92, 0)", findMatchOpacity: 0.4, contrastBorder: "#6fc3df" };
 
 // web → ui → core ↔ types (cycle), web → core; tool stands alone. Groups: web/pages (1), ui (2), core (3), types (4), tool (5).
 const units: ArchitectureUnitLevel = {
@@ -366,5 +373,111 @@ describe("isolated groups", () => {
     packIsolatedGroups(plain);
     expect(plain.getElementById("a").position()).toEqual({ x: 3, y: 4 });
     expect(measureIsolated(plain).isolatedBelow).toBe(0);
+  });
+});
+
+describe("cycle blocks, layer bands and contrast (units level)", () => {
+  // core ↔ types is the one cycle the extension sends.
+  const cyclic = { ...summary, units: { ...units, cycleUnits: [["packages/core", "packages/types"]] } };
+  const white = { r: 255, g: 255, b: 255, a: 1 };
+
+  it("draws each cycle as one block around its units, titled with their count, without recomputing it", () => {
+    const nodes = toLevelElements(cyclic, null).filter(element => element.group === "nodes").map(element => element.data);
+    expect(nodes[0]).toMatchObject({ id: "cycle-0", cycle: true, label: "Cycle · 2 units", layer: 0, key: "cycle:packages/core|packages/types" });
+    expect(nodes.filter(node => node.parent === "cycle-0").map(node => node.unitKey)).toEqual(["packages/core", "packages/types"]);
+    // Without cycleUnits, no block: the webview never derives one from the edge kinds.
+    expect(toLevelElements(summary, null).some(element => element.data.cycle)).toBe(false);
+    // A unit without any unit edge says so.
+    expect(String(nodes.find(node => node.unitKey === "tool")?.tooltip)).toContain("\nNo cross-unit imports");
+  });
+
+  it("lays the block out with ELK, keeps every down edge going down, and measures bands, blocks and red labels", async () => {
+    const cy = canvas(toLevelElements(cyclic, null));
+    await layOut(cy);
+    const measured = measureUnitLevel(cy, white);
+    // web (2), ui (1), core/types/tool (0): three layers, every unit inside its band.
+    expect(measured).toMatchObject({
+      units: 5, cycleBlocks: 1, cycleMembersOutside: 0, layerBands: 3, unitsOutsideBand: 0, edgesNotDown: 0,
+      redEdges: 2, labelledRedEdges: 2,
+    });
+    const block = cy.getElementById("cycle-0");
+    const box = block.boundingBox({ includeLabels: false });
+    for (const member of block.children().toArray()) {
+      const { x, y } = member.position();
+      expect(x > box.x1 && x < box.x2 && y > box.y1 && y < box.y2).toBe(true);
+    }
+    // Bands tile the picture top to bottom, highest layer first.
+    const bands = layerBands(cy);
+    expect(bands.map(band => band.layer)).toEqual([2, 1, 0]);
+    for (let i = 1; i < bands.length; i++) expect(bands[i].y1).toBe(bands[i - 1].y2);
+    expect([bandLabel(2), bandLabel(0)]).toEqual(["Layer 2", "Layer 0 · shared"]);
+  });
+
+  it("never lays out a cycle block's units as new files of an expanded group (a redraw keeps them where ELK put them)", async () => {
+    const cy = canvas(toLevelElements(cyclic, null));
+    await layOut(cy);
+    const before = cy.nodes().map(node => `${node.id()}@${node.position("x")},${node.position("y")}`);
+    placeNewFiles(cy, new Map(), () => ({ x: 5000, y: 5000 }));
+    expect(cy.nodes().map(node => `${node.id()}@${node.position("x")},${node.position("y")}`)).toEqual(before);
+  });
+
+  it("leaves a block of filtered units, and hidden nodes, out of the bands and the picture", () => {
+    const cy = canvas(toLevelElements(cyclic, null));
+    applyRoleFilter(cy, "frontend");
+    expect(cy.getElementById("cycle-0").hasClass("filtered")).toBe(true);
+    expect(layerBands(cy).map(band => band.layer)).toEqual([2]);
+    applyRoleFilter(cy, null);
+    expect(cy.getElementById("cycle-0").hasClass("filtered")).toBe(false);
+  });
+
+  it("measures the lowest label contrast over the fill blended on the background", () => {
+    const light = cytoscape({
+      headless: true, styleEnabled: true, elements: toLevelElements(cyclic, null),
+      style: buildArchitectureStylesheet({ ...colors, foreground: "#3b3b3b" }, "vscode-light"),
+    });
+    expect(measureUnitLevel(light, white).minLabelContrast).toBeGreaterThanOrEqual(4.5);
+    // Without a background colour, nothing is measured.
+    expect(measureUnitLevel(light).minLabelContrast).toBeUndefined();
+    // A label in the fill's own colour fails, and the measure says so.
+    const unreadable = cytoscape({
+      headless: true, styleEnabled: true, elements: toLevelElements(cyclic, null),
+      style: [...buildArchitectureStylesheet({ ...colors, foreground: "#ffffff" }, "vscode-light")],
+    });
+    expect(measureUnitLevel(unreadable, white).minLabelContrast).toBeLessThan(4.5);
+  });
+
+  it("rings selected and found nodes in the accent colour, never in the unit's", () => {
+    const cy = canvas(toLevelElements(cyclic, null));
+    markNodes(cy, "selected", cy.getElementById("group-1"));
+    markNodes(cy, "found", cy.getElementById("group-2").union(cy.getElementById("group-3")));
+    expect(measureInteraction(cy)).toMatchObject({ selectedGroups: 1, foundGroups: 2, ringedGroups: 3 });
+    for (const id of ["group-1", "group-2"]) {
+      expect(Number.parseFloat(cy.getElementById(id).style("border-width"))).toBeGreaterThanOrEqual(3);
+      expect(cy.getElementById(id).style("border-color")).not.toBe(cy.getElementById(id).style("background-color"));
+    }
+    // A new mark replaces the previous one.
+    markNodes(cy, "selected", cy.getElementById("group-4"));
+    expect(cy.nodes(".selected").map(node => node.id())).toEqual(["group-4"]);
+    markNodes(cy, "found", cy.collection());
+    expect(measureInteraction(cy)).toMatchObject({ selectedGroups: 1, foundGroups: 0, ringedGroups: 1 });
+  });
+
+  it("moves the selection to the nearest node in an arrow's direction, and describes it", async () => {
+    const cy = canvas(toLevelElements(cyclic, null));
+    await layOut(cy);
+    const groups = cy.nodes().filter(node => !node.data("cycle"));
+    // No selection: the top-left node, here the web app on the top layer.
+    const first = nearestNode(groups, undefined, "ArrowDown");
+    expect(first?.id()).toBe("group-1");
+    const below = nearestNode(groups, first, "ArrowDown");
+    expect(below?.data("layer")).toBeLessThan(2);
+    expect(nearestNode(groups, first, "ArrowUp")).toBeUndefined();
+    const core = cy.getElementById("group-3");
+    expect(describeNode(core)).toBe("@ws/core, layer 0, 1 outgoing, 3 incoming, in cycle");
+    expect(describeNode(cy.getElementById("group-1"))).toBe("@ws/web, layer 2, 2 outgoing, 0 incoming");
+    for (const direction of ["ArrowLeft", "ArrowRight"] as const) {
+      const next = nearestNode(groups, core, direction);
+      if (next) expect(Math.abs(next.position("y") - core.position("y"))).toBeLessThanOrEqual(Math.abs(next.position("x") - core.position("x")));
+    }
   });
 });

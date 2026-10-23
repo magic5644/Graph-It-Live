@@ -33,6 +33,9 @@ import {
   applyMinImports,
   applyRoleFilter,
   ARCHITECTURE_FCOSE_LAYOUT,
+  bandLabel,
+  describeNode,
+  type Direction,
   type Expansions,
   FILE_CAP_MESSAGE,
   findGroups,
@@ -40,14 +43,18 @@ import {
   hiddenUnitEdgeCount,
   focusGroup,
   highlightFocus,
+  type LayerBand,
+  layerBands,
   type LayoutBox,
   levelSummary,
+  markNodes,
   maxEdgeImports,
   plural,
   measureInteraction,
   measureIsolated,
   measureUnitLevel,
   mergeGroupDetail,
+  nearestNode,
   countRendered,
   linkedElements,
   packIsolatedGroups,
@@ -60,6 +67,7 @@ import {
 import { ArchitectureMatrix, type MatrixPaint } from "./ArchitectureMatrix";
 import { applyElkLayout, applyRoutes, type EdgeRoute, toElkGraph } from "./elkLayout";
 import { createElk, type ElkRunner } from "./elkWorker";
+import { parseColor, type Rgba, themeKindOf } from "./unitColors";
 // eslint-disable-next-line @typescript-eslint/no-require-imports
 const fcose = require("cytoscape-fcose") as cytoscape.Ext;
 
@@ -98,16 +106,36 @@ function measureLayout(nodes: cytoscape.NodeCollection) {
   return { overlappingGroups, overflowingLabels, positions };
 }
 
+/** Group and unit nodes: neither a file, a "+N more" node nor a cycle block. */
+const groupNodes = (cy: cytoscape.Core) => cy.nodes().filter((node) => !node.data("file") && !node.data("more") && !node.data("cycle"));
+
+/** The colour behind the canvas: the first opaque background up from it, else the editor's. */
+function canvasBackground(element: HTMLElement | null): Rgba | undefined {
+  for (let current = element; current; current = current.parentElement) {
+    const color = parseColor(getComputedStyle(current).backgroundColor);
+    if (color && color.a > 0) return color;
+  }
+  return parseColor(cssVar("--vscode-editor-background", "#1e1e1e"));
+}
+
+/** What sits above the canvas, and the legend overlay, as laid out (E2E observability). */
+export interface ViewChrome {
+  headerHeightPx: number;
+  viewHeightPx: number;
+  legendOverflowing: boolean;
+}
+
 /** What a render drew (E2E observability); the units level adds its own measures. */
 function renderedReport(
   cy: cytoscape.Core,
   summary: ArchitectureSummaryMessage,
   drawn: ArchitectureSummaryMessage,
-  groups: cytoscape.NodeCollection,
   unit: string | null,
   folder: string | undefined,
+  chrome?: ViewChrome,
 ): ArchitectureWebviewCommand {
   const unitsLevel = summary.units !== undefined && unit === null;
+  const groups = groupNodes(cy);
   return {
     command: "architectureRendered",
     revision: summary.revision,
@@ -118,7 +146,9 @@ function renderedReport(
     ...measureLayout(groups),
     unit: unit ?? undefined,
     folder,
-    unitLevel: unitsLevel ? measureUnitLevel(cy) : undefined,
+    ...chrome,
+    zoom: Math.round(cy.zoom() * 1000) / 1000,
+    unitLevel: unitsLevel ? measureUnitLevel(cy, canvasBackground(cy.container())) : undefined,
     groupLevel: unitsLevel ? undefined : {
       shownGroups: drawn.groups.length,
       totalGroups: drawn.totalGroups,
@@ -137,14 +167,48 @@ function renderedReport(
   };
 }
 
+/** The canvas's live region: what a screen reader announces about the selection. */
+const LIVE_REGION = "architecture-announcement";
+
 /**
  * Highlights `focus` and reports what is drawn (E2E observability).
  * ponytail: every hover reads the computed style of all edges; fine for ≤ 150 groups, gate the report behind an E2E flag if hovering lags.
  */
 function showFocus(cy: cytoscape.Core, focus: cytoscape.Collection, post: (message: ArchitectureWebviewCommand) => void): void {
   highlightFocus(cy, focus);
-  post({ command: "architectureInteracted", ...measureInteraction(cy) });
+  post({
+    command: "architectureInteracted",
+    ...measureInteraction(cy),
+    announcement: document.getElementById(LIVE_REGION)?.textContent ?? "",
+    canvasFocused: cy.container() !== null && document.activeElement === cy.container(),
+    zoom: Math.round(cy.zoom() * 1000) / 1000,
+  });
 }
+
+/**
+ * Draws a band behind each layer's row, across the whole view, labelled on the left: the bands
+ * are model coordinates, placed again on every pan and zoom.
+ */
+function drawBands(layer: HTMLElement | null, cy: cytoscape.Core, bands: readonly LayerBand[]): void {
+  if (!layer) return;
+  const zoom = cy.zoom();
+  const { y } = cy.pan();
+  layer.replaceChildren(...bands.map((band, index) => {
+    const row = document.createElement("div");
+    row.dataset.layer = String(band.layer);
+    row.style.cssText = `position:absolute;left:0;right:0;top:${band.y1 * zoom + y}px;height:${(band.y2 - band.y1) * zoom}px;`
+      + (index % 2 === 0 ? "background:color-mix(in srgb, var(--vscode-foreground) 6%, transparent);" : "")
+      + "border-top:1px dashed var(--vscode-widget-border, transparent);";
+    const label = document.createElement("span");
+    label.textContent = bandLabel(band.layer);
+    label.style.cssText = "position:absolute;right:8px;top:2px;font-size:11px;color:var(--vscode-descriptionForeground);";
+    row.append(label);
+    return row;
+  }));
+}
+
+/** A file or "+N more" node of an expanded group (a unit inside a cycle block is a child too). */
+const inGroup = (node: cytoscape.NodeSingular) => node.isChild() && !node.parent().data("cycle");
 
 /**
  * Pushes overlapping groups (collapsed or expanded) apart, then remembers every position.
@@ -158,11 +222,12 @@ function settleLayout(cy: cytoscape.Core, groups: cytoscape.NodeSingular[]): voi
       node.children().shift({ x: x - node.position("x"), y: y - node.position("y") });
     } else {
       node.position({ x, y });
-      savedLayout.set(node.data("key"), { x, y, width: node.data("width"), height: node.data("height") });
     }
   }
   cy.nodes().forEach((node) => {
-    if (node.isChild()) filePositions.set(node.id(), { ...node.position() });
+    // A cycle block's units are kept like any unit; a group's files per revision.
+    if (inGroup(node)) filePositions.set(node.id(), { ...node.position() });
+    else if (!node.isParent()) savedLayout.set(node.data("key"), { ...node.position(), width: node.data("width"), height: node.data("height") });
   });
   applyRoutes(cy, cy.edges(), savedRoutes);
 }
@@ -198,7 +263,7 @@ function restorePositions(cy: cytoscape.Core, groups: cytoscape.NodeSingular[]):
   });
   if (!known) return false;
   cy.nodes().forEach((node) => {
-    const saved = node.isChild() ? filePositions.get(node.id()) : savedLayout.get(node.data("key"));
+    const saved = inGroup(node) ? filePositions.get(node.id()) : savedLayout.get(node.data("key"));
     if (saved && !node.isParent()) node.position({ x: saved.x, y: saved.y });
   });
   return true;
@@ -254,6 +319,8 @@ function cssVar(name: string, fallback: string): string {
 }
 
 function themeColors() {
+  // Find match backgrounds carry their own alpha (#rrggbbaa), which Cytoscape colours do not take.
+  const findMatch = parseColor(cssVar("--vscode-editor-findMatchHighlightBackground", "#ea5c0055")) ?? { r: 234, g: 92, b: 0, a: 0.33 };
   return {
     foreground: cssVar("--vscode-foreground", "#cccccc"),
     background: cssVar("--vscode-editorWidget-background", "#252526"),
@@ -261,6 +328,9 @@ function themeColors() {
     edge: cssVar("--vscode-editorLineNumber-foreground", "#858585"),
     accent: cssVar("--vscode-focusBorder", "#007fd4"),
     error: cssVar("--vscode-errorForeground", "#f14c4c"),
+    findMatch: `rgb(${findMatch.r}, ${findMatch.g}, ${findMatch.b})`,
+    findMatchOpacity: Math.max(0.35, findMatch.a),
+    contrastBorder: cssVar("--vscode-contrastBorder", "#6fc3df"),
   };
 }
 
@@ -281,7 +351,10 @@ function RoleLegend({ roleCounts, roleFilter, onRole }: Readonly<{
   onRole: (role: string) => void;
 }>) {
   return (
-    <div style={{ display: "flex", flexWrap: "wrap", gap: "2px 8px", alignItems: "baseline" }}>
+    <div
+      style={{ display: "flex", flexWrap: "wrap", gap: "2px 8px", alignItems: "baseline" }}
+      title="[role?] inferred from manifests and files (hover a unit for its evidence), [role] declared in graphit.architecture.json"
+    >
       <ul aria-label="Unit roles" style={{ display: "contents" }}>
         {Object.entries(roleCounts).map(([role, count]) => (
           <li key={role} style={{ listStyle: "none" }}>
@@ -295,46 +368,116 @@ function RoleLegend({ roleCounts, roleFilter, onRole }: Readonly<{
           </li>
         ))}
       </ul>
-      <span style={{ color: "var(--vscode-descriptionForeground)" }}>
-        [role?] inferred from manifests and files (hover a unit for its evidence), [role] declared in graphit.architecture.json
-      </span>
     </div>
   );
 }
 
-interface UnitsHeaderProps {
+interface UnitsSummaryProps {
   summary: ArchitectureSummaryMessage;
   minImports: number;
-  roleFilter: string | null;
-  onRole: (role: string) => void;
+  onCycle: () => void;
 }
 
-/** Units level: layers, red edges, the role legend and the colour and role of each unit. */
-function UnitsHeader({ summary, minImports, roleFilter, onRole }: Readonly<UnitsHeaderProps>) {
+const RED = "var(--vscode-errorForeground)";
+const linkStyle: React.CSSProperties = {
+  padding: 0, border: "none", background: "none", font: "inherit", color: "var(--vscode-textLink-foreground)", cursor: "pointer",
+};
+
+/** Units level, on the title's line: units, layers, upward edges, cycles (a click shows the first) and hidden edges. */
+function UnitsSummary({ summary, minImports, onCycle }: Readonly<UnitsSummaryProps>) {
   const level = summary.units;
   if (!level) return null;
   const hidden = hiddenUnitEdgeCount(level, minImports, summary.rules);
+  const layers = new Set(level.units.map((unit) => unit.layer)).size;
   return (
-    <div>
-      <div>
-        {plural(level.units.length, "unit")} (packages, else top-level folders) · {plural(level.unitEdges.length, "unit edge")} ·{" "}
-        <span style={{ color: level.upwardEdges + level.cycles > 0 ? "var(--vscode-errorForeground)" : undefined }}>
-          {level.upwardEdges} upward {level.upwardEdges === 1 ? "dependency" : "dependencies"}, {plural(level.cycles, "cycle")}
-        </span>
-      </div>
-      {hidden > 0 && <div>{hidden} weaker edges hidden (set min. imports to show them by weight).</div>}
-      <RoleLegend roleCounts={level.roleCounts} roleFilter={roleFilter} onRole={onRole} />
-      <ul aria-label="Units" style={{ display: "flex", flexWrap: "wrap", gap: "2px 10px", listStyle: "none", padding: 0, margin: "2px 0", maxHeight: 48, overflow: "auto" }}>
-        {level.units.map((unit, index) => (
-          <li key={unit.key} title={`${unit.key} · layer ${unit.layer} · ${unit.role} (${unit.confidence})`}>
-            <span aria-hidden="true" style={{ display: "inline-block", width: 9, height: 9, marginRight: 4, background: unitColor(index) }} />
-            {unit.name} {roleBadge(unit)}
+    <span>
+      <span title="Packages (folders holding a package.json), else top-level folders">{plural(level.units.length, "unit")}</span>
+        {" · "}{plural(layers, "layer")}{" · "}
+        <span style={{ color: level.upwardEdges > 0 ? RED : undefined }} title="Unit edges to a unit on the same or a higher layer">{level.upwardEdges} upward</span>
+        {" · "}
+        {level.cycles > 0
+          ? <button type="button" data-cycle-count onClick={onCycle} style={{ ...linkStyle, color: RED }} title="Show the cycle block">{plural(level.cycles, "cycle")}</button>
+          : plural(level.cycles, "cycle")}
+      {hidden > 0 && <span title="Set Min. imports per edge to show the edges by weight"> · {hidden} weaker {hidden === 1 ? "edge" : "edges"} hidden</span>}
+    </span>
+  );
+}
+
+/** The units' colours and roles, over the canvas: collapsible, scrolling past 40% of its height; a click selects the unit. */
+function UnitLegend({ summary, onUnit, legendRef }: Readonly<{
+  summary: ArchitectureSummaryMessage;
+  onUnit: (key: string) => void;
+  legendRef: React.RefObject<HTMLDetailsElement | null>;
+}>) {
+  const units = summary.units?.units ?? [];
+  return (
+    <details
+      ref={legendRef} open
+      style={{
+        position: "absolute", top: 4, left: 4, maxWidth: "40%", maxHeight: "40%", overflow: "auto", zIndex: 1, padding: "2px 6px",
+        fontSize: 12, background: "var(--vscode-editorWidget-background)", border: "1px solid var(--vscode-widget-border)",
+      }}
+    >
+      <summary style={{ cursor: "pointer" }}>Legend ({plural(units.length, "unit")})</summary>
+      <ul aria-label="Units" style={{ listStyle: "none", padding: 0, margin: "2px 0" }}>
+        {units.map((unit, index) => (
+          <li key={unit.key}>
+            <button
+              type="button" data-unit={unit.key} onClick={() => onUnit(unit.key)} style={{ ...linkStyle, color: "inherit", textAlign: "left" }}
+              title={`${unit.key} · layer ${unit.layer} · ${unit.role} (${unit.confidence}): select it`}
+            >
+              <span aria-hidden="true" style={{ display: "inline-block", width: 9, height: 9, marginRight: 4, background: unitColor(index) }} />
+              {unit.name} {roleBadge(unit)}
+            </button>
           </li>
         ))}
       </ul>
+    </details>
+  );
+}
+
+/** Fit (0), zoom in (+) and out (-), over the canvas's bottom-right corner. */
+function ZoomControls({ onZoom }: Readonly<{ onZoom: (action: ZoomAction) => void }>) {
+  const control = (action: ZoomAction, text: string, label: string) => (
+    <button type="button" data-zoom={action} aria-label={label} title={label} onClick={() => onZoom(action)} style={{ minWidth: 26 }}>{text}</button>
+  );
+  return (
+    <div role="group" aria-label="Zoom controls" style={{ position: "absolute", right: 8, bottom: 8, zIndex: 1, display: "flex", gap: 2 }}>
+      {control("fit", "Fit", "Fit the graph (0)")}
+      {control("in", "+", "Zoom in (+)")}
+      {control("out", "−", "Zoom out (-)")}
     </div>
   );
 }
+
+/** Over the canvas: the zoom controls, the units legend, and why a level without edges draws no line. */
+function CanvasOverlays({ summary, drawn, unitsLevel, view, legendRef, onZoom, onUnit }: Readonly<{
+  summary: ArchitectureSummaryMessage;
+  drawn: ArchitectureSummaryMessage;
+  unitsLevel: boolean;
+  view: View;
+  legendRef: React.RefObject<HTMLDetailsElement | null>;
+  onZoom: (action: ZoomAction) => void;
+  onUnit: (key: string) => void;
+}>) {
+  // Without any edge, a level of several nodes would read as a failure: say why the canvas holds no line.
+  const noEdges = view === "graph" && drawn.groups.length > 1 && drawn.groupEdges.length === 0;
+  return (
+    <>
+      <ZoomControls onZoom={onZoom} />
+      {unitsLevel && <UnitLegend summary={summary} legendRef={legendRef} onUnit={onUnit} />}
+      {noEdges && (
+        <output style={{ position: "absolute", left: 0, right: 0, bottom: 40, textAlign: "center", fontSize: 12, pointerEvents: "none", color: "var(--vscode-descriptionForeground)" }}>
+          No imports between these {unitsLevel ? "units" : "groups"}.
+        </output>
+      )}
+    </>
+  );
+}
+
+type ZoomAction = "fit" | "in" | "out";
+const ZOOM_KEYS: Record<string, ZoomAction> = { "0": "fit", "+": "in", "=": "in", "-": "out" };
+const ZOOM_STEP = 1.25;
 
 const SEVERITY_COLOR = { error: "var(--vscode-errorForeground)", warning: "var(--vscode-editorWarning-foreground)", off: undefined } as const;
 
@@ -390,28 +533,23 @@ interface SummaryHeaderProps {
   onRule: (rule: ArchitectureRuleSummary) => void;
   roleFilter: string | null;
   onRole: (role: string) => void;
+  onCycle: () => void;
 }
 
 /** Show more groups is offered while the cap is below MAX_RENDERED_GROUPS. */
 const canShowMore = (summary: ArchitectureSummaryMessage) => (summary.maxGroups ?? MAX_RENDERED_GROUPS) < MAX_RENDERED_GROUPS;
 
-function SummaryHeader({ summary, level, onShowMore, unit, minImports, onRefresh, onRule, roleFilter, onRole }: Readonly<SummaryHeaderProps>) {
+/** Counts and provenance, behind a Details disclosure: the summary line stays one line. */
+function SummaryDetails({ summary, isolated }: Readonly<{ summary: ArchitectureSummaryMessage; isolated: number }>) {
   const { context, totals } = summary;
-  const isolated = level.isolatedGroups?.length ?? 0;
   return (
-    <div style={{ padding: "6px 10px", fontSize: 12, borderBottom: "1px solid var(--vscode-widget-border)" }}>
-      {summary.stale && (
-        <output style={{ ...bannerStyle, display: "block" }}>
-          Files or architecture rules changed since this view was built.{" "}
-          <button type="button" onClick={onRefresh}>Refresh</button>
-        </output>
-      )}
-      <div style={{ fontWeight: 600 }}>{summary.units && unit === null ? "Units in layers: dependents above, dependencies below" : MODE_WORDING[context.communityMode]}</div>
-      {summary.units && unit === null && <UnitsHeader summary={summary} minImports={minImports} roleFilter={roleFilter} onRole={onRole} />}
-      {summary.rules && <RulesPanel rules={summary.rules} onRule={onRule} />}
+    <details style={{ flexBasis: "auto" }}>
+      <summary style={{ cursor: "pointer", color: "var(--vscode-descriptionForeground)" }}>
+        Details: {plural(totals.files, "file")}, {plural(totals.fileEdges, "file pair")}
+        {context.failedFiles > 0 && <span style={{ color: RED }}> · {context.failedFiles} failed</span>}
+      </summary>
       <div>
-        {totals.files} files · {totals.fileEdges} file edges ({totals.intraGroupEdges} within groups,{" "}
-        {totals.interGroupEdges} between groups)
+        {plural(totals.fileEdges, "file pair")} (static imports): {totals.intraGroupEdges} within groups, {totals.interGroupEdges} between groups
       </div>
       <div style={{ color: "var(--vscode-descriptionForeground)" }}>
         {summary.scannedFiles} scanned · {summary.analyzedFiles} analysed
@@ -421,6 +559,35 @@ function SummaryHeader({ summary, level, onShowMore, unit, minImports, onRefresh
           </span>
         )}
       </div>
+      {isolated > 0 && <div>{plural(isolated, "group")} without cross-group imports, drawn apart below the others.</div>}
+      <div style={{ color: "var(--vscode-descriptionForeground)" }}>{summary.provenance.facts}</div>
+    </details>
+  );
+}
+
+function SummaryHeader({ summary, level, onShowMore, unit, minImports, onRefresh, onRule, roleFilter, onRole, onCycle }: Readonly<SummaryHeaderProps>) {
+  const { context } = summary;
+  const isolated = level.isolatedGroups?.length ?? 0;
+  const unitsLevel = summary.units !== undefined && unit === null;
+  return (
+    <div style={{ padding: "4px 10px", fontSize: 12, borderBottom: "1px solid var(--vscode-widget-border)" }}>
+      {summary.stale && (
+        <output style={{ ...bannerStyle, display: "block" }}>
+          Files or architecture rules changed since this view was built.{" "}
+          <button type="button" onClick={onRefresh}>Refresh</button>
+        </output>
+      )}
+      <div>
+        <span style={{ fontWeight: 600 }} title={unitsLevel ? "Dependents above, dependencies below" : undefined}>
+          {unitsLevel ? "Units in layers" : MODE_WORDING[context.communityMode]}
+        </span>
+        {unitsLevel && <>{" · "}<UnitsSummary summary={summary} minImports={minImports} onCycle={onCycle} /></>}
+      </div>
+      <div style={{ display: "flex", flexWrap: "wrap", gap: "2px 12px", alignItems: "baseline" }}>
+        {unitsLevel && summary.units && <RoleLegend roleCounts={summary.units.roleCounts} roleFilter={roleFilter} onRole={onRole} />}
+        <SummaryDetails summary={summary} isolated={isolated} />
+      </div>
+      {summary.rules && <RulesPanel rules={summary.rules} onRule={onRule} />}
       {context.truncated && (
         <div style={bannerStyle}>Only the first {context.maxFiles} files were analysed (maxFiles).</div>
       )}
@@ -431,8 +598,6 @@ function SummaryHeader({ summary, level, onShowMore, unit, minImports, onRefresh
           {canShowMore(summary) && <button type="button" data-show-more onClick={onShowMore}>Show more groups</button>}
         </div>
       )}
-      {isolated > 0 && <div>{plural(isolated, "group")} without cross-group imports, drawn apart below the others.</div>}
-      <div style={{ color: "var(--vscode-descriptionForeground)" }}>{summary.provenance.facts}</div>
     </div>
   );
 }
@@ -636,61 +801,90 @@ interface BreadcrumbProps {
   onLevel: (depth: number) => void;
   expansions: Expansions;
   focusId: number | null;
+  /** The drawn level again, without focus or entered group. */
   onOverview: () => void;
+  onClearFocus: () => void;
   onFocus: (groupId: number) => void;
   onLeave: (groupId: number) => void;
   view: View;
 }
 
+/** One step of the path: a link back to its level, or, the last one, where the view is. */
+function Segment({ name, current, onClick }: Readonly<{ name: string; current: boolean; onClick: () => void }>) {
+  return (
+    <button
+      type="button" aria-current={current ? "location" : undefined} onClick={onClick}
+      style={{ ...linkStyle, color: current ? "inherit" : linkStyle.color, fontWeight: current ? 600 : undefined }}
+    >
+      {name}
+    </button>
+  );
+}
+
 /**
- * Where the view is: the units, the entered unit and folders (each returns to its level), then the
- * focused group and the entered groups of the drawn level, each with a way back.
+ * One path, `All units › <unit> › <folder>… › <group>`: every step returns to its level, with the
+ * viewport it was left with; a focused or entered group ends it with × to leave it.
  */
-function Breadcrumb({ summary, unit, folders, onUnits, onLevel, expansions, focusId, onOverview, onFocus, onLeave, view }: Readonly<BreadcrumbProps>) {
+function Breadcrumb(props: Readonly<BreadcrumbProps>) {
+  const { summary, unit, folders, onUnits, onLevel, expansions, focusId, onOverview, onClearFocus, onFocus, onLeave, view } = props;
   const labelOf = (id: number) => (id === 0 ? "unassigned" : summary.groups.find((group) => group.id === id)?.label ?? `group ${id}`);
   const entered = [...expansions.keys()];
-  const unitName = summary.units?.units.find((entry) => entry.key === unit)?.name;
-  // Keyed by folder key (the unit's level by ""): unique along one path.
-  const levels = [
-    { key: "", name: unitName ?? "Overview" },
-    ...folders.map((folder) => ({ key: folder, name: folder.slice(folder.lastIndexOf("/") + 1) })),
-  ];
+  const unitName = summary.units?.units.find((entry) => entry.key === unit)?.name ?? unit;
+  // Keyed by level; the drawn level's own step clears its focus and entered groups.
+  const levels: { key: string; name: string; go: () => void }[] = summary.units ? [{ key: "units", name: "All units", go: onUnits }] : [];
+  if (!summary.units) levels.push({ key: "groups", name: "All groups", go: () => onLevel(0) });
+  if (unitName !== null) levels.push({ key: "unit", name: unitName, go: () => onLevel(0) });
+  folders.forEach((folder, depth) => levels.push({ key: folder, name: folder.slice(folder.lastIndexOf("/") + 1), go: () => onLevel(depth + 1) }));
+  const focused = focusId !== null && !expansions.has(focusId);
+  const last = !focused && entered.length === 0;
   return (
-    <nav aria-label="Architecture path" style={{ padding: "4px 10px", fontSize: 12, borderBottom: "1px solid var(--vscode-widget-border)" }}>
-      {summary.units && (
-        <>
-          <button type="button" onClick={onUnits} disabled={unit === null}>Units</button>
-          {unit !== null && " › "}
-        </>
+    <nav
+      aria-label="Architecture path" style={{ padding: "2px 10px", fontSize: 12, borderBottom: "1px solid var(--vscode-widget-border)" }}
+      title={view === "graph"
+        ? "Click: select · Double-click or Enter: enter · Arrows: move · Escape: back · 0, +, -: zoom"
+        : "Cell: evidence · Header: enter · Arrows: move · Escape: back"}
+    >
+      {levels.map(({ key, name, go }, index) => {
+        const drawnLevel = index === levels.length - 1;
+        return (
+          <span key={key}>
+            {index > 0 && " › "}
+            <Segment name={name} current={drawnLevel && last} onClick={drawnLevel ? onOverview : go} />
+          </span>
+        );
+      })}
+      {focused && (
+        <span>
+          {" › "}<Segment name={labelOf(focusId)} current onClick={() => undefined} />
+          <button type="button" aria-label={`Clear focus on ${labelOf(focusId)}`} onClick={onClearFocus}>×</button>
+        </span>
       )}
-      {(!summary.units || unit !== null) && levels.map(({ key, name }, depth) => (depth < levels.length - 1
-        ? <span key={key}><button type="button" onClick={() => onLevel(depth)}>{name}</button>{" › "}</span>
-        : <button key={key} type="button" onClick={onOverview} disabled={focusId === null && entered.length === 0}>{name}</button>))}
-      {focusId !== null && !expansions.has(focusId) && <> › <strong>{labelOf(focusId)}</strong></>}
-      {entered.map((id) => (
+      {entered.map((id, index) => (
         <span key={id}>
           {" › "}
-          <button type="button" onClick={() => onFocus(id)} aria-current={id === focusId ? "location" : undefined}>{labelOf(id)}</button>
+          <Segment name={labelOf(id)} current={index === entered.length - 1} onClick={() => onFocus(id)} />
           <button type="button" aria-label={`Leave ${labelOf(id)}`} onClick={() => onLeave(id)}>×</button>
         </span>
       ))}
-      <span style={{ marginLeft: 8, color: "var(--vscode-descriptionForeground)" }}>
-        {view === "graph" ? "Click: focus · Double-click or Enter: enter · Escape: back" : "Cell: evidence · Header: enter · Arrows: move · Escape: back"}
-      </span>
     </nav>
   );
 }
 
-function StatePanel({ state, onRetry }: Readonly<{ state: ArchitectureStateMessage; onRetry: () => void }>) {
+function StatePanel({ state, onRetry, onSettings }: Readonly<{ state: ArchitectureStateMessage; onRetry: () => void; onSettings: () => void }>) {
   return (
     <output style={{ display: "block", padding: 16, fontSize: 12 }}>
       {state.status === "building" && (
         <>
-          <div>{state.message ?? "Building architecture…"}</div>
+          <div>{state.message ?? "Building architecture…"}{state.percent === undefined ? "" : ` (${state.percent}%)`}</div>
           <progress max={100} value={state.percent} style={{ width: "100%" }} />
         </>
       )}
-      {state.status === "empty" && <div>{state.message ?? "No source file found."}</div>}
+      {state.status === "empty" && (
+        <>
+          <div>{state.message ?? "No supported source file in the workspace folder."}</div>
+          <button type="button" onClick={onSettings}>Open settings</button>
+        </>
+      )}
       {state.status === "error" && (
         <>
           <div style={{ color: "var(--vscode-errorForeground)" }}>Architecture build failed: {state.message}</div>
@@ -703,6 +897,13 @@ function StatePanel({ state, onRetry }: Readonly<{ state: ArchitectureStateMessa
 
 export function ArchitectureGraph({ postMessage }: Readonly<ArchitectureGraphProps>): React.ReactElement {
   const containerRef = useRef<HTMLDivElement>(null);
+  const rootRef = useRef<HTMLDivElement>(null);
+  /** The canvas area: everything above it is the header. */
+  const canvasAreaRef = useRef<HTMLDivElement>(null);
+  const legendRef = useRef<HTMLDetailsElement>(null);
+  /** Behind the canvas: the layer bands, placed again on every pan and zoom. */
+  const bandsLayerRef = useRef<HTMLDivElement>(null);
+  const bandsRef = useRef<LayerBand[]>([]);
   const cyRef = useRef<cytoscape.Core | null>(null);
   const elkRef = useRef<ElkRunner | null>(null);
   /** Bumped by every render: an ELK result for an older one is dropped. */
@@ -762,6 +963,9 @@ export function ArchitectureGraph({ postMessage }: Readonly<ArchitectureGraphPro
   const drawn = useMemo(() => (source ? levelSummary(source, unit) : null), [source, unit]);
   /** Tapped element or find matches: what the highlight returns to after a hover. */
   const pinnedRef = useRef<cytoscape.Collection | null>(null);
+  /** Nodes with the selection and find rings, drawn again by a redraw of the same level. */
+  const selectedIdRef = useRef<string | null>(null);
+  const foundIdsRef = useRef<ReadonlySet<string>>(new Set());
   // Messages and Cytoscape events read the latest values here: several can arrive before a render.
   const summaryRef = useRef(summary);
   const expansionsRef = useRef(expansions);
@@ -799,6 +1003,23 @@ export function ArchitectureGraph({ postMessage }: Readonly<ArchitectureGraphPro
     fitRef.current = fit;
   };
   const post = (message: ArchitectureWebviewCommand) => postMessageRef.current(message);
+  /** The header's height and whether the legend fits the canvas, as laid out (E2E observability). */
+  const chrome = (): ViewChrome | undefined => {
+    const root = rootRef.current?.getBoundingClientRect();
+    const area = canvasAreaRef.current?.getBoundingClientRect();
+    if (!root || !area) return undefined;
+    const legend = legendRef.current?.getBoundingClientRect();
+    return {
+      headerHeightPx: Math.round(area.top - root.top),
+      viewHeightPx: Math.round(root.height),
+      legendOverflowing: legend !== undefined && legend.bottom > area.bottom + 1,
+    };
+  };
+  /** The layer bands of what is drawn, behind it. */
+  const showBands = (cy: cytoscape.Core) => {
+    bandsRef.current = layerBands(cy);
+    drawBands(bandsLayerRef.current, cy, bandsRef.current);
+  };
 
   /** Offset of the page requested per group: any other page (a late answer after leaving a group) is dropped. */
   const pendingRef = useRef(new Map<number, number>());
@@ -979,9 +1200,70 @@ export function ArchitectureGraph({ postMessage }: Readonly<ArchitectureGraphPro
   };
   /** A legend click: keeps only this role's units, or shows them all again. */
   const toggleRole = (role: string) => setRoleFilter((current) => (current === role ? null : role));
-  const isGroup = (target: cytoscape.SingularElementArgument) => target.isNode() && !target.data("file") && !target.data("more");
+  const isGroup = (target: cytoscape.SingularElementArgument) =>
+    target.isNode() && !target.data("file") && !target.data("more") && !target.data("cycle");
+  /** The selected node: its focus ring and what the live region announces; none clears both. */
+  const markSelected = (cy: cytoscape.Core, node: cytoscape.NodeSingular | undefined) => {
+    selectedIdRef.current = node?.id() ?? null;
+    markNodes(cy, "selected", node ?? cy.collection());
+    const live = document.getElementById(LIVE_REGION);
+    if (live) live.textContent = node ? describeNode(node) : "";
+  };
+  /** Selects a node as a click does, without the focus hiding the rest, and keeps it in view. */
+  const selectNode = (cy: cytoscape.Core, node: cytoscape.NodeSingular) => {
+    pinnedRef.current = node;
+    markSelected(cy, node);
+    const { x, y } = node.renderedPosition();
+    if (x < 0 || y < 0 || x > cy.width() || y > cy.height()) cy.center(node);
+    showFocus(cy, node, post);
+  };
+  /** The units legend: a click selects the unit. */
+  const legendUnit = (key: string) => {
+    const cy = cyRef.current;
+    const node = cy?.nodes().filter((candidate) => candidate.data("unitKey") === key)[0];
+    if (cy && node) selectNode(cy, node);
+  };
+  /** The header's cycle count: its first block's units highlighted, the block fitted. */
+  const showCycle = () => {
+    const cy = cyRef.current;
+    const block = cy?.nodes().filter((node) => node.data("cycle") === true)[0];
+    if (!cy || !block) return;
+    pinnedRef.current = block.children();
+    markSelected(cy, undefined);
+    cy.fit(block, 30);
+    showFocus(cy, block.children(), post);
+  };
+  /** Fit (the readable fit, top-anchored), zoom in or out around the centre. */
+  const zoom = (action: ZoomAction) => {
+    const cy = cyRef.current;
+    if (!cy) return;
+    if (action === "fit") fitAll(cy);
+    else {
+      const level = cy.zoom() * (action === "in" ? ZOOM_STEP : 1 / ZOOM_STEP);
+      cy.zoom({ level: Math.min(cy.maxZoom(), Math.max(cy.minZoom(), level)), renderedPosition: { x: cy.width() / 2, y: cy.height() / 2 } });
+    }
+    showFocus(cy, pinnedRef.current ?? cy.collection(), post);
+  };
+  /** The focused canvas's keys: arrows move the selection to the nearest group, 0 + - zoom. Enter and Escape are window-wide. */
+  const canvasKey = (event: Pick<KeyboardEvent, "key" | "preventDefault">) => {
+    const cy = cyRef.current;
+    const action = ZOOM_KEYS[event.key];
+    if (!cy || viewRef.current !== "graph") return;
+    if (action) {
+      event.preventDefault();
+      zoom(action);
+      return;
+    }
+    if (!event.key.startsWith("Arrow")) return;
+    event.preventDefault();
+    const selected = pinnedRef.current?.length === 1 && pinnedRef.current[0].isNode() ? pinnedRef.current[0] : undefined;
+    const next = nearestNode(cy.nodes().filter((node) => isGroup(node) && node.visible()), selected, event.key as Direction);
+    if (next) selectNode(cy, next);
+  };
   /** A click: an edge opens its evidence, a group gets the focus, "+N more" loads a page. */
   const tap = (target: cytoscape.SingularElementArgument) => {
+    const cy = cyRef.current;
+    if (cy) markSelected(cy, isGroup(target) ? target as cytoscape.NodeSingular : undefined);
     if (target.isEdge()) showEvidence(target);
     else if (target.data("more")) loadMore(target.data("groupId"));
     else if (isGroup(target)) updateFocus(target.data("groupId"), "focus");
@@ -1092,6 +1374,16 @@ export function ArchitectureGraph({ postMessage }: Readonly<ArchitectureGraphPro
   /** The id of the drawn unit with this key (E2E driver, units level). */
   const unitIdOf = (unitKey: string | undefined): number | undefined =>
     (unitKey ? Array.from(cyRef.current?.nodes() ?? []).find((node) => node.data("unitKey") === unitKey)?.data("groupId") : undefined);
+  /** E2E driver: real clicks on the zoom controls, the legend and the cycle count; keys pressed on the focused canvas. */
+  const controlCanvas = ({ zoom: action, keys, legendUnit: key, cycleCount }: ArchitectureControlsMessage) => {
+    if (action) document.querySelector<HTMLButtonElement>(`[aria-label="Zoom controls"] button[data-zoom="${action}"]`)?.click();
+    if (key !== undefined) document.querySelector<HTMLButtonElement>(`[aria-label="Units"] button[data-unit="${CSS.escape(key)}"]`)?.click();
+    if (cycleCount) document.querySelector<HTMLButtonElement>("button[data-cycle-count]")?.click();
+    const container = containerRef.current;
+    if (!keys || !container) return;
+    container.focus();
+    for (const pressed of keys) container.dispatchEvent(new KeyboardEvent("keydown", { key: pressed, bubbles: true, cancelable: true }));
+  };
   /** E2E driver: selects the first edge of a group or unit (its evidence opens), then clicks a row's source. */
   const controlEvidence = ({ evidenceOf, openEvidenceRow, rule, role, showMoreGroups }: ArchitectureControlsMessage) => {
     // A real click on the Rules panel's button.
@@ -1130,6 +1422,7 @@ export function ArchitectureGraph({ postMessage }: Readonly<ArchitectureGraphPro
     const collapseId = groupOf(message.collapse);
     if (collapseId !== undefined) collapse(collapseId);
     controlEvidence(message);
+    controlCanvas(message);
   };
   const receive = (message: ArchitectureExtensionMessage) => {
     switch (message.type) {
@@ -1155,7 +1448,7 @@ export function ArchitectureGraph({ postMessage }: Readonly<ArchitectureGraphPro
     }
   };
   const actions = {
-    tap, dbltap, key, openFile, moreEvidence, receive, overview, leave, updateFocus, selectUnit, goTo, openRule, toggleRole, showMoreGroups,
+    tap, dbltap, key, canvasKey, zoom, legendUnit, showCycle, showBands, chrome, markSelected, openFile, moreEvidence, receive, overview, leave, updateFocus, selectUnit, goTo, openRule, toggleRole, showMoreGroups,
     switchView, matrixCell, matrixHeader, matrixPainted, enterable, rowColor, levelOf,
   };
   const actionsRef = useRef(actions);
@@ -1178,7 +1471,7 @@ export function ArchitectureGraph({ postMessage }: Readonly<ArchitectureGraphPro
     const cy = cytoscape({
       container,
       elements: [],
-      style: buildArchitectureStylesheet(themeColors()),
+      style: buildArchitectureStylesheet(themeColors(), themeKindOf(document.body)),
       wheelSensitivity: 0.3,
       minZoom: 0.05,
       maxZoom: 5,
@@ -1187,6 +1480,7 @@ export function ArchitectureGraph({ postMessage }: Readonly<ArchitectureGraphPro
     const clearFocus = () => {
       pinnedRef.current = null;
       setQuery("");
+      actionsRef.current.markSelected(cy, undefined);
       showFocus(cy, cy.collection(), postMessageRef.current);
     };
     cy.on("mouseover", "node, edge", (event) => {
@@ -1211,12 +1505,18 @@ export function ArchitectureGraph({ postMessage }: Readonly<ArchitectureGraphPro
     // Synchronous: fitAll sets the flag again right after its own zoom and pan.
     cy.on("viewport", () => {
       fittedRef.current = false;
+      drawBands(bandsLayerRef.current, cy, bandsRef.current);
     });
     // A dragged node leaves its routes: its edges go back to the default curve.
     cy.on("drag", "node", (event) => {
       const moved = event.target.union(event.target.ancestors());
       applyRoutes(cy, moved.union(moved.descendants()).connectedEdges(), savedRoutes);
     });
+    // VS Code switches the theme on the body: the units' tones and the rings follow it.
+    const themeObserver = typeof MutationObserver === "undefined" ? null : new MutationObserver(() => {
+      cy.style(buildArchitectureStylesheet(themeColors(), themeKindOf(document.body)));
+    });
+    themeObserver?.observe(document.body, { attributes: true, attributeFilter: ["class", "data-vscode-theme-kind"] });
     const handleKeyDown = (event: KeyboardEvent): void => actionsRef.current.key(event, clearFocus);
     window.addEventListener("keydown", handleKeyDown);
     cyRef.current = cy;
@@ -1243,6 +1543,7 @@ export function ArchitectureGraph({ postMessage }: Readonly<ArchitectureGraphPro
     return () => {
       clearTimeout(resizeTimer);
       resizeObserver?.disconnect();
+      themeObserver?.disconnect();
       window.removeEventListener("resize", handleResize);
       window.removeEventListener("keydown", handleKeyDown);
       cy.destroy();
@@ -1270,24 +1571,31 @@ export function ArchitectureGraph({ postMessage }: Readonly<ArchitectureGraphPro
     cy.elements().remove();
     cy.add(elements);
     pinnedRef.current = pinnedIds.size > 0 ? cy.elements().filter((element) => pinnedIds.has(element.id())) : null;
+    // New elements carry no class: the same level keeps its find and selection rings.
+    if (freshLevel) selectedIdRef.current = null;
+    markNodes(cy, "found", freshLevel ? cy.collection() : cy.nodes().filter((node) => foundIdsRef.current.has(node.id())));
+    markNodes(cy, "selected", selectedIdRef.current === null ? cy.collection() : cy.getElementById(selectedIdRef.current));
     renderedRef.current = { summary: drawn, unit, folder, ...countRendered(elements), visibleGroups: 0 };
-    const groups = cy.nodes().filter((node) => !node.isChild());
+    // Laid out and pushed apart as a whole: a cycle block with its units.
+    const orphans = cy.nodes().filter((node) => !node.isChild());
     const finish = (fit: boolean) => {
-      settleLayout(cy, groups);
+      settleLayout(cy, orphans);
       if (fit) fitAll(cy);
       // The same level laid out again (Show more groups): what was found or tapped stays in view.
       if (fit && !freshLevel && pinnedRef.current?.length) cy.center(pinnedRef.current);
+      actionsRef.current.showBands(cy);
       if (previous === drawn) return;
       // Measured after the min-imports and role filters, which run in later effects.
       applyMinImports(cy, minImportsRef.current);
       applyRoleFilter(cy, roleFilterRef.current);
-      postMessageRef.current(renderedReport(cy, summary, drawn, groups, unit, folder));
+      actionsRef.current.showBands(cy);
+      postMessageRef.current(renderedReport(cy, summary, drawn, unit, folder, actionsRef.current.chrome()));
     };
     const laidOut = () => {
       packIsolatedGroups(cy);
       finish(true);
     };
-    const restored = restorePositions(cy, groups);
+    const restored = restorePositions(cy, groupNodes(cy));
     if (!restored && summary.units) {
       // Units, and an entered unit's groups, sit on their layers.
       layoutWithElk(cy, elk, () => run === layoutRunRef.current && !cy.destroyed(), laidOut);
@@ -1372,7 +1680,8 @@ export function ArchitectureGraph({ postMessage }: Readonly<ArchitectureGraphPro
     const current = summaryRef.current;
     if (!cy || !current?.units || unitRef.current !== null || cy.nodes().length === 0) return;
     applyRoleFilter(cy, roleFilter);
-    postMessageRef.current(renderedReport(cy, current, current, cy.nodes().filter((node) => !node.isChild()), null, undefined));
+    actionsRef.current.showBands(cy);
+    postMessageRef.current(renderedReport(cy, current, current, null, undefined, actionsRef.current.chrome()));
   }, [roleFilter]);
 
   // A new revision, level or cap (Show more groups) finds again; a stale mark or a page keeps what is pinned.
@@ -1383,6 +1692,8 @@ export function ArchitectureGraph({ postMessage }: Readonly<ArchitectureGraphPro
     if (!cy || revision === undefined) return;
     const matches = findGroups(cy, query);
     pinnedRef.current = matches;
+    foundIdsRef.current = new Set(matches.map((node) => node.id()));
+    markNodes(cy, "found", matches);
     setFindMatches(matches.length);
     showFocus(cy, matches, postMessageRef.current);
     if (matches.nonempty()) cy.center(matches);
@@ -1414,9 +1725,13 @@ export function ArchitectureGraph({ postMessage }: Readonly<ArchitectureGraphPro
   }, [view, revision, unit, folders]);
 
   const refresh = () => postMessageRef.current({ command: "architectureRefresh" });
+  const unitsLevel = summary?.units !== undefined && unit === null;
+  const levelName = unitsLevel ? "the units" : [unit, ...folders].filter(Boolean).at(-1) ?? "the groups";
   return (
-    <div style={{ display: "flex", flexDirection: "column", width: "100%", height: "100%" }}>
-      {state && <StatePanel state={state} onRetry={refresh} />}
+    <div ref={rootRef} style={{ display: "flex", flexDirection: "column", width: "100%", height: "100%" }}>
+      {state && (
+        <StatePanel state={state} onRetry={refresh} onSettings={() => postMessageRef.current({ command: "architectureOpenSettings" })} />
+      )}
       {!state && summary && drawn && (
         <>
           <SummaryHeader
@@ -1424,6 +1739,7 @@ export function ArchitectureGraph({ postMessage }: Readonly<ArchitectureGraphPro
             unit={unit} minImports={minImports} onRefresh={refresh}
             onRule={(rule) => actionsRef.current.openRule(rule)}
             roleFilter={roleFilter} onRole={(role) => actionsRef.current.toggleRole(role)}
+            onCycle={() => actionsRef.current.showCycle()}
           />
           <GraphControls
             summary={drawn}
@@ -1449,17 +1765,33 @@ export function ArchitectureGraph({ postMessage }: Readonly<ArchitectureGraphPro
             expansions={expansions}
             focusId={focusId}
             onOverview={() => actionsRef.current.overview()}
+            onClearFocus={() => actionsRef.current.updateFocus(null, "all")}
             onFocus={(groupId) => actionsRef.current.updateFocus(groupId, "enter")}
             onLeave={(groupId) => actionsRef.current.leave(groupId)}
             view={view}
           />
         </>
       )}
-      <div style={{ position: "relative", flex: 1, minHeight: 0, visibility: state ? "hidden" : "visible" }}>
+      <div ref={canvasAreaRef} style={{ position: "relative", flex: 1, minHeight: 0, visibility: state ? "hidden" : "visible" }}>
         {/* Hidden on a wrapper: the ELK layout shows and hides the container itself. */}
-        <div style={{ position: "absolute", inset: 0, visibility: view === "matrix" ? "hidden" : undefined }}>
-          <div ref={containerRef} data-testid="architecture-graph" style={{ position: "absolute", inset: 0 }} />
+        <div style={{ position: "absolute", inset: 0, overflow: "hidden", visibility: view === "matrix" ? "hidden" : undefined }}>
+          <div ref={bandsLayerRef} aria-hidden="true" style={{ position: "absolute", inset: 0, pointerEvents: "none" }} />
+          {/* Enter and Escape are window-wide; arrows and zoom keys need the canvas focused. */}
+          <div
+            ref={containerRef} data-testid="architecture-graph" tabIndex={0} role="application"
+            aria-label={`Architecture graph of ${levelName}: arrow keys select, Enter enters, Escape goes back, 0 fits, + and - zoom`}
+            aria-describedby={LIVE_REGION}
+            onKeyDown={(event) => actionsRef.current.canvasKey(event)}
+            style={{ position: "absolute", inset: 0, outlineOffset: -2 }}
+          />
+          {!state && summary && drawn && (
+            <CanvasOverlays
+              summary={summary} drawn={drawn} unitsLevel={unitsLevel} view={view} legendRef={legendRef}
+              onZoom={(action) => actionsRef.current.zoom(action)} onUnit={(key) => actionsRef.current.legendUnit(key)}
+            />
+          )}
         </div>
+        <output id={LIVE_REGION} aria-live="polite" style={{ position: "absolute", width: 1, height: 1, overflow: "hidden", clipPath: "inset(50%)" }} />
         {!state && view === "matrix" && !matrix && <output style={{ display: "block", padding: 16, fontSize: 12 }}>Building the matrix…</output>}
         {!state && view === "matrix" && matrix && (
           <ArchitectureMatrix

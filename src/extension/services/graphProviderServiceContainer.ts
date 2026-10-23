@@ -250,7 +250,10 @@ export function createGraphProviderServiceContainer(
         openFile: async (absolutePath) => {
           await vscode.window.showTextDocument(vscode.Uri.file(absolutePath), { preview: true });
         },
-        warn: (message) => options.logger.warn(message),
+        openSettings: () => {
+        void vscode.commands.executeCommand("workbench.action.openSettings", "graph-it-live");
+      },
+      warn: (message) => options.logger.warn(message),
       });
     });
 

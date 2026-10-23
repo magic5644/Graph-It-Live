@@ -12,10 +12,12 @@ import {
 import {
   DEFAULT_RENDERED_GROUPS,
   MAX_RENDERED_GROUPS,
+  type ArchitectureControlsMessage,
   type ArchitectureExtensionMessage,
   type ArchitectureFolderLevelMessage,
   type ArchitectureFoundMessage,
   type ArchitectureMatrixMessage,
+  type ArchitectureStateMessage,
   type ArchitectureSummaryMessage,
 } from "../../src/shared/architecture-types";
 import type { CommunityMode } from "../../src/shared/graph-types";
@@ -49,6 +51,7 @@ describe("ArchitectureViewService", () => {
   let posted: ArchitectureExtensionMessage[];
   let communityMode: CommunityMode;
   let opened: string[];
+  let settingsOpened: boolean[];
   let warnings: string[];
 
   const summaries = () => posted.filter((message): message is ArchitectureSummaryMessage => message.type === "architectureSummary");
@@ -66,6 +69,7 @@ describe("ArchitectureViewService", () => {
       openFile: async (absolutePath) => {
         opened.push(absolutePath);
       },
+      openSettings: () => settingsOpened.push(true),
       warn: (message) => warnings.push(message),
       ...overrides,
     });
@@ -75,6 +79,7 @@ describe("ArchitectureViewService", () => {
     await writeWorkspace(root, workspace);
     posted = [];
     opened = [];
+    settingsOpened = [];
     warnings = [];
     communityMode = "path";
   });
@@ -112,7 +117,28 @@ describe("ArchitectureViewService", () => {
       cycles: 0,
       totals: { files: 4, fileEdges: 3, intraUnitEdges: 2, interUnitEdges: 1 },
       groupUnits: { 1: "(root)", 2: "src", 3: "src" },
+      cycleUnits: [],
     });
+  });
+
+  it("sends the units of each cycle, from the cycle edges, as one entry", async () => {
+    // a ↔ b form a cycle; c depends on a only.
+    const cyclic = { "a/x.ts": ["b/y.ts"], "b/y.ts": ["a/x.ts"], "c/z.ts": ["a/x.ts"] };
+    const other = await fs.realpath(await fs.mkdtemp(path.join(os.tmpdir(), "gitl-architecture-cycle-")));
+    try {
+      await writeWorkspace(other, cyclic);
+      await createService({ workspaceRoot: other, analyzeFile: analyzerFor(other, cyclic) }).build();
+      const units = summaries()[0].units!;
+      expect(units.cycles).toBe(1);
+      expect(units.cycleUnits?.map((members) => members.toSorted())).toEqual([["a", "b"]]);
+    } finally {
+      await fs.rm(other, { recursive: true, force: true });
+    }
+  });
+
+  it("opens the settings for the empty state's action", async () => {
+    await createService().handleWebviewMessage({ command: "architectureOpenSettings" });
+    expect(settingsOpened).toEqual([true]);
   });
 
   it("reposts the cached summary on mount and rebuilds when communityMode changes", async () => {
@@ -486,6 +512,9 @@ describe("ArchitectureViewService", () => {
     try {
       await createService({ workspaceRoot: empty }).build();
       expect(posted.at(-1)).toMatchObject({ type: "architectureState", status: "empty" });
+      // The reason names the folder and the exclusions; the webview offers Open settings.
+      expect((posted.at(-1) as ArchitectureStateMessage).message).toBe(
+        `No supported source file in "${path.basename(empty)}". Files excluded by .graphitignore or the Graph-It-Live settings are not analysed.`);
       expect(summaries()).toEqual([]);
     } finally {
       await fs.rm(empty, { recursive: true, force: true });
@@ -634,6 +663,7 @@ describe("ArchitectureViewService", () => {
     await createService().build();
     expect(states().some(state => state.message === "Waiting for indexing to finish…")).toBe(false);
     expect(states().some(state => state.percent !== undefined && state.percent > 0)).toBe(true);
+    expect(states().find(state => state.percent !== undefined)?.message).toMatch(/^Building architecture: \d+ of 4 files$/);
   });
 
   it("caps rendered louvain groups at 50, keeps totals from the full aggregation, and sends every unit-scoped group", async () => {
@@ -672,22 +702,25 @@ describe("ArchitectureViewService", () => {
     const service = createService();
     expect(service.getE2EState()).toMatchObject({ renderCount: 0, groupCount: 0, groupEdgeCount: 0, stale: false });
 
-    await service.handleWebviewMessage({
-      command: "architectureRendered",
+    const rendered = {
+      command: "architectureRendered" as const,
       revision: "abc",
       renderedGroups: 3,
       renderedGroupEdges: 2,
-      communityMode: "path",
+      communityMode: "path" as const,
       stale: true,
       overlappingGroups: 1,
       overflowingLabels: 2,
       positions: "path:ui@0,0",
-    });
+    };
+    await service.handleWebviewMessage(rendered);
     expect(service.getE2EState()).toEqual({
       buildCount: 0, renderCount: 1, groupCount: 3, groupEdgeCount: 2, revision: "abc", communityMode: "path", stale: true,
       overlappingGroups: 1, overflowingLabels: 2, positions: "path:ui@0,0", unit: undefined, folder: undefined, unitLevel: undefined,
       violationEdges: 0, rules: [], roles: [], resizeCount: 0, viewSize: { width: 0, height: 0 },
       interactionCount: 0, interaction: null, detailCount: 0, detail: null, matrixCount: 0, matrix: null,
+      // The whole report too, for the measures without a key of their own (header height, zoom…).
+      rendered,
     });
 
     const painted = {
@@ -736,6 +769,13 @@ describe("ArchitectureViewService", () => {
     expect(posted.at(-1)).toMatchObject({ view: "matrix", matrixCell: { row: "src", column: "(root)" }, matrixHeader: "src" });
     service.setControls({ view: "table", matrixCell: { row: "src", column: 3 }, matrixHeader: 4 } as never);
     expect(posted.at(-1)).toMatchObject({ view: undefined, matrixCell: undefined, matrixHeader: undefined });
+    // Canvas controls: zoom actions, navigation keys (at most 20), a legend unit and the cycle count, nothing else.
+    service.setControls({ zoom: "fit", keys: ["Tab", "ArrowDown", "Enter", "x"], legendUnit: "src", cycleCount: true });
+    expect(posted.at(-1)).toMatchObject({ zoom: "fit", keys: ["ArrowDown", "Enter"], legendUnit: "src", cycleCount: true });
+    service.setControls({ zoom: "spin", keys: "ArrowDown", legendUnit: 3, cycleCount: "yes" } as never);
+    expect(posted.at(-1)).toMatchObject({ zoom: undefined, keys: undefined, legendUnit: undefined, cycleCount: undefined });
+    service.setControls({ keys: Array.from({ length: 30 }, () => "0") });
+    expect((posted.at(-1) as ArchitectureControlsMessage).keys).toHaveLength(20);
   });
 
   describe("group detail, evidence and opening files", () => {

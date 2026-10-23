@@ -20,6 +20,8 @@ interface ArchitectureRender {
   unitLevel?: {
     units: number; colors: number; redEdges: number; edgesNotDown: number; routedEdges: number; hiddenEdges: number; minLabelPx: number;
     roleBadges: number; roleTooltips: number; shownUnits: number;
+    layerBands: number; unitsOutsideBand: number; cycleBlocks: number; cycleMembersOutside: number;
+    minLabelContrast?: number; labelledRedEdges: number;
   };
   /** Drawn edges breaking a declared rule, and the Rules panel as `name=count`. */
   violationEdges: number;
@@ -42,7 +44,8 @@ interface ArchitectureRender {
 //   node dist/graph-it.js architecture --level units --from workspaces-project/apps/web --to workspaces-project/packages/ui --format json -w tests/fixtures
 // Louvain: rendered groups = groups.length + 1 for the unassigned files.
 const EXPECTED = {
-  units: { groups: 11, groupEdges: 9, redEdges: 2 },
+  // 3 layers (@ws/web… on 2, (root), core, types… on 0); 1 cycle block (core ↔ types).
+  units: { groups: 11, groupEdges: 9, redEdges: 2, layers: 3, cycles: 1 },
   root: { groups: 18, groupEdges: 4 },
   graphql: { groups: 3, groupEdges: 2, evidenceOf: '(root)/graphql-project/queries' },
   louvain: { groups: 25 + 1, groupEdges: 1 },
@@ -176,6 +179,12 @@ async function waitForRender(
 }
 
 interface ArchitectureInteraction {
+  selectedGroups?: number;
+  foundGroups?: number;
+  ringedGroups?: number;
+  announcement?: string;
+  canvasFocused?: boolean;
+  zoom?: number;
   highlightedGroups: number;
   fadedGroups: number;
   labelledEdges: number;
@@ -200,7 +209,8 @@ async function expectInteraction(
   let last: ArchitectureInteraction | undefined;
   while (Date.now() - start < 15000) {
     last = await getContextKey<ArchitectureInteraction>('graph-it-live.architectureInteraction');
-    if ((await readInteractionCount()) > before && JSON.stringify(last) === JSON.stringify({ command: 'architectureInteracted', ...expected })) return;
+    const shown = last && Object.fromEntries(Object.keys(expected).map(key => [key, last![key as keyof ArchitectureInteraction]]));
+    if ((await readInteractionCount()) > before && JSON.stringify(shown) === JSON.stringify(expected)) return;
     await sleep(250);
   }
   assert.fail(`${description}: expected ${JSON.stringify(expected)}, last interaction ${JSON.stringify(last)}`);
@@ -218,6 +228,33 @@ interface ArchitectureDetail {
   viewport?: string;
   evidence?: { edgeCount: number; total: number; shown: number; firstSource?: string; title: string; pairs: string[] };
 }
+
+/** Sends the controls, then waits for the next interaction report satisfying `predicate`. */
+async function waitForInteraction(
+  description: string,
+  controls: Record<string, unknown>,
+  predicate: (interaction: ArchitectureInteraction) => boolean,
+): Promise<ArchitectureInteraction> {
+  const before = await readInteractionCount();
+  await vscode.commands.executeCommand('graph-it-live.e2eArchitectureControls', controls);
+  const start = Date.now();
+  let last: ArchitectureInteraction | undefined;
+  while (Date.now() - start < 15000) {
+    last = await getContextKey<ArchitectureInteraction>('graph-it-live.architectureInteraction');
+    if ((await readInteractionCount()) > before && last && predicate(last)) return last;
+    await sleep(250);
+  }
+  assert.fail(`${description}: last interaction ${JSON.stringify(last)}`);
+}
+
+/** The whole last render report: header height, legend and zoom have no key of their own. */
+interface RenderedReport {
+  headerHeightPx?: number;
+  viewHeightPx?: number;
+  legendOverflowing?: boolean;
+  zoom?: number;
+}
+const readRendered = async () => (await getContextKey<RenderedReport>('graph-it-live.architectureRendered')) ?? {};
 
 const readDetailCount = async () => (await getContextKey<number>('graph-it-live.architectureDetailCount')) ?? 0;
 
@@ -325,7 +362,16 @@ suite('Architecture view mode', () => {
       roleBadges: EXPECTED.units.groups,
       roleTooltips: EXPECTED.units.groups,
       shownUnits: EXPECTED.units.groups,
+      // One band per layer, every unit inside its own; the cycle as one block around its units.
+      layerBands: EXPECTED.units.layers,
+      unitsOutsideBand: 0,
+      cycleBlocks: EXPECTED.units.cycles,
+      cycleMembersOutside: 0,
+      minLabelContrast: byFolder.unitLevel?.minLabelContrast,
+      // Upward and cycle edges show their count without a hover.
+      labelledRedEdges: EXPECTED.units.redEdges,
     }, 'one colour and role badge per unit, red cycle edges, every other edge drawn downwards, none hidden');
+    assert.ok((byFolder.unitLevel?.minLabelContrast ?? 0) >= 4.5, `unit labels readable on their fill: ${byFolder.unitLevel?.minLabelContrast}:1`);
     assert.ok((byFolder.unitLevel?.minLabelPx ?? 0) >= 8, `labels readable after the fit: ${byFolder.unitLevel?.minLabelPx}px`);
     assert.strictEqual(byFolder.stale, false);
     assert.match(byFolder.revision ?? '', /^[0-9a-f]{64}$/);
@@ -471,18 +517,20 @@ suite('Architecture view mode', () => {
     await openFreshArchitecture();
     await enterUnit('(root)');
     const { groups, groupEdges } = EXPECTED.root;
-    const nothing = { highlightedGroups: 0, fadedGroups: 0, labelledEdges: 0 };
+    // The (root) ↔ components cycle edges always show their count; any other edge only once highlighted.
+    const red = 2;
+    const nothing = { highlightedGroups: 0, fadedGroups: 0, labelledEdges: red };
     const noFileEdge = { shownFileEdges: 0 };
     try {
       // Count labels are hidden until an edge is highlighted.
       await expectInteraction('the default picture', undefined, { ...nothing, shownGroupEdges: groupEdges, ...noFileEdge });
       // layers imports one file of the (root) group: both stay, the 16 other groups fade.
       await expectInteraction('the layers neighbourhood', { find: 'LAYERS' }, {
-        highlightedGroups: 2, fadedGroups: groups - 2, labelledEdges: 1, shownGroupEdges: groupEdges, ...noFileEdge,
+        highlightedGroups: 2, fadedGroups: groups - 2, labelledEdges: 1 + red, shownGroupEdges: groupEdges, ...noFileEdge,
       });
       // 1 of the 4 group edges carries a single import: the layers edge.
       await expectInteraction('the min-imports filter', { minImports: 2 }, {
-        highlightedGroups: 1, fadedGroups: groups - 1, labelledEdges: 0, shownGroupEdges: 3, ...noFileEdge,
+        highlightedGroups: 1, fadedGroups: groups - 1, labelledEdges: red, shownGroupEdges: 3, ...noFileEdge,
       });
       await expectInteraction('the cleared find', { find: '' }, { ...nothing, shownGroupEdges: 3, ...noFileEdge });
       await expectInteraction('the reset filter', { minImports: 1 }, { ...nothing, shownGroupEdges: groupEdges, ...noFileEdge });
@@ -699,6 +747,86 @@ suite('Architecture view mode', () => {
     await sleep(1500); // let the delete mark the view stale before Refresh
     const staleCount = (await readRender()).renderCount;
     await vscode.commands.executeCommand('graph-it-live.e2eArchitectureControls', { unit: '' });
+    await vscode.commands.executeCommand('graph-it-live.refreshGraph');
+    await waitForRender('the fixtures again', staleCount, render => !render.stale && render.groupCount === EXPECTED.units.groups);
+  });
+
+  test('rings found and selected units, fits back, moves with the keyboard, and shows the cycle block', async function () {
+    this.timeout(180000);
+    const units = await openFreshArchitecture();
+    const rendered = await readRendered();
+    assert.strictEqual(rendered.legendOverflowing, false, 'the legend overlay stays inside the canvas');
+
+    // Find: each match ringed in the accent colour, never in its unit colour.
+    const found = await waitForInteraction('finding @ws/core', { find: '@ws/core' }, interaction => (interaction.foundGroups ?? 0) >= 1);
+    assert.strictEqual(found.ringedGroups, found.foundGroups, 'every found unit has a 3px+ ring of another colour');
+    await waitForInteraction('clearing the find', { find: '' }, interaction => interaction.foundGroups === 0);
+
+    // A click in the legend selects the unit, ringed the same way.
+    const selected = await waitForInteraction('selecting @ws/web', { legendUnit: 'workspaces-project/apps/web' }, interaction => interaction.selectedGroups === 1);
+    assert.strictEqual(selected.ringedGroups, 1, 'the selected unit is ringed');
+
+    // Zoom in moves away from the fit; Fit comes back to the first fit's zoom (±1%).
+    const initialZoom = rendered.zoom ?? 0;
+    const zoomed = await waitForInteraction('zooming in', { zoom: 'in' }, interaction => (interaction.zoom ?? 0) > initialZoom * 1.1);
+    assert.ok((zoomed.zoom ?? 0) > initialZoom, 'zoomed in');
+    const fitted = await waitForInteraction('Fit', { zoom: 'fit' }, interaction => Math.abs((interaction.zoom ?? 0) - initialZoom) <= initialZoom * 0.01);
+    assert.ok(Math.abs((fitted.zoom ?? 0) - initialZoom) <= initialZoom * 0.01, `Fit zoom ${fitted.zoom} vs ${initialZoom}`);
+
+    // Keyboard only: an arrow selects a unit on the focused canvas and the live region names it.
+    const moved = await waitForInteraction('an arrow key', { keys: ['ArrowDown'] }, interaction => interaction.canvasFocused === true && interaction.selectedGroups === 1);
+    assert.ok((moved.announcement ?? '').length > 0, 'the live region announces the selection');
+    const name = (moved.announcement ?? '').split(', ')[0];
+    await vscode.commands.executeCommand('graph-it-live.e2eArchitectureControls', { keys: ['Enter'] });
+    const entered = await waitForRender('Enter on the selection', units.renderCount, render => render.unit !== undefined);
+    assert.ok(name.length > 0 && entered.unit !== undefined, `entered ${entered.unit} from "${name}"`);
+    await vscode.commands.executeCommand('graph-it-live.e2eArchitectureControls', { keys: ['Escape'] });
+    const back = await waitForRender('Escape', entered.renderCount, render => render.unit === undefined);
+    assert.strictEqual(back.unitLevel?.cycleBlocks, EXPECTED.units.cycles, 'back on the units with their cycle block');
+
+    // The header's cycle count highlights the block's units.
+    const cycle = await waitForInteraction('the cycle count', { cycleCount: true }, interaction => interaction.highlightedGroups >= 2);
+    assert.ok(cycle.highlightedGroups >= 2, 'the cycle block\'s units are highlighted');
+  });
+
+  test('keeps unit labels readable on a light theme', async function () {
+    this.timeout(120000);
+    const workbench = vscode.workspace.getConfiguration('workbench');
+    await workbench.update('colorTheme', 'Default Light Modern', vscode.ConfigurationTarget.Global);
+    try {
+      const light = await openFreshArchitecture();
+      assert.ok((light.unitLevel?.minLabelContrast ?? 0) >= 4.5, `light theme contrast ${light.unitLevel?.minLabelContrast}:1`);
+    } finally {
+      await workbench.update('colorTheme', undefined, vscode.ConfigurationTarget.Global);
+    }
+  });
+
+  test('keeps the header compact and scrolls the legend overlay with 60 more units', async function () {
+    this.timeout(300000);
+    const root = vscode.workspace.workspaceFolders![0].uri;
+    const many = vscode.Uri.joinPath(root, 'zz-many-units');
+    // The view's panel at its working size: 25% of a 230px strip cannot hold a toolbar.
+    await vscode.commands.executeCommand('workbench.action.toggleMaximizedPanel');
+    try {
+      for (let index = 0; index < 60; index++) {
+        const unit = vscode.Uri.joinPath(many, `pkg-${index}`);
+        await vscode.workspace.fs.writeFile(vscode.Uri.joinPath(unit, 'package.json'), Buffer.from(JSON.stringify({ name: `@many/pkg-${index}` })));
+        await vscode.workspace.fs.writeFile(vscode.Uri.joinPath(unit, 'index.ts'), Buffer.from('export const a = 1;\n'));
+      }
+      const before = (await readRender()).renderCount;
+      await openFreshArchitecture();
+      const render = await waitForRender('the 71 units', before, current => current.groupCount === EXPECTED.units.groups + 60);
+      const rendered = await readRendered();
+      assert.ok((rendered.headerHeightPx ?? Infinity) <= (rendered.viewHeightPx ?? 0) * 0.25,
+        `header and controls within 25% of the view: ${rendered.headerHeightPx} of ${rendered.viewHeightPx}px`);
+      assert.strictEqual(rendered.legendOverflowing, false, 'the legend scrolls inside the canvas instead of growing');
+      assert.strictEqual(render.unitLevel?.layerBands, EXPECTED.units.layers, 'the new units sit on layer 0');
+    } finally {
+      await vscode.commands.executeCommand('workbench.action.toggleMaximizedPanel');
+      await vscode.workspace.fs.delete(many, { recursive: true });
+    }
+    await sleep(1500); // let the delete mark the view stale before Refresh
+    const staleCount = (await readRender()).renderCount;
     await vscode.commands.executeCommand('graph-it-live.refreshGraph');
     await waitForRender('the fixtures again', staleCount, render => !render.stale && render.groupCount === EXPECTED.units.groups);
   });

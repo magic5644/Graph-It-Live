@@ -241,6 +241,7 @@ export class CommandRegistrationService {
       ['graph-it-live.architectureDetail', () => architecture()?.detail],
       ['graph-it-live.architectureMatrixCount', () => architecture()?.matrixCount ?? 0],
       ['graph-it-live.architectureMatrix', () => architecture()?.matrix],
+      ['graph-it-live.architectureRendered', () => architecture()?.rendered],
     ]);
     // Unknown keys return undefined.
     return vscode.commands.registerCommand('getContext', (key: string) => getters.get(key)?.());

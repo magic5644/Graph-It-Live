@@ -84,6 +84,7 @@ describe("MessageDispatcher", () => {
 
     await dispatcher.handle({ command: "architectureMounted" });
     await dispatcher.handle({ command: "architectureRefresh" });
+    await dispatcher.handle({ command: "architectureOpenSettings" });
     await dispatcher.handle(rendered);
     await dispatcher.handle(resized);
     await dispatcher.handle(interacted);
@@ -104,6 +105,7 @@ describe("MessageDispatcher", () => {
     expect(handleArchitectureMessage.mock.calls).toEqual([
       [{ command: "architectureMounted" }],
       [{ command: "architectureRefresh" }],
+      [{ command: "architectureOpenSettings" }],
       [rendered],
       [resized],
       [interacted],

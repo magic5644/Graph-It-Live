@@ -7,6 +7,7 @@ import type {
   ArchitectureUnitLevel,
 } from "../../../shared/architecture-types";
 import { normalizePath } from "../../utils/path";
+import { blend, contrastRatio, parseColor, type Rgba, unitHue } from "./unitColors";
 
 export interface ArchitectureElement {
   group: "nodes" | "edges";
@@ -76,7 +77,8 @@ export const ARCHITECTURE_FILE_LAYOUT = {
  * a first page around the group's last centre, a later one below the files already shown.
  */
 export function placeNewFiles(cy: Core, filePositions: ReadonlyMap<string, Position>, centreOf: (group: NodeSingular) => Position): void {
-  const fresh = cy.nodes().filter((node) => node.isChild() && !filePositions.has(node.id()));
+  // A cycle block's units are children too: they keep their unit positions.
+  const fresh = cy.nodes().filter((node) => node.isChild() && !node.parent().data("cycle") && !filePositions.has(node.id()));
   fresh.parents().forEach((group) => {
     const added = group.children().intersection(fresh);
     const shown = group.children().difference(added);
@@ -306,7 +308,7 @@ function edgeElement(id: string, source: string, target: string, count: number, 
       fileEdge: sourceFile !== undefined || targetFile !== undefined,
       ...(sourceFile === undefined ? {} : { sourceFile }),
       ...(targetFile === undefined ? {} : { targetFile }),
-      tooltip: `${fromName} → ${toName}\n${plural(count, "file import")}`,
+      tooltip: `${fromName} → ${toName}\n${plural(count, "file pair")} (static imports)`,
     },
   };
 }
@@ -459,14 +461,31 @@ export function highlightFocus(cy: Core, focus: Collection): void {
     const edges = focus.edges().union(nodeEdges).not(".weak");
     const shown = focus.union(edges).union(edges.connectedNodes());
     shown.addClass("highlighted");
-    cy.elements().not(shown).addClass("faded");
+    // A faded compound (a cycle block) would fade the units it holds.
+    cy.elements().not(shown).not(shown.parents()).addClass("faded");
   });
 }
+
+/** Marks `nodes` alone with `className` (`selected`: clicked or reached by arrow keys; `found`: Find matches). */
+export function markNodes(cy: Core, className: "selected" | "found", nodes: Collection): void {
+  cy.batch(() => {
+    cy.nodes(`.${className}`).removeClass(className);
+    nodes.nodes().addClass(className);
+  });
+}
+
+/** Drawn with a focus ring: at least 3px of a border colour that is not the node's own fill colour. */
+const ringed = (node: NodeSingular) =>
+  Number.parseFloat(node.style("border-width")) >= 3 && node.style("border-color") !== node.style("background-color");
 
 /** E2E observability, read from the computed style: what the stylesheet actually draws. */
 export function measureInteraction(cy: Core) {
   const edges = cy.edges().filter((edge) => edge.style("display") !== "none");
+  const marked = cy.nodes(".selected, .found");
   return {
+    selectedGroups: cy.nodes(".selected").length,
+    foundGroups: cy.nodes(".found").length,
+    ringedGroups: marked.filter(ringed).length,
     highlightedGroups: cy.nodes(".highlighted").length,
     fadedGroups: cy.nodes().filter((node) => Number(node.style("opacity")) < 1).length,
     labelledEdges: edges.filter((edge) => edge.style("label") !== "").length,
@@ -475,8 +494,8 @@ export function measureInteraction(cy: Core) {
   };
 }
 
-/** Golden-angle hues: every unit gets its own colour, readable on light and dark themes. */
-export const unitColor = (index: number) => `hsl(${Math.round((index * 137.508) % 360)}, 60%, 50%)`;
+/** A unit's identity colour (legend, matrix rows); the canvas draws its hue in the theme's tone (unitColors.unitTone). */
+export const unitColor = (index: number) => `hsl(${unitHue(index)}, 60%, 50%)`;
 
 /** At the units level, the strongest edges up to this many per unit are drawn; upward and cycle edges always are. */
 export const UNIT_EDGES_PER_UNIT = 3;
@@ -605,22 +624,58 @@ export function applyRoleFilter(cy: Core, role: string | null): number {
     if (role === null) return;
     const out = cy.nodes().filter((node) => node.data("role") !== undefined && node.data("role") !== role);
     out.union(out.connectedEdges()).addClass("filtered");
+    cy.nodes("[?cycle]").filter((block) => block.children().not(".filtered").empty()).addClass("filtered");
   });
   return cy.nodes().filter((node) => node.data("role") !== undefined && !node.hasClass("filtered")).length;
 }
+
+/**
+ * One compound per cycle the extension sent (`cycleUnits`), titled with its size, around its units:
+ * the block of each unit key.
+ */
+function cycleBlocks(level: ArchitectureUnitLevel): { blocks: ArchitectureElement[]; blockOf: Map<string, string> } {
+  const blockOf = new Map<string, string>();
+  const layerOf = new Map(level.units.map((unit) => [unit.key, unit.layer]));
+  const blocks = (level.cycleUnits ?? []).map((members, index): ArchitectureElement => {
+    const id = `cycle-${index}`;
+    for (const member of members) blockOf.set(member, id);
+    return {
+      group: "nodes",
+      data: {
+        id, cycle: true, key: `cycle:${members.toSorted().join("|")}`, label: `Cycle · ${members.length} units`, search: "",
+        // Units of one cycle share a layer.
+        layer: layerOf.get(members[0]) ?? 0,
+        tooltip: `${plural(members.length, "unit")} importing each other: ${members.map((member) => unitName(level, member)).join(", ")}`,
+      },
+    };
+  });
+  return { blocks, blockOf };
+}
+
+/** A unit with no unit edge says so: it is laid out on layer 0 without being shared. */
+const linkedUnits = (level: ArchitectureUnitLevel) => new Set(level.unitEdges.flatMap((edge) => [edge.from, edge.to]));
 
 function decorateUnits(elements: ArchitectureElement[], level: ArchitectureUnitLevel): ArchitectureElement[] {
   const idOf = new Map(level.units.map((entry, index) => [entry.key, index + 1]));
   const edgeOf = new Map(level.unitEdges.map((edge) => [`edge-${idOf.get(edge.from)}-${idOf.get(edge.to)}`, edge]));
   const capped = cappedUnitEdges(level);
-  return elements.map((element) => {
+  const { blocks, blockOf } = cycleBlocks(level);
+  const linked = linkedUnits(level);
+  const decorated = elements.map((element) => {
     if (element.group === "nodes") {
       const index = Number(element.data.groupId) - 1;
       const entry = level.units[index];
       if (!entry) return element;
+      const data = { ...element.data, key: `units:${entry.key}`, unitKey: entry.key, layer: entry.layer, color: unitColor(index), hue: unitHue(index) };
+      const role = roleData(data, entry);
+      const block = blockOf.get(entry.key);
       return {
         ...element,
-        data: { ...element.data, key: `units:${entry.key}`, unitKey: entry.key, layer: entry.layer, color: unitColor(index), ...roleData(element.data, entry) },
+        data: {
+          ...data, ...role,
+          ...(block === undefined ? {} : { parent: block }),
+          ...(linked.has(entry.key) ? {} : { tooltip: `${role.tooltip}\nNo cross-unit imports` }),
+        },
       };
     }
     const edge = edgeOf.get(String(element.data.id));
@@ -633,6 +688,7 @@ function decorateUnits(elements: ArchitectureElement[], level: ArchitectureUnitL
       },
     };
   });
+  return [...blocks, ...decorated];
 }
 
 /** A group's layer, its key within the entered folder, and `folder` (the key to enter) when it holds sub-folders. */
@@ -650,7 +706,9 @@ function folderGroupData(data: ArchitectureElement["data"], level: ArchitectureU
  * of the edges between them, and `folder` (the key to enter) on the groups holding sub-folders.
  */
 function decorateUnitGroups(elements: ArchitectureElement[], level: ArchitectureUnitLevel, unit: string, folder?: string): ArchitectureElement[] {
-  const color = unitColor(Math.max(0, level.units.findIndex((entry) => entry.key === unit)));
+  const index = Math.max(0, level.units.findIndex((entry) => entry.key === unit));
+  const color = unitColor(index);
+  const hue = unitHue(index);
   const groupEdges = elements.filter((element) => element.group === "edges" && !element.data.fileEdge);
   const nodes = elements.filter((element) => element.group === "nodes" && element.data.parent === undefined).length;
   const ranked = groupEdges.map((element) => ({
@@ -662,8 +720,8 @@ function decorateUnitGroups(elements: ArchitectureElement[], level: Architecture
   const capped = cappedKeys(ranked, nodes);
   const nested = new Set(level.nestedGroups);
   return elements.map((element) => {
-    if (element.group === "nodes" && element.data.parent !== undefined) return { ...element, data: { ...element.data, color } };
-    if (element.group === "nodes") return { ...element, data: { ...element.data, color, ...folderGroupData(element.data, level, nested, folder) } };
+    if (element.group === "nodes" && element.data.parent !== undefined) return { ...element, data: { ...element.data, color, hue } };
+    if (element.group === "nodes") return { ...element, data: { ...element.data, color, hue, ...folderGroupData(element.data, level, nested, folder) } };
     const kind = kindOf.get(String(element.data.id));
     return kind === undefined ? element : { ...element, data: { ...element.data, kind, capped: capped.has(String(element.data.id)) } };
   });
@@ -699,25 +757,117 @@ export function measureIsolated(cy: Core) {
   };
 }
 
-/** E2E observability of the units level, read from what is drawn. */
-export function measureUnitLevel(cy: Core) {
+/** A layer's row, in model coordinates: from the top of its highest node to the bottom of its lowest. */
+export interface LayerBand {
+  layer: number;
+  y1: number;
+  y2: number;
+}
+
+const BOX = { includeLabels: false };
+
+/**
+ * One band per layer of the drawn nodes (units, or groups of an entered level), top first. Rows
+ * meet halfway between two layers, so the bands tile the picture; the isolated groups packed
+ * below and the cycle blocks (their units count) are left out.
+ */
+export function layerBands(cy: Core): LayerBand[] {
+  const rows = new Map<number, { y1: number; y2: number }>();
+  cy.nodes("[layer]").not("[?cycle], [?isolated], .filtered").forEach((node) => {
+    const { y1, y2 } = node.boundingBox(BOX);
+    const layer = Number(node.data("layer"));
+    const row = rows.get(layer);
+    rows.set(layer, row ? { y1: Math.min(row.y1, y1), y2: Math.max(row.y2, y2) } : { y1, y2 });
+  });
+  const bands = [...rows].map(([layer, row]) => ({ layer, ...row })).sort((a, b) => a.y1 - b.y1);
+  for (let i = 1; i < bands.length; i++) {
+    const middle = (bands[i - 1].y2 + bands[i].y1) / 2;
+    bands[i - 1].y2 = middle;
+    bands[i].y1 = middle;
+  }
+  return bands;
+}
+
+/** A band's label: the lowest layer holds what the others depend on. */
+export const bandLabel = (layer: number) => (layer === 0 ? "Layer 0 · shared" : `Layer ${layer}`);
+
+export type Direction = "ArrowUp" | "ArrowDown" | "ArrowLeft" | "ArrowRight";
+
+/**
+ * The drawn node nearest to `from` in `direction`: within a 45° cone around it, by distance,
+ * a node further off the axis counting double. Without `from`, the top-left node.
+ */
+export function nearestNode(nodes: Collection, from: NodeSingular | undefined, direction: Direction): NodeSingular | undefined {
+  const candidates = nodes.nodes().filter((node) => node !== from);
+  if (!from) return candidates.toArray().sort((a, b) => a.position("y") - b.position("y") || a.position("x") - b.position("x"))[0] as NodeSingular | undefined;
+  const origin = from.position();
+  const axis = { ArrowUp: [0, -1], ArrowDown: [0, 1], ArrowLeft: [-1, 0], ArrowRight: [1, 0] }[direction];
+  let best: { node: NodeSingular; score: number } | undefined;
+  candidates.forEach((node) => {
+    const dx = node.position("x") - origin.x;
+    const dy = node.position("y") - origin.y;
+    const along = dx * axis[0] + dy * axis[1];
+    const across = Math.abs(dx * axis[1] - dy * axis[0]);
+    if (along <= 0 || across > along) return;
+    const score = along + 2 * across;
+    if (!best || score < best.score) best = { node, score };
+  });
+  return best?.node;
+}
+
+/** What the live region says about a selected node: its name, layer, edges and cycle. */
+export function describeNode(node: NodeSingular): string {
+  const name = String(node.data("unitKey") === undefined ? node.data("groupKey") || node.data("label") : node.data("label")).split("\n").find((line) => !line.startsWith("[")) ?? "";
+  const shown = (edges: Collection) => edges.filter((edge) => !edge.data("fileEdge")).length;
+  const parts = [name];
+  if (node.data("layer") !== undefined) parts.push(`layer ${node.data("layer")}`);
+  parts.push(`${shown(node.outgoers("edge"))} outgoing`, `${shown(node.incomers("edge"))} incoming`);
+  if (node.parent().data("cycle")) parts.push("in cycle");
+  return parts.join(", ");
+}
+
+/** Lowest contrast of a node's label over its fill blended on `background`; undefined without a parseable colour. */
+function labelContrast(node: NodeSingular, background: Rgba): number | undefined {
+  const label = parseColor(String(node.style("color")));
+  const fill = parseColor(String(node.style("background-color")));
+  if (!label || !fill) return undefined;
+  return contrastRatio(label, blend(fill, Number(node.style("background-opacity")), background));
+}
+
+/** E2E observability of the units level, read from what is drawn; `background` is the colour behind the canvas. */
+export function measureUnitLevel(cy: Core, background?: Rgba) {
   const drawn = cy.edges().map((edge) => edge).filter((edge) => edge.style("display") !== "none");
+  const units = cy.nodes("[unitKey]");
+  const blocks = cy.nodes("[?cycle]");
+  const red = drawn.filter((edge) => edge.data("kind") !== "down");
+  const bands = layerBands(cy);
+  const contrasts = background ? units.map((node) => labelContrast(node, background)).filter((value) => value !== undefined) : [];
   return {
-    units: cy.nodes().length,
-    colors: new Set(cy.nodes().map((node) => String(node.data("color")))).size,
-    redEdges: drawn.filter((edge) => edge.data("kind") !== "down").length,
+    units: units.length,
+    colors: new Set(units.map((node) => String(node.data("color")))).size,
+    redEdges: red.length,
+    labelledRedEdges: red.filter((edge) => edge.style("label") !== "").length,
+    layerBands: bands.length,
+    unitsOutsideBand: units.filter((node) => {
+      const band = bands.find((entry) => entry.layer === node.data("layer"));
+      return !band || node.position("y") < band.y1 || node.position("y") > band.y2;
+    }).length,
+    cycleBlocks: blocks.length,
+    cycleMembersOutside: units.filter((node) => node.parent().nonempty() && !node.parent().data("cycle")).length
+      + blocks.filter((block) => block.children().empty()).length,
+    minLabelContrast: contrasts.length > 0 ? Math.round(Math.min(...contrasts) * 100) / 100 : undefined,
     /** Drawn down edges whose target is not below their source. */
     edgesNotDown: drawn.filter((edge) => edge.data("kind") === "down" && edge.target().position("y") <= edge.source().position("y")).length,
     routedEdges: drawn.filter((edge) => edge.data("routed") === true).length,
     hiddenEdges: cy.edges(".weak").length,
     minLabelPx: Math.round(ARCHITECTURE_FONT_SIZE * cy.zoom() * 100) / 100,
-    roleBadges: cy.nodes().filter((node) => String(node.data("label")).startsWith(`[${node.data("role")}`)).length,
+    roleBadges: units.filter((node) => String(node.data("label")).startsWith(`[${node.data("role")}`)).length,
     // The role line, then one line per piece of evidence ("- no evidence" without any).
-    roleTooltips: cy.nodes().filter((node) => {
+    roleTooltips: units.filter((node) => {
       const [, role, ...evidence] = String(node.data("tooltip")).split("\nRole: ");
       return role !== undefined && evidence.length === 0 && role.startsWith(`${node.data("role")} (`)
         && role.split("\n- ").length - 1 === Math.max(1, Number(node.data("evidenceCount")));
     }).length,
-    shownUnits: cy.nodes().not(".filtered").length,
+    shownUnits: units.not(".filtered").length,
   };
 }
