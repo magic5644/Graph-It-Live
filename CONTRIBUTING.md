@@ -387,7 +387,7 @@ For complete package verification details, see [DEVELOPMENT.md](DEVELOPMENT.md#p
 The version is not committed: workflows set it from the tag at publish time.
 
 1. Bring the documentation up to date with the code first (`README.md`, `docs/`, plugin skills; see `.claude/rules/release.md`), in its own PR(s).
-2. For new user-facing features, add their screenshots and animated GIFs to `media/`, show them in `README.md` and `site/index.html`, in their own PR. Demo media stays out of the VSIX: the stores show the README images from GitHub.
+2. For new user-facing features, add their screenshots and animated GIFs to `media/`, show them in `README.md` and `site/index.html` with an English explanation, in their own PR. Captures show only this repository's code (Graph-It-Live or `tests/fixtures/**`), never third-party code. Demo media stays out of the VSIX: the stores show the README images from GitHub.
 3. Then merge a PR that adds a `## v<version>` section at the top of `changelog.md`, presenting each feature with an example and its image. The release fails before publishing anything when this section is missing.
 4. Push the tag `v<version>` on `main`, or create the release (and its tag) in the GitHub UI. Either way the tag push starts `.github/workflows/release.yml`.
 5. `release.yml` validates, packages and publishes the VSIX to the VS Code Marketplace and Open VSX, then writes the GitHub release:
