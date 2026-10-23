@@ -280,8 +280,9 @@ export interface ArchitectureRenderedCommand {
   /** Height of everything above the canvas (header, controls, breadcrumb), and of the whole view. */
   headerHeightPx?: number;
   viewHeightPx?: number;
-  /** The legend overlay reaches past the canvas instead of scrolling. */
+  /** The legend overlay reaches past the canvas instead of scrolling, and its list scrolls inside it. */
   legendOverflowing?: boolean;
+  legendScrolls?: boolean;
   /** Zoom of the canvas once fitted. */
   zoom?: number;
   /** A group level (not the units), as its header and canvas show it once laid out. */

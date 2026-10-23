@@ -666,7 +666,8 @@ describe("ArchitectureGraph", () => {
       expect(lastOf(postMessage, "architectureDetailRendered")).toMatchObject({ focusedGroup: "store", expandedGroups: 0 });
       expect(screen.getByRole("navigation", { name: "Architecture path" }).textContent).toContain("store");
 
-      expect(screen.getByRole("button", { name: "store" }).getAttribute("aria-current")).toBe("location");
+      // The focused group ends the path: where the view is, not a link.
+      expect(screen.getByText("store", { selector: "nav span[aria-current]" }).getAttribute("aria-current")).toBe("location");
       fireEvent.click(screen.getByRole("button", { name: "Clear focus on store" }));
       expect(lastOf(postMessage, "architectureDetailRendered")).toMatchObject({ focusedGroup: undefined });
       expect(screen.getByRole("button", { name: "All groups" }).getAttribute("aria-current")).toBe("location");

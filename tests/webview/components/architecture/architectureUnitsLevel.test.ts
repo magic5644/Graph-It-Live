@@ -413,6 +413,13 @@ describe("cycle blocks, layer bands and contrast (units level)", () => {
     expect([bandLabel(2), bandLabel(0)]).toEqual(["Layer 2", "Layer 0 · shared"]);
   });
 
+  it("counts a cycle unit the extension sent but drawn outside its block", () => {
+    const cy = canvas(toLevelElements(cyclic, null));
+    expect(measureUnitLevel(cy).cycleMembersOutside).toBe(0);
+    cy.getElementById("group-4").move({ parent: null });
+    expect(measureUnitLevel(cy).cycleMembersOutside).toBe(1);
+  });
+
   it("never lays out a cycle block's units as new files of an expanded group (a redraw keeps them where ELK put them)", async () => {
     const cy = canvas(toLevelElements(cyclic, null));
     await layOut(cy);

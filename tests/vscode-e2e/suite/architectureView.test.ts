@@ -252,6 +252,7 @@ interface RenderedReport {
   headerHeightPx?: number;
   viewHeightPx?: number;
   legendOverflowing?: boolean;
+  legendScrolls?: boolean;
   zoom?: number;
 }
 const readRendered = async () => (await getContextKey<RenderedReport>('graph-it-live.architectureRendered')) ?? {};
@@ -819,7 +820,8 @@ suite('Architecture view mode', () => {
       const rendered = await readRendered();
       assert.ok((rendered.headerHeightPx ?? Infinity) <= (rendered.viewHeightPx ?? 0) * 0.25,
         `header and controls within 25% of the view: ${rendered.headerHeightPx} of ${rendered.viewHeightPx}px`);
-      assert.strictEqual(rendered.legendOverflowing, false, 'the legend scrolls inside the canvas instead of growing');
+      assert.strictEqual(rendered.legendOverflowing, false, 'the legend stays inside the canvas');
+      assert.strictEqual(rendered.legendScrolls, true, '71 units scroll inside the legend, capped at 40% of the canvas');
       assert.strictEqual(render.unitLevel?.layerBands, EXPECTED.units.layers, 'the new units sit on layer 0');
     } finally {
       await vscode.commands.executeCommand('workbench.action.toggleMaximizedPanel');

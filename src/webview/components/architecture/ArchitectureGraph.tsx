@@ -123,6 +123,7 @@ export interface ViewChrome {
   headerHeightPx: number;
   viewHeightPx: number;
   legendOverflowing: boolean;
+  legendScrolls: boolean;
 }
 
 /** What a render drew (E2E observability); the units level adds its own measures. */
@@ -193,18 +194,26 @@ function drawBands(layer: HTMLElement | null, cy: cytoscape.Core, bands: readonl
   if (!layer) return;
   const zoom = cy.zoom();
   const { y } = cy.pan();
-  layer.replaceChildren(...bands.map((band, index) => {
-    const row = document.createElement("div");
-    row.dataset.layer = String(band.layer);
-    row.style.cssText = `position:absolute;left:0;right:0;top:${band.y1 * zoom + y}px;height:${(band.y2 - band.y1) * zoom}px;`
-      + (index % 2 === 0 ? "background:color-mix(in srgb, var(--vscode-foreground) 6%, transparent);" : "")
-      + "border-top:1px dashed var(--vscode-widget-border, transparent);";
-    const label = document.createElement("span");
-    label.textContent = bandLabel(band.layer);
-    label.style.cssText = "position:absolute;right:8px;top:2px;font-size:11px;color:var(--vscode-descriptionForeground);";
-    row.append(label);
-    return row;
-  }));
+  // A pan or zoom only moves the rows: they are built once per layout.
+  const built = layer.children.length === bands.length && bands.every((band, index) => (layer.children[index] as HTMLElement).dataset.layer === String(band.layer));
+  if (!built) {
+    layer.replaceChildren(...bands.map((band, index) => {
+      const row = document.createElement("div");
+      row.dataset.layer = String(band.layer);
+      row.style.cssText = "position:absolute;left:0;right:0;border-top:1px dashed var(--vscode-widget-border, transparent);"
+        + (index % 2 === 0 ? "background:color-mix(in srgb, var(--vscode-foreground) 6%, transparent);" : "");
+      const label = document.createElement("span");
+      label.textContent = bandLabel(band.layer);
+      label.style.cssText = "position:absolute;right:8px;top:2px;font-size:11px;color:var(--vscode-descriptionForeground);";
+      row.append(label);
+      return row;
+    }));
+  }
+  bands.forEach((band, index) => {
+    const row = layer.children[index] as HTMLElement;
+    row.style.top = `${band.y1 * zoom + y}px`;
+    row.style.height = `${(band.y2 - band.y1) * zoom}px`;
+  });
 }
 
 /** A file or "+N more" node of an expanded group (a unit inside a cycle block is a child too). */
@@ -855,7 +864,7 @@ function Breadcrumb(props: Readonly<BreadcrumbProps>) {
       })}
       {focused && (
         <span>
-          {" › "}<Segment name={labelOf(focusId)} current onClick={() => undefined} />
+          {" › "}<span aria-current="location" style={{ fontWeight: 600 }}>{labelOf(focusId)}</span>
           <button type="button" aria-label={`Clear focus on ${labelOf(focusId)}`} onClick={onClearFocus}>×</button>
         </span>
       )}
@@ -1013,6 +1022,8 @@ export function ArchitectureGraph({ postMessage }: Readonly<ArchitectureGraphPro
       headerHeightPx: Math.round(area.top - root.top),
       viewHeightPx: Math.round(root.height),
       legendOverflowing: legend !== undefined && legend.bottom > area.bottom + 1,
+      // Capped at 40% of the canvas: a long list scrolls inside it.
+      legendScrolls: legendRef.current !== null && legendRef.current.scrollHeight > legendRef.current.clientHeight,
     };
   };
   /** The layer bands of what is drawn, behind it. */
@@ -1583,12 +1594,13 @@ export function ArchitectureGraph({ postMessage }: Readonly<ArchitectureGraphPro
       if (fit) fitAll(cy);
       // The same level laid out again (Show more groups): what was found or tapped stays in view.
       if (fit && !freshLevel && pinnedRef.current?.length) cy.center(pinnedRef.current);
+      // Measured after the min-imports and role filters, which run in later effects.
+      if (previous !== drawn) {
+        applyMinImports(cy, minImportsRef.current);
+        applyRoleFilter(cy, roleFilterRef.current);
+      }
       actionsRef.current.showBands(cy);
       if (previous === drawn) return;
-      // Measured after the min-imports and role filters, which run in later effects.
-      applyMinImports(cy, minImportsRef.current);
-      applyRoleFilter(cy, roleFilterRef.current);
-      actionsRef.current.showBands(cy);
       postMessageRef.current(renderedReport(cy, summary, drawn, unit, folder, actionsRef.current.chrome()));
     };
     const laidOut = () => {
