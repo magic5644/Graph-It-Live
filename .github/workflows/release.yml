@@ -77,6 +77,8 @@ jobs:
 
           echo "release_tag=$RELEASE_TAG" >> "$GITHUB_OUTPUT"
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          # Later shell steps read $VERSION, never an interpolated expression.
+          echo "VERSION=$VERSION" >> "$GITHUB_ENV"
 
       # Fails before anything is published when changelog.md has no section for this version.
       - name: Build release notes
@@ -86,7 +88,7 @@ jobs:
         run: node scripts/release-notes.mjs "$RELEASE_TAG" "$RUNNER_TEMP/release-notes.md"
 
       - name: Update Package Version
-        run: npm version ${{ steps.release_meta.outputs.version }} --no-git-tag-version
+        run: npm version "$VERSION" --no-git-tag-version
 
       - name: Install Dependencies
         run: npm ci --ignore-scripts
@@ -118,12 +120,12 @@ jobs:
       - name: Publish to VS Code Marketplace
         env:
           VSCE_PAT: ${{ secrets.VSCE_PAT }}
-        run: vsce publish --packagePath graph-it-live-${{ steps.release_meta.outputs.version }}.vsix
+        run: vsce publish --packagePath "graph-it-live-$VERSION.vsix"
 
       - name: Publish to Open VSX Marketplace
         env:
           OVSX_PAT: ${{ secrets.OVSX_PAT }}
-        run: ovsx publish --packagePath graph-it-live-${{ steps.release_meta.outputs.version }}.vsix
+        run: ovsx publish --packagePath "graph-it-live-$VERSION.vsix"
 
       - name: Publish artifact to GitHub Release
         uses: softprops/action-gh-release@efb35369e0ad2afab669f228072c1b0d510eae64 # v3.0.3

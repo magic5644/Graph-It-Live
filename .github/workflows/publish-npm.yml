@@ -78,10 +78,14 @@ jobs:
     if: ${{ !cancelled() && needs.resolve-ref.result == 'success' && (needs.validate.result == 'success' || (inputs.skip_tests == true && needs.validate.result == 'skipped')) }}
     steps:
       - name: Validate at least one store is selected
+        env:
+          PUBLISH_NPM: ${{ inputs.publish_npm }}
+          PUBLISH_VSCODE: ${{ inputs.publish_vscode }}
+          PUBLISH_OPENVSX: ${{ inputs.publish_openvsx }}
         run: |
-          if [ "${{ inputs.publish_npm }}" != "true" ] && \
-             [ "${{ inputs.publish_vscode }}" != "true" ] && \
-             [ "${{ inputs.publish_openvsx }}" != "true" ]; then
+          if [ "$PUBLISH_NPM" != "true" ] && \
+             [ "$PUBLISH_VSCODE" != "true" ] && \
+             [ "$PUBLISH_OPENVSX" != "true" ]; then
             echo "ERROR: At least one publish target must be selected."
             exit 1
           fi
@@ -105,12 +109,13 @@ jobs:
 
           echo "release_tag=$RELEASE_TAG" >> "$GITHUB_OUTPUT"
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          # Later shell steps read $VERSION, never an interpolated expression.
+          echo "VERSION=$VERSION" >> "$GITHUB_ENV"
 
       - name: Check npm version conflict
         if: ${{ inputs.publish_npm == true }}
         run: |
-          VERSION="${{ steps.release_meta.outputs.version }}"
-          if npm view @magic5644/graph-it-live@$VERSION version 2>/dev/null | grep -q "$VERSION"; then
+          if npm view "@magic5644/graph-it-live@$VERSION" version 2>/dev/null | grep -q "$VERSION"; then
             echo "ERROR: Version $VERSION already exists on npm. Cannot republish same version."
             exit 1
           fi
@@ -129,7 +134,7 @@ jobs:
           package-manager-cache: false
 
       - name: Update Package Version
-        run: npm version ${{ steps.release_meta.outputs.version }} --no-git-tag-version
+        run: npm version "$VERSION" --no-git-tag-version
 
       - name: Install Dependencies
         run: npm ci --ignore-scripts
@@ -171,13 +176,13 @@ jobs:
         if: ${{ inputs.publish_vscode == true }}
         env:
           VSCE_PAT: ${{ secrets.VSCE_PAT }}
-        run: vsce publish --packagePath graph-it-live-${{ steps.release_meta.outputs.version }}.vsix
+        run: vsce publish --packagePath "graph-it-live-$VERSION.vsix"
 
       - name: Publish to Open VSX Registry
         if: ${{ inputs.publish_openvsx == true }}
         env:
           OVSX_PAT: ${{ secrets.OVSX_PAT }}
-        run: ovsx publish --packagePath graph-it-live-${{ steps.release_meta.outputs.version }}.vsix
+        run: ovsx publish --packagePath "graph-it-live-$VERSION.vsix"
 
       - name: Publish artifact to GitHub Release
         if: ${{ inputs.publish_vscode == true || inputs.publish_openvsx == true }}
