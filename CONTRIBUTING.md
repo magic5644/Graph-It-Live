@@ -387,14 +387,15 @@ For complete package verification details, see [DEVELOPMENT.md](DEVELOPMENT.md#p
 The version is not committed: workflows set it from the tag at publish time.
 
 1. Bring the documentation up to date with the code first (`README.md`, `docs/`, plugin skills; see `.claude/rules/release.md`), in its own PR(s).
-2. Then merge a PR that adds a `## v<version>` section at the top of `changelog.md`. The release fails before publishing anything when this section is missing.
-3. Push the tag `v<version>` on `main`, or create the release (and its tag) in the GitHub UI. Either way the tag push starts `.github/workflows/release.yml`.
-4. `release.yml` validates, packages and publishes the VSIX to the VS Code Marketplace and Open VSX, then writes the GitHub release:
+2. For new user-facing features, add their screenshots and animated GIFs to `media/`, show them in `README.md` and `site/index.html`, in their own PR. Demo media stays out of the VSIX: the stores show the README images from GitHub.
+3. Then merge a PR that adds a `## v<version>` section at the top of `changelog.md`, presenting each feature with an example and its image. The release fails before publishing anything when this section is missing.
+4. Push the tag `v<version>` on `main`, or create the release (and its tag) in the GitHub UI. Either way the tag push starts `.github/workflows/release.yml`.
+5. `release.yml` validates, packages and publishes the VSIX to the VS Code Marketplace and Open VSX, then writes the GitHub release:
    - attaches the VSIX;
    - **replaces** the release body (it never appends) with the output of `node scripts/release-notes.mjs <tag> <file>`: the `changelog.md` section, the PRs merged since the previous `v*` tag grouped by Conventional Commit type of the PR title (breaking changes first: `!` or a `BREAKING CHANGE:` footer; bot PRs under chores), a *Contributors* line crediting every human PR author, and the *Full Changelog* compare link.
 
    Notes typed when creating the release in the UI are overwritten, and re-running the workflow gives the same body.
-5. `Publish (Selective)` (`.github/workflows/publish-npm.yml`) publishes the CLI to npm and, optionally, the stores. It only attaches the VSIX to the release and never changes its body.
+6. `Publish (Selective)` (`.github/workflows/publish-npm.yml`) publishes the CLI to npm and, optionally, the stores. It only attaches the VSIX to the release and never changes its body.
    - Its validation runs the unit tests on Linux, macOS and Windows; VS Code E2E tests and VSIX packaging run only when a store is selected.
    - Set `skip_tests` only for the tag that `release.yml` already validated. A failed or cancelled validation never publishes.
 
