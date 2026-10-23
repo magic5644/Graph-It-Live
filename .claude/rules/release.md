@@ -27,7 +27,9 @@ Documentation must match shipped code before the changelog PR. Never tag over st
 
 Users discover features through images, so every release showing new user-facing features ships new visuals. Land them in their own PR, after the feature PRs and before the changelog PR.
 
-1. Capture each new feature from the final build: animated GIF for flows (short and narrow, a few MB at most), PNG for still states. Name files `media/<feature>-<what>.{gif,png}`. `pr-assets/<issue>` branches hold earlier captures to reuse as sources.
+1. Capture each new feature from the final build: animated GIF for flows (short and narrow, a few MB at most), PNG for still states. Name files `media/<feature>-<what>.{gif,png}`. `pr-assets/<issue>` branches hold earlier captures to reuse as sources, but only those that follow the next rule (not the OSS corpus shots, such as hono).
+   - Show only this repository's code: Graph-It-Live itself, or `tests/fixtures/**` for other languages and project shapes. Never third-party code, OSS corpora or private code.
+   - Accompany every image and GIF with an English explanation: alt text, a caption or short paragraph saying what it shows and how to get there (command, setting, click).
 2. Show them in `README.md` and `site/index.html` (feature section, `og:image` when the headline feature changes). `.github/workflows/pages.yml` deploys the site when `site/**` or `media/**` lands on `main`.
 3. Keep demo media out of the VSIX: `.vscodeignore` excludes `media/**` except the icon. `vsce` rewrites relative README images to `https://github.com/magic5644/Graph-It-Live/raw/HEAD/media/...`, and both stores publish that same VSIX. Never rename or delete a `media/` file that a published README still references.
 4. Check the package: `npm run package && npm run package:verify`, then `ls -lh graph-it-live-*.vsix` (≤ 20 MB).
