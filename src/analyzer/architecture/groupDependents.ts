@@ -56,7 +56,9 @@ function walkImporters(importers: ReadonlyMap<string, string[]>, seeds: Readonly
   const visited = new Set(seeds);
   const unvisitedImporters = (file: string) => (importers.get(file) ?? []).filter((importer) => !visited.has(importer));
   let frontier = [...seeds];
-  for (let depth = 1; frontier.length > 0; depth += 1) {
+  let depth = 0;
+  while (frontier.length > 0) {
+    depth += 1;
     if (depth > maxDepth) return { depthOf, maxDepthReached: frontier.some((file) => unvisitedImporters(file).length > 0) };
     const next: string[] = [];
     for (const file of frontier) {
