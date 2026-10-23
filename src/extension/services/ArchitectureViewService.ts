@@ -430,7 +430,7 @@ export class ArchitectureViewService {
   private find({ revision, folder, unit, query }: ArchitectureFindCommand): void {
     const cached = this.graphFor(revision, folder);
     if (!cached) return;
-    const found = findHiddenGroups(cached.hidden, String(query).slice(0, 256), unit === undefined ? undefined : String(unit));
+    const found = findHiddenGroups(cached.hidden, String(query), unit === undefined ? undefined : String(unit));
     this.options.post({ type: "architectureFound", revision, folder, unit, query: String(query), ...found });
   }
 

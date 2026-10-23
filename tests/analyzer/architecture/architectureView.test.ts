@@ -26,6 +26,8 @@ describe("capGroups", () => {
     [DEFAULT_RENDERED_GROUPS, 200],
     [MAX_RENDERED_GROUPS, 200],
     [DEFAULT_RENDERED_GROUPS, 30],
+    [DEFAULT_RENDERED_GROUPS, DEFAULT_RENDERED_GROUPS],
+    [MAX_RENDERED_GROUPS, MAX_RENDERED_GROUPS],
   ])("keeps the %i largest of %i groups and counts the others", (maxGroups, count) => {
     const capped = capGroups(groupsOf(count), [], maxGroups, () => "", false);
     const kept = Math.min(maxGroups, count);
@@ -34,6 +36,11 @@ describe("capGroups", () => {
     expect(capped.groupsByUnit).toEqual({ "": { totalGroups: count, hiddenGroups: count - kept, hiddenGroupEdges: 0 } });
     // No edge: every kept group is drawn apart.
     expect(capped.isolatedGroups).toHaveLength(kept);
+  });
+
+  it("keeps nothing without groups", () => {
+    expect(capGroups(groupsOf(0), [], DEFAULT_RENDERED_GROUPS, () => "", false))
+      .toEqual({ groups: [], groupEdges: [], isolatedGroups: [], hidden: [], groupsByUnit: {} });
   });
 
   it("caps each unit apart and counts only the hidden edges inside a unit", () => {
@@ -67,6 +74,8 @@ describe("findHiddenGroups", () => {
     expect(findHiddenGroups(hidden, "  WEB ")).toMatchObject({ total: 12 });
     expect(findHiddenGroups(hidden, "web").matches).toHaveLength(10);
     expect(findHiddenGroups(hidden, "f1", "apps/web")).toEqual({ matches: ["F1", "F10"], total: 2 });
+    // Trimmed before the 256-character bound: padding never cuts the query.
+    expect(findHiddenGroups(hidden, `${" ".repeat(300)}f11`).total).toBe(1);
   });
 
   it("matches nothing for a blank query or another unit", () => {
