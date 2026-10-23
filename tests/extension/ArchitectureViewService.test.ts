@@ -671,7 +671,8 @@ describe("ArchitectureViewService", () => {
     expect(states().find(state => state.percent !== undefined)?.message).toMatch(/^Building architecture: \d+ of 4 files$/);
   });
 
-  it("caps rendered louvain groups at 50, keeps totals from the full aggregation, and sends every unit-scoped group", async () => {
+  // 400 files through Louvain: ~3 s on Windows runners, over the 5 s default once (VS Code 1.143.1 compatibility run).
+  it("caps rendered louvain groups at 50, keeps totals from the full aggregation, and sends every unit-scoped group", { timeout: 30_000 }, async () => {
     const groups = 200;
     // One import per folder: Louvain keeps each pair as its own community.
     const many = Object.fromEntries(Array.from({ length: groups }, (_, index) => [
