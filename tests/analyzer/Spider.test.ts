@@ -343,6 +343,11 @@ describe('Spider - reanalyzeUnresolvedImporters', () => {
     spider.disableReverseIndex();
     expect(await spider.reanalyzeUnresolvedImporters(path.join(tmpDir, 'later.ts'))).toEqual([]);
   });
+
+  it('lists the unresolved importers of a file without re-analysing them', () => {
+    expect(spider.getUnresolvedImportersOf(path.join(tmpDir, 'later.ts'))).toEqual([np(path.join(tmpDir, 'app.ts'))]);
+    expect(spider.getUnresolvedImportersOf(path.join(tmpDir, 'unrelated.ts'))).toEqual([]);
+  });
 });
 
 describe('Spider - Reverse Index Management', () => {

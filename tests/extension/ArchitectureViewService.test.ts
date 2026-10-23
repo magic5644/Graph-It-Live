@@ -7,6 +7,7 @@ import type { IndexerStatusSnapshot } from "../../src/analyzer/IndexerStatus";
 import {
   ArchitectureViewService,
   maskWorkspaceRoot,
+  writtenBefore,
   type ArchitectureViewServiceOptions,
 } from "../../src/extension/services/ArchitectureViewService";
 import {
@@ -46,6 +47,12 @@ function analyzerFor(root: string, files: Record<string, string[]>): AnalyzeFile
       ({ path: path.join(root, relative), type: "import" as const, line: 1, module: relative }));
 }
 
+/** A real edit: its mtime is after any build started so far. */
+function touch(root: string, relative: string): Promise<void> {
+  const later = new Date(Date.now() + 1000);
+  return fs.utimes(path.join(root, relative), later, later);
+}
+
 describe("ArchitectureViewService", () => {
   let root: string;
   let posted: ArchitectureExtensionMessage[];
@@ -75,6 +82,7 @@ describe("ArchitectureViewService", () => {
       },
       openSettings: () => settingsOpened.push(true),
       warn: (message) => warnings.push(message),
+      unresolvedImportersOf: () => [],
       ...overrides,
     });
 
@@ -191,12 +199,45 @@ describe("ArchitectureViewService", () => {
     service.markStale(path.join(root, "dist/bundle.js"), "change");
     service.markStale(path.join(root, ".serverless/handler.js"), "delete");
     expect(summaries()).toHaveLength(1);
+    await touch(root, "src/ui/view.ts");
     service.markStale(path.join(root, "src/ui/view.ts"), "change");
     expect(summaries().map(summary => summary.stale)).toEqual([false, true]);
 
     await service.build();
     service.markStale(path.join(root, "src/new.ts"), "create");
     expect(summaries().at(-1)?.stale).toBe(true);
+  });
+
+  // macOS delivers watcher events late: after the Refresh that already read those files.
+  it("ignores late create and change events for content written before the build", async () => {
+    await fs.writeFile(path.join(root, "src/late.ts"), "export const late = 1;\n");
+    const earlier = new Date(Date.now() - 1000);
+    for (const file of ["src/late.ts", "src/ui/view.ts"]) await fs.utimes(path.join(root, file), earlier, earlier);
+    let release!: () => void;
+    const gate = new Promise<void>(resolve => { release = resolve; });
+    const analyze = analyzerFor(root, workspace);
+    const service = createService({ analyzeFile: async (filePath) => { await gate; return analyze(filePath); } });
+    const running = service.build();
+    service.markStale(path.join(root, "src/late.ts"), "create");
+    release();
+    await running;
+    service.markStale(path.join(root, "src/late.ts"), "create");
+    service.markStale(path.join(root, "src/ui/view.ts"), "change");
+    expect(summaries().map(summary => summary.stale)).toEqual([false]);
+    await fs.rm(path.join(root, "src/ui/view.ts"));
+    service.markStale(path.join(root, "src/ui/view.ts"), "delete");
+    expect(summaries().map(summary => summary.stale)).toEqual([false, true]);
+  });
+
+  it("still marks stale for a late create that indexed files import unresolved (#387)", async () => {
+    await fs.writeFile(path.join(root, "src/late.ts"), "export const late = 1;\n");
+    const earlier = new Date(Date.now() - 1000);
+    await fs.utimes(path.join(root, "src/late.ts"), earlier, earlier);
+    const late = path.join(root, "src/late.ts");
+    const service = createService({ unresolvedImportersOf: (filePath) => (filePath === late ? [path.join(root, "main.ts")] : []) });
+    await service.build();
+    service.markStale(late, "create");
+    expect(summaries().map(summary => summary.stale)).toEqual([false, true]);
   });
 
   it("ignores changes to files outside the graph made during a build", async () => {
@@ -213,6 +254,7 @@ describe("ArchitectureViewService", () => {
     const gated = new Promise<void>(resolve => { release = resolve; });
     const next = createService({ analyzeFile: async (filePath) => { await gated; return analyze(filePath); } });
     const second = next.build();
+    await touch(root, "src/store/state.ts");
     next.markStale(path.join(root, "src/store/state.ts"), "change");
     release();
     await second;
@@ -1079,5 +1121,33 @@ describe("ArchitectureViewService", () => {
       });
       expect(service.getE2EState().folder).toBe("apps/web/pages");
     });
+  });
+});
+
+describe("writtenBefore", () => {
+  let dir: string;
+  beforeEach(async () => {
+    dir = await fs.mkdtemp(path.join(os.tmpdir(), "written-before-"));
+    await fs.writeFile(path.join(dir, "a.ts"), "");
+    await fs.utimes(path.join(dir, "a.ts"), new Date(1000), new Date(1000));
+  });
+  afterEach(async () => {
+    await fs.rm(dir, { recursive: true, force: true });
+  });
+
+  it("is true for a create or change of content older than the build start", () => {
+    expect(writtenBefore(path.join(dir, "a.ts"), "change", 2000)).toBe(true);
+    expect(writtenBefore(path.join(dir, "a.ts"), "create", 2000)).toBe(true);
+  });
+
+  it("is false for content written at or after the build start", () => {
+    expect(writtenBefore(path.join(dir, "a.ts"), "change", 1000)).toBe(false);
+  });
+
+  it("is false for a deletion, a missing file, no path or no build", () => {
+    expect(writtenBefore(path.join(dir, "a.ts"), "delete", 2000)).toBe(false);
+    expect(writtenBefore(path.join(dir, String.raw`missing\b.ts`), "create", 2000)).toBe(false);
+    expect(writtenBefore(undefined, "change", 2000)).toBe(false);
+    expect(writtenBefore(path.join(dir, "a.ts"), "change", undefined)).toBe(false);
   });
 });

@@ -75,6 +75,24 @@ export interface ArchitectureViewServiceOptions {
   /** Opens the extension's settings. */
   openSettings: () => void;
   warn: (message: string) => void;
+  /** Indexed files whose unresolved imports may resolve to `filePath` once it exists. */
+  unresolvedImportersOf: (filePath: string) => string[];
+}
+
+/**
+ * True for a create or change event of content written before a build started: that build read
+ * it. macOS delivers watcher events late, after the Refresh that already drew those files.
+ * shortcut: mtime against the local clock misses an edit restored with an older mtime (rsync -t, tar), made within the mtime
+ * granularity of the build start (1 s on HFS+, 2 s on FAT), or on a remote file system whose clock runs late; Refresh still
+ * rebuilds, compare content hashes if that matters.
+ */
+export function writtenBefore(filePath: string | undefined, eventType: "create" | "change" | "delete" | undefined, startedAt: number | undefined): boolean {
+  if (filePath === undefined || eventType === "delete" || startedAt === undefined) return false;
+  try {
+    return fs.statSync(filePath).mtimeMs < startedAt;
+  } catch {
+    return false;
+  }
 }
 
 /** Masks the workspace root in every separator form a Node error message may use on Windows. */
@@ -443,8 +461,8 @@ function dependentFilesPage(full: LevelGraph, level: ArchitectureGraph, source: 
 export class ArchitectureViewService {
   private summary: ArchitectureSummaryMessage | null = null;
   /** The graph of `summary`, which group detail and evidence pages are read from, and of each entered folder. */
-  private graph: (LevelGraph & { source?: UnitSource; rules: RulesState; folders: Map<string, LevelGraph> }) | null = null;
-  private running: { controller: AbortController; communityMode: CommunityMode } | null = null;
+  private graph: (LevelGraph & { source?: UnitSource; rules: RulesState; folders: Map<string, LevelGraph>; startedAt: number }) | null = null;
+  private running: { controller: AbortController; communityMode: CommunityMode; startedAt: number } | null = null;
   /** Groups drawn per level; Show more groups raises it for the rest of the session. */
   private maxGroups = DEFAULT_RENDERED_GROUPS;
   private buildCount = 0;
@@ -663,14 +681,24 @@ export class ArchitectureViewService {
     const relative = filePath === undefined ? undefined : normalizePath(path.relative(this.options.workspaceRoot, filePath));
     const rulesFile = relative === ARCHITECTURE_CONFIG_FILE || relative === ARCHITECTURE_BASELINE_FILE;
     if (this.running) {
+      if (this.readByBuild(filePath, eventType, this.running.startedAt)) return;
       if (relative === undefined || eventType === "create" || rulesFile) this.changedDuringBuild.any = true;
       else this.changedDuringBuild.files.add(relative);
       return;
     }
     if (relative !== undefined && eventType !== "create" && !rulesFile && !this.graph?.files.has(relative)) return;
-    if (!this.summary || this.summary.stale) return;
+    if (!this.summary || this.summary.stale || this.readByBuild(filePath, eventType, this.graph?.startedAt)) return;
     this.summary = { ...this.summary, stale: true };
     this.options.post(this.summary);
+  }
+
+  /**
+   * A late event for content the build already read. A created file still counts while indexed
+   * files import it unresolved: only their pending re-analysis adds those edges (#387).
+   */
+  private readByBuild(filePath: string | undefined, eventType: "create" | "change" | "delete" | undefined, startedAt: number | undefined): boolean {
+    if (!writtenBefore(filePath, eventType, startedAt)) return false;
+    return eventType !== "create" || this.options.unresolvedImportersOf(filePath!).length === 0;
   }
 
   /** A new build aborts the running one; an aborted build never posts anything. */
@@ -679,7 +707,8 @@ export class ArchitectureViewService {
     this.running?.controller.abort();
     const controller = new AbortController();
     const communityMode = this.options.readCommunityMode();
-    this.running = { controller, communityMode };
+    const startedAt = Date.now();
+    this.running = { controller, communityMode, startedAt };
     const { signal } = controller;
     // Every message of this build goes through here: once aborted (replaced or disposed), it posts nothing, progress included.
     const post = (message: ArchitectureExtensionMessage) => {
@@ -727,7 +756,7 @@ export class ArchitectureViewService {
         ...overview,
         ...rulesView(rules, viewGraph, source?.assignment.unitOf),
       };
-      this.graph = { graph: viewGraph, files, hidden, source, rules, folders: new Map() };
+      this.graph = { graph: viewGraph, files, hidden, source, rules, folders: new Map(), startedAt };
       // Cleared only once posted: a change seen by an aborted build still applies to the next one.
       this.changedDuringBuild = { files: new Set(), any: false };
       post(this.summary);

@@ -23,6 +23,7 @@ export async function buildView(rootDir: string, posted: ArchitectureExtensionMe
     revealInFileGraph: async () => {},
     openSettings: () => {},
     warn: () => {},
+    unresolvedImportersOf: (filePath) => workerState.getSpider().getUnresolvedImportersOf(filePath),
   });
   await service.build();
   const summary = posted.findLast((message): message is ArchitectureSummaryMessage => message.type === "architectureSummary")!;
