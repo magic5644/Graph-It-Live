@@ -451,11 +451,11 @@ function ZoomControls({ onZoom }: Readonly<{ onZoom: (action: ZoomAction) => voi
     <button type="button" data-zoom={action} aria-label={label} title={label} onClick={() => onZoom(action)} style={{ minWidth: 26 }}>{text}</button>
   );
   return (
-    <div role="group" aria-label="Zoom controls" style={{ position: "absolute", right: 8, bottom: 8, zIndex: 1, display: "flex", gap: 2 }}>
+    <fieldset aria-label="Zoom controls" style={{ position: "absolute", right: 8, bottom: 8, zIndex: 1, display: "flex", gap: 2, margin: 0, padding: 0, border: "none" }}>
       {control("fit", "Fit", "Fit the graph (0)")}
       {control("in", "+", "Zoom in (+)")}
       {control("out", "−", "Zoom out (-)")}
-    </div>
+    </fieldset>
   );
 }
 
@@ -628,6 +628,8 @@ interface GraphControlsProps {
   found: ArchitectureFoundMessage | null;
   onShowMore: () => void;
   canShowMore: boolean;
+  /** The units level, whose header already counts the edges the cap hides. */
+  unitsLevel: boolean;
 }
 
 /**
@@ -662,13 +664,13 @@ function HiddenMatches({ needle, findMatches, found, onShowMore, canShowMore }: 
 
 /** Graph | Matrix toggle, then find and weak-edge filter: they only change what is drawn, never the counts above. */
 function GraphControls(props: Readonly<GraphControlsProps>) {
-  const { summary, shownEdges, query, onQuery, minImports, onMinImports, capReached, view, onView } = props;
+  const { summary, shownEdges, query, onQuery, minImports, onMinImports, capReached, view, onView, unitsLevel } = props;
   const counts = summary.groupEdges.map((edge) => edge.fileEdgeCount);
   const toggle = (name: View, label: string) => (
     <button type="button" aria-pressed={view === name} onClick={() => onView(name)} style={{ fontWeight: view === name ? 600 : undefined }}>{label}</button>
   );
   return (
-    <div style={{ padding: "4px 10px", fontSize: 12, borderBottom: "1px solid var(--vscode-widget-border)" }}>
+    <div style={{ padding: "4px 10px", fontSize: 12 }}>
       <div style={{ display: "flex", flexWrap: "wrap", gap: 8, alignItems: "center" }}>
         <span>{toggle("graph", "Graph")}{toggle("matrix", "Matrix")}</span>
         <input
@@ -692,7 +694,7 @@ function GraphControls(props: Readonly<GraphControlsProps>) {
         </label>
         )}
       </div>
-      {view === "graph" && shownEdges < counts.length && (
+      {view === "graph" && shownEdges < counts.length && !(unitsLevel && minImports === 1) && (
         <div>
           {shownEdges} of {counts.length} group edges shown (min. {minImports} imports). Totals include them.
         </div>
@@ -848,7 +850,7 @@ function Breadcrumb(props: Readonly<BreadcrumbProps>) {
   const last = !focused && entered.length === 0;
   return (
     <nav
-      aria-label="Architecture path" style={{ padding: "2px 10px", fontSize: 12, borderBottom: "1px solid var(--vscode-widget-border)" }}
+      aria-label="Architecture path" style={{ padding: "4px 10px", fontSize: 12 }}
       title={view === "graph"
         ? "Click: select · Double-click or Enter: enter · Arrows: move · Escape: back · 0, +, -: zoom"
         : "Cell: evidence · Header: enter · Arrows: move · Escape: back"}
@@ -1231,13 +1233,13 @@ export function ArchitectureGraph({ postMessage }: Readonly<ArchitectureGraphPro
   /** The units legend: a click selects the unit. */
   const legendUnit = (key: string) => {
     const cy = cyRef.current;
-    const node = cy?.nodes().filter((candidate) => candidate.data("unitKey") === key)[0];
+    const node = Array.from(cy?.nodes() ?? []).find((candidate) => candidate.data("unitKey") === key);
     if (cy && node) selectNode(cy, node);
   };
   /** The header's cycle count: its first block's units highlighted, the block fitted. */
   const showCycle = () => {
     const cy = cyRef.current;
-    const block = cy?.nodes().filter((node) => node.data("cycle") === true)[0];
+    const block = Array.from(cy?.nodes() ?? []).find((node) => node.data("cycle") === true);
     if (!cy || !block) return;
     pinnedRef.current = block.children();
     markSelected(cy, undefined);
@@ -1529,6 +1531,10 @@ export function ArchitectureGraph({ postMessage }: Readonly<ArchitectureGraphPro
     });
     themeObserver?.observe(document.body, { attributes: true, attributeFilter: ["class", "data-vscode-theme-kind"] });
     const handleKeyDown = (event: KeyboardEvent): void => actionsRef.current.key(event, clearFocus);
+    // Cytoscape's container takes the keyboard focus (Tab) and the canvas keys: arrows and zoom.
+    const handleCanvasKey = (event: KeyboardEvent): void => actionsRef.current.canvasKey(event);
+    container.tabIndex = 0;
+    container.addEventListener("keydown", handleCanvasKey);
     window.addEventListener("keydown", handleKeyDown);
     cyRef.current = cy;
     const elk = createElk();
@@ -1557,6 +1563,7 @@ export function ArchitectureGraph({ postMessage }: Readonly<ArchitectureGraphPro
       themeObserver?.disconnect();
       window.removeEventListener("resize", handleResize);
       window.removeEventListener("keydown", handleKeyDown);
+      container.removeEventListener("keydown", handleCanvasKey);
       cy.destroy();
       cyRef.current = null;
       elk.terminate();
@@ -1738,7 +1745,7 @@ export function ArchitectureGraph({ postMessage }: Readonly<ArchitectureGraphPro
 
   const refresh = () => postMessageRef.current({ command: "architectureRefresh" });
   const unitsLevel = summary?.units !== undefined && unit === null;
-  const levelName = unitsLevel ? "the units" : [unit, ...folders].filter(Boolean).at(-1) ?? "the groups";
+  const levelName = unitsLevel ? "the units" : [unit, ...folders].findLast(Boolean) ?? "the groups";
   return (
     <div ref={rootRef} style={{ display: "flex", flexDirection: "column", width: "100%", height: "100%" }}>
       {state && (
@@ -1753,8 +1760,11 @@ export function ArchitectureGraph({ postMessage }: Readonly<ArchitectureGraphPro
             roleFilter={roleFilter} onRole={(role) => actionsRef.current.toggleRole(role)}
             onCycle={() => actionsRef.current.showCycle()}
           />
+          {/* The path sits right of the controls while the width allows. */}
+          <div style={{ display: "flex", flexWrap: "wrap", alignItems: "baseline", borderBottom: "1px solid var(--vscode-widget-border)" }}>
           <GraphControls
             summary={drawn}
+            unitsLevel={unitsLevel}
             shownEdges={shownEdges}
             query={query}
             onQuery={setQuery}
@@ -1782,6 +1792,7 @@ export function ArchitectureGraph({ postMessage }: Readonly<ArchitectureGraphPro
             onLeave={(groupId) => actionsRef.current.leave(groupId)}
             view={view}
           />
+          </div>
         </>
       )}
       <div ref={canvasAreaRef} style={{ position: "relative", flex: 1, minHeight: 0, visibility: state ? "hidden" : "visible" }}>
@@ -1790,10 +1801,9 @@ export function ArchitectureGraph({ postMessage }: Readonly<ArchitectureGraphPro
           <div ref={bandsLayerRef} aria-hidden="true" style={{ position: "absolute", inset: 0, pointerEvents: "none" }} />
           {/* Enter and Escape are window-wide; arrows and zoom keys need the canvas focused. */}
           <div
-            ref={containerRef} data-testid="architecture-graph" tabIndex={0} role="application"
+            ref={containerRef} data-testid="architecture-graph" role="application"
             aria-label={`Architecture graph of ${levelName}: arrow keys select, Enter enters, Escape goes back, 0 fits, + and - zoom`}
             aria-describedby={LIVE_REGION}
-            onKeyDown={(event) => actionsRef.current.canvasKey(event)}
             style={{ position: "absolute", inset: 0, outlineOffset: -2 }}
           />
           {!state && summary && drawn && (
