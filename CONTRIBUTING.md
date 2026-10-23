@@ -167,9 +167,24 @@ npm run test:vscode
 # E2E tests from packaged .vsix (production mode, required before release)
 npm run test:vscode:vsix
 
+# Only some E2E suites (glob relative to the compiled tests/vscode-e2e folder)
+E2E_SUITE_GLOB='**/architectureView.test.js' npm run test:vscode
+
 # Coverage report
 npm run test:coverage
 ```
+
+Regular CI runs the VS Code E2E suites on Linux only. To run them on Windows and macOS, use the
+**VS Code E2E (Windows/macOS)** workflow (`.github/workflows/e2e-os.yml`):
+
+- **Actions → VS Code E2E (Windows/macOS) → Run workflow**, with inputs `os` (`both`,
+  `windows-latest` or `macos-latest`), `suite` (the `E2E_SUITE_GLOB`, default
+  `**/architectureView.test.js`; `**/**.test.js` runs every suite) and `vscode-version`
+  (empty for stable);
+- or add the label `e2e:all-os` to a pull request: it runs the default suite on both OSes, and
+  again on every push while the label stays.
+
+Each run uploads its xunit report as the `e2e-test-report-<OS>` artifact.
 
 ### Cross-Platform Testing
 
