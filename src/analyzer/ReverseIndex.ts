@@ -255,6 +255,11 @@ export class ReverseIndex {
     return this.fileHashes.has(normalizePath(filePath));
   }
 
+  /** Indexed source files (normalized) */
+  getIndexedFiles(): string[] {
+    return [...this.fileHashes.keys()];
+  }
+
   /**
    * Get the number of indexed source files
    */

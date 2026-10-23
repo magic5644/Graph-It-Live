@@ -15,6 +15,7 @@ function createOptions(overrides: Partial<EventHubOptions> = {}): EventHubOption
   const spider = {
     reanalyzeFile: vi.fn(),
     reanalyzeUnresolvedImporters: vi.fn(),
+    handleResolverConfigChange: vi.fn(),
     handleFileDeleted: vi.fn(),
   };
   const stateManager = {
@@ -78,6 +79,18 @@ describe("ExtensionEventHub", () => {
 
     expect(options.spider?.reanalyzeFile).toHaveBeenCalledWith("/workspace/src/new.ts");
     expect(options.spider?.reanalyzeUnresolvedImporters).toHaveBeenCalledWith("/workspace/src/new.ts");
+  });
+
+  // #419: a tsconfig / package.json change moves no importer's mtime.
+  it.each(["tsconfig.json", "tsconfig.app.json", "package.json"])("re-indexes the workspace when %s is deleted", async (name) => {
+    const options = createOptions();
+    const hub = new ExtensionEventHub(options);
+
+    await hub.handleFileChange(`C:\\workspace\\pkg\\${name}`, "delete" as EventType);
+
+    expect(options.spider?.handleResolverConfigChange).toHaveBeenCalledTimes(1);
+    expect(options.spider?.handleFileDeleted).not.toHaveBeenCalled();
+    expect(options.updateGraph).toHaveBeenCalledWith(true, "fileChange");
   });
 
   it("throws when the changed file cannot be analysed, and ignores unsupported files", async () => {

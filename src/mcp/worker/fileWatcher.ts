@@ -3,6 +3,7 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 import {
     IGNORED_DIRECTORIES,
+    RESOLVER_CONFIG_FILE_REGEX,
     SUPPORTED_FILE_EXTENSIONS,
 } from "../../shared/constants";
 import { createIgnoreMatcher, type IgnoreMatcher } from "../../analyzer/SourceFileFilters";
@@ -43,6 +44,10 @@ const FILE_CHANGE_DEBOUNCE_MS = 300;
 /** Extensions to watch for changes */
 const WATCHED_EXTENSIONS = SUPPORTED_FILE_EXTENSIONS;
 
+/** Source files, and the tsconfig / package.json files their imports resolve through (#419) */
+const isWatchedFile = (filePath: string): boolean =>
+  WATCHED_EXTENSIONS.some(ext => filePath.endsWith(ext)) || RESOLVER_CONFIG_FILE_REGEX.test(filePath);
+
 /**
  * Setup chokidar file watcher for automatic cache invalidation
  * Watches the workspace for file changes and invalidates the cache accordingly
@@ -73,7 +78,7 @@ export function setupFileWatcher(
       ignored: (filePath, stats) =>
         path.relative(watchRoot, filePath).split(path.sep).some(part => IGNORED_DIRECTORIES.includes(part)) ||
       isIgnoredByRules(path.relative(watchRoot, filePath), stats?.isDirectory() === true) ||
-      (stats?.isFile() === true && !WATCHED_EXTENSIONS.some(ext => filePath.endsWith(ext))),
+      (stats?.isFile() === true && !isWatchedFile(filePath)),
       persistent: true,
       ignoreInitial: false,
       usePolling,
@@ -179,7 +184,7 @@ async function reportNewDirectoryFiles(
       if (isIgnoredByRules(relative, entry.isDirectory())) continue;
       if (entry.isDirectory()) {
         await reportNewDirectoryFiles(postMessage, filePath, watchRoot, isIgnoredByRules);
-      } else if (entry.isFile() && WATCHED_EXTENSIONS.some(ext => entry.name.endsWith(ext))) {
+      } else if (entry.isFile() && isWatchedFile(entry.name)) {
         handleFileChange(postMessage, "add", filePath, watchRoot);
       }
     }
@@ -249,6 +254,14 @@ function restoreConfiguredPath(filePath: string, watchRoot: string): string {
   return path.join(configuredRoot, relativePath);
 }
 
+/** No importer's mtime moves when imports resolve elsewhere: re-index them all (#419). */
+function reindexForResolverConfig(spider: NonNullable<typeof workerState.spider>): void {
+  workerState.resolver?.clearCaches();
+  spider.handleResolverConfigChange().catch((error: unknown) => {
+    log.warn("Could not re-index after a resolver configuration change:", error instanceof Error ? error.message : String(error));
+  });
+}
+
 /**
  * Actually perform the file invalidation after debounce
  */
@@ -262,6 +275,12 @@ function performFileInvalidation(
   }
 
   log.debug("File", event + ":", path.basename(filePath));
+
+  if (RESOLVER_CONFIG_FILE_REGEX.test(filePath)) {
+    reindexForResolverConfig(workerState.spider);
+    postMessage({ type: "file-invalidated" as const, filePath, event } as McpWorkerResponse);
+    return;
+  }
 
   // The call graph has its own database; Spider invalidation does not refresh it.
   // Re-extract the file on the next graph query, even if its mtime did not move.

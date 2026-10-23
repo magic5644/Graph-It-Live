@@ -56,6 +56,12 @@ export const IGNORED_DIRECTORIES = [
 export const WATCH_GLOB = "**/*.{ts,tsx,js,jsx,mjs,cjs,vue,svelte,gql,graphql,py,pyi,rs,toml,cs,csproj,go,java}";
 /** graphit.architecture.json and its baseline (architectureRules.ts); the view reads them at the root only, so a nested match changes nothing. */
 export const ARCHITECTURE_RULES_GLOB = "**/graphit.architecture{,.baseline}.json";
+/**
+ * Files PathResolver reads: tsconfig `paths` / `baseUrl` (and `tsconfig.*.json` extends targets), package.json `imports`.
+ * shortcut: an `extends` target named otherwise (base.json) is not watched; track the files PathResolver reads if that matters.
+ */
+export const RESOLVER_CONFIG_GLOB = "**/{package,tsconfig*}.json";
+export const RESOLVER_CONFIG_FILE_REGEX = /(?:^|[\\/])(?:package|tsconfig[^\\/]*)\.json$/;
 
 // Language-specific colors for UI visualization
 // Used in webview for syntax highlighting, borders, and icons

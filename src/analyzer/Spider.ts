@@ -495,6 +495,22 @@ export class Spider {
     return importers;
   }
 
+  /**
+   * A tsconfig / package.json changed: any import may resolve elsewhere while no importer's mtime moves,
+   * so drop the resolver caches and re-index every indexed file. The reverse index is kept meanwhile:
+   * each file's edges are replaced as it is re-analysed, so queries never see an empty index.
+   * @returns The number of re-indexed files (0 without a reverse index: analysis is lazy then)
+   */
+  async handleResolverConfigChange(): Promise<number> {
+    this.resolver.clearCaches();
+    // Import parsers are shared per workspace and each holds its own resolver.
+    LanguageService.releaseWorkspace(this.config.rootDir);
+    this.referenceLookup.clearFallbackCache();
+    this.cache.clear();
+    this.symbolCache.clear();
+    return this.reindexStaleFiles(this.reverseIndexManager.getIndexedFiles());
+  }
+
   handleFileDeleted(filePath: string): void {
     this.referenceLookup.clearFallbackCache();
     this.cacheCoordinator.handleFileDeleted(filePath);

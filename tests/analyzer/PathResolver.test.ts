@@ -99,6 +99,22 @@ describe("PathResolver - tsconfig path aliases", () => {
     write("config/base.json", '{ "compilerOptions": { "baseUrl": "..", "paths": { "~/*": ["src/*"] } } }');
     expect(await resolve("~/lib/x", new PathResolver(config, true, root))).toBe(target);
   });
+
+  // #419: the configuration is cached until clearCaches(), for both the explicit and the nearest tsconfig.
+  it.each([false, true])("reads an alias added or removed after clearCaches (explicit tsconfig: %s)", async (explicit) => {
+    const config = write("tsconfig.json");
+    const resolver = new PathResolver(explicit ? config : undefined, true, root);
+    expect(await resolve("~/lib/x", resolver)).toBeNull();
+
+    write("tsconfig.json", '{ "compilerOptions": { "paths": { "~/*": ["src/*"] } } }');
+    expect(await resolve("~/lib/x", resolver)).toBeNull();
+    resolver.clearCaches();
+    expect(await resolve("~/lib/x", resolver)).toBe(target);
+
+    write("tsconfig.json");
+    resolver.clearCaches();
+    expect(await resolve("~/lib/x", resolver)).toBeNull();
+  });
 });
 
 describe("Parser - resolver configuration", () => {

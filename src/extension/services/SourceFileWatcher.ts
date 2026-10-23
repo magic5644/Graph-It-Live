@@ -1,5 +1,5 @@
 import * as vscode from 'vscode';
-import { ARCHITECTURE_RULES_GLOB, WATCH_GLOB } from '../../shared/constants';
+import { ARCHITECTURE_RULES_GLOB, RESOLVER_CONFIG_GLOB, WATCH_GLOB } from '../../shared/constants';
 import type { FileChangeScheduler } from './FileChangeScheduler';
 
 type Logger = {
@@ -23,8 +23,8 @@ export class SourceFileWatcher {
     this.logger = options.logger;
     this.fileChangeScheduler = options.fileChangeScheduler;
 
-    // Architecture rule files are JSON, outside the source glob, yet edits to them make the Architecture view stale.
-    this.watchers = [WATCH_GLOB, ARCHITECTURE_RULES_GLOB].map((glob) => vscode.workspace.createFileSystemWatcher(glob));
+    // Architecture rule and resolver config files are JSON, outside the source glob, yet edits to them make the index or view stale.
+    this.watchers = [WATCH_GLOB, ARCHITECTURE_RULES_GLOB, RESOLVER_CONFIG_GLOB].map((glob) => vscode.workspace.createFileSystemWatcher(glob));
 
     const ignoredDirectories = new Set(['.git', 'node_modules', 'dist', 'build', 'out', 'coverage', '.vscode-test']);
     const isIgnored = (uri: vscode.Uri) => uri.fsPath.split(/[\\/]/).some(segment => ignoredDirectories.has(segment));

@@ -84,6 +84,17 @@ export class PathResolver {
     this.excludeNodeModules = excludeNodeModules;
   }
 
+  /** Forgets every tsconfig / package.json read, so the next resolve reads the current configuration (#419). */
+  clearCaches(): void {
+    this.pathAliases.clear();
+    this.tsConfigPromise = undefined;
+    this.isConfigLoaded = false;
+    for (const cache of [
+      this.directoryToPackageJson, this.directoryToTsConfig, this.tsConfigPathAliases, this.packageJsonImports,
+      this.packageJsonLoadPromises, this.linkedPackageDirs, this.nodeModulesDirs, this.tsConfigLoadPromises,
+    ]) cache.clear();
+  }
+
   /**
    * Ensure tsConfig is loaded before resolving
    */
