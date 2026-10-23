@@ -643,6 +643,8 @@ function cycleBlocks(level: ArchitectureUnitLevel): { blocks: ArchitectureElemen
       group: "nodes",
       data: {
         id, cycle: true, key: `cycle:${members.toSorted().join("|")}`, label: `Cycle · ${members.length} units`, search: "",
+        // The unit keys the extension sent, to check that each one is drawn inside this block.
+        members: members.join("\n"),
         // Units of one cycle share a layer.
         layer: layerOf.get(members[0]) ?? 0,
         tooltip: `${plural(members.length, "unit")} importing each other: ${members.map((member) => unitName(level, member)).join(", ")}`,
@@ -817,7 +819,9 @@ export function nearestNode(nodes: Collection, from: NodeSingular | undefined, d
 
 /** What the live region says about a selected node: its name, layer, edges and cycle. */
 export function describeNode(node: NodeSingular): string {
-  const name = String(node.data("unitKey") === undefined ? node.data("groupKey") || node.data("label") : node.data("label")).split("\n").find((line) => !line.startsWith("[")) ?? "";
+  // A unit's label starts with its role badge; a group is named by its key.
+  const label = node.data("unitKey") === undefined && node.data("groupKey") ? node.data("groupKey") : node.data("label");
+  const name = String(label).split("\n").find((line) => !line.startsWith("[")) ?? "";
   const shown = (edges: Collection) => edges.filter((edge) => !edge.data("fileEdge")).length;
   const parts = [name];
   if (node.data("layer") !== undefined) parts.push(`layer ${node.data("layer")}`);
@@ -853,8 +857,11 @@ export function measureUnitLevel(cy: Core, background?: Rgba) {
       return !band || node.position("y") < band.y1 || node.position("y") > band.y2;
     }).length,
     cycleBlocks: blocks.length,
-    cycleMembersOutside: units.filter((node) => node.parent().nonempty() && !node.parent().data("cycle")).length
-      + blocks.filter((block) => block.children().empty()).length,
+    // Each unit key the extension sent for a cycle, drawn anywhere but inside that cycle's block.
+    cycleMembersOutside: blocks.map((block) => {
+      const inside = new Set(block.children().map((child) => String(child.data("unitKey"))));
+      return String(block.data("members")).split("\n").filter((member) => !inside.has(member)).length;
+    }).reduce((total, count) => total + count, 0),
     minLabelContrast: contrasts.length > 0 ? Math.round(Math.min(...contrasts) * 100) / 100 : undefined,
     /** Drawn down edges whose target is not below their source. */
     edgesNotDown: drawn.filter((edge) => edge.data("kind") === "down" && edge.target().position("y") <= edge.source().position("y")).length,
