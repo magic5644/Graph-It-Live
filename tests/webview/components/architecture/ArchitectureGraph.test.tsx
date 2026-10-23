@@ -33,6 +33,7 @@ const cy = vi.hoisted(() => {
       isEdge: () => false,
       isChild: () => data.parent !== undefined,
       isParent: () => state.nodes.some(other => other.data("parent") === data.id),
+      parent: () => state.nodes.find(other => other.id() === data.parent) ?? { data: () => undefined, nonempty: () => false, empty: () => true },
       empty: () => false,
       nonempty: () => true,
       children: () => {
@@ -46,6 +47,8 @@ const cy = vi.hoisted(() => {
         if (typeof arg === "object") position = { ...arg };
         return typeof arg === "string" ? position[arg as keyof Point] : position;
       },
+      renderedPosition: () => position,
+      visible: () => true,
       outerWidth: () => Number(data.width) + 2,
       outerHeight: () => Number(data.height) + 2,
       boundingBox: (options: { includeNodes?: boolean }) => {
@@ -88,6 +91,10 @@ const cy = vi.hoisted(() => {
     pan: vi.fn(() => ({ x: 0, y: 0 })),
     viewport: vi.fn(),
     width: () => 800,
+    height: () => 600,
+    style: vi.fn(),
+    minZoom: () => 0.05,
+    maxZoom: () => 5,
     resize: vi.fn(),
     nodes: () => state.nodes,
     edges: () => state.edges,
@@ -119,6 +126,11 @@ const helpers = vi.hoisted(() => ({
   measureIsolated: vi.fn(() => ({ isolatedBelow: 0, minLabelPx: 11 })),
   linkedElements: vi.fn(() => ({ nodes: () => ({ empty: () => false }), layout: (options: unknown) => cy.instance.layout(options) })),
   packIsolatedGroups: vi.fn(),
+  // Bands, marks and arrow-key moves run on real Cytoscape in architectureUnitsLevel.test.ts.
+  layerBands: vi.fn(() => [{ layer: 1, y1: -50, y2: 0 }, { layer: 0, y1: 0, y2: 50 }]),
+  markNodes: vi.fn(),
+  nearestNode: vi.fn(),
+  describeNode: vi.fn(() => "described"),
 }));
 helpers.findGroups.mockImplementation(() => helpers.empty);
 vi.mock("@/webview/components/architecture/architectureElements", async (importOriginal) => ({
@@ -202,8 +214,8 @@ describe("ArchitectureGraph", () => {
     render(<ArchitectureGraph postMessage={postMessage} />);
 
     expect(postMessage).toHaveBeenCalledWith({ command: "architectureMounted" });
-    send({ type: "architectureState", status: "building", message: "Analysing files (3/10)…", percent: 30 });
-    expect(screen.getByText("Analysing files (3/10)…")).toBeTruthy();
+    send({ type: "architectureState", status: "building", message: "Building architecture: 3 of 10 files", percent: 30 });
+    expect(screen.getByText("Building architecture: 3 of 10 files (30%)")).toBeTruthy();
     expect(screen.getByRole("progressbar")).toBeTruthy();
   });
 
@@ -214,7 +226,8 @@ describe("ArchitectureGraph", () => {
 
     expect(screen.getByText("Groups based on imports (Louvain)")).toBeTruthy();
     expect(screen.getByText(/2 of 3 groups shown/)).toBeTruthy();
-    expect(screen.getByText(/2 failed/)).toBeTruthy();
+    // Parse failures stay in the Details line, the rest behind its disclosure.
+    expect(screen.getByText(/Details: 10 files, 4 file pairs/).textContent).toContain("2 failed");
     expect(screen.getByText(/Only the first 10 files/)).toBeTruthy();
     expect(screen.queryByText(/Files changed/)).toBeNull();
     expect(lastOf(postMessage, "architectureRendered")).toEqual(expect.objectContaining({
@@ -296,8 +309,10 @@ describe("ArchitectureGraph", () => {
     fireEvent.click(screen.getByRole("button", { name: "Retry" }));
     expect(postMessage).toHaveBeenLastCalledWith({ command: "architectureRefresh" });
 
-    send({ type: "architectureState", status: "empty", message: "No source file found in the workspace folder." });
-    expect(screen.getByText("No source file found in the workspace folder.")).toBeTruthy();
+    send({ type: "architectureState", status: "empty", message: "No supported source file in \"ws\"." });
+    expect(screen.getByText("No supported source file in \"ws\".")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Open settings" }));
+    expect(postMessage).toHaveBeenLastCalledWith({ command: "architectureOpenSettings" });
   });
 
   it("ignores messages from another origin", () => {
@@ -324,7 +339,10 @@ describe("ArchitectureGraph", () => {
 
   describe("highlight, find and min-imports filter", () => {
     const { empty } = helpers;
-    const interacted = { command: "architectureInteracted", highlightedGroups: 2, fadedGroups: 1, labelledEdges: 1, shownGroupEdges: 1 };
+    const interacted = {
+      command: "architectureInteracted", highlightedGroups: 2, fadedGroups: 1, labelledEdges: 1, shownGroupEdges: 1,
+      announcement: "", canvasFocused: false, zoom: 1,
+    };
     const renderWithSummary = () => {
       const postMessage = vi.fn();
       const view = render(<ArchitectureGraph postMessage={postMessage} />);
@@ -364,7 +382,7 @@ describe("ArchitectureGraph", () => {
     });
 
     it("finds and centres matching groups; Escape and a background tap clear the find and the highlight", () => {
-      const matches = { empty: () => false, nonempty: () => true, length: 1 };
+      const matches = { empty: () => false, nonempty: () => true, length: 1, map: <R,>(fn: (node: { id: () => string }) => R) => [fn({ id: () => "group-1" })] };
       helpers.findGroups.mockImplementation((_cy, query: string) => (query ? matches : empty));
       const { postMessage } = renderWithSummary();
       const find = screen.getByRole("searchbox", { name: "Find group" }) as HTMLInputElement;
@@ -461,7 +479,7 @@ describe("ArchitectureGraph", () => {
       expect(helpers.applyMinImports).toHaveBeenLastCalledWith(cy.instance, 4);
       expect(screen.getByText("0 of 1 group edges shown (min. 4 imports). Totals include them.")).toBeTruthy();
       // The totals line is unchanged by the filter.
-      expect(screen.getByText(/4 file edges/)).toBeTruthy();
+      expect(screen.getByText(/Details: 10 files, 4 file pairs/)).toBeTruthy();
 
       helpers.applyMinImports.mockReturnValue(1);
       for (const value of ["", "0", "-3"]) {
@@ -484,7 +502,7 @@ describe("ArchitectureGraph", () => {
     });
 
     it("drops a tapped group when a new summary arrives, keeping the find", () => {
-      const matches = { empty: () => false, nonempty: () => true };
+      const matches = { empty: () => false, nonempty: () => true, length: 1, map: <R,>(fn: (node: { id: () => string }) => R) => [fn({ id: () => "group-1" })] };
       helpers.findGroups.mockImplementation((_cy, query: string) => (query ? matches : empty));
       renderWithSummary();
       const node = fileTarget("ui");
@@ -640,7 +658,7 @@ describe("ArchitectureGraph", () => {
       expect(lastOf(postMessage, "architectureDetailRendered")).toMatchObject({ expandedGroups: 0, groupLevelEdges: 1, focusedGroup: "ui" });
     });
 
-    it("focuses a clicked group without expanding it; Overview and a background click show everything again", () => {
+    it("focuses a clicked group without expanding it; its × or the level's step and a background click show everything again", () => {
       const postMessage = setup();
       tap(nodeById("group-2"));
       expect(lastOf(postMessage, "architectureExpandGroup")).toBeUndefined();
@@ -648,9 +666,14 @@ describe("ArchitectureGraph", () => {
       expect(lastOf(postMessage, "architectureDetailRendered")).toMatchObject({ focusedGroup: "store", expandedGroups: 0 });
       expect(screen.getByRole("navigation", { name: "Architecture path" }).textContent).toContain("store");
 
-      fireEvent.click(screen.getByRole("button", { name: "Overview" }));
+      expect(screen.getByRole("button", { name: "store" }).getAttribute("aria-current")).toBe("location");
+      fireEvent.click(screen.getByRole("button", { name: "Clear focus on store" }));
       expect(lastOf(postMessage, "architectureDetailRendered")).toMatchObject({ focusedGroup: undefined });
-      expect((screen.getByRole("button", { name: "Overview" }) as HTMLButtonElement).disabled).toBe(true);
+      expect(screen.getByRole("button", { name: "All groups" }).getAttribute("aria-current")).toBe("location");
+
+      tap(nodeById("group-2"));
+      fireEvent.click(screen.getByRole("button", { name: "All groups" }));
+      expect(lastOf(postMessage, "architectureDetailRendered")).toMatchObject({ focusedGroup: undefined });
 
       tap(nodeById("group-0"));
       expect(lastOf(postMessage, "architectureDetailRendered")).toMatchObject({ focusedGroup: "" });
@@ -658,7 +681,7 @@ describe("ArchitectureGraph", () => {
       expect(lastOf(postMessage, "architectureDetailRendered")).toMatchObject({ focusedGroup: undefined });
     });
 
-    it("Escape leaves the last entered group, then drops the focus; Overview leaves every group", () => {
+    it("Escape leaves the last entered group, then drops the focus; the level's step leaves every group", () => {
       const postMessage = setup();
       enter("group-1");
       send(page(0));
@@ -667,7 +690,7 @@ describe("ArchitectureGraph", () => {
       expect(fileIds()).toHaveLength(3);
       fireEvent.keyDown(window, { key: "Escape" });
       expect(fileIds()).toEqual(["file:ui/f0.ts", "file:ui/f1.ts"]);
-      fireEvent.click(screen.getByRole("button", { name: "Overview" }));
+      fireEvent.click(screen.getByRole("button", { name: "All groups" }));
       expect(fileIds()).toEqual([]);
       tap(nodeById("group-1"));
       fireEvent.keyDown(window, { key: "Escape" });
@@ -880,8 +903,91 @@ describe("ArchitectureGraph", () => {
       return answer;
     };
 
-    beforeEach(() => elk.runner.layout.mockResolvedValue({ id: "root" }));
+    // A braced body: a function returned from beforeEach is run as its teardown.
+    beforeEach(() => {
+      elk.runner.layout.mockResolvedValue({ id: "root" });
+    });
     afterEach(() => vi.clearAllMocks());
+
+    it("fits, zooms in and out from the overlay and from the focused canvas's keys, and reports the zoom", async () => {
+      const postMessage = await setup();
+      const fits = cy.instance.fit.mock.calls.length;
+      fireEvent.click(screen.getByRole("button", { name: "Fit the graph (0)" }));
+      expect(cy.instance.fit.mock.calls.length).toBe(fits + 1);
+      fireEvent.click(screen.getByRole("button", { name: "Zoom in (+)" }));
+      expect(cy.instance.zoom).toHaveBeenCalledWith({ level: 1.25, renderedPosition: { x: 400, y: 300 } });
+      fireEvent.click(screen.getByRole("button", { name: "Zoom out (-)" }));
+      expect(cy.instance.zoom).toHaveBeenCalledWith({ level: 0.8, renderedPosition: { x: 400, y: 300 } });
+      expect(lastOf(postMessage, "architectureInteracted")).toMatchObject({ zoom: 1 });
+
+      const canvas = screen.getByRole("application");
+      expect(canvas.tabIndex).toBe(0);
+      expect(canvas.getAttribute("aria-label")).toMatch(/^Architecture graph of the units: arrow keys select/);
+      fireEvent.keyDown(canvas, { key: "0" });
+      expect(cy.instance.fit.mock.calls.length).toBe(fits + 2);
+      fireEvent.keyDown(canvas, { key: "+" });
+      fireEvent.keyDown(canvas, { key: "-" });
+      expect(cy.instance.zoom).toHaveBeenCalledWith({ level: 0.8, renderedPosition: { x: 400, y: 300 } });
+      // Other keys are left to the page (Tab leaves the canvas).
+      fireEvent.keyDown(canvas, { key: "Tab" });
+      expect(cy.instance.fit.mock.calls.length).toBe(fits + 2);
+    });
+
+    it("selects the nearest unit with the arrow keys, rings and announces it, and Enter enters it", async () => {
+      const postMessage = await setup();
+      helpers.nearestNode.mockImplementationOnce(() => nodeById("group-1"));
+      fireEvent.keyDown(screen.getByRole("application"), { key: "ArrowDown" });
+      expect(helpers.nearestNode).toHaveBeenLastCalledWith(expect.anything(), undefined, "ArrowDown");
+      expect(helpers.markNodes).toHaveBeenLastCalledWith(cy.instance, "selected", nodeById("group-1"));
+      expect(document.getElementById("architecture-announcement")?.textContent).toBe("described");
+      expect(document.getElementById("architecture-announcement")?.getAttribute("aria-live")).toBe("polite");
+      expect(lastOf(postMessage, "architectureInteracted")).toMatchObject({ announcement: "described" });
+      // The next arrow moves from the selected unit; nothing in that direction keeps it.
+      helpers.nearestNode.mockImplementationOnce(() => undefined);
+      fireEvent.keyDown(screen.getByRole("application"), { key: "ArrowRight" });
+      expect(helpers.nearestNode).toHaveBeenLastCalledWith(expect.anything(), nodeById("group-1"), "ArrowRight");
+      fireEvent.keyDown(screen.getByRole("application"), { key: "Enter" });
+      await settle();
+      expect(lastOf(postMessage, "architectureRendered")).toEqual(expect.objectContaining({ unit: "apps/web" }));
+    });
+
+    it("selects a unit clicked in the legend overlay, and the cycle count shows the cycle block", async () => {
+      const postMessage = await setup({ ...withUnits, units: { ...withUnits.units!, cycleUnits: [["apps/web", "packages/core"]] } });
+      expect(nodeById("cycle-0")?.data("label")).toBe("Cycle · 2 units");
+      // The block is not a group: the report counts the two units.
+      expect(lastOf(postMessage, "architectureRendered")).toEqual(expect.objectContaining({ renderedGroups: 2 }));
+      const legend = screen.getByRole("group", { name: "Zoom controls" });
+      expect(legend).toBeTruthy();
+      fireEvent.click(screen.getByRole("button", { name: /@ws\/core \[library\]/ }));
+      expect(helpers.markNodes).toHaveBeenLastCalledWith(cy.instance, "selected", nodeById("group-2"));
+
+      fireEvent.click(screen.getByRole("button", { name: "1 cycle" }));
+      expect(cy.instance.fit).toHaveBeenLastCalledWith(nodeById("cycle-0"), 30);
+      expect(helpers.highlightFocus.mock.lastCall?.[1].map((node: { id: () => string }) => node.id())).toEqual(["group-1", "group-2"]);
+      // The same buttons, clicked by the E2E driver.
+      send({ type: "architectureControls", legendUnit: "apps/web", zoom: "fit", cycleCount: true, keys: ["ArrowDown"] });
+      expect(document.activeElement).toBe(screen.getByRole("application"));
+    });
+
+    it("restyles the canvas when VS Code switches the theme kind", async () => {
+      await setup();
+      cy.instance.style.mockClear();
+      document.body.dataset.vscodeThemeKind = "vscode-high-contrast";
+      await settle();
+      try {
+        expect(cy.instance.style).toHaveBeenCalledOnce();
+        const sheet = cy.instance.style.mock.lastCall?.[0] as { selector: string; style: Record<string, unknown> }[];
+        expect(sheet.find(entry => entry.selector === "node[hue]")?.style["background-opacity"]).toBe(0);
+      } finally {
+        delete document.body.dataset.vscodeThemeKind;
+      }
+    });
+
+    it("says so when a level has several nodes and no import between them", async () => {
+      await setup({ ...withUnits, units: { ...withUnits.units!, unitEdges: [], cycles: 0 } });
+      expect(screen.getByText("No imports between these units.")).toBeTruthy();
+      expect(screen.queryByRole("button", { name: /cycle/ })).toBeNull();
+    });
 
     it("draws the units in layers with their counts and legend, and reports them", async () => {
       const postMessage = await setup(unseen());
@@ -890,8 +996,8 @@ describe("ArchitectureGraph", () => {
       // The routes ELK returned are drawn once the positions settle.
       expect(elk.applyRoutes).toHaveBeenLastCalledWith(cy.instance, expect.anything(), expect.objectContaining({ size: 1 }));
       expect(screen.getByText(/Units in layers/)).toBeTruthy();
-      expect(screen.getByText(/2 units/)).toBeTruthy();
-      expect(screen.getByText(/0 upward dependencies, 1 cycle/)).toBeTruthy();
+      expect(screen.getByText(/^2 units$/)).toBeTruthy();
+      expect(screen.getByText(/0 upward/).parentElement?.textContent).toBe("2 units · 1 layer · 0 upward · 1 cycle");
       expect(screen.getByRole("list", { name: "Units" }).textContent).toBe("@ws/web [frontend?]@ws/core [library]");
       expect(cy.state.nodes.map(node => node.data("key"))).toEqual(["units:apps/web", "units:packages/core"]);
       expect(lastOf(postMessage, "architectureRendered")).toEqual(expect.objectContaining({
@@ -903,7 +1009,7 @@ describe("ArchitectureGraph", () => {
       const postMessage = await setup(unseen());
       const legend = screen.getByRole("list", { name: "Unit roles" });
       expect(legend.textContent).toBe("1 frontend1 library");
-      expect(screen.getByText(/\[role\?\] inferred from manifests and files/)).toBeTruthy();
+      expect(legend.parentElement?.title).toMatch(/^\[role\?\] inferred from manifests and files/);
       expect(lastOf(postMessage, "architectureRendered")).toEqual(expect.objectContaining({ roles: ["frontend=1", "library=1"] }));
       expect(helpers.applyRoleFilter).toHaveBeenLastCalledWith(cy.instance, null);
 
@@ -991,7 +1097,7 @@ describe("ArchitectureGraph", () => {
     it("lists the file pairs of a clicked unit edge by unit key, pages them, opens a file and closes on entering a unit", async () => {
       const postMessage = await setup();
       const unitEdge = edgeById("edge-1-2");
-      expect(unitEdge?.data("tooltip")).toBe("@ws/web → @ws/core\n3 file imports · click files");
+      expect(unitEdge?.data("tooltip")).toBe("@ws/web → @ws/core\n3 file pairs (static imports) · click files");
       act(() => cy.state.handlers.get("tap")?.({ target: unitEdge }));
       expect(lastOf(postMessage, "architectureUnitEvidence")).toEqual({
         command: "architectureUnitEvidence", revision: "r1", from: "apps/web", to: "packages/core", offset: 0,
@@ -1073,7 +1179,7 @@ describe("ArchitectureGraph", () => {
       expect(screen.getByRole("region", { name: "Evidence" }).textContent).toContain("@ws/web → @ws/core: 1 file pair (static imports)×");
     });
 
-    it("enters a double-clicked unit, shows its groups, and goes back with the Units button or Escape", async () => {
+    it("enters a double-clicked unit, shows its groups, and goes back with All units or Escape", async () => {
       const postMessage = await setup();
       await dbltap(nodeById("group-1"));
       expect(cy.state.nodes.map(node => node.data("key"))).toEqual(["path:ui"]);
@@ -1081,7 +1187,7 @@ describe("ArchitectureGraph", () => {
       expect(lastOf(postMessage, "architectureRendered")).toEqual(expect.objectContaining({ unit: "apps/web", unitLevel: undefined }));
       expect(screen.getByRole("button", { name: "@ws/web" })).toBeTruthy();
 
-      fireEvent.click(screen.getByRole("button", { name: "Units" }));
+      fireEvent.click(screen.getByRole("button", { name: "All units" }));
       expect(cy.state.nodes.map(node => node.data("key"))).toEqual(["units:apps/web", "units:packages/core"]);
 
       await dbltap(nodeById("group-2"));
@@ -1145,7 +1251,7 @@ describe("ArchitectureGraph", () => {
         expect(nodeById("group-2")?.data("layer")).toBe(1);
         expect(edgeById("edge-2-1")?.data("kind")).toBe("down");
         expect(lastOf(postMessage, "architectureRendered")).toEqual(expect.objectContaining({ unit: "apps/web", folder: "ui" }));
-        expect(screen.getByRole("navigation", { name: "Architecture path" }).textContent).toMatch(/Units › @ws\/web › ui/);
+        expect(screen.getByRole("navigation", { name: "Architecture path" }).textContent).toMatch(/^All units › @ws\/web › ui(?! ›)/);
 
         // Requests made in the folder name its level: its revision and the folder.
         await dbltap(nodeById("group-2"));
@@ -1212,7 +1318,7 @@ describe("ArchitectureGraph", () => {
         cy.instance.zoom.mockReturnValue(1);
         cy.instance.pan.mockReturnValue({ x: 0, y: 0 });
         expect(keys()).toEqual(["path:ui/forms@ui/forms"]);
-        expect(screen.getByRole("navigation", { name: "Architecture path" }).textContent).toMatch(/Units › @ws\/web › ui › forms/);
+        expect(screen.getByRole("navigation", { name: "Architecture path" }).textContent).toMatch(/^All units › @ws\/web › ui › forms/);
 
         const asked = postMessage.mock.calls.filter(([message]) => message.command === "architectureEnterFolder").length;
         fireEvent.click(screen.getByRole("button", { name: "ui" }));
@@ -1310,7 +1416,7 @@ describe("ArchitectureGraph", () => {
         const matrixRoot = screen.getByRole("region", { name: /Dependency structure matrix/ }).parentElement!;
         expect(matrixRoot.style.zIndex).toBe("0");
         expect(matrixRoot.compareDocumentPosition(screen.getByRole("region", { name: "Evidence" })) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
-        expect(screen.getByText(/Cell: evidence · Header: enter/)).toBeTruthy();
+        expect(screen.getByRole("navigation", { name: "Architecture path" }).title).toMatch(/^Cell: evidence · Header: enter/);
 
         fireEvent.click(screen.getByRole("button", { name: "Close evidence" }));
         const evidence = postMessage.mock.calls.length;

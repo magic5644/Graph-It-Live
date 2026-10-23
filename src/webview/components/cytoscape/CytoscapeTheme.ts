@@ -12,6 +12,7 @@
 import cytoscape from "cytoscape";
 import { LANGUAGE_COLORS } from "../../../shared/constants";
 import { ARCHITECTURE_FONT_SIZE } from "../architecture/architectureElements";
+import { type ThemeKind, unitTone } from "../architecture/unitColors";
 
 // cytoscape uses `export =` so we access types via namespace
 type CyStylesheet = cytoscape.StylesheetStyle | cytoscape.StylesheetCSS;
@@ -388,10 +389,31 @@ export interface ArchitectureThemeColors {
   accent: string;
   /** Upward and cycle unit edges. */
   error: string;
+  /** Behind Find matches (`--vscode-editor-findMatchHighlightBackground`), and its opacity. */
+  findMatch: string;
+  findMatchOpacity: number;
+  /** High-contrast themes' outline (`--vscode-contrastBorder`). */
+  contrastBorder: string;
 }
 
-/** Stylesheet for the architecture view's group nodes and group edges. */
-export function buildArchitectureStylesheet(colors: ArchitectureThemeColors): CyStylesheet[] {
+const isHighContrast = (kind: ThemeKind) => kind === "vscode-high-contrast" || kind === "vscode-high-contrast-light";
+
+/**
+ * A unit's hue in the theme's tone: a light fill under the label, or, on high-contrast themes,
+ * no fill and a 2px border outlined with the contrast border.
+ */
+function unitStyle(kind: ThemeKind, colors: ArchitectureThemeColors): CyStylesheet {
+  const tone = (ele: cytoscape.NodeSingular) => unitTone(Number(ele.data("hue")), kind).color;
+  const { opacity } = unitTone(0, kind);
+  const outline = isHighContrast(kind) ? { "outline-width": 1, "outline-color": colors.contrastBorder, "outline-offset": 1 } : {};
+  return {
+    selector: "node[hue]",
+    style: { "border-color": tone, "background-color": tone, "background-opacity": opacity, ...outline } as cytoscape.Css.Node,
+  };
+}
+
+/** Stylesheet for the architecture view's group nodes and group edges, in the theme of `kind`. */
+export function buildArchitectureStylesheet(colors: ArchitectureThemeColors, kind: ThemeKind = "vscode-dark"): CyStylesheet[] {
   return [
     {
       selector: "node",
@@ -415,10 +437,7 @@ export function buildArchitectureStylesheet(colors: ArchitectureThemeColors): Cy
       },
     },
     // A unit's colour, kept by its folder groups once entered; the light fill keeps labels readable.
-    {
-      selector: "node[color]",
-      style: { "border-color": "data(color)", "background-color": "data(color)", "background-opacity": 0.3 },
-    },
+    unitStyle(kind, colors),
     {
       selector: "node[?unassigned]",
       style: { "border-style": "dashed", "border-color": colors.border },
@@ -432,6 +451,23 @@ export function buildArchitectureStylesheet(colors: ArchitectureThemeColors): Cy
     },
     { selector: "node[?file]", style: { "border-width": 1 } },
     { selector: "node[?more]", style: { "border-style": "dotted", "border-color": colors.border } },
+    // A cycle: its units inside one dashed red block, titled with their count.
+    {
+      selector: "node[?cycle]",
+      style: {
+        "background-opacity": 0, "border-style": "dashed", "border-width": 2, "border-color": colors.error,
+        "text-valign": "top", "text-halign": "center", "font-weight": "bold", padding: "12px",
+      },
+    },
+    // Selected (click, arrow keys) or found: a focus ring that is never the unit's colour.
+    { selector: "node.selected", style: { "border-width": 4, "border-style": "solid", "border-color": colors.accent } },
+    {
+      selector: "node.found",
+      style: {
+        "border-width": 4, "border-style": "solid", "border-color": colors.accent,
+        "underlay-color": colors.findMatch, "underlay-opacity": colors.findMatchOpacity, "underlay-padding": 6, "underlay-shape": "round-rectangle",
+      },
+    },
     {
       selector: "edge",
       style: {
@@ -463,7 +499,11 @@ export function buildArchitectureStylesheet(colors: ArchitectureThemeColors): Cy
       selector: "edge.highlighted",
       style: { label: "data(label)", "line-color": colors.accent, "target-arrow-color": colors.accent },
     },
-    { selector: 'edge[kind = "upward"], edge[kind = "cycle"]', style: { "line-color": colors.error, "target-arrow-color": colors.error } },
+    // Upward and cycle edges are what an architect acts on: their count is always written.
+    {
+      selector: 'edge[kind = "upward"], edge[kind = "cycle"]',
+      style: { label: "data(label)", "line-color": colors.error, "target-arrow-color": colors.error },
+    },
     // Breaks a declared architecture rule: red and dashed, apart from the upward and cycle edges.
     { selector: "edge[?violation]", style: { "line-color": colors.error, "target-arrow-color": colors.error, "line-style": "dashed" } },
     { selector: ".faded", style: { opacity: 0.15 } },

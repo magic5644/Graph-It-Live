@@ -4,7 +4,7 @@ import { describe, expect, it } from "vitest";
 import { applyElkLayout, applyRoutes, type EdgeRoute, routeKey, toElkGraph } from "@/webview/components/architecture/elkLayout";
 import { buildArchitectureStylesheet } from "@/webview/components/cytoscape/CytoscapeTheme";
 
-const colors = { foreground: "#fff", background: "#000", border: "#888", edge: "#888", accent: "#08f", error: "#f00" };
+const colors = { foreground: "#fff", background: "#000", border: "#888", edge: "#888", accent: "#08f", error: "#f00", findMatch: "rgb(234, 92, 0)", findMatchOpacity: 0.4, contrastBorder: "#6fc3df" };
 const node = (id: string, extra: Record<string, string | number> = {}) => ({ group: "nodes" as const, data: { id, key: `k:${id}`, width: 60, height: 30, ...extra } });
 const edge = (source: string, target: string) => ({ group: "edges" as const, data: { id: `${source}->${target}`, source, target } });
 const canvas = (elements: cytoscape.ElementDefinition[]) =>

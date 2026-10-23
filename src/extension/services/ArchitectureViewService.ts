@@ -26,6 +26,7 @@ import {
   type ArchitectureUnits,
   type UnitAssignment,
 } from "@/analyzer/architecture/architectureUnits";
+import { stronglyConnectedComponents } from "@/analyzer/architecture/stronglyConnectedComponents";
 import type { DeclaredRoles } from "@/analyzer/architecture/unitRoles";
 import { aggregateCommunityGroups } from "@/analyzer/community/groupAggregation";
 import type { IndexerStatusSnapshot } from "@/analyzer/IndexerStatus";
@@ -64,6 +65,8 @@ export interface ArchitectureViewServiceOptions {
   post: (message: ArchitectureExtensionMessage) => void;
   /** Opens a validated absolute path in an editor. */
   openFile: (absolutePath: string) => Promise<void>;
+  /** Opens the extension's settings. */
+  openSettings: () => void;
   warn: (message: string) => void;
 }
 
@@ -169,6 +172,27 @@ interface UnitSource {
   assignment: UnitAssignment;
 }
 
+/** Keys the E2E driver may press on the canvas: navigation and zoom only. */
+const CANVAS_KEYS = new Set(["ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight", "Enter", "Escape", "0", "+", "-"]);
+
+/** The canvas controls of an E2E driver call, checked: any extension can call it. */
+function canvasControls(controls: Omit<ArchitectureControlsMessage, "type"> | undefined): Partial<ArchitectureControlsMessage> {
+  const { zoom, keys, legendUnit, cycleCount } = controls ?? {};
+  return {
+    zoom: zoom === "fit" || zoom === "in" || zoom === "out" ? zoom : undefined,
+    keys: Array.isArray(keys) ? keys.filter((key) => CANVAS_KEYS.has(key)).slice(0, 20) : undefined,
+    legendUnit: typeof legendUnit === "string" ? legendUnit.slice(0, 256) : undefined,
+    cycleCount: cycleCount === true ? true : undefined,
+  };
+}
+
+/** Unit keys of each cycle: the strongly connected components, of two units or more, that the cycle edges form. */
+function cycleUnits({ units, unitEdges }: ArchitectureUnits): string[][] {
+  const successors = new Map<string, string[]>();
+  for (const { from, to } of unitEdges.filter((edge) => edge.kind === "cycle")) successors.set(from, [...(successors.get(from) ?? []), to]);
+  return stronglyConnectedComponents(units.map((unit) => unit.key), successors).filter((members) => members.length > 1);
+}
+
 /**
  * In path mode, the units on top and their unit-scoped folder groups below: the groups (and
  * the graph group detail and evidence read) never mix files of two units. Each unit keeps its
@@ -206,6 +230,7 @@ function viewUnitLevel({ graph, units, assignment }: UnitSource, maxGroups: numb
       ...layerGroupsWithinUnits(groupEdges, shownUnits),
       nestedGroups: nestedGroups.filter((id) => labels.has(id)),
       groupsByUnit: capped.groupsByUnit,
+      cycleUnits: cycleUnits(units),
     },
   };
 }
@@ -413,6 +438,9 @@ export class ArchitectureViewService {
         return Promise.resolve();
       case "architectureOpenFile":
         return this.openFile(message);
+      case "architectureOpenSettings":
+        this.options.openSettings();
+        return Promise.resolve();
     }
   }
 
@@ -575,7 +603,7 @@ export class ArchitectureViewService {
           if (now - lastProgressAt < PROGRESS_INTERVAL_MS) return;
           lastProgressAt = now;
           const percent = Math.round((analyzed / total) * 100);
-          post({ type: "architectureState", status: "building", message: `Analysing files (${analyzed}/${total})…`, percent });
+          post({ type: "architectureState", status: "building", message: `Building architecture: ${analyzed} of ${total} files`, percent });
         },
       });
       signal.throwIfAborted();
@@ -583,7 +611,12 @@ export class ArchitectureViewService {
       if (graph.scannedFiles === 0) {
         this.summary = null;
         this.graph = null;
-        post({ type: "architectureState", status: "empty", message: "No source file found in the workspace folder." });
+        const folder = path.basename(this.options.workspaceRoot);
+        post({
+          type: "architectureState",
+          status: "empty",
+          message: `No supported source file in "${folder}". Files excluded by .graphitignore or the Graph-It-Live settings are not analysed.`,
+        });
         return;
       }
       const rules = await checkRules(graph, this.options.workspaceRoot);
@@ -641,6 +674,7 @@ export class ArchitectureViewService {
       detail: this.lastDetail,
       matrixCount: this.matrixCount,
       matrix: this.lastMatrix,
+      rendered: this.lastRender,
     };
   }
 
@@ -667,6 +701,7 @@ export class ArchitectureViewService {
       rule: text(rule),
       role: text(role),
       showMoreGroups: showMoreGroups === true ? true : undefined,
+      ...canvasControls(controls),
     });
   }
 

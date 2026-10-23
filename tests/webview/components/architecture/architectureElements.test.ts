@@ -66,7 +66,7 @@ describe("toArchitectureElements", () => {
       ["group-0", "group-1", "1"],
       ["group-1", "group-2", "2"],
     ]);
-    expect(edges[1].data.tooltip).toBe("ui → store\n2 file imports");
+    expect(edges[1].data.tooltip).toBe("ui → store\n2 file pairs (static imports)");
   });
 
   it("scales node size and edge width on a log scale", () => {
@@ -170,7 +170,7 @@ describe("separateOverlaps", () => {
       toLabel: "",
     }));
     const summary = { ...summaryOf(graphData), groups, groupEdges, unassigned: { fileCount: 0, internalEdgeCount: 0 } };
-    const colors = { foreground: "#fff", background: "#000", border: "#888", edge: "#888", accent: "#08f", error: "#f00" };
+    const colors = { foreground: "#fff", background: "#000", border: "#888", edge: "#888", accent: "#08f", error: "#f00", findMatch: "rgb(234, 92, 0)", findMatchOpacity: 0.4, contrastBorder: "#6fc3df" };
     const cy = cytoscape({ headless: true, styleEnabled: true, style: buildArchitectureStylesheet(colors), elements: toArchitectureElements(summary) });
     cy.layout(ARCHITECTURE_FCOSE_LAYOUT as cytoscape.LayoutOptions).run();
     const boxes = cy.nodes().map((node) => ({ ...node.position(), width: node.outerWidth(), height: node.outerHeight() }));
@@ -188,21 +188,21 @@ describe("separateOverlaps", () => {
 });
 
 describe("highlight, find and min-imports filter", () => {
-  const colors = { foreground: "#fff", background: "#000", border: "#888", edge: "#888", accent: "#08f", error: "#f00" };
+  const colors = { foreground: "#fff", background: "#000", border: "#888", edge: "#888", accent: "#08f", error: "#f00", findMatch: "rgb(234, 92, 0)", findMatchOpacity: 0.4, contrastBorder: "#6fc3df" };
   // group-0 (unassigned main) → group-1 (ui): 1 import; group-1 (ui) → group-2 (store): 2 imports.
   const createCy = () =>
     cytoscape({ headless: true, styleEnabled: true, style: buildArchitectureStylesheet(colors), elements: toArchitectureElements(summaryOf(graphData)) });
 
   it("draws no count label and fades nothing by default", () => {
     const cy = createCy();
-    expect(measureInteraction(cy)).toEqual({ highlightedGroups: 0, fadedGroups: 0, labelledEdges: 0, shownGroupEdges: 2, shownFileEdges: 0 });
+    expect(measureInteraction(cy)).toEqual({ selectedGroups: 0, foundGroups: 0, ringedGroups: 0, highlightedGroups: 0, fadedGroups: 0, labelledEdges: 0, shownGroupEdges: 2, shownFileEdges: 0 });
     cy.destroy();
   });
 
   it("highlights a group's neighbourhood, labels its edges and fades the rest, then clears", () => {
     const cy = createCy();
     highlightFocus(cy, cy.$("#group-2"));
-    expect(measureInteraction(cy)).toEqual({ highlightedGroups: 2, fadedGroups: 1, labelledEdges: 1, shownGroupEdges: 2, shownFileEdges: 0 });
+    expect(measureInteraction(cy)).toEqual({ selectedGroups: 0, foundGroups: 0, ringedGroups: 0, highlightedGroups: 2, fadedGroups: 1, labelledEdges: 1, shownGroupEdges: 2, shownFileEdges: 0 });
     expect(cy.$("#edge-1-2").style("label")).toBe("2");
     expect(cy.$("#edge-0-1").hasClass("faded")).toBe(true);
 
@@ -210,14 +210,14 @@ describe("highlight, find and min-imports filter", () => {
     expect(measureInteraction(cy)).toMatchObject({ highlightedGroups: 3, fadedGroups: 0, labelledEdges: 2 });
 
     highlightFocus(cy, cy.collection());
-    expect(measureInteraction(cy)).toEqual({ highlightedGroups: 0, fadedGroups: 0, labelledEdges: 0, shownGroupEdges: 2, shownFileEdges: 0 });
+    expect(measureInteraction(cy)).toEqual({ selectedGroups: 0, foundGroups: 0, ringedGroups: 0, highlightedGroups: 0, fadedGroups: 0, labelledEdges: 0, shownGroupEdges: 2, shownFileEdges: 0 });
     cy.destroy();
   });
 
   it("highlights a hovered edge with the two groups at its ends", () => {
     const cy = createCy();
     highlightFocus(cy, cy.$("#edge-0-1"));
-    expect(measureInteraction(cy)).toEqual({ highlightedGroups: 2, fadedGroups: 1, labelledEdges: 1, shownGroupEdges: 2, shownFileEdges: 0 });
+    expect(measureInteraction(cy)).toEqual({ selectedGroups: 0, foundGroups: 0, ringedGroups: 0, highlightedGroups: 2, fadedGroups: 1, labelledEdges: 1, shownGroupEdges: 2, shownFileEdges: 0 });
     expect(cy.$("#group-2").hasClass("faded")).toBe(true);
     cy.destroy();
   });
@@ -227,7 +227,7 @@ describe("highlight, find and min-imports filter", () => {
     expect(applyMinImports(cy, 2)).toBe(1);
     expect(cy.$("#edge-0-1").style("display")).toBe("none");
     highlightFocus(cy, cy.$("#group-1"));
-    expect(measureInteraction(cy)).toEqual({ highlightedGroups: 2, fadedGroups: 1, labelledEdges: 1, shownGroupEdges: 1, shownFileEdges: 0 });
+    expect(measureInteraction(cy)).toEqual({ selectedGroups: 0, foundGroups: 0, ringedGroups: 0, highlightedGroups: 2, fadedGroups: 1, labelledEdges: 1, shownGroupEdges: 1, shownFileEdges: 0 });
 
     applyMinImports(cy, 3);
     expect(measureInteraction(cy).shownGroupEdges).toBe(0);
@@ -243,6 +243,9 @@ describe("highlight, find and min-imports filter", () => {
       expect(applyMinImports(cy, 2)).toBe(0);
       highlightFocus(cy, findGroups(cy, "ui"));
       expect(measureInteraction(cy)).toEqual({
+        selectedGroups: 0,
+        foundGroups: 0,
+        ringedGroups: 0,
         highlightedGroups: cy.nodes().empty() ? 0 : 1,
         fadedGroups: cy.nodes().empty() ? 0 : 2,
         labelledEdges: 0,
@@ -384,7 +387,7 @@ describe("expanded groups", () => {
   });
 
   it("focuses a group: only it, its files and what its edges reach stay drawn", () => {
-    const colors = { foreground: "#000", background: "#fff", border: "#999", edge: "#888", accent: "#00f", error: "#f00" };
+    const colors = { foreground: "#000", background: "#fff", border: "#999", edge: "#888", accent: "#00f", error: "#f00", findMatch: "rgb(234, 92, 0)", findMatchOpacity: 0.4, contrastBorder: "#6fc3df" };
     const cy = cytoscape({ headless: true, styleEnabled: true, style: buildArchitectureStylesheet(colors), elements: toArchitectureElements(summary, expand({ 3: 1 })) });
     const shown = focusGroup(cy, cy.getElementById("group-3"));
     const visible = cy.nodes().filter(node => node.style("display") !== "none").map(node => node.id());
@@ -401,7 +404,7 @@ describe("expanded groups", () => {
   });
 
   it("shows file edges for a highlighted file only, whatever the min-imports filter, and counts drawn group edges", () => {
-    const colors = { foreground: "#000", background: "#fff", border: "#999", edge: "#888", accent: "#00f", error: "#f00" };
+    const colors = { foreground: "#000", background: "#fff", border: "#999", edge: "#888", accent: "#00f", error: "#f00", findMatch: "rgb(234, 92, 0)", findMatchOpacity: 0.4, contrastBorder: "#6fc3df" };
     const cy = cytoscape({ headless: true, styleEnabled: true, style: buildArchitectureStylesheet(colors), elements: toArchitectureElements(summary, expand({ 1: 2 })) });
     const shownFileEdges = () => cy.edges("[?fileEdge]").filter(edge => edge.style("display") !== "none");
 
@@ -462,7 +465,7 @@ describe("expanded groups", () => {
   });
 
   it("lays out only the files without a position: a first page around the group, the next one below", () => {
-    const colors = { foreground: "#000", background: "#fff", border: "#999", edge: "#888", accent: "#00f", error: "#f00" };
+    const colors = { foreground: "#000", background: "#fff", border: "#999", edge: "#888", accent: "#00f", error: "#f00", findMatch: "rgb(234, 92, 0)", findMatchOpacity: 0.4, contrastBorder: "#6fc3df" };
     const headless = (expansions: Expansions) =>
       cytoscape({ headless: true, styleEnabled: true, style: buildArchitectureStylesheet(colors), elements: toArchitectureElements(summary, expansions) });
     const first = headless(expand({ 1: 1 }));
