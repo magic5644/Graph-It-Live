@@ -642,7 +642,7 @@ function cycleBlocks(level: ArchitectureUnitLevel): { blocks: ArchitectureElemen
     return {
       group: "nodes",
       data: {
-        id, cycle: true, key: `cycle:${members.toSorted().join("|")}`, label: `Cycle · ${members.length} units`, search: "",
+        id, cycle: true, key: `cycle:${members.toSorted((left, right) => left.localeCompare(right)).join("|")}`, label: `Cycle · ${members.length} units`, search: "",
         // The unit keys the extension sent, to check that each one is drawn inside this block.
         members: members.join("\n"),
         // Units of one cycle share a layer.

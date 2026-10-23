@@ -914,7 +914,7 @@ describe("ArchitectureGraph", () => {
       const postMessage = await setup();
       const fits = cy.instance.fit.mock.calls.length;
       fireEvent.click(screen.getByRole("button", { name: "Fit the graph (0)" }));
-      expect(cy.instance.fit.mock.calls.length).toBe(fits + 1);
+      expect(cy.instance.fit.mock.calls).toHaveLength(fits + 1);
       fireEvent.click(screen.getByRole("button", { name: "Zoom in (+)" }));
       expect(cy.instance.zoom).toHaveBeenCalledWith({ level: 1.25, renderedPosition: { x: 400, y: 300 } });
       fireEvent.click(screen.getByRole("button", { name: "Zoom out (-)" }));
@@ -925,13 +925,13 @@ describe("ArchitectureGraph", () => {
       expect(canvas.tabIndex).toBe(0);
       expect(canvas.getAttribute("aria-label")).toMatch(/^Architecture graph of the units: arrow keys select/);
       fireEvent.keyDown(canvas, { key: "0" });
-      expect(cy.instance.fit.mock.calls.length).toBe(fits + 2);
+      expect(cy.instance.fit.mock.calls).toHaveLength(fits + 2);
       fireEvent.keyDown(canvas, { key: "+" });
       fireEvent.keyDown(canvas, { key: "-" });
       expect(cy.instance.zoom).toHaveBeenCalledWith({ level: 0.8, renderedPosition: { x: 400, y: 300 } });
       // Other keys are left to the page (Tab leaves the canvas).
       fireEvent.keyDown(canvas, { key: "Tab" });
-      expect(cy.instance.fit.mock.calls.length).toBe(fits + 2);
+      expect(cy.instance.fit.mock.calls).toHaveLength(fits + 2);
     });
 
     it("selects the nearest unit with the arrow keys, rings and announces it, and Enter enters it", async () => {
@@ -1037,6 +1037,10 @@ describe("ArchitectureGraph", () => {
       render(<ArchitectureGraph postMessage={vi.fn()} />);
       send({ ...withUnits, units: many });
       expect(screen.getByText(/2 weaker edges hidden/)).toBeTruthy();
+      // Said once: the controls repeat the count only once min-imports takes over.
+      expect(screen.queryByText(/group edges shown/)).toBeNull();
+      send({ type: "architectureControls", minImports: 2 });
+      expect(screen.getByText(/of 8 group edges shown \(min\. 2 imports\)/)).toBeTruthy();
     });
 
     it("lays out off the UI thread: the canvas stays hidden until ELK answers, then is reported", async () => {
