@@ -6,8 +6,10 @@ It covers TypeScript, Python, Rust, type-only imports, same-name symbols,
 cycles, tests, an ambiguous call surface, an ADR link/rationale, and a file
 changed between retrievals.
 
-The six workflows are locate-concept, explain-file, callers-callees,
-controller-database, refactor-interface, and document-symbol. Each Graph-It-
+The seven workflows are locate-concept, explain-file, callers-callees,
+controller-database, refactor-interface, document-symbol, and
+exact-identifier (a bare `resolveUser` query whose two same-name definitions
+must outrank partial-name matches). Each Graph-It-
 Live run uses `scope=**`, `depth=2`, `maxNodes=10`, and `tokenBudget=2000`.
 JSON and TOON outputs are retained under `.reports/context-economy/latest/`
 for audit after workspace paths, mtimes, revisions, and cursors are normalized.
@@ -55,7 +57,7 @@ the per-workflow raw outputs remain the audit source.
 
 The report also contains a `Warm session` measurement for Graph-It-Live. It
 starts one persistent MCP server, configures the workspace once, and sends all
-six graph-context requests through that same worker. This is the fair query
+seven graph-context requests through that same worker. This is the fair query
 latency comparison against Graphify's already-built `graph.json`. The per-row
 `CLI warm GIL` column remains the one-shot CLI measurement and includes runtime
 startup; it must not be compared with the persistent-session mean.
