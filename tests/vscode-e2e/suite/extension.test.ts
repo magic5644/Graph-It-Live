@@ -49,7 +49,8 @@ suite('Graph-It-Live Extension Test Suite', () => {
 
     // The update itself comes after a delay, so the settings are the deterministic guard.
     const extensions = vscode.workspace.getConfiguration('extensions');
-    assert.strictEqual(extensions.get('autoUpdate'), false, 'Marketplace auto-update replaces the tested VSIX');
+    // VS Code reads `false` back as 'off' on Linux.
+    assert.ok([false, 'off'].includes(extensions.get('autoUpdate') as boolean | string), 'Marketplace auto-update replaces the tested VSIX');
     assert.strictEqual(extensions.get('autoCheckUpdates'), false);
   });
 
