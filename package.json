@@ -1614,7 +1614,7 @@
     "audit:fix": "npm audit fix",
     "package": "vsce package",
     "package:vsix": "vsce package",
-    "package:verify": "npx vsce ls | grep '\\.map$' && echo '❌ ERROR: .map files found in package!' && exit 1 || echo '✅ No .map files in package'",
+    "package:verify": "npx vsce ls > .vsce-ls.txt && (grep '\\.map$' .vsce-ls.txt && echo '❌ ERROR: .map files found in package!' && exit 1 || echo '✅ No .map files in package') && (grep -qx 'media/Graph-It-Live-Logo-256.png' .vsce-ls.txt && echo '✅ Extension icon in package' || (echo '❌ ERROR: extension icon missing from package!' && exit 1)); status=$?; rm -f .vsce-ls.txt; exit $status",
     "publish": "vsce publish"
   },
   "dependencies": {
