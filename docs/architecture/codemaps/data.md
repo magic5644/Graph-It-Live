@@ -11,6 +11,8 @@
 - `src/shared/symbol-types.ts` - Symbol-specific type definitions
 - `src/shared/callgraph-types.ts` - Call graph message types (extension ↔ callgraph webview protocol)
 - `src/shared/architecture-types.ts` - Architecture view messages: `architectureState`, `architectureSummary`, `architectureControls` (extension → webview, `type`), `architectureMounted`, `architectureRefresh`, `architectureRendered`, `architectureResized`, `architectureInteracted` (webview → extension, `command`); selection actions: `architectureRevealInFileGraph`, `architectureDependents` / `architectureDependentFiles` (seed: file, group or unit) answered by `architectureDependentsResult` / `architectureDependentFilesPage` (groups named by key); every message with group ids carries `revision` (`context.revision`)
+- `src/shared/architecture-model.ts` - Architecture result types (overview, group detail, units and roles, matrix, rule summaries, check totals, dependents) shared by the analyzer, the extension and the webview
+- `src/shared/cycleUtils.ts` - Cycle detection used by the analyzer and the webview
 - `src/shared/messages.ts` - Extension ↔ webview message protocol
 - `src/shared/constants.ts` - Application-wide constants
 - `src/shared/path.ts` - Cross-platform path normalization
