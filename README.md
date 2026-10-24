@@ -136,7 +136,7 @@ The Live Call Graph supports TypeScript, JavaScript, Vue, Svelte, Python, Rust, 
 - *Find group* highlights and centres the drawn groups whose name or folder contains the text. A match among the groups left out by the cap is still reported ("`x` is also in 1 hidden group…", with *Show more groups*), never as no group; in the matrix it selects and scrolls to the first matching row. *Min. imports per edge* hides the weaker group edges; the header states how many are shown, and totals still include the hidden ones.
 - *Graph | Matrix* switches the drawn level (units, an entered unit or folder, or the Louvain groups) to its **dependency structure matrix**, with every group of the level, not only the drawn ones. Rows and columns share one order: layer 0 first (groups that depend on no other group of the level), the groups of a cycle kept together, then by name. A cell counts the file pairs where a file of its row imports a file of its column, shaded by count (log scale), the number written once zoomed in; the diagonal counts the pairs inside a group. In this order every dependency of a layered architecture sits below the diagonal: a red cell above it belongs to a cycle, and each cycle is outlined (inside a cycle, rows are ordered by name, so its blue cells are cycle edges too). Each row header shows `Ca/Ce · I`: incoming pairs, outgoing pairs and the instability `I = Ce / (Ca + Ce)` (diagonal excluded, *–* without any pair across the group's boundary). Click a cell for its file pairs in the evidence panel (a unit's own pairs, on the diagonal, have no unit edge to list: enter the unit instead); click a row header (or press *Enter* on it) to enter that unit or folder; arrow keys move between cells, *Escape* goes back. Only the cells in view are drawn, so several hundred groups scroll smoothly. Switching views keeps the level and the selected group. `graph-it architecture --matrix` (`--format csv` for spreadsheets) and `explore_architecture` with `view: "matrix"` report the same rows, cells and totals.
 - The header's *Details* line opens the totals (files, file pairs within and between groups) from the full graph, the parse failures and where the counts come from. A level whose nodes import nothing from each other says so on the canvas. A level (the Louvain groups, an entered unit or folder) draws its 50 largest groups; the header says how many groups and group edges are hidden, totals still include them, and *Show more groups* draws up to 150 per level for the rest of the session. Groups without an import to or from another drawn group of the level are counted in the header and packed in rows below the others, so they never crowd the graph. A stale mark, *Refresh* of an unchanged workspace, *Min. imports per edge* and *Show more groups* keep the entered level, the focused group, the find and, unless new groups must be laid out, the zoom and position.
-- The view is built when it opens, on *Refresh*, and when the setting changes, showing *Building architecture: N of M files* and the percent meanwhile; with no source file to analyse it says why and offers *Open settings*, and a failed build offers *Retry*. Changing or deleting a file of the graph, or creating a source file, only shows a *Files changed* banner (files the view never read, such as build output, do not): a build reads every file, so you decide when to *Refresh*.
+- The view is built when it opens, on *Refresh*, and when the setting changes, showing *Building architecture: N of M files* and the percent meanwhile; with no source file to analyse it says why and offers *Open settings*, and a failed build offers *Retry*. Changing or deleting a file of the graph, or creating a source file, only shows a *Files changed* banner (files the view never read, such as build output, do not): a build reads every file, so you decide when to *Refresh*. Editing `graphit.architecture.json`, its baseline, or a `package.json` or `tsconfig*.json` file shows the banner too; after a `package.json` or `tsconfig*.json` change the extension also re-indexes the dependency graph, since imports may now resolve elsewhere.
 - It analyses the configured workspace folder. Use the *Graph*, *List* or *Symbol* buttons to leave it.
 
 ### Architecture rules
@@ -207,6 +207,7 @@ graph-it explain <file>               Explain intra-file call flow
 graph-it path <file>                  Show a dependency path
 graph-it check [path]                 Find unused exported symbols
 graph-it architecture --groups        Show the workspace architecture by community
+graph-it check-architecture           Check imports against graphit.architecture.json
 graph-it query "<question>"           Ask a natural-language graph question
 graph-it context "<question>"         Retrieve bounded graph context
 graph-it wiki                         Generate a navigable Markdown wiki
@@ -215,7 +216,7 @@ graph-it export [path]                Export the graph as HTML
 graph-it --help                       Show all commands and options
 ```
 
-Analysis commands support `--format json|toon|markdown`. `trace`, `path` and `architecture` also support `--format mermaid`. Use `--workspace <path>` or `-w` to analyze a project other than the current directory.
+Analysis commands support `--format json|toon|markdown`. `trace`, `path` and `architecture` also support `--format mermaid`, `architecture --matrix` supports `--format csv`, and `check-architecture` supports `--format sarif`. Use `--workspace <path>` or `-w` to analyze a project other than the current directory.
 
 See the [complete CLI reference](docs/CLI.md), including installation troubleshooting, REPL commands, output formats, and tool details.
 
@@ -251,7 +252,7 @@ The graph-context tool is available as `#graphContext`. Other native references 
 
 ### MCP server
 
-The MCP server exposes 23 graph-analysis tools. Enable it in VS Code with `graph-it-live.enableMcpServer`, or start it from the CLI:
+The MCP server exposes 24 graph-analysis tools. Enable it in VS Code with `graph-it-live.enableMcpServer`, or start it from the CLI:
 
 ```bash
 graph-it serve

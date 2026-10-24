@@ -73,6 +73,18 @@
 - `callgraph/CallGraphQuery.ts` - BFS/CTE neighbourhood queries returning `NeighbourhoodResult` with compound folder nodes (355 lines)
 - `callgraph/cycleUtils.ts` - Cycle detection utilities shared from webview (103 lines)
 
+**Architecture Sub-Package** (`architecture/`):
+
+- `architecture/ArchitectureGraphBuilder.ts` - Workspace architecture graph shared by `graph-it architecture`, `explore_architecture` and the extension
+- `architecture/ArchitectureExplorer.ts` - Progressive views: bounded summary, one group boundary, file pairs behind a group edge
+- `architecture/architectureUnits.ts` - Units (packages, else top-level folders), unit edges, layers and cycles
+- `architecture/architectureMatrix.ts` - Dependency structure matrix of one level (rows by layer, Ce/Ca/instability)
+- `architecture/architectureRules.ts` - `graphit.architecture.json` elements and rules, baseline, violation check
+- `architecture/unitRoles.ts` - Unit roles inferred from manifests and files, or declared in the rules file
+- `architecture/groupDependents.ts` - Direct and transitive dependents of a selection, by group
+- `architecture/architectureView.ts` - Levels and counts drawn by the extension's Architecture view
+- `architecture/stronglyConnectedComponents.ts` - Strongly connected components and layers of a directed graph
+
 **Utilities:**
 
 - `utils/PathResolver.ts` - Module path resolution (TS/Python/Rust)
@@ -206,18 +218,18 @@ Branch Watch adds a native path alongside the existing webview: `BranchWatchServ
 
 **Server:**
 
-- `mcpServer.ts` - MCP server entry point; registers all 23 tools, includes an in-memory sliding-window rate limiter (`checkRateLimit`) for `set_workspace`/`rebuild_index` (5 calls/10s) and `invalidate_files` (20 calls/10s)
+- `mcpServer.ts` - MCP server entry point; registers all 24 tools, includes an in-memory sliding-window rate limiter (`checkRateLimit`) for `set_workspace`/`rebuild_index` (5 calls/10s) and `invalidate_files` (20 calls/10s)
 - `McpWorker.ts` - Worker thread (NO vscode imports)
 - `McpWorkerHost.ts` - Worker communication
 - `McpServerProvider.ts` - VS Code MCP server provider
 - `responseFormatter.ts` - Tool response formatting
-- `tools/` - Tool implementations: `analysis.ts`, `callgraph.ts`, `codemap.ts`, `deadcode.ts`, `execution.ts`, `graph.ts`, `graphContext.ts`, `impact.ts`, `logic.ts`, `query.ts`, `resolve.ts`, `stats.ts`, `symbol.ts`, `wiki.ts`, `workspace.ts` (`index.ts` barrel)
+- `tools/` - Tool implementations: `analysis.ts`, `architecture.ts`, `callgraph.ts`, `codemap.ts`, `deadcode.ts`, `execution.ts`, `graph.ts`, `graphContext.ts`, `impact.ts`, `logic.ts`, `query.ts`, `resolve.ts`, `stats.ts`, `symbol.ts`, `wiki.ts`, `workspace.ts` (`index.ts` barrel)
 - `worker/fileWatcher.ts` - chokidar-based file watcher for cache invalidation
 - `worker/invokeTool.ts` - Tool invocation dispatcher in worker thread
 - `shared/helpers.ts` - Shared MCP worker utilities
 - `shared/state.ts` - MCP worker shared state management
 
-**23 Tools Available** (`graphitlive_` prefix in MCP protocol):
+**24 Tools Available** (`graphitlive_` prefix in MCP protocol):
 
 1. `set_workspace` - Set workspace directory
 2. `analyze_dependencies` - Single-file dependency analysis
@@ -242,6 +254,7 @@ Branch Watch adds a native path alongside the existing webview: `BranchWatchServ
 21. `generate_wiki` - Navigable Markdown wiki from the call graph index
 22. `get_session_stats` - TOON vs JSON token savings for the session
 23. `explore_architecture` - Grouped architecture summary, group boundary, edge evidence
+24. `check_architecture` - Check imports against `graphit.architecture.json` rules and baseline
 
 `expand_node`, `parse_imports`, `get_symbol_callers`, `get_symbol_dependents` and `analyze_file_logic` left the MCP server in v1.17.0 and `graph-it tool` in v1.20.0. Only the VS Code Language Model tools of the same names remain.
 
