@@ -325,6 +325,13 @@ describe("fitReadable on a large graph", () => {
     expect(box.y1).toBeCloseTo(30, 0);
     expect((box.x1 + box.x2) / 2).toBeCloseTo(200, 0);
   });
+
+  it("keeps the whole graph in view below the readable zoom when asked (the Fit button)", () => {
+    const cy = cytoscape({ headless: true, elements: [{ group: "nodes", data: { id: "n" } }] });
+    vi.spyOn(cy, "fit").mockImplementation(() => cy.zoom(0.05));
+    fitReadable(cy, true);
+    expect(cy.zoom()).toBeCloseTo(0.05);
+  });
 });
 
 describe("isolated groups", () => {

@@ -837,6 +837,10 @@ suite('Architecture view mode', () => {
       });
       assert.ok((capped.groupLevel?.minLabelPx ?? 0) >= 8, `labels readable after the fit: ${capped.groupLevel?.minLabelPx}px`);
       assertReadableLayout(capped);
+      // Fit shows the whole level: never closer than the readable first fit, below it when that one was clamped.
+      const firstFit = (await readRendered()).zoom;
+      const wholeFit = await waitForInteraction('Fit on the capped level', { zoom: 'fit' }, interaction => interaction.zoom !== undefined);
+      assert.ok((wholeFit.zoom ?? Infinity) <= (firstFit ?? 0) * 1.01, `Fit zoom ${wholeFit.zoom} vs first fit ${firstFit}`);
 
       const hidden = await expectDetail('finding a hidden group', { find: 'd55' }, detail => (detail.findStatus ?? '').includes('hidden'));
       assert.match(hidden.findStatus ?? '', /"d55" is also in 1 hidden group \(d55\)\. Show more groups/);
@@ -877,12 +881,12 @@ suite('Architecture view mode', () => {
     const selected = await waitForInteraction('selecting @ws/web', { legendUnit: 'workspaces-project/apps/web' }, interaction => interaction.selectedGroups === 1);
     assert.strictEqual(selected.ringedGroups, 1, 'the selected unit is ringed');
 
-    // Zoom in moves away from the fit; Fit comes back to the first fit's zoom (±1%).
+    // Zoom in moves away from the fit; Fit shows all 71 units, below the first fit's readable zoom.
     const initialZoom = rendered.zoom ?? 0;
     const zoomed = await waitForInteraction('zooming in', { zoom: 'in' }, interaction => (interaction.zoom ?? 0) > initialZoom * 1.1);
     assert.ok((zoomed.zoom ?? 0) > initialZoom, 'zoomed in');
-    const fitted = await waitForInteraction('Fit', { zoom: 'fit' }, interaction => Math.abs((interaction.zoom ?? 0) - initialZoom) <= initialZoom * 0.01);
-    assert.ok(Math.abs((fitted.zoom ?? 0) - initialZoom) <= initialZoom * 0.01, `Fit zoom ${fitted.zoom} vs ${initialZoom}`);
+    const fitted = await waitForInteraction('Fit', { zoom: 'fit' }, interaction => (interaction.zoom ?? Infinity) < initialZoom);
+    assert.ok((fitted.zoom ?? Infinity) < initialZoom, `Fit zoom ${fitted.zoom} vs the readable first fit ${initialZoom}`);
 
     // Keyboard only: an arrow selects a unit on the focused canvas and the live region names it.
     const moved = await waitForInteraction('an arrow key', { keys: ['ArrowDown'] }, interaction => interaction.canvasFocused === true && interaction.selectedGroups === 1);

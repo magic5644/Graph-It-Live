@@ -1201,11 +1201,14 @@ export function ArchitectureGraph({ postMessage }: Readonly<ArchitectureGraphPro
   const focusRef = useRef(focusId);
   const unitRef = useRef(unit);
   const foldersRef = useRef(folders);
-  /** The viewport is the whole-graph fit: a resize fits again. Any other zoom or pan (focus, find, the user) stays. */
-  const fittedRef = useRef(true);
-  const fitAll = (cy: cytoscape.Core) => {
-    fitReadable(cy);
-    fittedRef.current = true;
+  /**
+   * The viewport is a whole-graph fit (readable, or whole after *Fit*): a resize fits the same way again.
+   * Any other zoom or pan (focus, find, the user) stays.
+   */
+  const fittedRef = useRef<"readable" | "whole" | false>("readable");
+  const fitAll = (cy: cytoscape.Core, whole = false) => {
+    fitReadable(cy, whole);
+    fittedRef.current = whole ? "whole" : "readable";
   };
   /** What the next render fits: the focus, an entered group once its files are drawn, everything, or the level's last viewport. */
   const fitRef = useRef<Fit | null>(null);
@@ -1537,11 +1540,11 @@ export function ArchitectureGraph({ postMessage }: Readonly<ArchitectureGraphPro
     cy.fit(block, 30);
     showFocus(cy, block.children(), post);
   };
-  /** Fit (the readable fit, top-anchored), zoom in or out around the centre. */
+  /** Fit the whole level, zoom in or out around the centre. */
   const zoom = (action: ZoomAction) => {
     const cy = cyRef.current;
     if (!cy) return;
-    if (action === "fit") fitAll(cy);
+    if (action === "fit") fitAll(cy, true);
     else {
       const level = cy.zoom() * (action === "in" ? ZOOM_STEP : 1 / ZOOM_STEP);
       cy.zoom({ level: Math.min(cy.maxZoom(), Math.max(cy.minZoom(), level)), renderedPosition: { x: cy.width() / 2, y: cy.height() / 2 } });
@@ -1902,7 +1905,7 @@ export function ArchitectureGraph({ postMessage }: Readonly<ArchitectureGraphPro
       resizeTimer = setTimeout(() => {
         cy.resize();
         // A banner (stale, find) resizes the canvas too: only a whole-graph fit follows it.
-        if (fittedRef.current) fitAll(cy);
+        if (fittedRef.current) fitAll(cy, fittedRef.current === "whole");
         postMessageRef.current({ command: "architectureResized", width: container.clientWidth, height: container.clientHeight });
       }, 120);
     };

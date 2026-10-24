@@ -761,12 +761,12 @@ export const MIN_READABLE_ZOOM = 8 / ARCHITECTURE_FONT_SIZE;
 const FIT_PADDING = 30;
 
 /**
- * Fits everything, but never below MIN_READABLE_ZOOM: a larger graph keeps its top centre in
- * view (the units nobody depends on) and the rest is reached by panning.
+ * Fits everything. Unless `whole`, never below MIN_READABLE_ZOOM: a larger graph keeps its top
+ * centre in view (the units nobody depends on) and the rest is reached by panning.
  */
-export function fitReadable(cy: Core): void {
+export function fitReadable(cy: Core, whole = false): void {
   cy.fit(undefined, FIT_PADDING);
-  if (cy.zoom() >= MIN_READABLE_ZOOM) return;
+  if (whole || cy.zoom() >= MIN_READABLE_ZOOM) return;
   const box = cy.elements().boundingBox();
   cy.zoom(MIN_READABLE_ZOOM);
   // Rendered = model × zoom + pan: put the box's top centre at the top centre of the view.
