@@ -11,7 +11,7 @@
 <meta property="og:title" content="Graph-It-Live — See your codebase as a graph">
 <meta property="og:description" content="Dependency graphs, call graphs, impact analysis and dead-code detection for VS Code, the CLI, and MCP-compatible AI assistants.">
 <meta property="og:url" content="https://magic5644.github.io/Graph-It-Live/">
-<meta property="og:image" content="https://magic5644.github.io/Graph-It-Live/media/call-graph-view-example.png">
+<meta property="og:image" content="https://magic5644.github.io/Graph-It-Live/media/architecture-units-overview.png">
 <meta name="twitter:card" content="summary_large_image">
 
 <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -317,7 +317,7 @@ footer{border-top:1px solid var(--line);padding:46px 0 40px;color:var(--muted);f
 <div class="hero">
   <canvas id="graph-bg" aria-hidden="true"></canvas>
   <div class="wrap">
-    <div class="pill"><b>MCP</b> 23 graph tools for your AI assistant</div>
+    <div class="pill"><b>MCP</b> 24 graph tools for your AI assistant</div>
     <h1>See your codebase<br><span class="grad">as a graph</span></h1>
     <p class="lede">
       Imports, symbols, cross-file calls, cycles, dead code and change impact —
@@ -347,7 +347,7 @@ footer{border-top:1px solid var(--line);padding:46px 0 40px;color:var(--muted);f
     </div>
     <div class="demo-caption"><span>YOUR CODE. THE CONNECTIONS. THE WHOLE PICTURE.</span><a href="#views">Explore the three views ↗</a></div>
     <div class="stats rv">
-      <div class="stat"><b>22</b><span>MCP graph tools</span></div>
+      <div class="stat"><b>24</b><span>MCP graph tools</span></div>
       <div class="stat"><b>10+</b><span>Languages parsed</span></div>
       <div class="stat"><b>3</b><span>Graph views</span></div>
       <div class="stat"><b>100%</b><span>Local analysis</span></div>
@@ -398,6 +398,40 @@ footer{border-top:1px solid var(--line);padding:46px 0 40px;color:var(--muted);f
       <div class="eyebrow">Features</div>
       <h2>Answers, not file dumps</h2>
       <p>Every result points back to real code: a file, a symbol, a line.</p>
+    </div>
+
+    <div class="shot rv" style="margin-bottom:64px">
+      <div class="shot-txt">
+        <h3>See the architecture, layer by layer</h3>
+        <p>The Architecture view draws your packages (or top-level folders) as units in layers, with their roles, cycles and the import edges between them. Open it with <em>Switch to Architecture View</em> in the Dependency Graph title bar.</p>
+        <ul>
+          <li>Double-click a unit to walk down its folders, breadcrumb to come back</li>
+          <li>Click an edge for the exact file pairs behind it</li>
+          <li>Dependency structure matrix with <code>Ca/Ce · I</code> per row</li>
+          <li><em>Dependents by group</em> for any unit, group or file</li>
+        </ul>
+      </div>
+      <div class="frame">
+        <div class="frame-bar"><i class="dot"></i><i class="dot"></i><i class="dot"></i><span>Architecture view</span></div>
+        <img src="media/architecture-units-overview.png" alt="Architecture view of an npm-workspaces monorepo: units in layers, a cycle between two shared libraries, rule violations in red" loading="lazy">
+      </div>
+    </div>
+
+    <div class="shot rev rv" style="margin-bottom:64px">
+      <div class="shot-txt">
+        <h3>Write the rules, catch every break</h3>
+        <p>Declare layers and boundaries in <code>graphit.architecture.json</code>. The view lists each rule with its violations, and <code>graph-it check-architecture</code> fails CI on a new one, with SARIF for code scanning.</p>
+        <ul>
+          <li><code>forbid</code>, <code>allowOnly</code> and <code>noCycles</code> rules</li>
+          <li>Elements by path, package name or unit role</li>
+          <li>Baseline to adopt rules on an existing codebase</li>
+          <li><code>check_architecture</code> MCP tool for your assistant</li>
+        </ul>
+      </div>
+      <div class="frame">
+        <div class="frame-bar"><i class="dot"></i><i class="dot"></i><i class="dot"></i><span>Architecture rules</span></div>
+        <img src="media/architecture-rules-violations.gif" alt="Rules panel: clicking a rule lists its violating file pairs, clicking a file opens it at the import" loading="lazy">
+      </div>
     </div>
 
     <div class="shot rv" style="margin-bottom:64px">
@@ -459,11 +493,11 @@ footer{border-top:1px solid var(--line);padding:46px 0 40px;color:var(--muted);f
     <div class="sec-head rv">
       <div class="eyebrow">AI integrations</div>
       <h2>Give your assistant a map, not a haystack</h2>
-      <p>23 MCP tools expose the same local graph to GitHub Copilot, Claude, Cursor, Windsurf, Antigravity and any MCP client.</p>
+      <p>24 MCP tools expose the same local graph to GitHub Copilot, Claude, Cursor, Windsurf, Antigravity and any MCP client.</p>
     </div>
 
     <details class="card rv" id="mcp-tools" style="margin-bottom:34px">
-      <summary>Explore all 23 MCP tools</summary>
+      <summary>Explore all 24 MCP tools</summary>
       <p style="margin:16px 0">These are the names advertised by <code>graph-it serve</code>. Start with <code>graphitlive_graph_context</code> for an open-ended question; choose a specialized tool for a specific task.</p>
       <div class="tbl-scroll">
         <table class="tbl">
@@ -484,6 +518,7 @@ footer{border-top:1px solid var(--line);padding:46px 0 40px;color:var(--muted);f
             <tr><td><code>graphitlive_review_pr</code></td><td>Local Git diff review with risk, impact evidence and limitations.</td></tr>
             <tr><td><code>graphitlive_find_unused_symbols</code></td><td>Unused exported symbols in one file.</td></tr>
             <tr><td><code>graphitlive_explore_architecture</code></td><td>Step-by-step architecture: groups, one group's boundary, then the file pairs behind a group edge.</td></tr>
+            <tr><td><code>graphitlive_check_architecture</code></td><td>Check every static import against the rules of <code>graphit.architecture.json</code>; new violations against the baseline.</td></tr>
             <tr><td><code>graphitlive_scan_dead_code</code></td><td>Workspace or scoped unused-export scan; reports file-limit truncation.</td></tr>
             <tr><td><code>graphitlive_query_natural_language</code></td><td>Relevant subgraph for a plain-language question within a token budget.</td></tr>
             <tr><td><code>graphitlive_generate_wiki</code></td><td>Navigable Markdown wiki generated from call-graph relationships.</td></tr>
@@ -497,7 +532,7 @@ footer{border-top:1px solid var(--line);padding:46px 0 40px;color:var(--muted);f
       </div>
       <p style="margin-top:16px"><code>crawl_dependency_graph</code> and <code>query_call_graph</code> accept <code>tokenBudget</code> (<code>0</code> disables the cap). Pass a returned <code>nextOffset</code> as <code>offset</code> to continue; <code>graph_context</code> uses cursor pagination.</p>
       <p style="margin-top:16px">The MCP server does not register <code>get_symbol_callers</code>, <code>get_symbol_dependents</code>, <code>parse_imports</code>, <code>expand_node</code> or <code>analyze_file_logic</code>. Use <code>query_call_graph</code> (callers, depth 1), <code>analyze_dependencies</code>, <code>crawl_dependency_graph</code> and <code>generate_codemap</code> respectively. <code>graph-it tool</code> rejects the five old names since v1.20.0 and names the replacement.</p>
-      <p style="margin-top:16px">The CLI's <code>tool --list</code> has 18 entries, all shared analysis tools. MCP-only <code>set_workspace</code> corresponds to CLI <code>--workspace</code>; use <code>review-pr</code>, <code>query</code>, <code>wiki</code> and <code>stats</code> for the other four MCP capabilities.</p>
+      <p style="margin-top:16px">The CLI's <code>tool --list</code> has 19 entries, all shared analysis tools. MCP-only <code>set_workspace</code> corresponds to CLI <code>--workspace</code>; use <code>review-pr</code>, <code>query</code>, <code>wiki</code> and <code>stats</code> for the other four MCP capabilities.</p>
     </details>
 
     <div class="grid g2 rv" style="margin-bottom:34px">
@@ -653,6 +688,8 @@ footer{border-top:1px solid var(--line);padding:46px 0 40px;color:var(--muted);f
 <span class="c-cmd">graph-it</span> summary                      <span class="c-dim"># Workspace overview</span>
 <span class="c-cmd">graph-it</span> summary src/index.ts         <span class="c-dim"># File codemap</span>
 <span class="c-cmd">graph-it</span> architecture                 <span class="c-dim"># Workspace graph</span>
+<span class="c-cmd">graph-it</span> architecture --level units    <span class="c-dim"># Packages in layers</span>
+<span class="c-cmd">graph-it</span> check-architecture           <span class="c-dim"># Check graphit.architecture.json</span>
 <span class="c-cmd">graph-it</span> trace src/index.ts#main      <span class="c-dim"># Trace execution</span>
 <span class="c-cmd">graph-it</span> explain src/index.ts         <span class="c-dim"># Intra-file flow</span>
 <span class="c-cmd">graph-it</span> path src/index.ts            <span class="c-dim"># Dependencies</span>
@@ -691,7 +728,7 @@ footer{border-top:1px solid var(--line);padding:46px 0 40px;color:var(--muted);f
             <tr><td>Navigate</td><td><code>/scope</code>, <code>/file</code></td></tr>
             <tr><td>Understand</td><td><code>/trace</code>, <code>/explain</code>, <code>/context</code>, <code>/query</code></td></tr>
             <tr><td>Relations</td><td><code>/check-dependencies</code>, <code>/cycles</code>, <code>/callers</code>, <code>/impact</code></td></tr>
-            <tr><td>Workspace</td><td><code>/summary</code>, <code>/architecture</code>, <code>/check</code>, <code>/review-pr</code>, <code>/scan</code></td></tr>
+            <tr><td>Workspace</td><td><code>/summary</code>, <code>/architecture</code>, <code>/check-architecture</code>, <code>/check</code>, <code>/review-pr</code>, <code>/scan</code></td></tr>
             <tr><td>Output</td><td><code>/format</code>, <code>/export</code>, <code>/wiki</code></td></tr>
             <tr><td>Session</td><td><code>/help</code>, <code>/quit</code></td></tr>
           </tbody>
