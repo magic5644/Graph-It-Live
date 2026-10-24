@@ -245,3 +245,20 @@ jobs:
       - name: Publish CLI to npm
         if: ${{ inputs.publish_npm == true }}
         run: npm publish --access public --provenance --ignore-scripts
+
+      # sync-agent-plugin-version.yml starts when this run completes and reads
+      # npm `latest`, which lags the publish by a few minutes.
+      - name: Wait for npm latest to serve the published version
+        if: ${{ inputs.publish_npm == true }}
+        run: |
+          for attempt in $(seq 1 60); do
+            LATEST=$(curl -fsS https://registry.npmjs.org/@magic5644%2Fgraph-it-live/latest | jq -r .version || true)
+            if [ "$LATEST" = "$VERSION" ]; then
+              echo "OK: npm latest is $VERSION"
+              exit 0
+            fi
+            echo "npm latest is '$LATEST', waiting for $VERSION ($attempt/60)"
+            sleep 20
+          done
+          echo "ERROR: npm latest still not $VERSION after 20 minutes"
+          exit 1
