@@ -22,7 +22,10 @@
     "tooling": {
       "path": [
         "tests/",
-        "scripts/"
+        "scripts/",
+        ".github/",
+        "/esbuild.js",
+        "/eslint.config.mjs"
       ]
     }
   },
@@ -62,6 +65,16 @@
       ],
       "severity": "error",
       "reason": "The CLI ships without VS Code."
+    },
+    {
+      "name": "extension-no-webview-code",
+      "from": "extension",
+      "forbid": [
+        "webview",
+        "cli"
+      ],
+      "severity": "error",
+      "reason": "The extension host talks to the webview through messages typed in src/shared and runs the CLI as a separate process; it never bundles their code. It reuses MCP tool code for its language model tools."
     },
     {
       "name": "webview-is-browser-code",
