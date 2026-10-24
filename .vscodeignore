@@ -75,6 +75,8 @@ bin/**
 .eslintignore
 .eslintrc.json
 eslint.config.mjs
+graphit.architecture.json
+graphit.architecture.baseline.json
 esbuild.js
 tsconfig.json
 tsconfig.webview.json
