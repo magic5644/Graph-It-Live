@@ -1,6 +1,7 @@
 ---
 paths:
   - "src/**/*.{ts,tsx}"
+  - "graphit.architecture.json"
 ---
 
 # Architecture and TypeScript
@@ -11,6 +12,16 @@ paths:
 - Prefer `@/` imports for `src/`, named/type-only imports, strict types, and existing naming conventions. Use `SpiderError`/`SpiderErrorCode` when callers branch on failure reason.
 - Preserve separate outputs: extension host, CLI, MCP server, workers, file/symbol webview, and call-graph webview.
 - After modifying first-party source, run targeted tests, `npm run lint`, `npm run check:types`, and configured SonarQube analysis. Fix new findings before completion.
+
+## Architecture Rules (`graphit.architecture.json`)
+
+The layer boundaries above are machine-checked by the repository's own `graphit.architecture.json`. Keep it the single source of truth and keep it passing.
+
+- After any source change that adds, moves, or rewires imports, run `graph-it check-architecture` (or the `graphitlive_check_architecture` MCP tool). Exit code 1 means a new `error` violation: fix the import, not the rule.
+- Require 0 violations, 0 `unmatchedFiles`, and no `configWarnings`. A file no element selects escapes every rule.
+- New top-level folder under `src/`, new shipped entry point, or new tooling root: add its element and its `allowOnly`/`forbid` rules (with a `reason`) in the same change.
+- Changing a layer relationship on purpose: get user approval first, then update the rule and its `reason`, the layer list above, and `AGENTS.md` together, and state the change in the PR summary. Cross-layer redesigns also get an ADR.
+- Never weaken a rule (`severity: "warning"`/`"off"`, wider `allowOnly`, removed `forbid`) only to make a check pass. Never add `graphit.architecture.baseline.json`: the repository has no accepted violations.
 
 ## Code Style
 

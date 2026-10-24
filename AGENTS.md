@@ -18,6 +18,7 @@ Prefix shell commands with `rtk`; use `rtk proxy <command>` when no optimized wr
 
 ## Universal Rules
 - Keep `src/analyzer/**` and `src/mcp/**` Node.js-only: never import `vscode`.
+- Keep imports compliant with `graphit.architecture.json`: run `graph-it check-architecture` after source changes (0 violations, 0 unmatched files). New `src/` folder or layer relationship = update that config in the same change; never weaken a rule to pass.
 - Define extension↔webview messages in `src/shared/types.ts`; update sender and receiver together.
 - Build paths with `node:path`; call `normalizePath()` before path keys enter Sets or Maps.
 - Keep TypeScript strict. Avoid `any`; ESLint decides style.
@@ -40,7 +41,7 @@ Before modifying matching paths—or when task topic matches—read correspondin
 
 | Scope or task | Rule |
 | --- | --- |
-| Any `src/**` architecture or code-style change | `.claude/rules/architecture.md` |
+| Any `src/**` architecture or code-style change, or `graphit.architecture.json` | `.claude/rules/architecture.md` |
 | Analyzer, MCP, shared security, paths | `.claude/rules/analyzer-mcp-security.md` |
 | React/webview | `.claude/rules/webview-react.md` |
 | Tests or coverage | `.claude/rules/testing.md` |
