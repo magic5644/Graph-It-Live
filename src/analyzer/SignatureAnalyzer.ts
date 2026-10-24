@@ -82,7 +82,8 @@ export type BreakingChangeType =
   | 'member-renamed'               // Interface/class member renamed
   | 'member-type-changed'          // Interface/class member type changed
   | 'member-optional-to-required'  // Optional member became required
-  | 'type-alias-changed';          // Type alias definition changed
+  | 'type-alias-changed'           // Type alias definition changed
+  | 'symbol-moved';                // Removed here, declared by another changed file (review_pr)
 
 /**
  * Represents a detected breaking change
@@ -617,6 +618,55 @@ export class SignatureAnalyzer {
     };
   }
 
+  /** Names of the top-level declarations `content` exports directly (re-exports excluded). */
+  public exportedDeclarationNames(filePath: string, content: string): Set<string> {
+    const sourceFile = this.getOrCreateSourceFile(filePath, content);
+    const names = new Set<string>();
+    for (const declaration of [
+      ...sourceFile.getFunctions(),
+      ...sourceFile.getClasses(),
+      ...sourceFile.getEnums(),
+      ...sourceFile.getInterfaces(),
+      ...sourceFile.getTypeAliases(),
+    ]) {
+      const name = declaration.getName();
+      if (name && declaration.isExported()) names.add(name);
+    }
+    for (const statement of sourceFile.getVariableStatements().filter((candidate) => candidate.isExported())) {
+      for (const declaration of statement.getDeclarations()) names.add(declaration.getName());
+    }
+    return names;
+  }
+
+  /**
+   * Compares a symbol removed from `filePath` with the declaration of the same name in `target`.
+   * Undefined when `target` declares no comparable function, member, interface or type alias.
+   */
+  public compareMovedRemoval(
+    filePath: string,
+    oldContent: string,
+    symbolName: string,
+    target: ReexportedModule,
+  ): SignatureComparisonResult | undefined {
+    return this.compareMovedSymbol(filePath, oldContent, symbolName, { ...target, importedName: symbolName.split('.')[0] });
+  }
+
+  /**
+   * Module specifiers `content` imports or re-exports `name` from by name.
+   * shortcut: namespace imports and `export *` are not followed; follow them if a moved symbol's
+   * stale consumer goes unreported through one.
+   */
+  public namedImportSpecifiers(filePath: string, content: string, name: string): string[] {
+    const sourceFile = this.getOrCreateSourceFile(filePath, content);
+    const imports = sourceFile.getImportDeclarations()
+      .filter((declaration) => declaration.getNamedImports().some((specifier) => specifier.getName() === name))
+      .map((declaration) => declaration.getModuleSpecifierValue());
+    const reexports = sourceFile.getExportDeclarations()
+      .filter((declaration) => declaration.getNamedExports().some((specifier) => specifier.getName() === name))
+      .map((declaration) => declaration.getModuleSpecifierValue());
+    return [...imports, ...reexports].filter((specifier): specifier is string => Boolean(specifier));
+  }
+
   // ============================================================================
   // Private Helper Methods
   // ============================================================================
@@ -720,13 +770,32 @@ export class SignatureAnalyzer {
       return newSig && this.compareSignatures(oldSig, { ...newSig, name: symbolName });
     }
     const oldMembers = this.extractInterfaceMembers(oldPath, oldContent).get(symbolName);
-    if (oldMembers) {
-      const newMembers = this.extractInterfaceMembers(moved.filePath, moved.content).get(moved.importedName);
-      return newMembers && this.compareInterfaces(symbolName, oldMembers, newMembers);
-    }
+    const newMembers = this.extractInterfaceMembers(moved.filePath, moved.content).get(moved.importedName);
     const oldType = this.extractTypeAliases(oldPath, oldContent).find((t) => t.name === symbolName);
     const newType = this.extractTypeAliases(moved.filePath, moved.content).find((t) => t.name === moved.importedName);
-    return oldType && newType && this.compareTypeAliases(oldType, { ...newType, name: symbolName });
+    if (oldMembers && newMembers) return this.compareInterfaces(symbolName, oldMembers, newMembers);
+    if (oldType && newType) return this.compareTypeAliases(oldType, { ...newType, name: symbolName });
+    if (oldMembers && newType) return this.typeKindChange(symbolName, 'an interface', 'a type alias');
+    if (oldType && newMembers) return this.typeKindChange(symbolName, 'a type alias', 'an interface');
+    return undefined;
+  }
+
+  /**
+   * An interface that became a type alias, or the reverse, keeps every type reference valid
+   * when the shape is the same — which a textual comparison cannot tell, so it is a warning.
+   */
+  private typeKindChange(symbolName: string, oldKind: string, newKind: string): SignatureComparisonResult {
+    return {
+      symbolName,
+      hasBreakingChanges: true,
+      breakingChanges: [{
+        type: 'type-alias-changed',
+        symbolName,
+        description: `'${symbolName}' changed from ${oldKind} to ${newKind}; their shapes are not compared`,
+        severity: 'warning',
+      }],
+      nonBreakingChanges: [],
+    };
   }
 
   /**
