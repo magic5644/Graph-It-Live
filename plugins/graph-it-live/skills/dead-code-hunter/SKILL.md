@@ -38,6 +38,13 @@ invalidate cached capabilities, and advise that a running MCP server needs a hos
 On failure, keep using the existing CLI only if it remains usable; otherwise explain the failure
 and stop CLI analysis. Warn briefly and do not retry in a loop.
 
+These instructions require Graph-It-Live CLI **1.21.0 or later** (`check-architecture`, `architecture
+--level units`, `--matrix`, and the 24 MCP tools). Compare the reported `graph-it --version` with
+1.21.0 at the same first activation. If it is older, say so once, name the commands it lacks, and
+offer `graph-it update` under the confirmation policy above; until it is updated, use only commands
+listed by that CLI's `--help` and `tool --list`, and never present output of a missing command as a
+result. If the version cannot be read, treat it as older.
+
 ## When to Use
 
 - Before a major refactor — clean up before you restructure

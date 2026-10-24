@@ -37,6 +37,14 @@ On failure, keep using the existing CLI only if it remains usable; otherwise exp
 and stop CLI analysis. Warn briefly and do not retry in a loop. Do not install the CLI without an
 explicit request.
 
+These instructions require Graph-It-Live CLI **1.21.0 or later** (`check-architecture`, `architecture
+--level units`, `--matrix`, and the 24 MCP tools). Compare the reported `graph-it --version` with
+1.21.0 at the same first activation. If it is older, say so once, name the commands it lacks, and
+offer `graph-it update` under the confirmation policy above; until it is updated, use only commands
+listed by that CLI's `--help` and `tool --list`, and never present output of a missing command as a
+result. If the version cannot be read, treat it as older.
+
+
 Fetch the Git base ref needed for review. The CLI indexes automatically for `review-pr`, so do not
 run `graph-it scan` first.
 
