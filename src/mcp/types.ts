@@ -1453,7 +1453,8 @@ export type BreakingChangeType =
   | "member-renamed" // Interface/class member renamed
   | "member-type-changed" // Interface/class member type changed
   | "member-optional-to-required" // Optional member became required
-  | "type-alias-changed"; // Type alias definition changed
+  | "type-alias-changed" // Type alias definition changed
+  | "symbol-moved"; // Removed here, declared by another changed file (review_pr)
 
 /**
  * A single breaking change detected

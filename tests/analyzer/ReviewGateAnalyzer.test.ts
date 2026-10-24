@@ -1141,3 +1141,151 @@ describe("ReviewGateAnalyzer - re-exported declaration", { timeout: GIT_TEST_TIM
     expect(result.symbols[0].breakingChanges[0].type).toBe("member-removed");
   });
 });
+
+/** Regression (#444): a symbol moved to another file of the same diff was scored as a breaking removal. */
+describe("ReviewGateAnalyzer - symbol moved between changed files", { timeout: GIT_TEST_TIMEOUT }, () => {
+  const OLD_API = [
+    "export interface Shape { size: number }",
+    'export type Kind = "a" | "b";',
+    "export class Box { constructor(size: number) {} area(): number { return 1; } }",
+    "export function make(kind: Kind): Shape { return { size: kind.length }; }",
+    "",
+  ].join("\n");
+  const NEW_API = 'import type { Kind, Shape } from "./model";\nexport function make(kind: Kind): Shape { return { size: kind.length }; }\n';
+  const MODEL = [
+    "export interface Shape { size: number }",
+    'export type Kind = "a" | "b";',
+    "export class Box { constructor(size: number) {} area(): number { return 1; } }",
+    "",
+  ].join("\n");
+
+  /** Commits `base`, then writes and stages `head` (null deletes), so new files are part of the diff. */
+  async function workspaceWith(base: Record<string, string>, head: Record<string, string | null>): Promise<string> {
+    const directory = await fs.mkdtemp(path.join(os.tmpdir(), "review-gate-move-"));
+    temporaryDirectories.push(directory);
+    const write = async (files: Record<string, string | null>) => {
+      for (const [file, content] of Object.entries(files)) {
+        const target = path.join(directory, file);
+        if (content === null) await fs.rm(target);
+        else {
+          await fs.mkdir(path.dirname(target), { recursive: true });
+          await fs.writeFile(target, content);
+        }
+      }
+    };
+    execFileSync("git", ["init", "--initial-branch=main"], { cwd: directory });
+    execFileSync("git", ["config", "user.email", "test@example.com"], { cwd: directory });
+    execFileSync("git", ["config", "user.name", "Test"], { cwd: directory });
+    await write(base);
+    execFileSync("git", ["add", "."], { cwd: directory });
+    execFileSync("git", ["commit", "-m", "base"], { cwd: directory });
+    await write(head);
+    execFileSync("git", ["add", "-A"], { cwd: directory });
+    return directory;
+  }
+
+  const symbol = (result: Awaited<ReturnType<ReviewGateAnalyzer["analyze"]>>, name: string) =>
+    result.symbols.find((candidate) => candidate.name === name);
+
+  it("reports a pure move as a low-risk move, not a removal", async () => {
+    const workspace = await workspaceWith(
+      { "src/api.ts": OLD_API, "src/use.ts": 'import type { Shape } from "./api";\nexport const s: Shape = { size: 1 };\n' },
+      { "src/api.ts": NEW_API, "src/model.ts": MODEL, "src/use.ts": 'import type { Shape } from "./model";\nexport const s: Shape = { size: 1 };\n' },
+    );
+    const result = await new ReviewGateAnalyzer(workspace).analyze({ baseRef: "main" });
+
+    expect(result.risk).toBe("low");
+    expect(result.symbols.map((candidate) => candidate.name).sort()).toEqual(["Box.area", "Box.constructor", "Kind", "Shape"]);
+    for (const moved of result.symbols) {
+      expect(moved).toMatchObject({ filePath: "src/api.ts", score: 5, risk: "low" });
+      expect(moved.breakingChanges).toEqual([
+        { type: "symbol-moved", symbolName: moved.name, severity: "warning", newValue: "src/model.ts", description: `'${moved.name}' moved to src/model.ts` },
+      ]);
+      expect(moved.evidence[0]).toEqual({ kind: "moved", detail: `'${moved.name}' moved to src/model.ts` });
+    }
+    expect(renderReviewMarkdown(result)).toContain("### Moved symbols\n- 'Box.area' moved to src/model.ts");
+  });
+
+  it("reports the differences between the old and the new declaration of a moved symbol", async () => {
+    const workspace = await workspaceWith(
+      { "src/api.ts": "export function make(kind: string): number { return kind.length; }\nexport const other = 1;\n" },
+      { "src/api.ts": "export const other = 1;\n", "src/model.ts": "export function make(kind: string, size: number): number { return size; }\n" },
+    );
+    const result = await new ReviewGateAnalyzer(workspace).analyze({ baseRef: "main" });
+
+    expect(symbol(result, "make")?.breakingChanges.map((change) => change.type)).toEqual(["parameter-added-required", "symbol-moved"]);
+    expect(symbol(result, "make")?.risk).not.toBe("low");
+  });
+
+  it("keeps a move breaking while a file still imports the name from the old path", async () => {
+    const workspace = await workspaceWith(
+      { "src/api.ts": OLD_API, "src/use.ts": 'import type { Kind, Shape } from "./api";\nexport const s: Shape = { size: 1 };\nexport const k: Kind = "a";\n' },
+      { "src/api.ts": NEW_API, "src/model.ts": MODEL, "src/use.ts": 'import type { Shape } from "./api";\nimport type { Kind } from "./model";\nexport const s: Shape = { size: 1 };\nexport const k: Kind = "a";\n' },
+    );
+    const result = await new ReviewGateAnalyzer(workspace).analyze({ baseRef: "main" });
+
+    const shape = symbol(result, "Shape");
+    expect(shape?.breakingChanges.map((change) => change.type)).toEqual(["member-removed", "symbol-moved"]);
+    expect(shape?.breakingChanges[1].description).toBe("'Shape' moved to src/model.ts, but 1 file(s) still import it from the old path: src/use.ts");
+    expect(shape?.consumers).toEqual({ updated: [], covered: [], unverified: ["src/use.ts"] });
+    expect(shape?.risk).toBe("high");
+    expect(symbol(result, "Kind")?.risk).toBe("low");
+  });
+
+  it("finds an unchanged importer through the reference index, with Windows separators", async () => {
+    const legacy = 'import type { Shape } from "./api";\nexport const s: Shape = { size: 1 };\n';
+    const workspace = await workspaceWith(
+      { "src/api.ts": OLD_API, "src/legacy.ts": legacy },
+      { "src/api.ts": NEW_API, "src/model.ts": MODEL },
+    );
+    const windowsPath = path.join(workspace, "src", "legacy.ts").replaceAll("/", "\\");
+    const provider = {
+      getSymbolDependents: async () => [],
+      findReferencingFiles: async (file: string) => (file.endsWith("src/api.ts") ? [{ path: windowsPath }] : []),
+    };
+    const result = await new ReviewGateAnalyzer(workspace, provider).analyze({ baseRef: "main" });
+
+    expect(symbol(result, "Shape")?.consumers.unverified).toEqual(["src/legacy.ts"]);
+    expect(symbol(result, "Kind")?.breakingChanges.map((change) => change.type)).toEqual(["symbol-moved"]);
+  });
+
+  it("keeps a plain removal, or a name redeclared with another kind, as a removal", async () => {
+    const workspace = await workspaceWith(
+      { "src/api.ts": OLD_API },
+      { "src/api.ts": NEW_API.replace('import type { Kind, Shape } from "./model";', 'type Kind = string; interface Shape { size: number }'), "src/model.ts": "export const Shape = 1;\n" },
+    );
+    const result = await new ReviewGateAnalyzer(workspace).analyze({ baseRef: "main" });
+
+    expect(symbol(result, "Shape")?.breakingChanges).toEqual([
+      expect.objectContaining({ type: "member-removed", description: "Interface 'Shape' was removed" }),
+    ]);
+    expect(result.symbols.flatMap((candidate) => candidate.breakingChanges).some((change) => change.type === "symbol-moved")).toBe(false);
+  });
+
+  it("leaves a file renamed with git mv as before", async () => {
+    const workspace = await workspaceWith({ "src/api.ts": OLD_API }, {});
+    execFileSync("git", ["mv", "src/api.ts", "src/model.ts"], { cwd: workspace });
+    const result = await new ReviewGateAnalyzer(workspace).analyze({ baseRef: "main" });
+
+    expect(result.changedFiles).toEqual(["src/model.ts"]);
+    expect(result.symbols).toEqual([]);
+  });
+});
+
+describe("ReviewGateAnalyzer - symbol moved with another type kind", { timeout: GIT_TEST_TIMEOUT }, () => {
+  it.each([
+    ["export type Info = { size: number };\n", "export interface Info { size: number }\n", "'Info' changed from a type alias to an interface; their shapes are not compared"],
+    ["export interface Info { size: number }\n", "export type Info = { size: number };\n", "'Info' changed from an interface to a type alias; their shapes are not compared"],
+  ])("reports a move from %s to %s as a low-risk warning", async (oldDeclaration, newDeclaration, description) => {
+    const workspace = await createGitWorkspaceWithDiff(`${oldDeclaration}export const keep = 1;\n`, "export const keep = 1;\n", "src/api.ts");
+    await fs.writeFile(path.join(workspace, "src", "model.ts"), newDeclaration);
+    execFileSync("git", ["add", "-A"], { cwd: workspace });
+    const result = await new ReviewGateAnalyzer(workspace).analyze({ baseRef: "main" });
+
+    expect(result.risk).toBe("low");
+    expect(result.symbols[0].breakingChanges).toEqual([
+      expect.objectContaining({ type: "type-alias-changed", severity: "warning", description }),
+      expect.objectContaining({ type: "symbol-moved", newValue: "src/model.ts" }),
+    ]);
+  });
+});

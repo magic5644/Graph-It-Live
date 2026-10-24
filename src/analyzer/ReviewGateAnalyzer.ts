@@ -28,7 +28,7 @@ export interface ReviewGateOptions {
 }
 
 export interface ReviewEvidence {
-  kind: "breaking-change" | "impact" | "consumers" | "cycle" | "unused-export" | "test-candidate" | "partial";
+  kind: "breaking-change" | "moved" | "impact" | "consumers" | "cycle" | "unused-export" | "test-candidate" | "partial";
   detail: string;
 }
 
@@ -112,6 +112,43 @@ interface FileEvidence {
   functions: SignatureInfo[];
 }
 
+/** A signature comparison, plus where a removed symbol moved to within the same diff. */
+interface ReviewComparison {
+  symbolName: string;
+  breakingChanges: BreakingChange[];
+  /** Workspace-relative file now declaring the symbol; its dependents are walked there. */
+  movedTo?: string;
+  /** Files that still import the moved symbol from its old module, so they break. */
+  staleImporters?: string[];
+}
+
+/** Base and head content of one changed source file. */
+interface ChangedSource {
+  relativePath: string;
+  absolutePath: string;
+  oldContent: string | null;
+  newContent: string | null;
+}
+
+/** Cross-file state of one review, used to tell a moved symbol from a removed one. */
+interface MoveIndex {
+  sources: Map<string, ChangedSource>;
+  /** Exported name → changed files that export it at the head ref but not at the base ref. */
+  targets: Map<string, Array<{ relativePath: string; absolutePath: string; content: string }>>;
+  /** Memoized stale importers per old module and exported name. */
+  stale: Map<string, Promise<string[]>>;
+}
+
+/** The changed file whose removals are being matched against the other changed files. */
+interface MoveScope {
+  relativePath: string;
+  absolutePath: string;
+  oldContent: string;
+  headRef: string;
+  changedFiles: ReadonlySet<string>;
+  moves: MoveIndex;
+}
+
 interface DependentWalkState {
   seen: Set<string>;
   testDependents: Set<string>;
@@ -150,8 +187,10 @@ export class ReviewGateAnalyzer {
       limitations.push(`Analysis limited to ${maxFiles} changed files.`);
     }
 
+    const sources = await this.loadChangedSources(changedFiles, options.baseRef, headRef);
+    const moves: MoveIndex = { sources, targets: this.collectMoveTargets(sources), stale: new Map() };
     for (const relativePath of changedFiles) {
-      symbols.push(...await this.analyzeChangedFile(relativePath, options.baseRef, headRef, maxDepth, limitations, analysisAvailability, changedFileSet));
+      symbols.push(...await this.analyzeChangedFile(relativePath, headRef, maxDepth, limitations, analysisAvailability, changedFileSet, moves));
     }
 
     symbols.sort((a, b) => b.score - a.score || a.filePath.localeCompare(b.filePath) || a.name.localeCompare(b.name));
@@ -183,16 +222,51 @@ export class ReviewGateAnalyzer {
     return resolved;
   }
 
+  /** Base and head content of every changed file the signature analysis supports, read once per review. */
+  private async loadChangedSources(changedFiles: string[], baseRef: string, headRef: string): Promise<Map<string, ChangedSource>> {
+    const sources = new Map<string, ChangedSource>();
+    for (const relativePath of changedFiles) {
+      if (!SIGNATURE_ANALYSIS_EXTENSIONS.has(path.extname(relativePath).toLowerCase())) continue;
+      const absolutePath = this.resolveWorkspacePath(relativePath);
+      const [oldContent, newContent] = await Promise.all([
+        this.gitShow(baseRef, relativePath),
+        this.readHeadContent(headRef, absolutePath, relativePath),
+      ]);
+      sources.set(relativePath, { relativePath, absolutePath, oldContent, newContent });
+    }
+    return sources;
+  }
+
+  /** Names each changed file exports at the head ref but did not export at the base ref: where a removed symbol may have moved. */
+  private collectMoveTargets(sources: Map<string, ChangedSource>): MoveIndex["targets"] {
+    const targets: MoveIndex["targets"] = new Map();
+    for (const { relativePath, absolutePath, oldContent, newContent } of sources.values()) {
+      if (newContent === null) continue;
+      let added: string[];
+      try {
+        const before = oldContent === null ? new Set<string>() : this.signatures.exportedDeclarationNames(absolutePath, oldContent);
+        added = [...this.signatures.exportedDeclarationNames(absolutePath, newContent)].filter((name) => !before.has(name));
+      } catch {
+        continue; // An unparsable file is no move target; its own analysis reports the parse error.
+      }
+      for (const name of added) {
+        targets.set(name, [...targets.get(name) ?? [], { relativePath, absolutePath, content: newContent }]);
+      }
+    }
+    return targets;
+  }
+
   private async analyzeChangedFile(
     relativePath: string,
-    baseRef: string,
     headRef: string,
     maxDepth: number,
     limitations: string[],
     availability: { cycle: boolean; unused: boolean },
     changedFiles: ReadonlySet<string>,
+    moves: MoveIndex,
   ): Promise<ReviewSymbol[]> {
-    if (!SIGNATURE_ANALYSIS_EXTENSIONS.has(path.extname(relativePath).toLowerCase())) {
+    const source = moves.sources.get(relativePath);
+    if (!source) {
       // Only source code can carry a contract the gate fails to check. Reporting a
       // README or a workflow file as a gap made almost every review "partial".
       if (SUPPORTED_SOURCE_FILE_REGEX.test(relativePath)) {
@@ -200,11 +274,7 @@ export class ReviewGateAnalyzer {
       }
       return [];
     }
-    const absolutePath = this.resolveWorkspacePath(relativePath);
-    const [oldContent, newContent] = await Promise.all([
-      this.gitShow(baseRef, relativePath),
-      this.readHeadContent(headRef, absolutePath, relativePath),
-    ]);
+    const { absolutePath, oldContent, newContent } = source;
     if (newContent === null) {
       limitations.push(`Could not compare ${relativePath}; file was deleted or unreadable.`);
       return [];
@@ -218,18 +288,13 @@ export class ReviewGateAnalyzer {
       ...await this.collectFileEvidence(absolutePath, relativePath, limitations, availability),
       functions: this.extractTopLevelFunctions(absolutePath, newContent),
     };
-    const comparisons = await this.analyzeSignatures(absolutePath, relativePath, oldContent, newContent, headRef, limitations);
+    const scope: MoveScope = { relativePath, absolutePath, oldContent, headRef, changedFiles, moves };
+    const comparisons = await this.analyzeSignatures(scope, newContent, limitations);
     return Promise.all(comparisons.map((comparison) => this.createReviewSymbol(comparison, absolutePath, relativePath, maxDepth, fileEvidence, changedFiles, headRef)));
   }
 
-  private async analyzeSignatures(
-    absolutePath: string,
-    relativePath: string,
-    oldContent: string,
-    newContent: string,
-    headRef: string,
-    limitations: string[],
-  ): Promise<Array<{ symbolName: string; breakingChanges: BreakingChange[] }>> {
+  private async analyzeSignatures(scope: MoveScope, newContent: string, limitations: string[]): Promise<ReviewComparison[]> {
+    const { absolutePath, relativePath, oldContent, headRef } = scope;
     try {
       const comparisons = this.signatures.analyzeBreakingChanges(absolutePath, oldContent, newContent);
       // Every removed symbol walks its re-export chain: load each module once, not once per symbol.
@@ -247,7 +312,11 @@ export class ReviewGateAnalyzer {
         },
       );
       limitations.push(...reexports.limitations.map((limitation) => `${relativePath}: ${limitation}`));
-      return reexports.results;
+      // A removal still reported as such — not resolved through a re-export — may have moved to another changed file.
+      const removals = new Set(comparisons.filter((comparison) => comparison.breakingChanges.length === 1));
+      const headExports = this.signatures.exportedDeclarationNames(absolutePath, newContent);
+      return await Promise.all(reexports.results.map((result) =>
+        removals.has(result) && !headExports.has(exportedNameOf(result.symbolName)) ? this.resolveMove(result, scope) : result));
     } catch (error) {
       const detail = error instanceof Error ? error.message : "unknown parser error";
       limitations.push(`Signature evidence unavailable for ${relativePath}: ${detail}.`);
@@ -255,8 +324,69 @@ export class ReviewGateAnalyzer {
     }
   }
 
+  /**
+   * A removal whose name another changed file now exports is a move: compared with
+   * its new declaration, and still breaking only for files importing the old path.
+   */
+  private async resolveMove(removal: ReviewComparison, scope: MoveScope): Promise<ReviewComparison> {
+    const exportedName = exportedNameOf(removal.symbolName);
+    for (const target of scope.moves.targets.get(exportedName) ?? []) {
+      if (target.relativePath === scope.relativePath) continue;
+      const moved = this.signatures.compareMovedRemoval(scope.absolutePath, scope.oldContent, removal.symbolName, {
+        filePath: target.absolutePath, content: target.content,
+      });
+      if (!moved) continue;
+      return movedComparison(removal, moved.breakingChanges, target.relativePath, await this.staleImporters(scope, exportedName));
+    }
+    return removal;
+  }
+
+  /** Every member of a moved class shares its importers: look them up once per exported name. */
+  private staleImporters(scope: MoveScope, exportedName: string): Promise<string[]> {
+    const key = `${scope.relativePath}\0${exportedName}`;
+    let importers = scope.moves.stale.get(key);
+    if (!importers) {
+      importers = this.findStaleImporters(scope, exportedName);
+      scope.moves.stale.set(key, importers);
+    }
+    return importers;
+  }
+
+  /** Changed files and indexed referrers of the old module that still import `exportedName` from it at the head ref. */
+  private async findStaleImporters(scope: MoveScope, exportedName: string): Promise<string[]> {
+    const candidates = new Set([...scope.changedFiles, ...await this.referencingFiles(scope.absolutePath)]);
+    candidates.delete(scope.relativePath);
+    const stale: string[] = [];
+    for (const file of [...candidates].sort((left, right) => left.localeCompare(right))) {
+      if (await this.importsFromModule(file, exportedName, scope)) stale.push(file);
+    }
+    return stale;
+  }
+
+  private async referencingFiles(absolutePath: string): Promise<string[]> {
+    if (!this.dependents?.findReferencingFiles) return [];
+    try {
+      const references = await this.dependents.findReferencingFiles(absolutePath);
+      return references.map((reference) => this.toWorkspaceRelative(normalizePath(reference.path)));
+    } catch {
+      return []; // The changed files are still checked.
+    }
+  }
+
+  private async importsFromModule(file: string, exportedName: string, scope: MoveScope): Promise<boolean> {
+    if (!SIGNATURE_ANALYSIS_EXTENSIONS.has(path.extname(file).toLowerCase())) return false;
+    const content = await this.readConsumerContent(file, scope.headRef);
+    if (!content?.includes(exportedName)) return false;
+    const absolute = this.toAbsolute(file);
+    for (const specifier of this.signatures.namedImportSpecifiers(absolute, content, exportedName)) {
+      const resolved = await this.resolver.resolve(absolute, specifier).catch(() => null);
+      if (resolved && normalizePath(resolved) === scope.absolutePath) return true;
+    }
+    return false;
+  }
+
   private async createReviewSymbol(
-    comparison: { symbolName: string; breakingChanges: BreakingChange[] },
+    comparison: ReviewComparison,
     absolutePath: string,
     relativePath: string,
     maxDepth: number,
@@ -267,19 +397,8 @@ export class ReviewGateAnalyzer {
     const errorBreakingChanges = comparison.breakingChanges.filter(
       (change) => change.severity === "error",
     );
-    // Member-level changes (a single interface/class member removed or retyped) only
-    // implicate direct consumers of that member. Hop 2+ chases callers of the *type's*
-    // consumers (e.g. everyone who calls a class that merely returns the type) — noise
-    // unrelated to the specific member being changed.
-    const isMemberLevelChange = errorBreakingChanges.length > 0
-      && errorBreakingChanges.every((change) => change.type === "member-removed" || change.type === "member-renamed" || change.type === "member-type-changed" || change.type === "member-optional-to-required");
-    const effectiveMaxDepth = isMemberLevelChange ? 1 : maxDepth;
-    const contractImpact: SymbolImpact = errorBreakingChanges.length > 0
-      ? this.isVuePropsSymbol(comparison.symbolName)
-        ? await this.getVuePropsImpact(absolutePath)
-        : await this.getTypeImpact(absolutePath, comparison.symbolName, effectiveMaxDepth, fileEvidence.functions, headRef)
-      : EMPTY_IMPACT;
-    const impact = await this.keepCallsThatBreak(contractImpact, comparison.symbolName, errorBreakingChanges, headRef);
+    const staleImporters = comparison.staleImporters ?? [];
+    const impact = await this.getContractImpact(comparison, errorBreakingChanges, absolutePath, maxDepth, fileEvidence, headRef);
     const cycles = fileEvidence.cycleSymbols.has(this.toSymbolId(absolutePath, comparison.symbolName));
     const unusedExport = fileEvidence.unusedSymbols.has(comparison.symbolName);
     // A dependents provider that actually ran and found zero live consumers (not just
@@ -291,11 +410,12 @@ export class ReviewGateAnalyzer {
     // coverage, distinct from "no provider configured" (unknown) or "confirmed zero" (untested by definition).
     const hasTestCoverage = impact.testDependents.length > 0;
     const allTestCandidates = [...new Set([...fileEvidence.testCandidates, ...impact.testDependents])];
-    const consumers = await this.getConsumerStanding(impact, changedFiles);
+    const consumers = markStale(await this.getConsumerStanding(impact, changedFiles), staleImporters);
     const consumersMustAct = this.requiresConsumerUpdate(errorBreakingChanges);
     const scoreFactors = this.getScoreFactors({
       breakingChangeCount: errorBreakingChanges.length, impact, consumers, consumersMustAct, cycles, unusedExport,
       testCandidateCount: allTestCandidates.length, hasConfirmedZeroImpact, hasTestCoverage,
+      moved: comparison.movedTo !== undefined,
     });
     const score = Math.min(100, Object.values(scoreFactors).reduce((total, value) => total + value, 0));
     return {
@@ -308,6 +428,32 @@ export class ReviewGateAnalyzer {
         testCandidates: allTestCandidates, hasTestCoverage,
       }),
     };
+  }
+
+  /** Dependents of a changed contract that its error-level changes can break; a moved symbol's are walked at its new file. */
+  private async getContractImpact(
+    comparison: ReviewComparison,
+    errorBreakingChanges: BreakingChange[],
+    absolutePath: string,
+    maxDepth: number,
+    fileEvidence: FileEvidence,
+    headRef: string,
+  ): Promise<SymbolImpact> {
+    if (errorBreakingChanges.length === 0) return EMPTY_IMPACT;
+    // Member-level changes (a single interface/class member removed or retyped) only
+    // implicate direct consumers of that member. Hop 2+ chases callers of the *type's*
+    // consumers (e.g. everyone who calls a class that merely returns the type) — noise
+    // unrelated to the specific member being changed.
+    const isMemberLevelChange = errorBreakingChanges.every((change) => change.type === "member-removed" || change.type === "member-renamed" || change.type === "member-type-changed" || change.type === "member-optional-to-required");
+    const effectiveMaxDepth = isMemberLevelChange ? 1 : maxDepth;
+    const declaringPath = comparison.movedTo ? this.toAbsolute(comparison.movedTo) : absolutePath;
+    const contractImpact = this.isVuePropsSymbol(comparison.symbolName)
+      ? await this.getVuePropsImpact(absolutePath)
+      : await this.getTypeImpact(declaringPath, comparison.symbolName, effectiveMaxDepth, fileEvidence.functions, headRef);
+    const impact = await this.keepCallsThatBreak(contractImpact, comparison.symbolName, errorBreakingChanges, headRef);
+    const stale = comparison.staleImporters ?? [];
+    // A file still importing a moved symbol from its old path is a verified consumer, indexed or not.
+    return stale.length > 0 ? mergeImpacts(impact, { ...EMPTY_IMPACT, count: stale.length, consumerFiles: stale }) : impact;
   }
 
   /**
@@ -403,6 +549,8 @@ export class ReviewGateAnalyzer {
     testCandidateCount: number;
     hasConfirmedZeroImpact: boolean;
     hasTestCoverage: boolean;
+    /** The symbol moved to another changed file: residual work even when nothing else changed. */
+    moved: boolean;
   }): ReviewScoreFactors {
     // Residual weight: the change is real and worth a look, but nothing downstream
     // has to be edited for it, so it must not drown the findings that do need work.
@@ -417,7 +565,8 @@ export class ReviewGateAnalyzer {
     // on their own they are the state of the code, not a risk this diff creates.
     // A compatible change to a symbol in an existing cycle used to score "medium".
     if (input.breakingChangeCount === 0) {
-      return { breakingChanges: 0, unverifiedConsumers: 0, cycles: 0, unusedExport: 0, missingTestCandidate: 0, partialImpact: 0 };
+      // A pure move keeps the residual weight so it stays visible in the report.
+      return { breakingChanges: Number(input.moved) * RESIDUAL_WEIGHT, unverifiedConsumers: 0, cycles: 0, unusedExport: 0, missingTestCandidate: 0, partialImpact: 0 };
     }
     let breakingChangeWeight = 50;
     if (input.hasConfirmedZeroImpact || !input.consumersMustAct || consumersAccountedFor) {
@@ -452,7 +601,7 @@ export class ReviewGateAnalyzer {
     testCandidates: string[];
     hasTestCoverage: boolean;
   }): ReviewEvidence[] {
-    const evidence: ReviewEvidence[] = input.breakingChanges.map((change) => ({ kind: "breaking-change", detail: change.description }));
+    const evidence: ReviewEvidence[] = input.breakingChanges.map((change) => ({ kind: evidenceKindOf(change), detail: change.description }));
     if (input.impact.count > 0) evidence.push({ kind: "impact", detail: `${input.impact.count} known dependent symbol(s).` });
     const consumerTotal = input.consumers.updated.length + input.consumers.covered.length + input.consumers.unverified.length;
     if (consumerTotal > 0) {
@@ -581,6 +730,7 @@ export class ReviewGateAnalyzer {
     functions: SignatureInfo[],
     headRef: string,
   ): Promise<SymbolImpact> {
+    if (!this.dependents) return EMPTY_IMPACT;
     // Identifier match, so `Promise<X>`, `X[]` and `X | undefined` all count as returning X.
     const factories = functions.filter((signature) => signature.name !== symbolName
       && signature.returnType.split(/[^\w$]+/).includes(symbolName));
@@ -864,6 +1014,49 @@ export class ReviewGateAnalyzer {
   }
 }
 
+/** Exported name a result is about: `Class` for `Class.method`. */
+function exportedNameOf(symbolName: string): string {
+  return symbolName.split(".")[0];
+}
+
+function evidenceKindOf(change: BreakingChange): ReviewEvidence["kind"] {
+  return change.type === "symbol-moved" ? "moved" : "breaking-change";
+}
+
+/**
+ * A removal matched with the declaration it moved to. With no file left importing the
+ * old path, only the differences from the new declaration remain; otherwise the removal
+ * stays, since those importers break.
+ */
+function movedComparison(
+  removal: ReviewComparison,
+  differences: BreakingChange[],
+  movedTo: string,
+  staleImporters: string[],
+): ReviewComparison {
+  const { symbolName } = removal;
+  const move: BreakingChange = {
+    type: "symbol-moved", symbolName, severity: "warning", newValue: movedTo,
+    description: staleImporters.length > 0
+      ? `'${symbolName}' moved to ${movedTo}, but ${staleImporters.length} file(s) still import it from the old path: ${staleImporters.join(", ")}`
+      : `'${symbolName}' moved to ${movedTo}`,
+  };
+  return staleImporters.length > 0
+    ? { symbolName, breakingChanges: [...removal.breakingChanges, ...differences, move], staleImporters }
+    : { symbolName, breakingChanges: [...differences, move], movedTo };
+}
+
+/** Stale importers still break even when the diff touches them: they import a name their module no longer exports. */
+function markStale(standing: ConsumerStanding, staleImporters: string[]): ConsumerStanding {
+  if (staleImporters.length === 0) return standing;
+  const stale = new Set(staleImporters);
+  return {
+    updated: standing.updated.filter((file) => !stale.has(file)),
+    covered: standing.covered.filter((file) => !stale.has(file)),
+    unverified: [...new Set([...standing.unverified, ...staleImporters])].sort((left, right) => left.localeCompare(right)),
+  };
+}
+
 const EMPTY_IMPACT: SymbolImpact = {
   count: 0, partial: false, testDependents: [], consumerFiles: [], coveredFiles: [],
 };
@@ -999,6 +1192,10 @@ export function renderReviewMarkdown(result: ReviewGateResult): string {
     .slice(0, 10)
     .map((symbol) => `- ${safe(symbol.name)}: ${[...symbol.consumers.covered, ...symbol.consumers.unverified].map(safe).join(", ")}`);
 
+  const moved = result.symbols
+    .flatMap((symbol) => symbol.evidence.filter((item) => item.kind === "moved").map((item) => `- ${safe(item.detail)}`))
+    .slice(0, 20);
+
   return [
     "<!-- graph-it-review-gate -->",
     `## Graph-It Review Gate: ${result.risk.toUpperCase()} (${result.score}/100)`,
@@ -1009,6 +1206,7 @@ export function renderReviewMarkdown(result: ReviewGateResult): string {
     "| --- | ---: | --- | --- | ---: | ---: | ---: |",
     ...(rows.length > 0 ? rows : ["| low | 0 | — | No breaking signatures detected | 0 | 0 | 0 |"]),
     ...(unverified.length > 0 ? ["", "### Consumers to check", ...unverified] : []),
+    ...(moved.length > 0 ? ["", "### Moved symbols", ...moved] : []),
     ...(result.limitations.length > 0 ? ["", "### Limitations", ...result.limitations.map((item) => `- ${safe(item)}`)] : []),
   ].join("\n");
 }
