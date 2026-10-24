@@ -25,7 +25,7 @@ The project follows a **six-layer architecture**:
 
 - **`src/mcp/`**: MCP server for LLM/AI (Pure Node.js, **NO vscode imports**)
   - Standalone process with stdio transport
-  - 23 tools registered in `mcp/mcpServer.ts`, implemented in `mcp/tools/`
+  - 24 tools registered in `mcp/mcpServer.ts`, implemented in `mcp/tools/`
   - Zod v4 validation with payload size limits
 
 - **`src/shared/`**: Shared types and utilities

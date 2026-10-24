@@ -69,6 +69,14 @@ graph-it review-pr --base origin/main --head feature/my-change --depth 3 --max-f
 - `--max-files` limits changed files; use an integer from 1 to 1000.
 - Use `--format markdown` for a human report; use `toon` or `json` for structured agent analysis.
 
+If `graphit.architecture.json` exists at the workspace root, also check the declared architecture rules:
+
+```bash
+graph-it check-architecture --format markdown
+```
+
+It exits 1 when an `error` violation is not in `graphit.architecture.baseline.json`: a new error violation blocks the merge.
+
 ### 2. Interpret evidence before concluding
 
 The report includes a top-level `risk`, `score`, `changedFiles`, `symbols`, `limitations`, and `isPartial`.

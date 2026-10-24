@@ -140,6 +140,18 @@ To explore the same groups step by step instead of reading the whole graph, call
 `graph-it tool explore_architecture` (summary), then `--group=<key>` (files and boundary), then
 `--from=<key> --to=<key>` (the file pairs behind a group edge, paginated by `--limit`/`--offset`).
 
+Other architecture levels (json/toon):
+
+```bash
+graph-it architecture --level units --format toon              # packages (else top-level folders), layers, unit edges, cycles
+graph-it architecture --folder "(root)/src" --format toon      # one level below a unit or folder key
+graph-it architecture --level units --matrix --format toon     # dependency structure matrix (also --format csv)
+```
+
+When the workspace declares rules in `graphit.architecture.json`, `graph-it check-architecture`
+checks every static import against them. It exits 1 on an `error` violation absent from
+`graphit.architecture.baseline.json`; `--update-baseline` accepts the current violations.
+
 ### Index the Workspace
 
 **Run `scan` before analysis commands** to build the dependency index. Most analysis commands depend on it.

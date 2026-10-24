@@ -124,7 +124,7 @@ These options are available for every command:
 | Option | Shorthand | Default | Description |
 |--------|-----------|---------|-------------|
 | `--workspace <path>` | `-w` | auto-detected from `cwd` | Root directory of the project to analyze |
-| `--format <format>` | `-f` | `text` | Output format: `text`, `json`, `toon`, `markdown`, `mermaid` |
+| `--format <format>` | `-f` | `text` | Output format: `text`, `json`, `toon`, `markdown`, `mermaid`; `csv` only for `architecture --matrix`, `sarif` only for `check-architecture` |
 | `--help` | `-h` | — | Show help for the current command |
 | `--version` | `-v` | — | Print the installed version |
 | `--reindex` | — | — | Discard the cached index and rebuild it from scratch |
@@ -173,7 +173,10 @@ summary line, such as `Indexed n/m files`.
 The cache is invalidated automatically when the CLI version changes, when a
 language query file is updated, per file by modification time and size, and
 whenever more than 20% of the workspace changed — that last case triggers a full
-rebuild. Added, deleted and renamed files are all detected.
+rebuild. Added, deleted and renamed files are all detected. A running MCP server
+or VS Code extension also watches `package.json` and `tsconfig*.json` files: when
+one changes, it clears its resolver caches and re-indexes every indexed file,
+since imports may now resolve elsewhere without any importer changing.
 
 Turn it off with `--no-cache` (or `GRAPH_IT_NO_CACHE=1`), and force a clean
 rebuild with `--reindex`. After each indexing run the CLI also writes
@@ -218,7 +221,7 @@ MCP tools take `response_format` (`json`, `markdown`, `toon`). MCP `markdown` is
 
 **Format availability per command:**
 
-`scan`, `summary`, `trace`, `explain`, `path`, `path-in`, `check-dependencies`, `cycles`, `architecture`, `check`, `review-pr` and `tool` accept all five formats. `mermaid` draws the nodes and edges when the result has them, and a generic diagram of the JSON fields otherwise. The other commands differ:
+`scan`, `summary`, `trace`, `explain`, `path`, `path-in`, `check-dependencies`, `cycles`, `architecture`, `check`, `review-pr` and `tool` accept all five formats; `architecture` also accepts `csv`, with `--matrix` only. `mermaid` draws the nodes and edges when the result has them, and a generic diagram of the JSON fields otherwise. The other commands differ:
 
 | Command | Accepted formats | Other values |
 |---------|------------------|--------------|
@@ -226,6 +229,7 @@ MCP tools take `response_format` (`json`, `markdown`, `toon`). MCP `markdown` is
 | `query` | `text`, `json`, `toon` | print `text` |
 | `wiki` | `markdown` *(default)*, `json`, `toon` | print `markdown` |
 | `stats` | `text`, `json` | `markdown` and `toon` print the `text` report |
+| `check-architecture` | `text`, `json`, `toon`, `markdown`, `sarif` | `csv` is rejected (exit code 4) |
 | `export` | `html` only | rejected |
 | `serve`, `install`, `update` | — | `--format` is ignored |
 
@@ -836,7 +840,7 @@ The config is validated before anything runs: unknown keys, rules naming unknown
 
 **Output** (`json`): `configFile`, `baselineFile`, `context` (with `revision`), `passed`, `totals` (`violations`, `newViolations`, `errors`, `newErrors`, `warnings`, `brokenRules`, `unmatchedFiles`, `resolved`), `rules` (each with `kind`, `severity`, `reason`, `violations`, `newViolations` and its `elementPairs`), `violations` (`rule`, `severity`, `source`, `target`, import `line`, element instances `from` / `to`, `new`), sorted by rule then file, `resolved`, `unmatchedFiles` (files no element selects: no rule checks them) and `configWarnings` (patterns matching nothing).
 
-**Exit code**: 1 when an `error` violation is not in the baseline (the report is still printed on stdout), else 0.
+**Exit code**: 1 when an `error` violation is not in the baseline (the report is still printed on stdout), else 0. A missing or invalid config, a named baseline that does not exist, or `--config` / `--baseline` without a file also exit 1; a `--config` or `--baseline` outside the workspace exits 5, and `--format csv` exits 4.
 
 **Baseline**: `--update-baseline` writes every current violation to `graphit.architecture.baseline.json` (or `--baseline <file>`), as workspace-relative `/` paths sorted by rule and file pair, so the file is identical on Linux, macOS and Windows. With a baseline, only violations absent from it are `new`; its entries no longer found are listed in `resolved`, so rerunning `--update-baseline` shrinks it.
 
@@ -1088,7 +1092,10 @@ nodes. A candidate too large for the remaining budget, such as a document linked
 to many selected symbols, is skipped rather than ending the page.
 
 Search seeds favor code: a test that matches the question ranks below matching
-source symbols unless the question mentions tests. Documents excluded by
+source symbols unless the question mentions tests. A symbol whose name equals a
+whole word of the question (case-insensitive, stopwords aside) ranks before
+symbols that only share its parts, so `normalizePath` comes before
+`normalizeRelativePath`. Documents excluded by
 `.gitignore` or `.graphitignore` (for example a generated `wiki/`) are not indexed.
 
 MCP clients call the prefixed server tool name:
@@ -1400,7 +1407,7 @@ graph-it export --format html --communities louvain
 
 ### tool
 
-Invoke any of the 18 MCP analysis tools by name (see [Tool Count: CLI vs MCP](#tool-count-cli-vs-mcp)). The other five MCP tools have dedicated CLI equivalents or are covered by `--workspace`.
+Invoke any of the 19 MCP analysis tools by name (see [Tool Count: CLI vs MCP](#tool-count-cli-vs-mcp)). The other five MCP tools have dedicated CLI equivalents or are covered by `--workspace`.
 
 ```
 graph-it tool <name> [--<param>=<value> | --<param> <value>...] [options]
@@ -1653,7 +1660,7 @@ Requires an active internet connection and `npm` in `PATH`.
 
 ## MCP Tools Reference (via `graph-it tool`)
 
-The `graph-it tool` command invokes the 18 MCP analysis tools by name. The MCP server exposes 23 tools in total; the five that `graph-it tool` does not list have dedicated CLI equivalents: `review_pr` → `review-pr`, `query_natural_language` → `query`, `generate_wiki` → `wiki`, `get_session_stats` → `stats`, and `set_workspace` → `--workspace` (see [Tool Count: CLI vs MCP](#tool-count-cli-vs-mcp)).
+The `graph-it tool` command invokes the 19 MCP analysis tools by name. The MCP server exposes 24 tools in total; the five that `graph-it tool` does not list have dedicated CLI equivalents: `review_pr` → `review-pr`, `query_natural_language` → `query`, `generate_wiki` → `wiki`, `get_session_stats` → `stats`, and `set_workspace` → `--workspace` (see [Tool Count: CLI vs MCP](#tool-count-cli-vs-mcp)).
 
 ### Tool Details
 
@@ -2130,12 +2137,12 @@ graph-it tool verify_dependency_usage \
 
 ## Tool Count: CLI vs MCP
 
-The CLI exposes **18 tools** via `graph-it tool --list`, and the MCP server provides **23 tools** in total. All 18 CLI tools are MCP analysis tools:
+The CLI exposes **19 tools** via `graph-it tool --list`, and the MCP server provides **24 tools** in total. All 19 CLI tools are MCP analysis tools:
 
 | Context | Tool count | Notes |
 |---------|-----------|-------|
-| `graph-it tool --list` | 18 | 18 shared analysis tools |
-| MCP server (`graph-it serve`) | 23 | 18 shared analysis tools + 5 excluded from `tool --list` (see below) |
+| `graph-it tool --list` | 19 | 19 shared analysis tools |
+| MCP server (`graph-it serve`) | 24 | 19 shared analysis tools + 5 excluded from `tool --list` (see below) |
 
 v1.20.0 removed the five transition aliases that v1.17.0 had already dropped from the MCP server. `graph-it tool <alias>` now exits non-zero and names the replacement:
 
