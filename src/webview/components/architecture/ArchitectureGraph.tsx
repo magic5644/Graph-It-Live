@@ -534,7 +534,7 @@ const ZOOM_STEP = 1.25;
 const SEVERITY_COLOR = { error: "var(--vscode-errorForeground)", warning: "var(--vscode-editorWarning-foreground)", off: undefined } as const;
 
 /**
- * The declared rules (graphit.architecture.json): "N violations of M rules (K new)", then each
+ * The declared rules (graphit.architecture.json): "N violations of M rules (K new)" or "All N rules pass", then each
  * rule with its count; a rule with violations opens its file pairs in the evidence panel.
  */
 function RulesPanel({ rules, onRule }: Readonly<{ rules: ArchitectureRulesView; onRule: (rule: ArchitectureRuleSummary) => void }>) {
@@ -546,7 +546,9 @@ function RulesPanel({ rules, onRule }: Readonly<{ rules: ArchitectureRulesView; 
   return (
     <details open={totals.violations > 0}>
       <summary style={{ cursor: "pointer", color: failing ? "var(--vscode-errorForeground)" : undefined }}>
-        {plural(totals.violations, "violation")} of {plural(totals.brokenRules, "rule")} ({totals.newViolations} new) · {rules.configFile}
+        {totals.violations > 0
+          ? `${plural(totals.violations, "violation")} of ${plural(totals.brokenRules, "rule")} (${totals.newViolations} new)`
+          : `All ${plural(totals.rules, "rule")} pass`} · {rules.configFile}
         {totals.unmatchedFiles > 0 && <span title="Files no element of the config selects: no rule checks them."> · {plural(totals.unmatchedFiles, "file")} in no element</span>}
       </summary>
       <ul aria-label="Architecture rules" style={{ listStyle: "none", padding: 0, margin: "2px 0", maxHeight: 96, overflow: "auto" }}>
