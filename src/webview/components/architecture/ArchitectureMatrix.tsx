@@ -204,7 +204,7 @@ export function ArchitectureMatrix(props: Readonly<ArchitectureMatrixProps>): Re
     return (
       <div key={row.key || `#${index}`} style={{ position: "absolute", top: index * size, left: 0, width: HEADER_WIDTH, height: size, boxSizing: "border-box", borderBottom: "1px solid var(--vscode-widget-border, #444)" }}>
         <button
-          type="button" data-dependent={mark} style={{ ...headerButton, fontWeight: index === active.row ? 600 : undefined, background: tint }}
+          type="button" data-dependent={mark} style={{ ...headerButton, fontWeight: index === active.row ? 600 : undefined, background: tint ?? headerButton.background }}
           title={headerTitle(row, index)}
           aria-label={`${row.label}: Ca ${row.incomingPairs}, Ce ${row.outgoingPairs}, I ${row.instability ?? "none"}${enterable(row) ? ", enter" : ""}${markText}`}
           onClick={() => callbacks.current.onHeader(row)}
