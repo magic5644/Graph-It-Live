@@ -109,6 +109,13 @@ The Live Call Graph supports TypeScript, JavaScript, Vue, Svelte, Python, Rust, 
 
 *Switch to Architecture View* (title bar of the *Dependency Graph* view, icon `$(type-hierarchy)`) shows the whole workspace as collapsed groups with the directed import edges between them. It uses the same groups and counts as `graph-it architecture --groups` and the `explore_architecture` MCP tool.
 
+<div align="center">
+<img src="media/architecture-units-overview.png" alt="Architecture view of an npm-workspaces monorepo: units in layers, a cycle between two shared libraries, rule violations in red" width="800"/>
+</div>
+
+*Units in layers with their roles, a cycle outlined, and the rules of `graphit.architecture.json` with their violations (test fixture monorepo). Open it with *Switch to Architecture View* in the *Dependency Graph* view title bar.*
+
+
 - Groups follow `graph-it-live.communityMode`: folders (`path`) or import communities (`louvain`). Changing the setting rebuilds the view.
 - In `path` mode the view opens on the **units**, as `graph-it architecture --level units` reports them: each package (a folder holding a `package.json`, npm/yarn/pnpm workspace member or not), or each top-level folder when the workspace has no package; files outside every package form the *(root)* unit. Units are laid out in layers, top to bottom: units nobody depends on (apps, functions) at the top, shared libraries at the bottom, so every edge points down. A band behind each row names its layer (*Layer 2*, *Layer 1*, *Layer 0 · shared*). Units that depend on each other share a layer and sit in one dashed red **cycle block** titled *Cycle · N units*; their edges are drawn red, like any upward edge, and every red edge shows its file-pair count without a hover. The header sums it up on one line ("24 units · 6 layers · 3 upward · 1 cycle · 120 weaker edges hidden"); click the cycle count to show the block. Each unit has its own colour, in the same hue in every theme (a light fill on light and dark themes, a border without fill on high-contrast themes); the collapsible legend over the canvas lists them, and a click on a unit there selects it. Edge width grows with the file-pair count. Only the strongest edges, up to 3 per unit, are drawn (upward and cycle edges always are); the header says how many weaker edges are hidden, and *Min. imports per edge* shows edges by weight instead. Labels stay readable at the fitted zoom: a large picture keeps its top in view and pans. Double-click a unit to enter it: its folder groups (the 50 largest, see *Show more groups* below), in the unit's colour, laid out in layers the same way, with the edges of a cycle spread over several rows; *All units* in the breadcrumb or *Escape* goes back. A folder holding sub-folders has a double border: double-click it to enter its level, its sub-folders and the edges between them (its own files form one more block), down to the folders that only hold files, which a double-click expands. Each entered folder adds a step to the breadcrumb; any step, or *Escape*, goes back up to that level with the zoom and position it was left with. `graph-it architecture --folder <key>` and `explore_architecture` with `folder` report the same levels and counts.
 - Each unit carries a **role**, inferred from its manifest and files, never from the code's meaning. The badge on the unit reads `[role?]` when inferred and `[role]` when declared; its tooltip lists the evidence. The legend counts the units per role ("1 function, 4 libraries…"); click a role to draw only its units, click again to draw them all. `graph-it architecture --level units` and `explore_architecture` with `level: "units"` report the same `role`, `confidence` (`inferred` or `declared`), `evidence` and `roleCounts`. A unit matching several roles takes the first in the table; the other matches stay as evidence.
@@ -124,17 +131,59 @@ The Live Call Graph supports TypeScript, JavaScript, Vue, Svelte, Python, Rust, 
   | `unknown` | nothing conclusive |
 
   Only the unit's manifest, top-level configs, `index.html` and entry are read, inside the workspace and up to 1 MiB each; nothing is executed. Declare a role in `graphit.architecture.json` to override the inferred one: `"roles": { "@acme/legacy-*": "library", "lambdas/*": "function" }` (unit keys or package names, `*` allowed, first match wins).
+
+<div align="center">
+<img src="media/architecture-roles-filter.png" alt="Units legend with role badges; the libraries filter keeps only the five library units" width="800"/>
+</div>
+
+*Role badges and legend: `[library?]` is inferred, `[library]` declared in `graphit.architecture.json`; click a role in the legend to keep only its units.*
+
 - Imports of a workspace package by its name (`@scope/lib`, or `lib`) land on the package's source files through the `node_modules` link the package manager created, so cross-package edges are counted.
 - A group node shows its file count; an edge counts the distinct file-to-file imports between two groups. Files outside any group appear as a dashed *unassigned* node.
 - Hover or click a group (or an edge) to highlight its neighbourhood: the rest fades and only the highlighted edges show their import count. The selected group gets a focus ring, and *Find* matches a ring over the editor's find-match colour, never the unit's own colour. *Escape* or a click on the background clears it.
 - Click a group to focus it: only that group and the groups it is linked to stay drawn, and the view fits them. The breadcrumb above the graph is one path (*All units › apps/web › src/components › …*): each step returns to its level with the zoom and position it was left with, and the *×* after a focused group or an entered group leaves it. A click on the background also shows everything again.
 - **Keyboard**: *Tab* focuses the canvas; the arrow keys select the nearest group in that direction (a screen reader announces its name, layer, edges and cycle), *Enter* enters it, *Escape* goes back, *Tab* leaves the canvas. *Fit* (*0*), *Zoom in* (*+*) and *Zoom out* (*-*) sit in the canvas's bottom-right corner; *Fit* shows the whole level, however far it must zoom out, while the automatic fit on opening or entering a level keeps labels readable (a larger level is anchored at the top, the rest reached by panning).
 - Double-click a group (or press *Enter* once it is selected) to enter it: it opens into its files, 200 at a time, most imported first (*+N more files* loads the next ones), and the view zooms on it. Its group edges stay; the edges of a file (to other files or groups, each labelled with its import count) appear when you hover or select it. At most 500 files are drawn at once. Leave a group with its *×* in the breadcrumb or *Escape*.
+
+<div align="center">
+<img src="media/architecture-navigate-groups.gif" alt="Navigating Graph-It-Live's architecture: enter src, then analyzer, Fit the whole level, go back with the breadcrumb" width="800"/>
+</div>
+
+*Graph-It-Live itself: double-click `src` to enter its folders (extension and cli on top, shared at the bottom), double-click `analyzer`, *Fit* the whole level, then go back up with the breadcrumb (or *Escape*).*
+
 - Click any edge to list the file pairs behind it, 50 at a time, in the evidence panel; each path opens the file. *Escape* closes the panel. On a unit edge (its tooltip ends with *click files*) the pairs are sorted by target file, so a target's importers sit together, and a red edge's title ends with *(upward)* or *(cycle)*.
+
+<div align="center">
+<img src="media/architecture-edge-evidence.gif" alt="Clicking a unit edge lists its file pairs; clicking a file opens it at the import" width="800"/>
+</div>
+
+*Click an edge for the file pairs behind it, then a file to open it.*
+
 - **Selection actions**: a selected file, group or unit (click, arrow keys, the units legend, or a matrix row) shows an action bar in the canvas's bottom-left corner, reachable with *Tab*; right-click a node for the same actions at the pointer. A file offers *Open file* and *Show in Dependency Graph* (the sidebar switches to the file graph rooted on it); every selection offers *Dependents by group*.
 - **Dependents by group** lists, in a *Dependents* tab next to the evidence panel, the groups whose files import the selection directly or through other files: "Depends on `<seed>`: X files in Y groups (static imports)", the groups other than the selection's own, then one row per group with its direct importers, all its dependents and the minimum depth (1 = imports the selection directly), nearest first. A row expands to its files, 50 at a time; each opens on click. Dependents inside the selection's own group are counted apart. Counts come from every static import pair of the workspace, drawn or not, at the level shown: units at the units level, else the level's groups (files outside an entered folder by their top folder). Reached groups get a ring on the graph (thicker for direct importers) and a tint in the matrix, the selection is outlined and the other groups are dimmed; *Clear* or *Escape* removes it, and entering another level clears it. Dynamic imports the analyzer resolves count; runtime-only use does not. For symbol-level impact use `get_impact_analysis`.
+
+<div align="center">
+<img src="media/architecture-selection-dependents.gif" alt="Selecting a unit, running Dependents by group, and expanding one group's files" width="800"/>
+</div>
+
+*Select a unit (or a group, or a file), then *Dependents by group* in the bottom-left action bar: every group that imports it, directly or not, nearest first; expand a row for its files.*
+
 - *Find group* highlights and centres the drawn groups whose name or folder contains the text. A match among the groups left out by the cap is still reported ("`x` is also in 1 hidden group…", with *Show more groups*), never as no group; in the matrix it selects and scrolls to the first matching row. *Min. imports per edge* hides the weaker group edges; the header states how many are shown, and totals still include the hidden ones.
+
+<div align="center">
+<img src="media/architecture-large-workspace.png" alt="Header of a 61-group level: 50 of 61 groups shown, Show more groups, and Find reporting a match in a hidden group" width="600"/>
+</div>
+
+*On a level of 61 groups (a 6,000-file generated workspace) the view draws the 50 largest, says how many are hidden, and *Find* still reports a match among them, with *Show more groups*.*
+
 - *Graph | Matrix* switches the drawn level (units, an entered unit or folder, or the Louvain groups) to its **dependency structure matrix**, with every group of the level, not only the drawn ones. Rows and columns share one order: layer 0 first (groups that depend on no other group of the level), the groups of a cycle kept together, then by name. A cell counts the file pairs where a file of its row imports a file of its column, shaded by count (log scale), the number written once zoomed in; the diagonal counts the pairs inside a group. In this order every dependency of a layered architecture sits below the diagonal: a red cell above it belongs to a cycle, and each cycle is outlined (inside a cycle, rows are ordered by name, so its blue cells are cycle edges too). Each row header shows `Ca/Ce · I`: incoming pairs, outgoing pairs and the instability `I = Ce / (Ca + Ce)` (diagonal excluded, *–* without any pair across the group's boundary). Click a cell for its file pairs in the evidence panel (a unit's own pairs, on the diagonal, have no unit edge to list: enter the unit instead); click a row header (or press *Enter* on it) to enter that unit or folder; arrow keys move between cells, *Escape* goes back. Only the cells in view are drawn, so several hundred groups scroll smoothly. Switching views keeps the level and the selected group. `graph-it architecture --matrix` (`--format csv` for spreadsheets) and `explore_architecture` with `view: "matrix"` report the same rows, cells and totals.
+
+<div align="center">
+<img src="media/architecture-matrix.png" alt="Dependency structure matrix of Graph-It-Live's src folder: every cell below the diagonal, no cycle" width="800"/>
+</div>
+
+**Matrix* on Graph-It-Live's `src`: rows and columns in layer order, so a layered architecture fills only the lower triangle; `Ca/Ce · I` per row. Enter a unit, then click *Matrix*.*
+
 - The header's *Details* line opens the totals (files, file pairs within and between groups) from the full graph, the parse failures and where the counts come from. A level whose nodes import nothing from each other says so on the canvas. A level (the Louvain groups, an entered unit or folder) draws its 50 largest groups; the header says how many groups and group edges are hidden, totals still include them, and *Show more groups* draws up to 150 per level for the rest of the session. Groups without an import to or from another drawn group of the level are counted in the header and packed in rows below the others, so they never crowd the graph. A stale mark, *Refresh* of an unchanged workspace, *Min. imports per edge* and *Show more groups* keep the entered level, the focused group, the find and, unless new groups must be laid out, the zoom and position.
 - The view is built when it opens, on *Refresh*, and when the setting changes, showing *Building architecture: N of M files* and the percent meanwhile; with no source file to analyse it says why and offers *Open settings*, and a failed build offers *Retry*. Changing or deleting a file of the graph, or creating a source file, only shows a *Files changed* banner (files the view never read, such as build output, do not): a build reads every file, so you decide when to *Refresh*. Editing `graphit.architecture.json`, its baseline, or a `package.json` or `tsconfig*.json` file shows the banner too; after a `package.json` or `tsconfig*.json` change the extension also re-indexes the dependency graph, since imports may now resolve elsewhere.
 - It analyses the configured workspace folder. Use the *Graph*, *List* or *Symbol* buttons to leave it.
@@ -165,8 +214,22 @@ Write the intended architecture in `graphit.architecture.json` at the workspace 
 
 - An **element** is a named set of files, selected by `path` (gitignore-style patterns, as in `.graphitignore`), `unit` (package names or unit keys of `graph-it architecture --level units`, `*` allowed) and/or `role` (unit roles, e.g. `{ "role": "function" }`). With `each: true` every matched folder or unit is an instance of its own: `mfe → mfe` then means "another micro-frontend", never a file of the same one.
 - **Rules**: `forbid` (the listed elements may not be imported), `allowOnly` (only the listed elements and the importer's own instance may be), `noCycles` (`"units"` or an `each` element: no import cycle between them). `severity` is `error` (default), `warning` or `off`; `reason` is shown with every violation. A rule that could never report (`noCycles` on, or `forbid` of itself from, an element without `each`) is refused.
-- The view shows "N violations of M rules (K new)" with a Rules panel: each rule with its count, a click lists its file pairs in the evidence panel. Violating edges are dashed red, violating matrix cells framed red, their rules in the tooltip. Editing the config or the baseline marks the view stale; *Refresh* checks again. An invalid config is reported with the JSON path of each error.
+- The view shows "N violations of M rules (K new)", or "All N rules pass" when nothing breaks one, with a Rules panel: each rule with its count, a click lists its file pairs in the evidence panel. Violating edges are dashed red, violating matrix cells framed red, their rules in the tooltip. Editing the config or the baseline marks the view stale; *Refresh* checks again. An invalid config is reported with the JSON path of each error.
+
+<div align="center">
+<img src="media/architecture-rules-violations.gif" alt="Architecture view Rules panel: clicking a rule lists its violating file pairs, clicking a file opens it at the import" width="800"/>
+</div>
+
+*Rules panel of an npm-workspaces monorepo (test fixture): click a rule to list the file pairs that break it, then a file to open it. Add a `graphit.architecture.json` at the workspace root to get the panel.*
+
 - `graph-it check-architecture` exits with 1 when an `error` violation is not in the baseline, so it can gate CI; `--format sarif` lets GitHub code scanning annotate the importing line. On a codebase that already breaks the rules, `graph-it check-architecture --update-baseline` writes `graphit.architecture.baseline.json`: only new violations fail, and resolved ones are listed so the baseline can shrink. See [check-architecture](docs/CLI.md#check-architecture).
+
+<div align="center">
+<img src="media/cli-check-architecture.png" alt="Terminal running graph-it check-architecture on Graph-It-Live: passed true, 8 rules, 0 violations, exit code 0" width="800"/>
+</div>
+
+*`graph-it check-architecture` on this repository: its own `graphit.architecture.json` declares 8 layer rules, every file belongs to an element, and nothing breaks a rule, so the command exits 0 and can gate CI.*
+
 - Files selected by no element are counted, and a pattern matching nothing is a config warning. The `$schema` gives completion and validation in editors.
 
 ### Unused dependencies and impact analysis
