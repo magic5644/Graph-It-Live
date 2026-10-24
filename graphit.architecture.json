@@ -1,0 +1,103 @@
+{
+  "$schema": "https://raw.githubusercontent.com/magic5644/Graph-It-Live/main/schemas/architecture.schema.json",
+  "elements": {
+    "shared": {
+      "path": "src/shared/"
+    },
+    "analyzer": {
+      "path": "src/analyzer/"
+    },
+    "mcp": {
+      "path": "src/mcp/"
+    },
+    "cli": {
+      "path": "src/cli/"
+    },
+    "extension": {
+      "path": "src/extension/"
+    },
+    "webview": {
+      "path": "src/webview/"
+    },
+    "tooling": {
+      "path": [
+        "tests/",
+        "scripts/"
+      ]
+    }
+  },
+  "rules": [
+    {
+      "name": "shared-is-a-leaf",
+      "from": "shared",
+      "allowOnly": [],
+      "severity": "error",
+      "reason": "src/shared holds pure types and utilities used by every layer; it imports nothing else."
+    },
+    {
+      "name": "analyzer-stays-node",
+      "from": "analyzer",
+      "allowOnly": [
+        "shared"
+      ],
+      "severity": "error",
+      "reason": "The analyzer runs in the CLI, the MCP server and workers: no extension, webview or MCP code."
+    },
+    {
+      "name": "mcp-standalone",
+      "from": "mcp",
+      "allowOnly": [
+        "analyzer",
+        "shared"
+      ],
+      "severity": "error",
+      "reason": "The MCP server is a standalone Node stdio process: it reuses the analyzer, never the extension."
+    },
+    {
+      "name": "cli-standalone",
+      "from": "cli",
+      "forbid": [
+        "extension",
+        "webview"
+      ],
+      "severity": "error",
+      "reason": "The CLI ships without VS Code."
+    },
+    {
+      "name": "webview-is-browser-code",
+      "from": "webview",
+      "forbid": [
+        "extension",
+        "mcp",
+        "cli"
+      ],
+      "severity": "error",
+      "reason": "The webview is a browser bundle; it talks to the extension through messages typed in src/shared/types.ts."
+    },
+    {
+      "name": "webview-no-analyzer-runtime",
+      "from": "webview",
+      "forbid": [
+        "analyzer"
+      ],
+      "severity": "warning",
+      "reason": "Type-only imports from the analyzer are erased at build time; anything else would pull Node code into the browser bundle."
+    },
+    {
+      "name": "product-never-imports-tooling",
+      "from": [
+        "shared",
+        "analyzer",
+        "mcp",
+        "cli",
+        "extension",
+        "webview"
+      ],
+      "forbid": [
+        "tooling"
+      ],
+      "severity": "error",
+      "reason": "Tests and scripts are not shipped; product code that imports them breaks the package."
+    }
+  ]
+}

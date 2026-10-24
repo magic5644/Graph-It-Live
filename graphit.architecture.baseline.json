@@ -1,0 +1,65 @@
+{
+  "version": 1,
+  "violations": [
+    {
+      "rule": "shared-is-a-leaf",
+      "source": "src/shared/architecture-types.ts",
+      "target": "src/analyzer/architecture/ArchitectureExplorer.ts"
+    },
+    {
+      "rule": "shared-is-a-leaf",
+      "source": "src/shared/architecture-types.ts",
+      "target": "src/analyzer/architecture/architectureMatrix.ts"
+    },
+    {
+      "rule": "shared-is-a-leaf",
+      "source": "src/shared/architecture-types.ts",
+      "target": "src/analyzer/architecture/architectureRules.ts"
+    },
+    {
+      "rule": "shared-is-a-leaf",
+      "source": "src/shared/architecture-types.ts",
+      "target": "src/analyzer/architecture/architectureUnits.ts"
+    },
+    {
+      "rule": "shared-is-a-leaf",
+      "source": "src/shared/architecture-types.ts",
+      "target": "src/analyzer/architecture/groupDependents.ts"
+    },
+    {
+      "rule": "webview-no-analyzer-runtime",
+      "source": "src/webview/components/architecture/ArchitectureGraph.tsx",
+      "target": "src/analyzer/architecture/architectureMatrix.ts"
+    },
+    {
+      "rule": "webview-no-analyzer-runtime",
+      "source": "src/webview/components/architecture/ArchitectureGraph.tsx",
+      "target": "src/analyzer/architecture/architectureRules.ts"
+    },
+    {
+      "rule": "webview-no-analyzer-runtime",
+      "source": "src/webview/components/architecture/ArchitectureGraph.tsx",
+      "target": "src/analyzer/architecture/groupDependents.ts"
+    },
+    {
+      "rule": "webview-no-analyzer-runtime",
+      "source": "src/webview/components/architecture/ArchitectureGraph.tsx",
+      "target": "src/analyzer/architecture/unitRoles.ts"
+    },
+    {
+      "rule": "webview-no-analyzer-runtime",
+      "source": "src/webview/components/architecture/ArchitectureMatrix.tsx",
+      "target": "src/analyzer/architecture/architectureMatrix.ts"
+    },
+    {
+      "rule": "webview-no-analyzer-runtime",
+      "source": "src/webview/components/architecture/architectureElements.ts",
+      "target": "src/analyzer/architecture/architectureUnits.ts"
+    },
+    {
+      "rule": "webview-no-analyzer-runtime",
+      "source": "src/webview/components/reactflow/buildGraph.ts",
+      "target": "src/analyzer/callgraph/cycleUtils.ts"
+    }
+  ]
+}
