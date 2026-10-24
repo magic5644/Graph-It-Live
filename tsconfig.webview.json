@@ -16,7 +16,6 @@
   },
   "include": [
     "src/webview/**/*",
-    "src/analyzer/callgraph/cycleUtils.ts",
     "src/shared/**/*"
   ],
   "exclude": [

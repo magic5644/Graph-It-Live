@@ -12,12 +12,18 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 import ignore from "ignore";
 import { z } from "zod/v4";
+import {
+  ARCHITECTURE_RULE_KINDS,
+  UNIT_ROLES,
+  type ArchitectureCheckTotals,
+  type ArchitectureRuleSummary,
+} from "../../shared/architecture-model";
 import { normalizePath } from "../../shared/path";
 import { validateWorkspacePath } from "../../shared/pathSecurity";
 import type { ArchitectureGraph } from "./ArchitectureGraphBuilder";
 import { assignUnits, buildArchitectureUnits, byCodeUnit, type UnitAssignment } from "./architectureUnits";
 import { layerGraph } from "./stronglyConnectedComponents";
-import { matchesWildcard, UNIT_ROLES, type DeclaredRoles } from "./unitRoles";
+import { matchesWildcard, type DeclaredRoles } from "./unitRoles";
 
 export { matchesWildcard } from "./unitRoles";
 
@@ -67,8 +73,6 @@ const RuleSchema = z.strictObject({
 
 type RawRule = z.infer<typeof RuleSchema>;
 type ArchitectureConfigElements = Record<string, z.infer<typeof ElementSchema>>;
-const KINDS = ["forbid", "allowOnly", "noCycles"] as const;
-export type ArchitectureRuleKind = (typeof KINDS)[number];
 
 const asList = <T>(value: T | T[] | undefined): T[] => (value === undefined ? [] : [value].flat() as T[]);
 
@@ -96,7 +100,7 @@ function selfRuleIssue(rule: RawRule, each: (name: string) => boolean): { messag
 /** Every rule names one kind and only elements of the config; rule names are unique. */
 function checkRule(rule: RawRule, index: number, elements: ArchitectureConfigElements, names: Set<string>, context: z.RefinementCtx) {
   const issue = (message: string, ...at: (string | number)[]) => context.addIssue({ code: "custom", message, path: ["rules", index, ...at] });
-  const kinds = KINDS.filter((kind) => rule[kind] !== undefined);
+  const kinds = ARCHITECTURE_RULE_KINDS.filter((kind) => rule[kind] !== undefined);
   if (kinds.length !== 1) issue("a rule needs exactly one of forbid, allowOnly or noCycles");
   if (kinds.includes("noCycles") === (rule.from !== undefined)) issue(rule.from === undefined ? "forbid and allowOnly need from" : "noCycles takes no from", "from");
   if (names.has(rule.name)) issue(`duplicate rule name "${rule.name}"`, "name");
@@ -406,18 +410,6 @@ function ruleViolations(rule: RawRule, graph: ArchitectureGraph, assignment: Uni
   return found;
 }
 
-export interface ArchitectureRuleSummary {
-  name: string;
-  kind: ArchitectureRuleKind;
-  severity: "error" | "warning" | "off";
-  reason?: string;
-  /** Violating file pairs, and those absent from the baseline. */
-  violations: number;
-  newViolations: number;
-  /** Distinct element (or unit) pairs of the violations, most pairs first. */
-  elementPairs: { from: string; to: string; count: number }[];
-}
-
 /** Distinct element (or unit) pairs of a rule's violations, most pairs first. */
 function elementPairs(violations: readonly Found[]): ArchitectureRuleSummary["elementPairs"] {
   const pairs = new Map<string, { from: string; to: string; count: number }>();
@@ -449,7 +441,7 @@ export function checkArchitecture(
   const violations: ArchitectureViolation[] = [];
   const rules: ArchitectureRuleSummary[] = config.rules.map((rule) => {
     const severity = rule.severity ?? "error";
-    const kind = KINDS.find((candidate) => rule[candidate] !== undefined)!;
+    const kind = ARCHITECTURE_RULE_KINDS.find((candidate) => rule[candidate] !== undefined)!;
     const own = severity === "off" ? [] : [...ruleViolations(rule, graph, assignment, elements)].map(([edge, pair]) => {
       const key = `${rule.name}\0${edge.sourceRelative}\0${edge.targetRelative}`;
       found.add(key);
@@ -498,7 +490,7 @@ export function checkArchitecture(
       newErrors: count("error", true),
       warnings: count("warning", false),
       resolved: resolved.length,
-    },
+    } satisfies ArchitectureCheckTotals,
     rules,
     violations,
     resolved,

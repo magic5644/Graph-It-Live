@@ -14,7 +14,7 @@
  */
 
 import type { RelationType, SupportedLang, SymbolType } from "@/shared/callgraph-types";
-import { detectCycleEdges } from "./cycleUtils";
+import { detectCycleEdges } from "@/shared/cycleUtils";
 import fs from "node:fs/promises";
 import path from "node:path";
 import type { Database, SqlJsStatic } from "sql.js";

@@ -8,16 +8,16 @@
  */
 
 import { aggregateCommunityGroups } from "../community/groupAggregation";
-import { overviewArchitecture, type ArchitectureOverview } from "./ArchitectureExplorer";
+import type { ArchitectureMatrix, ArchitectureOverview, ArchitectureUnits } from "../../shared/architecture-model";
+import { overviewArchitecture } from "./ArchitectureExplorer";
 import type { ArchitectureGraph } from "./ArchitectureGraphBuilder";
-import { groupMatrix, unitMatrix, type ArchitectureMatrix } from "./architectureMatrix";
+import { groupMatrix, unitMatrix } from "./architectureMatrix";
 import { rulesByEdge, type ArchitectureViolation } from "./architectureRules";
 import {
   assignUnits,
   buildArchitectureUnits,
   groupByUnit,
   layerGroupsWithinUnits,
-  type ArchitectureUnits,
   type UnitAssignment,
 } from "./architectureUnits";
 import { computeGroupDependents } from "./groupDependents";

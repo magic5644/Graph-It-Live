@@ -9,11 +9,17 @@
  * change between builds), so every message carrying ids carries it.
  */
 
-import type { ArchitectureGroupDetail, ArchitectureOverview } from "../analyzer/architecture/ArchitectureExplorer";
-import type { ArchitectureMatrix } from "../analyzer/architecture/architectureMatrix";
-import type { ArchitectureRuleSummary, WorkspaceArchitectureCheck } from "../analyzer/architecture/architectureRules";
-import type { ArchitectureUnitEdgeKind, ArchitectureUnits } from "../analyzer/architecture/architectureUnits";
-import type { DependentFile, DependentGroup } from "../analyzer/architecture/groupDependents";
+import type {
+  ArchitectureCheckTotals,
+  ArchitectureGroupDetail,
+  ArchitectureMatrix,
+  ArchitectureOverview,
+  ArchitectureRuleSummary,
+  ArchitectureUnitEdgeKind,
+  ArchitectureUnits,
+  DependentFile,
+  DependentGroup,
+} from "./architecture-model";
 
 /** Groups drawn per level (per unit in path mode) until Show more groups; the largest first. */
 export const DEFAULT_RENDERED_GROUPS = 50;
@@ -43,7 +49,7 @@ export interface ArchitectureRulesView {
   revision?: string;
   /** Why the config was refused (JSON paths of its errors); nothing else is set then. */
   error?: string;
-  totals?: WorkspaceArchitectureCheck["totals"];
+  totals?: ArchitectureCheckTotals;
   rules: ArchitectureRuleSummary[];
   configWarnings: string[];
   /** Rule names of every violating unit edge, keyed `from>to` by unit key. */

@@ -4,16 +4,20 @@
  * CRITICAL ARCHITECTURE RULE: This module is completely VS Code agnostic!
  */
 
-import {
-  aggregateCommunityGroups,
-  type CommunityGroup,
-  type CommunityGroupAggregation,
-} from "../community/groupAggregation";
+import { aggregateCommunityGroups } from "../community/groupAggregation";
+import type {
+  ArchitectureGroupDetail,
+  ArchitectureMatrix,
+  ArchitectureOverview,
+  ArchitectureUnit,
+  ArchitectureUnits,
+  CommunityGroup,
+  CommunityGroupAggregation,
+} from "../../shared/architecture-model";
 import { normalizePath } from "../../shared/path";
 import type { ArchitectureGraph } from "./ArchitectureGraphBuilder";
-import type { ArchitectureMatrix } from "./architectureMatrix";
 import type { WorkspaceArchitectureCheck } from "./architectureRules";
-import { byCodeUnit, type ArchitectureUnit, type ArchitectureUnits } from "./architectureUnits";
+import { byCodeUnit } from "./architectureUnits";
 
 const DEFAULT_EXPLORE_LIMIT = 50;
 
@@ -330,7 +334,7 @@ export function groupDetail(
   { context, graphData, nodes, edges }: ArchitectureGraph,
   groupRef: GroupRef,
   options: GroupDetailOptions = {},
-) {
+): ArchitectureGroupDetail {
   assertRevision(context.revision, options.revision);
   const group = resolveGroup(aggregateCommunityGroups(graphData), groupRef);
   const offset = options.offset ?? 0;
@@ -376,8 +380,6 @@ export function groupDetail(
   };
 }
 
-export type ArchitectureGroupDetail = ReturnType<typeof groupDetail>;
-
 /**
  * Every group edge between the `maxGroups` largest groups, for a renderer that shows them all.
  * The unassigned files are always kept; counts and hidden totals come from the full aggregation.
@@ -385,7 +387,7 @@ export type ArchitectureGroupDetail = ReturnType<typeof groupDetail>;
 export function overviewArchitecture(
   { context, graphData, scannedFiles, analyzedFiles }: ArchitectureGraph,
   maxGroups: number,
-) {
+): ArchitectureOverview {
   const aggregation = aggregateCommunityGroups(graphData);
   const groups = aggregation.groups.toSorted(byFileCount).slice(0, maxGroups);
   const shown = new Set([0, ...groups.map(group => group.id)]);
@@ -406,8 +408,6 @@ export function overviewArchitecture(
     hiddenGroupEdges: aggregation.groupEdges.length - groupEdges.length,
   };
 }
-
-export type ArchitectureOverview = ReturnType<typeof overviewArchitecture>;
 
 /**
  * A rules check (check_architecture) with its violations paged, or only one rule's with `rule`;

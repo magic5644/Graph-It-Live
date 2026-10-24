@@ -6,63 +6,22 @@
  * CRITICAL ARCHITECTURE RULE: This module is completely VS Code agnostic!
  */
 
-import type { CommunityGroupAggregation } from "../community/groupAggregation";
-import { byCodeUnit, type ArchitectureUnits } from "./architectureUnits";
+import {
+  MATRIX_FORMULAS,
+  type ArchitectureMatrix,
+  type ArchitectureUnits,
+  type CommunityGroupAggregation,
+  type MatrixCell,
+  type MatrixNode,
+  type MatrixRow,
+} from "../../shared/architecture-model";
+import { byCodeUnit } from "./architectureUnits";
 import { layerGraph } from "./stronglyConnectedComponents";
-
-/** Formulas stated with the numbers, never a verdict (#300). */
-export const MATRIX_FORMULAS = {
-  order: "Rows and columns share one order: layer 0 first (depends on no other row), the rows of a cycle together, then by label.",
-  cell: "Cell (row, column) = distinct file pairs where a file of the row imports a file of the column; the diagonal counts the pairs inside the row.",
-  upward: "In this order every dependency sits below the diagonal; a cell above it (upward) belongs to a cycle.",
-  instability: "I = Ce / (Ca + Ce), Ce = outgoingPairs (efferent), Ca = incomingPairs (afferent), diagonal excluded; null when both are 0.",
-};
-
-export interface MatrixNode<Id> {
-  id: Id;
-  key: string;
-  label: string;
-  /** Distinct file pairs with both ends in this node: its diagonal cell. */
-  internalEdgeCount: number;
-}
 
 export interface MatrixEdge<Id> {
   from: Id;
   to: Id;
   fileEdgeCount: number;
-}
-
-export interface MatrixRow<Id> extends MatrixNode<Id> {
-  layer: number;
-  /** Index in `cycles` of the cycle this row belongs to. */
-  cycle?: number;
-  /** Ce: file pairs from this row to the other rows, and the rows they reach. */
-  outgoingPairs: number;
-  outgoingGroups: number;
-  /** Ca: file pairs from the other rows to this row, and the rows they come from. */
-  incomingPairs: number;
-  incomingGroups: number;
-  /** Ce / (Ca + Ce), rounded to 2 decimals; null without any pair across the row's boundary. */
-  instability: number | null;
-}
-
-export interface MatrixCell {
-  /** Row and column indexes in `rows`. */
-  row: number;
-  column: number;
-  fileEdgeCount: number;
-  /** Above the diagonal: the row imports a row placed after it. */
-  upward: boolean;
-}
-
-export interface ArchitectureMatrix<Id extends number | string = number | string> {
-  rows: MatrixRow<Id>[];
-  /** Non-zero cells only, the diagonal included, by row then column. */
-  cells: MatrixCell[];
-  /** Groups of two or more rows that depend on each other; their rows are contiguous. */
-  cycles: { firstRow: number; lastRow: number; members: string[] }[];
-  totals: { rows: number; cells: number; fileEdges: number; intraEdges: number; interEdges: number; upwardCells: number };
-  formulas: typeof MATRIX_FORMULAS;
 }
 
 /** Rows ordered by layer, each cycle kept together (at its first member's label), then by label. */

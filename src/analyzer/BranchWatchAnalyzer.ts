@@ -8,7 +8,7 @@ import { normalizePath, normalizePathForComparison } from '@/shared/path';
 import { resolveReviewCallGraphPath } from '@/shared/reviewTarget';
 import { LanguageService } from './LanguageService';
 import { ReviewGateAnalyzer, type ReviewGateResult, type SymbolDependentsProvider } from './ReviewGateAnalyzer';
-import { detectCycleEdges } from './callgraph/cycleUtils';
+import { detectCycleEdges } from '../shared/cycleUtils';
 
 const execFileAsync = promisify(execFile);
 export const BRANCH_WATCH_MAX_FILES = 200;

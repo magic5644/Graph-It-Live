@@ -1,5 +1,5 @@
 import type { Collection, Core, LayoutOptions, NodeSingular, Position } from "cytoscape";
-import type { ArchitectureUnit, ArchitectureUnitEdgeKind } from "../../../analyzer/architecture/architectureUnits";
+import type { ArchitectureUnit, ArchitectureUnitEdgeKind } from "../../../shared/architecture-model";
 import type {
   ArchitectureGroupDetailMessage,
   ArchitectureRulesView,

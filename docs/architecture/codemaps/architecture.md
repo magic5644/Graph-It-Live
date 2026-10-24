@@ -71,7 +71,7 @@
 - `callgraph/GraphExtractor.ts` - Tree-sitter queries extracting symbol nodes & call edges (521 lines)
 - `callgraph/CallGraphIndexer.ts` - sql.js SQLite in-memory indexer with `indexFile`, `invalidateFile`, `markCycles`, `exportDb` (596 lines)
 - `callgraph/CallGraphQuery.ts` - BFS/CTE neighbourhood queries returning `NeighbourhoodResult` with compound folder nodes (355 lines)
-- `callgraph/cycleUtils.ts` - Cycle detection utilities shared from webview (103 lines)
+- `src/shared/cycleUtils.ts` - Cycle detection utilities shared with the webview (103 lines)
 
 **Architecture Sub-Package** (`architecture/`):
 

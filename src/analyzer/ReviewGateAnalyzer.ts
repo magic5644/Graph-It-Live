@@ -4,7 +4,7 @@ import * as path from "node:path";
 import { promisify } from "node:util";
 import { SUPPORTED_SOURCE_FILE_REGEX } from "../shared/constants";
 import { normalizePath } from "../shared/path";
-import { detectCycles } from "./callgraph/cycleUtils";
+import { detectCycles } from "../shared/cycleUtils";
 import { SignatureAnalyzer, type BreakingChange, type ReexportedModule, type SignatureInfo } from "./SignatureAnalyzer";
 import type { SymbolDependency, SymbolInfo } from "./types";
 import { PathResolver } from "./utils/PathResolver";

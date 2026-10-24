@@ -1,32 +1,6 @@
 import type { GraphData } from '../../shared/graph-types.js';
+import type { CommunityGroup, CommunityGroupAggregation, CommunityGroupEdge } from '../../shared/architecture-model.js';
 import { normalizePath } from '../../shared/path.js';
-
-export interface CommunityGroup {
-  id: number;
-  key: string;
-  /** Legend label; the communityKey today, kept separate so renderers never parse keys. */
-  label: string;
-  fileCount: number;
-  /** Distinct directed file pairs with both ends in this group. */
-  internalEdgeCount: number;
-}
-
-export interface CommunityGroupEdge {
-  from: number;
-  to: number;
-  /** Distinct directed file pairs from a file of `from` to a file of `to`. */
-  fileEdgeCount: number;
-}
-
-export interface CommunityGroupAggregation {
-  groups: CommunityGroup[];
-  /** Files with communityId 0 (no domain, or isolated under Louvain). */
-  unassigned: { fileCount: number; internalEdgeCount: number };
-  /** Inter-group edges; group 0 stands for the unassigned files. */
-  groupEdges: CommunityGroupEdge[];
-  /** intraGroupEdges + interGroupEdges === fileEdges; unassigned→unassigned pairs count as intra. */
-  totals: { files: number; fileEdges: number; intraGroupEdges: number; interGroupEdges: number };
-}
 
 /**
  * Aggregates the file graph by the communityId already stored in nodeMetadata (path or
