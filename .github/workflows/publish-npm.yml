@@ -247,7 +247,9 @@ jobs:
         run: npm publish --access public --provenance --ignore-scripts
 
       # sync-agent-plugin-version.yml starts when this run completes and reads
-      # npm `latest`, which lags the publish by a few minutes.
+      # npm `latest`, which lags the publish by a few minutes. A timeout is not
+      # a publish failure: the sync then finds nothing to change, and its
+      # nightly run catches up.
       - name: Wait for npm latest to serve the published version
         if: ${{ inputs.publish_npm == true }}
         run: |
@@ -260,5 +262,4 @@ jobs:
             echo "npm latest is '$LATEST', waiting for $VERSION ($attempt/60)"
             sleep 20
           done
-          echo "ERROR: npm latest still not $VERSION after 20 minutes"
-          exit 1
+          echo "::warning::npm latest still not $VERSION after 20 minutes; the nightly plugin version sync will pick it up"
