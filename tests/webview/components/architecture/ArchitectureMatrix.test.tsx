@@ -119,7 +119,10 @@ describe("ArchitectureMatrix", () => {
 
   it("leaves the rows alone without dependents", () => {
     setup(small);
-    expect(screen.getByRole("button", { name: /^g001: Ca/ }).dataset.dependent).toBeUndefined();
+    const header = screen.getByRole("button", { name: /^g001: Ca/ });
+    expect(header.dataset.dependent).toBeUndefined();
+    // No tint must not fall back to the native (light grey) button background.
+    expect(header.getAttribute("style")).toMatch(/background: none/);
   });
 
   it("shows an empty matrix", () => {
