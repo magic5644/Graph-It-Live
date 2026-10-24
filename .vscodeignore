@@ -143,3 +143,6 @@ wiki/**
 # Demo media: README/CHANGELOG images are rewritten to GitHub URLs by vsce; only the icon ships
 media/**
 !media/Graph-It-Live-Logo-256.png
+
+# Standalone Remotion promo video project (own package.json)
+promo-video/**

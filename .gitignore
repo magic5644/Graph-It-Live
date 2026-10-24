@@ -232,3 +232,6 @@ skills-lock.json
 
 # Internal product strategy, kept out of the public repo
 /docs/strategy/
+
+# Local-only Remotion promo video project
+/promo-video/
