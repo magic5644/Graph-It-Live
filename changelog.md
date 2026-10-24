@@ -1,5 +1,99 @@
 # Changelog
 
+## v1.21.0
+
+### Breaking / Behavior changes
+
+- **Index cache rebuilt once on first launch**: The reverse index format moves to v3 (it records imports that resolve to nothing yet, #387) and the call-graph cache version is bumped (named import aliases, #398). A `.graph-it/cache/` written by v1.20.x is discarded and rebuilt the first time the extension, CLI or MCP server opens the workspace. No action is needed; expect one full indexing pass.
+- **Workspace packages imported by name now resolve to their sources** (#388): `import { x } from "@acme/core"` (or an unscoped `shared-utils`) from an npm, yarn or pnpm workspace follows the `node_modules/<name>` link the package manager created and lands on the package's files when that link points inside the workspace. Monorepos therefore get more file edges in every graph (file graph, `architecture`, `find_referencing_files`, dependents) than in v1.20.0. Installed copies, links leaving the workspace and `node:` builtins stay external.
+- **`explore_architecture` group view is paged in full** (#367): With `group`, `incoming` and `outgoing` are paged with the files (same `offset` / `limit`), and `page` becomes `{ offset, limit, totalFiles, totalIncoming, totalOutgoing, truncated, nextOffset }` instead of `{ total, returned, … }`. A numeric ref (`group: 2`, `from: 2`, `to: 2`) now selects group id 2 only; a string ref (`group: "2"`) still tries the folder key first.
+- **`explore_architecture` rejects stale requests** (#368): Every `architecture` and `explore_architecture` result carries `context.revision`, a hash of the grouping and the file edges, identical on every OS. Pass it back as `revision`: when the code changed in between, the call fails with `Architecture changed (revision X -> Y)` instead of silently answering about other group ids. Calls without `revision` behave as before.
+- **`review-pr` reports moved symbols as `symbol-moved`** (#444): A symbol removed from one file and exported by exactly one other changed file of the same diff, with a comparable declaration and no file still importing it from the old module, is now a `symbol-moved` warning (evidence kind `moved`, *Moved symbols* in Markdown) with low residual risk, instead of a breaking removal. Scripts reading the `review-pr` / `review_pr` JSON or the Review Gate output get this new change type. A symbol re-exported from its old module after a move is no longer reported as removed either (#363). When the move cannot be proven, the removal stays breaking and `limitations` says why.
+
+This release stays a minor version: the changed `explore_architecture` fields belong to a tool added in v1.20.0, and no setting, VS Code command or CLI flag was removed.
+
+### Changed
+
+- **Architecture view** (#343): *Switch to Architecture View* in the *Dependency Graph* view title bar (icon `$(type-hierarchy)`, command `graph-it-live.setViewModeArchitecture`) shows the whole workspace as collapsed groups with the import edges between them, with the same groups and counts as `graph-it architecture --groups` and `explore_architecture`. Groups follow `graph-it-live.communityMode` (`path` or `louvain`).
+
+  ![Architecture view of an npm-workspaces monorepo: units in layers, a cycle between two shared libraries, rule violations in red](https://github.com/magic5644/Graph-It-Live/raw/HEAD/media/architecture-units-overview.png)
+
+- **Units in layers** (#388, #393, #394): In `path` mode the view opens on the units: each package (a folder holding a `package.json`), or each top-level folder without packages, plus a *(root)* unit. Units nobody depends on sit at the top, shared libraries at the bottom, laid out by ELK layered in a Web Worker. Units in a cycle share one dashed red *Cycle · N units* block; upward and cycle edges are red and always show their file-pair count. The header sums it up on one line, for example *11 units · 3 layers · 0 upward · 1 cycle*. The canvas is keyboard accessible: arrow keys select the nearest group, *Enter* enters, *Escape* goes back, and *Fit* (`0`), *Zoom in* (`+`), *Zoom out* (`-`) sit in its corner. The CLI and MCP report the same units: `graph-it architecture --level units --format toon`, `explore_architecture` with `level: "units"`.
+- **Unit roles** (#391): Each unit carries a role (`function`, `micro-frontend`, `frontend`, `service`, `library`, `tooling`, `unknown`) inferred from its manifest, top-level configs, `index.html` and entry, with the evidence in the tooltip. The badge reads `[library?]` when inferred and `[library]` when declared; the legend counts units per role and filters on click. Override a role in `graphit.architecture.json`: `"roles": { "@acme/legacy-*": "library", "lambdas/*": "function" }`. `--level units` and `explore_architecture` report `role`, `confidence`, `evidence` and `roleCounts`.
+
+  ![Units legend with role badges; the libraries filter keeps only the five library units](https://github.com/magic5644/Graph-It-Live/raw/HEAD/media/architecture-roles-filter.png)
+
+- **Folder-by-folder navigation** (#357, #358, #384): Click a group to focus it and its neighbours, double-click to enter it. Entering a unit draws its folders; a folder with sub-folders (double border) opens one level down, and a folder with only files opens into its files, 200 at a time. The breadcrumb (*All units › unit › folder*) and *Escape* go back, each level keeping its zoom and position. `graph-it architecture --folder "(root)/analyzer"` and `explore_architecture` with `folder` report the same levels.
+
+  ![Navigating Graph-It-Live's architecture: enter src, then analyzer, Fit the whole level, go back with the breadcrumb](https://github.com/magic5644/Graph-It-Live/raw/HEAD/media/architecture-navigate-groups.gif)
+
+- **Edge evidence** (#358, #403, #405): Click any edge, unit edges included, for the file pairs behind it, 50 at a time, grouped by target with short paths; click a path to open the file. `graph-it architecture --level units --from apps/web --to packages/core` and `explore_architecture` with `from` / `to` list the same pairs.
+
+  ![Clicking a unit edge lists its file pairs; clicking a file opens it at the import](https://github.com/magic5644/Graph-It-Live/raw/HEAD/media/architecture-edge-evidence.gif)
+
+- **Selection actions and dependents by group** (#359): A selected file, group or unit gets an action bar (bottom-left, reachable with *Tab*) and a right-click menu: *Open file*, *Show in Dependency Graph* (the sidebar switches to the file graph rooted on it) and *Dependents by group*. The latter opens a *Dependents* tab listing every group that imports the selection directly or through other files, with direct importers, all dependents and minimum depth per group, nearest first; reached groups are ringed on the graph and tinted in the matrix.
+
+  ![Selecting a unit, running Dependents by group, and expanding one group's files](https://github.com/magic5644/Graph-It-Live/raw/HEAD/media/architecture-selection-dependents.gif)
+
+- **Readable on large workspaces** (#375, #379): A level draws its 50 largest groups and the header says how many are hidden (*50 of 61 groups shown*); *Show more groups* draws up to 150 for the session. *Find group* also reports matches among hidden groups (*"x" is also in 1 hidden group*). *Min. imports per edge* hides weaker edges; hovering highlights a neighbourhood; groups without edges are packed below the graph. Opening the view reuses the dependency index instead of parsing the workspace again (#383).
+
+  ![Header of a 61-group level: 50 of 61 groups shown, Show more groups, and Find reporting a match in a hidden group](https://github.com/magic5644/Graph-It-Live/raw/HEAD/media/architecture-large-workspace.png)
+
+- **Dependency structure matrix** (#389): *Graph | Matrix* switches the drawn level to its matrix, with every group of the level. Rows are in layer order, so a layered architecture fills only the lower triangle and red cells above the diagonal belong to cycles. Row headers show `Ca/Ce · I` (instability `I = Ce / (Ca + Ce)`); click a cell for its file pairs, a header to enter that group. Same data from `graph-it architecture --level units --matrix --format json`, `graph-it architecture --matrix --format csv > matrix.csv` and `explore_architecture` with `view: "matrix"`.
+
+  ![Dependency structure matrix of Graph-It-Live's src folder: every cell below the diagonal, no cycle](https://github.com/magic5644/Graph-It-Live/raw/HEAD/media/architecture-matrix.png)
+
+- **Architecture rules** (#390): Declare the intended architecture in `graphit.architecture.json` at the workspace root; the view, the new `graph-it check-architecture` command and the new `check_architecture` MCP tool check every static import against it. The published `$schema` gives completion in editors.
+
+  ```json
+  {
+    "$schema": "https://raw.githubusercontent.com/magic5644/Graph-It-Live/main/schemas/architecture.schema.json",
+    "elements": {
+      "frontend": { "path": "frontend/" },
+      "mfe": { "path": "mfe/*", "each": true },
+      "backend": { "path": "backend/" },
+      "shared": { "unit": ["@acme/shared-*"] }
+    },
+    "rules": [
+      { "name": "frontend-not-backend", "from": ["frontend", "mfe"], "forbid": ["backend"], "severity": "error" },
+      { "name": "mfe-isolated", "from": "mfe", "forbid": ["mfe"], "severity": "warning" },
+      { "name": "no-unit-cycles", "noCycles": "units", "severity": "error" }
+    ]
+  }
+  ```
+
+  Elements select files by `path` (gitignore patterns), `unit` or `role`; rules are `forbid`, `allowOnly` or `noCycles`. The view shows *N violations of M rules (K new)*, or *All N rules pass*, with a Rules panel listing each rule's file pairs; violating edges are dashed red and matrix cells framed red.
+
+  ![Architecture view Rules panel: clicking a rule lists its violating file pairs, clicking a file opens it at the import](https://github.com/magic5644/Graph-It-Live/raw/HEAD/media/architecture-rules-violations.gif)
+
+- **`graph-it check-architecture`** (#390): Exits 1 when an `error` violation is not in the baseline, so it can gate CI. Formats `text`, `json`, `toon`, `markdown` and `sarif` (SARIF 2.1.0 on the importing line, for GitHub code scanning). On a codebase that already breaks its rules, `graph-it check-architecture --update-baseline` writes `graphit.architecture.baseline.json`: only new violations fail, and resolved ones are listed. Also available as `/check-architecture` in the REPL. The MCP server now exposes 24 tools. This repository checks its own layers with 8 rules.
+
+  ![Terminal running graph-it check-architecture on Graph-It-Live: passed true, 8 rules, 0 violations, exit code 0](https://github.com/magic5644/Graph-It-Live/raw/HEAD/media/cli-check-architecture.png)
+
+- **Additive JSON fields**: `graph-it architecture` edges carry `line` (first import of the target) and `--level units` reports `layerCount`.
+- **Graph-It skills require graph-it 1.21.0 or later**, and `pr-review` reads `check-architecture` as `toon`.
+
+### Fixed
+
+- **Re-index when import resolution changes** (#419): Editing `paths` / `baseUrl` in a `tsconfig*.json` or `imports` in a `package.json` left every importer resolved with the old configuration until restart. The extension and the MCP server now watch these files, reload the resolver and re-analyse indexed files; the reverse index is never emptied meanwhile.
+- **Importers of a file created later** (#387): A file importing a path that did not exist yet kept its missing edge once the target was created. Its importers are now re-analysed on creation (matching ignores case, as macOS and Windows do).
+- **Call graph through named import aliases** (#398): `import { startJournal as open } from './journal'; open()` now links to `startJournal` in `journal`, instead of searching the workspace for any `open`. Local bindings that shadow an import are respected.
+- **`graph_context` ranks exact identifiers first** (#397): Asking for `normalizePath` returned `normalizeRelativePath` and `normalizeResolvedPath` before the exact definitions. Applies to `graph-it context`, the `graph_context` MCP tool and the VS Code language model tool.
+- **`review-pr` follows re-exports** (#363): A declaration moved to another module but still exported from the old one through `export { x } from`, `export *` or a barrel is compared with its new declaration instead of being reported as `member-removed`.
+
+### Security
+
+- No security advisory in this release.
+- New inputs of the Architecture view are validated at the extension boundary: opening a file or revealing it in the Dependency Graph requires a workspace-relative path of the current graph, checked with `validateWorkspacePath` (symlinks included, CWE-22). `graphit.architecture.json`, its baseline and the manifests read for unit roles are read inside the workspace only, with a size limit; nothing is executed and no regular expression is built from the config.
+
+### Tests
+
+- Golden tests check that the CLI, `explore_architecture` and the Architecture view report the same units, groups, matrix cells, evidence pairs and counts on test fixtures, in `path` and `louvain` modes. A guard test fails when the webview aggregates architecture counts itself.
+- `schemas/architecture.schema.json` is checked against the Zod config schema, and SARIF output against the official SARIF 2.1.0 schema.
+- VS Code E2E tests cover the Architecture view (units, roles, navigation, evidence, matrix, rules, selection actions, dependents, stale banner, resolver re-index). The `e2e:all-os` label runs them on Windows and macOS through `e2e-os.yml`.
+- Benchmarks measure the Architecture view on a generated corpus larger than the repository, and the context-economy corpus gains an exact-identifier workflow.
+- `npm run package:verify` also fails when the extension icon is missing.
+
 ## v1.20.0
 
 ### Breaking / Behavior changes
