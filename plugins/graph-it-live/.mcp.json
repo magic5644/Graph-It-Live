@@ -5,7 +5,7 @@
       "args": [
         "-y",
         "--prefer-offline",
-        "@magic5644/graph-it-live@1.20.0",
+        "@magic5644/graph-it-live@1.21.0",
         "serve"
       ]
     }
