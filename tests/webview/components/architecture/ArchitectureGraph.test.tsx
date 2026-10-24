@@ -1724,6 +1724,22 @@ describe("ArchitectureGraph: declared architecture rules", () => {
     expect(postMessage).toHaveBeenLastCalledWith({ command: "architectureRuleEvidence", revision: "r1", rule: "ui-not-store", offset: 1 });
   });
 
+  it("says every rule passes when nothing breaks one", () => {
+    render(<ArchitectureGraph postMessage={vi.fn()} />);
+    const clean = { ...rule, violations: 0, newViolations: 0, elementPairs: [] };
+    send({
+      ...withRules,
+      rules: {
+        ...withRules.rules!,
+        totals: { files: 10, unmatchedFiles: 0, rules: 2, brokenRules: 0, violations: 0, newViolations: 0, errors: 0, newErrors: 0, warnings: 0, resolved: 0 },
+        rules: [clean, { ...clean, name: "quiet" }],
+        groupEdges: {},
+      },
+    });
+    expect(screen.getByText(/All 2 rules pass · graphit\.architecture\.json/)).toBeTruthy();
+    expect(screen.queryByText(/violations? of/)).toBeNull();
+  });
+
   it("clicks a rule from the E2E controls, and starts over when a rebuild changes the rules", () => {
     const postMessage = vi.fn();
     render(<ArchitectureGraph postMessage={postMessage} />);
