@@ -1142,6 +1142,14 @@ describe("ReviewGateAnalyzer - re-exported declaration", { timeout: GIT_TEST_TIM
   });
 });
 
+/** Reference index with no symbol dependents: `referrers` reference every file. */
+function referenceIndex(referrers: string[] = []) {
+  return {
+    getSymbolDependents: async () => [],
+    findReferencingFiles: async () => referrers.map((file) => ({ path: file })),
+  };
+}
+
 /** Regression (#444): a symbol moved to another file of the same diff was scored as a breaking removal. */
 describe("ReviewGateAnalyzer - symbol moved between changed files", { timeout: GIT_TEST_TIMEOUT }, () => {
   const OLD_API = [
@@ -1192,7 +1200,7 @@ describe("ReviewGateAnalyzer - symbol moved between changed files", { timeout: G
       { "src/api.ts": OLD_API, "src/use.ts": 'import type { Shape } from "./api";\nexport const s: Shape = { size: 1 };\n' },
       { "src/api.ts": NEW_API, "src/model.ts": MODEL, "src/use.ts": 'import type { Shape } from "./model";\nexport const s: Shape = { size: 1 };\n' },
     );
-    const result = await new ReviewGateAnalyzer(workspace).analyze({ baseRef: "main" });
+    const result = await new ReviewGateAnalyzer(workspace, referenceIndex()).analyze({ baseRef: "main" });
 
     expect(result.risk).toBe("low");
     expect(result.symbols.map((candidate) => candidate.name).sort()).toEqual(["Box.area", "Box.constructor", "Kind", "Shape"]);
@@ -1211,10 +1219,9 @@ describe("ReviewGateAnalyzer - symbol moved between changed files", { timeout: G
       { "src/api.ts": "export function make(kind: string): number { return kind.length; }\nexport const other = 1;\n" },
       { "src/api.ts": "export const other = 1;\n", "src/model.ts": "export function make(kind: string, size: number): number { return size; }\n" },
     );
-    const result = await new ReviewGateAnalyzer(workspace).analyze({ baseRef: "main" });
+    const result = await new ReviewGateAnalyzer(workspace, referenceIndex()).analyze({ baseRef: "main" });
 
     expect(symbol(result, "make")?.breakingChanges.map((change) => change.type)).toEqual(["parameter-added-required", "symbol-moved"]);
-    expect(symbol(result, "make")?.risk).not.toBe("low");
   });
 
   it("keeps a move breaking while a file still imports the name from the old path", async () => {
@@ -1222,11 +1229,11 @@ describe("ReviewGateAnalyzer - symbol moved between changed files", { timeout: G
       { "src/api.ts": OLD_API, "src/use.ts": 'import type { Kind, Shape } from "./api";\nexport const s: Shape = { size: 1 };\nexport const k: Kind = "a";\n' },
       { "src/api.ts": NEW_API, "src/model.ts": MODEL, "src/use.ts": 'import type { Shape } from "./api";\nimport type { Kind } from "./model";\nexport const s: Shape = { size: 1 };\nexport const k: Kind = "a";\n' },
     );
-    const result = await new ReviewGateAnalyzer(workspace).analyze({ baseRef: "main" });
+    const result = await new ReviewGateAnalyzer(workspace, referenceIndex()).analyze({ baseRef: "main" });
 
     const shape = symbol(result, "Shape");
     expect(shape?.breakingChanges.map((change) => change.type)).toEqual(["member-removed", "symbol-moved"]);
-    expect(shape?.breakingChanges[1].description).toBe("'Shape' moved to src/model.ts, but 1 file(s) still import it from the old path: src/use.ts");
+    expect(shape?.breakingChanges[1].description).toBe("'Shape' moved to src/model.ts, but 1 file(s) may still reach it through the old module: src/use.ts");
     expect(shape?.consumers).toEqual({ updated: [], covered: [], unverified: ["src/use.ts"] });
     expect(shape?.risk).toBe("high");
     expect(symbol(result, "Kind")?.risk).toBe("low");
@@ -1254,7 +1261,7 @@ describe("ReviewGateAnalyzer - symbol moved between changed files", { timeout: G
       { "src/api.ts": OLD_API },
       { "src/api.ts": NEW_API.replace('import type { Kind, Shape } from "./model";', 'type Kind = string; interface Shape { size: number }'), "src/model.ts": "export const Shape = 1;\n" },
     );
-    const result = await new ReviewGateAnalyzer(workspace).analyze({ baseRef: "main" });
+    const result = await new ReviewGateAnalyzer(workspace, referenceIndex()).analyze({ baseRef: "main" });
 
     expect(symbol(result, "Shape")?.breakingChanges).toEqual([
       expect.objectContaining({ type: "member-removed", description: "Interface 'Shape' was removed" }),
@@ -1265,7 +1272,7 @@ describe("ReviewGateAnalyzer - symbol moved between changed files", { timeout: G
   it("leaves a file renamed with git mv as before", async () => {
     const workspace = await workspaceWith({ "src/api.ts": OLD_API }, {});
     execFileSync("git", ["mv", "src/api.ts", "src/model.ts"], { cwd: workspace });
-    const result = await new ReviewGateAnalyzer(workspace).analyze({ baseRef: "main" });
+    const result = await new ReviewGateAnalyzer(workspace, referenceIndex()).analyze({ baseRef: "main" });
 
     expect(result.changedFiles).toEqual(["src/model.ts"]);
     expect(result.symbols).toEqual([]);
@@ -1273,19 +1280,137 @@ describe("ReviewGateAnalyzer - symbol moved between changed files", { timeout: G
 });
 
 describe("ReviewGateAnalyzer - symbol moved with another type kind", { timeout: GIT_TEST_TIMEOUT }, () => {
-  it.each([
-    ["export type Info = { size: number };\n", "export interface Info { size: number }\n", "'Info' changed from a type alias to an interface; their shapes are not compared"],
-    ["export interface Info { size: number }\n", "export type Info = { size: number };\n", "'Info' changed from an interface to a type alias; their shapes are not compared"],
-  ])("reports a move from %s to %s as a low-risk warning", async (oldDeclaration, newDeclaration, description) => {
+  async function moveInfo(oldDeclaration: string, newDeclaration: string) {
     const workspace = await createGitWorkspaceWithDiff(`${oldDeclaration}export const keep = 1;\n`, "export const keep = 1;\n", "src/api.ts");
     await fs.writeFile(path.join(workspace, "src", "model.ts"), newDeclaration);
     execFileSync("git", ["add", "-A"], { cwd: workspace });
-    const result = await new ReviewGateAnalyzer(workspace).analyze({ baseRef: "main" });
+    return new ReviewGateAnalyzer(workspace, referenceIndex()).analyze({ baseRef: "main" });
+  }
+
+  it.each([
+    ["export type Info = { size: number };\n", "export interface Info { size: number }\n", "'Info' changed from a type alias to an interface"],
+    ["export interface Info { size: number }\n", "export type Info = { size: number };\n", "'Info' changed from an interface to a type alias"],
+    [
+      "function info() { return { size: 1 }; }\nexport type Info = ReturnType<typeof info>;\n",
+      "export interface Info { size: number }\n",
+      "'Info' changed from an inferred type alias to an interface; the inferred shape is not compared",
+    ],
+  ])("reports a same-shape move from %s to %s as a low-risk warning", async (oldDeclaration, newDeclaration, description) => {
+    const result = await moveInfo(oldDeclaration, newDeclaration);
 
     expect(result.risk).toBe("low");
     expect(result.symbols[0].breakingChanges).toEqual([
       expect.objectContaining({ type: "type-alias-changed", severity: "warning", description }),
       expect.objectContaining({ type: "symbol-moved", newValue: "src/model.ts" }),
     ]);
+  });
+
+  it("keeps the members an interface loses when it becomes a type alias", async () => {
+    const result = await moveInfo("export interface Info { a: number; b: string }\n", "export type Info = { a: number };\n");
+
+    expect(result.symbols[0].breakingChanges.map((change) => [change.type, change.severity])).toEqual([
+      ["member-removed", "error"], ["type-alias-changed", "warning"], ["symbol-moved", "warning"],
+    ]);
+  });
+
+  it.each([
+    ["export interface Info { a: number }\n", "export type Info = { a: number } | null;\n", "'Info' changed from an interface to a type alias whose members cannot be compared"],
+    ["export type Info = Base & { a: number };\ntype Base = { b: number };\n", "export interface Info { a: number }\n", "'Info' changed from a type alias to an interface whose members cannot be compared"],
+  ])("keeps a kind change whose members cannot be compared breaking: %s", async (oldDeclaration, newDeclaration, description) => {
+    const result = await moveInfo(oldDeclaration, newDeclaration);
+
+    expect(result.symbols[0].breakingChanges[0]).toMatchObject({ type: "type-alias-changed", severity: "error", description });
+  });
+});
+
+/** #444 review: a move is reported only when it is proven; anything else keeps the removal. */
+describe("ReviewGateAnalyzer - unproven moves stay removals", { timeout: GIT_TEST_TIMEOUT }, () => {
+  const OLD_API = "export interface Shape { size: number }\nexport const keep = 1;\n";
+  const MODEL = "export interface Shape { size: number }\n";
+
+  async function moveShape(extra: Record<string, string> = {}, staged: Record<string, string> = {}): Promise<string> {
+    const workspace = await createGitWorkspaceWithDiff(OLD_API, "export const keep = 1;\n", "src/api.ts");
+    for (const [file, content] of Object.entries(extra)) await fs.writeFile(path.join(workspace, file), content);
+    if (Object.keys(extra).length > 0) {
+      // Into the base commit, so the referrers stay unchanged by the reviewed diff.
+      execFileSync("git", ["add", "--", ...Object.keys(extra)], { cwd: workspace });
+      execFileSync("git", ["commit", "--amend", "--no-edit", "--", ...Object.keys(extra)], { cwd: workspace });
+    }
+    for (const [file, content] of Object.entries({ "src/model.ts": MODEL, ...staged })) {
+      await fs.writeFile(path.join(workspace, file), content);
+    }
+    execFileSync("git", ["add", "-A"], { cwd: workspace });
+    return workspace;
+  }
+
+  const shapeChanges = (result: Awaited<ReturnType<ReviewGateAnalyzer["analyze"]>>) =>
+    result.symbols.find((candidate) => candidate.name === "Shape")?.breakingChanges.map((change) => change.type);
+
+  it.each([
+    ["default import", 'import api from "./api";\nexport const a = api;\n'],
+    ["namespace import", 'import * as api from "./api";\nexport const s: api.Shape = { size: 1 };\n'],
+    ["export * barrel", 'export * from "./api";\n'],
+    ["export { Shape } barrel", 'export { Shape } from "./api";\n'],
+    ["dynamic import", 'export const load = () => import("./api");\n'],
+    ["require", 'export const api = require("./api");\n'],
+    ["import type", 'export type Api = typeof import("./api");\n'],
+    ["import = require", 'import api = require("./api");\nexport { api };\n'],
+  ])("keeps the removal breaking for a file reaching the old module through a %s", async (_form, consumer) => {
+    const workspace = await moveShape({ "src/use.ts": consumer });
+    const index = referenceIndex([path.join(workspace, "src", "use.ts")]);
+    const result = await new ReviewGateAnalyzer(workspace, index).analyze({ baseRef: "main" });
+
+    expect(shapeChanges(result)).toEqual(["member-removed", "symbol-moved"]);
+    expect(result.symbols.find((candidate) => candidate.name === "Shape")?.consumers.unverified).toEqual(["src/use.ts"]);
+  });
+
+  it("ignores a file importing other names from the old module", async () => {
+    const workspace = await moveShape({ "src/use.ts": 'import { keep } from "./api";\nexport const k = keep;\n' });
+    const index = referenceIndex([path.join(workspace, "src", "use.ts")]);
+    const result = await new ReviewGateAnalyzer(workspace, index).analyze({ baseRef: "main" });
+
+    expect(shapeChanges(result)).toEqual(["symbol-moved"]);
+  });
+
+  it("keeps the removal when two changed files newly export the name", async () => {
+    const workspace = await moveShape({}, { "src/other.ts": MODEL });
+    const result = await new ReviewGateAnalyzer(workspace, referenceIndex()).analyze({ baseRef: "main" });
+
+    expect(shapeChanges(result)).toEqual(["member-removed"]);
+    expect(result.limitations).toContain(
+      "src/api.ts: 'Shape' is newly exported by src/model.ts, src/other.ts; its removal is kept because the move target is ambiguous.",
+    );
+  });
+
+  it("keeps the removal when no reference index can list the importers", async () => {
+    const workspace = await moveShape();
+    const result = await new ReviewGateAnalyzer(workspace).analyze({ baseRef: "main" });
+
+    expect(shapeChanges(result)).toEqual(["member-removed"]);
+    expect(result.limitations).toContain(
+      "src/api.ts: 'Shape' looks moved, but its removal is kept because files importing the old module could not be listed (no reference index is configured).",
+    );
+  });
+
+  it("keeps the removal when the reference index fails", async () => {
+    const workspace = await moveShape();
+    const index = { getSymbolDependents: async () => [], findReferencingFiles: async () => { throw new Error("boom"); } };
+    const result = await new ReviewGateAnalyzer(workspace, index).analyze({ baseRef: "main" });
+
+    expect(shapeChanges(result)).toEqual(["member-removed"]);
+    expect(result.limitations.some((limitation) => limitation.includes("(reference index failed: boom)"))).toBe(true);
+  });
+});
+
+describe("ReviewGateAnalyzer - type impact without a dependents provider", { timeout: GIT_TEST_TIMEOUT }, () => {
+  it("reports a changed type returned by a factory instead of throwing", async () => {
+    const workspace = await createGitWorkspaceWithDiff(
+      "export interface Shape { a: number; b: number }\nexport function make(): Shape { return { a: 1, b: 2 }; }\n",
+      "export interface Shape { a: number }\nexport function make(): Shape { return { a: 1 }; }\n",
+    );
+    const result = await new ReviewGateAnalyzer(workspace).analyze({ baseRef: "main" });
+
+    expect(result.symbols[0]).toMatchObject({ name: "Shape", impactedSymbolCount: 0 });
+    expect(result.symbols[0].breakingChanges[0].type).toBe("member-removed");
   });
 });

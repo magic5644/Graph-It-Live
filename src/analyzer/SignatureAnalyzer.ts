@@ -12,7 +12,7 @@
  * - Optional → required parameter changes
  */
 
-import { Project, SourceFile, SyntaxKind, type ParameterDeclaration, type TypeLiteralNode } from 'ts-morph';
+import { Node, Project, SourceFile, SyntaxKind, type InterfaceDeclaration, type ParameterDeclaration, type TypeLiteralNode } from 'ts-morph';
 import * as path from 'node:path';
 import { normalizePath } from '../shared/path';
 import { closestNames, symbolNotFoundMessage } from './utils/SymbolLookup';
@@ -222,37 +222,47 @@ export class SignatureAnalyzer {
     const result = new Map<string, InterfaceMemberInfo[]>();
 
     for (const iface of sourceFile.getInterfaces().filter((candidate) => candidate.isExported())) {
-      const name = iface.getName();
-      const members: InterfaceMemberInfo[] = [];
-
-      // Properties
-      for (const prop of iface.getProperties()) {
-        members.push({
-          name: prop.getName(),
-          kind: 'property',
-          type: this.safeGetTypeNodeText(prop.getTypeNode(), 'unknown'),
-          isOptional: prop.hasQuestionToken(),
-          isReadonly: prop.isReadonly(),
-        });
-      }
-
-      // Methods
-      for (const method of iface.getMethods()) {
-        const params = method.getParameters().map(p => `${p.getName()}: ${this.safeGetTypeNodeText(p.getTypeNode(), 'unknown')}`).join(', ');
-        const returnType = this.safeGetTypeNodeText(method.getReturnTypeNode(), 'unknown');
-        members.push({
-          name: method.getName(),
-          kind: 'method',
-          type: `(${params}) => ${returnType}`,
-          isOptional: method.hasQuestionToken(),
-          isReadonly: false,
-        });
-      }
-
-      result.set(name, members);
+      result.set(iface.getName(), this.membersOf(iface));
     }
 
     return result;
+  }
+
+  /** Members of an interface or of an object literal type. */
+  private membersOf(declaration: InterfaceDeclaration | TypeLiteralNode): InterfaceMemberInfo[] {
+    const members: InterfaceMemberInfo[] = [];
+
+    // Properties
+    for (const prop of declaration.getProperties()) {
+      members.push({
+        name: prop.getName(),
+        kind: 'property',
+        type: this.safeGetTypeNodeText(prop.getTypeNode(), 'unknown'),
+        isOptional: prop.hasQuestionToken(),
+        isReadonly: prop.isReadonly(),
+      });
+    }
+
+    // Methods
+    for (const method of declaration.getMethods()) {
+      const params = method.getParameters().map(p => `${p.getName()}: ${this.safeGetTypeNodeText(p.getTypeNode(), 'unknown')}`).join(', ');
+      const returnType = this.safeGetTypeNodeText(method.getReturnTypeNode(), 'unknown');
+      members.push({
+        name: method.getName(),
+        kind: 'method',
+        type: `(${params}) => ${returnType}`,
+        isOptional: method.hasQuestionToken(),
+        isReadonly: false,
+      });
+    }
+
+    return members;
+  }
+
+  /** Members of a type alias whose type is an object literal; undefined for any other alias type. */
+  private aliasMembers(filePath: string, content: string, name: string): InterfaceMemberInfo[] | undefined {
+    const typeNode = this.getOrCreateSourceFile(filePath, content).getTypeAlias(name)?.getTypeNode();
+    return Node.isTypeLiteral(typeNode) ? this.membersOf(typeNode) : undefined;
   }
 
   /**
@@ -652,19 +662,23 @@ export class SignatureAnalyzer {
   }
 
   /**
-   * Module specifiers `content` imports or re-exports `name` from by name.
-   * shortcut: namespace imports and `export *` are not followed; follow them if a moved symbol's
-   * stale consumer goes unreported through one.
+   * Module specifiers through which `content` may reach `name`: named imports and re-exports
+   * of `name`, plus every form whose use of a name is not followed — default and namespace
+   * imports, `export *`, dynamic `import()`, `require()`, `import x = require()` and `import()` types.
    */
-  public namedImportSpecifiers(filePath: string, content: string, name: string): string[] {
+  public specifiersThatMayImport(filePath: string, content: string, name: string): string[] {
     const sourceFile = this.getOrCreateSourceFile(filePath, content);
     const imports = sourceFile.getImportDeclarations()
-      .filter((declaration) => declaration.getNamedImports().some((specifier) => specifier.getName() === name))
+      .filter((declaration) => declaration.getDefaultImport() !== undefined
+        || declaration.getNamespaceImport() !== undefined
+        || declaration.getNamedImports().some((specifier) => specifier.getName() === name))
       .map((declaration) => declaration.getModuleSpecifierValue());
     const reexports = sourceFile.getExportDeclarations()
-      .filter((declaration) => declaration.getNamedExports().some((specifier) => specifier.getName() === name))
+      .filter((declaration) => !declaration.hasNamedExports()
+        || declaration.getNamedExports().some((specifier) => specifier.getName() === name))
       .map((declaration) => declaration.getModuleSpecifierValue());
-    return [...imports, ...reexports].filter((specifier): specifier is string => Boolean(specifier));
+    return [...imports, ...reexports, ...dynamicSpecifiers(sourceFile)]
+      .filter((specifier): specifier is string => Boolean(specifier));
   }
 
   // ============================================================================
@@ -775,25 +789,49 @@ export class SignatureAnalyzer {
     const newType = this.extractTypeAliases(moved.filePath, moved.content).find((t) => t.name === moved.importedName);
     if (oldMembers && newMembers) return this.compareInterfaces(symbolName, oldMembers, newMembers);
     if (oldType && newType) return this.compareTypeAliases(oldType, { ...newType, name: symbolName });
-    if (oldMembers && newType) return this.typeKindChange(symbolName, 'an interface', 'a type alias');
-    if (oldType && newMembers) return this.typeKindChange(symbolName, 'a type alias', 'an interface');
-    return undefined;
+    if (oldMembers && newType) {
+      const newAlias = this.aliasMembers(moved.filePath, moved.content, moved.importedName);
+      return this.compareAcrossKinds(symbolName, oldMembers, newAlias, 'an interface', 'a type alias');
+    }
+    if (!oldType || !newMembers) return undefined;
+    const oldAlias = this.aliasMembers(oldPath, oldContent, symbolName);
+    // An inferred alias (`ReturnType<typeof f>`) has no member list in the source, so
+    // spelling the inferred shape out as an interface has nothing to lose that could be compared.
+    if (!oldAlias && /^ReturnType\s*</.test(oldType.type)) {
+      return this.kindChangeResult(symbolName, [], `'${symbolName}' changed from an inferred type alias to an interface; the inferred shape is not compared`, 'warning');
+    }
+    return this.compareAcrossKinds(symbolName, oldAlias, newMembers, 'a type alias', 'an interface');
   }
 
   /**
-   * An interface that became a type alias, or the reverse, keeps every type reference valid
-   * when the shape is the same — which a textual comparison cannot tell, so it is a warning.
+   * An interface that became an object literal type alias, or the reverse: members compare as
+   * between two interfaces, plus a warning for the kind. Any other alias type has no member
+   * list to compare, so the change stays breaking.
    */
-  private typeKindChange(symbolName: string, oldKind: string, newKind: string): SignatureComparisonResult {
+  private compareAcrossKinds(
+    symbolName: string,
+    oldMembers: InterfaceMemberInfo[] | undefined,
+    newMembers: InterfaceMemberInfo[] | undefined,
+    oldKind: string,
+    newKind: string,
+  ): SignatureComparisonResult {
+    if (!oldMembers || !newMembers) {
+      return this.kindChangeResult(symbolName, [], `'${symbolName}' changed from ${oldKind} to ${newKind} whose members cannot be compared`, 'error');
+    }
+    const members = this.compareInterfaces(symbolName, oldMembers, newMembers);
+    return this.kindChangeResult(symbolName, members.breakingChanges, `'${symbolName}' changed from ${oldKind} to ${newKind}`, 'warning');
+  }
+
+  private kindChangeResult(
+    symbolName: string,
+    memberChanges: BreakingChange[],
+    description: string,
+    severity: BreakingChange['severity'],
+  ): SignatureComparisonResult {
     return {
       symbolName,
       hasBreakingChanges: true,
-      breakingChanges: [{
-        type: 'type-alias-changed',
-        symbolName,
-        description: `'${symbolName}' changed from ${oldKind} to ${newKind}; their shapes are not compared`,
-        severity: 'warning',
-      }],
+      breakingChanges: [...memberChanges, { type: 'type-alias-changed', symbolName, description, severity }],
       nonBreakingChanges: [],
     };
   }
@@ -1300,4 +1338,24 @@ export class SignatureAnalyzer {
       }
     }
   }
+}
+
+/** Specifiers of `import()` calls and types, `require()` calls and `import x = require()`. */
+function dynamicSpecifiers(sourceFile: SourceFile): string[] {
+  const specifiers: string[] = [];
+  for (const call of sourceFile.getDescendantsOfKind(SyntaxKind.CallExpression)) {
+    const callee = call.getExpression();
+    const [argument] = call.getArguments();
+    const isLoader = callee.getKind() === SyntaxKind.ImportKeyword || callee.getText() === 'require';
+    if (isLoader && Node.isStringLiteral(argument)) specifiers.push(argument.getLiteralValue());
+  }
+  for (const importType of sourceFile.getDescendantsOfKind(SyntaxKind.ImportType)) {
+    const literal = importType.getArgument().getFirstDescendantByKind(SyntaxKind.StringLiteral);
+    if (literal) specifiers.push(literal.getLiteralValue());
+  }
+  for (const reference of sourceFile.getDescendantsOfKind(SyntaxKind.ExternalModuleReference)) {
+    const expression = reference.getExpression();
+    if (Node.isStringLiteral(expression)) specifiers.push(expression.getLiteralValue());
+  }
+  return specifiers;
 }

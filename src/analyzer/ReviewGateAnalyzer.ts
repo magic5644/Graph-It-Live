@@ -135,8 +135,8 @@ interface MoveIndex {
   sources: Map<string, ChangedSource>;
   /** Exported name → changed files that export it at the head ref but not at the base ref. */
   targets: Map<string, Array<{ relativePath: string; absolutePath: string; content: string }>>;
-  /** Memoized stale importers per old module and exported name. */
-  stale: Map<string, Promise<string[]>>;
+  /** Memoized stale importers per old module and exported name; null when they could not be checked. */
+  stale: Map<string, Promise<string[] | null>>;
 }
 
 /** The changed file whose removals are being matched against the other changed files. */
@@ -147,6 +147,7 @@ interface MoveScope {
   headRef: string;
   changedFiles: ReadonlySet<string>;
   moves: MoveIndex;
+  limitations: string[];
 }
 
 interface DependentWalkState {
@@ -288,7 +289,7 @@ export class ReviewGateAnalyzer {
       ...await this.collectFileEvidence(absolutePath, relativePath, limitations, availability),
       functions: this.extractTopLevelFunctions(absolutePath, newContent),
     };
-    const scope: MoveScope = { relativePath, absolutePath, oldContent, headRef, changedFiles, moves };
+    const scope: MoveScope = { relativePath, absolutePath, oldContent, headRef, changedFiles, moves, limitations };
     const comparisons = await this.analyzeSignatures(scope, newContent, limitations);
     return Promise.all(comparisons.map((comparison) => this.createReviewSymbol(comparison, absolutePath, relativePath, maxDepth, fileEvidence, changedFiles, headRef)));
   }
@@ -325,24 +326,33 @@ export class ReviewGateAnalyzer {
   }
 
   /**
-   * A removal whose name another changed file now exports is a move: compared with
-   * its new declaration, and still breaking only for files importing the old path.
+   * A removal whose name exactly one other changed file now exports is a move: compared
+   * with its new declaration, and still breaking only for files importing the old path.
+   * Fails closed: an ambiguous target or unchecked importers keep the removal.
    */
   private async resolveMove(removal: ReviewComparison, scope: MoveScope): Promise<ReviewComparison> {
     const exportedName = exportedNameOf(removal.symbolName);
-    for (const target of scope.moves.targets.get(exportedName) ?? []) {
-      if (target.relativePath === scope.relativePath) continue;
-      const moved = this.signatures.compareMovedRemoval(scope.absolutePath, scope.oldContent, removal.symbolName, {
-        filePath: target.absolutePath, content: target.content,
+    const matches = (scope.moves.targets.get(exportedName) ?? [])
+      .filter((target) => target.relativePath !== scope.relativePath)
+      .flatMap((target) => {
+        const moved = this.signatures.compareMovedRemoval(scope.absolutePath, scope.oldContent, removal.symbolName, {
+          filePath: target.absolutePath, content: target.content,
+        });
+        return moved ? [{ target, moved }] : [];
       });
-      if (!moved) continue;
-      return movedComparison(removal, moved.breakingChanges, target.relativePath, await this.staleImporters(scope, exportedName));
+    if (matches.length === 0) return removal;
+    if (matches.length > 1) {
+      addLimitation(scope.limitations, `${scope.relativePath}: '${exportedName}' is newly exported by ${matches.map((match) => match.target.relativePath).join(", ")}; its removal is kept because the move target is ambiguous.`);
+      return removal;
     }
-    return removal;
+    const importers = await this.staleImporters(scope, exportedName);
+    if (importers === null) return removal;
+    const [{ target, moved }] = matches;
+    return movedComparison(removal, moved.breakingChanges, target.relativePath, importers);
   }
 
   /** Every member of a moved class shares its importers: look them up once per exported name. */
-  private staleImporters(scope: MoveScope, exportedName: string): Promise<string[]> {
+  private staleImporters(scope: MoveScope, exportedName: string): Promise<string[] | null> {
     const key = `${scope.relativePath}\0${exportedName}`;
     let importers = scope.moves.stale.get(key);
     if (!importers) {
@@ -352,33 +362,43 @@ export class ReviewGateAnalyzer {
     return importers;
   }
 
-  /** Changed files and indexed referrers of the old module that still import `exportedName` from it at the head ref. */
-  private async findStaleImporters(scope: MoveScope, exportedName: string): Promise<string[]> {
-    const candidates = new Set([...scope.changedFiles, ...await this.referencingFiles(scope.absolutePath)]);
+  /**
+   * Changed files and indexed referrers of the old module that may still reach `exportedName`
+   * through it at the head ref. Null, with a limitation, when the referrers cannot be listed.
+   */
+  private async findStaleImporters(scope: MoveScope, exportedName: string): Promise<string[] | null> {
+    const referrers = await this.referencingFiles(scope.absolutePath);
+    if (typeof referrers === "string") {
+      scope.limitations.push(`${scope.relativePath}: '${exportedName}' looks moved, but its removal is kept because files importing the old module could not be listed (${referrers}).`);
+      return null;
+    }
+    const candidates = new Set([...scope.changedFiles, ...referrers]);
     candidates.delete(scope.relativePath);
     const stale: string[] = [];
     for (const file of [...candidates].sort((left, right) => left.localeCompare(right))) {
-      if (await this.importsFromModule(file, exportedName, scope)) stale.push(file);
+      if (await this.mayImportFromModule(file, exportedName, scope)) stale.push(file);
     }
     return stale;
   }
 
-  private async referencingFiles(absolutePath: string): Promise<string[]> {
-    if (!this.dependents?.findReferencingFiles) return [];
+  /** Workspace-relative files referencing `absolutePath`, or why they could not be listed. */
+  private async referencingFiles(absolutePath: string): Promise<string[] | string> {
+    if (!this.dependents?.findReferencingFiles) return "no reference index is configured";
     try {
       const references = await this.dependents.findReferencingFiles(absolutePath);
       return references.map((reference) => this.toWorkspaceRelative(normalizePath(reference.path)));
-    } catch {
-      return []; // The changed files are still checked.
+    } catch (error) {
+      return `reference index failed: ${error instanceof Error ? error.message : String(error)}`;
     }
   }
 
-  private async importsFromModule(file: string, exportedName: string, scope: MoveScope): Promise<boolean> {
+  /** Whether `file` imports `exportedName` from the old module, or references that module in a form not followed. */
+  private async mayImportFromModule(file: string, exportedName: string, scope: MoveScope): Promise<boolean> {
     if (!SIGNATURE_ANALYSIS_EXTENSIONS.has(path.extname(file).toLowerCase())) return false;
     const content = await this.readConsumerContent(file, scope.headRef);
-    if (!content?.includes(exportedName)) return false;
+    if (content === null) return false;
     const absolute = this.toAbsolute(file);
-    for (const specifier of this.signatures.namedImportSpecifiers(absolute, content, exportedName)) {
+    for (const specifier of this.signatures.specifiersThatMayImport(absolute, content, exportedName)) {
       const resolved = await this.resolver.resolve(absolute, specifier).catch(() => null);
       if (resolved && normalizePath(resolved) === scope.absolutePath) return true;
     }
@@ -1014,6 +1034,11 @@ export class ReviewGateAnalyzer {
   }
 }
 
+/** Every member of a moved class meets the same ambiguity: report it once. */
+function addLimitation(limitations: string[], limitation: string): void {
+  if (!limitations.includes(limitation)) limitations.push(limitation);
+}
+
 /** Exported name a result is about: `Class` for `Class.method`. */
 function exportedNameOf(symbolName: string): string {
   return symbolName.split(".")[0];
@@ -1038,7 +1063,7 @@ function movedComparison(
   const move: BreakingChange = {
     type: "symbol-moved", symbolName, severity: "warning", newValue: movedTo,
     description: staleImporters.length > 0
-      ? `'${symbolName}' moved to ${movedTo}, but ${staleImporters.length} file(s) still import it from the old path: ${staleImporters.join(", ")}`
+      ? `'${symbolName}' moved to ${movedTo}, but ${staleImporters.length} file(s) may still reach it through the old module: ${staleImporters.join(", ")}`
       : `'${symbolName}' moved to ${movedTo}`,
   };
   return staleImporters.length > 0
