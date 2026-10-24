@@ -4,7 +4,8 @@ import * as path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { buildArchitectureGraph, type AnalyzeFile } from "@/analyzer/architecture/ArchitectureGraphBuilder";
 import { assignUnits, buildArchitectureUnits, ROOT_UNIT } from "@/analyzer/architecture/architectureUnits";
-import { inferUnitRole, MAX_MANIFEST_BYTES, unitRole, UNIT_ROLES, type UnitRoleInfo } from "@/analyzer/architecture/unitRoles";
+import { inferUnitRole, MAX_MANIFEST_BYTES, unitRole } from "@/analyzer/architecture/unitRoles";
+import { UNIT_ROLES, type UnitRoleInfo } from "@/shared/architecture-model";
 import { normalizePath } from "@/shared/path";
 
 let root: string;

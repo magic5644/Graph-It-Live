@@ -165,7 +165,7 @@ components/reactflow/CommunityLegend.tsx
 └─→ Legend overlay for community/cluster color coding (file graph)
 ```
 
-**Note:** Cycle detection helpers (`cycles.ts`) moved to `src/analyzer/callgraph/cycleUtils.ts` — shared between the file graph and the call graph panel rather than duplicated per-webview.
+**Note:** Cycle detection helpers (`cycles.ts`) moved to `src/shared/cycleUtils.ts` — shared between the file graph and the call graph panel rather than duplicated per-webview.
 
 ### Utilities
 

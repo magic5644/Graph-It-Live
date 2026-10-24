@@ -11,6 +11,7 @@ import { computeNodeMetadata } from "../NodeMetadataBuilder";
 import { SourceFileCollector } from "../SourceFileCollector";
 import { DEFAULT_IGNORE_PATTERNS } from "../SourceFileFilters";
 import type { Dependency } from "../types";
+import type { ArchitectureGraphContext } from "../../shared/architecture-model";
 import { IGNORED_DIRECTORIES } from "../../shared/constants";
 import type { CommunityMode, GraphData } from "../../shared/graph-types";
 import { normalizePath } from "../../shared/path";
@@ -197,7 +198,7 @@ export async function buildArchitectureGraph(
   }));
 
   const communityMode = options.communityMode ?? "path";
-  const context = {
+  const context: ArchitectureGraphContext = {
     communityMode,
     revision: architectureRevision(communityMode, nodes, edges),
     graphKind: "imports",

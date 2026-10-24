@@ -6,7 +6,7 @@
  */
 
 import React, { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
-import type { ArchitectureMatrix as Matrix, MatrixCell, MatrixRow } from "../../../analyzer/architecture/architectureMatrix";
+import type { ArchitectureMatrix as Matrix, MatrixCell, MatrixRow } from "../../../shared/architecture-model";
 
 type Row = MatrixRow<number | string>;
 

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { detectCycles } from '../../../../src/analyzer/callgraph/cycleUtils';
+import { detectCycles } from '../../../../src/shared/cycleUtils';
 
 describe('detectCycles', () => {
   it('returns nodes involved in a cycle', () => {

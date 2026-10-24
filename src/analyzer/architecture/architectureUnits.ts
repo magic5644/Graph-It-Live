@@ -10,39 +10,21 @@ import { createHash } from "node:crypto";
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { domainIndex } from "../community/PathCommunityDetector";
+import {
+  UNIT_ROLES,
+  type ArchitectureUnit,
+  type ArchitectureUnitEdge,
+  type ArchitectureUnitEdgeKind,
+  type ArchitectureUnits,
+  type UnitRole,
+} from "../../shared/architecture-model";
 import { normalizePath } from "../../shared/path";
 import type { ArchitectureGraph } from "./ArchitectureGraphBuilder";
 import { layerGraph } from "./stronglyConnectedComponents";
-import { UNIT_ROLES, unitRole, type DeclaredRoles, type UnitRole, type UnitRoleInfo } from "./unitRoles";
+import { unitRole, type DeclaredRoles } from "./unitRoles";
 
 /** Unit of the files outside every package (or at the root of a workspace without packages). */
 export const ROOT_UNIT = "(root)";
-
-export interface ArchitectureUnit {
-  /** Workspace-relative folder, or ROOT_UNIT. */
-  key: string;
-  /** package.json `name`, else the folder. */
-  name: string;
-  fileCount: number;
-  /** Distinct directed file pairs with both ends in this unit. */
-  internalEdgeCount: number;
-  /** 0 = depends on no other unit; units in one cycle share a layer. */
-  layer: number;
-  role: UnitRole;
-  confidence: UnitRoleInfo["confidence"];
-  evidence: UnitRoleInfo["evidence"];
-}
-
-/** `upward`: to a unit at the same or a higher layer; `cycle`: both units in one cycle. */
-export type ArchitectureUnitEdgeKind = "down" | "upward" | "cycle";
-
-export interface ArchitectureUnitEdge {
-  from: string;
-  to: string;
-  /** Distinct directed file pairs from a file of `from` to a file of `to`. */
-  fileEdgeCount: number;
-  kind: ArchitectureUnitEdgeKind;
-}
 
 export interface UnitAssignment {
   /** Unit key of every workspace-relative file. */
@@ -107,7 +89,12 @@ export const byCodeUnit = (left: string, right: string) => (left < right ? -1 : 
  * pair before any paging, with the role of every unit (`roles` of graphit.architecture.json
  * win). `context.revision` also covers the units, their names and roles.
  */
-export function buildArchitectureUnits(graph: ArchitectureGraph, workspaceRoot: string, assignment?: UnitAssignment, declaredRoles?: DeclaredRoles) {
+export function buildArchitectureUnits(
+  graph: ArchitectureGraph,
+  workspaceRoot: string,
+  assignment?: UnitAssignment,
+  declaredRoles?: DeclaredRoles,
+): ArchitectureUnits {
   const { unitOf, names } = assignment ?? assignUnits(workspaceRoot, graph.nodes.map((node) => node.relativePath));
   const unitKeys = [...names.keys()].sort(byCodeUnit);
   const files = new Map<string, string[]>(unitKeys.map((key) => [key, []]));
@@ -177,8 +164,6 @@ export function buildArchitectureUnits(graph: ArchitectureGraph, workspaceRoot: 
     },
   };
 }
-
-export type ArchitectureUnits = ReturnType<typeof buildArchitectureUnits>;
 
 /**
  * Folder keys of a file, from its unit down to its own folder: the unit, then `<unit>/<domain>`

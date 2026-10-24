@@ -317,7 +317,7 @@ callgraph/CallGraphQuery.ts (355 lines)
 ├→ Compound nodes grouped by folder for Cytoscape rendering
 └→ direction: 'callers' | 'callees' | 'both'
 
-callgraph/cycleUtils.ts (103 lines)
+src/shared/cycleUtils.ts (103 lines, used by the analyzer and the webview)
 ├→ detectCycles({ source, target }[]) → sets of cycle node IDs
 └→ Migrated from webview/components/reactflow/cycles.ts
 ```

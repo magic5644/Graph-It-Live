@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { detectCycleEdges, detectCycles, getCyclicEdgeIds } from '@/analyzer/callgraph/cycleUtils';
+import { detectCycleEdges, detectCycles, getCyclicEdgeIds } from '@/shared/cycleUtils';
 
 describe('cycle detection', () => {
   const overlapping = [

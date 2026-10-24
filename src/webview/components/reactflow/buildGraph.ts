@@ -1,5 +1,5 @@
 import type { Edge, Node } from "reactflow";
-import { detectCycleEdges } from "../../../analyzer/callgraph/cycleUtils";
+import { detectCycleEdges } from "../../../shared/cycleUtils";
 import { getLogger } from "../../../shared/logger";
 import type {
   GraphData,

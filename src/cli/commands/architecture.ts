@@ -9,10 +9,11 @@
 
 import { buildArchitectureGraph } from "../../analyzer/architecture/ArchitectureGraphBuilder.js";
 import { exploreMatrix, exploreUnitEvidence } from "../../analyzer/architecture/ArchitectureExplorer.js";
-import { groupMatrix, matrixToCsv, unitMatrix, type ArchitectureMatrix } from "../../analyzer/architecture/architectureMatrix.js";
+import { groupMatrix, matrixToCsv, unitMatrix } from "../../analyzer/architecture/architectureMatrix.js";
 import { loadDeclaredRoles } from "../../analyzer/architecture/architectureRules.js";
 import { assignUnits, buildArchitectureUnits, folderLevel } from "../../analyzer/architecture/architectureUnits.js";
 import { aggregateCommunityGroups } from "../../analyzer/community/groupAggregation.js";
+import type { ArchitectureMatrix } from "../../shared/architecture-model.js";
 import { CliError, ExitCode } from "../errors";
 import { workerState } from "../../mcp/shared/state";
 import type { CliOutputFormat } from "../formatter";

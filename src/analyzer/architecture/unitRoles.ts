@@ -9,24 +9,8 @@
 
 import * as fs from "node:fs";
 import * as path from "node:path";
+import { UNIT_ROLES, type UnitRole, type UnitRoleEvidence, type UnitRoleInfo } from "../../shared/architecture-model";
 import { validateWorkspacePath } from "../../shared/pathSecurity";
-
-/** In priority order: a unit matching several roles takes the first. */
-export const UNIT_ROLES = ["function", "micro-frontend", "frontend", "service", "library", "tooling", "unknown"] as const;
-export type UnitRole = (typeof UNIT_ROLES)[number];
-
-export interface UnitRoleEvidence {
-  /** The role this piece of evidence points to; the unit's role is the first by priority. */
-  role: UnitRole;
-  detail: string;
-}
-
-export interface UnitRoleInfo {
-  role: UnitRole;
-  /** `declared` in graphit.architecture.json, else `inferred` from the evidence. */
-  confidence: "inferred" | "declared";
-  evidence: UnitRoleEvidence[];
-}
 
 /** `roles` of graphit.architecture.json: unit key or package name pattern → role. */
 export type DeclaredRoles = Partial<Record<string, UnitRole>>;

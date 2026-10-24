@@ -6,6 +6,7 @@
  * CRITICAL ARCHITECTURE RULE: This module is completely VS Code agnostic!
  */
 
+import type { DependentFile, DependentGroup } from "../../shared/architecture-model";
 import { normalizePath } from "../../shared/path";
 import type { ArchitectureGraph } from "./ArchitectureGraphBuilder";
 import { byCodeUnit } from "./architectureUnits";
@@ -20,23 +21,6 @@ export interface GroupDependentsOptions {
   maxDepth?: number;
   /** Group key of a workspace-relative file; defaults to its communityKey, "" for the unassigned files (id 0). */
   groupOf?: (relativePath: string) => string;
-}
-
-export interface DependentGroup {
-  /** Group key ("" for the unassigned files). */
-  key: string;
-  label: string;
-  /** Files importing a seed file directly (depth 1). */
-  directFiles: number;
-  /** Every reached file of the group. */
-  transitiveFiles: number;
-  minDepth: number;
-}
-
-export interface DependentFile {
-  relativePath: string;
-  /** 1 = imports a seed file directly. */
-  depth: number;
 }
 
 /** Importers of each file: the graph's static import pairs reversed (target → sources). */

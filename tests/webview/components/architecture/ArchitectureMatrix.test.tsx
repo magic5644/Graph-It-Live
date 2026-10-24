@@ -3,7 +3,8 @@
 import React from "react";
 import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { buildMatrix, type MatrixNode } from "@/analyzer/architecture/architectureMatrix";
+import { buildMatrix } from "@/analyzer/architecture/architectureMatrix";
+import type { MatrixNode } from "@/shared/architecture-model";
 import { ArchitectureMatrix, cellLabel } from "@/webview/components/architecture/ArchitectureMatrix";
 
 // A chain of 300 rows: row i imports row i - 1, plus one cycle between the last two.

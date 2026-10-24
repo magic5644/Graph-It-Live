@@ -11,10 +11,7 @@
 import cytoscape from "cytoscape";
 import type { ElkNode } from "elkjs/lib/elk-api";
 import React, { useEffect, useMemo, useRef, useState } from "react";
-import type { MatrixCell, MatrixRow } from "../../../analyzer/architecture/architectureMatrix";
-import type { ArchitectureRuleSummary } from "../../../analyzer/architecture/architectureRules";
-import type { DependentFile } from "../../../analyzer/architecture/groupDependents";
-import type { UnitRole } from "../../../analyzer/architecture/unitRoles";
+import type { ArchitectureRuleSummary, DependentFile, MatrixCell, MatrixRow, UnitRole } from "../../../shared/architecture-model";
 import {
   DEFAULT_RENDERED_GROUPS,
   MAX_RENDERED_GROUPS,

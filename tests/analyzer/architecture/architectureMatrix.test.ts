@@ -1,7 +1,8 @@
 import { describe, expect, it } from "vitest";
 import { exploreMatrix } from "@/analyzer/architecture/ArchitectureExplorer";
 import type { ArchitectureGraph } from "@/analyzer/architecture/ArchitectureGraphBuilder";
-import { buildMatrix, groupMatrix, matrixDigest, matrixToCsv, unitMatrix, type MatrixNode } from "@/analyzer/architecture/architectureMatrix";
+import { buildMatrix, groupMatrix, matrixDigest, matrixToCsv, unitMatrix } from "@/analyzer/architecture/architectureMatrix";
+import type { MatrixNode } from "@/shared/architecture-model";
 
 const node = (id: string, internalEdgeCount = 0): MatrixNode<string> => ({ id, key: id, label: id, internalEdgeCount });
 const edge = (from: string, to: string, fileEdgeCount = 1) => ({ from, to, fileEdgeCount });

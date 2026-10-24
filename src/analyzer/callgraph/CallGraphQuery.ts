@@ -11,7 +11,7 @@
  * DATA MODEL: specs/001-live-call-graph/data-model.md
  */
 
-import { detectCycleEdges } from "@/analyzer/callgraph/cycleUtils";
+import { detectCycleEdges } from "@/shared/cycleUtils";
 import type {
   RelationType,
   SerializedCallEdge,
