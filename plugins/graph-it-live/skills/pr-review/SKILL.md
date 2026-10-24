@@ -80,10 +80,12 @@ graph-it review-pr --base origin/main --head feature/my-change --depth 3 --max-f
 If `graphit.architecture.json` exists at the workspace root, also check the declared architecture rules:
 
 ```bash
-graph-it check-architecture --format markdown
+graph-it check-architecture --format toon
 ```
 
 It exits 1 when an `error` violation is not in `graphit.architecture.baseline.json`: a new error violation blocks the merge.
+Report `passed`, the totals and each new violation (rule, importing file and line, target file) in your own words;
+its `markdown` format is a generic field diagram, not a report.
 
 ### 2. Interpret evidence before concluding
 
