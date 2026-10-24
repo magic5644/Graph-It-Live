@@ -159,7 +159,7 @@ summary{cursor:pointer;font-size:19px;font-weight:700}
   border:1px solid var(--line-strong);border-radius:12px;overflow:hidden;background:var(--bg-soft);
   box-shadow:0 40px 90px -50px rgba(0,0,0,1),0 0 0 1px rgba(255,255,255,.03) inset;
 }
-.frame>img{width:100%}
+.frame>img,.frame>video{width:100%;display:block}
 .frame-bar{
   display:flex;align-items:center;gap:7px;padding:11px 15px;border-bottom:1px solid var(--line);
   background:rgba(255,255,255,.025);
@@ -342,8 +342,8 @@ footer{border-top:1px solid var(--line);padding:46px 0 40px;color:var(--muted);f
 <section class="demo">
   <div class="wrap">
     <div class="frame">
-      <div class="frame-bar"><i class="dot"></i><i class="dot"></i><i class="dot"></i><span>Graph-It-Live — dependency graph</span></div>
-      <img src="media/demo-plugin-graph-it-live.gif" alt="Graph-It-Live dependency graph in VS Code" fetchpriority="high">
+      <div class="frame-bar"><i class="dot"></i><i class="dot"></i><i class="dot"></i><span>Graph-It-Live — 75-second tour (sound on)</span></div>
+      <video src="media/graph-it-live-promo.mp4" poster="media/graph-it-live-promo-poster.png" controls playsinline preload="metadata" aria-label="75-second Graph-It-Live tour: file graph with import clusters, dependency structure matrix, architecture rules in graphit.architecture.json, and an AI agent fixing a violation through the MCP server"></video>
     </div>
     <div class="demo-caption"><span>YOUR CODE. THE CONNECTIONS. THE WHOLE PICTURE.</span><a href="#views">Explore the three views ↗</a></div>
     <div class="stats rv">
