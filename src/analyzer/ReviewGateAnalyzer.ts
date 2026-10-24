@@ -191,7 +191,7 @@ export class ReviewGateAnalyzer {
     const sources = await this.loadChangedSources(changedFiles, options.baseRef, headRef);
     const moves: MoveIndex = { sources, targets: this.collectMoveTargets(sources), stale: new Map() };
     for (const relativePath of changedFiles) {
-      symbols.push(...await this.analyzeChangedFile(relativePath, headRef, maxDepth, limitations, analysisAvailability, changedFileSet, moves));
+      symbols.push(...await this.analyzeChangedFile(relativePath, headRef, maxDepth, limitations, analysisAvailability, changedFileSet, moves)); // NOSONAR S9382: one file at a time, analyses share the limitations and the stale-importer cache
     }
 
     symbols.sort((a, b) => b.score - a.score || a.filePath.localeCompare(b.filePath) || a.name.localeCompare(b.name));
@@ -229,7 +229,7 @@ export class ReviewGateAnalyzer {
     for (const relativePath of changedFiles) {
       if (!SIGNATURE_ANALYSIS_EXTENSIONS.has(path.extname(relativePath).toLowerCase())) continue;
       const absolutePath = this.resolveWorkspacePath(relativePath);
-      const [oldContent, newContent] = await Promise.all([
+      const [oldContent, newContent] = await Promise.all([ // NOSONAR S9382: two git processes per file at a time, up to 1 000 changed files
         this.gitShow(baseRef, relativePath),
         this.readHeadContent(headRef, absolutePath, relativePath),
       ]);
@@ -316,7 +316,7 @@ export class ReviewGateAnalyzer {
       // A removal still reported as such — not resolved through a re-export — may have moved to another changed file.
       const removals = new Set(comparisons.filter((comparison) => comparison.breakingChanges.length === 1));
       const headExports = this.signatures.exportedDeclarationNames(absolutePath, newContent);
-      return await Promise.all(reexports.results.map((result) =>
+      return await Promise.all(reexports.results.map(async (result) =>
         removals.has(result) && !headExports.has(exportedNameOf(result.symbolName)) ? this.resolveMove(result, scope) : result));
     } catch (error) {
       const detail = error instanceof Error ? error.message : "unknown parser error";
@@ -376,7 +376,7 @@ export class ReviewGateAnalyzer {
     candidates.delete(scope.relativePath);
     const stale: string[] = [];
     for (const file of [...candidates].sort((left, right) => left.localeCompare(right))) {
-      if (await this.mayImportFromModule(file, exportedName, scope)) stale.push(file);
+      if (await this.mayImportFromModule(file, exportedName, scope)) stale.push(file); // NOSONAR S9382: one file read at a time, candidates can be every importer in the index
     }
     return stale;
   }
