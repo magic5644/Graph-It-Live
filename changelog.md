@@ -7,6 +7,7 @@ Fixes only: no setting, command, CLI flag or MCP tool changes.
 ### Changed
 
 - **One guide for the Architecture view** (#463): [`docs/architecture.md`](https://github.com/magic5644/Graph-It-Live/blob/main/docs/architecture.md) explains what the view, `graph-it architecture` and `explore_architecture` answer, their controls, unit roles, and how to write `graphit.architecture.json` (elements, rules, `roles`) for `graph-it check-architecture`.
+- **How to read and fix the Architecture view** (#483): the [guide](https://github.com/magic5644/Graph-It-Live/blob/main/docs/architecture.md#read-the-view) now says, for the graph, the evidence and dependents panels, the matrix, the Rules panel, the roles legend and the *Files changed* banner, what each is for and how to read it. One table lists every mark (solid vs dashed red edge, matrix red fill vs red frame, cycle block, dependents highlight), and step-by-step fixes cover cycles, rule violations, unmatched files and unexpected layers.
 - **Promo video**: a 75-second tour of Graph-It-Live plays from the README and the site.
 
 ### Fixed
