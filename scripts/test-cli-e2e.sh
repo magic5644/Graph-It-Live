@@ -68,12 +68,13 @@ graph-it --help | grep -q "Commands:"          && pass "--help"         || fail 
 graph-it tool --list | grep -q "analyze_dependencies" && pass "tool --list" || fail "tool --list"
 graph-it tool --help | grep -q "Usage:"        && pass "tool --help"   || fail "tool --help"
 graph-it scan --help | grep -q "scan"          && pass "scan --help"   || fail "scan --help"
-# MCP serverInfo.version must be the package version, the one `--version` prints (#462).
-CLI_VER=$(graph-it --version | sed 's/.* v//')
+# MCP serverInfo.version must be the packed package version (#462); esbuild.js maps 0.0.1 to 0.0.0-dev.
+PKG_VER=$(node -p "const v = require('./package.json').version; v === '0.0.1' ? '0.0.0-dev' : v")
 INIT='{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-06-18","capabilities":{},"clientInfo":{"name":"smoke","version":"0"}}}'
-SERVER_VER=$( (echo "$INIT"; sleep 3) | graph-it serve 2>/dev/null | head -n 1 \
-  | node -pe 'JSON.parse(require("fs").readFileSync(0, "utf8")).result.serverInfo.version' || true)
-[[ -n "$CLI_VER" && "$SERVER_VER" == "$CLI_VER" ]] && pass "serve serverInfo.version = $CLI_VER" || fail "serve serverInfo.version ($SERVER_VER != $CLI_VER)"
+# stdin stays open 15 s so a slow server start still answers before EOF closes the transport.
+INIT_REPLY=$( { echo "$INIT"; sleep 15; } | graph-it serve 2>/dev/null | head -n 1 || true)
+SERVER_VER=$(echo "$INIT_REPLY" | node -pe 'JSON.parse(require("fs").readFileSync(0, "utf8")).result.serverInfo.version' 2>/dev/null || true)
+[[ "$SERVER_VER" == "$PKG_VER" ]] && pass "serve serverInfo.version = $PKG_VER" || fail "serve serverInfo.version: expected $PKG_VER, got reply: ${INIT_REPLY:-<none>}"
 
 # ── 4. Index tools ───────────────────────────────────────────────────────────
 section "Index"
