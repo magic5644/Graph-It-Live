@@ -80,7 +80,7 @@
 - `architecture/architectureUnits.ts` - Units (packages, else top-level folders), unit edges, layers and cycles
 - `architecture/architectureMatrix.ts` - Dependency structure matrix of one level (rows by layer, Ce/Ca/instability)
 - `architecture/architectureRules.ts` - `graphit.architecture.json` elements and rules, baseline, violation check
-- `architecture/unitRoles.ts` - Unit roles inferred from manifests and files, or declared in the rules file
+- `architecture/unitRoles.ts` - Unit roles inferred from manifests and files, or declared in the `roles` key of `graphit.architecture.json`
 - `architecture/groupDependents.ts` - Direct and transitive dependents of a selection, by group
 - `architecture/architectureView.ts` - Levels and counts drawn by the extension's Architecture view
 - `architecture/stronglyConnectedComponents.ts` - Strongly connected components and layers of a directed graph
