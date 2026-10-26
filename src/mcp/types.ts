@@ -24,10 +24,14 @@ import {
 } from "../shared/pathSecurity";
 
 // ============================================================================
-// Tool Version (for metadata)
+// Versions
 // ============================================================================
 
+/** Response-envelope format version (`metadata.toolVersion`), not the package version: bump it when that format changes. */
 export const MCP_TOOL_VERSION = "1.1.0";
+
+/** Package version reported as `serverInfo.version`; esbuild `define` stamps it at build time (CI sets it from the tag). */
+export const MCP_SERVER_VERSION = process.env.CLI_VERSION ?? "0.0.0-dev";
 
 // ============================================================================
 // Worker Message Protocol
@@ -989,7 +993,7 @@ export function sanitizeString(input: string, maxLength = 10000): string {
 export interface McpResponseMetadata {
   /** Time taken to execute the tool in milliseconds */
   executionTimeMs: number;
-  /** Version of the MCP tools */
+  /** Response-envelope format version (MCP_TOOL_VERSION), not the package version */
   toolVersion: string;
   /** ISO timestamp of when the response was generated */
   timestamp: string;

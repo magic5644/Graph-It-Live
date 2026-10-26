@@ -132,6 +132,7 @@ import {
   type GetSymbolGraphResult,
   InvalidateFilesParamsSchema,
   type InvalidateFilesResult,
+  MCP_SERVER_VERSION,
   MCP_TOOL_VERSION,
   type McpToolResponse,
   type PaginationInfo,
@@ -273,7 +274,7 @@ const McpToolResponseSchema = z.object({
 
 const server = new McpServer({
   name: "graph-it-live",
-  version: MCP_TOOL_VERSION,
+  version: MCP_SERVER_VERSION,
 });
 
 let workerHost: McpWorkerHost | null = null;
