@@ -36,7 +36,7 @@ restore_package_json() {
 trap restore_package_json EXIT
 
 cp "$WORKSPACE/package.json" "$PKG_BACKUP"
-node "$SCRIPT_DIR/npm-package.mjs" "$WORKSPACE/package.json"
+(cd "$WORKSPACE" && node "$SCRIPT_DIR/npm-package.mjs")
 echo "  package.json patched with the npm package manifest"
 
 # All npm commands must run from the repo root

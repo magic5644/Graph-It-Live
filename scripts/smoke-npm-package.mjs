@@ -19,9 +19,12 @@ const fixture = path.join(root, 'tests', 'fixtures', 'python-project');
 const isWindows = process.platform === 'win32';
 
 // npm and the graph-it bin are .cmd shims on Windows, which only a shell runs.
+// A quoted bare `"npm"` makes npm.cmd resolve %~dp0 to the cwd: quote paths only.
+const quote = (part) => (path.isAbsolute(part) || part.includes(' ') ? `"${part}"` : part);
+
 function run(command, args, cwd) {
   const result = isWindows
-    ? spawnSync([command, ...args].map((part) => `"${part}"`).join(' '), { cwd, encoding: 'utf8', shell: true, timeout: 300_000 })
+    ? spawnSync([command, ...args].map(quote).join(' '), { cwd, encoding: 'utf8', shell: true, timeout: 300_000 })
     : spawnSync(command, args, { cwd, encoding: 'utf8', timeout: 300_000 });
   if (result.status !== 0) {
     throw new Error(`${command} ${args.join(' ')} exited with ${result.status}: ${(result.stderr || result.error?.message)?.slice(-2000)}`);
