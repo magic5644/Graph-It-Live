@@ -11,6 +11,7 @@ Technical documentation for the VS Code extension, the `graph-it` CLI and the MC
 | File | Description |
 |------|-------------|
 | [CLI.md](CLI.md) | `graph-it` CLI reference: REPL, commands, options, output formats, environment variables, MCP tools via `graph-it tool`, review gate |
+| [architecture.md](architecture.md) | Architecture view, `graphit.architecture.json` rules and roles, `check-architecture`: concepts, tasks, surfaces, limits |
 | [examples/graph-it-review-gate.yml](examples/graph-it-review-gate.yml) | Consumer workflow for the Graph-It Review Gate GitHub Action |
 
 ## Architecture
@@ -37,7 +38,7 @@ The diagrams are being refreshed in #300; some content predates Branch Watch and
 | [architecture/graph-it-live-architecture-diagram.html](architecture/graph-it-live-architecture-diagram.html) | Architecture overview (interactive HTML) |
 | [architecture/graph-it-live-four-layer-diagram.html](architecture/graph-it-live-four-layer-diagram.html) | Four-layer view: analyzer, extension, MCP, webview |
 | [architecture/graph-it-live-runtime-flows-diagram.html](architecture/graph-it-live-runtime-flows-diagram.html) | Runtime flows: extension, MCP server, CLI |
-| [architecture/graph-it-live-architecture.svg](architecture/graph-it-live-architecture.svg) | Static class diagram (April 2026, outdated) |
+| [architecture/graph-it-live-architecture.svg](architecture/graph-it-live-architecture.svg) | System diagram with the `src/analyzer/architecture` module and its consumers; source [`.mmd`](architecture/graph-it-live-architecture.mmd) |
 
 ### Architecture decision records
 

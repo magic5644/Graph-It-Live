@@ -1,0 +1,21 @@
+%% Concepts of the Architecture view: workspace, units, groups, files.
+%% Source of architecture-concepts.svg; render with: npx -y @mermaid-js/mermaid-cli -i architecture-concepts.mmd -o architecture-concepts.svg
+flowchart TB
+  workspace["Workspace"]
+  web["Unit apps/web<br/>package, role frontend<br/>layer 1"]
+  core["Unit packages/core<br/>package, role library<br/>layer 0"]
+  root["Unit root<br/>files outside every package"]
+  components["Group apps/web/components<br/>folder inside the unit"]
+  pages["Group apps/web/pages<br/>folder inside the unit"]
+  button["File Button.tsx"]
+  home["File Home.tsx"]
+
+  workspace --> web
+  workspace --> core
+  workspace --> root
+  web --> components
+  web --> pages
+  components --> button
+  pages --> home
+  web -. "unit edge: file pairs from apps/web to packages/core" .-> core
+  home -. "file pair: Home.tsx imports Button.tsx" .-> button
