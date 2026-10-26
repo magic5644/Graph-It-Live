@@ -62,6 +62,8 @@ export default [
       "@typescript-eslint/explicit-function-return-type": "off",
       "@typescript-eslint/no-explicit-any": "warn",
       "no-console": "off",
+      // Mirrors SonarCloud S9382 so new loops are flagged before push; warn only: existing sequential awaits are often intended.
+      "no-await-in-loop": "warn",
     },
   },
 ];
