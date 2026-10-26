@@ -289,3 +289,63 @@ describe("PathResolver - linked workspace packages", () => {
     expect(await resolve("plain-utils")).toBeNull();
   });
 });
+
+/** #430: a config edit re-indexes only when what resolution reads from it changes. */
+describe("PathResolver - readResolverInputs", () => {
+  const roots: string[] = [];
+  const workspace = (files: Record<string, string>) => {
+    const root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "graph-it-inputs-")));
+    roots.push(root);
+    for (const [relative, content] of Object.entries(files)) {
+      fs.mkdirSync(path.dirname(path.join(root, relative)), { recursive: true });
+      fs.writeFileSync(path.join(root, relative), content);
+    }
+    return { root, inputs: (relative: string) => new PathResolver(undefined, true, root).readResolverInputs(path.join(root, relative)) };
+  };
+
+  afterEach(() => {
+    for (const root of roots.splice(0)) fs.rmSync(root, { recursive: true, force: true });
+  });
+
+  it("ignores tsconfig options that do not move an alias, inherited ones included", async () => {
+    const base = '{ "compilerOptions": { "baseUrl": "src", "paths": { "@app/*": ["app/*"] } } }';
+    const a = workspace({ "tsconfig.base.json": base, "tsconfig.json": '{ "extends": "./tsconfig.base.json" }' });
+    const b = workspace({
+      "tsconfig.base.json": base.replace('"compilerOptions": {', '"compilerOptions": { "strict": true, '),
+      "tsconfig.json": '{ "extends": "./tsconfig.base.json", "include": ["src"] }',
+    });
+    expect(await a.inputs("tsconfig.json")).toBe('[["@app","src/app"]]');
+    expect(await b.inputs("tsconfig.json")).toBe(await a.inputs("tsconfig.json"));
+  });
+
+  it("changes when paths, baseUrl or an inherited alias change", async () => {
+    const { inputs } = workspace({
+      "tsconfig.json": '{ "compilerOptions": { "baseUrl": "src", "paths": { "@app/*": ["app/*"] } } }',
+      "tsconfig.lib.json": '{ "compilerOptions": { "baseUrl": "lib", "paths": { "@app/*": ["app/*"] } } }',
+      "tsconfig.child.json": '{ "extends": "./tsconfig.lib.json" }',
+    });
+    const paths = await inputs("tsconfig.json");
+    expect(await inputs("tsconfig.lib.json")).not.toBe(paths);
+    expect(await inputs("tsconfig.child.json")).toBe(await inputs("tsconfig.lib.json"));
+  });
+
+  it("keeps the package.json fields resolution reads and ignores the others", async () => {
+    const manifest = { name: "fx", main: "dist/index.js", imports: { "#app/*": { import: "./src/*" } }, dependencies: { lib: "file:../lib", react: "^19" } };
+    const a = workspace({ "package.json": JSON.stringify(manifest) });
+    const b = workspace({ "package.json": JSON.stringify({ ...manifest, version: "2.0.0", scripts: { test: "vitest" }, dependencies: { lib: "file:../lib", react: "^20" } }) });
+    const c = workspace({ "package.json": JSON.stringify({ ...manifest, imports: { "#app/*": "./lib/*" } }) });
+    const d = workspace({ "package.json": JSON.stringify({ ...manifest, dependencies: { lib: "file:../other" } }) });
+    const inputs = await a.inputs("package.json");
+    expect(JSON.parse(inputs!)).toEqual({ imports: [["#app/*", "./src/*"]], entry: ["fx", null, "dist/index.js", null], fileDependencies: [["lib", "file:../lib"]] });
+    expect(await b.inputs("package.json")).toBe(inputs);
+    expect(await c.inputs("package.json")).not.toBe(inputs);
+    expect(await d.inputs("package.json")).not.toBe(inputs);
+  });
+
+  it("returns null for a missing config and empty inputs for invalid JSON", async () => {
+    const { inputs } = workspace({ "package.json": "{ not json", "tsconfig.json": "{ not json" });
+    expect(await inputs("missing/tsconfig.json")).toBeNull();
+    expect(JSON.parse((await inputs("package.json"))!)).toEqual({ imports: [], entry: [null, null, null, null], fileDependencies: [] });
+    expect(await inputs("tsconfig.json")).toBe("[]");
+  });
+});

@@ -254,10 +254,12 @@ function restoreConfiguredPath(filePath: string, watchRoot: string): string {
   return path.join(configuredRoot, relativePath);
 }
 
-/** No importer's mtime moves when imports resolve elsewhere: re-index them all (#419). */
-function reindexForResolverConfig(spider: NonNullable<typeof workerState.spider>): void {
-  workerState.resolver?.clearCaches();
-  spider.handleResolverConfigChange().catch((error: unknown) => {
+/** No importer's mtime moves when imports resolve elsewhere: re-index them all (#419), unless resolution is unchanged (#430). */
+function reindexForResolverConfig(spider: NonNullable<typeof workerState.spider>, filePath: string): void {
+  spider.handleResolverConfigChange(filePath).then((reindexed) => {
+    if (reindexed !== null) workerState.resolver?.clearCaches();
+  }).catch((error: unknown) => {
+    workerState.resolver?.clearCaches();
     log.warn("Could not re-index after a resolver configuration change:", error instanceof Error ? error.message : String(error));
   });
 }
@@ -277,7 +279,7 @@ function performFileInvalidation(
   log.debug("File", event + ":", path.basename(filePath));
 
   if (RESOLVER_CONFIG_FILE_REGEX.test(filePath)) {
-    reindexForResolverConfig(workerState.spider);
+    reindexForResolverConfig(workerState.spider, filePath);
     postMessage({ type: "file-invalidated" as const, filePath, event } as McpWorkerResponse);
     return;
   }

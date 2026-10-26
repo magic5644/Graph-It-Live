@@ -1,6 +1,6 @@
 import * as fs from 'node:fs/promises';
 import os from 'node:os';
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { Spider } from '../../src/analyzer/Spider';
 import { SpiderBuilder } from '../../src/analyzer/SpiderBuilder';
 import { normalizePath } from '../../src/analyzer/types';
@@ -379,12 +379,12 @@ describe('Spider - handleResolverConfigChange', () => {
     expect(await spider.analyzeFromIndex(app)).toEqual([]);
 
     await writeTsConfig({ '@lib/*': ['lib/*'] });
-    expect(await spider.handleResolverConfigChange()).toBe(1);
+    expect(await spider.handleResolverConfigChange(path.join(tmpDir, 'tsconfig.json'))).toBe(1);
     expect((await spider.analyzeFromIndex(app)).map((d) => d.path)).toEqual([np(target)]);
     expect((await spider.findReferencingFiles(target)).map((d) => d.path)).toEqual([np(app)]);
 
     await writeTsConfig({});
-    await spider.handleResolverConfigChange();
+    await spider.handleResolverConfigChange(path.join(tmpDir, 'tsconfig.json'));
     expect(await spider.analyzeFromIndex(app)).toEqual([]);
     expect(await spider.findReferencingFiles(target)).toEqual([]);
   });
@@ -392,8 +392,125 @@ describe('Spider - handleResolverConfigChange', () => {
   it('only drops the caches without a reverse index', async () => {
     spider.disableReverseIndex();
     await writeTsConfig({ '@lib/*': ['lib/*'] });
-    expect(await spider.handleResolverConfigChange()).toBe(0);
+    expect(await spider.handleResolverConfigChange(path.join(tmpDir, 'tsconfig.json'))).toBe(0);
     expect((await spider.analyze(app)).map((d) => d.path)).toEqual([np(target)]);
+  });
+});
+
+// #430: once indexed, a config edit re-indexes only when what resolution reads from it changes.
+describe('Spider - handleResolverConfigChange after a full index', () => {
+  let tmpDir: string;
+  let spider: Spider;
+  let app: string;
+  let target: string;
+  const write = (relative: string, content: unknown) =>
+    fs.writeFile(path.join(tmpDir, relative), JSON.stringify(content));
+  const change = (relative: string) => spider.handleResolverConfigChange(path.join(tmpDir, relative));
+  const setModifiedAt = async (offsetMs: number, ...relatives: string[]) => {
+    const time = new Date(Date.now() + offsetMs);
+    for (const relative of relatives) await fs.utimes(path.join(tmpDir, relative), time, time);
+  };
+
+  beforeEach(async () => {
+    tmpDir = await fs.realpath(await fs.mkdtemp(path.join(os.tmpdir(), 'graph-it-effective-config-')));
+    app = path.join(tmpDir, 'app.ts');
+    target = path.join(tmpDir, 'lib', 'target.ts');
+    await fs.mkdir(path.dirname(target));
+    await fs.writeFile(target, 'export const target = 1;\n');
+    await fs.writeFile(app, "import { target } from '@lib/target';\n");
+    await write('tsconfig.base.json', { compilerOptions: { baseUrl: '.', paths: { '@lib/*': ['lib/*'] } } });
+    await write('tsconfig.json', { extends: './tsconfig.base.json' });
+    await write('package.json', { name: 'fx', version: '1.0.0' });
+    await setModifiedAt(-60_000, 'tsconfig.base.json', 'tsconfig.json', 'package.json');
+    spider = new SpiderBuilder().withRootDir(tmpDir).withReverseIndex(true).build();
+    await spider.buildFullIndex();
+    // Also waits for the snapshot: an edit while it is read re-indexes.
+    expect(await change('tsconfig.json')).toBeNull();
+  });
+
+  afterEach(async () => {
+    await fs.rm(tmpDir, { recursive: true, force: true });
+  });
+
+  it('skips the re-index when the effective paths, baseUrl and imports are unchanged', async () => {
+    await write('tsconfig.json', { extends: './tsconfig.base.json', compilerOptions: { strict: true } });
+    await write('tsconfig.base.json', { compilerOptions: { baseUrl: '.', paths: { '@lib/*': ['lib/*'] }, target: 'ES2022' } });
+    await write('package.json', { name: 'fx', version: '1.0.1', scripts: { test: 'vitest' } });
+
+    expect(await change('tsconfig.json')).toBeNull();
+    expect(await change('tsconfig.base.json')).toBeNull();
+    expect(await change('package.json')).toBeNull();
+    expect((await spider.analyzeFromIndex(app)).map((d) => d.path)).toEqual([np(target)]);
+  });
+
+  it('re-indexes when an inherited alias moves, then compares with the new configuration', async () => {
+    await fs.mkdir(path.join(tmpDir, 'other'));
+    await fs.writeFile(path.join(tmpDir, 'other', 'target.ts'), 'export const target = 2;\n');
+    await write('tsconfig.base.json', { compilerOptions: { baseUrl: '.', paths: { '@lib/*': ['other/*'] } } });
+
+    expect(await change('tsconfig.base.json')).toBeGreaterThan(0);
+    expect((await spider.analyzeFromIndex(app)).map((d) => d.path)).toEqual([np(path.join(tmpDir, 'other', 'target.ts'))]);
+    expect(await change('tsconfig.base.json')).toBeNull();
+  });
+
+  it('re-indexes when package.json imports change or a config is deleted', async () => {
+    await write('package.json', { name: 'fx', imports: { '#lib/*': './lib/*' } });
+    expect(await change('package.json')).toBeGreaterThan(0);
+
+    await fs.rm(path.join(tmpDir, 'tsconfig.json'));
+    expect(await change('tsconfig.json')).toBeGreaterThan(0);
+    expect(await spider.analyzeFromIndex(app)).toEqual([]);
+  });
+
+  it('re-indexes on the first edit of a config outside the snapshot, then compares it', async () => {
+    await write('tsconfig.build.json', { compilerOptions: { outDir: 'dist' } });
+    expect(await change('tsconfig.build.json')).toBeGreaterThan(0);
+
+    await write('tsconfig.build.json', { compilerOptions: { outDir: 'build' } });
+    expect(await change('tsconfig.build.json')).toBeNull();
+  });
+
+  it('snapshots the configuration of a restored index', async () => {
+    const restored = new SpiderBuilder().withRootDir(tmpDir).withReverseIndex(true).build();
+    restored.enableReverseIndex(spider.getSerializedReverseIndex()!);
+    const packageJson = path.join(tmpDir, 'package.json');
+    expect(await restored.handleResolverConfigChange(packageJson)).toBeNull();
+
+    await write('package.json', { name: 'fx', version: '2.0.0' });
+    expect(await restored.handleResolverConfigChange(packageJson)).toBeNull();
+    await write('package.json', { name: 'fx', imports: { '#lib/*': './lib/*' } });
+    expect(await restored.handleResolverConfigChange(packageJson)).toBeGreaterThan(0);
+  });
+
+  it('snapshots the configuration after an index built in a worker', async () => {
+    const indexing = (spider as unknown as { indexingService: { buildFullIndexInWorker: () => Promise<unknown> } }).indexingService;
+    vi.spyOn(indexing, 'buildFullIndexInWorker').mockResolvedValue({ indexedFiles: 2, duration: 1, cancelled: false });
+    await spider.buildFullIndexInWorker('unused-worker.js');
+    await write('package.json', { name: 'fx', imports: { '#lib/*': './lib/*' } });
+
+    expect(await change('package.json')).toBeGreaterThan(0);
+    expect(await change('tsconfig.json')).toBeNull();
+  });
+
+  it('leaves out of the snapshot a config edited while indexing', async () => {
+    const indexing = (spider as unknown as { indexingService: { buildFullIndex: () => Promise<unknown> } }).indexingService;
+    const build = indexing.buildFullIndex.bind(indexing);
+    vi.spyOn(indexing, 'buildFullIndex').mockImplementationOnce(async () => {
+      await write('package.json', { name: 'fx', imports: { '#lib/*': './lib/*' } });
+      return build();
+    });
+    await spider.buildFullIndex();
+
+    expect(await change('package.json')).toBeGreaterThan(0);
+    expect(await change('tsconfig.json')).toBeNull();
+  });
+
+  it('re-indexes every change when the snapshot cannot be taken', async () => {
+    const reverseIndex = (spider as unknown as { reverseIndexManager: { getIndexedFiles: () => string[] } }).reverseIndexManager;
+    vi.spyOn(reverseIndex, 'getIndexedFiles').mockReturnValueOnce([path.join(path.dirname(tmpDir), 'outside.ts')]);
+    await spider.buildFullIndex();
+
+    expect(await change('tsconfig.json')).toBeGreaterThan(0);
   });
 });
 

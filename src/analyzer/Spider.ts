@@ -1,3 +1,4 @@
+import * as fs from 'node:fs/promises';
 import { AstWorkerHost } from './ast/AstWorkerHost';
 import { Cache } from './Cache';
 import { FileReader } from './FileReader';
@@ -6,6 +7,7 @@ import { LanguageService } from './LanguageService';
 import { ReferencingFilesFinder } from './ReferencingFilesFinder';
 import { ReverseIndexManager } from './ReverseIndexManager';
 import { SourceFileCollector } from './SourceFileCollector';
+import { resolverConfigFiles } from './cache/configFingerprint';
 import { SpiderCacheCoordinator } from './spider/SpiderCacheCoordinator';
 import { SpiderDependencyAnalyzer } from './spider/SpiderDependencyAnalyzer';
 import { SpiderGraphCrawler } from './spider/SpiderGraphCrawler';
@@ -20,6 +22,9 @@ import { normalizePath } from '@/shared/path';
 import { YIELD_INTERVAL_MS, yieldToEventLoop } from './utils/EventLoopYield';
 import { PathResolver } from './utils/PathResolver';
 import type { OutOfRootImports } from './utils/workspaceBoundary';
+
+// Some file systems store mtimes in whole seconds: an edit during indexing may predate its start by that much.
+const MTIME_GRANULARITY_MS = 2000;
 
 /**
  * Internal interface defining all services required by Spider.
@@ -197,6 +202,8 @@ export class Spider {
 
   private readonly languageService: LanguageService;
   private readonly resolver: PathResolver;
+  // Resolver inputs of each config the index was built with: unchanged inputs skip a re-index (#430).
+  private resolverInputs: Promise<Map<string, string | null>> = Promise.resolve(new Map());
 
   // Kept as `cache` for backward compatibility (some tests/tools access it dynamically).
   private readonly cache: Cache<Dependency[]>;
@@ -499,16 +506,49 @@ export class Spider {
    * A tsconfig / package.json changed: any import may resolve elsewhere while no importer's mtime moves,
    * so drop the resolver caches and re-index every indexed file. The reverse index is kept meanwhile:
    * each file's edges are replaced as it is re-analysed, so queries never see an empty index.
-   * @returns The number of re-indexed files (0 without a reverse index: analysis is lazy then)
+   * Skipped when what resolution reads from the config (aliases, imports, package entry) is unchanged.
+   * @returns The number of re-indexed files (0 without a reverse index: analysis is lazy then),
+   * or null when the effective resolver configuration did not change
    */
-  async handleResolverConfigChange(): Promise<number> {
+  async handleResolverConfigChange(configPath: string): Promise<number | null> {
+    const key = normalizePath(configPath);
+    const snapshot = await this.resolverInputs;
+    const inputs = await this.resolver.readResolverInputs(configPath);
+    if (snapshot.has(key) && snapshot.get(key) === inputs) return null;
+
     this.resolver.clearCaches();
     // Import parsers are shared per workspace and each holds its own resolver.
     LanguageService.releaseWorkspace(this.config.rootDir);
     this.referenceLookup.clearFallbackCache();
     this.cache.clear();
     this.symbolCache.clear();
-    return this.reindexStaleFiles(this.reverseIndexManager.getIndexedFiles());
+    const startedAt = Date.now();
+    const reindexed = await this.reindexStaleFiles(this.reverseIndexManager.getIndexedFiles());
+    // An edited `extends` can bring new configs in; a config outside the snapshot is still compared next time.
+    this.snapshotResolverInputs(startedAt);
+    // Read before the re-index: an edit during it differs from this value, so its own event re-indexes.
+    (await this.resolverInputs).set(key, inputs);
+    return reindexed;
+  }
+
+  /** @param indexedSince When the indexing began: a config modified since may not be what it read. */
+  private snapshotResolverInputs(indexedSince: number): void {
+    this.resolverInputs = this.readResolverInputs(indexedSince);
+  }
+
+  private async readResolverInputs(indexedSince: number): Promise<Map<string, string | null>> {
+    const inputs = new Map<string, string | null>();
+    try {
+      for (const file of resolverConfigFiles(this.config.rootDir, this.reverseIndexManager.getIndexedFiles())) {
+        // Stat after reading: an edit in between leaves the config out, so its event re-indexes.
+        const fileInputs = await this.resolver.readResolverInputs(file);
+        if ((await fs.stat(file)).mtimeMs < indexedSince - MTIME_GRANULARITY_MS) inputs.set(file, fileInputs);
+      }
+    } catch {
+      // A source outside the workspace or a config deleted meanwhile: without a snapshot every config change re-indexes.
+      inputs.clear();
+    }
+    return inputs;
   }
 
   handleFileDeleted(filePath: string): void {
@@ -519,6 +559,7 @@ export class Spider {
   enableReverseIndex(serializedData?: string): boolean {
     const restored = this.reverseIndexManager.enable(serializedData);
     this.config.enableReverseIndex = true;
+    this.snapshotResolverInputs(Date.now());
     return restored;
   }
 
@@ -576,7 +617,10 @@ export class Spider {
     progressCallback?: IndexingProgressCallback
   ): Promise<{ indexedFiles: number; duration: number; cancelled: boolean }> {
     if (this.disposed) return { indexedFiles: 0, duration: 0, cancelled: true };
-    return this.trackIndexingOperation(this.indexingService.buildFullIndex(progressCallback));
+    const startedAt = Date.now();
+    const result = await this.trackIndexingOperation(this.indexingService.buildFullIndex(progressCallback));
+    this.snapshotResolverInputs(startedAt);
+    return result;
   }
 
   async buildFullIndexInWorker(
@@ -584,7 +628,10 @@ export class Spider {
     progressCallback?: IndexingProgressCallback
   ): Promise<{ indexedFiles: number; duration: number; cancelled: boolean }> {
     if (this.disposed) return { indexedFiles: 0, duration: 0, cancelled: true };
-    return this.trackIndexingOperation(this.indexingService.buildFullIndexInWorker(workerPath, progressCallback));
+    const startedAt = Date.now();
+    const result = await this.trackIndexingOperation(this.indexingService.buildFullIndexInWorker(workerPath, progressCallback));
+    this.snapshotResolverInputs(startedAt);
+    return result;
   }
 
   async disposeWorker(): Promise<void> {
