@@ -1175,6 +1175,21 @@ describe("ArchitectureGraph", () => {
       expect(screen.getByRole("button", { name: "1 frontend" }).getAttribute("aria-pressed")).toBe("false");
     });
 
+    // jsdom lays nothing out: these styles keep a 229px view's header compact (#426); the narrow-view E2E measures it.
+    it("sets the find and legend styles that keep a narrow view's header compact and its legend inside", async () => {
+      await setup(unseen());
+      const find = screen.getByRole("searchbox", { name: "Find group" });
+      // Shrinks beside Graph | Matrix rather than wrapping to a row of its own, never wider than its native width.
+      expect(find.style.flex).toBe("1 1 60px");
+      expect(find.style.minWidth).toBe("0");
+      expect(find.style.maxWidth).toBe("max-content");
+      // The 40% cap includes the legend's padding and border: the overlay ends inside the canvas.
+      const legend = screen.getByRole("list", { name: "Units" }).closest("details")!;
+      expect(legend.style.maxHeight).toBe("40%");
+      expect(legend.style.boxSizing).toBe("border-box");
+      expect(legend.style.overflow).toBe("auto");
+    });
+
     it("states the hidden weaker edges", () => {
       const many = { ...withUnits.units!, unitEdges: Array.from({ length: 8 }, (_, index) =>
         ({ from: "apps/web", to: index % 2 ? "packages/core" : `lib${index}`, fileEdgeCount: 10 - index, kind: "down" as const })) };
