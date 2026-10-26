@@ -99,11 +99,15 @@ export function maskWorkspaceRoot(message: string, workspaceRoot: string): strin
   return [...forms].reduce((text, form) => text.replaceAll(form, "<workspace>"), message);
 }
 
-/** Resolves once the reverse index is not being built, so both do not compete for the Spider. */
+/**
+ * Resolves once the reverse index is not being built, so both do not compete for the Spider.
+ * `onIdle` runs in the status notification itself: an index run starting later sees the build reading.
+ */
 function waitForIdleIndex(
   options: ArchitectureViewServiceOptions,
   signal: AbortSignal,
   onBusy: () => void,
+  onIdle: () => void,
 ): Promise<void> {
   return new Promise((resolve, reject) => {
     let unsubscribe = () => {};
@@ -121,8 +125,10 @@ function waitForIdleIndex(
     // subscribe notifies the current state synchronously, possibly before it returns.
     let notifiedBusy = false;
     unsubscribe = options.subscribeToIndexStatus((snapshot) => {
-      if (!BUSY_INDEX_STATES.has(snapshot.state)) finish();
-      else if (!notifiedBusy) {
+      if (!BUSY_INDEX_STATES.has(snapshot.state)) {
+        onIdle();
+        finish();
+      } else if (!notifiedBusy) {
         notifiedBusy = true;
         onBusy();
       }
@@ -276,7 +282,8 @@ export class ArchitectureViewService {
   private summary: ArchitectureSummaryMessage | null = null;
   /** The graph of `summary`, which group detail and evidence pages are read from, and of each entered folder. */
   private graph: (LevelGraph & { source?: UnitSource; rules: RulesState; folders: Map<string, LevelGraph>; startedAt: number }) | null = null;
-  private running: { controller: AbortController; communityMode: CommunityMode; startedAt: number } | null = null;
+  /** The running build; `reading` once the index it waited for is idle. */
+  private running: { controller: AbortController; communityMode: CommunityMode; startedAt: number; reading: boolean } | null = null;
   /** Groups drawn per level; Show more groups raises it for the rest of the session. */
   private maxGroups = DEFAULT_RENDERED_GROUPS;
   private buildCount = 0;
@@ -294,8 +301,14 @@ export class ArchitectureViewService {
   /** A source file changed while the running build was analysing. */
   private changedDuringBuild: { files: Set<string>; any: boolean } = { files: new Set(), any: false };
   private disposed = false;
+  private readonly unsubscribeIndexStatus: () => void;
 
-  constructor(private readonly options: ArchitectureViewServiceOptions) {}
+  constructor(private readonly options: ArchitectureViewServiceOptions) {
+    // A build reads the index: an index run (a resolver config re-index, a full re-index) starting after it read changes what it drew (#478).
+    this.unsubscribeIndexStatus = options.subscribeToIndexStatus((snapshot) => {
+      if (snapshot.state === "counting" && (!this.running || this.running.reading)) this.markStale();
+    });
+  }
 
   handleWebviewMessage(message: ArchitectureWebviewCommand): Promise<void> {
     switch (message.command) {
@@ -482,7 +495,7 @@ export class ArchitectureViewService {
    * Marks the cached summary stale when the change can alter it: a file of the graph changed or
    * was deleted, or a file was created (no path: any change). Files the graph never read (build
    * output, ignored folders) leave it as it is; the rule files at the root and resolver configs
-   * always count. During a build, the build's own summary carries it.
+   * count too. During a build, the build's own summary carries it.
    * ponytail: any created file counts, ignored ones included; check the collector's ignore rules if that shows the banner for nothing.
    */
   markStale(filePath?: string, eventType?: "create" | "change" | "delete"): void {
@@ -503,11 +516,11 @@ export class ArchitectureViewService {
 
   /**
    * A late event for content the build already read. A created file still counts while indexed
-   * files import it unresolved: only their pending re-analysis adds those edges (#387). The build
-   * never reads a resolver config: only the re-index its change starts does (#419).
+   * files import it unresolved: only their pending re-analysis adds those edges (#387). A resolver
+   * config the index has yet to apply starts a re-index, which marks the view stale once it reads.
    */
   private readByBuild(filePath: string | undefined, eventType: "create" | "change" | "delete" | undefined, startedAt: number | undefined): boolean {
-    if (!writtenBefore(filePath, eventType, startedAt) || RESOLVER_CONFIG_FILE_REGEX.test(filePath!)) return false;
+    if (!writtenBefore(filePath, eventType, startedAt)) return false;
     return eventType !== "create" || this.options.unresolvedImportersOf(filePath!).length === 0;
   }
 
@@ -518,7 +531,8 @@ export class ArchitectureViewService {
     const controller = new AbortController();
     const communityMode = this.options.readCommunityMode();
     const startedAt = Date.now();
-    this.running = { controller, communityMode, startedAt };
+    const running = { controller, communityMode, startedAt, reading: false };
+    this.running = running;
     const { signal } = controller;
     // Every message of this build goes through here: once aborted (replaced or disposed), it posts nothing, progress included.
     const post = (message: ArchitectureExtensionMessage) => {
@@ -527,7 +541,9 @@ export class ArchitectureViewService {
     try {
       post({ type: "architectureState", status: "building", message: "Building architecture…" });
       await waitForIdleIndex(this.options, signal, () =>
-        post({ type: "architectureState", status: "building", message: "Waiting for indexing to finish…" }));
+        post({ type: "architectureState", status: "building", message: "Waiting for indexing to finish…" }), () => {
+        running.reading = true;
+      });
       let lastProgressAt = Number.NEGATIVE_INFINITY;
       const graph = await buildArchitectureGraph(this.options.workspaceRoot, this.options.analyzeFile, {
         communityMode,
@@ -645,6 +661,7 @@ export class ArchitectureViewService {
 
   dispose(): void {
     this.disposed = true;
+    this.unsubscribeIndexStatus();
     this.running?.controller.abort();
     this.running = null;
   }

@@ -204,6 +204,10 @@ export class Spider {
   private readonly resolver: PathResolver;
   // Resolver inputs of each config the index was built with: unchanged inputs skip a re-index (#430).
   private resolverInputs: Promise<Map<string, string | null>> = Promise.resolve(new Map());
+  // Resolver configs changed since the queued re-index was created, by normalized path.
+  private readonly pendingResolverConfigs = new Map<string, string>();
+  private resolverReindex: Promise<unknown> = Promise.resolve();
+  private queuedResolverReindex: Promise<number | null> | null = null;
 
   // Kept as `cache` for backward compatibility (some tests/tools access it dynamically).
   private readonly cache: Cache<Dependency[]>;
@@ -507,14 +511,31 @@ export class Spider {
    * so drop the resolver caches and re-index every indexed file. The reverse index is kept meanwhile:
    * each file's edges are replaced as it is re-analysed, so queries never see an empty index.
    * Skipped when what resolution reads from the config (aliases, imports, package entry) is unchanged.
+   * One re-index runs at a time: the configs changed meanwhile share the next one. Concurrent runs
+   * reported an idle index when the first ended and overwrote each other's snapshot (#478).
    * @returns The number of re-indexed files (0 without a reverse index: analysis is lazy then),
    * or null when the effective resolver configuration did not change
    */
-  async handleResolverConfigChange(configPath: string): Promise<number | null> {
-    const key = normalizePath(configPath);
+  handleResolverConfigChange(configPath: string): Promise<number | null> {
+    this.pendingResolverConfigs.set(normalizePath(configPath), configPath);
+    if (!this.queuedResolverReindex) {
+      const queued = this.resolverReindex.then(() => {
+        this.queuedResolverReindex = null;
+        return this.reindexForResolverConfigs();
+      });
+      this.queuedResolverReindex = queued;
+      this.resolverReindex = queued.catch(() => null);
+    }
+    return this.queuedResolverReindex;
+  }
+
+  private async reindexForResolverConfigs(): Promise<number | null> {
+    // Taken before the first await: a config changed from now on queues the next run.
+    const configs = [...this.pendingResolverConfigs];
+    this.pendingResolverConfigs.clear();
     const snapshot = await this.resolverInputs;
-    const inputs = await this.resolver.readResolverInputs(configPath);
-    if (snapshot.has(key) && snapshot.get(key) === inputs) return null;
+    const inputs = await Promise.all(configs.map(([, configPath]) => this.resolver.readResolverInputs(configPath)));
+    if (configs.every(([key], index) => snapshot.has(key) && snapshot.get(key) === inputs[index])) return null;
 
     this.resolver.clearCaches();
     // Import parsers are shared per workspace and each holds its own resolver.
@@ -527,7 +548,10 @@ export class Spider {
     // An edited `extends` can bring new configs in; a config outside the snapshot is still compared next time.
     this.snapshotResolverInputs(startedAt);
     // Read before the re-index: an edit during it differs from this value, so its own event re-indexes.
-    (await this.resolverInputs).set(key, inputs);
+    const next = await this.resolverInputs;
+    // A config edited within the mtime granularity is left out of the read: keep what an earlier run applied.
+    for (const [key, value] of snapshot) if (!next.has(key)) next.set(key, value);
+    configs.forEach(([key], index) => next.set(key, inputs[index]));
     return reindexed;
   }
 

@@ -155,7 +155,8 @@ describe('FileChangeScheduler', () => {
       scheduler.dispose();
     });
 
-    it('replaces create with change during debounce window', async () => {
+    // #433: macOS reports one write of a new file as create then change.
+    it('keeps create when change follows it during debounce window', async () => {
       const processHandler = vi.fn().mockResolvedValue(undefined);
       const scheduler = new FileChangeScheduler({
         processHandler,
@@ -171,7 +172,22 @@ describe('FileChangeScheduler', () => {
       await vi.advanceTimersByTimeAsync(300);
 
       expect(processHandler).toHaveBeenCalledTimes(1);
-      expect(processHandler).toHaveBeenCalledWith(np(filePath), 'change');
+      expect(processHandler).toHaveBeenCalledWith(np(filePath), 'create');
+
+      scheduler.dispose();
+    });
+
+    it('replaces change with create during debounce window', async () => {
+      const processHandler = vi.fn().mockResolvedValue(undefined);
+      const scheduler = new FileChangeScheduler({ processHandler, debounceDelay: 300 });
+      const filePath = path.join(testRootDir, 'src', 'file.ts');
+
+      scheduler.enqueue(filePath, 'change');
+      scheduler.enqueue(filePath, 'create');
+      await vi.advanceTimersByTimeAsync(300);
+
+      expect(processHandler).toHaveBeenCalledTimes(1);
+      expect(processHandler).toHaveBeenCalledWith(np(filePath), 'create');
 
       scheduler.dispose();
     });
