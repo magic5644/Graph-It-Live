@@ -132,8 +132,8 @@ The Live Call Graph supports TypeScript, JavaScript, Vue, Svelte, Python, Rust, 
   | `micro-frontend` | `@module-federation/*` or `single-spa` dependency; `ModuleFederationPlugin` in a bundler config |
   | `frontend` | `react`, `vue`, `@angular/core`, `svelte` or `solid-js` dependency, with an `index.html` or a bundler config (vite, webpack, next, nuxt, rspack, `angular.json`) |
   | `service` | `express`, `fastify`, `@nestjs/core`, `koa` or `hono` dependency; a `Dockerfile` with `EXPOSE` |
-  | `library` | none of the above, and imported by another unit |
-  | `tooling` | only scripts, tests or config files (`scripts/`, `tools/`, `e2e/`, `tests/`, `*.test.*`, `*.config.*`) |
+  | `library` | none of the above, and imported by another unit (unless all its files are tooling) |
+  | `tooling` | only scripts, tests or config files (`scripts/`, `tools/`, `e2e/`, `tests/`, `.github/`, `*.test.*`, `*.config.*`), even when imported |
   | `unknown` | nothing conclusive |
 
   Only the unit's manifest, top-level configs, `index.html` and entry are read, inside the workspace and up to 1 MiB each; nothing is executed. Declare a role in the `roles` key of `graphit.architecture.json` to override the inferred one: `"roles": { "@acme/legacy-*": "library", "lambdas/*": "function" }` (unit keys or package names, `*` allowed, first match wins). See [Architecture rules](#architecture-rules) for a complete file.

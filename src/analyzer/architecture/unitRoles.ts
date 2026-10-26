@@ -34,7 +34,8 @@ const HANDLER_EXPORTS = [
   /\bexports\.handler\s*=/,
   /\bexport\s*\{[^}]{0,1000}\bhandler\s*[,}]/,
 ];
-const TOOLING_FOLDERS = new Set(["scripts", "script", "tools", "e2e", "test", "tests", "__tests__", "__mocks__", "fixtures", "bench", "benchmarks"]);
+/** `.github` holds CI workflows and the actions they run: tooling, not shipped code. */
+const TOOLING_FOLDERS = new Set([".github", "scripts", "script", "tools", "e2e", "test", "tests", "__tests__", "__mocks__", "fixtures", "bench", "benchmarks"]);
 const TOOLING_FILE = /\.(?:test|spec|config)\.[cm]?[jt]sx?$/;
 
 /** `*` matches any characters, everything else itself (no regular expression from the config). */
@@ -197,10 +198,15 @@ function collectEvidence(workspaceRoot: string, input: UnitRoleInput): UnitRoleE
   return evidence;
 }
 
-/** The first role by priority among the evidence, else unknown. */
+/**
+ * The first role by priority among the evidence, else unknown. Being imported does not make a unit
+ * of tooling files only a library: tests and scripts import each other (#468).
+ */
 export function inferUnitRole(workspaceRoot: string, unit: UnitRoleInput): UnitRoleInfo {
   const evidence = collectEvidence(workspaceRoot, unit);
-  const role = UNIT_ROLES.find((candidate) => evidence.some((entry) => entry.role === candidate)) ?? "unknown";
+  const roles = new Set(evidence.map((entry) => entry.role));
+  if (roles.has("tooling")) roles.delete("library");
+  const role = UNIT_ROLES.find((candidate) => roles.has(candidate)) ?? "unknown";
   return { role, confidence: "inferred", evidence };
 }
 
