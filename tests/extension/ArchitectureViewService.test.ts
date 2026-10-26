@@ -808,12 +808,27 @@ describe("ArchitectureViewService", () => {
     expect(states().at(-1)?.status).toBe("building");
   });
 
-  // #433: the index status reads idle while the startup index is scheduled; a build reading then is stale once it starts.
-  it("waits for the startup index to settle before reading, and stops waiting when disposed", async () => {
+  /** A service whose builds wait for `settle`, as for the startup index; `notify` sends an index state to the build's subscription. */
+  const startupGatedService = (initialState: IndexerStatusSnapshot["state"] = "idle") => {
     let settle!: () => void;
+    let notify!: (state: IndexerStatusSnapshot["state"]) => void;
     const startup = new Promise<void>(resolve => { settle = resolve; });
     const analyzeFile = vi.fn(analyzerFor(root, workspace));
-    const service = createService({ analyzeFile, whenStartupIndexSettled: () => startup });
+    const service = createService({
+      analyzeFile,
+      whenStartupIndexSettled: () => startup,
+      subscribeToIndexStatus: (callback) => {
+        notify = (state) => callback({ state } as IndexerStatusSnapshot);
+        notify(initialState);
+        return () => {};
+      },
+    });
+    return { service, analyzeFile, settle, notify: (state: IndexerStatusSnapshot["state"]) => notify(state) };
+  };
+
+  // #433: the index status reads idle while the startup index is scheduled; a build reading then is stale once it starts.
+  it("waits for the startup index to settle before reading, and stops waiting when disposed", async () => {
+    const { service, analyzeFile, settle } = startupGatedService();
 
     const build = service.build();
     await subscribed();
@@ -822,7 +837,7 @@ describe("ArchitectureViewService", () => {
     await build;
     expect(summaries().map(summary => summary.stale)).toEqual([false]);
 
-    const pending = createService({ analyzeFile, whenStartupIndexSettled: () => new Promise<void>(() => {}) });
+    const pending = startupGatedService().service;
     const waiting = pending.build();
     pending.dispose();
     await waiting;
@@ -830,34 +845,19 @@ describe("ArchitectureViewService", () => {
   });
 
   it("reads once the startup index settled and the index run it started finished", async () => {
-    let settle!: () => void;
-    let notify!: (snapshot: IndexerStatusSnapshot) => void;
-    const startup = new Promise<void>(resolve => { settle = resolve; });
-    const analyzeFile = vi.fn(analyzerFor(root, workspace));
-    const service = createService({
-      analyzeFile,
-      whenStartupIndexSettled: () => startup,
-      subscribeToIndexStatus: (callback) => {
-        notify = callback;
-        callback({ state: "indexing" } as IndexerStatusSnapshot);
-        return () => {};
-      },
-    });
+    const { service, analyzeFile, settle, notify } = startupGatedService("indexing");
 
     const build = service.build();
     settle();
     await subscribed();
     expect(analyzeFile).not.toHaveBeenCalled();
-    notify({ state: "complete" } as IndexerStatusSnapshot);
+    notify("complete");
     await build;
     expect(summaries().map(summary => summary.stale)).toEqual([false]);
   });
 
   it("reads once for the build that replaced one waiting for the startup index", async () => {
-    let settle!: () => void;
-    const startup = new Promise<void>(resolve => { settle = resolve; });
-    const analyzeFile = vi.fn(analyzerFor(root, workspace));
-    const service = createService({ analyzeFile, whenStartupIndexSettled: () => startup });
+    const { service, analyzeFile, settle } = startupGatedService();
 
     const replaced = service.build();
     const next = service.build();
@@ -868,24 +868,12 @@ describe("ArchitectureViewService", () => {
   });
 
   it("shows the indexing wait while the startup index runs, then reads once both settled", async () => {
-    let settle!: () => void;
-    let notify!: (snapshot: IndexerStatusSnapshot) => void;
-    const startup = new Promise<void>(resolve => { settle = resolve; });
-    const analyzeFile = vi.fn(analyzerFor(root, workspace));
-    const service = createService({
-      analyzeFile,
-      whenStartupIndexSettled: () => startup,
-      subscribeToIndexStatus: (callback) => {
-        notify = callback;
-        callback(idle);
-        return () => {};
-      },
-    });
+    const { service, analyzeFile, settle, notify } = startupGatedService();
 
     const build = service.build();
-    notify({ state: "counting" } as IndexerStatusSnapshot);
+    notify("counting");
     expect(states().at(-1)?.message).toBe("Waiting for indexing to finish…");
-    notify({ state: "complete" } as IndexerStatusSnapshot);
+    notify("complete");
     await subscribed();
     expect(analyzeFile).not.toHaveBeenCalled();
     settle();
