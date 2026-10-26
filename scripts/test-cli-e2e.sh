@@ -24,8 +24,8 @@ section() { echo -e "\n${YELLOW}── $1 ──${NC}"; }
 
 # ── package.json patch / restore ─────────────────────────────────────────────
 # The default packaging target is the VS Code extension (.vsix via vsce).
-# For the CLI npm package we need a temporary `files` field so that dist/
-# (gitignored) is included. We patch before pack and always restore via trap.
+# For the CLI npm package we need the npm manifest (scoped name, `files` with
+# the gitignored dist/, runtime dependencies only). We patch before pack and always restore via trap.
 PKG_BACKUP="$WORKSPACE/package.json.bak"
 restore_package_json() {
   if [[ -f "$PKG_BACKUP" ]]; then
@@ -36,14 +36,8 @@ restore_package_json() {
 trap restore_package_json EXIT
 
 cp "$WORKSPACE/package.json" "$PKG_BACKUP"
-node -e "
-const fs = require('fs');
-const p = '$WORKSPACE/package.json';
-const pkg = JSON.parse(fs.readFileSync(p, 'utf8'));
-pkg.files = ['dist/graph-it.js', 'dist/astWorker.js', 'dist/mcpServer.mjs', 'dist/mcpWorker.js', 'dist/indexerWorker.js', 'dist/wasm/', 'dist/queries/', 'README.md', 'LICENSE', 'docs/CLI.md'];
-fs.writeFileSync(p, JSON.stringify(pkg, null, 2) + '\n');
-"
-echo "  package.json patched with CLI files field"
+node "$SCRIPT_DIR/npm-package.mjs" "$WORKSPACE/package.json"
+echo "  package.json patched with the npm package manifest"
 
 # All npm commands must run from the repo root
 cd "$WORKSPACE"
@@ -56,7 +50,7 @@ echo "  Packed: $TGZ"
 
 # ── 2. Install ───────────────────────────────────────────────────────────────
 section "Install from tgz"
-npm uninstall -g graph-it-live 2>/dev/null || true
+npm uninstall -g @magic5644/graph-it-live 2>/dev/null || true
 npm install -g --force "./$TGZ"
 BINARY=$(which graph-it || echo "")
 [[ -n "$BINARY" ]] && pass "graph-it found at $BINARY" || fail "graph-it not in PATH"
@@ -130,7 +124,7 @@ graph-it trace "$SAMPLE_FILE_REL#$SYMBOL"  && pass "trace"           || fail "tr
 
 # ── 11. Uninstall ─────────────────────────────────────────────────────────────
 section "Cleanup"
-npm uninstall -g graph-it-live && pass "uninstalled" || fail "uninstall"
+npm uninstall -g @magic5644/graph-it-live && pass "uninstalled" || fail "uninstall"
 rm -f "$TGZ" && pass "tgz removed"
 
 # ── Summary ───────────────────────────────────────────────────────────────────

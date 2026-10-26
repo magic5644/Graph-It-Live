@@ -413,6 +413,8 @@ The version is not committed: workflows set it from the tag at publish time.
 6. `Publish (Selective)` (`.github/workflows/publish-npm.yml`) publishes the CLI to npm and, optionally, the stores. It only attaches the VSIX to the release and never changes its body.
    - Its validation runs the unit tests on Linux, macOS and Windows; VS Code E2E tests and VSIX packaging run only when a store is selected.
    - Set `skip_tests` only for the tag that `release.yml` already validated. A failed or cancelled validation never publishes.
+   - The npm package ships the esbuild bundles of the CLI, MCP server and workers, so its manifest declares only the packages they import at runtime: `web-tree-sitter`, `ink` and `react`, with the ranges of `package.json`. `scripts/npm-package.mjs` writes that manifest (`NPM_RUNTIME_DEPENDENCIES`); a new external in an `esbuild.js` CLI, MCP or worker bundle goes in that list too. The extension's `package.json` and the VSIX keep all their dependencies.
+   - Before `npm publish`, and in CI on Linux, macOS and Windows, `node scripts/smoke-npm-package.mjs` packs that manifest with the built `dist/`, installs the tarball with `--ignore-scripts` in an empty folder, then runs `graph-it --version`, `graph-it summary` and, through `graph-it serve`, MCP `initialize`, `tools/list` and tool calls in the MCP worker on a Python fixture (so `web-tree-sitter` loads). It also loads `ink` and `react` for the REPL. Run `npm run build:cli` before running it locally, on Node.js 22.18 or later (it imports `scripts/mcpSession.ts`).
 
 Preview the release body locally (requires `gh` authenticated and the tags fetched):
 

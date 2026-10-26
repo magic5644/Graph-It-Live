@@ -222,16 +222,15 @@ jobs:
             exit 1
           fi
 
-      - name: Scope package name for npm publish
+      # Same manifest as the smoke check: scoped name, files, and only the
+      # runtime dependencies of the bundles (scripts/npm-package.mjs).
+      - name: Write npm package manifest
         if: ${{ inputs.publish_npm == true }}
-        run: |
-          node -e "
-          const fs = require('fs');
-          const pkg = JSON.parse(fs.readFileSync('package.json', 'utf8'));
-          pkg.name = '@magic5644/graph-it-live';
-          pkg.files = ['bin/', 'dist/graph-it.js', 'dist/astWorker.js', 'dist/mcpServer.mjs', 'dist/mcpWorker.js', 'dist/indexerWorker.js', 'dist/wasm/', 'dist/queries/', 'README.md', 'LICENSE', 'docs/CLI.md'];
-          fs.writeFileSync('package.json', JSON.stringify(pkg, null, 2) + '\n');
-          "
+        run: node scripts/npm-package.mjs
+
+      - name: Smoke check the npm package
+        if: ${{ inputs.publish_npm == true }}
+        run: node scripts/smoke-npm-package.mjs
 
       - name: Set up Node.js for npm publish
         if: ${{ inputs.publish_npm == true }}

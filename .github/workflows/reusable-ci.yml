@@ -72,6 +72,11 @@ jobs:
         if: runner.os != 'Linux'
         run: npm run test
 
+      # Installs the packed npm package with only its declared dependencies
+      # and runs the CLI, the MCP server and its worker on every OS.
+      - name: Smoke check the npm package
+        run: node scripts/smoke-npm-package.mjs
+
       - name: Add locked npm binaries to PATH
         if: inputs.run-e2e
         shell: bash

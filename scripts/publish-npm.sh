@@ -5,7 +5,7 @@
 # Steps:
 #   1. Validate semver
 #   2. Build CLI (production)
-#   3. Bump version + rename to scoped in package.json
+#   3. Write the npm manifest in package.json, then smoke check the package
 #   4. npm publish (or dry-run)
 #   5. Restore package.json to original state
 set -euo pipefail
@@ -74,17 +74,15 @@ if [[ "$MAP_COUNT" -gt 0 ]]; then
 fi
 echo "  ✓ No .map files in dist/"
 
-# ── 4. Patch package.json: scoped name ───────────────────────────────────────
+# ── 4. Patch package.json with the npm manifest, then smoke check it ─────────
 echo ""
 echo "📝 Patching package.json…"
-node -e "
-const fs = require('fs');
-const p = JSON.parse(fs.readFileSync('package.json', 'utf8'));
-p.name = '@magic5644/graph-it-live';
-p.files = ['dist/graph-it.js', 'dist/astWorker.js', 'dist/mcpServer.mjs', 'dist/mcpWorker.js', 'dist/indexerWorker.js', 'dist/wasm/', 'dist/queries/', 'README.md', 'LICENSE', 'docs/CLI.md'];
-fs.writeFileSync('package.json', JSON.stringify(p, null, 2) + '\n');
-"
-echo "  ✓ name  → @magic5644/graph-it-live"
+node scripts/npm-package.mjs
+echo "  ✓ name  → @magic5644/graph-it-live, runtime dependencies only"
+
+echo ""
+echo "🧪 Smoke checking the npm package…"
+node scripts/smoke-npm-package.mjs
 echo "  ✓ version → $VERSION"
 
 # ── 5. Show what will be published ───────────────────────────────────────────
