@@ -7,7 +7,7 @@ import { setTimeout as sleep } from 'node:timers/promises';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { parseArgs, promisify } from 'node:util';
 import { runTests } from '@vscode/test-electron';
-import { closeSession, startMcpSession } from '../tests/cli/mcpSession.ts';
+import { closeSession, startMcpSession } from './mcpSession.ts';
 
 // End-to-end benchmarks of the built CLI and MCP server on frozen corpora (#294).
 // Unlike the vitest benches, each sample is a real process: wall time includes

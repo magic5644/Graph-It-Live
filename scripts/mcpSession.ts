@@ -1,4 +1,4 @@
-/** Minimal MCP stdio client over `graph-it serve`, shared by the CLI E2E tests. */
+/** Minimal MCP stdio client over `graph-it serve`, shared by the CLI E2E tests and the E2E benchmark. */
 
 import { spawn } from "node:child_process";
 
