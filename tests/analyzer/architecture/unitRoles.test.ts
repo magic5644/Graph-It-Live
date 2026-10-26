@@ -200,4 +200,30 @@ describe("unit roles edge cases", () => {
     expect(inferUnitRole(root, { folder: "app", files: ["app/scripts/a.ts", "app/src/main.ts"], importers: [] }).role).toBe("unknown");
     expect(inferUnitRole(root, { folder: "empty", files: [], importers: [] }).role).toBe("unknown");
   });
+
+  it("keeps an imported unit of tooling files only as tooling, its importers still in the evidence (#468)", () => {
+    const tests = inferUnitRole(root, { folder: "tests", files: ["tests/fixtures/a.ts", "tests/unit/deep/b.test.ts"], importers: ["scripts"] });
+    expect(tests).toEqual({
+      role: "tooling",
+      confidence: "inferred",
+      evidence: [
+        { role: "library", detail: "imported by `scripts`" },
+        { role: "tooling", detail: "only scripts, tests or config (2 files)" },
+      ],
+    });
+    const ci = inferUnitRole(root, { folder: ".github", files: [".github/actions/gate/index.ts"], importers: ["scripts", "tests"] });
+    expect(ci.role).toBe("tooling");
+  });
+
+  it("keeps an imported unit with runtime code a library", () => {
+    const files = ["lib/src/main.ts", "lib/tests/main.test.ts"];
+    expect(inferUnitRole(root, { folder: "lib", files, importers: ["app"] }).role).toBe("library");
+  });
+
+  it("ranks manifest evidence over tooling, and a declared role over both", () => {
+    write("tests/package.json", pkg("tests", { express: "4" }));
+    expect(inferUnitRole(root, { folder: "tests", files: ["tests/a.test.ts"], importers: ["scripts"] }).role).toBe("service");
+    const declared = unitRole(root, { key: "tests", name: "tests", folder: "tests", files: ["tests/a.test.ts"], importers: ["scripts"] }, { tests: "library" });
+    expect(declared).toMatchObject({ role: "library", confidence: "declared" });
+  });
 });
