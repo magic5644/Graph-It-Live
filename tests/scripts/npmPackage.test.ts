@@ -57,14 +57,14 @@ describe('npmManifest', () => {
 });
 
 describe('npm-package.mjs CLI', () => {
-  const runScript = (file: string) => spawnSync(process.execPath, [script, file], { encoding: 'utf8' });
+  const runScript = (cwd: string, entry = script) => spawnSync(process.execPath, [entry], { cwd, encoding: 'utf8' });
 
-  it('rewrites the given package.json in place', () => {
+  it('rewrites package.json of the working directory in place', () => {
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'npm-package-'));
     const file = path.join(dir, 'package.json');
     fs.writeFileSync(file, JSON.stringify(extensionPkg));
     try {
-      expect(runScript(file).status).toBe(0);
+      expect(runScript(dir).status).toBe(0);
       expect(JSON.parse(fs.readFileSync(file, 'utf8'))).toEqual(npmManifest(extensionPkg));
     } finally {
       fs.rmSync(dir, { recursive: true, force: true });
@@ -79,7 +79,7 @@ describe('npm-package.mjs CLI', () => {
     // A junction needs no admin rights on Windows; other platforms ignore the type.
     fs.symlinkSync(path.dirname(script), link, 'junction');
     try {
-      const result = spawnSync(process.execPath, [path.join(link, 'npm-package.mjs'), file], { encoding: 'utf8' });
+      const result = runScript(dir, path.join(link, 'npm-package.mjs'));
       expect(result.status).toBe(0);
       expect(JSON.parse(fs.readFileSync(file, 'utf8')).name).toBe(NPM_PACKAGE_NAME);
     } finally {
@@ -93,7 +93,7 @@ describe('npm-package.mjs CLI', () => {
     const content = JSON.stringify({ name: 'x', dependencies: {} });
     fs.writeFileSync(file, content);
     try {
-      const result = runScript(file);
+      const result = runScript(dir);
       expect(result.status).toBe(1);
       expect(result.stderr).toContain('ERROR: package.json dependencies has no "web-tree-sitter"');
       expect(fs.readFileSync(file, 'utf8')).toBe(content);

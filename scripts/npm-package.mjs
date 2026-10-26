@@ -36,9 +36,8 @@ export function npmManifest(pkg) {
 // realpath: a symlinked argv[1] must still run the CLI, or publishing would keep the extension manifest.
 if (process.argv[1] && realpathSync(process.argv[1]) === fileURLToPath(import.meta.url)) {
   try {
-    const file = process.argv[2] ?? 'package.json';
-    const pkg = JSON.parse(readFileSync(file, 'utf8'));
-    writeFileSync(file, `${JSON.stringify(npmManifest(pkg), null, 2)}\n`);
+    const pkg = JSON.parse(readFileSync('package.json', 'utf8'));
+    writeFileSync('package.json', `${JSON.stringify(npmManifest(pkg), null, 2)}\n`);
   } catch (error) {
     console.error(`ERROR: ${error.message}`);
     process.exit(1);
