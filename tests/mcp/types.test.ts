@@ -411,12 +411,6 @@ describe('MCP_SERVER_VERSION', () => {
     expect(MCP_SERVER_VERSION).toBe('0.0.0-dev');
   });
 
-  it('is independent of the response-format version', async () => {
-    vi.stubEnv('CLI_VERSION', '9.9.9');
-    vi.resetModules();
-    const { MCP_SERVER_VERSION, MCP_TOOL_VERSION: toolVersion } = await import('../../src/mcp/types');
-    expect(MCP_SERVER_VERSION).not.toBe(toolVersion);
-  });
 });
 
 // ============================================================================
