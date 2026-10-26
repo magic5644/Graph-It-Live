@@ -175,11 +175,11 @@ export class ExtensionEventHub {
       return;
     }
 
-    // No importer's mtime moves when imports resolve elsewhere: re-index them all (#419).
+    // No importer's mtime moves when imports resolve elsewhere: re-index them all (#419), unless resolution is unchanged (#430).
     if (RESOLVER_CONFIG_FILE_REGEX.test(filePath)) {
       this.log.debug(`Resolver configuration ${eventType}:`, filePath);
-      await this.spider.handleResolverConfigChange();
-      await this.refreshByCurrentView();
+      const reindexed = await this.spider.handleResolverConfigChange(filePath);
+      if (reindexed !== null) await this.refreshByCurrentView();
       return;
     }
 

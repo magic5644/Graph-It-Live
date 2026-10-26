@@ -88,9 +88,21 @@ describe("ExtensionEventHub", () => {
 
     await hub.handleFileChange(`C:\\workspace\\pkg\\${name}`, "delete" as EventType);
 
-    expect(options.spider?.handleResolverConfigChange).toHaveBeenCalledTimes(1);
+    expect(options.spider?.handleResolverConfigChange).toHaveBeenCalledWith(`C:\\workspace\\pkg\\${name}`);
     expect(options.spider?.handleFileDeleted).not.toHaveBeenCalled();
     expect(options.updateGraph).toHaveBeenCalledWith(true, "fileChange");
+  });
+
+  // #430: an edit that keeps the effective resolver configuration re-indexes nothing.
+  it("leaves the graph untouched when the resolver configuration is unchanged", async () => {
+    const options = createOptions();
+    vi.mocked(options.spider!.handleResolverConfigChange).mockResolvedValueOnce(null);
+    const hub = new ExtensionEventHub(options);
+
+    await hub.handleFileChange("C:\\workspace\\package.json", "change" as EventType);
+
+    expect(options.spider?.handleResolverConfigChange).toHaveBeenCalledWith("C:\\workspace\\package.json");
+    expect(options.updateGraph).not.toHaveBeenCalled();
   });
 
   it("throws when the changed file cannot be analysed, and ignores unsupported files", async () => {

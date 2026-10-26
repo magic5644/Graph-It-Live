@@ -107,12 +107,43 @@ describe('MCP file watcher', () => {
     }, { timeout: eventTimeout });
   }, testTimeout);
 
+  // #430: a package.json edit that keeps its imports re-indexes nothing.
+  it('re-indexes nothing when a resolver configuration edit keeps its effective content', async () => {
+    const packageJson = normalizePath(path.join(root, 'package.json'));
+    const handle = vi.spyOn(workerState.spider!, 'handleResolverConfigChange');
+    await fs.writeFile(packageJson, '{ "name": "fx", "version": "1.0.0" }');
+    const past = new Date(Date.now() - 60_000);
+    await fs.utimes(packageJson, past, past);
+    await vi.waitFor(() => {
+      expect(handle).toHaveBeenCalledWith(packageJson);
+    }, { timeout: eventTimeout });
+    await Promise.all(handle.mock.results.map((result) => result.value));
+    await workerState.spider!.buildFullIndex();
+    // Waits for the snapshot taken after the index.
+    expect(await workerState.spider!.handleResolverConfigChange(packageJson)).toBeNull();
+    const reindex = vi.spyOn(workerState.spider!, 'reindexStaleFiles');
+    const clearResolver = vi.fn();
+    workerState.resolver = { clearCaches: clearResolver } as unknown as typeof workerState.resolver;
+    handle.mockClear();
+
+    await fs.writeFile(packageJson, '{ "name": "fx", "version": "1.0.1", "scripts": { "test": "vitest" } }');
+    await vi.waitFor(() => {
+      expect(handle).toHaveBeenCalledWith(packageJson);
+    }, { timeout: eventTimeout });
+    expect(await handle.mock.results[0].value).toBeNull();
+    expect(reindex).not.toHaveBeenCalled();
+    expect(clearResolver).not.toHaveBeenCalled();
+  }, testTimeout);
+
   it('keeps watching when re-indexing after a resolver configuration change fails', async () => {
     const reindex = vi.spyOn(workerState.spider!, 'handleResolverConfigChange').mockRejectedValue(new Error('boom'));
+    const clearResolver = vi.fn();
+    workerState.resolver = { clearCaches: clearResolver } as unknown as typeof workerState.resolver;
     const packageJson = normalizePath(path.join(root, 'package.json'));
     await fs.writeFile(packageJson, '{ "imports": { "#app/*": "./src/*" } }');
     await vi.waitFor(() => {
       expect(reindex).toHaveBeenCalled();
+      expect(clearResolver).toHaveBeenCalled();
       expect(postMessage).toHaveBeenCalledWith(expect.objectContaining({ event: 'add', filePath: packageJson }));
     }, { timeout: eventTimeout });
   }, testTimeout);

@@ -22,6 +22,11 @@ export function configFingerprint(workspaceRoot: string, sourceFiles: readonly s
   }
 }
 
+/** Normalized paths of the resolver configs `sourceFiles` depend on. Throws for a source outside the workspace. */
+export function resolverConfigFiles(workspaceRoot: string, sourceFiles: readonly string[]): string[] {
+  return [...readConfigContents(findSourceDirectories(workspaceRoot, sourceFiles)).keys()];
+}
+
 function findSourceDirectories(workspaceRoot: string, sourceFiles: readonly string[]): Set<string> {
   const directories = new Set<string>([normalizePath(workspaceRoot)]);
   for (const file of sourceFiles) {

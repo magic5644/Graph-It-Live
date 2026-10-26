@@ -96,6 +96,37 @@ export class PathResolver {
   }
 
   /**
+   * What resolution reads from a tsconfig / package.json, with workspace-relative targets:
+   * two equal values resolve every import alike (#430). Null when the file is missing.
+   */
+  async readResolverInputs(configPath: string): Promise<string | null> {
+    let content: string;
+    try {
+      content = await fs.readFile(configPath, "utf-8");
+    } catch {
+      return null;
+    }
+    if (path.basename(configPath) !== "package.json") {
+      // Alias order is kept: the first matching alias wins in resolveAlias().
+      const root = this.workspaceRoot ?? path.dirname(configPath);
+      const aliases = await this.loadTsConfigPathAliases(configPath);
+      return JSON.stringify([...aliases].map(([alias, target]) => [alias, normalizePath(path.relative(root, target))]));
+    }
+    let pkg: Record<string, unknown> = {};
+    try {
+      pkg = JSON.parse(content) ?? {};
+    } catch {
+      // Invalid JSON: the resolver reads nothing from it either.
+    }
+    const dependencies = { ...(pkg.dependencies as object), ...(pkg.devDependencies as object), ...(pkg.peerDependencies as object) };
+    return JSON.stringify({
+      imports: [...await this.loadPackageJsonImports(configPath)],
+      entry: [pkg.name, pkg.source, pkg.main, pkg.module],
+      fileDependencies: Object.entries(dependencies).filter(([, value]) => typeof value === "string" && value.startsWith("file:")),
+    });
+  }
+
+  /**
    * Ensure tsConfig is loaded before resolving
    */
   private async ensureTsConfigLoaded(): Promise<void> {
