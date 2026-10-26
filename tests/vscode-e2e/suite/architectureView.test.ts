@@ -323,7 +323,13 @@ function assertReadableLayout(render: ArchitectureRender): void {
 
 /** Opens the view and refreshes it: earlier suites edit fixtures, which leaves the cached summary stale. */
 async function openFreshArchitecture(): Promise<ArchitectureRender> {
-  await vscode.commands.executeCommand('graph-it-live.setViewModeArchitecture');
+  // A cold extension host resolves the sidebar after suiteSetup's wait: until then the switch is a no-op ("View not initialized").
+  const start = Date.now();
+  do {
+    await vscode.commands.executeCommand('graph-it-live.setViewModeArchitecture');
+    if (await getContextKey('graph-it-live.viewMode') === 'architecture') break;
+    await sleep(250);
+  } while (Date.now() - start < 15000);
   await waitForViewMode('architecture');
   await sleep(500); // let the mount post architectureMounted first
   const before = (await readRender()).renderCount;
