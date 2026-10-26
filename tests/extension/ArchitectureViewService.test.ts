@@ -240,8 +240,8 @@ describe("ArchitectureViewService", () => {
     expect(summaries().map(summary => summary.stale)).toEqual([false, true]);
   });
 
-  // #419: the build never reads a resolver config; only the re-index that its change starts does.
-  it("marks stale for a resolver config change, even one written before the build", async () => {
+  // #478: macOS sends a package.json write's change event late; the re-index it may start marks the view stale itself.
+  it("marks stale for a resolver config written after the build, not for a late event of one written before", async () => {
     const config = path.join(root, "packages/app/tsconfig.json");
     await fs.mkdir(path.dirname(config), { recursive: true });
     await fs.writeFile(config, "{}");
@@ -255,12 +255,58 @@ describe("ArchitectureViewService", () => {
     service.markStale(config, "change");
     release();
     await running;
-    expect(summaries().map(summary => summary.stale)).toEqual([true]);
+    service.markStale(config, "create");
+    expect(summaries().map(summary => summary.stale)).toEqual([false]);
 
-    const next = createService();
-    await next.build();
-    next.markStale(path.join(root, "package.json"), "change");
-    expect(summaries().map(summary => summary.stale)).toEqual([true, false, true]);
+    await touch(root, "packages/app/tsconfig.json");
+    service.markStale(config, "change");
+    expect(summaries().map(summary => summary.stale)).toEqual([false, true]);
+  });
+
+  it("marks stale when an index run starts after the build read the index, not while the build waits for it", async () => {
+    const listeners: ((snapshot: IndexerStatusSnapshot) => void)[] = [];
+    const service = createService({
+      subscribeToIndexStatus: (callback) => {
+        listeners.push(callback);
+        callback({ state: listeners.length === 1 ? "counting" : "indexing" } as IndexerStatusSnapshot);
+        return () => listeners.splice(listeners.indexOf(callback), 1);
+      },
+    });
+    const notify = (state: IndexerStatusSnapshot["state"]) => [...listeners].forEach(listener => listener({ state } as IndexerStatusSnapshot));
+
+    const waiting = service.build();
+    notify("counting");
+    notify("complete");
+    await waiting;
+    expect(summaries().map(summary => summary.stale)).toEqual([false]);
+
+    notify("indexing");
+    expect(summaries()).toHaveLength(1);
+    notify("counting");
+    expect(summaries().map(summary => summary.stale)).toEqual([false, true]);
+
+    service.dispose();
+    expect(listeners).toEqual([]);
+  });
+
+  it("carries an index run that starts while the build reads into its summary", async () => {
+    let notify!: (snapshot: IndexerStatusSnapshot) => void;
+    let release!: () => void;
+    const gate = new Promise<void>(resolve => { release = resolve; });
+    const analyze = analyzerFor(root, workspace);
+    const service = createService({
+      analyzeFile: async (filePath) => { await gate; return analyze(filePath); },
+      subscribeToIndexStatus: (callback) => {
+        notify ??= callback;
+        callback(idle);
+        return () => {};
+      },
+    });
+    const running = service.build();
+    notify({ state: "counting" } as IndexerStatusSnapshot);
+    release();
+    await running;
+    expect(summaries().map(summary => summary.stale)).toEqual([true]);
   });
 
   it("ignores changes to files outside the graph made during a build", async () => {
@@ -592,7 +638,7 @@ describe("ArchitectureViewService", () => {
   });
 
   it("posts error when the build throws, and Retry builds again", async () => {
-    let fail = true;
+    let fail = false;
     const service = createService({
       subscribeToIndexStatus: (callback) => {
         if (fail) throw new Error("index unavailable");
@@ -601,11 +647,18 @@ describe("ArchitectureViewService", () => {
       },
     });
 
+    fail = true;
     await service.build();
     expect(posted.at(-1)).toEqual({ type: "architectureState", status: "error", message: "index unavailable" });
 
+    let subscriptions = 0;
+    // The service's own subscription succeeds; the build's throws.
     const leaking = createService({
-      subscribeToIndexStatus: () => { throw new Error(`EACCES: scandir '${root}/src'`); },
+      subscribeToIndexStatus: () => {
+        subscriptions += 1;
+        if (subscriptions > 1) throw new Error(`EACCES: scandir '${root}/src'`);
+        return () => {};
+      },
     });
     await leaking.build();
     expect(posted.at(-1)).toMatchObject({ status: "error", message: "EACCES: scandir '<workspace>/src'" });
@@ -674,13 +727,14 @@ describe("ArchitectureViewService", () => {
     // Listeners are never removed: models a notification already dispatched to the aborted build's listener.
     const service = createService({ subscribeToIndexStatus: (callback) => { listeners.push(callback); return () => {}; } });
 
+    // listeners[0] is the service's own subscription.
     const first = service.build();
     const second = service.build();
     await first;
-    listeners[1](idle);
+    listeners[2](idle);
     await second;
     expect(posted.at(-1)?.type).toBe("architectureSummary");
-    listeners[0]({ state: "indexing" } as IndexerStatusSnapshot);
+    listeners[1]({ state: "indexing" } as IndexerStatusSnapshot);
 
     expect(posted.at(-1)?.type).toBe("architectureSummary");
     expect(states().some(state => state.message === "Waiting for indexing to finish…")).toBe(false);

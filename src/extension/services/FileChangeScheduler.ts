@@ -25,7 +25,7 @@ interface FileChangeSchedulerOptions {
  * 
  * Key features:
  * - Per-file debouncing (not global)
- * - Event priority: delete > change > create
+ * - Event priority: delete > create > change
  * - Re-schedules once if new event arrives during processing
  * - No event loss - all events eventually processed
  * - Cross-platform path normalization
@@ -194,15 +194,16 @@ export class FileChangeScheduler {
   }
 
   /**
-   * Determine event priority: delete > change > create
+   * Determine event priority: delete > create > change. A file created then written is still new:
+   * macOS reports one write as create then change (#433), and create also re-resolves its importers.
    */
   private getEventPriority(eventType: EventType): number {
     switch (eventType) {
       case 'delete':
         return 3;
-      case 'change':
-        return 2;
       case 'create':
+        return 2;
+      case 'change':
         return 1;
     }
   }

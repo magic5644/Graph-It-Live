@@ -470,6 +470,41 @@ describe('Spider - handleResolverConfigChange after a full index', () => {
     expect(await change('tsconfig.build.json')).toBeNull();
   });
 
+  // #478: concurrent full re-indexes reported an idle index when the first ended and dropped each other's snapshot entries.
+  it('runs one re-index at a time and shares the next one between the configs changed meanwhile', async () => {
+    await Promise.all(['a', 'b', 'c'].map(async (name) => {
+      await fs.mkdir(path.join(tmpDir, name));
+      await write(`${name}/package.json`, { name });
+    }));
+    const reindexStaleFiles = spider.reindexStaleFiles.bind(spider);
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => { release = resolve; });
+    const reindex = vi.spyOn(spider, 'reindexStaleFiles').mockImplementation(async (files) => {
+      await gate;
+      return reindexStaleFiles(files);
+    });
+
+    const first = change('a/package.json');
+    await vi.waitFor(() => expect(reindex).toHaveBeenCalledOnce());
+    const second = change('b/package.json');
+    expect(change('c/package.json')).toBe(second);
+    release();
+    expect(await first).toBeGreaterThan(0);
+    expect(await second).toBeGreaterThan(0);
+    expect(reindex).toHaveBeenCalledTimes(2);
+
+    // Written within the mtime granularity, so only their own run's inputs put them in the snapshot.
+    expect(await Promise.all(['a', 'b', 'c'].map((name) => change(`${name}/package.json`)))).toEqual([null, null, null]);
+    expect(reindex).toHaveBeenCalledTimes(2);
+  });
+
+  it('runs the next re-index after a failed one', async () => {
+    await write('package.json', { name: 'fx', imports: { '#lib/*': './lib/*' } });
+    vi.spyOn(spider, 'reindexStaleFiles').mockRejectedValueOnce(new Error('boom'));
+    await expect(change('package.json')).rejects.toThrow('boom');
+    expect(await change('package.json')).toBeGreaterThan(0);
+  });
+
   it('snapshots the configuration of a restored index', async () => {
     const restored = new SpiderBuilder().withRootDir(tmpDir).withReverseIndex(true).build();
     restored.enableReverseIndex(spider.getSerializedReverseIndex()!);
