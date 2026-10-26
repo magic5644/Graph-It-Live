@@ -246,6 +246,93 @@ describe('BackgroundIndexingManager', () => {
         expect(spider.buildFullIndexInWorker).not.toHaveBeenCalled();
     });
 
+    describe('whenStartupIndexSettled (#433)', () => {
+        /** True once `promise` resolved; the index status reads `idle` meanwhile, so callers cannot tell. */
+        const settled = async (promise: Promise<void>) => {
+            let done = false;
+            void promise.then(() => { done = true; });
+            await new Promise((resolve) => setTimeout(resolve, 10));
+            return done;
+        };
+
+        it('waits for the deferred index to start and finish', async () => {
+            let finishBuild!: () => void;
+            const { manager, spider } = createManager({ indexingStartDelay: 20 });
+            spider.buildFullIndexInWorker.mockImplementation(() => new Promise((resolve) => {
+                finishBuild = () => resolve({ indexedFiles: 1, duration: 0, cancelled: false });
+            }));
+
+            manager.scheduleDeferredIndexing();
+            const startup = manager.whenStartupIndexSettled();
+            expect(await settled(startup)).toBe(false);
+            await vi.waitFor(() => expect(spider.buildFullIndexInWorker).toHaveBeenCalledOnce());
+            expect(await settled(startup)).toBe(false);
+
+            finishBuild();
+            await startup;
+            expect(await settled(manager.whenStartupIndexSettled())).toBe(true);
+        });
+
+        it('resolves at once when nothing is scheduled or background indexing is off', async () => {
+            const { manager } = createManager({ enableBackgroundIndexing: false });
+            await manager.whenStartupIndexSettled();
+
+            manager.scheduleDeferredIndexing();
+            expect(await settled(manager.whenStartupIndexSettled())).toBe(true);
+        });
+
+        it('resolves when the scheduled index is cancelled, turned off or disposed', async () => {
+            const { manager, spider } = createManager({ indexingStartDelay: 60_000 });
+
+            manager.scheduleDeferredIndexing();
+            const cancelled = manager.whenStartupIndexSettled();
+            manager.cancelScheduledIndexing();
+            await cancelled;
+
+            manager.scheduleDeferredIndexing();
+            const disabled = manager.whenStartupIndexSettled();
+            await manager.disableBackgroundIndexing();
+            await disabled;
+
+            manager.scheduleDeferredIndexing();
+            const disposed = manager.whenStartupIndexSettled();
+            await manager.dispose();
+            await disposed;
+            expect(spider.buildFullIndexInWorker).not.toHaveBeenCalled();
+        });
+
+        it('waits for a rescheduled index, not only the first schedule', async () => {
+            const { manager, spider } = createManager({ indexingStartDelay: 60_000 });
+
+            manager.scheduleDeferredIndexing();
+            const startup = manager.whenStartupIndexSettled();
+            manager.updateConfiguration({ ...baseConfig, indexingStartDelay: 20 });
+            manager.scheduleDeferredIndexing();
+            expect(await settled(startup)).toBe(false);
+
+            await startup;
+            expect(spider.buildFullIndexInWorker).toHaveBeenCalledOnce();
+        });
+
+        it('resolves when the startup restore fails', async () => {
+            const { manager, context, spider } = createManager();
+            context.workspaceState.update.mockRejectedValue(new Error('storage unavailable'));
+
+            manager.scheduleDeferredIndexing();
+            await manager.whenStartupIndexSettled();
+            expect(spider.buildFullIndexInWorker).not.toHaveBeenCalled();
+        });
+
+        it('resolves when the startup index build is cancelled', async () => {
+            const { manager, spider } = createManager();
+            spider.buildFullIndexInWorker.mockResolvedValue({ indexedFiles: 0, duration: 0, cancelled: true });
+
+            manager.scheduleDeferredIndexing();
+            await manager.whenStartupIndexSettled();
+            expect(spider.buildFullIndexInWorker).toHaveBeenCalledOnce();
+        });
+    });
+
     it('builds on a config update without an index, and disables when turned off', async () => {
         const { manager, spider } = createManager();
         await manager.handleConfigUpdate(false);
