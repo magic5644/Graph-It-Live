@@ -74,7 +74,7 @@ export async function startMcpSession(distEntry: string, workspace: string, cwd:
     send({ jsonrpc: "2.0", id, method, params });
     return waitFor(id);
   };
-  await request("initialize", {
+  const initialize = await request("initialize", {
     protocolVersion: "2025-06-18",
     capabilities: {},
     clientInfo: { name: "e2e", version: "1" },
@@ -82,5 +82,5 @@ export async function startMcpSession(distEntry: string, workspace: string, cwd:
   send({ jsonrpc: "2.0", method: "notifications/initialized" });
   const callTool = async (name: string, args: Record<string, unknown>) =>
     (await request("tools/call", { name, arguments: args })).result as ToolResult;
-  return { child, request, callTool };
+  return { child, request, callTool, initialize };
 }

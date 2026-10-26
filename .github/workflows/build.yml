@@ -20,6 +20,9 @@ on:
       - 'tsconfig*.json'
       - 'vitest*.config.mts'
       - 'esbuild.js'
+      - 'scripts/npm-package.mjs'
+      - 'scripts/smoke-npm-package.mjs'
+      - 'scripts/mcpSession.ts'
       - 'eslint.config.mjs'
       - '.github/workflows/**'
   pull_request:
@@ -33,6 +36,9 @@ on:
       - 'tsconfig*.json'
       - 'vitest*.config.mts'
       - 'esbuild.js'
+      - 'scripts/npm-package.mjs'
+      - 'scripts/smoke-npm-package.mjs'
+      - 'scripts/mcpSession.ts'
       - 'eslint.config.mjs'
       - '.github/workflows/**'
 
