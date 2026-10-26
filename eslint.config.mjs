@@ -1,8 +1,12 @@
 import eslint from "@eslint/js";
+import { includeIgnoreFile } from "eslint/config";
 import globals from "globals";
+import path from "node:path";
 import tseslint from "typescript-eslint";
 
 export default [
+  // Local, gitignored files (.claude/hooks, .reports, coverage...) are not part of the lint scope.
+  includeIgnoreFile(path.join(import.meta.dirname, ".gitignore")),
   {
     ignores: [
       "dist/**",
@@ -12,6 +16,8 @@ export default [
       "vitest.config.ts",
       "vitest.config.mts",
       "vitest.benchmark.config.mts",
+      "vitest.memory.config.mts",
+      ".venv/**",
       "**/*.d.ts",
       "tests/**",
       ".agents/**",
