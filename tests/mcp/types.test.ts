@@ -7,7 +7,7 @@
 import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { Dependency } from '../../src/analyzer/types';
 import type { McpWorkerResponse } from '../../src/mcp/types';
 import {
@@ -388,6 +388,34 @@ describe('GetIndexStatusParamsSchema', () => {
 describe('MCP_TOOL_VERSION', () => {
   it('is a valid semver string', () => {
     expect(MCP_TOOL_VERSION).toMatch(/^\d+\.\d+\.\d+$/);
+  });
+});
+
+describe('MCP_SERVER_VERSION', () => {
+  afterEach(() => {
+    vi.unstubAllEnvs();
+    vi.resetModules();
+  });
+
+  it('reports the package version stamped into CLI_VERSION', async () => {
+    vi.stubEnv('CLI_VERSION', '1.21.1');
+    vi.resetModules();
+    const { MCP_SERVER_VERSION } = await import('../../src/mcp/types');
+    expect(MCP_SERVER_VERSION).toBe('1.21.1');
+  });
+
+  it('falls back to 0.0.0-dev when no version was stamped', async () => {
+    vi.stubEnv('CLI_VERSION', undefined);
+    vi.resetModules();
+    const { MCP_SERVER_VERSION } = await import('../../src/mcp/types');
+    expect(MCP_SERVER_VERSION).toBe('0.0.0-dev');
+  });
+
+  it('is independent of the response-format version', async () => {
+    vi.stubEnv('CLI_VERSION', '9.9.9');
+    vi.resetModules();
+    const { MCP_SERVER_VERSION, MCP_TOOL_VERSION: toolVersion } = await import('../../src/mcp/types');
+    expect(MCP_SERVER_VERSION).not.toBe(toolVersion);
   });
 });
 

@@ -68,6 +68,12 @@ graph-it --help | grep -q "Commands:"          && pass "--help"         || fail 
 graph-it tool --list | grep -q "analyze_dependencies" && pass "tool --list" || fail "tool --list"
 graph-it tool --help | grep -q "Usage:"        && pass "tool --help"   || fail "tool --help"
 graph-it scan --help | grep -q "scan"          && pass "scan --help"   || fail "scan --help"
+# MCP serverInfo.version must be the package version, the one `--version` prints (#462).
+CLI_VER=$(graph-it --version | sed 's/.* v//')
+INIT='{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-06-18","capabilities":{},"clientInfo":{"name":"smoke","version":"0"}}}'
+SERVER_VER=$( (echo "$INIT"; sleep 3) | graph-it serve 2>/dev/null | head -n 1 \
+  | node -pe 'JSON.parse(require("fs").readFileSync(0, "utf8")).result.serverInfo.version' || true)
+[[ -n "$CLI_VER" && "$SERVER_VER" == "$CLI_VER" ]] && pass "serve serverInfo.version = $CLI_VER" || fail "serve serverInfo.version ($SERVER_VER != $CLI_VER)"
 
 # ── 4. Index tools ───────────────────────────────────────────────────────────
 section "Index"
