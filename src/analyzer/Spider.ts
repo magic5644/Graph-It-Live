@@ -539,11 +539,12 @@ export class Spider {
   private async readResolverInputs(indexedSince: number): Promise<Map<string, string | null>> {
     const inputs = new Map<string, string | null>();
     try {
-      for (const file of resolverConfigFiles(this.config.rootDir, this.reverseIndexManager.getIndexedFiles())) {
+      const files = resolverConfigFiles(this.config.rootDir, this.reverseIndexManager.getIndexedFiles());
+      await Promise.all(files.map(async (file) => {
         // Stat after reading: an edit in between leaves the config out, so its event re-indexes.
         const fileInputs = await this.resolver.readResolverInputs(file);
         if ((await fs.stat(file)).mtimeMs < indexedSince - MTIME_GRANULARITY_MS) inputs.set(file, fileInputs);
-      }
+      }));
     } catch {
       // A source outside the workspace or a config deleted meanwhile: without a snapshot every config change re-indexes.
       inputs.clear();
