@@ -59,6 +59,8 @@ export interface ArchitectureViewServiceOptions {
   analyzeFile: AnalyzeFile;
   readCommunityMode: () => CommunityMode;
   subscribeToIndexStatus: (callback: (snapshot: IndexerStatusSnapshot) => void) => () => void;
+  /** Resolves once the startup index is neither scheduled nor restoring: the index status reads `idle` until it starts. */
+  whenStartupIndexSettled: () => Promise<void>;
   post: (message: ArchitectureExtensionMessage) => void;
   /** Opens a validated absolute path in an editor. */
   openFile: (absolutePath: string) => Promise<void>;
@@ -101,6 +103,7 @@ export function maskWorkspaceRoot(message: string, workspaceRoot: string): strin
 
 /**
  * Resolves once the reverse index is not being built, so both do not compete for the Spider.
+ * The startup index is waited for first: `idle` before it starts is not an index ready to read (#433).
  * `onIdle` runs in the status notification itself: an index run starting later sees the build reading.
  */
 function waitForIdleIndex(
@@ -122,18 +125,28 @@ function waitForIdleIndex(
     };
     const onAbort = () => finish(signal.reason instanceof Error ? signal.reason : new Error("Architecture build aborted"));
     signal.addEventListener("abort", onAbort);
+    let indexIdle = false;
+    let startupSettled = false;
+    const readIfReady = () => {
+      if (!indexIdle || !startupSettled || done) return;
+      onIdle();
+      finish();
+    };
     // subscribe notifies the current state synchronously, possibly before it returns.
     let notifiedBusy = false;
     unsubscribe = options.subscribeToIndexStatus((snapshot) => {
-      if (!BUSY_INDEX_STATES.has(snapshot.state)) {
-        onIdle();
-        finish();
-      } else if (!notifiedBusy) {
+      indexIdle = !BUSY_INDEX_STATES.has(snapshot.state);
+      if (indexIdle) readIfReady();
+      else if (!notifiedBusy) {
         notifiedBusy = true;
         onBusy();
       }
     });
     if (done) unsubscribe();
+    void options.whenStartupIndexSettled().then(() => {
+      startupSettled = true;
+      readIfReady();
+    }, (error: unknown) => finish(error instanceof Error ? error : new Error(String(error))));
   });
 }
 

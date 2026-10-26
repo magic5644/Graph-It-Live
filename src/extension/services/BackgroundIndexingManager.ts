@@ -40,6 +40,8 @@ export class BackgroundIndexingManager {
   private indexingStartTimer?: ReturnType<typeof setTimeout>;
   private hideStatusTimer?: ReturnType<typeof setTimeout>;
   private restoreTask: Promise<void> | null = null;
+  /** Pending from scheduleDeferredIndexing() until its restore or build ends, or the schedule is cancelled. */
+  private startupIndex: PromiseWithResolvers<void> | null = null;
   private indexingTask: Promise<void> | null = null;
   private disposed = false;
   private disposeTask: Promise<void> | null = null;
@@ -80,14 +82,26 @@ export class BackgroundIndexingManager {
     }
     this.clearScheduledIndexing();
     this.log.info('Scheduling indexing in', this.config.indexingStartDelay, 'ms');
+    const startup = Promise.withResolvers<void>();
+    this.startupIndex = startup;
     this.indexingStartTimer = setTimeout(() => {
       this.indexingStartTimer = undefined;
       const task = this.tryRestoreIndex();
       this.restoreTask = task;
       void task.finally(() => {
         if (this.restoreTask === task) this.restoreTask = null;
+        this.settleStartupIndex(startup);
       }).catch(() => {});
     }, this.config.indexingStartDelay);
+  }
+
+  /**
+   * Resolves once the startup index is neither scheduled nor restoring: the index status reads
+   * `idle` meanwhile, as it does once indexing is off or cancelled (#433). Resolves at once when nothing is scheduled.
+   */
+  whenStartupIndexSettled(): Promise<void> {
+    // A reschedule settles the previous startup and opens another: wait for that one too.
+    return this.startupIndex?.promise.then(() => this.whenStartupIndexSettled()) ?? Promise.resolve();
   }
 
   cancelScheduledIndexing(): void {
@@ -175,7 +189,13 @@ export class BackgroundIndexingManager {
     if (this.indexingStartTimer) {
       clearTimeout(this.indexingStartTimer);
       this.indexingStartTimer = undefined;
+      if (this.startupIndex) this.settleStartupIndex(this.startupIndex);
     }
+  }
+
+  private settleStartupIndex(startup: PromiseWithResolvers<void>): void {
+    if (this.startupIndex === startup) this.startupIndex = null;
+    startup.resolve();
   }
 
   private reverseIndexOptions(): ReverseIndexOptions {

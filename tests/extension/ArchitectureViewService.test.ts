@@ -64,6 +64,8 @@ describe("ArchitectureViewService", () => {
 
   const summaries = () => posted.filter((message): message is ArchitectureSummaryMessage => message.type === "architectureSummary");
   const states = () => posted.filter(message => message.type === "architectureState");
+  /** Lets a build subscribe to the index status: it does once the startup index settled. */
+  const subscribed = () => new Promise<void>(resolve => setImmediate(resolve));
   const createService = (overrides: Partial<ArchitectureViewServiceOptions> = {}) =>
     new ArchitectureViewService({
       workspaceRoot: root,
@@ -73,6 +75,7 @@ describe("ArchitectureViewService", () => {
         callback(idle);
         return () => {};
       },
+      whenStartupIndexSettled: async () => {},
       post: (message) => posted.push(message),
       openFile: async (absolutePath) => {
         opened.push(absolutePath);
@@ -275,6 +278,7 @@ describe("ArchitectureViewService", () => {
     const notify = (state: IndexerStatusSnapshot["state"]) => [...listeners].forEach(listener => listener({ state } as IndexerStatusSnapshot));
 
     const waiting = service.build();
+    await subscribed();
     notify("counting");
     notify("complete");
     await waiting;
@@ -309,6 +313,7 @@ describe("ArchitectureViewService", () => {
   it("carries an index run that starts while the build reads into its summary", async () => {
     const { service, release, notify } = gatedService();
     const running = service.build();
+    await subscribed();
     notify("counting");
     release();
     await running;
@@ -319,6 +324,7 @@ describe("ArchitectureViewService", () => {
   it("does not carry an aborted build's index run into the next build", async () => {
     const { service, release, notify } = gatedService();
     const aborted = service.build();
+    await subscribed();
     notify("counting");
     const next = service.build();
     release();
@@ -746,8 +752,10 @@ describe("ArchitectureViewService", () => {
 
     // listeners[0] is the service's own subscription.
     const first = service.build();
+    await subscribed();
     const second = service.build();
     await first;
+    await subscribed();
     listeners[2](idle);
     await second;
     expect(posted.at(-1)?.type).toBe("architectureSummary");
@@ -798,6 +806,98 @@ describe("ArchitectureViewService", () => {
     await waiting;
     expect(summaries()).toHaveLength(1);
     expect(states().at(-1)?.status).toBe("building");
+  });
+
+  // #433: the index status reads idle while the startup index is scheduled; a build reading then is stale once it starts.
+  it("waits for the startup index to settle before reading, and stops waiting when disposed", async () => {
+    let settle!: () => void;
+    const startup = new Promise<void>(resolve => { settle = resolve; });
+    const analyzeFile = vi.fn(analyzerFor(root, workspace));
+    const service = createService({ analyzeFile, whenStartupIndexSettled: () => startup });
+
+    const build = service.build();
+    await subscribed();
+    expect(analyzeFile).not.toHaveBeenCalled();
+    settle();
+    await build;
+    expect(summaries().map(summary => summary.stale)).toEqual([false]);
+
+    const pending = createService({ analyzeFile, whenStartupIndexSettled: () => new Promise<void>(() => {}) });
+    const waiting = pending.build();
+    pending.dispose();
+    await waiting;
+    expect(summaries()).toHaveLength(1);
+  });
+
+  it("reads once the startup index settled and the index run it started finished", async () => {
+    let settle!: () => void;
+    let notify!: (snapshot: IndexerStatusSnapshot) => void;
+    const startup = new Promise<void>(resolve => { settle = resolve; });
+    const analyzeFile = vi.fn(analyzerFor(root, workspace));
+    const service = createService({
+      analyzeFile,
+      whenStartupIndexSettled: () => startup,
+      subscribeToIndexStatus: (callback) => {
+        notify = callback;
+        callback({ state: "indexing" } as IndexerStatusSnapshot);
+        return () => {};
+      },
+    });
+
+    const build = service.build();
+    settle();
+    await subscribed();
+    expect(analyzeFile).not.toHaveBeenCalled();
+    notify({ state: "complete" } as IndexerStatusSnapshot);
+    await build;
+    expect(summaries().map(summary => summary.stale)).toEqual([false]);
+  });
+
+  it("reads once for the build that replaced one waiting for the startup index", async () => {
+    let settle!: () => void;
+    const startup = new Promise<void>(resolve => { settle = resolve; });
+    const analyzeFile = vi.fn(analyzerFor(root, workspace));
+    const service = createService({ analyzeFile, whenStartupIndexSettled: () => startup });
+
+    const replaced = service.build();
+    const next = service.build();
+    settle();
+    await Promise.all([replaced, next]);
+    expect(new Set(analyzeFile.mock.calls.map(([file]) => file)).size).toBe(analyzeFile.mock.calls.length);
+    expect(summaries()).toHaveLength(1);
+  });
+
+  it("shows the indexing wait while the startup index runs, then reads once both settled", async () => {
+    let settle!: () => void;
+    let notify!: (snapshot: IndexerStatusSnapshot) => void;
+    const startup = new Promise<void>(resolve => { settle = resolve; });
+    const analyzeFile = vi.fn(analyzerFor(root, workspace));
+    const service = createService({
+      analyzeFile,
+      whenStartupIndexSettled: () => startup,
+      subscribeToIndexStatus: (callback) => {
+        notify = callback;
+        callback(idle);
+        return () => {};
+      },
+    });
+
+    const build = service.build();
+    notify({ state: "counting" } as IndexerStatusSnapshot);
+    expect(states().at(-1)?.message).toBe("Waiting for indexing to finish…");
+    notify({ state: "complete" } as IndexerStatusSnapshot);
+    await subscribed();
+    expect(analyzeFile).not.toHaveBeenCalled();
+    settle();
+    await build;
+    expect(summaries().map(summary => summary.stale)).toEqual([false]);
+  });
+
+  it("reports an error when waiting for the startup index fails", async () => {
+    const service = createService({ whenStartupIndexSettled: () => Promise.reject(new Error("startup failed")) });
+    await service.build();
+    expect(summaries()).toEqual([]);
+    expect(states().at(-1)?.status).toBe("error");
   });
 
   it("reports progress as a percentage of analysed files", async () => {

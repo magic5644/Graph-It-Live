@@ -245,6 +245,7 @@ export function createGraphProviderServiceContainer(
       unresolvedImportersOf: (filePath) => spider.getUnresolvedImportersOf(filePath),
         readCommunityMode,
         subscribeToIndexStatus: (callback) => spider.subscribeToIndexStatus(callback),
+        whenStartupIndexSettled: () => container.get(graphProviderServiceTokens.indexingManager).whenStartupIndexSettled(),
         post: (message) => {
           void options.viewProvider()?.webview.postMessage(message);
         },

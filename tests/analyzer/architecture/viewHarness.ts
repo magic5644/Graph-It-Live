@@ -18,6 +18,7 @@ export async function buildView(rootDir: string, posted: ArchitectureExtensionMe
       callback({ state: "idle" } as IndexerStatusSnapshot);
       return () => {};
     },
+    whenStartupIndexSettled: async () => {},
     post: (message) => posted.push(message),
     openFile: async () => {},
     revealInFileGraph: async () => {},

@@ -796,6 +796,10 @@ describe("GraphProvider", () => {
     expect(build).toHaveBeenCalledTimes(2);
 
     const indexingManager = getService<any>(graphProviderServiceTokens.indexingManager);
+    // Builds wait for the startup index this provider schedules (#433).
+    const whenStartupIndexSettled = vi.spyOn(indexingManager, "whenStartupIndexSettled").mockResolvedValue(undefined);
+    await service.options.whenStartupIndexSettled();
+    expect(whenStartupIndexSettled).toHaveBeenCalledOnce();
     vi.spyOn(indexingManager, "handleConfigUpdate").mockResolvedValue(undefined);
     provider.updateConfig();
     expect(handleCommunityModeChange).toHaveBeenCalledOnce();
