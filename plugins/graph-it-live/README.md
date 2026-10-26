@@ -6,7 +6,7 @@ and `pr-review`) from [magic5644/skills](https://github.com/magic5644/skills).
 
 The `check_architecture` MCP tool and `graph-it check-architecture` check imports
 against the rules in `graphit.architecture.json`; see
-[Architecture rules](https://github.com/magic5644/Graph-It-Live#architecture-rules).
+[the architecture guide](https://github.com/magic5644/Graph-It-Live/blob/main/docs/architecture.md).
 
 Install the plugin from its repository with the installation mechanism provided
 by your client. Agent Plugins compatible clients use `plugin.json`, `mcp.json`,

@@ -1,7 +1,7 @@
 ---
 title: Class Hierarchy - Graph-It-Live
 description: Core interfaces, implementations, and relationships across the extension
-lastUpdated: 2026-09-15
+lastUpdated: 2026-10-26
 scope:
   - analyzer/**
   - extension/**
@@ -31,7 +31,7 @@ version: 1.0
 High-level class hierarchy showing core interfaces, implementations, and relationships across the extension (excluding test classes).
 
 **Coverage:** ~45 core classes across 4 architectural layers  
-**Last Generated:** 2026-09-15  
+**Last Generated:** 2026-10-26  
 **Scope:** Production code only (src/, excluding tests and fixtures)
 
 ## Core Architecture Layers
@@ -79,6 +79,9 @@ Spider orchestration with reverse indexing:
 - `ReviewGateAnalyzer` - local Git diff analysis for `review-pr` (risk score, evidence, capability limits)
 - `WikiGenerator` - Markdown wiki generation from the call graph index
 - `QueryEngine` - natural-language query resolution over the call graph
+
+### Architecture Module (`src/analyzer/architecture/`)
+Function module, no class hierarchy (only `ArchitectureRulesFileError`, an `Error` subclass for invalid rules files). Used by `ArchitectureViewService` (extension), the CLI commands `architecture` and `check-architecture`, and the MCP tools `explore_architecture` and `check_architecture`; see the [architecture guide](../../architecture.md#how-it-is-built).
 
 ---
 

@@ -1,0 +1,82 @@
+%% Graph-It-Live system architecture: surfaces, analyzer modules and the Architecture view module.
+%% Source of graph-it-live-architecture.svg; render with: npx -y @mermaid-js/mermaid-cli -i graph-it-live-architecture.mmd -o graph-it-live-architecture.svg
+flowchart LR
+  developer["Developer"]
+  assistant["AI assistant<br/>MCP or VS Code LM tools"]
+  ci["CI pipeline"]
+
+  subgraph vscode["VS Code"]
+    extension["src/extension<br/>GraphProvider, services"]
+    archService["ArchitectureViewService"]
+    webview["src/webview<br/>React, ReactFlow, Cytoscape"]
+  end
+
+  subgraph cli["src/cli: graph-it"]
+    cliArchitecture["architecture<br/>groups, units, folder, matrix"]
+    cliCheck["check-architecture<br/>exit code, SARIF, baseline"]
+    cliOther["scan, path, trace, summary,<br/>review-pr, serve, tool"]
+  end
+
+  subgraph mcp["src/mcp: MCP server, stdio"]
+    mcpExplore["explore_architecture"]
+    mcpCheck["check_architecture"]
+    mcpOther["other graph tools"]
+    worker["McpWorker"]
+  end
+
+  subgraph analyzer["src/analyzer: Node.js only, no vscode"]
+    spider["Spider, parsers, PathResolver,<br/>SourceFileCollector, ReverseIndex"]
+    callgraph["Call graph index<br/>Tree-sitter WASM, SQLite"]
+    subgraph archModule["src/analyzer/architecture"]
+      graphBuilder["ArchitectureGraphBuilder<br/>file graph, groups"]
+      units["architectureUnits<br/>units, layers, cycles"]
+      roles["unitRoles<br/>inferred or declared role"]
+      rules["architectureRules<br/>elements, rules, baseline"]
+      matrix["architectureMatrix<br/>dependency structure matrix"]
+      view["architectureView<br/>levels, caps, dependents"]
+      explorer["ArchitectureExplorer<br/>paged MCP and CLI views"]
+      dependents["groupDependents<br/>dependents by group"]
+    end
+  end
+
+  shared["src/shared<br/>types, messages, path utils"]
+  config[("graphit.architecture.json<br/>graphit.architecture.baseline.json")]
+
+  developer --> extension
+  developer --> cliArchitecture
+  assistant --> mcpExplore
+  assistant --> mcpCheck
+  assistant --> mcpOther
+  ci --> cliCheck
+
+  extension -- "typed messages" --> webview
+  extension --> archService
+  archService --> view
+  archService --> explorer
+  archService --> rules
+  cliArchitecture --> explorer
+  cliCheck --> rules
+  mcpExplore --> explorer
+  mcpCheck --> rules
+  mcpOther --> worker
+  worker --> spider
+  worker --> callgraph
+  cliOther --> spider
+
+  view --> explorer
+  view --> matrix
+  view --> dependents
+  view --> rules
+  explorer --> units
+  explorer --> rules
+  matrix --> units
+  dependents --> units
+  rules --> units
+  units --> roles
+  units --> graphBuilder
+  graphBuilder -. "analyze callback, injected by callers" .-> spider
+  rules -- "reads elements, rules, roles" --> config
+
+  analyzer --> shared
+  extension --> shared
+  webview --> shared

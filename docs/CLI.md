@@ -661,7 +661,7 @@ graph-it cycles src/index.ts
 
 ### architecture
 
-Build the full workspace dependency architecture graph by aggregating direct dependencies across every source file.
+Build the full workspace dependency architecture graph by aggregating direct dependencies across every source file. Units, groups, levels, layers and file pairs are defined in the [architecture guide](architecture.md#concepts).
 
 ```
 graph-it architecture [options]
@@ -753,7 +753,7 @@ Files without a folder domain (`path`) or without any import edge (`louvain`) ge
 
 #### Units output
 
-`--level units` reports what the VS Code Architecture view draws on top in `path` mode, with the same counts as `explore_architecture` with `level: "units"`. A unit is a package: a folder holding a `package.json` (workspace member or not, outside `node_modules`); files outside every package go to `(root)`. Without any package below the root, units are the top-level folders. Imports of a workspace package by its name resolve to its sources through the `node_modules` link.
+`--level units` reports what the VS Code Architecture view draws on top in `path` mode, with the same counts as `explore_architecture` with `level: "units"`. [Units](architecture.md#concepts) are packages, else top-level folders, plus `(root)`. Imports of a workspace package by its name resolve to its sources through the `node_modules` link.
 
 | Field | Content |
 |-------|---------|
@@ -762,14 +762,21 @@ Files without a folder domain (`path`) or without any import edge (`louvain`) ge
 | `unitEdges` | `from`, `to`, `fileEdgeCount`, `kind`: `down`, `upward` (to the same or a higher layer) or `cycle` (both units in one cycle), heaviest first |
 | `upwardEdges`, `cycles` | number of upward edges, and of groups of units that depend on each other |
 | `layerCount` | number of distinct layers of the units (the Architecture view's header) |
-| `roleCounts` | units per role, in role priority order (see *Architecture view* in the README for the evidence of each role) |
+| `roleCounts` | units per role, in role priority order (see [Roles](architecture.md#roles) for the evidence of each role) |
 | `totals` | `files`, `fileEdges`, `intraUnitEdges`, `interUnitEdges` |
 
-With `--from <unit key> --to <unit key>` (both required, `--level units` only), the output is the evidence of that unit edge instead: `from` and `to` (the units), `kind` (`down`, `upward` or `cycle`; absent when the units are not linked) and every file `pairs` (`source` imports `target`), sorted by target then source path, with `page.total` equal to the edge's `fileEdgeCount`. These are the pairs the Architecture view lists when a unit edge is clicked. A key may be typed with `\` on Windows; an unknown unit is an error.
+With `--from <unit key> --to <unit key>` (both required, `--level units` only), the output is the evidence of that unit edge instead: `from` and `to` (the units), `kind` (`down`, `upward` or `cycle`; absent when the units are not linked) and every file `pairs` (`source` imports `target`), sorted by target then source path, with `page.total` equal to the edge's `fileEdgeCount`.
+
+These are the pairs the Architecture view lists when a unit edge is clicked. A key may be typed with `\` on Windows; an unknown unit is an error.
 
 #### Folder levels
 
-`--folder <key>` walks down a unit as the Architecture view does when a folder is entered. The key is a unit key (from `--level units`) or a group key of a level: the top folders of a unit are `<unit>/<folder>` (umbrella folders such as `src` or `tests` skipped, so `app/src/core` and `app/tests/core` both fall in `app/core`), then each sub-folder adds its name (`app/core/util`). The output has the [grouped output](#grouped-output) fields for the files below the key only: each sub-folder is a group, the key's own files form the group whose key is the key itself, and `nestedGroups` lists the ids of the groups that hold sub-folders (pass their key to go one level deeper). Counts add up level by level: a group's `fileCount` and `internalEdgeCount` are the `totals.files` and `totals.fileEdges` of its own level. `context.revision` also covers the folder, so group ids hold for that level only. `--folder` is refused with `--level units` or `--communities louvain` (Louvain groups have no folders), and an unknown key is an error.
+`--folder <key>` walks down a unit as the Architecture view does when a folder is entered:
+
+- **Key**: a unit key (from `--level units`) or a group key of a level. The top folders of a unit are `<unit>/<folder>`, umbrella folders such as `src` or `tests` skipped: `app/src/core` and `app/tests/core` both fall in `app/core`. Each sub-folder then adds its name (`app/core/util`).
+- **Output**: the [grouped output](#grouped-output) fields for the files below the key only. Each sub-folder is a group; the key's own files form the group whose key is the key itself. `nestedGroups` lists the groups that hold sub-folders: pass their key to go one level deeper.
+- **Counts** add up level by level: a group's `fileCount` and `internalEdgeCount` are the `totals.files` and `totals.fileEdges` of its own level. `context.revision` also covers the folder, so group ids hold for that level only.
+- **Refused** with `--level units` or `--communities louvain` (Louvain groups have no folders); an unknown key is an error.
 
 #### Matrix output
 
@@ -789,7 +796,7 @@ Rows and columns share one order: layer 0 first (depends on no other row), the r
 
 ### check-architecture
 
-Checks every static import of the workspace against the **architecture rules** declared in `graphit.architecture.json` at the workspace root. Rules are human annotation: the command only compares import pairs with them.
+Checks every static import of the workspace against the **architecture rules** declared in `graphit.architecture.json` at the workspace root. Rules are human annotation: the command only compares import pairs with them. For a step-by-step guide (local check, CI gate, baseline adoption), see the [architecture guide](architecture.md#by-task).
 
 ```bash
 graph-it check-architecture [--config <file>] [--baseline <file>] [--update-baseline] [--format text|json|toon|markdown|sarif]
@@ -1942,7 +1949,10 @@ graph-it tool explore_architecture --level=units --from=apps/web --to=packages/c
 graph-it tool explore_architecture --folder='(root)/analyzer' --group='(root)/analyzer/community'
 ```
 
-A group is referenced by `id` (a number, such as `--group=2`) or by `key` or `label` (a string, such as `--group=analyzer` or `--group='"2"'` for a folder named `2`); `0` or `unassigned` names the files without a group, and an unknown group is an error. Every list is paginated by `limit` (default 50, max 500) and `offset`: the group view pages `files`, `incoming` and `outgoing` together (edges sorted by `fileEdgeCount`), and `page` gives each list's total, `truncated` and a `nextOffset` while any list has more items. Every response carries `context` (community mode, `revision`, graph kind `imports`, scope, exclusions, `maxFiles`, truncation, failed files) and `provenance`, which separates code facts (static import pairs) from computed groupings and states that labels carry no interpretation. Symbols and lines come from `find_referencing_files`, `query_call_graph` and `get_impact_analysis`, named in `nextSteps`. The graph is rebuilt on each call and group ids depend on it: `context.revision` is a SHA-256 of the community mode, each file's group and the file edges, identical on every OS for the same graph. Pass it back as `revision` (`--revision=<hash>`) with a group id or an `offset`; if the architecture has changed since, the call fails with both revisions and you restart from the summary. Without `revision`, the call is answered from the current graph.
+- **Group reference**: `id` (a number, such as `--group=2`) or `key` or `label` (a string, such as `--group=analyzer` or `--group='"2"'` for a folder named `2`). `0` or `unassigned` names the files without a group; an unknown group is an error.
+- **Paging**: every list is paged by `limit` (default 50, max 500) and `offset`. The group view pages `files`, `incoming` and `outgoing` together (edges sorted by `fileEdgeCount`); `page` gives each list's total, `truncated` and a `nextOffset` while any list has more items.
+- **Context**: every response carries `context` (community mode, `revision`, graph kind `imports`, scope, exclusions, `maxFiles`, truncation, failed files) and `provenance`, which separates code facts (static import pairs) from computed groupings and states that labels carry no interpretation. Symbols and lines come from `find_referencing_files`, `query_call_graph` and `get_impact_analysis`, named in `nextSteps`.
+- **Revision**: the graph is rebuilt on each call and group ids depend on it. `context.revision` is a SHA-256 of the community mode, each file's group and the file edges, identical on every OS for the same graph. Pass it back as `revision` (`--revision=<hash>`) with a group id or an `offset`: if the architecture has changed since, the call fails with both revisions and you restart from the summary. Without `revision`, the call is answered from the current graph.
 
 ---
 
