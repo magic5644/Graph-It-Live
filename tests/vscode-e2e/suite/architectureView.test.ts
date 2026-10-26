@@ -948,6 +948,49 @@ suite('Architecture view mode', () => {
     await waitForRender('the fixtures again', staleCount, render => !render.stale && render.groupCount === EXPECTED.units.groups);
   });
 
+  test('keeps the header compact and the legend inside the canvas on a narrow view', async function () {
+    this.timeout(180000);
+    // #426: a 229 × 548px view (the macOS runner's) kept its header within 25% of the view height. Every runner gets
+    // there by narrowing the view down to 240px at most, then the check uses at most 548px of the view height.
+    const maxWidth = 240;
+    const maxSteps = 12;
+    const widthOf = (rendered: RenderedReport) => {
+      const width = rendered.headerRows?.[0]?.split('=')[1];
+      assert.ok(width, `the render reports its width: ${JSON.stringify(rendered.headerRows)}`);
+      return Number(width);
+    };
+    await vscode.commands.executeCommand('workbench.action.toggleMaximizedPanel');
+    let narrowed = 0;
+    try {
+      let rendered: RenderedReport;
+      for (;;) {
+        await sleep(300); // NOSONAR S9382: each resize must settle before the fresh render measures it
+        await openFreshArchitecture(); // NOSONAR S9382: each measure needs the previous resize applied
+        rendered = await readRendered(); // NOSONAR S9382: reads the render of this width
+        if (widthOf(rendered) <= maxWidth || narrowed === maxSteps) break;
+        // Focusing Branch status expands it beside the Dependency Graph view; the command gives it that view's width.
+        await vscode.commands.executeCommand('graph-it-live.branchWatchView.focus'); // NOSONAR S9382: one resize at a time
+        await vscode.commands.executeCommand('workbench.action.decreaseViewWidth'); // NOSONAR S9382: one resize at a time
+        narrowed++;
+      }
+      const rows = rendered.headerRows?.join(' ');
+      assert.ok(widthOf(rendered) <= maxWidth, `a view of ${maxWidth}px at most after ${narrowed} narrowing steps: ${rows}`);
+      const viewHeight = Math.min(rendered.viewHeightPx ?? 0, 548);
+      assert.ok((rendered.headerHeightPx ?? Infinity) <= viewHeight * 0.25,
+        `header and controls within 25% of ${viewHeight}px (view ${rendered.viewHeightPx}px): ${rendered.headerHeightPx}px (${rows})`);
+      assert.strictEqual(rendered.legendOverflowing, false, 'the legend overlay stays inside the canvas');
+    } finally {
+      // Widen back from the same focus, then hide Branch status: no command collapses a view, and hidden it leaves
+      // the whole panel width to the Dependency Graph view, as the collapsed view of a fresh profile does.
+      await vscode.commands.executeCommand('graph-it-live.branchWatchView.focus');
+      for (let index = 0; index < narrowed; index++) {
+        await vscode.commands.executeCommand('workbench.action.increaseViewWidth'); // NOSONAR S9382: one resize at a time
+      }
+      await vscode.commands.executeCommand('graph-it-live.branchWatchView.toggleVisibility');
+      await vscode.commands.executeCommand('workbench.action.toggleMaximizedPanel');
+    }
+  });
+
   // Expected rows from the view's answers on tests/fixtures (path mode), checked against
   // node dist/graph-it.js architecture --level units --format json -w tests/fixtures: @ws/web imports @ws/ui
   // twice and workspaces-root once; in (root), only the (root) group reaches graphql-project's fragments/user.gql (depth 2).

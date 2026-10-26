@@ -462,7 +462,7 @@ function UnitLegend({ summary, onUnit, legendRef, roleFilter, onRole }: Readonly
     <details
       ref={legendRef} open
       style={{
-        position: "absolute", top: 4, left: 4, maxWidth: "60%", maxHeight: "40%", overflow: "auto", zIndex: 1, padding: "2px 6px",
+        position: "absolute", top: 4, left: 4, maxWidth: "60%", maxHeight: "40%", boxSizing: "border-box", overflow: "auto", zIndex: 1, padding: "2px 6px",
         fontSize: 12, background: "var(--vscode-editorWidget-background)", border: "1px solid var(--vscode-widget-border)",
       }}
     >
@@ -724,6 +724,8 @@ function GraphControls(props: Readonly<GraphControlsProps>) {
           placeholder="Find group"
           value={query}
           onChange={(event) => onQuery(event.target.value)}
+          // Shrinks beside Graph | Matrix on a narrow view rather than wrapping to a row of its own (#426); max-content keeps its native width on a wide one.
+          style={{ flex: "1 1 60px", minWidth: 0, maxWidth: "max-content" }}
         />
         {view === "graph" && (
         <label>
