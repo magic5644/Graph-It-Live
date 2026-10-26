@@ -282,8 +282,11 @@ export class ArchitectureViewService {
   private summary: ArchitectureSummaryMessage | null = null;
   /** The graph of `summary`, which group detail and evidence pages are read from, and of each entered folder. */
   private graph: (LevelGraph & { source?: UnitSource; rules: RulesState; folders: Map<string, LevelGraph>; startedAt: number }) | null = null;
-  /** The running build; `reading` once the index it waited for is idle. */
-  private running: { controller: AbortController; communityMode: CommunityMode; startedAt: number; reading: boolean } | null = null;
+  /**
+   * The running build; `reading` once the index it waited for is idle, `indexRan` when an index run started since.
+   * Unlike `changedDuringBuild`, an aborted build's index run is not carried: the next build waits for it.
+   */
+  private running: { controller: AbortController; communityMode: CommunityMode; startedAt: number; reading: boolean; indexRan: boolean } | null = null;
   /** Groups drawn per level; Show more groups raises it for the rest of the session. */
   private maxGroups = DEFAULT_RENDERED_GROUPS;
   private buildCount = 0;
@@ -306,7 +309,9 @@ export class ArchitectureViewService {
   constructor(private readonly options: ArchitectureViewServiceOptions) {
     // A build reads the index: an index run (a resolver config re-index, a full re-index) starting after it read changes what it drew (#478).
     this.unsubscribeIndexStatus = options.subscribeToIndexStatus((snapshot) => {
-      if (snapshot.state === "counting" && (!this.running || this.running.reading)) this.markStale();
+      if (snapshot.state !== "counting") return;
+      if (!this.running) this.markStale();
+      else if (this.running.reading) this.running.indexRan = true;
     });
   }
 
@@ -531,7 +536,7 @@ export class ArchitectureViewService {
     const controller = new AbortController();
     const communityMode = this.options.readCommunityMode();
     const startedAt = Date.now();
-    const running = { controller, communityMode, startedAt, reading: false };
+    const running = { controller, communityMode, startedAt, reading: false, indexRan: false };
     this.running = running;
     const { signal } = controller;
     // Every message of this build goes through here: once aborted (replaced or disposed), it posts nothing, progress included.
@@ -578,7 +583,7 @@ export class ArchitectureViewService {
       const { files: changed, any } = this.changedDuringBuild;
       this.summary = {
         type: "architectureSummary",
-        stale: any || [...changed].some(file => files.has(file)),
+        stale: running.indexRan || any || [...changed].some(file => files.has(file)),
         ...overview,
         ...rulesView(rules, viewGraph, source?.assignment.unitOf),
       };

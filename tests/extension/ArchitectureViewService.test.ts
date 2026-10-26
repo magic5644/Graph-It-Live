@@ -289,7 +289,8 @@ describe("ArchitectureViewService", () => {
     expect(listeners).toEqual([]);
   });
 
-  it("carries an index run that starts while the build reads into its summary", async () => {
+  /** A service whose builds read once `release` is called; `notify` sends an index state to its own subscription. */
+  const gatedService = () => {
     let notify!: (snapshot: IndexerStatusSnapshot) => void;
     let release!: () => void;
     const gate = new Promise<void>(resolve => { release = resolve; });
@@ -302,11 +303,27 @@ describe("ArchitectureViewService", () => {
         return () => {};
       },
     });
+    return { service, release, notify: (state: IndexerStatusSnapshot["state"]) => notify({ state } as IndexerStatusSnapshot) };
+  };
+
+  it("carries an index run that starts while the build reads into its summary", async () => {
+    const { service, release, notify } = gatedService();
     const running = service.build();
-    notify({ state: "counting" } as IndexerStatusSnapshot);
+    notify("counting");
     release();
     await running;
     expect(summaries().map(summary => summary.stale)).toEqual([true]);
+  });
+
+  // The startup index run started while the mount's build read; Refresh replaced that build and read after the run.
+  it("does not carry an aborted build's index run into the next build", async () => {
+    const { service, release, notify } = gatedService();
+    const aborted = service.build();
+    notify("counting");
+    const next = service.build();
+    release();
+    await Promise.all([aborted, next]);
+    expect(summaries().map(summary => summary.stale)).toEqual([false]);
   });
 
   it("ignores changes to files outside the graph made during a build", async () => {

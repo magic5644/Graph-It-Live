@@ -130,64 +130,25 @@ describe('FileChangeScheduler', () => {
   });
 
   describe('Event priority', () => {
-    it('replaces change with delete during debounce window', async () => {
-      const processHandler = vi.fn().mockResolvedValue(undefined);
-      const scheduler = new FileChangeScheduler({
-        processHandler,
-        debounceDelay: 300,
-      });
-
-      const filePath = path.join(testRootDir, 'src', 'file.ts');
-
-      // Enqueue change, then delete
-      scheduler.enqueue(filePath, 'change');
-      await vi.advanceTimersByTimeAsync(100); // Still within debounce window
-      scheduler.enqueue(filePath, 'delete');
-
-      expect(scheduler.getPendingCount()).toBe(1);
-
-      await vi.advanceTimersByTimeAsync(300);
-
-      // Only delete should be processed
-      expect(processHandler).toHaveBeenCalledTimes(1);
-      expect(processHandler).toHaveBeenCalledWith(np(filePath), 'delete');
-
-      scheduler.dispose();
-    });
-
-    // #433: macOS reports one write of a new file as create then change.
-    it('keeps create when change follows it during debounce window', async () => {
-      const processHandler = vi.fn().mockResolvedValue(undefined);
-      const scheduler = new FileChangeScheduler({
-        processHandler,
-        debounceDelay: 300,
-      });
-
-      const filePath = path.join(testRootDir, 'src', 'file.ts');
-
-      scheduler.enqueue(filePath, 'create');
-      await vi.advanceTimersByTimeAsync(100);
-      scheduler.enqueue(filePath, 'change');
-
-      await vi.advanceTimersByTimeAsync(300);
-
-      expect(processHandler).toHaveBeenCalledTimes(1);
-      expect(processHandler).toHaveBeenCalledWith(np(filePath), 'create');
-
-      scheduler.dispose();
-    });
-
-    it('replaces change with create during debounce window', async () => {
+    // #433: macOS reports one write of a new file as create then change; a create also re-resolves its importers.
+    it.each([
+      ['change', 'delete', 'delete'],
+      ['create', 'change', 'create'],
+      ['change', 'create', 'create'],
+    ] as const)('processes %s then %s during debounce window as %s', async (first, second, processed) => {
       const processHandler = vi.fn().mockResolvedValue(undefined);
       const scheduler = new FileChangeScheduler({ processHandler, debounceDelay: 300 });
       const filePath = path.join(testRootDir, 'src', 'file.ts');
 
-      scheduler.enqueue(filePath, 'change');
-      scheduler.enqueue(filePath, 'create');
+      scheduler.enqueue(filePath, first);
+      await vi.advanceTimersByTimeAsync(100); // Still within debounce window
+      scheduler.enqueue(filePath, second);
+
+      expect(scheduler.getPendingCount()).toBe(1);
       await vi.advanceTimersByTimeAsync(300);
 
       expect(processHandler).toHaveBeenCalledTimes(1);
-      expect(processHandler).toHaveBeenCalledWith(np(filePath), 'create');
+      expect(processHandler).toHaveBeenCalledWith(np(filePath), processed);
 
       scheduler.dispose();
     });
