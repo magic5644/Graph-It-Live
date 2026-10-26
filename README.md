@@ -113,7 +113,7 @@ The Live Call Graph supports TypeScript, JavaScript, Vue, Svelte, Python, Rust, 
 
 ### Architecture view
 
-The Architecture view draws the whole workspace as **units** (packages, else top-level folders) in layers, with the import edges between them, their roles and their cycles. It answers three questions: what are my layers, who depends on this, and does the code follow my rules. The [architecture guide](docs/architecture.md) defines every term and covers each task.
+The Architecture view draws the whole workspace as **units** (packages, else top-level folders) in layers, with the import edges between them, their roles and their cycles. It answers three questions: what are my layers, who depends on this, and does the code follow my rules. The [architecture guide](docs/architecture.md) defines every term, explains the marks of each view and how to fix what they raise: cycles, rule violations, unmatched files.
 
 <div align="center">
 <img src="media/architecture-units-overview.png" alt="Architecture view of an npm-workspaces monorepo: units in layers, a cycle between two shared libraries, rule violations in red" width="800"/>
