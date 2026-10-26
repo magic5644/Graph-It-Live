@@ -1629,7 +1629,6 @@
     "ignore": "^7.0.13",
     "ink": "^7.1.1",
     "react": "^19.3.1",
-    "react-devtools-core": "^6.1.5",
     "react-dom": "^19.3.1",
     "reactflow": "^11.11.4",
     "sql.js": "^1.15.1",
