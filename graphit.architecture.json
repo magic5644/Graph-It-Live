@@ -112,5 +112,12 @@
       "severity": "error",
       "reason": "Tests and scripts are not shipped; product code that imports them breaks the package."
     }
-  ]
+  ],
+  "roles": {
+    "src": "library",
+    "tests": "tooling",
+    "scripts": "tooling",
+    ".github": "tooling",
+    "(root)": "tooling"
+  }
 }

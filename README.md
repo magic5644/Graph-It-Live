@@ -136,7 +136,7 @@ The Live Call Graph supports TypeScript, JavaScript, Vue, Svelte, Python, Rust, 
   | `tooling` | only scripts, tests or config files (`scripts/`, `tools/`, `e2e/`, `tests/`, `*.test.*`, `*.config.*`) |
   | `unknown` | nothing conclusive |
 
-  Only the unit's manifest, top-level configs, `index.html` and entry are read, inside the workspace and up to 1 MiB each; nothing is executed. Declare a role in `graphit.architecture.json` to override the inferred one: `"roles": { "@acme/legacy-*": "library", "lambdas/*": "function" }` (unit keys or package names, `*` allowed, first match wins).
+  Only the unit's manifest, top-level configs, `index.html` and entry are read, inside the workspace and up to 1 MiB each; nothing is executed. Declare a role in the `roles` key of `graphit.architecture.json` to override the inferred one: `"roles": { "@acme/legacy-*": "library", "lambdas/*": "function" }` (unit keys or package names, `*` allowed, first match wins). See [Architecture rules](#architecture-rules) for a complete file.
 
 <div align="center">
 <img src="media/architecture-roles-filter.png" alt="Units legend with role badges; the libraries filter keeps only the five library units" width="800"/>
@@ -214,7 +214,41 @@ Write the intended architecture in `graphit.architecture.json` at the workspace 
     { "name": "frontend-not-backend", "from": ["frontend", "mfe"], "forbid": ["backend"], "severity": "error" },
     { "name": "mfe-isolated", "from": "mfe", "forbid": ["mfe"], "severity": "warning" },
     { "name": "no-unit-cycles", "noCycles": "units", "severity": "error" }
-  ]
+  ],
+  "roles": {
+    "@acme/shared-*": "library",
+    "tools/*": "tooling"
+  }
+}
+```
+
+The file has three top-level keys. Do not mix up `rules` and `roles`:
+
+| Key | Answers | Effect |
+| --- | --- | --- |
+| `elements` | Which files belong together? | Names sets of files for the rules |
+| `rules` | Which imports are allowed? | Violations in the view, `check-architecture` exit code |
+| `roles` | What is each unit? | Badge `[role]` instead of `[role?]`, legend counts, `role` selectors of elements |
+
+All three are optional; a file without `rules` checks nothing.
+
+To write the file for your workspace:
+
+1. Run `graph-it architecture --level units` (or open the Architecture view) and note the unit keys: package folders, else top-level folders, plus `(root)` for files outside them.
+2. Under `elements`, name each part of your architecture by `path`, `unit` or `role`. Every source file should belong to an element: `check-architecture` reports the others as `unmatchedFiles`.
+3. Under `rules`, write what each element may import (`allowOnly`) or must not import (`forbid`), with a `reason`.
+4. Optionally, under `roles`, fix every role the view infers wrongly or marks `[unknown?]`. Keys are unit keys or package names from step 1, not element names.
+5. Run `graph-it check-architecture`: it should report 0 violations, no unmatched file and no config warning.
+
+A single-package repository (no `package.json` below the root) has its top-level folders as units. Graph-It-Live's own [`graphit.architecture.json`](graphit.architecture.json) is such a file: elements split `src/` into layers, and `roles` declares the units:
+
+```json
+"roles": {
+  "src": "library",
+  "tests": "tooling",
+  "scripts": "tooling",
+  ".github": "tooling",
+  "(root)": "tooling"
 }
 ```
 

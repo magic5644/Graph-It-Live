@@ -821,12 +821,14 @@ graph-it check-architecture [--config <file>] [--baseline <file>] [--update-base
 |-----|---------|
 | `elements.<name>.path` | Workspace-relative gitignore-style patterns (the syntax of `.graphitignore`, no regular expression); no `..`, drive letter or backslash |
 | `elements.<name>.unit` | Unit keys or package names of [`--level units`](#units-output); `*` matches any characters |
+| `elements.<name>.role` | Unit roles: every unit with one of them (declared in `roles`, else inferred) |
 | `elements.<name>.each` | Every matched folder (or unit) is an instance of its own; a file never breaks a rule against its own instance |
 | `rules[].forbid` | Files of `from` may not import files of these elements |
 | `rules[].allowOnly` | Files of `from` may import only these elements and their own instance |
 | `rules[].noCycles` | `"units"`, or an element: no import cycle between units or between the element's instances |
 | `rules[].severity` | `error` (default, fails the command), `warning`, `off` (skipped) |
 | `rules[].reason` | Shown with every violation |
+| `roles.<unit>` | Role of the units whose key or package name matches (`*` matches any characters; first match wins): `function`, `micro-frontend`, `frontend`, `service`, `library`, `tooling` or `unknown`. Not a rule: it only replaces the inferred role |
 
 How the rules read:
 
