@@ -1,5 +1,28 @@
 # Changelog
 
+## v1.21.1
+
+Fixes only: no setting, command, CLI flag or MCP tool changes.
+
+### Changed
+
+- **One guide for the Architecture view** (#463): [`docs/architecture.md`](https://github.com/magic5644/Graph-It-Live/blob/main/docs/architecture.md) explains what the view, `graph-it architecture` and `explore_architecture` answer, their controls, unit roles, and how to write `graphit.architecture.json` (elements, rules, `roles`) for `graph-it check-architecture`.
+- **Promo video**: a 75-second tour of Graph-It-Live plays from the README and the site.
+
+### Fixed
+
+- **Fewer full re-indexes on config edits** (#430): Editing a `tsconfig*.json` or a `package.json` re-indexed the whole workspace even when import resolution could not change (a version bump, a new script, `strict`). The extension and the MCP server now re-index only when the effective `paths`, `baseUrl`, `imports`, aliases, entry fields or `file:` dependencies change. Several configs changed at once (a branch switch adding packages) share one re-index.
+- **Architecture view stale mark on macOS** (#433, #478): macOS reports one write of a new file as a create then a change; the view ignored the new file, so the edge of an importer whose missing target was just created stayed undrawn, and a late `package.json` event marked the view stale again right after *Refresh*. Created files now stay created, and *Refresh* no longer inherits the stale mark of an aborted build.
+- **Architecture view at narrow widths** (#426): In a narrow side bar the *Find* field wrapped to its own row and the header took a quarter of the view. The field now shrinks beside *Graph | Matrix*, and the legend's height cap includes its padding.
+- **Tooling units imported by others** (#468): A unit holding only scripts, tests or config files (`tests/`, `scripts/`, `.github/`, `*.config.*`) was inferred `library` as soon as another unit imported it. It is now `tooling`; its importers stay in the evidence.
+- **MCP `serverInfo.version`** (#462): The MCP server reported `1.1.0` (the response-envelope format version) in `initialize`. It now reports the package version, the same as `graph-it --version`.
+- **Leaner npm package** (#461, #473): `@magic5644/graph-it-live` declared the extension's 19 dependencies. It now declares only what its bundles load at runtime: `web-tree-sitter`, `ink` and `react`. `npm install -g` downloads less and no longer installs `react-dom` or `react-devtools-core`.
+
+### Tests
+
+- Before publishing, and in CI on Linux, macOS and Windows, a smoke test installs the packed npm tarball in an empty folder and runs `graph-it --version`, `graph-it summary` and MCP calls through `graph-it serve`.
+- VS Code E2E tests cover the Architecture view at narrow widths and the macOS create-then-change sequence.
+
 ## v1.21.0
 
 ### Breaking / Behavior changes
