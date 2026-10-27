@@ -1,5 +1,8 @@
 import type { PathResolver } from "@/analyzer/utils/PathResolver";
+import { isInIgnoredDirectory } from "@/analyzer/utils/PathPredicates";
+import { declaresExport, mayReExport, parseReExports, type ReExportTarget } from "@/analyzer/utils/reExports";
 import { normalizePath } from "@/shared/path";
+import fs from "node:fs/promises";
 import type { Node as TreeNode } from "web-tree-sitter";
 
 const FUNCTION_SCOPES = new Set([
@@ -44,12 +47,46 @@ function enclosingScope(node: TreeNode, functionOnly: boolean): TreeNode {
   return scope;
 }
 
+/**
+ * Follows `name` through barrels (`export { x } from`, `export * from`) to the module that
+ * declares it, so a call through a barrel links to the real symbol. Null when the chain
+ * cannot be resolved: the caller keeps the barrel as target.
+ */
+async function findDeclaration(
+  filePath: string,
+  name: string,
+  resolver: PathResolver,
+  visited: Set<string>,
+  reads: Map<string, Promise<string | null>>,
+): Promise<ReExportTarget | null> {
+  const normalized = normalizePath(filePath);
+  const key = `${normalized}:${name}`;
+  if (visited.has(key) || isInIgnoredDirectory(normalized)) return null;
+  visited.add(key);
+  // One read per module per import statement set: several specifiers often share a module.
+  if (!reads.has(key)) reads.set(key, fs.readFile(filePath, "utf-8").catch(() => null));
+  const content = await reads.get(key)!; // NOSONAR S9382 sequential: first declaring barrel wins
+  if (content === null) return null;
+  if (!mayReExport(content) || declaresExport(filePath, content, name)) return { filePath: normalized, name };
+  for (const { specifier, names } of parseReExports(filePath, content)) {
+    // `export *` never re-exports `default`.
+    if (names === "all" && name === "default") continue;
+    const wanted = names === "all" ? name : names.find((entry) => entry.exported === name)?.imported;
+    if (!wanted) continue;
+    const next = await resolver.resolve(filePath, specifier).catch(() => null); // NOSONAR S9382 sequential: source order
+    const found = next ? await findDeclaration(next, wanted, resolver, visited, reads) : null; // NOSONAR S9382 sequential: source order
+    if (found) return found;
+  }
+  return null;
+}
+
 async function collectNamedImports(
   root: TreeNode,
   filePath: string,
   resolver: PathResolver,
 ): Promise<Map<string, string | null>> {
   const statements = root.namedChildren.filter(node => node.type === "import_statement");
+  const reads = new Map<string, Promise<string | null>>();
   const bindings = await Promise.all(statements.map(async (statement): Promise<Array<[string, string | null]>> => {
     const specifiers = statement.descendantsOfType("import_specifier");
     if (specifiers.length === 0) return [];
@@ -62,8 +99,11 @@ async function collectNamedImports(
       if (!imported) continue;
       const local = specifier.childForFieldName("alias") ?? imported;
       const isType = typeOnly || specifier.children.some(node => node.type === "type");
+      const declared = targetPath && !isType
+        ? await findDeclaration(targetPath, imported.text, resolver, new Set(), reads) // NOSONAR S9382 sequential per specifier
+        : null;
       imports.push([local.text, targetPath && !isType
-        ? `@@import:${JSON.stringify([normalizePath(targetPath), imported.text])}` : null]);
+        ? `@@import:${JSON.stringify([declared?.filePath ?? normalizePath(targetPath), declared?.name ?? imported.text])}` : null]);
     }
     return imports;
   }));
