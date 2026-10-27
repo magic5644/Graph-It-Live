@@ -371,6 +371,7 @@ export class GraphProvider implements vscode.WebviewViewProvider {
       updateGraph: this.updateGraph.bind(this),
       handleDrillDown: this.handleDrillDown.bind(this),
       handleFileChange: this.handleFileChange.bind(this),
+      onResolverConfigChanged: async () => { await this._callGraphViewService?.invalidateIndex(); },
     });
 
     this._container = container;

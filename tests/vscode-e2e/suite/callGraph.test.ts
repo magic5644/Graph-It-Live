@@ -83,6 +83,42 @@ suite('Call Graph Test Suite', () => {
     assert.ok(response.callers.some(caller => caller.sourceName === 'aliasCaller398'), JSON.stringify(response));
   });
 
+  // #432: a tsconfig `paths` change moves no importer's mtime; the call graph must not keep the edges resolved before it.
+  test('LM callers follow a tsconfig alias added while the call graph is built (#432)', async function () {
+    this.timeout(180000);
+    const target = getProjectFile('sample-project', 'src', 'e2eAliasTarget432.ts');
+    const caller = getProjectFile('sample-project', 'src', 'e2eAliasCaller432.ts');
+    const tsConfig = getProjectFile('sample-project', 'tsconfig.json');
+    const original = await vscode.workspace.fs.readFile(tsConfig);
+    const withAlias = Buffer.from(Buffer.from(original).toString('utf8').replace('"paths": {', '"paths": {\n      "@e2e432/*": ["./src/*"],'));
+    const callerNames = async (): Promise<string[]> => {
+      await openCallGraphFor('sample-project', 'src', 'e2eAliasTarget432.ts');
+      const result = await vscode.lm.invokeTool('graph-it-live_query_call_graph', {
+        input: { filePath: target.fsPath, symbolName: 'aliasTarget432', direction: 'callers' },
+        toolInvocationToken: undefined,
+      });
+      const part = result.content.find(p => p instanceof vscode.LanguageModelTextPart);
+      assert.ok(part instanceof vscode.LanguageModelTextPart, 'Expected a JSON tool result');
+      return (JSON.parse(part.value) as { callers: Array<{ sourceName: string }> }).callers.map(c => c.sourceName);
+    };
+    try {
+      await vscode.workspace.fs.writeFile(target, Buffer.from('export function aliasTarget432() { return 1; }\n'));
+      await vscode.workspace.fs.writeFile(caller, Buffer.from("import { aliasTarget432 } from '@e2e432/e2eAliasTarget432';\nexport function aliasCaller432() { return aliasTarget432(); }\n"));
+      await sleep(2000); // let the create events reach the index
+      assert.deepStrictEqual(await callerNames(), [], 'the alias is not configured yet');
+
+      await vscode.workspace.fs.writeFile(tsConfig, withAlias);
+      await sleep(3000); // let the config event re-index and drop the call graph
+      assert.ok((await callerNames()).includes('aliasCaller432'), 'the caller resolves through the new alias');
+    } finally {
+      await vscode.commands.executeCommand('workbench.action.closeActiveEditor');
+      await vscode.workspace.fs.writeFile(tsConfig, original);
+      await vscode.workspace.fs.delete(target).then(undefined, () => undefined);
+      await vscode.workspace.fs.delete(caller).then(undefined, () => undefined);
+      await sleep(1500); // let the config and delete events reach the index before the next test
+    }
+  });
+
   // ============================================================================
   // B3 — Graph content: nodeCount > 0 after opening
   // ============================================================================

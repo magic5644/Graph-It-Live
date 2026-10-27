@@ -254,12 +254,18 @@ function restoreConfiguredPath(filePath: string, watchRoot: string): string {
   return path.join(configuredRoot, relativePath);
 }
 
+/** Cross-file call edges were resolved with the old configuration: rebuild the call graph (#432). */
+function refreshAfterResolverChange(): void {
+  workerState.resolver?.clearCaches();
+  workerState.markCallGraphStale();
+}
+
 /** No importer's mtime moves when imports resolve elsewhere: re-index them all (#419), unless resolution is unchanged (#430). */
 function reindexForResolverConfig(spider: NonNullable<typeof workerState.spider>, filePath: string): void {
   spider.handleResolverConfigChange(filePath).then((reindexed) => {
-    if (reindexed !== null) workerState.resolver?.clearCaches();
+    if (reindexed !== null) refreshAfterResolverChange();
   }).catch((error: unknown) => {
-    workerState.resolver?.clearCaches();
+    refreshAfterResolverChange();
     log.warn("Could not re-index after a resolver configuration change:", error instanceof Error ? error.message : String(error));
   });
 }

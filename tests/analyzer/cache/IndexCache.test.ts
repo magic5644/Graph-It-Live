@@ -148,6 +148,31 @@ describe("IndexCache", () => {
       expect(readMeta().reverseIndexOptions).toBeUndefined();
     });
 
+    // #432: the extension and the MCP server keep one IndexCache for a whole session.
+    it("stops restoring once a resolver config changes after it was opened, and saves under the new one", () => {
+      open().save({ reverseIndex: { data: "INDEX", options: OPTIONS }, callGraph: new Uint8Array([1]) });
+      const longLived = open();
+      expect(longLived.readReverseIndex(OPTIONS)).toBe("INDEX");
+
+      fs.writeFileSync(path.join(tmpDir, "tsconfig.json"), '{"compilerOptions":{"paths":{"@a/*":["src/*"]}}}');
+
+      expect(longLived.isValid()).toBe(false);
+      expect(longLived.readReverseIndex(OPTIONS)).toBeNull();
+      longLived.save({ reverseIndex: { data: "NEW", options: OPTIONS } });
+      expect(fs.existsSync(longLived.callGraphPath)).toBe(false);
+      expect(open().readReverseIndex(OPTIONS)).toBe("NEW");
+    });
+
+    // #432: `graph-it` builds a fresh IndexCache per run.
+    it("does not restore a payload saved before the resolver config changed", () => {
+      open().save({ reverseIndex: { data: "INDEX", options: OPTIONS }, callGraph: new Uint8Array([1]) });
+      fs.writeFileSync(path.join(tmpDir, "tsconfig.json"), '{"compilerOptions":{"paths":{"@a/*":["src/*"]}}}');
+
+      const cache = open();
+      expect(cache.isValid()).toBe(false);
+      expect(cache.readReverseIndex(OPTIONS)).toBeNull();
+    });
+
     it("leaves no temp file behind", () => {
       open().save({ reverseIndex: { data: "INDEX", options: OPTIONS }, callGraph: new Uint8Array([1]) });
 

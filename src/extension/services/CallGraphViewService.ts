@@ -398,9 +398,26 @@ export class CallGraphViewService implements vscode.Disposable, ICallGraphQueryS
     return tracked;
   }
 
+  /**
+   * Drop the call graph without re-showing it: its cross-file edges were resolved with a resolver
+   * configuration that changed (#432). The next `show()` re-indexes the workspace.
+   */
+  invalidateIndex(): Promise<void> {
+    if (this.disposed || this.reindexPromise) return this.reindexPromise ?? Promise.resolve();
+    const operation = Promise.allSettled([...this.activeOperations]).then(() => this.dropIndex());
+    return this.trackOperation(operation);
+  }
+
   private async doForceReindex(): Promise<void> {
     if (this.disposed) return;
-    // 1. Drop the current DB and persisted file
+    await this.dropIndex();
+    // Re-show the call graph (triggers full workspace re-index)
+    await this.showInternal();
+  }
+
+  private async dropIndex(): Promise<void> {
+    if (this.disposed) return;
+    // Drop the current DB and persisted file
     this.workspaceIndexedRoot = null;
     this.indexWorkspacePromise = null;
     if (this.indexer) {
@@ -413,9 +430,6 @@ export class CallGraphViewService implements vscode.Disposable, ICallGraphQueryS
       try { await vscode.workspace.fs.delete(vscode.Uri.file(cache.callGraphPath)); }
       catch { /* file may not exist — that's fine */ }
     }
-
-    // 2. Re-show the call graph (triggers full workspace re-index)
-    await this.showInternal();
   }
 
   dispose(): void {

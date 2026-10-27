@@ -96,6 +96,7 @@ export interface GraphProviderServiceContainerOptions {
     targetMode?: "list" | "symbol",
   ) => Promise<void>;
   handleFileChange: (filePath: string, eventType: EventType) => Promise<void>;
+  onResolverConfigChanged?: () => Promise<void>;
 }
 
 export interface GraphProviderServiceContainerResult {
@@ -277,6 +278,7 @@ export function createGraphProviderServiceContainer(
           updateGraph: options.updateGraph,
           handleDrillDown: options.handleDrillDown,
           logger: options.logger,
+          onResolverConfigChanged: options.onResolverConfigChanged,
         }),
     );
   }
