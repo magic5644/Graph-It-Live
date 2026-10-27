@@ -12,6 +12,7 @@ import type { Dependency, SpiderConfig, SymbolDependency, SymbolInfo } from '../
 import { SpiderError, SpiderErrorCode, normalizePath } from '../types';
 import { isInIgnoredDirectory } from '../utils/PathPredicates';
 import { PathResolver } from '../utils/PathResolver';
+import { parseReExports, type ReExport, type ReExportTarget } from '../utils/reExports';
 
 const log = getLogger('SpiderSymbolService');
 
@@ -131,10 +132,65 @@ export class SpiderSymbolService {
   }
 
   async getSymbolDependents(filePath: string, symbolName: string): Promise<SymbolDependency[]> {
-    const referencingFiles = await this.findReferencingFiles(filePath);
-    // A file never references itself, yet its other symbols can call the target.
-    const sourcePaths = [filePath, ...referencingFiles.map((ref) => ref.path)];
-    return this.collectSymbolDependents(sourcePaths, filePath, symbolName);
+    // A consumer behind a barrel targets the barrel's id, so each re-export alias is searched too.
+    const dependents = new Map<string, SymbolDependency>();
+    for (const alias of await this.collectReexportAliases(filePath, symbolName)) {
+      const referencingFiles = await this.findReferencingFiles(alias.filePath); // NOSONAR S9382 sequential: shared dependents map
+      // A file never references itself, yet its other symbols can call the target.
+      const sourcePaths = [alias.filePath, ...referencingFiles.map((ref) => ref.path)];
+      for (const dep of await this.collectSymbolDependents(sourcePaths, alias.filePath, alias.name)) { // NOSONAR S9382 sequential
+        dependents.set(normalizePath(dep.sourceSymbolId), dep);
+      }
+    }
+    return [...dependents.values()];
+  }
+
+  /**
+   * The symbol itself plus every `(barrel, name)` that re-exports it, through any number of
+   * barrels. A visited set stops barrel cycles; a barrel that cannot be read or resolved is skipped.
+   */
+  private async collectReexportAliases(filePath: string, symbolName: string): Promise<ReExportTarget[]> {
+    const root = { filePath: normalizePath(filePath), name: symbolName };
+    const aliases = new Map<string, ReExportTarget>([[`${root.filePath}:${root.name}`, root]]);
+    const queue = [root];
+    for (let current = queue.pop(); current; current = queue.pop()) {
+      const referencing = await this.findReferencingFiles(current.filePath); // NOSONAR S9382 BFS queue
+      const importers = referencing.filter((ref) => ref.type === 'export');
+      for (const importer of importers) {
+        for (const alias of await this.reexportedAs(importer.path, current)) { // NOSONAR S9382 BFS queue
+          const key = `${alias.filePath}:${alias.name}`;
+          if (aliases.has(key)) continue;
+          aliases.set(key, alias);
+          queue.push(alias);
+        }
+      }
+    }
+    return [...aliases.values()];
+  }
+
+  /** Names under which `barrelPath` re-exports `target`. */
+  private async reexportedAs(barrelPath: string, target: ReExportTarget): Promise<ReExportTarget[]> {
+    const barrel = normalizePath(barrelPath);
+    let reExports: ReExport[];
+    try {
+      reExports = parseReExports(barrel, await this.fileReader.readFile(barrel)); // NOSONAR S9382 per barrel
+    } catch {
+      return [];
+    }
+    const found: ReExportTarget[] = [];
+    for (const { specifier, names } of reExports) {
+      const resolved = await this.resolveModuleSpecifier(barrel, specifier); // NOSONAR S9382 per re-export
+      if (!resolved || normalizePath(resolved) !== target.filePath) continue;
+      if (names === 'all') {
+        // `export *` never re-exports `default`.
+        if (target.name !== 'default') found.push({ filePath: barrel, name: target.name });
+        continue;
+      }
+      for (const { imported, exported } of names) {
+        if (imported === target.name) found.push({ filePath: barrel, name: exported });
+      }
+    }
+    return found;
   }
 
   async traceFunctionExecution(

@@ -106,3 +106,62 @@ describe('Spider - Symbol dependents in the same file and through namespaces', (
     expect(await dependentsOf('named.ts', 'viaNamed')).toEqual([]);
   });
 });
+
+describe('Spider - Symbol dependents behind re-export barrels', () => {
+  let rootDir: string;
+  let spider: Spider;
+  const file = (name: string) => path.join(rootDir, 'src', name);
+  const dependentsOf = async (name: string, symbol: string) =>
+    (await spider.getSymbolDependents(file(name), symbol)).map((d) => d.sourceSymbolId.split(':').pop()).sort();
+
+  beforeAll(async () => {
+    rootDir = await fs.mkdtemp(path.join(os.tmpdir(), 'gitl-barrel-'));
+    await fs.mkdir(path.join(rootDir, 'src'));
+    const files: Record<string, string> = {
+      'price.ts': 'export function formatPrice(amount: number): string { return `$${amount}`; }\nexport function lonely(): number { return 1; }\n',
+      'cart.ts': 'import { formatPrice } from "./price";\nexport const cartTotal = () => formatPrice(1);\n',
+      'index.ts': 'export { formatPrice } from "./price";\nexport { formatPrice as fmt } from "./price";\nexport { lonely } from "./price";\n',
+      'invoice.ts': 'import { formatPrice } from "./index";\nexport const invoiceLine = () => formatPrice(2);\n',
+      'renamed.ts': 'import { fmt } from "./index";\nexport const renamedLine = () => fmt(3);\n',
+      'star.ts': 'export * from "./price";\n',
+      'viaStar.ts': 'import { formatPrice } from "./star";\nexport const starLine = () => formatPrice(4);\n',
+      'outer.ts': 'export * from "./star";\n',
+      'viaOuter.ts': 'import { formatPrice } from "./outer";\nexport const outerLine = () => formatPrice(5);\n',
+      'cycleA.ts': 'export * from "./cycleB";\nexport * from "./price";\n',
+      'cycleB.ts': 'export * from "./cycleA";\n',
+      'gone.ts': 'export { formatPrice } from "./price";\n',
+      'viaGone.ts': 'import { formatPrice } from "./gone";\nexport const goneLine = () => formatPrice(7);\n',
+      'viaCycle.ts': 'import { formatPrice } from "./cycleB";\nexport const cycleLine = () => formatPrice(6);\n',
+    };
+    for (const [name, content] of Object.entries(files)) {
+      await fs.writeFile(file(name), content, 'utf-8');
+    }
+    spider = new SpiderBuilder().withRootDir(rootDir).withReverseIndex(true).build();
+    await spider.buildFullIndex();
+  });
+
+  afterAll(async () => {
+    await fs.rm(rootDir, { recursive: true, force: true });
+  });
+
+  it('lists direct, named-barrel, renamed, export * and chained-barrel consumers', async () => {
+    expect(await dependentsOf('price.ts', 'formatPrice')).toEqual([
+      'cartTotal', 'cycleLine', 'goneLine', 'invoiceLine', 'outerLine', 'renamedLine', 'starLine',
+    ]);
+  });
+
+  it('terminates on a cycle of barrels', async () => {
+    expect(await dependentsOf('price.ts', 'formatPrice')).toContain('cycleLine');
+  });
+
+  it('returns nothing for a re-exported symbol nobody consumes', async () => {
+    expect(await dependentsOf('price.ts', 'lonely')).toEqual([]);
+  });
+
+  it('skips a barrel that can no longer be read and keeps the other consumers', async () => {
+    await fs.rm(file('gone.ts'));
+    const names = await dependentsOf('price.ts', 'formatPrice');
+    expect(names).toContain('cartTotal');
+    expect(names).toContain('invoiceLine');
+  });
+});

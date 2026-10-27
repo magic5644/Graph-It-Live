@@ -66,6 +66,37 @@ export function handleBatch() { open(); closeJournal(); }`,
     expect(queryNeighbourhood(indexer.getDb(), target.id, 2).nodes.map(n => n.name)).toEqual(expect.arrayContaining(["startJournal", "handleBatch", "main"]));
   });
 
+  it("links a call made through a barrel to the declaring symbol (named, renamed, export *, chained, cyclic)", async () => {
+    const snapshot = await index({
+      price: "export function formatPrice() {}\nexport function lonely() {}",
+      barrel: `export { formatPrice, formatPrice as fmt } from './price.${ext}';`,
+      star: `export * from './barrel.${ext}';\nexport * from './loop.${ext}';`,
+      loop: `export * from './star.${ext}';`,
+      outer: `export * from './star.${ext}';`,
+      direct: `import { formatPrice } from './price.${ext}'; export function viaDirect() { formatPrice(); }`,
+      named: `import { formatPrice } from './barrel.${ext}'; export function viaNamed() { formatPrice(); }`,
+      renamed: `import { fmt } from './barrel.${ext}'; export function viaRenamed() { fmt(); }`,
+      chained: `import { formatPrice } from './outer.${ext}'; export function viaChain() { formatPrice(); }`,
+      missing: `import { nothing } from './outer.${ext}'; export function viaMissing() { nothing(); }`,
+    });
+    const target = snapshot.nodes.find(n => n.name === "formatPrice")!;
+    const callers = snapshot.edges.filter(e => e.typeRelation === "CALLS" && e.targetId === target.id)
+      .map(e => snapshot.nodes.find(n => n.id === e.sourceId)!.name).sort();
+    expect(callers).toEqual(["viaChain", "viaDirect", "viaNamed", "viaRenamed"]);
+    expect(snapshot.edges.some(e => e.sourceId.includes("viaMissing") && e.typeRelation === "CALLS")).toBe(false);
+  });
+
+  it("keeps no edge when the barrel's re-export target cannot be read, and skips `default` through export *", async () => {
+    const snapshot = await index({
+      broken: `export { x } from './gone.${ext}';`,
+      user: `import { x } from './broken.${ext}'; export function viaBroken() { x(); }`,
+      impl: "export default function impl() {}",
+      star: `export * from './impl.${ext}';`,
+      defUser: `import { default as impl } from './star.${ext}'; export function viaDefault() { impl(); }`,
+    });
+    expect(snapshot.edges.filter(e => e.typeRelation === "CALLS")).toEqual([]);
+  });
+
   it.each([
     "export function run(open) { open(); }",
     "export function run() { const open = () => 0; open(); }",
