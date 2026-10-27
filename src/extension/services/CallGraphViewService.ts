@@ -404,7 +404,7 @@ export class CallGraphViewService implements vscode.Disposable, ICallGraphQueryS
    */
   invalidateIndex(): Promise<void> {
     if (this.disposed || this.reindexPromise) return this.reindexPromise ?? Promise.resolve();
-    const operation = Promise.allSettled([...this.activeOperations]).then(() => this.dropIndex());
+    const operation = Promise.allSettled(this.activeOperations).then(() => this.dropIndex());
     return this.trackOperation(operation);
   }
 
