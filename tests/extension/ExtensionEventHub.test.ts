@@ -93,6 +93,21 @@ describe("ExtensionEventHub", () => {
     expect(options.updateGraph).toHaveBeenCalledWith(true, "fileChange");
   });
 
+  // #432: the call graph keeps cross-file edges resolved with the old configuration.
+  it("drops the stores the Spider does not own before refreshing, only when the index was rebuilt", async () => {
+    const onResolverConfigChanged = vi.fn().mockResolvedValue(undefined);
+    const options = createOptions({ onResolverConfigChanged });
+    vi.mocked(options.spider!.handleResolverConfigChange).mockResolvedValueOnce(3).mockResolvedValueOnce(null);
+    const hub = new ExtensionEventHub(options);
+
+    await hub.handleFileChange("C:\\workspace\\tsconfig.json", "change" as EventType);
+    expect(onResolverConfigChanged).toHaveBeenCalledTimes(1);
+    expect(onResolverConfigChanged.mock.invocationCallOrder[0]).toBeLessThan(vi.mocked(options.updateGraph).mock.invocationCallOrder[0]);
+
+    await hub.handleFileChange("C:\\workspace\\tsconfig.json", "change" as EventType);
+    expect(onResolverConfigChanged).toHaveBeenCalledTimes(1);
+  });
+
   // #430: an edit that keeps the effective resolver configuration re-indexes nothing.
   it("leaves the graph untouched when the resolver configuration is unchanged", async () => {
     const options = createOptions();

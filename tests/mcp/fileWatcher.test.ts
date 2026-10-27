@@ -124,6 +124,7 @@ describe('MCP file watcher', () => {
     const reindex = vi.spyOn(workerState.spider!, 'reindexStaleFiles');
     const clearResolver = vi.fn();
     workerState.resolver = { clearCaches: clearResolver } as unknown as typeof workerState.resolver;
+    const stale = vi.spyOn(workerState, 'markCallGraphStale');
     handle.mockClear();
 
     await fs.writeFile(packageJson, '{ "name": "fx", "version": "1.0.1", "scripts": { "test": "vitest" } }');
@@ -133,6 +134,18 @@ describe('MCP file watcher', () => {
     expect(await handle.mock.results[0].value).toBeNull();
     expect(reindex).not.toHaveBeenCalled();
     expect(clearResolver).not.toHaveBeenCalled();
+    expect(stale).not.toHaveBeenCalledWith();
+  }, testTimeout);
+
+  // #432: call edges resolved through `paths` follow the configuration without a manual rebuild.
+  it('marks the call graph for a full rebuild when a resolver configuration change re-indexed', async () => {
+    const stale = vi.spyOn(workerState, 'markCallGraphStale');
+    const tsConfig = normalizePath(path.join(root, 'tsconfig.json'));
+    await fs.writeFile(tsConfig, JSON.stringify({ compilerOptions: { paths: { '@app/*': ['./src/*'] } } }));
+    await vi.waitFor(() => {
+      expect(stale).toHaveBeenCalledWith();
+    }, { timeout: eventTimeout });
+    expect(workerState.callGraphFullRebuild).toBe(true);
   }, testTimeout);
 
   it('keeps watching when re-indexing after a resolver configuration change fails', async () => {
@@ -144,6 +157,7 @@ describe('MCP file watcher', () => {
     await vi.waitFor(() => {
       expect(reindex).toHaveBeenCalled();
       expect(clearResolver).toHaveBeenCalled();
+      expect(workerState.callGraphFullRebuild).toBe(true);
       expect(postMessage).toHaveBeenCalledWith(expect.objectContaining({ event: 'add', filePath: packageJson }));
     }, { timeout: eventTimeout });
   }, testTimeout);

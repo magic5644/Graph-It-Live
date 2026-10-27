@@ -30,6 +30,8 @@ export interface EventHubOptions {
     targetMode?: "list" | "symbol",
   ) => Promise<void>;
   logger: VsCodeLogger;
+  /** Called once a resolver configuration change re-indexed the files, for stores the Spider does not own. */
+  onResolverConfigChanged?: () => Promise<void>;
 }
 
 export class ExtensionEventHub {
@@ -45,6 +47,7 @@ export class ExtensionEventHub {
     targetMode?: "list" | "symbol",
   ) => Promise<void>;
   private readonly log: VsCodeLogger;
+  private readonly onResolverConfigChanged?: () => Promise<void>;
   private fileSaveDebounceTimer?: NodeJS.Timeout;
   private disposed = false;
   private readonly activeOperations = new Set<Promise<void>>();
@@ -58,6 +61,7 @@ export class ExtensionEventHub {
     this.updateGraph = options.updateGraph;
     this.handleDrillDown = options.handleDrillDown;
     this.log = options.logger;
+    this.onResolverConfigChanged = options.onResolverConfigChanged;
   }
 
   handleFileSaved(filePath: string): Promise<void> {
@@ -179,7 +183,10 @@ export class ExtensionEventHub {
     if (RESOLVER_CONFIG_FILE_REGEX.test(filePath)) {
       this.log.debug(`Resolver configuration ${eventType}:`, filePath);
       const reindexed = await this.spider.handleResolverConfigChange(filePath);
-      if (reindexed !== null) await this.refreshByCurrentView();
+      if (reindexed !== null) {
+        await this.onResolverConfigChanged?.();
+        await this.refreshByCurrentView();
+      }
       return;
     }
 

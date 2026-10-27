@@ -172,12 +172,13 @@ export class IndexCache {
     reverseIndex?: { data: string; options: ReverseIndexOptions };
     callGraph?: Uint8Array;
   }): boolean {
-    if (!this.fingerprint) return false;
+    const fingerprint = this.currentFingerprint();
+    if (!fingerprint) return false;
     try {
       fs.mkdirSync(this.dir, { recursive: true });
       this.ensureGitignore();
       const previous = this.readMeta();
-      const keepOthers = this.matches(previous);
+      const keepOthers = this.matches(previous, fingerprint);
 
       const reverseIndexPath = path.join(this.dir, REVERSE_INDEX_FILE);
       if (payload.reverseIndex) writeFileAtomic(reverseIndexPath, payload.reverseIndex.data);
@@ -191,7 +192,7 @@ export class IndexCache {
         version: ANALYZER_VERSION,
         savedAt: new Date().toISOString(),
         workspaceRoot: this.workspaceRoot,
-        configFingerprint: this.fingerprint,
+        configFingerprint: fingerprint,
         reverseIndexOptions: payload.reverseIndex?.options ?? (keepOthers ? previous?.reverseIndexOptions : undefined),
       };
       writeFileAtomic(path.join(this.dir, META_FILE), JSON.stringify(meta, null, 2));
@@ -347,12 +348,21 @@ export class IndexCache {
     }
   }
 
-  private matches(meta: IndexCacheMeta | undefined): boolean {
+  /**
+   * Read at each use, not once at construction: the extension and the MCP server keep one
+   * IndexCache for a whole session, and a resolver config edited meanwhile changes what
+   * the payloads they save and restore were built with.
+   */
+  private currentFingerprint(): string | undefined {
+    return this.fingerprint && configFingerprint(this.workspaceRoot, this.sourceFiles);
+  }
+
+  private matches(meta: IndexCacheMeta | undefined, fingerprint = this.currentFingerprint()): boolean {
     return (
-      this.fingerprint !== undefined &&
+      fingerprint !== undefined &&
       meta?.schema === INDEX_CACHE_SCHEMA &&
       meta.version === ANALYZER_VERSION &&
-      meta.configFingerprint === this.fingerprint &&
+      meta.configFingerprint === fingerprint &&
       typeof meta.workspaceRoot === "string" &&
       normalizePath(meta.workspaceRoot) === normalizePath(this.workspaceRoot)
     );
