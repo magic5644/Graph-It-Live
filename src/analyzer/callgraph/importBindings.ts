@@ -1,6 +1,6 @@
 import type { PathResolver } from "@/analyzer/utils/PathResolver";
 import { isInIgnoredDirectory } from "@/analyzer/utils/PathPredicates";
-import { declaresExport, mayReExport, parseReExports, type ReExportTarget } from "@/analyzer/utils/reExports";
+import { declaresExport, mayReExport, parseReExports, type ReExport, type ReExportTarget } from "@/analyzer/utils/reExports";
 import { normalizePath } from "@/shared/path";
 import fs from "node:fs/promises";
 import type { Node as TreeNode } from "web-tree-sitter";
@@ -47,6 +47,13 @@ function enclosingScope(node: TreeNode, functionOnly: boolean): TreeNode {
   return scope;
 }
 
+/** The name a re-export declaration reaches `name` under in its source module, if any. */
+function reExportedAs(names: ReExport["names"], name: string): string | undefined {
+  // `export *` never re-exports `default`.
+  if (names === "all") return name === "default" ? undefined : name;
+  return names.find((entry) => entry.exported === name)?.imported;
+}
+
 /**
  * Follows `name` through barrels (`export { x } from`, `export * from`) to the module that
  * declares it, so a call through a barrel links to the real symbol. Null when the chain
@@ -69,9 +76,7 @@ async function findDeclaration(
   if (content === null) return null;
   if (!mayReExport(content) || declaresExport(filePath, content, name)) return { filePath: normalized, name };
   for (const { specifier, names } of parseReExports(filePath, content)) {
-    // `export *` never re-exports `default`.
-    if (names === "all" && name === "default") continue;
-    const wanted = names === "all" ? name : names.find((entry) => entry.exported === name)?.imported;
+    const wanted = reExportedAs(names, name);
     if (!wanted) continue;
     const next = await resolver.resolve(filePath, specifier).catch(() => null); // NOSONAR S9382 sequential: source order
     const found = next ? await findDeclaration(next, wanted, resolver, visited, reads) : null; // NOSONAR S9382 sequential: source order
