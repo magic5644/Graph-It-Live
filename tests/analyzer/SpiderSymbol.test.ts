@@ -5,6 +5,30 @@ import * as path from 'path';
 import { Spider } from '../../src/analyzer/Spider';
 import { SpiderBuilder } from '../../src/analyzer/SpiderBuilder';
 
+/** Indexes `files` (written under `<tmp>/src`) with a fresh Spider and exposes `dependentsOf`. */
+function useTempProject(prefix: string, files: Record<string, string>) {
+  const project = {
+    rootDir: '',
+    spider: undefined as unknown as Spider,
+    file: (name: string) => path.join(project.rootDir, 'src', name),
+    dependentsOf: async (name: string, symbol: string) =>
+      (await project.spider.getSymbolDependents(project.file(name), symbol)).map((d) => d.sourceSymbolId.split(':').pop()).sort(),
+  };
+  beforeAll(async () => {
+    project.rootDir = await fs.mkdtemp(path.join(os.tmpdir(), prefix));
+    await fs.mkdir(path.join(project.rootDir, 'src'));
+    for (const [name, content] of Object.entries(files)) {
+      await fs.writeFile(project.file(name), content, 'utf-8');
+    }
+    project.spider = new SpiderBuilder().withRootDir(project.rootDir).withReverseIndex(true).build();
+    await project.spider.buildFullIndex();
+  });
+  afterAll(async () => {
+    await fs.rm(project.rootDir, { recursive: true, force: true });
+  });
+  return project;
+}
+
 describe('Spider - Symbol Analysis', () => {
   const fixturesDir = path.resolve(process.cwd(), 'tests/fixtures/symbols');
   const utilsPath = path.join(fixturesDir, 'utils.ts');
@@ -60,16 +84,7 @@ describe('Spider - Destructured dynamic imports', () => {
 });
 
 describe('Spider - Symbol dependents in the same file and through namespaces', () => {
-  let rootDir: string;
-  let spider: Spider;
-  const file = (name: string) => path.join(rootDir, 'src', name);
-  const dependentsOf = async (name: string, symbol: string) =>
-    (await spider.getSymbolDependents(file(name), symbol)).map((d) => d.sourceSymbolId.split(':').pop()).sort();
-
-  beforeAll(async () => {
-    rootDir = await fs.mkdtemp(path.join(os.tmpdir(), 'gitl-dependents-'));
-    await fs.mkdir(path.join(rootDir, 'src'));
-    const files: Record<string, string> = {
+  const { dependentsOf } = useTempProject('gitl-dependents-', {
       'core.ts': [
         'export function target(x: number): number { return x * 2; }',
         'export class Service { run(): number { return target(21); } }',
@@ -81,16 +96,6 @@ describe('Spider - Symbol dependents in the same file and through namespaces', (
       'ns.ts': 'import * as core from "./core";\nexport const viaNamespace = () => core.target(2) + core.target(3);\n',
       'ns.test.ts': 'import * as core from "./core";\nimport { vi } from "vitest";\nexport const spy = vi.spyOn(core, "target");\n',
       'bare.ts': 'import * as core from "./core";\nexport const registry = [core];\n',
-    };
-    for (const [name, content] of Object.entries(files)) {
-      await fs.writeFile(file(name), content, 'utf-8');
-    }
-    spider = new SpiderBuilder().withRootDir(rootDir).withReverseIndex(true).build();
-    await spider.buildFullIndex();
-  });
-
-  afterAll(async () => {
-    await fs.rm(rootDir, { recursive: true, force: true });
   });
 
   it('lists same-file, named, namespace and spyOn dependents once each', async () => {
@@ -108,16 +113,7 @@ describe('Spider - Symbol dependents in the same file and through namespaces', (
 });
 
 describe('Spider - Symbol dependents behind re-export barrels', () => {
-  let rootDir: string;
-  let spider: Spider;
-  const file = (name: string) => path.join(rootDir, 'src', name);
-  const dependentsOf = async (name: string, symbol: string) =>
-    (await spider.getSymbolDependents(file(name), symbol)).map((d) => d.sourceSymbolId.split(':').pop()).sort();
-
-  beforeAll(async () => {
-    rootDir = await fs.mkdtemp(path.join(os.tmpdir(), 'gitl-barrel-'));
-    await fs.mkdir(path.join(rootDir, 'src'));
-    const files: Record<string, string> = {
+  const { dependentsOf, file } = useTempProject('gitl-barrel-', {
       'price.ts': 'export function formatPrice(amount: number): string { return `$${amount}`; }\nexport function lonely(): number { return 1; }\n',
       'cart.ts': 'import { formatPrice } from "./price";\nexport const cartTotal = () => formatPrice(1);\n',
       'index.ts': 'export { formatPrice } from "./price";\nexport { formatPrice as fmt } from "./price";\nexport { lonely } from "./price";\n',
@@ -132,16 +128,6 @@ describe('Spider - Symbol dependents behind re-export barrels', () => {
       'gone.ts': 'export { formatPrice } from "./price";\n',
       'viaGone.ts': 'import { formatPrice } from "./gone";\nexport const goneLine = () => formatPrice(7);\n',
       'viaCycle.ts': 'import { formatPrice } from "./cycleB";\nexport const cycleLine = () => formatPrice(6);\n',
-    };
-    for (const [name, content] of Object.entries(files)) {
-      await fs.writeFile(file(name), content, 'utf-8');
-    }
-    spider = new SpiderBuilder().withRootDir(rootDir).withReverseIndex(true).build();
-    await spider.buildFullIndex();
-  });
-
-  afterAll(async () => {
-    await fs.rm(rootDir, { recursive: true, force: true });
   });
 
   it('lists direct, named-barrel, renamed, export * and chained-barrel consumers', async () => {
