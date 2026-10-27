@@ -1,7 +1,7 @@
 # Graph-It-Live agent plugin
 
 This portable Agent Plugin bundles the Graph-It-Live MCP server and the
-Graph-It-Live skills (`graph-it-live`, `onboarding-express`, `dead-code-hunter`,
+Graph-It-Live skills (`graph-it-live`, `graph-it-refactor`, `onboarding-express`, `dead-code-hunter`,
 and `pr-review`) from [magic5644/skills](https://github.com/magic5644/skills).
 
 The `check_architecture` MCP tool and `graph-it check-architecture` check imports

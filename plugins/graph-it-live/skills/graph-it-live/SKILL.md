@@ -6,7 +6,7 @@ description: |
   "dependency graph" explicitly. Trigger for: "what calls this function", "who uses this class",
   "is it safe to delete X", "what breaks if I change Y", "show me the architecture", "trace the
   execution from main", "find circular imports", "give me an overview of this module", "what imports
-  this file", "impact analysis", "refactoring safety", "review this PR", "review this diff",
+  this file", "impact analysis", "review this PR", "review this diff",
   "is this change risky", breaking changes, unused exports, dead code detection, codemap, file logic,
   module resolution, graph-it, dependency graph, reverse dependencies.
 argument-hint: 'What do you want to analyze in your codebase?'
