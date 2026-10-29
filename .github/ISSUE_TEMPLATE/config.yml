@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Security vulnerability
+    url: https://github.com/magic5644/Graph-It-Live/security/advisories/new
+    about: Report vulnerabilities privately. Never open a public issue for them.
+  - name: Question or idea
+    url: https://github.com/magic5644/Graph-It-Live/discussions
+    about: Ask a question or share an idea before opening an issue.

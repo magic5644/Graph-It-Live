@@ -1,0 +1,58 @@
+name: Feature request
+description: Propose a new capability or an improvement.
+title: "feat(<area>): "
+labels: ["enhancement"]
+body:
+  - type: dropdown
+    id: priority
+    attributes:
+      label: Priority
+      options:
+        - P1 - blocks a main use case
+        - P2 - clear value, no urgency
+        - P3 - nice to have
+    validations:
+      required: true
+  - type: dropdown
+    id: area
+    attributes:
+      label: Area
+      options:
+        - VS Code extension
+        - Webview
+        - CLI
+        - MCP server
+        - REPL
+        - Analyzer / call graph
+        - Documentation
+    validations:
+      required: true
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem
+      description: What you cannot do today, and why it matters.
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposal
+      description: The behavior you want, with a small neutral example.
+    validations:
+      required: true
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
+  - type: textarea
+    id: acceptance
+    attributes:
+      label: Acceptance criteria
+      placeholder: |
+        - [ ] Observable behavior 1
+        - [ ] Unit tests (success and edge cases); E2E if user-facing
+        - [ ] Docs updated
+        - [ ] Works on Linux, macOS and Windows
+    validations:
+      required: true

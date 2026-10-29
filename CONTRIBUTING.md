@@ -16,7 +16,9 @@ Thank you for your interest in contributing to Graph-It-Live! This document prov
 
 ## Code of Conduct
 
-This project follows a standard code of conduct. Please be respectful and constructive in all interactions.
+This project follows the [Code of Conduct](CODE_OF_CONDUCT.md). Be respectful and constructive in all interactions.
+
+Report vulnerabilities privately, never in a public issue: see [SECURITY.md](SECURITY.md).
 
 ## Getting Started
 
@@ -87,6 +89,10 @@ npm run test:vscode
 ```
 
 For complete development workflow details, see [DEVELOPMENT.md](DEVELOPMENT.md).
+
+## Reporting Issues
+
+Open an issue with the matching form (bug, feature or performance). Give a priority (P1 to P3), a minimal reproduction on a neutral fixture (never private code), the root cause when you know it, and acceptance criteria. Search existing issues first.
 
 ## Making Changes
 
