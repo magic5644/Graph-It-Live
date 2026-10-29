@@ -179,6 +179,21 @@ function namespaceObject(call: TreeNode): TreeNode | null {
   return object?.type === "identifier" ? object : null;
 }
 
+/** `@@import:` stub for a static `ns.member()` call on an unshadowed namespace import, else null. */
+async function resolveNamespaceCall(
+  call: TreeNode,
+  namespaces: Map<string, string>,
+  shadows: Shadows,
+  resolver: PathResolver,
+  reads: Map<string, Promise<string | null>>,
+): Promise<string | null> {
+  const object = namespaceObject(call);
+  const modulePath = object && !findShadow(shadows, object) ? namespaces.get(object.text) : undefined;
+  if (!modulePath) return null;
+  const declared = await findDeclaration(modulePath, call.text, resolver, new Set(), reads);
+  return `@@import:${JSON.stringify([declared?.filePath ?? normalizePath(modulePath), declared?.name ?? call.text])}`;
+}
+
 /** Resolve named and namespace imports before the AST is freed; unknown bindings never fall back to global names. */
 export async function resolveNamedImportCalls(
   root: TreeNode,
@@ -202,11 +217,8 @@ export async function resolveNamedImportCalls(
         : imports.get(call.text)!);
       continue;
     }
-    const object = namespaceObject(call);
-    const modulePath = object && !findShadow(shadows, object) ? namespaces.get(object.text) : undefined;
-    if (!modulePath) continue;
-    const declared = await findDeclaration(modulePath, call.text, resolver, new Set(), reads); // NOSONAR S9382 sequential per call: shares the read cache
-    targets.set(call.id, `@@import:${JSON.stringify([declared?.filePath ?? normalizePath(modulePath), declared?.name ?? call.text])}`);
+    const stub = await resolveNamespaceCall(call, namespaces, shadows, resolver, reads); // NOSONAR S9382 sequential per call: shares the read cache
+    if (stub) targets.set(call.id, stub);
   }
   return targets;
 }
