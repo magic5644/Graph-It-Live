@@ -25,7 +25,7 @@ export interface CallGraphSymbolSelector {
   symbolName: string;
   /** Exact node id from a previous result, valid for the current graph revision */
   symbolId?: string;
-  /** Declaration line of the symbol (same numbering as `startLine` in results) */
+  /** Declaration line of the symbol, 0-based like `startLine` in results */
   startLine?: number;
 }
 

@@ -1205,7 +1205,7 @@
             },
             "startLine": {
               "type": "number",
-              "description": "Declaration line of the symbol, as reported by startLine in results and candidates. Selects one of several same-name symbols"
+              "description": "Declaration line of the symbol, 0-based like startLine in results and candidates (editor line 3 is 2). Selects one of several same-name symbols"
             },
             "direction": {
               "type": "string",

@@ -518,7 +518,7 @@ export const QueryCallGraphParamsSchema = z.object({
     .min(0)
     .optional()
     .describe(
-      "Declaration line of the symbol, as reported by 'startLine' in results and candidates. Selects one of several same-name symbols.",
+      "Declaration line of the symbol, 0-based like 'startLine' in results and candidates (editor line 3 is 2). Selects one of several same-name symbols.",
     ),
   direction: z
     .enum(["callers", "callees", "both"])
