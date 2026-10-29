@@ -25,6 +25,7 @@ import {
 import type { Dependency } from '@/analyzer/types';
 import { checkSymbolInFile, symbolNotFoundMessage } from '@/analyzer/utils/SymbolLookup';
 import { convertSpiderToLspFormat } from '@/shared/converters';
+import { lookupCallGraphSymbol } from '@/analyzer/callgraph/CallGraphSymbolLookup';
 import { normalizePath } from '@/shared/path';
 import {
   toWorkspaceRelativePath,
@@ -128,6 +129,8 @@ interface AnalyzeBreakingChangesInput {
 interface QueryCallGraphInput {
   filePath: string;
   symbolName: string;
+  symbolId?: string;
+  startLine?: number;
   direction?: 'callers' | 'callees' | 'both';
   depth?: number;
   relationTypes?: string[];
@@ -1436,30 +1439,23 @@ export class LmToolsService {
               'Call graph index not available. Open the Call Graph panel (graph-it-live.showCallGraph) first to build the index.',
             );
           }
-          const { symbolName, direction = 'both', depth = 2, relationTypes } = options.input;
+          const { direction = 'both', depth = 2, relationTypes } = options.input;
           const filePath = this.resolveWorkspacePath(options.input.filePath);
           try {
             const db = indexer.getDb();
-            const normalizedPath = normalizePath(filePath);
-            const symbolRows = db.exec(
-              'SELECT id, name, type, lang, path, start_line, end_line, is_exported FROM nodes WHERE path = ? AND name = ?',
-              [normalizedPath, symbolName],
-            );
-            if (!symbolRows[0] || symbolRows[0].values.length === 0) {
+            const lookup = lookupCallGraphSymbol(db, { ...options.input, filePath });
+            if (lookup.symbol === null) {
               return new vscode.LanguageModelToolResult([
                 new vscode.LanguageModelTextPart(
-                  JSON.stringify({ symbol: null, callers: [], callees: [], totalCallers: 0, totalCallees: 0, depth, direction }),
+                  JSON.stringify({
+                    symbol: null, reason: lookup.reason, candidates: lookup.candidates,
+                    callers: [], callees: [], totalCallers: 0, totalCallees: 0, depth, direction,
+                  }),
                 ),
               ]);
             }
-            const row = symbolRows[0].values[0];
-            const symbolId = row[0] as string;
-            const symbol = {
-              id: symbolId, name: row[1] as string, type: row[2] as string,
-              lang: row[3] as string, filePath: row[4] as string,
-              startLine: row[5] as number, endLine: row[6] as number,
-              isExported: (row[7] as number) === 1,
-            };
+            const { symbol } = lookup;
+            const symbolId = symbol.id;
             const callers = (direction === 'callers' || direction === 'both')
               ? this.callGraphBfs(db, symbolId, 'callers', depth, relationTypes ?? null) : [];
             const callees = (direction === 'callees' || direction === 'both')

@@ -112,6 +112,18 @@ describe("tool command dispatch", () => {
     );
   });
 
+  it("coerces --startLine to a number and forwards --symbolId (issue #500)", async () => {
+    await run(
+      ["query_call_graph", "--filePath", file, "--symbolName", "compute", "--startLine=5", "--symbolId=x:compute:5"],
+      runtimeStub,
+      "json",
+    );
+    expect(executeMock).toHaveBeenCalledWith(
+      "executeQueryCallGraph",
+      expect.objectContaining({ symbolName: "compute", startLine: 5, symbolId: "x:compute:5" }),
+    );
+  });
+
   it("reads space-separated values and schema booleans (issue #268)", async () => {
     await run(
       ["query_call_graph", "--includeTypeOnly", "--filePath", file, "--symbolName", "a", "--depth", "2"],

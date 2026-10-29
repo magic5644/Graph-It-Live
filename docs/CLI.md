@@ -1896,7 +1896,13 @@ graph-it tool query_call_graph --filePath=/abs/path/to/Spider.ts --symbolName=cr
 
 # Who calls crawl? (one hop)
 graph-it tool query_call_graph --filePath=/abs/path/to/Spider.ts --symbolName=crawl --direction=callers --depth=1
+
+# Two methods share a name? The first call returns reason "ambiguous" with candidates;
+# select one by its startLine (or its symbolId, valid for the current index only)
+graph-it tool query_call_graph --filePath=/abs/path/to/service.ts --symbolName=compute --startLine=3
 ```
+
+When no single symbol is selected, `symbol` is `null` and `reason` says why: `not_found` (unknown name, including `Class.method` qualified names, which are not supported), `ambiguous` (several same-name symbols, listed in `candidates`) or `stale_selector` (the `symbolId`/`startLine` no longer matches; `candidates` lists the same-name symbols now indexed). A valid symbol with no callers returns its `symbol` with empty `callers`.
 
 **Output fields:** `symbol`, `callers[]`, `callees[]`, `totalCallers`, `totalCallees`, `depth`, `direction`, `indexedFiles`, `truncated`, `omitted`, and optional `indexTimeMs`
 

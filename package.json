@@ -1187,7 +1187,7 @@
         "displayName": "Graph-It-Live: Query Call Graph",
         "icon": "$(type-hierarchy)",
         "userDescription": "Query cross-file callers and callees of a symbol via BFS traversal on the indexed call graph database",
-        "modelDescription": "Traces calls across files for several hops, in either direction, from a SQLite-backed call graph.\n\nWHEN: \"who calls X\" (direction=callers, depth=1), \"what does X call\" (direction=callees), multi-hop traversal (\"three levels deep\"), or cycle detection across modules.\nWHY: built from tree-sitter AST analysis, so it holds real call edges (CALLS, INHERITS, IMPLEMENTS) and type-only references (USES) rather than import edges. Every relation type is returned unless relationTypes narrows it.\nRETURNS: the matched symbol, its callers and callees with file and call-site line, relation type, and a cyclic flag per edge. Defaults: direction=both, depth=2.\nNOT THIS TOOL: for every file that imports a file, use graph-it-live_find_referencing_files.\nLIMITS: needs the call graph index, built in the background when the Graph-It-Live view first loads (graph-it-live.preIndexCallGraph) or when the Call Graph panel opens; until then the tool returns an error.",
+        "modelDescription": "Traces calls across files for several hops, in either direction, from a SQLite-backed call graph.\n\nWHEN: \"who calls X\" (direction=callers, depth=1), \"what does X call\" (direction=callees), multi-hop traversal (\"three levels deep\"), or cycle detection across modules.\nWHY: built from tree-sitter AST analysis, so it holds real call edges (CALLS, INHERITS, IMPLEMENTS) and type-only references (USES) rather than import edges. Every relation type is returned unless relationTypes narrows it.\nRETURNS: the matched symbol, its callers and callees with file and call-site line, relation type, and a cyclic flag per edge. Defaults: direction=both, depth=2.\nSELECTING: two same-name methods in one file return reason=ambiguous with candidates; pass one candidate's symbolId or startLine to select it exactly. A stale selector returns reason=stale_selector (ids embed the line and change after edits); 'Class.method' names are not supported.\nNOT THIS TOOL: for every file that imports a file, use graph-it-live_find_referencing_files.\nLIMITS: needs the call graph index, built in the background when the Graph-It-Live view first loads (graph-it-live.preIndexCallGraph) or when the Call Graph panel opens; until then the tool returns an error.",
         "inputSchema": {
           "type": "object",
           "properties": {
@@ -1197,7 +1197,15 @@
             },
             "symbolName": {
               "type": "string",
-              "description": "Name of the symbol to query (function, class, method)"
+              "description": "Name of the symbol to query (function, class, method). A bare name shared by several symbols in the file returns reason 'ambiguous' with candidates; qualified names such as 'Class.method' are not supported"
+            },
+            "symbolId": {
+              "type": "string",
+              "description": "Exact node id from a previous result or candidate, valid for the current index only (ids embed the line). A stale id returns reason 'stale_selector'"
+            },
+            "startLine": {
+              "type": "number",
+              "description": "Declaration line of the symbol, as reported by startLine in results and candidates. Selects one of several same-name symbols"
             },
             "direction": {
               "type": "string",
