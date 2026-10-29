@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { declaresExport, mayReExport, parseReExports } from '../../../src/analyzer/utils/reExports';
+import { declaresExport, exportsOnlyAsDefault, mayReExport, parseReExports } from '../../../src/analyzer/utils/reExports';
 
 describe('parseReExports', () => {
   it('reads named, renamed and wildcard re-exports', () => {
@@ -55,5 +55,40 @@ describe('declaresExport', () => {
     expect(declaresExport('/x/m.ts', 'function a() {}', 'a')).toBe(false);
     expect(declaresExport('/x/m.ts', 'export function b() {}', 'a')).toBe(false);
     expect(declaresExport('/x/m.ts', 'export default function a() {}', 'a')).toBe(false);
+  });
+});
+
+describe('exportsOnlyAsDefault', () => {
+  it.each([
+    'export default function a() {}',
+    'export default async function a() {}',
+    'export default function* a() {}',
+    'export default class a {}',
+    'export default abstract class a {}',
+  ])('is true for %s', (source) => {
+    expect(exportsOnlyAsDefault('/x/m.ts', source, 'a')).toBe(true);
+  });
+
+  it('is false when the name is also exported by name, or is another name', () => {
+    expect(exportsOnlyAsDefault('/x/m.ts', 'export default function a() {}\nexport { a };', 'a')).toBe(false);
+    expect(exportsOnlyAsDefault('/x/m.ts', 'export default function a() {}', 'b')).toBe(false);
+    expect(exportsOnlyAsDefault('/x/m.ts', 'export default function ab() {}', 'a')).toBe(false);
+  });
+
+  it('is false for anonymous defaults, named exports and plain modules', () => {
+    expect(exportsOnlyAsDefault('/x/m.ts', 'export default function () {}', 'a')).toBe(false);
+    expect(exportsOnlyAsDefault('/x/m.ts', 'export function a() {}', 'a')).toBe(false);
+    expect(exportsOnlyAsDefault('/x/m.ts', 'const a = 1;', 'a')).toBe(false);
+  });
+
+  it('escapes `$` in the name', () => {
+    expect(exportsOnlyAsDefault('/x/m.ts', 'export default function $a() {}', '$a')).toBe(true);
+    expect(exportsOnlyAsDefault('/x/m.ts', 'export default function xa() {}', '$a')).toBe(false);
+    expect(exportsOnlyAsDefault('/x/m.ts', 'export default function a$() {}', 'a$')).toBe(true);
+    expect(exportsOnlyAsDefault('/x/m.ts', 'export default function a$b() {}', 'a')).toBe(false);
+  });
+
+  it('ignores a match that only appears in a comment or string', () => {
+    expect(exportsOnlyAsDefault('/x/m.ts', '// export default function a() {}\nexport function a() {}', 'a')).toBe(false);
   });
 });
