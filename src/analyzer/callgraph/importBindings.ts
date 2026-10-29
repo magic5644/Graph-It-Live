@@ -115,7 +115,24 @@ async function collectNamedImports(
   return new Map(bindings.flat());
 }
 
-function collectShadows(root: TreeNode, imports: Map<string, string | null>) {
+/** `import * as ns from './mod'` bindings: local name -> resolved module path. Type-only imports bind nothing at runtime. */
+async function collectNamespaceImports(
+  root: TreeNode,
+  filePath: string,
+  resolver: PathResolver,
+): Promise<Map<string, string>> {
+  const entries = await Promise.all(root.namedChildren
+    .filter(node => node.type === "import_statement" && !node.children.some(child => child.type === "type"))
+    .map(async (statement): Promise<[string, string] | null> => {
+      const local = statement.descendantsOfType("namespace_import")[0]?.namedChildren[0];
+      const moduleName = statement.childForFieldName("source")?.namedChildren[0]?.text;
+      const targetPath = local && moduleName ? await resolver.resolve(filePath, moduleName) : null;
+      return local && targetPath ? [local.text, targetPath] : null;
+    }));
+  return new Map(entries.filter(entry => entry !== null));
+}
+
+function collectShadows(root: TreeNode, imports: { has(name: string): boolean }) {
   const shadows = new Map<string, Array<{ binding: TreeNode; scope: TreeNode }>>();
   const add = (pattern: TreeNode | null, scope: TreeNode) => {
     for (const binding of bindingNames(pattern)) {
@@ -145,25 +162,51 @@ function collectShadows(root: TreeNode, imports: Map<string, string | null>) {
   return shadows;
 }
 
-/** Resolve named imports before the AST is freed; unknown bindings never fall back to global names. */
+type Shadows = ReturnType<typeof collectShadows>;
+
+/** Innermost local declaration of `node.text` whose scope contains `node`, if any. */
+function findShadow(shadows: Shadows, node: TreeNode) {
+  return shadows.get(node.text)
+    ?.filter(({ scope }) => scope.startIndex <= node.startIndex && scope.endIndex >= node.endIndex)
+    .sort((a, b) => b.scope.startIndex - a.scope.startIndex || a.scope.endIndex - b.scope.endIndex)[0];
+}
+
+/** The namespace identifier of a static `ns.member()` call whose member is `call`, if any. */
+function namespaceObject(call: TreeNode): TreeNode | null {
+  const member = call.parent;
+  if (member?.type !== "member_expression" || member.childForFieldName("property")?.id !== call.id) return null;
+  const object = member.childForFieldName("object");
+  return object?.type === "identifier" ? object : null;
+}
+
+/** Resolve named and namespace imports before the AST is freed; unknown bindings never fall back to global names. */
 export async function resolveNamedImportCalls(
   root: TreeNode,
   calls: TreeNode[],
   filePath: string,
   resolver: PathResolver,
 ): Promise<Map<number, string | null>> {
-  const imports = await collectNamedImports(root, filePath, resolver);
+  const [imports, namespaces] = await Promise.all([
+    collectNamedImports(root, filePath, resolver),
+    collectNamespaceImports(root, filePath, resolver),
+  ]);
   const targets = new Map<number, string | null>();
-  if (imports.size === 0) return targets;
-  const shadows = collectShadows(root, imports);
+  if (imports.size === 0 && namespaces.size === 0) return targets;
+  const shadows = collectShadows(root, { has: (name) => imports.has(name) || namespaces.has(name) });
+  const reads = new Map<string, Promise<string | null>>();
   for (const call of calls) {
-    if (!imports.has(call.text) || call.type !== "identifier") continue;
-    const shadow = shadows.get(call.text)
-      ?.filter(({ scope }) => scope.startIndex <= call.startIndex && scope.endIndex >= call.endIndex)
-      .sort((a, b) => b.scope.startIndex - a.scope.startIndex || a.scope.endIndex - b.scope.endIndex)[0];
-    targets.set(call.id, shadow
-      ? `${filePath}:${call.text}:${shadow.binding.startPosition.row}`
-      : imports.get(call.text)!);
+    if (call.type === "identifier" && imports.has(call.text)) {
+      const shadow = findShadow(shadows, call);
+      targets.set(call.id, shadow
+        ? `${filePath}:${call.text}:${shadow.binding.startPosition.row}`
+        : imports.get(call.text)!);
+      continue;
+    }
+    const object = namespaceObject(call);
+    const modulePath = object && !findShadow(shadows, object) ? namespaces.get(object.text) : undefined;
+    if (!modulePath) continue;
+    const declared = await findDeclaration(modulePath, call.text, resolver, new Set(), reads); // NOSONAR S9382 sequential per call: shares the read cache
+    targets.set(call.id, `@@import:${JSON.stringify([declared?.filePath ?? normalizePath(modulePath), declared?.name ?? call.text])}`);
   }
   return targets;
 }

@@ -36,6 +36,13 @@ describe.skipIf(!distExists)("MCP tools over graph-it serve (E2E)", { timeout: 1
       "export class Calculator {\n  compute(x: number) { return x * 2; }\n}\nexport class OtherCalculator {\n  compute(x: number) { return x * 3; }\n}\n",
     );
     fs.writeFileSync(path.join(tmpDir, "src/entry.ts"), 'import { run } from "./a"; export function main() { return run(); }');
+    // Namespace member call (#498): must reach math.ts, never the decoy.
+    fs.writeFileSync(path.join(tmpDir, "src/math.ts"), "export function add(a: number, b: number) { return a + b; }\n");
+    fs.writeFileSync(path.join(tmpDir, "src/decoy.ts"), "export function add(a: number, b: number) { return 100 + a + b; }\n");
+    fs.writeFileSync(
+      path.join(tmpDir, "src/namespace.ts"),
+      'import * as math from "./math";\nexport function namespaceCall() { return math.add(1, 2); }\n',
+    );
     // check_architecture needs declared rules.
     fs.writeFileSync(
       path.join(tmpDir, "graphit.architecture.json"),
@@ -133,6 +140,21 @@ describe.skipIf(!distExists)("MCP tools over graph-it serve (E2E)", { timeout: 1
       const cli = execFileSync(process.execPath, [DIST_ENTRY, "tool", "query_call_graph", "--args", JSON.stringify(callersArgs), "--format", "json"],
         { cwd: tmpDir, encoding: "utf8", timeout: 30_000 });
       expect(JSON.parse(cli)).toMatchObject({ totalCallers: 2 });
+
+      const namespaceArgs = { filePath: path.join(tmpDir, "src/namespace.ts"), symbolName: "namespaceCall", direction: "callees", depth: 1, relations: ["CALLS"] };
+      const callees = await callTool("graphitlive_query_call_graph", { ...namespaceArgs, response_format: "json" });
+      expect(JSON.parse(callees.content[0].text).data.callees.map((c: { targetName: string; targetPath?: string }) => c.targetName)).toEqual(["add"]);
+      const addCallers = await callTool("graphitlive_query_call_graph", {
+        filePath: path.join(tmpDir, "src/math.ts"), symbolName: "add", direction: "callers", depth: 1, response_format: "json",
+      });
+      expect(JSON.parse(addCallers.content[0].text).data).toMatchObject({ totalCallers: 1, callers: [expect.objectContaining({ sourceName: "namespaceCall" })] });
+      const decoyCallers = await callTool("graphitlive_query_call_graph", {
+        filePath: path.join(tmpDir, "src/decoy.ts"), symbolName: "add", direction: "callers", depth: 1, response_format: "json",
+      });
+      expect(JSON.parse(decoyCallers.content[0].text).data).toMatchObject({ totalCallers: 0 });
+      const cliCallees = execFileSync(process.execPath, [DIST_ENTRY, "tool", "query_call_graph", "--args", JSON.stringify(namespaceArgs), "--format", "json"],
+        { cwd: tmpDir, encoding: "utf8", timeout: 30_000 });
+      expect(JSON.parse(cliCallees)).toMatchObject({ callees: [expect.objectContaining({ targetName: "add" })] });
 
       // A placeholder oldContent cannot be compared and must not look like "no breaking change" (#260).
       const placeholder = await callTool("graphitlive_analyze_breaking_changes", {
