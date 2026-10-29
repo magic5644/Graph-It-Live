@@ -15,7 +15,7 @@
  *  3. For each relationship capture, walk up the AST to find the nearest
  *     enclosing `@def.*` node — this is the edge source.
  *  4. Intra-file target IDs are resolved against the extracted node set.
- *     Named JS/TS imports retain their module in `@@import:` stubs;
+ *     Named JS/TS and Python imports retain their module in `@@import:` stubs;
  *     other cross-file targets are stored as `@@external:<name>` stubs.
  *
  * NO vscode imports — this module is VS Code-agnostic.
@@ -34,6 +34,7 @@ import type { Node as TreeNode } from "web-tree-sitter";
 import { Query } from "web-tree-sitter";
 import type { CallGraphEdge, CallGraphNode } from "./CallGraphIndexer";
 import { resolveNamedImportCalls } from "./importBindings";
+import { LOCAL_ONLY, resolvePythonImportCalls } from "./pythonImportBindings";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -129,6 +130,7 @@ function resolveEdgeTarget(
   if (relationType === "CALLS" && importTargets.has(node.id)) {
     const target = importTargets.get(node.id);
     if (!target) return null;
+    if (target === LOCAL_ONLY) return targetNodeIds?.[0] ?? null;
     return target.startsWith("@@import:") || targetNodeIds?.includes(target) ? target : null;
   }
   return targetNodeIds?.[0] ?? `@@external:${node.text.trim()}`;
@@ -237,10 +239,14 @@ export class GraphExtractor {
       // Run query (compiled Query is cached per language — safe to reuse across files)
       const query = this.getOrCompileQuery(language, querySrc, lang);
       const captures = query.captures(tree.rootNode);
-      const importTargets = lang === "typescript" || lang === "javascript"
-        ? await resolveNamedImportCalls(tree.rootNode, captures.filter(c => c.name === "call").map(c => c.node),
-          normalizedPath, new PathResolver(undefined, true, this.config.workspaceRoot))
-        : new Map<number, string | null>();
+      const calls = captures.filter(c => c.name === "call").map(c => c.node);
+      const resolver = new PathResolver(undefined, true, this.config.workspaceRoot);
+      let importTargets = new Map<number, string | null>();
+      if (lang === "typescript" || lang === "javascript") {
+        importTargets = await resolveNamedImportCalls(tree.rootNode, calls, normalizedPath, resolver);
+      } else if (lang === "python") {
+        importTargets = await resolvePythonImportCalls(tree.rootNode, calls, normalizedPath, resolver);
+      }
       return this.processCaptures(captures, normalizedPath, lang, source, importTargets);
     } finally {
       tree.delete();
@@ -423,6 +429,12 @@ export class GraphExtractor {
    * Heuristic: walk up one parent and check for export keyword in its type.
    */
   private detectIsExported(node: TreeNode, _source: string): boolean {
+    // Python has no export keyword: a module-level def/class is what `from m import x` can reach.
+    const declaration = node.parent;
+    if (declaration?.type === "function_definition" || declaration?.type === "class_definition") {
+      const outer = declaration.parent?.type === "decorated_definition" ? declaration.parent.parent : declaration.parent;
+      if (outer?.type === "module") return true;
+    }
     let parent: TreeNode | null = node.parent;
     // Walk up at most 3 levels
     let depth = 0;

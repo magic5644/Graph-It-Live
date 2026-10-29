@@ -192,7 +192,7 @@ export class PathResolver {
     }
 
     // Try Python absolute module resolution (utils.database → utils/database.py)
-    if (modulePath.includes('.') && !modulePath.includes('/')) {
+    if (!modulePath.includes('/') && !modulePath.startsWith('.')) {
       const pythonResolved = await this.resolvePythonModule(currentFilePath, modulePath);
       if (pythonResolved) {
         return pythonResolved;
@@ -749,8 +749,9 @@ export class PathResolver {
       targetDir = path.dirname(targetDir);
     }
 
-    // If there's a module name after the dots, append it
+    // If there's a module name after the dots, append it (`.pkg.mod` → pkg/mod)
     if (moduleName) {
+      moduleName = moduleName.replaceAll('.', '/');
       const moduleFilePath = path.join(targetDir, moduleName + '.py');
       if (await this.fileExists(moduleFilePath)) {
         return normalizePath(moduleFilePath);
