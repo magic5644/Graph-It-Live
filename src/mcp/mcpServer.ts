@@ -1344,7 +1344,7 @@ server.registerTool(
       openWorldHint: false,
     },
   },
-  async ({ filePath, symbolName, direction, depth, relationTypes, includeTypeOnly, offset, tokenBudget, response_format }) => {
+  async ({ filePath, symbolName, symbolId, startLine, direction, depth, relationTypes, includeTypeOnly, offset, tokenBudget, response_format }) => {
     const workerCheck = await ensureWorkerReady();
     const responseFormat = response_format;
     if (workerCheck.error)
@@ -1352,7 +1352,7 @@ server.registerTool(
 
     const response = await invokeToolWithResponse(
       "query_call_graph",
-      { filePath, symbolName, direction, depth, relationTypes, includeTypeOnly, offset, tokenBudget },
+      { filePath, symbolName, symbolId, startLine, direction, depth, relationTypes, includeTypeOnly, offset, tokenBudget },
     );
 
     return formatToolResponse(response, responseFormat, "graphitlive_query_call_graph");

@@ -31,6 +31,10 @@ describe.skipIf(!distExists)("MCP tools over graph-it serve (E2E)", { timeout: 1
       path.join(tmpDir, "src/a.ts"),
       'import { helper as renamedHelper } from "./b";\nexport function run() { return renamedHelper(); }\n',
     );
+    fs.writeFileSync(
+      path.join(tmpDir, "src/calc.ts"),
+      "export class Calculator {\n  compute(x: number) { return x * 2; }\n}\nexport class OtherCalculator {\n  compute(x: number) { return x * 3; }\n}\n",
+    );
     fs.writeFileSync(path.join(tmpDir, "src/entry.ts"), 'import { run } from "./a"; export function main() { return run(); }');
     // check_architecture needs declared rules.
     fs.writeFileSync(
@@ -48,6 +52,28 @@ describe.skipIf(!distExists)("MCP tools over graph-it serve (E2E)", { timeout: 1
   afterAll(() => {
     // Windows releases a dead process's cwd with a delay.
     fs.rmSync(tmpDir, { recursive: true, force: true, maxRetries: 10, retryDelay: 200 });
+  });
+
+  it("selects one of two same-name methods through the MCP callback (#500)", async () => {
+    const calc = path.join(tmpDir, "src/calc.ts");
+    const { child, callTool } = await startMcpSession(DIST_ENTRY, tmpDir, tmpDir);
+    try {
+      const query = async (extra: Record<string, unknown>) =>
+        JSON.parse((await callTool("graphitlive_query_call_graph", { filePath: calc, symbolName: "compute", direction: "callers", depth: 1, response_format: "json", ...extra })).content[0].text).data;
+
+      const ambiguous = await query({});
+      expect(ambiguous).toMatchObject({ symbol: null, reason: "ambiguous" });
+      expect(ambiguous.candidates.map((c: { startLine: number }) => c.startLine)).toHaveLength(2);
+
+      for (const candidate of ambiguous.candidates as Array<{ id: string; startLine: number }>) {
+        expect((await query({ startLine: candidate.startLine })).symbol.id).toBe(candidate.id);
+        const byId = await query({ symbolId: candidate.id });
+        expect(byId.symbol.id).toBe(candidate.id);
+      }
+      expect(await query({ startLine: 99 })).toMatchObject({ symbol: null, reason: "stale_selector" });
+    } finally {
+      await closeSession(child);
+    }
   });
 
   it("answers every listed tool without an unexpected error", async () => {
