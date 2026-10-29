@@ -308,18 +308,19 @@ function formatTrace(data: Record<string, unknown>): string {
 }
 
 function formatMarkdown(data: unknown, command: string, workspaceRoot?: string): string {
-  const heading = `## graph-it ${command}\n\n${formatCandidates(data, workspaceRoot)}`;
+  // The json fence below stays raw data (absolute ids); only the candidates table is workspace-relative.
+  const header = `## graph-it ${command}\n\n${formatCandidates(data, workspaceRoot)}`;
 
   const mermaid = tryBuildMermaid(data, workspaceRoot) ?? buildMermaidFromGenericJson(data, command);
   if (mermaid) {
-    return heading + "```mermaid\n" + mermaid + "\n```\n\n" + "```json\n" + JSON.stringify(data, null, 2) + "\n```";
+    return header + "```mermaid\n" + mermaid + "\n```\n\n" + "```json\n" + JSON.stringify(data, null, 2) + "\n```";
   }
 
   if (GRAPH_COMMANDS.has(command)) {
-    return heading + "```json\n" + JSON.stringify(data, null, 2) + "\n```";
+    return header + "```json\n" + JSON.stringify(data, null, 2) + "\n```";
   }
 
-  return heading + "```json\n" + JSON.stringify(data, null, 2) + "\n```";
+  return header + "```json\n" + JSON.stringify(data, null, 2) + "\n```";
 }
 
 /**

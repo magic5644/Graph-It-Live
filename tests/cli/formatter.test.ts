@@ -309,8 +309,33 @@ describe("formatOutput - markdown candidates (#504)", () => {
 
   it("adds nothing when a symbol was selected", () => {
     const out = formatOutput({ symbol: { id: "a" }, candidates: [] }, "markdown", "tool", "/repo");
-    expect(out).not.toContain("reason");
+    expect(out).not.toContain("symbolId");
   });
+
+  it("relativizes Windows ids", () => {
+    const win = [{ id: String.raw`C:\repo\src\service.ts:compute:3`, startLine: 3 }];
+    for (const root of [String.raw`C:\repo`, String.raw`c:\repo`]) {
+      expect(formatOutput(miss("ambiguous", win), "markdown", "tool", root)).toContain("| src/service.ts:compute:3 | 3 |");
+    }
+  });
+
+  it("escapes pipes in ids", () => {
+    const out = formatOutput(miss("ambiguous", [{ id: "/repo/src/a|b.ts:fn:1", startLine: 1 }]), "markdown", "tool", "/repo");
+    expect(out).toContain(String.raw`| src/a\|b.ts:fn:1 | 1 |`);
+  });
+
+  it("keeps absolute ids without a workspace root and marks malformed candidates", () => {
+    const out = formatOutput(miss("not_found", [{ id: "/repo/a.ts:f:1", startLine: 1 }, null]), "markdown", "tool");
+    expect(out).toContain("| /repo/a.ts:f:1 | 1 |");
+    expect(out).toContain("| ? | ? |");
+  });
+
+  it.each([null, "text", [], { symbol: null, reason: 1, candidates: [] }, { symbol: null, reason: "ambiguous", candidates: "x" }])(
+    "adds no candidate block for %j",
+    (data) => {
+      expect(formatOutput(data, "markdown", "tool", "/repo")).not.toContain("symbolId");
+    },
+  );
 });
 
 describe("formatOutput - mermaid", () => {
