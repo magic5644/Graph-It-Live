@@ -97,6 +97,77 @@ export function handleBatch() { open(); closeJournal(); }`,
     expect(snapshot.edges.filter(e => e.typeRelation === "CALLS")).toEqual([]);
   });
 
+  describe("default-export local names", () => {
+    const calls = (snapshot: Awaited<ReturnType<typeof index>>) => snapshot.edges.filter(e => e.typeRelation === "CALLS").map(e => e.sourceId.split(":")[1] + " -> " + e.targetId.split(":")[1]).sort();
+
+    it.each([
+      ["function", "export default function def() {}"],
+      ["async function", "export default async function def() {}"],
+      ["generator", "export default function* def() {}"],
+      ["class", "export default class def { static run() {} }"],
+    ])("links neither a named nor a namespace use to a default-exported %s", async (_kind, declaration) => {
+      const snapshot = await index({
+        math: declaration,
+        named: `import { def } from './math.${ext}'; export function viaNamed() { def(); }`,
+        ns: `import * as m from './math.${ext}'; export function viaNs() { m.def(); }`,
+      });
+      expect(calls(snapshot)).toEqual([]);
+    });
+
+    it("keeps linking a named export, even next to a default export of another name", async () => {
+      const snapshot = await index({
+        math: "export default function def() {}\nexport function add() {}",
+        user: `import { add } from './math.${ext}'; import * as m from './math.${ext}'; export function run() { add(); m.add(); }`,
+      });
+      expect(calls(snapshot)).toEqual(["run -> add"]);
+    });
+
+    it("keeps linking a default-declared name that is also exported by name", async () => {
+      const snapshot = await index({
+        math: "export default function def() {}\nexport { def };",
+        user: `import { def } from './math.${ext}'; export function run() { def(); }`,
+      });
+      expect(calls(snapshot)).toEqual(["run -> def"]);
+    });
+
+    it("still follows a real re-export of the same name from a module that also has a default of that name", async () => {
+      const snapshot = await index({
+        x: "export function a() {}",
+        mixed: `export default function a() {}\nexport { a } from './x.${ext}';`,
+        user: `import { a } from './mixed.${ext}'; import * as m from './mixed.${ext}'; export function run() { a(); m.a(); }`,
+      });
+      expect(calls(snapshot)).toEqual(["run -> a"]);
+    });
+
+    it("does not link a name ending in `$` to a default export", async () => {
+      const snapshot = await index({
+        math: "export default function a$() {}",
+        user: `import { a$ } from './math.${ext}'; export function run() { a$(); }`,
+      });
+      expect(calls(snapshot)).toEqual([]);
+    });
+
+    it("keeps linking a default import by its local name (`default as` stays unresolved)", async () => {
+      const snapshot = await index({
+        math: "export default function def() {}",
+        user: `import def from './math.${ext}'; import { default as other } from './math.${ext}'; export function run() { def(); other(); }`,
+      });
+      expect(calls(snapshot)).toEqual(["run -> def"]);
+    });
+
+    it("does not link through a barrel that only reaches the default export, but finds a later star re-export", async () => {
+      const snapshot = await index({
+        onlyDefault: "export default function def() {}",
+        real: "export function def() {}",
+        barrel: `export * from './onlyDefault.${ext}';\nexport * from './real.${ext}';`,
+        deadBarrel: `export * from './onlyDefault.${ext}';`,
+        viaReal: `import { def } from './barrel.${ext}'; export function viaReal() { def(); }`,
+        viaDead: `import { def } from './deadBarrel.${ext}'; export function viaDead() { def(); }`,
+      });
+      expect(calls(snapshot)).toEqual(["viaReal -> def"]);
+    });
+  });
+
   it.each([
     "export function run(open) { open(); }",
     "export function run() { const open = () => 0; open(); }",

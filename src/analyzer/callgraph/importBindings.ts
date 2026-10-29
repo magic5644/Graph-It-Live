@@ -1,6 +1,6 @@
 import type { PathResolver } from "@/analyzer/utils/PathResolver";
 import { isInIgnoredDirectory } from "@/analyzer/utils/PathPredicates";
-import { declaresExport, mayReExport, parseReExports, type ReExport, type ReExportTarget } from "@/analyzer/utils/reExports";
+import { declaresExport, exportsOnlyAsDefault, mayReExport, parseReExports, type ReExport, type ReExportTarget } from "@/analyzer/utils/reExports";
 import { normalizePath } from "@/shared/path";
 import fs from "node:fs/promises";
 import type { Node as TreeNode } from "web-tree-sitter";
@@ -54,10 +54,20 @@ function reExportedAs(names: ReExport["names"], name: string): string | undefine
   return names.find((entry) => entry.exported === name)?.imported;
 }
 
+/** `findDeclaration` result for a module that exports `name` only as the local name of its default export. */
+const DEFAULT_ONLY = "default-only";
+
+/** `@@import:` stub reaching `name` in `modulePath` (or the barrel's real declaration); null when nothing is exported under it. */
+function importStub(declared: ReExportTarget | typeof DEFAULT_ONLY | null, modulePath: string, name: string): string | null {
+  if (declared === DEFAULT_ONLY) return null;
+  return `@@import:${JSON.stringify([declared?.filePath ?? normalizePath(modulePath), declared?.name ?? name])}`;
+}
+
 /**
  * Follows `name` through barrels (`export { x } from`, `export * from`) to the module that
  * declares it, so a call through a barrel links to the real symbol. Null when the chain
- * cannot be resolved: the caller keeps the barrel as target.
+ * cannot be resolved: the caller keeps the barrel as target. `DEFAULT_ONLY` when the module itself
+ * exports `name` only as its default export's local name.
  */
 async function findDeclaration(
   filePath: string,
@@ -65,7 +75,7 @@ async function findDeclaration(
   resolver: PathResolver,
   visited: Set<string>,
   reads: Map<string, Promise<string | null>>,
-): Promise<ReExportTarget | null> {
+): Promise<ReExportTarget | typeof DEFAULT_ONLY | null> {
   const normalized = normalizePath(filePath);
   const key = `${normalized}:${name}`;
   if (visited.has(key) || isInIgnoredDirectory(normalized)) return null;
@@ -74,13 +84,25 @@ async function findDeclaration(
   if (!reads.has(key)) reads.set(key, fs.readFile(filePath, "utf-8").catch(() => null));
   const content = await reads.get(key)!; // NOSONAR S9382 sequential: first declaring barrel wins
   if (content === null) return null;
-  if (!mayReExport(content) || declaresExport(filePath, content, name)) return { filePath: normalized, name };
+  const onlyDefault = () => exportsOnlyAsDefault(filePath, content, name);
+  if (!mayReExport(content) || declaresExport(filePath, content, name)) return onlyDefault() ? DEFAULT_ONLY : { filePath: normalized, name };
+  return (await followReExports(filePath, content, name, resolver, visited, reads)) ?? (onlyDefault() ? DEFAULT_ONLY : null); // NOSONAR S9382 single await
+}
+
+async function followReExports(
+  filePath: string,
+  content: string,
+  name: string,
+  resolver: PathResolver,
+  visited: Set<string>,
+  reads: Map<string, Promise<string | null>>,
+): Promise<ReExportTarget | null> {
   for (const { specifier, names } of parseReExports(filePath, content)) {
     const wanted = reExportedAs(names, name);
     if (!wanted) continue;
     const next = await resolver.resolve(filePath, specifier).catch(() => null); // NOSONAR S9382 sequential: source order
     const found = next ? await findDeclaration(next, wanted, resolver, visited, reads) : null; // NOSONAR S9382 sequential: source order
-    if (found) return found;
+    if (found && found !== DEFAULT_ONLY) return found;
   }
   return null;
 }
@@ -107,8 +129,7 @@ async function collectNamedImports(
       const declared = targetPath && !isType
         ? await findDeclaration(targetPath, imported.text, resolver, new Set(), reads) // NOSONAR S9382 sequential per specifier
         : null;
-      imports.push([local.text, targetPath && !isType
-        ? `@@import:${JSON.stringify([declared?.filePath ?? normalizePath(targetPath), declared?.name ?? imported.text])}` : null]);
+      imports.push([local.text, targetPath && !isType ? importStub(declared, targetPath, imported.text) : null]);
     }
     return imports;
   }));
@@ -186,12 +207,12 @@ async function resolveNamespaceCall(
   shadows: Shadows,
   resolver: PathResolver,
   reads: Map<string, Promise<string | null>>,
-): Promise<string | null> {
+): Promise<string | null | undefined> {
   const object = namespaceObject(call);
   const modulePath = object && !findShadow(shadows, object) ? namespaces.get(object.text) : undefined;
-  if (!modulePath) return null;
+  if (!modulePath) return undefined;
   const declared = await findDeclaration(modulePath, call.text, resolver, new Set(), reads);
-  return `@@import:${JSON.stringify([declared?.filePath ?? normalizePath(modulePath), declared?.name ?? call.text])}`;
+  return importStub(declared, modulePath, call.text);
 }
 
 /** Resolve named and namespace imports before the AST is freed; unknown bindings never fall back to global names. */
@@ -218,7 +239,7 @@ export async function resolveNamedImportCalls(
       continue;
     }
     const stub = await resolveNamespaceCall(call, namespaces, shadows, resolver, reads); // NOSONAR S9382 sequential per call: shares the read cache
-    if (stub) targets.set(call.id, stub);
+    if (stub !== undefined) targets.set(call.id, stub);
   }
   return targets;
 }

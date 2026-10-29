@@ -68,3 +68,13 @@ export function declaresExport(filePath: string, content: string, name: string):
     return 'name' in statement && ts.isIdentifier(statement.name as ts.Node) && (statement.name as ts.Identifier).text === name;
   });
 }
+
+/**
+ * Whether `name` is only the local name of the module's default export (`export default function name`),
+ * so `import { name }` and `ns.name` reach nothing. A regex pre-check keeps other modules unparsed.
+ */
+export function exportsOnlyAsDefault(filePath: string, content: string, name: string): boolean {
+  const escaped = name.replaceAll('$', String.raw`\$`);
+  const defaultDeclaration = new RegExp(String.raw`\bexport\s+default\s+(?:abstract\s+)?(?:async\s+)?(?:function\s*\*?\s*|class\s+)${escaped}(?![\w$])`);
+  return defaultDeclaration.test(content) && !declaresExport(filePath, content, name);
+}
