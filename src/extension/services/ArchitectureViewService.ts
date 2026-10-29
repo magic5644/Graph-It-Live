@@ -520,7 +520,9 @@ export class ArchitectureViewService {
   markStale(filePath?: string, eventType?: "create" | "change" | "delete"): void {
     if (this.disposed) return;
     const relative = filePath === undefined ? undefined : normalizePath(path.relative(this.options.workspaceRoot, filePath));
-    const configFile = this.options.isResolverConfig(filePath ?? "") || relative === ARCHITECTURE_CONFIG_FILE || relative === ARCHITECTURE_BASELINE_FILE;
+    const configFile = this.isConfigFile(filePath, relative);
+    // The resolver config glob reports every JSON file; only the configs above can alter the graph.
+    if (!configFile && filePath?.endsWith(".json")) return;
     if (this.running) {
       if (this.readByBuild(filePath, eventType, this.running.startedAt)) return;
       if (relative === undefined || eventType === "create" || configFile) this.changedDuringBuild.any = true;
@@ -531,6 +533,10 @@ export class ArchitectureViewService {
     if (!this.summary || this.summary.stale || this.readByBuild(filePath, eventType, this.graph?.startedAt)) return;
     this.summary = { ...this.summary, stale: true };
     this.options.post(this.summary);
+  }
+
+  private isConfigFile(filePath: string | undefined, relative: string | undefined): boolean {
+    return this.options.isResolverConfig(filePath ?? "") || relative === ARCHITECTURE_CONFIG_FILE || relative === ARCHITECTURE_BASELINE_FILE;
   }
 
   /**
