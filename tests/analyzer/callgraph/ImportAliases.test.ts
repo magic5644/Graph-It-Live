@@ -98,7 +98,10 @@ export function handleBatch() { open(); closeJournal(); }`,
   });
 
   describe("default-export local names", () => {
-    const calls = (snapshot: Awaited<ReturnType<typeof index>>) => snapshot.edges.filter(e => e.typeRelation === "CALLS").map(e => e.sourceId.split(":")[1] + " -> " + e.targetId.split(":")[1]).sort();
+    const calls = (snapshot: Awaited<ReturnType<typeof index>>) => {
+      const nameOf = new Map(snapshot.nodes.map(n => [n.id, n.name]));
+      return snapshot.edges.filter(e => e.typeRelation === "CALLS").map(e => `${nameOf.get(e.sourceId)} -> ${nameOf.get(e.targetId)}`).sort();
+    };
 
     it.each([
       ["function", "export default function def() {}"],
