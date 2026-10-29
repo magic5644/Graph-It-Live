@@ -323,6 +323,8 @@ function formatMarkdown(data: unknown, command: string, workspaceRoot?: string):
   return header + "```json\n" + JSON.stringify(data, null, 2) + "\n```";
 }
 
+const ESCAPED_PIPE = String.raw`\|`;
+
 /**
  * Ambiguous or stale-selector `query_call_graph` results: the generic diagram
  * only shows `candidates: array[N]`, so list what a client needs to retry.
@@ -334,7 +336,7 @@ function formatCandidates(data: unknown, workspaceRoot: string | undefined): str
     const record = toRecord(candidate) ?? {};
     const id = valueToMermaidString(record["id"], "?");
     const symbolId = workspaceRoot ? relativizeWorkspacePaths(normalizePath(id), workspaceRoot) : normalizePath(id);
-    const cell = symbolId.replaceAll("|", "\\|");
+    const cell = symbolId.replaceAll("|", ESCAPED_PIPE);
     return `| ${cell} | ${valueToMermaidString(record["startLine"])} |`;
   });
   const table = rows.length > 0 ? ["| symbolId | startLine |", "| --- | --- |", ...rows] : ["_No candidates._"];
