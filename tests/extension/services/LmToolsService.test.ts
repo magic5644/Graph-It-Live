@@ -990,7 +990,8 @@ describe('LmToolsService', () => {
         expect(result.symbol).toMatchObject({ startLine: 5 });
         const [sql, params] = exec.mock.calls[0];
         expect(sql).not.toContain('OR \'1\'');
-        expect(params).toEqual(['/workspace/src/a.ts', 'compute', "x' OR '1'='1", 5]);
+        // Windows resolves the workspace path against a drive letter
+        expect(params).toEqual([expect.stringMatching(/\/workspace\/src\/a\.ts$/), 'compute', "x' OR '1'='1", 5]);
       });
 
       it('reports a stale selector when the name exists but the selector misses', async () => {
