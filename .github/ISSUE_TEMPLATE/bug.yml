@@ -1,0 +1,99 @@
+name: Bug report
+description: Something behaves incorrectly (wrong graph, wrong edge, crash, bad output).
+title: "fix(<area>): "
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Use a **neutral minimal fixture**. Do not paste private or proprietary code, and report vulnerabilities through the [private advisory form](https://github.com/magic5644/Graph-It-Live/security/advisories/new).
+  - type: dropdown
+    id: priority
+    attributes:
+      label: Priority
+      options:
+        - P1 - data loss, crash, wrong results in common cases
+        - P2 - wrong results in some cases, no workaround
+        - P3 - edge case or cosmetic, workaround exists
+    validations:
+      required: true
+  - type: dropdown
+    id: area
+    attributes:
+      label: Area
+      options:
+        - VS Code extension
+        - Webview
+        - CLI
+        - MCP server
+        - REPL
+        - Analyzer / call graph
+        - Packaging / CI
+    validations:
+      required: true
+  - type: textarea
+    id: description
+    attributes:
+      label: Description
+      description: What is wrong, in one or two sentences.
+    validations:
+      required: true
+  - type: textarea
+    id: repro
+    attributes:
+      label: Steps to reproduce
+      description: A minimal fixture and the exact command or UI steps.
+      placeholder: |
+        ```ts
+        // a.ts
+        export function f() {}
+        ```
+        `graph-it tool query_call_graph --filePath=<abs>/a.ts --symbolName=f`
+    validations:
+      required: true
+  - type: textarea
+    id: observed
+    attributes:
+      label: Observed vs expected
+      value: |
+        Observed:
+        Expected:
+    validations:
+      required: true
+  - type: textarea
+    id: root-cause
+    attributes:
+      label: Root cause (if known)
+      description: File, function and why. Leave empty if unknown.
+  - type: textarea
+    id: acceptance
+    attributes:
+      label: Acceptance criteria
+      description: How we will know it is fixed.
+      placeholder: |
+        - [ ] The reproduction above gives the expected result
+        - [ ] Unit test covers the case and its edge cases
+        - [ ] Checked on other languages when the bug is not language-specific
+  - type: input
+    id: version
+    attributes:
+      label: Graph-It-Live version
+      placeholder: e.g. 1.21.1 (extension, CLI or MCP)
+    validations:
+      required: true
+  - type: dropdown
+    id: os
+    attributes:
+      label: Operating system
+      multiple: true
+      options:
+        - Linux
+        - macOS
+        - Windows
+    validations:
+      required: true
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs or output
+      render: shell

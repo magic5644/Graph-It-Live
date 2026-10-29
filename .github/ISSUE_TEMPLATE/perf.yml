@@ -1,0 +1,78 @@
+name: Performance problem
+description: Slow indexing, slow graph, high memory or large output.
+title: "perf(<area>): "
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: Use a public or generated corpus. Do not share private code.
+  - type: dropdown
+    id: priority
+    attributes:
+      label: Priority
+      options:
+        - P1 - unusable (hang, out of memory)
+        - P2 - clearly slow, usable
+        - P3 - minor regression
+    validations:
+      required: true
+  - type: dropdown
+    id: area
+    attributes:
+      label: Area
+      options:
+        - Indexing
+        - Graph / webview rendering
+        - Call graph
+        - CLI
+        - MCP server
+        - Memory
+    validations:
+      required: true
+  - type: textarea
+    id: scenario
+    attributes:
+      label: Scenario and corpus
+      description: Command or UI action, and the size of the workspace (files, languages, a public repo URL if possible).
+    validations:
+      required: true
+  - type: textarea
+    id: measure
+    attributes:
+      label: Measurements
+      description: Time, peak memory or output size, observed vs expected, and how you measured.
+      value: |
+        Observed:
+        Expected:
+        Method:
+    validations:
+      required: true
+  - type: textarea
+    id: root-cause
+    attributes:
+      label: Root cause (if known)
+      description: Profile, hot function, or the code path you suspect.
+  - type: textarea
+    id: acceptance
+    attributes:
+      label: Acceptance criteria
+      placeholder: |
+        - [ ] Measured gain on the corpus above, before and after
+        - [ ] No behavior change (tests unchanged and green)
+  - type: input
+    id: version
+    attributes:
+      label: Graph-It-Live version
+    validations:
+      required: true
+  - type: dropdown
+    id: os
+    attributes:
+      label: Operating system
+      multiple: true
+      options:
+        - Linux
+        - macOS
+        - Windows
+    validations:
+      required: true
