@@ -133,8 +133,9 @@ CREATE TABLE IF NOT EXISTS metadata (
  * v5: named import calls retain their module and binding (#398).
  * v6: namespace member calls (`ns.fn()`) retain their module (#498).
  * v7: the local name of a default export is not a named export (#508).
+ * v8: Python calls retain their import binding; unimported bare names link nowhere (#497).
  */
-const CURRENT_SCHEMA_VERSION = 7;
+const CURRENT_SCHEMA_VERSION = 8;
 
 /**
  * Optional FTS5 schema for fast symbol name search.

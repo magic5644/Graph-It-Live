@@ -172,6 +172,18 @@ describe("PathResolver - non-TypeScript sources with a workspace tsconfig", () =
     expect(await resolver().resolve(main, "pkg.unknown")).toBeNull();
   });
 
+  it("resolves dotted Python relative imports and bare top-level modules", async () => {
+    const main = write("pkg/app/main.py");
+    const nested = write("pkg/app/sub/mod.py");
+    const sibling = write("pkg/lib/tools.py");
+    const top = write("pkg/app/topmod.py");
+    expect(await resolver().resolve(main, ".sub.mod")).toBe(nested);
+    expect(await resolver().resolve(main, "..lib.tools")).toBe(sibling);
+    expect(await resolver().resolve(main, ".sub.gone")).toBeNull();
+    expect(await resolver().resolve(main, "topmod")).toBe(top);
+    expect(await resolver().resolve(main, "os")).toBeNull();
+  });
+
   it("resolves Rust module files and mod.rs directories", async () => {
     const main = write("crate/src/main.rs");
     const helper = write("crate/src/helper.rs");
