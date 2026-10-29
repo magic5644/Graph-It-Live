@@ -68,6 +68,22 @@ describe("executeQueryCallGraph exact selector", () => {
     expect(result.symbol?.id).toBe(caller.id);
   });
 
+  it("accepts the workspace-relative id shown in MCP responses", async () => {
+    for (const target of [first, second]) {
+      const result = await executeQueryCallGraph({
+        filePath: FILE, symbolName: "compute", symbolId: `src/service.ts:compute:${target.startLine}`,
+      });
+      expect(result.symbol?.id).toBe(target.id);
+    }
+  });
+
+  it("keeps a relative id of another file, or a stale relative id, from selecting anything", async () => {
+    const foreign = await executeQueryCallGraph({ filePath: FILE, symbolName: "compute", symbolId: "src/other.ts:compute:1" });
+    expect(foreign).toMatchObject({ symbol: null, reason: "stale_selector" });
+    const stale = await executeQueryCallGraph({ filePath: FILE, symbolName: "compute", symbolId: "src/service.ts:compute:77" });
+    expect(stale).toMatchObject({ symbol: null, reason: "stale_selector" });
+  });
+
   it("reports a stale selector and an unknown qualified name", async () => {
     const stale = await executeQueryCallGraph({ filePath: FILE, symbolName: "compute", symbolId: `${FILE}:compute:77` });
     expect(stale.reason).toBe("stale_selector");

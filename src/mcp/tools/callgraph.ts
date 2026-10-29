@@ -365,6 +365,22 @@ async function indexCallGraphJob(
 // Tool execution
 // ---------------------------------------------------------------------------
 
+/**
+ * MCP responses show workspace-relative ids while the index stores absolute ones,
+ * so an id copied from a result must be mapped back. Only the prefix of the
+ * requested file is rewritten: an id of another file stays foreign and misses.
+ */
+function toIndexedSymbolId(
+  symbolId: string | undefined,
+  filePath: string,
+  rootDir: string | undefined,
+): string | undefined {
+  if (!symbolId || !rootDir) return symbolId;
+  const relative = normalizePath(path.relative(rootDir, filePath));
+  if (!symbolId.startsWith(`${relative}:`)) return symbolId;
+  return `${normalizePath(filePath)}${symbolId.slice(relative.length)}`;
+}
+
 export async function executeQueryCallGraph(
   params: QueryCallGraphParams,
 ): Promise<QueryCallGraphResult> {
@@ -384,7 +400,10 @@ export async function executeQueryCallGraph(
   const relationFilter: RelationType[] | null =
     params.relationTypes ?? (params.includeTypeOnly ? null : ["CALLS", "INHERITS", "IMPLEMENTS"]);
 
-  const lookup = lookupCallGraphSymbol(db, params);
+  const lookup = lookupCallGraphSymbol(db, {
+    ...params,
+    symbolId: toIndexedSymbolId(params.symbolId, params.filePath, workerState.config?.rootDir),
+  });
   if (lookup.symbol === null) {
     return {
       symbol: null,
