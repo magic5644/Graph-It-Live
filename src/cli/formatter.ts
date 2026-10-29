@@ -308,7 +308,7 @@ function formatTrace(data: Record<string, unknown>): string {
 }
 
 function formatMarkdown(data: unknown, command: string, workspaceRoot?: string): string {
-  const heading = `## graph-it ${command}\n\n`;
+  const heading = `## graph-it ${command}\n\n${formatCandidates(data, workspaceRoot)}`;
 
   const mermaid = tryBuildMermaid(data, workspaceRoot) ?? buildMermaidFromGenericJson(data, command);
   if (mermaid) {
@@ -320,6 +320,23 @@ function formatMarkdown(data: unknown, command: string, workspaceRoot?: string):
   }
 
   return heading + "```json\n" + JSON.stringify(data, null, 2) + "\n```";
+}
+
+/**
+ * Ambiguous or stale-selector `query_call_graph` results: the generic diagram
+ * only shows `candidates: array[N]`, so list what a client needs to retry.
+ */
+function formatCandidates(data: unknown, workspaceRoot: string | undefined): string {
+  const obj = toRecord(data);
+  if (obj?.["symbol"] !== null || typeof obj["reason"] !== "string" || !Array.isArray(obj["candidates"])) return "";
+  const rows = obj["candidates"].map((candidate) => {
+    const record = toRecord(candidate) ?? {};
+    const id = valueToMermaidString(record["id"], "?");
+    const symbolId = workspaceRoot ? relativizeWorkspacePaths(normalizePath(id), workspaceRoot) : normalizePath(id);
+    return `| ${symbolId.replaceAll("|", String.raw`\|`)} | ${valueToMermaidString(record["startLine"])} |`;
+  });
+  const table = rows.length > 0 ? ["| symbolId | startLine |", "| --- | --- |", ...rows] : ["_No candidates._"];
+  return [`**reason:** ${obj["reason"]}`, "", ...table, "", ""].join("\n");
 }
 
 function formatMermaid(data: unknown, command: string, workspaceRoot?: string): string {
