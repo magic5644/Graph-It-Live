@@ -16,6 +16,7 @@ function createOptions(overrides: Partial<EventHubOptions> = {}): EventHubOption
     reanalyzeFile: vi.fn(),
     reanalyzeUnresolvedImporters: vi.fn(),
     handleResolverConfigChange: vi.fn(),
+    isResolverConfig: vi.fn((file: string) => /(?:package|tsconfig[^\\/]*)\.json$/.test(file) || file.endsWith("base.json")),
     handleFileDeleted: vi.fn(),
   };
   const stateManager = {
@@ -106,6 +107,27 @@ describe("ExtensionEventHub", () => {
 
     await hub.handleFileChange("C:\\workspace\\tsconfig.json", "change" as EventType);
     expect(onResolverConfigChanged).toHaveBeenCalledTimes(1);
+  });
+
+  // #431: an `extends` target named outside tsconfig*.json is a resolver config too.
+  it("re-indexes the workspace when a config the Spider reports as an extends target changes", async () => {
+    const options = createOptions();
+    const hub = new ExtensionEventHub(options);
+
+    await hub.handleFileChange("C:\\workspace\\config\\base.json", "change" as EventType);
+
+    expect(options.spider?.handleResolverConfigChange).toHaveBeenCalledWith("C:\\workspace\\config\\base.json");
+  });
+
+  it("ignores a JSON file the Spider does not report as a resolver config", async () => {
+    const options = createOptions();
+    const hub = new ExtensionEventHub(options);
+
+    await hub.handleFileChange("C:\\workspace\\data.json", "change" as EventType);
+
+    expect(options.spider?.handleResolverConfigChange).not.toHaveBeenCalled();
+    expect(options.spider?.reanalyzeFile).not.toHaveBeenCalled();
+    expect(options.updateGraph).not.toHaveBeenCalled();
   });
 
   // #430: an edit that keeps the effective resolver configuration re-indexes nothing.

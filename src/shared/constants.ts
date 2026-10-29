@@ -57,11 +57,12 @@ export const WATCH_GLOB = "**/*.{ts,tsx,js,jsx,mjs,cjs,vue,svelte,gql,graphql,py
 /** graphit.architecture.json and its baseline (architectureRules.ts); the view reads them at the root only, so a nested match changes nothing. */
 export const ARCHITECTURE_RULES_GLOB = "**/graphit.architecture{,.baseline}.json";
 /**
- * Files PathResolver reads: tsconfig `paths` / `baseUrl` (and `tsconfig.*.json` extends targets), package.json `imports`,
+ * Files PathResolver reads: tsconfig `paths` / `baseUrl` (and their `extends` targets), package.json `imports`,
  * `aliases`, `name` / `source` / `main` / `module` and `file:` dependencies (PathResolver.readResolverInputs()); not `exports`.
- * shortcut: an `extends` target named otherwise (base.json) is not watched; track the files PathResolver reads if that matters.
+ * Matches every JSON file: an `extends` target may be named anything and the set changes with the tsconfig, so
+ * Spider.isResolverConfig() filters the events (#431). RESOLVER_CONFIG_FILE_REGEX is the fixed-name subset.
  */
-export const RESOLVER_CONFIG_GLOB = "**/{package,tsconfig*}.json";
+export const RESOLVER_CONFIG_GLOB = "**/*.json";
 export const RESOLVER_CONFIG_FILE_REGEX = /(?:^|[\\/])(?:package|tsconfig[^\\/]*)\.json$/;
 
 // Language-specific colors for UI visualization

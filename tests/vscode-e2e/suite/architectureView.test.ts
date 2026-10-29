@@ -501,6 +501,15 @@ suite('Architecture view mode', () => {
     }
   });
 
+  const refreshMatrix = async (label: string, revision: string, change: () => Thenable<void>) => {
+    const staleCount = (await readRender()).renderCount;
+    await change();
+    await waitForRender('the stale banner', staleCount, render => render.stale);
+    await sleep(2000); // let the config event re-index the importer before Refresh
+    await vscode.commands.executeCommand('graph-it-live.refreshGraph');
+    return expectMatrix(label, { view: 'matrix' }, matrix => matrix.unit === undefined && matrix.revision !== revision);
+  };
+
   // #419: a tsconfig `paths` change moves no importer's mtime; only the config's own event can re-resolve them.
   test('draws then drops the edge of an unchanged importer when a tsconfig alias is added then removed', async function () {
     this.timeout(240000);
@@ -508,14 +517,6 @@ suite('Architecture view mode', () => {
     const tsConfig = getProjectFile('sample-project', 'tsconfig.json');
     const original = await vscode.workspace.fs.readFile(tsConfig);
     const withAlias = Buffer.from(Buffer.from(original).toString('utf8').replace('"paths": {', '"paths": {\n      "@e2e419/*": ["../workspaces-project/packages/ui/src/*"],'));
-    const refreshMatrix = async (label: string, revision: string, change: () => Thenable<void>) => {
-      const staleCount = (await readRender()).renderCount;
-      await change();
-      await waitForRender('the stale banner', staleCount, render => render.stale);
-      await sleep(2000); // let the config event re-index the importer before Refresh
-      await vscode.commands.executeCommand('graph-it-live.refreshGraph');
-      return expectMatrix(label, { view: 'matrix' }, matrix => matrix.unit === undefined && matrix.revision !== revision);
-    };
     try {
       await vscode.workspace.fs.writeFile(importer, Buffer.from("export * from '@e2e419/index';\n"));
       await sleep(2000); // let the importer's create event index it, its import still unresolved
@@ -531,6 +532,41 @@ suite('Architecture view mode', () => {
       await vscode.commands.executeCommand('graph-it-live.e2eArchitectureControls', { view: 'graph' });
       await vscode.workspace.fs.writeFile(tsConfig, original);
       await vscode.workspace.fs.delete(importer).then(undefined, () => undefined);
+      await sleep(1500); // let the config and delete events reach the index before the next test refreshes
+    }
+  });
+
+  // #431: the alias lives in an `extends` target named outside tsconfig*.json; only that file's own event can re-resolve the importer.
+  test('draws then drops the edge of an unchanged importer when an extends target named otherwise gains then loses an alias', async function () {
+    this.timeout(240000);
+    const importer = getProjectFile('sample-project', 'src', 'e2eExtendsImporter.ts');
+    const base = getProjectFile('sample-project', 'e2eExtendsBase.json');
+    const tsConfig = getProjectFile('sample-project', 'tsconfig.json');
+    const original = await vscode.workspace.fs.readFile(tsConfig);
+    const config = JSON.parse(Buffer.from(original).toString('utf8'));
+    const { paths, ...compilerOptions } = config.compilerOptions;
+    const baseWith = (extra: Record<string, string[]>) => Buffer.from(JSON.stringify({ compilerOptions: { baseUrl: '.', paths: { ...paths, ...extra } } }));
+    try {
+      await vscode.workspace.fs.writeFile(importer, Buffer.from("export * from '@e2e431/index';\n"));
+      await vscode.workspace.fs.writeFile(base, baseWith({}));
+      await sleep(2000); // let the create events index the importer, its import still unresolved
+      await openFreshArchitecture();
+      const before = await expectMatrix('the units matrix', { view: 'matrix' }, matrix => matrix.unit === undefined);
+
+      // The aliases move to the extends target; nothing the importer resolves changes.
+      await vscode.workspace.fs.writeFile(tsConfig, Buffer.from(JSON.stringify({ ...config, extends: './e2eExtendsBase.json', compilerOptions })));
+      await sleep(2000); // let the tsconfig event record its new extends target
+
+      const added = await refreshMatrix('the matrix with the alias edge', before.revision, () => vscode.workspace.fs.writeFile(base, baseWith({ '@e2e431/*': ['../workspaces-project/packages/ui/src/*'] })));
+      assert.strictEqual(added.fileEdges, before.fileEdges + 1, 'the importer → aliased target edge');
+
+      const removed = await refreshMatrix('the matrix without the alias edge', added.revision, () => vscode.workspace.fs.writeFile(base, baseWith({})));
+      assert.strictEqual(removed.fileEdges, before.fileEdges, 'removing the alias removes the edge');
+    } finally {
+      await vscode.commands.executeCommand('graph-it-live.e2eArchitectureControls', { view: 'graph' });
+      await vscode.workspace.fs.writeFile(tsConfig, original);
+      await vscode.workspace.fs.delete(importer).then(undefined, () => undefined);
+      await vscode.workspace.fs.delete(base).then(undefined, () => undefined);
       await sleep(1500); // let the config and delete events reach the index before the next test refreshes
     }
   });

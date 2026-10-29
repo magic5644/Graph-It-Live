@@ -1,6 +1,7 @@
 import { createHash } from "node:crypto";
 import * as fs from "node:fs";
 import * as path from "node:path";
+import { RESOLVER_CONFIG_FILE_REGEX } from "../../shared/constants";
 import { getLogger } from "../../shared/logger";
 import { normalizePath } from "../../shared/path";
 import { isPathWithinRootCanonical } from "../../shared/pathSecurity";
@@ -25,6 +26,14 @@ export function configFingerprint(workspaceRoot: string, sourceFiles: readonly s
 /** Normalized paths of the resolver configs `sourceFiles` depend on. Throws for a source outside the workspace. */
 export function resolverConfigFiles(workspaceRoot: string, sourceFiles: readonly string[]): string[] {
   return [...readConfigContents(findSourceDirectories(workspaceRoot, sourceFiles)).keys()];
+}
+
+/**
+ * Resolver configs the glob cannot match (an `extends` target named base.json) that sit inside the workspace.
+ * Targets outside it are fingerprinted but never watched.
+ */
+export function extendsConfigFiles(workspaceRoot: string, configFiles: readonly string[]): string[] {
+  return configFiles.filter(file => !RESOLVER_CONFIG_FILE_REGEX.test(file) && isPathWithinRootCanonical(file, workspaceRoot));
 }
 
 function findSourceDirectories(workspaceRoot: string, sourceFiles: readonly string[]): Set<string> {

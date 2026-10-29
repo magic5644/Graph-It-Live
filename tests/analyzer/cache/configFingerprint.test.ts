@@ -2,7 +2,7 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { configFingerprint } from "@/analyzer/cache/configFingerprint";
+import { configFingerprint, extendsConfigFiles } from "@/analyzer/cache/configFingerprint";
 
 const info = vi.hoisted(() => vi.fn());
 vi.mock("@/shared/logger", () => ({ getLogger: () => ({ info }) }));
@@ -147,5 +147,28 @@ describe("configFingerprint", () => {
     expect(configFingerprint(root, [source])).toBeUndefined();
     expect(info).toHaveBeenCalledOnce();
     expect(info.mock.calls[0][0]).toMatch(/^Index cache disabled: cannot read resolver config .*tsconfig\.json: /);
+  });
+});
+
+describe("extendsConfigFiles", () => {
+  const root = path.resolve("workspace");
+
+  it("keeps in-workspace configs the fixed names do not match", () => {
+    const files = [
+      path.join(root, "tsconfig.json"),
+      path.join(root, "pkg", "tsconfig.app.json"),
+      path.join(root, "package.json"),
+      path.join(root, "config", "base.json"),
+      path.join(root, "ts-base.json"),
+    ];
+    expect(extendsConfigFiles(root, files)).toEqual([path.join(root, "config", "base.json"), path.join(root, "ts-base.json")]);
+  });
+
+  it("drops targets outside the workspace, including a sibling sharing its name prefix", () => {
+    expect(extendsConfigFiles(root, [path.resolve("elsewhere", "base.json"), `${root}-copy${path.sep}base.json`])).toEqual([]);
+  });
+
+  it("returns nothing for no config", () => {
+    expect(extendsConfigFiles(root, [])).toEqual([]);
   });
 });
