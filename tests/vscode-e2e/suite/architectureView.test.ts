@@ -549,13 +549,11 @@ suite('Architecture view mode', () => {
     try {
       await vscode.workspace.fs.writeFile(importer, Buffer.from("export * from '@e2e431/index';\n"));
       await vscode.workspace.fs.writeFile(base, baseWith({}));
-      await sleep(2000); // let the create events index the importer, its import still unresolved
-      await openFreshArchitecture();
-      const before = await expectMatrix('the units matrix', { view: 'matrix' }, matrix => matrix.unit === undefined);
-
       // The aliases move to the extends target; nothing the importer resolves changes.
       await vscode.workspace.fs.writeFile(tsConfig, Buffer.from(JSON.stringify({ ...config, extends: './e2eExtendsBase.json', compilerOptions })));
-      await sleep(2000); // let the tsconfig event record its new extends target
+      await sleep(2000); // let the create and tsconfig events index the importer and record the extends target
+      await openFreshArchitecture();
+      const before = await expectMatrix('the units matrix', { view: 'matrix' }, matrix => matrix.unit === undefined);
 
       const added = await refreshMatrix('the matrix with the alias edge', before.revision, () => vscode.workspace.fs.writeFile(base, baseWith({ '@e2e431/*': ['../workspaces-project/packages/ui/src/*'] })));
       assert.strictEqual(added.fileEdges, before.fileEdges + 1, 'the importer → aliased target edge');

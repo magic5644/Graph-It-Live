@@ -217,6 +217,8 @@ describe("ArchitectureViewService", () => {
     const service = createService();
     await service.build();
     service.markStale(path.join(root, "data.json"), "change");
+    service.markStale(path.join(root, "data.json"), "create");
+    service.markStale(path.join(root, "data.json"), "delete");
     expect(summaries()).toHaveLength(1);
     service.markStale(path.join(root, "config", "base.json"), "change");
     expect(summaries().map(summary => summary.stale)).toEqual([false, true]);
