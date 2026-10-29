@@ -287,6 +287,32 @@ describe("formatOutput - markdown", () => {
   });
 });
 
+describe("formatOutput - markdown candidates (#504)", () => {
+  const miss = (reason: string, candidates: unknown[]) => ({ symbol: null, reason, candidates, callers: [] });
+  const candidates = [
+    { id: "/repo/src/service.ts:compute:3", startLine: 3 },
+    { id: "/repo/src/service.ts:compute:7", startLine: 7 },
+  ];
+
+  it.each(["ambiguous", "stale_selector"])("lists %s candidates with relative ids", (reason) => {
+    const out = formatOutput(miss(reason, candidates), "markdown", "tool", "/repo");
+    expect(out).toContain(`**reason:** ${reason}`);
+    expect(out).toContain("| src/service.ts:compute:3 | 3 |");
+    expect(out).toContain("| src/service.ts:compute:7 | 7 |");
+    expect(out.split("```json")[0]).not.toContain("/repo/");
+  });
+
+  it("states an empty candidate list", () => {
+    const out = formatOutput(miss("ambiguous", []), "markdown", "tool", "/repo");
+    expect(out).toContain("_No candidates._");
+  });
+
+  it("adds nothing when a symbol was selected", () => {
+    const out = formatOutput({ symbol: { id: "a" }, candidates: [] }, "markdown", "tool", "/repo");
+    expect(out).not.toContain("reason");
+  });
+});
+
 describe("formatOutput - mermaid", () => {
   it("generates graph from nodes/edges", () => {
     const graphData = {
