@@ -12,7 +12,7 @@ A symbol without an error-level breaking change scores 0. Otherwise the breaking
 
 Git is executed with `execFile`, never shell interpolation. Changed paths are resolved and verified inside the workspace before file I/O, then normalized before storage. The Action receives GitHub event metadata as untrusted input, writes a single marker-owned comment, escapes Markdown table/HTML control characters, and only calls GitHub when comments are requested. The default is informative; `fail-on-risk` must be `high` or `critical` to fail CI.
 
-The VS Code URI is `vscode://magic5644.graph-it-live/graph-it-live.reviewCallGraph?file=<workspace-relative>&symbol=<optional>&depth=3`. It is emitted only for a risky symbol with a relative file. The extension accepts a canonical integer depth in 1–5, then revalidates the workspace-relative path (including rejecting the workspace root) before opening the existing Cytoscape call graph.
+The VS Code URI is `vscode://magic5644.graph-it-live/graph-it-live.reviewCallGraph?file=<workspace-relative>&symbol=<optional>&depth=3`. It is emitted only for a risky symbol with a relative file, as a code span in the PR comment (GitHub strips non-http(s) Markdown links). The extension accepts a canonical integer depth in 1–5, then revalidates the workspace-relative path (including rejecting the workspace root) before opening the existing Cytoscape call graph.
 
 ## External composite Action distribution
 

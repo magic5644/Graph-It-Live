@@ -76,7 +76,8 @@ export function renderReviewComment(result, extensionId) {
     ...(rows.length > 0 ? rows : ["| low | 0 | — | No risky changed symbols detected | 0 | 0 | no |"]),
     ...(evidence.length > 0 ? ["", "### Evidence", ...evidence] : []),
     ...(limitationLines.length > 0 ? ["", "### Limitations", ...limitationLines] : []),
-    ...(deepLink ? ["", `[Open highest-risk call graph](${deepLink})`] : []),
+    // GitHub strips non-http(s) links from comments, so the URI is a code span to copy, not a Markdown link.
+    ...(deepLink ? ["", "Open the highest-risk call graph: copy this URI and paste it in your browser address bar (VS Code with Graph-It-Live must be installed).", "", `\`${deepLink}\``] : []),
   ].join("\n");
 }
 
