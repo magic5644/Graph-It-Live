@@ -237,6 +237,29 @@ export function builtins() { Object.keys({}); Math.round(1.5); }`,
       expect(callEdges(snapshot)).toEqual([]);
     });
 
+    it("resolves several namespaces, calls inside methods and arrows, exported consts, and a namespace next to a named import", async () => {
+      const snapshot = await index({
+        math: "export function add() {}\nexport const mul = () => 0;",
+        text: "export function trim() {}",
+        user: `import * as m from './math.${ext}'; import * as t from './text.${ext}'; import { add } from './math.${ext}';
+export class Svc { run() { return m.add() + t.trim(); } }
+export const arrow = () => m.mul();
+export function direct() { add(); }`,
+      });
+      expect(callEdges(snapshot)).toEqual(["user#arrow -> math#mul", "user#direct -> math#add", "user#run -> math#add", "user#run -> text#trim"]);
+    });
+
+    it("keeps one edge when a namespace member is called repeatedly, and ignores a namespace rebinding in a catch clause or local function", async () => {
+      const snapshot = await index({
+        math: "export function add() {}",
+        user: `import * as math from './math.${ext}';
+export function twice() { math.add(); math.add(); }
+export function caught() { try {} catch (math) { math.add(); } }
+export function local() { function math() {} math.add(); }`,
+      });
+      expect(callEdges(snapshot)).toEqual(["user#twice -> math#add"]);
+    });
+
     it("does not treat a namespace member that is not a call as an edge", async () => {
       const snapshot = await index({
         math: "export function add() {}",
