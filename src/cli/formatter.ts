@@ -334,7 +334,8 @@ function formatCandidates(data: unknown, workspaceRoot: string | undefined): str
     const record = toRecord(candidate) ?? {};
     const id = valueToMermaidString(record["id"], "?");
     const symbolId = workspaceRoot ? relativizeWorkspacePaths(normalizePath(id), workspaceRoot) : normalizePath(id);
-    return `| ${symbolId.replaceAll("|", String.raw`\|`)} | ${valueToMermaidString(record["startLine"])} |`;
+    const cell = symbolId.replaceAll("|", "\\|");
+    return `| ${cell} | ${valueToMermaidString(record["startLine"])} |`;
   });
   const table = rows.length > 0 ? ["| symbolId | startLine |", "| --- | --- |", ...rows] : ["_No candidates._"];
   return [`**reason:** ${obj["reason"]}`, "", ...table, "", ""].join("\n");
