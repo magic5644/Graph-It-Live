@@ -131,8 +131,9 @@ CREATE TABLE IF NOT EXISTS metadata (
  * Bump when the schema or the extracted nodes change (e.g. a .scm query edit):
  * a mismatch forces a full rebuild on load, since mtime-fresh files are skipped.
  * v5: named import calls retain their module and binding (#398).
+ * v6: namespace member calls (`ns.fn()`) retain their module (#498).
  */
-const CURRENT_SCHEMA_VERSION = 5;
+const CURRENT_SCHEMA_VERSION = 6;
 
 /**
  * Optional FTS5 schema for fast symbol name search.

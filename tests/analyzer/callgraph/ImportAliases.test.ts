@@ -169,6 +169,93 @@ export function run() {
     expect(snapshot.edges.filter(e => e.typeRelation === "CALLS")).toEqual([]);
   });
 
+  describe("namespace imports", () => {
+    const callEdges = (snapshot: Awaited<ReturnType<typeof index>>) => {
+      const nameOf = new Map(snapshot.nodes.map(n => [n.id, `${path.basename(n.path, `.${ext}`)}#${n.name}`]));
+      return snapshot.edges.filter(e => e.typeRelation === "CALLS").map(e => `${nameOf.get(e.sourceId)} -> ${nameOf.get(e.targetId)}`).sort();
+    };
+
+    it("links ns.member() to the imported module, not to a same-named decoy, with inverse callers", async () => {
+      const snapshot = await index({
+        math: "export function add() {}",
+        decoy: "export function add() {}",
+        namespace: `import * as math from './math.${ext}'; export function namespaceCall() { return math.add(1, 2); }`,
+        mixed: `import def, * as math from './math.${ext}'; export function mixedCall() { math.add(); }`,
+      });
+      expect(callEdges(snapshot)).toEqual(["mixed#mixedCall -> math#add", "namespace#namespaceCall -> math#add"]);
+      const target = snapshot.nodes.find(n => n.name === "add" && n.path.endsWith(`/math.${ext}`))!;
+      expect(queryNeighbourhood(indexer.getDb(), target.id, 1).nodes.map(n => n.name)).toEqual(expect.arrayContaining(["add", "namespaceCall", "mixedCall"]));
+    });
+
+    it("follows direct, renamed, star and chained re-exports through a namespace", async () => {
+      const snapshot = await index({
+        price: "export function formatPrice() {}",
+        barrel: `export { formatPrice, formatPrice as fmt } from './price.${ext}';`,
+        star: `export * from './barrel.${ext}';`,
+        outer: `export * from './star.${ext}';`,
+        user: `import * as b from './barrel.${ext}'; import * as o from './outer.${ext}';
+export function viaNamed() { b.formatPrice(); }
+export function viaRenamed() { b.fmt(); }
+export function viaChain() { o.formatPrice(); }`,
+      });
+      expect(callEdges(snapshot)).toEqual(["user#viaChain -> price#formatPrice", "user#viaNamed -> price#formatPrice", "user#viaRenamed -> price#formatPrice"]);
+    });
+
+    it.each([
+      "export function run(math) { math.add(); }",
+      "export function run() { const math = { add() {} }; math.add(); }",
+      "export function run() { { let math; math.add(); } }",
+      "export const run = math => math.add();",
+    ])("does not bind a shadowed namespace: %s", async (body) => {
+      const snapshot = await index({
+        math: "export function add() {}",
+        user: `import * as math from './math.${ext}';\n${body}`,
+      });
+      expect(callEdges(snapshot).filter(edge => edge.endsWith("-> math#add"))).toEqual([]);
+    });
+
+    it("keeps the namespace outside a sibling scope that shadows it", async () => {
+      const snapshot = await index({
+        math: "export function add() {}",
+        user: `import * as math from './math.${ext}';
+export function shadow(math) { math.add(); }
+export function run() { math.add(); }`,
+      });
+      expect(callEdges(snapshot)).toEqual(["user#run -> math#add"]);
+    });
+
+    it("invents no edge for unknown members, missing modules, non-identifier objects or builtins", async () => {
+      const snapshot = await index({
+        math: "export function add() {}",
+        keys: "export function keys() {}\nexport function round() {}",
+        user: `import * as math from './math.${ext}'; import * as gone from './missing';
+export function unknown() { math.nope(); }
+export function missing() { gone.add(); }
+export function nested(a) { a.math.add(); }
+export function builtins() { Object.keys({}); Math.round(1.5); }`,
+      });
+      expect(callEdges(snapshot)).toEqual([]);
+    });
+
+    it("does not treat a namespace member that is not a call as an edge", async () => {
+      const snapshot = await index({
+        math: "export function add() {}",
+        user: `import * as math from './math.${ext}'; export function run() { return math['add'](); }`,
+      });
+      expect(callEdges(snapshot)).toEqual([]);
+    });
+
+    if (lang === "typescript") {
+      it("ignores type-only namespace imports", async () => {
+        const snapshot = await index({
+          math: "export function add() {}",
+          user: "import type * as math from './math.ts'; export function run() { math.add(); }",
+        });
+        expect(callEdges(snapshot)).toEqual([]);
+      });
+    }
+  });
+
   if (lang === "typescript") {
     it.each(["import type { startJournal as open }", "import { type startJournal as open }"])("ignores type-only bindings: %s", async (declaration) => {
       const snapshot = await index({
