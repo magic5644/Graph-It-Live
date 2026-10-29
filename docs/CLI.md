@@ -1898,7 +1898,7 @@ graph-it tool query_call_graph --filePath=/abs/path/to/Spider.ts --symbolName=cr
 graph-it tool query_call_graph --filePath=/abs/path/to/Spider.ts --symbolName=crawl --direction=callers --depth=1
 
 # Two methods share a name? The first call returns reason "ambiguous" with candidates;
-# select one by its startLine (or its symbolId, valid for the current index only)
+# select one by its startLine (0-based, as reported in the candidates) or its symbolId (valid for the current index only)
 graph-it tool query_call_graph --filePath=/abs/path/to/service.ts --symbolName=compute --startLine=3
 ```
 
