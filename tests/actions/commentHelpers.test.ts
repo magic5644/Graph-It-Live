@@ -40,6 +40,17 @@ describe("review-gate comment helpers", () => {
     expect(renderReviewComment({ symbols: "invalid", limitations: "invalid", changedFiles: "invalid", risk: 7, score: "bad" }, "magic5644.graph-it-live")).toContain("(0/100)");
   });
 
+  it("renders the deep link as a copyable code span, not a Markdown link GitHub would strip", () => {
+    const rendered = renderReviewComment(result, "magic5644.graph-it-live");
+    const uri = buildReviewDeepLink(result);
+    expect(rendered).toContain(`\n\`${uri}\``);
+    expect(rendered).toContain("paste it in your browser address bar");
+    expect(rendered).not.toContain(`](${uri})`);
+    // a backtick in a symbol name is percent-encoded, so it cannot close the code span
+    const tick = renderReviewComment({ symbols: [{ filePath: "src/a.ts", name: "a`b" }] }, "magic5644.graph-it-live");
+    expect(tick).toContain("symbol=a%60b");
+  });
+
   it("reports descriptive API failures while allowing mocked successful responses", async () => {
     const fetchMock = vi.fn().mockResolvedValue({ ok: false, status: 401, statusText: "Unauthorized", text: async () => '{"message":"Bad credentials"}' });
     await expect(fetchJsonOrThrow(fetchMock, "https://example.test", {}, "list comments")).rejects.toThrow("GitHub list comments failed (401): Bad credentials");
