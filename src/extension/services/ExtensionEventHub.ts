@@ -1,7 +1,7 @@
 import * as path from "node:path";
 import * as vscode from "vscode";
 import type { Spider } from "../../analyzer/Spider";
-import { RESOLVER_CONFIG_FILE_REGEX, SUPPORTED_SOURCE_FILE_REGEX } from "../../shared/constants";
+import { SUPPORTED_SOURCE_FILE_REGEX } from "../../shared/constants";
 import type { VsCodeLogger } from "../extensionLogger";
 import type { EditorNavigationService } from "./EditorNavigationService";
 import type { EventType } from "./FileChangeScheduler";
@@ -180,7 +180,7 @@ export class ExtensionEventHub {
     }
 
     // No importer's mtime moves when imports resolve elsewhere: re-index them all (#419), unless resolution is unchanged (#430).
-    if (RESOLVER_CONFIG_FILE_REGEX.test(filePath)) {
+    if (this.spider.isResolverConfig(filePath)) {
       this.log.debug(`Resolver configuration ${eventType}:`, filePath);
       const reindexed = await this.spider.handleResolverConfigChange(filePath);
       if (reindexed !== null) {

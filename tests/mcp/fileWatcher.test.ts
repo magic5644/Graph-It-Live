@@ -107,6 +107,38 @@ describe('MCP file watcher', () => {
     }, { timeout: eventTimeout });
   }, testTimeout);
 
+  // #431: an `extends` target named base.json moves no importer's mtime either, and tsconfig*.json is not its name.
+  it('re-resolves an unchanged importer when an extends target named base.json is edited', async () => {
+    const appPath = path.join(root, 'src/app.ts');
+    const oldPath = normalizePath(path.join(root, 'src/old.ts'));
+    const base = normalizePath(path.join(root, 'config/base.json'));
+    await fs.mkdir(path.join(root, 'config'));
+    await fs.writeFile(base, JSON.stringify({ compilerOptions: { baseUrl: '..', paths: {} } }));
+    await fs.writeFile(path.join(root, 'tsconfig.json'), JSON.stringify({ extends: './config/base.json' }));
+    await fs.writeFile(appPath, "import { helper } from '@app/old'; export const result = helper;");
+    await vi.waitFor(() => {
+      expect(postMessage).toHaveBeenCalledWith(expect.objectContaining({ filePath: normalizePath(path.join(root, 'tsconfig.json')) }));
+    }, { timeout: eventTimeout });
+    await workerState.spider!.reanalyzeFile(appPath);
+    expect(await workerState.spider!.analyzeFromIndex(appPath)).toEqual([]);
+    await vi.waitFor(() => expect(workerState.spider!.isResolverConfig(base)).toBe(true), { timeout: eventTimeout });
+
+    await fs.writeFile(base, JSON.stringify({ compilerOptions: { baseUrl: '..', paths: { '@app/*': ['./src/*'] } } }));
+    await vi.waitFor(async () => {
+      expect(postMessage).toHaveBeenCalledWith(expect.objectContaining({ event: 'change', filePath: base }));
+      expect((await workerState.spider!.analyzeFromIndex(appPath)).map((d) => d.path)).toEqual([oldPath]);
+    }, { timeout: eventTimeout });
+  }, testTimeout);
+
+  it('ignores a JSON file no tsconfig extends', async () => {
+    const data = normalizePath(path.join(root, 'data.json'));
+    const handle = vi.spyOn(workerState.spider!, 'handleResolverConfigChange');
+    await fs.writeFile(data, '{}');
+    await new Promise((resolve) => setTimeout(resolve, 1_000));
+    expect(handle).not.toHaveBeenCalled();
+    expect(postMessage).not.toHaveBeenCalledWith(expect.objectContaining({ filePath: data }));
+  }, testTimeout);
+
   // #430: a package.json edit that keeps its imports re-indexes nothing.
   it('re-indexes nothing when a resolver configuration edit keeps its effective content', async () => {
     const packageJson = normalizePath(path.join(root, 'package.json'));

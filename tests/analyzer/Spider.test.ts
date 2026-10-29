@@ -462,6 +462,78 @@ describe('Spider - handleResolverConfigChange after a full index', () => {
     expect(await spider.analyzeFromIndex(app)).toEqual([]);
   });
 
+  // #431: an `extends` target named outside tsconfig*.json is a resolver config for as long as it is extended.
+  describe('extends targets named outside tsconfig*.json', () => {
+    const aliasTo = (directory: string) => ({ compilerOptions: { baseUrl: '..', paths: { '@lib/*': [`${directory}/*`] } } });
+
+    beforeEach(async () => {
+      await fs.mkdir(path.join(tmpDir, 'config'));
+      await write('config/base.json', aliasTo('lib'));
+      await write('tsconfig.json', { extends: './config/base.json' });
+      await setModifiedAt(-60_000, 'config/base.json', 'tsconfig.json');
+    });
+
+    it('recognises the fixed names anywhere, and no other JSON file', () => {
+      expect(spider.isResolverConfig(path.join(tmpDir, 'pkg', 'tsconfig.app.json'))).toBe(true);
+      expect(spider.isResolverConfig(path.join(tmpDir, 'pkg', 'package.json'))).toBe(true);
+      expect(spider.isResolverConfig(path.join(tmpDir, 'data.json'))).toBe(false);
+      expect(spider.isResolverConfig(path.join(tmpDir, 'config', 'base.json'))).toBe(false);
+    });
+
+    it('follows the extends of an edit that changes nothing resolution reads', async () => {
+      expect(await change('tsconfig.json')).toBeNull();
+      expect(spider.isResolverConfig(path.join(tmpDir, 'config', 'base.json'))).toBe(true);
+    });
+
+    it('re-indexes when the extends target is edited', async () => {
+      await change('tsconfig.json');
+      await fs.mkdir(path.join(tmpDir, 'other'));
+      await fs.writeFile(path.join(tmpDir, 'other', 'target.ts'), 'export const target = 2;\n');
+      await write('config/base.json', aliasTo('other'));
+
+      expect(await change('config/base.json')).toBeGreaterThan(0);
+      expect((await spider.analyzeFromIndex(app)).map((d) => d.path)).toEqual([np(path.join(tmpDir, 'other', 'target.ts'))]);
+    });
+
+    it('drops a target the tsconfig no longer extends and picks up its replacement', async () => {
+      await write('config/ts-base.json', aliasTo('lib'));
+      await write('tsconfig.json', { extends: './config/ts-base.json' });
+      await change('tsconfig.json');
+
+      expect(spider.isResolverConfig(path.join(tmpDir, 'config', 'ts-base.json'))).toBe(true);
+      expect(spider.isResolverConfig(path.join(tmpDir, 'config', 'base.json'))).toBe(false);
+
+      await write('tsconfig.json', {});
+      await change('tsconfig.json');
+      expect(spider.isResolverConfig(path.join(tmpDir, 'config', 'ts-base.json'))).toBe(false);
+    });
+
+    it('watches no extends target while a source file lies outside the workspace', async () => {
+      await change('tsconfig.json');
+      expect(spider.isResolverConfig(path.join(tmpDir, 'config', 'base.json'))).toBe(true);
+
+      vi.spyOn(Reflect.get(spider, 'reverseIndexManager'), 'getIndexedFiles').mockReturnValue([path.join(tmpDir, '..', 'outside.ts')]);
+      expect(await change('tsconfig.json')).toBeNull();
+
+      expect(spider.isResolverConfig(path.join(tmpDir, 'config', 'base.json'))).toBe(false);
+      expect(spider.isResolverConfig(path.join(tmpDir, 'tsconfig.json'))).toBe(true);
+    });
+
+    it('does not watch a target outside the workspace root', async () => {
+      const outside = await fs.realpath(await fs.mkdtemp(path.join(os.tmpdir(), 'graph-it-outside-config-')));
+      try {
+        await fs.writeFile(path.join(outside, 'base.json'), JSON.stringify(aliasTo('lib')));
+        await write('tsconfig.json', { extends: [path.join(outside, 'base.json'), './config/base.json'] });
+        await change('tsconfig.json');
+
+        expect(spider.isResolverConfig(path.join(outside, 'base.json'))).toBe(false);
+        expect(spider.isResolverConfig(path.join(tmpDir, 'config', 'base.json'))).toBe(true);
+      } finally {
+        await fs.rm(outside, { recursive: true, force: true });
+      }
+    });
+  });
+
   it('re-indexes on the first edit of a config outside the snapshot, then compares it', async () => {
     await write('tsconfig.build.json', { compilerOptions: { outDir: 'dist' } });
     expect(await change('tsconfig.build.json')).toBeGreaterThan(0);

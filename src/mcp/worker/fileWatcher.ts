@@ -3,7 +3,6 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 import {
     IGNORED_DIRECTORIES,
-    RESOLVER_CONFIG_FILE_REGEX,
     SUPPORTED_FILE_EXTENSIONS,
 } from "../../shared/constants";
 import { createIgnoreMatcher, type IgnoreMatcher } from "../../analyzer/SourceFileFilters";
@@ -44,9 +43,12 @@ const FILE_CHANGE_DEBOUNCE_MS = 300;
 /** Extensions to watch for changes */
 const WATCHED_EXTENSIONS = SUPPORTED_FILE_EXTENSIONS;
 
-/** Source files, and the tsconfig / package.json files their imports resolve through (#419) */
+/**
+ * Source files, and the JSON configs their imports resolve through (#419): tsconfig / package.json and the
+ * `extends` targets named otherwise (#431). Which JSON file counts is decided per event, as the set follows `extends`.
+ */
 const isWatchedFile = (filePath: string): boolean =>
-  WATCHED_EXTENSIONS.some(ext => filePath.endsWith(ext)) || RESOLVER_CONFIG_FILE_REGEX.test(filePath);
+  WATCHED_EXTENSIONS.some(ext => filePath.endsWith(ext)) || filePath.endsWith(".json");
 
 /**
  * Setup chokidar file watcher for automatic cache invalidation
@@ -284,11 +286,13 @@ function performFileInvalidation(
 
   log.debug("File", event + ":", path.basename(filePath));
 
-  if (RESOLVER_CONFIG_FILE_REGEX.test(filePath)) {
+  if (workerState.spider.isResolverConfig(filePath)) {
     reindexForResolverConfig(workerState.spider, filePath);
     postMessage({ type: "file-invalidated" as const, filePath, event } as McpWorkerResponse);
     return;
   }
+  // Any other JSON file is no source: it only reached here to be checked against the `extends` targets.
+  if (filePath.endsWith(".json")) return;
 
   // The call graph has its own database; Spider invalidation does not refresh it.
   // Re-extract the file on the next graph query, even if its mtime did not move.

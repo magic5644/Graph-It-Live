@@ -243,6 +243,7 @@ export function createGraphProviderServiceContainer(
         workspaceRoot,
         // Once indexed, the workspace is not parsed a second time (#383).
         analyzeFile: (filePath) => spider.analyzeFromIndex(filePath),
+        isResolverConfig: (filePath) => spider.isResolverConfig(filePath),
       unresolvedImportersOf: (filePath) => spider.getUnresolvedImportersOf(filePath),
         readCommunityMode,
         subscribeToIndexStatus: (callback) => spider.subscribeToIndexStatus(callback),

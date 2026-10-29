@@ -13,6 +13,7 @@ export async function buildView(rootDir: string, posted: ArchitectureExtensionMe
   const service = new ArchitectureViewService({
     workspaceRoot: rootDir,
     analyzeFile: (filePath) => workerState.getSpider().analyze(filePath),
+    isResolverConfig: (filePath) => workerState.getSpider().isResolverConfig(filePath),
     readCommunityMode: () => communityMode,
     subscribeToIndexStatus: (callback) => {
       callback({ state: "idle" } as IndexerStatusSnapshot);

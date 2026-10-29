@@ -115,6 +115,7 @@ vi.mock("../../src/analyzer/Spider", () => {
       invalidateFiles: vi.fn().mockReturnValue(0),
       reanalyzeFile: vi.fn().mockResolvedValue([]),
       handleFileDeleted: vi.fn(),
+      isResolverConfig: vi.fn().mockReturnValue(false),
       // IndexerStatus subscription
       subscribeToIndexStatus: vi.fn().mockReturnValue(() => {}),
       getIndexStatus: vi.fn().mockReturnValue({
@@ -231,7 +232,7 @@ describe("GraphProvider", () => {
     // Source files, the architecture rule files the Architecture view reads, and the resolver configs (#419).
     expect(vscode.workspace.createFileSystemWatcher).toHaveBeenCalledTimes(3);
     expect(vscode.workspace.createFileSystemWatcher).toHaveBeenCalledWith("**/graphit.architecture{,.baseline}.json");
-    expect(vscode.workspace.createFileSystemWatcher).toHaveBeenCalledWith("**/{package,tsconfig*}.json");
+    expect(vscode.workspace.createFileSystemWatcher).toHaveBeenCalledWith("**/*.json");
   });
 
   it("should update graph when updateGraph is called", async () => {

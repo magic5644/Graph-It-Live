@@ -70,6 +70,7 @@ describe("ArchitectureViewService", () => {
     new ArchitectureViewService({
       workspaceRoot: root,
       analyzeFile: analyzerFor(root, workspace),
+      isResolverConfig: (filePath) => /tsconfig[^\\/]*\.json$/.test(filePath) || filePath.endsWith("base.json"),
       readCommunityMode: () => communityMode,
       subscribeToIndexStatus: (callback) => {
         callback(idle);
@@ -209,6 +210,16 @@ describe("ArchitectureViewService", () => {
     await service.build();
     service.markStale(path.join(root, "src/new.ts"), "create");
     expect(summaries().at(-1)?.stale).toBe(true);
+  });
+
+  // #431: an extends target named base.json is not in the graph, yet it changes how imports resolve.
+  it("marks stale for a resolver config the graph does not contain, and not for another JSON file", async () => {
+    const service = createService();
+    await service.build();
+    service.markStale(path.join(root, "data.json"), "change");
+    expect(summaries()).toHaveLength(1);
+    service.markStale(path.join(root, "config", "base.json"), "change");
+    expect(summaries().map(summary => summary.stale)).toEqual([false, true]);
   });
 
   // macOS delivers watcher events late: after the Refresh that already read those files.

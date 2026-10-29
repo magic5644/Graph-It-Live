@@ -46,7 +46,6 @@ import {
   type ArchitectureUnitEvidenceCommand,
   type ArchitectureWebviewCommand,
 } from "@/shared/architecture-types";
-import { RESOLVER_CONFIG_FILE_REGEX } from "@/shared/constants";
 import type { CommunityMode } from "@/shared/graph-types";
 import { normalizePath } from "@/shared/path";
 import { validateWorkspacePath } from "@/shared/pathSecurity";
@@ -57,6 +56,8 @@ const BUSY_INDEX_STATES = new Set<IndexerStatusSnapshot["state"]>(["counting", "
 export interface ArchitectureViewServiceOptions {
   workspaceRoot: string;
   analyzeFile: AnalyzeFile;
+  /** Whether a change to the file can alter import resolution: a tsconfig / package.json or a config they extend. */
+  isResolverConfig: (filePath: string) => boolean;
   readCommunityMode: () => CommunityMode;
   subscribeToIndexStatus: (callback: (snapshot: IndexerStatusSnapshot) => void) => () => void;
   /** Resolves once the startup index is neither scheduled nor restoring: the index status reads `idle` until it starts. */
@@ -519,7 +520,7 @@ export class ArchitectureViewService {
   markStale(filePath?: string, eventType?: "create" | "change" | "delete"): void {
     if (this.disposed) return;
     const relative = filePath === undefined ? undefined : normalizePath(path.relative(this.options.workspaceRoot, filePath));
-    const configFile = RESOLVER_CONFIG_FILE_REGEX.test(relative ?? "") || relative === ARCHITECTURE_CONFIG_FILE || relative === ARCHITECTURE_BASELINE_FILE;
+    const configFile = this.options.isResolverConfig(filePath ?? "") || relative === ARCHITECTURE_CONFIG_FILE || relative === ARCHITECTURE_BASELINE_FILE;
     if (this.running) {
       if (this.readByBuild(filePath, eventType, this.running.startedAt)) return;
       if (relative === undefined || eventType === "create" || configFile) this.changedDuringBuild.any = true;

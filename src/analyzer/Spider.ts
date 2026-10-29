@@ -7,7 +7,7 @@ import { LanguageService } from './LanguageService';
 import { ReferencingFilesFinder } from './ReferencingFilesFinder';
 import { ReverseIndexManager } from './ReverseIndexManager';
 import { SourceFileCollector } from './SourceFileCollector';
-import { resolverConfigFiles } from './cache/configFingerprint';
+import { extendsConfigFiles, resolverConfigFiles } from './cache/configFingerprint';
 import { SpiderCacheCoordinator } from './spider/SpiderCacheCoordinator';
 import { SpiderDependencyAnalyzer } from './spider/SpiderDependencyAnalyzer';
 import { SpiderGraphCrawler } from './spider/SpiderGraphCrawler';
@@ -18,6 +18,7 @@ import { SpiderSymbolService } from './spider/SpiderSymbolService';
 import { SpiderWorkerManager } from './spider/SpiderWorkerManager';
 import { SymbolDependencyHelper } from './SymbolDependencyHelper';
 import type { Dependency, IndexingProgressCallback, SpiderConfig } from './types';
+import { RESOLVER_CONFIG_FILE_REGEX } from '@/shared/constants';
 import { normalizePath } from '@/shared/path';
 import { YIELD_INTERVAL_MS, yieldToEventLoop } from './utils/EventLoopYield';
 import { PathResolver } from './utils/PathResolver';
@@ -204,6 +205,8 @@ export class Spider {
   private readonly resolver: PathResolver;
   // Resolver inputs of each config the index was built with: unchanged inputs skip a re-index (#430).
   private resolverInputs: Promise<Map<string, string | null>> = Promise.resolve(new Map());
+  // In-workspace `extends` targets the tsconfig*.json / package.json pattern misses, by normalized path (#431).
+  private extendsConfigs = new Set<string>();
   // Resolver configs changed since the queued re-index was created, by normalized path.
   private readonly pendingResolverConfigs = new Map<string, string>();
   private resolverReindex: Promise<unknown> = Promise.resolve();
@@ -529,13 +532,22 @@ export class Spider {
     return this.queuedResolverReindex;
   }
 
+  /** Whether a change to this file can alter import resolution: a tsconfig / package.json, or a config they extend (#431). */
+  isResolverConfig(filePath: string): boolean {
+    return RESOLVER_CONFIG_FILE_REGEX.test(filePath) || this.extendsConfigs.has(normalizePath(filePath));
+  }
+
   private async reindexForResolverConfigs(): Promise<number | null> {
     // Taken before the first await: a config changed from now on queues the next run.
     const configs = [...this.pendingResolverConfigs];
     this.pendingResolverConfigs.clear();
     const snapshot = await this.resolverInputs;
     const inputs = await Promise.all(configs.map(([, configPath]) => this.resolver.readResolverInputs(configPath)));
-    if (configs.every(([key], index) => snapshot.has(key) && snapshot.get(key) === inputs[index])) return null;
+    if (configs.every(([key], index) => snapshot.has(key) && snapshot.get(key) === inputs[index])) {
+      // An edited `extends` may have added or dropped a target without changing what resolves.
+      this.extendsConfigs = this.readExtendsConfigs();
+      return null;
+    }
 
     this.resolver.clearCaches();
     // Import parsers are shared per workspace and each holds its own resolver.
@@ -564,6 +576,7 @@ export class Spider {
     const inputs = new Map<string, string | null>();
     try {
       const files = resolverConfigFiles(this.config.rootDir, this.reverseIndexManager.getIndexedFiles());
+      this.extendsConfigs = new Set(extendsConfigFiles(this.config.rootDir, files));
       await Promise.all(files.map(async (file) => {
         // Stat after reading: an edit in between leaves the config out, so its event re-indexes.
         const fileInputs = await this.resolver.readResolverInputs(file);
@@ -572,8 +585,18 @@ export class Spider {
     } catch {
       // A source outside the workspace or a config deleted meanwhile: without a snapshot every config change re-indexes.
       inputs.clear();
+      this.extendsConfigs.clear();
     }
     return inputs;
+  }
+
+  private readExtendsConfigs(): Set<string> {
+    try {
+      const files = resolverConfigFiles(this.config.rootDir, this.reverseIndexManager.getIndexedFiles());
+      return new Set(extendsConfigFiles(this.config.rootDir, files));
+    } catch {
+      return new Set();
+    }
   }
 
   handleFileDeleted(filePath: string): void {
