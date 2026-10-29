@@ -965,6 +965,52 @@ describe('LmToolsService', () => {
       expect(result.totalCallees).toBe(0);
     });
 
+    describe('exact selector', () => {
+      const rowAt = (line: number) => [`/workspace/src/a.ts:compute:${line}`, 'compute', 'method', 'typescript', '/workspace/src/a.ts', line, line + 2, 0];
+
+      function setup(exec: ReturnType<typeof vi.fn>) {
+        const mockIndexer = { getDb: vi.fn().mockReturnValue({ exec }) };
+        const mockCallGraphService = { getCallGraphIndexerForLmTools: vi.fn().mockReturnValue(mockIndexer) };
+        new LmToolsService({ provider: createProvider({ callGraphService: mockCallGraphService }), logger }).registerAll();
+      }
+
+      it('reports ambiguity with candidates for a shared bare name', async () => {
+        setup(vi.fn().mockReturnValue([{ values: [rowAt(1), rowAt(5)] }]));
+        const result = await invokeTool(TOOL, { filePath: '/workspace/src/a.ts', symbolName: 'compute' }) as Record<string, unknown>;
+        expect(result).toMatchObject({ symbol: null, reason: 'ambiguous', totalCallers: 0 });
+        expect(result.candidates).toHaveLength(2);
+      });
+
+      it('passes symbolId and startLine as SQL parameters, never inline', async () => {
+        const exec = vi.fn().mockReturnValueOnce([{ values: [rowAt(5)] }]).mockReturnValue([{ values: [] }]);
+        setup(exec);
+        const result = await invokeTool(TOOL, {
+          filePath: '/workspace/src/a.ts', symbolName: 'compute', symbolId: "x' OR '1'='1", startLine: 5,
+        }) as Record<string, unknown>;
+        expect(result.symbol).toMatchObject({ startLine: 5 });
+        const [sql, params] = exec.mock.calls[0];
+        expect(sql).not.toContain('OR \'1\'');
+        expect(params).toEqual(['/workspace/src/a.ts', 'compute', "x' OR '1'='1", 5]);
+      });
+
+      it('reports a stale selector when the name exists but the selector misses', async () => {
+        setup(vi.fn().mockReturnValueOnce([]).mockReturnValueOnce([{ values: [rowAt(1), rowAt(5)] }]));
+        const result = await invokeTool(TOOL, {
+          filePath: '/workspace/src/a.ts', symbolName: 'compute', startLine: 42,
+        }) as Record<string, unknown>;
+        expect(result).toMatchObject({ symbol: null, reason: 'stale_selector' });
+        expect(result.candidates).toHaveLength(2);
+      });
+
+      it('reports not_found for a deleted symbol with a selector', async () => {
+        setup(vi.fn().mockReturnValue([]));
+        const result = await invokeTool(TOOL, {
+          filePath: '/workspace/src/a.ts', symbolName: 'gone', symbolId: '/workspace/src/a.ts:gone:3',
+        }) as Record<string, unknown>;
+        expect(result).toMatchObject({ symbol: null, reason: 'not_found', candidates: [] });
+      });
+    });
+
     it('returns symbol info and BFS results when symbol is found', async () => {
       const symbolRow = ['sym1', 'myFn', 'function', 'typescript', '/workspace/src/a.ts', 10, 20, 1];
       const edgeRow = ['sym2', 'sym1', 'call', 0, 15, 'caller', '/workspace/src/b.ts', 'myFn', '/workspace/src/a.ts'];

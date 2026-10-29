@@ -507,8 +507,19 @@ export const QueryCallGraphParamsSchema = z.object({
     "Absolute path to the file containing the target symbol.",
   ),
   symbolName: SymbolNameSchema.describe(
-    "Name of the symbol to query (function, class, method).",
+    "Name of the symbol to query (function, class, method). A bare name shared by several symbols in the file returns reason='ambiguous' with candidates; qualified names such as 'Class.method' are not supported.",
   ),
+  symbolId: SymbolNameSchema.optional().describe(
+    "Exact node id taken from a previous result or candidate (valid for the current index only, since ids embed the line). Narrows symbolName to that node; a stale id returns reason='stale_selector'.",
+  ),
+  startLine: z
+    .number()
+    .int()
+    .min(0)
+    .optional()
+    .describe(
+      "Declaration line of the symbol, as reported by 'startLine' in results and candidates. Selects one of several same-name symbols.",
+    ),
   direction: z
     .enum(["callers", "callees", "both"])
     .optional()

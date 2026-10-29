@@ -17,6 +17,11 @@ import {
   getQueryFreshnessCutoffs,
   GraphExtractor,
 } from "@/analyzer/callgraph/GraphExtractor";
+import {
+  lookupCallGraphSymbol,
+  type CallGraphSymbol,
+  type CallGraphSymbolMiss,
+} from "@/analyzer/callgraph/CallGraphSymbolLookup";
 import { SourceFileCollector } from "@/analyzer/SourceFileCollector";
 import type { RelationType, SupportedLang } from "@/shared/callgraph-types";
 import { getLogger } from "@/shared/logger";
@@ -33,17 +38,6 @@ const log = getLogger("McpCallGraph");
 // Result types
 // ---------------------------------------------------------------------------
 
-interface CallGraphSymbol {
-  id: string;
-  name: string;
-  type: string;
-  lang: string;
-  filePath: string;
-  startLine: number;
-  endLine: number;
-  isExported: boolean;
-}
-
 interface CallGraphRelation {
   sourceId: string;
   sourceName: string;
@@ -58,6 +52,10 @@ interface CallGraphRelation {
 
 export interface QueryCallGraphResult {
   symbol: CallGraphSymbol | null;
+  /** Set when symbol is null: why no single node was selected */
+  reason?: CallGraphSymbolMiss;
+  /** Same-name nodes to pick from (ambiguous) or that the selector missed (stale_selector) */
+  candidates?: CallGraphSymbol[];
   callers: CallGraphRelation[];
   callees: CallGraphRelation[];
   totalCallers: number;
@@ -380,22 +378,18 @@ export async function executeQueryCallGraph(
   const db = indexer.getDb();
   const indexTimeMs = Date.now() - startTime;
 
-  const normalizedPath = normalizePath(params.filePath);
   const direction = params.direction ?? "both";
   const depth = params.depth ?? 2;
   // USES edges are type-only references, not calls: they come back only on request.
   const relationFilter: RelationType[] | null =
     params.relationTypes ?? (params.includeTypeOnly ? null : ["CALLS", "INHERITS", "IMPLEMENTS"]);
 
-  // Find matching symbol nodes
-  const symbolRows = db.exec(
-    "SELECT id, name, type, lang, path, start_line, end_line, is_exported FROM nodes WHERE path = ? AND name = ?",
-    [normalizedPath, params.symbolName],
-  );
-
-  if (!symbolRows[0] || symbolRows[0].values.length === 0) {
+  const lookup = lookupCallGraphSymbol(db, params);
+  if (lookup.symbol === null) {
     return {
       symbol: null,
+      reason: lookup.reason,
+      candidates: lookup.candidates,
       callers: [],
       callees: [],
       totalCallers: 0,
@@ -407,19 +401,8 @@ export async function executeQueryCallGraph(
     };
   }
 
-  // Use the first matching symbol (most specific would require line info)
-  const row = symbolRows[0].values[0];
-  const symbolId = row[0] as string;
-  const symbol: CallGraphSymbol = {
-    id: symbolId,
-    name: row[1] as string,
-    type: row[2] as string,
-    lang: row[3] as string,
-    filePath: row[4] as string,
-    startLine: row[5] as number,
-    endLine: row[6] as number,
-    isExported: (row[7] as number) === 1,
-  };
+  const symbol = lookup.symbol;
+  const symbolId = symbol.id;
 
   // BFS callers (who calls this symbol?)
   let callers: CallGraphRelation[] = [];
