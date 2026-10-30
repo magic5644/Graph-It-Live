@@ -1,5 +1,6 @@
 import * as fs from "node:fs/promises";
 import * as path from "node:path";
+import { mapWithConcurrency } from "../../shared/concurrency.js";
 import { normalizePath } from "../../shared/path.js";
 import type {
   MermaidDiagram,
@@ -38,6 +39,9 @@ function displayPath(filePath: string, workspaceRoot: string): string {
  * as stale: a file without it was not written by the generator.
  */
 const GENERATED_MARKER = "<!-- graph-it-live:wiki-article -->";
+
+/** Article files written at once. */
+const WRITE_CONCURRENCY = 16;
 
 /** Maximum callers/callees listed per article. */
 const MAX_LINKS = 20;
@@ -237,10 +241,8 @@ export class WikiGenerator {
     await fs.mkdir(this.outputDir, { recursive: true });
     await fs.mkdir(articlesDir, { recursive: true });
 
-    for (const article of articles) {
-      const markdown = this.renderArticle(article);
-      await fs.writeFile(article.articlePath, markdown, "utf-8");
-    }
+    await mapWithConcurrency(articles, WRITE_CONCURRENCY, (article) =>
+      fs.writeFile(article.articlePath, this.renderArticle(article), "utf-8"));
     await this.removeStaleArticles(articlesDir);
 
     const archDiagram = buildGroupedDiagram(this.buildFileGraph(files), {

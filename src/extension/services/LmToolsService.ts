@@ -13,6 +13,7 @@ import { IndexCache } from '@/analyzer/cache/IndexCache';
 import { LspCallHierarchyAnalyzer } from '@/analyzer/LspCallHierarchyAnalyzer';
 import { QueryEngine } from '@/analyzer/QueryEngine';
 import { ReviewGateAnalyzer } from '@/analyzer/ReviewGateAnalyzer';
+import type { SymbolDependency } from '@/analyzer/types';
 import { reportOutOfRootImports } from '@/analyzer/utils/workspaceBoundary';
 import { scanDeadCode } from '@/analyzer/deadcode/DeadCodeScanner';
 import {
@@ -24,6 +25,7 @@ import {
 } from '@/mcp/types';
 import type { Dependency } from '@/analyzer/types';
 import { checkSymbolInFile, symbolNotFoundMessage } from '@/analyzer/utils/SymbolLookup';
+import { mapWithConcurrency } from '@/shared/concurrency';
 import { convertSpiderToLspFormat } from '@/shared/converters';
 import { lookupCallGraphSymbol } from '@/analyzer/callgraph/CallGraphSymbolLookup';
 import { normalizePath } from '@/shared/path';
@@ -706,28 +708,38 @@ export class LmToolsService {
   ): Promise<ReturnType<LmToolsService['buildImpactItem']>[]> {
     // The target is seeded so a mutual recursion never lists it as its own impact.
     const visited = new Set<string>([targetSymbolId, ...directDependents.map((d) => d.sourceSymbolId)].map(normalizePath));
-    const queue = directDependents.map((d) => ({ symbolId: d.sourceSymbolId, depth: 2 }));
     const transitiveItems: ReturnType<LmToolsService['buildImpactItem']>[] = [];
-
-    for (const current of queue) {
-      if (current.depth > maxDepth) continue;
-
-      const colonIdx = current.symbolId.lastIndexOf(':');
-      if (colonIdx <= 0) continue;
-
-      const sym = current.symbolId.slice(colonIdx + 1);
-      const fp = current.symbolId.slice(0, colonIdx);
-
-      try {
-        const deps = await spider.getSymbolDependents(fp, sym);
+    // Breadth-first, one depth level at a time, results processed in queue order, so `visited` and the
+    // item order match a one-by-one walk.
+    const walkLevel = async (level: Array<{ symbolId: string; depth: number }>): Promise<void> => {
+      const current = level.filter((item) => item.depth <= maxDepth);
+      if (current.length === 0) return;
+      // 1: the AST worker symbol results depend on which files it has loaded (`export *`), so symbol lookups stay one at a time, in order.
+      const results = await mapWithConcurrency(current, 1, (item) => this.symbolDependentsOf(spider, item.symbolId));
+      const next: Array<{ symbolId: string; depth: number }> = [];
+      results.forEach((deps, i) => {
         for (const dep of deps) {
-          this.processTransitiveDep(dep, current.depth, maxDepth, visited, rootDir, queue, transitiveItems);
+          this.processTransitiveDep(dep, current[i].depth, maxDepth, visited, rootDir, next, transitiveItems);
         }
-      } catch {
-        // skip symbols that fail to analyze
-      }
-    }
+      });
+      return walkLevel(next);
+    };
+    await walkLevel(directDependents.map((d) => ({ symbolId: d.sourceSymbolId, depth: 2 })));
     return transitiveItems;
+  }
+
+  /** Dependents of a `file:symbol` id; none for a malformed id or a symbol that fails to analyze. */
+  private async symbolDependentsOf(
+    spider: ReturnType<GraphProvider['getSpiderForLmTools']> & object,
+    symbolId: string,
+  ): Promise<SymbolDependency[]> {
+    const colonIdx = symbolId.lastIndexOf(':');
+    if (colonIdx <= 0) return [];
+    try {
+      return await spider.getSymbolDependents(symbolId.slice(0, colonIdx), symbolId.slice(colonIdx + 1));
+    } catch {
+      return []; // skip symbols that fail to analyze
+    }
   }
 
   private registerGetImpactAnalysis(): vscode.Disposable {

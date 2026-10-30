@@ -24,6 +24,7 @@ import {
 } from "@/analyzer/callgraph/CallGraphSymbolLookup";
 import { SourceFileCollector } from "@/analyzer/SourceFileCollector";
 import type { RelationType, SupportedLang } from "@/shared/callgraph-types";
+import { mapWithConcurrency } from "@/shared/concurrency";
 import { getLogger } from "@/shared/logger";
 import { normalizePath } from "@/shared/path";
 import fs from "node:fs/promises";
@@ -178,8 +179,8 @@ async function addReferencingJobs(
   const spider = workerState.spider;
   if (!spider) return;
 
-  for (const job of jobs) {
-    const referencingFiles = await spider.findReferencingFiles(job.filePath);
+  const referencingPerJob = await mapWithConcurrency(jobs, 8, (job) => spider.findReferencingFiles(job.filePath));
+  for (const referencingFiles of referencingPerJob) {
     for (const referencing of referencingFiles) {
       addIndexableJob(selected, normalizePath(referencing.path), onDisk);
     }
@@ -337,9 +338,17 @@ async function indexCallGraphJobs(
 ): Promise<void> {
   indexer.beginBatch();
   try {
-    for (const job of jobs) {
-      await indexCallGraphJob(indexer, extractor, job);
-    }
+    // Extract in parallel and write in job order as soon as the next job is ready: only results that
+    // arrive ahead of it wait in memory (about the pool size), not every extraction of a full rebuild.
+    const extracted = new Map<number, ExtractedCallGraphJob | null>();
+    let nextToIndex = 0;
+    await mapWithConcurrency(jobs, 8, async (job, index) => {
+      extracted.set(index, await extractCallGraphJob(extractor, job));
+      for (; extracted.has(nextToIndex); nextToIndex++) {
+        indexCallGraphJob(indexer, jobs[nextToIndex], extracted.get(nextToIndex) ?? null);
+        extracted.delete(nextToIndex);
+      }
+    });
     indexer.commitBatch();
   } catch (err) {
     indexer.rollbackBatch();
@@ -347,17 +356,32 @@ async function indexCallGraphJobs(
   }
 }
 
-async function indexCallGraphJob(
-  indexer: CallGraphIndexer,
+type ExtractedCallGraphJob = Awaited<ReturnType<GraphExtractor["extractFile"]>> & { mtime: number };
+
+async function extractCallGraphJob(
   extractor: GraphExtractor,
   job: CallGraphJob,
-): Promise<void> {
+): Promise<ExtractedCallGraphJob | null> {
   try {
     const stat = await fs.stat(job.filePath);
     const result = await extractor.extractFile(job.filePath, job.lang, stat.mtimeMs);
-    indexer.indexFile(result.nodes, result.edges, job.filePath, job.lang, stat.mtimeMs);
+    return { ...result, mtime: stat.mtimeMs };
   } catch {
     // Skip files that fail to parse (binary files, encoding issues, etc.)
+    return null;
+  }
+}
+
+function indexCallGraphJob(
+  indexer: CallGraphIndexer,
+  job: CallGraphJob,
+  extracted: ExtractedCallGraphJob | null,
+): void {
+  if (!extracted) return;
+  try {
+    indexer.indexFile(extracted.nodes, extracted.edges, job.filePath, job.lang, extracted.mtime);
+  } catch {
+    // Skip files that fail to index, as before.
   }
 }
 

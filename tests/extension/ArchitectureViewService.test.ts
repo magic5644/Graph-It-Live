@@ -595,7 +595,7 @@ describe("ArchitectureViewService", () => {
     const service = createService({ analyzeFile: async () => { calls += 1; if (calls === 1) await gate; return []; } });
 
     const first = service.build();
-    await vi.waitFor(() => expect(calls).toBe(1));
+    await vi.waitFor(() => expect(calls).toBeGreaterThan(0)); // files are analyzed in parallel: the first one holds the build
     service.markStale();
     const second = service.build();
     release();
@@ -611,7 +611,7 @@ describe("ArchitectureViewService", () => {
     const service = createService({ analyzeFile: async () => { calls += 1; if (calls === 1) await gate; return []; } });
 
     const first = service.build();
-    await vi.waitFor(() => expect(calls).toBe(1));
+    await vi.waitFor(() => expect(calls).toBeGreaterThan(0)); // files are analyzed in parallel: the first one holds the build
     communityMode = "louvain";
     const second = service.show();
     release();
@@ -628,7 +628,7 @@ describe("ArchitectureViewService", () => {
     const service = createService({ analyzeFile: async () => { calls += 1; if (calls === 1) await gate; return []; } });
 
     const first = service.build();
-    await vi.waitFor(() => expect(calls).toBe(1));
+    await vi.waitFor(() => expect(calls).toBeGreaterThan(0)); // files are analyzed in parallel: the first one holds the build
     communityMode = "louvain";
     const second = service.handleCommunityModeChange();
     await service.handleCommunityModeChange(); // already building louvain
@@ -645,7 +645,7 @@ describe("ArchitectureViewService", () => {
     const service = createService({ analyzeFile: async () => { calls += 1; await gate; return []; } });
 
     const running = service.build();
-    await vi.waitFor(() => expect(calls).toBe(1));
+    await vi.waitFor(() => expect(calls).toBeGreaterThan(0)); // files are analyzed in parallel: the first one holds the build
     service.dispose();
     posted = [];
     release();
@@ -732,7 +732,7 @@ describe("ArchitectureViewService", () => {
     });
 
     const first = service.build();
-    await vi.waitFor(() => expect(calls).toBe(1));
+    await vi.waitFor(() => expect(calls).toBeGreaterThan(0)); // files are analyzed in parallel: the first one holds the build
     const second = service.build();
     release();
     await Promise.all([first, second]);
@@ -749,7 +749,7 @@ describe("ArchitectureViewService", () => {
     const service = createService({ analyzeFile: async () => { calls += 1; if (calls === 1) await gate; return []; } });
 
     const first = service.build();
-    await vi.waitFor(() => expect(calls).toBe(1));
+    await vi.waitFor(() => expect(calls).toBeGreaterThan(0)); // files are analyzed in parallel: the first one holds the build
     await service.build();
     expect(posted.at(-1)?.type).toBe("architectureSummary");
     release();

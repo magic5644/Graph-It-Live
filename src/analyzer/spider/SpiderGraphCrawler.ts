@@ -73,6 +73,7 @@ export class SpiderGraphCrawler {
           if (isInIgnoredDirectory(dep.path)) {
             log.debug(`Skipping ${dep.path}: in ignored directory`);
           } else {
+            // eslint-disable-next-line no-await-in-loop -- depth-first crawl: the shared visited set and maxDepth make the reached nodes and edge order depend on this sequential order
             await crawlRecursive(dep.path, depth + 1);
           }
         }
@@ -203,6 +204,7 @@ export class SpiderGraphCrawler {
           processDependency(dep, normalizedFile);
 
           if (!isInIgnoredDirectory(dep.path)) {
+            // eslint-disable-next-line no-await-in-loop -- depth-first crawl: the shared visited set, depth limit and onBatch flushes depend on this sequential order
             await crawlRecursive(dep.path, depth + 1);
           }
         }

@@ -424,6 +424,7 @@ export class PathResolver {
       }
 
       const tsConfigPath = path.join(currentDir, "tsconfig.json");
+      // eslint-disable-next-line no-await-in-loop -- nearest-first upward walk: each level consults the per-directory cache before probing, and stops at the first hit instead of statting every ancestor
       const exists = await this.fileExists(tsConfigPath);
       if (exists) {
         this.cacheTsConfigResultForDirs(checkedDirs, tsConfigPath);
@@ -526,6 +527,7 @@ export class PathResolver {
       // Parents first, in declaration order: later configs override earlier aliases.
       // A missing parent fails readFile above and is skipped.
       for (const parentPath of resolveExtendsTargets(tsConfigPath, tsConfig.extends)) {
+        // eslint-disable-next-line no-await-in-loop -- parents fill the shared alias map and visited set in declaration order: order defines precedence
         await this.loadTsConfigPathAliasesRecursive(parentPath, aliases, visited); // NOSONAR S9382: order defines precedence
       }
 
@@ -572,23 +574,18 @@ export class PathResolver {
       return emittedToSource;
     }
 
-    // Try with extensions
-    for (const ext of extensions) {
-      const pathWithExt = basePath + ext;
-      if (await this.fileExists(pathWithExt)) {
-        return normalizePath(pathWithExt);
-      }
-    }
+    // Try with extensions, then index files
+    return (
+      (await this.firstExistingFile(extensions.map((ext) => basePath + ext))) ??
+      this.firstExistingFile(extensions.map((ext) => path.join(basePath, `index${ext}`)))
+    );
+  }
 
-    // Try index files
-    for (const ext of extensions) {
-      const indexPath = path.join(basePath, `index${ext}`);
-      if (await this.fileExists(indexPath)) {
-        return normalizePath(indexPath);
-      }
-    }
-
-    return null;
+  /** First candidate that is a file, in candidate order (normalized); probes run concurrently. */
+  private async firstExistingFile(candidates: readonly string[]): Promise<string | null> {
+    const exists = await Promise.all(candidates.map((candidate) => this.fileExists(candidate)));
+    const index = exists.indexOf(true);
+    return index === -1 ? null : normalizePath(candidates[index]);
   }
 
   /**
@@ -610,13 +607,7 @@ export class PathResolver {
     }
 
     const withoutExtension = basePath.slice(0, -emitted.length);
-    for (const extension of candidates) {
-      const candidate = withoutExtension + extension;
-      if (await this.fileExists(candidate)) {
-        return normalizePath(candidate);
-      }
-    }
-    return null;
+    return this.firstExistingFile(candidates.map((extension) => withoutExtension + extension));
   }
 
   private async fileExists(filePath: string): Promise<boolean> {
@@ -659,18 +650,10 @@ export class PathResolver {
     const fromDir = path.dirname(currentFilePath);
     const moduleRelPath = modulePath.replaceAll("::", path.sep);
 
-    const candidates = [
+    return this.firstExistingFile([
       path.join(fromDir, `${moduleRelPath}.rs`),
       path.join(fromDir, moduleRelPath, "mod.rs"),
-    ];
-
-    for (const candidate of candidates) {
-      if (await this.fileExists(candidate)) {
-        return normalizePath(candidate);
-      }
-    }
-
-    return null;
+    ]);
   }
 
   private isNodeModule(modulePath: string): boolean {
@@ -780,20 +763,15 @@ export class PathResolver {
     const currentDir = path.dirname(currentFilePath);
     const workspaceRoot = this.workspaceRoot || currentDir;
 
-    // Walk up from current directory to workspace root
+    // Walk up from current directory to workspace root: module.py then module/__init__.py per level,
+    // nearest level first. Probes are cheap stats, so they run concurrently.
+    const candidates: string[] = [];
     let searchDir = currentDir;
     while (true) {
-      // Try module.py
-      const pyFile = path.resolve(searchDir, moduleDirPath + '.py');
-      if (await this.fileExists(pyFile)) {
-        return normalizePath(pyFile);
-      }
-
-      // Try module/__init__.py
-      const initFile = path.resolve(searchDir, moduleDirPath, '__init__.py');
-      if (await this.fileExists(initFile)) {
-        return normalizePath(initFile);
-      }
+      candidates.push(
+        path.resolve(searchDir, moduleDirPath + '.py'),
+        path.resolve(searchDir, moduleDirPath, '__init__.py'),
+      );
 
       // Stop at workspace root
       if (normalizePath(searchDir) === normalizePath(workspaceRoot)) {
@@ -809,7 +787,7 @@ export class PathResolver {
       searchDir = parentDir;
     }
 
-    return null;
+    return this.firstExistingFile(candidates);
   }
 
   /**
@@ -891,6 +869,7 @@ export class PathResolver {
       }
 
       const packageJsonPath = path.join(currentDir, "package.json");
+      // eslint-disable-next-line no-await-in-loop -- nearest-first upward walk: each level consults the per-directory cache before probing, and stops at the first hit instead of statting every ancestor
       if (await this.fileExists(packageJsonPath)) {
         this.cacheResultForDirs(checkedDirs, packageJsonPath);
         return packageJsonPath;
@@ -1105,9 +1084,10 @@ export class PathResolver {
 
     let currentDir = path.dirname(currentFilePath);
     while (!this.shouldStopSearch(currentDir)) {
-      const packageDir = (await this.hasNodeModules(currentDir))
-        ? await this.linkedPackageDir(path.join(currentDir, "node_modules", packageName))
-        : null;
+      // eslint-disable-next-line no-await-in-loop -- nearest node_modules wins (Node resolution order); stopping there avoids a realpath per ancestor
+      const packageDir = await this.hasNodeModules(currentDir).then((hasNodeModules) =>
+        hasNodeModules ? this.linkedPackageDir(path.join(currentDir, "node_modules", packageName)) : null,
+      );
       if (packageDir) {
         return this.resolvePackageEntry(packageDir, packageName, subpath);
       }
@@ -1175,14 +1155,12 @@ export class PathResolver {
     while (!this.shouldStopSearch(currentDir)) {
       const packageJsonPath = path.join(currentDir, "package.json");
 
-      if (await this.fileExists(packageJsonPath)) {
-        const result = await this.findFileDependencyInPackageJson(
-          packageJsonPath,
-          packageName,
-        );
-        if (result) {
-          return result;
-        }
+      // eslint-disable-next-line no-await-in-loop -- nearest declaring package.json wins; stopping there avoids reading and parsing every ancestor package.json
+      const result = await this.fileExists(packageJsonPath).then((exists) =>
+        exists ? this.findFileDependencyInPackageJson(packageJsonPath, packageName) : null,
+      );
+      if (result) {
+        return result;
       }
 
       const parentDir = path.dirname(currentDir);
@@ -1243,23 +1221,19 @@ export class PathResolver {
   private async findWorkspacePackageDir(
     packageName: string,
   ): Promise<string | null> {
-    if (!this.workspaceRoot) {
+    const workspaceRoot = this.workspaceRoot;
+    if (!workspaceRoot) {
       return null;
     }
 
     // Common monorepo package locations
     const locations = ["packages", "libs", "modules"];
 
-    for (const loc of locations) {
-      const packageDir = path.join(this.workspaceRoot, loc, packageName);
-      const packageJsonPath = path.join(packageDir, "package.json");
-
-      if (await this.fileExists(packageJsonPath)) {
-        return packageDir;
-      }
-    }
-
-    return null;
+    const packageDirs = locations.map((loc) => path.join(workspaceRoot, loc, packageName));
+    const exists = await Promise.all(
+      packageDirs.map((packageDir) => this.fileExists(path.join(packageDir, "package.json"))),
+    );
+    return packageDirs[exists.indexOf(true)] ?? null;
   }
 
   /**
@@ -1317,14 +1291,9 @@ export class PathResolver {
       path.join(packageDir, "index"),
     ];
 
-    for (const entry of entryPoints) {
-      const resolved = await this.resolveWithExtensions(entry);
-      if (resolved) {
-        return resolved;
-      }
-    }
-
-    return null;
+    // Only stats behind each entry point: probe them concurrently, keep the first in priority order.
+    const resolved = await Promise.all(entryPoints.map((entry) => this.resolveWithExtensions(entry)));
+    return resolved.find((entry) => entry !== null) ?? null;
   }
 }
 

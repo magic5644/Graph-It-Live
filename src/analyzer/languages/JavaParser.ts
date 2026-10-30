@@ -183,6 +183,7 @@ export class JavaParser implements ILanguageAnalyzer {
             }
             for (const entry of entries) {
                 if (entry.isDirectory() && !entry.name.startsWith('.') && entry.name !== 'node_modules') {
+                    // eslint-disable-next-line no-await-in-loop -- depth-first search stops at the first match; going concurrent would read the whole tree to maxDepth
                     const found = await this.findFile(path.join(dir, entry.name), fileName, maxDepth - 1);
                     if (found) return found;
                 }

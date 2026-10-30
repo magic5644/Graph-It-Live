@@ -25,6 +25,12 @@ const SYMBOL_ANALYSIS_EXTENSIONS: ReadonlySet<string> = new Set(SUPPORTED_SYMBOL
 
 export type ReferencingFilesProvider = (targetPath: string) => Promise<Dependency[]>;
 
+/*
+ * SEQUENTIAL_SYMBOL_ANALYSIS: symbol graphs are read one file at a time, in file order. The AST worker resolves
+ * `export *` against the files it has already loaded, so concurrent reads (whose load order varies) give
+ * run-to-run different symbols.
+ */
+
 /** Per-file re-exports read once; shared by every target of a scan. */
 type ReExportMemo = Map<string, Promise<ModuleReExports>>;
 
@@ -33,6 +39,8 @@ type ReExportMemo = Map<string, Promise<ModuleReExports>>;
  * (drill-down, unused exports, dependents, execution tracing).
  */
 export class SpiderSymbolService {
+  private readonly symbolGraphsInFlight = new Map<string, Promise<SymbolGraph>>();
+
   constructor(
     private readonly astWorkerHost: AstWorkerHost,
     private readonly symbolCache: Cache<SymbolGraph>,
@@ -66,7 +74,16 @@ export class SpiderSymbolService {
     if (cached) {
       return cached;
     }
+    // Concurrent lookups of one file share a single analysis.
+    let pending = this.symbolGraphsInFlight.get(key);
+    if (!pending) {
+      pending = this.analyzeSymbolGraph(filePath, key).finally(() => this.symbolGraphsInFlight.delete(key));
+      this.symbolGraphsInFlight.set(key, pending);
+    }
+    return pending;
+  }
 
+  private async analyzeSymbolGraph(filePath: string, key: string): Promise<SymbolGraph> {
     try {
       const content = await this.fileReader.readFile(filePath);
       const result = await this.astWorkerHost.analyzeFile(key, content);
@@ -244,12 +261,14 @@ export class SpiderSymbolService {
 
   async getSymbolDependents(filePath: string, symbolName: string): Promise<SymbolDependency[]> {
     // A consumer behind a barrel targets the barrel's id, so each re-export alias is searched too.
+    const aliases = await this.collectReexportAliases(filePath, symbolName);
+    const referencing = await Promise.all(aliases.map((alias) => this.findReferencingFiles(alias.filePath)));
     const dependents = new Map<string, SymbolDependency>();
-    for (const alias of await this.collectReexportAliases(filePath, symbolName)) {
-      const referencingFiles = await this.findReferencingFiles(alias.filePath); // NOSONAR S9382 sequential: shared dependents map
+    for (const [i, alias] of aliases.entries()) {
       // A file never references itself, yet its other symbols can call the target.
-      const sourcePaths = [alias.filePath, ...referencingFiles.map((ref) => ref.path)];
-      for (const dep of await this.collectSymbolDependents(sourcePaths, alias.filePath, alias.name)) { // NOSONAR S9382 sequential
+      const sourcePaths = [alias.filePath, ...referencing[i].map((ref) => ref.path)];
+      // eslint-disable-next-line no-await-in-loop -- see SEQUENTIAL_SYMBOL_ANALYSIS
+      for (const dep of await this.collectSymbolDependents(sourcePaths, alias.filePath, alias.name)) { // NOSONAR S9382 SEQUENTIAL_SYMBOL_ANALYSIS
         dependents.set(normalizePath(dep.sourceSymbolId), dep);
       }
     }
@@ -498,19 +517,9 @@ export class SpiderSymbolService {
           return true;
         });
 
-        for (const dep of symbolDeps) {
-          let resolvedFilePath: string | null = null;
-          if (path.isAbsolute(dep.targetFilePath)) {
-            // getSymbolGraph already resolved it; re-resolving treats absolute paths as node_modules.
-            resolvedFilePath = dep.targetFilePath;
-          } else {
-            try {
-              resolvedFilePath = await this.resolver.resolve(currentFilePath, dep.targetFilePath);
-            } catch {
-              // keep null
-            }
-          }
-
+        const resolvedPaths = await Promise.all(symbolDeps.map((dep) => this.resolveTraceTarget(currentFilePath, dep)));
+        for (const [i, dep] of symbolDeps.entries()) {
+          const resolvedFilePath = resolvedPaths[i];
           const targetSymbolName = this.symbolDependencyHelper.extractSymbolName(dep.targetSymbolId);
 
           callChain.push({
@@ -522,7 +531,8 @@ export class SpiderSymbolService {
           });
 
           if (resolvedFilePath && !isInIgnoredDirectory(resolvedFilePath)) {
-            await trace(resolvedFilePath, targetSymbolName, depth + 1);
+            // eslint-disable-next-line no-await-in-loop -- depth-first: the call chain order and the visited set depend on it
+            await trace(resolvedFilePath, targetSymbolName, depth + 1); // NOSONAR S9382 depth-first order
           }
         }
       } catch (error) {
@@ -539,6 +549,16 @@ export class SpiderSymbolService {
       visitedSymbols: Array.from(visitedSymbols),
       maxDepthReached,
     };
+  }
+
+  /** Absolute target of a traced call; getSymbolGraph already resolved absolute paths (re-resolving treats them as node_modules). */
+  private async resolveTraceTarget(fromFilePath: string, dep: SymbolDependency): Promise<string | null> {
+    if (path.isAbsolute(dep.targetFilePath)) return dep.targetFilePath;
+    try {
+      return await this.resolver.resolve(fromFilePath, dep.targetFilePath);
+    } catch {
+      return null;
+    }
   }
 
   async resolveModuleSpecifier(fromFilePath: string, moduleSpecifier: string): Promise<string | null> {
@@ -575,19 +595,19 @@ export class SpiderSymbolService {
 
   private async collectUsedSymbolIds(referencingFiles: Dependency[], targetFilePath: string): Promise<Set<string>> {
     const usedSymbolIds = new Set<string>();
-
     for (const ref of referencingFiles) {
-      const { dependencies } = await this.getSymbolGraph(ref.path);
-
-      for (const dep of dependencies) {
-        const isMatch = await this.symbolDependencyHelper.doesDependencyTargetFile(dep, ref.path, targetFilePath);
-        if (isMatch) {
-          const symbolName = this.symbolDependencyHelper.extractSymbolName(dep.targetSymbolId);
-          usedSymbolIds.add(this.symbolDependencyHelper.buildUsedSymbolId(targetFilePath, symbolName));
-        }
+      // eslint-disable-next-line no-await-in-loop -- see SEQUENTIAL_SYMBOL_ANALYSIS
+      const { dependencies } = await this.getSymbolGraph(ref.path); // NOSONAR S9382 SEQUENTIAL_SYMBOL_ANALYSIS
+      // Path resolution only: these run together.
+      // eslint-disable-next-line no-await-in-loop -- awaited per file, after that file's symbol graph
+      const matches = await Promise.all( // NOSONAR S9382 SEQUENTIAL_SYMBOL_ANALYSIS
+        dependencies.map((dep) => this.symbolDependencyHelper.doesDependencyTargetFile(dep, ref.path, targetFilePath))
+      );
+      for (const dep of dependencies.filter((_, i) => matches[i])) {
+        const symbolName = this.symbolDependencyHelper.extractSymbolName(dep.targetSymbolId);
+        usedSymbolIds.add(this.symbolDependencyHelper.buildUsedSymbolId(targetFilePath, symbolName));
       }
     }
-
     return usedSymbolIds;
   }
 
@@ -596,25 +616,30 @@ export class SpiderSymbolService {
     targetFilePath: string,
     symbolName: string
   ): Promise<SymbolDependency[]> {
-    // Keyed by source symbol so each dependent is listed once, whatever the edge source.
-    const dependents = new Map<string, SymbolDependency>();
     const normalizedTarget = normalizePath(targetFilePath);
     const targetSymbolId = this.symbolDependencyHelper.buildUsedSymbolId(normalizedTarget, symbolName);
-
+    const perSource: SymbolDependency[][] = [];
     for (const sourcePath of sourcePaths) {
-      const { dependencies } = await this.getSymbolGraph(sourcePath);
-
-      for (const dep of dependencies) {
-        const sourceSymbolId = normalizePath(dep.sourceSymbolId);
-        // A recursive call does not make the symbol its own dependent.
-        if (sourceSymbolId === targetSymbolId || dependents.has(sourceSymbolId)) continue;
-        if (this.symbolDependencyHelper.extractSymbolName(dep.targetSymbolId) !== symbolName) continue;
-        if (await this.symbolDependencyHelper.doesDependencyTargetFile(dep, sourcePath, normalizedTarget)) {
-          dependents.set(sourceSymbolId, dep);
-        }
-      }
+      // eslint-disable-next-line no-await-in-loop -- see SEQUENTIAL_SYMBOL_ANALYSIS
+      const { dependencies } = await this.getSymbolGraph(sourcePath); // NOSONAR S9382 SEQUENTIAL_SYMBOL_ANALYSIS
+      // A recursive call does not make the symbol its own dependent.
+      const candidates = dependencies.filter(
+        (dep) =>
+          normalizePath(dep.sourceSymbolId) !== targetSymbolId &&
+          this.symbolDependencyHelper.extractSymbolName(dep.targetSymbolId) === symbolName
+      );
+      // eslint-disable-next-line no-await-in-loop -- path resolution of one file's edges, after its symbol graph
+      const matches = await Promise.all( // NOSONAR S9382 SEQUENTIAL_SYMBOL_ANALYSIS
+        candidates.map((dep) => this.symbolDependencyHelper.doesDependencyTargetFile(dep, sourcePath, normalizedTarget))
+      );
+      perSource.push(candidates.filter((_, i) => matches[i]));
     }
-
+    // Keyed by source symbol so each dependent is listed once (first edge in source order), whatever the edge source.
+    const dependents = new Map<string, SymbolDependency>();
+    for (const dep of perSource.flat()) {
+      const sourceSymbolId = normalizePath(dep.sourceSymbolId);
+      if (!dependents.has(sourceSymbolId)) dependents.set(sourceSymbolId, dep);
+    }
     return [...dependents.values()];
   }
 
@@ -664,17 +689,12 @@ export class SpiderSymbolService {
         !dep.targetFilePath.startsWith('/')
       );
 
-      for (const dep of candidateDeps) {
-        // Use helper to resolve module specifier to absolute path and compare
-        const isMatch = await this.symbolDependencyHelper.doesDependencyTargetFile(
-            dep,
-            normalizedSource,
-            normalizedTarget
-        );
-
-        if (isMatch) {
-          return true; // If we find at least one used symbol, the dependency is "used"
-        }
+      // Resolve each candidate to an absolute path; one used symbol makes the dependency "used".
+      const matches = await Promise.all(
+        candidateDeps.map((dep) => this.symbolDependencyHelper.doesDependencyTargetFile(dep, normalizedSource, normalizedTarget))
+      );
+      if (matches.some(Boolean)) {
+        return true;
       }
 
       return false;
@@ -759,18 +779,12 @@ export class SpiderSymbolService {
     dependencies: SymbolDependency[],
     normalizedSource: string
   ): Promise<Set<string>> {
-    const resolvedTargets = new Set<string>();
-    for (const dep of dependencies) {
-      try {
-        const resolved = await this.symbolDependencyHelper.resolveTargetPath(dep, normalizedSource);
-        if (resolved) {
-          resolvedTargets.add(normalizePath(resolved));
-        }
-      } catch {
-        // Ignore resolution errors
-      }
-    }
-    return resolvedTargets;
+    const resolved = await Promise.all(
+      dependencies.map((dep) =>
+        this.symbolDependencyHelper.resolveTargetPath(dep, normalizedSource).catch(() => null) // Ignore resolution errors
+      )
+    );
+    return new Set(resolved.filter((target): target is string => !!target).map(normalizePath));
   }
 
   private checkTargetsAgainstResolved(
@@ -847,18 +861,20 @@ export class SpiderSymbolService {
     // Apply hard cap
     const filesToScan = analysableFiles.slice(0, maxFiles);
 
-    const entries: Array<{ filePath: string; unusedSymbols: SymbolInfo[] }> = [];
     const reExportMemo: ReExportMemo = new Map();
     let skippedFiles = 0;
 
+    const entries: Array<{ filePath: string; unusedSymbols: SymbolInfo[] }> = [];
     for (const filePath of filesToScan) {
       if (signal) {
         // Yield to the event loop so a pending cancel message can abort the signal.
+        // eslint-disable-next-line no-await-in-loop -- one yield per file is the cancellation point
         await setImmediate(); // NOSONAR S9382: one yield per file is the cancellation point
         signal.throwIfAborted();
       }
       try {
-        const unusedSymbols = await this.findUnusedSymbols(filePath, reExportMemo); // NOSONAR S9382 sequential by design: one cancellation point per file, bounded by maxFiles
+        // eslint-disable-next-line no-await-in-loop -- see SEQUENTIAL_SYMBOL_ANALYSIS
+        const unusedSymbols = await this.findUnusedSymbols(filePath, reExportMemo); // NOSONAR S9382 SEQUENTIAL_SYMBOL_ANALYSIS
         if (unusedSymbols.length > 0) {
           entries.push({ filePath, unusedSymbols });
         }

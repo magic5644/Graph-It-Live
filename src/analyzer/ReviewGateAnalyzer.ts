@@ -2,6 +2,7 @@ import { execFile } from "node:child_process";
 import * as fs from "node:fs/promises";
 import * as path from "node:path";
 import { promisify } from "node:util";
+import { mapWithConcurrency } from "../shared/concurrency";
 import { SUPPORTED_SOURCE_FILE_REGEX } from "../shared/constants";
 import { normalizePath } from "../shared/path";
 import { detectCycles } from "../shared/cycleUtils";
@@ -222,8 +223,17 @@ export class ReviewGateAnalyzer {
     limitations.push(...fileCycles.limitations);
     const cycleFiles = new Set(fileCycles.cycles.flatMap((cycle) => cycle.changedFiles.map(normalizePath)));
     const moves: MoveIndex = { sources, targets: this.collectMoveTargets(sources), stale: new Map(), grep: new Map(), contents: new Map(), cycleFiles };
-    for (const relativePath of changedFiles) {
-      symbols.push(...await this.analyzeChangedFile(relativePath, headRef, maxDepth, limitations, analysisAvailability, changedFileSet, moves)); // NOSONAR S9382: one file at a time, analyses share the limitations and the stale-importer cache
+    // Each file gets its own limitations, merged in file order, so the report matches a sequential run.
+    // The shared caches memoize promises, so files analyzed at the same time share one lookup.
+    // 1: per-file analysis reads symbol dependents, and the AST worker symbol results depend on which files it has loaded (`export *`), so symbol lookups stay one at a time, in order. Git reads above stay parallel.
+    const analyses = await mapWithConcurrency(changedFiles, 1, async (relativePath) => {
+      const fileLimitations: string[] = [];
+      const fileSymbols = await this.analyzeChangedFile(relativePath, headRef, maxDepth, fileLimitations, analysisAvailability, changedFileSet, moves);
+      return { fileSymbols, fileLimitations };
+    });
+    for (const { fileSymbols, fileLimitations } of analyses) {
+      symbols.push(...fileSymbols);
+      limitations.push(...fileLimitations);
     }
 
     symbols.sort((a, b) => b.score - a.score || a.filePath.localeCompare(b.filePath) || a.name.localeCompare(b.name));
@@ -272,17 +282,17 @@ export class ReviewGateAnalyzer {
 
   /** Base and head content of every changed file the signature analysis supports, read once per review. */
   private async loadChangedSources(changedFiles: string[], baseRef: string, headRef: string): Promise<Map<string, ChangedSource>> {
-    const sources = new Map<string, ChangedSource>();
-    for (const relativePath of changedFiles) {
-      if (!SIGNATURE_ANALYSIS_EXTENSIONS.has(path.extname(relativePath).toLowerCase())) continue;
+    const supported = changedFiles.filter((relativePath) => SIGNATURE_ANALYSIS_EXTENSIONS.has(path.extname(relativePath).toLowerCase()));
+    // Up to two git processes per file: 4 files at a time keeps at most 8 running, for up to 1 000 changed files.
+    const loaded = await mapWithConcurrency(supported, 4, async (relativePath): Promise<ChangedSource> => {
       const absolutePath = this.resolveWorkspacePath(relativePath);
-      const [oldContent, newContent] = await Promise.all([ // NOSONAR S9382: two git processes per file at a time, up to 1 000 changed files
+      const [oldContent, newContent] = await Promise.all([
         this.gitShow(baseRef, relativePath),
         this.readHeadContent(headRef, absolutePath, relativePath),
       ]);
-      sources.set(relativePath, { relativePath, absolutePath, oldContent, newContent });
-    }
-    return sources;
+      return { relativePath, absolutePath, oldContent, newContent };
+    });
+    return new Map(loaded.map((source) => [source.relativePath, source]));
   }
 
   /** Names each changed file exports at the head ref but did not export at the base ref: where a removed symbol may have moved. */
@@ -453,11 +463,10 @@ export class ReviewGateAnalyzer {
     }
     const candidates = new Set([...scope.changedFiles, ...referrers]);
     candidates.delete(scope.relativePath);
-    const stale: string[] = [];
-    for (const file of [...candidates].sort((left, right) => left.localeCompare(right))) {
-      if (await this.mayImportFromModule(file, exportedName, scope)) stale.push(file); // NOSONAR S9382: one file read at a time, candidates can be every importer in the index
-    }
-    return stale;
+    const sorted = [...candidates].sort((left, right) => left.localeCompare(right));
+    // Candidates can be every importer in the index: read a bounded number at a time.
+    const imports = await mapWithConcurrency(sorted, 8, (file) => this.mayImportFromModule(file, exportedName, scope));
+    return sorted.filter((_file, index) => imports[index]);
   }
 
   /** Workspace-relative files referencing `absolutePath`, or why they could not be listed. */
@@ -510,11 +519,12 @@ export class ReviewGateAnalyzer {
     const content = await pending;
     if (content === null) return false;
     const absolute = this.toAbsolute(file);
-    for (const specifier of this.signatures.specifiersThatMayImport(absolute, content, exportedName)) {
-      const resolved = await this.resolver.resolve(absolute, specifier).catch(() => null);
-      if (resolved ? normalizePath(resolved) === scope.absolutePath : scope.deleted && namesDeletedModule(absolute, specifier, scope.absolutePath)) return true;
-    }
-    return false;
+    const specifiers = this.signatures.specifiersThatMayImport(absolute, content, exportedName);
+    const resolved = await Promise.all(specifiers.map((specifier) => this.resolver.resolve(absolute, specifier).catch(() => null)));
+    return specifiers.some((specifier, index) => {
+      const target = resolved[index];
+      return target ? normalizePath(target) === scope.absolutePath : scope.deleted === true && namesDeletedModule(absolute, specifier, scope.absolutePath);
+    });
   }
 
   private async createReviewSymbol(
@@ -618,9 +628,13 @@ export class ReviewGateAnalyzer {
   ): Promise<ConsumerStanding> {
     const covered = new Set(impact.coveredFiles);
     const standing: ConsumerStanding = { updated: [], covered: [], unverified: [] };
-    for (const file of [...impact.consumerFiles].sort((a, b) => a.localeCompare(b))) {
+    const files = [...impact.consumerFiles].sort((a, b) => a.localeCompare(b));
+    // Only consumers neither changed nor already covered ask the reverse index; the lookups are independent.
+    const tested = await mapWithConcurrency(files, 8, async (file) =>
+      !changedFiles.has(file) && (covered.has(file) || await this.hasTestDependent(file)));
+    for (const [index, file] of files.entries()) {
       if (changedFiles.has(file)) standing.updated.push(file);
-      else if (covered.has(file) || await this.hasTestDependent(file)) standing.covered.push(file);
+      else if (tested[index]) standing.covered.push(file);
       else standing.unverified.push(file);
     }
     return standing;
@@ -644,6 +658,7 @@ export class ReviewGateAnalyzer {
     while (queue.length > 0 && visited.size <= MAX_COVERAGE_LOOKUP_FILES) {
       let referencing: Array<{ path: string }>;
       try {
+        // eslint-disable-next-line no-await-in-loop -- depth-first walk under a visited-file budget: the order decides which files fit it
         referencing = await findReferencingFiles(this.toAbsolute(queue.pop()!));
       } catch {
         continue; // An unreadable entry must not decide the whole question.
@@ -867,11 +882,11 @@ export class ReviewGateAnalyzer {
     // Identifier match, so `Promise<X>`, `X[]` and `X | undefined` all count as returning X.
     const factories = functions.filter((signature) => signature.name !== symbolName
       && signature.returnType.split(/[^\w$]+/).includes(symbolName));
-    let impact = await this.getImpact(filePath, symbolName, maxDepth, headRef);
-    for (const factory of factories) {
-      impact = mergeImpacts(impact, await this.walkDependents(filePath, factory.name, maxDepth));
-    }
-    return impact;
+    const [impact, ...factoryImpacts] = await Promise.all([
+      this.getImpact(filePath, symbolName, maxDepth, headRef),
+      ...factories.map((factory) => this.walkDependents(filePath, factory.name, maxDepth)),
+    ]);
+    return factoryImpacts.reduce(mergeImpacts, impact);
   }
 
   private async getImpact(filePath: string, symbolName: string, maxDepth: number, headRef: string): Promise<SymbolImpact> {
@@ -992,18 +1007,7 @@ export class ReviewGateAnalyzer {
       seen: new Set<string>(), testDependents: new Set<string>(), consumerFiles: new Set<string>(),
       edges: new Map<string, Set<string>>(), next: [],
     };
-    let frontier = [{ filePath, symbolName }];
-
-    for (let depth = 0; depth < maxDepth && frontier.length > 0; depth += 1) {
-      state.next = [];
-      for (const current of frontier) {
-        const parent = this.toWorkspaceRelative(current.filePath);
-        for (const dependent of await this.dependents!.getSymbolDependents(current.filePath, current.symbolName)) {
-          this.collectDependent(parent, dependent, state);
-        }
-      }
-      frontier = state.next;
-    }
+    const frontier = await this.walkDependentLevel([{ filePath, symbolName }], maxDepth, state);
 
     return {
       count: state.seen.size,
@@ -1012,6 +1016,27 @@ export class ReviewGateAnalyzer {
       consumerFiles: [...state.consumerFiles],
       coveredFiles: [...state.consumerFiles].filter((file) => this.reachesTestFile(file, state.edges)),
     };
+  }
+
+  /**
+   * One breadth-first level: the frontier's lookups, then their dependents are
+   * collected in frontier order, as a sequential walk would. Returns the unexplored frontier.
+   */
+  private async walkDependentLevel(
+    frontier: Array<{ filePath: string; symbolName: string }>,
+    remainingDepth: number,
+    state: DependentWalkState,
+  ): Promise<Array<{ filePath: string; symbolName: string }>> {
+    if (remainingDepth <= 0 || frontier.length === 0) return frontier;
+    // 1: the AST worker symbol results depend on which files it has loaded (`export *`), so symbol lookups stay one at a time, in order.
+    const dependents = await mapWithConcurrency(frontier, 1, (current) =>
+      this.dependents!.getSymbolDependents(current.filePath, current.symbolName));
+    state.next = [];
+    for (const [index, current] of frontier.entries()) {
+      const parent = this.toWorkspaceRelative(current.filePath);
+      for (const dependent of dependents[index]) this.collectDependent(parent, dependent, state);
+    }
+    return this.walkDependentLevel(state.next, remainingDepth - 1, state);
   }
 
   private collectDependent(
@@ -1127,14 +1152,14 @@ export class ReviewGateAnalyzer {
       path.join("tests", mirroredDir, `${baseName}.test${extension}`),
       path.join("tests", mirroredDir, `${baseName}.spec${extension}`),
     ].map(normalizePath);
-    const found: string[] = [];
-    for (const candidate of [...new Set(candidates)].sort((left, right) => left.localeCompare(right))) {
+    const sorted = [...new Set(candidates)].sort((left, right) => left.localeCompare(right));
+    const exists = await Promise.all(sorted.map(async (candidate) => {
       try {
         await fs.access(this.resolveWorkspacePath(candidate));
-        found.push(candidate);
-      } catch { /* Candidate is a hint only; absent files are not errors. */ }
-    }
-    return found;
+        return true;
+      } catch { return false; /* Candidate is a hint only; absent files are not errors. */ }
+    }));
+    return sorted.filter((_candidate, index) => exists[index]);
   }
 
   private toSymbolId(filePath: string, symbolName: string): string {

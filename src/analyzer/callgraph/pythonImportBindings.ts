@@ -62,35 +62,36 @@ type Found = Array<[string, TreeNode, Binding]>;
 
 /** `import a`, `import a.b as m`: bindings as [local name, node, binding]. */
 async function importBindings(names: TreeNode[], filePath: string, resolver: PathResolver): Promise<Found> {
-  const entries: Found = [];
-  for (const name of names) {
+  const entries = await Promise.all(names.map(async (name): Promise<Found[number] | null> => {
     const alias = name.childForFieldName("alias");
     const dotted = name.type === "aliased_import" ? name.childForFieldName("name") : name;
-    if (!dotted) continue;
+    if (!dotted) return null;
     // `import a.b` binds only `a` to a package whose attributes are not tracked.
     const tracked = alias || !dotted.text.includes(".");
-    const path = tracked ? await resolveModule(resolver, filePath, dotted.text) : null; // NOSONAR S9382 sequential: one resolve per name
-    entries.push([alias?.text ?? dotted.text.split(".")[0], alias ?? dotted, { kind: "module", path }]);
-  }
-  return entries;
+    const path = tracked ? await resolveModule(resolver, filePath, dotted.text) : null;
+    return [alias?.text ?? dotted.text.split(".")[0], alias ?? dotted, { kind: "module", path }];
+  }));
+  return entries.filter(entry => entry !== null);
 }
 
 /** `from m import a as b`: bindings as [local name, node, binding]. */
 async function fromImportBindings(statement: TreeNode, specifier: string, filePath: string, resolver: PathResolver): Promise<Found> {
-  const entries: Found = [];
-  const modulePath = await resolveModule(resolver, filePath, specifier);
-  for (const name of statement.childrenForFieldName("name")) {
+  const modulePromise = resolveModule(resolver, filePath, specifier);
+  const entries = await Promise.all(statement.childrenForFieldName("name").map(async (name): Promise<Found[number] | null> => {
     const alias = name.childForFieldName("alias");
     const imported = name.type === "aliased_import" ? name.childForFieldName("name") : name;
-    if (!imported) continue;
+    if (!imported) return null;
     // `from pkg import sub` binds a submodule when one exists, otherwise a symbol of `pkg`.
-    const submodule = await resolveModule(resolver, filePath, specifier.endsWith(".") ? specifier + imported.text : `${specifier}.${imported.text}`); // NOSONAR S9382 sequential: one resolve per name
+    const [modulePath, submodule] = await Promise.all([
+      modulePromise,
+      resolveModule(resolver, filePath, specifier.endsWith(".") ? specifier + imported.text : `${specifier}.${imported.text}`),
+    ]);
     const binding: Binding = submodule
       ? { kind: "module", path: submodule }
       : { kind: "symbol", stub: modulePath ? `@@import:${JSON.stringify([modulePath, imported.text])}` : null };
-    entries.push([alias?.text ?? imported.text, alias ?? imported, binding]);
-  }
-  return entries;
+    return [alias?.text ?? imported.text, alias ?? imported, binding];
+  }));
+  return entries.filter(entry => entry !== null);
 }
 
 /** Bindings introduced by one `import` / `from ... import` statement. */
@@ -149,12 +150,15 @@ async function collectBindings(root: TreeNode, filePath: string, resolver: PathR
     node.namedChildren.forEach(visit);
   };
   visit(root);
-  for (const statement of root.descendantsOfType(["import_statement", "import_from_statement"])) {
+  // Statements resolve independently; entries are added afterwards in source order.
+  const statements = root.descendantsOfType(["import_statement", "import_from_statement"]);
+  const results = await Promise.all(statements.map(statement => statementBindings(statement, filePath, resolver)));
+  statements.forEach((statement, index) => {
     const scope = scopeOf(statement);
-    const found = await statementBindings(statement, filePath, resolver); // NOSONAR S9382 sequential: shares the resolver cache
+    const found = results[index];
     wildcard ||= found.wildcard;
     for (const [local, node, binding] of found.entries) addEntry(bindings, local, node, scope, binding);
-  }
+  });
   return { bindings, wildcard };
 }
 

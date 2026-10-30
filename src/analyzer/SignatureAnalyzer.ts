@@ -14,6 +14,7 @@
 
 import { Node, Project, SourceFile, SyntaxKind, type InterfaceDeclaration, type ParameterDeclaration, type TypeLiteralNode } from 'ts-morph';
 import * as path from 'node:path';
+import { mapWithConcurrency } from '../shared/concurrency';
 import { normalizePath } from '../shared/path';
 import { closestNames, symbolNotFoundMessage } from './utils/SymbolLookup';
 
@@ -706,8 +707,11 @@ export class SignatureAnalyzer {
     limitations: Set<string>,
     visited: Set<string>,
   ): Promise<MovedDeclaration | undefined> {
-    for (const { specifier, importedName, wildcard } of this.reexportsOf(this.getOrCreateSourceFile(fromFile, content), name)) {
-      const target = await loadModule(fromFile, specifier).catch(() => null);
+    const reexports = this.reexportsOf(this.getOrCreateSourceFile(fromFile, content), name);
+    // Load every candidate up front (bounded); the walk below stays in order, so results do not change.
+    const targets = await mapWithConcurrency(reexports, 8, ({ specifier }) => loadModule(fromFile, specifier).catch(() => null));
+    for (const [index, { specifier, importedName, wildcard }] of reexports.entries()) {
+      const target = targets[index];
       if (!target) {
         // An `export *` may not re-export this name at all: report the module once, not per name.
         limitations.add(wildcard
@@ -719,6 +723,7 @@ export class SignatureAnalyzer {
       if (visited.has(key)) continue;
       visited.add(key);
       if (this.declaresTopLevel(target, importedName)) return { ...target, importedName };
+      // eslint-disable-next-line no-await-in-loop -- depth-first walk: the shared visited set and the first match decide the result
       const moved = await this.findMovedDeclaration(target.filePath, target.content, importedName, loadModule, limitations, visited);
       if (moved) return moved;
     }

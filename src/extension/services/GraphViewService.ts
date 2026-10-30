@@ -1,6 +1,7 @@
 import { Spider } from '../../analyzer/Spider';
 import { computeNodeMetadata } from '../../analyzer/NodeMetadataBuilder';
 import { normalizePath } from '../../shared/path';
+import { mapWithConcurrency } from '../../shared/concurrency';
 import type { UnusedAnalysisCache } from './UnusedAnalysisCache';
 
 type Logger = {
@@ -162,32 +163,22 @@ export class GraphViewService {
     const sourceFiles = Array.from(edgesBySource.keys());
     let processedFiles = 0;
     
-    for (let i = 0; i < sourceFiles.length; i += CONCURRENCY) {
-      const batch = sourceFiles.slice(i, i + CONCURRENCY);
-      const batchResults = await this.processBatch(batch, edgesBySource);
+    // Bounded pool: a slow file no longer holds back a whole batch; results stay in source order.
+    const allResults = await mapWithConcurrency(sourceFiles, CONCURRENCY, async (sourceFile) => {
+      const results = await this.analyzeSourceFile(sourceFile, edgesBySource.get(sourceFile) ?? []);
+      processedFiles = this.reportProgress(processedFiles + 1, sourceFiles.length, onProgress);
+      return results;
+    });
 
-      // Collect unused edges from batch
-      for (const results of batchResults) {
-        for (const { edge, isUsed } of results) {
-          if (!isUsed) {
-            unusedEdges.push(`${edge.source}->${edge.target}`);
-          }
+    for (const results of allResults) {
+      for (const { edge, isUsed } of results) {
+        if (!isUsed) {
+          unusedEdges.push(`${edge.source}->${edge.target}`);
         }
       }
-      
-      processedFiles = this.reportProgress(processedFiles + batch.length, sourceFiles.length, onProgress);
     }
 
     return unusedEdges;
-  }
-
-  private async processBatch(
-    batch: string[],
-    edgesBySource: Map<string, Array<{ source: string; target: string }>>
-  ): Promise<Array<Array<{ edge: { source: string; target: string }; isUsed: boolean }>>> {
-    return Promise.all(
-      batch.map(sourceFile => this.analyzeSourceFile(sourceFile, edgesBySource.get(sourceFile) ?? []))
-    );
   }
 
   private async analyzeSourceFile(

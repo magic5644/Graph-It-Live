@@ -1,3 +1,4 @@
+import { mapWithConcurrency } from "../../shared/concurrency";
 import { getLogger } from "../../shared/logger";
 import { normalizePath } from "../../shared/path";
 import { computeNodeMetadata } from "../../analyzer/NodeMetadataBuilder";
@@ -34,31 +35,19 @@ async function filterEdgesByUsage(
 ): Promise<EdgeInfo[]> {
   const spider = workerState.getSpider();
   const log = getLogger("McpWorker");
-  const verificationResults = new Array<{ edge: EdgeInfo; isUsed: boolean }>(edges.length);
-  let nextIndex = 0;
-  const concurrency = Math.min(8, edges.length);
-
-  await Promise.all(Array.from({ length: concurrency }, async () => {
-    while (nextIndex < edges.length) {
-      if (signal?.aborted) throw createAbortError();
-      const index = nextIndex++;
-      const edge = edges[index];
-      try {
-        const isUsed = await spider.verifyDependencyUsage(
-          edge.source,
-          edge.target,
-        );
-        verificationResults[index] = { edge, isUsed };
-      } catch (err) {
-        log.warn(
-          `Failed to verify usage for edge ${edge.source} -> ${edge.target}`,
-          err,
-        );
-        // Conservative: keep edge if verification fails
-        verificationResults[index] = { edge, isUsed: true };
-      }
+  const verificationResults = await mapWithConcurrency(edges, 8, async (edge) => {
+    if (signal?.aborted) throw createAbortError();
+    try {
+      return { edge, isUsed: await spider.verifyDependencyUsage(edge.source, edge.target) };
+    } catch (err) {
+      log.warn(
+        `Failed to verify usage for edge ${edge.source} -> ${edge.target}`,
+        err,
+      );
+      // Conservative: keep edge if verification fails
+      return { edge, isUsed: true };
     }
-  }));
+  });
 
   return verificationResults
     .filter((result) => result.isUsed)

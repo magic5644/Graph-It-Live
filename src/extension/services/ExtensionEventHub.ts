@@ -220,6 +220,7 @@ export class ExtensionEventHub {
       this.fileSaveDebounceTimer = undefined;
     }
     while (this.activeOperations.size > 0) {
+      // eslint-disable-next-line no-await-in-loop -- drain: operations can start while we wait, so re-check the set after each settle
       await Promise.allSettled(this.activeOperations);
     }
   }

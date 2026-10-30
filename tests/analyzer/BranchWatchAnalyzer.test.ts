@@ -5,6 +5,7 @@ import * as path from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { BRANCH_WATCH_MAX_FILES, BRANCH_WATCH_MAX_FILES_LIMIT, BranchWatchAnalyzer, BranchWatchError,
   normalizeBranchWatchMaxFiles } from '@/analyzer/BranchWatchAnalyzer';
+import { LanguageService } from '@/analyzer/LanguageService';
 import { Spider } from '@/analyzer/Spider';
 
 const roots: string[] = [];
@@ -276,6 +277,62 @@ describe('BranchWatchAnalyzer findings', { timeout: GIT_TEST_TIMEOUT }, () => {
       findReferencingFilesWithFallback: async () => [{ path: path.join(root, 'consumer.ts') }],
     });
     expect((await recovered.analyze(await recovered.capture('main'))).fileImpacts[0].dependents[0].path).toBe('consumer.ts');
+  });
+
+  it('stops an impact level at the first failed lookup, in queue order, like a sequential walk', async () => {
+    const root = await workspace();
+    await fs.appendFile(path.join(root, 'api.ts'), '// changed\n');
+    const lookups: Record<string, () => Promise<Array<{ path: string }>>> = {
+      'api.ts': async () => [{ path: path.join(root, 'dep-a.ts') }, { path: path.join(root, 'dep-b.ts') }],
+      'dep-a.ts': async () => { throw new Error('index unavailable'); },
+      'dep-b.ts': async () => [{ path: path.join(root, 'late.ts') }],
+    };
+    const analyzer = new BranchWatchAnalyzer(root, {
+      getSymbolDependents: async () => [],
+      findReferencingFiles: file => lookups[path.basename(file)]?.() ?? Promise.resolve([]),
+    });
+    const [impact] = (await analyzer.analyze(await analyzer.capture('main'))).fileImpacts;
+    expect(impact.dependents.map(d => d.path)).toEqual(['dep-a.ts', 'dep-b.ts']);
+    expect(impact.limitations).toContain('api.ts: dependency index lookup failed; impact is incomplete.');
+  });
+
+  it('keeps the affected-scope budget and leftover queue of a sequential cycle walk', async () => {
+    const root = await workspace();
+    await fs.writeFile(path.join(root, 'api.ts'), "import { b } from './b'; export const value = b;\n");
+    await fs.writeFile(path.join(root, 'b.ts'), "import { c } from './c'; export const b = c;\n");
+    await fs.writeFile(path.join(root, 'c.ts'), "import { value } from './api'; export const c = value;\n");
+    const chain = new BranchWatchAnalyzer(root, undefined, process.cwd(), 'git', 2);
+    const limitations: string[] = [];
+    const result = await chain.buildCycles({ changes: [{ path: 'api.ts', kind: 'modified' }], mergeBaseSha: 'HEAD' }, limitations);
+    expect(result.summary).toEqual({ detected: 0, scopeComplete: false });
+    expect(limitations).toEqual(['Cycle analysis reached the 2-file affected-scope limit.']);
+
+    // Both seeds fit the budget; a sequential walk still queued 'b.ts' (read after 'api.ts'), so the limit is reported.
+    const pair = new BranchWatchAnalyzer(root, undefined, process.cwd(), 'git', 2);
+    await fs.writeFile(path.join(root, 'b.ts'), "import { value } from './api'; export const b = value;\n");
+    const pairLimitations: string[] = [];
+    await pair.buildCycles({ changes: [{ path: 'api.ts', kind: 'modified' }, { path: 'b.ts', kind: 'modified' }], mergeBaseSha: 'HEAD' }, pairLimitations);
+    expect(pairLimitations).toEqual(['Cycle analysis reached the 2-file affected-scope limit.']);
+  });
+
+  it('keeps the edges read before a failed import resolution and reports the file', async () => {
+    const root = await workspace();
+    await fs.writeFile(path.join(root, 'b.ts'), 'export const b = 1;\n');
+    const resolvePath = vi.fn(async (_from: string, module: string) => {
+      if (module === './broken') throw new Error('resolver failed');
+      return path.join(root, 'b.ts');
+    });
+    const getAnalyzer = vi.spyOn(LanguageService.prototype, 'getAnalyzer').mockReturnValue({
+      parseImports: async () => [{ module: './b' }, { module: './broken' }, { module: './after' }],
+      resolvePath,
+    } as unknown as ReturnType<LanguageService['getAnalyzer']>);
+    try {
+      const limitations: string[] = [];
+      await new BranchWatchAnalyzer(root, undefined, process.cwd()).buildCycles(
+        { changes: [{ path: 'api.ts', kind: 'modified' }], mergeBaseSha: 'HEAD' }, limitations);
+      expect(limitations).toContain('api.ts: dependency graph could not be analyzed.');
+      expect(limitations.join(' ')).not.toContain("'./after'");
+    } finally { getAnalyzer.mockRestore(); }
   });
 
   it('reserves a root lookup for every changed file after a large impact walk', async () => {

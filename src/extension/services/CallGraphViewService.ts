@@ -478,6 +478,7 @@ export class CallGraphViewService implements vscode.Disposable, ICallGraphQueryS
 
   private async waitForActiveOperations(): Promise<void> {
     while (this.activeOperations.size > 0) {
+      // eslint-disable-next-line no-await-in-loop -- drain: operations can start while we wait, so re-check the set after each settle
       await Promise.allSettled([...this.activeOperations]);
     }
   }
@@ -657,6 +658,7 @@ export class CallGraphViewService implements vscode.Disposable, ICallGraphQueryS
     for (let i = 0; i < jobs.length; i += EXTRACT_BATCH) {
       if (this.disposed) break;
       const batch = jobs.slice(i, i + EXTRACT_BATCH);
+      // eslint-disable-next-line no-await-in-loop -- batches run one at a time: each is extracted in parallel, then committed in one DB transaction, with a dispose check and progress post between batches
       const results = await Promise.all(
         batch.map(async (job) => {
           try {
@@ -702,6 +704,7 @@ export class CallGraphViewService implements vscode.Disposable, ICallGraphQueryS
 
       // Yield the extension-host event loop between batches so VS Code navigation
       // (editor switching, typing, IntelliSense) stays responsive during indexing.
+      // eslint-disable-next-line no-await-in-loop -- intentional yield to the extension-host event loop between batches
       await new Promise<void>((resolve) => setImmediate(resolve));
     }
   }

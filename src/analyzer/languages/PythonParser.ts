@@ -236,21 +236,14 @@ export class PythonParser implements ILanguageAnalyzer {
       currentDir = path.dirname(currentDir);
     }
 
-    // Try different file patterns
-    const candidates = [
-      path.join(currentDir, modulePath + ".py"),
-      path.join(currentDir, modulePath + ".pyi"),
-      path.join(currentDir, modulePath, "__init__.py"),
-      path.join(currentDir, modulePath, "__init__.pyi"),
-    ];
+    return this.firstExistingFile(moduleCandidates(currentDir, modulePath));
+  }
 
-    for (const candidate of candidates) {
-      if (await this.fileExists(candidate)) {
-        return normalizePath(candidate);
-      }
-    }
-
-    return null;
+  /** First existing candidate in candidate order (normalized); the cheap probes run concurrently. */
+  private async firstExistingFile(candidates: readonly string[]): Promise<string | null> {
+    const exists = await Promise.all(candidates.map((candidate) => this.fileExists(candidate)));
+    const index = exists.indexOf(true);
+    return index === -1 ? null : normalizePath(candidates[index]);
   }
 
   /**
@@ -263,39 +256,17 @@ export class PythonParser implements ILanguageAnalyzer {
     // Convert module.submodule to module/submodule
     const modulePath = moduleSpecifier.replaceAll(".", "/");
     const normalizedRoot = normalizePath(this.rootDir);
-    const visited = new Set<string>();
-
-    const tryDirectory = async (dir: string): Promise<string | null> => {
+    // Directories in lookup order, each once: the importing file's directory up to the workspace root
+    // (or filesystem root), then the configured root if the climb missed it.
+    const dirs = new Map<string, string>();
+    const addDir = (dir: string) => {
       const normalizedDir = normalizePath(dir);
-      if (visited.has(normalizedDir)) {
-        return null;
-      }
-
-      visited.add(normalizedDir);
-
-      const candidates = [
-        path.join(dir, modulePath + ".py"),
-        path.join(dir, modulePath + ".pyi"),
-        path.join(dir, modulePath, "__init__.py"),
-        path.join(dir, modulePath, "__init__.pyi"),
-      ];
-
-      for (const candidate of candidates) {
-        if (await this.fileExists(candidate)) {
-          return normalizePath(candidate);
-        }
-      }
-
-      return null;
+      if (!dirs.has(normalizedDir)) dirs.set(normalizedDir, dir);
     };
 
-    // Walk up from the importing file's directory to the workspace root (or filesystem root)
     let currentDir = fromDir;
     while (true) {
-      const resolved = await tryDirectory(currentDir);
-      if (resolved) {
-        return resolved;
-      }
+      addDir(currentDir);
 
       const parentDir = path.dirname(currentDir);
       if (parentDir === currentDir) {
@@ -304,25 +275,16 @@ export class PythonParser implements ILanguageAnalyzer {
 
       // Stop after checking the workspace root to avoid scanning unrelated paths
       if (normalizePath(parentDir) === normalizedRoot) {
-        const resolvedAtRoot = await tryDirectory(parentDir);
-        if (resolvedAtRoot) {
-          return resolvedAtRoot;
-        }
+        addDir(parentDir);
         break;
       }
 
       currentDir = parentDir;
     }
+    addDir(this.rootDir);
 
-    // Fallback: try the configured root if it was not part of the climb
-    if (!visited.has(normalizedRoot)) {
-      const resolvedAtRoot = await tryDirectory(this.rootDir);
-      if (resolvedAtRoot) {
-        return resolvedAtRoot;
-      }
-    }
-
-    return null;
+    // Only stats: probe every level concurrently, keep the nearest hit.
+    return this.firstExistingFile([...dirs.values()].flatMap((dir) => moduleCandidates(dir, modulePath)));
   }
 
   /**
@@ -387,4 +349,14 @@ export class PythonParser implements ILanguageAnalyzer {
   private getNodeText(node: Node, content: string): string {
     return content.slice(node.startIndex, node.endIndex);
   }
+}
+
+/** Files a Python module path can live in under `dir`, in lookup order. */
+function moduleCandidates(dir: string, modulePath: string): string[] {
+  return [
+    path.join(dir, modulePath + ".py"),
+    path.join(dir, modulePath + ".pyi"),
+    path.join(dir, modulePath, "__init__.py"),
+    path.join(dir, modulePath, "__init__.pyi"),
+  ];
 }

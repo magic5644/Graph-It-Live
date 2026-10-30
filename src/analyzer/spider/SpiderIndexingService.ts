@@ -1,3 +1,4 @@
+import { mapWithConcurrency } from '../../shared/concurrency';
 import { getLogger } from '../../shared/logger';
 import { Cache } from '../Cache';
 import { IndexerStatus } from '../IndexerStatus';
@@ -12,11 +13,16 @@ import { SpiderWorkerManager } from './SpiderWorkerManager';
 
 const log = getLogger('SpiderIndexingService');
 
+type GetSymbolGraph = (filePath: string) => Promise<{ symbols: SymbolInfo[]; dependencies: SymbolDependency[] }>;
+
 /**
  * Single responsibility: build and maintain the reverse index (full and incremental),
  * including status reporting and cancellation.
  */
 export class SpiderIndexingService {
+  /** Tail of the symbol-analysis chain: symbol graphs are built one at a time, in file order. */
+  private symbolQueue: Promise<void> = Promise.resolve();
+
   constructor(
     private readonly dependencyAnalyzer: SpiderDependencyAnalyzer,
     private readonly dependencyCache: Cache<Dependency[]>,
@@ -27,7 +33,7 @@ export class SpiderIndexingService {
     private readonly cancellation: SpiderIndexingCancellation,
     private readonly getConfig: () => SpiderConfig,
     private readonly yieldToEventLoop: () => Promise<void>,
-    private readonly getSymbolGraph?: (filePath: string) => Promise<{ symbols: SymbolInfo[]; dependencies: SymbolDependency[] }>
+    private readonly getSymbolGraph?: GetSymbolGraph
   ) {}
 
   cancel(): void {
@@ -42,30 +48,39 @@ export class SpiderIndexingService {
   /**
    * Analyze a single file and update the reverse index.
    * Handles both file dependencies and symbol dependencies.
+   * Dependency analysis runs concurrently; symbol analysis runs one file at a time in call order,
+   * because the AST worker's symbols for a re-export cycle depend on which files it already loaded.
+   * Call it synchronously in file order: the symbol turn is reserved before the first await.
    * @param filePath - Path to the file to analyze
-   * @param processedCount - Number of files already processed (for symbol analysis limit)
+   * @param fileIndex - Position of the file in the indexing order (for symbol analysis limit)
    * @returns true if analysis succeeded, false otherwise
    */
-  private async analyzeFileForIndex(filePath: string, processedCount: number): Promise<boolean> {
-    try {
-      await this.dependencyAnalyzer.analyze(filePath);
-
-      // Also analyze symbols if getSymbolGraph is provided and within limit
-      if (this.getSymbolGraph && processedCount < (this.getConfig().maxSymbolAnalyzerFiles ?? 100)) {
-        try {
-          const symbolGraph = await this.getSymbolGraph(filePath);
-          if (symbolGraph.dependencies.length > 0) {
-            this.reverseIndexManager.addSymbolDependencies(filePath, symbolGraph.dependencies);
-          }
-        } catch {
-          // Skip files where symbol analysis fails (non-TypeScript/Python/Rust, etc.)
-        }
-      }
-      return true;
-    } catch {
-      // Skip failed files (malformed/binary/inaccessible)
-      return false;
+  private analyzeFileForIndex(filePath: string, fileIndex: number): Promise<boolean> {
+    // Skip failed files (malformed/binary/inaccessible)
+    const analyzed = this.dependencyAnalyzer.analyze(filePath).then(() => true, () => false);
+    const getSymbolGraph = this.getSymbolGraph;
+    if (!getSymbolGraph || fileIndex >= (this.getConfig().maxSymbolAnalyzerFiles ?? 100)) {
+      return analyzed;
     }
+    const step = this.symbolQueue.then(async () => (await analyzed) && this.addSymbolDependencies(filePath, getSymbolGraph));
+    this.symbolQueue = step.then(() => undefined);
+    return step;
+  }
+
+  /** Adds the symbol dependencies of an analyzed file; never rejects. */
+  private async addSymbolDependencies(
+    filePath: string,
+    getSymbolGraph: GetSymbolGraph,
+  ): Promise<true> {
+    try {
+      const symbolGraph = await getSymbolGraph(filePath);
+      if (symbolGraph.dependencies.length > 0) {
+        this.reverseIndexManager.addSymbolDependencies(filePath, symbolGraph.dependencies);
+      }
+    } catch {
+      // Skip files where symbol analysis fails (non-TypeScript/Python/Rust, etc.)
+    }
+    return true;
   }
 
   /**
@@ -106,26 +121,32 @@ export class SpiderIndexingService {
 
     this.indexerStatus.startIndexing();
     let processed = 0;
+    let cancelled = false;
     let lastYieldTime = Date.now();
 
     try {
-      for (const filePath of allFiles) {
-        const cancellationResult = this.checkCancellation(processed);
-        if (cancellationResult) {
-          return cancellationResult;
+      // `index` (list position) gates symbol analysis, so the same first files get it as before.
+      await mapWithConcurrency(allFiles, this.getConfig().indexingConcurrency ?? 8, async (filePath, index) => {
+        if (cancelled || this.cancellation.isCancelled()) {
+          cancelled = true;
+          return;
         }
 
-        await this.analyzeFileForIndex(filePath, processed);
+        await this.analyzeFileForIndex(filePath, index);
 
         processed++;
         this.indexerStatus.updateProgress(processed, filePath);
         progressCallback?.(processed, totalFiles, filePath);
 
-        const now = Date.now();
-        if (now - lastYieldTime >= YIELD_INTERVAL_MS) {
-          await this.yieldToEventLoop();
+        if (Date.now() - lastYieldTime >= YIELD_INTERVAL_MS) {
           lastYieldTime = Date.now();
+          await this.yieldToEventLoop();
         }
+      });
+
+      const cancellationResult = cancelled ? this.checkCancellation(processed) : undefined;
+      if (cancellationResult) {
+        return cancellationResult;
       }
 
       this.indexerStatus.complete();
@@ -179,35 +200,27 @@ export class SpiderIndexingService {
     const concurrency = this.getConfig().indexingConcurrency ?? 8;
     let processed = 0;
 
-    for (let i = 0; i < staleFiles.length; i += concurrency) {
-      if (this.cancellation.isCancelled()) {
-        this.indexerStatus.setCancelled();
-        return processed;
+    await mapWithConcurrency(staleFiles, concurrency, async (filePath) => {
+      if (this.cancellation.isCancelled()) return;
+      const normalized = normalizePath(filePath);
+      log.debug(`Re-indexing stale file: ${filePath}`);
+      try {
+        this.reverseIndexManager.removeDependenciesFromSource(normalized);
+        this.dependencyCache.delete(normalized);
+        log.debug(`Deleted cache for ${filePath}, re-analyzing...`);
+        await this.dependencyAnalyzer.analyze(filePath);
+        log.debug(`Successfully re-analyzed ${filePath}`);
+      } catch (error) {
+        log.error(`Failed to re-index ${filePath}:`, error);
+        this.reverseIndexManager.removeDependenciesFromSource(normalized);
       }
-      const batch = staleFiles.slice(i, i + concurrency);
 
-      await Promise.all(
-        batch.map(async (filePath) => {
-          const normalized = normalizePath(filePath);
-          log.debug(`Re-indexing stale file: ${filePath}`);
-          try {
-            this.reverseIndexManager.removeDependenciesFromSource(normalized);
-            this.dependencyCache.delete(normalized);
-            log.debug(`Deleted cache for ${filePath}, re-analyzing...`);
-            await this.dependencyAnalyzer.analyze(filePath);
-            log.debug(`Successfully re-analyzed ${filePath}`);
-          } catch (error) {
-            log.error(`Failed to re-index ${filePath}:`, error);
-            this.reverseIndexManager.removeDependenciesFromSource(normalized);
-          }
-        })
-      );
-
-      processed += batch.length;
-      this.indexerStatus.updateProgress(processed, batch.at(-1));
-      progressCallback?.(processed, staleFiles.length, batch.at(-1));
-      await this.yieldToEventLoop();
-    }
+      processed++;
+      this.indexerStatus.updateProgress(processed, filePath);
+      progressCallback?.(processed, staleFiles.length, filePath);
+      // Yield once per `concurrency` files, as the former batch loop did.
+      if (processed % concurrency === 0) await this.yieldToEventLoop();
+    });
 
     if (this.cancellation.isCancelled()) {
       this.indexerStatus.setCancelled();
