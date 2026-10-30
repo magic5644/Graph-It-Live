@@ -1,0 +1,12 @@
+export * from './a';
+export { namedUsed, barrelNotUsed } from './b';
+export { aliasUsed as renamed } from './c';
+export { default as dflt } from './dflt';
+export type { TOnly } from './types';
+export * from './deep';
+export * as nsbarrel from './nsx';
+export { twin } from './e';
+export * from './onlyTest';
+import { localReexport } from './g';
+export { localReexport };
+export * as escns from './escx';

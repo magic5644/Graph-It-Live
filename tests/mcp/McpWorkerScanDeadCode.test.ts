@@ -215,4 +215,38 @@ describe("MCP invokeTool – scan_dead_code", () => {
       name: "AbortError",
     });
   });
+
+  it("does not report symbols consumed through a barrel re-export (#513)", async () => {
+    const lib = path.join(tempDir, "src", "lib");
+    await fs.mkdir(lib, { recursive: true });
+    await fs.writeFile(path.join(lib, "a.ts"), "export function starUsed(): number { return 1; }\n");
+    await fs.writeFile(path.join(lib, "d.ts"), "export function reallyDead(): number { return 4; }\n");
+    await fs.writeFile(path.join(lib, "index.ts"), "export * from './a';\n");
+    await fs.writeFile(
+      path.join(tempDir, "src", "app.ts"),
+      "import { starUsed } from './lib';\nconsole.log(starUsed());\n",
+    );
+    await spider.buildFullIndex();
+
+    const response = await callTool("scan_dead_code", { scopePath: path.join(tempDir, "src", "lib") });
+
+    expect(response.type).toBe("result");
+    if (response.type !== "result") return;
+    const names = (response.data as ScanDeadCodeResult).entries.flatMap((e) => e.unusedSymbols.map((s) => s.name));
+    expect(names).toContain("reallyDead");
+    expect(names).not.toContain("starUsed");
+
+    // find_unused_symbols reports the same set per file.
+    for (const file of ["a.ts", "d.ts"]) {
+      const filePath = path.join(lib, file);
+      const single = await callTool("find_unused_symbols", { filePath });
+      expect(single.type).toBe("result");
+      if (single.type !== "result") return;
+      const perFile = (single.data as { unusedSymbols: Array<{ name: string }> }).unusedSymbols.map((s) => s.name);
+      const scanned = (response.data as ScanDeadCodeResult).entries
+        .filter((e) => e.filePath === filePath)
+        .flatMap((e) => e.unusedSymbols.map((s) => s.name));
+      expect(perFile).toEqual(scanned);
+    }
+  });
 });

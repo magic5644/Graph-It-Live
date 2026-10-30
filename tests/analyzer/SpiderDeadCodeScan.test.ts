@@ -1,3 +1,5 @@
+import * as fs from 'node:fs/promises';
+import { tmpdir } from 'node:os';
 import * as path from 'node:path';
 import { beforeAll, describe, expect, it } from 'vitest';
 import { Spider } from '../../src/analyzer/Spider';
@@ -106,5 +108,100 @@ describe('Spider - scanDeadCode', () => {
     await expect(freshSpider.scanDeadCode()).rejects.toMatchObject({
       code: SpiderErrorCode.INDEX_NOT_READY,
     });
+  });
+});
+
+describe('Spider - scanDeadCode through re-exports (#513)', () => {
+  const root = path.resolve(process.cwd(), 'tests/fixtures/reexport-barrels');
+  let unusedByFile: Map<string, string[]>;
+  let spider: Spider;
+
+  const unused = (relativePath: string): string[] => unusedByFile.get(relativePath) ?? [];
+
+  beforeAll(async () => {
+    spider = new SpiderBuilder().withRootDir(root).withReverseIndex(true).build();
+    await spider.buildFullIndex();
+    const result = await spider.scanDeadCode();
+    unusedByFile = new Map(
+      result.entries.map((e) => [path.relative(root, e.filePath).replaceAll('\\', '/'), e.unusedSymbols.map((s) => s.name)])
+    );
+  });
+
+  it.each([
+    ['export *', 'src/lib/a.ts'],
+    ['aliased re-export (as)', 'src/lib/c.ts'],
+    ['type-only re-export', 'src/lib/types.ts'],
+    ['namespace used as a whole', 'src/lib/escx.ts'],
+    ['barrel of a barrel (depth 2)', 'src/lib/deep/nested.ts'],
+    ['barrel of a barrel (depth 3)', 'src/lib/deep/deeper/leaf.ts'],
+    ['symbol imported only from a test file', 'src/lib/onlyTest.ts'],
+    ['import then export { x }', 'src/lib/g.ts'],
+  ])('keeps a symbol used through %s', (_form, file) => {
+    expect(unused(file)).toEqual([]);
+  });
+
+  it('reports only the namespace members nobody accesses', () => {
+    expect(unused('src/lib/nsx.ts')).toEqual(['deadInNs']);
+  });
+
+  it('keeps a default export re-exported as a name', () => {
+    expect(unused('src/lib/dflt.ts')).toEqual([]);
+  });
+
+  it('does not report a JS symbol consumed through an .mjs barrel', () => {
+    // ponytail: JS exports yield no symbols in the AST worker, so dead JS code is not reported either.
+    expect(unused('src/js/a.js')).toEqual([]);
+  });
+
+  it('still reports a symbol nobody imports', () => {
+    expect(unused('src/lib/d.ts')).toEqual(['reallyDead']);
+  });
+
+  it('keeps a named re-export used and reports the one the consumer never uses', () => {
+    expect(unused('src/lib/b.ts')).toEqual(['barrelNotUsed']);
+  });
+
+  it('does not credit a same-name symbol of a file the barrel does not re-export', () => {
+    expect(unused('src/lib/e.ts')).toEqual([]);
+    expect(unused('src/lib/f.ts')).toEqual(['twin']);
+  });
+
+  it('terminates on re-export cycles and keeps reporting the unused side', () => {
+    expect(unused('src/cyc/x.ts')).toEqual([]);
+    expect(unused('src/cyc/y.ts')).toEqual(['yFn']);
+  });
+
+  it('lists the consumer as dependent of a symbol re-exported through import then export', async () => {
+    const dependents = await spider.getSymbolDependents(path.join(root, 'src/lib/g.ts'), 'localReexport');
+    expect(dependents.some((d) => d.sourceSymbolId.replaceAll('\\', '/').includes('/src/app.ts:'))).toBe(true);
+  });
+
+  it('agrees between findUnusedSymbols and scanDeadCode', async () => {
+    for (const file of ['src/lib/a.ts', 'src/lib/b.ts', 'src/lib/d.ts', 'src/lib/nsx.ts', 'src/lib/escx.ts']) {
+      const names = (await spider.findUnusedSymbols(path.join(root, file))).map((s) => s.name);
+      expect(names).toEqual(unused(file));
+    }
+  });
+
+  it('stays fast with hundreds of exports behind one barrel', async () => {
+    const big = await fs.mkdtemp(path.join(tmpdir(), 'reexport-many-'));
+    try {
+      const names = Array.from({ length: 300 }, (_, i) => `fn${i}`);
+      await fs.mkdir(path.join(big, 'src'), { recursive: true });
+      await fs.writeFile(path.join(big, 'src', 'many.ts'), names.map((n) => `export function ${n}() {}`).join('\n'));
+      await fs.writeFile(path.join(big, 'src', 'index.ts'), "export * from './many';\n");
+      await fs.writeFile(path.join(big, 'src', 'app.ts'), "import { fn0 } from './index';\nfn0();\n");
+      const manySpider = new SpiderBuilder().withRootDir(big).withReverseIndex(true).build();
+      await manySpider.buildFullIndex();
+
+      const started = Date.now();
+      const unusedNames = (await manySpider.findUnusedSymbols(path.join(big, 'src', 'many.ts'))).map((s) => s.name);
+
+      expect(unusedNames).toHaveLength(299);
+      expect(unusedNames).not.toContain('fn0');
+      expect(Date.now() - started).toBeLessThan(10_000);
+    } finally {
+      await fs.rm(big, { recursive: true, force: true });
+    }
   });
 });
