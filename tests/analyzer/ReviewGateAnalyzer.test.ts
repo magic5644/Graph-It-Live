@@ -164,6 +164,35 @@ describe("ReviewGateAnalyzer", { timeout: GIT_TEST_TIMEOUT }, () => {
     });
 
     expect(markdown).not.toContain("### Consumers to check");
+    expect(markdown).not.toContain("### Return type changed");
+  });
+
+  // #530: a return-type-only change charges no consumer, but its untouched ones stay listed as potentially broken.
+  const RETURN_TYPE_CHANGE = { type: "return-type-changed", symbolName: "f", description: "Return type changed", severity: "error" } as const;
+  const PARAMETER_CHANGE = { type: "parameter-added-required", symbolName: "f", description: "Parameter added", severity: "error" } as const;
+  it.each([
+    ["lists covered and unverified consumers of a return-type-only change", [RETURN_TYPE_CHANGE], { updated: ["src/a.ts"], covered: ["src/b.ts"], unverified: ["src/c|d.ts"] }, 0, "- f: src/b.ts, src/c d.ts"],
+    ["omits it when the diff updated every consumer", [RETURN_TYPE_CHANGE], { updated: ["src/a.ts"], covered: [], unverified: [] }, 0, undefined],
+    ["leaves a mixed change to the charged section", [RETURN_TYPE_CHANGE, PARAMETER_CHANGE], { updated: [], covered: [], unverified: ["src/c.ts"] }, 5, undefined],
+  ])("return-type consumer section: %s", (_label, breakingChanges, consumers, unverifiedConsumers, expectedLine) => {
+    const markdown = renderReviewMarkdown({
+      cycles: [], baseRef: "main", headRef: "HEAD", changedFiles: ["src/lib.ts"],
+      symbols: [{
+        name: "f", filePath: "src/lib.ts", score: 15, risk: "low", breakingChanges: [...breakingChanges], impactedSymbolCount: 2, consumers,
+        cycleEvidence: [], unusedExportEvidence: false, testCandidates: [],
+        scoreFactors: { breakingChanges: 5, unverifiedConsumers, cycles: 0, unusedExport: 0, missingTestCandidate: 10, partialImpact: 0 }, evidence: [],
+      }],
+      score: 15, risk: "low", isPartial: false, limitations: [],
+    });
+
+    if (expectedLine === undefined) {
+      expect(markdown).not.toContain("### Return type changed: consumers to re-check");
+      return;
+    }
+    expect(markdown).toContain("### Return type changed: consumers to re-check");
+    expect(markdown).toContain("potentially, not provably, broken");
+    expect(markdown).toContain(expectedLine);
+    expect(markdown).not.toContain("### Consumers to check");
   });
 
   it("maps score thresholds predictably", () => {

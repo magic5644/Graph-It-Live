@@ -1353,12 +1353,24 @@ export function renderReviewMarkdown(result: ReviewGateResult): string {
     `| ${safe(symbol.risk)} | ${symbol.score} | ${safe(symbol.filePath)} | ${safe(symbol.name)} | ${symbol.consumers.updated.length} | ${symbol.consumers.covered.length} | ${symbol.consumers.unverified.length} |`,
   );
 
+  const untouchedConsumers = (symbol: ReviewSymbol): string =>
+    `- ${safe(symbol.name)}: ${[...symbol.consumers.covered, ...symbol.consumers.unverified].map(safe).join(", ")}`;
+
   // A non-zero consumer weight means the change breaks call sites, so every
   // untouched consumer is to check — a tested one included.
   const unverified = result.symbols
     .filter((symbol) => symbol.scoreFactors.unverifiedConsumers > 0)
     .slice(0, 10)
-    .map((symbol) => `- ${safe(symbol.name)}: ${[...symbol.consumers.covered, ...symbol.consumers.unverified].map(safe).join(", ")}`);
+    .map(untouchedConsumers);
+
+  // A return-type-only change charges no consumer, yet any of them may use the
+  // returned value in a way the new type no longer supports (#530).
+  const returnTypeConsumers = result.symbols
+    .filter((symbol) => symbol.scoreFactors.unverifiedConsumers === 0
+      && symbol.consumers.covered.length + symbol.consumers.unverified.length > 0
+      && symbol.breakingChanges.some((change) => change.type === "return-type-changed"))
+    .slice(0, 10)
+    .map(untouchedConsumers);
 
   const moved = result.symbols
     .flatMap((symbol) => symbol.evidence.filter((item) => item.kind === "moved").map((item) => `- ${safe(item.detail)}`))
@@ -1376,6 +1388,9 @@ export function renderReviewMarkdown(result: ReviewGateResult): string {
     "| --- | ---: | --- | --- | ---: | ---: | ---: |",
     ...(rows.length > 0 ? rows : ["| low | 0 | — | No breaking signatures detected | 0 | 0 | 0 |"]),
     ...(unverified.length > 0 ? ["", "### Consumers to check", ...unverified] : []),
+    ...(returnTypeConsumers.length > 0
+      ? ["", "### Return type changed: consumers to re-check", "Compatibility of each use of the returned value is not checked; these consumers are potentially, not provably, broken.", ...returnTypeConsumers]
+      : []),
     ...(moved.length > 0 ? ["", "### Moved symbols", ...moved] : []),
     ...(cycles.length > 0 ? ["", "### Import cycles", ...cycles] : []),
     ...(result.limitations.length > 0 ? ["", "### Limitations", ...result.limitations.map((item) => `- ${safe(item)}`)] : []),
