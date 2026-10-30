@@ -536,6 +536,11 @@ export class SpiderSymbolService {
         return true; // Without AST-based symbol verification, conservatively treat all imports as used
       }
       
+      // A bare `import './x'` binds no symbol, so the AST never sees it: it is always used.
+      if ((await this.sideEffectTargets(normalizedSource)).has(normalizedTarget)) {
+        return true;
+      }
+
       // 1. Get AST-based symbol dependencies for the source file (cached)
       const { dependencies } = await this.getSymbolGraph(normalizedSource);
       
@@ -596,13 +601,17 @@ export class SpiderSymbolService {
       
       // Get symbol graph once for all targets
       const { dependencies } = await this.getSymbolGraph(normalizedSource);
+      const sideEffects = await this.sideEffectTargets(normalizedSource);
       
-      if (dependencies.length === 0) {
+      if (dependencies.length === 0 && sideEffects.size === 0) {
         return this.markAllAsUnused(targetFiles);
       }
 
       // Build resolved target paths set
       const resolvedTargets = await this.buildResolvedTargetsSet(dependencies, normalizedSource);
+      for (const target of sideEffects) {
+        resolvedTargets.add(target);
+      }
 
       // Check each target against the resolved set
       return this.checkTargetsAgainstResolved(targetFiles, resolvedTargets);
@@ -612,6 +621,16 @@ export class SpiderSymbolService {
       log.warn('Batch usage verification failed, assuming all used:', spiderError.message);
       return this.markAllAsUsed(targetFiles);
     }
+  }
+
+  /** Files a source imports with a bare `import './x'`, which carries no symbol for the AST to find. */
+  private async sideEffectTargets(normalizedSource: string): Promise<Set<string>> {
+    const analyzer = this.languageService.getAnalyzer(normalizedSource);
+    const imports = await analyzer.parseImports(normalizedSource);
+    const resolved = await Promise.all(
+      imports.filter((dep) => dep.type === 'side-effect').map((dep) => analyzer.resolvePath(normalizedSource, dep.module))
+    );
+    return new Set(resolved.filter((target): target is string => target !== null).map(normalizePath));
   }
 
   private markAllAsUsed(targetFiles: string[]): Map<string, boolean> {

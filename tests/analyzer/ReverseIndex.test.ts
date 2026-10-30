@@ -107,6 +107,27 @@ describe('ReverseIndex', () => {
             expect(index.hasFile(sourcePath)).toBe(false);
         });
 
+        it('adds and drops a side-effect import as the source is re-indexed (#515)', () => {
+            const source = '/test/project/src/main.ts';
+            const side = '/test/project/src/side.ts';
+            const bare: Dependency = { path: side, type: 'side-effect', line: 1, module: './side' };
+
+            index.addDependencies(source, [bare]);
+            expect(index.getReferencingFiles(side)).toEqual([
+                { path: source, type: 'side-effect', line: 1, module: './side' },
+            ]);
+
+            // Watch mode: the bare import is deleted, the file is re-indexed with no dependency.
+            index.removeDependenciesFromSource(source);
+            index.addDependencies(source, []);
+            expect(index.getReferencingFiles(side)).toHaveLength(0);
+
+            // ...and added again.
+            index.removeDependenciesFromSource(source);
+            index.addDependencies(source, [bare]);
+            expect(index.getReferencingFiles(side)).toHaveLength(1);
+        });
+
         it('should not affect other sources', () => {
             index.addDependencies('/test/project/src/a.ts', [
                 { path: '/test/project/src/shared.ts', type: 'import', line: 1, module: './shared' },

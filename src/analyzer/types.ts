@@ -141,9 +141,10 @@ export class SpiderError extends Error {
 }
 
 /**
- * Type of import/dependency statement
+ * Type of import/dependency statement. `side-effect` is a bare `import './x'`:
+ * it runs the module but binds no symbol.
  */
-export type DependencyType = "import" | "require" | "export" | "dynamic";
+export type DependencyType = "import" | "require" | "export" | "dynamic" | "side-effect";
 
 export interface Dependency {
   path: string;

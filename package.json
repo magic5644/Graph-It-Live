@@ -662,7 +662,7 @@
         "displayName": "Graph-It-Live: Analyze Dependencies",
         "icon": "$(package)",
         "userDescription": "List all dependencies and imports of a file, with resolved paths and metadata",
-        "modelDescription": "Lists the import/export statements of one file, with each specifier resolved to a path on disk.\n\nWHEN: \"what does this file import\", \"what are this file's dependencies\".\nWHY: read from the parsed source, so tsconfig path aliases, implicit extensions and index files are already resolved.\nRETURNS: one entry per resolved workspace file - module specifier, workspace-relative path, import type (import, require, export, dynamic), line number. Unresolved and external imports are left out.\nSUPPORTS: TypeScript, JavaScript, Vue, Svelte, GraphQL.",
+        "modelDescription": "Lists the import/export statements of one file, with each specifier resolved to a path on disk.\n\nWHEN: \"what does this file import\", \"what are this file's dependencies\".\nWHY: read from the parsed source, so tsconfig path aliases, implicit extensions and index files are already resolved.\nRETURNS: one entry per resolved workspace file - module specifier, workspace-relative path, import type (import, require, export, dynamic, side-effect), line number. Unresolved and external imports are left out.\nSUPPORTS: TypeScript, JavaScript, Vue, Svelte, GraphQL.",
         "inputSchema": {
           "type": "object",
           "properties": {

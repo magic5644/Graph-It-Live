@@ -71,8 +71,8 @@ const TOOL_DESCRIPTIONS: Record<DescribedToolName, ToolDescription> = {
       `WHEN: "what does this file import", "what are this file's dependencies".`,
       "WHY: read from the parsed source, so tsconfig path aliases, implicit extensions and index files are already resolved.",
       {
-        mcp: "RETURNS: per statement - module specifier, resolved absolute path, workspace-relative path, import type (static, dynamic, require, re-export), line number.",
-        lm: "RETURNS: one entry per resolved workspace file - module specifier, workspace-relative path, import type (import, require, export, dynamic), line number. Unresolved and external imports are left out.",
+        mcp: "RETURNS: per statement - module specifier, resolved absolute path, workspace-relative path, import type (static, dynamic, require, re-export, side-effect), line number.",
+        lm: "RETURNS: one entry per resolved workspace file - module specifier, workspace-relative path, import type (import, require, export, dynamic, side-effect), line number. Unresolved and external imports are left out.",
       },
       "SUPPORTS: TypeScript, JavaScript, Vue, Svelte, GraphQL.",
     ],
