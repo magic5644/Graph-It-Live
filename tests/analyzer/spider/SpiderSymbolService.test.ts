@@ -64,16 +64,6 @@ describe('SpiderSymbolService unsupported languages', () => {
     },
   );
 
-  it('shares one analysis between concurrent lookups of a file, then analyzes again after a failure', async () => {
-    const graphs = await Promise.all([service.getSymbolGraph('/ws/a.ts'), service.getSymbolGraph('/ws/a.ts')]);
-    expect(graphs[0]).toBe(graphs[1]);
-    expect(analyzeFile).toHaveBeenCalledTimes(1);
-
-    readFile.mockRejectedValueOnce(new Error('gone')).mockResolvedValueOnce('content');
-    await expect(service.getSymbolGraph('/ws/b.ts')).rejects.toThrow('gone');
-    await expect(service.getSymbolGraph('/ws/b.ts')).resolves.toEqual({ symbols: [SYMBOL], dependencies: [] });
-  });
-
   it('treats imports of unsupported sources as used without parsing', async () => {
     await expect(service.verifyDependencyUsage('/ws/MAIN.GO', '/ws/util.go')).resolves.toBe(true);
     const batch = await service.verifyDependencyUsageBatch(String.raw`C:\ws\Foo.cs`, [String.raw`C:\ws\Bar.cs`]);

@@ -196,8 +196,10 @@ async function collectFiles(root: string): Promise<string[]> {
       if (entry.isDirectory()) subdirectories.push(filePath);
       else if (DOCUMENT_EXTENSIONS.has(path.extname(entry.name).toLowerCase()) || CODE_EXTENSIONS.has(path.extname(entry.name).toLowerCase())) result.push(filePath);
     }
-    // Order is irrelevant: the result is sorted below.
-    await Promise.all(subdirectories.map(visit));
+    for (const subdirectory of subdirectories) {
+      // eslint-disable-next-line no-await-in-loop -- one directory at a time, like SourceFileCollector: a parallel walk of a large tree floods the libuv pool
+      await visit(subdirectory);
+    }
   };
   await visit(root);
   return result.sort();

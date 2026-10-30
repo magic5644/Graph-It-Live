@@ -39,8 +39,6 @@ type ReExportMemo = Map<string, Promise<ModuleReExports>>;
  * (drill-down, unused exports, dependents, execution tracing).
  */
 export class SpiderSymbolService {
-  private readonly symbolGraphsInFlight = new Map<string, Promise<SymbolGraph>>();
-
   constructor(
     private readonly astWorkerHost: AstWorkerHost,
     private readonly symbolCache: Cache<SymbolGraph>,
@@ -74,16 +72,7 @@ export class SpiderSymbolService {
     if (cached) {
       return cached;
     }
-    // Concurrent lookups of one file share a single analysis.
-    let pending = this.symbolGraphsInFlight.get(key);
-    if (!pending) {
-      pending = this.analyzeSymbolGraph(filePath, key).finally(() => this.symbolGraphsInFlight.delete(key));
-      this.symbolGraphsInFlight.set(key, pending);
-    }
-    return pending;
-  }
 
-  private async analyzeSymbolGraph(filePath: string, key: string): Promise<SymbolGraph> {
     try {
       const content = await this.fileReader.readFile(filePath);
       const result = await this.astWorkerHost.analyzeFile(key, content);

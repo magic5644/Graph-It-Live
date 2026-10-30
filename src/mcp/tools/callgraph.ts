@@ -338,22 +338,29 @@ async function indexCallGraphJobs(
 ): Promise<void> {
   indexer.beginBatch();
   try {
-    // Extract in parallel and write in job order as soon as the next job is ready: only results that
-    // arrive ahead of it wait in memory (about the pool size), not every extraction of a full rebuild.
-    const extracted = new Map<number, ExtractedCallGraphJob | null>();
-    let nextToIndex = 0;
-    await mapWithConcurrency(jobs, 8, async (job, index) => {
-      extracted.set(index, await extractCallGraphJob(extractor, job));
-      for (; extracted.has(nextToIndex); nextToIndex++) {
-        indexCallGraphJob(indexer, jobs[nextToIndex], extracted.get(nextToIndex) ?? null);
-        extracted.delete(nextToIndex);
-      }
-    });
+    await indexCallGraphWindow(indexer, extractor, jobs, 0);
     indexer.commitBatch();
   } catch (err) {
     indexer.rollbackBatch();
     throw err;
   }
+}
+
+/** Jobs extracted together before their DB writes: bounds the extraction results held in memory. */
+const CALL_GRAPH_WINDOW = 64;
+
+/** Extracts one window of jobs in parallel, writes them in job order, then moves to the next window. */
+async function indexCallGraphWindow(
+  indexer: CallGraphIndexer,
+  extractor: GraphExtractor,
+  jobs: CallGraphJob[],
+  start: number,
+): Promise<void> {
+  if (start >= jobs.length) return;
+  const window = jobs.slice(start, start + CALL_GRAPH_WINDOW);
+  const extracted = await mapWithConcurrency(window, 8, (job) => extractCallGraphJob(extractor, job));
+  window.forEach((job, index) => indexCallGraphJob(indexer, job, extracted[index]));
+  return indexCallGraphWindow(indexer, extractor, jobs, start + CALL_GRAPH_WINDOW);
 }
 
 type ExtractedCallGraphJob = Awaited<ReturnType<GraphExtractor["extractFile"]>> & { mtime: number };
