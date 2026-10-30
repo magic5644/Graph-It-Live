@@ -243,7 +243,7 @@ export class GraphExtractor {
       const captures = query.captures(tree.rootNode);
       const calls = captures.filter(c => c.name === "call").map(c => c.node);
       const resolver = new PathResolver(undefined, true, this.config.workspaceRoot);
-      let importTargets = new Map<number, string | null>();
+      let importTargets: Map<number, string | null>;
       if (lang === "typescript" || lang === "javascript") {
         importTargets = await resolveNamedImportCalls(tree.rootNode, calls, normalizedPath, resolver);
       } else if (lang === "python") {
