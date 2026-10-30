@@ -18,6 +18,7 @@ import { detectCycleEdges } from "@/shared/cycleUtils";
 import fs from "node:fs/promises";
 import path from "node:path";
 import type { Database, SqlJsStatic } from "sql.js";
+import { QUALIFIED_PREFIX, qualifiedCandidates, type QualifiedMember } from "./qualifiedCalls";
 
 // ---------------------------------------------------------------------------
 // Input types (used by GraphExtractor / callers)
@@ -134,8 +135,9 @@ CREATE TABLE IF NOT EXISTS metadata (
  * v6: namespace member calls (`ns.fn()`) retain their module (#498).
  * v7: the local name of a default export is not a named export (#508).
  * v8: Python calls retain their import binding; unimported bare names link nowhere (#497).
+ * v9: qualified Go/Rust/Java/C# calls retain their package, module or type (#507).
  */
-const CURRENT_SCHEMA_VERSION = 8;
+const CURRENT_SCHEMA_VERSION = 9;
 
 /**
  * Optional FTS5 schema for fast symbol name search.
@@ -433,7 +435,9 @@ export class CallGraphIndexer {
    */
   resolveExternalEdges(): { before: number; resolved: number; deleted: number } {
     const db = this.getDb();
-    const imports = this.resolveImportedEdges();
+    const first = this.resolveImportedEdges();
+    const second = this.resolveQualifiedEdges();
+    const imports = { before: first.before + second.before, resolved: first.resolved + second.resolved, deleted: first.deleted + second.deleted };
 
     // Count stubs before resolution.
     const beforeRows = db.exec("SELECT COUNT(*) FROM edges WHERE target_id LIKE '@@external:%'");
@@ -530,6 +534,70 @@ export class CallGraphIndexer {
       update.free();
     }
     db.run("DELETE FROM edges WHERE target_id LIKE '@@import:%'");
+    return { before: rows.length, resolved, deleted: rows.length - resolved };
+  }
+
+  /** Resolve `@@qualified:` targets to a member of the stub's container; unmatched stubs are deleted. */
+  private resolveQualifiedEdges(): { before: number; resolved: number; deleted: number } {
+    const db = this.getDb();
+    const rows = db.exec(`
+      SELECT e.rowid, e.target_id, s.path, s.lang
+      FROM edges e JOIN nodes s ON s.id = e.source_id
+      WHERE e.target_id LIKE '${QUALIFIED_PREFIX}%'
+    `)[0]?.values as [number, string, string, string][] | undefined;
+    if (!rows) return { before: 0, resolved: 0, deleted: 0 };
+    const memberStmt = db.prepare(
+      "SELECT id, path, folder, start_line, end_line, is_exported FROM nodes WHERE name = ? AND lang = ? AND type IN ('function','method','variable') ORDER BY id",
+    );
+    const typeStmt = db.prepare(
+      "SELECT path, start_line, end_line FROM nodes WHERE name = ? AND lang = ? AND type IN ('class','interface','type')",
+    );
+    const update = db.prepare("UPDATE OR IGNORE edges SET target_id = ? WHERE rowid = ?");
+    // `nodes.name` is not indexed: read each (statement, name, language) once.
+    const reads = new Map<string, Array<Array<string | number>>>();
+    const all = (stmt: ReturnType<typeof db.prepare>, name: string, lang: string) => {
+      const key = `${name}\0${lang}\0${stmt === memberStmt}`;
+      let found = reads.get(key);
+      if (!found) {
+        found = [];
+        stmt.bind([name, lang]);
+        while (stmt.step()) found.push(stmt.get() as Array<string | number>);
+        stmt.reset();
+        reads.set(key, found);
+      }
+      return found;
+    };
+    // Many calls share one stub (`Util.add` from every caller): look each up once.
+    const known = new Map<string, QualifiedMember[]>();
+    const candidatesOf = (target: string, lang: string) => {
+      const key = `${lang}\0${target}`;
+      let found = known.get(key);
+      if (!found) {
+        found = qualifiedCandidates(
+          target,
+          (name) => all(memberStmt, name, lang).map(([id, path, folder, startLine, endLine, isExported]) =>
+            ({ id: String(id), path: String(path), folder: String(folder), startLine: Number(startLine), endLine: Number(endLine), isExported: Number(isExported) })),
+          (name) => all(typeStmt, name, lang).map(([path, startLine, endLine]) =>
+            ({ path: String(path), startLine: Number(startLine), endLine: Number(endLine) })),
+        );
+        known.set(key, found);
+      }
+      return found;
+    };
+    let resolved = 0;
+    try {
+      for (const [rowid, target, sourcePath, lang] of rows) {
+        const candidates = candidatesOf(target, lang);
+        if (candidates.length === 0) continue;
+        update.run([pickBestCandidate(sourcePath, candidates).id, rowid]);
+        resolved += db.getRowsModified();
+      }
+    } finally {
+      memberStmt.free();
+      typeStmt.free();
+      update.free();
+    }
+    db.run(`DELETE FROM edges WHERE target_id LIKE '${QUALIFIED_PREFIX}%'`);
     return { before: rows.length, resolved, deleted: rows.length - resolved };
   }
 

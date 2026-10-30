@@ -15,7 +15,8 @@
  *  3. For each relationship capture, walk up the AST to find the nearest
  *     enclosing `@def.*` node — this is the edge source.
  *  4. Intra-file target IDs are resolved against the extracted node set.
- *     Named JS/TS and Python imports retain their module in `@@import:` stubs;
+ *     Named JS/TS and Python imports retain their module in `@@import:` stubs,
+ *     qualified Go/Rust/Java/C# calls their container in `@@qualified:` stubs;
  *     other cross-file targets are stored as `@@external:<name>` stubs.
  *
  * NO vscode imports — this module is VS Code-agnostic.
@@ -35,6 +36,7 @@ import { Query } from "web-tree-sitter";
 import type { CallGraphEdge, CallGraphNode } from "./CallGraphIndexer";
 import { resolveNamedImportCalls } from "./importBindings";
 import { LOCAL_ONLY, resolvePythonImportCalls } from "./pythonImportBindings";
+import { QUALIFIED_PREFIX, resolveQualifiedCalls } from "./qualifiedCalls";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -131,7 +133,7 @@ function resolveEdgeTarget(
     const target = importTargets.get(node.id);
     if (!target) return null;
     if (target === LOCAL_ONLY) return targetNodeIds?.[0] ?? null;
-    return target.startsWith("@@import:") || targetNodeIds?.includes(target) ? target : null;
+    return target.startsWith("@@import:") || target.startsWith(QUALIFIED_PREFIX) || targetNodeIds?.includes(target) ? target : null;
   }
   return targetNodeIds?.[0] ?? `@@external:${node.text.trim()}`;
 }
@@ -246,6 +248,8 @@ export class GraphExtractor {
         importTargets = await resolveNamedImportCalls(tree.rootNode, calls, normalizedPath, resolver);
       } else if (lang === "python") {
         importTargets = await resolvePythonImportCalls(tree.rootNode, calls, normalizedPath, resolver);
+      } else {
+        importTargets = await resolveQualifiedCalls(tree.rootNode, calls, lang, normalizedPath, normalizePath(this.config.workspaceRoot));
       }
       return this.processCaptures(captures, normalizedPath, lang, source, importTargets);
     } finally {
