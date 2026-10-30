@@ -6,6 +6,14 @@ import { FileReader } from '../FileReader';
 import { ISymbolAnalyzer, SpiderError, SymbolDependency, SymbolInfo } from '../types';
 import { WasmParserFactory } from './WasmParserFactory';
 
+/** Import-map key prefix for names that may be modules: `used.f()` needs the module `used`, not the function. */
+const MODULE_ALIAS_PREFIX = 'module:';
+
+/** `from . import used` binds the module `.used`; `from pkg import sub` binds `pkg.sub`. */
+function submoduleSpecifier(modulePath: string, name: string): string {
+  return modulePath.endsWith('.') ? `${modulePath}${name}` : `${modulePath}.${name}`;
+}
+
 /**
  * Python symbol analyzer backed by tree-sitter WASM.
  * Requires `extensionPath` to locate `dist/wasm`.
@@ -161,7 +169,7 @@ export class PythonSymbolAnalyzer implements ISymbolAnalyzer {
 
       this.extractSymbols(tree.rootNode, normalizedPath, content, symbolMap);
       const importMap = this.buildImportMap(tree.rootNode, content);
-      this.extractDependencies(tree.rootNode, normalizedPath, content, dependencies, symbolMap, undefined, importMap);
+      this.extractDependencies(tree.rootNode, normalizedPath, content, dependencies, symbolMap, `${normalizedPath}:(file)`, importMap);
 
       return {
         symbols: Array.from(symbolMap.values()),
@@ -369,6 +377,7 @@ export class PythonSymbolAnalyzer implements ISymbolAnalyzer {
         return;
       }
       importMap.set(nameText, modulePath);
+      importMap.set(MODULE_ALIAS_PREFIX + nameText, submoduleSpecifier(modulePath, nameText));
     }
   }
 
@@ -386,6 +395,7 @@ export class PythonSymbolAnalyzer implements ISymbolAnalyzer {
     const aliasNode = child.childForFieldName('alias');
     const alias = aliasNode ? this.getNodeText(aliasNode, content) : name;
     importMap.set(alias, modulePath);
+    importMap.set(MODULE_ALIAS_PREFIX + alias, submoduleSpecifier(modulePath, name));
   }
 
   /** Handle: import module [as alias] */
@@ -409,6 +419,7 @@ export class PythonSymbolAnalyzer implements ISymbolAnalyzer {
       const aliasNode = child.childForFieldName('alias');
       const alias = aliasNode ? this.getNodeText(aliasNode, content) : modulePath;
       importMap.set(alias, modulePath);
+      importMap.set(MODULE_ALIAS_PREFIX + alias, modulePath);
       return;
     }
 
@@ -416,6 +427,7 @@ export class PythonSymbolAnalyzer implements ISymbolAnalyzer {
       const modulePath = this.getNodeText(child, content);
       if (modulePath !== 'import') {
         importMap.set(modulePath, modulePath);
+        importMap.set(MODULE_ALIAS_PREFIX + modulePath, modulePath);
       }
     }
   }
@@ -434,6 +446,7 @@ export class PythonSymbolAnalyzer implements ISymbolAnalyzer {
   ): void {
     const newScope = this.getScopeForNode(node, filePath, content, currentScope);
     this.addCallDependencyIfAny(node, filePath, content, dependencies, symbols, newScope, importMap);
+    this.addValueReferenceIfAny(node, content, dependencies, newScope, importMap);
 
     for (const child of node.children) {
       this.extractDependencies(child, filePath, content, dependencies, symbols, newScope, importMap);
@@ -478,7 +491,11 @@ export class PythonSymbolAnalyzer implements ISymbolAnalyzer {
     }
 
     const calledName = this.getCalledName(funcNode, content);
-    
+
+    if (this.addModuleAttributeCall(funcNode, calledName, node, content, dependencies, scope, importMap)) {
+      return;
+    }
+
     // Check if it's a call to a local symbol (same file)
     const localTargetSymbolId = `${filePath}:${calledName}`;
     if (symbols.has(localTargetSymbolId)) {
@@ -506,6 +523,87 @@ export class PythonSymbolAnalyzer implements ISymbolAnalyzer {
         isTypeOnly: false,
       });
     }
+  }
+
+  /**
+   * An imported name used as a value (`handlers = [f]`, `register(f)`): not a call, yet the symbol is
+   * live. Over-credits a parameter that shadows the import, which only keeps dead code reported less.
+   */
+  private addValueReferenceIfAny(
+    node: Node,
+    content: string,
+    dependencies: SymbolDependency[],
+    scope?: string,
+    importMap?: Map<string, string>
+  ): void {
+    if (node.type !== 'identifier' || !scope || !importMap?.size) {
+      return;
+    }
+    const name = this.getNodeText(node, content);
+    const moduleSpecifier = importMap.get(name);
+    if (!moduleSpecifier || !this.isValueReference(node)) {
+      return;
+    }
+    dependencies.push({
+      sourceSymbolId: scope,
+      targetSymbolId: `${moduleSpecifier}:${name}`,
+      targetFilePath: moduleSpecifier,
+      line: node.startPosition.row + 1,
+      isTypeOnly: false,
+    });
+  }
+
+  /** False for identifiers that are not a read of a variable: import clauses, call targets, attribute parts, `kw=`. */
+  private isValueReference(node: Node): boolean {
+    const parent = node.parent;
+    if (!parent) {
+      return false;
+    }
+    if (parent.type === 'call' && parent.childForFieldName('function')?.id === node.id) {
+      return false; // handled as a call
+    }
+    if (parent.type === 'parameters') {
+      return false; // a parameter declaration, not a read
+    }
+    if (parent.type === 'attribute') {
+      return false; // `mod.f` is credited through the module alias, `obj.attr` is not a read of an import
+    }
+    if (parent.type === 'keyword_argument') {
+      return parent.childForFieldName('value')?.id === node.id;
+    }
+    for (let current: Node | null = parent; current; current = current.parent) {
+      if (current.type === 'import_statement' || current.type === 'import_from_statement') {
+        return false;
+      }
+    }
+    return true;
+  }
+
+  /** `module.func()` where `module` is an imported module: the call targets `func` in that module. */
+  private addModuleAttributeCall(
+    funcNode: Node,
+    calledName: string,
+    callNode: Node,
+    content: string,
+    dependencies: SymbolDependency[],
+    scope: string,
+    importMap?: Map<string, string>
+  ): boolean {
+    const objectNode = funcNode.type === 'attribute' ? funcNode.childForFieldName('object') : null;
+    const moduleSpecifier = objectNode
+      ? importMap?.get(MODULE_ALIAS_PREFIX + this.getNodeText(objectNode, content))
+      : undefined;
+    if (!moduleSpecifier) {
+      return false;
+    }
+    dependencies.push({
+      sourceSymbolId: scope,
+      targetSymbolId: `${moduleSpecifier}:${calledName}`,
+      targetFilePath: moduleSpecifier,
+      line: callNode.startPosition.row + 1,
+      isTypeOnly: false,
+    });
+    return true;
   }
 
   private getCalledName(funcNode: Node, content: string): string {

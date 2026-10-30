@@ -161,7 +161,7 @@ export class RustSymbolAnalyzer implements ISymbolAnalyzer {
 
       this.extractSymbols(tree.rootNode, normalizedPath, content, symbolMap);
       const importMap = this.buildImportMap(tree.rootNode, content);
-      this.extractDependencies(tree.rootNode, normalizedPath, content, dependencies, symbolMap, undefined, importMap);
+      this.extractDependencies(tree.rootNode, normalizedPath, content, dependencies, symbolMap, `${normalizedPath}:(file)`, importMap);
 
       return {
         symbols: Array.from(symbolMap.values()),
