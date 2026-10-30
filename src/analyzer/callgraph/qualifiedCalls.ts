@@ -54,6 +54,18 @@ function declaredNames(root: TreeNode, types: string[], fields: string[]): Set<s
 
 const TYPE_NAME = /^[A-Z]/;
 
+/** `using C = N.Calc;` -> `C` = `Calc`. */
+function csharpUsingAliases(root: TreeNode): Map<string, string> {
+  const aliases = new Map<string, string>();
+  for (const using of root.descendantsOfType("using_directive")) {
+    const [equals, type] = using.namedChildren;
+    const original = lastSegment(type ?? null, "qualified_name", "name");
+    const alias = equals?.type === "name_equals" ? equals.namedChildren[0] : null;
+    if (alias && original) aliases.set(alias.text, original.text);
+  }
+  return aliases;
+}
+
 /**
  * Qualifier of a Java/C# call when it names a static type: capitalised and not declared as a
  * variable of the file. A lowercase or declared qualifier is a receiver, which needs its type (#499).
@@ -69,6 +81,7 @@ function typeTargets(root: TreeNode, calls: TreeNode[], lang: "java" | "csharp")
       : ["variable_declarator", "parameter", "property_declaration", "foreach_statement"],
     ["name", "left"],
   );
+  const aliases = java ? new Map<string, string>() : csharpUsingAliases(root);
   const targets = new Map<number, string | null>();
   for (const call of calls) {
     const receiver = java
@@ -78,7 +91,7 @@ function typeTargets(root: TreeNode, calls: TreeNode[], lang: "java" | "csharp")
       ? lastSegment(receiver, "field_access", "field")
       : lastSegment(receiver, "member_access_expression", "name");
     if (!qualifier || !TYPE_NAME.test(qualifier.text)) continue;
-    targets.set(call.id, declared.has(qualifier.text) ? null : stub("type", qualifier.text, call.text));
+    targets.set(call.id, declared.has(qualifier.text) ? null : stub("type", aliases.get(qualifier.text) ?? qualifier.text, call.text));
   }
   return targets;
 }
@@ -101,11 +114,15 @@ function rustTypeName(node: TreeNode | null): string | null {
   }
 }
 
-/** Type of the `impl` block (`impl Trait for Foo` -> `Foo`) or trait a method definition (its name node) sits in. */
+/**
+ * Names a method definition (its name node) answers to: the type of its `impl` block and the trait it
+ * implements (`impl Tr for Foo` -> `Foo,Tr`, so `Tr::f(&x)` and `Foo::f()` both find it), or the trait declaring it.
+ */
 export function rustImplOwner(methodName: TreeNode): string | null {
   const container = methodName.parent?.parent?.parent;
   if (container?.type === "trait_item") return container.childForFieldName("name")?.text ?? null;
-  return container?.type === "impl_item" ? rustTypeName(container.childForFieldName("type")) : null;
+  if (container?.type !== "impl_item") return null;
+  return [container.childForFieldName("type"), container.childForFieldName("trait")].map(rustTypeName).filter(Boolean).join(",") || null;
 }
 
 /** What a `use` clause binds: the original name and the module it is read from (null when `crate`, `self`, `super` or bare). */
@@ -283,7 +300,7 @@ export function qualifiedCandidates(
   const candidates = members(name);
   if (mode === "folder") return candidates.filter(member => member.folder === key);
   // A Rust method belongs to the type of its `impl` block, wherever that block is; a function, to its file's module.
-  if (mode === "module") return candidates.filter(member => (member.owner || rustModuleName(member.path)) === key);
+  if (mode === "module") return candidates.filter(member => member.owner ? member.owner.split(",").includes(key) : rustModuleName(member.path) === key);
   const declaring = types(key);
   return candidates.filter(member => declaring.some(type => type.path === member.path &&
     type.startLine <= member.startLine && member.endLine <= type.endLine));
