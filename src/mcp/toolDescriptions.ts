@@ -103,6 +103,7 @@ const TOOL_DESCRIPTIONS: Record<DescribedToolName, ToolDescription> = {
         mcp: "RETURNS: absolute and workspace-relative path of each referencing file.",
         lm: "RETURNS: workspace-relative path, import type, line and module specifier of each referencing file.",
       },
+      "BARRELS: files that import the target's exports through re-export barrels (export { x } from, export *, chained) are listed after the direct importers, with via = the barrel they import.",
       OPEN_ENDED_HINT,
     ],
   },

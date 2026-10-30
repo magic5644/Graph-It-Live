@@ -165,7 +165,7 @@ export async function executeFindReferencingFiles(
 
   await validateFileExists(targetPath);
 
-  const references = await spider.findReferencingFiles(targetPath);
+  const references = await spider.findReferencingFilesThroughBarrels(targetPath);
 
   return {
     targetPath,
@@ -176,6 +176,7 @@ export async function executeFindReferencingFiles(
       type: ref.type,
       line: ref.line,
       module: ref.module,
+      ...(ref.via ? { via: getRelativePath(ref.via, config.rootDir) } : {}),
     })),
   };
 }

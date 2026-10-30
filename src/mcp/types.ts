@@ -1178,6 +1178,8 @@ export interface ReferencingFileInfo {
   line: number;
   /** Original module specifier */
   module: string;
+  /** Workspace-relative re-export barrel this file imports the target through; absent for a direct import */
+  via?: string;
 }
 
 /**

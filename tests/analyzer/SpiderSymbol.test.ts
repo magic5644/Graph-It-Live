@@ -1,9 +1,10 @@
-import { describe, it, expect, beforeAll, afterAll } from 'vitest';
+import { describe, it, expect, beforeAll, afterAll, afterEach, vi } from 'vitest';
 import * as fs from 'node:fs/promises';
 import * as os from 'node:os';
 import * as path from 'path';
 import { Spider } from '../../src/analyzer/Spider';
 import { SpiderBuilder } from '../../src/analyzer/SpiderBuilder';
+import { SpiderSymbolService } from '../../src/analyzer/spider/SpiderSymbolService';
 
 /** Indexes `files` (written under `<tmp>/src`) with a fresh Spider and exposes `dependentsOf`. */
 function useTempProject(prefix: string, files: Record<string, string>) {
@@ -13,6 +14,11 @@ function useTempProject(prefix: string, files: Record<string, string>) {
     file: (name: string) => path.join(project.rootDir, 'src', name),
     dependentsOf: async (name: string, symbol: string) =>
       (await project.spider.getSymbolDependents(project.file(name), symbol)).map((d) => d.sourceSymbolId.split(':').pop()).sort(),
+    /** `<file>` for a direct referencer, `<file> < <barrel>` behind a barrel; basenames only (paths differ per OS). */
+    referencesOf: async (name: string) =>
+      (await project.spider.findReferencingFilesThroughBarrels(project.file(name)))
+        .map((ref) => path.basename(ref.path) + (ref.via ? ` < ${path.basename(ref.via)}` : ''))
+        .sort(),
   };
   beforeAll(async () => {
     project.rootDir = await fs.mkdtemp(path.join(os.tmpdir(), prefix));
@@ -149,5 +155,103 @@ describe('Spider - Symbol dependents behind re-export barrels', () => {
     const names = await dependentsOf('price.ts', 'formatPrice');
     expect(names).toContain('cartTotal');
     expect(names).toContain('invoiceLine');
+  });
+});
+
+describe('Spider - Referencing files behind re-export barrels (#521)', () => {
+  const { referencesOf } = useTempProject('gitl-refs-barrel-', {
+    'one.ts': 'export const one = 1;\nexport type One = number;\n',
+    'other.ts': 'export const one = 9;\nexport const two = 2;\n',
+    'otherBarrel.ts': 'export { one, two } from "./other";\n',
+    'viaOtherBarrel.ts': 'import { one } from "./otherBarrel";\nconsole.log(one);\n',
+    'index.ts': 'export { one } from "./one";\nexport { two } from "./other";\n',
+    'main.ts': 'import { one } from "./index";\nconsole.log(one);\n',
+    'onlyTwo.ts': 'import { two } from "./index";\nconsole.log(two);\n',
+    'nsImport.ts': 'import * as all from "./index";\nconsole.log(all);\n',
+    'sideEffect.ts': 'import "./index";\n',
+    'both.ts': 'import { one } from "./one";\nimport { one as again } from "./index";\nconsole.log(one, again);\n',
+    'star.ts': 'export * from "./one";\n',
+    'viaStar.ts': 'import { one } from "./star";\nconsole.log(one);\n',
+    'viaType.ts': 'import type { One } from "./star";\nexport const typed: One = 1;\n',
+    'outer.ts': 'export * from "./star";\n',
+    'viaOuter.ts': 'import { one } from "./outer";\nconsole.log(one);\n',
+    'renamed.ts': 'export { one as uno } from "./one";\n',
+    'viaRenamed.ts': 'import { uno } from "./renamed";\nconsole.log(uno);\n',
+    'ns.ts': 'export * as nums from "./one";\n',
+    'viaNs.ts': 'import { nums } from "./ns";\nconsole.log(nums.one);\n',
+    'local.ts': 'import { one } from "./one";\nexport { one };\n',
+    'viaLocal.ts': 'import { one } from "./local";\nconsole.log(one);\n',
+    'cycleA.ts': 'export * from "./cycleB";\nexport * from "./one";\n',
+    'cycleB.ts': 'export * from "./cycleA";\n',
+    'viaCycle.ts': 'import { one } from "./cycleB";\nconsole.log(one);\n',
+    'mixed.ts': 'import { two } from "./index";\nexport * from "./star";\nconsole.log(two);\n',
+    'plain.ts': 'export const plain = 1;\n',
+    'usePlain.ts': 'import { plain } from "./plain";\nconsole.log(plain);\n',
+    'lonely.ts': 'export const lonely = 1;\n',
+  });
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it('lists direct referencers, then each consumer behind a barrel once with the barrel it imports', async () => {
+    expect(await referencesOf('one.ts')).toEqual([
+      'both.ts', // imports the source and the barrel: listed once, as direct
+      'cycleA.ts',
+      'cycleB.ts < cycleA.ts', // a barrel of the chain re-exporting onwards
+      'index.ts',
+      'local.ts',
+      'main.ts < index.ts', // named re-export
+      'mixed.ts < star.ts', // re-exports the target from star.ts, imports only `two` from index.ts
+      'ns.ts',
+      'nsImport.ts < index.ts', // namespace import of the barrel
+      'outer.ts < star.ts',
+      'renamed.ts',
+      'star.ts',
+      'viaCycle.ts < cycleB.ts', // cycle of barrels terminates
+      'viaLocal.ts < local.ts', // import-then-export
+      'viaNs.ts < ns.ts', // export * as ns
+      'viaOuter.ts < outer.ts', // chain of two barrels
+      'viaRenamed.ts < renamed.ts', // export { a as b }
+      'viaStar.ts < star.ts', // export *
+      'viaType.ts < star.ts', // import type
+    ]);
+  });
+
+  it.each([
+    ['another name of the same barrel', 'onlyTwo.ts'],
+    ['a same-name symbol of another file', 'viaOtherBarrel.ts'],
+    ['a side-effect import of the barrel', 'sideEffect.ts'],
+  ])('does not report %s', async (_case, consumer) => {
+    const refs = (await referencesOf('one.ts')).map((ref) => ref.split(' < ')[0]);
+    expect(refs).not.toContain(consumer);
+  });
+
+  it.each([
+    ['no referencer re-exports it', 'plain.ts', ['usePlain.ts']],
+    ['nothing references it', 'lonely.ts', []],
+  ])('returns the direct referencers without reading the symbol graph when %s', async (_case, name, expected) => {
+    const symbolGraph = vi.spyOn(SpiderSymbolService.prototype, 'getSymbolGraph');
+    expect(await referencesOf(name)).toEqual(expected);
+    expect(symbolGraph).not.toHaveBeenCalled();
+  });
+
+  it('propagates a symbol graph failure of a re-exported target', async () => {
+    vi.spyOn(SpiderSymbolService.prototype, 'getSymbolGraph').mockRejectedValueOnce(new Error('ast failed'));
+    await expect(referencesOf('one.ts')).rejects.toThrow('ast failed');
+  });
+});
+
+describe('Spider - Referencing files behind a barrel, unreadable consumer (#521)', () => {
+  const { referencesOf, file } = useTempProject('gitl-refs-gone-', {
+    'one.ts': 'export const one = 1;\n',
+    'index.ts': 'export { one } from "./one";\n',
+    'kept.ts': 'import { one } from "./index";\nconsole.log(one);\n',
+    'gone.ts': 'import { one } from "./index";\nconsole.log(one);\n',
+  });
+
+  it('drops a consumer that can no longer be read and keeps the others', async () => {
+    expect(await referencesOf('one.ts')).toEqual(['gone.ts < index.ts', 'index.ts', 'kept.ts < index.ts']);
+    await fs.rm(file('gone.ts'));
+    expect(await referencesOf('one.ts')).toEqual(['index.ts', 'kept.ts < index.ts']);
   });
 });

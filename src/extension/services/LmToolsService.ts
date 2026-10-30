@@ -323,7 +323,8 @@ export class LmToolsService {
           const targetPath = this.resolveWorkspacePath(options.input.targetPath);
           const rootDir = this.getWorkspaceRoot();
           try {
-            const references = await spider.findReferencingFiles(targetPath);
+            const references = await spider.findReferencingFilesThroughBarrels(targetPath);
+            const relative = (p: string) => (rootDir ? toRelativePath(p, rootDir) : p);
             return new vscode.LanguageModelToolResult([
               new vscode.LanguageModelTextPart(
                 JSON.stringify({
@@ -331,10 +332,11 @@ export class LmToolsService {
                   referencingFileCount: references.length,
                   referencingFiles: references.map((ref) => ({
                     path: ref.path,
-                    relativePath: rootDir ? toRelativePath(ref.path, rootDir) : ref.path,
+                    relativePath: relative(ref.path),
                     type: ref.type,
                     line: ref.line,
                     module: ref.module,
+                    ...(ref.via ? { via: relative(ref.via) } : {}),
                   })),
                 }),
               ),

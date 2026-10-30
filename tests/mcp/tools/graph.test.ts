@@ -345,7 +345,7 @@ describe("graph tools", () => {
       const targetFile = await createTempFile(tempDir, "target.ts", "");
 
       const spiderMock = {
-        findReferencingFiles: vi.fn(async () => []),
+        findReferencingFilesThroughBarrels: vi.fn(async () => []),
       };
 
       setupWorkerState(spiderMock);
@@ -361,13 +361,14 @@ describe("graph tools", () => {
       const refFile = path.join(tempDir, "ref.ts");
 
       const spiderMock = {
-        findReferencingFiles: vi.fn(async () => [
+        findReferencingFilesThroughBarrels: vi.fn(async () => [
           {
             path: refFile,
             type: "import",
             line: 1,
             module: "./target",
           },
+          { path: path.join(tempDir, "main.ts"), type: "import", line: 2, module: "./ref", via: refFile },
         ]),
       };
 
@@ -375,14 +376,11 @@ describe("graph tools", () => {
 
       const result = await executeFindReferencingFiles({ targetPath: targetFile });
 
-      expect(result.referencingFileCount).toBe(1);
-      expect(result.referencingFiles[0]).toEqual({
-        path: refFile,
-        relativePath: "ref.ts",
-        type: "import",
-        line: 1,
-        module: "./target",
-      });
+      expect(result.referencingFileCount).toBe(2);
+      expect(result.referencingFiles).toEqual([
+        { path: refFile, relativePath: "ref.ts", type: "import", line: 1, module: "./target" },
+        { path: path.join(tempDir, "main.ts"), relativePath: "main.ts", type: "import", line: 2, module: "./ref", via: "ref.ts" },
+      ]);
     });
   });
 });

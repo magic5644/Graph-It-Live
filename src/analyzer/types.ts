@@ -153,6 +153,9 @@ export interface Dependency {
   module: string; // Original module specifier
 }
 
+/** A referencer of a file; `via` is the re-export barrel it imports the file through, absent for a direct import. */
+export type ReferencingFile = Dependency & { via?: string };
+
 export interface SpiderConfig {
   rootDir: string;
   tsConfigPath?: string;

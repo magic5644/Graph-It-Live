@@ -8,7 +8,7 @@ import { FileReader } from '../FileReader';
 import { LanguageService } from '../LanguageService';
 import { SourceFileCollector } from '../SourceFileCollector';
 import { SymbolDependencyHelper } from '../SymbolDependencyHelper';
-import type { Dependency, SpiderConfig, SymbolDependency, SymbolInfo } from '../types';
+import type { Dependency, ReferencingFile, SpiderConfig, SymbolDependency, SymbolInfo } from '../types';
 import { SpiderError, SpiderErrorCode, normalizePath } from '../types';
 import { isInIgnoredDirectory } from '../utils/PathPredicates';
 import { PathResolver } from '../utils/PathResolver';
@@ -252,6 +252,87 @@ export class SpiderSymbolService {
       }
     }
     return [...dependents.values()];
+  }
+
+  /**
+   * Direct referencers of `filePath`, then the files that import one of its exports through re-export
+   * barrels (named, renamed, `export *`, `export * as ns`, import-then-export, chained or cyclic), each with
+   * the barrel it imports as `via`. A barrel consumer counts only if it binds a name the barrel takes from
+   * the target, or the barrel's namespace (`import * as`).
+   * Each call reads every referencer of the target once, to see whether one re-exports it.
+   * shortcut: `require()`/`import()` of a barrel and re-exports of a target that is itself a barrel
+   * (`export *` in the target) are not followed; parse them here if barrel users need them.
+   */
+  async findReferencingFilesThroughBarrels(filePath: string): Promise<ReferencingFile[]> {
+    const target = normalizePath(filePath);
+    const referencing = await this.findReferencingFiles(target);
+    const reExportMemo: ReExportMemo = new Map();
+    const modules = await Promise.all(referencing.map((ref) => this.moduleReExports(ref.path, reExportMemo)));
+    // Most files are re-exported by no referencer: skip the symbol graph (and the AST worker) for them.
+    const specifiers = modules.flatMap((m) => [...m.reExports, ...m.namespaces].map(({ specifier }) => ({ from: m.path, specifier })));
+    const resolved = await Promise.all(specifiers.map(({ from, specifier }) => this.resolveModuleSpecifier(from, specifier)));
+    if (!resolved.some((from) => !!from && normalizePath(from) === target)) return referencing;
+
+    const { symbols } = await this.getSymbolGraph(target);
+    const chains = await Promise.all(
+      symbols.filter((s) => s.isExported).map((s) => this.collectReexportAliases(target, s.name, reExportMemo, true))
+    );
+    const namespaces = await this.collectNamespaceAliases(modules, target, reExportMemo);
+    const namesByBarrel = new Map<string, Set<string>>();
+    for (const alias of [...chains.flat(), ...namespaces]) {
+      if (alias.filePath === target) continue;
+      const names = namesByBarrel.get(alias.filePath) ?? new Set<string>();
+      namesByBarrel.set(alias.filePath, names.add(alias.name));
+    }
+
+    const consumers = await Promise.all(
+      [...namesByBarrel].map(([barrel, names]) => this.barrelConsumers(barrel, names, namesByBarrel, reExportMemo))
+    );
+    const seen = new Set([target, ...referencing.map((ref) => normalizePath(ref.path))]);
+    const result: ReferencingFile[] = [...referencing];
+    for (const consumer of consumers.flat()) {
+      const key = normalizePath(consumer.path);
+      if (seen.has(key)) continue;
+      seen.add(key);
+      result.push(consumer);
+    }
+    return result;
+  }
+
+  /** Referencers of `barrel` that bind one of `names` from it, or re-export one of them onwards (a barrel of the chain). */
+  private async barrelConsumers(
+    barrel: string,
+    names: Set<string>,
+    barrels: Map<string, Set<string>>,
+    reExportMemo: ReExportMemo
+  ): Promise<ReferencingFile[]> {
+    const refs = await this.findReferencingFiles(barrel);
+    const matches = await Promise.all(
+      refs.map(async (ref) =>
+        (barrels.has(normalizePath(ref.path)) && (await this.reexportsNameFrom(ref.path, barrel, names, reExportMemo)))
+        || this.importsNameFrom(ref.path, barrel, names)
+      )
+    );
+    return refs.filter((_, i) => matches[i]).map((ref) => ({ ...ref, via: barrel }));
+  }
+
+  /** Whether `fromPath` re-exports one of `names` from `barrel` itself, not from another barrel of the chain. */
+  private async reexportsNameFrom(fromPath: string, barrel: string, names: Set<string>, reExportMemo: ReExportMemo): Promise<boolean> {
+    const found = await Promise.all([...names].map((name) => this.reexportedAs(fromPath, { filePath: barrel, name }, reExportMemo)));
+    return found.some((aliases) => aliases.length > 0);
+  }
+
+  /** Whether `fromPath` imports one of `names`, or the whole namespace, from `barrel`; an unreadable file does not. */
+  private async importsNameFrom(fromPath: string, barrel: string, names: Set<string>): Promise<boolean> {
+    let content: string;
+    try {
+      content = await this.fileReader.readFile(fromPath);
+    } catch {
+      return false;
+    }
+    const candidates = importBindings(fromPath, content).filter((b) => b.imported === '*' || names.has(b.imported));
+    const resolved = await Promise.all(candidates.map((b) => this.resolveModuleSpecifier(fromPath, b.specifier)));
+    return resolved.some((from) => !!from && normalizePath(from) === barrel);
   }
 
   /**

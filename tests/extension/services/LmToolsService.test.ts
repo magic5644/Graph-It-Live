@@ -133,6 +133,7 @@ function createProvider(overrides: Partial<{
   const spider = overrides.spider ?? {
     resolveModuleSpecifier: vi.fn().mockResolvedValue(null),
     findReferencingFiles: vi.fn().mockResolvedValue([]),
+    findReferencingFilesThroughBarrels: vi.fn().mockResolvedValue([]),
     analyzeFileDependencies: vi.fn().mockResolvedValue({ imports: [], exports: [], language: 'typescript' }),
     crawlDependencyGraph: vi.fn().mockResolvedValue({ nodes: [], edges: [] }),
     getSymbolGraph: vi.fn().mockResolvedValue({ symbols: [], dependencies: [] }),
@@ -1164,7 +1165,7 @@ describe('LmToolsService', () => {
   it.each(spiderTools)('%s returns the analyzer failure as a tool error', async (tool, input) => {
     const fail = () => Promise.reject(new Error('analyzer failed'));
     const spider = {
-      findReferencingFiles: fail, analyze: fail, crawl: fail, getSymbolGraph: fail,
+      findReferencingFilesThroughBarrels: fail, analyze: fail, crawl: fail, getSymbolGraph: fail,
       findUnusedSymbols: fail, getSymbolDependents: fail, verifyDependencyUsage: fail,
       traceFunctionExecution: fail, buildFullIndex: fail, scanDeadCode: fail,
       clearCache: vi.fn(),
@@ -1181,7 +1182,7 @@ describe('LmToolsService', () => {
   });
 
   it('stringifies a non-Error rejection', async () => {
-    const spider = { findReferencingFiles: vi.fn().mockRejectedValue('plain failure') };
+    const spider = { findReferencingFilesThroughBarrels: vi.fn().mockRejectedValue('plain failure') };
     new LmToolsService({ provider: createProvider({ spider }), logger }).registerAll();
 
     expect(await invokeTool('graph-it-live_find_referencing_files', { targetPath: A })).toEqual({ error: 'plain failure' });
@@ -1232,9 +1233,10 @@ describe('LmToolsService', () => {
   describe('find_referencing_files', () => {
     it('lists referencing files and redacts paths outside the workspace', async () => {
       const spider = {
-        findReferencingFiles: vi.fn().mockResolvedValue([
+        findReferencingFilesThroughBarrels: vi.fn().mockResolvedValue([
           { path: B, type: 'import', line: 3, module: './a' },
           { path: '/elsewhere/lib/d.ts', type: 'import', line: 1, module: '../a' },
+          { path: C, type: 'import', line: 2, module: './b', via: B },
         ]),
       };
       new LmToolsService({ provider: createProvider({ spider }), logger }).registerAll();
@@ -1243,10 +1245,11 @@ describe('LmToolsService', () => {
 
       expect(result).toEqual({
         targetPath: 'src/a.ts',
-        referencingFileCount: 2,
+        referencingFileCount: 3,
         referencingFiles: [
           { path: 'src/b.ts', relativePath: 'src/b.ts', type: 'import', line: 3, module: './a' },
           { path: '[external:d.ts]', relativePath: '[external:d.ts]', type: 'import', line: 1, module: '../a' },
+          { path: 'src/c.ts', relativePath: 'src/c.ts', type: 'import', line: 2, module: './b', via: 'src/b.ts' },
         ],
       });
     });

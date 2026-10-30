@@ -772,6 +772,11 @@ export class Spider {
     return this.referenceLookup.findReferencingFiles(targetPath);
   }
 
+  /** Direct referencers, then consumers behind re-export barrels with the barrel as `via`. */
+  async findReferencingFilesThroughBarrels(targetPath: string): Promise<import('./types').ReferencingFile[]> {
+    return this.symbolService.findReferencingFilesThroughBarrels(targetPath);
+  }
+
   async findReferencingFilesWithFallback(targetPath: string): Promise<Dependency[]> {
     return this.referenceLookup.findReferencingFilesWithFallback(targetPath);
   }
