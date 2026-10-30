@@ -112,7 +112,7 @@ describe('Spider - scanDeadCode', () => {
 });
 
 describe('Spider - scanDeadCode through re-exports (#513)', () => {
-  const root = path.resolve(process.cwd(), 'tests/fixtures/reexport-barrels');
+  const root = path.resolve(process.cwd(), 'tests/analyzer/fixtures/reexport-barrels');
   let unusedByFile: Map<string, string[]>;
   let spider: Spider;
 
