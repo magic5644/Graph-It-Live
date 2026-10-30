@@ -1524,24 +1524,14 @@ describe("ReviewGateAnalyzer - deleted and renamed files", { timeout: GIT_TEST_T
     expect(result.risk).toBe("low");
   });
 
-  it("finds the importers of a deleted declaration file, whose name carries `.d`", async () => {
-    const workspace = await workspaceWith(
-      { "src/types.d.ts": "export interface Shape { size: number }\n", "src/use.ts": 'import type { Shape } from "./types";\nexport const s: Shape = { size: 1 };\n' },
-      { "src/types.d.ts": null },
-    );
+  it.each([
+    ["a declaration file, whose name carries `.d`", "src/types.d.ts", "export interface Shape { size: number }\n", 'import type { Shape } from "./types";\nexport const s: Shape = { size: 1 };\n', "Shape"],
+    ["a bare package named like the module, failing closed", "src/react.ts", "export function x(): number { return 1; }\n", 'import { x } from "react";\nx();\n', "x"],
+  ])("keeps the importer of a deleted module that is %s", async (_name, deleted, source, importer, exported) => {
+    const workspace = await workspaceWith({ [deleted]: source, "src/use.ts": importer }, { [deleted]: null });
     const result = await new ReviewGateAnalyzer(workspace, referenceIndex()).analyze({ baseRef: "main" });
 
-    expect(result.symbols.find((symbol) => symbol.name === "Shape")?.consumers.unverified).toEqual(["src/use.ts"]);
-  });
-
-  it("keeps a bare package named like the deleted module as an importer, failing closed", async () => {
-    const workspace = await workspaceWith(
-      { "src/react.ts": "export function x(): number { return 1; }\n", "src/use.ts": 'import { x } from "react";\nx();\n' },
-      { "src/react.ts": null },
-    );
-    const result = await new ReviewGateAnalyzer(workspace, referenceIndex()).analyze({ baseRef: "main" });
-
-    expect(result.symbols.find((symbol) => symbol.name === "x")?.consumers.unverified).toEqual(["src/use.ts"]);
+    expect(result.symbols.find((symbol) => symbol.name === exported)?.consumers.unverified).toEqual(["src/use.ts"]);
   });
 
   it("searches the importers of a deleted module once, however many names it exports", async () => {
