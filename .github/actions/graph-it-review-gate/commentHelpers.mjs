@@ -1,5 +1,6 @@
 export const MARKER = "<!-- graph-it-review-gate -->";
 const MAX_ROWS = 20;
+const MAX_CYCLE_FILES = 10;
 
 export function sanitize(value) {
   return String(value ?? "").replace(/[\r\n|<>]/g, " ").replaceAll("`", "'").trim();
@@ -64,6 +65,12 @@ export function renderReviewComment(result, extensionId) {
   const evidence = symbols.slice(0, MAX_ROWS).flatMap((symbol) =>
     (Array.isArray(symbol?.evidence) ? symbol.evidence : []).map((item) => `- ${sanitize(symbol?.filePath)}:${sanitize(symbol?.name)} — ${sanitize(item?.detail)}`),
   );
+  // `cycles` is absent from the JSON of an older CLI.
+  const cycleLines = (Array.isArray(result?.cycles) ? result.cycles : []).slice(0, MAX_ROWS).map((cycle) => {
+    const files = Array.isArray(cycle?.files) ? cycle.files : [];
+    const more = files.length > MAX_CYCLE_FILES ? `, +${files.length - MAX_CYCLE_FILES} more` : "";
+    return `- ${sanitize(cycle?.classification)}: ${files.slice(0, MAX_CYCLE_FILES).map(sanitize).join(", ")}${more}`;
+  });
   const deepLink = buildReviewDeepLink(result, extensionId);
   return [
     MARKER,
@@ -75,6 +82,7 @@ export function renderReviewComment(result, extensionId) {
     "| --- | ---: | --- | --- | ---: | ---: | --- |",
     ...(rows.length > 0 ? rows : ["| low | 0 | — | No risky changed symbols detected | 0 | 0 | no |"]),
     ...(evidence.length > 0 ? ["", "### Evidence", ...evidence] : []),
+    ...(cycleLines.length > 0 ? ["", "### Import cycles", ...cycleLines] : []),
     ...(limitationLines.length > 0 ? ["", "### Limitations", ...limitationLines] : []),
     // GitHub strips non-http(s) links from comments, so the URI is a code span to copy, not a Markdown link.
     ...(deepLink ? ["", "Open the highest-risk call graph: copy this URI and paste it in your browser address bar (VS Code with Graph-It-Live must be installed).", "", `\`${deepLink}\``] : []),
