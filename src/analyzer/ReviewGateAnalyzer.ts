@@ -452,7 +452,8 @@ export class ReviewGateAnalyzer {
       return stdout.split("\0").filter(Boolean).map((hit) => normalizePath(hit.startsWith(prefix) ? hit.slice(prefix.length) : hit));
     } catch (error) {
       // git grep exits 1 when nothing matches.
-      return (error as { code?: unknown }).code === 1 ? [] : `git grep failed: ${error instanceof Error ? error.message : String(error)}`;
+      if ((error as { code?: unknown }).code === 1) return [];
+      return `git grep failed: ${error instanceof Error ? error.message : String(error)}`;
     }
   }
 
