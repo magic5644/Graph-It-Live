@@ -886,7 +886,7 @@ export class ReviewGateAnalyzer {
       this.getImpact(filePath, symbolName, maxDepth, headRef),
       ...factories.map((factory) => this.walkDependents(filePath, factory.name, maxDepth)),
     ]);
-    return factoryImpacts.reduce(mergeImpacts, impact);
+    return factoryImpacts.reduce((merged, next) => mergeImpacts(merged, next), impact);
   }
 
   private async getImpact(filePath: string, symbolName: string, maxDepth: number, headRef: string): Promise<SymbolImpact> {

@@ -67,6 +67,85 @@ export class DocumentReferenceIndexer {
   }
 }
 
+/** Rationale comments of one file, as nodes explaining the document (or the code file) they sit in. */
+function collectRationale(
+  lines: string[],
+  extension: string,
+  relativePath: string,
+  documentId: string | undefined,
+  filePath: string,
+  root: string,
+  nodes: Map<string, GraphContextNode>,
+  edges: GraphContextEdge[],
+): { rationaleMarkers: RationaleMarker[]; markerLines: Set<number> } {
+  const rationaleMarkers: RationaleMarker[] = [];
+  const markerLines = new Set<number>();
+  const isMarkdown = extension === '.md' || extension === '.mdx';
+  let fence: string | undefined;
+  lines.forEach((line, index) => {
+    const lineNumber = index + 1;
+    const fenceMatch = line.match(/^\s*(```|~~~)/);
+    if (fenceMatch && isMarkdown) {
+      fence = fence === fenceMatch[1] ? undefined : fence ?? fenceMatch[1];
+    }
+    const marker = fence ? null : rationaleIn(line, extension);
+    if (!marker) return;
+    const rationaleId = `rationale:${relativePath}:${lineNumber}`;
+    nodes.set(rationaleId, {
+      id: rationaleId,
+      kind: 'rationale',
+      name: marker.text,
+      path: relativePath,
+      startLine: lineNumber,
+      endLine: lineNumber,
+    });
+    rationaleMarkers.push({ id: rationaleId, line: lineNumber });
+    markerLines.add(lineNumber);
+    edges.push(toEvidence({
+      source: rationaleId,
+      target: documentId ?? `file:${relativePath}`,
+      relation: 'EXPLAINS',
+      origin: 'AST',
+      workspaceRoot: root,
+      sourcePath: filePath,
+      sourceLine: lineNumber,
+    }));
+  });
+  return { rationaleMarkers, markerLines };
+}
+
+/**
+ * REFERENCES (and, from a document to code, DOCUMENTS) edges of one resolved link. Returns the link when a
+ * document points at code, so rationale markers can be tied to it.
+ */
+function addLinkEdges(
+  link: DocumentLink,
+  target: string,
+  relativePath: string,
+  documentId: string | undefined,
+  filePath: string,
+  root: string,
+  edges: GraphContextEdge[],
+): (DocumentLink & { targetPath: string }) | undefined {
+  const targetIsDocument = DOCUMENT_EXTENSIONS.has(path.extname(target).toLowerCase());
+  const targetIsCode = isCodePath(target);
+  if (!targetIsCode && (!targetIsDocument || !documentId)) return undefined;
+  const targetId = targetIsDocument ? `document:${target}` : `file:${target}`;
+  const evidence = (source: string, relation: 'REFERENCES' | 'DOCUMENTS') => toEvidence({
+    source,
+    target: targetId,
+    relation,
+    origin: 'AST',
+    workspaceRoot: root,
+    sourcePath: filePath,
+    sourceLine: link.line,
+  });
+  edges.push(evidence(documentId ?? `file:${relativePath}`, 'REFERENCES'));
+  if (!documentId || !targetIsCode) return undefined;
+  edges.push(evidence(documentId, 'DOCUMENTS'));
+  return { ...link, targetPath: target };
+}
+
 /** Nodes and edges contributed by one document or code file. */
 function indexFile(filePath: string, relativePath: string, content: string, root: string): DocumentReferenceIndex {
   const nodes = new Map<string, GraphContextNode>();
@@ -80,48 +159,7 @@ function indexFile(filePath: string, relativePath: string, content: string, root
   });
 
   const lines = content.split(/\r?\n/);
-  const rationaleMarkers: RationaleMarker[] = [];
-  const markerLines = new Set<number>();
-  let fence: string | undefined;
-  lines.forEach((line, index) => {
-    const lineNumber = index + 1;
-    const fenceMatch = line.match(/^\s*(```|~~~)/);
-    if (fenceMatch && (extension === '.md' || extension === '.mdx')) {
-      fence = fence === fenceMatch[1] ? undefined : fence ?? fenceMatch[1];
-    }
-    const marker = fence ? null : rationaleIn(line, extension);
-    if (marker) {
-      const rationaleId = `rationale:${relativePath}:${lineNumber}`;
-      nodes.set(rationaleId, {
-        id: rationaleId,
-        kind: 'rationale',
-        name: marker.text,
-        path: relativePath,
-        startLine: lineNumber,
-        endLine: lineNumber,
-      });
-      rationaleMarkers.push({ id: rationaleId, line: lineNumber });
-      markerLines.add(lineNumber);
-      if (documentId) edges.push(toEvidence({
-        source: rationaleId,
-        target: documentId,
-        relation: 'EXPLAINS',
-        origin: 'AST',
-        workspaceRoot: root,
-        sourcePath: filePath,
-        sourceLine: lineNumber,
-      }));
-      if (!documentId) edges.push(toEvidence({
-        source: rationaleId,
-        target: `file:${relativePath}`,
-        relation: 'EXPLAINS',
-        origin: 'AST',
-        workspaceRoot: root,
-        sourcePath: filePath,
-        sourceLine: lineNumber,
-      }));
-    }
-  });
+  const { rationaleMarkers, markerLines } = collectRationale(lines, extension, relativePath, documentId, filePath, root, nodes, edges);
 
   const documentHeadings = headingsIn(lines, extension, markerLines);
   if (documentId && documentHeadings[0]) {
@@ -132,36 +170,8 @@ function indexFile(filePath: string, relativePath: string, content: string, root
 
   for (const link of linksIn(lines, extension)) {
     const target = resolveLocalTarget(filePath, link.target, root);
-    if (!target) continue;
-    const targetIsDocument = DOCUMENT_EXTENSIONS.has(path.extname(target).toLowerCase());
-    const targetIsCode = isCodePath(target);
-    if (!targetIsDocument && !targetIsCode) continue;
-    const targetId = targetIsDocument
-      ? `document:${target}`
-      : `file:${target}`;
-    if (!documentId && !targetIsCode) continue;
-    const sourceId = documentId ?? `file:${relativePath}`;
-    edges.push(toEvidence({
-      source: sourceId,
-      target: targetId,
-      relation: 'REFERENCES',
-      origin: 'AST',
-      workspaceRoot: root,
-      sourcePath: filePath,
-      sourceLine: link.line,
-    }));
-    if (documentId && targetIsCode) {
-      codeLinks.push({ ...link, targetPath: target });
-      edges.push(toEvidence({
-        source: documentId,
-        target: targetId,
-        relation: 'DOCUMENTS',
-        origin: 'AST',
-        workspaceRoot: root,
-        sourcePath: filePath,
-        sourceLine: link.line,
-      }));
-    }
+    const codeLink = target ? addLinkEdges(link, target, relativePath, documentId, filePath, root, edges) : undefined;
+    if (codeLink) codeLinks.push(codeLink);
   }
 
   for (const marker of rationaleMarkers) {
