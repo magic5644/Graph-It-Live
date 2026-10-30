@@ -38,7 +38,7 @@ export interface CallGraphNode {
   endLine: number;
   startCol: number;
   isExported: boolean;
-  /** Type an impl method belongs to (Rust `impl Foo { fn f() }` -> `Foo`); absent elsewhere. */
+  /** Comma-separated type and trait an impl method belongs to (Rust `impl Tr for Foo { fn f() }` -> `Foo,Tr`); absent elsewhere. */
   owner?: string;
 }
 

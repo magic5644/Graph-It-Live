@@ -186,6 +186,11 @@ describe("qualified calls (#507)", () => {
         "src/a.rs": "pub struct W<T>(T);\nimpl<T> W<T> { pub fn wrap() {} }\npub struct P;\nimpl crate::t::Tr for P { fn tr() {} }\nimpl Tr for Q { fn q() {} }\nimpl (u8, u8) { fn tuple() {} }\n",
         "src/main.rs": "fn run() { W::wrap(); P::tr(); Q::q(); }\n",
       }, ["src/main.rs#run -> src/a.rs#q", "src/main.rs#run -> src/a.rs#tr", "src/main.rs#run -> src/a.rs#wrap"]],
+      ["links Trait::f(&x) to the impls of the trait, and Type::f() to the impl of a trait", {
+        "src/a.rs": "pub trait Tr { fn f(&self) -> i32; }\npub struct P;\nimpl Tr for P { fn f(&self) -> i32 { 1 } }\n",
+        "src/b.rs": "pub trait Other { fn f(&self) -> i32; }\npub struct Q;\nimpl Other for Q { fn f(&self) -> i32 { 2 } }\n",
+        "src/main.rs": "fn run(p: &P) -> i32 { Tr::f(p) + P::f(p) }\n",
+      }, ["src/main.rs#run -> src/a.rs#f"]],
       ["links Trait::f() to the default method of the trait", {
         "src/a.rs": "pub trait Tr { fn f(&self) -> i32 { 1 } }\n",
         "src/b.rs": "pub trait Other { fn f(&self) -> i32 { 2 } }\n",
@@ -268,9 +273,14 @@ describe("qualified calls (#507)", () => {
         "Calc.cs": "class Calc { public int Compute(int x) { return x; } }\n",
         "Forms.cs": "class Forms { int Method(Calc c) { return c.Compute(1); } }\n",
       }, []],
-      ["C#: known limit, a using alias of a type links nowhere (the stub names the alias, not the type)", {
+      ["C#: a using alias of a type links its static call", {
         "Calc.cs": "namespace N { class Calc { public static int Compute(int x) { return x; } } }\n",
-        "Forms.cs": "using C = N.Calc;\nclass Forms { int Method() { return C.Compute(1); } }\n",
+        "Other.cs": "class Other { public static int Compute(int x) { return -x; } }\n",
+        "Forms.cs": "using C = N.Calc;\nusing D = Calc;\nusing static N.Calc;\nusing N;\nclass Forms { int Method() { return C.Compute(1) + D.Compute(2); } }\n",
+      }, ["Forms.cs#Method -> Calc.cs#Compute"]],
+      ["C#: a using alias of a generic type, or shadowed by a variable, links nowhere", {
+        "Calc.cs": "class Calc { public static int Compute(int x) { return x; } }\n",
+        "Forms.cs": "using L = System.Collections.Generic.List<int>;\nusing C = Calc;\nclass Forms { int Method(int C) { return L.Compute(1) + C.Compute(1); } }\n",
       }, []],
     ]);
   });
@@ -364,11 +374,12 @@ describe("qualified calls (#507)", () => {
         member({ id: "file", path: "/w/src/key.rs" }),
         member({ id: "dir", path: "/w/src/key/mod.rs" }),
         member({ id: "method", path: "/w/src/other.rs", owner: "key" }),
+        member({ id: "viaTrait", path: "/w/src/other.rs", owner: "Sibling,key" }),
         member({ id: "sibling", path: "/w/src/other.rs", owner: "Sibling" }),
         member({ id: "ownedByFile", path: "/w/src/key.rs", owner: "Sibling" }),
         member({ id: "no", path: "/w/src/nope.rs" }),
       ];
-      expect(ids(qualifiedCandidates(stub("module", "key"), () => members, () => []))).toEqual(["file", "dir", "method"]);
+      expect(ids(qualifiedCandidates(stub("module", "key"), () => members, () => []))).toEqual(["file", "dir", "method", "viaTrait"]);
     });
 
     it("compares Windows-normalised paths (drive letter, nested mod.rs directory)", () => {
