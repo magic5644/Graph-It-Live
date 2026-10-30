@@ -40,6 +40,50 @@ describe("review-gate comment helpers", () => {
     expect(renderReviewComment({ symbols: "invalid", limitations: "invalid", changedFiles: "invalid", risk: 7, score: "bad" }, "magic5644.graph-it-live")).toContain("(0/100)");
   });
 
+  describe("import cycles", () => {
+    const render = (cycles?: unknown) => renderReviewComment({ ...result, cycles }, "magic5644.graph-it-live");
+
+    it("lists the classification and files of a cycle", () => {
+      const rendered = render([{ classification: "introduced", files: ["src/a.ts", "src/b.ts"], changedFiles: ["src/a.ts"] }]);
+      expect(rendered).toContain("### Import cycles\n- introduced: src/a.ts, src/b.ts");
+    });
+
+    it("omits the section without cycles, with an empty list or from an older CLI", () => {
+      for (const cycles of [undefined, [], "invalid"]) expect(render(cycles)).not.toContain("Import cycles");
+    });
+
+    it("leaves the risk header and the symbol table unchanged", () => {
+      const withCycle = render([{ classification: "introduced", files: ["src/a.ts", "src/b.ts"] }]);
+      const without = render(undefined);
+      const head = (text: string) => text.slice(0, text.indexOf("\n### "));
+      expect(head(withCycle)).toBe(head(without));
+      expect(withCycle).toContain("## Graph-It Review Gate: HIGH (55/100)");
+    });
+
+    it("keeps Windows backslash paths verbatim", () => {
+      expect(render([{ classification: "introduced", files: ["src\\a.ts", "src\\b.ts"] }])).toContain("- introduced: src\\a.ts, src\\b.ts");
+    });
+
+    it("tolerates a cycle without files or classification", () => {
+      expect(render([{}])).toContain("### Import cycles\n- : ");
+    });
+
+    it("caps the cycles and the files of a cycle", () => {
+      const cycles = Array.from({ length: 25 }, (_, i) => ({ classification: "aggravated", files: Array.from({ length: 12 }, (__, j) => `src/c${i}-${j}.ts`) }));
+      const lines = render(cycles).split("\n").filter((line) => line.startsWith("- aggravated"));
+      expect(lines).toHaveLength(20);
+      expect(lines[0]).toContain("src/c0-9.ts, +2 more");
+      expect(lines[0]).not.toContain("src/c0-10.ts");
+    });
+
+    it("sanitizes hostile file names and classifications", () => {
+      const rendered = render([{ classification: "x\n## owned", files: ["a|<img>.ts", "b`c\nd.ts"] }]);
+      expect(rendered).toContain("- x ## owned: a  img .ts, b'c d.ts");
+      expect(rendered).not.toContain("<img>");
+      expect(rendered).not.toContain("\n## owned");
+    });
+  });
+
   it("renders the deep link as a copyable code span, not a Markdown link GitHub would strip", () => {
     const rendered = renderReviewComment(result, "magic5644.graph-it-live");
     const uri = buildReviewDeepLink(result);
