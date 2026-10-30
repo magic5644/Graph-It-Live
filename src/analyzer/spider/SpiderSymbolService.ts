@@ -720,7 +720,7 @@ export class SpiderSymbolService {
         signal.throwIfAborted();
       }
       try {
-        const unusedSymbols = await this.findUnusedSymbols(filePath, reExportMemo);
+        const unusedSymbols = await this.findUnusedSymbols(filePath, reExportMemo); // NOSONAR S9382 sequential by design: one cancellation point per file, bounded by maxFiles
         if (unusedSymbols.length > 0) {
           entries.push({ filePath, unusedSymbols });
         }
