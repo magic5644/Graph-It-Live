@@ -250,3 +250,35 @@ describe("MCP invokeTool – scan_dead_code", () => {
     }
   });
 });
+
+describe("MCP invokeTool – scan_dead_code on module-level Python calls (#514)", () => {
+  const fixture = path.resolve(process.cwd(), "tests/analyzer/fixtures/python-module-level");
+
+  beforeEach(async () => {
+    const spider = new SpiderBuilder()
+      .withRootDir(fixture)
+      .withReverseIndex(true)
+      .withExtensionPath(process.cwd())
+      .build();
+    await spider.buildFullIndex();
+    workerState.spider = spider as unknown as typeof workerState.spider;
+    workerState.parser = {} as unknown as typeof workerState.parser;
+    workerState.resolver = {} as unknown as typeof workerState.resolver;
+    workerState.config = { rootDir: fixture, excludeNodeModules: true, maxDepth: 10 };
+    workerState.isReady = true;
+  });
+
+  afterEach(() => {
+    workerState.reset();
+  });
+
+  it("reports only the Python functions no module-level or nested call reaches", async () => {
+    const response = await callTool("scan_dead_code", {});
+    expect(response.type).toBe("result");
+    if (response.type !== "result") return;
+    const result = response.data as ScanDeadCodeResult;
+
+    const used = result.entries.find((e) => e.filePath.replaceAll("\\", "/").endsWith("src/py/used.py"));
+    expect(used?.unusedSymbols.map((s) => s.name).sort()).toEqual(["f_dead", "f_imported_unused", "f_string_only"]);
+  });
+});
