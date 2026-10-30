@@ -282,6 +282,20 @@ describe("impact tools", () => {
       expect(result.affectedFiles).toEqual([consumerFile]);
     });
 
+    it("keeps a module-level (file) caller as an impacted item, as the LM callers tool does (#526)", async () => {
+      const filePath = await createTempFile(tempDir, "utils.ts", "");
+      const consumerFile = path.join(tempDir, "script.py");
+      setupWorkerState({
+        getSymbolDependents: vi.fn(async () => [
+          { sourceSymbolId: `${consumerFile}:(file)`, targetSymbolId: `${filePath}:greet`, targetFilePath: filePath },
+        ]),
+      });
+
+      const result = await executeGetImpactAnalysis({ filePath, symbolName: "greet" });
+
+      expect(result.impactedItems.map((i) => [i.symbolId, i.filePath])).toEqual([[`${consumerFile}:(file)`, consumerFile]]);
+    });
+
     it("reports caller files, not the changed file, for direct and transitive dependents", async () => {
       const filePath = await createTempFile(tempDir, "utils.ts", "");
       const fileA = path.join(tempDir, "a.ts");
