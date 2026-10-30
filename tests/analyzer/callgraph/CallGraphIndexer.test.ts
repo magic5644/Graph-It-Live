@@ -146,7 +146,7 @@ describe("CallGraphIndexer", () => {
     });
 
     // Old caches lack module-bound import calls (#398) and namespace member calls (#498) and default-export local names (#508), even when file mtimes match.
-    it.each([3, 4, 5, 6, 7, 8])("rejects a database saved with schema version %s", async (version) => {
+    it.each([3, 4, 5, 6, 7, 8, 9])("rejects a database saved with schema version %s", async (version) => {
       const dbPath = path.join(dir, "callgraph.db");
       indexer.getDb().run("UPDATE metadata SET value = ? WHERE key = 'schema_version'", [String(version)]);
       await indexer.saveToFile(dbPath);

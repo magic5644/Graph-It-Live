@@ -61,25 +61,27 @@ describe("qualified calls (#507)", () => {
   }
 
   /** Resolved CALLS of `files` as "file#symbol -> file#symbol". */
-  async function calls(files: Files, order?: string[]): Promise<string[]> {
+  async function calls(files: Files, order?: string[], lines = false): Promise<string[]> {
     const { dir, indexer } = await index(files, order);
     const snapshot = indexer.getIndexSnapshot();
     indexer.dispose();
     const label = new Map(snapshot.nodes.map(n => [n.id, `${normalizePath(path.relative(dir, n.path))}#${n.name}`]));
+    const line = new Map(snapshot.nodes.map(n => [n.id, `:${n.startLine}`]));
     return snapshot.edges.filter(e => e.typeRelation === "CALLS")
-      .map(e => `${label.get(e.sourceId)} -> ${label.get(e.targetId)}`).sort();
+      .map(e => `${label.get(e.sourceId)} -> ${label.get(e.targetId)}${lines ? line.get(e.targetId) : ""}`).sort();
   }
 
   /** Same result whatever the indexing order: the decoy may be indexed first or last. */
-  async function bothOrders(files: Files): Promise<string[]> {
-    const forward = await calls(files);
-    expect(await calls(files, Object.keys(files).reverse())).toEqual(forward);
+  async function bothOrders(files: Files, lines = false): Promise<string[]> {
+    const forward = await calls(files, undefined, lines);
+    expect(await calls(files, Object.keys(files).reverse(), lines)).toEqual(forward);
     return forward;
   }
 
-  const check = (cases: Case[]) =>
+  /** `lines`: targets carry their 0-based line (`file#name:line`) to tell same-named methods of one file apart. */
+  const check = (cases: Case[], lines = false) =>
     it.each(cases)("%s", async (_title, files, expected) => {
-      expect(await bothOrders(files)).toEqual(expected);
+      expect(await bothOrders(files, lines)).toEqual(expected);
     });
 
   describe("Go", () => {
@@ -170,14 +172,106 @@ describe("qualified calls (#507)", () => {
       ["keeps in-file matching for Self::, self:: and an inline module",
         main("mod inner { pub fn add() {} }\nstruct S;\nimpl S {\n  fn helper() {}\n  fn go() { Self::helper(); }\n}\nfn run() { inner::add(); }\n"),
         ["src/main.rs#go -> src/main.rs#helper", "src/main.rs#run -> src/main.rs#add"]],
-      ["known limits: an inline module or an impl outside the type's file link nowhere; crate:: keeps matching by name", {
+      ["known limits: an inline module links nowhere; crate:: keeps matching by name", {
         "src/a.rs": "pub struct Foo;\npub mod b { pub fn f() {} }\n",
-        "src/c.rs": "impl Foo { pub fn make() {} }\n",
         "src/decoy.rs": "pub fn only() {}\n",
-        "src/main.rs": "fn up() { crate::only(); }\nfn run() { b::f(); Foo::make(); }\n",
+        "src/main.rs": "fn up() { crate::only(); }\nfn run() { b::f(); }\n",
       }, ["src/main.rs#up -> src/decoy.rs#only"]],
+      ["links Type::f() to the impl of that type, in another file and beside a second type", {
+        "src/a.rs": "pub struct Foo;\npub struct Other;\nimpl Other { pub fn make() {} }\n",
+        "src/c.rs": "impl Foo { pub fn make() {} }\n",
+        "src/main.rs": "fn run() { Foo::make(); }\n",
+      }, ["src/main.rs#run -> src/c.rs#make"]],
+      ["reads the impl type through generics, paths and trait impls", {
+        "src/a.rs": "pub struct W<T>(T);\nimpl<T> W<T> { pub fn wrap() {} }\npub struct P;\nimpl crate::t::Tr for P { fn tr() {} }\nimpl Tr for Q { fn q() {} }\nimpl (u8, u8) { fn tuple() {} }\n",
+        "src/main.rs": "fn run() { W::wrap(); P::tr(); Q::q(); }\n",
+      }, ["src/main.rs#run -> src/a.rs#q", "src/main.rs#run -> src/a.rs#tr", "src/main.rs#run -> src/a.rs#wrap"]],
+      ["links Trait::f() to the default method of the trait", {
+        "src/a.rs": "pub trait Tr { fn f(&self) -> i32 { 1 } }\n",
+        "src/b.rs": "pub trait Other { fn f(&self) -> i32 { 2 } }\n",
+        "src/main.rs": "fn run(x: &dyn Tr) -> i32 { Tr::f(x) }\n",
+      }, ["src/main.rs#run -> src/a.rs#f"]],
+      ["reads a path in the impl type", {
+        "src/a.rs": "pub struct Foo;\nimpl m::Foo { pub fn make() {} }\n",
+        "src/main.rs": "fn run() { Foo::make(); }\n",
+      }, ["src/main.rs#run -> src/a.rs#make"]],
       ["creates no edge for a standard library path or an unknown module",
         main("fn run() { std::mem::swap(&mut 1, &mut 2); nowhere::add(1, 2); }\n", { "src/swap.rs": "pub fn swap() {}\n" }), []],
+    ]);
+  });
+
+  describe("Rust aliases and typed receivers (#522)", () => {
+    const files = (forms: string, extra: Files = {}): Files => ({
+      "src/math.rs": "pub fn add(a: i32, b: i32) -> i32 { a + b }\n",
+      "src/other.rs": "pub fn add(a: i32, b: i32) -> i32 { a - b }\n",
+      "src/calc.rs": "pub struct Calc;\nimpl Calc { pub fn compute(&self, x: i32) -> i32 { x } }\npub struct OtherCalc;\nimpl OtherCalc { pub fn compute(x: i32) -> i32 { x } }\n",
+      ...extra,
+      "src/forms.rs": forms,
+    });
+    const header = "use crate::math::add as sum;\nuse crate::calc::{Calc, OtherCalc};\n";
+
+    check([
+      ["links an aliased function to the module it is imported from", files(`${header}pub fn aliased() -> i32 { sum(1, 2) }\n`),
+        ["src/forms.rs#aliased -> src/math.rs#add:0"]],
+      ["links a function aliased inside a grouped use", files("use crate::math::{add as sum, sub};\npub fn aliased() -> i32 { sum(1, 2) }\n"),
+        ["src/forms.rs#aliased -> src/math.rs#add:0"]],
+      ["links a function aliased inside a nested group and a bare module path", files("use crate::{math::{add as sum}};\nuse other::add as minus;\npub fn f() -> i32 { sum(1, 2) + minus(1, 2) }\n"),
+        ["src/forms.rs#f -> src/math.rs#add:0", "src/forms.rs#f -> src/other.rs#add:0"]],
+      ["does not link a same-named function of another module", files(`${header}pub fn aliased() -> i32 { sum(1, 2) }\n`, { "src/forms2.rs": "pub fn sum() {}\n" }),
+        ["src/forms.rs#aliased -> src/math.rs#add:0"]],
+      ["creates no edge for an alias of crate/self/super items, and a local binding shadows the alias", files(
+        "use crate::add as a;\nuse super::add as b;\nuse crate::math::add as sum;\npub fn f(sum: fn(i32) -> i32) -> i32 { a(1) + b(1) + sum(1) }\n", { "src/a.rs": "pub fn a() {}\n" }), []],
+      ["creates no edge and does not throw on a malformed use", files("use crate::math::add as ;\nuse {x as};\npub fn f() -> i32 { sum(1, 2) }\n"), []],
+      ["links a method call to the type its parameter is declared with", files(`${header}pub fn method(c: &Calc) -> i32 { c.compute(3) }\n`),
+        ["src/forms.rs#method -> src/calc.rs#compute:1"]],
+      ["links a method call on an annotated let, mut parameter and generic type", files(
+        `${header}pub fn f(mut a: Calc, b: &mut Calc<i32>) -> i32 { let c: OtherCalc = make(); a.compute(1) + b.compute(2) + c.compute(3) }\n`),
+        ["src/forms.rs#f -> src/calc.rs#compute:1", "src/forms.rs#f -> src/calc.rs#compute:3"]],
+      ["links an associated call on a unit struct value to its own impl", files(`${header}pub fn via_new() -> i32 { OtherCalc.compute(1) }\n`),
+        ["src/forms.rs#via_new -> src/calc.rs#compute:3"]],
+      ["follows a type alias through use as", files("use crate::calc::OtherCalc as O;\npub fn f() -> i32 { O.compute(1) }\n"),
+        ["src/forms.rs#f -> src/calc.rs#compute:3"]],
+      ["creates no edge for a receiver of unknown or ambiguous type", files(
+        `${header}pub fn f(v: Vec<Calc>, w: Calc) -> i32 { let c = Calc; let w: OtherCalc = make(); v.compute(1) + c.compute(2) + w.compute(3) + d.compute(4) }\n`), []],
+    ], true);
+  });
+
+  describe("aliases and typed receivers in the other languages (#522)", () => {
+    check([
+      ["TypeScript: links an aliased named import", {
+        "math.ts": "export function add(a: number) { return a; }\n",
+        "other.ts": "export function add(a: number) { return -a; }\n",
+        "forms.ts": "import { add as sum } from './math';\nexport function aliased() { return sum(1); }\n",
+      }, ["forms.ts#aliased -> math.ts#add"]],
+      ["TypeScript: a method call on a typed receiver links nowhere (receiver types are #499)", {
+        "calc.ts": "export class Calc { compute(x: number) { return x; } }\n",
+        "forms.ts": "import { Calc } from './calc';\nexport function method(c: Calc) { return c.compute(1); }\n",
+      }, []],
+      ["Python: links an aliased from-import", {
+        "math_mod.py": "def add(a):\n    return a\n",
+        "other.py": "def add(a):\n    return -a\n",
+        "forms.py": "from math_mod import add as sum_\n\ndef aliased():\n    return sum_(1)\n",
+      }, ["forms.py#aliased -> math_mod.py#add"]],
+      ["Python: a method call on a typed receiver links nowhere (receiver types are #499)", {
+        "calc.py": "class Calc:\n    def compute(self, x):\n        return x\n",
+        "forms.py": "from calc import Calc\n\ndef method(c: Calc):\n    return c.compute(1)\n",
+      }, []],
+      ["Go: links a method call on a typed receiver", {
+        "calc.go": "package p\n\ntype Calc struct{}\n\nfunc (Calc) Compute(x int) int { return x }\n",
+        "forms.go": "package p\n\nfunc Method(c Calc) int { return c.Compute(1) }\n",
+      }, ["forms.go#Method -> calc.go#Compute"]],
+      ["Java: links a method call on a typed receiver", {
+        "Calc.java": "class Calc { int compute(int x) { return x; } }\n",
+        "Forms.java": "class Forms { int method(Calc c) { return c.compute(1); } }\n",
+      }, ["Forms.java#method -> Calc.java#compute"]],
+      ["C#: a method call on a typed receiver links nowhere (receiver types are #499)", {
+        "Calc.cs": "class Calc { public int Compute(int x) { return x; } }\n",
+        "Forms.cs": "class Forms { int Method(Calc c) { return c.Compute(1); } }\n",
+      }, []],
+      ["C#: known limit, a using alias of a type links nowhere (the stub names the alias, not the type)", {
+        "Calc.cs": "namespace N { class Calc { public static int Compute(int x) { return x; } } }\n",
+        "Forms.cs": "using C = N.Calc;\nclass Forms { int Method() { return C.Compute(1); } }\n",
+      }, []],
     ]);
   });
 
@@ -252,7 +346,7 @@ describe("qualified calls (#507)", () => {
 
   describe("qualifiedCandidates", () => {
     const member = (over: Partial<QualifiedMember>): QualifiedMember =>
-      ({ id: "id", path: "/w/a.rs", folder: "", startLine: 1, endLine: 2, isExported: 0, ...over });
+      ({ id: "id", path: "/w/a.rs", folder: "", startLine: 1, endLine: 2, isExported: 0, owner: "", ...over });
     const stub = (mode: string, key: string) => `${QUALIFIED_PREFIX}${JSON.stringify([mode, key, "f"])}`;
     const ids = (found: QualifiedMember[]) => found.map(c => c.id);
 
@@ -265,15 +359,16 @@ describe("qualified calls (#507)", () => {
       expect(ids(qualifiedCandidates(stub("type", "T"), () => members, () => [{ path: "/w/a.rs", startLine: 0, endLine: 10 }]))).toEqual(["in"]);
     });
 
-    it("matches a Rust module by file name, mod.rs directory, or a type declared in the file", () => {
+    it("matches a Rust module by file name or mod.rs directory, and a type by the impl of its methods", () => {
       const members = [
         member({ id: "file", path: "/w/src/key.rs" }),
         member({ id: "dir", path: "/w/src/key/mod.rs" }),
-        member({ id: "typed", path: "/w/src/other.rs" }),
+        member({ id: "method", path: "/w/src/other.rs", owner: "key" }),
+        member({ id: "sibling", path: "/w/src/other.rs", owner: "Sibling" }),
+        member({ id: "ownedByFile", path: "/w/src/key.rs", owner: "Sibling" }),
         member({ id: "no", path: "/w/src/nope.rs" }),
       ];
-      const types = () => [{ path: "/w/src/other.rs", startLine: 50, endLine: 60 }];
-      expect(ids(qualifiedCandidates(stub("module", "key"), () => members, types))).toEqual(["file", "dir", "typed"]);
+      expect(ids(qualifiedCandidates(stub("module", "key"), () => members, () => []))).toEqual(["file", "dir", "method"]);
     });
 
     it("compares Windows-normalised paths (drive letter, nested mod.rs directory)", () => {
