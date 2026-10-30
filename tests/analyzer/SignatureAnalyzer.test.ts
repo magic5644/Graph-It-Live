@@ -939,4 +939,70 @@ describe('SignatureAnalyzer', () => {
       expect(requested).toEqual([]);
     });
   });
+
+  describe('dropped exports (#517)', () => {
+    const filePath = path.join(path.parse(process.cwd()).root, 'ws', 'src', 'lib.ts');
+    const removed = (oldContent: string, newContent: string) =>
+      analyzer.analyzeBreakingChanges(filePath, oldContent, newContent)
+        .filter((result) => result.hasBreakingChanges)
+        .map((result) => result.symbolName);
+
+    it.each([
+      ['function', 'export function lib(a: number): number { return a; }', 'function lib(a: number): number { return a; }', 'lib'],
+      ['const', 'export const cst = 1;', 'const cst = 1;', 'cst'],
+      ['arrow function', 'export const run = (a: number) => a;', 'const run = (a: number) => a;', 'run'],
+      ['class', 'export class Box {}', 'class Box {}', 'Box'],
+      ['interface', 'export interface Opts { a: string }', 'interface Opts { a: string }', 'Opts'],
+      ['type', 'export type Id = string;', 'type Id = string;', 'Id'],
+      ['enum', 'export enum Mode { A }', 'enum Mode { A }', 'Mode'],
+      ['export list entry', 'function listed() {}\nexport { listed };', 'function listed() {}', 'listed'],
+      ['alias removed', 'const a = 1;\nexport { a as b };', 'const a = 1;', 'b'],
+      ['alias renamed', 'const a = 1;\nexport { a as b };', 'const a = 1;\nexport { a as c };', 'b'],
+      ['default turned named', 'export default function dflt() {}', 'export function dflt() {}', 'default'],
+      ['named turned default', 'export function dflt() {}', 'export default function dflt() {}', 'dflt'],
+      ['export =', 'const x = 1;\nexport = x;', 'const x = 1;', 'export='],
+      ['export * removed from a barrel', "export * from './a';", "export * from './b';", "* from './a'"],
+      ['re-export removed from a barrel', "export { a } from './a';\nexport { b } from './b';", "export { b } from './b';", 'a'],
+    ])('reports %s', (_label, oldContent, newContent, name) => {
+      expect(removed(oldContent, newContent)).toContain(name);
+    });
+
+    it('reports a symbol removed entirely once', () => {
+      expect(removed('export function gone() {}', '')).toEqual(['gone']);
+    });
+
+    it.each([
+      ['kept export', 'export function a() {}', 'export function a() {}'],
+      ['export list kept', 'const a = 1;\nexport { a };', 'const a = 1;\nexport { a };'],
+      ['export moved to an export list', 'export const a = 1;', 'const a = 1;\nexport { a };'],
+      ['re-exported through export *', "export * from './a';", "export * from './a';"],
+      ['named re-export replaced by export * from the same module', "export { lib } from './lib';", "export * from './lib';"],
+      ['non-exported helper removed', 'function helper() {}', ''],
+      ['non-exported helper renamed', 'function helper() {}', 'function other() {}'],
+    ])('does not report %s', (_label, oldContent, newContent) => {
+      expect(removed(oldContent, newContent)).toEqual([]);
+    });
+
+    it.each([
+      ['a destructured export', 'export const { p, q: r } = obj;', 'const { p, q: r } = obj;', ['p', 'r']],
+      ['an emptied file (left to the deletion path)', 'export { a as b };\nexport default 2;', '', []],
+      ['a new file', '', 'export const a = 1;', []],
+    ])('reports %s', (_label, oldContent, newContent, names) => {
+      expect(removed(oldContent, newContent)).toEqual(names);
+    });
+
+    it('keeps reporting a declaration that moved behind a re-export; review-pr resolves it with resolveReexportedRemovals', () => {
+      expect(removed('export function f() {}', "export { f } from './impl';")).toEqual(['f']);
+    });
+
+    it('does not throw on malformed content', () => {
+      expect(() => removed('export const a = 1;', 'export {')).not.toThrow();
+    });
+
+    it('accepts an alias or default name as symbolName', () => {
+      const results = analyzer.analyzeBreakingChanges(filePath, 'const a = 1;\nexport { a as b };\nexport default 2;', 'const a = 1;', 'b');
+      expect(results.map((result) => result.symbolName)).toEqual(['b']);
+      expect(analyzer.analyzeBreakingChanges(filePath, 'export default 2;', 'const z = 1;', 'default')).toHaveLength(1);
+    });
+  });
 });

@@ -1596,3 +1596,44 @@ describe("ReviewGateAnalyzer - deleted and renamed files", { timeout: GIT_TEST_T
     expect(lib(result)?.risk).toBe("low");
   });
 });
+
+/** Regression (#517): an export that leaves the module's export set while its declaration stays was scored `risk low`. */
+describe("ReviewGateAnalyzer - dropped export", { timeout: GIT_TEST_TIMEOUT }, () => {
+  const USER = 'import { lib } from "./lib";\nexport const used = lib;\n';
+
+  const analyze = async (oldLib: string, newLib: string, importers: string[]) => {
+    const workspace = await workspaceWith({ "src/lib.ts": oldLib, "src/user1.ts": USER }, { "src/lib.ts": newLib });
+    const dependents = importers.map((file) => ({ sourceSymbolId: `${path.join(workspace, file)}:used` }));
+    return new ReviewGateAnalyzer(workspace, { ...referenceIndex(), getSymbolDependents: async () => dependents }).analyze({ baseRef: "main" });
+  };
+
+  it.each([
+    ["the export keyword", "export function lib(): number { return 1; }\n", "function lib(): number { return 1; }\n", "lib"],
+    ["the export keyword of a const", "export const lib = 1;\n", "const lib = 1;\n", "lib"],
+    ["the export keyword of a class", "export class lib {}\n", "class lib {}\n", "lib"],
+    ["the export keyword of an enum", "export enum lib { A }\n", "enum lib { A }\n", "lib"],
+    ["an export list entry", "function lib(): number { return 1; }\nexport { lib };\n", "function lib(): number { return 1; }\n", "lib"],
+    ["an export alias renamed", "const a = 1;\nexport { a as lib };\n", "const a = 1;\nexport { a as other };\n", "lib"],
+    ["an export alias removed", "const a = 1;\nexport { a as lib };\n", "const a = 1;\n", "lib"],
+    ["a default export turned named", "export default function lib(): number { return 1; }\n", "export function lib(): number { return 1; }\n", "default"],
+    ["a named export turned default", "export function lib(): number { return 1; }\n", "export default function lib(): number { return 1; }\n", "lib"],
+    ["an export =", "const a = 1;\nexport = a;\n", "const a = 1;\n", "export="],
+    ["an export * from a barrel", 'export * from "./a";\n', 'export * from "./b";\n', "* from './a'"],
+    ["a re-export from a barrel", 'export { lib } from "./a";\nexport { b } from "./b";\n', 'export { b } from "./b";\n', "lib"],
+  ])("reports %s as a high-risk removal with its importer", async (_name, oldLib, newLib, name) => {
+    const result = await analyze(oldLib, newLib, ["src/user1.ts"]);
+    const symbol = result.symbols.find((candidate) => candidate.name === name);
+
+    expect(symbol?.breakingChanges.map((change) => change.type)).toEqual(["member-removed"]);
+    expect([...(symbol?.consumers.unverified ?? []), ...(symbol?.consumers.updated ?? [])]).toEqual(["src/user1.ts"]);
+    expect(result.risk).toBe("high");
+  });
+
+  it("reports a dropped export nobody imports as a low-risk removal", async () => {
+    const result = await analyze("export function lib(): number { return 1; }\n", "function lib(): number { return 1; }\n", []);
+    const symbol = result.symbols.find((candidate) => candidate.name === "lib");
+
+    expect(symbol).toMatchObject({ risk: "low", consumers: { updated: [], covered: [], unverified: [] } });
+    expect(symbol?.breakingChanges).toHaveLength(1);
+  });
+});

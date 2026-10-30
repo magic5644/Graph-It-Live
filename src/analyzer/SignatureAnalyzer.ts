@@ -17,6 +17,9 @@ import * as path from 'node:path';
 import { normalizePath } from '../shared/path';
 import { closestNames, symbolNotFoundMessage } from './utils/SymbolLookup';
 
+/** Export name `export * from '<module>'` is reported under. */
+const wildcardExport = (specifier: string | undefined): string => `* from '${specifier}'`;
+
 /** Scratch in-memory file used to parse a parameter's declared type text. */
 const PARAMETER_TYPE_FILE = '__parameter_type__.ts';
 
@@ -546,8 +549,8 @@ export class SignatureAnalyzer {
 
     const matches = (name: string) =>
       name === symbolName || name.startsWith(`${symbolName}.`) || name.endsWith(`.${symbolName}`);
-    const oldNames = this.declaredNames(filePath, 'old', oldContent);
-    const newNames = this.declaredNames(filePath, 'new', newContent);
+    const oldNames = [...this.declaredNames(filePath, 'old', oldContent), ...this.exportNames(`${filePath}.old`, oldContent)];
+    const newNames = [...this.declaredNames(filePath, 'new', newContent), ...this.exportNames(`${filePath}.new`, newContent)];
     if (oldNames.some(matches)) {
       return results.filter((r) => matches(r.symbolName));
     }
@@ -585,6 +588,9 @@ export class SignatureAnalyzer {
 
     // Compare type aliases
     this.compareTypeAliasDefinitions(filePath, oldContent, newContent, results);
+
+    // A declaration that stays in the file but leaves its export set is compared by none of the above.
+    this.compareExportSets(filePath, oldContent, newContent, results);
 
     // Vue component props are the public contract between a child component and
     // its parents, even though they are declared inside an SFC script block.
@@ -918,6 +924,80 @@ export class SignatureAnalyzer {
         results.push(this.createRemovedResult(name, 'type-alias-changed', `Type alias '${name}' was removed`));
       }
     }
+  }
+
+  /**
+   * Reports each name the old file exports that the new one no longer does, however it was
+   * exported (keyword, `export { x as y }`, default, `export =`, `export *`). A name whose
+   * declaration is gone and that a comparison above already reports is not repeated, and a
+   * file emptied or deleted is left to those comparisons. A re-export keeps a name exported,
+   * and so does an `export *` from the module the name was re-exported from.
+   */
+  private compareExportSets(
+    filePath: string,
+    oldContent: string,
+    newContent: string,
+    results: SignatureComparisonResult[]
+  ): void {
+    if (newContent.trim() === '') return;
+    const newExports = this.exportNames(`${filePath}.new`, newContent);
+    const stillDeclared = new Set(this.declaredNames(filePath, 'new', newContent));
+    const reported = new Set(results.map((result) => result.symbolName.split('.')[0]));
+    const oldSource = this.getOrCreateSourceFile(`${filePath}.old`, oldContent);
+    const reexportedFrom = new Map(this.exportClauseNames(oldSource).map(({ name, from }) => [name, from]));
+    for (const name of this.exportNames(`${filePath}.old`, oldContent)) {
+      const from = reexportedFrom.get(name);
+      if (newExports.has(name) || (from !== undefined && newExports.has(wildcardExport(from)))) continue;
+      if (reported.has(name) && !stillDeclared.has(name)) continue;
+      results.push(this.createRemovedResult(name, 'member-removed', `Export '${name}' was removed`));
+    }
+  }
+
+  /** Names `content` exports to importers: 'default' and 'export=' for those forms, `* from '<module>'` for `export *`. */
+  private exportNames(filePath: string, content: string): Set<string> {
+    const sourceFile = this.getOrCreateSourceFile(filePath, content);
+    const names = new Set([
+      ...this.exportedDeclarationExportNames(sourceFile),
+      ...this.exportClauseNames(sourceFile).map(({ name }) => name),
+    ]);
+    for (const assignment of sourceFile.getExportAssignments()) names.add(assignment.isExportEquals() ? 'export=' : 'default');
+    return names;
+  }
+
+  private exportedDeclarationExportNames(sourceFile: SourceFile): string[] {
+    const exported = [
+      ...sourceFile.getFunctions(),
+      ...sourceFile.getClasses(),
+      ...sourceFile.getEnums(),
+      ...sourceFile.getInterfaces(),
+      ...sourceFile.getTypeAliases(),
+    ].filter((declaration) => declaration.isExported());
+    return [
+      ...exported.map((declaration) => (declaration.isDefaultExport() ? 'default' : declaration.getName() ?? 'default')),
+      ...sourceFile.getVariableStatements()
+        .filter((statement) => statement.isExported())
+        .flatMap((statement) => statement.getDeclarations().flatMap((declaration) => this.boundNames(declaration.getNameNode()))),
+    ];
+  }
+
+  /** Identifiers a declaration binds: one name, or every element of a destructuring pattern. */
+  private boundNames(nameNode: Node): string[] {
+    if (Node.isIdentifier(nameNode)) return [nameNode.getText()];
+    return nameNode.getDescendantsOfKind(SyntaxKind.BindingElement)
+      .map((element) => element.getNameNode())
+      .filter((node) => Node.isIdentifier(node))
+      .map((node) => node.getText());
+  }
+
+  /** Names of `export { x as y }`, `export { x } from`, `export * as ns` and `export *` clauses, with their source module. */
+  private exportClauseNames(sourceFile: SourceFile): Array<{ name: string; from?: string }> {
+    return sourceFile.getExportDeclarations().flatMap((declaration) => {
+      const from = declaration.getModuleSpecifierValue();
+      if (!declaration.isNamespaceExport()) {
+        return declaration.getNamedExports().map((specifier) => ({ name: specifier.getAliasNode()?.getText() ?? specifier.getName(), from }));
+      }
+      return [{ name: declaration.getNamespaceExport()?.getName() ?? wildcardExport(from), from }];
+    });
   }
 
   /**
