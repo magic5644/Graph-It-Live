@@ -8,5 +8,5 @@ export * as nsbarrel from './nsx';
 export { twin } from './e';
 export * from './onlyTest';
 import { localReexport } from './g';
-export { localReexport };
+export { localReexport }; // NOSONAR S7763: the import-then-export form is the case under test
 export * as escns from './escx';

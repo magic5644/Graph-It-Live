@@ -1,2 +1,6 @@
+import { it } from 'vitest';
 import { onlyTestUsed } from './lib';
-console.log(onlyTestUsed());
+
+it('uses a symbol only a test file imports', () => {
+  onlyTestUsed();
+});

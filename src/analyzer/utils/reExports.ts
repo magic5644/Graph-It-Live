@@ -90,7 +90,21 @@ export function parseNamespaceReExports(filePath: string, content: string): Arra
 }
 
 /** `export * ...` or `export { ... }`, with or without `from` (the local form re-exports imports). */
-const REEXPORT_FROM = /\bexport\s*(?:type\s+)?(?:\*|\{)/;
+const REEXPORT_FROM = /\bexport\s*(?:type\s+)?[*{]/;
+
+/** What a module re-exports: names (`export ... from`, import-then-export) and `export * as ns from`. */
+export interface ModuleReExports {
+  reExports: ReExport[];
+  namespaces: Array<{ specifier: string; alias: string }>;
+}
+
+const NO_REEXPORTS: ModuleReExports = { reExports: [], namespaces: [] };
+
+/** Both re-export kinds of a module; plain modules are never parsed. */
+export function readModuleReExports(filePath: string, content: string): ModuleReExports {
+  if (!mayReExport(content)) return NO_REEXPORTS;
+  return { reExports: parseReExports(filePath, content), namespaces: parseNamespaceReExports(filePath, content) };
+}
 
 /** Cheap pre-check so plain modules are never parsed. */
 export function mayReExport(content: string): boolean {

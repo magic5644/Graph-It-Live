@@ -13,7 +13,7 @@ import { SpiderError, SpiderErrorCode, normalizePath } from '../types';
 import { isInIgnoredDirectory } from '../utils/PathPredicates';
 import { PathResolver } from '../utils/PathResolver';
 import { importBindings, namespaceUse, type ImportBinding, type NamespaceUse } from '../utils/namespaceUsage';
-import { mayReExport, parseNamespaceReExports, parseReExports, type ReExport, type ReExportTarget } from '../utils/reExports';
+import { readModuleReExports, type ModuleReExports, type ReExportTarget } from '../utils/reExports';
 
 const log = getLogger('SpiderSymbolService');
 
@@ -22,6 +22,9 @@ type SymbolGraph = { symbols: SymbolInfo[]; dependencies: SymbolDependency[] };
 const SYMBOL_ANALYSIS_EXTENSIONS: ReadonlySet<string> = new Set(SUPPORTED_SYMBOL_ANALYSIS_EXTENSIONS);
 
 export type ReferencingFilesProvider = (targetPath: string) => Promise<Dependency[]>;
+
+/** Per-file re-exports read once; shared by every target of a scan. */
+type ReExportMemo = Map<string, Promise<ModuleReExports>>;
 
 /**
  * Single responsibility: symbol-level analysis/features built on top of file analysis
@@ -108,7 +111,8 @@ export class SpiderSymbolService {
     }
   }
 
-  async findUnusedSymbols(filePath: string): Promise<SymbolInfo[]> {
+  /** `reExportMemo` lets a workspace scan read each file's re-exports once across all its targets. */
+  async findUnusedSymbols(filePath: string, reExportMemo: ReExportMemo = new Map()): Promise<SymbolInfo[]> {
     try {
       const normalizedTarget = normalizePath(filePath);
       const { symbols } = await this.getSymbolGraph(normalizedTarget);
@@ -119,7 +123,7 @@ export class SpiderSymbolService {
 
       const referencingFiles = await this.findReferencingFiles(normalizedTarget);
       const usedSymbolIds = await this.collectUsedSymbolIds(referencingFiles, normalizedTarget);
-      await this.addSymbolsUsedThroughBarrels(normalizedTarget, exportedSymbols, referencingFiles, usedSymbolIds);
+      await this.addSymbolsUsedThroughBarrels(normalizedTarget, exportedSymbols, referencingFiles, usedSymbolIds, reExportMemo);
 
       const content = await this.fileReader.readFile(normalizedTarget);
       const internalGraph = await this.astWorkerHost.getInternalExportDependencyGraph(normalizedTarget, content);
@@ -144,14 +148,16 @@ export class SpiderSymbolService {
     target: string,
     exportedSymbols: SymbolInfo[],
     referencingFiles: Dependency[],
-    usedSymbolIds: Set<string>
+    usedSymbolIds: Set<string>,
+    reExportMemo: ReExportMemo
   ): Promise<void> {
-    if (referencingFiles.length === 0) return;
+    // Most files are only imported by plain consumers: nothing to follow unless a referencer re-exports.
+    const modules = await Promise.all(referencingFiles.map((ref) => this.moduleReExports(ref.path, reExportMemo)));
+    if (modules.every((m) => m.reExports.length === 0 && m.namespaces.length === 0)) return;
 
-    const namespaceAliases = await this.collectNamespaceAliases(referencingFiles, target);
+    const namespaceAliases = await this.collectNamespaceAliases(modules, target, reExportMemo);
     const namespaceUses = await Promise.all(namespaceAliases.map((alias) => this.collectNamespaceUse(alias)));
     const usageByFile = new Map<string, Promise<Set<string>>>();
-    const parsedReExports = new Map<string, Promise<ReExport[]>>();
     const isImported = async (alias: ReExportTarget): Promise<boolean> => {
       let usage = usageByFile.get(alias.filePath);
       if (!usage) {
@@ -161,35 +167,43 @@ export class SpiderSymbolService {
       return (await usage).has(this.symbolDependencyHelper.buildUsedSymbolId(alias.filePath, alias.name));
     };
 
-    for (const symbol of exportedSymbols) {
-      if (usedSymbolIds.has(symbol.id)) continue;
-      const chain = await this.collectReexportAliases(target, symbol.name, parsedReExports); // NOSONAR S9382 sequential: shares the parse memo
-      const candidates = chain.filter((alias) => alias.filePath !== target);
-      const used = await Promise.all(candidates.map(isImported));
-      if (used.some(Boolean) || namespaceUses.some((use) => use.escapes || use.members.has(symbol.name))) {
-        usedSymbolIds.add(symbol.id);
-      }
-    }
+    const unusedSymbols = exportedSymbols.filter((symbol) => !usedSymbolIds.has(symbol.id));
+    const throughBarrel = await Promise.all(
+      unusedSymbols.map(async (symbol) => {
+        const chain = await this.collectReexportAliases(target, symbol.name, reExportMemo);
+        const used = await Promise.all(chain.filter((alias) => alias.filePath !== target).map(isImported));
+        return used.some(Boolean) || namespaceUses.some((use) => use.escapes || use.members.has(symbol.name));
+      })
+    );
+    unusedSymbols.forEach((symbol, i) => {
+      if (throughBarrel[i]) usedSymbolIds.add(symbol.id);
+    });
   }
 
   /** Merged use of the namespace object `alias` across every file that imports it. */
   private async collectNamespaceUse(alias: ReExportTarget): Promise<NamespaceUse> {
+    const refs = await this.findReferencingFiles(alias.filePath);
+    const perFile = await Promise.all(refs.map((ref) => this.namespaceUseInFile(ref.path, alias)));
     const merged: NamespaceUse = { members: new Set(), escapes: false };
-    for (const ref of await this.findReferencingFiles(alias.filePath)) {
-      let content: string;
-      try {
-        content = await this.fileReader.readFile(ref.path); // NOSONAR S9382 sequential: one read per importer
-      } catch {
-        continue;
-      }
-      for (const binding of importBindings(ref.path, content)) {
-        const use = await this.namespaceUseOfBinding(binding, ref.path, content, alias); // NOSONAR S9382 sequential: resolver results are cached
-        if (!use) continue;
-        for (const member of use.members) merged.members.add(member);
-        merged.escapes ||= use.escapes;
-      }
+    for (const use of perFile.flat()) {
+      for (const member of use.members) merged.members.add(member);
+      merged.escapes ||= use.escapes;
     }
     return merged;
+  }
+
+  /** Uses of `alias` through each import binding of one file; an unreadable file has none. */
+  private async namespaceUseInFile(filePath: string, alias: ReExportTarget): Promise<NamespaceUse[]> {
+    let content: string;
+    try {
+      content = await this.fileReader.readFile(filePath);
+    } catch {
+      return [];
+    }
+    const uses = await Promise.all(
+      importBindings(filePath, content).map((binding) => this.namespaceUseOfBinding(binding, filePath, content, alias))
+    );
+    return uses.filter((use): use is NamespaceUse => use !== null);
   }
 
   /** Use of `alias` through one import binding of `fromPath`, or null when the binding is unrelated. */
@@ -208,25 +222,22 @@ export class SpiderSymbolService {
   }
 
   /** `export * as ns from target` in each barrel, plus the barrels that re-export `ns` onwards. */
-  private async collectNamespaceAliases(barrels: Dependency[], target: string): Promise<ReExportTarget[]> {
-    const found = new Map<string, ReExportTarget>();
-    for (const barrel of barrels) {
-      const barrelPath = normalizePath(barrel.path);
-      let namespaces: ReturnType<typeof parseNamespaceReExports>;
-      try {
-        namespaces = parseNamespaceReExports(barrelPath, await this.fileReader.readFile(barrelPath)); // NOSONAR S9382 sequential: one read per importer
-      } catch {
-        continue;
-      }
-      for (const { specifier, alias } of namespaces) {
-        const resolved = await this.resolveModuleSpecifier(barrelPath, specifier); // NOSONAR S9382 sequential: resolver results are cached
-        if (!resolved || normalizePath(resolved) !== target) continue;
-        for (const onward of await this.collectReexportAliases(barrelPath, alias)) { // NOSONAR S9382 sequential: BFS shares its visited map
-          found.set(`${onward.filePath}:${onward.name}`, onward);
-        }
-      }
-    }
-    return [...found.values()];
+  private async collectNamespaceAliases(
+    modules: Array<ModuleReExports & { path: string }>,
+    target: string,
+    reExportMemo: ReExportMemo
+  ): Promise<ReExportTarget[]> {
+    const declared = modules.flatMap(({ path: barrelPath, namespaces }) =>
+      namespaces.map(({ specifier, alias }) => ({ barrelPath, specifier, alias }))
+    );
+    const chains = await Promise.all(
+      declared.map(async ({ barrelPath, specifier, alias }) => {
+        const resolved = await this.resolveModuleSpecifier(barrelPath, specifier);
+        if (!resolved || normalizePath(resolved) !== target) return [];
+        return this.collectReexportAliases(barrelPath, alias, reExportMemo);
+      })
+    );
+    return [...new Map(chains.flat().map((onward) => [`${onward.filePath}:${onward.name}`, onward])).values()];
   }
 
   async getSymbolDependents(filePath: string, symbolName: string): Promise<SymbolDependency[]> {
@@ -250,59 +261,72 @@ export class SpiderSymbolService {
   private async collectReexportAliases(
     filePath: string,
     symbolName: string,
-    parsedReExports = new Map<string, Promise<ReExport[]>>()
+    reExportMemo: ReExportMemo = new Map()
   ): Promise<ReExportTarget[]> {
     const root = { filePath: normalizePath(filePath), name: symbolName };
     const aliases = new Map<string, ReExportTarget>([[`${root.filePath}:${root.name}`, root]]);
-    const queue = [root];
-    for (let current = queue.pop(); current; current = queue.pop()) {
-      const referencing = await this.findReferencingFiles(current.filePath); // NOSONAR S9382 BFS queue
-      // A barrel may also be a plain importer (`import { x } from; export { x }`), so every referencer is read.
-      for (const importer of referencing) {
-        for (const alias of await this.reexportedAs(importer.path, current, parsedReExports)) { // NOSONAR S9382 BFS queue
-          const key = `${alias.filePath}:${alias.name}`;
-          if (aliases.has(key)) continue;
-          aliases.set(key, alias);
-          queue.push(alias);
-        }
-      }
-    }
+    await this.expandReexportAliases([root], aliases, reExportMemo);
     return [...aliases.values()];
+  }
+
+  /** One breadth-first level: the frontier's re-exports run concurrently, then only unseen ones recurse. */
+  private async expandReexportAliases(
+    frontier: ReExportTarget[],
+    aliases: Map<string, ReExportTarget>,
+    reExportMemo: ReExportMemo
+  ): Promise<void> {
+    const found = (await Promise.all(frontier.map((current) => this.directReexports(current, reExportMemo)))).flat();
+    const next: ReExportTarget[] = [];
+    for (const alias of found) {
+      const key = `${alias.filePath}:${alias.name}`;
+      if (aliases.has(key)) continue;
+      aliases.set(key, alias);
+      next.push(alias);
+    }
+    if (next.length > 0) await this.expandReexportAliases(next, aliases, reExportMemo);
+  }
+
+  /** Re-exports of `current` in any file that references it (a barrel may also be a plain importer). */
+  private async directReexports(current: ReExportTarget, reExportMemo: ReExportMemo): Promise<ReExportTarget[]> {
+    const referencing = await this.findReferencingFiles(current.filePath);
+    const perImporter = await Promise.all(referencing.map((importer) => this.reexportedAs(importer.path, current, reExportMemo)));
+    return perImporter.flat();
+  }
+
+  /** Re-exports of `filePath`, read and parsed once per memo; an unreadable file re-exports nothing. */
+  private async moduleReExports(
+    filePath: string,
+    reExportMemo: ReExportMemo
+  ): Promise<ModuleReExports & { path: string }> {
+    const path = normalizePath(filePath);
+    let parsed = reExportMemo.get(path);
+    if (!parsed) {
+      parsed = this.fileReader
+        .readFile(path)
+        .then((content) => readModuleReExports(path, content))
+        .catch(() => ({ reExports: [], namespaces: [] }));
+      reExportMemo.set(path, parsed);
+    }
+    return { ...(await parsed), path };
   }
 
   /** Names under which `barrelPath` re-exports `target`. */
   private async reexportedAs(
     barrelPath: string,
     target: ReExportTarget,
-    parsedReExports: Map<string, Promise<ReExport[]>>
+    reExportMemo: ReExportMemo
   ): Promise<ReExportTarget[]> {
-    const barrel = normalizePath(barrelPath);
-    let reExports: ReExport[];
-    try {
-      let parsed = parsedReExports.get(barrel);
-      if (!parsed) {
-        // Most referencers are plain importers: skip the parse unless the text can hold a re-export.
-        parsed = this.fileReader.readFile(barrel).then((content) => (mayReExport(content) ? parseReExports(barrel, content) : []));
-        parsedReExports.set(barrel, parsed);
-      }
-      reExports = await parsed; // NOSONAR S9382 sequential: parsed once per file, then memoised
-    } catch {
-      return [];
-    }
-    const found: ReExportTarget[] = [];
-    for (const { specifier, names } of reExports) {
-      const resolved = await this.resolveModuleSpecifier(barrel, specifier); // NOSONAR S9382 sequential: resolver results are cached
-      if (!resolved || normalizePath(resolved) !== target.filePath) continue;
+    const { path: barrel, reExports } = await this.moduleReExports(barrelPath, reExportMemo);
+    const resolved = await Promise.all(reExports.map(({ specifier }) => this.resolveModuleSpecifier(barrel, specifier)));
+    return reExports.flatMap(({ names }, i) => {
+      const from = resolved[i];
+      if (!from || normalizePath(from) !== target.filePath) return [];
       if (names === 'all') {
         // `export *` never re-exports `default`.
-        if (target.name !== 'default') found.push({ filePath: barrel, name: target.name });
-        continue;
+        return target.name === 'default' ? [] : [{ filePath: barrel, name: target.name }];
       }
-      for (const { imported, exported } of names) {
-        if (imported === target.name) found.push({ filePath: barrel, name: exported });
-      }
-    }
-    return found;
+      return names.filter(({ imported }) => imported === target.name).map(({ exported }) => ({ filePath: barrel, name: exported }));
+    });
   }
 
   async traceFunctionExecution(
@@ -686,6 +710,7 @@ export class SpiderSymbolService {
     const filesToScan = analysableFiles.slice(0, maxFiles);
 
     const entries: Array<{ filePath: string; unusedSymbols: SymbolInfo[] }> = [];
+    const reExportMemo: ReExportMemo = new Map();
     let skippedFiles = 0;
 
     for (const filePath of filesToScan) {
@@ -695,7 +720,7 @@ export class SpiderSymbolService {
         signal.throwIfAborted();
       }
       try {
-        const unusedSymbols = await this.findUnusedSymbols(filePath);
+        const unusedSymbols = await this.findUnusedSymbols(filePath, reExportMemo);
         if (unusedSymbols.length > 0) {
           entries.push({ filePath, unusedSymbols });
         }
