@@ -13,7 +13,6 @@ import { IndexCache } from '@/analyzer/cache/IndexCache';
 import { LspCallHierarchyAnalyzer } from '@/analyzer/LspCallHierarchyAnalyzer';
 import { QueryEngine } from '@/analyzer/QueryEngine';
 import { ReviewGateAnalyzer } from '@/analyzer/ReviewGateAnalyzer';
-import type { SymbolDependency } from '@/analyzer/types';
 import { reportOutOfRootImports } from '@/analyzer/utils/workspaceBoundary';
 import { scanDeadCode } from '@/analyzer/deadcode/DeadCodeScanner';
 import {
@@ -23,7 +22,7 @@ import {
   type QueryNaturalLanguageParams,
   type ReviewPrParams,
 } from '@/mcp/types';
-import type { Dependency } from '@/analyzer/types';
+import type { Dependency, SymbolDependency } from '@/analyzer/types';
 import { checkSymbolInFile, symbolNotFoundMessage } from '@/analyzer/utils/SymbolLookup';
 import { mapWithConcurrency } from '@/shared/concurrency';
 import { convertSpiderToLspFormat } from '@/shared/converters';

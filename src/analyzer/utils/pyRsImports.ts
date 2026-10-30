@@ -145,8 +145,15 @@ function pythonFromImports(code: string): Array<{ module: string; names: 'all' |
 
 /** `a` or `a as b`; an empty part (trailing comma) is none. */
 function aliasedName(part: string): ImportedName[] {
-  const [imported, local] = part.trim().split(/\s+as\s+/);
+  const [imported, local] = splitAlias(part);
   return imported ? [{ imported, local: local ?? imported }] : [];
+}
+
+/** `path as alias` split on whitespace tokens (no backtracking regex); `[path]` without `as`. */
+function splitAlias(text: string): [string, string | undefined] {
+  const tokens = text.trim().split(/\s+/);
+  const as = tokens.lastIndexOf('as');
+  return as > 0 ? [tokens.slice(0, as).join(''), tokens[as + 1]] : [tokens.join(''), undefined];
 }
 
 /** `from . import impl` names the submodule `.impl`; `from pkg import x` may name `pkg.x`. */
@@ -238,8 +245,8 @@ function rawStringEnd(text: string, i: number): number {
   return end < 0 ? text.length : end + close.length;
 }
 
-/** `[pub[(…)]] use tree;` anywhere in the file. */
-const RS_USE = /(\bpub\b(?:\s*\([^)]*\))?\s+)?\buse\s+([^;]+);/g;
+/** Start of a `use` declaration; the tree runs to the next `;`, found with indexOf (no backtracking). */
+const RS_USE_KEYWORD = /\buse\s/g;
 /** Lowercase-led paths with `::` in code (`inner::one()`); types (`Vec::new`) start uppercase. */
 const RS_PATH = /\b[a-z_][\w:]*/g;
 
@@ -251,10 +258,43 @@ interface RustUseItem {
   alias?: string;
 }
 
+interface RustUseSpan {
+  start: number;
+  /** Index of the closing `;`. */
+  end: number;
+  tree: string;
+  isPub: boolean;
+}
+
+/** Every `[pub[(…)]] use tree;` of the (literal-blanked) code. */
+function rustUseSpans(code: string): RustUseSpan[] {
+  const spans: RustUseSpan[] = [];
+  for (const match of code.matchAll(RS_USE_KEYWORD)) {
+    const end = code.indexOf(';', match.index);
+    if (end < 0) break;
+    spans.push({ start: match.index, end, tree: code.slice(match.index + 4, end), isPub: precededByPub(code, match.index) });
+  }
+  return spans;
+}
+
+/** Whether `pub`, `pub(crate)`, `pub(in path)`… sits right before index `at`. */
+function precededByPub(code: string, at: number): boolean {
+  let before = code.slice(Math.max(0, at - 80), at).trimEnd();
+  if (before.endsWith(')')) before = before.slice(0, before.lastIndexOf('(')).trimEnd();
+  return /\bpub$/.test(before);
+}
+
 function rustUses(code: string): Array<RustUseItem & { isPub: boolean }> {
-  return [...code.matchAll(RS_USE)].flatMap(([, pub, tree]) =>
-    expandUseTree(tree, []).map((item) => ({ ...item, isPub: !!pub }))
-  );
+  return rustUseSpans(code).flatMap(({ tree, isPub }) => expandUseTree(tree, []).map((item) => ({ ...item, isPub })));
+}
+
+/** `code` with every `use` declaration blanked, so its paths are not read again as expression paths. */
+function withoutUses(code: string): string {
+  let out = code;
+  for (const { start, end } of rustUseSpans(code)) {
+    out = out.slice(0, start) + ' '.repeat(end + 1 - start) + out.slice(end + 1);
+  }
+  return out;
 }
 
 /** Flattens `a::{b, c::{d as e, *}}` into one item per leaf. */
@@ -265,11 +305,11 @@ export function expandUseTree(tree: string, prefix: string[]): RustUseItem[] {
     const base = [...prefix, ...rustSegments(text.slice(0, brace))];
     return splitTopLevel(text.slice(brace + 1, -1)).flatMap((part) => expandUseTree(part, base));
   }
-  const [pathText, alias] = text.split(/\s+as\s+/);
+  const [pathText, alias] = splitAlias(text);
   const segments = [...prefix, ...rustSegments(pathText)];
   const name = segments.pop();
   if (!name || segments.length === 0) return [];
-  return [{ specifier: segments.join('::'), name, ...(alias ? { alias: alias.trim() } : {}) }];
+  return [{ specifier: segments.join('::'), name, ...(alias ? { alias } : {}) }];
 }
 
 /** Path segments, raw identifiers unwrapped (`r#type` is `type`). */
@@ -342,7 +382,7 @@ export function rustImportBindings(content: string): ImportBinding[] {
     return { specifier, imported: whole ? '*' : name, local: alias ?? name };
   });
   // Paths inside `use` are already bindings above.
-  const qualified = [...code.replaceAll(RS_USE, ' ').matchAll(RS_PATH)].flatMap(([token]) => {
+  const qualified = [...withoutUses(code).matchAll(RS_PATH)].flatMap(([token]) => {
     const segments = rustSegments(token);
     const name = segments.pop();
     if (!name || segments.length === 0) return [];
