@@ -2,7 +2,7 @@ import { execFileSync } from "node:child_process";
 import * as fs from "node:fs/promises";
 import * as os from "node:os";
 import * as path from "node:path";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { ReviewGateAnalyzer, renderReviewMarkdown, riskForScore } from "../../src/analyzer/ReviewGateAnalyzer";
 
 const temporaryDirectories: string[] = [];
@@ -375,12 +375,13 @@ describe("ReviewGateAnalyzer", { timeout: GIT_TEST_TIMEOUT }, () => {
     );
     const analyzer = new ReviewGateAnalyzer(workspace);
     (analyzer as unknown as { readHeadContent: () => Promise<null> }).readHeadContent = async () => null;
+    (analyzer as unknown as { gitShow: () => Promise<null> }).gitShow = async () => null;
 
     const result = await analyzer.analyze({ baseRef: "main" });
 
     expect(result.isPartial).toBe(true);
     expect(result.limitations).toEqual(expect.arrayContaining([
-      "Could not compare src/api.ts; file was deleted or unreadable.",
+      "Could not compare src/api.ts; file is unreadable at both refs.",
     ]));
   });
 
@@ -1269,13 +1270,15 @@ describe("ReviewGateAnalyzer - symbol moved between changed files", { timeout: G
     expect(result.symbols.flatMap((candidate) => candidate.breakingChanges).some((change) => change.type === "symbol-moved")).toBe(false);
   });
 
-  it("leaves a file renamed with git mv as before", async () => {
+  it("reports a file renamed with git mv as a move of its symbols", async () => {
     const workspace = await workspaceWith({ "src/api.ts": OLD_API }, {});
     execFileSync("git", ["mv", "src/api.ts", "src/model.ts"], { cwd: workspace });
     const result = await new ReviewGateAnalyzer(workspace, referenceIndex()).analyze({ baseRef: "main" });
 
-    expect(result.changedFiles).toEqual(["src/model.ts"]);
-    expect(result.symbols).toEqual([]);
+    expect(result.changedFiles).toEqual(["src/api.ts", "src/model.ts"]);
+    expect(result.risk).toBe("low");
+    expect(result.symbols.length).toBeGreaterThan(0);
+    for (const moved of result.symbols) expect(moved.breakingChanges.map((change) => change.type)).toEqual(["symbol-moved"]);
   });
 });
 
@@ -1412,5 +1415,219 @@ describe("ReviewGateAnalyzer - type impact without a dependents provider", { tim
 
     expect(result.symbols[0]).toMatchObject({ name: "Shape", impactedSymbolCount: 0 });
     expect(result.symbols[0].breakingChanges[0].type).toBe("member-removed");
+  });
+});
+
+/** Regression (#516): a deleted or moved file was ignored, so importers of the old path went unreported. */
+describe("ReviewGateAnalyzer - deleted and renamed files", { timeout: GIT_TEST_TIMEOUT }, () => {
+  const LIB = "export function lib(a: number): number { return a + 1; }\n";
+  const USER = 'import { lib } from "./lib";\nexport function user1(): number { return lib(1) * 2; }\n';
+
+  /** Commits `base`; applies `head` (null deletes) and stages it, or commits it on branch `b1` when `commit` is set. */
+  async function workspaceWith(base: Record<string, string>, head: Record<string, string | null>, commit = false): Promise<string> {
+    const directory = await fs.mkdtemp(path.join(os.tmpdir(), "review-gate-deleted-"));
+    temporaryDirectories.push(directory);
+    const git = (...args: string[]) => execFileSync("git", args, { cwd: directory });
+    const write = async (files: Record<string, string | null>) => {
+      for (const [file, content] of Object.entries(files)) {
+        const target = path.join(directory, file);
+        if (content === null) await fs.rm(target);
+        else {
+          await fs.mkdir(path.dirname(target), { recursive: true });
+          await fs.writeFile(target, content);
+        }
+      }
+    };
+    git("init", "--initial-branch=main");
+    git("config", "user.email", "test@example.com");
+    git("config", "user.name", "Test");
+    await write(base);
+    git("add", ".");
+    git("commit", "-m", "base");
+    if (commit) git("checkout", "-b", "b1");
+    await write(head);
+    git("add", "-A");
+    if (commit) git("commit", "-m", "head");
+    return directory;
+  }
+
+  const lib = (result: Awaited<ReturnType<ReviewGateAnalyzer["analyze"]>>) => result.symbols.find((symbol) => symbol.name === "lib");
+
+  it("reports a deleted module's export as removed and its importer as unverified", async () => {
+    const workspace = await workspaceWith({ "src/lib.ts": LIB, "src/user1.ts": USER }, { "src/lib.ts": null });
+    const result = await new ReviewGateAnalyzer(workspace, referenceIndex()).analyze({ baseRef: "main" });
+
+    expect(result.changedFiles).toEqual(["src/lib.ts"]);
+    expect(lib(result)).toMatchObject({ filePath: "src/lib.ts", risk: "high" });
+    expect(lib(result)?.breakingChanges.map((change) => change.type)).toEqual(["member-removed"]);
+    expect(lib(result)?.consumers.unverified).toEqual(["src/user1.ts"]);
+    expect(result.risk).toBe("high");
+  });
+
+  it("reports the same removal when the head is a committed ref", async () => {
+    const workspace = await workspaceWith({ "src/lib.ts": LIB, "src/user1.ts": USER }, { "src/lib.ts": null }, true);
+    const result = await new ReviewGateAnalyzer(workspace, referenceIndex()).analyze({ baseRef: "main", headRef: "b1" });
+
+    expect(lib(result)?.consumers.unverified).toEqual(["src/user1.ts"]);
+    expect(result.risk).toBe("high");
+  });
+
+  it("lists a deleted module nobody imports as a low-risk removal", async () => {
+    const workspace = await workspaceWith({ "src/lib.ts": LIB, "src/user1.ts": "export const one = 1;\n" }, { "src/lib.ts": null });
+    const result = await new ReviewGateAnalyzer(workspace, referenceIndex()).analyze({ baseRef: "main" });
+
+    expect(lib(result)).toMatchObject({ risk: "low", consumers: { updated: [], covered: [], unverified: [] } });
+    expect(lib(result)?.breakingChanges).toHaveLength(1);
+    expect(result.limitations).toEqual([]);
+  });
+
+  it("matches an importer through an alias, a file extension or a nested folder", async () => {
+    const workspace = await workspaceWith(
+      { "src/lib.ts": LIB, "src/a.ts": 'import { lib } from "@/lib";\nlib(1);\n', "src/deep/b.ts": 'import { lib } from "../lib.js";\nlib(1);\n', "src/c.ts": 'import { lib } from "./other";\nlib(1);\n' },
+      { "src/lib.ts": null },
+    );
+    const result = await new ReviewGateAnalyzer(workspace, referenceIndex()).analyze({ baseRef: "main" });
+
+    expect(lib(result)?.consumers.unverified).toEqual(["src/a.ts", "src/deep/b.ts"]);
+  });
+
+  it("keeps a pure rename low-risk once the importer follows it", async () => {
+    const workspace = await workspaceWith(
+      { "src/lib.ts": LIB, "src/user1.ts": USER },
+      { "src/lib.ts": null, "src/lib_new.ts": LIB, "src/user1.ts": USER.replace("./lib", "./lib_new") },
+    );
+    const result = await new ReviewGateAnalyzer(workspace, referenceIndex()).analyze({ baseRef: "main" });
+
+    expect([...result.changedFiles].sort()).toEqual(["src/lib.ts", "src/lib_new.ts", "src/user1.ts"]);
+    expect(lib(result)).toMatchObject({ risk: "low", score: 5 });
+    expect(lib(result)?.breakingChanges[0]).toMatchObject({ type: "symbol-moved", newValue: "src/lib_new.ts" });
+    expect(result.risk).toBe("low");
+  });
+
+  it.each([
+    ["a rename", { "src/lib_new.ts": LIB }],
+    ["a rename followed by an edit", { "src/lib_new.ts": `${LIB}export const extra = 1;\n` }],
+    ["a move to another directory", { "src/core/lib.ts": LIB }],
+    ["a rename too different for Git to follow", { "src/lib_new.ts": "export function lib(a: number): number {\n  return a + 1;\n}\n// unrelated\n".repeat(1) }],
+  ])("flags %s that leaves the importer on the old path", async (_name, added) => {
+    const workspace = await workspaceWith({ "src/lib.ts": LIB, "src/user1.ts": USER }, { "src/lib.ts": null, ...added });
+    const result = await new ReviewGateAnalyzer(workspace, referenceIndex()).analyze({ baseRef: "main" });
+
+    expect(lib(result)?.consumers.unverified).toEqual(["src/user1.ts"]);
+    expect(lib(result)?.breakingChanges.map((change) => change.type)).toEqual(["member-removed", "symbol-moved"]);
+    expect(result.risk).toBe("high");
+  });
+
+  it("accepts a move to another directory once the importer imports the new path", async () => {
+    const workspace = await workspaceWith(
+      { "src/lib.ts": LIB, "src/user1.ts": USER },
+      { "src/lib.ts": null, "src/core/lib.ts": LIB, "src/user1.ts": USER.replace("./lib", "./core/lib") },
+    );
+    const result = await new ReviewGateAnalyzer(workspace, referenceIndex()).analyze({ baseRef: "main" });
+
+    expect(lib(result)).toMatchObject({ risk: "low", breakingChanges: [{ type: "symbol-moved", newValue: "src/core/lib.ts" }] });
+  });
+
+  it("treats a case-only rename like a move", async () => {
+    const workspace = await workspaceWith(
+      { "src/Lib.ts": LIB, "src/user1.ts": USER.replace("./lib", "./Lib") },
+      { "src/Lib.ts": null, "src/lib.ts": LIB, "src/user1.ts": USER },
+    );
+    const result = await new ReviewGateAnalyzer(workspace, referenceIndex()).analyze({ baseRef: "main" });
+
+    expect(result.risk).toBe("low");
+    // A case-sensitive filesystem sees a move; a case-insensitive one reads the new name through the old, so nothing changed.
+    for (const symbol of result.symbols) expect(symbol.breakingChanges.map((change) => change.type)).toEqual(["symbol-moved"]);
+    expect(lib(result)?.consumers.unverified ?? []).toEqual([]);
+  });
+
+  it("does not flag a module rewritten with the same exports", async () => {
+    const workspace = await workspaceWith({ "src/lib.ts": LIB, "src/user1.ts": USER }, { "src/lib.ts": `${LIB}\n` });
+    const result = await new ReviewGateAnalyzer(workspace, referenceIndex()).analyze({ baseRef: "main" });
+
+    expect(result.symbols).toEqual([]);
+    expect(result.risk).toBe("low");
+  });
+
+  it("finds the importers of a deleted declaration file, whose name carries `.d`", async () => {
+    const workspace = await workspaceWith(
+      { "src/types.d.ts": "export interface Shape { size: number }\n", "src/use.ts": 'import type { Shape } from "./types";\nexport const s: Shape = { size: 1 };\n' },
+      { "src/types.d.ts": null },
+    );
+    const result = await new ReviewGateAnalyzer(workspace, referenceIndex()).analyze({ baseRef: "main" });
+
+    expect(result.symbols.find((symbol) => symbol.name === "Shape")?.consumers.unverified).toEqual(["src/use.ts"]);
+  });
+
+  it("keeps a bare package named like the deleted module as an importer, failing closed", async () => {
+    const workspace = await workspaceWith(
+      { "src/react.ts": "export function x(): number { return 1; }\n", "src/use.ts": 'import { x } from "react";\nx();\n' },
+      { "src/react.ts": null },
+    );
+    const result = await new ReviewGateAnalyzer(workspace, referenceIndex()).analyze({ baseRef: "main" });
+
+    expect(result.symbols.find((symbol) => symbol.name === "x")?.consumers.unverified).toEqual(["src/use.ts"]);
+  });
+
+  it("searches the importers of a deleted module once, however many names it exports", async () => {
+    const names = ["a", "b", "c", "d"];
+    const workspace = await workspaceWith(
+      { "src/lib.ts": names.map((name) => `export function ${name}(): number { return 1; }\n`).join(""), "src/use.ts": 'import { a, b, c, d } from "./lib";\nconsole.log(a, b, c, d);\n' },
+      { "src/lib.ts": null },
+    );
+    const analyzer = new ReviewGateAnalyzer(workspace, referenceIndex());
+    const search = vi.spyOn(analyzer as unknown as { searchImporters: () => Promise<string[]> }, "searchImporters");
+    const result = await analyzer.analyze({ baseRef: "main" });
+
+    expect(search).toHaveBeenCalledTimes(1);
+    expect(result.symbols.map((symbol) => symbol.consumers.unverified)).toEqual(names.map(() => ["src/use.ts"]));
+  });
+
+  it("ignores a deleted test file nobody imports", async () => {
+    const workspace = await workspaceWith(
+      { "src/lib.ts": LIB, "tests/lib.test.ts": 'import { lib } from "../src/lib";\nlib(1);\n' },
+      { "tests/lib.test.ts": null },
+    );
+    const result = await new ReviewGateAnalyzer(workspace, referenceIndex()).analyze({ baseRef: "main" });
+
+    expect(result.symbols).toEqual([]);
+    expect(result.limitations).toEqual([]);
+  });
+
+  it("reports a deleted barrel that files still import", async () => {
+    const barrel = 'export * from "./a";\n';
+    const files = { "src/utils/index.ts": barrel, "src/utils/a.ts": "export const a = 1;\n", "src/user.ts": 'import { a } from "./utils";\nconsole.log(a);\n', "src/other.ts": 'import { a } from "./utils/index";\nconsole.log(a);\n' };
+    const workspace = await workspaceWith(files, { "src/utils/index.ts": null });
+    const result = await new ReviewGateAnalyzer(workspace, referenceIndex()).analyze({ baseRef: "main" });
+
+    expect(result.symbols).toHaveLength(1);
+    expect(result.symbols[0]).toMatchObject({ name: "(module)", filePath: "src/utils/index.ts", risk: "high" });
+    expect(result.symbols[0].consumers.unverified).toEqual(["src/other.ts", "src/user.ts"]);
+  });
+
+  it("reports nothing for a deleted barrel no file imports", async () => {
+    const workspace = await workspaceWith({ "src/utils/index.ts": 'export * from "./a";\n', "src/utils/a.ts": "export const a = 1;\n" }, { "src/utils/index.ts": null });
+    const result = await new ReviewGateAnalyzer(workspace, referenceIndex()).analyze({ baseRef: "main" });
+
+    expect(result.symbols).toEqual([]);
+    expect(result.limitations).toEqual([]);
+  });
+
+  it("neither reports a limitation nor a breaking change for a deleted document", async () => {
+    const workspace = await workspaceWith({ "README.md": "# Title\n", "src/lib.ts": LIB }, { "README.md": null });
+    const result = await new ReviewGateAnalyzer(workspace, referenceIndex()).analyze({ baseRef: "main" });
+
+    expect(result).toMatchObject({ changedFiles: ["README.md"], symbols: [], isPartial: false, limitations: [] });
+  });
+
+  it("reports a limitation instead of silence when the importers of a deleted module cannot be listed", async () => {
+    const workspace = await workspaceWith({ "src/lib.ts": LIB, "src/user1.ts": USER }, { "src/lib.ts": null });
+    const analyzer = new ReviewGateAnalyzer(workspace, referenceIndex());
+    (analyzer as unknown as { grepImporters: () => Promise<string> }).grepImporters = async () => "git grep failed: boom";
+    const result = await analyzer.analyze({ baseRef: "main" });
+
+    expect(result.isPartial).toBe(true);
+    expect(result.limitations).toEqual(["src/lib.ts: module deleted, but files still importing it could not be listed (git grep failed: boom)."]);
+    expect(lib(result)?.risk).toBe("low");
   });
 });

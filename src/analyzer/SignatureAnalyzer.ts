@@ -663,18 +663,20 @@ export class SignatureAnalyzer {
 
   /**
    * Module specifiers through which `content` may reach `name`: named imports and re-exports
-   * of `name`, plus every form whose use of a name is not followed — default and namespace
+   * of `name` (any import when `name` is omitted), plus every form whose use of a name is not followed — default and namespace
    * imports, `export *`, dynamic `import()`, `require()`, `import x = require()` and `import()` types.
    */
-  public specifiersThatMayImport(filePath: string, content: string, name: string): string[] {
+  public specifiersThatMayImport(filePath: string, content: string, name?: string): string[] {
     const sourceFile = this.getOrCreateSourceFile(filePath, content);
     const imports = sourceFile.getImportDeclarations()
-      .filter((declaration) => declaration.getDefaultImport() !== undefined
+      .filter((declaration) => name === undefined
+        || declaration.getDefaultImport() !== undefined
         || declaration.getNamespaceImport() !== undefined
         || declaration.getNamedImports().some((specifier) => specifier.getName() === name))
       .map((declaration) => declaration.getModuleSpecifierValue());
     const reexports = sourceFile.getExportDeclarations()
-      .filter((declaration) => !declaration.hasNamedExports()
+      .filter((declaration) => name === undefined
+        || !declaration.hasNamedExports()
         || declaration.getNamedExports().some((specifier) => specifier.getName() === name))
       .map((declaration) => declaration.getModuleSpecifierValue());
     return [...imports, ...reexports, ...dynamicSpecifiers(sourceFile)]
