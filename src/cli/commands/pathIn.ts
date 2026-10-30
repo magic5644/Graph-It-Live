@@ -52,6 +52,8 @@ export async function run(
 
   const nodeSet = new Set<string>([result.targetPath]);
   const edges: PathInGraphEdge[] = [];
+  // A consumer behind a barrel imports the barrel (`via`), itself listed, not the target.
+  const pathByRelative = new Map(result.referencingFiles.map((ref) => [ref.relativePath, ref.path]));
 
   for (const referencingFile of result.referencingFiles) {
     if (!nodeSet.has(referencingFile.path)) {
@@ -65,7 +67,7 @@ export async function run(
 
     edges.push({
       source: referencingFile.path,
-      target: result.targetPath,
+      target: (referencingFile.via && pathByRelative.get(referencingFile.via)) || result.targetPath,
     });
   }
 

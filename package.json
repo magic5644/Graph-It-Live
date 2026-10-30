@@ -636,7 +636,7 @@
         "displayName": "Graph-It-Live: Find Files Referencing",
         "icon": "$(references)",
         "userDescription": "Find all files that import or depend on a specific file",
-        "modelDescription": "Lists every file that imports or references a given file (reverse dependency lookup).\n\nWHEN: impact analysis, \"who uses this file\", refactoring-safety checks before changing or deleting a file.\nWHY: served from a prebuilt reverse index, so it covers the whole workspace rather than the files already in context.\nRETURNS: workspace-relative path, import type, line and module specifier of each referencing file.\nFor an open-ended question, start with graph-it-live_graph_context and come here when you need this specific cut.",
+        "modelDescription": "Lists every file that imports or references a given file (reverse dependency lookup).\n\nWHEN: impact analysis, \"who uses this file\", refactoring-safety checks before changing or deleting a file.\nWHY: served from a prebuilt reverse index, so it covers the whole workspace rather than the files already in context.\nRETURNS: workspace-relative path, import type, line and module specifier of each referencing file.\nBARRELS: files that import the target's exports through re-export barrels (export { x } from, export *, chained) are listed after the direct importers, with via = the barrel they import.\nFor an open-ended question, start with graph-it-live_graph_context and come here when you need this specific cut.",
         "inputSchema": {
           "type": "object",
           "properties": {

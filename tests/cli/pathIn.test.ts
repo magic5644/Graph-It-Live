@@ -55,4 +55,26 @@ describe('path-in command', () => {
     );
     expect(parsed.edges[0]).toEqual({ source: refA, target });
   });
+
+  it('links a consumer behind a barrel to the barrel, not to the target', async () => {
+    const workspaceRoot = '/workspace';
+    const target = path.resolve(workspaceRoot, 'src/impl/one.ts');
+    const barrel = path.resolve(workspaceRoot, 'src/index.ts');
+    const consumer = path.resolve(workspaceRoot, 'src/main.ts');
+    mocks.executeFindReferencingFiles.mockResolvedValueOnce({
+      targetPath: target,
+      referencingFileCount: 2,
+      referencingFiles: [
+        { path: barrel, relativePath: 'src/index.ts', type: 'export', line: 1, module: './impl/one' },
+        { path: consumer, relativePath: 'src/main.ts', type: 'import', line: 1, module: './index', via: 'src/index.ts' },
+      ],
+    });
+
+    const output = await run(['src/impl/one.ts'], { workspaceRoot, ensureIndexed: vi.fn() } as never, 'json');
+
+    expect((JSON.parse(output) as { edges: unknown[] }).edges).toEqual([
+      { source: barrel, target },
+      { source: consumer, target: barrel },
+    ]);
+  });
 });
