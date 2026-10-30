@@ -1,5 +1,6 @@
 import { readFile, readdir, stat } from 'node:fs/promises';
 import path from 'node:path';
+import { mapWithConcurrency } from '@/shared/concurrency';
 import { normalizePath } from '@/shared/path';
 import type { GraphContextEdge, GraphContextNode } from '@/shared/graph-context-types';
 import { createIgnoreMatcher } from '@/analyzer/SourceFileFilters';
@@ -11,6 +12,8 @@ const CODE_EXTENSIONS = new Set(['.ts', '.tsx', '.js', '.jsx', '.py', '.rs', '.g
 const MARKDOWN_LINK = /!?\[[^\]]*\]\(([^)\s]+)(?:\s+"[^"]*")?\)/g;
 const RST_LINK = /`[^`]+\s+<([^>]+)>`_/g;
 const JSX_LINK = /<[A-Za-z][^>]*\s(?:href|to)\s*=\s*(["'])([^"']+)\1[^>]*>/g;
+/** Files read at once; each holds up to 1 MB of text while parsed. */
+const READ_CONCURRENCY = 16;
 
 interface DocumentHeading {
   line: number;
@@ -43,117 +46,17 @@ export class DocumentReferenceIndexer {
     const nodes = new Map<string, GraphContextNode>();
     const edges: GraphContextEdge[] = [];
 
-    for (const filePath of files) {
+    // Read and parse in parallel; merge in file order so edge order stays deterministic.
+    const fileIndexes = await mapWithConcurrency(files, READ_CONCURRENCY, async (filePath) => {
       const relativePath = relativePathOf(filePath, root);
-      if (!relativePath || !matcher.matches(filePath)) continue;
+      if (!relativePath || !matcher.matches(filePath)) return null;
       const content = await readText(filePath);
-      if (content === null) continue;
-      const isDocument = DOCUMENT_EXTENSIONS.has(path.extname(relativePath).toLowerCase());
-      const extension = path.extname(relativePath).toLowerCase();
-      const documentId = isDocument ? `document:${relativePath}` : undefined;
-      if (documentId) nodes.set(documentId, {
-        id: documentId, kind: 'document', name: path.posix.basename(relativePath), path: relativePath,
-        language: path.posix.extname(relativePath).slice(1),
-      });
-
-      const lines = content.split(/\r?\n/);
-      const rationaleMarkers: RationaleMarker[] = [];
-      const markerLines = new Set<number>();
-      let fence: string | undefined;
-      lines.forEach((line, index) => {
-        const lineNumber = index + 1;
-        const fenceMatch = line.match(/^\s*(```|~~~)/);
-        if (fenceMatch && (extension === '.md' || extension === '.mdx')) {
-          fence = fence === fenceMatch[1] ? undefined : fence ?? fenceMatch[1];
-        }
-        const marker = fence ? null : rationaleIn(line, extension);
-        if (marker) {
-          const rationaleId = `rationale:${relativePath}:${lineNumber}`;
-          nodes.set(rationaleId, {
-            id: rationaleId,
-            kind: 'rationale',
-            name: marker.text,
-            path: relativePath,
-            startLine: lineNumber,
-            endLine: lineNumber,
-          });
-          rationaleMarkers.push({ id: rationaleId, line: lineNumber });
-          markerLines.add(lineNumber);
-          if (documentId) edges.push(toEvidence({
-            source: rationaleId,
-            target: documentId,
-            relation: 'EXPLAINS',
-            origin: 'AST',
-            workspaceRoot: root,
-            sourcePath: filePath,
-            sourceLine: lineNumber,
-          }));
-          if (!documentId) edges.push(toEvidence({
-            source: rationaleId,
-            target: `file:${relativePath}`,
-            relation: 'EXPLAINS',
-            origin: 'AST',
-            workspaceRoot: root,
-            sourcePath: filePath,
-            sourceLine: lineNumber,
-          }));
-        }
-      });
-
-      const documentHeadings = headingsIn(lines, extension, markerLines);
-      if (documentId && documentHeadings[0]) {
-        const document = nodes.get(documentId);
-        if (document) nodes.set(documentId, { ...document, name: documentHeadings[0].title });
-      }
-      const codeLinks: Array<DocumentLink & { targetPath: string }> = [];
-
-      for (const link of linksIn(lines, extension)) {
-        const target = resolveLocalTarget(filePath, link.target, root);
-        if (!target) continue;
-        const targetIsDocument = DOCUMENT_EXTENSIONS.has(path.extname(target).toLowerCase());
-        const targetIsCode = isCodePath(target);
-        if (!targetIsDocument && !targetIsCode) continue;
-        const targetId = targetIsDocument
-          ? `document:${target}`
-          : `file:${target}`;
-        if (!documentId && !targetIsCode) continue;
-        const sourceId = documentId ?? `file:${relativePath}`;
-        edges.push(toEvidence({
-          source: sourceId,
-          target: targetId,
-          relation: 'REFERENCES',
-          origin: 'AST',
-          workspaceRoot: root,
-          sourcePath: filePath,
-          sourceLine: link.line,
-        }));
-        if (documentId && targetIsCode) {
-          codeLinks.push({ ...link, targetPath: target });
-          edges.push(toEvidence({
-            source: documentId,
-            target: targetId,
-            relation: 'DOCUMENTS',
-            origin: 'AST',
-            workspaceRoot: root,
-            sourcePath: filePath,
-            sourceLine: link.line,
-          }));
-        }
-      }
-
-      for (const marker of rationaleMarkers) {
-        for (const link of nearestSectionLinks(marker.line, codeLinks, documentHeadings)) {
-          edges.push(toEvidence({
-            source: marker.id,
-            target: `file:${link.targetPath}`,
-            relation: 'EXPLAINS',
-            origin: 'AST',
-            workspaceRoot: root,
-            sourcePath: filePath,
-            sourceLine: link.line,
-          }));
-        }
-      }
+      return content === null ? null : indexFile(filePath, relativePath, content, root);
+    });
+    for (const fileIndex of fileIndexes) {
+      if (!fileIndex) continue;
+      for (const node of fileIndex.nodes) nodes.set(node.id, node);
+      for (const edge of fileIndex.edges) edges.push(edge);
     }
 
     return { nodes: [...nodes.values()].sort(byId), edges: dedupeEdges(edges) };
@@ -164,6 +67,119 @@ export class DocumentReferenceIndexer {
   }
 }
 
+/** Nodes and edges contributed by one document or code file. */
+function indexFile(filePath: string, relativePath: string, content: string, root: string): DocumentReferenceIndex {
+  const nodes = new Map<string, GraphContextNode>();
+  const edges: GraphContextEdge[] = [];
+  const isDocument = DOCUMENT_EXTENSIONS.has(path.extname(relativePath).toLowerCase());
+  const extension = path.extname(relativePath).toLowerCase();
+  const documentId = isDocument ? `document:${relativePath}` : undefined;
+  if (documentId) nodes.set(documentId, {
+    id: documentId, kind: 'document', name: path.posix.basename(relativePath), path: relativePath,
+    language: path.posix.extname(relativePath).slice(1),
+  });
+
+  const lines = content.split(/\r?\n/);
+  const rationaleMarkers: RationaleMarker[] = [];
+  const markerLines = new Set<number>();
+  let fence: string | undefined;
+  lines.forEach((line, index) => {
+    const lineNumber = index + 1;
+    const fenceMatch = line.match(/^\s*(```|~~~)/);
+    if (fenceMatch && (extension === '.md' || extension === '.mdx')) {
+      fence = fence === fenceMatch[1] ? undefined : fence ?? fenceMatch[1];
+    }
+    const marker = fence ? null : rationaleIn(line, extension);
+    if (marker) {
+      const rationaleId = `rationale:${relativePath}:${lineNumber}`;
+      nodes.set(rationaleId, {
+        id: rationaleId,
+        kind: 'rationale',
+        name: marker.text,
+        path: relativePath,
+        startLine: lineNumber,
+        endLine: lineNumber,
+      });
+      rationaleMarkers.push({ id: rationaleId, line: lineNumber });
+      markerLines.add(lineNumber);
+      if (documentId) edges.push(toEvidence({
+        source: rationaleId,
+        target: documentId,
+        relation: 'EXPLAINS',
+        origin: 'AST',
+        workspaceRoot: root,
+        sourcePath: filePath,
+        sourceLine: lineNumber,
+      }));
+      if (!documentId) edges.push(toEvidence({
+        source: rationaleId,
+        target: `file:${relativePath}`,
+        relation: 'EXPLAINS',
+        origin: 'AST',
+        workspaceRoot: root,
+        sourcePath: filePath,
+        sourceLine: lineNumber,
+      }));
+    }
+  });
+
+  const documentHeadings = headingsIn(lines, extension, markerLines);
+  if (documentId && documentHeadings[0]) {
+    const document = nodes.get(documentId);
+    if (document) nodes.set(documentId, { ...document, name: documentHeadings[0].title });
+  }
+  const codeLinks: Array<DocumentLink & { targetPath: string }> = [];
+
+  for (const link of linksIn(lines, extension)) {
+    const target = resolveLocalTarget(filePath, link.target, root);
+    if (!target) continue;
+    const targetIsDocument = DOCUMENT_EXTENSIONS.has(path.extname(target).toLowerCase());
+    const targetIsCode = isCodePath(target);
+    if (!targetIsDocument && !targetIsCode) continue;
+    const targetId = targetIsDocument
+      ? `document:${target}`
+      : `file:${target}`;
+    if (!documentId && !targetIsCode) continue;
+    const sourceId = documentId ?? `file:${relativePath}`;
+    edges.push(toEvidence({
+      source: sourceId,
+      target: targetId,
+      relation: 'REFERENCES',
+      origin: 'AST',
+      workspaceRoot: root,
+      sourcePath: filePath,
+      sourceLine: link.line,
+    }));
+    if (documentId && targetIsCode) {
+      codeLinks.push({ ...link, targetPath: target });
+      edges.push(toEvidence({
+        source: documentId,
+        target: targetId,
+        relation: 'DOCUMENTS',
+        origin: 'AST',
+        workspaceRoot: root,
+        sourcePath: filePath,
+        sourceLine: link.line,
+      }));
+    }
+  }
+
+  for (const marker of rationaleMarkers) {
+    for (const link of nearestSectionLinks(marker.line, codeLinks, documentHeadings)) {
+      edges.push(toEvidence({
+        source: marker.id,
+        target: `file:${link.targetPath}`,
+        relation: 'EXPLAINS',
+        origin: 'AST',
+        workspaceRoot: root,
+        sourcePath: filePath,
+        sourceLine: link.line,
+      }));
+    }
+  }
+  return { nodes: [...nodes.values()], edges };
+}
+
 async function collectFiles(root: string): Promise<string[]> {
   const result: string[] = [];
   // Same .gitignore/.graphitignore rules as source indexing, so generated wikis and
@@ -172,13 +188,16 @@ async function collectFiles(root: string): Promise<string[]> {
   const visit = async (directory: string): Promise<void> => {
     let entries;
     try { entries = await readdir(directory, { withFileTypes: true }); } catch { return; }
+    const subdirectories: string[] = [];
     for (const entry of entries) {
       if (entry.name === 'node_modules' || entry.name === '.git' || entry.name === 'out' || entry.name === 'dist') continue;
       const filePath = normalizePath(path.join(directory, entry.name));
       if (isIgnored(path.relative(root, filePath), entry.isDirectory())) continue;
-      if (entry.isDirectory()) await visit(filePath);
+      if (entry.isDirectory()) subdirectories.push(filePath);
       else if (DOCUMENT_EXTENSIONS.has(path.extname(entry.name).toLowerCase()) || CODE_EXTENSIONS.has(path.extname(entry.name).toLowerCase())) result.push(filePath);
     }
+    // Order is irrelevant: the result is sorted below.
+    await Promise.all(subdirectories.map(visit));
   };
   await visit(root);
   return result.sort();

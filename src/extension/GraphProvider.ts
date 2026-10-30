@@ -280,6 +280,7 @@ export class GraphProvider implements vscode.WebviewViewProvider {
       this._callGraphViewService?.disposeAsync(),
     ].filter((task): task is Promise<void> => task !== undefined);
     while (this._activeDrillDowns.size > 0 || this._activeGraphUpdates.size > 0 || this._activeMessages.size > 0) {
+      // eslint-disable-next-line no-await-in-loop -- drain: operations can start while we wait, so re-check the sets after each settle
       await Promise.allSettled([
         ...this._activeDrillDowns,
         ...this._activeGraphUpdates,

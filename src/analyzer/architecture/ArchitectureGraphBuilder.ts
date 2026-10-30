@@ -16,6 +16,10 @@ import { IGNORED_DIRECTORIES } from "../../shared/constants";
 import type { CommunityMode, GraphData } from "../../shared/graph-types";
 import { normalizePath } from "../../shared/path";
 import { validateFileExists, validateWorkspacePath } from "../../shared/pathSecurity";
+import { mapWithConcurrency } from "../../shared/concurrency";
+
+/** Files analyzed at once: bounds memory while hiding per-file I/O latency. */
+const ANALYZE_CONCURRENCY = 8;
 
 /** Direct dependencies of one file, e.g. `(f) => spider.analyze(f)`. */
 export type AnalyzeFile = (filePath: string) => Promise<Dependency[]>;
@@ -117,32 +121,40 @@ function registerEdge(
   acc.dependentCount.set(normalizedTarget, (acc.dependentCount.get(normalizedTarget) ?? 0) + 1);
 }
 
-async function collectArchitectureForFile(
-  acc: ArchitectureAccumulator,
+/** Analyzes one file; errors become a failure record so one bad file never aborts the graph. */
+async function analyzeArchitectureFile(
   workspaceRoot: string,
-  filePath: string,
+  normalizedPath: string,
   analyzeFile: AnalyzeFile,
-): Promise<FailedArchitectureFile | null> {
-  const normalizedPath = normalizePath(filePath);
-  registerNode(acc, workspaceRoot, normalizedPath);
+): Promise<Dependency[] | FailedArchitectureFile> {
   try {
     validateWorkspacePath(normalizedPath, workspaceRoot);
     await validateFileExists(normalizedPath);
-    for (const dep of await analyzeFile(normalizedPath)) {
-      if (!isWithinWorkspace(dep.path, workspaceRoot)) {
-        continue;
-      }
-      const normalizedDependencyPath = normalizePath(dep.path);
-      registerNode(acc, workspaceRoot, normalizedDependencyPath);
-      registerEdge(acc, normalizedPath, normalizedDependencyPath, workspaceRoot, dep.line);
-    }
-    return null;
+    return await analyzeFile(normalizedPath);
   } catch (err) {
     return {
       filePath: normalizedPath,
       relativePath: normalizePath(path.relative(workspaceRoot, normalizedPath)),
       reason: err instanceof Error ? err.message : String(err),
     };
+  }
+}
+
+/** Registers a file and its in-workspace dependencies, in dependency order. */
+function registerArchitectureFile(
+  acc: ArchitectureAccumulator,
+  workspaceRoot: string,
+  normalizedPath: string,
+  dependencies: Dependency[],
+): void {
+  registerNode(acc, workspaceRoot, normalizedPath);
+  for (const dep of dependencies) {
+    if (!isWithinWorkspace(dep.path, workspaceRoot)) {
+      continue;
+    }
+    const normalizedDependencyPath = normalizePath(dep.path);
+    registerNode(acc, workspaceRoot, normalizedDependencyPath);
+    registerEdge(acc, normalizedPath, normalizedDependencyPath, workspaceRoot, dep.line);
   }
 }
 
@@ -178,11 +190,24 @@ export async function buildArchitectureGraph(
 
   const acc = initializeAccumulator();
   const failedFiles: FailedArchitectureFile[] = [];
-  for (const [index, filePath] of files.entries()) {
+  const normalizedFiles = files.map(normalizePath);
+  let analyzed = 0;
+  // Analyze in parallel, then register in file order so node/edge order stays deterministic.
+  const results = await mapWithConcurrency(normalizedFiles, ANALYZE_CONCURRENCY, async (filePath) => {
     options.signal?.throwIfAborted();
-    const failure = await collectArchitectureForFile(acc, workspaceRoot, filePath, analyzeFile); // NOSONAR S9382: one file at a time bounds memory and keeps node/edge order deterministic
-    if (failure) failedFiles.push(failure);
-    options.onProgress?.(index + 1, files.length);
+    const result = await analyzeArchitectureFile(workspaceRoot, filePath, analyzeFile);
+    analyzed++;
+    options.onProgress?.(analyzed, files.length);
+    return result;
+  });
+  for (const [index, filePath] of normalizedFiles.entries()) {
+    const result = results[index];
+    if (Array.isArray(result)) {
+      registerArchitectureFile(acc, workspaceRoot, filePath, result);
+    } else {
+      registerNode(acc, workspaceRoot, filePath);
+      failedFiles.push(result);
+    }
   }
 
   const edges = [...acc.edgesByKey.values()];

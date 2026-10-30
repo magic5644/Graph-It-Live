@@ -248,6 +248,7 @@ async function processTransitiveDependents(
     if (!parsed) continue;
 
     try {
+      // eslint-disable-next-line no-await-in-loop -- BFS: the queue grows while it is read, and symbol analysis is not safe under parallel calls
       const transitiveDeps = await spider.getSymbolDependents(
         parsed.filePath,
         parsed.symbolName,

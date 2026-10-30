@@ -1,9 +1,12 @@
 import type { PathResolver } from "@/analyzer/utils/PathResolver";
 import { isInIgnoredDirectory } from "@/analyzer/utils/PathPredicates";
 import { declaresExport, exportsOnlyAsDefault, mayReExport, parseReExports, type ReExport, type ReExportTarget } from "@/analyzer/utils/reExports";
+import { mapWithConcurrency } from "@/shared/concurrency";
 import { normalizePath } from "@/shared/path";
 import fs from "node:fs/promises";
 import type { Node as TreeNode } from "web-tree-sitter";
+
+const NAMESPACE_CALL_CONCURRENCY = 8;
 
 const FUNCTION_SCOPES = new Set([
   "function_declaration", "function_expression", "arrow_function",
@@ -100,8 +103,9 @@ async function followReExports(
   for (const { specifier, names } of parseReExports(filePath, content)) {
     const wanted = reExportedAs(names, name);
     if (!wanted) continue;
-    const next = await resolver.resolve(filePath, specifier).catch(() => null); // NOSONAR S9382 sequential: source order
-    const found = next ? await findDeclaration(next, wanted, resolver, visited, reads) : null; // NOSONAR S9382 sequential: source order
+    // eslint-disable-next-line no-await-in-loop -- first declaring re-export in source order wins and shares the visited set; stopping there avoids reading the other barrels
+    const found = await resolver.resolve(filePath, specifier).catch(() => null) // NOSONAR S9382 sequential: source order, shared visited set
+      .then(next => next ? findDeclaration(next, wanted, resolver, visited, reads) : null);
     if (found && found !== DEFAULT_ONLY) return found;
   }
   return null;
@@ -120,18 +124,17 @@ async function collectNamedImports(
     const moduleName = statement.childForFieldName("source")?.namedChildren[0]?.text;
     const typeOnly = statement.children.some(node => node.type === "type");
     const targetPath = !typeOnly && moduleName ? await resolver.resolve(filePath, moduleName) : null;
-    const imports: Array<[string, string | null]> = [];
-    for (const specifier of specifiers) {
+    // Specifiers are independent (own visited set, shared promise cache): resolve them concurrently, in order.
+    const imports = await Promise.all(specifiers.map(async (specifier): Promise<[string, string | null] | null> => {
       const imported = specifier.childForFieldName("name");
-      if (!imported) continue;
+      if (!imported) return null;
       const local = specifier.childForFieldName("alias") ?? imported;
       const isType = typeOnly || specifier.children.some(node => node.type === "type");
-      const declared = targetPath && !isType
-        ? await findDeclaration(targetPath, imported.text, resolver, new Set(), reads) // NOSONAR S9382 sequential per specifier
-        : null;
-      imports.push([local.text, targetPath && !isType ? importStub(declared, targetPath, imported.text) : null]);
-    }
-    return imports;
+      if (!targetPath || isType) return [local.text, null];
+      const declared = await findDeclaration(targetPath, imported.text, resolver, new Set(), reads);
+      return [local.text, importStub(declared, targetPath, imported.text)];
+    }));
+    return imports.filter(entry => entry !== null);
   }));
   return new Map(bindings.flat());
 }
@@ -230,16 +233,18 @@ export async function resolveNamedImportCalls(
   if (imports.size === 0 && namespaces.size === 0) return targets;
   const shadows = collectShadows(root, { has: (name) => imports.has(name) || namespaces.has(name) });
   const reads = new Map<string, Promise<string | null>>();
-  for (const call of calls) {
+  // Calls are independent (own visited set, shared promise cache); a file can hold many, so bound the reads in flight.
+  const stubs = await mapWithConcurrency(calls, NAMESPACE_CALL_CONCURRENCY, async (call): Promise<string | null | undefined> => {
     if (call.type === "identifier" && imports.has(call.text)) {
       const shadow = findShadow(shadows, call);
-      targets.set(call.id, shadow
+      return shadow
         ? `${filePath}:${call.text}:${shadow.binding.startPosition.row}`
-        : imports.get(call.text)!);
-      continue;
+        : imports.get(call.text)!;
     }
-    const stub = await resolveNamespaceCall(call, namespaces, shadows, resolver, reads); // NOSONAR S9382 sequential per call: shares the read cache
-    if (stub !== undefined) targets.set(call.id, stub);
-  }
+    return resolveNamespaceCall(call, namespaces, shadows, resolver, reads);
+  });
+  calls.forEach((call, index) => {
+    if (stubs[index] !== undefined) targets.set(call.id, stubs[index]);
+  });
   return targets;
 }

@@ -4,6 +4,7 @@ import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
 import * as os from 'node:os';
 import { promisify } from 'node:util';
+import { mapWithConcurrency } from '@/shared/concurrency';
 import { normalizePath, normalizePathForComparison } from '@/shared/path';
 import { resolveReviewCallGraphPath } from '@/shared/reviewTarget';
 import { LanguageService } from './LanguageService';
@@ -124,6 +125,7 @@ export class BranchWatchAnalyzer {
     const fileImpacts: BranchWatchFileImpact[] = [];
     const references = new Map<string, Array<{ path: string }>>();
     for (const change of snapshot.changes.slice(0, this.maxFiles)) {
+      // eslint-disable-next-line no-await-in-loop -- the reference cache and its file budget are shared: file order decides which impacts fit
       fileImpacts.push(await this.fileImpact(change, snapshot, references));
     }
     return fileImpacts;
@@ -198,40 +200,70 @@ export class BranchWatchAnalyzer {
 
   private async readGraphFromSeeds(root: string, seeds: string[]): Promise<FileGraph> {
     const graph: FileGraph = { edges: [], limitations: [] };
-    const queue = [...new Set(seeds.map(normalizePath))];
-    const seen = new Set<string>();
     const language = new LanguageService(root, undefined, this.extensionPath);
     const reader = root === this.root ? this : new BranchWatchAnalyzer(root, undefined, this.extensionPath, this.gitPath, this.maxFiles);
-    while (queue.length && seen.size < this.maxFiles) {
-      const file = queue.shift()!;
-      if (seen.has(file) || !LanguageService.isSupported(file)) continue;
-      seen.add(file);
-      await this.readFileDependencies(root, file, language, reader, graph, queue, seen);
-    }
+    const queue = await this.readGraphLevel([...new Set(seeds.map(normalizePath))], new Set<string>(), graph,
+      file => this.readFileDependencies(root, file, language, reader));
     if (queue.length) graph.limitations.push(`Cycle analysis reached the ${this.maxFiles}-file affected-scope limit.`);
     return graph;
   }
 
+  /**
+   * One breadth-first level: picks the files a sequential walk would dequeue next (same order and
+   * file budget), reads them together, then merges their edges in that order. Returns the queue
+   * left when the walk stops, as the sequential walk would leave it.
+   */
+  private async readGraphLevel(queue: string[], seen: Set<string>, graph: FileGraph,
+    read: (file: string) => Promise<FileGraph>): Promise<string[]> {
+    const level: string[] = [];
+    let index = 0;
+    while (index < queue.length && seen.size < this.maxFiles) {
+      const file = queue[index++];
+      if (seen.has(file) || !LanguageService.isSupported(file)) continue;
+      seen.add(file);
+      level.push(file);
+    }
+    const rest = queue.slice(index);
+    if (!level.length) return rest;
+    const fileGraphs = await mapWithConcurrency(level, 8, read);
+    // Sequentially, only the level files read so far were seen: a later file of the level was still queued.
+    const position = new Map(level.map((file, at) => [file, at]));
+    for (const [at, fileGraph] of fileGraphs.entries()) {
+      graph.edges.push(...fileGraph.edges);
+      graph.limitations.push(...fileGraph.limitations);
+      for (const { target } of fileGraph.edges) {
+        if (!seen.has(target) || (position.get(target) ?? -1) > at) rest.push(target);
+      }
+    }
+    return this.readGraphLevel(rest, seen, graph, read);
+  }
+
+  /** Edges and limitations of one file; on failure, the edges found before it plus a limitation. */
   private async readFileDependencies(root: string, file: string, language: LanguageService,
-    reader: BranchWatchAnalyzer, graph: FileGraph, queue: string[], seen: Set<string>): Promise<void> {
+    reader: BranchWatchAnalyzer): Promise<FileGraph> {
+    const graph: FileGraph = { edges: [], limitations: [] };
+    const failed = `${file}: dependency graph could not be analyzed.`;
     try {
       const absolute = await reader.resolveFile(file);
       const parser = language.getAnalyzer(absolute);
-      for (const dependency of await parser.parseImports(absolute)) {
-        const resolved = await parser.resolvePath(absolute, dependency.module);
-        if (!resolved) {
-          if (this.isLocalModuleSpecifier(dependency.module)) {
-            graph.limitations.push(`${file}: dependency '${dependency.module}' is not resolved locally; cycles may be incomplete.`);
-          }
-          continue;
+      const dependencies = await parser.parseImports(absolute);
+      const resolutions = await Promise.allSettled(dependencies.map(dependency => parser.resolvePath(absolute, dependency.module)));
+      for (const [index, dependency] of dependencies.entries()) {
+        const resolution = resolutions[index];
+        if (resolution.status === 'rejected') {
+          graph.limitations.push(failed);
+          return graph;
         }
-        const relative = normalizePath(path.relative(root, resolved));
-        graph.edges.push({ source: file, target: relative });
-        if (!seen.has(relative)) queue.push(relative);
+        if (resolution.value) {
+          graph.edges.push({ source: file, target: normalizePath(path.relative(root, resolution.value)) });
+        } else if (this.isLocalModuleSpecifier(dependency.module)) {
+          graph.limitations.push(`${file}: dependency '${dependency.module}' is not resolved locally; cycles may be incomplete.`);
+        }
       }
     } catch {
-      graph.limitations.push(`${file}: dependency graph could not be analyzed.`);
+      graph.limitations.push(failed);
     }
+    return graph;
   }
 
   private isLocalModuleSpecifier(module: string): boolean {
@@ -303,28 +335,39 @@ export class BranchWatchAnalyzer {
 
   private async traverseImpact(snapshot: BranchWatchSnapshot,
     references: Map<string, Array<{ path: string }>>, result: BranchWatchFileImpact,
-    seen: Set<string>, queue: Array<{ path: string; depth: number }>,
+    seen: Set<string>, level: Array<{ path: string; depth: number }>,
     findReferencingFiles: (file: string) => Promise<Array<{ path: string }>>): Promise<void> {
-    for (const current of queue) {
-      const key = normalizePath(current.path);
-      await this.loadReferences(current.path, key, references, result, findReferencingFiles);
-      if (!references.has(key)) continue;
-      for (const ref of references.get(key)!) {
-        this.addDependent(snapshot, current, ref.path, result, seen, queue);
+    if (!level.length) return;
+    const keys = level.map(current => normalizePath(current.path));
+    const plan = this.planReferenceLoads(keys, references);
+    const loadIndexes = [...plan.keys()].filter(index => plan[index] === 'load');
+    // One breadth-first level: lookups run together, then results apply in queue order as a sequential walk would.
+    const outcomes = await mapWithConcurrency(loadIndexes, 8, index =>
+      findReferencingFiles(resolveReviewCallGraphPath(this.root, level[index].path))
+        .then(refs => ({ refs }), (error: unknown) => ({ error })));
+    const loaded = new Map(loadIndexes.map((index, at) => [index, outcomes[at]]));
+    const next: Array<{ path: string; depth: number }> = [];
+    for (const [index, current] of level.entries()) {
+      const outcome = loaded.get(index);
+      if (plan[index] === 'limit') result.limitations.push(`Impact traversal reached the ${this.maxFiles}-file limit.`);
+      if (outcome && 'error' in outcome) throw outcome.error;
+      if (outcome) references.set(keys[index], outcome.refs);
+      for (const ref of references.get(keys[index]) ?? []) {
+        this.addDependent(snapshot, current, ref.path, result, seen, next);
       }
     }
+    return this.traverseImpact(snapshot, references, result, seen, next, findReferencingFiles);
   }
 
-  private async loadReferences(currentPath: string, key: string,
-    references: Map<string, Array<{ path: string }>>, result: BranchWatchFileImpact,
-    findReferencingFiles: (file: string) => Promise<Array<{ path: string }>>): Promise<void> {
-    if (references.has(key)) return;
-    if (references.size >= this.maxFiles) {
-      result.limitations.push(`Impact traversal reached the ${this.maxFiles}-file limit.`);
-      return;
-    }
-    const refs = await findReferencingFiles(resolveReviewCallGraphPath(this.root, currentPath));
-    references.set(key, refs);
+  /** Per queued file, in order: already known, to load, or past the shared reference budget. */
+  private planReferenceLoads(keys: string[], references: Map<string, Array<{ path: string }>>): Array<'known' | 'load' | 'limit'> {
+    const loading = new Set<string>();
+    return keys.map(key => {
+      if (references.has(key) || loading.has(key)) return 'known';
+      if (references.size + loading.size >= this.maxFiles) return 'limit';
+      loading.add(key);
+      return 'load';
+    });
   }
 
   private addDependent(snapshot: BranchWatchSnapshot,
@@ -373,24 +416,20 @@ export class BranchWatchAnalyzer {
     // No checkout, hooks, index changes or commands from the inspected project are executed.
     const directory = await fs.mkdtemp(path.join(os.tmpdir(), 'graph-it-baseline-'));
     try {
-        // Git blob reads are independent; a small bounded batch avoids spawning
+        // Git blob reads are independent; a small bounded pool avoids spawning
         // thousands of sequential processes on large repositories.
-        const batchSize = 8;
-        for (let start = 0; start < selectedEntries.length; start += batchSize) {
-          const batch = selectedEntries.slice(start, start + batchSize);
-          const batchLimitations = await Promise.all(batch.map(async ({ meta, file }) => {
-            if (!['100644', '100755'].includes(meta[0])) return `${file}: unsupported baseline file mode.`;
-            const size = Number.parseInt((await this.git(['cat-file', '-s', meta[2]])).trim(), 10);
-            if (size > MAX_FILE_BYTES) return `${file}: baseline file exceeds text analysis limits.`;
-            const content = await this.git(['cat-file', 'blob', meta[2]]);
-            if (content.includes('\0')) return `${file}: baseline file is binary.`;
-            const target = resolveReviewCallGraphPath(directory, file);
-            await fs.mkdir(path.dirname(target), { recursive: true });
-            await fs.writeFile(target, content);
-            return undefined;
-          }));
-          graph.limitations.push(...batchLimitations.filter((limitation): limitation is string => Boolean(limitation)));
-        }
+        const blobLimitations = await mapWithConcurrency(selectedEntries, 8, async ({ meta, file }) => {
+          if (!['100644', '100755'].includes(meta[0])) return `${file}: unsupported baseline file mode.`;
+          const size = Number.parseInt((await this.git(['cat-file', '-s', meta[2]])).trim(), 10);
+          if (size > MAX_FILE_BYTES) return `${file}: baseline file exceeds text analysis limits.`;
+          const content = await this.git(['cat-file', 'blob', meta[2]]);
+          if (content.includes('\0')) return `${file}: baseline file is binary.`;
+          const target = resolveReviewCallGraphPath(directory, file);
+          await fs.mkdir(path.dirname(target), { recursive: true });
+          await fs.writeFile(target, content);
+          return undefined;
+        });
+        graph.limitations.push(...blobLimitations.filter((limitation): limitation is string => Boolean(limitation)));
         const baselineSeeds = seeds.filter(seed => selectedEntries.some(entry => entry.file === seed));
         const parsed = await new BranchWatchAnalyzer(directory, undefined, this.extensionPath, this.gitPath, this.maxFiles)
           .readGraphFromSeeds(directory, baselineSeeds);
@@ -464,10 +503,9 @@ export class BranchWatchAnalyzer {
       top = (await this.git(['rev-parse', '--show-toplevel'])).trim();
     } catch (error) {
       if (error instanceof BranchWatchError && error.code === 'git-unavailable') throw error;
-      for (const marker of ['.hg', '.svn']) {
-        if (await fs.stat(path.join(this.root, marker)).catch(() => undefined)) {
-          throw new BranchWatchError('unsupported-vcs', 'This workspace uses an unsupported version control system. Branch watch requires Git.');
-        }
+      const markers = await Promise.all(['.hg', '.svn'].map(marker => fs.stat(path.join(this.root, marker)).catch(() => undefined)));
+      if (markers.some(Boolean)) {
+        throw new BranchWatchError('unsupported-vcs', 'This workspace uses an unsupported version control system. Branch watch requires Git.');
       }
       // A present .git with a failing probe is an inaccessible/broken repository, not an empty folder.
       if (await fs.lstat(path.join(this.root, '.git')).catch(() => undefined)) throw error;
@@ -553,14 +591,21 @@ export class BranchWatchAnalyzer {
     const readablePaths: string[] = [];
     const hash = createHash('sha256').update(JSON.stringify({ ...identity, changes }));
     if (changes.length > this.maxFiles) limitations.push(`Analysis limited to ${this.maxFiles} changed files; remaining files are inventoried only.`);
+    // Reads run in a bounded pool; hashing and limitations then follow change order, as before.
+    const reads = await mapWithConcurrency(changes, 8, async (change, index) => {
+      if (change.kind === 'deleted' || index >= this.maxFiles) return undefined;
+      const readLimitations: string[] = [];
+      return { content: await this.readText(change.path, readLimitations, headSha), readLimitations };
+    });
     for (const [index, change] of changes.entries()) {
+      const read = reads[index];
       if (change.kind === 'deleted') {
         limitations.push(`${change.path}: deletion impact not analyzed; renames are represented as deletion and addition.`);
         hash.update(JSON.stringify([change.path, 'deleted']));
-      } else if (index < this.maxFiles) {
-        const content = await this.readText(change.path, limitations, headSha);
-        hash.update(JSON.stringify([change.path, content ?? 'unreadable']));
-        if (content !== undefined) readablePaths.push(change.path);
+      } else if (read) {
+        limitations.push(...read.readLimitations);
+        hash.update(JSON.stringify([change.path, read.content ?? 'unreadable']));
+        if (read.content !== undefined) readablePaths.push(change.path);
       } else {
         hash.update(JSON.stringify([change.path, 'outside-analysis-limit']));
       }

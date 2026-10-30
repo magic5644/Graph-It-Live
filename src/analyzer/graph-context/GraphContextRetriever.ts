@@ -1,5 +1,6 @@
 import { estimateTokens } from '@/shared/toon';
 import type { QueryEngine } from '@/analyzer/QueryEngine';
+import { mapWithConcurrency } from '@/shared/concurrency';
 import { normalizePath } from '@/shared/path';
 import type {
   GraphContextCandidate,
@@ -23,6 +24,9 @@ import { GraphContextScorer } from './GraphContextScorer';
 const DEFAULT_DEPTH = 2;
 const DEFAULT_MAX_NODES = 200;
 const MAX_SEARCH_SEEDS = 20;
+/** Dependents lookups in flight per BFS level; a lookup may scan the workspace when no reverse index exists. */
+// 1: the AST worker symbol results depend on which files it has loaded (`export *`), so symbol lookups stay one at a time, in order.
+const DEPENDENTS_CONCURRENCY = 1;
 const MAX_OVERVIEW_HUBS = 10;
 const MAX_OVERVIEW_COMMUNITIES = 10;
 
@@ -357,9 +361,12 @@ async function augmentWithDependents(
 
   for (let depth = 1; depth <= maxDepth && frontier.length > 0; depth += 1) {
     const nextFrontier: GraphContextNode[] = [];
-    for (const targetNode of frontier) {
-      const dependents = await loadDependents(targetNode, snapshot, provider, workspaceRoot);
-      for (const dependent of dependents) {
+    // Load the whole level in parallel, then merge in frontier order: same edges and visit order as one by one.
+    // eslint-disable-next-line no-await-in-loop -- BFS levels: the next frontier comes from this level's results
+    const levelDependents = await mapWithConcurrency(frontier, DEPENDENTS_CONCURRENCY, targetNode =>
+      loadDependents(targetNode, snapshot, provider, workspaceRoot));
+    for (const [index, targetNode] of frontier.entries()) {
+      for (const dependent of levelDependents[index]) {
         const key = `${dependent.id}\u0000${targetNode.id}`;
         if (!derivedEdges.has(key)) {
           derivedEdges.set(key, toEvidence({

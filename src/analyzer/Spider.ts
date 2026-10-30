@@ -416,10 +416,15 @@ export class Spider {
     let shutdownError: unknown;
     try { await this.beginShutdown(); }
     catch (error) { shutdownError = error; }
-    while (this.activeIndexingOperations.size > 0) {
-      await Promise.allSettled([...this.activeIndexingOperations]);
-    }
+    await this.drainIndexingOperations();
     if (shutdownError !== undefined) throw shutdownError;
+  }
+
+  /** Waits until no indexing operation runs, including ones started while waiting. */
+  private async drainIndexingOperations(): Promise<void> {
+    if (this.activeIndexingOperations.size === 0) return;
+    await Promise.allSettled([...this.activeIndexingOperations]);
+    return this.drainIndexingOperations();
   }
 
   beginShutdown(): Promise<void> {
@@ -725,8 +730,9 @@ export class Spider {
       const parsedImports = await analyzer.parseImports(filePath);
       const seenResolvedPaths = new Set<string>();
 
-      for (const imported of parsedImports) {
-        const resolvedPath = await analyzer.resolvePath(filePath, imported.module);
+      const resolvedPaths = await Promise.all(parsedImports.map((imported) => analyzer.resolvePath(filePath, imported.module)));
+      for (const [i, imported] of parsedImports.entries()) {
+        const resolvedPath = resolvedPaths[i];
         if (!resolvedPath || !this.resolver.isWithinWorkspace(resolvedPath)) continue;
 
         const dependencyPath = normalizePath(resolvedPath);

@@ -445,11 +445,9 @@ export class RustParser implements ILanguageAnalyzer {
       path.join(fromDir, modulePath, "mod.rs"),
     ];
 
-    for (const candidate of candidates) {
-      if (await this.fileExists(candidate)) {
-        return normalizePath(candidate);
-      }
-    }
+    const exists = await Promise.all(candidates.map((candidate) => this.fileExists(candidate)));
+    const found = candidates.find((_, i) => exists[i]);
+    if (found) return normalizePath(found);
 
     return null;
   }

@@ -63,6 +63,7 @@ export class ServiceContainer {
     // Consumers are registered after their dependencies, so stop them first.
     for (const instance of instances.reverse()) {
       try {
+        // eslint-disable-next-line no-await-in-loop -- reverse registration order: a consumer must finish disposing before its dependencies
         await instance.dispose?.();
       } catch (error) {
         if (!failed) firstError = error;

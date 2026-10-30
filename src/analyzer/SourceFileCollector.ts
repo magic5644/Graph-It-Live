@@ -74,6 +74,7 @@ export class SourceFileCollector {
           if (this.isCancelled()) {
             return;
           }
+          // eslint-disable-next-line no-await-in-loop -- depth-first walk: one readdir in flight keeps file order stable for consumers (maxFiles slice, symbol cutoff) and does not flood the libuv pool on large trees
           await processEntry(entry, currentDir);
         }
       } catch (error) {

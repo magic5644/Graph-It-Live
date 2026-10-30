@@ -273,6 +273,7 @@ export class IndexCache {
         notified = true;
         onWait?.(this.readLockHolder(path.join(this.dir, LOCK_FILE))?.pid);
       }
+      // eslint-disable-next-line no-await-in-loop -- lock polling: each wait must end before the next tryLock
       await new Promise((resolve) => setTimeout(resolve, LOCK_POLL_MS));
     }
   }

@@ -194,6 +194,7 @@ export class GoParser implements ILanguageAnalyzer {
         const rootNorm = normalizePath(this.rootDir);
 
         while (true) {
+            // eslint-disable-next-line no-await-in-loop -- nearest go.mod wins; stopping there avoids reading every ancestor go.mod
             const moduleName = await this.readGoModuleName(path.join(currentDir, 'go.mod'));
             if (moduleName) return { moduleDir: currentDir, moduleName };
 
@@ -237,6 +238,7 @@ export class GoParser implements ILanguageAnalyzer {
             const subdirs = entries.filter(GoParser.isTraversableDir);
             for (const entry of subdirs) {
                 if (entry.name === dirName) return path.join(dir, entry.name);
+                // eslint-disable-next-line no-await-in-loop -- depth-first search stops at the first match; going concurrent would read the whole tree to maxDepth
                 const found = await this.findDirectory(path.join(dir, entry.name), dirName, maxDepth - 1);
                 if (found) return found;
             }

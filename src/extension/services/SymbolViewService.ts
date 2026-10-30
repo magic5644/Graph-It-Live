@@ -208,6 +208,7 @@ export class SymbolViewService {
     // Some analyzer/parser paths are not safe under parallel symbolGraph calls.
     for (const refPath of referencingFilePaths) {
       try {
+        // eslint-disable-next-line no-await-in-loop -- sequential on purpose: some analyzer/parser paths are not safe under parallel getSymbolGraph calls (see NOTE above)
         const { dependencies } = await this.spider.getSymbolGraph(refPath);
         for (const dep of dependencies) {
           if (normalizePath(dep.targetFilePath) === normalizedTarget) {

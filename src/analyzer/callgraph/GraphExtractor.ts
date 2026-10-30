@@ -27,6 +27,7 @@
 import { WasmParserFactory } from "@/analyzer/languages/WasmParserFactory";
 import { PathResolver } from "@/analyzer/utils/PathResolver";
 import type { RelationType, SupportedLang, SymbolType } from "@/shared/callgraph-types";
+import { mapWithConcurrency } from "@/shared/concurrency";
 import { getLogger } from "@/shared/logger";
 import { normalizePath } from "@/shared/path";
 import fs from "node:fs/promises";
@@ -596,7 +597,7 @@ export interface ExtractionJob {
   mtime: number;
 }
 
-/** Batch size for `fs.stat` fan-out when checking freshness. */
+/** `fs.stat` calls in flight when checking freshness. */
 const STAT_BATCH = 32;
 
 /**
@@ -658,36 +659,37 @@ export async function collectChangedFiles(
   const jobs: ExtractionJob[] = [];
   let skipped = 0;
 
-  for (let i = 0; i < files.length; i += STAT_BATCH) {
-    if (isCancelled()) break;
-    const batch = files.slice(i, i + STAT_BATCH);
-    const stats = await Promise.all(
-      batch.map(async (filePath) => {
-        try {
-          const s = await fs.stat(filePath);
-          return { filePath, mtime: Math.floor(s.mtimeMs), ok: true as const };
-        } catch {
-          return { filePath, mtime: 0, ok: false as const };
-        }
-      }),
-    );
-
-    for (const s of stats) {
-      const lang = s.ok ? langOf(s.filePath) : null;
-      if (!lang) {
-        skipped++;
-        continue;
-      }
-
-      const record = lookup(s.filePath);
-      const queryCutoff = cutoffs[lang] ?? 0;
-      if (record && record.lastModified >= s.mtime && record.indexedAt >= queryCutoff) {
-        skipped++;
-        continue;
-      }
-
-      jobs.push({ filePath: s.filePath, lang, mtime: s.mtime });
+  let cancelled = false;
+  const stats = await mapWithConcurrency(files, STAT_BATCH, async (filePath) => {
+    // Once cancelled, no new stat starts and the remaining files are neither jobs nor skipped.
+    if (cancelled || isCancelled()) {
+      cancelled = true;
+      return null;
     }
+    try {
+      const s = await fs.stat(filePath);
+      return { filePath, mtime: Math.floor(s.mtimeMs), ok: true as const };
+    } catch {
+      return { filePath, mtime: 0, ok: false as const };
+    }
+  });
+
+  for (const s of stats) {
+    if (!s) continue;
+    const lang = s.ok ? langOf(s.filePath) : null;
+    if (!lang) {
+      skipped++;
+      continue;
+    }
+
+    const record = lookup(s.filePath);
+    const queryCutoff = cutoffs[lang] ?? 0;
+    if (record && record.lastModified >= s.mtime && record.indexedAt >= queryCutoff) {
+      skipped++;
+      continue;
+    }
+
+    jobs.push({ filePath: s.filePath, lang, mtime: s.mtime });
   }
 
   return { jobs, skipped };

@@ -148,13 +148,15 @@ export class CSharpParser implements ILanguageAnalyzer {
 
     /** Try progressively shorter namespace suffixes as directory paths. */
     private async resolveViaSuffix(segments: string[]): Promise<string | null> {
+        const targetDirs: string[] = [];
         for (let i = segments.length - 1; i >= 1; i--) {
             const targetDir = path.resolve(this.rootDir, segments.slice(i).join(path.sep));
-            if (!this.isWithinRoot(targetDir)) continue;
-            const csFile = await this.findFirstCsFile(targetDir);
-            if (csFile) return normalizePath(csFile);
+            if (this.isWithinRoot(targetDir)) targetDirs.push(targetDir);
         }
-        return null;
+        // One non-recursive readdir per suffix: list them concurrently, keep the first hit in suffix order.
+        const csFiles = await Promise.all(targetDirs.map(dir => this.findFirstCsFile(dir)));
+        const csFile = csFiles.find(file => file !== null);
+        return csFile ? normalizePath(csFile) : null;
     }
 
     /** Fallback: search for a directory matching the last segment name. */
@@ -201,6 +203,7 @@ export class CSharpParser implements ILanguageAnalyzer {
             const subdirs = entries.filter(CSharpParser.isTraversableDir);
             for (const entry of subdirs) {
                 if (entry.name === dirName) return path.join(dir, entry.name);
+                // eslint-disable-next-line no-await-in-loop -- depth-first search stops at the first match; going concurrent would read the whole tree to maxDepth
                 const found = await this.findDirectory(path.join(dir, entry.name), dirName, maxDepth - 1);
                 if (found) return found;
             }

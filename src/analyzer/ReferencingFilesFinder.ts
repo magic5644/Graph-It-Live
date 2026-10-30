@@ -1,4 +1,5 @@
 import { SourceFileCollector } from './SourceFileCollector';
+import { mapWithConcurrency } from '../shared/concurrency';
 import { getLogger } from '../shared/logger';
 import { Dependency, normalizePath } from './types';
 
@@ -42,24 +43,12 @@ export class ReferencingFilesFinder {
     log.debug('findReferencingFilesFallback for', normalizedTargetPath, 'basename:', targetBasename);
 
     const allFiles = await this.sourceFileCollector.collectAllSourceFiles(this.getRootDir());
-    const referencingFiles: Dependency[] = [];
     const concurrency = this.getConcurrency() ?? 8;
-
-    for (let i = 0; i < allFiles.length; i += concurrency) {
-      const batch = allFiles.slice(i, i + concurrency);
-
-      const results = await Promise.all(
-        batch
-          .filter(filePath => normalizePath(filePath) !== normalizedTargetPath)
-          .map(filePath => this.findReferenceInFile(filePath, normalizedTargetPath, targetBasename))
-      );
-
-      for (const result of results) {
-        if (result) {
-          referencingFiles.push(result);
-        }
-      }
-    }
+    const candidates = allFiles.filter(filePath => normalizePath(filePath) !== normalizedTargetPath);
+    const results = await mapWithConcurrency(candidates, concurrency, filePath =>
+      this.findReferenceInFile(filePath, normalizedTargetPath, targetBasename)
+    );
+    const referencingFiles = results.filter((result): result is Dependency => result !== null);
 
     log.debug('findReferencingFilesFallback found', referencingFiles.length, 'referencing files');
     return referencingFiles;

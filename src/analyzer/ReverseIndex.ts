@@ -7,8 +7,12 @@ import {
   Dependency,
   normalizePath,
 } from './types';
+import { mapWithConcurrency } from '../shared/concurrency';
 import { getLogger } from '../shared/logger';
 import type { OutOfRootImports } from './utils/workspaceBoundary';
+
+/** How many `fs.stat` calls validateIndex() keeps in flight */
+const STAT_CONCURRENCY = 32;
 
 /** How many skipped specifiers getOutOfRootImports() reports */
 const OUT_OF_ROOT_EXAMPLES = 5;
@@ -419,8 +423,9 @@ export class ReverseIndex {
     const candidates = filesToCheck
       ? [...new Set(filesToCheck.map(normalizePath))]
       : [...this.fileHashes.keys()];
-    for (const filePath of candidates) {
-      const currentHash = await ReverseIndex.getFileHashFromDisk(filePath);
+    const hashes = await mapWithConcurrency(candidates, STAT_CONCURRENCY, filePath => ReverseIndex.getFileHashFromDisk(filePath));
+    for (const [index, filePath] of candidates.entries()) {
+      const currentHash = hashes[index];
 
       if (!currentHash) {
         // Absent from disk and from the index is the correct state for a deleted file.
