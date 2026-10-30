@@ -25,6 +25,8 @@ export interface ReviewGateOptions {
   headRef?: string;
   maxFiles?: number;
   maxDepth?: number;
+  /** Set to false when the caller reports import cycles itself; default true. */
+  fileCycles?: boolean;
 }
 
 export interface ReviewEvidence {
@@ -78,11 +80,26 @@ export interface ReviewSymbol {
   evidence: ReviewEvidence[];
 }
 
+/** An import cycle the diff creates or enlarges, between workspace-relative files. */
+export interface ReviewCycle {
+  classification: "introduced" | "aggravated";
+  files: string[];
+  changedFiles: string[];
+}
+
+/** File-level cycles the diff adds, or why they could not be determined. */
+export interface FileCycleAnalysis {
+  cycles: ReviewCycle[];
+  limitations: string[];
+}
+
 export interface ReviewGateResult {
   baseRef: string;
   headRef: string;
   changedFiles: string[];
   symbols: ReviewSymbol[];
+  /** Import cycles the diff introduces or aggravates; a cycle that already existed untouched is not listed. */
+  cycles: ReviewCycle[];
   score: number;
   risk: ReviewRiskLevel;
   isPartial: boolean;
@@ -102,12 +119,16 @@ export interface SymbolDependentsProvider {
   findReferencingFilesWithFallback?(filePath: string): Promise<Array<{ path: string }>>;
   getSymbolGraph?(filePath: string): Promise<{ symbols: SymbolInfo[]; dependencies: SymbolDependency[] }>;
   findUnusedSymbols?(filePath: string): Promise<SymbolInfo[]>;
+  /** Import cycles among `changedFiles` that the diff against `baseRef` adds; absent when the host cannot read the base. */
+  findFileCycles?(changedFiles: string[], baseRef: string): Promise<FileCycleAnalysis>;
 }
 
 interface FileEvidence {
   cycleSymbols: Set<string>;
   unusedSymbols: Set<string>;
   testCandidates: string[];
+  /** The file is in an import cycle the diff adds: every changed symbol of it is then in a cycle. */
+  inFileCycle: boolean;
   /** Top-level functions of the changed file, read from its new content. */
   functions: SignatureInfo[];
 }
@@ -141,6 +162,8 @@ interface MoveIndex {
   grep: Map<string, Promise<string[] | string>>;
   /** Memoized head content of the candidate importers, shared by every exported name. */
   contents: Map<string, Promise<string | null>>;
+  /** Workspace-relative files that sit in an import cycle the diff adds. */
+  cycleFiles: ReadonlySet<string>;
 }
 
 /** The changed file whose removals are being matched against the other changed files. */
@@ -195,7 +218,10 @@ export class ReviewGateAnalyzer {
     }
 
     const sources = await this.loadChangedSources(changedFiles, options.baseRef, headRef);
-    const moves: MoveIndex = { sources, targets: this.collectMoveTargets(sources), stale: new Map(), grep: new Map(), contents: new Map() };
+    const fileCycles = options.fileCycles === false ? { cycles: [], limitations: [] } : await this.collectFileCycles(changedFiles, options.baseRef, headRef);
+    limitations.push(...fileCycles.limitations);
+    const cycleFiles = new Set(fileCycles.cycles.flatMap((cycle) => cycle.changedFiles.map(normalizePath)));
+    const moves: MoveIndex = { sources, targets: this.collectMoveTargets(sources), stale: new Map(), grep: new Map(), contents: new Map(), cycleFiles };
     for (const relativePath of changedFiles) {
       symbols.push(...await this.analyzeChangedFile(relativePath, headRef, maxDepth, limitations, analysisAvailability, changedFileSet, moves)); // NOSONAR S9382: one file at a time, analyses share the limitations and the stale-importer cache
     }
@@ -207,11 +233,26 @@ export class ReviewGateAnalyzer {
       headRef,
       changedFiles,
       symbols,
+      cycles: fileCycles.cycles,
       score,
       risk: riskForScore(score),
       isPartial: limitations.length > 0,
       limitations,
     };
+  }
+
+  private async collectFileCycles(changedFiles: string[], baseRef: string, headRef: string): Promise<FileCycleAnalysis> {
+    if (!this.dependents?.findFileCycles) {
+      return { cycles: [], limitations: ["Import-cycle evidence unavailable: file-cycle provider is not configured."] };
+    }
+    try {
+      const analysis = await this.dependents.findFileCycles(changedFiles, baseRef);
+      // Cycles are read from the checked-out tree, which is the head only when no other ref is asked for.
+      const limitations = headRef === "HEAD" ? analysis.limitations : [...analysis.limitations, `Import cycles are read from the checked-out tree, not from ${headRef}.`];
+      return { cycles: analysis.cycles, limitations };
+    } catch {
+      return { cycles: [], limitations: ["Import-cycle evidence unavailable: the dependency graph could not be compared with the base ref."] };
+    }
   }
 
   /** A ref starting with "-" would reach git as an option (for example --output=<file>). */
@@ -299,6 +340,7 @@ export class ReviewGateAnalyzer {
     if (oldContent === null) return [];
     const fileEvidence = {
       ...await this.collectFileEvidence(absolutePath, relativePath, limitations, availability),
+      inFileCycle: moves.cycleFiles.has(relativePath),
       functions: this.extractTopLevelFunctions(absolutePath, newContent),
     };
     const scope: MoveScope = { relativePath, absolutePath, oldContent, headRef, changedFiles, moves, limitations };
@@ -489,7 +531,7 @@ export class ReviewGateAnalyzer {
     );
     const staleImporters = comparison.staleImporters ?? [];
     const impact = await this.getContractImpact(comparison, errorBreakingChanges, absolutePath, maxDepth, fileEvidence, headRef);
-    const cycles = fileEvidence.cycleSymbols.has(this.toSymbolId(absolutePath, comparison.symbolName));
+    const cycles = fileEvidence.inFileCycle || fileEvidence.cycleSymbols.has(this.toSymbolId(absolutePath, comparison.symbolName));
     const unusedExport = fileEvidence.unusedSymbols.has(comparison.symbolName);
     // A dependents provider that actually ran and found zero live consumers (not just
     // "no provider configured", which also reports count: 0 but means unknown impact)
@@ -705,7 +747,7 @@ export class ReviewGateAnalyzer {
         detail: `${consumerTotal} consumer file(s): ${updated.length} updated in this diff, ${standing}.`,
       });
     }
-    if (input.cycles) evidence.push({ kind: "cycle", detail: "Changed symbol participates in a detected symbol dependency cycle." });
+    if (input.cycles) evidence.push({ kind: "cycle", detail: "Changed symbol participates in a detected symbol dependency cycle, or its file in an import cycle this diff adds." });
     if (input.unusedExport) evidence.push({ kind: "unused-export", detail: "Changed exported symbol is currently reported as unused." });
     if (input.testCandidates.length > 0) {
       evidence.push({ kind: "test-candidate", detail: `Conventional test candidate(s): ${input.testCandidates.join(", ")}.` });
@@ -1156,7 +1198,7 @@ function markStale(standing: ConsumerStanding, staleImporters: string[]): Consum
 const MODULE_SYMBOL = "(module)";
 
 /** A deleted file has no head content to collect cycle, unused-export or test evidence from. */
-const DELETED_FILE_EVIDENCE: FileEvidence = { cycleSymbols: new Set(), unusedSymbols: new Set(), testCandidates: [], functions: [] };
+const DELETED_FILE_EVIDENCE: FileEvidence = { cycleSymbols: new Set(), unusedSymbols: new Set(), testCandidates: [], inFileCycle: false, functions: [] };
 
 // `.d.ts` first: a declaration file is imported as `./types`, not `./types.d`.
 const MODULE_EXTENSION_REGEX = /(?:\.d)?\.(?:[cm]?[jt]sx?|vue)$/i;
@@ -1321,6 +1363,8 @@ export function renderReviewMarkdown(result: ReviewGateResult): string {
     .flatMap((symbol) => symbol.evidence.filter((item) => item.kind === "moved").map((item) => `- ${safe(item.detail)}`))
     .slice(0, 20);
 
+  const cycles = result.cycles.slice(0, 10).map((cycle) => `- ${cycle.classification}: ${cycle.files.map(safe).join(" <-> ")}`);
+
   return [
     "<!-- graph-it-review-gate -->",
     `## Graph-It Review Gate: ${result.risk.toUpperCase()} (${result.score}/100)`,
@@ -1332,6 +1376,7 @@ export function renderReviewMarkdown(result: ReviewGateResult): string {
     ...(rows.length > 0 ? rows : ["| low | 0 | — | No breaking signatures detected | 0 | 0 | 0 |"]),
     ...(unverified.length > 0 ? ["", "### Consumers to check", ...unverified] : []),
     ...(moved.length > 0 ? ["", "### Moved symbols", ...moved] : []),
+    ...(cycles.length > 0 ? ["", "### Import cycles", ...cycles] : []),
     ...(result.limitations.length > 0 ? ["", "### Limitations", ...result.limitations.map((item) => `- ${safe(item)}`)] : []),
   ].join("\n");
 }

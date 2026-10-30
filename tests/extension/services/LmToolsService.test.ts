@@ -426,7 +426,10 @@ describe('LmToolsService', () => {
 
       const result = await invokeTool(TOOL, { baseRef: 'main', maxFiles: 10 });
 
-      expect(reviewGateCtor).toHaveBeenCalledWith('/workspace', provider.getSpiderForLmTools());
+      expect(reviewGateCtor).toHaveBeenCalledWith('/workspace', expect.objectContaining({
+        getSymbolDependents: expect.any(Function),
+        findFileCycles: expect.any(Function),
+      }));
       expect(reviewAnalyze).toHaveBeenCalledWith({ baseRef: 'main', maxFiles: 10 });
       expect(result).toEqual({ baseRef: 'main', risk: 'low', score: 0, changedFiles: ['src/a.ts'] });
     });

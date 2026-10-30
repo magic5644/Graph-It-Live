@@ -7,7 +7,7 @@ import { promisify } from 'node:util';
 import { normalizePath, normalizePathForComparison } from '@/shared/path';
 import { resolveReviewCallGraphPath } from '@/shared/reviewTarget';
 import { LanguageService } from './LanguageService';
-import { ReviewGateAnalyzer, type ReviewGateResult, type SymbolDependentsProvider } from './ReviewGateAnalyzer';
+import { ReviewGateAnalyzer, type FileCycleAnalysis, type ReviewGateResult, type SymbolDependentsProvider } from './ReviewGateAnalyzer';
 import { detectCycleEdges } from '../shared/cycleUtils';
 
 const execFileAsync = promisify(execFile);
@@ -76,7 +76,9 @@ interface FileGraph {
   edges: Array<{ source: string; target: string }>;
   limitations: string[];
 }
-interface CycleAnalysis {
+/** What the cycle analysis reads of a snapshot: the changed files and the base to compare with. */
+export type CycleScope = Pick<BranchWatchSnapshot, 'changes' | 'mergeBaseSha'>;
+export interface CycleAnalysis {
   findings: BranchWatchCycleFinding[];
   summary: { detected: number; scopeComplete: boolean };
 }
@@ -127,9 +129,22 @@ export class BranchWatchAnalyzer {
     return fileImpacts;
   }
 
+  /** Import cycles a diff against `baseRef` adds among `changedFiles`, for the review gate; a file gone from disk counts as deleted. */
+  async findFileCycles(changedFiles: string[], baseRef: string): Promise<FileCycleAnalysis> {
+    const changes = await Promise.all(changedFiles.map(async (file): Promise<BranchWatchChange> => ({
+      path: normalizePath(file),
+      kind: await fs.access(resolveReviewCallGraphPath(this.root, file)).then(() => 'modified' as const, () => 'deleted' as const),
+    })));
+    const limitations: string[] = [];
+    const { findings } = await this.buildCycles({ changes, mergeBaseSha: baseRef }, limitations);
+    const cycles = findings.flatMap(({ classification, nodePaths, changedPaths }) =>
+      classification === 'existing-touched' ? [] : [{ classification, files: nodePaths, changedFiles: changedPaths }]);
+    return { cycles, limitations };
+  }
+
   private async buildReview(snapshot: BranchWatchSnapshot, limitations: string[]): Promise<ReviewGateResult> {
     const emptyReview: ReviewGateResult = { baseRef: snapshot.mergeBaseSha, headRef: snapshot.headReference ?? 'HEAD', changedFiles: [],
-      symbols: [], score: 0, risk: 'low', isPartial: false, limitations: [] };
+      symbols: [], cycles: [], score: 0, risk: 'low', isPartial: false, limitations: [] };
     const signatureChanges = snapshot.changes.filter(c => SIGNATURE_FILES.test(c.path) && c.kind !== 'deleted' && c.kind !== 'untracked');
     if (!signatureChanges.length) return emptyReview;
     if (!signatureChanges.every(c => snapshot.readablePaths.includes(c.path))) {
@@ -138,7 +153,7 @@ export class BranchWatchAnalyzer {
     }
     const review = await new ReviewGateAnalyzer(this.root, this.dependents).analyze({
       baseRef: snapshot.mergeBaseSha, maxFiles: this.maxFiles, maxDepth: 3,
-      headRef: snapshot.headReference,
+      headRef: snapshot.headReference, fileCycles: false,
     });
     limitations.push(...review.limitations);
     return review;
@@ -152,7 +167,7 @@ export class BranchWatchAnalyzer {
     }
   }
 
-  private async buildCycles(snapshot: BranchWatchSnapshot, limitations: string[]): Promise<CycleAnalysis> {
+  async buildCycles(snapshot: CycleScope, limitations: string[]): Promise<CycleAnalysis> {
     const empty: CycleAnalysis = { findings: [], summary: { detected: 0, scopeComplete: true } };
     const seeds = snapshot.changes.filter(change => change.kind !== 'deleted' && LanguageService.isSupported(change.path)).map(change => change.path);
     if (!seeds.length) return empty;
@@ -388,7 +403,7 @@ export class BranchWatchAnalyzer {
     return graph;
   }
 
-  private classifyCycles(current: FileGraph, baseline: FileGraph, snapshot: BranchWatchSnapshot): BranchWatchCycleFinding[] {
+  private classifyCycles(current: FileGraph, baseline: FileGraph, snapshot: CycleScope): BranchWatchCycleFinding[] {
     // Encode paths before using the legacy arrow-delimited edge keys (Git filenames may contain arrows).
     const encode = (graph: FileGraph) => graph.edges.map(e => ({ source: encodeURIComponent(e.source), target: encodeURIComponent(e.target) }));
     const currentEdges = detectCycleEdges(encode(current));

@@ -1580,7 +1580,8 @@ export class LmToolsService {
           }
           try {
             const params = ReviewPrParamsSchema.parse(options.input);
-            const result = await new ReviewGateAnalyzer(rootDir, spider).analyze(params);
+            const { createSpiderDependentsProvider } = await import('../../mcp/tools/impact.js');
+            const result = await new ReviewGateAnalyzer(rootDir, createSpiderDependentsProvider(spider, rootDir)).analyze(params);
             return new vscode.LanguageModelToolResult([
               new vscode.LanguageModelTextPart(JSON.stringify(result)),
             ]);

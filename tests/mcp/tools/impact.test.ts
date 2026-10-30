@@ -485,4 +485,11 @@ describe("createSpiderDependentsProvider", () => {
     expect(spider.getSymbolDependents).toHaveBeenCalledWith("/abs/src/a.ts", "useIt");
     expect(spider.findReferencingFiles).toHaveBeenCalledWith("/abs/src/a.ts");
   });
+
+  it("reads import cycles only when it knows the workspace root", () => {
+    const spider = { getSymbolDependents: vi.fn() };
+
+    expect(createSpiderDependentsProvider(spider as never).findFileCycles).toBeUndefined();
+    expect(createSpiderDependentsProvider(spider as never, os.tmpdir()).findFileCycles).toBeTypeOf("function");
+  });
 });
