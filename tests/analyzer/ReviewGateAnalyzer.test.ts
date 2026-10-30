@@ -3,6 +3,7 @@ import * as fs from "node:fs/promises";
 import * as os from "node:os";
 import * as path from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { BranchWatchAnalyzer } from "../../src/analyzer/BranchWatchAnalyzer";
 import { ReviewGateAnalyzer, renderReviewMarkdown, riskForScore } from "../../src/analyzer/ReviewGateAnalyzer";
 
 const temporaryDirectories: string[] = [];
@@ -95,6 +96,7 @@ describe("ReviewGateAnalyzer", { timeout: GIT_TEST_TIMEOUT }, () => {
     await expect(new ReviewGateAnalyzer(workspace).analyze({ baseRef: "main", headRef: "-p" })).rejects.toThrow("headRef");
     await expect(new ReviewGateAnalyzer(workspace).analyze({ baseRef: "" })).rejects.toThrow("baseRef");
     const markdown = renderReviewMarkdown({
+      cycles: [],
       baseRef: "main",
       headRef: "HEAD",
       changedFiles: ["src/<bad>|.ts"],
@@ -118,6 +120,7 @@ describe("ReviewGateAnalyzer", { timeout: GIT_TEST_TIMEOUT }, () => {
 
   it("renders the consumer buckets, not a raw dependent count", () => {
     const markdown = renderReviewMarkdown({
+      cycles: [],
       baseRef: "main",
       headRef: "HEAD",
       changedFiles: ["src/api.ts"],
@@ -144,6 +147,7 @@ describe("ReviewGateAnalyzer", { timeout: GIT_TEST_TIMEOUT }, () => {
 
   it("omits the consumer section when the change requires no call-site update", () => {
     const markdown = renderReviewMarkdown({
+      cycles: [],
       baseRef: "main",
       headRef: "HEAD",
       changedFiles: ["src/api.ts"],
@@ -330,6 +334,7 @@ describe("ReviewGateAnalyzer", { timeout: GIT_TEST_TIMEOUT }, () => {
         ],
       }),
       findUnusedSymbols: async () => [{ name: "greet" } as never],
+      findFileCycles: async () => ({ cycles: [], limitations: [] }),
     });
 
     const result = await analyzer.analyze({ baseRef: "main" });
@@ -1176,6 +1181,7 @@ function referenceIndex(referrers: string[] = []) {
   return {
     getSymbolDependents: async () => [],
     findReferencingFiles: async () => referrers.map((file) => ({ path: file })),
+    findFileCycles: async () => ({ cycles: [], limitations: [] }),
   };
 }
 
@@ -1635,5 +1641,138 @@ describe("ReviewGateAnalyzer - dropped export", { timeout: GIT_TEST_TIMEOUT }, (
 
     expect(symbol).toMatchObject({ risk: "low", consumers: { updated: [], covered: [], unverified: [] } });
     expect(symbol?.breakingChanges).toHaveLength(1);
+  });
+});
+
+/** Regression (#518): an import cycle the diff creates was reported nowhere unless a changed symbol sat in a symbol-level cycle. */
+describe("ReviewGateAnalyzer - import cycles added by the diff", { timeout: GIT_TEST_TIMEOUT }, () => {
+  const P = "export function p(): number { return 1; }\n";
+  const Q = 'import { p } from "./cyc_p";\nexport function q(): number { return p(); }\n';
+  const P_CYCLE = `import { q } from "./cyc_q";\nexport const back = q;\n${P}`;
+  const P_TYPE_CYCLE = `import type { q } from "./cyc_q";\nexport type Back = typeof q;\n${P}`;
+  const P_DYNAMIC_CYCLE = `export const back = () => import("./cyc_q");\n${P}`;
+  const lines = (...rows: string[]) => `${rows.join("\n")}\n`;
+  /** Index that answers every evidence query, so the only limitations are the file-cycle ones. */
+  const completeIndex = () => ({ ...referenceIndex(), getSymbolGraph: async () => ({ symbols: [], dependencies: [] }), findUnusedSymbols: async () => [] });
+
+  async function review(base: Record<string, string>, head: Record<string, string | null>, options: { extensionPath?: string; provider?: boolean } = {}) {
+    const workspace = await workspaceWith(base, head);
+    const index = options.provider === false ? { ...completeIndex(), findFileCycles: undefined } : {
+      ...completeIndex(),
+      findFileCycles: (files: string[], baseRef: string) => new BranchWatchAnalyzer(workspace, undefined, options.extensionPath).findFileCycles(files, baseRef),
+    };
+    return new ReviewGateAnalyzer(workspace, index).analyze({ baseRef: "main" });
+  }
+
+  it.each([
+    ["two files", { "src/cyc_p.ts": P, "src/cyc_q.ts": Q }, { "src/cyc_p.ts": P_CYCLE }, ["src/cyc_p.ts", "src/cyc_q.ts"]],
+    ["two files through a type-only import", { "src/cyc_p.ts": P, "src/cyc_q.ts": Q }, { "src/cyc_p.ts": P_TYPE_CYCLE }, ["src/cyc_p.ts", "src/cyc_q.ts"]],
+    ["two files through a dynamic import()", { "src/cyc_p.ts": P, "src/cyc_q.ts": Q }, { "src/cyc_p.ts": P_DYNAMIC_CYCLE }, ["src/cyc_p.ts", "src/cyc_q.ts"]],
+    ["three files", {
+      "src/a.ts": 'import { b } from "./b";\nexport const a = b;\n', "src/b.ts": 'import { c } from "./c";\nexport const b = c;\n', "src/c.ts": "export const c = 1;\n",
+    }, { "src/c.ts": 'import { a } from "./a";\nexport const c = a;\n' }, ["src/a.ts", "src/b.ts", "src/c.ts"]],
+    ["a file importing itself", { "src/a.ts": "export const a = 1;\n" }, { "src/a.ts": 'import { a } from "./a";\nexport const b = a;\n' }, ["src/a.ts"]],
+    ["two files through a barrel index.ts", {
+      "src/lib/index.ts": 'export * from "./a";\n', "src/lib/a.ts": "export const a = 1;\n", "src/lib/b.ts": 'import { a } from "./index";\nexport const b = a;\n',
+    }, { "src/lib/a.ts": 'import { b } from "./b";\nexport const a = b;\n' }, ["src/lib/a.ts", "src/lib/b.ts", "src/lib/index.ts"]],
+    ["a new file closing the cycle", {
+      "src/a.ts": 'import { b } from "./b";\nexport const a = b;\n', "src/b.ts": "export const b = 1;\n",
+    }, { "src/b.ts": 'import { c } from "./c";\nexport const b = c;\n', "src/c.ts": 'import { a } from "./a";\nexport const c = a;\n' }, ["src/a.ts", "src/b.ts", "src/c.ts"]],
+  ])("reports a cycle between %s", async (_name, base, head, files) => {
+    const result = await review(base, head);
+
+    expect(result.cycles).toEqual([expect.objectContaining({ classification: "introduced", files })]);
+    expect(result.isPartial).toBe(false);
+  });
+
+  it.each([
+    ["a cycle the diff touches without changing it", { "src/cyc_p.ts": P_CYCLE, "src/cyc_q.ts": Q }, { "src/cyc_p.ts": `${P_CYCLE}// touched\n`, "src/cyc_q.ts": `${Q}// touched\n` }],
+    ["a cycle the diff removes", { "src/cyc_p.ts": P_CYCLE, "src/cyc_q.ts": Q }, { "src/cyc_p.ts": P }],
+    ["a cycle broken by a deleted file", { "src/cyc_p.ts": P_CYCLE, "src/cyc_q.ts": Q }, { "src/cyc_q.ts": null }],
+    ["an import that closes no cycle", { "src/cyc_p.ts": P, "src/cyc_q.ts": Q }, { "src/cyc_q.ts": `${Q}// touched\n` }],
+  ])("reports no cycle for %s", async (_name, base, head) => {
+    const result = await review(base, head);
+
+    expect(result.cycles).toEqual([]);
+    expect(result.isPartial).toBe(false);
+  });
+
+  it("scores the changed symbols of a file in the new cycle, with the removed parameter of the issue's third variant", async () => {
+    const result = await review({ "src/cyc_p.ts": P, "src/cyc_q.ts": Q }, {
+      "src/cyc_p.ts": 'import { q } from "./cyc_q";\nexport const back = q;\nexport function p(x: number): number { return x; }\n',
+    });
+    const symbol = result.symbols.find((candidate) => candidate.name === "p");
+
+    expect(result.cycles).toHaveLength(1);
+    expect(symbol?.scoreFactors.cycles).toBeGreaterThan(0);
+    expect(symbol?.cycleEvidence).toEqual(["p"]);
+    expect(symbol?.evidence.map((item) => item.kind)).toContain("cycle");
+  });
+
+  it("reports an aggravated cycle when the diff pulls another file into an existing one", async () => {
+    const result = await review({ "src/cyc_p.ts": P_CYCLE, "src/cyc_q.ts": Q, "src/r.ts": 'import { back } from "./cyc_p";\nexport const r = back;\n' }, {
+      "src/cyc_p.ts": `import { r } from "./r";\nexport const viaR = r;\n${P_CYCLE}`,
+    });
+
+    expect(result.cycles).toEqual([expect.objectContaining({ classification: "aggravated", files: ["src/cyc_p.ts", "src/cyc_q.ts", "src/r.ts"] })]);
+  });
+
+  it("states that cycle evidence is unavailable instead of reporting no cycle when no provider reads the base", async () => {
+    const result = await review({ "src/cyc_p.ts": P, "src/cyc_q.ts": Q }, { "src/cyc_p.ts": P_CYCLE }, { provider: false });
+
+    expect(result.cycles).toEqual([]);
+    expect(result.isPartial).toBe(true);
+    expect(result.limitations).toContain("Import-cycle evidence unavailable: file-cycle provider is not configured.");
+  });
+
+  it("states that cycle evidence is unavailable when the base cannot be read", async () => {
+    const workspace = await workspaceWith({ "src/cyc_p.ts": P }, { "src/cyc_p.ts": P_CYCLE });
+    const failing = { ...completeIndex(), findFileCycles: async () => { throw new Error("boom"); } };
+    const result = await new ReviewGateAnalyzer(workspace, failing).analyze({ baseRef: "main" });
+
+    expect(result.cycles).toEqual([]);
+    expect(result.limitations).toEqual(["Import-cycle evidence unavailable: the dependency graph could not be compared with the base ref."]);
+  });
+
+  it("does not look for cycles when the caller reports them itself", async () => {
+    const workspace = await workspaceWith({ "src/cyc_p.ts": P }, { "src/cyc_p.ts": P_CYCLE });
+    const findFileCycles = vi.fn();
+    const result = await new ReviewGateAnalyzer(workspace, { ...completeIndex(), findFileCycles }).analyze({ baseRef: "main", fileCycles: false });
+
+    expect(findFileCycles).not.toHaveBeenCalled();
+    expect(result.limitations).toEqual([]);
+  });
+
+  it("warns that cycles come from the checked-out tree when another head ref is reviewed", async () => {
+    const workspace = await workspaceWith({ "src/cyc_p.ts": P, "src/cyc_q.ts": Q }, { "src/cyc_p.ts": P_CYCLE }, true);
+    const findFileCycles = async () => ({ cycles: [], limitations: [] });
+    const result = await new ReviewGateAnalyzer(workspace, { ...completeIndex(), findFileCycles }).analyze({ baseRef: "main", headRef: "b1" });
+
+    expect(result.limitations).toEqual(["Import cycles are read from the checked-out tree, not from b1."]);
+  });
+
+  it("reads backslash paths as the same files and reports nothing for an empty diff", async () => {
+    const workspace = await workspaceWith({ "src/cyc_p.ts": P, "src/cyc_q.ts": Q }, { "src/cyc_p.ts": P_CYCLE });
+    const analyzer = new BranchWatchAnalyzer(workspace);
+
+    await expect(analyzer.findFileCycles(["src\\cyc_p.ts"], "main")).resolves.toMatchObject({ cycles: [{ files: ["src/cyc_p.ts", "src/cyc_q.ts"], changedFiles: ["src/cyc_p.ts"] }] });
+    await expect(analyzer.findFileCycles([], "main")).resolves.toEqual({ cycles: [], limitations: [] });
+  });
+
+  it("reports the cycles in the markdown rendering", async () => {
+    const result = await review({ "src/cyc_p.ts": P, "src/cyc_q.ts": Q }, { "src/cyc_p.ts": P_CYCLE });
+
+    expect(renderReviewMarkdown(result)).toContain("### Import cycles\n- introduced: src/cyc_p.ts <-> src/cyc_q.ts");
+    expect(renderReviewMarkdown({ ...result, cycles: [] })).not.toContain("Import cycles");
+  });
+
+  it("reports a Python cycle created by a relative import", async () => {
+    const result = await review(
+      { "pkg/__init__.py": "", "pkg/a.py": lines("def a(): return 1"), "pkg/b.py": lines("from .a import a", "def b(): return a()") },
+      { "pkg/a.py": lines("from .b import b", "def a(): return 1") },
+      { extensionPath: process.cwd() },
+    );
+
+    expect(result.cycles).toEqual([expect.objectContaining({ classification: "introduced", files: ["pkg/a.py", "pkg/b.py"] })]);
   });
 });
