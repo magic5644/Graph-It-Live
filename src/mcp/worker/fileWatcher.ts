@@ -177,32 +177,22 @@ async function reportNewDirectoryFiles(
   watchRoot: string,
   isIgnoredByRules: IgnoreMatcher,
 ): Promise<void> {
-  const files = await collectNewDirectoryFiles(directory, watchRoot, isIgnoredByRules);
-  for (const filePath of files) {
-    handleFileChange(postMessage, "add", filePath, watchRoot);
-  }
-}
-
-/** Reads sibling directories in parallel; returns watched files in depth-first entry order. */
-async function collectNewDirectoryFiles(
-  directory: string,
-  watchRoot: string,
-  isIgnoredByRules: IgnoreMatcher,
-): Promise<string[]> {
   try {
     const entries = await fs.promises.readdir(directory, { withFileTypes: true });
-    const nested = await Promise.all(entries.map(async (entry): Promise<string[]> => {
+    for (const entry of entries) {
       const filePath = path.join(directory, entry.name);
       const relative = path.relative(watchRoot, filePath);
-      if (relative.split(path.sep).some(part => IGNORED_DIRECTORIES.includes(part))) return [];
-      if (isIgnoredByRules(relative, entry.isDirectory())) return [];
-      if (entry.isDirectory()) return collectNewDirectoryFiles(filePath, watchRoot, isIgnoredByRules);
-      return entry.isFile() && isWatchedFile(entry.name) ? [filePath] : [];
-    }));
-    return nested.flat();
+      if (relative.split(path.sep).some(part => IGNORED_DIRECTORIES.includes(part))) continue;
+      if (isIgnoredByRules(relative, entry.isDirectory())) continue;
+      if (entry.isDirectory()) {
+        // eslint-disable-next-line no-await-in-loop -- depth-first and one directory at a time, like SourceFileCollector: `add` events go out as files are found, and a large new tree does not flood the libuv pool
+        await reportNewDirectoryFiles(postMessage, filePath, watchRoot, isIgnoredByRules);
+      } else if (entry.isFile() && isWatchedFile(entry.name)) {
+        handleFileChange(postMessage, "add", filePath, watchRoot);
+      }
+    }
   } catch (error) {
     log.debug("Could not reconcile new directory:", error instanceof Error ? error.message : String(error));
-    return [];
   }
 }
 

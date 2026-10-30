@@ -49,4 +49,13 @@ describe('mapWithConcurrency', () => {
     ).rejects.toThrow('boom');
     expect(started).toEqual([0, 1]);
   });
+
+  it('rejects with the earliest failure in time, not the lowest index', async () => {
+    await expect(
+      mapWithConcurrency([0, 1], 2, async (item) => {
+        if (item === 0) await new Promise((resolve) => setTimeout(resolve, 20));
+        throw new Error(`failed ${item}`);
+      })
+    ).rejects.toThrow('failed 1');
+  });
 });
