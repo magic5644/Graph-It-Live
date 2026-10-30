@@ -769,7 +769,11 @@ describe('LmToolsService', () => {
       const spider = { getSymbolDependents: vi.fn().mockResolvedValue(dependents) };
       new LmToolsService({ provider: createProvider({ spider, callGraphService: null }), logger }).registerAll();
       const result = await invokeTool(TOOL, { filePath: '/workspace/src/a.ts', symbolName: 'helper', ...input }) as Record<string, unknown>;
-      return (result.callers as Array<Record<string, unknown>>).map((c) => [c.callerSymbolId, c.isTypeOnly]);
+      // Ids are raw on POSIX and redacted to [external:<basename>] on Windows: compare `basename:symbol` either way.
+      return (result.callers as Array<Record<string, unknown>>).map((c) => [
+        String(c.callerSymbolId).replaceAll(/(?:^\[external:)|(?:\]$)/g, '').split(/[\\/]/).pop(),
+        c.isTypeOnly,
+      ]);
     };
 
     it('falls back to symbol dependents without type-only entries, keeping module-level callers as (file)', async () => {
@@ -778,7 +782,7 @@ describe('LmToolsService', () => {
         dependent('/workspace/src/b.ts:runB'),
         dependent('/workspace/tests/a.test.ts:(file)'),
         dependent('/workspace/src/types.ts:Shape', true),
-      ])).toEqual([['src/b.ts:runB', false], ['tests/a.test.ts:(file)', false]]);
+      ])).toEqual([['b.ts:runB', false], ['a.test.ts:(file)', false]]);
     });
 
     it('drops the (file) caller of a file that also has a symbol caller, whatever the order', async () => {
@@ -786,14 +790,14 @@ describe('LmToolsService', () => {
         dependent('/workspace/src/b.ts:(file)'),
         dependent('/workspace/src/b.ts:runB'),
         dependent('/workspace/src/c.ts:(file)'),
-      ])).toEqual([['src/b.ts:runB', false], ['src/c.ts:(file)', false]]);
+      ])).toEqual([['b.ts:runB', false], ['c.ts:(file)', false]]);
     });
 
     it('handles a Windows-style (file) caller and keeps one entry per file', async () => {
       expect(await fallbackCallers([
         dependent(String.raw`C:\ws\src\b.ts:(file)`),
         dependent(String.raw`C:\ws\src\b.ts:(file)`),
-      ])).toEqual([[String.raw`C:\ws\src\b.ts:(file)`, false]]);
+      ])).toEqual([['b.ts:(file)', false]]);
     });
 
     it('drops a Windows (file) caller when a symbol of the same file calls, even with mixed separators', async () => {
@@ -802,13 +806,13 @@ describe('LmToolsService', () => {
         dependent(String.raw`C:\ws\src\b.ts:(file)`),
         dependent('C:/ws/src/c.ts:(file)'),
         dependent(String.raw`C:\ws\src\c.ts:runC`),
-      ])).toEqual([[String.raw`C:\ws\src\b.ts:runB`, false], [String.raw`C:\ws\src\c.ts:runC`, false]]);
+      ])).toEqual([['b.ts:runB', false], ['c.ts:runC', false]]);
     });
 
     it('skips a type-only (file) caller unless includeTypeOnly is set', async () => {
       const deps = [dependent('/workspace/src/types.ts:(file)', true)];
       expect(await fallbackCallers(deps)).toEqual([]);
-      expect(await fallbackCallers(deps, { includeTypeOnly: true })).toEqual([['src/types.ts:(file)', true]]);
+      expect(await fallbackCallers(deps, { includeTypeOnly: true })).toEqual([['types.ts:(file)', true]]);
     });
 
     it('keeps type-only dependents in the fallback when includeTypeOnly is set', async () => {
