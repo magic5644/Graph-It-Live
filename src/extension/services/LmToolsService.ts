@@ -163,6 +163,8 @@ function stripFilePrefix(symbolId: string): string {
   return idx >= 0 ? symbolId.slice(idx + 1) : symbolId;
 }
 
+const FILE_SCOPE_SUFFIX = ':(file)';
+
 function symbolFilePath(symbolId: string): string {
   const idx = symbolId.lastIndexOf(':');
   return idx > 0 ? symbolId.slice(0, idx) : symbolId;
@@ -630,7 +632,7 @@ export class LmToolsService {
     const byCaller = new Map<string, LmCallerInfo>();
     for (const dep of dependents) {
       const isTypeOnly = dep.isTypeOnly === true;
-      if (dep.sourceSymbolId.endsWith(':(file)') || (isTypeOnly && !includeTypeOnly)) continue;
+      if (isTypeOnly && !includeTypeOnly) continue;
       const existing = byCaller.get(dep.sourceSymbolId);
       if (existing && (existing.isTypeOnly === false || isTypeOnly)) continue;
       const callerFilePath = symbolFilePath(dep.sourceSymbolId);
@@ -642,7 +644,13 @@ export class LmToolsService {
         isTypeOnly,
       });
     }
-    return [...byCaller.values()];
+    // Module-level code (`<file>:(file)`) is a real caller (MCP impact keeps it) but adds nothing once a symbol of that file already calls.
+    const filesWithSymbolCaller = new Set(
+      [...byCaller.values()].filter((c) => !c.callerSymbolId.endsWith(FILE_SCOPE_SUFFIX)).map((c) => normalizePath(c.callerFilePath)),
+    );
+    return [...byCaller.values()].filter(
+      (c) => !c.callerSymbolId.endsWith(FILE_SCOPE_SUFFIX) || !filesWithSymbolCaller.has(normalizePath(c.callerFilePath)),
+    );
   }
 
   // ─── Tool: get_impact_analysis ────────────────────────────────────────────

@@ -762,23 +762,53 @@ describe('LmToolsService', () => {
       expect(result).toMatchObject({ source: 'call-graph', callerCount: 0, callers: [], callerFiles: [] });
     });
 
-    it('falls back to symbol dependents without file-level or type-only entries', async () => {
-      const spider = {
-        getSymbolDependents: vi.fn().mockResolvedValue([
-          { sourceSymbolId: '/workspace/src/b.ts:runB', targetSymbolId: '/workspace/src/a.ts:helper', targetFilePath: '/workspace/src/a.ts' },
-          { sourceSymbolId: '/workspace/src/b.ts:runB', targetSymbolId: '/workspace/src/a.ts:helper', targetFilePath: '/workspace/src/a.ts' },
-          { sourceSymbolId: '/workspace/tests/a.test.ts:(file)', targetSymbolId: '/workspace/src/a.ts:helper', targetFilePath: '/workspace/src/a.ts' },
-          { sourceSymbolId: '/workspace/src/types.ts:Shape', targetSymbolId: '/workspace/src/a.ts:helper', targetFilePath: '/workspace/src/a.ts', isTypeOnly: true },
-        ]),
-      };
+    const dependent = (sourceSymbolId: string, isTypeOnly?: boolean) => ({
+      sourceSymbolId, targetSymbolId: '/workspace/src/a.ts:helper', targetFilePath: '/workspace/src/a.ts', ...(isTypeOnly ? { isTypeOnly } : {}),
+    });
+    const fallbackCallers = async (dependents: unknown[], input: Record<string, unknown> = {}) => {
+      const spider = { getSymbolDependents: vi.fn().mockResolvedValue(dependents) };
       new LmToolsService({ provider: createProvider({ spider, callGraphService: null }), logger }).registerAll();
+      const result = await invokeTool(TOOL, { filePath: '/workspace/src/a.ts', symbolName: 'helper', ...input }) as Record<string, unknown>;
+      return (result.callers as Array<Record<string, unknown>>).map((c) => [c.callerSymbolId, c.isTypeOnly]);
+    };
 
-      const result = await invokeTool(TOOL, { filePath: '/workspace/src/a.ts', symbolName: 'helper' }) as Record<string, unknown>;
+    it('falls back to symbol dependents without type-only entries, keeping module-level callers as (file)', async () => {
+      expect(await fallbackCallers([
+        dependent('/workspace/src/b.ts:runB'),
+        dependent('/workspace/src/b.ts:runB'),
+        dependent('/workspace/tests/a.test.ts:(file)'),
+        dependent('/workspace/src/types.ts:Shape', true),
+      ])).toEqual([['src/b.ts:runB', false], ['tests/a.test.ts:(file)', false]]);
+    });
 
-      expect(result).toMatchObject({ source: 'symbol-dependents', callerCount: 1 });
-      expect(result.callers).toEqual([
-        { callerSymbolId: 'src/b.ts:runB', callerFilePath: 'src/b.ts', callerRelativePath: 'src/b.ts', line: null, isTypeOnly: false },
-      ]);
+    it('drops the (file) caller of a file that also has a symbol caller, whatever the order', async () => {
+      expect(await fallbackCallers([
+        dependent('/workspace/src/b.ts:(file)'),
+        dependent('/workspace/src/b.ts:runB'),
+        dependent('/workspace/src/c.ts:(file)'),
+      ])).toEqual([['src/b.ts:runB', false], ['src/c.ts:(file)', false]]);
+    });
+
+    it('handles a Windows-style (file) caller and keeps one entry per file', async () => {
+      expect(await fallbackCallers([
+        dependent(String.raw`C:\ws\src\b.ts:(file)`),
+        dependent(String.raw`C:\ws\src\b.ts:(file)`),
+      ])).toEqual([[String.raw`C:\ws\src\b.ts:(file)`, false]]);
+    });
+
+    it('drops a Windows (file) caller when a symbol of the same file calls, even with mixed separators', async () => {
+      expect(await fallbackCallers([
+        dependent(String.raw`C:\ws\src\b.ts:runB`),
+        dependent(String.raw`C:\ws\src\b.ts:(file)`),
+        dependent('C:/ws/src/c.ts:(file)'),
+        dependent(String.raw`C:\ws\src\c.ts:runC`),
+      ])).toEqual([[String.raw`C:\ws\src\b.ts:runB`, false], [String.raw`C:\ws\src\c.ts:runC`, false]]);
+    });
+
+    it('skips a type-only (file) caller unless includeTypeOnly is set', async () => {
+      const deps = [dependent('/workspace/src/types.ts:(file)', true)];
+      expect(await fallbackCallers(deps)).toEqual([]);
+      expect(await fallbackCallers(deps, { includeTypeOnly: true })).toEqual([['src/types.ts:(file)', true]]);
     });
 
     it('keeps type-only dependents in the fallback when includeTypeOnly is set', async () => {
