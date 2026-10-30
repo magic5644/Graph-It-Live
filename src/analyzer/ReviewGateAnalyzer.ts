@@ -599,7 +599,8 @@ export class ReviewGateAnalyzer {
    * Deciding that last case needs the direction of the change (members added vs
    * removed), which a textual signature comparison cannot see — so a return-type
    * change is reported and weighted, but its consumers are not counted against
-   * the author as unhandled work.
+   * the author as unhandled work — nor reported as safe: the evidence says their
+   * compatibility is unchecked.
    */
   private requiresConsumerUpdate(errorBreakingChanges: BreakingChange[]): boolean {
     return errorBreakingChanges.some((change) => change.type !== "return-type-changed");
@@ -741,7 +742,7 @@ export class ReviewGateAnalyzer {
       const unverifiedDetail = unverified.length > 0 ? `: ${unverified.join(", ")}` : "";
       const standing = input.consumersMustAct
         ? `${covered.length + unverified.length} must be updated (${covered.length} with tests that will fail, ${unverified.length} unverified${unverifiedDetail})`
-        : `${covered.length} covered by tests, ${unverified.length} neither, but this change requires no call-site update`;
+        : `${covered.length} covered by tests, ${unverified.length} neither; return-type compatibility is not checked, so these are potentially, not provably, broken: review how each uses the returned value`;
       evidence.push({
         kind: "consumers",
         detail: `${consumerTotal} consumer file(s): ${updated.length} updated in this diff, ${standing}.`,
