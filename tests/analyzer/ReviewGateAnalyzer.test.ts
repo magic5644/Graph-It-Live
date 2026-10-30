@@ -145,7 +145,7 @@ describe("ReviewGateAnalyzer", { timeout: GIT_TEST_TIMEOUT }, () => {
     expect(markdown).not.toContain("42");
   });
 
-  it("omits the consumer section when the change requires no call-site update", () => {
+  it("omits the consumer section when no consumer is charged to the change", () => {
     const markdown = renderReviewMarkdown({
       cycles: [],
       baseRef: "main",
@@ -922,7 +922,32 @@ describe("ReviewGateAnalyzer - does the change require consumers to act?", () =>
     // Still listed, still evidenced — just not charged to the author as unhandled work.
     expect(symbol.consumers.unverified).toEqual(["src/consumer.ts"]);
     expect(symbol.scoreFactors.unverifiedConsumers).toBe(0);
-    expect(symbol.evidence.some((e) => e.kind === "consumers" && e.detail.includes("requires no call-site update"))).toBe(true);
+    expect(symbol.evidence.some((e) => e.kind === "consumers" && e.detail.includes("return-type compatibility is not checked"))).toBe(true);
+  });
+
+  // #530: number -> string breaks `f(1) * 2` but not `f(1) ? 1 : 0`; the gate checks neither.
+  it("neither claims a return-type change needs no call-site update nor that its consumers are proven broken", async () => {
+    const workspace = await createGitWorkspaceWithDiff(
+      "export function f(a: number): number { return a + 1; }\n",
+      "export function f(a: number): string { return String(a + 1); }\n",
+      "src/lib.ts",
+    );
+    await fs.writeFile(path.join(workspace, "src/arithmetic.ts"), "import { f } from './lib';\nexport function u1(): number { return f(1) * 2; }\n");
+    await fs.writeFile(path.join(workspace, "src/truthiness.ts"), "import { f } from './lib';\nexport function u2(): number { const x = f(1); return x ? 1 : 0; }\n");
+    const analyzer = new ReviewGateAnalyzer(workspace, {
+      getSymbolDependents: (filePath: string) => Promise.resolve(filePath.endsWith("lib.ts")
+        ? [{ sourceSymbolId: `${path.join(workspace, "src/arithmetic.ts")}:u1` }, { sourceSymbolId: `${path.join(workspace, "src/truthiness.ts")}:u2` }]
+        : []),
+    } as never);
+
+    const symbol = (await analyzer.analyze({ baseRef: "main" })).symbols.find((s) => s.filePath === "src/lib.ts");
+
+    expect(symbol?.breakingChanges.map((change) => change.type)).toEqual(["return-type-changed"]);
+    expect(symbol?.consumers.unverified).toEqual(["src/arithmetic.ts", "src/truthiness.ts"]);
+    const consumers = symbol?.evidence.find((e) => e.kind === "consumers")?.detail ?? "";
+    expect(consumers).toContain("potentially, not provably, broken");
+    expect(consumers).not.toContain("requires no call-site update");
+    expect(consumers).not.toContain("must be updated");
   });
 });
 
@@ -972,7 +997,7 @@ describe("ReviewGateAnalyzer - residual weight", () => {
       ),
   });
 
-  it("keeps a change that requires no call-site update visible but low", async () => {
+  it("keeps a return-type-only change visible but low", async () => {
     const workspace = await createGitWorkspaceWithDiff(...RETURN_TYPE_ONLY);
     const analyzer = new ReviewGateAnalyzer(workspace, manyConsumers(workspace) as never);
 
