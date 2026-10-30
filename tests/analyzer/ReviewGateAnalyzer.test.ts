@@ -1143,6 +1143,34 @@ describe("ReviewGateAnalyzer - re-exported declaration", { timeout: GIT_TEST_TIM
   });
 });
 
+/** Commits `base`; applies `head` (null deletes) and stages it, or commits it on branch `b1` when `commit` is set. */
+async function workspaceWith(base: Record<string, string>, head: Record<string, string | null>, commit = false): Promise<string> {
+  const directory = await fs.mkdtemp(path.join(os.tmpdir(), "review-gate-diff-"));
+  temporaryDirectories.push(directory);
+  const git = (...args: string[]) => execFileSync("git", args, { cwd: directory });
+  const write = async (files: Record<string, string | null>) => {
+    for (const [file, content] of Object.entries(files)) {
+      const target = path.join(directory, file);
+      if (content === null) await fs.rm(target);
+      else {
+        await fs.mkdir(path.dirname(target), { recursive: true });
+        await fs.writeFile(target, content);
+      }
+    }
+  };
+  git("init", "--initial-branch=main");
+  git("config", "user.email", "test@example.com");
+  git("config", "user.name", "Test");
+  await write(base);
+  git("add", ".");
+  git("commit", "-m", "base");
+  if (commit) git("checkout", "-b", "b1");
+  await write(head);
+  git("add", "-A");
+  if (commit) git("commit", "-m", "head");
+  return directory;
+}
+
 /** Reference index with no symbol dependents: `referrers` reference every file. */
 function referenceIndex(referrers: string[] = []) {
   return {
@@ -1167,31 +1195,6 @@ describe("ReviewGateAnalyzer - symbol moved between changed files", { timeout: G
     "export class Box { constructor(size: number) {} area(): number { return 1; } }",
     "",
   ].join("\n");
-
-  /** Commits `base`, then writes and stages `head` (null deletes), so new files are part of the diff. */
-  async function workspaceWith(base: Record<string, string>, head: Record<string, string | null>): Promise<string> {
-    const directory = await fs.mkdtemp(path.join(os.tmpdir(), "review-gate-move-"));
-    temporaryDirectories.push(directory);
-    const write = async (files: Record<string, string | null>) => {
-      for (const [file, content] of Object.entries(files)) {
-        const target = path.join(directory, file);
-        if (content === null) await fs.rm(target);
-        else {
-          await fs.mkdir(path.dirname(target), { recursive: true });
-          await fs.writeFile(target, content);
-        }
-      }
-    };
-    execFileSync("git", ["init", "--initial-branch=main"], { cwd: directory });
-    execFileSync("git", ["config", "user.email", "test@example.com"], { cwd: directory });
-    execFileSync("git", ["config", "user.name", "Test"], { cwd: directory });
-    await write(base);
-    execFileSync("git", ["add", "."], { cwd: directory });
-    execFileSync("git", ["commit", "-m", "base"], { cwd: directory });
-    await write(head);
-    execFileSync("git", ["add", "-A"], { cwd: directory });
-    return directory;
-  }
 
   const symbol = (result: Awaited<ReturnType<ReviewGateAnalyzer["analyze"]>>, name: string) =>
     result.symbols.find((candidate) => candidate.name === name);
@@ -1422,34 +1425,6 @@ describe("ReviewGateAnalyzer - type impact without a dependents provider", { tim
 describe("ReviewGateAnalyzer - deleted and renamed files", { timeout: GIT_TEST_TIMEOUT }, () => {
   const LIB = "export function lib(a: number): number { return a + 1; }\n";
   const USER = 'import { lib } from "./lib";\nexport function user1(): number { return lib(1) * 2; }\n';
-
-  /** Commits `base`; applies `head` (null deletes) and stages it, or commits it on branch `b1` when `commit` is set. */
-  async function workspaceWith(base: Record<string, string>, head: Record<string, string | null>, commit = false): Promise<string> {
-    const directory = await fs.mkdtemp(path.join(os.tmpdir(), "review-gate-deleted-"));
-    temporaryDirectories.push(directory);
-    const git = (...args: string[]) => execFileSync("git", args, { cwd: directory });
-    const write = async (files: Record<string, string | null>) => {
-      for (const [file, content] of Object.entries(files)) {
-        const target = path.join(directory, file);
-        if (content === null) await fs.rm(target);
-        else {
-          await fs.mkdir(path.dirname(target), { recursive: true });
-          await fs.writeFile(target, content);
-        }
-      }
-    };
-    git("init", "--initial-branch=main");
-    git("config", "user.email", "test@example.com");
-    git("config", "user.name", "Test");
-    await write(base);
-    git("add", ".");
-    git("commit", "-m", "base");
-    if (commit) git("checkout", "-b", "b1");
-    await write(head);
-    git("add", "-A");
-    if (commit) git("commit", "-m", "head");
-    return directory;
-  }
 
   const lib = (result: Awaited<ReturnType<ReviewGateAnalyzer["analyze"]>>) => result.symbols.find((symbol) => symbol.name === "lib");
 
