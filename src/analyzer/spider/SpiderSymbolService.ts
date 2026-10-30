@@ -13,6 +13,8 @@ import { SpiderError, SpiderErrorCode, normalizePath } from '../types';
 import { isInIgnoredDirectory } from '../utils/PathPredicates';
 import { PathResolver } from '../utils/PathResolver';
 import { importBindings, namespaceUse, type ImportBinding, type NamespaceUse } from '../utils/namespaceUsage';
+import { extractFilePath } from '../utils/PathExtractor';
+import { isPythonOrRust, namesModule, pythonStarExports, readImportBindings } from '../utils/pyRsImports';
 import { readModuleReExports, type ModuleReExports, type ReExportTarget } from '../utils/reExports';
 
 const log = getLogger('SpiderSymbolService');
@@ -233,7 +235,7 @@ export class SpiderSymbolService {
     const chains = await Promise.all(
       declared.map(async ({ barrelPath, specifier, alias }) => {
         const resolved = await this.resolveModuleSpecifier(barrelPath, specifier);
-        if (!resolved || normalizePath(resolved) !== target) return [];
+        if (!resolved || normalizePath(resolved) !== target || !namesModule(specifier, target)) return [];
         return this.collectReexportAliases(barrelPath, alias, reExportMemo, true);
       })
     );
@@ -310,7 +312,7 @@ export class SpiderSymbolService {
     const matches = await Promise.all(
       refs.map(async (ref) =>
         (barrels.has(normalizePath(ref.path)) && (await this.reexportsNameFrom(ref.path, barrel, names, reExportMemo)))
-        || this.importsNameFrom(ref.path, barrel, names)
+        || this.importsNameFrom(ref.path, barrel, names, reExportMemo)
       )
     );
     return refs.filter((_, i) => matches[i]).map((ref) => ({ ...ref, via: barrel }));
@@ -323,14 +325,25 @@ export class SpiderSymbolService {
   }
 
   /** Whether `fromPath` imports one of `names`, or the whole namespace, from `barrel`; an unreadable file does not. */
-  private async importsNameFrom(fromPath: string, barrel: string, names: Set<string>): Promise<boolean> {
+  private async importsNameFrom(
+    fromPath: string,
+    barrel: string,
+    names: Set<string>,
+    reExportMemo: ReExportMemo
+  ): Promise<boolean> {
     let content: string;
     try {
       content = await this.fileReader.readFile(fromPath);
     } catch {
       return false;
     }
-    const candidates = importBindings(fromPath, content).filter((b) => b.imported === '*' || names.has(b.imported));
+    // `from barrel import *` takes only the barrel's `__all__` (or public) names.
+    const { starNames } = await this.moduleReExports(barrel, reExportMemo);
+    const starTakesOne = [...names].some((name) => pythonStarExports(name, starNames));
+    const candidates = readImportBindings(fromPath, content).filter((b) => {
+      if (b.imported !== '*') return names.has(b.imported);
+      return b.local !== '*' || path.extname(fromPath).toLowerCase() !== '.py' || starTakesOne;
+    });
     const resolved = await Promise.all(candidates.map((b) => this.resolveModuleSpecifier(fromPath, b.specifier)));
     return resolved.some((from) => !!from && normalizePath(from) === barrel);
   }
@@ -382,7 +395,8 @@ export class SpiderSymbolService {
     readPlainImporters: boolean
   ): Promise<ReExportTarget[]> {
     const all = await this.findReferencingFiles(current.filePath);
-    const referencing = readPlainImporters ? all : all.filter((ref) => ref.type === 'export');
+    // A Python or Rust re-export is an import (`from .m import x`, `pub use m::x`): always read those importers.
+    const referencing = readPlainImporters ? all : all.filter((ref) => ref.type === 'export' || isPythonOrRust(ref.path));
     const perImporter = await Promise.all(referencing.map((importer) => this.reexportedAs(importer.path, current, reExportMemo)));
     return perImporter.flat();
   }
@@ -412,15 +426,22 @@ export class SpiderSymbolService {
   ): Promise<ReExportTarget[]> {
     const { path: barrel, reExports } = await this.moduleReExports(barrelPath, reExportMemo);
     const resolved = await Promise.all(reExports.map(({ specifier }) => this.resolveModuleSpecifier(barrel, specifier)));
+    const starTaken = await this.starTakes(target, reExportMemo);
     return reExports.flatMap(({ names }, i) => {
       const from = resolved[i];
       if (!from || normalizePath(from) !== target.filePath) return [];
       if (names === 'all') {
-        // `export *` never re-exports `default`.
-        return target.name === 'default' ? [] : [{ filePath: barrel, name: target.name }];
+        return starTaken ? [{ filePath: barrel, name: target.name }] : [];
       }
       return names.filter(({ imported }) => imported === target.name).map(({ exported }) => ({ filePath: barrel, name: exported }));
     });
+  }
+
+  /** Whether a star re-export of `target`'s module takes `target.name`: never `default`; Python honours `__all__`. */
+  private async starTakes(target: ReExportTarget, reExportMemo: ReExportMemo): Promise<boolean> {
+    if (target.name === 'default') return false;
+    if (path.extname(target.filePath).toLowerCase() !== '.py') return true;
+    return pythonStarExports(target.name, (await this.moduleReExports(target.filePath, reExportMemo)).starNames);
   }
 
   async traceFunctionExecution(
@@ -522,6 +543,10 @@ export class SpiderSymbolService {
 
   async resolveModuleSpecifier(fromFilePath: string, moduleSpecifier: string): Promise<string | null> {
     try {
+      // Python and Rust paths (`.impl`, `self::imp`, `crate::m`) resolve the way the index resolved them.
+      if (isPythonOrRust(extractFilePath(fromFilePath))) {
+        return await this.languageService.getAnalyzer(fromFilePath).resolvePath(fromFilePath, moduleSpecifier);
+      }
       const resolved = await this.resolver.resolve(fromFilePath, moduleSpecifier);
       return resolved;
     } catch {

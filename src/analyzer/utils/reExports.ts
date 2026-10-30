@@ -1,4 +1,5 @@
 import { ts } from 'ts-morph';
+import { isPythonOrRust, pyRsReExports } from './pyRsImports';
 
 /** A module path and the export name it is reached by. */
 export interface ReExportTarget {
@@ -96,12 +97,15 @@ const REEXPORT_FROM = /\bexport\s*(?:type\s+)?[*{]/;
 export interface ModuleReExports {
   reExports: ReExport[];
   namespaces: Array<{ specifier: string; alias: string }>;
+  /** Python `__all__`: the names `from m import *` takes from this module (absent: every public name). */
+  starNames?: string[];
 }
 
 const NO_REEXPORTS: ModuleReExports = { reExports: [], namespaces: [] };
 
-/** Both re-export kinds of a module; plain modules are never parsed. */
+/** Both re-export kinds of a module, in JS/TS, Python or Rust; plain JS/TS modules are never parsed. */
 export function readModuleReExports(filePath: string, content: string): ModuleReExports {
+  if (isPythonOrRust(filePath)) return pyRsReExports(filePath, content);
   if (!mayReExport(content)) return NO_REEXPORTS;
   return { reExports: parseReExports(filePath, content), namespaces: parseNamespaceReExports(filePath, content) };
 }

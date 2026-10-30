@@ -5,6 +5,7 @@ import { normalizePath } from "../../shared/path";
 import { FileReader } from "../FileReader";
 import { Dependency, ILanguageAnalyzer, SpiderError } from "../types";
 import { extractFilePath } from "../utils/PathExtractor";
+import { rustGlobPrefixes } from "../utils/pyRsImports";
 import { WasmParserFactory } from "./WasmParserFactory";
 
 /**
@@ -111,6 +112,7 @@ export class RustParser implements ILanguageAnalyzer {
       }
       const dependencies: Dependency[] = [];
       const seen = new Set<string>();
+      const expressionPaths: Node[] = [];
 
       this.traverseTree(tree.rootNode, (node) => {
         // Handle: use path::to::module;
@@ -125,7 +127,19 @@ export class RustParser implements ILanguageAnalyzer {
         else if (node.type === "extern_crate_declaration") {
           this.extractExternCrate(node, dependencies, seen, content);
         }
+        // Handle: m::f() without a `use`
+        else if (isExpressionPath(node)) {
+          expressionPaths.push(node);
+        }
       });
+
+      // `crate::`/`self::`/`super::` paths are local; another path is local only through a glob import
+      // (`use super::*;` then `inner::f()`), so it is looked up under each glob's module.
+      const globs = expressionPaths.some((node) => !LOCAL_PATH.test(node.text)) ? rustGlobPrefixes(content) : [];
+      for (const node of expressionPaths) {
+        const scopes = LOCAL_PATH.test(node.text) ? [node.text] : globs.map((glob) => `${glob}::${node.text}`);
+        for (const scope of scopes) this.addDependency(scope, node, dependencies, seen);
+      }
 
       return dependencies;
     } catch (error) {
@@ -163,7 +177,6 @@ export class RustParser implements ILanguageAnalyzer {
 
       // Extract file path from potential symbol ID
       const actualFromFile = extractFilePath(fromFile);
-      const fromDir = path.dirname(actualFromFile);
 
       // Handle relative modules (self, super, crate)
       if (
@@ -171,11 +184,15 @@ export class RustParser implements ILanguageAnalyzer {
         moduleSpecifier.startsWith("super::") ||
         moduleSpecifier.startsWith("crate::")
       ) {
-        return await this.resolveRelativeModule(fromFile, moduleSpecifier);
+        return await this.resolveRelativeModule(actualFromFile, moduleSpecifier);
       }
 
-      // Handle mod declarations (module_name)
-      return await this.resolveModDeclaration(fromDir, moduleSpecifier);
+      // `mod m;` / `use m::x` name a child module, which lives in the file's module directory. Loose files
+      // outside any crate (no Cargo.toml) also try their own directory, as before crates were located.
+      const segments = moduleSpecifier.split("::");
+      const resolved = await this.resolveLongestModule(moduleDir(actualFromFile), segments);
+      if (resolved || (await this.crateDir(actualFromFile))) return resolved;
+      return await this.resolveLongestModule(path.dirname(actualFromFile), segments);
     } catch {
       // Resolution failures are not critical - return null
       return null;
@@ -352,34 +369,52 @@ export class RustParser implements ILanguageAnalyzer {
   }
 
   /**
-   * Resolve relative module (self::, super::, crate::)
+   * Resolve relative module paths: `crate::` from the crate's `src/`, `self::` from the file's module
+   * directory, each `super::` one module up.
    */
   private async resolveRelativeModule(
     fromFile: string,
     moduleSpecifier: string,
   ): Promise<string | null> {
-    const fromDir = path.dirname(fromFile);
-
-    // Handle crate::module -> go to project root
-    if (moduleSpecifier.startsWith("crate::")) {
-      const relativePath = moduleSpecifier.slice(7).replaceAll("::", "/");
-      return await this.resolveModDeclaration(this.rootDir, relativePath);
+    const segments = moduleSpecifier.split("::");
+    if (segments[0] === "crate") {
+      return this.resolveLongestModule(await this.crateSourceDir(fromFile), segments.slice(1));
     }
-
-    // Handle super::module -> go up one directory
-    if (moduleSpecifier.startsWith("super::")) {
-      const parentDir = path.dirname(fromDir);
-      const relativePath = moduleSpecifier.slice(7).replaceAll("::", "/");
-      return await this.resolveModDeclaration(parentDir, relativePath);
+    let dir = moduleDir(fromFile);
+    let i = segments[0] === "self" ? 1 : 0;
+    for (; segments[i] === "super"; i++) {
+      dir = path.dirname(dir);
     }
+    return this.resolveLongestModule(dir, segments.slice(i));
+  }
 
-    // Handle self::module -> same directory
-    if (moduleSpecifier.startsWith("self::")) {
-      const relativePath = moduleSpecifier.slice(6).replaceAll("::", "/");
-      return await this.resolveModDeclaration(fromDir, relativePath);
+  /**
+   * The file of the longest module prefix of `segments` under `dir`: `inner::imp::one` is `inner/imp.rs`
+   * when `one` is an item, not a module. Lookups run concurrently; the longest hit wins.
+   */
+  private async resolveLongestModule(dir: string, segments: string[]): Promise<string | null> {
+    const prefixes = segments.map((_, i) => segments.slice(0, segments.length - i).join("::")).filter(Boolean);
+    const resolved = await Promise.all(prefixes.map((prefix) => this.resolveModDeclaration(dir, prefix)));
+    return resolved.find((file) => file !== null) ?? null;
+  }
+
+  /** Directory of the nearest `Cargo.toml` at or above `fromFile` inside the workspace, if any. */
+  private async crateDir(fromFile: string): Promise<string | undefined> {
+    const root = path.resolve(this.rootDir);
+    const ancestors: string[] = [];
+    for (let dir = path.dirname(path.resolve(fromFile)); isInsideDir(dir, root); dir = path.dirname(dir)) {
+      ancestors.push(dir);
+      if (dir === root) break;
     }
+    const hasManifest = await Promise.all(ancestors.map((dir) => this.fileExists(path.join(dir, "Cargo.toml"))));
+    return ancestors[hasManifest.indexOf(true)];
+  }
 
-    return null;
+  /** `src/` of the file's crate when the file is under it; otherwise the workspace root, as before crates were located. */
+  private async crateSourceDir(fromFile: string): Promise<string> {
+    const crateDir = await this.crateDir(fromFile);
+    const sourceDir = crateDir && path.join(crateDir, "src");
+    return sourceDir && isInsideDir(path.resolve(fromFile), sourceDir) ? sourceDir : this.rootDir;
   }
 
   /**
@@ -417,6 +452,13 @@ export class RustParser implements ILanguageAnalyzer {
     }
 
     return null;
+  }
+
+  /** One dependency per module string; resolution keeps the longest module prefix of the path. */
+  private addDependency(module: string, node: Node, dependencies: Dependency[], seen: Set<string>): void {
+    if (!module || seen.has(module)) return;
+    seen.add(module);
+    dependencies.push({ path: "", type: "import", line: node.startPosition.row + 1, module });
   }
 
   /**
@@ -487,4 +529,34 @@ export class RustParser implements ILanguageAnalyzer {
   private getNodeText(node: Node, content: string): string {
     return content.slice(node.startIndex, node.endIndex);
   }
+}
+
+/** Crate roots keep their child modules next to them; so does `mod.rs`. */
+const MODULE_DIR_FILES = new Set(["mod.rs", "lib.rs", "main.rs", "build.rs"]);
+/** Cargo's other crate roots: each file directly in these folders is its own crate. */
+const CRATE_ROOT_DIRS = new Set(["bin", "tests", "examples", "benches"]);
+
+/** Directory of the child modules of `filePath`: its own for `mod.rs` and crate roots, else `<dir>/<stem>`. */
+export function moduleDir(filePath: string): string {
+  const dir = path.dirname(filePath);
+  const base = path.basename(filePath);
+  const isRoot = MODULE_DIR_FILES.has(base) || CRATE_ROOT_DIRS.has(path.basename(dir));
+  return isRoot ? dir : path.join(dir, path.basename(base, ".rs"));
+}
+
+/** Whether `filePath` is `dir` or below it; `pathApi` lets tests check Windows paths on any OS. */
+export function isInsideDir(filePath: string, dir: string, pathApi: typeof path = path): boolean {
+  const relative = pathApi.relative(dir, filePath);
+  return relative === "" || (relative.split(pathApi.sep)[0] !== ".." && !pathApi.isAbsolute(relative));
+}
+
+const LOCAL_PATH = /^(?:crate|self|super)::/;
+
+/** Outermost path in an expression (`a::b::f`), outside `use` declarations. */
+function isExpressionPath(node: Node): boolean {
+  if (node.type !== "scoped_identifier" || node.parent?.type === "scoped_identifier") return false;
+  for (let parent = node.parent; parent; parent = parent.parent) {
+    if (parent.type === "use_declaration") return false;
+  }
+  return true;
 }
